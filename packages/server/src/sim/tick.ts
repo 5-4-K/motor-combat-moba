@@ -1,6 +1,5 @@
 import {
   ArenaState,
-  CAR_TABLE,
   DRIVE_CONFIG,
   PlayerState,
   PlayerStatus,
@@ -14,6 +13,7 @@ import {
   type SimBody,
   type StepContext,
 } from "@motor-arena/shared";
+import { isCarId } from "../rooms/match-helpers.js";
 
 /** Pre-reveal (lobby / P0 sandbox) players have no car yet, so they drive the default chassis. */
 const DEFAULT_CAR_ID: CarId = "rectangle";
@@ -89,9 +89,13 @@ function stepContextFor(
   };
 }
 
-/** `""` before the car reveal, and anything unrecognised, falls back to the default chassis. */
+/**
+ * `""` before the car reveal, and anything unrecognised, falls back to the default chassis.
+ * `isCarId` is an own-property check: a bare `in` would also accept inherited names like
+ * `"constructor"`, whose stat lookup yields undefined and NaNs the whole drive step.
+ */
 function carIdOf(player: PlayerState): CarId {
-  return player.carId in CAR_TABLE ? (player.carId as CarId) : DEFAULT_CAR_ID;
+  return isCarId(player.carId) ? player.carId : DEFAULT_CAR_ID;
 }
 
 /**
