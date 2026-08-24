@@ -1,4 +1,3 @@
-// packages/client/src/scenes/BootScene.ts
 import Phaser from "phaser";
 import { devToolId } from "../config/client-mode.js";
 import { loadManifest } from "../assets/load-manifest.js";
@@ -16,7 +15,13 @@ export function assetManifest(): AssetManifest {
   return manifest;
 }
 
-/** Awaited by `ArenaScene` before the first frame of a match, so no texture uploads mid-match. */
+/**
+ * Settles when every texture named by the manifest has finished loading. `ArenaScene` does not block
+ * on it — it swaps sprites in when it resolves, drawing procedural silhouettes until then.
+ *
+ * The guarantee that does hold is narrower and is about `this.load.image` being called in exactly
+ * one place, at boot: nothing loads mid-match, so there is no texture upload to spike a frame.
+ */
 export function assetsReady(): Promise<void> {
   return ready;
 }
@@ -71,8 +76,11 @@ export class BootScene extends Phaser.Scene {
       this.load.image(key, `art/${entry.file}`);
     }
     // A file named in the manifest but missing on disk must not stall boot: warn and carry on, and
-    // the missing texture key then falls through to the procedural silhouette at draw time.
+    // the missing texture key then falls through to the procedural silhouette at draw time. This
+    // handler covers a genuine transport failure and is the only one that knows the resolved URL.
+    const reported = new Set<string>();
     this.load.on(Phaser.Loader.Events.FILE_LOAD_ERROR, (file: Phaser.Loader.File) => {
+      reported.add(file.key);
       console.warn(`[art] failed to load "${file.key}" from ${file.url}`);
     });
 
@@ -80,5 +88,16 @@ export class BootScene extends Phaser.Scene {
       this.load.once(Phaser.Loader.Events.COMPLETE, () => resolve());
       this.load.start();
     });
+
+    // Warn on the condition the renderer actually checks — the texture missing — rather than on
+    // FILE_LOAD_ERROR alone. Vite's dev server answers a missing file under `public/` with its SPA
+    // fallback (200, text/html), so the *load* succeeds and Phaser fails at the decode stage, which
+    // does not emit FILE_LOAD_ERROR. Only a real 404, as the release server returns, does — and
+    // that path has already warned above with the URL, so `reported` keeps it from warning twice.
+    for (const [key, entry] of entries) {
+      if (!reported.has(key) && !this.textures.exists(key)) {
+        console.warn(`[art] failed to load "${key}" from art/${entry.file}`);
+      }
+    }
   }
 }
