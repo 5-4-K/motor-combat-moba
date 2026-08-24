@@ -12,6 +12,13 @@ export type { DeployMode } from "./constants.js";
 
 export { INPUT_MESSAGE } from "./net/input.js";
 export type { InputMessage } from "./net/input.js";
+export {
+  MSG_SWITCH_TEAM,
+  MSG_SET_MODE,
+  MSG_START_MATCH,
+  MSG_KICK,
+  MSG_START_ERROR,
+} from "./net/lobby-messages.js";
 
 export { PlayerState } from "./schema/PlayerState.js";
 export { ProjectileState } from "./schema/ProjectileState.js";
@@ -35,4 +42,9 @@ export { DEFAULT_ARENA_ID, getArena } from "./arena/registry.js";
 
 export { normalizeName, validateName, isNameTaken } from "./lobby/names.js";
 export type { ValidateNameResult } from "./lobby/names.js";
+export { pickTeam, pickColor } from "./lobby/teams.js";
+export { canStart } from "./lobby/start-rules.js";
+export type { StartRuleStatus, StartRulePlayer, CanStartResult } from "./lobby/start-rules.js";
+export { badgeColor, viewFor } from "./lobby/status.js";
+export type { StatusInput, ViewId } from "./lobby/status.js";
 
