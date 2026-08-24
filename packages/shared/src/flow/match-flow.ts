@@ -76,6 +76,7 @@ function applyStart(
 }
 
 function applyLockCar(state: FlowState, sessionId: string): FlowState {
+  if (state.phase !== "car_select") return state;
   if (!state.roster.includes(sessionId)) return state;
   const target = state.players.find((p) => p.sessionId === sessionId);
   if (!target || target.selectLocked) return state;

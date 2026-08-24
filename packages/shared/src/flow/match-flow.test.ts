@@ -84,6 +84,27 @@ describe("reduceFlow lock_car", () => {
     expect(again).toBe(locked);
   });
 
+  it("ignores lock_car after end while leftover roster remains", () => {
+    const ended = reduceFlow(
+      reduceFlow(
+        reduceFlow(
+          reduceFlow(
+            lobbyState([player({ sessionId: "a" }), player({ sessionId: "b", team: 1 })]),
+            { type: "start", readyIds: ["a", "b"], nowTick: 0, carSelectTicks: 10 },
+          ),
+          { type: "begin_countdown", nowTick: 10, countdownTicks: 5 },
+        ),
+        { type: "go" },
+      ),
+      { type: "end", winnerSessionId: "a", winnerTeam: 0 },
+    );
+
+    expect(ended.roster).toEqual(["a", "b"]);
+    const next = reduceFlow(ended, { type: "lock_car", sessionId: "a" });
+    expect(next).toBe(ended);
+    expect(byId(ended, "a").selectLocked).toBe(false);
+  });
+
   it("ignores lock_car from a non-roster ready spectator", () => {
     const started = reduceFlow(
       lobbyState([

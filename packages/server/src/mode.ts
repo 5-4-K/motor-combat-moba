@@ -15,6 +15,15 @@ export function getTickRateHz(fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+export function parseCarSelectSeconds(raw: string | undefined, fallback: number): number {
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+export function getCarSelectSeconds(fallback: number): number {
+  return parseCarSelectSeconds(process.env.CAR_SELECT_SECONDS, fallback);
+}
+
 export function getSimulatedLatency(): LatencyConfig {
   const latencyMs = Number(process.env.SIM_LATENCY_MS);
   const jitterMs = Number(process.env.SIM_JITTER_MS);

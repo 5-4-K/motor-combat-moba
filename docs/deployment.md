@@ -14,3 +14,5 @@ Writes `dist-release/motor-arena/` and `dist-release/motor-arena-release.zip`. `
 - Monitor: `/colyseus`
 
 Default `DEPLOY_MODE=lan` serves the built client from Express. Do not add cloud hosting without asking.
+
+Optional `CAR_SELECT_SECONDS` (positive number) overrides car-select length on the server; default remains `FLOW_CONFIG.carSelectSeconds` (60).

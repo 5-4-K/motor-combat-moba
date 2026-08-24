@@ -18,6 +18,9 @@ export {
   MSG_START_MATCH,
   MSG_KICK,
   MSG_START_ERROR,
+  MSG_SELECT_CAR,
+  MSG_RETURN_TO_LOBBY,
+  MSG_STUB_END_MATCH,
 } from "./net/lobby-messages.js";
 
 export { PlayerState } from "./schema/PlayerState.js";
@@ -51,4 +54,6 @@ export type { StatusInput, ViewId } from "./lobby/status.js";
 export { reduceFlow } from "./flow/match-flow.js";
 export type { FlowStatus, FlowPlayer, FlowState, FlowEvent } from "./flow/match-flow.js";
 export { assignSpawns } from "./flow/spawns.js";
+export { livingSides } from "./flow/win.js";
+export type { LivingPlayer, LivingSidesResult } from "./flow/win.js";
 

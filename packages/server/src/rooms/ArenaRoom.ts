@@ -7,32 +7,63 @@ import {
   ROOM_NAME,
   DEFAULT_PATCH_RATE_HZ,
   TICK_RATE_HZ,
+  FLOW_CONFIG,
   GameMode,
   PlayerStatus,
+  RoomPhase,
   MSG_SWITCH_TEAM,
   MSG_SET_MODE,
   MSG_START_MATCH,
   MSG_KICK,
   MSG_START_ERROR,
+  MSG_SELECT_CAR,
+  MSG_RETURN_TO_LOBBY,
+  MSG_STUB_END_MATCH,
   validateName,
   isNameTaken,
   pickColor,
   pickTeam,
   canStart,
+  reduceFlow,
+  assignSpawns,
+  livingSides,
+  getArena,
+  hpOf,
+  type CarId,
+  type FlowEvent,
+  type FlowPlayer,
+  type FlowState,
   type InputMessage,
   type StartRulePlayer,
-  type StartRuleStatus,
 } from "@motor-arena/shared";
-import { getTickRateHz, getSimulatedLatency } from "../mode.js";
+import { getTickRateHz, getSimulatedLatency, getCarSelectSeconds } from "../mode.js";
 import { isInputMessage } from "../net/input-message.js";
 import { withSimulatedLatency } from "../net/latency-injector.js";
 import { serverTick } from "../sim/tick.js";
+import {
+  fromFlowPhase,
+  fromFlowStatus,
+  toFlowMode,
+  toFlowPhase,
+  toFlowStatus,
+} from "./flow-map.js";
+import {
+  copySpawnNumbers,
+  firstAliveRosterWinner,
+  isCarId,
+  livingAfterLeave,
+  pickRandomCarId,
+} from "./match-helpers.js";
 import { selectNextHost } from "./select-next-host.js";
 import { ROOM_FULL_ERROR, shouldRejectSecondArena } from "./singleton-arena.js";
 
 export class ArenaRoom extends Room<ArenaState> {
   maxClients = MAX_PLAYERS;
   private inputQueues = new Map<string, InputMessage[]>();
+  private pendingCarId = new Map<string, CarId>();
+  private matchRoster = new Set<string>();
+  private postMatchIds = new Set<string>();
+  private flow: FlowState | null = null;
 
   async onCreate(): Promise<void> {
     const listings = await matchMaker.query({ name: ROOM_NAME });
@@ -86,16 +117,49 @@ export class ArenaRoom extends Room<ArenaState> {
 
     this.onMessage(MSG_START_MATCH, (client) => {
       if (client.sessionId !== this.state.hostSessionId) return;
+      if (this.state.phase !== RoomPhase.LOBBY) return;
       const players: StartRulePlayer[] = [];
+      const readyIds: string[] = [];
       this.state.players.forEach((player) => {
-        players.push({ status: toStartRuleStatus(player.status), team: player.team });
+        players.push({ status: toFlowStatus(player.status), team: player.team });
+        if (player.status === PlayerStatus.READY) readyIds.push(player.sessionId);
       });
       const result = canStart(this.state.mode, players);
       if (!result.ok) {
         client.send(MSG_START_ERROR, { error: result.error });
         return;
       }
-      // P3: begin car select
+      this.reduce({
+        type: "start",
+        readyIds,
+        nowTick: this.state.tick,
+        carSelectTicks: getCarSelectSeconds(FLOW_CONFIG.carSelectSeconds) * TICK_RATE_HZ,
+      });
+      this.pendingCarId.clear();
+    });
+
+    this.onMessage(MSG_SELECT_CAR, (client, msg: unknown) => {
+      if (this.state.phase !== RoomPhase.CAR_SELECT) return;
+      if (!isSelectCarPayload(msg)) return;
+      if (!this.matchRoster.has(client.sessionId)) return;
+      const player = this.state.players.get(client.sessionId);
+      if (!player || player.selectLocked) return;
+      this.pendingCarId.set(client.sessionId, msg.carId);
+      this.reduce({ type: "lock_car", sessionId: client.sessionId });
+      if (this.allRosterLocked()) this.revealAndCountdown();
+    });
+
+    this.onMessage(MSG_RETURN_TO_LOBBY, (client) => {
+      if (!this.postMatchIds.has(client.sessionId)) return;
+      this.reduce({ type: "return_to_lobby", sessionId: client.sessionId });
+    });
+
+    // P5: delete stub_end_match
+    this.onMessage(MSG_STUB_END_MATCH, (client) => {
+      if (client.sessionId !== this.state.hostSessionId) return;
+      if (this.state.phase !== RoomPhase.MATCH) return;
+      const winner = firstAliveRosterWinner([...this.matchRoster], this.aliveTeamById());
+      this.endMatch(winner.sessionId, winner.winnerTeam);
     });
   }
 
@@ -136,8 +200,16 @@ export class ArenaRoom extends Room<ArenaState> {
   }
 
   onLeave(client: Client): void {
+    const leaving = this.state.players.get(client.sessionId);
+    const wasInMatch = leaving?.status === PlayerStatus.IN_MATCH;
+    const wasInRoster = this.matchRoster.has(client.sessionId);
+
     this.state.players.delete(client.sessionId);
     this.inputQueues.delete(client.sessionId);
+    this.pendingCarId.delete(client.sessionId);
+    this.postMatchIds.delete(client.sessionId);
+    this.matchRoster.delete(client.sessionId);
+
     if (this.state.hostSessionId === client.sessionId) {
       const remaining: { sessionId: string; joinedAtTick: number }[] = [];
       this.state.players.forEach((player) => {
@@ -145,11 +217,168 @@ export class ArenaRoom extends Room<ArenaState> {
       });
       this.state.hostSessionId = selectNextHost(remaining);
     }
+
+    if (!wasInMatch || !wasInRoster || this.state.phase === RoomPhase.LOBBY) return;
+
+    const remainingPlayers: { sessionId: string; team: 0 | 1; alive: boolean }[] = [];
+    this.state.players.forEach((player) => {
+      remainingPlayers.push({
+        sessionId: player.sessionId,
+        team: player.team === 1 ? 1 : 0,
+        alive: player.alive,
+      });
+    });
+    const result = livingSides(
+      toFlowMode(this.state.mode),
+      livingAfterLeave(remainingPlayers, this.matchRoster),
+    );
+    if (result.sides <= 1) {
+      this.endMatch(result.winnerSessionId, result.winnerTeam);
+    }
   }
 
   private tick(): void {
     this.state.tick += 1;
+    if (
+      this.state.phase === RoomPhase.CAR_SELECT &&
+      this.state.tick >= this.state.carSelectDeadlineTick
+    ) {
+      for (const id of this.matchRoster) {
+        const player = this.state.players.get(id);
+        if (!player || player.selectLocked) continue;
+        this.pendingCarId.set(id, pickRandomCarId(Math.random));
+        this.reduce({ type: "lock_car", sessionId: id });
+      }
+      this.revealAndCountdown();
+    } else if (
+      this.state.phase === RoomPhase.COUNTDOWN &&
+      this.state.tick >= this.state.countdownEndsTick
+    ) {
+      this.reduce({ type: "go" });
+    }
     serverTick(this.state, this.inputQueues, 1 / getTickRateHz(TICK_RATE_HZ));
+  }
+
+  private reduce(event: FlowEvent): void {
+    this.applyFlow(reduceFlow(this.buildFlow(), event));
+  }
+
+  private buildFlow(): FlowState {
+    const players: FlowPlayer[] = [];
+    this.state.players.forEach((player) => {
+      players.push({
+        sessionId: player.sessionId,
+        team: player.team === 1 ? 1 : 0,
+        status: toFlowStatus(player.status),
+        carId: player.carId,
+        selectLocked: player.selectLocked,
+        alive: player.alive,
+      });
+    });
+    return {
+      phase: toFlowPhase(this.state.phase),
+      mode: toFlowMode(this.state.mode),
+      tick: this.state.tick,
+      carSelectDeadlineTick: this.state.carSelectDeadlineTick,
+      countdownEndsTick: this.state.countdownEndsTick,
+      roster: [...this.matchRoster],
+      postMatchIds: [...this.postMatchIds],
+      winnerSessionId: this.state.winnerSessionId,
+      winnerTeam: this.state.winnerTeam,
+      players,
+    };
+  }
+
+  private applyFlow(next: FlowState): void {
+    this.flow = next;
+    this.state.phase = fromFlowPhase(next.phase);
+    this.state.carSelectDeadlineTick = next.carSelectDeadlineTick;
+    this.state.countdownEndsTick = next.countdownEndsTick;
+    this.state.winnerSessionId = next.winnerSessionId;
+    this.state.winnerTeam = next.winnerTeam;
+    this.matchRoster = new Set(next.roster);
+    this.postMatchIds = new Set(next.postMatchIds);
+    for (const fp of next.players) {
+      const player = this.state.players.get(fp.sessionId);
+      if (!player) continue;
+      player.carId = fp.carId;
+      player.selectLocked = fp.selectLocked;
+      player.alive = fp.alive;
+    }
+    this.syncPlayerStatus();
+  }
+
+  private syncPlayerStatus(): void {
+    if (!this.flow) return;
+    for (const fp of this.flow.players) {
+      const player = this.state.players.get(fp.sessionId);
+      if (player) player.status = fromFlowStatus(fp.status);
+    }
+  }
+
+  private allRosterLocked(): boolean {
+    if (this.matchRoster.size === 0) return false;
+    for (const id of this.matchRoster) {
+      const player = this.state.players.get(id);
+      if (!player || !player.selectLocked) return false;
+    }
+    return true;
+  }
+
+  private revealAndCountdown(): void {
+    const cars: Record<string, string> = {};
+    for (const [sessionId, carId] of this.pendingCarId) {
+      cars[sessionId] = carId;
+    }
+    let next = reduceFlow(this.buildFlow(), { type: "reveal", cars });
+    next = reduceFlow(next, {
+      type: "begin_countdown",
+      nowTick: this.state.tick,
+      countdownTicks: FLOW_CONFIG.countdownSeconds * TICK_RATE_HZ,
+    });
+    this.applyFlow(next);
+
+    const roster: { sessionId: string; team: 0 | 1 }[] = [];
+    for (const id of this.matchRoster) {
+      const player = this.state.players.get(id);
+      if (!player) continue;
+      roster.push({ sessionId: id, team: player.team === 1 ? 1 : 0 });
+      const carId = this.pendingCarId.get(id);
+      if (carId) {
+        player.carId = carId;
+        player.hp = hpOf(carId);
+      }
+      player.speed = 0;
+    }
+    const spawns = assignSpawns(
+      getArena(this.state.arenaId),
+      this.state.mode,
+      roster,
+      Math.random,
+    );
+    for (const id of this.matchRoster) {
+      const player = this.state.players.get(id);
+      const spawn = spawns[id];
+      if (!player || !spawn) continue;
+      const pose = copySpawnNumbers(spawn);
+      player.x = pose.x;
+      player.y = pose.y;
+      player.angle = pose.angle;
+    }
+  }
+
+  private endMatch(winnerSessionId: string, winnerTeam: number): void {
+    this.reduce({ type: "end", winnerSessionId, winnerTeam });
+    this.matchRoster.clear();
+    this.pendingCarId.clear();
+  }
+
+  private aliveTeamById(): Map<string, { alive: boolean; team: number }> {
+    const map = new Map<string, { alive: boolean; team: number }>();
+    this.state.players.forEach((player) => {
+      map.set(player.sessionId, { alive: player.alive, team: player.team });
+    });
+    return map;
   }
 
   private hasPlayerInMatch(): boolean {
@@ -175,8 +404,10 @@ function isKickPayload(msg: unknown): msg is { sessionId: string } {
   );
 }
 
-function toStartRuleStatus(status: PlayerStatus): StartRuleStatus {
-  if (status === PlayerStatus.IN_MATCH) return "in_match";
-  if (status === PlayerStatus.POST_MATCH) return "post_match";
-  return "ready";
+function isSelectCarPayload(msg: unknown): msg is { carId: CarId } {
+  return (
+    msg !== null &&
+    typeof msg === "object" &&
+    isCarId((msg as { carId?: unknown }).carId)
+  );
 }
