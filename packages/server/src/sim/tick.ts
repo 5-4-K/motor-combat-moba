@@ -22,11 +22,16 @@ const DEFAULT_CAR_ID: CarId = "rectangle";
  * Advance every player by their queued inputs. `dt` is seconds and must match the room simulation
  * interval (1 / getTickRateHz(TICK_RATE_HZ)).
  *
- * Cars only move during `RoomPhase.MATCH`. Every other phase — countdown, car select, lobby — still
- * *drains* the queue and still advances `lastProcessedInputSeq`. Both halves matter: without the
- * drain the queue grows unbounded through the countdown and the car lurches the moment the gate
- * opens, and without the seq advance the client's pending-input buffer never clears, so
- * reconciliation replays stale inputs forever.
+ * Cars only move during `RoomPhase.MATCH`, and only for players who are actually on the field
+ * (`PlayerStatus.IN_MATCH`). Everything else — any other phase, or a lobby/post-match player who
+ * keeps sending inputs mid-match — still *drains* the queue and still advances
+ * `lastProcessedInputSeq`. Both halves matter: without the drain the queue grows unbounded through
+ * the countdown and the car lurches the moment the gate opens, and without the seq advance the
+ * client's pending-input buffer never clears, so reconciliation replays stale inputs forever.
+ *
+ * The mover gate is deliberately the same condition as the `others` filter below. If it were not,
+ * a player who is not in the match would be driven around the arena and would collide with real
+ * players while staying invisible to *their* collision checks.
  *
  * Players are stepped in sorted `sessionId` order, and resolution is sequential: each player is
  * stepped against the *current* poses of the others, so a player stepped later already sees the
@@ -47,8 +52,8 @@ export function serverTick(
     const queue = queues.get(id);
     if (!player || !queue || queue.length === 0) continue;
 
-    // `null` context means "this phase does not move cars": drain only.
-    const ctx = moving ? stepContextFor(state, arena, id, player) : null;
+    // `null` context means "nothing about this player moves right now": drain only.
+    const ctx = moving && isOnField(player) ? stepContextFor(state, arena, id, player) : null;
 
     while (queue.length) {
       const msg = queue.shift()!;
@@ -58,6 +63,11 @@ export function serverTick(
       player.lastProcessedInputSeq = msg.seq;
     }
   }
+}
+
+/** Only players actually on the field are simulated, and only they are solid to each other. */
+function isOnField(player: PlayerState): boolean {
+  return player.status === PlayerStatus.IN_MATCH;
 }
 
 /** Deterministic iteration order — `MapSchema` hands back insertion order, which the room controls. */
@@ -93,7 +103,7 @@ function otherCarHulls(state: ArenaState, selfId: string): Obb[] {
   for (const id of sortedSessionIds(state)) {
     if (id === selfId) continue;
     const other = state.players.get(id);
-    if (!other || other.status !== PlayerStatus.IN_MATCH) continue;
+    if (!other || !isOnField(other)) continue;
     hulls.push({
       x: other.x,
       y: other.y,

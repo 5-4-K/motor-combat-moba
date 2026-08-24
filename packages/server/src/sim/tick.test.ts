@@ -126,6 +126,7 @@ describe("serverTick", () => {
     serverTick(stateWith(slow), new Map([["p1", ups(1)]]), DT, RoomPhase.MATCH);
     serverTick(stateWith(fast), new Map([["p1", ups(1)]]), DT * 2, RoomPhase.MATCH);
 
+    expect(serverTick.length).toBe(4);
     expect(fast.speed).toBeCloseTo(slow.speed * 2, 6);
     expect(fast.x - 300).toBeGreaterThan(slow.x - 300);
   });
@@ -144,6 +145,20 @@ describe("serverTick", () => {
         expect(queues.get("p1")).toEqual([]);
       });
     }
+  });
+
+  it("drains a not-in-match player's queue during MATCH without moving them", () => {
+    // A mid-match joiner is READY, not IN_MATCH. Stepping them would drive an off-field car around
+    // the arena that real players cannot see in their own collision checks.
+    const joiner = makePlayer("p1", 300, CORRIDOR_Y, 0, PlayerStatus.READY);
+    const state = stateWith(joiner);
+    const queues = new Map<string, InputMessage[]>([["p1", ups(1, 2, 9)]]);
+
+    serverTick(state, queues, DT, RoomPhase.MATCH);
+
+    expect(poseOf(joiner)).toEqual({ x: 300, y: CORRIDOR_Y, angle: 0, speed: 0, reverseHold: 0 });
+    expect(joiner.lastProcessedInputSeq).toBe(9);
+    expect(queues.get("p1")).toEqual([]);
   });
 
   describe("other cars as colliders", () => {
