@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectServerEndpoint, isDebugEnabled } from "./client-mode.js";
+import { detectServerEndpoint, devToolId, isDebugEnabled } from "./client-mode.js";
 
 describe("isDebugEnabled", () => {
   it("is on only for an explicit debug=1", () => {
@@ -32,5 +32,22 @@ describe("detectServerEndpoint", () => {
     expect(
       detectServerEndpoint({ protocol: "https:", hostname: "example.com", port: "" }),
     ).toBe("wss://example.com");
+  });
+});
+
+describe("devToolId", () => {
+  it("reads the requested tool id", () => {
+    expect(devToolId("?dev=assets")).toBe("assets");
+    expect(devToolId("?name=x&dev=balance")).toBe("balance");
+  });
+
+  it("is undefined when absent or empty", () => {
+    expect(devToolId("")).toBeUndefined();
+    expect(devToolId("?dev")).toBeUndefined();
+    expect(devToolId("?dev=")).toBeUndefined();
+  });
+
+  it("does not judge whether the tool exists", () => {
+    expect(devToolId("?dev=nonsense")).toBe("nonsense");
   });
 });
