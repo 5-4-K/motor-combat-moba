@@ -1,0 +1,16 @@
+# Deployment (LAN)
+
+Requires **Node.js 20+**.
+
+```bash
+npm run build:release
+```
+
+Writes `dist-release/motor-arena/` and `dist-release/motor-arena-release.zip`. `start.bat` / `start.sh` `npm install` if `node_modules` is missing, then `node packages/server/dist/index.js`.
+
+- This machine: `http://localhost:2567`
+- Others on the LAN: `http://<LAN-IP>:2567`
+- Health: `GET /health` → `{ ok: true }`
+- Monitor: `/colyseus`
+
+Default `DEPLOY_MODE=lan` serves the built client from Express. Do not add cloud hosting without asking.
