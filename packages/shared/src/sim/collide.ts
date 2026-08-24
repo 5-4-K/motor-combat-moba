@@ -335,6 +335,27 @@ export function obbsOverlap(a: Obb, b: Obb): boolean {
 }
 
 /**
+ * Are two boxes touching or overlapping, within `pad` units of slack on each?
+ *
+ * This exists because `obbsOverlap` answers the wrong question for anything that runs *after*
+ * resolution. `resolveWorld` pushes a car out to exactly the separation boundary, and the SAT treats
+ * "just touching" as separated — so two cars that collided this tick end it at a measured gap of
+ * zero and `obbsOverlap` is false. Ram detection asked that question first and never fired once in a
+ * live match, while passing every unit test, because the tests hand-placed cars in a state the sim
+ * never actually produces.
+ *
+ * The slack is applied to the half-extents of both boxes, so the effective tolerance on the gap
+ * between them is `2 * pad`. Keep it small — see `COMBAT_CONFIG.ramContactPad`.
+ */
+export function obbsInContact(a: Obb, b: Obb, pad: number): boolean {
+  return obbsOverlap(inflate(a, pad), inflate(b, pad));
+}
+
+function inflate(o: Obb, pad: number): Obb {
+  return { x: o.x, y: o.y, angle: o.angle, w: o.w + pad * 2, h: o.h + pad * 2 };
+}
+
+/**
  * Point-in-oriented-box, by rotating the point into the box's local frame. The v1 projectile hit
  * test: a shot is a point, so a hit is this against the target's car OBB — the same box the driving
  * collision resolves against, never the drawn silhouette.

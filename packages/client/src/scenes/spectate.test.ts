@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { PlayerStatus } from "@motor-arena/shared";
+import { PlayerStatus, RoomPhase } from "@motor-arena/shared";
 import {
   cycleSpectate,
+  isSpectating,
   panFreeCam,
   resolveSpectateTarget,
   spectatableIds,
@@ -114,5 +115,32 @@ describe("panFreeCam", () => {
     const focus = { x: 10, y: 20 };
     panFreeCam(focus, 1, 1, 1000, 600);
     expect(focus).toEqual({ x: 10, y: 20 });
+  });
+});
+
+describe("isSpectating", () => {
+  it("is true for a wreck in a live match", () => {
+    expect(isSpectating(RoomPhase.MATCH, PlayerStatus.IN_MATCH, false)).toBe(true);
+  });
+
+  it("is false while still alive", () => {
+    expect(isSpectating(RoomPhase.MATCH, PlayerStatus.IN_MATCH, true)).toBe(false);
+  });
+
+  it("is false during the countdown, even though the car cannot move yet", () => {
+    // The bug this pins: gating the camera on "cannot drive" instead of "is dead" made the 3-2-1
+    // follow whichever car sorted first by session id rather than the player's own.
+    expect(isSpectating(RoomPhase.COUNTDOWN, PlayerStatus.IN_MATCH, true)).toBe(false);
+    expect(isSpectating(RoomPhase.COUNTDOWN, PlayerStatus.IN_MATCH, false)).toBe(false);
+  });
+
+  it("is false in the lobby and car select", () => {
+    expect(isSpectating(RoomPhase.LOBBY, PlayerStatus.IN_MATCH, false)).toBe(false);
+    expect(isSpectating(RoomPhase.CAR_SELECT, PlayerStatus.IN_MATCH, false)).toBe(false);
+  });
+
+  it("is false for someone who is not in the match at all", () => {
+    expect(isSpectating(RoomPhase.MATCH, PlayerStatus.READY, false)).toBe(false);
+    expect(isSpectating(RoomPhase.MATCH, PlayerStatus.POST_MATCH, false)).toBe(false);
   });
 });

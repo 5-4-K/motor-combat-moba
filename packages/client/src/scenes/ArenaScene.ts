@@ -20,6 +20,7 @@ import { carFillOf, carShapeOf, hexagonPoints } from "./car-visual.js";
 import { extrapolateShot, hpBarColor, hpFraction } from "./combat-visual.js";
 import {
   cycleSpectate,
+  isSpectating,
   panFreeCam,
   resolveSpectateTarget,
   spectatableIds,
@@ -538,13 +539,20 @@ export class ArenaScene extends Phaser.Scene {
 
   // --- spectating --------------------------------------------------------------------------
 
+  /** Are you watching rather than playing? The rule itself lives in `spectate.ts`. */
+  private isSpectating(room: Room<ArenaState>): boolean {
+    const local = room.state.players.get(room.sessionId);
+    if (!local) return false;
+    return isSpectating(room.state.phase, local.status, local.alive);
+  }
+
   /**
-   * Whose car the camera follows: your own while you are alive, otherwise the spectate target.
+   * Whose car the camera follows: your own until you are wrecked, then the spectate target.
    * Returning a session id rather than a pose keeps the decision in one place — `renderCars`
    * already has every pose in hand, including the predicted one for the local car.
    */
   private cameraTarget(room: Room<ArenaState>): string {
-    return this.canDrive(room) ? room.sessionId : this.spectateTarget;
+    return this.isSpectating(room) ? this.spectateTarget : room.sessionId;
   }
 
   /**
@@ -554,9 +562,9 @@ export class ArenaScene extends Phaser.Scene {
    * state is what keeps that true — the server has no notion of who anyone is watching.
    */
   private updateSpectate(room: Room<ArenaState>, delta: number): void {
-    if (this.canDrive(room)) {
-      // Alive: no spectate state to keep. Clearing it means the next death starts a fresh cycle
-      // rather than resuming one from a previous match.
+    if (!this.isSpectating(room)) {
+      // Still alive, or not in a live match. Clearing the state means the next death starts a fresh
+      // cycle rather than resuming one from a previous match.
       this.spectateTarget = "";
       this.freeRoam = false;
       return;
@@ -656,12 +664,7 @@ export class ArenaScene extends Phaser.Scene {
     const text = this.spectateText;
     if (!text) return;
 
-    const local = room.state.players.get(room.sessionId);
-    const spectating =
-      room.state.phase === RoomPhase.MATCH &&
-      local?.status === PlayerStatus.IN_MATCH &&
-      local.alive === false;
-    if (!spectating) {
+    if (!this.isSpectating(room)) {
       text.setVisible(false);
       return;
     }

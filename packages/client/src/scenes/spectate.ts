@@ -1,4 +1,17 @@
-import { PlayerStatus } from "@motor-arena/shared";
+import { PlayerStatus, RoomPhase } from "@motor-arena/shared";
+
+/**
+ * Is this player watching rather than playing? True only for a wreck in a live match.
+ *
+ * Deliberately not "cannot drive right now". The drive gate is also false during the countdown, and
+ * keying the camera off it meant the 3-2-1 was spent watching whichever car happened to sort first
+ * by session id instead of your own. Being dead is what makes you a spectator; not being able to
+ * move yet is not.
+ */
+export function isSpectating(phase: number, status: number, alive: boolean): boolean {
+  if (phase !== RoomPhase.MATCH) return false;
+  return status === PlayerStatus.IN_MATCH && !alive;
+}
 
 /** The fields spectate target selection reads off a networked player. */
 export interface SpectateCandidate {

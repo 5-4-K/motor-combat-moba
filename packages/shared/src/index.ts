@@ -32,7 +32,7 @@ export type { RamOutcome } from "./sim/ram.js";
 export { stepSim } from "./sim/step.js";
 export type { SimBody, StepContext } from "./sim/step.js";
 export { stepDrive } from "./sim/drive.js";
-export { obbsOverlap, pointInAabb, pointInObb, resolveWorld } from "./sim/collide.js";
+export { obbsInContact, obbsOverlap, pointInAabb, pointInObb, resolveWorld } from "./sim/collide.js";
 export { fireCooldownTicks, muzzleOffset, runCombat } from "./sim/combat.js";
 export type { CombatInput, CombatPlayer, CombatResult, CombatWorld } from "./sim/combat.js";
 export {

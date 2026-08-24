@@ -14,6 +14,10 @@ import {
   type CombatWorld,
 } from "./combat.js";
 import type { Proj } from "./projectiles.js";
+import { carHullOf } from "./context.js";
+import { stepSim } from "./step.js";
+import type { SimBody } from "./step.js";
+import type { InputMessage } from "../net/input.js";
 
 const DT = MS_PER_TICK / 1000;
 
@@ -461,5 +465,134 @@ describe("ramming", () => {
     });
     const fallback = CAR_TABLE.rectangle.strength * COMBAT_CONFIG.collisionDamagePerStrength;
     expect(find(result, "b").hp).toBe(hpOf("rectangle") - fallback);
+  });
+});
+
+/**
+ * The gap the unit tests above left open, and the live bug they missed.
+ *
+ * Every ram case above hand-places the two cars overlapping. The sim never produces that state:
+ * `resolveWorld` runs before combat and pushes a car out to *exactly* the separation boundary, so
+ * two cars that just crashed end the tick touching at a gap of zero. A strict overlap test is false
+ * on every tick of a real ram, and ramming silently dealt no damage in a live match while all of the
+ * unit tests stayed green.
+ *
+ * These tests drive real cars into each other through the real `stepSim`, exactly as `serverTick`
+ * does, and only then ask `runCombat` for damage.
+ */
+describe("ramming, driven through the real sim", () => {
+  const OPEN = { width: ARENA_01.width, height: ARENA_01.height };
+  const CLEAR = { carId: "rectangle" as const, obstacles: [] as never[], bounds: OPEN };
+  const THROTTLE: InputMessage = { seq: 1, steer: 0, throttle: 1, fire: false };
+  const COAST: InputMessage = { seq: 1, steer: 0, throttle: 0, fire: false };
+
+  /**
+   * Step two cars for one tick the way `serverTick` does — sorted order, each against the other's
+   * current pose — then run one tick of combat over the result.
+   */
+  function simTick(
+    state: { a: SimBody; b: SimBody; players: CombatPlayer[]; cooldowns: Map<string, number> },
+    tick: number,
+    inputs: { a: InputMessage; b: InputMessage },
+  ) {
+    const a = stepSim(state.a, inputs.a, DT, {
+      ...CLEAR,
+      others: [carHullOf(state.b.x, state.b.y, state.b.angle)],
+    });
+    const b = stepSim(state.b, inputs.b, DT, {
+      ...CLEAR,
+      others: [carHullOf(a.x, a.y, a.angle)],
+    });
+
+    const result = runCombat({
+      world: { tick, dt: DT, mode: "ffa", obstacles: [], bounds: OPEN },
+      players: [
+        { ...state.players[0]!, x: a.x, y: a.y, angle: a.angle },
+        { ...state.players[1]!, x: b.x, y: b.y, angle: b.angle },
+      ],
+      projectiles: [],
+      ramCooldowns: state.cooldowns,
+      projectileSeq: 0,
+    });
+    return { a, b, players: result.players, cooldowns: result.ramCooldowns };
+  }
+
+  function pair(bAngle: number) {
+    const a: SimBody = { x: 800, y: 800, angle: 0, speed: 300, reverseHold: 0 };
+    const b: SimBody = { x: 900, y: 800, angle: bAngle, speed: 0, reverseHold: 0 };
+    return {
+      a,
+      b,
+      players: [
+        player("a", { x: a.x, y: a.y, angle: 0, carId: "oval" }),
+        player("b", { x: b.x, y: b.y, angle: bAngle }),
+      ],
+      cooldowns: new Map<string, number>(),
+    };
+  }
+
+  it("a car driven into the back of another actually deals damage", () => {
+    let state = pair(0);
+    let damaged = false;
+    for (let tick = 0; tick < 20 && !damaged; tick++) {
+      state = simTick(state, tick, { a: THROTTLE, b: COAST });
+      damaged = state.players[1]!.hp < hpOf("rectangle");
+    }
+    expect(damaged).toBe(true);
+    expect(state.players[0]!.hp).toBe(hpOf("rectangle"));
+  });
+
+  it("the cars end a real ram touching, not overlapping — the case the hand-placed tests miss", () => {
+    let state = pair(0);
+    let contactTick = -1;
+    for (let tick = 0; tick < 20 && contactTick === -1; tick++) {
+      state = simTick(state, tick, { a: THROTTLE, b: COAST });
+      if (state.players[1]!.hp < hpOf("rectangle")) contactTick = tick;
+    }
+    expect(contactTick).toBeGreaterThanOrEqual(0);
+    // Zero gap: exactly touching. `obbsOverlap` on these hulls is false, which is the whole point.
+    const gap = state.b.x - state.a.x - DRIVE_CONFIG.carWidth;
+    expect(gap).toBeLessThan(COMBAT_CONFIG.ramContactPad * 2);
+    expect(gap).toBeGreaterThanOrEqual(0);
+  });
+
+  it("a real head-on damages both cars", () => {
+    let state = pair(Math.PI);
+    for (let tick = 0; tick < 20; tick++) {
+      state = simTick(state, tick, { a: THROTTLE, b: THROTTLE });
+      if (state.players[0]!.hp < hpOf("rectangle")) break;
+    }
+    expect(state.players[0]!.hp).toBeLessThan(hpOf("rectangle"));
+    expect(state.players[1]!.hp).toBeLessThan(hpOf("rectangle"));
+  });
+
+  it("the pair cooldown holds through a sustained real ram", () => {
+    let state = pair(0);
+    const hits: number[] = [];
+    let previous = hpOf("rectangle");
+    for (let tick = 0; tick < 60; tick++) {
+      state = simTick(state, tick, { a: THROTTLE, b: COAST });
+      if (state.players[1]!.hp < previous) {
+        hits.push(tick);
+        previous = state.players[1]!.hp;
+      }
+    }
+    expect(hits.length).toBeGreaterThan(1);
+    for (let i = 1; i < hits.length; i++) {
+      expect(hits[i]! - hits[i - 1]!).toBeGreaterThanOrEqual(
+        COMBAT_CONFIG.collisionDamageCooldownTicks,
+      );
+    }
+  });
+
+  it("cars that never touch are never damaged", () => {
+    let state = pair(0);
+    state.b.x = 1600;
+    state.players[1] = { ...state.players[1]!, x: 1600 };
+    for (let tick = 0; tick < 10; tick++) {
+      state = simTick(state, tick, { a: COAST, b: COAST });
+    }
+    expect(state.players[1]!.hp).toBe(hpOf("rectangle"));
+    expect(state.players[0]!.hp).toBe(hpOf("rectangle"));
   });
 });

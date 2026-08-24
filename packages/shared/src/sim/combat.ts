@@ -3,7 +3,7 @@ import { COMBAT_CONFIG } from "../config/combat-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import { WEAPON_CONFIG } from "../config/weapon-config.js";
 import { TICK_RATE_HZ } from "../constants.js";
-import { obbsOverlap, type Aabb, type Bounds } from "./collide.js";
+import { obbsInContact, type Aabb, type Bounds } from "./collide.js";
 import { carHullOf, carIdOf } from "./context.js";
 import { applyDamage } from "./damage.js";
 import {
@@ -161,7 +161,14 @@ export function runCombat(input: CombatInput): CombatResult {
 
       const key = `${a.sessionId}|${b.sessionId}`;
       if (world.tick < (ramCooldowns.get(key) ?? 0)) continue;
-      if (!obbsOverlap(carHullOf(a.x, a.y, a.angle), carHullOf(b.x, b.y, b.angle))) continue;
+      // Contact, not interpenetration: driving has already pushed this pair apart to exactly
+      // touching by the time combat runs. See `obbsInContact` and `COMBAT_CONFIG.ramContactPad`.
+      const inContact = obbsInContact(
+        carHullOf(a.x, a.y, a.angle),
+        carHullOf(b.x, b.y, b.angle),
+        COMBAT_CONFIG.ramContactPad,
+      );
+      if (!inContact) continue;
 
       const threshold = COMBAT_CONFIG.ramDotThreshold;
       const outcome = ramOutcome(
