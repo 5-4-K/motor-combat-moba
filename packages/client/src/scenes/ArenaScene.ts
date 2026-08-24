@@ -10,8 +10,7 @@ import {
   TICK_RATE_HZ,
   getArena,
 } from "@motor-combat-moba/shared";
-import { carSpriteKey } from "../assets/asset-keys.js";
-import { fitSprite } from "../assets/sprite-fit.js";
+import { applyCarSprite, phaserTextures, resolveCarSprite } from "../assets/car-sprite.js";
 import { isDebugEnabled } from "../config/client-mode.js";
 import { InterpolationBuffer } from "../net/interpolation.js";
 import { PredictionBuffer } from "../net/prediction.js";
@@ -127,7 +126,11 @@ export class ArenaScene extends Phaser.Scene {
    */
   private inputSeq = 0;
   private debug = false;
-  /** Cleared once art finishes loading, so every car is rebuilt with its sprite on the next frame. */
+  /**
+   * Whether the boot loader is still running. Inspectable state only — the rebuild that swaps
+   * silhouettes for sprites is caused by the `visualKeys.clear()` beside where this is cleared,
+   * not by this flag, which nothing reads on the draw path.
+   */
   private artPending = true;
   private unbind: Array<() => void> = [];
   private countdownText: Phaser.GameObjects.Text | undefined;
@@ -153,10 +156,14 @@ export class ArenaScene extends Phaser.Scene {
     this.debug = isDebugEnabled();
     // Reuses the existing rebuild path rather than adding a second one: dropping the cached visual
     // keys makes `syncCar` treat every car as changed, so each is redrawn once, now with its sprite.
-    void assetsReady().then(() => {
-      this.artPending = false;
-      this.visualKeys.clear();
-    });
+    void assetsReady()
+      .then(() => {
+        this.artPending = false;
+        this.visualKeys.clear();
+      })
+      // Nothing in `loadArt` rejects today, but an unhandled rejection here would be silent and the
+      // match would simply never swap in its sprites. Warn instead.
+      .catch((error: unknown) => console.warn(`[art] asset load rejected: ${String(error)}`));
     this.room = this.registry.get("room") as Room<ArenaState> | undefined;
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.onShutdown, this);
 
@@ -510,27 +517,16 @@ export class ArenaScene extends Phaser.Scene {
 
   /**
    * The manifest sprite for a chassis, or `undefined` when there is no entry or the texture never
-   * loaded. `textures.exists` is the load check: `BootScene` warns on a failed file but carries on,
-   * so a named-but-missing file reaches here as a simply absent texture.
+   * loaded — both of which fall through to `silhouette`. The decision itself is `resolveCarSprite`,
+   * shared with the `?dev=assets` tuning tool so the tool cannot drift from what the arena draws.
    */
   private spriteFor(carId: string, fill: number): Phaser.GameObjects.Image | undefined {
-    const key = carSpriteKey(carId);
-    const entry = assetManifest().sprites[key];
-    if (!entry || !this.textures.exists(key)) return undefined;
-
-    const source = this.textures.get(key).getSourceImage();
-    const fit = fitSprite(
-      entry,
-      { width: source.width, height: source.height },
-      { width: DRIVE_CONFIG.carWidth, height: DRIVE_CONFIG.carHeight },
-    );
-
-    const image = this.add.image(0, 0, key);
-    image.setOrigin(fit.originX, fit.originY);
-    image.setScale(fit.scale);
-    image.setRotation(fit.rotation);
-    if (entry.colorMode === "tint") image.setTint(fill);
-    return image;
+    const resolved = resolveCarSprite(assetManifest(), phaserTextures(this.textures), carId, {
+      width: DRIVE_CONFIG.carWidth,
+      height: DRIVE_CONFIG.carHeight,
+    });
+    if (!resolved) return undefined;
+    return applyCarSprite(this.add.image(0, 0, resolved.key), resolved, fill);
   }
 
   /** The procedural chassis. Unchanged from what the game drew before any art existed. */

@@ -1,5 +1,7 @@
-// packages/client/src/assets/asset-keys.ts
 import { DEFAULT_CAR_ID, isCarId } from "@motor-combat-moba/shared";
+
+/** The manifest namespace car sprites live under. Exported so nothing has to spell `"car."` twice. */
+export const CAR_KEY_PREFIX = "car.";
 
 /**
  * The manifest key for a wire `carId`. Namespaced so that powers, projectiles, and effects can land
@@ -9,5 +11,5 @@ import { DEFAULT_CAR_ID, isCarId } from "@motor-combat-moba/shared";
  * so a stale or hostile id draws the default chassis instead of silently drawing nothing.
  */
 export function carSpriteKey(carId: string): string {
-  return `car.${isCarId(carId) ? carId : DEFAULT_CAR_ID}`;
+  return `${CAR_KEY_PREFIX}${isCarId(carId) ? carId : DEFAULT_CAR_ID}`;
 }

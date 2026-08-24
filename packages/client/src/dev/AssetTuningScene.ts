@@ -1,8 +1,9 @@
 import Phaser from "phaser";
 import { CAR_TABLE, COLOR_TABLE, DRIVE_CONFIG } from "@motor-combat-moba/shared";
-import { carSpriteKey } from "../assets/asset-keys.js";
-import { fitSprite } from "../assets/sprite-fit.js";
+import { CAR_KEY_PREFIX, carSpriteKey } from "../assets/asset-keys.js";
+import { applyCarSprite, phaserTextures, resolveCarSprite } from "../assets/car-sprite.js";
 import { assetManifest } from "../scenes/BootScene.js";
+import { carFillOf } from "../scenes/car-visual.js";
 
 /**
  * Grepped by scripts/build-release.mjs to prove this scene is absent from a release build. A local
@@ -18,7 +19,9 @@ const COLUMNS = 3;
 const HULL_STROKE = 0xffffff;
 
 /**
- * Every manifest entry parked on its own hull, with no server connection.
+ * Every chassis in `CAR_TABLE` parked on its own hull, with no server connection. Chassis, not every
+ * manifest entry: `power.*` and `projectile.*` rows are out of scope here until something in the sim
+ * draws them.
  *
  * It exists because `rotationOffset`, `scale`, and `origin` have to be tuned by eye per sprite, and
  * the alternative loop is a full rejoin per attempt: the client has no reconnect or session
@@ -40,8 +43,10 @@ export class AssetTuningScene extends Phaser.Scene {
     this.add.text(16, 12, MARKER, { fontSize: "20px", color: "#ffffff" });
 
     const manifest = assetManifest();
-    const keys = Object.keys(manifest.sprites);
-    this.add.text(16, 38, this.summary(keys.length), {
+    // Counted car-scoped, because the cells below are car-scoped. Counting every manifest key would
+    // let the header claim "4 entries" over three cells the moment a `power.*` row exists.
+    const carKeys = Object.keys(manifest.sprites).filter((key) => key.startsWith(CAR_KEY_PREFIX));
+    this.add.text(16, 38, this.summary(carKeys.length), {
       fontSize: "13px",
       color: "#9aa0a6",
     });
@@ -52,7 +57,7 @@ export class AssetTuningScene extends Phaser.Scene {
 
   private summary(entryCount: number): string {
     const chassis = Object.keys(CAR_TABLE).length;
-    return `${entryCount} manifest entr${entryCount === 1 ? "y" : "ies"} - ${chassis} chassis - white box is the OBB hitbox - reload after editing art`;
+    return `${entryCount} car entr${entryCount === 1 ? "y" : "ies"} - ${chassis} chassis - white box is the OBB hitbox - reload after editing art`;
   }
 
   /** One chassis: its hull, its art (or the fact that it has none), and its manifest key. */
@@ -62,20 +67,18 @@ export class AssetTuningScene extends Phaser.Scene {
     const { carWidth: w, carHeight: h } = DRIVE_CONFIG;
     const key = carSpriteKey(carId);
     const entry = assetManifest().sprites[key];
-    const fill = Number.parseInt(COLOR_TABLE[index % COLOR_TABLE.length].hex.slice(1), 16);
+    const fill = carFillOf(COLOR_TABLE[index % COLOR_TABLE.length].colorId);
 
-    if (entry && this.textures.exists(key)) {
-      const source = this.textures.get(key).getSourceImage();
-      const fit = fitSprite(
-        entry,
-        { width: source.width, height: source.height },
-        { width: w, height: h },
-      );
-      const image = this.add.image(x, y, key);
-      image.setOrigin(fit.originX, fit.originY);
-      image.setScale(fit.scale);
-      image.setRotation(fit.rotation);
-      if (entry.colorMode === "tint") image.setTint(fill);
+    // Resolved by the same function `ArenaScene.spriteFor` calls, so "no art" here means exactly
+    // what the silhouette fallback means in a match, and the composition cannot drift between them.
+    const resolved = resolveCarSprite(
+      assetManifest(),
+      phaserTextures(this.textures),
+      carId,
+      { width: w, height: h },
+    );
+    if (resolved) {
+      applyCarSprite(this.add.image(x, y, resolved.key), resolved, fill);
     } else {
       this.add.text(x, y - 8, "no art", { fontSize: "13px", color: "#d94040" }).setOrigin(0.5);
     }
