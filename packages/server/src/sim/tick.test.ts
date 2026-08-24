@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { ArenaState, PlayerState, type InputMessage } from "@motor-arena/shared";
+import { ArenaState, MS_PER_TICK, PlayerState, type InputMessage } from "@motor-arena/shared";
 import { serverTick } from "./tick.js";
+
+const DT = MS_PER_TICK / 1000;
 
 function makePlayer(sessionId: string, x: number, y: number, angle: number): PlayerState {
   const p = new PlayerState();
@@ -21,7 +23,7 @@ describe("serverTick", () => {
     const msg: InputMessage = { seq: 7, steer: 1, throttle: 1, fire: false };
     const queues = new Map<string, InputMessage[]>([["p1", [msg]]]);
 
-    serverTick(state, queues);
+    serverTick(state, queues, DT);
 
     expect(player.x).toBe(10);
     expect(player.y).toBe(20);
@@ -41,7 +43,7 @@ describe("serverTick", () => {
 
     const queues = new Map<string, InputMessage[]>([["empty", []]]);
 
-    serverTick(state, queues);
+    serverTick(state, queues, DT);
 
     expect(emptyQ.x).toBe(1);
     expect(emptyQ.y).toBe(2);
@@ -69,9 +71,22 @@ describe("serverTick", () => {
       ],
     ]);
 
-    serverTick(state, queues);
+    serverTick(state, queues, DT);
 
     expect(player.lastProcessedInputSeq).toBe(5);
     expect(queues.get("p1")).toEqual([]);
+  });
+
+  it("accepts dt seconds as the third argument without throwing", () => {
+    const state = new ArenaState();
+    const player = makePlayer("p1", 0, 0, 0);
+    state.players.set("p1", player);
+    const queues = new Map<string, InputMessage[]>([
+      ["p1", [{ seq: 1, steer: 0, throttle: 0, fire: false }]],
+    ]);
+
+    expect(serverTick.length).toBe(3);
+    expect(() => serverTick(state, queues, 1 / 60)).not.toThrow();
+    expect(player.lastProcessedInputSeq).toBe(1);
   });
 });

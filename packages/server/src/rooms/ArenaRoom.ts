@@ -9,6 +9,7 @@ import {
   type InputMessage,
 } from "@motor-arena/shared";
 import { getTickRateHz, getSimulatedLatency } from "../mode.js";
+import { isInputMessage } from "../net/input-message.js";
 import { withSimulatedLatency } from "../net/latency-injector.js";
 import { serverTick } from "../sim/tick.js";
 
@@ -30,7 +31,8 @@ export class ArenaRoom extends Room<ArenaState> {
       getSimulatedLatency(),
     );
 
-    this.onMessage(INPUT_MESSAGE, (client, msg: InputMessage) => {
+    this.onMessage(INPUT_MESSAGE, (client, msg: unknown) => {
+      if (!isInputMessage(msg)) return;
       enqueue({ sessionId: client.sessionId, msg });
     });
   }
@@ -62,6 +64,6 @@ export class ArenaRoom extends Room<ArenaState> {
 
   private tick(): void {
     this.state.tick += 1;
-    serverTick(this.state, this.inputQueues);
+    serverTick(this.state, this.inputQueues, 1 / getTickRateHz(TICK_RATE_HZ));
   }
 }

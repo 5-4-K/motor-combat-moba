@@ -1,12 +1,13 @@
-import { ArenaState, stepSim, MS_PER_TICK, type InputMessage } from "@motor-arena/shared";
+import { ArenaState, stepSim, type InputMessage } from "@motor-arena/shared";
 
-export function serverTick(state: ArenaState, queues: Map<string, InputMessage[]>): void {
+/** `dt` is seconds and must match the room simulation interval (1 / getTickRateHz(TICK_RATE_HZ)). */
+export function serverTick(state: ArenaState, queues: Map<string, InputMessage[]>, dt: number): void {
   for (const [id, player] of state.players) {
     const q = queues.get(id);
     if (!q || q.length === 0) continue;
     while (q.length) {
       const msg = q.shift()!;
-      const next = stepSim({ x: player.x, y: player.y, angle: player.angle }, msg, MS_PER_TICK / 1000);
+      const next = stepSim({ x: player.x, y: player.y, angle: player.angle }, msg, dt);
       player.x = next.x;
       player.y = next.y;
       player.angle = next.angle;
