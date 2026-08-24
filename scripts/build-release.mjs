@@ -70,6 +70,44 @@ function requireBuiltDist(dir, label) {
   }
 }
 
+/**
+ * Strings that must only ever exist in dev-only code. `import.meta.env.DEV` is replaced with the
+ * literal `false` by `vite build`, so the branch importing the dev tool is dead code and its
+ * chunk is never emitted. This asserts that rather than trusting it — a static import added by
+ * accident, or the scene wired into main.ts's scene list, would silently ship it.
+ */
+export const DEV_ONLY_MARKERS = ["MOTOR DEV TOOL"];
+
+function javascriptFilesIn(dir) {
+  const found = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) found.push(...javascriptFilesIn(full));
+    else if (entry.name.endsWith(".js")) found.push(full);
+  }
+  return found;
+}
+
+/**
+ * Throw if any dev-only marker reached the built client. Only `.js` is scanned: the art folder and
+ * its README legitimately mention the markers in prose, and tripping on those would train whoever
+ * hits it to ignore the check.
+ */
+export function assertNoDevOnlyCode(clientDistDir) {
+  for (const file of javascriptFilesIn(clientDistDir)) {
+    const body = fs.readFileSync(file, "utf8");
+    for (const marker of DEV_ONLY_MARKERS) {
+      if (body.includes(marker)) {
+        throw new Error(
+          `dev-only code shipped: "${marker}" found in ${path.relative(clientDistDir, file)}. ` +
+            `Check that AssetTuningScene is imported dynamically behind import.meta.env.DEV and is not ` +
+            `listed in main.ts's scene array.`,
+        );
+      }
+    }
+  }
+}
+
 function writeZip(sourceDir, destination) {
   return new Promise((resolve, reject) => {
     const output = fs.createWriteStream(destination);
@@ -85,6 +123,7 @@ function writeZip(sourceDir, destination) {
 export async function main() {
   requireBuiltDist(serverDist, "packages/server/dist");
   requireBuiltDist(clientDist, "packages/client/dist");
+  assertNoDevOnlyCode(clientDist);
 
   fs.rmSync(distReleaseDir, { recursive: true, force: true });
   fs.mkdirSync(appDir, { recursive: true });
