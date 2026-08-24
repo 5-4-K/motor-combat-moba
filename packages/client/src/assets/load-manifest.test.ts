@@ -1,4 +1,3 @@
-// packages/client/src/assets/load-manifest.test.ts
 import { describe, expect, it } from "vitest";
 import { loadManifest } from "./load-manifest.js";
 

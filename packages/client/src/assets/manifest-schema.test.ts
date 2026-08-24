@@ -1,4 +1,3 @@
-// packages/client/src/assets/manifest-schema.test.ts
 import { describe, expect, it } from "vitest";
 import { EMPTY_MANIFEST, parseManifest } from "./manifest-schema.js";
 

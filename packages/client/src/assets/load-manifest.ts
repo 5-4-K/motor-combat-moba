@@ -1,4 +1,3 @@
-// packages/client/src/assets/load-manifest.ts
 import { EMPTY_MANIFEST, parseManifest, type ParseResult } from "./manifest-schema.js";
 
 /**

@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { after, describe, it } from "node:test";
 import {
+  assertNoDevOnlyCode,
+  DEV_ONLY_MARKERS,
   releasePackageJson,
   startBat,
   startSh,
@@ -49,14 +54,16 @@ describe("releasePackageJson", () => {
   });
 });
 
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { assertNoDevOnlyCode, DEV_ONLY_MARKERS } from "./build-release.mjs";
-
 describe("assertNoDevOnlyCode", () => {
+  /** Every tree made here, removed once the suite ends so runs stop leaking into the OS temp dir. */
+  const madeDirs = [];
+  after(() => {
+    for (const dir of madeDirs) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
   function tempDist(files) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "motor-dist-"));
+    madeDirs.push(dir);
     for (const [name, body] of Object.entries(files)) {
       const full = path.join(dir, name);
       fs.mkdirSync(path.dirname(full), { recursive: true });

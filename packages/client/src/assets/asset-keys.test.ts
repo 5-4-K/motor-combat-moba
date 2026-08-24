@@ -1,4 +1,3 @@
-// packages/client/src/assets/asset-keys.test.ts
 import { describe, expect, it } from "vitest";
 import { carSpriteKey } from "./asset-keys.js";
 

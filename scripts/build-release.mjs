@@ -83,15 +83,17 @@ function javascriptFilesIn(dir) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) found.push(...javascriptFilesIn(full));
-    else if (entry.name.endsWith(".js")) found.push(full);
+    // `.mjs`/`.cjs` as well as `.js`: Vite emits `.js` today, but a future `entryFileNames` change
+    // would otherwise make this whole check pass vacuously, which is the worst way for a guard to fail.
+    else if (/\.[cm]?js$/.test(entry.name)) found.push(full);
   }
   return found;
 }
 
 /**
- * Throw if any dev-only marker reached the built client. Only `.js` is scanned: the art folder and
- * its README legitimately mention the markers in prose, and tripping on those would train whoever
- * hits it to ignore the check.
+ * Throw if any dev-only marker reached the built client. Only JavaScript is scanned: Vite copies
+ * `public/` straight to the `dist` root, so Markdown and other prose sit right next to the bundle,
+ * and a check that could trip on prose would train whoever hits it to ignore it.
  */
 export function assertNoDevOnlyCode(clientDistDir) {
   for (const file of javascriptFilesIn(clientDistDir)) {

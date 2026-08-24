@@ -1,14 +1,15 @@
-// packages/client/src/assets/manifest-schema.ts
-
 /**
  * How player colour reaches a sprite. `"tint"` multiplies the texture by the player's colour and so
  * needs desaturated art; `"none"` leaves pre-coloured pack art alone and lets the procedural colour
- * marker carry identity by itself. Deliberately a two-member enum: `"overlay"` (a separate tintable
- * mask layer) can be added later without changing a single consumer.
+ * marker carry identity by itself. Deliberately a small enum: `"overlay"` (a separate tintable mask
+ * layer) can be added later without changing a single consumer.
+ *
+ * The runtime list is the source of truth and `ColorMode` is derived from it, so adding `"overlay"`
+ * is one edit rather than two that have to be kept in lockstep.
  */
-export type ColorMode = "tint" | "none";
+const COLOR_MODES = ["tint", "none"] as const;
 
-const COLOR_MODES: readonly string[] = ["tint", "none"];
+export type ColorMode = (typeof COLOR_MODES)[number];
 
 /**
  * Keys that would write through a plain object's prototype. The manifest is parsed from JSON on
@@ -69,7 +70,9 @@ function parseEntry(key: string, value: unknown, problems: string[]): SpriteEntr
   }
 
   const colorMode = value.colorMode ?? SPRITE_DEFAULTS.colorMode;
-  if (typeof colorMode !== "string" || !COLOR_MODES.includes(colorMode)) {
+  // Widened: `includes` on a `readonly ["tint", "none"]` would only accept those two literals as its
+  // argument, and the whole point here is to test an arbitrary string off disk.
+  if (typeof colorMode !== "string" || !(COLOR_MODES as readonly string[]).includes(colorMode)) {
     problems.push(`${key}: unknown colorMode ${JSON.stringify(colorMode)}`);
     return undefined;
   }
