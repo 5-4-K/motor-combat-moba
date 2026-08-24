@@ -40,6 +40,8 @@ Changing the drive model, hitbox model (OBB), collision-damage rules, friendly-f
 
 `@motor-arena/shared` `"import"` points at `./dist/index.js`. Server and client consume **built** shared, not `src`. After editing shared, rebuild it (`npm run build -w @motor-arena/shared`, or rely on `npm run dev` which builds then watches). Stale `dist` looks like “I changed constants but nothing happened.”
 
+**Build with root `npm run build`, never `npm run build --workspaces`.** The server's tsup step *inlines* shared's `dist` into `packages/server/dist/index.js`, so shared must be built first. The root script enforces that order (shared → server → client); the `--workspaces` form does not, and has been observed building the server one second *before* shared — producing a server bundle silently running the previous version of the sim while every unit test passes, because tests import `src`. If a rule works in the tests but not in a live room, check this first: `grep` the server bundle for the code you just wrote.
+
 ## Commands
 
 ```bash

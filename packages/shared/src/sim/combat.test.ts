@@ -399,9 +399,57 @@ describe("ramming", () => {
     expect(find(result, "c").hp).toBeLessThan(hpOf("rectangle"));
   });
 
-  it("rams a teammate in team mode: there is no friendly fire on shots, but contact is contact", () => {
+  it("costs a teammate nothing in team mode: friendly fire is off for contact as well as shots", () => {
     const result = run({
       world: world({ mode: "team" }),
+      players: [
+        player("a", { x: 800, team: 0, carId: "oval" }),
+        player("b", { x: 800 + GAP, team: 0 }),
+      ],
+    });
+    expect(find(result, "b").hp).toBe(hpOf("rectangle"));
+    expect(find(result, "a").hp).toBe(hpOf("rectangle"));
+  });
+
+  it("does not burn a pair cooldown on a harmless friendly bump", () => {
+    // Otherwise shoving past a teammate would put the pair on cooldown, and a real enemy ram a few
+    // ticks later would be silently swallowed.
+    const result = run({
+      world: world({ mode: "team" }),
+      players: [
+        player("a", { x: 800, team: 0, carId: "oval" }),
+        player("b", { x: 800 + GAP, team: 0 }),
+      ],
+    });
+    expect(result.ramCooldowns.size).toBe(0);
+  });
+
+  it("spares a teammate head-on too, not just from behind", () => {
+    const result = run({
+      world: world({ mode: "team" }),
+      players: [
+        player("a", { x: 800, angle: 0, team: 0, carId: "oval" }),
+        player("b", { x: 800 + GAP, angle: Math.PI, team: 0, carId: "hexagon" }),
+      ],
+    });
+    expect(find(result, "a").hp).toBe(hpOf("rectangle"));
+    expect(find(result, "b").hp).toBe(hpOf("rectangle"));
+  });
+
+  it("still damages an enemy in team mode", () => {
+    const result = run({
+      world: world({ mode: "team" }),
+      players: [
+        player("a", { x: 800, team: 0, carId: "oval" }),
+        player("b", { x: 800 + GAP, team: 1 }),
+      ],
+    });
+    const ramDamage = CAR_TABLE.oval.strength * COMBAT_CONFIG.collisionDamagePerStrength;
+    expect(find(result, "b").hp).toBe(hpOf("rectangle") - ramDamage);
+  });
+
+  it("still damages a same-team id in ffa, where teams are only seating", () => {
+    const result = run({
       players: [
         player("a", { x: 800, team: 0, carId: "oval" }),
         player("b", { x: 800 + GAP, team: 0 }),

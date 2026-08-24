@@ -45,15 +45,17 @@ Firing rides the same gate as movement. `serverTick` reports which session ids a
 input it actually **simulated**, so an input past `NET_CONFIG.maxInputsPerTick` cannot buy a shot the
 sim never ran, and a lobby player spamming `fire` spawns nothing.
 
-### Who a shot may damage
+### Who may damage whom
 
-`canDamage(ownerId, ownerTeam, targetId, targetTeam, mode)`:
+`canDamage(ownerId, ownerTeam, targetId, targetTeam, mode)` is the **single** friendly-fire
+predicate, used by both the weapon and ramming, so the two can never disagree about who is on your
+side:
 
-- **Never the shooter.** A shot is born on the shooter's own hull; without this every shot would
-  kill its own shooter on the tick it was fired.
-- **FFA:** anyone else.
-- **Team:** enemies only. There is no friendly fire on shots — a shot passes straight through a
-  teammate and keeps going.
+- **Never yourself.** A shot is born on the shooter's own hull; without this every shot would kill
+  its own shooter on the tick it was fired.
+- **FFA:** anyone else. Teams are only seating.
+- **Team:** enemies only. A shot passes straight through a teammate and keeps going, and a teammate
+  contact deals no ram damage.
 
 A wreck is not a target: shots pass through it rather than being spent on it.
 
@@ -113,7 +115,11 @@ A damaging contact puts that **pair** on a
 30 Hz. Cooldowns are per pair, server-only, and pruned once expired; a third car still connects while
 a pair is cooling down.
 
-Ram damage ignores mode: teammates *can* ram each other in team mode. Only shots respect teams.
+**Friendly fire is off for rams as well as shots.** In team mode a teammate contact costs nobody hp
+and does not burn the pair cooldown — otherwise shoving past your own side would swallow a real enemy
+ram a few ticks later. Teammates still *collide*: they shove each other around, they just cannot hurt
+each other. The gate is the same `canDamage` the weapon uses, so shots and contact can never disagree
+about who is on your side. In FFA, teams are only seating, and everyone can ram everyone.
 
 ## Elimination and winning
 

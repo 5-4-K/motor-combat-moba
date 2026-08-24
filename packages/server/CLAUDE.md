@@ -5,3 +5,5 @@ Authority: Express + Colyseus, `ArenaRoom`, 30 Hz `serverTick` that drains input
 **Local invariant:** never trust client poses. Apply validated `InputMessage`s only; write `{x, y, angle}` from `stepSim`.
 
 `ArenaRoom.tick` is drive-then-combat: `serverTick` (returns who fired) then `combatTick`. Combat rules live in shared `runCombat`; `sim/combat-bridge.ts` is the only file that maps `ArenaState` onto it and back, and holds no rules. Ram pair cooldowns and the projectile id counter are deliberately **server-only** state, never schema fields.
+
+**Build order matters here.** `tsup` inlines `@motor-arena/shared`'s built `dist` into `dist/index.js`, so shared must be built first. Use root `npm run build` (shared → server → client), never `npm run build --workspaces`, which does not guarantee that order. A stale bundle runs the previous sim while every unit test passes, because tests import `src`.

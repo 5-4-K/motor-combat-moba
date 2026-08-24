@@ -159,6 +159,12 @@ export function runCombat(input: CombatInput): CombatResult {
       const b = players[j]!;
       if (!isFighting(b)) continue;
 
+      // Friendly fire is off for rams too, not just for shots. `canDamage` is the single predicate
+      // that decides it, so shots and contact can never disagree about who is on your side. The
+      // check is symmetric — teammates are teammates in both directions — so asking once is enough.
+      // Teammates still *collide*: they shove each other around, they just cost each other no hp.
+      if (!canDamage(a.sessionId, a.team, b.sessionId, b.team, world.mode)) continue;
+
       const key = `${a.sessionId}|${b.sessionId}`;
       if (world.tick < (ramCooldowns.get(key) ?? 0)) continue;
       // Contact, not interpenetration: driving has already pushed this pair apart to exactly
