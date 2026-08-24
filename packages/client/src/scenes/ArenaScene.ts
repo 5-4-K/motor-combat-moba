@@ -10,12 +10,15 @@ import {
   TICK_RATE_HZ,
   getArena,
 } from "@motor-combat-moba/shared";
+import { carSpriteKey } from "../assets/asset-keys.js";
+import { fitSprite } from "../assets/sprite-fit.js";
 import { isDebugEnabled } from "../config/client-mode.js";
 import { InterpolationBuffer } from "../net/interpolation.js";
 import { PredictionBuffer } from "../net/prediction.js";
 import { buildStepContext } from "../net/step-context.js";
 import { bindViewRouter } from "../net/view.js";
 import { axisOf, drainTicks } from "./arena-input.js";
+import { assetManifest, assetsReady } from "./BootScene.js";
 import { carFillOf, carShapeOf, hexagonPoints } from "./car-visual.js";
 import { extrapolateShot, hpBarColor, hpFraction } from "./combat-visual.js";
 import {
@@ -33,6 +36,11 @@ const ARENA_BORDER = 0x4a4a4a;
 const ARENA_BORDER_PX = 4;
 const HITBOX_STROKE = 0xffffff;
 const HITBOX_PX = 1;
+/** The player-colour ring drawn under every car. Procedural, so it works with any pack — including
+ * pre-coloured art that cannot be tinted. This is the identity layer; tint is the enhancement. */
+const MARKER_RADIUS = 26;
+const MARKER_PX = 3;
+const MARKER_ALPHA = 0.9;
 
 const SHOT_DEPTH = 50;
 const SHOT_FILL = 0xffe14d;
@@ -103,7 +111,7 @@ export class ArenaScene extends Phaser.Scene {
   private room: Room<ArenaState> | undefined;
   private prediction = new PredictionBuffer();
   private readonly interps = new Map<string, InterpolationBuffer>();
-  private readonly cars = new Map<string, Phaser.GameObjects.Graphics>();
+  private readonly cars = new Map<string, Phaser.GameObjects.Container>();
   private readonly visualKeys = new Map<string, string>();
   private arenaGfx: Phaser.GameObjects.Graphics | undefined;
   private arena: ArenaDef | undefined;
@@ -119,6 +127,8 @@ export class ArenaScene extends Phaser.Scene {
    */
   private inputSeq = 0;
   private debug = false;
+  /** Cleared once art finishes loading, so every car is rebuilt with its sprite on the next frame. */
+  private artPending = true;
   private unbind: Array<() => void> = [];
   private countdownText: Phaser.GameObjects.Text | undefined;
   private shotGfx: Phaser.GameObjects.Graphics | undefined;
@@ -141,6 +151,12 @@ export class ArenaScene extends Phaser.Scene {
   create(): void {
     this.resetMatchState();
     this.debug = isDebugEnabled();
+    // Reuses the existing rebuild path rather than adding a second one: dropping the cached visual
+    // keys makes `syncCar` treat every car as changed, so each is redrawn once, now with its sprite.
+    void assetsReady().then(() => {
+      this.artPending = false;
+      this.visualKeys.clear();
+    });
     this.room = this.registry.get("room") as Room<ArenaState> | undefined;
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.onShutdown, this);
 
@@ -457,14 +473,75 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * The car's silhouette in its own local frame, centred on the origin with +x forward, so the whole
-   * drawing follows `angle` with a single `setRotation`.
+   * The car's visual in its own local frame, centred on the origin with +x forward, so the whole
+   * thing follows `angle` with a single `setRotation` on the container.
+   *
+   * A manifest sprite is drawn when one exists and its texture actually loaded; otherwise this falls
+   * through to the silhouette the game has always drawn. The fallback is permanent, not legacy: it
+   * is what lets art be added one file at a time and what keeps a missing or malformed entry from
+   * costing the game its render.
    */
-  private drawCar(carId: string, colorId: number, alive: boolean): Phaser.GameObjects.Graphics {
+  private drawCar(carId: string, colorId: number, alive: boolean): Phaser.GameObjects.Container {
     const { carWidth: w, carHeight: h } = DRIVE_CONFIG;
-    const gfx = this.add.graphics();
+    const fill = carFillOf(colorId);
+    const container = this.add.container(0, 0);
 
-    gfx.fillStyle(carFillOf(colorId), 1);
+    const marker = this.add.graphics();
+    marker.lineStyle(MARKER_PX, fill, MARKER_ALPHA);
+    marker.strokeCircle(0, 0, MARKER_RADIUS);
+    container.add(marker);
+
+    const body = this.spriteFor(carId, fill) ?? this.silhouette(carId, fill, w, h);
+    container.add(body);
+
+    // The hitbox is the OBB the sim actually collides with, which is not the drawn silhouette for
+    // the oval or the hexagon. Only shown behind `?debug=1` so ordinary play sees the shape, not the box.
+    if (this.debug) {
+      const box = this.add.graphics();
+      box.lineStyle(HITBOX_PX, HITBOX_STROKE, 1);
+      box.strokeRect(-w / 2, -h / 2, w, h);
+      container.add(box);
+    }
+    // A wreck keeps its silhouette and its collision box — it is still solid to everyone — and just
+    // fades out, so the field still reads as "someone died here" rather than "someone left".
+    if (!alive) container.setAlpha(WRECK_ALPHA);
+    return container;
+  }
+
+  /**
+   * The manifest sprite for a chassis, or `undefined` when there is no entry or the texture never
+   * loaded. `textures.exists` is the load check: `BootScene` warns on a failed file but carries on,
+   * so a named-but-missing file reaches here as a simply absent texture.
+   */
+  private spriteFor(carId: string, fill: number): Phaser.GameObjects.Image | undefined {
+    const key = carSpriteKey(carId);
+    const entry = assetManifest().sprites[key];
+    if (!entry || !this.textures.exists(key)) return undefined;
+
+    const source = this.textures.get(key).getSourceImage();
+    const fit = fitSprite(
+      entry,
+      { width: source.width, height: source.height },
+      { width: DRIVE_CONFIG.carWidth, height: DRIVE_CONFIG.carHeight },
+    );
+
+    const image = this.add.image(0, 0, key);
+    image.setOrigin(fit.originX, fit.originY);
+    image.setScale(fit.scale);
+    image.setRotation(fit.rotation);
+    if (entry.colorMode === "tint") image.setTint(fill);
+    return image;
+  }
+
+  /** The procedural chassis. Unchanged from what the game drew before any art existed. */
+  private silhouette(
+    carId: string,
+    fill: number,
+    w: number,
+    h: number,
+  ): Phaser.GameObjects.Graphics {
+    const gfx = this.add.graphics();
+    gfx.fillStyle(fill, 1);
     switch (carShapeOf(carId)) {
       case "rect":
         gfx.fillRect(-w / 2, -h / 2, w, h);
@@ -476,16 +553,6 @@ export class ArenaScene extends Phaser.Scene {
         gfx.fillPoints(hexagonPoints(w, h), true);
         break;
     }
-
-    // The hitbox is the OBB the sim actually collides with, which is not the drawn silhouette for
-    // the oval or the hexagon. Only shown behind `?debug=1` so ordinary play sees the shape, not the box.
-    if (this.debug) {
-      gfx.lineStyle(HITBOX_PX, HITBOX_STROKE, 1);
-      gfx.strokeRect(-w / 2, -h / 2, w, h);
-    }
-    // A wreck keeps its silhouette and its collision box — it is still solid to everyone — and just
-    // fades out, so the field still reads as "someone died here" rather than "someone left".
-    if (!alive) gfx.setAlpha(WRECK_ALPHA);
     return gfx;
   }
 
