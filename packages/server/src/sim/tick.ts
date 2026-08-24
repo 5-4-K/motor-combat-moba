@@ -1,18 +1,16 @@
 import {
   ArenaState,
-  DEFAULT_CAR_ID,
-  DRIVE_CONFIG,
   NET_CONFIG,
   PlayerState,
-  PlayerStatus,
   RoomPhase,
+  carIdOf,
   getArena,
-  isCarId,
+  isOnField,
+  otherCarHulls,
   stepSim,
   type ArenaDef,
-  type CarId,
+  type ContextEntry,
   type InputMessage,
-  type Obb,
   type SimBody,
   type StepContext,
 } from "@motor-arena/shared";
@@ -28,9 +26,14 @@ import {
  * the countdown and the car lurches the moment the gate opens, and without the seq advance the
  * client's pending-input buffer never clears, so reconciliation replays stale inputs forever.
  *
- * The mover gate is deliberately the same condition as the `others` filter below. If it were not,
- * a player who is not in the match would be driven around the arena and would collide with real
- * players while staying invisible to *their* collision checks.
+ * The mover gate is deliberately the same predicate as the `others` filter — both are shared
+ * `isOnField`. If they diverged, a player who is not in the match would be driven around the arena
+ * and would collide with real players while staying invisible to *their* collision checks.
+ *
+ * `carIdOf` and `otherCarHulls` live in `@motor-arena/shared` because the client's prediction
+ * assembles the *same* `StepContext` (see `buildStepContext` in the client's `net/step-context.ts`).
+ * `stepSim` is the single lockstep and this is its input, so anything that changes how a hull is
+ * sized or which players are solid must change for both sides at once. Edit them there, not here.
  *
  * Players are stepped in sorted `sessionId` order, and resolution is sequential: each player is
  * stepped against the *current* poses of the others, so a player stepped later already sees the
@@ -51,18 +54,17 @@ export function serverTick(
   const moving = phase === RoomPhase.MATCH;
   // Sorted once per tick. This same array fixes both the order players are stepped in and the order
   // of the hulls built from it, so it is threaded through rather than recomputed.
-  const ids = sortedSessionIds(state);
+  const entries = sortedEntries(state);
 
-  for (const id of ids) {
-    const player = state.players.get(id);
-    const queue = queues.get(id);
-    if (!player || !queue || queue.length === 0) continue;
+  for (const { sessionId, player } of entries) {
+    const queue = queues.get(sessionId);
+    if (!queue || queue.length === 0) continue;
 
     // Only `carId` and `others` vary per player; `world` is fixed for the whole tick.
     // A `null` context means "nothing about this player moves right now": drain only.
     const ctx: StepContext | null =
       moving && isOnField(player)
-        ? { ...world, carId: carIdOf(player), others: otherCarHulls(state, ids, id) }
+        ? { ...world, carId: carIdOf(player), others: otherCarHulls(entries, sessionId) }
         : null;
 
     // Arrival order is not seq order: `withSimulatedLatency` gives every message its own jittered
@@ -90,14 +92,16 @@ function bySeq(a: InputMessage, b: InputMessage): number {
   return a.seq - b.seq;
 }
 
-/** Only players actually on the field are simulated, and only they are solid to each other. */
-function isOnField(player: PlayerState): boolean {
-  return player.status === PlayerStatus.IN_MATCH;
-}
-
-/** Deterministic iteration order — `MapSchema` hands back insertion order, which the room controls. */
-function sortedSessionIds(state: ArenaState): string[] {
-  return [...state.players.keys()].sort();
+/**
+ * Players paired with their session id, sorted by it. Deterministic iteration order — `MapSchema`
+ * hands back insertion order, which the room controls. The `PlayerState` values ride along so the
+ * drain loop can write back to them, and the array doubles as the `ContextEntry[]` that
+ * `otherCarHulls` orders its output by.
+ */
+function sortedEntries(state: ArenaState): Array<ContextEntry & { player: PlayerState }> {
+  return [...state.players.entries()]
+    .map(([sessionId, player]) => ({ sessionId, player }))
+    .sort((a, b) => (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0));
 }
 
 /** The parts of a `StepContext` that are identical for every player on this tick. */
@@ -105,41 +109,6 @@ type TickWorld = Pick<StepContext, "obstacles" | "bounds">;
 
 function tickWorldOf(arena: ArenaDef): TickWorld {
   return { obstacles: arena.obstacles, bounds: { width: arena.width, height: arena.height } };
-}
-
-/**
- * `""` before the car reveal, and anything unrecognised, falls back to the default chassis.
- * `isCarId` is an own-property check: a bare `in` would also accept inherited names like
- * `"constructor"`, whose stat lookup yields undefined and NaNs the whole drive step.
- */
-function carIdOf(player: PlayerState): CarId {
-  return isCarId(player.carId) ? player.carId : DEFAULT_CAR_ID;
-}
-
-/**
- * Hulls of every *other* player currently in the match. Lobby and post-match players are in the
- * room but not on the field, so they must not act as solid walls.
- *
- * `ids` must be sorted, and the resulting array's order is load-bearing rather than cosmetic:
- * `resolveWorld` applies contacts sequentially over `others`, and the last contact resolved is the
- * one guaranteed to end separated. Two hulls swapped here can settle a squeezed car on a different
- * pose, so this order is part of what makes the tick reproducible.
- */
-function otherCarHulls(state: ArenaState, ids: readonly string[], selfId: string): Obb[] {
-  const hulls: Obb[] = [];
-  for (const id of ids) {
-    if (id === selfId) continue;
-    const other = state.players.get(id);
-    if (!other || !isOnField(other)) continue;
-    hulls.push({
-      x: other.x,
-      y: other.y,
-      angle: other.angle,
-      w: DRIVE_CONFIG.carWidth,
-      h: DRIVE_CONFIG.carHeight,
-    });
-  }
-  return hulls;
 }
 
 function bodyOf(player: PlayerState): SimBody {

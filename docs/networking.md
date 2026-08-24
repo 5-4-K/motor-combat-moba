@@ -30,7 +30,11 @@ Per tick, per player, in sorted `sessionId` order:
 
 Angle comparisons are wrapped (`atan2(sin d, cos d)`) because `stepDrive` never normalises `angle`: after minutes of turning it is thousands of radians, and a raw subtraction would measure accumulated winding rather than error.
 
-**Prediction context.** `buildStepContext` assembles the client's `StepContext` to match `serverTick` exactly: `IN_MATCH` players only, hulls sized from `DRIVE_CONFIG` and emitted in **sorted `sessionId` order** (`resolveWorld` resolves contacts sequentially, so order changes the result), obstacles and bounds from `getArena(state.arenaId)`, and `DEFAULT_CAR_ID` as the shared fallback chassis. Remotes enter it at their last-known server pose — the client predicts only itself.
+**Prediction context.** `StepContext` is `stepSim`'s input, so the client's copy must describe the same world the server's does. The parts that decide *who is solid* and *how a hull is sized* are not duplicated — `carIdOf`, `isOnField` and `otherCarHulls` live in `@motor-arena/shared` (`sim/context.ts`) and **both** `serverTick` and the client's `buildStepContext` call them. Change a hull dimension or the fallback chassis there and both sides move together.
+
+What each side still owns is getting its roster into **sorted `sessionId` order** before calling `otherCarHulls`: `resolveWorld` resolves contacts sequentially and the last one resolved is the one guaranteed to end separated, so order changes the result. The server sorts once per tick and reuses the array; the client rebuilds it from `MapSchema.forEach`.
+
+Note the split gate: the `IN_MATCH` filter inside `otherCarHulls` is the **wall** half (who is solid). The **mover** half — whether the local player's inputs move anything — is `ArenaScene.canDrive`, mirroring the server's own mover gate. Remotes enter the context at their last-known server pose; the client predicts only itself.
 
 **Interpolation.** Remotes are drawn from `InterpolationBuffer`, sampled at `now - NET_CONFIG.interpolationDelayMs`. Position lerps between the bracketing snapshots; angle lerps through `atan2` of blended sines and cosines so it crosses the ±π seam the short way. Past the newest snapshot it **holds** rather than extrapolating — a guessed pose slid through a wall the server bounced off is worse than a frame or two of freeze. Old snapshots outside the delay window are pruned, so the buffer does not grow with match length.
 

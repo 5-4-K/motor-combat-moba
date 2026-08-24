@@ -24,6 +24,22 @@ describe("InterpolationBuffer", () => {
     expect(out?.y).toBeCloseTo(100, 10);
   });
 
+  it("brackets against the newest matching pair, not the first one it finds", () => {
+    // Three or more retained snapshots on a non-linear trajectory, with the render time in the
+    // *newest* bracket. Every other test here either holds at an end or retains exactly two
+    // snapshots, so the render time never leaves the first bracket and the scan direction cannot
+    // matter. It matters here: scanning ascending returns the 0..20 pair and extrapolates it out to
+    // x = 12.5, an error of nearly 50 units, twice reconcileSnapPos.
+    const buf = new InterpolationBuffer();
+    buf.push(0, pose(0, 0));
+    buf.push(20, pose(5, 0));
+    buf.push(40, pose(60, 0));
+    buf.push(60, pose(62, 0));
+
+    const out = buf.sample(50 + DELAY);
+    expect(out?.x).toBeCloseTo(61, 10);
+  });
+
   it("holds the first snapshot when the render time predates it", () => {
     const buf = new InterpolationBuffer();
     buf.push(1000, pose(10, 20));

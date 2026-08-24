@@ -1,25 +1,16 @@
 import {
-  DEFAULT_CAR_ID,
-  DRIVE_CONFIG,
-  PlayerStatus,
-  getArena,
-  isCarId,
-  type CarId,
-  type Obb,
+  carIdOf,
+  otherCarHulls,
+  type ArenaDef,
+  type ContextEntry,
+  type ContextPlayer,
   type StepContext,
 } from "@motor-arena/shared";
 
-/** The fields of `PlayerState` this needs, kept structural so tests need no Colyseus schema. */
-export interface ContextPlayer {
-  x: number;
-  y: number;
-  angle: number;
-  status: number;
-  carId: string;
-}
+export type { ContextPlayer };
 
+/** Just the roster. The arena is passed in separately so it is not looked up per predicted tick. */
 export interface ContextState {
-  arenaId: string;
   players: {
     forEach(callback: (player: ContextPlayer, sessionId: string) => void): void;
   };
@@ -27,49 +18,40 @@ export interface ContextState {
 
 /**
  * The `StepContext` the local car is predicted through. This is the client's half of the lockstep:
- * it must describe the same world `serverTick` will describe for the same tick, or prediction
- * diverges and reconciliation spends the match snapping the car back.
+ * it must describe the same world `serverTick` describes for the same tick, or prediction diverges
+ * and reconciliation spends the match snapping the car back.
  *
- * Three things are deliberately copied from `serverTick` rather than reinvented:
+ * The parts that must agree — who is solid, how a hull is sized, and the fallback chassis — are not
+ * reimplemented here. `carIdOf` and `otherCarHulls` are the *same* shared functions `serverTick`
+ * calls, so a P5 change like per-car hull dimensions moves both sides at once. All this function
+ * owns is getting the roster into sorted `sessionId` order, because `resolveWorld` resolves contacts
+ * sequentially and `MapSchema` iteration order is not stable enough to rely on.
  *
- *  - only `PlayerStatus.IN_MATCH` players are solid, the same gate the server uses to decide who
- *    moves and who is a wall;
- *  - hulls are emitted in **sorted sessionId order**, because `resolveWorld` applies contacts
- *    sequentially and the last one resolved is the one guaranteed to end separated;
- *  - an unset or unrecognised `carId` falls back to the shared `DEFAULT_CAR_ID`.
+ * Scope note: the `IN_MATCH` filter inside `otherCarHulls` is only the **wall** half of the gate —
+ * which players are solid. The **mover** half, whether the local player's inputs may move anything
+ * at all, is the caller's: see `ArenaScene.canDrive` and `reconcileLocal`. Calling this function
+ * does not by itself gate movement.
  *
- * Remotes are taken at their last-known *server* pose. The client predicts only itself, so there is
- * nothing better to use, and it is also what the server saw when it built its own `others`.
+ * Remotes enter at their last-known *server* pose. The client predicts only itself, and that is also
+ * what the server saw when it built its own `others`.
  */
-export function buildStepContext(state: ContextState, selfSessionId: string): StepContext {
-  const arena = getArena(state.arenaId);
-
-  const entries: Array<[string, ContextPlayer]> = [];
+export function buildStepContext(
+  arena: ArenaDef,
+  state: ContextState,
+  selfSessionId: string,
+): StepContext {
+  const entries: ContextEntry[] = [];
   state.players.forEach((player, sessionId) => {
-    entries.push([sessionId, player]);
+    entries.push({ sessionId, player });
   });
-  entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  entries.sort((a, b) => (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0));
 
-  const others: Obb[] = [];
-  let carId: CarId = DEFAULT_CAR_ID;
-  for (const [sessionId, player] of entries) {
-    if (sessionId === selfSessionId) {
-      carId = isCarId(player.carId) ? player.carId : DEFAULT_CAR_ID;
-      continue;
-    }
-    if (player.status !== PlayerStatus.IN_MATCH) continue;
-    others.push({
-      x: player.x,
-      y: player.y,
-      angle: player.angle,
-      w: DRIVE_CONFIG.carWidth,
-      h: DRIVE_CONFIG.carHeight,
-    });
-  }
+  const self = entries.find((entry) => entry.sessionId === selfSessionId);
 
   return {
-    carId,
-    others,
+    // A missing local player still yields a usable context; `carIdOf` supplies the default chassis.
+    carId: carIdOf(self?.player ?? { carId: "" }),
+    others: otherCarHulls(entries, selfSessionId),
     obstacles: arena.obstacles,
     bounds: { width: arena.width, height: arena.height },
   };

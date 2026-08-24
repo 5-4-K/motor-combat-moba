@@ -34,6 +34,13 @@ function lerpAngle(from: number, to: number, alpha: number): number {
 export class InterpolationBuffer {
   private snapshots: Snapshot[] = [];
 
+  /**
+   * **`time` must be non-decreasing across calls.** Snapshots are appended without reordering, and
+   * both `sample` and `prune` treat the last element as the newest. Fed out of order — say (1000,
+   * 1100, 1050) — the buffer would take 1050 as its newest, drop a legitimate render time into the
+   * hold-last branch, and silently return a stale pose. Callers use a monotonic clock
+   * (`performance.now()` on patch arrival), so this holds; nothing here enforces it.
+   */
   push(time: number, pose: SimBody): void {
     this.snapshots.push({
       time,

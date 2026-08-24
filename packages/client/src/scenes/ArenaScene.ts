@@ -6,8 +6,6 @@ import {
   DRIVE_CONFIG,
   INPUT_MESSAGE,
   MSG_STUB_END_MATCH,
-  MS_PER_TICK,
-  NET_CONFIG,
   PlayerStatus,
   RoomPhase,
   TICK_RATE_HZ,
@@ -18,6 +16,7 @@ import { InterpolationBuffer } from "../net/interpolation.js";
 import { PredictionBuffer } from "../net/prediction.js";
 import { buildStepContext } from "../net/step-context.js";
 import { bindViewRouter } from "../net/view.js";
+import { axisOf, drainTicks } from "./arena-input.js";
 import { carFillOf, carShapeOf, hexagonPoints } from "./car-visual.js";
 
 const ARENA_DEPTH = -10;
@@ -62,6 +61,7 @@ export class ArenaScene extends Phaser.Scene {
   private readonly cars = new Map<string, Phaser.GameObjects.Graphics>();
   private readonly visualKeys = new Map<string, string>();
   private arenaGfx: Phaser.GameObjects.Graphics | undefined;
+  private arena: ArenaDef | undefined;
   private cursors: Phaser.Types.Input.Keyboard.CursorKeys | undefined;
   private predicted: SimBody | undefined;
   private camFocus: { x: number; y: number } | undefined;
@@ -83,16 +83,7 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.clearCars();
-    this.prediction = new PredictionBuffer();
-    this.predicted = undefined;
-    this.camFocus = undefined;
-    this.inputAccumulatorMs = 0;
-    this.unbindAll();
-    this.countdownText?.destroy();
-    this.stubButton?.destroy();
-    this.countdownText = undefined;
-    this.stubButton = undefined;
+    this.resetMatchState();
     this.debug = isDebugEnabled();
     this.room = this.registry.get("room") as Room<ArenaState> | undefined;
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.onShutdown, this);
@@ -112,7 +103,10 @@ export class ArenaScene extends Phaser.Scene {
     // is deliberately not read — `fire` stays false until projectiles exist.
     this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
 
-    this.drawArena(getArena(this.room.state.arenaId));
+    // Hoisted out of the 30 Hz prediction path: `getArena` is a lookup that throws, and the arena
+    // cannot change while the scene is alive.
+    this.arena = getArena(this.room.state.arenaId);
+    this.drawArena(this.arena);
 
     this.countdownText = this.add
       .text(640, 280, "", { fontSize: "96px", color: "#ffffff" })
@@ -166,23 +160,36 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private onShutdown(): void {
-    this.unbindAll();
-    this.clearCars();
-    this.predicted = undefined;
-    this.camFocus = undefined;
-    this.cursors = undefined;
-    this.countdownText = undefined;
-    this.stubButton = undefined;
+    this.resetMatchState();
     this.room = undefined;
   }
 
-  private clearCars(): void {
+  /**
+   * The single teardown path, called from both `create` and `onShutdown`.
+   *
+   * Phaser guarantees shutdown-before-create, so one of these is always redundant — but only as long
+   * as both reset the *same* fields. Two partial reset paths is exactly the shape that let a
+   * `PredictionBuffer` survive across matches and replay a previous match's pending inputs. Adding a
+   * field here covers both entry points at once; adding it to only one covers neither reliably.
+   */
+  private resetMatchState(): void {
+    this.unbindAll();
     for (const gfx of this.cars.values()) gfx.destroy();
     this.cars.clear();
     this.visualKeys.clear();
     this.interps.clear();
     this.arenaGfx?.destroy();
     this.arenaGfx = undefined;
+    this.arena = undefined;
+    this.countdownText?.destroy();
+    this.countdownText = undefined;
+    this.stubButton?.destroy();
+    this.stubButton = undefined;
+    this.cursors = undefined;
+    this.prediction = new PredictionBuffer();
+    this.predicted = undefined;
+    this.camFocus = undefined;
+    this.inputAccumulatorMs = 0;
   }
 
   update(_time: number, delta: number): void {
@@ -196,26 +203,16 @@ export class ArenaScene extends Phaser.Scene {
 
   // --- input -------------------------------------------------------------------------------
 
-  /**
-   * Inputs go out on the sim clock, not the render clock: one `InputMessage` per `MS_PER_TICK` of
-   * elapsed time regardless of frame rate, so a 144 Hz client does not send (and predict) five times
-   * as many steps as a 30 Hz one.
-   */
+  /** Inputs go out on the sim clock, not the render clock. See `drainTicks` for the arithmetic. */
   private pumpInput(room: Room<ArenaState>, delta: number): void {
     if (!this.canDrive(room)) {
       this.inputAccumulatorMs = 0;
       return;
     }
 
-    // Catch-up after a frame hitch is capped at what the server will actually *apply* in one tick.
-    // Inputs past `maxInputsPerTick` are drained and acked but never simulated, so predicting them
-    // would only manufacture divergence that reconciliation then has to snap away.
-    const maxCatchUpMs = MS_PER_TICK * NET_CONFIG.maxInputsPerTick;
-    this.inputAccumulatorMs = Math.min(this.inputAccumulatorMs + delta, maxCatchUpMs);
-    while (this.inputAccumulatorMs >= MS_PER_TICK) {
-      this.inputAccumulatorMs -= MS_PER_TICK;
-      this.sendInputTick(room);
-    }
+    const { accMs, ticks } = drainTicks(this.inputAccumulatorMs, delta);
+    this.inputAccumulatorMs = accMs;
+    for (let i = 0; i < ticks; i++) this.sendInputTick(room);
   }
 
   /** The same gate `serverTick` uses to decide whether this player's inputs move anything. */
@@ -231,8 +228,8 @@ export class ArenaScene extends Phaser.Scene {
     this.inputSeq += 1;
     const input: InputMessage = {
       seq: this.inputSeq,
-      steer: this.axis(this.cursors?.left, this.cursors?.right),
-      throttle: this.axis(this.cursors?.down, this.cursors?.up),
+      steer: axisOf(this.cursors?.left.isDown ?? false, this.cursors?.right.isDown ?? false),
+      throttle: axisOf(this.cursors?.down.isDown ?? false, this.cursors?.up.isDown ?? false),
       fire: false,
     };
     room.send(INPUT_MESSAGE, input);
@@ -242,18 +239,8 @@ export class ArenaScene extends Phaser.Scene {
     this.predicted = this.prediction.predict(from, { seq: input.seq, input }, this.stepContext(room));
   }
 
-  private axis(
-    negative: Phaser.Input.Keyboard.Key | undefined,
-    positive: Phaser.Input.Keyboard.Key | undefined,
-  ): -1 | 0 | 1 {
-    const back = negative?.isDown ?? false;
-    const forward = positive?.isDown ?? false;
-    if (back === forward) return 0;
-    return forward ? 1 : -1;
-  }
-
   private stepContext(room: Room<ArenaState>): StepContext {
-    return buildStepContext(room.state, room.sessionId);
+    return buildStepContext(this.arena ?? getArena(room.state.arenaId), room.state, room.sessionId);
   }
 
   private reconcileLocal(room: Room<ArenaState>): void {
@@ -312,7 +299,11 @@ export class ArenaScene extends Phaser.Scene {
    * wearing interpolation's clothes.
    */
   private pushRemoteSnapshots(room: Room<ArenaState>): void {
-    const now = this.time.now;
+    // Arrival time, not `this.time.now`. Phaser's clock only advances once per frame in `preUpdate`,
+    // while this fires from the websocket callback *between* frames, so two patches landing in the
+    // same frame would share a timestamp and the earlier pose would be silently shadowed. Phaser's
+    // own clock is driven from `performance.now()`, so `sample` reads the same epoch.
+    const now = performance.now();
     room.state.players.forEach((player, sessionId) => {
       if (sessionId === room.sessionId) return;
       if (player.status !== PlayerStatus.IN_MATCH) return;

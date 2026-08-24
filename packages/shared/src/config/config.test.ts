@@ -87,6 +87,14 @@ describe("weapon / combat / drive / flow knobs exist", () => {
   it("names a default chassis that is a real car id", () => {
     expect(isCarId(DEFAULT_CAR_ID)).toBe(true);
   });
+  it("keeps reconcileEaseRate inside (0, 1] so corrections converge", () => {
+    // The same property CAMERA_CONFIG.camLerp is pinned for, but governing the *car*: at 0 the
+    // predicted pose never closes on the authoritative one, and above 1 every correction overshoots
+    // and oscillates — at >= 2 it diverges outright. The prediction tests all read this constant
+    // back out of NET_CONFIG, so they are structurally incapable of catching a bad value here.
+    expect(NET_CONFIG.reconcileEaseRate).toBeGreaterThan(0);
+    expect(NET_CONFIG.reconcileEaseRate).toBeLessThanOrEqual(1);
+  });
   it("caps how many inputs one player can have applied per tick", () => {
     expect(NET_CONFIG.maxInputsPerTick).toBeTypeOf("number");
     expect(Number.isInteger(NET_CONFIG.maxInputsPerTick)).toBe(true);

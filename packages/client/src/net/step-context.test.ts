@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  DEFAULT_ARENA_ID,
-  DEFAULT_CAR_ID,
-  DRIVE_CONFIG,
-  PlayerStatus,
-  getArena,
-} from "@motor-arena/shared";
+import { DEFAULT_ARENA_ID, DEFAULT_CAR_ID, DRIVE_CONFIG, PlayerStatus, getArena } from "@motor-arena/shared";
 import { buildStepContext, type ContextPlayer, type ContextState } from "./step-context.js";
 
 function player(over: Partial<ContextPlayer> = {}): ContextPlayer {
@@ -19,9 +13,10 @@ function player(over: Partial<ContextPlayer> = {}): ContextPlayer {
   };
 }
 
+const ARENA = getArena(DEFAULT_ARENA_ID);
+
 function state(players: Record<string, ContextPlayer>): ContextState {
   return {
-    arenaId: DEFAULT_ARENA_ID,
     players: {
       forEach(callback) {
         for (const [sessionId, value] of Object.entries(players)) callback(value, sessionId);
@@ -32,14 +27,14 @@ function state(players: Record<string, ContextPlayer>): ContextState {
 
 describe("buildStepContext", () => {
   it("takes obstacles and bounds from the state's arena", () => {
-    const arena = getArena(DEFAULT_ARENA_ID);
-    const ctx = buildStepContext(state({ me: player() }), "me");
-    expect(ctx.obstacles).toEqual(arena.obstacles);
-    expect(ctx.bounds).toEqual({ width: arena.width, height: arena.height });
+    const ctx = buildStepContext(ARENA, state({ me: player() }), "me");
+    expect(ctx.obstacles).toEqual(ARENA.obstacles);
+    expect(ctx.bounds).toEqual({ width: ARENA.width, height: ARENA.height });
   });
 
   it("omits the local player from others", () => {
     const ctx = buildStepContext(
+      ARENA,
       state({ me: player({ x: 10 }), other: player({ x: 20 }) }),
       "me",
     );
@@ -48,6 +43,7 @@ describe("buildStepContext", () => {
 
   it("omits players who are not in the match, matching the server's mover gate", () => {
     const ctx = buildStepContext(
+      ARENA,
       state({
         me: player(),
         lobby: player({ x: 30, status: PlayerStatus.READY }),
@@ -63,6 +59,7 @@ describe("buildStepContext", () => {
     // `resolveWorld` applies contacts sequentially, so a different order can settle a squeezed car
     // on a different pose. Insertion order is not stable between server and client.
     const ctx = buildStepContext(
+      ARENA,
       state({
         me: player(),
         zulu: player({ x: 1 }),
@@ -75,7 +72,7 @@ describe("buildStepContext", () => {
   });
 
   it("sizes hulls from DRIVE_CONFIG and carries the other car's angle", () => {
-    const ctx = buildStepContext(state({ me: player(), them: player({ angle: 1.25 }) }), "me");
+    const ctx = buildStepContext(ARENA, state({ me: player(), them: player({ angle: 1.25 }) }), "me");
     expect(ctx.others[0]).toEqual({
       x: 0,
       y: 0,
@@ -86,17 +83,17 @@ describe("buildStepContext", () => {
   });
 
   it("uses the local player's chosen car", () => {
-    expect(buildStepContext(state({ me: player({ carId: "hexagon" }) }), "me").carId).toBe("hexagon");
+    expect(buildStepContext(ARENA, state({ me: player({ carId: "hexagon" }) }), "me").carId).toBe("hexagon");
   });
 
   it("falls back to the shared default chassis for an unset or unknown carId", () => {
-    expect(buildStepContext(state({ me: player({ carId: "" }) }), "me").carId).toBe(DEFAULT_CAR_ID);
-    expect(buildStepContext(state({ me: player({ carId: "constructor" }) }), "me").carId).toBe(
+    expect(buildStepContext(ARENA, state({ me: player({ carId: "" }) }), "me").carId).toBe(DEFAULT_CAR_ID);
+    expect(buildStepContext(ARENA, state({ me: player({ carId: "constructor" }) }), "me").carId).toBe(
       DEFAULT_CAR_ID,
     );
   });
 
   it("falls back to the default chassis when the local player is missing entirely", () => {
-    expect(buildStepContext(state({ other: player() }), "me").carId).toBe(DEFAULT_CAR_ID);
+    expect(buildStepContext(ARENA, state({ other: player() }), "me").carId).toBe(DEFAULT_CAR_ID);
   });
 });
