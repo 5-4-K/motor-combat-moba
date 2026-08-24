@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { BootScene } from "./scenes/BootScene.js";
 import { JoinScene } from "./scenes/JoinScene.js";
+import { LobbyScene } from "./scenes/LobbyScene.js";
 import { ArenaScene } from "./scenes/ArenaScene.js";
 
 declare global {
@@ -16,7 +17,8 @@ const game = new Phaser.Game({
   parent: "game",
   backgroundColor: "#111111",
   pixelArt: false,
-  scene: [BootScene, JoinScene, ArenaScene],
+  dom: { createContainer: true },
+  scene: [BootScene, JoinScene, LobbyScene, ArenaScene],
 });
 
 window.game = game;

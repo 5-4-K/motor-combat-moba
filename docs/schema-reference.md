@@ -49,4 +49,25 @@ Colyseus `@type` fields. Enums are explicit uint8; never renumber. `pendingCarId
 | `spawnTick` | uint32 | `0` | Tick spawned |
 | `alive` | boolean | `true` | False when spent |
 
+## Join options
+
+`joinOrCreate(ROOM_NAME, { name })`. `name` is required (1–16 characters after trim). The server rejects invalid names (`4000`) and duplicates (`4001`, `"Name is taken"`). A 7th joiner is rejected by `maxClients` (room full).
+
+## Lobby messages
+
+Client → server (intents only; never sim state):
+
+| Type | Constant | Payload | Who |
+|---|---|---|---|
+| `switch_team` | `MSG_SWITCH_TEAM` | none | Ready player (flips `team` 0↔1) |
+| `set_mode` | `MSG_SET_MODE` | `{ mode }` (`GameMode` FFA=0 / TEAM=1) | Host, and only when nobody is In match |
+| `start_match` | `MSG_START_MATCH` | none | Host. Server runs `canStart`; on failure replies `start_error` |
+| `kick` | `MSG_KICK` | `{ sessionId }` | Host. Target must be Ready or Post-match, not self (`4002`, `"Kicked"`) |
+
+Server → client:
+
+| Type | Constant | Payload |
+|---|---|---|
+| `start_error` | `MSG_START_ERROR` | `{ error }` (stable strings from `canStart`) |
+
 Do not renumber enums.
