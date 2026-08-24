@@ -30,6 +30,8 @@ export { ArenaState } from "./schema/ArenaState.js";
 export { stepSim } from "./sim/step.js";
 export type { SimBody } from "./sim/step.js";
 export { stepDrive } from "./sim/drive.js";
+export { resolveWorld } from "./sim/collide.js";
+export type { Aabb, Obb } from "./sim/collide.js";
 
 export type { CarDef, CarId, ColorDef } from "./config/types.js";
 export { CAR_TABLE, forwardMaxSpeedOf, hpOf, reverseMaxSpeedOf } from "./config/car-config.js";
