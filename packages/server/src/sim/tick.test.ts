@@ -185,7 +185,8 @@ describe("serverTick", () => {
       RoomPhase.MATCH,
     );
 
-    // Flooding the socket buys no extra distance.
+    // Flooding buys no distance *beyond the cap*: both clients here send `maxInputsPerTick`, so
+    // this pins the ceiling rather than comparing a flooder against an honest client.
     expect(poseOf(flooder)).toEqual(poseOf(honest));
     expect(flooder.x).toBeGreaterThan(300);
     // ...but the whole burst is drained and acked, so the queue cannot grow and the client's

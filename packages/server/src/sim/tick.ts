@@ -77,8 +77,9 @@ export function serverTick(
     for (const [index, msg] of batch.entries()) {
       // Past the cap an input is still drained and still acked, but never simulated. Intake is
       // unbounded, so without this a client sending at 4x the tick rate would take 4x as many steps
-      // per tick and simply move faster than everyone else. A flooder now gains no distance; they
-      // only diverge from the server and get snapped back by reconciliation.
+      // per tick and simply move faster than everyone else. The cap bounds that advantage at
+      // `maxInputsPerTick`x — it does not remove it — and the discarded inputs make a flooder
+      // diverge from the server, so reconciliation snaps them back. See NET_CONFIG.
       if (ctx !== null && index < NET_CONFIG.maxInputsPerTick) {
         writeBody(player, stepSim(bodyOf(player), msg, dt, ctx));
       }
