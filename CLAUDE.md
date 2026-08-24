@@ -28,6 +28,7 @@ LAN-hosted top-down 2D multiplayer car combat (last player/team standing, max 6)
 | Language / import rules | [`docs/conventions.md`](docs/conventions.md) |
 | Plan sequence | [`docs/roadmap.md`](docs/roadmap.md) |
 | Weapon, ram, elimination rules | [`docs/combat-model.md`](docs/combat-model.md) |
+| Art, manifest, asset swapping | [`docs/asset-pipeline.md`](docs/asset-pipeline.md) |
 | Terms | [`docs/glossary.md`](docs/glossary.md) |
 | Package local rules | `packages/shared/CLAUDE.md`, `packages/server/CLAUDE.md`, `packages/client/CLAUDE.md` |
 | Spec + tracker | [`docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md`](docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md), [`docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md`](docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md) |

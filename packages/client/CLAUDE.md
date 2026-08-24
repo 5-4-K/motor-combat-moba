@@ -13,3 +13,5 @@ Keep the scene thin: pure, testable logic lives beside it (`net/step-context.ts`
 `?debug=1` draws the car OBB hitbox.
 
 Combat is drawn, never predicted: shots come from `state.projectiles` (cosmetically extrapolated along their own velocity by `combat-visual.ts`), HP from `PlayerState.hp`. A wreck stops driving, predicting, and interpolating, and gains the spectate controls in `spectate.ts`.
+
+Art is data, not code. `public/art/manifest.json` maps namespaced keys (`car.rectangle`) to sprite entries; `src/assets/` parses and fits them. A missing, malformed, or unloadable entry falls back to the procedural silhouette in `drawCar` — that fallback is permanent, not legacy, and is what lets art be added one file at a time. Sprites are cosmetic: they are fitted to the OBB hull and never change it. `?dev=assets` opens the asset tuning tool, which is stripped from release builds and asserted absent by `scripts/build-release.mjs`.

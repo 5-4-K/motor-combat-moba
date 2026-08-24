@@ -1,0 +1,218 @@
+# Asset pipeline
+
+How car art gets into the game, and what happens when it does not. Balance and hitboxes are
+untouched by any of this — see [`combat-model.md`](combat-model.md) and
+[`networking.md`](networking.md) for those. This doc is about the client's `public/art/` folder,
+the manifest that names what is in it, and the procedural fallback that means a missing PNG is
+never a bug.
+
+## The `public/art/` layout
+
+```
+packages/client/public/art/
+  manifest.json   # namespaced key -> sprite entry
+  README.md       # the same field table reproduced below, for whoever is dropping in a PNG
+  cars/           # convention for car PNGs (README.md), created the first time you add one
+```
+
+Everything under `public/` is served unhashed and unbundled — Vite copies it straight to the
+`dist` root. Nothing here needs a code change or a rebuild: drop a PNG in `cars/`, add a row to
+`manifest.json`, reload the page. `MANIFEST_URL` (`packages/client/src/assets/load-manifest.ts`)
+is the single constant that names where the client fetches the manifest from
+(`art/manifest.json`), and the folder is `art/`, not `assets/`, because Vite's
+`build.assetsDir` already claims `assets/` for hashed JS and CSS — putting source art there would
+merge it into the same directory as the bundle output.
+
+Today `manifest.json` ships with an empty `sprites` object (`{}`), so every car currently renders
+as its procedural silhouette. That is not a placeholder state waiting to be filled in before
+release — see [Resolution chain](#resolution-chain) below.
+
+## Manifest schema
+
+Reproduced from [`packages/client/public/art/README.md`](../packages/client/public/art/README.md)
+— edit that copy first if the two ever need to change, since two tables that drift apart are worse
+than one.
+
+All optional except `file`.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `file` | required | Path relative to this folder. |
+| `rotationOffset` | `0` | Radians added to the car's angle. The sim's forward is `+x`, i.e. pointing **right**. Art drawn facing **up** needs `1.5707963`. |
+| `scale` | `"fit"` | `"fit"` contains the art inside the 48x32 hull. A positive number is an explicit multiplier — use it when pack art has heavy transparent padding and `"fit"` renders it too small. |
+| `colorMode` | `"tint"` | `"tint"` multiplies the texture by the player colour and needs desaturated art. `"none"` leaves pre-coloured art alone; the coloured marker under the car still identifies the player. |
+| `origin` | `[0.5, 0.5]` | Normalised origin, for art whose visual centre is not its geometric centre. |
+
+The defaults live in code as `SPRITE_DEFAULTS` and the type as `SpriteEntry`, both in
+`packages/client/src/assets/manifest-schema.ts`. A manifest entry is JSON, not TypeScript — the
+schema is enforced at load time by `parseManifest`, not at compile time — which is what lets art
+change without a rebuild (see D1 in the
+[design doc](superpowers/specs/2026-08-25-asset-pipeline-design.md) for why that trade was made
+deliberately).
+
+`parseManifest` never throws and never rejects the whole file. A malformed row — missing `file`,
+an unknown `colorMode`, a non-finite `rotationOffset` — is dropped and logged to the console as one
+line in `problems`; every other entry still loads. A typo costs one car its sprite, not the game
+its render. The same function also refuses `__proto__`, `constructor`, and `prototype` as manifest
+keys, since the manifest is parsed from on-disk JSON and those names would otherwise write through
+a plain object's prototype.
+
+## Resolution chain
+
+Adding a car sprite means understanding four steps, in order:
+
+```
+carId ("hexagon")
+  -> carSpriteKey        "car.hexagon"                packages/client/src/assets/asset-keys.ts
+  -> manifest lookup     sprites["car.hexagon"]        assetManifest() in BootScene.ts
+  -> sprite               tinted/rotated/fitted image, if the entry exists AND its texture loaded
+  -> procedural fallback  drawCar's silhouette, otherwise
+```
+
+`carSpriteKey(carId)` (`packages/client/src/assets/asset-keys.ts`) builds the manifest key. It is
+namespaced (`car.<id>`) so that powers, projectiles, and effects can land as new rows in the same
+flat map later without a new schema section — see D5 in the design doc. An unrecognised `carId`
+resolves to `DEFAULT_CAR_ID`, the same fallback the sim itself takes, so a stale or hostile id
+draws the default chassis rather than nothing.
+
+`BootScene.assetManifest()` (`packages/client/src/scenes/BootScene.ts`) returns the parsed
+manifest, fetched once at boot via `loadManifest` and kept module-level because Phaser textures
+live in its global `TextureManager` — whichever scene loads them, every scene can draw them.
+`BootScene` also queues an `this.load.image(key, ...)` for every manifest entry and awaits
+completion before `assetsReady()` resolves; `ArenaScene.create()` awaits that promise before its
+first frame, so no texture ever uploads mid-match (a GPU stall would read as a frame spike with
+six cars on screen).
+
+`ArenaScene.drawCar` (`packages/client/src/scenes/ArenaScene.ts`) is where the chain resolves per
+car. It calls `spriteFor(carId, fill)` first; that returns a Phaser image only if **both** an
+entry exists in the manifest **and** `this.textures.exists(key)` is true. The second half of that
+check is the one that surprises people: a manifest row pointing at a filename that does not exist
+on disk is not a parse error — the JSON is well-formed — so `parseManifest` accepts it. Loading
+fails later, in `BootScene`'s `FILE_LOAD_ERROR` handler, which logs
+`` [art] failed to load "<key>" from <url> `` and moves on rather than stalling boot. The key
+simply never enters the texture manager, `textures.exists` is false, and `spriteFor` returns
+`undefined`. The two failure modes — a missing manifest entry and an unloadable file — look
+identical at the point they resolve, and both fall through to `drawCar`'s `silhouette(...)`: the
+same rect/ellipse/hexagon shapes the game has always drawn, chosen by `carShapeOf` and filled with
+`carFillOf(colorId)`.
+
+When you have added a PNG and it still shows as a hexagon (or whatever the procedural shape is),
+check in this order: is the manifest key spelled `car.<carId>` exactly; does `file` in the
+manifest match the path under `public/art/` exactly (case matters on a case-sensitive deploy even
+if not on your dev machine); and does the browser console show an `[art] failed to load` or
+`[art] <problem>` line. `?dev=assets` (below) shows all three states — sprite, missing entry, and
+failed load — on one screen without needing to join a match.
+
+Sprite fitting itself — `"fit"` containing the art inside the 48×32 hull, `rotationOffset` being
+added to the body's `angle`, `origin` being applied — is `fitSprite` in
+`packages/client/src/assets/sprite-fit.ts`, pure and independent of Phaser so it is unit-tested
+without a browser. `"fit"` always **contains**, never covers: a sprite that overflowed the hull it
+was drawn against would visually claim a reach the car's OBB does not have, since the hull the sim
+collides with never follows the art (D3 in the design doc — sprites are a cosmetic skin over an
+unchanged hull, and that is load-bearing for determinism: if hitboxes tracked art, server/client
+agreement in `stepSim` would depend on a PNG's pixel dimensions).
+
+The player-colour ring (`MARKER_RADIUS` in `ArenaScene.ts`) is drawn under every car regardless of
+whether a sprite exists, tint is set, or `colorMode` is `"none"`. It is the identity layer; tint,
+where the art supports it, is the enhancement on top. This is why swapping in a pre-coloured pack
+sprite with `colorMode: "none"` still leaves players able to tell each other apart.
+
+## Size limits, and why they are about dimensions
+
+**128×128 is the working size, 256×256 the ceiling.** Cars render at roughly 48×32 world units, so
+even 128² is generous headroom, not a tight budget.
+
+The reason to actually hold that ceiling is VRAM, not download time: **texture memory cost is
+driven by a PNG's decoded dimensions, not its file size on disk.** A 40 KB PNG at 2048×2048 still
+decodes to roughly 16 MB of uploaded texture (2048 × 2048 × 4 bytes per RGBA pixel) — the same GPU
+cost as a print-resolution photo, regardless of how well the file compressed. This is the trap that
+pack downloads and AI-generated art fall into constantly: both tend to hand you oversized square
+canvases with the actual artwork occupying a small fraction of the frame, and a quick glance at
+"it's only 40 KB" tells you nothing about what it costs once it is a texture. Downscale before
+committing — `mogrify` or any batch image tool works, since this is a one-time pass, not a build
+step (see [Deferred](#deferred) below for why there is no automated downscale yet).
+
+## `?dev=assets`
+
+Reload the client at `?dev=assets` and `BootScene` routes into `AssetTuningScene`
+(`packages/client/src/dev/AssetTuningScene.ts`) instead of the join screen: every chassis in
+`CAR_TABLE`, parked on its own OBB hull with no server connection, art or "no art" label, key name,
+and current `scale`/`rotationOffset` printed underneath. It exists because `rotationOffset`,
+`scale`, and `origin` have to be tuned by eye per sprite, and the alternative loop is a full
+rejoin per attempt — the client has no reconnect or session persistence, so checking one sprite's
+alignment any other way means the name prompt, lobby, car select, and countdown again before you
+can look at the car once more.
+
+This only works when the page is actually running in dev mode — `npm run dev`'s Vite dev server,
+not a built `dist`. That is not a limitation to work around; it is the point.
+
+### How the dev-only guarantee is enforced
+
+`?dev=assets` **must not exist in a release build**, and the guarantee is not "we remembered to
+delete it" — it is structural, in three parts:
+
+1. In `BootScene.create()`, the dynamic import of the dev registry sits lexically inside
+   `if (import.meta.env.DEV) { ... }`. `import.meta.env.DEV` is a compile-time constant Vite
+   replaces with the literal `false` during `vite build`, which makes the whole branch dead code
+   that Rollup drops — including the `import()` call inside it, so no chunk for
+   `AssetTuningScene` or the dev registry is ever emitted into `dist`. This only holds because the
+   import is *inside* the `if`, not hoisted into a method the `if` merely calls: Rollup does not
+   tree-shake class methods, so a helper method containing the same `import()` would survive dead
+   code elimination even with every call site unreachable.
+2. `AssetTuningScene` is reached only through `DEV_TOOLS` in `packages/client/src/dev/registry.ts`
+   — it is not in `main.ts`'s `scene:` array, so there is no second path that could keep it alive
+   in the bundle independent of the `import.meta.env.DEV` guard.
+3. `assertNoDevOnlyCode` in `scripts/build-release.mjs` does not trust either of the above — it
+   greps every `.js` file under the built `packages/client/dist` for the literal string
+   `"MOTOR DEV TOOL"` (`DEV_ONLY_MARKERS`) and throws, failing the release build, if it finds one.
+   That string is the heading `AssetTuningScene` renders on its own canvas
+   (`const MARKER = "MOTOR DEV TOOL"` in `AssetTuningScene.ts`) and is deliberately a local literal
+   there rather than an import of the registry's `DEV_TOOL_MARKER` constant, so the check still
+   fires even if the scene someday reaches a bundle by some route that bypasses the registry
+   entirely. `npm run build:release` runs this check as part of the release build; it does not
+   scan `public/art/README.md`, which mentions the same marker in prose and legitimately should.
+
+A registry rather than a boolean flag per tool is deliberate too: a balance-tuning tool is expected
+to join the asset tuner eventually (see the note in the plan's "explicitly out of scope" section),
+and one selector (`?dev=<id>`) with one registry, one dynamic-import site, and one guard is what
+keeps adding tool number two a one-line change instead of a second copy of this whole strip
+mechanism.
+
+## Deferred
+
+Each of these was considered and deliberately deferred, not overlooked — each is its own future
+spec and plan:
+
+- **The online build step.** Today dev and LAN both read `public/art/` straight off disk at full
+  resolution, unhashed. That is fine on a LAN, where the art ships in the same zip as everything
+  else and cache headers don't matter. It stops being fine the moment the game is hosted over the
+  internet: unhashed assets under weak cache headers either go stale on every deploy or can't be
+  cache-busted at all, and full-resolution loose PNGs are wire bytes 1:1 since images don't gzip
+  the way the JS bundle does. The fix — downscale, convert to WebP, content-hash the filenames, and
+  rewrite the manifest to point at the hashed names, all inside the build — is additive on top of
+  the manifest indirection that already exists: nothing that reads the manifest today needs to
+  change when this lands, because it will still just be asking for a key. Building it now would be
+  speculative; v1 is LAN-only.
+- **Particle and spritesheet effects.** The manifest schema is flat and namespaced (`car.*` today)
+  specifically so an `effects` half can arrive as more rows, not a schema rewrite. It isn't built
+  because there is nothing to drive it yet — no power exists in the sim. When it lands, particle
+  configs are the intended shape over baked spritesheets, and for modifiability rather than raw
+  performance: a 16-frame sheet is a single quad and is actually cheaper on the GPU than a 30–50
+  particle burst, but a particle system's parameters (spread, lifetime, colour) are tunable without
+  regenerating art. Emitters would need to be pre-created and pooled at boot with `maxParticles`
+  caps, matching the "nothing loads during a match" rule sprites already follow.
+- **Powers art.** No power exists in the sim yet, so there's nothing to draw. The flat key
+  namespace (`power.boost.icon`, `power.boost.pickup`, and so on) is what lets this be new rows
+  when it does, not a new section of the schema.
+- **Themes.** Not designed and not scheduled — possibly never. The only affordance kept for it is
+  that `MANIFEST_URL` is a single constant with no project name baked into the path, which costs
+  nothing today and is the one thing that would otherwise have to be found and changed everywhere
+  later.
+- **A texture atlas.** At six players and roughly twenty sprites, the GPU batching an atlas buys is
+  negligible — Phaser 3's WebGL renderer already binds many texture units at once. What an atlas
+  would cost is exactly the friction this whole pipeline exists to avoid: changing one car's art
+  means re-running a packer, two files change instead of one, the sheet itself is an unreviewable
+  binary blob in git diffs, and packed neighbours risk edge-bleed fringing. If the online build's
+  request count ever justifies it, packing belongs in that build step — it would run against the
+  same loose `public/art/` source and rewrite the manifest to atlas form, and because every
+  consumer only ever asks the manifest for a key, no scene code would need to change.
