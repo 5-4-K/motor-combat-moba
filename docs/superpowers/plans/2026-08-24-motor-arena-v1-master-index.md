@@ -75,7 +75,7 @@ Update this table when a plan’s Validation section has passed. Status values: 
 | P1 | Done | 2026-08-24 | 2026-08-24 | agent: `npm run test -w @motor-arena/shared` (23), `npm run build --workspaces`, `npm run test --workspaces` | Config tables, arena-01 (team A mid spawn y=960 to miss obstacle), full v1 schema + ProjectileState. No gameplay. |
 | P2 | Done | 2026-08-24 | 2026-08-24 | agent: shared tests 47, `npm run build --workspaces`, live two-client protocol + two Chrome contexts on `npm run dev` | Unique names/colors, team panels, switch, start errors, kick 4002, host transfer, 7th `"Room is full"` (singleton arena; joinOrCreate no longer opens a second room). |
 | P3 | Not started | — | — | — | |
-| P4 | Not started | — | — | — | |
+| P4 | In progress | 2026-08-24 | — | agent: `npm run test --workspaces` (242: shared 138, server 44, client 60), `npm run build --workspaces`, `npm test` incl. scripts 5/5 — **Validation 3–4 (two-tab playtest) NOT run** | Driving, bounce, prediction, interpolation, follow-cam, car shapes all implemented and reviewed. Automated Validation 1–2 pass. Awaiting human two-tab playtest before Done. |
 | P5 | Not started | — | — | — | |
 
 **When a plan is completed:** set Status to `Done`, fill Completed (YYYY-MM-DD), name who/what validated (human playtest, `npm run test --workspaces`, zip smoke, etc.), and one line in Notes. Commit the tracker update with the plan’s last commit or immediately after.
