@@ -13,6 +13,7 @@ import {
   PlayerStatus,
   badgeColor,
 } from "@motor-arena/shared";
+import { bindViewRouter } from "../net/view.js";
 import { lobbyRenderSignature } from "./lobby-signature.js";
 
 const FALLBACK_HEX = "#888888";
@@ -61,6 +62,8 @@ export class LobbyScene extends Phaser.Scene {
   }
 
   private bindRoom(room: Room<ArenaState>): void {
+    this.unbind.push(bindViewRouter(this, room));
+
     const onState = (): void => {
       this.renderIfLobbyChanged();
     };
