@@ -14,6 +14,7 @@ export { INPUT_MESSAGE } from "./net/input.js";
 export type { InputMessage } from "./net/input.js";
 
 export { PlayerState } from "./schema/PlayerState.js";
+export { ProjectileState } from "./schema/ProjectileState.js";
 export { ArenaState } from "./schema/ArenaState.js";
 
 export { stepSim } from "./sim/step.js";
