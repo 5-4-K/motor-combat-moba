@@ -272,3 +272,76 @@ describe("resolveWorld - purity and determinism", () => {
     expect(out).not.toBe(start);
   });
 });
+
+describe("resolveWorld - deep penetration (containment on a separating axis)", () => {
+  // ARENA_01's centre block. Spans x[1080,1320], y[620,980].
+  const block: Aabb = { x: 1080, y: 620, w: 240, h: 360 };
+  const ARENA = { width: 2400, height: 1600 };
+
+  /** Car centre for a car whose leading +x edge is `depth` past the block's left face. */
+  function centreAtDepth(depth: number): number {
+    return block.x + depth - CAR_W / 2;
+  }
+
+  // The old raw-intersection MTV picked the wrong axis once `depth` exceeded the car's extent
+  // perpendicular to the face (32), shoving the car sideways along the wall instead of back out.
+  for (const depth of [33, 60, 100]) {
+    it(`ejects a car ${depth} deep through the left face along the face normal`, () => {
+      const start = body({ x: centreAtDepth(depth), y: 800, angle: 0, speed: 100 });
+      expect(overlaps(carObb(start), boxObb(block))).toBe(true);
+
+      const out = resolveWorld(start, [], [block], ARENA);
+
+      expect(overlaps(carObb(out), boxObb(block))).toBe(false);
+      // Push must be along the face normal (-x), not sideways along the face.
+      expect(out.x).toBeLessThan(start.x);
+      expect(out.y).toBe(start.y);
+      // A normal opposing travel must actually fire the bounce.
+      expect(out.speed).toBeCloseTo(-100 * DRIVE_CONFIG.restitution);
+    });
+  }
+
+  it("ejects a car sitting fully inside the block, taking the nearest face out", () => {
+    // Off-centre: nearest exit is the top face (y = 620), 210 away vs 240/270/150+ elsewhere.
+    const start = body({ x: 1200, y: 700, angle: 0, speed: 0 });
+    const out = resolveWorld(start, [], [block], ARENA);
+
+    expect(overlaps(carObb(out), boxObb(block))).toBe(false);
+    expect(out.y).toBeLessThan(start.y);
+    expect(out.x).toBe(start.x);
+  });
+
+  it("ejects a car at the block's exact centre", () => {
+    const start = body({ x: 1200, y: 800, angle: 0, speed: 0 });
+    const out = resolveWorld(start, [], [block], ARENA);
+    expect(overlaps(carObb(out), boxObb(block))).toBe(false);
+  });
+
+  it("ejects a car deeply overlapping another car", () => {
+    const start = body({ x: 500, y: 500, angle: 0, speed: 0 });
+    const other: Obb = { x: 505, y: 500, angle: 0, w: CAR_W, h: CAR_H };
+    const out = resolveWorld(start, [other], [], BOUNDS);
+
+    expect(overlaps(carObb(out), other)).toBe(false);
+    // Near-coincident cars separate along their short axis: 32 up beats 43 sideways, so the floor
+    // here is carHeight, not carWidth. An MTV is the *minimum* push, not the axis you expected.
+    expect(Math.hypot(out.x - other.x, out.y - other.y)).toBeGreaterThanOrEqual(CAR_H - TOUCH_SLACK);
+  });
+
+  it("settles in a single resolve, however deep the penetration", () => {
+    // The guard against an undersized MTV: if one resolve truly separates the body, resolving the
+    // result again must change nothing. A too-short push shows up here as continued movement.
+    for (const depth of [1, 32, 33, 100, 239]) {
+      const once = resolveWorld(body({ x: centreAtDepth(depth), y: 800, angle: 0, speed: 100 }), [], [block], ARENA);
+      const twice = resolveWorld(once, [], [block], ARENA);
+      expect(twice).toEqual(once);
+    }
+  });
+
+  it("clamps a body shoved far past a world bound", () => {
+    const start = body({ x: BOUNDS.width + 500, y: 500, angle: 0, speed: 100 });
+    const out = resolveWorld(start, [], [], BOUNDS);
+    const { hx } = hullHalfExtents(out.angle);
+    expect(out.x + hx).toBeLessThanOrEqual(BOUNDS.width + TOUCH_SLACK);
+  });
+});

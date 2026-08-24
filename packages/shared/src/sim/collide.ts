@@ -35,11 +35,17 @@ interface Span {
 const MIN_OVERLAP = 1e-6;
 
 /**
- * Resolving one contact can push the body into another (out of an obstacle and into a wall, say).
- * Two passes settle the common corner cases; a body wedged somewhere it cannot fit — e.g. wider
- * than the gap between two obstacles — simply stops after the second pass rather than looping.
+ * One pass is enough: a correct MTV separates a contact outright, so re-running the sweep is a
+ * no-op for every case measured against ARENA_01 — deep penetrations, corners, pileups, and a body
+ * fully contained in an obstacle all settle after the first pass.
+ *
+ * This was briefly 2 to paper over an MTV that used the raw span intersection and so came out too
+ * short whenever one projection was contained in the other. Extra passes never actually fixed that
+ * (the wrong axis was re-picked every pass); they only masked how short the push was. A second pass
+ * is now strictly harmful in one case: a body that genuinely cannot fit — wider than the gap between
+ * two obstacles — bounces once per pass and sheds speed it should have kept.
  */
-const RELAXATION_PASSES = 2;
+const RELAXATION_PASSES = 1;
 
 /**
  * Push a body out of the world it is overlapping and bounce its speed. Pure: inputs are never
@@ -138,27 +144,38 @@ function mtvBetween(a: Obb, b: Obb): Vec2 | null {
   const cornersB = obbCorners(b);
   const axes = [...axesOf(a), ...axesOf(b)];
 
-  let bestOverlap = Infinity;
+  let bestDepth = Infinity;
   let bestAxis: Vec2 | null = null;
+  let bestDirection = 1;
 
   for (const axis of axes) {
     const spanA = projectOnto(cornersA, axis);
     const spanB = projectOnto(cornersB, axis);
-    const overlap = Math.min(spanA.max, spanB.max) - Math.max(spanA.min, spanB.min);
-    if (overlap <= MIN_OVERLAP) return null;
-    if (overlap < bestOverlap) {
-      bestOverlap = overlap;
+
+    // The two distances that separate the spans: slide `a` back along the axis until its leading end
+    // clears b's trailing end, or forward until its trailing end clears b's leading end. Taking the
+    // smaller of these — rather than the raw span intersection — is what makes containment work.
+    // When one span lies wholly inside the other, the intersection is merely the inner span's own
+    // extent: far too short to eject, and small enough to win the min-depth vote on the wrong axis,
+    // which shoves the body sideways along a face it is buried in and leaves it still overlapping.
+    const pushBack = spanA.max - spanB.min;
+    const pushForward = spanB.max - spanA.min;
+    if (pushBack <= MIN_OVERLAP || pushForward <= MIN_OVERLAP) return null;
+
+    const depth = Math.min(pushBack, pushForward);
+    if (depth < bestDepth) {
+      bestDepth = depth;
       bestAxis = axis;
+      // Leave by the nearer end. A flipped sign here would drive the body deeper into the box
+      // instead of out of it. An exact tie (a perfectly centred body) goes forward: arbitrary,
+      // but fixed, so replays agree.
+      bestDirection = pushBack < pushForward ? -1 : 1;
     }
   }
   if (bestAxis === null) return null;
 
-  // Orient the axis from b's centre toward a's centre so the push always ejects the body. A flipped
-  // sign here would drag it straight through the box instead. Exactly coincident centres keep the
-  // axis as `axesOf` produced it, which is arbitrary but deterministic.
-  const toA: Vec2 = { x: a.x - b.x, y: a.y - b.y };
-  const sign = toA.x * bestAxis.x + toA.y * bestAxis.y < 0 ? -1 : 1;
-  return { x: bestAxis.x * sign * bestOverlap, y: bestAxis.y * sign * bestOverlap };
+  const push = bestDirection * bestDepth;
+  return { x: bestAxis.x * push, y: bestAxis.y * push };
 }
 
 /** The four corners, in a fixed local order so projections are deterministic. */
