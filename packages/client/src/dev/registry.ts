@@ -18,7 +18,9 @@ type SceneCtor = new () => Phaser.Scene;
  * Empty until Task 9. `import type Phaser` is erased at compile time, so this module stays
  * importable from a node test.
  */
-export const DEV_TOOLS: Record<string, () => Promise<SceneCtor>> = {};
+export const DEV_TOOLS: Record<string, () => Promise<SceneCtor>> = {
+  assets: async () => (await import("./AssetTuningScene.js")).AssetTuningScene,
+};
 
 /**
  * Own-property check, deliberately not `id in DEV_TOOLS`: `in` walks the prototype chain, so
