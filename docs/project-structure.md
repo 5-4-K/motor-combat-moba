@@ -50,9 +50,22 @@ motor-combat-MOBA/
 │       └── latency-injector.ts
 └── packages/client/
     ├── index.html
+    ├── public/art/                # copied to the dist root unbundled — no rebuild to change art
+    │   ├── manifest.json          # namespaced key → sprite entry; ships with `{}`
+    │   ├── README.md              # the field table, for whoever is dropping in a PNG
+    │   └── cars/                  # convention for car PNGs, created the first time you add one
     └── src/
         ├── main.ts
         ├── config/client-mode.ts
+        ├── assets/
+        │   ├── manifest-schema.ts # SpriteEntry, SPRITE_DEFAULTS, parseManifest (never throws)
+        │   ├── load-manifest.ts   # MANIFEST_URL, fetch + parse, empty manifest on any failure
+        │   ├── asset-keys.ts      # carId → "car.<id>"
+        │   ├── sprite-fit.ts      # fits art to the hull; the hull never follows the art
+        │   └── car-sprite.ts      # the resolution chain ArenaScene and the tuning tool share
+        ├── dev/                   # stripped from release builds, asserted by build-release.mjs
+        │   ├── registry.ts        # ?dev=<id> → dynamic import, one guard for the whole suite
+        │   └── AssetTuningScene.ts
         ├── net/
         │   ├── connection.ts
         │   ├── prediction.ts     # predict + reconcile-by-replay
@@ -70,4 +83,8 @@ motor-combat-MOBA/
 
 `ArenaScene` itself cannot be unit-tested without a browser, so its logic lives in the plain modules
 beside it (`arena-input`, `car-visual`, `combat-visual`, `spectate`) and the scene stays a thin shell
-over them. Client tests run in the **node** environment and never import Phaser.
+over them. `assets/` is the same idea one directory over: the manifest parse, the key namespace, the
+hull fit, and the sprite-or-silhouette decision are all pure modules there, so the only thing left in
+a scene is handing them a Phaser object. Client tests run in the **node** environment and never
+import Phaser — `dev/registry.ts` and `assets/car-sprite.ts` reference it as `import type` only,
+which is erased at compile time.
