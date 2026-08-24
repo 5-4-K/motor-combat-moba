@@ -5,8 +5,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const distReleaseDir = path.join(rootDir, "dist-release");
-const appDir = path.join(distReleaseDir, "motor-arena");
-const zipPath = path.join(distReleaseDir, "motor-arena-release.zip");
+const appDir = path.join(distReleaseDir, "motor-combat-moba");
+const zipPath = path.join(distReleaseDir, "motor-combat-moba-release.zip");
 const serverDist = path.join(rootDir, "packages", "server", "dist");
 const clientDist = path.join(rootDir, "packages", "client", "dist");
 
@@ -40,9 +40,9 @@ node packages/server/dist/index.js
 
 export function releasePackageJson(serverDependencies) {
   const dependencies = { ...serverDependencies };
-  delete dependencies["@motor-arena/shared"];
+  delete dependencies["@motor-combat-moba/shared"];
   return {
-    name: "motor-arena",
+    name: "motor-combat-moba",
     private: true,
     type: "module",
     scripts: {
@@ -53,7 +53,7 @@ export function releasePackageJson(serverDependencies) {
 }
 
 export function releaseReadme() {
-  return `# Motor Arena (LAN)
+  return `# Motor Combat MOBA (LAN)
 
 Requires Node.js 20 or newer.
 
@@ -77,7 +77,7 @@ function writeZip(sourceDir, destination) {
     output.on("close", resolve);
     archive.on("error", reject);
     archive.pipe(output);
-    archive.directory(sourceDir, "motor-arena");
+    archive.directory(sourceDir, "motor-combat-moba");
     archive.finalize();
   });
 }

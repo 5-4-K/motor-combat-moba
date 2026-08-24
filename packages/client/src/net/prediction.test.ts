@@ -8,7 +8,7 @@ import {
   type InputMessage,
   type SimBody,
   type StepContext,
-} from "@motor-arena/shared";
+} from "@motor-combat-moba/shared";
 import { PredictionBuffer } from "./prediction.js";
 
 const arena = getArena(DEFAULT_ARENA_ID);

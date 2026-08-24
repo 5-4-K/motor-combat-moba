@@ -1,6 +1,6 @@
 # Config reference
 
-Balance tables live in `@motor-arena/shared`. Env knobs override process settings only.
+Balance tables live in `@motor-combat-moba/shared`. Env knobs override process settings only.
 
 ## Env knobs
 
@@ -13,7 +13,7 @@ Balance tables live in `@motor-arena/shared`. Env knobs override process setting
 | `SIM_JITTER_MS` | latency injector | `0` |
 | `CLIENT_ORIGIN` | server CORS (Vite) | unset; `npm run dev` sets `http://localhost:5173` |
 
-Canonical sim rate is `TICK_RATE_HZ` in `@motor-arena/shared`. Patch rate is `DEFAULT_PATCH_RATE_HZ` (20), not an env knob.
+Canonical sim rate is `TICK_RATE_HZ` in `@motor-combat-moba/shared`. Patch rate is `DEFAULT_PATCH_RATE_HZ` (20), not an env knob.
 
 ## CAR_TABLE
 

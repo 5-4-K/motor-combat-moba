@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { FLOW_CONFIG } from "@motor-arena/shared";
+import { FLOW_CONFIG } from "@motor-combat-moba/shared";
 import { joinArena } from "../net/connection.js";
 
 const INPUT_STYLE =

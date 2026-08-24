@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 import type { Room } from "colyseus.js";
-import type { PlayerState } from "@motor-arena/shared";
+import type { PlayerState } from "@motor-combat-moba/shared";
 import {
   ArenaState,
   COLOR_TABLE,
@@ -12,7 +12,7 @@ import {
   MSG_SWITCH_TEAM,
   PlayerStatus,
   badgeColor,
-} from "@motor-arena/shared";
+} from "@motor-combat-moba/shared";
 import { bindViewRouter } from "../net/view.js";
 import { lobbyRenderSignature } from "./lobby-signature.js";
 

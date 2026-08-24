@@ -1,4 +1,4 @@
-import { viewFor, type RoomPhase, type StatusInput, type ViewId } from "@motor-arena/shared";
+import { viewFor, type RoomPhase, type StatusInput, type ViewId } from "@motor-combat-moba/shared";
 
 export const VIEW_TO_SCENE: Record<ViewId, string> = {
   lobby: "lobby",

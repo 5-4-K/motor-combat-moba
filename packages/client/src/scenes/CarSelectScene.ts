@@ -1,13 +1,13 @@
 import Phaser from "phaser";
 import type { Room } from "colyseus.js";
-import type { CarId } from "@motor-arena/shared";
+import type { CarId } from "@motor-combat-moba/shared";
 import {
   ArenaState,
   CAR_TABLE,
   MSG_SELECT_CAR,
   PlayerStatus,
   TICK_RATE_HZ,
-} from "@motor-arena/shared";
+} from "@motor-combat-moba/shared";
 import { bindViewRouter } from "../net/view.js";
 
 const CARD_DEFS = Object.values(CAR_TABLE);

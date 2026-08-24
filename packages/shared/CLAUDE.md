@@ -1,4 +1,4 @@
-# `@motor-arena/shared`
+# `@motor-combat-moba/shared`
 
 Lockstep constants, Colyseus schema, input types, and `stepSim`. Server and client import this package’s **built `dist`**.
 

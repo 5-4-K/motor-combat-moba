@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CAR_TABLE } from "@motor-arena/shared";
+import { CAR_TABLE } from "@motor-combat-moba/shared";
 import {
   copySpawnNumbers,
   livingAfterLeave,

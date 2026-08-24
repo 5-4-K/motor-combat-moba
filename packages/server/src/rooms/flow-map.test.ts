@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { GameMode, PlayerStatus, RoomPhase } from "@motor-arena/shared";
+import { GameMode, PlayerStatus, RoomPhase } from "@motor-combat-moba/shared";
 import {
   fromFlowPhase,
   fromFlowStatus,

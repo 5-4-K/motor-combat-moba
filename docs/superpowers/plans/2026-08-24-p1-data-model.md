@@ -1,6 +1,6 @@
 # P1 — Data Model Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans. Companion: `2026-08-24-motor-arena-v1-master-index.md`. Spec: `docs/superpowers/specs/2026-08-24-motor-arena-v1-design.md` §§5–7, 10, 13.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans. Companion: `2026-08-24-motor-combat-moba-v1-master-index.md`. Spec: `docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md` §§5–7, 10, 13.
 >
 > **After Validation passes:** update the Execution Tracker (P1 → Done).
 
@@ -8,7 +8,7 @@
 
 **Architecture:** Config tables use `as const satisfies <Interface>`. Schema fields that `stepSim` will read are added now (even if unused) so P4/P5 do not reshape the protocol. Arena is data, not Phaser objects.
 
-**Tech Stack:** `@motor-arena/shared` + Vitest.
+**Tech Stack:** `@motor-combat-moba/shared` + Vitest.
 
 **Depends on:** P0 Done. **Blocks:** P2, P3, P4, P5.
 
@@ -103,7 +103,7 @@ describe("weapon / combat / drive / flow knobs exist", () => {
 });
 ```
 
-- [ ] **Step 2: Run `npm run test -w @motor-arena/shared` — fail on missing modules.**
+- [ ] **Step 2: Run `npm run test -w @motor-combat-moba/shared` — fail on missing modules.**
 
 - [ ] **Step 3: Implement tables** with these exact values (do not invent extras).
 
@@ -384,7 +384,7 @@ Rebuild shared. Server/client should still compile (extra fields are backward co
 
 ## Validation
 
-1. `npm run test -w @motor-arena/shared` exits 0. All new tests above pass.
+1. `npm run test -w @motor-combat-moba/shared` exits 0. All new tests above pass.
 2. `npm run build --workspaces` exits 0.
 3. `npm run test --workspaces` exits 0 (P0 client/server tests still pass).
 4. Grep the repo for magic combat/drive numbers outside `packages/shared/src/config` — there should be none in logic files. (P0 placeholder positions `400 + 80 * index` may remain until P3 spawn; that is OK.)

@@ -1,6 +1,6 @@
 # P4 — Driving + Netcode Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans. Companion: `2026-08-24-motor-arena-v1-master-index.md`. Spec: `docs/superpowers/specs/2026-08-24-motor-arena-v1-design.md` §§4–5.2, 13.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans. Companion: `2026-08-24-motor-combat-moba-v1-master-index.md`. Spec: `docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md` §§4–5.2, 13.
 >
 > **After Validation passes:** update the Execution Tracker (P4 → Done).
 

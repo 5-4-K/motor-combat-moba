@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CAR_TABLE, COLOR_TABLE, DEFAULT_CAR_ID, DRIVE_CONFIG } from "@motor-arena/shared";
+import { CAR_TABLE, COLOR_TABLE, DEFAULT_CAR_ID, DRIVE_CONFIG } from "@motor-combat-moba/shared";
 import { carFillOf, carShapeOf, hexagonPoints } from "./car-visual.js";
 
 describe("carShapeOf", () => {

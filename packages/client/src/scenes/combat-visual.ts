@@ -1,4 +1,4 @@
-import { DEFAULT_PATCH_RATE_HZ, hpOf, isCarId, DEFAULT_CAR_ID } from "@motor-arena/shared";
+import { DEFAULT_PATCH_RATE_HZ, hpOf, isCarId, DEFAULT_CAR_ID } from "@motor-combat-moba/shared";
 
 /**
  * How full a car's hp bar is, in `[0, 1]`.

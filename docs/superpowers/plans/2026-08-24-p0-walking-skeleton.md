@@ -1,12 +1,12 @@
 # P0 — Walking Skeleton Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Companion: `2026-08-24-motor-arena-v1-master-index.md`. Spec: `docs/superpowers/specs/2026-08-24-motor-arena-v1-design.md`.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Companion: `2026-08-24-motor-combat-moba-v1-master-index.md`. Spec: `docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md`.
 >
 > **After Validation passes:** update the Execution Tracker in the master index (P0 → Done).
 
 **Goal:** A fresh monorepo boots; two browsers join one Colyseus `arena` room and see placeholder squares positioned from server-authoritative state at 30Hz; a LAN zip with `start.bat` that `npm install`s if needed then starts.
 
-**Architecture:** npm workspaces (`@motor-arena/shared` / `server` / `client`). One `ArenaRoom`. Shared consumed as built `dist`. Netcode seams exist but are stubs (identity prediction, empty interpolation, pass-through latency injector). No lobby, cars, or combat.
+**Architecture:** npm workspaces (`@motor-combat-moba/shared` / `server` / `client`). One `ArenaRoom`. Shared consumed as built `dist`. Netcode seams exist but are stubs (identity prediction, empty interpolation, pass-through latency injector). No lobby, cars, or combat.
 
 **Tech Stack:** TypeScript ESM, Colyseus `^0.15`, `@colyseus/schema` `^2.0`, Phaser 3, colyseus.js `^0.15`, Vite 5, tsx, tsup, Vitest 2, Express, concurrently, cross-env, archiver.
 
@@ -146,20 +146,20 @@ SIM_JITTER_MS=
 
 ```json
 {
-  "name": "motor-arena",
+  "name": "motor-combat-moba",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "workspaces": ["packages/*"],
   "engines": { "node": ">=20" },
   "scripts": {
-    "build": "npm run build -w @motor-arena/shared && npm run build -w @motor-arena/server && npm run build -w @motor-arena/client",
-    "test": "npm run build -w @motor-arena/shared && npm run test --workspaces --if-present",
+    "build": "npm run build -w @motor-combat-moba/shared && npm run build -w @motor-combat-moba/server && npm run build -w @motor-combat-moba/client",
+    "test": "npm run build -w @motor-combat-moba/shared && npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "dev:shared": "npm run dev -w @motor-arena/shared",
-    "dev:server": "cross-env DEPLOY_MODE=lan CLIENT_ORIGIN=http://localhost:5173 npm run dev -w @motor-arena/server",
-    "dev:client": "npm run dev -w @motor-arena/client",
-    "dev": "npm run build -w @motor-arena/shared && concurrently -n shared,server,client -c blue.bold,green.bold,magenta.bold \"npm:dev:shared\" \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:shared": "npm run dev -w @motor-combat-moba/shared",
+    "dev:server": "cross-env DEPLOY_MODE=lan CLIENT_ORIGIN=http://localhost:5173 npm run dev -w @motor-combat-moba/server",
+    "dev:client": "npm run dev -w @motor-combat-moba/client",
+    "dev": "npm run build -w @motor-combat-moba/shared && concurrently -n shared,server,client -c blue.bold,green.bold,magenta.bold \"npm:dev:shared\" \"npm:dev:server\" \"npm:dev:client\"",
     "build:release": "npm run build && node scripts/build-release.mjs"
   },
   "devDependencies": {
@@ -178,7 +178,7 @@ Dev server uses `DEPLOY_MODE=lan` plus `CLIENT_ORIGIN` so Vite (`:5173`) can sti
 
 ```json
 {
-  "name": "@motor-arena/shared",
+  "name": "@motor-combat-moba/shared",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -223,7 +223,7 @@ Dev server uses `DEPLOY_MODE=lan` plus `CLIENT_ORIGIN` so Vite (`:5173`) can sti
 
 ```json
 {
-  "name": "@motor-arena/server",
+  "name": "@motor-combat-moba/server",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -235,7 +235,7 @@ Dev server uses `DEPLOY_MODE=lan` plus `CLIENT_ORIGIN` so Vite (`:5173`) can sti
     "test": "vitest run"
   },
   "dependencies": {
-    "@motor-arena/shared": "*",
+    "@motor-combat-moba/shared": "*",
     "@colyseus/core": "^0.15.0",
     "@colyseus/monitor": "^0.15.0",
     "@colyseus/schema": "^2.0.0",
@@ -280,7 +280,7 @@ export default defineConfig({
   target: "node20",
   sourcemap: true,
   clean: true,
-  noExternal: ["@motor-arena/shared"],
+  noExternal: ["@motor-combat-moba/shared"],
 });
 ```
 
@@ -288,7 +288,7 @@ export default defineConfig({
 
 ```json
 {
-  "name": "@motor-arena/client",
+  "name": "@motor-combat-moba/client",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -300,7 +300,7 @@ export default defineConfig({
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@motor-arena/shared": "*",
+    "@motor-combat-moba/shared": "*",
     "colyseus.js": "^0.15.0",
     "phaser": "^3.80.0"
   },
@@ -388,7 +388,7 @@ import { PlayerState } from "./PlayerState.js";
 - [ ] **Step 2: Run the test — it must fail** (`ArenaState` missing).
 
 ```
-npm run test -w @motor-arena/shared
+npm run test -w @motor-combat-moba/shared
 ```
 
 Expected: fail, cannot find module.
@@ -505,8 +505,8 @@ describe("stepSim (P0 stub)", () => {
 - [ ] **Step 4: Run tests.**
 
 ```
-npm run build -w @motor-arena/shared
-npm run test -w @motor-arena/shared
+npm run build -w @motor-combat-moba/shared
+npm run test -w @motor-combat-moba/shared
 ```
 
 Expected: pass.
@@ -522,7 +522,7 @@ Expected: pass.
 - [ ] **Step 1: `mode.ts`**
 
 ```ts
-import type { DeployMode } from "@motor-arena/shared";
+import type { DeployMode } from "@motor-combat-moba/shared";
 
 export function getDeployMode(): DeployMode {
   return process.env.DEPLOY_MODE === "cloud" ? "cloud" : "lan";
@@ -566,7 +566,7 @@ Test: `latencyMs: 0` returns the same function reference; `latencyMs: 20` delays
 - [ ] **Step 5: `sim/tick.ts`**
 
 ```ts
-import { ArenaState, INPUT_MESSAGE, stepSim, MS_PER_TICK, type InputMessage } from "@motor-arena/shared";
+import { ArenaState, INPUT_MESSAGE, stepSim, MS_PER_TICK, type InputMessage } from "@motor-combat-moba/shared";
 
 export function serverTick(state: ArenaState, queues: Map<string, InputMessage[]>): void {
   for (const [id, player] of state.players) {
@@ -646,11 +646,11 @@ Prediction: `predict` returns `stepSim` of current pose; `reconcile` returns the
 
 Mirror motor-combat’s assembler, with these differences:
 
-- Output folder `dist-release/motor-arena/`
-- Zip `dist-release/motor-arena-release.zip`
-- Slim `package.json` `name`: `"motor-arena"`
+- Output folder `dist-release/motor-combat-moba/`
+- Zip `dist-release/motor-combat-moba-release.zip`
+- Slim `package.json` `name`: `"motor-combat-moba"`
 - `start` script: `node packages/server/dist/index.js`
-- Strip `@motor-arena/shared` from runtime deps
+- Strip `@motor-combat-moba/shared` from runtime deps
 - **`start.bat`:**
 
 ```bat
@@ -714,4 +714,4 @@ Run all of these. Paste outcomes into the tracker Notes.
 4. `npm run build:release`. Unzip to a temp dir **outside** the repo. Double-click `start.bat` (or run it). First run must print `Installing dependencies...` then listen. Browser `http://localhost:2567` shows the same Join + two-tab squares.
 5. `/health` returns `{ ok: true }`.
 
-Then update `docs/superpowers/plans/2026-08-24-motor-arena-v1-master-index.md` tracker: P0 Done.
+Then update `docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md` tracker: P0 Done.

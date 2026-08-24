@@ -35,7 +35,7 @@ import {
   type FlowState,
   type InputMessage,
   type StartRulePlayer,
-} from "@motor-arena/shared";
+} from "@motor-combat-moba/shared";
 import { getTickRateHz, getSimulatedLatency, getCarSelectSeconds } from "../mode.js";
 import { isInputMessage } from "../net/input-message.js";
 import { withSimulatedLatency } from "../net/latency-injector.js";

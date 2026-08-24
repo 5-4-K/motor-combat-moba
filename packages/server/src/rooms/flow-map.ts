@@ -3,7 +3,7 @@ import {
   PlayerStatus,
   RoomPhase,
   type FlowStatus,
-} from "@motor-arena/shared";
+} from "@motor-combat-moba/shared";
 
 export function toFlowMode(mode: GameMode): "ffa" | "team" {
   return mode === GameMode.TEAM ? "team" : "ffa";

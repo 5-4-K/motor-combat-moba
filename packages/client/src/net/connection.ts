@@ -1,5 +1,5 @@
 import { Client, type Room } from "colyseus.js";
-import { ArenaState, ROOM_NAME } from "@motor-arena/shared";
+import { ArenaState, ROOM_NAME } from "@motor-combat-moba/shared";
 import { detectServerEndpoint } from "../config/client-mode.js";
 
 export async function joinArena(name: string): Promise<Room<ArenaState>> {

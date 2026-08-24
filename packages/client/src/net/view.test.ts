@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { PlayerStatus, RoomPhase, viewFor } from "@motor-arena/shared";
+import { PlayerStatus, RoomPhase, viewFor } from "@motor-combat-moba/shared";
 import { VIEW_TO_SCENE, bindViewRouter, sceneKeyFor } from "./view.js";
 
 describe("VIEW_TO_SCENE", () => {

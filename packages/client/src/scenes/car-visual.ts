@@ -1,4 +1,4 @@
-import { COLOR_TABLE, DEFAULT_CAR_ID, isCarId, type CarId } from "@motor-arena/shared";
+import { COLOR_TABLE, DEFAULT_CAR_ID, isCarId, type CarId } from "@motor-combat-moba/shared";
 
 /** How a chassis is drawn. One per `CAR_TABLE` entry — the table is the source of truth, not this. */
 export type CarShape = "rect" | "ellipse" | "hex";

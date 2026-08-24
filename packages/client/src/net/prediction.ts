@@ -5,7 +5,7 @@ import {
   type InputMessage,
   type SimBody,
   type StepContext,
-} from "@motor-arena/shared";
+} from "@motor-combat-moba/shared";
 
 /** One input the client has simulated locally but the server has not acknowledged yet. */
 export interface PendingInput {

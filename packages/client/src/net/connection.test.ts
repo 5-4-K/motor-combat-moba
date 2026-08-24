@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ROOM_NAME } from "@motor-arena/shared";
+import { ROOM_NAME } from "@motor-combat-moba/shared";
 
 const joinOrCreate = vi.fn();
 const Client = vi.fn().mockImplementation(() => ({ joinOrCreate }));

@@ -3,7 +3,7 @@ import {
   type CarId,
   type LivingPlayer,
   type Spawn,
-} from "@motor-arena/shared";
+} from "@motor-combat-moba/shared";
 
 export function pickRandomCarId(random: () => number): CarId {
   const keys = Object.keys(CAR_TABLE) as CarId[];

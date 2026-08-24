@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PlayerStatus, RoomPhase } from "@motor-arena/shared";
+import { PlayerStatus, RoomPhase } from "@motor-combat-moba/shared";
 import {
   cycleSpectate,
   isSpectating,

@@ -6,7 +6,7 @@ import express from "express";
 import cors from "cors";
 import { Server } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
-import { ROOM_NAME } from "@motor-arena/shared";
+import { ROOM_NAME } from "@motor-combat-moba/shared";
 import { getDeployMode, getPort } from "./mode.js";
 import { mountHealth } from "./health.js";
 import { mountMonitor } from "./monitor.js";

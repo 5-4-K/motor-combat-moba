@@ -5,7 +5,7 @@ import {
   type ContextEntry,
   type ContextPlayer,
   type StepContext,
-} from "@motor-arena/shared";
+} from "@motor-combat-moba/shared";
 
 export type { ContextPlayer };
 

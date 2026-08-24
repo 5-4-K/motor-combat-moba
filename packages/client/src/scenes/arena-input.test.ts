@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MS_PER_TICK, NET_CONFIG } from "@motor-arena/shared";
+import { MS_PER_TICK, NET_CONFIG } from "@motor-combat-moba/shared";
 import { axisOf, drainTicks } from "./arena-input.js";
 
 describe("drainTicks", () => {

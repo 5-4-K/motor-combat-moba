@@ -5,7 +5,7 @@ import {
   type CombatPlayer,
   type CombatResult,
   type Proj,
-} from "@motor-arena/shared";
+} from "@motor-combat-moba/shared";
 
 /**
  * The schema half of combat: read `ArenaState` into plain objects, run the pure `runCombat`, write
@@ -14,7 +14,7 @@ import {
  * The split is deliberate. `runCombat` is where every rule lives and it can be tested without a
  * Colyseus room; this file is the only place that knows about `MapSchema`, and it holds no rules at
  * all. Anything resembling a decision — who may be hit, what a ram costs — belongs on the other side
- * of this boundary, in `@motor-arena/shared`.
+ * of this boundary, in `@motor-combat-moba/shared`.
  */
 
 /** Room-owned state that lives across ticks but is deliberately never networked. */

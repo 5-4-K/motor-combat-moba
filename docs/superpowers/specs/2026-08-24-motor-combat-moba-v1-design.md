@@ -1,13 +1,13 @@
-# Motor Arena v1 — Design Spec
+# Motor Combat MOBA v1 — Design Spec
 
 **Date:** 2026-08-24
 **Status:** Approved (brainstorming session)
-**Product name:** Motor Arena
+**Product name:** Motor Combat MOBA
 **Repo:** `E:\Work\motor-combat-MOBA`
 
 A LAN-hosted top-down 2D multiplayer car-combat arena (last player/team standing). Same *netcode architecture* as `E:\Work\motor-combat` (Colyseus, 30Hz server-authoritative tick, shared lockstep sim, prediction / reconciliation / interpolation). State, sim, and visuals are new: world `{x, y, angle}` is canonical, not track distance.
 
-This spec is the source of truth for v1. Implementation is split across the plans in `docs/superpowers/plans/`. Execution order and completion tracking live in `docs/superpowers/plans/2026-08-24-motor-arena-v1-master-index.md`.
+This spec is the source of truth for v1. Implementation is split across the plans in `docs/superpowers/plans/`. Execution order and completion tracking live in `docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md`.
 
 ---
 
@@ -39,7 +39,7 @@ Same family as motor-combat, **fresh scaffold** (patterns ported by hand, no rac
 | Tests | Vitest per package |
 | Product deploy | **LAN only** |
 
-Package names: `@motor-arena/shared`, `@motor-arena/server`, `@motor-arena/client`.
+Package names: `@motor-combat-moba/shared`, `@motor-combat-moba/server`, `@motor-combat-moba/client`.
 Colyseus room name: `arena`.
 Root room class: `ArenaRoom`.
 
@@ -51,8 +51,8 @@ Root room class: `ArenaRoom`.
 
 ## 3. Deploy (v1)
 
-- `npm run build:release` builds shared → server → client, then assembles `dist-release/motor-arena/` and `dist-release/motor-arena-release.zip`.
-- Release folder contains: bundled server, built client, slim `package.json` (runtime deps only; `@motor-arena/shared` inlined by tsup), `.env.example`, README, `start.bat`, `start.sh`.
+- `npm run build:release` builds shared → server → client, then assembles `dist-release/motor-combat-moba/` and `dist-release/motor-combat-moba-release.zip`.
+- Release folder contains: bundled server, built client, slim `package.json` (runtime deps only; `@motor-combat-moba/shared` inlined by tsup), `.env.example`, README, `start.bat`, `start.sh`.
 - **Host experience:** unzip, double-click `start.bat` (or run `start.sh`). The script `cd`s to its own directory, runs `npm install` **if `node_modules` is missing**, then starts the server. No separate install step.
 - Default `DEPLOY_MODE=lan`, default `PORT=2567`.
 - Players open `http://HOST_LAN_IP:2567`.
@@ -378,7 +378,7 @@ Never claim a plan complete without running that plan's Validation section and u
 
 v1 is implemented as six plans. Do not execute them from this spec. See:
 
-- Strategy + tracker: `docs/superpowers/plans/2026-08-24-motor-arena-v1-master-index.md`
+- Strategy + tracker: `docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md`
 - P0 `2026-08-24-p0-walking-skeleton.md`
 - P1 `2026-08-24-p1-data-model.md`
 - P2 `2026-08-24-p2-lobby.md`

@@ -1,4 +1,4 @@
-import { MS_PER_TICK, NET_CONFIG } from "@motor-arena/shared";
+import { MS_PER_TICK, NET_CONFIG } from "@motor-combat-moba/shared";
 
 export interface DrainResult {
   /** Time left over, carried into the next frame. Always in `[0, MS_PER_TICK)`. */

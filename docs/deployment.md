@@ -6,7 +6,7 @@ Requires **Node.js 20+**.
 npm run build:release
 ```
 
-Writes `dist-release/motor-arena/` and `dist-release/motor-arena-release.zip`. `start.bat` / `start.sh` `npm install` if `node_modules` is missing, then `node packages/server/dist/index.js`.
+Writes `dist-release/motor-combat-moba/` and `dist-release/motor-combat-moba-release.zip`. `start.bat` / `start.sh` `npm install` if `node_modules` is missing, then `node packages/server/dist/index.js`.
 
 - This machine: `http://localhost:2567`
 - Others on the LAN: `http://<LAN-IP>:2567`

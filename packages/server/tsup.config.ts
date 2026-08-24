@@ -7,5 +7,5 @@ export default defineConfig({
   target: "node20",
   sourcemap: true,
   clean: true,
-  noExternal: ["@motor-arena/shared"],
+  noExternal: ["@motor-combat-moba/shared"],
 });

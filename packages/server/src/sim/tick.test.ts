@@ -9,7 +9,7 @@ import {
   RoomPhase,
   type InputMessage,
   type SimBody,
-} from "@motor-arena/shared";
+} from "@motor-combat-moba/shared";
 import { serverTick } from "./tick.js";
 
 const DT = MS_PER_TICK / 1000;

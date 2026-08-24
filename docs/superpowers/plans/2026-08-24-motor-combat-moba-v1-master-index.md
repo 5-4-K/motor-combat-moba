@@ -1,10 +1,10 @@
-# Motor Arena v1 — Master Index, Execution Strategy, Tracker
+# Motor Combat MOBA v1 — Master Index, Execution Strategy, Tracker
 
-> **For agentic workers:** This file is **not** executed directly. Execute one plan file at a time, in the order given by the strategy. Source design: `docs/superpowers/specs/2026-08-24-motor-arena-v1-design.md`.
+> **For agentic workers:** This file is **not** executed directly. Execute one plan file at a time, in the order given by the strategy. Source design: `docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md`.
 >
 > **Completion rule (do not skip):** Whenever a plan is **implemented and its Validation section has been run successfully**, update the **Execution Tracker** in this file in the same change (status → Done, date, short note). Do not mark a plan Done without that Validation evidence. Do not start executing plans unless the human explicitly asks.
 
-**Goal:** Ship Motor Arena v1 — LAN-hosted top-down 2D car combat, max 6, FFA + team, last standing.
+**Goal:** Ship Motor Combat MOBA v1 — LAN-hosted top-down 2D car combat, max 6, FFA + team, last standing.
 
 **Architecture:** Fresh npm-workspaces monorepo (`shared` / `server` / `client`). Colyseus 30Hz server-authoritative + Phaser 3. Canonical state `{x, y, angle}`. Netcode *logic* matches motor-combat (prediction, reconcile-by-replay, interpolation, latency injector); models are new.
 
@@ -72,7 +72,7 @@ Update this table when a plan’s Validation section has passed. Status values: 
 | ID | Status | Started | Completed | Validated by | Notes |
 |---|---|---|---|---|---|
 | P0 | Done | 2026-08-24 | 2026-08-24 | agent: `npm test`, `npm run build --workspaces`, two-tab `npm run dev`, `build:release` unzip + `start.bat`, `GET /health` | Walking skeleton: two squares (green self, red other) at server poses; zip prints Installing dependencies then listens. |
-| P1 | Done | 2026-08-24 | 2026-08-24 | agent: `npm run test -w @motor-arena/shared` (23), `npm run build --workspaces`, `npm run test --workspaces` | Config tables, arena-01 (team A mid spawn y=960 to miss obstacle), full v1 schema + ProjectileState. No gameplay. |
+| P1 | Done | 2026-08-24 | 2026-08-24 | agent: `npm run test -w @motor-combat-moba/shared` (23), `npm run build --workspaces`, `npm run test --workspaces` | Config tables, arena-01 (team A mid spawn y=960 to miss obstacle), full v1 schema + ProjectileState. No gameplay. |
 | P2 | Done | 2026-08-24 | 2026-08-24 | agent: shared tests 47, `npm run build --workspaces`, live two-client protocol + two Chrome contexts on `npm run dev` | Unique names/colors, team panels, switch, start errors, kick 4002, host transfer, 7th `"Room is full"` (singleton arena; joinOrCreate no longer opens a second room). |
 | P3 | Done | 2026-08-24 | 2026-08-24 | agent: shared tests 74, `npm run build --workspaces`, live 3-client protocol + 2 Chrome contexts on `npm run dev` with `CAR_SELECT_SECONDS=8` | Car select, timeout random car, 3-2-1, stub results, linger next match, team/FFA spawns, mid-select Ready join, FFA disconnect win. |
 | P4 | Done | 2026-08-24 | 2026-08-24 | agent, automated: `npm run test --workspaces` (242: shared 138, server 44, client 60), `npm run build --workspaces`. agent, live two-tab browser runs at 0ms and at `SIM_LATENCY_MS=80 SIM_JITTER_MS=20` (injector confirmed active by measured ack RTT: 92ms avg, 53-116ms, 63ms spread). Human: signed off on feel without a hands-on playtest. | Driving, SAT bounce, prediction, interpolation, follow-cam, car shapes. Measured: collision stops at exact geometry (wall x=24=carWidth/2; obstacle y=596=620-carWidth/2), speed caps match CAR_TABLE (hexagon 210, rectangle 360), restitution 295->-105 (=0.35), remote interpolation rendered-moved 72% of frames vs server 9%, match-2 prediction 12u ahead, latency lead bounded (avg 15.8u max 35.9u, pending max 3 of 24), 566u injected error snapped to 0 with no oscillation, ack monotonic over 340 patches, three shapes distinct (15/33/111 draw ops). **Not verified:** subjective feel — camLerp responsiveness, and the two documented locked-rule quirks (wall grind at shallow angles; bounce sign flip at 30.6 degrees off-normal). Deviations from plan text: contact order is bounds-others-obstacles-bounds (arena boundary inviolable), and the trailing bounds pass is position-only (one restitution per surface). |

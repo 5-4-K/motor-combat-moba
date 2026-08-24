@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { NET_CONFIG, type SimBody } from "@motor-arena/shared";
+import { NET_CONFIG, type SimBody } from "@motor-combat-moba/shared";
 import { InterpolationBuffer } from "./interpolation.js";
 
 const DELAY = NET_CONFIG.interpolationDelayMs;

@@ -1,4 +1,4 @@
-import type { InputMessage } from "@motor-arena/shared";
+import type { InputMessage } from "@motor-combat-moba/shared";
 
 function isAxis(n: unknown): n is -1 | 0 | 1 {
   return n === -1 || n === 0 || n === 1;

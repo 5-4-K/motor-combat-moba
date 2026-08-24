@@ -1,4 +1,4 @@
-# `@motor-arena/client`
+# `@motor-combat-moba/client`
 
 Phaser 3 render + join. Boot → Join → Lobby → Car select → Arena → Results, routed by `bindViewRouter`.
 
@@ -8,7 +8,7 @@ Phaser 3 render + join. Boot → Join → Lobby → Car select → Arena → Res
 
 Keep the scene thin: pure, testable logic lives beside it (`net/step-context.ts`, `scenes/car-visual.ts`, `scenes/arena-input.ts`) because `ArenaScene` itself cannot be unit-tested without a browser. Client tests are vitest in the **node** environment — never import Phaser from a test.
 
-`buildStepContext` must keep agreeing with `serverTick`. The parts that decide who is solid and how a hull is sized are the *same* shared functions both call (`carIdOf`, `otherCarHulls` in `@motor-arena/shared`) — change them there, never fork a client copy.
+`buildStepContext` must keep agreeing with `serverTick`. The parts that decide who is solid and how a hull is sized are the *same* shared functions both call (`carIdOf`, `otherCarHulls` in `@motor-combat-moba/shared`) — change them there, never fork a client copy.
 
 `?debug=1` draws the car OBB hitbox.
 

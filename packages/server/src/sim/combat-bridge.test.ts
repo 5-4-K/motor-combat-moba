@@ -7,7 +7,7 @@ import {
   hpOf,
   type CombatResult,
   type Proj,
-} from "@motor-arena/shared";
+} from "@motor-combat-moba/shared";
 import {
   applyCombatResult,
   clearProjectiles,

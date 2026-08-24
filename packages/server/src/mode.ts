@@ -1,4 +1,4 @@
-import type { DeployMode } from "@motor-arena/shared";
+import type { DeployMode } from "@motor-combat-moba/shared";
 import type { LatencyConfig } from "./net/latency-injector.js";
 
 export function getDeployMode(): DeployMode {

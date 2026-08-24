@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 import type { Room } from "colyseus.js";
-import type { ArenaDef, ArenaState, InputMessage, SimBody, StepContext } from "@motor-arena/shared";
+import type { ArenaDef, ArenaState, InputMessage, SimBody, StepContext } from "@motor-combat-moba/shared";
 import {
   CAMERA_CONFIG,
   DRIVE_CONFIG,
@@ -9,7 +9,7 @@ import {
   RoomPhase,
   TICK_RATE_HZ,
   getArena,
-} from "@motor-arena/shared";
+} from "@motor-combat-moba/shared";
 import { isDebugEnabled } from "../config/client-mode.js";
 import { InterpolationBuffer } from "../net/interpolation.js";
 import { PredictionBuffer } from "../net/prediction.js";

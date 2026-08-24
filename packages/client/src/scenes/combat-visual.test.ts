@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PATCH_RATE_HZ, WEAPON_CONFIG, hpOf } from "@motor-arena/shared";
+import { DEFAULT_PATCH_RATE_HZ, WEAPON_CONFIG, hpOf } from "@motor-combat-moba/shared";
 import { extrapolateShot, hpBarColor, hpFraction } from "./combat-visual.js";
 
 describe("hpFraction", () => {

@@ -1,6 +1,6 @@
 # P3 — Match Flow Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans. Companion: `2026-08-24-motor-arena-v1-master-index.md`. Spec: `docs/superpowers/specs/2026-08-24-motor-arena-v1-design.md` §§8–9, 11.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans. Companion: `2026-08-24-motor-combat-moba-v1-master-index.md`. Spec: `docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md` §§8–9, 11.
 >
 > **After Validation passes:** update the Execution Tracker (P3 → Done).
 
@@ -179,7 +179,7 @@ On `room.onStateChange`, if the local view scene ≠ current scene, `scene.start
 
 ## Validation
 
-1. `npm run test -w @motor-arena/shared` — flow, spawn, win tests pass.
+1. `npm run test -w @motor-combat-moba/shared` — flow, spawn, win tests pass.
 2. `npm run build --workspaces` exits 0.
 3. Manual, 3 browsers A (host), B, C:
    - A starts FFA with A+B Ready, C stays out (C clicks nothing — actually all three join; C must not be pulled: **have C stay Ready by… wait, Start pulls all Ready.** To test linger/next-match: play A+B, C is not in the room yet. After A+B finish (host stub end), both see Results. C joins mid-results as Ready. A clicks Back to lobby (Ready). B still on Results. A cannot start (1 Ready). B Back to lobby. A starts — only A+B go to car select; if C is Ready too, C is also pulled. For the "linger" test: A+B finish; A returns; **C joins as Ready**; A starts with C (2 Ready) while B is still on Results. B’s results stay up. A+C see car select. B roster badge is Post-match.

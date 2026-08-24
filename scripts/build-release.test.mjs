@@ -35,15 +35,15 @@ describe("startSh", () => {
 });
 
 describe("releasePackageJson", () => {
-  it("is a slim motor-arena package without the shared workspace dep", () => {
+  it("is a slim motor-combat-moba package without the shared workspace dep", () => {
     const pkg = releasePackageJson({
-      "@motor-arena/shared": "*",
+      "@motor-combat-moba/shared": "*",
       express: "^4.19.0",
       colyseus: "^0.15.0",
     });
-    assert.equal(pkg.name, "motor-arena");
+    assert.equal(pkg.name, "motor-combat-moba");
     assert.equal(pkg.scripts.start, "node packages/server/dist/index.js");
-    assert.ok(!Object.hasOwn(pkg.dependencies, "@motor-arena/shared"));
+    assert.ok(!Object.hasOwn(pkg.dependencies, "@motor-combat-moba/shared"));
     assert.equal(pkg.dependencies.express, "^4.19.0");
     assert.equal(pkg.dependencies.colyseus, "^0.15.0");
   });

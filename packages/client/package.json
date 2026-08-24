@@ -1,5 +1,5 @@
 {
-  "name": "@motor-arena/client",
+  "name": "@motor-combat-moba/client",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -11,7 +11,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@motor-arena/shared": "*",
+    "@motor-combat-moba/shared": "*",
     "colyseus.js": "^0.15.0",
     "phaser": "^3.80.0"
   },

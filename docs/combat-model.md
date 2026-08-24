@@ -1,7 +1,7 @@
 # Combat model
 
 Everything that removes HP, and the rules that decide who it comes off. Balance numbers live in
-`@motor-arena/shared` config (`WEAPON_CONFIG`, `COMBAT_CONFIG`, `CAR_TABLE`) — the tables below name
+`@motor-combat-moba/shared` config (`WEAPON_CONFIG`, `COMBAT_CONFIG`, `CAR_TABLE`) — the tables below name
 the knobs, not copies of them. See [`config-reference.md`](config-reference.md) for the values.
 
 ## Where combat runs

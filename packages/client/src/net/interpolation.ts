@@ -1,4 +1,4 @@
-import { NET_CONFIG, type SimBody } from "@motor-arena/shared";
+import { NET_CONFIG, type SimBody } from "@motor-combat-moba/shared";
 
 interface Snapshot {
   time: number;

@@ -1,4 +1,4 @@
-import { PlayerStatus, RoomPhase } from "@motor-arena/shared";
+import { PlayerStatus, RoomPhase } from "@motor-combat-moba/shared";
 
 /**
  * Is this player watching rather than playing? True only for a wreck in a live match.

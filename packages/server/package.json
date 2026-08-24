@@ -1,5 +1,5 @@
 {
-  "name": "@motor-arena/server",
+  "name": "@motor-combat-moba/server",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -11,7 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@motor-arena/shared": "*",
+    "@motor-combat-moba/shared": "*",
     "@colyseus/core": "^0.15.0",
     "@colyseus/monitor": "^0.15.0",
     "@colyseus/schema": "^2.0.0",

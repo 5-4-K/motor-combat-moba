@@ -13,7 +13,7 @@ import {
   type InputMessage,
   type SimBody,
   type StepContext,
-} from "@motor-arena/shared";
+} from "@motor-combat-moba/shared";
 
 /**
  * Advance every player by their queued inputs. `dt` is seconds and must match the room simulation
@@ -30,7 +30,7 @@ import {
  * `isOnField`. If they diverged, a player who is not in the match would be driven around the arena
  * and would collide with real players while staying invisible to *their* collision checks.
  *
- * `carIdOf` and `otherCarHulls` live in `@motor-arena/shared` because the client's prediction
+ * `carIdOf` and `otherCarHulls` live in `@motor-combat-moba/shared` because the client's prediction
  * assembles the *same* `StepContext` (see `buildStepContext` in the client's `net/step-context.ts`).
  * `stepSim` is the single lockstep and this is its input, so anything that changes how a hull is
  * sized or which players are solid must change for both sides at once. Edit them there, not here.
