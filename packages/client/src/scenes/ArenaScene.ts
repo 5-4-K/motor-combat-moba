@@ -20,7 +20,23 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   create(): void {
+    this.clearCars();
+    this.following = false;
     this.room = this.registry.get("room") as Room<ArenaState> | undefined;
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.onShutdown, this);
+  }
+
+  private onShutdown(): void {
+    this.clearCars();
+    this.following = false;
+  }
+
+  private clearCars(): void {
+    for (const rect of this.rects.values()) {
+      rect.destroy();
+    }
+    this.rects.clear();
+    this.interps.clear();
   }
 
   update(): void {
