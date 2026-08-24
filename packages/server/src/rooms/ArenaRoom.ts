@@ -158,7 +158,11 @@ export class ArenaRoom extends Room<ArenaState> {
     this.onMessage(MSG_STUB_END_MATCH, (client) => {
       if (client.sessionId !== this.state.hostSessionId) return;
       if (this.state.phase !== RoomPhase.MATCH) return;
-      const winner = firstAliveRosterWinner([...this.matchRoster], this.aliveTeamById());
+      const winner = firstAliveRosterWinner(
+        toFlowMode(this.state.mode),
+        [...this.matchRoster],
+        this.aliveTeamById(),
+      );
       this.endMatch(winner.sessionId, winner.winnerTeam);
     });
   }

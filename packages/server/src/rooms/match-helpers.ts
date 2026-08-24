@@ -19,13 +19,17 @@ export function copySpawnNumbers(spawn: Spawn): { x: number; y: number; angle: n
 }
 
 export function firstAliveRosterWinner(
+  mode: "ffa" | "team",
   roster: readonly string[],
   players: ReadonlyMap<string, { alive: boolean; team: number }>,
 ): { sessionId: string; winnerTeam: number } {
   for (const sessionId of roster) {
     const player = players.get(sessionId);
     if (player?.alive) {
-      return { sessionId, winnerTeam: player.team };
+      if (mode === "ffa") {
+        return { sessionId, winnerTeam: -1 };
+      }
+      return { sessionId: "", winnerTeam: player.team };
     }
   }
   return { sessionId: "", winnerTeam: -1 };

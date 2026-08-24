@@ -38,21 +38,33 @@ describe("copySpawnNumbers", () => {
 });
 
 describe("firstAliveRosterWinner", () => {
-  it("returns the first alive roster member in roster order", () => {
-    const players = new Map([
-      ["b", { alive: true, team: 1 }],
-      ["a", { alive: false, team: 0 }],
-      ["c", { alive: true, team: 0 }],
-    ]);
-    expect(firstAliveRosterWinner(["a", "b", "c"], players)).toEqual({
+  const players = new Map([
+    ["b", { alive: true, team: 1 }],
+    ["a", { alive: false, team: 0 }],
+    ["c", { alive: true, team: 0 }],
+  ]);
+
+  it("FFA: names the first alive roster player and leaves winnerTeam at -1", () => {
+    expect(firstAliveRosterWinner("ffa", ["a", "b", "c"], players)).toEqual({
       sessionId: "b",
+      winnerTeam: -1,
+    });
+  });
+
+  it("TEAM: awards that player's team and leaves winnerSessionId empty", () => {
+    expect(firstAliveRosterWinner("team", ["a", "b", "c"], players)).toEqual({
+      sessionId: "",
       winnerTeam: 1,
     });
   });
 
   it("returns empty winner when nobody on the roster is alive", () => {
-    const players = new Map([["a", { alive: false, team: 0 }]]);
-    expect(firstAliveRosterWinner(["a"], players)).toEqual({
+    const none = new Map([["a", { alive: false, team: 0 }]]);
+    expect(firstAliveRosterWinner("ffa", ["a"], none)).toEqual({
+      sessionId: "",
+      winnerTeam: -1,
+    });
+    expect(firstAliveRosterWinner("team", ["a"], none)).toEqual({
       sessionId: "",
       winnerTeam: -1,
     });
