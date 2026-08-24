@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_CAR_ID } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import { PlayerStatus } from "../constants.js";
-import { carIdOf, isOnField, otherCarHulls, type ContextEntry, type ContextPlayer } from "./context.js";
+import { carHullOf, carIdOf, isOnField, otherCarHulls, type ContextEntry, type ContextPlayer } from "./context.js";
 
 function player(over: Partial<ContextPlayer> = {}): ContextPlayer {
   return { x: 0, y: 0, angle: 0, status: PlayerStatus.IN_MATCH, carId: "rectangle", ...over };
@@ -61,6 +61,24 @@ describe("otherCarHulls", () => {
   it("sizes every hull from DRIVE_CONFIG and carries the player's angle", () => {
     expect(otherCarHulls([entry("a"), entry("b", { x: 5, y: 6, angle: 1.25 })], "a")).toEqual([
       { x: 5, y: 6, angle: 1.25, w: DRIVE_CONFIG.carWidth, h: DRIVE_CONFIG.carHeight },
+    ]);
+  });
+});
+
+describe("carHullOf", () => {
+  it("sizes the hull from DRIVE_CONFIG at the given pose", () => {
+    expect(carHullOf(5, 6, 1.25)).toEqual({
+      x: 5,
+      y: 6,
+      angle: 1.25,
+      w: DRIVE_CONFIG.carWidth,
+      h: DRIVE_CONFIG.carHeight,
+    });
+  });
+
+  it("is the same hull otherCarHulls builds, so shots and driving collide with one box", () => {
+    expect(otherCarHulls([entry("a"), entry("b", { x: 7, y: 8, angle: 0.5 })], "a")).toEqual([
+      carHullOf(7, 8, 0.5),
     ]);
   });
 });

@@ -321,3 +321,35 @@ function hullHalfExtents(body: SimBody): Vec2 {
   const { carWidth, carHeight } = DRIVE_CONFIG;
   return { x: (c * carWidth + s * carHeight) / 2, y: (s * carWidth + c * carHeight) / 2 };
 }
+
+/**
+ * Do two oriented boxes overlap? The same SAT the resolver uses, asked as a yes/no question rather
+ * than for a push vector — car-vs-car ram detection needs the contact, not the correction.
+ *
+ * Sharing `mtvBetween` is the point: a separate overlap test would drift from the resolver, and a
+ * ram that registered on a pair the resolver had already pushed apart (or vice versa) would read as
+ * damage from nothing. "Merely touching" is not an overlap here, exactly as it is not there.
+ */
+export function obbsOverlap(a: Obb, b: Obb): boolean {
+  return mtvBetween(a, b) !== null;
+}
+
+/**
+ * Point-in-oriented-box, by rotating the point into the box's local frame. The v1 projectile hit
+ * test: a shot is a point, so a hit is this against the target's car OBB — the same box the driving
+ * collision resolves against, never the drawn silhouette.
+ */
+export function pointInObb(px: number, py: number, o: Obb): boolean {
+  const dx = px - o.x;
+  const dy = py - o.y;
+  const c = Math.cos(o.angle);
+  const s = Math.sin(o.angle);
+  const localX = dx * c + dy * s;
+  const localY = -dx * s + dy * c;
+  return Math.abs(localX) <= o.w / 2 && Math.abs(localY) <= o.h / 2;
+}
+
+/** Point-in-axis-aligned-box, with `box.x, box.y` the TOP-LEFT corner as arena obstacles author it. */
+export function pointInAabb(px: number, py: number, box: Aabb): boolean {
+  return px >= box.x && px <= box.x + box.w && py >= box.y && py <= box.y + box.h;
+}

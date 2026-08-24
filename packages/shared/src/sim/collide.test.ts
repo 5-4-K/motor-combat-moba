@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { Aabb, Obb } from "./collide.js";
-import { resolveWorld } from "./collide.js";
+import { obbsOverlap, pointInAabb, pointInObb, resolveWorld } from "./collide.js";
 import type { SimBody } from "./step.js";
 
 const CAR_W = DRIVE_CONFIG.carWidth;
@@ -580,5 +580,75 @@ describe("resolveWorld - documented consequences of the locked velocity rule", (
     for (let i = 1; i < speeds.length; i++) expect(speeds[i]!).toBeLessThan(speeds[i - 1]!);
     // It does slide along the wall in +y; it just never gets away from it.
     expect(car.y).toBeGreaterThan(100);
+  });
+});
+
+describe("obbsOverlap", () => {
+  const hull = (x: number, y: number, angle = 0): Obb => ({ x, y, angle, w: CAR_W, h: CAR_H });
+
+  it("is true for two cars sitting on the same spot", () => {
+    expect(obbsOverlap(hull(0, 0), hull(0, 0))).toBe(true);
+  });
+
+  it("is false for cars that are clear of each other", () => {
+    expect(obbsOverlap(hull(0, 0), hull(CAR_W + 1, 0))).toBe(false);
+  });
+
+  it("is false for cars that are merely touching", () => {
+    expect(obbsOverlap(hull(0, 0), hull(CAR_W, 0))).toBe(false);
+  });
+
+  it("is true just inside contact", () => {
+    expect(obbsOverlap(hull(0, 0), hull(CAR_W - 1, 0))).toBe(true);
+  });
+
+  it("agrees with the resolver: a pair that overlaps is a pair the resolver pushes apart", () => {
+    // Clear of the arena walls, so the only contact in play is the other car.
+    const a = body({ x: 500, y: 500 });
+    const b = hull(500 + CAR_W - 4, 500);
+    expect(obbsOverlap(carObb(a), b)).toBe(true);
+    expect(resolveWorld(a, [b], [], BOUNDS).x).toBeLessThan(a.x);
+  });
+
+  it("accounts for rotation: a turned car reaches further along the short axis", () => {
+    expect(obbsOverlap(hull(0, 0), hull(0, CAR_H + 4))).toBe(false);
+    expect(obbsOverlap(hull(0, 0), hull(0, CAR_H + 4, Math.PI / 2))).toBe(true);
+  });
+});
+
+describe("pointInObb", () => {
+  it("contains its own centre", () => {
+    expect(pointInObb(10, 10, { x: 10, y: 10, angle: 0, w: CAR_W, h: CAR_H })).toBe(true);
+  });
+
+  it("excludes a point past the long half-axis", () => {
+    expect(pointInObb(10 + CAR_W / 2 + 1, 10, { x: 10, y: 10, angle: 0, w: CAR_W, h: CAR_H })).toBe(
+      false,
+    );
+  });
+
+  it("includes a point exactly on the edge", () => {
+    expect(pointInObb(10 + CAR_W / 2, 10, { x: 10, y: 10, angle: 0, w: CAR_W, h: CAR_H })).toBe(true);
+  });
+
+  it("rotates with the box", () => {
+    const turned: Obb = { x: 0, y: 0, angle: Math.PI / 2, w: CAR_W, h: CAR_H };
+    expect(pointInObb(0, CAR_W / 2 - 1, turned)).toBe(true);
+    expect(pointInObb(CAR_W / 2 - 1, 0, turned)).toBe(false);
+  });
+});
+
+describe("pointInAabb", () => {
+  const box: Aabb = { x: 100, y: 200, w: 40, h: 20 };
+
+  it("reads x,y as the top-left corner", () => {
+    expect(pointInAabb(100, 200, box)).toBe(true);
+    expect(pointInAabb(99, 200, box)).toBe(false);
+  });
+
+  it("includes the far corner and excludes just past it", () => {
+    expect(pointInAabb(140, 220, box)).toBe(true);
+    expect(pointInAabb(141, 220, box)).toBe(false);
+    expect(pointInAabb(140, 221, box)).toBe(false);
   });
 });

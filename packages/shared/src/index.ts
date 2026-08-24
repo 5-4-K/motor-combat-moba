@@ -33,9 +33,17 @@ export type { RamOutcome } from "./sim/ram.js";
 export { stepSim } from "./sim/step.js";
 export type { SimBody, StepContext } from "./sim/step.js";
 export { stepDrive } from "./sim/drive.js";
-export { resolveWorld } from "./sim/collide.js";
+export { obbsOverlap, pointInAabb, pointInObb, resolveWorld } from "./sim/collide.js";
+export {
+  canDamage,
+  projectileExpired,
+  projectileHitsCar,
+  projectileHitsObstacle,
+  stepProjectile,
+} from "./sim/projectiles.js";
+export type { Proj } from "./sim/projectiles.js";
 export type { Aabb, Bounds, Obb } from "./sim/collide.js";
-export { carIdOf, isOnField, otherCarHulls } from "./sim/context.js";
+export { carHullOf, carIdOf, isOnField, otherCarHulls } from "./sim/context.js";
 export type { ContextEntry, ContextPlayer } from "./sim/context.js";
 
 export type { CarDef, CarId, ColorDef } from "./config/types.js";

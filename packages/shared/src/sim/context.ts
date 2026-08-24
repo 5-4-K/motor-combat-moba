@@ -60,13 +60,16 @@ export function otherCarHulls(entries: readonly ContextEntry[], selfSessionId: s
   for (const { sessionId, player } of entries) {
     if (sessionId === selfSessionId) continue;
     if (!isOnField(player)) continue;
-    hulls.push({
-      x: player.x,
-      y: player.y,
-      angle: player.angle,
-      w: DRIVE_CONFIG.carWidth,
-      h: DRIVE_CONFIG.carHeight,
-    });
+    hulls.push(carHullOf(player.x, player.y, player.angle));
   }
   return hulls;
+}
+
+/**
+ * The collision hull of one car at a pose. Every consumer of car geometry goes through here —
+ * driving contacts, ram detection, projectile hit tests — so hull dimensions are one edit, and a
+ * shot can never hit a box that driving would not have collided with.
+ */
+export function carHullOf(x: number, y: number, angle: number): Obb {
+  return { x, y, angle, w: DRIVE_CONFIG.carWidth, h: DRIVE_CONFIG.carHeight };
 }
