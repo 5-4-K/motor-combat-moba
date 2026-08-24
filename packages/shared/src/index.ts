@@ -48,3 +48,6 @@ export type { StartRuleStatus, StartRulePlayer, CanStartResult } from "./lobby/s
 export { badgeColor, viewFor } from "./lobby/status.js";
 export type { StatusInput, ViewId } from "./lobby/status.js";
 
+export { reduceFlow } from "./flow/match-flow.js";
+export type { FlowStatus, FlowPlayer, FlowState, FlowEvent } from "./flow/match-flow.js";
+
