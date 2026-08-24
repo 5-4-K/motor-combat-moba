@@ -71,7 +71,7 @@ Update this table when a plan’s Validation section has passed. Status values: 
 
 | ID | Status | Started | Completed | Validated by | Notes |
 |---|---|---|---|---|---|
-| P0 | Not started | — | — | — | |
+| P0 | Done | 2026-08-24 | 2026-08-24 | agent: `npm test`, `npm run build --workspaces`, two-tab `npm run dev`, `build:release` unzip + `start.bat`, `GET /health` | Walking skeleton: two squares (green self, red other) at server poses; zip prints Installing dependencies then listens. |
 | P1 | Not started | — | — | — | |
 | P2 | Not started | — | — | — | |
 | P3 | Not started | — | — | — | |
