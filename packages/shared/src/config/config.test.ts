@@ -78,12 +78,11 @@ describe("weapon / combat / drive / flow knobs exist", () => {
     expect(FLOW_CONFIG.countdownSeconds).toBe(3);
   });
   it("camera follows softly and pulls the view out", () => {
-    // A camLerp outside (0, 1] either never reaches the car or overshoots it every frame.
-    expect(CAMERA_CONFIG.camLerp).toBeGreaterThan(0);
-    expect(CAMERA_CONFIG.camLerp).toBeLessThanOrEqual(1);
-    // Below 1 means "zoomed out", which is what makes a nearby fight fit on screen.
-    expect(CAMERA_CONFIG.zoom).toBeLessThan(1);
-    expect(CAMERA_CONFIG.zoom).toBeGreaterThan(0);
+    // Pinned, not ranged: these are the tuned values, and a camLerp outside (0, 1] either never
+    // reaches the car or overshoots it every frame. Below 1, zoom means "zoomed out", which is what
+    // makes a nearby fight fit on screen.
+    expect(CAMERA_CONFIG.camLerp).toBe(0.12);
+    expect(CAMERA_CONFIG.zoom).toBe(0.85);
   });
   it("names a default chassis that is a real car id", () => {
     expect(isCarId(DEFAULT_CAR_ID)).toBe(true);

@@ -65,6 +65,29 @@ describe("PredictionBuffer.predict", () => {
     expect(out).toEqual(replay(START, kept));
     expect(out).not.toEqual(replay(START, [1, ...kept]));
   });
+
+  it("still drops by predicate after an eviction, so a live ack cannot strand survivors", () => {
+    // Eviction and a nonzero ack have to meet in one test. A cursor that splices off
+    // `ack - previousAck` entries agrees with the predicate right up until the cap has thrown the
+    // head away: the count is then measured against seqs that are no longer in the buffer, and it
+    // eats live inputs off the front.
+    const buf = new PredictionBuffer();
+    const sent = NET_CONFIG.pendingInputCap + 6;
+    let predicted = START;
+    for (let seq = 1; seq <= sent; seq++) {
+      predicted = buf.predict(predicted, { seq, input: up(seq) }, ctx);
+    }
+
+    // The buffer holds seqs 7..30; the server has acked through 10, so 11..30 must replay.
+    const oldestKept = sent - NET_CONFIG.pendingInputCap + 1;
+    const ack = oldestKept + 3;
+    const survivors: number[] = [];
+    for (let seq = ack + 1; seq <= sent; seq++) survivors.push(seq);
+
+    const authoritative = replay(START, [1]);
+    const expected = replay(authoritative, survivors);
+    expect(buf.reconcile(authoritative, ack, farFrom(expected), ctx)).toEqual(expected);
+  });
 });
 
 describe("PredictionBuffer.reconcile", () => {
