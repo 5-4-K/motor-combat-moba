@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { CAR_TABLE, hpOf, forwardMaxSpeedOf } from "./car-config.js";
+import { CAR_TABLE, DEFAULT_CAR_ID, hpOf, forwardMaxSpeedOf, isCarId } from "./car-config.js";
 import { COLOR_TABLE } from "./color-config.js";
 import { WEAPON_CONFIG } from "./weapon-config.js";
 import { COMBAT_CONFIG } from "./combat-config.js";
-import { DRIVE_CONFIG } from "./drive-config.js";
+import { CAMERA_CONFIG, DRIVE_CONFIG } from "./drive-config.js";
 import { FLOW_CONFIG } from "./flow-config.js";
+import { NET_CONFIG } from "./net-config.js";
 
 describe("CAR_TABLE", () => {
   it("has exactly rectangle, oval, hexagon", () => {
@@ -26,6 +27,24 @@ describe("CAR_TABLE", () => {
   it("derives forward max speed from the speed rating", () => {
     expect(forwardMaxSpeedOf("rectangle")).toBeGreaterThan(forwardMaxSpeedOf("oval"));
     expect(forwardMaxSpeedOf("oval")).toBeGreaterThan(forwardMaxSpeedOf("hexagon"));
+  });
+});
+
+describe("isCarId", () => {
+  it("accepts CAR_TABLE keys and rejects unknown ids", () => {
+    expect(isCarId("rectangle")).toBe(true);
+    expect(isCarId("oval")).toBe(true);
+    expect(isCarId("hexagon")).toBe(true);
+    expect(isCarId("triangle")).toBe(false);
+    expect(isCarId("")).toBe(false);
+    expect(isCarId(1)).toBe(false);
+  });
+
+  it("rejects names inherited from Object.prototype", () => {
+    // `"constructor" in CAR_TABLE` is true; the own-property check is what keeps it out.
+    expect(isCarId("constructor")).toBe(false);
+    expect(isCarId("toString")).toBe(false);
+    expect(isCarId("hasOwnProperty")).toBe(false);
   });
 });
 
@@ -57,5 +76,29 @@ describe("weapon / combat / drive / flow knobs exist", () => {
   it("flow timers", () => {
     expect(FLOW_CONFIG.carSelectSeconds).toBe(60);
     expect(FLOW_CONFIG.countdownSeconds).toBe(3);
+  });
+  it("camera follows softly and pulls the view out", () => {
+    // Pinned, not ranged: these are the tuned values, and a camLerp outside (0, 1] either never
+    // reaches the car or overshoots it every frame. Below 1, zoom means "zoomed out", which is what
+    // makes a nearby fight fit on screen.
+    expect(CAMERA_CONFIG.camLerp).toBe(0.12);
+    expect(CAMERA_CONFIG.zoom).toBe(0.85);
+  });
+  it("names a default chassis that is a real car id", () => {
+    expect(isCarId(DEFAULT_CAR_ID)).toBe(true);
+  });
+  it("keeps reconcileEaseRate inside (0, 1] so corrections converge", () => {
+    // The same property CAMERA_CONFIG.camLerp is pinned for, but governing the *car*: at 0 the
+    // predicted pose never closes on the authoritative one, and above 1 every correction overshoots
+    // and oscillates — at >= 2 it diverges outright. The prediction tests all read this constant
+    // back out of NET_CONFIG, so they are structurally incapable of catching a bad value here.
+    expect(NET_CONFIG.reconcileEaseRate).toBeGreaterThan(0);
+    expect(NET_CONFIG.reconcileEaseRate).toBeLessThanOrEqual(1);
+  });
+  it("caps how many inputs one player can have applied per tick", () => {
+    expect(NET_CONFIG.maxInputsPerTick).toBeTypeOf("number");
+    expect(Number.isInteger(NET_CONFIG.maxInputsPerTick)).toBe(true);
+    // Below 1 the server would drop every input and no one could move.
+    expect(NET_CONFIG.maxInputsPerTick).toBeGreaterThanOrEqual(1);
   });
 });

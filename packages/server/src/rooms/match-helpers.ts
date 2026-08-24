@@ -5,10 +5,6 @@ import {
   type Spawn,
 } from "@motor-arena/shared";
 
-export function isCarId(value: unknown): value is CarId {
-  return typeof value === "string" && Object.prototype.hasOwnProperty.call(CAR_TABLE, value);
-}
-
 export function pickRandomCarId(random: () => number): CarId {
   const keys = Object.keys(CAR_TABLE) as CarId[];
   return keys[Math.floor(random() * keys.length)]!;

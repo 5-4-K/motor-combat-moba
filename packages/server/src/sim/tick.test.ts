@@ -1,65 +1,113 @@
 import { describe, expect, it } from "vitest";
-import { ArenaState, MS_PER_TICK, PlayerState, type InputMessage } from "@motor-arena/shared";
+import {
+  ArenaState,
+  DRIVE_CONFIG,
+  MS_PER_TICK,
+  NET_CONFIG,
+  PlayerState,
+  PlayerStatus,
+  RoomPhase,
+  type InputMessage,
+  type SimBody,
+} from "@motor-arena/shared";
 import { serverTick } from "./tick.js";
 
 const DT = MS_PER_TICK / 1000;
+const UP: InputMessage = { seq: 1, steer: 0, throttle: 1, fire: false };
 
-function makePlayer(sessionId: string, x: number, y: number, angle: number): PlayerState {
+/** A clear east-west corridor in arena-01: every obstacle sits at y >= 350. */
+const CORRIDOR_Y = 100;
+
+function makePlayer(
+  sessionId: string,
+  x: number,
+  y: number,
+  angle: number,
+  status: PlayerStatus = PlayerStatus.IN_MATCH,
+): PlayerState {
   const p = new PlayerState();
   p.sessionId = sessionId;
   p.x = x;
   p.y = y;
   p.angle = angle;
+  p.status = status;
+  p.carId = "rectangle";
   p.lastProcessedInputSeq = 0;
   return p;
 }
 
+/** Seed a state, honouring the given insertion order into the `MapSchema`. */
+function stateWith(...players: PlayerState[]): ArenaState {
+  const state = new ArenaState();
+  for (const p of players) state.players.set(p.sessionId, p);
+  return state;
+}
+
+function poseOf(player: PlayerState): SimBody {
+  return {
+    x: player.x,
+    y: player.y,
+    angle: player.angle,
+    speed: player.speed,
+    reverseHold: player.reverseHold,
+  };
+}
+
+function ups(...seqs: number[]): InputMessage[] {
+  return seqs.map((seq) => ({ seq, steer: 0, throttle: 1, fire: false }));
+}
+
+/** Throttle-neutral inputs: the car keeps whatever speed it already had, minus drag. */
+function coasts(...seqs: number[]): InputMessage[] {
+  return seqs.map((seq) => ({ seq, steer: 0, throttle: 0, fire: false }));
+}
+
 describe("serverTick", () => {
-  it("applies queued input, leaves pose unchanged (identity stepSim), and empties the queue", () => {
-    const state = new ArenaState();
-    const player = makePlayer("p1", 10, 20, 0.3);
-    state.players.set("p1", player);
+  it("drives the car forward and empties the queue", () => {
+    const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    const state = stateWith(player);
+    const queues = new Map<string, InputMessage[]>([["p1", [{ ...UP, seq: 7 }]]]);
 
-    const msg: InputMessage = { seq: 7, steer: 1, throttle: 1, fire: false };
-    const queues = new Map<string, InputMessage[]>([["p1", [msg]]]);
+    serverTick(state, queues, DT, RoomPhase.MATCH);
 
-    serverTick(state, queues, DT);
-
-    expect(player.x).toBe(10);
-    expect(player.y).toBe(20);
-    expect(player.angle).toBe(0.3);
+    expect(player.x).toBeGreaterThan(300);
+    expect(player.y).toBe(CORRIDOR_Y);
+    expect(player.speed).toBeCloseTo(DRIVE_CONFIG.accel * DT, 6);
     expect(player.lastProcessedInputSeq).toBe(7);
     expect(queues.get("p1")).toEqual([]);
   });
 
+  it("carries speed forward between inputs, so N queued inputs accelerate N times", () => {
+    const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    const state = stateWith(player);
+    const queues = new Map<string, InputMessage[]>([["p1", ups(1, 2, 3)]]);
+
+    serverTick(state, queues, DT, RoomPhase.MATCH);
+
+    // Would be a single `accel * DT` if `speed` were only written back after the last input.
+    expect(player.speed).toBeCloseTo(3 * DRIVE_CONFIG.accel * DT, 6);
+  });
+
   it("leaves a player with an empty or missing queue unchanged", () => {
-    const state = new ArenaState();
     const emptyQ = makePlayer("empty", 1, 2, 0.1);
     emptyQ.lastProcessedInputSeq = 3;
     const missingQ = makePlayer("missing", 4, 5, 0.2);
     missingQ.lastProcessedInputSeq = 4;
-    state.players.set("empty", emptyQ);
-    state.players.set("missing", missingQ);
+    const state = stateWith(emptyQ, missingQ);
 
     const queues = new Map<string, InputMessage[]>([["empty", []]]);
 
-    serverTick(state, queues, DT);
+    serverTick(state, queues, DT, RoomPhase.MATCH);
 
-    expect(emptyQ.x).toBe(1);
-    expect(emptyQ.y).toBe(2);
-    expect(emptyQ.angle).toBe(0.1);
+    expect(poseOf(emptyQ)).toEqual({ x: 1, y: 2, angle: 0.1, speed: 0, reverseHold: 0 });
     expect(emptyQ.lastProcessedInputSeq).toBe(3);
-    expect(missingQ.x).toBe(4);
-    expect(missingQ.y).toBe(5);
-    expect(missingQ.angle).toBe(0.2);
+    expect(poseOf(missingQ)).toEqual({ x: 4, y: 5, angle: 0.2, speed: 0, reverseHold: 0 });
     expect(missingQ.lastProcessedInputSeq).toBe(4);
   });
 
   it("sets lastProcessedInputSeq to the last seq applied when multiple messages are queued", () => {
-    const state = new ArenaState();
-    const player = makePlayer("p1", 0, 0, 0);
-    state.players.set("p1", player);
-
+    const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    const state = stateWith(player);
     const queues = new Map<string, InputMessage[]>([
       [
         "p1",
@@ -71,22 +119,204 @@ describe("serverTick", () => {
       ],
     ]);
 
-    serverTick(state, queues, DT);
+    serverTick(state, queues, DT, RoomPhase.MATCH);
 
     expect(player.lastProcessedInputSeq).toBe(5);
     expect(queues.get("p1")).toEqual([]);
   });
 
-  it("accepts dt seconds as the third argument without throwing", () => {
-    const state = new ArenaState();
-    const player = makePlayer("p1", 0, 0, 0);
-    state.players.set("p1", player);
+  it("integrates with the dt it is given", () => {
+    const slow = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    const fast = makePlayer("p1", 300, CORRIDOR_Y, 0);
+
+    serverTick(stateWith(slow), new Map([["p1", ups(1)]]), DT, RoomPhase.MATCH);
+    serverTick(stateWith(fast), new Map([["p1", ups(1)]]), DT * 2, RoomPhase.MATCH);
+
+    expect(fast.speed).toBeCloseTo(slow.speed * 2, 6);
+    expect(fast.x - 300).toBeGreaterThan(slow.x - 300);
+  });
+
+  describe("input ordering", () => {
+    // Bodies chosen so the order they integrate in genuinely changes the outcome: accelerating and
+    // turning before braking does not land where braking first does.
+    const BODIES = [
+      { steer: 0, throttle: 1 },
+      { steer: 1, throttle: 1 },
+      { steer: 1, throttle: -1 },
+    ] as const;
+
+    const at = (body: number, seq: number): InputMessage => ({ ...BODIES[body]!, seq, fire: false });
+
+    function runWith(queue: InputMessage[]): PlayerState {
+      const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
+      serverTick(stateWith(player), new Map([["p1", queue]]), DT, RoomPhase.MATCH);
+      return player;
+    }
+
+    it("applies inputs in seq order regardless of the order they arrived in", () => {
+      // Simulated latency gives every packet its own jittered delay, so this is routine, not exotic.
+      const inOrder = runWith([at(0, 1), at(1, 2), at(2, 3)]);
+      const arrivedShuffled = runWith([at(2, 3), at(0, 1), at(1, 2)]);
+
+      // Precondition: the fixture really is order-sensitive, so the equality below has teeth.
+      const seqsReversed = runWith([at(2, 1), at(1, 2), at(0, 3)]);
+      expect(poseOf(seqsReversed)).not.toEqual(poseOf(inOrder));
+
+      expect(poseOf(arrivedShuffled)).toEqual(poseOf(inOrder));
+      // Acking the last *arrival* would leave this at 2 while seq 3 had already been applied, and
+      // Task 4's reconcile would then replay inputs the server has already integrated.
+      expect(arrivedShuffled.lastProcessedInputSeq).toBe(3);
+    });
+  });
+
+  it("applies at most maxInputsPerTick inputs, but still drains and acks the whole burst", () => {
+    const cap = NET_CONFIG.maxInputsPerTick;
+    const burst = cap * 4;
+
+    const flooder = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    const floodQueue = ups(...Array.from({ length: burst }, (_, i) => i + 1));
+    serverTick(stateWith(flooder), new Map([["p1", floodQueue]]), DT, RoomPhase.MATCH);
+
+    const honest = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    serverTick(
+      stateWith(honest),
+      new Map([["p1", ups(...Array.from({ length: cap }, (_, i) => i + 1))]]),
+      DT,
+      RoomPhase.MATCH,
+    );
+
+    // Flooding buys no distance *beyond the cap*: both clients here send `maxInputsPerTick`, so
+    // this pins the ceiling rather than comparing a flooder against an honest client.
+    expect(poseOf(flooder)).toEqual(poseOf(honest));
+    expect(flooder.x).toBeGreaterThan(300);
+    // ...but the whole burst is drained and acked, so the queue cannot grow and the client's
+    // pending-input buffer still clears.
+    expect(floodQueue).toEqual([]);
+    expect(flooder.lastProcessedInputSeq).toBe(burst);
+  });
+
+  describe("phase gating", () => {
+    for (const phase of [RoomPhase.LOBBY, RoomPhase.CAR_SELECT, RoomPhase.COUNTDOWN] as const) {
+      it(`drains the queue and advances the seq without moving in phase ${RoomPhase[phase]}`, () => {
+        const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
+        const state = stateWith(player);
+        const queues = new Map<string, InputMessage[]>([["p1", ups(1, 2, 9)]]);
+
+        serverTick(state, queues, DT, phase);
+
+        expect(poseOf(player)).toEqual({ x: 300, y: CORRIDOR_Y, angle: 0, speed: 0, reverseHold: 0 });
+        expect(player.lastProcessedInputSeq).toBe(9);
+        expect(queues.get("p1")).toEqual([]);
+      });
+    }
+  });
+
+  // A mid-match joiner is READY and a knocked-out player is POST_MATCH. Stepping either would drive
+  // an off-field car around the arena that real players cannot see in their own collision checks.
+  for (const status of [PlayerStatus.READY, PlayerStatus.POST_MATCH] as const) {
+    it(`drains a ${PlayerStatus[status]} player's queue during MATCH without moving them`, () => {
+      const offField = makePlayer("p1", 300, CORRIDOR_Y, 0, status);
+      const state = stateWith(offField);
+      const queues = new Map<string, InputMessage[]>([["p1", ups(1, 2, 9)]]);
+
+      serverTick(state, queues, DT, RoomPhase.MATCH);
+
+      expect(poseOf(offField)).toEqual({ x: 300, y: CORRIDOR_Y, angle: 0, speed: 0, reverseHold: 0 });
+      expect(offField.lastProcessedInputSeq).toBe(9);
+      expect(queues.get("p1")).toEqual([]);
+    });
+  }
+
+  describe("other cars as colliders", () => {
+    /** Far enough for the driver to reach the blocker, not far enough to be near a wall. */
+    const TICKS = 40;
+
+    function driveIntoBlocker(blockerStatus: PlayerStatus): PlayerState {
+      const driver = makePlayer("a-driver", 300, CORRIDOR_Y, 0);
+      const blocker = makePlayer("b-blocker", 500, CORRIDOR_Y, 0, blockerStatus);
+      const state = stateWith(driver, blocker);
+      for (let i = 0; i < TICKS; i++) {
+        serverTick(state, new Map([["a-driver", ups(i + 1)]]), DT, RoomPhase.MATCH);
+      }
+      return driver;
+    }
+
+    it("stops a driver short of another player who is in the match", () => {
+      const driver = driveIntoBlocker(PlayerStatus.IN_MATCH);
+      expect(driver.x).toBeGreaterThan(300);
+      expect(driver.x + DRIVE_CONFIG.carWidth).toBeLessThanOrEqual(500);
+    });
+
+    it("does not treat a player who is not in the match as a solid wall", () => {
+      const driver = driveIntoBlocker(PlayerStatus.READY);
+      expect(driver.x).toBeGreaterThan(500);
+    });
+  });
+
+  it("steps players in sorted sessionId order, not MapSchema insertion order", () => {
+    // Two overlapping cars: resolution is sequential, so who is stepped first changes both poses.
+    function run(insertionOrder: "sorted" | "reversed"): SimBody[] {
+      const a = makePlayer("aaa", 400, CORRIDOR_Y, 0);
+      const b = makePlayer("bbb", 440, CORRIDOR_Y, 0);
+      const state = insertionOrder === "sorted" ? stateWith(a, b) : stateWith(b, a);
+      const queues = new Map<string, InputMessage[]>([
+        ["aaa", ups(1)],
+        ["bbb", ups(1)],
+      ]);
+      serverTick(state, queues, DT, RoomPhase.MATCH);
+      return [poseOf(a), poseOf(b)];
+    }
+
+    expect(run("reversed")).toEqual(run("sorted"));
+  });
+
+  it("steps each player against the updated poses of the players stepped before them", () => {
+    // "aaa" sorts first, so it is stepped while "bbb" still sits at its start pose. It begins
+    // overlapping "bbb" and coasts away hard enough to clear it in one tick. "bbb" is then resolved
+    // against that *updated* pose, finds nothing in contact, and is never pushed. Resolving
+    // everyone against a single pre-loop snapshot would still see "aaa" back at LEADER_X, overlap
+    // "bbb", and shove it clear of the stale pose instead.
+    const LEADER_X = 400;
+    const FOLLOWER_X = 440; // < LEADER_X + carWidth, so the two start overlapping
+    const CLEARING_SPEED = 300; // enough to open a gap in a single tick
+
+    const leader = makePlayer("aaa", LEADER_X, CORRIDOR_Y, Math.PI);
+    leader.speed = CLEARING_SPEED;
+    const follower = makePlayer("bbb", FOLLOWER_X, CORRIDOR_Y, 0);
+    const state = stateWith(leader, follower);
     const queues = new Map<string, InputMessage[]>([
-      ["p1", [{ seq: 1, steer: 0, throttle: 0, fire: false }]],
+      ["aaa", coasts(1)],
+      ["bbb", coasts(1)],
     ]);
 
-    expect(serverTick.length).toBe(3);
-    expect(() => serverTick(state, queues, 1 / 60)).not.toThrow();
-    expect(player.lastProcessedInputSeq).toBe(1);
+    serverTick(state, queues, DT, RoomPhase.MATCH);
+
+    // The leader really did drive clear, so the follower's contact genuinely depends on which pose
+    // it was tested against.
+    expect(FOLLOWER_X - LEADER_X).toBeLessThan(DRIVE_CONFIG.carWidth);
+    expect(follower.x - leader.x).toBeGreaterThan(DRIVE_CONFIG.carWidth);
+    // Untouched: no drive input, and no contact once the leader's updated pose is used.
+    expect(follower.x).toBe(FOLLOWER_X);
+  });
+
+  describe("carId fallback", () => {
+    function driveOneTickAs(carId: string): PlayerState {
+      const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
+      player.carId = carId;
+      serverTick(stateWith(player), new Map([["p1", ups(1)]]), DT, RoomPhase.MATCH);
+      return player;
+    }
+
+    it("drives a pre-reveal player (carId \"\") as the default chassis", () => {
+      expect(poseOf(driveOneTickAs(""))).toEqual(poseOf(driveOneTickAs("rectangle")));
+    });
+
+    it("does not mistake an inherited Object property for a car id", () => {
+      // `"constructor" in CAR_TABLE` is true via the prototype chain; looking its stats up yields
+      // undefined and NaNs the whole drive step.
+      const inherited = driveOneTickAs("constructor");
+      expect(Number.isFinite(inherited.x)).toBe(true);
+      expect(poseOf(inherited)).toEqual(poseOf(driveOneTickAs("rectangle")));
+    });
   });
 });

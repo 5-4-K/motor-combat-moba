@@ -12,3 +12,18 @@ export const DRIVE_CONFIG = {
   carHeight: 32,
   restitution: 0.35,
 } as const;
+
+/**
+ * How the client's arena camera follows the local car.
+ *
+ * `camLerp` is the per-frame fraction of the remaining distance the camera closes on the car. It is
+ * a *frame* rate, not a tick rate: rendering is uncapped while the sim runs at `TICK_RATE_HZ`, so
+ * this is deliberately a soft-follow feel knob rather than a simulated quantity. Nothing in
+ * `stepSim` reads it.
+ *
+ * `zoom` below 1 pulls the view out so a nearby fight fits on screen at 1280x720.
+ */
+export const CAMERA_CONFIG = {
+  camLerp: 0.12,
+  zoom: 0.85,
+} as const;

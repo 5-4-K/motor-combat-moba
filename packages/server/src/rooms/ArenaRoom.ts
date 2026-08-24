@@ -29,6 +29,7 @@ import {
   livingSides,
   getArena,
   hpOf,
+  isCarId,
   type CarId,
   type FlowEvent,
   type FlowPlayer,
@@ -50,7 +51,6 @@ import {
 import {
   copySpawnNumbers,
   firstAliveRosterWinner,
-  isCarId,
   livingAfterLeave,
   pickRandomCarId,
 } from "./match-helpers.js";
@@ -260,7 +260,7 @@ export class ArenaRoom extends Room<ArenaState> {
     ) {
       this.reduce({ type: "go" });
     }
-    serverTick(this.state, this.inputQueues, 1 / getTickRateHz(TICK_RATE_HZ));
+    serverTick(this.state, this.inputQueues, 1 / getTickRateHz(TICK_RATE_HZ), this.state.phase);
   }
 
   private reduce(event: FlowEvent): void {

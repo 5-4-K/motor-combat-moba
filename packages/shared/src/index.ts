@@ -28,14 +28,26 @@ export { ProjectileState } from "./schema/ProjectileState.js";
 export { ArenaState } from "./schema/ArenaState.js";
 
 export { stepSim } from "./sim/step.js";
-export type { SimBody } from "./sim/step.js";
+export type { SimBody, StepContext } from "./sim/step.js";
+export { stepDrive } from "./sim/drive.js";
+export { resolveWorld } from "./sim/collide.js";
+export type { Aabb, Bounds, Obb } from "./sim/collide.js";
+export { carIdOf, isOnField, otherCarHulls } from "./sim/context.js";
+export type { ContextEntry, ContextPlayer } from "./sim/context.js";
 
 export type { CarDef, CarId, ColorDef } from "./config/types.js";
-export { CAR_TABLE, forwardMaxSpeedOf, hpOf, reverseMaxSpeedOf } from "./config/car-config.js";
+export {
+  CAR_TABLE,
+  DEFAULT_CAR_ID,
+  forwardMaxSpeedOf,
+  hpOf,
+  isCarId,
+  reverseMaxSpeedOf,
+} from "./config/car-config.js";
 export { COLOR_TABLE } from "./config/color-config.js";
 export { WEAPON_CONFIG } from "./config/weapon-config.js";
 export { COMBAT_CONFIG } from "./config/combat-config.js";
-export { DRIVE_CONFIG } from "./config/drive-config.js";
+export { CAMERA_CONFIG, DRIVE_CONFIG } from "./config/drive-config.js";
 export { FLOW_CONFIG } from "./config/flow-config.js";
 export { NET_CONFIG } from "./config/net-config.js";
 

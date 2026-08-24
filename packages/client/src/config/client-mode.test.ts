@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { detectServerEndpoint } from "./client-mode.js";
+import { detectServerEndpoint, isDebugEnabled } from "./client-mode.js";
+
+describe("isDebugEnabled", () => {
+  it("is on only for an explicit debug=1", () => {
+    expect(isDebugEnabled("?debug=1")).toBe(true);
+    expect(isDebugEnabled("?name=x&debug=1")).toBe(true);
+  });
+
+  it("is off by default and for any other value", () => {
+    expect(isDebugEnabled("")).toBe(false);
+    expect(isDebugEnabled("?debug")).toBe(false);
+    expect(isDebugEnabled("?debug=0")).toBe(false);
+    expect(isDebugEnabled("?debug=true")).toBe(false);
+  });
+});
 
 describe("detectServerEndpoint", () => {
   it("maps Vite port 5173 to local Colyseus", () => {
