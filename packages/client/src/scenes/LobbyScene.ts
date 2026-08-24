@@ -13,6 +13,7 @@ import {
   PlayerStatus,
   badgeColor,
 } from "@motor-arena/shared";
+import { lobbyRenderSignature } from "./lobby-signature.js";
 
 const FALLBACK_HEX = "#888888";
 const COL_A_X = 80;
@@ -27,6 +28,7 @@ export class LobbyScene extends Phaser.Scene {
   private room: Room<ArenaState> | undefined;
   private ui: Phaser.GameObjects.GameObject[] = [];
   private startError = "";
+  private lastSignature = "";
   private unbind: Array<() => void> = [];
 
   constructor() {
@@ -36,6 +38,7 @@ export class LobbyScene extends Phaser.Scene {
   create(): void {
     this.clearUi();
     this.startError = "";
+    this.lastSignature = "";
     this.unbindAll();
     this.room = this.registry.get("room") as Room<ArenaState> | undefined;
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.onShutdown, this);
@@ -53,12 +56,13 @@ export class LobbyScene extends Phaser.Scene {
     this.unbindAll();
     this.clearUi();
     this.startError = "";
+    this.lastSignature = "";
     this.room = undefined;
   }
 
   private bindRoom(room: Room<ArenaState>): void {
     const onState = (): void => {
-      this.render();
+      this.renderIfLobbyChanged();
     };
     room.onStateChange(onState);
     this.unbind.push(() => room.onStateChange.remove(onState));
@@ -87,10 +91,19 @@ export class LobbyScene extends Phaser.Scene {
     this.ui = [];
   }
 
+  private renderIfLobbyChanged(): void {
+    const room = this.room;
+    if (!room) return;
+    const signature = lobbyRenderSignature(room.state);
+    if (signature === this.lastSignature) return;
+    this.render();
+  }
+
   private render(): void {
     const room = this.room;
     if (!room) return;
 
+    this.lastSignature = lobbyRenderSignature(room.state);
     this.clearUi();
 
     const teamA: { sessionId: string; player: PlayerState }[] = [];
@@ -125,7 +138,7 @@ export class LobbyScene extends Phaser.Scene {
 
     if (isHost) {
       const other = room.state.mode === GameMode.FFA ? GameMode.TEAM : GameMode.FFA;
-      this.addButton(640, 620, modeLabel(room.state.mode), () => {
+      this.addButton(640, 620, `Switch to ${modeLabel(other)}`, () => {
         room.send(MSG_SET_MODE, { mode: other });
       });
       this.addButton(1080, 620, "Start", () => {
