@@ -53,6 +53,7 @@ describe("stepDrive", () => {
     expect(held.speed).toBeLessThan(0);
     expect(Math.abs(held.speed)).toBeLessThanOrEqual(reverseMaxSpeedOf(CAR_ID));
     expect(reverseMaxSpeedOf(CAR_ID)).toBe(forwardMaxSpeedOf(CAR_ID) / 2);
+    expect(held.reverseHold).toBe(DRIVE_CONFIG.reverseHoldTicks);
   });
 
   it("brakes through zero into reverse without overshoot, only reverses past the hold threshold, and pins at the cap", () => {
@@ -150,5 +151,11 @@ describe("stepDrive", () => {
     const out = stepDrive(movingReverse, input(0, 0), DT, CAR_ID);
     expect(out.speed).toBeGreaterThan(movingReverse.speed);
     expect(out.speed).toBeLessThanOrEqual(0);
+  });
+
+  it("coasting from a sub-epsilon speed settles to exact rest in one tick", () => {
+    const barelyMoving: SimBody = { x: 0, y: 0, angle: 0, speed: 0.0005, reverseHold: 0 };
+    const out = stepDrive(barelyMoving, input(0, 0), DT, CAR_ID);
+    expect(out.speed).toBe(0);
   });
 });

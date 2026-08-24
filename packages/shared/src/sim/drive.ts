@@ -88,5 +88,5 @@ function brakeOrReverse(
 function coast(speed: number, dt: number): number {
   if (speed > MOVING_SPEED_EPSILON) return Math.max(0, speed - DRIVE_CONFIG.drag * dt);
   if (speed < -MOVING_SPEED_EPSILON) return Math.min(0, speed + DRIVE_CONFIG.drag * dt);
-  return speed;
+  return 0; // inside the band: snap to true rest
 }
