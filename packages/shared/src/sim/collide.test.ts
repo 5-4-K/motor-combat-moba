@@ -345,3 +345,44 @@ describe("resolveWorld - deep penetration (containment on a separating axis)", (
     expect(out.x + hx).toBeLessThanOrEqual(BOUNDS.width + TOUCH_SLACK);
   });
 });
+
+describe("resolveWorld - the arena boundary is inviolable", () => {
+  /** True when the car's axis-aligned hull lies wholly inside the arena. */
+  function inBounds(b: SimBody, bounds: { width: number; height: number }): boolean {
+    const { hx, hy } = hullHalfExtents(b.angle);
+    return (
+      b.x - hx >= -TOUCH_SLACK &&
+      b.y - hy >= -TOUCH_SLACK &&
+      b.x + hx <= bounds.width + TOUCH_SLACK &&
+      b.y + hy <= bounds.height + TOUCH_SLACK
+    );
+  }
+
+  it("keeps a car squeezed between another car and the left wall inside the arena", () => {
+    const start = body({ x: 26, y: 500, angle: 0, speed: 0 });
+    const other: Obb = { x: 60, y: 500, angle: 0, w: CAR_W, h: CAR_H };
+
+    const out = resolveWorld(start, [other], [], BOUNDS);
+    expect(inBounds(out, BOUNDS)).toBe(true);
+  });
+
+  it("keeps a car wedged into a corner by two other cars inside the arena", () => {
+    const start = body({ x: 30, y: 30, angle: 0, speed: 0 });
+    const others: Obb[] = [
+      { x: 64, y: 30, angle: 0, w: CAR_W, h: CAR_H },
+      { x: 30, y: 62, angle: 0, w: CAR_W, h: CAR_H },
+    ];
+
+    const out = resolveWorld(start, others, [], BOUNDS);
+    expect(inBounds(out, BOUNDS)).toBe(true);
+  });
+
+  it("keeps a car inside the arena when an obstacle push drives it at a wall", () => {
+    // Obstacle hard against the left wall: the only way out is toward x = 0.
+    const hugging: Aabb = { x: 0, y: 400, w: 60, h: 200 };
+    const start = body({ x: 50, y: 500, angle: 0, speed: 0 });
+
+    const out = resolveWorld(start, [], [hugging], BOUNDS);
+    expect(inBounds(out, BOUNDS)).toBe(true);
+  });
+});

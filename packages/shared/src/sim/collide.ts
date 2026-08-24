@@ -51,8 +51,8 @@ const RELAXATION_PASSES = 1;
  * Push a body out of the world it is overlapping and bounce its speed. Pure: inputs are never
  * mutated and the result is always a fresh `SimBody` with `angle` and `reverseHold` carried through.
  *
- * Contacts are resolved in a fixed order — bounds, then `obstacles` in array order, then `others` in
- * array order — so server and client replays of the same tick agree.
+ * Contacts are resolved in a fixed order — bounds, `obstacles` in array order, `others` in array
+ * order, then bounds again — so server and client replays of the same tick agree.
  */
 export function resolveWorld(
   body: SimBody,
@@ -62,6 +62,8 @@ export function resolveWorld(
 ): SimBody {
   let next = body;
   for (let pass = 0; pass < RELAXATION_PASSES; pass++) {
+    // Leading clamp: a body that started far outside the arena is put into a sane pose before the
+    // obstacle SAT runs, rather than feeding wild geometry into it.
     next = resolveBounds(next, bounds);
     for (const obstacle of obstacles) {
       next = resolveAgainst(next, aabbToObb(obstacle));
@@ -69,6 +71,13 @@ export function resolveWorld(
     for (const other of others) {
       next = resolveAgainst(next, other);
     }
+    // Trailing clamp: the arena boundary gets the last word, so no push can leave a car outside the
+    // world. The trade-off is deliberate — a car crushed between another car and a wall may keep a
+    // small overlap for a tick, because the clamp overrides the push that separated it. An overlap
+    // is recoverable and visually minor; a car outside the arena is neither, since it renders
+    // off-screen and nothing downstream expects it. The clamp is idempotent, so this is a no-op in
+    // the common case where the body is already inside.
+    next = resolveBounds(next, bounds);
   }
   return { x: next.x, y: next.y, angle: next.angle, speed: next.speed, reverseHold: next.reverseHold };
 }
