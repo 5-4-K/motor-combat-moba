@@ -43,18 +43,25 @@ import {
  * Within one player, inputs are applied in *seq* order rather than arrival order, and at most
  * `NET_CONFIG.maxInputsPerTick` of them actually reach `stepSim`. See the comments in the drain
  * loop for why each of those matters.
+ *
+ * Returns the session ids that asked to fire on an input this tick actually **simulated**. Firing
+ * rides the same gate as movement rather than the raw key state, so an input past the per-tick cap
+ * cannot buy a shot the sim never ran, and a lobby player spamming `fire` never spawns anything.
+ * The weapon cooldown in `runCombat`, not this set, is what limits the rate — several fire inputs
+ * in one tick still yield at most one shot.
  */
 export function serverTick(
   state: ArenaState,
   queues: Map<string, InputMessage[]>,
   dt: number,
   phase: RoomPhase,
-): void {
+): Set<string> {
   const world = tickWorldOf(getArena(state.arenaId));
   const moving = phase === RoomPhase.MATCH;
   // Sorted once per tick. This same array fixes both the order players are stepped in and the order
   // of the hulls built from it, so it is threaded through rather than recomputed.
   const entries = sortedEntries(state);
+  const fired = new Set<string>();
 
   for (const { sessionId, player } of entries) {
     const queue = queues.get(sessionId);
@@ -82,10 +89,13 @@ export function serverTick(
       // diverge from the server, so reconciliation snaps them back. See NET_CONFIG.
       if (ctx !== null && index < NET_CONFIG.maxInputsPerTick) {
         writeBody(player, stepSim(bodyOf(player), msg, dt, ctx));
+        if (msg.fire) fired.add(sessionId);
       }
       player.lastProcessedInputSeq = msg.seq;
     }
   }
+
+  return fired;
 }
 
 function bySeq(a: InputMessage, b: InputMessage): number {

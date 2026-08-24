@@ -20,7 +20,6 @@ export {
   MSG_START_ERROR,
   MSG_SELECT_CAR,
   MSG_RETURN_TO_LOBBY,
-  MSG_STUB_END_MATCH,
 } from "./net/lobby-messages.js";
 
 export { PlayerState } from "./schema/PlayerState.js";
@@ -34,6 +33,8 @@ export { stepSim } from "./sim/step.js";
 export type { SimBody, StepContext } from "./sim/step.js";
 export { stepDrive } from "./sim/drive.js";
 export { obbsOverlap, pointInAabb, pointInObb, resolveWorld } from "./sim/collide.js";
+export { fireCooldownTicks, muzzleOffset, runCombat } from "./sim/combat.js";
+export type { CombatInput, CombatPlayer, CombatResult, CombatWorld } from "./sim/combat.js";
 export {
   canDamage,
   projectileExpired,

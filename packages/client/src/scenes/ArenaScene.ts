@@ -5,7 +5,6 @@ import {
   CAMERA_CONFIG,
   DRIVE_CONFIG,
   INPUT_MESSAGE,
-  MSG_STUB_END_MATCH,
   PlayerStatus,
   RoomPhase,
   TICK_RATE_HZ,
@@ -76,7 +75,6 @@ export class ArenaScene extends Phaser.Scene {
   private debug = false;
   private unbind: Array<() => void> = [];
   private countdownText: Phaser.GameObjects.Text | undefined;
-  private stubButton: Phaser.GameObjects.Text | undefined;
 
   constructor() {
     super({ key: "arena" });
@@ -183,8 +181,6 @@ export class ArenaScene extends Phaser.Scene {
     this.arena = undefined;
     this.countdownText?.destroy();
     this.countdownText = undefined;
-    this.stubButton?.destroy();
-    this.stubButton = undefined;
     this.cursors = undefined;
     this.prediction = new PredictionBuffer();
     this.predicted = undefined;
@@ -395,21 +391,5 @@ export class ArenaScene extends Phaser.Scene {
       }
     }
 
-    const showStub =
-      room.state.phase === RoomPhase.MATCH && room.sessionId === room.state.hostSessionId;
-    if (showStub && !this.stubButton) {
-      this.stubButton = this.add
-        .text(640, 640, "End match (stub)", { fontSize: "24px", color: "#ffffff" })
-        .setOrigin(0.5)
-        .setScrollFactor(0)
-        .setDepth(1000)
-        .setInteractive({ useHandCursor: true });
-      this.stubButton.on("pointerup", () => {
-        this.room?.send(MSG_STUB_END_MATCH);
-      });
-    } else if (!showStub && this.stubButton) {
-      this.stubButton.destroy();
-      this.stubButton = undefined;
-    }
   }
 }

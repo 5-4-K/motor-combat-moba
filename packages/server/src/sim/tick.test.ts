@@ -320,3 +320,73 @@ describe("serverTick", () => {
     });
   });
 });
+
+describe("serverTick fire reporting", () => {
+  function fires(seq: number): InputMessage {
+    return { seq, steer: 0, throttle: 0, fire: true };
+  }
+
+  function tickWith(
+    player: PlayerState,
+    queue: InputMessage[],
+    phase: RoomPhase = RoomPhase.MATCH,
+  ): Set<string> {
+    return serverTick(stateWith(player), new Map([[player.sessionId, queue]]), DT, phase);
+  }
+
+  it("reports a player who pressed fire", () => {
+    const fired = tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), [fires(1)]);
+    expect([...fired]).toEqual(["p1"]);
+  });
+
+  it("reports nothing when no input carries fire", () => {
+    expect(tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), ups(1)).size).toBe(0);
+  });
+
+  it("reports nothing when the queue is empty", () => {
+    expect(tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), []).size).toBe(0);
+  });
+
+  it("collapses several fire inputs in one tick to a single entry", () => {
+    const fired = tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), [fires(1), fires(2), fires(3)]);
+    expect(fired.size).toBe(1);
+  });
+
+  it("ignores fire outside the match phase, where nothing is simulated", () => {
+    const fired = tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), [fires(1)], RoomPhase.COUNTDOWN);
+    expect(fired.size).toBe(0);
+  });
+
+  it("ignores fire from a player who is not on the field", () => {
+    const bystander = makePlayer("p1", 300, CORRIDOR_Y, 0, PlayerStatus.READY);
+    expect(tickWith(bystander, [fires(1)]).size).toBe(0);
+  });
+
+  it("does not credit a shot to an input past the per-tick simulate cap", () => {
+    // The first `maxInputsPerTick` inputs are plain drives; only the ones past the cap ask to fire,
+    // and those are drained and acked but never simulated.
+    const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    const queue: InputMessage[] = [
+      ...ups(1, 2, 3, 4, 5).slice(0, NET_CONFIG.maxInputsPerTick),
+      fires(NET_CONFIG.maxInputsPerTick + 1),
+    ];
+    const fired = tickWith(player, queue);
+    expect(fired.size).toBe(0);
+    expect(player.lastProcessedInputSeq).toBe(NET_CONFIG.maxInputsPerTick + 1);
+  });
+
+  it("names every player who fired, not just the first", () => {
+    const a = makePlayer("aaa", 300, CORRIDOR_Y, 0);
+    const b = makePlayer("bbb", 900, CORRIDOR_Y, 0);
+    const fired = serverTick(
+      stateWith(a, b),
+      new Map([
+        ["aaa", [fires(1)]],
+        ["bbb", [fires(1)]],
+      ]),
+      DT,
+      RoomPhase.MATCH,
+    );
+    expect([...fired].sort()).toEqual(["aaa", "bbb"]);
+  });
+});

@@ -18,7 +18,6 @@ import {
   MSG_START_ERROR,
   MSG_SELECT_CAR,
   MSG_RETURN_TO_LOBBY,
-  MSG_STUB_END_MATCH,
   validateName,
   isNameTaken,
   pickColor,
@@ -42,6 +41,15 @@ import { isInputMessage } from "../net/input-message.js";
 import { withSimulatedLatency } from "../net/latency-injector.js";
 import { serverTick } from "../sim/tick.js";
 import {
+  applyCombatResult,
+  clearProjectiles,
+  newCombatMemory,
+  runCombat,
+  toCombatPlayers,
+  toProjectiles,
+  type CombatMemory,
+} from "../sim/combat-bridge.js";
+import {
   fromFlowPhase,
   fromFlowStatus,
   toFlowMode,
@@ -50,7 +58,6 @@ import {
 } from "./flow-map.js";
 import {
   copySpawnNumbers,
-  firstAliveRosterWinner,
   livingAfterLeave,
   pickRandomCarId,
 } from "./match-helpers.js";
@@ -64,6 +71,12 @@ export class ArenaRoom extends Room<ArenaState> {
   private matchRoster = new Set<string>();
   private postMatchIds = new Set<string>();
   private flow: FlowState | null = null;
+  /**
+   * Ram pair cooldowns and the projectile id counter. Server-only by design: neither is anything a
+   * client needs to render, and putting them on the schema would patch a per-pair map to everyone at
+   * the tick rate for no visible gain.
+   */
+  private combat: CombatMemory = newCombatMemory();
 
   async onCreate(): Promise<void> {
     const listings = await matchMaker.query({ name: ROOM_NAME });
@@ -152,18 +165,6 @@ export class ArenaRoom extends Room<ArenaState> {
     this.onMessage(MSG_RETURN_TO_LOBBY, (client) => {
       if (!this.postMatchIds.has(client.sessionId)) return;
       this.reduce({ type: "return_to_lobby", sessionId: client.sessionId });
-    });
-
-    // P5: delete stub_end_match
-    this.onMessage(MSG_STUB_END_MATCH, (client) => {
-      if (client.sessionId !== this.state.hostSessionId) return;
-      if (this.state.phase !== RoomPhase.MATCH) return;
-      const winner = firstAliveRosterWinner(
-        toFlowMode(this.state.mode),
-        [...this.matchRoster],
-        this.aliveTeamById(),
-      );
-      this.endMatch(winner.sessionId, winner.winnerTeam);
     });
   }
 
@@ -260,7 +261,59 @@ export class ArenaRoom extends Room<ArenaState> {
     ) {
       this.reduce({ type: "go" });
     }
-    serverTick(this.state, this.inputQueues, 1 / getTickRateHz(TICK_RATE_HZ), this.state.phase);
+    const dt = 1 / getTickRateHz(TICK_RATE_HZ);
+    const fired = serverTick(this.state, this.inputQueues, dt, this.state.phase);
+    this.combatTick(dt, fired);
+  }
+
+  /**
+   * Combat, after driving. The order is the rule, not an implementation detail: hits are tested
+   * against the poses cars actually ended the tick at, so a ram is judged by where the collision
+   * left both cars rather than by where they were a moment before it.
+   *
+   * Only `MATCH` runs combat, and only with a live roster. Outside that the whole thing is skipped
+   * and any shot still in flight is cleared — a projectile that survived into the lobby would be
+   * drawn to everyone and could never hit anything.
+   */
+  private combatTick(dt: number, fired: ReadonlySet<string>): void {
+    if (this.state.phase !== RoomPhase.MATCH || this.matchRoster.size === 0) {
+      if (this.state.projectiles.size > 0) clearProjectiles(this.state);
+      return;
+    }
+
+    const arena = getArena(this.state.arenaId);
+    const result = runCombat({
+      world: {
+        tick: this.state.tick,
+        dt,
+        mode: toFlowMode(this.state.mode),
+        obstacles: arena.obstacles,
+        bounds: { width: arena.width, height: arena.height },
+      },
+      players: toCombatPlayers(this.state, this.matchRoster, fired),
+      projectiles: toProjectiles(this.state),
+      ramCooldowns: this.combat.ramCooldowns,
+      projectileSeq: this.combat.projectileSeq,
+    });
+
+    applyCombatResult(this.state, result);
+    this.combat.ramCooldowns = result.ramCooldowns;
+    this.combat.projectileSeq = result.projectileSeq;
+
+    // Win check every tick, on the state combat just wrote. `livingSides` counts only roster
+    // members who are still alive, so a wreck and a disconnect end the match by the same rule.
+    const outcome = livingSides(
+      toFlowMode(this.state.mode),
+      result.players.map((p) => ({
+        sessionId: p.sessionId,
+        team: p.team,
+        alive: p.alive,
+        inRoster: p.inRoster,
+      })),
+    );
+    if (outcome.sides <= 1) {
+      this.endMatch(outcome.winnerSessionId, outcome.winnerTeam);
+    }
   }
 
   private reduce(event: FlowEvent): void {
@@ -353,7 +406,13 @@ export class ArenaRoom extends Room<ArenaState> {
         player.hp = hpOf(carId);
       }
       player.speed = 0;
+      // A cooldown carried over from the last match would swallow the first shot of this one.
+      player.weaponCooldown = 0;
     }
+    // Nothing from the previous match survives into this one: no shots in flight, and no ram pair
+    // cooldown that would make the opening contact of a fresh match deal nothing.
+    clearProjectiles(this.state);
+    this.combat.ramCooldowns = new Map();
     const spawns = assignSpawns(
       getArena(this.state.arenaId),
       this.state.mode,
@@ -375,14 +434,8 @@ export class ArenaRoom extends Room<ArenaState> {
     this.reduce({ type: "end", winnerSessionId, winnerTeam });
     this.matchRoster.clear();
     this.pendingCarId.clear();
-  }
-
-  private aliveTeamById(): Map<string, { alive: boolean; team: number }> {
-    const map = new Map<string, { alive: boolean; team: number }>();
-    this.state.players.forEach((player) => {
-      map.set(player.sessionId, { alive: player.alive, team: player.team });
-    });
-    return map;
+    clearProjectiles(this.state);
+    this.combat.ramCooldowns = new Map();
   }
 
   private hasPlayerInMatch(): boolean {
