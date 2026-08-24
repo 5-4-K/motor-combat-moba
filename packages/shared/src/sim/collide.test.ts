@@ -159,6 +159,14 @@ describe("resolveWorld - the car is a real OBB, not its axis-aligned hull", () =
   // Car centre (100,100), half-extents 24 x 16.
   const start = { x: 100, y: 100, speed: 0, reverseHold: 0 };
 
+  // These two fixtures are hand-computed from the rotation by construction, and that is the point.
+  // `cornersOf` and `hullHalfExtents` in this file are line-for-line copies of the implementation's
+  // rotation maths, so a sign error shared by both would sail through any assertion built on them.
+  // Boxes placed at coordinates worked out by hand cannot collude with such a bug: each one lies
+  // inside exactly one of the two poses, so getting the rotation sign backwards swaps which test
+  // fails. `overlaps` (independent, sampled) rather than `penetrationDepth` (a SAT copy) is used
+  // below for the same reason.
+  //
   // Sits just past the car's +x face, but inside the 45deg-rotated rectangle.
   const clearsAxisAligned: Aabb = { x: 125, y: 104, w: 4, h: 4 };
   // Sits inside the car's +x/-y corner, but outside the 45deg-rotated rectangle.
@@ -384,5 +392,164 @@ describe("resolveWorld - the arena boundary is inviolable", () => {
 
     const out = resolveWorld(start, [], [hugging], BOUNDS);
     expect(inBounds(out, BOUNDS)).toBe(true);
+  });
+});
+
+/**
+ * Exact OBB-vs-OBB penetration depth: 0 when separated. Unlike `overlaps` above this mirrors the
+ * implementation's SAT, so it cannot vouch for SAT itself — but it measures *how far* a body is
+ * embedded, which a sampled boolean cannot. Use it where a depth bound is the point; use
+ * `overlaps` where independence from the implementation is the point.
+ */
+function penetrationDepth(a: Obb, b: Obb): number {
+  const cornersA = cornersOf(a);
+  const cornersB = cornersOf(b);
+  const axes = [a.angle, a.angle + Math.PI / 2, b.angle, b.angle + Math.PI / 2].map((t) => ({
+    x: Math.cos(t),
+    y: Math.sin(t),
+  }));
+
+  let depth = Infinity;
+  for (const axis of axes) {
+    const project = (cs: Array<{ x: number; y: number }>) => cs.map((p) => p.x * axis.x + p.y * axis.y);
+    const pa = project(cornersA);
+    const pb = project(cornersB);
+    const separation = Math.min(
+      Math.max(...pa) - Math.min(...pb),
+      Math.max(...pb) - Math.min(...pa),
+    );
+    if (separation <= 0) return 0;
+    depth = Math.min(depth, separation);
+  }
+  return depth;
+}
+
+describe("resolveWorld - contact priority ordering", () => {
+  // ARENA_01's lower-right block. Spans x[1680,1900], y[1170,1250].
+  const block: Aabb = { x: 1680, y: 1170, w: 220, h: 80 };
+  const ARENA = { width: 2400, height: 1600 };
+
+  it("never leaves a car embedded in an obstacle after another car pushes it there", () => {
+    // Starts 6px CLEAR of the block; the car-vs-car push drives it 7px in. Obstacles must resolve
+    // after cars, or this is a stable fixed point and the car is embedded in level geometry for good.
+    const start = body({ x: 1650, y: 1210, angle: 0, speed: 0 });
+    const other: Obb = { x: 1615, y: 1210, angle: 0, w: CAR_W, h: CAR_H };
+    expect(penetrationDepth(carObb(start), boxObb(block))).toBe(0);
+
+    const out = resolveWorld(start, [other], [block], ARENA);
+
+    expect(penetrationDepth(carObb(out), boxObb(block))).toBe(0);
+    expect(out.x + CAR_W / 2).toBeLessThanOrEqual(block.x + TOUCH_SLACK);
+  });
+
+  it("gives obstacles priority over other cars when a body is squeezed between the two", () => {
+    // The same squeeze, but assert the concession lands on the car and not on the level: the body
+    // may still touch `other`, and must not be inside `block`.
+    const start = body({ x: 1650, y: 1210, angle: 0, speed: 0 });
+    const other: Obb = { x: 1615, y: 1210, angle: 0, w: CAR_W, h: CAR_H };
+
+    const out = resolveWorld(start, [other], [block], ARENA);
+    expect(penetrationDepth(carObb(out), boxObb(block))).toBe(0);
+  });
+});
+
+describe("resolveWorld - the leading bounds pass is load-bearing", () => {
+  it("tests contacts against the pose the car can occupy, not the one it drove into the wall", () => {
+    // Body is 10px past the right wall and clear of `other` where it stands. Clamping it back in
+    // first brings it into contact along x. Without the leading pass the car-vs-car test runs on
+    // the out-of-bounds pose, picks the y axis instead, and the body ends up displaced in y.
+    const start = body({ x: BOUNDS.width + 10, y: 500, angle: 0, speed: 0 });
+    const other: Obb = { x: BOUNDS.width, y: 500, angle: 0, w: CAR_W, h: CAR_H };
+
+    const out = resolveWorld(start, [other], [], BOUNDS);
+
+    expect(out.y).toBe(500);
+    expect(out.x).toBe(952);
+  });
+});
+
+describe("resolveWorld - one restitution per distinct surface", () => {
+  const r = DRIVE_CONFIG.restitution;
+  // Obstacle hard against the right wall, so a body can be out of bounds AND inside the obstacle at
+  // once. It then passes the leading bounds pass, the obstacle contact, and the trailing clamp --
+  // the three sites that used to each take a bite, yielding r^3.
+  const hugging: Aabb = { x: 940, y: 400, w: 60, h: 200 };
+  // Car spans [966,1014]: past the wall at 1000 and overlapping the obstacle at 940.
+  const wedged = () => body({ x: 990, y: 500, angle: 0, speed: 100 });
+
+  it("damps once per surface struck: wall then obstacle is r^2, never r^3", () => {
+    const out = resolveWorld(wedged(), [], [hugging], BOUNDS);
+
+    // Two genuinely different surfaces, so two bites is correct.
+    expect(out.speed).toBeCloseTo(100 * r ** 2, 6);
+    // The trailing clamp must not take a third: that is the r^3 bug.
+    expect(Math.abs(out.speed)).not.toBeCloseTo(100 * r ** 3, 3);
+  });
+
+  it("applies exactly one restitution for a lone wall contact", () => {
+    const out = resolveWorld(body({ x: BOUNDS.width - 5, y: 500, angle: 0, speed: 100 }), [], [], BOUNDS);
+    expect(out.speed).toBeCloseTo(-100 * r, 6);
+  });
+
+  it("applies exactly one restitution for a lone obstacle contact", () => {
+    const clear: Aabb = { x: 600, y: 400, w: 100, h: 200 };
+    const out = resolveWorld(body({ x: 580, y: 500, angle: 0, speed: 100 }), [], [clear], BOUNDS);
+    expect(out.speed).toBeCloseTo(-100 * r, 6);
+  });
+
+  it("never lets the trailing clamp change speed on its own", () => {
+    // Driven far out of bounds with no other contact: the leading pass bounces once and the
+    // trailing clamp, reached with the body already inside, must be inert.
+    const out = resolveWorld(body({ x: BOUNDS.width + 300, y: 500, angle: 0, speed: 100 }), [], [], BOUNDS);
+    expect(out.speed).toBeCloseTo(-100 * r, 6);
+  });
+});
+
+describe("resolveWorld - documented consequences of the locked velocity rule", () => {
+  // These pin spec-mandated behaviour, not desirable behaviour. Changing them means changing the
+  // plan's velocity rule; they exist so the next reader sees the edges rather than discovering them.
+
+  it("flips the reported speed sign discontinuously at ~30.6 degrees off the surface normal", () => {
+    const glance = (degrees: number): number => {
+      const start = body({ x: BOUNDS.width - 5, y: 500, angle: (degrees * Math.PI) / 180, speed: 100 });
+      return resolveWorld(start, [], [], BOUNDS).speed;
+    };
+
+    // The threshold is |dot(n, forward)| = 1 / sqrt(1 + restitution).
+    const thresholdDegrees = (Math.acos(1 / Math.sqrt(1 + DRIVE_CONFIG.restitution)) * 180) / Math.PI;
+    expect(thresholdDegrees).toBeCloseTo(30.609, 3);
+
+    // Straddling it: the magnitude barely moves, but the sign inverts.
+    expect(glance(30)).toBeCloseTo(-58.47, 2);
+    expect(glance(32)).toBeCloseTo(60.74, 2);
+    expect(Math.abs(Math.abs(glance(30)) - Math.abs(glance(32)))).toBeLessThan(3);
+    expect(Math.sign(glance(30))).not.toBe(Math.sign(glance(32)));
+  });
+
+  it("grinds along a wall without ever redirecting, because angle is never changed", () => {
+    const dt = 1 / 30;
+    const angle = (70 * Math.PI) / 180;
+    let car = body({ x: 990, y: 100, angle, speed: 100 });
+
+    const wallX = BOUNDS.width - hullHalfExtents(angle).hx;
+    const speeds: number[] = [];
+    const xs: number[] = [];
+
+    for (let tick = 0; tick < 8; tick++) {
+      // Integrate the drive step inline rather than importing stepDrive: this test is about
+      // resolution, and the motion it needs is one line.
+      car = body({ ...car, x: car.x + Math.cos(angle) * car.speed * dt, y: car.y + Math.sin(angle) * car.speed * dt });
+      car = resolveWorld(car, [], [], BOUNDS);
+      speeds.push(car.speed);
+      xs.push(car.x);
+    }
+
+    // Pinned to the wall, never deflected off it.
+    for (const x of xs) expect(x).toBeCloseTo(wallX, 6);
+    // Still nosing into the wall: speed stays forward, it is only bled down.
+    for (const s of speeds) expect(s).toBeGreaterThan(0);
+    for (let i = 1; i < speeds.length; i++) expect(speeds[i]!).toBeLessThan(speeds[i - 1]!);
+    // It does slide along the wall in +y; it just never gets away from it.
+    expect(car.y).toBeGreaterThan(100);
   });
 });
