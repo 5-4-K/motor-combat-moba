@@ -1,6 +1,21 @@
 import { describe, expect, it } from "vitest";
+import { DRIVE_CONFIG } from "../config/drive-config.js";
 import { ARENA_01 } from "./arena-01.js";
 import { getArena } from "./registry.js";
+
+/**
+ * A car must always have somewhere to be pushed.
+ *
+ * `resolveWorld` ranks world bounds above obstacles, so an obstacle flush against a wall makes
+ * those two rules contradict each other: the obstacle pushes the car out, the boundary clamp
+ * shoves it straight back in, and the car ends up permanently embedded in level geometry — a
+ * stable fixed point, not a transient overlap. A corridor narrower than the car traps it the same
+ * way. See the doc comment on `resolveWorld` in `sim/collide.ts` for the ranking and why it is
+ * ordered that way.
+ *
+ * The floor is the car diagonal rather than its width, so the gap admits a car at any rotation.
+ */
+const CAR_DIAGONAL = Math.hypot(DRIVE_CONFIG.carWidth, DRIVE_CONFIG.carHeight);
 
 describe("arena-01", () => {
   it("is 2400x1600 with 6 obstacles", () => {
@@ -33,6 +48,43 @@ describe("arena-01", () => {
     }
     for (const s of ARENA_01.teamASpawns) expect(s.x).toBeLessThan(ARENA_01.width / 2);
     for (const s of ARENA_01.teamBSpawns) expect(s.x).toBeGreaterThan(ARENA_01.width / 2);
+  });
+
+  it("keeps every obstacle at least a car diagonal clear of the arena boundary", () => {
+    const tooClose = ARENA_01.obstacles.flatMap((o) => {
+      const sides = [
+        ["left", o.x],
+        ["top", o.y],
+        ["right", ARENA_01.width - (o.x + o.w)],
+        ["bottom", ARENA_01.height - (o.y + o.h)],
+      ] as const;
+      return sides
+        .filter(([, gap]) => gap < CAR_DIAGONAL)
+        .map(([side, gap]) => `obstacle at {${o.x},${o.y}}: ${side} gap ${gap} < ${CAR_DIAGONAL}`);
+    });
+    expect(tooClose).toEqual([]);
+  });
+
+  it("leaves no corridor between obstacles too narrow for a car", () => {
+    // Only a pair overlapping on one axis forms a corridor on the other. A gap of exactly 0 means
+    // the two touch, which is one solid mass and perfectly drivable-around — not a trap.
+    const narrow: string[] = [];
+    const obstacles = ARENA_01.obstacles;
+    for (let i = 0; i < obstacles.length; i += 1) {
+      for (let j = i + 1; j < obstacles.length; j += 1) {
+        const a = obstacles[i]!;
+        const b = obstacles[j]!;
+        if (a.y < b.y + b.h && b.y < a.y + a.h) {
+          const gap = Math.max(b.x - (a.x + a.w), a.x - (b.x + b.w));
+          if (gap > 0 && gap < CAR_DIAGONAL) narrow.push(`x corridor ${gap} between #${i} and #${j}`);
+        }
+        if (a.x < b.x + b.w && b.x < a.x + a.w) {
+          const gap = Math.max(b.y - (a.y + a.h), a.y - (b.y + b.h));
+          if (gap > 0 && gap < CAR_DIAGONAL) narrow.push(`y corridor ${gap} between #${i} and #${j}`);
+        }
+      }
+    }
+    expect(narrow).toEqual([]);
   });
 
   it("registry resolves arena-01", () => {
