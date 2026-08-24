@@ -74,7 +74,7 @@ Update this table when a plan’s Validation section has passed. Status values: 
 | P0 | Done | 2026-08-24 | 2026-08-24 | agent: `npm test`, `npm run build --workspaces`, two-tab `npm run dev`, `build:release` unzip + `start.bat`, `GET /health` | Walking skeleton: two squares (green self, red other) at server poses; zip prints Installing dependencies then listens. |
 | P1 | Done | 2026-08-24 | 2026-08-24 | agent: `npm run test -w @motor-arena/shared` (23), `npm run build --workspaces`, `npm run test --workspaces` | Config tables, arena-01 (team A mid spawn y=960 to miss obstacle), full v1 schema + ProjectileState. No gameplay. |
 | P2 | Done | 2026-08-24 | 2026-08-24 | agent: shared tests 47, `npm run build --workspaces`, live two-client protocol + two Chrome contexts on `npm run dev` | Unique names/colors, team panels, switch, start errors, kick 4002, host transfer, 7th `"Room is full"` (singleton arena; joinOrCreate no longer opens a second room). |
-| P3 | Not started | — | — | — | |
+| P3 | Done | 2026-08-24 | 2026-08-24 | agent: shared tests 74, `npm run build --workspaces`, live 3-client protocol + 2 Chrome contexts on `npm run dev` with `CAR_SELECT_SECONDS=8` | Car select, timeout random car, 3-2-1, stub results, linger next match, team/FFA spawns, mid-select Ready join, FFA disconnect win. |
 | P4 | Not started | — | — | — | |
 | P5 | Not started | — | — | — | |
 
