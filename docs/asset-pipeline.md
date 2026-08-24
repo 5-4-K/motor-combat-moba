@@ -78,10 +78,30 @@ draws the default chassis rather than nothing.
 `BootScene.assetManifest()` (`packages/client/src/scenes/BootScene.ts`) returns the parsed
 manifest, fetched once at boot via `loadManifest` and kept module-level because Phaser textures
 live in its global `TextureManager` — whichever scene loads them, every scene can draw them.
-`BootScene` also queues an `this.load.image(key, ...)` for every manifest entry and awaits
-completion before `assetsReady()` resolves; `ArenaScene.create()` awaits that promise before its
-first frame, so no texture ever uploads mid-match (a GPU stall would read as a frame spike with
-six cars on screen).
+`BootScene` queues an `this.load.image(key, ...)` for every manifest entry and resolves
+`assetsReady()` once every queued load has settled — every texture load happens once, at boot,
+never mid-match.
+
+`ArenaScene.create()` does **not** wait on that promise before drawing anything; it is
+fire-and-forget:
+
+```ts
+void assetsReady().then(() => {
+  this.artPending = false;
+  this.visualKeys.clear();
+});
+```
+
+A match can start, and every car is drawn immediately from whatever `spriteFor` currently
+resolves to — the procedural silhouette, if the art has not finished loading yet. When the
+promise does resolve, clearing `visualKeys` is what makes it visible: that map is `syncCar`'s only
+"has this car's visual changed" check, so clearing it makes every on-screen car look changed and
+each is rebuilt once on the next frame, now with its sprite. This is what a car looking like a
+hexagon for the first second of a match and then popping into its sprite actually is — nothing
+failed, the swap just had not landed yet. The genuine guarantee is narrower than "waits before the
+first frame": it is that loading is queued once at boot and never re-triggered mid-match, so there
+is at most this one swap shortly after Arena entry, never a texture upload once a match is already
+running.
 
 `ArenaScene.drawCar` (`packages/client/src/scenes/ArenaScene.ts`) is where the chain resolves per
 car. It calls `spriteFor(carId, fill)` first; that returns a Phaser image only if **both** an
@@ -100,8 +120,12 @@ When you have added a PNG and it still shows as a hexagon (or whatever the proce
 check in this order: is the manifest key spelled `car.<carId>` exactly; does `file` in the
 manifest match the path under `public/art/` exactly (case matters on a case-sensitive deploy even
 if not on your dev machine); and does the browser console show an `[art] failed to load` or
-`[art] <problem>` line. `?dev=assets` (below) shows all three states — sprite, missing entry, and
-failed load — on one screen without needing to join a match.
+`[art] <problem>` line. `?dev=assets` (below) shows every chassis with its sprite or a "no art"
+label on one screen, without needing to join a match — but it does not itself distinguish *why*
+a chassis has no art: `drawCell` branches on the same `entry && this.textures.exists(key)` check
+`spriteFor` uses, so a missing manifest entry and an entry whose file failed to load both render
+identically as "no art". Telling those two apart still means checking the console, where
+`BootScene` logged the `[art] failed to load` warning at boot.
 
 Sprite fitting itself — `"fit"` containing the art inside the 48×32 hull, `rotationOffset` being
 added to the body's `angle`, `origin` being applied — is `fitSprite` in
@@ -169,8 +193,12 @@ delete it" — it is structural, in three parts:
    (`const MARKER = "MOTOR DEV TOOL"` in `AssetTuningScene.ts`) and is deliberately a local literal
    there rather than an import of the registry's `DEV_TOOL_MARKER` constant, so the check still
    fires even if the scene someday reaches a bundle by some route that bypasses the registry
-   entirely. `npm run build:release` runs this check as part of the release build; it does not
-   scan `public/art/README.md`, which mentions the same marker in prose and legitimately should.
+   entirely. `npm run build:release` runs this check as part of the release build. The scan is
+   deliberately restricted to `.js` files: Vite copies `public/` straight to the `dist` root, so
+   Markdown and other prose sit right next to the bundle, and a check that could trip on prose
+   would train whoever hit it to ignore it. `scripts/build-release.test.mjs` pins that policy —
+   one of its cases plants the marker inside an `art/README.md` in a temp dist tree and asserts
+   `assertNoDevOnlyCode` does not throw.
 
 A registry rather than a boolean flag per tool is deliberate too: a balance-tuning tool is expected
 to join the asset tuner eventually (see the note in the plan's "explicitly out of scope" section),
