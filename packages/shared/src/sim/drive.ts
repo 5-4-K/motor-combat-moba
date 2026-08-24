@@ -15,6 +15,10 @@ export function stepDrive(body: SimBody, input: InputMessage, dt: number, carId:
 
   const { speed, reverseHold } = nextSpeed(body.speed, body.reverseHold, input.throttle, dt, carId);
 
+  // cos/sin are not guaranteed bit-identical across JS engines (server V8 vs. client browser
+  // engine), so replayed positions can drift by an ULP or two. That's fine here: Task 4
+  // reconciles client prediction against authoritative server state rather than trusting
+  // bit-exact replay, so this is not a desync-checksum-safe function.
   const x = body.x + Math.cos(angle) * speed * dt;
   const y = body.y + Math.sin(angle) * speed * dt;
 
@@ -46,8 +50,9 @@ function accelerateForward(speed: number, dt: number, carId: CarId): number {
 }
 
 /**
- * Down: brake toward 0 while rolling forward. Once stopped (or already reversing), accumulate
- * reverseHold; once it reaches reverseHoldTicks, accelerate backward, clamped to the car's reverse max.
+ * Down: brake toward 0 while rolling forward. Once already reversing, keep accelerating backward
+ * without re-arming the hold delay. Only at rest does reverseHold accumulate toward
+ * reverseHoldTicks before reverse engages, clamped to the car's reverse max.
  */
 function brakeOrReverse(
   speed: number,
@@ -56,9 +61,20 @@ function brakeOrReverse(
   carId: CarId,
 ): { speed: number; reverseHold: number } {
   if (speed > MOVING_SPEED_EPSILON) {
+    // Still rolling forward — brake toward 0 first.
     return { speed: Math.max(0, speed - DRIVE_CONFIG.brakeDecel * dt), reverseHold: 0 };
   }
-  const heldTicks = reverseHold + 1;
+  if (speed < -MOVING_SPEED_EPSILON) {
+    // Already reversing — keep accelerating; do not re-arm the hold delay.
+    return {
+      speed: Math.max(-reverseMaxSpeedOf(carId), speed - DRIVE_CONFIG.accel * dt),
+      reverseHold: DRIVE_CONFIG.reverseHoldTicks,
+    };
+  }
+  // At rest: accumulate toward the reverse threshold. Clamped so the uint16-networked field
+  // stays idempotent at the threshold instead of growing unbounded (and eventually truncating
+  // on the wire) while reverse is held.
+  const heldTicks = Math.min(reverseHold + 1, DRIVE_CONFIG.reverseHoldTicks);
   if (heldTicks < DRIVE_CONFIG.reverseHoldTicks) {
     return { speed, reverseHold: heldTicks };
   }
@@ -70,7 +86,7 @@ function brakeOrReverse(
 
 /** No throttle: drag pulls speed toward 0 from either direction. */
 function coast(speed: number, dt: number): number {
-  if (speed > 0) return Math.max(0, speed - DRIVE_CONFIG.drag * dt);
-  if (speed < 0) return Math.min(0, speed + DRIVE_CONFIG.drag * dt);
+  if (speed > MOVING_SPEED_EPSILON) return Math.max(0, speed - DRIVE_CONFIG.drag * dt);
+  if (speed < -MOVING_SPEED_EPSILON) return Math.min(0, speed + DRIVE_CONFIG.drag * dt);
   return speed;
 }
