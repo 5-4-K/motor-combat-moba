@@ -51,7 +51,7 @@ Colyseus `@type` fields. Enums are explicit uint8; never renumber. `pendingCarId
 
 ## Join options
 
-`joinOrCreate(ROOM_NAME, { name })`. `name` is required (1–16 characters after trim). The server rejects invalid names (`4000`) and duplicates (`4001`, `"Name is taken"`). A 7th joiner is rejected by `maxClients` (room full).
+`joinOrCreate(ROOM_NAME, { name })`. `name` is required (1–16 characters after trim). The server rejects invalid names (`4000`) and duplicates (`4001`, `"Name is taken"`). A 7th joiner is rejected by `maxClients`; creating a second `arena` room is rejected with `4003` `"Room is full"` so LAN stays one room.
 
 ## Lobby messages
 

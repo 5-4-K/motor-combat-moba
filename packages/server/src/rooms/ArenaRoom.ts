@@ -1,9 +1,10 @@
-import { Room, ServerError, type Client } from "@colyseus/core";
+import { Room, ServerError, matchMaker, type Client } from "@colyseus/core";
 import {
   ArenaState,
   PlayerState,
   INPUT_MESSAGE,
   MAX_PLAYERS,
+  ROOM_NAME,
   DEFAULT_PATCH_RATE_HZ,
   TICK_RATE_HZ,
   GameMode,
@@ -27,12 +28,18 @@ import { isInputMessage } from "../net/input-message.js";
 import { withSimulatedLatency } from "../net/latency-injector.js";
 import { serverTick } from "../sim/tick.js";
 import { selectNextHost } from "./select-next-host.js";
+import { ROOM_FULL_ERROR, shouldRejectSecondArena } from "./singleton-arena.js";
 
 export class ArenaRoom extends Room<ArenaState> {
   maxClients = MAX_PLAYERS;
   private inputQueues = new Map<string, InputMessage[]>();
 
-  onCreate(): void {
+  async onCreate(): Promise<void> {
+    const listings = await matchMaker.query({ name: ROOM_NAME });
+    if (shouldRejectSecondArena(listings, this.roomId)) {
+      throw new ServerError(4003, ROOM_FULL_ERROR);
+    }
+
     this.setState(new ArenaState());
     this.setPatchRate(1000 / DEFAULT_PATCH_RATE_HZ);
     const hz = getTickRateHz(TICK_RATE_HZ);
