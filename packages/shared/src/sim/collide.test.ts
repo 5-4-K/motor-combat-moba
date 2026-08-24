@@ -470,20 +470,46 @@ describe("resolveWorld - the leading bounds pass is load-bearing", () => {
 
 describe("resolveWorld - one restitution per distinct surface", () => {
   const r = DRIVE_CONFIG.restitution;
-  // Obstacle hard against the right wall, so a body can be out of bounds AND inside the obstacle at
-  // once. It then passes the leading bounds pass, the obstacle contact, and the trailing clamp --
-  // the three sites that used to each take a bite, yielding r^3.
+  // Obstacle flush against the right wall: it spans x[940,1000] in a 1000-wide arena, so its right
+  // face lies exactly ON the wall plane. A body can therefore be out of bounds AND inside the
+  // obstacle at once, passing the leading bounds pass, the obstacle contact, and the trailing clamp
+  // -- the three sites that used to each take a bite, yielding r^3.
+  //
+  // Note what the two contacts actually are: the wall at x=1000 facing inward (normal -x), then the
+  // obstacle's right face at the same x=1000 facing outward (normal +x). That is one plane struck
+  // from opposite sides, NOT two different surfaces. The r^2 result is still correct under the
+  // "once per contact surface" rule -- these are two distinct contacts -- but nobody should read
+  // this fixture as a car bouncing off two separate pieces of geometry.
   const hugging: Aabb = { x: 940, y: 400, w: 60, h: 200 };
   // Car spans [966,1014]: past the wall at 1000 and overlapping the obstacle at 940.
   const wedged = () => body({ x: 990, y: 500, angle: 0, speed: 100 });
 
-  it("damps once per surface struck: wall then obstacle is r^2, never r^3", () => {
+  it("damps once per contact: wall then obstacle is r^2, never r^3", () => {
     const out = resolveWorld(wedged(), [], [hugging], BOUNDS);
 
-    // Two genuinely different surfaces, so two bites is correct.
     expect(out.speed).toBeCloseTo(100 * r ** 2, 6);
-    // The trailing clamp must not take a third: that is the r^3 bug.
+    // The trailing clamp must not take a third bite: that is the r^3 bug.
     expect(Math.abs(out.speed)).not.toBeCloseTo(100 * r ** 3, 3);
+  });
+
+  it("leaves the wedged body deeply embedded, and stably so -- the fixture's real outcome", () => {
+    // Spelled out because the restitution assertion above hides it: there is nowhere legal for this
+    // car to go. The obstacle fills the arena right up to the wall, so the boundary clamp (which
+    // outranks obstacles) drags it back into geometry every tick.
+    const out = resolveWorld(wedged(), [], [hugging], BOUNDS);
+
+    expect(out.x).toBe(976);
+    // 48px deep: the car's entire width, not a graze.
+    expect(penetrationDepth(carObb(out), boxObb(hugging))).toBeCloseTo(CAR_W, 6);
+
+    // And it is a fixed point -- position and speed both stick. Speed holds rather than decaying
+    // because resolution applies no drag; only stepDrive does. Re-resolving cannot dig it out.
+    let settled = out;
+    for (let tick = 0; tick < 5; tick++) {
+      settled = resolveWorld(settled, [], [hugging], BOUNDS);
+      expect(settled.x).toBe(976);
+      expect(settled.speed).toBeCloseTo(out.speed, 6);
+    }
   });
 
   it("applies exactly one restitution for a lone wall contact", () => {
@@ -515,9 +541,12 @@ describe("resolveWorld - documented consequences of the locked velocity rule", (
       return resolveWorld(start, [], [], BOUNDS).speed;
     };
 
-    // The threshold is |dot(n, forward)| = 1 / sqrt(1 + restitution).
+    // The threshold is |dot(n, forward)| = 1 / sqrt(1 + restitution), i.e. ~30.609 degrees. Asserted
+    // against where the sign actually flips rather than against acos of itself, so this pins the
+    // formula to the behaviour: straddle the predicted angle and the reported speed must invert.
     const thresholdDegrees = (Math.acos(1 / Math.sqrt(1 + DRIVE_CONFIG.restitution)) * 180) / Math.PI;
-    expect(thresholdDegrees).toBeCloseTo(30.609, 3);
+    expect(glance(thresholdDegrees - 0.01)).toBeLessThan(0);
+    expect(glance(thresholdDegrees + 0.01)).toBeGreaterThan(0);
 
     // Straddling it: the magnitude barely moves, but the sign inverts.
     expect(glance(30)).toBeCloseTo(-58.47, 2);

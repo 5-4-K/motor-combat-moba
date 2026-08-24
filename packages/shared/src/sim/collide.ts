@@ -49,7 +49,9 @@ const MIN_OVERLAP = 1e-6;
  * several surfaces at once — a pileup, or a car crushed against a wall — converges to a state that
  * still penetrates whichever surface was resolved earlier. More passes cannot help; the same
  * ordering re-applies every pass. The resolve order below is what decides *which* surface keeps its
- * separation, and obstacles are last precisely because level geometry is the one that must win.
+ * separation: obstacles go last among the SAT contacts, so level geometry outranks other cars. The
+ * bounds clamp that follows them is positional only, and outranks everything on where the car may
+ * end up — see `resolveWorld` for the full ranking.
  *
  * This was briefly 2 to paper over an MTV that used the raw span intersection and so came out too
  * short whenever one projection was contained in the other. Extra passes never fixed that either
@@ -72,13 +74,19 @@ const RELAXATION_PASSES = 1;
  * Ordering is a priority ranking, because the last contact resolved is the one guaranteed to end
  * separated (see `RELAXATION_PASSES`). From least to most inviolable:
  *
- *   1. other cars   — an overlap here is recoverable and self-corrects as both cars drive on
+ *   1. other cars   — the cheapest overlap to concede (see the caveat below)
  *   2. obstacles    — level geometry; clipping into a wall looks broken and traps players
  *   3. world bounds — a car outside the arena renders off-screen and nothing downstream expects it
  *
- * So a car crushed between another car and an obstacle keeps a little car-car overlap, and one
- * crushed between an obstacle and a wall keeps a little obstacle overlap. Those are the deliberate
- * concessions; the alternatives are worse.
+ * Be clear about the size of those concessions: they are not grazes. A car crushed between another
+ * car and an obstacle, or between an obstacle and a wall, can hold an overlap as deep as a full car
+ * dimension — 48px measured on the flush-obstacle fixture in the tests — and hold it *stably*,
+ * because the ranking re-applies identically every tick. Nothing here bounds the depth.
+ *
+ * The car-car case is the mildest only because the server resolves every player against the current
+ * state each tick, so the *other* car is being pushed off this one at the same time and the pair
+ * works itself apart. That relief comes from the caller's loop, not from anything in this function:
+ * `resolveWorld` on its own will happily hold two cars overlapped forever.
  */
 export function resolveWorld(
   body: SimBody,
