@@ -24,7 +24,7 @@ if not exist node_modules (
 )
 node packages\\server\\dist\\index.js
 pause
-`;
+`.replaceAll("\n", "\r\n");
 }
 
 export function startSh() {

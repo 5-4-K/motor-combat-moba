@@ -7,7 +7,8 @@
   "engines": { "node": ">=20" },
   "scripts": {
     "build": "npm run build -w @motor-arena/shared && npm run build -w @motor-arena/server && npm run build -w @motor-arena/client",
-    "test": "npm run build -w @motor-arena/shared && npm run test --workspaces --if-present",
+    "test:scripts": "node --test scripts/build-release.test.mjs",
+    "test": "npm run build -w @motor-arena/shared && npm run test --workspaces --if-present && npm run test:scripts",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "dev:shared": "npm run dev -w @motor-arena/shared",
     "dev:server": "cross-env DEPLOY_MODE=lan CLIENT_ORIGIN=http://localhost:5173 npm run dev -w @motor-arena/server",

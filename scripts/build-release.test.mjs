@@ -12,6 +12,12 @@ describe("startBat", () => {
     assert.match(bat, /npm install/);
     assert.match(bat, /node packages\\server\\dist\\index\.js/);
   });
+
+  it("uses CRLF line endings for the written bat file", () => {
+    const bat = startBat();
+    assert.ok(bat.includes("\r\n"));
+    assert.equal(bat.replaceAll("\r\n", "").includes("\n"), false);
+  });
 });
 
 describe("startSh", () => {
@@ -19,6 +25,12 @@ describe("startSh", () => {
     const sh = startSh();
     assert.match(sh, /npm install/);
     assert.match(sh, /node packages\/server\/dist\/index\.js/);
+  });
+
+  it("keeps LF line endings", () => {
+    const sh = startSh();
+    assert.equal(sh.includes("\r\n"), false);
+    assert.ok(sh.includes("\n"));
   });
 });
 
