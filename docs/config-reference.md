@@ -53,6 +53,7 @@ Derived: `hpOf` = hp × `COMBAT_CONFIG.hpPerRating` (50 / 30 / 80). `forwardMaxS
 | `collisionDamagePerStrength` | 1 |
 | `ramDotThreshold` | 0.5 |
 | `collisionDamageCooldownTicks` | 15 |
+| `ramContactPad` | 1 (hull inflation for ram contact; see [`combat-model.md`](combat-model.md)) |
 
 ## DRIVE_CONFIG
 

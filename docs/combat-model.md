@@ -91,8 +91,24 @@ Damage is `CAR_TABLE[carId].strength * COMBAT_CONFIG.collisionDamagePerStrength`
 **attacker's** chassis. A head-on is dealt from the pre-hit state on both sides, so a car that dies in
 the trade still lands its own damage — there is no first-strike advantage.
 
-Rams are checked for every pair of living roster cars whose hulls overlap (`obbsOverlap`, the same
-SAT the driving resolver uses). A damaging contact puts that **pair** on a
+### Contact, not interpenetration
+
+Rams are checked for every pair of living roster cars whose hulls are **in contact** —
+`obbsInContact`, which inflates both hulls by `COMBAT_CONFIG.ramContactPad` before running the same
+SAT the driving resolver uses.
+
+The padding is load-bearing, not a fudge. Collision resolution runs *before* combat and pushes a car
+out to exactly the separation boundary, so two cars that just crashed end the tick touching at a
+measured gap of **zero** — and the SAT treats "just touching" as separated. Asking `obbsOverlap`
+therefore returns false on every single tick of a real ram, which is exactly the bug that shipped
+past a full suite of unit tests: they hand-placed the cars overlapping, a state the sim never
+produces. The pad stays small (1 unit per hull, so 2 units of gap tolerance) because the cars rebound
+to a 2–8 unit gap on the ticks after impact, and a larger pad would deal damage for near misses.
+
+The regression tests for this drive real cars into each other through `stepSim` rather than placing
+them — see the "ramming, driven through the real sim" block in `combat.test.ts`.
+
+A damaging contact puts that **pair** on a
 `COMBAT_CONFIG.collisionDamageCooldownTicks` cooldown, so grinding along someone cannot drain HP at
 30 Hz. Cooldowns are per pair, server-only, and pruned once expired; a third car still connects while
 a pair is cooling down.
@@ -120,3 +136,7 @@ predicted or interpolated.
 A wrecked player becomes a spectator: `[` / `]` — or Left / Right — cycle the living cars, `V`
 toggles free roam, and WASD or the arrows pan in free roam. All of it is local; the server has no
 notion of who anyone is watching.
+
+Spectating is gated on `isSpectating` (dead, in the match, during `MATCH`) and deliberately **not** on
+"cannot drive right now" — the drive gate is also false during the countdown, and keying the camera
+off it made the 3-2-1 follow whichever car sorted first by session id instead of your own.
