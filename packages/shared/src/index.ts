@@ -33,3 +33,6 @@ export type { ArenaDef, Obstacle, Spawn } from "./arena/types.js";
 export { ARENA_01 } from "./arena/arena-01.js";
 export { DEFAULT_ARENA_ID, getArena } from "./arena/registry.js";
 
+export { normalizeName, validateName, isNameTaken } from "./lobby/names.js";
+export type { ValidateNameResult } from "./lobby/names.js";
+
