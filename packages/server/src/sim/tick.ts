@@ -1,10 +1,12 @@
 import {
   ArenaState,
   DRIVE_CONFIG,
+  NET_CONFIG,
   PlayerState,
   PlayerStatus,
   RoomPhase,
   getArena,
+  isCarId,
   stepSim,
   type ArenaDef,
   type CarId,
@@ -13,7 +15,6 @@ import {
   type SimBody,
   type StepContext,
 } from "@motor-arena/shared";
-import { isCarId } from "../rooms/match-helpers.js";
 
 /** Pre-reveal (lobby / P0 sandbox) players have no car yet, so they drive the default chassis. */
 const DEFAULT_CAR_ID: CarId = "rectangle";
@@ -37,6 +38,10 @@ const DEFAULT_CAR_ID: CarId = "rectangle";
  * stepped against the *current* poses of the others, so a player stepped later already sees the
  * updated positions of the players stepped before it. Sorting is what makes that reproducible;
  * `MapSchema` insertion order is not.
+ *
+ * Within one player, inputs are applied in *seq* order rather than arrival order, and at most
+ * `NET_CONFIG.maxInputsPerTick` of them actually reach `stepSim`. See the comments in the drain
+ * loop for why each of those matters.
  */
 export function serverTick(
   state: ArenaState,
@@ -44,25 +49,46 @@ export function serverTick(
   dt: number,
   phase: RoomPhase,
 ): void {
-  const arena = getArena(state.arenaId);
+  const world = tickWorldOf(getArena(state.arenaId));
   const moving = phase === RoomPhase.MATCH;
+  // Sorted once per tick. This same array fixes both the order players are stepped in and the order
+  // of the hulls built from it, so it is threaded through rather than recomputed.
+  const ids = sortedSessionIds(state);
 
-  for (const id of sortedSessionIds(state)) {
+  for (const id of ids) {
     const player = state.players.get(id);
     const queue = queues.get(id);
     if (!player || !queue || queue.length === 0) continue;
 
-    // `null` context means "nothing about this player moves right now": drain only.
-    const ctx = moving && isOnField(player) ? stepContextFor(state, arena, id, player) : null;
+    // Only `carId` and `others` vary per player; `world` is fixed for the whole tick.
+    // A `null` context means "nothing about this player moves right now": drain only.
+    const ctx: StepContext | null =
+      moving && isOnField(player)
+        ? { ...world, carId: carIdOf(player), others: otherCarHulls(state, ids, id) }
+        : null;
 
-    while (queue.length) {
-      const msg = queue.shift()!;
-      if (ctx !== null) {
+    // Arrival order is not seq order: `withSimulatedLatency` gives every message its own jittered
+    // delay, so two inputs sent a tick apart reorder routinely at the latencies this project
+    // simulates. Sorting makes the applied order a function of the client-assigned seq — which is
+    // what client-side replay assumes — and guarantees the ack below ends on the highest seq drained
+    // rather than on whichever packet happened to land last.
+    const batch = queue.splice(0, queue.length).sort(bySeq);
+
+    for (const [index, msg] of batch.entries()) {
+      // Past the cap an input is still drained and still acked, but never simulated. Intake is
+      // unbounded, so without this a client sending at 4x the tick rate would take 4x as many steps
+      // per tick and simply move faster than everyone else. A flooder now gains no distance; they
+      // only diverge from the server and get snapped back by reconciliation.
+      if (ctx !== null && index < NET_CONFIG.maxInputsPerTick) {
         writeBody(player, stepSim(bodyOf(player), msg, dt, ctx));
       }
       player.lastProcessedInputSeq = msg.seq;
     }
   }
+}
+
+function bySeq(a: InputMessage, b: InputMessage): number {
+  return a.seq - b.seq;
 }
 
 /** Only players actually on the field are simulated, and only they are solid to each other. */
@@ -75,18 +101,11 @@ function sortedSessionIds(state: ArenaState): string[] {
   return [...state.players.keys()].sort();
 }
 
-function stepContextFor(
-  state: ArenaState,
-  arena: ArenaDef,
-  selfId: string,
-  player: PlayerState,
-): StepContext {
-  return {
-    carId: carIdOf(player),
-    others: otherCarHulls(state, selfId),
-    obstacles: arena.obstacles,
-    bounds: { width: arena.width, height: arena.height },
-  };
+/** The parts of a `StepContext` that are identical for every player on this tick. */
+type TickWorld = Pick<StepContext, "obstacles" | "bounds">;
+
+function tickWorldOf(arena: ArenaDef): TickWorld {
+  return { obstacles: arena.obstacles, bounds: { width: arena.width, height: arena.height } };
 }
 
 /**
@@ -101,10 +120,15 @@ function carIdOf(player: PlayerState): CarId {
 /**
  * Hulls of every *other* player currently in the match. Lobby and post-match players are in the
  * room but not on the field, so they must not act as solid walls.
+ *
+ * `ids` must be sorted, and the resulting array's order is load-bearing rather than cosmetic:
+ * `resolveWorld` applies contacts sequentially over `others`, and the last contact resolved is the
+ * one guaranteed to end separated. Two hulls swapped here can settle a squeezed car on a different
+ * pose, so this order is part of what makes the tick reproducible.
  */
-function otherCarHulls(state: ArenaState, selfId: string): Obb[] {
+function otherCarHulls(state: ArenaState, ids: readonly string[], selfId: string): Obb[] {
   const hulls: Obb[] = [];
-  for (const id of sortedSessionIds(state)) {
+  for (const id of ids) {
     if (id === selfId) continue;
     const other = state.players.get(id);
     if (!other || !isOnField(other)) continue;

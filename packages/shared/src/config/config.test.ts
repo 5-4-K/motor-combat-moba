@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { CAR_TABLE, hpOf, forwardMaxSpeedOf } from "./car-config.js";
+import { CAR_TABLE, hpOf, forwardMaxSpeedOf, isCarId } from "./car-config.js";
 import { COLOR_TABLE } from "./color-config.js";
 import { WEAPON_CONFIG } from "./weapon-config.js";
 import { COMBAT_CONFIG } from "./combat-config.js";
 import { DRIVE_CONFIG } from "./drive-config.js";
 import { FLOW_CONFIG } from "./flow-config.js";
+import { NET_CONFIG } from "./net-config.js";
 
 describe("CAR_TABLE", () => {
   it("has exactly rectangle, oval, hexagon", () => {
@@ -26,6 +27,24 @@ describe("CAR_TABLE", () => {
   it("derives forward max speed from the speed rating", () => {
     expect(forwardMaxSpeedOf("rectangle")).toBeGreaterThan(forwardMaxSpeedOf("oval"));
     expect(forwardMaxSpeedOf("oval")).toBeGreaterThan(forwardMaxSpeedOf("hexagon"));
+  });
+});
+
+describe("isCarId", () => {
+  it("accepts CAR_TABLE keys and rejects unknown ids", () => {
+    expect(isCarId("rectangle")).toBe(true);
+    expect(isCarId("oval")).toBe(true);
+    expect(isCarId("hexagon")).toBe(true);
+    expect(isCarId("triangle")).toBe(false);
+    expect(isCarId("")).toBe(false);
+    expect(isCarId(1)).toBe(false);
+  });
+
+  it("rejects names inherited from Object.prototype", () => {
+    // `"constructor" in CAR_TABLE` is true; the own-property check is what keeps it out.
+    expect(isCarId("constructor")).toBe(false);
+    expect(isCarId("toString")).toBe(false);
+    expect(isCarId("hasOwnProperty")).toBe(false);
   });
 });
 
@@ -57,5 +76,11 @@ describe("weapon / combat / drive / flow knobs exist", () => {
   it("flow timers", () => {
     expect(FLOW_CONFIG.carSelectSeconds).toBe(60);
     expect(FLOW_CONFIG.countdownSeconds).toBe(3);
+  });
+  it("caps how many inputs one player can have applied per tick", () => {
+    expect(NET_CONFIG.maxInputsPerTick).toBeTypeOf("number");
+    expect(Number.isInteger(NET_CONFIG.maxInputsPerTick)).toBe(true);
+    // Below 1 the server would drop every input and no one could move.
+    expect(NET_CONFIG.maxInputsPerTick).toBeGreaterThanOrEqual(1);
   });
 });

@@ -34,7 +34,7 @@ export { resolveWorld } from "./sim/collide.js";
 export type { Aabb, Bounds, Obb } from "./sim/collide.js";
 
 export type { CarDef, CarId, ColorDef } from "./config/types.js";
-export { CAR_TABLE, forwardMaxSpeedOf, hpOf, reverseMaxSpeedOf } from "./config/car-config.js";
+export { CAR_TABLE, forwardMaxSpeedOf, hpOf, isCarId, reverseMaxSpeedOf } from "./config/car-config.js";
 export { COLOR_TABLE } from "./config/color-config.js";
 export { WEAPON_CONFIG } from "./config/weapon-config.js";
 export { COMBAT_CONFIG } from "./config/combat-config.js";

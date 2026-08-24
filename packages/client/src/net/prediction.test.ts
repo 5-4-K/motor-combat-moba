@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_ARENA_ID, getArena, type InputMessage, type StepContext } from "@motor-arena/shared";
+import {
+  DEFAULT_ARENA_ID,
+  MS_PER_TICK,
+  getArena,
+  type InputMessage,
+  type StepContext,
+} from "@motor-arena/shared";
 import { PredictionBuffer } from "./prediction.js";
 
 const pose = { x: 200, y: 200, angle: 0, speed: 0, reverseHold: 0 };
@@ -17,7 +23,7 @@ const ctx: StepContext = {
 describe("PredictionBuffer", () => {
   it("predict runs the shared stepSim, so Up from rest moves the pose forward", () => {
     const buf = new PredictionBuffer();
-    const out = buf.predict(pose, input, 1 / 30, ctx);
+    const out = buf.predict(pose, input, MS_PER_TICK / 1000, ctx);
     expect(out.x).toBeGreaterThan(pose.x);
     expect(out.speed).toBeGreaterThan(0);
   });

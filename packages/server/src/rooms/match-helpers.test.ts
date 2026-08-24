@@ -3,21 +3,9 @@ import { CAR_TABLE } from "@motor-arena/shared";
 import {
   copySpawnNumbers,
   firstAliveRosterWinner,
-  isCarId,
   livingAfterLeave,
   pickRandomCarId,
 } from "./match-helpers.js";
-
-describe("isCarId", () => {
-  it("accepts CAR_TABLE keys and rejects unknown ids", () => {
-    expect(isCarId("rectangle")).toBe(true);
-    expect(isCarId("oval")).toBe(true);
-    expect(isCarId("hexagon")).toBe(true);
-    expect(isCarId("triangle")).toBe(false);
-    expect(isCarId("")).toBe(false);
-    expect(isCarId(1)).toBe(false);
-  });
-});
 
 describe("pickRandomCarId", () => {
   it("picks a CAR_TABLE key from Object.keys order using random", () => {

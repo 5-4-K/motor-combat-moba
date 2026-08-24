@@ -29,6 +29,7 @@ import {
   livingSides,
   getArena,
   hpOf,
+  isCarId,
   type CarId,
   type FlowEvent,
   type FlowPlayer,
@@ -50,7 +51,6 @@ import {
 import {
   copySpawnNumbers,
   firstAliveRosterWinner,
-  isCarId,
   livingAfterLeave,
   pickRandomCarId,
 } from "./match-helpers.js";

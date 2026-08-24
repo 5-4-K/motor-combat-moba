@@ -3,6 +3,7 @@ import {
   ArenaState,
   DRIVE_CONFIG,
   MS_PER_TICK,
+  NET_CONFIG,
   PlayerState,
   PlayerStatus,
   RoomPhase,
@@ -133,6 +134,64 @@ describe("serverTick", () => {
 
     expect(fast.speed).toBeCloseTo(slow.speed * 2, 6);
     expect(fast.x - 300).toBeGreaterThan(slow.x - 300);
+  });
+
+  describe("input ordering", () => {
+    // Bodies chosen so the order they integrate in genuinely changes the outcome: accelerating and
+    // turning before braking does not land where braking first does.
+    const BODIES = [
+      { steer: 0, throttle: 1 },
+      { steer: 1, throttle: 1 },
+      { steer: 1, throttle: -1 },
+    ] as const;
+
+    const at = (body: number, seq: number): InputMessage => ({ ...BODIES[body]!, seq, fire: false });
+
+    function runWith(queue: InputMessage[]): PlayerState {
+      const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
+      serverTick(stateWith(player), new Map([["p1", queue]]), DT, RoomPhase.MATCH);
+      return player;
+    }
+
+    it("applies inputs in seq order regardless of the order they arrived in", () => {
+      // Simulated latency gives every packet its own jittered delay, so this is routine, not exotic.
+      const inOrder = runWith([at(0, 1), at(1, 2), at(2, 3)]);
+      const arrivedShuffled = runWith([at(2, 3), at(0, 1), at(1, 2)]);
+
+      // Precondition: the fixture really is order-sensitive, so the equality below has teeth.
+      const seqsReversed = runWith([at(2, 1), at(1, 2), at(0, 3)]);
+      expect(poseOf(seqsReversed)).not.toEqual(poseOf(inOrder));
+
+      expect(poseOf(arrivedShuffled)).toEqual(poseOf(inOrder));
+      // Acking the last *arrival* would leave this at 2 while seq 3 had already been applied, and
+      // Task 4's reconcile would then replay inputs the server has already integrated.
+      expect(arrivedShuffled.lastProcessedInputSeq).toBe(3);
+    });
+  });
+
+  it("applies at most maxInputsPerTick inputs, but still drains and acks the whole burst", () => {
+    const cap = NET_CONFIG.maxInputsPerTick;
+    const burst = cap * 4;
+
+    const flooder = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    const floodQueue = ups(...Array.from({ length: burst }, (_, i) => i + 1));
+    serverTick(stateWith(flooder), new Map([["p1", floodQueue]]), DT, RoomPhase.MATCH);
+
+    const honest = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    serverTick(
+      stateWith(honest),
+      new Map([["p1", ups(...Array.from({ length: cap }, (_, i) => i + 1))]]),
+      DT,
+      RoomPhase.MATCH,
+    );
+
+    // Flooding the socket buys no extra distance.
+    expect(poseOf(flooder)).toEqual(poseOf(honest));
+    expect(flooder.x).toBeGreaterThan(300);
+    // ...but the whole burst is drained and acked, so the queue cannot grow and the client's
+    // pending-input buffer still clears.
+    expect(floodQueue).toEqual([]);
+    expect(flooder.lastProcessedInputSeq).toBe(burst);
   });
 
   describe("phase gating", () => {
