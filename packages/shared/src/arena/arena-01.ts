@@ -10,7 +10,7 @@ export const ARENA_01 = {
     { x: 500, y: 1170, w: 220, h: 80 },
     { x: 1680, y: 1170, w: 220, h: 80 },
     { x: 1080, y: 620, w: 240, h: 360 },
-    { x: 360, y: 720, w: 80, h: 160 },
+    { x: 200, y: 720, w: 80, h: 160 },
   ],
   ffaSpawns: [
     { x: 200, y: 200, angle: 0 },
@@ -22,7 +22,7 @@ export const ARENA_01 = {
   ],
   teamASpawns: [
     { x: 220, y: 400, angle: 0 },
-    { x: 220, y: 800, angle: 0 },
+    { x: 220, y: 960, angle: 0 },
     { x: 220, y: 1200, angle: 0 },
   ],
   teamBSpawns: [
