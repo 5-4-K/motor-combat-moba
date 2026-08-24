@@ -20,7 +20,7 @@
 | P1 | `2026-08-24-p1-data-model.md` | Cars, colors, weapon, arena, HP math, schemas, and config tables exist and are tested. No gameplay yet. |
 | P2 | `2026-08-24-p2-lobby.md` | Join with unique names, colors, two team panels, switch, start rules, kick, host transfer, Ready / In match / Post-match badges. |
 | P3 | `2026-08-24-p3-match-flow.md` | Start → hidden car select + 60s timeout → reveal → 3-2-1-GO → stub match → results → per-player Back to lobby. Next match can start while others linger. |
-| P4 | `2026-08-24-p4-driving-netcode.md` | Arcade driving, wall/obstacle/car bounce, prediction + interpolation. Drive online in the arena. |
+| P4 | In progress | 2026-08-24 | — | agent: `npm run test --workspaces` (242), `npm run build --workspaces`, plus a live two-tab browser run — movement, wall/obstacle collision at exact geometry, per-car speed caps, restitution, remote interpolation (rendered moved on 72% of frames vs server 9%), and match-2 prediction (12u ahead of server) all verified by instrumentation | **OUTSTANDING before Done:** (1) latency pass with `SIM_LATENCY_MS=80 SIM_JITTER_MS=20` — never run; this is the only path that exercises the out-of-order-input fix, since the ack only walks backwards under jitter. (2) Visual confirm that rectangle/oval/hexagon render distinctly side by side. (3) Hands-on feel check (camLerp responsiveness; documented wall-grind and 30.6° bounce sign flip). |
 | P5 | `2026-08-24-p5-combat.md` | Projectiles, collision damage, HP, elimination, spectate, last-standing win. v1 playable. |
 
 ---
