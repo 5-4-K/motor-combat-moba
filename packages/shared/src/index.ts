@@ -28,3 +28,7 @@ export { DRIVE_CONFIG } from "./config/drive-config.js";
 export { FLOW_CONFIG } from "./config/flow-config.js";
 export { NET_CONFIG } from "./config/net-config.js";
 
+export type { ArenaDef, Obstacle, Spawn } from "./arena/types.js";
+export { ARENA_01 } from "./arena/arena-01.js";
+export { DEFAULT_ARENA_ID, getArena } from "./arena/registry.js";
+
