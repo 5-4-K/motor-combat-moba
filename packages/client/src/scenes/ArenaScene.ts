@@ -117,7 +117,13 @@ export class ArenaScene extends Phaser.Scene {
     room.state.players.forEach((player, sessionId) => {
       if (player.status !== PlayerStatus.IN_MATCH) return;
       seen.add(sessionId);
-      const serverPose: SimBody = { x: player.x, y: player.y, angle: player.angle };
+      const serverPose: SimBody = {
+        x: player.x,
+        y: player.y,
+        angle: player.angle,
+        speed: player.speed,
+        reverseHold: player.reverseHold,
+      };
       const isLocal = sessionId === room.sessionId;
       const pose = isLocal ? this.localPose(serverPose) : this.remotePose(sessionId, serverPose);
       this.syncRect(sessionId, pose, isLocal);

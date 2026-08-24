@@ -6,6 +6,12 @@ export class PredictionBuffer {
   }
 
   reconcile(_predicted: SimBody, authoritative: SimBody): SimBody {
-    return { x: authoritative.x, y: authoritative.y, angle: authoritative.angle };
+    return {
+      x: authoritative.x,
+      y: authoritative.y,
+      angle: authoritative.angle,
+      speed: authoritative.speed,
+      reverseHold: authoritative.reverseHold,
+    };
   }
 }

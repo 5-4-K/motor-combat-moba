@@ -7,10 +7,16 @@ export function serverTick(state: ArenaState, queues: Map<string, InputMessage[]
     if (!q || q.length === 0) continue;
     while (q.length) {
       const msg = q.shift()!;
-      const next = stepSim({ x: player.x, y: player.y, angle: player.angle }, msg, dt);
+      const next = stepSim(
+        { x: player.x, y: player.y, angle: player.angle, speed: player.speed, reverseHold: player.reverseHold },
+        msg,
+        dt,
+      );
       player.x = next.x;
       player.y = next.y;
       player.angle = next.angle;
+      player.speed = next.speed;
+      player.reverseHold = next.reverseHold;
       player.lastProcessedInputSeq = msg.seq;
     }
   }
