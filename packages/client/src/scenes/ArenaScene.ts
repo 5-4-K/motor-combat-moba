@@ -17,6 +17,14 @@ import { buildStepContext } from "../net/step-context.js";
 import { bindViewRouter } from "../net/view.js";
 import { axisOf, drainTicks } from "./arena-input.js";
 import { carFillOf, carShapeOf, hexagonPoints } from "./car-visual.js";
+import { extrapolateShot, hpBarColor, hpFraction } from "./combat-visual.js";
+import {
+  cycleSpectate,
+  panFreeCam,
+  resolveSpectateTarget,
+  spectatableIds,
+  type SpectateCandidate,
+} from "./spectate.js";
 
 const ARENA_DEPTH = -10;
 const OBSTACLE_FILL = 0x6b6b6b;
@@ -24,6 +32,24 @@ const ARENA_BORDER = 0x4a4a4a;
 const ARENA_BORDER_PX = 4;
 const HITBOX_STROKE = 0xffffff;
 const HITBOX_PX = 1;
+
+const SHOT_DEPTH = 50;
+const SHOT_FILL = 0xffe14d;
+const SHOT_RADIUS = 4;
+/** Drawn behind each shot so the eye reads which way it is going, not just where it is. */
+const SHOT_TRAIL_PX = 14;
+
+const HP_BAR_DEPTH = 60;
+const HP_BAR_W = 44;
+const HP_BAR_H = 5;
+/** Clear of the car's own silhouette, which is `DRIVE_CONFIG.carHeight` tall. */
+const HP_BAR_OFFSET_Y = 30;
+const HP_BAR_BACK = 0x22252b;
+
+/** A wreck stays on the field as an obstacle-shaped memento; it just stops looking alive. */
+const WRECK_ALPHA = 0.3;
+
+const HUD_DEPTH = 1000;
 
 /** The subset of `PlayerState` the arena renders and predicts from. */
 interface ArenaPlayer {
@@ -36,6 +62,21 @@ interface ArenaPlayer {
   carId: string;
   colorId: number;
   lastProcessedInputSeq: number;
+  hp: number;
+  alive: boolean;
+  name: string;
+}
+
+/** The keys this scene binds beyond Phaser's cursor keys: firing, and the spectator controls. */
+interface SpectateKeys {
+  fire: Phaser.Input.Keyboard.Key;
+  prev: Phaser.Input.Keyboard.Key;
+  next: Phaser.Input.Keyboard.Key;
+  freeRoam: Phaser.Input.Keyboard.Key;
+  panLeft: Phaser.Input.Keyboard.Key;
+  panRight: Phaser.Input.Keyboard.Key;
+  panUp: Phaser.Input.Keyboard.Key;
+  panDown: Phaser.Input.Keyboard.Key;
 }
 
 function bodyOf(player: ArenaPlayer): SimBody {
@@ -48,9 +89,13 @@ function bodyOf(player: ArenaPlayer): SimBody {
   };
 }
 
-/** A car is redrawn from scratch only when its chassis or colour changes, not every frame. */
+/**
+ * A car is redrawn from scratch only when its chassis, colour, or living state changes, not every
+ * frame. `alive` is part of the key because a wreck is drawn differently, and without it a car that
+ * died would keep its living silhouette until something else happened to change the key.
+ */
 function visualKeyOf(player: ArenaPlayer): string {
-  return `${player.carId}:${player.colorId}`;
+  return `${player.carId}:${player.colorId}:${player.alive}`;
 }
 
 export class ArenaScene extends Phaser.Scene {
@@ -75,6 +120,18 @@ export class ArenaScene extends Phaser.Scene {
   private debug = false;
   private unbind: Array<() => void> = [];
   private countdownText: Phaser.GameObjects.Text | undefined;
+  private shotGfx: Phaser.GameObjects.Graphics | undefined;
+  private hpGfx: Phaser.GameObjects.Graphics | undefined;
+  private spectateText: Phaser.GameObjects.Text | undefined;
+  private keys: SpectateKeys | undefined;
+  /** Session id of the car the spectate camera is watching. `""` means "nobody left to watch". */
+  private spectateTarget = "";
+  private freeRoam = false;
+  /**
+   * When the last state patch landed, for drawing shots between patches. `performance.now()` rather
+   * than Phaser's clock, for the reason spelled out in `pushRemoteSnapshots`.
+   */
+  private lastPatchMs = 0;
 
   constructor() {
     super({ key: "arena" });
@@ -97,24 +154,61 @@ export class ArenaScene extends Phaser.Scene {
     );
 
     this.cursors = this.input.keyboard?.createCursorKeys();
-    // Space is reserved now so the browser does not scroll on it and P5 has the binding; its state
-    // is deliberately not read — `fire` stays false until projectiles exist.
-    this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    this.keys = this.bindKeys();
 
     // Hoisted out of the 30 Hz prediction path: `getArena` is a lookup that throws, and the arena
     // cannot change while the scene is alive.
     this.arena = getArena(this.room.state.arenaId);
     this.drawArena(this.arena);
 
+    // One Graphics for every shot and one for every hp bar, cleared and redrawn each frame. Both
+    // are drawn in *world* space but must not rotate with any car, so neither can live inside a
+    // car's own Graphics; a per-shot object would also mean creating and destroying objects at the
+    // fire rate for no gain.
+    this.shotGfx = this.add.graphics().setDepth(SHOT_DEPTH);
+    this.hpGfx = this.add.graphics().setDepth(HP_BAR_DEPTH);
+
     this.countdownText = this.add
       .text(640, 280, "", { fontSize: "96px", color: "#ffffff" })
       .setOrigin(0.5)
       .setScrollFactor(0)
-      .setDepth(1000)
+      .setDepth(HUD_DEPTH)
+      .setVisible(false);
+
+    this.spectateText = this.add
+      .text(640, 660, "", { fontSize: "22px", color: "#ffffff" })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(HUD_DEPTH)
       .setVisible(false);
 
     this.bindRoom(this.room);
     this.syncMatchHud();
+  }
+
+  /**
+   * Space fires; `[` / `]` and, once you are a wreck, Left / Right cycle who you are watching; `V`
+   * toggles free roam. Space is bound rather than merely read so the browser does not scroll the
+   * page under the canvas every time you shoot.
+   *
+   * The arrows do double duty on purpose, and the modes are what keep that unambiguous: while you
+   * are alive they steer, and only a spectator can cycle with them. In free roam they pan instead,
+   * so cycling is on the bracket keys there.
+   */
+  private bindKeys(): SpectateKeys | undefined {
+    const keyboard = this.input.keyboard;
+    if (!keyboard) return undefined;
+    const Codes = Phaser.Input.Keyboard.KeyCodes;
+    return {
+      fire: keyboard.addKey(Codes.SPACE),
+      prev: keyboard.addKey(Codes.OPEN_BRACKET),
+      next: keyboard.addKey(Codes.CLOSED_BRACKET),
+      freeRoam: keyboard.addKey(Codes.V),
+      panLeft: keyboard.addKey(Codes.A),
+      panRight: keyboard.addKey(Codes.D),
+      panUp: keyboard.addKey(Codes.W),
+      panDown: keyboard.addKey(Codes.S),
+    };
   }
 
   private drawArena(arena: ArenaDef): void {
@@ -137,6 +231,7 @@ export class ArenaScene extends Phaser.Scene {
     this.unbind.push(bindViewRouter(this, room));
 
     const onState = (): void => {
+      this.lastPatchMs = performance.now();
       this.syncMatchHud();
       this.reconcileLocal(room);
       this.pushRemoteSnapshots(room);
@@ -181,11 +276,21 @@ export class ArenaScene extends Phaser.Scene {
     this.arena = undefined;
     this.countdownText?.destroy();
     this.countdownText = undefined;
+    this.spectateText?.destroy();
+    this.spectateText = undefined;
+    this.shotGfx?.destroy();
+    this.shotGfx = undefined;
+    this.hpGfx?.destroy();
+    this.hpGfx = undefined;
     this.cursors = undefined;
+    this.keys = undefined;
     this.prediction = new PredictionBuffer();
     this.predicted = undefined;
     this.camFocus = undefined;
     this.inputAccumulatorMs = 0;
+    this.spectateTarget = "";
+    this.freeRoam = false;
+    this.lastPatchMs = 0;
   }
 
   update(_time: number, delta: number): void {
@@ -194,7 +299,9 @@ export class ArenaScene extends Phaser.Scene {
 
     this.syncMatchHud();
     this.pumpInput(room, delta);
+    this.updateSpectate(room, delta);
     this.renderCars(room);
+    this.renderShots(room);
   }
 
   // --- input -------------------------------------------------------------------------------
@@ -211,10 +318,16 @@ export class ArenaScene extends Phaser.Scene {
     for (let i = 0; i < ticks; i++) this.sendInputTick(room);
   }
 
-  /** The same gate `serverTick` uses to decide whether this player's inputs move anything. */
+  /**
+   * The same gate `serverTick` and `runCombat` use, so a client never predicts a step the server
+   * would not have run. `alive` is part of it: a wreck's inputs are drained and acked but move
+   * nothing and fire nothing, so continuing to send them would only spend bandwidth predicting a
+   * car that cannot move.
+   */
   private canDrive(room: Room<ArenaState>): boolean {
     if (room.state.phase !== RoomPhase.MATCH) return false;
-    return room.state.players.get(room.sessionId)?.status === PlayerStatus.IN_MATCH;
+    const local = room.state.players.get(room.sessionId);
+    return local?.status === PlayerStatus.IN_MATCH && local.alive;
   }
 
   private sendInputTick(room: Room<ArenaState>): void {
@@ -226,7 +339,10 @@ export class ArenaScene extends Phaser.Scene {
       seq: this.inputSeq,
       steer: axisOf(this.cursors?.left.isDown ?? false, this.cursors?.right.isDown ?? false),
       throttle: axisOf(this.cursors?.down.isDown ?? false, this.cursors?.up.isDown ?? false),
-      fire: false,
+      // Held, not tapped: the server's weapon cooldown decides the rate, so holding Space fires as
+      // fast as the weapon allows and no faster. Sampling `JustDown` here instead would drop shots
+      // whenever a frame straddled two input ticks.
+      fire: this.keys?.fire.isDown ?? false,
     };
     room.send(INPUT_MESSAGE, input);
 
@@ -241,7 +357,10 @@ export class ArenaScene extends Phaser.Scene {
 
   private reconcileLocal(room: Room<ArenaState>): void {
     const local = room.state.players.get(room.sessionId);
-    if (!local || local.status !== PlayerStatus.IN_MATCH) {
+    // Same gate as `canDrive`. A wreck stops predicting: the server has stopped stepping it, so a
+    // prediction buffer left running would replay pending inputs against a car that cannot move and
+    // then be snapped back every patch.
+    if (!local || local.status !== PlayerStatus.IN_MATCH || !local.alive) {
       this.predicted = undefined;
       return;
     }
@@ -263,6 +382,9 @@ export class ArenaScene extends Phaser.Scene {
 
   private renderCars(room: Room<ArenaState>): void {
     const seen = new Set<string>();
+    const hp = this.hpGfx;
+    hp?.clear();
+
     room.state.players.forEach((player, sessionId) => {
       if (player.status !== PlayerStatus.IN_MATCH) return;
       seen.add(sessionId);
@@ -270,13 +392,17 @@ export class ArenaScene extends Phaser.Scene {
       const serverPose = bodyOf(player);
       const isLocal = sessionId === room.sessionId;
       // The local car draws its predicted pose; remotes draw an interpolated one, so they glide
-      // between patches instead of stepping once per packet.
-      const pose = isLocal
-        ? (this.predicted ?? serverPose)
-        : this.remotePose(sessionId, serverPose);
+      // between patches instead of stepping once per packet. A wreck draws the raw server pose:
+      // it is not moving, so there is nothing to smooth and nothing to predict.
+      const pose = !player.alive
+        ? serverPose
+        : isLocal
+          ? (this.predicted ?? serverPose)
+          : this.remotePose(sessionId, serverPose);
 
       this.syncCar(sessionId, player, pose);
-      if (isLocal) this.followCamera(pose);
+      if (hp && player.alive) this.drawHpBar(hp, player, pose);
+      if (sessionId === this.cameraTarget(room)) this.followCamera(pose);
     });
 
     for (const [sessionId, gfx] of this.cars) {
@@ -321,7 +447,7 @@ export class ArenaScene extends Phaser.Scene {
     let gfx = this.cars.get(sessionId);
     if (!gfx || this.visualKeys.get(sessionId) !== key) {
       gfx?.destroy();
-      gfx = this.drawCar(player.carId, player.colorId);
+      gfx = this.drawCar(player.carId, player.colorId, player.alive);
       this.cars.set(sessionId, gfx);
       this.visualKeys.set(sessionId, key);
     }
@@ -333,7 +459,7 @@ export class ArenaScene extends Phaser.Scene {
    * The car's silhouette in its own local frame, centred on the origin with +x forward, so the whole
    * drawing follows `angle` with a single `setRotation`.
    */
-  private drawCar(carId: string, colorId: number): Phaser.GameObjects.Graphics {
+  private drawCar(carId: string, colorId: number, alive: boolean): Phaser.GameObjects.Graphics {
     const { carWidth: w, carHeight: h } = DRIVE_CONFIG;
     const gfx = this.add.graphics();
 
@@ -356,7 +482,135 @@ export class ArenaScene extends Phaser.Scene {
       gfx.lineStyle(HITBOX_PX, HITBOX_STROKE, 1);
       gfx.strokeRect(-w / 2, -h / 2, w, h);
     }
+    // A wreck keeps its silhouette and its collision box — it is still solid to everyone — and just
+    // fades out, so the field still reads as "someone died here" rather than "someone left".
+    if (!alive) gfx.setAlpha(WRECK_ALPHA);
     return gfx;
+  }
+
+  /**
+   * The hp bar above one car. Drawn unrotated in world space and sized from the car's own maximum,
+   * so a full bar means full hp for that chassis rather than a fixed number of points.
+   */
+  private drawHpBar(
+    gfx: Phaser.GameObjects.Graphics,
+    player: ArenaPlayer,
+    pose: SimBody,
+  ): void {
+    const fraction = hpFraction(player.hp, player.carId);
+    const left = pose.x - HP_BAR_W / 2;
+    const top = pose.y - HP_BAR_OFFSET_Y;
+
+    gfx.fillStyle(HP_BAR_BACK, 0.85);
+    gfx.fillRect(left, top, HP_BAR_W, HP_BAR_H);
+    if (fraction <= 0) return;
+    gfx.fillStyle(hpBarColor(fraction), 1);
+    gfx.fillRect(left, top, HP_BAR_W * fraction, HP_BAR_H);
+  }
+
+  /**
+   * Every shot in flight, drawn from `state.projectiles` and nothing else.
+   *
+   * The client deliberately does not spawn a local shot on the keypress. A predicted bullet that the
+   * server never fired — because the cooldown had not actually expired, or the input arrived a tick
+   * late — is a phantom that either vanishes or, worse, reads as a hit that never happened. Shots
+   * are cheap to draw late and expensive to draw wrongly.
+   */
+  private renderShots(room: Room<ArenaState>): void {
+    const gfx = this.shotGfx;
+    if (!gfx) return;
+    gfx.clear();
+
+    const elapsedMs = this.lastPatchMs === 0 ? 0 : performance.now() - this.lastPatchMs;
+    room.state.projectiles.forEach((shot) => {
+      const at = extrapolateShot(shot.x, shot.y, shot.angle, shot.speed, elapsedMs);
+      gfx.lineStyle(2, SHOT_FILL, 0.5);
+      gfx.lineBetween(
+        at.x,
+        at.y,
+        at.x - Math.cos(shot.angle) * SHOT_TRAIL_PX,
+        at.y - Math.sin(shot.angle) * SHOT_TRAIL_PX,
+      );
+      gfx.fillStyle(SHOT_FILL, 1);
+      gfx.fillCircle(at.x, at.y, SHOT_RADIUS);
+    });
+  }
+
+  // --- spectating --------------------------------------------------------------------------
+
+  /**
+   * Whose car the camera follows: your own while you are alive, otherwise the spectate target.
+   * Returning a session id rather than a pose keeps the decision in one place — `renderCars`
+   * already has every pose in hand, including the predicted one for the local car.
+   */
+  private cameraTarget(room: Room<ArenaState>): string {
+    return this.canDrive(room) ? room.sessionId : this.spectateTarget;
+  }
+
+  /**
+   * Spectator controls, once you are a wreck: cycle who you are watching, or pan freely.
+   *
+   * Nothing here sends anything. A dead player is a viewer, and giving the camera its own local
+   * state is what keeps that true — the server has no notion of who anyone is watching.
+   */
+  private updateSpectate(room: Room<ArenaState>, delta: number): void {
+    if (this.canDrive(room)) {
+      // Alive: no spectate state to keep. Clearing it means the next death starts a fresh cycle
+      // rather than resuming one from a previous match.
+      this.spectateTarget = "";
+      this.freeRoam = false;
+      return;
+    }
+
+    const keys = this.keys;
+    const ids = spectatableIds(this.spectateCandidates(room));
+    this.spectateTarget = resolveSpectateTarget(ids, this.spectateTarget);
+    if (!keys) return;
+
+    if (Phaser.Input.Keyboard.JustDown(keys.freeRoam)) {
+      this.freeRoam = !this.freeRoam;
+      // Free roam starts wherever the camera already is, so toggling it does not teleport the view.
+      if (!this.freeRoam) this.camFocus = undefined;
+    }
+
+    const back = Phaser.Input.Keyboard.JustDown(keys.prev);
+    const forward = Phaser.Input.Keyboard.JustDown(keys.next);
+    // Arrows cycle only while following. In free roam they pan, so the bracket keys carry cycling.
+    const arrowBack = !this.freeRoam && this.justDown(this.cursors?.left);
+    const arrowForward = !this.freeRoam && this.justDown(this.cursors?.right);
+
+    if (back || arrowBack) this.spectateTarget = cycleSpectate(ids, this.spectateTarget, -1);
+    else if (forward || arrowForward) this.spectateTarget = cycleSpectate(ids, this.spectateTarget, 1);
+
+    if (this.freeRoam) this.panCamera(keys, delta);
+  }
+
+  /** WASD or the arrows, panning the free-look camera. */
+  private panCamera(keys: SpectateKeys, delta: number): void {
+    const axisX = axisOf(
+      keys.panLeft.isDown || (this.cursors?.left.isDown ?? false),
+      keys.panRight.isDown || (this.cursors?.right.isDown ?? false),
+    );
+    const axisY = axisOf(
+      keys.panUp.isDown || (this.cursors?.up.isDown ?? false),
+      keys.panDown.isDown || (this.cursors?.down.isDown ?? false),
+    );
+
+    const from = this.camFocus ?? { x: this.cameras.main.midPoint.x, y: this.cameras.main.midPoint.y };
+    this.camFocus = panFreeCam(from, axisX, axisY, delta, CAMERA_CONFIG.freeRoamSpeed);
+    this.cameras.main.centerOn(this.camFocus.x, this.camFocus.y);
+  }
+
+  private spectateCandidates(room: Room<ArenaState>): SpectateCandidate[] {
+    const candidates: SpectateCandidate[] = [];
+    room.state.players.forEach((player, sessionId) => {
+      candidates.push({ sessionId, status: player.status, alive: player.alive });
+    });
+    return candidates;
+  }
+
+  private justDown(key: Phaser.Input.Keyboard.Key | undefined): boolean {
+    return key ? Phaser.Input.Keyboard.JustDown(key) : false;
   }
 
   /**
@@ -391,5 +645,37 @@ export class ArenaScene extends Phaser.Scene {
       }
     }
 
+    this.syncSpectateHud(room);
+  }
+
+  /**
+   * The spectator banner. Shown only to a wreck during a live match — while you are driving there
+   * is nothing to say, and once the match ends the results view takes over.
+   */
+  private syncSpectateHud(room: Room<ArenaState>): void {
+    const text = this.spectateText;
+    if (!text) return;
+
+    const local = room.state.players.get(room.sessionId);
+    const spectating =
+      room.state.phase === RoomPhase.MATCH &&
+      local?.status === PlayerStatus.IN_MATCH &&
+      local.alive === false;
+    if (!spectating) {
+      text.setVisible(false);
+      return;
+    }
+
+    if (this.freeRoam) {
+      text.setText("Free roam — WASD/arrows to pan, V to follow, [ ] to switch car");
+    } else {
+      const name = room.state.players.get(this.spectateTarget)?.name ?? "";
+      text.setText(
+        name === ""
+          ? "Wrecked — no one left to watch"
+          : `Spectating ${name} — [ ] or Left/Right to switch, V for free roam`,
+      );
+    }
+    text.setVisible(true);
   }
 }

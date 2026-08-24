@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CAR_TABLE, DEFAULT_CAR_ID, hpOf, forwardMaxSpeedOf, isCarId } from "./car-config.js";
+import type { CarId } from "./types.js";
 import { COLOR_TABLE } from "./color-config.js";
 import { WEAPON_CONFIG } from "./weapon-config.js";
 import { COMBAT_CONFIG } from "./combat-config.js";
@@ -83,6 +84,14 @@ describe("weapon / combat / drive / flow knobs exist", () => {
     // makes a nearby fight fit on screen.
     expect(CAMERA_CONFIG.camLerp).toBe(0.12);
     expect(CAMERA_CONFIG.zoom).toBe(0.85);
+  });
+  it("lets a spectator's free-look camera outrun the fastest car", () => {
+    // Ranged, not pinned: what matters is that free roam can get ahead of the action rather than
+    // trailing behind whichever car happens to be quickest.
+    const fastest = Math.max(
+      ...(Object.keys(CAR_TABLE) as CarId[]).map((id) => forwardMaxSpeedOf(id)),
+    );
+    expect(CAMERA_CONFIG.freeRoamSpeed).toBeGreaterThan(fastest);
   });
   it("names a default chassis that is a real car id", () => {
     expect(isCarId(DEFAULT_CAR_ID)).toBe(true);

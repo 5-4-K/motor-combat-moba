@@ -11,3 +11,5 @@ Keep the scene thin: pure, testable logic lives beside it (`net/step-context.ts`
 `buildStepContext` must keep agreeing with `serverTick`. The parts that decide who is solid and how a hull is sized are the *same* shared functions both call (`carIdOf`, `otherCarHulls` in `@motor-arena/shared`) — change them there, never fork a client copy.
 
 `?debug=1` draws the car OBB hitbox.
+
+Combat is drawn, never predicted: shots come from `state.projectiles` (cosmetically extrapolated along their own velocity by `combat-visual.ts`), HP from `PlayerState.hp`. A wreck stops driving, predicting, and interpolating, and gains the spectate controls in `spectate.ts`.

@@ -1,0 +1,122 @@
+# Combat model
+
+Everything that removes HP, and the rules that decide who it comes off. Balance numbers live in
+`@motor-arena/shared` config (`WEAPON_CONFIG`, `COMBAT_CONFIG`, `CAR_TABLE`) — the tables below name
+the knobs, not copies of them. See [`config-reference.md`](config-reference.md) for the values.
+
+## Where combat runs
+
+`runCombat` in `packages/shared/src/sim/combat.ts` is the whole step, pure and over plain objects.
+The server calls it once per tick from `ArenaRoom.combatTick`, **after** `serverTick` has driven and
+resolved every car, so hit tests read the poses cars actually ended the tick at.
+`packages/server/src/sim/combat-bridge.ts` is the only file that knows about the Colyseus schema; it
+maps `ArenaState` onto the POJOs and writes the answer back. No rules live there.
+
+Combat is **server-only**. The client draws `state.projectiles` and never predicts a shot or an HP
+change: a mispredicted bullet is a phantom kill, and there is no honest way to reconcile "you were
+dead for 80 ms". Prediction covers the local car's motion and nothing else.
+
+## `applyDamage` is the only HP writer
+
+```ts
+applyDamage(hp, amount) // max(0, hp - amount); a non-positive amount changes nothing
+```
+
+Every source routes through it, so a later buff, shield, or damage cap is one edit. Nothing else may
+subtract from `PlayerState.hp`. `hp === 0` sets `alive = false`; that is the wreck.
+
+## Weapon
+
+One weapon, identical on every chassis — the cars differ in speed, strength, and HP, not in what
+they shoot.
+
+| Rule | Where |
+|---|---|
+| Fired by `InputMessage.fire`, gated by `weaponCooldown` | `runCombat` |
+| Cooldown ticks = `ceil(TICK_RATE_HZ / WEAPON_CONFIG.fireRateHz)` | `fireCooldownTicks()` |
+| Spawns at the car's nose, `DRIVE_CONFIG.carWidth / 2` ahead of centre | `muzzleOffset()` |
+| Flies straight at `WEAPON_CONFIG.projectileSpeed`, no drag, no inheritance of car speed | `stepProjectile` |
+| Dies on `WEAPON_CONFIG.lifetimeTicks`, on an obstacle, or outside the arena | `projectileExpired`, `projectileHitsObstacle` |
+| Deals `WEAPON_CONFIG.damage` to the first car it may damage, then is spent | `runCombat` |
+
+Holding fire and tapping it are the same rate: the cooldown gates shots, not the key.
+
+Firing rides the same gate as movement. `serverTick` reports which session ids asked to fire on an
+input it actually **simulated**, so an input past `NET_CONFIG.maxInputsPerTick` cannot buy a shot the
+sim never ran, and a lobby player spamming `fire` spawns nothing.
+
+### Who a shot may damage
+
+`canDamage(ownerId, ownerTeam, targetId, targetTeam, mode)`:
+
+- **Never the shooter.** A shot is born on the shooter's own hull; without this every shot would
+  kill its own shooter on the tick it was fired.
+- **FFA:** anyone else.
+- **Team:** enemies only. There is no friendly fire on shots — a shot passes straight through a
+  teammate and keeps going.
+
+A wreck is not a target: shots pass through it rather than being spent on it.
+
+### Hit test
+
+A shot is a **point**, tested against the target's car OBB (`pointInObb` against `carHullOf`) — the
+same box driving collides with, never the drawn silhouette. One shot damages **one** car, picked in
+sorted `sessionId` order so two overlapping cars resolve reproducibly.
+
+Two deliberate v1 limits:
+
+- **No swept test.** At 900 u/s a shot moves 30 units per tick and is sampled once, so it could
+  straddle anything thinner than that. Every `ARENA_01` obstacle is at least 80 units thick, which is
+  why the point test holds.
+- **No lag compensation.** Hits are tested on the current tick with no rewind, so a shooter on 80 ms
+  leads a moving target by roughly their own latency. Rewind-and-replay is the standard fix and is
+  out of scope for v1.
+
+## Ramming
+
+Contact damage between two cars, judged by **facing** rather than by speed. Getting behind someone is
+the play; being fastest is not.
+
+`isRamming(ax, ay, angle, bx, by, threshold)` is `dot(forward, normalize(b - a)) >= threshold`, with
+`threshold` = `COMBAT_CONFIG.ramDotThreshold`. Coincident centres are never a ram — there is no
+direction to face.
+
+| Contact | Outcome | Damage |
+|---|---|---|
+| A drives into B's rear; B faces away | `a_hits_b` | B takes A's strength |
+| Head-on, both facing each other | `both` | Each takes the other's strength |
+| Sideswipe, neither facing the other | `none` | Nobody takes anything |
+
+Damage is `CAR_TABLE[carId].strength * COMBAT_CONFIG.collisionDamagePerStrength`, from the
+**attacker's** chassis. A head-on is dealt from the pre-hit state on both sides, so a car that dies in
+the trade still lands its own damage — there is no first-strike advantage.
+
+Rams are checked for every pair of living roster cars whose hulls overlap (`obbsOverlap`, the same
+SAT the driving resolver uses). A damaging contact puts that **pair** on a
+`COMBAT_CONFIG.collisionDamageCooldownTicks` cooldown, so grinding along someone cannot drain HP at
+30 Hz. Cooldowns are per pair, server-only, and pruned once expired; a third car still connects while
+a pair is cooling down.
+
+Ram damage ignores mode: teammates *can* ram each other in team mode. Only shots respect teams.
+
+## Elimination and winning
+
+- HP reaches 0 → `alive = false`. The wreck stays on the field and stays **solid** — it is still an
+  obstacle to everyone — and stops firing, ramming, and being shot.
+- After damage each tick, `livingSides(mode, roster)` counts the living sides. `sides <= 1` ends the
+  match through the same `endMatch` a disconnect uses. FFA names a `winnerSessionId`; team mode names
+  a `winnerTeam`; zero living sides is a draw (`-1`, `""`), which a mutual head-on kill can produce.
+- Ending a match clears every shot in flight and every ram cooldown, and so does setting one up, so
+  nothing from a previous match can carry into the next one.
+
+## What the client shows
+
+`ArenaScene` draws shots from `state.projectiles` only, extrapolated along their own constant
+velocity between patches (`extrapolateShot`, capped at one patch interval) — exact rather than a
+guess, because the server integrates the identical straight line. Living cars carry an HP bar scaled
+to their own chassis maximum (`hpFraction`), and a wreck fades to `WRECK_ALPHA` and stops being
+predicted or interpolated.
+
+A wrecked player becomes a spectator: `[` / `]` — or Left / Right — cycle the living cars, `V`
+toggles free roam, and WASD or the arrows pan in free roam. All of it is local; the server has no
+notion of who anyone is watching.

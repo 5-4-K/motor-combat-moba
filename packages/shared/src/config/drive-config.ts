@@ -22,8 +22,13 @@ export const DRIVE_CONFIG = {
  * `stepSim` reads it.
  *
  * `zoom` below 1 pulls the view out so a nearby fight fits on screen at 1280x720.
+ *
+ * `freeRoamSpeed` is how fast a spectator's free-look camera pans, in world units per **second**, so
+ * the pan covers the same ground on a 60 Hz and a 144 Hz display. It is pitched a little above the
+ * fastest car so a spectator can outrun the fight to see where it is going.
  */
 export const CAMERA_CONFIG = {
   camLerp: 0.12,
   zoom: 0.85,
+  freeRoamSpeed: 700,
 } as const;

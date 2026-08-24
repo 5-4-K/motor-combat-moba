@@ -46,8 +46,14 @@ Colyseus `@type` fields. Enums are explicit uint8; never renumber. `pendingCarId
 | `ownerSessionId` | string | `""` | Shooter session |
 | `x`, `y`, `angle` | number | `0` | Canonical world pose |
 | `speed` | number | `0` | Along heading |
-| `spawnTick` | uint32 | `0` | Tick spawned |
+| `spawnTick` | uint32 | `0` | Tick spawned; lifetime is measured against it |
 | `alive` | boolean | `true` | False when spent |
+
+Projectiles are server-owned. `runCombat` spawns, moves, and drops them; the room diffs the result
+onto the map by `id` rather than clearing and refilling it, so an unchanged shot is not re-patched.
+Entries are deleted the tick a shot expires, hits geometry, leaves the arena, or lands, and the whole
+map is cleared when a match starts or ends. Clients read it to draw and never write it. See
+[`combat-model.md`](combat-model.md).
 
 ## Join options
 

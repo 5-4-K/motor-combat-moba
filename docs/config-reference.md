@@ -71,6 +71,16 @@ Derived: `hpOf` = hp × `COMBAT_CONFIG.hpPerRating` (50 / 30 / 80). `forwardMaxS
 | `carHeight` | 32 |
 | `restitution` | 0.35 |
 
+## CAMERA_CONFIG
+
+Render knobs only — nothing in `stepSim` reads them.
+
+| Knob | Value |
+|---|---|
+| `camLerp` | 0.12 (fraction of remaining distance closed per **frame**) |
+| `zoom` | 0.85 (below 1 = zoomed out) |
+| `freeRoamSpeed` | 700 (spectator free-look pan, world units per **second**) |
+
 ## FLOW_CONFIG
 
 | Knob | Value |

@@ -1,6 +1,6 @@
 # Motor Arena
 
-LAN-hosted top-down 2D multiplayer car combat (last player/team standing, max 6). P0 is a walking skeleton: npm workspaces (`@motor-arena/shared`, `@motor-arena/server`, `@motor-arena/client`), one Colyseus `arena` room (`ArenaRoom`), identity `stepSim`, Phaser placeholders. No lobby, driving, or combat yet.
+LAN-hosted top-down 2D multiplayer car combat (last player/team standing, max 6). npm workspaces (`@motor-arena/shared`, `@motor-arena/server`, `@motor-arena/client`), one Colyseus `arena` room (`ArenaRoom`), shared `stepSim` as the lockstep, Phaser 3 client. v1 is complete: lobby, car select, countdown, arcade driving with prediction, projectiles, ram damage, elimination, spectate, last standing.
 
 ## Hard invariants
 
@@ -27,6 +27,7 @@ LAN-hosted top-down 2D multiplayer car combat (last player/team standing, max 6)
 | LAN zip / `start.bat` | [`docs/deployment.md`](docs/deployment.md) |
 | Language / import rules | [`docs/conventions.md`](docs/conventions.md) |
 | Plan sequence | [`docs/roadmap.md`](docs/roadmap.md) |
+| Weapon, ram, elimination rules | [`docs/combat-model.md`](docs/combat-model.md) |
 | Terms | [`docs/glossary.md`](docs/glossary.md) |
 | Package local rules | `packages/shared/CLAUDE.md`, `packages/server/CLAUDE.md`, `packages/client/CLAUDE.md` |
 | Spec + tracker | [`docs/superpowers/specs/2026-08-24-motor-arena-v1-design.md`](docs/superpowers/specs/2026-08-24-motor-arena-v1-design.md), [`docs/superpowers/plans/2026-08-24-motor-arena-v1-master-index.md`](docs/superpowers/plans/2026-08-24-motor-arena-v1-master-index.md) |

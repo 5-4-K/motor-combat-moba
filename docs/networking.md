@@ -38,10 +38,14 @@ Note the split gate: the `IN_MATCH` filter inside `otherCarHulls` is the **wall*
 
 **Interpolation.** Remotes are drawn from `InterpolationBuffer`, sampled at `now - NET_CONFIG.interpolationDelayMs`. Position lerps between the bracketing snapshots; angle lerps through `atan2` of blended sines and cosines so it crosses the ±π seam the short way. Past the newest snapshot it **holds** rather than extrapolating — a guessed pose slid through a wall the server bounced off is worse than a frame or two of freeze. Old snapshots outside the delay window are pruned, so the buffer does not grow with match length.
 
-`CAMERA_CONFIG` (`camLerp`, `zoom`) is a render knob only — nothing in `stepSim` reads it.
+`CAMERA_CONFIG` (`camLerp`, `zoom`, `freeRoamSpeed`) is a render knob only — nothing in `stepSim` reads it.
 
-## Client — combat (P5, still stubbed)
+## Client — combat
 
-v1 hit detection is **current-tick**: no rewind, no lag compensation. LAN latency is what makes that acceptable. HP and hits stay server-authoritative — the client may predict a local muzzle or projectile spawn for feel, but never a hit.
+Combat is not predicted at all. `fire` rides the wire with steer and throttle, and the server decides everything that follows: whether the cooldown allowed a shot, where it went, and what it hit. `ArenaScene` draws `state.projectiles` and the HP it is told about, and spawns no local shot of its own — a predicted bullet the server never fired either vanishes or, worse, reads as a hit that never happened, and there is no honest way to reconcile "you were dead for 80 ms".
 
-`fire` is on the wire and validated today, and `ArenaScene` binds Space, but the field is always sent as `false`. Projectiles, damage, and the ram table land in P5.
+The one client-side liberty is cosmetic: a shot is advanced along its **own constant velocity** between patches (`extrapolateShot`, capped at one patch interval). That is exact rather than a guess — the server integrates the identical straight line — and nothing it produces feeds back into state.
+
+Firing rides the same gate as movement. `serverTick` reports the session ids that asked to fire on an input it actually **simulated**, so an input past `NET_CONFIG.maxInputsPerTick` cannot buy a shot the sim never ran. `canDrive` gains `alive` in P5: a wreck stops sending inputs and stops predicting, because the server has stopped stepping it.
+
+v1 hit detection is **current-tick**: no rewind, no lag compensation, so a shooter leads a moving target by roughly their own latency. LAN latency is what makes that acceptable. See [`combat-model.md`](combat-model.md).
