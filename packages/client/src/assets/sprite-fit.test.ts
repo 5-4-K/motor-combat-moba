@@ -1,4 +1,3 @@
-// packages/client/src/assets/sprite-fit.test.ts
 import { describe, expect, it } from "vitest";
 import type { SpriteEntry } from "./manifest-schema.js";
 import { fitSprite } from "./sprite-fit.js";
@@ -34,6 +33,23 @@ describe("fitSprite", () => {
   it("falls back to scale 1 for a zero-sized texture rather than producing NaN", () => {
     expect(fitSprite(entry(), { width: 0, height: 0 }, HULL).scale).toBe(1);
     expect(fitSprite(entry(), { width: 64, height: 0 }, HULL).scale).toBe(1);
+  });
+
+  it("falls back to scale 1 for a non-finite texture dimension", () => {
+    expect(fitSprite(entry(), { width: Number.NaN, height: 128 }, HULL).scale).toBe(1);
+    expect(fitSprite(entry(), { width: 64, height: Number.NaN }, HULL).scale).toBe(1);
+  });
+
+  it("fits against the rotated bounding box, so up-facing art fills the hull", () => {
+    // 64x128 drawn facing up: rotated by pi/2 it presents 128 along the hull's 48 and 64 along its
+    // 32, so the tighter axis is 48/128. Measuring the unrotated texture would give 32/128 = 0.25.
+    const fit = fitSprite(entry({ rotationOffset: Math.PI / 2 }), { width: 64, height: 128 }, HULL);
+    expect(fit.scale).toBeCloseTo(0.375);
+  });
+
+  it("is unchanged by the rotated-bounds rule at rotationOffset 0", () => {
+    const fit = fitSprite(entry({ rotationOffset: 0 }), { width: 64, height: 128 }, HULL);
+    expect(fit.scale).toBeCloseTo(Math.min(48 / 64, 32 / 128));
   });
 
   it("reports rotationOffset and origin unchanged", () => {
