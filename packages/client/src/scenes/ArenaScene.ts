@@ -1,28 +1,79 @@
 import Phaser from "phaser";
 import type { Room } from "colyseus.js";
-import type { ArenaState, SimBody } from "@motor-arena/shared";
+import type { ArenaDef, ArenaState, InputMessage, SimBody, StepContext } from "@motor-arena/shared";
 import {
+  CAMERA_CONFIG,
+  DRIVE_CONFIG,
   INPUT_MESSAGE,
   MSG_STUB_END_MATCH,
+  MS_PER_TICK,
+  NET_CONFIG,
   PlayerStatus,
   RoomPhase,
   TICK_RATE_HZ,
+  getArena,
 } from "@motor-arena/shared";
+import { isDebugEnabled } from "../config/client-mode.js";
 import { InterpolationBuffer } from "../net/interpolation.js";
 import { PredictionBuffer } from "../net/prediction.js";
+import { buildStepContext } from "../net/step-context.js";
 import { bindViewRouter } from "../net/view.js";
+import { carFillOf, carShapeOf, hexagonPoints } from "./car-visual.js";
 
-const LOCAL_FILL = 0x2ecc71;
-const REMOTE_FILL = 0xe74c3c;
-const CAR_SIZE = 32;
+const ARENA_DEPTH = -10;
+const OBSTACLE_FILL = 0x6b6b6b;
+const ARENA_BORDER = 0x4a4a4a;
+const ARENA_BORDER_PX = 4;
+const HITBOX_STROKE = 0xffffff;
+const HITBOX_PX = 1;
+
+/** The subset of `PlayerState` the arena renders and predicts from. */
+interface ArenaPlayer {
+  x: number;
+  y: number;
+  angle: number;
+  speed: number;
+  reverseHold: number;
+  status: number;
+  carId: string;
+  colorId: number;
+  lastProcessedInputSeq: number;
+}
+
+function bodyOf(player: ArenaPlayer): SimBody {
+  return {
+    x: player.x,
+    y: player.y,
+    angle: player.angle,
+    speed: player.speed,
+    reverseHold: player.reverseHold,
+  };
+}
+
+/** A car is redrawn from scratch only when its chassis or colour changes, not every frame. */
+function visualKeyOf(player: ArenaPlayer): string {
+  return `${player.carId}:${player.colorId}`;
+}
 
 export class ArenaScene extends Phaser.Scene {
   private room: Room<ArenaState> | undefined;
-  private readonly prediction = new PredictionBuffer();
+  private prediction = new PredictionBuffer();
   private readonly interps = new Map<string, InterpolationBuffer>();
-  private readonly rects = new Map<string, Phaser.GameObjects.Rectangle>();
-  private following = false;
+  private readonly cars = new Map<string, Phaser.GameObjects.Graphics>();
+  private readonly visualKeys = new Map<string, string>();
+  private arenaGfx: Phaser.GameObjects.Graphics | undefined;
+  private cursors: Phaser.Types.Input.Keyboard.CursorKeys | undefined;
+  private predicted: SimBody | undefined;
+  private camFocus: { x: number; y: number } | undefined;
+  private inputAccumulatorMs = 0;
+  /**
+   * Monotonic for the lifetime of the page, deliberately *not* reset in `create`. The server never
+   * resets `PlayerState.lastProcessedInputSeq`, so a seq that restarted at 1 for a second match
+   * would sit below the standing ack and reconciliation would discard every pending input — the car
+   * would fall back to pure server-follow. It is only ever nudged forward, never back.
+   */
   private inputSeq = 0;
+  private debug = false;
   private unbind: Array<() => void> = [];
   private countdownText: Phaser.GameObjects.Text | undefined;
   private stubButton: Phaser.GameObjects.Text | undefined;
@@ -33,13 +84,16 @@ export class ArenaScene extends Phaser.Scene {
 
   create(): void {
     this.clearCars();
-    this.following = false;
-    this.inputSeq = 0;
+    this.prediction = new PredictionBuffer();
+    this.predicted = undefined;
+    this.camFocus = undefined;
+    this.inputAccumulatorMs = 0;
     this.unbindAll();
     this.countdownText?.destroy();
     this.stubButton?.destroy();
     this.countdownText = undefined;
     this.stubButton = undefined;
+    this.debug = isDebugEnabled();
     this.room = this.registry.get("room") as Room<ArenaState> | undefined;
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.onShutdown, this);
 
@@ -47,6 +101,18 @@ export class ArenaScene extends Phaser.Scene {
       this.scene.start("join");
       return;
     }
+
+    this.inputSeq = Math.max(
+      this.inputSeq,
+      this.room.state.players.get(this.room.sessionId)?.lastProcessedInputSeq ?? 0,
+    );
+
+    this.cursors = this.input.keyboard?.createCursorKeys();
+    // Space is reserved now so the browser does not scroll on it and P5 has the binding; its state
+    // is deliberately not read — `fire` stays false until projectiles exist.
+    this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+
+    this.drawArena(getArena(this.room.state.arenaId));
 
     this.countdownText = this.add
       .text(640, 280, "", { fontSize: "96px", color: "#ffffff" })
@@ -59,11 +125,29 @@ export class ArenaScene extends Phaser.Scene {
     this.syncMatchHud();
   }
 
+  private drawArena(arena: ArenaDef): void {
+    const gfx = this.add.graphics().setDepth(ARENA_DEPTH);
+    gfx.fillStyle(OBSTACLE_FILL, 1);
+    for (const obstacle of arena.obstacles) {
+      gfx.fillRect(obstacle.x, obstacle.y, obstacle.w, obstacle.h);
+    }
+    gfx.lineStyle(ARENA_BORDER_PX, ARENA_BORDER, 1);
+    gfx.strokeRect(0, 0, arena.width, arena.height);
+    this.arenaGfx = gfx;
+
+    const cam = this.cameras.main;
+    cam.setZoom(CAMERA_CONFIG.zoom);
+    // Stops the soft follow from panning past the arena edge into empty space.
+    cam.setBounds(0, 0, arena.width, arena.height);
+  }
+
   private bindRoom(room: Room<ArenaState>): void {
     this.unbind.push(bindViewRouter(this, room));
 
     const onState = (): void => {
       this.syncMatchHud();
+      this.reconcileLocal(room);
+      this.pushRemoteSnapshots(room);
     };
     room.onStateChange(onState);
     this.unbind.push(() => room.onStateChange.remove(onState));
@@ -84,92 +168,223 @@ export class ArenaScene extends Phaser.Scene {
   private onShutdown(): void {
     this.unbindAll();
     this.clearCars();
-    this.following = false;
+    this.predicted = undefined;
+    this.camFocus = undefined;
+    this.cursors = undefined;
     this.countdownText = undefined;
     this.stubButton = undefined;
     this.room = undefined;
   }
 
   private clearCars(): void {
-    for (const rect of this.rects.values()) {
-      rect.destroy();
-    }
-    this.rects.clear();
+    for (const gfx of this.cars.values()) gfx.destroy();
+    this.cars.clear();
+    this.visualKeys.clear();
     this.interps.clear();
+    this.arenaGfx?.destroy();
+    this.arenaGfx = undefined;
   }
 
-  update(): void {
+  update(_time: number, delta: number): void {
     const room = this.room;
     if (!room) return;
 
     this.syncMatchHud();
-    if (room.state.phase === RoomPhase.MATCH) {
-      this.inputSeq += 1;
-      room.send(INPUT_MESSAGE, {
-        seq: this.inputSeq,
-        steer: 0,
-        throttle: 0,
-        fire: false,
-      });
+    this.pumpInput(room, delta);
+    this.renderCars(room);
+  }
+
+  // --- input -------------------------------------------------------------------------------
+
+  /**
+   * Inputs go out on the sim clock, not the render clock: one `InputMessage` per `MS_PER_TICK` of
+   * elapsed time regardless of frame rate, so a 144 Hz client does not send (and predict) five times
+   * as many steps as a 30 Hz one.
+   */
+  private pumpInput(room: Room<ArenaState>, delta: number): void {
+    if (!this.canDrive(room)) {
+      this.inputAccumulatorMs = 0;
+      return;
     }
 
+    // Catch-up after a frame hitch is capped at what the server will actually *apply* in one tick.
+    // Inputs past `maxInputsPerTick` are drained and acked but never simulated, so predicting them
+    // would only manufacture divergence that reconciliation then has to snap away.
+    const maxCatchUpMs = MS_PER_TICK * NET_CONFIG.maxInputsPerTick;
+    this.inputAccumulatorMs = Math.min(this.inputAccumulatorMs + delta, maxCatchUpMs);
+    while (this.inputAccumulatorMs >= MS_PER_TICK) {
+      this.inputAccumulatorMs -= MS_PER_TICK;
+      this.sendInputTick(room);
+    }
+  }
+
+  /** The same gate `serverTick` uses to decide whether this player's inputs move anything. */
+  private canDrive(room: Room<ArenaState>): boolean {
+    if (room.state.phase !== RoomPhase.MATCH) return false;
+    return room.state.players.get(room.sessionId)?.status === PlayerStatus.IN_MATCH;
+  }
+
+  private sendInputTick(room: Room<ArenaState>): void {
+    const local = room.state.players.get(room.sessionId);
+    if (!local) return;
+
+    this.inputSeq += 1;
+    const input: InputMessage = {
+      seq: this.inputSeq,
+      steer: this.axis(this.cursors?.left, this.cursors?.right),
+      throttle: this.axis(this.cursors?.down, this.cursors?.up),
+      fire: false,
+    };
+    room.send(INPUT_MESSAGE, input);
+
+    // Predict immediately: the local car has to answer on this frame, not a round-trip later.
+    const from = this.predicted ?? bodyOf(local);
+    this.predicted = this.prediction.predict(from, { seq: input.seq, input }, this.stepContext(room));
+  }
+
+  private axis(
+    negative: Phaser.Input.Keyboard.Key | undefined,
+    positive: Phaser.Input.Keyboard.Key | undefined,
+  ): -1 | 0 | 1 {
+    const back = negative?.isDown ?? false;
+    const forward = positive?.isDown ?? false;
+    if (back === forward) return 0;
+    return forward ? 1 : -1;
+  }
+
+  private stepContext(room: Room<ArenaState>): StepContext {
+    return buildStepContext(room.state, room.sessionId);
+  }
+
+  private reconcileLocal(room: Room<ArenaState>): void {
+    const local = room.state.players.get(room.sessionId);
+    if (!local || local.status !== PlayerStatus.IN_MATCH) {
+      this.predicted = undefined;
+      return;
+    }
+
+    const authoritative = bodyOf(local);
+    if (!this.predicted) {
+      this.predicted = authoritative;
+      return;
+    }
+    this.predicted = this.prediction.reconcile(
+      authoritative,
+      local.lastProcessedInputSeq,
+      this.predicted,
+      this.stepContext(room),
+    );
+  }
+
+  // --- rendering ---------------------------------------------------------------------------
+
+  private renderCars(room: Room<ArenaState>): void {
     const seen = new Set<string>();
     room.state.players.forEach((player, sessionId) => {
       if (player.status !== PlayerStatus.IN_MATCH) return;
       seen.add(sessionId);
-      const serverPose: SimBody = {
-        x: player.x,
-        y: player.y,
-        angle: player.angle,
-        speed: player.speed,
-        reverseHold: player.reverseHold,
-      };
+
+      const serverPose = bodyOf(player);
       const isLocal = sessionId === room.sessionId;
-      const pose = isLocal ? this.localPose(serverPose) : this.remotePose(sessionId, serverPose);
-      this.syncRect(sessionId, pose, isLocal);
+      // The local car draws its predicted pose; remotes draw an interpolated one, so they glide
+      // between patches instead of stepping once per packet.
+      const pose = isLocal
+        ? (this.predicted ?? serverPose)
+        : this.remotePose(sessionId, serverPose);
+
+      this.syncCar(sessionId, player, pose);
+      if (isLocal) this.followCamera(pose);
     });
 
-    for (const [sessionId, rect] of this.rects) {
+    for (const [sessionId, gfx] of this.cars) {
       if (seen.has(sessionId)) continue;
-      rect.destroy();
-      this.rects.delete(sessionId);
+      gfx.destroy();
+      this.cars.delete(sessionId);
+      this.visualKeys.delete(sessionId);
       this.interps.delete(sessionId);
     }
   }
 
-  private localPose(authoritative: SimBody): SimBody {
-    return this.prediction.reconcile(authoritative, authoritative);
+  /**
+   * One snapshot per state patch, taken on patch arrival rather than per frame. Pushing every frame
+   * would fill the window with copies of the same unchanged pose, and the buffer would then
+   * "interpolate" between identical entries and jump a whole patch in one frame — a delayed snap
+   * wearing interpolation's clothes.
+   */
+  private pushRemoteSnapshots(room: Room<ArenaState>): void {
+    const now = this.time.now;
+    room.state.players.forEach((player, sessionId) => {
+      if (sessionId === room.sessionId) return;
+      if (player.status !== PlayerStatus.IN_MATCH) return;
+      let buf = this.interps.get(sessionId);
+      if (!buf) {
+        buf = new InterpolationBuffer();
+        this.interps.set(sessionId, buf);
+      }
+      buf.push(now, bodyOf(player));
+    });
   }
 
   private remotePose(sessionId: string, pose: SimBody): SimBody {
-    let buf = this.interps.get(sessionId);
-    if (!buf) {
-      buf = new InterpolationBuffer();
-      this.interps.set(sessionId, buf);
-    }
-    buf.push(this.time.now, pose);
-    return buf.sample(this.time.now) ?? pose;
+    return this.interps.get(sessionId)?.sample(this.time.now) ?? pose;
   }
 
-  private syncRect(sessionId: string, pose: SimBody, isLocal: boolean): void {
-    let rect = this.rects.get(sessionId);
-    if (!rect) {
-      rect = this.add.rectangle(
-        pose.x,
-        pose.y,
-        CAR_SIZE,
-        CAR_SIZE,
-        isLocal ? LOCAL_FILL : REMOTE_FILL,
-      );
-      this.rects.set(sessionId, rect);
-    } else {
-      rect.setPosition(pose.x, pose.y);
+  private syncCar(sessionId: string, player: ArenaPlayer, pose: SimBody): void {
+    const key = visualKeyOf(player);
+    let gfx = this.cars.get(sessionId);
+    if (!gfx || this.visualKeys.get(sessionId) !== key) {
+      gfx?.destroy();
+      gfx = this.drawCar(player.carId, player.colorId);
+      this.cars.set(sessionId, gfx);
+      this.visualKeys.set(sessionId, key);
+    }
+    gfx.setPosition(pose.x, pose.y);
+    gfx.setRotation(pose.angle);
+  }
+
+  /**
+   * The car's silhouette in its own local frame, centred on the origin with +x forward, so the whole
+   * drawing follows `angle` with a single `setRotation`.
+   */
+  private drawCar(carId: string, colorId: number): Phaser.GameObjects.Graphics {
+    const { carWidth: w, carHeight: h } = DRIVE_CONFIG;
+    const gfx = this.add.graphics();
+
+    gfx.fillStyle(carFillOf(colorId), 1);
+    switch (carShapeOf(carId)) {
+      case "rect":
+        gfx.fillRect(-w / 2, -h / 2, w, h);
+        break;
+      case "ellipse":
+        gfx.fillEllipse(0, 0, w, h);
+        break;
+      case "hex":
+        gfx.fillPoints(hexagonPoints(w, h), true);
+        break;
     }
 
-    if (isLocal && !this.following) {
-      this.cameras.main.startFollow(rect);
-      this.following = true;
+    // The hitbox is the OBB the sim actually collides with, which is not the drawn silhouette for
+    // the oval or the hexagon. Only shown behind `?debug=1` so ordinary play sees the shape, not the box.
+    if (this.debug) {
+      gfx.lineStyle(HITBOX_PX, HITBOX_STROKE, 1);
+      gfx.strokeRect(-w / 2, -h / 2, w, h);
     }
+    return gfx;
+  }
+
+  /**
+   * Soft follow. `centerOn` each frame with the focus eased by `CAMERA_CONFIG.camLerp` keeps a
+   * reconciliation snap from throwing the whole view; the first frame seeds the focus outright so
+   * the match does not open with the camera flying in from the arena origin.
+   */
+  private followCamera(pose: SimBody): void {
+    if (!this.camFocus) {
+      this.camFocus = { x: pose.x, y: pose.y };
+    } else {
+      this.camFocus.x = Phaser.Math.Linear(this.camFocus.x, pose.x, CAMERA_CONFIG.camLerp);
+      this.camFocus.y = Phaser.Math.Linear(this.camFocus.y, pose.y, CAMERA_CONFIG.camLerp);
+    }
+    this.cameras.main.centerOn(this.camFocus.x, this.camFocus.y);
   }
 
   private syncMatchHud(): void {

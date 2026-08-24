@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { CAR_TABLE, hpOf, forwardMaxSpeedOf, isCarId } from "./car-config.js";
+import { CAR_TABLE, DEFAULT_CAR_ID, hpOf, forwardMaxSpeedOf, isCarId } from "./car-config.js";
 import { COLOR_TABLE } from "./color-config.js";
 import { WEAPON_CONFIG } from "./weapon-config.js";
 import { COMBAT_CONFIG } from "./combat-config.js";
-import { DRIVE_CONFIG } from "./drive-config.js";
+import { CAMERA_CONFIG, DRIVE_CONFIG } from "./drive-config.js";
 import { FLOW_CONFIG } from "./flow-config.js";
 import { NET_CONFIG } from "./net-config.js";
 
@@ -76,6 +76,17 @@ describe("weapon / combat / drive / flow knobs exist", () => {
   it("flow timers", () => {
     expect(FLOW_CONFIG.carSelectSeconds).toBe(60);
     expect(FLOW_CONFIG.countdownSeconds).toBe(3);
+  });
+  it("camera follows softly and pulls the view out", () => {
+    // A camLerp outside (0, 1] either never reaches the car or overshoots it every frame.
+    expect(CAMERA_CONFIG.camLerp).toBeGreaterThan(0);
+    expect(CAMERA_CONFIG.camLerp).toBeLessThanOrEqual(1);
+    // Below 1 means "zoomed out", which is what makes a nearby fight fit on screen.
+    expect(CAMERA_CONFIG.zoom).toBeLessThan(1);
+    expect(CAMERA_CONFIG.zoom).toBeGreaterThan(0);
+  });
+  it("names a default chassis that is a real car id", () => {
+    expect(isCarId(DEFAULT_CAR_ID)).toBe(true);
   });
   it("caps how many inputs one player can have applied per tick", () => {
     expect(NET_CONFIG.maxInputsPerTick).toBeTypeOf("number");

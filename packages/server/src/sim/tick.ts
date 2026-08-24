@@ -1,5 +1,6 @@
 import {
   ArenaState,
+  DEFAULT_CAR_ID,
   DRIVE_CONFIG,
   NET_CONFIG,
   PlayerState,
@@ -15,9 +16,6 @@ import {
   type SimBody,
   type StepContext,
 } from "@motor-arena/shared";
-
-/** Pre-reveal (lobby / P0 sandbox) players have no car yet, so they drive the default chassis. */
-const DEFAULT_CAR_ID: CarId = "rectangle";
 
 /**
  * Advance every player by their queued inputs. `dt` is seconds and must match the room simulation
