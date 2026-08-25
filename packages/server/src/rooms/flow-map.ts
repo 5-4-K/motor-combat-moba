@@ -11,17 +11,19 @@ export function toFlowMode(mode: GameMode): "ffa" | "team" {
 
 export function toFlowPhase(
   phase: RoomPhase,
-): "lobby" | "car_select" | "countdown" | "match" {
+): "lobby" | "car_select" | "reveal" | "countdown" | "match" {
   if (phase === RoomPhase.CAR_SELECT) return "car_select";
+  if (phase === RoomPhase.REVEAL) return "reveal";
   if (phase === RoomPhase.COUNTDOWN) return "countdown";
   if (phase === RoomPhase.MATCH) return "match";
   return "lobby";
 }
 
 export function fromFlowPhase(
-  phase: "lobby" | "car_select" | "countdown" | "match",
+  phase: "lobby" | "car_select" | "reveal" | "countdown" | "match",
 ): RoomPhase {
   if (phase === "car_select") return RoomPhase.CAR_SELECT;
+  if (phase === "reveal") return RoomPhase.REVEAL;
   if (phase === "countdown") return RoomPhase.COUNTDOWN;
   if (phase === "match") return RoomPhase.MATCH;
   return RoomPhase.LOBBY;

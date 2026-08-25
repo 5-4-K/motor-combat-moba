@@ -79,7 +79,7 @@ Render knobs only — nothing in `stepSim` reads them.
 | Knob | Value |
 |---|---|
 | `camLerp` | 0.12 (fraction of remaining distance closed per **frame**) |
-| `zoom` | 1.5 (above 1 = zoomed in; keep within 1–2 so the 2x car textures stay sharp) |
+| `zoom` | 1 (above 1 = zoomed in; keep within 1–2 so the 2x car textures stay sharp) |
 | `freeRoamSpeed` | 700 (spectator free-look pan, world units per **second**) |
 
 ## FLOW_CONFIG

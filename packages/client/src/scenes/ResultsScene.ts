@@ -1,19 +1,17 @@
 import Phaser from "phaser";
 import type { Room } from "colyseus.js";
-import type { CarId } from "@motor-combat-moba/shared";
-import { ArenaState, CAR_TABLE, MSG_RETURN_TO_LOBBY, PlayerStatus } from "@motor-combat-moba/shared";
+import { ArenaState, MSG_RETURN_TO_LOBBY } from "@motor-combat-moba/shared";
 import { bindViewRouter } from "../net/view.js";
+import { resultsView, type ResultsView, type ResultsViewPlayer } from "../ui/results-view.js";
+import { ScreenOverlay } from "../ui/overlay.js";
+import { renderResults } from "../ui/screens/results.js";
 
 const STANDINGS_KEY = "resultsStandings";
 
-type ResultsStandings = {
-  title: string;
-  roster: { name: string; carId: string }[];
-};
-
 export class ResultsScene extends Phaser.Scene {
   private room: Room<ArenaState> | undefined;
-  private standings: ResultsStandings | undefined;
+  private overlay: ScreenOverlay | undefined;
+  private view: ResultsView | undefined;
   private unbind: Array<() => void> = [];
 
   constructor() {
@@ -22,6 +20,7 @@ export class ResultsScene extends Phaser.Scene {
 
   create(): void {
     this.unbindAll();
+    this.overlay = new ScreenOverlay(this);
     this.room = this.registry.get("room") as Room<ArenaState> | undefined;
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.onShutdown, this);
 
@@ -30,16 +29,46 @@ export class ResultsScene extends Phaser.Scene {
       return;
     }
 
-    this.standings = captureStandings(this.room.state);
-    this.registry.set(STANDINGS_KEY, this.standings);
+    // Snapshotted once on entry: statuses flip to READY as players head back to the lobby, and a
+    // scoreboard that empties itself while you are reading it is worse than a stale one.
+    this.view = this.snapshot(this.room);
+    this.registry.set(STANDINGS_KEY, this.view);
     this.bindRoom(this.room);
     this.render();
+  }
+
+  private snapshot(room: Room<ArenaState>): ResultsView {
+    const players: ResultsViewPlayer[] = [];
+    room.state.players.forEach((player, sessionId) => {
+      players.push({
+        sessionId,
+        name: player.name,
+        colorId: player.colorId,
+        team: player.team,
+        carId: player.carId,
+        status: player.status,
+      });
+    });
+
+    return resultsView(
+      {
+        mode: room.state.mode,
+        winnerSessionId: room.state.winnerSessionId,
+        winnerTeam: room.state.winnerTeam,
+        tick: room.state.tick,
+        matchStartedAtTick: room.state.matchStartedAtTick,
+        players,
+      },
+      room.sessionId,
+    );
   }
 
   private onShutdown(): void {
     this.unbindAll();
     this.registry.remove(STANDINGS_KEY);
-    this.standings = undefined;
+    this.overlay?.destroy();
+    this.overlay = undefined;
+    this.view = undefined;
     this.room = undefined;
   }
 
@@ -61,74 +90,11 @@ export class ResultsScene extends Phaser.Scene {
 
   private render(): void {
     const room = this.room;
-    const standings = this.standings;
-    if (!room || !standings) return;
+    const view = this.view;
+    if (!room || !view || !this.overlay) return;
 
-    this.add.text(640, 48, standings.title, { fontSize: "40px", color: "#ffffff" }).setOrigin(0.5);
-
-    standings.roster.forEach((row, index) => {
-      const car = row.carId ? carLabel(row.carId) : "";
-      const line = car ? `${row.name}  ${car}` : row.name;
-      this.add
-        .text(640, 140 + index * 36, line, { fontSize: "22px", color: "#dddddd" })
-        .setOrigin(0.5);
-    });
-
-    const back = this.add
-      .text(640, 620, "Back to lobby", { fontSize: "28px", color: "#ffffff" })
-      .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true });
-    back.on("pointerup", () => {
-      room.send(MSG_RETURN_TO_LOBBY);
-    });
+    this.overlay.render(
+      renderResults(view, { onBackToLobby: () => room.send(MSG_RETURN_TO_LOBBY) }),
+    );
   }
-}
-
-function captureStandings(state: {
-  winnerSessionId: string;
-  winnerTeam: number;
-  players: {
-    get(sessionId: string): { name: string } | undefined;
-    forEach(callback: (player: { name: string; status: number; carId: string }, sessionId: string) => void): void;
-  };
-}): ResultsStandings {
-  return {
-    title: resultsTitle(state),
-    roster: snapshotRoster(state),
-  };
-}
-
-function resultsTitle(state: {
-  winnerSessionId: string;
-  winnerTeam: number;
-  players: { get(sessionId: string): { name: string } | undefined };
-}): string {
-  if (state.winnerSessionId) {
-    const name = state.players.get(state.winnerSessionId)?.name;
-    return name || state.winnerSessionId;
-  }
-  if (state.winnerTeam === 0) return "Team A";
-  if (state.winnerTeam === 1) return "Team B";
-  return "Draw";
-}
-
-function snapshotRoster(state: {
-  players: {
-    forEach(callback: (player: { name: string; status: number; carId: string }, sessionId: string) => void): void;
-  };
-}): { name: string; carId: string }[] {
-  const roster: { name: string; carId: string }[] = [];
-  state.players.forEach((player, sessionId) => {
-    if (player.status !== PlayerStatus.POST_MATCH && player.status !== PlayerStatus.IN_MATCH) return;
-    roster.push({ name: player.name || sessionId, carId: player.carId });
-  });
-  roster.sort((a, b) => a.name.localeCompare(b.name));
-  return roster;
-}
-
-function carLabel(carId: string): string {
-  if (Object.prototype.hasOwnProperty.call(CAR_TABLE, carId)) {
-    return CAR_TABLE[carId as CarId].name;
-  }
-  return carId;
 }

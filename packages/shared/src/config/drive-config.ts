@@ -23,8 +23,9 @@ export const DRIVE_CONFIG = {
  *
  * `zoom` above 1 pushes the view in. Car art is stored at twice the hull (`scripts/import-art.mjs`
  * `SUPERSAMPLE`), so a zoom of 2 draws every texture at exactly 1:1 — the sharpest the sprites can
- * be; the price is a 640x360 world-unit view at 1280x720. 1.5 keeps a wider view and stays inside
- * the 1–2 range where the textures neither shimmer nor go soft.
+ * be; the price is a 640x360 world-unit view at 1280x720. 1 is the other end of that trade: the
+ * full 1280x720 world-unit view, with the 2x textures drawn at half size. It is the widest setting
+ * inside the 1–2 range — below 1 the textures shimmer.
  *
  * `freeRoamSpeed` is how fast a spectator's free-look camera pans, in world units per **second**, so
  * the pan covers the same ground on a 60 Hz and a 144 Hz display. It is pitched a little above the
@@ -32,6 +33,6 @@ export const DRIVE_CONFIG = {
  */
 export const CAMERA_CONFIG = {
   camLerp: 0.12,
-  zoom: 1.5,
+  zoom: 1,
   freeRoamSpeed: 700,
 } as const;

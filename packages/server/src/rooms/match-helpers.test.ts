@@ -1,18 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { CAR_TABLE } from "@motor-combat-moba/shared";
+import { DEFAULT_CAR_ID } from "@motor-combat-moba/shared";
 import {
+  carAtDeadline,
   copySpawnNumbers,
   livingAfterLeave,
-  pickRandomCarId,
 } from "./match-helpers.js";
-
-describe("pickRandomCarId", () => {
-  it("picks a CAR_TABLE key from Object.keys order using random", () => {
-    const keys = Object.keys(CAR_TABLE);
-    expect(pickRandomCarId(() => 0)).toBe(keys[0]);
-    expect(pickRandomCarId(() => 0.99)).toBe(keys[keys.length - 1]);
-  });
-});
 
 describe("copySpawnNumbers", () => {
   it("copies x,y,angle by value, not by mutating the source", () => {
@@ -35,5 +27,21 @@ describe("livingAfterLeave", () => {
       { sessionId: "b", team: 1, alive: true, inRoster: true },
       { sessionId: "spec", team: 0, alive: true, inRoster: false },
     ]);
+  });
+});
+
+describe("carAtDeadline", () => {
+  it("hands back the previewed car, so choosing without locking in still counts", () => {
+    expect(carAtDeadline("hexagon")).toBe("hexagon");
+    expect(carAtDeadline("oval")).toBe("oval");
+  });
+
+  it("falls back to the chassis car select opens on, never to chance", () => {
+    expect(carAtDeadline(undefined)).toBe(DEFAULT_CAR_ID);
+  });
+
+  it("is deterministic — the same input always yields the same car", () => {
+    const runs = Array.from({ length: 20 }, () => carAtDeadline(undefined));
+    expect(new Set(runs).size).toBe(1);
   });
 });

@@ -110,6 +110,43 @@ export function assertNoDevOnlyCode(clientDistDir) {
   }
 }
 
+/**
+ * The faces `src/ui/organic.css` declares with `@font-face`. Vendored rather than pulled from
+ * fonts.googleapis.com because this zip is played on LANs with no route to the internet, where a
+ * remote font does not fail loudly — it falls back to system-ui and quietly wrecks the type.
+ */
+export const REQUIRED_FONTS = [
+  "caprasimo-v6-latin-regular.woff2",
+  "figtree-v9-latin-regular.woff2",
+  "figtree-v9-latin-600.woff2",
+  "figtree-v9-latin-700.woff2",
+];
+
+/** Throw if a vendored face did not reach the release, or if the CSS reaches for the network again. */
+export function assertFontsVendored(clientDistDir) {
+  const missing = REQUIRED_FONTS.filter(
+    (name) => !fs.existsSync(path.join(clientDistDir, "fonts", name)),
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `fonts missing from the release: ${missing.join(", ")}. They belong in ` +
+        `packages/client/public/fonts/ so Vite copies them to dist/fonts/. Without them the LAN ` +
+        `build falls back to system-ui.`,
+    );
+  }
+
+  for (const file of fs.readdirSync(clientDistDir, { recursive: true, withFileTypes: true })) {
+    if (!file.name.endsWith(".css")) continue;
+    const body = fs.readFileSync(path.join(file.parentPath ?? file.path, file.name), "utf8");
+    if (body.includes("fonts.googleapis.com") || body.includes("fonts.gstatic.com")) {
+      throw new Error(
+        `remote font reference shipped in ${file.name}. organic.css must declare @font-face against ` +
+          `the vendored /fonts/*.woff2, never an @import from Google Fonts.`,
+      );
+    }
+  }
+}
+
 function writeZip(sourceDir, destination) {
   return new Promise((resolve, reject) => {
     const output = fs.createWriteStream(destination);
@@ -126,6 +163,7 @@ export async function main() {
   requireBuiltDist(serverDist, "packages/server/dist");
   requireBuiltDist(clientDist, "packages/client/dist");
   assertNoDevOnlyCode(clientDist);
+  assertFontsVendored(clientDist);
 
   fs.rmSync(distReleaseDir, { recursive: true, force: true });
   fs.mkdirSync(appDir, { recursive: true });
