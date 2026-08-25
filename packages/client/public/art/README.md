@@ -13,7 +13,8 @@ use the importer rather than doing it by hand:
 node scripts/import-art.mjs <image> <carId>
 ```
 
-It trims the transparent margin, scales the long edge to 4x the hull, desaturates for `"tint"`,
+It trims the transparent margin, scales the long edge to 2x the hull (the GPU shrinks cleanly only
+down to about 1:2, so the file is kept close to its drawn size), desaturates for `"tint"`,
 writes `cars/<carId>.png`, and adds or updates the manifest row. Re-run it on the same `carId` to
 replace that car's art; **fields you tuned by hand are preserved**, only `file` is rewritten.
 
