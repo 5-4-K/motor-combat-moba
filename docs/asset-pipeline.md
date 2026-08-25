@@ -23,6 +23,12 @@ is the single constant that names where the client fetches the manifest from
 `build.assetsDir` already claims `assets/` for hashed JS and CSS — putting source art there would
 merge it into the same directory as the bundle output.
 
+`scripts/import-art.mjs` does the mechanical half of that for a source that is not already the
+right shape — trim, downscale, desaturate, and write the manifest row, preserving any fields you
+tuned by hand. See [the art README](../packages/client/public/art/README.md) for its flags. It is
+an authoring convenience, not a required step: a correctly sized PNG dropped in by hand works
+exactly the same, which is the property the manifest indirection exists to protect.
+
 Today `manifest.json` ships with an empty `sprites` object (`{}`), so every car currently renders
 as its procedural silhouette. That is not a placeholder state waiting to be filled in before
 release — see [Resolution chain](#resolution-chain) below.
