@@ -99,13 +99,16 @@ Render knobs only — nothing in `stepSim` reads them.
 | Knob | Value |
 |---|---|
 | `camLerp` | 0.18 (fraction of remaining distance closed per **60 Hz frame**, rescaled to the real frame time by `smoothFollow`) |
-| `zoom` | 1.5 (above 1 = zoomed in; keep within 1–2 so the 2x car textures stay sharp) |
+| `zoom` | 1 (above 1 = zoomed in; keep within 1–2 so the 2x car textures stay sharp) |
 | `freeRoamSpeed` | 1050 (spectator free-look pan, world units per **second**; must exceed the fastest car) |
 
 `camLerp` is per *reference* frame, not per rendered frame. Applied flat per frame it would close the
 gap 2.4x faster at 144 Hz than at 60 Hz, settling into a trailing offset of `speed / (fps × camLerp)`
 — 75 world units of lag at 60 Hz against 31 at 144, so the slower display would see meaningfully less
 road ahead. `smoothFollow` compounds it per elapsed millisecond instead, matching `panFreeCam`.
+
+At `zoom` 1 the visible world is the full 1280x720 units, so the fastest car crosses it in 2.4
+seconds and the camera's trailing offset is 12% of the half-view.
 
 ## FLOW_CONFIG
 

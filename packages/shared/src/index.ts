@@ -2,6 +2,7 @@ export {
   TICK_RATE_HZ,
   MS_PER_TICK,
   MAX_PLAYERS,
+  MAX_TEAM_SIZE,
   DEFAULT_PATCH_RATE_HZ,
   ROOM_NAME,
   RoomPhase,
@@ -19,6 +20,7 @@ export {
   MSG_KICK,
   MSG_START_ERROR,
   MSG_SELECT_CAR,
+  MSG_PREVIEW_CAR,
   MSG_RETURN_TO_LOBBY,
 } from "./net/lobby-messages.js";
 
@@ -69,7 +71,8 @@ export { DEFAULT_ARENA_ID, getArena } from "./arena/registry.js";
 
 export { normalizeName, validateName, isNameTaken } from "./lobby/names.js";
 export type { ValidateNameResult } from "./lobby/names.js";
-export { pickTeam, pickColor } from "./lobby/teams.js";
+export { pickTeam, pickColor, canSwitchTeam } from "./lobby/teams.js";
+export type { SwitchTeamPlayer } from "./lobby/teams.js";
 export { canStart } from "./lobby/start-rules.js";
 export type { StartRuleStatus, StartRulePlayer, CanStartResult } from "./lobby/start-rules.js";
 export { badgeColor, viewFor } from "./lobby/status.js";

@@ -57,3 +57,18 @@ describe("viewFor", () => {
     expect(viewFor(PlayerStatus.IN_MATCH, RoomPhase.MATCH)).toBe("match");
   });
 });
+
+describe("viewFor — reveal", () => {
+  it("routes an in-match player to the reveal screen during REVEAL", () => {
+    expect(viewFor("in_match", RoomPhase.REVEAL)).toBe("reveal");
+    expect(viewFor(PlayerStatus.IN_MATCH, RoomPhase.REVEAL)).toBe("reveal");
+  });
+
+  it("keeps a lobby-bound player in the lobby while others reveal", () => {
+    expect(viewFor("ready", RoomPhase.REVEAL)).toBe("lobby");
+  });
+
+  it("still sends the countdown to the arena, so 3-2-1 plays on the field", () => {
+    expect(viewFor("in_match", RoomPhase.COUNTDOWN)).toBe("match");
+  });
+});

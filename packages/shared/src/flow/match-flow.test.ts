@@ -288,3 +288,41 @@ describe("reduceFlow second start", () => {
     expect(next.postMatchIds).toEqual(["b"]);
   });
 });
+
+describe("begin_reveal", () => {
+  const inCarSelect = (): FlowState => ({
+    phase: "car_select",
+    mode: "ffa",
+    tick: 0,
+    carSelectDeadlineTick: 0,
+    revealEndsTick: 0,
+    countdownEndsTick: 0,
+    roster: ["p1"],
+    postMatchIds: [],
+    winnerSessionId: "",
+    winnerTeam: -1,
+    players: [
+      { sessionId: "p1", team: 0, status: "in_match", carId: "", selectLocked: false, alive: true },
+    ],
+  });
+
+  it("enters the reveal phase and stamps its deadline", () => {
+    const next = reduceFlow(inCarSelect(), { type: "begin_reveal", nowTick: 100, revealTicks: 300 });
+    expect(next.phase).toBe("reveal");
+    expect(next.revealEndsTick).toBe(400);
+  });
+
+  it("leaves the countdown deadline alone — that is stamped when the countdown begins", () => {
+    const next = reduceFlow(inCarSelect(), { type: "begin_reveal", nowTick: 100, revealTicks: 300 });
+    expect(next.countdownEndsTick).toBe(0);
+  });
+
+  it("hands off to the countdown, which keeps the revealed cars", () => {
+    const revealed = reduceFlow(inCarSelect(), { type: "reveal", cars: { p1: "oval" } });
+    const shown = reduceFlow(revealed, { type: "begin_reveal", nowTick: 0, revealTicks: 300 });
+    const counting = reduceFlow(shown, { type: "begin_countdown", nowTick: 300, countdownTicks: 90 });
+    expect(counting.phase).toBe("countdown");
+    expect(counting.countdownEndsTick).toBe(390);
+    expect(counting.players[0]?.carId).toBe("oval");
+  });
+});

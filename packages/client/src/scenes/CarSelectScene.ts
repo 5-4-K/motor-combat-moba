@@ -1,27 +1,34 @@
 import Phaser from "phaser";
 import type { Room } from "colyseus.js";
-import type { CarId } from "@motor-combat-moba/shared";
 import {
   ArenaState,
-  CAR_TABLE,
+  DEFAULT_CAR_ID,
+  MSG_PREVIEW_CAR,
   MSG_SELECT_CAR,
-  PlayerStatus,
-  TICK_RATE_HZ,
+  type CarId,
 } from "@motor-combat-moba/shared";
 import { bindViewRouter } from "../net/view.js";
+import { carSelectView } from "../ui/car-select-view.js";
+import { ScreenOverlay } from "../ui/overlay.js";
+import { renderCarSelect } from "../ui/screens/car-select.js";
 
-const CARD_DEFS = Object.values(CAR_TABLE);
-const CARD_Y = 300;
-const CARD_XS = [280, 640, 1000];
-const CARD_W = 300;
-const CARD_H = 280;
-
+/**
+ * Car select. Picking a card is not a commitment — it sends `MSG_PREVIEW_CAR`, which records the
+ * choice without locking it; "Lock in" sends `MSG_SELECT_CAR` and closes it. The split exists so the
+ * deadline can be kind: whoever the clock catches keeps the car they were sitting on, chosen or
+ * defaulted. Nothing about it is a gamble.
+ *
+ * The screen opens on `DEFAULT_CAR_ID`, and the server's deadline fallback is that same constant, so
+ * a player who never touches the screen is handed exactly the car it had selected for them all
+ * along. Nothing about the pick is random, which is why the screen carries no warning about running
+ * out of time — there is no penalty to warn about.
+ */
 export class CarSelectScene extends Phaser.Scene {
   private room: Room<ArenaState> | undefined;
-  private ui: Phaser.GameObjects.GameObject[] = [];
-  private timerText: Phaser.GameObjects.Text | undefined;
-  private lastSignature = "";
-  private pickSent = false;
+  private overlay: ScreenOverlay | undefined;
+  private selected: CarId = DEFAULT_CAR_ID;
+  private locked = false;
+  private lastSecond = -1;
   private unbind: Array<() => void> = [];
 
   constructor() {
@@ -29,12 +36,10 @@ export class CarSelectScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.clearUi();
-    this.lastSignature = "";
-    this.pickSent = false;
     this.unbindAll();
-    this.timerText?.destroy();
-    this.timerText = undefined;
+    this.selected = DEFAULT_CAR_ID;
+    this.lastSecond = -1;
+    this.overlay = new ScreenOverlay(this);
     this.room = this.registry.get("room") as Room<ArenaState> | undefined;
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.onShutdown, this);
 
@@ -43,29 +48,17 @@ export class CarSelectScene extends Phaser.Scene {
       return;
     }
 
-    const local = this.room.state.players.get(this.room.sessionId);
-    this.pickSent = Boolean(local?.selectLocked);
-
-    this.timerText = this.add
-      .text(640, 72, "", { fontSize: "28px", color: "#ffffff" })
-      .setOrigin(0.5);
-
+    this.locked = Boolean(this.room.state.players.get(this.room.sessionId)?.selectLocked);
     this.bindRoom(this.room);
     this.render();
-    this.syncTimer();
-  }
-
-  update(): void {
-    this.syncTimer();
   }
 
   private onShutdown(): void {
     this.unbindAll();
-    this.clearUi();
-    this.timerText?.destroy();
-    this.timerText = undefined;
-    this.lastSignature = "";
-    this.pickSent = false;
+    this.overlay?.destroy();
+    this.overlay = undefined;
+    this.locked = false;
+    this.lastSecond = -1;
     this.room = undefined;
   }
 
@@ -73,7 +66,9 @@ export class CarSelectScene extends Phaser.Scene {
     this.unbind.push(bindViewRouter(this, room));
 
     const onState = (): void => {
-      this.renderIfChanged();
+      const wasLocked = this.locked;
+      this.locked = Boolean(room.state.players.get(room.sessionId)?.selectLocked);
+      this.render(wasLocked !== this.locked);
     };
     room.onStateChange(onState);
     this.unbind.push(() => room.onStateChange.remove(onState));
@@ -91,119 +86,43 @@ export class CarSelectScene extends Phaser.Scene {
     this.unbind = [];
   }
 
-  private clearUi(): void {
-    for (const obj of this.ui) obj.destroy();
-    this.ui = [];
+  private pick(carId: CarId): void {
+    if (this.locked || carId === this.selected) return;
+    this.selected = carId;
+    // Tell the server immediately, without locking. If the deadline arrives before this player
+    // presses Lock in, they still get this car — which only works if the server was told, so the
+    // preview goes out on the pick rather than waiting for the commit.
+    this.room?.send(MSG_PREVIEW_CAR, { carId });
+    this.render(true);
   }
 
-  private syncTimer(): void {
+  private lockIn(): void {
+    if (this.locked || !this.room) return;
+    this.room.send(MSG_SELECT_CAR, { carId: this.selected });
+  }
+
+  /** Redraws on a changed second, or when `force` marks a selection or lock the clock cannot see. */
+  private render(force = true): void {
     const room = this.room;
-    const timer = this.timerText;
-    if (!room || !timer) return;
-    timer.setText(String(remainingSeconds(room.state.carSelectDeadlineTick, room.state.tick)));
-  }
+    if (!room || !this.overlay) return;
 
-  private renderIfChanged(): void {
-    const room = this.room;
-    if (!room) return;
-    const signature = carSelectRenderSignature(room.state);
-    if (signature === this.lastSignature) return;
-    this.render();
-  }
-
-  private render(): void {
-    const room = this.room;
-    if (!room) return;
-
-    this.lastSignature = carSelectRenderSignature(room.state);
-    this.clearUi();
-
-    const local = room.state.players.get(room.sessionId);
-    const locked = this.pickSent || Boolean(local?.selectLocked);
-
-    this.addUi(this.add.text(640, 28, "Choose your car", { fontSize: "32px", color: "#ffffff" }).setOrigin(0.5));
-
-    CARD_DEFS.forEach((def, index) => {
-      const x = CARD_XS[index] ?? 640;
-      const fill = locked ? 0x333333 : 0x2a4a6a;
-      const card = this.add.rectangle(x, CARD_Y, CARD_W, CARD_H, fill).setStrokeStyle(2, 0xffffff);
-      this.addUi(card);
-      if (!locked) {
-        card.setInteractive({ useHandCursor: true });
-        card.on("pointerup", () => this.onPick(def.id));
-      }
-      this.addUi(
-        this.add.text(x, CARD_Y - 90, def.name, { fontSize: "26px", color: "#ffffff" }).setOrigin(0.5),
-      );
-      this.addUi(
-        this.add
-          .text(x, CARD_Y - 20, `Speed ${def.speed}`, { fontSize: "20px", color: "#dddddd" })
-          .setOrigin(0.5),
-      );
-      this.addUi(
-        this.add
-          .text(x, CARD_Y + 16, `Strength ${def.strength}`, { fontSize: "20px", color: "#dddddd" })
-          .setOrigin(0.5),
-      );
-      this.addUi(
-        this.add.text(x, CARD_Y + 52, `HP ${def.hp}`, { fontSize: "20px", color: "#dddddd" }).setOrigin(0.5),
-      );
-    });
-
-    let row = 0;
-    room.state.players.forEach((player, sessionId) => {
-      if (sessionId === room.sessionId) return;
-      if (player.status !== PlayerStatus.IN_MATCH) return;
-      const label = player.carId !== "" ? carLabel(player.carId) : "choosing…";
-      this.addUi(
-        this.add
-          .text(640, 500 + row * 28, `${player.name || sessionId}  ${label}`, {
-            fontSize: "18px",
-            color: "#bbbbbb",
-          })
-          .setOrigin(0.5),
-      );
-      row += 1;
-    });
-  }
-
-  private onPick(carId: CarId): void {
-    const room = this.room;
-    if (!room || this.pickSent) return;
-    const local = room.state.players.get(room.sessionId);
-    if (local?.selectLocked) return;
-    this.pickSent = true;
-    room.send(MSG_SELECT_CAR, { carId });
-    this.render();
-  }
-
-  private addUi(obj: Phaser.GameObjects.GameObject): void {
-    this.ui.push(obj);
-  }
-}
-
-function remainingSeconds(deadlineTick: number, tick: number): number {
-  return Math.max(0, Math.ceil((deadlineTick - tick) / TICK_RATE_HZ));
-}
-
-function carLabel(carId: string): string {
-  if (Object.prototype.hasOwnProperty.call(CAR_TABLE, carId)) {
-    return CAR_TABLE[carId as CarId].name;
-  }
-  return carId;
-}
-
-function carSelectRenderSignature(state: {
-  players: {
-    forEach(callback: (player: { name: string; status: number; carId: string; selectLocked: boolean }, sessionId: string) => void): void;
-  };
-}): string {
-  const rows: string[] = [];
-  state.players.forEach((player, sessionId) => {
-    rows.push(
-      `${sessionId}:${player.name}:${player.status}:${player.carId}:${player.selectLocked ? 1 : 0}`,
+    const view = carSelectView(
+      {
+        mode: room.state.mode,
+        tick: room.state.tick,
+        carSelectDeadlineTick: room.state.carSelectDeadlineTick,
+      },
+      this.selected,
+      this.locked,
     );
-  });
-  rows.sort();
-  return rows.join(";");
+
+    if (!force && view.secondsLeft === this.lastSecond) return;
+    this.lastSecond = view.secondsLeft;
+    this.overlay.render(
+      renderCarSelect(view, {
+        onPick: (carId) => this.pick(carId),
+        onLockIn: () => this.lockIn(),
+      }),
+    );
+  }
 }

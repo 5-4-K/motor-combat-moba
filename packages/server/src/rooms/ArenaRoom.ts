@@ -17,12 +17,14 @@ import {
   MSG_KICK,
   MSG_START_ERROR,
   MSG_SELECT_CAR,
+  MSG_PREVIEW_CAR,
   MSG_RETURN_TO_LOBBY,
   validateName,
   isNameTaken,
   pickColor,
   pickTeam,
   canStart,
+  canSwitchTeam,
   reduceFlow,
   assignSpawns,
   livingSides,
@@ -36,7 +38,12 @@ import {
   type InputMessage,
   type StartRulePlayer,
 } from "@motor-combat-moba/shared";
-import { getTickRateHz, getSimulatedLatency, getCarSelectSeconds } from "../mode.js";
+import {
+  getTickRateHz,
+  getSimulatedLatency,
+  getCarSelectSeconds,
+  getRevealSeconds,
+} from "../mode.js";
 import { isInputMessage } from "../net/input-message.js";
 import { withSimulatedLatency } from "../net/latency-injector.js";
 import { serverTick } from "../sim/tick.js";
@@ -57,9 +64,9 @@ import {
   toFlowStatus,
 } from "./flow-map.js";
 import {
+  carAtDeadline,
   copySpawnNumbers,
   livingAfterLeave,
-  pickRandomCarId,
 } from "./match-helpers.js";
 import { selectNextHost } from "./select-next-host.js";
 import { ROOM_FULL_ERROR, shouldRejectSecondArena } from "./singleton-arena.js";
@@ -104,7 +111,12 @@ export class ArenaRoom extends Room<ArenaState> {
 
     this.onMessage(MSG_SWITCH_TEAM, (client) => {
       const player = this.state.players.get(client.sessionId);
-      if (!player || player.status !== PlayerStatus.READY) return;
+      if (!player) return;
+      const teams: number[] = [];
+      this.state.players.forEach((p) => teams.push(p.team));
+      // Same predicate the lobby uses to grey the button out; the client cannot be trusted to have
+      // run it, so the cap is decided here.
+      if (!canSwitchTeam({ status: toFlowStatus(player.status), team: player.team }, teams)) return;
       player.team = player.team === 0 ? 1 : 0;
     });
 
@@ -159,7 +171,19 @@ export class ArenaRoom extends Room<ArenaState> {
       if (!player || player.selectLocked) return;
       this.pendingCarId.set(client.sessionId, msg.carId);
       this.reduce({ type: "lock_car", sessionId: client.sessionId });
-      if (this.allRosterLocked()) this.revealAndCountdown();
+      if (this.allRosterLocked()) this.revealCars();
+    });
+
+    // A preview, not a commitment: it records what the player is sitting on so the deadline can hand
+    // them that exact car. Same guards as MSG_SELECT_CAR minus the lock, and it
+    // deliberately refuses once locked so a stray click cannot rewrite a committed pick.
+    this.onMessage(MSG_PREVIEW_CAR, (client, msg: unknown) => {
+      if (this.state.phase !== RoomPhase.CAR_SELECT) return;
+      if (!isSelectCarPayload(msg)) return;
+      if (!this.matchRoster.has(client.sessionId)) return;
+      const player = this.state.players.get(client.sessionId);
+      if (!player || player.selectLocked) return;
+      this.pendingCarId.set(client.sessionId, msg.carId);
     });
 
     this.onMessage(MSG_RETURN_TO_LOBBY, (client) => {
@@ -251,10 +275,20 @@ export class ArenaRoom extends Room<ArenaState> {
       for (const id of this.matchRoster) {
         const player = this.state.players.get(id);
         if (!player || player.selectLocked) continue;
-        this.pendingCarId.set(id, pickRandomCarId(Math.random));
+        this.pendingCarId.set(id, carAtDeadline(this.pendingCarId.get(id)));
         this.reduce({ type: "lock_car", sessionId: id });
       }
-      this.revealAndCountdown();
+      this.revealCars();
+    } else if (
+      this.state.phase === RoomPhase.REVEAL &&
+      this.state.tick >= this.state.revealEndsTick
+    ) {
+      // The grid has held its dwell; hand over to the 3-2-1 on the field.
+      this.reduce({
+        type: "begin_countdown",
+        nowTick: this.state.tick,
+        countdownTicks: FLOW_CONFIG.countdownSeconds * TICK_RATE_HZ,
+      });
     } else if (
       this.state.phase === RoomPhase.COUNTDOWN &&
       this.state.tick >= this.state.countdownEndsTick
@@ -337,6 +371,7 @@ export class ArenaRoom extends Room<ArenaState> {
       mode: toFlowMode(this.state.mode),
       tick: this.state.tick,
       carSelectDeadlineTick: this.state.carSelectDeadlineTick,
+      revealEndsTick: this.state.revealEndsTick,
       countdownEndsTick: this.state.countdownEndsTick,
       roster: [...this.matchRoster],
       postMatchIds: [...this.postMatchIds],
@@ -347,9 +382,16 @@ export class ArenaRoom extends Room<ArenaState> {
   }
 
   private applyFlow(next: FlowState): void {
+    const previousPhase = this.state.phase;
     this.flow = next;
     this.state.phase = fromFlowPhase(next.phase);
+    // Stamp the match clock on the edge into MATCH, not on every tick inside it, so the results
+    // duration counts from the green light rather than resetting under its own feet.
+    if (this.state.phase === RoomPhase.MATCH && previousPhase !== RoomPhase.MATCH) {
+      this.state.matchStartedAtTick = this.state.tick;
+    }
     this.state.carSelectDeadlineTick = next.carSelectDeadlineTick;
+    this.state.revealEndsTick = next.revealEndsTick;
     this.state.countdownEndsTick = next.countdownEndsTick;
     this.state.winnerSessionId = next.winnerSessionId;
     this.state.winnerTeam = next.winnerTeam;
@@ -382,16 +424,17 @@ export class ArenaRoom extends Room<ArenaState> {
     return true;
   }
 
-  private revealAndCountdown(): void {
+  /** Assigns cars, places everyone, and opens the reveal grid. The countdown follows on its deadline. */
+  private revealCars(): void {
     const cars: Record<string, string> = {};
     for (const [sessionId, carId] of this.pendingCarId) {
       cars[sessionId] = carId;
     }
     let next = reduceFlow(this.buildFlow(), { type: "reveal", cars });
     next = reduceFlow(next, {
-      type: "begin_countdown",
+      type: "begin_reveal",
       nowTick: this.state.tick,
-      countdownTicks: FLOW_CONFIG.countdownSeconds * TICK_RATE_HZ,
+      revealTicks: getRevealSeconds(FLOW_CONFIG.revealSeconds) * TICK_RATE_HZ,
     });
     this.applyFlow(next);
 
