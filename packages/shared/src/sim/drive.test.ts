@@ -45,15 +45,28 @@ describe("stepDrive", () => {
     expect(out.speed).toBeGreaterThanOrEqual(0);
   });
 
-  it("from rest, holding Down for reverseHoldTicks then more goes negative, clamped to half forward max", () => {
+  it("from rest, holding Down for reverseHoldTicks then more goes negative, clamped to the reverse max", () => {
     const atThreshold = drive(rest(), input(0, -1), DRIVE_CONFIG.reverseHoldTicks);
     expect(atThreshold.speed).toBeLessThan(0);
 
     const held = drive(atThreshold, input(0, -1), 500);
     expect(held.speed).toBeLessThan(0);
     expect(Math.abs(held.speed)).toBeLessThanOrEqual(reverseMaxSpeedOf(CAR_ID));
-    expect(reverseMaxSpeedOf(CAR_ID)).toBe(forwardMaxSpeedOf(CAR_ID) / 2);
+    expect(reverseMaxSpeedOf(CAR_ID)).toBeCloseTo(
+      forwardMaxSpeedOf(CAR_ID) * DRIVE_CONFIG.reverseSpeedRatio,
+      9,
+    );
     expect(held.reverseHold).toBe(DRIVE_CONFIG.reverseHoldTicks);
+  });
+
+  it("accelerates backward at reverseAccel, not the forward accel", () => {
+    // Reverse gets its own rate so backing out of a fight is not gated by the forward curve.
+    const down = input(0, -1);
+    const engaged = drive(rest(), down, DRIVE_CONFIG.reverseHoldTicks);
+    expect(engaged.speed).toBeLessThan(0);
+
+    const next = stepDrive(engaged, down, DT, CAR_ID);
+    expect(engaged.speed - next.speed).toBeCloseTo(DRIVE_CONFIG.reverseAccel * DT, 6);
   });
 
   it("brakes through zero into reverse without overshoot, only reverses past the hold threshold, and pins at the cap", () => {
@@ -153,9 +166,37 @@ describe("stepDrive", () => {
     expect(out.speed).toBeLessThanOrEqual(0);
   });
 
-  it("coasting from a sub-epsilon speed settles to exact rest in one tick", () => {
-    const barelyMoving: SimBody = { x: 0, y: 0, angle: 0, speed: 0.0005, reverseHold: 0 };
+  it("coasting from a sub-stopEpsilon speed settles to exact rest in one tick", () => {
+    const barelyMoving: SimBody = {
+      x: 0,
+      y: 0,
+      angle: 0,
+      speed: DRIVE_CONFIG.stopEpsilon / 2,
+      reverseHold: 0,
+    };
     const out = stepDrive(barelyMoving, input(0, 0), DT, CAR_ID);
     expect(out.speed).toBe(0);
+  });
+
+  it("steers at turnRateAtStop below stopEpsilon and at turnRate above it", () => {
+    // stopEpsilon is the band that decides which steering rate applies, so it is sim logic and
+    // belongs in config rather than as a literal in drive.ts.
+    const crawling: SimBody = {
+      x: 0,
+      y: 0,
+      angle: 0,
+      speed: DRIVE_CONFIG.stopEpsilon / 2,
+      reverseHold: 0,
+    };
+    const rolling: SimBody = { ...crawling, speed: DRIVE_CONFIG.stopEpsilon * 2 };
+
+    expect(stepDrive(crawling, input(1, 0), DT, CAR_ID).angle).toBeCloseTo(
+      DRIVE_CONFIG.turnRateAtStop * DT,
+      9,
+    );
+    expect(stepDrive(rolling, input(1, 0), DT, CAR_ID).angle).toBeCloseTo(
+      DRIVE_CONFIG.turnRate * DT,
+      9,
+    );
   });
 });

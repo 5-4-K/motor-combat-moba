@@ -4,13 +4,9 @@ import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { InputMessage } from "../net/input.js";
 import type { SimBody } from "./step.js";
 
-/** Below this |speed|, the car is treated as stopped for steering/braking purposes. */
-const MOVING_SPEED_EPSILON = 1e-3;
-
 /** Arcade drive: steering, throttle/brake/reverse, and world translation for one tick. Pure. */
 export function stepDrive(body: SimBody, input: InputMessage, dt: number, carId: CarId): SimBody {
-  const turnRate =
-    Math.abs(body.speed) > MOVING_SPEED_EPSILON ? DRIVE_CONFIG.turnRate : DRIVE_CONFIG.turnRateAtStop;
+  const turnRate = isMoving(body.speed) ? DRIVE_CONFIG.turnRate : DRIVE_CONFIG.turnRateAtStop;
   const angle = body.angle + input.steer * turnRate * dt;
 
   const { speed, reverseHold } = nextSpeed(body.speed, body.reverseHold, input.throttle, dt, carId);
@@ -23,6 +19,11 @@ export function stepDrive(body: SimBody, input: InputMessage, dt: number, carId:
   const y = body.y + Math.sin(angle) * speed * dt;
 
   return { x, y, angle, speed, reverseHold };
+}
+
+/** Outside the `stopEpsilon` band the car counts as rolling, in whichever direction. */
+function isMoving(speed: number): boolean {
+  return Math.abs(speed) > DRIVE_CONFIG.stopEpsilon;
 }
 
 function nextSpeed(
@@ -43,16 +44,17 @@ function nextSpeed(
 
 /** Up: brake toward 0 while rolling backward, otherwise accelerate forward, clamped to the car's forward max. */
 function accelerateForward(speed: number, dt: number, carId: CarId): number {
-  if (speed < -MOVING_SPEED_EPSILON) {
+  if (speed < -DRIVE_CONFIG.stopEpsilon) {
     return Math.min(0, speed + DRIVE_CONFIG.brakeDecel * dt);
   }
   return Math.min(forwardMaxSpeedOf(carId), speed + DRIVE_CONFIG.accel * dt);
 }
 
 /**
- * Down: brake toward 0 while rolling forward. Once already reversing, keep accelerating backward
- * without re-arming the hold delay. Only at rest does reverseHold accumulate toward
- * reverseHoldTicks before reverse engages, clamped to the car's reverse max.
+ * Down: brake toward 0 at `brakeDecel` while rolling forward. Once already reversing, keep
+ * accelerating backward at `reverseAccel` without re-arming the hold delay. Only at rest does
+ * reverseHold accumulate toward reverseHoldTicks before reverse engages, clamped to the car's
+ * reverse max.
  */
 function brakeOrReverse(
   speed: number,
@@ -60,16 +62,13 @@ function brakeOrReverse(
   dt: number,
   carId: CarId,
 ): { speed: number; reverseHold: number } {
-  if (speed > MOVING_SPEED_EPSILON) {
+  if (speed > DRIVE_CONFIG.stopEpsilon) {
     // Still rolling forward — brake toward 0 first.
     return { speed: Math.max(0, speed - DRIVE_CONFIG.brakeDecel * dt), reverseHold: 0 };
   }
-  if (speed < -MOVING_SPEED_EPSILON) {
+  if (speed < -DRIVE_CONFIG.stopEpsilon) {
     // Already reversing — keep accelerating; do not re-arm the hold delay.
-    return {
-      speed: Math.max(-reverseMaxSpeedOf(carId), speed - DRIVE_CONFIG.accel * dt),
-      reverseHold: DRIVE_CONFIG.reverseHoldTicks,
-    };
+    return { speed: reverseFurther(speed, dt, carId), reverseHold: DRIVE_CONFIG.reverseHoldTicks };
   }
   // At rest: accumulate toward the reverse threshold. Clamped so the uint16-networked field
   // stays idempotent at the threshold instead of growing unbounded (and eventually truncating
@@ -78,15 +77,17 @@ function brakeOrReverse(
   if (heldTicks < DRIVE_CONFIG.reverseHoldTicks) {
     return { speed, reverseHold: heldTicks };
   }
-  return {
-    speed: Math.max(-reverseMaxSpeedOf(carId), speed - DRIVE_CONFIG.accel * dt),
-    reverseHold: heldTicks,
-  };
+  return { speed: reverseFurther(speed, dt, carId), reverseHold: heldTicks };
+}
+
+/** One tick of backward acceleration, pinned at the car's reverse cap. */
+function reverseFurther(speed: number, dt: number, carId: CarId): number {
+  return Math.max(-reverseMaxSpeedOf(carId), speed - DRIVE_CONFIG.reverseAccel * dt);
 }
 
 /** No throttle: drag pulls speed toward 0 from either direction. */
 function coast(speed: number, dt: number): number {
-  if (speed > MOVING_SPEED_EPSILON) return Math.max(0, speed - DRIVE_CONFIG.drag * dt);
-  if (speed < -MOVING_SPEED_EPSILON) return Math.min(0, speed + DRIVE_CONFIG.drag * dt);
+  if (speed > DRIVE_CONFIG.stopEpsilon) return Math.max(0, speed - DRIVE_CONFIG.drag * dt);
+  if (speed < -DRIVE_CONFIG.stopEpsilon) return Math.min(0, speed + DRIVE_CONFIG.drag * dt);
   return 0; // inside the band: snap to true rest
 }

@@ -77,3 +77,31 @@ export function panFreeCam(
   const step = (speed * deltaMs) / 1000;
   return { x: focus.x + axisX * step, y: focus.y + axisY * step };
 }
+
+/** The frame time `CAMERA_CONFIG.camLerp` is expressed against, so 60 Hz behaviour is unchanged. */
+const REFERENCE_FRAME_MS = 1000 / 60;
+
+/**
+ * Soft-follow the camera focus toward a target for one frame.
+ *
+ * `camLerp` is a fraction of the remaining gap per *reference* frame, rescaled here by the real
+ * frame time. Applying it as a flat per-frame constant — which is what this replaces — closes the
+ * gap 2.4x faster on a 144 Hz display than a 60 Hz one, and while following a car at constant speed
+ * that settles into a trailing offset of `speed / (fps * camLerp)`. At 540 units/second that is 75
+ * world units of lag at 60 Hz against 31 at 144: the same car, framed differently, with the slower
+ * display seeing ~44 fewer units of road ahead. Compounding per elapsed time instead makes the decay
+ * depend only on how long a frame took, not how the second was sliced up. Same reasoning as
+ * `panFreeCam`, which has always been time-based.
+ */
+export function smoothFollow(
+  focus: { x: number; y: number },
+  target: { x: number; y: number },
+  camLerp: number,
+  deltaMs: number,
+): { x: number; y: number } {
+  const alpha = 1 - Math.pow(1 - camLerp, deltaMs / REFERENCE_FRAME_MS);
+  return {
+    x: focus.x + (target.x - focus.x) * alpha,
+    y: focus.y + (target.y - focus.y) * alpha,
+  };
+}

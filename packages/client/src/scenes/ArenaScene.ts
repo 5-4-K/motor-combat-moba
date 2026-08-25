@@ -27,6 +27,7 @@ import {
   isSpectating,
   panFreeCam,
   resolveSpectateTarget,
+  smoothFollow,
   spectatableIds,
   type SpectateCandidate,
 } from "./spectate.js";
@@ -330,7 +331,7 @@ export class ArenaScene extends Phaser.Scene {
     this.syncMatchHud();
     this.pumpInput(room, delta);
     this.updateSpectate(room, delta);
-    this.renderCars(room);
+    this.renderCars(room, delta);
     this.renderShots(room);
   }
 
@@ -415,7 +416,7 @@ export class ArenaScene extends Phaser.Scene {
 
   // --- rendering ---------------------------------------------------------------------------
 
-  private renderCars(room: Room<ArenaState>): void {
+  private renderCars(room: Room<ArenaState>, delta: number): void {
     const seen = new Set<string>();
     const hp = this.hpGfx;
     hp?.clear();
@@ -437,7 +438,7 @@ export class ArenaScene extends Phaser.Scene {
 
       this.syncCar(sessionId, player, pose);
       if (hp && player.alive) this.drawHpBar(hp, player, pose);
-      if (sessionId === this.cameraTarget(room)) this.followCamera(pose);
+      if (sessionId === this.cameraTarget(room)) this.followCamera(pose, delta);
     });
 
     for (const [sessionId, gfx] of this.cars) {
@@ -705,13 +706,16 @@ export class ArenaScene extends Phaser.Scene {
    * Soft follow. `centerOn` each frame with the focus eased by `CAMERA_CONFIG.camLerp` keeps a
    * reconciliation snap from throwing the whole view; the first frame seeds the focus outright so
    * the match does not open with the camera flying in from the arena origin.
+   *
+   * `smoothFollow` rather than `Phaser.Math.Linear` so the easing is per elapsed millisecond rather
+   * than per frame — see its docstring for why a flat per-frame fraction frames the same car
+   * differently on a 60 Hz and a 144 Hz display.
    */
-  private followCamera(pose: SimBody): void {
+  private followCamera(pose: SimBody, delta: number): void {
     if (!this.camFocus) {
       this.camFocus = { x: pose.x, y: pose.y };
     } else {
-      this.camFocus.x = Phaser.Math.Linear(this.camFocus.x, pose.x, CAMERA_CONFIG.camLerp);
-      this.camFocus.y = Phaser.Math.Linear(this.camFocus.y, pose.y, CAMERA_CONFIG.camLerp);
+      this.camFocus = smoothFollow(this.camFocus, pose, CAMERA_CONFIG.camLerp, delta);
     }
     this.cameras.main.centerOn(this.camFocus.x, this.camFocus.y);
   }

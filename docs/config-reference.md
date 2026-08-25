@@ -59,18 +59,38 @@ Derived: `hpOf` = hp × `COMBAT_CONFIG.hpPerRating` (50 / 30 / 80). `forwardMaxS
 
 | Knob | Value |
 |---|---|
-| `baseMaxSpeed` | 120 |
-| `speedPerRating` | 30 |
-| `accel` | 520 |
-| `brakeDecel` | 780 |
-| `drag` | 140 |
-| `turnRate` | 2.8 |
-| `turnRateAtStop` | 1.4 |
-| `reverseSpeedRatio` | 0.5 |
-| `reverseHoldTicks` | 6 |
+| `baseMaxSpeed` | 180 |
+| `speedPerRating` | 45 |
+| `accel` | 780 |
+| `brakeDecel` | 1600 (must stay above `drag`) |
+| `drag` | 900 (throttle released) |
+| `turnRate` | 4.2 |
+| `turnRateAtStop` | 2.1 |
+| `reverseSpeedRatio` | 0.65 |
+| `reverseAccel` | 1100 (reverse has its own rate; does not borrow `accel`) |
+| `reverseHoldTicks` | 2 (66ms at `TICK_RATE_HZ` 30) |
+| `stopEpsilon` | 1e-3 (below this \|speed\| the car counts as stopped) |
 | `carWidth` | 48 |
 | `carHeight` | 32 |
 | `restitution` | 0.35 |
+
+Resulting top speeds, `baseMaxSpeed + speed rating × speedPerRating`:
+
+| Car | Forward | Reverse |
+|---|---|---|
+| rectangle (8) | 540 | 351 |
+| oval (5) | 405 | 263 |
+| hexagon (3) | 315 | 205 |
+
+Quoted for the fastest chassis: 0.69s to top speed, 0.60s to coast to rest, 0.34s to brake to rest,
+0.32s to reach the reverse cap, 129 world units of turn radius.
+
+**These knobs are coupled.** Turn radius is `speed / turnRate` and time-to-top-speed is
+`maxSpeed / accel`, so raising the two speed knobs without raising `turnRate` and `accel` makes a
+faster car feel *less* agile. `brakeDecel` must exceed `drag` or the brake button is pointless, and
+`CAMERA_CONFIG.freeRoamSpeed` must exceed the fastest car — both are asserted in `config.test.ts`.
+`baseMaxSpeed` and `speedPerRating` scale together on purpose: their ratio decides how much the
+per-car `speed` rating matters, so moving only one re-balances the roster.
 
 ## CAMERA_CONFIG
 
@@ -78,9 +98,14 @@ Render knobs only — nothing in `stepSim` reads them.
 
 | Knob | Value |
 |---|---|
-| `camLerp` | 0.12 (fraction of remaining distance closed per **frame**) |
+| `camLerp` | 0.18 (fraction of remaining distance closed per **60 Hz frame**, rescaled to the real frame time by `smoothFollow`) |
 | `zoom` | 1.5 (above 1 = zoomed in; keep within 1–2 so the 2x car textures stay sharp) |
-| `freeRoamSpeed` | 700 (spectator free-look pan, world units per **second**) |
+| `freeRoamSpeed` | 1050 (spectator free-look pan, world units per **second**; must exceed the fastest car) |
+
+`camLerp` is per *reference* frame, not per rendered frame. Applied flat per frame it would close the
+gap 2.4x faster at 144 Hz than at 60 Hz, settling into a trailing offset of `speed / (fps × camLerp)`
+— 75 world units of lag at 60 Hz against 31 at 144, so the slower display would see meaningfully less
+road ahead. `smoothFollow` compounds it per elapsed millisecond instead, matching `panFreeCam`.
 
 ## FLOW_CONFIG
 

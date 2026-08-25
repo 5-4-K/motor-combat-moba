@@ -71,8 +71,20 @@ describe("weapon / combat / drive / flow knobs exist", () => {
     expect(COMBAT_CONFIG.collisionDamageCooldownTicks).toBe(15);
     expect(COMBAT_CONFIG.hpPerRating).toBe(10);
   });
-  it("reverse is half of forward", () => {
-    expect(DRIVE_CONFIG.reverseSpeedRatio).toBe(0.5);
+  it("reverse is slower than forward, but not a crawl", () => {
+    expect(DRIVE_CONFIG.reverseSpeedRatio).toBe(0.65);
+    expect(DRIVE_CONFIG.reverseSpeedRatio).toBeLessThan(1);
+  });
+
+  it("brakes harder than it coasts, or the brake button would mean nothing", () => {
+    // Ranged, not pinned: the ordering is what matters. A drag above brakeDecel would make holding
+    // Down *slower* to stop than releasing the throttle entirely.
+    expect(DRIVE_CONFIG.brakeDecel).toBeGreaterThan(DRIVE_CONFIG.drag);
+  });
+
+  it("gives reverse its own acceleration rate", () => {
+    expect(DRIVE_CONFIG.reverseAccel).toBe(1100);
+    expect(DRIVE_CONFIG.stopEpsilon).toBeGreaterThan(0);
   });
   it("flow timers", () => {
     expect(FLOW_CONFIG.carSelectSeconds).toBe(60);
@@ -83,7 +95,7 @@ describe("weapon / combat / drive / flow knobs exist", () => {
     // reaches the car or overshoots it every frame. Zoom 2 would draw the 2x car textures at 1:1;
     // 1.5 trades a little sprite sharpness for field of view. Below 1 the textures shimmer, so a
     // change here is also a change to how sharp every car sprite is.
-    expect(CAMERA_CONFIG.camLerp).toBe(0.12);
+    expect(CAMERA_CONFIG.camLerp).toBe(0.18);
     expect(CAMERA_CONFIG.zoom).toBe(1.5);
   });
   it("lets a spectator's free-look camera outrun the fastest car", () => {
