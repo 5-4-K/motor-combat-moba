@@ -20,7 +20,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 /** The documented working size in `public/art/README.md`. Under this, the importer upscales and softens. */
 const WORKING_LONG_EDGE = 128;
@@ -56,8 +56,8 @@ try {
   emit({ ok: false, blockers: [{ code: "sharp-missing", message: "sharp is not installed. Run `npm install` at the repo root." }] }, 2);
 }
 try {
-  shared = await import(path.join(rootDir, "packages", "shared", "dist", "index.js"));
-  importer = await import(path.join(rootDir, "scripts", "import-art.mjs"));
+  shared = await import(pathToFileURL(path.join(rootDir, "packages", "shared", "dist", "index.js")).href);
+  importer = await import(pathToFileURL(path.join(rootDir, "scripts", "import-art.mjs")).href);
 } catch (err) {
   emit({
     ok: false,
