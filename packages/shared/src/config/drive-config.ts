@@ -29,6 +29,6 @@ export const DRIVE_CONFIG = {
  */
 export const CAMERA_CONFIG = {
   camLerp: 0.12,
-  zoom: 0.85,
+  zoom: 1.2,
   freeRoamSpeed: 700,
 } as const;
