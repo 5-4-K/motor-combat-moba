@@ -38,6 +38,8 @@ Note the split gate: the `IN_MATCH` filter inside `otherCarHulls` is the **wall*
 
 **Interpolation.** Remotes are drawn from `InterpolationBuffer`, sampled at `now - NET_CONFIG.interpolationDelayMs`. Position lerps between the bracketing snapshots; angle lerps through `atan2` of blended sines and cosines so it crosses the ±π seam the short way. Past the newest snapshot it **holds** rather than extrapolating — a guessed pose slid through a wall the server bounced off is worse than a frame or two of freeze. Old snapshots outside the delay window are pruned, so the buffer does not grow with match length.
 
+**Local render blend.** Prediction advances on the sim clock (`drainTicks`), so at 60 Hz the predicted pose changes every other frame. Drawing it raw makes the local car hold-and-jump while the camera eases and remotes glide, which reads as a doubled, smeared sprite in motion. `ArenaScene.localRenderPose` therefore draws `blendPose(previousPredicted, predicted, accMs / MS_PER_TICK)` — the previous tick blended toward the newest by how far the input accumulator is through the current tick. It is render-only: `predicted` is still what the next step and reconcile read, and a reconcile correction is simply carried across the rest of the tick window by the same blend.
+
 `CAMERA_CONFIG` (`camLerp`, `zoom`, `freeRoamSpeed`) is a render knob only — nothing in `stepSim` reads it.
 
 ## Client — combat

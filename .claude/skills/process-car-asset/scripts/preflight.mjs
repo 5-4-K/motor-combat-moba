@@ -69,7 +69,7 @@ try {
 }
 
 const { CAR_TABLE, DRIVE_CONFIG, isCarId } = shared;
-const { outputSizeFor, describeFit, importWarnings } = importer;
+const { outputSizeFor, describeFit, importWarnings, SUPERSAMPLE } = importer;
 
 const hull = { width: DRIVE_CONFIG.carWidth, height: DRIVE_CONFIG.carHeight };
 const knownCarIds = Object.keys(CAR_TABLE);
@@ -163,7 +163,7 @@ try {
     .trim()
     .toBuffer({ resolveWithObject: true });
   bbox = { width: trimmed.info.width, height: trimmed.info.height };
-  out = outputSizeFor(bbox, 4 * Math.max(hull.width, hull.height));
+  out = outputSizeFor(bbox, SUPERSAMPLE * Math.max(hull.width, hull.height));
   fit = describeFit(out, hull);
 } catch (err) {
   blockers.push({
@@ -177,7 +177,7 @@ if (bbox) {
   if (sourceLongEdge < WORKING_LONG_EDGE) {
     warnings.push({
       code: "small-source",
-      message: `art is only ${bbox.width}x${bbox.height} after trim; the importer renders at ${4 * Math.max(hull.width, hull.height)}px on the long edge, so this will be upscaled and soft.`,
+      message: `art is only ${bbox.width}x${bbox.height} after trim; the importer renders at ${SUPERSAMPLE * Math.max(hull.width, hull.height)}px on the long edge, so this will be upscaled and soft.`,
     });
   }
   // Delegate to the importer's own warning set rather than recomputing it: two implementations of

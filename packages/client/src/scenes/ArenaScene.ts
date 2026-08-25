@@ -5,6 +5,7 @@ import {
   CAMERA_CONFIG,
   DRIVE_CONFIG,
   INPUT_MESSAGE,
+  MS_PER_TICK,
   PlayerStatus,
   RoomPhase,
   TICK_RATE_HZ,
@@ -14,6 +15,7 @@ import { applyCarSprite, phaserTextures, resolveCarSprite } from "../assets/car-
 import { isDebugEnabled } from "../config/client-mode.js";
 import { InterpolationBuffer } from "../net/interpolation.js";
 import { PredictionBuffer } from "../net/prediction.js";
+import { blendPose } from "../net/interpolation.js";
 import { buildStepContext } from "../net/step-context.js";
 import { bindViewRouter } from "../net/view.js";
 import { axisOf, drainTicks } from "./arena-input.js";
@@ -115,6 +117,8 @@ export class ArenaScene extends Phaser.Scene {
   private arena: ArenaDef | undefined;
   private cursors: Phaser.Types.Input.Keyboard.CursorKeys | undefined;
   private predicted: SimBody | undefined;
+  /** The predicted pose before the newest tick; `renderCars` blends from it toward `predicted`. */
+  private predictedPrev: SimBody | undefined;
   private camFocus: { x: number; y: number } | undefined;
   private inputAccumulatorMs = 0;
   /**
@@ -311,6 +315,7 @@ export class ArenaScene extends Phaser.Scene {
     this.keys = undefined;
     this.prediction = new PredictionBuffer();
     this.predicted = undefined;
+    this.predictedPrev = undefined;
     this.camFocus = undefined;
     this.inputAccumulatorMs = 0;
     this.spectateTarget = "";
@@ -373,6 +378,7 @@ export class ArenaScene extends Phaser.Scene {
 
     // Predict immediately: the local car has to answer on this frame, not a round-trip later.
     const from = this.predicted ?? bodyOf(local);
+    this.predictedPrev = from;
     this.predicted = this.prediction.predict(from, { seq: input.seq, input }, this.stepContext(room));
   }
 
@@ -387,14 +393,18 @@ export class ArenaScene extends Phaser.Scene {
     // then be snapped back every patch.
     if (!local || local.status !== PlayerStatus.IN_MATCH || !local.alive) {
       this.predicted = undefined;
+      this.predictedPrev = undefined;
       return;
     }
 
     const authoritative = bodyOf(local);
     if (!this.predicted) {
       this.predicted = authoritative;
+      this.predictedPrev = undefined;
       return;
     }
+    // `predictedPrev` is left alone: reconcile eases `predicted`, so the blend simply carries the
+    // correction across the rest of the tick window instead of landing it on one frame.
     this.predicted = this.prediction.reconcile(
       authoritative,
       local.lastProcessedInputSeq,
@@ -422,7 +432,7 @@ export class ArenaScene extends Phaser.Scene {
       const pose = !player.alive
         ? serverPose
         : isLocal
-          ? (this.predicted ?? serverPose)
+          ? this.localRenderPose(serverPose)
           : this.remotePose(sessionId, serverPose);
 
       this.syncCar(sessionId, player, pose);
@@ -461,6 +471,17 @@ export class ArenaScene extends Phaser.Scene {
       }
       buf.push(now, bodyOf(player));
     });
+  }
+
+  /**
+   * The local car between ticks. Prediction steps on the sim clock, frames come faster, so the
+   * drawn pose is the previous tick blended toward the newest by how far the input accumulator has
+   * got through the current tick. Render-only: `predicted` itself is what the next step reads.
+   */
+  private localRenderPose(serverPose: SimBody): SimBody {
+    if (!this.predicted) return serverPose;
+    if (!this.predictedPrev) return this.predicted;
+    return blendPose(this.predictedPrev, this.predicted, this.inputAccumulatorMs / MS_PER_TICK);
   }
 
   private remotePose(sessionId: string, pose: SimBody): SimBody {

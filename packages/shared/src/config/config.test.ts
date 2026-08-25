@@ -78,12 +78,12 @@ describe("weapon / combat / drive / flow knobs exist", () => {
     expect(FLOW_CONFIG.carSelectSeconds).toBe(60);
     expect(FLOW_CONFIG.countdownSeconds).toBe(3);
   });
-  it("camera follows softly and pulls the view out", () => {
+  it("camera follows softly and pushes the view in", () => {
     // Pinned, not ranged: these are the tuned values, and a camLerp outside (0, 1] either never
-    // reaches the car or overshoots it every frame. Below 1, zoom means "zoomed out", which is what
-    // makes a nearby fight fit on screen.
+    // reaches the car or overshoots it every frame. Zoom 2 draws the 2x car textures at 1:1, so a
+    // change here is also a change to how sharp every car sprite is.
     expect(CAMERA_CONFIG.camLerp).toBe(0.12);
-    expect(CAMERA_CONFIG.zoom).toBe(0.85);
+    expect(CAMERA_CONFIG.zoom).toBe(2);
   });
   it("lets a spectator's free-look camera outrun the fastest car", () => {
     // Ranged, not pinned: what matters is that free roam can get ahead of the action rather than
