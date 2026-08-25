@@ -2,6 +2,12 @@
   "sprites": {
     "car.rectangle": {
       "file": "cars/rectangle.png"
+    },
+    "car.hexagon": {
+      "file": "cars/hexagon.png"
+    },
+    "car.oval": {
+      "file": "cars/oval.png"
     }
   }
 }
