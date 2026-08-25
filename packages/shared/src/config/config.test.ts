@@ -82,9 +82,20 @@ describe("weapon / combat / drive / flow knobs exist", () => {
     expect(DRIVE_CONFIG.brakeDecel).toBeGreaterThan(DRIVE_CONFIG.drag);
   });
 
-  it("gives reverse its own acceleration rate", () => {
-    expect(DRIVE_CONFIG.reverseAccel).toBe(1100);
+  it("gives reverse its own acceleration rate, at least as quick as forward pickup", () => {
+    // Ranged, not pinned: reverseAccel exists to be tuned by feel, so an exact value here would go
+    // red on every good change as readily as a bad one. What must hold is that it is a real rate
+    // and that splitting it from `accel` bought something — a reverseAccel below `accel` would make
+    // backing out slower than the forward curve it was separated from.
+    expect(DRIVE_CONFIG.reverseAccel).toBeGreaterThan(0);
+    expect(DRIVE_CONFIG.reverseAccel).toBeGreaterThanOrEqual(DRIVE_CONFIG.accel);
+  });
+
+  it("keeps stopEpsilon a small positive rest band", () => {
+    // Zero would leave a car creeping forever instead of settling, and a band wide enough to reach
+    // real driving speeds would freeze the car mid-roll and steer it at turnRateAtStop.
     expect(DRIVE_CONFIG.stopEpsilon).toBeGreaterThan(0);
+    expect(DRIVE_CONFIG.stopEpsilon).toBeLessThan(1);
   });
   it("flow timers", () => {
     expect(FLOW_CONFIG.carSelectSeconds).toBe(60);
