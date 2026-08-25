@@ -30,19 +30,18 @@ import {
 } from "./spectate.js";
 
 const ARENA_DEPTH = -10;
-const OBSTACLE_FILL = 0x6b6b6b;
-const ARENA_BORDER = 0x4a4a4a;
+/** Light floor. Obstacles, border, HUD text, and shots are all picked to read against this, and
+ * against the six saturated player colours in `COLOR_TABLE` — hence desaturated, dark tones. */
+const ARENA_FLOOR = 0xebebeb;
+const OBSTACLE_FILL = 0x4a5568;
+const ARENA_BORDER = 0x2d3436;
 const ARENA_BORDER_PX = 4;
-const HITBOX_STROKE = 0xffffff;
+const HUD_TEXT = "#1d1f21";
+const HITBOX_STROKE = 0x1d1f21;
 const HITBOX_PX = 1;
-/** The player-colour ring drawn under every car. Procedural, so it works with any pack — including
- * pre-coloured art that cannot be tinted. This is the identity layer; tint is the enhancement. */
-const MARKER_RADIUS = 26;
-const MARKER_PX = 3;
-const MARKER_ALPHA = 0.9;
 
 const SHOT_DEPTH = 50;
-const SHOT_FILL = 0xffe14d;
+const SHOT_FILL = 0xc77800;
 const SHOT_RADIUS = 4;
 /** Drawn behind each shot so the eye reads which way it is going, not just where it is. */
 const SHOT_TRAIL_PX = 14;
@@ -193,14 +192,14 @@ export class ArenaScene extends Phaser.Scene {
     this.hpGfx = this.add.graphics().setDepth(HP_BAR_DEPTH);
 
     this.countdownText = this.add
-      .text(640, 280, "", { fontSize: "96px", color: "#ffffff" })
+      .text(640, 280, "", { fontSize: "96px", color: HUD_TEXT })
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(HUD_DEPTH)
       .setVisible(false);
 
     this.spectateText = this.add
-      .text(640, 660, "", { fontSize: "22px", color: "#ffffff" })
+      .text(640, 660, "", { fontSize: "22px", color: HUD_TEXT })
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(HUD_DEPTH)
@@ -246,6 +245,8 @@ export class ArenaScene extends Phaser.Scene {
     this.arenaGfx = gfx;
 
     const cam = this.cameras.main;
+    // Scene-scoped: the global game background stays dark for the lobby and results screens.
+    cam.setBackgroundColor(ARENA_FLOOR);
     cam.setZoom(CAMERA_CONFIG.zoom);
     // Stops the soft follow from panning past the arena edge into empty space.
     cam.setBounds(0, 0, arena.width, arena.height);
@@ -492,11 +493,6 @@ export class ArenaScene extends Phaser.Scene {
     const { carWidth: w, carHeight: h } = DRIVE_CONFIG;
     const fill = carFillOf(colorId);
     const container = this.add.container(0, 0);
-
-    const marker = this.add.graphics();
-    marker.lineStyle(MARKER_PX, fill, MARKER_ALPHA);
-    marker.strokeCircle(0, 0, MARKER_RADIUS);
-    container.add(marker);
 
     const body = this.spriteFor(carId, fill) ?? this.silhouette(carId, fill, w, h);
     container.add(body);
