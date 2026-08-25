@@ -163,11 +163,14 @@ const manifestPath = path.join(artDir, "manifest.json");
 const CAR_KEY_PREFIX = "car.";
 
 /**
- * Render at four times the hull's long edge. The game draws the texture at 1:4, so a box-filter
- * downscale lands on clean pixel boundaries, and the result stays inside the 256px ceiling that
+ * Write the texture at twice the hull's long edge. The GPU minifies with plain bilinear filtering
+ * (Phaser only builds mipmaps for power-of-two textures, and none are requested), which samples a
+ * 2x2 texel block per screen pixel — so anything drawn below ~1:2 skips texels and shimmers as the
+ * car moves. 2x keeps every zoom from 1.0 to 2.0 within that clean range, and sharp does the real
+ * averaging here, offline, from the full-size source. Stays inside the 256px ceiling that
  * `public/art/README.md` documents.
  */
-const SUPERSAMPLE = 4;
+export const SUPERSAMPLE = 2;
 
 function parseArgs(argv) {
   const flags = new Set(argv.filter((a) => a.startsWith("--")));

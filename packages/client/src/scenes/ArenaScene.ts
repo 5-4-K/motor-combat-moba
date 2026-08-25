@@ -5,6 +5,7 @@ import {
   CAMERA_CONFIG,
   DRIVE_CONFIG,
   INPUT_MESSAGE,
+  MS_PER_TICK,
   PlayerStatus,
   RoomPhase,
   TICK_RATE_HZ,
@@ -14,6 +15,7 @@ import { applyCarSprite, phaserTextures, resolveCarSprite } from "../assets/car-
 import { isDebugEnabled } from "../config/client-mode.js";
 import { InterpolationBuffer } from "../net/interpolation.js";
 import { PredictionBuffer } from "../net/prediction.js";
+import { blendPose } from "../net/interpolation.js";
 import { buildStepContext } from "../net/step-context.js";
 import { bindViewRouter } from "../net/view.js";
 import { axisOf, drainTicks } from "./arena-input.js";
@@ -30,19 +32,18 @@ import {
 } from "./spectate.js";
 
 const ARENA_DEPTH = -10;
-const OBSTACLE_FILL = 0x6b6b6b;
-const ARENA_BORDER = 0x4a4a4a;
+/** Light floor. Obstacles, border, HUD text, and shots are all picked to read against this, and
+ * against the six saturated player colours in `COLOR_TABLE` — hence desaturated, dark tones. */
+const ARENA_FLOOR = 0xebebeb;
+const OBSTACLE_FILL = 0x4a5568;
+const ARENA_BORDER = 0x2d3436;
 const ARENA_BORDER_PX = 4;
-const HITBOX_STROKE = 0xffffff;
+const HUD_TEXT = "#1d1f21";
+const HITBOX_STROKE = 0x1d1f21;
 const HITBOX_PX = 1;
-/** The player-colour ring drawn under every car. Procedural, so it works with any pack — including
- * pre-coloured art that cannot be tinted. This is the identity layer; tint is the enhancement. */
-const MARKER_RADIUS = 26;
-const MARKER_PX = 3;
-const MARKER_ALPHA = 0.9;
 
 const SHOT_DEPTH = 50;
-const SHOT_FILL = 0xffe14d;
+const SHOT_FILL = 0xc77800;
 const SHOT_RADIUS = 4;
 /** Drawn behind each shot so the eye reads which way it is going, not just where it is. */
 const SHOT_TRAIL_PX = 14;
@@ -116,6 +117,8 @@ export class ArenaScene extends Phaser.Scene {
   private arena: ArenaDef | undefined;
   private cursors: Phaser.Types.Input.Keyboard.CursorKeys | undefined;
   private predicted: SimBody | undefined;
+  /** The predicted pose before the newest tick; `renderCars` blends from it toward `predicted`. */
+  private predictedPrev: SimBody | undefined;
   private camFocus: { x: number; y: number } | undefined;
   private inputAccumulatorMs = 0;
   /**
@@ -193,14 +196,14 @@ export class ArenaScene extends Phaser.Scene {
     this.hpGfx = this.add.graphics().setDepth(HP_BAR_DEPTH);
 
     this.countdownText = this.add
-      .text(640, 280, "", { fontSize: "96px", color: "#ffffff" })
+      .text(640, 280, "", { fontSize: "96px", color: HUD_TEXT })
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(HUD_DEPTH)
       .setVisible(false);
 
     this.spectateText = this.add
-      .text(640, 660, "", { fontSize: "22px", color: "#ffffff" })
+      .text(640, 660, "", { fontSize: "22px", color: HUD_TEXT })
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(HUD_DEPTH)
@@ -246,6 +249,8 @@ export class ArenaScene extends Phaser.Scene {
     this.arenaGfx = gfx;
 
     const cam = this.cameras.main;
+    // Scene-scoped: the global game background stays dark for the lobby and results screens.
+    cam.setBackgroundColor(ARENA_FLOOR);
     cam.setZoom(CAMERA_CONFIG.zoom);
     // Stops the soft follow from panning past the arena edge into empty space.
     cam.setBounds(0, 0, arena.width, arena.height);
@@ -310,6 +315,7 @@ export class ArenaScene extends Phaser.Scene {
     this.keys = undefined;
     this.prediction = new PredictionBuffer();
     this.predicted = undefined;
+    this.predictedPrev = undefined;
     this.camFocus = undefined;
     this.inputAccumulatorMs = 0;
     this.spectateTarget = "";
@@ -372,6 +378,7 @@ export class ArenaScene extends Phaser.Scene {
 
     // Predict immediately: the local car has to answer on this frame, not a round-trip later.
     const from = this.predicted ?? bodyOf(local);
+    this.predictedPrev = from;
     this.predicted = this.prediction.predict(from, { seq: input.seq, input }, this.stepContext(room));
   }
 
@@ -386,14 +393,18 @@ export class ArenaScene extends Phaser.Scene {
     // then be snapped back every patch.
     if (!local || local.status !== PlayerStatus.IN_MATCH || !local.alive) {
       this.predicted = undefined;
+      this.predictedPrev = undefined;
       return;
     }
 
     const authoritative = bodyOf(local);
     if (!this.predicted) {
       this.predicted = authoritative;
+      this.predictedPrev = undefined;
       return;
     }
+    // `predictedPrev` is left alone: reconcile eases `predicted`, so the blend simply carries the
+    // correction across the rest of the tick window instead of landing it on one frame.
     this.predicted = this.prediction.reconcile(
       authoritative,
       local.lastProcessedInputSeq,
@@ -421,7 +432,7 @@ export class ArenaScene extends Phaser.Scene {
       const pose = !player.alive
         ? serverPose
         : isLocal
-          ? (this.predicted ?? serverPose)
+          ? this.localRenderPose(serverPose)
           : this.remotePose(sessionId, serverPose);
 
       this.syncCar(sessionId, player, pose);
@@ -462,6 +473,17 @@ export class ArenaScene extends Phaser.Scene {
     });
   }
 
+  /**
+   * The local car between ticks. Prediction steps on the sim clock, frames come faster, so the
+   * drawn pose is the previous tick blended toward the newest by how far the input accumulator has
+   * got through the current tick. Render-only: `predicted` itself is what the next step reads.
+   */
+  private localRenderPose(serverPose: SimBody): SimBody {
+    if (!this.predicted) return serverPose;
+    if (!this.predictedPrev) return this.predicted;
+    return blendPose(this.predictedPrev, this.predicted, this.inputAccumulatorMs / MS_PER_TICK);
+  }
+
   private remotePose(sessionId: string, pose: SimBody): SimBody {
     return this.interps.get(sessionId)?.sample(this.time.now) ?? pose;
   }
@@ -492,11 +514,6 @@ export class ArenaScene extends Phaser.Scene {
     const { carWidth: w, carHeight: h } = DRIVE_CONFIG;
     const fill = carFillOf(colorId);
     const container = this.add.container(0, 0);
-
-    const marker = this.add.graphics();
-    marker.lineStyle(MARKER_PX, fill, MARKER_ALPHA);
-    marker.strokeCircle(0, 0, MARKER_RADIUS);
-    container.add(marker);
 
     const body = this.spriteFor(carId, fill) ?? this.silhouette(carId, fill, w, h);
     container.add(body);

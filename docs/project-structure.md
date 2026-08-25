@@ -57,6 +57,7 @@ motor-combat-MOBA/
     └── src/
         ├── main.ts
         ├── config/client-mode.ts
+        ├── config/display.ts     # FIT-to-window scaling rationale + fullscreen key
         ├── assets/
         │   ├── manifest-schema.ts # SpriteEntry, SPRITE_DEFAULTS, parseManifest (never throws)
         │   ├── load-manifest.ts   # MANIFEST_URL, fetch + parse, empty manifest on any failure
@@ -69,7 +70,7 @@ motor-combat-MOBA/
         ├── net/
         │   ├── connection.ts
         │   ├── prediction.ts     # predict + reconcile-by-replay
-        │   ├── interpolation.ts  # remote snapshot buffer
+        │   ├── interpolation.ts  # remote snapshot buffer + local between-tick render blend
         │   ├── step-context.ts   # the client's half of the lockstep input
         │   └── view.ts           # status + phase → scene
         └── scenes/

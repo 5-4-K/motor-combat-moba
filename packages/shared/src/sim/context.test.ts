@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CAR_ID } from "../config/car-config.js";
+import { CAR_TABLE, DEFAULT_CAR_ID } from "../config/car-config.js";
+import type { CarId } from "../config/types.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import { PlayerStatus } from "../constants.js";
 import { carHullOf, carIdOf, isOnField, otherCarHulls, type ContextEntry, type ContextPlayer } from "./context.js";
@@ -31,6 +32,22 @@ describe("carIdOf", () => {
     expect(carIdOf({ carId: "triangle" })).toBe(DEFAULT_CAR_ID);
     // `"constructor" in CAR_TABLE` is true; the own-property check is what keeps it out.
     expect(carIdOf({ carId: "constructor" })).toBe(DEFAULT_CAR_ID);
+  });
+});
+
+describe("hull fairness", () => {
+  it("gives every car in CAR_TABLE the identical hitbox, regardless of stats", () => {
+    const ids = Object.keys(CAR_TABLE) as CarId[];
+    const hulls = otherCarHulls(
+      [entry("viewer"), ...ids.map((carId) => entry(carId, { carId }))],
+      "viewer",
+    );
+    expect(hulls).toHaveLength(ids.length);
+    for (const hull of hulls) {
+      expect(hull.w).toBe(DRIVE_CONFIG.carWidth);
+      expect(hull.h).toBe(DRIVE_CONFIG.carHeight);
+    }
+    expect(new Set(hulls.map((hull) => `${hull.w}x${hull.h}`)).size).toBe(1);
   });
 });
 

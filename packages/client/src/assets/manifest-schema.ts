@@ -1,7 +1,7 @@
 /**
  * How player colour reaches a sprite. `"tint"` multiplies the texture by the player's colour and so
- * needs desaturated art; `"none"` leaves pre-coloured pack art alone and lets the procedural colour
- * marker carry identity by itself. Deliberately a small enum: `"overlay"` (a separate tintable mask
+ * needs desaturated art; `"none"` leaves pre-coloured pack art alone, at the cost of the player's
+ * colour not appearing on the car at all. Deliberately a small enum: `"overlay"` (a separate tintable mask
  * layer) can be added later without changing a single consumer.
  *
  * The runtime list is the source of truth and `ColorMode` is derived from it, so adding `"overlay"`

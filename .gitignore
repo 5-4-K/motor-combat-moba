@@ -20,3 +20,7 @@ coverage/
 .vitest/
 packages/client/.vite/
 .worktrees/
+
+# Claude Code local state — keep skills, ignore the rest
+.claude/*
+!.claude/skills/

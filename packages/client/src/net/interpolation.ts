@@ -23,6 +23,23 @@ function lerpAngle(from: number, to: number, alpha: number): number {
 }
 
 /**
+ * A render pose part-way between two sim poses. Position and angle blend (angle the short way);
+ * `speed` and `reverseHold` come from `to` untouched because nothing that draws reads them and a
+ * half-blended value must never flow back into a step. Used to draw the local car between predicted
+ * ticks: prediction advances on the 30 Hz sim clock while frames come at the display rate, so
+ * without this the local car holds for a frame and jumps a whole tick while the camera and remotes
+ * glide — which the eye reads as a doubled, smeared sprite.
+ */
+export function blendPose(from: SimBody, to: SimBody, alpha: number): SimBody {
+  return {
+    ...to,
+    x: lerp(from.x, to.x, alpha),
+    y: lerp(from.y, to.y, alpha),
+    angle: lerpAngle(from.angle, to.angle, alpha),
+  };
+}
+
+/**
  * Remote-car smoothing. Server patches arrive at `DEFAULT_PATCH_RATE_HZ`, well under the render
  * rate, so drawing each patch as it lands makes remotes visibly step. This holds a short history and
  * renders them `NET_CONFIG.interpolationDelayMs` in the past, which buys enough buffer to always

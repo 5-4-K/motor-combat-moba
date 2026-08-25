@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { FLOW_CONFIG } from "@motor-combat-moba/shared";
 import { joinArena } from "../net/connection.js";
+import { FULLSCREEN_KEY } from "../config/display.js";
 
 const INPUT_STYLE =
   "width: 320px; font-size: 20px; padding: 8px; text-align: center; background: #222; color: #fff; border: 2px solid #555; border-radius: 4px;";
@@ -48,6 +49,10 @@ export class JoinScene extends Phaser.Scene {
     this.joinButton.on("pointerup", () => {
       void this.onJoin();
     });
+
+    this.add
+      .text(640, 690, `${FULLSCREEN_KEY.toUpperCase()} — fullscreen`, { fontSize: "16px", color: "#777777" })
+      .setOrigin(0.5);
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.onShutdown, this);
   }

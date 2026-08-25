@@ -13,7 +13,8 @@ use the importer rather than doing it by hand:
 node scripts/import-art.mjs <image> <carId>
 ```
 
-It trims the transparent margin, scales the long edge to 4x the hull, desaturates for `"tint"`,
+It trims the transparent margin, scales the long edge to 2x the hull (the GPU shrinks cleanly only
+down to about 1:2, so the file is kept close to its drawn size), desaturates for `"tint"`,
 writes `cars/<carId>.png`, and adds or updates the manifest row. Re-run it on the same `carId` to
 replace that car's art; **fields you tuned by hand are preserved**, only `file` is rewritten.
 
@@ -60,7 +61,7 @@ All optional except `file`.
 | `file` | required | Path relative to this folder. |
 | `rotationOffset` | `0` | Radians added to the car's angle. The sim's forward is `+x`, i.e. pointing **right**. Art drawn facing **up** needs `1.5707963`. |
 | `scale` | `"fit"` | `"fit"` contains the art inside the 48x32 hull. A positive number is an explicit multiplier — use it when pack art has heavy transparent padding and `"fit"` renders it too small. |
-| `colorMode` | `"tint"` | `"tint"` multiplies the texture by the player colour and needs desaturated art. `"none"` leaves pre-coloured art alone; the coloured marker under the car still identifies the player. |
+| `colorMode` | `"tint"` | `"tint"` multiplies the texture by the player colour and needs desaturated art. `"none"` leaves pre-coloured art alone — the player's colour then does not appear on the car at all, so use it only for chassis skins whose colour is not meant to identify the player. |
 | `origin` | `[0.5, 0.5]` | Normalised origin, for art whose visual centre is not its geometric centre. |
 
 ## Size limits

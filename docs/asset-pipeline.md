@@ -46,7 +46,7 @@ All optional except `file`.
 | `file` | required | Path relative to this folder. |
 | `rotationOffset` | `0` | Radians added to the car's angle. The sim's forward is `+x`, i.e. pointing **right**. Art drawn facing **up** needs `1.5707963`. |
 | `scale` | `"fit"` | `"fit"` contains the art inside the 48x32 hull. A positive number is an explicit multiplier — use it when pack art has heavy transparent padding and `"fit"` renders it too small. |
-| `colorMode` | `"tint"` | `"tint"` multiplies the texture by the player colour and needs desaturated art. `"none"` leaves pre-coloured art alone; the coloured marker under the car still identifies the player. |
+| `colorMode` | `"tint"` | `"tint"` multiplies the texture by the player colour and needs desaturated art. `"none"` leaves pre-coloured art alone — the player's colour then does not appear on the car at all, so use it only for chassis skins whose colour is not meant to identify the player. |
 | `origin` | `[0.5, 0.5]` | Normalised origin, for art whose visual centre is not its geometric centre. |
 
 The defaults live in code as `SPRITE_DEFAULTS` and the type as `SpriteEntry`, both in
@@ -164,10 +164,10 @@ collides with never follows the art (D3 in the design doc — sprites are a cosm
 unchanged hull, and that is load-bearing for determinism: if hitboxes tracked art, server/client
 agreement in `stepSim` would depend on a PNG's pixel dimensions).
 
-The player-colour ring (`MARKER_RADIUS` in `ArenaScene.ts`) is drawn under every car regardless of
-whether a sprite exists, tint is set, or `colorMode` is `"none"`. It is the identity layer; tint,
-where the art supports it, is the enhancement on top. This is why swapping in a pre-coloured pack
-sprite with `colorMode: "none"` still leaves players able to tell each other apart.
+Player colour reaches the car only through `colorMode: "tint"` (or the procedural silhouette's
+fill when no sprite exists). There is no separate colour marker under the car, so a pre-coloured
+pack sprite with `colorMode: "none"` carries no player identity — that mode is for chassis skins,
+not for player-distinguished art.
 
 ## Size limits, and why they are about dimensions
 
