@@ -300,8 +300,6 @@ export class ArenaScene extends Phaser.Scene {
   private onShutdown(): void {
     this.resetMatchState();
     this.room = undefined;
-    this.mismatchOverlay?.destroy();
-    this.mismatchOverlay = undefined;
   }
 
   /**
@@ -339,6 +337,8 @@ export class ArenaScene extends Phaser.Scene {
     this.spectateTarget = "";
     this.freeRoam = false;
     this.lastPatchMs = 0;
+    this.mismatchOverlay?.destroy();
+    this.mismatchOverlay = undefined;
   }
 
   update(_time: number, delta: number): void {

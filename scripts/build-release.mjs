@@ -2,6 +2,9 @@ import archiver from "archiver";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+// No `requireBuiltDist` guard for shared: this static import IS the guard. ESM resolves it before
+// any code in this module runs, so a missing `packages/shared/dist` fails at load time and names
+// the exact missing path — a runtime check here could never execute.
 import {
   ACTIVE_ARENA_ID,
   ARENA_ART_COMMON,
@@ -14,7 +17,6 @@ const appDir = path.join(distReleaseDir, "motor-combat-moba");
 const zipPath = path.join(distReleaseDir, "motor-combat-moba-release.zip");
 const serverDist = path.join(rootDir, "packages", "server", "dist");
 const clientDist = path.join(rootDir, "packages", "client", "dist");
-const sharedDist = path.join(rootDir, "packages", "shared", "dist");
 
 export function startBat() {
   return `@echo off
@@ -165,7 +167,16 @@ function directorySize(dir) {
 
 function readManifest(manifestPath) {
   if (!fs.existsSync(manifestPath)) return undefined;
-  const raw = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  const text = fs.readFileSync(manifestPath, "utf8");
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch (err) {
+    throw new Error(
+      `could not parse manifest at ${manifestPath}: ${err.message}. The release cannot prune ` +
+        `arena art from a manifest it cannot read — fix the JSON and rebuild the client.`,
+    );
+  }
   if (!raw || typeof raw !== "object") return undefined;
   if (!raw.sprites || typeof raw.sprites !== "object") return undefined;
   return raw;
@@ -263,7 +274,6 @@ function writeZip(sourceDir, destination) {
 }
 
 export async function main() {
-  requireBuiltDist(sharedDist, "packages/shared/dist");
   requireBuiltDist(serverDist, "packages/server/dist");
   requireBuiltDist(clientDist, "packages/client/dist");
   assertNoDevOnlyCode(clientDist);

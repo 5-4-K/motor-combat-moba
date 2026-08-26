@@ -150,8 +150,9 @@ assertOnlyActiveArenaShipped(clientDistDir, activeArenaId)
 
 `pruneArenaAssets` deletes `art/arenas/<id>/` for every id that is neither active nor `common`, then
 rewrites that copy's `art/manifest.json` to drop the matching `arena.<id>.*` keys.
-`assertOnlyActiveArenaShipped` re-walks the tree and throws if any non-active arena file or manifest
-key survived — the same belt-and-braces shape as `assertFontsVendored` and `assertNoDevOnlyCode`.
+`assertOnlyActiveArenaShipped` re-walks the tree and throws if any non-active arena directory or
+manifest key survived — the same belt-and-braces shape as `assertFontsVendored` and
+`assertNoDevOnlyCode`.
 
 Two properties this depends on:
 
@@ -270,7 +271,7 @@ second place to update when the active arena changes.
 | Arena layout violates a clearance rule | `arena.test.ts` fails the build |
 | Arena art file missing at runtime | Procedural rect, as today (asset pipeline design) |
 | Non-active arena art survives pruning | `assertOnlyActiveArenaShipped` throws, release fails |
-| `shared/dist` missing when releasing | `requireBuiltDist` throws, as today |
+| `shared/dist` missing when releasing | ESM loader fails at import time, naming the missing `packages/shared/dist/index.js` path, before any of the script's own guards run |
 
 ## Testing
 
