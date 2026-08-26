@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ACTIVE_ARENA_ID } from "../config/arena-config.js";
 import { ArenaState } from "./ArenaState.js";
 import { PlayerState } from "./PlayerState.js";
 import { ProjectileState } from "./ProjectileState.js";
@@ -107,7 +108,7 @@ describe("ArenaState", () => {
 
   it("constructs with v1 defaults", () => {
     const s = new ArenaState();
-    expect(s.arenaId).toBe("arena-01");
+    expect(s.arenaId).toBe(ACTIVE_ARENA_ID);
     expect(s.carSelectDeadlineTick).toBe(0);
     expect(s.countdownEndsTick).toBe(0);
     expect(s.winnerTeam).toBe(-1);
@@ -117,7 +118,7 @@ describe("ArenaState", () => {
 
   it("sets every new v1 field and stores a projectile", () => {
     const s = new ArenaState();
-    s.arenaId = "arena-01";
+    s.arenaId = ACTIVE_ARENA_ID;
     s.carSelectDeadlineTick = 1800;
     s.countdownEndsTick = 1890;
     s.winnerTeam = 0;
@@ -128,7 +129,7 @@ describe("ArenaState", () => {
     shot.x = 400;
     shot.y = 200;
     s.projectiles.set("p1", shot);
-    expect(s.arenaId).toBe("arena-01");
+    expect(s.arenaId).toBe(ACTIVE_ARENA_ID);
     expect(s.carSelectDeadlineTick).toBe(1800);
     expect(s.countdownEndsTick).toBe(1890);
     expect(s.winnerTeam).toBe(0);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_ARENA_ID, DEFAULT_CAR_ID, DRIVE_CONFIG, PlayerStatus, getArena } from "@motor-combat-moba/shared";
+import { ACTIVE_ARENA_ID, DEFAULT_CAR_ID, DRIVE_CONFIG, PlayerStatus, getArena } from "@motor-combat-moba/shared";
 import { buildStepContext, type ContextPlayer, type ContextState } from "./step-context.js";
 
 function player(over: Partial<ContextPlayer> = {}): ContextPlayer {
@@ -13,7 +13,7 @@ function player(over: Partial<ContextPlayer> = {}): ContextPlayer {
   };
 }
 
-const ARENA = getArena(DEFAULT_ARENA_ID);
+const ARENA = getArena(ACTIVE_ARENA_ID);
 
 function state(players: Record<string, ContextPlayer>): ContextState {
   return {

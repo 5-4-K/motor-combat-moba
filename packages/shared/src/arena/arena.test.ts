@@ -87,11 +87,33 @@ describe("arena-01", () => {
     expect(narrow).toEqual([]);
   });
 
-  it("registry resolves arena-01", () => {
-    expect(getArena("arena-01")).toBe(ARENA_01);
+});
+
+import { ACTIVE_ARENA_ID } from "../config/arena-config.js";
+import { ARENA_IDS, ARENAS, isArenaId } from "./registry.js";
+
+describe("registry", () => {
+  it("resolves every registered id to its own def", () => {
+    for (const [id, def] of Object.entries(ARENAS)) {
+      expect(getArena(id)).toBe(def);
+    }
   });
 
-  it("throws for unknown arena id", () => {
-    expect(() => getArena("nope")).toThrow();
+  it("throws for an unknown arena id", () => {
+    expect(() => getArena("nope")).toThrow(/nope/);
+  });
+
+  it("refuses prototype keys rather than resolving them", () => {
+    expect(isArenaId("__proto__")).toBe(false);
+    expect(isArenaId("constructor")).toBe(false);
+    expect(() => getArena("toString")).toThrow();
+  });
+
+  it("lists exactly the registered ids", () => {
+    expect([...ARENA_IDS].sort()).toEqual(Object.keys(ARENAS).sort());
+  });
+
+  it("has an ACTIVE_ARENA_ID that is actually registered", () => {
+    expect(isArenaId(ACTIVE_ARENA_ID)).toBe(true);
   });
 });

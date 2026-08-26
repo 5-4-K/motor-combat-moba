@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_ARENA_ID,
+  ACTIVE_ARENA_ID,
   MS_PER_TICK,
   NET_CONFIG,
   getArena,
@@ -11,7 +11,7 @@ import {
 } from "@motor-combat-moba/shared";
 import { PredictionBuffer } from "./prediction.js";
 
-const arena = getArena(DEFAULT_ARENA_ID);
+const arena = getArena(ACTIVE_ARENA_ID);
 const ctx: StepContext = {
   carId: "rectangle",
   others: [],
