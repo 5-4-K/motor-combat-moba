@@ -1,4 +1,5 @@
 import { ARENA_01 } from "./arena-01.js";
+import { ARENA_02 } from "./arena-02.js";
 import type { ArenaDef } from "./types.js";
 
 /**
@@ -10,6 +11,7 @@ import type { ArenaDef } from "./types.js";
  */
 export const ARENAS = {
   "arena-01": ARENA_01,
+  "arena-02": ARENA_02,
 } as const;
 
 export type ArenaId = keyof typeof ARENAS;

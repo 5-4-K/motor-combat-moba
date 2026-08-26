@@ -67,6 +67,7 @@ export { NET_CONFIG } from "./config/net-config.js";
 
 export type { ArenaDef, Obstacle, Spawn } from "./arena/types.js";
 export { ARENA_01 } from "./arena/arena-01.js";
+export { ARENA_02 } from "./arena/arena-02.js";
 export { ARENAS, ARENA_IDS, getArena, isArenaId } from "./arena/registry.js";
 export type { ArenaId } from "./arena/registry.js";
 export { ACTIVE_ARENA_ID } from "./config/arena-config.js";
