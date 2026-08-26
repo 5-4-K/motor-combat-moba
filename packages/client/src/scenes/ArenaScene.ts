@@ -191,9 +191,10 @@ export class ArenaScene extends Phaser.Scene {
     // stack trace instead of a black screen with a reason on it.
     const arenaId = this.room.state.arenaId;
     if (!isArenaId(arenaId)) {
+      const message = arenaMismatchMessage(arenaId, ARENA_IDS);
       this.mismatchOverlay = new ScreenOverlay(this);
-      this.mismatchOverlay.render(renderArenaMismatch(arenaMismatchMessage(arenaId, ARENA_IDS)));
-      console.error(`[arena] ${arenaMismatchMessage(arenaId, ARENA_IDS)}`);
+      this.mismatchOverlay.render(renderArenaMismatch(message));
+      console.error(`[arena] ${message}`);
       return;
     }
 
@@ -342,7 +343,12 @@ export class ArenaScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     const room = this.room;
-    if (!room) return;
+    // `this.room` is assigned before the arena-mismatch guard in `create()`, and that guard can
+    // return early without clearing it — so a truthy room is not proof `create()` finished. `arena`
+    // is the field the mismatch path actually leaves unset, and everything below reaches it sooner
+    // or later (`pumpInput` -> `stepContext` falls back to `getArena(room.state.arenaId)`, the same
+    // id that just failed `isArenaId`), so it is the one precondition worth checking here.
+    if (!room || !this.arena) return;
 
     this.syncMatchHud();
     this.pumpInput(room, delta);
