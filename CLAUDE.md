@@ -43,6 +43,11 @@ Changing the drive model, hitbox model (OBB), collision-damage rules, friendly-f
 
 **Build with root `npm run build`, never `npm run build --workspaces`.** The server's tsup step *inlines* shared's `dist` into `packages/server/dist/index.js`, so shared must be built first. The root script enforces that order (shared → server → client); the `--workspaces` form does not, and has been observed building the server one second *before* shared — producing a server bundle silently running the previous version of the sim while every unit test passes, because tests import `src`. If a rule works in the tests but not in a live room, check this first: `grep` the server bundle for the code you just wrote.
 
+The arena-specific symptom: if the arena screen shows "Arena mismatch. The server is running
+"arena-0N", but this build only knows: …", the server and client are running different builds of
+shared. Rebuild shared and hard-refresh the browser. The release zip cannot produce this — it ships
+one build of both.
+
 ## Commands
 
 ```bash

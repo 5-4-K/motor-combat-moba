@@ -1,8 +1,8 @@
 # Motor Combat MOBA — Multi-Arena Selection and Release Pruning Design
 
 **Designed:** 2026-08-26 · **Recorded in repo:** 2026-08-26
-**Status:** Approved. Not yet implemented.
-**Plan:** _(to be written)_
+**Status:** Implemented.
+**Plan:** [`docs/superpowers/plans/2026-08-26-arena-selection-and-release-pruning.md`](../plans/2026-08-26-arena-selection-and-release-pruning.md)
 
 ---
 

@@ -129,15 +129,39 @@ seconds and the camera's trailing offset is 12% of the half-view.
 | `reconcileEaseRate` | 0.25 |
 | `interpolationDelayMs` | 50 |
 
-## ARENA_01
+## Arena selection
 
-`DEFAULT_ARENA_ID` = `"arena-01"`. `getArena(id)` throws if unknown.
+`ACTIVE_ARENA_ID` in `packages/shared/src/config/arena-config.ts` names the one arena a build plays
+and ships. Changing arenas is that single edit:
 
-| Knob | Value |
-|---|---|
-| `id` | `arena-01` |
-| `width` × `height` | 2400 × 1600 |
-| `obstacles` | 6 AABBs: (500,350,220×80), (1680,350,220×80), (500,1170,220×80), (1680,1170,220×80), (1080,620,240×360), (200,720,80×160) |
-| `ffaSpawns` | 6: corners + mid-top / mid-bottom |
-| `teamASpawns` | 3 on the left (`x=220`, angles `0`) |
-| `teamBSpawns` | 3 on the right (`x=2180`, angles `π`) |
+1. Set `ACTIVE_ARENA_ID` to a key of `ARENAS` in `packages/shared/src/arena/registry.ts`.
+2. Rebuild shared — `npm run build -w @motor-combat-moba/shared`, or just restart `npm run dev`.
+
+A value that is not a registered id fails `arena.test.ts`, so a typo breaks the build rather than a
+live room. `ArenaState.arenaId` defaults to this constant, which is how the server tells clients
+which arena to draw.
+
+To add an arena: write `packages/shared/src/arena/arena-0N.ts`, add one row to `ARENAS`, and export
+it from `packages/shared/src/index.ts`. `arena.test.ts` validates every registered arena against the
+clearance and spawn rules automatically — no test to write.
+
+## Arena registry
+
+`ARENAS` in `packages/shared/src/arena/registry.ts` currently holds two entries. `arena.test.ts`
+checks every registered arena by rule — bounds, obstacle clearance, corridor width, spawn counts,
+spawn placement — rather than by pinned values, so the table below is orientation, not a spec to
+keep hand-in-sync as more arenas land.
+
+| id | width × height | obstacles | palette |
+|---|---|---|---|
+| `arena-01` | 2400 × 1600 | 6 | none — uses the client's default palette |
+| `arena-02` | 2000 × 2000 | 6 | `#d8cfc4` floor / `#6b5b4b` obstacle / `#2f2a26` border |
+
+`arena-01`: 6 `ffaSpawns` (corners + mid-top / mid-bottom), 3 `teamASpawns` on the left (`x=220`,
+angle `0`), 3 `teamBSpawns` on the right (`x=2180`, angle `π`). `arena-02` ("Crossroads") is a
+square arena built around one central plus-shaped mass with four corner bunkers — deliberately a
+different shape from `arena-01`, not a rearrangement of it.
+
+`getArena(id)` throws on an unknown id; it exists for the server's sim path, where an unresolvable
+arena is a programming error with no sane fallback. The client checks `isArenaId` first and shows a
+mismatch message instead of calling it.

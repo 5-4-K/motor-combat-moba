@@ -17,8 +17,14 @@ motor-combat-MOBA/
 │   ├── index.ts                  # the package's whole public surface
 │   ├── constants.ts              # TICK_RATE_HZ, enums, MAX_PLAYERS
 │   ├── config/                   # car, color, weapon, combat, drive/camera, flow, net tables
+│   │   └── arena-config.ts       # the one ACTIVE_ARENA_ID constant
 │   ├── schema/                   # PlayerState, ProjectileState, ArenaState
-│   ├── arena/                    # ArenaDef types, arena-01, registry
+│   ├── arena/
+│   │   ├── types.ts              # ArenaDef, Obstacle, Spawn, ArenaPalette
+│   │   ├── arena-01.ts           # first arena layout
+│   │   ├── arena-02.ts           # second arena layout
+│   │   ├── registry.ts           # ARENAS map, ArenaId, isArenaId, getArena, ARENA_IDS
+│   │   └── art-keys.ts           # arena.<id>.<slot> namespace parser, used by client and release script
 │   ├── net/                      # InputMessage, lobby message names
 │   ├── lobby/                    # names, teams, start rules, status → view
 │   ├── flow/                     # match-flow reducer, spawn assignment, livingSides
@@ -73,13 +79,16 @@ motor-combat-MOBA/
         │   ├── interpolation.ts  # remote snapshot buffer + local between-tick render blend
         │   ├── step-context.ts   # the client's half of the lockstep input
         │   └── view.ts           # status + phase → scene
-        └── scenes/
-            ├── {Boot,Join,Lobby,CarSelect,Arena,Results}Scene.ts
-            ├── arena-input.ts    # sim-clock input drain, axis folding
-            ├── car-visual.ts     # chassis silhouettes, colours
-            ├── combat-visual.ts  # hp bar maths, shot extrapolation
-            ├── spectate.ts       # spectate cycle, free-roam pan
-            └── lobby-signature.ts
+        ├── scenes/
+        │   ├── {Boot,Join,Lobby,CarSelect,Arena,Results}Scene.ts
+        │   ├── arena-input.ts    # sim-clock input drain, axis folding
+        │   ├── arena-mismatch.ts # builds the mismatch message string (pure, testable)
+        │   ├── arena-visual.ts   # resolves an arena's palette to Phaser colour ints
+        │   ├── car-visual.ts     # chassis silhouettes, colours
+        │   ├── combat-visual.ts  # hp bar maths, shot extrapolation
+        │   ├── spectate.ts       # spectate cycle, free-roam pan
+        │   └── lobby-signature.ts
+        └── ui/screens/arena-mismatch.ts # renders that message as DOM
 ```
 
 `ArenaScene` itself cannot be unit-tested without a browser, so its logic lives in the plain modules

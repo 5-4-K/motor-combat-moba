@@ -234,6 +234,28 @@ and one selector (`?dev=<id>`) with one registry, one dynamic-import site, and o
 keeps adding tool number two a one-line change instead of a second copy of this whole strip
 mechanism.
 
+## Arena art
+
+Arena-owned art is namespaced by arena id, so the release can carry only the active arena's files.
+
+| Manifest key | On disk | In the release? |
+|---|---|---|
+| `arena.<arenaId>.<slot>` | `public/art/arenas/<arenaId>/<slot>.png` | Only when `<arenaId>` is `ACTIVE_ARENA_ID` |
+| `arena.common.<slot>` | `public/art/arenas/common/<slot>.png` | Always |
+| `car.*`, and anything else | as before | Always |
+
+Two places apply the same rule, both through `arenaIdFromArtKey` in
+`packages/shared/src/arena/art-keys.ts`: `shouldLoadAssetKey` filters manifest entries at boot so a
+dev build only loads the active arena's art, and `pruneArenaAssets` in `scripts/build-release.mjs`
+deletes the other arenas' files from the release.
+
+The consequence worth knowing: an arena you are experimenting with costs the shipped zip nothing, so
+there is no reason to delete an arena to keep the download small.
+
+No arena art exists in the repo yet — every arena still renders from `ArenaScene.drawArena`'s
+procedural `fillRect` loop, coloured by `arenaColorsOf` (`packages/client/src/scenes/arena-visual.ts`).
+The namespace above is the seam for when sprites land, not something already shipping.
+
 ## Deferred
 
 Each of these was considered and deliberately deferred, not overlooked — each is its own future
