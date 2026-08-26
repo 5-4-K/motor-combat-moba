@@ -19,6 +19,7 @@ import { blendPose } from "../net/interpolation.js";
 import { buildStepContext } from "../net/step-context.js";
 import { bindViewRouter } from "../net/view.js";
 import { axisOf, drainTicks } from "./arena-input.js";
+import { arenaColorsOf } from "./arena-visual.js";
 import { assetManifest, assetsReady } from "./BootScene.js";
 import { carFillOf, carShapeOf, hexagonPoints } from "./car-visual.js";
 import { extrapolateShot, hpBarColor, hpFraction } from "./combat-visual.js";
@@ -33,11 +34,6 @@ import {
 } from "./spectate.js";
 
 const ARENA_DEPTH = -10;
-/** Light floor. Obstacles, border, HUD text, and shots are all picked to read against this, and
- * against the six saturated player colours in `COLOR_TABLE` — hence desaturated, dark tones. */
-const ARENA_FLOOR = 0xebebeb;
-const OBSTACLE_FILL = 0x4a5568;
-const ARENA_BORDER = 0x2d3436;
 const ARENA_BORDER_PX = 4;
 const HUD_TEXT = "#1d1f21";
 const HITBOX_STROKE = 0x1d1f21;
@@ -240,18 +236,19 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private drawArena(arena: ArenaDef): void {
+    const colors = arenaColorsOf(arena);
     const gfx = this.add.graphics().setDepth(ARENA_DEPTH);
-    gfx.fillStyle(OBSTACLE_FILL, 1);
+    gfx.fillStyle(colors.obstacle, 1);
     for (const obstacle of arena.obstacles) {
       gfx.fillRect(obstacle.x, obstacle.y, obstacle.w, obstacle.h);
     }
-    gfx.lineStyle(ARENA_BORDER_PX, ARENA_BORDER, 1);
+    gfx.lineStyle(ARENA_BORDER_PX, colors.border, 1);
     gfx.strokeRect(0, 0, arena.width, arena.height);
     this.arenaGfx = gfx;
 
     const cam = this.cameras.main;
     // Scene-scoped: the global game background stays dark for the lobby and results screens.
-    cam.setBackgroundColor(ARENA_FLOOR);
+    cam.setBackgroundColor(colors.floor);
     cam.setZoom(CAMERA_CONFIG.zoom);
     // Stops the soft follow from panning past the arena edge into empty space.
     cam.setBounds(0, 0, arena.width, arena.height);

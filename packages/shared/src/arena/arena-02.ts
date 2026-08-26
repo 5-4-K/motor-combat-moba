@@ -12,6 +12,7 @@ export const ARENA_02 = {
   id: "arena-02",
   width: 2000,
   height: 2000,
+  palette: { floor: "#d8cfc4", obstacle: "#6b5b4b", border: "#2f2a26" },
   obstacles: [
     { x: 940, y: 700, w: 120, h: 600 },
     { x: 700, y: 940, w: 600, h: 120 },
