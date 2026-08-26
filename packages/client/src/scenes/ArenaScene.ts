@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import type { Room } from "colyseus.js";
 import type { ArenaDef, ArenaState, InputMessage, SimBody, StepContext } from "@motor-combat-moba/shared";
 import {
+  ARENA_IDS,
   CAMERA_CONFIG,
   DRIVE_CONFIG,
   INPUT_MESSAGE,
@@ -10,6 +11,7 @@ import {
   RoomPhase,
   TICK_RATE_HZ,
   getArena,
+  isArenaId,
 } from "@motor-combat-moba/shared";
 import { applyCarSprite, phaserTextures, resolveCarSprite } from "../assets/car-sprite.js";
 import { isDebugEnabled } from "../config/client-mode.js";
@@ -18,6 +20,9 @@ import { PredictionBuffer } from "../net/prediction.js";
 import { blendPose } from "../net/interpolation.js";
 import { buildStepContext } from "../net/step-context.js";
 import { bindViewRouter } from "../net/view.js";
+import { ScreenOverlay } from "../ui/overlay.js";
+import { renderArenaMismatch } from "../ui/screens/arena-mismatch.js";
+import { arenaMismatchMessage } from "./arena-mismatch.js";
 import { axisOf, drainTicks } from "./arena-input.js";
 import { arenaColorsOf } from "./arena-visual.js";
 import { assetManifest, assetsReady } from "./BootScene.js";
@@ -146,6 +151,7 @@ export class ArenaScene extends Phaser.Scene {
    * than Phaser's clock, for the reason spelled out in `pushRemoteSnapshots`.
    */
   private lastPatchMs = 0;
+  private mismatchOverlay: ScreenOverlay | undefined;
 
   constructor() {
     super({ key: "arena" });
@@ -180,9 +186,20 @@ export class ArenaScene extends Phaser.Scene {
     this.cursors = this.input.keyboard?.createCursorKeys();
     this.keys = this.bindKeys();
 
+    // Guarded rather than resolved directly: `getArena` throws, and this line runs before the rest
+    // of create() builds anything, so an unknown id would leave a half-constructed scene and a
+    // stack trace instead of a black screen with a reason on it.
+    const arenaId = this.room.state.arenaId;
+    if (!isArenaId(arenaId)) {
+      this.mismatchOverlay = new ScreenOverlay(this);
+      this.mismatchOverlay.render(renderArenaMismatch(arenaMismatchMessage(arenaId, ARENA_IDS)));
+      console.error(`[arena] ${arenaMismatchMessage(arenaId, ARENA_IDS)}`);
+      return;
+    }
+
     // Hoisted out of the 30 Hz prediction path: `getArena` is a lookup that throws, and the arena
     // cannot change while the scene is alive.
-    this.arena = getArena(this.room.state.arenaId);
+    this.arena = getArena(arenaId);
     this.drawArena(this.arena);
 
     // One Graphics for every shot and one for every hp bar, cleared and redrawn each frame. Both
@@ -282,6 +299,8 @@ export class ArenaScene extends Phaser.Scene {
   private onShutdown(): void {
     this.resetMatchState();
     this.room = undefined;
+    this.mismatchOverlay?.destroy();
+    this.mismatchOverlay = undefined;
   }
 
   /**
