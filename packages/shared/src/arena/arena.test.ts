@@ -1,62 +1,89 @@
 import { describe, expect, it } from "vitest";
+import { ACTIVE_ARENA_ID } from "../config/arena-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
-import { ARENA_01 } from "./arena-01.js";
-import { getArena } from "./registry.js";
+import { MAX_PLAYERS } from "../constants.js";
+import { ARENA_IDS, ARENAS, getArena, isArenaId } from "./registry.js";
+import type { ArenaDef, Spawn } from "./types.js";
 
 /**
  * A car must always have somewhere to be pushed.
  *
- * `resolveWorld` ranks world bounds above obstacles, so an obstacle flush against a wall makes
- * those two rules contradict each other: the obstacle pushes the car out, the boundary clamp
- * shoves it straight back in, and the car ends up permanently embedded in level geometry — a
- * stable fixed point, not a transient overlap. A corridor narrower than the car traps it the same
- * way. See the doc comment on `resolveWorld` in `sim/collide.ts` for the ranking and why it is
- * ordered that way.
+ * `resolveWorld` ranks world bounds above obstacles, so an obstacle flush against a wall makes those
+ * two rules contradict each other: the obstacle pushes the car out, the boundary clamp shoves it
+ * straight back in, and the car ends up permanently embedded in level geometry — a stable fixed
+ * point, not a transient overlap. A corridor narrower than the car traps it the same way. See the
+ * doc comment on `resolveWorld` in `sim/collide.ts` for the ranking and why it is ordered that way.
  *
  * The floor is the car diagonal rather than its width, so the gap admits a car at any rotation.
  */
 const CAR_DIAGONAL = Math.hypot(DRIVE_CONFIG.carWidth, DRIVE_CONFIG.carHeight);
 
-describe("arena-01", () => {
-  it("is 2400x1600 with 6 obstacles", () => {
-    expect(ARENA_01.width).toBe(2400);
-    expect(ARENA_01.height).toBe(1600);
-    expect(ARENA_01.obstacles).toHaveLength(6);
+/**
+ * Team mode is capped at 3v3 by `canStart`, so each side needs half the roster's worth of spawns.
+ * Deliberately *not* `MAX_TEAM_SIZE`, which is 4: that number is lobby swap headroom, not match size,
+ * and using it here would demand a fourth spawn per side that no match can ever occupy.
+ */
+const MIN_TEAM_SPAWNS = MAX_PLAYERS / 2;
+
+/** Spawns keep clear of the walls by the same margin the original arena was authored to. */
+const SPAWN_WALL_MARGIN = 80;
+
+const entries = Object.entries(ARENAS) as ReadonlyArray<[string, ArenaDef]>;
+
+function insideObstacle(s: Spawn, arena: ArenaDef): boolean {
+  return arena.obstacles.some((o) => s.x > o.x && s.x < o.x + o.w && s.y > o.y && s.y < o.y + o.h);
+}
+
+/**
+ * Pairs closer than a car diagonal, reported as strings so a failure names the offenders instead of
+ * saying `false !== true`. Only sets used *together* are checked: FFA spawns among themselves, and
+ * team A plus team B as one set, since those two are occupied in the same match.
+ */
+function tooCloseTogether(spawns: readonly Spawn[], label: string): string[] {
+  const problems: string[] = [];
+  for (let i = 0; i < spawns.length; i += 1) {
+    for (let j = i + 1; j < spawns.length; j += 1) {
+      const a = spawns[i]!;
+      const b = spawns[j]!;
+      const distance = Math.hypot(a.x - b.x, a.y - b.y);
+      if (distance < CAR_DIAGONAL) {
+        problems.push(`${label} #${i} and #${j} are ${distance.toFixed(1)} apart (< ${CAR_DIAGONAL})`);
+      }
+    }
+  }
+  return problems;
+}
+
+describe.each(entries)("arena %s", (id, arena) => {
+  it("declares the id it is registered under", () => {
+    expect(arena.id).toBe(id);
+  });
+
+  it("has positive finite bounds", () => {
+    expect(Number.isFinite(arena.width)).toBe(true);
+    expect(Number.isFinite(arena.height)).toBe(true);
+    expect(arena.width).toBeGreaterThan(0);
+    expect(arena.height).toBeGreaterThan(0);
   });
 
   it("keeps every obstacle inside bounds", () => {
-    for (const o of ARENA_01.obstacles) {
+    for (const o of arena.obstacles) {
+      expect(o.w).toBeGreaterThan(0);
+      expect(o.h).toBeGreaterThan(0);
       expect(o.x).toBeGreaterThanOrEqual(0);
       expect(o.y).toBeGreaterThanOrEqual(0);
-      expect(o.x + o.w).toBeLessThanOrEqual(ARENA_01.width);
-      expect(o.y + o.h).toBeLessThanOrEqual(ARENA_01.height);
+      expect(o.x + o.w).toBeLessThanOrEqual(arena.width);
+      expect(o.y + o.h).toBeLessThanOrEqual(arena.height);
     }
-  });
-
-  it("exposes 6 FFA spawns and 3+3 team spawns, none overlapping an obstacle", () => {
-    expect(ARENA_01.ffaSpawns).toHaveLength(6);
-    expect(ARENA_01.teamASpawns).toHaveLength(3);
-    expect(ARENA_01.teamBSpawns).toHaveLength(3);
-    const all = [...ARENA_01.ffaSpawns, ...ARENA_01.teamASpawns, ...ARENA_01.teamBSpawns];
-    for (const s of all) {
-      expect(s.x).toBeGreaterThan(80);
-      expect(s.x).toBeLessThan(ARENA_01.width - 80);
-      for (const o of ARENA_01.obstacles) {
-        const inside = s.x > o.x && s.x < o.x + o.w && s.y > o.y && s.y < o.y + o.h;
-        expect(inside).toBe(false);
-      }
-    }
-    for (const s of ARENA_01.teamASpawns) expect(s.x).toBeLessThan(ARENA_01.width / 2);
-    for (const s of ARENA_01.teamBSpawns) expect(s.x).toBeGreaterThan(ARENA_01.width / 2);
   });
 
   it("keeps every obstacle at least a car diagonal clear of the arena boundary", () => {
-    const tooClose = ARENA_01.obstacles.flatMap((o) => {
+    const tooClose = arena.obstacles.flatMap((o) => {
       const sides = [
         ["left", o.x],
         ["top", o.y],
-        ["right", ARENA_01.width - (o.x + o.w)],
-        ["bottom", ARENA_01.height - (o.y + o.h)],
+        ["right", arena.width - (o.x + o.w)],
+        ["bottom", arena.height - (o.y + o.h)],
       ] as const;
       return sides
         .filter(([, gap]) => gap < CAR_DIAGONAL)
@@ -67,9 +94,10 @@ describe("arena-01", () => {
 
   it("leaves no corridor between obstacles too narrow for a car", () => {
     // Only a pair overlapping on one axis forms a corridor on the other. A gap of exactly 0 means
-    // the two touch, which is one solid mass and perfectly drivable-around — not a trap.
+    // the two touch, which is one solid mass and perfectly drivable-around — not a trap. A negative
+    // gap means they overlap into a single compound shape, which is likewise fine.
     const narrow: string[] = [];
-    const obstacles = ARENA_01.obstacles;
+    const obstacles = arena.obstacles;
     for (let i = 0; i < obstacles.length; i += 1) {
       for (let j = i + 1; j < obstacles.length; j += 1) {
         const a = obstacles[i]!;
@@ -87,14 +115,38 @@ describe("arena-01", () => {
     expect(narrow).toEqual([]);
   });
 
-});
+  it("seats a full lobby in every mode", () => {
+    expect(arena.ffaSpawns.length).toBeGreaterThanOrEqual(MAX_PLAYERS);
+    expect(arena.teamASpawns.length).toBeGreaterThanOrEqual(MIN_TEAM_SPAWNS);
+    expect(arena.teamBSpawns.length).toBeGreaterThanOrEqual(MIN_TEAM_SPAWNS);
+  });
 
-import { ACTIVE_ARENA_ID } from "../config/arena-config.js";
-import { ARENA_IDS, ARENAS, isArenaId } from "./registry.js";
+  it("puts every spawn inside the bounds and clear of obstacles", () => {
+    const all = [...arena.ffaSpawns, ...arena.teamASpawns, ...arena.teamBSpawns];
+    for (const s of all) {
+      expect(s.x).toBeGreaterThan(SPAWN_WALL_MARGIN);
+      expect(s.x).toBeLessThan(arena.width - SPAWN_WALL_MARGIN);
+      expect(s.y).toBeGreaterThan(SPAWN_WALL_MARGIN);
+      expect(s.y).toBeLessThan(arena.height - SPAWN_WALL_MARGIN);
+      expect(Number.isFinite(s.angle)).toBe(true);
+      expect(insideObstacle(s, arena)).toBe(false);
+    }
+  });
+
+  it("separates the teams across the halfway line", () => {
+    for (const s of arena.teamASpawns) expect(s.x).toBeLessThan(arena.width / 2);
+    for (const s of arena.teamBSpawns) expect(s.x).toBeGreaterThan(arena.width / 2);
+  });
+
+  it("never stacks two spawns that are occupied in the same match", () => {
+    expect(tooCloseTogether(arena.ffaSpawns, "ffa")).toEqual([]);
+    expect(tooCloseTogether([...arena.teamASpawns, ...arena.teamBSpawns], "team")).toEqual([]);
+  });
+});
 
 describe("registry", () => {
   it("resolves every registered id to its own def", () => {
-    for (const [id, def] of Object.entries(ARENAS)) {
+    for (const [id, def] of entries) {
       expect(getArena(id)).toBe(def);
     }
   });
