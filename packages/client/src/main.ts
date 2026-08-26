@@ -6,7 +6,7 @@ import { CarSelectScene } from "./scenes/CarSelectScene.js";
 import { RevealScene } from "./scenes/RevealScene.js";
 import { ArenaScene } from "./scenes/ArenaScene.js";
 import { ResultsScene } from "./scenes/ResultsScene.js";
-import { bindFullscreenToggle } from "./config/display.js";
+import { VIEW_HEIGHT, VIEW_WIDTH, bindFullscreenToggle } from "./config/display.js";
 
 declare global {
   interface Window {
@@ -16,8 +16,8 @@ declare global {
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,
-  width: 1280,
-  height: 720,
+  width: VIEW_WIDTH,
+  height: VIEW_HEIGHT,
   parent: "game",
   // The warm neutral the design system sits its screens on. Only ever visible as the letterbox bars
   // FIT leaves on a non-16:9 window: every scene paints its own ground over it, menus in cream and

@@ -15,6 +15,14 @@ import {
 const DT = MS_PER_TICK / 1000;
 const BOUNDS = { width: ARENA_01.width, height: ARENA_01.height };
 
+/**
+ * A box for the obstacle tests to fire at. Authored here rather than borrowed from `ARENA_01`,
+ * which ships empty: obstacle collision is still live behaviour that other arenas rely on, and a
+ * sim test should not go dark because the arena the game happens to ship was refurnished.
+ * Positioned clear of the fixtures default spawn at {100,100} and of every wall.
+ */
+const TEST_BOX = { x: 600, y: 300, w: 240, h: 120 };
+
 function shot(over: Partial<Proj> = {}): Proj {
   return {
     id: "p1",
@@ -59,13 +67,13 @@ describe("stepProjectile", () => {
 
 describe("projectileHitsObstacle", () => {
   it("is false in open arena", () => {
-    expect(projectileHitsObstacle(shot(), ARENA_01.obstacles, BOUNDS)).toBe(false);
+    expect(projectileHitsObstacle(shot(), [TEST_BOX], BOUNDS)).toBe(false);
   });
 
   it("is true inside an obstacle", () => {
-    const box = ARENA_01.obstacles[0]!;
+    const box = TEST_BOX;
     const p = shot({ x: box.x + box.w / 2, y: box.y + box.h / 2 });
-    expect(projectileHitsObstacle(p, ARENA_01.obstacles, BOUNDS)).toBe(true);
+    expect(projectileHitsObstacle(p, [box], BOUNDS)).toBe(true);
   });
 
   it("is true past each arena edge", () => {
@@ -78,7 +86,7 @@ describe("projectileHitsObstacle", () => {
   it("kills a shot flown into the nearest wall", () => {
     let p = shot({ x: 100, y: 100, angle: Math.PI });
     let ticks = 0;
-    while (!projectileHitsObstacle(p, ARENA_01.obstacles, BOUNDS) && ticks < 100) {
+    while (!projectileHitsObstacle(p, [TEST_BOX], BOUNDS) && ticks < 100) {
       p = stepProjectile(p, DT);
       ticks++;
     }

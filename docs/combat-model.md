@@ -68,8 +68,9 @@ sorted `sessionId` order so two overlapping cars resolve reproducibly.
 Two deliberate v1 limits:
 
 - **No swept test.** At 900 u/s a shot moves 30 units per tick and is sampled once, so it could
-  straddle anything thinner than that. Every `ARENA_01` obstacle is at least 80 units thick, which is
-  why the point test holds.
+  straddle anything thinner than that. `ARENA_01` is empty, so nothing there to straddle; an arena
+  that does carry obstacles must keep every one of them at least 30 units thick for the point test
+  to hold.
 - **No lag compensation.** Hits are tested on the current tick with no rewind, so a shooter on 80 ms
   leads a moving target by roughly their own latency. Rewind-and-replay is the standard fix and is
   out of scope for v1.

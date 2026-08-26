@@ -4,6 +4,14 @@
  * whatever their monitor's shape — a wider window earns black bars, never more arena.
  */
 
+/**
+ * The logical size every scene is laid out against, and the size the arena camera sees at zoom 1.
+ * Named rather than repeated as a literal because two places now depend on it agreeing: the Phaser
+ * game config, and `fitsViewport`, which decides whether the arena camera needs to scroll at all.
+ */
+export const VIEW_WIDTH = 1280;
+export const VIEW_HEIGHT = 720;
+
 /** Toggles browser fullscreen. A key, not automatic: browsers only grant fullscreen on a gesture. */
 export const FULLSCREEN_KEY = "f";
 

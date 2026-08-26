@@ -24,12 +24,20 @@ const DT = MS_PER_TICK / 1000;
 /** Open floor in arena-01: no obstacle spans y < 350. */
 const OPEN_Y = 150;
 
+/**
+ * A box for the obstacle tests to fire at. Authored here rather than borrowed from `ARENA_01`,
+ * which ships empty: obstacle collision is still live behaviour that other arenas rely on, and a
+ * sim test should not go dark because the arena the game happens to ship was refurnished.
+ * Positioned clear of the shooter at the origin end of the arena and of every wall.
+ */
+const TEST_BOX = { x: 600, y: 300, w: 240, h: 120 };
+
 function world(over: Partial<CombatWorld> = {}): CombatWorld {
   return {
     tick: 100,
     dt: DT,
     mode: "ffa",
-    obstacles: ARENA_01.obstacles,
+    obstacles: [],
     bounds: { width: ARENA_01.width, height: ARENA_01.height },
     ...over,
   };
@@ -186,9 +194,10 @@ describe("shots in flight", () => {
   });
 
   it("drops a shot that flies into an obstacle", () => {
-    const box = ARENA_01.obstacles[0]!;
+    const box = TEST_BOX;
     const justShort = box.x - WEAPON_CONFIG.projectileSpeed * DT + 1;
     const result = run({
+      world: world({ obstacles: [box] }),
       projectiles: [flying({ x: justShort, y: box.y + box.h / 2 })],
     });
     expect(result.projectiles).toHaveLength(0);
@@ -289,9 +298,10 @@ describe("shots landing", () => {
   });
 
   it("kills a shot on the wall in front of the target rather than through it", () => {
-    const box = ARENA_01.obstacles[0]!;
+    const box = TEST_BOX;
     const target = player("b", { x: box.x + box.w + 4, y: box.y + box.h / 2 });
     const result = run({
+      world: world({ obstacles: [box] }),
       players: [player("a"), target],
       projectiles: [
         {

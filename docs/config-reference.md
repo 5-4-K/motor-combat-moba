@@ -154,13 +154,19 @@ keep hand-in-sync as more arenas land.
 
 | id | width × height | obstacles | palette |
 |---|---|---|---|
-| `arena-01` | 2400 × 1600 | 6 | none — uses the client's default palette |
+| `arena-01` | 1280 × 720 | 0 | none — uses the client's default palette |
 | `arena-02` | 2000 × 2000 | 6 | `#d8cfc4` floor / `#6b5b4b` obstacle / `#2f2a26` border |
 
-`arena-01`: 6 `ffaSpawns` (corners + mid-top / mid-bottom), 3 `teamASpawns` on the left (`x=220`,
-angle `0`), 3 `teamBSpawns` on the right (`x=2180`, angle `π`). `arena-02` ("Crossroads") is a
-square arena built around one central plus-shaped mass with four corner bunkers — deliberately a
-different shape from `arena-01`, not a rearrangement of it.
+`arena-01` is one open rectangle with nothing in it, sized to the client's logical canvas so that at
+`CAMERA_CONFIG.zoom` of 1 the camera shows the whole of it and never scrolls. Rescaling it without
+rescaling the zoom to match breaks that, and `arena-camera.test.ts` on the client is what fails.
+Its 6 `ffaSpawns` are the four corners and the midpoint of each long wall, all 160 units off the
+wall; corner cars face across the arena and the two midpoint cars face each other. Its 3
+`teamASpawns` sit at `x=160` facing `0` and its 3 `teamBSpawns` at `x=1120` facing `π`, at
+`y=180/360/540` — quarters of the height, so the gap between team-mates equals the gap to the wall.
+`arena-02` ("Crossroads") is a square arena built around one central plus-shaped mass with four
+corner bunkers, and is the registry's example of an arena too large to fit the view: it keeps the
+follow camera and spectator free roam that `arena-01` no longer needs.
 
 `getArena(id)` throws on an unknown id; it exists for the server's sim path, where an unresolvable
 arena is a programming error with no sane fallback. The client checks `isArenaId` first and shows a

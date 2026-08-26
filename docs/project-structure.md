@@ -81,9 +81,10 @@ motor-combat-MOBA/
         │   └── view.ts           # status + phase → scene
         ├── scenes/
         │   ├── {Boot,Join,Lobby,CarSelect,Arena,Results}Scene.ts
+        │   ├── arena-camera.ts   # whether the arena fits the view, so the camera need not scroll
         │   ├── arena-input.ts    # sim-clock input drain, axis folding
         │   ├── arena-mismatch.ts # builds the mismatch message string (pure, testable)
-        │   ├── arena-visual.ts   # resolves an arena's palette to Phaser colour ints
+        │   ├── arena-visual.ts   # arena palette → Phaser colour ints; inset border rect
         │   ├── car-visual.ts     # chassis silhouettes, colours
         │   ├── combat-visual.ts  # hp bar maths, shot extrapolation
         │   ├── spectate.ts       # spectate cycle, free-roam pan
@@ -92,7 +93,8 @@ motor-combat-MOBA/
 ```
 
 `ArenaScene` itself cannot be unit-tested without a browser, so its logic lives in the plain modules
-beside it (`arena-input`, `car-visual`, `combat-visual`, `spectate`) and the scene stays a thin shell
+beside it (`arena-camera`, `arena-input`, `car-visual`, `combat-visual`, `spectate`) and the scene stays
+a thin shell
 over them. `assets/` is the same idea one directory over: the manifest parse, the key namespace, the
 hull fit, and the sprite-or-silhouette decision are all pure modules there, so the only thing left in
 a scene is handing them a Phaser object. Client tests run in the **node** environment and never

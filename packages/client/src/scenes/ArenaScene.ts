@@ -15,6 +15,7 @@ import {
 } from "@motor-combat-moba/shared";
 import { applyCarSprite, phaserTextures, resolveCarSprite } from "../assets/car-sprite.js";
 import { isDebugEnabled } from "../config/client-mode.js";
+import { VIEW_HEIGHT, VIEW_WIDTH } from "../config/display.js";
 import { InterpolationBuffer } from "../net/interpolation.js";
 import { PredictionBuffer } from "../net/prediction.js";
 import { blendPose } from "../net/interpolation.js";
@@ -24,7 +25,8 @@ import { ScreenOverlay } from "../ui/overlay.js";
 import { renderArenaMismatch } from "../ui/screens/arena-mismatch.js";
 import { arenaMismatchMessage } from "./arena-mismatch.js";
 import { axisOf, drainTicks } from "./arena-input.js";
-import { arenaColorsOf } from "./arena-visual.js";
+import { arenaBorderRect, arenaColorsOf } from "./arena-visual.js";
+import { fitsViewport } from "./arena-camera.js";
 import { assetManifest, assetsReady } from "./BootScene.js";
 import { carFillOf, carShapeOf, hexagonPoints } from "./car-visual.js";
 import { extrapolateShot, hpBarColor, hpFraction } from "./combat-visual.js";
@@ -147,6 +149,13 @@ export class ArenaScene extends Phaser.Scene {
   private spectateTarget = "";
   private freeRoam = false;
   /**
+   * True when the arena is small enough to be on screen in its entirety, which is what `ARENA_01`
+   * is authored for. The camera is then parked on the arena centre for the whole match: following a
+   * car could only scroll a picture that is already complete, and would jitter it every time
+   * reconciliation nudged the local pose. Larger arenas keep the follow camera and free roam.
+   */
+  private staticCamera = false;
+  /**
    * When the last state patch landed, for drawing shots between patches. `performance.now()` rather
    * than Phaser's clock, for the reason spelled out in `pushRemoteSnapshots`.
    */
@@ -261,7 +270,8 @@ export class ArenaScene extends Phaser.Scene {
       gfx.fillRect(obstacle.x, obstacle.y, obstacle.w, obstacle.h);
     }
     gfx.lineStyle(ARENA_BORDER_PX, colors.border, 1);
-    gfx.strokeRect(0, 0, arena.width, arena.height);
+    const border = arenaBorderRect(arena, ARENA_BORDER_PX);
+    gfx.strokeRect(border.x, border.y, border.w, border.h);
     this.arenaGfx = gfx;
 
     const cam = this.cameras.main;
@@ -270,6 +280,9 @@ export class ArenaScene extends Phaser.Scene {
     cam.setZoom(CAMERA_CONFIG.zoom);
     // Stops the soft follow from panning past the arena edge into empty space.
     cam.setBounds(0, 0, arena.width, arena.height);
+
+    this.staticCamera = fitsViewport(arena, { width: VIEW_WIDTH, height: VIEW_HEIGHT }, CAMERA_CONFIG.zoom);
+    if (this.staticCamera) cam.centerOn(arena.width / 2, arena.height / 2);
   }
 
   private bindRoom(room: Room<ArenaState>): void {
@@ -678,7 +691,9 @@ export class ArenaScene extends Phaser.Scene {
     this.spectateTarget = resolveSpectateTarget(ids, this.spectateTarget);
     if (!keys) return;
 
-    if (Phaser.Input.Keyboard.JustDown(keys.freeRoam)) {
+    // Free roam pans a camera that cannot scroll when the whole arena already fits, so the key is
+    // inert there rather than toggling a mode with no visible effect.
+    if (!this.staticCamera && Phaser.Input.Keyboard.JustDown(keys.freeRoam)) {
       this.freeRoam = !this.freeRoam;
       // Free roam starts wherever the camera already is, so toggling it does not teleport the view.
       if (!this.freeRoam) this.camFocus = undefined;
@@ -734,6 +749,7 @@ export class ArenaScene extends Phaser.Scene {
    * differently on a 60 Hz and a 144 Hz display.
    */
   private followCamera(pose: SimBody, delta: number): void {
+    if (this.staticCamera) return;
     if (!this.camFocus) {
       this.camFocus = { x: pose.x, y: pose.y };
     } else {

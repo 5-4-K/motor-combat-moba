@@ -35,3 +35,24 @@ export function arenaColorsOf(arena: ArenaDef): ArenaColors {
     border: hexToInt(palette.border, ARENA_COLOR_DEFAULTS.border),
   };
 }
+
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * The rect to stroke so the arena border is drawn entirely inside the world.
+ *
+ * Phaser centres a stroke on the path, so stroking the arena bounds directly puts half the line
+ * outside them. That was harmless while the camera roamed a world bigger than the view; an arena
+ * sized to the view has the camera ending exactly on the bounds, and the outer half is clipped on
+ * every side — a 4px border rendering as 2px, dimmer on all four edges. Insetting by half the
+ * stroke width is the fix, and it is a no-op for a zero-width border.
+ */
+export function arenaBorderRect(arena: { width: number; height: number }, borderPx: number): Rect {
+  const inset = borderPx / 2;
+  return { x: inset, y: inset, w: arena.width - borderPx, h: arena.height - borderPx };
+}
