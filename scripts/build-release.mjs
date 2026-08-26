@@ -2,6 +2,11 @@ import archiver from "archiver";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import {
+  ACTIVE_ARENA_ID,
+  ARENA_ART_COMMON,
+  arenaIdFromArtKey,
+} from "../packages/shared/dist/index.js";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const distReleaseDir = path.join(rootDir, "dist-release");
@@ -9,6 +14,7 @@ const appDir = path.join(distReleaseDir, "motor-combat-moba");
 const zipPath = path.join(distReleaseDir, "motor-combat-moba-release.zip");
 const serverDist = path.join(rootDir, "packages", "server", "dist");
 const clientDist = path.join(rootDir, "packages", "client", "dist");
+const sharedDist = path.join(rootDir, "packages", "shared", "dist");
 
 export function startBat() {
   return `@echo off
@@ -147,6 +153,103 @@ export function assertFontsVendored(clientDistDir) {
   }
 }
 
+function directorySize(dir) {
+  let total = 0;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) total += directorySize(full);
+    else total += fs.statSync(full).size;
+  }
+  return total;
+}
+
+function readManifest(manifestPath) {
+  if (!fs.existsSync(manifestPath)) return undefined;
+  const raw = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  if (!raw || typeof raw !== "object") return undefined;
+  if (!raw.sprites || typeof raw.sprites !== "object") return undefined;
+  return raw;
+}
+
+/**
+ * Strip every arena's art but the active one's from a built client tree.
+ *
+ * Two namespaces always survive: `arena.common.*`, for art several arenas share, and every key
+ * outside the `arena.` prefix. `arenaIdFromArtKey` is imported from shared rather than reimplemented
+ * here so the file-level rule and the client's boot-time load filter cannot drift apart.
+ *
+ * Call this on the **copied** release tree, never on `packages/client/dist`: the source dist stays
+ * complete and reusable, and running a release twice in a row does the same thing as running it once.
+ */
+export function pruneArenaAssets(clientDistDir, activeArenaId) {
+  const arenasDir = path.join(clientDistDir, "art", "arenas");
+  const kept = [];
+  const removed = [];
+  let bytesRemoved = 0;
+
+  if (fs.existsSync(arenasDir)) {
+    for (const entry of fs.readdirSync(arenasDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      if (entry.name === ARENA_ART_COMMON || entry.name === activeArenaId) {
+        kept.push(entry.name);
+        continue;
+      }
+      const full = path.join(arenasDir, entry.name);
+      bytesRemoved += directorySize(full);
+      fs.rmSync(full, { recursive: true, force: true });
+      removed.push(entry.name);
+    }
+  }
+
+  const manifestPath = path.join(clientDistDir, "art", "manifest.json");
+  const manifest = readManifest(manifestPath);
+  if (manifest) {
+    for (const key of Object.keys(manifest.sprites)) {
+      const arenaId = arenaIdFromArtKey(key);
+      if (arenaId === undefined) continue;
+      if (arenaId === ARENA_ART_COMMON || arenaId === activeArenaId) continue;
+      delete manifest.sprites[key];
+    }
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  }
+
+  return { kept: kept.sort(), removed: removed.sort(), bytesRemoved };
+}
+
+/**
+ * Throw if any non-active arena's art or manifest key reached the release. Checks the condition the
+ * player would actually suffer — a file in the zip — rather than trusting that the prune ran, the
+ * same way `assertFontsVendored` checks the file rather than the copy step.
+ */
+export function assertOnlyActiveArenaShipped(clientDistDir, activeArenaId) {
+  const offenders = [];
+  const arenasDir = path.join(clientDistDir, "art", "arenas");
+  if (fs.existsSync(arenasDir)) {
+    for (const entry of fs.readdirSync(arenasDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      if (entry.name === ARENA_ART_COMMON || entry.name === activeArenaId) continue;
+      offenders.push(`art/arenas/${entry.name}/`);
+    }
+  }
+
+  const manifest = readManifest(path.join(clientDistDir, "art", "manifest.json"));
+  if (manifest) {
+    for (const key of Object.keys(manifest.sprites)) {
+      const arenaId = arenaIdFromArtKey(key);
+      if (arenaId === undefined) continue;
+      if (arenaId === ARENA_ART_COMMON || arenaId === activeArenaId) continue;
+      offenders.push(`manifest key ${key}`);
+    }
+  }
+
+  if (offenders.length > 0) {
+    throw new Error(
+      `non-active arena art shipped (ACTIVE_ARENA_ID is "${activeArenaId}"): ${offenders.join(", ")}. ` +
+        `pruneArenaAssets should have removed these from the copied client dist.`,
+    );
+  }
+}
+
 function writeZip(sourceDir, destination) {
   return new Promise((resolve, reject) => {
     const output = fs.createWriteStream(destination);
@@ -160,6 +263,7 @@ function writeZip(sourceDir, destination) {
 }
 
 export async function main() {
+  requireBuiltDist(sharedDist, "packages/shared/dist");
   requireBuiltDist(serverDist, "packages/server/dist");
   requireBuiltDist(clientDist, "packages/client/dist");
   assertNoDevOnlyCode(clientDist);
@@ -174,6 +278,10 @@ export async function main() {
   fs.cpSync(clientDist, path.join(appDir, "packages", "client", "dist"), {
     recursive: true,
   });
+
+  const releaseClientDist = path.join(appDir, "packages", "client", "dist");
+  const pruned = pruneArenaAssets(releaseClientDist, ACTIVE_ARENA_ID);
+  assertOnlyActiveArenaShipped(releaseClientDist, ACTIVE_ARENA_ID);
 
   const serverPkg = JSON.parse(
     fs.readFileSync(path.join(rootDir, "packages", "server", "package.json"), "utf8"),
@@ -196,6 +304,11 @@ export async function main() {
 
   console.log(`Release folder: ${appDir}`);
   console.log(`Release zip: ${zipPath}`);
+  console.log(`Arena: ${ACTIVE_ARENA_ID}`);
+  if (pruned.removed.length > 0) {
+    const kb = Math.round(pruned.bytesRemoved / 1024);
+    console.log(`Pruned arena art: ${pruned.removed.join(", ")} (${kb} KB)`);
+  }
 }
 
 const invokedPath = process.argv[1] && path.resolve(process.argv[1]);
