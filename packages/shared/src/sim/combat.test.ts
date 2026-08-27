@@ -10,7 +10,7 @@ import { runCombat, type CombatInput, type CombatPlayer, type CombatWorld } from
 import { carHullOf } from "./context.js";
 import { newFireState } from "./weapons/fire.js";
 import type { WeaponInstance } from "./weapons/instances.js";
-import { newLockState } from "./weapons/lock.js";
+import { muzzleOf, newLockState } from "./weapons/lock.js";
 import { stepSim } from "./step.js";
 import type { SimBody } from "./step.js";
 import type { InputMessage } from "../net/input.js";
@@ -824,19 +824,21 @@ describe("aim assist through a real tick", () => {
     expect(find(result, "a").lock.targetSessionId).toBe("b");
   });
 
-  it("fires along the car's heading while the weapon opts out", () => {
-    // The zero-balance-change guard. Until Task 8 flips `cannon`, a lock is acquired and changes
-    // nothing about where the shot goes. "b" sits 18 degrees off the nose, well inside the cone, so
-    // this fails loudly if the aim angle ever reaches a weapon that has not opted in.
-    const result = run({
-      players: [
-        player("a", { x: 300, y: 300, angle: 0, fireMask: 1 }),
-        player("b", { x: 480, y: 360, angle: Math.PI }),
-      ],
-    });
+  it("fires at the lock now that the weapon has opted in", () => {
+    // Was the zero-balance-change guard through Task 7: with `cannon` opted out, a lock changed
+    // nothing about where the shot went. Task 8 flips that switch, so the shot must now leave along
+    // the lock direction instead of the car's heading. "b" sits 18 degrees off the nose, well inside
+    // the cone, so this fails loudly if the aim angle stops reaching an opted-in weapon.
+    const a = player("a", { x: 300, y: 300, angle: 0, fireMask: 1 });
+    const b = player("b", { x: 480, y: 360, angle: Math.PI });
+    const result = run({ players: [a, b] });
     const shot = result.instances.find((i) => i.ownerSessionId === "a");
     expect(shot).toBeDefined();
-    expect(shot!.angle).toBeCloseTo(0, 6);
+    // The same muzzle-to-target math `aimAngleFor` uses, so this asserts the real geometry rather
+    // than a hardcoded literal.
+    const muzzle = muzzleOf({ sessionId: a.sessionId, team: a.team, x: a.x, y: a.y, angle: a.angle });
+    const expectedAngle = Math.atan2(b.y - muzzle.y, b.x - muzzle.x);
+    expect(shot!.angle).toBeCloseTo(expectedAngle, 6);
   });
 
   it("holds no lock for a wrecked owner", () => {

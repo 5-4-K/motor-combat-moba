@@ -299,10 +299,10 @@ export class ArenaScene extends Phaser.Scene {
     this.arena = getArena(arenaId);
     this.drawArena(this.arena);
 
-    // One Graphics for every shot and one for every hp bar, cleared and redrawn each frame. Both
-    // are drawn in *world* space but must not rotate with any car, so neither can live inside a
-    // car's own Graphics; a per-shot object would also mean creating and destroying objects at the
-    // fire rate for no gain.
+    // One Graphics for every shot, one for every hp bar, and one for every lock bracket, cleared
+    // and redrawn each frame. All three are drawn in *world* space but must not rotate with any
+    // car, so none can live inside a car's own Graphics; a per-shot object would also mean creating
+    // and destroying objects at the fire rate for no gain.
     this.shotGfx = this.add.graphics().setDepth(SHOT_DEPTH);
     this.hpGfx = this.add.graphics().setDepth(HP_BAR_DEPTH);
     this.lockGfx = this.add.graphics().setDepth(LOCK_DEPTH);

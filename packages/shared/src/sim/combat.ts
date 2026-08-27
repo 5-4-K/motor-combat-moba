@@ -102,7 +102,7 @@ export interface CombatResult {
  *
  * Per-tick phase order — pinned by `weapons/fire.ts`'s own module comment and its tests:
  *
- *     tickRecharge -> (step existing instances) -> beginFire -> releaseShots -> hit resolution -> ramming
+ *     tickRecharge -> (step existing instances) -> update lock -> beginFire -> releaseShots -> hit resolution -> ramming
  *
  * Every weapon in the table today has `startUpMs: 0`, so a press must schedule and fire on the same
  * tick: `beginFire` before `releaseShots` is what makes that true. Existing instances step BEFORE new

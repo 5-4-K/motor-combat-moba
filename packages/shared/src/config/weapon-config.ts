@@ -23,7 +23,11 @@ export const WEAPON_TABLE = {
     startUpMs: 0,
     cooldownMs: 500,
     recoveryMs: 0,
-    usesAimAssist: false,
+    // The system would otherwise ship dark: `cannon` is the only weapon any chassis carries, so
+    // leaving it off would put aim assist on the same never-seen-in-play list as beams, multi-pellet
+    // volleys and `repeater`. Note the consequence -- every chassis carries `cannon`, so aim assist
+    // is universal until a second weapon is authored.
+    usesAimAssist: true,
     hitbox: { shape: "circle", radius: 12 },
     pierce: 0,
     volley: { volleys: 1, volleyIntervalMs: 0, pelletsPerVolley: 1, spreadAngleDeg: 0 },

@@ -73,12 +73,10 @@ describe("WEAPON_TABLE", () => {
     expect(weaponDefOf("cannon").id).toBe("cannon");
   });
 
-  it("ships every row with aim assist off", () => {
-    // Task 8 flips `cannon` on its own, as the single commit that changes how the game plays.
-    // Until then the whole system is inert in play and proven by unit tests alone.
-    for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
-      expect(def.usesAimAssist).toBe(false);
-    }
+  it("gives the cannon aim assist and leaves the repeater without it", () => {
+    // The pair that makes `usesAimAssist` a real switch rather than a global: one row on, one off.
+    expect(WEAPON_TABLE.cannon.usesAimAssist).toBe(true);
+    expect(WEAPON_TABLE.repeater.usesAimAssist).toBe(false);
   });
 
   it("never lets an aim-assist weapon lock past its own reach", () => {

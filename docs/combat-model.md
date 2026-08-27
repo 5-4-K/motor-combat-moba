@@ -57,6 +57,53 @@ Firing still rides the same gate as movement: `serverTick` reports which session
 on an input it actually **simulated**, so an input past `NET_CONFIG.maxInputsPerTick` cannot buy a
 shot the sim never ran, and a lobby player spamming a fire key spawns nothing.
 
+### Aim assist and the target lock
+
+A weapon whose `usesAimAssist` is true fires at the car's **lock** instead of along its heading.
+The lock decides a direction only: the instance is an ordinary projectile frozen to its exit pose,
+with no homing and no correction in flight.
+
+The lock is **ambient** — maintained every tick whenever a valid target exists, whether or not the
+player is firing. The trigger fires; it never targets. With no lock, a weapon fires straight ahead,
+and firing is never blocked.
+
+**The region** is a cone intersected with a lateral cap, out to `AIM_CONFIG.lockRange` — all three
+bounds, because neither of the first two survives alone. A pure cone's width scales with distance,
+so at the cannon's range it would span half the arena; a pure lane's angular width explodes near the
+car, so it would accept a target 83° off your nose during a ram. The cone governs contact range, the
+cap governs long range, and they cross over around 330 units.
+
+**Scoring** is `abs(angleDeg) + distance × scorePerDistanceUnit`, lowest wins. The coefficient is per
+**world unit** — there are no metres in this game, and a value sized for metres makes the distance
+term swamp the angle and turns the whole system into "always nearest target".
+
+**Hysteresis comes in two independent halves**, and conflating them is the easy mistake:
+
+- *Spatial* — the retention pads and the sight grace — decides whether the current target is still
+  held. All three bounds are padded, not just the angle: at long range the lateral cap is what binds,
+  so a degrees-only pad would give a distant target no hysteresis at all.
+- *Competitive* — the 25% steal margin and the commit timer — decides whether a rival may replace it.
+
+`AIM_CONFIG.lockTimeoutMs` switches off the **competitive** half after a spell with no fire press
+(any slot: the timer asks whether the driver has disengaged, not whether a particular gun is in use).
+It never blanks the bracket — release and re-acquisition resolve in one pass — it just means the
+best-scoring target wins outright. That is what splits weapons into two classes: faster than
+`1000 / lockTimeoutMs` holds locks and the margin governs, slower re-picks the best target every
+shot. `weapon-config.test.ts` fails any aim-assist weapon authored within 15% of that cliff.
+
+**Line of sight** is a muzzle-to-target raycast reusing `wallClipDistance`. It is a no-op in
+`arena-01`, which has no obstacles, and exists because switching arenas is a one-line edit.
+**Wrecks are not cover** — shots already pass straight through them, so blocking a lock on one would
+drop it for an obstruction that provably does not stop the bullet.
+
+**Shot geometry:** the fired angle is measured from the **muzzle**, not the car centre (scoring uses
+the centre); the muzzle itself never moves; and a pellet fan or a sequential burst re-reads the lock
+at each shot's own tick, the same way it already re-reads the car's pose.
+
+`repeater` is the table's reference row for `usesAimAssist: false`, as `cannon` is for `true`.
+See [`superpowers/specs/2026-08-27-aim-assist-target-lock-design.md`](superpowers/specs/2026-08-27-aim-assist-target-lock-design.md)
+for the decisions (A1–A14) and the rejected alternatives.
+
 ### One fire state machine per car
 
 A car is in exactly one state — `idle → startUp → (fire) → recovery → idle` — tracked **once per

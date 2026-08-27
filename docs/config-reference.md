@@ -95,6 +95,34 @@ Caps how many slots any chassis may present. A car whose `weapons` list is longe
 `console.warn` naming the car and the extras are truncated — a warning, never a thrown error or a
 failed test.
 
+## AIM_CONFIG
+
+Aim assist geometry and feel, global to every weapon that opts in with `usesAimAssist: true` (A1).
+See [`combat-model.md`](combat-model.md#aim-assist-and-the-target-lock) for how these knobs combine.
+
+| Knob | Value | Unit |
+|---|---|---|
+| `coneDeg` | 20 | degrees (half-angle of the acquisition cone) |
+| `lateralMax` | 120 | world units (perpendicular offset from centreline) |
+| `lockRange` | 400 | world units |
+| `retentionConeDeg` | 5 | degrees (pad added to `coneDeg` to hold an already-locked target) |
+| `retentionLateralUnits` | 30 | world units (pad added to `lateralMax`) |
+| `retentionRangeUnits` | 60 | world units (pad added to `lockRange`) |
+| `scorePerDistanceUnit` | 0.04 | per world unit (scoring: `abs(angleDeg) + distance × scorePerDistanceUnit`) |
+| `stealMarginFraction` | 0.25 | fraction (a rival must score this much better to steal the lock) |
+| `commitMs` | 400 | ms (minimum time on a target before it may be stolen) |
+| `lockTimeoutMs` | 800 | ms (how long after the last fire press the lock keeps incumbency) |
+| `losGraceMs` | 300 | ms (how long a target may be out of sight before the lock releases) |
+
+`commitMs`, `lockTimeoutMs`, and `losGraceMs` are authored in milliseconds and converted once, at
+shared's module load, into the frozen `AIM_TICKS` (`commit` / `lockTimeout` / `losGrace`) the sim
+actually reads — the same pattern as `WEAPON_TICKS` above.
+
+`lockRange` is deliberately its own number, not borrowed from a weapon's `range` (A3):
+`weapon-config.test.ts` asserts every aim-assist weapon's `range` is at least `lockRange`, and
+separately asserts every aim-assist weapon's sustained fire rate sits outside a ±15% band around the
+`1000 / lockTimeoutMs` cliff — see `combat-model.md` for what that cliff means.
+
 ## COMBAT_CONFIG
 
 | Knob | Value |
