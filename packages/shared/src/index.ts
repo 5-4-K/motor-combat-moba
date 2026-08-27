@@ -50,6 +50,17 @@ export { runCombat } from "./sim/combat.js";
 export type { CombatInput, CombatPlayer, CombatResult, CombatWorld } from "./sim/combat.js";
 export { canDamage } from "./sim/weapons/targets.js";
 export {
+  hasLineOfSight,
+  inAcquireRegion,
+  inRetainRegion,
+  lockScore,
+  muzzleOf,
+  newLockState,
+  signedAngleDegTo,
+  updateLock,
+} from "./sim/weapons/lock.js";
+export type { LockOwner, LockState, LockTarget, UpdateLockContext } from "./sim/weapons/lock.js";
+export {
   beginFire,
   cancelPending,
   newFireState,

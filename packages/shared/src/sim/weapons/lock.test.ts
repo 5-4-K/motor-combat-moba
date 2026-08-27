@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AIM_CONFIG } from "../../config/aim-config.js";
+import { AIM_CONFIG, AIM_TICKS } from "../../config/aim-config.js";
 import type { Aabb, Bounds } from "../collide.js";
 import {
   hasLineOfSight,
@@ -7,8 +7,11 @@ import {
   inRetainRegion,
   lockScore,
   muzzleOf,
+  newLockState,
   signedAngleDegTo,
+  updateLock,
   type LockOwner,
+  type LockTarget,
 } from "./lock.js";
 
 // `Bounds` is an extent, not a min/max box: the world is [0, width] x [0, height].
@@ -159,5 +162,226 @@ describe("hasLineOfSight", () => {
   it("is clear when the obstacle is off the line", () => {
     const wall: Aabb = { x: 280, y: 400, w: 40, h: 200 };
     expect(hasLineOfSight(100, 100, 500, 100, [wall], BOUNDS)).toBe(true);
+  });
+});
+
+/**
+ * The owner sits well inside the arena, NOT at the origin. `pointOutsideBounds` is inclusive on
+ * every edge, so a car at (0, 0) has its muzzle on the boundary and `wallClipDistance` reports a
+ * reach of 0 — every line-of-sight test would fail for reasons that have nothing to do with locks.
+ */
+const OX = 400;
+const OY = 400;
+
+/** Enemies are placed in the owner's frame: `forward` along its nose, `lateral` across it. */
+function enemyAt(sessionId: string, forward: number, lateral: number): LockTarget {
+  return { sessionId, team: 1, x: OX + forward, y: OY + lateral };
+}
+
+function ctxFor(
+  candidates: readonly LockTarget[],
+  tick: number,
+  overrides: Partial<Parameters<typeof updateLock>[1]> = {},
+) {
+  return {
+    owner: ownerAt(OX, OY, 0),
+    ownerFighting: true,
+    pressedThisTick: false,
+    candidates,
+    mode: "ffa" as const,
+    obstacles: [] as Aabb[],
+    bounds: BOUNDS,
+    tick,
+    ...overrides,
+  };
+}
+
+describe("updateLock: acquisition", () => {
+  it("locks the only valid target in the region", () => {
+    const next = updateLock(newLockState(), ctxFor([enemyAt("a", 200, 0)], 5));
+    expect(next.targetSessionId).toBe("a");
+    expect(next.lockedAtTick).toBe(5);
+  });
+
+  it("locks nothing when the region is empty", () => {
+    const next = updateLock(newLockState(), ctxFor([enemyAt("a", 0, 300)], 5));
+    expect(next.targetSessionId).toBe("");
+  });
+
+  it("takes the lowest score when several qualify", () => {
+    // "b" is nearer and only slightly off-axis; "a" is dead ahead but far.
+    const next = updateLock(newLockState(), ctxFor([enemyAt("a", 390, 0), enemyAt("b", 80, 17)], 5));
+    expect(next.targetSessionId).toBe("b");
+  });
+
+  it("ignores the steal margin and the commit timer when there is no incumbent", () => {
+    // Acquiring from nothing has no incumbent to beat, so a marginal target still locks instantly.
+    const next = updateLock(newLockState(), ctxFor([enemyAt("a", 200, 0)], 0));
+    expect(next.targetSessionId).toBe("a");
+  });
+
+  it("never locks a teammate in team mode", () => {
+    const mate: LockTarget = { sessionId: "mate", team: 0, x: OX + 200, y: OY };
+    const next = updateLock(newLockState(), ctxFor([mate], 5, { mode: "team" }));
+    expect(next.targetSessionId).toBe("");
+  });
+
+  it("locks that same car in ffa, where teams are only seating", () => {
+    const other: LockTarget = { sessionId: "other", team: 0, x: OX + 200, y: OY };
+    const next = updateLock(newLockState(), ctxFor([other], 5, { mode: "ffa" }));
+    expect(next.targetSessionId).toBe("other");
+  });
+
+  it("never locks itself", () => {
+    const self: LockTarget = { sessionId: "me", team: 0, x: OX + 200, y: OY };
+    const next = updateLock(newLockState(), ctxFor([self], 5));
+    expect(next.targetSessionId).toBe("");
+  });
+
+  it("will not acquire a target it cannot see", () => {
+    // Acquisition needs sight NOW. The grace period is a retention rule only -- extending it to
+    // acquisition would let a lock pop onto a car that has been behind a wall the whole time.
+    const wall: Aabb = { x: OX + 90, y: OY - 60, w: 40, h: 120 };
+    const next = updateLock(newLockState(), ctxFor([enemyAt("a", 200, 0)], 5, { obstacles: [wall] }));
+    expect(next.targetSessionId).toBe("");
+  });
+});
+
+describe("updateLock: retention", () => {
+  it("holds a target that has drifted past acquisition but not past retention", () => {
+    const held = { targetSessionId: "a", lockedAtTick: 0, losLostSinceTick: 0, lastPressTick: 0 };
+    // 19 degrees at 380 units: 124 units of lateral offset, past the 120 cap, inside 120 + 30.
+    const drifted = enemyAt("a", 380 * Math.cos(0.3316), 380 * Math.sin(0.3316));
+    const next = updateLock(held, ctxFor([drifted], 20));
+    expect(next.targetSessionId).toBe("a");
+    expect(next.lockedAtTick).toBe(0);
+  });
+
+  it("releases a target that leaves the retention region", () => {
+    const held = { targetSessionId: "a", lockedAtTick: 0, losLostSinceTick: 0, lastPressTick: 0 };
+    const gone = enemyAt("a", 100, 400);
+    expect(updateLock(held, ctxFor([gone], 20)).targetSessionId).toBe("");
+  });
+
+  it("releases a target that has left the field entirely", () => {
+    // Death, disconnect and leaving the roster all arrive the same way: the car is simply absent
+    // from the candidate list the caller builds from living fighters.
+    const held = { targetSessionId: "a", lockedAtTick: 0, losLostSinceTick: 0, lastPressTick: 0 };
+    expect(updateLock(held, ctxFor([], 20)).targetSessionId).toBe("");
+  });
+
+  it("holds through a brief loss of sight and records when it started", () => {
+    const wall: Aabb = { x: OX + 90, y: OY - 60, w: 40, h: 120 };
+    const held = { targetSessionId: "a", lockedAtTick: 0, losLostSinceTick: 0, lastPressTick: 0 };
+    const next = updateLock(held, ctxFor([enemyAt("a", 200, 0)], 20, { obstacles: [wall] }));
+    expect(next.targetSessionId).toBe("a");
+    expect(next.losLostSinceTick).toBe(20);
+  });
+
+  it("releases once sight has been lost for longer than the grace", () => {
+    const wall: Aabb = { x: OX + 90, y: OY - 60, w: 40, h: 120 };
+    const held = { targetSessionId: "a", lockedAtTick: 0, losLostSinceTick: 20, lastPressTick: 0 };
+    const stillHidden = updateLock(
+      held,
+      ctxFor([enemyAt("a", 200, 0)], 20 + AIM_TICKS.losGrace - 1, { obstacles: [wall] }),
+    );
+    expect(stillHidden.targetSessionId).toBe("a");
+
+    const expired = updateLock(
+      held,
+      ctxFor([enemyAt("a", 200, 0)], 20 + AIM_TICKS.losGrace, { obstacles: [wall] }),
+    );
+    expect(expired.targetSessionId).toBe("");
+  });
+
+  it("clears the loss timer when sight returns", () => {
+    const held = { targetSessionId: "a", lockedAtTick: 0, losLostSinceTick: 20, lastPressTick: 0 };
+    const next = updateLock(held, ctxFor([enemyAt("a", 200, 0)], 25));
+    expect(next.losLostSinceTick).toBe(0);
+  });
+});
+
+describe("updateLock: stealing", () => {
+  // "a" straight ahead at 200 scores 8. A rival must reach 6 or lower to beat it by 25%.
+  const incumbent = enemyAt("a", 200, 0);
+  const marginal = enemyAt("b", 175, 0); // score 7 -- better, but not by enough
+  const decisive = enemyAt("c", 100, 0); // score 4 -- clears the margin
+
+  it("refuses a rival that does not clear the margin", () => {
+    const held = { targetSessionId: "a", lockedAtTick: 0, losLostSinceTick: 0, lastPressTick: 30 };
+    const next = updateLock(held, ctxFor([incumbent, marginal], 30));
+    expect(next.targetSessionId).toBe("a");
+  });
+
+  it("refuses even a decisive rival inside the commit window", () => {
+    const held = { targetSessionId: "a", lockedAtTick: 28, losLostSinceTick: 0, lastPressTick: 30 };
+    const next = updateLock(held, ctxFor([incumbent, decisive], 30));
+    expect(next.targetSessionId).toBe("a");
+  });
+
+  it("allows a decisive rival once the commit window has passed", () => {
+    const held = { targetSessionId: "a", lockedAtTick: 0, losLostSinceTick: 0, lastPressTick: 30 };
+    const at = AIM_TICKS.commit + 1;
+    const next = updateLock(held, ctxFor([incumbent, decisive], Math.max(at, 30)));
+    expect(next.targetSessionId).toBe("c");
+    expect(next.lockedAtTick).toBe(Math.max(at, 30));
+  });
+});
+
+describe("updateLock: the engagement timeout", () => {
+  const incumbent = enemyAt("a", 200, 0); // score 8
+  const marginal = enemyAt("b", 175, 0); // score 7 -- beats it, but not by 25%
+
+  it("keeps incumbency alive while the player keeps pressing fire", () => {
+    const held = { targetSessionId: "a", lockedAtTick: 0, losLostSinceTick: 0, lastPressTick: 0 };
+    const tick = AIM_TICKS.lockTimeout + 5;
+    const next = updateLock(held, ctxFor([incumbent, marginal], tick, { pressedThisTick: true }));
+    expect(next.targetSessionId).toBe("a");
+    expect(next.lastPressTick).toBe(tick);
+  });
+
+  it("refreshes on a press of ANY slot, even one the cooldown will reject", () => {
+    // The timer answers "has this player disengaged?", which is a fact about the driver. It is read
+    // before `beginFire`, so a press blocked by a cooldown still counts as engagement.
+    const next = updateLock(newLockState(), ctxFor([incumbent], 40, { pressedThisTick: true }));
+    expect(next.lastPressTick).toBe(40);
+  });
+
+  it("drops the margin once the timer lapses, so the best target simply wins", () => {
+    const held = { targetSessionId: "a", lockedAtTick: 0, losLostSinceTick: 0, lastPressTick: 0 };
+    const next = updateLock(held, ctxFor([incumbent, marginal], AIM_TICKS.lockTimeout));
+    expect(next.targetSessionId).toBe("b");
+  });
+
+  it("does not blank the lock when the timer lapses with the incumbent still best", () => {
+    // The timeout strips INCUMBENCY, not the lock. Releasing and re-acquiring resolve in the same
+    // pass, so the bracket never flickers off for a frame.
+    const held = { targetSessionId: "a", lockedAtTick: 0, losLostSinceTick: 0, lastPressTick: 0 };
+    const next = updateLock(held, ctxFor([incumbent], AIM_TICKS.lockTimeout + 50));
+    expect(next.targetSessionId).toBe("a");
+    expect(next.lockedAtTick).toBe(0);
+  });
+
+  it("ignores the commit window once the timer has lapsed", () => {
+    // Freshly locked AND disengaged: the commit timer is competitive friction, which is exactly
+    // what the timeout switches off.
+    const held = { targetSessionId: "a", lockedAtTick: 100, losLostSinceTick: 0, lastPressTick: 0 };
+    const next = updateLock(held, ctxFor([incumbent, marginal], 100));
+    expect(next.targetSessionId).toBe("b");
+  });
+});
+
+describe("updateLock: the owner", () => {
+  it("holds no lock once the owner stops fighting", () => {
+    const held = { targetSessionId: "a", lockedAtTick: 0, losLostSinceTick: 0, lastPressTick: 0 };
+    const next = updateLock(held, ctxFor([enemyAt("a", 200, 0)], 20, { ownerFighting: false }));
+    expect(next).toEqual(newLockState());
+  });
+
+  it("never mutates the state it was given", () => {
+    const held = { targetSessionId: "a", lockedAtTick: 0, losLostSinceTick: 0, lastPressTick: 0 };
+    const before = { ...held };
+    updateLock(held, ctxFor([enemyAt("c", 100, 0)], 200));
+    expect(held).toEqual(before);
   });
 });

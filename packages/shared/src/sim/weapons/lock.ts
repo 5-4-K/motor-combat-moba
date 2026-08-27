@@ -1,6 +1,7 @@
-import { AIM_CONFIG } from "../../config/aim-config.js";
+import { AIM_CONFIG, AIM_TICKS } from "../../config/aim-config.js";
 import type { Aabb, Bounds } from "../collide.js";
 import { muzzleOffset, wallClipDistance } from "./instances.js";
+import { canDamage } from "./targets.js";
 
 /** The car doing the locking, as the lock step sees it. */
 export interface LockOwner {
@@ -128,4 +129,155 @@ export function hasLineOfSight(
   if (distance === 0) return true;
   const angle = Math.atan2(ty - oy, tx - ox);
   return wallClipDistance(ox, oy, angle, distance, obstacles, bounds) >= distance;
+}
+
+/**
+ * One car's lock, carried across ticks. Server-only room memory: only `targetSessionId` is ever
+ * projected onto the schema (A14), the same way `pending` stays server-side and only the tick it
+ * fires on crosses the wire.
+ */
+export interface LockState {
+  /** Session id of the locked target, or `""` for no lock. */
+  targetSessionId: string;
+  /** Tick the CURRENT target was acquired. Gates the commit timer. */
+  lockedAtTick: number;
+  /** Tick sight of the current target was first lost, or 0 while visible. Gates the LOS grace. */
+  losLostSinceTick: number;
+  /** Tick of the most recent fire press on any slot. Gates the engagement timeout. */
+  lastPressTick: number;
+}
+
+export function newLockState(): LockState {
+  return { targetSessionId: "", lockedAtTick: 0, losLostSinceTick: 0, lastPressTick: 0 };
+}
+
+export interface UpdateLockContext {
+  owner: LockOwner;
+  /** In the roster and not a wreck. A wreck holds no lock. */
+  ownerFighting: boolean;
+  /**
+   * Did this car press any fire slot on an input the server actually simulated this tick?
+   *
+   * Read BEFORE `beginFire`, so a press a cooldown will reject still counts. The timer answers
+   * "has this player disengaged?", which is a fact about the driver, not about a gun -- which is
+   * also why a press on any slot refreshes it, not only the aim-assist slot's.
+   */
+  pressedThisTick: boolean;
+  /** Living roster cars. Wrecks and lobby players are simply absent, which is how they release. */
+  candidates: readonly LockTarget[];
+  mode: "ffa" | "team";
+  obstacles: readonly Aabb[];
+  bounds: Bounds;
+  tick: number;
+}
+
+interface ScoredTarget {
+  sessionId: string;
+  score: number;
+  angleDeg: number;
+  distance: number;
+  visible: boolean;
+}
+
+/**
+ * One car's lock for one tick: release, steal and acquisition resolved in a single pass.
+ *
+ * Pure -- the input state is never mutated.
+ *
+ * **Two hystereses, deliberately separate.** Getting these confused is the most likely way to
+ * implement this wrongly:
+ *
+ * - *Spatial* -- the retention region (A6) and the LOS grace (A10) -- decides whether the CURRENT
+ *   target is still held at all.
+ * - *Competitive* -- the 25% steal margin and the commit timer (A7) -- decides whether a RIVAL may
+ *   take its place.
+ *
+ * The engagement timeout (A8) switches off the competitive half only. It therefore never blanks
+ * the bracket: a lapsed timer means the best-scoring target simply wins, which is what makes a slow
+ * weapon re-pick fresh every shot while a fast one holds its lock.
+ *
+ * Resolving all of it in one pass is what stops a released-then-re-acquired lock producing an
+ * unlocked frame the HUD would flicker on.
+ *
+ * At tick 0 with a fresh state, `lastPressTick` is 0 and the car reads as engaged for the first
+ * `AIM_TICKS.lockTimeout` ticks of a match. The only effect is slightly stickier locks in the first
+ * 0.8s, before anyone has fired at all.
+ */
+export function updateLock(state: LockState, ctx: UpdateLockContext): LockState {
+  if (!ctx.ownerFighting) return newLockState();
+
+  const lastPressTick = ctx.pressedThisTick ? ctx.tick : state.lastPressTick;
+  const muzzle = muzzleOf(ctx.owner);
+
+  const scored: ScoredTarget[] = [];
+  for (const target of ctx.candidates) {
+    // The same predicate shots and rams use, so the lock can never disagree with the shot about who
+    // is an enemy -- no teammates in team mode, and never yourself.
+    if (!canDamage(ctx.owner.sessionId, ctx.owner.team, target.sessionId, target.team, ctx.mode)) {
+      continue;
+    }
+    const angleDeg = signedAngleDegTo(ctx.owner, target.x, target.y);
+    const distance = Math.hypot(target.x - ctx.owner.x, target.y - ctx.owner.y);
+    scored.push({
+      sessionId: target.sessionId,
+      score: lockScore(angleDeg, distance),
+      angleDeg,
+      distance,
+      visible: hasLineOfSight(muzzle.x, muzzle.y, target.x, target.y, ctx.obstacles, ctx.bounds),
+    });
+  }
+
+  // --- Spatial: is the current target still held? ---
+  const current = scored.find((s) => s.sessionId === state.targetSessionId) ?? null;
+  let losLostSinceTick = 0;
+  let held: ScoredTarget | null = null;
+
+  if (current && inRetainRegion(current.angleDeg, current.distance)) {
+    if (current.visible) {
+      held = current;
+    } else {
+      const since = state.losLostSinceTick === 0 ? ctx.tick : state.losLostSinceTick;
+      if (ctx.tick - since < AIM_TICKS.losGrace) {
+        held = current;
+        losLostSinceTick = since;
+      }
+    }
+  }
+
+  // --- The best target anyone could acquire fresh this tick. Sight is required NOW. ---
+  let best: ScoredTarget | null = null;
+  for (const candidate of scored) {
+    if (!candidate.visible || !inAcquireRegion(candidate.angleDeg, candidate.distance)) continue;
+    if (best === null || candidate.score < best.score) best = candidate;
+  }
+
+  const acquire = (target: ScoredTarget): LockState => ({
+    targetSessionId: target.sessionId,
+    lockedAtTick: ctx.tick,
+    losLostSinceTick: 0,
+    lastPressTick,
+  });
+
+  if (!held) {
+    return best
+      ? acquire(best)
+      : { targetSessionId: "", lockedAtTick: 0, losLostSinceTick: 0, lastPressTick };
+  }
+
+  const keep: LockState = {
+    targetSessionId: held.sessionId,
+    lockedAtTick: state.lockedAtTick,
+    losLostSinceTick,
+    lastPressTick,
+  };
+
+  if (!best || best.sessionId === held.sessionId) return keep;
+
+  // --- Competitive: may this rival take the lock? ---
+  const engaged = ctx.tick - lastPressTick < AIM_TICKS.lockTimeout;
+  if (!engaged) return best.score < held.score ? acquire(best) : keep;
+
+  const committed = ctx.tick - state.lockedAtTick >= AIM_TICKS.commit;
+  const clearsMargin = best.score <= held.score * (1 - AIM_CONFIG.stealMarginFraction);
+  return committed && clearsMargin ? acquire(best) : keep;
 }
