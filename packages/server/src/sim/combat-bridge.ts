@@ -4,6 +4,7 @@ import {
   WeaponSlotState,
   isCarId,
   newFireState,
+  newLockState,
   runCombat,
   slotsOf,
   type ArenaState,
@@ -11,6 +12,7 @@ import {
   type CombatPlayer,
   type CombatResult,
   type FireState,
+  type LockState,
   type PlayerState,
   type WeaponInstance,
 } from "@motor-combat-moba/shared";
@@ -34,10 +36,18 @@ export interface CombatMemory {
   /** Per-player fire state, and the per-instance damage clocks. Server-only, never networked. */
   fireStates: Map<string, FireState>;
   instances: Map<string, WeaponInstance>;
+  /** Per-player target lock. Server-only; only `targetSessionId` is projected onto the schema. */
+  locks: Map<string, LockState>;
 }
 
 export function newCombatMemory(): CombatMemory {
-  return { ramCooldowns: new Map(), instanceSeq: 0, fireStates: new Map(), instances: new Map() };
+  return {
+    ramCooldowns: new Map(),
+    instanceSeq: 0,
+    fireStates: new Map(),
+    instances: new Map(),
+    locks: new Map(),
+  };
 }
 
 /**
@@ -68,6 +78,12 @@ export function toCombatPlayers(
     const fireState = stale ? newFireState(carId, player.level) : { ...existing, level: player.level };
     memory.fireStates.set(sessionId, fireState);
 
+    // Carried forward rather than rebuilt from the schema: `lockedAtTick` and `losLostSinceTick`
+    // have no wire representation, so a rebuild would reset both timers every tick and neither the
+    // commit window nor the sight grace could ever elapse.
+    const lock = memory.locks.get(sessionId) ?? newLockState();
+    memory.locks.set(sessionId, lock);
+
     players.push({
       sessionId,
       x: player.x,
@@ -80,6 +96,7 @@ export function toCombatPlayers(
       inRoster: roster.has(sessionId),
       fireMask: masks.get(sessionId) ?? 0,
       fireState,
+      lock,
     });
   });
   return players;
@@ -112,6 +129,7 @@ export function toInstances(memory: CombatMemory): WeaponInstance[] {
 export function applyCombatResult(state: ArenaState, result: CombatResult, memory: CombatMemory): void {
   for (const p of result.players) {
     memory.fireStates.set(p.sessionId, p.fireState);
+    memory.locks.set(p.sessionId, p.lock);
     const player = state.players.get(p.sessionId);
     if (!player) continue;
     player.hp = p.hp;
@@ -123,6 +141,7 @@ export function applyCombatResult(state: ArenaState, result: CombatResult, memor
     // (like `damageClock` and `pierceLeft`) — only the tick it next fires on crosses the wire.
     player.pendingUntilTick = p.fireState.pending?.nextShotTick ?? 0;
     player.lastFiredSlot = p.fireState.lastFiredSlot;
+    player.lockTargetSessionId = p.lock.targetSessionId;
     writeSlots(player, p.fireState);
   }
 
@@ -178,6 +197,7 @@ export function clearInstances(state: ArenaState, memory: CombatMemory): void {
   for (const id of ids) state.weapons.delete(id);
   memory.instances.clear();
   memory.fireStates.clear();
+  memory.locks.clear();
 }
 
 export { runCombat };

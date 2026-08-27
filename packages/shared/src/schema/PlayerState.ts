@@ -34,4 +34,12 @@ export class PlayerState extends Schema {
    * capped at `WEAPON_SLOT_CONFIG.maxWeaponSlots` (3), nowhere near the type's range.
    */
   @type("int8") lastFiredSlot = -1;
+  /**
+   * Session id of this car's current aim-assist target, or `""` for none (A14).
+   *
+   * The only part of the lock that crosses the wire. The machine behind it -- the commit timer, the
+   * sight grace, the last press -- stays server-side, exactly as `pending` does: the client is told
+   * the result, never the rules. All the HUD needs is which car to draw a bracket on.
+   */
+  @type("string") lockTargetSessionId = "";
 }

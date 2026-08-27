@@ -5,6 +5,7 @@ import {
   hpOf,
   isCarId,
   newFireState,
+  newLockState,
   type CombatResult,
   type WeaponInstance,
 } from "@motor-combat-moba/shared";
@@ -69,6 +70,7 @@ describe("newCombatMemory", () => {
     expect(memory.instanceSeq).toBe(0);
     expect(memory.fireStates.size).toBe(0);
     expect(memory.instances.size).toBe(0);
+    expect(memory.locks.size).toBe(0);
   });
 });
 
@@ -207,6 +209,7 @@ describe("applyCombatResult", () => {
       inRoster: true,
       fireMask: 0,
       fireState: newFireState(isCarId(player.carId) ? player.carId : "", 1),
+      lock: newLockState(),
       ...over,
     };
   }
@@ -266,6 +269,7 @@ describe("applyCombatResult", () => {
             inRoster: true,
             fireMask: 0,
             fireState: newFireState("rectangle", 1),
+            lock: newLockState(),
           },
         ],
         instances: [],
@@ -391,5 +395,65 @@ describe("clearInstances", () => {
     const state = new ArenaState();
     clearInstances(state, newCombatMemory());
     expect(state.weapons.size).toBe(0);
+  });
+});
+
+describe("lock state across the bridge", () => {
+  const aLock = {
+    targetSessionId: "b",
+    lockedAtTick: 7,
+    losLostSinceTick: 3,
+    lastPressTick: 9,
+  };
+
+  it("hands a player with no lock yet a fresh one", () => {
+    const state = new ArenaState();
+    playerIn(state, "a");
+    const memory = newCombatMemory();
+
+    const players = toCombatPlayers(state, new Set(["a"]), new Map(), memory);
+
+    expect(players[0]!.lock).toEqual(newLockState());
+  });
+
+  it("carries a lock forward between ticks instead of rebuilding it", () => {
+    // Locks live in room memory, never on the schema. `lockedAtTick` and `losLostSinceTick` have no
+    // wire representation, so rebuilding from `ArenaState` each tick would reset both timers and
+    // neither the commit window nor the sight grace could ever elapse -- the lock would be
+    // permanently stealable and permanently one tick from releasing on sight.
+    const state = new ArenaState();
+    playerIn(state, "a");
+    const memory = newCombatMemory();
+    memory.locks.set("a", { ...aLock });
+
+    const players = toCombatPlayers(state, new Set(["a"]), new Map(), memory);
+
+    expect(players[0]!.lock).toEqual(aLock);
+  });
+
+  it("writes only the target id onto the schema, keeping the machine in memory", () => {
+    const state = new ArenaState();
+    playerIn(state, "a");
+    const memory = newCombatMemory();
+    const players = toCombatPlayers(state, new Set(["a"]), new Map(), memory);
+    players[0]!.lock = { ...aLock };
+
+    applyCombatResult(state, result({ players }), memory);
+
+    expect(state.players.get("a")!.lockTargetSessionId).toBe("b");
+    expect(memory.locks.get("a")).toEqual(aLock);
+  });
+
+  it("clears every lock when a match ends", () => {
+    // The same rule that already stops a shot in flight carrying into the next match: nothing from
+    // a previous match may survive into the next one.
+    const state = new ArenaState();
+    playerIn(state, "a");
+    const memory = newCombatMemory();
+    memory.locks.set("a", { ...aLock });
+
+    clearInstances(state, memory);
+
+    expect(memory.locks.size).toBe(0);
   });
 });
