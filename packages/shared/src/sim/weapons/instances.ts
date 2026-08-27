@@ -14,6 +14,15 @@ import { pointInAabb, type Aabb, type Bounds } from "../collide.js";
 export interface WeaponInstance {
   id: string;
   ownerSessionId: string;
+  /**
+   * The owner's team, frozen at the moment this instance is spawned — never looked up later.
+   * `resolveInstanceHits` (hits.ts) tests against a snapshot of living fighters only, so an owner
+   * wrecked while their own shot is still in flight would otherwise vanish from that snapshot and a
+   * live lookup would silently fall back to a default team, flipping the shot's allegiance mid-flight
+   * (D9/D10). Freezing it here also means a mid-match team switch cannot retroactively change who an
+   * already-fired shot may hit.
+   */
+  ownerTeam: 0 | 1;
   weaponId: WeaponId;
   kind: "projectile" | "beam";
   x: number;
@@ -67,7 +76,7 @@ export const MUZZLE_STEP_UNITS = 4;
  */
 export function spawnInstances(
   order: ShotOrder,
-  owner: { sessionId: string } & OwnerPose,
+  owner: { sessionId: string; team: 0 | 1 } & OwnerPose,
   tick: number,
   seq: number,
 ): { instances: WeaponInstance[]; seq: number } {
@@ -85,6 +94,7 @@ export function spawnInstances(
     instances.push({
       id: `${owner.sessionId}-${next}`,
       ownerSessionId: owner.sessionId,
+      ownerTeam: owner.team,
       weaponId: order.weaponId,
       kind: def.kind,
       x: owner.x + Math.cos(owner.angle) * nose,

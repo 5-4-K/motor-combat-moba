@@ -15,9 +15,13 @@ const snapshot = (
     .map((e) => ({ sessionId: e.sessionId, team: e.team ?? 0, hull: carHullOf(e.x, e.y, 0) }))
     .sort((a, b) => (a.sessionId < b.sessionId ? -1 : 1));
 
-function shotFrom(x: number, y: number, angle = 0): WeaponInstance {
-  return spawnInstances({ weaponId: "cannon", slot: 0 }, { sessionId: "aaa", x, y, angle }, 100, 0)
-    .instances[0]!;
+function shotFrom(x: number, y: number, angle = 0, team: 0 | 1 = 0): WeaponInstance {
+  return spawnInstances(
+    { weaponId: "cannon", slot: 0 },
+    { sessionId: "aaa", team, x, y, angle },
+    100,
+    0,
+  ).instances[0]!;
 }
 
 describe("hit resolution", () => {
@@ -89,6 +93,18 @@ describe("hit resolution", () => {
     const before = JSON.stringify({ ...shot, damageClock: [...shot.damageClock] });
     resolveInstanceHits(shot, shot, snapshot([{ sessionId: "bbb", x: 424, y: 300 }]), "ffa", 100);
     expect(JSON.stringify({ ...shot, damageClock: [...shot.damageClock] })).toBe(before);
+  });
+
+  it("keeps a shot's allegiance frozen to its owner's team, even after the owner is wrecked and missing from the snapshot", () => {
+    const shot = shotFrom(400, 300, 0, 1); // owner was on team 1
+    // "aaa" (the owner) is deliberately absent from the snapshot: the pose snapshot only carries
+    // living fighters, and the owner has since been wrecked.
+    const mixed = snapshot([
+      { sessionId: "bbb", team: 1, x: 424, y: 300 }, // teammate: must not be damaged
+      { sessionId: "ccc", team: 0, x: 424, y: 300 }, // enemy: must still be damaged
+    ]);
+    const out = resolveInstanceHits(shot, shot, mixed, "team", 100);
+    expect(out.damaged).toEqual([{ sessionId: "ccc", amount: WEAPON_TABLE.cannon.damage }]);
   });
 });
 

@@ -20,7 +20,7 @@ const ctx = (over: Partial<Parameters<typeof stepInstance>[1]> = {}) => ({
   ...over,
 });
 
-const owner = { sessionId: "aaa", x: 500, y: 300, angle: 0 };
+const owner = { sessionId: "aaa", team: 0 as const, x: 500, y: 300, angle: 0 };
 
 describe("spawning", () => {
   it("births a shot at the car's nose, not its centre", () => {

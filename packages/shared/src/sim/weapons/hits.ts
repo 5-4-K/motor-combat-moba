@@ -58,15 +58,13 @@ export function resolveInstanceHits(
   let pierceLeft = instance.pierceLeft;
   let alive = instance.alive;
 
-  // Falls back to team 0 when the owner has already been removed from the snapshot (e.g. wrecked
-  // between spawning this instance and now), matching the same fallback `combat.ts` uses for rams.
-  const ownerTeam = snapshot.find((e) => e.sessionId === instance.ownerSessionId)?.team ?? 0;
-
   for (const entry of snapshot) {
     if (!alive) break;
     // Teammates, wrecks and the shooter are not contacts at all: the instance passes through them
-    // freely and they consume no pierce.
-    if (!canDamage(instance.ownerSessionId, ownerTeam, entry.sessionId, entry.team, mode)) continue;
+    // freely and they consume no pierce. `instance.ownerTeam` is frozen at spawn (instances.ts) —
+    // never looked up here — because the snapshot holds living fighters only, and an owner wrecked
+    // while their own shot is in flight would otherwise vanish from it and flip the shot's allegiance.
+    if (!canDamage(instance.ownerSessionId, instance.ownerTeam, entry.sessionId, entry.team, mode)) continue;
     if (tick < (clock.get(entry.sessionId) ?? 0)) continue;
     if (!shapeHitsObb(shape, entry.hull)) continue;
 
