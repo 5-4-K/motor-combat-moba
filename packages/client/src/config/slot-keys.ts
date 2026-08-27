@@ -14,7 +14,7 @@ import { WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
  * accepts a bare numeric code, so `ArenaScene` never needs Phaser's enum to consume this table.
  */
 export const SLOT_KEYS = [
-  { code: 32, glyph: "␣" }, // SPACE
+  { code: 32, glyph: "space" }, // SPACE — the word, not ␣: a 14px glyph nobody reads as a key
   { code: 81, glyph: "Q" },
   { code: 69, glyph: "E" },
 ] as const;

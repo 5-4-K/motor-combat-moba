@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { COLOR_TABLE } from "./color-config.js";
 import { WEAPON_TABLE, isWeaponId, weaponDefOf } from "./weapon-config.js";
 import type { WeaponDef } from "./weapon-types.js";
 import { AIM_CONFIG } from "./aim-config.js";
@@ -60,6 +61,19 @@ describe("WEAPON_TABLE", () => {
         expect(def.hitbox.angleDeg).toBeLessThan(180);
       }
     }
+  });
+
+  it("gives every weapon its own `#RRGGBB` colour, and never a player's", () => {
+    const rows: WeaponDef[] = Object.values(WEAPON_TABLE);
+    const colors = rows.map((def) => def.color.toUpperCase());
+    for (const color of colors) expect(color).toMatch(/^#[0-9A-F]{6}$/);
+    // Unique per weapon: the colour is the only thing telling two shots apart on screen, since
+    // every instance draws as a plain filled hitbox.
+    expect(new Set(colors).size).toBe(rows.length);
+    // And never a player colour. A shot is not owner-coloured, so one wearing a player's paint
+    // would claim an identity it does not carry.
+    const players = new Set(COLOR_TABLE.map((c) => c.hex.toUpperCase()));
+    for (const color of colors) expect(players.has(color)).toBe(false);
   });
 
   it("rejects prototype names as weapon ids", () => {

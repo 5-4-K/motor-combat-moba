@@ -9,12 +9,18 @@ import type { WeaponDef, WeaponId } from "./weapon-types.js";
  * circle, the smallest that kept the old point-hit feel while satisfying "every weapon has a
  * hitbox", and was later widened to 12 so the shot reads on screen — the client draws the hitbox
  * itself, never a sprite. A 24-unit disc is three quarters of a car's 32-unit width.
+ *
+ * `color` is the one render-only number here besides `name`. It is per weapon on purpose: every
+ * car firing a cannon fires the same ember-orange shot. The two shipped colours are picked to be
+ * unmistakable for any `COLOR_TABLE` player colour — ember orange leans darker and redder than
+ * `Orange`/`Gold`, and no player can be teal — so a shot never reads as somebody's car paint.
  */
 export const WEAPON_TABLE = {
   cannon: {
     id: "cannon",
     kind: "projectile",
     name: "Cannon",
+    color: "#E8590C",
     unlocksAt: 1,
     damage: 8,
     damageFrequencyMs: 0,
@@ -46,6 +52,7 @@ export const WEAPON_TABLE = {
     id: "repeater",
     kind: "projectile",
     name: "Repeater",
+    color: "#0CA5B0",
     unlocksAt: 1,
     damage: 5,
     damageFrequencyMs: 0,

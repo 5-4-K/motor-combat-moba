@@ -47,6 +47,17 @@ interface WeaponBase {
   id: WeaponId;
   /** Display name. Render-only: `stepSim` never reads it, so it is not a schema field. */
   name: string;
+  /**
+   * The colour every instance of this weapon draws in, `#RRGGBB`. Render-only like `name`, so it is
+   * not a schema field — the client resolves it from `weaponId`, which is already on the wire.
+   *
+   * Deliberately per WEAPON, not per player: two cars carrying the same weapon fire identically
+   * coloured shots. An instance is drawn as its own hitbox (D19), so what a shot's colour has to
+   * answer is "what is coming at me", not "who sent it" — the car that fired is the thing on screen
+   * wearing the player colour. Keep these clear of `COLOR_TABLE`'s six player colours, and dark
+   * enough to read against the light arena floors.
+   */
+  color: string;
   /** In-match level at which this weapon unlocks. Validated >= 1. */
   unlocksAt: number;
   damage: number;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  COLOR_TABLE,
   DEFAULT_PATCH_RATE_HZ,
   DRIVE_CONFIG,
   WEAPON_TABLE,
@@ -13,6 +14,7 @@ import {
   instanceDrawShape,
   lockBracketArms,
   LOCK_BRACKET_HALF,
+  weaponFillOf,
 } from "./combat-visual.js";
 
 describe("hpFraction", () => {
@@ -153,5 +155,30 @@ describe("lockBracketArms", () => {
     // assertion instead of silently leaving the bracket inside the sprite.
     const halfDiagonal = Math.hypot(DRIVE_CONFIG.carWidth, DRIVE_CONFIG.carHeight) / 2;
     expect(LOCK_BRACKET_HALF).toBeGreaterThan(halfDiagonal);
+  });
+});
+
+describe("weaponFillOf", () => {
+  it("draws every weapon in its own table colour", () => {
+    for (const def of Object.values(WEAPON_TABLE)) {
+      expect(weaponFillOf(def.id)).toBe(Number.parseInt(def.color.slice(1), 16));
+    }
+    expect(weaponFillOf("cannon")).toBe(0xe8590c);
+  });
+
+  it("is the same colour whoever fired it — a shot is never owner-coloured", () => {
+    // The guard on the rule, not on the arithmetic: `weaponFillOf` takes only a weapon id, so no
+    // caller can reach a player's colour through it. This fails to compile, not at run time, if a
+    // future edit reintroduces an owner argument.
+    expect(weaponFillOf.length).toBe(1);
+    for (const color of COLOR_TABLE) {
+      const playerFill = Number.parseInt(color.hex.slice(1), 16);
+      for (const def of Object.values(WEAPON_TABLE)) expect(weaponFillOf(def.id)).not.toBe(playerFill);
+    }
+  });
+
+  it("falls back to grey for an unrecognised weapon id rather than an invisible NaN fill", () => {
+    expect(weaponFillOf("not-a-weapon")).toBe(0x555555);
+    expect(Number.isNaN(weaponFillOf("not-a-weapon"))).toBe(false);
   });
 });

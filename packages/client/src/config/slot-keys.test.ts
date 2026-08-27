@@ -22,3 +22,9 @@ describe("slot keys", () => {
     expect(slotMaskFrom([true, true, true, true])).toBe(0b111);
   });
 });
+
+describe("slot key glyphs", () => {
+  it("prints the space bar as a word — the ␣ symbol is unreadable at HUD size", () => {
+    expect(SLOT_KEYS.find((key) => key.code === 32)?.glyph).toBe("space");
+  });
+});

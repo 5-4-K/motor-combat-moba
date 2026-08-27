@@ -63,7 +63,11 @@ Colyseus `@type` fields. Enums are explicit uint8; never renumber. `pendingCarId
 live instances by id, and a collection cleared and refilled every tick would patch every instance to
 every client every tick, exactly the bandwidth the patch rate exists to avoid. The row is
 deliberately minimal: speed, range, shape, dimensions, colour and icon all come from a client-side
-`WEAPON_TABLE` lookup by `weaponId`, never duplicated onto the row. `runCombat` spawns, moves and
+`WEAPON_TABLE` lookup by `weaponId`, never duplicated onto the row. Colour is the case worth
+naming, because it used to come from somewhere else: an instance draws in its weapon's own
+`WEAPON_TABLE.color`, not its owner's `PlayerState.colorId`. `ownerSessionId` is a **sim** field —
+`canDamage` reads it for friendly fire, and an attached beam is re-anchored to (and killed with)
+its owner through it. The client does not read it at all; drawing a shot needs only `weaponId`. `runCombat` spawns, moves and
 drops instances; `combat-bridge.ts`'s `applyCombatResult` is the only writer, and the whole map is
 cleared when a match starts or ends. `damageClock` and `pierceLeft` are server-only sim state
 (`WeaponInstance` in `sim/weapons/instances.ts`) and never reach the wire. Clients read this map to

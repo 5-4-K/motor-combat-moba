@@ -346,6 +346,10 @@ hitbox**, a new weapon is playable with no art at all, and nothing has to stretc
 hitbox that grows every tick. Owner-coloured, as shots are today; a beam fades toward transparent
 through its linger phase.
 
+> **Superseded after shipping:** instances are coloured by the **weapon**, not the owner —
+> `WEAPON_TABLE.color`, a render-only field, drawn by `weaponFillOf`. Everything else in D19 stands.
+> See [`combat-model.md`](../../combat-model.md#what-the-client-shows).
+
 Icons resolve through the existing manifest chain with a new namespace:
 `weaponIconKey(id) → "weapon-icon.<id>" → manifest → sprite`, falling back to a procedural glyph
 derived from `kind`. Icons take their **own** defaults, not the car ones: `colorMode: "none"` (icons
