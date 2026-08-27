@@ -134,10 +134,10 @@ describe("weapon schema", () => {
   it("gives a player an ordered slot array and a level", () => {
     const player = new PlayerState();
     const slot = new WeaponSlotState();
-    slot.weaponId = "cannon";
+    slot.weaponId = "fireball";
     slot.stocks = 1;
     player.weapons.push(slot);
-    expect(player.weapons.at(0)!.weaponId).toBe("cannon");
+    expect(player.weapons.at(0)!.weaponId).toBe("fireball");
     expect(player.level).toBe(1);
     expect(player.switchLockUntilTick).toBe(0);
   });

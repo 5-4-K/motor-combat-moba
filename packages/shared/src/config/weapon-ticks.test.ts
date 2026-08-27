@@ -18,8 +18,8 @@ describe("msToTicks", () => {
 });
 
 describe("WEAPON_TICKS", () => {
-  it("derives the cannon's clocks from its milliseconds", () => {
-    const ticks = weaponTicksOf("cannon");
+  it("derives the fireball's clocks from its milliseconds", () => {
+    const ticks = weaponTicksOf("fireball");
     expect(ticks.cooldown).toBe(15); // 500ms at 30Hz — the old fireCooldownTicks()
     expect(ticks.startUp).toBe(0);
     expect(ticks.recovery).toBe(0);
@@ -28,11 +28,11 @@ describe("WEAPON_TICKS", () => {
 
   it("derives flight ticks from range and speed", () => {
     // 900 units at 900 u/s = 1s = 30 ticks, the old WEAPON_CONFIG.lifetimeTicks
-    expect(weaponTicksOf("cannon").flight).toBe(30);
+    expect(weaponTicksOf("fireball").flight).toBe(30);
   });
 
   it("maps damageFrequencyMs 0 to Infinity, meaning one hit per target ever", () => {
-    expect(weaponTicksOf("cannon").damageInterval).toBe(Number.POSITIVE_INFINITY);
+    expect(weaponTicksOf("fireball").damageInterval).toBe(Number.POSITIVE_INFINITY);
   });
 
   it("covers every weapon in the table and is frozen", () => {

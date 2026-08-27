@@ -27,27 +27,27 @@ const owner = { sessionId: "aaa", team: 0 as const, x: 500, y: 300, angle: 0 };
 
 describe("spawning", () => {
   it("births a shot at the car's nose, not its centre", () => {
-    const { instances } = spawnInstances({ weaponId: "cannon", slot: 0 }, owner, 100, 0);
+    const { instances } = spawnInstances({ weaponId: "fireball", slot: 0 }, owner, 100, 0);
     expect(instances).toHaveLength(1);
     expect(instances[0]!.x).toBeCloseTo(500 + DRIVE_CONFIG.carWidth / 2);
     expect(instances[0]!.y).toBeCloseTo(300);
   });
 
   it("gives every instance a unique id from the sequence and returns the advanced sequence", () => {
-    const first = spawnInstances({ weaponId: "cannon", slot: 0 }, owner, 100, 7);
-    const second = spawnInstances({ weaponId: "cannon", slot: 0 }, owner, 101, first.seq);
+    const first = spawnInstances({ weaponId: "fireball", slot: 0 }, owner, 100, 7);
+    const second = spawnInstances({ weaponId: "fireball", slot: 0 }, owner, 101, first.seq);
     expect(first.seq).toBe(8);
     expect(second.seq).toBe(9);
     expect(first.instances[0]!.id).not.toBe(second.instances[0]!.id);
   });
 
   it("carries the weapon's pierce budget onto the instance", () => {
-    const { instances } = spawnInstances({ weaponId: "cannon", slot: 0 }, owner, 100, 0);
+    const { instances } = spawnInstances({ weaponId: "fireball", slot: 0 }, owner, 100, 0);
     expect(instances[0]!.pierceLeft).toBe(0);
   });
 
   it("puts a single-pellet volley exactly on the heading", () => {
-    const { instances } = spawnInstances({ weaponId: "cannon", slot: 0 }, owner, 100, 0);
+    const { instances } = spawnInstances({ weaponId: "fireball", slot: 0 }, owner, 100, 0);
     expect(instances[0]!.angle).toBe(owner.angle);
   });
 });
@@ -80,21 +80,21 @@ describe("the volley fan", () => {
 
 describe("projectile flight", () => {
   it("moves along its own frozen heading and accumulates distance", () => {
-    const { instances } = spawnInstances({ weaponId: "cannon", slot: 0 }, owner, 100, 0);
+    const { instances } = spawnInstances({ weaponId: "fireball", slot: 0 }, owner, 100, 0);
     const stepped = stepInstance(instances[0]!, ctx());
     expect(stepped.x).toBeCloseTo(instances[0]!.x + 900 * DT);
     expect(stepped.distance).toBeCloseTo(900 * DT);
   });
 
   it("ignores the owner's pose, even when the owner turns", () => {
-    const { instances } = spawnInstances({ weaponId: "cannon", slot: 0 }, owner, 100, 0);
+    const { instances } = spawnInstances({ weaponId: "fireball", slot: 0 }, owner, 100, 0);
     const stepped = stepInstance(instances[0]!, ctx({ ownerPose: { x: 0, y: 0, angle: Math.PI } }));
     expect(stepped.angle).toBe(instances[0]!.angle);
     expect(stepped.x).toBeGreaterThan(instances[0]!.x);
   });
 
   it("expires once it has travelled its range", () => {
-    const { instances } = spawnInstances({ weaponId: "cannon", slot: 0 }, owner, 100, 0);
+    const { instances } = spawnInstances({ weaponId: "fireball", slot: 0 }, owner, 100, 0);
     const spent: WeaponInstance = { ...instances[0]!, distance: 900 };
     const short: WeaponInstance = { ...instances[0]!, distance: 899 };
     expect(instanceExpired(spent, 130)).toBe(true);
@@ -102,7 +102,7 @@ describe("projectile flight", () => {
   });
 
   it("does not alias damageClock with the instance it was stepped from", () => {
-    const { instances } = spawnInstances({ weaponId: "cannon", slot: 0 }, owner, 100, 0);
+    const { instances } = spawnInstances({ weaponId: "fireball", slot: 0 }, owner, 100, 0);
     const before: WeaponInstance = { ...instances[0]!, damageClock: new Map([["bbb", 105]]) };
     const after = stepInstance(before, ctx());
     after.damageClock.set("ccc", 999);
@@ -114,18 +114,18 @@ describe("projectile flight", () => {
 describe("beam growth and expiry", () => {
   /**
    * No beam ships in `WEAPON_TABLE` (D22 ships zero balance change), so these hand-build a
-   * `kind: "beam"` instance over `cannon`'s numbers — 900 u/s across a 900-unit range — exactly as
+   * `kind: "beam"` instance over `fireball`'s numbers — 900 u/s across a 900-unit range — exactly as
    * `combat.test.ts` does for the ownership gate. `stepInstance`'s beam branch reads only
    * `def.range`/`def.speed` and `instanceExpired`'s only `flight`/`lifetime`, so borrowing a
    * projectile's row exercises the real branches with real numbers. The one thing it cannot show is
-   * a non-zero linger: `cannon` has none, so the expiry below is `flight` alone — asserted through
+   * a non-zero linger: `fireball` has none, so the expiry below is `flight` alone — asserted through
    * `weaponTicksOf` rather than a literal, so it moves with the def the day a real beam arrives.
    */
   const beam = (over: Partial<WeaponInstance> = {}): WeaponInstance => ({
     id: "b1",
     ownerSessionId: "aaa",
     ownerTeam: 0,
-    weaponId: "cannon",
+    weaponId: "fireball",
     kind: "beam",
     x: 500,
     y: 300,
@@ -193,7 +193,7 @@ describe("beam growth and expiry", () => {
   });
 
   it("expires on its clock rather than on distance, unlike a projectile", () => {
-    const ticks = weaponTicksOf("cannon");
+    const ticks = weaponTicksOf("fireball");
     const life = ticks.flight + ticks.lifetime; // borrowed row: `lifetime` is 0, so this is `flight`
     const held = beam({ extent: 900 });
     expect(instanceExpired(held, 100 + life - 1)).toBe(false);
@@ -220,7 +220,7 @@ describe("wall clipping", () => {
 
 describe("spawnInstances aim angle", () => {
   const owner = { sessionId: "p1", team: 0 as const, x: 100, y: 100, angle: 0 };
-  const order = { weaponId: "cannon" as const, slot: 0 };
+  const order = { weaponId: "fireball" as const, slot: 0 };
 
   it("uses the owner's heading when no aim angle is given", () => {
     const { instances } = spawnInstances(order, owner, 0, 0);

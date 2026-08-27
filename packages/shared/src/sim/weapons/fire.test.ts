@@ -5,7 +5,7 @@ import type { ShotOrder } from "./instances.js";
 const SLOT_1 = 0b001;
 const SLOT_2 = 0b010;
 
-/** A cannon-only car, as shipped. */
+/** A fireball-only car, as shipped. */
 const fresh = () => newFireState("rectangle", 1);
 
 /** Drive a state forward n ticks of pure recharge. */
@@ -19,7 +19,7 @@ describe("slots", () => {
   it("starts with one stock in every slot", () => {
     const state = fresh();
     expect(state.slots).toHaveLength(1);
-    expect(state.slots[0]!.weaponId).toBe("cannon");
+    expect(state.slots[0]!.weaponId).toBe("fireball");
     expect(state.slots[0]!.stocks).toBe(1);
   });
 
@@ -31,7 +31,7 @@ describe("slots", () => {
 describe("pressing", () => {
   it("schedules a shot and spends a stock immediately", () => {
     const state = beginFire(fresh(), SLOT_1, 100);
-    expect(state.pending).toEqual({ weaponId: "cannon", slot: 0, shotsLeft: 1, nextShotTick: 100 });
+    expect(state.pending).toEqual({ weaponId: "fireball", slot: 0, shotsLeft: 1, nextShotTick: 100 });
     expect(state.slots[0]!.stocks).toBe(0);
   });
 
@@ -47,7 +47,7 @@ describe("pressing", () => {
 
   it("fires the lowest pressed slot when two arrive on one tick", () => {
     const twoSlot = newFireState("rectangle", 1);
-    twoSlot.slots.push({ ...twoSlot.slots[0]!, weaponId: "cannon" });
+    twoSlot.slots.push({ ...twoSlot.slots[0]!, weaponId: "fireball" });
     const state = beginFire(twoSlot, SLOT_1 | SLOT_2, 100);
     expect(state.pending!.slot).toBe(0);
   });
@@ -58,7 +58,7 @@ describe("pressing", () => {
   });
 
   it("ignores every press while a shot is already pending", () => {
-    const winding: FireState = { ...fresh(), pending: { weaponId: "cannon", slot: 0, shotsLeft: 1, nextShotTick: 105 } };
+    const winding: FireState = { ...fresh(), pending: { weaponId: "fireball", slot: 0, shotsLeft: 1, nextShotTick: 105 } };
     expect(beginFire(winding, SLOT_1, 100).pending!.nextShotTick).toBe(105);
   });
 });
@@ -67,7 +67,7 @@ describe("releasing", () => {
   it("emits the order on the scheduled tick and starts the recharge", () => {
     const pressed = beginFire(fresh(), SLOT_1, 100);
     const { state, orders } = releaseShots(pressed, 100);
-    expect(orders).toEqual([{ weaponId: "cannon", slot: 0 }]);
+    expect(orders).toEqual([{ weaponId: "fireball", slot: 0 }]);
     expect(state.pending).toBeNull();
     expect(state.slots[0]!.rechargeEndsTick).toBe(115); // 500ms == 15 ticks
     expect(state.lastFiredSlot).toBe(0);
@@ -83,7 +83,7 @@ describe("stocks", () => {
   /**
    * `repeater`: the spec's D5 worked example (3 stocks, 3000ms == 90-tick cooldown at 30Hz) transcribed
    * literally. No car carries it — it exists purely so the stock mechanic has a real, multi-stock
-   * weapon to prove itself against, since `cannon` is deliberately single-stock.
+   * weapon to prove itself against, since `fireball` is deliberately single-stock.
    */
   const stocked = (): FireState => ({
     slots: [{ weaponId: "repeater", stocks: 1, rechargeEndsTick: 190, refireLockUntilTick: 0 }],
@@ -154,7 +154,7 @@ describe("per-tick order", () => {
   }
 
   it("fires a zero-start-up weapon on the tick it is pressed, in the canonical recharge -> beginFire -> releaseShots order", () => {
-    let state = fresh(); // cannon: startUpMs 0, cooldownMs 500ms == 15 ticks, single stock
+    let state = fresh(); // fireball: startUpMs 0, cooldownMs 500ms == 15 ticks, single stock
     const seen: ShotOrder[] = [];
 
     // Tick 100: press and fire must both land on this SAME tick — not the next one. Under the
@@ -163,7 +163,7 @@ describe("per-tick order", () => {
     let step1 = step(state, 100, SLOT_1);
     state = step1.state;
     seen.push(...step1.orders);
-    expect(seen).toEqual([{ weaponId: "cannon", slot: 0 }]);
+    expect(seen).toEqual([{ weaponId: "fireball", slot: 0 }]);
     expect(state.pending).toBeNull();
     expect(state.slots[0]!.stocks).toBe(0);
 
@@ -182,8 +182,8 @@ describe("per-tick order", () => {
     state = step2.state;
     seen.push(...step2.orders);
     expect(seen).toEqual([
-      { weaponId: "cannon", slot: 0 },
-      { weaponId: "cannon", slot: 0 },
+      { weaponId: "fireball", slot: 0 },
+      { weaponId: "fireball", slot: 0 },
     ]);
   });
 
@@ -201,11 +201,11 @@ describe("per-tick order", () => {
     expect(releasedBeforePress.orders).toEqual([]);
     state = releasedBeforePress.state;
     state = beginFire(state, SLOT_1, 100); // press registers AFTER release already ran this tick
-    expect(state.pending).toEqual({ weaponId: "cannon", slot: 0, shotsLeft: 1, nextShotTick: 100 });
+    expect(state.pending).toEqual({ weaponId: "fireball", slot: 0, shotsLeft: 1, nextShotTick: 100 });
 
     // The next call to releaseShots happens on the NEXT tick, 101 — one tick after nextShotTick.
     const releasedNextTick = releaseShots(state, 101);
-    expect(releasedNextTick.orders).toEqual([{ weaponId: "cannon", slot: 0 }]); // late, but not lost
+    expect(releasedNextTick.orders).toEqual([{ weaponId: "fireball", slot: 0 }]); // late, but not lost
     expect(releasedNextTick.state.pending).toBeNull();
   });
 });
@@ -213,7 +213,7 @@ describe("per-tick order", () => {
 describe("the two lockouts", () => {
   /**
    * `repeater` in slot 1 is the only weapon in the table with a real `recoveryMs` (5000ms == 150
-   * ticks) — `cannon`'s is 0, so a cannon fixture can only ever prove the gate by hand-setting
+   * ticks) — `fireball`'s is 0, so a fireball fixture can only ever prove the gate by hand-setting
    * `switchLockUntilTick`, never that `releaseShots` WRITES it. Its cooldown is 90 ticks and its
    * refire delay 3, so all three clocks are distinguishable in one fixture. Two stocks in slot 1 so
    * only the locks, never the ammo, decide anything.
@@ -221,7 +221,7 @@ describe("the two lockouts", () => {
   const twoSlots = (): FireState => ({
     slots: [
       { weaponId: "repeater", stocks: 2, rechargeEndsTick: 0, refireLockUntilTick: 0 },
-      { weaponId: "cannon", stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0 },
+      { weaponId: "fireball", stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0 },
     ],
     switchLockUntilTick: 0,
     lastFiredSlot: -1,

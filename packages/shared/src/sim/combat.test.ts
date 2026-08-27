@@ -110,7 +110,7 @@ describe("firing", () => {
       instanceSeq: 0,
     });
     expect(result.instances).toHaveLength(1);
-    expect(result.instances[0]!.weaponId).toBe("cannon");
+    expect(result.instances[0]!.weaponId).toBe("fireball");
   });
 
   it("does not fire again inside the cooldown, held or tapped", () => {
@@ -160,7 +160,7 @@ describe("firing", () => {
       alive: false,
       fireState: {
         ...newFireState("rectangle", 1),
-        pending: { weaponId: "cannon", slot: 0, shotsLeft: 2, nextShotTick: 100 },
+        pending: { weaponId: "fireball", slot: 0, shotsLeft: 2, nextShotTick: 100 },
       },
     });
     const result = runCombat({
@@ -183,7 +183,7 @@ describe("firing", () => {
       id: "beam-1",
       ownerSessionId: "aaa",
       ownerTeam: 0,
-      weaponId: "cannon",
+      weaponId: "fireball",
       kind: "beam",
       x: 300,
       y: OPEN_Y,
@@ -215,15 +215,15 @@ describe("firing", () => {
     expect(ids).toContain("shot-1");
   });
 
-  it("still lands the migrated cannon's damage on a car in front", () => {
+  it("still lands the migrated fireball's damage on a car in front", () => {
     const shooter = player({ sessionId: "aaa", x: 300, fireMask: 0b001 });
     // A fresh press spawns its instance at the muzzle and is hit-tested THIS tick, without a tick of
-    // travel — so a same-tick hit is necessarily point-blank. `cannon`'s hitbox is a 12-unit-radius
+    // travel — so a same-tick hit is necessarily point-blank. `fireball`'s hitbox is a 12-unit-radius
     // circle centred on the shooter's own hull edge, so it reaches 12 units past that edge, while
     // `COMBAT_CONFIG.ramContactPad` is 1 unit each side, so a ram needs the two hulls within 2. What
     // 50.5 buys is that gap: the hulls are half a car-length each, leaving 2.5 units between them —
     // 9.5 units inside the disc, and outside the ±1 pad. So the shot lands and no ram fires,
-    // isolating the cannon's own damage from the ramming half of `runCombat`, exercised on its own
+    // isolating the fireball's own damage from the ramming half of `runCombat`, exercised on its own
     // below. Shrinking the hitbox back below 2.5 would break this by making the shot miss.
     const target = player({ sessionId: "bbb", x: 300 + 50.5, fireMask: 0 });
     const result = runCombat({
@@ -234,7 +234,7 @@ describe("firing", () => {
       instanceSeq: 0,
     });
     const hit = result.players.find((p) => p.sessionId === "bbb")!;
-    expect(hit.hp).toBe(hpOf("rectangle") - WEAPON_TABLE.cannon.damage);
+    expect(hit.hp).toBe(hpOf("rectangle") - WEAPON_TABLE.fireball.damage);
   });
 
   it("drives repeater, the table's only multi-stock weapon, through a real tick", () => {
@@ -290,7 +290,7 @@ describe("shots in flight", () => {
     id: "p1",
     ownerSessionId: "a",
     ownerTeam: 0,
-    weaponId: "cannon",
+    weaponId: "fireball",
     kind: "projectile",
     x: 400,
     y: OPEN_Y,
@@ -307,17 +307,17 @@ describe("shots in flight", () => {
 
   it("advances a shot by one tick of travel", () => {
     const result = run({ instances: [flying()] });
-    expect(result.instances[0]!.x).toBeCloseTo(400 + WEAPON_TABLE.cannon.speed * DT, 6);
+    expect(result.instances[0]!.x).toBeCloseTo(400 + WEAPON_TABLE.fireball.speed * DT, 6);
   });
 
   it("drops a shot that has outlived its range", () => {
-    const result = run({ instances: [flying({ distance: WEAPON_TABLE.cannon.range })] });
+    const result = run({ instances: [flying({ distance: WEAPON_TABLE.fireball.range })] });
     expect(result.instances).toHaveLength(0);
   });
 
   it("drops a shot that flies into an obstacle", () => {
     const box = TEST_BOX;
-    const justShort = box.x - WEAPON_TABLE.cannon.speed * DT + 1;
+    const justShort = box.x - WEAPON_TABLE.fireball.speed * DT + 1;
     const result = run({
       world: world({ obstacles: [box] }),
       instances: [flying({ x: justShort, y: box.y + box.h / 2 })],
@@ -347,7 +347,7 @@ describe("shots in flight", () => {
   it("drops a shot that lands exactly on the arena edge, as a beam clips there", () => {
     // One spelling of one rule: `pointOutsideBounds` is inclusive on every edge, so a projectile on
     // the boundary is out exactly where `wallClipDistance` already stopped a beam.
-    const result = run({ instances: [flying({ x: ARENA_01.width - WEAPON_TABLE.cannon.speed * DT })] });
+    const result = run({ instances: [flying({ x: ARENA_01.width - WEAPON_TABLE.fireball.speed * DT })] });
     expect(result.instances).toHaveLength(0);
   });
 });
@@ -359,9 +359,9 @@ describe("shots landing", () => {
       id: "p1",
       ownerSessionId,
       ownerTeam,
-      weaponId: "cannon",
+      weaponId: "fireball",
       kind: "projectile",
-      x: target.x - WEAPON_TABLE.cannon.speed * DT,
+      x: target.x - WEAPON_TABLE.fireball.speed * DT,
       y: target.y,
       angle: 0,
       extent: 0,
@@ -380,7 +380,7 @@ describe("shots landing", () => {
       players: [player("a"), target],
       instances: [aimedAt(target, "a")],
     });
-    expect(find(result, "b").hp).toBe(hpOf("rectangle") - WEAPON_TABLE.cannon.damage);
+    expect(find(result, "b").hp).toBe(hpOf("rectangle") - WEAPON_TABLE.fireball.damage);
     expect(result.instances).toHaveLength(0);
   });
 
@@ -409,7 +409,7 @@ describe("shots landing", () => {
       players: [player("a", { team: 0 }), target],
       instances: [aimedAt(target, "a")],
     });
-    expect(find(result, "b").hp).toBe(hpOf("rectangle") - WEAPON_TABLE.cannon.damage);
+    expect(find(result, "b").hp).toBe(hpOf("rectangle") - WEAPON_TABLE.fireball.damage);
   });
 
   it("damages a same-team id in ffa, where teams mean nothing", () => {
@@ -418,7 +418,7 @@ describe("shots landing", () => {
       players: [player("a", { team: 0 }), target],
       instances: [aimedAt(target, "a")],
     });
-    expect(find(result, "b").hp).toBe(hpOf("rectangle") - WEAPON_TABLE.cannon.damage);
+    expect(find(result, "b").hp).toBe(hpOf("rectangle") - WEAPON_TABLE.fireball.damage);
   });
 
   it("passes through a wreck rather than being spent on it", () => {
@@ -428,7 +428,7 @@ describe("shots landing", () => {
   });
 
   it("wrecks a car whose hp reaches zero", () => {
-    const target = player("b", { x: 800, hp: WEAPON_TABLE.cannon.damage });
+    const target = player("b", { x: 800, hp: WEAPON_TABLE.fireball.damage });
     const result = run({ players: [player("a"), target], instances: [aimedAt(target, "a")] });
     expect(find(result, "b").hp).toBe(0);
     expect(find(result, "b").alive).toBe(false);
@@ -458,9 +458,9 @@ describe("shots landing", () => {
           id: "p1",
           ownerSessionId: "a",
           ownerTeam: 0,
-          weaponId: "cannon",
+          weaponId: "fireball",
           kind: "projectile",
-          x: box.x + box.w / 2 - WEAPON_TABLE.cannon.speed * DT,
+          x: box.x + box.w / 2 - WEAPON_TABLE.fireball.speed * DT,
           y: box.y + box.h / 2,
           angle: 0,
           extent: 0,
@@ -825,7 +825,7 @@ describe("aim assist through a real tick", () => {
   });
 
   it("fires at the lock now that the weapon has opted in", () => {
-    // Was the zero-balance-change guard through Task 7: with `cannon` opted out, a lock changed
+    // Was the zero-balance-change guard through Task 7: with `fireball` opted out, a lock changed
     // nothing about where the shot went. Task 8 flips that switch, so the shot must now leave along
     // the lock direction instead of the car's heading. "b" sits 18 degrees off the nose, well inside
     // the cone, so this fails loudly if the aim angle stops reaching an opted-in weapon.
@@ -864,7 +864,7 @@ describe("aim assist through a real tick", () => {
 
 describe("aimAngleFor", () => {
   // Direct coverage of both branches of the per-weapon opt-in (A1). Deleting the
-  // `usesAimAssist` check entirely still passes every OTHER test in this file: `cannon` is `true`,
+  // `usesAimAssist` check entirely still passes every OTHER test in this file: `fireball` is `true`,
   // and `repeater` -- the only `false` row in WEAPON_TABLE -- is carried by no car, so it is
   // unreachable through `runCombat`. These two tests call `aimAngleFor` directly so the opt-out
   // path is exercised regardless of which chassis carry which weapon.
@@ -903,7 +903,7 @@ describe("aimAngleFor", () => {
     // muzzle is at (24, 0). Target "b" is at (124, 100), so dx = 124 - 24 = 100 and dy = 100 - 0 =
     // 100. atan2(100, 100) = atan(1) = pi/4 radians (45 degrees).
     const expected = Math.PI / 4;
-    // "cannon" is usesAimAssist: true.
-    expect(aimAngleFor(a, "cannon", byId)).toBeCloseTo(expected, 10);
+    // "fireball" is usesAimAssist: true.
+    expect(aimAngleFor(a, "fireball", byId)).toBeCloseTo(expected, 10);
   });
 });

@@ -3,7 +3,7 @@ import type { WeaponDef, WeaponId } from "./weapon-types.js";
 /**
  * Every weapon in the game, mirroring `CAR_TABLE`. Balance lives here and nowhere else.
  *
- * `cannon` is the migrated pre-weapon-system shot, carrying its exact numbers: `fireRateHz: 2`
+ * `fireball` is the migrated pre-weapon-system shot, carrying its exact numbers: `fireRateHz: 2`
  * became `cooldownMs: 500`, and `lifetimeTicks: 30` became `range: 900` (one second of flight at
  * 900 u/s). Its hitbox is the one deliberate departure from that migration: it shipped as a 3-unit
  * circle, the smallest that kept the old point-hit feel while satisfying "every weapon has a
@@ -11,15 +11,15 @@ import type { WeaponDef, WeaponId } from "./weapon-types.js";
  * itself, never a sprite. A 24-unit disc is three quarters of a car's 32-unit width.
  *
  * `color` is the one render-only number here besides `name`. It is per weapon on purpose: every
- * car firing a cannon fires the same ember-orange shot. The two shipped colours are picked to be
+ * car firing a fireball fires the same ember-orange shot. The two shipped colours are picked to be
  * unmistakable for any `COLOR_TABLE` player colour — ember orange leans darker and redder than
  * `Orange`/`Gold`, and no player can be teal — so a shot never reads as somebody's car paint.
  */
 export const WEAPON_TABLE = {
-  cannon: {
-    id: "cannon",
+  fireball: {
+    id: "fireball",
     kind: "projectile",
-    name: "Cannon",
+    name: "Fireball",
     color: "#E8590C",
     unlocksAt: 1,
     damage: 8,
@@ -29,9 +29,9 @@ export const WEAPON_TABLE = {
     startUpMs: 0,
     cooldownMs: 500,
     recoveryMs: 0,
-    // The system would otherwise ship dark: `cannon` is the only weapon any chassis carries, so
+    // The system would otherwise ship dark: `fireball` is the only weapon any chassis carries, so
     // leaving it off would put aim assist on the same never-seen-in-play list as beams, multi-pellet
-    // volleys and `repeater`. Note the consequence -- every chassis carries `cannon`, so aim assist
+    // volleys and `repeater`. Note the consequence -- every chassis carries `fireball`, so aim assist
     // is universal until a second weapon is authored.
     usesAimAssist: true,
     hitbox: { shape: "circle", radius: 12 },
@@ -41,7 +41,7 @@ export const WEAPON_TABLE = {
   /**
    * NO CAR CARRIES THIS WEAPON. It is not in any `CAR_TABLE` loadout and cannot be reached in game —
    * that is by design, not an oversight. `fire.ts`'s stock mechanic (D5) needs a real, multi-stock
-   * weapon to prove itself against; `cannon` is deliberately single-stock (D22 ships zero balance
+   * weapon to prove itself against; `fireball` is deliberately single-stock (D22 ships zero balance
    * change), so there was nothing in the table the stock tests could exercise honestly. `repeater`
    * exists purely as that live proof and as the reference example for whoever authors the first
    * multi-stock weapon actually placed in a loadout. `cooldownMs`/`stock` below are the spec's D5

@@ -17,7 +17,7 @@ const snapshot = (
 
 function shotFrom(x: number, y: number, angle = 0, team: 0 | 1 = 0): WeaponInstance {
   return spawnInstances(
-    { weaponId: "cannon", slot: 0 },
+    { weaponId: "fireball", slot: 0 },
     { sessionId: "aaa", team, x, y, angle },
     100,
     0,
@@ -29,7 +29,7 @@ describe("hit resolution", () => {
     const shot = shotFrom(400, 300);
     const moved = stepInstance(shot, { dt: DT, tick: 101, obstacles: [], bounds: BOUNDS, ownerPose: null });
     const out = resolveInstanceHits(moved, shot, snapshot([{ sessionId: "bbb", x: 434, y: 300 }]), "ffa", 101);
-    expect(out.damaged).toEqual([{ sessionId: "bbb", amount: WEAPON_TABLE.cannon.damage }]);
+    expect(out.damaged).toEqual([{ sessionId: "bbb", amount: WEAPON_TABLE.fireball.damage }]);
   });
 
   it("never damages the shooter", () => {
@@ -104,7 +104,7 @@ describe("hit resolution", () => {
       { sessionId: "ccc", team: 0, x: 424, y: 300 }, // enemy: must still be damaged
     ]);
     const out = resolveInstanceHits(shot, shot, mixed, "team", 100);
-    expect(out.damaged).toEqual([{ sessionId: "ccc", amount: WEAPON_TABLE.cannon.damage }]);
+    expect(out.damaged).toEqual([{ sessionId: "ccc", amount: WEAPON_TABLE.fireball.damage }]);
   });
 });
 

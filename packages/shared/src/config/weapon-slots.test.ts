@@ -12,19 +12,19 @@ describe("loadouts", () => {
     }
   });
 
-  it("ships all three cars carrying the migrated cannon in slot 1", () => {
-    expect(CAR_TABLE.rectangle.weapons).toEqual(["cannon"]);
-    expect(CAR_TABLE.oval.weapons).toEqual(["cannon"]);
-    expect(CAR_TABLE.hexagon.weapons).toEqual(["cannon"]);
+  it("ships all three cars carrying the migrated fireball in slot 1", () => {
+    expect(CAR_TABLE.rectangle.weapons).toEqual(["fireball"]);
+    expect(CAR_TABLE.oval.weapons).toEqual(["fireball"]);
+    expect(CAR_TABLE.hexagon.weapons).toEqual(["fireball"]);
   });
 
   it("returns the car's list in slot order", () => {
-    expect(slotsOf("hexagon")).toEqual(["cannon"]);
+    expect(slotsOf("hexagon")).toEqual(["fireball"]);
   });
 
   it("truncates an over-long loadout to the slot limit and warns once, naming the car", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const over = ["cannon", "cannon", "cannon", "cannon"] as const;
+    const over = ["fireball", "fireball", "fireball", "fireball"] as const;
 
     const first = slotsFrom("hexagon", over);
     const second = slotsFrom("hexagon", over);
@@ -37,7 +37,7 @@ describe("loadouts", () => {
 
   it("does not warn for a loadout inside the limit", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    slotsFrom("oval", ["cannon"]);
+    slotsFrom("oval", ["fireball"]);
     expect(warn).not.toHaveBeenCalled();
   });
 });

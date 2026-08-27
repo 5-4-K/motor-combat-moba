@@ -1,5 +1,5 @@
 /** Every weapon in the game. Add an id here and a row in `WEAPON_TABLE`. */
-export type WeaponId = "cannon" | "repeater";
+export type WeaponId = "fireball" | "repeater";
 
 /**
  * Optional charge system. Absent means single-stock, which is exactly the pre-weapon-system

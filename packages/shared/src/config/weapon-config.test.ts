@@ -5,26 +5,26 @@ import type { WeaponDef } from "./weapon-types.js";
 import { AIM_CONFIG } from "./aim-config.js";
 
 describe("WEAPON_TABLE", () => {
-  it("ships the migrated cannon with today's numbers", () => {
-    const cannon = WEAPON_TABLE.cannon;
-    expect(cannon.kind).toBe("projectile");
-    expect(cannon.damage).toBe(8);
-    expect(cannon.cooldownMs).toBe(500); // was fireRateHz: 2
-    expect(cannon.speed).toBe(900);
-    expect(cannon.range).toBe(900); // was lifetimeTicks: 30 == 1s of flight at 900 u/s
-    expect(cannon.startUpMs).toBe(0);
-    expect(cannon.recoveryMs).toBe(0);
-    expect(cannon.damageFrequencyMs).toBe(0);
-    expect(cannon.unlocksAt).toBe(1);
-    expect(cannon.stock).toBeUndefined();
+  it("ships the migrated fireball with today's numbers", () => {
+    const fireball = WEAPON_TABLE.fireball;
+    expect(fireball.kind).toBe("projectile");
+    expect(fireball.damage).toBe(8);
+    expect(fireball.cooldownMs).toBe(500); // was fireRateHz: 2
+    expect(fireball.speed).toBe(900);
+    expect(fireball.range).toBe(900); // was lifetimeTicks: 30 == 1s of flight at 900 u/s
+    expect(fireball.startUpMs).toBe(0);
+    expect(fireball.recoveryMs).toBe(0);
+    expect(fireball.damageFrequencyMs).toBe(0);
+    expect(fireball.unlocksAt).toBe(1);
+    expect(fireball.stock).toBeUndefined();
   });
 
-  it("gives the cannon a single-target circle hitbox and no volley spread", () => {
-    const cannon = WEAPON_TABLE.cannon;
-    if (cannon.kind !== "projectile") throw new Error("cannon must be a projectile");
-    expect(cannon.pierce).toBe(0);
-    expect(cannon.hitbox).toEqual({ shape: "circle", radius: 12 });
-    expect(cannon.volley).toEqual({
+  it("gives the fireball a single-target circle hitbox and no volley spread", () => {
+    const fireball = WEAPON_TABLE.fireball;
+    if (fireball.kind !== "projectile") throw new Error("fireball must be a projectile");
+    expect(fireball.pierce).toBe(0);
+    expect(fireball.hitbox).toEqual({ shape: "circle", radius: 12 });
+    expect(fireball.volley).toEqual({
       volleys: 1,
       volleyIntervalMs: 0,
       pelletsPerVolley: 1,
@@ -77,19 +77,19 @@ describe("WEAPON_TABLE", () => {
   });
 
   it("rejects prototype names as weapon ids", () => {
-    expect(isWeaponId("cannon")).toBe(true);
+    expect(isWeaponId("fireball")).toBe(true);
     expect(isWeaponId("constructor")).toBe(false);
     expect(isWeaponId("__proto__")).toBe(false);
     expect(isWeaponId(7)).toBe(false);
   });
 
   it("resolves a def by id", () => {
-    expect(weaponDefOf("cannon").id).toBe("cannon");
+    expect(weaponDefOf("fireball").id).toBe("fireball");
   });
 
-  it("gives the cannon aim assist and leaves the repeater without it", () => {
+  it("gives the fireball aim assist and leaves the repeater without it", () => {
     // The pair that makes `usesAimAssist` a real switch rather than a global: one row on, one off.
-    expect(WEAPON_TABLE.cannon.usesAimAssist).toBe(true);
+    expect(WEAPON_TABLE.fireball.usesAimAssist).toBe(true);
     expect(WEAPON_TABLE.repeater.usesAimAssist).toBe(false);
   });
 

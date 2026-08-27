@@ -8,6 +8,11 @@
     },
     "car.oval": {
       "file": "cars/oval.png"
+    },
+    "weapon-icon.fireball": {
+      "file": "weapon-icons/fireball.png",
+      "colorMode": "none",
+      "scale": "fit"
     }
   }
 }

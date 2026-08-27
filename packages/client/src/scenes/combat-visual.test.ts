@@ -12,6 +12,8 @@ import {
   hpBarColor,
   hpFraction,
   instanceDrawShape,
+  instanceGlowBands,
+  WEAPON_GLOW_STYLES,
   lockBracketArms,
   LOCK_BRACKET_HALF,
   weaponFillOf,
@@ -61,7 +63,7 @@ describe("hpBarColor", () => {
 });
 
 describe("extrapolateShot", () => {
-  const SPEED = WEAPON_TABLE.cannon.speed;
+  const SPEED = WEAPON_TABLE.fireball.speed;
 
   it("does not move a shot reported this instant", () => {
     expect(extrapolateShot(100, 100, 0, SPEED, 0)).toEqual({ x: 100, y: 100 });
@@ -91,12 +93,12 @@ describe("extrapolateShot", () => {
 });
 
 describe("instance drawing", () => {
-  const projectile = { weaponId: "cannon", x: 100, y: 100, angle: 0, extent: 0 };
+  const projectile = { weaponId: "fireball", x: 100, y: 100, angle: 0, extent: 0 };
 
   it("extrapolates a projectile along its own heading between patches", () => {
     const still = instanceDrawShape(projectile, 0);
     const later = instanceDrawShape(projectile, 25);
-    if (still.kind !== "circle" || later.kind !== "circle") throw new Error("cannon draws as a circle");
+    if (still.kind !== "circle" || later.kind !== "circle") throw new Error("fireball draws as a circle");
     expect(later.x).toBeGreaterThan(still.x);
   });
 
@@ -109,16 +111,16 @@ describe("instance drawing", () => {
 
   it("draws by the weapon's own kind, so a stale row byte cannot pick the wrong shape", () => {
     // There is no beam in the shipped table, so the honest thing this can assert is the branch
-    // itself: a row claiming to be a beam still draws `cannon`'s projectile circle, because the
-    // definition decides. The previous version of this test paired `weaponId: "cannon"` with a BEAM
+    // itself: a row claiming to be a beam still draws `fireball`'s projectile circle, because the
+    // definition decides. The previous version of this test paired `weaponId: "fireball"` with a BEAM
     // byte and got a polygon two of whose three vertices were NaN — `beamShapeAt` reading
     // `angleDeg` off a circle — and asserted only `kind === "polygon"`, so it passed on garbage.
     // `beamShapeAt`'s own rect/cone geometry is covered in shared's `shapes.test.ts`.
-    const claimingBeam = { weaponId: "cannon", kind: WeaponKind.BEAM, x: 100, y: 100, angle: 0, extent: 200 };
+    const claimingBeam = { weaponId: "fireball", kind: WeaponKind.BEAM, x: 100, y: 100, angle: 0, extent: 200 };
     const shape = instanceDrawShape(claimingBeam, 0);
     expect(shape.kind).toBe("circle");
     if (shape.kind !== "circle") throw new Error("circle expected");
-    expect(shape.radius).toBe(WEAPON_TABLE.cannon.hitbox.radius);
+    expect(shape.radius).toBe(WEAPON_TABLE.fireball.hitbox.radius);
   });
 
   it("falls back to a small dot for an unrecognised weapon id rather than blanking the layer", () => {
@@ -163,7 +165,7 @@ describe("weaponFillOf", () => {
     for (const def of Object.values(WEAPON_TABLE)) {
       expect(weaponFillOf(def.id)).toBe(Number.parseInt(def.color.slice(1), 16));
     }
-    expect(weaponFillOf("cannon")).toBe(0xe8590c);
+    expect(weaponFillOf("fireball")).toBe(0xe8590c);
   });
 
   it("is the same colour whoever fired it — a shot is never owner-coloured", () => {
@@ -180,5 +182,59 @@ describe("weaponFillOf", () => {
   it("falls back to grey for an unrecognised weapon id rather than an invisible NaN fill", () => {
     expect(weaponFillOf("not-a-weapon")).toBe(0x555555);
     expect(Number.isNaN(weaponFillOf("not-a-weapon"))).toBe(false);
+  });
+});
+
+describe("instanceGlowBands", () => {
+  const RADIUS = WEAPON_TABLE.fireball.hitbox.radius;
+
+  it("returns nothing for a weapon with no authored look, so it keeps its flat disc", () => {
+    // `repeater` is the whole point of this assertion: styles are per weapon, not a shared formula
+    // over `color`, so a second weapon must NOT silently inherit the fireball's bands.
+    expect(instanceGlowBands("repeater", 3, 0, 0)).toEqual([]);
+  });
+
+  it("returns nothing for an unrecognised weapon id rather than throwing", () => {
+    expect(instanceGlowBands("not-a-weapon", 12, 0, 0)).toEqual([]);
+  });
+
+  it("draws the fireball outermost first, so each band is filled over the last", () => {
+    const bands = instanceGlowBands("fireball", RADIUS, 0, 0);
+    expect(bands.length).toBe(WEAPON_GLOW_STYLES.fireball!.bands.length);
+    for (let i = 1; i < bands.length; i++) {
+      expect(bands[i]!.radius).toBeLessThan(bands[i - 1]!.radius);
+    }
+  });
+
+  it("never draws outside the hitbox, at any point in the flicker", () => {
+    // The invariant the whole style system rests on: what you see is what can hurt you. A flicker
+    // that could push the rim past the hitbox would make the drawn shot bigger than the thing that
+    // hits, so the wave is [0, 1] and only ever subtracts. Swept across several full cycles at
+    // 1 ms, which is finer than any frame this will ever be sampled at.
+    for (let ms = 0; ms < 1000; ms++) {
+      for (const band of instanceGlowBands("fireball", RADIUS, 0, ms)) {
+        expect(band.radius).toBeLessThanOrEqual(RADIUS);
+      }
+    }
+  });
+
+  it("flickers between the full hitbox and one flicker depth inside it", () => {
+    const outer: number[] = [];
+    for (let ms = 0; ms < 1000; ms += 0.5) outer.push(instanceGlowBands("fireball", RADIUS, 0, ms)[0]!.radius);
+    const depth = WEAPON_GLOW_STYLES.fireball!.flickerDepth;
+    expect(Math.max(...outer)).toBeCloseTo(RADIUS, 2);
+    expect(Math.min(...outer)).toBeCloseTo(RADIUS * (1 - depth), 2);
+  });
+
+  it("puts shots spawned on different ticks out of phase, so a stream does not pulse in lockstep", () => {
+    const a = instanceGlowBands("fireball", RADIUS, 100, 0)[0]!.radius;
+    const b = instanceGlowBands("fireball", RADIUS, 101, 0)[0]!.radius;
+    expect(a).not.toBeCloseTo(b, 3);
+  });
+
+  it("scales the whole glow with the hitbox, so a re-tuned radius cannot strand a band", () => {
+    const wide = instanceGlowBands("fireball", RADIUS * 2, 0, 0);
+    const base = instanceGlowBands("fireball", RADIUS, 0, 0);
+    wide.forEach((band, i) => expect(band.radius).toBeCloseTo(base[i]!.radius * 2, 6));
   });
 });
