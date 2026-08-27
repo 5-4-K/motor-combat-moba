@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { beginFire, cancelPending, newFireState, releaseShots, tickRecharge, type FireState } from "./fire.js";
+import type { ShotOrder } from "./instances.js";
 
 const SLOT_1 = 0b001;
 const SLOT_2 = 0b010;
@@ -141,6 +142,71 @@ describe("refire delay", () => {
 
     expect(beginFire(firstShot, SLOT_1, 102).pending).toBeNull(); // still locked
     expect(beginFire(firstShot, SLOT_1, 103).pending).not.toBeNull(); // lock has elapsed
+  });
+});
+
+describe("per-tick order", () => {
+  /** Every function call below uses the SAME tick number, exactly as a real per-tick loop would. */
+  function step(state: FireState, tick: number, mask: number): { state: FireState; orders: ShotOrder[] } {
+    const recharged = tickRecharge(state, tick);
+    const pressed = beginFire(recharged, mask, tick);
+    return releaseShots(pressed, tick);
+  }
+
+  it("fires a zero-start-up weapon on the tick it is pressed, in the canonical recharge -> beginFire -> releaseShots order", () => {
+    let state = fresh(); // cannon: startUpMs 0, cooldownMs 500ms == 15 ticks, single stock
+    const seen: ShotOrder[] = [];
+
+    // Tick 100: press and fire must both land on this SAME tick — not the next one. Under the
+    // plan's old order (recharge -> releaseShots -> beginFire), releaseShots would run before this
+    // press was registered, and the shot would never go out at all (see the regression case below).
+    let step1 = step(state, 100, SLOT_1);
+    state = step1.state;
+    seen.push(...step1.orders);
+    expect(seen).toEqual([{ weaponId: "cannon", slot: 0 }]);
+    expect(state.pending).toBeNull();
+    expect(state.slots[0]!.stocks).toBe(0);
+
+    // Ticks 101-114: idle, no stock yet, nothing fires.
+    for (let tick = 101; tick < 115; tick++) {
+      const idled = step(state, tick, 0);
+      state = idled.state;
+      seen.push(...idled.orders);
+    }
+    expect(seen).toHaveLength(1);
+    expect(state.slots[0]!.stocks).toBe(0);
+
+    // Tick 115: the stock lands on this exact tick (100 + 15). A second press must fire again, same
+    // tick, proving the cycle repeats rather than being a one-shot fluke.
+    const step2 = step(state, 115, SLOT_1);
+    state = step2.state;
+    seen.push(...step2.orders);
+    expect(seen).toEqual([
+      { weaponId: "cannon", slot: 0 },
+      { weaponId: "cannon", slot: 0 },
+    ]);
+  });
+
+  it("would strand a zero-start-up press forever under the plan's old recharge -> releaseShots -> beginFire order, on a strict-equality release gate", () => {
+    // This reproduces the exact defect: releaseShots runs BEFORE the press it should be releasing is
+    // even registered, so the shot schedule set by beginFire this tick is only ever checked again on
+    // a LATER tick, and `releaseShots`'s current `tick >= pending.nextShotTick` gate (not exact
+    // equality) is what keeps it from being lost forever — it fires one tick late instead. Read this
+    // as documentation of why the order in the test above is the one callers must use: firing one
+    // tick late, not on the pressed tick, would fail this suite's other timing assertions even though
+    // it no longer jams.
+    let state = fresh();
+    state = tickRecharge(state, 100);
+    const releasedBeforePress = releaseShots(state, 100); // nothing pending yet: no-op
+    expect(releasedBeforePress.orders).toEqual([]);
+    state = releasedBeforePress.state;
+    state = beginFire(state, SLOT_1, 100); // press registers AFTER release already ran this tick
+    expect(state.pending).toEqual({ weaponId: "cannon", slot: 0, shotsLeft: 1, nextShotTick: 100 });
+
+    // The next call to releaseShots happens on the NEXT tick, 101 — one tick after nextShotTick.
+    const releasedNextTick = releaseShots(state, 101);
+    expect(releasedNextTick.orders).toEqual([{ weaponId: "cannon", slot: 0 }]); // late, but not lost
+    expect(releasedNextTick.state.pending).toBeNull();
   });
 });
 

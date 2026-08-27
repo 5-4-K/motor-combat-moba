@@ -6,12 +6,30 @@ import { weaponTicksOf } from "../../config/weapon-ticks.js";
 import type { WeaponId } from "../../config/weapon-types.js";
 import type { ShotOrder } from "./instances.js";
 
+/**
+ * Per-tick call order for this module, and callers must use exactly this order:
+ *
+ *     tickRecharge -> beginFire -> releaseShots
+ *
+ * `beginFire` runs BEFORE `releaseShots` on the same tick, not after. With `startUpMs: 0` (every
+ * weapon in the table today) a press schedules `nextShotTick = tick`, so its shot must be released
+ * on that same tick — the pre-weapon-system weapon worked exactly this way, spawning its projectile
+ * on the tick it was pressed, not the next one. Running `releaseShots` first would test a press that
+ * has not been registered yet; the shot would then need `tick >= nextShotTick` to still be true on
+ * a LATER tick to ever go out, which only happens to work here because `releaseShots` gates on
+ * `tick >= pending.nextShotTick` rather than exact equality (see its doc comment) — but relying on
+ * that instead of the documented order is fragile and not how the next task's tick loop is wired.
+ */
 export interface SlotState {
   weaponId: WeaponId;
   stocks: number;
   /** Tick the running recharge completes. 0 = not recharging (at max, or nothing to recharge). */
   rechargeEndsTick: number;
-  /** Tick this weapon may fire again. Only ever set by a weapon with a `stock` block. */
+  /**
+   * Tick this weapon may fire again. Set unconditionally by `releaseShots` from
+   * `weaponTicksOf(weaponId).refireDelay`, which is 0 for a weapon with no `stock` block — so a
+   * non-stock weapon's value is always the tick it last fired, not a sign that it has stocks.
+   */
   refireLockUntilTick: number;
 }
 
@@ -88,10 +106,15 @@ export function tickRecharge(state: FireState, tick: number): FireState {
  *
  * The recharge and both locks are set from the LAST shot of a volley, so `cooldownMs` keeps meaning
  * "time until another stock" rather than partly serving its own burst.
+ *
+ * Gates on `tick >= pending.nextShotTick`, not exact equality: a pending shot must never be
+ * strandable by an ordering choice or a skipped tick. Called in the documented order (see the
+ * module comment above), this fires on exactly the scheduled tick every time; the `>=` is the
+ * safety margin, not the mechanism.
  */
 export function releaseShots(state: FireState, tick: number): { state: FireState; orders: ShotOrder[] } {
   const pending = state.pending;
-  if (!pending || pending.nextShotTick !== tick) return { state, orders: [] };
+  if (!pending || tick < pending.nextShotTick) return { state, orders: [] };
 
   const ticks = weaponTicksOf(pending.weaponId);
   const orders: ShotOrder[] = [{ weaponId: pending.weaponId, slot: pending.slot }];
