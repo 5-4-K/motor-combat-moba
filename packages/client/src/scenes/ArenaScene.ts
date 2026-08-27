@@ -192,8 +192,12 @@ const HUD_STOCK_FONT_PX = 13;
  * be free — a dark wedge covered it and the glyph was a small dot — but the flame owns it now, and
  * a number over the flame is unreadable at this size. Left-aligned on `SlotBox.keyX`, the same
  * column the key uses, so the two stack.
+ *
+ * 24, not the 20 it shipped at: measured against Phaser's default Courier, the key pill is 22px
+ * tall and the 18px countdown 20px, so 20 put the number 1px INSIDE the pill above it. 24 clears
+ * the pill by 3px and still stops 4px short of the name band at `SLOT_NAME_GAP_PX` below.
  */
-const HUD_COUNTDOWN_KEY_OFFSET_PX = 20;
+const HUD_COUNTDOWN_KEY_OFFSET_PX = 24;
 /** Straight up, so the arc drains clockwise from 12 o'clock like a standard ability cooldown. */
 const HUD_SWEEP_START_ANGLE = -Math.PI / 2;
 
