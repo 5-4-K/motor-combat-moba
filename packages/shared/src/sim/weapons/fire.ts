@@ -18,7 +18,7 @@ import type { ShotOrder } from "./instances.js";
  * has not been registered yet; the shot would then need `tick >= nextShotTick` to still be true on
  * a LATER tick to ever go out, which only happens to work here because `releaseShots` gates on
  * `tick >= pending.nextShotTick` rather than exact equality (see its doc comment) — but relying on
- * that instead of the documented order is fragile and not how the next task's tick loop is wired.
+ * that instead of the documented order is fragile and not how `runCombat`'s tick loop is wired.
  */
 export interface SlotState {
   weaponId: WeaponId;
@@ -45,7 +45,17 @@ export interface FireState {
   slots: SlotState[];
   /** Tick a DIFFERENT weapon may fire. */
   switchLockUntilTick: number;
-  lastFiredWeaponId: string;
+  /**
+   * The slot the car most recently committed to firing, or `-1` before its first shot. Slot
+   * identity, deliberately NOT the weapon id: the refire lock lives on the SLOT, so deciding "same
+   * weapon" by id let a loadout carrying one weapon twice (`["repeater", "repeater"]`) fire slot 1,
+   * skip the switch lock on slot 2 as "the same weapon", and find slot 2's own `refireLockUntilTick`
+   * still at 0 — a free double shot reachable from config alone.
+   *
+   * Set at press time by `beginFire`, not at release, so a wind-up or a mid-volley gap already
+   * names the slot that is firing; the HUD reads it off the wire (`PlayerState.lastFiredSlot`).
+   */
+  lastFiredSlot: number;
   pending: PendingFire | null;
   /** In-match level. Pinned to 1 until the level system exists (D14). */
   level: number;
@@ -66,7 +76,7 @@ export function newFireState(carId: CarId | "", level: number): FireState {
       refireLockUntilTick: 0,
     })),
     switchLockUntilTick: 0,
-    lastFiredWeaponId: "",
+    lastFiredSlot: -1,
     pending: null,
     level,
   };
@@ -81,11 +91,20 @@ export function newFireState(carId: CarId | "", level: number): FireState {
 export function tickRecharge(state: FireState, tick: number): FireState {
   return {
     ...state,
-    slots: state.slots.map((slot) => {
+    slots: state.slots.map((slot, index) => {
       const def = weaponDefOf(slot.weaponId);
       const max = def.stock?.max ?? 1;
       if (slot.stocks >= max) return slot.rechargeEndsTick === 0 ? slot : { ...slot, rechargeEndsTick: 0 };
       if (slot.rechargeEndsTick === 0) {
+        // NOT for the slot a committed press is still resolving. `beginFire` spends the stock at
+        // press time while `releaseShots` starts the recharge at the LAST shot of the volley, so
+        // every tick in between finds `stocks < max` with no timer running. Auto-starting one here
+        // would anchor the cooldown to the tick after the press instead of to the last shot, and
+        // `releaseShots` — which deliberately never restarts a running timer — would then leave it
+        // alone: a 3-volley/80ms weapon on a 3s cooldown would come back at T+91 rather than the
+        // authored T+96, and a `startUpMs: 500` weapon a whole 14 ticks early. The error grows with
+        // burst length and wind-up, so it must be blocked here rather than papered over downstream.
+        if (state.pending?.slot === index) return slot;
         return { ...slot, rechargeEndsTick: tick + weaponTicksOf(slot.weaponId).cooldown };
       }
       if (tick < slot.rechargeEndsTick) return slot;
@@ -148,7 +167,6 @@ export function releaseShots(state: FireState, tick: number): { state: FireState
       ...state,
       slots,
       pending: null,
-      lastFiredWeaponId: pending.weaponId,
       switchLockUntilTick: tick + ticks.recovery,
     },
     orders,
@@ -175,14 +193,18 @@ export function beginFire(state: FireState, mask: number, tick: number): FireSta
     if (def.unlocksAt > state.level) continue;
     if (slot.stocks < 1) continue;
 
-    const sameWeapon = state.lastFiredWeaponId === slot.weaponId;
-    if (sameWeapon && tick < slot.refireLockUntilTick) continue;
-    if (!sameWeapon && tick < state.switchLockUntilTick) continue;
+    // "The same weapon" means THIS SLOT, not this weapon id: the refire lock is per slot, so a
+    // loadout carrying one weapon twice would otherwise skip the switch lock on the second slot
+    // (same id) and find that slot's own refire lock still at 0. See `FireState.lastFiredSlot`.
+    const sameSlot = state.lastFiredSlot === index;
+    if (sameSlot && tick < slot.refireLockUntilTick) continue;
+    if (!sameSlot && tick < state.switchLockUntilTick) continue;
 
     const volleys = def.kind === "projectile" ? def.volley.volleys : 1;
     return {
       ...state,
       slots: state.slots.map((s, i) => (i === index ? { ...s, stocks: s.stocks - 1 } : s)),
+      lastFiredSlot: index,
       pending: {
         weaponId: slot.weaponId,
         slot: index,

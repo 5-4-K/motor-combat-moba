@@ -70,7 +70,7 @@ describe("releasing", () => {
     expect(orders).toEqual([{ weaponId: "cannon", slot: 0 }]);
     expect(state.pending).toBeNull();
     expect(state.slots[0]!.rechargeEndsTick).toBe(115); // 500ms == 15 ticks
-    expect(state.lastFiredWeaponId).toBe("cannon");
+    expect(state.lastFiredSlot).toBe(0);
   });
 
   it("emits nothing before the scheduled tick", () => {
@@ -88,7 +88,7 @@ describe("stocks", () => {
   const stocked = (): FireState => ({
     slots: [{ weaponId: "repeater", stocks: 1, rechargeEndsTick: 190, refireLockUntilTick: 0 }],
     switchLockUntilTick: 0,
-    lastFiredWeaponId: "",
+    lastFiredSlot: -1,
     pending: null,
     level: 1,
   });
@@ -133,7 +133,7 @@ describe("refire delay", () => {
     const twoStocks: FireState = {
       slots: [{ weaponId: "repeater", stocks: 2, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
       switchLockUntilTick: 0,
-      lastFiredWeaponId: "",
+      lastFiredSlot: -1,
       pending: null,
       level: 1,
     };
@@ -211,21 +211,105 @@ describe("per-tick order", () => {
 });
 
 describe("the two lockouts", () => {
-  it("blocks a different weapon for recovery while allowing the same one after its refire delay", () => {
-    // cooldown 3s (90 ticks), recovery 5s (150 ticks), refire delay 0, 2 stocks banked.
-    const state: FireState = {
+  /**
+   * `repeater` in slot 1 is the only weapon in the table with a real `recoveryMs` (5000ms == 150
+   * ticks) — `cannon`'s is 0, so a cannon fixture can only ever prove the gate by hand-setting
+   * `switchLockUntilTick`, never that `releaseShots` WRITES it. Its cooldown is 90 ticks and its
+   * refire delay 3, so all three clocks are distinguishable in one fixture. Two stocks in slot 1 so
+   * only the locks, never the ammo, decide anything.
+   */
+  const twoSlots = (): FireState => ({
+    slots: [
+      { weaponId: "repeater", stocks: 2, rechargeEndsTick: 0, refireLockUntilTick: 0 },
+      { weaponId: "cannon", stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0 },
+    ],
+    switchLockUntilTick: 0,
+    lastFiredSlot: -1,
+    pending: null,
+    level: 1,
+  });
+
+  it("writes the recovery lockout from the weapon that fired", () => {
+    const fired = releaseShots(beginFire(twoSlots(), SLOT_1, 200), 200).state;
+    expect(fired.switchLockUntilTick).toBe(350); // 200 + 150 ticks == repeater's 5000ms recovery
+  });
+
+  it("blocks a different slot for recovery while allowing the same slot after its refire delay", () => {
+    const fired = releaseShots(beginFire(twoSlots(), SLOT_1, 200), 200).state;
+    expect(beginFire(fired, SLOT_1, 202).pending).toBeNull(); // same slot, still inside 200 + 3
+    expect(beginFire(fired, SLOT_1, 203).pending).not.toBeNull(); // its own refire delay has elapsed
+    expect(beginFire(fired, SLOT_2, 349).pending).toBeNull(); // other slot: waits out the recovery
+    expect(beginFire(fired, SLOT_2, 350).pending).not.toBeNull();
+  });
+
+  it("holds the switch lock across two slots carrying the SAME weapon id", () => {
+    // Reachable from config alone: a car whose `weapons` list repeats an id. Deciding "same weapon"
+    // by id would let slot 2 skip the switch lock as "the same weapon" and then find its OWN
+    // refireLockUntilTick still at 0 — a free second shot inside the recovery window.
+    const duplicate: FireState = {
+      ...twoSlots(),
       slots: [
-        { weaponId: "cannon", stocks: 2, rechargeEndsTick: 0, refireLockUntilTick: 0 },
-        { weaponId: "cannon", stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0 },
+        { weaponId: "repeater", stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0 },
+        { weaponId: "repeater", stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0 },
       ],
-      switchLockUntilTick: 250,
-      lastFiredWeaponId: "cannon",
-      pending: null,
-      level: 1,
     };
-    // Slot 2 holds a different LAST-FIRED identity only via lastFiredWeaponId; the switch lock gates it.
-    expect(beginFire(state, SLOT_1, 200).pending).not.toBeNull(); // same weapon: allowed
-    expect(beginFire({ ...state, lastFiredWeaponId: "other" }, SLOT_1, 200).pending).toBeNull();
+    const fired = releaseShots(beginFire(duplicate, SLOT_1, 200), 200).state;
+    expect(fired.lastFiredSlot).toBe(0);
+    expect(beginFire(fired, SLOT_2, 203).pending).toBeNull(); // a different SLOT, so the switch lock
+    expect(beginFire(fired, SLOT_2, 350).pending).not.toBeNull();
+  });
+});
+
+describe("volleys and wind-up", () => {
+  /**
+   * No shipped weapon has `volleys > 1` or `startUpMs > 0` (D22 ships zero balance change), so a
+   * burst is staged by hand-building the `pending` a press would have produced. `tickRecharge`,
+   * `beginFire` and `releaseShots` then run in the canonical per-tick order exactly as `runCombat`
+   * calls them. `repeater` supplies the real numbers: 90-tick cooldown, 3 stocks, and a
+   * `volleyIntervalMs` of 0 that `releaseShots` floors at one tick.
+   */
+  const bursting = (nextShotTick: number, shotsLeft: number, rechargeEndsTick = 0): FireState => ({
+    slots: [{ weaponId: "repeater", stocks: 0, rechargeEndsTick, refireLockUntilTick: 0 }],
+    switchLockUntilTick: 0,
+    lastFiredSlot: 0,
+    pending: { weaponId: "repeater", slot: 0, shotsLeft, nextShotTick },
+    level: 1,
+  });
+
+  function drive(state: FireState, from: number, ticks: number): { state: FireState; shots: number[] } {
+    let next = state;
+    const shots: number[] = [];
+    for (let tick = from; tick < from + ticks; tick++) {
+      next = tickRecharge(next, tick);
+      next = beginFire(next, 0, tick);
+      const released = releaseShots(next, tick);
+      next = released.state;
+      for (const _ of released.orders) shots.push(tick);
+    }
+    return { state: next, shots };
+  }
+
+  it("starts the recharge at the LAST shot of a burst, not on the tick after the press", () => {
+    const { state, shots } = drive(bursting(100, 3), 100, 20);
+    expect(shots).toEqual([100, 101, 102]); // volleyInterval floors at one tick
+    expect(state.pending).toBeNull();
+    // 102 + 90. An auto-started timer on tick 101 would have ended it at 191 — five ticks early, and
+    // `releaseShots` would have left that running timer alone rather than correcting it.
+    expect(state.slots[0]!.rechargeEndsTick).toBe(192);
+  });
+
+  it("does not start the recharge during a wind-up either", () => {
+    const { state, shots } = drive(bursting(105, 1), 100, 20);
+    expect(shots).toEqual([105]);
+    expect(state.slots[0]!.rechargeEndsTick).toBe(195); // 105 + 90, not 190 from an auto-start at 100
+  });
+
+  it("still completes a recharge that was already running when the burst began", () => {
+    // The guard is narrow on purpose: it skips the AUTO-START only. A timer already in flight (a
+    // stock banked from an earlier shot) keeps counting down through the burst and lands its stock.
+    const { state } = drive(bursting(100, 3, 101), 100, 20);
+    expect(state.slots[0]!.stocks).toBe(1);
+    expect(state.slots[0]!.rechargeEndsTick).toBe(191); // 101 + 90, restarted below max and untouched
   });
 });
 
