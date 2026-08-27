@@ -1,15 +1,12 @@
 import {
   DEFAULT_PATCH_RATE_HZ,
   DEFAULT_CAR_ID,
-  WeaponKind,
   beamShapeAt,
   hpOf,
   isCarId,
   isWeaponId,
   projectileShapeAt,
   weaponDefOf,
-  type BeamHitbox,
-  type ProjectileHitbox,
   type WorldShape,
 } from "@motor-combat-moba/shared";
 
@@ -58,10 +55,13 @@ export function extrapolateShot(
   return { x: x + Math.cos(angle) * speed * dt, y: y + Math.sin(angle) * speed * dt };
 }
 
-/** A live instance, as it arrives on the wire (`WeaponInstanceState`) — the fields drawing needs. */
+/**
+ * A live instance, as it arrives on the wire (`WeaponInstanceState`) — the fields drawing needs.
+ * The row's `kind` byte is not among them: the weapon's own definition decides which lifecycle it
+ * is, and `spawnInstances` copies that byte from the same definition anyway.
+ */
 export interface DrawableInstance {
   weaponId: string;
-  kind: number;
   x: number;
   y: number;
   angle: number;
@@ -83,11 +83,15 @@ function capMs(elapsedMs: number): number {
  * What to draw for one live instance, in world space. The silhouette is the weapon's own hitbox
  * (D19), so what a player sees is exactly what can hurt them — and a new weapon needs no art.
  *
- * The branch is the *row's own* `kind` (the wire field, mirroring `WeaponKind`), not the weapon
- * definition's — the row is what a beam actually is at draw time, and by construction
- * (`spawnInstances` in shared) a live instance's `kind` always agrees with its `weaponId`'s
- * definition anyway. An unrecognised `weaponId` still draws something (a small dot) rather than
- * throwing, since a stale or forward-incompatible id must never blank the whole shot layer.
+ * The branch is the weapon DEFINITION's `kind`, which is what makes `WeaponDef` a discriminated
+ * union worth having (D1): narrowing on it hands each shape function the hitbox its own type
+ * guarantees, with no casts. Branching on the row's `kind` byte instead needed two `as` casts, and a
+ * row whose byte disagreed with its weapon (only ever a hand-built test object — `spawnInstances`
+ * copies the byte from this same definition) would have fed a circle to `beamShapeAt` and produced
+ * NaN vertices rather than a wrong-but-drawable shape.
+ *
+ * An unrecognised `weaponId` still draws something (a small dot) rather than throwing, since a stale
+ * or forward-incompatible id must never blank the whole shot layer.
  */
 export function instanceDrawShape(instance: DrawableInstance, elapsedMs: number): WorldShape {
   const def = isWeaponId(instance.weaponId) ? weaponDefOf(instance.weaponId) : null;
@@ -95,11 +99,10 @@ export function instanceDrawShape(instance: DrawableInstance, elapsedMs: number)
     return { kind: "circle", x: instance.x, y: instance.y, radius: UNKNOWN_WEAPON_RADIUS };
   }
 
-  if (instance.kind === WeaponKind.BEAM) {
-    const hitbox = def.hitbox as BeamHitbox;
+  if (def.kind === "beam") {
     const grown = Math.min(def.range, instance.extent + (def.speed * capMs(elapsedMs)) / 1000);
-    return beamShapeAt(hitbox, instance.x, instance.y, instance.angle, grown);
+    return beamShapeAt(def.hitbox, instance.x, instance.y, instance.angle, grown);
   }
   const at = extrapolateShot(instance.x, instance.y, instance.angle, def.speed, elapsedMs);
-  return projectileShapeAt(def.hitbox as ProjectileHitbox, at.x, at.y, instance.angle);
+  return projectileShapeAt(def.hitbox, at.x, at.y, instance.angle);
 }

@@ -76,10 +76,7 @@ describe("extrapolateShot", () => {
 });
 
 describe("instance drawing", () => {
-  const projectile = {
-    weaponId: "cannon", kind: WeaponKind.PROJECTILE,
-    x: 100, y: 100, angle: 0, extent: 0,
-  };
+  const projectile = { weaponId: "cannon", x: 100, y: 100, angle: 0, extent: 0 };
 
   it("extrapolates a projectile along its own heading between patches", () => {
     const still = instanceDrawShape(projectile, 0);
@@ -95,9 +92,22 @@ describe("instance drawing", () => {
     expect(capped.x).toBeCloseTo(oneInterval.x);
   });
 
-  it("draws a beam at its reported extent", () => {
-    const beam = { weaponId: "cannon", kind: WeaponKind.BEAM, x: 100, y: 100, angle: 0, extent: 200 };
-    const shape = instanceDrawShape(beam, 0);
-    expect(shape.kind).toBe("polygon");
+  it("draws by the weapon's own kind, so a stale row byte cannot pick the wrong shape", () => {
+    // There is no beam in the shipped table, so the honest thing this can assert is the branch
+    // itself: a row claiming to be a beam still draws `cannon`'s projectile circle, because the
+    // definition decides. The previous version of this test paired `weaponId: "cannon"` with a BEAM
+    // byte and got a polygon two of whose three vertices were NaN — `beamShapeAt` reading
+    // `angleDeg` off a circle — and asserted only `kind === "polygon"`, so it passed on garbage.
+    // `beamShapeAt`'s own rect/cone geometry is covered in shared's `shapes.test.ts`.
+    const claimingBeam = { weaponId: "cannon", kind: WeaponKind.BEAM, x: 100, y: 100, angle: 0, extent: 200 };
+    const shape = instanceDrawShape(claimingBeam, 0);
+    expect(shape.kind).toBe("circle");
+    if (shape.kind !== "circle") throw new Error("circle expected");
+    expect(shape.radius).toBe(WEAPON_TABLE.cannon.hitbox.radius);
+  });
+
+  it("falls back to a small dot for an unrecognised weapon id rather than blanking the layer", () => {
+    const shape = instanceDrawShape({ ...projectile, weaponId: "not-a-weapon" }, 0);
+    expect(shape.kind).toBe("circle");
   });
 });

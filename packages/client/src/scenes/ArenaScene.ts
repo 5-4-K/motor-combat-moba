@@ -791,7 +791,10 @@ export class ArenaScene extends Phaser.Scene {
    */
   private buildHudTextPool(): void {
     for (let i = 0; i < WEAPON_SLOT_CONFIG.maxWeaponSlots; i++) {
-      this.hudKeyTexts.push(this.makeHudText(HUD_KEY_FONT_PX));
+      // Top-centre origin, not centre-centre: the glyph is positioned `HUD_KEY_GAP_PX` below the
+      // box's bottom edge, so a centred origin hangs half the glyph's height back up over the frame
+      // (about 2px of 16 at the current gap). D18 wants the key outside the frame, never over it.
+      this.hudKeyTexts.push(this.makeHudText(HUD_KEY_FONT_PX).setOrigin(0.5, 0));
       this.hudCountdownTexts.push(this.makeHudText(HUD_COUNTDOWN_FONT_PX));
       this.hudStockTexts.push(this.makeHudText(HUD_STOCK_FONT_PX).setOrigin(1, 1));
       this.hudIconImages.push(
@@ -916,8 +919,8 @@ export class ArenaScene extends Phaser.Scene {
 
     // Ready-but-recharging happens only for a `stock` weapon banking another charge while one is
     // still in hand: `slotVisualState` correctly keeps the icon at full brightness (you can still
-    // fire), but the timer running underneath is exactly the "in-progress recharge" the brief asks
-    // a stock weapon's sweep to show. `locked` and `car-locked` never show it — the heavier/static
+    // fire), but the timer running underneath is exactly the "in-progress recharge" D18 asks a
+    // stock weapon's sweep to show. `locked` and `car-locked` never show it — the heavier/static
     // locked dim and the car-wide lockout must each stay visually unambiguous.
     const recharging = slot.rechargeEndsTick !== 0 && (state === "recharging" || state === "ready");
     if (recharging && def) {
