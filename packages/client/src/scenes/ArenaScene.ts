@@ -44,7 +44,7 @@ import { arenaBorderRect, arenaColorsOf } from "./arena-visual.js";
 import { fitsViewport } from "./arena-camera.js";
 import { assetManifest, assetsReady } from "./BootScene.js";
 import { carFillOf, carShapeOf, hexagonPoints } from "./car-visual.js";
-import { hpBarColor, hpFraction, instanceDrawShape } from "./combat-visual.js";
+import { hpBarColor, hpFraction, instanceDrawShape, lockBracketArms } from "./combat-visual.js";
 import {
   cycleSpectate,
   isSpectating,
@@ -84,6 +84,11 @@ const HP_BAR_H = 5;
 /** Clear of the car's own silhouette, which is `DRIVE_CONFIG.carHeight` tall. */
 const HP_BAR_OFFSET_Y = 30;
 const HP_BAR_BACK = 0x22252b;
+
+/** Under the hp bar, over the shots: the bracket frames a car, it never occludes its own hp. */
+const LOCK_DEPTH = 55;
+const LOCK_COLOR = 0xf2e14c;
+const LOCK_WIDTH = 2;
 
 /** A wreck stays on the field as an obstacle-shaped memento; it just stops looking alive. */
 const WRECK_ALPHA = 0.3;
@@ -204,6 +209,7 @@ export class ArenaScene extends Phaser.Scene {
   private countdownText: Phaser.GameObjects.Text | undefined;
   private shotGfx: Phaser.GameObjects.Graphics | undefined;
   private hpGfx: Phaser.GameObjects.Graphics | undefined;
+  private lockGfx: Phaser.GameObjects.Graphics | undefined;
   private spectateText: Phaser.GameObjects.Text | undefined;
   private keys: SpectateKeys | undefined;
   /** Session id of the car the spectate camera is watching. `""` means "nobody left to watch". */
@@ -299,6 +305,7 @@ export class ArenaScene extends Phaser.Scene {
     // fire rate for no gain.
     this.shotGfx = this.add.graphics().setDepth(SHOT_DEPTH);
     this.hpGfx = this.add.graphics().setDepth(HP_BAR_DEPTH);
+    this.lockGfx = this.add.graphics().setDepth(LOCK_DEPTH);
     this.hudGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_BOX_DEPTH);
     this.hudSweepGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_SWEEP_DEPTH);
     this.buildHudTextPool();
@@ -433,6 +440,8 @@ export class ArenaScene extends Phaser.Scene {
     this.shotGfx = undefined;
     this.hpGfx?.destroy();
     this.hpGfx = undefined;
+    this.lockGfx?.destroy();
+    this.lockGfx = undefined;
     this.hudGfx?.destroy();
     this.hudGfx = undefined;
     this.hudSweepGfx?.destroy();
@@ -561,7 +570,10 @@ export class ArenaScene extends Phaser.Scene {
   private renderCars(room: Room<ArenaState>, delta: number): void {
     const seen = new Set<string>();
     const hp = this.hpGfx;
+    const lock = this.lockGfx;
     hp?.clear();
+    lock?.clear();
+    const poses = new Map<string, SimBody>();
 
     room.state.players.forEach((player, sessionId) => {
       if (player.status !== PlayerStatus.IN_MATCH) return;
@@ -579,9 +591,27 @@ export class ArenaScene extends Phaser.Scene {
           : this.remotePose(sessionId, serverPose);
 
       this.syncCar(sessionId, player, pose);
+      poses.set(sessionId, pose);
       if (hp && player.alive) this.drawHpBar(hp, player, pose);
       if (sessionId === this.cameraTarget(room)) this.followCamera(pose, delta);
     });
+
+    // The bracket follows the CAMERA's subject -- the local car while driving, the watched car while
+    // spectating -- which is the same rule the weapon slot bar already uses. Read straight off the
+    // wire and never computed here: combat is server-only, and a mispredicted bracket is a lie about
+    // where your shot is going.
+    const subject = room.state.players.get(this.cameraTarget(room));
+    const target = subject?.lockTargetSessionId ?? "";
+    const at = target === "" ? undefined : poses.get(target);
+    if (lock && at) {
+      lock.lineStyle(LOCK_WIDTH, LOCK_COLOR, 0.9);
+      for (const arm of lockBracketArms(at.x, at.y)) {
+        lock.beginPath();
+        lock.moveTo(arm.x1, arm.y1);
+        lock.lineTo(arm.x2, arm.y2);
+        lock.strokePath();
+      }
+    }
 
     for (const [sessionId, gfx] of this.cars) {
       if (seen.has(sessionId)) continue;

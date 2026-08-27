@@ -106,3 +106,44 @@ export function instanceDrawShape(instance: DrawableInstance, elapsedMs: number)
   const at = extrapolateShot(instance.x, instance.y, instance.angle, def.speed, elapsedMs);
   return projectileShapeAt(def.hitbox, at.x, at.y, instance.angle);
 }
+
+/**
+ * Half the bracket's side, world units. Larger than a car hull's half-diagonal (29 units for the
+ * 48 x 32 hull) so the bracket frames the car instead of being drawn across it.
+ */
+export const LOCK_BRACKET_HALF = 34;
+
+/** How far each arm runs from its corner. Kept well under the side, so the corners never join. */
+export const LOCK_BRACKET_ARM = 11;
+
+/**
+ * The eight line segments of a corner bracket centred on a car, in world space.
+ *
+ * Corners rather than a closed box: a full rectangle reads as a selection marquee and competes with
+ * the car it is meant to point at. Unrotated, like the hp bar above it -- the bracket says "this is
+ * your lock", not "this is how the car is facing".
+ *
+ * Pure geometry so it can be tested without a Phaser scene; `ArenaScene` only strokes the result.
+ */
+export function lockBracketArms(
+  x: number,
+  y: number,
+): { x1: number; y1: number; x2: number; y2: number }[] {
+  const h = LOCK_BRACKET_HALF;
+  const a = LOCK_BRACKET_ARM;
+  const left = x - h;
+  const right = x + h;
+  const top = y - h;
+  const bottom = y + h;
+
+  return [
+    { x1: left, y1: top, x2: left + a, y2: top },
+    { x1: left, y1: top, x2: left, y2: top + a },
+    { x1: right, y1: top, x2: right - a, y2: top },
+    { x1: right, y1: top, x2: right, y2: top + a },
+    { x1: left, y1: bottom, x2: left + a, y2: bottom },
+    { x1: left, y1: bottom, x2: left, y2: bottom - a },
+    { x1: right, y1: bottom, x2: right - a, y2: bottom },
+    { x1: right, y1: bottom, x2: right, y2: bottom - a },
+  ];
+}

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_PATCH_RATE_HZ, WEAPON_TABLE, WeaponKind, hpOf } from "@motor-combat-moba/shared";
-import { extrapolateShot, hpBarColor, hpFraction, instanceDrawShape } from "./combat-visual.js";
+import {
+  extrapolateShot,
+  hpBarColor,
+  hpFraction,
+  instanceDrawShape,
+  lockBracketArms,
+  LOCK_BRACKET_HALF,
+} from "./combat-visual.js";
 
 describe("hpFraction", () => {
   it("is 1 at full hp", () => {
@@ -109,5 +116,35 @@ describe("instance drawing", () => {
   it("falls back to a small dot for an unrecognised weapon id rather than blanking the layer", () => {
     const shape = instanceDrawShape({ ...projectile, weaponId: "not-a-weapon" }, 0);
     expect(shape.kind).toBe("circle");
+  });
+});
+
+describe("lockBracketArms", () => {
+  it("returns two arms per corner", () => {
+    expect(lockBracketArms(0, 0)).toHaveLength(8);
+  });
+
+  it("is centred on the point it is given", () => {
+    const arms = lockBracketArms(500, 300);
+    const xs = arms.flatMap((a) => [a.x1, a.x2]);
+    const ys = arms.flatMap((a) => [a.y1, a.y2]);
+    expect((Math.min(...xs) + Math.max(...xs)) / 2).toBeCloseTo(500, 6);
+    expect((Math.min(...ys) + Math.max(...ys)) / 2).toBeCloseTo(300, 6);
+  });
+
+  it("is a corner bracket, not a closed box", () => {
+    // Every arm is shorter than the bracket's own side, so the four corners never join up. A closed
+    // box reads as a selection rectangle and hides the car inside it.
+    const arms = lockBracketArms(0, 0);
+    const side = LOCK_BRACKET_HALF * 2;
+    for (const a of arms) {
+      expect(Math.hypot(a.x2 - a.x1, a.y2 - a.y1)).toBeLessThan(side / 2);
+    }
+  });
+
+  it("clears a car hull, so the bracket frames the car rather than crossing it", () => {
+    // The hull is 48 x 32, so its half-diagonal is 29. A bracket inside that would be drawn over
+    // the sprite instead of around it.
+    expect(LOCK_BRACKET_HALF).toBeGreaterThan(Math.hypot(48, 32) / 2);
   });
 });
