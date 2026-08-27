@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { ACTIVE_ARENA_ID } from "../config/arena-config.js";
+import { WeaponKind } from "../constants.js";
 import { ArenaState } from "./ArenaState.js";
 import { PlayerState } from "./PlayerState.js";
-import { ProjectileState } from "./ProjectileState.js";
+import { WeaponInstanceState } from "./WeaponInstanceState.js";
+import { WeaponSlotState } from "./WeaponSlotState.js";
 
 describe("PlayerState", () => {
   it("constructs with P0 fields and v1 defaults", () => {
@@ -22,9 +24,12 @@ describe("PlayerState", () => {
     expect(p.reverseHold).toBe(0);
     expect(p.hp).toBe(0);
     expect(p.alive).toBe(true);
-    expect(p.weaponCooldown).toBe(0);
     expect(p.selectLocked).toBe(false);
+    expect(p.weapons.length).toBe(0);
+    expect(p.switchLockUntilTick).toBe(0);
+    expect(p.level).toBe(1);
     expect(p).not.toHaveProperty("pendingCarId");
+    expect(p).not.toHaveProperty("weaponCooldown");
   });
 
   it("sets every new v1 field", () => {
@@ -38,7 +43,6 @@ describe("PlayerState", () => {
     p.reverseHold = 6;
     p.hp = 50;
     p.alive = false;
-    p.weaponCooldown = 12;
     p.selectLocked = true;
     expect(p.name).toBe("Ada");
     expect(p.colorId).toBe(3);
@@ -49,42 +53,7 @@ describe("PlayerState", () => {
     expect(p.reverseHold).toBe(6);
     expect(p.hp).toBe(50);
     expect(p.alive).toBe(false);
-    expect(p.weaponCooldown).toBe(12);
     expect(p.selectLocked).toBe(true);
-  });
-});
-
-describe("ProjectileState", () => {
-  it("constructs with v1 defaults", () => {
-    const shot = new ProjectileState();
-    expect(shot.id).toBe("");
-    expect(shot.ownerSessionId).toBe("");
-    expect(shot.x).toBe(0);
-    expect(shot.y).toBe(0);
-    expect(shot.angle).toBe(0);
-    expect(shot.speed).toBe(0);
-    expect(shot.spawnTick).toBe(0);
-    expect(shot.alive).toBe(true);
-  });
-
-  it("sets every field", () => {
-    const shot = new ProjectileState();
-    shot.id = "p1";
-    shot.ownerSessionId = "abc";
-    shot.x = 10;
-    shot.y = 20;
-    shot.angle = 1.5;
-    shot.speed = 900;
-    shot.spawnTick = 7;
-    shot.alive = false;
-    expect(shot.id).toBe("p1");
-    expect(shot.ownerSessionId).toBe("abc");
-    expect(shot.x).toBe(10);
-    expect(shot.y).toBe(20);
-    expect(shot.angle).toBe(1.5);
-    expect(shot.speed).toBe(900);
-    expect(shot.spawnTick).toBe(7);
-    expect(shot.alive).toBe(false);
   });
 });
 
@@ -113,28 +82,65 @@ describe("ArenaState", () => {
     expect(s.countdownEndsTick).toBe(0);
     expect(s.winnerTeam).toBe(-1);
     expect(s.winnerSessionId).toBe("");
-    expect(s.projectiles.size).toBe(0);
+    expect(s.weapons.size).toBe(0);
   });
 
-  it("sets every new v1 field and stores a projectile", () => {
+  it("sets every new v1 field and stores a weapon instance", () => {
     const s = new ArenaState();
     s.arenaId = ACTIVE_ARENA_ID;
     s.carSelectDeadlineTick = 1800;
     s.countdownEndsTick = 1890;
     s.winnerTeam = 0;
     s.winnerSessionId = "abc";
-    const shot = new ProjectileState();
-    shot.id = "p1";
-    shot.ownerSessionId = "abc";
-    shot.x = 400;
-    shot.y = 200;
-    s.projectiles.set("p1", shot);
+    const instance = new WeaponInstanceState();
+    instance.id = "p1";
+    instance.ownerSessionId = "abc";
+    instance.x = 400;
+    instance.y = 200;
+    s.weapons.set("p1", instance);
     expect(s.arenaId).toBe(ACTIVE_ARENA_ID);
     expect(s.carSelectDeadlineTick).toBe(1800);
     expect(s.countdownEndsTick).toBe(1890);
     expect(s.winnerTeam).toBe(0);
     expect(s.winnerSessionId).toBe("abc");
-    expect(s.projectiles.size).toBe(1);
-    expect(s.projectiles.get("p1")?.x).toBe(400);
+    expect(s.weapons.size).toBe(1);
+    expect(s.weapons.get("p1")?.x).toBe(400);
+  });
+});
+
+describe("weapon schema", () => {
+  it("numbers weapon kinds explicitly and stably", () => {
+    expect(WeaponKind.PROJECTILE).toBe(0);
+    expect(WeaponKind.BEAM).toBe(1);
+  });
+
+  it("defaults an instance to a live projectile at the origin", () => {
+    const instance = new WeaponInstanceState();
+    expect(instance.kind).toBe(WeaponKind.PROJECTILE);
+    expect(instance.extent).toBe(0);
+    expect(instance.alive).toBe(true);
+  });
+
+  it("carries instances on the arena keyed by id", () => {
+    const state = new ArenaState();
+    const instance = new WeaponInstanceState();
+    instance.id = "aaa-1";
+    state.weapons.set(instance.id, instance);
+    expect(state.weapons.get("aaa-1")).toBe(instance);
+  });
+
+  it("gives a player an ordered slot array and a level", () => {
+    const player = new PlayerState();
+    const slot = new WeaponSlotState();
+    slot.weaponId = "cannon";
+    slot.stocks = 1;
+    player.weapons.push(slot);
+    expect(player.weapons.at(0)!.weaponId).toBe("cannon");
+    expect(player.level).toBe(1);
+    expect(player.switchLockUntilTick).toBe(0);
+  });
+
+  it("no longer carries the single-weapon cooldown", () => {
+    expect("weaponCooldown" in new PlayerState()).toBe(false);
   });
 });

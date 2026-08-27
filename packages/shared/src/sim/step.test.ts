@@ -5,7 +5,7 @@ import { stepSim, type SimBody, type StepContext } from "./step.js";
 import type { InputMessage } from "../net/input.js";
 
 const DT = MS_PER_TICK / 1000;
-const UP: InputMessage = { seq: 1, steer: 0, throttle: 1, fire: false };
+const UP: InputMessage = { seq: 1, steer: 0, throttle: 1, fireSlots: 0 };
 
 const EMPTY_ARENA: StepContext = {
   carId: "rectangle",

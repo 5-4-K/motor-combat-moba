@@ -9,7 +9,7 @@ const CAR_ID = "rectangle";
 const DT = 1 / 30;
 
 function input(steer: -1 | 0 | 1, throttle: -1 | 0 | 1): InputMessage {
-  return { seq: 0, steer, throttle, fire: false };
+  return { seq: 0, steer, throttle, fireSlots: 0 };
 }
 
 function rest(): SimBody {

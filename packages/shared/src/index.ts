@@ -8,6 +8,7 @@ export {
   RoomPhase,
   GameMode,
   PlayerStatus,
+  WeaponKind,
 } from "./constants.js";
 export type { DeployMode } from "./constants.js";
 
@@ -25,7 +26,8 @@ export {
 } from "./net/lobby-messages.js";
 
 export { PlayerState } from "./schema/PlayerState.js";
-export { ProjectileState } from "./schema/ProjectileState.js";
+export { WeaponInstanceState } from "./schema/WeaponInstanceState.js";
+export { WeaponSlotState } from "./schema/WeaponSlotState.js";
 export { ArenaState } from "./schema/ArenaState.js";
 
 export { applyDamage } from "./sim/damage.js";

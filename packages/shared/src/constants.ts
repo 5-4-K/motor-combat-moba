@@ -34,4 +34,10 @@ export enum PlayerStatus {
   POST_MATCH = 2,
 }
 
+/** Wire discriminant for a live weapon instance. Explicit and stable — never renumber. */
+export enum WeaponKind {
+  PROJECTILE = 0,
+  BEAM = 1,
+}
+
 export type DeployMode = "lan" | "cloud";

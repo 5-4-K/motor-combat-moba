@@ -1,5 +1,6 @@
-import { Schema, type } from "@colyseus/schema";
+import { ArraySchema, Schema, type } from "@colyseus/schema";
 import { PlayerStatus } from "../constants.js";
+import { WeaponSlotState } from "./WeaponSlotState.js";
 
 export class PlayerState extends Schema {
   @type("string") sessionId = "";
@@ -17,6 +18,8 @@ export class PlayerState extends Schema {
   @type("uint16") reverseHold = 0;
   @type("uint16") hp = 0;
   @type("boolean") alive = true;
-  @type("uint32") weaponCooldown = 0;
   @type("boolean") selectLocked = false;
+  @type([WeaponSlotState]) weapons = new ArraySchema<WeaponSlotState>();
+  @type("uint32") switchLockUntilTick = 0;
+  @type("uint8") level = 1;
 }

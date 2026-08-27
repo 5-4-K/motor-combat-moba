@@ -642,8 +642,8 @@ describe("ramming", () => {
 describe("ramming, driven through the real sim", () => {
   const OPEN = { width: ARENA_01.width, height: ARENA_01.height };
   const CLEAR = { carId: "rectangle" as const, obstacles: [] as never[], bounds: OPEN };
-  const THROTTLE: InputMessage = { seq: 1, steer: 0, throttle: 1, fire: false };
-  const COAST: InputMessage = { seq: 1, steer: 0, throttle: 0, fire: false };
+  const THROTTLE: InputMessage = { seq: 1, steer: 0, throttle: 1, fireSlots: 0 };
+  const COAST: InputMessage = { seq: 1, steer: 0, throttle: 0, fireSlots: 0 };
 
   /**
    * Step two cars for one tick the way `serverTick` does — sorted order, each against the other's

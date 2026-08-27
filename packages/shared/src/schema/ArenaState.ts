@@ -2,7 +2,7 @@ import { Schema, MapSchema, type } from "@colyseus/schema";
 import { RoomPhase, GameMode } from "../constants.js";
 import { ACTIVE_ARENA_ID } from "../config/arena-config.js";
 import { PlayerState } from "./PlayerState.js";
-import { ProjectileState } from "./ProjectileState.js";
+import { WeaponInstanceState } from "./WeaponInstanceState.js";
 
 export class ArenaState extends Schema {
   @type("uint8") phase: RoomPhase = RoomPhase.LOBBY;
@@ -23,5 +23,5 @@ export class ArenaState extends Schema {
   @type("int8") winnerTeam = -1;
   @type("string") winnerSessionId = "";
   @type({ map: PlayerState }) players = new MapSchema<PlayerState>();
-  @type({ map: ProjectileState }) projectiles = new MapSchema<ProjectileState>();
+  @type({ map: WeaponInstanceState }) weapons = new MapSchema<WeaponInstanceState>();
 }
