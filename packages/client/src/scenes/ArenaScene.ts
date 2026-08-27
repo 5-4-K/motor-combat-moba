@@ -44,7 +44,7 @@ import { arenaBorderRect, arenaColorsOf } from "./arena-visual.js";
 import { fitsViewport } from "./arena-camera.js";
 import { assetManifest, assetsReady } from "./BootScene.js";
 import { carFillOf, carShapeOf, hexagonPoints } from "./car-visual.js";
-import { hpBarColor, hpFraction, instanceDrawShape } from "./combat-visual.js";
+import { hpBarColor, hpFraction, instanceDrawShape, weaponFillOf } from "./combat-visual.js";
 import {
   cycleSpectate,
   isSpectating,
@@ -75,11 +75,6 @@ const HITBOX_STROKE = 0x1d1f21;
 const HITBOX_PX = 1;
 
 const SHOT_DEPTH = 50;
-/**
- * Sentinel `colorId` for an instance whose owner has left the room; `carFillOf` falls back to the
- * first `COLOR_TABLE` entry for any id it does not recognise.
- */
-const UNKNOWN_OWNER_COLOR_ID = -1;
 
 const HP_BAR_DEPTH = 60;
 const HP_BAR_W = 44;
@@ -939,10 +934,13 @@ export class ArenaScene extends Phaser.Scene {
    * tick late — is a phantom that either vanishes or, worse, reads as a hit that never happened.
    * Shots are cheap to draw late and expensive to draw wrongly.
    *
-   * Each instance draws as its own hitbox (D19, `instanceDrawShape`) in its owner's colour, so what
-   * a player sees is exactly what can hurt them. A beam additionally fades toward transparent
-   * through its own configured linger, never a fixed duration, so a slower-lingering weapon reads as
-   * slower rather than snapping off at some other weapon's timing.
+   * Each instance draws as its own hitbox (D19, `instanceDrawShape`) in its WEAPON's colour, so
+   * what a player sees is exactly what can hurt them and every cannon shot in the arena looks
+   * alike. Shots were owner-coloured once; they are not, because a shot's colour is asked "what is
+   * this" far more often than "whose is it", and the car that fired is on screen in player paint
+   * either way. A beam additionally fades toward transparent through its own configured linger,
+   * never a fixed duration, so a slower-lingering weapon reads as slower rather than snapping off
+   * at some other weapon's timing.
    */
   private renderShots(room: Room<ArenaState>): void {
     const gfx = this.shotGfx;
@@ -953,18 +951,11 @@ export class ArenaScene extends Phaser.Scene {
     room.state.weapons.forEach((instance) => {
       if (!instance.alive) return;
       const shape = instanceDrawShape(instance, elapsedMs);
-      const color = this.instanceColorOf(room, instance.ownerSessionId);
       const alpha = this.beamFadeAlpha(instance, room.state.tick);
-      gfx.fillStyle(color, alpha);
+      gfx.fillStyle(weaponFillOf(instance.weaponId), alpha);
       if (shape.kind === "circle") gfx.fillCircle(shape.x, shape.y, shape.radius);
       else if (shape.points.length > 0) gfx.fillPoints(shape.points, true);
     });
-  }
-
-  /** The colour a live instance draws in: its owner's car colour, or a fallback if they have left. */
-  private instanceColorOf(room: Room<ArenaState>, ownerSessionId: string): number {
-    const colorId = room.state.players.get(ownerSessionId)?.colorId ?? UNKNOWN_OWNER_COLOR_ID;
-    return carFillOf(colorId);
   }
 
   /**

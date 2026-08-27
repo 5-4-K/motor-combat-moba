@@ -242,10 +242,14 @@ on a projectile, `attached` and `lifetimeMs` only on a beam, and writing the wro
 error rather than a silently ignored field.
 
 Every duration is **milliseconds**, converted once to ticks by `WEAPON_TICKS` — never write ticks.
+The row also carries `color`, the `#RRGGBB` every instance of the weapon draws in; pick one that is
+not another weapon's and not one of `COLOR_TABLE`'s six player colours, and dark enough to read
+against a light arena floor.
+
 The per-row test loop in `weapon-config.test.ts` enforces `unlocksAt >= 1`, positive
 `damage`/`speed`/`range`, `stock.max >= 2` when a `stock` block is present, volley counts `>= 1`,
-and a cone `angleDeg` strictly inside 0–180. A row that breaks one fails the suite immediately
-rather than misbehaving at run time.
+a cone `angleDeg` strictly inside 0–180, and the `color` rules above. A row that breaks one fails
+the suite immediately rather than misbehaving at run time.
 
 **3. Give it to a car.** Add the id to that chassis's `weapons` array in `CAR_TABLE` — array index
 is the slot index, and `maxWeaponSlots` (3) is the cap. A weapon in the table that no car carries is
@@ -257,8 +261,10 @@ every test passes — see the stale-`dist` warning in the root `CLAUDE.md`.
 
 **5. Give it an icon, optionally.** Run the `process-weapon-icon` skill with an image and the weapon
 id. Skip it and the HUD slot draws a procedural glyph from the weapon's `kind`; that fallback is
-permanent, not a placeholder, so a weapon is fully playable with no art. See
-[`asset-pipeline.md`](asset-pipeline.md).
+permanent, not a placeholder, so a weapon is fully playable with no art. If the icon is being
+generated rather than supplied, build it around the row's `color` — the slot is where a player
+learns the weapon's colour, and the shot in the arena is where they have to recognise it — the
+skill's own `generation-prompt.md` takes the hex. See [`asset-pipeline.md`](asset-pipeline.md).
 
 **What to expect the first time.** No shipped weapon exercises a beam, a multi-pellet volley, a
 wind-up or a non-zero recovery in live play — those paths are covered by unit tests only (see the
@@ -345,11 +351,21 @@ about who is on your side. In FFA, teams are only seating, and everyone can ram 
 `ArenaScene` draws every live instance from `state.weapons` — projectile and beam rows in one map,
 discriminated by `kind` — and never predicts a shot or an HP change. A projectile is extrapolated
 along its own constant velocity between patches (`extrapolateShot`, capped at one patch interval); a
-beam's `extent` is extrapolated the same way under the same cap, and an attached beam is drawn off
-its owner's **rendered** pose so it does not visibly lag the car it is welded to. Both are exact
+beam's `extent` is extrapolated the same way under the same cap. An attached beam's origin is
+re-anchored to its owner's pose by the **server**, every tick, and reaches the client on the row like
+any other instance — the client does no owner lookup of its own, so a welded beam carries the same
+patch-to-patch lag as the car it is welded to. Both extrapolations are exact
 rather than a guess, because the server integrates the identical motion, and nothing either produces
 feeds back into state. An instance is drawn from its own hitbox shape and dimensions, never a
 sprite — what you see is the hitbox, so a new weapon is playable with no art at all.
+
+Its fill is the **weapon's** `color` (`weaponFillOf`), not the firing player's. Every cannon shot in
+the arena is the same ember orange whoever fired it: a shot's colour answers "what is coming at me",
+and the car that fired it is already on screen wearing the player colour, so spending the shot's one
+colour channel on ownership would say the less useful thing twice. Shots were owner-coloured before
+weapon colours existed; nothing in the sim ever read that, and nothing does now — `color` is
+render-only, like `name`. `WEAPON_TABLE`'s colours are kept clear of `COLOR_TABLE`'s six player
+colours (a table test enforces it) so a shot can never be mistaken for somebody's paint.
 
 A camera-fixed slot column down the HUD gutter — the strip of canvas to the right of the arena that
 the world camera's viewport does not cover — shows the local player's weapons, or, while spectating,

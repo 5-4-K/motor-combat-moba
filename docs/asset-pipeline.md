@@ -271,7 +271,9 @@ runs the importer, reports the manifest row, and covers "why is my icon blurry /
 
 World instances — the actual projectile or beam hitbox flying through the arena — are never
 sprites; see [`combat-model.md`](combat-model.md) for why that stays procedural instead. Only the
-HUD icon goes through this pipeline.
+HUD icon goes through this pipeline. An instance is filled with its weapon's own
+`WEAPON_TABLE.color`, never the firing player's colour, so a weapon looks the same in every car's
+hands — the same rule as the icon's `colorMode: "none"`, applied to the shot.
 
 ## Arena art
 

@@ -24,6 +24,13 @@ icon the same grey blob. `import-weapon-icon.mjs` has no `--keep-color` flag and
 call anywhere in it, on purpose. If a future edit "fixes" that in by mirroring the car importer more
 closely, it is breaking this rule, not completing it.
 
+**This skill is the HUD icon only.** If what they actually want is the colour of the weapon's
+*shots* in the arena — the disc or beam flying across the screen — that is `WEAPON_TABLE.color` in
+`packages/shared/src/config/weapon-config.ts`, a one-line edit with no image involved. World
+instances are drawn from their own hitbox and never take a sprite. See
+[`combat-model.md`](../../../docs/combat-model.md#what-the-client-shows). Nothing links the two:
+an icon can be blue while the shot is orange, and neither importer will warn you.
+
 ## Inputs you need
 
 Two things, and the skill cannot proceed without both:
@@ -96,16 +103,16 @@ should see the icon in the HUD before deciding it is right.
 | Icon looks grey or washed out | Something desaturated it — check the file itself in an image viewer. This importer never does; if the icon arrived pre-desaturated, the fix is a new source image, not a flag. |
 | Icon does not appear at all, glyph still shows | The client falls back to the procedural glyph (a circle or bar) whenever a slot's weapon has no manifest icon or the file failed to load — check the manifest row and the file on disk before suspecting the HUD code. |
 | Icon sits off-centre or the wrong size in its slot | `origin` or `scale` in the manifest row, same fields the car pipeline uses — documented in `packages/client/public/art/README.md`. Tune them by hand; re-importing will not touch them. |
-| Icon is too detailed to read at a glance | That is a source-image problem, not an import one — regenerate with a bolder, simpler silhouette. See the generation prompt below for what tends to work. |
+| Icon is too detailed to read at a glance | That is a source-image problem, not an import one — regenerate with a bolder, simpler silhouette. [`generation-prompt.md`](generation-prompt.md) is what tends to work. |
 
 ## Generating an icon from scratch
 
-When there is no source image yet and one needs to be generated, use this prompt verbatim as the
-base, substituting `<weapon description>`:
+When there is no source image yet and one needs to be generated, the prompt lives in
+**[`generation-prompt.md`](generation-prompt.md)**, next to this file. Read it and use it verbatim;
+it is the only copy, so do not paste it back in here.
 
-> Flat vector game icon of \<weapon description\>, centred single object, viewed straight on,
-> filling most of a square frame with a small even margin. Bold simplified silhouette that stays
-> readable at 64×64 pixels. Limited palette of 3–4 saturated colours with strong value contrast
-> against both light and dark backgrounds. Clean crisp edges, no gradients, no texture, no drop
-> shadow, no outer glow, no perspective, no background scenery, no text, no lettering, no
-> watermark. Consistent top-left light source. Transparent background. PNG.
+Two things it will ask you for. `[WEAPON_DESCRIPTION]` is the weapon as an object. `[WEAPON_COLOR]`
+is **looked up, not chosen** — that weapon's `color` in `WEAPON_TABLE`
+(`packages/shared/src/config/weapon-config.ts`), the hex its shots already draw in, which is what
+makes the slot icon and the thing crossing the arena read as one weapon. A weapon with no row there
+is not a weapon yet; send them to `weapon-forger` first.
