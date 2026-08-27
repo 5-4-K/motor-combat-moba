@@ -52,6 +52,30 @@ The hull it fits against comes from `DRIVE_CONFIG` in shared, so shared must be 
 
 3. Reload with `?dev=assets` to check the fit against the hitbox.
 
+## Weapon icons
+
+The weapon slot HUD draws a procedural glyph (a filled circle for a projectile, a bar for a beam)
+for any slot whose weapon has no manifest icon. To replace one with real art:
+
+```bash
+node scripts/import-weapon-icon.mjs --weapon <weaponId> --src <path>
+```
+
+It trims the transparent margin, fits the result into a 128x128 square (`ICON_PX` — twice the
+~64px HUD box, so the icon stays sharp and the deferred device-pixel-ratio work needs no
+re-import), and writes `weapon-icons/<weaponId>.png`, adding or updating the `weapon-icon.<id>`
+manifest row. Re-run it on the same weapon to replace its icon; **fields you tuned by hand are
+preserved**, only `file` is rewritten.
+
+**Icons keep their colour.** A weapon icon is never player-tinted — the row is always written with
+`"colorMode": "none"` — so unlike `import-art.mjs` this importer has no `--keep-color` flag and no
+desaturation step at all. The car importer desaturates *because* car sprites are multiplied by the
+player's colour at runtime; doing that to an icon would leave every weapon's icon the same grey
+blob rather than the colour it was drawn in.
+
+There is no `?dev=assets` preview for icons — that tool is car-only. Check the fit by running
+`npm run dev`, joining a match with the weapon equipped, and looking at its slot in the HUD bar.
+
 ## Fields
 
 All optional except `file`.

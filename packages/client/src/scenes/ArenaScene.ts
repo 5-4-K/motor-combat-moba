@@ -57,9 +57,11 @@ import {
 import {
   HUD_DIM,
   countdownSeconds,
+  resolveWeaponIcon,
   slotBarLayout,
   slotVisualState,
   sweepFraction,
+  type ResolvedWeaponIcon,
   type SlotVisual,
 } from "./weapon-hud.js";
 
@@ -216,6 +218,12 @@ export class ArenaScene extends Phaser.Scene {
   private hudKeyTexts: Phaser.GameObjects.Text[] = [];
   private hudCountdownTexts: Phaser.GameObjects.Text[] = [];
   private hudStockTexts: Phaser.GameObjects.Text[] = [];
+  /**
+   * One pooled Image per possible slot, for the manifest icon. Hidden and left textureless until a
+   * slot resolves one; a slot with no manifest icon never touches this pool and keeps drawing
+   * `drawWeaponGlyph`'s procedural shape instead, same fallback contract as a car's silhouette.
+   */
+  private hudIconImages: Phaser.GameObjects.Image[] = [];
 
   constructor() {
     super({ key: "arena" });
@@ -412,9 +420,11 @@ export class ArenaScene extends Phaser.Scene {
     for (const text of this.hudKeyTexts) text.destroy();
     for (const text of this.hudCountdownTexts) text.destroy();
     for (const text of this.hudStockTexts) text.destroy();
+    for (const image of this.hudIconImages) image.destroy();
     this.hudKeyTexts = [];
     this.hudCountdownTexts = [];
     this.hudStockTexts = [];
+    this.hudIconImages = [];
     this.cursors = undefined;
     this.keys = undefined;
     this.slotKeys = undefined;
@@ -754,12 +764,23 @@ export class ArenaScene extends Phaser.Scene {
 
   // --- weapon slot HUD ---------------------------------------------------------------------
 
-  /** One Text per possible slot, for each of the three pieces of text a slot can show. */
+  /**
+   * One Text per possible slot for each of the three pieces of text a slot can show, plus one Image
+   * for its manifest icon. The image starts on Phaser's built-in placeholder texture and hidden —
+   * `drawHudSlot` gives it a real key with `setTexture` only once a slot actually resolves one.
+   */
   private buildHudTextPool(): void {
     for (let i = 0; i < WEAPON_SLOT_CONFIG.maxWeaponSlots; i++) {
       this.hudKeyTexts.push(this.makeHudText(HUD_KEY_FONT_PX));
       this.hudCountdownTexts.push(this.makeHudText(HUD_COUNTDOWN_FONT_PX));
       this.hudStockTexts.push(this.makeHudText(HUD_STOCK_FONT_PX).setOrigin(1, 1));
+      this.hudIconImages.push(
+        this.add
+          .image(0, 0, "__DEFAULT")
+          .setScrollFactor(0)
+          .setDepth(HUD_DEPTH)
+          .setVisible(false),
+      );
     }
   }
 
@@ -806,6 +827,7 @@ export class ArenaScene extends Phaser.Scene {
         this.hudKeyTexts[i]!.setVisible(false);
         this.hudCountdownTexts[i]!.setVisible(false);
         this.hudStockTexts[i]!.setVisible(false);
+        this.hudIconImages[i]!.setVisible(false);
         continue;
       }
       this.drawHudSlot(gfx, i, box, slot, player, room.state.tick);
@@ -861,8 +883,19 @@ export class ArenaScene extends Phaser.Scene {
     gfx.fillStyle(HUD_BOX_BG, HUD_BOX_ALPHA);
     gfx.fillRect(box.x, box.y, box.size, box.size);
 
-    gfx.fillStyle(HUD_ICON_COLOR, dim);
-    this.drawWeaponGlyph(gfx, def, cx, cy, box.size);
+    // A slot with a manifest icon draws the sprite; a slot without one keeps the procedural glyph.
+    // That fallback is permanent, not a placeholder for art that has not shipped yet — a missing or
+    // unloaded icon PNG must never be a bug, only a slot that still looks like it always has.
+    const icon = def
+      ? resolveWeaponIcon(assetManifest(), phaserTextures(this.textures), def.id, box.size)
+      : undefined;
+    if (icon) {
+      this.applyWeaponIcon(this.hudIconImages[index]!, icon, cx, cy, dim);
+    } else {
+      this.hudIconImages[index]!.setVisible(false);
+      gfx.fillStyle(HUD_ICON_COLOR, dim);
+      this.drawWeaponGlyph(gfx, def, cx, cy, box.size);
+    }
 
     // Ready-but-recharging happens only for a `stock` weapon banking another charge while one is
     // still in hand: `slotVisualState` correctly keeps the icon at full brightness (you can still
@@ -909,10 +942,39 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
+   * Apply a resolved icon to its slot's pooled Image. Position, not just fit, because unlike a car
+   * sprite (positioned by its container) this Image has no other parent to place it — `cx`/`cy` are
+   * the box's own centre in camera-fixed HUD space.
+   *
+   * `clearTint` guards a rule, not a bug: weapon icons keep their colour and are never player-tinted
+   * (`colorMode: "none"`, written by `scripts/import-weapon-icon.mjs`) — the car importer desaturates
+   * *because* cars are tinted, and doing the same to an icon would leave every weapon a grey blob.
+   * Dimming for `locked`/`recharging`/`car-locked` therefore rides on alpha alone, the same channel
+   * the procedural glyph dims through.
+   */
+  private applyWeaponIcon(
+    image: Phaser.GameObjects.Image,
+    resolved: ResolvedWeaponIcon,
+    cx: number,
+    cy: number,
+    dim: number,
+  ): void {
+    image
+      .setTexture(resolved.key)
+      .setPosition(cx, cy)
+      .setOrigin(resolved.fit.originX, resolved.fit.originY)
+      .setScale(resolved.fit.scale)
+      .setRotation(resolved.fit.rotation)
+      .setAlpha(dim)
+      .clearTint()
+      .setVisible(true);
+  }
+
+  /**
    * The procedural glyph: a filled circle for a projectile, a bar for a beam. Draw-only shorthand
    * for "what kind of weapon is this", not the weapon's actual hitbox (that is `instanceDrawShape`,
-   * drawn for live instances only). No manifest icon lookup here — `weaponIconKey` does not exist
-   * yet; it lands in the next task alongside the texture it resolves (see that task's ruling F1).
+   * drawn for live instances only). Drawn only when `drawHudSlot` found no manifest icon for this
+   * slot's weapon — see `resolveWeaponIcon` in `weapon-hud.ts` for that fallback contract.
    */
   private drawWeaponGlyph(
     gfx: Phaser.GameObjects.Graphics,

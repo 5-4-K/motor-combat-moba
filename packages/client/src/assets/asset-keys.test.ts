@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { carSpriteKey, shouldLoadAssetKey } from "./asset-keys.js";
+import { carSpriteKey, shouldLoadAssetKey, weaponIconKey } from "./asset-keys.js";
 
 describe("carSpriteKey", () => {
   it("namespaces a known car id", () => {
@@ -15,6 +15,13 @@ describe("carSpriteKey", () => {
   it("does not treat inherited object properties as car ids", () => {
     expect(carSpriteKey("constructor")).toBe("car.rectangle");
     expect(carSpriteKey("toString")).toBe("car.rectangle");
+  });
+});
+
+describe("weaponIconKey", () => {
+  it("namespaces a weapon id", () => {
+    expect(weaponIconKey("cannon")).toBe("weapon-icon.cannon");
+    expect(weaponIconKey("repeater")).toBe("weapon-icon.repeater");
   });
 });
 

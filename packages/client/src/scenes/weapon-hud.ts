@@ -1,4 +1,8 @@
 import { TICK_RATE_HZ, WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
+import { weaponIconKey } from "../assets/asset-keys.js";
+import type { TextureLookup } from "../assets/car-sprite.js";
+import type { AssetManifest, SpriteEntry } from "../assets/manifest-schema.js";
+import { fitSprite, type SpriteFit } from "../assets/sprite-fit.js";
 
 export type SlotVisual = "ready" | "recharging" | "locked" | "car-locked";
 
@@ -52,6 +56,36 @@ export function slotVisualState(
   // "ready" while it has nothing left to fire. See the call site in ArenaScene.ts (`drawHudSlot`)
   // for the fix this needs alongside the car-locked wiring gap.
   return "ready";
+}
+
+/** A slot's manifest icon, resolved and ready to draw. */
+export interface ResolvedWeaponIcon {
+  readonly key: string;
+  readonly entry: SpriteEntry;
+  readonly fit: SpriteFit;
+}
+
+/**
+ * The manifest icon for a slot's weapon, or `undefined` when there is no entry or its texture never
+ * loaded — the same two cases `resolveCarSprite` (`assets/car-sprite.ts`) falls through for a car,
+ * and here they must both fall through to the procedural glyph `ArenaScene.drawWeaponGlyph` still
+ * draws, which is what keeps a missing icon PNG from ever being a bug rather than a cosmetic gap.
+ *
+ * Fit against the square slot box, not the 48x32 car hull — an icon is not a chassis. Icons keep
+ * their colour (`colorMode: "none"`, written by `scripts/import-weapon-icon.mjs`), so unlike a car
+ * sprite this is never tinted by the player's colour.
+ */
+export function resolveWeaponIcon(
+  manifest: AssetManifest,
+  textures: TextureLookup,
+  weaponId: string,
+  boxSize: number,
+): ResolvedWeaponIcon | undefined {
+  const key = weaponIconKey(weaponId);
+  const entry = manifest.sprites[key];
+  if (!entry || !textures.exists(key)) return undefined;
+  const hull = { width: boxSize, height: boxSize };
+  return { key, entry, fit: fitSprite(entry, textures.sizeOf(key), hull) };
 }
 
 /** Camera-fixed boxes, centred horizontally and pinned above the bottom edge. */

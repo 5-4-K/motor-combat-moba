@@ -14,6 +14,19 @@ export function carSpriteKey(carId: string): string {
   return `${CAR_KEY_PREFIX}${isCarId(carId) ? carId : DEFAULT_CAR_ID}`;
 }
 
+/** The manifest namespace weapon icons live under. */
+export const WEAPON_ICON_KEY_PREFIX = "weapon-icon.";
+
+/**
+ * Manifest key for a weapon's HUD icon. Namespaced like `car.<id>`, with its own defaults: no
+ * fallback id, because a slot with no manifest icon is not an error — the HUD keeps drawing its
+ * procedural glyph for it. Compare `carSpriteKey`, which falls back to `DEFAULT_CAR_ID` because a
+ * car must always draw *something*.
+ */
+export function weaponIconKey(weaponId: string): string {
+  return `${WEAPON_ICON_KEY_PREFIX}${weaponId}`;
+}
+
 /**
  * Whether boot should load a manifest entry at all.
  *

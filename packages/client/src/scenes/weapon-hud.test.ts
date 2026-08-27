@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { HUD_DIM, countdownSeconds, slotBarLayout, slotVisualState, sweepFraction } from "./weapon-hud.js";
+import type { TextureLookup } from "../assets/car-sprite.js";
+import type { AssetManifest, SpriteEntry } from "../assets/manifest-schema.js";
+import {
+  HUD_DIM,
+  countdownSeconds,
+  resolveWeaponIcon,
+  slotBarLayout,
+  slotVisualState,
+  sweepFraction,
+} from "./weapon-hud.js";
 
 describe("sweep", () => {
   it("is full the tick a recharge starts and empty when it ends", () => {
@@ -55,6 +64,72 @@ describe("slot state", () => {
 
   it("dims a locked slot harder than a recharging one", () => {
     expect(HUD_DIM.locked).toBeLessThan(HUD_DIM.recharging);
+  });
+});
+
+describe("resolveWeaponIcon", () => {
+  function iconEntry(over: Partial<SpriteEntry> = {}): SpriteEntry {
+    return {
+      file: "weapon-icons/cannon.png",
+      rotationOffset: 0,
+      scale: "fit",
+      colorMode: "none",
+      origin: [0.5, 0.5],
+      ...over,
+    };
+  }
+
+  function manifestOf(sprites: Record<string, SpriteEntry>): AssetManifest {
+    return { sprites };
+  }
+
+  /** Stands in for Phaser's TextureManager: every key it was given counts as loaded. */
+  function loaded(sizes: Record<string, { width: number; height: number }>): TextureLookup {
+    return {
+      exists: (key) => Object.hasOwn(sizes, key),
+      sizeOf: (key) => sizes[key]!,
+    };
+  }
+
+  it("resolves an icon whose entry exists and whose texture loaded", () => {
+    const resolved = resolveWeaponIcon(
+      manifestOf({ "weapon-icon.cannon": iconEntry() }),
+      loaded({ "weapon-icon.cannon": { width: 128, height: 128 } }),
+      "cannon",
+      64,
+    );
+    expect(resolved?.key).toBe("weapon-icon.cannon");
+    expect(resolved?.fit.scale).toBeCloseTo(0.5);
+  });
+
+  it("falls through to undefined when there is no manifest entry", () => {
+    const resolved = resolveWeaponIcon(
+      manifestOf({}),
+      loaded({ "weapon-icon.cannon": { width: 128, height: 128 } }),
+      "cannon",
+      64,
+    );
+    expect(resolved).toBeUndefined();
+  });
+
+  it("falls through to undefined when the entry exists but the texture never loaded", () => {
+    const resolved = resolveWeaponIcon(
+      manifestOf({ "weapon-icon.cannon": iconEntry() }),
+      loaded({}),
+      "cannon",
+      64,
+    );
+    expect(resolved).toBeUndefined();
+  });
+
+  it("does not fall back to any other weapon's icon for an unknown id", () => {
+    const resolved = resolveWeaponIcon(
+      manifestOf({ "weapon-icon.cannon": iconEntry() }),
+      loaded({ "weapon-icon.cannon": { width: 128, height: 128 } }),
+      "repeater",
+      64,
+    );
+    expect(resolved).toBeUndefined();
   });
 });
 
