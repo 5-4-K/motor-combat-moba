@@ -244,6 +244,24 @@ export function instanceDrawShape(instance: DrawableInstance, elapsedMs: number)
 }
 
 /**
+ * Whether the lock bracket is drawn at all.
+ *
+ * A source switch, not a player setting: the client has no options surface, and the bracket is the
+ * only thing on screen that says the server has picked a target for you (A13), so playing with it
+ * off is a deliberate choice — recording clean footage, or reading the arena while working on
+ * something the bracket sits on top of — rather than a preference a match should carry.
+ *
+ * Hiding it changes nothing but the picture. The lock is server-only and the client never computes
+ * it: with this `false` the server still acquires, holds, steals, and fires at exactly the same
+ * target, and `PlayerState.lockTargetSessionId` still arrives on every patch. Aim assist is not
+ * disabled here — the per-weapon opt-out is `usesAimAssist` in `WEAPON_TABLE`.
+ *
+ * Annotated `boolean` rather than left to infer the literal `true`, so `ArenaScene`'s guard stays
+ * live code both ways and flipping this line is the whole edit.
+ */
+export const SHOW_LOCK_BRACKET: boolean = true;
+
+/**
  * Half the bracket's side, world units. Larger than a car hull's half-diagonal (29 units for the
  * 48 x 32 hull) so the bracket frames the car instead of being drawn across it.
  */
