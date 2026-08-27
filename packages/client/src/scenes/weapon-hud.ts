@@ -9,9 +9,29 @@ export type SlotVisual = "ready" | "recharging" | "locked" | "car-locked";
 /** Icon alpha per state. The locked dim is heavier AND static, so it cannot read as a cooldown. */
 export const HUD_DIM = { ready: 1, recharging: 0.4, locked: 0.25, carLocked: 0.7 } as const;
 
+/** The slot's diameter. Still square in the arithmetic — a circle's bounding box is its diameter. */
 const BOX_PX = 64;
-const GAP_PX = 12;
-const BOTTOM_MARGIN_PX = 72;
+
+/**
+ * The key label, drawn to the RIGHT of the slot and vertically centred on it. D18 wants the key
+ * outside the frame, never over the icon; beside is what keeps that true once the band under the
+ * slot belongs to the weapon's name.
+ *
+ * `SLOT_KEY_COLUMN_PX` is a budget the layout reserves rather than a width it measures — text needs
+ * a canvas to measure and this stays pure. 44 is "space" rendered at `SLOT_KEY_FONT_PX`, read off
+ * the live HUD and rounded up; a longer label than that overflows the gutter's right edge, so a new
+ * binding wants re-measuring rather than trusting this number.
+ */
+export const SLOT_KEY_GAP_PX = 8;
+export const SLOT_KEY_FONT_PX = 14;
+export const SLOT_KEY_COLUMN_PX = 44;
+
+/** The weapon's name, centred under the slot and dimmed with it. */
+export const SLOT_NAME_GAP_PX = 6;
+export const SLOT_NAME_FONT_PX = 12;
+
+/** The name band, plus enough air that the column reads as separate slots rather than one strip. */
+const GAP_PX = SLOT_NAME_GAP_PX + SLOT_NAME_FONT_PX + 10;
 /** Below this, a number is more clutter than information — the sweep already says "nearly ready". */
 const COUNTDOWN_FLOOR_TICKS = TICK_RATE_HZ;
 
@@ -94,20 +114,53 @@ export function resolveWeaponIcon(
   return { key, entry, fit: fitSprite(entry, textures.sizeOf(key), hull) };
 }
 
-/** Camera-fixed boxes, centred horizontally and pinned above the bottom edge. */
+/** One slot's anchors: the circle's bounding box, plus where its key and name hang off it. */
+export interface SlotBox {
+  /** Left edge of the circle's bounding box; the circle's centre is `x + size / 2`. */
+  readonly x: number;
+  readonly y: number;
+  /** Diameter. */
+  readonly size: number;
+  /** Left edge of the key label, which is drawn left-aligned and centred on the circle's y. */
+  readonly keyX: number;
+  /** Top of the weapon name, drawn centred on the circle's x. */
+  readonly nameY: number;
+}
+
+/**
+ * Camera-fixed slots, stacked down the HUD gutter and centred in it.
+ *
+ * The bar used to be a row centred over the floor, pinned above the view's bottom edge, which put
+ * it squarely inside the play area — a car could park under the slots and both were hard to read.
+ * The gutter (`HUD_GUTTER_WIDTH`, the strip the arena camera's viewport deliberately does not
+ * cover) has no world under it at all.
+ *
+ * What is centred is the whole slot-plus-key group, not the circle: centring the circle alone would
+ * push the key label against the canvas edge, since the key only ever hangs off the right.
+ *
+ * `gutterWidth` is a parameter rather than an import so this stays a pure function of the layout it
+ * is given, the same way `viewWidth`/`viewHeight` already were.
+ */
 export function slotBarLayout(
   count: number,
   viewWidth: number,
   viewHeight: number,
-): { x: number; y: number; size: number }[] {
+  gutterWidth: number,
+): SlotBox[] {
   const shown = Math.min(count, WEAPON_SLOT_CONFIG.maxWeaponSlots);
   if (shown <= 0) return [];
-  const totalWidth = shown * BOX_PX + (shown - 1) * GAP_PX;
-  const left = (viewWidth - totalWidth) / 2;
-  const y = viewHeight - BOTTOM_MARGIN_PX;
-  return Array.from({ length: shown }, (_, i) => ({
-    x: left + i * (BOX_PX + GAP_PX),
-    y,
-    size: BOX_PX,
-  }));
+  const totalHeight = shown * BOX_PX + (shown - 1) * GAP_PX;
+  const top = (viewHeight - totalHeight) / 2;
+  const groupWidth = BOX_PX + SLOT_KEY_GAP_PX + SLOT_KEY_COLUMN_PX;
+  const x = viewWidth - gutterWidth + (gutterWidth - groupWidth) / 2;
+  return Array.from({ length: shown }, (_, i) => {
+    const y = top + i * (BOX_PX + GAP_PX);
+    return {
+      x,
+      y,
+      size: BOX_PX,
+      keyX: x + BOX_PX + SLOT_KEY_GAP_PX,
+      nameY: y + BOX_PX + SLOT_NAME_GAP_PX,
+    };
+  });
 }

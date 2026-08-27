@@ -29,7 +29,7 @@ import {
 } from "@motor-combat-moba/shared";
 import { applyCarSprite, phaserTextures, resolveCarSprite } from "../assets/car-sprite.js";
 import { isDebugEnabled } from "../config/client-mode.js";
-import { VIEW_HEIGHT, VIEW_WIDTH } from "../config/display.js";
+import { ARENA_VIEW_WIDTH, HUD_GUTTER_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from "../config/display.js";
 import { SLOT_KEYS, slotMaskFrom } from "../config/slot-keys.js";
 import { InterpolationBuffer } from "../net/interpolation.js";
 import { PredictionBuffer } from "../net/prediction.js";
@@ -58,6 +58,9 @@ import {
   HUD_DIM,
   countdownSeconds,
   resolveWeaponIcon,
+  SLOT_KEY_FONT_PX,
+  SLOT_NAME_FONT_PX,
+  type SlotBox,
   slotBarLayout,
   slotVisualState,
   sweepFraction,
@@ -106,7 +109,12 @@ const HUD_ICON_DEPTH = HUD_DEPTH + 1;
 const HUD_SWEEP_DEPTH = HUD_DEPTH + 2;
 const HUD_TEXT_DEPTH = HUD_DEPTH + 3;
 const HUD_BOX_BG = 0x14161a;
-const HUD_BOX_ALPHA = 0.75;
+/**
+ * Opaque, now that the boxes live in the gutter. The old 0.75 was there so the floor showed through
+ * a bar that sat on top of the play area; there is no world behind them any more, and translucency
+ * over the cream surround only muddied the icons.
+ */
+const HUD_BOX_ALPHA = 1;
 const HUD_ICON_COLOR = 0xf2f2f2;
 const HUD_SWEEP_COLOR = 0x000000;
 const HUD_SWEEP_ALPHA = 0.55;
@@ -114,11 +122,18 @@ const HUD_SWEEP_ALPHA = 0.55;
 const HUD_GLYPH_SCALE = 0.32;
 /** Beam glyph is a bar, not a circle — this is its width as a fraction of the icon radius. */
 const HUD_BEAM_WIDTH_SCALE = 0.5;
-const HUD_KEY_FONT_PX = 16;
-const HUD_KEY_GAP_PX = 6;
+const HUD_KEY_FONT_PX = SLOT_KEY_FONT_PX;
+const HUD_NAME_FONT_PX = SLOT_NAME_FONT_PX;
+/**
+ * How much of the slot the icon is fitted into. Between the inscribed square of the circle (0.707)
+ * and the full bounding box: imported icons are trimmed and centred (`scripts/import-weapon-icon.mjs`),
+ * so their extreme corners are usually empty and a strict inscription would waste visible area.
+ */
+const HUD_ICON_FIT_SCALE = 0.8;
+/** Stock count offset from the centre along the diagonal, as a fraction of the radius. */
+const HUD_STOCK_RADIUS_SCALE = 0.55;
 const HUD_COUNTDOWN_FONT_PX = 18;
 const HUD_STOCK_FONT_PX = 13;
-const HUD_STOCK_INSET_PX = 4;
 /** Sweep drawn slightly inside the box edge so the frame stays visible under it. */
 const HUD_SWEEP_RADIUS_INSET_PX = 4;
 /** Straight up, so the wedge sweeps clockwise from 12 o'clock like a standard ability cooldown. */
@@ -230,9 +245,11 @@ export class ArenaScene extends Phaser.Scene {
    * fixed-size pool of Text objects — one per possible slot — reused across frames rather than
    * created and destroyed at the render rate.
    */
+  private hudCamera: Phaser.Cameras.Scene2D.Camera | undefined;
   private hudGfx: Phaser.GameObjects.Graphics | undefined;
   private hudSweepGfx: Phaser.GameObjects.Graphics | undefined;
   private hudKeyTexts: Phaser.GameObjects.Text[] = [];
+  private hudNameTexts: Phaser.GameObjects.Text[] = [];
   private hudCountdownTexts: Phaser.GameObjects.Text[] = [];
   private hudStockTexts: Phaser.GameObjects.Text[] = [];
   /**
@@ -303,20 +320,24 @@ export class ArenaScene extends Phaser.Scene {
     this.hudSweepGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_SWEEP_DEPTH);
     this.buildHudTextPool();
 
+    // Centred on the arena, not on the canvas: the gutter is off to the right of both of these, and
+    // a countdown that drifted to the canvas centre would sit off-centre over the floor everyone is
+    // actually looking at.
     this.countdownText = this.add
-      .text(640, 280, "", { fontSize: "96px", color: HUD_TEXT })
+      .text(ARENA_VIEW_WIDTH / 2, 280, "", { fontSize: "96px", color: HUD_TEXT })
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(HUD_DEPTH)
       .setVisible(false);
 
     this.spectateText = this.add
-      .text(640, 660, "", { fontSize: "22px", color: HUD_TEXT })
+      .text(ARENA_VIEW_WIDTH / 2, 660, "", { fontSize: "22px", color: HUD_TEXT })
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(HUD_DEPTH)
       .setVisible(false);
 
+    this.splitCameras();
     this.bindRoom(this.room);
     this.syncMatchHud();
   }
@@ -368,14 +389,66 @@ export class ArenaScene extends Phaser.Scene {
     this.arenaGfx = gfx;
 
     const cam = this.cameras.main;
+    // Clipped to the arena's share of the canvas, leaving `HUD_GUTTER_WIDTH` down the right for the
+    // weapon slots. This must come before `centerOn` below, which reads the camera's width to work
+    // out its scroll — resizing the viewport afterwards would leave the arena off-centre by half the
+    // gutter. It also bounds the background fill on the next line, which is what stops the floor
+    // colour flooding the gutter the way it used to flood the whole canvas.
+    cam.setViewport(0, 0, ARENA_VIEW_WIDTH, VIEW_HEIGHT);
     // Scene-scoped: the global game background stays dark for the lobby and results screens.
     cam.setBackgroundColor(colors.floor);
     cam.setZoom(CAMERA_CONFIG.zoom);
     // Stops the soft follow from panning past the arena edge into empty space.
     cam.setBounds(0, 0, arena.width, arena.height);
 
-    this.staticCamera = fitsViewport(arena, { width: VIEW_WIDTH, height: VIEW_HEIGHT }, CAMERA_CONFIG.zoom);
+    // `ARENA_VIEW_WIDTH`, never `VIEW_WIDTH`: how much world anyone can see is the camera's
+    // business, and widening the canvas for HUD must not quietly widen the view of the floor.
+    this.staticCamera = fitsViewport(
+      arena,
+      { width: ARENA_VIEW_WIDTH, height: VIEW_HEIGHT },
+      CAMERA_CONFIG.zoom,
+    );
     if (this.staticCamera) cam.centerOn(arena.width / 2, arena.height / 2);
+  }
+
+  /**
+   * Splits the scene across two cameras: the world one clipped to the arena, and a HUD one covering
+   * the whole canvas so the slot column can live in the gutter that the world camera cannot reach.
+   *
+   * Phaser renders the entire display list once PER camera, so the two `ignore` lists are not an
+   * optimisation — without them the arena would draw twice, once clipped into its viewport and once
+   * whole across the canvas on top of it. Every object in the scene must therefore be ignored by
+   * exactly one camera: ignored by neither and it double-draws, ignored by both and it vanishes.
+   *
+   * That makes this the one place to remember when adding to the scene. Everything the HUD owns is
+   * pooled up front and listed here; the only object created later is a car's container, which
+   * `syncCar` hands to the HUD camera's ignore list at birth.
+   */
+  private splitCameras(): void {
+    const world = this.cameras.main;
+    const hud = this.cameras.add(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
+    this.hudCamera = hud;
+
+    const hudObjects: Phaser.GameObjects.GameObject[] = [
+      ...(this.hudGfx ? [this.hudGfx] : []),
+      ...(this.hudSweepGfx ? [this.hudSweepGfx] : []),
+      ...(this.countdownText ? [this.countdownText] : []),
+      ...(this.spectateText ? [this.spectateText] : []),
+      ...this.hudKeyTexts,
+      ...this.hudNameTexts,
+      ...this.hudCountdownTexts,
+      ...this.hudStockTexts,
+      ...this.hudIconImages,
+    ];
+    const worldObjects: Phaser.GameObjects.GameObject[] = [
+      ...(this.arenaGfx ? [this.arenaGfx] : []),
+      ...(this.shotGfx ? [this.shotGfx] : []),
+      ...(this.hpGfx ? [this.hpGfx] : []),
+      ...this.cars.values(),
+    ];
+
+    world.ignore(hudObjects);
+    hud.ignore(worldObjects);
   }
 
   private bindRoom(room: Room<ArenaState>): void {
@@ -438,13 +511,18 @@ export class ArenaScene extends Phaser.Scene {
     this.hudSweepGfx?.destroy();
     this.hudSweepGfx = undefined;
     for (const text of this.hudKeyTexts) text.destroy();
+    for (const text of this.hudNameTexts) text.destroy();
     for (const text of this.hudCountdownTexts) text.destroy();
     for (const text of this.hudStockTexts) text.destroy();
     for (const image of this.hudIconImages) image.destroy();
     this.hudKeyTexts = [];
+    this.hudNameTexts = [];
     this.hudCountdownTexts = [];
     this.hudStockTexts = [];
     this.hudIconImages = [];
+    // Phaser tears the camera itself down with the scene; this just stops `syncCar` handing a
+    // destroyed camera an ignore during the shutdown frame.
+    this.hudCamera = undefined;
     this.cursors = undefined;
     this.keys = undefined;
     this.slotKeys = undefined;
@@ -637,6 +715,10 @@ export class ArenaScene extends Phaser.Scene {
     if (!gfx || this.visualKeys.get(sessionId) !== key) {
       gfx?.destroy();
       gfx = this.drawCar(player.carId, player.colorId, player.alive);
+      // The one world object born after `splitCameras` ran, so it opts out of the HUD camera here or
+      // it would be drawn a second time, unclipped, over the gutter. Ignoring the container covers
+      // the sprite and hitbox inside it.
+      this.hudCamera?.ignore(gfx);
       this.cars.set(sessionId, gfx);
       this.visualKeys.set(sessionId, key);
     }
@@ -791,12 +873,14 @@ export class ArenaScene extends Phaser.Scene {
    */
   private buildHudTextPool(): void {
     for (let i = 0; i < WEAPON_SLOT_CONFIG.maxWeaponSlots; i++) {
-      // Top-centre origin, not centre-centre: the glyph is positioned `HUD_KEY_GAP_PX` below the
-      // box's bottom edge, so a centred origin hangs half the glyph's height back up over the frame
-      // (about 2px of 16 at the current gap). D18 wants the key outside the frame, never over it.
-      this.hudKeyTexts.push(this.makeHudText(HUD_KEY_FONT_PX).setOrigin(0.5, 0));
+      // Left-centre origin: the key sits `SLOT_KEY_GAP_PX` to the RIGHT of the slot and centred on
+      // it, so `keyX` is the label's left edge and `cy` its middle. A centred origin would pull the
+      // label back over the frame, and D18 wants the key outside it.
+      this.hudKeyTexts.push(this.makeHudText(HUD_KEY_FONT_PX).setOrigin(0, 0.5));
+      // Top-centre: `nameY` is the top of the name's band under the slot.
+      this.hudNameTexts.push(this.makeHudText(HUD_NAME_FONT_PX).setOrigin(0.5, 0));
       this.hudCountdownTexts.push(this.makeHudText(HUD_COUNTDOWN_FONT_PX));
-      this.hudStockTexts.push(this.makeHudText(HUD_STOCK_FONT_PX).setOrigin(1, 1));
+      this.hudStockTexts.push(this.makeHudText(HUD_STOCK_FONT_PX));
       this.hudIconImages.push(
         this.add
           .image(0, 0, "__DEFAULT")
@@ -843,13 +927,14 @@ export class ArenaScene extends Phaser.Scene {
     sweepGfx.clear();
 
     const player = this.hudTargetPlayer(room);
-    const boxes = player ? slotBarLayout(player.weapons.length, VIEW_WIDTH, VIEW_HEIGHT) : [];
+    const boxes = player ? slotBarLayout(player.weapons.length, VIEW_WIDTH, VIEW_HEIGHT, HUD_GUTTER_WIDTH) : [];
 
     for (let i = 0; i < this.hudKeyTexts.length; i++) {
       const box = boxes[i];
       const slot = player && box ? player.weapons.at(i) : undefined;
       if (!player || !box || !slot) {
         this.hudKeyTexts[i]!.setVisible(false);
+        this.hudNameTexts[i]!.setVisible(false);
         this.hudCountdownTexts[i]!.setVisible(false);
         this.hudStockTexts[i]!.setVisible(false);
         this.hudIconImages[i]!.setVisible(false);
@@ -881,7 +966,7 @@ export class ArenaScene extends Phaser.Scene {
     gfx: Phaser.GameObjects.Graphics,
     sweepGfx: Phaser.GameObjects.Graphics,
     index: number,
-    box: { x: number; y: number; size: number },
+    box: SlotBox,
     slot: WeaponSlotState,
     player: PlayerState,
     tick: number,
@@ -901,13 +986,18 @@ export class ArenaScene extends Phaser.Scene {
     const cy = box.y + box.size / 2;
 
     gfx.fillStyle(HUD_BOX_BG, HUD_BOX_ALPHA);
-    gfx.fillRect(box.x, box.y, box.size, box.size);
+    gfx.fillCircle(cx, cy, box.size / 2);
 
     // A slot with a manifest icon draws the sprite; a slot without one keeps the procedural glyph.
     // That fallback is permanent, not a placeholder for art that has not shipped yet — a missing or
     // unloaded icon PNG must never be a bug, only a slot that still looks like it always has.
     const icon = def
-      ? resolveWeaponIcon(assetManifest(), phaserTextures(this.textures), def.id, box.size)
+      ? resolveWeaponIcon(
+          assetManifest(),
+          phaserTextures(this.textures),
+          def.id,
+          box.size * HUD_ICON_FIT_SCALE,
+        )
       : undefined;
     if (icon) {
       this.applyWeaponIcon(this.hudIconImages[index]!, icon, cx, cy, dim);
@@ -940,20 +1030,32 @@ export class ArenaScene extends Phaser.Scene {
       countdownText.setVisible(false);
     }
 
-    // Beneath the box, outside the frame — never over the icon — and dimmed with it, so a locked
-    // slot's key reads as unavailable too.
+    // Beside the slot, outside the frame — never over the icon — and dimmed with it, so a locked
+    // slot's key reads as unavailable too. The band under the slot belongs to the name now.
     const keyText = this.hudKeyTexts[index]!;
     keyText
       .setText(SLOT_KEYS[index]?.glyph ?? "")
-      .setPosition(cx, box.y + box.size + HUD_KEY_GAP_PX)
+      .setPosition(box.keyX, cy)
       .setAlpha(dim)
       .setVisible(true);
 
+    // Centred under the slot. A slot whose weapon id is unknown has no name to print, which is the
+    // same fall-through `def` already drives for the icon and the sweep.
+    const nameText = this.hudNameTexts[index]!;
+    if (def) {
+      nameText.setText(def.name).setPosition(cx, box.nameY).setAlpha(dim).setVisible(true);
+    } else {
+      nameText.setVisible(false);
+    }
+
     const stockText = this.hudStockTexts[index]!;
     if (def?.stock) {
+      // Pulled in along the diagonal to sit inside the circle: the old bottom-right corner of the
+      // bounding box is outside a round slot entirely.
+      const inset = (box.size / 2) * HUD_STOCK_RADIUS_SCALE;
       stockText
         .setText(String(slot.stocks))
-        .setPosition(box.x + box.size - HUD_STOCK_INSET_PX, box.y + box.size - HUD_STOCK_INSET_PX)
+        .setPosition(cx + inset, cy + inset)
         .setVisible(true);
     } else {
       stockText.setVisible(false);

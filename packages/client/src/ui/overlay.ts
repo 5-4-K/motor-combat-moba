@@ -1,10 +1,12 @@
 import Phaser from "phaser";
+import { VIEW_HEIGHT, VIEW_WIDTH } from "../config/display.js";
 import "./organic.css";
 
 /**
  * Hosts one menu screen as real DOM over the canvas.
  *
- * The overlay is a single 1280x720 element handed to `scene.add.dom` at the centre of the logical
+ * The overlay is a single canvas-sized element handed to `scene.add.dom` at the centre of the
+ * logical
  * viewport, which puts it inside the container Phaser's Scale Manager already transforms in lockstep
  * with the canvas. Everything about `FIT` scaling, `CENTER_BOTH` and fullscreen therefore comes for
  * free: the overlay letterboxes exactly as the game does, because it is being moved by the same
@@ -14,8 +16,8 @@ import "./organic.css";
  * `pointer-events` is left to the screen's own children: the root passes clicks through so nothing
  * here can swallow input meant for a scene that is still running underneath.
  */
-export const OVERLAY_WIDTH = 1280;
-export const OVERLAY_HEIGHT = 720;
+export const OVERLAY_WIDTH = VIEW_WIDTH;
+export const OVERLAY_HEIGHT = VIEW_HEIGHT;
 
 export class ScreenOverlay {
   private dom: Phaser.GameObjects.DOMElement | undefined;

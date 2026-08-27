@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { TextureLookup } from "../assets/car-sprite.js";
 import type { AssetManifest, SpriteEntry } from "../assets/manifest-schema.js";
+import { ARENA_VIEW_WIDTH, HUD_GUTTER_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from "../config/display.js";
 import {
   HUD_DIM,
   countdownSeconds,
   resolveWeaponIcon,
+  SLOT_KEY_COLUMN_PX,
+  SLOT_NAME_FONT_PX,
+  SLOT_NAME_GAP_PX,
   slotBarLayout,
   slotVisualState,
   sweepFraction,
@@ -142,15 +146,56 @@ describe("resolveWeaponIcon", () => {
 });
 
 describe("layout", () => {
-  it("centres the bar horizontally and pins it near the bottom", () => {
-    const boxes = slotBarLayout(3, 1280, 720);
+  const boxes = slotBarLayout(3, VIEW_WIDTH, VIEW_HEIGHT, HUD_GUTTER_WIDTH);
+
+  /**
+   * The whole point of the column. A slot that starts before `ARENA_VIEW_WIDTH` is a slot the arena
+   * camera draws floor under, which is the state this replaced: cars drove over the slot bar. The
+   * key label counts too — it is the rightmost thing in the gutter, so it is what can spill out.
+   */
+  it("keeps every slot and its key label inside the gutter, clear of the arena viewport", () => {
     expect(boxes).toHaveLength(3);
-    const centres = boxes.map((b) => b.x + b.size / 2);
-    expect((centres[0]! + centres[2]!) / 2).toBeCloseTo(640, 0);
-    for (const box of boxes) expect(box.y).toBeGreaterThan(600);
+    for (const box of boxes) {
+      expect(box.x).toBeGreaterThanOrEqual(ARENA_VIEW_WIDTH);
+      expect(box.keyX + SLOT_KEY_COLUMN_PX).toBeLessThanOrEqual(VIEW_WIDTH);
+    }
+  });
+
+  it("puts the key label beside the slot rather than under it", () => {
+    const box = boxes[0]!;
+    expect(box.keyX).toBeGreaterThanOrEqual(box.x + box.size);
+  });
+
+  it("puts the weapon name under the slot", () => {
+    const box = boxes[0]!;
+    expect(box.nameY).toBeGreaterThanOrEqual(box.y + box.size);
+  });
+
+  it("stacks the slots top to bottom in slot order, all on one x", () => {
+    expect(boxes[0]!.y).toBeLessThan(boxes[1]!.y);
+    expect(boxes[1]!.y).toBeLessThan(boxes[2]!.y);
+    expect(boxes[1]!.x).toBe(boxes[0]!.x);
+    expect(boxes[2]!.x).toBe(boxes[0]!.x);
+  });
+
+  it("centres the column vertically", () => {
+    const top = boxes[0]!.y;
+    const bottom = boxes[2]!.y + boxes[2]!.size;
+    expect(top).toBeCloseTo(VIEW_HEIGHT - bottom, 0);
+  });
+
+  /** The name sits in the band between two slots: too tight and slot 1's name lands on slot 2. */
+  it("leaves room under each slot for its name", () => {
+    const gap = boxes[1]!.y - (boxes[0]!.y + boxes[0]!.size);
+    expect(gap).toBeGreaterThanOrEqual(SLOT_NAME_GAP_PX + SLOT_NAME_FONT_PX);
+  });
+
+  it("keeps the last name inside the view rather than off the bottom edge", () => {
+    const last = boxes[2]!;
+    expect(last.nameY + SLOT_NAME_FONT_PX).toBeLessThanOrEqual(VIEW_HEIGHT);
   });
 
   it("draws nothing for a car with no slots", () => {
-    expect(slotBarLayout(0, 1280, 720)).toEqual([]);
+    expect(slotBarLayout(0, VIEW_WIDTH, VIEW_HEIGHT, HUD_GUTTER_WIDTH)).toEqual([]);
   });
 });

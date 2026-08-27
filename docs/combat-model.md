@@ -351,8 +351,10 @@ rather than a guess, because the server integrates the identical motion, and not
 feeds back into state. An instance is drawn from its own hitbox shape and dimensions, never a
 sprite — what you see is the hitbox, so a new weapon is playable with no art at all.
 
-A camera-fixed slot bar along the bottom centre shows the local player's weapons — or, while
-spectating, the watched car's — one box per slot, icon above, key glyph below, dimmed into one of
+A camera-fixed slot column down the HUD gutter — the strip of canvas to the right of the arena that
+the world camera's viewport does not cover — shows the local player's weapons, or, while spectating,
+the watched car's. One round slot each: icon inside, fire key beside it, weapon name beneath, dimmed
+into one of
 four states: full brightness when ready, a dimmed icon with a clockwise cooldown wedge while
 recharging, a heavier *static* dim when the slot is not unlocked yet, and a lighter dim across every
 slot during a wind-up or volley (or across the other slots during recovery). Locked and recharging
