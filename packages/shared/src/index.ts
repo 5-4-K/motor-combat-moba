@@ -71,6 +71,8 @@ export type {
   WeaponDef,
   WeaponId,
 } from "./config/weapon-types.js";
+export { WEAPON_TICKS, msToTicks, weaponTicksOf } from "./config/weapon-ticks.js";
+export type { WeaponTicks } from "./config/weapon-ticks.js";
 export { COMBAT_CONFIG } from "./config/combat-config.js";
 export { CAMERA_CONFIG, DRIVE_CONFIG } from "./config/drive-config.js";
 export { FLOW_CONFIG } from "./config/flow-config.js";
