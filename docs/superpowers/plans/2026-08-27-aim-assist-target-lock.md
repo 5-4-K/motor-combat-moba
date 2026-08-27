@@ -506,8 +506,15 @@ describe("inAcquireRegion", () => {
   });
 
   it("hands over from the cone to the cap at the crossover distance", () => {
-    // Below `lateralMax / tan(coneDeg)` (about 330 u) the cone binds; above it the cap does.
-    const crossover = AIM_CONFIG.lateralMax / Math.tan((AIM_CONFIG.coneDeg * Math.PI) / 180);
+    // Below the crossover the cone binds; above it the cap does.
+    //
+    // Derived with `sin`, not `tan`, because `distance` is RADIAL everywhere in this module —
+    // `Math.hypot`, the same value `lockScore` weighs — so the perpendicular offset from the
+    // centreline is `distance * sin(angle)`. The crossover therefore sits at 350.9 in radial
+    // terms. The 330 u figure quoted in the design doc and in `AIM_CONFIG`'s comment is the same
+    // physical point measured ALONG THE AXIS (`lateralMax / tan(coneDeg)`); both are correct, and
+    // mixing them puts this assertion 21 units on the wrong side of the boundary.
+    const crossover = AIM_CONFIG.lateralMax / Math.sin((AIM_CONFIG.coneDeg * Math.PI) / 180);
     const justInside = crossover - 20;
     const justOutside = crossover + 20;
     // At the cone's exact edge: accepted below the crossover, rejected above it.
