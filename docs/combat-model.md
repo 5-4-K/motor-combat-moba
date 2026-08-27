@@ -265,12 +265,21 @@ wind-up or a non-zero recovery in live play — those paths are covered by unit 
 coverage list above). The first weapon that uses one is also that path's first real shakedown, so
 watch the HUD dim states and the instance count on the wire.
 
-**If you are re-tuning `cannon` rather than adding a weapon**, expect
-`weapon-config.test.ts` and `weapon-ticks.test.ts` to fail: they pin its numbers digit-for-digit as
-the zero-balance-change guard from the migration. Update those assertions in the same commit. One
-fixture is geometry-derived rather than self-referential — the `50.5` offset in `combat.test.ts`
-sits in a narrow window where the shot lands but no ram fires, and widening `cannon`'s hitbox radius
-can push it out of that window.
+**If you are re-tuning `cannon` rather than adding a weapon**, expect tests to fail on purpose.
+Several read the real table at run time and hard-code numbers derived from it, so the suite is how
+you find out which:
+
+| File | Why it breaks |
+|---|---|
+| `config/weapon-config.test.ts` | Pins `cannon`'s stats digit-for-digit — the migration's zero-balance-change guard |
+| `config/weapon-ticks.test.ts` | Pins the tick counts derived from them (`cooldown`, `flight`) |
+| `sim/weapons/fire.test.ts` | Simulates recharge tick-by-tick across a hard-coded window |
+| `sim/weapons/instances.test.ts` | Beam tests borrow `weaponId: "cannon"` for its range, since no beam ships |
+| `sim/combat.test.ts` | The `50.5` offset is derived from the hitbox radius — only if you change the hitbox |
+
+That last one is the subtle case: `50.5` sits in a narrow window where the shot lands but no ram
+fires, so widening `cannon`'s hitbox radius can push it out of the window rather than simply
+changing a number. Update each assertion in the same commit as the re-tune.
 
 ## Ramming
 
