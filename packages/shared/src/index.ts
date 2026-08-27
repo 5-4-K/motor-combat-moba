@@ -59,7 +59,18 @@ export {
   reverseMaxSpeedOf,
 } from "./config/car-config.js";
 export { COLOR_TABLE } from "./config/color-config.js";
-export { WEAPON_CONFIG } from "./config/weapon-config.js";
+export { WEAPON_CONFIG, WEAPON_TABLE, isWeaponId, weaponDefOf } from "./config/weapon-config.js";
+export type {
+  BeamHitbox,
+  BeamWeaponDef,
+  Hitbox,
+  ProjectileHitbox,
+  ProjectileWeaponDef,
+  StockDef,
+  VolleyDef,
+  WeaponDef,
+  WeaponId,
+} from "./config/weapon-types.js";
 export { COMBAT_CONFIG } from "./config/combat-config.js";
 export { CAMERA_CONFIG, DRIVE_CONFIG } from "./config/drive-config.js";
 export { FLOW_CONFIG } from "./config/flow-config.js";
