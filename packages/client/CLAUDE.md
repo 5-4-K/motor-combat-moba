@@ -14,6 +14,8 @@ Keep the scene thin: pure, testable logic lives beside it (`net/step-context.ts`
 
 Combat is drawn, never predicted: live instances (projectiles and beams alike) come from `state.weapons` (cosmetically extrapolated along their own motion by `combat-visual.ts`), HP from `PlayerState.hp`. A wreck stops driving, predicting, and interpolating, and gains the spectate controls in `spectate.ts`.
 
+The lock bracket is drawn from `PlayerState.lockTargetSessionId` for whichever car the camera is following, never computed client-side. `SHOW_LOCK_BRACKET` in `scenes/combat-visual.ts` hides it at source; it ships `true` and `combat-visual.test.ts` asserts that, because a flip left in looks identical to a lock that never acquired.
+
 **Player colour is for cars; weapon colour is for shots.**
 
 How a shot is *shaped* is `WEAPON_GLOW_STYLES` in `scenes/combat-visual.ts`: per weapon, absent for all but `fireball`, and absent means the flat `weaponFillOf` disc that every weapon drew before. Bands are fractions of the hitbox radius and the flicker only shrinks, so the drawn shot can never exceed the hitbox — that is the invariant `instanceGlowBands` is tested against, and the reason the maths lives in `combat-visual.ts` rather than in `ArenaScene`, which no test can load. `carFillOf(colorId)` paints a car, `weaponFillOf(weaponId)` paints every instance of a weapon — the same ember orange for every car's fireball. Drawing a shot needs no owner lookup at all (the client never reads `ownerSessionId`), so do not reach for the shooter's `PlayerState` in `renderShots`; that route was deleted on purpose. `WEAPON_TABLE.color` is render-only and stays off the wire.

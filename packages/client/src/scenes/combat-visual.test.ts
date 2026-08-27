@@ -16,6 +16,7 @@ import {
   WEAPON_GLOW_STYLES,
   lockBracketArms,
   LOCK_BRACKET_HALF,
+  SHOW_LOCK_BRACKET,
   weaponFillOf,
 } from "./combat-visual.js";
 
@@ -126,6 +127,15 @@ describe("instance drawing", () => {
   it("falls back to a small dot for an unrecognised weapon id rather than blanking the layer", () => {
     const shape = instanceDrawShape({ ...projectile, weaponId: "not-a-weapon" }, 0);
     expect(shape.kind).toBe("circle");
+  });
+});
+
+describe("SHOW_LOCK_BRACKET", () => {
+  it("ships on", () => {
+    // A deliberate change detector, and the only guard there is. The flag exists to be flipped
+    // while working on the arena, and a flip left in is invisible in review -- the bracket simply
+    // stops appearing, which looks exactly like a lock that never acquired.
+    expect(SHOW_LOCK_BRACKET).toBe(true);
   });
 });
 

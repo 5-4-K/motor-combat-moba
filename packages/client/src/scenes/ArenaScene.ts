@@ -50,6 +50,7 @@ import {
   instanceDrawShape,
   instanceGlowBands,
   lockBracketArms,
+  SHOW_LOCK_BRACKET,
   weaponFillOf,
 } from "./combat-visual.js";
 import {
@@ -800,11 +801,13 @@ export class ArenaScene extends Phaser.Scene {
     // The bracket follows the CAMERA's subject -- the local car while driving, the watched car while
     // spectating -- which is the same rule the weapon slot bar already uses. Read straight off the
     // wire and never computed here: combat is server-only, and a mispredicted bracket is a lie about
-    // where your shot is going.
+    // where your shot is going. `SHOW_LOCK_BRACKET` is the source switch that suppresses the draw;
+    // it is read here rather than folded into `lockBracketArms` so that hiding the bracket skips the
+    // stroke entirely instead of stroking an empty list.
     const subject = room.state.players.get(this.cameraTarget(room));
     const target = subject?.lockTargetSessionId ?? "";
     const at = target === "" ? undefined : poses.get(target);
-    if (lock && at) {
+    if (SHOW_LOCK_BRACKET && lock && at) {
       lock.lineStyle(LOCK_WIDTH, LOCK_COLOR, 0.9);
       for (const arm of lockBracketArms(at.x, at.y)) {
         lock.beginPath();

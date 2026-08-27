@@ -140,6 +140,13 @@ actually reads — the same pattern as `WEAPON_TICKS` above.
 separately asserts every aim-assist weapon's sustained fire rate sits outside a ±15% band around the
 `1000 / lockTimeoutMs` cliff — see `combat-model.md` for what that cliff means.
 
+Nothing in `AIM_CONFIG` decides whether you can *see* the lock. The bracket is drawn by the client
+alone, from `PlayerState.lockTargetSessionId` on the wire, and `SHOW_LOCK_BRACKET` in the client's
+`scenes/combat-visual.ts` (default `true`) is the source switch that suppresses that draw. It is a
+render flag with no sim effect whatsoever — with it `false` the server acquires, holds, steals, and
+fires at the same targets, and the field still ships on every patch. Turning aim assist *off* is a
+different knob entirely: `usesAimAssist` per weapon in `WEAPON_TABLE`.
+
 ## COMBAT_CONFIG
 
 | Knob | Value |
