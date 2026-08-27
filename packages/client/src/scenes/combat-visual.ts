@@ -68,6 +68,27 @@ export interface DrawableInstance {
   extent: number;
 }
 
+/**
+ * The colour drawn for an instance whose `weaponId` is not in `WEAPON_TABLE` — a neutral grey, so
+ * an unknown shot reads as "something is there" without borrowing a shipped weapon's identity.
+ */
+const UNKNOWN_WEAPON_COLOR = 0x555555;
+
+/**
+ * The colour every live instance of a weapon draws in: the weapon's own `color`, never its owner's.
+ *
+ * Player colour identifies the car; weapon colour identifies the shot. Two cars carrying the same
+ * weapon fire the same colour on purpose — an instance is drawn as its own hitbox, so its colour's
+ * job is to say what is about to hit you, and the car that fired it is already on screen wearing
+ * the player paint. An unrecognised id falls back to grey rather than producing `NaN`, which Phaser
+ * renders as an invisible shot.
+ */
+export function weaponFillOf(weaponId: string): number {
+  if (!isWeaponId(weaponId)) return UNKNOWN_WEAPON_COLOR;
+  const parsed = Number.parseInt(weaponDefOf(weaponId).color.slice(1), 16);
+  return Number.isNaN(parsed) ? UNKNOWN_WEAPON_COLOR : parsed;
+}
+
 /** The hitbox radius drawn for an instance whose `weaponId` is not in `WEAPON_TABLE`. */
 const UNKNOWN_WEAPON_RADIUS = 3;
 

@@ -46,7 +46,8 @@ Fields to recommend, in order. Stop early once nothing is undetermined.
 | 8 | Volley (projectiles) | `pelletsPerVolley` + `spreadAngleDeg` for a shotgun; `volleys` + `volleyIntervalMs` for a burst |
 | 9 | Pierce (projectiles) | Extra opponents passed through after damaging one; 0 dies on the first |
 | 10 | Beam only | `lifetimeMs` after full extension; `attached: true` sweeps with the car |
-| 11 | **Which chassis, which slot** | Ask outright whether it **replaces** an existing weapon or is **added** alongside — never decide this |
+| 11 | `color` | The `#RRGGBB` its shots draw in — per weapon, never per player. Must be unique among weapons, must not be a `COLOR_TABLE` player colour, and must read against a light floor |
+| 12 | **Which chassis, which slot** | Ask outright whether it **replaces** an existing weapon or is **added** alongside — never decide this |
 
 Then edit six files, in this order:
 
@@ -65,7 +66,8 @@ Then edit six files, in this order:
    weapon makes some of that untrue. Grep the docs for the mechanic you introduced.
 
 Validation the row must satisfy: `unlocksAt >= 1`, positive `damage`/`speed`/`range`,
-`stock.max >= 2` when present, volley counts `>= 1`, cone `angleDeg` strictly inside 0–180.
+`stock.max >= 2` when present, volley counts `>= 1`, cone `angleDeg` strictly inside 0–180, and a
+`color` that is a unique `#RRGGBB` and not a player colour.
 
 ## Path B — Re-tune an existing weapon
 

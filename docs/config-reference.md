@@ -48,10 +48,15 @@ chassis carries and in what slot order. Durations are authored in **milliseconds
 once, at shared's module load, into the frozen `WEAPON_TICKS` the sim actually reads — see
 "Authoring in milliseconds" below.
 
-| id | kind | damage | speed | range | cooldownMs | startUpMs | recoveryMs | stock | pierce | volley (volleys/intervalMs/pellets/spreadDeg) | hitbox | unlocksAt |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `cannon` | projectile | 8 | 900 | 900 | 500 | 0 | 0 | — | 0 | 1 / 0 / 1 / 0 | circle, radius 12 | 1 |
-| `repeater` | projectile | 5 | 700 | 700 | 3000 | 0 | 5000 | max 3, refire 100ms | 0 | 1 / 0 / 1 / 0 | circle, radius 3 | 1 |
+| id | kind | damage | speed | range | cooldownMs | startUpMs | recoveryMs | stock | pierce | volley (volleys/intervalMs/pellets/spreadDeg) | hitbox | unlocksAt | color |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `cannon` | projectile | 8 | 900 | 900 | 500 | 0 | 0 | — | 0 | 1 / 0 / 1 / 0 | circle, radius 12 | 1 | `#E8590C` ember |
+| `repeater` | projectile | 5 | 700 | 700 | 3000 | 0 | 5000 | max 3, refire 100ms | 0 | 1 / 0 / 1 / 0 | circle, radius 3 | 1 | `#0CA5B0` teal |
+
+`color` is render-only, like `name`: it is the fill every live instance of that weapon draws in, per
+**weapon** rather than per player, so two cars carrying a cannon fire identically coloured shots.
+`weapon-config.test.ts` requires each to be a unique `#RRGGBB` and none of them to equal a
+`COLOR_TABLE` player colour. See [`combat-model.md`](combat-model.md#what-the-client-shows).
 
 `cannon` carries the pre-weapon-system shot's exact numbers: `fireRateHz: 2` became `cooldownMs:
 500`, and `lifetimeTicks: 30` became `range: 900` (one second of flight at 900 u/s). Its **hitbox
