@@ -25,6 +25,33 @@ export const WEAPON_TABLE = {
     pierce: 0,
     volley: { volleys: 1, volleyIntervalMs: 0, pelletsPerVolley: 1, spreadAngleDeg: 0 },
   },
+  /**
+   * NO CAR CARRIES THIS WEAPON. It is not in any `CAR_TABLE` loadout and cannot be reached in game —
+   * that is by design, not an oversight. `fire.ts`'s stock mechanic (D5) needs a real, multi-stock
+   * weapon to prove itself against; `cannon` is deliberately single-stock (D22 ships zero balance
+   * change), so there was nothing in the table the stock tests could exercise honestly. `repeater`
+   * exists purely as that live proof and as the reference example for whoever authors the first
+   * multi-stock weapon actually placed in a loadout. `cooldownMs`/`stock` below are the spec's D5
+   * worked example transcribed verbatim: three stocks, a three-second recharge. Do not delete this
+   * just because nothing spawns it.
+   */
+  repeater: {
+    id: "repeater",
+    kind: "projectile",
+    name: "Repeater",
+    unlocksAt: 1,
+    damage: 5,
+    damageFrequencyMs: 0,
+    speed: 700,
+    range: 700,
+    startUpMs: 0,
+    cooldownMs: 3000,
+    recoveryMs: 5000, // D4's own example: refirable by itself at 3s while other slots wait 5s
+    hitbox: { shape: "circle", radius: 3 },
+    pierce: 0,
+    volley: { volleys: 1, volleyIntervalMs: 0, pelletsPerVolley: 1, spreadAngleDeg: 0 },
+    stock: { max: 3, refireDelayMs: 100 },
+  },
 } as const satisfies Record<WeaponId, WeaponDef>;
 
 /**
