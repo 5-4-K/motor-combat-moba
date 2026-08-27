@@ -233,6 +233,37 @@ describe("firing", () => {
     expect(hit.hp).toBe(hpOf("rectangle") - WEAPON_TABLE.cannon.damage);
   });
 
+  it("drives repeater, the table's only multi-stock weapon, through a real tick", () => {
+    // `repeater` is carried by no car, so nothing in ordinary play ever reaches `runCombat` with it
+    // and the stock mechanic would otherwise only ever be seen in hand-built `FireState` literals.
+    // The hand-built loadout is the whole difference here; everything downstream is the shipped path.
+    const shooter = player({
+      fireMask: 0b001,
+      fireState: {
+        slots: [{ weaponId: "repeater", stocks: 2, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
+        switchLockUntilTick: 0,
+        lastFiredSlot: -1,
+        pending: null,
+        level: 1,
+      },
+    });
+    const result = runCombat({
+      world: world(),
+      players: [shooter],
+      instances: [],
+      ramCooldowns: new Map(),
+      instanceSeq: 0,
+    });
+    expect(result.instances.map((i) => i.weaponId)).toEqual(["repeater"]);
+
+    const fired = result.players[0]!.fireState;
+    expect(fired.slots[0]!.stocks).toBe(1); // one of two spent
+    expect(fired.slots[0]!.rechargeEndsTick).toBe(190); // tick 100 + a 3000ms cooldown == 90 ticks
+    expect(fired.slots[0]!.refireLockUntilTick).toBe(103); // 100ms refire delay == 3 ticks
+    expect(fired.switchLockUntilTick).toBe(250); // 5000ms recovery == 150 ticks
+    expect(fired.lastFiredSlot).toBe(0);
+  });
+
   it("does not mutate the caller's players or instances", () => {
     const fireState = newFireState("rectangle", 1);
     const players = [player({ fireMask: 0b001, fireState })];

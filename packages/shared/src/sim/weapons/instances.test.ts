@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { MS_PER_TICK } from "../../constants.js";
 import { DRIVE_CONFIG } from "../../config/drive-config.js";
+import { weaponTicksOf } from "../../config/weapon-ticks.js";
 import {
+  fanOffset,
   instanceExpired,
+  muzzleOffset,
   spawnInstances,
   stepInstance,
   wallClipDistance,
@@ -42,6 +45,37 @@ describe("spawning", () => {
     const { instances } = spawnInstances({ weaponId: "cannon", slot: 0 }, owner, 100, 0);
     expect(instances[0]!.pierceLeft).toBe(0);
   });
+
+  it("puts a single-pellet volley exactly on the heading", () => {
+    const { instances } = spawnInstances({ weaponId: "cannon", slot: 0 }, owner, 100, 0);
+    expect(instances[0]!.angle).toBe(owner.angle);
+  });
+});
+
+describe("the volley fan", () => {
+  /**
+   * `fanOffset` is tested directly because no shipped weapon has `pelletsPerVolley > 1` (D22), so
+   * `spawnInstances` can only ever be observed emitting a single pellet: driving the formula through
+   * it would prove nothing about the fan, and adding a shotgun to `WEAPON_TABLE` to test one formula
+   * would be a balance change smuggled in as coverage.
+   */
+  const SIXTY = (60 * Math.PI) / 180;
+
+  it("spreads pellets evenly and symmetrically about the heading", () => {
+    expect(fanOffset(0, 3, SIXTY)).toBeCloseTo(-SIXTY / 2);
+    expect(fanOffset(1, 3, SIXTY)).toBeCloseTo(0);
+    expect(fanOffset(2, 3, SIXTY)).toBeCloseTo(SIXTY / 2);
+  });
+
+  it("splits an even pellet count across the heading, leaving nothing down the middle", () => {
+    expect(fanOffset(0, 2, SIXTY)).toBeCloseTo(-SIXTY / 2);
+    expect(fanOffset(1, 2, SIXTY)).toBeCloseTo(SIXTY / 2);
+  });
+
+  it("gives a lone pellet no offset at all, whatever the configured spread", () => {
+    expect(fanOffset(0, 1, SIXTY)).toBe(0);
+    expect(fanOffset(0, 0, SIXTY)).toBe(0);
+  });
 });
 
 describe("projectile flight", () => {
@@ -74,6 +108,98 @@ describe("projectile flight", () => {
     after.damageClock.set("ccc", 999);
     expect(before.damageClock.has("ccc")).toBe(false);
     expect(before.damageClock.get("bbb")).toBe(105);
+  });
+});
+
+describe("beam growth and expiry", () => {
+  /**
+   * No beam ships in `WEAPON_TABLE` (D22 ships zero balance change), so these hand-build a
+   * `kind: "beam"` instance over `cannon`'s numbers — 900 u/s across a 900-unit range — exactly as
+   * `combat.test.ts` does for the ownership gate. `stepInstance`'s beam branch reads only
+   * `def.range`/`def.speed` and `instanceExpired`'s only `flight`/`lifetime`, so borrowing a
+   * projectile's row exercises the real branches with real numbers. The one thing it cannot show is
+   * a non-zero linger: `cannon` has none, so the expiry below is `flight` alone — asserted through
+   * `weaponTicksOf` rather than a literal, so it moves with the def the day a real beam arrives.
+   */
+  const beam = (over: Partial<WeaponInstance> = {}): WeaponInstance => ({
+    id: "b1",
+    ownerSessionId: "aaa",
+    ownerTeam: 0,
+    weaponId: "cannon",
+    kind: "beam",
+    x: 500,
+    y: 300,
+    angle: 0,
+    extent: 0,
+    spawnTick: 100,
+    distance: 0,
+    pierceLeft: 0,
+    attached: false,
+    damageClock: new Map(),
+    alive: true,
+    ...over,
+  });
+
+  /** Room for a 900-unit beam in any direction, so the arena edge never stands in for a wall. */
+  const ROOMY = { width: 5000, height: 5000 };
+
+  it("grows from the muzzle at its own speed, a tick at a time", () => {
+    const first = stepInstance(beam(), ctx({ bounds: ROOMY }));
+    expect(first.extent).toBeCloseTo(900 * DT);
+    expect(stepInstance(first, ctx({ bounds: ROOMY })).extent).toBeCloseTo(900 * DT * 2);
+  });
+
+  it("holds at full range rather than growing past it", () => {
+    expect(stepInstance(beam({ extent: 890 }), ctx({ bounds: ROOMY })).extent).toBe(900);
+  });
+
+  it("is clamped to the wall when the wall is nearer than the range", () => {
+    const box = { x: 700, y: 250, w: 100, h: 100 }; // 200 units down the axis from (500, 300)
+    const clipped = stepInstance(beam({ extent: 890 }), ctx({ bounds: ROOMY, obstacles: [box] }));
+    expect(clipped.extent).toBe(200);
+  });
+
+  it("re-anchors an attached beam on its owner's pose every tick", () => {
+    const pose = { x: 800, y: 400, angle: Math.PI / 2 };
+    const moved = stepInstance(beam({ attached: true }), ctx({ bounds: ROOMY, ownerPose: pose }));
+    expect(moved.x).toBeCloseTo(800);
+    expect(moved.y).toBeCloseTo(400 + muzzleOffset());
+    expect(moved.angle).toBeCloseTo(Math.PI / 2);
+  });
+
+  it("re-clips an attached beam as the car turns it into and off a wall", () => {
+    const box = { x: 700, y: 250, w: 100, h: 100 };
+    const at = (angle: number) =>
+      stepInstance(
+        beam({ attached: true, extent: 890 }),
+        ctx({ bounds: ROOMY, obstacles: [box], ownerPose: { x: 500, y: 300, angle } }),
+      ).extent;
+    // Facing the box: the muzzle is a nose-length ahead of the car centre, so the reach is the gap
+    // from the muzzle to the near face, not from the car to it.
+    expect(at(0)).toBe(700 - (500 + muzzleOffset()));
+    // Turned 90 degrees away, the same beam reaches its full range again — the clip is recomputed
+    // from the owner's CURRENT pose every tick, not frozen at the tick it was fired.
+    expect(at(Math.PI / 2)).toBe(900);
+  });
+
+  it("leaves an unattached beam stamped where it was fired, owner pose or not", () => {
+    const stamped = stepInstance(
+      beam({ extent: 100 }),
+      ctx({ bounds: ROOMY, ownerPose: { x: 0, y: 0, angle: Math.PI } }),
+    );
+    expect(stamped.x).toBe(500);
+    expect(stamped.y).toBe(300);
+    expect(stamped.angle).toBe(0);
+  });
+
+  it("expires on its clock rather than on distance, unlike a projectile", () => {
+    const ticks = weaponTicksOf("cannon");
+    const life = ticks.flight + ticks.lifetime; // borrowed row: `lifetime` is 0, so this is `flight`
+    const held = beam({ extent: 900 });
+    expect(instanceExpired(held, 100 + life - 1)).toBe(false);
+    expect(instanceExpired(held, 100 + life)).toBe(true);
+    // A beam never accumulates `distance`, so the projectile branch would keep this alive forever.
+    expect(instanceExpired({ ...held, kind: "projectile" }, 100 + life)).toBe(false);
   });
 });
 

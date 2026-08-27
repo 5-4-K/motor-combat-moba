@@ -67,6 +67,21 @@ export function muzzleOffset(): number {
 export const MUZZLE_STEP_UNITS = 4;
 
 /**
+ * One pellet's angular offset from the car's heading. `pellets` samples spread evenly and
+ * symmetrically across `spreadRad`, so a 3-pellet 60-degree fan is -30 / 0 / +30 and a single pellet
+ * sits exactly on the heading whatever the configured spread.
+ *
+ * Its own function, and exported, because no shipped weapon has `pelletsPerVolley > 1` (D22 ships
+ * zero balance change): `spawnInstances` can only ever be observed emitting one pellet, so inline
+ * this formula would be untestable and would first run in anger on the day someone authors a
+ * shotgun.
+ */
+export function fanOffset(index: number, pellets: number, spreadRad: number): number {
+  if (pellets <= 1) return 0;
+  return (index / (pellets - 1) - 0.5) * spreadRad;
+}
+
+/**
  * Emit one order's instances from the owner's pose AT THIS TICK — a shot is aimed by where the car
  * is when it exits, not where it was when the key went down (D3), which is what makes a sequential
  * burst steerable.
@@ -88,8 +103,7 @@ export function spawnInstances(
   const instances: WeaponInstance[] = [];
   let next = seq;
   for (let i = 0; i < pellets; i++) {
-    const offset = pellets === 1 ? 0 : (i / (pellets - 1) - 0.5) * spread;
-    const angle = owner.angle + offset;
+    const angle = owner.angle + fanOffset(i, pellets, spread);
     next += 1;
     instances.push({
       id: `${owner.sessionId}-${next}`,

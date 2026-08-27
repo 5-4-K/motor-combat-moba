@@ -126,9 +126,23 @@ Every fired shot is a **hitbox**, never hitscan. Two kinds:
   not apply to them.
 
 No car in the shipped roster carries a beam or a multi-pellet/multi-volley weapon — `cannon` is a
-plain single shot. Both the beam lifecycle and the volley/burst paths are exercised by unit tests
-(and by driving `repeater` through the real sim), never by ordinary play, which is worth knowing if
-you are chasing a bug in either: it has never been seen working on a screen.
+plain single shot — so none of this has ever been seen working on a screen, which is worth knowing
+if you are chasing a bug in it. What the tests do and do not reach, exactly:
+
+- **Beams.** Growth, the `min(range, wall)` clamp, attached re-anchoring and re-clipping as the car
+  turns, and expiry on `flight + lifetime` are covered in `weapons/instances.test.ts` by hand-building
+  a `kind: "beam"` instance over `cannon`'s row (the same trick `combat.test.ts` uses for the
+  ownership gate). Because that row is a projectile, its `lifetimeMs` is 0: **no test exercises a
+  non-zero linger**, and none can until a beam is authored.
+- **Volleys.** `releaseShots`' multi-shot path and the recharge landing on the burst's *last* shot
+  are covered in `weapons/fire.test.ts` by hand-staging the `pending` a press would have produced.
+- **The pellet fan.** Tested as `fanOffset` directly, not through `spawnInstances`, which can only
+  ever emit one pellet against today's table.
+- **`repeater`.** Driven through `runCombat` once (`combat.test.ts`, "drives repeater… through a real
+  tick") so the stock mechanic is not only ever seen in hand-built `FireState` literals.
+- **Drawing.** `instanceDrawShape` branches on the weapon definition's `kind`, so its beam branch is
+  unreachable until a beam ships and is **not** covered; `beamShapeAt`'s own rect and cone geometry
+  is covered in `weapons/shapes.test.ts`.
 
 ### Shaped hitboxes and the smear
 
@@ -144,9 +158,11 @@ same SAT the car hulls already use.
 
 Each tick, a projectile is tested as the convex hull of its shape at its **previous and current**
 position — the "smear" — rather than sampled once at its new position. This is another convex
-polygon through the same SAT, so it is nearly free, and it removes the old authoring rule that every
-obstacle be at least 30 units thick to survive a point sample: a fast shot can no longer pass clean
-through a car between ticks. It is slightly generous at high speed, since the smear is solid and
+polygon through the same SAT, so it is nearly free. **Cars, obstacles and the arena edge are all
+tested against that one hull**, which is what actually removes the old authoring rule that every
+obstacle be at least 30 units thick to survive a point sample: at 900 u/s a shot covers 30 units a
+tick, and it can no longer pass clean through either a car or a thin wall between ticks. It is
+slightly generous at high speed, since the smear is solid and
 registers anywhere along that tick's path — which is the correct bias for a shooter. A beam is
 tested at its current extent with no smear: it does not move fast enough tick to tick to need one,
 and re-testing its full reach every tick already covers it.
@@ -180,6 +196,13 @@ is on your side:
   contact deals no ram damage.
 
 A wreck is not a target: shots pass through it rather than being spent on it.
+
+One consequence worth knowing rather than fixing: the pose snapshot is built **once per tick**,
+before any instance resolves, so a car wrecked earlier in that same tick is still a contact for
+every instance resolved after it — two shots landing on the same tick can both spend themselves on
+one car and both deal their damage. That is the price of the lag-compensation seam (below): hit
+testing is a pure function of an instance and a snapshot, and re-deriving the snapshot per instance
+would make the order instances happen to iterate in a balance decision. Accepted, not a bug.
 
 ### Hit test
 
@@ -270,9 +293,12 @@ use different, deliberately distinguishable dims so "you don't have this yet" ca
 for "back in a few seconds." See [`asset-pipeline.md`](asset-pipeline.md) for how a slot's icon
 resolves and its procedural fallback.
 
-No car in the shipped roster carries a beam or a multi-pellet/multi-volley weapon, so the beam and
-burst-drawing code above is exercised by unit tests only — seeing either draw live means temporarily
-adding such a weapon to a car's `CAR_TABLE` loadout, not something ordinary play ever does.
+No car in the shipped roster carries a beam or a multi-pellet/multi-volley weapon, so the beam half
+of the drawing code above never runs — not in play and not under test either, since
+`instanceDrawShape` branches on the weapon definition's own `kind` and no definition says `beam`.
+Seeing it draw means adding such a weapon to a car's `CAR_TABLE` loadout. See the coverage list
+under [Instances: two lifecycles](#instances-two-lifecycles) for exactly what the sim-side tests do
+reach.
 
 Living cars carry an HP bar scaled to their own chassis maximum (`hpFraction`), and a wreck fades to
 `WRECK_ALPHA` and stops being predicted or interpolated.
