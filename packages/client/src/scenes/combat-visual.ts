@@ -7,6 +7,7 @@ import {
   isWeaponId,
   projectileShapeAt,
   weaponDefOf,
+  type WeaponId,
   type WorldShape,
 } from "@motor-combat-moba/shared";
 
@@ -91,6 +92,120 @@ export function weaponFillOf(weaponId: string): number {
 
 /** The hitbox radius drawn for an instance whose `weaponId` is not in `WEAPON_TABLE`. */
 const UNKNOWN_WEAPON_RADIUS = 3;
+
+/**
+ * One concentric band of a glowing instance: how far out it reaches, and what it fills with.
+ *
+ * `radiusScale` is a FRACTION of the instance's own hitbox radius rather than a world distance, so a
+ * style is independent of the weapon it decorates — a re-tune that widens the hitbox rescales the
+ * whole glow with it, and no band can silently drift outside the shape that can actually hit you.
+ */
+export interface GlowBand {
+  /** Fraction of the hitbox radius this band reaches, in `(0, 1]`. 1 is the hitbox edge itself. */
+  radiusScale: number;
+  /** `#RRGGBB` this band fills in. */
+  color: string;
+}
+
+/**
+ * How one weapon's projectiles draw, when a flat disc is not enough.
+ *
+ * A weapon with no entry in `WEAPON_GLOW_STYLES` keeps drawing as a single fill of its `color`,
+ * which is what every weapon did before this existed and what every future weapon gets for free
+ * until someone authors a look for it. The styles are deliberately per weapon and NOT derived from
+ * `color` by a shared formula: each weapon is meant to have its own silhouette in flight, so a
+ * shared ramp would make every weapon a differently-tinted version of the same object.
+ */
+export interface GlowStyle {
+  /** Outermost first. Each band is filled over the one before it, so later bands are the core. */
+  bands: GlowBand[];
+  /**
+   * How far the outline may shrink at the bottom of a flicker, as a fraction of the hitbox radius.
+   *
+   * Shrink only, never grow: the outermost band sits exactly ON the hitbox edge, and a flicker that
+   * could push past it would make the drawn shape larger than the thing that hits — breaking the
+   * "what you see is the hitbox" rule the whole draw path is built on. 0 disables the flicker.
+   */
+  flickerDepth: number;
+  /** Flicker cycles per second. */
+  flickerHz: number;
+}
+
+/**
+ * Multiplied into a row's spawn tick to spread the flicker phase across instances. Deliberately not
+ * a whole number of cycles: consecutive spawn ticks must not land in phase, or a stream of shots
+ * pulses in lockstep and reads as one blinking object rather than several burning ones.
+ */
+const FLICKER_PHASE_PER_TICK = 0.7;
+
+/**
+ * Per-weapon looks. Absent means the flat hitbox disc — see `GlowStyle`.
+ *
+ * `fireball`: a dark ember rim, the weapon's own `#E8590C` body, a hot orange inner, and a
+ * near-white core, every band inside the 12-unit hitbox. The rim is the darkest ring rather than the
+ * brightest so the shot still reads as a hard-edged object against a light arena floor, and the
+ * white core is what carries at the ~24px this draws at.
+ */
+export const WEAPON_GLOW_STYLES: Partial<Record<WeaponId, GlowStyle>> = {
+  fireball: {
+    bands: [
+      { radiusScale: 1, color: "#8C2A06" },
+      { radiusScale: 0.75, color: "#E8590C" },
+      { radiusScale: 0.5, color: "#FFA53C" },
+      { radiusScale: 0.29, color: "#FFF3D6" },
+    ],
+    flickerDepth: 1 / 12,
+    flickerHz: 8,
+  },
+};
+
+/** A band resolved to world units and a Phaser fill, ready to stroke. */
+export interface DrawBand {
+  radius: number;
+  fill: number;
+}
+
+/**
+ * The concentric bands to fill for one instance, outermost first, or `[]` for a weapon with no
+ * style — whose caller falls back to the single flat `weaponFillOf` disc.
+ *
+ * `nowMs` is a free-running clock (`performance.now()`), not the patch-relative `elapsedMs` the
+ * position extrapolation uses: that one saws back to zero every patch, which would turn a smooth
+ * flicker into a 20 Hz stutter locked to the network rather than to the fire.
+ *
+ * Pure, and pure on purpose — `ArenaScene` cannot be unit tested without a browser, so everything
+ * that decides what a shot looks like has to be decidable here.
+ */
+export function instanceGlowBands(
+  weaponId: string,
+  radius: number,
+  spawnTick: number,
+  nowMs: number,
+): DrawBand[] {
+  const style = isWeaponId(weaponId) ? WEAPON_GLOW_STYLES[weaponId] : undefined;
+  if (!style) return [];
+
+  // [0, 1] rather than [-1, 1], so the scale below only ever subtracts. See `flickerDepth`.
+  const wave =
+    0.5 +
+    0.5 *
+      Math.sin(
+        2 * Math.PI * style.flickerHz * (nowMs / 1000) + spawnTick * FLICKER_PHASE_PER_TICK,
+      );
+  const scale = 1 - style.flickerDepth * wave;
+
+  return style.bands.map((band) => ({
+    radius: radius * band.radiusScale * scale,
+    fill: hexToFill(band.color),
+  }));
+}
+
+/** `#RRGGBB` to a Phaser fill, falling back to grey rather than rendering an invisible `NaN`. */
+function hexToFill(hex: string): number {
+  const parsed = Number.parseInt(hex.slice(1), 16);
+  return Number.isNaN(parsed) ? UNKNOWN_WEAPON_COLOR : parsed;
+}
+
 
 /**
  * Extrapolation is capped at one patch interval, so a stalled connection cannot fling a stale

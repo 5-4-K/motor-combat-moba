@@ -31,7 +31,7 @@ Every car carries an ordered list of weapons, `CAR_TABLE[car].weapons` — index
 order *is* the slot mapping, so a chassis's whole identity (speed, strength, hp, guns) lives in one
 table row. `WEAPON_SLOT_CONFIG.maxWeaponSlots` (3) caps how many slots any chassis may present; a
 car listing more logs one `console.warn` naming the car and truncates the extras, never a thrown
-error or a failed test. Today's whole roster carries a single slot, `["cannon"]` — see
+error or a failed test. Today's whole roster carries a single slot, `["fireball"]` — see
 [`config-reference.md`](config-reference.md) for the table.
 
 To add one, see [Authoring a weapon](#authoring-a-weapon) below; the sections between here and there
@@ -40,7 +40,7 @@ are the rules a weapon's stats are interpreted by.
 `WEAPON_TABLE` also ships `repeater`, which **no car carries**, on purpose. It is the only
 multi-stock weapon in the table — D5's worked example (3 stocks, a 3 s recharge) transcribed
 literally — kept as the live reference for the stock mechanic and the fixture the stock unit tests
-exercise. `cannon` had to ship single-stock to keep the migration a zero-balance-change diff, so
+exercise. `fireball` had to ship single-stock to keep the migration a zero-balance-change diff, so
 nothing in the released roster could prove stocks honestly without `repeater`. It is not dead
 config; do not delete it because nothing spawns it.
 
@@ -69,7 +69,7 @@ and firing is never blocked.
 
 **The region** is a cone intersected with a lateral cap, out to `AIM_CONFIG.lockRange` — all three
 bounds, because neither of the first two survives alone. A pure cone's width scales with distance,
-so at the cannon's range it would span half the arena; a pure lane's angular width explodes near the
+so at the fireball's range it would span half the arena; a pure lane's angular width explodes near the
 car, so it would accept a target 83° off your nose during a ram. The cone governs contact range, the
 cap governs long range. They cross over at `lateralMax / tan(coneDeg)` ≈ 330 units measured **along
 the car's axis** (the forward leg of the triangle at the cone's edge), which is ≈351 units measured
@@ -106,7 +106,7 @@ still translates and rotates with the car — it just never deflects toward a lo
 pellet fan or a sequential burst re-reads the lock at each shot's own tick, the same way it already
 re-reads the car's pose.
 
-`repeater` is the table's reference row for `usesAimAssist: false`, as `cannon` is for `true`.
+`repeater` is the table's reference row for `usesAimAssist: false`, as `fireball` is for `true`.
 See [`superpowers/specs/2026-08-27-aim-assist-target-lock-design.md`](superpowers/specs/2026-08-27-aim-assist-target-lock-design.md)
 for the decisions (A1–A14) and the rejected alternatives.
 
@@ -187,13 +187,13 @@ Every fired shot is a **hitbox**, never hitscan. Two kinds:
   that a car dying in a trade still lands its own damage. Beams are single-instance; `volley` does
   not apply to them.
 
-No car in the shipped roster carries a beam or a multi-pellet/multi-volley weapon — `cannon` is a
+No car in the shipped roster carries a beam or a multi-pellet/multi-volley weapon — `fireball` is a
 plain single shot — so none of this has ever been seen working on a screen, which is worth knowing
 if you are chasing a bug in it. What the tests do and do not reach, exactly:
 
 - **Beams.** Growth, the `min(range, wall)` clamp, attached re-anchoring and re-clipping as the car
   turns, and expiry on `flight + lifetime` are covered in `weapons/instances.test.ts` by hand-building
-  a `kind: "beam"` instance over `cannon`'s row (the same trick `combat.test.ts` uses for the
+  a `kind: "beam"` instance over `fireball`'s row (the same trick `combat.test.ts` uses for the
   ownership gate). Because that row is a projectile, its `lifetimeMs` is 0: **no test exercises a
   non-zero linger**, and none can until a beam is authored.
 - **Volleys.** `releaseShots`' multi-shot path and the recharge landing on the burst's *last* shot
@@ -232,7 +232,7 @@ and re-testing its full reach every tick already covers it.
 ### Pierce and per-target damage clocks
 
 `pierce` is an integer, and counts **cars only**: `0` destroys a projectile on the first car it
-damages (`cannon`'s value today), `2` damages up to three cars before dying. Teammates and wrecks
+damages (`fireball`'s value today), `2` damages up to three cars before dying. Teammates and wrecks
 are not contacts at all — a shot passes through them freely and they consume no pierce, which falls
 out of `canDamage` below. Walls, obstacles and the arena edge always destroy a projectile regardless
 of pierce budget; pierce is about cars, never about cover. Beams never spend a pierce budget — they
@@ -289,7 +289,7 @@ row, which is the point.
 
 **2. Add the row** to `WEAPON_TABLE` in
 [`packages/shared/src/config/weapon-config.ts`](../packages/shared/src/config/weapon-config.ts).
-Copy `cannon` for a projectile; there is no beam in the table yet, so a beam starts from the
+Copy `fireball` for a projectile; there is no beam in the table yet, so a beam starts from the
 `BeamWeaponDef` type. The union decides which fields you may write: `pierce` and `volley` exist only
 on a projectile, `attached` and `lifetimeMs` only on a beam, and writing the wrong one is a compile
 error rather than a silently ignored field.
@@ -329,23 +329,23 @@ wind-up or a non-zero recovery in live play — those paths are covered by unit 
 coverage list above). The first weapon that uses one is also that path's first real shakedown, so
 watch the HUD dim states and the instance count on the wire.
 
-**If you are re-tuning `cannon` rather than adding a weapon**, expect tests to fail on purpose.
+**If you are re-tuning `fireball` rather than adding a weapon**, expect tests to fail on purpose.
 Several read the real table at run time and hard-code numbers derived from it, so the suite is how
 you find out which:
 
 | File | Why it breaks |
 |---|---|
-| `config/weapon-config.test.ts` | Pins `cannon`'s stats digit-for-digit — the migration's zero-balance-change guard |
-| `config/weapon-config.test.ts` | "keeps aim-assist weapons off the behavioural cliff" — `cannon`'s `cooldownMs` must stay outside ±15% of `1000 / AIM_CONFIG.lockTimeoutMs`. A 500 → 700ms nerf gives a sustained rate of 1.43 Hz against a 1.25 Hz cliff: `\|1.43 − 1.25\| / 1.25 = 0.143 < 0.15`, so the guard fires |
+| `config/weapon-config.test.ts` | Pins `fireball`'s stats digit-for-digit — the migration's zero-balance-change guard |
+| `config/weapon-config.test.ts` | "keeps aim-assist weapons off the behavioural cliff" — `fireball`'s `cooldownMs` must stay outside ±15% of `1000 / AIM_CONFIG.lockTimeoutMs`. A 500 → 700ms nerf gives a sustained rate of 1.43 Hz against a 1.25 Hz cliff: `\|1.43 − 1.25\| / 1.25 = 0.143 < 0.15`, so the guard fires |
 | `config/weapon-ticks.test.ts` | Pins the tick counts derived from them (`cooldown`, `flight`) |
 | `sim/weapons/fire.test.ts` | Simulates recharge tick-by-tick across a hard-coded window |
-| `sim/weapons/instances.test.ts` | Beam tests borrow `weaponId: "cannon"` for its range, since no beam ships |
+| `sim/weapons/instances.test.ts` | Beam tests borrow `weaponId: "fireball"` for its range, since no beam ships |
 | `sim/combat.test.ts` | The `50.5` offset is derived from the hitbox radius — only if you change the hitbox |
 
 That last one is the subtle case: `50.5` places the two hulls 2.5 units apart, which must stay
 inside the hitbox radius (so the shot lands) and outside `ramContactPad`'s 2 units (so no ram fires
 on the same tick). At radius 12 there is plenty of headroom above; the fixture breaks if the radius
-is ever cut below 2.5, and the failure looks like the cannon's damage vanishing rather than an
+is ever cut below 2.5, and the failure looks like the fireball's damage vanishing rather than an
 obviously wrong number. Update each assertion in the same commit as the re-tune.
 
 ## Ramming
@@ -418,7 +418,18 @@ rather than a guess, because the server integrates the identical motion, and not
 feeds back into state. An instance is drawn from its own hitbox shape and dimensions, never a
 sprite — what you see is the hitbox, so a new weapon is playable with no art at all.
 
-Its fill is the **weapon's** `color` (`weaponFillOf`), not the firing player's. Every cannon shot in
+A weapon may additionally carry a **look**: an entry in `WEAPON_GLOW_STYLES`
+(`scenes/combat-visual.ts`) naming concentric bands to fill instead of the one flat disc, plus a
+flicker. `fireball` has one; `repeater` does not, and a weapon without one keeps drawing exactly as
+everything drew before styles existed. Two rules keep this from undoing the paragraph above. Bands
+are fractions of the instance's own hitbox radius rather than world distances, so the glow rescales
+with any hitbox re-tune. And the flicker only ever *shrinks* the rim, never grows it — a flicker
+that could push past the hitbox would make the drawn shot larger than the thing that hits. Styles
+are deliberately per weapon and not a shared formula over `color`: each weapon is meant to have its
+own silhouette in flight, and a shared ramp would make every weapon a differently-tinted copy of
+one object.
+
+Its fill is the **weapon's** `color` (`weaponFillOf`), not the firing player's. Every fireball shot in
 the arena is the same ember orange whoever fired it: a shot's colour answers "what is coming at me",
 and the car that fired it is already on screen wearing the player colour, so spending the shot's one
 colour channel on ownership would say the less useful thing twice. Shots were owner-coloured before

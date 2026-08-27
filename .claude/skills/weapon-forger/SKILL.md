@@ -39,14 +39,14 @@ Fields to recommend, in order. Stop early once nothing is undetermined.
 | 1 | Id and display name | Id is the `WeaponId` union member, lowercase, no spaces |
 | 2 | Projectile or beam | Projectiles travel and freeze at exit; beams grow, linger, can weld to the car |
 | 3 | Damage, and `damageFrequencyMs` | 0 is one hit per target ever; positive re-arms on that interval |
-| 4 | Speed and range | Together they set flight time — `range ÷ speed`. `cannon` is 900/900 = 1 s |
+| 4 | Speed and range | Together they set flight time — `range ÷ speed`. `fireball` is 900/900 = 1 s |
 | 5 | Hitbox | Projectile: circle radius, or ellipse along/across. Beam: rect width, or cone angle |
 | 6 | Cooldown, and stocks | A flat `cooldownMs`, or a `stock` block holding charges — see `repeater` |
 | 7 | Wind-up and recovery | `startUpMs` delays the shot; `recoveryMs` gates the car's **other** slots |
 | 8 | Volley (projectiles) | `pelletsPerVolley` + `spreadAngleDeg` for a shotgun; `volleys` + `volleyIntervalMs` for a burst |
 | 9 | Pierce (projectiles) | Extra opponents passed through after damaging one; 0 dies on the first |
 | 10 | Beam only | `lifetimeMs` after full extension; `attached: true` sweeps with the car |
-| 11 | Targeting — `usesAimAssist` | Required, no default. `true` fires at the car's ambient lock instead of its heading; ask whether this weapon should feel assisted (like `cannon`) or purely manual (like `repeater`) — this is the whole reason the field is required rather than optional |
+| 11 | Targeting — `usesAimAssist` | Required, no default. `true` fires at the car's ambient lock instead of its heading; ask whether this weapon should feel assisted (like `fireball`) or purely manual (like `repeater`) — this is the whole reason the field is required rather than optional |
 | 12 | `color` | The `#RRGGBB` its shots draw in — per weapon, never per player. Must be unique among weapons, must not be a `COLOR_TABLE` player colour, and must read against a light floor |
 | 12 | **Which chassis, which slot** | Ask outright whether it **replaces** an existing weapon or is **added** alongside — never decide this |
 
@@ -86,11 +86,11 @@ by accident — the suite is how you find out which:
 
 | File | Why it breaks |
 |---|---|
-| `config/weapon-config.test.ts` | Pins `cannon`'s stats digit-for-digit — the migration's zero-balance-change guard |
+| `config/weapon-config.test.ts` | Pins `fireball`'s stats digit-for-digit — the migration's zero-balance-change guard |
 | `config/weapon-config.test.ts` | "keeps aim-assist weapons off the behavioural cliff" — an aim-assist weapon's sustained rate (`1000 / cooldownMs`) must stay outside ±15% of `1000 / AIM_CONFIG.lockTimeoutMs` |
 | `config/weapon-ticks.test.ts` | Pins the tick counts derived from them (`cooldown`, `flight`) |
 | `sim/weapons/fire.test.ts` | Simulates recharge tick-by-tick across a hard-coded window |
-| `sim/weapons/instances.test.ts` | Beam tests borrow `weaponId: "cannon"` for its range, since no beam ships |
+| `sim/weapons/instances.test.ts` | Beam tests borrow `weaponId: "fireball"` for its range, since no beam ships |
 | `sim/combat.test.ts` | Its `50.5` fixture is derived from hitbox radius — only if you change the hitbox |
 
 A failure here is usually the guard doing its job, not a bug: update the assertion in the same
@@ -98,7 +98,7 @@ commit. If a test fails for a reason you cannot explain from your own change, st
 
 **Retuning `cooldownMs` on an aim-assist weapon can walk it onto the cliff even without
 intending to.** The cliff sits at `1000 / AIM_CONFIG.lockTimeoutMs` (1.25 Hz today); a guard rejects
-any sustained rate within 15% of it. A 500 → 700ms nerf on `cannon`, for example, lands at 1.43 Hz —
+any sustained rate within 15% of it. A 500 → 700ms nerf on `fireball`, for example, lands at 1.43 Hz —
 `|1.43 − 1.25| / 1.25 ≈ 0.143`, inside the forbidden band — and the guard fires. Check the new
 `cooldownMs` against the cliff before proposing the number, not after the test fails.
 

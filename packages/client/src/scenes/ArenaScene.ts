@@ -48,6 +48,7 @@ import {
   hpBarColor,
   hpFraction,
   instanceDrawShape,
+  instanceGlowBands,
   lockBracketArms,
   weaponFillOf,
 } from "./combat-visual.js";
@@ -975,26 +976,49 @@ export class ArenaScene extends Phaser.Scene {
    * Shots are cheap to draw late and expensive to draw wrongly.
    *
    * Each instance draws as its own hitbox (D19, `instanceDrawShape`) in its WEAPON's colour, so
-   * what a player sees is exactly what can hurt them and every cannon shot in the arena looks
+   * what a player sees is exactly what can hurt them and every fireball shot in the arena looks
    * alike. Shots were owner-coloured once; they are not, because a shot's colour is asked "what is
    * this" far more often than "whose is it", and the car that fired is on screen in player paint
    * either way. A beam additionally fades toward transparent through its own configured linger,
    * never a fixed duration, so a slower-lingering weapon reads as slower rather than snapping off
    * at some other weapon's timing.
+   *
+   * A weapon may also carry a LOOK (`instanceGlowBands`): concentric bands filled inside that same
+   * hitbox instead of one flat disc. It cannot widen the shot — bands are fractions of the hitbox
+   * radius and the flicker only shrinks — so the sentence above survives it. No entry means the
+   * flat disc, which is every weapon but `fireball`.
    */
   private renderShots(room: Room<ArenaState>): void {
     const gfx = this.shotGfx;
     if (!gfx) return;
     gfx.clear();
 
-    const elapsedMs = this.lastPatchMs === 0 ? 0 : performance.now() - this.lastPatchMs;
+    const nowMs = performance.now();
+    const elapsedMs = this.lastPatchMs === 0 ? 0 : nowMs - this.lastPatchMs;
     room.state.weapons.forEach((instance) => {
       if (!instance.alive) return;
       const shape = instanceDrawShape(instance, elapsedMs);
       const alpha = this.beamFadeAlpha(instance, room.state.tick);
-      gfx.fillStyle(weaponFillOf(instance.weaponId), alpha);
-      if (shape.kind === "circle") gfx.fillCircle(shape.x, shape.y, shape.radius);
-      else if (shape.points.length > 0) gfx.fillPoints(shape.points, true);
+      if (shape.kind !== "circle") {
+        if (shape.points.length === 0) return;
+        gfx.fillStyle(weaponFillOf(instance.weaponId), alpha);
+        gfx.fillPoints(shape.points, true);
+        return;
+      }
+
+      // Bands, outermost first, each filled over the last. An empty list is a weapon with no
+      // authored look, which is every weapon but `fireball` today -- it falls back to the one
+      // flat fill of its own `color` that this method drew for everything before styles existed.
+      const bands = instanceGlowBands(instance.weaponId, shape.radius, instance.spawnTick, nowMs);
+      if (bands.length === 0) {
+        gfx.fillStyle(weaponFillOf(instance.weaponId), alpha);
+        gfx.fillCircle(shape.x, shape.y, shape.radius);
+        return;
+      }
+      for (const band of bands) {
+        gfx.fillStyle(band.fill, alpha);
+        gfx.fillCircle(shape.x, shape.y, band.radius);
+      }
     });
   }
 

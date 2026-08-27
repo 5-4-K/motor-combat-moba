@@ -14,14 +14,14 @@ Substitute `[WEAPON_DESCRIPTION]` and `[WEAPON_COLOR]`, then use verbatim.
 
 `[WEAPON_COLOR]` is **looked up, not chosen.** It is that weapon's own `color` from `WEAPON_TABLE`
 ([`packages/shared/src/config/weapon-config.ts`](../../../packages/shared/src/config/weapon-config.ts))
-— the hex its **shots** already draw in, `#E8590C` for the cannon. Pass the hex itself; a generator
+— the hex its **shots** already draw in, `#E8590C` for the fireball. Pass the hex itself; a generator
 lands near it rather than on it, and near is enough. A weapon with no row there is not a weapon
 yet: author it with the `weapon-forger` skill first.
 
 The point is that the icon in the HUD slot and the disc crossing the arena read as the same weapon.
-The slot is where a player learns "cannon = ember orange"; they should then recognise it in flight
+The slot is where a player learns "fireball = ember orange"; they should then recognise it in flight
 without being told. Nothing enforces this — `import-weapon-icon.mjs` never inspects an image's
-palette, so a blue cannon icon over orange cannon shots imports silently and looks like a bug in
+palette, so a blue fireball icon over orange fireball shots imports silently and looks like a bug in
 the game rather than a mismatch in the art.
 
 `[WEAPON_DESCRIPTION]` is the weapon itself, as an object: "a stubby brass cannon barrel", not

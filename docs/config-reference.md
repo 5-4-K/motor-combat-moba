@@ -19,9 +19,9 @@ Canonical sim rate is `TICK_RATE_HZ` in `@motor-combat-moba/shared`. Patch rate 
 
 | id | name | speed | strength | hp | weapons |
 |---|---|---|---|---|---|
-| `rectangle` | Rectangle | 8 | 3 | 5 | `["cannon"]` |
-| `oval` | Oval | 5 | 8 | 3 | `["cannon"]` |
-| `hexagon` | Hexagon | 3 | 5 | 8 | `["cannon"]` |
+| `rectangle` | Rectangle | 8 | 3 | 5 | `["fireball"]` |
+| `oval` | Oval | 5 | 8 | 3 | `["fireball"]` |
+| `hexagon` | Hexagon | 3 | 5 | 8 | `["fireball"]` |
 
 Derived: `hpOf` = hp × `COMBAT_CONFIG.hpPerRating` (50 / 30 / 80). `forwardMaxSpeedOf` = `baseMaxSpeed` + speed × `speedPerRating`. `reverseMaxSpeedOf` = forward × `reverseSpeedRatio`.
 
@@ -50,19 +50,27 @@ once, at shared's module load, into the frozen `WEAPON_TICKS` the sim actually r
 
 | id | kind | damage | speed | range | cooldownMs | startUpMs | recoveryMs | stock | pierce | volley (volleys/intervalMs/pellets/spreadDeg) | hitbox | unlocksAt | usesAimAssist | color |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `cannon` | projectile | 8 | 900 | 900 | 500 | 0 | 0 | — | 0 | 1 / 0 / 1 / 0 | circle, radius 12 | 1 | true | `#E8590C` ember |
+| `fireball` | projectile | 8 | 900 | 900 | 500 | 0 | 0 | — | 0 | 1 / 0 / 1 / 0 | circle, radius 12 | 1 | true | `#E8590C` ember |
 | `repeater` | projectile | 5 | 700 | 700 | 3000 | 0 | 5000 | max 3, refire 100ms | 0 | 1 / 0 / 1 / 0 | circle, radius 3 | 1 | false | `#0CA5B0` teal |
 
 `color` is render-only, like `name`: it is the fill every live instance of that weapon draws in, per
-**weapon** rather than per player, so two cars carrying a cannon fire identically coloured shots.
+**weapon** rather than per player, so two cars carrying a fireball fire identically coloured shots.
 `weapon-config.test.ts` requires each to be a unique `#RRGGBB` and none of them to equal a
 `COLOR_TABLE` player colour. See [`combat-model.md`](combat-model.md#what-the-client-shows).
+
+`color` is the *whole* look only for a weapon with no authored style. `fireball` has one — four
+concentric bands, dark ember rim to near-white core, plus a slow shrink-only flicker — held in
+`WEAPON_GLOW_STYLES` in the client's `combat-visual.ts`, not in this table: it is pure appearance,
+nothing the sim or the wire can see. Bands are fractions of the weapon's own hitbox radius, so a
+re-tune that widens the hitbox rescales the glow with it and no band can escape the shape that
+hits. A weapon with no entry there draws the single flat disc of its `color`, which is what
+`repeater` still does.
 
 `usesAimAssist` is **required** and has no default: `true` fires at the car's ambient target lock
 instead of along its heading. It is the only per-weapon aim-assist knob — all the geometry lives once
 in `AIM_CONFIG` below. See [`combat-model.md`](combat-model.md#aim-assist-and-the-target-lock).
 
-`cannon` carries the pre-weapon-system shot's exact numbers: `fireRateHz: 2` became `cooldownMs:
+`fireball` carries the pre-weapon-system shot's exact numbers: `fireRateHz: 2` became `cooldownMs:
 500`, and `lifetimeTicks: 30` became `range: 900` (one second of flight at 900 u/s). Its **hitbox
 is no longer a migrated value**: it shipped as a 3-unit circle — the smallest that kept the old
 point-hit feel while satisfying "every weapon has a hitbox" — and was widened to 12 so the shot
@@ -72,7 +80,7 @@ the row is still the pre-weapon-system shot, digit for digit.
 **`repeater` is carried by no car, on purpose — it is not dead config.** It is the only multi-stock
 weapon in the table (the design's own worked example: three stocks, a three-second recharge,
 transcribed literally), kept as the live reference for the stock mechanic and the fixture the stock
-unit tests exercise against. `cannon` had to ship single-stock to keep the migration's zero-balance
+unit tests exercise against. `fireball` had to ship single-stock to keep the migration's zero-balance
 promise, so nothing in the released roster could prove stocks honestly without `repeater`. Do not
 delete it because nothing spawns it.
 

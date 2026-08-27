@@ -37,7 +37,7 @@ function liveInstance(over: Partial<WeaponInstance> = {}): WeaponInstance {
     id: "aaa-1",
     ownerSessionId: "aaa",
     ownerTeam: 0,
-    weaponId: "cannon",
+    weaponId: "fireball",
     kind: "projectile",
     x: 100,
     y: 100,
@@ -122,7 +122,7 @@ describe("toCombatPlayers", () => {
     const memory = newCombatMemory();
 
     const players = toCombatPlayers(state, new Set(["aaa"]), new Map([["aaa", 0b001]]), memory);
-    expect(players[0]!.fireState.slots.map((s) => s.weaponId)).toEqual(["cannon"]);
+    expect(players[0]!.fireState.slots.map((s) => s.weaponId)).toEqual(["fireball"]);
     expect(players[0]!.fireMask).toBe(0b001);
   });
 
@@ -178,7 +178,7 @@ describe("toCombatPlayers", () => {
 
     player.carId = "rectangle";
     const afterReveal = toCombatPlayers(state, new Set(["aaa"]), new Map(), memory)[0]!.fireState;
-    expect(afterReveal.slots.map((s) => s.weaponId)).toEqual(["cannon"]);
+    expect(afterReveal.slots.map((s) => s.weaponId)).toEqual(["fireball"]);
   });
 });
 
@@ -280,7 +280,7 @@ describe("applyCombatResult", () => {
     );
     const player = state.players.get("aaa")!;
     expect(player.weapons.length).toBe(1);
-    expect(player.weapons.at(0)!.weaponId).toBe("cannon");
+    expect(player.weapons.at(0)!.weaponId).toBe("fireball");
     expect(player.weapons.at(0)!.stocks).toBe(1);
   });
 
@@ -299,7 +299,7 @@ describe("applyCombatResult", () => {
     const fireState = {
       ...newFireState("rectangle", 1),
       lastFiredSlot: 0,
-      pending: { weaponId: "cannon" as const, slot: 0, shotsLeft: 2, nextShotTick: 205 },
+      pending: { weaponId: "fireball" as const, slot: 0, shotsLeft: 2, nextShotTick: 205 },
     };
     applyCombatResult(state, result({ players: [combatPlayerFor(player, { fireState })] }), newCombatMemory());
     expect(player.pendingUntilTick).toBe(205);
