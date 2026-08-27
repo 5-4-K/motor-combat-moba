@@ -5,8 +5,10 @@ import type { WeaponDef, WeaponId } from "./weapon-types.js";
  *
  * `cannon` is the migrated pre-weapon-system shot, carrying its exact numbers: `fireRateHz: 2`
  * became `cooldownMs: 500`, and `lifetimeTicks: 30` became `range: 900` (one second of flight at
- * 900 u/s). Its 3-unit circle is the smallest hitbox that keeps the old point-hit feel while
- * satisfying "every weapon has a hitbox".
+ * 900 u/s). Its hitbox is the one deliberate departure from that migration: it shipped as a 3-unit
+ * circle, the smallest that kept the old point-hit feel while satisfying "every weapon has a
+ * hitbox", and was later widened to 12 so the shot reads on screen — the client draws the hitbox
+ * itself, never a sprite. A 24-unit disc is three quarters of a car's 32-unit width.
  */
 export const WEAPON_TABLE = {
   cannon: {
@@ -21,7 +23,7 @@ export const WEAPON_TABLE = {
     startUpMs: 0,
     cooldownMs: 500,
     recoveryMs: 0,
-    hitbox: { shape: "circle", radius: 3 },
+    hitbox: { shape: "circle", radius: 12 },
     pierce: 0,
     volley: { volleys: 1, volleyIntervalMs: 0, pelletsPerVolley: 1, spreadAngleDeg: 0 },
   },

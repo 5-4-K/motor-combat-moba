@@ -45,6 +45,17 @@ Changing the drive model, hitbox model (OBB), collision-damage rules, friendly-f
 
 **Build with root `npm run build`, never `npm run build --workspaces`.** The server's tsup step *inlines* shared's `dist` into `packages/server/dist/index.js`, so shared must be built first. The root script enforces that order (shared → server → client); the `--workspaces` form does not, and has been observed building the server one second *before* shared — producing a server bundle silently running the previous version of the sim while every unit test passes, because tests import `src`. If a rule works in the tests but not in a live room, check this first: `grep` the server bundle for the code you just wrote.
 
+**In a worktree, run `npm install` before the first build.** A fresh worktree has no
+`node_modules`, and Node then walks *up* to the main checkout's — where
+`node_modules/@motor-combat-moba/shared` symlinks to `<main checkout>/packages/shared`. Every build
+in that worktree inlines the **main checkout's** shared `dist`, not the one you just edited, so the
+server bundle silently runs master's sim while all three suites pass on your `src`. Same symptom as
+the stale `dist` above, but rebuilding shared never fixes it: it is the wrong checkout, not an old
+build. Tell the two apart by the inlined path in `packages/server/dist/index.js` — a comment reads
+`// ../shared/dist/…` when it is correct and `// ../../../../../packages/shared/dist/…` when it has
+escaped the worktree. `npm install` in the worktree root repoints the links and leaves
+`package-lock.json` untouched.
+
 The arena-specific symptom: if the arena screen shows "Arena mismatch. The server is running
 "arena-0N", but this build only knows: …", the server and client are running different builds of
 shared. Rebuild shared and hard-refresh the browser. The release zip cannot produce this — it ships

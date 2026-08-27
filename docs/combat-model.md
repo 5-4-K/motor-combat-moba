@@ -277,9 +277,11 @@ you find out which:
 | `sim/weapons/instances.test.ts` | Beam tests borrow `weaponId: "cannon"` for its range, since no beam ships |
 | `sim/combat.test.ts` | The `50.5` offset is derived from the hitbox radius — only if you change the hitbox |
 
-That last one is the subtle case: `50.5` sits in a narrow window where the shot lands but no ram
-fires, so widening `cannon`'s hitbox radius can push it out of the window rather than simply
-changing a number. Update each assertion in the same commit as the re-tune.
+That last one is the subtle case: `50.5` places the two hulls 2.5 units apart, which must stay
+inside the hitbox radius (so the shot lands) and outside `ramContactPad`'s 2 units (so no ram fires
+on the same tick). At radius 12 there is plenty of headroom above; the fixture breaks if the radius
+is ever cut below 2.5, and the failure looks like the cannon's damage vanishing rather than an
+obviously wrong number. Update each assertion in the same commit as the re-tune.
 
 ## Ramming
 

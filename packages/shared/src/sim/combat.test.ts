@@ -215,12 +215,13 @@ describe("firing", () => {
   it("still lands the migrated cannon's damage on a car in front", () => {
     const shooter = player({ sessionId: "aaa", x: 300, fireMask: 0b001 });
     // A fresh press spawns its instance at the muzzle and is hit-tested THIS tick, without a tick of
-    // travel — so a same-tick hit is necessarily point-blank. `cannon`'s hitbox is a 3-unit-radius
-    // circle sitting exactly on the shooter's own hull edge, and `COMBAT_CONFIG.ramContactPad` is 1
-    // unit each side, so any target within (0, 3] units of that edge overlaps the shot; only a
-    // target beyond 2 units (the padded contact threshold) is clear of a simultaneous ram. 50.5
-    // (0.5 units inside the disc, comfortably outside the ±1 pad) isolates the cannon's own damage
-    // from the ramming half of `runCombat`, which is exercised on its own below.
+    // travel — so a same-tick hit is necessarily point-blank. `cannon`'s hitbox is a 12-unit-radius
+    // circle centred on the shooter's own hull edge, so it reaches 12 units past that edge, while
+    // `COMBAT_CONFIG.ramContactPad` is 1 unit each side, so a ram needs the two hulls within 2. What
+    // 50.5 buys is that gap: the hulls are half a car-length each, leaving 2.5 units between them —
+    // 9.5 units inside the disc, and outside the ±1 pad. So the shot lands and no ram fires,
+    // isolating the cannon's own damage from the ramming half of `runCombat`, exercised on its own
+    // below. Shrinking the hitbox back below 2.5 would break this by making the shot miss.
     const target = player({ sessionId: "bbb", x: 300 + 50.5, fireMask: 0 });
     const result = runCombat({
       world: world(),

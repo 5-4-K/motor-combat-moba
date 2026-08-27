@@ -21,7 +21,7 @@ describe("WEAPON_TABLE", () => {
     const cannon = WEAPON_TABLE.cannon;
     if (cannon.kind !== "projectile") throw new Error("cannon must be a projectile");
     expect(cannon.pierce).toBe(0);
-    expect(cannon.hitbox).toEqual({ shape: "circle", radius: 3 });
+    expect(cannon.hitbox).toEqual({ shape: "circle", radius: 12 });
     expect(cannon.volley).toEqual({
       volleys: 1,
       volleyIntervalMs: 0,

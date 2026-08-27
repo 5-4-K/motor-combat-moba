@@ -50,13 +50,15 @@ once, at shared's module load, into the frozen `WEAPON_TICKS` the sim actually r
 
 | id | kind | damage | speed | range | cooldownMs | startUpMs | recoveryMs | stock | pierce | volley (volleys/intervalMs/pellets/spreadDeg) | hitbox | unlocksAt |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `cannon` | projectile | 8 | 900 | 900 | 500 | 0 | 0 | — | 0 | 1 / 0 / 1 / 0 | circle, radius 3 | 1 |
+| `cannon` | projectile | 8 | 900 | 900 | 500 | 0 | 0 | — | 0 | 1 / 0 / 1 / 0 | circle, radius 12 | 1 |
 | `repeater` | projectile | 5 | 700 | 700 | 3000 | 0 | 5000 | max 3, refire 100ms | 0 | 1 / 0 / 1 / 0 | circle, radius 3 | 1 |
 
 `cannon` carries the pre-weapon-system shot's exact numbers: `fireRateHz: 2` became `cooldownMs:
-500`, and `lifetimeTicks: 30` became `range: 900` (one second of flight at 900 u/s). Its 3-unit
-circle is the smallest hitbox that keeps the old point-hit feel while satisfying "every weapon has a
-hitbox" — zero balance change, the smallest diff to reason about.
+500`, and `lifetimeTicks: 30` became `range: 900` (one second of flight at 900 u/s). Its **hitbox
+is no longer a migrated value**: it shipped as a 3-unit circle — the smallest that kept the old
+point-hit feel while satisfying "every weapon has a hitbox" — and was widened to 12 so the shot
+reads on screen, since the client draws the hitbox itself rather than a sprite. Everything else on
+the row is still the pre-weapon-system shot, digit for digit.
 
 **`repeater` is carried by no car, on purpose — it is not dead config.** It is the only multi-stock
 weapon in the table (the design's own worked example: three stocks, a three-second recharge,
