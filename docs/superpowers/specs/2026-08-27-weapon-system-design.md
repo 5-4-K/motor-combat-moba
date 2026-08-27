@@ -257,8 +257,12 @@ slot. When levelling is built, the only new work is making `level` move.
 
 ### D15 — One `weapons` array on the wire, everything derivable derived
 
-`ArenaState.projectiles` becomes `ArenaState.weapons: ArraySchema<WeaponInstanceState>` carrying both
-types, discriminated by a `kind` uint8 with explicit stable values (`PROJECTILE = 0`, `BEAM = 1`).
+`ArenaState.projectiles` becomes `ArenaState.weapons: MapSchema<WeaponInstanceState>` keyed by
+instance id, carrying both types, discriminated by a `kind` uint8 with explicit stable values
+(`PROJECTILE = 0`, `BEAM = 1`). A map rather than an array because the bridge **diffs** live
+instances by id — a collection emptied and repopulated each tick patches every instance to every
+client every tick, which is exactly the bandwidth the patch rate exists to avoid. Per-player slots
+are an `ArraySchema<WeaponSlotState>`, where order is the slot index.
 
 ```ts
 class WeaponInstanceState extends Schema {
