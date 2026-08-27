@@ -24,3 +24,6 @@ packages/client/.vite/
 # Claude Code local state — keep skills, ignore the rest
 .claude/*
 !.claude/skills/
+
+# code-review-graph local knowledge graph
+.code-review-graph/
