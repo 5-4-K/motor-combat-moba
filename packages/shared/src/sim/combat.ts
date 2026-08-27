@@ -1,6 +1,14 @@
 import { CAR_TABLE } from "../config/car-config.js";
 import { COMBAT_CONFIG } from "../config/combat-config.js";
-import { obbsInContact, pointInAabb, type Aabb, type Bounds } from "./collide.js";
+import { weaponDefOf } from "../config/weapon-config.js";
+import {
+  aabbCorners,
+  convexOverlap,
+  obbsInContact,
+  pointOutsideBounds,
+  type Aabb,
+  type Bounds,
+} from "./collide.js";
 import { carHullOf, carIdOf } from "./context.js";
 import { applyDamage } from "./damage.js";
 import { isRamming, ramDamage, ramOutcome } from "./ram.js";
@@ -12,6 +20,7 @@ import {
   stepInstance,
   type WeaponInstance,
 } from "./weapons/instances.js";
+import { projectileShapeAt, smear } from "./weapons/shapes.js";
 import { canDamage } from "./weapons/targets.js";
 
 /**
@@ -151,7 +160,9 @@ export function runCombat(input: CombatInput): CombatResult {
   const survivors: WeaponInstance[] = [];
   for (const instance of stepped) {
     if (instanceExpired(instance, world.tick)) continue;
-    if (instance.kind === "projectile" && hitsWorld(instance, world)) continue;
+    // Against the same smear the car test uses, from the same pre-step pose (`?? instance` for one
+    // born this tick, which has no previous pose to sweep from).
+    if (hitsWorld(instance, previous.get(instance.id) ?? instance, world)) continue;
 
     const outcome = resolveInstanceHits(
       instance,
@@ -219,13 +230,34 @@ function isFighting(player: CombatPlayer): boolean {
   return player.inRoster && player.alive;
 }
 
-/** A projectile that has left the arena or entered level geometry is spent, whatever its pierce. */
-function hitsWorld(instance: WeaponInstance, world: CombatWorld): boolean {
-  if (instance.x < 0 || instance.y < 0 || instance.x > world.bounds.width || instance.y > world.bounds.height) {
-    return true;
+/**
+ * A projectile that has left the arena or entered level geometry is spent, whatever its pierce.
+ *
+ * Tested as the SMEAR between the pre-step and post-step poses — the same solid the car test uses
+ * (D8) — not as a point at the landing position. That is what actually retires the old authoring
+ * rule that every obstacle be at least 30 units thick: a point sample at 900 u/s only looks every 30
+ * units, so a fast shot passed clean through a thin wall while the docs claimed it could not.
+ *
+ * Beams are never destroyed by the world; they are CLIPPED by `wallClipDistance` as they grow, so
+ * they leave here untouched by either reckoning of "is this a beam" — the instance's own kind or its
+ * weapon def's.
+ */
+function hitsWorld(instance: WeaponInstance, previous: WeaponInstance, world: CombatWorld): boolean {
+  const def = weaponDefOf(instance.weaponId);
+  if (def.kind !== "projectile" || instance.kind !== "projectile") return false;
+
+  const swept = smear(
+    projectileShapeAt(def.hitbox, previous.x, previous.y, previous.angle),
+    projectileShapeAt(def.hitbox, instance.x, instance.y, instance.angle),
+  );
+  // Any vertex of the swept hull off the field ends the shot: the hull covers the whole path, so a
+  // shot whose hitbox crossed the boundary at any point this tick is out. `pointOutsideBounds` is
+  // the one spelling of that rule, shared with the beam clip.
+  for (const point of swept.points) {
+    if (pointOutsideBounds(point.x, point.y, world.bounds)) return true;
   }
   for (const obstacle of world.obstacles) {
-    if (pointInAabb(instance.x, instance.y, obstacle)) return true;
+    if (convexOverlap(swept.points, aabbCorners(obstacle))) return true;
   }
   return false;
 }

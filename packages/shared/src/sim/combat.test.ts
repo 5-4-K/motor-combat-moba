@@ -294,6 +294,27 @@ describe("shots in flight", () => {
     const result = run({ instances: [flying({ x: ARENA_01.width - 1 })] });
     expect(result.instances).toHaveLength(0);
   });
+
+  it("drops a shot that steps clean past a wall thinner than one tick of travel", () => {
+    // The smear's whole reason for existing on the world test (D8): at 900 u/s a shot covers 30
+    // units a tick, so a point sample at the landing position looks straight past anything thinner
+    // than that. This box is 4 units thick and sits between the pre-step and post-step positions —
+    // the shot is never AT it on any tick, and a point test reports a clean miss.
+    const thin = { x: 700, y: 300, w: 4, h: 120 };
+    const before = thin.x - 10; // one tick of travel (30 units) lands at 720, past the far face
+    const result = run({
+      world: world({ obstacles: [thin] }),
+      instances: [flying({ x: before, y: thin.y + thin.h / 2 })],
+    });
+    expect(result.instances).toHaveLength(0);
+  });
+
+  it("drops a shot that lands exactly on the arena edge, as a beam clips there", () => {
+    // One spelling of one rule: `pointOutsideBounds` is inclusive on every edge, so a projectile on
+    // the boundary is out exactly where `wallClipDistance` already stopped a beam.
+    const result = run({ instances: [flying({ x: ARENA_01.width - WEAPON_TABLE.cannon.speed * DT })] });
+    expect(result.instances).toHaveLength(0);
+  });
 });
 
 describe("shots landing", () => {

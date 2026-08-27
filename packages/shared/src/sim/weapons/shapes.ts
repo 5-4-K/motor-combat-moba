@@ -10,6 +10,9 @@ export type WorldShape =
   | { kind: "circle"; x: number; y: number; radius: number }
   | { kind: "polygon"; points: Vec2[] };
 
+/** The polygon half of `WorldShape`. `smear` always produces one, and its callers rely on that. */
+export type PolygonShape = Extract<WorldShape, { kind: "polygon" }>;
+
 /** Segments in a generated ellipse. Even, so the shape is symmetric about both axes. */
 export const ELLIPSE_SEGMENTS = 12;
 /** Segments used when a circle has to become a polygon (only inside `smear`). */
@@ -79,10 +82,10 @@ export function beamShapeAt(
  * path travelled this tick.
  *
  * Without it a 3-unit shot moving 30 units per tick is sampled only where it lands and can pass
- * clean through a car. The smear is deliberately generous — it registers anywhere along that
- * tick's path — which is the correct bias for a shooter.
+ * clean through a car — or through a thin wall. The smear is deliberately generous — it registers
+ * anywhere along that tick's path — which is the correct bias for a shooter.
  */
-export function smear(from: WorldShape, to: WorldShape): WorldShape {
+export function smear(from: WorldShape, to: WorldShape): PolygonShape {
   return { kind: "polygon", points: convexHull([...verticesOf(from), ...verticesOf(to)]) };
 }
 

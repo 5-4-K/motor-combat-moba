@@ -2,7 +2,7 @@ import { DRIVE_CONFIG } from "../../config/drive-config.js";
 import { weaponDefOf } from "../../config/weapon-config.js";
 import { weaponTicksOf } from "../../config/weapon-ticks.js";
 import type { WeaponId } from "../../config/weapon-types.js";
-import { pointInAabb, type Aabb, type Bounds } from "../collide.js";
+import { pointInAabb, pointOutsideBounds, type Aabb, type Bounds } from "../collide.js";
 
 /**
  * One live hitbox in the world. Projectiles use `x/y/angle/distance`; beams use `x/y/angle` as the
@@ -189,15 +189,22 @@ export function wallClipDistance(
 ): number {
   const cos = Math.cos(angle);
   const sin = Math.sin(angle);
-  for (let d = MUZZLE_STEP_UNITS; d <= range; d += MUZZLE_STEP_UNITS) {
+  // Sampling starts at the ORIGIN, not one step out. Starting at `MUZZLE_STEP_UNITS` never looked at
+  // the first 4 units of the ray, so an obstacle face inside that gap went unseen and the beam was
+  // born inside the wall; a car nosed up against level geometry is exactly where that happens. At
+  // d = 0 a blocked sample yields a reach of 0, which `beamShapeAt` turns into a shape that hits
+  // nothing — the right answer for a muzzle buried in a wall.
+  for (let d = 0; d <= range; d += MUZZLE_STEP_UNITS) {
     const px = x + cos * d;
     const py = y + sin * d;
-    // Inclusive on every edge, matching `pointInAabb`'s own convention (a point ON an obstacle's
-    // face counts as inside it). Report the distance to the FIRST blocked sample directly rather
-    // than backing off by one step: backing off is only correct when the boundary test is
-    // exclusive, and mixing an exclusive bounds check with `pointInAabb`'s inclusive one made this
-    // under-report a wall that happened to land exactly on a sampled distance.
-    if (px <= 0 || py <= 0 || px >= bounds.width || py >= bounds.height) return d;
+    // `pointOutsideBounds` is inclusive on every edge, matching `pointInAabb`'s own convention (a
+    // point ON an obstacle's face counts as inside it) — and it is the same predicate `combat.ts`
+    // uses for a projectile leaving the arena, so the two can no longer disagree about a shot
+    // exactly on the edge. Report the distance to the FIRST blocked sample directly rather than
+    // backing off by one step: backing off is only correct when the boundary test is exclusive, and
+    // mixing an exclusive bounds check with `pointInAabb`'s inclusive one made this under-report a
+    // wall that happened to land exactly on a sampled distance.
+    if (pointOutsideBounds(px, py, bounds)) return d;
     for (const obstacle of obstacles) {
       if (pointInAabb(px, py, obstacle)) return d;
     }
