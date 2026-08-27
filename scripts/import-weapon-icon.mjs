@@ -54,7 +54,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import sharp from "sharp";
-import { isWeaponId, WEAPON_TABLE } from "../packages/shared/dist/index.js";
+import { CAR_TABLE, isWeaponId, WEAPON_TABLE } from "../packages/shared/dist/index.js";
+import { formatManifest } from "./import-art.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const artDir = path.join(rootDir, "packages", "client", "public", "art");
@@ -104,15 +105,25 @@ export async function main(argv = process.argv.slice(2)) {
   const key = weaponIconKeyOf(weapon);
   manifest.sprites ??= {};
   manifest.sprites[key] = iconManifestRow(weapon, manifest.sprites[key]);
-  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  // The car importer's formatter, shared rather than re-spelled. Writing this file with a plain
+  // `JSON.stringify` reflowed every number pair `formatManifest` folds onto one line, so alternating
+  // the two importers churned the whole manifest's formatting on every run.
+  fs.writeFileSync(manifestPath, formatManifest(manifest));
 
   console.log(`source        ${meta.width} x ${meta.height}  (${meta.format}${meta.hasAlpha ? ", alpha" : ", no alpha"})`);
   console.log(`colorMode     none (icons keep their colour, never desaturated)`);
   console.log(`\nwrote         ${path.relative(rootDir, dest)}  ${ICON_PX}x${ICON_PX}`);
   console.log(`manifest      ${key} -> ${file}`);
   // Unlike a car sprite, there is no `?dev=assets` preview for weapon icons — that tool only ever
-  // walked `CAR_TABLE`. The only place to judge the fit is the live HUD.
-  console.log(`next          npm run dev, join a match with "${weapon}" equipped, check its HUD slot`);
+  // walked `CAR_TABLE`. The only place to judge the fit is the live HUD, which means the icon is
+  // only visible at all if some car's loadout actually carries this weapon. `repeater` carries none
+  // by design, so "join a match with it equipped" is advice nobody can follow: say so instead.
+  const carriers = Object.keys(CAR_TABLE).filter((carId) => CAR_TABLE[carId].weapons.includes(weapon));
+  console.log(
+    carriers.length > 0
+      ? `next          npm run dev, drive ${carriers.join(" / ")}, check the HUD slot bar`
+      : `next          no car carries "${weapon}", so no HUD slot shows it — add it to a CAR_TABLE loadout to judge the fit`,
+  );
 }
 
 const invokedPath = process.argv[1] && path.resolve(process.argv[1]);
