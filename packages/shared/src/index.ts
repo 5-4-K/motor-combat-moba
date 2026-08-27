@@ -99,6 +99,8 @@ export { WEAPON_TICKS, msToTicks, weaponTicksOf } from "./config/weapon-ticks.js
 export type { WeaponTicks } from "./config/weapon-ticks.js";
 export { WEAPON_SLOT_CONFIG, slotsFrom, slotsOf } from "./config/weapon-slots.js";
 export { COMBAT_CONFIG } from "./config/combat-config.js";
+export { AIM_CONFIG, AIM_TICKS } from "./config/aim-config.js";
+export type { AimTicks } from "./config/aim-config.js";
 export { CAMERA_CONFIG, DRIVE_CONFIG } from "./config/drive-config.js";
 export { FLOW_CONFIG } from "./config/flow-config.js";
 export { NET_CONFIG } from "./config/net-config.js";
