@@ -4,8 +4,10 @@ import type {
   ArenaDef,
   ArenaState,
   InputMessage,
+  PlayerState,
   SimBody,
   StepContext,
+  WeaponSlotState,
   WeaponInstanceState,
 } from "@motor-combat-moba/shared";
 import {
@@ -17,10 +19,12 @@ import {
   PlayerStatus,
   RoomPhase,
   TICK_RATE_HZ,
+  WEAPON_SLOT_CONFIG,
   WeaponKind,
   getArena,
   isArenaId,
   isWeaponId,
+  weaponDefOf,
   weaponTicksOf,
 } from "@motor-combat-moba/shared";
 import { applyCarSprite, phaserTextures, resolveCarSprite } from "../assets/car-sprite.js";
@@ -50,6 +54,14 @@ import {
   spectatableIds,
   type SpectateCandidate,
 } from "./spectate.js";
+import {
+  HUD_DIM,
+  countdownSeconds,
+  slotBarLayout,
+  slotVisualState,
+  sweepFraction,
+  type SlotVisual,
+} from "./weapon-hud.js";
 
 const ARENA_DEPTH = -10;
 const ARENA_BORDER_PX = 4;
@@ -75,6 +87,26 @@ const HP_BAR_BACK = 0x22252b;
 const WRECK_ALPHA = 0.3;
 
 const HUD_DEPTH = 1000;
+
+// --- weapon slot HUD ---------------------------------------------------------------------------
+const HUD_BOX_BG = 0x14161a;
+const HUD_BOX_ALPHA = 0.75;
+const HUD_ICON_COLOR = 0xf2f2f2;
+const HUD_SWEEP_COLOR = 0x000000;
+const HUD_SWEEP_ALPHA = 0.55;
+/** Fraction of the box half-width the procedural glyph fills, leaving a frame around it. */
+const HUD_GLYPH_SCALE = 0.32;
+/** Beam glyph is a bar, not a circle — this is its width as a fraction of the icon radius. */
+const HUD_BEAM_WIDTH_SCALE = 0.5;
+const HUD_KEY_FONT_PX = 16;
+const HUD_KEY_GAP_PX = 6;
+const HUD_COUNTDOWN_FONT_PX = 18;
+const HUD_STOCK_FONT_PX = 13;
+const HUD_STOCK_INSET_PX = 4;
+/** Sweep drawn slightly inside the box edge so the frame stays visible under it. */
+const HUD_SWEEP_RADIUS_INSET_PX = 4;
+/** Straight up, so the wedge sweeps clockwise from 12 o'clock like a standard ability cooldown. */
+const HUD_SWEEP_START_ANGLE = -Math.PI / 2;
 
 /** The subset of `PlayerState` the arena renders and predicts from. */
 interface ArenaPlayer {
@@ -175,6 +207,16 @@ export class ArenaScene extends Phaser.Scene {
   private lastPatchMs = 0;
   private mismatchOverlay: ScreenOverlay | undefined;
 
+  /**
+   * The weapon slot HUD: one Graphics for every box, sweep and glyph (cleared and redrawn each
+   * frame, same pattern as `shotGfx`/`hpGfx`), and a fixed-size pool of Text objects — one per
+   * possible slot — reused across frames rather than created and destroyed at the render rate.
+   */
+  private hudGfx: Phaser.GameObjects.Graphics | undefined;
+  private hudKeyTexts: Phaser.GameObjects.Text[] = [];
+  private hudCountdownTexts: Phaser.GameObjects.Text[] = [];
+  private hudStockTexts: Phaser.GameObjects.Text[] = [];
+
   constructor() {
     super({ key: "arena" });
   }
@@ -232,6 +274,8 @@ export class ArenaScene extends Phaser.Scene {
     // fire rate for no gain.
     this.shotGfx = this.add.graphics().setDepth(SHOT_DEPTH);
     this.hpGfx = this.add.graphics().setDepth(HP_BAR_DEPTH);
+    this.hudGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_DEPTH);
+    this.buildHudTextPool();
 
     this.countdownText = this.add
       .text(640, 280, "", { fontSize: "96px", color: HUD_TEXT })
@@ -363,6 +407,14 @@ export class ArenaScene extends Phaser.Scene {
     this.shotGfx = undefined;
     this.hpGfx?.destroy();
     this.hpGfx = undefined;
+    this.hudGfx?.destroy();
+    this.hudGfx = undefined;
+    for (const text of this.hudKeyTexts) text.destroy();
+    for (const text of this.hudCountdownTexts) text.destroy();
+    for (const text of this.hudStockTexts) text.destroy();
+    this.hudKeyTexts = [];
+    this.hudCountdownTexts = [];
+    this.hudStockTexts = [];
     this.cursors = undefined;
     this.keys = undefined;
     this.slotKeys = undefined;
@@ -392,6 +444,7 @@ export class ArenaScene extends Phaser.Scene {
     this.updateSpectate(room, delta);
     this.renderCars(room, delta);
     this.renderShots(room);
+    this.renderWeaponHud(room);
   }
 
   // --- input -------------------------------------------------------------------------------
@@ -697,6 +750,197 @@ export class ArenaScene extends Phaser.Scene {
     const lingerElapsed = tick - (instance.spawnTick + ticks.flight);
     if (lingerElapsed <= 0) return 1;
     return Math.max(0, 1 - lingerElapsed / ticks.lifetime);
+  }
+
+  // --- weapon slot HUD ---------------------------------------------------------------------
+
+  /** One Text per possible slot, for each of the three pieces of text a slot can show. */
+  private buildHudTextPool(): void {
+    for (let i = 0; i < WEAPON_SLOT_CONFIG.maxWeaponSlots; i++) {
+      this.hudKeyTexts.push(this.makeHudText(HUD_KEY_FONT_PX));
+      this.hudCountdownTexts.push(this.makeHudText(HUD_COUNTDOWN_FONT_PX));
+      this.hudStockTexts.push(this.makeHudText(HUD_STOCK_FONT_PX).setOrigin(1, 1));
+    }
+  }
+
+  private makeHudText(fontSizePx: number): Phaser.GameObjects.Text {
+    return this.add
+      .text(0, 0, "", { fontSize: `${fontSizePx}px`, color: HUD_TEXT })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(HUD_DEPTH)
+      .setVisible(false);
+  }
+
+  /**
+   * The car whose slots the bar shows: your own while playing, the watched car while spectating,
+   * or nobody in free roam — the bar is read-only and has nothing to say about a free-floating
+   * camera that is not attached to any car.
+   */
+  private hudTargetPlayer(room: Room<ArenaState>): PlayerState | undefined {
+    if (this.isSpectating(room)) {
+      if (this.freeRoam || this.spectateTarget === "") return undefined;
+      return room.state.players.get(this.spectateTarget);
+    }
+    return room.state.players.get(room.sessionId);
+  }
+
+  /**
+   * The slot bar: camera-fixed, drawing `min(weapons.length, maxWeaponSlots)` boxes for whichever
+   * car `hudTargetPlayer` names. Slots beyond the current target (or with no target at all) just
+   * hide their pooled text objects rather than destroying anything, so switching who is watched
+   * costs no allocation.
+   */
+  private renderWeaponHud(room: Room<ArenaState>): void {
+    const gfx = this.hudGfx;
+    if (!gfx) return;
+    gfx.clear();
+
+    const player = this.hudTargetPlayer(room);
+    const boxes = player ? slotBarLayout(player.weapons.length, VIEW_WIDTH, VIEW_HEIGHT) : [];
+
+    for (let i = 0; i < this.hudKeyTexts.length; i++) {
+      const box = boxes[i];
+      const slot = player && box ? player.weapons.at(i) : undefined;
+      if (!player || !box || !slot) {
+        this.hudKeyTexts[i]!.setVisible(false);
+        this.hudCountdownTexts[i]!.setVisible(false);
+        this.hudStockTexts[i]!.setVisible(false);
+        continue;
+      }
+      this.drawHudSlot(gfx, i, box, slot, player, room.state.tick);
+    }
+  }
+
+  /**
+   * One slot's box, glyph, sweep and labels.
+   *
+   * `pending` and "which slot fired last" are `FireState`'s own `pending`/`lastFiredWeaponId` —
+   * server-only sim state that `combat-bridge.ts` deliberately never networks (the same rule that
+   * keeps `damageClock`/`pierceLeft` off the wire). There is therefore no patched signal this method
+   * can read for either, so the wind-up/volley and last-fired-exclusion halves of "car-locked" are
+   * passed as always-absent (`null` / `false`) here. This is provably harmless against today's
+   * `WEAPON_TABLE`: every weapon has `startUpMs: 0` and `volley.volleys: 1`, so a press resolves
+   * within the tick it is pressed and can never be observed as ongoing between two patches, and the
+   * only weapon with `recoveryMs > 0` (`repeater`) is carried by no car, so `switchLockUntilTick`
+   * never outlives the tick it was set on for any equipped weapon. A future weapon that gives either
+   * field real duration will need `PlayerState` to carry a wire-visible replacement — flagged in the
+   * task report rather than guessed at here.
+   */
+  private drawHudSlot(
+    gfx: Phaser.GameObjects.Graphics,
+    index: number,
+    box: { x: number; y: number; size: number },
+    slot: WeaponSlotState,
+    player: PlayerState,
+    tick: number,
+  ): void {
+    const def = isWeaponId(slot.weaponId) ? weaponDefOf(slot.weaponId) : undefined;
+    const state = slotVisualState(
+      { stocks: slot.stocks, rechargeEndsTick: slot.rechargeEndsTick },
+      { unlocksAt: def?.unlocksAt ?? 1 },
+      player.level,
+      player.switchLockUntilTick,
+      null,
+      tick,
+      false,
+    );
+    const dim = this.hudDimFor(state);
+    const cx = box.x + box.size / 2;
+    const cy = box.y + box.size / 2;
+
+    gfx.fillStyle(HUD_BOX_BG, HUD_BOX_ALPHA);
+    gfx.fillRect(box.x, box.y, box.size, box.size);
+
+    gfx.fillStyle(HUD_ICON_COLOR, dim);
+    this.drawWeaponGlyph(gfx, def, cx, cy, box.size);
+
+    // Ready-but-recharging happens only for a `stock` weapon banking another charge while one is
+    // still in hand: `slotVisualState` correctly keeps the icon at full brightness (you can still
+    // fire), but the timer running underneath is exactly the "in-progress recharge" the brief asks
+    // a stock weapon's sweep to show. `locked` and `car-locked` never show it — the heavier/static
+    // locked dim and the car-wide lockout must each stay visually unambiguous.
+    const recharging = slot.rechargeEndsTick !== 0 && (state === "recharging" || state === "ready");
+    if (recharging && def) {
+      const fraction = sweepFraction(slot.rechargeEndsTick, weaponTicksOf(def.id).cooldown, tick);
+      if (fraction > 0) this.drawSweepWedge(gfx, cx, cy, box.size, fraction);
+    }
+
+    const countdownText = this.hudCountdownTexts[index]!;
+    const seconds = recharging ? countdownSeconds(slot.rechargeEndsTick, tick) : null;
+    if (seconds !== null) {
+      countdownText.setText(String(Math.ceil(seconds))).setPosition(cx, cy).setVisible(true);
+    } else {
+      countdownText.setVisible(false);
+    }
+
+    // Beneath the box, outside the frame — never over the icon — and dimmed with it, so a locked
+    // slot's key reads as unavailable too.
+    const keyText = this.hudKeyTexts[index]!;
+    keyText
+      .setText(SLOT_KEYS[index]?.glyph ?? "")
+      .setPosition(cx, box.y + box.size + HUD_KEY_GAP_PX)
+      .setAlpha(dim)
+      .setVisible(true);
+
+    const stockText = this.hudStockTexts[index]!;
+    if (def?.stock) {
+      stockText
+        .setText(String(slot.stocks))
+        .setPosition(box.x + box.size - HUD_STOCK_INSET_PX, box.y + box.size - HUD_STOCK_INSET_PX)
+        .setVisible(true);
+    } else {
+      stockText.setVisible(false);
+    }
+  }
+
+  /** `SlotVisual` to `HUD_DIM`; only the "car-locked" name differs from its dim key. */
+  private hudDimFor(state: SlotVisual): number {
+    return state === "car-locked" ? HUD_DIM.carLocked : HUD_DIM[state];
+  }
+
+  /**
+   * The procedural glyph: a filled circle for a projectile, a bar for a beam. Draw-only shorthand
+   * for "what kind of weapon is this", not the weapon's actual hitbox (that is `instanceDrawShape`,
+   * drawn for live instances only). No manifest icon lookup here — `weaponIconKey` does not exist
+   * yet; it lands in the next task alongside the texture it resolves (see that task's ruling F1).
+   */
+  private drawWeaponGlyph(
+    gfx: Phaser.GameObjects.Graphics,
+    def: { kind: string } | undefined,
+    cx: number,
+    cy: number,
+    boxSize: number,
+  ): void {
+    const radius = (boxSize / 2) * HUD_GLYPH_SCALE;
+    if (def?.kind === "beam") {
+      const width = radius * 2 * HUD_BEAM_WIDTH_SCALE;
+      gfx.fillRect(cx - width / 2, cy - radius, width, radius * 2);
+      return;
+    }
+    gfx.fillCircle(cx, cy, radius);
+  }
+
+  /**
+   * The dark cooldown wedge: full at `fraction` 1 (recharge just started), sweeping clockwise from
+   * 12 o'clock down to nothing as `fraction` reaches 0 (recharge complete), so it always reads the
+   * same way a MOBA ability cooldown does.
+   */
+  private drawSweepWedge(
+    gfx: Phaser.GameObjects.Graphics,
+    cx: number,
+    cy: number,
+    boxSize: number,
+    fraction: number,
+  ): void {
+    const radius = boxSize / 2 - HUD_SWEEP_RADIUS_INSET_PX;
+    const endAngle = HUD_SWEEP_START_ANGLE + fraction * Phaser.Math.PI2;
+    gfx.fillStyle(HUD_SWEEP_COLOR, HUD_SWEEP_ALPHA);
+    gfx.beginPath();
+    gfx.moveTo(cx, cy);
+    gfx.arc(cx, cy, radius, HUD_SWEEP_START_ANGLE, endAngle, false);
+    gfx.closePath();
+    gfx.fillPath();
   }
 
   // --- spectating --------------------------------------------------------------------------
