@@ -17,15 +17,19 @@ motor-combat-MOBA/
 │   ├── index.ts                  # the package's whole public surface
 │   ├── constants.ts              # TICK_RATE_HZ, enums, MAX_PLAYERS
 │   ├── config/                   # car, color, weapon, combat, drive/camera, flow, net tables
+│   │   ├── weapon-types.ts       # WeaponDef discriminated union, StockDef, VolleyDef, Hitbox
+│   │   ├── weapon-config.ts      # WEAPON_TABLE
+│   │   ├── weapon-slots.ts       # WEAPON_SLOT_CONFIG, slotsOf (loadout, capped and warned)
+│   │   ├── weapon-ticks.ts       # WEAPON_TICKS: ms -> ticks, derived and frozen once
 │   │   └── arena-config.ts       # the one ACTIVE_ARENA_ID constant
-│   ├── schema/                   # PlayerState, ProjectileState, ArenaState
+│   ├── schema/                   # PlayerState, WeaponInstanceState, WeaponSlotState, ArenaState
 │   ├── arena/
 │   │   ├── types.ts              # ArenaDef, Obstacle, Spawn, ArenaPalette
 │   │   ├── arena-01.ts           # first arena layout
 │   │   ├── arena-02.ts           # second arena layout
 │   │   ├── registry.ts           # ARENAS map, ArenaId, isArenaId, getArena, ARENA_IDS
 │   │   └── art-keys.ts           # arena.<id>.<slot> namespace parser, used by client and release script
-│   ├── net/                      # InputMessage, lobby message names
+│   ├── net/                      # InputMessage (fireSlots bitmask), lobby message names
 │   ├── lobby/                    # names, teams, start rules, status → view
 │   ├── flow/                     # match-flow reducer, spawn assignment, livingSides
 │   └── sim/
@@ -34,7 +38,12 @@ motor-combat-MOBA/
 │       ├── collide.ts            # SAT, MTV, bounds clamp, point tests
 │       ├── context.ts            # StepContext parts both sides must share
 │       ├── combat.ts             # runCombat: one tick of combat, pure
-│       ├── projectiles.ts        # shot motion and hit rules
+│       ├── weapons/
+│       │   ├── shapes.ts         # shape -> convex polygon, SAT wrappers, the swept smear hull
+│       │   ├── fire.ts           # the state machine: slots, three clocks, stocks, volley scheduling
+│       │   ├── instances.ts      # projectile travel; beam grow/linger/wall-clip; expiry
+│       │   ├── hits.ts           # pose-snapshot hit resolution, per-target damage clocks, pierce
+│       │   └── targets.ts        # canDamage: the single friendly-fire predicate
 │       ├── ram.ts                # facing rules
 │       └── damage.ts             # applyDamage, the only HP writer
 ├── packages/server/src/
@@ -59,15 +68,17 @@ motor-combat-MOBA/
     ├── public/art/                # copied to the dist root unbundled — no rebuild to change art
     │   ├── manifest.json          # namespaced key → sprite entry; ships with `{}`
     │   ├── README.md              # the field table, for whoever is dropping in a PNG
-    │   └── cars/                  # convention for car PNGs, created the first time you add one
+    │   ├── cars/                  # convention for car PNGs, created the first time you add one
+    │   └── weapon-icons/          # convention for weapon icon PNGs, created the first time you add one
     └── src/
         ├── main.ts
         ├── config/client-mode.ts
         ├── config/display.ts     # FIT-to-window scaling rationale + fullscreen key
+        ├── config/slot-keys.ts   # SLOT_KEYS: key code + glyph per slot; slotMaskFrom
         ├── assets/
         │   ├── manifest-schema.ts # SpriteEntry, SPRITE_DEFAULTS, parseManifest (never throws)
         │   ├── load-manifest.ts   # MANIFEST_URL, fetch + parse, empty manifest on any failure
-        │   ├── asset-keys.ts      # carId → "car.<id>"
+        │   ├── asset-keys.ts      # carId → "car.<id>"; weaponIconKey(id) → "weapon-icon.<id>"
         │   ├── sprite-fit.ts      # fits art to the hull; the hull never follows the art
         │   └── car-sprite.ts      # the resolution chain ArenaScene and the tuning tool share
         ├── dev/                   # stripped from release builds, asserted by build-release.mjs
@@ -86,7 +97,8 @@ motor-combat-MOBA/
         │   ├── arena-mismatch.ts # builds the mismatch message string (pure, testable)
         │   ├── arena-visual.ts   # arena palette → Phaser colour ints; inset border rect
         │   ├── car-visual.ts     # chassis silhouettes, colours
-        │   ├── combat-visual.ts  # hp bar maths, shot extrapolation
+        │   ├── combat-visual.ts  # hp bar maths, instance extrapolation and draw shape (projectile + beam)
+        │   ├── weapon-hud.ts     # pure HUD derivations: sweepFraction, slotVisualState, countdownSeconds
         │   ├── spectate.ts       # spectate cycle, free-roam pan
         │   └── lobby-signature.ts
         └── ui/screens/arena-mismatch.ts # renders that message as DOM

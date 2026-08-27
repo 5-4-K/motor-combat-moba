@@ -1,7 +1,7 @@
 # Combat model
 
 Everything that removes HP, and the rules that decide who it comes off. Balance numbers live in
-`@motor-combat-moba/shared` config (`WEAPON_CONFIG`, `COMBAT_CONFIG`, `CAR_TABLE`) — the tables below name
+`@motor-combat-moba/shared` config (`WEAPON_TABLE`, `COMBAT_CONFIG`, `CAR_TABLE`) — the tables below name
 the knobs, not copies of them. See [`config-reference.md`](config-reference.md) for the values.
 
 ## Where combat runs
@@ -12,7 +12,7 @@ resolved every car, so hit tests read the poses cars actually ended the tick at.
 `packages/server/src/sim/combat-bridge.ts` is the only file that knows about the Colyseus schema; it
 maps `ArenaState` onto the POJOs and writes the answer back. No rules live there.
 
-Combat is **server-only**. The client draws `state.projectiles` and never predicts a shot or an HP
+Combat is **server-only**. The client draws `state.weapons` and never predicts a shot or an HP
 change: a mispredicted bullet is a phantom kill, and there is no honest way to reconcile "you were
 dead for 80 ms". Prediction covers the local car's motion and nothing else.
 
@@ -27,29 +27,151 @@ subtract from `PlayerState.hp`. `hp === 0` sets `alive = false`; that is the wre
 
 ## Weapon
 
-One weapon, identical on every chassis — the cars differ in speed, strength, and HP, not in what
-they shoot.
+Every car carries an ordered list of weapons, `CAR_TABLE[car].weapons` — index 0 is slot 1, and
+order *is* the slot mapping, so a chassis's whole identity (speed, strength, hp, guns) lives in one
+table row. `WEAPON_SLOT_CONFIG.maxWeaponSlots` (3) caps how many slots any chassis may present; a
+car listing more logs one `console.warn` naming the car and truncates the extras, never a thrown
+error or a failed test. Today's whole roster carries a single slot, `["cannon"]` — see
+[`config-reference.md`](config-reference.md) for the table.
 
-| Rule | Where |
+`WEAPON_TABLE` also ships `repeater`, which **no car carries**, on purpose. It is the only
+multi-stock weapon in the table — D5's worked example (3 stocks, a 3 s recharge) transcribed
+literally — kept as the live reference for the stock mechanic and the fixture the stock unit tests
+exercise. `cannon` had to ship single-stock to keep the migration a zero-balance-change diff, so
+nothing in the released roster could prove stocks honestly without `repeater`. It is not dead
+config; do not delete it because nothing spawns it.
+
+### Firing input
+
+`InputMessage.fireSlots` is a **uint8 bitmask** (bit 0 = slot 1), the successor to the old single
+`fire: boolean`. The server masks it to `maxWeaponSlots` bits and to the car's actual slot count
+before the sim ever sees it, so a hand-rolled client cannot fire a slot it does not own. Multiple
+bits set on the same tick resolve to the **lowest** slot. Each slot's key binding is client-only
+(`config/slot-keys.ts`) — the server never sees a key, only an index — so rebinding a key is a local
+change with no protocol consequence.
+
+Firing still rides the same gate as movement: `serverTick` reports which session ids asked to fire
+on an input it actually **simulated**, so an input past `NET_CONFIG.maxInputsPerTick` cannot buy a
+shot the sim never ran, and a lobby player spamming a fire key spawns nothing.
+
+### One fire state machine per car
+
+A car is in exactly one state — `idle → startUp → (fire) → recovery → idle` — tracked **once per
+car**, not once per slot, so a burst from one weapon has a single, unambiguous meaning for what else
+may fire while it runs. Presses are **ignored**, never queued or buffered:
+
+- Mid wind-up or mid-volley (`pending !== null`), **every** press is ignored, including one for the
+  weapon already firing.
+- Mid recovery, a press for a **different** weapon is ignored; the weapon that just fired is gated
+  only by its own stocks and `refireDelayMs` (below) — a weapon whose `cooldownMs` is shorter than
+  its `recoveryMs` is refirable before any other slot unlocks.
+- Driving is never blocked by firing, and firing is never blocked by driving.
+
+A wind-up **cannot be cancelled** — the press is a commitment, and its stock is spent at press time,
+not at the moment a shot actually exits. An instance is born from the car's pose **at the tick it
+exits**, so steering during a wind-up (or through a multi-shot burst) is what aims the shot, and a
+sequential burst sprays across whatever arc the driver turns through.
+
+Three clocks, each with exactly one meaning:
+
+| Stat | Question it answers |
 |---|---|
-| Fired by `InputMessage.fire`, gated by `weaponCooldown` | `runCombat` |
-| Cooldown ticks = `ceil(TICK_RATE_HZ / WEAPON_CONFIG.fireRateHz)` | `fireCooldownTicks()` |
-| Spawns at the car's nose, `DRIVE_CONFIG.carWidth / 2` ahead of centre | `muzzleOffset()` |
-| Flies straight at `WEAPON_CONFIG.projectileSpeed`, no drag, no inheritance of car speed | `stepProjectile` |
-| Dies on `WEAPON_CONFIG.lifetimeTicks`, on an obstacle, or outside the arena | `projectileExpired`, `projectileHitsObstacle` |
-| Deals `WEAPON_CONFIG.damage` to the first car it may damage, then is spent | `runCombat` |
+| `cooldownMs` | When does this weapon get another **stock**? |
+| `stock.refireDelayMs` | How soon may **this** weapon fire again? |
+| `recoveryMs` | How soon may a **different** weapon fire? |
 
-Holding fire and tapping it are the same rate: the cooldown gates shots, not the key.
+`recoveryMs` is not a universal post-fire lockout: `repeater`'s `cooldownMs: 3000` /
+`recoveryMs: 5000` means it is refirable by itself after 3 s while every other slot waits 5 s.
+`refireDelayMs` lives only inside `stock` (below), because for a single-stock weapon the next shot
+is already gated by the recharge — any value below `cooldownMs` would do nothing and any value above
+it could have been a `cooldownMs` edit, so the field is not even writable outside `stock`.
 
-Firing rides the same gate as movement. `serverTick` reports which session ids asked to fire on an
-input it actually **simulated**, so an input past `NET_CONFIG.maxInputsPerTick` cannot buy a shot the
-sim never ran, and a lobby player spamming `fire` spawns nothing.
+### Stocks
+
+A weapon with a `stock: { max, refireDelayMs }` block holds charges instead of firing on a flat
+cooldown. It holds **one** stock the moment it unlocks — never full at spawn — and a recharge timer
+of `cooldownMs` runs whenever `stocks < max`, adding one stock on completion and restarting only if
+still below max. At max stocks the timer is **cleared**, not merely paused: no progress is banked,
+so firing from a full stock always starts a fresh `cooldownMs`, however long the weapon sat full.
+Firing below max leaves an in-flight recharge running untouched. Consecutive stock shots are spaced
+by `refireDelayMs`, not `cooldownMs`; firing at zero stocks does nothing. A weapon with no `stock`
+block is single-stock — exactly the pre-weapon-system behaviour, so no existing weapon opts out of
+anything.
+
+### Instances: two lifecycles
+
+Every fired shot is a **hitbox**, never hitscan. Two kinds:
+
+- **Projectile.** Travels in a straight line at `speed` from its frozen exit pose; dies at `range`,
+  on an obstacle, or outside the arena. A weapon's `volley` block (`volleys`, `volleyIntervalMs`,
+  `pelletsPerVolley`, `spreadAngleDeg`) composes burst and spread in one place: `pelletsPerVolley`
+  fans evenly and symmetrically about the car's heading and spawns on the same tick, each its own
+  instance with its own pierce budget; sequential `volleys` exit on their own ticks, each from the
+  car's pose *at that tick*. The burst holds the car's global fire lock for its whole duration — no
+  other slot may fire until the last shot lands and `recovery` elapses — and the slot's own recharge
+  starts at that **last** shot, so total downtime is burst duration + `cooldownMs`. Being wrecked
+  mid-burst cancels the remaining shots. A plain single shot is simply a volley of 1/0/1/0.
+- **Beam.** Grows from the muzzle at `speed` toward `range`, then **lingers** for `lifetimeMs`
+  before vanishing in one tick — it never retracts — so total life is `range ÷ speed + lifetimeMs`;
+  tuning `range` never silently changes how long a beam holds. Expansion is capped by a raycast down
+  the beam's **centre axis** against obstacles and the arena edge, so cover works — the
+  simplification is that only the centre ray is tested, so a wide beam may overhang a wall corner
+  slightly. Cars never block a beam; there is no shadowing, which is what `pierce` is for on
+  projectiles instead. `attached: true` means the origin and angle follow the firing car every tick
+  (a swept flamethrower or laser cutter), re-clipped against walls as the car turns; `attached: false`
+  stamps the beam into the world at its fire-tick pose and it never moves again. An **attached** beam
+  dies the instant its owner is wrecked — a wreck does not shoot — but a detached beam already
+  stamped, and a projectile already in flight, finish their lives regardless, mirroring the ram rule
+  that a car dying in a trade still lands its own damage. Beams are single-instance; `volley` does
+  not apply to them.
+
+No car in the shipped roster carries a beam or a multi-pellet/multi-volley weapon — `cannon` is a
+plain single shot. Both the beam lifecycle and the volley/burst paths are exercised by unit tests
+(and by driving `repeater` through the real sim), never by ordinary play, which is worth knowing if
+you are chasing a bug in either: it has never been seen working on a screen.
+
+### Shaped hitboxes and the smear
+
+Hitboxes are a nested tagged object on the weapon def — a cone cannot carry a circle's `radius`, nor
+a beam a projectile's `pierce` — with one hit-test path underneath: circle-vs-OBB is exact, and
+`ellipse` / `rect` / `cone` are converted to convex polygons at table-build time and run through the
+same SAT the car hulls already use.
+
+| Type | Shapes | Config |
+|---|---|---|
+| Projectile | `circle`, `ellipse` | `radius` / `radiusAlong` + `radiusAcross` |
+| Beam | `rect`, `cone` | `width` / `angleDeg` |
+
+Each tick, a projectile is tested as the convex hull of its shape at its **previous and current**
+position — the "smear" — rather than sampled once at its new position. This is another convex
+polygon through the same SAT, so it is nearly free, and it removes the old authoring rule that every
+obstacle be at least 30 units thick to survive a point sample: a fast shot can no longer pass clean
+through a car between ticks. It is slightly generous at high speed, since the smear is solid and
+registers anywhere along that tick's path — which is the correct bias for a shooter. A beam is
+tested at its current extent with no smear: it does not move fast enough tick to tick to need one,
+and re-testing its full reach every tick already covers it.
+
+### Pierce and per-target damage clocks
+
+`pierce` is an integer, and counts **cars only**: `0` destroys a projectile on the first car it
+damages (`cannon`'s value today), `2` damages up to three cars before dying. Teammates and wrecks
+are not contacts at all — a shot passes through them freely and they consume no pierce, which falls
+out of `canDamage` below. Walls, obstacles and the arena edge always destroy a projectile regardless
+of pierce budget; pierce is about cars, never about cover. Beams never spend a pierce budget — they
+are never destroyed by contact and may hit several cars on the same tick.
+
+Repeat damage is a **per-instance, per-target clock**: every live instance owns a map from
+`sessionId` to the next tick it may damage that car again. `damageFrequencyMs: 0` (every weapon
+shipped today) arms that clock at `Infinity` — one hit per target, ever, for that instance's whole
+life; a positive value re-arms on the interval, which is what would let a lingering beam re-tick a
+car still standing in it. This bookkeeping is server-only, keyed by instance id, never networked,
+and is dropped the moment its instance is.
 
 ### Who may damage whom
 
 `canDamage(ownerId, ownerTeam, targetId, targetTeam, mode)` is the **single** friendly-fire
-predicate, used by both the weapon and ramming, so the two can never disagree about who is on your
-side:
+predicate, used by every weapon instance and ramming alike, so the two can never disagree about who
+is on your side:
 
 - **Never yourself.** A shot is born on the shooter's own hull; without this every shot would kill
   its own shooter on the tick it was fired.
@@ -61,19 +183,15 @@ A wreck is not a target: shots pass through it rather than being spent on it.
 
 ### Hit test
 
-A shot is a **point**, tested against the target's car OBB (`pointInObb` against `carHullOf`) — the
-same box driving collides with, never the drawn silhouette. One shot damages **one** car, picked in
-sorted `sessionId` order so two overlapping cars resolve reproducibly.
-
-Two deliberate v1 limits:
-
-- **No swept test.** At 900 u/s a shot moves 30 units per tick and is sampled once, so it could
-  straddle anything thinner than that. `ARENA_01` is empty, so nothing there to straddle; an arena
-  that does carry obstacles must keep every one of them at least 30 units thick for the point test
-  to hold.
-- **No lag compensation.** Hits are tested on the current tick with no rewind, so a shooter on 80 ms
-  leads a moving target by roughly their own latency. Rewind-and-replay is the standard fix and is
-  out of scope for v1.
+Still current-tick, with **no lag compensation**: hits are tested against the poses cars actually
+hold this tick, with no rewind, so a shooter on 80 ms leads a moving target by roughly their own
+latency. This design changes how much that costs, not whether it exists — `startUpMs` adds the
+wind-up to the lead a player must carry, while a beam (area, lingering) is far more forgiving of it
+than a fast projectile, so weapon tuning is now part of the fairness story on a real network. See
+the design spec's Future work section
+(`docs/superpowers/specs/2026-08-27-weapon-system-design.md#future-work`) for the rewind approach
+being deferred and the two rules it will need deciding — lingering/attached beams, and spawn-time
+catch-up.
 
 ## Ramming
 
@@ -134,11 +252,30 @@ about who is on your side. In FFA, teams are only seating, and everyone can ram 
 
 ## What the client shows
 
-`ArenaScene` draws shots from `state.projectiles` only, extrapolated along their own constant
-velocity between patches (`extrapolateShot`, capped at one patch interval) — exact rather than a
-guess, because the server integrates the identical straight line. Living cars carry an HP bar scaled
-to their own chassis maximum (`hpFraction`), and a wreck fades to `WRECK_ALPHA` and stops being
-predicted or interpolated.
+`ArenaScene` draws every live instance from `state.weapons` — projectile and beam rows in one map,
+discriminated by `kind` — and never predicts a shot or an HP change. A projectile is extrapolated
+along its own constant velocity between patches (`extrapolateShot`, capped at one patch interval); a
+beam's `extent` is extrapolated the same way under the same cap, and an attached beam is drawn off
+its owner's **rendered** pose so it does not visibly lag the car it is welded to. Both are exact
+rather than a guess, because the server integrates the identical motion, and nothing either produces
+feeds back into state. An instance is drawn from its own hitbox shape and dimensions, never a
+sprite — what you see is the hitbox, so a new weapon is playable with no art at all.
+
+A camera-fixed slot bar along the bottom centre shows the local player's weapons — or, while
+spectating, the watched car's — one box per slot, icon above, key glyph below, dimmed into one of
+four states: full brightness when ready, a dimmed icon with a clockwise cooldown wedge while
+recharging, a heavier *static* dim when the slot is not unlocked yet, and a lighter dim across every
+slot during a wind-up or volley (or across the other slots during recovery). Locked and recharging
+use different, deliberately distinguishable dims so "you don't have this yet" can never be mistaken
+for "back in a few seconds." See [`asset-pipeline.md`](asset-pipeline.md) for how a slot's icon
+resolves and its procedural fallback.
+
+No car in the shipped roster carries a beam or a multi-pellet/multi-volley weapon, so the beam and
+burst-drawing code above is exercised by unit tests only — seeing either draw live means temporarily
+adding such a weapon to a car's `CAR_TABLE` loadout, not something ordinary play ever does.
+
+Living cars carry an HP bar scaled to their own chassis maximum (`hpFraction`), and a wreck fades to
+`WRECK_ALPHA` and stops being predicted or interpolated.
 
 A wrecked player becomes a spectator: `[` / `]` — or Left / Right — cycle the living cars, `V`
 toggles free roam, and WASD or the arrows pan in free roam. All of it is local; the server has no

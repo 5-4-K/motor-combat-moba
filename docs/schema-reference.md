@@ -16,7 +16,7 @@ Colyseus `@type` fields. Enums are explicit uint8; never renumber. `pendingCarId
 | `winnerTeam` | int8 | `-1` | `-1` none/draw, `0` A, `1` B |
 | `winnerSessionId` | string | `""` | FFA winner; else empty |
 | `players` | map `PlayerState` | empty | Keyed by sessionId |
-| `projectiles` | map `ProjectileState` | empty | Live shots |
+| `weapons` | map `WeaponInstanceState` | empty | Live projectile and beam instances, keyed by instance id |
 
 ## PlayerState
 
@@ -35,24 +35,72 @@ Colyseus `@type` fields. Enums are explicit uint8; never renumber. `pendingCarId
 | `reverseHold` | uint16 | `0` | Ticks held in reverse |
 | `hp` | uint16 | `0` | Actual HP |
 | `alive` | boolean | `true` | False when eliminated |
-| `weaponCooldown` | uint32 | `0` | Ticks remaining |
 | `selectLocked` | boolean | `false` | Car-select lock; pick still hidden |
+| `weapons` | array `WeaponSlotState` | empty | Per-slot state; array **position** is the slot index |
+| `switchLockUntilTick` | uint32 | `0` | Tick a DIFFERENT weapon may fire; the weapon that just fired instead is gated by its own slot's `refireLockUntilTick` |
+| `level` | uint8 | `1` | In-match level; pinned to 1 until the level system exists. Gates `unlocksAt` |
 
-## ProjectileState
+`weaponCooldown` (a single counter for the one pre-weapon-system shot) is gone — replaced by
+`weapons` above, one row per slot.
+
+## WeaponInstanceState
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
-| `id` | string | `""` | Projectile id (map key) |
+| `id` | string | `""` | Instance id (map key) |
 | `ownerSessionId` | string | `""` | Shooter session |
+| `weaponId` | string | `""` | Lookup key into `WEAPON_TABLE` |
+| `kind` | uint8 `WeaponKind` | `PROJECTILE` | PROJECTILE=0, BEAM=1 |
 | `x`, `y`, `angle` | number | `0` | Canonical world pose |
-| `speed` | number | `0` | Along heading |
-| `spawnTick` | uint32 | `0` | Tick spawned; lifetime is measured against it |
+| `extent` | number | `0` | Beams: current reach. Projectiles: always 0 |
+| `spawnTick` | uint32 | `0` | Tick spawned |
 | `alive` | boolean | `true` | False when spent |
 
-Projectiles are server-owned. `runCombat` spawns, moves, and drops them; the room diffs the result
-onto the map by `id` rather than clearing and refilling it, so an unchanged shot is not re-patched.
-Entries are deleted the tick a shot expires, hits geometry, leaves the arena, or lands, and the whole
-map is cleared when a match starts or ends. Clients read it to draw and never write it. See
+`ArenaState.weapons` is a `MapSchema`, not an array, keyed by instance id — the bridge **diffs**
+live instances by id, and a collection cleared and refilled every tick would patch every instance to
+every client every tick, exactly the bandwidth the patch rate exists to avoid. The row is
+deliberately minimal: speed, range, shape, dimensions, colour and icon all come from a client-side
+`WEAPON_TABLE` lookup by `weaponId`, never duplicated onto the row. `runCombat` spawns, moves and
+drops instances; `combat-bridge.ts`'s `applyCombatResult` is the only writer, and the whole map is
+cleared when a match starts or ends. `damageClock` and `pierceLeft` are server-only sim state
+(`WeaponInstance` in `sim/weapons/instances.ts`) and never reach the wire. Clients read this map to
+draw and never write it. See [`combat-model.md`](combat-model.md).
+
+## WeaponSlotState
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `weaponId` | string | `""` | Lookup key into `WEAPON_TABLE` |
+| `stocks` | uint8 | `0` | Charges currently held |
+| `rechargeEndsTick` | uint32 | `0` | Tick the running recharge completes; `0` = not recharging |
+| `refireLockUntilTick` | uint32 | `0` | Tick this same weapon may fire again |
+
+`PlayerState.weapons` is an `ArraySchema<WeaponSlotState>` — array **position** is the slot index,
+matching `CAR_TABLE[car].weapons`' own ordering (index 0 = slot 1). Populated when the chassis is
+revealed; a player with no chassis yet (or an unrecognised `carId`) has an empty array and can fire
+nothing.
+
+**Two fields this design deliberately left off the wire.** `fire.ts`'s `FireState` also tracks
+`pending` (the in-progress wind-up/volley) and `lastFiredWeaponId`, and neither was networked. That
+is provably harmless against today's shipped `WEAPON_TABLE` — every weapon has `startUpMs: 0` and
+`volleys: 1`, so a press resolves within the tick it is pressed, and the only weapon with
+`recoveryMs > 0` (`repeater`) is carried by no car, so `switchLockUntilTick` never outlives the tick
+it was set on for any equipped weapon. The first weapon placed in a `CAR_TABLE` loadout with
+`startUpMs > 0`, `volleys > 1`, or `recoveryMs > 0` needs two more fields added here —
+`PlayerState.pendingUntilTick` and `lastFiredSlot` — and the client's HUD updated to read them, or
+the car-wide lockout dim (see [`combat-model.md`](combat-model.md#what-the-client-shows)) silently
+stops appearing during that weapon's wind-up, mid-volley gap, or recovery window. The same change
+should also fix a related gap: mid-volley, a slot's
+`stocks` reaches 0 before `rechargeEndsTick` is set (which only happens on the volley's last shot),
+and the HUD currently reads that combination as "ready" rather than "nothing left to fire." Both
+gaps are commented at their exact call sites — `ArenaScene.drawHudSlot` and `weapon-hud.ts`'s
+`slotVisualState` — in `packages/client/src`.
+
+## InputMessage.fireSlots
+
+`fireSlots: number` — a uint8 bitmask, bit 0 = slot 1 — replaced the single `fire: boolean`. The
+server masks it to `WEAPON_SLOT_CONFIG.maxWeaponSlots` bits and to the car's actual slot count
+before the sim ever sees it; multiple bits set on one tick resolve to the lowest slot. See
 [`combat-model.md`](combat-model.md).
 
 ## Join options

@@ -17,13 +17,18 @@ Canonical sim rate is `TICK_RATE_HZ` in `@motor-combat-moba/shared`. Patch rate 
 
 ## CAR_TABLE
 
-| id | name | speed | strength | hp |
-|---|---|---|---|---|
-| `rectangle` | Rectangle | 8 | 3 | 5 |
-| `oval` | Oval | 5 | 8 | 3 |
-| `hexagon` | Hexagon | 3 | 5 | 8 |
+| id | name | speed | strength | hp | weapons |
+|---|---|---|---|---|---|
+| `rectangle` | Rectangle | 8 | 3 | 5 | `["cannon"]` |
+| `oval` | Oval | 5 | 8 | 3 | `["cannon"]` |
+| `hexagon` | Hexagon | 3 | 5 | 8 | `["cannon"]` |
 
 Derived: `hpOf` = hp × `COMBAT_CONFIG.hpPerRating` (50 / 30 / 80). `forwardMaxSpeedOf` = `baseMaxSpeed` + speed × `speedPerRating`. `reverseMaxSpeedOf` = forward × `reverseSpeedRatio`.
+
+`weapons` is an ordered list of `WEAPON_TABLE` ids — index 0 is slot 1, and order *is* the slot
+mapping. `slotsOf(carId)` (`config/weapon-slots.ts`) is what actually reads it, capped at
+`WEAPON_SLOT_CONFIG.maxWeaponSlots`; see [`combat-model.md`](combat-model.md) for the fire model
+that consumes it.
 
 ## COLOR_TABLE
 
@@ -36,14 +41,58 @@ Derived: `hpOf` = hp × `COMBAT_CONFIG.hpPerRating` (50 / 30 / 80). `forwardMaxS
 | 4 | Violet | `#9B59B6` |
 | 5 | Orange | `#E67E22` |
 
-## WEAPON_CONFIG
+## WEAPON_TABLE
+
+Every weapon in the game, keyed by id. `CAR_TABLE[car].weapons` (above) names which of these ids a
+chassis carries and in what slot order. Durations are authored in **milliseconds** and converted
+once, at shared's module load, into the frozen `WEAPON_TICKS` the sim actually reads — see
+"Authoring in milliseconds" below.
+
+| id | kind | damage | speed | range | cooldownMs | startUpMs | recoveryMs | stock | pierce | volley (volleys/intervalMs/pellets/spreadDeg) | hitbox | unlocksAt |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `cannon` | projectile | 8 | 900 | 900 | 500 | 0 | 0 | — | 0 | 1 / 0 / 1 / 0 | circle, radius 3 | 1 |
+| `repeater` | projectile | 5 | 700 | 700 | 3000 | 0 | 5000 | max 3, refire 100ms | 0 | 1 / 0 / 1 / 0 | circle, radius 3 | 1 |
+
+`cannon` carries the pre-weapon-system shot's exact numbers: `fireRateHz: 2` became `cooldownMs:
+500`, and `lifetimeTicks: 30` became `range: 900` (one second of flight at 900 u/s). Its 3-unit
+circle is the smallest hitbox that keeps the old point-hit feel while satisfying "every weapon has a
+hitbox" — zero balance change, the smallest diff to reason about.
+
+**`repeater` is carried by no car, on purpose — it is not dead config.** It is the only multi-stock
+weapon in the table (the design's own worked example: three stocks, a three-second recharge,
+transcribed literally), kept as the live reference for the stock mechanic and the fixture the stock
+unit tests exercise against. `cannon` had to ship single-stock to keep the migration's zero-balance
+promise, so nothing in the released roster could prove stocks honestly without `repeater`. Do not
+delete it because nothing spawns it.
+
+**Authoring in milliseconds.** Every duration on a weapon — `startUpMs`, `cooldownMs`, `recoveryMs`,
+`stock.refireDelayMs`, a beam's `lifetimeMs` — is milliseconds, never ticks, so a balance number
+never hard-codes 30 Hz into itself (invariant 1). `WEAPON_TICKS` (`config/weapon-ticks.ts`), built
+and frozen once at module load, converts each with `ceil(ms × TICK_RATE_HZ / 1000)` and separately
+derives `flightTicks = ceil(range / speed × TICK_RATE_HZ)`. The sim reads only the derived ticks,
+never raw ms. The cost is rounding, not drift: at 30 Hz a tick is 33.3 ms, so `startUpMs: 250`
+becomes 8 ticks (266 ms) — server and client both compute it from the same built `dist`, so they
+always round the same way or neither does.
+
+**Adding a weapon with a real wind-up, burst, or recovery window is a wire change, not just a
+config edit.** Every weapon shipped today has `startUpMs: 0` and `volleys: 1`, and the only weapon
+with `recoveryMs > 0` (`repeater`) is carried by no car — which is exactly what lets the HUD skip
+networking `fire.ts`'s `pending` and `lastFiredWeaponId` today. The first weapon placed in a
+`CAR_TABLE` loadout with `startUpMs > 0`, `volleys > 1`, or `recoveryMs > 0` needs
+`PlayerState.pendingUntilTick` and `lastFiredSlot` added to the schema first, or its wind-up,
+mid-volley gap, or recovery window will not dim the HUD the way it should. See
+[`schema-reference.md`](schema-reference.md#weaponslotstate) for the exact gap and the call sites
+that already comment it.
+
+## WEAPON_SLOT_CONFIG
 
 | Knob | Value |
 |---|---|
-| `damage` | 8 |
-| `fireRateHz` | 2 |
-| `projectileSpeed` | 900 |
-| `lifetimeTicks` | 30 |
+| `maxWeaponSlots` | 3 |
+
+Caps how many slots any chassis may present. A car whose `weapons` list is longer logs one
+`console.warn` naming the car and the extras are truncated — a warning, never a thrown error or a
+failed test.
 
 ## COMBAT_CONFIG
 

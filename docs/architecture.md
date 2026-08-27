@@ -6,8 +6,8 @@ One room: `ROOM_NAME` `"arena"`, class `ArenaRoom`, `maxClients = MAX_PLAYERS` (
 
 **Server tick, in order.** `ArenaRoom.tick` advances `ArenaState.tick`, runs the phase machine (car-select deadline, countdown expiry), then:
 
-1. `serverTick(state, queues, dt, phase)` — drains each session's input queue in `seq` order, steps living on-field cars through shared `stepSim` (drive, then collision resolve), writes `{x, y, angle}` and `lastProcessedInputSeq`, and returns the session ids that asked to fire on a *simulated* input.
-2. `combatTick(dt, fired)` — maps `ArenaState` onto plain objects, runs shared `runCombat` (weapon cooldowns, shots fired, shots flown, shots landed, rams), writes HP / `alive` / `weaponCooldown` and the projectile map back, then ends the match when `livingSides` drops to one side or none.
+1. `serverTick(state, queues, dt, phase)` — drains each session's input queue in `seq` order, steps living on-field cars through shared `stepSim` (drive, then collision resolve), writes `{x, y, angle}` and `lastProcessedInputSeq`, and returns each session's `fireSlots` bitmask from a *simulated* input.
+2. `combatTick(dt, masks)` — maps `ArenaState` onto plain objects, runs shared `runCombat` (recharge, shots fired, shots flown, shots landed, rams), writes HP / `alive` / per-slot weapon state and the live-instance map back, then ends the match when `livingSides` drops to one side or none.
 
 Order is the rule, not an accident: combat reads the poses driving just produced. See [`combat-model.md`](combat-model.md).
 

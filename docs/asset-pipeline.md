@@ -234,6 +234,45 @@ and one selector (`?dev=<id>`) with one registry, one dynamic-import site, and o
 keeps adding tool number two a one-line change instead of a second copy of this whole strip
 mechanism.
 
+## Weapon icons
+
+Weapon slot icons resolve through the same manifest chain as a car sprite, under their own
+namespace: `weaponIconKey(id)` (`packages/client/src/assets/asset-keys.ts`) builds
+`"weapon-icon.<id>"`; `weapon-hud.ts`'s `resolveWeaponIcon` looks it up in the manifest and the
+texture manager exactly the way `resolveCarSprite` does for a car; and a missing manifest entry or
+an unloaded texture both fall through to the same kind of procedural fallback — a glyph drawn from
+the weapon's `kind` (a circle for a projectile, a bar for a beam) rather than a car silhouette. That
+fallback is permanent, not a placeholder: a brand-new weapon is playable, and its slot readable,
+with zero art.
+
+Icons take **different defaults** than car sprites, because the two are not the same kind of art:
+
+| Default | Car sprite | Weapon icon | Why |
+|---|---|---|---|
+| `colorMode` | `"tint"` | `"none"` | An icon is not player-tinted; desaturating it the way a car sprite is prepared would leave every weapon's icon the same grey blob. |
+| Fit target | 48×32 hull | square slot box (~64 px on screen, imported at 128×128) | An icon is not a chassis; it fits the HUD's box, not the car's OBB. |
+
+`scripts/import-weapon-icon.mjs` is `import-art.mjs`'s weapon-icon sibling: trim the transparent
+margin, square the canvas, downscale to 128×128 (`ICON_PX` — 2× the ~64 px slot box, so the deferred
+device-pixel-ratio work needs no re-import), write
+`packages/client/public/art/weapon-icons/<weaponId>.png`, and upsert the `weapon-icon.<id>` manifest
+row with the defaults above, preserving any field already tuned by hand. There is deliberately no
+desaturation step anywhere in this script — see its header comment for why applying the car
+importer's treatment here would be actively wrong, not merely unnecessary. Run it with:
+
+```bash
+node scripts/import-weapon-icon.mjs --weapon <weaponId> --src <path>
+```
+
+There is no `?dev=assets`-style preview for icons — that tool is car-only. Check a new icon's fit by
+running `npm run dev`, equipping the weapon, and looking at its slot in the live HUD bar. The
+`process-weapon-icon` skill mirrors `process-car-asset`: hand it an image and a weapon id, and it
+runs the importer, reports the manifest row, and covers "why is my icon blurry / missing / wrong."
+
+World instances — the actual projectile or beam hitbox flying through the arena — are never
+sprites; see [`combat-model.md`](combat-model.md) for why that stays procedural instead. Only the
+HUD icon goes through this pipeline.
+
 ## Arena art
 
 Arena-owned art is namespaced by arena id, so the release can carry only the active arena's files.
