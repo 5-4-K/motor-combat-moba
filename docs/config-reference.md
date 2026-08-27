@@ -81,7 +81,7 @@ but the wire carries what they need: `PlayerState.pendingUntilTick` and `PlayerS
 give the HUD the car-wide lockout, and the slot's recharge is anchored to the volley's last shot, so
 `cooldownMs` still means "time until another stock" for a burst weapon. Nothing about a first
 `startUpMs > 0`, `volleys > 1`, or `recoveryMs > 0` weapon requires a schema change. See
-[`schema-reference.md`](schema-reference.md#weaponslotstate) for the two fields.
+[`schema-reference.md`](schema-reference.md#playerstate) for the two fields.
 
 ## WEAPON_SLOT_CONFIG
 

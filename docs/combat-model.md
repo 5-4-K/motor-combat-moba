@@ -162,8 +162,8 @@ polygon through the same SAT, so it is nearly free. **Cars, obstacles and the ar
 tested against that one hull**, which is what actually removes the old authoring rule that every
 obstacle be at least 30 units thick to survive a point sample: at 900 u/s a shot covers 30 units a
 tick, and it can no longer pass clean through either a car or a thin wall between ticks. It is
-slightly generous at high speed, since the smear is solid and
-registers anywhere along that tick's path — which is the correct bias for a shooter. A beam is
+slightly generous at high speed, since the smear is solid and registers anywhere along that tick's
+path — which is the correct bias for a shooter. A beam is
 tested at its current extent with no smear: it does not move fast enough tick to tick to need one,
 and re-testing its full reach every tick already covers it.
 

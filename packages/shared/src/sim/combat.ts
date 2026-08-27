@@ -160,13 +160,15 @@ export function runCombat(input: CombatInput): CombatResult {
   const survivors: WeaponInstance[] = [];
   for (const instance of stepped) {
     if (instanceExpired(instance, world.tick)) continue;
-    // Against the same smear the car test uses, from the same pre-step pose (`?? instance` for one
-    // born this tick, which has no previous pose to sweep from).
-    if (hitsWorld(instance, previous.get(instance.id) ?? instance, world)) continue;
+    // The pose to sweep from, shared by the world test and the car test so they cannot disagree
+    // about where this tick's path started. `?? instance` covers one born this tick, which has no
+    // previous pose: its smear collapses to its shape at the muzzle.
+    const before = previous.get(instance.id) ?? instance;
+    if (hitsWorld(instance, before, world)) continue;
 
     const outcome = resolveInstanceHits(
       instance,
-      previous.get(instance.id) ?? instance,
+      before,
       snapshot,
       world.mode,
       world.tick,
