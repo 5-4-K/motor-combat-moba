@@ -16,13 +16,17 @@ export const ARENA_VIEW_WIDTH = 1280;
 /**
  * The column down the right of the canvas that the arena camera never draws into, where the weapon
  * slots live. Sized to the widest thing it has to hold on one line — a 64px slot circle, the gap,
- * and the longest key label ("space") beside it — plus 8px either side. Every pixel of it is width
- * the whole picture loses to `FIT` on a 16:9 monitor (1408 wide scales to 91% of what 1280 did),
- * which is why it tracks the labels rather than being rounded up to a comfortable 160.
+ * and the longest key label ("space") in its pill beside it — plus 6px either side. Every pixel of
+ * it is width the whole picture loses to `FIT` on a 16:9 monitor (1424 wide scales to 90% of what
+ * 1280 did), which is why it tracks the labels rather than being rounded up to a comfortable 160.
+ *
+ * Widened from 128 when the key label gained a pill: `SLOT_KEY_COLUMN_PX` grew by the pill's
+ * horizontal padding, and the gutter has to grow with it or the pill spills past the canvas edge.
+ * `weapon-hud.test.ts` asserts exactly that, so this number and that one move together.
  *
  * The slots sat over the floor before this existed, and cars drove under them.
  */
-export const HUD_GUTTER_WIDTH = 128;
+export const HUD_GUTTER_WIDTH = 144;
 
 /**
  * The logical size every scene is laid out against. Named rather than repeated as a literal because

@@ -19,12 +19,17 @@ const BOX_PX = 64;
  *
  * `SLOT_KEY_COLUMN_PX` is a budget the layout reserves rather than a width it measures — text needs
  * a canvas to measure and this stays pure. 44 is "space" rendered at `SLOT_KEY_FONT_PX`, read off
- * the live HUD and rounded up; a longer label than that overflows the gutter's right edge, so a new
- * binding wants re-measuring rather than trusting this number.
+ * the live HUD and rounded up; the remaining 16 is the pill's padding either side
+ * (`HUD_KEY_PILL_PAD_X` in `ArenaScene`). A longer label than "space" overflows the gutter's right
+ * edge, so a new binding wants re-measuring rather than trusting this number.
+ *
+ * The pill itself is drawn from the text's MEASURED width, so it is always the right size on screen
+ * — this budget only decides where the slot-plus-key group gets centred, and how wide the gutter
+ * has to be to hold it.
  */
 export const SLOT_KEY_GAP_PX = 8;
 export const SLOT_KEY_FONT_PX = 14;
-export const SLOT_KEY_COLUMN_PX = 44;
+export const SLOT_KEY_COLUMN_PX = 60;
 
 /** The weapon's name, centred under the slot and dimmed with it. */
 export const SLOT_NAME_GAP_PX = 6;
