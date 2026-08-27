@@ -823,9 +823,18 @@ export class ArenaScene extends Phaser.Scene {
    * `WEAPON_TABLE`: every weapon has `startUpMs: 0` and `volley.volleys: 1`, so a press resolves
    * within the tick it is pressed and can never be observed as ongoing between two patches, and the
    * only weapon with `recoveryMs > 0` (`repeater`) is carried by no car, so `switchLockUntilTick`
-   * never outlives the tick it was set on for any equipped weapon. A future weapon that gives either
-   * field real duration will need `PlayerState` to carry a wire-visible replacement — flagged in the
-   * task report rather than guessed at here.
+   * never outlives the tick it was set on for any equipped weapon.
+   *
+   * TWO gaps ship silently the day either condition stops holding, and both need the same fix:
+   * `PlayerState.pendingUntilTick` and `lastFiredSlot` added to the wire, and this method updated to
+   * read them, the first time a car carries a weapon with `startUpMs > 0`, `volleys > 1`, or
+   * `recoveryMs > 0`. (1) This method will keep passing `pending: null` / `isLastFired: false`, so
+   * the car-wide lockout dim above will not show during that weapon's wind-up, mid-volley gap, or
+   * recovery window. (2) The stronger case: mid-volley, `beginFire` decrements a slot's `stocks` to 0
+   * immediately but does not set `rechargeEndsTick` until the volley's LAST shot lands (see
+   * `fire.ts`) — so `slot.stocks === 0 && slot.rechargeEndsTick === 0` is reachable and, per
+   * `slotVisualState`'s fall-through (see the note beside it in `weapon-hud.ts`), reads as `"ready"`
+   * at full brightness while the slot actually has nothing left to fire.
    */
   private drawHudSlot(
     gfx: Phaser.GameObjects.Graphics,

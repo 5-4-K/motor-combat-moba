@@ -44,6 +44,13 @@ export function slotVisualState(
   if (pending !== null) return "car-locked";
   if (!isLastFired && tick < switchLockUntilTick) return "car-locked";
   if (slot.stocks === 0 && slot.rechargeEndsTick !== 0) return "recharging";
+  // Falls through to "ready" for `stocks === 0 && rechargeEndsTick === 0` too. Unreachable today
+  // (every carried weapon resolves within one tick), but NOT unreachable in general: mid-volley,
+  // `beginFire` (fire.ts) zeroes `stocks` immediately while `rechargeEndsTick` stays 0 until the
+  // volley's last shot. A weapon with `volleys > 1` and a multi-tick `volleyInterval` would sit in
+  // exactly that state for several ticks, and this fall-through would draw it full-brightness
+  // "ready" while it has nothing left to fire. See the call site in ArenaScene.ts (`drawHudSlot`)
+  // for the fix this needs alongside the car-locked wiring gap.
   return "ready";
 }
 
