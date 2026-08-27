@@ -3,9 +3,9 @@ import { DRIVE_CONFIG } from "./drive-config.js";
 import type { CarDef, CarId } from "./types.js";
 
 export const CAR_TABLE = {
-  rectangle: { id: "rectangle", name: "Rectangle", speed: 8, strength: 3, hp: 5 },
-  oval: { id: "oval", name: "Oval", speed: 5, strength: 8, hp: 3 },
-  hexagon: { id: "hexagon", name: "Hexagon", speed: 3, strength: 5, hp: 8 },
+  rectangle: { id: "rectangle", name: "Rectangle", speed: 8, strength: 3, hp: 5, weapons: ["cannon"] },
+  oval: { id: "oval", name: "Oval", speed: 5, strength: 8, hp: 3, weapons: ["cannon"] },
+  hexagon: { id: "hexagon", name: "Hexagon", speed: 3, strength: 5, hp: 8, weapons: ["cannon"] },
 } as const satisfies Record<CarId, CarDef>;
 
 /**
