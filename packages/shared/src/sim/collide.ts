@@ -27,7 +27,7 @@ export interface Bounds {
   height: number;
 }
 
-interface Vec2 {
+export interface Vec2 {
   x: number;
   y: number;
 }
@@ -270,7 +270,7 @@ function mtvBetween(a: Obb, b: Obb): Vec2 | null {
 }
 
 /** The four corners, in a fixed local order so projections are deterministic. */
-function obbCorners(o: Obb): Vec2[] {
+export function obbCorners(o: Obb): Vec2[] {
   const c = Math.cos(o.angle);
   const s = Math.sin(o.angle);
   const hw = o.w / 2;
@@ -373,4 +373,59 @@ export function pointInObb(px: number, py: number, o: Obb): boolean {
 /** Point-in-axis-aligned-box, with `box.x, box.y` the TOP-LEFT corner as arena obstacles author it. */
 export function pointInAabb(px: number, py: number, box: Aabb): boolean {
   return px >= box.x && px <= box.x + box.w && py >= box.y && py <= box.y + box.h;
+}
+
+/**
+ * Separating Axis Theorem over two convex polygons, as a yes/no. Shares `MIN_OVERLAP` with
+ * `mtvBetween`, so "just touching" counts as separated here exactly as it does for driving — the
+ * property `obbsInContact` exists to work around, and one weapon hit tests must not contradict.
+ *
+ * Both inputs must be convex and wound consistently. Weapon hitboxes are generated (Task 5), never
+ * hand-authored, which is what makes that safe to assume.
+ */
+export function convexOverlap(a: readonly Vec2[], b: readonly Vec2[]): boolean {
+  if (a.length < 3 || b.length < 3) return false;
+  for (const axis of [...edgeNormals(a), ...edgeNormals(b)]) {
+    const spanA = projectOnto(a, axis);
+    const spanB = projectOnto(b, axis);
+    if (spanA.max - spanB.min <= MIN_OVERLAP) return false;
+    if (spanB.max - spanA.min <= MIN_OVERLAP) return false;
+  }
+  return true;
+}
+
+/** Outward normals of each edge, the candidate separating axes for a convex polygon. */
+function edgeNormals(points: readonly Vec2[]): Vec2[] {
+  const axes: Vec2[] = [];
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i]!;
+    const q = points[(i + 1) % points.length]!;
+    const ex = q.x - p.x;
+    const ey = q.y - p.y;
+    const length = Math.hypot(ex, ey);
+    if (length <= MIN_OVERLAP) continue;
+    axes.push({ x: -ey / length, y: ex / length });
+  }
+  return axes;
+}
+
+/**
+ * Exact circle-vs-OBB: rotate the circle's centre into the box's local frame, clamp to the box, and
+ * compare the distance to the radius. Exact rather than polygonal because a circle is the common
+ * projectile hitbox and an inscribed polygon would quietly under-report hits.
+ */
+export function circleOverlapsObb(cx: number, cy: number, r: number, box: Obb): boolean {
+  const cos = Math.cos(-box.angle);
+  const sin = Math.sin(-box.angle);
+  const dx = cx - box.x;
+  const dy = cy - box.y;
+  const localX = dx * cos - dy * sin;
+  const localY = dx * sin + dy * cos;
+
+  const hx = box.w / 2;
+  const hy = box.h / 2;
+  const nearestX = Math.min(hx, Math.max(-hx, localX));
+  const nearestY = Math.min(hy, Math.max(-hy, localY));
+
+  return Math.hypot(localX - nearestX, localY - nearestY) < r;
 }

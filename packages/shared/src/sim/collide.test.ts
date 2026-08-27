@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { Aabb, Obb } from "./collide.js";
-import { obbsOverlap, pointInAabb, pointInObb, resolveWorld } from "./collide.js";
+import {
+  circleOverlapsObb,
+  convexOverlap,
+  obbCorners,
+  obbsOverlap,
+  pointInAabb,
+  pointInObb,
+  resolveWorld,
+} from "./collide.js";
 import type { SimBody } from "./step.js";
 
 const CAR_W = DRIVE_CONFIG.carWidth;
@@ -650,5 +658,62 @@ describe("pointInAabb", () => {
     expect(pointInAabb(140, 220, box)).toBe(true);
     expect(pointInAabb(141, 220, box)).toBe(false);
     expect(pointInAabb(140, 221, box)).toBe(false);
+  });
+});
+
+describe("convex overlap", () => {
+  const box = { x: 100, y: 100, angle: 0, w: 40, h: 20 };
+
+  it("reports the four corners of an axis-aligned box", () => {
+    const corners = obbCorners(box);
+    expect(corners).toHaveLength(4);
+    const xs = corners.map((c) => c.x).sort((a, b) => a - b);
+    const ys = corners.map((c) => c.y).sort((a, b) => a - b);
+    expect(xs[0]).toBeCloseTo(80);
+    expect(xs[3]).toBeCloseTo(120);
+    expect(ys[0]).toBeCloseTo(90);
+    expect(ys[3]).toBeCloseTo(110);
+  });
+
+  it("finds overlap between a triangle and a box they share area with", () => {
+    const triangle = [
+      { x: 100, y: 100 },
+      { x: 200, y: 60 },
+      { x: 200, y: 140 },
+    ];
+    expect(convexOverlap(triangle, obbCorners(box))).toBe(true);
+  });
+
+  it("reports separation for a triangle clear of the box", () => {
+    const triangle = [
+      { x: 300, y: 300 },
+      { x: 400, y: 260 },
+      { x: 400, y: 340 },
+    ];
+    expect(convexOverlap(triangle, obbCorners(box))).toBe(false);
+  });
+
+  it("treats mere touching as separated, matching the driving resolver", () => {
+    const flush = [
+      { x: 120, y: 95 },
+      { x: 160, y: 95 },
+      { x: 160, y: 105 },
+      { x: 120, y: 105 },
+    ];
+    expect(convexOverlap(flush, obbCorners(box))).toBe(false);
+  });
+
+  it("tests a circle against a box exactly, including the corner case", () => {
+    expect(circleOverlapsObb(100, 100, 1, box)).toBe(true); // inside
+    expect(circleOverlapsObb(125, 100, 6, box)).toBe(true); // overlapping the right face
+    expect(circleOverlapsObb(125, 100, 4, box)).toBe(false); // clear of it
+    expect(circleOverlapsObb(123, 113, 5, box)).toBe(true); // nearest point is the corner
+    expect(circleOverlapsObb(126, 116, 5, box)).toBe(false); // just past the corner
+  });
+
+  it("respects rotation", () => {
+    const turned = { x: 100, y: 100, angle: Math.PI / 2, w: 40, h: 20 };
+    expect(circleOverlapsObb(100, 118, 1, turned)).toBe(true); // long axis now vertical
+    expect(circleOverlapsObb(118, 100, 1, turned)).toBe(false);
   });
 });
