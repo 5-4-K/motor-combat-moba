@@ -34,6 +34,9 @@ car listing more logs one `console.warn` naming the car and truncates the extras
 error or a failed test. Today's whole roster carries a single slot, `["cannon"]` — see
 [`config-reference.md`](config-reference.md) for the table.
 
+To add one, see [Authoring a weapon](#authoring-a-weapon) below; the sections between here and there
+are the rules a weapon's stats are interpreted by.
+
 `WEAPON_TABLE` also ships `repeater`, which **no car carries**, on purpose. It is the only
 multi-stock weapon in the table — D5's worked example (3 stocks, a 3 s recharge) transcribed
 literally — kept as the live reference for the stock mechanic and the fixture the stock unit tests
@@ -62,7 +65,7 @@ may fire while it runs. Presses are **ignored**, never queued or buffered:
 
 - Mid wind-up or mid-volley (`pending !== null`), **every** press is ignored, including one for the
   weapon already firing.
-- Mid recovery, a press for a **different** weapon is ignored; the weapon that just fired is gated
+- Mid recovery, a press for a **different slot** is ignored; the slot that just fired is gated
   only by its own stocks and `refireDelayMs` (below) — a weapon whose `cooldownMs` is shorter than
   its `recoveryMs` is refirable before any other slot unlocks.
 - Driving is never blocked by firing, and firing is never blocked by driving.
@@ -77,8 +80,14 @@ Three clocks, each with exactly one meaning:
 | Stat | Question it answers |
 |---|---|
 | `cooldownMs` | When does this weapon get another **stock**? |
-| `stock.refireDelayMs` | How soon may **this** weapon fire again? |
-| `recoveryMs` | How soon may a **different** weapon fire? |
+| `stock.refireDelayMs` | How soon may **this slot** fire again? |
+| `recoveryMs` | How soon may a **different slot** fire? |
+
+**"Same" means the same slot, not the same weapon id.** `beginFire` compares `lastFiredSlot` to the
+slot being pressed, so a car carrying one weapon id in two slots — `["repeater", "repeater"]` — gets
+two independent refire clocks, and the switch lock applies *between* them exactly as it would for two
+different weapons. Deciding this by weapon id instead would let the second slot fire the instant the
+first did, skipping `recoveryMs` entirely, since that slot's own refire lock has never been set.
 
 `recoveryMs` is not a universal post-fire lockout: `repeater`'s `cooldownMs: 3000` /
 `recoveryMs: 5000` means it is refirable by itself after 3 s while every other slot waits 5 s.
@@ -215,6 +224,53 @@ the design spec's Future work section
 (`docs/superpowers/specs/2026-08-27-weapon-system-design.md#future-work`) for the rewind approach
 being deferred and the two rules it will need deciding — lingering/attached beams, and spawn-time
 catch-up.
+
+## Authoring a weapon
+
+Five steps, in this order. Only the first three are required for a playable weapon.
+
+**1. Widen the id union.** `WeaponId` in
+[`packages/shared/src/config/weapon-types.ts`](../packages/shared/src/config/weapon-types.ts) is a
+string union; add your id to it. TypeScript then refuses to compile until the table has a matching
+row, which is the point.
+
+**2. Add the row** to `WEAPON_TABLE` in
+[`packages/shared/src/config/weapon-config.ts`](../packages/shared/src/config/weapon-config.ts).
+Copy `cannon` for a projectile; there is no beam in the table yet, so a beam starts from the
+`BeamWeaponDef` type. The union decides which fields you may write: `pierce` and `volley` exist only
+on a projectile, `attached` and `lifetimeMs` only on a beam, and writing the wrong one is a compile
+error rather than a silently ignored field.
+
+Every duration is **milliseconds**, converted once to ticks by `WEAPON_TICKS` — never write ticks.
+The per-row test loop in `weapon-config.test.ts` enforces `unlocksAt >= 1`, positive
+`damage`/`speed`/`range`, `stock.max >= 2` when a `stock` block is present, volley counts `>= 1`,
+and a cone `angleDeg` strictly inside 0–180. A row that breaks one fails the suite immediately
+rather than misbehaving at run time.
+
+**3. Give it to a car.** Add the id to that chassis's `weapons` array in `CAR_TABLE` — array index
+is the slot index, and `maxWeaponSlots` (3) is the cap. A weapon in the table that no car carries is
+inert but legal; `repeater` is deliberately one, as the stock mechanic's live reference.
+
+**4. Rebuild shared.** `npm run dev` does it for you. Otherwise
+`npm run build -w @motor-combat-moba/shared`, or the server keeps running the previous table while
+every test passes — see the stale-`dist` warning in the root `CLAUDE.md`.
+
+**5. Give it an icon, optionally.** Run the `process-weapon-icon` skill with an image and the weapon
+id. Skip it and the HUD slot draws a procedural glyph from the weapon's `kind`; that fallback is
+permanent, not a placeholder, so a weapon is fully playable with no art. See
+[`asset-pipeline.md`](asset-pipeline.md).
+
+**What to expect the first time.** No shipped weapon exercises a beam, a multi-pellet volley, a
+wind-up or a non-zero recovery in live play — those paths are covered by unit tests only (see the
+coverage list above). The first weapon that uses one is also that path's first real shakedown, so
+watch the HUD dim states and the instance count on the wire.
+
+**If you are re-tuning `cannon` rather than adding a weapon**, expect
+`weapon-config.test.ts` and `weapon-ticks.test.ts` to fail: they pin its numbers digit-for-digit as
+the zero-balance-change guard from the migration. Update those assertions in the same commit. One
+fixture is geometry-derived rather than self-referential — the `50.5` offset in `combat.test.ts`
+sits in a narrow window where the shot lands but no ram fires, and widening `cannon`'s hitbox radius
+can push it out of that window.
 
 ## Ramming
 
