@@ -10,6 +10,7 @@ import { runCombat, type CombatInput, type CombatPlayer, type CombatWorld } from
 import { carHullOf } from "./context.js";
 import { newFireState } from "./weapons/fire.js";
 import type { WeaponInstance } from "./weapons/instances.js";
+import { newLockState } from "./weapons/lock.js";
 import { stepSim } from "./step.js";
 import type { SimBody } from "./step.js";
 import type { InputMessage } from "../net/input.js";
@@ -53,6 +54,7 @@ function player(sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlay
     inRoster: true,
     fireMask: 0,
     fireState: newFireState(carId as CarId | "", 1),
+    lock: newLockState(),
     ...over,
   };
 }
@@ -94,6 +96,7 @@ describe("firing", () => {
       inRoster: true,
       fireMask: 0,
       fireState: newFireState("rectangle", 1),
+      lock: newLockState(),
       ...over,
     };
   }
@@ -806,5 +809,53 @@ describe("ramming, driven through the real sim", () => {
     }
     expect(state.players[1]!.hp).toBe(hpOf("rectangle"));
     expect(state.players[0]!.hp).toBe(hpOf("rectangle"));
+  });
+});
+
+describe("aim assist through a real tick", () => {
+  it("acquires a lock without anyone firing", () => {
+    // A4: the lock is ambient. The trigger fires; it never targets.
+    const result = run({
+      players: [
+        player("a", { x: 300, y: 300, angle: 0 }),
+        player("b", { x: 500, y: 300, angle: Math.PI }),
+      ],
+    });
+    expect(find(result, "a").lock.targetSessionId).toBe("b");
+  });
+
+  it("fires along the car's heading while the weapon opts out", () => {
+    // The zero-balance-change guard. Until Task 8 flips `cannon`, a lock is acquired and changes
+    // nothing about where the shot goes. "b" sits 18 degrees off the nose, well inside the cone, so
+    // this fails loudly if the aim angle ever reaches a weapon that has not opted in.
+    const result = run({
+      players: [
+        player("a", { x: 300, y: 300, angle: 0, fireMask: 1 }),
+        player("b", { x: 480, y: 360, angle: Math.PI }),
+      ],
+    });
+    const shot = result.instances.find((i) => i.ownerSessionId === "a");
+    expect(shot).toBeDefined();
+    expect(shot!.angle).toBeCloseTo(0, 6);
+  });
+
+  it("holds no lock for a wrecked owner", () => {
+    const result = run({
+      players: [
+        player("a", { x: 300, y: 300, angle: 0, alive: false, hp: 0 }),
+        player("b", { x: 500, y: 300, angle: Math.PI }),
+      ],
+    });
+    expect(find(result, "a").lock.targetSessionId).toBe("");
+  });
+
+  it("never locks a wreck", () => {
+    const result = run({
+      players: [
+        player("a", { x: 300, y: 300, angle: 0 }),
+        player("b", { x: 500, y: 300, angle: Math.PI, alive: false, hp: 0 }),
+      ],
+    });
+    expect(find(result, "a").lock.targetSessionId).toBe("");
   });
 });

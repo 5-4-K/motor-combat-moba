@@ -88,22 +88,36 @@ export function fanOffset(index: number, pellets: number, spreadRad: number): nu
  *
  * Pellets are fanned evenly and symmetrically about the heading; a single-pellet volley gets no
  * offset at all.
+ *
+ * `aimAngle` is the car's lock direction, or `null` for "welded to the heading" -- which is what
+ * every non-aim-assist weapon passes and what the whole table did before aim assist existed
+ * (A11c). It replaces the heading as the axis the pellet fan is symmetric about, and it is re-read
+ * by the caller at EACH shot's own tick, so a burst tracks a moving target the same way it already
+ * tracks a turning driver.
+ *
+ * It never moves the muzzle (A11b): the shot always leaves the car's physical nose, derived from
+ * `owner.angle`, and only its travel direction changes.
  */
 export function spawnInstances(
   order: ShotOrder,
   owner: { sessionId: string; team: 0 | 1 } & OwnerPose,
   tick: number,
   seq: number,
+  aimAngle: number | null = null,
 ): { instances: WeaponInstance[]; seq: number } {
   const def = weaponDefOf(order.weaponId);
   const pellets = def.kind === "projectile" ? def.volley.pelletsPerVolley : 1;
   const spread = def.kind === "projectile" ? (def.volley.spreadAngleDeg * Math.PI) / 180 : 0;
   const nose = muzzleOffset();
+  // A11b: the muzzle is derived from the HEADING, never from the aim angle.
+  const muzzleX = owner.x + Math.cos(owner.angle) * nose;
+  const muzzleY = owner.y + Math.sin(owner.angle) * nose;
+  const axis = aimAngle ?? owner.angle;
 
   const instances: WeaponInstance[] = [];
   let next = seq;
   for (let i = 0; i < pellets; i++) {
-    const angle = owner.angle + fanOffset(i, pellets, spread);
+    const angle = axis + fanOffset(i, pellets, spread);
     next += 1;
     instances.push({
       id: `${owner.sessionId}-${next}`,
@@ -111,8 +125,8 @@ export function spawnInstances(
       ownerTeam: owner.team,
       weaponId: order.weaponId,
       kind: def.kind,
-      x: owner.x + Math.cos(owner.angle) * nose,
-      y: owner.y + Math.sin(owner.angle) * nose,
+      x: muzzleX,
+      y: muzzleY,
       angle,
       extent: 0,
       spawnTick: tick,

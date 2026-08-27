@@ -217,3 +217,27 @@ describe("wall clipping", () => {
     expect(wallClipDistance(500, 300, 0, 600, [], BOUNDS)).toBe(600);
   });
 });
+
+describe("spawnInstances aim angle", () => {
+  const owner = { sessionId: "p1", team: 0 as const, x: 100, y: 100, angle: 0 };
+  const order = { weaponId: "cannon" as const, slot: 0 };
+
+  it("uses the owner's heading when no aim angle is given", () => {
+    const { instances } = spawnInstances(order, owner, 0, 0);
+    expect(instances[0]!.angle).toBeCloseTo(0, 6);
+  });
+
+  it("fires along the aim angle when one is given", () => {
+    const { instances } = spawnInstances(order, owner, 0, 0, Math.PI / 4);
+    expect(instances[0]!.angle).toBeCloseTo(Math.PI / 4, 6);
+  });
+
+  it("keeps the muzzle on the car's nose whatever the aim angle", () => {
+    // A11b. The muzzle is a physical point on the hull. If the lock moved it, a wide-angle lock
+    // would spawn shots off the side of the car in open space.
+    const straight = spawnInstances(order, owner, 0, 0).instances[0]!;
+    const swung = spawnInstances(order, owner, 0, 0, Math.PI / 3).instances[0]!;
+    expect(swung.x).toBeCloseTo(straight.x, 6);
+    expect(swung.y).toBeCloseTo(straight.y, 6);
+  });
+});

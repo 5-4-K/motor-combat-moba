@@ -1,6 +1,7 @@
 import { CAR_TABLE } from "../config/car-config.js";
 import { COMBAT_CONFIG } from "../config/combat-config.js";
 import { weaponDefOf } from "../config/weapon-config.js";
+import type { WeaponId } from "../config/weapon-types.js";
 import {
   aabbCorners,
   convexOverlap,
@@ -20,6 +21,7 @@ import {
   stepInstance,
   type WeaponInstance,
 } from "./weapons/instances.js";
+import { muzzleOf, newLockState, updateLock, type LockState, type LockTarget } from "./weapons/lock.js";
 import { projectileShapeAt, smear } from "./weapons/shapes.js";
 import { canDamage } from "./weapons/targets.js";
 
@@ -45,6 +47,11 @@ export interface CombatPlayer {
   /** Slot bitmask from an input the server actually simulated this tick. Bit 0 = slot 1. */
   fireMask: number;
   fireState: FireState;
+  /**
+   * This car's ambient target lock (A1). Server-only state carried in and back out, exactly as
+   * `fireState` is; only `targetSessionId` is ever projected onto the schema.
+   */
+  lock: LockState;
 }
 
 /** Everything about the tick that is the same for every player in it. */
@@ -139,6 +146,37 @@ export function runCombat(input: CombatInput): CombatResult {
     );
   }
 
+  // 2b. Locks, BEFORE any shot is aimed by one. `spawnInstances` reads the lock in phase 3, and
+  // with `startUpMs: 0` a press both schedules and fires on the same tick, so a lock updated after
+  // phase 3 would aim every shot one tick stale. Runs after driving, like the rest of combat, so
+  // scoring and the sight raycast read the poses cars actually ended the tick at.
+  //
+  // A car wrecked by THIS tick's hit resolution is still locked until the next tick's update: the
+  // same one-tick seam the pose snapshot already accepts, worth at most one shot at 30 Hz.
+  const lockTargets: LockTarget[] = players
+    .filter(isFighting)
+    .map((p) => ({ sessionId: p.sessionId, team: p.team, x: p.x, y: p.y }));
+
+  for (const player of players) {
+    player.lock = updateLock(player.lock ?? newLockState(), {
+      owner: {
+        sessionId: player.sessionId,
+        team: player.team,
+        x: player.x,
+        y: player.y,
+        angle: player.angle,
+      },
+      ownerFighting: isFighting(player),
+      // Read before `beginFire`, so a press a cooldown will reject still counts as engagement.
+      pressedThisTick: player.fireMask > 0,
+      candidates: lockTargets,
+      mode: world.mode,
+      obstacles: world.obstacles,
+      bounds: world.bounds,
+      tick: world.tick,
+    });
+  }
+
   // 3. New presses, then whatever they (or an earlier tick's press) have scheduled for this tick.
   for (const player of players) {
     if (!isFighting(player)) continue;
@@ -146,7 +184,13 @@ export function runCombat(input: CombatInput): CombatResult {
     const released = releaseShots(player.fireState, world.tick);
     player.fireState = released.state;
     for (const order of released.orders) {
-      const spawned = spawnInstances(order, player, world.tick, instanceSeq);
+      const spawned = spawnInstances(
+        order,
+        player,
+        world.tick,
+        instanceSeq,
+        aimAngleFor(player, order.weaponId, byId),
+      );
       instanceSeq = spawned.seq;
       stepped.push(...spawned.instances);
     }
@@ -230,6 +274,36 @@ export function runCombat(input: CombatInput): CombatResult {
 /** In the match and not yet a wreck: the gate for firing, being shot, and ramming alike. */
 function isFighting(player: CombatPlayer): boolean {
   return player.inRoster && player.alive;
+}
+
+/**
+ * The direction one shot should travel, or `null` for "along the car's heading".
+ *
+ * Re-derived per ORDER rather than once per press (A11c), so each volley of a burst aims at where
+ * the target is on its own tick. That is the direct translation of the rule that a burst's shots
+ * each exit from the car's pose at their own tick -- the thing that makes a burst steerable.
+ *
+ * Measured from the MUZZLE, not the car centre (A11a). Scoring uses the centre, because "angle off
+ * my nose" is a fact about the car's facing, but the shot leaves the nose: at a target 100 units
+ * out and 40 degrees off, a centre-derived angle misses by roughly a car length.
+ */
+function aimAngleFor(
+  player: CombatPlayer,
+  weaponId: WeaponId,
+  byId: ReadonlyMap<string, CombatPlayer>,
+): number | null {
+  if (!weaponDefOf(weaponId).usesAimAssist) return null;
+  if (player.lock.targetSessionId === "") return null;
+  const target = byId.get(player.lock.targetSessionId);
+  if (!target || !isFighting(target)) return null;
+  const muzzle = muzzleOf({
+    sessionId: player.sessionId,
+    team: player.team,
+    x: player.x,
+    y: player.y,
+    angle: player.angle,
+  });
+  return Math.atan2(target.y - muzzle.y, target.x - muzzle.x);
 }
 
 /**
