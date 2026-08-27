@@ -23,6 +23,7 @@ export const WEAPON_TABLE = {
     startUpMs: 0,
     cooldownMs: 500,
     recoveryMs: 0,
+    usesAimAssist: false,
     hitbox: { shape: "circle", radius: 12 },
     pierce: 0,
     volley: { volleys: 1, volleyIntervalMs: 0, pelletsPerVolley: 1, spreadAngleDeg: 0 },
@@ -49,6 +50,7 @@ export const WEAPON_TABLE = {
     startUpMs: 0,
     cooldownMs: 3000,
     recoveryMs: 5000, // D4's own example: refirable by itself at 3s while other slots wait 5s
+    usesAimAssist: false,
     hitbox: { shape: "circle", radius: 3 },
     pierce: 0,
     volley: { volleys: 1, volleyIntervalMs: 0, pelletsPerVolley: 1, spreadAngleDeg: 0 },

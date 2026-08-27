@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { WEAPON_TABLE, isWeaponId, weaponDefOf } from "./weapon-config.js";
 import type { WeaponDef } from "./weapon-types.js";
+import { AIM_CONFIG } from "./aim-config.js";
 
 describe("WEAPON_TABLE", () => {
   it("ships the migrated cannon with today's numbers", () => {
@@ -70,5 +71,55 @@ describe("WEAPON_TABLE", () => {
 
   it("resolves a def by id", () => {
     expect(weaponDefOf("cannon").id).toBe("cannon");
+  });
+
+  it("ships every row with aim assist off", () => {
+    // Task 8 flips `cannon` on its own, as the single commit that changes how the game plays.
+    // Until then the whole system is inert in play and proven by unit tests alone.
+    for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
+      expect(def.usesAimAssist).toBe(false);
+    }
+  });
+
+  it("never lets an aim-assist weapon lock past its own reach", () => {
+    // A9.3. This is the one corner case a single per-car lock leaves open: with global geometry, a
+    // weapon can hold a lock on a target its own `range` cannot reach, so it fires at a visible
+    // bracket and falls short. Caught at authoring time instead of in play.
+    for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
+      if (!def.usesAimAssist) continue;
+      expect(def.range).toBeGreaterThanOrEqual(AIM_CONFIG.lockRange);
+    }
+  });
+
+  it("keeps aim-assist weapons off the behavioural cliff", () => {
+    // A9.4. `lockTimeoutMs` splits weapons into two targeting classes at `1000 / lockTimeoutMs`:
+    // above it presses keep refreshing the timer and the 25% steal margin governs; below it the
+    // timer lapses between shots and every shot re-picks the best target. A weapon authored near
+    // the boundary flips between the two depending on how metronomically the player fires.
+    //
+    // The cliff is DERIVED, not hardcoded, so retuning `lockTimeoutMs` moves this guard with it
+    // rather than stranding a stale range. Sustained rate is `1000 / cooldownMs` for every weapon:
+    // a stocked weapon still needs one full `cooldownMs` per stock, and `refireDelayMs` only spaces
+    // a burst. Per-row and therefore conservative -- a multi-slot car presses MORE often, which
+    // moves it away from the cliff, never toward it.
+    const cliffHz = 1000 / AIM_CONFIG.lockTimeoutMs;
+    for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
+      if (!def.usesAimAssist) continue;
+      const sustainedHz = 1000 / def.cooldownMs;
+      const distance = Math.abs(sustainedHz - cliffHz) / cliffHz;
+      expect(distance).toBeGreaterThan(0.15);
+    }
+  });
+
+  it("refuses aim assist on an attached beam", () => {
+    // A12. An attached beam re-derives its origin and angle from the owner's pose every tick, so it
+    // would snap to the lock at birth and immediately re-weld to the car's nose. Dormant until the
+    // first beam row ships, and written now rather than then: making an attached beam track the
+    // lock every tick is a far stronger weapon than its numbers suggest, and not a decision anyone
+    // should make implicitly.
+    for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
+      if (def.kind !== "beam" || !def.attached) continue;
+      expect(def.usesAimAssist).toBe(false);
+    }
   });
 });

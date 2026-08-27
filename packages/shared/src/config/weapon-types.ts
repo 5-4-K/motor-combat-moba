@@ -62,6 +62,14 @@ interface WeaponBase {
   cooldownMs: number;
   /** Lockout before a DIFFERENT weapon may fire. Not a universal lockout — see `StockDef`. */
   recoveryMs: number;
+  /**
+   * true = this weapon fires at the car's current lock (A1); false = its exit angle is welded to
+   * the car's heading, which is how every weapon behaved before aim assist existed.
+   *
+   * Required rather than optional on purpose: every row must state its answer, so authoring a new
+   * weapon cannot silently inherit a targeting behaviour nobody chose.
+   */
+  usesAimAssist: boolean;
   stock?: StockDef;
 }
 
