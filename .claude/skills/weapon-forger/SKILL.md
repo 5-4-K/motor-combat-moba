@@ -46,7 +46,8 @@ Fields to recommend, in order. Stop early once nothing is undetermined.
 | 8 | Volley (projectiles) | `pelletsPerVolley` + `spreadAngleDeg` for a shotgun; `volleys` + `volleyIntervalMs` for a burst |
 | 9 | Pierce (projectiles) | Extra opponents passed through after damaging one; 0 dies on the first |
 | 10 | Beam only | `lifetimeMs` after full extension; `attached: true` sweeps with the car |
-| 11 | **Which chassis, which slot** | Ask outright whether it **replaces** an existing weapon or is **added** alongside — never decide this |
+| 11 | Targeting — `usesAimAssist` | Required, no default. `true` fires at the car's ambient lock instead of its heading; ask whether this weapon should feel assisted (like `cannon`) or purely manual (like `repeater`) — this is the whole reason the field is required rather than optional |
+| 12 | **Which chassis, which slot** | Ask outright whether it **replaces** an existing weapon or is **added** alongside — never decide this |
 
 Then edit six files, in this order:
 
@@ -65,7 +66,10 @@ Then edit six files, in this order:
    weapon makes some of that untrue. Grep the docs for the mechanic you introduced.
 
 Validation the row must satisfy: `unlocksAt >= 1`, positive `damage`/`speed`/`range`,
-`stock.max >= 2` when present, volley counts `>= 1`, cone `angleDeg` strictly inside 0–180.
+`stock.max >= 2` when present, volley counts `>= 1`, cone `angleDeg` strictly inside 0–180,
+and `usesAimAssist` set. If it is `true`: `range` must be at least `AIM_CONFIG.lockRange`, and
+the weapon's sustained fire rate (`1000 / cooldownMs`) must sit outside ±15% of the
+`1000 / AIM_CONFIG.lockTimeoutMs` behavioural cliff.
 
 ## Path B — Re-tune an existing weapon
 
@@ -81,6 +85,7 @@ by accident — the suite is how you find out which:
 | File | Why it breaks |
 |---|---|
 | `config/weapon-config.test.ts` | Pins `cannon`'s stats digit-for-digit — the migration's zero-balance-change guard |
+| `config/weapon-config.test.ts` | "keeps aim-assist weapons off the behavioural cliff" — an aim-assist weapon's sustained rate (`1000 / cooldownMs`) must stay outside ±15% of `1000 / AIM_CONFIG.lockTimeoutMs` |
 | `config/weapon-ticks.test.ts` | Pins the tick counts derived from them (`cooldown`, `flight`) |
 | `sim/weapons/fire.test.ts` | Simulates recharge tick-by-tick across a hard-coded window |
 | `sim/weapons/instances.test.ts` | Beam tests borrow `weaponId: "cannon"` for its range, since no beam ships |
@@ -88,6 +93,12 @@ by accident — the suite is how you find out which:
 
 A failure here is usually the guard doing its job, not a bug: update the assertion in the same
 commit. If a test fails for a reason you cannot explain from your own change, stop and say so.
+
+**Retuning `cooldownMs` on an aim-assist weapon can walk it onto the cliff even without
+intending to.** The cliff sits at `1000 / AIM_CONFIG.lockTimeoutMs` (1.25 Hz today); a guard rejects
+any sustained rate within 15% of it. A 500 → 700ms nerf on `cannon`, for example, lands at 1.43 Hz —
+`|1.43 − 1.25| / 1.25 ≈ 0.143`, inside the forbidden band — and the guard fires. Check the new
+`cooldownMs` against the cliff before proposing the number, not after the test fails.
 
 **One stat reaches other weapons.** `recoveryMs` gates how soon that car's **other** slots may fire.
 Raising it on one weapon slows down every other weapon on any chassis carrying it — say so out loud

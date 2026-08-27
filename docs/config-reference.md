@@ -48,10 +48,10 @@ chassis carries and in what slot order. Durations are authored in **milliseconds
 once, at shared's module load, into the frozen `WEAPON_TICKS` the sim actually reads — see
 "Authoring in milliseconds" below.
 
-| id | kind | damage | speed | range | cooldownMs | startUpMs | recoveryMs | stock | pierce | volley (volleys/intervalMs/pellets/spreadDeg) | hitbox | unlocksAt |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `cannon` | projectile | 8 | 900 | 900 | 500 | 0 | 0 | — | 0 | 1 / 0 / 1 / 0 | circle, radius 12 | 1 |
-| `repeater` | projectile | 5 | 700 | 700 | 3000 | 0 | 5000 | max 3, refire 100ms | 0 | 1 / 0 / 1 / 0 | circle, radius 3 | 1 |
+| id | kind | damage | speed | range | cooldownMs | startUpMs | recoveryMs | stock | pierce | volley (volleys/intervalMs/pellets/spreadDeg) | hitbox | unlocksAt | usesAimAssist |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `cannon` | projectile | 8 | 900 | 900 | 500 | 0 | 0 | — | 0 | 1 / 0 / 1 / 0 | circle, radius 12 | 1 | true |
+| `repeater` | projectile | 5 | 700 | 700 | 3000 | 0 | 5000 | max 3, refire 100ms | 0 | 1 / 0 / 1 / 0 | circle, radius 3 | 1 | false |
 
 `cannon` carries the pre-weapon-system shot's exact numbers: `fireRateHz: 2` became `cooldownMs:
 500`, and `lifetimeTicks: 30` became `range: 900` (one second of flight at 900 u/s). Its **hitbox

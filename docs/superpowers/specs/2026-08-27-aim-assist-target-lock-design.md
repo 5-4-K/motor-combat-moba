@@ -1,8 +1,8 @@
 # Motor Combat MOBA — Aim Assist and Target Lock Design
 
 **Designed:** 2026-08-27 · **Recorded in repo:** 2026-08-27
-**Status:** Draft, awaiting approval. Not implemented.
-**Plan:** not yet written.
+**Status:** Implemented.
+**Plan:** [`docs/superpowers/plans/2026-08-27-aim-assist-target-lock.md`](../plans/2026-08-27-aim-assist-target-lock.md)
 
 ---
 

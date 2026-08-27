@@ -71,7 +71,11 @@ and firing is never blocked.
 bounds, because neither of the first two survives alone. A pure cone's width scales with distance,
 so at the cannon's range it would span half the arena; a pure lane's angular width explodes near the
 car, so it would accept a target 83° off your nose during a ram. The cone governs contact range, the
-cap governs long range, and they cross over around 330 units.
+cap governs long range. They cross over at `lateralMax / tan(coneDeg)` ≈ 330 units measured **along
+the car's axis** (the forward leg of the triangle at the cone's edge), which is ≈351 units measured
+**radially** (`lateralMax / sin(coneDeg)`, the straight-line hypotenuse) — and the radial figure is
+the one that matters in practice, since `distance` in `lock.ts` is `Math.hypot(dx, dy)`, not the
+axial component.
 
 **Scoring** is `abs(angleDeg) + distance × scorePerDistanceUnit`, lowest wins. The coefficient is per
 **world unit** — there are no metres in this game, and a value sized for metres makes the distance
@@ -97,8 +101,10 @@ shot. `weapon-config.test.ts` fails any aim-assist weapon authored within 15% of
 drop it for an obstruction that provably does not stop the bullet.
 
 **Shot geometry:** the fired angle is measured from the **muzzle**, not the car centre (scoring uses
-the centre); the muzzle itself never moves; and a pellet fan or a sequential burst re-reads the lock
-at each shot's own tick, the same way it already re-reads the car's pose.
+the centre); the muzzle never swings to the aim angle, it stays the car's physical nose (it plainly
+still translates and rotates with the car — it just never deflects toward a locked target); and a
+pellet fan or a sequential burst re-reads the lock at each shot's own tick, the same way it already
+re-reads the car's pose.
 
 `repeater` is the table's reference row for `usesAimAssist: false`, as `cannon` is for `true`.
 See [`superpowers/specs/2026-08-27-aim-assist-target-lock-design.md`](superpowers/specs/2026-08-27-aim-assist-target-lock-design.md)
@@ -291,8 +297,13 @@ error rather than a silently ignored field.
 Every duration is **milliseconds**, converted once to ticks by `WEAPON_TICKS` — never write ticks.
 The per-row test loop in `weapon-config.test.ts` enforces `unlocksAt >= 1`, positive
 `damage`/`speed`/`range`, `stock.max >= 2` when a `stock` block is present, volley counts `>= 1`,
-and a cone `angleDeg` strictly inside 0–180. A row that breaks one fails the suite immediately
-rather than misbehaving at run time.
+a cone `angleDeg` strictly inside 0–180, and that `usesAimAssist` is set (it is a **required**
+field — there is no default). If it is `true`, two further assertions apply: the weapon's `range`
+must be at least `AIM_CONFIG.lockRange` (a lock the weapon's own range cannot reach would show a
+bracket and then fall short), and its sustained fire rate (`1000 / cooldownMs`) must sit outside
+±15% of the `1000 / lockTimeoutMs` behavioural cliff (see "Aim assist and the target lock" below for
+why that boundary matters). A row that breaks one fails the suite immediately rather than
+misbehaving at run time.
 
 **3. Give it to a car.** Add the id to that chassis's `weapons` array in `CAR_TABLE` — array index
 is the slot index, and `maxWeaponSlots` (3) is the cap. A weapon in the table that no car carries is
@@ -319,6 +330,7 @@ you find out which:
 | File | Why it breaks |
 |---|---|
 | `config/weapon-config.test.ts` | Pins `cannon`'s stats digit-for-digit — the migration's zero-balance-change guard |
+| `config/weapon-config.test.ts` | "keeps aim-assist weapons off the behavioural cliff" — `cannon`'s `cooldownMs` must stay outside ±15% of `1000 / AIM_CONFIG.lockTimeoutMs`. A 500 → 700ms nerf gives a sustained rate of 1.43 Hz against a 1.25 Hz cliff: `\|1.43 − 1.25\| / 1.25 = 0.143 < 0.15`, so the guard fires |
 | `config/weapon-ticks.test.ts` | Pins the tick counts derived from them (`cooldown`, `flight`) |
 | `sim/weapons/fire.test.ts` | Simulates recharge tick-by-tick across a hard-coded window |
 | `sim/weapons/instances.test.ts` | Beam tests borrow `weaponId: "cannon"` for its range, since no beam ships |
