@@ -299,6 +299,16 @@ describe("updateLock: retention", () => {
     const next = updateLock(held, ctxFor([enemyAt("a", 200, 0)], 25));
     expect(next.losLostSinceTick).toBe(0);
   });
+
+  it("releases and re-acquires in the same pass, never showing an unlocked frame", () => {
+    // Spec A13. The incumbent has left the retention region and a rival is acquirable on the SAME
+    // tick. A two-pass implementation — blank now, acquire next tick — would flicker the bracket
+    // off for a frame. One call, one return: the rival is already locked.
+    const held = { targetSessionId: "a", lockedAtTick: 0, losLostSinceTick: 0, lastPressTick: 0 };
+    const next = updateLock(held, ctxFor([enemyAt("a", 100, 400), enemyAt("b", 150, 0)], 40));
+    expect(next.targetSessionId).toBe("b");
+    expect(next.lockedAtTick).toBe(40);
+  });
 });
 
 describe("updateLock: stealing", () => {
