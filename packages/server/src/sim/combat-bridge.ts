@@ -1,10 +1,18 @@
 import {
-  ProjectileState,
+  WeaponInstanceState,
+  WeaponKind,
+  WeaponSlotState,
+  isCarId,
+  newFireState,
   runCombat,
+  slotsOf,
   type ArenaState,
+  type CarId,
   type CombatPlayer,
   type CombatResult,
-  type Proj,
+  type FireState,
+  type PlayerState,
+  type WeaponInstance,
 } from "@motor-combat-moba/shared";
 
 /**
@@ -21,25 +29,39 @@ import {
 export interface CombatMemory {
   /** `"idA|idB"` to the tick that pair may deal ram damage again. Server-only: clients never see it. */
   ramCooldowns: Map<string, number>;
-  /** Monotonic across the room's whole life, so a re-used session id cannot re-use a projectile id. */
-  projectileSeq: number;
+  /** Monotonic across the room's life, so a re-used session id cannot re-use an instance id. */
+  instanceSeq: number;
+  /** Per-player fire state, and the per-instance damage clocks. Server-only, never networked. */
+  fireStates: Map<string, FireState>;
+  instances: Map<string, WeaponInstance>;
 }
 
 export function newCombatMemory(): CombatMemory {
-  return { ramCooldowns: new Map(), projectileSeq: 0 };
+  return { ramCooldowns: new Map(), instanceSeq: 0, fireStates: new Map(), instances: new Map() };
 }
 
 /**
  * Players as combat sees them. Only roster members are marked `inRoster`, which is what gates
  * firing, being hit, and ramming — a lobby player standing in the room is not part of the fight.
+ *
+ * Fire state is rebuilt whenever a player's chassis changes — including the reveal, where `carId`
+ * goes from "" to a real car. Keyed by session id and never networked: the client is told the
+ * *result* (stocks, timers) through `WeaponSlotState`, never the machine.
  */
 export function toCombatPlayers(
   state: ArenaState,
   roster: ReadonlySet<string>,
-  fired: ReadonlySet<string>,
+  masks: ReadonlyMap<string, number>,
+  memory: CombatMemory,
 ): CombatPlayer[] {
   const players: CombatPlayer[] = [];
   state.players.forEach((player, sessionId) => {
+    const existing = memory.fireStates.get(sessionId);
+    const carId = isCarId(player.carId) ? player.carId : "";
+    const stale = !existing || existing.slots.map((s) => s.weaponId).join() !== slotsFor(carId).join();
+    const fireState = stale ? newFireState(carId, player.level) : existing;
+    memory.fireStates.set(sessionId, fireState);
+
     players.push({
       sessionId,
       x: player.x,
@@ -49,80 +71,102 @@ export function toCombatPlayers(
       carId: player.carId,
       hp: player.hp,
       alive: player.alive,
-      weaponCooldown: player.weaponCooldown,
       inRoster: roster.has(sessionId),
-      fired: fired.has(sessionId),
+      fireMask: masks.get(sessionId) ?? 0,
+      fireState,
     });
   });
   return players;
 }
 
-export function toProjectiles(state: ArenaState): Proj[] {
-  const projectiles: Proj[] = [];
-  state.projectiles.forEach((p) => {
-    projectiles.push({
-      id: p.id,
-      ownerSessionId: p.ownerSessionId,
-      x: p.x,
-      y: p.y,
-      angle: p.angle,
-      speed: p.speed,
-      spawnTick: p.spawnTick,
-      alive: p.alive,
-    });
-  });
-  return projectiles;
+function slotsFor(carId: CarId | ""): readonly string[] {
+  return isCarId(carId) ? slotsOf(carId) : [];
+}
+
+/**
+ * Live instances come from room memory rather than from the schema: `damageClock`, `pierceLeft` and
+ * `distance` are server-only and have no wire representation, so the schema is a projection of this
+ * map, never its source.
+ */
+export function toInstances(memory: CombatMemory): WeaponInstance[] {
+  return [...memory.instances.values()];
 }
 
 /**
  * Write a combat result back onto the schema.
  *
- * Only the three fields combat owns — `hp`, `alive`, `weaponCooldown` — are copied onto players.
- * Poses are *not* written back: driving already set them this tick, and combat never moves a car.
- * Copying them anyway would make a stale POJO silently authoritative over the sim.
+ * Only the fields combat owns — `hp`, `alive`, and everything `fireState` carries — are copied onto
+ * players. Poses are *not* written back: driving already set them this tick, and combat never moves
+ * a car.
  *
- * Projectiles are diffed rather than cleared and refilled: a `MapSchema` emptied and repopulated
- * every tick patches every shot to every client every tick, which is precisely the bandwidth the
+ * Instances are diffed by id rather than cleared and refilled: a `MapSchema` emptied and repopulated
+ * every tick patches every instance to every client every tick, which is precisely the bandwidth the
  * patch rate exists to avoid.
  */
-export function applyCombatResult(state: ArenaState, result: CombatResult): void {
+export function applyCombatResult(state: ArenaState, result: CombatResult, memory: CombatMemory): void {
   for (const p of result.players) {
+    memory.fireStates.set(p.sessionId, p.fireState);
     const player = state.players.get(p.sessionId);
     if (!player) continue;
     player.hp = p.hp;
     player.alive = p.alive;
-    player.weaponCooldown = p.weaponCooldown;
+    player.level = p.fireState.level;
+    player.switchLockUntilTick = p.fireState.switchLockUntilTick;
+    writeSlots(player, p.fireState);
   }
 
-  const live = new Set(result.projectiles.map((p) => p.id));
-  const stale: string[] = [];
-  state.projectiles.forEach((_, id) => {
-    if (!live.has(id)) stale.push(id);
-  });
-  for (const id of stale) state.projectiles.delete(id);
+  memory.instances = new Map(result.instances.map((i) => [i.id, i]));
 
-  for (const p of result.projectiles) {
-    let projectile = state.projectiles.get(p.id);
-    if (!projectile) {
-      projectile = new ProjectileState();
-      projectile.id = p.id;
-      projectile.ownerSessionId = p.ownerSessionId;
-      projectile.angle = p.angle;
-      projectile.speed = p.speed;
-      projectile.spawnTick = p.spawnTick;
-      state.projectiles.set(p.id, projectile);
+  const stale: string[] = [];
+  state.weapons.forEach((_, id) => {
+    if (!memory.instances.has(id)) stale.push(id);
+  });
+  for (const id of stale) state.weapons.delete(id);
+
+  // Diffed, never cleared and refilled: a collection emptied each tick patches every instance to
+  // every client every tick, which is exactly the bandwidth the patch rate exists to avoid.
+  for (const instance of result.instances) {
+    let row = state.weapons.get(instance.id);
+    if (!row) {
+      row = new WeaponInstanceState();
+      row.id = instance.id;
+      row.ownerSessionId = instance.ownerSessionId;
+      row.weaponId = instance.weaponId;
+      row.kind = instance.kind === "beam" ? WeaponKind.BEAM : WeaponKind.PROJECTILE;
+      row.spawnTick = instance.spawnTick;
+      state.weapons.set(instance.id, row);
     }
-    projectile.x = p.x;
-    projectile.y = p.y;
-    projectile.alive = p.alive;
+    row.x = instance.x;
+    row.y = instance.y;
+    row.angle = instance.angle;
+    row.extent = instance.extent;
+    row.alive = instance.alive;
   }
 }
 
-/** Clear every shot in flight. Called when a match ends or a new one is set up. */
-export function clearProjectiles(state: ArenaState): void {
+/** Slot rows are positional: index is the slot, so they are resized rather than rebuilt. */
+function writeSlots(player: PlayerState, fireState: FireState): void {
+  while (player.weapons.length > fireState.slots.length) player.weapons.pop();
+  fireState.slots.forEach((slot, index) => {
+    let row = player.weapons.at(index);
+    if (!row) {
+      row = new WeaponSlotState();
+      player.weapons.push(row);
+    }
+    row.weaponId = slot.weaponId;
+    row.stocks = slot.stocks;
+    row.rechargeEndsTick = slot.rechargeEndsTick;
+    row.refireLockUntilTick = slot.refireLockUntilTick;
+  });
+}
+
+/** Clear every live instance and fire state. Called when a match ends or a new one is set up. */
+export function clearInstances(state: ArenaState, memory: CombatMemory): void {
   const ids: string[] = [];
-  state.projectiles.forEach((_, id) => ids.push(id));
-  for (const id of ids) state.projectiles.delete(id);
+  state.weapons.forEach((_, id) => ids.push(id));
+  for (const id of ids) state.weapons.delete(id);
+  memory.instances.clear();
+  memory.fireStates.clear();
 }
 
 export { runCombat };

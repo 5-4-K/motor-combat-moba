@@ -49,11 +49,11 @@ import { withSimulatedLatency } from "../net/latency-injector.js";
 import { serverTick } from "../sim/tick.js";
 import {
   applyCombatResult,
-  clearProjectiles,
+  clearInstances,
   newCombatMemory,
   runCombat,
   toCombatPlayers,
-  toProjectiles,
+  toInstances,
   type CombatMemory,
 } from "../sim/combat-bridge.js";
 import {
@@ -79,9 +79,10 @@ export class ArenaRoom extends Room<ArenaState> {
   private postMatchIds = new Set<string>();
   private flow: FlowState | null = null;
   /**
-   * Ram pair cooldowns and the projectile id counter. Server-only by design: neither is anything a
-   * client needs to render, and putting them on the schema would patch a per-pair map to everyone at
-   * the tick rate for no visible gain.
+   * Ram pair cooldowns, the instance id counter, per-player fire state, and the live instances
+   * themselves. Server-only by design: none of it is anything a client needs to render, and putting
+   * it on the schema would patch a per-pair map (or per-instance timers with no wire representation)
+   * to everyone at the tick rate for no visible gain.
    */
   private combat: CombatMemory = newCombatMemory();
 
@@ -296,8 +297,8 @@ export class ArenaRoom extends Room<ArenaState> {
       this.reduce({ type: "go" });
     }
     const dt = 1 / getTickRateHz(TICK_RATE_HZ);
-    const fired = serverTick(this.state, this.inputQueues, dt, this.state.phase);
-    this.combatTick(dt, fired);
+    const masks = serverTick(this.state, this.inputQueues, dt, this.state.phase);
+    this.combatTick(dt, masks);
   }
 
   /**
@@ -306,12 +307,12 @@ export class ArenaRoom extends Room<ArenaState> {
    * left both cars rather than by where they were a moment before it.
    *
    * Only `MATCH` runs combat, and only with a live roster. Outside that the whole thing is skipped
-   * and any shot still in flight is cleared — a projectile that survived into the lobby would be
+   * and any instance still in flight is cleared — a shot that survived into the lobby would be
    * drawn to everyone and could never hit anything.
    */
-  private combatTick(dt: number, fired: ReadonlySet<string>): void {
+  private combatTick(dt: number, masks: ReadonlyMap<string, number>): void {
     if (this.state.phase !== RoomPhase.MATCH || this.matchRoster.size === 0) {
-      if (this.state.projectiles.size > 0) clearProjectiles(this.state);
+      if (this.state.weapons.size > 0) clearInstances(this.state, this.combat);
       return;
     }
 
@@ -324,15 +325,15 @@ export class ArenaRoom extends Room<ArenaState> {
         obstacles: arena.obstacles,
         bounds: { width: arena.width, height: arena.height },
       },
-      players: toCombatPlayers(this.state, this.matchRoster, fired),
-      projectiles: toProjectiles(this.state),
+      players: toCombatPlayers(this.state, this.matchRoster, masks, this.combat),
+      instances: toInstances(this.combat),
       ramCooldowns: this.combat.ramCooldowns,
-      projectileSeq: this.combat.projectileSeq,
+      instanceSeq: this.combat.instanceSeq,
     });
 
-    applyCombatResult(this.state, result);
+    applyCombatResult(this.state, result, this.combat);
     this.combat.ramCooldowns = result.ramCooldowns;
-    this.combat.projectileSeq = result.projectileSeq;
+    this.combat.instanceSeq = result.instanceSeq;
 
     // Win check every tick, on the state combat just wrote. `livingSides` counts only roster
     // members who are still alive, so a wreck and a disconnect end the match by the same rule.
@@ -449,12 +450,11 @@ export class ArenaRoom extends Room<ArenaState> {
         player.hp = hpOf(carId);
       }
       player.speed = 0;
-      // A cooldown carried over from the last match would swallow the first shot of this one.
-      player.weaponCooldown = 0;
     }
-    // Nothing from the previous match survives into this one: no shots in flight, and no ram pair
-    // cooldown that would make the opening contact of a fresh match deal nothing.
-    clearProjectiles(this.state);
+    // Nothing from the previous match survives into this one: no shots in flight, no stale fire
+    // state (a stock or a switch lock the new car never earned), and no ram pair cooldown that would
+    // make the opening contact of a fresh match deal nothing.
+    clearInstances(this.state, this.combat);
     this.combat.ramCooldowns = new Map();
     const spawns = assignSpawns(
       getArena(this.state.arenaId),
@@ -477,7 +477,7 @@ export class ArenaRoom extends Room<ArenaState> {
     this.reduce({ type: "end", winnerSessionId, winnerTeam });
     this.matchRoster.clear();
     this.pendingCarId.clear();
-    clearProjectiles(this.state);
+    clearInstances(this.state, this.combat);
     this.combat.ramCooldowns = new Map();
   }
 

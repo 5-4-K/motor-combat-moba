@@ -13,7 +13,7 @@ import {
 import { serverTick } from "./tick.js";
 
 const DT = MS_PER_TICK / 1000;
-const UP: InputMessage = { seq: 1, steer: 0, throttle: 1, fire: false };
+const UP: InputMessage = { seq: 1, steer: 0, throttle: 1, fireSlots: 0 };
 
 /** A clear east-west corridor in arena-01: every obstacle sits at y >= 350. */
 const CORRIDOR_Y = 100;
@@ -54,12 +54,12 @@ function poseOf(player: PlayerState): SimBody {
 }
 
 function ups(...seqs: number[]): InputMessage[] {
-  return seqs.map((seq) => ({ seq, steer: 0, throttle: 1, fire: false }));
+  return seqs.map((seq) => ({ seq, steer: 0, throttle: 1, fireSlots: 0 }));
 }
 
 /** Throttle-neutral inputs: the car keeps whatever speed it already had, minus drag. */
 function coasts(...seqs: number[]): InputMessage[] {
-  return seqs.map((seq) => ({ seq, steer: 0, throttle: 0, fire: false }));
+  return seqs.map((seq) => ({ seq, steer: 0, throttle: 0, fireSlots: 0 }));
 }
 
 describe("serverTick", () => {
@@ -112,9 +112,9 @@ describe("serverTick", () => {
       [
         "p1",
         [
-          { seq: 1, steer: 0, throttle: 0, fire: false },
-          { seq: 2, steer: 1, throttle: 0, fire: false },
-          { seq: 5, steer: 0, throttle: 1, fire: true },
+          { seq: 1, steer: 0, throttle: 0, fireSlots: 0 },
+          { seq: 2, steer: 1, throttle: 0, fireSlots: 0 },
+          { seq: 5, steer: 0, throttle: 1, fireSlots: 0b001 },
         ],
       ],
     ]);
@@ -145,7 +145,7 @@ describe("serverTick", () => {
       { steer: 1, throttle: -1 },
     ] as const;
 
-    const at = (body: number, seq: number): InputMessage => ({ ...BODIES[body]!, seq, fire: false });
+    const at = (body: number, seq: number): InputMessage => ({ ...BODIES[body]!, seq, fireSlots: 0 });
 
     function runWith(queue: InputMessage[]): PlayerState {
       const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
@@ -321,40 +321,50 @@ describe("serverTick", () => {
   });
 });
 
-describe("serverTick fire reporting", () => {
-  function fires(seq: number): InputMessage {
-    return { seq, steer: 0, throttle: 0, fire: true };
+describe("serverTick fire mask reporting", () => {
+  function fires(seq: number, mask: number = 0b001): InputMessage {
+    return { seq, steer: 0, throttle: 0, fireSlots: mask };
   }
 
   function tickWith(
     player: PlayerState,
     queue: InputMessage[],
     phase: RoomPhase = RoomPhase.MATCH,
-  ): Set<string> {
+  ): Map<string, number> {
     return serverTick(stateWith(player), new Map([[player.sessionId, queue]]), DT, phase);
   }
 
-  it("reports a player who pressed fire", () => {
-    const fired = tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), [fires(1)]);
-    expect([...fired]).toEqual(["p1"]);
+  it("reports the slot mask from an input it actually simulated", () => {
+    const masks = tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), [fires(1, 0b001)]);
+    expect(masks.get("p1")).toBe(0b001);
   });
 
-  it("reports nothing when no input carries fire", () => {
+  it("masks off bits beyond maxWeaponSlots", () => {
+    const masks = tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), [fires(1, 0b1111_1111)]);
+    expect(masks.get("p1")).toBe(0b111); // maxWeaponSlots = 3
+  });
+
+  it("ors the masks of every input simulated this tick", () => {
+    const masks = tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), [fires(1, 0b001), fires(2, 0b010)]);
+    expect(masks.get("p1")).toBe(0b011);
+  });
+
+  it("reports nothing for a player outside the match", () => {
+    const masks = tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), [fires(1, 0b001)], RoomPhase.COUNTDOWN);
+    expect(masks.size).toBe(0);
+  });
+
+  it("ignores a negative or non-integer mask", () => {
+    const masks = tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), [fires(1, -5 as number)]);
+    expect(masks.get("p1") ?? 0).toBe(0);
+  });
+
+  it("reports nothing when no input carries a fire mask", () => {
     expect(tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), ups(1)).size).toBe(0);
   });
 
   it("reports nothing when the queue is empty", () => {
     expect(tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), []).size).toBe(0);
-  });
-
-  it("collapses several fire inputs in one tick to a single entry", () => {
-    const fired = tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), [fires(1), fires(2), fires(3)]);
-    expect(fired.size).toBe(1);
-  });
-
-  it("ignores fire outside the match phase, where nothing is simulated", () => {
-    const fired = tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), [fires(1)], RoomPhase.COUNTDOWN);
-    expect(fired.size).toBe(0);
   });
 
   it("ignores fire from a player who is not on the field", () => {
@@ -363,22 +373,22 @@ describe("serverTick fire reporting", () => {
   });
 
   it("does not credit a shot to an input past the per-tick simulate cap", () => {
-    // The first `maxInputsPerTick` inputs are plain drives; only the ones past the cap ask to fire,
-    // and those are drained and acked but never simulated.
+    // The first `maxInputsPerTick` inputs are plain drives; only the one past the cap asks to fire,
+    // and it is drained and acked but never simulated.
     const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
     const queue: InputMessage[] = [
       ...ups(1, 2, 3, 4, 5).slice(0, NET_CONFIG.maxInputsPerTick),
       fires(NET_CONFIG.maxInputsPerTick + 1),
     ];
-    const fired = tickWith(player, queue);
-    expect(fired.size).toBe(0);
+    const masks = tickWith(player, queue);
+    expect(masks.size).toBe(0);
     expect(player.lastProcessedInputSeq).toBe(NET_CONFIG.maxInputsPerTick + 1);
   });
 
   it("names every player who fired, not just the first", () => {
     const a = makePlayer("aaa", 300, CORRIDOR_Y, 0);
     const b = makePlayer("bbb", 900, CORRIDOR_Y, 0);
-    const fired = serverTick(
+    const masks = serverTick(
       stateWith(a, b),
       new Map([
         ["aaa", [fires(1)]],
@@ -387,6 +397,6 @@ describe("serverTick fire reporting", () => {
       DT,
       RoomPhase.MATCH,
     );
-    expect([...fired].sort()).toEqual(["aaa", "bbb"]);
+    expect([...masks.keys()].sort()).toEqual(["aaa", "bbb"]);
   });
 });

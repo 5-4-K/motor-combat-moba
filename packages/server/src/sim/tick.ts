@@ -3,6 +3,7 @@ import {
   NET_CONFIG,
   PlayerState,
   RoomPhase,
+  WEAPON_SLOT_CONFIG,
   carIdOf,
   getArena,
   isOnField,
@@ -14,6 +15,9 @@ import {
   type SimBody,
   type StepContext,
 } from "@motor-combat-moba/shared";
+
+/** Every bit at or beyond `maxWeaponSlots` is stripped before a wire mask ever reaches the sim. */
+const SLOT_MASK = (1 << WEAPON_SLOT_CONFIG.maxWeaponSlots) - 1;
 
 /**
  * Advance every player by their queued inputs. `dt` is seconds and must match the room simulation
@@ -44,24 +48,28 @@ import {
  * `NET_CONFIG.maxInputsPerTick` of them actually reach `stepSim`. See the comments in the drain
  * loop for why each of those matters.
  *
- * Returns the session ids that asked to fire on an input this tick actually **simulated**. Firing
- * rides the same gate as movement rather than the raw key state, so an input past the per-tick cap
- * cannot buy a shot the sim never ran, and a lobby player spamming `fire` never spawns anything.
- * The weapon cooldown in `runCombat`, not this set, is what limits the rate — several fire inputs
- * in one tick still yield at most one shot.
+ * Returns, for every session id that asked to fire on an input this tick actually **simulated**, the
+ * validated slot bitmask it fired with. Firing rides the same gate as movement rather than the raw
+ * key state, so an input past the per-tick cap cannot buy a shot the sim never ran, and a lobby
+ * player spamming `fire` never spawns anything. The mask itself is attacker-controlled wire data:
+ * non-integers and non-positive values collapse to 0, and whatever remains is masked to
+ * `WEAPON_SLOT_CONFIG.maxWeaponSlots` bits before combat ever sees it, so a hand-rolled client
+ * cannot fire a slot its car does not have. Masks from several inputs simulated in one tick are
+ * OR-ed together. The weapon cooldown in `runCombat`, not this map, is what limits the rate —
+ * several fire inputs in one tick still yield at most one shot.
  */
 export function serverTick(
   state: ArenaState,
   queues: Map<string, InputMessage[]>,
   dt: number,
   phase: RoomPhase,
-): Set<string> {
+): Map<string, number> {
   const world = tickWorldOf(getArena(state.arenaId));
   const moving = phase === RoomPhase.MATCH;
   // Sorted once per tick. This same array fixes both the order players are stepped in and the order
   // of the hulls built from it, so it is threaded through rather than recomputed.
   const entries = sortedEntries(state);
-  const fired = new Set<string>();
+  const masks = new Map<string, number>();
 
   for (const { sessionId, player } of entries) {
     const queue = queues.get(sessionId);
@@ -89,13 +97,15 @@ export function serverTick(
       // diverge from the server, so reconciliation snaps them back. See NET_CONFIG.
       if (ctx !== null && index < NET_CONFIG.maxInputsPerTick) {
         writeBody(player, stepSim(bodyOf(player), msg, dt, ctx));
-        if (msg.fire) fired.add(sessionId);
+        const raw = msg.fireSlots;
+        const clean = Number.isInteger(raw) && raw > 0 ? raw & SLOT_MASK : 0;
+        if (clean !== 0) masks.set(sessionId, (masks.get(sessionId) ?? 0) | clean);
       }
       player.lastProcessedInputSeq = msg.seq;
     }
   }
 
-  return fired;
+  return masks;
 }
 
 function bySeq(a: InputMessage, b: InputMessage): number {
