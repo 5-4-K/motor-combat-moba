@@ -103,6 +103,17 @@ false, the answer describes other code — rebuild before trusting it, the same 
 `dist` above. An unbuilt graph in a fresh worktree looks identical to a clean empty result, which is
 failure mode 1 above at its worst.
 
+## Branches
+
+**"main" always means `development/main`.** When the user says checkout main, merge to main, commit
+to main, rebase on main, or open a PR against main, the target is `development/main` — never
+`master`. That holds for every phrasing of "main"; treat it as the trunk.
+
+`development/main` is the working line. `master` has not moved since 2026-08-24 and sits 148 commits
+behind; tooling that guesses a default branch (git's own "main branch" hint, PR base defaults) will
+often name `master` anyway — ignore that and use `development/main`. Only touch `master` when the
+user names it explicitly.
+
 ## Commands
 
 ```bash
