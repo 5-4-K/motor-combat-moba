@@ -119,6 +119,11 @@ export function stepInstance(instance: WeaponInstance, ctx: StepInstanceContext)
       x: instance.x + Math.cos(instance.angle) * step,
       y: instance.y + Math.sin(instance.angle) * step,
       distance: instance.distance + step,
+      // Fresh copy, not the input's reference: a shallow spread would otherwise alias `damageClock`
+      // between the pre- and post-step instance, so a later write through either object would be
+      // visible through both. Same reasoning as `pruneCooldowns` in combat.ts, which never hands
+      // back the caller's own cooldown map either.
+      damageClock: new Map(instance.damageClock),
     };
   }
 
@@ -138,6 +143,9 @@ export function stepInstance(instance: WeaponInstance, ctx: StepInstanceContext)
     y: origin.y,
     angle: origin.angle,
     extent: Math.min(reach, instance.extent + def.speed * ctx.dt),
+    // See the projectile branch above: a fresh copy, so the returned instance and the one it was
+    // stepped from never share the same live `damageClock` object.
+    damageClock: new Map(instance.damageClock),
   };
 }
 

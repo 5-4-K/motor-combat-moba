@@ -66,6 +66,15 @@ describe("projectile flight", () => {
     expect(instanceExpired(spent, 130)).toBe(true);
     expect(instanceExpired(short, 130)).toBe(false);
   });
+
+  it("does not alias damageClock with the instance it was stepped from", () => {
+    const { instances } = spawnInstances({ weaponId: "cannon", slot: 0 }, owner, 100, 0);
+    const before: WeaponInstance = { ...instances[0]!, damageClock: new Map([["bbb", 105]]) };
+    const after = stepInstance(before, ctx());
+    after.damageClock.set("ccc", 999);
+    expect(before.damageClock.has("ccc")).toBe(false);
+    expect(before.damageClock.get("bbb")).toBe(105);
+  });
 });
 
 describe("wall clipping", () => {
