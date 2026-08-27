@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PATCH_RATE_HZ, WEAPON_CONFIG, hpOf } from "@motor-combat-moba/shared";
-import { extrapolateShot, hpBarColor, hpFraction } from "./combat-visual.js";
+import { DEFAULT_PATCH_RATE_HZ, WEAPON_TABLE, WeaponKind, hpOf } from "@motor-combat-moba/shared";
+import { extrapolateShot, hpBarColor, hpFraction, instanceDrawShape } from "./combat-visual.js";
 
 describe("hpFraction", () => {
   it("is 1 at full hp", () => {
@@ -46,7 +46,7 @@ describe("hpBarColor", () => {
 });
 
 describe("extrapolateShot", () => {
-  const SPEED = WEAPON_CONFIG.projectileSpeed;
+  const SPEED = WEAPON_TABLE.cannon.speed;
 
   it("does not move a shot reported this instant", () => {
     expect(extrapolateShot(100, 100, 0, SPEED, 0)).toEqual({ x: 100, y: 100 });
@@ -72,5 +72,32 @@ describe("extrapolateShot", () => {
 
   it("never runs a shot backwards on a negative elapsed time", () => {
     expect(extrapolateShot(100, 100, 0, SPEED, -50)).toEqual({ x: 100, y: 100 });
+  });
+});
+
+describe("instance drawing", () => {
+  const projectile = {
+    weaponId: "cannon", kind: WeaponKind.PROJECTILE,
+    x: 100, y: 100, angle: 0, extent: 0,
+  };
+
+  it("extrapolates a projectile along its own heading between patches", () => {
+    const still = instanceDrawShape(projectile, 0);
+    const later = instanceDrawShape(projectile, 25);
+    if (still.kind !== "circle" || later.kind !== "circle") throw new Error("cannon draws as a circle");
+    expect(later.x).toBeGreaterThan(still.x);
+  });
+
+  it("caps extrapolation at one patch interval so a stalled patch cannot fling a shot", () => {
+    const capped = instanceDrawShape(projectile, 5000);
+    const oneInterval = instanceDrawShape(projectile, 1000 / 20);
+    if (capped.kind !== "circle" || oneInterval.kind !== "circle") throw new Error("circle expected");
+    expect(capped.x).toBeCloseTo(oneInterval.x);
+  });
+
+  it("draws a beam at its reported extent", () => {
+    const beam = { weaponId: "cannon", kind: WeaponKind.BEAM, x: 100, y: 100, angle: 0, extent: 200 };
+    const shape = instanceDrawShape(beam, 0);
+    expect(shape.kind).toBe("polygon");
   });
 });

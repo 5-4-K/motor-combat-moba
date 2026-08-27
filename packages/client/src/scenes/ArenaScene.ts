@@ -1,6 +1,13 @@
 import Phaser from "phaser";
 import type { Room } from "colyseus.js";
-import type { ArenaDef, ArenaState, InputMessage, SimBody, StepContext } from "@motor-combat-moba/shared";
+import type {
+  ArenaDef,
+  ArenaState,
+  InputMessage,
+  SimBody,
+  StepContext,
+  WeaponInstanceState,
+} from "@motor-combat-moba/shared";
 import {
   ARENA_IDS,
   CAMERA_CONFIG,
@@ -10,12 +17,16 @@ import {
   PlayerStatus,
   RoomPhase,
   TICK_RATE_HZ,
+  WeaponKind,
   getArena,
   isArenaId,
+  isWeaponId,
+  weaponTicksOf,
 } from "@motor-combat-moba/shared";
 import { applyCarSprite, phaserTextures, resolveCarSprite } from "../assets/car-sprite.js";
 import { isDebugEnabled } from "../config/client-mode.js";
 import { VIEW_HEIGHT, VIEW_WIDTH } from "../config/display.js";
+import { SLOT_KEYS, slotMaskFrom } from "../config/slot-keys.js";
 import { InterpolationBuffer } from "../net/interpolation.js";
 import { PredictionBuffer } from "../net/prediction.js";
 import { blendPose } from "../net/interpolation.js";
@@ -29,7 +40,7 @@ import { arenaBorderRect, arenaColorsOf } from "./arena-visual.js";
 import { fitsViewport } from "./arena-camera.js";
 import { assetManifest, assetsReady } from "./BootScene.js";
 import { carFillOf, carShapeOf, hexagonPoints } from "./car-visual.js";
-import { extrapolateShot, hpBarColor, hpFraction } from "./combat-visual.js";
+import { hpBarColor, hpFraction, instanceDrawShape } from "./combat-visual.js";
 import {
   cycleSpectate,
   isSpectating,
@@ -47,10 +58,11 @@ const HITBOX_STROKE = 0x1d1f21;
 const HITBOX_PX = 1;
 
 const SHOT_DEPTH = 50;
-const SHOT_FILL = 0xc77800;
-const SHOT_RADIUS = 4;
-/** Drawn behind each shot so the eye reads which way it is going, not just where it is. */
-const SHOT_TRAIL_PX = 14;
+/**
+ * Sentinel `colorId` for an instance whose owner has left the room; `carFillOf` falls back to the
+ * first `COLOR_TABLE` entry for any id it does not recognise.
+ */
+const UNKNOWN_OWNER_COLOR_ID = -1;
 
 const HP_BAR_DEPTH = 60;
 const HP_BAR_W = 44;
@@ -80,9 +92,8 @@ interface ArenaPlayer {
   name: string;
 }
 
-/** The keys this scene binds beyond Phaser's cursor keys: firing, and the spectator controls. */
+/** The keys this scene binds beyond Phaser's cursor keys and the weapon slots: spectator controls. */
 interface SpectateKeys {
-  fire: Phaser.Input.Keyboard.Key;
   prev: Phaser.Input.Keyboard.Key;
   next: Phaser.Input.Keyboard.Key;
   freeRoam: Phaser.Input.Keyboard.Key;
@@ -120,6 +131,8 @@ export class ArenaScene extends Phaser.Scene {
   private arenaGfx: Phaser.GameObjects.Graphics | undefined;
   private arena: ArenaDef | undefined;
   private cursors: Phaser.Types.Input.Keyboard.CursorKeys | undefined;
+  /** One Phaser key per `SLOT_KEYS` entry, same order, so `slotMaskFrom` reads them index-for-index. */
+  private slotKeys: Phaser.Input.Keyboard.Key[] | undefined;
   private predicted: SimBody | undefined;
   /** The predicted pose before the newest tick; `renderCars` blends from it toward `predicted`. */
   private predictedPrev: SimBody | undefined;
@@ -194,6 +207,7 @@ export class ArenaScene extends Phaser.Scene {
 
     this.cursors = this.input.keyboard?.createCursorKeys();
     this.keys = this.bindKeys();
+    this.slotKeys = this.bindSlotKeys();
 
     // Guarded rather than resolved directly: `getArena` throws, and this line runs before the rest
     // of create() builds anything, so an unknown id would leave a half-constructed scene and a
@@ -238,9 +252,8 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * Space fires; `[` / `]` and, once you are a wreck, Left / Right cycle who you are watching; `V`
-   * toggles free roam. Space is bound rather than merely read so the browser does not scroll the
-   * page under the canvas every time you shoot.
+   * `[` / `]` and, once you are a wreck, Left / Right cycle who you are watching; `V` toggles free
+   * roam.
    *
    * The arrows do double duty on purpose, and the modes are what keep that unambiguous: while you
    * are alive they steer, and only a spectator can cycle with them. In free roam they pan instead,
@@ -251,7 +264,6 @@ export class ArenaScene extends Phaser.Scene {
     if (!keyboard) return undefined;
     const Codes = Phaser.Input.Keyboard.KeyCodes;
     return {
-      fire: keyboard.addKey(Codes.SPACE),
       prev: keyboard.addKey(Codes.OPEN_BRACKET),
       next: keyboard.addKey(Codes.CLOSED_BRACKET),
       freeRoam: keyboard.addKey(Codes.V),
@@ -260,6 +272,17 @@ export class ArenaScene extends Phaser.Scene {
       panUp: keyboard.addKey(Codes.W),
       panDown: keyboard.addKey(Codes.S),
     };
+  }
+
+  /**
+   * One Phaser key per `SLOT_KEYS` entry. Bound explicitly, like the old single `fire` key, so the
+   * browser does not scroll the page under the canvas on Space, and so the other bound slot keys
+   * do not fall through to whatever the page would otherwise do with them.
+   */
+  private bindSlotKeys(): Phaser.Input.Keyboard.Key[] | undefined {
+    const keyboard = this.input.keyboard;
+    if (!keyboard) return undefined;
+    return SLOT_KEYS.map((key) => keyboard.addKey(key.code));
   }
 
   private drawArena(arena: ArenaDef): void {
@@ -342,6 +365,7 @@ export class ArenaScene extends Phaser.Scene {
     this.hpGfx = undefined;
     this.cursors = undefined;
     this.keys = undefined;
+    this.slotKeys = undefined;
     this.prediction = new PredictionBuffer();
     this.predicted = undefined;
     this.predictedPrev = undefined;
@@ -405,10 +429,10 @@ export class ArenaScene extends Phaser.Scene {
       seq: this.inputSeq,
       steer: axisOf(this.cursors?.left.isDown ?? false, this.cursors?.right.isDown ?? false),
       throttle: axisOf(this.cursors?.down.isDown ?? false, this.cursors?.up.isDown ?? false),
-      // Held, not tapped: the server's weapon cooldown decides the rate, so holding Space fires as
-      // fast as the weapon allows and no faster. Sampling `JustDown` here instead would drop shots
-      // whenever a frame straddled two input ticks.
-      fire: this.keys?.fire.isDown ?? false,
+      // Held, not tapped: the server's weapon cooldown decides the rate, so holding a slot key fires
+      // it as fast as that slot allows and no faster. Sampling `JustDown` here instead would drop
+      // shots whenever a frame straddled two input ticks.
+      fireSlots: slotMaskFrom(this.slotKeys?.map((key) => key.isDown) ?? []),
     };
     room.send(INPUT_MESSAGE, input);
 
@@ -626,12 +650,17 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * Every shot in flight, drawn from `state.projectiles` and nothing else.
+   * Every live weapon instance, drawn from `state.weapons` and nothing else.
    *
-   * The client deliberately does not spawn a local shot on the keypress. A predicted bullet that the
-   * server never fired — because the cooldown had not actually expired, or the input arrived a tick
-   * late — is a phantom that either vanishes or, worse, reads as a hit that never happened. Shots
-   * are cheap to draw late and expensive to draw wrongly.
+   * The client deliberately does not spawn a local instance on the keypress. A predicted shot that
+   * the server never fired — because the cooldown had not actually expired, or the input arrived a
+   * tick late — is a phantom that either vanishes or, worse, reads as a hit that never happened.
+   * Shots are cheap to draw late and expensive to draw wrongly.
+   *
+   * Each instance draws as its own hitbox (D19, `instanceDrawShape`) in its owner's colour, so what
+   * a player sees is exactly what can hurt them. A beam additionally fades toward transparent
+   * through its own configured linger, never a fixed duration, so a slower-lingering weapon reads as
+   * slower rather than snapping off at some other weapon's timing.
    */
   private renderShots(room: Room<ArenaState>): void {
     const gfx = this.shotGfx;
@@ -639,18 +668,35 @@ export class ArenaScene extends Phaser.Scene {
     gfx.clear();
 
     const elapsedMs = this.lastPatchMs === 0 ? 0 : performance.now() - this.lastPatchMs;
-    room.state.projectiles.forEach((shot) => {
-      const at = extrapolateShot(shot.x, shot.y, shot.angle, shot.speed, elapsedMs);
-      gfx.lineStyle(2, SHOT_FILL, 0.5);
-      gfx.lineBetween(
-        at.x,
-        at.y,
-        at.x - Math.cos(shot.angle) * SHOT_TRAIL_PX,
-        at.y - Math.sin(shot.angle) * SHOT_TRAIL_PX,
-      );
-      gfx.fillStyle(SHOT_FILL, 1);
-      gfx.fillCircle(at.x, at.y, SHOT_RADIUS);
+    room.state.weapons.forEach((instance) => {
+      if (!instance.alive) return;
+      const shape = instanceDrawShape(instance, elapsedMs);
+      const color = this.instanceColorOf(room, instance.ownerSessionId);
+      const alpha = this.beamFadeAlpha(instance, room.state.tick);
+      gfx.fillStyle(color, alpha);
+      if (shape.kind === "circle") gfx.fillCircle(shape.x, shape.y, shape.radius);
+      else if (shape.points.length > 0) gfx.fillPoints(shape.points, true);
     });
+  }
+
+  /** The colour a live instance draws in: its owner's car colour, or a fallback if they have left. */
+  private instanceColorOf(room: Room<ArenaState>, ownerSessionId: string): number {
+    const colorId = room.state.players.get(ownerSessionId)?.colorId ?? UNKNOWN_OWNER_COLOR_ID;
+    return carFillOf(colorId);
+  }
+
+  /**
+   * How opaque a beam instance should draw: full brightness through its growth, fading to nothing
+   * over its own `WEAPON_TICKS` linger. A projectile, or an instance whose `weaponId` is not in
+   * `WEAPON_TABLE`, always draws fully opaque.
+   */
+  private beamFadeAlpha(instance: WeaponInstanceState, tick: number): number {
+    if (instance.kind !== WeaponKind.BEAM || !isWeaponId(instance.weaponId)) return 1;
+    const ticks = weaponTicksOf(instance.weaponId);
+    if (ticks.lifetime <= 0) return 1;
+    const lingerElapsed = tick - (instance.spawnTick + ticks.flight);
+    if (lingerElapsed <= 0) return 1;
+    return Math.max(0, 1 - lingerElapsed / ticks.lifetime);
   }
 
   // --- spectating --------------------------------------------------------------------------

@@ -23,7 +23,7 @@ const DT = MS_PER_TICK / 1000;
 const START: SimBody = { x: 200, y: 200, angle: 0, speed: 0, reverseHold: 0 };
 
 function up(seq: number): InputMessage {
-  return { seq, steer: 0, throttle: 1, fire: false };
+  return { seq, steer: 0, throttle: 1, fireSlots: 0 };
 }
 
 /** The pose a lone client reaches by driving `count` Up ticks from `from` — the local double-step. */
