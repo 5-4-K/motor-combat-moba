@@ -66,11 +66,3 @@ export function isWeaponId(value: unknown): value is WeaponId {
 export function weaponDefOf(id: WeaponId): WeaponDef {
   return WEAPON_TABLE[id];
 }
-
-/** @deprecated Superseded by `WEAPON_TABLE`; removed once `combat.ts` stops reading it. */
-export const WEAPON_CONFIG = {
-  damage: 8,
-  fireRateHz: 2,
-  projectileSpeed: 900,
-  lifetimeTicks: 30,
-} as const;

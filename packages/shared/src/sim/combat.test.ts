@@ -3,18 +3,13 @@ import { ARENA_01 } from "../arena/arena-01.js";
 import { CAR_TABLE, hpOf } from "../config/car-config.js";
 import { COMBAT_CONFIG } from "../config/combat-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
-import { WEAPON_CONFIG } from "../config/weapon-config.js";
+import type { CarId } from "../config/types.js";
+import { WEAPON_TABLE } from "../config/weapon-config.js";
 import { MS_PER_TICK } from "../constants.js";
-import {
-  fireCooldownTicks,
-  muzzleOffset,
-  runCombat,
-  type CombatInput,
-  type CombatPlayer,
-  type CombatWorld,
-} from "./combat.js";
-import type { Proj } from "./projectiles.js";
+import { runCombat, type CombatInput, type CombatPlayer, type CombatWorld } from "./combat.js";
 import { carHullOf } from "./context.js";
+import { newFireState } from "./weapons/fire.js";
+import type { WeaponInstance } from "./weapons/instances.js";
 import { stepSim } from "./step.js";
 import type { SimBody } from "./step.js";
 import type { InputMessage } from "../net/input.js";
@@ -43,6 +38,7 @@ function world(over: Partial<CombatWorld> = {}): CombatWorld {
   };
 }
 
+/** Shared by every describe block below except "firing", which shadows this with its own shape. */
 function player(sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlayer {
   const carId = over.carId ?? "rectangle";
   return {
@@ -54,9 +50,9 @@ function player(sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlay
     carId,
     hp: hpOf("rectangle"),
     alive: true,
-    weaponCooldown: 0,
     inRoster: true,
-    fired: false,
+    fireMask: 0,
+    fireState: newFireState(carId as CarId | "", 1),
     ...over,
   };
 }
@@ -65,9 +61,9 @@ function run(over: Partial<CombatInput> = {}): ReturnType<typeof runCombat> {
   return runCombat({
     world: world(),
     players: [],
-    projectiles: [],
+    instances: [],
     ramCooldowns: new Map(),
-    projectileSeq: 0,
+    instanceSeq: 0,
     ...over,
   });
 }
@@ -79,147 +75,245 @@ function find(result: { players: CombatPlayer[] }, sessionId: string): CombatPla
 }
 
 describe("firing", () => {
-  it("spawns one shot at the muzzle, on the car's facing", () => {
-    const result = run({ players: [player("a", { fired: true, x: 400, y: OPEN_Y, angle: 0 })] });
-    expect(result.projectiles).toHaveLength(1);
-    const shot = result.projectiles[0]!;
-    expect(shot.x).toBeCloseTo(400 + muzzleOffset(), 6);
-    expect(shot.y).toBeCloseTo(OPEN_Y, 6);
-    expect(shot.angle).toBe(0);
-    expect(shot.speed).toBe(WEAPON_CONFIG.projectileSpeed);
-    expect(shot.ownerSessionId).toBe("a");
-    expect(shot.spawnTick).toBe(100);
-  });
+  /**
+   * Local, single-argument shape: every case here only needs one shooter with `fireMask` set (or
+   * not), so overriding a bag of defaults reads better than threading a positional `sessionId`
+   * through every call. Deliberately shadows the file-wide two-argument `player` above, which the
+   * other describe blocks still use.
+   */
+  function player(over: Partial<CombatPlayer> = {}): CombatPlayer {
+    return {
+      sessionId: "aaa",
+      x: 300,
+      y: OPEN_Y,
+      angle: 0,
+      team: 0,
+      carId: "rectangle",
+      hp: hpOf("rectangle"),
+      alive: true,
+      inRoster: true,
+      fireMask: 0,
+      fireState: newFireState("rectangle", 1),
+      ...over,
+    };
+  }
 
-  it("puts the shooter on cooldown", () => {
-    const result = run({ players: [player("a", { fired: true })] });
-    expect(find(result, "a").weaponCooldown).toBe(fireCooldownTicks());
-  });
-
-  it("gates the rate: holding fire yields one shot per cooldown, not one per tick", () => {
-    let players: CombatPlayer[] = [player("a", { fired: true })];
-    let projectiles: Proj[] = [];
-    let seq = 0;
-    let shotsFired = 0;
-
-    for (let tick = 100; tick < 100 + fireCooldownTicks() * 3; tick++) {
-      const before = projectiles.length;
-      const result = runCombat({
-        world: world({ tick }),
-        players,
-        // Only the firing behaviour is under test; shots in flight are dropped each tick so the
-        // count below is "spawned this tick" rather than "still alive".
-        projectiles: [],
-        ramCooldowns: new Map(),
-        projectileSeq: seq,
-      });
-      players = result.players.map((p) => ({ ...p, fired: true }));
-      projectiles = result.projectiles;
-      seq = result.projectileSeq;
-      if (projectiles.length > before) shotsFired++;
-    }
-
-    expect(shotsFired).toBe(3);
-  });
-
-  it("gives every shot a distinct id", () => {
-    const first = run({ players: [player("a", { fired: true })], projectileSeq: 0 });
-    const second = run({
-      players: [player("a", { fired: true })],
-      projectileSeq: first.projectileSeq,
+  it("spawns one instance at the muzzle when slot 1 is pressed", () => {
+    const result = runCombat({
+      world: world(),
+      players: [player({ fireMask: 0b001 })],
+      instances: [],
+      ramCooldowns: new Map(),
+      instanceSeq: 0,
     });
-    expect(second.projectiles[0]!.id).not.toBe(first.projectiles[0]!.id);
-    expect(second.projectileSeq).toBe(2);
+    expect(result.instances).toHaveLength(1);
+    expect(result.instances[0]!.weaponId).toBe("cannon");
   });
 
-  it("does not fire for a wreck", () => {
-    const result = run({ players: [player("a", { fired: true, alive: false, hp: 0 })] });
-    expect(result.projectiles).toHaveLength(0);
+  it("does not fire again inside the cooldown, held or tapped", () => {
+    const state: CombatInput = {
+      world: world(),
+      players: [player({ fireMask: 0b001 })],
+      instances: [],
+      ramCooldowns: new Map(),
+      instanceSeq: 0,
+    };
+    const first = runCombat(state);
+    const second = runCombat({
+      world: world({ tick: 101 }),
+      players: first.players.map((p) => ({ ...p, fireMask: 0b001 })),
+      instances: first.instances,
+      ramCooldowns: first.ramCooldowns,
+      instanceSeq: first.instanceSeq,
+    });
+    expect(second.instances.filter((i) => i.spawnTick === 101)).toHaveLength(0);
+  });
+
+  it("fires nothing for a player with no chassis", () => {
+    const result = runCombat({
+      world: world(),
+      players: [player({ carId: "", fireState: newFireState("", 1), fireMask: 0b001 })],
+      instances: [],
+      ramCooldowns: new Map(),
+      instanceSeq: 0,
+    });
+    expect(result.instances).toEqual([]);
   });
 
   it("does not fire for a player who is not on the roster", () => {
-    const result = run({ players: [player("a", { fired: true, inRoster: false })] });
-    expect(result.projectiles).toHaveLength(0);
+    const result = runCombat({
+      world: world(),
+      players: [player({ fireMask: 0b001, inRoster: false })],
+      instances: [],
+      ramCooldowns: new Map(),
+      instanceSeq: 0,
+    });
+    expect(result.instances).toEqual([]);
   });
 
-  it("does not fire before the reveal, when there is no chassis yet", () => {
-    const result = run({ players: [player("a", { fired: true, carId: "" })] });
-    expect(result.projectiles).toHaveLength(0);
+  it("cancels a wrecked player's pending burst and kills their attached beams", () => {
+    const wrecked = player({
+      hp: 0,
+      alive: false,
+      fireState: {
+        ...newFireState("rectangle", 1),
+        pending: { weaponId: "cannon", slot: 0, shotsLeft: 2, nextShotTick: 100 },
+      },
+    });
+    const result = runCombat({
+      world: world(),
+      players: [wrecked],
+      instances: [],
+      ramCooldowns: new Map(),
+      instanceSeq: 0,
+    });
+    expect(result.players[0]!.fireState.pending).toBeNull();
+    expect(result.instances).toEqual([]);
   });
 
-  it("counts down an existing cooldown without firing", () => {
-    const result = run({ players: [player("a", { fired: true, weaponCooldown: 5 })] });
-    expect(result.projectiles).toHaveLength(0);
-    expect(find(result, "a").weaponCooldown).toBe(4);
+  it("drops an attached beam owned by a wreck but leaves an unattached instance alone", () => {
+    // No beam weapon ships in WEAPON_TABLE yet, so this hand-builds instances directly rather than
+    // going through `spawnInstances` — `runCombat`'s ownership gate reads only `instance.attached`
+    // and `instance.ownerSessionId`, not the weapon's own `kind`, so this still exercises the real
+    // code path.
+    const attachedBeam: WeaponInstance = {
+      id: "beam-1",
+      ownerSessionId: "aaa",
+      ownerTeam: 0,
+      weaponId: "cannon",
+      kind: "beam",
+      x: 300,
+      y: OPEN_Y,
+      angle: 0,
+      extent: 10,
+      spawnTick: 90,
+      distance: 0,
+      pierceLeft: 0,
+      attached: true,
+      damageClock: new Map(),
+      alive: true,
+    };
+    const inFlightShot: WeaponInstance = {
+      ...attachedBeam,
+      id: "shot-1",
+      kind: "projectile",
+      attached: false,
+      x: 500,
+    };
+    const result = runCombat({
+      world: world(),
+      players: [player({ hp: 0, alive: false })],
+      instances: [attachedBeam, inFlightShot],
+      ramCooldowns: new Map(),
+      instanceSeq: 0,
+    });
+    const ids = result.instances.map((i) => i.id);
+    expect(ids).not.toContain("beam-1");
+    expect(ids).toContain("shot-1");
   });
 
-  it("never drives the cooldown below zero", () => {
-    const result = run({ players: [player("a", { weaponCooldown: 0 })] });
-    expect(find(result, "a").weaponCooldown).toBe(0);
+  it("still lands the migrated cannon's damage on a car in front", () => {
+    const shooter = player({ sessionId: "aaa", x: 300, fireMask: 0b001 });
+    // A fresh press spawns its instance at the muzzle and is hit-tested THIS tick, without a tick of
+    // travel — so a same-tick hit is necessarily point-blank. `cannon`'s hitbox is a 3-unit-radius
+    // circle sitting exactly on the shooter's own hull edge, and `COMBAT_CONFIG.ramContactPad` is 1
+    // unit each side, so any target within (0, 3] units of that edge overlaps the shot; only a
+    // target beyond 2 units (the padded contact threshold) is clear of a simultaneous ram. 50.5
+    // (0.5 units inside the disc, comfortably outside the ±1 pad) isolates the cannon's own damage
+    // from the ramming half of `runCombat`, which is exercised on its own below.
+    const target = player({ sessionId: "bbb", x: 300 + 50.5, fireMask: 0 });
+    const result = runCombat({
+      world: world(),
+      players: [shooter, target],
+      instances: [],
+      ramCooldowns: new Map(),
+      instanceSeq: 0,
+    });
+    const hit = result.players.find((p) => p.sessionId === "bbb")!;
+    expect(hit.hp).toBe(hpOf("rectangle") - WEAPON_TABLE.cannon.damage);
   });
 
-  it("does not mutate the caller's players or projectiles", () => {
-    const players = [player("a", { fired: true })];
-    const projectiles: Proj[] = [];
-    run({ players, projectiles });
-    expect(players[0]!.weaponCooldown).toBe(0);
-    expect(projectiles).toHaveLength(0);
+  it("does not mutate the caller's players or instances", () => {
+    const fireState = newFireState("rectangle", 1);
+    const players = [player({ fireMask: 0b001, fireState })];
+    const instances: WeaponInstance[] = [];
+    runCombat({
+      world: world(),
+      players,
+      instances,
+      ramCooldowns: new Map(),
+      instanceSeq: 0,
+    });
+    expect(fireState.pending).toBeNull();
+    expect(fireState.slots[0]!.stocks).toBe(1);
+    expect(instances).toHaveLength(0);
   });
 });
 
 describe("shots in flight", () => {
-  const flying = (over: Partial<Proj> = {}): Proj => ({
+  const flying = (over: Partial<WeaponInstance> = {}): WeaponInstance => ({
     id: "p1",
     ownerSessionId: "a",
+    ownerTeam: 0,
+    weaponId: "cannon",
+    kind: "projectile",
     x: 400,
     y: OPEN_Y,
     angle: 0,
-    speed: WEAPON_CONFIG.projectileSpeed,
+    extent: 0,
     spawnTick: 100,
+    distance: 0,
+    pierceLeft: 0,
+    attached: false,
+    damageClock: new Map(),
     alive: true,
     ...over,
   });
 
   it("advances a shot by one tick of travel", () => {
-    const result = run({ projectiles: [flying()] });
-    expect(result.projectiles[0]!.x).toBeCloseTo(400 + WEAPON_CONFIG.projectileSpeed * DT, 6);
+    const result = run({ instances: [flying()] });
+    expect(result.instances[0]!.x).toBeCloseTo(400 + WEAPON_TABLE.cannon.speed * DT, 6);
   });
 
-  it("drops a shot that has outlived its lifetime", () => {
-    const result = run({
-      world: world({ tick: 100 + WEAPON_CONFIG.lifetimeTicks }),
-      projectiles: [flying({ spawnTick: 100 })],
-    });
-    expect(result.projectiles).toHaveLength(0);
+  it("drops a shot that has outlived its range", () => {
+    const result = run({ instances: [flying({ distance: WEAPON_TABLE.cannon.range })] });
+    expect(result.instances).toHaveLength(0);
   });
 
   it("drops a shot that flies into an obstacle", () => {
     const box = TEST_BOX;
-    const justShort = box.x - WEAPON_CONFIG.projectileSpeed * DT + 1;
+    const justShort = box.x - WEAPON_TABLE.cannon.speed * DT + 1;
     const result = run({
       world: world({ obstacles: [box] }),
-      projectiles: [flying({ x: justShort, y: box.y + box.h / 2 })],
+      instances: [flying({ x: justShort, y: box.y + box.h / 2 })],
     });
-    expect(result.projectiles).toHaveLength(0);
+    expect(result.instances).toHaveLength(0);
   });
 
   it("drops a shot that leaves the arena", () => {
-    const result = run({ projectiles: [flying({ x: ARENA_01.width - 1 })] });
-    expect(result.projectiles).toHaveLength(0);
+    const result = run({ instances: [flying({ x: ARENA_01.width - 1 })] });
+    expect(result.instances).toHaveLength(0);
   });
 });
 
 describe("shots landing", () => {
   /** A shot one tick of travel short of the target's centre. */
-  function aimedAt(target: CombatPlayer, ownerSessionId: string): Proj {
+  function aimedAt(target: CombatPlayer, ownerSessionId: string, ownerTeam: 0 | 1 = 0): WeaponInstance {
     return {
       id: "p1",
       ownerSessionId,
-      x: target.x - WEAPON_CONFIG.projectileSpeed * DT,
+      ownerTeam,
+      weaponId: "cannon",
+      kind: "projectile",
+      x: target.x - WEAPON_TABLE.cannon.speed * DT,
       y: target.y,
       angle: 0,
-      speed: WEAPON_CONFIG.projectileSpeed,
+      extent: 0,
       spawnTick: 100,
+      distance: 0,
+      pierceLeft: 0,
+      attached: false,
+      damageClock: new Map(),
       alive: true,
     };
   }
@@ -228,17 +322,17 @@ describe("shots landing", () => {
     const target = player("b", { x: 800 });
     const result = run({
       players: [player("a"), target],
-      projectiles: [aimedAt(target, "a")],
+      instances: [aimedAt(target, "a")],
     });
-    expect(find(result, "b").hp).toBe(hpOf("rectangle") - WEAPON_CONFIG.damage);
-    expect(result.projectiles).toHaveLength(0);
+    expect(find(result, "b").hp).toBe(hpOf("rectangle") - WEAPON_TABLE.cannon.damage);
+    expect(result.instances).toHaveLength(0);
   });
 
   it("never damages the shooter", () => {
     const shooter = player("a", { x: 800 });
-    const result = run({ players: [shooter], projectiles: [aimedAt(shooter, "a")] });
+    const result = run({ players: [shooter], instances: [aimedAt(shooter, "a")] });
     expect(find(result, "a").hp).toBe(hpOf("rectangle"));
-    expect(result.projectiles).toHaveLength(1);
+    expect(result.instances).toHaveLength(1);
   });
 
   it("passes through a teammate in team mode", () => {
@@ -246,10 +340,10 @@ describe("shots landing", () => {
     const result = run({
       world: world({ mode: "team" }),
       players: [player("a", { team: 0 }), target],
-      projectiles: [aimedAt(target, "a")],
+      instances: [aimedAt(target, "a")],
     });
     expect(find(result, "b").hp).toBe(hpOf("rectangle"));
-    expect(result.projectiles).toHaveLength(1);
+    expect(result.instances).toHaveLength(1);
   });
 
   it("damages an enemy in team mode", () => {
@@ -257,29 +351,29 @@ describe("shots landing", () => {
     const result = run({
       world: world({ mode: "team" }),
       players: [player("a", { team: 0 }), target],
-      projectiles: [aimedAt(target, "a")],
+      instances: [aimedAt(target, "a")],
     });
-    expect(find(result, "b").hp).toBe(hpOf("rectangle") - WEAPON_CONFIG.damage);
+    expect(find(result, "b").hp).toBe(hpOf("rectangle") - WEAPON_TABLE.cannon.damage);
   });
 
   it("damages a same-team id in ffa, where teams mean nothing", () => {
     const target = player("b", { x: 800, team: 0 });
     const result = run({
       players: [player("a", { team: 0 }), target],
-      projectiles: [aimedAt(target, "a")],
+      instances: [aimedAt(target, "a")],
     });
-    expect(find(result, "b").hp).toBe(hpOf("rectangle") - WEAPON_CONFIG.damage);
+    expect(find(result, "b").hp).toBe(hpOf("rectangle") - WEAPON_TABLE.cannon.damage);
   });
 
   it("passes through a wreck rather than being spent on it", () => {
     const wreck = player("b", { x: 800, hp: 0, alive: false });
-    const result = run({ players: [player("a"), wreck], projectiles: [aimedAt(wreck, "a")] });
-    expect(result.projectiles).toHaveLength(1);
+    const result = run({ players: [player("a"), wreck], instances: [aimedAt(wreck, "a")] });
+    expect(result.instances).toHaveLength(1);
   });
 
   it("wrecks a car whose hp reaches zero", () => {
-    const target = player("b", { x: 800, hp: WEAPON_CONFIG.damage });
-    const result = run({ players: [player("a"), target], projectiles: [aimedAt(target, "a")] });
+    const target = player("b", { x: 800, hp: WEAPON_TABLE.cannon.damage });
+    const result = run({ players: [player("a"), target], instances: [aimedAt(target, "a")] });
     expect(find(result, "b").hp).toBe(0);
     expect(find(result, "b").alive).toBe(false);
   });
@@ -289,7 +383,7 @@ describe("shots landing", () => {
     const second = player("c", { x: 800 });
     const result = run({
       players: [player("a"), first, second],
-      projectiles: [aimedAt(first, "a")],
+      instances: [aimedAt(first, "a")],
     });
     const damaged = result.players.filter((p) => p.hp < hpOf("rectangle"));
     expect(damaged).toHaveLength(1);
@@ -303,20 +397,27 @@ describe("shots landing", () => {
     const result = run({
       world: world({ obstacles: [box] }),
       players: [player("a"), target],
-      projectiles: [
+      instances: [
         {
           id: "p1",
           ownerSessionId: "a",
-          x: box.x + box.w / 2 - WEAPON_CONFIG.projectileSpeed * DT,
+          ownerTeam: 0,
+          weaponId: "cannon",
+          kind: "projectile",
+          x: box.x + box.w / 2 - WEAPON_TABLE.cannon.speed * DT,
           y: box.y + box.h / 2,
           angle: 0,
-          speed: WEAPON_CONFIG.projectileSpeed,
+          extent: 0,
           spawnTick: 100,
+          distance: 0,
+          pierceLeft: 0,
+          attached: false,
+          damageClock: new Map(),
           alive: true,
         },
       ],
     });
-    expect(result.projectiles).toHaveLength(0);
+    expect(result.instances).toHaveLength(0);
     expect(find(result, "b").hp).toBe(hpOf("rectangle"));
   });
 });
@@ -568,9 +669,9 @@ describe("ramming, driven through the real sim", () => {
         { ...state.players[0]!, x: a.x, y: a.y, angle: a.angle },
         { ...state.players[1]!, x: b.x, y: b.y, angle: b.angle },
       ],
-      projectiles: [],
+      instances: [],
       ramCooldowns: state.cooldowns,
-      projectileSeq: 0,
+      instanceSeq: 0,
     });
     return { a, b, players: result.players, cooldowns: result.ramCooldowns };
   }

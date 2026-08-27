@@ -44,16 +44,29 @@ export {
   pointInObb,
   resolveWorld,
 } from "./sim/collide.js";
-export { fireCooldownTicks, muzzleOffset, runCombat } from "./sim/combat.js";
+export { runCombat } from "./sim/combat.js";
 export type { CombatInput, CombatPlayer, CombatResult, CombatWorld } from "./sim/combat.js";
+export { canDamage } from "./sim/weapons/targets.js";
 export {
-  canDamage,
-  projectileExpired,
-  projectileHitsCar,
-  projectileHitsObstacle,
-  stepProjectile,
-} from "./sim/projectiles.js";
-export type { Proj } from "./sim/projectiles.js";
+  beginFire,
+  cancelPending,
+  newFireState,
+  releaseShots,
+  tickRecharge,
+} from "./sim/weapons/fire.js";
+export type { FireState, PendingFire, SlotState } from "./sim/weapons/fire.js";
+export {
+  instanceExpired,
+  muzzleOffset,
+  spawnInstances,
+  stepInstance,
+  wallClipDistance,
+} from "./sim/weapons/instances.js";
+export type { ShotOrder, WeaponInstance } from "./sim/weapons/instances.js";
+export { resolveInstanceHits } from "./sim/weapons/hits.js";
+export type { PoseEntry, PoseSnapshot } from "./sim/weapons/hits.js";
+export { beamShapeAt, projectileShapeAt, shapeHitsObb, smear } from "./sim/weapons/shapes.js";
+export type { WorldShape } from "./sim/weapons/shapes.js";
 export type { Aabb, Bounds, Obb, Vec2 } from "./sim/collide.js";
 export { carHullOf, carIdOf, isOnField, otherCarHulls } from "./sim/context.js";
 export type { ContextEntry, ContextPlayer } from "./sim/context.js";
@@ -68,7 +81,7 @@ export {
   reverseMaxSpeedOf,
 } from "./config/car-config.js";
 export { COLOR_TABLE } from "./config/color-config.js";
-export { WEAPON_CONFIG, WEAPON_TABLE, isWeaponId, weaponDefOf } from "./config/weapon-config.js";
+export { WEAPON_TABLE, isWeaponId, weaponDefOf } from "./config/weapon-config.js";
 export type {
   BeamHitbox,
   BeamWeaponDef,

@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { CAR_TABLE, DEFAULT_CAR_ID, hpOf, forwardMaxSpeedOf, isCarId } from "./car-config.js";
 import type { CarId } from "./types.js";
 import { COLOR_TABLE } from "./color-config.js";
-import { WEAPON_CONFIG } from "./weapon-config.js";
 import { COMBAT_CONFIG } from "./combat-config.js";
 import { CAMERA_CONFIG, DRIVE_CONFIG } from "./drive-config.js";
 import { FLOW_CONFIG } from "./flow-config.js";
@@ -59,12 +58,6 @@ describe("COLOR_TABLE", () => {
 });
 
 describe("weapon / combat / drive / flow knobs exist", () => {
-  it("weapon defaults", () => {
-    expect(WEAPON_CONFIG.damage).toBe(8);
-    expect(WEAPON_CONFIG.fireRateHz).toBe(2);
-    expect(WEAPON_CONFIG.projectileSpeed).toBe(900);
-    expect(WEAPON_CONFIG.lifetimeTicks).toBe(30);
-  });
   it("combat defaults", () => {
     expect(COMBAT_CONFIG.collisionDamagePerStrength).toBe(1);
     expect(COMBAT_CONFIG.ramDotThreshold).toBe(0.5);
