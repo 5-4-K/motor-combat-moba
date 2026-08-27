@@ -118,6 +118,11 @@ export function applyCombatResult(state: ArenaState, result: CombatResult, memor
     player.alive = p.alive;
     player.level = p.fireState.level;
     player.switchLockUntilTick = p.fireState.switchLockUntilTick;
+    // The two halves of the car-wide lockout the HUD cannot derive from slot rows: a live wind-up or
+    // volley, and which slot owns the recovery it is exempt from. `pending` itself stays server-only
+    // (like `damageClock` and `pierceLeft`) — only the tick it next fires on crosses the wire.
+    player.pendingUntilTick = p.fireState.pending?.nextShotTick ?? 0;
+    player.lastFiredSlot = p.fireState.lastFiredSlot;
     writeSlots(player, p.fireState);
   }
 

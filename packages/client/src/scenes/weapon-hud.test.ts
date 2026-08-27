@@ -62,6 +62,14 @@ describe("slot state", () => {
     expect(slotVisualState(slot, cannon, 1, 150, null, 100, true)).toBe("ready");
   });
 
+  it("reads car-locked, not ready, for a mid-volley slot with no stock and no timer yet", () => {
+    // `beginFire` spends the stock at press time and `releaseShots` does not write
+    // `rechargeEndsTick` until the volley's LAST shot, so a burst sits at `stocks: 0` with no timer
+    // for its whole duration. The pending — `PlayerState.pendingUntilTick` on the wire — is the only
+    // thing separating that from a genuinely ready slot.
+    expect(slotVisualState({ stocks: 0, rechargeEndsTick: 0 }, cannon, 1, 0, { slot: 0 }, 100)).toBe("car-locked");
+  });
+
   it("dims a locked slot harder than a recharging one", () => {
     expect(HUD_DIM.locked).toBeLessThan(HUD_DIM.recharging);
   });

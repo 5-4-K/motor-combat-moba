@@ -22,4 +22,16 @@ export class PlayerState extends Schema {
   @type([WeaponSlotState]) weapons = new ArraySchema<WeaponSlotState>();
   @type("uint32") switchLockUntilTick = 0;
   @type("uint8") level = 1;
+  /**
+   * Tick the car's committed press next puts a shot out — a wind-up or the next volley of a burst.
+   * `0` means nothing is pending, and so does any tick already passed: the HUD reads "this car is
+   * mid-press" as `tick < pendingUntilTick`, which stays right between two patches at 20 Hz.
+   */
+  @type("uint32") pendingUntilTick = 0;
+  /**
+   * Slot index the car most recently committed to firing, or `-1` before its first shot — hence
+   * `int8` rather than a uint8 sentinel: -1 is the natural "never" for an index, and slot counts are
+   * capped at `WEAPON_SLOT_CONFIG.maxWeaponSlots` (3), nowhere near the type's range.
+   */
+  @type("int8") lastFiredSlot = -1;
 }

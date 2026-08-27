@@ -74,15 +74,14 @@ never raw ms. The cost is rounding, not drift: at 30 Hz a tick is 33.3 ms, so `s
 becomes 8 ticks (266 ms) — server and client both compute it from the same built `dist`, so they
 always round the same way or neither does.
 
-**Adding a weapon with a real wind-up, burst, or recovery window is a wire change, not just a
-config edit.** Every weapon shipped today has `startUpMs: 0` and `volleys: 1`, and the only weapon
-with `recoveryMs > 0` (`repeater`) is carried by no car — which is exactly what lets the HUD skip
-networking `fire.ts`'s `pending` and `lastFiredWeaponId` today. The first weapon placed in a
-`CAR_TABLE` loadout with `startUpMs > 0`, `volleys > 1`, or `recoveryMs > 0` needs
-`PlayerState.pendingUntilTick` and `lastFiredSlot` added to the schema first, or its wind-up,
-mid-volley gap, or recovery window will not dim the HUD the way it should. See
-[`schema-reference.md`](schema-reference.md#weaponslotstate) for the exact gap and the call sites
-that already comment it.
+**Adding a weapon with a real wind-up, burst, or recovery window is a config edit and nothing
+else.** Every weapon shipped today has `startUpMs: 0` and `volleys: 1`, and the only weapon with
+`recoveryMs > 0` (`repeater`) is carried by no car, so nothing in the roster exercises those paths —
+but the wire carries what they need: `PlayerState.pendingUntilTick` and `PlayerState.lastFiredSlot`
+give the HUD the car-wide lockout, and the slot's recharge is anchored to the volley's last shot, so
+`cooldownMs` still means "time until another stock" for a burst weapon. Nothing about a first
+`startUpMs > 0`, `volleys > 1`, or `recoveryMs > 0` weapon requires a schema change. See
+[`schema-reference.md`](schema-reference.md#weaponslotstate) for the two fields.
 
 ## WEAPON_SLOT_CONFIG
 

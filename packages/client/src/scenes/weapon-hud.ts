@@ -33,6 +33,12 @@ export function countdownSeconds(endsTick: number, tick: number): number | null 
 /**
  * Which of the four looks this slot wears. Precedence matters: a locked weapon reads as locked even
  * mid-recovery, because "you do not have this yet" outranks "you cannot act this instant".
+ *
+ * `pending` is the car's live wind-up/volley, derived by the caller from `PlayerState`'s
+ * `pendingUntilTick` (`tick < pendingUntilTick`); `isLastFired` is `index === lastFiredSlot`. Both
+ * are car-wide facts no slot row carries, which is why they arrive as arguments. Only whether
+ * `pending` is present is read here — every slot is locked during a press, not just the firing one
+ * (D3) — but it carries the slot so a future look can single that one out.
  */
 export function slotVisualState(
   slot: { stocks: number; rechargeEndsTick: number },
@@ -48,13 +54,13 @@ export function slotVisualState(
   if (pending !== null) return "car-locked";
   if (!isLastFired && tick < switchLockUntilTick) return "car-locked";
   if (slot.stocks === 0 && slot.rechargeEndsTick !== 0) return "recharging";
-  // Falls through to "ready" for `stocks === 0 && rechargeEndsTick === 0` too. Unreachable today
-  // (every carried weapon resolves within one tick), but NOT unreachable in general: mid-volley,
-  // `beginFire` (fire.ts) zeroes `stocks` immediately while `rechargeEndsTick` stays 0 until the
-  // volley's last shot. A weapon with `volleys > 1` and a multi-tick `volleyInterval` would sit in
-  // exactly that state for several ticks, and this fall-through would draw it full-brightness
-  // "ready" while it has nothing left to fire. See the call site in ArenaScene.ts (`drawHudSlot`)
-  // for the fix this needs alongside the car-locked wiring gap.
+  // Falls through to "ready" for `stocks === 0 && rechargeEndsTick === 0` as well, which is now
+  // covered rather than merely rare: mid-volley `beginFire` (fire.ts) zeroes `stocks` immediately
+  // while `rechargeEndsTick` stays 0 until the volley's last shot, so a `volleys > 1` weapon sits in
+  // that combination for the whole burst — and every one of those ticks has a live `pending`, which
+  // the "car-locked" branch above returns on first. The pending check must therefore keep
+  // outranking the stock checks, and the caller must pass a REAL pending (`PlayerState`'s
+  // `pendingUntilTick`), not `null`, or a slot with nothing left to fire draws full brightness.
   return "ready";
 }
 

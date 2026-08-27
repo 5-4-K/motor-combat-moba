@@ -28,6 +28,8 @@ describe("PlayerState", () => {
     expect(p.weapons.length).toBe(0);
     expect(p.switchLockUntilTick).toBe(0);
     expect(p.level).toBe(1);
+    expect(p.pendingUntilTick).toBe(0);
+    expect(p.lastFiredSlot).toBe(-1); // int8: -1 is "has never fired", not a slot index
     expect(p).not.toHaveProperty("pendingCarId");
     expect(p).not.toHaveProperty("weaponCooldown");
   });

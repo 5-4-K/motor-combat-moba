@@ -39,6 +39,8 @@ Colyseus `@type` fields. Enums are explicit uint8; never renumber. `pendingCarId
 | `weapons` | array `WeaponSlotState` | empty | Per-slot state; array **position** is the slot index |
 | `switchLockUntilTick` | uint32 | `0` | Tick a DIFFERENT weapon may fire; the weapon that just fired instead is gated by its own slot's `refireLockUntilTick` |
 | `level` | uint8 | `1` | In-match level; pinned to 1 until the level system exists. Gates `unlocksAt` |
+| `pendingUntilTick` | uint32 | `0` | Tick a committed press next puts a shot out (wind-up, or the next volley of a burst). `0` = nothing pending; the HUD reads mid-press as `tick < pendingUntilTick` |
+| `lastFiredSlot` | int8 | `-1` | Slot the car most recently committed to firing; `-1` = never fired. Signed because `-1` is the natural "never" for an index |
 
 `weaponCooldown` (a single counter for the one pre-weapon-system shot) is gone — replaced by
 `weapons` above, one row per slot.
@@ -80,21 +82,16 @@ matching `CAR_TABLE[car].weapons`' own ordering (index 0 = slot 1). Populated wh
 revealed; a player with no chassis yet (or an unrecognised `carId`) has an empty array and can fire
 nothing.
 
-**Two fields this design deliberately left off the wire.** `fire.ts`'s `FireState` also tracks
-`pending` (the in-progress wind-up/volley) and `lastFiredWeaponId`, and neither was networked. That
-is provably harmless against today's shipped `WEAPON_TABLE` — every weapon has `startUpMs: 0` and
-`volleys: 1`, so a press resolves within the tick it is pressed, and the only weapon with
-`recoveryMs > 0` (`repeater`) is carried by no car, so `switchLockUntilTick` never outlives the tick
-it was set on for any equipped weapon. The first weapon placed in a `CAR_TABLE` loadout with
-`startUpMs > 0`, `volleys > 1`, or `recoveryMs > 0` needs two more fields added here —
-`PlayerState.pendingUntilTick` and `lastFiredSlot` — and the client's HUD updated to read them, or
-the car-wide lockout dim (see [`combat-model.md`](combat-model.md#what-the-client-shows)) silently
-stops appearing during that weapon's wind-up, mid-volley gap, or recovery window. The same change
-should also fix a related gap: mid-volley, a slot's
-`stocks` reaches 0 before `rechargeEndsTick` is set (which only happens on the volley's last shot),
-and the HUD currently reads that combination as "ready" rather than "nothing left to fire." Both
-gaps are commented at their exact call sites — `ArenaScene.drawHudSlot` and `weapon-hud.ts`'s
-`slotVisualState` — in `packages/client/src`.
+**What a slot row cannot say.** Two facts the car-wide lockout needs are per *car*, not per slot, so
+they live on `PlayerState` rather than here: `pendingUntilTick` and `lastFiredSlot` (both above).
+`fire.ts`'s `pending` machine itself stays server-only — like `damageClock` and `pierceLeft` — and
+only the tick it next fires on crosses the wire.
+
+With those two, a weapon with `startUpMs > 0`, `volleys > 1`, or `recoveryMs > 0` is a `CAR_TABLE`
+edit and nothing else: the HUD dims every slot through a wind-up or volley and the other slots
+through recovery, and a mid-volley slot — `stocks` already spent at press time, `rechargeEndsTick`
+not written until the volley's last shot — reads as locked rather than as a full-brightness "ready"
+slot with nothing left to fire.
 
 ## InputMessage.fireSlots
 

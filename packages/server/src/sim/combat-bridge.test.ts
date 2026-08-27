@@ -289,6 +289,27 @@ describe("applyCombatResult", () => {
     expect(player.switchLockUntilTick).toBe(42);
   });
 
+  it("writes the two car-wide HUD fields: the pending's next shot tick and the last-fired slot", () => {
+    const state = new ArenaState();
+    const player = playerIn(state, "a");
+    const fireState = {
+      ...newFireState("rectangle", 1),
+      lastFiredSlot: 0,
+      pending: { weaponId: "cannon" as const, slot: 0, shotsLeft: 2, nextShotTick: 205 },
+    };
+    applyCombatResult(state, result({ players: [combatPlayerFor(player, { fireState })] }), newCombatMemory());
+    expect(player.pendingUntilTick).toBe(205);
+    expect(player.lastFiredSlot).toBe(0);
+  });
+
+  it("zeroes pendingUntilTick when nothing is pending, so the HUD never sees a stale wind-up", () => {
+    const state = new ArenaState();
+    const player = playerIn(state, "a", { pendingUntilTick: 205 });
+    const fireState = { ...newFireState("rectangle", 1), lastFiredSlot: 0 };
+    applyCombatResult(state, result({ players: [combatPlayerFor(player, { fireState })] }), newCombatMemory());
+    expect(player.pendingUntilTick).toBe(0);
+  });
+
   it("resizes the slot array down when a rebuilt fire state has fewer slots", () => {
     const state = new ArenaState();
     const player = playerIn(state, "a");
