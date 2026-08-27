@@ -136,9 +136,35 @@ describe("toCombatPlayers", () => {
     playerIn(state, "aaa");
     const memory = newCombatMemory();
     const first = toCombatPlayers(state, new Set(["aaa"]), new Map(), memory)[0]!.fireState;
-    // Mutate memory the way applyCombatResult would, so reuse is genuinely observable.
+    // Mutate memory the way applyCombatResult would, so reuse is genuinely observable: a rebuild
+    // hands back a fresh single-stock slot with every clock at zero, and would lose all of this.
+    memory.fireStates.set("aaa", {
+      ...first,
+      switchLockUntilTick: 77,
+      lastFiredSlot: 0,
+      slots: [{ ...first.slots[0]!, stocks: 0, rechargeEndsTick: 120 }],
+    });
     const second = toCombatPlayers(state, new Set(["aaa"]), new Map(), memory)[0]!.fireState;
-    expect(second).toBe(first);
+    expect(second.switchLockUntilTick).toBe(77);
+    expect(second.lastFiredSlot).toBe(0);
+    expect(second.slots[0]!.stocks).toBe(0);
+    expect(second.slots[0]!.rechargeEndsTick).toBe(120);
+  });
+
+  it("re-reads level from the schema onto a reused fire state, so a level-up survives a tick", () => {
+    // `applyCombatResult` writes `player.level = fireState.level` unconditionally. Reading the level
+    // only on a rebuild would make a cached fire state overwrite the schema every tick, reverting
+    // whatever a future level-up wrote (D14).
+    const state = new ArenaState();
+    const player = playerIn(state, "aaa");
+    const memory = newCombatMemory();
+    toCombatPlayers(state, new Set(["aaa"]), new Map(), memory);
+
+    player.level = 2; // as levelling would write it, between two ticks
+    const players = toCombatPlayers(state, new Set(["aaa"]), new Map(), memory);
+    expect(players[0]!.fireState.level).toBe(2); // it reached the sim...
+    applyCombatResult(state, result({ players }), memory);
+    expect(player.level).toBe(2); // ...and the write-back did not revert it
   });
 
   it("rebuilds fire state when a player's chassis changes, including the reveal from \"\" to a real car", () => {

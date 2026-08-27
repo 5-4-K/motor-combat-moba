@@ -57,7 +57,11 @@ export interface FireState {
    */
   lastFiredSlot: number;
   pending: PendingFire | null;
-  /** In-match level. Pinned to 1 until the level system exists (D14). */
+  /**
+   * In-match level, gating `unlocksAt`. Mirrored from `PlayerState.level` on every tick by the
+   * server bridge rather than owned here, so whatever eventually moves the schema field moves this
+   * one with it (D14). Nothing moves it off 1 today.
+   */
   level: number;
 }
 

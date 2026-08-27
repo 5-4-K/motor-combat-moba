@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { WEAPON_TABLE, isWeaponId, weaponDefOf } from "./weapon-config.js";
+import type { WeaponDef } from "./weapon-types.js";
 
 describe("WEAPON_TABLE", () => {
   it("ships the migrated cannon with today's numbers", () => {
@@ -29,8 +30,9 @@ describe("WEAPON_TABLE", () => {
     });
   });
 
-  it("validates every row: positive stats, unlocksAt >= 1", () => {
-    for (const def of Object.values(WEAPON_TABLE)) {
+  it("validates every row: positive stats, unlocksAt >= 1, volley counts >= 1, cone angle in (0, 180)", () => {
+    const rows: WeaponDef[] = Object.values(WEAPON_TABLE);
+    for (const def of rows) {
       expect(def.unlocksAt).toBeGreaterThanOrEqual(1);
       expect(def.damage).toBeGreaterThan(0);
       expect(def.speed).toBeGreaterThan(0);
@@ -39,6 +41,22 @@ describe("WEAPON_TABLE", () => {
       if (def.stock) {
         expect(def.stock.max).toBeGreaterThanOrEqual(2);
         expect(def.stock.refireDelayMs).toBeGreaterThanOrEqual(0);
+      }
+      if (def.kind === "projectile") {
+        // Both counts are loop bounds in `spawnInstances`/`releaseShots`, and both fail silently
+        // rather than loudly: `pelletsPerVolley: 0` spawns nothing at all for a press that still
+        // spends its stock, and `volleys: 0` fires exactly one shot (the first release always
+        // emits) instead of none.
+        expect(def.volley.volleys).toBeGreaterThanOrEqual(1);
+        expect(def.volley.pelletsPerVolley).toBeGreaterThanOrEqual(1);
+        expect(def.volley.spreadAngleDeg).toBeGreaterThanOrEqual(0);
+      }
+      // Dormant until the first beam row ships, and deliberately written now rather than then: a
+      // cone's half-angle goes through `Math.tan`, so `angleDeg: 180` yields an infinite spread and
+      // an all-NaN polygon that SAT silently reports as hitting nothing, and `0` a zero-area cone.
+      if (def.kind === "beam" && def.hitbox.shape === "cone") {
+        expect(def.hitbox.angleDeg).toBeGreaterThan(0);
+        expect(def.hitbox.angleDeg).toBeLessThan(180);
       }
     }
   });

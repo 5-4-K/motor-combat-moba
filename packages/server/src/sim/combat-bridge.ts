@@ -47,6 +47,12 @@ export function newCombatMemory(): CombatMemory {
  * Fire state is rebuilt whenever a player's chassis changes — including the reveal, where `carId`
  * goes from "" to a real car. Keyed by session id and never networked: the client is told the
  * *result* (stocks, timers) through `WeaponSlotState`, never the machine.
+ *
+ * `level` is re-read from `PlayerState` on EVERY call, not only when the state is rebuilt.
+ * `applyCombatResult` writes `player.level = fireState.level` back unconditionally, so a cached
+ * fire state carrying a stale level would overwrite the schema every tick: whoever builds levelling
+ * would write `player.level = 2` and watch it revert to 1 on the next tick. D14 promises that
+ * making `level` move is the only new work; this is what keeps that true.
  */
 export function toCombatPlayers(
   state: ArenaState,
@@ -59,7 +65,7 @@ export function toCombatPlayers(
     const existing = memory.fireStates.get(sessionId);
     const carId = isCarId(player.carId) ? player.carId : "";
     const stale = !existing || existing.slots.map((s) => s.weaponId).join() !== slotsFor(carId).join();
-    const fireState = stale ? newFireState(carId, player.level) : existing;
+    const fireState = stale ? newFireState(carId, player.level) : { ...existing, level: player.level };
     memory.fireStates.set(sessionId, fireState);
 
     players.push({
