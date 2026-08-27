@@ -6,7 +6,7 @@ import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { CarId } from "../config/types.js";
 import { WEAPON_TABLE } from "../config/weapon-config.js";
 import { MS_PER_TICK } from "../constants.js";
-import { runCombat, type CombatInput, type CombatPlayer, type CombatWorld } from "./combat.js";
+import { aimAngleFor, runCombat, type CombatInput, type CombatPlayer, type CombatWorld } from "./combat.js";
 import { carHullOf } from "./context.js";
 import { newFireState } from "./weapons/fire.js";
 import type { WeaponInstance } from "./weapons/instances.js";
@@ -859,5 +859,51 @@ describe("aim assist through a real tick", () => {
       ],
     });
     expect(find(result, "a").lock.targetSessionId).toBe("");
+  });
+});
+
+describe("aimAngleFor", () => {
+  // Direct coverage of both branches of the per-weapon opt-in (A1). Deleting the
+  // `usesAimAssist` check entirely still passes every OTHER test in this file: `cannon` is `true`,
+  // and `repeater` -- the only `false` row in WEAPON_TABLE -- is carried by no car, so it is
+  // unreachable through `runCombat`. These two tests call `aimAngleFor` directly so the opt-out
+  // path is exercised regardless of which chassis carry which weapon.
+
+  it("returns null for a weapon with usesAimAssist: false, even with a live lock", () => {
+    const a = player("a", {
+      x: 0,
+      y: 0,
+      angle: 0,
+      lock: { ...newLockState(), targetSessionId: "b" },
+    });
+    const b = player("b", { x: 124, y: 100 });
+    const byId = new Map([
+      ["a", a],
+      ["b", b],
+    ]);
+    // "repeater" is usesAimAssist: false and exists in WEAPON_TABLE.
+    expect(aimAngleFor(a, "repeater", byId)).toBeNull();
+  });
+
+  it("returns the muzzle-derived bearing to the lock target for a weapon with usesAimAssist: true", () => {
+    const a = player("a", {
+      x: 0,
+      y: 0,
+      angle: 0,
+      lock: { ...newLockState(), targetSessionId: "b" },
+    });
+    const b = player("b", { x: 124, y: 100 });
+    const byId = new Map([
+      ["a", a],
+      ["b", b],
+    ]);
+    // Computed independently of `aimAngleFor`'s own expression, to pin the geometry rather than
+    // re-derive it: owner is at (0, 0) facing angle 0, so the muzzle sits `muzzleOffset()` units
+    // ahead along that heading. muzzleOffset() == DRIVE_CONFIG.carWidth / 2 == 48 / 2 == 24, so the
+    // muzzle is at (24, 0). Target "b" is at (124, 100), so dx = 124 - 24 = 100 and dy = 100 - 0 =
+    // 100. atan2(100, 100) = atan(1) = pi/4 radians (45 degrees).
+    const expected = Math.PI / 4;
+    // "cannon" is usesAimAssist: true.
+    expect(aimAngleFor(a, "cannon", byId)).toBeCloseTo(expected, 10);
   });
 });

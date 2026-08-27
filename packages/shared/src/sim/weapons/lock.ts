@@ -116,6 +116,13 @@ export function inRetainRegion(angleDeg: number, distance: number): boolean {
  * wreck is solid to driving but transparent to combat, so shots already pass straight through one
  * without even spending a pierce budget. Treating it as cover would drop the lock for an
  * obstruction that demonstrably does not stop the bullet.
+ *
+ * **The arena-bounds branch of the raycast really does fire, once.** `muzzleOffset()` is 24, exactly
+ * the hull's forward half-extent, and `pointOutsideBounds` is inclusive of the boundary itself. A
+ * car nose-pressed against an arena wall therefore has its muzzle sitting exactly ON that boundary:
+ * the ray's reach is 0, and it loses line of sight to everything, lock included. This is accepted,
+ * not a bug to fix here -- it degrades safely. No lock just means the weapon falls back to firing
+ * straight ahead (A11), which is already correct for a car with its nose in the wall.
  */
 export function hasLineOfSight(
   ox: number,
@@ -199,9 +206,14 @@ interface ScoredTarget {
  * Resolving all of it in one pass is what stops a released-then-re-acquired lock producing an
  * unlocked frame the HUD would flicker on.
  *
- * At tick 0 with a fresh state, `lastPressTick` is 0 and the car reads as engaged for the first
- * `AIM_TICKS.lockTimeout` ticks of a match. The only effect is slightly stickier locks in the first
- * 0.8s, before anyone has fired at all.
+ * `world.tick` is `ArenaState.tick`, which is room-monotonic and never reset per match: a match
+ * cannot begin before lobby, ready-up, car select, reveal and countdown have elapsed, so `tick` is
+ * always far greater than `AIM_TICKS.lockTimeout` by the time a match starts. A fresh `LockState`
+ * therefore reads as DISENGAGED (`ctx.tick - lastPressTick < AIM_TICKS.lockTimeout` is false at
+ * tick 0's real values), not engaged -- so locks start hysteresis-free: best score wins every tick,
+ * no steal margin, no commit window, until the driver's first fire press of the match. That is why
+ * `lastPressTick: 0` in `newLockState` is a safe initial value rather than an accident: it is simply
+ * "no press has ever happened", and it reads that way for any tick a match could plausibly start on.
  */
 export function updateLock(state: LockState, ctx: UpdateLockContext): LockState {
   if (!ctx.ownerFighting) return newLockState();
@@ -218,12 +230,20 @@ export function updateLock(state: LockState, ctx: UpdateLockContext): LockState 
     }
     const angleDeg = signedAngleDegTo(ctx.owner, target.x, target.y);
     const distance = Math.hypot(target.x - ctx.owner.x, target.y - ctx.owner.y);
+    // Gated on `inRetainRegion` rather than raycasting every candidate: it is a strict superset of
+    // both places `visible` gets read below -- the incumbent's retain test (which already requires
+    // `inRetainRegion`) and `best`'s acquire test (which requires `inAcquireRegion`, itself a subset
+    // of `inRetainRegion`). A candidate outside the wider region can satisfy neither reader, so
+    // skipping its raycast is behaviour-preserving. On arena-02 (2000x2000, ~16 obstacles) this caps
+    // the ray at `AIM_CONFIG.lockRange` + retention pads (460 units) instead of casting across the
+    // whole map, roughly a 30x reduction in traced distance.
+    const inRegion = inRetainRegion(angleDeg, distance);
     scored.push({
       sessionId: target.sessionId,
       score: lockScore(angleDeg, distance),
       angleDeg,
       distance,
-      visible: hasLineOfSight(muzzle.x, muzzle.y, target.x, target.y, ctx.obstacles, ctx.bounds),
+      visible: inRegion && hasLineOfSight(muzzle.x, muzzle.y, target.x, target.y, ctx.obstacles, ctx.bounds),
     });
   }
 
@@ -259,9 +279,10 @@ export function updateLock(state: LockState, ctx: UpdateLockContext): LockState 
   });
 
   if (!held) {
-    return best
-      ? acquire(best)
-      : { targetSessionId: "", lockedAtTick: 0, losLostSinceTick: 0, lastPressTick };
+    // Spelled as `newLockState()` plus the one field that survives, rather than all four written
+    // out: the engagement clock deliberately outlives a momentary loss of every target, so seeing
+    // `lastPressTick` singled out here is the point, not incidental.
+    return best ? acquire(best) : { ...newLockState(), lastPressTick };
   }
 
   const keep: LockState = {

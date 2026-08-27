@@ -21,7 +21,7 @@ import {
   stepInstance,
   type WeaponInstance,
 } from "./weapons/instances.js";
-import { muzzleOf, newLockState, updateLock, type LockState, type LockTarget } from "./weapons/lock.js";
+import { muzzleOf, updateLock, type LockState, type LockTarget } from "./weapons/lock.js";
 import { projectileShapeAt, smear } from "./weapons/shapes.js";
 import { canDamage } from "./weapons/targets.js";
 
@@ -158,7 +158,7 @@ export function runCombat(input: CombatInput): CombatResult {
     .map((p) => ({ sessionId: p.sessionId, team: p.team, x: p.x, y: p.y }));
 
   for (const player of players) {
-    player.lock = updateLock(player.lock ?? newLockState(), {
+    player.lock = updateLock(player.lock, {
       owner: {
         sessionId: player.sessionId,
         team: player.team,
@@ -287,7 +287,7 @@ function isFighting(player: CombatPlayer): boolean {
  * my nose" is a fact about the car's facing, but the shot leaves the nose: at a target 100 units
  * out and 40 degrees off, a centre-derived angle misses by roughly a car length.
  */
-function aimAngleFor(
+export function aimAngleFor(
   player: CombatPlayer,
   weaponId: WeaponId,
   byId: ReadonlyMap<string, CombatPlayer>,

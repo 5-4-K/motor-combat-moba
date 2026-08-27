@@ -448,12 +448,17 @@ describe("lock state across the bridge", () => {
     // The same rule that already stops a shot in flight carrying into the next match: nothing from
     // a previous match may survive into the next one.
     const state = new ArenaState();
-    playerIn(state, "a");
+    const player = playerIn(state, "a");
+    player.lockTargetSessionId = "b";
     const memory = newCombatMemory();
     memory.locks.set("a", { ...aLock });
 
     clearInstances(state, memory);
 
     expect(memory.locks.size).toBe(0);
+    // The schema half matters separately from the memory half: `ArenaScene` is on screen from
+    // COUNTDOWN onward, before combat has run a single tick, so a stale `lockTargetSessionId` would
+    // draw a lock bracket through the whole countdown of the next match.
+    expect(state.players.get("a")!.lockTargetSessionId).toBe("");
   });
 });

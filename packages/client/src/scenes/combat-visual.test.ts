@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PATCH_RATE_HZ, WEAPON_TABLE, WeaponKind, hpOf } from "@motor-combat-moba/shared";
+import {
+  DEFAULT_PATCH_RATE_HZ,
+  DRIVE_CONFIG,
+  WEAPON_TABLE,
+  WeaponKind,
+  hpOf,
+} from "@motor-combat-moba/shared";
 import {
   extrapolateShot,
   hpBarColor,
@@ -143,8 +149,9 @@ describe("lockBracketArms", () => {
   });
 
   it("clears a car hull, so the bracket frames the car rather than crossing it", () => {
-    // The hull is 48 x 32, so its half-diagonal is 29. A bracket inside that would be drawn over
-    // the sprite instead of around it.
-    expect(LOCK_BRACKET_HALF).toBeGreaterThan(Math.hypot(48, 32) / 2);
+    // Read from DRIVE_CONFIG rather than hardcoded as 48 x 32, so a chassis resize moves this
+    // assertion instead of silently leaving the bracket inside the sprite.
+    const halfDiagonal = Math.hypot(DRIVE_CONFIG.carWidth, DRIVE_CONFIG.carHeight) / 2;
+    expect(LOCK_BRACKET_HALF).toBeGreaterThan(halfDiagonal);
   });
 });

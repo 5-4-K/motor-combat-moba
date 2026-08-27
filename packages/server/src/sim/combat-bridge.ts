@@ -198,6 +198,14 @@ export function clearInstances(state: ArenaState, memory: CombatMemory): void {
   memory.instances.clear();
   memory.fireStates.clear();
   memory.locks.clear();
+  // The schema projection has to be cleared here too, separately from the memory map above: combat
+  // only runs in RoomPhase.MATCH, but ArenaScene is on screen from COUNTDOWN onward, and `endMatch`
+  // freezes whatever `lockTargetSessionId` was last written. Without this, the second match onward
+  // would draw a lock bracket through the whole countdown before a single tick of combat has run
+  // (spec A14: no lock survives a match end or setup).
+  state.players.forEach((p) => {
+    p.lockTargetSessionId = "";
+  });
 }
 
 export { runCombat };
