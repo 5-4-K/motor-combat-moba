@@ -1484,6 +1484,11 @@ Expected: PASS. If any pre-existing `combat.test.ts` fixture builds a `CombatPla
 Run: `npm run typecheck -w @motor-combat-moba/shared`
 Expected: exit 0.
 
+**Do not run the repo-wide `npm run typecheck` yet — it will fail, and that is expected.** Making
+`lock` required on `CombatPlayer` breaks two construction sites in
+`packages/server/src/sim/combat-bridge.test.ts` that Task 6 Step 1 fixes. The shared workspace is
+green on its own, which is what this step is checking.
+
 ```bash
 git add packages/shared/src/sim/weapons/instances.ts packages/shared/src/sim/weapons/instances.test.ts packages/shared/src/sim/combat.ts packages/shared/src/sim/combat.test.ts
 git commit -m "feat(sim): run the lock phase in runCombat and aim shots from it"
@@ -1510,7 +1515,20 @@ and `result(over)`, which fills in a `CombatResult`. Use both.
 
 Add `newLockState` to the `@motor-combat-moba/shared` import.
 
-First, extend the existing emptiness check in `describe("newCombatMemory")` with one line:
+**First, the compile fixes this file needs.** `lock` became a required field on `CombatPlayer` in
+Task 5, so this file will not typecheck until two more construction sites supply it. Both are in
+this test file, and neither is in `combat.test.ts`:
+
+1. `combatPlayerFor(player, over)` inside `describe("applyCombatResult")` (around line 197) — add
+   `lock: newLockState(),` immediately before the `...over` spread.
+2. A hand-written inline `CombatPlayer` literal (around line 250–269, in the `applyCombatResult`
+   call that asserts instance diffing) — add `lock: newLockState(),` after its `fireState` line.
+
+Together with the two factories in `combat.test.ts`, that is **four** places across the repo that
+build a `CombatPlayer` literal. Missing any one is a typecheck failure whose message points at the
+test file rather than at the field that changed.
+
+Then extend the existing emptiness check in `describe("newCombatMemory")` with one line:
 
 ```ts
     expect(memory.locks.size).toBe(0);
@@ -2030,3 +2048,11 @@ git commit -m "feat(balance): give the cannon aim assist"
 3. **The owner cannot sit at the origin.** `pointOutsideBounds` is inclusive on every edge, so a car at `(0, 0)` has its muzzle on the boundary and `wallClipDistance` returns a reach of 0 — every line-of-sight assertion in Task 4 would have failed for a reason unrelated to locks. Task 4's fixtures now place the owner at `(400, 400)` and position enemies in its frame.
 4. **`combat.test.ts` already has `world` / `player` / `run` / `find` factories.** Task 5 was rolling its own. It now uses them, and — more importantly — names the **two** `player()` factories that must gain `lock: newLockState()`: the shared one and the one `describe("firing")` shadows it with. Miss the second and the file will not compile.
 5. **`combat-bridge.test.ts` has `playerIn` and `result`, not a `stateWithPlayers`.** Task 6 referenced a helper that does not exist; it now builds `new ArenaState()` inline and uses the two real factories.
+6. **There are FOUR places that build a `CombatPlayer` literal, not two.** Found by asking the code graph for `references_to CombatPlayer` — a `head`-truncated grep had hidden `combatPlayerFor` (`combat-bridge.test.ts:197`) and an inline literal at `combat-bridge.test.ts:250-269`. Both are now named in Task 6 Step 1, and Task 5 Step 9 warns that the repo-wide typecheck stays red between the two tasks. Without this the plan would have handed the implementer a compile error whose message points at a test file rather than at the field that changed.
+
+**A note on method for whoever executes this.** The blast-radius checks above came from
+`code-review-graph` (`query_graph_tool` / `get_impact_radius_tool`), not from grep — that is what
+caught finding 6 after a truncated grep had missed it. `spawnInstances` is confirmed to have exactly
+one non-test caller (`runCombat`, `combat.ts:149`) plus a `shotFrom` helper in `hits.test.ts`, all of
+which keep compiling because the new fifth parameter defaults to `null`. The graph in this worktree
+was built at `a47ebae`; the commits since are documentation only, so it is current for source.
