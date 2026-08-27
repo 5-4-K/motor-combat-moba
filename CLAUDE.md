@@ -67,14 +67,41 @@ one build of both.
 questions — what a change to `stepSim` actually reaches — from a local Tree-sitter graph of `src`.
 It is committed config, launched through `uvx`, so `uv` is the only per-machine prerequisite.
 
+### When to query it
+
+The graph **widens** the search. It does not replace grep, and grep is not a fallback for it — the
+two miss different things, and the compiler settles the question.
+
+- **Query the graph for structure**: what calls `stepSim`, who imports a module, which tests cover a
+  function, what a signature change reaches. `mcp__code-review-graph__query_graph_tool` (`callers_of`,
+  `callees_of`, `importers_of`, `references_to`, `tests_for`) and `get_impact_radius_tool`. It
+  resolves aliased imports and re-export chains that a name grep walks straight past.
+- **Then grep anyway** for the untyped wiring the graph has no edge for: weapon and car ids, art
+  manifest keys, arena keys (`arena-01`), Phaser texture keys, enum names and schema fields used as
+  strings. Much of this codebase is data-driven and none of it is in the graph.
+- **`npm run build` plus the suites are the ground truth** for typed references. If it compiles and
+  they pass, no typed caller was missed — no search tool can promise that.
+
+Three ways a graph answer misleads:
+
+1. `status: not_found`, or zero results, means **not indexed** — never "no callers." The response
+   says so in its `confidence` field. Treat it as a failed lookup and grep.
+2. A bare symbol name returns `status: ambiguous`. Re-query with a `qualified_name` from the
+   `disambiguation` list, e.g. `…/packages/shared/src/sim/step.ts::stepSim`.
+3. Tests outnumber functions in the graph roughly two to one, so `callers_of` leads with test
+   helpers and `it:` blocks. Pass `detail_level: "minimal"` and read the non-test hits.
+
 New machine or fresh worktree: use the `code-graph-install` skill, or `uvx code-review-graph@2.3.8
 build` from the checkout root. **Each worktree needs its own build** — the repo root is auto-detected
 from the working directory, and `.mcp.json` deliberately passes no `--repo` so a worktree resolves to
 itself. The graph lives in gitignored `.code-review-graph/`; the version pin in `.mcp.json` is what
 keeps every machine on the same parser.
 
-A stale graph reports on old code without saying so. `code-review-graph status` prints the commit it
-was built from — check that before trusting an impact query, the same reflex as checking `dist` above.
+A stale graph reports on old code without saying so. Every tool response carries
+`_graph.head_matches_build`; `code-review-graph status` prints the same thing from the CLI. If it is
+false, the answer describes other code — rebuild before trusting it, the same reflex as checking
+`dist` above. An unbuilt graph in a fresh worktree looks identical to a clean empty result, which is
+failure mode 1 above at its worst.
 
 ## Commands
 

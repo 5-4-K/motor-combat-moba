@@ -21,9 +21,10 @@ coverage/
 packages/client/.vite/
 .worktrees/
 
-# Claude Code local state — keep skills, ignore the rest
+# Claude Code local state — keep skills and shared settings, ignore the rest
 .claude/*
 !.claude/skills/
+!.claude/settings.json
 
 # code-review-graph local knowledge graph
 .code-review-graph/
