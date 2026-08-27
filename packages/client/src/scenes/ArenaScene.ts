@@ -91,6 +91,20 @@ const WRECK_ALPHA = 0.3;
 const HUD_DEPTH = 1000;
 
 // --- weapon slot HUD ---------------------------------------------------------------------------
+/**
+ * Explicit per-layer depths, strictly above `HUD_DEPTH` itself (which stays the depth of unrelated
+ * top-of-screen HUD text). Phaser resolves equal-depth objects by display-list insertion order, so
+ * without these a slot's manifest icon — added to the display list in `buildHudTextPool`, after
+ * that slot's own key/countdown/stock text — would draw ON TOP of its countdown number, and the
+ * cooldown sweep wedge — previously just another shape drawn into the same `Graphics` as the box
+ * background — would draw entirely UNDER the icon instead of over it. Order here must stay box,
+ * icon, sweep, text: the sweep is a cooldown overlay and has to sit above whatever it is timing out
+ * (icon or procedural glyph alike), and the text has to stay legible above that overlay.
+ */
+const HUD_BOX_DEPTH = HUD_DEPTH;
+const HUD_ICON_DEPTH = HUD_DEPTH + 1;
+const HUD_SWEEP_DEPTH = HUD_DEPTH + 2;
+const HUD_TEXT_DEPTH = HUD_DEPTH + 3;
 const HUD_BOX_BG = 0x14161a;
 const HUD_BOX_ALPHA = 0.75;
 const HUD_ICON_COLOR = 0xf2f2f2;
@@ -210,11 +224,14 @@ export class ArenaScene extends Phaser.Scene {
   private mismatchOverlay: ScreenOverlay | undefined;
 
   /**
-   * The weapon slot HUD: one Graphics for every box, sweep and glyph (cleared and redrawn each
-   * frame, same pattern as `shotGfx`/`hpGfx`), and a fixed-size pool of Text objects — one per
-   * possible slot — reused across frames rather than created and destroyed at the render rate.
+   * The weapon slot HUD: one Graphics for every box and glyph, a second Graphics for the cooldown
+   * sweep wedge (kept separate so it can sit at `HUD_SWEEP_DEPTH`, above the icon pool — see that
+   * constant's comment), both cleared and redrawn each frame same as `shotGfx`/`hpGfx`, and a
+   * fixed-size pool of Text objects — one per possible slot — reused across frames rather than
+   * created and destroyed at the render rate.
    */
   private hudGfx: Phaser.GameObjects.Graphics | undefined;
+  private hudSweepGfx: Phaser.GameObjects.Graphics | undefined;
   private hudKeyTexts: Phaser.GameObjects.Text[] = [];
   private hudCountdownTexts: Phaser.GameObjects.Text[] = [];
   private hudStockTexts: Phaser.GameObjects.Text[] = [];
@@ -282,7 +299,8 @@ export class ArenaScene extends Phaser.Scene {
     // fire rate for no gain.
     this.shotGfx = this.add.graphics().setDepth(SHOT_DEPTH);
     this.hpGfx = this.add.graphics().setDepth(HP_BAR_DEPTH);
-    this.hudGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_DEPTH);
+    this.hudGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_BOX_DEPTH);
+    this.hudSweepGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_SWEEP_DEPTH);
     this.buildHudTextPool();
 
     this.countdownText = this.add
@@ -417,6 +435,8 @@ export class ArenaScene extends Phaser.Scene {
     this.hpGfx = undefined;
     this.hudGfx?.destroy();
     this.hudGfx = undefined;
+    this.hudSweepGfx?.destroy();
+    this.hudSweepGfx = undefined;
     for (const text of this.hudKeyTexts) text.destroy();
     for (const text of this.hudCountdownTexts) text.destroy();
     for (const text of this.hudStockTexts) text.destroy();
@@ -778,7 +798,7 @@ export class ArenaScene extends Phaser.Scene {
         this.add
           .image(0, 0, "__DEFAULT")
           .setScrollFactor(0)
-          .setDepth(HUD_DEPTH)
+          .setDepth(HUD_ICON_DEPTH)
           .setVisible(false),
       );
     }
@@ -789,7 +809,7 @@ export class ArenaScene extends Phaser.Scene {
       .text(0, 0, "", { fontSize: `${fontSizePx}px`, color: HUD_TEXT })
       .setOrigin(0.5)
       .setScrollFactor(0)
-      .setDepth(HUD_DEPTH)
+      .setDepth(HUD_TEXT_DEPTH)
       .setVisible(false);
   }
 
@@ -814,8 +834,10 @@ export class ArenaScene extends Phaser.Scene {
    */
   private renderWeaponHud(room: Room<ArenaState>): void {
     const gfx = this.hudGfx;
-    if (!gfx) return;
+    const sweepGfx = this.hudSweepGfx;
+    if (!gfx || !sweepGfx) return;
     gfx.clear();
+    sweepGfx.clear();
 
     const player = this.hudTargetPlayer(room);
     const boxes = player ? slotBarLayout(player.weapons.length, VIEW_WIDTH, VIEW_HEIGHT) : [];
@@ -830,7 +852,7 @@ export class ArenaScene extends Phaser.Scene {
         this.hudIconImages[i]!.setVisible(false);
         continue;
       }
-      this.drawHudSlot(gfx, i, box, slot, player, room.state.tick);
+      this.drawHudSlot(gfx, sweepGfx, i, box, slot, player, room.state.tick);
     }
   }
 
@@ -860,6 +882,7 @@ export class ArenaScene extends Phaser.Scene {
    */
   private drawHudSlot(
     gfx: Phaser.GameObjects.Graphics,
+    sweepGfx: Phaser.GameObjects.Graphics,
     index: number,
     box: { x: number; y: number; size: number },
     slot: WeaponSlotState,
@@ -905,7 +928,11 @@ export class ArenaScene extends Phaser.Scene {
     const recharging = slot.rechargeEndsTick !== 0 && (state === "recharging" || state === "ready");
     if (recharging && def) {
       const fraction = sweepFraction(slot.rechargeEndsTick, weaponTicksOf(def.id).cooldown, tick);
-      if (fraction > 0) this.drawSweepWedge(gfx, cx, cy, box.size, fraction);
+      // Own Graphics object at `HUD_SWEEP_DEPTH`, deliberately not `gfx` (the box/glyph layer at
+      // `HUD_BOX_DEPTH`): the sweep must render above the icon pool (`HUD_ICON_DEPTH`) sitting
+      // between them, or the wedge would be invisible under a resolved icon. See the depth block's
+      // comment near `HUD_BOX_DEPTH` for the full layering rationale.
+      if (fraction > 0) this.drawSweepWedge(sweepGfx, cx, cy, box.size, fraction);
     }
 
     const countdownText = this.hudCountdownTexts[index]!;
