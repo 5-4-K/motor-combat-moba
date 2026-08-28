@@ -5,7 +5,14 @@ import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { CarId } from "../config/types.js";
 import { WEAPON_TABLE } from "../config/weapon-config.js";
 import { MS_PER_TICK } from "../constants.js";
-import { aimAngleFor, runCombat, type CombatInput, type CombatPlayer, type CombatWorld } from "./combat.js";
+import {
+  aimAngleFor,
+  runCombat,
+  type CombatInput,
+  type CombatPlayer,
+  type CombatResult,
+  type CombatWorld,
+} from "./combat.js";
 import { carHullOf } from "./context.js";
 import { weaponDamageOf } from "./damage.js";
 import { newFireState } from "./weapons/fire.js";
@@ -692,4 +699,48 @@ describe("aimAngleFor", () => {
     // "fireball" is usesAimAssist: true.
     expect(aimAngleFor(a, "fireball", byId)).toBeCloseTo(expected, 10);
   });
+});
+
+it("damages a target with a real attached beam fired from a real loadout, once it has grown to reach", () => {
+  // afterburner is Rectangle's slot 3 and the game's first beam. Its cone is 55 degrees out to
+  // 220 units, so a target 100 units directly ahead at angle 0 is inside it once the beam has
+  // grown that far. Slot 3 is bit 2. `player` builds its fireState with `newFireState(carId, 1)`,
+  // so the slot only exists because Task 5 put three weapons on the chassis — this test is
+  // unreachable before that commit.
+  //
+  // A beam is born at extent 0 (instances.ts's `spawnInstances`) and grows by `speed * dt` per
+  // tick — ~36.7 units/tick for afterburner's speed 1100 at 30 Hz — so it cannot damage anyone on
+  // its own spawn tick; `runCombat`'s phase order steps an EXISTING instance's extent before new
+  // ones are born, precisely so a fresh shot draws at the muzzle rather than a tick's travel
+  // beyond it (combat.ts's own module comment). This drives three ticks of `runCombat`, feeding
+  // each tick's returned players/instances back in as the next tick's input exactly as `stepSim`
+  // does, until the beam's growing extent reaches the target's near edge:
+  // muzzle at x = 300 + carWidth/2 = 324; target's near hull edge at x = 400 - carWidth/2 = 376;
+  // distance 52. Extent after tick 1 (spawn) is 0; after tick 2, ~36.7 (still short); after tick 3,
+  // ~73.3 (past 52) — so the first damage lands on the third call.
+  let world_ = world();
+  let players: CombatPlayer[] = [
+    player("aaa", { x: 300, y: OPEN_Y, angle: 0, fireMask: 0b100 }),
+    player("bbb", { x: 400, y: OPEN_Y }),
+  ];
+  let instances: readonly WeaponInstance[] = [];
+  let instanceSeq = 0;
+  let result: CombatResult | null = null;
+
+  for (let i = 0; i < 3; i++) {
+    result = runCombat({ world: world_, players, instances, instanceSeq });
+    // Only the first tick is a press; holding the key does nothing extra here since
+    // `cooldownMs: 13000` would reject a second press long before this loop ends.
+    players = result.players.map((p) => (p.sessionId === "aaa" ? { ...p, fireMask: 0 } : p));
+    instances = result.instances;
+    instanceSeq = result.instanceSeq;
+    world_ = { ...world_, tick: world_.tick + 1 };
+  }
+
+  expect(result!.instances.map((i) => i.weaponId)).toEqual(["afterburner"]);
+  const hit = result!.players.find((p) => p.sessionId === "bbb")!;
+  // damageFrequencyMs: 200 is 6 ticks at 30 Hz; this loop only runs 3, so exactly one damage tick
+  // can have landed. 26 base * scale(0.8 for Rectangle's attack 30 vs baseline 50) = 20.8, rounds
+  // to 21 (weaponDamageOf, damage.ts's `damageFor`).
+  expect(hit.hp).toBe(hpOf("rectangle") - weaponDamageOf("rectangle", "afterburner"));
 });
