@@ -252,6 +252,49 @@ describe("PredictionBuffer.reconcile", () => {
     expect(out.angle).not.toBeCloseTo(authoritative.angle, 6);
   });
 
+  it("snaps all four knock fields to the authoritative value on the EASE path, never eases them", () => {
+    // The dangerous mistake here is changing `angVel`/`shoveX`/`shoveY`/`authority` in `reconcile`
+    // from a snap to a `lerp` — per R16 that would break the "unpredicted ram" feature outright, and
+    // every OTHER test in this suite uses neutral knock values (0, 0, 0, 1) on both sides, so such a
+    // change would pass the whole file undetected. Exercising it specifically on the EASE branch
+    // (small positional error, so x/y visibly lerp) is what makes this test able to catch a `lerp`
+    // slipped in beside the position/angle easing, rather than only a wholesale drop of the fields.
+    const buf = new PredictionBuffer();
+    const authoritative: SimBody = {
+      x: 400,
+      y: 400,
+      angle: 0,
+      speed: 0,
+      reverseHold: 0,
+      angVel: 2.5,
+      shoveX: 120,
+      shoveY: -60,
+      authority: 0.4,
+    };
+    const nearby: SimBody = {
+      x: 405,
+      y: 402,
+      angle: 0,
+      speed: 0,
+      reverseHold: 0,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
+    };
+
+    const out = buf.reconcile(authoritative, 0, nearby, ctx);
+
+    // Precondition: this really is the ease path, not the snap path.
+    expect(out.x).not.toBe(authoritative.x);
+    expect(out.y).not.toBe(authoritative.y);
+
+    expect(out.angVel).toBe(2.5);
+    expect(out.shoveX).toBe(120);
+    expect(out.shoveY).toBe(-60);
+    expect(out.authority).toBe(0.4);
+  });
+
   it("eases angle the short way round the wrap", () => {
     const buf = new PredictionBuffer();
     const authoritative: SimBody = {

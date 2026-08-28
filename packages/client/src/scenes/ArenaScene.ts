@@ -14,6 +14,7 @@ import {
   ARENA_IDS,
   CAMERA_CONFIG,
   DRIVE_CONFIG,
+  GameMode,
   INPUT_MESSAGE,
   MS_PER_TICK,
   PlayerStatus,
@@ -793,6 +794,10 @@ export class ArenaScene extends Phaser.Scene {
     hp?.clear();
     lock?.clear();
     const poses = new Map<string, SimBody>();
+    // Teams alongside poses so the impact-spark pass below can gate on them without a second walk of
+    // `room.state.players` (and without carrying `team` through `SimBody`, which has no business
+    // knowing about it).
+    const teams = new Map<string, 0 | 1>();
 
     room.state.players.forEach((player, sessionId) => {
       if (player.status !== PlayerStatus.IN_MATCH) return;
@@ -811,6 +816,7 @@ export class ArenaScene extends Phaser.Scene {
 
       this.syncCar(sessionId, player, pose);
       poses.set(sessionId, pose);
+      teams.set(sessionId, player.team === 1 ? 1 : 0);
       if (hp && player.alive) this.drawHpBar(hp, player, pose);
       if (sessionId === this.cameraTarget(room)) this.followCamera(pose, delta);
     });
@@ -820,13 +826,29 @@ export class ArenaScene extends Phaser.Scene {
     // first point in the frame where every car's final render pose is known — predicted for the
     // local car, interpolated for remotes, raw for a wreck — so contact is tested against exactly
     // what is on screen, not a pose that will still move this frame.
+    //
+    // Team-gated: a ram is structurally impossible between teammates (R15), so the spark must not
+    // fire on one either — see `freshImpacts`'s doc comment.
     const selfId = this.room?.sessionId;
     const selfPose = selfId ? poses.get(selfId) : undefined;
-    if (selfId && selfPose) {
+    const selfTeam = selfId ? teams.get(selfId) : undefined;
+    if (selfId && selfPose && selfTeam !== undefined) {
       const others = [...poses.entries()]
         .filter(([id]) => id !== selfId)
-        .map(([id, pose]) => ({ sessionId: id, x: pose.x, y: pose.y, angle: pose.angle }));
-      for (const impact of freshImpacts({ sessionId: selfId, ...selfPose }, others, this.impacts)) {
+        .map(([id, pose]) => ({
+          sessionId: id,
+          x: pose.x,
+          y: pose.y,
+          angle: pose.angle,
+          team: teams.get(id) ?? 0,
+        }));
+      const mode = room.state.mode === GameMode.TEAM ? "team" : "ffa";
+      for (const impact of freshImpacts(
+        { sessionId: selfId, team: selfTeam, ...selfPose },
+        others,
+        this.impacts,
+        mode,
+      )) {
         this.showImpact(impact.x, impact.y);
       }
     }

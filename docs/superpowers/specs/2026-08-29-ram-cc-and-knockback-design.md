@@ -266,6 +266,13 @@ than by tuning:
 
 Inertia is the source spec's §5.5 formula, `m * (48^2 + 32^2) / 12`.
 
+**Implementation note (added after the fact, see Numbers):** the `24` and `16` above are the half
+of the 48x32 hull, shown as literals purely to illustrate the geometry. `ram.ts` does not type them:
+`spinOf` derives the clamp bounds as `DRIVE_CONFIG.carWidth / 2` and `DRIVE_CONFIG.carHeight / 2`, and
+`RAM_CONFIG.inertiaCoefficient` derives from the same two constants. Both must move with `carHullOf`
+in lockstep, or the torque lever and the inertia it divides by would silently disagree about which
+hull the ram actually collided against — typing them here would have created exactly that trap.
+
 ### R9 — The attacker receives nothing
 
 No kickback term, no speed drain, no spin. The existing `restitution: 0.35` bounce in `applyContact`
@@ -488,7 +495,7 @@ enforces that any more (R18).
 | `bonusRear` | 1.3 | **The most important number in the feature** |
 | `authorityFloor` | 0.35 | The feel dial |
 | `knockMaxSpeed` | 260 | Peak `impulse` at severity 1.0, before `victimMassFactor` |
-| `spinScale` | 1.0 | Multiplier on the torque-derived rate, for calibration |
+| `spinScale` | 100 | Multiplier on the torque-derived rate, for calibration — see note below |
 | `spinMaxRate` | 6.0 | rad/s ceiling, so a corner hit cannot produce absurd spin |
 | `inertiaCoefficient` | 277.33 **[D]** | `(48^2 + 32^2) / 12` |
 | `spinHalfLife` | 0.35 s | |
@@ -498,6 +505,18 @@ enforces that any more (R18).
 | `spinEpsilon` | 0.01 rad/s | |
 | `shoveEpsilon` | 1 u/s | |
 | `authorityEpsilon` | 0.01 | |
+
+**Post-implementation correction (2026-08-29): `spinScale` shipped as `100`, not the `1.0` this table
+originally specified.** At `1.0` the spin channel was structurally inert: `torque / inertia` for a
+solid flank hit lands in the low hundredths of a rad/s, an order of magnitude below `spinEpsilon`
+(0.01) on some hits and nowhere near `spinMaxRate` (6.0) on the hardest — the hardest possible ram in
+the game produced roughly 0.077 rad/s, about 2 degrees of total rotation before decay finished it off.
+`spinScale` exists precisely to absorb the unit mismatch that follows from `impulse` being expressed
+as a speed rather than a true impulse (R8's own text says as much), and `1.0` did not absorb it — it
+left the mismatch in place. `100` was tuned in playtest so a solid flank ram lands near 2 rad/s while
+the hardest possible ram saturates `spinMaxRate`, which is what R8's own commentary describes as the
+intended feel. The half-extents `spinOf` clamps into are unaffected by this — see the implementation
+note under R8.
 
 ### Worked severities
 

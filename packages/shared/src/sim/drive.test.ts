@@ -339,4 +339,55 @@ describe("stepDrive: ram knock state", () => {
     const going = stepDrive({ ...rest(), speed: 200, angVel: 3 }, input(1, 0), DT, CAR_ID);
     expect(going.angVel).toBe(coasting.angVel);
   });
+
+  it("bleeds spin faster when steering against a NEGATIVE angVel too", () => {
+    // Every existing countersteer test above only exercises angVel: 3, so a predicate as loose as
+    // `steer < 0` (rather than the actual `steer * angVel < 0`) would pass them all. This mirrors the
+    // pair with the sign of angVel flipped and the opposing steer flipped to match.
+    const coasting = stepDrive({ ...rest(), speed: 200, angVel: -3 }, input(0, 0), DT, CAR_ID);
+    const fighting = stepDrive({ ...rest(), speed: 200, angVel: -3 }, input(1, 0), DT, CAR_ID);
+    expect(Math.abs(fighting.angVel)).toBeLessThan(Math.abs(coasting.angVel));
+  });
+
+  it("does not bleed spin when steering WITH a NEGATIVE angVel", () => {
+    const coasting = stepDrive({ ...rest(), speed: 200, angVel: -3 }, input(0, 0), DT, CAR_ID);
+    const going = stepDrive({ ...rest(), speed: 200, angVel: -3 }, input(-1, 0), DT, CAR_ID);
+    expect(going.angVel).toBe(coasting.angVel);
+  });
+
+  it("adds steering rotation and injected spin rather than one substituting for the other", () => {
+    // Every steering test above uses angVel: 0 and every angVel test above uses steer: 0, so a
+    // substitutive integrator — e.g. `angle + (angVel !== 0 ? angVel : steer*turnRate*authority) *
+    // dt` — passes the entire rest of this file. Isolating each contribution alone and checking the
+    // combination equals their sum is the only thing that can catch that.
+    const steerOnly = stepDrive({ ...rest(), speed: 200 }, input(1, 0), DT, CAR_ID);
+    const spinOnly = stepDrive({ ...rest(), speed: 200, angVel: 2 }, input(0, 0), DT, CAR_ID);
+    const both = stepDrive({ ...rest(), speed: 200, angVel: 2 }, input(1, 0), DT, CAR_ID);
+
+    // Preconditions: both contributions are individually non-zero, so the sum has teeth.
+    expect(steerOnly.angle).not.toBe(0);
+    expect(spinOnly.angle).not.toBe(0);
+
+    expect(both.angle).toBeCloseTo(steerOnly.angle + spinOnly.angle, 9);
+  });
+
+  it("authority scales the steering contribution only — angVel's contribution is untouched", () => {
+    // Every authority test above uses angVel: 0, so an integrator that scales the WHOLE rotation by
+    // authority — `(steer*turnRate + angVel) * authority * dt` — passes them all. This pins the two
+    // contributions apart: halving authority must halve exactly the steering term's share of the
+    // total, not the angVel term's.
+    const full = stepDrive({ ...rest(), speed: 200, angVel: 2 }, input(1, 0), DT, CAR_ID);
+    const halved = stepDrive(
+      { ...rest(), speed: 200, angVel: 2, authority: 0.5 },
+      input(1, 0),
+      DT,
+      CAR_ID,
+    );
+
+    const steerContribution = DRIVE_CONFIG.turnRate * DT; // steer 1, authority 1, speed 200 => turnRate (moving)
+    const spinContribution = 2 * DT; // angVel 2, unscaled
+
+    expect(full.angle).toBeCloseTo(steerContribution + spinContribution, 9);
+    expect(halved.angle).toBeCloseTo(steerContribution * 0.5 + spinContribution, 9);
+  });
 });

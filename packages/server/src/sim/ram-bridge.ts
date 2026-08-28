@@ -73,6 +73,18 @@ export function ramTick(
   for (const knock of knocks) {
     const player = state.players.get(knock.sessionId);
     if (!player) continue;
+    // `applyRams` only ever picks the hardest knock WITHIN one tick — it says nothing about a knock
+    // arriving on top of one still standing from an EARLIER tick. Without this guard: a hexagon rams
+    // a victim at full severity (authority drops to 0.35), and five ticks later, still mid-knock, a
+    // third car barely taps the same victim just above `minApproachSpeed` (severity near zero,
+    // authority near 1.0). Writing that knock unconditionally would overwrite the 0.35 with ~1.0 and
+    // cancel the hard ram outright — a light tap "rescuing" the victim from the ram that mattered.
+    // `authority` is a strictly decreasing function of `severity` (R8), so "only a harder ram may
+    // overwrite a standing one" is exactly "only apply a knock whose authority is strictly lower than
+    // the player's current authority". A tap arriving mid-knock now does nothing at all — slightly
+    // wrong physically (two real hits landing close together should still stack somewhat), but it can
+    // never rescue, which is the failure mode that actually matters.
+    if (knock.authority >= player.authority) continue;
     player.angVel = knock.angVel;
     player.shoveX = knock.shoveX;
     player.shoveY = knock.shoveY;

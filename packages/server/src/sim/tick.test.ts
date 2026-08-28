@@ -323,6 +323,42 @@ describe("serverTick", () => {
     expect(follower.x).toBe(FOLLOWER_X);
   });
 
+  describe("ram knock state round-trip", () => {
+    // `ram-bridge.test.ts` proves `ramTick` WRITES a knock onto `PlayerState`. Nothing proves the
+    // NEXT `serverTick` actually READS it back: `bodyOf`/`writeBody` are the only bridge between the
+    // two, and dropping a field from either (e.g. forgetting `shoveY` in `writeBody`) would be
+    // invisible to every other test in this file, all of which use neutral knock state.
+    it("carries angVel/shove/authority through bodyOf -> stepDrive -> writeBody: it moves the pose, and the fields round-trip decayed rather than dropped", () => {
+      const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
+      player.angVel = 2;
+      player.shoveX = 120;
+      player.shoveY = -60;
+      player.authority = 0.5;
+      const state = stateWith(player);
+      // No steer, no throttle: any rotation or translation below comes solely from the knock state,
+      // not from ordinary driving.
+      const queues = new Map<string, InputMessage[]>([["p1", coasts(1)]]);
+
+      serverTick(state, queues, DT, RoomPhase.MATCH);
+
+      // The knock state actually reached stepDrive and moved the car.
+      expect(player.angle).not.toBe(0);
+      expect(player.x).toBeGreaterThan(300);
+      expect(player.y).toBeLessThan(CORRIDOR_Y);
+
+      // Round-tripped through decay, not silently dropped to neutral (angVel/shove 0, authority 1) —
+      // that is exactly what a missing field in `bodyOf` or `writeBody` would produce.
+      expect(player.angVel).toBeGreaterThan(0);
+      expect(player.angVel).toBeLessThan(2);
+      expect(player.shoveX).toBeGreaterThan(0);
+      expect(player.shoveX).toBeLessThan(120);
+      expect(player.shoveY).toBeLessThan(0);
+      expect(player.shoveY).toBeGreaterThan(-60);
+      expect(player.authority).toBeGreaterThan(0.5);
+      expect(player.authority).toBeLessThan(1);
+    });
+  });
+
   describe("carId fallback", () => {
     function driveOneTickAs(carId: string): PlayerState {
       const player = makePlayer("p1", 300, CORRIDOR_Y, 0);

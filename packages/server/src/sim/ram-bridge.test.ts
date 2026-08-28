@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ArenaState, PlayerState, PlayerStatus } from "@motor-combat-moba/shared";
+import { ArenaState, PlayerState, PlayerStatus, RAM_CONFIG } from "@motor-combat-moba/shared";
 import { clearKnock, newRamMemory, ramTick } from "./ram-bridge.js";
 
 function addPlayer(state: ArenaState, id: string, over: Partial<PlayerState> = {}): PlayerState {
@@ -90,6 +90,44 @@ describe("ramTick", () => {
     const mate = addPlayer(state, "b", { x: 47, y: 400, angle: 0, team: 0 });
     ramTick(state, new Set(["a", "b"]), newRamMemory(), "team");
     expect(mate.authority).toBe(1);
+  });
+
+  it("does not let a later, weaker ram overwrite a standing stronger knock (no rescue)", () => {
+    const state = arena();
+    // A full-severity rear ram: a top-speed rectangle into the back of "b". Lands well below the
+    // authority floor's midpoint.
+    addPlayer(state, "strong", { x: 0, y: 400, angle: 0, speed: 540 });
+    const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
+    const memory = newRamMemory();
+    ramTick(state, new Set(["strong", "b"]), memory, "ffa");
+    const afterHardRam = victim.authority;
+    expect(afterHardRam).toBeLessThan(0.5);
+
+    // A separate attacker taps the same victim on a later tick, from the exact same geometry but
+    // barely above minApproachSpeed — the weakest contact that still counts as a ram at all. Its own
+    // knock would land authority near 1.0 (almost no control loss), which must NOT overwrite the
+    // still-standing hard knock above.
+    addPlayer(state, "weak", { x: 0, y: 400, angle: 0, speed: RAM_CONFIG.minApproachSpeed + 5 });
+    ramTick(state, new Set(["strong", "b", "weak"]), memory, "ffa");
+
+    expect(victim.authority).toBe(afterHardRam);
+  });
+
+  it("lets a later, STRONGER ram overwrite a standing knock", () => {
+    const state = arena();
+    addPlayer(state, "medium", { x: 0, y: 400, angle: 0, speed: 540 });
+    const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
+    const memory = newRamMemory();
+    ramTick(state, new Set(["medium", "b"]), memory, "ffa");
+    const afterMediumRam = victim.authority;
+
+    // A heavier attacker (hexagon) rear-ends the same victim at its own top speed on a later tick —
+    // strictly harder than the first ram, so its lower authority must win.
+    addPlayer(state, "hexy", { x: 0, y: 400, angle: 0, speed: 315, carId: "hexagon" });
+    ramTick(state, new Set(["medium", "b", "hexy"]), memory, "ffa");
+
+    expect(victim.authority).toBeLessThan(afterMediumRam);
+    expect(victim.authority).toBeCloseTo(RAM_CONFIG.authorityFloor, 2);
   });
 });
 
