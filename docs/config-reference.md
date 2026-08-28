@@ -19,9 +19,9 @@ Canonical sim rate is `TICK_RATE_HZ` in `@motor-combat-moba/shared`. Patch rate 
 
 | id | name | speed | attack | hp | weapons |
 |---|---|---|---|---|---|
-| `rectangle` | Rectangle | 80 | 30 | 40 | `["fireball"]` |
-| `oval` | Oval | 50 | 70 | 30 | `["fireball"]` |
-| `hexagon` | Hexagon | 30 | 50 | 70 | `["fireball"]` |
+| `rectangle` | Rectangle | 80 | 30 | 40 | `["fireball", "pepperbox", "afterburner"]` |
+| `oval` | Oval | 50 | 70 | 30 | `["splinter", "skewer", "lance"]` |
+| `hexagon` | Hexagon | 30 | 50 | 70 | `["thumper", "shockwave", "bulwark"]` |
 
 Ratings are integers 0-100 with 50 as average, and every row **must sum to exactly 150** —
 `config.test.ts` enforces the budget.
@@ -54,16 +54,25 @@ chassis carries and in what slot order. Durations are authored in **milliseconds
 once, at shared's module load, into the frozen `WEAPON_TICKS` the sim actually reads — see
 "Authoring in milliseconds" below.
 
-| id | kind | damage | speed | range | cooldownMs | startUpMs | recoveryMs | stock | pierce | volley (volleys/intervalMs/pellets/spreadDeg) | hitbox | unlocksAt | usesAimAssist | color |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `fireball` | projectile | 50 | 900 | 900 | 500 | 0 | 0 | — | 0 | 1 / 0 / 1 / 0 | circle, radius 12 | 1 | true | `#E8590C` ember |
-| `repeater` | projectile | 31 | 700 | 700 | 3000 | 0 | 5000 | max 3, refire 100ms | 0 | 1 / 0 / 1 / 0 | circle, radius 3 | 1 | false | `#0CA5B0` teal |
+| id | kind | damage | damageFrequencyMs | speed | range | cooldownMs | startUpMs | recoveryMs | stock | pierce | volley (volleys/intervalMs/pellets/spreadDeg) | attached | lifetimeMs | hitbox | unlocksAt | usesAimAssist | color |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `fireball` | projectile | 50 | 0 | 900 | 900 | 500 | 0 | 0 | — | 0 | 1 / 0 / 1 / 0 | — | — | circle, radius 12 | 1 | true | `#E8590C` ember |
+| `pepperbox` | projectile | 28 | 0 | 800 | 600 | 1800 | 0 | 200 | — | 0 | 3 / 100 / 2 / 10 | — | — | circle, radius 7 | 1 | false | `#B45309` |
+| `afterburner` | beam | 26 | 200 | 1100 | 220 | 13000 | 0 | 200 | — | — | — | true | 2000 | cone, 55° | 1 | false | `#D6336C` |
+| `splinter` | projectile | 30 | 0 | 1100 | 850 | 400 | 0 | 0 | max 3, refire 130ms | 0 | 1 / 0 / 1 / 0 | — | — | circle, radius 5 | 1 | true | `#0CA5B0` |
+| `skewer` | projectile | 110 | 0 | 1400 | 1100 | 2400 | 250 | 200 | — | 1 | 1 / 0 / 1 / 0 | — | — | ellipse, along 22 / across 5 | 1 | false | `#1864AB` |
+| `lance` | beam | 180 | 0 | 6000 | 1200 | 16000 | 700 | 1000 | — | — | — | false | 150 | rect, width 20 | 1 | false | `#6741D9` |
+| `thumper` | projectile | 75 | 0 | 450 | 550 | 1000 | 0 | 0 | — | 0 | 1 / 0 / 1 / 0 | — | — | circle, radius 20 | 1 | true | `#495057` |
+| `shockwave` | beam | 100 | 0 | 1500 | 150 | 5000 | 0 | 200 | — | — | — | true | 150 | cone, 140° | 1 | false | `#5C940D` |
+| `bulwark` | beam | 35 | 400 | 500 | 500 | 15000 | 0 | 200 | — | — | — | false | 2500 | cone, 60° | 1 | false | `#862E9C` |
 
 `damage` is what the weapon deals from a chassis at `COMBAT_CONFIG.attackBaseline` — an *average*
 car, not every car; `damageFor` (`sim/damage.ts`) moves it ±50% with the firing chassis's `attack`
 rating. `fireball`'s 50 is solved, not chosen: an average chassis has 500 hull HP and fireball fires
 twice a second, so 50 is the number that makes an average-vs-average kill take the design target of
-5 seconds. `repeater`'s 31 preserves its former 5:8 ratio against `fireball`.
+5 seconds. `splinter`'s 30 is solved from its own recharge rather than from `fireball`: 30 damage per
+400 ms is 75 sustained DPS, three quarters of the anchor, which is where a 1.2x `attack` chassis wants
+its go-to.
 
 `color` is render-only, like `name`: it is the fill every live instance of that weapon draws in, per
 **weapon** rather than per player, so two cars carrying a fireball fire identically coloured shots.
@@ -75,8 +84,8 @@ concentric bands, dark ember rim to near-white core, plus a slow shrink-only fli
 `WEAPON_GLOW_STYLES` in the client's `combat-visual.ts`, not in this table: it is pure appearance,
 nothing the sim or the wire can see. Bands are fractions of the weapon's own hitbox radius, so a
 re-tune that widens the hitbox rescales the glow with it and no band can escape the shape that
-hits. A weapon with no entry there draws the single flat disc of its `color`, which is what
-`repeater` still does.
+hits. A weapon with no entry there draws the single flat disc of its `color`, which is what every
+weapon but `fireball` still does.
 
 `usesAimAssist` is **required** and has no default: `true` fires at the car's ambient target lock
 instead of along its heading. It is the only per-weapon aim-assist knob — all the geometry lives once
@@ -89,13 +98,6 @@ smallest that kept the old point-hit feel while satisfying "every weapon has a h
 widened to 12 so the shot reads on screen, since the client draws the hitbox itself rather than a
 sprite. `damage` itself was re-solved when the `attack` stat landed — see the paragraph above.
 
-**`repeater` is carried by no car, on purpose — it is not dead config.** It is the only multi-stock
-weapon in the table (the design's own worked example: three stocks, a three-second recharge,
-transcribed literally), kept as the live reference for the stock mechanic and the fixture the stock
-unit tests exercise against. `fireball` had to ship single-stock to keep the migration's zero-balance
-promise, so nothing in the released roster could prove stocks honestly without `repeater`. Do not
-delete it because nothing spawns it.
-
 **Authoring in milliseconds.** Every duration on a weapon — `startUpMs`, `cooldownMs`, `recoveryMs`,
 `stock.refireDelayMs`, a beam's `lifetimeMs` — is milliseconds, never ticks, so a balance number
 never hard-codes 30 Hz into itself (invariant 1). `WEAPON_TICKS` (`config/weapon-ticks.ts`), built
@@ -106,13 +108,14 @@ becomes 8 ticks (266 ms) — server and client both compute it from the same bui
 always round the same way or neither does.
 
 **Adding a weapon with a real wind-up, burst, or recovery window is a config edit and nothing
-else.** Every weapon shipped today has `startUpMs: 0` and `volleys: 1`, and the only weapon with
-`recoveryMs > 0` (`repeater`) is carried by no car, so nothing in the roster exercises those paths —
-but the wire carries what they need: `PlayerState.pendingUntilTick` and `PlayerState.lastFiredSlot`
-give the HUD the car-wide lockout, and the slot's recharge is anchored to the volley's last shot, so
-`cooldownMs` still means "time until another stock" for a burst weapon. Nothing about a first
-`startUpMs > 0`, `volleys > 1`, or `recoveryMs > 0` weapon requires a schema change. See
-[`schema-reference.md`](schema-reference.md#playerstate) for the two fields.
+else.** `skewer` and `lance` (both Oval) carry `startUpMs > 0`, `pepperbox` (Rectangle) carries
+`volleys: 3`, and `recoveryMs > 0` is now the common case — every weapon but `fireball`, `splinter`
+and `thumper` carries one. The wire already carried what they need before any of them shipped:
+`PlayerState.pendingUntilTick` and `PlayerState.lastFiredSlot` give the HUD the car-wide lockout, and
+the slot's recharge is anchored to the volley's last shot, so `cooldownMs` still means "time until
+another stock" for a burst weapon. Nothing about a `startUpMs > 0`, `volleys > 1`, or `recoveryMs > 0`
+weapon required a schema change. See [`schema-reference.md`](schema-reference.md#playerstate) for the
+two fields.
 
 ## WEAPON_SLOT_CONFIG
 

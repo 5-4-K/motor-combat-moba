@@ -48,7 +48,7 @@ export interface FireState {
   /**
    * The slot the car most recently committed to firing, or `-1` before its first shot. Slot
    * identity, deliberately NOT the weapon id: the refire lock lives on the SLOT, so deciding "same
-   * weapon" by id let a loadout carrying one weapon twice (`["repeater", "repeater"]`) fire slot 1,
+   * weapon" by id let a loadout carrying one weapon twice (`["lance", "lance"]`) fire slot 1,
    * skip the switch lock on slot 2 as "the same weapon", and find slot 2's own `refireLockUntilTick`
    * still at 0 — a free double shot reachable from config alone.
    *

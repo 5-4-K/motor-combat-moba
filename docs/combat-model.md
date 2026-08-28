@@ -31,18 +31,17 @@ Every car carries an ordered list of weapons, `CAR_TABLE[car].weapons` — index
 order *is* the slot mapping, so a chassis's whole identity (speed, attack, hp, guns) lives in one
 table row. `WEAPON_SLOT_CONFIG.maxWeaponSlots` (3) caps how many slots any chassis may present; a
 car listing more logs one `console.warn` naming the car and truncates the extras, never a thrown
-error or a failed test. Today's whole roster carries a single slot, `["fireball"]` — see
-[`config-reference.md`](config-reference.md) for the table.
+error or a failed test. Today's roster ships three exclusive kits, one per chassis: Rectangle carries
+`["fireball", "pepperbox", "afterburner"]`, Oval carries `["splinter", "skewer", "lance"]`, and
+Hexagon carries `["thumper", "shockwave", "bulwark"]` — no weapon id appears on two chassis. See
+[`config-reference.md`](config-reference.md) for the full table.
 
 To add one, see [Authoring a weapon](#authoring-a-weapon) below; the sections between here and there
 are the rules a weapon's stats are interpreted by.
 
-`WEAPON_TABLE` also ships `repeater`, which **no car carries**, on purpose. It is the only
-multi-stock weapon in the table — D5's worked example (3 stocks, a 3 s recharge) transcribed
-literally — kept as the live reference for the stock mechanic and the fixture the stock unit tests
-exercise. `fireball` had to ship single-stock to keep the migration a zero-balance-change diff, so
-nothing in the released roster could prove stocks honestly without `repeater`. It is not dead
-config; do not delete it because nothing spawns it.
+`splinter` is Oval's slot 1 and the table's only multi-stock weapon — three stocks, a 400 ms
+recharge, carried into every match rather than sitting only in unit-test fixtures, so a stock bug now
+surfaces on screen rather than only in `fire.test.ts`.
 
 ### Firing input
 
@@ -106,7 +105,7 @@ still translates and rotates with the car — it just never deflects toward a lo
 pellet fan or a sequential burst re-reads the lock at each shot's own tick, the same way it already
 re-reads the car's pose.
 
-`repeater` is the table's reference row for `usesAimAssist: false`, as `fireball` is for `true`.
+`skewer` is the table's reference row for `usesAimAssist: false`, as `fireball` is for `true`.
 See [`superpowers/specs/2026-08-27-aim-assist-target-lock-design.md`](superpowers/specs/2026-08-27-aim-assist-target-lock-design.md)
 for the decisions (A1–A14) and the rejected alternatives.
 
@@ -137,13 +136,16 @@ Three clocks, each with exactly one meaning:
 | `recoveryMs` | How soon may a **different slot** fire? |
 
 **"Same" means the same slot, not the same weapon id.** `beginFire` compares `lastFiredSlot` to the
-slot being pressed, so a car carrying one weapon id in two slots — `["repeater", "repeater"]` — gets
+slot being pressed, so a car carrying one weapon id in two slots — `["lance", "lance"]` — gets
 two independent refire clocks, and the switch lock applies *between* them exactly as it would for two
 different weapons. Deciding this by weapon id instead would let the second slot fire the instant the
 first did, skipping `recoveryMs` entirely, since that slot's own refire lock has never been set.
 
-`recoveryMs` is not a universal post-fire lockout: `repeater`'s `cooldownMs: 3000` /
-`recoveryMs: 5000` means it is refirable by itself after 3 s while every other slot waits 5 s.
+`recoveryMs` is not a universal post-fire lockout — it only gates *other* slots. A weapon whose own
+`cooldownMs` is shorter than its `recoveryMs` would be refirable by itself before any other slot
+unlocked; no shipped weapon has that shape today (every row's `cooldownMs` exceeds its own
+`recoveryMs`), but nothing in the fire state machine assumes otherwise — `beginFire` and
+`releaseShots` gate the two clocks independently regardless of which one is larger.
 `refireDelayMs` lives only inside `stock` (below), because for a single-stock weapon the next shot
 is already gated by the recharge — any value below `cooldownMs` would do nothing and any value above
 it could have been a `cooldownMs` edit, so the field is not even writable outside `stock`.
@@ -187,24 +189,49 @@ Every fired shot is a **hitbox**, never hitscan. Two kinds:
   committed does not un-commit because its owner didn't survive to see it land. Beams are
   single-instance; `volley` does not apply to them.
 
-No car in the shipped roster carries a beam or a multi-pellet/multi-volley weapon — `fireball` is a
-plain single shot — so none of this has ever been seen working on a screen, which is worth knowing
-if you are chasing a bug in it. What the tests do and do not reach, exactly:
+Four chassis slots ship beams (`afterburner` and `shockwave` attached, `lance` and `bulwark`
+detached), one ships a multi-pellet multi-volley burst (`pepperbox`), one ships `pierce` (`skewer`),
+two ship a wind-up (`skewer`, `lance`), and six of the nine rows now carry `recoveryMs > 0` — none of
+this is theoretical any more, and all of it is reachable from a real match. But "shipped and carried"
+and "unit-tested by the weapon that carries it" are different claims, and several of these paths are
+still only proven through code that predates the weapon which now exercises them in play. What the
+tests do and do not reach, exactly:
 
-- **Beams.** Growth, the `min(range, wall)` clamp, attached re-anchoring and re-clipping as the car
-  turns, and expiry on `flight + lifetime` are covered in `weapons/instances.test.ts` by hand-building
-  a `kind: "beam"` instance over `fireball`'s row (the same trick `combat.test.ts` uses for the
-  ownership gate). Because that row is a projectile, its `lifetimeMs` is 0: **no test exercises a
-  non-zero linger**, and none can until a beam is authored.
-- **Volleys.** `releaseShots`' multi-shot path and the recharge landing on the burst's *last* shot
-  are covered in `weapons/fire.test.ts` by hand-staging the `pending` a press would have produced.
-- **The pellet fan.** Tested as `fanOffset` directly, not through `spawnInstances`, which can only
-  ever emit one pellet against today's table.
-- **`repeater`.** Driven through `runCombat` once (`combat.test.ts`, "drives repeater… through a real
-  tick") so the stock mechanic is not only ever seen in hand-built `FireState` literals.
-- **Drawing.** `instanceDrawShape` branches on the weapon definition's `kind`, so its beam branch is
-  unreachable until a beam ships and is **not** covered; `beamShapeAt`'s own rect and cone geometry
-  is covered in `weapons/shapes.test.ts`.
+- **Beam growth, clamping, attached re-anchoring/re-clipping, and expiry on `flight + lifetime`** are
+  all real in play now — every beam grows, clips against walls, and (if attached) follows its owner
+  the way `weapons/instances.test.ts` describes. But that suite still hand-builds a synthetic
+  `kind: "beam"` instance over `fireball`'s row rather than driving a real beam id through it, and
+  because that borrowed row's `lifetimeMs` is 0, the expiry test still asserts `flight` alone: **no
+  test exercises a non-zero linger**, even though all four shipped beams have one (150–2500 ms).
+- **Volleys.** Genuinely covered now: `weapons/fire.test.ts`'s "volleys and wind-up" block drives
+  `pepperbox`'s real 3-volley/2-pellet burst through `beginFire`/`releaseShots` tick by tick, rather
+  than hand-staging the `pending` a press would have produced.
+- **Wind-up and the two clocks.** Also genuinely covered: `weapons/fire.test.ts`'s "the two lockouts"
+  block drives `lance`'s real 700 ms `startUpMs` and 1000 ms `recoveryMs` through `beginFire` and
+  `releaseShots`, including the same-weapon-in-two-slots case (`["lance", "lance"]`) that used to be
+  illustrated only in prose.
+- **The pellet fan.** Still only partially reached: `fanOffset` itself is tested directly and
+  correctly, but `spawnInstances` — the function that actually turns `pelletsPerVolley` into multiple
+  live instances — is still only ever driven with `fireball` in `weapons/instances.test.ts`. No test
+  calls `spawnInstances` with `pepperbox` to prove the wiring from its `pelletsPerVolley: 2` through
+  to two emitted pellets.
+- **Pierce.** Also only partially reached: `hits.test.ts` tests the pierce-spending mechanism by
+  hand-setting `pierceLeft` on a generic instance, and `instances.test.ts`'s only assertion that
+  `spawnInstances` carries a weapon's `pierce` onto `pierceLeft` uses `fireball` (`pierce: 0`). No
+  test derives `pierceLeft` from `skewer`'s real `pierce: 1` end to end.
+- **`damageFrequencyMs > 0`, the re-arming per-target clock.** Still genuinely uncovered: `afterburner`
+  (200 ms) and `bulwark` (400 ms) both ship it and re-tick a target still standing in them during a
+  real match, but `hits.test.ts` only exercises `damageFrequencyMs: 0`'s arm-at-infinity behaviour,
+  and `weapon-config.test.ts` / `weapon-ticks.test.ts` only pin the raw ms/tick values — no test
+  drives an instance through a re-arm and a second hit on the same target.
+- **`splinter`.** Driven through `runCombat` for real (`combat.test.ts`, "drives splinter, the
+  table's only multi-stock weapon, through a real tick" — Oval's actual loadout, not a hand-built
+  one), so the stock mechanic is no longer seen only in hand-built `FireState` literals.
+- **Drawing.** `instanceDrawShape`'s beam branch runs on every screen now — any of the four shipped
+  beams reaches it in a live match. The client-side unit test in `combat-visual.test.ts` still
+  exercises that branch through a synthetic "claiming beam" fixture built over `fireball`'s numbers
+  rather than a real beam weapon id, so it is covered by mechanism but not by a real def; `beamShapeAt`'s
+  own rect and cone geometry is covered in `weapons/shapes.test.ts` regardless.
 
 ### Shaped hitboxes and the smear
 
@@ -309,7 +336,8 @@ the suite immediately rather than misbehaving at run time.
 
 **3. Give it to a car.** Add the id to that chassis's `weapons` array in `CAR_TABLE` — array index
 is the slot index, and `maxWeaponSlots` (3) is the cap. A weapon in the table that no car carries is
-inert but legal; `repeater` is deliberately one, as the stock mechanic's live reference.
+inert but legal — every row in today's table happens to be carried by exactly one chassis (L1), but
+nothing enforces that for a weapon still being authored.
 
 **4. Rebuild shared.** `npm run dev` does it for you. Otherwise
 `npm run build -w @motor-combat-moba/shared`, or the server keeps running the previous table while
@@ -337,7 +365,7 @@ you find out which:
 | `config/weapon-config.test.ts` | "keeps aim-assist weapons off the behavioural cliff" — `fireball`'s `cooldownMs` must stay outside ±15% of `1000 / AIM_CONFIG.lockTimeoutMs`. A 500 → 700ms nerf gives a sustained rate of 1.43 Hz against a 1.25 Hz cliff: `\|1.43 − 1.25\| / 1.25 = 0.143 < 0.15`, so the guard fires |
 | `config/weapon-ticks.test.ts` | Pins the tick counts derived from them (`cooldown`, `flight`) |
 | `sim/weapons/fire.test.ts` | Simulates recharge tick-by-tick across a hard-coded window |
-| `sim/weapons/instances.test.ts` | Beam tests borrow `weaponId: "fireball"` for its range, since no beam ships |
+| `sim/weapons/instances.test.ts` | Beam tests still borrow `weaponId: "fireball"` for its range rather than a real beam row — see the coverage list above |
 | `sim/combat.test.ts` | The `50.5` offset is derived from the hitbox radius — only if you change the hitbox |
 
 That last one is the subtle case: `50.5` places the two hulls 2.5 units apart, which must stay
@@ -394,8 +422,9 @@ sprite — what you see is the hitbox, so a new weapon is playable with no art a
 
 A weapon may additionally carry a **look**: an entry in `WEAPON_GLOW_STYLES`
 (`scenes/combat-visual.ts`) naming concentric bands to fill instead of the one flat disc, plus a
-flicker. `fireball` has one; `repeater` does not, and a weapon without one keeps drawing exactly as
-everything drew before styles existed. Two rules keep this from undoing the paragraph above. Bands
+flicker. `fireball` has one; the other eight weapons in the table do not, and a weapon without one
+keeps drawing exactly as everything drew before styles existed. Two rules keep this from undoing
+the paragraph above. Bands
 are fractions of the instance's own hitbox radius rather than world distances, so the glow rescales
 with any hitbox re-tune. And the flicker only ever *shrinks* the rim, never grows it — a flicker
 that could push past the hitbox would make the drawn shot larger than the thing that hits. Styles
@@ -422,12 +451,13 @@ use different, deliberately distinguishable dims so "you don't have this yet" ca
 for "back in a few seconds." See [`asset-pipeline.md`](asset-pipeline.md) for how a slot's icon
 resolves and its procedural fallback.
 
-No car in the shipped roster carries a beam or a multi-pellet/multi-volley weapon, so the beam half
-of the drawing code above never runs — not in play and not under test either, since
-`instanceDrawShape` branches on the weapon definition's own `kind` and no definition says `beam`.
-Seeing it draw means adding such a weapon to a car's `CAR_TABLE` loadout. See the coverage list
-under [Instances: two lifecycles](#instances-two-lifecycles) for exactly what the sim-side tests do
-reach.
+Four chassis slots carry a beam (`afterburner`, `shockwave`, `lance`, `bulwark`) and one carries a
+multi-pellet, multi-volley weapon (`pepperbox`), so the beam half of the drawing code above runs in
+every live match now: `instanceDrawShape` branches on the weapon definition's own `kind`, and a
+`beam` definition is reachable the moment any of those four fires. What the *tests* for that branch
+do and do not reach is narrower than what play reaches — see the coverage list under
+[Instances: two lifecycles](#instances-two-lifecycles) for exactly what the sim-side and client-side
+tests do reach.
 
 Living cars carry an HP bar scaled to their own chassis maximum (`hpFraction`), and a wreck fades to
 `WRECK_ALPHA` and stops being predicted or interpolated.

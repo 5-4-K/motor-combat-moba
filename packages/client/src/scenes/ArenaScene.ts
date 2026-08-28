@@ -1141,11 +1141,12 @@ export class ArenaScene extends Phaser.Scene {
    * stays right between two patches at 20 Hz) and `PlayerState.lastFiredSlot` (which slot owns the
    * recovery every OTHER slot is dimmed by).
    *
-   * Nothing in the shipped table exercises either today — every weapon has `startUpMs: 0` and
-   * `volley.volleys: 1`, and the one weapon with `recoveryMs > 0` (`repeater`) is carried by no car —
-   * so the first weapon that breaks any of those is now a `CAR_TABLE` edit and nothing else. That
-   * also closes the mid-volley case: `beginFire` zeroes a slot's `stocks` at press time and does not
-   * set `rechargeEndsTick` until the volley's LAST shot, and `slotVisualState` answers "car-locked"
+   * Every one of these paths is now exercised by a carried weapon: `skewer` and `lance` (Oval's
+   * slots 2 and 3) carry `startUpMs > 0`, `pepperbox` (Rectangle's slot 2) carries
+   * `volley.volleys: 3`, and `recoveryMs > 0` is the common case — every weapon but `fireball`,
+   * `splinter` and `thumper` carries one. That also covers the mid-volley case: `beginFire` zeroes a
+   * slot's `stocks` at press time and does not set `rechargeEndsTick` until the volley's LAST shot,
+   * and `slotVisualState` answers "car-locked"
    * for that whole window because a real `pending` reaches it — rather than falling through to
    * full-brightness "ready" with nothing left to fire.
    */
