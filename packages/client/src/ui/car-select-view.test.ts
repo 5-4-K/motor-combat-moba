@@ -5,9 +5,11 @@ import {
   TICK_RATE_HZ,
   forwardMaxSpeedOf,
   hpOf,
+  massOf,
   reverseMaxSpeedOf,
   weaponDamageOf,
   weaponDefOf,
+  type CarId,
 } from "@motor-combat-moba/shared";
 import { CAR_BARS, carSelectView, fullStatsFor } from "./car-select-view.js";
 
@@ -50,6 +52,7 @@ describe("fullStatsFor", () => {
       "Reverse speed",
       "Turn rate",
       "Hull HP",
+      "Mass",
       "Hull size",
       "Fireball damage",
     ]);
@@ -93,6 +96,17 @@ describe("fullStatsFor", () => {
 
   it("still reports the hull HP the sim actually gives the car", () => {
     expect(fullStatsFor("hexagon").find((r) => r.label === "Hull HP")!.value).toBe("700");
+  });
+
+  it("shows mass among the full stats", () => {
+    const rows = fullStatsFor("hexagon");
+    const mass = rows.find((r) => r.label === "Mass");
+    expect(mass?.value).toBe("850");
+  });
+
+  it("shows a heavier mass for the tank than the speedster", () => {
+    const of = (id: CarId) => fullStatsFor(id).find((r) => r.label === "Mass")!.value;
+    expect(Number(of("hexagon"))).toBeGreaterThan(Number(of("rectangle")));
   });
 });
 
