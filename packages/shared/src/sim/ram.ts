@@ -1,5 +1,6 @@
 import { RAM_CONFIG } from "../config/ram-config.js";
 import { RAM_REFERENCE, RAM_REFERENCE_MASS, massOf } from "../config/car-config.js";
+import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { CarId } from "../config/types.js";
 import { contactNormalBetween, type Vec2 } from "./collide.js";
 import { carHullOf } from "./context.js";
@@ -194,8 +195,11 @@ function spinOf(attacker: RamCar, victim: RamCar, away: Vec2, impulse: number): 
   const dx = attacker.x - victim.x;
   const dy = attacker.y - victim.y;
 
-  const hullHalfLength = 24;
-  const hullHalfWidth = 16;
+  // Derived from `DRIVE_CONFIG` rather than typed, same as `inertiaCoefficient` two lines below —
+  // both must move with `carHullOf` in lockstep, or the torque lever and the inertia it divides by
+  // would silently disagree about the hull the ram actually collided against.
+  const hullHalfLength = DRIVE_CONFIG.carWidth / 2;
+  const hullHalfWidth = DRIVE_CONFIG.carHeight / 2;
   const rx = clamp(dx * cos - dy * sin, -hullHalfLength, hullHalfLength);
   const ry = clamp(dx * sin + dy * cos, -hullHalfWidth, hullHalfWidth);
 

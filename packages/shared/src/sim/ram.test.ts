@@ -148,11 +148,26 @@ describe("resolveRam", () => {
     expect(fwd.knock.angVel).not.toBe(0);
   });
 
-  it("clamps spin at spinMaxRate", () => {
-    const attacker = car({ sessionId: "a", x: 20, y: -30, angle: Math.PI / 2, speed: 100000 });
+  it("clamps spin at spinMaxRate when the torque genuinely exceeds it", () => {
+    // A near-corner flank hit at extreme speed and mass drives the unclamped torque-derived spin
+    // well past the ceiling — this position was found by sweeping attacker pose against a fixed
+    // victim until |angVel| saturated, so the assertion is pinned to the clamp itself rather than
+    // merely being consistent with any implementation (including a no-op one).
+    const attacker = car({ sessionId: "a", x: 22.5, y: 8.5, angle: 3.25, speed: 100000, carId: "hexagon" as CarId });
     const victim = car({ sessionId: "b", x: 0, y: 0, angle: 0 });
     const hit = resolveRam(attacker, victim, "ffa")!;
-    expect(Math.abs(hit.knock.angVel)).toBeLessThanOrEqual(RAM_CONFIG.spinMaxRate);
+    expect(Math.abs(hit.knock.angVel)).toBe(RAM_CONFIG.spinMaxRate);
+  });
+
+  it("produces an ordinary flank ram spin in a sane, non-trivial band", () => {
+    // Pins the magnitude, not just the sign, so a future scale regression (e.g. spinScale silently
+    // reverting toward 1) fails loudly instead of only showing up as a "feels weak" bug report.
+    const attacker = car({ sessionId: "a", x: 12, y: -30, angle: Math.PI / 2, speed: 500 });
+    const victim = car({ sessionId: "b", x: 0, y: 0, angle: 0 });
+    const hit = resolveRam(attacker, victim, "ffa")!;
+    expect(hit.side).toBe("flank");
+    expect(Math.abs(hit.knock.angVel)).toBeGreaterThan(1);
+    expect(Math.abs(hit.knock.angVel)).toBeLessThan(RAM_CONFIG.spinMaxRate);
   });
 
   it("shoves a light victim further than a heavy one for the identical ram", () => {

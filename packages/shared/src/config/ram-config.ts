@@ -51,8 +51,13 @@ export const RAM_CONFIG = {
   /** Bounds on `referenceMass / victimMass`, so neither the heaviest nor the lightest car degenerates. */
   massFactorMin: 0.6,
   massFactorMax: 1.6,
-  /** Calibration multiplier on the torque-derived spin rate. Tuned by feel, not derived. */
-  spinScale: 1.0,
+  /**
+   * Calibration multiplier on the torque-derived spin rate. Tuned by feel, not derived: it converts
+   * a speed-magnitude impulse into a plausible angular rate, and 100 was chosen so a solid flank ram
+   * (moderate severity, a lever arm off centre but short of the hull edge) lands near 2 rad/s while
+   * the hardest possible ram saturates `spinMaxRate`.
+   */
+  spinScale: 100,
   /** Ceiling on injected spin, so a corner contact cannot produce an absurd rotation. */
   spinMaxRate: 6.0,
   /**
