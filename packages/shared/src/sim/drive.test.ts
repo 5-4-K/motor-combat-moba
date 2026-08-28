@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { forwardMaxSpeedOf, reverseMaxSpeedOf } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
+import { RAM_CONFIG } from "../config/ram-config.js";
 import type { InputMessage } from "../net/input.js";
 import { stepDrive } from "./drive.js";
 import type { SimBody } from "./step.js";
@@ -266,5 +267,76 @@ describe("stepDrive", () => {
       DRIVE_CONFIG.turnRate * DT,
       9,
     );
+  });
+});
+
+describe("stepDrive: ram knock state", () => {
+  it("rotates the car from angVel with no steering input", () => {
+    const out = stepDrive({ ...rest(), angVel: 2 }, input(0, 0), DT, CAR_ID);
+    expect(out.angle).toBeCloseTo(2 * DT, 9);
+  });
+
+  it("decays angVel toward zero and snaps inside the epsilon", () => {
+    const spun = drive({ ...rest(), angVel: 3 }, input(0, 0), 1);
+    expect(Math.abs(spun.angVel)).toBeLessThan(3);
+    const settled = drive({ ...rest(), angVel: 3 }, input(0, 0), 300);
+    expect(settled.angVel).toBe(0);
+  });
+
+  it("translates the car from shove with no throttle", () => {
+    const out = stepDrive({ ...rest(), shoveX: 120, shoveY: -60 }, input(0, 0), DT, CAR_ID);
+    expect(out.x).toBeCloseTo(120 * DT, 9);
+    expect(out.y).toBeCloseTo(-60 * DT, 9);
+  });
+
+  it("decays shove toward zero and snaps inside the epsilon", () => {
+    const settled = drive({ ...rest(), shoveX: 200, shoveY: 200 }, input(0, 0), 300);
+    expect(settled.shoveX).toBe(0);
+    expect(settled.shoveY).toBe(0);
+  });
+
+  it("adds shove to drive velocity rather than replacing it", () => {
+    const out = stepDrive({ ...rest(), speed: 300, shoveY: 150 }, input(0, 0), DT, CAR_ID);
+    // angle 0, so drive motion is +x and the shove is +y. Both must survive.
+    expect(out.x).toBeGreaterThan(0);
+    expect(out.y).toBeCloseTo(150 * DT, 9);
+  });
+
+  it("scales steering by authority", () => {
+    const full = stepDrive({ ...rest(), speed: 200 }, input(1, 0), DT, CAR_ID);
+    const half = stepDrive({ ...rest(), speed: 200, authority: 0.5 }, input(1, 0), DT, CAR_ID);
+    expect(half.angle).toBeCloseTo(full.angle * 0.5, 9);
+  });
+
+  it("does NOT scale throttle by authority — a knocked player can always drive out", () => {
+    const full = stepDrive(rest(), input(0, 1), DT, CAR_ID);
+    const crushed = stepDrive({ ...rest(), authority: RAM_CONFIG.authorityFloor }, input(0, 1), DT, CAR_ID);
+    expect(crushed.speed).toBe(full.speed);
+  });
+
+  it("does NOT scale braking by authority", () => {
+    const full = stepDrive({ ...rest(), speed: 300 }, input(0, -1), DT, CAR_ID);
+    const crushed = stepDrive({ ...rest(), speed: 300, authority: RAM_CONFIG.authorityFloor }, input(0, -1), DT, CAR_ID);
+    expect(crushed.speed).toBe(full.speed);
+  });
+
+  it("recovers authority back toward 1 and snaps at full control", () => {
+    const one = drive({ ...rest(), authority: 0.35 }, input(0, 0), 1);
+    expect(one.authority).toBeGreaterThan(0.35);
+    expect(one.authority).toBeLessThan(1);
+    const settled = drive({ ...rest(), authority: 0.35 }, input(0, 0), 300);
+    expect(settled.authority).toBe(1);
+  });
+
+  it("bleeds spin faster when steering against it than when coasting", () => {
+    const coasting = stepDrive({ ...rest(), speed: 200, angVel: 3 }, input(0, 0), DT, CAR_ID);
+    const fighting = stepDrive({ ...rest(), speed: 200, angVel: 3 }, input(-1, 0), DT, CAR_ID);
+    expect(fighting.angVel).toBeLessThan(coasting.angVel);
+  });
+
+  it("does not bleed spin when steering WITH it", () => {
+    const coasting = stepDrive({ ...rest(), speed: 200, angVel: 3 }, input(0, 0), DT, CAR_ID);
+    const going = stepDrive({ ...rest(), speed: 200, angVel: 3 }, input(1, 0), DT, CAR_ID);
+    expect(going.angVel).toBe(coasting.angVel);
   });
 });
