@@ -207,4 +207,36 @@ describe("WEAPON_TABLE", () => {
     expect(WEAPON_TABLE.fireball.usesAimAssist).toBe(true);
     expect(WEAPON_TABLE.skewer.usesAimAssist).toBe(false);
   });
+
+  it("keeps thumper's cooldown clear of the band the aim-assist cliff forbids", () => {
+    const thumper = WEAPON_TABLE.thumper;
+    expect(thumper.usesAimAssist).toBe(true);
+    // The cliff guard rejects any aim-assist weapon within 15% of 1000 / lockTimeoutMs. At
+    // lockTimeoutMs 800 that is 1.25 Hz, which forbids EVERY cooldownMs between 696 and 941. The
+    // 900ms first drafted for this row sat inside the band and would have failed the suite.
+    const forbiddenLow = 1000 / (1.25 * 1.15);
+    const forbiddenHigh = 1000 / (1.25 * 0.85);
+    expect(thumper.cooldownMs).toBe(1000);
+    expect(thumper.cooldownMs).toBeGreaterThan(forbiddenHigh);
+    expect(forbiddenLow).toBeLessThan(forbiddenHigh); // the band is a band, not a point
+    expect(thumper.hitbox).toEqual({ shape: "circle", radius: 20 });
+    expect(thumper.range).toBeGreaterThanOrEqual(AIM_CONFIG.lockRange);
+  });
+
+  it("ships bulwark as a detached beam that lingers and ticks", () => {
+    const bulwark = WEAPON_TABLE.bulwark;
+    if (bulwark.kind !== "beam") throw new Error("bulwark must be a beam");
+    expect(bulwark.attached).toBe(false); // stamped into the world, unlike afterburner
+    expect(bulwark.lifetimeMs).toBe(2500);
+    expect(bulwark.damageFrequencyMs).toBe(400);
+    // Total life is range/speed + lifetime == 1s + 2.5s. At one tick per 400ms that is ~8 ticks
+    // == 280 max, matching afterburner's ceiling as L6 intends.
+    expect(bulwark.range / bulwark.speed + bulwark.lifetimeMs / 1000).toBeCloseTo(3.5);
+  });
+
+  it("carries exactly nine weapons, every one a different colour", () => {
+    const rows = Object.values(WEAPON_TABLE);
+    expect(rows).toHaveLength(9);
+    expect(new Set(rows.map((def) => def.color.toUpperCase())).size).toBe(9);
+  });
 });

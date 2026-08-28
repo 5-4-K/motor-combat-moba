@@ -196,6 +196,92 @@ export const WEAPON_TABLE = {
     attached: false,
     lifetimeMs: 150,
   },
+  /**
+   * Hexagon's slot 1. A fat, slow slug: the 20-unit radius is the largest hitbox in the table and
+   * makes it near-unmissable in a brawl, while 450 u/s over 550 units means 1.2 s of flight and a
+   * genuinely dodgeable shot at range. It buys pressure, not a ranged win — but Hexagon is 90 u/s
+   * slower than Oval and 225 slower than Rectangle, so without one weapon that reaches at all, the
+   * slowest chassis has no answer to a patient opponent.
+   *
+   * `cooldownMs: 1000` IS CONSTRAINED, not chosen for feel. The aim-assist cliff guard rejects any
+   * assisted weapon whose `1000 / cooldownMs` is within 15% of `1000 / AIM_CONFIG.lockTimeoutMs`,
+   * which forbids every value between 696 and 941. This row was first drafted at 900 and would have
+   * failed the suite. Do not "round it down" to 900 without re-reading that guard.
+   */
+  thumper: {
+    id: "thumper",
+    kind: "projectile",
+    name: "Thumper",
+    color: "#495057",
+    unlocksAt: 1,
+    damage: 75,
+    damageFrequencyMs: 0,
+    speed: 450,
+    range: 550, // >= AIM_CONFIG.lockRange (400), required for usesAimAssist
+    startUpMs: 0,
+    cooldownMs: 1000, // 1.0 Hz — 20% clear of the 1.25 Hz cliff
+    recoveryMs: 0,
+    usesAimAssist: true,
+    hitbox: { shape: "circle", radius: 20 },
+    pierce: 0,
+    volley: { volleys: 1, volleyIntervalMs: 0, pelletsPerVolley: 1, spreadAngleDeg: 0 },
+  },
+  /**
+   * Hexagon's slot 2. The widest hitbox in the game and the shortest-lived: a 140-degree cone that
+   * hugs the chassis for a quarter second and hits each car once. It is not aimed so much as
+   * triggered — it only needs opponents to be near — which is the point on a chassis that cannot
+   * disengage.
+   *
+   * `usesAimAssist: false` is FORCED, same as `afterburner`: `range` (150) is far below
+   * `AIM_CONFIG.lockRange`, and attached beams are refused assist by a separate guard.
+   */
+  shockwave: {
+    id: "shockwave",
+    kind: "beam",
+    name: "Shockwave",
+    color: "#5C940D",
+    unlocksAt: 1,
+    damage: 100,
+    damageFrequencyMs: 0, // one hit per car, not a ticking field
+    speed: 1500, // extends its 150 range in 100ms; +150ms linger == 250ms of total life
+    range: 150,
+    startUpMs: 0,
+    cooldownMs: 5000,
+    recoveryMs: 200,
+    usesAimAssist: false,
+    hitbox: { shape: "cone", angleDeg: 140 },
+    attached: true,
+    lifetimeMs: 150,
+  },
+  /**
+   * Hexagon's slot 3, and the table's only DETACHED TICKING beam — the combination that makes it a
+   * zone rather than a shot. It stamps into the world and sits there for 3.5 s total, re-arming
+   * against anything still inside every 400 ms.
+   *
+   * The weapon only works because `canDamage` returns false for `ownerId === targetId` and there is
+   * no friendly fire: **the owner can park inside their own bulwark.** It is not a symmetric
+   * hazard, it is an asymmetric exclusion zone, and that asymmetry is most of the design (L6). Its
+   * damage output is secondary to the ground it denies, but it must never read as a safe wall to
+   * drive through — 8 ticks is 280, matching `afterburner`'s ceiling.
+   */
+  bulwark: {
+    id: "bulwark",
+    kind: "beam",
+    name: "Bulwark",
+    color: "#862E9C",
+    unlocksAt: 1,
+    damage: 35, // per tick
+    damageFrequencyMs: 400,
+    speed: 500, // grows out over a full second, so it is visible before it is dangerous
+    range: 500,
+    startUpMs: 0,
+    cooldownMs: 15000,
+    recoveryMs: 200,
+    usesAimAssist: false,
+    hitbox: { shape: "cone", angleDeg: 60 },
+    attached: false,
+    lifetimeMs: 2500,
+  },
 } as const satisfies Record<WeaponId, WeaponDef>;
 
 /**

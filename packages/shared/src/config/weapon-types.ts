@@ -5,7 +5,10 @@ export type WeaponId =
   | "afterburner"
   | "splinter"
   | "skewer"
-  | "lance";
+  | "lance"
+  | "thumper"
+  | "shockwave"
+  | "bulwark";
 
 /**
  * Optional charge system. Absent means single-stock, which is exactly the pre-weapon-system
