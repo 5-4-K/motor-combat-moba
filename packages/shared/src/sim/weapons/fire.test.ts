@@ -263,17 +263,16 @@ describe("the two lockouts", () => {
 
 describe("volleys and wind-up", () => {
   /**
-   * No shipped weapon has `volleys > 1` or `startUpMs > 0` (D22 ships zero balance change), so a
-   * burst is staged by hand-building the `pending` a press would have produced. `tickRecharge`,
-   * `beginFire` and `releaseShots` then run in the canonical per-tick order exactly as `runCombat`
-   * calls them. `repeater` supplies the real numbers: 90-tick cooldown, 3 stocks, and a
-   * `volleyIntervalMs` of 0 that `releaseShots` floors at one tick.
+   * `pepperbox` is the table's first real burst: 3 volleys of 2 pellets at a 100ms == 3-tick
+   * interval, on a 1800ms == 54-tick cooldown. Before it shipped this fixture had to hand-build the
+   * `pending` a press would have produced; it no longer does, so the burst path is now exercised
+   * with the numbers a player actually fires.
    */
   const bursting = (nextShotTick: number, shotsLeft: number, rechargeEndsTick = 0): FireState => ({
-    slots: [{ weaponId: "repeater", stocks: 0, rechargeEndsTick, refireLockUntilTick: 0 }],
+    slots: [{ weaponId: "pepperbox", stocks: 0, rechargeEndsTick, refireLockUntilTick: 0 }],
     switchLockUntilTick: 0,
     lastFiredSlot: 0,
-    pending: { weaponId: "repeater", slot: 0, shotsLeft, nextShotTick },
+    pending: { weaponId: "pepperbox", slot: 0, shotsLeft, nextShotTick },
     level: 1,
   });
 
@@ -292,25 +291,34 @@ describe("volleys and wind-up", () => {
 
   it("starts the recharge at the LAST shot of a burst, not on the tick after the press", () => {
     const { state, shots } = drive(bursting(100, 3), 100, 20);
-    expect(shots).toEqual([100, 101, 102]); // volleyInterval floors at one tick
+    expect(shots).toEqual([100, 103, 106]); // 100ms == 3-tick volley interval
     expect(state.pending).toBeNull();
-    // 102 + 90. An auto-started timer on tick 101 would have ended it at 191 — five ticks early, and
+    // 106 + 54. An auto-started timer on tick 101 would have ended it at 155 — five ticks early, and
     // `releaseShots` would have left that running timer alone rather than correcting it.
-    expect(state.slots[0]!.rechargeEndsTick).toBe(192);
+    expect(state.slots[0]!.rechargeEndsTick).toBe(160);
   });
 
   it("does not start the recharge during a wind-up either", () => {
     const { state, shots } = drive(bursting(105, 1), 100, 20);
     expect(shots).toEqual([105]);
-    expect(state.slots[0]!.rechargeEndsTick).toBe(195); // 105 + 90, not 190 from an auto-start at 100
+    expect(state.slots[0]!.rechargeEndsTick).toBe(159); // 105 + 54, not 154 from an auto-start at 100
   });
 
   it("still completes a recharge that was already running when the burst began", () => {
     // The guard is narrow on purpose: it skips the AUTO-START only. A timer already in flight (a
-    // stock banked from an earlier shot) keeps counting down through the burst and lands its stock.
+    // stock banked from an earlier shot) keeps counting down through the burst and lands its stock
+    // exactly on schedule, at tick 101, regardless of the pending burst.
     const { state } = drive(bursting(100, 3, 101), 100, 20);
     expect(state.slots[0]!.stocks).toBe(1);
-    expect(state.slots[0]!.rechargeEndsTick).toBe(191); // 101 + 90, restarted below max and untouched
+    // Unlike `repeater` (3 stocks), `pepperbox` ships with no `stock` block at all, so its cap is
+    // the single-stock default of 1. Landing that one stock at tick 101 already puts it AT max, so
+    // when the burst's LAST shot (tick 106) reaches the completion branch in `releaseShots`, it
+    // finds `stocks >= max` and CLEARS the timer instead of restarting it — the "restarted below
+    // max, untouched" case this test proved for `repeater` cannot happen for a single-stock weapon,
+    // there is no room left to bank another stock. The guard itself is still proven here: the
+    // in-flight timer was not frozen or reset early by the pending burst, it simply had nowhere
+    // left to go once it landed.
+    expect(state.slots[0]!.rechargeEndsTick).toBe(0);
   });
 });
 

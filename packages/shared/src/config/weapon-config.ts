@@ -47,6 +47,69 @@ export const WEAPON_TABLE = {
     volley: { volleys: 1, volleyIntervalMs: 0, pelletsPerVolley: 1, spreadAngleDeg: 0 },
   },
   /**
+   * Rectangle's slot 2. The table's first multi-volley, multi-pellet weapon, and the first place
+   * `volleys` and `pelletsPerVolley` are both > 1.
+   *
+   * Sequential volleys exit on their own ticks, each from the car's pose AT that tick, so driving
+   * straight clusters the six pellets and turning through the burst sprays them across an arc. The
+   * skill expression is a consequence of the mechanic, not an added rule.
+   *
+   * Its all-pellets-connect sustained DPS is 83, deliberately BELOW `fireball`'s 100: a mid weapon
+   * buys a chunk of damage inside a window the go-to cannot match (168 in 200 ms against
+   * `fireball`'s 1.7 s for the same total), and pays for it in sustained output. Neither dominates.
+   */
+  pepperbox: {
+    id: "pepperbox",
+    kind: "projectile",
+    name: "Pepperbox",
+    color: "#B45309",
+    unlocksAt: 1,
+    damage: 28, // per pellet; 6 pellets == 168, 34% of an average car
+    damageFrequencyMs: 0,
+    speed: 800,
+    range: 600,
+    startUpMs: 0, // a drive-by must be instant
+    cooldownMs: 1800,
+    recoveryMs: 200,
+    usesAimAssist: false,
+    hitbox: { shape: "circle", radius: 7 },
+    pierce: 0,
+    volley: { volleys: 3, volleyIntervalMs: 100, pelletsPerVolley: 2, spreadAngleDeg: 10 },
+  },
+  /**
+   * Rectangle's slot 3, and the FIRST BEAM THE GAME HAS EVER SHIPPED. Several paths in
+   * `instances.ts` and `instanceDrawShape` run in live play for the first time because of this row.
+   *
+   * `attached: true` welds its origin and angle to the car every tick, so it sweeps as the driver
+   * steers and dies the instant its owner is wrecked. Total life is `range / speed + lifetimeMs`
+   * == 2.2 s; at a 200 ms damage interval that is about 11 ticks, 286 damage, 57% of an average car
+   * — but only against a target held in the cone for the full duration.
+   *
+   * `usesAimAssist: false` is FORCED twice over: `range` (220) is below `AIM_CONFIG.lockRange`, and
+   * a separate guard refuses aim assist on any attached beam. Do not "fix" this to true.
+   *
+   * `recoveryMs: 200` is deliberately small (L5). The beam lives on its own once spawned, so the
+   * driver stays free to keep firing `fireball` into a target that is already burning.
+   */
+  afterburner: {
+    id: "afterburner",
+    kind: "beam",
+    name: "Afterburner",
+    color: "#D6336C",
+    unlocksAt: 1,
+    damage: 26, // per tick
+    damageFrequencyMs: 200,
+    speed: 1100, // extends its 220 range in 200ms
+    range: 220,
+    startUpMs: 0,
+    cooldownMs: 13000,
+    recoveryMs: 200,
+    usesAimAssist: false,
+    hitbox: { shape: "cone", angleDeg: 55 },
+    attached: true,
+    lifetimeMs: 2000,
+  },
+  /**
    * Oval's slot 1, and the table's only multi-stock weapon. It replaced `repeater`, which held this
    * reference role while carried by no car; a reachable reference is strictly better, because stock
    * bugs now surface in matches instead of only in `fire.test.ts`.

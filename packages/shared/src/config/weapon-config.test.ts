@@ -131,6 +131,37 @@ describe("WEAPON_TABLE", () => {
     }
   });
 
+  it("ships pepperbox as the table's first burst-and-fan weapon", () => {
+    const pepperbox = WEAPON_TABLE.pepperbox;
+    if (pepperbox.kind !== "projectile") throw new Error("pepperbox must be a projectile");
+    expect(pepperbox.volley).toEqual({
+      volleys: 3,
+      volleyIntervalMs: 100,
+      pelletsPerVolley: 2,
+      spreadAngleDeg: 10,
+    });
+    // 6 pellets x 28 = 168 in a 200ms window. Its all-pellets-connect sustained DPS is 83, BELOW
+    // fireball's 100 — that is the burst-over-sustained trade, not a bug. See the spec's rule.
+    const pellets = pepperbox.volley.volleys * pepperbox.volley.pelletsPerVolley;
+    expect(pellets * pepperbox.damage).toBe(168);
+    expect(pepperbox.usesAimAssist).toBe(false);
+  });
+
+  it("ships afterburner as the table's first beam, attached and ticking", () => {
+    const afterburner = WEAPON_TABLE.afterburner;
+    if (afterburner.kind !== "beam") throw new Error("afterburner must be a beam");
+    expect(afterburner.attached).toBe(true);
+    expect(afterburner.lifetimeMs).toBe(2000);
+    expect(afterburner.damageFrequencyMs).toBe(200);
+    expect(afterburner.hitbox).toEqual({ shape: "cone", angleDeg: 55 });
+    // Total life is range/speed + lifetime == 200ms + 2000ms. At one tick per 200ms that is ~11
+    // ticks == 286 max, 57% of an average car's 500 hull HP.
+    expect(afterburner.range / afterburner.speed + afterburner.lifetimeMs / 1000).toBeCloseTo(2.2);
+    // Forced, not chosen: range 220 < AIM_CONFIG.lockRange, and an attached beam re-derives its
+    // angle from the owner every tick, so a lock would have nothing to decide.
+    expect(afterburner.usesAimAssist).toBe(false);
+  });
+
   it("refuses aim assist on an attached beam", () => {
     // A12. An attached beam re-derives its origin and angle from the owner's pose every tick, so it
     // would snap to the lock at birth and immediately re-weld to the car's nose. Dormant until the
