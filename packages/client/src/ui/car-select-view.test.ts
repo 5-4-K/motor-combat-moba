@@ -6,6 +6,7 @@ import {
   forwardMaxSpeedOf,
   hpOf,
   reverseMaxSpeedOf,
+  weaponDamageOf,
 } from "@motor-combat-moba/shared";
 import { CAR_BARS, carSelectView, fullStatsFor } from "./car-select-view.js";
 
@@ -42,13 +43,14 @@ describe("fullStatsFor", () => {
     );
   });
 
-  it("lists the five rows the design specifies, in order", () => {
+  it("lists the design's rows plus one damage row per equipped weapon, in order", () => {
     expect(fullStatsFor("hexagon").map((r) => r.label)).toEqual([
       "Top speed",
       "Reverse speed",
       "Turn rate",
       "Hull HP",
       "Hull size",
+      "Fireball damage",
     ]);
   });
 
@@ -56,6 +58,30 @@ describe("fullStatsFor", () => {
     const speed = (id: "rectangle" | "oval" | "hexagon") =>
       fullStatsFor(id).find((r) => r.label === "Top speed")?.value;
     expect(new Set([speed("rectangle"), speed("oval"), speed("hexagon")]).size).toBe(3);
+  });
+
+  it("shows each chassis's own damage for every weapon it carries", () => {
+    const rows = fullStatsFor("oval");
+    const damage = rows.find((r) => r.label === "Fireball damage");
+    expect(damage).toBeDefined();
+    expect(damage!.value).toBe(String(weaponDamageOf("oval", "fireball")));
+  });
+
+  it("derives the number rather than transcribing it, so a retune moves the screen too", () => {
+    // The panel's standing rule: every number comes out of the shared config tables. A hard-coded
+    // "60" here would let the screen quietly lie about the car after a balance pass.
+    for (const id of Object.keys(CAR_TABLE) as (keyof typeof CAR_TABLE)[]) {
+      const rows = fullStatsFor(id);
+      for (const weaponId of CAR_TABLE[id].weapons) {
+        const row = rows.find((r) => r.label.toLowerCase().endsWith("damage"));
+        expect(row).toBeDefined();
+        expect(row!.value).toBe(String(weaponDamageOf(id, weaponId)));
+      }
+    }
+  });
+
+  it("still reports the hull HP the sim actually gives the car", () => {
+    expect(fullStatsFor("hexagon").find((r) => r.label === "Hull HP")!.value).toBe("700");
   });
 });
 

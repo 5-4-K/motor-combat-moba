@@ -5,6 +5,8 @@ import {
   forwardMaxSpeedOf,
   hpOf,
   reverseMaxSpeedOf,
+  weaponDamageOf,
+  weaponDefOf,
   type CarId,
 } from "@motor-combat-moba/shared";
 import { modeLabel } from "./lobby-view.js";
@@ -68,12 +70,20 @@ function trim(n: number): string {
 }
 
 export function fullStatsFor(id: CarId): StatRow[] {
+  const def = CAR_TABLE[id];
   return [
     { label: "Top speed", value: `${trim(forwardMaxSpeedOf(id))} u/s` },
     { label: "Reverse speed", value: `${trim(reverseMaxSpeedOf(id))} u/s` },
     { label: "Turn rate", value: `${trim(DRIVE_CONFIG.turnRate)} rad/s` },
     { label: "Hull HP", value: String(hpOf(id)) },
     { label: "Hull size", value: `${DRIVE_CONFIG.carWidth} x ${DRIVE_CONFIG.carHeight}` },
+    // One row per equipped weapon, derived through the same `weaponDamageOf` the sim fires with.
+    // The chassis `attack` rating is invisible on its own — this is where it becomes a number the
+    // player can compare between cards.
+    ...def.weapons.map((weaponId) => ({
+      label: `${weaponDefOf(weaponId).name} damage`,
+      value: String(weaponDamageOf(id, weaponId)),
+    })),
   ];
 }
 
