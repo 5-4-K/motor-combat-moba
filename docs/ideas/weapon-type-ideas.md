@@ -1,0 +1,1 @@
+no homing, no ricochet, no explosion-on-impact AoE, no mines dropped behind you (weapons only exit the nose), no knockback, no slows/burns/stuns, no shields or heals, no damage falloff, no hold-to-charge
