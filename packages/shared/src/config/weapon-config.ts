@@ -19,7 +19,9 @@ import type { WeaponDef, WeaponId } from "./weapon-types.js";
  * car, not every car. `damageFor` (`sim/damage.ts`) moves it +/-50% with the firing chassis's
  * `attack` rating. Fireball's 50 is solved, not chosen: an average chassis has 500 hull HP and
  * fireball fires twice a second, so 50 is the number that makes an average-vs-average kill take the
- * design target of 5 seconds. `repeater`'s 31 preserves its former 5:8 ratio against fireball.
+ * design target of 5 seconds. `splinter`'s 30 is solved from its own recharge rather than from
+ * `fireball`: 30 damage per 400 ms is 75 sustained DPS, three quarters of the anchor, which is where
+ * a 1.2x `attack` chassis wants its go-to. See `docs/superpowers/specs/2026-08-29-weapon-roster-design.md`.
  */
 export const WEAPON_TABLE = {
   fireball: {
@@ -37,7 +39,7 @@ export const WEAPON_TABLE = {
     recoveryMs: 0,
     // The system would otherwise ship dark: `fireball` is the only weapon any chassis carries, so
     // leaving it off would put aim assist on the same never-seen-in-play list as beams, multi-pellet
-    // volleys and `repeater`. Note the consequence -- every chassis carries `fireball`, so aim assist
+    // volleys and `splinter`. Note the consequence -- every chassis carries `fireball`, so aim assist
     // is universal until a second weapon is authored.
     usesAimAssist: true,
     hitbox: { shape: "circle", radius: 12 },
@@ -45,33 +47,34 @@ export const WEAPON_TABLE = {
     volley: { volleys: 1, volleyIntervalMs: 0, pelletsPerVolley: 1, spreadAngleDeg: 0 },
   },
   /**
-   * NO CAR CARRIES THIS WEAPON. It is not in any `CAR_TABLE` loadout and cannot be reached in game —
-   * that is by design, not an oversight. `fire.ts`'s stock mechanic (D5) needs a real, multi-stock
-   * weapon to prove itself against; `fireball` is deliberately single-stock (D22 ships zero balance
-   * change), so there was nothing in the table the stock tests could exercise honestly. `repeater`
-   * exists purely as that live proof and as the reference example for whoever authors the first
-   * multi-stock weapon actually placed in a loadout. `cooldownMs`/`stock` below are the spec's D5
-   * worked example transcribed verbatim: three stocks, a three-second recharge. Do not delete this
-   * just because nothing spawns it.
+   * Oval's slot 1, and the table's only multi-stock weapon. It replaced `repeater`, which held this
+   * reference role while carried by no car; a reachable reference is strictly better, because stock
+   * bugs now surface in matches instead of only in `fire.test.ts`.
+   *
+   * `cooldownMs: 400` is the entire design and is not a knob to round off. One dart per 400 ms
+   * sustains 75 DPS; dumping all three puts 90 damage out in 260 ms and then leaves a 1.2 s dry
+   * spell at 62 DPS across the cycle. So tapping wins the long fight and dumping wins the moment,
+   * which is the trigger discipline the weapon exists to ask for. At the 1.7 s first drafted for it
+   * the weapon sustains 18 DPS against `fireball`'s 100 and is not a viable slot 1.
    */
-  repeater: {
-    id: "repeater",
+  splinter: {
+    id: "splinter",
     kind: "projectile",
-    name: "Repeater",
+    name: "Splinter",
     color: "#0CA5B0",
     unlocksAt: 1,
-    damage: 31,
+    damage: 30,
     damageFrequencyMs: 0,
-    speed: 700,
-    range: 700,
+    speed: 1100,
+    range: 850, // >= AIM_CONFIG.lockRange (400), required for usesAimAssist
     startUpMs: 0,
-    cooldownMs: 3000,
-    recoveryMs: 5000, // D4's own example: refirable by itself at 3s while other slots wait 5s
-    usesAimAssist: false,
-    hitbox: { shape: "circle", radius: 3 },
+    cooldownMs: 400, // 2.5 Hz, clear of the 1.25 Hz aim-assist cliff by 100%
+    recoveryMs: 0, // a go-to never gates another slot (L5)
+    usesAimAssist: true,
+    hitbox: { shape: "circle", radius: 5 },
     pierce: 0,
     volley: { volleys: 1, volleyIntervalMs: 0, pelletsPerVolley: 1, spreadAngleDeg: 0 },
-    stock: { max: 3, refireDelayMs: 100 },
+    stock: { max: 3, refireDelayMs: 130 },
   },
 } as const satisfies Record<WeaponId, WeaponDef>;
 

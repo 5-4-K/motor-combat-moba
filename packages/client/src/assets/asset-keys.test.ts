@@ -21,7 +21,7 @@ describe("carSpriteKey", () => {
 describe("weaponIconKey", () => {
   it("namespaces a weapon id", () => {
     expect(weaponIconKey("fireball")).toBe("weapon-icon.fireball");
-    expect(weaponIconKey("repeater")).toBe("weapon-icon.repeater");
+    expect(weaponIconKey("splinter")).toBe("weapon-icon.splinter");
   });
 });
 

@@ -87,10 +87,18 @@ describe("WEAPON_TABLE", () => {
     expect(weaponDefOf("fireball").id).toBe("fireball");
   });
 
-  it("gives the fireball aim assist and leaves the repeater without it", () => {
-    // The pair that makes `usesAimAssist` a real switch rather than a global: one row on, one off.
-    expect(WEAPON_TABLE.fireball.usesAimAssist).toBe(true);
-    expect(WEAPON_TABLE.repeater.usesAimAssist).toBe(false);
+  it("ships splinter as the table's multi-stock reference, now carried rather than dormant", () => {
+    const splinter = WEAPON_TABLE.splinter;
+    expect(splinter.kind).toBe("projectile");
+    expect(splinter.damage).toBe(30);
+    expect(splinter.cooldownMs).toBe(400);
+    expect(splinter.speed).toBe(1100);
+    expect(splinter.range).toBe(850);
+    expect(splinter.usesAimAssist).toBe(true);
+    expect(splinter.stock).toEqual({ max: 3, refireDelayMs: 130 });
+    // 400ms is the whole design: tapping one dart sustains 75 DPS, dumping all three puts 90
+    // damage out in 260ms and then leaves a 1.2s dry spell. See the spec's derivation rule.
+    expect(splinter.damage * (1000 / splinter.cooldownMs)).toBe(75);
   });
 
   it("never lets an aim-assist weapon lock past its own reach", () => {

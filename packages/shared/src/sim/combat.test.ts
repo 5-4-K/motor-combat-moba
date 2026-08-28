@@ -226,14 +226,14 @@ describe("firing", () => {
     expect(hit.hp).toBe(hpOf("rectangle") - weaponDamageOf("rectangle", "fireball"));
   });
 
-  it("drives repeater, the table's only multi-stock weapon, through a real tick", () => {
-    // `repeater` is carried by no car, so nothing in ordinary play ever reaches `runCombat` with it
-    // and the stock mechanic would otherwise only ever be seen in hand-built `FireState` literals.
-    // The hand-built loadout is the whole difference here; everything downstream is the shipped path.
+  it("drives splinter, the table's only multi-stock weapon, through a real tick", () => {
+    // Oval carries splinter, so this is now the shipped path rather than a hand-built loadout
+    // proving an unreachable weapon. Kept as an explicit fixture anyway: it is the only test that
+    // walks the stock mechanic through `runCombat` rather than through `FireState` literals.
     const shooter = player({
       fireMask: 0b001,
       fireState: {
-        slots: [{ weaponId: "repeater", stocks: 2, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
+        slots: [{ weaponId: "splinter", stocks: 2, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
         switchLockUntilTick: 0,
         lastFiredSlot: -1,
         pending: null,
@@ -246,13 +246,13 @@ describe("firing", () => {
       instances: [],
       instanceSeq: 0,
     });
-    expect(result.instances.map((i) => i.weaponId)).toEqual(["repeater"]);
+    expect(result.instances.map((i) => i.weaponId)).toEqual(["splinter"]);
 
     const fired = result.players[0]!.fireState;
     expect(fired.slots[0]!.stocks).toBe(1); // one of two spent
-    expect(fired.slots[0]!.rechargeEndsTick).toBe(190); // tick 100 + a 3000ms cooldown == 90 ticks
-    expect(fired.slots[0]!.refireLockUntilTick).toBe(103); // 100ms refire delay == 3 ticks
-    expect(fired.switchLockUntilTick).toBe(250); // 5000ms recovery == 150 ticks
+    expect(fired.slots[0]!.rechargeEndsTick).toBe(112); // tick 100 + a 400ms cooldown == 12 ticks
+    expect(fired.slots[0]!.refireLockUntilTick).toBe(104); // 130ms refire delay == 4 ticks
+    expect(fired.switchLockUntilTick).toBe(100); // splinter's recoveryMs is 0 — a go-to never gates
     expect(fired.lastFiredSlot).toBe(0);
   });
 

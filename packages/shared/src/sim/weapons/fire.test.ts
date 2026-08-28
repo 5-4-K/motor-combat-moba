@@ -81,12 +81,12 @@ describe("releasing", () => {
 
 describe("stocks", () => {
   /**
-   * `repeater`: the spec's D5 worked example (3 stocks, 3000ms == 90-tick cooldown at 30Hz) transcribed
-   * literally. No car carries it — it exists purely so the stock mechanic has a real, multi-stock
-   * weapon to prove itself against, since `fireball` is deliberately single-stock.
+   * `splinter` is the table's only multi-stock weapon: 3 stocks, a 400ms == 12-tick recharge, and a
+   * 130ms refire that rounds up to 4 ticks at 30Hz. Oval carries it, so unlike the `repeater` this
+   * replaced, every number here is one a player actually experiences.
    */
   const stocked = (): FireState => ({
-    slots: [{ weaponId: "repeater", stocks: 1, rechargeEndsTick: 190, refireLockUntilTick: 0 }],
+    slots: [{ weaponId: "splinter", stocks: 1, rechargeEndsTick: 190, refireLockUntilTick: 0 }],
     switchLockUntilTick: 0,
     lastFiredSlot: -1,
     pending: null,
@@ -96,13 +96,13 @@ describe("stocks", () => {
   it("adds a stock when the timer completes and restarts while below max", () => {
     const state = tickRecharge({ ...stocked() }, 190);
     expect(state.slots[0]!.stocks).toBe(2);
-    expect(state.slots[0]!.rechargeEndsTick).toBe(280); // 190 + 90
+    expect(state.slots[0]!.rechargeEndsTick).toBe(202); // 190 + 12
   });
 
   it("clears the timer at max stocks rather than banking progress", () => {
     const nearlyFull: FireState = {
       ...stocked(),
-      slots: [{ weaponId: "repeater", stocks: 2, rechargeEndsTick: 190, refireLockUntilTick: 0 }],
+      slots: [{ weaponId: "splinter", stocks: 2, rechargeEndsTick: 190, refireLockUntilTick: 0 }],
     };
     const full = tickRecharge(nearlyFull, 190);
     expect(full.slots[0]!.stocks).toBe(3);
@@ -112,11 +112,11 @@ describe("stocks", () => {
   it("starts a fresh full timer when firing from max, however long it sat full", () => {
     const full: FireState = {
       ...stocked(),
-      slots: [{ weaponId: "repeater", stocks: 3, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
+      slots: [{ weaponId: "splinter", stocks: 3, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
     };
     const waited = idle(full, 200, 500);
     const fired = releaseShots(beginFire(waited, SLOT_1, 700), 700).state;
-    expect(fired.slots[0]!.rechargeEndsTick).toBe(790); // 700 + 90, a whole cooldown, not a shortened one
+    expect(fired.slots[0]!.rechargeEndsTick).toBe(712); // 700 + 12, a whole cooldown, not a shortened one
   });
 
   it("leaves a running timer untouched when firing below max", () => {
@@ -128,20 +128,21 @@ describe("stocks", () => {
 
 describe("refire delay", () => {
   it("refuses a second shot of the same weapon before its refire delay, and allows it once the lock elapses", () => {
-    // repeater's refireDelayMs is 100ms == 3 ticks at 30Hz. Two stocks banked so a second press has
-    // ammo to spend; only the refire lock, not stock count, should be under test here.
+    // splinter's refireDelayMs is 130ms, which rounds UP to 4 ticks (133ms) at 30Hz. Two stocks
+    // banked so a second press has ammo to spend; only the refire lock, not stock count, is under
+    // test here.
     const twoStocks: FireState = {
-      slots: [{ weaponId: "repeater", stocks: 2, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
+      slots: [{ weaponId: "splinter", stocks: 2, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
       switchLockUntilTick: 0,
       lastFiredSlot: -1,
       pending: null,
       level: 1,
     };
     const firstShot = releaseShots(beginFire(twoStocks, SLOT_1, 100), 100).state;
-    expect(firstShot.slots[0]!.refireLockUntilTick).toBe(103); // 100 + 3
+    expect(firstShot.slots[0]!.refireLockUntilTick).toBe(104); // 100 + 4
 
-    expect(beginFire(firstShot, SLOT_1, 102).pending).toBeNull(); // still locked
-    expect(beginFire(firstShot, SLOT_1, 103).pending).not.toBeNull(); // lock has elapsed
+    expect(beginFire(firstShot, SLOT_1, 103).pending).toBeNull(); // still locked
+    expect(beginFire(firstShot, SLOT_1, 104).pending).not.toBeNull(); // lock has elapsed
   });
 });
 
