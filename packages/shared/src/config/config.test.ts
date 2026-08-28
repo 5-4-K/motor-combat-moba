@@ -20,18 +20,16 @@ describe("CAR_TABLE", () => {
     expect(CAR_TABLE.hexagon).toMatchObject({ speed: 30, attack: 50, hp: 70 });
   });
 
-  it("spends exactly the 150-point budget on every chassis, in whole 0-100 ratings", () => {
-    // The budget is the roster's fairness rule: a fourth car cannot be authored strictly better than
-    // the three shipped ones. It was already true by eye (every car summed to 16 on the old 0-10
-    // scale); pinning it makes it a rule rather than a coincidence.
+  it("gives every chassis whole 0-100 ratings on all four axes", () => {
+    // The 150-point budget that used to be asserted here was removed on 2026-08-29 so that `mass`
+    // could be a free-floating fourth rating. Nothing enforces roster fairness now; see CAR_TABLE.
     for (const id of Object.keys(CAR_TABLE) as CarId[]) {
       const def = CAR_TABLE[id];
-      for (const rating of [def.speed, def.attack, def.hp]) {
+      for (const rating of [def.speed, def.attack, def.hp, def.mass]) {
         expect(Number.isInteger(rating)).toBe(true);
         expect(rating).toBeGreaterThanOrEqual(0);
         expect(rating).toBeLessThanOrEqual(100);
       }
-      expect(def.speed + def.attack + def.hp).toBe(150);
     }
   });
 
