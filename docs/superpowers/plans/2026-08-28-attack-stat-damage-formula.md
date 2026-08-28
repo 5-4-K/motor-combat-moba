@@ -77,9 +77,25 @@ Removes the whole ram-damage subsystem. After this task cars still collide and s
 - Consumes: nothing
 - Produces: `CombatInput` and `CombatResult` without `ramCooldowns`; `COMBAT_CONFIG` reduced to `{ hpPerRating: 10 }`
 
-- [ ] **Step 1: Write the failing test — contact must cost nothing**
+- [ ] **Step 1: Delete the old ram suites first**
 
-Add this block to `packages/shared/src/sim/combat.test.ts`, immediately after the `describe("shots landing", ...)` block closes (line 479, just before `describe("ramming", ...)` begins). It replaces the entire ram suite with its inverse.
+Do this **before** adding anything, or the line numbers below will have shifted under you.
+
+In `packages/shared/src/sim/combat.test.ts`, delete two whole `describe` blocks and the long explanatory comment between them:
+
+- `describe("ramming", ...)` — currently begins at line 481
+- the multi-line comment beginning "The gap the unit tests above left open"
+- `describe("ramming, driven through the real sim", ...)`
+
+That is everything from line **481** up to but **not including** `describe("aim assist through a real tick", ...)` (currently line 815). Identify the boundaries by those block names rather than trusting the line numbers.
+
+Delete the whole file `packages/shared/src/sim/ram.test.ts`.
+
+- [ ] **Step 2: Write the failing test — contact must cost nothing**
+
+Add this block to `packages/shared/src/sim/combat.test.ts` in the gap the deletion just left, between `describe("shots landing", ...)` and `describe("aim assist through a real tick", ...)`. It replaces the ram suite with its inverse.
+
+Note both cars are asserted at `hpOf("rectangle")` even though car "a" is an oval: the file-level `player()` helper hardcodes `hp: hpOf("rectangle")` regardless of `carId`, and the ram tests being replaced asserted the same way. The `carId: "oval"` matters only because the old suite used the harder-hitting chassis to prove damage landed — here it proves the opposite.
 
 ```ts
 /**
@@ -134,14 +150,14 @@ describe("collision deals no damage", () => {
   it("a car driven into the back of another deals no damage", () => {
     let state = pair(0);
     for (let tick = 0; tick < 20; tick++) state = simTick(state, tick, { a: THROTTLE, b: COAST });
-    expect(state.players[0]!.hp).toBe(hpOf("oval"));
+    expect(state.players[0]!.hp).toBe(hpOf("rectangle"));
     expect(state.players[1]!.hp).toBe(hpOf("rectangle"));
   });
 
   it("a head-on deals no damage to either car", () => {
     let state = pair(Math.PI);
     for (let tick = 0; tick < 20; tick++) state = simTick(state, tick, { a: THROTTLE, b: THROTTLE });
-    expect(state.players[0]!.hp).toBe(hpOf("oval"));
+    expect(state.players[0]!.hp).toBe(hpOf("rectangle"));
     expect(state.players[1]!.hp).toBe(hpOf("rectangle"));
   });
 
@@ -154,12 +170,6 @@ describe("collision deals no damage", () => {
   });
 });
 ```
-
-- [ ] **Step 2: Delete the old ram suites**
-
-Delete lines **481 through 814** of `packages/shared/src/sim/combat.test.ts` — the entire `describe("ramming", ...)` block, the long explanatory comment that follows it, and the entire `describe("ramming, driven through the real sim", ...)` block, up to but not including `describe("aim assist through a real tick", ...)`.
-
-Delete the whole file `packages/shared/src/sim/ram.test.ts`.
 
 - [ ] **Step 3: Run the test to verify it fails**
 
@@ -757,11 +767,19 @@ Turns on per-chassis differentiation. The owner's attack is read **once**, at sp
 
 - [ ] **Step 1: Write the failing tests**
 
-In `packages/shared/src/sim/weapons/instances.test.ts`, add `carId` to the shared `owner` fixture and add a new test to `describe("spawning", ...)`:
+In `packages/shared/src/sim/weapons/instances.test.ts` there are **two** `owner` fixtures — one at the top of the file (line 26) and a second inside a later describe block (line 222). Both are call sites of `spawnInstances` and both need `carId`:
 
 ```ts
+// line 26
 const owner = { sessionId: "aaa", team: 0 as const, carId: "rectangle", x: 500, y: 300, angle: 0 };
 ```
+
+```ts
+// line 222, inside its own describe
+  const owner = { sessionId: "p1", team: 0 as const, carId: "rectangle", x: 100, y: 100, angle: 0 };
+```
+
+Then add a new test to `describe("spawning", ...)`:
 
 ```ts
   it("freezes the owner's chassis-scaled damage onto the instance", () => {
@@ -842,34 +860,49 @@ In `packages/shared/src/sim/combat.test.ts`, add a test to `describe("shots land
   });
 ```
 
-And one proving the differentiation survives a whole real firing tick, rather than only the two units it is assembled from. Add it to `describe("firing", ...)`, alongside the existing `"still lands the migrated fireball's damage on a car in front"` test, which shadows `player` with its own fixture — use that block's local helper, not the file-level one:
+And one proving the differentiation survives a whole real firing tick, rather than only the two units it is assembled from.
+
+Add it as **its own file-level `describe`**, placed after `describe("shots landing", ...)`. It must NOT go inside `describe("firing", ...)`: that block deliberately shadows `player` with a one-argument version that always uses session id `"aaa"`, and this test needs two distinct ids.
 
 ```ts
+describe("chassis attack scales weapon damage through a real tick", () => {
+  /** One shot, fired for real, from `carId` into a stationary rectangle. Returns the hp it cost. */
+  const damageDealtBy = (carId: "rectangle" | "oval" | "hexagon"): number => {
+    let state = run({
+      players: [
+        player("a", {
+          x: 400,
+          y: OPEN_Y,
+          angle: 0,
+          carId,
+          fireMask: 1,
+          fireState: newFireState(carId, 1),
+        }),
+        player("b", { x: 400 + DRIVE_CONFIG.carWidth + 40, y: OPEN_Y }),
+      ],
+    });
+    // The shot leaves the muzzle on tick 100 and covers the ~40 unit gap in about two ticks.
+    // Bounded at 110, well inside fireball's 15-tick cooldown, so exactly one shot is measured.
+    for (let tick = 101; tick <= 110; tick++) {
+      state = run({
+        world: world({ tick }),
+        players: state.players,
+        instances: state.instances,
+        instanceSeq: state.instanceSeq,
+      });
+    }
+    return hpOf("rectangle") - find(state, "b").hp;
+  };
+
   it("lands a different number for each chassis firing the identical weapon", () => {
     // Spec test 5: through the real tick, not by calling damageFor. `attack` is invisible in the
     // weapon table, so this is the only place the roster's damage spread is actually observable.
-    const damageDealtBy = (carId: "rectangle" | "oval" | "hexagon"): number => {
-      const shooter = player("a", { x: 400, y: OPEN_Y, angle: 0, carId, fireMask: 1 });
-      const target = player("b", { x: 400 + DRIVE_CONFIG.carWidth + 20, y: OPEN_Y });
-      let state = run({ players: [shooter, target] });
-      for (let tick = 101; tick < 110; tick++) {
-        state = run({
-          world: world({ tick }),
-          players: state.players,
-          instances: state.instances,
-          instanceSeq: state.instanceSeq,
-        });
-      }
-      return hpOf("rectangle") - find(state, "b").hp;
-    };
-
     expect(damageDealtBy("rectangle")).toBe(40);
     expect(damageDealtBy("oval")).toBe(60);
     expect(damageDealtBy("hexagon")).toBe(50);
   });
+});
 ```
-
-If the `describe("firing", ...)` block's local `player` helper does not accept `fireMask` or `carId` overrides, extend it rather than duplicating a third fixture.
 
 Add `weaponDamageOf` to that file's imports:
 
@@ -1001,24 +1034,18 @@ The same weapon now hits for different amounts and the player has no way to see 
 
 **Files:**
 - Modify: `packages/client/src/ui/car-select-view.ts`
-- Modify: `packages/client/src/ui/car-select-view.test.ts` (create the file if it does not exist)
+- Modify: `packages/client/src/ui/car-select-view.test.ts` — **this file already exists**; append to it and merge the imports. Do not overwrite it.
 
 **Interfaces:**
 - Consumes: `weaponDamageOf` from Task 3, `CAR_TABLE[id].weapons` from Task 2
 - Produces: nothing later tasks depend on
 
-- [ ] **Step 1: Check whether a test file exists**
+- [ ] **Step 1: Write the failing test**
 
-```bash
-ls packages/client/src/ui/car-select-view.test.ts
-```
-
-If it does not exist, create it with the imports below and a single `describe`. If it does, append to it.
-
-- [ ] **Step 2: Write the failing test**
+Append this `describe` to the existing `packages/client/src/ui/car-select-view.test.ts`, merging the imports with whatever the file already imports rather than duplicating them. If the file already has a `describe("fullStatsFor", ...)` block, add these cases to it instead of opening a second one.
 
 ```ts
-import { describe, expect, it } from "vitest";
+// merge into the file's existing imports
 import { CAR_TABLE, weaponDamageOf } from "@motor-combat-moba/shared";
 import { fullStatsFor } from "./car-select-view.js";
 
@@ -1049,7 +1076,7 @@ describe("fullStatsFor", () => {
 });
 ```
 
-- [ ] **Step 3: Run the test to verify it fails**
+- [ ] **Step 2: Run the test to verify it fails**
 
 ```bash
 npm test -w @motor-combat-moba/client
@@ -1057,7 +1084,7 @@ npm test -w @motor-combat-moba/client
 
 Expected: FAIL — no row is labelled `"Fireball damage"`.
 
-- [ ] **Step 4: Add the damage rows**
+- [ ] **Step 3: Add the damage rows**
 
 In `packages/client/src/ui/car-select-view.ts`, restore the `def` lookup and append one row per equipped weapon:
 
@@ -1083,15 +1110,15 @@ export function fullStatsFor(id: CarId): StatRow[] {
 
 Add `weaponDamageOf` and `weaponDefOf` to the `@motor-combat-moba/shared` import at the top of the file.
 
-- [ ] **Step 5: Verify `weaponDefOf` is exported from shared**
+- [ ] **Step 4: Rebuild shared before running the client suite**
+
+`weaponDefOf` is already exported from `packages/shared/src/index.ts` (line 97) and Task 3 added `weaponDamageOf` beside `applyDamage`. The client consumes shared's built `dist`, so both are invisible to it until shared is rebuilt:
 
 ```bash
-grep -n "weaponDefOf" packages/shared/src/index.ts
+npm run build -w @motor-combat-moba/shared
 ```
 
-If it is not exported, add it to the index alongside the other weapon-config exports, rebuild shared, and re-run.
-
-- [ ] **Step 6: Run the tests to verify they pass**
+- [ ] **Step 5: Run the tests to verify they pass**
 
 ```bash
 npm test
@@ -1099,7 +1126,7 @@ npm test
 
 Expected: PASS, all three workspaces.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add -A && git commit -m "feat(client): show per-chassis weapon damage on car select" -m "Fills the hole the Ram damage row left. Derived through weaponDamageOf, so a balance retune moves the screen and the sim together.
