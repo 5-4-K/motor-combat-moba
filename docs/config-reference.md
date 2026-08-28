@@ -17,19 +17,25 @@ Canonical sim rate is `TICK_RATE_HZ` in `@motor-combat-moba/shared`. Patch rate 
 
 ## CAR_TABLE
 
-| id | name | speed | attack | hp | weapons |
-|---|---|---|---|---|---|
-| `rectangle` | Rectangle | 80 | 30 | 40 | `["fireball"]` |
-| `oval` | Oval | 50 | 70 | 30 | `["fireball"]` |
-| `hexagon` | Hexagon | 30 | 50 | 70 | `["fireball"]` |
+| id | name | speed | attack | hp | mass | weapons |
+|---|---|---|---|---|---|---|
+| `rectangle` | Rectangle | 80 | 30 | 40 | 35 | `["fireball"]` |
+| `oval` | Oval | 50 | 70 | 30 | 45 | `["fireball"]` |
+| `hexagon` | Hexagon | 30 | 50 | 70 | 85 | `["fireball"]` |
 
-Ratings are integers 0-100 with 50 as average, and every row **must sum to exactly 150** —
-`config.test.ts` enforces the budget.
+Ratings are integers 0-100 with 50 as average. `speed`/`attack`/`hp` used to be held to a 150-point
+budget across the three — the roster's only automatic guard against a fourth chassis being authored
+strictly better than these three. That budget was **deliberately deleted on 2026-08-29** so `mass`
+could be a free-floating fourth rating (see [`combat-model.md`](combat-model.md#ramming)), and no
+replacement guard was adopted. `config.test.ts` still checks the 0-100 range on all four ratings,
+`mass` included, but nothing checks their sum. Roster fairness is a review-time judgement from here
+on.
 
 Derived: `hpOf` = hp × `COMBAT_CONFIG.hpPerRating` (400 / 300 / 700). `forwardMaxSpeedOf` =
 `baseMaxSpeed` + speed × `speedPerRating` (540 / 405 / 315 u/s). `reverseMaxSpeedOf` = forward ×
 `reverseSpeedRatio`. `weaponDamageOf(carId, weaponId)` = `damageFor(attack, weapon.damage)` — a
-fireball is 40 / 60 / 50 depending on who fires it.
+fireball is 40 / 60 / 50 depending on who fires it. `massOf` = mass × `RAM_CONFIG.massPerRating`
+(350 / 450 / 850) — affects ramming only, never acceleration or top speed (see `RAM_CONFIG` below).
 
 `weapons` is an ordered list of `WEAPON_TABLE` ids — index 0 is slot 1, and order *is* the slot
 mapping. `slotsOf(carId)` (`config/weapon-slots.ts`) is what actually reads it, capped at
@@ -203,6 +209,55 @@ faster car feel *less* agile. `brakeDecel` must exceed `drag` or the brake butto
 `CAMERA_CONFIG.freeRoamSpeed` must exceed the fastest car — both are asserted in `config.test.ts`.
 `baseMaxSpeed` and `speedPerRating` scale together on purpose: their ratio decides how much the
 per-car `speed` rating matters, so moving only one re-balances the roster.
+
+## RAM_CONFIG
+
+Ram control-and-knockback tuning — the values `packages/shared/src/sim/ram.ts` and `stepDrive` read
+to turn a car-vs-car contact into a spin, a shove, and a steering penalty. Networked balance, not
+render preference: server tick and client prediction both depend on the two computing the same
+numbers. See [`combat-model.md`](combat-model.md#ramming) for the mechanic.
+
+| Knob | Value | Notes |
+|---|---|---|
+| `contactPad` | 1 | World units each hull is inflated by for the contact test — `resolveWorld` leaves cars exactly touching, and a strict overlap test would never fire on a real ram |
+| `minApproachSpeed` | 60 | Below this closing speed, contact is a nudge and no ram is written — about 11% of the roster's top speed |
+| `massPerRating` | 10 | Mirrors `COMBAT_CONFIG.hpPerRating`; scales the 0-100 `mass` rating |
+| `bonusFront` / `bonusFlank` / `bonusRear` | 0.3 / 1.0 / 1.3 | Multiplies severity by impact side; the most important balance lever in the feature |
+| `authorityFloor` | 0.35 | Steering multiplier at maximum severity — the feel dial |
+| `knockMaxSpeed` | 260 | Peak shove impulse (expressed as a speed) at severity 1.0, before the victim mass factor |
+| `massFactorMin` / `massFactorMax` | 0.6 / 1.6 | Bounds on `RAM_REFERENCE_MASS / victimMass`, so neither the heaviest nor the lightest chassis degenerates |
+| `spinScale` | 100 | Calibration multiplier on the torque-derived spin rate |
+| `spinMaxRate` | 6.0 | rad/s ceiling on injected spin |
+| `inertiaCoefficient` | 277.33 **[D]** | `(DRIVE_CONFIG.carWidth² + carHeight²) / 12` — derived from the hull, never typed, so it cannot drift out of step with `carHullOf` |
+| `spinHalfLifeSeconds` | 0.35 | |
+| `shoveHalfLifeSeconds` | 0.25 | |
+| `authorityHalfLifeSeconds` | 0.30 | The gap to 1.0 halves this often |
+| `counterSteerHalfLifeSeconds` | 0.15 | Spin decay while the player steers against it — shorter than `spinHalfLifeSeconds` on purpose, so countersteering shortens recovery instead of only offsetting it |
+| `spinEpsilon` / `shoveEpsilon` / `authorityEpsilon` | 0.01 / 1 / 0.01 | Below these magnitudes a knock snaps to exact rest, as `stopEpsilon` does for `speed` |
+
+**`spinScale` is 100 in the shipped code, not the `1.0` an earlier draft of the design spec's Numbers
+table carried.** At `1.0` the spin channel was structurally inert — the hardest possible ram produced
+about 0.077 rad/s against the 6.0 `spinMaxRate` ceiling and the 0.01 rad/s rest threshold, roughly 2
+degrees of total rotation. 100 is what makes a solid flank ram land near 2.1 rad/s.
+
+**Decays are authored as half-lives in seconds, not as per-tick multipliers.** `halfLifeToPerTick`
+converts each once, at module load, into the per-tick multiplier `stepDrive` actually reads
+(`RAM_DECAY`): `perTick = 0.5 ** (1 / (halfLifeSeconds * TICK_RATE_HZ))`. Authoring in seconds keeps
+the table tick-rate independent — a per-tick value copied unchanged from a design written against
+60 Hz would silently halve every recovery time at this project's 30 Hz. Same principle as
+`weapon-ticks.ts` converting authored milliseconds to ticks exactly once.
+
+`massOf(id)` = `CAR_TABLE[id].mass * massPerRating` — see [`CAR_TABLE`](#car_table). `RAM_REFERENCE_MASS`
+(`car-config.ts`) is `50 * massPerRating`, an average-rated chassis and the "1.0 severity" anchor.
+`RAM_REFERENCE` is `RAM_REFERENCE_MASS * (the roster's highest forwardMaxSpeedOf)`, so raising
+`baseMaxSpeed` or any car's `speed` rating moves the anchor with it instead of leaving severity stuck
+against a stale ceiling. Both are derived, never typed.
+
+The hull half-extents the spin lever arm is clamped into are `DRIVE_CONFIG.carWidth / 2` and
+`DRIVE_CONFIG.carHeight / 2` (24 and 16 today) — read from `DRIVE_CONFIG`, not hardcoded, for the
+same reason `inertiaCoefficient` is derived above: both must move with `carHullOf` in lockstep, or
+the torque lever and the inertia it divides by could silently disagree about the hull a ram actually
+collided against.
 
 ## CAMERA_CONFIG
 

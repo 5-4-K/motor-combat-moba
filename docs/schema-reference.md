@@ -33,6 +33,9 @@ Colyseus `@type` fields. Enums are explicit uint8; never renumber. `pendingCarId
 | `carId` | string | `""` | `""` until reveal |
 | `speed` | number | `0` | Signed along heading |
 | `reverseHold` | uint16 | `0` | Ticks held in reverse |
+| `angVel` | number | `0` | Ram-injected spin, rad/s. Decays toward `0` |
+| `shoveX`, `shoveY` | number | `0` | Ram-injected lateral knock, u/s. Decays toward `0` |
+| `authority` | number | `1` | Steering multiplier; `1` = full control. A ram dips it toward `RAM_CONFIG.authorityFloor`, then it decays back toward `1`. Defaults to `1`, not `0` — a `0` default would mean "no steering" for every player never touched, presenting as an undriveable car on first spawn |
 | `hp` | uint16 | `0` | Actual HP |
 | `alive` | boolean | `true` | False when eliminated |
 | `selectLocked` | boolean | `false` | Car-select lock; pick still hidden |
@@ -45,6 +48,13 @@ Colyseus `@type` fields. Enums are explicit uint8; never renumber. `pendingCarId
 
 `weaponCooldown` (a single counter for the one pre-weapon-system shot) is gone — replaced by
 `weapons` above, one row per slot.
+
+`angVel`, `shoveX`, `shoveY`, and `authority` are the ram knock state (see
+[`combat-model.md`](combat-model.md#ramming)). They join `speed` and `reverseHold` in
+`PredictionBuffer.reconcile`'s always-**snap** set rather than the ease path — all four feed the
+next `stepSim` integration directly, so a half-eased value would poison every subsequent step rather
+than merely look wrong. See [`config-reference.md`](config-reference.md#ram_config) for the tuning
+that produces them.
 
 ## WeaponInstanceState
 
