@@ -42,18 +42,12 @@ describe("fullStatsFor", () => {
     );
   });
 
-  it("shows the ram cooldown in seconds, not raw ticks", () => {
-    expect(fullStatsFor("oval").find((r) => r.label === "Hit cooldown")?.value).toBe("0.5 s");
-  });
-
-  it("lists the seven rows the design specifies, in order", () => {
+  it("lists the five rows the design specifies, in order", () => {
     expect(fullStatsFor("hexagon").map((r) => r.label)).toEqual([
       "Top speed",
       "Reverse speed",
       "Turn rate",
       "Hull HP",
-      "Ram damage",
-      "Hit cooldown",
       "Hull size",
     ]);
   });

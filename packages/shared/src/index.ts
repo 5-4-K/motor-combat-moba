@@ -31,8 +31,6 @@ export { WeaponSlotState } from "./schema/WeaponSlotState.js";
 export { ArenaState } from "./schema/ArenaState.js";
 
 export { applyDamage } from "./sim/damage.js";
-export { isRamming, ramDamage, ramOutcome } from "./sim/ram.js";
-export type { RamOutcome } from "./sim/ram.js";
 export { stepSim } from "./sim/step.js";
 export type { SimBody, StepContext } from "./sim/step.js";
 export { stepDrive } from "./sim/drive.js";

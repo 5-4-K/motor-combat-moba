@@ -59,9 +59,6 @@ describe("COLOR_TABLE", () => {
 
 describe("weapon / combat / drive / flow knobs exist", () => {
   it("combat defaults", () => {
-    expect(COMBAT_CONFIG.collisionDamagePerStrength).toBe(1);
-    expect(COMBAT_CONFIG.ramDotThreshold).toBe(0.5);
-    expect(COMBAT_CONFIG.collisionDamageCooldownTicks).toBe(15);
     expect(COMBAT_CONFIG.hpPerRating).toBe(10);
   });
   it("reverse is slower than forward, but not a crawl", () => {

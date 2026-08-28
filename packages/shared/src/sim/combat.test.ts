@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ARENA_01 } from "../arena/arena-01.js";
-import { CAR_TABLE, hpOf } from "../config/car-config.js";
-import { COMBAT_CONFIG } from "../config/combat-config.js";
+import { hpOf } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { CarId } from "../config/types.js";
 import { WEAPON_TABLE } from "../config/weapon-config.js";
@@ -64,7 +63,6 @@ function run(over: Partial<CombatInput> = {}): ReturnType<typeof runCombat> {
     world: world(),
     players: [],
     instances: [],
-    ramCooldowns: new Map(),
     instanceSeq: 0,
     ...over,
   });
@@ -106,7 +104,6 @@ describe("firing", () => {
       world: world(),
       players: [player({ fireMask: 0b001 })],
       instances: [],
-      ramCooldowns: new Map(),
       instanceSeq: 0,
     });
     expect(result.instances).toHaveLength(1);
@@ -118,7 +115,6 @@ describe("firing", () => {
       world: world(),
       players: [player({ fireMask: 0b001 })],
       instances: [],
-      ramCooldowns: new Map(),
       instanceSeq: 0,
     };
     const first = runCombat(state);
@@ -126,7 +122,6 @@ describe("firing", () => {
       world: world({ tick: 101 }),
       players: first.players.map((p) => ({ ...p, fireMask: 0b001 })),
       instances: first.instances,
-      ramCooldowns: first.ramCooldowns,
       instanceSeq: first.instanceSeq,
     });
     expect(second.instances.filter((i) => i.spawnTick === 101)).toHaveLength(0);
@@ -137,7 +132,6 @@ describe("firing", () => {
       world: world(),
       players: [player({ carId: "", fireState: newFireState("", 1), fireMask: 0b001 })],
       instances: [],
-      ramCooldowns: new Map(),
       instanceSeq: 0,
     });
     expect(result.instances).toEqual([]);
@@ -148,7 +142,6 @@ describe("firing", () => {
       world: world(),
       players: [player({ fireMask: 0b001, inRoster: false })],
       instances: [],
-      ramCooldowns: new Map(),
       instanceSeq: 0,
     });
     expect(result.instances).toEqual([]);
@@ -167,7 +160,6 @@ describe("firing", () => {
       world: world(),
       players: [wrecked],
       instances: [],
-      ramCooldowns: new Map(),
       instanceSeq: 0,
     });
     expect(result.players[0]!.fireState.pending).toBeNull();
@@ -207,7 +199,6 @@ describe("firing", () => {
       world: world(),
       players: [player({ hp: 0, alive: false })],
       instances: [attachedBeam, inFlightShot],
-      ramCooldowns: new Map(),
       instanceSeq: 0,
     });
     const ids = result.instances.map((i) => i.id);
@@ -219,18 +210,14 @@ describe("firing", () => {
     const shooter = player({ sessionId: "aaa", x: 300, fireMask: 0b001 });
     // A fresh press spawns its instance at the muzzle and is hit-tested THIS tick, without a tick of
     // travel — so a same-tick hit is necessarily point-blank. `fireball`'s hitbox is a 12-unit-radius
-    // circle centred on the shooter's own hull edge, so it reaches 12 units past that edge, while
-    // `COMBAT_CONFIG.ramContactPad` is 1 unit each side, so a ram needs the two hulls within 2. What
-    // 50.5 buys is that gap: the hulls are half a car-length each, leaving 2.5 units between them —
-    // 9.5 units inside the disc, and outside the ±1 pad. So the shot lands and no ram fires,
-    // isolating the fireball's own damage from the ramming half of `runCombat`, exercised on its own
-    // below. Shrinking the hitbox back below 2.5 would break this by making the shot miss.
+    // circle centred on the shooter's own hull edge, so it reaches 12 units past that edge; 50.5
+    // leaves the hulls 2.5 units apart, well inside that reach. Shrinking the hitbox back below 2.5
+    // would break this by making the shot miss.
     const target = player({ sessionId: "bbb", x: 300 + 50.5, fireMask: 0 });
     const result = runCombat({
       world: world(),
       players: [shooter, target],
       instances: [],
-      ramCooldowns: new Map(),
       instanceSeq: 0,
     });
     const hit = result.players.find((p) => p.sessionId === "bbb")!;
@@ -255,7 +242,6 @@ describe("firing", () => {
       world: world(),
       players: [shooter],
       instances: [],
-      ramCooldowns: new Map(),
       instanceSeq: 0,
     });
     expect(result.instances.map((i) => i.weaponId)).toEqual(["repeater"]);
@@ -276,7 +262,6 @@ describe("firing", () => {
       world: world(),
       players,
       instances,
-      ramCooldowns: new Map(),
       instanceSeq: 0,
     });
     expect(fireState.pending).toBeNull();
@@ -478,235 +463,19 @@ describe("shots landing", () => {
   });
 });
 
-describe("ramming", () => {
-  /** Overlapping along +x by 4 units: close enough to contact, far enough to read as a rear-end. */
-  const GAP = DRIVE_CONFIG.carWidth - 4;
-
-  it("rear-ends: the car behind deals damage and takes none", () => {
-    const result = run({
-      players: [
-        player("a", { x: 800, angle: 0, carId: "oval" }),
-        player("b", { x: 800 + GAP, angle: 0 }),
-      ],
-    });
-    const ramDamage = CAR_TABLE.oval.strength * COMBAT_CONFIG.collisionDamagePerStrength;
-    expect(find(result, "b").hp).toBe(hpOf("rectangle") - ramDamage);
-    expect(find(result, "a").hp).toBe(hpOf("rectangle"));
-  });
-
-  it("head-on: both cars take the other's strength", () => {
-    const result = run({
-      players: [
-        player("a", { x: 800, angle: 0, carId: "oval" }),
-        player("b", { x: 800 + GAP, angle: Math.PI, carId: "hexagon" }),
-      ],
-    });
-    const per = COMBAT_CONFIG.collisionDamagePerStrength;
-    expect(find(result, "b").hp).toBe(hpOf("rectangle") - CAR_TABLE.oval.strength * per);
-    expect(find(result, "a").hp).toBe(hpOf("rectangle") - CAR_TABLE.hexagon.strength * per);
-  });
-
-  it("sideswipe: neither car takes damage", () => {
-    const result = run({
-      players: [
-        player("a", { x: 800, y: 400, angle: Math.PI / 2 }),
-        player("b", { x: 800 + GAP, y: 400, angle: Math.PI / 2 }),
-      ],
-    });
-    expect(find(result, "a").hp).toBe(hpOf("rectangle"));
-    expect(find(result, "b").hp).toBe(hpOf("rectangle"));
-  });
-
-  it("deals nothing when the hulls are clear of each other", () => {
-    const result = run({
-      players: [player("a", { x: 800 }), player("b", { x: 800 + DRIVE_CONFIG.carWidth + 20 })],
-    });
-    expect(find(result, "b").hp).toBe(hpOf("rectangle"));
-  });
-
-  it("sets a pair cooldown so a held ram does not melt hp every tick", () => {
-    const result = run({
-      players: [player("a", { x: 800 }), player("b", { x: 800 + GAP })],
-    });
-    expect(result.ramCooldowns.get("a|b")).toBe(100 + COMBAT_CONFIG.collisionDamageCooldownTicks);
-  });
-
-  it("does not damage again while the pair cooldown holds", () => {
-    const result = run({
-      players: [player("a", { x: 800 }), player("b", { x: 800 + GAP })],
-      ramCooldowns: new Map([["a|b", 110]]),
-    });
-    expect(find(result, "b").hp).toBe(hpOf("rectangle"));
-  });
-
-  it("damages again on the tick the cooldown expires", () => {
-    const result = run({
-      world: world({ tick: 110 }),
-      players: [player("a", { x: 800 }), player("b", { x: 800 + GAP })],
-      ramCooldowns: new Map([["a|b", 110]]),
-    });
-    expect(find(result, "b").hp).toBeLessThan(hpOf("rectangle"));
-  });
-
-  it("forgets cooldowns that have expired rather than growing the map forever", () => {
-    const result = run({ ramCooldowns: new Map([["x|y", 50]]) });
-    expect(result.ramCooldowns.has("x|y")).toBe(false);
-  });
-
-  it("holds a cooldown only per pair, so a third car still connects", () => {
-    const result = run({
-      players: [
-        player("a", { x: 800 }),
-        player("b", { x: 800 + GAP }),
-        player("c", { x: 800 + GAP, angle: Math.PI }),
-      ],
-      ramCooldowns: new Map([["a|b", 110]]),
-    });
-    expect(find(result, "b").hp).toBe(hpOf("rectangle"));
-    expect(find(result, "c").hp).toBeLessThan(hpOf("rectangle"));
-  });
-
-  it("costs a teammate nothing in team mode: friendly fire is off for contact as well as shots", () => {
-    const result = run({
-      world: world({ mode: "team" }),
-      players: [
-        player("a", { x: 800, team: 0, carId: "oval" }),
-        player("b", { x: 800 + GAP, team: 0 }),
-      ],
-    });
-    expect(find(result, "b").hp).toBe(hpOf("rectangle"));
-    expect(find(result, "a").hp).toBe(hpOf("rectangle"));
-  });
-
-  it("does not burn a pair cooldown on a harmless friendly bump", () => {
-    // Otherwise shoving past a teammate would put the pair on cooldown, and a real enemy ram a few
-    // ticks later would be silently swallowed.
-    const result = run({
-      world: world({ mode: "team" }),
-      players: [
-        player("a", { x: 800, team: 0, carId: "oval" }),
-        player("b", { x: 800 + GAP, team: 0 }),
-      ],
-    });
-    expect(result.ramCooldowns.size).toBe(0);
-  });
-
-  it("spares a teammate head-on too, not just from behind", () => {
-    const result = run({
-      world: world({ mode: "team" }),
-      players: [
-        player("a", { x: 800, angle: 0, team: 0, carId: "oval" }),
-        player("b", { x: 800 + GAP, angle: Math.PI, team: 0, carId: "hexagon" }),
-      ],
-    });
-    expect(find(result, "a").hp).toBe(hpOf("rectangle"));
-    expect(find(result, "b").hp).toBe(hpOf("rectangle"));
-  });
-
-  it("still damages an enemy in team mode", () => {
-    const result = run({
-      world: world({ mode: "team" }),
-      players: [
-        player("a", { x: 800, team: 0, carId: "oval" }),
-        player("b", { x: 800 + GAP, team: 1 }),
-      ],
-    });
-    const ramDamage = CAR_TABLE.oval.strength * COMBAT_CONFIG.collisionDamagePerStrength;
-    expect(find(result, "b").hp).toBe(hpOf("rectangle") - ramDamage);
-  });
-
-  it("still damages a same-team id in ffa, where teams are only seating", () => {
-    const result = run({
-      players: [
-        player("a", { x: 800, team: 0, carId: "oval" }),
-        player("b", { x: 800 + GAP, team: 0 }),
-      ],
-    });
-    expect(find(result, "b").hp).toBeLessThan(hpOf("rectangle"));
-  });
-
-  it("wrecks a car whose hp reaches zero by ram", () => {
-    const result = run({
-      players: [
-        player("a", { x: 800, carId: "oval" }),
-        player("b", { x: 800 + GAP, hp: CAR_TABLE.oval.strength }),
-      ],
-    });
-    expect(find(result, "b").alive).toBe(false);
-  });
-
-  it("head-on into a mutual kill damages both, with no first-strike advantage", () => {
-    const result = run({
-      players: [
-        player("a", { x: 800, angle: 0, carId: "oval", hp: CAR_TABLE.oval.strength }),
-        player("b", {
-          x: 800 + GAP,
-          angle: Math.PI,
-          carId: "oval",
-          hp: CAR_TABLE.oval.strength,
-        }),
-      ],
-    });
-    expect(find(result, "a").alive).toBe(false);
-    expect(find(result, "b").alive).toBe(false);
-  });
-
-  it("ignores a wreck: you cannot ram a car that is already dead", () => {
-    const result = run({
-      players: [
-        player("a", { x: 800, carId: "oval" }),
-        player("b", { x: 800 + GAP, hp: 0, alive: false }),
-      ],
-    });
-    expect(result.ramCooldowns.size).toBe(0);
-  });
-
-  it("ignores a player who is not on the roster", () => {
-    const result = run({
-      players: [
-        player("a", { x: 800, carId: "oval" }),
-        player("b", { x: 800 + GAP, inRoster: false }),
-      ],
-    });
-    expect(find(result, "b").hp).toBe(hpOf("rectangle"));
-  });
-
-  it("falls back to the default chassis for an unrecognised carId rather than NaN-ing hp", () => {
-    const result = run({
-      players: [
-        player("a", { x: 800, carId: "not-a-car" }),
-        player("b", { x: 800 + GAP }),
-      ],
-    });
-    const fallback = CAR_TABLE.rectangle.strength * COMBAT_CONFIG.collisionDamagePerStrength;
-    expect(find(result, "b").hp).toBe(hpOf("rectangle") - fallback);
-  });
-});
-
 /**
- * The gap the unit tests above left open, and the live bug they missed.
- *
- * Every ram case above hand-places the two cars overlapping. The sim never produces that state:
- * `resolveWorld` runs before combat and pushes a car out to *exactly* the separation boundary, so
- * two cars that just crashed end the tick touching at a gap of zero. A strict overlap test is false
- * on every tick of a real ram, and ramming silently dealt no damage in a live match while all of the
- * unit tests stayed green.
- *
- * These tests drive real cars into each other through the real `stepSim`, exactly as `serverTick`
- * does, and only then ask `runCombat` for damage.
+ * Collision deals no damage. The cars still collide — `resolveWorld` shoves them apart every tick —
+ * they just cost each other no hp. Driven through the real `stepSim` rather than hand-placed,
+ * because that is the only way to produce the "touching at a gap of zero" state a real crash ends in.
  */
-describe("ramming, driven through the real sim", () => {
+describe("collision deals no damage", () => {
   const OPEN = { width: ARENA_01.width, height: ARENA_01.height };
   const CLEAR = { carId: "rectangle" as const, obstacles: [] as never[], bounds: OPEN };
   const THROTTLE: InputMessage = { seq: 1, steer: 0, throttle: 1, fireSlots: 0 };
   const COAST: InputMessage = { seq: 1, steer: 0, throttle: 0, fireSlots: 0 };
 
-  /**
-   * Step two cars for one tick the way `serverTick` does — sorted order, each against the other's
-   * current pose — then run one tick of combat over the result.
-   */
   function simTick(
-    state: { a: SimBody; b: SimBody; players: CombatPlayer[]; cooldowns: Map<string, number> },
+    state: { a: SimBody; b: SimBody; players: CombatPlayer[] },
     tick: number,
     inputs: { a: InputMessage; b: InputMessage },
   ) {
@@ -718,7 +487,6 @@ describe("ramming, driven through the real sim", () => {
       ...CLEAR,
       others: [carHullOf(a.x, a.y, a.angle)],
     });
-
     const result = runCombat({
       world: { tick, dt: DT, mode: "ffa", obstacles: [], bounds: OPEN },
       players: [
@@ -726,10 +494,9 @@ describe("ramming, driven through the real sim", () => {
         { ...state.players[1]!, x: b.x, y: b.y, angle: b.angle },
       ],
       instances: [],
-      ramCooldowns: state.cooldowns,
       instanceSeq: 0,
     });
-    return { a, b, players: result.players, cooldowns: result.ramCooldowns };
+    return { a, b, players: result.players };
   }
 
   function pair(bAngle: number) {
@@ -742,73 +509,31 @@ describe("ramming, driven through the real sim", () => {
         player("a", { x: a.x, y: a.y, angle: 0, carId: "oval" }),
         player("b", { x: b.x, y: b.y, angle: bAngle }),
       ],
-      cooldowns: new Map<string, number>(),
     };
   }
 
-  it("a car driven into the back of another actually deals damage", () => {
+  it("a car driven into the back of another deals no damage", () => {
     let state = pair(0);
-    let damaged = false;
-    for (let tick = 0; tick < 20 && !damaged; tick++) {
-      state = simTick(state, tick, { a: THROTTLE, b: COAST });
-      damaged = state.players[1]!.hp < hpOf("rectangle");
-    }
-    expect(damaged).toBe(true);
+    for (let tick = 0; tick < 20; tick++) state = simTick(state, tick, { a: THROTTLE, b: COAST });
     expect(state.players[0]!.hp).toBe(hpOf("rectangle"));
-  });
-
-  it("the cars end a real ram touching, not overlapping — the case the hand-placed tests miss", () => {
-    let state = pair(0);
-    let contactTick = -1;
-    for (let tick = 0; tick < 20 && contactTick === -1; tick++) {
-      state = simTick(state, tick, { a: THROTTLE, b: COAST });
-      if (state.players[1]!.hp < hpOf("rectangle")) contactTick = tick;
-    }
-    expect(contactTick).toBeGreaterThanOrEqual(0);
-    // Zero gap: exactly touching. `obbsOverlap` on these hulls is false, which is the whole point.
-    const gap = state.b.x - state.a.x - DRIVE_CONFIG.carWidth;
-    expect(gap).toBeLessThan(COMBAT_CONFIG.ramContactPad * 2);
-    expect(gap).toBeGreaterThanOrEqual(0);
-  });
-
-  it("a real head-on damages both cars", () => {
-    let state = pair(Math.PI);
-    for (let tick = 0; tick < 20; tick++) {
-      state = simTick(state, tick, { a: THROTTLE, b: THROTTLE });
-      if (state.players[0]!.hp < hpOf("rectangle")) break;
-    }
-    expect(state.players[0]!.hp).toBeLessThan(hpOf("rectangle"));
-    expect(state.players[1]!.hp).toBeLessThan(hpOf("rectangle"));
-  });
-
-  it("the pair cooldown holds through a sustained real ram", () => {
-    let state = pair(0);
-    const hits: number[] = [];
-    let previous = hpOf("rectangle");
-    for (let tick = 0; tick < 60; tick++) {
-      state = simTick(state, tick, { a: THROTTLE, b: COAST });
-      if (state.players[1]!.hp < previous) {
-        hits.push(tick);
-        previous = state.players[1]!.hp;
-      }
-    }
-    expect(hits.length).toBeGreaterThan(1);
-    for (let i = 1; i < hits.length; i++) {
-      expect(hits[i]! - hits[i - 1]!).toBeGreaterThanOrEqual(
-        COMBAT_CONFIG.collisionDamageCooldownTicks,
-      );
-    }
-  });
-
-  it("cars that never touch are never damaged", () => {
-    let state = pair(0);
-    state.b.x = 1600;
-    state.players[1] = { ...state.players[1]!, x: 1600 };
-    for (let tick = 0; tick < 10; tick++) {
-      state = simTick(state, tick, { a: COAST, b: COAST });
-    }
     expect(state.players[1]!.hp).toBe(hpOf("rectangle"));
+  });
+
+  it("a head-on deals no damage to either car", () => {
+    let state = pair(Math.PI);
+    for (let tick = 0; tick < 20; tick++) state = simTick(state, tick, { a: THROTTLE, b: THROTTLE });
     expect(state.players[0]!.hp).toBe(hpOf("rectangle"));
+    expect(state.players[1]!.hp).toBe(hpOf("rectangle"));
+  });
+
+  it("the cars still collide: contact halts the trailing car rather than letting it pass through", () => {
+    let state = pair(0);
+    for (let tick = 0; tick < 20; tick++) state = simTick(state, tick, { a: THROTTLE, b: COAST });
+    // `resolveWorld` corrects each car against the other's pose independently, so a stationary b is
+    // never itself displaced — it is `a`, driving into a car that never moves, that is held at the
+    // hull boundary instead of passing through it.
+    expect(state.a.x).toBeLessThan(900);
+    expect(state.b.x - state.a.x).toBeGreaterThanOrEqual(DRIVE_CONFIG.carWidth - 1);
   });
 });
 

@@ -1,9 +1,7 @@
 import {
   CAR_TABLE,
-  COMBAT_CONFIG,
   DRIVE_CONFIG,
   GameMode,
-  TICK_RATE_HZ,
   forwardMaxSpeedOf,
   hpOf,
   reverseMaxSpeedOf,
@@ -70,17 +68,11 @@ function trim(n: number): string {
 }
 
 export function fullStatsFor(id: CarId): StatRow[] {
-  const def = CAR_TABLE[id];
   return [
     { label: "Top speed", value: `${trim(forwardMaxSpeedOf(id))} u/s` },
     { label: "Reverse speed", value: `${trim(reverseMaxSpeedOf(id))} u/s` },
     { label: "Turn rate", value: `${trim(DRIVE_CONFIG.turnRate)} rad/s` },
     { label: "Hull HP", value: String(hpOf(id)) },
-    { label: "Ram damage", value: String(def.strength * COMBAT_CONFIG.collisionDamagePerStrength) },
-    {
-      label: "Hit cooldown",
-      value: `${trim(COMBAT_CONFIG.collisionDamageCooldownTicks / TICK_RATE_HZ)} s`,
-    },
     { label: "Hull size", value: `${DRIVE_CONFIG.carWidth} x ${DRIVE_CONFIG.carHeight}` },
   ];
 }
