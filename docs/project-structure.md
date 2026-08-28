@@ -4,6 +4,10 @@ Source files only — `*.test.ts` sits beside the file it tests and is left out 
 `package.json`, `tsconfig.json`, `vitest.config.ts`. Server also has `tsup.config.ts`; client has
 `vite.config.ts`. Plans and the spec live under `docs/superpowers/`.
 
+`docs/ideas/` and `docs/invariants/` are the user's own notes and are deliberately **not** part of
+the project's documentation. They are left out of the tree below on purpose: do not read them or
+treat them as reference unless the user names them in the request — see root `CLAUDE.md`.
+
 ```
 motor-combat-MOBA/
 ├── package.json                  # workspaces, npm run dev / build:release

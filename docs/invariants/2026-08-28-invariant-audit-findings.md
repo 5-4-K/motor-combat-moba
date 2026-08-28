@@ -2,8 +2,8 @@
 
 **Date:** 2026-08-28
 **Audited:** `development/main` @ `7439c2f`, all three packages
-**Against:** [`docs/invariants/NETCODE_INVARIANTS.md`](../../invariants/NETCODE_INVARIANTS.md),
-[`docs/invariants/BROWSER_CLIENT_INVARIANTS.md`](../../invariants/BROWSER_CLIENT_INVARIANTS.md)
+**Against:** [`docs/invariants/NETCODE_INVARIANTS.md`](./NETCODE_INVARIANTS.md),
+[`docs/invariants/BROWSER_CLIENT_INVARIANTS.md`](./BROWSER_CLIENT_INVARIANTS.md)
 **Rulings, standing facts, and the build order:**
 [`2026-08-28-invariant-reconciliation-decisions.md`](2026-08-28-invariant-reconciliation-decisions.md)
 
