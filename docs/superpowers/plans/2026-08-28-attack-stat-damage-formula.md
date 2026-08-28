@@ -1265,7 +1265,14 @@ In `docs/superpowers/specs/2026-08-28-attack-stat-damage-formula-design.md`, upd
 grep -rn "strength\|ramCooldowns\|ramDamage\|isRamming\|collisionDamagePerStrength\|ramContactPad\|ramDotThreshold\|collisionDamageCooldownTicks" docs packages --include=*.ts --include=*.md | grep -v node_modules | grep -v "/dist/" | grep -v "docs/superpowers/plans/2026-08-24" | grep -v "docs/superpowers/plans/2026-08-27" | grep -v "2026-08-28-attack-stat"
 ```
 
-Expected: no output. Historical plan documents under `docs/superpowers/plans/2026-08-24-*` and `2026-08-27-*` are records of what was built at the time and are **not** to be rewritten — that is why they are filtered out. The `brawl-mode-design.md` hit on "boost strength" is unrelated English and may be ignored if it appears.
+Expected: NOT no output. This grep hits real, deliberate survivors and the criterion is to check each hit rather than to see none:
+
+- `docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md`, `docs/superpowers/specs/2026-08-27-weapon-system-design.md`, and `docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md` — each carries a superseded banner (added post-review for the third) and is otherwise deliberately left unrewritten: these are historical records of decisions made at the time, not live documentation. The banners themselves say "strength", which is why they hit too.
+- `packages/shared/src/sim/collide.ts` — `obbsInContact`'s doc comment names the deleted `COMBAT_CONFIG.ramContactPad` key by name, to explain historically why the function is kept with zero callers. Comment-only, and the reference is deliberate.
+- `packages/client/src/scenes/ArenaScene.ts` — "full strength" is unrelated English about HUD ring opacity, not the chassis rating.
+- `docs/ideas/brawl-mode-design.md` — "boost strength" is likewise unrelated English and may be ignored if it appears.
+
+Historical plan documents under `docs/superpowers/plans/2026-08-24-*` and `2026-08-27-*` are records of what was built at the time and are **not** to be rewritten — that is why they are filtered out of the grep entirely. Any hit outside the list above is a real miss and should be fixed.
 
 - [ ] **Step 6: Run the full suite one last time**
 

@@ -201,8 +201,14 @@ definition of "how much does this hurt" across two modules.
 `applyDamage` keeps subtracting integers from a `uint16`. Rounding once at spawn — rather than per
 hit — also means a piercing shot deals the identical number to every car it passes through.
 
-At the S3 scale the rounding error is under 1% of a shot (±0.5 on ~50). On the old single-digit
-numbers it would have been ~6%, which is the other reason the scale had to widen.
+`damagePerAttack` is 0.01, which is not exactly representable in IEEE-754, so the raw product can
+land just under a `.5` boundary at some ratings and round the wrong way — up to ±1.0 at the S3 scale
+(hit at attack 15, 63, and 65 against the shipped `fireball.damage: 50`), not the ±0.5 a naive
+half-a-percent estimate suggests. `damageFor` normalises the product through a fixed-precision string
+before rounding to remove that error. `damage.test.ts` pins exactness — not just monotonicity —
+against integer-percent arithmetic across the full 0-100 rating range, so a regression here fails
+loudly. On the old single-digit numbers the *nominal* rounding granularity would have been ~6% of a
+shot, which is the other reason the scale had to widen.
 
 ### S10 — No defense stat
 
@@ -291,7 +297,8 @@ prediction path touches damage, so `ArenaScene` and the reconciler are unaffecte
 **Docs** — `docs/combat-model.md` (the "Ramming" section and its "Contact, not interpenetration"
 subsection are deleted; a new section documents `damageFor`), `docs/config-reference.md` (the
 `CAR_TABLE` table and its derived-values note), `docs/schema-reference.md` (only if it mentions ram
-cooldowns), and a status line on the two weapon-system spec docs noting that D-decisions referencing
+cooldowns), `docs/architecture.md` (the tick-phase list names `rams` as a live `combatTick` phase and
+must drop it), and a status line on the two weapon-system spec docs noting that D-decisions referencing
 ram damage are superseded here.
 
 **Tests that must move** — the ram blocks in `sim/combat.test.ts` (including the
