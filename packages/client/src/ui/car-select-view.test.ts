@@ -51,7 +51,9 @@ describe("fullStatsFor", () => {
       "Turn rate",
       "Hull HP",
       "Hull size",
-      "Fireball damage",
+      "Thumper damage",
+      "Shockwave damage",
+      "Bulwark damage",
     ]);
   });
 
@@ -63,16 +65,18 @@ describe("fullStatsFor", () => {
 
   it("shows each chassis's own damage for every weapon it carries", () => {
     // Literals, not a re-derivation: comparing against weaponDamageOf would pass just as well
-    // against a hard-coded panel, and would not catch the row being wired to the wrong car.
-    const expected: Record<keyof typeof CAR_TABLE, string> = {
-      rectangle: "40",
-      oval: "60",
-      hexagon: "50",
+    // against a hard-coded panel, and would not catch the row being wired to the wrong car. Since
+    // Task 5's rewire each chassis's slot-1 weapon is its own id (no shared "Fireball damage" row
+    // across all three any more), so this pins each chassis's actual opener by label AND value.
+    const expected: Record<keyof typeof CAR_TABLE, { label: string; value: string }> = {
+      rectangle: { label: "Fireball damage", value: "40" },
+      oval: { label: "Splinter damage", value: "36" },
+      hexagon: { label: "Thumper damage", value: "75" },
     };
     for (const id of Object.keys(CAR_TABLE) as (keyof typeof CAR_TABLE)[]) {
-      const row = fullStatsFor(id).find((r) => r.label === "Fireball damage");
+      const row = fullStatsFor(id).find((r) => r.label === expected[id].label);
       expect(row).toBeDefined();
-      expect(row!.value).toBe(expected[id]);
+      expect(row!.value).toBe(expected[id].value);
     }
   });
 
