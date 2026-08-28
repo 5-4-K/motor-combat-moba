@@ -1,7 +1,7 @@
 # Invariant Reconciliation — Tracker & Resume Point
 
 **Last session:** 2026-08-28
-**State:** R0 set; R1, R3, R3a, R3b resolved. **Five conflicts open. Next up: R2 (tick rate).**
+**State:** R0 set; R1, R2, R3, R3a, R3b resolved. **Four conflicts open. Next up: R4 (transport) — R4, R5 and R6 are one cluster.**
 **Branch:** `claude/motor-combat-rules-review-f319c6` (worktree) off `development/main` @ `7439c2f`
 
 > **Resuming? Read this file first, then the rulings doc.** Everything else is reference.
@@ -31,11 +31,11 @@ when republishing or a duplicate artifact is created instead:
 |---|---|---|
 | R0 | Scope & latency targets | ✅ Set — governs everything below |
 | R1 | Projectile prediction | ✅ Resolved (revised once, for online) |
-| R2 | **Simulation tick rate — 30 vs 60 Hz** | ⬜ **NEXT** |
+| R2 | Simulation tick rate | ✅ Resolved — hold 30 Hz; R2.1 ms-authoring first; patch rate moved to R4 |
 | R3 | Remote car handling | ✅ Resolved |
 | R3a | Contact & ram-as-crowd-control | ✅ Resolved |
 | R3b | Collision response as impulse physics | ✅ Resolved |
-| R4 | Transport — WebSocket vs WebRTC | ⬜ Open |
+| R4 | **Transport — WebSocket vs WebRTC** (also owns the patch rate, from R2.5) | 🟡 **In progress — R4.1 resolved; R4.2–R4.7 open** |
 | R5 | Input redundancy | ⬜ Open |
 | R6 | Tick sync / client lead | ⬜ Open |
 | R7 | Design resolution — 1280 vs 1424 | ⬜ Open |
