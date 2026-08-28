@@ -481,6 +481,14 @@ describe("shots landing", () => {
 describe("chassis attack scales weapon damage through a real tick", () => {
   /** One shot, fired for real, from `carId` into a stationary rectangle. Returns the hp it cost. */
   const damageDealtBy = (carId: "rectangle" | "oval" | "hexagon"): number => {
+    // Slot 1 is forced to fireball for every chassis, overriding `carId`'s real loadout: since Task
+    // 5 the three chassis no longer share a weapon, so deriving `fireState` from
+    // `newFireState(carId, 1)` would fire three DIFFERENT weapons and conflate the weapon's own
+    // damage with the attack-rating scaling this test exists to isolate.
+    const fireballSlot1 = {
+      ...newFireState(carId, 1),
+      slots: [{ weaponId: "fireball" as const, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
+    };
     let state = run({
       players: [
         player("a", {
@@ -489,7 +497,7 @@ describe("chassis attack scales weapon damage through a real tick", () => {
           angle: 0,
           carId,
           fireMask: 1,
-          fireState: newFireState(carId, 1),
+          fireState: fireballSlot1,
         }),
         player("b", { x: 400 + DRIVE_CONFIG.carWidth + 40, y: OPEN_Y }),
       ],

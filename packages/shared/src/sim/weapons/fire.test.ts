@@ -5,7 +5,7 @@ import type { ShotOrder } from "./instances.js";
 const SLOT_1 = 0b001;
 const SLOT_2 = 0b010;
 
-/** A fireball-only car, as shipped. */
+/** Rectangle, as shipped: slot 1 fireball, slot 2 pepperbox, slot 3 afterburner. */
 const fresh = () => newFireState("rectangle", 1);
 
 /** Drive a state forward n ticks of pure recharge. */
@@ -18,9 +18,9 @@ function idle(state: FireState, from: number, ticks: number): FireState {
 describe("slots", () => {
   it("starts with one stock in every slot", () => {
     const state = fresh();
-    expect(state.slots).toHaveLength(1);
-    expect(state.slots[0]!.weaponId).toBe("fireball");
-    expect(state.slots[0]!.stocks).toBe(1);
+    expect(state.slots).toHaveLength(3);
+    expect(state.slots.map((s) => s.weaponId)).toEqual(["fireball", "pepperbox", "afterburner"]);
+    expect(state.slots.every((s) => s.stocks === 1)).toBe(true);
   });
 
   it("gives a player with no car no slots at all", () => {
@@ -36,7 +36,10 @@ describe("pressing", () => {
   });
 
   it("ignores a press for a slot the car does not have", () => {
-    expect(beginFire(fresh(), SLOT_2, 100).pending).toBeNull();
+    // Every shipped chassis now fills all three slots (Task 5), so this constructs a car short one
+    // slot rather than relying on a real `CarId` to be under-loaded.
+    const oneSlot: FireState = { ...fresh(), slots: fresh().slots.slice(0, 1) };
+    expect(beginFire(oneSlot, SLOT_2, 100).pending).toBeNull();
   });
 
   it("ignores a press with no stock left", () => {

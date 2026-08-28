@@ -9,11 +9,15 @@ import type { CarDef, CarId } from "./types.js";
  *
  * `attack` is not damage. It is a percentage modifier on whatever weapon the car is firing, applied
  * by `damageFor` (`sim/damage.ts`): 0.5x at rating 0, 1.0x at 50, 1.5x at 100.
+ *
+ * `weapons` is the chassis's kit in slot order, and the kits are EXCLUSIVE: no weapon id appears on
+ * two chassis (L1). `weapon-slots.test.ts` enforces that, so moving a weapon between chassis means
+ * swapping a pair, never copying one.
  */
 export const CAR_TABLE = {
-  rectangle: { id: "rectangle", name: "Rectangle", speed: 80, attack: 30, hp: 40, weapons: ["fireball"] },
-  oval: { id: "oval", name: "Oval", speed: 50, attack: 70, hp: 30, weapons: ["fireball"] },
-  hexagon: { id: "hexagon", name: "Hexagon", speed: 30, attack: 50, hp: 70, weapons: ["fireball"] },
+  rectangle: { id: "rectangle", name: "Rectangle", speed: 80, attack: 30, hp: 40, weapons: ["fireball", "pepperbox", "afterburner"] },
+  oval: { id: "oval", name: "Oval", speed: 50, attack: 70, hp: 30, weapons: ["splinter", "skewer", "lance"] },
+  hexagon: { id: "hexagon", name: "Hexagon", speed: 30, attack: 50, hp: 70, weapons: ["thumper", "shockwave", "bulwark"] },
 } as const satisfies Record<CarId, CarDef>;
 
 /**
