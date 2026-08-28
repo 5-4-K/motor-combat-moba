@@ -34,12 +34,13 @@ describe("damageFor", () => {
     expect(damageFor(100, 50)).toBe(75);
   });
 
-  it("rises with attack and never falls", () => {
-    let previous = -1;
-    for (let attack = 0; attack <= 100; attack += 1) {
-      const value = damageFor(attack, 50);
-      expect(value).toBeGreaterThanOrEqual(previous);
-      previous = value;
+  it("matches exact percentage arithmetic at every rating", () => {
+    // Guards the float-normalisation in `damageFor`: `damagePerAttack` is 0.01, which is not exactly
+    // representable, so without normalisation the product lands just under a .5 boundary at some
+    // ratings and rounds the wrong way. Fails at attack 15, 63 and 65 without it.
+    for (let attack = 0; attack <= 100; attack++) {
+      const exact = Math.floor((50 * (100 + (attack - COMBAT_CONFIG.attackBaseline))) / 100 + 0.5);
+      expect(damageFor(attack, 50)).toBe(exact);
     }
   });
 

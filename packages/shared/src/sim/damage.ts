@@ -31,7 +31,11 @@ export function applyDamage(hp: number, amount: number): number {
  */
 export function damageFor(attack: number, weaponDamage: number): number {
   const scale = 1 + (attack - COMBAT_CONFIG.attackBaseline) * COMBAT_CONFIG.damagePerAttack;
-  return Math.max(0, Math.round(weaponDamage * scale));
+  // `damagePerAttack` (0.01) is not exactly representable in IEEE-754, so the accumulated error can
+  // push the product just under a .5 boundary at some ratings, rounding down where exact
+  // percentage arithmetic rounds up. Normalising through a fixed-precision string before rounding
+  // removes that error; see damage.test.ts's exactness sweep.
+  return Math.max(0, Math.round(Number((weaponDamage * scale).toFixed(6))));
 }
 
 /** `damageFor` with both lookups done: what this chassis deals with this weapon. */
