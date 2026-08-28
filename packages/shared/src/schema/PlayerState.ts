@@ -16,6 +16,18 @@ export class PlayerState extends Schema {
   @type("string") carId = "";
   @type("number") speed = 0;
   @type("uint16") reverseHold = 0;
+  /**
+   * Ram knock state. Networked because `stepDrive` reads all four (invariant 8), and reconciled by
+   * snapping rather than easing — they feed the next integration, so a half-eased value would poison
+   * every subsequent step rather than merely look wrong.
+   *
+   * `authority` defaults to 1. A Schema numeric default of 0 would mean "no steering" for every
+   * player who has never been touched, which presents as a completely undriveable car on first spawn.
+   */
+  @type("number") angVel = 0;
+  @type("number") shoveX = 0;
+  @type("number") shoveY = 0;
+  @type("number") authority = 1;
   @type("uint16") hp = 0;
   @type("boolean") alive = true;
   @type("boolean") selectLocked = false;

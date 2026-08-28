@@ -20,7 +20,18 @@ const BOUNDS = { width: 1000, height: 1000 };
 const TOUCH_SLACK = 1e-6;
 
 function body(patch: Partial<SimBody>): SimBody {
-  return { x: 0, y: 0, angle: 0, speed: 0, reverseHold: 0, ...patch };
+  return {
+    x: 0,
+    y: 0,
+    angle: 0,
+    speed: 0,
+    reverseHold: 0,
+    angVel: 0,
+    shoveX: 0,
+    shoveY: 0,
+    authority: 1,
+    ...patch,
+  };
 }
 
 function carObb(b: SimBody): Obb {

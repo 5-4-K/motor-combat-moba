@@ -23,7 +23,18 @@ function input(steer: -1 | 0 | 1, throttle: -1 | 0 | 1): InputMessage {
 }
 
 function body(over: Partial<SimBody> = {}): SimBody {
-  return { x: 0, y: 0, angle: 0, speed: 0, reverseHold: 0, ...over };
+  return {
+    x: 0,
+    y: 0,
+    angle: 0,
+    speed: 0,
+    reverseHold: 0,
+    angVel: 0,
+    shoveX: 0,
+    shoveY: 0,
+    authority: 1,
+    ...over,
+  };
 }
 
 function drive(start: SimBody, msg: InputMessage, ticks: number): SimBody {

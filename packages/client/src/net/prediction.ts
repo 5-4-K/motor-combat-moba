@@ -85,6 +85,10 @@ export class PredictionBuffer {
       angle: authoritative.angle,
       speed: authoritative.speed,
       reverseHold: authoritative.reverseHold,
+      angVel: authoritative.angVel,
+      shoveX: authoritative.shoveX,
+      shoveY: authoritative.shoveY,
+      authority: authoritative.authority,
     };
     for (const entry of this.pending) {
       target = stepSim(target, entry.input, DT_SECONDS, ctx);
@@ -110,6 +114,13 @@ export class PredictionBuffer {
       angle: currentPredicted.angle + dAngle * NET_CONFIG.reconcileEaseRate,
       speed: target.speed,
       reverseHold: target.reverseHold,
+      // Knock state snaps for the same reason `speed` does: these feed the next integration. This is
+      // also what makes an unpredicted ram viable — the knock lands as one velocity snap and the
+      // client then plays the whole spin-and-slide out locally through its own stepSim.
+      angVel: target.angVel,
+      shoveX: target.shoveX,
+      shoveY: target.shoveY,
+      authority: target.authority,
     };
   }
 }

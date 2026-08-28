@@ -5,7 +5,7 @@ import { InterpolationBuffer, blendPose } from "./interpolation.js";
 const DELAY = NET_CONFIG.interpolationDelayMs;
 
 function pose(x: number, y: number, angle = 0): SimBody {
-  return { x, y, angle, speed: 0, reverseHold: 0 };
+  return { x, y, angle, speed: 0, reverseHold: 0, angVel: 0, shoveX: 0, shoveY: 0, authority: 1 };
 }
 
 describe("InterpolationBuffer", () => {
@@ -72,8 +72,8 @@ describe("InterpolationBuffer", () => {
 
   it("carries speed and reverseHold from the snapshot being interpolated toward", () => {
     const buf = new InterpolationBuffer();
-    buf.push(1000, { x: 0, y: 0, angle: 0, speed: 10, reverseHold: 0 });
-    buf.push(1100, { x: 100, y: 0, angle: 0, speed: 90, reverseHold: 4 });
+    buf.push(1000, { x: 0, y: 0, angle: 0, speed: 10, reverseHold: 0, angVel: 0, shoveX: 0, shoveY: 0, authority: 1 });
+    buf.push(1100, { x: 100, y: 0, angle: 0, speed: 90, reverseHold: 4, angVel: 0, shoveX: 0, shoveY: 0, authority: 1 });
 
     const out = buf.sample(1050 + DELAY);
     expect(out?.speed).toBe(90);
@@ -107,8 +107,28 @@ describe("InterpolationBuffer", () => {
 describe("blendPose", () => {
   it("lerps position by alpha and carries the newer pose's sim fields", () => {
     const from = pose(0, 0);
-    const to: SimBody = { x: 100, y: 200, angle: 0, speed: 7, reverseHold: 3 };
-    expect(blendPose(from, to, 0.25)).toEqual({ x: 25, y: 50, angle: 0, speed: 7, reverseHold: 3 });
+    const to: SimBody = {
+      x: 100,
+      y: 200,
+      angle: 0,
+      speed: 7,
+      reverseHold: 3,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
+    };
+    expect(blendPose(from, to, 0.25)).toEqual({
+      x: 25,
+      y: 50,
+      angle: 0,
+      speed: 7,
+      reverseHold: 3,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
+    });
   });
 
   it("returns the endpoints exactly at alpha 0 and 1", () => {

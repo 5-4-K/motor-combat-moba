@@ -13,7 +13,7 @@ function input(steer: -1 | 0 | 1, throttle: -1 | 0 | 1): InputMessage {
 }
 
 function rest(): SimBody {
-  return { x: 0, y: 0, angle: 0, speed: 0, reverseHold: 0 };
+  return { x: 0, y: 0, angle: 0, speed: 0, reverseHold: 0, angVel: 0, shoveX: 0, shoveY: 0, authority: 1 };
 }
 
 function drive(body: SimBody, msg: InputMessage, ticks: number): SimBody {
@@ -39,7 +39,17 @@ describe("stepDrive", () => {
   });
 
   it("from high +speed, holding Down brakes the speed down before it goes negative", () => {
-    const highSpeed: SimBody = { x: 0, y: 0, angle: 0, speed: forwardMaxSpeedOf(CAR_ID), reverseHold: 0 };
+    const highSpeed: SimBody = {
+      x: 0,
+      y: 0,
+      angle: 0,
+      speed: forwardMaxSpeedOf(CAR_ID),
+      reverseHold: 0,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
+    };
     const out = stepDrive(highSpeed, input(0, -1), DT, CAR_ID);
     expect(out.speed).toBeLessThan(highSpeed.speed);
     expect(out.speed).toBeGreaterThanOrEqual(0);
@@ -71,7 +81,17 @@ describe("stepDrive", () => {
 
   it("brakes through zero into reverse without overshoot, only reverses past the hold threshold, and pins at the cap", () => {
     const down = input(0, -1);
-    let body: SimBody = { x: 0, y: 0, angle: 0, speed: forwardMaxSpeedOf(CAR_ID), reverseHold: 0 };
+    let body: SimBody = {
+      x: 0,
+      y: 0,
+      angle: 0,
+      speed: forwardMaxSpeedOf(CAR_ID),
+      reverseHold: 0,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
+    };
     let sawZero = false;
     let wentNegative = false;
 
@@ -101,7 +121,17 @@ describe("stepDrive", () => {
 
   it("holding Up from reverse brakes to exactly 0 without overshoot, then accelerates forward", () => {
     const up = input(0, 1);
-    let body: SimBody = { x: 0, y: 0, angle: 0, speed: -reverseMaxSpeedOf(CAR_ID), reverseHold: 0 };
+    let body: SimBody = {
+      x: 0,
+      y: 0,
+      angle: 0,
+      speed: -reverseMaxSpeedOf(CAR_ID),
+      reverseHold: 0,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
+    };
     let sawZero = false;
 
     for (let tick = 0; tick < 15; tick++) {
@@ -146,21 +176,51 @@ describe("stepDrive", () => {
 
     const steerLeft = input(1, 0);
     const stopped = stepDrive(rest(), steerLeft, DT, CAR_ID);
-    const movingBody: SimBody = { x: 0, y: 0, angle: 0, speed: 100, reverseHold: 0 };
+    const movingBody: SimBody = {
+      x: 0,
+      y: 0,
+      angle: 0,
+      speed: 100,
+      reverseHold: 0,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
+    };
     const moving = stepDrive(movingBody, steerLeft, DT, CAR_ID);
 
     expect(moving.angle).toBeGreaterThan(stopped.angle);
   });
 
   it("coasting (throttle 0) reduces |speed| via drag from a positive speed", () => {
-    const moving: SimBody = { x: 0, y: 0, angle: 0, speed: 100, reverseHold: 0 };
+    const moving: SimBody = {
+      x: 0,
+      y: 0,
+      angle: 0,
+      speed: 100,
+      reverseHold: 0,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
+    };
     const out = stepDrive(moving, input(0, 0), DT, CAR_ID);
     expect(out.speed).toBeLessThan(moving.speed);
     expect(out.speed).toBeGreaterThanOrEqual(0);
   });
 
   it("coasting (throttle 0) reduces |speed| via drag from a negative speed", () => {
-    const movingReverse: SimBody = { x: 0, y: 0, angle: 0, speed: -100, reverseHold: 0 };
+    const movingReverse: SimBody = {
+      x: 0,
+      y: 0,
+      angle: 0,
+      speed: -100,
+      reverseHold: 0,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
+    };
     const out = stepDrive(movingReverse, input(0, 0), DT, CAR_ID);
     expect(out.speed).toBeGreaterThan(movingReverse.speed);
     expect(out.speed).toBeLessThanOrEqual(0);
@@ -173,6 +233,10 @@ describe("stepDrive", () => {
       angle: 0,
       speed: DRIVE_CONFIG.stopEpsilon / 2,
       reverseHold: 0,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
     };
     const out = stepDrive(barelyMoving, input(0, 0), DT, CAR_ID);
     expect(out.speed).toBe(0);
@@ -187,6 +251,10 @@ describe("stepDrive", () => {
       angle: 0,
       speed: DRIVE_CONFIG.stopEpsilon / 2,
       reverseHold: 0,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
     };
     const rolling: SimBody = { ...crawling, speed: DRIVE_CONFIG.stopEpsilon * 2 };
 

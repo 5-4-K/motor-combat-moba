@@ -18,7 +18,17 @@ export function stepDrive(body: SimBody, input: InputMessage, dt: number, carId:
   const x = body.x + Math.cos(angle) * speed * dt;
   const y = body.y + Math.sin(angle) * speed * dt;
 
-  return { x, y, angle, speed, reverseHold };
+  return {
+    x,
+    y,
+    angle,
+    speed,
+    reverseHold,
+    angVel: body.angVel,
+    shoveX: body.shoveX,
+    shoveY: body.shoveY,
+    authority: body.authority,
+  };
 }
 
 /** Outside the `stopEpsilon` band the car counts as rolling, in whichever direction. */

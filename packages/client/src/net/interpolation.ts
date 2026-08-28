@@ -67,6 +67,10 @@ export class InterpolationBuffer {
         angle: pose.angle,
         speed: pose.speed,
         reverseHold: pose.reverseHold,
+        angVel: pose.angVel,
+        shoveX: pose.shoveX,
+        shoveY: pose.shoveY,
+        authority: pose.authority,
       },
     });
     this.prune(time);
@@ -104,6 +108,10 @@ export class InterpolationBuffer {
         // half-lerped speed would be a number no tick ever produced. Same rule as reconciliation.
         speed: to.pose.speed,
         reverseHold: to.pose.reverseHold,
+        angVel: to.pose.angVel,
+        shoveX: to.pose.shoveX,
+        shoveY: to.pose.shoveY,
+        authority: to.pose.authority,
       };
     }
     return { ...last.pose };

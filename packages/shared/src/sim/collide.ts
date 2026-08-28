@@ -111,7 +111,17 @@ export function resolveWorld(
     // actually struck: each distinct surface damps the speed exactly once, never r^2 or r^3.
     next = clampIntoBounds(next, bounds);
   }
-  return { x: next.x, y: next.y, angle: next.angle, speed: next.speed, reverseHold: next.reverseHold };
+  return {
+    x: next.x,
+    y: next.y,
+    angle: next.angle,
+    speed: next.speed,
+    reverseHold: next.reverseHold,
+    angVel: next.angVel,
+    shoveX: next.shoveX,
+    shoveY: next.shoveY,
+    authority: next.authority,
+  };
 }
 
 /**
@@ -164,6 +174,10 @@ function clampIntoBounds(body: SimBody, bounds: Bounds): SimBody {
     angle: body.angle,
     speed: body.speed,
     reverseHold: body.reverseHold,
+    angVel: body.angVel,
+    shoveX: body.shoveX,
+    shoveY: body.shoveY,
+    authority: body.authority,
   };
 }
 
@@ -223,6 +237,10 @@ function applyContact(body: SimBody, push: Vec2): SimBody {
     angle: body.angle,
     speed,
     reverseHold: body.reverseHold,
+    angVel: body.angVel,
+    shoveX: body.shoveX,
+    shoveY: body.shoveY,
+    authority: body.authority,
   };
 }
 

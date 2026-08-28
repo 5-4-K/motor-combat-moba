@@ -275,6 +275,10 @@ interface ArenaPlayer {
   angle: number;
   speed: number;
   reverseHold: number;
+  angVel: number;
+  shoveX: number;
+  shoveY: number;
+  authority: number;
   status: number;
   carId: string;
   colorId: number;
@@ -302,6 +306,10 @@ function bodyOf(player: ArenaPlayer): SimBody {
     angle: player.angle,
     speed: player.speed,
     reverseHold: player.reverseHold,
+    angVel: player.angVel,
+    shoveX: player.shoveX,
+    shoveY: player.shoveY,
+    authority: player.authority,
   };
 }
 

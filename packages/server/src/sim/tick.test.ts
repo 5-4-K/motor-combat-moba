@@ -50,6 +50,10 @@ function poseOf(player: PlayerState): SimBody {
     angle: player.angle,
     speed: player.speed,
     reverseHold: player.reverseHold,
+    angVel: player.angVel,
+    shoveX: player.shoveX,
+    shoveY: player.shoveY,
+    authority: player.authority,
   };
 }
 
@@ -99,9 +103,29 @@ describe("serverTick", () => {
 
     serverTick(state, queues, DT, RoomPhase.MATCH);
 
-    expect(poseOf(emptyQ)).toEqual({ x: 1, y: 2, angle: 0.1, speed: 0, reverseHold: 0 });
+    expect(poseOf(emptyQ)).toEqual({
+      x: 1,
+      y: 2,
+      angle: 0.1,
+      speed: 0,
+      reverseHold: 0,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
+    });
     expect(emptyQ.lastProcessedInputSeq).toBe(3);
-    expect(poseOf(missingQ)).toEqual({ x: 4, y: 5, angle: 0.2, speed: 0, reverseHold: 0 });
+    expect(poseOf(missingQ)).toEqual({
+      x: 4,
+      y: 5,
+      angle: 0.2,
+      speed: 0,
+      reverseHold: 0,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
+    });
     expect(missingQ.lastProcessedInputSeq).toBe(4);
   });
 
@@ -204,7 +228,7 @@ describe("serverTick", () => {
 
         serverTick(state, queues, DT, phase);
 
-        expect(poseOf(player)).toEqual({ x: 300, y: CORRIDOR_Y, angle: 0, speed: 0, reverseHold: 0 });
+        expect(poseOf(player)).toEqual({ x: 300, y: CORRIDOR_Y, angle: 0, speed: 0, reverseHold: 0, angVel: 0, shoveX: 0, shoveY: 0, authority: 1 });
         expect(player.lastProcessedInputSeq).toBe(9);
         expect(queues.get("p1")).toEqual([]);
       });
@@ -221,7 +245,7 @@ describe("serverTick", () => {
 
       serverTick(state, queues, DT, RoomPhase.MATCH);
 
-      expect(poseOf(offField)).toEqual({ x: 300, y: CORRIDOR_Y, angle: 0, speed: 0, reverseHold: 0 });
+      expect(poseOf(offField)).toEqual({ x: 300, y: CORRIDOR_Y, angle: 0, speed: 0, reverseHold: 0, angVel: 0, shoveX: 0, shoveY: 0, authority: 1 });
       expect(offField.lastProcessedInputSeq).toBe(9);
       expect(queues.get("p1")).toEqual([]);
     });
