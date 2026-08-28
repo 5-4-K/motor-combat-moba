@@ -11,9 +11,10 @@ import type { WeaponDef, WeaponId } from "./weapon-types.js";
  * itself, never a sprite. A 24-unit disc is three quarters of a car's 32-unit width.
  *
  * `color` is the one render-only number here besides `name`. It is per weapon on purpose: every
- * car firing a fireball fires the same ember-orange shot. The two shipped colours are picked to be
- * unmistakable for any `COLOR_TABLE` player colour — ember orange leans darker and redder than
- * `Orange`/`Gold`, and no player can be teal — so a shot never reads as somebody's car paint.
+ * car firing a given weapon fires the same shot colour. All nine shipped colours are picked to be
+ * unmistakable against any `COLOR_TABLE` player colour — `fireball`'s ember orange leans darker and
+ * redder than `Orange`/`Gold`, `splinter`'s teal has no player counterpart at all, and the rest
+ * follow the same rule — so a shot never reads as somebody's car paint.
  *
  * `damage` is what the weapon deals from a chassis at `COMBAT_CONFIG.attackBaseline` — an *average*
  * car, not every car. `damageFor` (`sim/damage.ts`) moves it +/-50% with the firing chassis's
@@ -37,10 +38,10 @@ export const WEAPON_TABLE = {
     startUpMs: 0,
     cooldownMs: 500,
     recoveryMs: 0,
-    // The system would otherwise ship dark: `fireball` is the only weapon any chassis carries, so
-    // leaving it off would put aim assist on the same never-seen-in-play list as beams, multi-pellet
-    // volleys and `splinter`. Note the consequence -- every chassis carries `fireball`, so aim assist
-    // is universal until a second weapon is authored.
+    // `fireball` is Rectangle's slot 1 only, not a universal weapon. Aim assist is not universal
+    // either: exactly three of the nine weapons use it (`fireball`, `splinter`, `thumper`). The
+    // other six -- every beam, `pepperbox`'s multi-pellet volleys, and the wind-ups `skewer` and
+    // `lance` -- are real, shipped rows now, not a hypothetical never-seen-in-play list.
     usesAimAssist: true,
     hitbox: { shape: "circle", radius: 12 },
     pierce: 0,

@@ -56,7 +56,7 @@ once, at shared's module load, into the frozen `WEAPON_TICKS` the sim actually r
 
 | id | kind | damage | damageFrequencyMs | speed | range | cooldownMs | startUpMs | recoveryMs | stock | pierce | volley (volleys/intervalMs/pellets/spreadDeg) | attached | lifetimeMs | hitbox | unlocksAt | usesAimAssist | color |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `fireball` | projectile | 50 | 0 | 900 | 900 | 500 | 0 | 0 | — | 0 | 1 / 0 / 1 / 0 | — | — | circle, radius 12 | 1 | true | `#E8590C` ember |
+| `fireball` | projectile | 50 | 0 | 900 | 900 | 500 | 0 | 0 | — | 0 | 1 / 0 / 1 / 0 | — | — | circle, radius 12 | 1 | true | `#E8590C` |
 | `pepperbox` | projectile | 28 | 0 | 800 | 600 | 1800 | 0 | 200 | — | 0 | 3 / 100 / 2 / 10 | — | — | circle, radius 7 | 1 | false | `#B45309` |
 | `afterburner` | beam | 26 | 200 | 1100 | 220 | 13000 | 0 | 200 | — | — | — | true | 2000 | cone, 55° | 1 | false | `#D6336C` |
 | `splinter` | projectile | 30 | 0 | 1100 | 850 | 400 | 0 | 0 | max 3, refire 130ms | 0 | 1 / 0 / 1 / 0 | — | — | circle, radius 5 | 1 | true | `#0CA5B0` |

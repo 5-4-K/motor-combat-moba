@@ -116,8 +116,11 @@ export async function main(argv = process.argv.slice(2)) {
   console.log(`manifest      ${key} -> ${file}`);
   // Unlike a car sprite, there is no `?dev=assets` preview for weapon icons — that tool only ever
   // walked `CAR_TABLE`. The only place to judge the fit is the live HUD, which means the icon is
-  // only visible at all if some car's loadout actually carries this weapon. `repeater` carries none
-  // by design, so "join a match with it equipped" is advice nobody can follow: say so instead.
+  // only visible at all if some car's loadout actually carries this weapon. Every shipped weapon
+  // has a carrier today -- the nine-weapon roster is exclusive but complete, with no orphan id --
+  // so this branch only fires for a weapon still being authored, before it is wired into a
+  // `CAR_TABLE` loadout. "join a match with it equipped" is advice nobody can follow yet in that
+  // case: say so instead.
   const carriers = Object.keys(CAR_TABLE).filter((carId) => CAR_TABLE[carId].weapons.includes(weapon));
   console.log(
     carriers.length > 0
