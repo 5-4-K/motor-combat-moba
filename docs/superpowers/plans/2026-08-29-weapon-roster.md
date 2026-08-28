@@ -634,6 +634,11 @@ describe("the two lockouts", () => {
    * `switchLockUntilTick`, never that `releaseShots` WRITES it. `splinter` in slot 1 owns the
    * refire delay (130ms == 4 ticks) and has `recoveryMs: 0`, which is itself worth asserting: a
    * go-to must never gate another slot.
+   *
+   * BOTH clocks are written by `releaseShots` at the tick the shot EXITS — never by `beginFire` at
+   * press time (`fire.ts:165,174`). `repeater` hid that distinction because its `startUpMs` was 0,
+   * so press and release fell on the same tick. `lance` winds up for 700ms == 21 ticks, so a press
+   * at 200 does not release, and does not write the switch lock, until 221. `fireAt` drives that.
    */
   const twoSlots = (): FireState => ({
     slots: [
@@ -646,20 +651,32 @@ describe("the two lockouts", () => {
     level: 1,
   });
 
-  it("writes the recovery lockout from the weapon that fired", () => {
-    const fired = releaseShots(beginFire(twoSlots(), SLOT_2, 200), 200).state;
-    expect(fired.switchLockUntilTick).toBe(230); // 200 + 30 ticks == lance's 1000ms recovery
+  /** Press `mask` at `pressTick`, then run ticks until the shot actually exits. */
+  function fireAt(state: FireState, mask: number, pressTick: number, throughTick: number): FireState {
+    let next = beginFire(state, mask, pressTick);
+    for (let tick = pressTick; tick <= throughTick; tick++) next = releaseShots(next, tick).state;
+    return next;
+  }
+
+  const LANCE_EXIT = 221; // pressed at 200; nextShotTick == tick + startUp == 200 + 21
+
+  it("writes the recovery lockout from the weapon that fired, at the tick the shot exits", () => {
+    const fired = fireAt(twoSlots(), SLOT_2, 200, LANCE_EXIT);
+    expect(fired.pending).toBeNull(); // the wind-up has run out and the beam is away
+    expect(fired.switchLockUntilTick).toBe(251); // 221 + 30 ticks == lance's 1000ms recovery
   });
 
   it("blocks a different slot for the firing weapon's recovery", () => {
-    const fired = releaseShots(beginFire(twoSlots(), SLOT_2, 200), 200).state;
-    expect(beginFire(fired, SLOT_1, 229).pending).toBeNull();
-    expect(beginFire(fired, SLOT_1, 230).pending).not.toBeNull();
+    const fired = fireAt(twoSlots(), SLOT_2, 200, LANCE_EXIT);
+    expect(beginFire(fired, SLOT_1, 250).pending).toBeNull();
+    expect(beginFire(fired, SLOT_1, 251).pending).not.toBeNull();
   });
 
   it("gates the same slot on its own refire delay, and gates no other slot at zero recovery", () => {
+    // splinter's startUpMs is 0, so its shot exits on the press tick and both clocks land at 200.
     const fired = releaseShots(beginFire(twoSlots(), SLOT_1, 200), 200).state;
-    expect(beginFire(fired, SLOT_1, 203).pending).toBeNull(); // same slot, inside 200 + 4
+    expect(fired.slots[0]!.refireLockUntilTick).toBe(204); // 200 + 4
+    expect(beginFire(fired, SLOT_1, 203).pending).toBeNull(); // same slot, still inside the lock
     expect(beginFire(fired, SLOT_1, 204).pending).not.toBeNull(); // its own refire delay elapsed
     expect(fired.switchLockUntilTick).toBe(200); // splinter's recoveryMs is 0: no switch lock at all
     expect(beginFire(fired, SLOT_2, 201).pending).not.toBeNull(); // so the other slot is free
@@ -676,15 +693,30 @@ describe("the two lockouts", () => {
         { weaponId: "lance", stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0 },
       ],
     };
-    const fired = releaseShots(beginFire(duplicate, SLOT_1, 200), 200).state;
+    const fired = fireAt(duplicate, SLOT_1, 200, LANCE_EXIT);
     expect(fired.lastFiredSlot).toBe(0);
-    expect(beginFire(fired, SLOT_2, 203).pending).toBeNull(); // a different SLOT, so the switch lock
-    expect(beginFire(fired, SLOT_2, 230).pending).not.toBeNull();
+    expect(beginFire(fired, SLOT_2, 250).pending).toBeNull(); // a different SLOT, so the switch lock
+    expect(beginFire(fired, SLOT_2, 251).pending).not.toBeNull();
   });
 });
 ```
 
-Note that `lance` has `startUpMs: 700` (21 ticks), so `beginFire` followed by `releaseShots` on the **same** tick will not emit an order — it stages a `pending`. The assertions above read `switchLockUntilTick` and `refireLockUntilTick`, which `beginFire` writes at press time, so they hold regardless. If a test in this block asserts on emitted `orders`, drive the state forward 21 ticks first.
+**Do not shortcut `fireAt` back to `releaseShots(beginFire(...), 200)`.** That form works only for a
+zero-wind-up weapon; with `lance` it leaves `pending` set and `switchLockUntilTick` at 0, and the
+test fails for a reason that has nothing to do with the lockouts.
+
+- [ ] **Step 6b: Restore the aim-assist on/off pair assertion**
+
+Task 1 deleted `weapon-config.test.ts`'s `"gives the fireball aim assist and leaves the repeater without it"` and nothing has replaced it, so the table currently has no test asserting that **both** branches of `usesAimAssist` are populated. `skewer` makes that possible again. Add to `weapon-config.test.ts`:
+
+```ts
+  it("keeps both branches of usesAimAssist populated by carried weapons", () => {
+    // The pair that makes `usesAimAssist` a real switch rather than a global: one row on, one off.
+    // Both are now weapons a player can fire, unlike the fireball/repeater pair this replaced.
+    expect(WEAPON_TABLE.fireball.usesAimAssist).toBe(true);
+    expect(WEAPON_TABLE.skewer.usesAimAssist).toBe(false);
+  });
+```
 
 - [ ] **Step 7: Re-host the `aimAngleFor` opt-out in `combat.test.ts`**
 
