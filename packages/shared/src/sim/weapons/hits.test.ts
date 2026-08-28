@@ -40,7 +40,7 @@ describe("hit resolution", () => {
     const moved = stepInstance(shot, { dt: DT, tick: 101, obstacles: [], bounds: BOUNDS, ownerPose: null });
     const out = resolveInstanceHits(moved, shot, snapshot([{ sessionId: "bbb", x: 434, y: 300 }]), "ffa", 101);
     expect(out.damaged).toEqual([{ sessionId: "bbb", amount: 60 }]);
-    expect(60).not.toBe(WEAPON_TABLE.fireball.damage);
+    expect(out.damaged[0]!.amount).not.toBe(WEAPON_TABLE.fireball.damage);
   });
 
   it("never damages the shooter", () => {

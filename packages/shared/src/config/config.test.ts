@@ -7,6 +7,7 @@ import { CAMERA_CONFIG, DRIVE_CONFIG } from "./drive-config.js";
 import { FLOW_CONFIG } from "./flow-config.js";
 import { NET_CONFIG } from "./net-config.js";
 import { WEAPON_TABLE } from "./weapon-config.js";
+import { damageFor } from "../sim/damage.js";
 
 describe("CAR_TABLE", () => {
   it("has exactly rectangle, oval, hexagon", () => {
@@ -50,11 +51,15 @@ describe("CAR_TABLE", () => {
 
   it("kills an average chassis with the baseline weapon in 5 seconds", () => {
     // The spec's headline number (S7). An "average" chassis is one rating point of each at the
-    // baseline: 50 -> 500 hull HP. TTK is reckoned as hullHP / DPS, the sustained-fire figure.
-    // This test is deliberately over-coupled: it should go red if ANY of hpPerRating,
-    // fireball.damage, or fireball.cooldownMs drifts, because those three are what the 5s means.
-    const averageHp = 50 * COMBAT_CONFIG.hpPerRating;
-    const dps = (WEAPON_TABLE.fireball.damage * 1000) / WEAPON_TABLE.fireball.cooldownMs;
+    // baseline: attackBaseline -> 500 hull HP. TTK is reckoned as hullHP / DPS, the sustained-fire
+    // figure. This test is deliberately over-coupled: it should go red if ANY of hpPerRating,
+    // attackBaseline, damagePerAttack, or fireball.damage drifts, because those four are what the
+    // 5s means. Routing through `damageFor` at the baseline rating (rather than reading
+    // fireball.damage raw) is what makes attackBaseline and damagePerAttack load-bearing here too.
+    const averageHp = COMBAT_CONFIG.attackBaseline * COMBAT_CONFIG.hpPerRating;
+    const dps =
+      (damageFor(COMBAT_CONFIG.attackBaseline, WEAPON_TABLE.fireball.damage) * 1000) /
+      WEAPON_TABLE.fireball.cooldownMs;
     expect(averageHp / dps).toBe(5);
   });
 
