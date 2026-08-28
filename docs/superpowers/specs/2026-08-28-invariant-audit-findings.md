@@ -4,32 +4,18 @@
 **Audited:** `development/main` @ `7439c2f`, all three packages
 **Against:** [`docs/invariants/NETCODE_INVARIANTS.md`](../../invariants/NETCODE_INVARIANTS.md),
 [`docs/invariants/BROWSER_CLIENT_INVARIANTS.md`](../../invariants/BROWSER_CLIENT_INVARIANTS.md)
-**Full prose:** published artifact — see the resume tracker for the URL.
-**Rulings on the axiom conflicts:** [`2026-08-28-invariant-reconciliation-decisions.md`](2026-08-28-invariant-reconciliation-decisions.md)
+**Rulings, standing facts, and the build order:**
+[`2026-08-28-invariant-reconciliation-decisions.md`](2026-08-28-invariant-reconciliation-decisions.md)
 
-This is the durable register. The artifact carries the reasoning; this file carries the list so
-nothing is lost and progress is trackable. Counts are per **entry**, not per clause.
+**This file is the work list.** Every item below is fixable against the current architecture and
+depends on **no open ruling** — they can be worked at any time, in any order. The eight axiom-level
+conflicts are *not* here; they are resolved as `R0–R8` in the decisions doc.
 
-Totals: **8 axiom conflicts** (→ rulings doc) · **18 HARD breaks** · **7 guarded/deferred** ·
+Counts are per **entry**, not per clause: **18 HARD breaks** · **7 guarded or deferred** ·
 **28 invariants verified held**.
 
----
-
-## A. Axiom-level conflicts — 8
-
-All resolved or in progress in the rulings doc. Provenance was traced through this repo and the
-predecessor at `E:\Work\motor-combat`.
-
-| Conflict | Provenance | Ruling |
-|---|---|---|
-| Tick rate 30 vs 60 Hz | Inherited — never justified; predecessor's Gate G7 still OPEN | R2, open |
-| Remote interpolation vs input replication | Inherited — alternative never compared | **R3, resolved** |
-| Transport: WebSocket vs WebRTC | Argued — cost at the time, later vindicated by measurement | R4, open |
-| Input redundancy (16 ticks) | Absent — never mentioned in either repo | R5, open |
-| Projectile prediction | Argued — best-documented of the eight | **R1, resolved (revised)** |
-| Tick sync / client lead | Absent — never mentioned in either repo | R6, open |
-| Design resolution 1280 vs 1424 | Argued — commit `5332628` states problem and cost | R7, open |
-| HTTPS / secure context | Argued — downstream of the LAN-only scope decision | R8, open |
+Several of these are already scheduled into the decisions doc's build order — `N-12`, `C-1`, `C-2`
+and `N-2` are Tranche 0, and `N-4` is Tranche 3. The rest are unscheduled and free-floating.
 
 ---
 

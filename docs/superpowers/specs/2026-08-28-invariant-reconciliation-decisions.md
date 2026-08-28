@@ -1,12 +1,22 @@
 # Invariant Reconciliation — Decisions
 
 **Date:** 2026-08-28
-**Status:** All eight resolved (R4.3, R4.6, R5 carry branches pending one measurement)
-**Companion:** the invariant audit (artifact), `NETCODE_INVARIANTS.md`, `BROWSER_CLIENT_INVARIANTS.md`
+**Status:** All eight conflicts resolved. **Nothing implemented — this is a paper exercise.**
+R4.3, R4.6 and R5 carry branches pending the one measurement R4.1 specifies.
+**Start implementing at:** [R4.7's build order](#r47--sequencing-the-rig-lands-with-r3-not-before-it-and-r4-is-decided-after).
 
-The audit found eight axiom-level conflicts between the supplied invariant documents and this
-codebase. This file resolves them one at a time and records why. Decisions are numbered `R1…R8` and
-are stable — never renumber, same rule as `D1–D22` and `A1–A14`.
+Two invariant documents were supplied and this codebase was audited against them. The audit found
+eight **axiom-level conflicts** — places where the documents and the shipped design make opposite
+choices at the foundation. This file resolves them and records why. Rulings are numbered `R0…R8`
+and are **stable — never renumber**, same rule as `D1–D22` and `A1–A14`.
+
+### The three documents
+
+| File | Role | State |
+|---|---|---|
+| [`docs/invariants/*.md`](../../invariants/) | the rules being measured against | **frozen.** Copied verbatim from the supplied zip. Every amendment lives in this file, never in those — edit them in place and the rulings become the diff's only record of why |
+| **this file** | rulings, reasoning, standing facts, build order | **live.** New rulings go here |
+| [`2026-08-28-invariant-audit-findings.md`](2026-08-28-invariant-audit-findings.md) | the 25 defects that are fixable *without* any ruling | **frozen** work list; tick items off as they land |
 
 ---
 
@@ -71,6 +81,46 @@ them is prediction.
 | R6 | Tick sync / client lead (§6) | Real gap — build a jitter buffer, not a clock | ✅ Resolved |
 | R7 | Design resolution (1280 vs 1424) | Keep 1424; amend the rule. Costs nothing at the floor viewport | ✅ Resolved |
 | R8 | HTTPS / secure context (I-C10.7) | Collapses into R4.3; cloud requires HTTPS regardless | ✅ Resolved |
+
+---
+
+## Standing facts — established by inspection, cite rather than re-derive
+
+Every number below was read out of the source and is load-bearing in at least one ruling. Re-deriving
+them is wasted work; **re-checking them after the code moves is not** — they are dated 2026-08-28.
+
+| Fact | Source |
+|---|---|
+| Key press → seeing your own shot: **~44 ms LAN, ~112 ms at 70 ms RTT** | R0 arithmetic |
+| A remote car is drawn **~76 ms behind on LAN, ~110 ms online** — 41 / 59 units at 540 u/s, about a car length | R3 |
+| A car has **three different positions at once**: drawn (interp, ~76 ms), collided-against (raw pose, ~26 ms), server truth. The first two differ by **27 units** | `ArenaScene.ts:793` vs `step-context.ts` |
+| `turnRate` **4.2 rad/s** → staleness becomes **6.3° / 14.5° / 18.3° / 26.5°** of angle error | `drive-config.ts` |
+| Aim-assist hit tolerance ≈ **28 units** (half a 32-unit car + the 12-unit hitbox) | `AIM_CONFIG` comments |
+| `fireball` has `usesAimAssist: true` and **every chassis carries only fireball** — aim assist is universal today | `weapon-config.ts` |
+| `updateLock`, `AIM_CONFIG`, `lockScore`, `hasLineOfSight` are **already pure and exported from shared**, so the client can run the identical lock | `shared/src/index.ts` |
+| `SimBody` is `{x, y, angle, speed, reverseHold}` — **`speed` is a scalar along the heading, so a car cannot be pushed sideways and nothing can spin** | `sim/step.ts`, `drive.ts` |
+| `WeaponInstanceState` carries no input `seq` — **no key to match a predicted shot to a server instance** | `WeaponInstanceState.ts` |
+| **`serverTick` has no seq dedupe** — the predecessor has `msg.seq <= lastProcessedInputSeq → continue`; this does not | `server/src/sim/tick.ts:104` |
+| `resolveWorld` penetration is **unbounded** — a documented 48-unit stable overlap exists | `collide.ts` |
+| **The client has no roster loop** — it steps only itself against frozen remote hulls, so the mutual push-apart the server gets never happens in prediction | `collide.ts` comment, `step-context.ts` |
+| `RELAXATION_PASSES` = **1** | `collide.ts:62` |
+| The latency injector is the **predecessor's pre-fix version** — it reorders inputs; TCP does not | vs `E:\Work\motor-combat` |
+
+### Provenance of the eight conflicts
+
+Traced through this repo *and* the predecessor at `E:\Work\motor-combat`, which keeps a formal gate
+register (`docs/open-decisions.md`) and measured latency evidence (`docs/networking.md`).
+
+- **Argued** — projectile prediction, design resolution, HTTPS/LAN scope, and transport (decided on
+  hosting cost at the time, later vindicated by measurement: *"reconciliation is exact at any
+  latency… measured peak error at 40 ms, 150 ms and 400 ms one-way: 0"*).
+- **Inherited, never justified** — tick rate (the predecessor's Gate **G7 is still OPEN**) and remote
+  interpolation (`interpolationDelayMs` marked *"not in scope"* in the gate register that retuned
+  everything around it).
+- **Absent, never considered** — input redundancy and clock sync.
+
+The practical reading: the *argued* four push back with evidence; the *inherited and absent* four cost
+engineering but no argument.
 
 ---
 
@@ -717,15 +767,52 @@ justification. That was wrong twice over: the baseline is informative but **not 
 and the harness's shape depends on what it drives, so building it against today's architecture means
 extending it substantially when R3 arrives.
 
-**The order:**
+### The build order
 
-| Tranche | Work | Why here |
-|---|---|---|
-| **0 — unconditional** | R2.1 ms-authoring · R2.3 remove the env override · **N-12 fix the injector** · cheap findings: C-1 blur key release, C-2 delete `window.game`, N-2 gate the monitor | All small, all pure risk reduction, none depend on an open ruling. N-12 matters most: until it is ported, every `SIM_LATENCY_MS` run misleads. |
-| **1 — the big change** | **R3 and the R4.1 harness together.** The harness is R3's verification, not a separate project. | R3 is transport-agnostic and the larger gameplay win. Its failure mode — remote prediction drifting under loss — is invisible to unit tests *by construction*. |
-| **2 — measure** | Run R4.1's profiles. Capture R2.6's CPU budgets in the same pass. | First point at which R4's question has an answer. Also closes Gate G7, open since the predecessor. |
-| **3 — decide R4** | **N-4 first** (quantise the wire), then R4.3 and R4.6 by lookup against R4.1's criterion. | N-4 changes the bandwidth arithmetic both depend on. |
-| **4 — physics** | R3b impulse model as its own numbered spec → produces measured peak ω → **reopens R2.4**. | Needs R3 for the car-vs-car half; static-geometry half (I-N4.13) could start earlier. |
+**Nothing below is implemented.** This is the whole exercise's output as a work plan; start here.
+
+#### Tranche 0 — unconditional. Small, no open ruling depends on any of them.
+
+| Item | Why |
+|---|---|
+| **R2.1** — convert 4 constants to ms-authored (`collisionDamageCooldownTicks`, `reverseHoldTicks`, `pendingInputCap`, `maxInputsPerTick`) | Makes the tick rate a knob rather than a migration. New I-N10.7. |
+| **R2.3** — remove the `TICK_RATE_HZ` env override | Server-only override desyncs every client silently (N-3). |
+| **N-12** — port the predecessor's per-stream ordering clamp into the latency injector; add a loss knob | **Until this lands, every `SIM_LATENCY_MS` run misleads** — it manufactures reorders TCP never produces. |
+| **C-1** — release held keys on `blur` / `visibilitychange` | Costs matches today: alt-tab while accelerating and the car drives on. |
+| **C-2** — delete `window.game` | One line. |
+| **N-2** — gate or remove the unauthenticated `/colyseus` monitor | Full room state to anyone who can reach the port, in every deploy mode. |
+
+#### Tranche 1 — the big change, with its verification
+
+**R3 and the R4.1 harness together.** The harness is R3's verification, not a separate project.
+
+- Lift the roster loop into shared as `stepRoster(entries, inputs, world, dt) → { bodies, contacts }`
+  — the contact-set output (I-N3.11) is designed in from the start even though nothing consumes it
+  until R3b.
+- Add `inputBits` to `PlayerState` (one `uint8`).
+- Predict and reconcile every car uniformly; retire `InterpolationBuffer`, keep `blendPose`.
+- **Restore seq dedupe in `serverTick`** — R5's prerequisite, one line, load-bearing the moment
+  redundancy exists.
+
+#### Tranche 2 — measure
+
+Run R4.1's five profiles against both transport models. Capture **R2.6's budgets** in the same pass
+(≤ 8 ms server, ≤ 4 ms client roster step). Neither has ever been measured; this closes Gate G7,
+open since the predecessor.
+
+#### Tranche 3 — resolve the conditionals by lookup
+
+1. **N-4 first** — quantise the wire. It changes the bandwidth arithmetic both conditionals need.
+2. **R4.3** — pass → stay on WebSocket and amend I-N5.1; fail → WebRTC, and then R4.4 (hybrid),
+   R5 (redundancy at 250 ms) and R8 (secure context) all follow as one project.
+3. **R4.6** — the patch rate, against whatever encoder resulted.
+4. **R6** — size the jitter buffer against measured queue starvation.
+
+#### Tranche 4 — physics
+
+**R3b as its own numbered spec** (`CLAUDE.md` gates the drive model, collision-damage rules and
+physics engines). Static-geometry impulses (I-N4.13) can start earlier — they need no remote pose
+accuracy. Car-vs-car needs R3. Produces the measured peak ω that **reopens R2.4**.
 
 **The one hard constraint: the rig must not land after R3.** This codebase has a documented history
 of exactly the bug class it catches. P5's tracker records two bugs *"that the unit tests could not

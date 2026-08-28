@@ -5,7 +5,7 @@ LAN-hosted top-down 2D multiplayer car combat (last player/team standing, max 6)
 **LAN is a v1 convenience, not the goal.** The target is online multiplayer with mixed ping — feel
 parity to 80 ms RTT, competitive fairness to 130 ms. Netcode decisions are made for the online case
 even where LAN would not show the problem. v1 still ships LAN; see R0 in the
-[reconciliation tracker](docs/superpowers/plans/2026-08-28-invariant-reconciliation-tracker.md).
+[reconciliation rulings](docs/superpowers/specs/2026-08-28-invariant-reconciliation-decisions.md).
 This supersedes the v1 spec's "Product deploy: LAN only" as a statement of intent; "do not add cloud
 hosting without asking" still stands as a *scope* rule.
 
@@ -40,7 +40,7 @@ hosting without asking" still stands as a *scope* rule.
 | Terms | [`docs/glossary.md`](docs/glossary.md) |
 | Package local rules | `packages/shared/CLAUDE.md`, `packages/server/CLAUDE.md`, `packages/client/CLAUDE.md` |
 | Spec + tracker | [`docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md`](docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md), [`docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md`](docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md) |
-| **Netcode / browser invariants, the audit against them, and the rulings (R0–R8)** — start at the tracker | [`docs/superpowers/plans/2026-08-28-invariant-reconciliation-tracker.md`](docs/superpowers/plans/2026-08-28-invariant-reconciliation-tracker.md) |
+| **Netcode / browser invariants, and the R0–R8 rulings against them** — build order lives in R4.7 | [`docs/superpowers/specs/2026-08-28-invariant-reconciliation-decisions.md`](docs/superpowers/specs/2026-08-28-invariant-reconciliation-decisions.md) |
 | Weapon system decisions (D1–D22), aim assist and target lock (A1–A14), online-play review, future work | [`docs/superpowers/specs/2026-08-27-weapon-system-design.md`](docs/superpowers/specs/2026-08-27-weapon-system-design.md), [`docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md`](docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md), [`docs/superpowers/plans/2026-08-27-weapon-system.md`](docs/superpowers/plans/2026-08-27-weapon-system.md) |
 
 ## Stop and ask before
