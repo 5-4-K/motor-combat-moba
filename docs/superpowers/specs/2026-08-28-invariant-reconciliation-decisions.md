@@ -31,6 +31,10 @@ This supersedes the v1 spec's framing (*"Product deploy: LAN only"*) as a **stat
 not as a change to what v1 ships. v1 still ships LAN. What changes is which decisions we are allowed
 to make cheaply now and pay for later.
 
+**It does not authorise hosting.** The root `CLAUDE.md`'s *"do not add cloud hosting without asking"*
+stands unchanged as a **scope** rule. R0 says decide netcode for the online case; it does not say
+stand anything up. Those are separate permissions and only the first is granted here.
+
 ### Latency targets
 
 The stated goal was "smooth feel and competitive accuracy to 70 ping." Recommend raising it, in
@@ -81,6 +85,40 @@ them is prediction.
 | R6 | Tick sync / client lead (§6) | Real gap — build a jitter buffer, not a clock | ✅ Resolved |
 | R7 | Design resolution (1280 vs 1424) | Keep 1424; amend the rule. Costs nothing at the floor viewport | ✅ Resolved |
 | R8 | HTTPS / secure context (I-C10.7) | Collapses into R4.3; cloud requires HTTPS regardless | ✅ Resolved |
+
+---
+
+## How these rulings sit against the project's own rules
+
+The root `CLAUDE.md` carries ten hard invariants and a "stop and ask" gate. **Nothing here overrides
+either** — that file is deliberately untouched by this exercise. This table is what a future
+implementer needs so that reading *these* documents is sufficient.
+
+| Hard invariant | Touched by | How |
+|---|---|---|
+| 1. `TICK_RATE_HZ` lives once in shared | **R2.3** | The env override made it effectively live in *two* places — compiled-in on the client, overridable on the server. Removing it restores the invariant. **R2.4** holds the value at 30. |
+| 2. No magic numbers — balance from shared/config | **R2.1** | Strengthened by I-N10.7: durations are authored in ms and tick counts appear only as the derived form. |
+| 3. Clients send inputs, never authoritative state | **R1** | Preserved exactly. A predicted projectile is a drawing and never applies damage; the client still sends only `{seq, steer, throttle, fireSlots}`. |
+| 4. `stepSim` is the lockstep; both sides import the same function | **R3** | **Completed, not weakened.** Today this is true of the body step and false of the roster orchestration — which is where the order-dependence lives. `stepRoster` makes it true of the whole tick. |
+| 5. Sim rate ≠ patch rate | **R2.4, R4.6** | Both held. R4.6 records that the patch rate's *job* changed post-R3 — correction frequency, not freshness. |
+| 6. `{x, y, angle}` is canonical world state | **R3b** | **Extended.** Impulse response needs angular velocity, and pushback needs a velocity that is not a scalar along the heading. This is a drive-model change — see the gate below. |
+| 7. Enum uint8 values explicit and stable | — | Untouched. |
+| 8. If `stepSim` reads it, it is a networked schema field | **R3, R3a, R3b, R1** | Every new field these rulings introduce is added *under* this rule: `inputBits` (R3), `controlLockedUntilTick` (R3a), angular velocity and impulse velocity (R3b), and `seq` on `WeaponInstanceState` (R1.1c). |
+| 9. Shared consumed as built `dist` | — | Untouched. |
+| 10. Max 6 players | **R2.6** | Untouched; the CPU budgets are stated at six, worst case. |
+
+### The "stop and ask" gate
+
+`CLAUDE.md` requires asking before *changing the drive model, hitbox model (OBB), collision-damage
+rules, friendly-fire, adding cloud hosting, or adding a physics engine.*
+
+- **R3b trips three of them at once** — drive model (velocity representation), collision-damage rules
+  (ram damage becoming crowd control), and physics engines. This is why R3a and R3b say repeatedly
+  that ram-as-CC needs **its own numbered design pass** rather than being folded into a netcode
+  ruling. R3/R3a/R3b make it *possible*; they do not authorise it.
+- **I-N2.8 is stricter than the gate**, not a way around it: no physics engine at all, for a reason
+  the gate does not state — solver-internal state cannot be rolled back (I-N3.7).
+- **R0 does not touch the cloud-hosting clause.** See R0.
 
 ---
 
