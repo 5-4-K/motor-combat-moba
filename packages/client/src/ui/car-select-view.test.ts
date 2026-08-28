@@ -5,7 +5,6 @@ import {
   TICK_RATE_HZ,
   forwardMaxSpeedOf,
   hpOf,
-  massOf,
   reverseMaxSpeedOf,
   weaponDamageOf,
   weaponDefOf,
