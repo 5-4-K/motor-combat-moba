@@ -14,6 +14,12 @@ import type { WeaponDef, WeaponId } from "./weapon-types.js";
  * car firing a fireball fires the same ember-orange shot. The two shipped colours are picked to be
  * unmistakable for any `COLOR_TABLE` player colour — ember orange leans darker and redder than
  * `Orange`/`Gold`, and no player can be teal — so a shot never reads as somebody's car paint.
+ *
+ * `damage` is what the weapon deals from a chassis at `COMBAT_CONFIG.attackBaseline` — an *average*
+ * car, not every car. `damageFor` (`sim/damage.ts`) moves it +/-50% with the firing chassis's
+ * `attack` rating. Fireball's 50 is solved, not chosen: an average chassis has 500 hull HP and
+ * fireball fires twice a second, so 50 is the number that makes an average-vs-average kill take the
+ * design target of 5 seconds. `repeater`'s 31 preserves its former 5:8 ratio against fireball.
  */
 export const WEAPON_TABLE = {
   fireball: {
@@ -22,7 +28,7 @@ export const WEAPON_TABLE = {
     name: "Fireball",
     color: "#E8590C",
     unlocksAt: 1,
-    damage: 8,
+    damage: 50,
     damageFrequencyMs: 0,
     speed: 900,
     range: 900,
@@ -54,7 +60,7 @@ export const WEAPON_TABLE = {
     name: "Repeater",
     color: "#0CA5B0",
     unlocksAt: 1,
-    damage: 5,
+    damage: 31,
     damageFrequencyMs: 0,
     speed: 700,
     range: 700,

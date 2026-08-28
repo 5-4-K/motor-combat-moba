@@ -70,10 +70,10 @@ describe("carSelectView", () => {
     expect(view.cars.filter((c) => c.selected).map((c) => c.id)).toEqual(["oval"]);
   });
 
-  it("scales each bar to the raw 0-10 rating", () => {
+  it("carries each bar's rating verbatim, already on a 0-100 scale", () => {
     const rect = carSelectView(state(), "rectangle", false).cars[0];
     const speedBar = rect?.bars.find((b) => b.key === "speed");
-    expect(speedBar?.percent).toBe(CAR_TABLE.rectangle.speed * 10);
+    expect(speedBar?.percent).toBe(CAR_TABLE.rectangle.speed);
   });
 
   it("carries the three summary bars the card shows", () => {

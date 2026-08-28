@@ -20,14 +20,14 @@ import { secondsLeft } from "./reveal-view.js";
  */
 
 /** The three summary bars on a card. The panel carries the detail; the card stays readable. */
-export const CAR_BARS = ["speed", "strength", "hp"] as const;
+export const CAR_BARS = ["speed", "attack", "hp"] as const;
 export type CarBarKey = (typeof CAR_BARS)[number];
 
 const URGENT_SECONDS = 10;
 
 export interface StatBar {
   key: CarBarKey;
-  /** 0-100, straight from the raw 0-10 rating. */
+  /** 0-100, and so the rating verbatim — ratings are already on that scale. */
   percent: number;
 }
 
@@ -99,7 +99,7 @@ export function carSelectView(
       name: CAR_TABLE[id].name,
       selected: id === selectedId,
       image: `url("art/cars/${id}.png")`,
-      bars: CAR_BARS.map((key) => ({ key, percent: CAR_TABLE[id][key] * 10 })),
+      bars: CAR_BARS.map((key) => ({ key, percent: CAR_TABLE[id][key] })),
     })),
     selectedName: CAR_TABLE[selectedId].name,
     stats: fullStatsFor(selectedId),

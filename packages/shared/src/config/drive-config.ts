@@ -19,11 +19,16 @@
  * `baseMaxSpeed` and `speedPerRating` scale together deliberately: the ratio between them is what
  * decides how much the per-car `speed` rating matters. Moving only one re-balances the roster.
  *
- * Times below are quoted for the fastest chassis (rectangle, speed rating 8, 540 units/second).
+ * Times below are quoted for the fastest chassis (rectangle, speed rating 80, 540 units/second).
  */
 export const DRIVE_CONFIG = {
   baseMaxSpeed: 180,
-  speedPerRating: 45,
+  /**
+   * Ratings are 0-100 (see `CAR_TABLE`), so this is a tenth of what it would be on a 0-10 scale.
+   * It was 45 against 0-10 ratings and became 4.5 when they widened, precisely so that every car's
+   * top speed stayed where it was: widening the ratings is a combat change, not a driving one.
+   */
+  speedPerRating: 4.5,
   accel: 780,
   /** Holding Down against forward motion. Also brakes reverse when Up is held. 0.34s to rest. */
   brakeDecel: 1600,

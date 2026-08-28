@@ -5,7 +5,7 @@ export interface CarDef {
   id: CarId;
   name: string;
   speed: number;
-  strength: number;
+  attack: number;
   hp: number;
   /** Ordered loadout: index 0 is slot 1. Order IS the slot mapping. */
   weapons: readonly WeaponId[];

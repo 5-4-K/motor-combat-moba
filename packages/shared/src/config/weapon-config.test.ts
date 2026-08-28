@@ -8,7 +8,7 @@ describe("WEAPON_TABLE", () => {
   it("ships the migrated fireball with today's numbers", () => {
     const fireball = WEAPON_TABLE.fireball;
     expect(fireball.kind).toBe("projectile");
-    expect(fireball.damage).toBe(8);
+    expect(fireball.damage).toBe(50);
     expect(fireball.cooldownMs).toBe(500); // was fireRateHz: 2
     expect(fireball.speed).toBe(900);
     expect(fireball.range).toBe(900); // was lifetimeTicks: 30 == 1s of flight at 900 u/s
