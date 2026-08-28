@@ -7,7 +7,7 @@ import { CAMERA_CONFIG, DRIVE_CONFIG } from "./drive-config.js";
 import { FLOW_CONFIG } from "./flow-config.js";
 import { NET_CONFIG } from "./net-config.js";
 import { WEAPON_TABLE } from "./weapon-config.js";
-import { damageFor } from "../sim/damage.js";
+import { damageFor, weaponDamageOf } from "../sim/damage.js";
 
 describe("CAR_TABLE", () => {
   it("has exactly rectangle, oval, hexagon", () => {
@@ -52,15 +52,32 @@ describe("CAR_TABLE", () => {
   it("kills an average chassis with the baseline weapon in 5 seconds", () => {
     // The spec's headline number (S7). An "average" chassis is one rating point of each at the
     // baseline: attackBaseline -> 500 hull HP. TTK is reckoned as hullHP / DPS, the sustained-fire
-    // figure. This test is deliberately over-coupled: it should go red if ANY of hpPerRating,
-    // attackBaseline, damagePerAttack, or fireball.damage drifts, because those four are what the
-    // 5s means. Routing through `damageFor` at the baseline rating (rather than reading
-    // fireball.damage raw) is what makes attackBaseline and damagePerAttack load-bearing here too.
+    // figure. This test is deliberately over-coupled: it should go red if hpPerRating,
+    // attackBaseline, or fireball.damage drifts.
+    //
+    // It canNOT pin damagePerAttack: evaluated exactly at the baseline, damageFor's
+    // `(attack - attackBaseline)` term is 0, so the scale is identically 1 whatever
+    // damagePerAttack holds. damagePerAttack is pinned instead by the off-baseline cells in the
+    // "pins the roster's TTK spread" test below, where the modifier is not 1.
     const averageHp = COMBAT_CONFIG.attackBaseline * COMBAT_CONFIG.hpPerRating;
     const dps =
       (damageFor(COMBAT_CONFIG.attackBaseline, WEAPON_TABLE.fireball.damage) * 1000) /
       WEAPON_TABLE.fireball.cooldownMs;
     expect(averageHp / dps).toBe(5);
+  });
+
+  it("pins the roster's TTK spread, and with it damagePerAttack", () => {
+    // The baseline anchor above cannot constrain damagePerAttack -- at attackBaseline the modifier
+    // is 1 by definition, so no baseline-only assertion can see it move. These two off-baseline
+    // cells from the spec's own TTK matrix close that gap: rectangle (attack 30, modifier 0.8)
+    // killing the highest-hp chassis, and oval (attack 70, modifier 1.2) killing itself. A drift in
+    // damagePerAttack moves both numbers, because both are evaluated away from the baseline.
+    const rectangleVsHexagonDps =
+      (weaponDamageOf("rectangle", "fireball") * 1000) / WEAPON_TABLE.fireball.cooldownMs;
+    expect(hpOf("hexagon") / rectangleVsHexagonDps).toBe(8.75);
+
+    const ovalVsOvalDps = (weaponDamageOf("oval", "fireball") * 1000) / WEAPON_TABLE.fireball.cooldownMs;
+    expect(hpOf("oval") / ovalVsOvalDps).toBe(2.5);
   });
 
   it("derives forward max speed from the speed rating", () => {
