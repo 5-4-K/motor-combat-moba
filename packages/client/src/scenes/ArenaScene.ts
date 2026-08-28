@@ -43,6 +43,7 @@ import { axisOf, drainTicks } from "./arena-input.js";
 import { arenaBorderRect, arenaColorsOf } from "./arena-visual.js";
 import { fitsViewport } from "./arena-camera.js";
 import { assetManifest, assetsReady } from "./BootScene.js";
+import { freshImpacts, newImpactTracker, type ImpactTracker } from "./impact-feedback.js";
 import { carFillOf, carShapeOf, hexagonPoints } from "./car-visual.js";
 import {
   hpBarColor,
@@ -397,6 +398,13 @@ export class ArenaScene extends Phaser.Scene {
    */
   private hudIconImages: Phaser.GameObjects.Image[] = [];
 
+  /**
+   * Local-only contact tracker for {@link showImpact}. Purely a render-feel aid — see
+   * `impact-feedback.ts` — and reset in `create` alongside the rest of per-match scene state so a
+   * re-entered arena does not carry a stale "still touching" contact from the previous match.
+   */
+  private impacts: ImpactTracker = newImpactTracker();
+
   constructor() {
     super({ key: "arena" });
   }
@@ -677,6 +685,7 @@ export class ArenaScene extends Phaser.Scene {
     this.lastPatchMs = 0;
     this.mismatchOverlay?.destroy();
     this.mismatchOverlay = undefined;
+    this.impacts = newImpactTracker();
   }
 
   update(_time: number, delta: number): void {
@@ -806,6 +815,22 @@ export class ArenaScene extends Phaser.Scene {
       if (sessionId === this.cameraTarget(room)) this.followCamera(pose, delta);
     });
 
+    // Instant, render-only impact feedback: covers the round trip before the authoritative ram
+    // knock arrives from the server (see `impact-feedback.ts`). Placed here because this is the
+    // first point in the frame where every car's final render pose is known — predicted for the
+    // local car, interpolated for remotes, raw for a wreck — so contact is tested against exactly
+    // what is on screen, not a pose that will still move this frame.
+    const selfId = this.room?.sessionId;
+    const selfPose = selfId ? poses.get(selfId) : undefined;
+    if (selfId && selfPose) {
+      const others = [...poses.entries()]
+        .filter(([id]) => id !== selfId)
+        .map(([id, pose]) => ({ sessionId: id, x: pose.x, y: pose.y, angle: pose.angle }));
+      for (const impact of freshImpacts({ sessionId: selfId, ...selfPose }, others, this.impacts)) {
+        this.showImpact(impact.x, impact.y);
+      }
+    }
+
     // The bracket follows the CAMERA's subject -- the local car while driving, the watched car while
     // spectating -- which is the same rule the weapon slot bar already uses. Read straight off the
     // wire and never computed here: combat is server-only, and a mispredicted bracket is a lie about
@@ -888,6 +913,24 @@ export class ArenaScene extends Phaser.Scene {
     }
     gfx.setPosition(pose.x, pose.y);
     gfx.setRotation(pose.angle);
+  }
+
+  /**
+   * Impact feedback: a brief shake and a spark at the contact point. Render-only — this reacts to
+   * locally observed contact, not to an authoritative ram, so it must never change anything the sim
+   * or the schema can see.
+   */
+  private showImpact(x: number, y: number): void {
+    this.cameras.main.shake(120, 0.006);
+    const spark = this.add.circle(x, y, 10, 0xffffff, 0.9);
+    this.hudCamera?.ignore(spark);
+    this.tweens.add({
+      targets: spark,
+      alpha: 0,
+      scale: 2.2,
+      duration: 180,
+      onComplete: () => spark.destroy(),
+    });
   }
 
   /**
