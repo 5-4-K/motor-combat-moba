@@ -48,6 +48,8 @@ export {
 } from "./sim/collide.js";
 export { runCombat } from "./sim/combat.js";
 export type { CombatInput, CombatPlayer, CombatResult, CombatWorld } from "./sim/combat.js";
+export { applyRams, impactSideOf, pairKey, resolveRam } from "./sim/ram.js";
+export type { ImpactSide, RamCar, RamHit, RamKnock } from "./sim/ram.js";
 export { canDamage } from "./sim/weapons/targets.js";
 export {
   hasLineOfSight,
