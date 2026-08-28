@@ -231,6 +231,20 @@ function applyContact(body: SimBody, push: Vec2): SimBody {
   const magnitude = Math.hypot(vx, vy);
   const speed = vx * forward.x + vy * forward.y < 0 ? -magnitude : magnitude;
 
+  // Ram shove is a second velocity the drive model does not know about, so it needs its own
+  // reflection or a knocked car would be driven into the surface every tick and held there by the
+  // clamp until the shove decayed. Same normal, same restitution, and gated on actually moving INTO
+  // the surface so a shove already leaving it is never amplified. A zero shove is a no-op, which is
+  // why the pre-ram collide tests are unaffected.
+  let shoveX = body.shoveX;
+  let shoveY = body.shoveY;
+  const shoveIntoSurface = shoveX * n.x + shoveY * n.y;
+  if (shoveIntoSurface < 0) {
+    const shoveScale = (1 + DRIVE_CONFIG.restitution) * shoveIntoSurface;
+    shoveX -= shoveScale * n.x;
+    shoveY -= shoveScale * n.y;
+  }
+
   return {
     x: body.x + push.x,
     y: body.y + push.y,
@@ -238,8 +252,8 @@ function applyContact(body: SimBody, push: Vec2): SimBody {
     speed,
     reverseHold: body.reverseHold,
     angVel: body.angVel,
-    shoveX: body.shoveX,
-    shoveY: body.shoveY,
+    shoveX,
+    shoveY,
     authority: body.authority,
   };
 }
@@ -377,6 +391,27 @@ export function obbsInContact(a: Obb, b: Obb, pad: number): boolean {
 
 function inflate(o: Obb, pad: number): Obb {
   return { x: o.x, y: o.y, angle: o.angle, w: o.w + pad * 2, h: o.h + pad * 2 };
+}
+
+/**
+ * The unit contact normal between two boxes that are touching or overlapping within `pad`, or `null`
+ * when they are apart.
+ *
+ * **`n` points from `b` toward `a`**, matching `mtvBetween`'s contract that its vector moves `a`
+ * clear of `b`. Pinned by test, because an inverted normal here would spin ram victims the wrong way
+ * and classify every front hit as a rear one.
+ *
+ * The pad is not optional decoration. `resolveWorld` runs before anything that would ask this
+ * question and pushes colliding cars out to *exactly* the separation boundary, where SAT reports
+ * them separated — so an unpadded normal is `null` on every tick of a real collision. This is the
+ * same problem, and the same fix, as `obbsInContact`.
+ */
+export function contactNormalBetween(a: Obb, b: Obb, pad: number): Vec2 | null {
+  const mtv = mtvBetween(inflate(a, pad), inflate(b, pad));
+  if (mtv === null) return null;
+  const length = Math.hypot(mtv.x, mtv.y);
+  if (length <= MIN_OVERLAP) return null;
+  return { x: mtv.x / length, y: mtv.y / length };
 }
 
 /**

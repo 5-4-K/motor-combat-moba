@@ -37,6 +37,7 @@ export type { SimBody, StepContext } from "./sim/step.js";
 export { stepDrive } from "./sim/drive.js";
 export {
   circleOverlapsObb,
+  contactNormalBetween,
   convexOverlap,
   obbCorners,
   obbsInContact,
