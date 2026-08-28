@@ -213,16 +213,22 @@ describe("per-tick order", () => {
 
 describe("the two lockouts", () => {
   /**
-   * `repeater` in slot 1 is the only weapon in the table with a real `recoveryMs` (5000ms == 150
-   * ticks) — `fireball`'s is 0, so a fireball fixture can only ever prove the gate by hand-setting
-   * `switchLockUntilTick`, never that `releaseShots` WRITES it. Its cooldown is 90 ticks and its
-   * refire delay 3, so all three clocks are distinguishable in one fixture. Two stocks in slot 1 so
-   * only the locks, never the ammo, decide anything.
+   * The roster splits the two clocks across two weapons, so the fixture carries both. `lance` in
+   * slot 2 owns the recovery (1000ms == 30 ticks) — it is the only row with a substantial one, and
+   * `fireball`'s is 0, so a fireball fixture can only prove the gate by hand-setting
+   * `switchLockUntilTick`, never that `releaseShots` WRITES it. `splinter` in slot 1 owns the
+   * refire delay (130ms == 4 ticks) and has `recoveryMs: 0`, which is itself worth asserting: a
+   * go-to must never gate another slot.
+   *
+   * BOTH clocks are written by `releaseShots` at the tick the shot EXITS — never by `beginFire` at
+   * press time (`fire.ts:165,174`). `repeater` hid that distinction because its `startUpMs` was 0,
+   * so press and release fell on the same tick. `lance` winds up for 700ms == 21 ticks, so a press
+   * at 200 does not release, and does not write the switch lock, until 221. `fireAt` drives that.
    */
   const twoSlots = (): FireState => ({
     slots: [
-      { weaponId: "repeater", stocks: 2, rechargeEndsTick: 0, refireLockUntilTick: 0 },
-      { weaponId: "fireball", stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0 },
+      { weaponId: "splinter", stocks: 2, rechargeEndsTick: 0, refireLockUntilTick: 0 },
+      { weaponId: "lance", stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0 },
     ],
     switchLockUntilTick: 0,
     lastFiredSlot: -1,
@@ -230,17 +236,35 @@ describe("the two lockouts", () => {
     level: 1,
   });
 
-  it("writes the recovery lockout from the weapon that fired", () => {
-    const fired = releaseShots(beginFire(twoSlots(), SLOT_1, 200), 200).state;
-    expect(fired.switchLockUntilTick).toBe(350); // 200 + 150 ticks == repeater's 5000ms recovery
+  /** Press `mask` at `pressTick`, then run ticks until the shot actually exits. */
+  function fireAt(state: FireState, mask: number, pressTick: number, throughTick: number): FireState {
+    let next = beginFire(state, mask, pressTick);
+    for (let tick = pressTick; tick <= throughTick; tick++) next = releaseShots(next, tick).state;
+    return next;
+  }
+
+  const LANCE_EXIT = 221; // pressed at 200; nextShotTick == tick + startUp == 200 + 21
+
+  it("writes the recovery lockout from the weapon that fired, at the tick the shot exits", () => {
+    const fired = fireAt(twoSlots(), SLOT_2, 200, LANCE_EXIT);
+    expect(fired.pending).toBeNull(); // the wind-up has run out and the beam is away
+    expect(fired.switchLockUntilTick).toBe(251); // 221 + 30 ticks == lance's 1000ms recovery
   });
 
-  it("blocks a different slot for recovery while allowing the same slot after its refire delay", () => {
+  it("blocks a different slot for the firing weapon's recovery", () => {
+    const fired = fireAt(twoSlots(), SLOT_2, 200, LANCE_EXIT);
+    expect(beginFire(fired, SLOT_1, 250).pending).toBeNull();
+    expect(beginFire(fired, SLOT_1, 251).pending).not.toBeNull();
+  });
+
+  it("gates the same slot on its own refire delay, and gates no other slot at zero recovery", () => {
+    // splinter's startUpMs is 0, so its shot exits on the press tick and both clocks land at 200.
     const fired = releaseShots(beginFire(twoSlots(), SLOT_1, 200), 200).state;
-    expect(beginFire(fired, SLOT_1, 202).pending).toBeNull(); // same slot, still inside 200 + 3
-    expect(beginFire(fired, SLOT_1, 203).pending).not.toBeNull(); // its own refire delay has elapsed
-    expect(beginFire(fired, SLOT_2, 349).pending).toBeNull(); // other slot: waits out the recovery
-    expect(beginFire(fired, SLOT_2, 350).pending).not.toBeNull();
+    expect(fired.slots[0]!.refireLockUntilTick).toBe(204); // 200 + 4
+    expect(beginFire(fired, SLOT_1, 203).pending).toBeNull(); // same slot, still inside the lock
+    expect(beginFire(fired, SLOT_1, 204).pending).not.toBeNull(); // its own refire delay elapsed
+    expect(fired.switchLockUntilTick).toBe(200); // splinter's recoveryMs is 0: no switch lock at all
+    expect(beginFire(fired, SLOT_2, 201).pending).not.toBeNull(); // so the other slot is free
   });
 
   it("holds the switch lock across two slots carrying the SAME weapon id", () => {
@@ -250,14 +274,14 @@ describe("the two lockouts", () => {
     const duplicate: FireState = {
       ...twoSlots(),
       slots: [
-        { weaponId: "repeater", stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0 },
-        { weaponId: "repeater", stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0 },
+        { weaponId: "lance", stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0 },
+        { weaponId: "lance", stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0 },
       ],
     };
-    const fired = releaseShots(beginFire(duplicate, SLOT_1, 200), 200).state;
+    const fired = fireAt(duplicate, SLOT_1, 200, LANCE_EXIT);
     expect(fired.lastFiredSlot).toBe(0);
-    expect(beginFire(fired, SLOT_2, 203).pending).toBeNull(); // a different SLOT, so the switch lock
-    expect(beginFire(fired, SLOT_2, 350).pending).not.toBeNull();
+    expect(beginFire(fired, SLOT_2, 250).pending).toBeNull(); // a different SLOT, so the switch lock
+    expect(beginFire(fired, SLOT_2, 251).pending).not.toBeNull();
   });
 });
 

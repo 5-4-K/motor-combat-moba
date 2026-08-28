@@ -139,6 +139,63 @@ export const WEAPON_TABLE = {
     volley: { volleys: 1, volleyIntervalMs: 0, pelletsPerVolley: 1, spreadAngleDeg: 0 },
     stock: { max: 3, refireDelayMs: 130 },
   },
+  /**
+   * Oval's slot 2. The table's first `pierce` and first `ellipse` hitbox.
+   *
+   * `pierce: 1` is TWO CARS, not one and not three — the field counts opponents passed through
+   * after the first. Authoring it as 2 would let a 110-damage shot deal 396 from Oval's 1.2x
+   * `attack` and beat `lance`, which is the chassis's actual ultimate.
+   *
+   * Aim assist is off on purpose rather than by constraint: `range` (1100) clears
+   * `AIM_CONFIG.lockRange` easily, so this row COULD take it. Lining two cars up is meant to be the
+   * highest-value press in the game, and handing that to the lock would give it away.
+   */
+  skewer: {
+    id: "skewer",
+    kind: "projectile",
+    name: "Skewer",
+    color: "#1864AB",
+    unlocksAt: 1,
+    damage: 110,
+    damageFrequencyMs: 0,
+    speed: 1400,
+    range: 1100,
+    startUpMs: 250, // rounds up to 8 ticks == 266ms at 30Hz
+    cooldownMs: 2400,
+    recoveryMs: 200,
+    usesAimAssist: false,
+    hitbox: { shape: "ellipse", radiusAlong: 22, radiusAcross: 5 },
+    pierce: 1,
+    volley: { volleys: 1, volleyIntervalMs: 0, pelletsPerVolley: 1, spreadAngleDeg: 0 },
+  },
+  /**
+   * Oval's slot 3, and the table's first DETACHED beam: it stamps into the world at its fire-tick
+   * pose and never moves again, unlike `afterburner` which rides the car. It is also the only row
+   * with a `lifetimeMs` short enough to read as a flash rather than a zone.
+   *
+   * The 700 ms wind-up leaves a 300 HP chassis standing still and visible, and `recoveryMs: 1000`
+   * means a miss also costs a second of silence. That pair is the whole risk budget — `lance` has
+   * no lingering presence to fall back on, unlike the roster's other two ultimates, so its
+   * commitment has to be paid up front and afterward rather than during (L5).
+   */
+  lance: {
+    id: "lance",
+    kind: "beam",
+    name: "Lance",
+    color: "#6741D9",
+    unlocksAt: 1,
+    damage: 180, // 36% of an average car; 72% if it catches two
+    damageFrequencyMs: 0,
+    speed: 6000, // crosses its full 1200 range in 200ms — a flash, not a sweep
+    range: 1200,
+    startUpMs: 700,
+    cooldownMs: 16000,
+    recoveryMs: 1000,
+    usesAimAssist: false,
+    hitbox: { shape: "rect", width: 20 },
+    attached: false,
+    lifetimeMs: 150,
+  },
 } as const satisfies Record<WeaponId, WeaponDef>;
 
 /**

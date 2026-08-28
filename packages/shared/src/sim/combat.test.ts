@@ -641,11 +641,11 @@ describe("aim assist through a real tick", () => {
 });
 
 describe("aimAngleFor", () => {
-  // Direct coverage of both branches of the per-weapon opt-in (A1). Deleting the
-  // `usesAimAssist` check entirely still passes every OTHER test in this file: `fireball` is `true`,
-  // and `repeater` -- the only `false` row in WEAPON_TABLE -- is carried by no car, so it is
-  // unreachable through `runCombat`. These two tests call `aimAngleFor` directly so the opt-out
-  // path is exercised regardless of which chassis carry which weapon.
+  // Direct coverage of both branches of the per-weapon opt-in (A1). Deleting the `usesAimAssist`
+  // check entirely still passes most other tests in this file, so these two call `aimAngleFor`
+  // directly. `skewer` is Oval's slot 2 and is `usesAimAssist: false` by design rather than by
+  // constraint — its range clears `AIM_CONFIG.lockRange`, so the row could have taken assist and
+  // deliberately does not.
 
   it("returns null for a weapon with usesAimAssist: false, even with a live lock", () => {
     const a = player("a", {
@@ -659,8 +659,8 @@ describe("aimAngleFor", () => {
       ["a", a],
       ["b", b],
     ]);
-    // "repeater" is usesAimAssist: false and exists in WEAPON_TABLE.
-    expect(aimAngleFor(a, "repeater", byId)).toBeNull();
+    // "skewer" is usesAimAssist: false and exists in WEAPON_TABLE.
+    expect(aimAngleFor(a, "skewer", byId)).toBeNull();
   });
 
   it("returns the muzzle-derived bearing to the lock target for a weapon with usesAimAssist: true", () => {

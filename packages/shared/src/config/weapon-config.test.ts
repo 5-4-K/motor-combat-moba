@@ -173,4 +173,38 @@ describe("WEAPON_TABLE", () => {
       expect(def.usesAimAssist).toBe(false);
     }
   });
+
+  it("ships skewer piercing exactly two cars, not three", () => {
+    const skewer = WEAPON_TABLE.skewer;
+    if (skewer.kind !== "projectile") throw new Error("skewer must be a projectile");
+    // `pierce` counts opponents passed through AFTER the first, so 1 == two cars. At `pierce: 2`
+    // a 110-damage shot deals 396 on Oval's 1.2x attack and out-damages `lance`, the ultimate.
+    expect(skewer.pierce).toBe(1);
+    expect(skewer.hitbox).toEqual({ shape: "ellipse", radiusAlong: 22, radiusAcross: 5 });
+    expect(skewer.startUpMs).toBe(250);
+    expect(skewer.usesAimAssist).toBe(false);
+  });
+
+  it("ships lance as a detached beam with the roster's only substantial recovery", () => {
+    const lance = WEAPON_TABLE.lance;
+    if (lance.kind !== "beam") throw new Error("lance must be a beam");
+    expect(lance.attached).toBe(false);
+    expect(lance.damage).toBe(180);
+    expect(lance.damageFrequencyMs).toBe(0); // one hit per car, not a ticking zone
+    expect(lance.startUpMs).toBe(700);
+    // The wind-up alone is not the whole cost: a missed lance also owes a second of silence, which
+    // is what makes it punishing on a 300 HP chassis (L5).
+    expect(lance.recoveryMs).toBe(1000);
+    const highest = Math.max(
+      ...Object.values(WEAPON_TABLE).map((def) => def.recoveryMs),
+    );
+    expect(lance.recoveryMs).toBe(highest);
+  });
+
+  it("keeps both branches of usesAimAssist populated by carried weapons", () => {
+    // The pair that makes `usesAimAssist` a real switch rather than a global: one row on, one off.
+    // Both are now weapons a player can fire, unlike the fireball/repeater pair this replaced.
+    expect(WEAPON_TABLE.fireball.usesAimAssist).toBe(true);
+    expect(WEAPON_TABLE.skewer.usesAimAssist).toBe(false);
+  });
 });
