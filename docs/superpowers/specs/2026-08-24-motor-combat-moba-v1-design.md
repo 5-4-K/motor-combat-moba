@@ -9,6 +9,11 @@ A LAN-hosted top-down 2D multiplayer car-combat arena (last player/team standing
 
 This spec is the source of truth for v1. Implementation is split across the plans in `docs/superpowers/plans/`. Execution order and completion tracking live in `docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md`.
 
+> **Superseded 2026-08-28:** the damage model in section 1 (collision damage from **strength**) and
+> the `damageFrom(attacker)` formula in section 5.3 no longer hold. Collision damage was removed and
+> the chassis `strength` rating became `attack`, a modifier on weapon damage — see
+> [`2026-08-28-attack-stat-damage-formula-design.md`](2026-08-28-attack-stat-damage-formula-design.md).
+
 ---
 
 ## 1. Concept (v1)

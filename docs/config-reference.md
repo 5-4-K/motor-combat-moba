@@ -17,13 +17,19 @@ Canonical sim rate is `TICK_RATE_HZ` in `@motor-combat-moba/shared`. Patch rate 
 
 ## CAR_TABLE
 
-| id | name | speed | strength | hp | weapons |
+| id | name | speed | attack | hp | weapons |
 |---|---|---|---|---|---|
-| `rectangle` | Rectangle | 8 | 3 | 5 | `["fireball"]` |
-| `oval` | Oval | 5 | 8 | 3 | `["fireball"]` |
-| `hexagon` | Hexagon | 3 | 5 | 8 | `["fireball"]` |
+| `rectangle` | Rectangle | 80 | 30 | 40 | `["fireball"]` |
+| `oval` | Oval | 50 | 70 | 30 | `["fireball"]` |
+| `hexagon` | Hexagon | 30 | 50 | 70 | `["fireball"]` |
 
-Derived: `hpOf` = hp × `COMBAT_CONFIG.hpPerRating` (50 / 30 / 80). `forwardMaxSpeedOf` = `baseMaxSpeed` + speed × `speedPerRating`. `reverseMaxSpeedOf` = forward × `reverseSpeedRatio`.
+Ratings are integers 0-100 with 50 as average, and every row **must sum to exactly 150** —
+`config.test.ts` enforces the budget.
+
+Derived: `hpOf` = hp × `COMBAT_CONFIG.hpPerRating` (400 / 300 / 700). `forwardMaxSpeedOf` =
+`baseMaxSpeed` + speed × `speedPerRating` (540 / 405 / 315 u/s). `reverseMaxSpeedOf` = forward ×
+`reverseSpeedRatio`. `weaponDamageOf(carId, weaponId)` = `damageFor(attack, weapon.damage)` — a
+fireball is 40 / 60 / 50 depending on who fires it.
 
 `weapons` is an ordered list of `WEAPON_TABLE` ids — index 0 is slot 1, and order *is* the slot
 mapping. `slotsOf(carId)` (`config/weapon-slots.ts`) is what actually reads it, capped at
@@ -50,8 +56,14 @@ once, at shared's module load, into the frozen `WEAPON_TICKS` the sim actually r
 
 | id | kind | damage | speed | range | cooldownMs | startUpMs | recoveryMs | stock | pierce | volley (volleys/intervalMs/pellets/spreadDeg) | hitbox | unlocksAt | usesAimAssist | color |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `fireball` | projectile | 8 | 900 | 900 | 500 | 0 | 0 | — | 0 | 1 / 0 / 1 / 0 | circle, radius 12 | 1 | true | `#E8590C` ember |
-| `repeater` | projectile | 5 | 700 | 700 | 3000 | 0 | 5000 | max 3, refire 100ms | 0 | 1 / 0 / 1 / 0 | circle, radius 3 | 1 | false | `#0CA5B0` teal |
+| `fireball` | projectile | 50 | 900 | 900 | 500 | 0 | 0 | — | 0 | 1 / 0 / 1 / 0 | circle, radius 12 | 1 | true | `#E8590C` ember |
+| `repeater` | projectile | 31 | 700 | 700 | 3000 | 0 | 5000 | max 3, refire 100ms | 0 | 1 / 0 / 1 / 0 | circle, radius 3 | 1 | false | `#0CA5B0` teal |
+
+`damage` is what the weapon deals from a chassis at `COMBAT_CONFIG.attackBaseline` — an *average*
+car, not every car; `damageFor` (`sim/damage.ts`) moves it ±50% with the firing chassis's `attack`
+rating. `fireball`'s 50 is solved, not chosen: an average chassis has 500 hull HP and fireball fires
+twice a second, so 50 is the number that makes an average-vs-average kill take the design target of
+5 seconds. `repeater`'s 31 preserves its former 5:8 ratio against `fireball`.
 
 `color` is render-only, like `name`: it is the fill every live instance of that weapon draws in, per
 **weapon** rather than per player, so two cars carrying a fireball fire identically coloured shots.
@@ -70,12 +82,12 @@ hits. A weapon with no entry there draws the single flat disc of its `color`, wh
 instead of along its heading. It is the only per-weapon aim-assist knob — all the geometry lives once
 in `AIM_CONFIG` below. See [`combat-model.md`](combat-model.md#aim-assist-and-the-target-lock).
 
-`fireball` carries the pre-weapon-system shot's exact numbers: `fireRateHz: 2` became `cooldownMs:
-500`, and `lifetimeTicks: 30` became `range: 900` (one second of flight at 900 u/s). Its **hitbox
-is no longer a migrated value**: it shipped as a 3-unit circle — the smallest that kept the old
-point-hit feel while satisfying "every weapon has a hitbox" — and was widened to 12 so the shot
-reads on screen, since the client draws the hitbox itself rather than a sprite. Everything else on
-the row is still the pre-weapon-system shot, digit for digit.
+`fireball` carries the pre-weapon-system shot's exact numbers for everything except `damage`:
+`fireRateHz: 2` became `cooldownMs: 500`, and `lifetimeTicks: 30` became `range: 900` (one second of
+flight at 900 u/s). Its **hitbox is also not a migrated value**: it shipped as a 3-unit circle — the
+smallest that kept the old point-hit feel while satisfying "every weapon has a hitbox" — and was
+widened to 12 so the shot reads on screen, since the client draws the hitbox itself rather than a
+sprite. `damage` itself was re-solved when the `attack` stat landed — see the paragraph above.
 
 **`repeater` is carried by no car, on purpose — it is not dead config.** It is the only multi-stock
 weapon in the table (the design's own worked example: three stocks, a three-second recharge,
@@ -152,17 +164,15 @@ different knob entirely: `usesAimAssist` per weapon in `WEAPON_TABLE`.
 | Knob | Value |
 |---|---|
 | `hpPerRating` | 10 |
-| `collisionDamagePerStrength` | 1 |
-| `ramDotThreshold` | 0.5 |
-| `collisionDamageCooldownTicks` | 15 |
-| `ramContactPad` | 1 (hull inflation for ram contact; see [`combat-model.md`](combat-model.md)) |
+| `attackBaseline` | 50 (the `attack` rating `damageFor` treats as an average chassis) |
+| `damagePerAttack` | 0.01 (fractional damage change per point of `attack` away from `attackBaseline`; see [`combat-model.md`](combat-model.md#damage)) |
 
 ## DRIVE_CONFIG
 
 | Knob | Value |
 |---|---|
 | `baseMaxSpeed` | 180 |
-| `speedPerRating` | 45 |
+| `speedPerRating` | 4.5 |
 | `accel` | 780 |
 | `brakeDecel` | 1600 (must stay above `drag`) |
 | `drag` | 900 (throttle released) |
@@ -180,9 +190,9 @@ Resulting top speeds, `baseMaxSpeed + speed rating × speedPerRating`:
 
 | Car | Forward | Reverse |
 |---|---|---|
-| rectangle (8) | 540 | 351 |
-| oval (5) | 405 | 263 |
-| hexagon (3) | 315 | 205 |
+| rectangle (80) | 540 | 351 |
+| oval (50) | 405 | 263 |
+| hexagon (30) | 315 | 205 |
 
 Quoted for the fastest chassis: 0.69s to top speed, 0.60s to coast to rest, 0.34s to brake to rest,
 0.32s to reach the reverse cap, 129 world units of turn radius.

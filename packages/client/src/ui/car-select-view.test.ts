@@ -6,6 +6,8 @@ import {
   forwardMaxSpeedOf,
   hpOf,
   reverseMaxSpeedOf,
+  weaponDamageOf,
+  weaponDefOf,
 } from "@motor-combat-moba/shared";
 import { CAR_BARS, carSelectView, fullStatsFor } from "./car-select-view.js";
 
@@ -42,19 +44,14 @@ describe("fullStatsFor", () => {
     );
   });
 
-  it("shows the ram cooldown in seconds, not raw ticks", () => {
-    expect(fullStatsFor("oval").find((r) => r.label === "Hit cooldown")?.value).toBe("0.5 s");
-  });
-
-  it("lists the seven rows the design specifies, in order", () => {
+  it("lists the design's rows plus one damage row per equipped weapon, in order", () => {
     expect(fullStatsFor("hexagon").map((r) => r.label)).toEqual([
       "Top speed",
       "Reverse speed",
       "Turn rate",
       "Hull HP",
-      "Ram damage",
-      "Hit cooldown",
       "Hull size",
+      "Fireball damage",
     ]);
   });
 
@@ -62,6 +59,40 @@ describe("fullStatsFor", () => {
     const speed = (id: "rectangle" | "oval" | "hexagon") =>
       fullStatsFor(id).find((r) => r.label === "Top speed")?.value;
     expect(new Set([speed("rectangle"), speed("oval"), speed("hexagon")]).size).toBe(3);
+  });
+
+  it("shows each chassis's own damage for every weapon it carries", () => {
+    // Literals, not a re-derivation: comparing against weaponDamageOf would pass just as well
+    // against a hard-coded panel, and would not catch the row being wired to the wrong car.
+    const expected: Record<keyof typeof CAR_TABLE, string> = {
+      rectangle: "40",
+      oval: "60",
+      hexagon: "50",
+    };
+    for (const id of Object.keys(CAR_TABLE) as (keyof typeof CAR_TABLE)[]) {
+      const row = fullStatsFor(id).find((r) => r.label === "Fireball damage");
+      expect(row).toBeDefined();
+      expect(row!.value).toBe(expected[id]);
+    }
+  });
+
+  it("derives the number rather than transcribing it, so a retune moves the screen too", () => {
+    // This guards drift after a future balance retune: if weaponDamageOf changes, this row must
+    // move with it. It does not, on its own, prove today's panel isn't hard-coded — the literal
+    // test above covers that. Matched by exact label (not a "damage" suffix) so a future
+    // multi-weapon chassis pairs each row with its own weapon rather than always the first.
+    for (const id of Object.keys(CAR_TABLE) as (keyof typeof CAR_TABLE)[]) {
+      const rows = fullStatsFor(id);
+      for (const weaponId of CAR_TABLE[id].weapons) {
+        const row = rows.find((r) => r.label === `${weaponDefOf(weaponId).name} damage`);
+        expect(row).toBeDefined();
+        expect(row!.value).toBe(String(weaponDamageOf(id, weaponId)));
+      }
+    }
+  });
+
+  it("still reports the hull HP the sim actually gives the car", () => {
+    expect(fullStatsFor("hexagon").find((r) => r.label === "Hull HP")!.value).toBe("700");
   });
 });
 
@@ -76,10 +107,10 @@ describe("carSelectView", () => {
     expect(view.cars.filter((c) => c.selected).map((c) => c.id)).toEqual(["oval"]);
   });
 
-  it("scales each bar to the raw 0-10 rating", () => {
+  it("carries each bar's rating verbatim, already on a 0-100 scale", () => {
     const rect = carSelectView(state(), "rectangle", false).cars[0];
     const speedBar = rect?.bars.find((b) => b.key === "speed");
-    expect(speedBar?.percent).toBe(CAR_TABLE.rectangle.speed * 10);
+    expect(speedBar?.percent).toBe(CAR_TABLE.rectangle.speed);
   });
 
   it("carries the three summary bars the card shows", () => {

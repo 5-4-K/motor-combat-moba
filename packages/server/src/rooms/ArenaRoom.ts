@@ -79,10 +79,10 @@ export class ArenaRoom extends Room<ArenaState> {
   private postMatchIds = new Set<string>();
   private flow: FlowState | null = null;
   /**
-   * Ram pair cooldowns, the instance id counter, per-player fire state, and the live instances
-   * themselves. Server-only by design: none of it is anything a client needs to render, and putting
-   * it on the schema would patch a per-pair map (or per-instance timers with no wire representation)
-   * to everyone at the tick rate for no visible gain.
+   * The instance id counter, per-player fire state, and the live instances themselves. Server-only
+   * by design: none of it is anything a client needs to render, and putting it on the schema would
+   * patch per-instance timers with no wire representation to everyone at the tick rate for no
+   * visible gain.
    */
   private combat: CombatMemory = newCombatMemory();
 
@@ -303,8 +303,7 @@ export class ArenaRoom extends Room<ArenaState> {
 
   /**
    * Combat, after driving. The order is the rule, not an implementation detail: hits are tested
-   * against the poses cars actually ended the tick at, so a ram is judged by where the collision
-   * left both cars rather than by where they were a moment before it.
+   * against the poses cars actually ended the tick at, not where they were a moment before.
    *
    * Only `MATCH` runs combat, and only with a live roster. Outside that the whole thing is skipped
    * and any instance still in flight is cleared — a shot that survived into the lobby would be
@@ -327,12 +326,10 @@ export class ArenaRoom extends Room<ArenaState> {
       },
       players: toCombatPlayers(this.state, this.matchRoster, masks, this.combat),
       instances: toInstances(this.combat),
-      ramCooldowns: this.combat.ramCooldowns,
       instanceSeq: this.combat.instanceSeq,
     });
 
     applyCombatResult(this.state, result, this.combat);
-    this.combat.ramCooldowns = result.ramCooldowns;
     this.combat.instanceSeq = result.instanceSeq;
 
     // Win check every tick, on the state combat just wrote. `livingSides` counts only roster
@@ -451,11 +448,9 @@ export class ArenaRoom extends Room<ArenaState> {
       }
       player.speed = 0;
     }
-    // Nothing from the previous match survives into this one: no shots in flight, no stale fire
-    // state (a stock or a switch lock the new car never earned), and no ram pair cooldown that would
-    // make the opening contact of a fresh match deal nothing.
+    // Nothing from the previous match survives into this one: no shots in flight, and no stale fire
+    // state (a stock or a switch lock the new car never earned).
     clearInstances(this.state, this.combat);
-    this.combat.ramCooldowns = new Map();
     const spawns = assignSpawns(
       getArena(this.state.arenaId),
       this.state.mode,
@@ -478,7 +473,6 @@ export class ArenaRoom extends Room<ArenaState> {
     this.matchRoster.clear();
     this.pendingCarId.clear();
     clearInstances(this.state, this.combat);
-    this.combat.ramCooldowns = new Map();
   }
 
   private hasPlayerInMatch(): boolean {

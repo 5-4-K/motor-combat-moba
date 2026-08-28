@@ -6,6 +6,7 @@ import {
   isCarId,
   newFireState,
   newLockState,
+  weaponDamageOf,
   type CombatResult,
   type WeaponInstance,
 } from "@motor-combat-moba/shared";
@@ -37,6 +38,7 @@ function liveInstance(over: Partial<WeaponInstance> = {}): WeaponInstance {
     id: "aaa-1",
     ownerSessionId: "aaa",
     ownerTeam: 0,
+    damage: weaponDamageOf("rectangle", "fireball"),
     weaponId: "fireball",
     kind: "projectile",
     x: 100,
@@ -57,16 +59,14 @@ function result(over: Partial<CombatResult> = {}): CombatResult {
   return {
     players: [],
     instances: [],
-    ramCooldowns: new Map(),
     instanceSeq: 0,
     ...over,
   };
 }
 
 describe("newCombatMemory", () => {
-  it("starts empty: no cooldowns, no fire states, no instances, a zero id counter", () => {
+  it("starts empty: no fire states, no instances, a zero id counter", () => {
     const memory = newCombatMemory();
-    expect(memory.ramCooldowns.size).toBe(0);
     expect(memory.instanceSeq).toBe(0);
     expect(memory.fireStates.size).toBe(0);
     expect(memory.instances.size).toBe(0);
@@ -273,7 +273,6 @@ describe("applyCombatResult", () => {
           },
         ],
         instances: [],
-        ramCooldowns: new Map(),
         instanceSeq: 0,
       },
       memory,

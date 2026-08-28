@@ -1,12 +1,12 @@
 import {
   CAR_TABLE,
-  COMBAT_CONFIG,
   DRIVE_CONFIG,
   GameMode,
-  TICK_RATE_HZ,
   forwardMaxSpeedOf,
   hpOf,
   reverseMaxSpeedOf,
+  weaponDamageOf,
+  weaponDefOf,
   type CarId,
 } from "@motor-combat-moba/shared";
 import { modeLabel } from "./lobby-view.js";
@@ -22,14 +22,14 @@ import { secondsLeft } from "./reveal-view.js";
  */
 
 /** The three summary bars on a card. The panel carries the detail; the card stays readable. */
-export const CAR_BARS = ["speed", "strength", "hp"] as const;
+export const CAR_BARS = ["speed", "attack", "hp"] as const;
 export type CarBarKey = (typeof CAR_BARS)[number];
 
 const URGENT_SECONDS = 10;
 
 export interface StatBar {
   key: CarBarKey;
-  /** 0-100, straight from the raw 0-10 rating. */
+  /** 0-100, and so the rating verbatim — ratings are already on that scale. */
   percent: number;
 }
 
@@ -76,12 +76,14 @@ export function fullStatsFor(id: CarId): StatRow[] {
     { label: "Reverse speed", value: `${trim(reverseMaxSpeedOf(id))} u/s` },
     { label: "Turn rate", value: `${trim(DRIVE_CONFIG.turnRate)} rad/s` },
     { label: "Hull HP", value: String(hpOf(id)) },
-    { label: "Ram damage", value: String(def.strength * COMBAT_CONFIG.collisionDamagePerStrength) },
-    {
-      label: "Hit cooldown",
-      value: `${trim(COMBAT_CONFIG.collisionDamageCooldownTicks / TICK_RATE_HZ)} s`,
-    },
     { label: "Hull size", value: `${DRIVE_CONFIG.carWidth} x ${DRIVE_CONFIG.carHeight}` },
+    // One row per equipped weapon, derived through the same `weaponDamageOf` the sim fires with.
+    // The chassis `attack` rating is invisible on its own — this is where it becomes a number the
+    // player can compare between cards.
+    ...def.weapons.map((weaponId) => ({
+      label: `${weaponDefOf(weaponId).name} damage`,
+      value: String(weaponDamageOf(id, weaponId)),
+    })),
   ];
 }
 
@@ -107,7 +109,7 @@ export function carSelectView(
       name: CAR_TABLE[id].name,
       selected: id === selectedId,
       image: `url("art/cars/${id}.png")`,
-      bars: CAR_BARS.map((key) => ({ key, percent: CAR_TABLE[id][key] * 10 })),
+      bars: CAR_BARS.map((key) => ({ key, percent: CAR_TABLE[id][key] })),
     })),
     selectedName: CAR_TABLE[selectedId].name,
     stats: fullStatsFor(selectedId),

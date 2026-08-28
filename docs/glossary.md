@@ -12,7 +12,6 @@
 | **LAN** | Default deploy: host serves client dist; others join via LAN IP. |
 | **hostSessionId** | Session of the room host (first joiner; reassigned on leave). |
 | **InputMessage** | `{ seq, steer, throttle, fire }` sent as `"input"`. |
-| **Wreck** | A car at 0 HP: `alive = false`. Still solid, no longer fires, rams, or can be shot. |
-| **Ram** | Car-vs-car contact damage, decided by facing (`ramDotThreshold`), not by speed. |
+| **Wreck** | A car at 0 HP: `alive = false`. Still solid, no longer fires or can be shot. |
 | **Spectate** | What a wrecked player does: a local camera following a living car, or free roam. Server has no notion of it. |
 | **Last standing** | Win condition: `livingSides` drops to one side (or none, a draw) and the match ends. |

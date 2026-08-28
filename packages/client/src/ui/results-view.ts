@@ -6,8 +6,8 @@ import { modeLabel } from "./lobby-view.js";
  *
  * K/D/A render as zeroes on purpose. The columns are in the design and the table is built to carry
  * them, but nothing in `stepSim` attributes a kill to an attacker yet — inventing numbers here would
- * be worse than showing honest zeroes, and wiring real attribution touches the collision-damage
- * rules, which is its own conversation.
+ * be worse than showing honest zeroes, and wiring real attribution touches the weapon-damage rules,
+ * which is its own conversation.
  */
 
 const FALLBACK_HEX = "#888888";

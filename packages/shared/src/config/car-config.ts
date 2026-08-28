@@ -2,10 +2,18 @@ import { COMBAT_CONFIG } from "./combat-config.js";
 import { DRIVE_CONFIG } from "./drive-config.js";
 import type { CarDef, CarId } from "./types.js";
 
+/**
+ * The roster. Every rating is an integer 0-100 with 50 as average, and the three **must sum to
+ * exactly 150** — the budget is what stops a fourth car being authored strictly better than these
+ * three, and `config.test.ts` enforces it.
+ *
+ * `attack` is not damage. It is a percentage modifier on whatever weapon the car is firing, applied
+ * by `damageFor` (`sim/damage.ts`): 0.5x at rating 0, 1.0x at 50, 1.5x at 100.
+ */
 export const CAR_TABLE = {
-  rectangle: { id: "rectangle", name: "Rectangle", speed: 8, strength: 3, hp: 5, weapons: ["fireball"] },
-  oval: { id: "oval", name: "Oval", speed: 5, strength: 8, hp: 3, weapons: ["fireball"] },
-  hexagon: { id: "hexagon", name: "Hexagon", speed: 3, strength: 5, hp: 8, weapons: ["fireball"] },
+  rectangle: { id: "rectangle", name: "Rectangle", speed: 80, attack: 30, hp: 40, weapons: ["fireball"] },
+  oval: { id: "oval", name: "Oval", speed: 50, attack: 70, hp: 30, weapons: ["fireball"] },
+  hexagon: { id: "hexagon", name: "Hexagon", speed: 30, attack: 50, hp: 70, weapons: ["fireball"] },
 } as const satisfies Record<CarId, CarDef>;
 
 /**

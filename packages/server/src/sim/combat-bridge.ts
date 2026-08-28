@@ -23,14 +23,12 @@ import {
  *
  * The split is deliberate. `runCombat` is where every rule lives and it can be tested without a
  * Colyseus room; this file is the only place that knows about `MapSchema`, and it holds no rules at
- * all. Anything resembling a decision — who may be hit, what a ram costs — belongs on the other side
- * of this boundary, in `@motor-combat-moba/shared`.
+ * all. Anything resembling a decision — who may be hit, what a shot costs — belongs on the other
+ * side of this boundary, in `@motor-combat-moba/shared`.
  */
 
 /** Room-owned state that lives across ticks but is deliberately never networked. */
 export interface CombatMemory {
-  /** `"idA|idB"` to the tick that pair may deal ram damage again. Server-only: clients never see it. */
-  ramCooldowns: Map<string, number>;
   /** Monotonic across the room's life, so a re-used session id cannot re-use an instance id. */
   instanceSeq: number;
   /** Per-player fire state, and the per-instance damage clocks. Server-only, never networked. */
@@ -42,7 +40,6 @@ export interface CombatMemory {
 
 export function newCombatMemory(): CombatMemory {
   return {
-    ramCooldowns: new Map(),
     instanceSeq: 0,
     fireStates: new Map(),
     instances: new Map(),
@@ -52,7 +49,7 @@ export function newCombatMemory(): CombatMemory {
 
 /**
  * Players as combat sees them. Only roster members are marked `inRoster`, which is what gates
- * firing, being hit, and ramming — a lobby player standing in the room is not part of the fight.
+ * firing and being hit — a lobby player standing in the room is not part of the fight.
  *
  * Fire state is rebuilt whenever a player's chassis changes — including the reveal, where `carId`
  * goes from "" to a real car. Keyed by session id and never networked: the client is told the

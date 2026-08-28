@@ -28,7 +28,7 @@ subtract from `PlayerState.hp`. `hp === 0` sets `alive = false`; that is the wre
 ## Weapon
 
 Every car carries an ordered list of weapons, `CAR_TABLE[car].weapons` — index 0 is slot 1, and
-order *is* the slot mapping, so a chassis's whole identity (speed, strength, hp, guns) lives in one
+order *is* the slot mapping, so a chassis's whole identity (speed, attack, hp, guns) lives in one
 table row. `WEAPON_SLOT_CONFIG.maxWeaponSlots` (3) caps how many slots any chassis may present; a
 car listing more logs one `console.warn` naming the car and truncates the extras, never a thrown
 error or a failed test. Today's whole roster carries a single slot, `["fireball"]` — see
@@ -70,7 +70,7 @@ and firing is never blocked.
 **The region** is a cone intersected with a lateral cap, out to `AIM_CONFIG.lockRange` — all three
 bounds, because neither of the first two survives alone. A pure cone's width scales with distance,
 so at the fireball's range it would span half the arena; a pure lane's angular width explodes near the
-car, so it would accept a target 83° off your nose during a ram. The cone governs contact range, the
+car, so it would accept a target 83° off your nose during a collision. The cone governs contact range, the
 cap governs long range. They cross over at `lateralMax / tan(coneDeg)` ≈ 330 units measured **along
 the car's axis** (the forward leg of the triangle at the cone's edge), which is ≈351 units measured
 **radially** (`lateralMax / sin(coneDeg)`, the straight-line hypotenuse) — and the radial figure is
@@ -183,9 +183,9 @@ Every fired shot is a **hitbox**, never hitscan. Two kinds:
   (a swept flamethrower or laser cutter), re-clipped against walls as the car turns; `attached: false`
   stamps the beam into the world at its fire-tick pose and it never moves again. An **attached** beam
   dies the instant its owner is wrecked — a wreck does not shoot — but a detached beam already
-  stamped, and a projectile already in flight, finish their lives regardless, mirroring the ram rule
-  that a car dying in a trade still lands its own damage. Beams are single-instance; `volley` does
-  not apply to them.
+  stamped, and a projectile already in flight, finish their lives regardless: a shot already
+  committed does not un-commit because its owner didn't survive to see it land. Beams are
+  single-instance; `volley` does not apply to them.
 
 No car in the shipped roster carries a beam or a multi-pellet/multi-volley weapon — `fireball` is a
 plain single shot — so none of this has ever been seen working on a screen, which is worth knowing
@@ -248,14 +248,12 @@ and is dropped the moment its instance is.
 ### Who may damage whom
 
 `canDamage(ownerId, ownerTeam, targetId, targetTeam, mode)` is the **single** friendly-fire
-predicate, used by every weapon instance and ramming alike, so the two can never disagree about who
-is on your side:
+predicate, used by every weapon instance:
 
 - **Never yourself.** A shot is born on the shooter's own hull; without this every shot would kill
   its own shooter on the tick it was fired.
 - **FFA:** anyone else. Teams are only seating.
-- **Team:** enemies only. A shot passes straight through a teammate and keeps going, and a teammate
-  contact deals no ram damage.
+- **Team:** enemies only. A shot passes straight through a teammate and keeps going.
 
 A wreck is not a target: shots pass through it rather than being spent on it.
 
@@ -343,67 +341,43 @@ you find out which:
 | `sim/combat.test.ts` | The `50.5` offset is derived from the hitbox radius — only if you change the hitbox |
 
 That last one is the subtle case: `50.5` places the two hulls 2.5 units apart, which must stay
-inside the hitbox radius (so the shot lands) and outside `ramContactPad`'s 2 units (so no ram fires
-on the same tick). At radius 12 there is plenty of headroom above; the fixture breaks if the radius
-is ever cut below 2.5, and the failure looks like the fireball's damage vanishing rather than an
-obviously wrong number. Update each assertion in the same commit as the re-tune.
+inside the hitbox radius so the shot lands. At radius 12 there is plenty of headroom above; the
+fixture breaks if the radius is ever cut below 2.5, and the failure looks like the fireball's damage
+vanishing rather than an obviously wrong number. Update each assertion in the same commit as the
+re-tune.
 
-## Ramming
+## Damage
 
-Contact damage between two cars, judged by **facing** rather than by speed. Getting behind someone is
-the play; being fastest is not.
+Weapons are the only damage source. Collision costs nobody hp — cars shove each other and nothing
+more.
 
-`isRamming(ax, ay, angle, bx, by, threshold)` is `dot(forward, normalize(b - a)) >= threshold`, with
-`threshold` = `COMBAT_CONFIG.ramDotThreshold`. Coincident centres are never a ram — there is no
-direction to face.
+One hit costs `damageFor(attack, weapon.damage)`:
 
-| Contact | Outcome | Damage |
-|---|---|---|
-| A drives into B's rear; B faces away | `a_hits_b` | B takes A's strength |
-| Head-on, both facing each other | `both` | Each takes the other's strength |
-| Sideswipe, neither facing the other | `none` | Nobody takes anything |
+    Math.round(weaponDamage * (1 + (attack - COMBAT_CONFIG.attackBaseline) * COMBAT_CONFIG.damagePerAttack))
 
-Damage is `CAR_TABLE[carId].strength * COMBAT_CONFIG.collisionDamagePerStrength`, from the
-**attacker's** chassis. A head-on is dealt from the pre-hit state on both sides, so a car that dies in
-the trade still lands its own damage — there is no first-strike advantage.
+`WeaponDef.damage` is what the weapon deals from a chassis at the baseline rating (50) — an *average*
+car, not every car. `attack` moves it between 0.5x and 1.5x across the 0-100 rating range.
 
-### Contact, not interpenetration
+The number is resolved **once, at spawn**, and frozen onto the `WeaponInstance` as `instance.damage`.
+`hits.ts` reads it there and never looks the owner up: it tests against a snapshot of living fighters
+only, so an owner wrecked while their own shot is in flight would have vanished from any live lookup.
+Same reasoning as `ownerTeam`.
 
-Rams are checked for every pair of living roster cars whose hulls are **in contact** —
-`obbsInContact`, which inflates both hulls by `COMBAT_CONFIG.ramContactPad` before running the same
-SAT the driving resolver uses.
+Rounding happens inside `damageFor`, so `applyDamage` always subtracts an integer from a `uint16`
+and a piercing shot deals the identical number to every car it passes through.
 
-The padding is load-bearing, not a fudge. Collision resolution runs *before* combat and pushes a car
-out to exactly the separation boundary, so two cars that just crashed end the tick touching at a
-measured gap of **zero** — and the SAT treats "just touching" as separated. Asking `obbsOverlap`
-therefore returns false on every single tick of a real ram, which is exactly the bug that shipped
-past a full suite of unit tests: they hand-placed the cars overlapping, a state the sim never
-produces. The pad stays small (1 unit per hull, so 2 units of gap tolerance) because the cars rebound
-to a 2–8 unit gap on the ticks after impact, and a larger pad would deal damage for near misses.
-
-The regression tests for this drive real cars into each other through `stepSim` rather than placing
-them — see the "ramming, driven through the real sim" block in `combat.test.ts`.
-
-A damaging contact puts that **pair** on a
-`COMBAT_CONFIG.collisionDamageCooldownTicks` cooldown, so grinding along someone cannot drain HP at
-30 Hz. Cooldowns are per pair, server-only, and pruned once expired; a third car still connects while
-a pair is cooling down.
-
-**Friendly fire is off for rams as well as shots.** In team mode a teammate contact costs nobody hp
-and does not burn the pair cooldown — otherwise shoving past your own side would swallow a real enemy
-ram a few ticks later. Teammates still *collide*: they shove each other around, they just cannot hurt
-each other. The gate is the same `canDamage` the weapon uses, so shots and contact can never disagree
-about who is on your side. In FFA, teams are only seating, and everyone can ram everyone.
+The roster is tuned so an average chassis (500 hull HP) kills another with the baseline weapon in
+**5 seconds** at perfect accuracy, reckoned as `hullHP / DPS`.
 
 ## Elimination and winning
 
 - HP reaches 0 → `alive = false`. The wreck stays on the field and stays **solid** — it is still an
-  obstacle to everyone — and stops firing, ramming, and being shot.
+  obstacle to everyone — and stops firing and being shot.
 - After damage each tick, `livingSides(mode, roster)` counts the living sides. `sides <= 1` ends the
   match through the same `endMatch` a disconnect uses. FFA names a `winnerSessionId`; team mode names
   a `winnerTeam`; zero living sides is a draw (`-1`, `""`), which a mutual head-on kill can produce.
-- Ending a match clears every shot in flight and every ram cooldown, and so does setting one up, so
-  nothing from a previous match can carry into the next one.
+- Ending a match clears every shot in flight, and so does setting one up, so nothing from a previous
+  match can carry into the next one.
 
 ## What the client shows
 

@@ -1,18 +1,14 @@
-import { CAR_TABLE } from "../config/car-config.js";
-import { COMBAT_CONFIG } from "../config/combat-config.js";
 import { weaponDefOf } from "../config/weapon-config.js";
 import type { WeaponId } from "../config/weapon-types.js";
 import {
   aabbCorners,
   convexOverlap,
-  obbsInContact,
   pointOutsideBounds,
   type Aabb,
   type Bounds,
 } from "./collide.js";
-import { carHullOf, carIdOf } from "./context.js";
+import { carHullOf } from "./context.js";
 import { applyDamage } from "./damage.js";
-import { isRamming, ramDamage, ramOutcome } from "./ram.js";
 import { beginFire, cancelPending, releaseShots, tickRecharge, type FireState } from "./weapons/fire.js";
 import { resolveInstanceHits, type PoseSnapshot } from "./weapons/hits.js";
 import {
@@ -23,7 +19,6 @@ import {
 } from "./weapons/instances.js";
 import { muzzleOf, updateLock, type LockState, type LockTarget } from "./weapons/lock.js";
 import { projectileShapeAt, smear } from "./weapons/shapes.js";
-import { canDamage } from "./weapons/targets.js";
 
 /**
  * One player as the combat step sees them. Plain data on purpose: the room maps `PlayerState` onto
@@ -67,8 +62,6 @@ export interface CombatInput {
   world: CombatWorld;
   players: readonly CombatPlayer[];
   instances: readonly WeaponInstance[];
-  /** `"idA|idB"` (session ids sorted) to the tick at which that pair may deal ram damage again. */
-  ramCooldowns: ReadonlyMap<string, number>;
   /** Monotonic counter behind instance ids. Carried in and back out so ids never repeat. */
   instanceSeq: number;
 }
@@ -76,18 +69,15 @@ export interface CombatInput {
 export interface CombatResult {
   players: CombatPlayer[];
   instances: WeaponInstance[];
-  ramCooldowns: Map<string, number>;
   instanceSeq: number;
 }
 
 /**
- * One tick of combat: recharge, shots fired, shots flown, shots landed, rams. Pure — inputs are
- * never mutated, and the result is a fresh set of players, instances, and cooldowns for the caller
- * to write back.
+ * One tick of combat: recharge, shots fired, shots flown, shots landed. Pure — inputs are never
+ * mutated, and the result is a fresh set of players and instances for the caller to write back.
  *
  * This runs *after* driving has resolved for the tick, so every hit test reads the poses cars
- * actually ended up at. That ordering is what makes ramming legible: you are damaged by where the
- * other car is now, not by where it was before the collision pushed it off you.
+ * actually ended up at.
  *
  * The whole step is server-only. The client draws the resulting instances and never predicts a shot
  * or an hp change: a mispredicted bullet is a phantom kill, and there is no reconciliation story for
@@ -102,7 +92,7 @@ export interface CombatResult {
  *
  * Per-tick phase order — pinned by `weapons/fire.ts`'s own module comment and its tests:
  *
- *     tickRecharge -> (step existing instances) -> update lock -> beginFire -> releaseShots -> hit resolution -> ramming
+ *     tickRecharge -> (step existing instances) -> update lock -> beginFire -> releaseShots -> hit resolution
  *
  * Every weapon in the table today has `startUpMs: 0`, so a press must schedule and fire on the same
  * tick: `beginFire` before `releaseShots` is what makes that true. Existing instances step BEFORE new
@@ -224,54 +214,10 @@ export function runCombat(input: CombatInput): CombatResult {
     if (outcome.instance.alive) survivors.push(outcome.instance);
   }
 
-  // 5. Ramming — unchanged from the pre-weapon-system combat step apart from the rename of the
-  // projectile phase above it.
-  const ramCooldowns = pruneCooldowns(input.ramCooldowns, world.tick);
-  for (let i = 0; i < players.length; i++) {
-    const a = players[i]!;
-    if (!isFighting(a)) continue;
-    for (let j = i + 1; j < players.length; j++) {
-      const b = players[j]!;
-      if (!isFighting(b)) continue;
-
-      // Friendly fire is off for rams too, not just for shots. `canDamage` is the single predicate
-      // that decides it, so shots and contact can never disagree about who is on your side. The
-      // check is symmetric — teammates are teammates in both directions — so asking once is enough.
-      // Teammates still *collide*: they shove each other around, they just cost each other no hp.
-      if (!canDamage(a.sessionId, a.team, b.sessionId, b.team, world.mode)) continue;
-
-      const key = `${a.sessionId}|${b.sessionId}`;
-      if (world.tick < (ramCooldowns.get(key) ?? 0)) continue;
-      // Contact, not interpenetration: driving has already pushed this pair apart to exactly
-      // touching by the time combat runs. See `obbsInContact` and `COMBAT_CONFIG.ramContactPad`.
-      const inContact = obbsInContact(
-        carHullOf(a.x, a.y, a.angle),
-        carHullOf(b.x, b.y, b.angle),
-        COMBAT_CONFIG.ramContactPad,
-      );
-      if (!inContact) continue;
-
-      const threshold = COMBAT_CONFIG.ramDotThreshold;
-      const outcome = ramOutcome(
-        isRamming(a.x, a.y, a.angle, b.x, b.y, threshold),
-        isRamming(b.x, b.y, b.angle, a.x, a.y, threshold),
-      );
-      if (outcome === "none") continue;
-
-      // Both halves of a head-on are dealt from the pre-hit state, so the car that dies still trades
-      // its damage. There is no first-strike advantage in a mutual ram.
-      if (outcome === "both" || outcome === "a_hits_b") damage(b, ramDamageOf(a));
-      if (outcome === "both" || outcome === "b_hits_a") damage(a, ramDamageOf(b));
-      // Set on any damaging contact, including a one-sided one: the cooldown is per *pair*, so a car
-      // grinding along another cannot drain hp at 30 Hz.
-      ramCooldowns.set(key, world.tick + COMBAT_CONFIG.collisionDamageCooldownTicks);
-    }
-  }
-
-  return { players, instances: survivors, ramCooldowns, instanceSeq };
+  return { players, instances: survivors, instanceSeq };
 }
 
-/** In the match and not yet a wreck: the gate for firing, being shot, and ramming alike. */
+/** In the match and not yet a wreck: the gate for firing and being shot alike. */
 function isFighting(player: CombatPlayer): boolean {
   return player.inRoster && player.alive;
 }
@@ -344,19 +290,3 @@ function damage(player: CombatPlayer, amount: number): void {
   if (player.hp === 0) player.alive = false;
 }
 
-function ramDamageOf(attacker: CombatPlayer): number {
-  const strength = CAR_TABLE[carIdOf(attacker)].strength;
-  return ramDamage(strength, COMBAT_CONFIG.collisionDamagePerStrength);
-}
-
-/**
- * Carry forward only the cooldowns that are still holding anything back. Without this the map grows
- * one entry per pair that ever touched and is never emptied for the life of the room.
- */
-function pruneCooldowns(cooldowns: ReadonlyMap<string, number>, tick: number): Map<string, number> {
-  const next = new Map<string, number>();
-  for (const [key, until] of cooldowns) {
-    if (until > tick) next.set(key, until);
-  }
-  return next;
-}

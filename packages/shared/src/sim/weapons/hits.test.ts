@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { WEAPON_TABLE } from "../../config/weapon-config.js";
 import { carHullOf } from "../context.js";
+import { weaponDamageOf } from "../damage.js";
 import { spawnInstances, stepInstance, type WeaponInstance } from "./instances.js";
 import { resolveInstanceHits, type PoseSnapshot } from "./hits.js";
 
@@ -15,10 +16,10 @@ const snapshot = (
     .map((e) => ({ sessionId: e.sessionId, team: e.team ?? 0, hull: carHullOf(e.x, e.y, 0) }))
     .sort((a, b) => (a.sessionId < b.sessionId ? -1 : 1));
 
-function shotFrom(x: number, y: number, angle = 0, team: 0 | 1 = 0): WeaponInstance {
+function shotFrom(x: number, y: number, angle = 0, team: 0 | 1 = 0, carId = "rectangle"): WeaponInstance {
   return spawnInstances(
     { weaponId: "fireball", slot: 0 },
-    { sessionId: "aaa", team, x, y, angle },
+    { sessionId: "aaa", team, carId, x, y, angle },
     100,
     0,
   ).instances[0]!;
@@ -29,7 +30,17 @@ describe("hit resolution", () => {
     const shot = shotFrom(400, 300);
     const moved = stepInstance(shot, { dt: DT, tick: 101, obstacles: [], bounds: BOUNDS, ownerPose: null });
     const out = resolveInstanceHits(moved, shot, snapshot([{ sessionId: "bbb", x: 434, y: 300 }]), "ffa", 101);
-    expect(out.damaged).toEqual([{ sessionId: "bbb", amount: WEAPON_TABLE.fireball.damage }]);
+    expect(out.damaged).toEqual([{ sessionId: "bbb", amount: weaponDamageOf("rectangle", "fireball") }]);
+  });
+
+  it("uses the damage frozen on the instance, not the weapon table's own number", () => {
+    // The whole point of freezing at spawn: an oval's fireball hits harder than a rectangle's, and
+    // hits.ts learns that from the instance rather than by looking the owner up.
+    const shot = shotFrom(400, 300, 0, 0, "oval");
+    const moved = stepInstance(shot, { dt: DT, tick: 101, obstacles: [], bounds: BOUNDS, ownerPose: null });
+    const out = resolveInstanceHits(moved, shot, snapshot([{ sessionId: "bbb", x: 434, y: 300 }]), "ffa", 101);
+    expect(out.damaged).toEqual([{ sessionId: "bbb", amount: 60 }]);
+    expect(out.damaged[0]!.amount).not.toBe(WEAPON_TABLE.fireball.damage);
   });
 
   it("never damages the shooter", () => {
@@ -104,7 +115,7 @@ describe("hit resolution", () => {
       { sessionId: "ccc", team: 0, x: 424, y: 300 }, // enemy: must still be damaged
     ]);
     const out = resolveInstanceHits(shot, shot, mixed, "team", 100);
-    expect(out.damaged).toEqual([{ sessionId: "ccc", amount: WEAPON_TABLE.fireball.damage }]);
+    expect(out.damaged).toEqual([{ sessionId: "ccc", amount: weaponDamageOf("rectangle", "fireball") }]);
   });
 });
 
