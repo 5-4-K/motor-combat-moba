@@ -25,6 +25,12 @@ Two weapon types are in scope:
 
 ## Constraints
 
+> **Superseded 2026-08-28:** constraint 5 ("Ramming works, is well tested, and is not to be touched")
+> and the non-goal of changing collision-damage rules no longer hold. Collision damage was removed
+> and the chassis `strength` rating became `attack`, a modifier on weapon damage — see
+> [`2026-08-28-attack-stat-damage-formula-design.md`](2026-08-28-attack-stat-damage-formula-design.md).
+> `WeaponDef.damage` is now the damage from an *average* chassis, not the final damage.
+
 1. The hard invariants in `CLAUDE.md` hold: `TICK_RATE_HZ` lives once in shared; no magic numbers in
    logic; clients send inputs, never authoritative state; `stepSim` is the lockstep; anything
    `stepSim` reads is a networked schema field; enum uint8 values are explicit and stable; max 6

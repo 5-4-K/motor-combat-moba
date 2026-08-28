@@ -44,8 +44,7 @@ motor-combat-MOBA/
 │       │   ├── instances.ts      # projectile travel; beam grow/linger/wall-clip; expiry
 │       │   ├── hits.ts           # pose-snapshot hit resolution, per-target damage clocks, pierce
 │       │   └── targets.ts        # canDamage: the single friendly-fire predicate
-│       ├── ram.ts                # facing rules
-│       └── damage.ts             # applyDamage, the only HP writer
+│       └── damage.ts             # applyDamage (the only HP writer) and damageFor
 ├── packages/server/src/
 │   ├── index.ts
 │   ├── mode.ts                   # env knobs (DEPLOY_MODE, latency injection, tick rate)

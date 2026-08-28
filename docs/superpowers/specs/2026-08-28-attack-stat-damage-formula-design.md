@@ -1,8 +1,8 @@
 # Motor Combat MOBA — Attack Stat and Damage Formula Design
 
 **Designed:** 2026-08-28 · **Recorded in repo:** 2026-08-28
-**Status:** Approved. Not yet implemented.
-**Plan:** not yet written.
+**Status:** Implemented.
+**Plan:** [`../plans/2026-08-28-attack-stat-damage-formula.md`](../plans/2026-08-28-attack-stat-damage-formula.md)
 
 ---
 
