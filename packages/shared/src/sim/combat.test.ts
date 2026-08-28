@@ -7,6 +7,7 @@ import { WEAPON_TABLE } from "../config/weapon-config.js";
 import { MS_PER_TICK } from "../constants.js";
 import { aimAngleFor, runCombat, type CombatInput, type CombatPlayer, type CombatWorld } from "./combat.js";
 import { carHullOf } from "./context.js";
+import { weaponDamageOf } from "./damage.js";
 import { newFireState } from "./weapons/fire.js";
 import type { WeaponInstance } from "./weapons/instances.js";
 import { muzzleOf, newLockState } from "./weapons/lock.js";
@@ -175,6 +176,7 @@ describe("firing", () => {
       id: "beam-1",
       ownerSessionId: "aaa",
       ownerTeam: 0,
+      damage: weaponDamageOf("rectangle", "fireball"),
       weaponId: "fireball",
       kind: "beam",
       x: 300,
@@ -221,7 +223,7 @@ describe("firing", () => {
       instanceSeq: 0,
     });
     const hit = result.players.find((p) => p.sessionId === "bbb")!;
-    expect(hit.hp).toBe(hpOf("rectangle") - WEAPON_TABLE.fireball.damage);
+    expect(hit.hp).toBe(hpOf("rectangle") - weaponDamageOf("rectangle", "fireball"));
   });
 
   it("drives repeater, the table's only multi-stock weapon, through a real tick", () => {
@@ -275,6 +277,7 @@ describe("shots in flight", () => {
     id: "p1",
     ownerSessionId: "a",
     ownerTeam: 0,
+    damage: weaponDamageOf("rectangle", "fireball"),
     weaponId: "fireball",
     kind: "projectile",
     x: 400,
@@ -344,6 +347,7 @@ describe("shots landing", () => {
       id: "p1",
       ownerSessionId,
       ownerTeam,
+      damage: weaponDamageOf("rectangle", "fireball"),
       weaponId: "fireball",
       kind: "projectile",
       x: target.x - WEAPON_TABLE.fireball.speed * DT,
@@ -365,7 +369,7 @@ describe("shots landing", () => {
       players: [player("a"), target],
       instances: [aimedAt(target, "a")],
     });
-    expect(find(result, "b").hp).toBe(hpOf("rectangle") - WEAPON_TABLE.fireball.damage);
+    expect(find(result, "b").hp).toBe(hpOf("rectangle") - weaponDamageOf("rectangle", "fireball"));
     expect(result.instances).toHaveLength(0);
   });
 
@@ -394,7 +398,7 @@ describe("shots landing", () => {
       players: [player("a", { team: 0 }), target],
       instances: [aimedAt(target, "a")],
     });
-    expect(find(result, "b").hp).toBe(hpOf("rectangle") - WEAPON_TABLE.fireball.damage);
+    expect(find(result, "b").hp).toBe(hpOf("rectangle") - weaponDamageOf("rectangle", "fireball"));
   });
 
   it("damages a same-team id in ffa, where teams mean nothing", () => {
@@ -403,7 +407,7 @@ describe("shots landing", () => {
       players: [player("a", { team: 0 }), target],
       instances: [aimedAt(target, "a")],
     });
-    expect(find(result, "b").hp).toBe(hpOf("rectangle") - WEAPON_TABLE.fireball.damage);
+    expect(find(result, "b").hp).toBe(hpOf("rectangle") - weaponDamageOf("rectangle", "fireball"));
   });
 
   it("passes through a wreck rather than being spent on it", () => {
@@ -413,7 +417,7 @@ describe("shots landing", () => {
   });
 
   it("wrecks a car whose hp reaches zero", () => {
-    const target = player("b", { x: 800, hp: WEAPON_TABLE.fireball.damage });
+    const target = player("b", { x: 800, hp: weaponDamageOf("rectangle", "fireball") });
     const result = run({ players: [player("a"), target], instances: [aimedAt(target, "a")] });
     expect(find(result, "b").hp).toBe(0);
     expect(find(result, "b").alive).toBe(false);
@@ -443,6 +447,7 @@ describe("shots landing", () => {
           id: "p1",
           ownerSessionId: "a",
           ownerTeam: 0,
+          damage: weaponDamageOf("rectangle", "fireball"),
           weaponId: "fireball",
           kind: "projectile",
           x: box.x + box.w / 2 - WEAPON_TABLE.fireball.speed * DT,
@@ -460,6 +465,54 @@ describe("shots landing", () => {
     });
     expect(result.instances).toHaveLength(0);
     expect(find(result, "b").hp).toBe(hpOf("rectangle"));
+  });
+
+  it("keeps a shot's damage after its owner is wrecked mid-flight", () => {
+    // S8: the owner is looked up once, at spawn. A live lookup at hit time would find nothing —
+    // the pose snapshot holds living fighters only — and silently fall back to a default chassis.
+    const target = player("b", { x: 800 });
+    const shooter = player("a", { carId: "oval", alive: false });
+    const shot = { ...aimedAt(target, "a"), damage: weaponDamageOf("oval", "fireball") };
+    const result = run({ players: [shooter, target], instances: [shot] });
+    expect(find(result, "b").hp).toBe(hpOf("rectangle") - weaponDamageOf("oval", "fireball"));
+  });
+});
+
+describe("chassis attack scales weapon damage through a real tick", () => {
+  /** One shot, fired for real, from `carId` into a stationary rectangle. Returns the hp it cost. */
+  const damageDealtBy = (carId: "rectangle" | "oval" | "hexagon"): number => {
+    let state = run({
+      players: [
+        player("a", {
+          x: 400,
+          y: OPEN_Y,
+          angle: 0,
+          carId,
+          fireMask: 1,
+          fireState: newFireState(carId, 1),
+        }),
+        player("b", { x: 400 + DRIVE_CONFIG.carWidth + 40, y: OPEN_Y }),
+      ],
+    });
+    // The shot leaves the muzzle on tick 100 and covers the ~40 unit gap in about two ticks.
+    // Bounded at 110, well inside fireball's 15-tick cooldown, so exactly one shot is measured.
+    for (let tick = 101; tick <= 110; tick++) {
+      state = run({
+        world: world({ tick }),
+        players: state.players,
+        instances: state.instances,
+        instanceSeq: state.instanceSeq,
+      });
+    }
+    return hpOf("rectangle") - find(state, "b").hp;
+  };
+
+  it("lands a different number for each chassis firing the identical weapon", () => {
+    // Spec test 5: through the real tick, not by calling damageFor. `attack` is invisible in the
+    // weapon table, so this is the only place the roster's damage spread is actually observable.
+    expect(damageDealtBy("rectangle")).toBe(40);
+    expect(damageDealtBy("oval")).toBe(60);
+    expect(damageDealtBy("hexagon")).toBe(50);
   });
 });
 

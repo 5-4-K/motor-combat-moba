@@ -34,6 +34,9 @@ export interface HitOutcome {
  * Projectiles are tested as the SMEAR between `previous` and `instance`, so a fast shot cannot
  * straddle a car between samples. Beams are tested at their current extent and are never destroyed
  * by contact — they may catch several cars at once.
+ *
+ * The amount comes from `instance.damage`, frozen at spawn — this module never reads player state,
+ * and the owner's chassis is exactly the player state it would otherwise have to read.
  */
 export function resolveInstanceHits(
   instance: WeaponInstance,
@@ -68,7 +71,7 @@ export function resolveInstanceHits(
     if (tick < (clock.get(entry.sessionId) ?? 0)) continue;
     if (!shapeHitsObb(shape, entry.hull)) continue;
 
-    damaged.push({ sessionId: entry.sessionId, amount: def.damage });
+    damaged.push({ sessionId: entry.sessionId, amount: instance.damage });
     clock.set(entry.sessionId, interval === Number.POSITIVE_INFINITY ? interval : tick + interval);
 
     if (instance.kind !== "projectile") continue;

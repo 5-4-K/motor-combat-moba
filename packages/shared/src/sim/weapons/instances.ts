@@ -3,6 +3,8 @@ import { weaponDefOf } from "../../config/weapon-config.js";
 import { weaponTicksOf } from "../../config/weapon-ticks.js";
 import type { WeaponId } from "../../config/weapon-types.js";
 import { pointInAabb, pointOutsideBounds, type Aabb, type Bounds } from "../collide.js";
+import { carIdOf } from "../context.js";
+import { weaponDamageOf } from "../damage.js";
 
 /**
  * One live hitbox in the world. Projectiles use `x/y/angle/distance`; beams use `x/y/angle` as the
@@ -23,6 +25,19 @@ export interface WeaponInstance {
    * already-fired shot may hit.
    */
   ownerTeam: 0 | 1;
+  /**
+   * What this shot costs on a hit, resolved from the owner's chassis `attack` and frozen at spawn —
+   * never looked up later, for exactly the reason `ownerTeam` is frozen above it. `hits.ts` tests
+   * against a snapshot of living fighters only, so an owner wrecked while their own shot is still in
+   * flight has vanished from any lookup by the time it lands, and a live one would quietly fall back
+   * to the default chassis. Freezing also stops a mid-match car change re-powering a shot already in
+   * the air.
+   *
+   * Already rounded (`damageFor`), so a piercing shot deals the identical number to every car it
+   * passes through. Sim-only, like `ownerTeam` and `damageClock`: the client is told the resulting
+   * hp, never the arithmetic.
+   */
+  damage: number;
   weaponId: WeaponId;
   kind: "projectile" | "beam";
   x: number;
@@ -100,12 +115,13 @@ export function fanOffset(index: number, pellets: number, spreadRad: number): nu
  */
 export function spawnInstances(
   order: ShotOrder,
-  owner: { sessionId: string; team: 0 | 1 } & OwnerPose,
+  owner: { sessionId: string; team: 0 | 1; carId: string } & OwnerPose,
   tick: number,
   seq: number,
   aimAngle: number | null = null,
 ): { instances: WeaponInstance[]; seq: number } {
   const def = weaponDefOf(order.weaponId);
+  const damage = weaponDamageOf(carIdOf(owner), order.weaponId);
   const pellets = def.kind === "projectile" ? def.volley.pelletsPerVolley : 1;
   const spread = def.kind === "projectile" ? (def.volley.spreadAngleDeg * Math.PI) / 180 : 0;
   const nose = muzzleOffset();
@@ -123,6 +139,7 @@ export function spawnInstances(
       id: `${owner.sessionId}-${next}`,
       ownerSessionId: owner.sessionId,
       ownerTeam: owner.team,
+      damage,
       weaponId: order.weaponId,
       kind: def.kind,
       x: muzzleX,

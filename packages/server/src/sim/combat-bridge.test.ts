@@ -6,6 +6,7 @@ import {
   isCarId,
   newFireState,
   newLockState,
+  weaponDamageOf,
   type CombatResult,
   type WeaponInstance,
 } from "@motor-combat-moba/shared";
@@ -37,6 +38,7 @@ function liveInstance(over: Partial<WeaponInstance> = {}): WeaponInstance {
     id: "aaa-1",
     ownerSessionId: "aaa",
     ownerTeam: 0,
+    damage: weaponDamageOf("rectangle", "fireball"),
     weaponId: "fireball",
     kind: "projectile",
     x: 100,
