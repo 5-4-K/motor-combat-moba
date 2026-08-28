@@ -1,7 +1,8 @@
 # Motor Combat MOBA — Ram CC and Knockback Design
 
 **Designed:** 2026-08-29 · **Recorded in repo:** 2026-08-29
-**Status:** Designed. Not implemented.
+**Status:** Implemented.
+**Plan:** [`../plans/2026-08-29-ram-cc-and-knockback.md`](../plans/2026-08-29-ram-cc-and-knockback.md)
 **Follows on from:** [`2026-08-28-attack-stat-damage-formula-design.md`](2026-08-28-attack-stat-damage-formula-design.md)
 S1, which deleted the ram subsystem and named this work as the condition for its return. Nothing in
 S1 is reversed — R1 upholds its ruling that collision deals no damage.
