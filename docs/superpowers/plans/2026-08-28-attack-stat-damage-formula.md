@@ -1143,9 +1143,13 @@ The docs currently describe a ram-damage rule that no longer exists and a `stren
 **Files:**
 - Modify: `docs/combat-model.md`
 - Modify: `docs/config-reference.md`
+- Modify: `packages/shared/CLAUDE.md:9,11`
+- Modify: `packages/server/CLAUDE.md:7`
 - Modify: `docs/superpowers/specs/2026-08-27-weapon-system-design.md`
 - Modify: `docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md`
 - Modify: `docs/superpowers/specs/2026-08-28-attack-stat-damage-formula-design.md`
+
+(`packages/client/CLAUDE.md` needs no change — it never mentions ramming or `strength`.)
 
 **Interfaces:**
 - Consumes: everything above
@@ -1185,6 +1189,28 @@ The roster is tuned so an average chassis (500 hull HP) kills another with the b
 
 - Fix line 31, which lists a chassis's identity: change `speed, strength, hp, guns` to `speed, attack, hp, guns`.
 - Around line 345 there is a fixture note explaining a `50.5` spacing that must stay outside `ramContactPad`. That constant is gone; delete the sentence about the ram and keep only the part about the hitbox radius.
+
+- [ ] **Step 1b: Fix the two stale package `CLAUDE.md` files**
+
+These are the per-package instruction files agents read on every session, so a stale line here misleads every future contributor.
+
+In `packages/shared/CLAUDE.md` line 9, drop the deleted module and re-point the sentence:
+
+```markdown
+P5 combat: `sim/damage.ts` (`applyDamage` — the **only** HP writer, and `damageFor`, the only place a hit's size is decided), `sim/combat.ts` (`runCombat`, one pure tick of combat over POJOs). `runCombat` runs *after* driving, never moves a car, and is server-only — the client draws its results and predicts none of them. Collision deals no damage.
+```
+
+In `packages/shared/CLAUDE.md` line 11, `targets.ts` no longer shares its predicate with ramming:
+
+```markdown
+`targets.ts` (`canDamage`, the one friendly-fire predicate)
+```
+
+In `packages/server/CLAUDE.md` line 7, drop ram pair cooldowns from the server-only state list:
+
+```markdown
+`ArenaRoom.tick` is drive-then-combat: `serverTick` (returns each session's `fireSlots` bitmask) then `combatTick`. Combat rules live in shared `runCombat`; `sim/combat-bridge.ts` is the only file that maps `ArenaState` onto it and back, and holds no rules. Per-player `FireState` (slots, clocks, pending burst), and the weapon-instance id counter and `damageClock`/`pierceLeft` bookkeeping are deliberately **server-only** state, never schema fields — see `CombatMemory` in `combat-bridge.ts`.
+```
 
 - [ ] **Step 2: Update the config reference**
 
