@@ -223,8 +223,8 @@ export function updateLock(state: LockState, ctx: UpdateLockContext): LockState 
 
   const scored: ScoredTarget[] = [];
   for (const target of ctx.candidates) {
-    // The same predicate shots and rams use, so the lock can never disagree with the shot about who
-    // is an enemy -- no teammates in team mode, and never yourself.
+    // The same predicate shots use, so the lock can never disagree with the shot about who is an
+    // enemy -- no teammates in team mode, and never yourself.
     if (!canDamage(ctx.owner.sessionId, ctx.owner.team, target.sessionId, target.team, ctx.mode)) {
       continue;
     }

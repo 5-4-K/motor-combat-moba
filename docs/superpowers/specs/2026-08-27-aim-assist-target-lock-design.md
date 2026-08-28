@@ -19,6 +19,13 @@ geometry and feel of the lock must be tunable without touching logic.
 
 ## Constraints
 
+> **Superseded 2026-08-28:** collision damage was removed and the chassis `strength` rating became
+> `attack`, a modifier on weapon damage — see
+> [`2026-08-28-attack-stat-damage-formula-design.md`](2026-08-28-attack-stat-damage-formula-design.md).
+> Ramming as described here no longer exists: constraint 4 below, the "ramming is a core mechanic"
+> rationale for the lateral-lane bound (A2), and the tick-order pseudocode's `ramming` phase (under
+> [Tick order](#tick-order)) are all stale — `runCombat` has no ram phase to run.
+
 1. The hard invariants in `CLAUDE.md` hold. In particular: no magic numbers in logic, balance lives
    in shared config, and anything `stepSim` reads is a networked schema field.
 2. Combat is **server-only** and stays so (`runCombat`). The client predicts its own motion and

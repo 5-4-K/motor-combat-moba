@@ -16,9 +16,10 @@ import { msToTicks } from "./weapon-ticks.js";
  * fireball's 900 unit range, a 654 unit wide region inside a 1280 unit wide arena.
  * A pure lateral lane has the mirror-image flaw: its ANGULAR width collapses with distance and
  * explodes near the car, so a 120 unit lane accepts a target 13 units ahead sitting 83 degrees off
- * the nose. Since ramming is a core mechanic, cars spend much of a match at exactly that range, and
- * the lock is ambient -- the trigger cannot override it. Intersected, the cone governs contact
- * range and the cap governs long range, crossing over at `lateralMax / tan(coneDeg)`, about 330 u.
+ * the nose. Cars still collide and brawl at contact range, so cars spend much of a match at exactly
+ * that range, and the lock is ambient -- the trigger cannot override it. Intersected, the cone
+ * governs contact range and the cap governs long range, crossing over at `lateralMax / tan(coneDeg)`,
+ * about 330 u.
  */
 export const AIM_CONFIG = {
   /** Half-angle of the acquisition cone, degrees. Validated strictly inside 0-90. */
