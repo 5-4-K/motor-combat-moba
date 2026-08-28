@@ -1,7 +1,7 @@
 # Invariant Reconciliation — Tracker & Resume Point
 
 **Last session:** 2026-08-28
-**State:** R0 set; R1, R2, R3, R3a, R3b resolved. **Four conflicts open. Next up: R4 (transport) — R4, R5 and R6 are one cluster.**
+**State:** **All eight conflicts resolved on paper (R0–R8).** Three carry branches pending one measurement (R4.3, R4.6, R5). Next phase is execution — see "Build order" below.
 **Branch:** `claude/motor-combat-rules-review-f319c6` (worktree) off `development/main` @ `7439c2f`
 
 > **Resuming? Read this file first, then the rulings doc.** Everything else is reference.
@@ -35,11 +35,11 @@ when republishing or a duplicate artifact is created instead:
 | R3 | Remote car handling | ✅ Resolved |
 | R3a | Contact & ram-as-crowd-control | ✅ Resolved |
 | R3b | Collision response as impulse physics | ✅ Resolved |
-| R4 | **Transport — WebSocket vs WebRTC** (also owns the patch rate, from R2.5) | 🟡 **In progress — R4.1 resolved; R4.2–R4.7 open** |
-| R5 | Input redundancy | ⬜ Open |
-| R6 | Tick sync / client lead | ⬜ Open |
-| R7 | Design resolution — 1280 vs 1424 | ⬜ Open |
-| R8 | HTTPS / secure context | ⬜ Open |
+| R4 | Transport — WebSocket vs WebRTC (also owns the patch rate) | ✅ Resolved on paper; R4.3/R4.6 conditional |
+| R5 | Input redundancy | ✅ Resolved — conditional on R4.3; **seq dedupe is a prerequisite** |
+| R6 | Tick sync / client lead | ✅ Resolved — jitter buffer, not a clock |
+| R7 | Design resolution | ✅ Resolved — keep 1424; free at the floor viewport |
+| R8 | HTTPS / secure context | ✅ Resolved — collapses into R4.3 |
 
 ---
 
@@ -97,37 +97,74 @@ engineering but no argument.
 
 ---
 
-## R2 — what the next session needs
+## Build order
 
-**The question:** stay at `TICK_RATE_HZ = 30` or move to the rules' 60 Hz.
+The paper phase is complete. This is R4.7's sequencing ruling as a work plan. **Nothing below has
+been implemented** — the whole exercise so far is documents.
 
-Open the file with these already on the table:
+### Tranche 0 — unconditional, small, no open ruling depends on them
 
-1. **30 Hz has no recorded justification anywhere**, in either repo. The predecessor's own
-   tick-rate benchmark gate (G7) was never closed. There is no position to defend, only momentum.
-2. **R3 changed the cost.** The client now runs the roster step **six times per tick**, not once.
-   60 Hz doubles that.
-3. **R3b changed the stakes.** A spin-out is fast angular motion, and 30 Hz samples it poorly —
-   at `turnRate` 4.2 rad/s one tick is 8°, and an impulse-driven spin will exceed that.
-4. **It is a protocol-version change** (I-N10.2). `msToTicks` converts every authored weapon duration
-   at `TICK_RATE_HZ`, so the whole weapon table's timing moves with it — and `reverseHoldTicks`,
-   `collisionDamageCooldownTicks`, `AIM_TICKS` and the countdown all re-derive.
-5. **It is hard invariant #1 in `CLAUDE.md`**, so changing it is a project decision, not a feature
-   change.
-6. Interacts with **R4** (patch rate and transport) and **R6** (client lead is measured in ticks).
+| Item | Why |
+|---|---|
+| **R2.1** — convert 4 constants to ms-authored (`collisionDamageCooldownTicks`, `reverseHoldTicks`, `pendingInputCap`, `maxInputsPerTick`) | Makes the tick rate a knob rather than a migration. New I-N10.7. |
+| **R2.3** — remove the `TICK_RATE_HZ` env override | Server-only override desyncs every client silently (N-3). |
+| **N-12** — port the predecessor's per-stream ordering clamp into the latency injector, add a loss knob | **Until this lands, every `SIM_LATENCY_MS` run misleads** — it manufactures reorders TCP never produces. |
+| **C-1** — release held keys on `blur` / `visibilitychange` | Costs matches today: alt-tab while accelerating and the car drives on. |
+| **C-2** — delete `window.game` | One line. |
+| **N-2** — gate or remove the unauthenticated `/colyseus` monitor | Full room state to anyone who can reach the port, in every deploy mode. |
 
-After R2, the natural order is **R4 → R5 → R6** (one cluster: transport, redundancy and clock sync
-are the same project), then **R7** and **R8**, which are independent and small.
+### Tranche 1 — the big change, with its verification
+
+**R3 and the R4.1 harness together.** The harness is R3's verification, not a separate project;
+R4.7's one hard constraint is that it must not land *after* R3.
+
+- Lift the roster loop into shared as `stepRoster(entries, inputs, world, dt) → { bodies, contacts }`
+  — note the contact-set output (I-N3.11), designed in from the start even though nothing consumes it
+  until R3b.
+- Add `inputBits` to `PlayerState` (one `uint8`).
+- Predict and reconcile every car uniformly; retire `InterpolationBuffer`, keep `blendPose`.
+- **Restore seq dedupe in `serverTick`** — R5's prerequisite, one line, and load-bearing the moment
+  redundancy exists.
+
+### Tranche 2 — measure
+
+Run R4.1's five profiles against both transport models. Capture **R2.6's CPU budgets** in the same
+pass (≤ 8 ms server, ≤ 4 ms client roster step) — neither has ever been measured, and this closes
+Gate G7, open since the predecessor.
+
+### Tranche 3 — decide the conditionals by lookup
+
+1. **N-4 first** — quantise the wire (raw float64 poses today). It changes the bandwidth arithmetic
+   both remaining conditionals depend on.
+2. **R4.3** — pass → stay on WebSocket and amend I-N5.1; fail → WebRTC DataChannel, and then R4.4
+   (hybrid), R5 (redundancy at 250 ms), R8 (secure context) all follow in one project.
+3. **R4.6** — the patch rate, against the new encoder.
+4. **R6** — size the jitter buffer against measured queue starvation.
+
+### Tranche 4 — physics
+
+**R3b as its own numbered spec** (`CLAUDE.md` gates the drive model, collision-damage rules and
+physics engines). Static-geometry impulses (I-N4.13) can start earlier — they need no remote pose
+accuracy. Car-vs-car needs R3. Produces the measured peak ω that **reopens R2.4**.
+
+### Independent of all of it
+
+Findings **B–E** in the audit register depend on no open ruling and can be worked at any time.
 
 ---
 
 ## Housekeeping
 
-- **Nothing is committed yet.** The worktree holds four new/edited files under `docs/`. Committing
-  before the next session is recommended; no source code has been touched, so the suites are
-  unaffected.
+- **Everything here is documents.** No source file has been touched in the whole exercise, so the
+  suites are unaffected and there is nothing to re-run before starting Tranche 0.
 - The audit and rulings artifacts are **watched** by the session that published them; that watch does
-  not survive into a new session. Republish with the `url` above.
-- Sections B–E of the findings register are **independent of every open ruling** — they can be worked
-  at any time. By teeth: `C-1` blur key release, `N-2` the open monitor endpoint, `N-3` the version
-  handshake, `C-5` the team marker. `C-2` (`window.game`) is a one-line delete.
+  not survive into a new session. Republish with the `url` above rather than publishing fresh, or a
+  duplicate artifact is created.
+- Sections B–E of the findings register depend on no ruling and can be worked at any time. By teeth:
+  `C-1` blur key release, `N-2` the open monitor endpoint, `N-3` the version handshake, `C-5` the
+  team marker. `C-2` (`window.game`) is a one-line delete. The first three are already folded into
+  Tranche 0 above.
+- **The invariant documents in `docs/invariants/` are deliberately unmodified.** Every amendment lives
+  in the rulings doc. If they are ever edited in place, the rulings become the diff's only record of
+  why — keep them verbatim, or fold the amendments in as a single deliberate revision with the
+  rulings cited.

@@ -1,7 +1,7 @@
 # Invariant Reconciliation — Decisions
 
 **Date:** 2026-08-28
-**Status:** In progress — 1 of 8 resolved
+**Status:** All eight resolved (R4.3, R4.6, R5 carry branches pending one measurement)
 **Companion:** the invariant audit (artifact), `NETCODE_INVARIANTS.md`, `BROWSER_CLIENT_INVARIANTS.md`
 
 The audit found eight axiom-level conflicts between the supplied invariant documents and this
@@ -64,13 +64,13 @@ them is prediction.
 | # | Conflict | Ruling | Status |
 |---|---|---|---|
 | R1 | Projectile prediction (I-N4.1) | Predict both tiers; keep I-N4.1's intent, tighten its wording; blocked on R3 for lock-derived weapons | ✅ Resolved (revised) |
-| R2 | Simulation tick rate (30 vs 60 Hz) | Six sub-points; **R2.1 resolved** — see below | 🟡 In progress |
+| R2 | Simulation tick rate (30 vs 60 Hz) | Hold 30 Hz; **R2.1 ms-authoring first**; patch rate moved to R4 | ✅ Resolved |
 | R3 | Remote car handling (interpolation vs input replication) | Predict remotes through the shared roster step; replicate *current* input as state, not input *history* as a stream | ✅ Resolved — **unblocks R1 tier 2** |
 | R4 | Transport (WebSocket vs WebRTC DataChannel) | Seven sub-points; R4.3/R4.6 conditional on a measurement not yet taken | ✅ Resolved on paper |
-| R5 | Input redundancy (I-N5.3) | — | ⬜ Open |
-| R6 | Tick sync / client lead (§6) | — | ⬜ Open |
-| R7 | Design resolution (1280 vs 1424) | — | ⬜ Open |
-| R8 | HTTPS / secure context (I-C10.7) | — | ⬜ Open |
+| R5 | Input redundancy (I-N5.3) | Conditional on R4.3; window in ms not ticks; **needs seq dedupe first** | ✅ Resolved |
+| R6 | Tick sync / client lead (§6) | Real gap — build a jitter buffer, not a clock | ✅ Resolved |
+| R7 | Design resolution (1280 vs 1424) | Keep 1424; amend the rule. Costs nothing at the floor viewport | ✅ Resolved |
+| R8 | HTTPS / secure context (I-C10.7) | Collapses into R4.3; cloud requires HTTPS regardless | ✅ Resolved |
 
 ---
 
@@ -1126,6 +1126,192 @@ also exactly the kind of code where an ordering bug hides behind a passing unit 
 
 I-N2.4 is unchanged and now covers a second case: Phaser Arcade was already excluded from gameplay;
 so is every other engine, for the rollback reason above.
+
+---
+
+## R5 — Input redundancy
+
+**Conflict.** I-N5.3 requires every input packet to carry the last **16 ticks** of that player's
+input history, replacing retransmission for the input stream. This project sends one tick per packet.
+
+**Ruling: conditional on R4.3, with two corrections to the rule as written — and one prerequisite
+this codebase does not currently satisfy.**
+
+### It is a consequence, not a decision
+
+Provenance found nothing in either repository, because over TCP there is nothing to be redundant
+against. So:
+
+> **If R4.3 stays on WebSocket:** I-N5.3 is **inapplicable**, not violated. Sending duplicate history
+> over a channel that never drops is pure waste. Record it as inapplicable so a later reviewer does
+> not "fix" it.
+>
+> **If R4.3 goes unreliable:** redundancy becomes **mandatory** and lands in the same change. It is
+> what makes single-packet loss invisible, and it is why the unreliable channel needs no retransmit.
+
+### Correction 1 — "16 ticks" violates I-N10.7
+
+The rule authors the window as a **tick count**, which R2.1 just established is a defect: at 30 Hz
+sixteen ticks is 533 ms, at 60 Hz it is 266 ms. The window is a *duration*, so it must be authored as
+one.
+
+**Size it at 250 ms — R0's max client lead.** That is not arbitrary: an input older than the lead cap
+is one the server would reject anyway under I-N1.4's plausible-tick-range check, so redundancy beyond
+it is provably wasted. Pleasingly, 250 ms resolves to ~15 ticks at 60 Hz — essentially the rules'
+own 16 at the rate they assumed — and ~8 ticks at our 30 Hz. Cost at one byte per tick: **8 bytes per
+packet.**
+
+### Correction 2 — the redundancy is not just for loss
+
+The rule frames it as loss insurance. It also removes the **input-starvation stall** that R6
+addresses from the other end: `serverTick` skips a player whose queue is empty that tick, so a late
+packet costs a paused car and then a catch-up burst. Redundancy means a late packet still carries the
+inputs the server missed, so the queue is rarely empty. R5 and R6 are two halves of the same problem.
+
+### The prerequisite: `serverTick` has no seq dedupe
+
+**This is the finding that matters.** The drain loop applies *every* message in the batch and then
+assigns the ack:
+
+```ts
+for (const [index, msg] of batch.entries()) {
+  if (ctx !== null && index < NET_CONFIG.maxInputsPerTick) { …stepSim… }
+  player.lastProcessedInputSeq = msg.seq;
+}
+```
+
+There is no `if (msg.seq <= player.lastProcessedInputSeq) continue`. The predecessor has exactly that
+line, with the comment *"Inputs at/below lastProcessedInputSeq are dropped (dedupe)."* This project
+dropped it — harmless today, because over TCP no duplicate ever arrives.
+
+**Add redundancy without restoring dedupe and every packet's 8 duplicated inputs are applied as real
+inputs: the car moves eight times too far.** It would present as flagrant speed-hacking by every
+honest client.
+
+> **Prerequisite:** restore seq dedupe in `serverTick` **before or with** any redundancy work. It is
+> one line, and it is load-bearing.
+
+---
+
+## R6 — Tick sync and client lead
+
+**Conflict.** §6 requires clients to run ahead of the server by an adaptive, continuously measured
+offset, smoothly adjusted and hard-capped. This project has no clock synchronisation of any kind.
+
+**Ruling: a real gap, but a smaller one than §6 describes — build a jitter buffer, not a clock.**
+
+### Why the absence has not hurt yet
+
+The audit called this the one conflict with no counter-argument, because it was never discussed. The
+reason it has not bitten is worth writing down, because it also bounds the fix.
+
+**Input here is sequence-addressed, not tick-addressed.** `InputMessage` carries `seq`, not a tick,
+and `serverTick` applies inputs in seq order to whatever tick is current. Each applied input advances
+the body by exactly `dt`. So **the authoritative trajectory is a pure function of the input sequence,
+independent of arrival timing** — which is precisely why the predecessor measured zero prediction
+error at any latency. The seq scheme sidesteps clock sync rather than needing it.
+
+### What it does cost
+
+`serverTick` skips a player whose queue is empty this tick. So when jitter delays a packet, the car
+**pauses for a tick and then double-steps** when the burst lands, bounded by `maxInputsPerTick`.
+
+That is exactly R0's point that jitter, not mean ping, breaks feel — and it is a stall, not a
+divergence. Reconciliation cannot fix it because nothing is wrong; the server genuinely had no input.
+
+### The fix is the cheap half of §6
+
+Full tick-offset synchronisation — a shared clock, an absolute tick on every input, server-side
+rejection of inputs outside the lead window — is more machinery than this architecture needs.
+
+> **Build a jitter buffer:** the client runs a small, adaptive number of ticks ahead so the server's
+> queue is never empty. The lead is measured from observed ack latency and its variance, adjusted
+> **gradually** (I-N6.2 — a sudden retime is indistinguishable from a teleport), and **capped** at
+> R0's 250 ms ceiling with a clear disconnect beyond it (I-N6.3).
+
+I-N6.4 (never assume RTT is stable) and I-N6.5 (`performance.now()`, already held) carry over
+unchanged.
+
+**Sequencing:** R4.1's harness measures queue starvation directly — it is the same instrumentation.
+Build the rig, quantify how often the queue actually empties at 80/130 ms with jitter, then size the
+lead against evidence rather than guessing. And note R5 attacks the same problem from the other side:
+redundancy means a late packet still carries the missed inputs.
+
+> **I-N6.1** *(scoped)* Where input is sequence-addressed and the authoritative trajectory is
+> therefore timing-independent, the requirement is a **jitter buffer** — enough client lead that the
+> server's input queue is not empty — not a synchronised tick offset. Where input is tick-addressed,
+> the full offset scheme applies. The cap, the gradual adjustment and the disconnect are required
+> either way.
+
+---
+
+## R7 — Design resolution
+
+**Conflict.** The rules fix the design resolution at **1280×720**. This project renders 1424×720
+(a 1280 arena viewport plus a 144 px HUD gutter), scaled with `FIT`.
+
+**Ruling: keep 1424×720. Amend the rules' constant.**
+
+### The fairness property is preserved — deliberately, and by construction
+
+I-C3.1 exists so that *"a larger window or wider monitor scales the same arena, never reveals more of
+it."* That property is not merely intact here, it is **engineered**: `ARENA_VIEW_WIDTH` is kept
+separate from `VIEW_WIDTH` precisely so that growing the canvas for HUD cannot widen anyone's view of
+the floor, and `fitsViewport` reads the former. The commit that introduced the gutter states both the
+guarantee and its price.
+
+The rules' 1280×720 simply predates a HUD gutter existing.
+
+### And the cost is zero at exactly the viewport the rules care about
+
+`FIT` takes the smaller of the two scale ratios, so which dimension binds decides everything:
+
+| Viewport | Design 1280×720 | Design 1424×720 |
+|---|---|---|
+| **1280×640 floor** | min(1.000, 0.889) = **0.889** | min(0.899, 0.889) = **0.889** |
+| 1920×1080 (16:9) | min(1.500, 1.500) = 1.500 | min(1.348, 1.500) = **1.348** |
+
+**At the floor viewport the gutter costs nothing** — height binds in both cases, so the effective
+scale is identical. The ~10 % the commit records is paid only on 16:9 and wider, where width would
+otherwise not bind.
+
+And 0.889 clears the rules' own **0.85 minimum effective scale**, so I-C3.2's requirement that the
+HUD stay legible at the floor is satisfied on the same margin the 1280 design would have had.
+
+> **Viewport Targets** *(amended)* Design resolution is **1424×720** — a 1280×720 arena viewport plus
+> a 144 px HUD gutter the world camera never draws into. The fairness requirement attaches to the
+> **arena viewport**, not the canvas: growing the canvas for HUD must never widen the view of the
+> world. Minimum effective scale is unchanged at 0.85; the floor viewport yields 0.889 under either
+> design, because height binds.
+
+**Still owed:** I-C3.2 asks for validation *at* the floor, and there is no evidence that has been
+done. That is finding C-10's neighbour, not a conflict — the number passes, the check has not been
+run.
+
+---
+
+## R8 — HTTPS and secure context
+
+**Conflict.** I-C10.7 requires the page be served over HTTPS. This project serves LAN over plain HTTP
+and `detectServerEndpoint` returns `ws://` unless the page is already `https:`.
+
+**Ruling: collapses into R4.3. No independent decision remains.**
+
+- **If R4.3 goes unreliable** (WebRTC or WebTransport), a **secure context is mandatory** — both
+  require it. R8 self-resolves as a side effect, and the LAN story needs a certificate answer
+  (self-signed with a trust step, or a local-domain certificate) before the transport lands, not
+  after.
+- **If R4.3 stays on WebSocket**, HTTP over LAN remains correct: certificates for a host reachable
+  only as `http://192.168.x.x:2567` are friction with no threat model, and the spec's host experience
+  is *"unzip, double-click `start.bat`."*
+
+**Independent of R4.3:** any **cloud** deployment requires HTTPS regardless of transport — for the
+client bundle, for secure-context APIs, and to avoid mixed content. `DEPLOY_MODE=cloud` already
+exists as an env branch, so the rule attaches there.
+
+> **I-C10.7** *(scoped)* The page is served over HTTPS wherever it is reachable beyond the host
+> machine's own network, and **always** where the transport or any API in use requires a secure
+> context. A LAN deployment over plain HTTP with a reliable-ordered transport is compliant.
 
 ---
 
