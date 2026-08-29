@@ -157,13 +157,14 @@ export const WEAPON_COPY = {
   },
   shockwave: {
     tagline: "Get off me.",
-    shape: "Huge cone · hugs the chassis · one hit per car",
+    shape: "Ring around the car · hugs the chassis · one hit per car",
     what:
-      "The widest hitbox in the game and the shortest-lived: a cone that wraps the front of the car " +
-      "for a quarter of a second and hits every enemy in it exactly once, hard.",
+      "The widest hitbox in the game and the shortest-lived: a ring that expands out of the car for " +
+      "a quarter of a second and hits every enemy it reaches exactly once, hard — behind you as " +
+      "readily as in front. Everything it catches is stunned: no engine, no steering, no trigger.",
     how:
-      "It is not really aimed. It is triggered — it only needs people to be near you, which on this " +
-      "chassis is most of the match.",
+      "It is not aimed at all. It is triggered — it only needs people to be near you, which on this " +
+      "chassis is most of the match. There is no wrong way to be facing.",
     tip:
       "Anti-ram, anti-dive, anti-Rectangle. The moment somebody commits to contact range, this is " +
       "the button that makes them regret arriving.",
