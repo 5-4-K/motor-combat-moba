@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   CAR_TABLE,
-  CHASSIS_DRIVE,
   DEFAULT_CAR_ID,
+  accelOf,
   driveOf,
   forwardMaxSpeedOf,
   hpOf,
   isCarId,
+  reverseAccelOf,
   reverseMaxSpeedOf,
+  turnRateAtStopOf,
+  turnRateOf,
 } from "./car-config.js";
 import type { CarId } from "./types.js";
 import { COLOR_TABLE } from "./color-config.js";
@@ -130,6 +133,36 @@ describe("driveOf", () => {
   });
 });
 
+describe("per-car drive ratings", () => {
+  it("anchors both scales so rating 50 reproduces the constants that shipped globally", () => {
+    // The pivot in T7. `turnRateOf` and `accelOf` are authored so an exactly-average chassis
+    // drives like the pre-2026-08-30 game did, which is what keeps "rating 50 is average" a
+    // reading aid rather than a slogan. A scale edit that moves the pivot fails here.
+    // `toBeCloseTo`, not `toBe`: 2.4 + 50 * 0.036 is 4.199999999999999 in IEEE-754. The anchor is
+    // the design intent, not a bit pattern, and no decimal scale reproduces 4.2 exactly.
+    const { baseTurnRate, turnRatePerRating, baseAccel, accelPerRating } = DRIVE_CONFIG;
+    expect(baseTurnRate + 50 * turnRatePerRating).toBeCloseTo(4.2, 9);
+    expect(baseAccel + 50 * accelPerRating).toBeCloseTo(780, 9);
+  });
+
+  it("keeps the stopped turn rate at half the moving one, as it shipped", () => {
+    expect(DRIVE_CONFIG.stopTurnRatio).toBe(0.5);
+    for (const id of Object.keys(CAR_TABLE) as CarId[]) {
+      expect(turnRateAtStopOf(id)).toBeCloseTo(turnRateOf(id) * 0.5, 9);
+    }
+  });
+
+  it("feeds the derived rates into every chassis's ChassisDrive", () => {
+    for (const id of Object.keys(CAR_TABLE) as CarId[]) {
+      const d = driveOf(id);
+      expect(d.turnRate).toBeCloseTo(turnRateOf(id), 9);
+      expect(d.turnRateAtStop).toBeCloseTo(turnRateAtStopOf(id), 9);
+      expect(d.accel).toBeCloseTo(accelOf(id), 9);
+      expect(d.reverseAccel).toBeCloseTo(reverseAccelOf(id), 9);
+    }
+  });
+});
+
 describe("COLOR_TABLE", () => {
   it("has 6 unique hex colors", () => {
     expect(COLOR_TABLE).toHaveLength(6);
@@ -161,8 +194,10 @@ describe("weapon / combat / drive / flow knobs exist", () => {
     // red on every good change as readily as a bad one. What must hold is that it is a real rate
     // and that splitting it from `accel` bought something — a reverseAccel below `accel` would make
     // backing out slower than the forward curve it was separated from.
-    expect(DRIVE_CONFIG.reverseAccel).toBeGreaterThan(0);
-    expect(DRIVE_CONFIG.reverseAccel).toBeGreaterThanOrEqual(DRIVE_CONFIG.accel);
+    expect(DRIVE_CONFIG.reverseAccelFactor).toBeGreaterThanOrEqual(1);
+    for (const id of Object.keys(CAR_TABLE) as CarId[]) {
+      expect(reverseAccelOf(id)).toBeGreaterThanOrEqual(accelOf(id));
+    }
   });
 
   it("keeps stopEpsilon a small positive rest band", () => {

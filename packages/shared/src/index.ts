@@ -101,12 +101,16 @@ export {
   DEFAULT_CAR_ID,
   RAM_REFERENCE,
   RAM_REFERENCE_MASS,
+  accelOf,
   driveOf,
   forwardMaxSpeedOf,
   hpOf,
   isCarId,
   massOf,
+  reverseAccelOf,
   reverseMaxSpeedOf,
+  turnRateAtStopOf,
+  turnRateOf,
 } from "./config/car-config.js";
 export type { ChassisDrive } from "./config/car-config.js";
 export { COLOR_TABLE } from "./config/color-config.js";

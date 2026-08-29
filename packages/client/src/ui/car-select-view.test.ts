@@ -3,9 +3,11 @@ import {
   CAR_TABLE,
   DRIVE_CONFIG,
   TICK_RATE_HZ,
+  accelOf,
   forwardMaxSpeedOf,
   hpOf,
   reverseMaxSpeedOf,
+  turnRateOf,
   weaponDamageOf,
   weaponDefOf,
   type CarId,
@@ -45,11 +47,35 @@ describe("fullStatsFor", () => {
     );
   });
 
+  it("derives acceleration, turn rate and turn radius from the shared config, per car", () => {
+    // The panel rounds to at most one decimal for display, so parse the number back out rather
+    // than string-matching the raw float (turnRateOf can land on 4.199999999999999).
+    for (const id of Object.keys(CAR_TABLE) as CarId[]) {
+      const rows = fullStatsFor(id);
+      const accelRow = rows.find((r) => r.label === "Acceleration")!;
+      expect(accelRow.value.endsWith(" u/s²")).toBe(true);
+      expect(Number(accelRow.value.replace(" u/s²", ""))).toBeCloseTo(accelOf(id), 1);
+
+      const turnRateRow = rows.find((r) => r.label === "Turn rate")!;
+      expect(turnRateRow.value.endsWith(" rad/s")).toBe(true);
+      expect(Number(turnRateRow.value.replace(" rad/s", ""))).toBeCloseTo(turnRateOf(id), 1);
+
+      const turnRadiusRow = rows.find((r) => r.label === "Turn radius")!;
+      expect(turnRadiusRow.value.endsWith(" u")).toBe(true);
+      expect(Number(turnRadiusRow.value.replace(" u", ""))).toBeCloseTo(
+        forwardMaxSpeedOf(id) / turnRateOf(id),
+        1,
+      );
+    }
+  });
+
   it("lists the design's rows plus one damage row per equipped weapon, in order", () => {
     expect(fullStatsFor("bastion").map((r) => r.label)).toEqual([
       "Top speed",
       "Reverse speed",
+      "Acceleration",
       "Turn rate",
+      "Turn radius",
       "Hull HP",
       "Mass",
       "Hull size",

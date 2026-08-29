@@ -39,7 +39,7 @@ export type StatusId =
 export type StatusChannel =
   /** Forward and reverse top speed (`forwardMaxSpeedOf` / `reverseMaxSpeedOf`). */
   | "topSpeed"
-  /** Engine push: `DRIVE_CONFIG.accel` and `reverseAccel`. Drag is NOT scaled. */
+  /** Engine push: `accelOf` and `reverseAccelOf`. Drag is NOT scaled. */
   | "accel"
   /** Steering rate, alongside — never instead of — the ram's `authority`. Above 1 corners tighter. */
   | "turnRate"

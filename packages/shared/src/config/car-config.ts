@@ -22,9 +22,9 @@ import type { CarDef, CarId } from "./types.js";
  * swapping a pair, never copying one.
  */
 export const CAR_TABLE = {
-  mirage: { id: "mirage", name: "Mirage", speed: 80, attack: 30, hp: 40, mass: 35, weapons: ["fireball", "pepperbox", "afterburner"] },
-  bullseye: { id: "bullseye", name: "Bullseye", speed: 50, attack: 70, hp: 30, mass: 45, weapons: ["needler", "skewer", "lance"] },
-  bastion: { id: "bastion", name: "Bastion", speed: 30, attack: 50, hp: 70, mass: 85, weapons: ["thumper", "shockwave", "bulwark"] },
+  mirage: { id: "mirage", name: "Mirage", speed: 80, attack: 30, hp: 40, mass: 35, accel: 50, handling: 50, weapons: ["fireball", "pepperbox", "afterburner"] },
+  bullseye: { id: "bullseye", name: "Bullseye", speed: 50, attack: 70, hp: 30, mass: 45, accel: 50, handling: 50, weapons: ["needler", "skewer", "lance"] },
+  bastion: { id: "bastion", name: "Bastion", speed: 30, attack: 50, hp: 70, mass: 85, accel: 50, handling: 50, weapons: ["thumper", "shockwave", "bulwark"] },
 } as const satisfies Record<CarId, CarDef>;
 
 /**
@@ -53,6 +53,22 @@ export function forwardMaxSpeedOf(id: CarId): number {
 
 export function reverseMaxSpeedOf(id: CarId): number {
   return forwardMaxSpeedOf(id) * DRIVE_CONFIG.reverseSpeedRatio;
+}
+
+export function turnRateOf(id: CarId): number {
+  return DRIVE_CONFIG.baseTurnRate + CAR_TABLE[id].handling * DRIVE_CONFIG.turnRatePerRating;
+}
+
+export function turnRateAtStopOf(id: CarId): number {
+  return turnRateOf(id) * DRIVE_CONFIG.stopTurnRatio;
+}
+
+export function accelOf(id: CarId): number {
+  return DRIVE_CONFIG.baseAccel + CAR_TABLE[id].accel * DRIVE_CONFIG.accelPerRating;
+}
+
+export function reverseAccelOf(id: CarId): number {
+  return accelOf(id) * DRIVE_CONFIG.reverseAccelFactor;
 }
 
 export function massOf(id: CarId): number {
@@ -104,10 +120,10 @@ export const CHASSIS_DRIVE: Readonly<Record<CarId, ChassisDrive>> = Object.freez
       Object.freeze({
         maxSpeed: forwardMaxSpeedOf(id),
         reverseMaxSpeed: reverseMaxSpeedOf(id),
-        accel: DRIVE_CONFIG.accel,
-        reverseAccel: DRIVE_CONFIG.reverseAccel,
-        turnRate: DRIVE_CONFIG.turnRate,
-        turnRateAtStop: DRIVE_CONFIG.turnRateAtStop,
+        accel: accelOf(id),
+        reverseAccel: reverseAccelOf(id),
+        turnRate: turnRateOf(id),
+        turnRateAtStop: turnRateAtStopOf(id),
       }),
     ]),
   ) as Record<CarId, ChassisDrive>,

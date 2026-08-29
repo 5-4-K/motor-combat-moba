@@ -5,11 +5,12 @@
  * **What is coupled to what.** These knobs are not independent, and changing one in isolation is
  * how the feel regresses:
  *
- * - *Turn radius* is `speed / turnRate`. Raising the speed knobs without raising `turnRate` widens
- *   every corner, so a faster car reads as a *less* agile one. At the current values the fastest
- *   car turns inside 129 world units.
- * - *Time to top speed* is `forwardMaxSpeedOf(id) / accel`. Raising the speed knobs alone stretches
- *   it, and the car feels sluggish off the line despite the higher ceiling. Currently 0.69s.
+ * - *Turn radius* is `speed / turnRate`, and both halves are now per-car (`forwardMaxSpeedOf`,
+ *   `turnRateOf`). Raising a chassis's speed rating without raising its handling widens its corners,
+ *   so a faster car reads as a *less* agile one — reason per chassis, not for "the fastest car".
+ * - *Time to top speed* is `forwardMaxSpeedOf(id) / accelOf(id)`, also per-car now. Raising a
+ *   chassis's speed rating alone stretches this, and that car feels sluggish off the line despite
+ *   the higher ceiling.
  * - `brakeDecel` **must** exceed `drag`, or holding Down stops you slower than releasing the
  *   throttle and the brake button stops meaning anything. `config.test.ts` enforces the ordering.
  * - `CAMERA_CONFIG.freeRoamSpeed` **must** exceed `forwardMaxSpeedOf` of the fastest car, or a
@@ -18,8 +19,10 @@
  *
  * `baseMaxSpeed` and `speedPerRating` scale together deliberately: the ratio between them is what
  * decides how much the per-car `speed` rating matters. Moving only one re-balances the roster.
- *
- * Times below are quoted for the fastest chassis (mirage, speed rating 80, 540 units/second).
+ * `baseTurnRate`/`turnRatePerRating` and `baseAccel`/`accelPerRating` are anchored the same way: at
+ * this task's ratings (every car authored at 50) they reproduce the single global `turnRate` and
+ * `accel` this game shipped with, so retuning `handling` or `accel` per car is a driving change,
+ * never accidentally a re-anchor of the whole roster.
  */
 export const DRIVE_CONFIG = {
   baseMaxSpeed: 180,
@@ -29,19 +32,34 @@ export const DRIVE_CONFIG = {
    * top speed stayed where it was: widening the ratings is a combat change, not a driving one.
    */
   speedPerRating: 4.5,
-  accel: 780,
   /** Holding Down against forward motion. Also brakes reverse when Up is held. 0.34s to rest. */
   brakeDecel: 1600,
   /** Throttle released. 0.60s to rest — kept below `brakeDecel` so braking stays the faster option. */
   drag: 900,
-  turnRate: 4.2,
-  turnRateAtStop: 2.1,
+  /**
+   * Turn rate is `baseTurnRate + handling * turnRatePerRating`, resolved per car by `turnRateOf`.
+   *
+   * Anchored so rating 50 yields exactly 4.2 — the single global turn rate this game shipped with —
+   * so the roster moves around a fixed pivot and "an average chassis corners like the old game" stays
+   * true. `config.test.ts` pins that anchor.
+   */
+  baseTurnRate: 2.4,
+  turnRatePerRating: 0.036,
+  /** Steering at rest, as a fraction of the moving rate. Preserves the shipped 2.1 / 4.2. */
+  stopTurnRatio: 0.5,
+  /**
+   * Engine push is `baseAccel + accel * accelPerRating`, resolved per car by `accelOf`. Anchored the
+   * same way `baseTurnRate` is: rating 50 yields exactly 780.
+   */
+  baseAccel: 420,
+  accelPerRating: 7.2,
   reverseSpeedRatio: 0.65,
   /**
-   * Backing up gets its own rate rather than borrowing `accel`, so the brake-to-reverse transition
-   * can be quick without making forward acceleration equally twitchy. 0.32s to the reverse cap.
+   * Reverse push as a fraction of forward. At rating 50 this gives 1099.8 against the 1100 that
+   * shipped — a deliberate 0.02% rounding, below anything a driver can feel, taken because the exact
+   * ratio (1100/780) is not a number anyone should have to read in a config file.
    */
-  reverseAccel: 1100,
+  reverseAccelFactor: 1.41,
   /**
    * Ticks Down must be held *at rest* before reverse engages, guarding against a tap of the brake
    * flinging you backward. At `TICK_RATE_HZ` 30 this is 66ms. Networked as uint16 via `reverseHold`.

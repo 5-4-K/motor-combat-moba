@@ -7,6 +7,7 @@ import {
   PlayerState,
   PlayerStatus,
   RoomPhase,
+  driveOf,
   type InputMessage,
   type Modifiers,
   type SimBody,
@@ -83,7 +84,7 @@ describe("serverTick", () => {
 
     expect(player.x).toBeGreaterThan(300);
     expect(player.y).toBe(CORRIDOR_Y);
-    expect(player.speed).toBeCloseTo(DRIVE_CONFIG.accel * DT, 6);
+    expect(player.speed).toBeCloseTo(driveOf("mirage").accel * DT, 6);
     expect(player.lastProcessedInputSeq).toBe(7);
     expect(queues.get("p1")).toEqual([]);
   });
@@ -96,7 +97,7 @@ describe("serverTick", () => {
     serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS);
 
     // Would be a single `accel * DT` if `speed` were only written back after the last input.
-    expect(player.speed).toBeCloseTo(3 * DRIVE_CONFIG.accel * DT, 6);
+    expect(player.speed).toBeCloseTo(3 * driveOf("mirage").accel * DT, 6);
   });
 
   it("leaves a player with an empty or missing queue unchanged", () => {
