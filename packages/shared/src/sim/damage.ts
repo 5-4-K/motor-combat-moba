@@ -11,7 +11,8 @@ import type { WeaponId } from "../config/weapon-types.js";
  *
  * Pure and clamped at both ends: hp never goes negative (0 is the wreck threshold the win check
  * reads), and a negative `amount` is dropped rather than healing, so a bad config number cannot
- * turn a weapon into a repair kit.
+ * turn a weapon into a repair kit. Healing has its own function, `applyHeal` below; the two are
+ * deliberately not one signed function, so no call site can flip direction by getting a sign wrong.
  */
 export function applyDamage(hp: number, amount: number): number {
   if (amount <= 0) return hp;
@@ -44,7 +45,7 @@ export function weaponDamageOf(carId: CarId, weaponId: WeaponId): number {
 }
 
 /**
- * `amount` seen through one buff/debuff channel — `damageDealt` on the way out, `damageTaken` on
+ * `amount` seen through one status channel — `damageDealt` on the way out, `damageTaken` on
  * the way in. The only place an effect is ever allowed to change a hit's size.
  *
  * Rounded to a whole number here, exactly as `damageFor` is and for the same reason: an integer must
@@ -60,4 +61,24 @@ export function weaponDamageOf(carId: CarId, weaponId: WeaponId): number {
 export function scaleDamage(amount: number, multiplier: number): number {
   if (!Number.isFinite(multiplier) || multiplier < 0) return amount;
   return Math.max(0, Math.round(Number((amount * multiplier).toFixed(6))));
+}
+
+/**
+ * The only place hp is ever restored, and the counterpart to `applyDamage` above.
+ *
+ * Healing exists because a status can pulse it (`fortified`). That means `applyDamage` is no longer
+ * the *only* writer of hp — **`sim/damage.ts` is**, and the pair of functions here is the whole set.
+ * Keeping them side by side is what preserves the property the original rule was protecting: one
+ * file to read when asking "what can move a car's hp", and one place to add a cap, a shield, or a
+ * damage-over-time interaction.
+ *
+ * Clamped at both ends and never revives. `hp` of 0 is the wreck threshold the win check reads, so a
+ * heal that lifted a wreck off 0 would silently un-eliminate a player who is already spectating —
+ * `runCombat` gates on `alive` as well, and this is the second lock on the same door. A negative
+ * `amount` is dropped rather than dealing damage, mirroring `applyDamage` refusing to heal.
+ */
+export function applyHeal(hp: number, amount: number, maxHp: number): number {
+  if (amount <= 0) return hp;
+  if (hp <= 0) return hp;
+  return Math.min(maxHp, hp + amount);
 }

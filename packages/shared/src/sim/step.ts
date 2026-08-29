@@ -2,7 +2,7 @@ import type { CarId } from "../config/types.js";
 import type { InputMessage } from "../net/input.js";
 import { resolveWorld, type Aabb, type Bounds, type Obb } from "./collide.js";
 import { stepDrive } from "./drive.js";
-import type { Modifiers } from "./effects/modifiers.js";
+import type { Modifiers } from "./status/modifiers.js";
 
 export interface SimBody {
   x: number;
@@ -37,8 +37,8 @@ export interface StepContext {
   obstacles: readonly Aabb[];
   bounds: Bounds;
   /**
-   * The buff/debuff multipliers this car is driving under, collapsed from its active effects by
-   * `modifiersOf`. `NEUTRAL_MODIFIERS` for a car carrying nothing, which reproduces the pre-effect
+   * The multipliers this car is driving under, collapsed from the statuses it is in by
+   * `modifiersOf`. `NEUTRAL_MODIFIERS` for a car in no status, which reproduces the pre-status
    * drive model exactly.
    *
    * It lives on the context rather than on `SimBody` because it is not integrated state: nothing in

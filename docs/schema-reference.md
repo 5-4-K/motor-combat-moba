@@ -45,7 +45,7 @@ Colyseus `@type` fields. Enums are explicit uint8; never renumber. `pendingCarId
 | `pendingUntilTick` | uint32 | `0` | Tick a committed press next puts a shot out (wind-up, or the next volley of a burst). `0` = nothing pending; the HUD reads mid-press as `tick < pendingUntilTick` |
 | `lastFiredSlot` | int8 | `-1` | Slot the car most recently committed to firing; `-1` = never fired. Signed because `-1` is the natural "never" for an index |
 | `lockTargetSessionId` | string | `""` | Session id of this car's aim-assist target, or `""`. The only part of the lock that is networked |
-| `effects` | array `EffectState` | empty | Live buffs and debuffs, capped at `EFFECT_CONFIG.maxActive` (6). Sorted by `effectId` so a patch carries a diff rather than a reshuffle |
+| `statuses` | array `StatusState` | empty | The statuses this car is in, capped at `STATUS_CONFIG.maxActive` (6). Sorted by `statusId` so a patch carries a diff rather than a reshuffle |
 
 `weaponCooldown` (a single counter for the one pre-weapon-system shot) is gone — replaced by
 `weapons` above, one row per slot.
@@ -57,30 +57,33 @@ next `stepSim` integration directly, so a half-eased value would poison every su
 than merely look wrong. See [`config-reference.md`](config-reference.md#ram_config) for the tuning
 that produces them.
 
-## EffectState
+## StatusState
 
-One live buff or debuff on one car. Array position carries no meaning — `modifiersOf` multiplies and
-OR-s, both of which commute — so the sim keeps rows sorted by `effectId` purely to keep patches small.
+One running status on one car. Array position carries no meaning — `modifiersOf` multiplies and OR-s,
+both of which commute — so the sim keeps rows sorted by `statusId` purely to keep patches small.
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
-| `effectId` | string | `""` | Lookup key into `EFFECT_TABLE`. Validated through `isEffectId` by every reader |
-| `endsTick` | uint32 | `0` | Tick the effect stops applying. Active while `tick < endsTick` — a tick, not a countdown, so it stays right between two patches at 20 Hz |
-| `stacks` | uint8 | `1` | Always 1 unless the row's `stacking` is `"stack"`; capped by its `maxStacks` |
+| `statusId` | string | `""` | Lookup key into `STATUS_TABLE`. Validated through `isStatusId` by every reader |
+| `startTick` | uint32 | `0` | The tick it was applied on. Two readers need it and neither can derive it: pulses are counted from here, and the drain bar's total is not in the status table because the applier chose it |
+| `endsTick` | uint32 | `0` | The tick it stops applying. Active while `tick < endsTick` — a tick, not a countdown, so it stays right between two patches at 20 Hz |
 | `sourceSessionId` | string | `""` | Who applied it; `""` for the world (a pickup, a hazard). The sim never reads it |
 
-**Effects are the one system with no server-only half.** `FireState`'s `pending` machine, an
+There is deliberately **no `stacks` field**. A status cannot stack with itself — one id on one car is
+exactly one instance at exactly the strength its row states — so a count would only ever be 1.
+
+**Statuses are the one system with no server-only half.** `FireState`'s `pending` machine, an
 instance's `damageClock`, and the lock's commit timers all stay off the wire because the client is
-told the result rather than the rules. An effect is the opposite case: `stepSim` reads the modifiers
+told the result rather than the rules. A status is the opposite case: `stepSim` reads the modifiers
 derived from these rows (invariant 8), so the client must hold the same list to predict the same car.
 `sourceSessionId` is the one field the sim does not read, and it is networked anyway so the schema
-stays the whole truth about a car's effects rather than half of it beside a server-only map.
+stays the whole truth about a car's statuses rather than half of it beside a server-only map.
 
 Reconciliation does **not** snap or ease these. `angVel`/`shoveX`/`shoveY`/`authority` are values
-being integrated, so a half-eased one poisons the next step; an effect list is the *rules* the
+being integrated, so a half-eased one poisons the next step; a status list is the *rules* the
 integration runs under, and both halves of the lockstep derive it from the same tick through the same
-shared `modifiersFromRows`. See [`combat-model.md`](combat-model.md#buffs-and-debuffs) for the model
-and [`config-reference.md`](config-reference.md#effect_table) for the tuning.
+shared `modifiersFromRows`. See [`combat-model.md`](combat-model.md#statuses) for the model and
+[`config-reference.md`](config-reference.md#status_table) for the tuning.
 
 ## WeaponInstanceState
 

@@ -4,7 +4,7 @@ import { DRIVE_CONFIG } from "../config/drive-config.js";
 import { RAM_CONFIG } from "../config/ram-config.js";
 import type { InputMessage } from "../net/input.js";
 import { stepDrive } from "./drive.js";
-import { NEUTRAL_MODIFIERS } from "./effects/modifiers.js";
+import { NEUTRAL_MODIFIERS } from "./status/modifiers.js";
 import type { SimBody } from "./step.js";
 
 const CAR_ID = "rectangle";

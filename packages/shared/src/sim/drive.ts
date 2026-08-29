@@ -3,21 +3,23 @@ import { forwardMaxSpeedOf, reverseMaxSpeedOf } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import { RAM_CONFIG, RAM_DECAY } from "../config/ram-config.js";
 import type { InputMessage } from "../net/input.js";
-import type { Modifiers } from "./effects/modifiers.js";
+import type { Modifiers } from "./status/modifiers.js";
 import type { SimBody } from "./step.js";
 
 /**
  * Arcade drive: steering, throttle/brake/reverse, and world translation for one tick. Pure.
  *
- * `mods` are the car's buff/debuff multipliers. They scale the drive CONSTANTS — the turn rate, the
- * engine's push, the speed caps — and change nothing about the integration itself: the drive model
- * is the same three lines it was, read with different numbers. At `NEUTRAL_MODIFIERS` every product
- * is a multiplication by 1 and this function is arithmetically identical to its pre-effect self,
- * which is the property `golden.test.ts` pins.
+ * `mods` are the car's status multipliers. They scale the drive CONSTANTS — the turn rate, the
+ * engine's push, the brake, the speed caps — and change nothing about the integration itself: the
+ * drive model is the same three lines it was, read with different numbers. At `NEUTRAL_MODIFIERS`
+ * every product is a multiplication by 1 and this function is arithmetically identical to its
+ * pre-status self, which is the property `golden.test.ts` pins.
  *
- * Braking and drag are deliberately NOT scaled by any channel. Both are the car's ability to *stop*,
- * and a debuff that made a car harder to slow down would read to its driver as the game taking the
- * brakes away — the one input a player reaches for when they are already in trouble.
+ * **Drag is the one constant no channel scales.** Braking is now scalable (`overheated` fades it),
+ * but drag is what a car does with no input at all, and a car that would not slow down even off the
+ * throttle has stopped being a car. `STATUS_LIMITS.brakeDecel.min` keeps scaled braking above drag
+ * for the same reason: the brake pedal must always beat lifting off, or the control reads as broken
+ * rather than degraded.
  */
 export function stepDrive(
   body: SimBody,
@@ -28,6 +30,9 @@ export function stepDrive(
 ): SimBody {
   const baseTurnRate = isMoving(body.speed) ? DRIVE_CONFIG.turnRate : DRIVE_CONFIG.turnRateAtStop;
   const turnRate = baseTurnRate * mods.turnRate;
+  // `steeringLocked` kills the driver's input, never the injected spin below: a stunned car that is
+  // rammed still tumbles, which is the whole reason the two terms are added rather than multiplied.
+  const steer = mods.steeringLocked ? 0 : input.steer;
   // Steering is scaled by authority; injected spin is not. Both are ADDED into one rotation, which
   // is what makes countersteering free: the integrator does not know why angVel is high, so steering
   // the other way simply subtracts from the same sum.
@@ -35,10 +40,11 @@ export function stepDrive(
   // `mods.turnRate` multiplies alongside `authority` rather than replacing it: they answer different
   // questions ("how sharply does this car turn" vs "how much of your steering is reaching the road
   // right now"), they decay on different clocks, and a rattled car mid-ram should be both.
-  const angle = body.angle + (input.steer * turnRate * body.authority + body.angVel) * dt;
+  const angle = body.angle + (steer * turnRate * body.authority + body.angVel) * dt;
 
-  // `immobilised` zeroes the THROTTLE, not the car: steering, braking, drag and any standing knock
-  // all still resolve. No effect row uses it — see the design note in `effect-config.ts`.
+  // `immobilised` zeroes the THROTTLE, not the car: braking, drag and any standing knock all still
+  // resolve, and speed bleeds off through drag rather than snapping to 0 — an instant stop at speed
+  // reads as hitting an invisible wall, not as being stunned.
   const throttle = mods.immobilised ? 0 : input.throttle;
   const { speed, reverseHold } = nextSpeed(body.speed, body.reverseHold, throttle, dt, carId, mods);
 
@@ -59,7 +65,9 @@ export function stepDrive(
     angle,
     speed,
     reverseHold,
-    angVel: nextAngVel(body.angVel, input.steer),
+    // `steer`, not `input.steer`: a driver whose wheel is locked cannot countersteer out of a spin
+    // either, so the fast decay has to be gated by the same value the rotation above used.
+    angVel: nextAngVel(body.angVel, steer),
     shoveX: decayShove(body.shoveX),
     shoveY: decayShove(body.shoveY),
     authority: recoverAuthority(body.authority),
@@ -134,7 +142,7 @@ function accelerateForward(
   mods: Readonly<Modifiers>,
 ): number {
   if (speed < -DRIVE_CONFIG.stopEpsilon) {
-    return Math.min(0, speed + DRIVE_CONFIG.brakeDecel * dt);
+    return Math.min(0, speed + DRIVE_CONFIG.brakeDecel * mods.brakeDecel * dt);
   }
   return Math.min(
     forwardMaxSpeedOf(carId) * mods.topSpeed,
@@ -157,7 +165,10 @@ function brakeOrReverse(
 ): { speed: number; reverseHold: number } {
   if (speed > DRIVE_CONFIG.stopEpsilon) {
     // Still rolling forward — brake toward 0 first.
-    return { speed: Math.max(0, speed - DRIVE_CONFIG.brakeDecel * dt), reverseHold: 0 };
+    return {
+      speed: Math.max(0, speed - DRIVE_CONFIG.brakeDecel * mods.brakeDecel * dt),
+      reverseHold: 0,
+    };
   }
   if (speed < -DRIVE_CONFIG.stopEpsilon) {
     // Already reversing — keep accelerating; do not re-arm the hold delay.

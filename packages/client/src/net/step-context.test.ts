@@ -116,10 +116,10 @@ describe("buildStepContext", () => {
 
 describe("localModifiers", () => {
   /** The wire shape `ArenaState.players` presents: rows with an `effects` list on each player. */
-  function stateWith(rows: Iterable<{ effectId: string; endsTick: number; stacks: number }>) {
+  function stateWith(rows: Iterable<{ statusId: string; startTick: number; endsTick: number }>) {
     return {
       players: {
-        get: (id: string) => (id === "me" ? { effects: rows } : undefined),
+        get: (id: string) => (id === "me" ? { statuses: rows } : undefined),
       },
     };
   }
@@ -128,30 +128,30 @@ describe("localModifiers", () => {
     expect(localModifiers(stateWith([]), "someone-else", 0)).toEqual(NEUTRAL_MODIFIERS);
   });
 
-  it("is neutral for a player carrying nothing", () => {
+  it("is neutral for a player in no status", () => {
     expect(localModifiers(stateWith([]), "me", 0)).toEqual(NEUTRAL_MODIFIERS);
   });
 
   it("reads the rows through the same shared function the server uses", () => {
-    const rows = [{ effectId: "overdrive", endsTick: 500, stacks: 1 }];
+    const rows = [{ statusId: "fortified", startTick: 0, endsTick: 500 }];
     expect(localModifiers(stateWith(rows), "me", 0)).toEqual(modifiersFromRows(rows, 0));
   });
 
   it("stops applying an effect on its endsTick, so a stale patch cannot mispredict a slow", () => {
-    const rows = [{ effectId: "tarred", endsTick: 500, stacks: 1 }];
+    const rows = [{ statusId: "spiked", startTick: 0, endsTick: 500 }];
     expect(localModifiers(stateWith(rows), "me", 499).topSpeed).toBeLessThan(1);
     expect(localModifiers(stateWith(rows), "me", 500)).toEqual(NEUTRAL_MODIFIERS);
   });
 
   it("ignores a row this build has no definition for", () => {
-    const rows = [{ effectId: "from-a-newer-build", endsTick: 500, stacks: 1 }];
+    const rows = [{ statusId: "from-a-newer-build", startTick: 0, endsTick: 500 }];
     expect(localModifiers(stateWith(rows), "me", 0)).toEqual(NEUTRAL_MODIFIERS);
   });
 });
 
 describe("buildStepContext carries the modifiers it is given", () => {
   it("puts them on the context, untouched", () => {
-    const mods = modifiersFromRows([{ effectId: "overdrive", endsTick: 500, stacks: 1 }], 0);
+    const mods = modifiersFromRows([{ statusId: "fortified", startTick: 0, endsTick: 500 }], 0);
     const ctx = buildStepContext(ARENA, state({ me: player() }), "me", mods);
     expect(ctx.modifiers).toBe(mods);
   });

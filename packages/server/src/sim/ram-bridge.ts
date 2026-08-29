@@ -7,7 +7,7 @@ import {
   type PlayerState,
   type RamCar,
 } from "@motor-combat-moba/shared";
-import { modifiersFor } from "./effect-bridge.js";
+import { modifiersFor } from "./status-bridge.js";
 
 /**
  * The schema half of ramming: read `ArenaState` into plain objects, run the pure `applyRams`, write
@@ -47,7 +47,7 @@ export function clearKnock(player: PlayerState): void {
 function ramCarsOf(
   state: ArenaState,
   roster: ReadonlySet<string>,
-  effectMods: ReadonlyMap<string, Modifiers>,
+  statusMods: ReadonlyMap<string, Modifiers>,
 ): RamCar[] {
   const cars: RamCar[] = [];
   state.players.forEach((player, sessionId) => {
@@ -62,7 +62,7 @@ function ramCarsOf(
       angle: player.angle,
       speed: player.speed,
       carId: carIdOf(player),
-      massMult: modifiersFor(effectMods, sessionId).ramMass,
+      massMult: modifiersFor(statusMods, sessionId).ramMass,
     });
   });
   return cars;
@@ -73,10 +73,10 @@ export function ramTick(
   roster: ReadonlySet<string>,
   memory: RamMemory,
   mode: "ffa" | "team",
-  effectMods: ReadonlyMap<string, Modifiers>,
+  statusMods: ReadonlyMap<string, Modifiers>,
 ): void {
   const { knocks, contacts } = applyRams(
-    ramCarsOf(state, roster, effectMods),
+    ramCarsOf(state, roster, statusMods),
     memory.contacts,
     mode,
   );

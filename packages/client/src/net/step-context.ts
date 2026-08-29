@@ -6,7 +6,7 @@ import {
   type ArenaDef,
   type ContextEntry,
   type ContextPlayer,
-  type EffectRow,
+  type StatusRow,
   type Modifiers,
   type StepContext,
 } from "@motor-combat-moba/shared";
@@ -64,7 +64,7 @@ export function buildStepContext(
 }
 
 /**
- * The local car's buff/debuff multipliers, from the effect rows the server patched onto it.
+ * The local car's status multipliers, from the rows the server patched onto it.
  *
  * The client's half of the effect layer, and it is deliberately thin: `modifiersFromRows` is the
  * *same* shared function `serverTick` reaches through, so the two sides cannot drift on how a list
@@ -72,25 +72,25 @@ export function buildStepContext(
  * out of this file. All this adds is reading the rows off the schema and answering neutral for a
  * player who is not in the room yet.
  *
- * `tick` is the state's own tick, not a local clock. An effect is active while `tick < endsTick`, so
+ * `tick` is the state's own tick, not a local clock. A status is active while `tick < endsTick`, so
  * the reading has to be taken on the tick the server is on — and `modifiersFromRows` filters by it
  * independently of the server's sweep, which is what stops a patch arriving one tick late from
  * predicting a slow the server has already dropped.
  */
 export function localModifiers(
-  state: EffectRowSource,
+  state: StatusRowSource,
   selfSessionId: string,
   tick: number,
 ): Readonly<Modifiers> {
-  const rows = state.players.get(selfSessionId)?.effects;
+  const rows = state.players.get(selfSessionId)?.statuses;
   if (!rows) return NEUTRAL_MODIFIERS;
   return modifiersFromRows(rows, tick);
 }
 
 /**
- * Just enough of `ArenaState` to read one player's effect rows. Named for what it supplies rather
- * than after the schema class `EffectState`, which is one row and not a source of them.
+ * Just enough of `ArenaState` to read one player's status rows. Named for what it supplies rather
+ * than after the schema class `StatusState`, which is one row and not a source of them.
  */
-export interface EffectRowSource {
-  players: { get(sessionId: string): { effects: Iterable<EffectRow> } | undefined };
+export interface StatusRowSource {
+  players: { get(sessionId: string): { statuses: Iterable<StatusRow> } | undefined };
 }

@@ -10,14 +10,20 @@ Keep the scene thin: pure, testable logic lives beside it (`net/step-context.ts`
 
 `buildStepContext` must keep agreeing with `serverTick`. The parts that decide who is solid and how a hull is sized are the *same* shared functions both call (`carIdOf`, `otherCarHulls` in `@motor-combat-moba/shared`) — change them there, never fork a client copy.
 
-Buffs and debuffs are the one part of combat the client DOES predict — because `stepSim` reads them.
-`localModifiers` in `net/step-context.ts` reads `PlayerState.effects` off the schema and hands the
+Statuses are the one part of combat the client DOES predict — because `stepSim` reads them.
+`localModifiers` in `net/step-context.ts` reads `PlayerState.statuses` off the schema and hands the
 rows to the same shared `modifiersFromRows` the server reaches through; never fork that derivation
 here, for the same reason `carIdOf` and `otherCarHulls` are not forked. The badge strip above the
-weapon slots is derived in `scenes/effect-hud.ts` (order, drain fraction, seconds, strip layout) and
-drawn by `ArenaScene.drawEffectStrip` on the slot bar's own `Graphics`. **An effect the player cannot
+weapon slots is derived in `scenes/status-hud.ts` (order, drain fraction, seconds, strip layout) and
+drawn by `ArenaScene.drawStatusStrip` on the slot bar's own `Graphics`. **A status the player cannot
 see is a bug they will report as the car feeling wrong** — a slow with no badge reads as netcode —
-so the strip is load-bearing, not decoration.
+so the strip is load-bearing, not decoration. The drain bar is measured from the row's own
+`startTick`, because a status's duration comes from whatever applied it and is not in the table.
+
+An **aura** (a `disc`-hitbox beam at `origin: "center"`) is the one instance too big to fill in: it is
+drawn as a ring plus a low-alpha wash by the branch above the circle case in `renderShots`, because a
+filled 150-unit disc would hide the cars it is about to hit. The ring still sits exactly on the
+hitbox, so "what you see is what will hit you" survives.
 
 `?debug=1` draws the car OBB hitbox.
 

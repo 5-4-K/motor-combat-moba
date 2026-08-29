@@ -36,7 +36,7 @@ export interface RamCar {
   speed: number;
   carId: CarId;
   /**
-   * The car's `ramMass` buff/debuff multiplier, 1 for a car carrying nothing.
+   * The car's `ramMass` status multiplier, 1 for a car in no status.
    *
    * Read through `effectiveMassOf` at all three sites mass enters the maths, so a mass buff works
    * both ways round: it makes this car hit harder AND makes it harder to shift. That symmetry is

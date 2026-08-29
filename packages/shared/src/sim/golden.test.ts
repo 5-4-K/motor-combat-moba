@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { InputMessage } from "../net/input.js";
 import { resolveWorld } from "./collide.js";
 import { stepDrive } from "./drive.js";
-import { NEUTRAL_MODIFIERS } from "./effects/modifiers.js";
+import { NEUTRAL_MODIFIERS } from "./status/modifiers.js";
 import type { SimBody } from "./step.js";
 
 /**
@@ -40,7 +40,7 @@ function body(over: Partial<SimBody> = {}): SimBody {
 
 function drive(start: SimBody, msg: InputMessage, ticks: number): SimBody {
   let next = start;
-  // `NEUTRAL_MODIFIERS`, and only ever that: the buff/debuff work adds a fifth argument whose
+  // `NEUTRAL_MODIFIERS`, and only ever that: the status work adds a fifth argument whose
   // neutral value multiplies every drive constant by exactly 1. Every number below must survive
   // that unchanged, the same contract the ram fields are held to above. If one of these moves,
   // the multiplicative property has been broken and the change is wrong — do not re-record them.

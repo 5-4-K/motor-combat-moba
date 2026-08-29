@@ -5,7 +5,7 @@ import type { CarId } from "../config/types.js";
 import { applyRams, impactSideOf, pairKey, resolveRam, type RamCar } from "./ram.js";
 
 function car(over: Partial<RamCar> = {}): RamCar {
-  // `massMult: 1` is the neutral value of the `ramMass` buff/debuff channel: every expectation in
+  // `massMult: 1` is the neutral value of the `ramMass` status channel: every expectation in
   // this file is the unbuffed maths, and must stay so.
   return {
     sessionId: "a",

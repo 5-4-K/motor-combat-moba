@@ -14,7 +14,7 @@ import {
   type CombatWorld,
 } from "./combat.js";
 import { carHullOf } from "./context.js";
-import { NEUTRAL_MODIFIERS } from "./effects/modifiers.js";
+import { NEUTRAL_MODIFIERS } from "./status/modifiers.js";
 import { weaponDamageOf } from "./damage.js";
 import { newFireState } from "./weapons/fire.js";
 import type { WeaponInstance } from "./weapons/instances.js";
@@ -63,7 +63,7 @@ function player(sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlay
     fireMask: 0,
     fireState: newFireState(carId as CarId | "", 1),
     lock: newLockState(),
-    effects: [],
+    statuses: [],
     ...over,
   };
 }
@@ -105,7 +105,7 @@ describe("firing", () => {
       fireMask: 0,
       fireState: newFireState("rectangle", 1),
       lock: newLockState(),
-      effects: [],
+      statuses: [],
       ...over,
     };
   }

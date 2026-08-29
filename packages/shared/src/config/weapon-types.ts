@@ -1,4 +1,4 @@
-import type { EffectId } from "./effect-types.js";
+import type { StatusId } from "./status-types.js";
 
 /** Every weapon in the game. Add an id here and a row in `WEAPON_TABLE`. */
 export type WeaponId =
@@ -47,12 +47,21 @@ export type ProjectileHitbox =
 /**
  * Beams configure their CROSS-SECTION only. The axial extent is the current expansion, growing
  * 0 -> `range` at `speed`, so `range` means one thing everywhere and cannot contradict a length.
+ *
+ * `disc` is the exception that proves the rule and the shape an AURA is made of: it has no cross
+ * section, because it is radially symmetric, so the growing extent IS its radius. A disc is the only
+ * beam shape with no direction, which is why it is also the only one that ignores the wall clip —
+ * `wallClipDistance` raycasts along a single angle, and a disc does not have one.
  */
 export type BeamHitbox =
   | { shape: "rect"; width: number }
-  | { shape: "cone"; angleDeg: number };
+  | { shape: "cone"; angleDeg: number }
+  | { shape: "disc" };
 
 export type Hitbox = ProjectileHitbox | BeamHitbox;
+
+/** Where a beam grows from. See `BeamWeaponDef.origin`. */
+export type BeamOrigin = "muzzle" | "center";
 
 interface WeaponBase {
   id: WeaponId;
@@ -94,25 +103,47 @@ interface WeaponBase {
   usesAimAssist: boolean;
   stock?: StockDef;
   /**
-   * Buffs and debuffs this weapon applies to each car it DAMAGES, on the tick the damage lands.
+   * Statuses this weapon applies, and to whom, and for how long.
    *
-   * The weapon half of the effect seam. Absent — which is every weapon in the table today — means
-   * the weapon applies nothing, exactly as the whole roster behaved before effects existed. Optional
+   * **The weapon owns the duration, not the status.** `STATUS_TABLE` says what being overheated
+   * does; this says how long *this* weapon overheats you for. The same status can therefore be a
+   * flicker from a fast repeating source and a real window from a heavy one, without the status
+   * table growing a near-duplicate row per duration.
+   *
+   * Absent means the weapon applies nothing, which is how most of the roster behaves. Optional
    * rather than required, unlike `usesAimAssist`: "this weapon also debuffs" is an addition to a
-   * weapon, not a targeting behaviour every row has to take a position on, and requiring an empty
-   * array on nine rows would be noise that says nothing.
+   * weapon, not a targeting behaviour every row has to take a position on.
    *
-   * Deliberately keyed to damage rather than to contact: `resolveInstanceHits` already decides who a
-   * shot may touch (friendly fire, the shooter, wrecks) and already runs each target's per-instance
-   * damage clock, so hanging effects off the same list means a debuff can never land on a teammate
-   * a shot passed harmlessly through, and a beam re-applies its debuff on exactly the cadence it
-   * re-applies its damage. A weapon that debuffs without hurting can author `damage: 0` and still
-   * work — the effect rides the hit, not the number.
-   *
-   * Self-buffs and teammate-buffs do NOT belong here; this list only ever reaches the car that was
-   * hit. Those want the room's `effectRequests` queue, or an `onFire` list if one is ever earned.
+   * A weapon may deal damage, apply statuses, or both. A pure applicator authors `damage: 0` and
+   * still works — a status rides the hit, not the number — and `weapon-config.test.ts` enforces the
+   * one thing that would be a bug either way: a weapon must do *something*.
    */
-  onHit?: readonly EffectId[];
+  applies?: readonly StatusApplication[];
+}
+
+/**
+ * Who a status application reaches.
+ *
+ * - `opponents` — every car this instance DAMAGES, on the tick the damage lands. It rides the damage
+ *   list, so it inherits every rule already there for free: friendly fire, the shooter's own
+ *   immunity, wrecks, pierce, and the per-target damage clock that stops a lingering beam
+ *   re-applying every single tick.
+ * - `self` — the firing car, on the tick a shot actually goes out. No hit test is involved, so it
+ *   works for any weapon whether or not it hits anything.
+ *
+ * There is deliberately no `teammates` member. Reaching a teammate means changing `canDamage`, which
+ * is the one predicate deciding friendly fire for the whole game, and that is a design decision
+ * nobody has made yet. Shipping the member as a value that silently does nothing would be worse than
+ * not having it: adding a union member later is a one-line change the compiler will help with.
+ */
+export type StatusTarget = "self" | "opponents";
+
+/** One status a weapon applies: which, to whom, for how long. */
+export interface StatusApplication {
+  statusId: StatusId;
+  target: StatusTarget;
+  /** Converted to whole ticks once, in `WEAPON_TICKS`. Capped by `STATUS_CONFIG.maxDurationMs`. */
+  durationMs: number;
 }
 
 export interface ProjectileWeaponDef extends WeaponBase {
@@ -128,6 +159,16 @@ export interface BeamWeaponDef extends WeaponBase {
   hitbox: BeamHitbox;
   /** true = origin and angle follow the firing car every tick, and it dies with its owner. */
   attached: boolean;
+  /**
+   * Where the beam is anchored. `"muzzle"` is the car's nose, which is where every shot in the game
+   * comes from and the only sensible answer for anything directional. `"center"` is the car's own
+   * centre — the other half of what makes an AURA, alongside a `disc` hitbox.
+   *
+   * Required on beams rather than defaulted, for the reason `usesAimAssist` is: a beam that grows
+   * out of the wrong point is a silent, hard-to-see mistake, and every row should have to say which
+   * it is.
+   */
+  origin: BeamOrigin;
   /** Linger AFTER full extension. Total life = range/speed + this. */
   lifetimeMs: number;
 }

@@ -213,7 +213,7 @@ describe("applyCombatResult", () => {
       fireMask: 0,
       fireState: newFireState(isCarId(player.carId) ? player.carId : "", 1),
       lock: newLockState(),
-      effects: [],
+      statuses: [],
       ...over,
     };
   }
@@ -274,8 +274,8 @@ describe("applyCombatResult", () => {
             fireMask: 0,
             fireState: newFireState("rectangle", 1),
             lock: newLockState(),
-            effects: [],
-      effects: [],
+            statuses: [],
+      statuses: [],
           },
         ],
         instances: [],

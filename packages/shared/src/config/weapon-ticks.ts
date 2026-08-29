@@ -1,4 +1,5 @@
 import { TICK_RATE_HZ } from "../constants.js";
+import { STATUS_CONFIG } from "./status-config.js";
 import { WEAPON_TABLE } from "./weapon-config.js";
 import type { WeaponDef, WeaponId } from "./weapon-types.js";
 
@@ -26,6 +27,16 @@ export interface WeaponTicks {
   volleyInterval: number;
   /** Projectiles: ticks to cross `range`. Beams: ticks to reach full extension. */
   flight: number;
+  /**
+   * How long each of this weapon's `applies` entries lasts, in ticks, positionally parallel to
+   * `WeaponDef.applies`. Empty for a weapon that applies nothing.
+   *
+   * Derived here rather than at the application site for the same reason every other duration is:
+   * milliseconds become ticks exactly once, at module load, so the two halves of the lockstep can
+   * never round differently. Clamped to `STATUS_CONFIG.maxDurationMs` before conversion, so a
+   * mis-authored row is shortened rather than left to outlive the match.
+   */
+  applyDurations: readonly number[];
 }
 
 function ticksFor(def: WeaponDef): WeaponTicks {
@@ -39,6 +50,9 @@ function ticksFor(def: WeaponDef): WeaponTicks {
       def.damageFrequencyMs === 0 ? Number.POSITIVE_INFINITY : msToTicks(def.damageFrequencyMs),
     volleyInterval: def.kind === "projectile" ? msToTicks(def.volley.volleyIntervalMs) : 0,
     flight: Math.ceil((def.range / def.speed) * TICK_RATE_HZ),
+    applyDurations: Object.freeze(
+      (def.applies ?? []).map((a) => msToTicks(Math.min(a.durationMs, STATUS_CONFIG.maxDurationMs))),
+    ),
   };
 }
 

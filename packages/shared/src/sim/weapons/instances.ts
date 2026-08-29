@@ -113,7 +113,7 @@ export function fanOffset(index: number, pellets: number, spreadRad: number): nu
  * It never moves the muzzle (A11b): the shot always leaves the car's physical nose, derived from
  * `owner.angle`, and only its travel direction changes.
  *
- * `damageMult` is the owner's `damageDealt` buff/debuff channel, and it is applied HERE, at spawn,
+ * `damageMult` is the owner's `damageDealt` status channel, and it is applied HERE, at spawn,
  * so it is frozen into `instance.damage` alongside `ownerTeam` for exactly the same reason those
  * are: a shot's cost is decided the moment it leaves the barrel. A buff that expires while the shot
  * is still in the air therefore does not un-power it, and one that lands while it flies does not
@@ -132,7 +132,9 @@ export function spawnInstances(
   const damage = scaleDamage(weaponDamageOf(carIdOf(owner), order.weaponId), damageMult);
   const pellets = def.kind === "projectile" ? def.volley.pelletsPerVolley : 1;
   const spread = def.kind === "projectile" ? (def.volley.spreadAngleDeg * Math.PI) / 180 : 0;
-  const nose = muzzleOffset();
+  // A centre-origin beam is BORN at the car centre as well as re-anchored there every tick, so an
+  // aura's first frame is already concentric rather than jumping back on its second.
+  const nose = def.kind === "beam" && def.origin === "center" ? 0 : muzzleOffset();
   // A11b: the muzzle is derived from the HEADING, never from the aim angle.
   const muzzleX = owner.x + Math.cos(owner.angle) * nose;
   const muzzleY = owner.y + Math.sin(owner.angle) * nose;
@@ -190,16 +192,26 @@ export function stepInstance(instance: WeaponInstance, ctx: StepInstanceContext)
     };
   }
 
+  // A centre-origin beam (an aura) grows from the car itself rather than from its nose. That single
+  // offset is the whole geometric difference between an aura and every other beam in the game.
+  const nose = def.kind === "beam" && def.origin === "center" ? 0 : muzzleOffset();
   const origin =
     instance.attached && ctx.ownerPose
       ? {
-          x: ctx.ownerPose.x + Math.cos(ctx.ownerPose.angle) * muzzleOffset(),
-          y: ctx.ownerPose.y + Math.sin(ctx.ownerPose.angle) * muzzleOffset(),
+          x: ctx.ownerPose.x + Math.cos(ctx.ownerPose.angle) * nose,
+          y: ctx.ownerPose.y + Math.sin(ctx.ownerPose.angle) * nose,
           angle: ctx.ownerPose.angle,
         }
       : { x: instance.x, y: instance.y, angle: instance.angle };
 
-  const reach = wallClipDistance(origin.x, origin.y, origin.angle, def.range, ctx.obstacles, ctx.bounds);
+  // A disc has no direction, so there is nothing for a raycast to follow: it grows to its full range
+  // and passes through level geometry. That is a deliberate consequence of the shape rather than an
+  // omission — clipping a radial field would have to mean an occlusion test per target, which is a
+  // different feature. An aura is a field around a car, not a line of fire.
+  const reach =
+    def.hitbox.shape === "disc"
+      ? def.range
+      : wallClipDistance(origin.x, origin.y, origin.angle, def.range, ctx.obstacles, ctx.bounds);
   return {
     ...instance,
     x: origin.x,

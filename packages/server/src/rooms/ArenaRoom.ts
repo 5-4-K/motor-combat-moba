@@ -56,7 +56,7 @@ import {
   toInstances,
   type CombatMemory,
 } from "../sim/combat-bridge.js";
-import { effectTick } from "../sim/effect-bridge.js";
+import { statusTick } from "../sim/status-bridge.js";
 import { clearKnock, newRamMemory, ramTick, type RamMemory } from "../sim/ram-bridge.js";
 import {
   fromFlowPhase,
@@ -300,17 +300,17 @@ export class ArenaRoom extends Room<ArenaState> {
       this.reduce({ type: "go" });
     }
     const dt = 1 / getTickRateHz(TICK_RATE_HZ);
-    // Buffs and debuffs FIRST, before anything reads a modifier. `effectTick` sweeps every expired
+    // Buffs and debuffs FIRST, before anything reads a modifier. `statusTick` sweeps every expired
     // effect and returns the multipliers driving, ramming and combat all share for this tick, so no
     // two phases can disagree about whether a car is still slowed, and no tick ever simulates an
     // effect whose last tick was the previous one. New effects are only ever added at the far end of
     // the tick, by combat, and take hold on the next one.
-    const effectMods = effectTick(this.state, this.state.tick);
-    const masks = serverTick(this.state, this.inputQueues, dt, this.state.phase, effectMods);
+    const statusMods = statusTick(this.state, this.state.tick);
+    const masks = serverTick(this.state, this.inputQueues, dt, this.state.phase, statusMods);
     // Ramming, after driving and before combat. The order is the rule: contacts are measured against
     // the poses driving actually produced, and the knock written here is read by stepDrive next tick.
     if (this.state.phase === RoomPhase.MATCH && this.matchRoster.size > 0) {
-      ramTick(this.state, this.matchRoster, this.ram, toFlowMode(this.state.mode), effectMods);
+      ramTick(this.state, this.matchRoster, this.ram, toFlowMode(this.state.mode), statusMods);
     }
     this.combatTick(dt, masks);
   }

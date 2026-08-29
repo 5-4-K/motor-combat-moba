@@ -1,6 +1,6 @@
 import { ArraySchema, Schema, type } from "@colyseus/schema";
 import { PlayerStatus } from "../constants.js";
-import { EffectState } from "./EffectState.js";
+import { StatusState } from "./StatusState.js";
 import { WeaponSlotState } from "./WeaponSlotState.js";
 
 export class PlayerState extends Schema {
@@ -56,7 +56,7 @@ export class PlayerState extends Schema {
    */
   @type("string") lockTargetSessionId = "";
   /**
-   * Live buffs and debuffs, capped at `EFFECT_CONFIG.maxActive`.
+   * The statuses this car is currently in, capped at `STATUS_CONFIG.maxActive`.
    *
    * Networked because `stepSim` reads it (invariant 8) — `modifiersOf` turns this list into the
    * multipliers `stepDrive` applies, so the client must hold the same list to predict the same car.
@@ -65,8 +65,8 @@ export class PlayerState extends Schema {
    * same tick through the same shared function.
    *
    * Rows are unordered as far as any reader is concerned — `modifiersOf` multiplies and OR-s, both
-   * of which commute — but the sim keeps them sorted by `effectId` so a patch carries a diff rather
+   * of which commute — but the sim keeps them sorted by `statusId` so a patch carries a diff rather
    * than a reshuffle.
    */
-  @type([EffectState]) effects = new ArraySchema<EffectState>();
+  @type([StatusState]) statuses = new ArraySchema<StatusState>();
 }
