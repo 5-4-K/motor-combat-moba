@@ -80,6 +80,7 @@ export type { FireState, PendingFire, SlotState } from "./sim/weapons/fire.js";
 export {
   instanceExpired,
   muzzleOffset,
+  type OwnerPose,
   spawnInstances,
   stepInstance,
   wallClipDistance,

@@ -657,7 +657,7 @@ describe("aim assist through a real tick", () => {
     expect(shot).toBeDefined();
     // The same muzzle-to-target math `aimAngleFor` uses, so this asserts the real geometry rather
     // than a hardcoded literal.
-    const muzzle = muzzleOf({ sessionId: a.sessionId, team: a.team, x: a.x, y: a.y, angle: a.angle });
+    const muzzle = muzzleOf({ x: a.x, y: a.y, angle: a.angle });
     const expectedAngle = Math.atan2(b.y - muzzle.y, b.x - muzzle.x);
     expect(shot!.angle).toBeCloseTo(expectedAngle, 6);
   });

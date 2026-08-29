@@ -379,13 +379,7 @@ export function aimAngleFor(
   if (player.lock.targetSessionId === "") return null;
   const target = byId.get(player.lock.targetSessionId);
   if (!target || !isFighting(target)) return null;
-  const muzzle = muzzleOf({
-    sessionId: player.sessionId,
-    team: player.team,
-    x: player.x,
-    y: player.y,
-    angle: player.angle,
-  });
+  const muzzle = muzzleOf({ x: player.x, y: player.y, angle: player.angle });
   return Math.atan2(target.y - muzzle.y, target.x - muzzle.x);
 }
 
