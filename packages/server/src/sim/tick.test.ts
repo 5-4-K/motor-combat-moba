@@ -460,3 +460,107 @@ describe("serverTick fire mask reporting", () => {
     expect([...masks.keys()].sort()).toEqual(["aaa", "bbb"]);
   });
 });
+
+/**
+ * A knock is motion applied from OUTSIDE the victim. It has to integrate whether or not that victim
+ * is still sending inputs — otherwise an alt-tabbed, AFK, or briefly-stalled player is an immovable
+ * wall that no amount of ramming can shift, and the knock written onto them never decays either.
+ *
+ * Found in playtest: a second browser tab in the background stops sending (rAF throttles hard when
+ * hidden), so the victim was skipped entirely and sat frozen with a full-strength shove on it.
+ */
+describe("serverTick coasts a knocked player who has stopped sending input", () => {
+  function knocked(over: Partial<PlayerState> = {}): PlayerState {
+    const p = makePlayer("v", 500, 400, 0);
+    p.shoveX = 300;
+    Object.assign(p, over);
+    return p;
+  }
+
+  it("moves a knocked player whose queue is empty", () => {
+    const player = knocked();
+    const state = stateWith(player);
+    serverTick(state, new Map([["v", []]]), DT, RoomPhase.MATCH);
+    expect(player.x).toBeGreaterThan(500);
+  });
+
+  it("moves a knocked player who is absent from the queue map entirely", () => {
+    const player = knocked();
+    const state = stateWith(player);
+    serverTick(state, new Map(), DT, RoomPhase.MATCH);
+    expect(player.x).toBeGreaterThan(500);
+  });
+
+  it("decays the knock rather than freezing it at full strength", () => {
+    const player = knocked();
+    const state = stateWith(player);
+    serverTick(state, new Map(), DT, RoomPhase.MATCH);
+    expect(player.shoveX).toBeLessThan(300);
+    expect(player.shoveX).toBeGreaterThan(0);
+  });
+
+  it("carries every knock component, not just shove", () => {
+    const player = knocked({ shoveX: 0, angVel: 3, authority: 0.35 });
+    const state = stateWith(player);
+    serverTick(state, new Map(), DT, RoomPhase.MATCH);
+    expect(player.angVel).toBeLessThan(3);
+    expect(player.authority).toBeGreaterThan(0.35);
+    expect(player.angle).not.toBe(0);
+  });
+
+  it("settles to exact neutral and then stops moving the car", () => {
+    const player = knocked({ angVel: 3, authority: 0.35 });
+    const state = stateWith(player);
+    for (let i = 0; i < 300; i++) serverTick(state, new Map(), DT, RoomPhase.MATCH);
+    expect(player.shoveX).toBe(0);
+    expect(player.angVel).toBe(0);
+    expect(player.authority).toBe(1);
+    const restingX = player.x;
+    serverTick(state, new Map(), DT, RoomPhase.MATCH);
+    expect(player.x).toBe(restingX);
+  });
+
+  it("leaves an unknocked idle player exactly where it is", () => {
+    const player = makePlayer("v", 500, 400, 0);
+    player.speed = 200;
+    const state = stateWith(player);
+    serverTick(state, new Map(), DT, RoomPhase.MATCH);
+    expect(player.x).toBe(500);
+    expect(player.speed).toBe(200);
+  });
+
+  it("does not advance the input ack — a coast step acknowledges nothing", () => {
+    const player = knocked({ lastProcessedInputSeq: 7 });
+    const state = stateWith(player);
+    serverTick(state, new Map(), DT, RoomPhase.MATCH);
+    expect(player.lastProcessedInputSeq).toBe(7);
+  });
+
+  it("reports no fire mask for a coast step", () => {
+    const state = stateWith(knocked());
+    expect(serverTick(state, new Map(), DT, RoomPhase.MATCH).size).toBe(0);
+  });
+
+  it("does not coast outside MATCH", () => {
+    const player = knocked();
+    const state = stateWith(player);
+    serverTick(state, new Map(), DT, RoomPhase.COUNTDOWN);
+    expect(player.x).toBe(500);
+  });
+
+  it("does not coast a player who is not on the field", () => {
+    const player = knocked({ status: PlayerStatus.POST_MATCH });
+    const state = stateWith(player);
+    serverTick(state, new Map(), DT, RoomPhase.MATCH);
+    expect(player.x).toBe(500);
+  });
+
+  it("still resolves the coasting car against other cars", () => {
+    // Shoved straight into a stationary neighbour: it must be pushed clear, not driven through.
+    const victim = knocked({ shoveX: 600 });
+    const wall = makePlayer("w", 560, 400, 0);
+    const state = stateWith(victim, wall);
+    for (let i = 0; i < 5; i++) serverTick(state, new Map(), DT, RoomPhase.MATCH);
+    expect(victim.x).toBeLessThan(560 - 40);
+  });
+});
