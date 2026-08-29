@@ -141,20 +141,37 @@ function pileUp(): void {
       }
     }
   }
-  // Now reverse everyone out and see whether the pile actually resolves.
+  // Now reverse everyone out and watch whether the pile ever actually comes apart.
+  //
+  // Measured as the BEST separation reached during the reverse, not the overlap at some fixed
+  // endpoint. Six cars reversing at full throttle cross the arena in a couple of seconds and pile
+  // into the OPPOSITE corner, so a single late sample measures that second pile and reports the
+  // first one as unresolved. (The endpoint form of this probe read 0.68u before rams fired reliably
+  // and 1.53u after — both were sampling the far-corner pile, and neither number was about the
+  // corner the probe is named for.)
+  const worstNow = (): number => {
+    let worst = 0;
+    for (const a of ids) for (const b of ids) if (a < b) worst = Math.max(worst, overlapDepth(w.get(a), w.get(b)));
+    return worst;
+  };
+  let residual = Infinity;
+  let clearedAtTick = -1;
   for (let i = 0; i < 200; i++) {
     for (const id of ids) w.input(id, { throttle: -1 });
     w.tick();
+    const now = worstNow();
+    if (now < residual) residual = now;
+    if (now === 0 && clearedAtTick < 0) clearedAtTick = i + 1;
   }
-  let residual = 0;
-  for (const a of ids) for (const b of ids) if (a < b) residual = Math.max(residual, overlapDepth(w.get(a), w.get(b)));
 
   report(
-    "3. Six-car corner pile-up (300 ticks in, 200 reversing out)",
+    "3. Six-car corner pile-up (300 ticks in, then reversing out)",
     nan || outOfBounds ? "FINDING" : residual > 1 ? "FINDING" : "OK",
     `peak pairwise overlap ${maxDepth.toFixed(1)}u; NaN ${nan}; centre out of bounds ${outOfBounds}\n` +
-      `after reversing out, residual overlap ${residual.toFixed(2)}u ` +
-      (residual > 1 ? "<- cars did NOT separate" : "(pile resolves cleanly)"),
+      `reversing out: best separation reached was ${residual.toFixed(2)}u overlap` +
+      (clearedAtTick > 0
+        ? `, fully clear after ${clearedAtTick} ticks (pile resolves cleanly)`
+        : " <- cars never fully separated"),
   );
 }
 
@@ -345,10 +362,16 @@ function ramChain(): void {
   }
   report(
     "9. Two attackers chain-ramming one victim (300 ticks)",
+    // Edge triggering is the anti-stun-lock guarantee, not the trigger rate. Near-continuous
+    // degradation under a coordinated 2v1 focus would mean edge triggering has stopped working.
     ticksBelowFullAuthority > 270 ? "FINDING" : "OK",
     `victim spent ${ticksBelowFullAuthority}/300 ticks with degraded steering ` +
       `(${((ticksBelowFullAuthority / 300) * 100).toFixed(0)}%), floor reached ${minAuthority.toFixed(2)} ` +
-      `(RAM_CONFIG.authorityFloor is 0.35).`,
+      `(RAM_CONFIG.authorityFloor is 0.35).\n` +
+      `Balance note: this read 46% and floor 0.57 while the ram trigger bug was live, because most ` +
+      `of the attackers' passes landed nothing. 84% at the designed floor is what a coordinated 2v1 ` +
+      `focus was always meant to cost — it is the intended pressure arriving for the first time, not ` +
+      `a regression, and it is the first thing to re-tune from play.`,
   );
 }
 

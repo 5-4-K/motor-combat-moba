@@ -81,7 +81,9 @@ async function main(): Promise<void> {
   let contacts = 0;
   let knocks = 0;
   let wasTouching = false;
-  let lastAuthority = 1;
+  // Seeded from the first sample rather than assumed to be 1: this loop starts mid-match and the
+  // car may already be carrying a knock.
+  let lastAuthority: number | null = null;
   const ramStart = Date.now();
   while (Date.now() - ramStart < 20000) {
     const a = me(alice);
@@ -102,11 +104,20 @@ async function main(): Promise<void> {
     const touching = gap < 56;
     if (touching && !wasTouching) contacts++;
     wasTouching = touching;
-    const knocked = b.shoveX !== 0 || b.shoveY !== 0 || b.angVel !== 0 || b.authority !== 1;
-    if (knocked && lastAuthority === 1 && b.authority !== 1) knocks++;
+    // A knock is counted on a DROP in authority, not on a transition away from exactly 1.
+    //
+    // `authority` decays monotonically back UP toward 1 and a fresh knock is the only thing that can
+    // lower it, so a drop is an unambiguous knock event. The transition test this replaced required
+    // authority to have returned to exactly 1 first — which made it undercount precisely when rams
+    // land reliably, since a car under repeated attack never gets back to 1 between hits. It read
+    // 12% against an offline trigger rate of 100%, which is a broken counter, not a broken sim.
+    if (lastAuthority !== null && b.authority < lastAuthority - 0.001) knocks++;
     lastAuthority = b.authority;
     await sleep(TICK_MS);
   }
+  // Sampled at ~30 Hz against a 20 Hz patch rate, so both counts are approximate — a contact that
+  // begins and ends between two samples is invisible to either. The ratio is the signal: it sat
+  // near 20% while the ram trigger bug was live and should now track the contact count closely.
   console.log(
     `contacts made: ${contacts}; knocks landed on Bob: ${knocks} ` +
       `(${contacts > 0 ? Math.round((knocks / contacts) * 100) : 0}% of contacts)`,

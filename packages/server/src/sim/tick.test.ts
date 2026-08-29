@@ -399,7 +399,8 @@ describe("serverTick fire mask reporting", () => {
     queue: InputMessage[],
     phase: RoomPhase = RoomPhase.MATCH,
   ): Map<string, number> {
-    return serverTick(stateWith(player), new Map([[player.sessionId, queue]]), DT, phase, NO_EFFECTS);
+    return serverTick(stateWith(player), new Map([[player.sessionId, queue]]), DT, phase, NO_EFFECTS)
+      .masks;
   }
 
   it("reports the slot mask from an input it actually simulated", () => {
@@ -456,7 +457,7 @@ describe("serverTick fire mask reporting", () => {
   it("names every player who fired, not just the first", () => {
     const a = makePlayer("aaa", 300, CORRIDOR_Y, 0);
     const b = makePlayer("bbb", 900, CORRIDOR_Y, 0);
-    const masks = serverTick(
+    const { masks } = serverTick(
       stateWith(a, b),
       new Map([
         ["aaa", [fires(1)]],
@@ -547,7 +548,7 @@ describe("serverTick coasts a knocked player who has stopped sending input", () 
 
   it("reports no fire mask for a coast step", () => {
     const state = stateWith(knocked());
-    expect(serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS).size).toBe(0);
+    expect(serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS).masks.size).toBe(0);
   });
 
   it("does not coast outside MATCH", () => {

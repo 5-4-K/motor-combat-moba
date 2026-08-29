@@ -22,6 +22,37 @@ import { modifiersFor } from "./status-bridge.js";
 const SLOT_MASK = (1 << WEAPON_SLOT_CONFIG.maxWeaponSlots) - 1;
 
 /**
+ * What one `serverTick` reports about the tick it just simulated.
+ */
+export interface TickResult {
+  /** Per session id, the validated slot bitmask that player fired with on a simulated input. */
+  masks: Map<string, number>;
+  /**
+   * Per session id, the scalar speed the car carried INTO this tick — read before `stepSim` ran,
+   * and therefore before `resolveWorld` could reflect it off anything.
+   *
+   * **This is the whole fix for the ram trigger bug.** `resolveWorld` runs INSIDE `stepSim`, and
+   * `applyContact` rebounds a car to about -35% of its impact speed on the tick a contact resolves.
+   * `ramTick` runs after `serverTick` — that ordering is a rule, because ram must measure the poses
+   * cars actually ended up at — so the `speed` left on `PlayerState` is the post-bounce one. Feeding
+   * that to `resolveRam` made its approach term negative on every tick a hull actually overlapped,
+   * and a ram only fired on the rare tick where a pair landed inside `RAM_CONFIG.contactPad`
+   * WITHOUT overlapping: a ~1.5 unit window against a 10.5-18 unit per-tick step, so 8-20% of
+   * contacts. Measured in `playtest/ram.ts`, which is what found it.
+   *
+   * The speed carried into the tick is the right number on its own terms, not merely a workaround:
+   * it is the speed at which the car covered the ground that brought it into contact. Reading it
+   * here also keeps `stepSim` untouched — it stays the single lockstep both halves import, which a
+   * richer return value from it would not.
+   *
+   * Recorded for every player in the room, including ones that are not stepped this tick: a parked
+   * or silent car is still a `resolveRam` participant, and its approach term decides whether it is
+   * the attacker or the victim.
+   */
+  approachSpeeds: Map<string, number>;
+}
+
+/**
  * Advance every player by their queued inputs. `dt` is seconds and must match the room simulation
  * interval (1 / getTickRateHz(TICK_RATE_HZ)).
  *
@@ -69,6 +100,10 @@ const SLOT_MASK = (1 << WEAPON_SLOT_CONFIG.maxWeaponSlots) - 1;
  * cannot fire a slot its car does not have. Masks from several inputs simulated in one tick are
  * OR-ed together. The weapon cooldown in `runCombat`, not this map, is what limits the rate —
  * several fire inputs in one tick still yield at most one shot.
+ *
+ * Also returns each player's `approachSpeed`: the speed they carried INTO this tick, before
+ * `resolveWorld` had a chance to reflect it. `ramTick` reads it as its approach term — see
+ * `TickResult.approachSpeeds` for why it cannot use the speed left on `PlayerState`.
  */
 export function serverTick(
   state: ArenaState,
@@ -76,16 +111,20 @@ export function serverTick(
   dt: number,
   phase: RoomPhase,
   statusMods: ReadonlyMap<string, Modifiers>,
-): Map<string, number> {
+): TickResult {
   const world = tickWorldOf(getArena(state.arenaId));
   const moving = phase === RoomPhase.MATCH;
   // Sorted once per tick. This same array fixes both the order players are stepped in and the order
   // of the hulls built from it, so it is threaded through rather than recomputed.
   const entries = sortedEntries(state);
   const masks = new Map<string, number>();
+  const approachSpeeds = new Map<string, number>();
 
   for (const { sessionId, player } of entries) {
     const queue = queues.get(sessionId);
+    // BEFORE any stepping, so this is the pre-collision speed `ramTick` needs. Unconditional —
+    // a player who is not stepped this tick is still a ram participant. See `TickResult`.
+    approachSpeeds.set(sessionId, player.speed);
 
     // Only `carId` and `others` vary per player; `world` is fixed for the whole tick.
     // A `null` context means "nothing about this player moves right now": drain only.
@@ -141,7 +180,7 @@ export function serverTick(
     }
   }
 
-  return masks;
+  return { masks, approachSpeeds };
 }
 
 function bySeq(a: InputMessage, b: InputMessage): number {
