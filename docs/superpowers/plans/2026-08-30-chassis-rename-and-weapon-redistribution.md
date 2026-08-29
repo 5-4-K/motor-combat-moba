@@ -1434,6 +1434,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 **Files:**
 - Modify: `CLAUDE.md`, `packages/{shared,server,client}/CLAUDE.md`
 - Modify: `docs/config-reference.md`, `docs/combat-model.md`, `docs/asset-pipeline.md`, `docs/glossary.md`, `docs/project-structure.md`
+- Modify: `packages/client/public/art/README.md` (stale old car names; found during Task 1)
 - Modify: `.claude/skills/process-car-asset/SKILL.md` + `scripts/preflight.mjs`, `.claude/skills/weapon-forger/SKILL.md`
 - Modify: `scripts/build-cars-and-weapons.mjs` (two new stat rows)
 - Regenerate + commit: `packages/client/public/manual.html`
@@ -1462,6 +1463,8 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - [ ] **Step 2: Update the prose beside it**
 
 `scripts/cars-and-weapons-copy.mjs` — `CHASSIS_COPY` is keyed by car id, so its three keys must be renamed and its text rewritten for the three types (T1). `WEAPON_COPY` needs its `splinter` key renamed to `needler` and its copy rewritten for the rows Task 7 changed. `SLOT_ROLES` may name chassis; check it.
+
+**One collision to fix here, found during Task 1:** this file already used the codename **"The Bastion"** for the chassis that is now *named* Bastion, so the guide currently reads "Bastion … The Bastion". Give that chassis a different codename. Check the other two for the same problem while you are in there.
 
 - [ ] **Step 3: Rebuild and commit the guide**
 
