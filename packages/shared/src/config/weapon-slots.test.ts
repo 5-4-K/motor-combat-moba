@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CAR_TABLE } from "./car-config.js";
+import { WEAPON_TABLE } from "./weapon-config.js";
 import { WEAPON_SLOT_CONFIG, slotsOf, slotsFrom } from "./weapon-slots.js";
 
 afterEach(() => vi.restoreAllMocks());
@@ -12,14 +13,26 @@ describe("loadouts", () => {
     }
   });
 
-  it("ships all three cars carrying the migrated fireball in slot 1", () => {
-    expect(CAR_TABLE.rectangle.weapons).toEqual(["fireball"]);
-    expect(CAR_TABLE.oval.weapons).toEqual(["fireball"]);
-    expect(CAR_TABLE.hexagon.weapons).toEqual(["fireball"]);
+  it("gives each chassis its own exclusive three-weapon kit", () => {
+    expect(CAR_TABLE.rectangle.weapons).toEqual(["fireball", "pepperbox", "afterburner"]);
+    expect(CAR_TABLE.oval.weapons).toEqual(["splinter", "skewer", "lance"]);
+    expect(CAR_TABLE.hexagon.weapons).toEqual(["thumper", "shockwave", "bulwark"]);
+  });
+
+  it("shares no weapon between two chassis, so car select is a real choice", () => {
+    // L1. Exclusivity is the point of having three chassis: a shared opener would drag all three
+    // toward the same early-fight rhythm.
+    const all = Object.values(CAR_TABLE).flatMap((car) => [...car.weapons]);
+    expect(new Set(all).size).toBe(all.length);
+  });
+
+  it("puts every weapon in the table on exactly one chassis", () => {
+    const carried = new Set(Object.values(CAR_TABLE).flatMap((car) => [...car.weapons]));
+    expect(carried.size).toBe(Object.keys(WEAPON_TABLE).length);
   });
 
   it("returns the car's list in slot order", () => {
-    expect(slotsOf("hexagon")).toEqual(["fireball"]);
+    expect(slotsOf("hexagon")).toEqual(["thumper", "shockwave", "bulwark"]);
   });
 
   it("truncates an over-long loadout to the slot limit and warns once, naming the car", () => {

@@ -87,10 +87,18 @@ describe("WEAPON_TABLE", () => {
     expect(weaponDefOf("fireball").id).toBe("fireball");
   });
 
-  it("gives the fireball aim assist and leaves the repeater without it", () => {
-    // The pair that makes `usesAimAssist` a real switch rather than a global: one row on, one off.
-    expect(WEAPON_TABLE.fireball.usesAimAssist).toBe(true);
-    expect(WEAPON_TABLE.repeater.usesAimAssist).toBe(false);
+  it("ships splinter as the table's multi-stock reference, now carried rather than dormant", () => {
+    const splinter = WEAPON_TABLE.splinter;
+    expect(splinter.kind).toBe("projectile");
+    expect(splinter.damage).toBe(30);
+    expect(splinter.cooldownMs).toBe(400);
+    expect(splinter.speed).toBe(1100);
+    expect(splinter.range).toBe(850);
+    expect(splinter.usesAimAssist).toBe(true);
+    expect(splinter.stock).toEqual({ max: 3, refireDelayMs: 130 });
+    // 400ms is the whole design: tapping one dart sustains 75 DPS, dumping all three puts 90
+    // damage out in 260ms and then leaves a 1.2s dry spell. See the spec's derivation rule.
+    expect(splinter.damage * (1000 / splinter.cooldownMs)).toBe(75);
   });
 
   it("never lets an aim-assist weapon lock past its own reach", () => {
@@ -123,6 +131,37 @@ describe("WEAPON_TABLE", () => {
     }
   });
 
+  it("ships pepperbox as the table's first burst-and-fan weapon", () => {
+    const pepperbox = WEAPON_TABLE.pepperbox;
+    if (pepperbox.kind !== "projectile") throw new Error("pepperbox must be a projectile");
+    expect(pepperbox.volley).toEqual({
+      volleys: 3,
+      volleyIntervalMs: 100,
+      pelletsPerVolley: 2,
+      spreadAngleDeg: 10,
+    });
+    // 6 pellets x 28 = 168 in a 200ms window. Its all-pellets-connect sustained DPS is 83, BELOW
+    // fireball's 100 — that is the burst-over-sustained trade, not a bug. See the spec's rule.
+    const pellets = pepperbox.volley.volleys * pepperbox.volley.pelletsPerVolley;
+    expect(pellets * pepperbox.damage).toBe(168);
+    expect(pepperbox.usesAimAssist).toBe(false);
+  });
+
+  it("ships afterburner as the table's first beam, attached and ticking", () => {
+    const afterburner = WEAPON_TABLE.afterburner;
+    if (afterburner.kind !== "beam") throw new Error("afterburner must be a beam");
+    expect(afterburner.attached).toBe(true);
+    expect(afterburner.lifetimeMs).toBe(2000);
+    expect(afterburner.damageFrequencyMs).toBe(200);
+    expect(afterburner.hitbox).toEqual({ shape: "cone", angleDeg: 55 });
+    // Total life is range/speed + lifetime == 200ms + 2000ms. At one tick per 200ms that is ~11
+    // ticks == 286 max, 57% of an average car's 500 hull HP.
+    expect(afterburner.range / afterburner.speed + afterburner.lifetimeMs / 1000).toBeCloseTo(2.2);
+    // Forced, not chosen: range 220 < AIM_CONFIG.lockRange, and an attached beam re-derives its
+    // angle from the owner every tick, so a lock would have nothing to decide.
+    expect(afterburner.usesAimAssist).toBe(false);
+  });
+
   it("refuses aim assist on an attached beam", () => {
     // A12. An attached beam re-derives its origin and angle from the owner's pose every tick, so it
     // would snap to the lock at birth and immediately re-weld to the car's nose. Dormant until the
@@ -133,5 +172,71 @@ describe("WEAPON_TABLE", () => {
       if (def.kind !== "beam" || !def.attached) continue;
       expect(def.usesAimAssist).toBe(false);
     }
+  });
+
+  it("ships skewer piercing exactly two cars, not three", () => {
+    const skewer = WEAPON_TABLE.skewer;
+    if (skewer.kind !== "projectile") throw new Error("skewer must be a projectile");
+    // `pierce` counts opponents passed through AFTER the first, so 1 == two cars. At `pierce: 2`
+    // a 110-damage shot deals 396 on Oval's 1.2x attack and out-damages `lance`, the ultimate.
+    expect(skewer.pierce).toBe(1);
+    expect(skewer.hitbox).toEqual({ shape: "ellipse", radiusAlong: 22, radiusAcross: 5 });
+    expect(skewer.startUpMs).toBe(250);
+    expect(skewer.usesAimAssist).toBe(false);
+  });
+
+  it("ships lance as a detached beam with the roster's only substantial recovery", () => {
+    const lance = WEAPON_TABLE.lance;
+    if (lance.kind !== "beam") throw new Error("lance must be a beam");
+    expect(lance.attached).toBe(false);
+    expect(lance.damage).toBe(180);
+    expect(lance.damageFrequencyMs).toBe(0); // one hit per car, not a ticking zone
+    expect(lance.startUpMs).toBe(700);
+    // The wind-up alone is not the whole cost: a missed lance also owes a second of silence, which
+    // is what makes it punishing on a 300 HP chassis (L5).
+    expect(lance.recoveryMs).toBe(1000);
+    const highest = Math.max(
+      ...Object.values(WEAPON_TABLE).map((def) => def.recoveryMs),
+    );
+    expect(lance.recoveryMs).toBe(highest);
+  });
+
+  it("keeps both branches of usesAimAssist populated by carried weapons", () => {
+    // The pair that makes `usesAimAssist` a real switch rather than a global: one row on, one off.
+    // Both are now weapons a player can fire, unlike the fireball/repeater pair this replaced.
+    expect(WEAPON_TABLE.fireball.usesAimAssist).toBe(true);
+    expect(WEAPON_TABLE.skewer.usesAimAssist).toBe(false);
+  });
+
+  it("keeps thumper's cooldown clear of the band the aim-assist cliff forbids", () => {
+    const thumper = WEAPON_TABLE.thumper;
+    expect(thumper.usesAimAssist).toBe(true);
+    // The cliff guard rejects any aim-assist weapon within 15% of 1000 / lockTimeoutMs. At
+    // lockTimeoutMs 800 that is 1.25 Hz, which forbids EVERY cooldownMs between 696 and 941. The
+    // 900ms first drafted for this row sat inside the band and would have failed the suite.
+    const forbiddenLow = 1000 / (1.25 * 1.15);
+    const forbiddenHigh = 1000 / (1.25 * 0.85);
+    expect(thumper.cooldownMs).toBe(1000);
+    expect(thumper.cooldownMs).toBeGreaterThan(forbiddenHigh);
+    expect(forbiddenLow).toBeLessThan(forbiddenHigh); // the band is a band, not a point
+    expect(thumper.hitbox).toEqual({ shape: "circle", radius: 20 });
+    expect(thumper.range).toBeGreaterThanOrEqual(AIM_CONFIG.lockRange);
+  });
+
+  it("ships bulwark as a detached beam that lingers and ticks", () => {
+    const bulwark = WEAPON_TABLE.bulwark;
+    if (bulwark.kind !== "beam") throw new Error("bulwark must be a beam");
+    expect(bulwark.attached).toBe(false); // stamped into the world, unlike afterburner
+    expect(bulwark.lifetimeMs).toBe(2500);
+    expect(bulwark.damageFrequencyMs).toBe(400);
+    // Total life is range/speed + lifetime == 1s + 2.5s. At one tick per 400ms that is ~8 ticks
+    // == 280 max, matching afterburner's ceiling as L6 intends.
+    expect(bulwark.range / bulwark.speed + bulwark.lifetimeMs / 1000).toBeCloseTo(3.5);
+  });
+
+  it("carries exactly nine weapons, every one a different colour", () => {
+    const rows = Object.values(WEAPON_TABLE);
+    expect(rows).toHaveLength(9);
+    expect(new Set(rows.map((def) => def.color.toUpperCase())).size).toBe(9);
   });
 });

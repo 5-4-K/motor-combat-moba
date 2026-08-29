@@ -122,7 +122,7 @@ describe("toCombatPlayers", () => {
     const memory = newCombatMemory();
 
     const players = toCombatPlayers(state, new Set(["aaa"]), new Map([["aaa", 0b001]]), memory);
-    expect(players[0]!.fireState.slots.map((s) => s.weaponId)).toEqual(["fireball"]);
+    expect(players[0]!.fireState.slots.map((s) => s.weaponId)).toEqual(["fireball", "pepperbox", "afterburner"]);
     expect(players[0]!.fireMask).toBe(0b001);
   });
 
@@ -139,12 +139,15 @@ describe("toCombatPlayers", () => {
     const memory = newCombatMemory();
     const first = toCombatPlayers(state, new Set(["aaa"]), new Map(), memory)[0]!.fireState;
     // Mutate memory the way applyCombatResult would, so reuse is genuinely observable: a rebuild
-    // hands back a fresh single-stock slot with every clock at zero, and would lose all of this.
+    // hands back fresh single-stock slots with every clock at zero, and would lose all of this.
+    // The weapon-id sequence is left intact (still the rectangle's three-slot kit) so the staleness
+    // check in `toCombatPlayers` -- which compares slot weapon ids against the chassis's current
+    // kit -- keeps calling this "unchanged" and reuses it instead of rebuilding it.
     memory.fireStates.set("aaa", {
       ...first,
       switchLockUntilTick: 77,
       lastFiredSlot: 0,
-      slots: [{ ...first.slots[0]!, stocks: 0, rechargeEndsTick: 120 }],
+      slots: first.slots.map((slot, i) => (i === 0 ? { ...slot, stocks: 0, rechargeEndsTick: 120 } : slot)),
     });
     const second = toCombatPlayers(state, new Set(["aaa"]), new Map(), memory)[0]!.fireState;
     expect(second.switchLockUntilTick).toBe(77);
@@ -178,7 +181,7 @@ describe("toCombatPlayers", () => {
 
     player.carId = "rectangle";
     const afterReveal = toCombatPlayers(state, new Set(["aaa"]), new Map(), memory)[0]!.fireState;
-    expect(afterReveal.slots.map((s) => s.weaponId)).toEqual(["fireball"]);
+    expect(afterReveal.slots.map((s) => s.weaponId)).toEqual(["fireball", "pepperbox", "afterburner"]);
   });
 });
 
@@ -278,8 +281,10 @@ describe("applyCombatResult", () => {
       memory,
     );
     const player = state.players.get("aaa")!;
-    expect(player.weapons.length).toBe(1);
+    expect(player.weapons.length).toBe(3);
     expect(player.weapons.at(0)!.weaponId).toBe("fireball");
+    expect(player.weapons.at(1)!.weaponId).toBe("pepperbox");
+    expect(player.weapons.at(2)!.weaponId).toBe("afterburner");
     expect(player.weapons.at(0)!.stocks).toBe(1);
   });
 
@@ -314,6 +319,13 @@ describe("applyCombatResult", () => {
   });
 
   it("resizes the slot array down when a rebuilt fire state has fewer slots", () => {
+    // Every chassis now carries the same three-slot kit size, so no pair of real chassis differs in
+    // slot count -- the only real transition that shrinks the array is the reveal in reverse (a real
+    // chassis losing its car, i.e. `carId` going back to ""), which is what this drives. That still
+    // exercises the exact mechanism under test: `writeSlots`'s `while (weapons.length >
+    // fireState.slots.length) weapons.pop()` loop does not special-case a zero target, it just pops
+    // until the lengths match, so shrinking 3 -> 0 pops three times and proves the loop actually
+    // loops, which the old single-pop 1 -> 0 case did not.
     const state = new ArenaState();
     const player = playerIn(state, "a");
     const memory = newCombatMemory();
@@ -322,7 +334,7 @@ describe("applyCombatResult", () => {
       result({ players: [combatPlayerFor(player, { fireState: newFireState("rectangle", 1) })] }),
       memory,
     );
-    expect(player.weapons.length).toBe(1);
+    expect(player.weapons.length).toBe(3);
 
     applyCombatResult(
       state,

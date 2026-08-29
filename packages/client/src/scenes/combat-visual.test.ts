@@ -199,9 +199,9 @@ describe("instanceGlowBands", () => {
   const RADIUS = WEAPON_TABLE.fireball.hitbox.radius;
 
   it("returns nothing for a weapon with no authored look, so it keeps its flat disc", () => {
-    // `repeater` is the whole point of this assertion: styles are per weapon, not a shared formula
+    // `splinter` is the whole point of this assertion: styles are per weapon, not a shared formula
     // over `color`, so a second weapon must NOT silently inherit the fireball's bands.
-    expect(instanceGlowBands("repeater", 3, 0, 0)).toEqual([]);
+    expect(instanceGlowBands("splinter", 3, 0, 0)).toEqual([]);
   });
 
   it("returns nothing for an unrecognised weapon id rather than throwing", () => {

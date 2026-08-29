@@ -1,5 +1,14 @@
 /** Every weapon in the game. Add an id here and a row in `WEAPON_TABLE`. */
-export type WeaponId = "fireball" | "repeater";
+export type WeaponId =
+  | "fireball"
+  | "pepperbox"
+  | "afterburner"
+  | "splinter"
+  | "skewer"
+  | "lance"
+  | "thumper"
+  | "shockwave"
+  | "bulwark";
 
 /**
  * Optional charge system. Absent means single-stock, which is exactly the pre-weapon-system

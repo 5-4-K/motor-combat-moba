@@ -5,7 +5,14 @@ import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { CarId } from "../config/types.js";
 import { WEAPON_TABLE } from "../config/weapon-config.js";
 import { MS_PER_TICK } from "../constants.js";
-import { aimAngleFor, runCombat, type CombatInput, type CombatPlayer, type CombatWorld } from "./combat.js";
+import {
+  aimAngleFor,
+  runCombat,
+  type CombatInput,
+  type CombatPlayer,
+  type CombatResult,
+  type CombatWorld,
+} from "./combat.js";
 import { carHullOf } from "./context.js";
 import { weaponDamageOf } from "./damage.js";
 import { newFireState } from "./weapons/fire.js";
@@ -226,14 +233,14 @@ describe("firing", () => {
     expect(hit.hp).toBe(hpOf("rectangle") - weaponDamageOf("rectangle", "fireball"));
   });
 
-  it("drives repeater, the table's only multi-stock weapon, through a real tick", () => {
-    // `repeater` is carried by no car, so nothing in ordinary play ever reaches `runCombat` with it
-    // and the stock mechanic would otherwise only ever be seen in hand-built `FireState` literals.
-    // The hand-built loadout is the whole difference here; everything downstream is the shipped path.
+  it("drives splinter, the table's only multi-stock weapon, through a real tick", () => {
+    // Oval carries splinter, so this is now the shipped path rather than a hand-built loadout
+    // proving an unreachable weapon. Kept as an explicit fixture anyway: it is the only test that
+    // walks the stock mechanic through `runCombat` rather than through `FireState` literals.
     const shooter = player({
       fireMask: 0b001,
       fireState: {
-        slots: [{ weaponId: "repeater", stocks: 2, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
+        slots: [{ weaponId: "splinter", stocks: 2, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
         switchLockUntilTick: 0,
         lastFiredSlot: -1,
         pending: null,
@@ -246,13 +253,13 @@ describe("firing", () => {
       instances: [],
       instanceSeq: 0,
     });
-    expect(result.instances.map((i) => i.weaponId)).toEqual(["repeater"]);
+    expect(result.instances.map((i) => i.weaponId)).toEqual(["splinter"]);
 
     const fired = result.players[0]!.fireState;
     expect(fired.slots[0]!.stocks).toBe(1); // one of two spent
-    expect(fired.slots[0]!.rechargeEndsTick).toBe(190); // tick 100 + a 3000ms cooldown == 90 ticks
-    expect(fired.slots[0]!.refireLockUntilTick).toBe(103); // 100ms refire delay == 3 ticks
-    expect(fired.switchLockUntilTick).toBe(250); // 5000ms recovery == 150 ticks
+    expect(fired.slots[0]!.rechargeEndsTick).toBe(112); // tick 100 + a 400ms cooldown == 12 ticks
+    expect(fired.slots[0]!.refireLockUntilTick).toBe(104); // 130ms refire delay == 4 ticks
+    expect(fired.switchLockUntilTick).toBe(100); // splinter's recoveryMs is 0 — a go-to never gates
     expect(fired.lastFiredSlot).toBe(0);
   });
 
@@ -481,6 +488,14 @@ describe("shots landing", () => {
 describe("chassis attack scales weapon damage through a real tick", () => {
   /** One shot, fired for real, from `carId` into a stationary rectangle. Returns the hp it cost. */
   const damageDealtBy = (carId: "rectangle" | "oval" | "hexagon"): number => {
+    // Slot 1 is forced to fireball for every chassis, overriding `carId`'s real loadout: since Task
+    // 5 the three chassis no longer share a weapon, so deriving `fireState` from
+    // `newFireState(carId, 1)` would fire three DIFFERENT weapons and conflate the weapon's own
+    // damage with the attack-rating scaling this test exists to isolate.
+    const fireballSlot1 = {
+      ...newFireState(carId, 1),
+      slots: [{ weaponId: "fireball" as const, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
+    };
     let state = run({
       players: [
         player("a", {
@@ -489,7 +504,7 @@ describe("chassis attack scales weapon damage through a real tick", () => {
           angle: 0,
           carId,
           fireMask: 1,
-          fireState: newFireState(carId, 1),
+          fireState: fireballSlot1,
         }),
         player("b", { x: 400 + DRIVE_CONFIG.carWidth + 40, y: OPEN_Y }),
       ],
@@ -641,11 +656,11 @@ describe("aim assist through a real tick", () => {
 });
 
 describe("aimAngleFor", () => {
-  // Direct coverage of both branches of the per-weapon opt-in (A1). Deleting the
-  // `usesAimAssist` check entirely still passes every OTHER test in this file: `fireball` is `true`,
-  // and `repeater` -- the only `false` row in WEAPON_TABLE -- is carried by no car, so it is
-  // unreachable through `runCombat`. These two tests call `aimAngleFor` directly so the opt-out
-  // path is exercised regardless of which chassis carry which weapon.
+  // Direct coverage of both branches of the per-weapon opt-in (A1). Deleting the `usesAimAssist`
+  // check entirely still passes most other tests in this file, so these two call `aimAngleFor`
+  // directly. `skewer` is Oval's slot 2 and is `usesAimAssist: false` by design rather than by
+  // constraint — its range clears `AIM_CONFIG.lockRange`, so the row could have taken assist and
+  // deliberately does not.
 
   it("returns null for a weapon with usesAimAssist: false, even with a live lock", () => {
     const a = player("a", {
@@ -659,8 +674,8 @@ describe("aimAngleFor", () => {
       ["a", a],
       ["b", b],
     ]);
-    // "repeater" is usesAimAssist: false and exists in WEAPON_TABLE.
-    expect(aimAngleFor(a, "repeater", byId)).toBeNull();
+    // "skewer" is usesAimAssist: false and exists in WEAPON_TABLE.
+    expect(aimAngleFor(a, "skewer", byId)).toBeNull();
   });
 
   it("returns the muzzle-derived bearing to the lock target for a weapon with usesAimAssist: true", () => {
@@ -684,4 +699,48 @@ describe("aimAngleFor", () => {
     // "fireball" is usesAimAssist: true.
     expect(aimAngleFor(a, "fireball", byId)).toBeCloseTo(expected, 10);
   });
+});
+
+it("damages a target with a real attached beam fired from a real loadout, once it has grown to reach", () => {
+  // afterburner is Rectangle's slot 3 and the game's first beam. Its cone is 55 degrees out to
+  // 220 units, so a target 100 units directly ahead at angle 0 is inside it once the beam has
+  // grown that far. Slot 3 is bit 2. `player` builds its fireState with `newFireState(carId, 1)`,
+  // so the slot only exists because Task 5 put three weapons on the chassis — this test is
+  // unreachable before that commit.
+  //
+  // A beam is born at extent 0 (instances.ts's `spawnInstances`) and grows by `speed * dt` per
+  // tick — ~36.7 units/tick for afterburner's speed 1100 at 30 Hz — so it cannot damage anyone on
+  // its own spawn tick; `runCombat`'s phase order steps an EXISTING instance's extent before new
+  // ones are born, precisely so a fresh shot draws at the muzzle rather than a tick's travel
+  // beyond it (combat.ts's own module comment). This drives three ticks of `runCombat`, feeding
+  // each tick's returned players/instances back in as the next tick's input exactly as `stepSim`
+  // does, until the beam's growing extent reaches the target's near edge:
+  // muzzle at x = 300 + carWidth/2 = 324; target's near hull edge at x = 400 - carWidth/2 = 376;
+  // distance 52. Extent after tick 1 (spawn) is 0; after tick 2, ~36.7 (still short); after tick 3,
+  // ~73.3 (past 52) — so the first damage lands on the third call.
+  let world_ = world();
+  let players: CombatPlayer[] = [
+    player("aaa", { x: 300, y: OPEN_Y, angle: 0, fireMask: 0b100 }),
+    player("bbb", { x: 400, y: OPEN_Y }),
+  ];
+  let instances: readonly WeaponInstance[] = [];
+  let instanceSeq = 0;
+  let result: CombatResult | null = null;
+
+  for (let i = 0; i < 3; i++) {
+    result = runCombat({ world: world_, players, instances, instanceSeq });
+    // Only the first tick is a press; holding the key does nothing extra here since
+    // `cooldownMs: 13000` would reject a second press long before this loop ends.
+    players = result.players.map((p) => (p.sessionId === "aaa" ? { ...p, fireMask: 0 } : p));
+    instances = result.instances;
+    instanceSeq = result.instanceSeq;
+    world_ = { ...world_, tick: world_.tick + 1 };
+  }
+
+  expect(result!.instances.map((i) => i.weaponId)).toEqual(["afterburner"]);
+  const hit = result!.players.find((p) => p.sessionId === "bbb")!;
+  // damageFrequencyMs: 200 is 6 ticks at 30 Hz; this loop only runs 3, so exactly one damage tick
+  // can have landed. 26 base * scale(0.8 for Rectangle's attack 30 vs baseline 50) = 20.8, rounds
+  // to 21 (weaponDamageOf, damage.ts's `damageFor`).
+  expect(hit.hp).toBe(hpOf("rectangle") - weaponDamageOf("rectangle", "afterburner"));
 });
