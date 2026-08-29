@@ -274,7 +274,7 @@ Behaviour-preserving. `stepDrive` stops taking a `CarId` and takes a resolved `C
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `packages/shared/src/config/config.test.ts`, importing `driveOf` and `CHASSIS_DRIVE` from `./car-config.js`:
+Add to `packages/shared/src/config/config.test.ts`. It already imports `CAR_TABLE`, `hpOf`, `forwardMaxSpeedOf` and `isCarId`; **add `driveOf`, `CHASSIS_DRIVE` and `reverseMaxSpeedOf`** to that `./car-config.js` import.
 
 ```ts
 describe("driveOf", () => {
@@ -826,19 +826,24 @@ Behaviour-preserving. `VolleyDef` splits so beams can carry `volleys`, and every
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `packages/shared/src/sim/weapons/fire.test.ts` (follow the file's existing helper style for building a `FireState`):
+Add to `packages/shared/src/sim/weapons/fire.test.ts`. The file's existing helper is `const fresh = () => newFireState("mirage", 1)` (`"rectangle"` before Task 1) with masks `SLOT_1 = 0b001` / `SLOT_2 = 0b010`; there is no `stateWith`. At this point in the plan `shockwave` is still Bastion's slot 2 — Task 7 moves it — so build the state from `bastion`:
 
 ```ts
-it("schedules one order per volley for a BEAM, not a single shot", () => {
-  // Beams were hardcoded to one volley. A multi-wave beam is the whole point of the split.
+it("reads volley count from the table for a BEAM, not a hardcoded 1", () => {
+  // `beginFire` branched on `kind` and gave every beam exactly one volley. After the split it
+  // reads `def.volley.volleys` for both kinds. This is 1 for every shipped beam today, so the
+  // assertion only bites once `shockwave` becomes a three-wave weapon — which is precisely why it
+  // is written against the TABLE rather than against the literal 1.
   const def = WEAPON_TABLE.shockwave;
   if (def.kind !== "beam") throw new Error("shockwave must be a beam");
-  expect(def.volley.volleys).toBeGreaterThanOrEqual(1);
 
-  const state = beginFire(stateWith("shockwave"), 0b1, 0);
+  const state = beginFire(newFireState("bastion", 1), SLOT_2, 100);
+  expect(state.pending?.weaponId).toBe("shockwave");
   expect(state.pending?.shotsLeft).toBe(def.volley.volleys);
 });
 ```
+
+Import `WEAPON_TABLE` from `../../config/weapon-config.js`.
 
 And to `packages/shared/src/config/weapon-ticks.test.ts`:
 
@@ -1245,6 +1250,21 @@ it("keeps Bastion's crowd control the longest in the roster", () => {
   expect(longestCc("bastion")).toBeGreaterThan(longestCc("bullseye"));
 });
 
+And this one to `packages/shared/src/sim/weapons/fire.test.ts` — it needs `beginFire` and `newFireState`, not the config table:
+
+```ts
+it("actually schedules three waves for one shockwave press", () => {
+  // The load-bearing half of Task 5's kind-agnostic `beginFire`: until shockwave had more than one
+  // volley, reading the table and hardcoding 1 were indistinguishable.
+  const state = beginFire(newFireState("mirage", 1), 0b010, 100);
+  expect(state.pending?.weaponId).toBe("shockwave");
+  expect(state.pending?.shotsLeft).toBe(3);
+});
+```
+
+Back in `weapon-config.test.ts`:
+
+```ts
 it("keeps every status in the table reachable from some weapon", () => {
   const applied = new Set(
     Object.values(WEAPON_TABLE).flatMap((d) => (d.applies ?? []).map((a) => a.statusId)),
