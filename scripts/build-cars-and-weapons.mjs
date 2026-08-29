@@ -132,7 +132,7 @@ function derive(id) {
   const slot = slotsOf(carId).indexOf(id);
   const beam = def.kind === "beam";
 
-  const shotsPerPress = beam ? 1 : def.volley.volleys * def.volley.pelletsPerVolley;
+  const shotsPerPress = beam ? 1 : def.volley.volleys * def.pellets.pelletsPerVolley;
   const burstSpanMs = beam ? 0 : (def.volley.volleys - 1) * def.volley.volleyIntervalMs;
   const extendMs = (def.range / def.speed) * 1000;
   const totalLifeMs = beam ? extendMs + def.lifetimeMs : extendMs;
@@ -453,8 +453,8 @@ function specRows(w) {
   ];
   if (multi) rows.splice(1, 0, ["Full connect", `${w.baseBurst}`, `${round(w.pctOfAverageCar)}% of an average car`]);
   if (w.beam) rows.push(["Lifetime", `${round(w.totalLifeMs / 1000, 2)}s`, d.attached ? "rides your car" : "stamped in place"]);
-  if (!w.beam && d.volley.volleys * d.volley.pelletsPerVolley > 1)
-    rows.push(["Volley", `${d.volley.volleys} × ${d.volley.pelletsPerVolley}`, `${d.volley.volleyIntervalMs}ms apart · ${d.volley.spreadAngleDeg}° fan`]);
+  if (!w.beam && d.volley.volleys * d.pellets.pelletsPerVolley > 1)
+    rows.push(["Volley", `${d.volley.volleys} × ${d.pellets.pelletsPerVolley}`, `${d.volley.volleyIntervalMs}ms apart · ${d.pellets.spreadAngleDeg}° fan`]);
   if (!w.beam && d.pierce > 0) rows.push(["Pierce", `${d.pierce + 1} cars`, "keeps going after the first"]);
   if (d.stock) rows.push(["Salvo", `${d.stock.max} × ${w.perHit} = ${d.stock.max * w.perHit}`, `dumped in ${round(((d.stock.max - 1) * d.stock.refireDelayMs) / 1000, 2)}s`]);
   if (d.startUpMs > 0) rows.push(["Wind-up", `${d.startUpMs}ms`, `${w.ticks.startUp} ticks — you are visible`]);

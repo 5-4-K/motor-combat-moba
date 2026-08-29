@@ -138,6 +138,26 @@ describe("the generated manual page", () => {
   });
 
   /**
+   * The staleness guard above proves the page was REBUILT after the tables changed. It cannot prove
+   * the rebuild computed anything real: a field the builder reads that has moved to a different path
+   * on `WeaponDef` resolves to `undefined`, every arithmetic expression built from it turns to `NaN`,
+   * and the stamp still matches because the stamp only fingerprints the SOURCE tables, never the
+   * builder's own output. That is exactly how `Damage: NaN` reached a committed page, in five of nine
+   * weapon cards, through a fully green suite (R9) — `build-cars-and-weapons.mjs` is plain `.mjs` and
+   * nothing else in the repo typechecks it.
+   */
+  it("never renders NaN anywhere on the page", () => {
+    const html = read(path.join(PUBLIC_DIR, manualPath()));
+    assert.equal(
+      html.includes("NaN"),
+      false,
+      "the guide page contains NaN — a field build-cars-and-weapons.mjs reads no longer exists at " +
+        "that path on WeaponDef. Find the stale access (grep the script for the field that moved) " +
+        "and fix it, then run `npm run build:manual` and commit the page it writes.",
+    );
+  });
+
+  /**
    * The staleness stamp above proves the page matches the TABLES. It cannot prove the arithmetic
    * over those tables is right, and for eighteen days it wasn't: the builder counted a beam's damage
    * ticks as `floor(lifeMs / intervalMs)`, which loses the opening tick. `bulwark` shipped as
