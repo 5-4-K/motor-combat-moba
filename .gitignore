@@ -25,6 +25,7 @@ packages/client/.vite/
 .claude/*
 !.claude/skills/
 !.claude/settings.json
+!.claude/hooks/
 
 # code-review-graph local knowledge graph
 .code-review-graph/

@@ -1,5 +1,19 @@
 {
   "enableAllProjectMcpServers": true,
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/graph-refresh.sh",
+            "timeout": 180
+          }
+        ]
+      }
+    ]
+  },
   "permissions": {
     "allow": [
       "mcp__code-review-graph__list_graph_stats_tool",
