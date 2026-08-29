@@ -76,16 +76,16 @@ describe("describeFit", () => {
 
 describe("mergeManifestEntry", () => {
   it("adds a bare row to an empty manifest", () => {
-    const next = mergeManifestEntry({ sprites: {} }, "car.rectangle", "cars/rectangle.png");
+    const next = mergeManifestEntry({ sprites: {} }, "car.mirage", "cars/mirage.png");
     assert.deepEqual(next.sprites, {
-      "car.rectangle": { file: "cars/rectangle.png" },
+      "car.mirage": { file: "cars/mirage.png" },
     });
   });
 
   it("keeps hand-tuned fields when the same car is re-imported", () => {
     const before = {
       sprites: {
-        "car.hexagon": {
+        "car.bastion": {
           file: "cars/old.png",
           rotationOffset: 1.5707963,
           colorMode: "none",
@@ -93,9 +93,9 @@ describe("mergeManifestEntry", () => {
         },
       },
     };
-    const next = mergeManifestEntry(before, "car.hexagon", "cars/hexagon.png");
-    assert.deepEqual(next.sprites["car.hexagon"], {
-      file: "cars/hexagon.png",
+    const next = mergeManifestEntry(before, "car.bastion", "cars/bastion.png");
+    assert.deepEqual(next.sprites["car.bastion"], {
+      file: "cars/bastion.png",
       rotationOffset: 1.5707963,
       colorMode: "none",
       origin: [0.4, 0.5],
@@ -103,20 +103,20 @@ describe("mergeManifestEntry", () => {
   });
 
   it("leaves other cars untouched", () => {
-    const before = { sprites: { "car.oval": { file: "cars/oval.png", scale: 2 } } };
-    const next = mergeManifestEntry(before, "car.rectangle", "cars/rectangle.png");
-    assert.deepEqual(next.sprites["car.oval"], { file: "cars/oval.png", scale: 2 });
+    const before = { sprites: { "car.bullseye": { file: "cars/bullseye.png", scale: 2 } } };
+    const next = mergeManifestEntry(before, "car.mirage", "cars/mirage.png");
+    assert.deepEqual(next.sprites["car.bullseye"], { file: "cars/bullseye.png", scale: 2 });
   });
 
   it("does not mutate the manifest it was given", () => {
     const before = { sprites: {} };
-    mergeManifestEntry(before, "car.rectangle", "cars/rectangle.png");
+    mergeManifestEntry(before, "car.mirage", "cars/mirage.png");
     assert.deepEqual(before.sprites, {});
   });
 
   it("treats a manifest with no sprites key as empty", () => {
-    const next = mergeManifestEntry({}, "car.oval", "cars/oval.png");
-    assert.deepEqual(next.sprites, { "car.oval": { file: "cars/oval.png" } });
+    const next = mergeManifestEntry({}, "car.bullseye", "cars/bullseye.png");
+    assert.deepEqual(next.sprites, { "car.bullseye": { file: "cars/bullseye.png" } });
   });
 });
 
@@ -230,14 +230,14 @@ describe("importWarnings with the background already keyed", () => {
 describe("formatManifest", () => {
   it("keeps an origin pair on one line so the file stays hand-editable", () => {
     const text = formatManifest({
-      sprites: { "car.oval": { file: "cars/oval.png", origin: [0.45, 0.5] } },
+      sprites: { "car.bullseye": { file: "cars/bullseye.png", origin: [0.45, 0.5] } },
     });
     assert.match(text, /"origin": \[0\.45, 0\.5\]/);
   });
 
   it("still indents the object structure two spaces", () => {
-    const text = formatManifest({ sprites: { "car.oval": { file: "cars/oval.png" } } });
-    assert.match(text, /\n  "sprites": \{\n    "car\.oval": \{\n      "file": "cars\/oval\.png"/);
+    const text = formatManifest({ sprites: { "car.bullseye": { file: "cars/bullseye.png" } } });
+    assert.match(text, /\n  "sprites": \{\n    "car\.bullseye": \{\n      "file": "cars\/bullseye\.png"/);
   });
 
   it("ends with a trailing newline", () => {
@@ -246,7 +246,7 @@ describe("formatManifest", () => {
 
   it("round-trips through JSON.parse unchanged", () => {
     const manifest = {
-      sprites: { "car.hexagon": { file: "a.png", origin: [0.25, 0.75], scale: 2 } },
+      sprites: { "car.bastion": { file: "a.png", origin: [0.25, 0.75], scale: 2 } },
     };
     assert.deepEqual(JSON.parse(formatManifest(manifest)), manifest);
   });

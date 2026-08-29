@@ -5,8 +5,8 @@ import type { ShotOrder } from "./instances.js";
 const SLOT_1 = 0b001;
 const SLOT_2 = 0b010;
 
-/** Rectangle, as shipped: slot 1 fireball, slot 2 pepperbox, slot 3 afterburner. */
-const fresh = () => newFireState("rectangle", 1);
+/** Mirage, as shipped: slot 1 fireball, slot 2 pepperbox, slot 3 afterburner. */
+const fresh = () => newFireState("mirage", 1);
 
 /** Drive a state forward n ticks of pure recharge. */
 function idle(state: FireState, from: number, ticks: number): FireState {
@@ -49,14 +49,14 @@ describe("pressing", () => {
   });
 
   it("fires the lowest pressed slot when two arrive on one tick", () => {
-    const twoSlot = newFireState("rectangle", 1);
+    const twoSlot = newFireState("mirage", 1);
     twoSlot.slots.push({ ...twoSlot.slots[0]!, weaponId: "fireball" });
     const state = beginFire(twoSlot, SLOT_1 | SLOT_2, 100);
     expect(state.pending!.slot).toBe(0);
   });
 
   it("refuses a weapon whose unlocksAt is above the player's level", () => {
-    const locked = newFireState("rectangle", 0); // level below every weapon's unlocksAt
+    const locked = newFireState("mirage", 0); // level below every weapon's unlocksAt
     expect(beginFire(locked, SLOT_1, 100).pending).toBeNull();
   });
 
@@ -84,12 +84,12 @@ describe("releasing", () => {
 
 describe("stocks", () => {
   /**
-   * `splinter` is the table's only multi-stock weapon: 3 stocks, a 400ms == 12-tick recharge, and a
-   * 130ms refire that rounds up to 4 ticks at 30Hz. Oval carries it, so unlike the `repeater` this
+   * `needler` is the table's only multi-stock weapon: 3 stocks, a 400ms == 12-tick recharge, and a
+   * 130ms refire that rounds up to 4 ticks at 30Hz. Bullseye carries it, so unlike the `repeater` this
    * replaced, every number here is one a player actually experiences.
    */
   const stocked = (): FireState => ({
-    slots: [{ weaponId: "splinter", stocks: 1, rechargeEndsTick: 190, refireLockUntilTick: 0 }],
+    slots: [{ weaponId: "needler", stocks: 1, rechargeEndsTick: 190, refireLockUntilTick: 0 }],
     switchLockUntilTick: 0,
     lastFiredSlot: -1,
     pending: null,
@@ -105,7 +105,7 @@ describe("stocks", () => {
   it("clears the timer at max stocks rather than banking progress", () => {
     const nearlyFull: FireState = {
       ...stocked(),
-      slots: [{ weaponId: "splinter", stocks: 2, rechargeEndsTick: 190, refireLockUntilTick: 0 }],
+      slots: [{ weaponId: "needler", stocks: 2, rechargeEndsTick: 190, refireLockUntilTick: 0 }],
     };
     const full = tickRecharge(nearlyFull, 190);
     expect(full.slots[0]!.stocks).toBe(3);
@@ -115,7 +115,7 @@ describe("stocks", () => {
   it("starts a fresh full timer when firing from max, however long it sat full", () => {
     const full: FireState = {
       ...stocked(),
-      slots: [{ weaponId: "splinter", stocks: 3, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
+      slots: [{ weaponId: "needler", stocks: 3, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
     };
     const waited = idle(full, 200, 500);
     const fired = releaseShots(beginFire(waited, SLOT_1, 700), 700).state;
@@ -131,11 +131,11 @@ describe("stocks", () => {
 
 describe("refire delay", () => {
   it("refuses a second shot of the same weapon before its refire delay, and allows it once the lock elapses", () => {
-    // splinter's refireDelayMs is 130ms, which rounds UP to 4 ticks (133ms) at 30Hz. Two stocks
+    // needler's refireDelayMs is 130ms, which rounds UP to 4 ticks (133ms) at 30Hz. Two stocks
     // banked so a second press has ammo to spend; only the refire lock, not stock count, is under
     // test here.
     const twoStocks: FireState = {
-      slots: [{ weaponId: "splinter", stocks: 2, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
+      slots: [{ weaponId: "needler", stocks: 2, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
       switchLockUntilTick: 0,
       lastFiredSlot: -1,
       pending: null,
@@ -219,7 +219,7 @@ describe("the two lockouts", () => {
    * The roster splits the two clocks across two weapons, so the fixture carries both. `lance` in
    * slot 2 owns the recovery (1000ms == 30 ticks) — it is the only row with a substantial one, and
    * `fireball`'s is 0, so a fireball fixture can only prove the gate by hand-setting
-   * `switchLockUntilTick`, never that `releaseShots` WRITES it. `splinter` in slot 1 owns the
+   * `switchLockUntilTick`, never that `releaseShots` WRITES it. `needler` in slot 1 owns the
    * refire delay (130ms == 4 ticks) and has `recoveryMs: 0`, which is itself worth asserting: a
    * go-to must never gate another slot.
    *
@@ -230,7 +230,7 @@ describe("the two lockouts", () => {
    */
   const twoSlots = (): FireState => ({
     slots: [
-      { weaponId: "splinter", stocks: 2, rechargeEndsTick: 0, refireLockUntilTick: 0 },
+      { weaponId: "needler", stocks: 2, rechargeEndsTick: 0, refireLockUntilTick: 0 },
       { weaponId: "lance", stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0 },
     ],
     switchLockUntilTick: 0,
@@ -261,12 +261,12 @@ describe("the two lockouts", () => {
   });
 
   it("gates the same slot on its own refire delay, and gates no other slot at zero recovery", () => {
-    // splinter's startUpMs is 0, so its shot exits on the press tick and both clocks land at 200.
+    // needler's startUpMs is 0, so its shot exits on the press tick and both clocks land at 200.
     const fired = releaseShots(beginFire(twoSlots(), SLOT_1, 200), 200).state;
     expect(fired.slots[0]!.refireLockUntilTick).toBe(204); // 200 + 4
     expect(beginFire(fired, SLOT_1, 203).pending).toBeNull(); // same slot, still inside the lock
     expect(beginFire(fired, SLOT_1, 204).pending).not.toBeNull(); // its own refire delay elapsed
-    expect(fired.switchLockUntilTick).toBe(200); // splinter's recoveryMs is 0: no switch lock at all
+    expect(fired.switchLockUntilTick).toBe(200); // needler's recoveryMs is 0: no switch lock at all
     expect(beginFire(fired, SLOT_2, 201).pending).not.toBeNull(); // so the other slot is free
   });
 

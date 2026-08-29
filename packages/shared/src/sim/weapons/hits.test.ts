@@ -16,7 +16,7 @@ const snapshot = (
     .map((e) => ({ sessionId: e.sessionId, team: e.team ?? 0, hull: carHullOf(e.x, e.y, 0) }))
     .sort((a, b) => (a.sessionId < b.sessionId ? -1 : 1));
 
-function shotFrom(x: number, y: number, angle = 0, team: 0 | 1 = 0, carId = "rectangle"): WeaponInstance {
+function shotFrom(x: number, y: number, angle = 0, team: 0 | 1 = 0, carId = "mirage"): WeaponInstance {
   return spawnInstances(
     { weaponId: "fireball", slot: 0 },
     { sessionId: "aaa", team, carId, x, y, angle },
@@ -30,13 +30,13 @@ describe("hit resolution", () => {
     const shot = shotFrom(400, 300);
     const moved = stepInstance(shot, { dt: DT, tick: 101, obstacles: [], bounds: BOUNDS, ownerPose: null });
     const out = resolveInstanceHits(moved, shot, snapshot([{ sessionId: "bbb", x: 434, y: 300 }]), "ffa", 101);
-    expect(out.damaged).toEqual([{ sessionId: "bbb", amount: weaponDamageOf("rectangle", "fireball") }]);
+    expect(out.damaged).toEqual([{ sessionId: "bbb", amount: weaponDamageOf("mirage", "fireball") }]);
   });
 
   it("uses the damage frozen on the instance, not the weapon table's own number", () => {
-    // The whole point of freezing at spawn: an oval's fireball hits harder than a rectangle's, and
+    // The whole point of freezing at spawn: a bullseye's fireball hits harder than a mirage's, and
     // hits.ts learns that from the instance rather than by looking the owner up.
-    const shot = shotFrom(400, 300, 0, 0, "oval");
+    const shot = shotFrom(400, 300, 0, 0, "bullseye");
     const moved = stepInstance(shot, { dt: DT, tick: 101, obstacles: [], bounds: BOUNDS, ownerPose: null });
     const out = resolveInstanceHits(moved, shot, snapshot([{ sessionId: "bbb", x: 434, y: 300 }]), "ffa", 101);
     expect(out.damaged).toEqual([{ sessionId: "bbb", amount: 60 }]);
@@ -115,7 +115,7 @@ describe("hit resolution", () => {
       { sessionId: "ccc", team: 0, x: 424, y: 300 }, // enemy: must still be damaged
     ]);
     const out = resolveInstanceHits(shot, shot, mixed, "team", 100);
-    expect(out.damaged).toEqual([{ sessionId: "ccc", amount: weaponDamageOf("rectangle", "fireball") }]);
+    expect(out.damaged).toEqual([{ sessionId: "ccc", amount: weaponDamageOf("mirage", "fireball") }]);
   });
 });
 

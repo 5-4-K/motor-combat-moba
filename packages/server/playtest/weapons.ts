@@ -60,7 +60,7 @@ function shootAt(opts: {
   const angle = opts.angle ?? 0;
   const sx = opts.sx ?? 200;
   const sy = opts.sy ?? 360;
-  const targetCar = opts.targetCar ?? "hexagon";
+  const targetCar = opts.targetCar ?? "bastion";
   const w = new PlaytestWorld(
     [
       { id: "shooter", carId: shooterCar, x: sx, y: sy, angle, team: 0 },
@@ -213,10 +213,10 @@ function friendlyFire(): void {
  */
 function damageAfterDeath(): void {
   const w = new PlaytestWorld([
-    { id: "shooter", carId: "oval", x: 200, y: 360, angle: 0 },
-    { id: "target", carId: "oval", x: 500, y: 360, angle: 0, hp: 40 },
+    { id: "shooter", carId: "bullseye", x: 200, y: 360, angle: 0 },
+    { id: "target", carId: "bullseye", x: 500, y: 360, angle: 0, hp: 40 },
   ]);
-  const bit = slotBitFor("oval", "splinter");
+  const bit = slotBitFor("bullseye", "needler");
   let hpBelowZero = false;
   let deadTookDamage = false;
   let deadAt = -1;
@@ -254,7 +254,7 @@ function fireRateExploit(): void {
     for (const perTick of [1, 8]) {
       const w = new PlaytestWorld([
         { id: "shooter", carId: carrier, x: 200, y: 360, angle: 0 },
-        { id: "target", carId: "hexagon", x: 200 + Math.min(WEAPON_TABLE[id].range * 0.5, 300), y: 360, angle: 0 },
+        { id: "target", carId: "bastion", x: 200 + Math.min(WEAPON_TABLE[id].range * 0.5, 300), y: 360, angle: 0 },
       ]);
       let spawned = 0;
       const seen = new Set<string>();
@@ -283,13 +283,13 @@ function fireRateExploit(): void {
  */
 function statusChain(): void {
   const rows: string[] = [];
-  // Two hexagons alternating shockwave on one victim: the perma-stun attempt.
+  // Two bastions alternating shockwave on one victim: the perma-stun attempt.
   const w = new PlaytestWorld([
-    { id: "hexA", carId: "hexagon", x: 600, y: 360, angle: 0, team: 0 },
-    { id: "hexB", carId: "hexagon", x: 680, y: 360, angle: Math.PI, team: 0 },
-    { id: "victim", carId: "rectangle", x: 640, y: 360, angle: 0, team: 0, hp: 100000 },
+    { id: "hexA", carId: "bastion", x: 600, y: 360, angle: 0, team: 0 },
+    { id: "hexB", carId: "bastion", x: 680, y: 360, angle: Math.PI, team: 0 },
+    { id: "victim", carId: "mirage", x: 640, y: 360, angle: 0, team: 0, hp: 100000 },
   ]);
-  const bit = slotBitFor("hexagon", "shockwave");
+  const bit = slotBitFor("bastion", "shockwave");
   let stunnedTicks = 0;
   const total = 900; // 30 seconds
   for (let i = 0; i < total; i++) {
@@ -302,16 +302,16 @@ function statusChain(): void {
     }
   }
   rows.push(
-    `two Hexagons spamming Shockwave on one car for ${total} ticks (30s): ` +
+    `two Bastions spamming Shockwave on one car for ${total} ticks (30s): ` +
       `stunned for ${stunnedTicks} ticks (${((stunnedTicks / total) * 100).toFixed(0)}% of the fight)`,
   );
 
   // Sustained afterburner: how long can `overheated` be held?
   const w2 = new PlaytestWorld([
-    { id: "r", carId: "rectangle", x: 600, y: 360, angle: 0 },
-    { id: "v", carId: "hexagon", x: 700, y: 360, angle: 0, hp: 100000 },
+    { id: "r", carId: "mirage", x: 600, y: 360, angle: 0 },
+    { id: "v", carId: "bastion", x: 700, y: 360, angle: 0, hp: 100000 },
   ]);
-  const abBit = slotBitFor("rectangle", "afterburner");
+  const abBit = slotBitFor("mirage", "afterburner");
   let overheatedTicks = 0;
   for (let i = 0; i < 900; i++) {
     w2.input("r", { fireSlots: abBit });
@@ -321,7 +321,7 @@ function statusChain(): void {
     }
   }
   rows.push(
-    `one Rectangle holding Afterburner on one car for 900 ticks: ` +
+    `one Mirage holding Afterburner on one car for 900 ticks: ` +
       `overheated for ${overheatedTicks} ticks (${((overheatedTicks / 900) * 100).toFixed(0)}%)`,
   );
 
@@ -353,7 +353,7 @@ function beamsThroughWalls(): void {
     const w = new PlaytestWorld(
       [
         { id: "shooter", carId: carrier, x: sx, y, angle: 0 },
-        { id: "target", carId: "hexagon", x: tx, y, angle: 0 },
+        { id: "target", carId: "bastion", x: tx, y, angle: 0 },
       ],
       "ffa",
       "arena-02",
@@ -385,18 +385,18 @@ function beamsThroughWalls(): void {
 function auraThroughWall(): void {
   const arena = getArena("arena-02");
   const box = arena.obstacles[2]!;
-  // Hexagon hugging the west face of the box; victim hugging the east face. 200u of solid wall
+  // Bastion hugging the west face of the box; victim hugging the east face. 200u of solid wall
   // between them, well inside shockwave's 150 radius? No — check the real geometry.
   const y = box.y + box.h / 2;
   const w = new PlaytestWorld(
     [
-      { id: "hex", carId: "hexagon", x: box.x - 25, y, angle: 0 },
-      { id: "victim", carId: "rectangle", x: box.x - 25 + 140, y, angle: 0 },
+      { id: "hex", carId: "bastion", x: box.x - 25, y, angle: 0 },
+      { id: "victim", carId: "mirage", x: box.x - 25 + 140, y, angle: 0 },
     ],
     "ffa",
     "arena-02",
   );
-  const bit = slotBitFor("hexagon", "shockwave");
+  const bit = slotBitFor("bastion", "shockwave");
   const startHp = w.get("victim").hp;
   for (let i = 0; i < 30; i++) {
     w.input("hex", { fireSlots: i === 0 ? bit : 0 });
@@ -406,7 +406,7 @@ function auraThroughWall(): void {
   report(
     "W9. Shockwave (disc aura) reaching through a wall",
     dealt > 0 ? "KNOWN-BY-DESIGN" : "OK",
-    `Hexagon on the west face of a 200x200 block, victim 140u away with the block between them: ` +
+    `Bastion on the west face of a 200x200 block, victim 140u away with the block between them: ` +
       `dealt ${dealt}, victim statuses ${statusesOf(w.get("victim")).map((s) => s.statusId).join(",") || "none"}.\n` +
       `instances.ts states a disc "grows to its full range and passes through level geometry" — ` +
       `intentional, but it is a stun through a solid wall, which reads as a bug from the receiving end.`,
@@ -417,12 +417,12 @@ function auraThroughWall(): void {
 /** `skewer` has pierce: 1, documented as "TWO CARS, not one and not three". */
 function pierce(): void {
   const w = new PlaytestWorld([
-    { id: "shooter", carId: "oval", x: 200, y: 360, angle: 0, team: 0 },
-    { id: "t1", carId: "hexagon", x: 400, y: 360, angle: 0, team: 0 },
-    { id: "t2", carId: "hexagon", x: 500, y: 360, angle: 0, team: 0 },
-    { id: "t3", carId: "hexagon", x: 600, y: 360, angle: 0, team: 0 },
+    { id: "shooter", carId: "bullseye", x: 200, y: 360, angle: 0, team: 0 },
+    { id: "t1", carId: "bastion", x: 400, y: 360, angle: 0, team: 0 },
+    { id: "t2", carId: "bastion", x: 500, y: 360, angle: 0, team: 0 },
+    { id: "t3", carId: "bastion", x: 600, y: 360, angle: 0, team: 0 },
   ]);
-  const bit = slotBitFor("oval", "skewer");
+  const bit = slotBitFor("bullseye", "skewer");
   const before = ["t1", "t2", "t3"].map((id) => w.get(id).hp);
   for (let i = 0; i < 60; i++) {
     w.input("shooter", { fireSlots: i === 0 ? bit : 0 });
@@ -465,12 +465,12 @@ function instanceLeak(): void {
 /* --------------------------------------------------------- W12. attached beam vs owner death */
 function beamOwnerDeath(): void {
   const w = new PlaytestWorld([
-    { id: "burner", carId: "rectangle", x: 600, y: 360, angle: 0, hp: 30, team: 0 },
-    { id: "victim", carId: "hexagon", x: 700, y: 360, angle: 0, team: 0 },
-    { id: "killer", carId: "oval", x: 600, y: 200, angle: Math.PI / 2, team: 0 },
+    { id: "burner", carId: "mirage", x: 600, y: 360, angle: 0, hp: 30, team: 0 },
+    { id: "victim", carId: "bastion", x: 700, y: 360, angle: 0, team: 0 },
+    { id: "killer", carId: "bullseye", x: 600, y: 200, angle: Math.PI / 2, team: 0 },
   ]);
-  const abBit = slotBitFor("rectangle", "afterburner");
-  const spBit = slotBitFor("oval", "splinter");
+  const abBit = slotBitFor("mirage", "afterburner");
+  const spBit = slotBitFor("bullseye", "needler");
   let beamAfterDeath = 0;
   let burnerDeadAt = -1;
   for (let i = 0; i < 90; i++) {

@@ -17,7 +17,7 @@ const NO_EFFECTS = new Map<string, Modifiers>();
 function addPlayer(state: ArenaState, id: string, over: Partial<PlayerState> = {}): PlayerState {
   const p = new PlayerState();
   p.sessionId = id;
-  p.carId = "rectangle";
+  p.carId = "mirage";
   p.status = PlayerStatus.IN_MATCH;
   p.alive = true;
   Object.assign(p, over);
@@ -118,7 +118,7 @@ describe("ramTick", () => {
 
   it("does not let a later, weaker ram overwrite a standing stronger knock (no rescue)", () => {
     const state = arena();
-    // A full-severity rear ram: a top-speed rectangle into the back of "b". Lands well below the
+    // A full-severity rear ram: a top-speed mirage into the back of "b". Lands well below the
     // authority floor's midpoint.
     addPlayer(state, "strong", { x: 0, y: 400, angle: 0, speed: 540 });
     const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
@@ -145,9 +145,9 @@ describe("ramTick", () => {
     ramTick(state, new Set(["medium", "b"]), memory, "ffa", NO_EFFECTS, approachSpeeds(state));
     const afterMediumRam = victim.authority;
 
-    // A heavier attacker (hexagon) rear-ends the same victim at its own top speed on a later tick —
+    // A heavier attacker (bastion) rear-ends the same victim at its own top speed on a later tick —
     // strictly harder than the first ram, so its lower authority must win.
-    addPlayer(state, "hexy", { x: 0, y: 400, angle: 0, speed: 315, carId: "hexagon" });
+    addPlayer(state, "hexy", { x: 0, y: 400, angle: 0, speed: 315, carId: "bastion" });
     ramTick(state, new Set(["medium", "b", "hexy"]), memory, "ffa", NO_EFFECTS, approachSpeeds(state));
 
     expect(victim.authority).toBeLessThan(afterMediumRam);

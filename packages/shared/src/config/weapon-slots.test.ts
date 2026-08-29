@@ -14,9 +14,9 @@ describe("loadouts", () => {
   });
 
   it("gives each chassis its own exclusive three-weapon kit", () => {
-    expect(CAR_TABLE.rectangle.weapons).toEqual(["fireball", "pepperbox", "afterburner"]);
-    expect(CAR_TABLE.oval.weapons).toEqual(["splinter", "skewer", "lance"]);
-    expect(CAR_TABLE.hexagon.weapons).toEqual(["thumper", "shockwave", "bulwark"]);
+    expect(CAR_TABLE.mirage.weapons).toEqual(["fireball", "pepperbox", "afterburner"]);
+    expect(CAR_TABLE.bullseye.weapons).toEqual(["needler", "skewer", "lance"]);
+    expect(CAR_TABLE.bastion.weapons).toEqual(["thumper", "shockwave", "bulwark"]);
   });
 
   it("shares no weapon between two chassis, so car select is a real choice", () => {
@@ -32,25 +32,25 @@ describe("loadouts", () => {
   });
 
   it("returns the car's list in slot order", () => {
-    expect(slotsOf("hexagon")).toEqual(["thumper", "shockwave", "bulwark"]);
+    expect(slotsOf("bastion")).toEqual(["thumper", "shockwave", "bulwark"]);
   });
 
   it("truncates an over-long loadout to the slot limit and warns once, naming the car", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const over = ["fireball", "fireball", "fireball", "fireball"] as const;
 
-    const first = slotsFrom("hexagon", over);
-    const second = slotsFrom("hexagon", over);
+    const first = slotsFrom("bastion", over);
+    const second = slotsFrom("bastion", over);
 
     expect(first).toHaveLength(WEAPON_SLOT_CONFIG.maxWeaponSlots);
     expect(second).toHaveLength(WEAPON_SLOT_CONFIG.maxWeaponSlots);
     expect(warn).toHaveBeenCalledTimes(1); // once per car, not once per call
-    expect(warn.mock.calls[0]![0]).toContain("hexagon");
+    expect(warn.mock.calls[0]![0]).toContain("bastion");
   });
 
   it("does not warn for a loadout inside the limit", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    slotsFrom("oval", ["fireball"]);
+    slotsFrom("bullseye", ["fireball"]);
     expect(warn).not.toHaveBeenCalled();
   });
 });

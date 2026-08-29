@@ -25,7 +25,7 @@ const ctx = (over: Partial<Parameters<typeof stepInstance>[1]> = {}) => ({
   ...over,
 });
 
-const owner = { sessionId: "aaa", team: 0 as const, carId: "rectangle", x: 500, y: 300, angle: 0 };
+const owner = { sessionId: "aaa", team: 0 as const, carId: "mirage", x: 500, y: 300, angle: 0 };
 
 describe("spawning", () => {
   it("births a shot at the car's nose, not its centre", () => {
@@ -55,14 +55,14 @@ describe("spawning", () => {
 
   it("freezes the owner's chassis-scaled damage onto the instance", () => {
     const { instances } = spawnInstances({ weaponId: "fireball", slot: 0 }, owner, 100, 0);
-    expect(instances[0]!.damage).toBe(weaponDamageOf("rectangle", "fireball"));
+    expect(instances[0]!.damage).toBe(weaponDamageOf("mirage", "fireball"));
   });
 
   it("gives a harder-hitting chassis a harder-hitting shot from the same weapon", () => {
-    const glassCannon = { ...owner, carId: "oval" };
+    const glassCannon = { ...owner, carId: "bullseye" };
     const { instances } = spawnInstances({ weaponId: "fireball", slot: 0 }, glassCannon, 100, 0);
     expect(instances[0]!.damage).toBe(60);
-    expect(instances[0]!.damage).toBeGreaterThan(weaponDamageOf("rectangle", "fireball"));
+    expect(instances[0]!.damage).toBeGreaterThan(weaponDamageOf("mirage", "fireball"));
   });
 
   it("falls back to the default chassis for an unrecognised carId rather than NaN-ing damage", () => {
@@ -145,7 +145,7 @@ describe("beam growth and expiry", () => {
     id: "b1",
     ownerSessionId: "aaa",
     ownerTeam: 0,
-    damage: weaponDamageOf("rectangle", "fireball"),
+    damage: weaponDamageOf("mirage", "fireball"),
     weaponId: "fireball",
     kind: "beam",
     x: 500,
@@ -240,7 +240,7 @@ describe("wall clipping", () => {
 });
 
 describe("spawnInstances aim angle", () => {
-  const owner = { sessionId: "p1", team: 0 as const, carId: "rectangle", x: 100, y: 100, angle: 0 };
+  const owner = { sessionId: "p1", team: 0 as const, carId: "mirage", x: 100, y: 100, angle: 0 };
   const order = { weaponId: "fireball" as const, slot: 0 };
 
   it("uses the owner's heading when no aim angle is given", () => {

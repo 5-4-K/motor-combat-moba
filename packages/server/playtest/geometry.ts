@@ -53,7 +53,7 @@ function driveIntoGeometry(): void {
   const box = ARENA.obstacles[2]!; // 400,400 200x200 — a free-standing bunker with four corners
 
   for (let deg = 0; deg < 360; deg += 10) {
-    for (const carId of ["rectangle", "hexagon"] as CarId[]) {
+    for (const carId of ["mirage", "bastion"] as CarId[]) {
       total++;
       const a = (deg * Math.PI) / 180;
       const cx = box.x + box.w / 2;
@@ -121,7 +121,7 @@ function concaveCorners(): void {
         [
           {
             id: "c",
-            carId: "rectangle",
+            carId: "mirage",
             x: corner.x - Math.cos(a) * 200,
             y: corner.y - Math.sin(a) * 200,
             angle: a,
@@ -163,13 +163,13 @@ function crushAgainstObstacle(): void {
   let deepestGeom = 0;
   for (let deg = 0; deg < 360; deg += 45) {
     const a = (deg * Math.PI) / 180;
-    // Victim flush against the box face; a hexagon at top speed drives it into the wall.
+    // Victim flush against the box face; a bastion at top speed drives it into the wall.
     const faceX = box.x - DRIVE_CONFIG.carWidth / 2 - 1;
     const faceY = box.y + box.h / 2;
     const w = new PlaytestWorld(
       [
-        { id: "atk", carId: "hexagon", x: faceX - 60, y: faceY, angle: 0, speed: forwardMaxSpeedOf("hexagon") },
-        { id: "vic", carId: "rectangle", x: faceX, y: faceY, angle: a },
+        { id: "atk", carId: "bastion", x: faceX - 60, y: faceY, angle: 0, speed: forwardMaxSpeedOf("bastion") },
+        { id: "vic", carId: "mirage", x: faceX, y: faceY, angle: a },
       ],
       "ffa",
       "arena-02",
@@ -209,13 +209,13 @@ function lockThroughWall(): void {
   const gap = tx - sx;
   const w = new PlaytestWorld(
     [
-      { id: "s", carId: "oval", x: sx, y, angle: 0, team: 0 },
-      { id: "t", carId: "hexagon", x: tx, y, angle: 0, team: 0 },
+      { id: "s", carId: "bullseye", x: sx, y, angle: 0, team: 0 },
+      { id: "t", carId: "bastion", x: tx, y, angle: 0, team: 0 },
     ],
     "ffa",
     "arena-02",
   );
-  const bit = slotBitFor("oval", "splinter");
+  const bit = slotBitFor("bullseye", "needler");
   let lockedTicks = 0;
   for (let i = 0; i < 120; i++) {
     w.input("s", { fireSlots: bit });
@@ -225,8 +225,8 @@ function lockThroughWall(): void {
   // Control: same distance, no wall between them.
   const clear = new PlaytestWorld(
     [
-      { id: "s", carId: "oval", x: 200, y: 1800, angle: 0, team: 0 },
-      { id: "t", carId: "hexagon", x: 200 + gap, y: 1800, angle: 0, team: 0 },
+      { id: "s", carId: "bullseye", x: 200, y: 1800, angle: 0, team: 0 },
+      { id: "t", carId: "bastion", x: 200 + gap, y: 1800, angle: 0, team: 0 },
     ],
     "ffa",
     "arena-02",
@@ -259,7 +259,7 @@ function beamInWall(): void {
     const w = new PlaytestWorld(
       [
         { id: "s", carId: carrier, x: box.x - 20, y: box.y + box.h / 2, angle: 0, team: 0 },
-        { id: "t", carId: "hexagon", x: box.x + box.w + 40, y: box.y + box.h / 2, angle: 0, team: 0 },
+        { id: "t", carId: "bastion", x: box.x + box.w + 40, y: box.y + box.h / 2, angle: 0, team: 0 },
       ],
       "ffa",
       "arena-02",

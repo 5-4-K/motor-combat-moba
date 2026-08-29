@@ -19,7 +19,7 @@
  * `baseMaxSpeed` and `speedPerRating` scale together deliberately: the ratio between them is what
  * decides how much the per-car `speed` rating matters. Moving only one re-balances the roster.
  *
- * Times below are quoted for the fastest chassis (rectangle, speed rating 80, 540 units/second).
+ * Times below are quoted for the fastest chassis (mirage, speed rating 80, 540 units/second).
  */
 export const DRIVE_CONFIG = {
   baseMaxSpeed: 180,

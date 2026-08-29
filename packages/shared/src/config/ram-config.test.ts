@@ -77,19 +77,19 @@ describe("mass rating", () => {
   });
 
   it("scales ratings to real mass via massPerRating", () => {
-    expect(massOf("rectangle")).toBe(350);
-    expect(massOf("oval")).toBe(450);
-    expect(massOf("hexagon")).toBe(850);
+    expect(massOf("mirage")).toBe(350);
+    expect(massOf("bullseye")).toBe(450);
+    expect(massOf("bastion")).toBe(850);
   });
 
   it("makes the tank the heaviest and the speedster the lightest", () => {
-    expect(massOf("hexagon")).toBeGreaterThan(massOf("oval"));
-    expect(massOf("oval")).toBeGreaterThan(massOf("rectangle"));
+    expect(massOf("bastion")).toBeGreaterThan(massOf("bullseye"));
+    expect(massOf("bullseye")).toBeGreaterThan(massOf("mirage"));
   });
 
   it("derives the ram reference from an average chassis at the roster's top speed", () => {
     expect(RAM_REFERENCE_MASS).toBe(500);
-    expect(RAM_REFERENCE).toBe(RAM_REFERENCE_MASS * forwardMaxSpeedOf("rectangle"));
+    expect(RAM_REFERENCE).toBe(RAM_REFERENCE_MASS * forwardMaxSpeedOf("mirage"));
     expect(RAM_REFERENCE).toBe(270000);
   });
 });

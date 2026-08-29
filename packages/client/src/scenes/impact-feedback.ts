@@ -13,7 +13,7 @@ import { RAM_CONFIG, canDamage, carHullOf, obbsInContact } from "@motor-combat-m
  * INTERPOLATED pose, rendered `NET_CONFIG.interpolationDelayMs` (50 ms) in the past, and the local
  * car itself is typically running roughly RTT/2 ahead of the server's own view of it. The two clocks
  * can therefore disagree by on the order of 50-100+ ms depending on latency. At a closing speed
- * around 1080 u/s (two top-speed rectangles head-on) that is on the order of 50-100+ units of
+ * around 1080 u/s (two top-speed mirages head-on) that is on the order of 50-100+ units of
  * positional disagreement — enough that this can spark on a near-miss or miss a real graze.
  *
  * This is accepted, not fixed, and deliberately not restructured: correcting it means either lagging

@@ -16,8 +16,8 @@ import {
 /**
  * How full a car's hp bar is, in `[0, 1]`.
  *
- * The denominator comes from the car's own `CAR_TABLE` hp, not from a shared maximum: a hexagon at
- * half hp and a rectangle at half hp must both read as half a bar, or the bar tells you about the
+ * The denominator comes from the car's own `CAR_TABLE` hp, not from a shared maximum: a bastion at
+ * half hp and a mirage at half hp must both read as half a bar, or the bar tells you about the
  * chassis instead of about the fight. An unrecognised `carId` falls back to the default chassis,
  * the same fallback the sim uses, rather than dividing by an undefined maximum and rendering NaN.
  */

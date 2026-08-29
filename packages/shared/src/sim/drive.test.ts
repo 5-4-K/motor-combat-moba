@@ -7,7 +7,7 @@ import { stepDrive } from "./drive.js";
 import { NEUTRAL_MODIFIERS } from "./status/modifiers.js";
 import type { SimBody } from "./step.js";
 
-const CAR_ID = "rectangle";
+const CAR_ID = "mirage";
 const DT = 1 / 30;
 
 function input(steer: -1 | 0 | 1, throttle: -1 | 0 | 1): InputMessage {

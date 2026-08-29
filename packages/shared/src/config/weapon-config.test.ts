@@ -87,18 +87,18 @@ describe("WEAPON_TABLE", () => {
     expect(weaponDefOf("fireball").id).toBe("fireball");
   });
 
-  it("ships splinter as the table's multi-stock reference, now carried rather than dormant", () => {
-    const splinter = WEAPON_TABLE.splinter;
-    expect(splinter.kind).toBe("projectile");
-    expect(splinter.damage).toBe(30);
-    expect(splinter.cooldownMs).toBe(400);
-    expect(splinter.speed).toBe(1100);
-    expect(splinter.range).toBe(850);
-    expect(splinter.usesAimAssist).toBe(true);
-    expect(splinter.stock).toEqual({ max: 3, refireDelayMs: 130 });
+  it("ships needler as the table's multi-stock reference, now carried rather than dormant", () => {
+    const needler = WEAPON_TABLE.needler;
+    expect(needler.kind).toBe("projectile");
+    expect(needler.damage).toBe(30);
+    expect(needler.cooldownMs).toBe(400);
+    expect(needler.speed).toBe(1100);
+    expect(needler.range).toBe(850);
+    expect(needler.usesAimAssist).toBe(true);
+    expect(needler.stock).toEqual({ max: 3, refireDelayMs: 130 });
     // 400ms is the whole design: tapping one dart sustains 75 DPS, dumping all three puts 90
     // damage out in 260ms and then leaves a 1.2s dry spell. See the spec's derivation rule.
-    expect(splinter.damage * (1000 / splinter.cooldownMs)).toBe(75);
+    expect(needler.damage * (1000 / needler.cooldownMs)).toBe(75);
   });
 
   it("never lets an aim-assist weapon lock past its own reach", () => {
@@ -178,7 +178,7 @@ describe("WEAPON_TABLE", () => {
     const skewer = WEAPON_TABLE.skewer;
     if (skewer.kind !== "projectile") throw new Error("skewer must be a projectile");
     // `pierce` counts opponents passed through AFTER the first, so 1 == two cars. At `pierce: 2`
-    // a 110-damage shot deals 396 on Oval's 1.2x attack and out-damages `lance`, the ultimate.
+    // a 110-damage shot deals 396 on Bullseye's 1.2x attack and out-damages `lance`, the ultimate.
     expect(skewer.pierce).toBe(1);
     expect(skewer.hitbox).toEqual({ shape: "ellipse", radiusAlong: 22, radiusAcross: 5 });
     expect(skewer.startUpMs).toBe(250);

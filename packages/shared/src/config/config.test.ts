@@ -10,14 +10,14 @@ import { WEAPON_TABLE } from "./weapon-config.js";
 import { damageFor, weaponDamageOf } from "../sim/damage.js";
 
 describe("CAR_TABLE", () => {
-  it("has exactly rectangle, oval, hexagon", () => {
-    expect(Object.keys(CAR_TABLE).sort()).toEqual(["hexagon", "oval", "rectangle"]);
+  it("has exactly mirage, bullseye, bastion", () => {
+    expect(Object.keys(CAR_TABLE).sort()).toEqual(["bastion", "bullseye", "mirage"]);
   });
 
   it("matches the locked ratings", () => {
-    expect(CAR_TABLE.rectangle).toMatchObject({ speed: 80, attack: 30, hp: 40 });
-    expect(CAR_TABLE.oval).toMatchObject({ speed: 50, attack: 70, hp: 30 });
-    expect(CAR_TABLE.hexagon).toMatchObject({ speed: 30, attack: 50, hp: 70 });
+    expect(CAR_TABLE.mirage).toMatchObject({ speed: 80, attack: 30, hp: 40 });
+    expect(CAR_TABLE.bullseye).toMatchObject({ speed: 50, attack: 70, hp: 30 });
+    expect(CAR_TABLE.bastion).toMatchObject({ speed: 30, attack: 50, hp: 70 });
   });
 
   it("gives every chassis whole 0-100 ratings on all four axes", () => {
@@ -34,17 +34,17 @@ describe("CAR_TABLE", () => {
   });
 
   it("derives actual HP via hpPerRating", () => {
-    expect(hpOf("rectangle")).toBe(400);
-    expect(hpOf("oval")).toBe(300);
-    expect(hpOf("hexagon")).toBe(700);
+    expect(hpOf("mirage")).toBe(400);
+    expect(hpOf("bullseye")).toBe(300);
+    expect(hpOf("bastion")).toBe(700);
   });
 
   it("keeps every top speed exactly where it was before the ratings widened", () => {
     // The 10x rating change is cancelled by speedPerRating 45 -> 4.5. This is a combat change; if a
     // car's top speed moved, the cancellation is wrong.
-    expect(forwardMaxSpeedOf("rectangle")).toBe(540);
-    expect(forwardMaxSpeedOf("oval")).toBe(405);
-    expect(forwardMaxSpeedOf("hexagon")).toBe(315);
+    expect(forwardMaxSpeedOf("mirage")).toBe(540);
+    expect(forwardMaxSpeedOf("bullseye")).toBe(405);
+    expect(forwardMaxSpeedOf("bastion")).toBe(315);
   });
 
   it("kills an average chassis with the baseline weapon in 5 seconds", () => {
@@ -67,28 +67,28 @@ describe("CAR_TABLE", () => {
   it("pins the roster's TTK spread, and with it damagePerAttack", () => {
     // The baseline anchor above cannot constrain damagePerAttack -- at attackBaseline the modifier
     // is 1 by definition, so no baseline-only assertion can see it move. These two off-baseline
-    // cells from the spec's own TTK matrix close that gap: rectangle (attack 30, modifier 0.8)
-    // killing the highest-hp chassis, and oval (attack 70, modifier 1.2) killing itself. A drift in
+    // cells from the spec's own TTK matrix close that gap: mirage (attack 30, modifier 0.8)
+    // killing the highest-hp chassis, and bullseye (attack 70, modifier 1.2) killing itself. A drift in
     // damagePerAttack moves both numbers, because both are evaluated away from the baseline.
-    const rectangleVsHexagonDps =
-      (weaponDamageOf("rectangle", "fireball") * 1000) / WEAPON_TABLE.fireball.cooldownMs;
-    expect(hpOf("hexagon") / rectangleVsHexagonDps).toBe(8.75);
+    const mirageVsBastionDps =
+      (weaponDamageOf("mirage", "fireball") * 1000) / WEAPON_TABLE.fireball.cooldownMs;
+    expect(hpOf("bastion") / mirageVsBastionDps).toBe(8.75);
 
-    const ovalVsOvalDps = (weaponDamageOf("oval", "fireball") * 1000) / WEAPON_TABLE.fireball.cooldownMs;
-    expect(hpOf("oval") / ovalVsOvalDps).toBe(2.5);
+    const bullseyeVsBullseyeDps = (weaponDamageOf("bullseye", "fireball") * 1000) / WEAPON_TABLE.fireball.cooldownMs;
+    expect(hpOf("bullseye") / bullseyeVsBullseyeDps).toBe(2.5);
   });
 
   it("derives forward max speed from the speed rating", () => {
-    expect(forwardMaxSpeedOf("rectangle")).toBeGreaterThan(forwardMaxSpeedOf("oval"));
-    expect(forwardMaxSpeedOf("oval")).toBeGreaterThan(forwardMaxSpeedOf("hexagon"));
+    expect(forwardMaxSpeedOf("mirage")).toBeGreaterThan(forwardMaxSpeedOf("bullseye"));
+    expect(forwardMaxSpeedOf("bullseye")).toBeGreaterThan(forwardMaxSpeedOf("bastion"));
   });
 });
 
 describe("isCarId", () => {
   it("accepts CAR_TABLE keys and rejects unknown ids", () => {
-    expect(isCarId("rectangle")).toBe(true);
-    expect(isCarId("oval")).toBe(true);
-    expect(isCarId("hexagon")).toBe(true);
+    expect(isCarId("mirage")).toBe(true);
+    expect(isCarId("bullseye")).toBe(true);
+    expect(isCarId("bastion")).toBe(true);
     expect(isCarId("triangle")).toBe(false);
     expect(isCarId("")).toBe(false);
     expect(isCarId(1)).toBe(false);

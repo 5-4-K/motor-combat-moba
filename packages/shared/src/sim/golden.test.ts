@@ -17,7 +17,7 @@ import type { SimBody } from "./step.js";
  * may be edited.
  */
 const DT = 1 / 30;
-const CAR_ID = "rectangle";
+const CAR_ID = "mirage";
 
 function input(steer: -1 | 0 | 1, throttle: -1 | 0 | 1): InputMessage {
   return { seq: 0, steer, throttle, fireSlots: 0 };

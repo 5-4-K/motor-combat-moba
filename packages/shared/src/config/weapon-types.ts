@@ -5,7 +5,7 @@ export type WeaponId =
   | "fireball"
   | "pepperbox"
   | "afterburner"
-  | "splinter"
+  | "needler"
   | "skewer"
   | "lance"
   | "thumper"

@@ -1013,7 +1013,7 @@ export class ArenaScene extends Phaser.Scene {
     container.add(body);
 
     // The hitbox is the OBB the sim actually collides with, which is not the drawn silhouette for
-    // the oval or the hexagon. Only shown behind `?debug=1` so ordinary play sees the shape, not the box.
+    // bullseye or bastion. Only shown behind `?debug=1` so ordinary play sees the shape, not the box.
     if (this.debug) {
       const box = this.add.graphics();
       box.lineStyle(HITBOX_PX, HITBOX_STROKE, 1);
@@ -1384,10 +1384,10 @@ export class ArenaScene extends Phaser.Scene {
    * stays right between two patches at 20 Hz) and `PlayerState.lastFiredSlot` (which slot owns the
    * recovery every OTHER slot is dimmed by).
    *
-   * Every one of these paths is now exercised by a carried weapon: `skewer` and `lance` (Oval's
-   * slots 2 and 3) carry `startUpMs > 0`, `pepperbox` (Rectangle's slot 2) carries
+   * Every one of these paths is now exercised by a carried weapon: `skewer` and `lance` (Bullseye's
+   * slots 2 and 3) carry `startUpMs > 0`, `pepperbox` (Mirage's slot 2) carries
    * `volley.volleys: 3`, and `recoveryMs > 0` is the common case — every weapon but `fireball`,
-   * `splinter` and `thumper` carries one. That also covers the mid-volley case: `beginFire` zeroes a
+   * `needler` and `thumper` carries one. That also covers the mid-volley case: `beginFire` zeroes a
    * slot's `stocks` at press time and does not set `rechargeEndsTick` until the volley's LAST shot,
    * and `slotVisualState` answers "car-locked"
    * for that whole window because a real `pending` reaches it — rather than falling through to

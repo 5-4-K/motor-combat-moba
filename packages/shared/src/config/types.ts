@@ -1,6 +1,6 @@
 import type { WeaponId } from "./weapon-types.js";
 
-export type CarId = "rectangle" | "oval" | "hexagon";
+export type CarId = "bullseye" | "mirage" | "bastion";
 export interface CarDef {
   id: CarId;
   name: string;

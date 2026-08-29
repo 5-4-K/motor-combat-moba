@@ -24,8 +24,8 @@ function playerIn(state: ArenaState, sessionId: string, over: Partial<PlayerStat
   player.x = 400;
   player.y = 150;
   player.angle = 0;
-  player.carId = "rectangle";
-  player.hp = hpOf("rectangle");
+  player.carId = "mirage";
+  player.hp = hpOf("mirage");
   player.alive = true;
   player.level = 1;
   Object.assign(player, over);
@@ -38,7 +38,7 @@ function liveInstance(over: Partial<WeaponInstance> = {}): WeaponInstance {
     id: "aaa-1",
     ownerSessionId: "aaa",
     ownerTeam: 0,
-    damage: weaponDamageOf("rectangle", "fireball"),
+    damage: weaponDamageOf("mirage", "fireball"),
     weaponId: "fireball",
     kind: "projectile",
     x: 100,
@@ -95,12 +95,12 @@ describe("toCombatPlayers", () => {
 
   it("carries pose, chassis, and hp across", () => {
     const state = new ArenaState();
-    playerIn(state, "a", { x: 12, y: 34, angle: 0.5, carId: "oval", hp: 7 });
+    playerIn(state, "a", { x: 12, y: 34, angle: 0.5, carId: "bullseye", hp: 7 });
     expect(toCombatPlayers(state, new Set(["a"]), new Map(), newCombatMemory())[0]).toMatchObject({
       x: 12,
       y: 34,
       angle: 0.5,
-      carId: "oval",
+      carId: "bullseye",
       hp: 7,
     });
   });
@@ -117,7 +117,7 @@ describe("toCombatPlayers", () => {
   it("builds a fire state from the player's chassis on first sight", () => {
     const state = new ArenaState();
     const player = new PlayerState();
-    player.carId = "rectangle";
+    player.carId = "mirage";
     state.players.set("aaa", player);
     const memory = newCombatMemory();
 
@@ -140,7 +140,7 @@ describe("toCombatPlayers", () => {
     const first = toCombatPlayers(state, new Set(["aaa"]), new Map(), memory)[0]!.fireState;
     // Mutate memory the way applyCombatResult would, so reuse is genuinely observable: a rebuild
     // hands back fresh single-stock slots with every clock at zero, and would lose all of this.
-    // The weapon-id sequence is left intact (still the rectangle's three-slot kit) so the staleness
+    // The weapon-id sequence is left intact (still the mirage's three-slot kit) so the staleness
     // check in `toCombatPlayers` -- which compares slot weapon ids against the chassis's current
     // kit -- keeps calling this "unchanged" and reuses it instead of rebuilding it.
     memory.fireStates.set("aaa", {
@@ -179,7 +179,7 @@ describe("toCombatPlayers", () => {
     const beforeReveal = toCombatPlayers(state, new Set(["aaa"]), new Map(), memory)[0]!.fireState;
     expect(beforeReveal.slots).toEqual([]);
 
-    player.carId = "rectangle";
+    player.carId = "mirage";
     const afterReveal = toCombatPlayers(state, new Set(["aaa"]), new Map(), memory)[0]!.fireState;
     expect(afterReveal.slots.map((s) => s.weaponId)).toEqual(["fireball", "pepperbox", "afterburner"]);
   });
@@ -246,7 +246,7 @@ describe("applyCombatResult", () => {
     const state = new ArenaState();
     const gone = new PlayerState();
     gone.sessionId = "gone";
-    gone.carId = "rectangle";
+    gone.carId = "mirage";
     expect(() =>
       applyCombatResult(state, result({ players: [combatPlayerFor(gone)] }), newCombatMemory()),
     ).not.toThrow();
@@ -267,12 +267,12 @@ describe("applyCombatResult", () => {
             y: 0,
             angle: 0,
             team: 0,
-            carId: "rectangle",
+            carId: "mirage",
             hp: 50,
             alive: true,
             inRoster: true,
             fireMask: 0,
-            fireState: newFireState("rectangle", 1),
+            fireState: newFireState("mirage", 1),
             lock: newLockState(),
             statuses: [],
           },
@@ -293,7 +293,7 @@ describe("applyCombatResult", () => {
   it("writes level and switchLockUntilTick from the fire state", () => {
     const state = new ArenaState();
     const player = playerIn(state, "a");
-    const fireState = { ...newFireState("rectangle", 1), level: 2, switchLockUntilTick: 42 };
+    const fireState = { ...newFireState("mirage", 1), level: 2, switchLockUntilTick: 42 };
     applyCombatResult(state, result({ players: [combatPlayerFor(player, { fireState })] }), newCombatMemory());
     expect(player.level).toBe(2);
     expect(player.switchLockUntilTick).toBe(42);
@@ -303,7 +303,7 @@ describe("applyCombatResult", () => {
     const state = new ArenaState();
     const player = playerIn(state, "a");
     const fireState = {
-      ...newFireState("rectangle", 1),
+      ...newFireState("mirage", 1),
       lastFiredSlot: 0,
       pending: { weaponId: "fireball" as const, slot: 0, shotsLeft: 2, nextShotTick: 205 },
     };
@@ -315,7 +315,7 @@ describe("applyCombatResult", () => {
   it("zeroes pendingUntilTick when nothing is pending, so the HUD never sees a stale wind-up", () => {
     const state = new ArenaState();
     const player = playerIn(state, "a", { pendingUntilTick: 205 });
-    const fireState = { ...newFireState("rectangle", 1), lastFiredSlot: 0 };
+    const fireState = { ...newFireState("mirage", 1), lastFiredSlot: 0 };
     applyCombatResult(state, result({ players: [combatPlayerFor(player, { fireState })] }), newCombatMemory());
     expect(player.pendingUntilTick).toBe(0);
   });
@@ -333,7 +333,7 @@ describe("applyCombatResult", () => {
     const memory = newCombatMemory();
     applyCombatResult(
       state,
-      result({ players: [combatPlayerFor(player, { fireState: newFireState("rectangle", 1) })] }),
+      result({ players: [combatPlayerFor(player, { fireState: newFireState("mirage", 1) })] }),
       memory,
     );
     expect(player.weapons.length).toBe(3);
@@ -349,7 +349,7 @@ describe("applyCombatResult", () => {
   it("remembers the written-back fire state in memory, keyed by session id", () => {
     const state = new ArenaState();
     const player = playerIn(state, "a");
-    const fireState = newFireState("rectangle", 1);
+    const fireState = newFireState("mirage", 1);
     const memory = newCombatMemory();
     applyCombatResult(state, result({ players: [combatPlayerFor(player, { fireState })] }), memory);
     expect(memory.fireStates.get("a")).toBe(fireState);
@@ -395,7 +395,7 @@ describe("clearInstances", () => {
     const state = new ArenaState();
     const memory = newCombatMemory();
     applyCombatResult(state, result({ instances: [liveInstance({ id: "a-1" })] }), memory);
-    memory.fireStates.set("a", newFireState("rectangle", 1));
+    memory.fireStates.set("a", newFireState("mirage", 1));
 
     clearInstances(state, memory);
 

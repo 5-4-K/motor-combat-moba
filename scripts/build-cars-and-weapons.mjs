@@ -380,7 +380,7 @@ function legend() {
            <p>${esc(CHASSIS_COPY[carId].theme)}</p>
          </div>${i < CAR_IDS.length - 1 ? '<i class="arrow">&#9654;</i>' : ""}`,
        ).join("")}</div>
-       <p class="note">Rectangle catches Oval · Oval kites Hexagon · Hexagon punishes Rectangle.
+       <p class="note">Mirage catches Bullseye · Bullseye kites Bastion · Bastion punishes Mirage.
          Nobody is safe from everybody — and the kit is most of the reason why.</p>
      </div>`,
   );

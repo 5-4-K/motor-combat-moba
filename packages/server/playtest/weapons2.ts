@@ -46,7 +46,7 @@ function pepperboxSpread(): void {
       const distance = base + phase;
       const w = new PlaytestWorld([
         { id: "s", carId: carrier, x: 100, y: 360, angle: 0 },
-        { id: "t", carId: "hexagon", x: 100 + distance, y: 360, angle: 0 },
+        { id: "t", carId: "bastion", x: 100 + distance, y: 360, angle: 0 },
       ]);
       const hp0 = w.get("t").hp;
       for (let i = 0; i < 90; i++) {
@@ -97,7 +97,7 @@ function trueTunneling(): void {
       const distance = 100 + i; // sweeps > 2 full tick-steps of every weapon
       const w = new PlaytestWorld([
         { id: "s", carId: carrier, x: 100, y: 360, angle: 0 },
-        { id: "t", carId: "hexagon", x: 100 + distance, y: 360, angle: 0 },
+        { id: "t", carId: "bastion", x: 100 + distance, y: 360, angle: 0 },
       ]);
       const hp0 = w.get("t").hp;
       for (let k = 0; k < 90; k++) {
@@ -124,7 +124,7 @@ function trueTunneling(): void {
 function crossingTarget(): void {
   const rows: string[] = [];
   let ghosted = false;
-  for (const id of ["fireball", "splinter", "skewer", "thumper"] as WeaponId[]) {
+  for (const id of ["fireball", "needler", "skewer", "thumper"] as WeaponId[]) {
     const carrier = carrierOf(id);
     const bit = slotBitFor(carrier, id);
     let missesWhileCrossing = 0;
@@ -134,7 +134,7 @@ function crossingTarget(): void {
     for (let offset = -40; offset <= 40; offset += 2) {
       const w = new PlaytestWorld([
         { id: "s", carId: carrier, x: 200, y: 360, angle: 0 },
-        { id: "t", carId: "rectangle", x: 600, y: 360 + offset, angle: -Math.PI / 2, speed: forwardMaxSpeedOf("rectangle") },
+        { id: "t", carId: "mirage", x: 600, y: 360 + offset, angle: -Math.PI / 2, speed: forwardMaxSpeedOf("mirage") },
       ]);
       const hp0 = w.get("t").hp;
       let closestApproach = Infinity;
@@ -154,7 +154,7 @@ function crossingTarget(): void {
     }
     if (missesWhileCrossing > 0) ghosted = true;
     rows.push(
-      `${id.padEnd(10)} target crossing at ${forwardMaxSpeedOf("rectangle")} u/s: ` +
+      `${id.padEnd(10)} target crossing at ${forwardMaxSpeedOf("mirage")} u/s: ` +
         `${missesWhileCrossing}/${total} lateral phases where a shot passed within 20u and dealt nothing ` +
         `${missesWhileCrossing > 0 ? "<- GHOSTED" : ""}`,
     );
@@ -181,7 +181,7 @@ function angledPointBlank(): void {
       // Shooter nosed right up against the victim from every direction, at contact distance.
       const w = new PlaytestWorld([
         { id: "s", carId: carrier, x: 640 - Math.cos(a) * 46, y: 360 - Math.sin(a) * 46, angle: a },
-        { id: "t", carId: "hexagon", x: 640, y: 360, angle: 0 },
+        { id: "t", carId: "bastion", x: 640, y: 360, angle: 0 },
       ]);
       const hp0 = w.get("t").hp;
       for (let k = 0; k < 90; k++) {
@@ -205,11 +205,11 @@ function angledPointBlank(): void {
 /** A car spun by a ram accumulates `angle` without bound. Normalisation bugs live here. */
 function spinningShooter(): void {
   const w = new PlaytestWorld([
-    { id: "s", carId: "oval", x: 300, y: 360, angle: 0 },
-    { id: "t", carId: "hexagon", x: 700, y: 360, angle: 0 },
+    { id: "s", carId: "bullseye", x: 300, y: 360, angle: 0 },
+    { id: "t", carId: "bastion", x: 700, y: 360, angle: 0 },
   ]);
   w.get("s").angVel = 6; // the ram spin ceiling
-  const bit = slotBitFor("oval", "splinter");
+  const bit = slotBitFor("bullseye", "needler");
   let anyNaN = false;
   let maxAngle = 0;
   for (let i = 0; i < 400; i++) {
@@ -235,11 +235,11 @@ function spinningShooter(): void {
 /* --------------------------------------------- W17. does a wreck still block shots and cars? */
 function wreckAsCover(): void {
   const w = new PlaytestWorld([
-    { id: "s", carId: "oval", x: 200, y: 360, angle: 0, team: 0 },
-    { id: "wreck", carId: "hexagon", x: 450, y: 360, angle: 0, team: 0, hp: 1 },
-    { id: "t", carId: "hexagon", x: 700, y: 360, angle: 0, team: 0 },
+    { id: "s", carId: "bullseye", x: 200, y: 360, angle: 0, team: 0 },
+    { id: "wreck", carId: "bastion", x: 450, y: 360, angle: 0, team: 0, hp: 1 },
+    { id: "t", carId: "bastion", x: 700, y: 360, angle: 0, team: 0 },
   ]);
-  const bit = slotBitFor("oval", "splinter");
+  const bit = slotBitFor("bullseye", "needler");
   // Kill the middle car first.
   for (let i = 0; i < 60; i++) {
     w.input("s", { fireSlots: bit });
@@ -255,8 +255,8 @@ function wreckAsCover(): void {
   const dealt = hp0 - w.get("t").hp;
   // And is the wreck still solid to driving?
   const mover = new PlaytestWorld([
-    { id: "m", carId: "rectangle", x: 300, y: 360, angle: 0 },
-    { id: "dead", carId: "hexagon", x: 500, y: 360, angle: 0, hp: 0 },
+    { id: "m", carId: "mirage", x: 300, y: 360, angle: 0 },
+    { id: "dead", carId: "bastion", x: 500, y: 360, angle: 0, hp: 0 },
   ]);
   mover.get("dead").alive = false;
   for (let i = 0; i < 60; i++) {

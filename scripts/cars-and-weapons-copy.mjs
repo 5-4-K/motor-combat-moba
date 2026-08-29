@@ -18,35 +18,35 @@ export const MANUAL_META = {
 };
 
 export const CHASSIS_COPY = {
-  rectangle: {
+  mirage: {
     codename: "The Runner",
     theme: "Your driving is your aim.",
     body:
-      "The fastest thing on the map and the one that hits softest. Rectangle cannot win a damage " +
+      "The fastest thing on the map and the one that hits softest. Mirage cannot win a damage " +
       "race and cannot win a brawl — every weapon in the kit is short-to-medium range and rewards " +
       "being in motion, so it is your speed doing the work, not your gun.",
-    beats: "Closes on Oval before its wind-ups can resolve.",
-    losesTo: "Hexagon. Rectangle must come close to use its kit, and close is where Hexagon lives.",
+    beats: "Closes on Bullseye before its wind-ups can resolve.",
+    losesTo: "Bastion. Mirage must come close to use its kit, and close is where Bastion lives.",
   },
-  oval: {
+  bullseye: {
     codename: "The Gunner",
     theme: "Reach and precision, punished hard when caught.",
     body:
       "A glass cannon that wants never to be touched. Every weapon reaches, and two of the three " +
       "carry a real aiming or timing condition. The hardest kit in the game to land — which is " +
       "exactly what the damage lead is paid for.",
-    beats: "Kites Hexagon forever; it can never close the speed gap.",
-    losesTo: "Rectangle, which arrives before you have finished winding up.",
+    beats: "Kites Bastion forever; it can never close the speed gap.",
+    losesTo: "Mirage, which arrives before you have finished winding up.",
   },
-  hexagon: {
+  bastion: {
     codename: "The Bastion",
     theme: "It cannot chase — so it makes you come to it.",
     body:
-      "Two of three weapons are contact-range and the third denies ground outright. Hexagon " +
+      "Two of three weapons are contact-range and the third denies ground outright. Bastion " +
       "converts the biggest hull in the game into the right to BE somewhere, which is the only " +
       "currency a chassis that cannot reposition has.",
-    beats: "Rectangle, the moment it commits to contact range.",
-    losesTo: "Oval, which simply refuses to come within reach.",
+    beats: "Mirage, the moment it commits to contact range.",
+    losesTo: "Bullseye, which simply refuses to come within reach.",
   },
 };
 
@@ -99,7 +99,7 @@ export const WEAPON_COPY = {
       "car — this is what turns the catch into a kill. Recovery is tiny on purpose: keep firing " +
       "Fireball the whole time it burns.",
   },
-  splinter: {
+  needler: {
     tagline: "Three darts. Spend them well.",
     shape: "Banked darts · thin and fast · locks on",
     what:
@@ -149,7 +149,7 @@ export const WEAPON_COPY = {
       "second to cross its own range, so at distance it is genuinely dodgeable — and in a brawl it " +
       "is near-unmissable.",
     how:
-      "Hexagon is slower than everything else on the map. Without one weapon that reaches at all, " +
+      "Bastion is slower than everything else on the map. Without one weapon that reaches at all, " +
       "the slowest chassis has no answer to a patient opponent. Thumper is that weapon.",
     tip:
       "It buys pressure, not a ranged win. Use it to make kiting cost something while you close, " +
@@ -166,7 +166,7 @@ export const WEAPON_COPY = {
       "It is not aimed at all. It is triggered — it only needs people to be near you, which on this " +
       "chassis is most of the match. There is no wrong way to be facing.",
     tip:
-      "Anti-ram, anti-dive, anti-Rectangle. The moment somebody commits to contact range, this is " +
+      "Anti-ram, anti-dive, anti-Mirage. The moment somebody commits to contact range, this is " +
       "the button that makes them regret arriving.",
   },
   bulwark: {

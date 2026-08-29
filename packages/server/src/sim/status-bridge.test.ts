@@ -23,7 +23,7 @@ function arena(): ArenaState {
 function addPlayer(state: ArenaState, id: string): PlayerState {
   const p = new PlayerState();
   p.sessionId = id;
-  p.carId = "rectangle";
+  p.carId = "mirage";
   p.status = PlayerStatus.IN_MATCH;
   p.alive = true;
   state.players.set(id, p);

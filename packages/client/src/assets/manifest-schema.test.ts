@@ -4,11 +4,11 @@ import { EMPTY_MANIFEST, parseManifest } from "./manifest-schema.js";
 describe("parseManifest", () => {
   it("applies defaults to a bare entry", () => {
     const { manifest, problems } = parseManifest({
-      sprites: { "car.rectangle": { file: "cars/rectangle.png" } },
+      sprites: { "car.mirage": { file: "cars/mirage.png" } },
     });
     expect(problems).toEqual([]);
-    expect(manifest.sprites["car.rectangle"]).toEqual({
-      file: "cars/rectangle.png",
+    expect(manifest.sprites["car.mirage"]).toEqual({
+      file: "cars/mirage.png",
       rotationOffset: 0,
       scale: "fit",
       colorMode: "tint",
@@ -40,17 +40,17 @@ describe("parseManifest", () => {
   it("drops only the bad entry and keeps the good ones", () => {
     const { manifest, problems } = parseManifest({
       sprites: {
-        "car.oval": { file: "cars/oval.png" },
-        "car.hexagon": { file: "cars/hexagon.png", colorMode: "rainbow" },
+        "car.bullseye": { file: "cars/bullseye.png" },
+        "car.bastion": { file: "cars/bastion.png", colorMode: "rainbow" },
       },
     });
-    expect(Object.keys(manifest.sprites)).toEqual(["car.oval"]);
+    expect(Object.keys(manifest.sprites)).toEqual(["car.bullseye"]);
     expect(problems).toHaveLength(1);
-    expect(problems[0]).toContain("car.hexagon");
+    expect(problems[0]).toContain("car.bastion");
   });
 
   it("rejects an entry with no file", () => {
-    const { manifest, problems } = parseManifest({ sprites: { "car.oval": { scale: 2 } } });
+    const { manifest, problems } = parseManifest({ sprites: { "car.bullseye": { scale: 2 } } });
     expect(manifest.sprites).toEqual({});
     expect(problems[0]).toContain("file");
   });
@@ -69,10 +69,10 @@ describe("parseManifest", () => {
   it("refuses prototype-polluting keys", () => {
     const { manifest, problems } = parseManifest(
       JSON.parse(
-        '{"sprites":{"__proto__":{"file":"evil.png"},"car.oval":{"file":"cars/oval.png"}}}',
+        '{"sprites":{"__proto__":{"file":"evil.png"},"car.bullseye":{"file":"cars/bullseye.png"}}}',
       ),
     );
-    expect(Object.keys(manifest.sprites)).toEqual(["car.oval"]);
+    expect(Object.keys(manifest.sprites)).toEqual(["car.bullseye"]);
     expect(problems).toHaveLength(1);
   });
 

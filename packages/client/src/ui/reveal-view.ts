@@ -22,7 +22,7 @@ import { modeLabel } from "./lobby-view.js";
 export const REVEAL_SLOTS = 3;
 
 const FALLBACK_HEX = "#888888";
-const FALLBACK_CAR = "rectangle";
+const FALLBACK_CAR = "mirage";
 
 /** Seconds still on the clock, rounded up so a fresh 10s dwell reads "10" rather than "9". */
 export function secondsLeft(deadlineTick: number, tick: number): number {

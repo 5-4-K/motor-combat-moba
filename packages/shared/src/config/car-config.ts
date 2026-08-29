@@ -22,9 +22,9 @@ import type { CarDef, CarId } from "./types.js";
  * swapping a pair, never copying one.
  */
 export const CAR_TABLE = {
-  rectangle: { id: "rectangle", name: "Rectangle", speed: 80, attack: 30, hp: 40, mass: 35, weapons: ["fireball", "pepperbox", "afterburner"] },
-  oval: { id: "oval", name: "Oval", speed: 50, attack: 70, hp: 30, mass: 45, weapons: ["splinter", "skewer", "lance"] },
-  hexagon: { id: "hexagon", name: "Hexagon", speed: 30, attack: 50, hp: 70, mass: 85, weapons: ["thumper", "shockwave", "bulwark"] },
+  mirage: { id: "mirage", name: "Mirage", speed: 80, attack: 30, hp: 40, mass: 35, weapons: ["fireball", "pepperbox", "afterburner"] },
+  bullseye: { id: "bullseye", name: "Bullseye", speed: 50, attack: 70, hp: 30, mass: 45, weapons: ["needler", "skewer", "lance"] },
+  bastion: { id: "bastion", name: "Bastion", speed: 30, attack: 50, hp: 70, mass: 85, weapons: ["thumper", "shockwave", "bulwark"] },
 } as const satisfies Record<CarId, CarDef>;
 
 /**
@@ -32,7 +32,7 @@ export const CAR_TABLE = {
  * unrecognised on the wire. Server tick and client prediction must agree on this: a fallback that
  * differed between them would silently drive two different cars and read as constant desync.
  */
-export const DEFAULT_CAR_ID: CarId = "rectangle";
+export const DEFAULT_CAR_ID: CarId = "mirage";
 
 /**
  * Own-property check, deliberately not `value in CAR_TABLE`: `in` walks the prototype chain, so

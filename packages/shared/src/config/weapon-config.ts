@@ -13,14 +13,14 @@ import type { WeaponDef, WeaponId } from "./weapon-types.js";
  * `color` is the one render-only number here besides `name`. It is per weapon on purpose: every
  * car firing a given weapon fires the same shot colour. All nine shipped colours are picked to be
  * unmistakable against any `COLOR_TABLE` player colour — `fireball`'s ember orange leans darker and
- * redder than `Orange`/`Gold`, `splinter`'s teal has no player counterpart at all, and the rest
+ * redder than `Orange`/`Gold`, `needler`'s teal has no player counterpart at all, and the rest
  * follow the same rule — so a shot never reads as somebody's car paint.
  *
  * `damage` is what the weapon deals from a chassis at `COMBAT_CONFIG.attackBaseline` — an *average*
  * car, not every car. `damageFor` (`sim/damage.ts`) moves it +/-50% with the firing chassis's
  * `attack` rating. Fireball's 50 is solved, not chosen: an average chassis has 500 hull HP and
  * fireball fires twice a second, so 50 is the number that makes an average-vs-average kill take the
- * design target of 5 seconds. `splinter`'s 30 is solved from its own recharge rather than from
+ * design target of 5 seconds. `needler`'s 30 is solved from its own recharge rather than from
  * `fireball`: 30 damage per 400 ms is 75 sustained DPS, three quarters of the anchor, which is where
  * a 1.2x `attack` chassis wants its go-to. See `docs/superpowers/specs/2026-08-29-weapon-roster-design.md`.
  */
@@ -38,8 +38,8 @@ export const WEAPON_TABLE = {
     startUpMs: 0,
     cooldownMs: 500,
     recoveryMs: 0,
-    // `fireball` is Rectangle's slot 1 only, not a universal weapon. Aim assist is not universal
-    // either: exactly three of the nine weapons use it (`fireball`, `splinter`, `thumper`). The
+    // `fireball` is Mirage's slot 1 only, not a universal weapon. Aim assist is not universal
+    // either: exactly three of the nine weapons use it (`fireball`, `needler`, `thumper`). The
     // other six -- every beam, `pepperbox`'s multi-pellet volleys, and the wind-ups `skewer` and
     // `lance` -- are real, shipped rows now, not a hypothetical never-seen-in-play list.
     usesAimAssist: true,
@@ -48,7 +48,7 @@ export const WEAPON_TABLE = {
     volley: { volleys: 1, volleyIntervalMs: 0, pelletsPerVolley: 1, spreadAngleDeg: 0 },
   },
   /**
-   * Rectangle's slot 2. The table's first multi-volley, multi-pellet weapon, and the first place
+   * Mirage's slot 2. The table's first multi-volley, multi-pellet weapon, and the first place
    * `volleys` and `pelletsPerVolley` are both > 1.
    *
    * Sequential volleys exit on their own ticks, each from the car's pose AT that tick, so driving
@@ -78,7 +78,7 @@ export const WEAPON_TABLE = {
     volley: { volleys: 3, volleyIntervalMs: 100, pelletsPerVolley: 2, spreadAngleDeg: 10 },
   },
   /**
-   * Rectangle's slot 3, and the FIRST BEAM THE GAME HAS EVER SHIPPED. Several paths in
+   * Mirage's slot 3, and the FIRST BEAM THE GAME HAS EVER SHIPPED. Several paths in
    * `instances.ts` and `instanceDrawShape` run in live play for the first time because of this row.
    *
    * `attached: true` welds its origin and angle to the car every tick, so it sweeps as the driver
@@ -120,7 +120,7 @@ export const WEAPON_TABLE = {
     applies: [{ statusId: "overheated", target: "opponents", durationMs: 1500 }],
   },
   /**
-   * Oval's slot 1, and the table's only multi-stock weapon. It replaced `repeater`, which held this
+   * Bullseye's slot 1, and the table's only multi-stock weapon. It replaced `repeater`, which held this
    * reference role while carried by no car; a reachable reference is strictly better, because stock
    * bugs now surface in matches instead of only in `fire.test.ts`.
    *
@@ -130,10 +130,10 @@ export const WEAPON_TABLE = {
    * which is the trigger discipline the weapon exists to ask for. At the 1.7 s first drafted for it
    * the weapon sustains 18 DPS against `fireball`'s 100 and is not a viable slot 1.
    */
-  splinter: {
-    id: "splinter",
+  needler: {
+    id: "needler",
     kind: "projectile",
-    name: "Splinter",
+    name: "Needler",
     color: "#0CA5B0",
     unlocksAt: 1,
     damage: 30,
@@ -154,10 +154,10 @@ export const WEAPON_TABLE = {
     applies: [{ statusId: "spiked", target: "opponents", durationMs: 3000 }],
   },
   /**
-   * Oval's slot 2. The table's first `pierce` and first `ellipse` hitbox.
+   * Bullseye's slot 2. The table's first `pierce` and first `ellipse` hitbox.
    *
    * `pierce: 1` is TWO CARS, not one and not three — the field counts opponents passed through
-   * after the first. Authoring it as 2 would let a 110-damage shot deal 396 from Oval's 1.2x
+   * after the first. Authoring it as 2 would let a 110-damage shot deal 396 from Bullseye's 1.2x
    * `attack` and beat `lance`, which is the chassis's actual ultimate.
    *
    * Aim assist is off on purpose rather than by constraint: `range` (1100) clears
@@ -183,7 +183,7 @@ export const WEAPON_TABLE = {
     volley: { volleys: 1, volleyIntervalMs: 0, pelletsPerVolley: 1, spreadAngleDeg: 0 },
   },
   /**
-   * Oval's slot 3, and the table's first DETACHED beam: it stamps into the world at its fire-tick
+   * Bullseye's slot 3, and the table's first DETACHED beam: it stamps into the world at its fire-tick
    * pose and never moves again, unlike `afterburner` which rides the car. It is also the only row
    * with a `lifetimeMs` short enough to read as a flash rather than a zone.
    *
@@ -212,10 +212,10 @@ export const WEAPON_TABLE = {
     lifetimeMs: 150,
   },
   /**
-   * Hexagon's slot 1. A fat, slow slug: the 20-unit radius is the largest hitbox in the table and
+   * Bastion's slot 1. A fat, slow slug: the 20-unit radius is the largest hitbox in the table and
    * makes it near-unmissable in a brawl, while 450 u/s over 550 units means 1.2 s of flight and a
-   * genuinely dodgeable shot at range. It buys pressure, not a ranged win — but Hexagon is 90 u/s
-   * slower than Oval and 225 slower than Rectangle, so without one weapon that reaches at all, the
+   * genuinely dodgeable shot at range. It buys pressure, not a ranged win — but Bastion is 90 u/s
+   * slower than Bullseye and 225 slower than Mirage, so without one weapon that reaches at all, the
    * slowest chassis has no answer to a patient opponent.
    *
    * `cooldownMs: 1000` IS CONSTRAINED, not chosen for feel. The aim-assist cliff guard rejects any
@@ -242,7 +242,7 @@ export const WEAPON_TABLE = {
     volley: { volleys: 1, volleyIntervalMs: 0, pelletsPerVolley: 1, spreadAngleDeg: 0 },
   },
   /**
-   * Hexagon's slot 2. The widest hitbox in the game and the shortest-lived: a 140-degree cone that
+   * Bastion's slot 2. The widest hitbox in the game and the shortest-lived: a 140-degree cone that
    * hugs the chassis for a quarter second and hits each car once. It is not aimed so much as
    * triggered — it only needs opponents to be near — which is the point on a chassis that cannot
    * disengage.
@@ -272,7 +272,7 @@ export const WEAPON_TABLE = {
     //
     // **This is a change in what the weapon does, not only in how it is drawn.** It shipped as a
     // 140-degree forward cone and now reaches behind the car as well, which is a real buff to
-    // Hexagon's slot 2 — a chassis that cannot disengage no longer has to face its attacker to
+    // Bastion's slot 2 — a chassis that cannot disengage no longer has to face its attacker to
     // answer them. The radius is unchanged at 150, barely wider than a car is long, and the
     // 5 s cooldown is unchanged; the cost of the extra arc is the first thing to re-tune from play.
     // Reverting is a two-line edit back to `{ shape: "cone", angleDeg: 140 }` and `"muzzle"`.
@@ -281,12 +281,12 @@ export const WEAPON_TABLE = {
     origin: "center",
     lifetimeMs: 150,
     // A concussive blast: it stops you dead rather than wearing you down. `ignore` on `stunned`
-    // means two Hexagons cannot chain it, and 700 ms is short enough to be a window rather than a
+    // means two Bastions cannot chain it, and 700 ms is short enough to be a window rather than a
     // sentence — see the design note on the row.
     applies: [{ statusId: "stunned", target: "opponents", durationMs: 700 }],
   },
   /**
-   * Hexagon's slot 3, and the table's only DETACHED TICKING beam — the combination that makes it a
+   * Bastion's slot 3, and the table's only DETACHED TICKING beam — the combination that makes it a
    * zone rather than a shot. It stamps into the world and sits there for 3.5 s total, re-arming
    * against anything still inside every 400 ms.
    *
@@ -301,7 +301,7 @@ export const WEAPON_TABLE = {
    * never did that: `resolveInstanceHits` damages on the first tick the beam covers a car and only
    * then arms the clock, so a car held for the full life takes `floor((105 - 1) / 12) + 1 = 9`. The
    * weapon has always dealt 315; only the comment was wrong. Kept at 315 rather than retuned back
-   * down — Hexagon's ultimate leading the damage table is a fair price for the slowest chassis.
+   * down — Bastion's ultimate leading the damage table is a fair price for the slowest chassis.
    */
   bulwark: {
     id: "bulwark",

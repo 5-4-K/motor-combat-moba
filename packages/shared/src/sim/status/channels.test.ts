@@ -23,7 +23,7 @@ import { NEUTRAL_MODIFIERS, type Modifiers } from "./modifiers.js";
  */
 
 const DT = MS_PER_TICK / 1000;
-const CAR: CarId = "rectangle";
+const CAR: CarId = "mirage";
 
 function body(over: Partial<SimBody> = {}): SimBody {
   return {
@@ -246,7 +246,7 @@ describe("weaponCooldown reaches the three refire clocks and no others", () => {
   });
 
   it("shortens the switch lock a release sets", () => {
-    const state = newFireState("oval", 1);
+    const state = newFireState("bullseye", 1);
     const pending = {
       ...state,
       pending: { weaponId: "skewer" as const, slot: 1, shotsLeft: 1, nextShotTick: 0 },

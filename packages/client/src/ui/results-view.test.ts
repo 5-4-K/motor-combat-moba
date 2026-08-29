@@ -3,8 +3,8 @@ import { GameMode, PlayerStatus, TICK_RATE_HZ } from "@motor-combat-moba/shared"
 import { durationLabel, resultsView } from "./results-view.js";
 
 const roster = [
-  { sessionId: "p1", name: "Vex", colorId: 0, team: 0, carId: "rectangle", status: PlayerStatus.POST_MATCH },
-  { sessionId: "p2", name: "Nyx", colorId: 2, team: 1, carId: "oval", status: PlayerStatus.POST_MATCH },
+  { sessionId: "p1", name: "Vex", colorId: 0, team: 0, carId: "mirage", status: PlayerStatus.POST_MATCH },
+  { sessionId: "p2", name: "Nyx", colorId: 2, team: 1, carId: "bullseye", status: PlayerStatus.POST_MATCH },
 ];
 
 const state = (over = {}) => ({
@@ -67,7 +67,7 @@ describe("resultsView", () => {
   });
 
   it("points each row at its car art", () => {
-    expect(resultsView(state(), "p1").statsA[0]?.carImage).toBe('url("art/cars/rectangle.png")');
+    expect(resultsView(state(), "p1").statsA[0]?.carImage).toBe('url("art/cars/mirage.png")');
   });
 
   it("marks the local player's row so it can be tinted", () => {

@@ -11,7 +11,7 @@ import { modeLabel } from "./lobby-view.js";
  */
 
 const FALLBACK_HEX = "#888888";
-const FALLBACK_CAR = "rectangle";
+const FALLBACK_CAR = "mirage";
 
 export interface StatRow {
   sessionId: string;

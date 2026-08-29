@@ -14,7 +14,7 @@ function car(over: Partial<RamCar> = {}): RamCar {
     y: 0,
     angle: 0,
     speed: 0,
-    carId: "rectangle" as CarId,
+    carId: "mirage" as CarId,
     massMult: 1,
     ...over,
   };
@@ -118,12 +118,12 @@ describe("resolveRam", () => {
   });
 
   it("grades severity by attacker mass", () => {
-    const light = car({ sessionId: "a", speed: 300, carId: "rectangle" as CarId });
-    const heavy = car({ sessionId: "a", speed: 300, carId: "hexagon" as CarId });
+    const light = car({ sessionId: "a", speed: 300, carId: "mirage" as CarId });
+    const heavy = car({ sessionId: "a", speed: 300, carId: "bastion" as CarId });
     const victim = car({ sessionId: "b", x: 47 });
     const lightHit = resolveRam(light, victim, "ffa")!;
     const heavyHit = resolveRam(heavy, victim, "ffa")!;
-    expect(massOf("hexagon")).toBeGreaterThan(massOf("rectangle"));
+    expect(massOf("bastion")).toBeGreaterThan(massOf("mirage"));
     expect(heavyHit.severity).toBeGreaterThan(lightHit.severity);
   });
 
@@ -137,7 +137,7 @@ describe("resolveRam", () => {
   });
 
   it("clamps severity at 1 even on a rear hit, so authority never dips below the floor", () => {
-    const attacker = car({ sessionId: "a", speed: 100000, carId: "hexagon" as CarId });
+    const attacker = car({ sessionId: "a", speed: 100000, carId: "bastion" as CarId });
     const victim = car({ sessionId: "b", x: 47, angle: REAR_ON });
     const hit = resolveRam(attacker, victim, "ffa")!;
     expect(hit.severity).toBeLessThanOrEqual(1);
@@ -165,7 +165,7 @@ describe("resolveRam", () => {
     // well past the ceiling — this position was found by sweeping attacker pose against a fixed
     // victim until |angVel| saturated, so the assertion is pinned to the clamp itself rather than
     // merely being consistent with any implementation (including a no-op one).
-    const attacker = car({ sessionId: "a", x: 22.5, y: 8.5, angle: 3.25, speed: 100000, carId: "hexagon" as CarId });
+    const attacker = car({ sessionId: "a", x: 22.5, y: 8.5, angle: 3.25, speed: 100000, carId: "bastion" as CarId });
     const victim = car({ sessionId: "b", x: 0, y: 0, angle: 0 });
     const hit = resolveRam(attacker, victim, "ffa")!;
     expect(Math.abs(hit.knock.angVel)).toBe(RAM_CONFIG.spinMaxRate);
@@ -183,9 +183,9 @@ describe("resolveRam", () => {
   });
 
   it("shoves a light victim further than a heavy one for the identical ram", () => {
-    const attacker = car({ sessionId: "a", speed: 540, carId: "hexagon" as CarId });
-    const light = car({ sessionId: "b", x: 47, carId: "rectangle" as CarId });
-    const heavy = car({ sessionId: "b", x: 47, carId: "hexagon" as CarId });
+    const attacker = car({ sessionId: "a", speed: 540, carId: "bastion" as CarId });
+    const light = car({ sessionId: "b", x: 47, carId: "mirage" as CarId });
+    const heavy = car({ sessionId: "b", x: 47, carId: "bastion" as CarId });
     const lightHit = resolveRam(attacker, light, "ffa")!;
     const heavyHit = resolveRam(attacker, heavy, "ffa")!;
     expect(Math.hypot(lightHit.knock.shoveX, lightHit.knock.shoveY)).toBeGreaterThan(
@@ -197,10 +197,10 @@ describe("resolveRam", () => {
     // Two attackers whose (mass x speed) products match must produce the same shove on one victim.
     // Speeds chosen so severity lands well short of the clamp — at the clamp both would trivially
     // agree at 1.0 and the test would prove nothing.
-    const victim = car({ sessionId: "b", x: 47, carId: "oval" as CarId });
-    const heavySlow = car({ sessionId: "a", speed: 150, carId: "hexagon" as CarId });
-    const scaled = (massOf("hexagon") * 150) / massOf("rectangle");
-    const lightFast = car({ sessionId: "a", speed: scaled, carId: "rectangle" as CarId });
+    const victim = car({ sessionId: "b", x: 47, carId: "bullseye" as CarId });
+    const heavySlow = car({ sessionId: "a", speed: 150, carId: "bastion" as CarId });
+    const scaled = (massOf("bastion") * 150) / massOf("mirage");
+    const lightFast = car({ sessionId: "a", speed: scaled, carId: "mirage" as CarId });
     const one = resolveRam(heavySlow, victim, "ffa")!;
     const two = resolveRam(lightFast, victim, "ffa")!;
     expect(one.severity).toBeLessThan(1);
@@ -267,7 +267,7 @@ describe("applyRams", () => {
 
   it("keeps only the hardest knock when one car is hit by two others in a tick", () => {
     const soft = car({ sessionId: "a", x: -47, angle: 0, speed: 200 });
-    const hard = car({ sessionId: "c", x: 47, angle: Math.PI, speed: 540, carId: "hexagon" as CarId });
+    const hard = car({ sessionId: "c", x: 47, angle: Math.PI, speed: 540, carId: "bastion" as CarId });
     const middle = car({ sessionId: "b", x: 0, angle: 0 });
     const out = applyRams([soft, middle, hard], new Set(), "ffa");
     const onB = out.knocks.filter((k) => k.sessionId === "b");

@@ -61,8 +61,8 @@ async function main(): Promise<void> {
   console.log("phase -> CAR_SELECT");
 
   // Alice takes the rammer, Bob takes the glass cannon.
-  alice.room.send("select_car", { carId: "hexagon" });
-  bob.room.send("select_car", { carId: "oval" });
+  alice.room.send("select_car", { carId: "bastion" });
+  bob.room.send("select_car", { carId: "bullseye" });
 
   await until(alice, () => state().phase === PHASE.MATCH, 30000, "match start");
   console.log("phase -> MATCH");

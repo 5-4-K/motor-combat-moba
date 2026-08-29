@@ -31,21 +31,21 @@ function loaded(sizes: Record<string, { width: number; height: number }>): Textu
 describe("resolveCarSprite", () => {
   it("resolves a chassis whose entry exists and whose texture loaded", () => {
     const resolved = resolveCarSprite(
-      manifestOf({ "car.oval": entry({ file: "cars/oval.png" }) }),
-      loaded({ "car.oval": { width: 128, height: 128 } }),
-      "oval",
+      manifestOf({ "car.bullseye": entry({ file: "cars/bullseye.png" }) }),
+      loaded({ "car.bullseye": { width: 128, height: 128 } }),
+      "bullseye",
       HULL,
     );
-    expect(resolved?.key).toBe("car.oval");
-    expect(resolved?.entry.file).toBe("cars/oval.png");
+    expect(resolved?.key).toBe("car.bullseye");
+    expect(resolved?.entry.file).toBe("cars/bullseye.png");
     expect(resolved?.fit.scale).toBeCloseTo(32 / 128);
   });
 
   it("returns undefined when the entry exists but its texture never loaded", () => {
     const resolved = resolveCarSprite(
-      manifestOf({ "car.oval": entry() }),
+      manifestOf({ "car.bullseye": entry() }),
       loaded({}),
-      "oval",
+      "bullseye",
       HULL,
     );
     expect(resolved).toBeUndefined();
@@ -54,8 +54,8 @@ describe("resolveCarSprite", () => {
   it("returns undefined when the manifest has no entry for the chassis", () => {
     const resolved = resolveCarSprite(
       manifestOf({}),
-      loaded({ "car.oval": { width: 128, height: 128 } }),
-      "oval",
+      loaded({ "car.bullseye": { width: 128, height: 128 } }),
+      "bullseye",
       HULL,
     );
     expect(resolved).toBeUndefined();
@@ -74,9 +74,9 @@ describe("resolveCarSprite", () => {
 
   it("carries the entry's rotation and origin through the fit", () => {
     const resolved = resolveCarSprite(
-      manifestOf({ "car.hexagon": entry({ rotationOffset: Math.PI / 2, origin: [0.25, 0.75] }) }),
-      loaded({ "car.hexagon": { width: 64, height: 128 } }),
-      "hexagon",
+      manifestOf({ "car.bastion": entry({ rotationOffset: Math.PI / 2, origin: [0.25, 0.75] }) }),
+      loaded({ "car.bastion": { width: 64, height: 128 } }),
+      "bastion",
       HULL,
     );
     expect(resolved?.fit.rotation).toBeCloseTo(Math.PI / 2);

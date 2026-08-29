@@ -9,7 +9,7 @@ const DT = MS_PER_TICK / 1000;
 const UP: InputMessage = { seq: 1, steer: 0, throttle: 1, fireSlots: 0 };
 
 const EMPTY_ARENA: StepContext = {
-  carId: "rectangle",
+  carId: "mirage",
   others: [],
   obstacles: [],
   bounds: { width: 800, height: 600 },

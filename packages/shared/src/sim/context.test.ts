@@ -6,7 +6,7 @@ import { PlayerStatus } from "../constants.js";
 import { carHullOf, carIdOf, isOnField, otherCarHulls, type ContextEntry, type ContextPlayer } from "./context.js";
 
 function player(over: Partial<ContextPlayer> = {}): ContextPlayer {
-  return { x: 0, y: 0, angle: 0, status: PlayerStatus.IN_MATCH, carId: "rectangle", ...over };
+  return { x: 0, y: 0, angle: 0, status: PlayerStatus.IN_MATCH, carId: "mirage", ...over };
 }
 
 function entry(sessionId: string, over: Partial<ContextPlayer> = {}): ContextEntry {
@@ -23,8 +23,8 @@ describe("isOnField", () => {
 
 describe("carIdOf", () => {
   it("passes through a real car id", () => {
-    expect(carIdOf({ carId: "hexagon" })).toBe("hexagon");
-    expect(carIdOf({ carId: "oval" })).toBe("oval");
+    expect(carIdOf({ carId: "bastion" })).toBe("bastion");
+    expect(carIdOf({ carId: "bullseye" })).toBe("bullseye");
   });
 
   it("falls back to the default chassis for unset and unrecognised ids", () => {

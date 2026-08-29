@@ -3,7 +3,7 @@ import { ARENA_ART_COMMON, ARENA_ART_PREFIX, arenaIdFromArtKey } from "./art-key
 
 describe("arenaIdFromArtKey", () => {
   it("returns undefined for keys outside the arena namespace", () => {
-    expect(arenaIdFromArtKey("car.rectangle")).toBeUndefined();
+    expect(arenaIdFromArtKey("car.mirage")).toBeUndefined();
     expect(arenaIdFromArtKey("powerup.boost")).toBeUndefined();
     expect(arenaIdFromArtKey("")).toBeUndefined();
   });

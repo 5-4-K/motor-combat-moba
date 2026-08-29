@@ -32,8 +32,8 @@ describe("livingAfterLeave", () => {
 
 describe("carAtDeadline", () => {
   it("hands back the previewed car, so choosing without locking in still counts", () => {
-    expect(carAtDeadline("hexagon")).toBe("hexagon");
-    expect(carAtDeadline("oval")).toBe("oval");
+    expect(carAtDeadline("bastion")).toBe("bastion");
+    expect(carAtDeadline("bullseye")).toBe("bullseye");
   });
 
   it("falls back to the chassis car select opens on, never to chance", () => {

@@ -38,7 +38,7 @@ function makePlayer(
   p.y = y;
   p.angle = angle;
   p.status = status;
-  p.carId = "rectangle";
+  p.carId = "mirage";
   p.lastProcessedInputSeq = 0;
   return p;
 }
@@ -376,7 +376,7 @@ describe("serverTick", () => {
     }
 
     it("drives a pre-reveal player (carId \"\") as the default chassis", () => {
-      expect(poseOf(driveOneTickAs(""))).toEqual(poseOf(driveOneTickAs("rectangle")));
+      expect(poseOf(driveOneTickAs(""))).toEqual(poseOf(driveOneTickAs("mirage")));
     });
 
     it("does not mistake an inherited Object property for a car id", () => {
@@ -384,7 +384,7 @@ describe("serverTick", () => {
       // undefined and NaNs the whole drive step.
       const inherited = driveOneTickAs("constructor");
       expect(Number.isFinite(inherited.x)).toBe(true);
-      expect(poseOf(inherited)).toEqual(poseOf(driveOneTickAs("rectangle")));
+      expect(poseOf(inherited)).toEqual(poseOf(driveOneTickAs("mirage")));
     });
   });
 });

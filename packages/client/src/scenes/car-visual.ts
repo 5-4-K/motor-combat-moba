@@ -3,10 +3,17 @@ import { COLOR_TABLE, DEFAULT_CAR_ID, isCarId, type CarId } from "@motor-combat-
 /** How a chassis is drawn. One per `CAR_TABLE` entry — the table is the source of truth, not this. */
 export type CarShape = "rect" | "ellipse" | "hex";
 
+/**
+ * The procedural silhouette each chassis falls back to when its sprite is missing.
+ *
+ * The shape is no longer what the car *is* — these were once named `rectangle`, `oval` and
+ * `hexagon` — so this map is a rendering detail, not an identity. Each chassis keeps the outline it
+ * shipped with so a missing texture still reads as the right car.
+ */
 const SHAPE_BY_CAR = {
-  rectangle: "rect",
-  oval: "ellipse",
-  hexagon: "hex",
+  mirage: "rect",
+  bullseye: "ellipse",
+  bastion: "hex",
 } as const satisfies Record<CarId, CarShape>;
 
 /**
