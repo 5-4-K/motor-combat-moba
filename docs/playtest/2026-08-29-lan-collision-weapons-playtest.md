@@ -1,7 +1,10 @@
 # Playtest — car-on-car collision, and weapons/damage/effects
 
-**Date:** 2026-08-29 · **Base:** `development/main` @ `8308f77` · **Suite:** green (54 node tests,
+**Date:** 2026-08-29 · **Base:** `development/main` @ `722a43c` · **Suite:** green (54 node tests,
 all vitest files passing) before and after.
+
+**F1 has since been fixed on this branch**; its section records the before/after. F2 and F3 are
+still open.
 
 Two harnesses, both under `packages/server/playtest/`:
 
@@ -17,52 +20,88 @@ Everything below was reproduced offline first and, where marked, confirmed over 
 
 ## Findings
 
-### F1 — A ram lands on roughly one contact in eight. `severity: high`
+### F1 — A ram landed on roughly one contact in eight. `FIXED`
 
-**Symptom.** Driving your nose into another car usually does nothing at all. No shove, no spin, no
-steering loss. Occasionally the same manoeuvre lands a full-strength knock.
+**Symptom.** Driving your nose into another car usually did nothing at all. No shove, no spin, no
+steering loss. Occasionally the same manoeuvre landed a full-strength knock.
 
-**Measured.**
+**Measured, before and after the fix.**
 
-| | offline sweep | real LAN server |
+| | before | after |
 |---|---|---|
-| Hexagon, top speed, into a parked Oval | **14.4%** of approach phases | — |
-| Rectangle, top speed | **8.4%** | — |
-| Accelerating from rest (as a player drives), 40 run-ups | 15–20% | — |
-| Alice charges Bob for 20s, 25±8 ms simulated latency | — | **20 contacts → 4 knocks (20%)** |
+| Hexagon, top speed, into a parked Oval (offline sweep) | **14.4%** of approach phases | **100%** |
+| Rectangle, top speed | **8.4%** | **100%** |
+| Accelerating from rest, 40 run-ups, all three chassis | 15-20% | **100%** (40/40 each) |
+| All 9 chassis pairings x 3 impact sides, 21 phases each | 10% | **100%** |
+| Real LAN server, 25+/-8 ms, Alice charging Bob for 20s | 37% of contacts | **71-75%** |
 
-Whether it fires depends only on the sub-tick phase of the impact, which the player cannot see or
-control. The trigger window is a contiguous **~1.5 world units** out of a per-tick step of 10.5
+Whether it fired depended only on the sub-tick phase of the impact, which the player cannot see or
+control. The trigger window was a contiguous **~1.5 world units** out of a per-tick step of 10.5
 (Hexagon) to 18 (Rectangle).
 
-**Root cause.** The room tick is `serverTick` (drive **and** `resolveWorld`) → `ramTick`.
+The LAN figures are noisier than the offline ones by construction — the bot backs off and
+re-charges, and contacts are sampled at ~30 Hz against a 20 Hz patch rate, so a contact that opens
+and closes between two samples is invisible. Both LAN numbers use the same corrected counter; see
+the note at the end of this section.
+
+**Root cause.** The room tick is `serverTick` (drive **and** `resolveWorld`) then `ramTick`.
 `applyContact` inside `resolveWorld` reflects `speed` on the tick a contact is resolved, rebounding
-the attacker to about −35% of its impact speed. `resolveRam` then reads *that already-reflected*
+the attacker to about -35% of its impact speed. `resolveRam` then read *that already-reflected*
 `speed` as its approach term:
 
 ```
 t1: attacker speed 315.0 -> -110.3 after resolve; ram sees -110.3 (below minApproachSpeed) -> no ram
 ```
 
-So on any tick where the hulls actually overlapped, the approach term is already negative and
-`resolveRam` returns `null`. A ram fires only on the rarer tick where the pair lands inside
-`RAM_CONFIG.contactPad` **without** overlapping — `contactNormalBetween` sees them, `resolveWorld`
-did not touch them, and `speed` is still the impact speed.
+So on any tick where the hulls actually overlapped, the approach term was already negative and
+`resolveRam` returned `null`. A ram fired only on the rarer tick where the pair landed inside
+`RAM_CONFIG.contactPad` **without** overlapping — `contactNormalBetween` saw them, `resolveWorld`
+had not touched them, and `speed` was still the impact speed.
 
-This contradicts the design. `docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md` R4
+This contradicted the design. `docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md` R4
 treats the rebound as what damps *re-triggering* ("the second and subsequent triggers score near
 zero anyway"), and R5's "head-on hits resolve without a special case. Both approaches are positive"
 is only true of a pre-collision velocity. The first trigger was never meant to read a rebounded one.
 
-**Why the suite is green.** Every case in `shared/src/sim/ram.test.ts` hand-constructs `RamCar`
-objects with a chosen `speed`; none drives a car through `resolveWorld` first. The pure function is
-correct — it is fed the wrong number in the integrated tick.
+**Why the suite was green.** Every case in `shared/src/sim/ram.test.ts` hand-constructs `RamCar`
+objects with a chosen `speed`; none drives a car through `resolveWorld` first. The pure function was
+correct — it was fed the wrong number in the integrated tick.
 
-**Fix direction (not applied — `CLAUDE.md` says stop and ask before changing collision rules).**
-Capture each car's pre-resolution `speed` in `serverTick` and hand it to `ramTick` as the approach
-term, leaving poses read post-resolution exactly as R4 requires. Reordering ram before
-`resolveWorld` would break the "measure the poses cars actually ended at" rule instead; widening
-`contactPad` would only widen a window that is reading the wrong number anyway.
+**The fix.** `serverTick` now records each car's speed *before* stepping it and returns it as
+`TickResult.approachSpeeds`; `ramTick` uses that as the approach term. Poses are still read
+post-resolution, exactly as R4 requires, and `stepSim` is untouched — it stays the single lockstep
+both halves import, which a richer return value from it would not.
+
+The speed carried into the tick is the right number on its own terms rather than a workaround: it is
+the speed at which the car covered the ground that brought it into contact. The rejected
+alternatives: reordering ram before `resolveWorld` breaks "measure the poses cars actually ended
+at"; widening `contactPad` only widens a window that is reading the wrong number anyway.
+
+`R3` in `playtest/ram.ts` is now the regression guard. It asserts the deliberately odd-looking shape
+the fix produces — the attacker's post-resolve speed is deeply negative **and** the victim is
+knocked, on the same tick. If those stop coinciding, the approach term has been rewired back.
+
+**Two consequences worth knowing.**
+
+- **Ram pressure arrived for the first time.** Two attackers chain-ramming one victim now hold it
+  below full steering authority **84% of 300 ticks, floor 0.36** (the designed `authorityFloor` is
+  0.35). It read 46% and floor 0.57 while the bug was live, because most passes landed nothing. This
+  is the intended cost of a coordinated 2v1, not a regression — and it is the first thing to re-tune
+  from play. Edge triggering still holds, so it is pressure, not a stun-lock.
+- **Pile-ups got looser, not tighter.** Peak pairwise overlap in a six-car corner pile fell from
+  4.6u to 0.8u, because rams now push the pile apart.
+
+**Two probes were measuring the old behaviour and were corrected**, per the rule in `CLAUDE.md`:
+
+- `collision.ts` probe 3 sampled pile-up separation at a fixed endpoint 200 ticks into the reverse —
+  by which point the six cars have crossed the arena and piled into the *opposite* corner. It now
+  reports the best separation reached during the reverse (0.00u, fully clear after 5 ticks). The old
+  form read 0.68u before the fix and 1.53u after; neither number was about the corner the probe is
+  named for.
+- `lan.ts` counted a knock only on an `authority === 1` to `!= 1` transition. Authority decays back
+  toward 1 only asymptotically, so a car under repeated attack never returns to exactly 1 between
+  hits — the counter undercounted *more* the better the fix worked, reporting 12% against an offline
+  rate of 100%. It now counts drops in authority, which only a fresh knock can cause.
 
 ---
 
@@ -139,8 +178,9 @@ Scenarios drawn from what breaks in comparable car-combat and top-down arena gam
 - **Car-car tunneling** — none at any reachable speed. Ordinary head-on driving closes 36 u/tick
   against a 48u hull. The first tunnel needs **600 u/s of injected shove on both cars**; the shipped
   ram caps at 416 u/s and only in a three-car sandwich, so it is out of reach.
-- **Six-car corner pile-up** (300 ticks in, 200 reversing out) — peak pairwise overlap 4.6u, no NaN,
-  nothing ejected, residual overlap 0.68u. The pile resolves.
+- **Six-car corner pile-up** (300 ticks in, then reversing out) — peak pairwise overlap 0.8u, no NaN,
+  nothing ejected, fully clear 5 ticks into the reverse. The pile resolves. (Peak was 4.6u before the
+  F1 fix; reliable rams push a pile apart rather than compacting it.)
 - **Crush against the arena wall** — 0.0u overlap for all three chassis; the bounds clamp held, no
   car left the arena.
 - **Rammed into a wall while silent** (alt-tabbed victim, the `hasKnock` coast path) — victim pinned
@@ -154,9 +194,10 @@ Scenarios drawn from what breaks in comparable car-combat and top-down arena gam
 - **Session-id resolution order** — identical outcomes with ids sorted the other way in a three-car
   squeeze.
 - **Spawn seats** — no pair overlaps and none sits inside geometry, on either arena, all three tables.
-- **Ram chain / stun-lock** — two attackers pumping the throttle on one victim for 300 ticks left it
-  with degraded steering 46% of the time, floor 0.57 against an `authorityFloor` of 0.35. Edge
-  triggering holds.
+- **Ram chain / stun-lock** — two attackers pumping the throttle on one victim for 300 ticks leave it
+  with degraded steering 84% of the time, floor 0.36 against an `authorityFloor` of 0.35. Edge
+  triggering holds, so this is sustained pressure rather than a lock. (It read 46% and floor 0.57
+  before the F1 fix, when most passes landed nothing — see F1's consequences.)
 
 **Weapons, damage and effects** *(all nine weapons unless noted)*
 

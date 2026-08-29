@@ -32,7 +32,16 @@ export interface RamCar {
   x: number;
   y: number;
   angle: number;
-  /** Scalar velocity along the car's own heading — exactly the `dot(vel, fwd)` the severity needs. */
+  /**
+   * Scalar velocity along the car's own heading — exactly the `dot(vel, fwd)` the severity needs.
+   *
+   * **This must be the PRE-COLLISION speed**, and on the server that means the value the car carried
+   * into the tick, supplied by `serverTick`'s `TickResult.approachSpeeds`. Collision resolution runs
+   * before ram does and rebounds a car to about -35% of its impact speed, so a caller that passes
+   * the post-resolution `speed` makes `approachOf` negative on every tick a hull actually overlapped
+   * and this module returns `null` for almost every real ram. That is not a hypothetical: it shipped,
+   * and it cost 80-90% of all rams until `playtest/ram.ts` measured the trigger rate.
+   */
   speed: number;
   carId: CarId;
   /**

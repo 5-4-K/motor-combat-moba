@@ -109,36 +109,55 @@ function pairingMatrix(): void {
 }
 
 /* ------------------------------------------------------------------------- R3. the mechanism */
+/**
+ * The regression guard for the trigger fix.
+ *
+ * `resolveWorld` still reflects the attacker's `speed` on the contact tick — that is the drive
+ * model working as designed. What changed is that ram no longer READS that number: `serverTick`
+ * reports the speed each car carried into the tick, and `ramTick` uses it as the approach term.
+ *
+ * So the shape this probe asserts is deliberately odd-looking: the attacker's post-resolve speed is
+ * deeply negative AND the victim is knocked, on the same tick. If those two ever stop coinciding,
+ * the approach term has been rewired back to the post-collision value and the 8-20% trigger rate is
+ * back.
+ */
 function speedBeforeAndAfterResolve(): void {
   const w = new PlaytestWorld([
     { id: "atk", carId: "hexagon", x: 640 - 48 - 4, y: 360, angle: 0, speed: forwardMaxSpeedOf("hexagon") },
     { id: "vic", carId: "oval", x: 640, y: 360, angle: 0 },
   ]);
   const rows: string[] = [];
-  let anyFired = false;
+  let firedOnContactTick = false;
+  let rebounded = false;
   for (let i = 0; i < 4; i++) {
-    const before = w.get("atk").speed;
+    const carriedIn = w.get("atk").speed;
     w.input("atk", { throttle: 1 });
     w.tick();
     const a = w.get("atk");
     const v = w.get("vic");
     const shove = Math.hypot(v.shoveX, v.shoveY);
-    if (shove > 0.01) anyFired = true;
+    // The contact tick is the first one on which a knock appears.
+    if (i === 0) {
+      firedOnContactTick = shove > 0.01;
+      rebounded = a.speed < 0;
+    }
     rows.push(
-      `t${i + 1}: attacker speed ${before.toFixed(1)} -> ${a.speed.toFixed(1)} after resolve; ` +
-        `ram sees ${a.speed.toFixed(1)} ` +
-        `${a.speed < RAM_CONFIG.minApproachSpeed ? "(BELOW minApproachSpeed - no ram)" : "(ram fires)"}; ` +
+      `t${i + 1}: carried in ${carriedIn.toFixed(1)} -> ${a.speed.toFixed(1)} after resolveWorld; ` +
+        `ram's approach term is the carried-in ${carriedIn.toFixed(1)} ` +
+        `${carriedIn >= RAM_CONFIG.minApproachSpeed ? "(>= minApproachSpeed)" : "(below minApproachSpeed)"}; ` +
         `victim shove ${shove.toFixed(1)}`,
     );
   }
   report(
-    "R3. Why: attacker speed before vs after resolveWorld, on the contact tick",
-    anyFired ? "OK" : "FINDING",
-    `minApproachSpeed is ${RAM_CONFIG.minApproachSpeed}; restitution rebounds a head-on contact to ` +
-      `-35% of impact speed.\n` +
+    "R3. The fix: ram reads the carried-in speed, not the post-resolve rebound",
+    firedOnContactTick && rebounded ? "OK" : "FINDING",
+    `minApproachSpeed is ${RAM_CONFIG.minApproachSpeed}; restitution still rebounds a head-on ` +
+      `contact to -35% of impact speed.\n` +
       rows.join("\n") +
-      `\nresolveWorld runs inside serverTick, BEFORE ramTick, so the approach term ram reads has ` +
-      `already been reflected.`,
+      `\nOn the contact tick the attacker rebounded (${rebounded}) AND the victim was knocked ` +
+      `(${firedOnContactTick}). Both must hold: the rebound is the drive model, the knock is the ` +
+      `fix. Shove on later ticks is the first knock decaying — ram is edge-triggered, so holding ` +
+      `the throttle does not re-fire it.`,
   );
 }
 

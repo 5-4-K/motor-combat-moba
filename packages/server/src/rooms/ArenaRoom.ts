@@ -306,11 +306,28 @@ export class ArenaRoom extends Room<ArenaState> {
     // effect whose last tick was the previous one. New effects are only ever added at the far end of
     // the tick, by combat, and take hold on the next one.
     const statusMods = statusTick(this.state, this.state.tick);
-    const masks = serverTick(this.state, this.inputQueues, dt, this.state.phase, statusMods);
+    const { masks, approachSpeeds } = serverTick(
+      this.state,
+      this.inputQueues,
+      dt,
+      this.state.phase,
+      statusMods,
+    );
     // Ramming, after driving and before combat. The order is the rule: contacts are measured against
     // the poses driving actually produced, and the knock written here is read by stepDrive next tick.
+    //
+    // `approachSpeeds` is the one thing ram must NOT read from the poses driving produced. Contact
+    // resolution reflected `speed` on its way through `serverTick`, so the post-drive value is the
+    // rebound, not the impact — see `TickResult.approachSpeeds`.
     if (this.state.phase === RoomPhase.MATCH && this.matchRoster.size > 0) {
-      ramTick(this.state, this.matchRoster, this.ram, toFlowMode(this.state.mode), statusMods);
+      ramTick(
+        this.state,
+        this.matchRoster,
+        this.ram,
+        toFlowMode(this.state.mode),
+        statusMods,
+        approachSpeeds,
+      );
     }
     this.combatTick(dt, masks);
   }

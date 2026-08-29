@@ -111,9 +111,15 @@ export class PlaytestWorld {
   tick(): void {
     this.state.tick += 1;
     const statusMods = statusTick(this.state, this.state.tick);
-    const masks = serverTick(this.state, this.queues, DT, this.state.phase, statusMods);
+    const { masks, approachSpeeds } = serverTick(
+      this.state,
+      this.queues,
+      DT,
+      this.state.phase,
+      statusMods,
+    );
     if (this.state.phase === RoomPhase.MATCH && this.roster.size > 0) {
-      ramTick(this.state, this.roster, this.ram, this.mode, statusMods);
+      ramTick(this.state, this.roster, this.ram, this.mode, statusMods, approachSpeeds);
     }
     if (this.state.phase !== RoomPhase.MATCH || this.roster.size === 0) return;
 
