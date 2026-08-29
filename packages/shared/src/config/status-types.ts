@@ -41,7 +41,7 @@ export type StatusChannel =
   | "topSpeed"
   /** Engine push: `DRIVE_CONFIG.accel` and `reverseAccel`. Drag is NOT scaled. */
   | "accel"
-  /** Steering rate, alongside — never instead of — the ram's `authority`. Above 1 is twitchy. */
+  /** Steering rate, alongside — never instead of — the ram's `authority`. Above 1 corners tighter. */
   | "turnRate"
   /**
    * `DRIVE_CONFIG.brakeDecel`. The one "make the car harder to control" channel that is not about

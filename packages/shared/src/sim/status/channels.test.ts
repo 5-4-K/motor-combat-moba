@@ -125,15 +125,21 @@ describe("turnRate reaches steering, in both directions", () => {
     expect(half.angle).toBeCloseTo(full.angle * 0.5, 9);
   });
 
-  it("scales it UP, which is how `overheated` makes a car twitchy rather than sluggish", () => {
+  it("scales the steering term up too — the channel is bidirectional", () => {
     const rolling = body({ speed: 200 });
-    const twitchy = stepDrive(rolling, input(1, 0), DT, CAR, mods({ turnRate: 1.55 }));
+    const sharper = stepDrive(rolling, input(1, 0), DT, CAR, mods({ turnRate: 1.55 }));
     const plain = stepDrive(rolling, input(1, 0), DT, CAR, NEUTRAL_MODIFIERS);
-    expect(twitchy.angle).toBeCloseTo(plain.angle * 1.55, 9);
-    expect(STATUS_TABLE.overheated.modifiers.turnRate).toBeGreaterThan(1);
+    expect(sharper.angle).toBeCloseTo(plain.angle * 1.55, 9);
   });
 
-  it("multiplies with authority, so a twitchy car mid-ram is both", () => {
+  it("keeps `overheated` on the widening side, because binary steering makes a raise a buff", () => {
+    // `InputMessage.steer` is `-1 | 0 | 1`, so there is no fine control for a twitchy car to lose:
+    // a higher turnRate is a tighter radius AND more countersteer authority out of a ram. This
+    // guards the row from being flipped back to the > 1 it shipped with.
+    expect(STATUS_TABLE.overheated.modifiers.turnRate).toBeLessThan(1);
+  });
+
+  it("multiplies with authority, so a sluggish car mid-ram is both", () => {
     const rolling = body({ speed: 200, authority: 0.5 });
     const both = stepDrive(rolling, input(1, 0), DT, CAR, mods({ turnRate: 0.5 }));
     const full = stepDrive(body({ speed: 200 }), input(1, 0), DT, CAR, NEUTRAL_MODIFIERS);

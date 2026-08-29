@@ -38,9 +38,10 @@ export const STATUS_CONFIG = {
  * anything, so every slow past that point converts a fight into an execution — which is the ram
  * knock's job (bounded, ~1s, with countersteer as counterplay), never a status's.
  *
- * `turnRate`'s ceiling is the odd one out: it is above 1 because a twitchy car is genuinely harder
- * to place than a sluggish one, and `overheated` uses it in that direction. Its own floor still
- * exists so a future status can go the other way.
+ * `turnRate`'s ceiling is above 1 so a future buff can sharpen a car's cornering; nothing in the
+ * table uses it in that direction today. `overheated` used to, and the reasoning did not survive
+ * contact with the input model — see its row for why binary steering makes a raised `turnRate` a
+ * gain rather than a penalty. The floor is the side that carries the roster now.
  *
  * `brakeDecel`'s floor is not a free choice. Scaled braking must stay above `DRIVE_CONFIG.drag` or
  * the brake pedal becomes worse than lifting off, which reads as the control being broken rather
@@ -69,13 +70,27 @@ export const STATUS_LIMITS: Readonly<Record<StatusChannel, { min: number; max: n
  */
 export const STATUS_TABLE = {
   /**
-   * The control debuff, and the only one that makes a car harder to *place* rather than slower.
+   * The handling debuff: a car that corners wide instead of one that is merely slow.
    *
-   * `turnRate` goes UP, not down. That is the whole design and it looks like a typo unless you have
-   * driven it: a sluggish car is easy to control and merely slow, whereas an over-responsive one
-   * oversteers on every input and punts you into walls you meant to graze. Paired with brake fade,
-   * an overheated car arrives at corners it cannot slow for and turns further into them than the
-   * driver asked.
+   * `turnRate` goes DOWN. It was authored at 1.55 — deliberately above 1, on the theory that an
+   * over-responsive car is harder to place than a sluggish one. That theory needs analog steering
+   * to hold, and this game does not have it: `InputMessage.steer` is `-1 | 0 | 1`, so there is no
+   * fine control to lose. You cannot oversteer when the only inputs are hard-left, hard-right and
+   * centre, and releasing stops the turn on the same tick. Under binary steering a higher
+   * `turnRate` is a strict gain — a tighter radius (`speed / turnRate`) and faster reorientation.
+   *
+   * Worse, `stepDrive` ADDS steering to injected spin rather than multiplying:
+   * `angle += (steer * turnRate * authority + angVel) * dt`. Countersteering is free by
+   * construction, so a raised `turnRate` also bought more authority to countersteer out of a ram —
+   * a debuff handing out a defensive buff. And afterburner, the only applier, is a 220-unit
+   * attached beam that has to stay glued to its target: making that target better at rotating out
+   * of the cone works against the weapon applying it.
+   *
+   * 0.65 is the reciprocal of the old 1.55, so the turn radius widens by the factor it used to
+   * narrow. The mirror value (0.45) was rejected: radius scales as `speed / turnRate`, so it nearly
+   * doubles the radius, and stacked with brake fade a 1.5s window of it starts doing Stunned's job
+   * — which is a 700ms `reapply: "ignore"` row precisely so hard CC cannot be chained. 0.65 also
+   * leaves headroom above `STATUS_LIMITS.turnRate.min` (0.4) for a harsher handling debuff later.
    *
    * What would make this better is losing grip — a car that slides wide. The drive model cannot do
    * it: motion is welded to the heading (`x += cos(angle) * speed`), so there is no lateral velocity
@@ -87,7 +102,7 @@ export const STATUS_TABLE = {
     kind: "debuff",
     color: "#d9480f",
     reapply: "refresh",
-    modifiers: { turnRate: 1.55, brakeDecel: 0.65, topSpeed: 0.92 },
+    modifiers: { turnRate: 0.65, brakeDecel: 0.65, topSpeed: 0.92 },
   },
   /** The pure "you are easier to kill" debuff. Sets up a focus, does nothing on its own. */
   corroded: {

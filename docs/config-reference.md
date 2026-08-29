@@ -282,7 +282,7 @@ per duration.
 
 | Status | Kind | Re-apply | Modifiers | Flags | Pulse | On apply |
 |---|---|---|---|---|---|---|
-| `overheated` | debuff | refresh | `turnRate` 1.55, `brakeDecel` 0.65, `topSpeed` 0.92 | — | — | — |
+| `overheated` | debuff | refresh | `turnRate` 0.65, `brakeDecel` 0.65, `topSpeed` 0.92 | — | — | — |
 | `corroded` | debuff | refresh | `damageTaken` 1.3 | — | — | — |
 | `stunned` | debuff | **ignore** | — | `immobilised`, `steeringLocked`, `disarmed` | — | — |
 | `spiked` | debuff | refresh | `topSpeed` 0.82 | — | 8 hp / 400 ms | — |
@@ -327,7 +327,7 @@ and stacking diminishes on its own (a 5% and a 10% slow are 14.5% together, not 
 |---|---|---|
 | `topSpeed` | `forwardMaxSpeedOf` and `reverseMaxSpeedOf` | `stepDrive` |
 | `accel` | `DRIVE_CONFIG.accel` and `reverseAccel` | `stepDrive` |
-| `turnRate` | the steering rate, alongside (not instead of) the ram's `authority`. **Above 1 is twitchy** | `stepDrive` |
+| `turnRate` | the steering rate, alongside (not instead of) the ram's `authority`. **Above 1 corners tighter**; steering is binary (`-1 \| 0 \| 1`), so a raise is a straight gain | `stepDrive` |
 | `brakeDecel` | `DRIVE_CONFIG.brakeDecel` — brake fade | `stepDrive` |
 | `damageDealt` | outgoing damage, frozen into the instance at spawn | `spawnInstances` |
 | `damageTaken` | incoming damage, applied at impact | `runCombat` |
