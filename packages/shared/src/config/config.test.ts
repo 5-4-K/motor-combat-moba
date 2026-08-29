@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { CAR_TABLE, DEFAULT_CAR_ID, hpOf, forwardMaxSpeedOf, isCarId } from "./car-config.js";
+import {
+  CAR_TABLE,
+  CHASSIS_DRIVE,
+  DEFAULT_CAR_ID,
+  driveOf,
+  forwardMaxSpeedOf,
+  hpOf,
+  isCarId,
+  reverseMaxSpeedOf,
+} from "./car-config.js";
 import type { CarId } from "./types.js";
 import { COLOR_TABLE } from "./color-config.js";
 import { COMBAT_CONFIG } from "./combat-config.js";
@@ -99,6 +108,25 @@ describe("isCarId", () => {
     expect(isCarId("constructor")).toBe(false);
     expect(isCarId("toString")).toBe(false);
     expect(isCarId("hasOwnProperty")).toBe(false);
+  });
+});
+
+describe("driveOf", () => {
+  it("resolves every car's drive numbers from the tables", () => {
+    for (const id of Object.keys(CAR_TABLE) as CarId[]) {
+      const d = driveOf(id);
+      expect(d.maxSpeed).toBe(forwardMaxSpeedOf(id));
+      expect(d.reverseMaxSpeed).toBe(reverseMaxSpeedOf(id));
+      expect(d.accel).toBeGreaterThan(0);
+      expect(d.reverseAccel).toBeGreaterThan(0);
+      expect(d.turnRate).toBeGreaterThan(0);
+      expect(d.turnRateAtStop).toBeGreaterThan(0);
+    }
+  });
+
+  it("returns the same frozen object every call, so the tick allocates nothing", () => {
+    expect(driveOf("mirage")).toBe(driveOf("mirage"));
+    expect(Object.isFrozen(driveOf("mirage"))).toBe(true);
   });
 });
 

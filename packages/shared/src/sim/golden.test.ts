@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { ChassisDrive } from "../config/car-config.js";
 import type { InputMessage } from "../net/input.js";
 import { resolveWorld } from "./collide.js";
 import { stepDrive } from "./drive.js";
@@ -15,9 +16,29 @@ import type { SimBody } from "./step.js";
  *
  * Only the `body()` fixture below may gain the new fields (at neutral values). No expectation here
  * may be edited.
+ *
+ * These numbers are pinned against `GOLDEN_CHASSIS`, a frozen fixture, not against a car in
+ * `CAR_TABLE`. Retuning the roster therefore cannot move them, and a future balance edit has no
+ * excuse to. If one of these moves, the integration changed — do not re-record them.
  */
 const DT = 1 / 30;
-const CAR_ID = "mirage";
+
+/**
+ * The drive numbers this suite was recorded against — the chassis that shipped as `rectangle` on
+ * 2026-08-29, before per-car acceleration and turn rate existed.
+ *
+ * Frozen here rather than read from `CAR_TABLE` deliberately: these expectations pin the SHAPE of
+ * the integration, not the roster's balance. A car's ratings must be free to move without any
+ * number below moving with them.
+ */
+const GOLDEN_CHASSIS: ChassisDrive = Object.freeze({
+  maxSpeed: 540,
+  reverseMaxSpeed: 351,
+  accel: 780,
+  reverseAccel: 1100,
+  turnRate: 4.2,
+  turnRateAtStop: 2.1,
+});
 
 function input(steer: -1 | 0 | 1, throttle: -1 | 0 | 1): InputMessage {
   return { seq: 0, steer, throttle, fireSlots: 0 };
@@ -44,7 +65,7 @@ function drive(start: SimBody, msg: InputMessage, ticks: number): SimBody {
   // neutral value multiplies every drive constant by exactly 1. Every number below must survive
   // that unchanged, the same contract the ram fields are held to above. If one of these moves,
   // the multiplicative property has been broken and the change is wrong — do not re-record them.
-  for (let i = 0; i < ticks; i++) next = stepDrive(next, msg, DT, CAR_ID, NEUTRAL_MODIFIERS);
+  for (let i = 0; i < ticks; i++) next = stepDrive(next, msg, DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
   return next;
 }
 

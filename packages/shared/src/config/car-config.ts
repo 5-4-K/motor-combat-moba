@@ -73,3 +73,46 @@ export const RAM_REFERENCE_MASS = 50 * RAM_CONFIG.massPerRating;
 export const RAM_REFERENCE =
   RAM_REFERENCE_MASS *
   Math.max(...(Object.keys(CAR_TABLE) as CarId[]).map((id) => forwardMaxSpeedOf(id)));
+
+/**
+ * Everything `stepDrive` needs to move one chassis for one tick, resolved from the roster and the
+ * drive scales.
+ *
+ * The sim receives this instead of a `CarId` on purpose. `stepDrive` used to read `CAR_TABLE`
+ * itself, which welded the drive integration to the roster: retuning a car's rating moved numbers
+ * inside `golden.test.ts`, whose whole job is proving the integration has NOT changed. With the
+ * chassis passed in, that suite pins the equation against a fixed set of constants and stays honest
+ * through every future balance edit.
+ */
+export interface ChassisDrive {
+  maxSpeed: number;
+  reverseMaxSpeed: number;
+  accel: number;
+  reverseAccel: number;
+  turnRate: number;
+  turnRateAtStop: number;
+}
+
+/**
+ * Resolved once at module load and frozen, mirroring `WEAPON_TICKS`. `stepSim` runs this lookup for
+ * every player every tick on both halves of the lockstep, so it must not allocate.
+ */
+export const CHASSIS_DRIVE: Readonly<Record<CarId, ChassisDrive>> = Object.freeze(
+  Object.fromEntries(
+    (Object.keys(CAR_TABLE) as CarId[]).map((id) => [
+      id,
+      Object.freeze({
+        maxSpeed: forwardMaxSpeedOf(id),
+        reverseMaxSpeed: reverseMaxSpeedOf(id),
+        accel: DRIVE_CONFIG.accel,
+        reverseAccel: DRIVE_CONFIG.reverseAccel,
+        turnRate: DRIVE_CONFIG.turnRate,
+        turnRateAtStop: DRIVE_CONFIG.turnRateAtStop,
+      }),
+    ]),
+  ) as Record<CarId, ChassisDrive>,
+);
+
+export function driveOf(id: CarId): ChassisDrive {
+  return CHASSIS_DRIVE[id];
+}

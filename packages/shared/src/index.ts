@@ -97,15 +97,18 @@ export type { ContextEntry, ContextPlayer } from "./sim/context.js";
 export type { CarDef, CarId, ColorDef } from "./config/types.js";
 export {
   CAR_TABLE,
+  CHASSIS_DRIVE,
   DEFAULT_CAR_ID,
   RAM_REFERENCE,
   RAM_REFERENCE_MASS,
+  driveOf,
   forwardMaxSpeedOf,
   hpOf,
   isCarId,
   massOf,
   reverseMaxSpeedOf,
 } from "./config/car-config.js";
+export type { ChassisDrive } from "./config/car-config.js";
 export { COLOR_TABLE } from "./config/color-config.js";
 export { WEAPON_TABLE, isWeaponId, weaponDefOf } from "./config/weapon-config.js";
 export type {

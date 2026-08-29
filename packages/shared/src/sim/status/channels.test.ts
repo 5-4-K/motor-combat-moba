@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { ChassisDrive } from "../../config/car-config.js";
 import { forwardMaxSpeedOf, reverseMaxSpeedOf } from "../../config/car-config.js";
 import { DRIVE_CONFIG } from "../../config/drive-config.js";
 import { STATUS_TABLE } from "../../config/status-config.js";
@@ -24,6 +25,23 @@ import { NEUTRAL_MODIFIERS, type Modifiers } from "./modifiers.js";
 
 const DT = MS_PER_TICK / 1000;
 const CAR: CarId = "mirage";
+
+/**
+ * The drive numbers this suite was recorded against — the chassis that shipped as `rectangle` on
+ * 2026-08-29, before per-car acceleration and turn rate existed.
+ *
+ * Frozen here rather than read from `CAR_TABLE` deliberately: these expectations pin the SHAPE of
+ * the integration, not the roster's balance. A car's ratings must be free to move without any
+ * number below moving with them.
+ */
+const GOLDEN_CHASSIS: ChassisDrive = Object.freeze({
+  maxSpeed: 540,
+  reverseMaxSpeed: 351,
+  accel: 780,
+  reverseAccel: 1100,
+  turnRate: 4.2,
+  turnRateAtStop: 2.1,
+});
 
 function body(over: Partial<SimBody> = {}): SimBody {
   return {
@@ -51,19 +69,19 @@ function mods(over: Partial<Modifiers>): Modifiers {
 describe("topSpeed reaches the drive cap", () => {
   it("caps forward speed at the scaled maximum", () => {
     let out = body();
-    for (let i = 0; i < 200; i++) out = stepDrive(out, input(0, 1), DT, CAR, mods({ topSpeed: 0.5 }));
+    for (let i = 0; i < 200; i++) out = stepDrive(out, input(0, 1), DT, GOLDEN_CHASSIS, mods({ topSpeed: 0.5 }));
     expect(out.speed).toBeCloseTo(forwardMaxSpeedOf(CAR) * 0.5, 6);
   });
 
   it("caps reverse too, so backing away is not the way out of a slow", () => {
     let out = body({ speed: -10, reverseHold: DRIVE_CONFIG.reverseHoldTicks });
-    for (let i = 0; i < 200; i++) out = stepDrive(out, input(0, -1), DT, CAR, mods({ topSpeed: 0.5 }));
+    for (let i = 0; i < 200; i++) out = stepDrive(out, input(0, -1), DT, GOLDEN_CHASSIS, mods({ topSpeed: 0.5 }));
     expect(out.speed).toBeCloseTo(-reverseMaxSpeedOf(CAR) * 0.5, 6);
   });
 
   it("clamps a car already above the new cap the moment it asks for throttle", () => {
     const fast = body({ speed: forwardMaxSpeedOf(CAR) });
-    expect(stepDrive(fast, input(0, 1), DT, CAR, mods({ topSpeed: 0.5 })).speed).toBeCloseTo(
+    expect(stepDrive(fast, input(0, 1), DT, GOLDEN_CHASSIS, mods({ topSpeed: 0.5 })).speed).toBeCloseTo(
       forwardMaxSpeedOf(CAR) * 0.5,
       6,
     );
@@ -71,7 +89,7 @@ describe("topSpeed reaches the drive cap", () => {
 
   it("lets a car above the cap coast down through drag rather than snapping", () => {
     const fast = body({ speed: forwardMaxSpeedOf(CAR) });
-    expect(stepDrive(fast, input(0, 0), DT, CAR, mods({ topSpeed: 0.5 })).speed).toBeCloseTo(
+    expect(stepDrive(fast, input(0, 0), DT, GOLDEN_CHASSIS, mods({ topSpeed: 0.5 })).speed).toBeCloseTo(
       forwardMaxSpeedOf(CAR) - DRIVE_CONFIG.drag * DT,
       6,
     );
@@ -80,16 +98,16 @@ describe("topSpeed reaches the drive cap", () => {
 
 describe("accel reaches the engine, and never the brakes or drag", () => {
   it("scales one tick of forward acceleration", () => {
-    expect(stepDrive(body(), input(0, 1), DT, CAR, mods({ accel: 0.5 })).speed).toBeCloseTo(
-      DRIVE_CONFIG.accel * 0.5 * DT,
+    expect(stepDrive(body(), input(0, 1), DT, GOLDEN_CHASSIS, mods({ accel: 0.5 })).speed).toBeCloseTo(
+      GOLDEN_CHASSIS.accel * 0.5 * DT,
       9,
     );
   });
 
   it("leaves drag alone — a car with no input must always slow down", () => {
     const rolling = body({ speed: 100 });
-    const debuffed = stepDrive(rolling, input(0, 0), DT, CAR, mods({ accel: 0.4, brakeDecel: 0.6 }));
-    const plain = stepDrive(rolling, input(0, 0), DT, CAR, NEUTRAL_MODIFIERS);
+    const debuffed = stepDrive(rolling, input(0, 0), DT, GOLDEN_CHASSIS, mods({ accel: 0.4, brakeDecel: 0.6 }));
+    const plain = stepDrive(rolling, input(0, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
     expect(debuffed.speed).toBeCloseTo(plain.speed, 9);
   });
 });
@@ -97,22 +115,22 @@ describe("accel reaches the engine, and never the brakes or drag", () => {
 describe("brakeDecel reaches the brake", () => {
   it("fades braking while rolling forward", () => {
     const rolling = body({ speed: 300 });
-    const faded = stepDrive(rolling, input(0, -1), DT, CAR, mods({ brakeDecel: 0.6 }));
-    const plain = stepDrive(rolling, input(0, -1), DT, CAR, NEUTRAL_MODIFIERS);
+    const faded = stepDrive(rolling, input(0, -1), DT, GOLDEN_CHASSIS, mods({ brakeDecel: 0.6 }));
+    const plain = stepDrive(rolling, input(0, -1), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
     expect(faded.speed).toBeGreaterThan(plain.speed);
     expect(faded.speed).toBeCloseTo(300 - DRIVE_CONFIG.brakeDecel * 0.6 * DT, 9);
   });
 
   it("fades the brake that arrests a reversing car too", () => {
     const reversing = body({ speed: -200 });
-    const faded = stepDrive(reversing, input(0, 1), DT, CAR, mods({ brakeDecel: 0.6 }));
+    const faded = stepDrive(reversing, input(0, 1), DT, GOLDEN_CHASSIS, mods({ brakeDecel: 0.6 }));
     expect(faded.speed).toBeCloseTo(-200 + DRIVE_CONFIG.brakeDecel * 0.6 * DT, 9);
   });
 
   it("still beats coasting at the worst fade the limits allow", () => {
     const rolling = body({ speed: 300 });
-    const braked = stepDrive(rolling, input(0, -1), DT, CAR, mods({ brakeDecel: 0.6 }));
-    const coasting = stepDrive(rolling, input(0, 0), DT, CAR, NEUTRAL_MODIFIERS);
+    const braked = stepDrive(rolling, input(0, -1), DT, GOLDEN_CHASSIS, mods({ brakeDecel: 0.6 }));
+    const coasting = stepDrive(rolling, input(0, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
     expect(braked.speed).toBeLessThan(coasting.speed);
   });
 });
@@ -120,15 +138,15 @@ describe("brakeDecel reaches the brake", () => {
 describe("turnRate reaches steering, in both directions", () => {
   it("scales the steering term down", () => {
     const rolling = body({ speed: 200 });
-    const half = stepDrive(rolling, input(1, 0), DT, CAR, mods({ turnRate: 0.5 }));
-    const full = stepDrive(rolling, input(1, 0), DT, CAR, NEUTRAL_MODIFIERS);
+    const half = stepDrive(rolling, input(1, 0), DT, GOLDEN_CHASSIS, mods({ turnRate: 0.5 }));
+    const full = stepDrive(rolling, input(1, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
     expect(half.angle).toBeCloseTo(full.angle * 0.5, 9);
   });
 
   it("scales the steering term up too — the channel is bidirectional", () => {
     const rolling = body({ speed: 200 });
-    const sharper = stepDrive(rolling, input(1, 0), DT, CAR, mods({ turnRate: 1.55 }));
-    const plain = stepDrive(rolling, input(1, 0), DT, CAR, NEUTRAL_MODIFIERS);
+    const sharper = stepDrive(rolling, input(1, 0), DT, GOLDEN_CHASSIS, mods({ turnRate: 1.55 }));
+    const plain = stepDrive(rolling, input(1, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
     expect(sharper.angle).toBeCloseTo(plain.angle * 1.55, 9);
   });
 
@@ -141,23 +159,23 @@ describe("turnRate reaches steering, in both directions", () => {
 
   it("multiplies with authority, so a sluggish car mid-ram is both", () => {
     const rolling = body({ speed: 200, authority: 0.5 });
-    const both = stepDrive(rolling, input(1, 0), DT, CAR, mods({ turnRate: 0.5 }));
-    const full = stepDrive(body({ speed: 200 }), input(1, 0), DT, CAR, NEUTRAL_MODIFIERS);
+    const both = stepDrive(rolling, input(1, 0), DT, GOLDEN_CHASSIS, mods({ turnRate: 0.5 }));
+    const full = stepDrive(body({ speed: 200 }), input(1, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
     expect(both.angle).toBeCloseTo(full.angle * 0.25, 9);
   });
 
   it("does not touch injected spin — that is the ram's term, not the driver's", () => {
     const spun = body({ speed: 200, angVel: 2 });
-    expect(stepDrive(spun, input(0, 0), DT, CAR, mods({ turnRate: 0.5 })).angle).toBeCloseTo(2 * DT, 9);
+    expect(stepDrive(spun, input(0, 0), DT, GOLDEN_CHASSIS, mods({ turnRate: 0.5 })).angle).toBeCloseTo(2 * DT, 9);
   });
 });
 
 describe("the three flags", () => {
   it("`immobilised` refuses throttle but leaves the car coasting, steering and braking", () => {
-    expect(stepDrive(body(), input(0, 1), DT, CAR, mods({ immobilised: true })).speed).toBe(0);
+    expect(stepDrive(body(), input(0, 1), DT, GOLDEN_CHASSIS, mods({ immobilised: true })).speed).toBe(0);
 
     const rolling = body({ speed: 200 });
-    const out = stepDrive(rolling, input(1, 1), DT, CAR, mods({ immobilised: true }));
+    const out = stepDrive(rolling, input(1, 1), DT, GOLDEN_CHASSIS, mods({ immobilised: true }));
     // Still steering, and slowing through drag rather than snapping to rest.
     expect(out.angle).not.toBe(rolling.angle);
     expect(out.speed).toBeLessThan(200);
@@ -166,15 +184,15 @@ describe("the three flags", () => {
 
   it("`steeringLocked` kills the driver's steering but never the injected spin", () => {
     const rolling = body({ speed: 200, angVel: 2 });
-    const out = stepDrive(rolling, input(1, 0), DT, CAR, mods({ steeringLocked: true }));
+    const out = stepDrive(rolling, input(1, 0), DT, GOLDEN_CHASSIS, mods({ steeringLocked: true }));
     // Exactly the spin's contribution, with nothing from the held steer input.
     expect(out.angle).toBeCloseTo(2 * DT, 9);
   });
 
   it("`steeringLocked` also stops a driver countersteering out of a spin", () => {
     const spinning = body({ speed: 200, angVel: 2 });
-    const locked = stepDrive(spinning, input(-1, 0), DT, CAR, mods({ steeringLocked: true }));
-    const free = stepDrive(spinning, input(-1, 0), DT, CAR, NEUTRAL_MODIFIERS);
+    const locked = stepDrive(spinning, input(-1, 0), DT, GOLDEN_CHASSIS, mods({ steeringLocked: true }));
+    const free = stepDrive(spinning, input(-1, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
     // A free driver fighting the spin decays it faster; a locked one cannot.
     expect(locked.angVel).toBeGreaterThan(free.angVel);
   });
@@ -182,7 +200,7 @@ describe("the three flags", () => {
   it("a stunned car keeps its ram knock resolving", () => {
     const stunned = mods({ immobilised: true, steeringLocked: true, disarmed: true });
     const knocked = body({ speed: 200, angVel: 2, shoveX: 120 });
-    const out = stepDrive(knocked, input(0, 1), DT, CAR, stunned);
+    const out = stepDrive(knocked, input(0, 1), DT, GOLDEN_CHASSIS, stunned);
     expect(Math.abs(out.angVel)).toBeLessThan(2);
     expect(Math.abs(out.shoveX)).toBeLessThan(120);
     expect(out.x).not.toBe(knocked.x);
