@@ -148,12 +148,22 @@ user names it explicitly.
 ```bash
 npm run dev            # shared watch + server :2567 + Vite client :5173
 npm run build:release  # dist-release/motor-combat-moba/ + motor-combat-moba-release.zip
-npm run build:manual   # docs/cars-and-weapons.pdf — the player-facing manual
+npm run build:manual   # the player-facing manual, as a PDF and as a web page
 ```
 
-`build:manual` re-renders the PDF from `WEAPON_TABLE`/`CAR_TABLE` (via built shared) plus the prose
-in `scripts/cars-and-weapons-copy.mjs`, so a balance edit is a re-run, never a hand edit. It needs
-Chromium (`CHROMIUM_PATH` overrides the search); webfonts are fetched once and inlined, and it falls
-back to system fonts offline.
+`build:manual` renders the manual from `WEAPON_TABLE`/`CAR_TABLE` (via built shared) plus the prose
+in `scripts/cars-and-weapons-copy.mjs`, so a balance edit is a re-run, never a hand edit. **It writes
+two files from one source:** `docs/cars-and-weapons.pdf` for print, and
+`packages/client/public/manual.html` — the page the join screen's "Cars & weapons guide" button
+opens, so players read it in the browser rather than downloading anything. Vite copies `public/`
+verbatim, so the page ships in the LAN zip; its art is linked from `public/art/` and its fonts are
+inlined, so it reaches for nothing off the machine. Both outputs are generated and committed — edit
+the script, never either file.
+
+The page's URL is `MANUAL_PATH` in `packages/client/src/config/manual.ts`, which nothing typed holds
+to the file the script writes; `scripts/manual-page.test.mjs` is what does.
+
+It needs Chromium (`CHROMIUM_PATH` overrides the search); webfonts are fetched once and inlined, and
+it falls back to system fonts offline.
 
 `npm run dev` sets `DEPLOY_MODE=lan` and `CLIENT_ORIGIN=http://localhost:5173` so Vite can talk to the server. Open `http://localhost:5173`, click Join.

@@ -1,6 +1,14 @@
 #!/usr/bin/env node
 /**
- * Builds `docs/cars-and-weapons.pdf` — the player-facing manual: three chassis, nine weapons.
+ * Builds the player-facing manual — three chassis, nine weapons — in two forms from one source:
+ *
+ *   docs/cars-and-weapons.pdf              print, every asset inlined
+ *   packages/client/public/manual.html     the same book as a web page the client links to
+ *
+ * The web page exists so players can READ the manual in the browser rather than download a file:
+ * an embedded PDF is at the mercy of whatever viewer the browser ships (and on mobile is usually
+ * just a download), whereas this is ordinary HTML. Both come out of the same page builders against
+ * the same balance tables, so the two cannot disagree.
  *
  * Every number in the PDF is read from BUILT shared (`WEAPON_TABLE`, `CAR_TABLE`, `WEAPON_TICKS`,
  * `weaponDamageOf`), never transcribed, so a balance edit is reprinted by re-running this script
@@ -14,7 +22,7 @@
  * still builds.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -38,7 +46,10 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ICON_DIR = resolve(ROOT, "packages/client/public/art/weapon-icons");
 const CAR_DIR = resolve(ROOT, "packages/client/public/art/cars");
 const OUT_PDF = resolve(ROOT, "docs/cars-and-weapons.pdf");
-const OUT_HTML = resolve(ROOT, ".cars-and-weapons/manual.html");
+/** Fed to Chromium and then thrown away; gitignored. */
+const OUT_PRINT_HTML = resolve(ROOT, ".cars-and-weapons/manual.html");
+/** Served by the client. Vite copies `public/` verbatim, so this ships in the LAN zip too. */
+const OUT_WEB_HTML = resolve(ROOT, "packages/client/public/manual.html");
 
 /** The arena the build ships, for "how far is 900 units really" context. */
 const ARENA_WIDTH = 1280;
@@ -151,10 +162,22 @@ function bars(w) {
 // ---------------------------------------------------------------------------- assets
 
 const dataUri = (path) => `data:image/png;base64,${readFileSync(path).toString("base64")}`;
-const ICONS = Object.fromEntries(
+const ICON_DATA = Object.fromEntries(
   WEAPONS.map((w) => [w.id, dataUri(resolve(ICON_DIR, `${w.id}.png`))]),
 );
-const CARS = Object.fromEntries(CAR_IDS.map((id) => [id, dataUri(resolve(CAR_DIR, `${id}.png`))]));
+const CAR_DATA = Object.fromEntries(CAR_IDS.map((id) => [id, dataUri(resolve(CAR_DIR, `${id}.png`))]));
+
+/**
+ * Which form of the document is being built. Module-level rather than threaded through all nine
+ * page builders: it is read only by `iconUrl`/`carUrl`, and `buildDocument` is the only writer.
+ *
+ * "print" inlines every image, because Chromium renders the page from a temp directory and a
+ * relative path would resolve to nothing. "web" links the art the client already serves, which
+ * keeps the page a tenth of the size and lets the browser cache the icons it drew in the HUD.
+ */
+let assetMode = "print";
+const iconUrl = (id) => (assetMode === "print" ? ICON_DATA[id] : `art/weapon-icons/${id}.png`);
+const carUrl = (id) => (assetMode === "print" ? CAR_DATA[id] : `art/cars/${id}.png`);
 
 /** Weapon colours are authored to read on the arena's light floor; lift them for a dark page. */
 function lift(hex, amount = 0.42) {
@@ -171,7 +194,13 @@ async function fontCss() {
       signal: AbortSignal.timeout(20000),
     });
     if (!res.ok) throw new Error(`css ${res.status}`);
-    let css = await res.text();
+    // Google serves one @font-face per weight PER SUBSET (latin, latin-ext, cyrillic, vietnamese).
+    // Every one of them gets base64'd into the document, and the manual is English, so dropping the
+    // subsets nothing renders takes the inlined faces from ~420 KB to a fraction of that.
+    let css = (await res.text())
+      .split(/(?=\/\* [a-z-]+ \*\/)/)
+      .filter((block) => !block.trimStart().startsWith("/*") || block.trimStart().startsWith("/* latin */"))
+      .join("");
     const urls = [...new Set([...css.matchAll(/url\((https:\/\/[^)]+)\)/g)].map((m) => m[1]))];
     for (const url of urls) {
       const font = await fetch(url, { signal: AbortSignal.timeout(20000) });
@@ -198,7 +227,7 @@ function page(cls, inner) {
 function cover() {
   const grid = WEAPONS.map(
     (w) =>
-      `<figure><img src="${ICONS[w.id]}" alt=""><figcaption style="color:${lift(w.def.color)}">${esc(
+      `<figure><img src="${iconUrl(w.id)}" alt=""><figcaption style="color:${lift(w.def.color)}">${esc(
         w.def.name,
       )}</figcaption></figure>`,
   ).join("");
@@ -259,7 +288,7 @@ function legend() {
        <h3>Three chassis, one triangle</h3>
        <div class="tri">${CAR_IDS.map(
          (carId, i) => `<div>
-           <img src="${CARS[carId]}" alt="">
+           <img src="${carUrl(carId)}" alt="">
            <b>${esc(CAR_TABLE[carId].name)}</b>
            <span>${esc(CHASSIS_COPY[carId].codename)}</span>
            <p>${esc(CHASSIS_COPY[carId].theme)}</p>
@@ -290,7 +319,7 @@ function chassisPage(carId) {
   const kitRows = kit
     .map(
       (w) => `<li style="--acc:${lift(w.def.color)}">
-        <img src="${ICONS[w.id]}" alt="">
+        <img src="${iconUrl(w.id)}" alt="">
         <div class="kn"><b>${esc(w.def.name)}</b><span>${esc(SLOT_LABEL[w.slot])}</span>
           <p>${esc(WEAPON_COPY[w.id].tagline)}</p></div>
         <dl class="kstats">
@@ -306,7 +335,7 @@ function chassisPage(carId) {
     "chassis",
     `<header class="phead"><span class="pnum">Chassis</span><h2>${esc(car.name)} <em>— ${esc(copy.codename)}</em></h2></header>
      <div class="chassis-hero">
-       <img class="carshot" src="${CARS[carId]}" alt="">
+       <img class="carshot" src="${carUrl(carId)}" alt="">
        <div>
          <p class="theme">“${esc(copy.theme)}”</p>
          <p class="body">${esc(copy.body)}</p>
@@ -369,7 +398,7 @@ function weaponPage(w, index) {
        <header class="phead"><span class="pnum">${String(index + 1).padStart(2, "0")} / ${String(WEAPONS.length).padStart(2, "0")}</span>
          <span class="owner">${esc(w.car.name)} · ${esc(SLOT_LABEL[w.slot])}</span></header>
        <div class="hero">
-         <img src="${ICONS[w.id]}" alt="">
+         <img src="${iconUrl(w.id)}" alt="">
          <div>
            <h1>${esc(w.def.name)}</h1>
            <p class="shape">${esc(copy.shape)}</p>
@@ -658,10 +687,47 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: .85em; color: var(
         letter-spacing: .12em; color: var(--faint); display: block; margin-bottom: 2mm; }
 .swatches span { display: flex; align-items: center; gap: 2.5mm; font-size: 9pt; color: var(--dim); padding: .5mm 0; }
 .swatches i { width: 4mm; height: 4mm; border-radius: 1pt; flex: none; }
+
+/* ---- on a screen: the same pages, stacked as a scrolling document ---- */
+.topbar { display: none; }
+@media screen {
+  body { background: #07090D; padding-bottom: 12mm; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 6mm;
+        position: sticky; top: 0; z-index: 5; padding: 3.5mm 6mm;
+        background: rgba(13, 16, 22, .94); border-bottom: 1pt solid var(--line);
+        backdrop-filter: blur(6px); }
+  .topbar b { font-family: var(--display); font-size: 11pt; text-transform: uppercase;
+        letter-spacing: .14em; font-weight: 700; }
+  .topbar b span { color: var(--faint); font-weight: 500; }
+  .topbar nav { display: flex; gap: 3mm; }
+  .topbar a, .topbar button { font-family: var(--display); font-size: 9.5pt; text-transform: uppercase;
+        letter-spacing: .12em; color: var(--ink); text-decoration: none; cursor: pointer;
+        background: transparent; border: 1pt solid var(--line); border-radius: 1.5mm;
+        padding: 2mm 4mm; }
+  .topbar a:hover, .topbar button:hover { border-color: #E8590C; color: #E8590C; }
+  .page { margin: 6mm auto; box-shadow: 0 2mm 9mm rgba(0, 0, 0, .55); border-radius: 1.5mm; }
+  /* Pages are a fixed A4 wide, so a narrow window scales the whole document down rather than
+     scrolling sideways through it. */
+  @media (max-width: 880px) { body { zoom: .58; } }
+  @media (max-width: 520px) { body { zoom: .40; } }
+}
 `;
 }
 
-async function main() {
+/** Shown on screen, hidden in print. Plain links: nothing here needs the client's bundle. */
+function topbar() {
+  return `<div class="topbar">
+    <b>${esc(MANUAL_META.title)} <span>${esc(MANUAL_META.subtitle)}</span></b>
+    <nav>
+      <a href="./">Back to the game</a>
+      <button type="button" onclick="window.print()">Print</button>
+    </nav>
+  </div>`;
+}
+
+/** The whole book, in whichever asset form `mode` asks for. */
+function buildDocument(mode, fonts) {
+  assetMode = mode;
   // Chassis first, then ITS OWN three weapons, then the next chassis. The book reads as three
   // self-contained kits rather than as a roster followed by a separate appendix of guns — which is
   // also the order a player meets them in, since picking a car picks all three slots at once.
@@ -677,13 +743,19 @@ async function main() {
     ceilings(),
   ].join("\n");
 
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8">
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(MANUAL_META.title)} — ${esc(MANUAL_META.subtitle)}</title>
-<style>${css(await fontCss())}</style></head><body>${pages}</body></html>`;
+<style>${css(fonts)}</style></head><body>${topbar()}\n${pages}</body></html>`;
+}
 
-  mkdirSync(dirname(OUT_HTML), { recursive: true });
+async function main() {
+  const fonts = await fontCss();
+
+  mkdirSync(dirname(OUT_PRINT_HTML), { recursive: true });
   mkdirSync(dirname(OUT_PDF), { recursive: true });
-  writeFileSync(OUT_HTML, html);
+  writeFileSync(OUT_PRINT_HTML, buildDocument("print", fonts));
+  writeFileSync(OUT_WEB_HTML, buildDocument("web", fonts));
 
   const chrome = [
     process.env.CHROMIUM_PATH,
@@ -703,12 +775,16 @@ async function main() {
       "--virtual-time-budget=20000",
       "--no-pdf-header-footer",
       `--print-to-pdf=${OUT_PDF}`,
-      `file://${OUT_HTML}`,
+      `file://${OUT_PRINT_HTML}`,
     ],
     { stdio: ["ignore", "ignore", "inherit"] },
   );
 
-  console.log(`[manual] ${WEAPONS.length} weapons, ${CAR_IDS.length} chassis -> ${OUT_PDF}`);
+  const kb = (path) => `${Math.round(statSync(path).size / 1024)} KB`;
+  console.log(
+    `[manual] ${WEAPONS.length} weapons, ${CAR_IDS.length} chassis -> ` +
+      `${OUT_PDF} (${kb(OUT_PDF)}), ${OUT_WEB_HTML} (${kb(OUT_WEB_HTML)})`,
+  );
 }
 
 await main();
