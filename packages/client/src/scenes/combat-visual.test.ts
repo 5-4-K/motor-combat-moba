@@ -10,6 +10,7 @@ import {
 import {
   extrapolateShot,
   hpBarColor,
+  hpBarPoints,
   hpFraction,
   beamDrawLayers,
   chargeOrbBands,
@@ -63,6 +64,57 @@ describe("hpBarColor", () => {
 
   it("is the critical colour at zero", () => {
     expect(hpBarColor(0)).toBe(hpBarColor(0.1));
+  });
+});
+
+describe("hpBarPoints", () => {
+  const BAR = { length: 40, thickness: 5, offset: 30 };
+  const dist = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+    Math.hypot(a.x - b.x, a.y - b.y);
+
+  it("lays a full bar across the car's tail, perpendicular to its facing direction", () => {
+    const [nearLeft, nearRight, farRight, farLeft] = hpBarPoints(
+      { x: 100, y: 200, angle: 0 },
+      1,
+      BAR,
+    );
+    // Facing +x, so the bar sits at -x of the centre and runs along y.
+    expect(nearLeft).toEqual({ x: 70, y: 180 });
+    expect(nearRight).toEqual({ x: 70, y: 220 });
+    expect(farRight).toEqual({ x: 65, y: 220 });
+    expect(farLeft).toEqual({ x: 65, y: 180 });
+  });
+
+  it("turns with the car, keeping its size and its offset behind the centre", () => {
+    for (const angle of [0, Math.PI / 2, 2.4, -1.1]) {
+      const pose = { x: 12, y: -7, angle };
+      const [nearLeft, nearRight, farRight] = hpBarPoints(pose, 1, BAR);
+      expect(dist(nearLeft, nearRight)).toBeCloseTo(BAR.length);
+      expect(dist(nearRight, farRight)).toBeCloseTo(BAR.thickness);
+      const midX = (nearLeft.x + nearRight.x) / 2;
+      const midY = (nearLeft.y + nearRight.y) / 2;
+      expect(dist({ x: midX, y: midY }, pose)).toBeCloseTo(BAR.offset);
+      // Behind, never in front: the near edge is opposite the facing direction.
+      expect((midX - pose.x) * Math.cos(angle) + (midY - pose.y) * Math.sin(angle)).toBeLessThan(0);
+    }
+  });
+
+  it("drains from the same end of the car whatever way it points", () => {
+    for (const angle of [0, Math.PI / 2, 2.4, -1.1]) {
+      const pose = { x: 0, y: 0, angle };
+      const full = hpBarPoints(pose, 1, BAR);
+      const half = hpBarPoints(pose, 0.5, BAR);
+      expect(half[0]).toEqual(full[0]);
+      expect(dist(half[0], half[1])).toBeCloseTo(BAR.length / 2);
+    }
+  });
+
+  it("clamps the fraction to a bar between empty and full", () => {
+    const pose = { x: 0, y: 0, angle: 0.3 };
+    expect(hpBarPoints(pose, 2, BAR)).toEqual(hpBarPoints(pose, 1, BAR));
+    expect(hpBarPoints(pose, -1, BAR)).toEqual(hpBarPoints(pose, 0, BAR));
+    const [nearLeft, nearRight] = hpBarPoints(pose, 0, BAR);
+    expect(dist(nearLeft, nearRight)).toBe(0);
   });
 });
 
