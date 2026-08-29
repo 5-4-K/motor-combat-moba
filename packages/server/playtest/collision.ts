@@ -7,16 +7,16 @@
  */
 import { DRIVE_CONFIG, forwardMaxSpeedOf, getArena, type CarId } from "@motor-combat-moba/shared";
 import { PlaytestWorld, overlapDepth } from "./world.js";
+import { Reporter } from "./reporter.js";
 
 const ARENA = getArena("arena-01");
 const { carWidth: W, carHeight: H } = DRIVE_CONFIG;
 
-type Finding = { probe: string; verdict: string; detail: string };
-const findings: Finding[] = [];
-function report(probe: string, verdict: string, detail: string): void {
-  findings.push({ probe, verdict, detail });
-  console.log(`\n[${verdict}] ${probe}\n    ${detail.replace(/\n/g, "\n    ")}`);
-}
+const reporter = new Reporter(
+  "collision",
+  "Car-on-car collision: tunneling, crush, pile-ups, resolve order, energy, ram chaining.",
+);
+const report = reporter.report.bind(reporter);
 
 /* ------------------------------------------------------------------ 1. tunneling */
 /**
@@ -363,5 +363,4 @@ energyGain();
 glancingSignFlip();
 ramChain();
 
-console.log(`\n${"=".repeat(70)}`);
-for (const f of findings) console.log(`${f.verdict.padEnd(16)} ${f.probe}`);
+reporter.finish();

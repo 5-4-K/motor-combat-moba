@@ -28,3 +28,6 @@ packages/client/.vite/
 
 # code-review-graph local knowledge graph
 .code-review-graph/
+
+# Playtest run reports — a record of one run on one machine, never source
+packages/server/playtest/reports/

@@ -47,6 +47,7 @@ free-floating fourth rating, and no replacement guard was adopted — see
 | Weapon, ram, status, elimination rules | [`docs/combat-model.md`](docs/combat-model.md) |
 | Art, manifest, asset swapping | [`docs/asset-pipeline.md`](docs/asset-pipeline.md) |
 | Code graph / MCP setup on a new machine | [`docs/code-review-graph.md`](docs/code-review-graph.md) |
+| Playtest harnesses, and how to run them | [`packages/server/playtest/README.md`](packages/server/playtest/README.md) |
 | Terms | [`docs/glossary.md`](docs/glossary.md) |
 | Package local rules | `packages/shared/CLAUDE.md`, `packages/server/CLAUDE.md`, `packages/client/CLAUDE.md` |
 | Spec + tracker | [`docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md`](docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md), [`docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md`](docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md) |
@@ -156,12 +157,53 @@ behind; tooling that guesses a default branch (git's own "main branch" hint, PR 
 often name `master` anyway — ignore that and use `development/main`. Only touch `master` when the
 user names it explicitly.
 
+## Playtest: update the existing probes when the sim changes
+
+`packages/server/playtest/` holds headless probes that drive the real `ArenaRoom.tick` pipeline and
+measure what the game actually does — ram trigger rates, weapon reach, collision depth, prediction
+error. They are **not** part of the test suite and **not** part of the release build. Run them with
+`npm run playtest`; reports land in gitignored `packages/server/playtest/reports/<yyyy-MM-dd-NN>/`.
+See [`packages/server/playtest/README.md`](packages/server/playtest/README.md).
+
+**After changing anything the probes measure, update the affected probe — do not leave it describing
+the old behaviour.** That means:
+
+- A probe's stated expectation, threshold, or verdict logic that your change makes wrong.
+- A comment or report string quoting a number your change moved (a config value, a hull dimension, a
+  tick count, a weapon stat, a documented rate).
+- A probe that no longer compiles or no longer reaches the code path it was written to exercise.
+
+Changes that reach them include: `sim/` (drive, collide, ram, combat, damage, status, weapons), the
+tick order in `ArenaRoom.tick` or the bridges, `WEAPON_TABLE`, `CAR_TABLE`, `DRIVE_CONFIG`,
+`RAM_CONFIG`, `COMBAT_CONFIG`, `STATUS_*`, `AIM_CONFIG`, `NET_CONFIG`, `TICK_RATE_HZ`,
+`DEFAULT_PATCH_RATE_HZ`, arena definitions and spawn tables, and the client's prediction or
+step-context assembly.
+
+**Never create a new probe file or a new scenario on your own initiative.** The user adds new
+scenarios explicitly. Your job is to keep the existing ones honest — updating a threshold, a number,
+or a setup that a change invalidated is maintenance; inventing coverage is not.
+
+Two rules the probes are built on, worth preserving in any edit:
+
+- **They report, they do not assert.** A probe that throws on the first surprise stops measuring
+  every scenario after it. Verdicts are `OK`, `FINDING`, and `KNOWN-BY-DESIGN` — the last for
+  behaviour the code documents as intentional but which a player would still report as a bug.
+- **Anything involving contact sweeps the sub-tick phase.** A car covers 10–18 units per tick, so a
+  single placement measures one arbitrary point on the tick grid. Removing a sweep is how a probe
+  starts reporting whatever that one phase happened to do.
+
+If a change makes a probe's finding obsolete — you fixed the thing it was measuring — update the
+probe's expectation so the fix is what now reads as `OK`, and say so in your summary. Do not delete
+the probe.
+
 ## Commands
 
 ```bash
 npm run dev            # shared watch + server :2567 + Vite client :5173
 npm run build:release  # dist-release/motor-combat-moba/ + motor-combat-moba-release.zip
 npm run build:manual   # regenerates the cars & weapons guide page
+npm run playtest       # headless sim probes -> packages/server/playtest/reports/<date-NN>/
+npm run playtest:lan   # two bot clients against a server you already started
 ```
 
 ## The cars & weapons guide is generated, committed, and easy to leave stale

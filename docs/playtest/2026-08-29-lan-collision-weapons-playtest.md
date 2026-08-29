@@ -193,21 +193,12 @@ Scenarios drawn from what breaks in comparable car-combat and top-down arena gam
 ## Running it
 
 ```bash
-npm install && npm run build            # shared must build before server
-
-cd packages/server
-npx tsx playtest/collision.ts           # car-on-car: tunneling, crush, pile-up, order, energy
-npx tsx playtest/ram.ts                 # F1: the ram trigger-rate sweep
-npx tsx playtest/weapons.ts             # all 9 weapons: damage, FF, death, cooldowns, statuses
-npx tsx playtest/weapons2.ts            # F2 + tunneling, crossing targets, point-blank angles
-npx tsx playtest/geometry.ts            # arena-02: wedging, corners, walls, locks, spawns
-npx tsx playtest/prediction.ts          # F3: reconciliation error vs latency
-
-# the real LAN run — server in one shell, bots in another
-DEPLOY_MODE=lan PORT=2567 CAR_SELECT_SECONDS=1 REVEAL_SECONDS=1 \
-  SIM_LATENCY_MS=25 SIM_JITTER_MS=8 node packages/server/dist/index.js
-npx tsx playtest/lan.ts
+npm run playtest        # all six offline probes -> packages/server/playtest/reports/<yyyy-MM-dd-NN>/
+npm run playtest:lan    # the two-bot LAN run, against a server you started yourself
 ```
 
-The offline probes need no server and no network. `lan.ts` needs a built server on `PLAYTEST_ENDPOINT`
-(default `ws://127.0.0.1:2567`).
+Full step-by-step, including the LAN server's environment variables and the shared-`dist` trap, is in
+[`packages/server/playtest/README.md`](../../packages/server/playtest/README.md).
+
+The numbers in this document come from run `2026-08-29-01`. Report folders are gitignored, so
+reproduce them rather than looking for them in the repo.

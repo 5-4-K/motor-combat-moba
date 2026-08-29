@@ -13,6 +13,7 @@
  */
 import {
   DEFAULT_PATCH_RATE_HZ,
+  DRIVE_CONFIG,
   MS_PER_TICK,
   NEUTRAL_MODIFIERS,
   TICK_RATE_HZ,
@@ -27,6 +28,7 @@ import {
 } from "@motor-combat-moba/shared";
 import { PredictionBuffer } from "../../client/src/net/prediction.js";
 import { PlaytestWorld } from "./world.js";
+import { Reporter } from "./reporter.js";
 
 const DT = MS_PER_TICK / 1000;
 const ARENA = getArena("arena-01");
@@ -163,44 +165,63 @@ function clientContext(snap: Snapshot | null, self: SimBody): StepContext {
   };
 }
 
-console.log("=".repeat(80));
-console.log("P1 — reconciliation correction, free driving vs a head-on car-car collision");
-console.log("=".repeat(80));
-console.log(
-  `sim ${TICK_RATE_HZ} Hz, patches ${DEFAULT_PATCH_RATE_HZ} Hz. "correction" is how far the local\n` +
-    `car is moved by one reconcile — what the player sees as a snap. A rectangle covers 18 u/tick\n` +
-    `and its hull is 48 x 32, so a correction near 20u is already a visible jump.\n`,
+const reporter = new Reporter(
+  "prediction",
+  "Client prediction vs the authoritative server across a car-on-car collision, by latency.",
 );
-console.log(
-  "latency   scenario        mean correction   peak correction   peak while in contact",
-);
-for (const latencyMs of [0, 15, 30, 60, 120]) {
-  for (const collide of [false, true]) {
-    const r = trial({ latencyMs, collide });
-    console.log(
-      `${String(latencyMs).padStart(4)} ms   ${(collide ? "COLLISION" : "free driving").padEnd(14)}  ` +
-        `${r.mean.toFixed(2).padStart(10)} u   ${r.peak.toFixed(2).padStart(13)} u   ` +
-        `${collide ? `${r.peakDuringContact.toFixed(2).padStart(14)} u` : "".padStart(16)}`,
-    );
-  }
-}
 
-console.log(`\n${"=".repeat(80)}`);
-console.log("P2 — where the error comes from: how stale is the remote car the client resolves against?");
-console.log("=".repeat(80));
-const patchEvery = Math.round(TICK_RATE_HZ / DEFAULT_PATCH_RATE_HZ);
-for (const latencyMs of [0, 15, 30, 60, 120]) {
-  const latencyTicks = Math.round((latencyMs / 1000) * TICK_RATE_HZ);
-  const staleTicks = latencyTicks + patchEvery;
-  console.log(
-    `${String(latencyMs).padStart(4)} ms one-way: remote pose is up to ${staleTicks} ticks old ` +
-      `(${(staleTicks * MS_PER_TICK).toFixed(0)} ms) = ${(staleTicks * (540 / TICK_RATE_HZ)).toFixed(0)}u ` +
-      `of travel for a car at Rectangle's top speed`,
+/* ------------------------------- P1. correction, free driving vs a head-on car-car collision */
+{
+  const rows: string[] = [];
+  let worstCollision = 0;
+  let worstFree = 0;
+  for (const latencyMs of [0, 15, 30, 60, 120]) {
+    for (const collide of [false, true]) {
+      const r = trial({ latencyMs, collide });
+      if (collide) worstCollision = Math.max(worstCollision, r.peak);
+      else worstFree = Math.max(worstFree, r.peak);
+      rows.push(
+        `${String(latencyMs).padStart(4)} ms   ${(collide ? "COLLISION" : "free driving").padEnd(14)}  ` +
+          `mean ${r.mean.toFixed(2).padStart(6)}u   peak ${r.peak.toFixed(2).padStart(7)}u   ` +
+          `${collide ? `peak in contact ${r.peakDuringContact.toFixed(2)}u` : ""}`,
+      );
+    }
+  }
+  reporter.report(
+    "P1. Reconciliation correction, free driving vs a head-on collision",
+    // A correction past a car length is a snap the player sees; free driving must stay at zero.
+    worstCollision > DRIVE_CONFIG.carWidth || worstFree > 1 ? "FINDING" : "OK",
+    `sim ${TICK_RATE_HZ} Hz, patches ${DEFAULT_PATCH_RATE_HZ} Hz. "correction" is how far one\n` +
+      `reconcile moves the local car — what the player sees as a snap. A rectangle covers 18 u/tick\n` +
+      `and its hull is ${DRIVE_CONFIG.carWidth} x ${DRIVE_CONFIG.carHeight}.\n` +
+      rows.join("\n") +
+      `\nworst free-driving correction ${worstFree.toFixed(2)}u; worst collision correction ` +
+      `${worstCollision.toFixed(2)}u.`,
   );
 }
-console.log(
-  `\nThe client predicts only itself and enters remotes at their last-known server pose, so during\n` +
-    `contact it is resolving its hull against a box that is that far behind. resolveWorld is a hard\n` +
-    `positional constraint, not a soft force, so the disagreement lands as a push-out in the wrong\n` +
-    `place rather than as a small drift.`,
-);
+
+/* -------------------------------------- P2. where the error comes from: remote pose staleness */
+{
+  const rows: string[] = [];
+  const patchEvery = Math.round(TICK_RATE_HZ / DEFAULT_PATCH_RATE_HZ);
+  for (const latencyMs of [0, 15, 30, 60, 120]) {
+    const latencyTicks = Math.round((latencyMs / 1000) * TICK_RATE_HZ);
+    const staleTicks = latencyTicks + patchEvery;
+    rows.push(
+      `${String(latencyMs).padStart(4)} ms one-way: remote pose up to ${staleTicks} ticks old ` +
+        `(${(staleTicks * MS_PER_TICK).toFixed(0)} ms) = ` +
+        `${(staleTicks * (540 / TICK_RATE_HZ)).toFixed(0)}u of travel at Rectangle's top speed`,
+    );
+  }
+  reporter.report(
+    "P2. Why: how stale is the remote car the client resolves against?",
+    "KNOWN-BY-DESIGN",
+    rows.join("\n") +
+      `\nThe client predicts only itself and enters remotes at their last-known server pose, so\n` +
+      `during contact it resolves its hull against a box that far behind. resolveWorld is a hard\n` +
+      `positional constraint, not a soft force, so the disagreement lands as a push-out in the\n` +
+      `wrong place rather than as a small drift.`,
+  );
+}
+
+reporter.finish();

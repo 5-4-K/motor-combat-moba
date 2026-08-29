@@ -18,12 +18,13 @@ import {
   type WeaponId,
 } from "@motor-combat-moba/shared";
 import { PlaytestWorld } from "./world.js";
+import { Reporter } from "./reporter.js";
 
-const findings: { probe: string; verdict: string; detail: string }[] = [];
-function report(probe: string, verdict: string, detail: string): void {
-  findings.push({ probe, verdict, detail });
-  console.log(`\n[${verdict}] ${probe}\n    ${detail.replace(/\n/g, "\n    ")}`);
-}
+const reporter = new Reporter(
+  "weapons2",
+  "Pellet spread vs tunneling, crossing targets, point-blank angles, spin, wrecks as cover.",
+);
+const report = reporter.report.bind(reporter);
 function carrierOf(weaponId: WeaponId): CarId {
   return (Object.keys(CAR_TABLE) as CarId[]).find((c) => slotsOf(c).includes(weaponId))!;
 }
@@ -64,12 +65,18 @@ function pepperboxSpread(): void {
         `target half-width is ${DRIVE_CONFIG.carHeight / 2}u + 7u pellet radius`,
     );
   }
+  // Two separate answers here. "Not tunneling" is OK — W3's flag was a false positive. But a weapon
+  // that cannot connect at half its own authored range IS a finding, and it is the same measurement.
+  const effectiveRange = Math.round(23 / Math.tan((5 * Math.PI) / 180));
+  const authoredRange = WEAPON_TABLE.pepperbox.range;
   report(
-    "W3b. Pepperbox: pellet spread, not tunneling",
-    "OK (W3 was a false positive)",
-    `Pepperbox fires 2 pellets per volley at +/-5 degrees. Nothing travels down the centre line, so\n` +
-      `beyond ~${Math.round(23 / Math.tan((5 * Math.PI) / 180))}u BOTH pellets clear a car's flank and the\n` +
-      `volley cannot hit a car dead ahead at all.\n` +
+    "W3b. Pepperbox: pellet spread (not tunneling), and the reach it actually has",
+    effectiveRange < authoredRange * 0.75 ? "FINDING" : "OK",
+    `NOT tunneling: W3's flag was a false positive. Pepperbox fires 2 pellets per volley at\n` +
+      `+/-5 degrees, so nothing travels down the centre line.\n` +
+      `The finding is the reach: beyond ~${effectiveRange}u BOTH pellets clear a car's flank and the\n` +
+      `volley cannot hit a car dead ahead at all — against an authored range of ${authoredRange},\n` +
+      `which is also what manual.html advertises.\n` +
       rows.join("\n"),
   );
 }
@@ -276,5 +283,4 @@ angledPointBlank();
 spinningShooter();
 wreckAsCover();
 
-console.log(`\n${"=".repeat(78)}`);
-for (const f of findings) console.log(`${f.verdict.padEnd(24)} ${f.probe}`);
+reporter.finish();

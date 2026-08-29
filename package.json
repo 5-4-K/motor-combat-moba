@@ -3,12 +3,18 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*"],
-  "engines": { "node": ">=20" },
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "npm run build -w @motor-combat-moba/shared && npm run build -w @motor-combat-moba/server && npm run build -w @motor-combat-moba/client",
     "test:scripts": "node --test \"scripts/*.test.mjs\"",
     "test": "npm run build -w @motor-combat-moba/shared && npm run test --workspaces --if-present && npm run test:scripts",
+    "playtest": "npm run build -w @motor-combat-moba/shared && npm run playtest -w @motor-combat-moba/server",
+    "playtest:lan": "npm run playtest:lan -w @motor-combat-moba/server",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "dev:shared": "npm run dev -w @motor-combat-moba/shared",
     "dev:server": "cross-env DEPLOY_MODE=lan CLIENT_ORIGIN=http://localhost:5173 npm run dev -w @motor-combat-moba/server",

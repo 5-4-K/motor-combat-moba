@@ -18,12 +18,13 @@ import {
   type WeaponId,
 } from "@motor-combat-moba/shared";
 import { PlaytestWorld, statusesOf } from "./world.js";
+import { Reporter } from "./reporter.js";
 
-const findings: { probe: string; verdict: string; detail: string }[] = [];
-function report(probe: string, verdict: string, detail: string): void {
-  findings.push({ probe, verdict, detail });
-  console.log(`\n[${verdict}] ${probe}\n    ${detail.replace(/\n/g, "\n    ")}`);
-}
+const reporter = new Reporter(
+  "weapons",
+  "All nine weapons: damage, point-blank, friendly fire, death, cooldowns, statuses, leaks, pierce.",
+);
+const report = reporter.report.bind(reporter);
 
 /** Which slot index (1-based bitmask) carries this weapon on its chassis. */
 function slotBitFor(carId: CarId, weaponId: WeaponId): number {
@@ -522,5 +523,4 @@ instanceLeak();
 beamOwnerDeath();
 damageNumbers();
 
-console.log(`\n${"=".repeat(78)}`);
-for (const f of findings) console.log(`${f.verdict.padEnd(16)} ${f.probe}`);
+reporter.finish();

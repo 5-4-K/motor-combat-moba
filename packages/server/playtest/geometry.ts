@@ -16,12 +16,13 @@ import {
   type WeaponId,
 } from "@motor-combat-moba/shared";
 import { PlaytestWorld, overlapDepth } from "./world.js";
+import { Reporter } from "./reporter.js";
 
-const findings: { probe: string; verdict: string; detail: string }[] = [];
-function report(probe: string, verdict: string, detail: string): void {
-  findings.push({ probe, verdict, detail });
-  console.log(`\n[${verdict}] ${probe}\n    ${detail.replace(/\n/g, "\n    ")}`);
-}
+const reporter = new Reporter(
+  "geometry",
+  "arena-02 level geometry: wedging, concave corners, walls, aim-assist LOS, spawn seats.",
+);
+const report = reporter.report.bind(reporter);
 const ARENA = getArena("arena-02");
 const carrierOf = (w: WeaponId): CarId =>
   (Object.keys(CAR_TABLE) as CarId[]).find((c) => slotsOf(c).includes(w))!;
@@ -314,5 +315,4 @@ lockThroughWall();
 beamInWall();
 spawnOverlap();
 
-console.log(`\n${"=".repeat(78)}`);
-for (const f of findings) console.log(`${f.verdict.padEnd(18)} ${f.probe}`);
+reporter.finish();
