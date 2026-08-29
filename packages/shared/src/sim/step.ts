@@ -9,6 +9,20 @@ export interface SimBody {
   angle: number;
   speed: number;
   reverseHold: number;
+  /**
+   * Injected rotation, radians per second, decaying toward 0. Set only by a ram; steering is a
+   * separate term and does not write here. Added to the steering rate rather than replacing it, so
+   * `angVel: 0` reproduces the pre-ram drive model exactly.
+   */
+  angVel: number;
+  /** Injected lateral knock, world units per second, decaying toward 0. Added to the drive velocity. */
+  shoveX: number;
+  shoveY: number;
+  /**
+   * Steering effectiveness, 1 = full control, decaying back UP toward 1. Scales the steer input only
+   * — never throttle, so a knocked player can always drive their way out. Neutral is 1, not 0.
+   */
+  authority: number;
 }
 
 /**

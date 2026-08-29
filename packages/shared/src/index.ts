@@ -30,12 +30,14 @@ export { WeaponInstanceState } from "./schema/WeaponInstanceState.js";
 export { WeaponSlotState } from "./schema/WeaponSlotState.js";
 export { ArenaState } from "./schema/ArenaState.js";
 
+export { RAM_CONFIG, RAM_DECAY, halfLifeToPerTick } from "./config/ram-config.js";
 export { applyDamage, damageFor, weaponDamageOf } from "./sim/damage.js";
 export { stepSim } from "./sim/step.js";
 export type { SimBody, StepContext } from "./sim/step.js";
 export { stepDrive } from "./sim/drive.js";
 export {
   circleOverlapsObb,
+  contactNormalBetween,
   convexOverlap,
   obbCorners,
   obbsInContact,
@@ -46,6 +48,8 @@ export {
 } from "./sim/collide.js";
 export { runCombat } from "./sim/combat.js";
 export type { CombatInput, CombatPlayer, CombatResult, CombatWorld } from "./sim/combat.js";
+export { applyRams, impactSideOf, pairKey, resolveRam } from "./sim/ram.js";
+export type { ImpactSide, RamCar, RamHit, RamKnock } from "./sim/ram.js";
 export { canDamage } from "./sim/weapons/targets.js";
 export {
   hasLineOfSight,
@@ -86,9 +90,12 @@ export type { CarDef, CarId, ColorDef } from "./config/types.js";
 export {
   CAR_TABLE,
   DEFAULT_CAR_ID,
+  RAM_REFERENCE,
+  RAM_REFERENCE_MASS,
   forwardMaxSpeedOf,
   hpOf,
   isCarId,
+  massOf,
   reverseMaxSpeedOf,
 } from "./config/car-config.js";
 export { COLOR_TABLE } from "./config/color-config.js";

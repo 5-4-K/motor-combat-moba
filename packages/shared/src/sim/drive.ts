@@ -1,13 +1,17 @@
 import type { CarId } from "../config/types.js";
 import { forwardMaxSpeedOf, reverseMaxSpeedOf } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
+import { RAM_CONFIG, RAM_DECAY } from "../config/ram-config.js";
 import type { InputMessage } from "../net/input.js";
 import type { SimBody } from "./step.js";
 
 /** Arcade drive: steering, throttle/brake/reverse, and world translation for one tick. Pure. */
 export function stepDrive(body: SimBody, input: InputMessage, dt: number, carId: CarId): SimBody {
   const turnRate = isMoving(body.speed) ? DRIVE_CONFIG.turnRate : DRIVE_CONFIG.turnRateAtStop;
-  const angle = body.angle + input.steer * turnRate * dt;
+  // Steering is scaled by authority; injected spin is not. Both are ADDED into one rotation, which
+  // is what makes countersteering free: the integrator does not know why angVel is high, so steering
+  // the other way simply subtracts from the same sum.
+  const angle = body.angle + (input.steer * turnRate * body.authority + body.angVel) * dt;
 
   const { speed, reverseHold } = nextSpeed(body.speed, body.reverseHold, input.throttle, dt, carId);
 
@@ -15,10 +19,52 @@ export function stepDrive(body: SimBody, input: InputMessage, dt: number, carId:
   // engine), so replayed positions can drift by an ULP or two. That's fine here: Task 4
   // reconciles client prediction against authoritative server state rather than trusting
   // bit-exact replay, so this is not a desync-checksum-safe function.
-  const x = body.x + Math.cos(angle) * speed * dt;
-  const y = body.y + Math.sin(angle) * speed * dt;
+  //
+  // Shove is added to the drive velocity, never substituted for it: a car that is both driving and
+  // knocked does both. At `shoveX/shoveY` of 0 this is arithmetically identical to the pre-ram
+  // model, which `golden.test.ts` pins.
+  const x = body.x + (Math.cos(angle) * speed + body.shoveX) * dt;
+  const y = body.y + (Math.sin(angle) * speed + body.shoveY) * dt;
 
-  return { x, y, angle, speed, reverseHold };
+  return {
+    x,
+    y,
+    angle,
+    speed,
+    reverseHold,
+    angVel: nextAngVel(body.angVel, input.steer),
+    shoveX: decayShove(body.shoveX),
+    shoveY: decayShove(body.shoveY),
+    authority: recoverAuthority(body.authority),
+  };
+}
+
+/**
+ * Injected spin decays on its own, and decays FASTER while the player steers against it.
+ *
+ * Without that second rate, steering could only offset the visible rotation while the underlying
+ * spin ran its full course, so recovery time would be fixed by decay alone and skill could not
+ * shorten a knock. This is the one line that makes reading the spin direction worth anything.
+ */
+function nextAngVel(angVel: number, steer: InputMessage["steer"]): number {
+  const fighting = steer * angVel < 0;
+  const next = angVel * (fighting ? RAM_DECAY.counterSteer : RAM_DECAY.spin);
+  return Math.abs(next) < RAM_CONFIG.spinEpsilon ? 0 : next;
+}
+
+function decayShove(component: number): number {
+  const next = component * RAM_DECAY.shove;
+  return Math.abs(next) < RAM_CONFIG.shoveEpsilon ? 0 : next;
+}
+
+/**
+ * Authority climbs back toward full control: it is the GAP to 1 that halves, not the value itself.
+ * Snapped to exactly 1 inside the epsilon so a car is never left permanently a hair below full
+ * steering — exponential recovery never actually arrives.
+ */
+function recoverAuthority(authority: number): number {
+  const next = 1 - (1 - authority) * RAM_DECAY.authority;
+  return 1 - next < RAM_CONFIG.authorityEpsilon ? 1 : next;
 }
 
 /** Outside the `stopEpsilon` band the car counts as rolling, in whichever direction. */

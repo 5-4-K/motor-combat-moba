@@ -57,6 +57,14 @@ describe("PlayerState", () => {
     expect(p.alive).toBe(false);
     expect(p.selectLocked).toBe(true);
   });
+
+  it("defaults authority to 1, not 0 — a 0 default would mean an undriveable car", () => {
+    const p = new PlayerState();
+    expect(p.authority).toBe(1);
+    expect(p.angVel).toBe(0);
+    expect(p.shoveX).toBe(0);
+    expect(p.shoveY).toBe(0);
+  });
 });
 
 describe("ArenaState", () => {

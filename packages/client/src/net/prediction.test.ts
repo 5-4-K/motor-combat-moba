@@ -20,7 +20,17 @@ const ctx: StepContext = {
 };
 
 const DT = MS_PER_TICK / 1000;
-const START: SimBody = { x: 200, y: 200, angle: 0, speed: 0, reverseHold: 0 };
+const START: SimBody = {
+  x: 200,
+  y: 200,
+  angle: 0,
+  speed: 0,
+  reverseHold: 0,
+  angVel: 0,
+  shoveX: 0,
+  shoveY: 0,
+  authority: 1,
+};
 
 function up(seq: number): InputMessage {
   return { seq, steer: 0, throttle: 1, fireSlots: 0 };
@@ -128,7 +138,17 @@ describe("PredictionBuffer.reconcile", () => {
 
   it("snaps to the replayed target when the position error exceeds reconcileSnapPos", () => {
     const buf = new PredictionBuffer();
-    const authoritative: SimBody = { x: 400, y: 400, angle: 0.2, speed: 30, reverseHold: 0 };
+    const authoritative: SimBody = {
+      x: 400,
+      y: 400,
+      angle: 0.2,
+      speed: 30,
+      reverseHold: 0,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
+    };
     const wayOff: SimBody = {
       ...authoritative,
       x: authoritative.x + NET_CONFIG.reconcileSnapPos + 1,
@@ -139,7 +159,17 @@ describe("PredictionBuffer.reconcile", () => {
 
   it("snaps when the angle error exceeds reconcileSnapAngle even with position in tolerance", () => {
     const buf = new PredictionBuffer();
-    const authoritative: SimBody = { x: 400, y: 400, angle: 0, speed: 0, reverseHold: 0 };
+    const authoritative: SimBody = {
+      x: 400,
+      y: 400,
+      angle: 0,
+      speed: 0,
+      reverseHold: 0,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
+    };
     const twisted: SimBody = { ...authoritative, angle: NET_CONFIG.reconcileSnapAngle + 0.1 };
 
     expect(buf.reconcile(authoritative, 0, twisted, ctx)).toEqual(authoritative);
@@ -147,7 +177,17 @@ describe("PredictionBuffer.reconcile", () => {
 
   it("eases x/y toward the target inside the snap threshold", () => {
     const buf = new PredictionBuffer();
-    const authoritative: SimBody = { x: 400, y: 400, angle: 0, speed: 0, reverseHold: 0 };
+    const authoritative: SimBody = {
+      x: 400,
+      y: 400,
+      angle: 0,
+      speed: 0,
+      reverseHold: 0,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
+    };
     const nearby: SimBody = { ...authoritative, x: 410, y: 406 };
 
     const out = buf.reconcile(authoritative, 0, nearby, ctx);
@@ -160,8 +200,28 @@ describe("PredictionBuffer.reconcile", () => {
     // Derived sim fields are inputs to the next step, so a half-eased speed would feed a wrong
     // integration next tick and never converge.
     const buf = new PredictionBuffer();
-    const authoritative: SimBody = { x: 400, y: 400, angle: 0, speed: 50, reverseHold: 6 };
-    const nearby: SimBody = { x: 410, y: 400, angle: 0, speed: 0, reverseHold: 0 };
+    const authoritative: SimBody = {
+      x: 400,
+      y: 400,
+      angle: 0,
+      speed: 50,
+      reverseHold: 6,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
+    };
+    const nearby: SimBody = {
+      x: 410,
+      y: 400,
+      angle: 0,
+      speed: 0,
+      reverseHold: 0,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
+    };
 
     const out = buf.reconcile(authoritative, 0, nearby, ctx);
     expect(out.speed).toBe(50);
@@ -173,7 +233,17 @@ describe("PredictionBuffer.reconcile", () => {
     // `stepDrive` never normalises `angle`, so after minutes of turning it is thousands of radians.
     // A raw subtraction here would read a ~628 rad error and snap every single tick.
     const buf = new PredictionBuffer();
-    const authoritative: SimBody = { x: 400, y: 400, angle: 0.1, speed: 0, reverseHold: 0 };
+    const authoritative: SimBody = {
+      x: 400,
+      y: 400,
+      angle: 0.1,
+      speed: 0,
+      reverseHold: 0,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
+    };
     const wound = 0.1 + 100 * 2 * Math.PI;
     const spun: SimBody = { ...authoritative, angle: wound };
 
@@ -182,9 +252,62 @@ describe("PredictionBuffer.reconcile", () => {
     expect(out.angle).not.toBeCloseTo(authoritative.angle, 6);
   });
 
+  it("snaps all four knock fields to the authoritative value on the EASE path, never eases them", () => {
+    // The dangerous mistake here is changing `angVel`/`shoveX`/`shoveY`/`authority` in `reconcile`
+    // from a snap to a `lerp` — per R16 that would break the "unpredicted ram" feature outright, and
+    // every OTHER test in this suite uses neutral knock values (0, 0, 0, 1) on both sides, so such a
+    // change would pass the whole file undetected. Exercising it specifically on the EASE branch
+    // (small positional error, so x/y visibly lerp) is what makes this test able to catch a `lerp`
+    // slipped in beside the position/angle easing, rather than only a wholesale drop of the fields.
+    const buf = new PredictionBuffer();
+    const authoritative: SimBody = {
+      x: 400,
+      y: 400,
+      angle: 0,
+      speed: 0,
+      reverseHold: 0,
+      angVel: 2.5,
+      shoveX: 120,
+      shoveY: -60,
+      authority: 0.4,
+    };
+    const nearby: SimBody = {
+      x: 405,
+      y: 402,
+      angle: 0,
+      speed: 0,
+      reverseHold: 0,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
+    };
+
+    const out = buf.reconcile(authoritative, 0, nearby, ctx);
+
+    // Precondition: this really is the ease path, not the snap path.
+    expect(out.x).not.toBe(authoritative.x);
+    expect(out.y).not.toBe(authoritative.y);
+
+    expect(out.angVel).toBe(2.5);
+    expect(out.shoveX).toBe(120);
+    expect(out.shoveY).toBe(-60);
+    expect(out.authority).toBe(0.4);
+  });
+
   it("eases angle the short way round the wrap", () => {
     const buf = new PredictionBuffer();
-    const authoritative: SimBody = { x: 400, y: 400, angle: -3, speed: 0, reverseHold: 0 };
+    const authoritative: SimBody = {
+      x: 400,
+      y: 400,
+      angle: -3,
+      speed: 0,
+      reverseHold: 0,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
+    };
     const nearWrap: SimBody = { ...authoritative, angle: 3 };
 
     const out = buf.reconcile(authoritative, 0, nearWrap, ctx);

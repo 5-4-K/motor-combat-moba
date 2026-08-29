@@ -3,6 +3,7 @@ import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { Aabb, Obb } from "./collide.js";
 import {
   circleOverlapsObb,
+  contactNormalBetween,
   convexOverlap,
   obbCorners,
   obbsOverlap,
@@ -20,7 +21,18 @@ const BOUNDS = { width: 1000, height: 1000 };
 const TOUCH_SLACK = 1e-6;
 
 function body(patch: Partial<SimBody>): SimBody {
-  return { x: 0, y: 0, angle: 0, speed: 0, reverseHold: 0, ...patch };
+  return {
+    x: 0,
+    y: 0,
+    angle: 0,
+    speed: 0,
+    reverseHold: 0,
+    angVel: 0,
+    shoveX: 0,
+    shoveY: 0,
+    authority: 1,
+    ...patch,
+  };
 }
 
 function carObb(b: SimBody): Obb {
@@ -715,5 +727,59 @@ describe("convex overlap", () => {
     const turned = { x: 100, y: 100, angle: Math.PI / 2, w: 40, h: 20 };
     expect(circleOverlapsObb(100, 118, 1, turned)).toBe(true); // long axis now vertical
     expect(circleOverlapsObb(118, 100, 1, turned)).toBe(false);
+  });
+});
+
+describe("contactNormalBetween", () => {
+  const car = (x: number, y: number, angle = 0) => ({ x, y, angle, w: 48, h: 32 });
+
+  it("returns null for boxes that are nowhere near each other", () => {
+    expect(contactNormalBetween(car(0, 0), car(500, 500), 1)).toBeNull();
+  });
+
+  it("points from b toward a — the pinned sign convention", () => {
+    // a sits to the LEFT of b and just touching, so the normal must point in -x.
+    const n = contactNormalBetween(car(0, 0), car(48, 0), 1);
+    expect(n).not.toBeNull();
+    expect(n!.x).toBeCloseTo(-1, 6);
+    expect(n!.y).toBeCloseTo(0, 6);
+  });
+
+  it("flips with the argument order", () => {
+    const forward = contactNormalBetween(car(0, 0), car(48, 0), 1)!;
+    const backward = contactNormalBetween(car(48, 0), car(0, 0), 1)!;
+    expect(backward.x).toBeCloseTo(-forward.x, 6);
+  });
+
+  it("returns a unit vector", () => {
+    const n = contactNormalBetween(car(0, 0), car(40, 6), 1)!;
+    expect(Math.hypot(n.x, n.y)).toBeCloseTo(1, 9);
+  });
+
+  it("finds contact where a strict overlap test does not, which is the whole reason it pads", () => {
+    // Exactly touching: resolveWorld leaves colliding cars here, and SAT calls it separated.
+    const a = car(0, 0);
+    const b = car(48, 0);
+    expect(obbsOverlap(a, b)).toBe(false);
+    expect(contactNormalBetween(a, b, 1)).not.toBeNull();
+  });
+});
+
+describe("applyContact reflects shove", () => {
+  // `BOUNDS` and `body(patch)` are this file's existing fixtures — reuse them, do not add new ones.
+  it("rebounds a shoved car off a wall instead of pinning it there", () => {
+    const out = resolveWorld(body({ x: 10, y: 400, shoveX: -300 }), [], [], BOUNDS);
+    expect(out.shoveX).toBeGreaterThan(0);
+  });
+
+  it("leaves a car with no shove behaving exactly as before", () => {
+    const out = resolveWorld(body({ x: 10, y: 400, speed: 200, angle: Math.PI }), [], [], BOUNDS);
+    expect(out.shoveX).toBe(0);
+    expect(out.shoveY).toBe(0);
+  });
+
+  it("does not amplify a shove that is already moving away from the surface", () => {
+    const out = resolveWorld(body({ x: 10, y: 400, shoveX: 300 }), [], [], BOUNDS);
+    expect(out.shoveX).toBeCloseTo(300, 9);
   });
 });

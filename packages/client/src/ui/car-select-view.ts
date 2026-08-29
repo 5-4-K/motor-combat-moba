@@ -4,6 +4,7 @@ import {
   GameMode,
   forwardMaxSpeedOf,
   hpOf,
+  massOf,
   reverseMaxSpeedOf,
   weaponDamageOf,
   weaponDefOf,
@@ -76,6 +77,7 @@ export function fullStatsFor(id: CarId): StatRow[] {
     { label: "Reverse speed", value: `${trim(reverseMaxSpeedOf(id))} u/s` },
     { label: "Turn rate", value: `${trim(DRIVE_CONFIG.turnRate)} rad/s` },
     { label: "Hull HP", value: String(hpOf(id)) },
+    { label: "Mass", value: String(massOf(id)) },
     { label: "Hull size", value: `${DRIVE_CONFIG.carWidth} x ${DRIVE_CONFIG.carHeight}` },
     // One row per equipped weapon, derived through the same `weaponDamageOf` the sim fires with.
     // The chassis `attack` rating is invisible on its own — this is where it becomes a number the

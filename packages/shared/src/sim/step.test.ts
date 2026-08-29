@@ -24,7 +24,17 @@ function drive(body: SimBody, ctx: StepContext, ticks: number): SimBody {
 
 describe("stepSim", () => {
   it("moves a car forward when Up is held from rest on an empty arena", () => {
-    const body: SimBody = { x: 100, y: 300, angle: 0, speed: 0, reverseHold: 0 };
+    const body: SimBody = {
+      x: 100,
+      y: 300,
+      angle: 0,
+      speed: 0,
+      reverseHold: 0,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
+    };
 
     const out = stepSim(body, UP, DT, EMPTY_ARENA);
 
@@ -32,12 +42,32 @@ describe("stepSim", () => {
     expect(out.y).toBe(body.y);
     expect(out.speed).toBeGreaterThan(0);
     // Pure: the caller's body is untouched.
-    expect(body).toEqual({ x: 100, y: 300, angle: 0, speed: 0, reverseHold: 0 });
+    expect(body).toEqual({
+      x: 100,
+      y: 300,
+      angle: 0,
+      speed: 0,
+      reverseHold: 0,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
+    });
   });
 
   it("stops the car at an obstacle it would otherwise have driven through", () => {
     const obstacle = { x: 400, y: 0, w: 60, h: 600 };
-    const start: SimBody = { x: 100, y: 300, angle: 0, speed: 0, reverseHold: 0 };
+    const start: SimBody = {
+      x: 100,
+      y: 300,
+      angle: 0,
+      speed: 0,
+      reverseHold: 0,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
+    };
 
     const unobstructed = drive(start, EMPTY_ARENA, 60);
     const blocked = drive(start, { ...EMPTY_ARENA, obstacles: [obstacle] }, 60);
@@ -49,7 +79,17 @@ describe("stepSim", () => {
   });
 
   it("keeps a car driving at a wall inside the arena bounds", () => {
-    const start: SimBody = { x: 700, y: 300, angle: 0, speed: 0, reverseHold: 0 };
+    const start: SimBody = {
+      x: 700,
+      y: 300,
+      angle: 0,
+      speed: 0,
+      reverseHold: 0,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
+    };
 
     const out = drive(start, EMPTY_ARENA, 60);
 

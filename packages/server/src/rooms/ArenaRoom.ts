@@ -56,6 +56,7 @@ import {
   toInstances,
   type CombatMemory,
 } from "../sim/combat-bridge.js";
+import { clearKnock, newRamMemory, ramTick, type RamMemory } from "../sim/ram-bridge.js";
 import {
   fromFlowPhase,
   fromFlowStatus,
@@ -85,6 +86,7 @@ export class ArenaRoom extends Room<ArenaState> {
    * visible gain.
    */
   private combat: CombatMemory = newCombatMemory();
+  private ram: RamMemory = newRamMemory();
 
   async onCreate(): Promise<void> {
     const listings = await matchMaker.query({ name: ROOM_NAME });
@@ -298,6 +300,11 @@ export class ArenaRoom extends Room<ArenaState> {
     }
     const dt = 1 / getTickRateHz(TICK_RATE_HZ);
     const masks = serverTick(this.state, this.inputQueues, dt, this.state.phase);
+    // Ramming, after driving and before combat. The order is the rule: contacts are measured against
+    // the poses driving actually produced, and the knock written here is read by stepDrive next tick.
+    if (this.state.phase === RoomPhase.MATCH && this.matchRoster.size > 0) {
+      ramTick(this.state, this.matchRoster, this.ram, toFlowMode(this.state.mode));
+    }
     this.combatTick(dt, masks);
   }
 
@@ -447,10 +454,14 @@ export class ArenaRoom extends Room<ArenaState> {
         player.hp = hpOf(carId);
       }
       player.speed = 0;
+      // Nothing from the previous match survives into this one — a knock included, or a car would
+      // spawn already spinning with its steering degraded.
+      clearKnock(player);
     }
     // Nothing from the previous match survives into this one: no shots in flight, and no stale fire
     // state (a stock or a switch lock the new car never earned).
     clearInstances(this.state, this.combat);
+    this.ram = newRamMemory();
     const spawns = assignSpawns(
       getArena(this.state.arenaId),
       this.state.mode,

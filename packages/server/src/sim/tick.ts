@@ -138,6 +138,10 @@ function bodyOf(player: PlayerState): SimBody {
     angle: player.angle,
     speed: player.speed,
     reverseHold: player.reverseHold,
+    angVel: player.angVel,
+    shoveX: player.shoveX,
+    shoveY: player.shoveY,
+    authority: player.authority,
   };
 }
 
@@ -147,4 +151,8 @@ function writeBody(player: PlayerState, body: SimBody): void {
   player.angle = body.angle;
   player.speed = body.speed;
   player.reverseHold = body.reverseHold;
+  player.angVel = body.angVel;
+  player.shoveX = body.shoveX;
+  player.shoveY = body.shoveY;
+  player.authority = body.authority;
 }

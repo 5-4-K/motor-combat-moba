@@ -16,6 +16,65 @@ Combat is **server-only**. The client draws `state.weapons` and never predicts a
 change: a mispredicted bullet is a phantom kill, and there is no honest way to reconcile "you were
 dead for 80 ms". Prediction covers the local car's motion and nothing else.
 
+## Ramming
+
+Ram is a separate pass, not part of `combatTick`: `ArenaRoom.tick` runs `serverTick` (drive), then
+`ramTick` (`packages/server/src/sim/ram-bridge.ts`), then `combatTick`. `ramTick` maps `ArenaState`
+onto plain `RamCar`s and calls `applyRams`, the pure step in `packages/shared/src/sim/ram.ts` — no
+schema, no room. Running between the two means ram detection reads the poses driving actually
+produced this tick, and the knock it writes is what `stepDrive` reads on the next one. Ram is
+server-only, like combat, and the client never computes an authoritative outcome — it does run its
+own local contact check against remote hulls to fire a camera shake and impact spark immediately,
+but that is render-only and feeds nothing back into `stepSim`, the schema, or the server.
+
+**A ram deals zero hp.** `applyRams` never calls `applyDamage`. The whole feature is contact turned
+into control loss — a spin, a sideways shove, and a degraded steering multiplier — never damage.
+Weapons stay the only damage source, so the `attack` rating keeps meaning exactly what its name
+says: ramming sets up the kill, weapons land it.
+
+Contact is **edge-triggered**: a knock fires only on the tick a pair of car hulls *enters* contact.
+A pair still touching on the following tick is skipped, and a pair no longer touching is dropped
+from the tracked set. Holding the throttle into a victim therefore lands one knock, not a
+stun-lock — to ram the same car again you must separate and re-approach.
+
+Severity is graded from the **attacker's** forward speed (`SimBody.speed`, which is already
+`dot(vel, fwd)` in this drive model) and the **attacker's** `mass` rating, scaled against
+`RAM_REFERENCE` (an average-mass chassis at the roster's fastest top speed). A car shunted
+backwards, or one whose nose points away from the contact, deals nothing — its approach term is
+non-positive — which is what keeps "get behind them" a strategy rather than "be moving fastest".
+Whichever car has the higher approach score is the attacker; if both fall below
+`RAM_CONFIG.minApproachSpeed` there is no ram at all.
+
+The impact side is read in the **victim's** local frame and multiplies severity before it is
+clamped back into range:
+
+| Side | Bonus |
+|---|---|
+| Front | 0.3 |
+| Flank | 1.0 |
+| Rear | 1.3 |
+
+so an identical approach dealt to the rear is worth more than four times the same hit to the front —
+head-on ramming is deliberately weak, and positioning is the whole feature.
+
+The knock itself is four fields on `PlayerState`: `authority` dips toward
+`RAM_CONFIG.authorityFloor` and scales **steering only**, never throttle or brake, so a knocked
+player can always drive out of it; `shoveX`/`shoveY` push the victim sideways; and `angVel` spins
+it, from a lever arm recovered from the actual contact point rather than a guessed direction — a
+dead-centre nose hit produces exactly zero spin. All four decay back toward neutral on their own
+half-life, and steering against an injected spin bleeds it off faster than coasting does. See
+[`schema-reference.md`](schema-reference.md#playerstate) for the fields and
+[`config-reference.md`](config-reference.md#ram_config) for the tuning. None of the attacker's own
+state is touched by a ram — the existing collision rebound already costs the aggressor its speed.
+
+**Teammates are fully immune.** `resolveRam` is gated by the same `canDamage` predicate used below
+for shots, so contact and weapons can never disagree about who is on your side. Teammates still
+collide and shove each other through ordinary resolution; a friendly hit simply produces no spin, no
+shove, and no authority loss.
+
+See [`superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md`](superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md)
+for the full decision record (R1–R20), including the deviations recorded there.
+
 ## `applyDamage` is the only HP writer
 
 ```ts
@@ -376,8 +435,9 @@ re-tune.
 
 ## Damage
 
-Weapons are the only damage source. Collision costs nobody hp — cars shove each other and nothing
-more.
+Weapons are the only damage source. Collision costs nobody hp: cars shove each other through
+ordinary resolution, and — between non-teammates on fresh contact — also ram each other for spin,
+shove, and steering loss (see [Ramming](#ramming) above). Neither ever costs hp.
 
 One hit costs `damageFor(attack, weapon.damage)`:
 

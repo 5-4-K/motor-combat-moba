@@ -50,6 +50,10 @@ function poseOf(player: PlayerState): SimBody {
     angle: player.angle,
     speed: player.speed,
     reverseHold: player.reverseHold,
+    angVel: player.angVel,
+    shoveX: player.shoveX,
+    shoveY: player.shoveY,
+    authority: player.authority,
   };
 }
 
@@ -99,9 +103,29 @@ describe("serverTick", () => {
 
     serverTick(state, queues, DT, RoomPhase.MATCH);
 
-    expect(poseOf(emptyQ)).toEqual({ x: 1, y: 2, angle: 0.1, speed: 0, reverseHold: 0 });
+    expect(poseOf(emptyQ)).toEqual({
+      x: 1,
+      y: 2,
+      angle: 0.1,
+      speed: 0,
+      reverseHold: 0,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
+    });
     expect(emptyQ.lastProcessedInputSeq).toBe(3);
-    expect(poseOf(missingQ)).toEqual({ x: 4, y: 5, angle: 0.2, speed: 0, reverseHold: 0 });
+    expect(poseOf(missingQ)).toEqual({
+      x: 4,
+      y: 5,
+      angle: 0.2,
+      speed: 0,
+      reverseHold: 0,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
+    });
     expect(missingQ.lastProcessedInputSeq).toBe(4);
   });
 
@@ -204,7 +228,7 @@ describe("serverTick", () => {
 
         serverTick(state, queues, DT, phase);
 
-        expect(poseOf(player)).toEqual({ x: 300, y: CORRIDOR_Y, angle: 0, speed: 0, reverseHold: 0 });
+        expect(poseOf(player)).toEqual({ x: 300, y: CORRIDOR_Y, angle: 0, speed: 0, reverseHold: 0, angVel: 0, shoveX: 0, shoveY: 0, authority: 1 });
         expect(player.lastProcessedInputSeq).toBe(9);
         expect(queues.get("p1")).toEqual([]);
       });
@@ -221,7 +245,7 @@ describe("serverTick", () => {
 
       serverTick(state, queues, DT, RoomPhase.MATCH);
 
-      expect(poseOf(offField)).toEqual({ x: 300, y: CORRIDOR_Y, angle: 0, speed: 0, reverseHold: 0 });
+      expect(poseOf(offField)).toEqual({ x: 300, y: CORRIDOR_Y, angle: 0, speed: 0, reverseHold: 0, angVel: 0, shoveX: 0, shoveY: 0, authority: 1 });
       expect(offField.lastProcessedInputSeq).toBe(9);
       expect(queues.get("p1")).toEqual([]);
     });
@@ -297,6 +321,42 @@ describe("serverTick", () => {
     expect(follower.x - leader.x).toBeGreaterThan(DRIVE_CONFIG.carWidth);
     // Untouched: no drive input, and no contact once the leader's updated pose is used.
     expect(follower.x).toBe(FOLLOWER_X);
+  });
+
+  describe("ram knock state round-trip", () => {
+    // `ram-bridge.test.ts` proves `ramTick` WRITES a knock onto `PlayerState`. Nothing proves the
+    // NEXT `serverTick` actually READS it back: `bodyOf`/`writeBody` are the only bridge between the
+    // two, and dropping a field from either (e.g. forgetting `shoveY` in `writeBody`) would be
+    // invisible to every other test in this file, all of which use neutral knock state.
+    it("carries angVel/shove/authority through bodyOf -> stepDrive -> writeBody: it moves the pose, and the fields round-trip decayed rather than dropped", () => {
+      const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
+      player.angVel = 2;
+      player.shoveX = 120;
+      player.shoveY = -60;
+      player.authority = 0.5;
+      const state = stateWith(player);
+      // No steer, no throttle: any rotation or translation below comes solely from the knock state,
+      // not from ordinary driving.
+      const queues = new Map<string, InputMessage[]>([["p1", coasts(1)]]);
+
+      serverTick(state, queues, DT, RoomPhase.MATCH);
+
+      // The knock state actually reached stepDrive and moved the car.
+      expect(player.angle).not.toBe(0);
+      expect(player.x).toBeGreaterThan(300);
+      expect(player.y).toBeLessThan(CORRIDOR_Y);
+
+      // Round-tripped through decay, not silently dropped to neutral (angVel/shove 0, authority 1) —
+      // that is exactly what a missing field in `bodyOf` or `writeBody` would produce.
+      expect(player.angVel).toBeGreaterThan(0);
+      expect(player.angVel).toBeLessThan(2);
+      expect(player.shoveX).toBeGreaterThan(0);
+      expect(player.shoveX).toBeLessThan(120);
+      expect(player.shoveY).toBeLessThan(0);
+      expect(player.shoveY).toBeGreaterThan(-60);
+      expect(player.authority).toBeGreaterThan(0.5);
+      expect(player.authority).toBeLessThan(1);
+    });
   });
 
   describe("carId fallback", () => {
