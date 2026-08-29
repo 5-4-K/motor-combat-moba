@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TICK_RATE_HZ } from "../constants.js";
 import { WEAPON_TABLE } from "./weapon-config.js";
+import type { WeaponId } from "./weapon-types.js";
 import { WEAPON_TICKS, msToTicks, weaponTicksOf } from "./weapon-ticks.js";
 
 describe("msToTicks", () => {
@@ -40,5 +41,12 @@ describe("WEAPON_TICKS", () => {
       expect(WEAPON_TICKS[id as keyof typeof WEAPON_TABLE]).toBeDefined();
     }
     expect(Object.isFrozen(WEAPON_TICKS)).toBe(true);
+  });
+
+  it("converts volleyInterval for beams as well as projectiles", () => {
+    for (const id of Object.keys(WEAPON_TABLE) as WeaponId[]) {
+      const def = WEAPON_TABLE[id];
+      expect(weaponTicksOf(id).volleyInterval).toBe(msToTicks(def.volley.volleyIntervalMs));
+    }
   });
 });

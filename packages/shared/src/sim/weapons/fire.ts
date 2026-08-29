@@ -221,7 +221,7 @@ export function beginFire(state: FireState, mask: number, tick: number): FireSta
     if (sameSlot && tick < slot.refireLockUntilTick) continue;
     if (!sameSlot && tick < state.switchLockUntilTick) continue;
 
-    const volleys = def.kind === "projectile" ? def.volley.volleys : 1;
+    const volleys = def.volley.volleys;
     return {
       ...state,
       slots: state.slots.map((s, i) => (i === index ? { ...s, stocks: s.stocks - 1 } : s)),

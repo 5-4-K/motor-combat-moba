@@ -88,7 +88,7 @@ function trueTunneling(): void {
   for (const id of Object.keys(WEAPON_TABLE) as WeaponId[]) {
     const def = WEAPON_TABLE[id];
     if (def.kind !== "projectile") continue;
-    if (def.volley.pelletsPerVolley > 1) continue; // covered by W3b
+    if (def.pellets.pelletsPerVolley > 1) continue; // covered by W3b
     const carrier = carrierOf(id);
     const bit = slotBitFor(carrier, id);
     let misses = 0;

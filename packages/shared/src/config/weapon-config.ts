@@ -45,7 +45,8 @@ export const WEAPON_TABLE = {
     usesAimAssist: true,
     hitbox: { shape: "circle", radius: 12 },
     pierce: 0,
-    volley: { volleys: 1, volleyIntervalMs: 0, pelletsPerVolley: 1, spreadAngleDeg: 0 },
+    volley: { volleys: 1, volleyIntervalMs: 0 },
+    pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
   },
   /**
    * Mirage's slot 2. The table's first multi-volley, multi-pellet weapon, and the first place
@@ -75,7 +76,8 @@ export const WEAPON_TABLE = {
     usesAimAssist: false,
     hitbox: { shape: "circle", radius: 7 },
     pierce: 0,
-    volley: { volleys: 3, volleyIntervalMs: 100, pelletsPerVolley: 2, spreadAngleDeg: 10 },
+    volley: { volleys: 3, volleyIntervalMs: 100 },
+    pellets: { pelletsPerVolley: 2, spreadAngleDeg: 10 },
   },
   /**
    * Mirage's slot 3, and the FIRST BEAM THE GAME HAS EVER SHIPPED. Several paths in
@@ -111,6 +113,7 @@ export const WEAPON_TABLE = {
     recoveryMs: 200,
     usesAimAssist: false,
     hitbox: { shape: "cone", angleDeg: 55 },
+    volley: { volleys: 1, volleyIntervalMs: 0 },
     attached: true,
     origin: "muzzle",
     lifetimeMs: 2000,
@@ -146,7 +149,8 @@ export const WEAPON_TABLE = {
     usesAimAssist: true,
     hitbox: { shape: "circle", radius: 5 },
     pierce: 0,
-    volley: { volleys: 1, volleyIntervalMs: 0, pelletsPerVolley: 1, spreadAngleDeg: 0 },
+    volley: { volleys: 1, volleyIntervalMs: 0 },
+    pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
     stock: { max: 3, refireDelayMs: 130 },
     // Darts that stay in. Three stocks at a 130 ms refire all land on the same `spiked`, and
     // `refresh` means dumping the magazine buys duration rather than a bigger bleed — the weapon's
@@ -180,7 +184,8 @@ export const WEAPON_TABLE = {
     usesAimAssist: false,
     hitbox: { shape: "ellipse", radiusAlong: 22, radiusAcross: 5 },
     pierce: 1,
-    volley: { volleys: 1, volleyIntervalMs: 0, pelletsPerVolley: 1, spreadAngleDeg: 0 },
+    volley: { volleys: 1, volleyIntervalMs: 0 },
+    pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
   },
   /**
    * Bullseye's slot 3, and the table's first DETACHED beam: it stamps into the world at its fire-tick
@@ -207,6 +212,7 @@ export const WEAPON_TABLE = {
     recoveryMs: 1000,
     usesAimAssist: false,
     hitbox: { shape: "rect", width: 20 },
+    volley: { volleys: 1, volleyIntervalMs: 0 },
     attached: false,
     origin: "muzzle",
     lifetimeMs: 150,
@@ -239,7 +245,8 @@ export const WEAPON_TABLE = {
     usesAimAssist: true,
     hitbox: { shape: "circle", radius: 20 },
     pierce: 0,
-    volley: { volleys: 1, volleyIntervalMs: 0, pelletsPerVolley: 1, spreadAngleDeg: 0 },
+    volley: { volleys: 1, volleyIntervalMs: 0 },
+    pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
   },
   /**
    * Bastion's slot 2. The widest hitbox in the game and the shortest-lived: a 140-degree cone that
@@ -277,6 +284,7 @@ export const WEAPON_TABLE = {
     // 5 s cooldown is unchanged; the cost of the extra arc is the first thing to re-tune from play.
     // Reverting is a two-line edit back to `{ shape: "cone", angleDeg: 140 }` and `"muzzle"`.
     hitbox: { shape: "disc" },
+    volley: { volleys: 1, volleyIntervalMs: 0 },
     attached: true,
     origin: "center",
     lifetimeMs: 150,
@@ -318,6 +326,7 @@ export const WEAPON_TABLE = {
     recoveryMs: 200,
     usesAimAssist: false,
     hitbox: { shape: "cone", angleDeg: 60 },
+    volley: { volleys: 1, volleyIntervalMs: 0 },
     attached: false,
     origin: "muzzle",
     lifetimeMs: 2500,

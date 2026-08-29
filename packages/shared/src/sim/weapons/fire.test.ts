@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { WEAPON_TABLE } from "../../config/weapon-config.js";
 import { beginFire, cancelPending, newFireState, releaseShots, tickRecharge, type FireState } from "./fire.js";
 import type { ShotOrder } from "./instances.js";
 
@@ -346,6 +347,19 @@ describe("volleys and wind-up", () => {
     // in-flight timer was not frozen or reset early by the pending burst, it simply had nowhere
     // left to go once it landed.
     expect(state.slots[0]!.rechargeEndsTick).toBe(0);
+  });
+
+  it("reads volley count from the table for a BEAM, not a hardcoded 1", () => {
+    // `beginFire` branched on `kind` and gave every beam exactly one volley. After the split it
+    // reads `def.volley.volleys` for both kinds. This is 1 for every shipped beam today, so the
+    // assertion only bites once `shockwave` becomes a three-wave weapon — which is precisely why it
+    // is written against the TABLE rather than against the literal 1.
+    const def = WEAPON_TABLE.shockwave;
+    if (def.kind !== "beam") throw new Error("shockwave must be a beam");
+
+    const state = beginFire(newFireState("bastion", 1), SLOT_2, 100);
+    expect(state.pending?.weaponId).toBe("shockwave");
+    expect(state.pending?.shotsLeft).toBe(def.volley.volleys);
   });
 });
 

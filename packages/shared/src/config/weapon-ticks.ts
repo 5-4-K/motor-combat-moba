@@ -48,7 +48,7 @@ function ticksFor(def: WeaponDef): WeaponTicks {
     lifetime: def.kind === "beam" ? msToTicks(def.lifetimeMs) : 0,
     damageInterval:
       def.damageFrequencyMs === 0 ? Number.POSITIVE_INFINITY : msToTicks(def.damageFrequencyMs),
-    volleyInterval: def.kind === "projectile" ? msToTicks(def.volley.volleyIntervalMs) : 0,
+    volleyInterval: msToTicks(def.volley.volleyIntervalMs),
     flight: Math.ceil((def.range / def.speed) * TICK_RATE_HZ),
     applyDurations: Object.freeze(
       (def.applies ?? []).map((a) => msToTicks(Math.min(a.durationMs, STATUS_CONFIG.maxDurationMs))),

@@ -24,12 +24,8 @@ describe("WEAPON_TABLE", () => {
     if (fireball.kind !== "projectile") throw new Error("fireball must be a projectile");
     expect(fireball.pierce).toBe(0);
     expect(fireball.hitbox).toEqual({ shape: "circle", radius: 12 });
-    expect(fireball.volley).toEqual({
-      volleys: 1,
-      volleyIntervalMs: 0,
-      pelletsPerVolley: 1,
-      spreadAngleDeg: 0,
-    });
+    expect(fireball.volley).toEqual({ volleys: 1, volleyIntervalMs: 0 });
+    expect(fireball.pellets).toEqual({ pelletsPerVolley: 1, spreadAngleDeg: 0 });
   });
 
   it("validates every row: positive stats, unlocksAt >= 1, volley counts >= 1, cone angle in (0, 180)", () => {
@@ -44,14 +40,15 @@ describe("WEAPON_TABLE", () => {
         expect(def.stock.max).toBeGreaterThanOrEqual(2);
         expect(def.stock.refireDelayMs).toBeGreaterThanOrEqual(0);
       }
+      // A loop bound in `releaseShots`, and it fails silently rather than loudly: `volleys: 0`
+      // fires exactly one shot (the first release always emits) instead of none. Applies to every
+      // row now that `VolleyDef` lives on `WeaponBase`, not just projectiles.
+      expect(def.volley.volleys).toBeGreaterThanOrEqual(1);
       if (def.kind === "projectile") {
-        // Both counts are loop bounds in `spawnInstances`/`releaseShots`, and both fail silently
-        // rather than loudly: `pelletsPerVolley: 0` spawns nothing at all for a press that still
-        // spends its stock, and `volleys: 0` fires exactly one shot (the first release always
-        // emits) instead of none.
-        expect(def.volley.volleys).toBeGreaterThanOrEqual(1);
-        expect(def.volley.pelletsPerVolley).toBeGreaterThanOrEqual(1);
-        expect(def.volley.spreadAngleDeg).toBeGreaterThanOrEqual(0);
+        // A loop bound in `spawnInstances`, and it fails silently rather than loudly:
+        // `pelletsPerVolley: 0` spawns nothing at all for a press that still spends its stock.
+        expect(def.pellets.pelletsPerVolley).toBeGreaterThanOrEqual(1);
+        expect(def.pellets.spreadAngleDeg).toBeGreaterThanOrEqual(0);
       }
       // Dormant until the first beam row ships, and deliberately written now rather than then: a
       // cone's half-angle goes through `Math.tan`, so `angleDeg: 180` yields an infinite spread and
@@ -134,15 +131,11 @@ describe("WEAPON_TABLE", () => {
   it("ships pepperbox as the table's first burst-and-fan weapon", () => {
     const pepperbox = WEAPON_TABLE.pepperbox;
     if (pepperbox.kind !== "projectile") throw new Error("pepperbox must be a projectile");
-    expect(pepperbox.volley).toEqual({
-      volleys: 3,
-      volleyIntervalMs: 100,
-      pelletsPerVolley: 2,
-      spreadAngleDeg: 10,
-    });
+    expect(pepperbox.volley).toEqual({ volleys: 3, volleyIntervalMs: 100 });
+    expect(pepperbox.pellets).toEqual({ pelletsPerVolley: 2, spreadAngleDeg: 10 });
     // 6 pellets x 28 = 168 in a 200ms window. Its all-pellets-connect sustained DPS is 83, BELOW
     // fireball's 100 — that is the burst-over-sustained trade, not a bug. See the spec's rule.
-    const pellets = pepperbox.volley.volleys * pepperbox.volley.pelletsPerVolley;
+    const pellets = pepperbox.volley.volleys * pepperbox.pellets.pelletsPerVolley;
     expect(pellets * pepperbox.damage).toBe(168);
     expect(pepperbox.usesAimAssist).toBe(false);
   });

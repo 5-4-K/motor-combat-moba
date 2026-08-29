@@ -86,10 +86,7 @@ export const MUZZLE_STEP_UNITS = 4;
  * symmetrically across `spreadRad`, so a 3-pellet 60-degree fan is -30 / 0 / +30 and a single pellet
  * sits exactly on the heading whatever the configured spread.
  *
- * Its own function, and exported, because no shipped weapon has `pelletsPerVolley > 1` (D22 ships
- * zero balance change): `spawnInstances` can only ever be observed emitting one pellet, so inline
- * this formula would be untestable and would first run in anger on the day someone authors a
- * shotgun.
+ * Its own function, and exported, so the fan math is directly testable rather than inlined.
  */
 export function fanOffset(index: number, pellets: number, spreadRad: number): number {
   if (pellets <= 1) return 0;
@@ -130,8 +127,8 @@ export function spawnInstances(
 ): { instances: WeaponInstance[]; seq: number } {
   const def = weaponDefOf(order.weaponId);
   const damage = scaleDamage(weaponDamageOf(carIdOf(owner), order.weaponId), damageMult);
-  const pellets = def.kind === "projectile" ? def.volley.pelletsPerVolley : 1;
-  const spread = def.kind === "projectile" ? (def.volley.spreadAngleDeg * Math.PI) / 180 : 0;
+  const pellets = def.kind === "projectile" ? def.pellets.pelletsPerVolley : 1;
+  const spread = def.kind === "projectile" ? (def.pellets.spreadAngleDeg * Math.PI) / 180 : 0;
   // A centre-origin beam is BORN at the car centre as well as re-anchored there every tick, so an
   // aura's first frame is already concentric rather than jumping back on its second.
   const nose = def.kind === "beam" && def.origin === "center" ? 0 : muzzleOffset();

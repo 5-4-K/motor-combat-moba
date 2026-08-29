@@ -79,12 +79,7 @@ describe("spawning", () => {
 });
 
 describe("the volley fan", () => {
-  /**
-   * `fanOffset` is tested directly because no shipped weapon has `pelletsPerVolley > 1` (D22), so
-   * `spawnInstances` can only ever be observed emitting a single pellet: driving the formula through
-   * it would prove nothing about the fan, and adding a shotgun to `WEAPON_TABLE` to test one formula
-   * would be a balance change smuggled in as coverage.
-   */
+  /** `fanOffset` is tested directly so the fan math has coverage independent of any one weapon's numbers. */
   const SIXTY = (60 * Math.PI) / 180;
 
   it("spreads pellets evenly and symmetrically about the heading", () => {

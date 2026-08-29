@@ -27,15 +27,28 @@ export interface StockDef {
   refireDelayMs: number;
 }
 
-/** One press: `volleys` groups of `pelletsPerVolley`, fanned across `spreadAngleDeg`. */
+/**
+ * One press fires `volleys` sequential groups, `volleyIntervalMs` apart. 1 = a single shot, a single
+ * shotgun blast, or a single beam.
+ *
+ * On `WeaponBase` rather than on projectiles alone, so a beam can be a WAVE SEQUENCE: `shockwave`
+ * pulses three rings out of the car half a second apart. Each group is a fresh instance emitted from
+ * the car's pose at ITS OWN tick, which is what makes a sequence steerable.
+ */
 export interface VolleyDef {
-  /** Sequential groups. 1 = a single shot or a single shotgun blast. */
   volleys: number;
-  /** Gap between sequential groups. Ignored when `volleys` is 1. */
   volleyIntervalMs: number;
-  /** Simultaneous instances per group. 1 = not a shotgun. */
+}
+
+/**
+ * Projectiles only: how many instances one group emits, and how wide they fan.
+ *
+ * Kept apart from `VolleyDef` rather than merged into one four-field block on the base, for the
+ * reason `BeamStyle` is kept apart from `GlowStyle`: a merged type makes every author answer for the
+ * half that cannot apply to their row, and a beam has no pellets to fan.
+ */
+export interface PelletDef {
   pelletsPerVolley: number;
-  /** Total fan width, split evenly and symmetrically about the car's heading. */
   spreadAngleDeg: number;
 }
 
@@ -102,6 +115,7 @@ interface WeaponBase {
    */
   usesAimAssist: boolean;
   stock?: StockDef;
+  volley: VolleyDef;
   /**
    * Statuses this weapon applies, and to whom, and for how long.
    *
@@ -151,7 +165,7 @@ export interface ProjectileWeaponDef extends WeaponBase {
   hitbox: ProjectileHitbox;
   /** Additional opponents passed through after damaging one. 0 = dies on the first car it damages. */
   pierce: number;
-  volley: VolleyDef;
+  pellets: PelletDef;
 }
 
 export interface BeamWeaponDef extends WeaponBase {
