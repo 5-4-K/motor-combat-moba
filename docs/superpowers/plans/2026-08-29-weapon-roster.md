@@ -758,6 +758,13 @@ git add packages/shared/src && git commit -m "feat(shared): add skewer and lance
 
 ### Task 4: Hexagon's rows — `thumper`, `shockwave` and `bulwark`
 
+> **Superseded in one detail, 2026-08-30.** The `bulwark` doc comment below ships with "8 ticks is
+> 280, matching `afterburner`'s ceiling." That arithmetic was wrong — it divides the beam's 3.5 s
+> life by its 400 ms interval and loses the opening tick, where the sim counts
+> `floor((105 − 1) / 12) + 1 = 9`. The weapon as written here has always dealt **315**. Resolved by
+> accepting 315; the live comment in `weapon-config.ts` now says so. Left as written below, because
+> this block is the record of what Task 4 actually wrote.
+
 **Files:**
 - Modify: `packages/shared/src/config/weapon-types.ts`
 - Modify: `packages/shared/src/config/weapon-config.ts`

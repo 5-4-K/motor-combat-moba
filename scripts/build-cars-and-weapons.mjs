@@ -26,6 +26,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  ACTIVE_ARENA_ID,
   AIM_CONFIG,
   CAR_TABLE,
   COMBAT_CONFIG,
@@ -35,6 +36,7 @@ import {
   WEAPON_TABLE,
   WEAPON_TICKS,
   forwardMaxSpeedOf,
+  getArena,
   hpOf,
   slotsOf,
   statusDefOf,
@@ -47,8 +49,15 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 /** Served by the client. Vite copies `public/` verbatim, so this ships in the LAN zip too. */
 export const OUT_WEB_HTML = resolve(ROOT, "packages/client/public/manual.html");
 
-/** The arena the build ships, for "how far is 900 units really" context. */
-const ARENA_WIDTH = 1280;
+/**
+ * The arena the build ships, for "how far is 900 units really" context.
+ *
+ * Read from `ACTIVE_ARENA_ID` rather than written out, because every weapon's reach is reported as a
+ * PERCENTAGE of this. `ARENA_02` is 2000 wide against `ARENA_01`'s 1280, so pointing the build at
+ * the other arena would overstate all nine of those figures by half again — and, hardcoded, would do
+ * it silently: `balanceStamp` hashes this value, so a literal would only ever fingerprint itself.
+ */
+const ARENA_WIDTH = getArena(ACTIVE_ARENA_ID).width;
 /** Rating 50 is average by definition (`COMBAT_CONFIG.attackBaseline` is the same pivot). */
 const AVERAGE_RATING = 50;
 const AVERAGE_HP = AVERAGE_RATING * COMBAT_CONFIG.hpPerRating;
@@ -129,8 +138,18 @@ function derive(id) {
   const totalLifeMs = beam ? extendMs + def.lifetimeMs : extendMs;
   // A ticking beam re-arms on its own interval for as long as it lives; everything else lands once
   // per instance, so a projectile's ceiling on one car is its whole pellet count.
+  //
+  // Counted in TICKS and INCLUSIVE of the opening one, because that is what the sim does:
+  // `resolveInstanceHits` damages on the first tick the beam covers a car and only then arms the
+  // clock for `damageInterval` ticks later, over the `flight + lifetime` ticks `instanceExpired`
+  // keeps the instance alive. Dividing the millisecond life by the interval instead loses that
+  // opening hit whenever the life is not a whole multiple of the interval — which cost Bulwark a
+  // ninth tick (35 damage, and the top of the damage-per-press ranking) until 2026-08-30.
+  const aliveTicks = ticks.flight + ticks.lifetime;
   const damageTicks =
-    def.damageFrequencyMs === 0 ? 1 : Math.floor(totalLifeMs / def.damageFrequencyMs);
+    ticks.damageInterval === Number.POSITIVE_INFINITY
+      ? 1
+      : Math.floor((aliveTicks - 1) / ticks.damageInterval) + 1;
   const hitsPerTarget = beam ? damageTicks : shotsPerPress;
 
   const baseBurst = def.damage * hitsPerTarget;
@@ -167,6 +186,22 @@ function derive(id) {
 
 const WEAPONS = CAR_IDS.flatMap((carId) => slotsOf(carId)).map(derive);
 const byId = Object.fromEntries(WEAPONS.map((w) => [w.id, w]));
+
+/**
+ * How many times one press can damage a SINGLE car — the "full connect" ceiling the guide prints,
+ * and the multiplier behind its damage figure, its share-of-a-car figure and its DPS.
+ *
+ * Exported purely as a seam for `manual-page.test.mjs`, which checks it by driving the real sim
+ * instead of repeating the arithmetic above. Nothing in the page build calls this.
+ */
+export function hitsPerTargetOf(weaponId) {
+  return byId[weaponId].hitsPerTarget;
+}
+
+/** The chassis that carries each weapon. The test needs it to spawn a shot the way a match does. */
+export function carrierOf(weaponId) {
+  return OWNER_OF[weaponId];
+}
 
 const MAX = {
   power: Math.max(...WEAPONS.map((w) => w.baseBurst)),

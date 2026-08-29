@@ -291,7 +291,14 @@ export const WEAPON_TABLE = {
    * no friendly fire: **the owner can park inside their own bulwark.** It is not a symmetric
    * hazard, it is an asymmetric exclusion zone, and that asymmetry is most of the design (L6). Its
    * damage output is secondary to the ground it denies, but it must never read as a safe wall to
-   * drive through — 8 ticks is 280, matching `afterburner`'s ceiling.
+   * drive through — **9 ticks is 315**, the hardest single press in the table.
+   *
+   * That ceiling was written as "8 ticks is 280, matching `afterburner`'s" until 2026-08-30, on
+   * arithmetic that divided the 3.5 s life by the 400 ms interval and lost the opening tick. The sim
+   * never did that: `resolveInstanceHits` damages on the first tick the beam covers a car and only
+   * then arms the clock, so a car held for the full life takes `floor((105 - 1) / 12) + 1 = 9`. The
+   * weapon has always dealt 315; only the comment was wrong. Kept at 315 rather than retuned back
+   * down — Hexagon's ultimate leading the damage table is a fair price for the slowest chassis.
    */
   bulwark: {
     id: "bulwark",

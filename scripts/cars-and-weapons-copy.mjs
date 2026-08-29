@@ -61,7 +61,7 @@ export const WEAPON_COPY = {
     tagline: "The shot everyone knows.",
     shape: "Ember bolt · locks on",
     what:
-      "Two a second, out to nine tenths of the arena, with a 24-unit disc for a hitbox — three " +
+      "Two a second, out to seven tenths of the arena, with a 24-unit disc for a hitbox — three " +
       "quarters of a car's width. It finds its own target inside 400 units, so the only thing you " +
       "have to do is keep the trigger warm.",
     how:

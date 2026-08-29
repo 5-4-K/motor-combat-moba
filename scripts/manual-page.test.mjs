@@ -3,7 +3,22 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
-import { OUT_WEB_HTML, STAMP_META_NAME, balanceStamp } from "./build-cars-and-weapons.mjs";
+import {
+  TICK_RATE_HZ,
+  WEAPON_TABLE,
+  carHullOf,
+  instanceExpired,
+  resolveInstanceHits,
+  spawnInstances,
+  stepInstance,
+} from "@motor-combat-moba/shared";
+import {
+  OUT_WEB_HTML,
+  STAMP_META_NAME,
+  balanceStamp,
+  carrierOf,
+  hitsPerTargetOf,
+} from "./build-cars-and-weapons.mjs";
 
 /**
  * Guards on the generated cars-and-weapons guide page.
@@ -22,6 +37,45 @@ const BUILDER = path.join(ROOT, "scripts/build-cars-and-weapons.mjs");
 const CONFIG = path.join(ROOT, "packages/client/src/config/manual.ts");
 
 const read = (file) => fs.readFileSync(file, "utf8");
+
+/**
+ * The most times one press of `weaponId` can damage a single car, measured by running the sim.
+ *
+ * Mirrors `combat.ts` step 4 exactly — step the instance, check expiry, then resolve hits — because
+ * a paraphrase of that order is what the arithmetic this guards already got wrong once. The target
+ * is swept down the firing line rather than parked at one distance: a growing beam covers a near car
+ * for more of its life than a far one, and the printed ceiling is the best case over all placements.
+ */
+function simHitsPerTarget(weaponId) {
+  const def = WEAPON_TABLE[weaponId];
+  const dt = 1 / TICK_RATE_HZ;
+  const bounds = { width: 4000, height: 4000 };
+  // Centred in a large empty world, so no wall clips the beam and nothing else is in scope.
+  const owner = { sessionId: "shooter", team: 0, carId: carrierOf(weaponId), x: 2000, y: 2000, angle: 0 };
+  let best = 0;
+
+  for (let distance = 30; distance <= def.range; distance += 10) {
+    let instance = spawnInstances({ weaponId, volleyIndex: 0 }, owner, 0, 0).instances[0];
+    const snapshot = [
+      { sessionId: "target", team: 1, hull: carHullOf(owner.x + distance, owner.y, 0) },
+    ];
+    let hits = 0;
+    for (let tick = 0; tick < 600; tick++) {
+      const previous = instance;
+      // Tick 0 is the spawn tick: `combat.ts` steps only instances that already existed, so a fresh
+      // shot is hit-tested at the muzzle before it has moved. Stepping it here would skip a tick.
+      if (tick > 0) {
+        instance = stepInstance(instance, { dt, tick, obstacles: [], bounds, ownerPose: owner });
+      }
+      if (instanceExpired(instance, tick)) break;
+      const outcome = resolveInstanceHits(instance, previous, snapshot, "ffa", tick);
+      instance = outcome.instance;
+      if (outcome.damaged.length > 0) hits++;
+    }
+    best = Math.max(best, hits);
+  }
+  return best;
+}
 
 /** `MANUAL_PATH`'s value, read as source text — the config is TypeScript, so it cannot be imported. */
 function manualPath() {
@@ -81,6 +135,32 @@ describe("the generated manual page", () => {
 
   it("is the file the build script names as its own output", () => {
     assert.equal(OUT_WEB_HTML, path.join(PUBLIC_DIR, manualPath()));
+  });
+
+  /**
+   * The staleness stamp above proves the page matches the TABLES. It cannot prove the arithmetic
+   * over those tables is right, and for eighteen days it wasn't: the builder counted a beam's damage
+   * ticks as `floor(lifeMs / intervalMs)`, which loses the opening tick. `bulwark` shipped as
+   * "35 × 8 = 280" while the sim dealt 315, and every suite passed the whole time.
+   *
+   * So this one asks the sim. It runs the real spawn/step/expire/hit pipeline, in the same order
+   * `combat.ts` runs it, and counts what one press can actually land on one car. Chained to the
+   * stamp — page matches builder, builder matches sim — it is the page that is pinned to the game.
+   */
+  it("prints beam damage totals the sim actually deals", () => {
+    for (const [id, def] of Object.entries(WEAPON_TABLE)) {
+      // Projectiles are excluded on purpose: their printed ceiling is "every pellet in the volley
+      // hits", which no single placement can reproduce — a fanned burst is spread across an arc by
+      // construction. A beam's ceiling is a real, reachable number, which is why it can be pinned.
+      if (def.kind !== "beam") continue;
+      assert.equal(
+        simHitsPerTarget(id),
+        hitsPerTargetOf(id),
+        `the guide prints ${hitsPerTargetOf(id)} damage tick(s) for ${id}, but the sim deals ` +
+          `${simHitsPerTarget(id)}. Fix the derivation in build-cars-and-weapons.mjs, then run ` +
+          "`npm run build:manual`.",
+      );
+    }
   });
 
   it("points at art the client already ships", () => {

@@ -350,8 +350,17 @@ Oval, out-damaging `lance`. Two cars = 220 base, 264 on Oval.
 | `usesAimAssist` | true | **false — forced** | false |
 | `color` | `#495057` | `#5C940D` | `#862E9C` |
 
-`bulwark` total life = 500/500 + 2500 = **3.5 s** ÷ 400 ms ≈ 8 ticks = **280 max** (56%), matching
-`afterburner`'s ceiling as L6 intends.
+`bulwark` total life = 500/500 + 2500 = **3.5 s**, which at a 400 ms interval is **9 ticks = 315 max**
+(63%) — the hardest single press in the table, ahead of `afterburner`'s 286.
+
+> **Corrected 2026-08-30.** This read "÷ 400 ms ≈ 8 ticks = 280 max (56%), matching `afterburner`'s
+> ceiling as L6 intends" from the day it was written. Dividing the life by the interval loses the
+> opening tick: the sim damages on the first tick the beam covers a car and only *then* arms the
+> clock, so the count is `floor((105 − 1) / 12) + 1 = 9` over the beam's 105 alive ticks, not
+> `floor(3500 / 400) = 8`. The shipped weapon has always dealt 315; the arithmetic here, the comment
+> in `weapon-config.ts`, and the generated cars-and-weapons guide were all wrong together. Resolved
+> by accepting 315 rather than retuning `bulwark` down to meet the old figure, so L6's "matching
+> `afterburner`'s ceiling" no longer holds — Hexagon's ultimate leads the damage table.
 
 ### Two constraints that decided numbers, not preferences
 
@@ -406,7 +415,7 @@ firing chassis's `attack` scale. Computed from [Solved numbers](#solved-numbers)
 | `lance` | 180 | 36% | 360 · 72% (two cars) | — |
 | `thumper` | 75 | 15% | — | 75 |
 | `shockwave` | 100 | 20% | — | — |
-| `bulwark` | ~105 (3 ticks) | ~21% | 280 · 56% (full 3.5 s) | — |
+| `bulwark` | ~105 (3 ticks) | ~21% | 315 · 63% (full 3.5 s) | — |
 
 Sustained DPS is omitted for the ultimates on purpose: a 13–16 s cooldown on a 2 s weapon has a low
 figure by construction (`afterburner` is 19), and reading it as a weakness is the error L2 exists to

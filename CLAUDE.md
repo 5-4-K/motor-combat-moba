@@ -157,7 +157,7 @@ behind; tooling that guesses a default branch (git's own "main branch" hint, PR 
 often name `master` anyway — ignore that and use `development/main`. Only touch `master` when the
 user names it explicitly.
 
-## Playtest: update the existing probes when the sim changes
+## Playtest: say so loudly when the sim changes under the probes
 
 `packages/server/playtest/` holds headless probes that drive the real `ArenaRoom.tick` pipeline and
 measure what the game actually does — ram trigger rates, weapon reach, collision depth, prediction
@@ -165,13 +165,21 @@ error. They are **not** part of the test suite and **not** part of the release b
 `npm run playtest`; reports land in gitignored `packages/server/playtest/reports/<yyyy-MM-dd-NN>/`.
 See [`packages/server/playtest/README.md`](packages/server/playtest/README.md).
 
-**After changing anything the probes measure, update the affected probe — do not leave it describing
-the old behaviour.** That means:
+**After changing anything the probes measure, say so — loudly, in your summary — and recommend a
+playtest run. Do not update the probes silently, and do not update them as a matter of course.**
+Running `npm run playtest` and reading what moved is the user's call, not a step you take on their
+behalf; your job is to make sure they never learn about it later. Name the probe, name the number,
+and recommend the run. Then update the probe only if they ask.
+
+Flag it when your change touches:
 
 - A probe's stated expectation, threshold, or verdict logic that your change makes wrong.
 - A comment or report string quoting a number your change moved (a config value, a hull dimension, a
   tick count, a weapon stat, a documented rate).
 - A probe that no longer compiles or no longer reaches the code path it was written to exercise.
+
+A compile break is the one case to fix on the spot — a probe that does not build measures nothing,
+and leaving it broken is worse than leaving it stale. Say that you did.
 
 Changes that reach them include: `sim/` (drive, collide, ram, combat, damage, status, weapons), the
 tick order in `ArenaRoom.tick` or the bridges, `WEAPON_TABLE`, `CAR_TABLE`, `DRIVE_CONFIG`,
@@ -180,8 +188,8 @@ tick order in `ArenaRoom.tick` or the bridges, `WEAPON_TABLE`, `CAR_TABLE`, `DRI
 step-context assembly.
 
 **Never create a new probe file or a new scenario on your own initiative.** The user adds new
-scenarios explicitly. Your job is to keep the existing ones honest — updating a threshold, a number,
-or a setup that a change invalidated is maintenance; inventing coverage is not.
+scenarios explicitly. Keeping an existing one honest — updating a threshold, a number, or a setup
+that a change invalidated — is maintenance they can ask you for; inventing coverage is not.
 
 Two rules the probes are built on, worth preserving in any edit:
 
