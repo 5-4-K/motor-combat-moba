@@ -12,6 +12,7 @@ import {
   hpBarColor,
   hpFraction,
   beamDrawLayers,
+  chargeOrbBands,
   instanceDrawShape,
   instanceGlowBands,
   WEAPON_BEAM_STYLES,
@@ -394,5 +395,108 @@ describe("beamDrawLayers", () => {
     // Pointing along +y now, so the flame's mass sits above the muzzle rather than beside it.
     const far = turned.points.reduce((a, b) => (b.y > a.y ? b : a));
     expect(far.y).toBeGreaterThan(60);
+  });
+});
+
+describe("chargeOrbBands", () => {
+  // lance winds up for 700ms == 21 ticks at 30Hz. Pressed at tick 100, the shot exits at 121.
+  const WINDUP = 21;
+  const PRESS = 100;
+  const EXIT = PRESS + WINDUP;
+  const CHARGE = WEAPON_BEAM_STYLES.lance!.charge!;
+  const orbAt = (tick: number) => chargeOrbBands("lance", EXIT, tick);
+
+  it("draws nothing for a weapon with no authored charge", () => {
+    // afterburner is a beam with layers but no wind-up and no orb; shockwave has neither.
+    expect(chargeOrbBands("afterburner", EXIT, PRESS)).toEqual([]);
+    expect(chargeOrbBands("shockwave", EXIT, PRESS)).toEqual([]);
+    expect(chargeOrbBands("fireball", EXIT, PRESS)).toEqual([]);
+    expect(chargeOrbBands("not-a-weapon", EXIT, PRESS)).toEqual([]);
+  });
+
+  it("appears as a dot on the press tick rather than fading in from nothing", () => {
+    const orbs = orbAt(PRESS);
+    expect(orbs).toHaveLength(CHARGE.bands.length);
+    expect(Math.max(...orbs.map((o) => o.radius))).toBeCloseTo(CHARGE.minRadius, 6);
+    expect(CHARGE.minRadius).toBeGreaterThan(0);
+  });
+
+  it("grows toward its full radius across the wind-up", () => {
+    const radii = [PRESS, PRESS + 5, PRESS + 12, EXIT - 1].map(
+      (t) => Math.max(...orbAt(t).map((o) => o.radius)),
+    );
+    for (let i = 1; i < radii.length; i++) expect(radii[i]!).toBeGreaterThan(radii[i - 1]!);
+    // The last drawn tick is nearly full, and never past it.
+    expect(radii[radii.length - 1]!).toBeGreaterThan(CHARGE.maxRadius * 0.9);
+    expect(radii[radii.length - 1]!).toBeLessThanOrEqual(CHARGE.maxRadius);
+  });
+
+  it("grows linearly, so the orb tells an opponent how long they have", () => {
+    const at = (t: number) => Math.max(...orbAt(t).map((o) => o.radius));
+    const span = CHARGE.maxRadius - CHARGE.minRadius;
+    // Halfway through the wind-up is halfway through the growth.
+    expect(at(PRESS + WINDUP / 2)).toBeCloseTo(CHARGE.minRadius + span / 2, 6);
+  });
+
+  it("vanishes on the tick the shot exits, so the orb never overlaps its own beam", () => {
+    expect(orbAt(EXIT)).toEqual([]);
+    expect(orbAt(EXIT + 1)).toEqual([]);
+  });
+
+  it("draws nothing when no press is pending", () => {
+    // `pendingUntilTick` is 0 on a car that has never fired, and stale-in-the-past afterwards.
+    expect(chargeOrbBands("lance", 0, PRESS)).toEqual([]);
+  });
+
+  it("ignores a pending longer than this weapon's own wind-up", () => {
+    // `pendingUntilTick` also covers a multi-volley burst. An orb must not stretch across one.
+    expect(chargeOrbBands("lance", PRESS + WINDUP + 1, PRESS)).toEqual([]);
+  });
+
+  it("nests its bands outermost first, so each is filled over the last", () => {
+    const radii = orbAt(EXIT - 1).map((o) => o.radius);
+    for (let i = 1; i < radii.length; i++) expect(radii[i]!).toBeLessThan(radii[i - 1]!);
+  });
+
+  it("wears the same three colours as the beam it is charging", () => {
+    // The orb has to read as the shot gathering, not as a separate effect.
+    const beam = WEAPON_BEAM_STYLES.lance!.layers.map((l) => l.color.toUpperCase());
+    const orb = CHARGE.bands.map((b) => b.color.toUpperCase());
+    expect(orb).toEqual(beam);
+    // And the outermost is the weapon's own table colour, as everywhere else.
+    expect(orb[0]).toBe(WEAPON_TABLE.lance.color.toUpperCase());
+  });
+
+  it("costs three fills per charging car, however long the wind-up runs", () => {
+    for (const tick of [PRESS, PRESS + 7, PRESS + 14, EXIT - 1]) {
+      expect(orbAt(tick)).toHaveLength(3);
+    }
+  });
+});
+
+describe("lance beam layers", () => {
+  it("nests by WIDTH, since narrowing a rect's length would hide it inside itself", () => {
+    const layers = beamDrawLayers("lance", 0, 0, 0, 1200, 0);
+    expect(layers).toHaveLength(3);
+    const halfWidths = layers.map((l) => Math.max(...l.points.map((p) => Math.abs(p.y))));
+    const lengths = layers.map((l) => Math.max(...l.points.map((p) => p.x)));
+    for (let i = 1; i < layers.length; i++) {
+      expect(halfWidths[i]!).toBeLessThan(halfWidths[i - 1]!);
+      // Every layer runs the beam's full length; only the width varies.
+      expect(lengths[i]!).toBeCloseTo(lengths[0]!, 6);
+    }
+  });
+
+  it("never draws past the rect hitbox", () => {
+    const lance = WEAPON_TABLE.lance;
+    if (lance.kind !== "beam" || lance.hitbox.shape !== "rect") throw new Error("lance is a rect beam");
+    const halfWidth = lance.hitbox.width / 2;
+    for (const layer of beamDrawLayers("lance", 0, 0, 0, 1200, 0)) {
+      for (const point of layer.points) {
+        expect(Math.abs(point.y)).toBeLessThanOrEqual(halfWidth + 1e-9);
+        expect(point.x).toBeLessThanOrEqual(1200 + 1e-9);
+        expect(point.x).toBeGreaterThanOrEqual(-1e-9);
+      }
+    }
   });
 });

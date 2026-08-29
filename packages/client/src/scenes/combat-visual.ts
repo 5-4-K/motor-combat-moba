@@ -7,6 +7,7 @@ import {
   isWeaponId,
   projectileShapeAt,
   weaponDefOf,
+  weaponTicksOf,
   type BeamHitbox,
   type WeaponId,
   type WorldShape,
@@ -224,6 +225,35 @@ export interface BeamLayer {
 export interface BeamStyle {
   /** Outermost first. Each layer is filled over the one before it, so later layers are the core. */
   layers: BeamLayer[];
+  /** A charge orb drawn at the muzzle through this weapon's wind-up. Absent draws nothing. */
+  charge?: ChargeStyle;
+}
+
+/**
+ * The orb a wind-up weapon gathers at its muzzle before firing, growing from `minRadius` to
+ * `maxRadius` across `startUpMs` and vanishing on the tick the shot exits.
+ *
+ * **This is the one thing the game draws in the world that is not a hitbox**, and the exception is
+ * deliberate rather than an erosion of the rule. Every shot draws as its own hitbox (D19) so that
+ * what you see is what can hurt you; an orb hurts nobody and is a *telegraph*, a second category.
+ * `lance` is built around being telegraphed — a 700 ms wind-up is what pays for 180 damage — but
+ * until this existed an opponent saw nothing at all during it, so the tell lived in the design and
+ * not on the screen. Anything drawn here must stay a warning: it may never imply a hitbox that is
+ * not there, which is why it sits at the muzzle rather than out where the beam will land.
+ */
+export interface ChargeStyle {
+  /** Radius on the press tick. Small but non-zero, so the orb appears rather than fades in. */
+  minRadius: number;
+  /** Radius on the last tick before the shot exits. */
+  maxRadius: number;
+  /** Outermost first, as fractions of the orb's CURRENT radius. */
+  bands: GlowBand[];
+}
+
+/** A charge orb band resolved to world units and a Phaser fill. */
+export interface ChargeOrbBand {
+  radius: number;
+  fill: number;
 }
 
 /**
@@ -256,6 +286,33 @@ export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
       { extentScale: 0.74, crossScale: 0.82, tongues: 4, tongueDepth: 0.34, color: "#FFD43B" },
       { extentScale: 0.42, crossScale: 0.6, tongues: 3, tongueDepth: 0.38, color: "#FFF3BF" },
     ],
+  },
+  /**
+   * `lance`: a rect beam, so its layers nest by WIDTH and every `extentScale` stays 1. Narrowing
+   * the length instead would hide a shorter bar inside a longer one of the same width and show
+   * nothing. `tongues` is 0 for the same reason — lobes cut into a rect's far edge would only
+   * shorten a shape whose whole read is "a straight line of light" — and `rectPoints` ignores them
+   * regardless.
+   *
+   * Its charge orb is the wind-up made visible: 700 ms is the entire justification for 180 damage,
+   * and an opponent could not previously see it happening. Colours match the beam exactly, so the
+   * orb reads as the same thing gathering that is about to be fired.
+   */
+  lance: {
+    layers: [
+      { extentScale: 1, crossScale: 1, tongues: 0, tongueDepth: 0, color: "#6741D9" },
+      { extentScale: 1, crossScale: 0.55, tongues: 0, tongueDepth: 0, color: "#FFD43B" },
+      { extentScale: 1, crossScale: 0.22, tongues: 0, tongueDepth: 0, color: "#FFFFFF" },
+    ],
+    charge: {
+      minRadius: 2,
+      maxRadius: 18,
+      bands: [
+        { radiusScale: 1, color: "#6741D9" },
+        { radiusScale: 0.6, color: "#FFD43B" },
+        { radiusScale: 0.28, color: "#FFFFFF" },
+      ],
+    },
   },
 };
 
@@ -356,6 +413,44 @@ export function beamDrawLayers(
     layers.push({ points, fill: hexToFill(layer.color) });
   }
   return layers;
+}
+
+/**
+ * The charge orb's bands for a car mid wind-up, outermost first, or `[]` when nothing should draw.
+ *
+ * Derived entirely from state already on the wire — `PlayerState.pendingUntilTick` and the weapon
+ * in `lastFiredSlot` — so a telegraph that opponents can act on costs no schema field and no extra
+ * traffic. `pendingUntilTick` also covers a multi-volley burst, so the `remaining > total` guard
+ * stops a burst weapon drawing an orb across its whole volley sequence; only a weapon with an
+ * authored `charge` reaches that far anyway.
+ *
+ * Returns `[]` on the tick the shot exits, which is what makes the orb vanish exactly as the beam
+ * appears rather than overlapping it for a frame.
+ */
+export function chargeOrbBands(
+  weaponId: string,
+  pendingUntilTick: number,
+  tick: number,
+): ChargeOrbBand[] {
+  const def = isWeaponId(weaponId) ? weaponDefOf(weaponId) : null;
+  if (!def || def.kind !== "beam") return [];
+  const charge = WEAPON_BEAM_STYLES[def.id]?.charge;
+  if (!charge) return [];
+
+  const total = weaponTicksOf(def.id).startUp;
+  if (total <= 0) return [];
+  const remaining = pendingUntilTick - tick;
+  // Nothing pending, already fired, or a pending longer than this weapon's own wind-up.
+  if (remaining <= 0 || remaining > total) return [];
+
+  // 0 on the press tick, approaching 1 on the last tick before the shot exits. Linear on purpose:
+  // the orb's job is telling an opponent how long they have, and easing would lie about that.
+  const progress = clamp01(1 - remaining / total);
+  const radius = charge.minRadius + (charge.maxRadius - charge.minRadius) * progress;
+  return charge.bands.map((band) => ({
+    radius: radius * band.radiusScale,
+    fill: hexToFill(band.color),
+  }));
 }
 
 /**

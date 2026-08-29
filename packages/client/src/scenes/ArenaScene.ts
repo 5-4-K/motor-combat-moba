@@ -18,6 +18,7 @@ import {
   INPUT_MESSAGE,
   MS_PER_TICK,
   PlayerStatus,
+  muzzleOf,
   RoomPhase,
   TICK_RATE_HZ,
   WEAPON_SLOT_CONFIG,
@@ -51,6 +52,7 @@ import {
   hpFraction,
   instanceDrawShape,
   beamDrawLayers,
+  chargeOrbBands,
   instanceGlowBands,
   lockBracketArms,
   SHOW_LOCK_BRACKET,
@@ -1113,6 +1115,38 @@ export class ArenaScene extends Phaser.Scene {
       for (const band of bands) {
         gfx.fillStyle(band.fill, alpha);
         gfx.fillCircle(shape.x, shape.y, band.radius);
+      }
+    });
+
+    this.renderChargeOrbs(room, gfx);
+  }
+
+  /**
+   * The orb a wind-up weapon gathers at its muzzle before firing.
+   *
+   * A second pass over PLAYERS rather than more work inside the instance loop, because a charging
+   * weapon has spawned nothing yet — `state.weapons` is empty for it until the wind-up ends, which
+   * is exactly the window this draws. Everything it needs is already networked: `pendingUntilTick`,
+   * `lastFiredSlot`, and the pose, so the telegraph costs no schema field.
+   *
+   * Drawn into the same `shotGfx` as everything else, so it adds fills to an existing batch rather
+   * than a draw call of its own — see `docs/asset-pipeline.md`'s note on what shot detail costs.
+   */
+  private renderChargeOrbs(room: Room<ArenaState>, gfx: Phaser.GameObjects.Graphics): void {
+    room.state.players.forEach((player) => {
+      if (player.status !== PlayerStatus.IN_MATCH || !player.alive) return;
+      if (player.lastFiredSlot < 0) return;
+      const slot = player.weapons[player.lastFiredSlot];
+      if (!slot) return;
+
+      const orbs = chargeOrbBands(slot.weaponId, player.pendingUntilTick, room.state.tick);
+      if (orbs.length === 0) return;
+
+      // The muzzle, not the car centre: the orb is the shot gathering where the shot will leave.
+      const muzzle = muzzleOf(player);
+      for (const orb of orbs) {
+        gfx.fillStyle(orb.fill, 1);
+        gfx.fillCircle(muzzle.x, muzzle.y, orb.radius);
       }
     });
   }
