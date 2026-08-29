@@ -171,7 +171,7 @@ inlined, so it reaches for nothing off the machine — `manual-page.test.mjs` as
 is `MANUAL_PATH` in `packages/client/src/config/manual.ts`, which nothing typed holds to the file the
 script writes; that test is what does.
 
-Chromium is optional (`CHROMIUM_PATH` overrides the search) and webfonts are fetched once and
-inlined, falling back to system fonts offline — a run without either still writes a correct page.
+The build needs nothing installed: webfonts are fetched once and inlined, and with no network it
+falls back to the system stack and still writes a correct page.
 
 `npm run dev` sets `DEPLOY_MODE=lan` and `CLIENT_ORIGIN=http://localhost:5173` so Vite can talk to the server. Open `http://localhost:5173`, click Join.

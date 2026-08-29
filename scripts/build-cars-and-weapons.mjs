@@ -1,32 +1,27 @@
 #!/usr/bin/env node
 /**
- * Builds the player-facing cars-and-weapons guide — three chassis, nine weapons.
+ * Builds `packages/client/public/manual.html` — the player-facing cars-and-weapons guide, three
+ * chassis and nine weapons, that the join screen's button opens.
  *
- * THE DELIVERABLE IS `packages/client/public/manual.html`, the page the join screen opens. The PDF
- * beside it is a temporary convenience and is scheduled for deletion: it is rendered only when a
- * Chromium is lying around, and a run that skips it is a complete, successful run. Never gate the
- * guide page on the PDF, and do not add the PDF to a doc or a link.
+ * It is a web page rather than a document players download: an <embed>ed file is at the mercy of
+ * whatever viewer they have, and on mobile is usually just a download prompt. The layout is still
+ * paginated and still prints — the topbar's Print button hands the browser the same A4 sheets — but
+ * that is a courtesy of the stylesheet, not a second output this script has to produce.
  *
- *   packages/client/public/manual.html     the guide page  — always written
- *   docs/cars-and-weapons.pdf              print spin-off  — only if Chromium is present
- *
- * The page is HTML rather than an embedded PDF so players READ it in the browser: an <embed> is at
- * the mercy of whatever viewer they have, and on mobile is usually just a download prompt.
- *
- * Every number in the PDF is read from BUILT shared (`WEAPON_TABLE`, `CAR_TABLE`, `WEAPON_TICKS`,
- * `weaponDamageOf`), never transcribed, so a balance edit is reprinted by re-running this script
- * and cannot drift from the sim. The prose lives in `cars-and-weapons-copy.mjs`.
+ * Every number on it is read from BUILT shared (`WEAPON_TABLE`, `CAR_TABLE`, `WEAPON_TICKS`,
+ * `weaponDamageOf`), never transcribed, so a balance edit is reprinted by re-running this script and
+ * cannot drift from the sim. The prose lives in `cars-and-weapons-copy.mjs`.
  *
  *   npm run build -w @motor-combat-moba/shared   # this reads dist, not src
  *   node scripts/build-cars-and-weapons.mjs
  *
- * Rendering is Chromium's own `--print-to-pdf`, so the layout is plain print CSS. Display fonts are
- * fetched once and inlined as base64; with no network the page falls back to the system stack and
- * still builds.
+ * The page is generated but committed, so `balanceStamp` below is what stops it going stale unseen.
+ * Display fonts are fetched once and inlined as base64; with no network the page falls back to the
+ * system stack and still builds. Art is LINKED from `public/art/`, which the client already serves,
+ * so an icon swap needs no rebuild here.
  */
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -47,13 +42,8 @@ import {
 import { CHASSIS_COPY, MANUAL_META, SLOT_ROLES, WEAPON_COPY } from "./cars-and-weapons-copy.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const ICON_DIR = resolve(ROOT, "packages/client/public/art/weapon-icons");
-const CAR_DIR = resolve(ROOT, "packages/client/public/art/cars");
 /** Served by the client. Vite copies `public/` verbatim, so this ships in the LAN zip too. */
 export const OUT_WEB_HTML = resolve(ROOT, "packages/client/public/manual.html");
-const OUT_PDF = resolve(ROOT, "docs/cars-and-weapons.pdf");
-/** Fed to Chromium and then thrown away; gitignored. */
-const OUT_PRINT_HTML = resolve(ROOT, ".cars-and-weapons/manual.html");
 
 /** The arena the build ships, for "how far is 900 units really" context. */
 const ARENA_WIDTH = 1280;
@@ -194,23 +184,13 @@ export const STAMP_META_NAME = "mc-balance-stamp";
 
 // ---------------------------------------------------------------------------- assets
 
-const dataUri = (path) => `data:image/png;base64,${readFileSync(path).toString("base64")}`;
-const ICON_DATA = Object.fromEntries(
-  WEAPONS.map((w) => [w.id, dataUri(resolve(ICON_DIR, `${w.id}.png`))]),
-);
-const CAR_DATA = Object.fromEntries(CAR_IDS.map((id) => [id, dataUri(resolve(CAR_DIR, `${id}.png`))]));
-
 /**
- * Which form of the document is being built. Module-level rather than threaded through all nine
- * page builders: it is read only by `iconUrl`/`carUrl`, and `buildDocument` is the only writer.
- *
- * "print" inlines every image, because Chromium renders the page from a temp directory and a
- * relative path would resolve to nothing. "web" links the art the client already serves, which
- * keeps the page a tenth of the size and lets the browser cache the icons it drew in the HUD.
+ * The page links the art the client already serves rather than inlining it: the browser reuses the
+ * icons it drew in the HUD, and the page stays a tenth of the size it would otherwise be. Paths are
+ * relative, so the guide resolves wherever the client is mounted.
  */
-let assetMode = "print";
-const iconUrl = (id) => (assetMode === "print" ? ICON_DATA[id] : `art/weapon-icons/${id}.png`);
-const carUrl = (id) => (assetMode === "print" ? CAR_DATA[id] : `art/cars/${id}.png`);
+const iconUrl = (id) => `art/weapon-icons/${id}.png`;
+const carUrl = (id) => `art/cars/${id}.png`;
 
 /** Weapon colours are authored to read on the arena's light floor; lift them for a dark page. */
 function lift(hex, amount = 0.42) {
@@ -758,9 +738,8 @@ function topbar() {
   </div>`;
 }
 
-/** The whole book, in whichever asset form `mode` asks for. */
-function buildDocument(mode, fonts) {
-  assetMode = mode;
+/** The whole book, as one self-contained page. */
+function buildDocument(fonts) {
   // Chassis first, then ITS OWN three weapons, then the next chassis. The book reads as three
   // self-contained kits rather than as a roster followed by a separate appendix of guns — which is
   // also the order a player meets them in, since picking a car picks all three slots at once.
@@ -784,54 +763,14 @@ function buildDocument(mode, fonts) {
 }
 
 async function main() {
-  const fonts = await fontCss();
-
   mkdirSync(dirname(OUT_WEB_HTML), { recursive: true });
-  writeFileSync(OUT_WEB_HTML, buildDocument("web", fonts));
-  const written = [`${OUT_WEB_HTML} (${kb(OUT_WEB_HTML)})`];
-
-  // The PDF is a spin-off, not the point (see the header). A machine with no Chromium still gets a
-  // correct, complete guide page, so this warns and carries on rather than failing the run.
-  const chrome = [
-    process.env.CHROMIUM_PATH,
-    "/opt/pw-browsers/chromium",
-    "/usr/bin/chromium",
-    "/usr/bin/chromium-browser",
-    "/usr/bin/google-chrome",
-  ].find((p) => p && existsSync(p));
-
-  if (chrome) {
-    mkdirSync(dirname(OUT_PRINT_HTML), { recursive: true });
-    mkdirSync(dirname(OUT_PDF), { recursive: true });
-    writeFileSync(OUT_PRINT_HTML, buildDocument("print", fonts));
-    execFileSync(
-      chrome,
-      [
-        "--headless=new",
-        "--no-sandbox",
-        "--disable-gpu",
-        "--virtual-time-budget=20000",
-        "--no-pdf-header-footer",
-        `--print-to-pdf=${OUT_PDF}`,
-        `file://${OUT_PRINT_HTML}`,
-      ],
-      { stdio: ["ignore", "ignore", "inherit"] },
-    );
-    written.push(`${OUT_PDF} (${kb(OUT_PDF)})`);
-  } else {
-    console.warn(
-      "[manual] no Chromium found, so the optional PDF was skipped (CHROMIUM_PATH overrides the " +
-        "search). The guide page is written either way, and it is the one that ships.",
-    );
-  }
-
+  writeFileSync(OUT_WEB_HTML, buildDocument(await fontCss()));
+  const kb = Math.round(statSync(OUT_WEB_HTML).size / 1024);
   console.log(
     `[manual] ${WEAPONS.length} weapons, ${CAR_IDS.length} chassis, stamp ${balanceStamp()} -> ` +
-      written.join(", "),
+      `${OUT_WEB_HTML} (${kb} KB)`,
   );
 }
-
-const kb = (path) => `${Math.round(statSync(path).size / 1024)} KB`;
 
 // Importable for its exports without building anything: `manual-page.test.mjs` needs `balanceStamp`.
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();

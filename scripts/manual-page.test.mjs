@@ -13,9 +13,7 @@ import { OUT_WEB_HTML, STAMP_META_NAME, balanceStamp } from "./build-cars-and-we
  * a player's face. And the page is generated but COMMITTED, so a balance edit that skips
  * `npm run build:manual` leaves players reading last week's numbers while everything passes. This
  * file is what makes both of those fail loudly.
- *
- * The PDF beside the page is deliberately unguarded: it is temporary, it is skipped entirely on a
- * machine with no Chromium, and nothing may depend on it.
+
  */
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
