@@ -139,7 +139,10 @@ describe("ramTick", () => {
 
   it("lets a later, STRONGER ram overwrite a standing knock", () => {
     const state = arena();
-    addPlayer(state, "medium", { x: 0, y: 400, angle: 0, speed: 540 });
+    // A sub-top-speed mirage: T4 raised both mirage's mass and RAM_REFERENCE, and at mirage's own
+    // top speed (576) the ram now saturates severity same as bastion's does below, leaving no gap
+    // for a "stronger" ram to widen. 300 u/s keeps this a genuine partial-severity ram.
+    addPlayer(state, "medium", { x: 0, y: 400, angle: 0, speed: 300 });
     const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
     const memory = newRamMemory();
     ramTick(state, new Set(["medium", "b"]), memory, "ffa", NO_EFFECTS, approachSpeeds(state));

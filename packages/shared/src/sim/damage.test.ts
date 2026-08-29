@@ -64,8 +64,8 @@ describe("damageFor", () => {
 
 describe("weaponDamageOf", () => {
   it("gives each chassis its own damage with the same weapon", () => {
-    expect(weaponDamageOf("mirage", "fireball")).toBe(40);
-    expect(weaponDamageOf("bullseye", "fireball")).toBe(60);
-    expect(weaponDamageOf("bastion", "fireball")).toBe(50);
+    expect(weaponDamageOf("mirage", "fireball")).toBe(57);
+    expect(weaponDamageOf("bullseye", "fireball")).toBe(53);
+    expect(weaponDamageOf("bastion", "fireball")).toBe(46);
   });
 })

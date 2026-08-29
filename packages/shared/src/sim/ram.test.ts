@@ -165,8 +165,16 @@ describe("resolveRam", () => {
     // well past the ceiling — this position was found by sweeping attacker pose against a fixed
     // victim until |angVel| saturated, so the assertion is pinned to the clamp itself rather than
     // merely being consistent with any implementation (including a no-op one).
+    //
+    // Victim is pinned to `bullseye` (the roster's lightest chassis post-T5, mass 300) rather than
+    // the default `mirage`: spin is torque / (victimMass * inertiaCoefficient), and Task 4 raised
+    // every chassis's mass, including mirage's (350 -> 480). At that higher inertia this same swept
+    // pose no longer saturates the clamp — the theoretical max torque available at this geometry
+    // (attacker mass and impulse are both already capped by the severity clamp) tops out under what
+    // a 480-mass victim needs. The lightest victim keeps this a genuine ceiling test rather than a
+    // number that happens to be under it.
     const attacker = car({ sessionId: "a", x: 22.5, y: 8.5, angle: 3.25, speed: 100000, carId: "bastion" as CarId });
-    const victim = car({ sessionId: "b", x: 0, y: 0, angle: 0 });
+    const victim = car({ sessionId: "b", x: 0, y: 0, angle: 0, carId: "bullseye" as CarId });
     const hit = resolveRam(attacker, victim, "ffa")!;
     expect(Math.abs(hit.knock.angVel)).toBe(RAM_CONFIG.spinMaxRate);
   });

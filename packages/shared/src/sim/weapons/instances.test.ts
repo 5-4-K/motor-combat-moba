@@ -59,10 +59,16 @@ describe("spawning", () => {
   });
 
   it("gives a harder-hitting chassis a harder-hitting shot from the same weapon", () => {
-    const glassCannon = { ...owner, carId: "bullseye" };
-    const { instances } = spawnInstances({ weaponId: "fireball", slot: 0 }, glassCannon, 100, 0);
-    expect(instances[0]!.damage).toBe(60);
-    expect(instances[0]!.damage).toBeGreaterThan(weaponDamageOf("mirage", "fireball"));
+    // T5 made mirage the roster's highest-attack chassis (63, above bullseye's 55 and bastion's
+    // 42), so it can no longer be the "softer" baseline this test compares against — bullseye vs
+    // bastion is the pair that still orders the way the test name says.
+    const softHitter = { ...owner, carId: "bastion" };
+    const hardHitter = { ...owner, carId: "bullseye" };
+    const soft = spawnInstances({ weaponId: "fireball", slot: 0 }, softHitter, 100, 0).instances[0]!;
+    const hard = spawnInstances({ weaponId: "fireball", slot: 0 }, hardHitter, 100, 0).instances[0]!;
+    expect(hard.damage).toBe(weaponDamageOf("bullseye", "fireball"));
+    expect(soft.damage).toBe(weaponDamageOf("bastion", "fireball"));
+    expect(hard.damage).toBeGreaterThan(soft.damage);
   });
 
   it("falls back to the default chassis for an unrecognised carId rather than NaN-ing damage", () => {

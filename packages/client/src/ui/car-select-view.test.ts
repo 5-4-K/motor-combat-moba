@@ -38,8 +38,11 @@ describe("fullStatsFor", () => {
   });
 
   it("scales reverse speed by the configured ratio", () => {
+    // Rounded to match the panel's own `trim` (one decimal, no float noise): mirage's reverse speed
+    // is now 576 * 0.65 = 374.4, which IEEE-754 represents as 374.40000000000003 — a raw
+    // string-interpolation of the float would fail against the panel's trimmed display.
     expect(fullStatsFor("mirage").find((r) => r.label === "Reverse speed")?.value).toBe(
-      `${reverseMaxSpeedOf("mirage")} u/s`,
+      `${Math.round(reverseMaxSpeedOf("mirage") * 100) / 100} u/s`,
     );
     expect(reverseMaxSpeedOf("mirage")).toBeCloseTo(
       forwardMaxSpeedOf("mirage") * DRIVE_CONFIG.reverseSpeedRatio,
@@ -97,9 +100,9 @@ describe("fullStatsFor", () => {
     // Task 5's rewire each chassis's slot-1 weapon is its own id (no shared "Fireball damage" row
     // across all three any more), so this pins each chassis's actual opener by label AND value.
     const expected: Record<keyof typeof CAR_TABLE, { label: string; value: string }> = {
-      mirage: { label: "Fireball damage", value: "40" },
-      bullseye: { label: "Needler damage", value: "36" },
-      bastion: { label: "Thumper damage", value: "75" },
+      mirage: { label: "Fireball damage", value: "57" },
+      bullseye: { label: "Needler damage", value: "32" },
+      bastion: { label: "Thumper damage", value: "69" },
     };
     for (const id of Object.keys(CAR_TABLE) as (keyof typeof CAR_TABLE)[]) {
       const row = fullStatsFor(id).find((r) => r.label === expected[id].label);
@@ -124,13 +127,13 @@ describe("fullStatsFor", () => {
   });
 
   it("still reports the hull HP the sim actually gives the car", () => {
-    expect(fullStatsFor("bastion").find((r) => r.label === "Hull HP")!.value).toBe("700");
+    expect(fullStatsFor("bastion").find((r) => r.label === "Hull HP")!.value).toBe("820");
   });
 
   it("shows mass among the full stats", () => {
     const rows = fullStatsFor("bastion");
     const mass = rows.find((r) => r.label === "Mass");
-    expect(mass?.value).toBe("850");
+    expect(mass?.value).toBe("900");
   });
 
   it("shows a heavier mass for the tank than the speedster", () => {

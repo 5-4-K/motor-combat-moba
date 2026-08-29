@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import type { ChassisDrive } from "../../config/car-config.js";
-import { forwardMaxSpeedOf, reverseMaxSpeedOf } from "../../config/car-config.js";
 import { DRIVE_CONFIG } from "../../config/drive-config.js";
 import { STATUS_TABLE } from "../../config/status-config.js";
 import type { CarId } from "../../config/types.js";
@@ -70,27 +69,27 @@ describe("topSpeed reaches the drive cap", () => {
   it("caps forward speed at the scaled maximum", () => {
     let out = body();
     for (let i = 0; i < 200; i++) out = stepDrive(out, input(0, 1), DT, GOLDEN_CHASSIS, mods({ topSpeed: 0.5 }));
-    expect(out.speed).toBeCloseTo(forwardMaxSpeedOf(CAR) * 0.5, 6);
+    expect(out.speed).toBeCloseTo(GOLDEN_CHASSIS.maxSpeed * 0.5, 6);
   });
 
   it("caps reverse too, so backing away is not the way out of a slow", () => {
     let out = body({ speed: -10, reverseHold: DRIVE_CONFIG.reverseHoldTicks });
     for (let i = 0; i < 200; i++) out = stepDrive(out, input(0, -1), DT, GOLDEN_CHASSIS, mods({ topSpeed: 0.5 }));
-    expect(out.speed).toBeCloseTo(-reverseMaxSpeedOf(CAR) * 0.5, 6);
+    expect(out.speed).toBeCloseTo(-GOLDEN_CHASSIS.reverseMaxSpeed * 0.5, 6);
   });
 
   it("clamps a car already above the new cap the moment it asks for throttle", () => {
-    const fast = body({ speed: forwardMaxSpeedOf(CAR) });
+    const fast = body({ speed: GOLDEN_CHASSIS.maxSpeed });
     expect(stepDrive(fast, input(0, 1), DT, GOLDEN_CHASSIS, mods({ topSpeed: 0.5 })).speed).toBeCloseTo(
-      forwardMaxSpeedOf(CAR) * 0.5,
+      GOLDEN_CHASSIS.maxSpeed * 0.5,
       6,
     );
   });
 
   it("lets a car above the cap coast down through drag rather than snapping", () => {
-    const fast = body({ speed: forwardMaxSpeedOf(CAR) });
+    const fast = body({ speed: GOLDEN_CHASSIS.maxSpeed });
     expect(stepDrive(fast, input(0, 0), DT, GOLDEN_CHASSIS, mods({ topSpeed: 0.5 })).speed).toBeCloseTo(
-      forwardMaxSpeedOf(CAR) - DRIVE_CONFIG.drag * DT,
+      GOLDEN_CHASSIS.maxSpeed - DRIVE_CONFIG.drag * DT,
       6,
     );
   });

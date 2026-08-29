@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import type { ChassisDrive } from "../config/car-config.js";
-import { forwardMaxSpeedOf, reverseMaxSpeedOf } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import { RAM_CONFIG } from "../config/ram-config.js";
 import type { InputMessage } from "../net/input.js";
@@ -8,7 +7,6 @@ import { stepDrive } from "./drive.js";
 import { NEUTRAL_MODIFIERS } from "./status/modifiers.js";
 import type { SimBody } from "./step.js";
 
-const CAR_ID = "mirage";
 const DT = 1 / 30;
 
 /**
@@ -55,7 +53,7 @@ describe("stepDrive", () => {
 
   it("reaches (and does not exceed) forwardMaxSpeedOf(carId) after sustained throttle", () => {
     const out = drive(rest(), input(0, 1), 1000);
-    expect(out.speed).toBeCloseTo(forwardMaxSpeedOf(CAR_ID));
+    expect(out.speed).toBeCloseTo(GOLDEN_CHASSIS.maxSpeed);
   });
 
   it("from high +speed, holding Down brakes the speed down before it goes negative", () => {
@@ -63,7 +61,7 @@ describe("stepDrive", () => {
       x: 0,
       y: 0,
       angle: 0,
-      speed: forwardMaxSpeedOf(CAR_ID),
+      speed: GOLDEN_CHASSIS.maxSpeed,
       reverseHold: 0,
       angVel: 0,
       shoveX: 0,
@@ -81,9 +79,9 @@ describe("stepDrive", () => {
 
     const held = drive(atThreshold, input(0, -1), 500);
     expect(held.speed).toBeLessThan(0);
-    expect(Math.abs(held.speed)).toBeLessThanOrEqual(reverseMaxSpeedOf(CAR_ID));
-    expect(reverseMaxSpeedOf(CAR_ID)).toBeCloseTo(
-      forwardMaxSpeedOf(CAR_ID) * DRIVE_CONFIG.reverseSpeedRatio,
+    expect(Math.abs(held.speed)).toBeLessThanOrEqual(GOLDEN_CHASSIS.reverseMaxSpeed);
+    expect(GOLDEN_CHASSIS.reverseMaxSpeed).toBeCloseTo(
+      GOLDEN_CHASSIS.maxSpeed * DRIVE_CONFIG.reverseSpeedRatio,
       9,
     );
     expect(held.reverseHold).toBe(DRIVE_CONFIG.reverseHoldTicks);
@@ -105,7 +103,7 @@ describe("stepDrive", () => {
       x: 0,
       y: 0,
       angle: 0,
-      speed: forwardMaxSpeedOf(CAR_ID),
+      speed: GOLDEN_CHASSIS.maxSpeed,
       reverseHold: 0,
       angVel: 0,
       shoveX: 0,
@@ -136,7 +134,7 @@ describe("stepDrive", () => {
     expect(wentNegative).toBe(true);
 
     const pinned = drive(body, down, 500);
-    expect(pinned.speed).toBe(-reverseMaxSpeedOf(CAR_ID));
+    expect(pinned.speed).toBe(-GOLDEN_CHASSIS.reverseMaxSpeed);
   });
 
   it("holding Up from reverse brakes to exactly 0 without overshoot, then accelerates forward", () => {
@@ -145,7 +143,7 @@ describe("stepDrive", () => {
       x: 0,
       y: 0,
       angle: 0,
-      speed: -reverseMaxSpeedOf(CAR_ID),
+      speed: -GOLDEN_CHASSIS.reverseMaxSpeed,
       reverseHold: 0,
       angVel: 0,
       shoveX: 0,

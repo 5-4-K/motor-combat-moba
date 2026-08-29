@@ -528,9 +528,9 @@ describe("chassis attack scales weapon damage through a real tick", () => {
   it("lands a different number for each chassis firing the identical weapon", () => {
     // Spec test 5: through the real tick, not by calling damageFor. `attack` is invisible in the
     // weapon table, so this is the only place the roster's damage spread is actually observable.
-    expect(damageDealtBy("mirage")).toBe(40);
-    expect(damageDealtBy("bullseye")).toBe(60);
-    expect(damageDealtBy("bastion")).toBe(50);
+    expect(damageDealtBy("mirage")).toBe(57);
+    expect(damageDealtBy("bullseye")).toBe(53);
+    expect(damageDealtBy("bastion")).toBe(46);
   });
 });
 

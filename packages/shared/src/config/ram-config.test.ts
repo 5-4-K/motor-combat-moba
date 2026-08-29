@@ -77,19 +77,23 @@ describe("mass rating", () => {
   });
 
   it("scales ratings to real mass via massPerRating", () => {
-    expect(massOf("mirage")).toBe(350);
-    expect(massOf("bullseye")).toBe(450);
-    expect(massOf("bastion")).toBe(850);
+    expect(massOf("bullseye")).toBe(300);
+    expect(massOf("mirage")).toBe(480);
+    expect(massOf("bastion")).toBe(900);
   });
 
-  it("makes the tank the heaviest and the speedster the lightest", () => {
-    expect(massOf("bastion")).toBeGreaterThan(massOf("bullseye"));
-    expect(massOf("bullseye")).toBeGreaterThan(massOf("mirage"));
+  it("makes the tank the heaviest and the skirmisher the lightest", () => {
+    // Reverses the old oval/rectangle pairing: the chassis that was `oval` (now `bullseye`) drops
+    // from mass 45 to the roster's lowest, 30, so mirage now sits between bullseye and bastion.
+    expect(massOf("bastion")).toBeGreaterThan(massOf("mirage"));
+    expect(massOf("mirage")).toBeGreaterThan(massOf("bullseye"));
   });
 
   it("derives the ram reference from an average chassis at the roster's top speed", () => {
+    // RAM_REFERENCE rises with the roster's fastest car: mirage's top speed moved from 540 to 576
+    // u/s (T8), a 6.7% increase, so 500 * 576 = 288000 replaces the old 270000.
     expect(RAM_REFERENCE_MASS).toBe(500);
     expect(RAM_REFERENCE).toBe(RAM_REFERENCE_MASS * forwardMaxSpeedOf("mirage"));
-    expect(RAM_REFERENCE).toBe(270000);
+    expect(RAM_REFERENCE).toBe(288000);
   });
 });

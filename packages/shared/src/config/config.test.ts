@@ -7,6 +7,7 @@ import {
   forwardMaxSpeedOf,
   hpOf,
   isCarId,
+  massOf,
   reverseAccelOf,
   reverseMaxSpeedOf,
   turnRateAtStopOf,
@@ -19,7 +20,7 @@ import { CAMERA_CONFIG, DRIVE_CONFIG } from "./drive-config.js";
 import { FLOW_CONFIG } from "./flow-config.js";
 import { NET_CONFIG } from "./net-config.js";
 import { WEAPON_TABLE } from "./weapon-config.js";
-import { damageFor, weaponDamageOf } from "../sim/damage.js";
+import { damageFor } from "../sim/damage.js";
 
 describe("CAR_TABLE", () => {
   it("has exactly mirage, bullseye, bastion", () => {
@@ -27,9 +28,9 @@ describe("CAR_TABLE", () => {
   });
 
   it("matches the locked ratings", () => {
-    expect(CAR_TABLE.mirage).toMatchObject({ speed: 80, attack: 30, hp: 40 });
-    expect(CAR_TABLE.bullseye).toMatchObject({ speed: 50, attack: 70, hp: 30 });
-    expect(CAR_TABLE.bastion).toMatchObject({ speed: 30, attack: 50, hp: 70 });
+    expect(CAR_TABLE.mirage).toMatchObject({ speed: 88, accel: 85, handling: 50, attack: 63, hp: 48, mass: 48 });
+    expect(CAR_TABLE.bullseye).toMatchObject({ speed: 52, accel: 45, handling: 28, attack: 55, hp: 30, mass: 30 });
+    expect(CAR_TABLE.bastion).toMatchObject({ speed: 30, accel: 20, handling: 82, attack: 42, hp: 82, mass: 90 });
   });
 
   it("gives every chassis whole 0-100 ratings on all four axes", () => {
@@ -46,17 +47,9 @@ describe("CAR_TABLE", () => {
   });
 
   it("derives actual HP via hpPerRating", () => {
-    expect(hpOf("mirage")).toBe(400);
+    expect(hpOf("mirage")).toBe(480);
     expect(hpOf("bullseye")).toBe(300);
-    expect(hpOf("bastion")).toBe(700);
-  });
-
-  it("keeps every top speed exactly where it was before the ratings widened", () => {
-    // The 10x rating change is cancelled by speedPerRating 45 -> 4.5. This is a combat change; if a
-    // car's top speed moved, the cancellation is wrong.
-    expect(forwardMaxSpeedOf("mirage")).toBe(540);
-    expect(forwardMaxSpeedOf("bullseye")).toBe(405);
-    expect(forwardMaxSpeedOf("bastion")).toBe(315);
+    expect(hpOf("bastion")).toBe(820);
   });
 
   it("kills an average chassis with the baseline weapon in 5 seconds", () => {
@@ -68,7 +61,7 @@ describe("CAR_TABLE", () => {
     // It canNOT pin damagePerAttack: evaluated exactly at the baseline, damageFor's
     // `(attack - attackBaseline)` term is 0, so the scale is identically 1 whatever
     // damagePerAttack holds. damagePerAttack is pinned instead by the off-baseline cells in the
-    // "pins the roster's TTK spread" test below, where the modifier is not 1.
+    // "pins damagePerAttack through off-baseline chassis" test below, where the modifier is not 1.
     const averageHp = COMBAT_CONFIG.attackBaseline * COMBAT_CONFIG.hpPerRating;
     const dps =
       (damageFor(COMBAT_CONFIG.attackBaseline, WEAPON_TABLE.fireball.damage) * 1000) /
@@ -76,18 +69,12 @@ describe("CAR_TABLE", () => {
     expect(averageHp / dps).toBe(5);
   });
 
-  it("pins the roster's TTK spread, and with it damagePerAttack", () => {
-    // The baseline anchor above cannot constrain damagePerAttack -- at attackBaseline the modifier
-    // is 1 by definition, so no baseline-only assertion can see it move. These two off-baseline
-    // cells from the spec's own TTK matrix close that gap: mirage (attack 30, modifier 0.8)
-    // killing the highest-hp chassis, and bullseye (attack 70, modifier 1.2) killing itself. A drift in
-    // damagePerAttack moves both numbers, because both are evaluated away from the baseline.
-    const mirageVsBastionDps =
-      (weaponDamageOf("mirage", "fireball") * 1000) / WEAPON_TABLE.fireball.cooldownMs;
-    expect(hpOf("bastion") / mirageVsBastionDps).toBe(8.75);
-
-    const bullseyeVsBullseyeDps = (weaponDamageOf("bullseye", "fireball") * 1000) / WEAPON_TABLE.fireball.cooldownMs;
-    expect(hpOf("bullseye") / bullseyeVsBullseyeDps).toBe(2.5);
+  it("pins damagePerAttack through off-baseline chassis", () => {
+    // At `attackBaseline` the scale is identically 1, so no baseline assertion can see
+    // `damagePerAttack` move. These three cells are all off-baseline in both directions.
+    expect(damageFor(63, 50)).toBe(57); // mirage 1.13x
+    expect(damageFor(55, 45)).toBe(47); // bullseye 1.05x
+    expect(damageFor(42, 60)).toBe(55); // bastion 0.92x
   });
 
   it("derives forward max speed from the speed rating", () => {
@@ -159,6 +146,17 @@ describe("per-car drive ratings", () => {
       expect(d.turnRateAtStop).toBeCloseTo(turnRateAtStopOf(id), 9);
       expect(d.accel).toBeCloseTo(accelOf(id), 9);
       expect(d.reverseAccel).toBeCloseTo(reverseAccelOf(id), 9);
+    }
+  });
+
+  it("scales every car's reverse speed from its own forward speed by reverseSpeedRatio", () => {
+    // The single-car version of this (mirage only) used to live in drive.test.ts as a byproduct of
+    // reading the live table inside an otherwise-hermetic GOLDEN_CHASSIS suite. R7: that suite now
+    // reads only the frozen fixture, so this per-car sweep is what keeps the actual property —
+    // reverse speed tracks EACH chassis's own forward speed, not just mirage's — pinned against the
+    // live roster.
+    for (const id of Object.keys(CAR_TABLE) as CarId[]) {
+      expect(reverseMaxSpeedOf(id)).toBeCloseTo(forwardMaxSpeedOf(id) * DRIVE_CONFIG.reverseSpeedRatio, 9);
     }
   });
 });
@@ -242,5 +240,48 @@ describe("weapon / combat / drive / flow knobs exist", () => {
     expect(Number.isInteger(NET_CONFIG.maxInputsPerTick)).toBe(true);
     // Below 1 the server would drop every input and no one could move.
     expect(NET_CONFIG.maxInputsPerTick).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("the three types (T5/T6)", () => {
+  it("derives the roster's drive profile from its ratings", () => {
+    expect(forwardMaxSpeedOf("bullseye")).toBe(414);
+    expect(forwardMaxSpeedOf("mirage")).toBe(576);
+    expect(forwardMaxSpeedOf("bastion")).toBe(315);
+
+    expect(accelOf("bullseye")).toBeCloseTo(744, 9);
+    expect(accelOf("mirage")).toBeCloseTo(1032, 9);
+    expect(accelOf("bastion")).toBeCloseTo(564, 9);
+
+    expect(turnRateOf("bullseye")).toBeCloseTo(3.408, 9);
+    expect(turnRateOf("mirage")).toBeCloseTo(4.2, 9);
+    expect(turnRateOf("bastion")).toBeCloseTo(5.352, 9);
+
+    expect(hpOf("bullseye")).toBe(300);
+    expect(hpOf("mirage")).toBe(480);
+    expect(hpOf("bastion")).toBe(820);
+  });
+
+  it("gives Bastion the tightest turn radius despite being the slowest", () => {
+    // T6. Radius is speed / turnRate, so turn RATE and turn RADIUS order the roster differently:
+    // Bullseye has the lowest rate but not the widest arc, because Mirage is far faster. Bastion
+    // turning inside every other chassis is the mechanical reason "3 beats 2" holds.
+    const radius = (id: CarId) => forwardMaxSpeedOf(id) / turnRateOf(id);
+    expect(radius("bastion")).toBeLessThan(radius("bullseye"));
+    expect(radius("bullseye")).toBeLessThan(radius("mirage"));
+    expect(radius("bastion")).toBeCloseTo(58.9, 1);
+  });
+
+  it("orders the three types on every axis the design names", () => {
+    expect(forwardMaxSpeedOf("mirage")).toBeGreaterThan(forwardMaxSpeedOf("bullseye"));
+    expect(forwardMaxSpeedOf("bullseye")).toBeGreaterThan(forwardMaxSpeedOf("bastion"));
+    expect(accelOf("mirage")).toBeGreaterThan(accelOf("bullseye"));
+    expect(accelOf("bullseye")).toBeGreaterThan(accelOf("bastion"));
+    expect(turnRateOf("bastion")).toBeGreaterThan(turnRateOf("mirage"));
+    expect(turnRateOf("mirage")).toBeGreaterThan(turnRateOf("bullseye"));
+    expect(hpOf("bastion")).toBeGreaterThan(hpOf("mirage"));
+    expect(hpOf("mirage")).toBeGreaterThan(hpOf("bullseye"));
+    expect(massOf("bastion")).toBeGreaterThan(massOf("mirage"));
+    expect(massOf("mirage")).toBeGreaterThan(massOf("bullseye"));
   });
 });
