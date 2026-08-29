@@ -4,6 +4,22 @@ Drop PNGs in here and name them in `manifest.json`. Nothing else is required —
 no rebuild. A key with no entry, or an entry whose file is missing, falls back to the procedural
 silhouette the game drew before any art existed.
 
+## Checking what is in here
+
+```bash
+npm run check:art
+```
+
+Reports every problem this directory can have: a lost alpha channel, a manifest row naming a file
+that is gone, a file nothing references, an off-size icon, a car sprite that still carries colour
+while being player-tinted, an icon whose colour has drifted from its weapon's `WEAPON_TABLE.color`.
+`npm run check:cars` and `npm run check:weapons` scope it to one asset class.
+
+Worth running after editing a PNG **in place** — an image editor bypasses the importers below, and
+the nastiest failure is silent: a PNG saved without alpha (Paint.NET's "24-bit" option, and the
+equivalent elsewhere) still loads, so nothing falls back. It just draws an opaque box. `npm test`
+runs the blocker-level checks for that reason; the warnings are advisory and never fail it.
+
 ## Importing a generated image
 
 For anything that did not arrive already sized for the hull — an AI generation, a pack sprite —

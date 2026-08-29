@@ -210,6 +210,7 @@ the probe.
 npm run dev            # shared watch + server :2567 + Vite client :5173
 npm run build:release  # dist-release/motor-combat-moba/ + motor-combat-moba-release.zip
 npm run build:manual   # regenerates the cars & weapons guide page
+npm run check:art      # art integrity: alpha, manifest rows, sizes, tint rules (:cars, :weapons)
 npm run playtest       # headless sim probes -> packages/server/playtest/reports/<date-NN>/
 npm run playtest:lan   # two bot clients against a server you already started
 ```
@@ -255,8 +256,21 @@ chassis sprite appears on the cover and its chassis card). Name the file, and po
 rest, so it catches what `?dev=assets` cannot.
 
 **Do not run `npm run build:manual` for an art swap.** It is not needed, it rewrites the whole page,
-and the churn buries whether anything real moved. Verify instead: load the page and check the
-`<img>` resolves to the new file's dimensions.
+and the churn buries whether anything real moved. Verify with `npm run check:art` and by loading the
+page.
+
+`npm run check:art` is the guardrail for art that did **not** come through an importer — a PNG
+repainted in place in Paint.NET or Photoshop bypasses every check the importers make. It reports
+blockers (a lost alpha channel, a manifest row naming a file that is gone, an icon row that would
+let the player tint drain its colour) and warnings (a palette PNG, an off-size icon, a tinted car
+sprite that still carries colour, an icon whose colour has drifted from its `WEAPON_TABLE.color`).
+`npm run check:cars` and `npm run check:weapons` are the same checks scoped to one asset class.
+
+`scripts/check-art.test.mjs` runs the blockers as part of `npm test`, so a save that dropped the
+alpha fails the suite instead of reaching the HUD as an opaque square. **Warnings never fail the
+suite** — an icon is allowed more than one colour, and only a person looking at the screen can say
+whether a pair reads as one weapon. Two weapons warn today: `lance` and `bulwark` both carry icons
+in a different colour from their shots.
 
 One pairing nothing enforces: a weapon's icon and its `WEAPON_TABLE.color` are meant to read as the
 same weapon, but icons ship `colorMode: "none"` and no typed reference ties the two together. Either

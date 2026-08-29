@@ -160,7 +160,7 @@ const manifestPath = path.join(artDir, "manifest.json");
  * client's TypeScript, so the prefix is the one thing duplicated. The ids themselves are not:
  * `isCarId` and `CAR_TABLE` come from shared, which owns them.
  */
-const CAR_KEY_PREFIX = "car.";
+export const CAR_KEY_PREFIX = "car.";
 
 /**
  * Write the texture at twice the hull's long edge. The GPU minifies with plain bilinear filtering
