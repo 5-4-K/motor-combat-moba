@@ -23,6 +23,12 @@ const SLOT_MASK = (1 << WEAPON_SLOT_CONFIG.maxWeaponSlots) - 1;
  * Advance every player by their queued inputs. `dt` is seconds and must match the room simulation
  * interval (1 / getTickRateHz(TICK_RATE_HZ)).
  *
+ * **One player is advanced without any input: a knocked one that has gone silent.** A ram writes
+ * motion onto its victim from outside, and that motion has to resolve whether or not the victim is
+ * still sending — otherwise an alt-tabbed or stalled player is an immovable wall carrying a
+ * permanent shove. Such a player is coasted on a neutral input, without an ack and without a fire
+ * mask, only while `hasKnock` holds. Every other silent player is left exactly as it was.
+ *
  * Cars only move during `RoomPhase.MATCH`, and only for players who are actually on the field
  * (`PlayerStatus.IN_MATCH`). Everything else — any other phase, or a lobby/post-match player who
  * keeps sending inputs mid-match — still *drains* the queue and still advances
@@ -73,7 +79,6 @@ export function serverTick(
 
   for (const { sessionId, player } of entries) {
     const queue = queues.get(sessionId);
-    if (!queue || queue.length === 0) continue;
 
     // Only `carId` and `others` vary per player; `world` is fixed for the whole tick.
     // A `null` context means "nothing about this player moves right now": drain only.
@@ -81,6 +86,22 @@ export function serverTick(
       moving && isOnField(player)
         ? { ...world, carId: carIdOf(player), others: otherCarHulls(entries, sessionId) }
         : null;
+
+    if (!queue || queue.length === 0) {
+      // Nothing to drain — but a ram knock is motion applied from OUTSIDE this player, so it has to
+      // integrate whether or not they are still talking to us. A backgrounded browser tab stops
+      // sending entirely (`requestAnimationFrame` throttles hard when hidden), and without this step
+      // the victim sits frozen holding a full-strength shove: unrammable, and never decaying either.
+      // Found in playtest, where a parked second tab behaved as an immovable wall.
+      //
+      // Coasting on a synthetic neutral input is the smallest thing that resolves the knock. The ack
+      // is deliberately NOT advanced and no fire mask is reported: this step acknowledges no input
+      // and grants no shot, it only lets physics finish what a ram started.
+      if (ctx !== null && hasKnock(player)) {
+        writeBody(player, stepSim(bodyOf(player), COAST_INPUT, dt, ctx));
+      }
+      continue;
+    }
 
     // Arrival order is not seq order: `withSimulatedLatency` gives every message its own jittered
     // delay, so two inputs sent a tick apart reorder routinely at the latencies this project
@@ -110,6 +131,26 @@ export function serverTick(
 
 function bySeq(a: InputMessage, b: InputMessage): number {
   return a.seq - b.seq;
+}
+
+/**
+ * The synthetic input a knocked-but-silent player is coasted on: no steering, no throttle, no fire.
+ * `seq` is never read by `stepSim` and this input is never acked, so the value is immaterial.
+ */
+const COAST_INPUT: InputMessage = { seq: 0, steer: 0, throttle: 0, fireSlots: 0 };
+
+/**
+ * Does this player still carry knock state that needs integrating?
+ *
+ * Neutral is `angVel 0, shove 0/0, authority 1`, and `stepDrive`'s decay snaps to exactly those
+ * values inside its epsilons rather than approaching them asymptotically. So this goes false on its
+ * own after a bounded number of ticks and the coast stops — a silent player is stepped only while a
+ * knock is actually resolving, never indefinitely.
+ */
+function hasKnock(player: PlayerState): boolean {
+  return (
+    player.angVel !== 0 || player.shoveX !== 0 || player.shoveY !== 0 || player.authority !== 1
+  );
 }
 
 /**
