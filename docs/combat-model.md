@@ -364,7 +364,7 @@ catch-up.
 
 ## Authoring a weapon
 
-Five steps, in this order. Only the first three are required for a playable weapon.
+Six steps, in this order. Only the first three are required for a playable weapon.
 
 **1. Widen the id union.** `WeaponId` in
 [`packages/shared/src/config/weapon-types.ts`](../packages/shared/src/config/weapon-types.ts) is a
@@ -409,6 +409,14 @@ generated rather than supplied, build it around the row's `color` — the slot i
 learns the weapon's colour, and the shot in the arena is where they have to recognise it — the
 skill's own `generation-prompt.md` takes the hex. See [`asset-pipeline.md`](asset-pipeline.md).
 
+**6. Rebuild the players' guide.** `npm run build:manual`, then commit
+`packages/client/public/manual.html`. The guide page is generated from `WEAPON_TABLE` and
+`CAR_TABLE` but committed to the repo, so a new weapon or a moved loadout does not reach it on its
+own — players would read a roster your change already falsified. `scripts/manual-page.test.mjs`
+fingerprints the tables and fails if the committed page predates them, so this step is enforced
+rather than remembered. Art is the exception: the page links `public/art/`, so an icon added later
+appears with no rebuild.
+
 **What to expect the first time.** No shipped weapon exercises a beam, a multi-pellet volley, a
 wind-up or a non-zero recovery in live play — those paths are covered by unit tests only (see the
 coverage list above). The first weapon that uses one is also that path's first real shakedown, so
@@ -432,6 +440,9 @@ inside the hitbox radius so the shot lands. At radius 12 there is plenty of head
 fixture breaks if the radius is ever cut below 2.5, and the failure looks like the fireball's damage
 vanishing rather than an obviously wrong number. Update each assertion in the same commit as the
 re-tune.
+
+A re-tune needs step 6 as much as a new weapon does: the guide prints damage, recharge, reach and
+derived DPS per weapon, so every one of those numbers moves with the row.
 
 ## Damage
 

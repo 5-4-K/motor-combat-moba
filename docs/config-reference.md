@@ -2,6 +2,12 @@
 
 Balance tables live in `@motor-combat-moba/shared`. Env knobs override process settings only.
 
+**`CAR_TABLE`, `WEAPON_TABLE`, `COMBAT_CONFIG`, `DRIVE_CONFIG` and `AIM_CONFIG.lockRange` are also
+printed to players**, by the generated cars-and-weapons guide the join screen links. It is committed
+rather than built on demand, so editing any of them means `npm run build:manual` and committing
+`packages/client/public/manual.html` in the same change — see the root `CLAUDE.md`.
+`scripts/manual-page.test.mjs` fails when the committed page predates the tables.
+
 ## Env knobs
 
 | Knob | Where | Default |

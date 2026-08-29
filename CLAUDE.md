@@ -148,6 +148,30 @@ user names it explicitly.
 ```bash
 npm run dev            # shared watch + server :2567 + Vite client :5173
 npm run build:release  # dist-release/motor-combat-moba/ + motor-combat-moba-release.zip
+npm run build:manual   # regenerates the cars & weapons guide page
 ```
+
+## The cars & weapons guide is generated, committed, and easy to leave stale
+
+`packages/client/public/manual.html` is the player-facing guide — three chassis, nine weapons — that
+the join screen's "Cars & weapons guide" button opens. **It is written by
+`scripts/build-cars-and-weapons.mjs`, never by hand.** Every number on it is read from built shared
+(`WEAPON_TABLE`, `CAR_TABLE`, `WEAPON_TICKS`, `weaponDamageOf`, `hpOf`); the prose lives beside it in
+`scripts/cars-and-weapons-copy.mjs`.
+
+**Re-run `npm run build:manual` and commit the page whenever you change:** a weapon row, a chassis
+row, a car's loadout, `COMBAT_CONFIG`, `DRIVE_CONFIG`, `AIM_CONFIG.lockRange`, `TICK_RATE_HZ`, or the
+prose in `cars-and-weapons-copy.mjs`. The page carries a fingerprint of all of that and
+`scripts/manual-page.test.mjs` recomputes it, so forgetting fails the suite with the command to run
+rather than quietly shipping last week's numbers to players. Art is the exception: the page *links*
+`public/art/`, so swapping an icon or a car sprite needs no rebuild.
+
+Vite copies `public/` verbatim, so the page ships in the LAN zip; its art is linked and its fonts are
+inlined, so it reaches for nothing off the machine — `manual-page.test.mjs` asserts that too. Its URL
+is `MANUAL_PATH` in `packages/client/src/config/manual.ts`, which nothing typed holds to the file the
+script writes; that test is what does.
+
+The build needs nothing installed: webfonts are fetched once and inlined, and with no network it
+falls back to the system stack and still writes a correct page.
 
 `npm run dev` sets `DEPLOY_MODE=lan` and `CLIENT_ORIGIN=http://localhost:5173` so Vite can talk to the server. Open `http://localhost:5173`, click Join.
