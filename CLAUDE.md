@@ -148,11 +148,11 @@ user names it explicitly.
 ```bash
 npm run dev            # shared watch + server :2567 + Vite client :5173
 npm run build:release  # dist-release/motor-combat-moba/ + motor-combat-moba-release.zip
-npm run build:manual   # docs/weapon-manual.pdf — the player-facing weapon dossier
+npm run build:manual   # docs/cars-and-weapons.pdf — the player-facing manual
 ```
 
 `build:manual` re-renders the PDF from `WEAPON_TABLE`/`CAR_TABLE` (via built shared) plus the prose
-in `scripts/weapon-manual-copy.mjs`, so a balance edit is a re-run, never a hand edit. It needs
+in `scripts/cars-and-weapons-copy.mjs`, so a balance edit is a re-run, never a hand edit. It needs
 Chromium (`CHROMIUM_PATH` overrides the search); webfonts are fetched once and inlined, and it falls
 back to system fonts offline.
 

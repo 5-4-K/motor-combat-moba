@@ -15,7 +15,7 @@
     "dev:client": "npm run dev -w @motor-combat-moba/client",
     "dev": "npm run build -w @motor-combat-moba/shared && concurrently -n shared,server,client -c blue.bold,green.bold,magenta.bold \"npm:dev:shared\" \"npm:dev:server\" \"npm:dev:client\"",
     "build:release": "npm run build && node scripts/build-release.mjs",
-    "build:manual": "npm run build -w @motor-combat-moba/shared && node scripts/build-weapon-manual.mjs"
+    "build:manual": "npm run build -w @motor-combat-moba/shared && node scripts/build-cars-and-weapons.mjs"
   },
   "devDependencies": {
     "archiver": "^7.0.1",

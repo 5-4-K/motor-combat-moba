@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * Builds `docs/weapon-manual.pdf` — the player-facing weapon dossier.
+ * Builds `docs/cars-and-weapons.pdf` — the player-facing manual: three chassis, nine weapons.
  *
  * Every number in the PDF is read from BUILT shared (`WEAPON_TABLE`, `CAR_TABLE`, `WEAPON_TICKS`,
  * `weaponDamageOf`), never transcribed, so a balance edit is reprinted by re-running this script
- * and cannot drift from the sim. The prose lives in `weapon-manual-copy.mjs`.
+ * and cannot drift from the sim. The prose lives in `cars-and-weapons-copy.mjs`.
  *
  *   npm run build -w @motor-combat-moba/shared   # this reads dist, not src
- *   node scripts/build-weapon-manual.mjs
+ *   node scripts/build-cars-and-weapons.mjs
  *
  * Rendering is Chromium's own `--print-to-pdf`, so the layout is plain print CSS. Display fonts are
  * fetched once and inlined as base64; with no network the page falls back to the system stack and
@@ -32,13 +32,13 @@ import {
   weaponDamageOf,
 } from "@motor-combat-moba/shared";
 
-import { CHASSIS_COPY, MANUAL_META, SLOT_ROLES, WEAPON_COPY } from "./weapon-manual-copy.mjs";
+import { CHASSIS_COPY, MANUAL_META, SLOT_ROLES, WEAPON_COPY } from "./cars-and-weapons-copy.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ICON_DIR = resolve(ROOT, "packages/client/public/art/weapon-icons");
 const CAR_DIR = resolve(ROOT, "packages/client/public/art/cars");
-const OUT_PDF = resolve(ROOT, "docs/weapon-manual.pdf");
-const OUT_HTML = resolve(ROOT, ".weapon-manual/manual.html");
+const OUT_PDF = resolve(ROOT, "docs/cars-and-weapons.pdf");
+const OUT_HTML = resolve(ROOT, ".cars-and-weapons/manual.html");
 
 /** The arena the build ships, for "how far is 900 units really" context. */
 const ARENA_WIDTH = 1280;

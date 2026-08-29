@@ -27,7 +27,7 @@ packages/client/.vite/
 !.claude/settings.json
 
 # intermediate HTML for `npm run build:manual` (the PDF itself is committed)
-.weapon-manual/
+.cars-and-weapons/
 
 # code-review-graph local knowledge graph
 .code-review-graph/

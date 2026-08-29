@@ -1,6 +1,6 @@
 /**
- * The editorial half of the weapon manual: everything a player needs that is NOT in
- * `WEAPON_TABLE`. Numbers never live here — `build-weapon-manual.mjs` reads every stat from
+ * The editorial half of the manual: everything a player needs that is NOT in
+ * `WEAPON_TABLE`. Numbers never live here — `build-cars-and-weapons.mjs` reads every stat from
  * built shared, so a balance edit reprints the manual correctly without touching this file.
  *
  * Prose is sourced from `docs/superpowers/specs/2026-08-29-weapon-roster-design.md` and rewritten
