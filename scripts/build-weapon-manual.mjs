@@ -317,7 +317,7 @@ function chassisPage(carId) {
        <p><b>Beats</b> ${esc(copy.beats)}</p>
        <p><b>Loses to</b> ${esc(copy.losesTo)}</p>
      </div>
-     <h3 class="kit-head">The kit</h3>
+     <h3 class="kit-head">The kit <em>— one page each, overleaf</em></h3>
      <ul class="kit">${kitRows}</ul>`,
   );
 }
@@ -574,6 +574,7 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: .85em; color: var(
 .matchup b { display: block; font-family: var(--display); text-transform: uppercase; letter-spacing: .12em;
         font-size: 9pt; color: var(--ink); margin-bottom: 1mm; }
 .kit-head { font-size: 11pt; color: var(--faint); letter-spacing: .18em; margin-bottom: 3mm; }
+.kit-head em { font-style: normal; font-weight: 500; letter-spacing: .1em; text-transform: none; }
 .kit { list-style: none; display: grid; gap: 4mm; }
 .kit li { display: grid; grid-template-columns: 16mm 1fr 62mm; align-items: center; gap: 5mm;
         background: var(--panel); border-left: 2.5pt solid var(--acc); padding: 4.5mm 5mm; border-radius: 0 1.5mm 1.5mm 0; }
@@ -661,11 +662,17 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: .85em; color: var(
 }
 
 async function main() {
+  // Chassis first, then ITS OWN three weapons, then the next chassis. The book reads as three
+  // self-contained kits rather than as a roster followed by a separate appendix of guns — which is
+  // also the order a player meets them in, since picking a car picks all three slots at once.
+  // `WEAPONS` is already built in chassis/slot order, so the "01 / 09" counters stay sequential.
   const pages = [
     cover(),
     legend(),
-    ...CAR_IDS.map(chassisPage),
-    ...WEAPONS.map(weaponPage),
+    ...CAR_IDS.flatMap((carId) => [
+      chassisPage(carId),
+      ...slotsOf(carId).map((id) => weaponPage(byId[id], WEAPONS.indexOf(byId[id]))),
+    ]),
     compare(),
     ceilings(),
   ].join("\n");
