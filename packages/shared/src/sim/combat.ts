@@ -1,3 +1,5 @@
+import { isEffectId } from "../config/effect-config.js";
+import type { EffectId } from "../config/effect-types.js";
 import { weaponDefOf } from "../config/weapon-config.js";
 import type { WeaponId } from "../config/weapon-types.js";
 import {
@@ -8,7 +10,9 @@ import {
   type Bounds,
 } from "./collide.js";
 import { carHullOf } from "./context.js";
-import { applyDamage } from "./damage.js";
+import { applyDamage, scaleDamage } from "./damage.js";
+import { applyEffect, type ActiveEffect } from "./effects/effects.js";
+import { modifiersOf, NEUTRAL_MODIFIERS, type Modifiers } from "./effects/modifiers.js";
 import { beginFire, cancelPending, releaseShots, tickRecharge, type FireState } from "./weapons/fire.js";
 import { resolveInstanceHits, type PoseSnapshot } from "./weapons/hits.js";
 import {
@@ -47,6 +51,15 @@ export interface CombatPlayer {
    * `fireState` is; only `targetSessionId` is ever projected onto the schema.
    */
   lock: LockState;
+  /**
+   * This car's live buffs and debuffs, carried in and back out. Unlike `fireState` and `lock`, this
+   * one IS networked in full (`PlayerState.effects`) — the client predicts the local car through
+   * `stepSim`, which reads the modifiers derived from it.
+   *
+   * Combat receives an already-expired list: `expireEffects` runs once per tick, before driving, so
+   * that everything reading a modifier this tick reads the same one. Combat only ever ADDS.
+   */
+  effects: readonly ActiveEffect[];
 }
 
 /** Everything about the tick that is the same for every player in it. */
@@ -58,12 +71,37 @@ export interface CombatWorld {
   bounds: Bounds;
 }
 
+/**
+ * "Put this effect on this car." The room half of the effect seam, and the one a future pickup
+ * system uses: a car drives over a repair crate, the room pushes one of these, and combat applies it
+ * on the next tick it runs.
+ *
+ * It is a request rather than a direct write because `runCombat` owns the effect list for the
+ * duration of a tick — a caller reaching past it to mutate `PlayerState.effects` mid-tick would race
+ * whatever combat is about to write back. A request lands on the tick it is queued for and bites on
+ * the NEXT one, exactly as an on-hit effect does; see the phase order on `runCombat`.
+ *
+ * `effectId` is typed but still validated: this queue is the one input to combat that does not come
+ * from a table, and a pickup system reading ids out of arena config could hand over anything.
+ */
+export interface EffectRequest {
+  targetSessionId: string;
+  effectId: EffectId;
+  /** Who caused it, or `""` for the world itself — a pickup, a hazard, a room-level grant. */
+  sourceSessionId?: string;
+}
+
 export interface CombatInput {
   world: CombatWorld;
   players: readonly CombatPlayer[];
   instances: readonly WeaponInstance[];
   /** Monotonic counter behind instance ids. Carried in and back out so ids never repeat. */
   instanceSeq: number;
+  /**
+   * Effects the room wants applied this tick, from anything that is not a weapon. Absent is none,
+   * which is every tick today: no pickup system exists yet.
+   */
+  effectRequests?: readonly EffectRequest[];
 }
 
 export interface CombatResult {
@@ -92,7 +130,16 @@ export interface CombatResult {
  *
  * Per-tick phase order — pinned by `weapons/fire.ts`'s own module comment and its tests:
  *
- *     tickRecharge -> (step existing instances) -> update lock -> beginFire -> releaseShots -> hit resolution
+ *     read modifiers -> effect requests -> tickRecharge -> (step existing instances) ->
+ *     update lock -> beginFire -> releaseShots -> hit resolution (which applies `onHit` effects)
+ *
+ * Buffs and debuffs bracket the rest of the tick. Every car's modifiers are derived ONCE, up front,
+ * from the list `expireEffects` has already swept — so nothing in a tick can be scaled by an effect
+ * that arrived halfway through it, and a jam cannot retroactively cancel a press it did not beat.
+ * New effects are only ever added: room requests first (a pickup driven over before the shooting),
+ * then whatever this tick's hits apply, and both take hold on the FOLLOWING tick. That is the same
+ * one-tick seam a ram knock already accepts, and it is what makes the effect layer order-independent
+ * within a tick rather than a race between whoever ran first.
  *
  * Every weapon in the table today has `startUpMs: 0`, so a press must schedule and fire on the same
  * tick: `beginFire` before `releaseShots` is what makes that true. Existing instances step BEFORE new
@@ -106,6 +153,37 @@ export function runCombat(input: CombatInput): CombatResult {
   const byId = new Map(players.map((p) => [p.sessionId, p]));
   let instanceSeq = input.instanceSeq;
 
+  // 0. Every car's modifiers, derived ONCE — before this tick's own effects are added — and read by
+  // every phase below. `expireEffects` swept the list before driving, so this is the same reading
+  // driving and ramming already took. A car with no effects gets the shared frozen
+  // `NEUTRAL_MODIFIERS` and the whole layer costs one map lookup.
+  const modifiersFor = new Map<string, Readonly<Modifiers>>(
+    players.map((p) => [
+      p.sessionId,
+      p.effects.length === 0 ? NEUTRAL_MODIFIERS : modifiersOf(p.effects, world.tick),
+    ]),
+  );
+  const modsOf = (sessionId: string): Readonly<Modifiers> =>
+    modifiersFor.get(sessionId) ?? NEUTRAL_MODIFIERS;
+
+  // 0b. Effects the room asked for — a pickup, a hazard — added AFTER the reading above, so a
+  // request behaves exactly as an on-hit effect does: it lands on this tick and bites on the next
+  // one. One rule for every source, and the reason it is one rule is that an on-hit effect cannot
+  // work any other way (hits resolve last), so the alternative would be two. It also means a crate
+  // and a shot arriving together cannot resolve differently depending on which the room queued
+  // first, and a `weaponCooldown` grant cannot retroactively shorten a recharge started this tick.
+  for (const request of input.effectRequests ?? []) {
+    const target = byId.get(request.targetSessionId);
+    if (!target || !isFighting(target)) continue;
+    if (!isEffectId(request.effectId)) continue;
+    target.effects = applyEffect(
+      target.effects,
+      request.effectId,
+      world.tick,
+      request.sourceSessionId ?? "",
+    );
+  }
+
   // 1. Recharge first, so a stock that lands this tick can be spent this tick. A player who has left
   // the fight cannot bank a shot, and drops any pending burst — a wreck does not finish firing.
   for (const player of players) {
@@ -113,7 +191,11 @@ export function runCombat(input: CombatInput): CombatResult {
       player.fireState = cancelPending(player.fireState);
       continue;
     }
-    player.fireState = tickRecharge(player.fireState, world.tick);
+    player.fireState = tickRecharge(
+      player.fireState,
+      world.tick,
+      modsOf(player.sessionId).weaponCooldown,
+    );
   }
 
   // 2. Existing instances step BEFORE new ones are born, so a fresh shot draws at the muzzle rather
@@ -170,8 +252,16 @@ export function runCombat(input: CombatInput): CombatResult {
   // 3. New presses, then whatever they (or an earlier tick's press) have scheduled for this tick.
   for (const player of players) {
     if (!isFighting(player)) continue;
-    player.fireState = beginFire(player.fireState, player.fireMask, world.tick);
-    const released = releaseShots(player.fireState, world.tick);
+    const mods = modsOf(player.sessionId);
+    // `disarmed` blocks a NEW press only; `releaseShots` below still runs. A press is a commitment
+    // (`beginFire` spends the stock at press time because a wind-up cannot be cancelled), so a jam
+    // landing mid-wind-up would otherwise eat a stock and produce nothing — a debuff that is
+    // strictly worse the better your timing was. Jam what has not been committed yet; let what has
+    // finish.
+    if (!mods.disarmed) {
+      player.fireState = beginFire(player.fireState, player.fireMask, world.tick);
+    }
+    const released = releaseShots(player.fireState, world.tick, mods.weaponCooldown);
     player.fireState = released.state;
     for (const order of released.orders) {
       const spawned = spawnInstances(
@@ -180,6 +270,7 @@ export function runCombat(input: CombatInput): CombatResult {
         world.tick,
         instanceSeq,
         aimAngleFor(player, order.weaponId, byId),
+        mods.damageDealt,
       );
       instanceSeq = spawned.seq;
       stepped.push(...spawned.instances);
@@ -207,9 +298,21 @@ export function runCombat(input: CombatInput): CombatResult {
       world.mode,
       world.tick,
     );
+    const onHit = weaponDefOf(instance.weaponId).onHit ?? [];
     for (const hit of outcome.damaged) {
       const target = byId.get(hit.sessionId);
-      if (target) damage(target, hit.amount);
+      if (!target) continue;
+      // Incoming damage is scaled at IMPACT, where outgoing was frozen at spawn. Deliberately
+      // asymmetric: a shot's cost is the shooter's business at the moment they fired, but how much
+      // it hurts is the target's business at the moment it lands — so armour applied while a shot is
+      // in the air protects against it, which is the whole point of applying armour under fire.
+      damage(target, scaleDamage(hit.amount, modsOf(hit.sessionId).damageTaken));
+      // Effects ride the DAMAGE list, so they inherit its rules for free: friendly fire, the
+      // shooter's own immunity, wrecks, pierce, and the per-target damage clock that stops a beam
+      // re-applying every tick. No weapon carries any today.
+      for (const effectId of onHit) {
+        target.effects = applyEffect(target.effects, effectId, world.tick, instance.ownerSessionId);
+      }
     }
     if (outcome.instance.alive) survivors.push(outcome.instance);
   }

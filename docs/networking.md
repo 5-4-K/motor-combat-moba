@@ -34,6 +34,19 @@ Angle comparisons are wrapped (`atan2(sin d, cos d)`) because `stepDrive` never 
 
 What each side still owns is getting its roster into **sorted `sessionId` order** before calling `otherCarHulls`: `resolveWorld` resolves contacts sequentially and the last one resolved is the one guaranteed to end separated, so order changes the result. The server sorts once per tick and reuses the array; the client rebuilds it from `MapSchema.forEach`.
 
+The third part of the context is the car's **buff/debuff modifiers**, and it follows the same rule.
+`StepContext.modifiers` is deliberately required rather than optional-with-a-neutral-default: the two
+builders must describe the same tick, and a default would let one of them silently forget while the
+other did not. The server derives the whole room's modifiers once per tick in `effectTick`, before
+driving; the client derives its own car's through `localModifiers`, which reads `PlayerState.effects`
+off the schema and hands the rows to the *same* shared `modifiersFromRows`.
+
+Both sides filter by `tick < endsTick` rather than trusting the list. The server's expiry sweep is
+authoritative, but patches arrive at 20 Hz against a 30 Hz sim, so without the independent filter a
+client would predict one or two ticks of an effect the server had already dropped. An effect list is
+therefore neither snapped nor eased on reconcile: it is not a value being integrated, it is the rules
+the integration runs under, and both halves derive it from the same tick through the same function.
+
 Note the split gate: the `IN_MATCH` filter inside `otherCarHulls` is the **wall** half (who is solid). The **mover** half — whether the local player's inputs move anything — is `ArenaScene.canDrive`, mirroring the server's own mover gate. Remotes enter the context at their last-known server pose; the client predicts only itself.
 
 **Interpolation.** Remotes are drawn from `InterpolationBuffer`, sampled at `now - NET_CONFIG.interpolationDelayMs`. Position lerps between the bracketing snapshots; angle lerps through `atan2` of blended sines and cosines so it crosses the ±π seam the short way. Past the newest snapshot it **holds** rather than extrapolating — a guessed pose slid through a wall the server bounced off is worse than a frame or two of freeze. Old snapshots outside the delay window are pruned, so the buffer does not grow with match length.

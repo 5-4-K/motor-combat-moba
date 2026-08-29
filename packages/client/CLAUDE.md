@@ -10,6 +10,15 @@ Keep the scene thin: pure, testable logic lives beside it (`net/step-context.ts`
 
 `buildStepContext` must keep agreeing with `serverTick`. The parts that decide who is solid and how a hull is sized are the *same* shared functions both call (`carIdOf`, `otherCarHulls` in `@motor-combat-moba/shared`) — change them there, never fork a client copy.
 
+Buffs and debuffs are the one part of combat the client DOES predict — because `stepSim` reads them.
+`localModifiers` in `net/step-context.ts` reads `PlayerState.effects` off the schema and hands the
+rows to the same shared `modifiersFromRows` the server reaches through; never fork that derivation
+here, for the same reason `carIdOf` and `otherCarHulls` are not forked. The badge strip above the
+weapon slots is derived in `scenes/effect-hud.ts` (order, drain fraction, seconds, strip layout) and
+drawn by `ArenaScene.drawEffectStrip` on the slot bar's own `Graphics`. **An effect the player cannot
+see is a bug they will report as the car feeling wrong** — a slow with no badge reads as netcode —
+so the strip is load-bearing, not decoration.
+
 `?debug=1` draws the car OBB hitbox.
 
 Combat is drawn, never predicted: live instances (projectiles and beams alike) come from `state.weapons` (cosmetically extrapolated along their own motion by `combat-visual.ts`), HP from `PlayerState.hp`. A wreck stops driving, predicting, and interpolating, and gains the spectate controls in `spectate.ts`.

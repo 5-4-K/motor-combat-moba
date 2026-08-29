@@ -1,6 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { ACTIVE_ARENA_ID, DEFAULT_CAR_ID, DRIVE_CONFIG, PlayerStatus, getArena } from "@motor-combat-moba/shared";
-import { buildStepContext, type ContextPlayer, type ContextState } from "./step-context.js";
+import {
+  ACTIVE_ARENA_ID,
+  DEFAULT_CAR_ID,
+  DRIVE_CONFIG,
+  NEUTRAL_MODIFIERS,
+  PlayerStatus,
+  getArena,
+  modifiersFromRows,
+} from "@motor-combat-moba/shared";
+import {
+  buildStepContext,
+  localModifiers,
+  type ContextPlayer,
+  type ContextState,
+} from "./step-context.js";
 
 function player(over: Partial<ContextPlayer> = {}): ContextPlayer {
   return {
@@ -27,7 +40,7 @@ function state(players: Record<string, ContextPlayer>): ContextState {
 
 describe("buildStepContext", () => {
   it("takes obstacles and bounds from the state's arena", () => {
-    const ctx = buildStepContext(ARENA, state({ me: player() }), "me");
+    const ctx = buildStepContext(ARENA, state({ me: player() }), "me", NEUTRAL_MODIFIERS);
     expect(ctx.obstacles).toEqual(ARENA.obstacles);
     expect(ctx.bounds).toEqual({ width: ARENA.width, height: ARENA.height });
   });
@@ -37,6 +50,7 @@ describe("buildStepContext", () => {
       ARENA,
       state({ me: player({ x: 10 }), other: player({ x: 20 }) }),
       "me",
+      NEUTRAL_MODIFIERS,
     );
     expect(ctx.others.map((hull) => hull.x)).toEqual([20]);
   });
@@ -51,6 +65,7 @@ describe("buildStepContext", () => {
         rival: player({ x: 50 }),
       }),
       "me",
+      NEUTRAL_MODIFIERS,
     );
     expect(ctx.others.map((hull) => hull.x)).toEqual([50]);
   });
@@ -67,12 +82,13 @@ describe("buildStepContext", () => {
         mike: player({ x: 3 }),
       }),
       "me",
+      NEUTRAL_MODIFIERS,
     );
     expect(ctx.others.map((hull) => hull.x)).toEqual([2, 3, 1]);
   });
 
   it("sizes hulls from DRIVE_CONFIG and carries the other car's angle", () => {
-    const ctx = buildStepContext(ARENA, state({ me: player(), them: player({ angle: 1.25 }) }), "me");
+    const ctx = buildStepContext(ARENA, state({ me: player(), them: player({ angle: 1.25 }) }), "me", NEUTRAL_MODIFIERS);
     expect(ctx.others[0]).toEqual({
       x: 0,
       y: 0,
@@ -83,17 +99,60 @@ describe("buildStepContext", () => {
   });
 
   it("uses the local player's chosen car", () => {
-    expect(buildStepContext(ARENA, state({ me: player({ carId: "hexagon" }) }), "me").carId).toBe("hexagon");
+    expect(buildStepContext(ARENA, state({ me: player({ carId: "hexagon" }) }), "me", NEUTRAL_MODIFIERS).carId).toBe("hexagon");
   });
 
   it("falls back to the shared default chassis for an unset or unknown carId", () => {
-    expect(buildStepContext(ARENA, state({ me: player({ carId: "" }) }), "me").carId).toBe(DEFAULT_CAR_ID);
-    expect(buildStepContext(ARENA, state({ me: player({ carId: "constructor" }) }), "me").carId).toBe(
+    expect(buildStepContext(ARENA, state({ me: player({ carId: "" }) }), "me", NEUTRAL_MODIFIERS).carId).toBe(DEFAULT_CAR_ID);
+    expect(buildStepContext(ARENA, state({ me: player({ carId: "constructor" }) }), "me", NEUTRAL_MODIFIERS).carId).toBe(
       DEFAULT_CAR_ID,
     );
   });
 
   it("falls back to the default chassis when the local player is missing entirely", () => {
-    expect(buildStepContext(ARENA, state({ other: player() }), "me").carId).toBe(DEFAULT_CAR_ID);
+    expect(buildStepContext(ARENA, state({ other: player() }), "me", NEUTRAL_MODIFIERS).carId).toBe(DEFAULT_CAR_ID);
+  });
+});
+
+describe("localModifiers", () => {
+  /** The wire shape `ArenaState.players` presents: rows with an `effects` list on each player. */
+  function stateWith(rows: Iterable<{ effectId: string; endsTick: number; stacks: number }>) {
+    return {
+      players: {
+        get: (id: string) => (id === "me" ? { effects: rows } : undefined),
+      },
+    };
+  }
+
+  it("is neutral for a player who is not in the room yet", () => {
+    expect(localModifiers(stateWith([]), "someone-else", 0)).toEqual(NEUTRAL_MODIFIERS);
+  });
+
+  it("is neutral for a player carrying nothing", () => {
+    expect(localModifiers(stateWith([]), "me", 0)).toEqual(NEUTRAL_MODIFIERS);
+  });
+
+  it("reads the rows through the same shared function the server uses", () => {
+    const rows = [{ effectId: "overdrive", endsTick: 500, stacks: 1 }];
+    expect(localModifiers(stateWith(rows), "me", 0)).toEqual(modifiersFromRows(rows, 0));
+  });
+
+  it("stops applying an effect on its endsTick, so a stale patch cannot mispredict a slow", () => {
+    const rows = [{ effectId: "tarred", endsTick: 500, stacks: 1 }];
+    expect(localModifiers(stateWith(rows), "me", 499).topSpeed).toBeLessThan(1);
+    expect(localModifiers(stateWith(rows), "me", 500)).toEqual(NEUTRAL_MODIFIERS);
+  });
+
+  it("ignores a row this build has no definition for", () => {
+    const rows = [{ effectId: "from-a-newer-build", endsTick: 500, stacks: 1 }];
+    expect(localModifiers(stateWith(rows), "me", 0)).toEqual(NEUTRAL_MODIFIERS);
+  });
+});
+
+describe("buildStepContext carries the modifiers it is given", () => {
+  it("puts them on the context, untouched", () => {
+    const mods = modifiersFromRows([{ effectId: "overdrive", endsTick: 500, stacks: 1 }], 0);
+    const ctx = buildStepContext(ARENA, state({ me: player() }), "me", mods);
+    expect(ctx.modifiers).toBe(mods);
   });
 });

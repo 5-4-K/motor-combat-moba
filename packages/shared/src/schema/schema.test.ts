@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ACTIVE_ARENA_ID } from "../config/arena-config.js";
 import { WeaponKind } from "../constants.js";
 import { ArenaState } from "./ArenaState.js";
+import { EffectState } from "./EffectState.js";
 import { PlayerState } from "./PlayerState.js";
 import { WeaponInstanceState } from "./WeaponInstanceState.js";
 import { WeaponSlotState } from "./WeaponSlotState.js";
@@ -152,5 +153,45 @@ describe("weapon schema", () => {
 
   it("no longer carries the single-weapon cooldown", () => {
     expect("weaponCooldown" in new PlayerState()).toBe(false);
+  });
+});
+
+describe("effect schema", () => {
+  it("gives a player an empty effect list by default", () => {
+    const player = new PlayerState();
+    expect(player.effects.length).toBe(0);
+  });
+
+  it("defaults a row to one stack from nobody", () => {
+    const row = new EffectState();
+    expect(row.effectId).toBe("");
+    expect(row.endsTick).toBe(0);
+    expect(row.stacks).toBe(1);
+    expect(row.sourceSessionId).toBe("");
+  });
+
+  it("carries effect rows on a player, in order", () => {
+    const player = new PlayerState();
+    const slow = new EffectState();
+    slow.effectId = "tarred";
+    slow.endsTick = 420;
+    slow.stacks = 2;
+    slow.sourceSessionId = "shooter";
+    player.effects.push(slow);
+
+    expect(player.effects.length).toBe(1);
+    expect(player.effects.at(0)!.effectId).toBe("tarred");
+    expect(player.effects.at(0)!.endsTick).toBe(420);
+    expect(player.effects.at(0)!.stacks).toBe(2);
+    expect(player.effects.at(0)!.sourceSessionId).toBe("shooter");
+  });
+
+  it("networks the whole effect, unlike the fire machine behind the slot rows", () => {
+    // Every field the sim reads is here: an effect has no server-only half, because the client
+    // predicts the local car through the modifiers derived from exactly these rows.
+    const row = new EffectState();
+    for (const field of ["effectId", "endsTick", "stacks", "sourceSessionId"]) {
+      expect(row).toHaveProperty(field);
+    }
   });
 });

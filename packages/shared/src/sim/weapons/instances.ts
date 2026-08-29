@@ -4,7 +4,7 @@ import { weaponTicksOf } from "../../config/weapon-ticks.js";
 import type { WeaponId } from "../../config/weapon-types.js";
 import { pointInAabb, pointOutsideBounds, type Aabb, type Bounds } from "../collide.js";
 import { carIdOf } from "../context.js";
-import { weaponDamageOf } from "../damage.js";
+import { scaleDamage, weaponDamageOf } from "../damage.js";
 
 /**
  * One live hitbox in the world. Projectiles use `x/y/angle/distance`; beams use `x/y/angle` as the
@@ -112,6 +112,13 @@ export function fanOffset(index: number, pellets: number, spreadRad: number): nu
  *
  * It never moves the muzzle (A11b): the shot always leaves the car's physical nose, derived from
  * `owner.angle`, and only its travel direction changes.
+ *
+ * `damageMult` is the owner's `damageDealt` buff/debuff channel, and it is applied HERE, at spawn,
+ * so it is frozen into `instance.damage` alongside `ownerTeam` for exactly the same reason those
+ * are: a shot's cost is decided the moment it leaves the barrel. A buff that expires while the shot
+ * is still in the air therefore does not un-power it, and one that lands while it flies does not
+ * power it up — which is the answer a player expects from watching their own tracer, and the only
+ * one available to a module that must never read player state at impact time.
  */
 export function spawnInstances(
   order: ShotOrder,
@@ -119,9 +126,10 @@ export function spawnInstances(
   tick: number,
   seq: number,
   aimAngle: number | null = null,
+  damageMult = 1,
 ): { instances: WeaponInstance[]; seq: number } {
   const def = weaponDefOf(order.weaponId);
-  const damage = weaponDamageOf(carIdOf(owner), order.weaponId);
+  const damage = scaleDamage(weaponDamageOf(carIdOf(owner), order.weaponId), damageMult);
   const pellets = def.kind === "projectile" ? def.volley.pelletsPerVolley : 1;
   const spread = def.kind === "projectile" ? (def.volley.spreadAngleDeg * Math.PI) / 180 : 0;
   const nose = muzzleOffset();

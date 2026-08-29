@@ -2,6 +2,12 @@
 
 LAN-hosted top-down 2D multiplayer car combat (last player/team standing, max 6). npm workspaces (`@motor-combat-moba/shared`, `@motor-combat-moba/server`, `@motor-combat-moba/client`), one Colyseus `arena` room (`ArenaRoom`), shared `stepSim` as the lockstep, Phaser 3 client. v1 is complete: lobby, car select, countdown, arcade driving with prediction, projectiles, ram knockback, elimination, spectate, last standing.
 
+Buffs and debuffs are the sim's duration layer (`sim/effects/`). Every channel is a **multiplier**
+with 1 as neutral, and `Modifiers` is the only type that reaches the sim — driving, ramming and combat
+never look at an effect list. **Nothing applies an effect yet**: the two seams that will
+(`WeaponDef.onHit`, and `CombatInput.effectRequests` for pickups) are built, tested, and unused. See
+[`docs/combat-model.md`](docs/combat-model.md#buffs-and-debuffs).
+
 Chassis ratings (`speed`, `attack`, `hp`, `mass`) are four independent 0-100 values. The 150-point
 budget that used to cap `speed`+`attack`+`hp` was deleted on 2026-08-29 so `mass` could be a
 free-floating fourth rating, and no replacement guard was adopted — see
@@ -32,7 +38,7 @@ free-floating fourth rating, and no replacement guard was adopted — see
 | LAN zip / `start.bat` | [`docs/deployment.md`](docs/deployment.md) |
 | Language / import rules | [`docs/conventions.md`](docs/conventions.md) |
 | Plan sequence | [`docs/roadmap.md`](docs/roadmap.md) |
-| Weapon, ram, elimination rules | [`docs/combat-model.md`](docs/combat-model.md) |
+| Weapon, ram, buff/debuff, elimination rules | [`docs/combat-model.md`](docs/combat-model.md) |
 | Art, manifest, asset swapping | [`docs/asset-pipeline.md`](docs/asset-pipeline.md) |
 | Code graph / MCP setup on a new machine | [`docs/code-review-graph.md`](docs/code-review-graph.md) |
 | Terms | [`docs/glossary.md`](docs/glossary.md) |
@@ -41,6 +47,7 @@ free-floating fourth rating, and no replacement guard was adopted — see
 | Weapon system decisions (D1–D22), aim assist and target lock (A1–A14), online-play review, future work | [`docs/superpowers/specs/2026-08-27-weapon-system-design.md`](docs/superpowers/specs/2026-08-27-weapon-system-design.md), [`docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md`](docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md), [`docs/superpowers/plans/2026-08-27-weapon-system.md`](docs/superpowers/plans/2026-08-27-weapon-system.md) |
 | The nine-weapon roster, per-chassis kits (L1–L7) | [`docs/superpowers/specs/2026-08-29-weapon-roster-design.md`](docs/superpowers/specs/2026-08-29-weapon-roster-design.md) |
 | Ram CC and knockback decisions (R1–R20): severity, side bonus, authority/shove/spin, the `mass` rating | [`docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md`](docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md) |
+| Buff/debuff decisions (D1–D22): channels, stacking, clamps, the two application seams | [`docs/superpowers/specs/2026-08-29-buff-debuff-mechanism-design.md`](docs/superpowers/specs/2026-08-29-buff-debuff-mechanism-design.md) |
 | The user's own idea / invariant notes | `docs/ideas/`, `docs/invariants/` — **off limits unless the user names them**, see below |
 
 ## `docs/ideas/` and `docs/invariants/` are the user's, not the agent's

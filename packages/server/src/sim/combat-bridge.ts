@@ -16,6 +16,7 @@ import {
   type PlayerState,
   type WeaponInstance,
 } from "@motor-combat-moba/shared";
+import { clearPlayerEffects, readEffects, writeEffects } from "./effect-bridge.js";
 
 /**
  * The schema half of combat: read `ArenaState` into plain objects, run the pure `runCombat`, write
@@ -27,7 +28,12 @@ import {
  * side of this boundary, in `@motor-combat-moba/shared`.
  */
 
-/** Room-owned state that lives across ticks but is deliberately never networked. */
+/**
+ * Room-owned state that lives across ticks but is deliberately never networked.
+ *
+ * Effects are deliberately absent: they live on `PlayerState.effects` and nowhere else. Anything
+ * with rules the client must run — and prediction runs the effect modifiers — cannot be memory here.
+ */
 export interface CombatMemory {
   /** Monotonic across the room's life, so a re-used session id cannot re-use an instance id. */
   instanceSeq: number;
@@ -94,6 +100,11 @@ export function toCombatPlayers(
       fireMask: masks.get(sessionId) ?? 0,
       fireState,
       lock,
+      // Read straight off the schema rather than carried in room memory, and expired entries are
+      // already gone: `effectTick` swept the list at the top of this tick, before driving. There is
+      // no server-only half to keep beside it — unlike `fireState` and `lock`, every field of an
+      // effect is networked, because the client predicts through the same modifiers.
+      effects: readEffects(player),
     });
   });
   return players;
@@ -139,6 +150,9 @@ export function applyCombatResult(state: ArenaState, result: CombatResult, memor
     player.pendingUntilTick = p.fireState.pending?.nextShotTick ?? 0;
     player.lastFiredSlot = p.fireState.lastFiredSlot;
     player.lockTargetSessionId = p.lock.targetSessionId;
+    // Combat only ever ADDS effects (this tick's hits, and any room request), so this is a no-op for
+    // every car nothing landed on — `writeEffects` compares row by row rather than rebuilding.
+    writeEffects(player, p.effects);
     writeSlots(player, p.fireState);
   }
 
@@ -202,6 +216,11 @@ export function clearInstances(state: ArenaState, memory: CombatMemory): void {
   // (spec A14: no lock survives a match end or setup).
   state.players.forEach((p) => {
     p.lockTargetSessionId = "";
+    // Nothing from the previous match survives into this one, a buff included: a car must not spawn
+    // into the countdown still carrying the slow that killed it last round. Same rule as the ram
+    // knock cleared in `revealCars`, and cleared here for the same reason the lock is — effects tick
+    // only in MATCH, so whatever was standing at the final tick would otherwise freeze and persist.
+    clearPlayerEffects(p);
   });
 }
 

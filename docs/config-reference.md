@@ -268,6 +268,98 @@ same reason `inertiaCoefficient` is derived above: both must move with `carHullO
 the torque lever and the inertia it divides by could silently disagree about the hull a ram actually
 collided against.
 
+## EFFECT_TABLE
+
+The buff and debuff roster: `packages/shared/src/config/effect-config.ts`. Networked balance, not
+render preference — server tick and client prediction both derive their multipliers from these rows,
+so the two must compute the same numbers. See
+[`combat-model.md`](combat-model.md#buffs-and-debuffs) for the mechanic.
+
+**Nothing applies any of these yet.** No weapon carries an `onHit` list and no pickup system exists.
+The rows below are plausible starting values so the mechanism has something real to be tested and
+balanced against; retuning, renaming or deleting one costs nothing while that stays true.
+
+Durations are authored in milliseconds and converted to whole ticks exactly once, in `EFFECT_TICKS`,
+rounding **up** — the same contract as `WEAPON_TICKS`, and it shares `msToTicks` with it.
+
+| Effect | Kind | Duration | Stacking | Modifiers | Flags |
+|---|---|---|---|---|---|
+| `overdrive` | buff | 4000 ms | refresh | `topSpeed` 1.25, `accel` 1.2 | — |
+| `tarred` | debuff | 3000 ms | stack (max 2) | `topSpeed` 0.78, `accel` 0.75 | — |
+| `rattled` | debuff | 2500 ms | refresh | `turnRate` 0.6 | — |
+| `primed` | buff | 5000 ms | refresh | `damageDealt` 1.25 | — |
+| `exposed` | debuff | 3000 ms | refresh | `damageTaken` 1.3 | — |
+| `hardened` | buff | 4000 ms | refresh | `damageTaken` 0.75, `ramMass` 1.3 | — |
+| `stoked` | buff | 4000 ms | refresh | `weaponCooldown` 0.7 | — |
+| `jammed` | debuff | 1500 ms | ignore | — | `disarmed` |
+
+Per-row fields: `id`, `name`, `kind` (display bucket — buff or debuff, and deliberately *not* derived
+from the modifiers), `color` (`#rrggbb`, render-only like `WeaponDef.color`), `durationMs`,
+`stacking`, `maxStacks`, `modifiers`, optional `flags`.
+
+`stacking` decides what re-applying a running effect does:
+
+- **`refresh`** — the clock restarts, the magnitude does not. The default, and the legible one.
+- **`stack`** — the clock restarts *and* the magnitude compounds, to `maxStacks`. Each stack
+  multiplies, so the third is worth less than the first.
+- **`ignore`** — a running effect is not re-applied at all; it must expire before it can be re-armed.
+  The anti-chain rule. Every row that flips a flag uses it, and `effect-config.test.ts` enforces that.
+
+### Channels
+
+Every channel is a **multiplier**, 1 = neutral, never an additive term and never an absolute value.
+That buys three things: neutral is exactly reproducible (a car with no effects multiplies by 1 and
+reproduces the pre-effect sim bit for bit — `golden.test.ts` pins it), sources compose in any order,
+and stacking diminishes on its own (two 0.7 slows are 0.49, not 0.4).
+
+| Channel | Scales | Read by |
+|---|---|---|
+| `topSpeed` | `forwardMaxSpeedOf` and `reverseMaxSpeedOf` | `stepDrive` |
+| `accel` | `DRIVE_CONFIG.accel` and `reverseAccel` — **never** `brakeDecel` or `drag` | `stepDrive` |
+| `turnRate` | the steering rate, alongside (not instead of) the ram's `authority` | `stepDrive` |
+| `damageDealt` | outgoing damage, frozen into the instance at spawn | `spawnInstances` |
+| `damageTaken` | incoming damage, applied at impact | `runCombat` |
+| `weaponCooldown` | `cooldown`, `refireDelay`, `recovery` — **not** `startUp` or `volleyInterval` | `tickRecharge`, `releaseShots` |
+| `ramMass` | `massOf`, both as attacker and as victim | `resolveRam` |
+
+Flags are booleans, OR-ed across sources: `disarmed` (no *new* press may be committed; one already
+committed still finishes) and `immobilised` (throttle forced to neutral — steering, braking, drag and
+any standing knock still resolve). No row uses `immobilised`; see the design note in
+`effect-config.ts` for why.
+
+## EFFECT_CONFIG
+
+| Knob | Value | Notes |
+|---|---|---|
+| `maxActive` | 6 | Most effects one car may carry. A wire guard *and* a design ceiling. At the cap a **new** id is dropped rather than evicting a running one, so a cheap effect can never strip a meaningful one off a target |
+| `maxStacksCap` | 4 | Upper bound on any row's `maxStacks` |
+
+## EFFECT_LIMITS
+
+The floor and ceiling each channel is clamped to **after** every source has been multiplied together.
+Not the balance lever — multiplication already diminishes each further source — but the guarantee:
+however many future weapons and pickups land on one car at once, a player keeps at least half their
+top speed, still steers, and still shoots. A debuff may take the fight off you; it may not take the
+car off you.
+
+| Channel | Min | Max |
+|---|---|---|
+| `topSpeed` | 0.5 | 2 |
+| `accel` | 0.4 | 2.5 |
+| `turnRate` | 0.4 | 2 |
+| `damageDealt` | 0.5 | 2 |
+| `damageTaken` | 0.4 | 2.5 |
+| `weaponCooldown` | 0.4 | 3 |
+| `ramMass` | 0.5 | 2 |
+
+`topSpeed`'s floor is the load-bearing one: below roughly half speed a car cannot disengage from
+anything, so every slow past that point converts a fight into an execution — which is the ram knock's
+job (bounded, ~1s, countersteerable), never a debuff's.
+
+A **single** row must land inside its channel's limits on its own, at full stacks:
+`effect-config.test.ts` asserts it. Clamping is the backstop against many sources piling up, and a row
+that needs it to be legal is a row whose authored number is a lie.
+
 ## CAMERA_CONFIG
 
 Render knobs only — nothing in `stepSim` reads them.

@@ -42,3 +42,22 @@ export function damageFor(attack: number, weaponDamage: number): number {
 export function weaponDamageOf(carId: CarId, weaponId: WeaponId): number {
   return damageFor(CAR_TABLE[carId].attack, weaponDefOf(weaponId).damage);
 }
+
+/**
+ * `amount` seen through one buff/debuff channel — `damageDealt` on the way out, `damageTaken` on
+ * the way in. The only place an effect is ever allowed to change a hit's size.
+ *
+ * Rounded to a whole number here, exactly as `damageFor` is and for the same reason: an integer must
+ * reach `applyDamage`, so a piercing shot deals the identical number to every car it passes through
+ * and the HUD never shows a fractional hp. The fixed-precision normalisation is `damageFor`'s too —
+ * multipliers like 1.3 are not exactly representable, and without it a product landing a hair under
+ * a .5 boundary rounds the wrong way at some magnitudes.
+ *
+ * A non-finite or negative multiplier is ignored rather than obeyed: a bad config number should cost
+ * a buff its effect, never turn a weapon into a repair kit or NaN a car's hp. `applyDamage` refuses
+ * negatives downstream as well, so this is the belt to its braces.
+ */
+export function scaleDamage(amount: number, multiplier: number): number {
+  if (!Number.isFinite(multiplier) || multiplier < 0) return amount;
+  return Math.max(0, Math.round(Number((amount * multiplier).toFixed(6))));
+}

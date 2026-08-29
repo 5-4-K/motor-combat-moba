@@ -14,6 +14,7 @@ import {
   type CombatWorld,
 } from "./combat.js";
 import { carHullOf } from "./context.js";
+import { NEUTRAL_MODIFIERS } from "./effects/modifiers.js";
 import { weaponDamageOf } from "./damage.js";
 import { newFireState } from "./weapons/fire.js";
 import type { WeaponInstance } from "./weapons/instances.js";
@@ -62,6 +63,7 @@ function player(sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlay
     fireMask: 0,
     fireState: newFireState(carId as CarId | "", 1),
     lock: newLockState(),
+    effects: [],
     ...over,
   };
 }
@@ -103,6 +105,7 @@ describe("firing", () => {
       fireMask: 0,
       fireState: newFireState("rectangle", 1),
       lock: newLockState(),
+      effects: [],
       ...over,
     };
   }
@@ -538,7 +541,12 @@ describe("chassis attack scales weapon damage through a real tick", () => {
  */
 describe("collision deals no damage", () => {
   const OPEN = { width: ARENA_01.width, height: ARENA_01.height };
-  const CLEAR = { carId: "rectangle" as const, obstacles: [] as never[], bounds: OPEN };
+  const CLEAR = {
+    carId: "rectangle" as const,
+    obstacles: [] as never[],
+    bounds: OPEN,
+    modifiers: NEUTRAL_MODIFIERS,
+  };
   const THROTTLE: InputMessage = { seq: 1, steer: 0, throttle: 1, fireSlots: 0 };
   const COAST: InputMessage = { seq: 1, steer: 0, throttle: 0, fireSlots: 0 };
 

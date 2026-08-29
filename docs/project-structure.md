@@ -24,9 +24,12 @@ motor-combat-MOBA/
 │   │   ├── weapon-types.ts       # WeaponDef discriminated union, StockDef, VolleyDef, Hitbox
 │   │   ├── weapon-config.ts      # WEAPON_TABLE
 │   │   ├── weapon-slots.ts       # WEAPON_SLOT_CONFIG, slotsOf (loadout, capped and warned)
-│   │   ├── weapon-ticks.ts       # WEAPON_TICKS: ms -> ticks, derived and frozen once
+│   │   ├── weapon-ticks.ts       # WEAPON_TICKS: ms -> ticks, derived and frozen once; scaleTicks
+│   │   ├── effect-types.ts       # EffectDef, EffectChannel, EffectFlag, EffectStacking
+│   │   ├── effect-config.ts      # EFFECT_TABLE, EFFECT_CONFIG, EFFECT_LIMITS, isEffectId
+│   │   ├── effect-ticks.ts       # EFFECT_TICKS: ms -> ticks, derived and frozen once
 │   │   └── arena-config.ts       # the one ACTIVE_ARENA_ID constant
-│   ├── schema/                   # PlayerState, WeaponInstanceState, WeaponSlotState, ArenaState
+│   ├── schema/                   # PlayerState, EffectState, WeaponInstanceState, WeaponSlotState, ArenaState
 │   ├── arena/
 │   │   ├── types.ts              # ArenaDef, Obstacle, Spawn, ArenaPalette
 │   │   ├── arena-01.ts           # first arena layout
@@ -48,7 +51,11 @@ motor-combat-MOBA/
 │       │   ├── instances.ts      # projectile travel; beam grow/linger/wall-clip; expiry
 │       │   ├── hits.ts           # pose-snapshot hit resolution, per-target damage clocks, pierce
 │       │   └── targets.ts        # canDamage: the single friendly-fire predicate
-│       └── damage.ts             # applyDamage (the only HP writer) and damageFor
+│       ├── effects/
+│       │   ├── effects.ts        # ActiveEffect list: apply, expire, stacking rules, wire validation
+│       │   └── modifiers.ts      # modifiersOf: an effect list -> the multipliers the sim reads
+│       ├── ram.ts                # ram severity, side bonus, the knock
+│       └── damage.ts             # applyDamage (the only HP writer), damageFor, scaleDamage
 ├── packages/server/src/
 │   ├── index.ts
 │   ├── mode.ts                   # env knobs (DEPLOY_MODE, latency injection, tick rate)
@@ -62,6 +69,8 @@ motor-combat-MOBA/
 │   │   └── singleton-arena.ts
 │   ├── sim/
 │   │   ├── tick.ts               # serverTick: drain queues into stepSim
+│   │   ├── effect-bridge.ts      # ArenaState ↔ effect lists; expiry + the tick's modifiers
+│   │   ├── ram-bridge.ts         # ArenaState ↔ applyRams POJOs
 │   │   └── combat-bridge.ts      # ArenaState ↔ runCombat POJOs
 │   └── net/
 │       ├── input-message.ts      # wire validation
@@ -102,13 +111,14 @@ motor-combat-MOBA/
         │   ├── car-visual.ts     # chassis silhouettes, colours
         │   ├── combat-visual.ts  # hp bar maths, instance extrapolation and draw shape (projectile + beam)
         │   ├── weapon-hud.ts     # pure HUD derivations: sweepFraction, slotVisualState, countdownSeconds
+        │   ├── effect-hud.ts     # pure buff/debuff badge derivations: order, drain, strip layout
         │   ├── spectate.ts       # spectate cycle, free-roam pan
         │   └── lobby-signature.ts
         └── ui/screens/arena-mismatch.ts # renders that message as DOM
 ```
 
 `ArenaScene` itself cannot be unit-tested without a browser, so its logic lives in the plain modules
-beside it (`arena-camera`, `arena-input`, `car-visual`, `combat-visual`, `spectate`) and the scene stays
+beside it (`arena-camera`, `arena-input`, `car-visual`, `combat-visual`, `effect-hud`, `spectate`) and the scene stays
 a thin shell
 over them. `assets/` is the same idea one directory over: the manifest parse, the key namespace, the
 hull fit, and the sprite-or-silhouette decision are all pure modules there, so the only thing left in

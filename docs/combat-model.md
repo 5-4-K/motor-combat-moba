@@ -84,6 +84,10 @@ applyDamage(hp, amount) // max(0, hp - amount); a non-positive amount changes no
 Every source routes through it, so a later buff, shield, or damage cap is one edit. Nothing else may
 subtract from `PlayerState.hp`. `hp === 0` sets `alive = false`; that is the wreck.
 
+That promise is what the buff system spent: `scaleDamage(amount, multiplier)` beside it is the one
+place an effect may change a hit's size, and it rounds to a whole number exactly as `damageFor` does,
+so `applyDamage` still always subtracts an integer.
+
 ## Weapon
 
 Every car carries an ordered list of weapons, `CAR_TABLE[car].weapons` — index 0 is slot 1, and
@@ -465,8 +469,132 @@ Same reasoning as `ownerTeam`.
 Rounding happens inside `damageFor`, so `applyDamage` always subtracts an integer from a `uint16`
 and a piercing shot deals the identical number to every car it passes through.
 
+Buffs and debuffs enter through `scaleDamage` at two points, and the asymmetry is deliberate. The
+shooter's `damageDealt` is applied **at spawn**, frozen into `instance.damage` alongside `ownerTeam`:
+a shot's cost is decided the moment it leaves the barrel, so a buff expiring mid-flight does not
+un-power it. The target's `damageTaken` is applied **at impact**: how much a shot hurts is the
+target's business at the moment it lands, so armour applied while a shot is in the air protects
+against it — which is the whole point of applying armour under fire. See
+[Buffs and debuffs](#buffs-and-debuffs).
+
 The roster is tuned so an average chassis (500 hull HP) kills another with the baseline weapon in
 **5 seconds** at perfect accuracy, reckoned as `hullHP / DPS`.
+
+## Buffs and debuffs
+
+The sim's **duration layer**. Ramming is the impulse layer — it lands in one tick and decays on its
+own — and weapons are the damage layer. An effect is neither: it is a window of altered rules that
+opens on one car and closes by itself.
+
+Nothing here deals damage and nothing here moves a car. An effect only ever scales a number the sim
+was already reading, and everything it can scale is enumerated by `EffectChannel` and `EffectFlag`.
+See [`config-reference.md`](config-reference.md#effect_table) for the roster and the channel list.
+
+**Nothing applies an effect yet.** The mechanism is complete and wired; the two things that will use
+it — weapons with an `onHit` list, and pickups — do not exist. Both seams are built and tested.
+
+### One type reaches the sim
+
+Driving, ramming and combat never look at an effect list. Each reads a `Modifiers` — one set of
+multipliers and two flags — produced by `modifiersOf`, and nothing else:
+
+    PlayerState.effects  ->  toActiveEffects  ->  modifiersOf  ->  Modifiers  ->  stepDrive / resolveRam / runCombat
+
+That is why adding an effect never touches the sim, and adding a *channel* touches exactly one call
+site. It is also why `NEUTRAL_MODIFIERS` reproduces the pre-effect sim exactly: every channel is a
+multiplier and neutral is 1, so a car carrying nothing multiplies by 1 everywhere.
+
+### Per-tick order
+
+    effectTick (expire, derive modifiers) -> serverTick (drive) -> ramTick -> combatTick
+
+Expiry runs **first**, before anything reads a modifier, so no two phases can disagree about whether
+a car is still slowed and no tick ever simulates an effect whose last tick was the previous one.
+New effects are only ever **added**, at the far end of the tick, and take hold on the *next* one —
+the same one-tick seam a ram knock already accepts.
+
+That rule is uniform across both sources. An on-hit effect cannot work any other way (hits resolve
+last), so letting a room request bite immediately would mean two rules instead of one; combat reads
+every car's modifiers before it applies this tick's requests, precisely so a crate and a shot
+arriving together cannot resolve differently depending on which the room queued first.
+
+Inside `runCombat` the order is:
+
+    read modifiers -> effect requests -> tickRecharge -> (step instances) -> update lock ->
+    beginFire -> releaseShots -> hit resolution (which applies each weapon's `onHit` effects)
+
+### The clock is exclusive at the end
+
+An effect applied on tick T with a duration of D ticks carries `endsTick = T + D` and is active while
+`tick < endsTick`. `expireEffects` drops it on the tick that *equals* `endsTick`, and `modifiersOf`
+independently refuses to read it there. Both halves matter: the server's sweep is authoritative, and
+the independent filter is what stops a client reading a patch-stale list from predicting one or two
+ticks of an effect the server has already dropped.
+
+### Applying one
+
+Two seams, both wired, neither used by anything shipped:
+
+- **`WeaponDef.onHit`** — a list of effect ids a weapon puts on each car it **damages**. Keyed to the
+  damage list rather than to contact, so it inherits every rule already there for free: friendly
+  fire, the shooter's own immunity, wrecks, pierce, and the per-target damage clock that stops a beam
+  re-applying every tick. A weapon that debuffs without hurting can author `damage: 0` and still
+  work — the effect rides the hit, not the number. Self-buffs and teammate-buffs do **not** belong
+  here; this list only ever reaches the car that was hit.
+- **`CombatInput.effectRequests`** — `{ targetSessionId, effectId, sourceSessionId? }`, for anything
+  that is not a weapon. This is the seam a pickup system uses: a car drives over a crate, the room
+  pushes a request, combat applies it. A request rather than a direct write because `runCombat` owns
+  the effect list for the duration of a tick. It is also the one combat input that does not come from
+  a table, so the id is validated even though it is typed.
+
+### Stacking, and why a car can always drive
+
+`stacking` is per row (`refresh` / `stack` / `ignore`) — see
+[`config-reference.md`](config-reference.md#effect_table). Beyond that, three rules bound how bad it
+can get for one car:
+
+1. **Multiplication.** Each further source buys strictly less than the last: two 0.7 slows are 0.49,
+   not 0.4. Composition is order-independent, so no source has to know about any other.
+2. **`EFFECT_CONFIG.maxActive`** caps a car at 6 simultaneous effects, and at the cap a *new* id is
+   dropped rather than evicting a running one — an attacker can never use a cheap effect to strip a
+   meaningful one off a target.
+3. **`EFFECT_LIMITS`** clamps every channel after aggregation. A focus-fired car keeps at least half
+   its top speed, still steers, and still shoots.
+
+`disarmed` blocks a **new** press only; a press already committed still finishes. `beginFire` spends
+the stock at press time because a wind-up cannot be cancelled, so a jam landing mid-wind-up would
+otherwise eat the stock and produce nothing — a debuff that is strictly worse the better your timing
+was. Jam what has not been committed; let what has finish.
+
+### What is networked, and why all of it
+
+`PlayerState.effects` carries the whole effect — id, end tick, stacks, and source — with no
+server-only half. That is the opposite of every other combat system here (`FireState`'s `pending`
+machine, an instance's `damageClock`, the lock's commit timers all stay off the wire), and the reason
+is invariant 8: `stepSim` reads the modifiers derived from these rows, and the client predicts the
+local car through the same `stepSim`. A car under a slow the client could not see would be
+mispredicted every tick it lasted and snapped back by every patch.
+
+The client's whole half is `localModifiers` in `net/step-context.ts`, which reads the rows off the
+schema and hands them to the *same* shared `modifiersFromRows` the server reaches through — the same
+rule that keeps `carIdOf` and `otherCarHulls` out of the client.
+
+Effects are cleared outright, not expired, whenever a match ends or is set up: `clearInstances`
+sweeps them alongside the lock, so a car never spawns into a countdown still carrying the slow that
+killed it last round.
+
+### What the player sees
+
+A badge strip in the HUD gutter, above the weapon slots: one pill per effect in its own colour, a
+drain bar down its left edge, and its name, stack count and seconds remaining. Debuffs lead, then
+buffs; within each group the one lapsing soonest is on top. The strip grows *upward*, so a badge does
+not move when another lapses beneath it.
+
+This is not decoration. An effect a player cannot see is a bug they will report as the car feeling
+wrong: a slow with no badge reads as netcode, a damage buff with no badge reads as inconsistent
+weapon damage, and neither is something a player can learn from. The badge is the only channel the
+mechanism has for explaining itself. Derivations live in `scenes/effect-hud.ts`; `ArenaScene` keeps
+only the Phaser calls.
 
 ## Elimination and winning
 

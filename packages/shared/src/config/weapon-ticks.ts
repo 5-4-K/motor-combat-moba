@@ -56,3 +56,23 @@ export const WEAPON_TICKS: Readonly<Record<WeaponId, WeaponTicks>> = Object.free
 export function weaponTicksOf(id: WeaponId): WeaponTicks {
   return WEAPON_TICKS[id];
 }
+
+/**
+ * A tick count seen through the `weaponCooldown` channel: below 1 is faster, above 1 slower.
+ *
+ * Applied only to the three "when may I shoot again" clocks — `cooldown`, `refireDelay` and
+ * `recovery` — at the two sites in `fire.ts` that read them. Wind-up and the gap between a burst's
+ * volleys are deliberately left alone: those are the shape of one press, and a haste buff that
+ * compressed them would change what a weapon *is* rather than how often you get it.
+ *
+ * The three pass-through cases each matter. `0` stays 0: a weapon with no recovery must not acquire
+ * one from a debuff. `Infinity` stays infinite (`damageInterval`'s "once per target, ever"). A
+ * non-positive or non-finite multiplier is ignored, so a bad config value costs the effect rather
+ * than freezing a weapon. Everything else floors at 1 — a scaled clock may never round to 0 and
+ * hand a weapon a free shot the table never authored.
+ */
+export function scaleTicks(ticks: number, multiplier: number): number {
+  if (!Number.isFinite(ticks) || ticks <= 0) return ticks;
+  if (!Number.isFinite(multiplier) || multiplier <= 0) return ticks;
+  return Math.max(1, Math.round(ticks * multiplier));
+}

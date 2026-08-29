@@ -5,7 +5,19 @@ import type { CarId } from "../config/types.js";
 import { applyRams, impactSideOf, pairKey, resolveRam, type RamCar } from "./ram.js";
 
 function car(over: Partial<RamCar> = {}): RamCar {
-  return { sessionId: "a", team: 0, x: 0, y: 0, angle: 0, speed: 0, carId: "rectangle" as CarId, ...over };
+  // `massMult: 1` is the neutral value of the `ramMass` buff/debuff channel: every expectation in
+  // this file is the unbuffed maths, and must stay so.
+  return {
+    sessionId: "a",
+    team: 0,
+    x: 0,
+    y: 0,
+    angle: 0,
+    speed: 0,
+    carId: "rectangle" as CarId,
+    massMult: 1,
+    ...over,
+  };
 }
 
 /**

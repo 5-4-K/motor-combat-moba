@@ -1,3 +1,5 @@
+import type { EffectId } from "./effect-types.js";
+
 /** Every weapon in the game. Add an id here and a row in `WEAPON_TABLE`. */
 export type WeaponId =
   | "fireball"
@@ -91,6 +93,26 @@ interface WeaponBase {
    */
   usesAimAssist: boolean;
   stock?: StockDef;
+  /**
+   * Buffs and debuffs this weapon applies to each car it DAMAGES, on the tick the damage lands.
+   *
+   * The weapon half of the effect seam. Absent — which is every weapon in the table today — means
+   * the weapon applies nothing, exactly as the whole roster behaved before effects existed. Optional
+   * rather than required, unlike `usesAimAssist`: "this weapon also debuffs" is an addition to a
+   * weapon, not a targeting behaviour every row has to take a position on, and requiring an empty
+   * array on nine rows would be noise that says nothing.
+   *
+   * Deliberately keyed to damage rather than to contact: `resolveInstanceHits` already decides who a
+   * shot may touch (friendly fire, the shooter, wrecks) and already runs each target's per-instance
+   * damage clock, so hanging effects off the same list means a debuff can never land on a teammate
+   * a shot passed harmlessly through, and a beam re-applies its debuff on exactly the cadence it
+   * re-applies its damage. A weapon that debuffs without hurting can author `damage: 0` and still
+   * work — the effect rides the hit, not the number.
+   *
+   * Self-buffs and teammate-buffs do NOT belong here; this list only ever reaches the car that was
+   * hit. Those want the room's `effectRequests` queue, or an `onFire` list if one is ever earned.
+   */
+  onHit?: readonly EffectId[];
 }
 
 export interface ProjectileWeaponDef extends WeaponBase {

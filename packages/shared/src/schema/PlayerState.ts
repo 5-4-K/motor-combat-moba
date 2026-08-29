@@ -1,5 +1,6 @@
 import { ArraySchema, Schema, type } from "@colyseus/schema";
 import { PlayerStatus } from "../constants.js";
+import { EffectState } from "./EffectState.js";
 import { WeaponSlotState } from "./WeaponSlotState.js";
 
 export class PlayerState extends Schema {
@@ -54,4 +55,18 @@ export class PlayerState extends Schema {
    * the result, never the rules. All the HUD needs is which car to draw a bracket on.
    */
   @type("string") lockTargetSessionId = "";
+  /**
+   * Live buffs and debuffs, capped at `EFFECT_CONFIG.maxActive`.
+   *
+   * Networked because `stepSim` reads it (invariant 8) — `modifiersOf` turns this list into the
+   * multipliers `stepDrive` applies, so the client must hold the same list to predict the same car.
+   * Unlike the ram's four knock fields, this is not reconciled by snapping: it is not a value being
+   * integrated, it is the *rules* the integration runs under, and both sides derive it from the
+   * same tick through the same shared function.
+   *
+   * Rows are unordered as far as any reader is concerned — `modifiersOf` multiplies and OR-s, both
+   * of which commute — but the sim keeps them sorted by `effectId` so a patch carries a diff rather
+   * than a reshuffle.
+   */
+  @type([EffectState]) effects = new ArraySchema<EffectState>();
 }

@@ -35,6 +35,17 @@ export interface RamCar {
   /** Scalar velocity along the car's own heading — exactly the `dot(vel, fwd)` the severity needs. */
   speed: number;
   carId: CarId;
+  /**
+   * The car's `ramMass` buff/debuff multiplier, 1 for a car carrying nothing.
+   *
+   * Read through `effectiveMassOf` at all three sites mass enters the maths, so a mass buff works
+   * both ways round: it makes this car hit harder AND makes it harder to shift. That symmetry is
+   * the whole reason `ramMass` is one channel rather than two — mass in this game is a single
+   * physical fact about a chassis (`CAR_TABLE.mass`, and nothing else reads it), and an effect that
+   * could raise a car's ramming power without also anchoring it would not be scaling mass, it would
+   * be a damage buff wearing mass's name.
+   */
+  massMult: number;
 }
 
 /** What one ram writes onto its victim. Absolute values, not deltas: a knock replaces, never stacks. */
@@ -52,6 +63,15 @@ export interface RamHit {
   side: ImpactSide;
   severity: number;
   knock: RamKnock;
+}
+
+/**
+ * This car's mass as the ram maths sees it: its chassis rating, scaled by whatever `ramMass` effect
+ * it carries. The single reading of "how heavy is this car right now" — `massOf` is never called
+ * directly from this module.
+ */
+function effectiveMassOf(car: RamCar): number {
+  return massOf(car.carId) * car.massMult;
 }
 
 /** Unordered pair identity, so contact tracking cannot depend on iteration order. */
@@ -143,11 +163,11 @@ export function resolveRam(a: RamCar, b: RamCar, mode: "ffa" | "team"): RamHit |
   const side = impactSideOf(incoming, victim.angle);
   // Attacker mass enters HERE and nowhere else. Clamped before the side bonus and again after, so a
   // rear hit on an already-saturated ram cannot drive `authority` below its own floor.
-  const raw = clamp01((approach * massOf(attacker.carId)) / RAM_REFERENCE);
+  const raw = clamp01((approach * effectiveMassOf(attacker)) / RAM_REFERENCE);
   const severity = clamp01(raw * bonusFor(side));
 
   const impulse = severity * RAM_CONFIG.knockMaxSpeed;
-  const victimMass = massOf(victim.carId);
+  const victimMass = effectiveMassOf(victim);
   // Victim mass enters HERE — the same impulse displaces a light car further. Clamped at both ends so
   // neither the heaviest nor the lightest chassis degenerates.
   const massFactor = clamp(
@@ -207,7 +227,7 @@ function spinOf(attacker: RamCar, victim: RamCar, away: Vec2, impulse: number): 
   const fy = (away.x * sin + away.y * cos) * impulse;
 
   const torque = rx * fy - ry * fx;
-  const inertia = massOf(victim.carId) * RAM_CONFIG.inertiaCoefficient;
+  const inertia = effectiveMassOf(victim) * RAM_CONFIG.inertiaCoefficient;
   const spin = (torque / inertia) * RAM_CONFIG.spinScale;
   return clamp(spin, -RAM_CONFIG.spinMaxRate, RAM_CONFIG.spinMaxRate);
 }
