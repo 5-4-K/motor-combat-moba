@@ -275,7 +275,6 @@ describe("applyCombatResult", () => {
             fireState: newFireState("rectangle", 1),
             lock: newLockState(),
             statuses: [],
-      statuses: [],
           },
         ],
         instances: [],
