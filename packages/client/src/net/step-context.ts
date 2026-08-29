@@ -1,9 +1,13 @@
 import {
+  NEUTRAL_MODIFIERS,
   carIdOf,
+  modifiersFromRows,
   otherCarHulls,
   type ArenaDef,
   type ContextEntry,
   type ContextPlayer,
+  type StatusRow,
+  type Modifiers,
   type StepContext,
 } from "@motor-combat-moba/shared";
 
@@ -39,6 +43,7 @@ export function buildStepContext(
   arena: ArenaDef,
   state: ContextState,
   selfSessionId: string,
+  modifiers: Readonly<Modifiers>,
 ): StepContext {
   const entries: ContextEntry[] = [];
   state.players.forEach((player, sessionId) => {
@@ -54,5 +59,38 @@ export function buildStepContext(
     others: otherCarHulls(entries, selfSessionId),
     obstacles: arena.obstacles,
     bounds: { width: arena.width, height: arena.height },
+    modifiers,
   };
+}
+
+/**
+ * The local car's status multipliers, from the rows the server patched onto it.
+ *
+ * The client's half of the effect layer, and it is deliberately thin: `modifiersFromRows` is the
+ * *same* shared function `serverTick` reaches through, so the two sides cannot drift on how a list
+ * of effects becomes a set of multipliers — the same rule that keeps `carIdOf` and `otherCarHulls`
+ * out of this file. All this adds is reading the rows off the schema and answering neutral for a
+ * player who is not in the room yet.
+ *
+ * `tick` is the state's own tick, not a local clock. A status is active while `tick < endsTick`, so
+ * the reading has to be taken on the tick the server is on — and `modifiersFromRows` filters by it
+ * independently of the server's sweep, which is what stops a patch arriving one tick late from
+ * predicting a slow the server has already dropped.
+ */
+export function localModifiers(
+  state: StatusRowSource,
+  selfSessionId: string,
+  tick: number,
+): Readonly<Modifiers> {
+  const rows = state.players.get(selfSessionId)?.statuses;
+  if (!rows) return NEUTRAL_MODIFIERS;
+  return modifiersFromRows(rows, tick);
+}
+
+/**
+ * Just enough of `ArenaState` to read one player's status rows. Named for what it supplies rather
+ * than after the schema class `StatusState`, which is one row and not a source of them.
+ */
+export interface StatusRowSource {
+  players: { get(sessionId: string): { statuses: Iterable<StatusRow> } | undefined };
 }

@@ -52,6 +52,10 @@ export function beamShapeAt(
   // AT the muzzle, and SAT calls a degenerate shape strictly inside a box an overlap, not a miss. An
   // empty polygon sidesteps that: `convexOverlap` treats fewer than 3 points as always separated.
   if (reach <= 0) return { kind: "polygon", points: [] };
+  // A disc is radially symmetric, so its growing extent IS its radius and the angle is meaningless.
+  // It reuses `WorldShape`'s circle arm, which already exists for circular projectiles, so an aura
+  // needs no new geometry at all: `shapeHitsObb` routes it straight to `circleOverlapsObb`.
+  if (hitbox.shape === "disc") return { kind: "circle", x, y, radius: reach };
   if (hitbox.shape === "rect") {
     const half = hitbox.width / 2;
     return {

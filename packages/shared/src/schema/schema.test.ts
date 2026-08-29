@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ACTIVE_ARENA_ID } from "../config/arena-config.js";
 import { WeaponKind } from "../constants.js";
 import { ArenaState } from "./ArenaState.js";
+import { StatusState } from "./StatusState.js";
 import { PlayerState } from "./PlayerState.js";
 import { WeaponInstanceState } from "./WeaponInstanceState.js";
 import { WeaponSlotState } from "./WeaponSlotState.js";
@@ -152,5 +153,54 @@ describe("weapon schema", () => {
 
   it("no longer carries the single-weapon cooldown", () => {
     expect("weaponCooldown" in new PlayerState()).toBe(false);
+  });
+});
+
+describe("status schema", () => {
+  it("gives a player an empty status list by default", () => {
+    const player = new PlayerState();
+    expect(player.statuses.length).toBe(0);
+  });
+
+  it("defaults a row to an unnamed status from nobody", () => {
+    const row = new StatusState();
+    expect(row.statusId).toBe("");
+    expect(row.startTick).toBe(0);
+    expect(row.endsTick).toBe(0);
+    expect(row.sourceSessionId).toBe("");
+  });
+
+  it("carries status rows on a player, in order", () => {
+    const player = new PlayerState();
+    const slow = new StatusState();
+    slow.statusId = "spiked";
+    slow.startTick = 300;
+    slow.endsTick = 420;
+    slow.sourceSessionId = "shooter";
+    player.statuses.push(slow);
+
+    expect(player.statuses.length).toBe(1);
+    expect(player.statuses.at(0)!.statusId).toBe("spiked");
+    expect(player.statuses.at(0)!.startTick).toBe(300);
+    expect(player.statuses.at(0)!.endsTick).toBe(420);
+    expect(player.statuses.at(0)!.sourceSessionId).toBe("shooter");
+  });
+
+  it("networks the whole status, unlike the fire machine behind the slot rows", () => {
+    // Every field the sim reads is here: a status has no server-only half, because the client
+    // predicts the local car through the modifiers derived from exactly these rows.
+    const row = new StatusState();
+    for (const field of ["statusId", "startTick", "endsTick", "sourceSessionId"]) {
+      expect(row).toHaveProperty(field);
+    }
+  });
+
+  it("carries both ticks, because the duration is not recoverable from the status table", () => {
+    // A status does not own its duration -- the applier chose it -- so `startTick` is the only way
+    // a reader can know the total, which the HUD's drain bar needs.
+    const row = new StatusState();
+    row.startTick = 100;
+    row.endsTick = 190;
+    expect(row.endsTick - row.startTick).toBe(90);
   });
 });

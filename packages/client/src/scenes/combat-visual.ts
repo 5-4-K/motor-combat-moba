@@ -444,6 +444,10 @@ export function beamDrawLayers(
   const style = WEAPON_BEAM_STYLES[def.id];
   if (!style) return [];
 
+  // A disc has no cross-section to nest layers inside, and it is drawn as a ring rather than as a
+  // filled solid — see `isAuraWeapon`. Layered styles are a directional-beam idea.
+  if (def.hitbox.shape === "disc") return [];
+
   const grown = beamGrownExtent(def.id, extent, elapsedMs);
   const layers: DrawBeamLayer[] = [];
   for (const layer of style.layers) {
@@ -699,3 +703,23 @@ export function lockBracketArms(
     { x1: right, y1: bottom, x2: right, y2: bottom - a },
   ];
 }
+
+/**
+ * Is this weapon drawn as an AURA — a ring around a car — rather than as a solid shape?
+ *
+ * An aura is the one instance in the game whose hitbox is too big to fill in. Every other shot is
+ * drawn *as* its hitbox (D19), which works because a shot is small; a 150-unit disc filled opaquely
+ * would hide the cars inside it, including the one being stunned, so the rule has to bend to keep
+ * its own purpose. It bends as little as possible: the ring sits exactly ON the hitbox edge and the
+ * wash inside it is the same colour, so what you see is still precisely what will hit you.
+ */
+export function isAuraWeapon(weaponId: string): boolean {
+  if (!isWeaponId(weaponId)) return false;
+  const def = weaponDefOf(weaponId);
+  return def.kind === "beam" && def.hitbox.shape === "disc";
+}
+
+/** The aura ring's stroke width, in world units. */
+export const AURA_RING_WIDTH = 3;
+/** Alpha on the aura's own colour for the wash inside the ring. Low enough to read through. */
+export const AURA_FILL_ALPHA = 0.14;

@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { ArenaState, PlayerState, PlayerStatus, RAM_CONFIG } from "@motor-combat-moba/shared";
+import {
+  ArenaState,
+  PlayerState,
+  PlayerStatus,
+  RAM_CONFIG,
+  type Modifiers,
+} from "@motor-combat-moba/shared";
 import { clearKnock, newRamMemory, ramTick } from "./ram-bridge.js";
+
+/**
+ * No buffs or debuffs in play. Every expectation in this file is the unbuffed sim, and a
+ * `NEUTRAL_MODIFIERS` lookup is what an empty map yields through `modifiersFor`.
+ */
+const NO_EFFECTS = new Map<string, Modifiers>();
 
 function addPlayer(state: ArenaState, id: string, over: Partial<PlayerState> = {}): PlayerState {
   const p = new PlayerState();
@@ -24,7 +36,7 @@ describe("ramTick", () => {
     const state = arena();
     addPlayer(state, "a", { x: 0, y: 400, angle: 0, speed: 540 });
     const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
-    ramTick(state, new Set(["a", "b"]), newRamMemory(), "ffa");
+    ramTick(state, new Set(["a", "b"]), newRamMemory(), "ffa", NO_EFFECTS);
     expect(victim.authority).toBeLessThan(1);
     expect(victim.shoveX).toBeGreaterThan(0);
   });
@@ -33,7 +45,7 @@ describe("ramTick", () => {
     const state = arena();
     const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, speed: 540 });
     addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
-    ramTick(state, new Set(["a", "b"]), newRamMemory(), "ffa");
+    ramTick(state, new Set(["a", "b"]), newRamMemory(), "ffa", NO_EFFECTS);
     expect(attacker.authority).toBe(1);
     expect(attacker.shoveX).toBe(0);
     expect(attacker.angVel).toBe(0);
@@ -43,7 +55,7 @@ describe("ramTick", () => {
     const state = arena();
     addPlayer(state, "a", { x: 0, y: 400, angle: 0, speed: 540, hp: 400 });
     const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0, hp: 400 });
-    ramTick(state, new Set(["a", "b"]), newRamMemory(), "ffa");
+    ramTick(state, new Set(["a", "b"]), newRamMemory(), "ffa", NO_EFFECTS);
     expect(victim.hp).toBe(400);
   });
 
@@ -52,10 +64,10 @@ describe("ramTick", () => {
     addPlayer(state, "a", { x: 0, y: 400, angle: 0, speed: 540 });
     const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
     const memory = newRamMemory();
-    ramTick(state, new Set(["a", "b"]), memory, "ffa");
+    ramTick(state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS);
     const afterFirst = victim.authority;
     victim.authority = 1;
-    ramTick(state, new Set(["a", "b"]), memory, "ffa");
+    ramTick(state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS);
     expect(afterFirst).toBeLessThan(1);
     expect(victim.authority).toBe(1);
   });
@@ -64,7 +76,7 @@ describe("ramTick", () => {
     const state = arena();
     addPlayer(state, "a", { x: 0, y: 400, angle: 0, speed: 540 });
     const bystander = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
-    ramTick(state, new Set(["a"]), newRamMemory(), "ffa");
+    ramTick(state, new Set(["a"]), newRamMemory(), "ffa", NO_EFFECTS);
     expect(bystander.authority).toBe(1);
   });
 
@@ -72,7 +84,7 @@ describe("ramTick", () => {
     const state = arena();
     addPlayer(state, "a", { x: 0, y: 400, angle: 0, speed: 540 });
     const lobbying = addPlayer(state, "b", { x: 47, y: 400, angle: 0, status: PlayerStatus.READY });
-    ramTick(state, new Set(["a", "b"]), newRamMemory(), "ffa");
+    ramTick(state, new Set(["a", "b"]), newRamMemory(), "ffa", NO_EFFECTS);
     expect(lobbying.authority).toBe(1);
   });
 
@@ -80,7 +92,7 @@ describe("ramTick", () => {
     const state = arena();
     addPlayer(state, "a", { x: 0, y: 400, angle: 0, speed: 540 });
     const wreck = addPlayer(state, "b", { x: 47, y: 400, angle: 0, alive: false });
-    ramTick(state, new Set(["a", "b"]), newRamMemory(), "ffa");
+    ramTick(state, new Set(["a", "b"]), newRamMemory(), "ffa", NO_EFFECTS);
     expect(wreck.authority).toBe(1);
   });
 
@@ -88,7 +100,7 @@ describe("ramTick", () => {
     const state = arena();
     addPlayer(state, "a", { x: 0, y: 400, angle: 0, speed: 540, team: 0 });
     const mate = addPlayer(state, "b", { x: 47, y: 400, angle: 0, team: 0 });
-    ramTick(state, new Set(["a", "b"]), newRamMemory(), "team");
+    ramTick(state, new Set(["a", "b"]), newRamMemory(), "team", NO_EFFECTS);
     expect(mate.authority).toBe(1);
   });
 
@@ -99,7 +111,7 @@ describe("ramTick", () => {
     addPlayer(state, "strong", { x: 0, y: 400, angle: 0, speed: 540 });
     const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
     const memory = newRamMemory();
-    ramTick(state, new Set(["strong", "b"]), memory, "ffa");
+    ramTick(state, new Set(["strong", "b"]), memory, "ffa", NO_EFFECTS);
     const afterHardRam = victim.authority;
     expect(afterHardRam).toBeLessThan(0.5);
 
@@ -108,7 +120,7 @@ describe("ramTick", () => {
     // knock would land authority near 1.0 (almost no control loss), which must NOT overwrite the
     // still-standing hard knock above.
     addPlayer(state, "weak", { x: 0, y: 400, angle: 0, speed: RAM_CONFIG.minApproachSpeed + 5 });
-    ramTick(state, new Set(["strong", "b", "weak"]), memory, "ffa");
+    ramTick(state, new Set(["strong", "b", "weak"]), memory, "ffa", NO_EFFECTS);
 
     expect(victim.authority).toBe(afterHardRam);
   });
@@ -118,13 +130,13 @@ describe("ramTick", () => {
     addPlayer(state, "medium", { x: 0, y: 400, angle: 0, speed: 540 });
     const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
     const memory = newRamMemory();
-    ramTick(state, new Set(["medium", "b"]), memory, "ffa");
+    ramTick(state, new Set(["medium", "b"]), memory, "ffa", NO_EFFECTS);
     const afterMediumRam = victim.authority;
 
     // A heavier attacker (hexagon) rear-ends the same victim at its own top speed on a later tick —
     // strictly harder than the first ram, so its lower authority must win.
     addPlayer(state, "hexy", { x: 0, y: 400, angle: 0, speed: 315, carId: "hexagon" });
-    ramTick(state, new Set(["medium", "b", "hexy"]), memory, "ffa");
+    ramTick(state, new Set(["medium", "b", "hexy"]), memory, "ffa", NO_EFFECTS);
 
     expect(victim.authority).toBeLessThan(afterMediumRam);
     expect(victim.authority).toBeCloseTo(RAM_CONFIG.authorityFloor, 2);

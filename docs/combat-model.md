@@ -75,14 +75,27 @@ shove, and no authority loss.
 See [`superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md`](superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md)
 for the full decision record (R1–R20), including the deviations recorded there.
 
-## `applyDamage` is the only HP writer
+## `sim/damage.ts` is the only place hp moves
 
 ```ts
 applyDamage(hp, amount) // max(0, hp - amount); a non-positive amount changes nothing
 ```
 
-Every source routes through it, so a later buff, shield, or damage cap is one edit. Nothing else may
-subtract from `PlayerState.hp`. `hp === 0` sets `alive = false`; that is the wreck.
+Every damage source routes through it, so a later shield or damage cap is one edit. `hp === 0` sets
+`alive = false`; that is the wreck.
+
+Two functions beside it complete the set, both added by the status system:
+
+```ts
+applyHeal(hp, amount, maxHp)   // min(maxHp, hp + amount); refuses to lift a wreck off 0
+scaleDamage(amount, multiplier) // a hit seen through damageDealt or damageTaken, rounded
+```
+
+`applyDamage` is therefore no longer the *only* writer of hp — **this file is**, and these are the
+whole set. That is a deliberate weakening of the original rule, and it keeps what the rule was
+protecting: one file to read when asking what can move a car's hp. `scaleDamage` rounds to a whole
+number exactly as `damageFor` does, so `applyDamage` still always subtracts an integer from a
+`uint16`.
 
 ## Weapon
 
@@ -465,8 +478,179 @@ Same reasoning as `ownerTeam`.
 Rounding happens inside `damageFor`, so `applyDamage` always subtracts an integer from a `uint16`
 and a piercing shot deals the identical number to every car it passes through.
 
+Statuses enter through `scaleDamage` at two points, and the asymmetry is deliberate. The shooter's
+`damageDealt` is applied **at spawn**, frozen into `instance.damage` alongside `ownerTeam`: a shot's
+cost is decided the moment it leaves the barrel, so a buff expiring mid-flight does not un-power it.
+The target's `damageTaken` is applied **at impact**: how much a shot hurts is the target's business at
+the moment it lands, so armour applied while a shot is in the air protects against it — which is the
+whole point of applying armour under fire. See [Statuses](#statuses).
+
 The roster is tuned so an average chassis (500 hull HP) kills another with the baseline weapon in
 **5 seconds** at perfect accuracy, reckoned as `hullHP / DPS`.
+
+## Statuses
+
+The sim's **duration layer**. Ramming is the impulse layer — it lands in one tick and decays on its
+own — and weapons are the damage layer. A status is neither: it is a window of altered rules that
+opens on one car and closes by itself.
+
+A status only ever scales a number the sim was already reading, pulses hp, or does one-shot work when
+it lands. Everything it can do is enumerated by `StatusChannel`, `StatusFlag`, `StatusPulse` and
+`StatusOnApply`. See [`config-reference.md`](config-reference.md#status_table) for the roster.
+
+### One type reaches the sim
+
+Driving, ramming and combat never look at a status list. Each reads a `Modifiers` — one set of
+multipliers and three flags — produced by `modifiersOf`, and nothing else:
+
+    PlayerState.statuses -> toActiveStatuses -> modifiersOf -> Modifiers -> stepDrive / resolveRam / runCombat
+
+That is why adding a status never touches the sim, and adding a *channel* touches exactly one call
+site. It is also why `NEUTRAL_MODIFIERS` reproduces the pre-status sim exactly: every channel is a
+multiplier and neutral is 1.
+
+### A status does not own its duration
+
+`STATUS_TABLE` says what being spiked *does*; the weapon says how long it spikes you for. The same
+status is therefore a flicker from a fast repeating source and a real window from a heavy one, and
+the table does not grow a near-duplicate row per duration.
+
+Two consequences worth knowing. `applyStatus` takes an explicit `durationTicks` and refuses a
+non-positive one outright rather than clamping — a duration of zero means the applier is
+misconfigured. And `startTick` is networked, because with the total no longer in the table it is the
+only way a reader can know it: the HUD's drain bar is `(endsTick - tick) / (endsTick - startTick)`.
+
+### Per-tick order
+
+    statusTick (expire, derive modifiers) -> serverTick (drive) -> ramTick -> combatTick
+
+Expiry runs **first**, before anything reads a modifier, so no two phases can disagree about whether
+a car is still slowed and no tick ever simulates a status whose last tick was the previous one.
+
+Inside `runCombat`:
+
+    read modifiers -> pulses -> room requests -> tickRecharge -> (step instances) ->
+    update lock -> beginFire -> releaseShots -> hit resolution (which applies `applies` entries)
+
+Pulses run before anything else can act, so a car killed by its own bleed does not also get to fire
+this tick — the right answer to "who won" when the bleed was already on them.
+
+New statuses are only ever **added**, and always take hold on the *following* tick. One rule for
+every source, and it has to be one rule because an on-hit status cannot work any other way (hits
+resolve last). It also means a crate and a shot arriving together cannot resolve differently
+depending on which the room queued first.
+
+### The clock is exclusive at the end
+
+A status applied on tick T for D ticks carries `endsTick = T + D` and is active while
+`tick < endsTick`. `expireStatuses` drops it on the tick that *equals* `endsTick`, and `modifiersOf`
+independently refuses to read it there. Both matter: the server's sweep is authoritative, and the
+independent filter is what stops a client reading a patch-stale list from predicting one or two ticks
+of a status the server has already dropped.
+
+### Pulses: burn and repair
+
+`StatusPulse` is `{ intervalMs, damage?, heal? }` — an amount per pulse, not a rate per second, the
+same way `damageFrequencyMs` is authored. Pulses are counted from the status's own `startTick`, so
+two cars hit a tick apart bleed a tick apart, and no accumulator has to exist (an accumulator would
+change every tick, so it would patch every tick, for every burning car). The first pulse lands one
+interval *in* — the weapon that applied the status already dealt its impact damage.
+
+**Healing means `applyDamage` is no longer the only HP writer.** `sim/damage.ts` is: `applyDamage`
+and `applyHeal` together are the whole set, side by side, so the property the original rule protected
+survives — one file to read when asking what can move a car's hp. `applyHeal` clamps to the chassis's
+`hpOf` and refuses to lift a wreck off 0, so a repair landing on the tick a bleed killed its target
+cannot un-eliminate a player who is already spectating.
+
+### Applying one
+
+- **`WeaponDef.applies`** — `{ statusId, target, durationMs }` entries. `opponents` rides the damage
+  list, inheriting friendly fire, the shooter's own immunity, wrecks, pierce and the per-target damage
+  clock for free. `self` lands when a shot actually goes out. There is deliberately no `teammates` —
+  see [`config-reference.md`](config-reference.md#weapon-status-applications).
+- **`CombatInput.statusRequests`** — `{ targetSessionId, statusId, durationTicks, sourceSessionId? }`,
+  for anything that is not a weapon. This is the seam a pickup system uses. A request rather than a
+  direct write because `runCombat` owns the status list for the duration of a tick, and it is the one
+  combat input not backed by a table, so its id is validated even though it is typed.
+
+### Cleanse repairs, it does not heal
+
+`onApply.cleanse` strips every running status of a kind, before the cleansing status is added — so it
+can never remove itself. It restores **no hp**: cleansing a bleed stops the bleeding but does not give
+back what has already bled. That is the whole difference between a repair and a heal, and it is what
+lets a cleanse be generous without being a second health bar.
+
+### Why a car can always drive
+
+`reapply` is per row (`ignore` / `refresh`). Beyond that, three rules bound how bad it gets:
+
+1. **Multiplication.** Each further source buys strictly less than the last. Composition is
+   order-independent, so no source has to know about any other.
+2. **`STATUS_CONFIG.maxActive`** caps a car at 6 simultaneous statuses, and at the cap a *new* one is
+   dropped rather than evicting a running one.
+3. **`STATUS_LIMITS`** clamps every channel after aggregation.
+
+`stunned` is the one row that takes the car away rather than degrading it, and it pays for that with
+the shortest duration in the table plus `ignore`, so it cannot be chained. Its speed is deliberately
+*not* zeroed — the car coasts down through drag, because an instant stop at speed reads as hitting an
+invisible wall rather than as being stunned.
+
+`disarmed` blocks a **new** press only; one already committed still finishes. `beginFire` spends the
+stock at press time because a wind-up cannot be cancelled, so a stun landing mid-wind-up would
+otherwise eat the stock and produce nothing — a debuff that is strictly worse the better your timing
+was.
+
+### Auras
+
+An aura is a beam with a `disc` hitbox anchored at `origin: "center"`. It is not a new concept: the
+attached-beam machinery already re-anchors to the owner every tick, already grows 0→range, already
+lingers, and already re-applies on the per-target damage clock. Three things are specific to it:
+
+- **`extent` is a radius**, not a reach, because a disc is radially symmetric. `beamShapeAt` returns
+  `WorldShape`'s existing circle arm, so the hit test needs no new geometry at all — `shapeHitsObb`
+  routes it to `circleOverlapsObb`, which projectiles already used.
+- **It passes through walls.** `wallClipDistance` raycasts along a single angle and a disc has none.
+  Clipping a radial field would mean an occlusion test per target, which is a different feature.
+- **It is drawn as a ring, not a solid.** Every other shot is drawn *as* its hitbox (D19), which works
+  because a shot is small; a filled 150-unit disc would hide the cars inside it. The ring sits exactly
+  on the hitbox edge with a low-alpha wash inside, so what you see is still what will hit you.
+
+An aura aimed at opponents needs **no change to `canDamage`** — it already refuses the owner, so a car
+never touches its own field.
+
+`shockwave` is the shipped aura. It was a 140° forward cone and is now a 360° ring at the same radius,
+which is a real buff to Hexagon's slot 2: a chassis that cannot disengage no longer has to face its
+attacker to answer them. That is the first thing to re-tune from play.
+
+### What is networked, and why all of it
+
+`PlayerState.statuses` carries the whole status — id, both ticks, and source — with no server-only
+half. That is the opposite of every other combat system here (`FireState`'s `pending` machine, an
+instance's `damageClock`, the lock's commit timers all stay off the wire), and the reason is
+invariant 8: `stepSim` reads the modifiers derived from these rows, and the client predicts the local
+car through the same `stepSim`.
+
+The client's whole half is `localModifiers` in `net/step-context.ts`, which reads the rows off the
+schema and hands them to the *same* shared `modifiersFromRows` the server reaches through.
+
+Statuses are cleared outright, not expired, whenever a match ends or is set up: `clearInstances`
+sweeps them alongside the lock, so a car never spawns into a countdown still carrying the slow that
+killed it last round.
+
+### What the player sees
+
+A badge strip in the HUD gutter, above the weapon slots: one pill per status in its own colour, a
+drain bar down its left edge, and its name and seconds remaining. Debuffs lead, then buffs; within
+each group the one lapsing soonest is on top. The strip grows *upward*, so a badge does not move when
+another lapses beneath it.
+
+This is not decoration. A status a player cannot see is a bug they will report as the car feeling
+wrong: a slow with no badge reads as netcode, a bleed with no badge reads as phantom damage, and
+neither is something a player can learn from. Derivations live in `scenes/status-hud.ts`; `ArenaScene`
+keeps only the Phaser calls.
+
+The cars & weapons guide carries the other half — every weapon page lists what it inflicts or grants,
+for how long, and what that status does, derived from `STATUS_TABLE` itself so it cannot go stale.
 
 ## Elimination and winning
 

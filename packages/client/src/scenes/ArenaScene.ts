@@ -14,6 +14,7 @@ import {
   ARENA_IDS,
   CAMERA_CONFIG,
   DRIVE_CONFIG,
+  STATUS_CONFIG,
   GameMode,
   INPUT_MESSAGE,
   MS_PER_TICK,
@@ -36,7 +37,7 @@ import { SLOT_KEYS, slotMaskFrom } from "../config/slot-keys.js";
 import { InterpolationBuffer } from "../net/interpolation.js";
 import { PredictionBuffer } from "../net/prediction.js";
 import { blendPose } from "../net/interpolation.js";
-import { buildStepContext } from "../net/step-context.js";
+import { buildStepContext, localModifiers } from "../net/step-context.js";
 import { bindViewRouter } from "../net/view.js";
 import { ScreenOverlay } from "../ui/overlay.js";
 import { renderArenaMismatch } from "../ui/screens/arena-mismatch.js";
@@ -48,8 +49,11 @@ import { assetManifest, assetsReady } from "./BootScene.js";
 import { freshImpacts, newImpactTracker, type ImpactTracker } from "./impact-feedback.js";
 import { carFillOf, carShapeOf, hexagonPoints } from "./car-visual.js";
 import {
+  AURA_FILL_ALPHA,
+  AURA_RING_WIDTH,
   hpBarColor,
   hpBarPoints,
+  isAuraWeapon,
   hpFraction,
   instanceDrawShape,
   beamDrawLayers,
@@ -82,6 +86,13 @@ import {
   type ResolvedWeaponIcon,
   type SlotVisual,
 } from "./weapon-hud.js";
+import {
+  STATUS_BADGE_HEIGHT_PX,
+  STATUS_BAR_WIDTH_PX,
+  STATUS_LABEL_FONT_PX,
+  statusBadges,
+  statusStripLayout,
+} from "./status-hud.js";
 
 const ARENA_DEPTH = -10;
 const ARENA_BORDER_PX = 4;
@@ -173,6 +184,14 @@ const HUD_GLYPH_CORE_SCALE = 0.55;
 const HUD_GLYPH_CORE_OFFSET_SCALE = 0.1;
 /** Beam glyph is a bar, not a flame — this is its width as a fraction of the icon radius. */
 const HUD_BEAM_WIDTH_SCALE = 0.5;
+// --- buff / debuff badges ------------------------------------------------------------------
+/** The strip's own text colour, over each badge's `STATUS_TABLE.color` wash. */
+const HUD_STATUS_TEXT = "#ffffff";
+/** Alpha on the badge's colour for the body of the pill. The drain bar draws at full. */
+const HUD_STATUS_WASH_ALPHA = 0.45;
+/** Inset from the badge box to its label. */
+const HUD_STATUS_LABEL_PAD_X = 6;
+
 const HUD_KEY_FONT_PX = SLOT_KEY_FONT_PX;
 const HUD_NAME_FONT_PX = SLOT_NAME_FONT_PX;
 
@@ -406,6 +425,8 @@ export class ArenaScene extends Phaser.Scene {
    * `drawWeaponGlyph`'s procedural shape instead, same fallback contract as a car's silhouette.
    */
   private hudIconImages: Phaser.GameObjects.Image[] = [];
+  /** One pooled label per badge the strip can ever show — `STATUS_CONFIG.maxActive` of them. */
+  private hudStatusTexts: Phaser.GameObjects.Text[] = [];
 
   /**
    * Local-only contact tracker for {@link showImpact}. Purely a render-feel aid — see
@@ -595,6 +616,7 @@ export class ArenaScene extends Phaser.Scene {
       ...this.hudCountdownTexts,
       ...this.hudStockTexts,
       ...this.hudIconImages,
+      ...this.hudStatusTexts,
     ];
     const worldObjects: Phaser.GameObjects.GameObject[] = [
       ...(this.arenaGfx ? [this.arenaGfx] : []),
@@ -673,11 +695,13 @@ export class ArenaScene extends Phaser.Scene {
     for (const text of this.hudCountdownTexts) text.destroy();
     for (const text of this.hudStockTexts) text.destroy();
     for (const image of this.hudIconImages) image.destroy();
+    for (const text of this.hudStatusTexts) text.destroy();
     this.hudKeyTexts = [];
     this.hudNameTexts = [];
     this.hudCountdownTexts = [];
     this.hudStockTexts = [];
     this.hudIconImages = [];
+    this.hudStatusTexts = [];
     // Phaser tears the camera itself down with the scene; this just stops `syncCar` handing a
     // destroyed camera an ignore during the shutdown frame.
     this.hudCamera = undefined;
@@ -763,7 +787,15 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private stepContext(room: Room<ArenaState>): StepContext {
-    return buildStepContext(this.arena ?? getArena(room.state.arenaId), room.state, room.sessionId);
+    return buildStepContext(
+      this.arena ?? getArena(room.state.arenaId),
+      room.state,
+      room.sessionId,
+      // Read fresh on every predicted and reconciled step rather than cached: an effect can lapse
+      // between two of them, and the tick it lapses on is the one thing both halves of the lockstep
+      // have to agree about.
+      localModifiers(room.state, room.sessionId, room.state.tick),
+    );
   }
 
   private reconcileLocal(room: Room<ArenaState>): void {
@@ -1085,6 +1117,17 @@ export class ArenaScene extends Phaser.Scene {
       if (!instance.alive) return;
       const shape = instanceDrawShape(instance, elapsedMs);
       const alpha = this.beamFadeAlpha(instance, room.state.tick);
+      // An aura reaches its own `WorldShape` as a circle, like a round projectile does, so it has to
+      // be split off BEFORE the circle branch below — otherwise it would draw as a filled 150-unit
+      // disc and hide every car it is about to hit. Ring plus wash: still exactly the hitbox.
+      if (shape.kind === "circle" && isAuraWeapon(instance.weaponId)) {
+        const fill = weaponFillOf(instance.weaponId);
+        gfx.fillStyle(fill, alpha * AURA_FILL_ALPHA);
+        gfx.fillCircle(shape.x, shape.y, shape.radius);
+        gfx.lineStyle(AURA_RING_WIDTH, fill, alpha);
+        gfx.strokeCircle(shape.x, shape.y, shape.radius);
+        return;
+      }
       if (shape.kind !== "circle") {
         if (shape.points.length === 0) return;
         // Nested layers, outermost first, each filled over the last -- the beam counterpart to the
@@ -1180,6 +1223,12 @@ export class ArenaScene extends Phaser.Scene {
    * `drawHudSlot` gives it a real key with `setTexture` only once a slot actually resolves one.
    */
   private buildHudTextPool(): void {
+    // Left-centre, matching the key labels: a badge's text hangs off its box's left inset.
+    for (let i = 0; i < STATUS_CONFIG.maxActive; i++) {
+      this.hudStatusTexts.push(
+        this.makeHudText(STATUS_LABEL_FONT_PX).setOrigin(0, 0.5).setColor(HUD_STATUS_TEXT),
+      );
+    }
     for (let i = 0; i < WEAPON_SLOT_CONFIG.maxWeaponSlots; i++) {
       // Left-centre origin: the key sits `SLOT_KEY_GAP_PX` to the RIGHT of the slot and centred on
       // it, so `keyX` is the label's left edge and `cy` its middle. A centred origin would pull the
@@ -1261,6 +1310,67 @@ export class ArenaScene extends Phaser.Scene {
         continue;
       }
       this.drawHudSlot(gfx, sweepGfx, i, box, slot, player, room.state.tick);
+    }
+
+    // Same `gfx`, same clear, same target car: the badges belong to the slot bar's column and share
+    // its lifetime, so they are drawn here rather than from their own pass with their own Graphics.
+    this.drawStatusStrip(gfx, player, boxes[0]?.y ?? VIEW_HEIGHT / 2, room.state.tick);
+  }
+
+  /**
+   * The status badges above the slot bar, for whichever car `hudTargetPlayer` named.
+   *
+   * Every rule about what is shown and in what order is in `status-hud.ts`; this is the Phaser half
+   * and nothing else. A car in no status draws no badges and hides every pooled label — the common
+   * case, and it costs one empty array.
+   */
+  private drawStatusStrip(
+    gfx: Phaser.GameObjects.Graphics,
+    player: PlayerState | undefined,
+    slotBarTop: number,
+    tick: number,
+  ): void {
+    const badges = player ? statusBadges(player.statuses, tick) : [];
+    const boxes = statusStripLayout(
+      badges.length,
+      VIEW_WIDTH,
+      VIEW_HEIGHT,
+      HUD_GUTTER_WIDTH,
+      slotBarTop,
+    );
+
+    for (let i = 0; i < this.hudStatusTexts.length; i++) {
+      const badge = badges[i];
+      const box = boxes[i];
+      const label = this.hudStatusTexts[i]!;
+      if (!badge || !box) {
+        label.setVisible(false);
+        continue;
+      }
+
+      // The pill: a wash of the effect's own colour, so a debuff is told apart from a buff by
+      // colour before the label is read at all.
+      gfx.fillStyle(badge.fill, HUD_STATUS_WASH_ALPHA);
+      gfx.fillRect(box.x, box.y, box.width, box.height);
+      // The drain bar down the left edge, at full alpha and shrinking from the bottom. Height, not
+      // width: a strip of vertical bars all draining at once is legible at a glance in a way a row
+      // of shrinking pills is not, and it leaves the label's own width alone.
+      const barHeight = box.height * badge.fraction;
+      gfx.fillStyle(badge.fill, 1);
+      gfx.fillRect(
+        box.x,
+        box.y + box.height - barHeight,
+        STATUS_BAR_WIDTH_PX,
+        barHeight,
+      );
+
+      label
+        .setPosition(
+          box.x + STATUS_BAR_WIDTH_PX + HUD_STATUS_LABEL_PAD_X,
+          box.y + STATUS_BADGE_HEIGHT_PX / 2,
+        )
+        .setText(`${badge.name}  ${badge.secondsLeft}s`)
+        .setVisible(true);
     }
   }
 

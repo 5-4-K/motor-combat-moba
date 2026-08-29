@@ -30,12 +30,14 @@ import {
   CAR_TABLE,
   COMBAT_CONFIG,
   DRIVE_CONFIG,
+  STATUS_TABLE,
   TICK_RATE_HZ,
   WEAPON_TABLE,
   WEAPON_TICKS,
   forwardMaxSpeedOf,
   hpOf,
   slotsOf,
+  statusDefOf,
   weaponDamageOf,
 } from "@motor-combat-moba/shared";
 
@@ -60,12 +62,46 @@ const OWNER_OF = Object.fromEntries(
 
 const round = (n, dp = 0) => Number(n.toFixed(dp));
 
+/**
+ * A one-line reading of what a status does, derived from the row itself rather than written out
+ * beside it — so retuning a status updates the guide, and adding one needs no copy at all.
+ *
+ * Ordered worst-first: a player scanning this wants the thing that will kill them, not the thing
+ * that will slow them.
+ */
+function statusBlurb(def) {
+  const parts = [];
+  if ((def.flags ?? []).includes("immobilised")) parts.push("no control");
+  if (def.pulse?.damage) parts.push(`${def.pulse.damage} hp per ${round(def.pulse.intervalMs / 1000, 2)}s`);
+  if (def.pulse?.heal) parts.push(`repairs ${def.pulse.heal} hp per ${round(def.pulse.intervalMs / 1000, 2)}s`);
+  if (def.onApply?.cleanse) parts.push(`clears every ${def.onApply.cleanse}`);
+  for (const [channel, value] of Object.entries(def.modifiers)) {
+    const pct = Math.round(Math.abs(value - 1) * 100);
+    parts.push(`${CHANNEL_WORDS[channel] ?? channel} ${value > 1 ? "+" : "−"}${pct}%`);
+  }
+  return parts.join(" · ");
+}
+
+/** Player-facing names for the modifier channels. The code's names are not the player's. */
+const CHANNEL_WORDS = {
+  topSpeed: "top speed",
+  accel: "acceleration",
+  turnRate: "steering",
+  brakeDecel: "brakes",
+  damageDealt: "damage out",
+  damageTaken: "damage taken",
+  weaponCooldown: "recharge",
+  ramMass: "ram weight",
+};
+
 /** `{ shape, size }` — `size` is kept short enough never to wrap inside the spec panel. */
 function hitboxLine(def) {
   const h = def.hitbox;
   if (h.shape === "circle") return { shape: "Circle", size: `${h.radius * 2} across` };
   if (h.shape === "ellipse") return { shape: "Ellipse", size: `${h.radiusAlong * 2} × ${h.radiusAcross * 2}` };
   if (h.shape === "rect") return { shape: "Beam", size: `${h.width} × ${def.range}` };
+  // A disc grows in every direction at once, so its `range` is a radius rather than a reach.
+  if (h.shape === "disc") return { shape: "Aura", size: `${def.range} radius` };
   return { shape: "Cone", size: `${h.angleDeg}° × ${def.range}` };
 }
 
@@ -75,6 +111,7 @@ function footprint(def) {
   if (h.shape === "circle") return Math.PI * h.radius ** 2;
   if (h.shape === "ellipse") return Math.PI * h.radiusAlong * h.radiusAcross;
   if (h.shape === "rect") return h.width * def.range;
+  if (h.shape === "disc") return Math.PI * def.range ** 2;
   return ((h.angleDeg / 360) * Math.PI * def.range ** 2);
 }
 
@@ -170,6 +207,7 @@ export function balanceStamp() {
     weapons: WEAPON_TABLE,
     cars: CAR_TABLE,
     combat: COMBAT_CONFIG,
+    statuses: STATUS_TABLE,
     drive: DRIVE_CONFIG,
     lockRange: AIM_CONFIG.lockRange,
     tickRateHz: TICK_RATE_HZ,
@@ -387,6 +425,16 @@ function specRows(w) {
   if (d.startUpMs > 0) rows.push(["Wind-up", `${d.startUpMs}ms`, `${w.ticks.startUp} ticks — you are visible`]);
   rows.push(["Recovery", d.recoveryMs > 0 ? `${d.recoveryMs}ms` : "none", d.recoveryMs > 0 ? "other slots locked" : "gates nothing else"]);
   rows.push(["Lock-on", d.usesAimAssist ? "Yes" : "No", d.usesAimAssist ? `assists inside ${AIM_CONFIG.lockRange} units` : "fires down your nose"]);
+  // What a weapon DOES to you beyond the damage number is the thing a player most needs the guide
+  // for: nothing on screen says "this one stuns", and the badge only appears once it is too late.
+  for (const a of d.applies ?? []) {
+    const def = statusDefOf(a.statusId);
+    rows.push([
+      a.target === "self" ? "Grants you" : "Inflicts",
+      def.name,
+      `${round(a.durationMs / 1000, 2)}s · ${statusBlurb(def)}`,
+    ]);
+  }
 
   return rows
     .map(

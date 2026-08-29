@@ -12,9 +12,11 @@ import {
   type ArenaDef,
   type ContextEntry,
   type InputMessage,
+  type Modifiers,
   type SimBody,
   type StepContext,
 } from "@motor-combat-moba/shared";
+import { modifiersFor } from "./status-bridge.js";
 
 /** Every bit at or beyond `maxWeaponSlots` is stripped before a wire mask ever reaches the sim. */
 const SLOT_MASK = (1 << WEAPON_SLOT_CONFIG.maxWeaponSlots) - 1;
@@ -28,6 +30,10 @@ const SLOT_MASK = (1 << WEAPON_SLOT_CONFIG.maxWeaponSlots) - 1;
  * still sending — otherwise an alt-tabbed or stalled player is an immovable wall carrying a
  * permanent shove. Such a player is coasted on a neutral input, without an ack and without a fire
  * mask, only while `hasKnock` holds. Every other silent player is left exactly as it was.
+ *
+ * `statusMods` is every player's status multipliers, already swept of expired entries by
+ * `statusTick`. It reaches `stepDrive` through `StepContext.modifiers`, and a player with nothing on
+ * them gets `NEUTRAL_MODIFIERS`, which reproduces the pre-effect drive model exactly.
  *
  * Cars only move during `RoomPhase.MATCH`, and only for players who are actually on the field
  * (`PlayerStatus.IN_MATCH`). Everything else — any other phase, or a lobby/post-match player who
@@ -69,6 +75,7 @@ export function serverTick(
   queues: Map<string, InputMessage[]>,
   dt: number,
   phase: RoomPhase,
+  statusMods: ReadonlyMap<string, Modifiers>,
 ): Map<string, number> {
   const world = tickWorldOf(getArena(state.arenaId));
   const moving = phase === RoomPhase.MATCH;
@@ -84,7 +91,15 @@ export function serverTick(
     // A `null` context means "nothing about this player moves right now": drain only.
     const ctx: StepContext | null =
       moving && isOnField(player)
-        ? { ...world, carId: carIdOf(player), others: otherCarHulls(entries, sessionId) }
+        ? {
+            ...world,
+            carId: carIdOf(player),
+            others: otherCarHulls(entries, sessionId),
+            // Swept and derived once for the whole tick by `statusTick`, never per player here: a
+            // second derivation is a second chance for the two halves of the lockstep to disagree,
+            // and the client builds its own from the same list through the same shared function.
+            modifiers: modifiersFor(statusMods, sessionId),
+          }
         : null;
 
     if (!queue || queue.length === 0) {
