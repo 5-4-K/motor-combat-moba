@@ -223,11 +223,15 @@ the join screen's "Cars & weapons guide" button opens. **It is written by
 `scripts/cars-and-weapons-copy.mjs`.
 
 **Re-run `npm run build:manual` and commit the page whenever you change:** a weapon row, a chassis
-row, a car's loadout, `COMBAT_CONFIG`, `DRIVE_CONFIG`, `AIM_CONFIG.lockRange`, `TICK_RATE_HZ`, or the
-prose in `cars-and-weapons-copy.mjs`. The page carries a fingerprint of all of that and
-`scripts/manual-page.test.mjs` recomputes it, so forgetting fails the suite with the command to run
-rather than quietly shipping last week's numbers to players. Art is the exception: the page *links*
-`public/art/`, so swapping an icon or a car sprite needs no rebuild.
+row, a car's loadout, `COMBAT_CONFIG`, `DRIVE_CONFIG`, `STATUS_TABLE`, `AIM_CONFIG.lockRange`,
+`TICK_RATE_HZ`, `ARENA_WIDTH`, or the prose in `cars-and-weapons-copy.mjs`. The page carries a
+fingerprint of all of that and `scripts/manual-page.test.mjs` recomputes it, so forgetting fails the
+suite with the command to run rather than quietly shipping last week's numbers to players.
+
+`balanceStamp` hashes those tables **whole**, so *any* field of a row counts — including the purely
+visual ones. `WEAPON_TABLE.color` is the one that surprises people: it is not a balance number, but
+the guide paints swatches and stat bars with it, so changing a weapon's colour without rebuilding
+fails the suite. If the stamp moved, the page owed players a rebuild; that is the whole rule.
 
 Vite copies `public/` verbatim, so the page ships in the LAN zip; its art is linked and its fonts are
 inlined, so it reaches for nothing off the machine — `manual-page.test.mjs` asserts that too. Its URL
@@ -236,5 +240,27 @@ script writes; that test is what does.
 
 The build needs nothing installed: webfonts are fetched once and inlined, and with no network it
 falls back to the system stack and still writes a correct page.
+
+### Art is the exception, and that is exactly why it needs saying out loud
+
+Art is the one input the stamp cannot see. The page **links** `public/art/`, so swapping a weapon
+icon or a car sprite changes what players read with **no rebuild, no manifest edit, and no failing
+test**. Convenient, and a trap: the guide changed, nothing said so, and the diff is a binary blob.
+
+**After importing art the guide draws, say so — loudly, in your summary — and recommend they look at
+the page.** Both importers land art it draws: `scripts/import-weapon-icon.mjs` (a weapon's icon
+appears on the cover grid, its chassis kit list, and its own card) and `scripts/import-art.mjs` (a
+chassis sprite appears on the cover and its chassis card). Name the file, and point at
+`http://localhost:5173/manual.html` — the guide is the only place a sprite is shown large and at
+rest, so it catches what `?dev=assets` cannot.
+
+**Do not run `npm run build:manual` for an art swap.** It is not needed, it rewrites the whole page,
+and the churn buries whether anything real moved. Verify instead: load the page and check the
+`<img>` resolves to the new file's dimensions.
+
+One pairing nothing enforces: a weapon's icon and its `WEAPON_TABLE.color` are meant to read as the
+same weapon, but icons ship `colorMode: "none"` and no typed reference ties the two together. Either
+side can be changed alone and both importers stay silent. When you re-import an icon, check its
+colour against that row and flag the drift — changing `color` to match is a rebuild, per above.
 
 `npm run dev` sets `DEPLOY_MODE=lan` and `CLIENT_ORIGIN=http://localhost:5173` so Vite can talk to the server. Open `http://localhost:5173`, click Join.

@@ -254,7 +254,10 @@ export const WEAPON_TABLE = {
     id: "shockwave",
     kind: "beam",
     name: "Shockwave",
-    color: "#5C940D",
+    // The navy the HUD icon is built out of (`art/weapon-icons/shockwave.png`), so the ring on the
+    // floor and the slot in the bar read as one weapon. Icons ship `colorMode: "none"` and nothing
+    // typed ties the two together, so a re-imported icon can silently drift from this.
+    color: "#0B3D8A",
     unlocksAt: 1,
     damage: 100,
     damageFrequencyMs: 0, // one hit per car, not a ticking field
