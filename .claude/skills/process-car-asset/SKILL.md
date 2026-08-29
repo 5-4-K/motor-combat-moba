@@ -119,6 +119,11 @@ right — plus:
 Leave both the PNG and the manifest edit uncommitted. They are a visual change, and the person
 should see the car on screen before deciding it is right.
 
+**Do not rebuild the players' guide for this.** `packages/client/public/manual.html` draws the same
+file by path (`art/cars/<carId>.png`), so a swapped sprite appears there with no rebuild — mention
+that it will, and stop. `npm run build:manual` is for a chassis's *ratings or loadout* changing, not
+its art.
+
 ## When the result looks wrong
 
 Most complaints after a successful import are manifest tuning, not a re-import — the fields are

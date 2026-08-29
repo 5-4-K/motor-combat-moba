@@ -3,11 +3,19 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
+import { OUT_WEB_HTML, STAMP_META_NAME, balanceStamp } from "./build-cars-and-weapons.mjs";
 
 /**
- * Guards on the generated manual page. The join screen links a path that no type checker can see —
- * `MANUAL_PATH` is a string on one side and a file the build script writes on the other — so the
- * only thing standing between a renamed output and a 404 in a player's face is this file.
+ * Guards on the generated cars-and-weapons guide page.
+ *
+ * Two things about that page are invisible to the compiler and to every other suite. The join screen
+ * links a path that is a string on one side and a file on the other, so a renamed output is a 404 in
+ * a player's face. And the page is generated but COMMITTED, so a balance edit that skips
+ * `npm run build:manual` leaves players reading last week's numbers while everything passes. This
+ * file is what makes both of those fail loudly.
+ *
+ * The PDF beside the page is deliberately unguarded: it is temporary, it is skipped entirely on a
+ * machine with no Chromium, and nothing may depend on it.
  */
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -54,6 +62,27 @@ describe("the generated manual page", () => {
     for (const host of ["fonts.googleapis.com", "fonts.gstatic.com", "http://", "https://"]) {
       assert.equal(html.includes(host), false, `manual page references ${host}`);
     }
+  });
+
+  /**
+   * The staleness guard. `balanceStamp` fingerprints every table and every line of prose the guide
+   * reports, so this fails the moment a weapon, a chassis or the copy moves without a rebuild — the
+   * one failure mode a generated-but-committed file has that a generated-at-build-time one does not.
+   */
+  it("was rebuilt after the last change to the tables or the prose", () => {
+    const html = read(path.join(PUBLIC_DIR, manualPath()));
+    const stamped = new RegExp(`<meta name="${STAMP_META_NAME}" content="([^"]+)">`).exec(html);
+    assert.ok(stamped, `the guide page carries no ${STAMP_META_NAME}; rebuild it`);
+    assert.equal(
+      stamped[1],
+      balanceStamp(),
+      "the committed guide page is stale — a balance table or the manual copy changed after it was " +
+        "last built. Run `npm run build:manual` and commit the page it writes.",
+    );
+  });
+
+  it("is the file the build script names as its own output", () => {
+    assert.equal(OUT_WEB_HTML, path.join(PUBLIC_DIR, manualPath()));
   });
 
   it("points at art the client already ships", () => {

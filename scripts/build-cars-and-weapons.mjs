@@ -1,14 +1,17 @@
 #!/usr/bin/env node
 /**
- * Builds the player-facing manual — three chassis, nine weapons — in two forms from one source:
+ * Builds the player-facing cars-and-weapons guide — three chassis, nine weapons.
  *
- *   docs/cars-and-weapons.pdf              print, every asset inlined
- *   packages/client/public/manual.html     the same book as a web page the client links to
+ * THE DELIVERABLE IS `packages/client/public/manual.html`, the page the join screen opens. The PDF
+ * beside it is a temporary convenience and is scheduled for deletion: it is rendered only when a
+ * Chromium is lying around, and a run that skips it is a complete, successful run. Never gate the
+ * guide page on the PDF, and do not add the PDF to a doc or a link.
  *
- * The web page exists so players can READ the manual in the browser rather than download a file:
- * an embedded PDF is at the mercy of whatever viewer the browser ships (and on mobile is usually
- * just a download), whereas this is ordinary HTML. Both come out of the same page builders against
- * the same balance tables, so the two cannot disagree.
+ *   packages/client/public/manual.html     the guide page  — always written
+ *   docs/cars-and-weapons.pdf              print spin-off  — only if Chromium is present
+ *
+ * The page is HTML rather than an embedded PDF so players READ it in the browser: an <embed> is at
+ * the mercy of whatever viewer they have, and on mobile is usually just a download prompt.
  *
  * Every number in the PDF is read from BUILT shared (`WEAPON_TABLE`, `CAR_TABLE`, `WEAPON_TICKS`,
  * `weaponDamageOf`), never transcribed, so a balance edit is reprinted by re-running this script
@@ -22,6 +25,7 @@
  * still builds.
  */
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,11 +49,11 @@ import { CHASSIS_COPY, MANUAL_META, SLOT_ROLES, WEAPON_COPY } from "./cars-and-w
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ICON_DIR = resolve(ROOT, "packages/client/public/art/weapon-icons");
 const CAR_DIR = resolve(ROOT, "packages/client/public/art/cars");
+/** Served by the client. Vite copies `public/` verbatim, so this ships in the LAN zip too. */
+export const OUT_WEB_HTML = resolve(ROOT, "packages/client/public/manual.html");
 const OUT_PDF = resolve(ROOT, "docs/cars-and-weapons.pdf");
 /** Fed to Chromium and then thrown away; gitignored. */
 const OUT_PRINT_HTML = resolve(ROOT, ".cars-and-weapons/manual.html");
-/** Served by the client. Vite copies `public/` verbatim, so this ships in the LAN zip too. */
-const OUT_WEB_HTML = resolve(ROOT, "packages/client/public/manual.html");
 
 /** The arena the build ships, for "how far is 900 units really" context. */
 const ARENA_WIDTH = 1280;
@@ -158,6 +162,35 @@ function bars(w) {
     ],
   ];
 }
+
+/**
+ * A fingerprint of everything the guide reports, written into the page as a meta tag.
+ *
+ * The page is generated but committed, so nothing forces a rebuild when the tables move — a weapon
+ * retune lands, the suites pass, and players quietly read last week's numbers. `manual-page.test.mjs`
+ * recomputes this and compares it against the committed page, which turns that silent staleness into
+ * a failing test naming the command to run.
+ *
+ * Covers the prose as well as the numbers: editing `cars-and-weapons-copy.mjs` without rebuilding
+ * goes just as stale. Deliberately NOT a hash of the rendered HTML — that would need the webfont
+ * fetch and a browser, and a guard that only runs online is not a guard.
+ */
+export function balanceStamp() {
+  const inputs = {
+    weapons: WEAPON_TABLE,
+    cars: CAR_TABLE,
+    combat: COMBAT_CONFIG,
+    drive: DRIVE_CONFIG,
+    lockRange: AIM_CONFIG.lockRange,
+    tickRateHz: TICK_RATE_HZ,
+    arenaWidth: ARENA_WIDTH,
+    copy: { MANUAL_META, CHASSIS_COPY, SLOT_ROLES, WEAPON_COPY },
+  };
+  return createHash("sha256").update(JSON.stringify(inputs)).digest("hex").slice(0, 16);
+}
+
+/** Where the stamp lives in the page, and how the test finds it again. */
+export const STAMP_META_NAME = "mc-balance-stamp";
 
 // ---------------------------------------------------------------------------- assets
 
@@ -745,6 +778,7 @@ function buildDocument(mode, fonts) {
 
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="${STAMP_META_NAME}" content="${balanceStamp()}">
 <title>${esc(MANUAL_META.title)} — ${esc(MANUAL_META.subtitle)}</title>
 <style>${css(fonts)}</style></head><body>${topbar()}\n${pages}</body></html>`;
 }
@@ -752,11 +786,12 @@ function buildDocument(mode, fonts) {
 async function main() {
   const fonts = await fontCss();
 
-  mkdirSync(dirname(OUT_PRINT_HTML), { recursive: true });
-  mkdirSync(dirname(OUT_PDF), { recursive: true });
-  writeFileSync(OUT_PRINT_HTML, buildDocument("print", fonts));
+  mkdirSync(dirname(OUT_WEB_HTML), { recursive: true });
   writeFileSync(OUT_WEB_HTML, buildDocument("web", fonts));
+  const written = [`${OUT_WEB_HTML} (${kb(OUT_WEB_HTML)})`];
 
+  // The PDF is a spin-off, not the point (see the header). A machine with no Chromium still gets a
+  // correct, complete guide page, so this warns and carries on rather than failing the run.
   const chrome = [
     process.env.CHROMIUM_PATH,
     "/opt/pw-browsers/chromium",
@@ -764,27 +799,39 @@ async function main() {
     "/usr/bin/chromium-browser",
     "/usr/bin/google-chrome",
   ].find((p) => p && existsSync(p));
-  if (!chrome) throw new Error("no Chromium found; set CHROMIUM_PATH");
 
-  execFileSync(
-    chrome,
-    [
-      "--headless=new",
-      "--no-sandbox",
-      "--disable-gpu",
-      "--virtual-time-budget=20000",
-      "--no-pdf-header-footer",
-      `--print-to-pdf=${OUT_PDF}`,
-      `file://${OUT_PRINT_HTML}`,
-    ],
-    { stdio: ["ignore", "ignore", "inherit"] },
-  );
+  if (chrome) {
+    mkdirSync(dirname(OUT_PRINT_HTML), { recursive: true });
+    mkdirSync(dirname(OUT_PDF), { recursive: true });
+    writeFileSync(OUT_PRINT_HTML, buildDocument("print", fonts));
+    execFileSync(
+      chrome,
+      [
+        "--headless=new",
+        "--no-sandbox",
+        "--disable-gpu",
+        "--virtual-time-budget=20000",
+        "--no-pdf-header-footer",
+        `--print-to-pdf=${OUT_PDF}`,
+        `file://${OUT_PRINT_HTML}`,
+      ],
+      { stdio: ["ignore", "ignore", "inherit"] },
+    );
+    written.push(`${OUT_PDF} (${kb(OUT_PDF)})`);
+  } else {
+    console.warn(
+      "[manual] no Chromium found, so the optional PDF was skipped (CHROMIUM_PATH overrides the " +
+        "search). The guide page is written either way, and it is the one that ships.",
+    );
+  }
 
-  const kb = (path) => `${Math.round(statSync(path).size / 1024)} KB`;
   console.log(
-    `[manual] ${WEAPONS.length} weapons, ${CAR_IDS.length} chassis -> ` +
-      `${OUT_PDF} (${kb(OUT_PDF)}), ${OUT_WEB_HTML} (${kb(OUT_WEB_HTML)})`,
+    `[manual] ${WEAPONS.length} weapons, ${CAR_IDS.length} chassis, stamp ${balanceStamp()} -> ` +
+      written.join(", "),
   );
 }
 
-await main();
+const kb = (path) => `${Math.round(statSync(path).size / 1024)} KB`;
+
+// Importable for its exports without building anything: `manual-page.test.mjs` needs `balanceStamp`.
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();
