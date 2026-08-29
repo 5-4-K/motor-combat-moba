@@ -1,4 +1,5 @@
 import { TICK_RATE_HZ } from "../constants.js";
+import { STATUS_CONFIG } from "./status-config.js";
 import { WEAPON_TABLE } from "./weapon-config.js";
 import type { WeaponDef, WeaponId } from "./weapon-types.js";
 
@@ -26,6 +27,16 @@ export interface WeaponTicks {
   volleyInterval: number;
   /** Projectiles: ticks to cross `range`. Beams: ticks to reach full extension. */
   flight: number;
+  /**
+   * How long each of this weapon's `applies` entries lasts, in ticks, positionally parallel to
+   * `WeaponDef.applies`. Empty for a weapon that applies nothing.
+   *
+   * Derived here rather than at the application site for the same reason every other duration is:
+   * milliseconds become ticks exactly once, at module load, so the two halves of the lockstep can
+   * never round differently. Clamped to `STATUS_CONFIG.maxDurationMs` before conversion, so a
+   * mis-authored row is shortened rather than left to outlive the match.
+   */
+  applyDurations: readonly number[];
 }
 
 function ticksFor(def: WeaponDef): WeaponTicks {
@@ -39,6 +50,9 @@ function ticksFor(def: WeaponDef): WeaponTicks {
       def.damageFrequencyMs === 0 ? Number.POSITIVE_INFINITY : msToTicks(def.damageFrequencyMs),
     volleyInterval: def.kind === "projectile" ? msToTicks(def.volley.volleyIntervalMs) : 0,
     flight: Math.ceil((def.range / def.speed) * TICK_RATE_HZ),
+    applyDurations: Object.freeze(
+      (def.applies ?? []).map((a) => msToTicks(Math.min(a.durationMs, STATUS_CONFIG.maxDurationMs))),
+    ),
   };
 }
 
@@ -55,4 +69,24 @@ export const WEAPON_TICKS: Readonly<Record<WeaponId, WeaponTicks>> = Object.free
 
 export function weaponTicksOf(id: WeaponId): WeaponTicks {
   return WEAPON_TICKS[id];
+}
+
+/**
+ * A tick count seen through the `weaponCooldown` channel: below 1 is faster, above 1 slower.
+ *
+ * Applied only to the three "when may I shoot again" clocks — `cooldown`, `refireDelay` and
+ * `recovery` — at the two sites in `fire.ts` that read them. Wind-up and the gap between a burst's
+ * volleys are deliberately left alone: those are the shape of one press, and a haste buff that
+ * compressed them would change what a weapon *is* rather than how often you get it.
+ *
+ * The three pass-through cases each matter. `0` stays 0: a weapon with no recovery must not acquire
+ * one from a debuff. `Infinity` stays infinite (`damageInterval`'s "once per target, ever"). A
+ * non-positive or non-finite multiplier is ignored, so a bad config value costs the effect rather
+ * than freezing a weapon. Everything else floors at 1 — a scaled clock may never round to 0 and
+ * hand a weapon a free shot the table never authored.
+ */
+export function scaleTicks(ticks: number, multiplier: number): number {
+  if (!Number.isFinite(ticks) || ticks <= 0) return ticks;
+  if (!Number.isFinite(multiplier) || multiplier <= 0) return ticks;
+  return Math.max(1, Math.round(ticks * multiplier));
 }

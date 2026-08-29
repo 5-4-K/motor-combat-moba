@@ -2,6 +2,12 @@
 
 Balance tables live in `@motor-combat-moba/shared`. Env knobs override process settings only.
 
+**`CAR_TABLE`, `WEAPON_TABLE`, `COMBAT_CONFIG`, `DRIVE_CONFIG` and `AIM_CONFIG.lockRange` are also
+printed to players**, by the generated cars-and-weapons guide the join screen links. It is committed
+rather than built on demand, so editing any of them means `npm run build:manual` and committing
+`packages/client/public/manual.html` in the same change — see the root `CLAUDE.md`.
+`scripts/manual-page.test.mjs` fails when the committed page predates the tables.
+
 ## Env knobs
 
 | Knob | Where | Default |
@@ -261,6 +267,148 @@ The hull half-extents the spin lever arm is clamped into are `DRIVE_CONFIG.carWi
 same reason `inertiaCoefficient` is derived above: both must move with `carHullOf` in lockstep, or
 the torque lever and the inertia it divides by could silently disagree about the hull a ram actually
 collided against.
+
+## STATUS_TABLE
+
+The status roster: `packages/shared/src/config/status-config.ts`. Networked balance, not render
+preference — server tick and client prediction both derive their multipliers from these rows, so the
+two must compute the same numbers. See [`combat-model.md`](combat-model.md#statuses) for the
+mechanic.
+
+**A status does not own its duration.** How long it lasts is decided by whatever applied it — a
+weapon's `applies` entry today, a pickup later. The same status is therefore a flicker from a fast
+repeating source and a real window from a heavy one, without the table growing a near-duplicate row
+per duration.
+
+| Status | Kind | Re-apply | Modifiers | Flags | Pulse | On apply |
+|---|---|---|---|---|---|---|
+| `overheated` | debuff | refresh | `turnRate` 1.55, `brakeDecel` 0.65, `topSpeed` 0.92 | — | — | — |
+| `corroded` | debuff | refresh | `damageTaken` 1.3 | — | — | — |
+| `stunned` | debuff | **ignore** | — | `immobilised`, `steeringLocked`, `disarmed` | — | — |
+| `spiked` | debuff | refresh | `topSpeed` 0.82 | — | 8 hp / 400 ms | — |
+| `fortified` | buff | refresh | `damageTaken` 0.7, `ramMass` 1.25 | — | repairs 12 hp / 500 ms | — |
+| `overhauled` | buff | **ignore** | — | — | — | cleanse `debuff` |
+
+Per-row fields: `id`, `name`, `kind`, `color` (`#rrggbb`, render-only like `WeaponDef.color`),
+`reapply`, `modifiers`, optional `flags`, optional `pulse`, optional `onApply`.
+
+`kind` is **load-bearing, not display**: `onApply.cleanse` names a kind, so it decides what a repair
+strips. A row whose kind is wrong is a rule bug.
+
+`reapply` decides what happens when a status already running is applied again:
+
+- **`refresh`** — the clock is EXTENDED, never shortened (`endsTick = max(existing, now + duration)`),
+  and `startTick` is left alone so the pulse cadence is not restarted. A weak short source can
+  therefore never cut a long one down. Anything applied repeatedly by a lingering source wants this;
+  an aura especially, since `ignore` would make a car standing inside one watch the status lapse and
+  re-arm on a loop.
+- **`ignore`** — nothing happens at all, not even the clock. The anti-chain rule, and every row that
+  flips a flag is required to use it (`status-config.test.ts` enforces that), so two attackers cannot
+  hold one car stunned between them.
+
+There is no third option that compounds magnitude. **A status never stacks with itself** — one id on
+one car is exactly one instance at exactly the strength its row states. Different statuses touching
+the same channel do stack, by multiplication.
+
+`pulse` is authored as **an amount per pulse plus an interval**, deliberately not as a rate per
+second — it mirrors `WeaponDef.damageFrequencyMs`, and it means the number in the table is the number
+the player sees. Pulses are counted from the status's own `startTick`, so two cars hit a tick apart
+bleed a tick apart and no accumulator has to exist or be networked. The first pulse lands one interval
+*in*, never on the application tick.
+
+### Channels
+
+Every channel is a **multiplier**, 1 = neutral, never an additive term and never an absolute value.
+That buys three things: neutral is exactly reproducible (a car in no status multiplies by 1 and
+reproduces the pre-status sim bit for bit — `golden.test.ts` pins it), sources compose in any order,
+and stacking diminishes on its own (a 5% and a 10% slow are 14.5% together, not 15%).
+
+| Channel | Scales | Read by |
+|---|---|---|
+| `topSpeed` | `forwardMaxSpeedOf` and `reverseMaxSpeedOf` | `stepDrive` |
+| `accel` | `DRIVE_CONFIG.accel` and `reverseAccel` | `stepDrive` |
+| `turnRate` | the steering rate, alongside (not instead of) the ram's `authority`. **Above 1 is twitchy** | `stepDrive` |
+| `brakeDecel` | `DRIVE_CONFIG.brakeDecel` — brake fade | `stepDrive` |
+| `damageDealt` | outgoing damage, frozen into the instance at spawn | `spawnInstances` |
+| `damageTaken` | incoming damage, applied at impact | `runCombat` |
+| `weaponCooldown` | `cooldown`, `refireDelay`, `recovery` — **not** `startUp` or `volleyInterval` | `tickRecharge`, `releaseShots` |
+| `ramMass` | `massOf`, both as attacker and as victim | `resolveRam` |
+
+**Drag is the one drive constant no channel scales.** A car that would not slow down even off the
+throttle has stopped being a car.
+
+Flags are booleans, OR-ed across sources, and each is deliberately one thing so a status composes the
+condition it wants: `immobilised` (throttle forced neutral — the car still steers, brakes and coasts),
+`steeringLocked` (steer input forced to 0; injected ram spin untouched, so a stunned car still
+tumbles), `disarmed` (no *new* press; one already committed still finishes).
+
+## STATUS_CONFIG
+
+| Knob | Value | Notes |
+|---|---|---|
+| `maxActive` | 6 | Most statuses one car may be in. A wire guard *and* a design ceiling. At the cap a **new** status is dropped rather than evicting a running one, so a cheap status can never strip a meaningful one off a target |
+| `maxDurationMs` | 8000 | Longest duration any applier may ask for. Past roughly a fight's length a status stops being a window and becomes a state of the match |
+
+## STATUS_LIMITS
+
+The floor and ceiling each channel is clamped to **after** every source has been multiplied together.
+Not the balance lever — multiplication already diminishes each further source — but the guarantee:
+however many future weapons and pickups land on one car at once, a player keeps at least half their
+top speed, still steers, still brakes, and still shoots. **A debuff may take the fight off you; it may
+not take the car off you.**
+
+| Channel | Min | Max |
+|---|---|---|
+| `topSpeed` | 0.5 | 2 |
+| `accel` | 0.4 | 2.5 |
+| `turnRate` | 0.4 | 2 |
+| `brakeDecel` | 0.6 | 1.5 |
+| `damageDealt` | 0.5 | 2 |
+| `damageTaken` | 0.4 | 2.5 |
+| `weaponCooldown` | 0.4 | 3 |
+| `ramMass` | 0.5 | 2 |
+
+`topSpeed`'s floor is the load-bearing one: below roughly half speed a car cannot disengage from
+anything, so every slow past that point converts a fight into an execution — which is the ram knock's
+job (bounded, ~1s, countersteerable), never a status's.
+
+`brakeDecel`'s floor is not a free choice. Scaled braking must stay above `DRIVE_CONFIG.drag`, or the
+brake pedal becomes worse than lifting off; `status-config.test.ts` asserts that against the live
+drive numbers rather than trusting the constant.
+
+A **single** row must land inside its channel's limits on its own: clamping is the backstop against
+many sources piling up, and a row that needs it to be legal is a row whose authored number is a lie.
+
+## Weapon status applications
+
+`WeaponDef.applies` is how a status reaches a car. Each entry is
+`{ statusId, target, durationMs }`, and durations are converted to ticks once in
+`WEAPON_TICKS.applyDurations`, positionally parallel to `applies`.
+
+| Weapon | Applies | To | For |
+|---|---|---|---|
+| `afterburner` | `overheated` | opponents | 1.5 s |
+| `splinter` | `spiked` | opponents | 3 s |
+| `shockwave` | `stunned` | opponents | 0.7 s |
+| `bulwark` | `corroded` | opponents | 2.5 s |
+| `bulwark` | `fortified` | **self** | 4 s |
+
+`target` is `"self"` or `"opponents"`. **There is no `"teammates"`** — reaching a teammate means
+changing `canDamage`, the one predicate deciding friendly fire for the whole game, and that decision
+has not been made. Shipping the member as a value that silently did nothing would be worse than not
+having it.
+
+`opponents` rides the damage list, so it inherits every rule already there: friendly fire, the
+shooter's own immunity, wrecks, pierce, and the per-target damage clock that stops a lingering beam
+re-applying every tick. `self` lands when a shot actually goes out — a press the cooldown rejected
+buys nothing, and a wind-up pays off at its end.
+
+A weapon may deal damage, apply statuses, or both; a pure applicator authors `damage: 0` and still
+works, because a status rides the hit rather than the number. `weapon-config.test.ts` enforces only
+that a weapon does *something*.
+
+`overhauled` is applied by nothing. It is the pickup status, and the room's `statusRequests` queue can
+already deliver it the day a pickup system exists.
 
 ## CAMERA_CONFIG
 

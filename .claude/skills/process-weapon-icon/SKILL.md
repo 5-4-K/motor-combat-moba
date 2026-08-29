@@ -96,6 +96,11 @@ replace its icon; **fields you tuned by hand — `origin`, in particular — are
 Leave both the PNG and the manifest edit uncommitted. They are a visual change, and the person
 should see the icon in the HUD before deciding it is right.
 
+**Do not rebuild the players' guide for this.** `packages/client/public/manual.html` draws the same
+file by path (`art/weapon-icons/<weaponId>.png`), so a swapped icon appears there with no rebuild —
+mention that it will, and stop. `npm run build:manual` is for a weapon's *numbers or prose* changing,
+which is the `weapon-forger` skill's job, not this one.
+
 ## When the result looks wrong
 
 | Complaint | What is actually happening |

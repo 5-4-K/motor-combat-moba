@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MS_PER_TICK } from "../constants.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
+import { NEUTRAL_MODIFIERS } from "./status/modifiers.js";
 import { stepSim, type SimBody, type StepContext } from "./step.js";
 import type { InputMessage } from "../net/input.js";
 
@@ -12,6 +13,7 @@ const EMPTY_ARENA: StepContext = {
   others: [],
   obstacles: [],
   bounds: { width: 800, height: 600 },
+  modifiers: NEUTRAL_MODIFIERS,
 };
 
 function drive(body: SimBody, ctx: StepContext, ticks: number): SimBody {

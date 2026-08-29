@@ -1,6 +1,7 @@
 import { FLOW_CONFIG } from "@motor-combat-moba/shared";
 import { button, h } from "../dom.js";
 import { FULLSCREEN_KEY } from "../../config/display.js";
+import { MANUAL_LABEL, MANUAL_PATH } from "../../config/manual.js";
 
 /**
  * The join screen: the design's left-aligned hero over the cream ground, with the name field and
@@ -48,6 +49,23 @@ export function renderJoin(handlers: JoinHandlers): JoinScreen {
     submit,
   );
 
+  /**
+   * An anchor, not a `button`: middle-click, ctrl-click and "open in new tab" all have to work, and
+   * `.btn` already styles an `<a>` (it sets `text-decoration: none` and lays out as inline-flex).
+   * `setBusy` deliberately leaves it alone — reading the manual while a join is in flight is fine.
+   */
+  const manualLink = h(
+    "a",
+    {
+      class: "btn btn-secondary",
+      href: MANUAL_PATH,
+      target: "_blank",
+      rel: "noopener",
+      style: "min-height: 52px; font-size: 18px; padding-inline: 28px;",
+    },
+    [MANUAL_LABEL],
+  );
+
   const error = h("div", {
     style:
       "font-size: 14px; min-height: 20px; color: var(--color-accent-700); max-width: 480px;",
@@ -81,6 +99,7 @@ export function renderJoin(handlers: JoinHandlers): JoinScreen {
               input,
             ]),
             joinButton,
+            manualLink,
           ]),
           error,
           h("div", { style: "font-size: 13px; color: var(--color-neutral-600);" }, [

@@ -34,6 +34,51 @@ export function hpBarColor(fraction: number): number {
   return 0x49c46a;
 }
 
+/** How an hp bar sits relative to its car, in world units. */
+export interface HpBarGeometry {
+  /** The bar's long axis, across the car — perpendicular to where it is pointing. */
+  length: number;
+  /** The bar's short axis, along the car's facing direction. */
+  thickness: number;
+  /** Centre of the car to the near edge of the bar, measured backwards along the facing direction. */
+  offset: number;
+}
+
+/**
+ * The four world-space corners of one hp bar, or of the filled part of one.
+ *
+ * The bar rides in the car's own frame — laid across its tail, perpendicular to where it points,
+ * turning with it — rather than hovering axis-aligned above it. In a top-down arena the car's
+ * heading is the thing a player reads first, and a bar that turns with the chassis says whose it is
+ * and which way that car is facing in the same glance; an unrotated bar above a car pointing "up"
+ * and one above a car pointing "left" look identical.
+ *
+ * `fraction` clamps to `[0, 1]` and drains toward the car's left, so a bar always empties from the
+ * same end of the same chassis no matter which way it happens to be pointing. Pass `1` for the
+ * backing plate.
+ */
+export function hpBarPoints(
+  pose: { x: number; y: number; angle: number },
+  fraction: number,
+  bar: HpBarGeometry,
+): Array<{ x: number; y: number }> {
+  // Forward is +x in the car's local frame (see `drawCar`), so perpendicular is its +y.
+  const fx = Math.cos(pose.angle);
+  const fy = Math.sin(pose.angle);
+  const px = -fy;
+  const py = fx;
+  const filled = Math.min(Math.max(fraction, 0), 1) * bar.length;
+  const near = -bar.offset;
+  const far = -(bar.offset + bar.thickness);
+  const left = -bar.length / 2;
+  const right = left + filled;
+  const at = (along: number, across: number) => ({
+    x: pose.x + fx * along + px * across,
+    y: pose.y + fy * along + py * across,
+  });
+  return [at(near, left), at(near, right), at(far, right), at(far, left)];
+}
+
 /**
  * How far a shot has travelled since the patch that reported it, for drawing only.
  *
@@ -399,6 +444,10 @@ export function beamDrawLayers(
   const style = WEAPON_BEAM_STYLES[def.id];
   if (!style) return [];
 
+  // A disc has no cross-section to nest layers inside, and it is drawn as a ring rather than as a
+  // filled solid — see `isAuraWeapon`. Layered styles are a directional-beam idea.
+  if (def.hitbox.shape === "disc") return [];
+
   const grown = beamGrownExtent(def.id, extent, elapsedMs);
   const layers: DrawBeamLayer[] = [];
   for (const layer of style.layers) {
@@ -654,3 +703,23 @@ export function lockBracketArms(
     { x1: right, y1: bottom, x2: right, y2: bottom - a },
   ];
 }
+
+/**
+ * Is this weapon drawn as an AURA — a ring around a car — rather than as a solid shape?
+ *
+ * An aura is the one instance in the game whose hitbox is too big to fill in. Every other shot is
+ * drawn *as* its hitbox (D19), which works because a shot is small; a 150-unit disc filled opaquely
+ * would hide the cars inside it, including the one being stunned, so the rule has to bend to keep
+ * its own purpose. It bends as little as possible: the ring sits exactly ON the hitbox edge and the
+ * wash inside it is the same colour, so what you see is still precisely what will hit you.
+ */
+export function isAuraWeapon(weaponId: string): boolean {
+  if (!isWeaponId(weaponId)) return false;
+  const def = weaponDefOf(weaponId);
+  return def.kind === "beam" && def.hitbox.shape === "disc";
+}
+
+/** The aura ring's stroke width, in world units. */
+export const AURA_RING_WIDTH = 3;
+/** Alpha on the aura's own colour for the wash inside the ring. Low enough to read through. */
+export const AURA_FILL_ALPHA = 0.14;

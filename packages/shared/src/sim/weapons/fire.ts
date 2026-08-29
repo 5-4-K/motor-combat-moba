@@ -2,7 +2,7 @@ import { isCarId } from "../../config/car-config.js";
 import type { CarId } from "../../config/types.js";
 import { weaponDefOf } from "../../config/weapon-config.js";
 import { WEAPON_SLOT_CONFIG, slotsOf } from "../../config/weapon-slots.js";
-import { weaponTicksOf } from "../../config/weapon-ticks.js";
+import { scaleTicks, weaponTicksOf } from "../../config/weapon-ticks.js";
 import type { WeaponId } from "../../config/weapon-types.js";
 import type { ShotOrder } from "./instances.js";
 
@@ -10,6 +10,12 @@ import type { ShotOrder } from "./instances.js";
  * Per-tick call order for this module, and callers must use exactly this order:
  *
  *     tickRecharge -> beginFire -> releaseShots
+ *
+ * `tickRecharge` and `releaseShots` both take the car's `weaponCooldown` multiplier (1 = unaffected).
+ * It scales the three "when may I shoot again" clocks and nothing else — see `scaleTicks`. It is a
+ * PARAMETER rather than a field on `FireState` on purpose: an effect can lapse mid-recharge, and a
+ * multiplier baked into the state at press time would keep applying long after its clock ran out.
+ * `beginFire` deliberately does not take one: wind-up is the shape of a press, not its rate.
  *
  * `beginFire` runs BEFORE `releaseShots` on the same tick, not after. With `startUpMs: 0` (every
  * weapon in the table today) a press schedules `nextShotTick = tick`, so its shot must be released
@@ -92,7 +98,7 @@ export function newFireState(carId: CarId | "", level: number): FireState {
  * At max stocks the timer is CLEARED rather than left running: no progress is banked, so firing
  * from max always costs a whole fresh cooldown however long the weapon sat full.
  */
-export function tickRecharge(state: FireState, tick: number): FireState {
+export function tickRecharge(state: FireState, tick: number, cooldownMult = 1): FireState {
   return {
     ...state,
     slots: state.slots.map((slot, index) => {
@@ -109,7 +115,10 @@ export function tickRecharge(state: FireState, tick: number): FireState {
         // authored T+96, and a `startUpMs: 500` weapon a whole 14 ticks early. The error grows with
         // burst length and wind-up, so it must be blocked here rather than papered over downstream.
         if (state.pending?.slot === index) return slot;
-        return { ...slot, rechargeEndsTick: tick + weaponTicksOf(slot.weaponId).cooldown };
+        return {
+          ...slot,
+          rechargeEndsTick: tick + scaleTicks(weaponTicksOf(slot.weaponId).cooldown, cooldownMult),
+        };
       }
       if (tick < slot.rechargeEndsTick) return slot;
 
@@ -117,7 +126,8 @@ export function tickRecharge(state: FireState, tick: number): FireState {
       return {
         ...slot,
         stocks,
-        rechargeEndsTick: stocks >= max ? 0 : tick + weaponTicksOf(slot.weaponId).cooldown,
+        rechargeEndsTick:
+          stocks >= max ? 0 : tick + scaleTicks(weaponTicksOf(slot.weaponId).cooldown, cooldownMult),
       };
     }),
   };
@@ -135,11 +145,18 @@ export function tickRecharge(state: FireState, tick: number): FireState {
  * module comment above), this fires on exactly the scheduled tick every time; the `>=` is the
  * safety margin, not the mechanism.
  */
-export function releaseShots(state: FireState, tick: number): { state: FireState; orders: ShotOrder[] } {
+export function releaseShots(
+  state: FireState,
+  tick: number,
+  cooldownMult = 1,
+): { state: FireState; orders: ShotOrder[] } {
   const pending = state.pending;
   if (!pending || tick < pending.nextShotTick) return { state, orders: [] };
 
   const ticks = weaponTicksOf(pending.weaponId);
+  const cooldown = scaleTicks(ticks.cooldown, cooldownMult);
+  const refireDelay = scaleTicks(ticks.refireDelay, cooldownMult);
+  const recovery = scaleTicks(ticks.recovery, cooldownMult);
   const orders: ShotOrder[] = [{ weaponId: pending.weaponId, slot: pending.slot }];
   const shotsLeft = pending.shotsLeft - 1;
 
@@ -161,8 +178,8 @@ export function releaseShots(state: FireState, tick: number): { state: FireState
       // Only start a timer that is not already running: a shot fired below max leaves the in-flight
       // recharge alone rather than restarting it.
       rechargeEndsTick:
-        slot.stocks >= max ? 0 : slot.rechargeEndsTick === 0 ? tick + ticks.cooldown : slot.rechargeEndsTick,
-      refireLockUntilTick: tick + ticks.refireDelay,
+        slot.stocks >= max ? 0 : slot.rechargeEndsTick === 0 ? tick + cooldown : slot.rechargeEndsTick,
+      refireLockUntilTick: tick + refireDelay,
     };
   });
 
@@ -171,7 +188,7 @@ export function releaseShots(state: FireState, tick: number): { state: FireState
       ...state,
       slots,
       pending: null,
-      switchLockUntilTick: tick + ticks.recovery,
+      switchLockUntilTick: tick + recovery,
     },
     orders,
   };

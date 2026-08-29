@@ -3,9 +3,11 @@ import {
   carIdOf,
   isOnField,
   type ArenaState,
+  type Modifiers,
   type PlayerState,
   type RamCar,
 } from "@motor-combat-moba/shared";
+import { modifiersFor } from "./status-bridge.js";
 
 /**
  * The schema half of ramming: read `ArenaState` into plain objects, run the pure `applyRams`, write
@@ -42,7 +44,12 @@ export function clearKnock(player: PlayerState): void {
  * is not part of the fight, and a wreck is scenery — both still collide through `resolveWorld`, they
  * just neither deal nor take control loss.
  */
-function ramCarsOf(state: ArenaState, roster: ReadonlySet<string>): RamCar[] {
+function ramCarsOf(
+  state: ArenaState,
+  roster: ReadonlySet<string>,
+  statusMods: ReadonlyMap<string, Modifiers>,
+  approachSpeeds: ReadonlyMap<string, number>,
+): RamCar[] {
   const cars: RamCar[] = [];
   state.players.forEach((player, sessionId) => {
     if (!roster.has(sessionId)) return;
@@ -54,20 +61,40 @@ function ramCarsOf(state: ArenaState, roster: ReadonlySet<string>): RamCar[] {
       x: player.x,
       y: player.y,
       angle: player.angle,
-      speed: player.speed,
+      // The speed carried INTO this tick, not the one left on `PlayerState`. `resolveWorld` runs
+      // inside `serverTick`, before this, and rebounds a car to about -35% of its impact speed on
+      // the tick a contact resolves — so `player.speed` here is post-bounce and made `resolveRam`'s
+      // approach term negative on every tick a hull actually overlapped. Falls back to
+      // `player.speed` only for a player `serverTick` never saw, which cannot happen in the room
+      // tick (both read the same `state.players`) but keeps this total for a direct caller.
+      speed: approachSpeeds.get(sessionId) ?? player.speed,
       carId: carIdOf(player),
+      massMult: modifiersFor(statusMods, sessionId).ramMass,
     });
   });
   return cars;
 }
 
+/**
+ * `approachSpeeds` comes from `serverTick`'s `TickResult`: each car's speed as it entered the tick,
+ * before `resolveWorld` could reflect it. It is a required parameter rather than an optional one
+ * with a `player.speed` default, deliberately — a default here would silently reinstate the trigger
+ * bug for any caller that forgot it, and the failure mode is a ram that fires on 8-20% of contacts
+ * rather than an error anyone would notice.
+ */
 export function ramTick(
   state: ArenaState,
   roster: ReadonlySet<string>,
   memory: RamMemory,
   mode: "ffa" | "team",
+  statusMods: ReadonlyMap<string, Modifiers>,
+  approachSpeeds: ReadonlyMap<string, number>,
 ): void {
-  const { knocks, contacts } = applyRams(ramCarsOf(state, roster), memory.contacts, mode);
+  const { knocks, contacts } = applyRams(
+    ramCarsOf(state, roster, statusMods, approachSpeeds),
+    memory.contacts,
+    mode,
+  );
   memory.contacts = contacts;
 
   for (const knock of knocks) {

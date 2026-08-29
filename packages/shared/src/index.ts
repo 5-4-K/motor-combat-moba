@@ -25,13 +25,14 @@ export {
   MSG_RETURN_TO_LOBBY,
 } from "./net/lobby-messages.js";
 
+export { StatusState } from "./schema/StatusState.js";
 export { PlayerState } from "./schema/PlayerState.js";
 export { WeaponInstanceState } from "./schema/WeaponInstanceState.js";
 export { WeaponSlotState } from "./schema/WeaponSlotState.js";
 export { ArenaState } from "./schema/ArenaState.js";
 
 export { RAM_CONFIG, RAM_DECAY, halfLifeToPerTick } from "./config/ram-config.js";
-export { applyDamage, damageFor, weaponDamageOf } from "./sim/damage.js";
+export { applyDamage, applyHeal, damageFor, scaleDamage, weaponDamageOf } from "./sim/damage.js";
 export { stepSim } from "./sim/step.js";
 export type { SimBody, StepContext } from "./sim/step.js";
 export { stepDrive } from "./sim/drive.js";
@@ -47,7 +48,13 @@ export {
   resolveWorld,
 } from "./sim/collide.js";
 export { runCombat } from "./sim/combat.js";
-export type { CombatInput, CombatPlayer, CombatResult, CombatWorld } from "./sim/combat.js";
+export type {
+  CombatInput,
+  CombatPlayer,
+  CombatResult,
+  CombatWorld,
+  StatusRequest,
+} from "./sim/combat.js";
 export { applyRams, impactSideOf, pairKey, resolveRam } from "./sim/ram.js";
 export type { ImpactSide, RamCar, RamHit, RamKnock } from "./sim/ram.js";
 export { canDamage } from "./sim/weapons/targets.js";
@@ -73,6 +80,7 @@ export type { FireState, PendingFire, SlotState } from "./sim/weapons/fire.js";
 export {
   instanceExpired,
   muzzleOffset,
+  type OwnerPose,
   spawnInstances,
   stepInstance,
   wallClipDistance,
@@ -102,19 +110,57 @@ export { COLOR_TABLE } from "./config/color-config.js";
 export { WEAPON_TABLE, isWeaponId, weaponDefOf } from "./config/weapon-config.js";
 export type {
   BeamHitbox,
+  BeamOrigin,
   BeamWeaponDef,
   Hitbox,
   ProjectileHitbox,
   ProjectileWeaponDef,
+  StatusApplication,
+  StatusTarget,
   StockDef,
   VolleyDef,
   WeaponDef,
   WeaponId,
 } from "./config/weapon-types.js";
-export { WEAPON_TICKS, msToTicks, weaponTicksOf } from "./config/weapon-ticks.js";
+export { WEAPON_TICKS, msToTicks, scaleTicks, weaponTicksOf } from "./config/weapon-ticks.js";
 export type { WeaponTicks } from "./config/weapon-ticks.js";
 export { WEAPON_SLOT_CONFIG, slotsFrom, slotsOf } from "./config/weapon-slots.js";
 export { COMBAT_CONFIG } from "./config/combat-config.js";
+
+// --- statuses (buffs and debuffs) ----------------------------------------------------------
+export {
+  STATUS_CONFIG,
+  STATUS_IDS,
+  STATUS_LIMITS,
+  STATUS_TABLE,
+  isStatusId,
+  statusDefOf,
+} from "./config/status-config.js";
+export type {
+  StatusChannel,
+  StatusDef,
+  StatusFlag,
+  StatusId,
+  StatusKind,
+  StatusOnApply,
+  StatusPulse,
+  StatusReapply,
+} from "./config/status-types.js";
+export { STATUS_PULSE_TICKS, statusPulseTicksOf } from "./config/status-ticks.js";
+export {
+  applyStatus,
+  clearStatuses,
+  expireStatuses,
+  hasStatus,
+  modifiersFromRows,
+  newStatusState,
+  remainingTicks,
+  statusPulses,
+  toActiveStatuses,
+} from "./sim/status/statuses.js";
+export type { ActiveStatus, StatusPulseResult, StatusRow } from "./sim/status/statuses.js";
+export { NEUTRAL_MODIFIERS, modifiersOf } from "./sim/status/modifiers.js";
+export type { Modifiers } from "./sim/status/modifiers.js";
 export { AIM_CONFIG, AIM_TICKS } from "./config/aim-config.js";
 export type { AimTicks } from "./config/aim-config.js";
 export { CAMERA_CONFIG, DRIVE_CONFIG } from "./config/drive-config.js";

@@ -2,6 +2,18 @@
 
 LAN-hosted top-down 2D multiplayer car combat (last player/team standing, max 6). npm workspaces (`@motor-combat-moba/shared`, `@motor-combat-moba/server`, `@motor-combat-moba/client`), one Colyseus `arena` room (`ArenaRoom`), shared `stepSim` as the lockstep, Phaser 3 client. v1 is complete: lobby, car select, countdown, arcade driving with prediction, projectiles, ram knockback, elimination, spectate, last standing.
 
+**Statuses** are the sim's duration layer (`sim/status/`) — timed conditions a car is in, listed in
+`STATUS_TABLE`. Every channel is a **multiplier** with 1 as neutral, and `Modifiers` is the only type
+that reaches the sim: driving, ramming and combat never look at a status list. A status does not own
+its duration — the applier does (`WeaponDef.applies`, or `CombatInput.statusRequests` for future
+pickups) — and never stacks with itself. `applyDamage` is no longer the only HP writer;
+**`sim/damage.ts` is**, now that repair pulses exist. See
+[`docs/combat-model.md`](docs/combat-model.md#statuses).
+
+An **aura** is a beam with a `disc` hitbox at `origin: "center"` — a field around a car rather than a
+line of fire. `shockwave` is the shipped one, and it changed from a 140° cone to a 360° ring in the
+process: a real buff to Hexagon's slot 2, and the first thing to re-tune from play.
+
 Chassis ratings (`speed`, `attack`, `hp`, `mass`) are four independent 0-100 values. The 150-point
 budget that used to cap `speed`+`attack`+`hp` was deleted on 2026-08-29 so `mass` could be a
 free-floating fourth rating, and no replacement guard was adopted — see
@@ -32,15 +44,17 @@ free-floating fourth rating, and no replacement guard was adopted — see
 | LAN zip / `start.bat` | [`docs/deployment.md`](docs/deployment.md) |
 | Language / import rules | [`docs/conventions.md`](docs/conventions.md) |
 | Plan sequence | [`docs/roadmap.md`](docs/roadmap.md) |
-| Weapon, ram, elimination rules | [`docs/combat-model.md`](docs/combat-model.md) |
+| Weapon, ram, status, elimination rules | [`docs/combat-model.md`](docs/combat-model.md) |
 | Art, manifest, asset swapping | [`docs/asset-pipeline.md`](docs/asset-pipeline.md) |
 | Code graph / MCP setup on a new machine | [`docs/code-review-graph.md`](docs/code-review-graph.md) |
+| Playtest harnesses, and how to run them | [`packages/server/playtest/README.md`](packages/server/playtest/README.md) |
 | Terms | [`docs/glossary.md`](docs/glossary.md) |
 | Package local rules | `packages/shared/CLAUDE.md`, `packages/server/CLAUDE.md`, `packages/client/CLAUDE.md` |
 | Spec + tracker | [`docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md`](docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md), [`docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md`](docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md) |
 | Weapon system decisions (D1–D22), aim assist and target lock (A1–A14), online-play review, future work | [`docs/superpowers/specs/2026-08-27-weapon-system-design.md`](docs/superpowers/specs/2026-08-27-weapon-system-design.md), [`docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md`](docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md), [`docs/superpowers/plans/2026-08-27-weapon-system.md`](docs/superpowers/plans/2026-08-27-weapon-system.md) |
 | The nine-weapon roster, per-chassis kits (L1–L7) | [`docs/superpowers/specs/2026-08-29-weapon-roster-design.md`](docs/superpowers/specs/2026-08-29-weapon-roster-design.md) |
 | Ram CC and knockback decisions (R1–R20): severity, side bonus, authority/shove/spin, the `mass` rating | [`docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md`](docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md) |
+| Status (buff/debuff) decisions: channels, re-apply rules, clamps, pulses, auras, the application seams | [`docs/superpowers/specs/2026-08-29-status-mechanism-design.md`](docs/superpowers/specs/2026-08-29-status-mechanism-design.md) |
 | The user's own idea / invariant notes | `docs/ideas/`, `docs/invariants/` — **off limits unless the user names them**, see below |
 
 ## `docs/ideas/` and `docs/invariants/` are the user's, not the agent's
@@ -143,11 +157,76 @@ behind; tooling that guesses a default branch (git's own "main branch" hint, PR 
 often name `master` anyway — ignore that and use `development/main`. Only touch `master` when the
 user names it explicitly.
 
+## Playtest: update the existing probes when the sim changes
+
+`packages/server/playtest/` holds headless probes that drive the real `ArenaRoom.tick` pipeline and
+measure what the game actually does — ram trigger rates, weapon reach, collision depth, prediction
+error. They are **not** part of the test suite and **not** part of the release build. Run them with
+`npm run playtest`; reports land in gitignored `packages/server/playtest/reports/<yyyy-MM-dd-NN>/`.
+See [`packages/server/playtest/README.md`](packages/server/playtest/README.md).
+
+**After changing anything the probes measure, update the affected probe — do not leave it describing
+the old behaviour.** That means:
+
+- A probe's stated expectation, threshold, or verdict logic that your change makes wrong.
+- A comment or report string quoting a number your change moved (a config value, a hull dimension, a
+  tick count, a weapon stat, a documented rate).
+- A probe that no longer compiles or no longer reaches the code path it was written to exercise.
+
+Changes that reach them include: `sim/` (drive, collide, ram, combat, damage, status, weapons), the
+tick order in `ArenaRoom.tick` or the bridges, `WEAPON_TABLE`, `CAR_TABLE`, `DRIVE_CONFIG`,
+`RAM_CONFIG`, `COMBAT_CONFIG`, `STATUS_*`, `AIM_CONFIG`, `NET_CONFIG`, `TICK_RATE_HZ`,
+`DEFAULT_PATCH_RATE_HZ`, arena definitions and spawn tables, and the client's prediction or
+step-context assembly.
+
+**Never create a new probe file or a new scenario on your own initiative.** The user adds new
+scenarios explicitly. Your job is to keep the existing ones honest — updating a threshold, a number,
+or a setup that a change invalidated is maintenance; inventing coverage is not.
+
+Two rules the probes are built on, worth preserving in any edit:
+
+- **They report, they do not assert.** A probe that throws on the first surprise stops measuring
+  every scenario after it. Verdicts are `OK`, `FINDING`, and `KNOWN-BY-DESIGN` — the last for
+  behaviour the code documents as intentional but which a player would still report as a bug.
+- **Anything involving contact sweeps the sub-tick phase.** A car covers 10–18 units per tick, so a
+  single placement measures one arbitrary point on the tick grid. Removing a sweep is how a probe
+  starts reporting whatever that one phase happened to do.
+
+If a change makes a probe's finding obsolete — you fixed the thing it was measuring — update the
+probe's expectation so the fix is what now reads as `OK`, and say so in your summary. Do not delete
+the probe.
+
 ## Commands
 
 ```bash
 npm run dev            # shared watch + server :2567 + Vite client :5173
 npm run build:release  # dist-release/motor-combat-moba/ + motor-combat-moba-release.zip
+npm run build:manual   # regenerates the cars & weapons guide page
+npm run playtest       # headless sim probes -> packages/server/playtest/reports/<date-NN>/
+npm run playtest:lan   # two bot clients against a server you already started
 ```
+
+## The cars & weapons guide is generated, committed, and easy to leave stale
+
+`packages/client/public/manual.html` is the player-facing guide — three chassis, nine weapons — that
+the join screen's "Cars & weapons guide" button opens. **It is written by
+`scripts/build-cars-and-weapons.mjs`, never by hand.** Every number on it is read from built shared
+(`WEAPON_TABLE`, `CAR_TABLE`, `WEAPON_TICKS`, `weaponDamageOf`, `hpOf`); the prose lives beside it in
+`scripts/cars-and-weapons-copy.mjs`.
+
+**Re-run `npm run build:manual` and commit the page whenever you change:** a weapon row, a chassis
+row, a car's loadout, `COMBAT_CONFIG`, `DRIVE_CONFIG`, `AIM_CONFIG.lockRange`, `TICK_RATE_HZ`, or the
+prose in `cars-and-weapons-copy.mjs`. The page carries a fingerprint of all of that and
+`scripts/manual-page.test.mjs` recomputes it, so forgetting fails the suite with the command to run
+rather than quietly shipping last week's numbers to players. Art is the exception: the page *links*
+`public/art/`, so swapping an icon or a car sprite needs no rebuild.
+
+Vite copies `public/` verbatim, so the page ships in the LAN zip; its art is linked and its fonts are
+inlined, so it reaches for nothing off the machine — `manual-page.test.mjs` asserts that too. Its URL
+is `MANUAL_PATH` in `packages/client/src/config/manual.ts`, which nothing typed holds to the file the
+script writes; that test is what does.
+
+The build needs nothing installed: webfonts are fetched once and inlined, and with no network it
+falls back to the system stack and still writes a correct page.
 
 `npm run dev` sets `DEPLOY_MODE=lan` and `CLIENT_ORIGIN=http://localhost:5173` so Vite can talk to the server. Open `http://localhost:5173`, click Join.

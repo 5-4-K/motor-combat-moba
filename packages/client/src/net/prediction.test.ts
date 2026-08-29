@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ACTIVE_ARENA_ID,
   MS_PER_TICK,
+  NEUTRAL_MODIFIERS,
   NET_CONFIG,
   getArena,
   stepSim,
@@ -17,6 +18,8 @@ const ctx: StepContext = {
   others: [],
   obstacles: arena.obstacles,
   bounds: { width: arena.width, height: arena.height },
+  // Unbuffed: every expectation here is the plain drive model.
+  modifiers: NEUTRAL_MODIFIERS,
 };
 
 const DT = MS_PER_TICK / 1000;

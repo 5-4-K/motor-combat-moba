@@ -112,7 +112,12 @@ export const WEAPON_TABLE = {
     usesAimAssist: false,
     hitbox: { shape: "cone", angleDeg: 55 },
     attached: true,
+    origin: "muzzle",
     lifetimeMs: 2000,
+    // A flamethrower that cooks the car it is pointed at. `refresh` on `overheated` is what makes a
+    // ticking source work: each 200 ms tick tops the clock back up, so the debuff holds for as long
+    // as the target stays in the flame and lapses 1.5 s after they break away.
+    applies: [{ statusId: "overheated", target: "opponents", durationMs: 1500 }],
   },
   /**
    * Oval's slot 1, and the table's only multi-stock weapon. It replaced `repeater`, which held this
@@ -143,6 +148,10 @@ export const WEAPON_TABLE = {
     pierce: 0,
     volley: { volleys: 1, volleyIntervalMs: 0, pelletsPerVolley: 1, spreadAngleDeg: 0 },
     stock: { max: 3, refireDelayMs: 130 },
+    // Darts that stay in. Three stocks at a 130 ms refire all land on the same `spiked`, and
+    // `refresh` means dumping the magazine buys duration rather than a bigger bleed — the weapon's
+    // own trigger-discipline question, asked again in the status layer.
+    applies: [{ statusId: "spiked", target: "opponents", durationMs: 3000 }],
   },
   /**
    * Oval's slot 2. The table's first `pierce` and first `ellipse` hitbox.
@@ -199,6 +208,7 @@ export const WEAPON_TABLE = {
     usesAimAssist: false,
     hitbox: { shape: "rect", width: 20 },
     attached: false,
+    origin: "muzzle",
     lifetimeMs: 150,
   },
   /**
@@ -248,15 +258,29 @@ export const WEAPON_TABLE = {
     unlocksAt: 1,
     damage: 100,
     damageFrequencyMs: 0, // one hit per car, not a ticking field
-    speed: 1500, // extends its 150 range in 100ms; +150ms linger == 250ms of total life
+    speed: 1500, // expands its 150 radius in 100ms; +150ms linger == 250ms of total life
     range: 150,
     startUpMs: 0,
     cooldownMs: 5000,
     recoveryMs: 200,
     usesAimAssist: false,
-    hitbox: { shape: "cone", angleDeg: 140 },
+    // The table's first AURA: a `disc` hitbox anchored at `origin: "center"`, so it expands as a
+    // ring out of the car rather than as a fan out of its nose.
+    //
+    // **This is a change in what the weapon does, not only in how it is drawn.** It shipped as a
+    // 140-degree forward cone and now reaches behind the car as well, which is a real buff to
+    // Hexagon's slot 2 — a chassis that cannot disengage no longer has to face its attacker to
+    // answer them. The radius is unchanged at 150, barely wider than a car is long, and the
+    // 5 s cooldown is unchanged; the cost of the extra arc is the first thing to re-tune from play.
+    // Reverting is a two-line edit back to `{ shape: "cone", angleDeg: 140 }` and `"muzzle"`.
+    hitbox: { shape: "disc" },
     attached: true,
+    origin: "center",
     lifetimeMs: 150,
+    // A concussive blast: it stops you dead rather than wearing you down. `ignore` on `stunned`
+    // means two Hexagons cannot chain it, and 700 ms is short enough to be a window rather than a
+    // sentence — see the design note on the row.
+    applies: [{ statusId: "stunned", target: "opponents", durationMs: 700 }],
   },
   /**
    * Hexagon's slot 3, and the table's only DETACHED TICKING beam — the combination that makes it a
@@ -285,7 +309,15 @@ export const WEAPON_TABLE = {
     usesAimAssist: false,
     hitbox: { shape: "cone", angleDeg: 60 },
     attached: false,
+    origin: "muzzle",
     lifetimeMs: 2500,
+    // The zone corrodes whoever stands in it, and deploying it hardens the car that deployed it.
+    // The `self` entry is the roster's only one, and it is what makes the weapon a stand-and-hold
+    // rather than a place-and-run: the buff arrives whether or not the zone ever catches anybody.
+    applies: [
+      { statusId: "corroded", target: "opponents", durationMs: 2500 },
+      { statusId: "fortified", target: "self", durationMs: 4000 },
+    ],
   },
 } as const satisfies Record<WeaponId, WeaponDef>;
 

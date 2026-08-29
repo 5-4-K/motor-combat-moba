@@ -1,6 +1,6 @@
 import { AIM_CONFIG, AIM_TICKS } from "../../config/aim-config.js";
 import type { Aabb, Bounds } from "../collide.js";
-import { muzzleOffset, wallClipDistance } from "./instances.js";
+import { muzzleOffset, wallClipDistance, type OwnerPose } from "./instances.js";
 import { canDamage } from "./targets.js";
 
 /** The car doing the locking, as the lock step sees it. */
@@ -30,8 +30,14 @@ const RAD_PER_DEG = Math.PI / 180;
  * about where the weapon is. The muzzle position itself is never moved by the lock (A11b) -- it is
  * a physical point on the car, and a wide-angle lock that moved it would spawn shots off the side
  * of the hull in open space.
+ *
+ * Takes a POSE, not a `LockOwner`. The muzzle is a fact about where a car is and which way it
+ * faces; `sessionId` and `team` were never read here, and demanding them meant a caller holding
+ * only a pose had to invent them. That cost the client a compile error: `PlayerState.team` is a
+ * `uint8` and so widens to `number`, which is not assignable to `LockOwner`'s `0 | 1`, and
+ * `ArenaScene`'s charge-orb telegraph could not call this at all.
  */
-export function muzzleOf(owner: LockOwner): { x: number; y: number } {
+export function muzzleOf(owner: OwnerPose): { x: number; y: number } {
   const nose = muzzleOffset();
   return { x: owner.x + Math.cos(owner.angle) * nose, y: owner.y + Math.sin(owner.angle) * nose };
 }

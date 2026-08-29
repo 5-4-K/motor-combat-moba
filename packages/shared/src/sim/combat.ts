@@ -1,4 +1,8 @@
+import { hpOf } from "../config/car-config.js";
+import { isStatusId } from "../config/status-config.js";
+import type { StatusId } from "../config/status-types.js";
 import { weaponDefOf } from "../config/weapon-config.js";
+import { weaponTicksOf } from "../config/weapon-ticks.js";
 import type { WeaponId } from "../config/weapon-types.js";
 import {
   aabbCorners,
@@ -7,8 +11,10 @@ import {
   type Aabb,
   type Bounds,
 } from "./collide.js";
-import { carHullOf } from "./context.js";
-import { applyDamage } from "./damage.js";
+import { carHullOf, carIdOf } from "./context.js";
+import { applyDamage, applyHeal, scaleDamage } from "./damage.js";
+import { applyStatus, statusPulses, type ActiveStatus } from "./status/statuses.js";
+import { modifiersOf, NEUTRAL_MODIFIERS, type Modifiers } from "./status/modifiers.js";
 import { beginFire, cancelPending, releaseShots, tickRecharge, type FireState } from "./weapons/fire.js";
 import { resolveInstanceHits, type PoseSnapshot } from "./weapons/hits.js";
 import {
@@ -47,6 +53,15 @@ export interface CombatPlayer {
    * `fireState` is; only `targetSessionId` is ever projected onto the schema.
    */
   lock: LockState;
+  /**
+   * The statuses this car is in, carried in and back out. Unlike `fireState` and `lock`, this one IS
+   * networked in full (`PlayerState.statuses`) — the client predicts the local car through
+   * `stepSim`, which reads the modifiers derived from it.
+   *
+   * Combat receives an already-expired list: `expireStatuses` runs once per tick, before driving, so
+   * that everything reading a modifier this tick reads the same one.
+   */
+  statuses: readonly ActiveStatus[];
 }
 
 /** Everything about the tick that is the same for every player in it. */
@@ -58,12 +73,39 @@ export interface CombatWorld {
   bounds: Bounds;
 }
 
+/**
+ * "Put this status on this car." The room half of the status seam, and the one a future pickup
+ * system uses: a car drives over a repair crate, the room pushes one of these, and combat applies it
+ * on the next tick it runs.
+ *
+ * It is a request rather than a direct write because `runCombat` owns the effect list for the
+ * duration of a tick — a caller reaching past it to mutate `PlayerState.effects` mid-tick would race
+ * whatever combat is about to write back. A request lands on the tick it is queued for and bites on
+ * the NEXT one, exactly as an on-hit effect does; see the phase order on `runCombat`.
+ *
+ * `statusId` is typed but still validated: this queue is the one input to combat that does not come
+ * from a table, and a pickup system reading ids out of arena config could hand over anything.
+ */
+export interface StatusRequest {
+  targetSessionId: string;
+  statusId: StatusId;
+  /** How long it should last. The room owns the duration exactly as a weapon does. */
+  durationTicks: number;
+  /** Who caused it, or `""` for the world itself — a pickup, a hazard, a room-level grant. */
+  sourceSessionId?: string;
+}
+
 export interface CombatInput {
   world: CombatWorld;
   players: readonly CombatPlayer[];
   instances: readonly WeaponInstance[];
   /** Monotonic counter behind instance ids. Carried in and back out so ids never repeat. */
   instanceSeq: number;
+  /**
+   * Statuses the room wants applied this tick, from anything that is not a weapon. Absent is none,
+   * which is every tick today: no pickup system exists yet.
+   */
+  statusRequests?: readonly StatusRequest[];
 }
 
 export interface CombatResult {
@@ -92,7 +134,23 @@ export interface CombatResult {
  *
  * Per-tick phase order — pinned by `weapons/fire.ts`'s own module comment and its tests:
  *
- *     tickRecharge -> (step existing instances) -> update lock -> beginFire -> releaseShots -> hit resolution
+ *     read modifiers -> status pulses -> status requests -> tickRecharge ->
+ *     (step existing instances) -> update lock -> beginFire -> releaseShots ->
+ *     hit resolution (which applies each weapon's `applies` entries)
+ *
+ * Statuses bracket the rest of the tick. Every car's modifiers are derived ONCE, up front, from the
+ * list `expireStatuses` has already swept — so nothing in a tick can be scaled by a status that
+ * arrived halfway through it, and a stun cannot retroactively cancel a press it did not beat.
+ *
+ * Pulses (burn, repair) run next, before anything else can act, so a car killed by a bleed does not
+ * also get to fire this tick — `isFighting` gates every phase below on the `alive` this sets.
+ *
+ * New statuses are only ever ADDED, and always take hold on the FOLLOWING tick: room requests first
+ * (a pickup driven over before the shooting), then whatever this tick's hits and shots apply. One
+ * rule for every source, and it has to be one rule because an on-hit status cannot work any other
+ * way — hits resolve last. That is the same one-tick seam a ram knock already accepts, and it is
+ * what makes the status layer order-independent within a tick rather than a race between whoever
+ * ran first.
  *
  * Every weapon in the table today has `startUpMs: 0`, so a press must schedule and fire on the same
  * tick: `beginFire` before `releaseShots` is what makes that true. Existing instances step BEFORE new
@@ -106,6 +164,56 @@ export function runCombat(input: CombatInput): CombatResult {
   const byId = new Map(players.map((p) => [p.sessionId, p]));
   let instanceSeq = input.instanceSeq;
 
+  // 0. Every car's modifiers, derived ONCE — before this tick's own statuses are added — and read
+  // by every phase below. `expireStatuses` swept the list before driving, so this is the same
+  // reading driving and ramming already took. A car in no status gets the shared frozen
+  // `NEUTRAL_MODIFIERS` and the whole layer costs one map lookup.
+  const modifiersFor = new Map<string, Readonly<Modifiers>>(
+    players.map((p) => [
+      p.sessionId,
+      p.statuses.length === 0 ? NEUTRAL_MODIFIERS : modifiersOf(p.statuses, world.tick),
+    ]),
+  );
+  const modsOf = (sessionId: string): Readonly<Modifiers> =>
+    modifiersFor.get(sessionId) ?? NEUTRAL_MODIFIERS;
+
+  // 0b. Burn and repair, before anything else this tick can act. A car whose bleed kills it here is
+  // `alive: false` for every phase below, so it does not get a parting shot — which is the right
+  // answer to "who won" when the bleed was already on them.
+  for (const player of players) {
+    if (!isFighting(player)) continue;
+    for (const pulse of statusPulses(player.statuses, world.tick)) {
+      // Through the same `damage` as a bullet, so a bleed kill sets `alive` by exactly the same
+      // path and the win check cannot tell the two apart.
+      //
+      // Deliberately NOT scaled by `damageTaken`: that channel is about incoming *weapon* damage,
+      // and letting one status amplify another's bleed would compound two rows into a number
+      // neither of them states. A pulse deals what its row says it deals.
+      if (pulse.damage > 0) damage(player, pulse.damage);
+      // `applyHeal` refuses to lift a wreck off 0, so a repair landing on the tick a bleed killed
+      // its target cannot un-eliminate them.
+      if (pulse.heal > 0) player.hp = applyHeal(player.hp, pulse.heal, hpOf(carIdOf(player)));
+    }
+  }
+
+  // 0c. Statuses the room asked for — a pickup, a hazard — added AFTER the reading above, so a
+  // request behaves exactly as a weapon's does: it lands on this tick and bites on the next one. It
+  // also means a crate and a shot arriving together cannot resolve differently depending on which
+  // the room queued first, and a `weaponCooldown` grant cannot retroactively shorten a recharge
+  // started this tick.
+  for (const request of input.statusRequests ?? []) {
+    const target = byId.get(request.targetSessionId);
+    if (!target || !isFighting(target)) continue;
+    if (!isStatusId(request.statusId)) continue;
+    target.statuses = applyStatus(
+      target.statuses,
+      request.statusId,
+      world.tick,
+      request.durationTicks,
+      request.sourceSessionId ?? "",
+    );
+  }
+
   // 1. Recharge first, so a stock that lands this tick can be spent this tick. A player who has left
   // the fight cannot bank a shot, and drops any pending burst — a wreck does not finish firing.
   for (const player of players) {
@@ -113,7 +221,11 @@ export function runCombat(input: CombatInput): CombatResult {
       player.fireState = cancelPending(player.fireState);
       continue;
     }
-    player.fireState = tickRecharge(player.fireState, world.tick);
+    player.fireState = tickRecharge(
+      player.fireState,
+      world.tick,
+      modsOf(player.sessionId).weaponCooldown,
+    );
   }
 
   // 2. Existing instances step BEFORE new ones are born, so a fresh shot draws at the muzzle rather
@@ -170,8 +282,16 @@ export function runCombat(input: CombatInput): CombatResult {
   // 3. New presses, then whatever they (or an earlier tick's press) have scheduled for this tick.
   for (const player of players) {
     if (!isFighting(player)) continue;
-    player.fireState = beginFire(player.fireState, player.fireMask, world.tick);
-    const released = releaseShots(player.fireState, world.tick);
+    const mods = modsOf(player.sessionId);
+    // `disarmed` blocks a NEW press only; `releaseShots` below still runs. A press is a commitment
+    // (`beginFire` spends the stock at press time because a wind-up cannot be cancelled), so a jam
+    // landing mid-wind-up would otherwise eat a stock and produce nothing — a debuff that is
+    // strictly worse the better your timing was. Jam what has not been committed yet; let what has
+    // finish.
+    if (!mods.disarmed) {
+      player.fireState = beginFire(player.fireState, player.fireMask, world.tick);
+    }
+    const released = releaseShots(player.fireState, world.tick, mods.weaponCooldown);
     player.fireState = released.state;
     for (const order of released.orders) {
       const spawned = spawnInstances(
@@ -180,9 +300,14 @@ export function runCombat(input: CombatInput): CombatResult {
         world.tick,
         instanceSeq,
         aimAngleFor(player, order.weaponId, byId),
+        mods.damageDealt,
       );
       instanceSeq = spawned.seq;
       stepped.push(...spawned.instances);
+      // `self` statuses land when a shot actually goes OUT, not when the key went down: a press that
+      // a cooldown rejected buys nothing, and a wind-up pays off at the end of the wind-up. No hit
+      // test is involved, so a self-buff works whether or not the weapon connects with anything.
+      applySelfStatuses(player, order.weaponId, world.tick);
     }
   }
 
@@ -209,7 +334,19 @@ export function runCombat(input: CombatInput): CombatResult {
     );
     for (const hit of outcome.damaged) {
       const target = byId.get(hit.sessionId);
-      if (target) damage(target, hit.amount);
+      if (!target) continue;
+      // Incoming damage is scaled at IMPACT, where outgoing was frozen at spawn. Deliberately
+      // asymmetric: a shot's cost is the shooter's business at the moment they fired, but how much
+      // it hurts is the target's business at the moment it lands — so armour applied while a shot is
+      // in the air protects against it, which is the whole point of applying armour under fire.
+      //
+      // `hit.amount` may legitimately be 0: a pure applicator weapon still registers a hit, because
+      // a status rides the hit rather than the number.
+      damage(target, scaleDamage(hit.amount, modsOf(hit.sessionId).damageTaken));
+      // Statuses ride the DAMAGE list, so they inherit its rules for free: friendly fire, the
+      // shooter's own immunity, wrecks, pierce, and the per-target damage clock that stops a
+      // lingering beam re-applying every single tick.
+      applyOpponentStatuses(target, instance.weaponId, world.tick, instance.ownerSessionId);
     }
     if (outcome.instance.alive) survivors.push(outcome.instance);
   }
@@ -242,13 +379,7 @@ export function aimAngleFor(
   if (player.lock.targetSessionId === "") return null;
   const target = byId.get(player.lock.targetSessionId);
   if (!target || !isFighting(target)) return null;
-  const muzzle = muzzleOf({
-    sessionId: player.sessionId,
-    team: player.team,
-    x: player.x,
-    y: player.y,
-    angle: player.angle,
-  });
+  const muzzle = muzzleOf({ x: player.x, y: player.y, angle: player.angle });
   return Math.atan2(target.y - muzzle.y, target.x - muzzle.x);
 }
 
@@ -282,6 +413,51 @@ function hitsWorld(instance: WeaponInstance, previous: WeaponInstance, world: Co
     if (convexOverlap(swept.points, aabbCorners(obstacle))) return true;
   }
   return false;
+}
+
+/**
+ * Put this weapon's `self` statuses on the car that fired it.
+ *
+ * Durations come from `WEAPON_TICKS.applyDurations`, positionally parallel to the weapon's own
+ * `applies` array — converted from milliseconds exactly once, at module load, so the two halves of
+ * the lockstep can never round differently.
+ */
+function applySelfStatuses(player: CombatPlayer, weaponId: WeaponId, tick: number): void {
+  const applies = weaponDefOf(weaponId).applies;
+  if (!applies) return;
+  const durations = weaponTicksOf(weaponId).applyDurations;
+  applies.forEach((application, index) => {
+    if (application.target !== "self") return;
+    player.statuses = applyStatus(
+      player.statuses,
+      application.statusId,
+      tick,
+      durations[index] ?? 0,
+      player.sessionId,
+    );
+  });
+}
+
+/** Put this weapon's `opponents` statuses on a car its shot just damaged. */
+function applyOpponentStatuses(
+  target: CombatPlayer,
+  weaponId: WeaponId,
+  tick: number,
+  sourceSessionId: string,
+): void {
+  const applies = weaponDefOf(weaponId).applies;
+  if (!applies) return;
+  const durations = weaponTicksOf(weaponId).applyDurations;
+  applies.forEach((application, index) => {
+    if (application.target !== "opponents") return;
+    target.statuses = applyStatus(
+      target.statuses,
+      application.statusId,
+      tick,
+      durations[index] ?? 0,
+      sourceSessionId,
+    );
+  });
 }
 
 /** The only writer of `hp` and `alive`. 0 hp is the wreck: the car stays on the field, inert. */

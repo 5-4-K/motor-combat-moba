@@ -65,6 +65,9 @@ Then edit six files, in this order:
 6. **`docs/combat-model.md`** — the roster sentence under "## Weapon", **and any claim your weapon
    falsifies**. Its coverage list names paths "no shipped weapon exercises"; a beam or a multi-pellet
    weapon makes some of that untrue. Grep the docs for the mechanic you introduced.
+7. **The players' guide** — run `npm run build:manual` and commit
+   `packages/client/public/manual.html`. It is generated from the tables but committed, so a new
+   weapon does not reach players on its own. See "Rebuild the guide" below.
 
 Validation the row must satisfy: `unlocksAt >= 1`, positive `damage`/`speed`/`range`,
 `stock.max >= 2` when present, volley counts `>= 1`, cone `angleDeg` strictly inside 0–180, a
@@ -78,7 +81,8 @@ sustained fire rate (`1000 / cooldownMs`) must sit outside ±15% of the
 The weapon already has an id and a union entry. Skip straight to the numbers.
 
 Edit `config/weapon-config.ts`, then `docs/config-reference.md`. Touch `config/car-config.ts` and
-`config/weapon-slots.test.ts` **only** if the loadout is changing.
+`config/weapon-slots.test.ts` **only** if the loadout is changing. Either way you still owe the
+players' guide a rebuild — see "Rebuild the guide" below.
 
 **Then expect guard tests to fail, and read each failure before touching it.** Several tests read the
 real table at run time and hard-code numbers derived from it, so a re-tune breaks them on purpose or
@@ -105,6 +109,26 @@ any sustained rate within 15% of it. A 500 → 700ms nerf on `fireball`, for exa
 **One stat reaches other weapons.** `recoveryMs` gates how soon that car's **other** slots may fire.
 Raising it on one weapon slows down every other weapon on any chassis carrying it — say so out loud
 before changing it.
+
+## Rebuild the guide — both paths
+
+```bash
+npm run build:manual   # then commit packages/client/public/manual.html
+```
+
+`packages/client/public/manual.html` is the cars-and-weapons guide the join screen opens. It prints
+each weapon's damage, recharge, reach, hitbox, lock-on and derived DPS, plus each chassis's kit — so
+**every** number you just agreed appears on it, and so does a loadout move. It is generated from the
+tables but **committed**, which means nothing rebuilds it for you: skip this and players read the
+numbers you just replaced.
+
+You do not have to remember: the page carries a fingerprint of the tables and the manual's prose, and
+`scripts/manual-page.test.mjs` recomputes it, so a stale page fails `npm test` naming this command.
+Do not hand-edit the page. It is generated; the fix for a wrong number on it is the table, and the
+fix for wrong wording is `scripts/cars-and-weapons-copy.mjs`.
+
+Art is the one thing that does **not** need this: the page links `public/art/`, so an icon added
+after the fact shows up on its own.
 
 ## Verify — both paths
 
@@ -141,4 +165,6 @@ without one. Offer the `process-weapon-icon` skill; do not block on it.
 | Assuming only the two config tests guard a re-tune | Four files hard-code table values; run the suite |
 | Writing tick counts | Author milliseconds; `WEAPON_TICKS` converts once |
 | Leaving a doc claim the new weapon falsified | Grep the docs for the mechanic you introduced |
+| Shipping numbers the players' guide still contradicts | `npm run build:manual`, commit the page |
+| Hand-editing `manual.html` to match | It is generated — fix the table or the copy, then rebuild |
 | `npm run build --workspaces` | Root `npm run build` — order matters |
