@@ -7,6 +7,7 @@ import {
   isWeaponId,
   projectileShapeAt,
   weaponDefOf,
+  type BeamHitbox,
   type WeaponId,
   type WorldShape,
 } from "@motor-combat-moba/shared";
@@ -172,6 +173,99 @@ export interface DrawBand {
 }
 
 /**
+ * One nested layer of a beam's look. The projectile equivalent is `GlowBand`; a beam needs two
+ * scales rather than one because its two shapes shrink along different axes.
+ *
+ * **Both scales are clamped to `(0, 1]` by `beam-style.test.ts`, and that is what keeps the drawn
+ * flame inside the hitbox** — not a runtime clamp. A cone is a triangle with its apex AT the muzzle
+ * (`beamShapeAt`), so scaling its reach scales its spread by the same factor and yields a *similar
+ * triangle sharing the apex*, which is inside the outer one for any factor at or below 1. A rect
+ * shrinks the same way on each axis independently. Containment is therefore geometric, and no layer
+ * can ever draw past the thing that actually hits.
+ */
+export interface BeamLayer {
+  /**
+   * Fraction of the beam's current extent this layer's tongue TIPS reach, measured ALONG the
+   * beam's axis. 1 lands the tips exactly on the hitbox's far edge at every angle across the fan,
+   * not merely on the centreline — see `conePoints`.
+   */
+  extentScale: number;
+  /**
+   * Fraction of the hitbox's CROSS-SECTION this layer spans — a cone's half-angle, a rect's
+   * `width`. 1 is the hitbox's own edge.
+   */
+  crossScale: number;
+  /**
+   * How many flame tongues to cut across the fan. 0 draws the plain hitbox outline, which is what
+   * every beam looked like before tongues existed.
+   *
+   * An odd count puts a valley at each outer edge, so the flame narrows at its sides instead of
+   * ending on a tooth — which is most of what stops a cone reading as a triangle.
+   */
+  tongues: number;
+  /**
+   * How far the valleys between tongues pull back from the tips, as a fraction of this layer's
+   * reach. 0 is a smooth arc; toward 1 the tongues become spikes. Pull-back only, never push-out.
+   */
+  tongueDepth: number;
+  /** `#RRGGBB` this layer fills in. */
+  color: string;
+}
+
+/**
+ * How one weapon's beams draw, when a single flat polygon is not enough. The beam counterpart to
+ * `GlowStyle`, and absent means exactly what it means there: the one flat `weaponFillOf` fill that
+ * every beam drew before this existed.
+ *
+ * Kept a separate table from `WEAPON_GLOW_STYLES` rather than folded into it as a union, because a
+ * weapon is a projectile or a beam and never both — a merged type would make every author answer
+ * for the half that cannot apply to their row.
+ */
+export interface BeamStyle {
+  /** Outermost first. Each layer is filled over the one before it, so later layers are the core. */
+  layers: BeamLayer[];
+}
+
+/**
+ * Polygon vertices spent per tongue. Six is where a lobe stops reading as a polygon corner at the
+ * ~200px a beam draws at; the cost of raising it is vertices in one existing fill, never an extra
+ * fill, so this is a legibility knob rather than a performance one.
+ */
+const SAMPLES_PER_TONGUE = 6;
+
+/**
+ * Per-weapon beam looks. Absent means the flat hitbox polygon — see `BeamStyle`.
+ *
+ * `afterburner`: an amber outer flame licking the hitbox, a yellow body inside it, and a pale core
+ * at the nozzle. Each layer is shorter AND slightly narrower than the one outside it, so they nest
+ * as tongues rather than stacking as horizontal stripes — which is what a shared apex and a varying
+ * reach alone produced, and why the first cut read as a striped triangle. Tongue counts differ per
+ * layer (5 / 4 / 3) so the lobes do not line up and the edges stay busy. The outer amber is the
+ * weapon's own `WEAPON_TABLE.color`, the same convention `fireball`'s middle band follows.
+ *
+ * There is deliberately no flicker or glow here: the beam already grows over its first 200 ms,
+ * which is motion enough, and a pulsing two-second flame reads as a strobe.
+ *
+ * `shockwave` and `bulwark` are cones too and can take layers whenever someone authors them; they
+ * are deliberately absent rather than guessed at, and draw flat until then.
+ */
+export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
+  afterburner: {
+    layers: [
+      { extentScale: 1, crossScale: 1, tongues: 5, tongueDepth: 0.3, color: "#F59F00" },
+      { extentScale: 0.74, crossScale: 0.82, tongues: 4, tongueDepth: 0.34, color: "#FFD43B" },
+      { extentScale: 0.42, crossScale: 0.6, tongues: 3, tongueDepth: 0.38, color: "#FFF3BF" },
+    ],
+  },
+};
+
+/** A beam layer resolved to world-space vertices and a Phaser fill, ready to fill. */
+export interface DrawBeamLayer {
+  points: { x: number; y: number }[];
+  fill: number;
+}
+
+/**
  * The concentric bands to fill for one instance, outermost first, or `[]` for a weapon with no
  * style — whose caller falls back to the single flat `weaponFillOf` disc.
  *
@@ -204,6 +298,159 @@ export function instanceGlowBands(
     radius: radius * band.radiusScale * scale,
     fill: hexToFill(band.color),
   }));
+}
+
+/**
+ * How far a beam has grown by draw time: its last reported extent, advanced along its own expansion
+ * speed and clamped to the weapon's `range`.
+ *
+ * Shared by `instanceDrawShape` and `beamDrawLayers` rather than written out in both, because the
+ * outer silhouette and the layers inside it must agree on the beam's length exactly — two copies of
+ * this would let a flame creep past its own hitbox the moment one of them was tuned.
+ */
+export function beamGrownExtent(weaponId: string, extent: number, elapsedMs: number): number {
+  const def = isWeaponId(weaponId) ? weaponDefOf(weaponId) : null;
+  if (!def || def.kind !== "beam") return Math.max(0, extent);
+  return Math.min(def.range, extent + (def.speed * capMs(elapsedMs)) / 1000);
+}
+
+/**
+ * The nested polygons to fill for one beam instance, outermost first, or `[]` for a beam with no
+ * style — whose caller falls back to the single flat `weaponFillOf` polygon.
+ *
+ * The beam counterpart to `instanceGlowBands`, and pure for the same reason: `ArenaScene` cannot be
+ * unit tested without a browser, so what a beam looks like has to be decidable here. `nowMs` is the
+ * same free-running clock, so a flame's flicker is tied to the fire rather than to the patch rate.
+ *
+ * Every layer is built by calling the SHIPPED `beamShapeAt` with a scaled hitbox and a scaled
+ * extent, rather than by scaling the outer polygon's vertices. That is what makes containment a
+ * property of the geometry instead of a promise: the layers are the same shape the sim would test
+ * with, just smaller, so there is no second implementation to drift.
+ */
+export function beamDrawLayers(
+  weaponId: string,
+  x: number,
+  y: number,
+  angle: number,
+  extent: number,
+  elapsedMs: number,
+): DrawBeamLayer[] {
+  const def = isWeaponId(weaponId) ? weaponDefOf(weaponId) : null;
+  // A projectile id reaching here would mean the caller branched on the wrong thing; drawing
+  // nothing is the honest answer, and the caller's flat-fill fallback still puts a shape on screen.
+  if (!def || def.kind !== "beam") return [];
+  const style = WEAPON_BEAM_STYLES[def.id];
+  if (!style) return [];
+
+  const grown = beamGrownExtent(def.id, extent, elapsedMs);
+  const layers: DrawBeamLayer[] = [];
+  for (const layer of style.layers) {
+    const points =
+      def.hitbox.shape === "cone"
+        ? conePoints(def.hitbox.angleDeg, x, y, angle, grown, layer)
+        : rectPoints(def.hitbox.width, x, y, angle, grown, layer);
+    // Fewer than three vertices is a beam on its spawn tick, whose extent is still zero. Dropping
+    // it here keeps `fillPoints` off a degenerate shape rather than making the render loop
+    // re-check what this already knows.
+    if (points.length < 3) continue;
+    layers.push({ points, fill: hexToFill(layer.color) });
+  }
+  return layers;
+}
+
+/**
+ * A tongued flame inside a cone hitbox, in world space.
+ *
+ * **Why this is built in POLAR coordinates off the muzzle, and why that is the whole containment
+ * argument.** A cone hitbox is the triangle `x <= reach, |y| <= tan(half) * x`. Every vertex here
+ * is placed at an angle within `+/-half` and a radius within `reach`, and any such point satisfies
+ * both constraints — `|y| / x = |tan(theta)| <= tan(half)`, and `x = r * cos(theta) <= reach`. So a
+ * flame of *any* silhouette is inside the hitbox as long as its angles and radii stay in range,
+ * which is exactly what `crossScale`, `extentScale` and a pull-back-only `tongueDepth` guarantee.
+ * Cartesian wobble would need a containment test per vertex; this needs none.
+ *
+ * The tongue wave is a raised cosine over the fan, so `tongues` lobes reach the full radius and the
+ * valleys between them pull back by `tongueDepth`. An odd `tongues` lands a valley on each outer
+ * edge, which is what keeps the silhouette from ending on a tooth.
+ */
+function conePoints(
+  angleDeg: number,
+  x: number,
+  y: number,
+  heading: number,
+  extent: number,
+  layer: BeamLayer,
+): { x: number; y: number }[] {
+  const reach = Math.max(0, extent) * clamp01(layer.extentScale);
+  const half = ((angleDeg * Math.PI) / 360) * clamp01(layer.crossScale);
+  if (reach <= 0 || half <= 0) return [];
+
+  const lobes = Math.max(0, Math.floor(layer.tongues));
+  const depth = clamp01(layer.tongueDepth);
+  const samples = lobes === 0 ? 2 : Math.max(2, lobes * SAMPLES_PER_TONGUE);
+
+  // The apex is the muzzle itself, so the flame is anchored to the car rather than floating.
+  const points: { x: number; y: number }[] = [rotateBy(x, y, heading, 0, 0)];
+  for (let i = 0; i <= samples; i++) {
+    const u = -1 + (2 * i) / samples;
+    // 1 at a tongue tip, 0 in a valley. `lobes` full cycles across the fan.
+    const wave = lobes === 0 ? 1 : 0.5 + 0.5 * Math.cos(lobes * Math.PI * u);
+    const theta = u * half;
+    // `/ cos(theta)` is what makes a tongue TIP land on the cone's flat far edge instead of on a
+    // circle through its nose. Without it the tips trace an arc of radius `reach`, which touches
+    // the hitbox only on the centreline and falls 11% short of it at the cone's rim -- a flame
+    // visibly smaller than the thing that burns. Containment survives it: a tip is then at axial
+    // `reach` exactly and lateral `reach * tan(theta)`, and `|tan(theta)| <= tan(half)` still puts
+    // it inside `|y| <= tan(half) * x`.
+    const r = (reach / Math.cos(theta)) * (1 - depth * (1 - wave));
+    points.push(rotateBy(x, y, heading, r * Math.cos(theta), r * Math.sin(theta)));
+  }
+  return points;
+}
+
+/**
+ * A rect beam's layer. Tongues are ignored: a rect's reach is its length, so cutting lobes into its
+ * far edge would shorten a bar whose whole read is "a straight line of light". `lance` narrows with
+ * `crossScale` instead, which nests a bright core down its full length.
+ */
+function rectPoints(
+  width: number,
+  x: number,
+  y: number,
+  heading: number,
+  extent: number,
+  layer: BeamLayer,
+): { x: number; y: number }[] {
+  const reach = Math.max(0, extent) * clamp01(layer.extentScale);
+  const half = (width / 2) * clamp01(layer.crossScale);
+  if (reach <= 0 || half <= 0) return [];
+  return [
+    rotateBy(x, y, heading, 0, -half),
+    rotateBy(x, y, heading, reach, -half),
+    rotateBy(x, y, heading, reach, half),
+    rotateBy(x, y, heading, 0, half),
+  ];
+}
+
+/**
+ * Local rather than shared's `rotateInto`, which is not exported. Duplicating a rotation is safe in
+ * a way duplicating `beamGrownExtent` would not be: there is no tuning knob in it to drift, and it
+ * is draw-only — the sim never sees these vertices.
+ */
+function rotateBy(
+  x: number,
+  y: number,
+  heading: number,
+  along: number,
+  across: number,
+): { x: number; y: number } {
+  const cos = Math.cos(heading);
+  const sin = Math.sin(heading);
+  return { x: x + along * cos - across * sin, y: y + along * sin + across * cos };
+}
+
+function clamp01(value: number): number {
+  return Math.min(1, Math.max(0, value));
 }
 
 /** `#RRGGBB` to a Phaser fill, falling back to grey rather than rendering an invisible `NaN`. */
@@ -242,8 +489,13 @@ export function instanceDrawShape(instance: DrawableInstance, elapsedMs: number)
   }
 
   if (def.kind === "beam") {
-    const grown = Math.min(def.range, instance.extent + (def.speed * capMs(elapsedMs)) / 1000);
-    return beamShapeAt(def.hitbox, instance.x, instance.y, instance.angle, grown);
+    return beamShapeAt(
+      def.hitbox,
+      instance.x,
+      instance.y,
+      instance.angle,
+      beamGrownExtent(instance.weaponId, instance.extent, elapsedMs),
+    );
   }
   const at = extrapolateShot(instance.x, instance.y, instance.angle, def.speed, elapsedMs);
   return projectileShapeAt(def.hitbox, at.x, at.y, instance.angle);

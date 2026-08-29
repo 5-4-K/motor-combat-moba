@@ -96,7 +96,11 @@ export const WEAPON_TABLE = {
     id: "afterburner",
     kind: "beam",
     name: "Afterburner",
-    color: "#D6336C",
+    // Amber rather than the magenta this shipped with: the flame drawn by `WEAPON_BEAM_STYLES`
+    // fills its outer layer with this exact hex, so the colour, the layered look and the HUD icon
+    // all describe one weapon. Clear of `COLOR_TABLE` -- deeper and redder than the `Gold` player
+    // colour, which is the only one it sits near.
+    color: "#F59F00",
     unlocksAt: 1,
     damage: 26, // per tick
     damageFrequencyMs: 200,

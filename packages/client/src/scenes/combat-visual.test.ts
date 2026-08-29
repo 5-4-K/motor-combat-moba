@@ -11,8 +11,10 @@ import {
   extrapolateShot,
   hpBarColor,
   hpFraction,
+  beamDrawLayers,
   instanceDrawShape,
   instanceGlowBands,
+  WEAPON_BEAM_STYLES,
   WEAPON_GLOW_STYLES,
   lockBracketArms,
   LOCK_BRACKET_HALF,
@@ -246,5 +248,151 @@ describe("instanceGlowBands", () => {
     const wide = instanceGlowBands("fireball", RADIUS * 2, 0, 0);
     const base = instanceGlowBands("fireball", RADIUS, 0, 0);
     wide.forEach((band, i) => expect(band.radius).toBeCloseTo(base[i]!.radius * 2, 6));
+  });
+});
+
+describe("beamDrawLayers", () => {
+  const AFTERBURNER = WEAPON_TABLE.afterburner;
+  // Fired from the origin along +x, so vertices come back axis-aligned and containment is
+  // checkable with arithmetic rather than a point-in-polygon routine.
+  const EXTENT = 220;
+  const layers = () => beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 0);
+
+  function coneHalfAngle(): number {
+    if (AFTERBURNER.kind !== "beam" || AFTERBURNER.hitbox.shape !== "cone") {
+      throw new Error("afterburner must be a cone beam");
+    }
+    return (AFTERBURNER.hitbox.angleDeg * Math.PI) / 360;
+  }
+
+  it("returns nothing for a beam with no authored look, so it keeps its flat polygon", () => {
+    // `shockwave` and `bulwark` are cones with no style yet. A beam must NOT inherit another
+    // weapon's layers, the same rule `instanceGlowBands` holds for bands.
+    expect(beamDrawLayers("shockwave", 0, 0, 0, 150, 0)).toEqual([]);
+    expect(beamDrawLayers("bulwark", 0, 0, 0, 500, 0)).toEqual([]);
+  });
+
+  it("returns nothing for a projectile, so a mis-branched caller falls back rather than throwing", () => {
+    expect(beamDrawLayers("fireball", 0, 0, 0, 100, 0)).toEqual([]);
+    expect(beamDrawLayers("not-a-weapon", 0, 0, 0, 100, 0)).toEqual([]);
+  });
+
+  it("drops a layer that has grown to nothing rather than filling a degenerate polygon", () => {
+    // On its spawn tick a beam has zero extent, and `fillPoints` must never see that.
+    expect(beamDrawLayers("afterburner", 0, 0, 0, 0, 0)).toEqual([]);
+  });
+
+  /**
+   * The invariant the whole draw path rests on, stated for beams: nothing drawn may reach past the
+   * hitbox that actually hits. Checked at every vertex of every layer, against the cone's real
+   * walls rather than its bounding box.
+   */
+  it("never draws past the cone hitbox, at any vertex of any layer", () => {
+    const tanHalf = Math.tan(coneHalfAngle());
+    for (const layer of layers()) {
+      for (const point of layer.points) {
+        expect(point.x).toBeGreaterThanOrEqual(-1e-9);
+        expect(point.x).toBeLessThanOrEqual(EXTENT + 1e-9);
+        expect(Math.abs(point.y)).toBeLessThanOrEqual(tanHalf * point.x + 1e-9);
+      }
+    }
+  });
+
+  it("holds containment as the beam grows, not just at full extent", () => {
+    const tanHalf = Math.tan(coneHalfAngle());
+    for (let grown = 1; grown <= EXTENT; grown += 7) {
+      for (const layer of beamDrawLayers("afterburner", 0, 0, 0, grown, 0)) {
+        for (const point of layer.points) {
+          expect(Math.abs(point.y)).toBeLessThanOrEqual(tanHalf * point.x + 1e-9);
+          expect(point.x).toBeLessThanOrEqual(grown + 1e-9);
+        }
+      }
+    }
+  });
+
+  it("is a tongued outline, not a triangle", () => {
+    // The whole point of the shape. Three vertices is the plain hitbox cone, which is what this
+    // replaced -- a lobed silhouette needs many more, and the radii must actually vary.
+    const outer = layers()[0]!;
+    expect(outer.points.length).toBeGreaterThan(10);
+    const radii = outer.points.map((p) => Math.hypot(p.x, p.y));
+    expect(Math.max(...radii) - Math.min(...radii)).toBeGreaterThan(1);
+  });
+
+  /**
+   * Containment says the flame never draws PAST the hitbox. This says it actually FILLS it — the
+   * other half, and the half that is easy to lose silently.
+   *
+   * Measured along the beam's axis, because the hitbox's far edge is a straight line and not an
+   * arc. An earlier cut placed the tips at a fixed RADIUS instead, which touched the hitbox only on
+   * the centreline and fell 11% short of it at the cone's rim: still contained, still passing every
+   * containment assertion, and visibly smaller than the thing that burns.
+   */
+  it("lands its tongue tips on the hitbox's far edge across the whole fan, not just on the centreline", () => {
+    const outer = layers()[0]!;
+    const half = coneHalfAngle();
+    // Tips are the local maxima of axial reach; the deepest tip at each end of the fan and the
+    // middle one must all sit on x = EXTENT, which is where the cone's flat far edge is.
+    const axial = outer.points.map((p) => p.x);
+    expect(Math.max(...axial)).toBeCloseTo(EXTENT, 6);
+
+    // And a tip near the RIM reaches the edge too — the assertion the radius-based version failed.
+    const rimTips = outer.points.filter(
+      (p) => Math.abs(Math.atan2(p.y, p.x)) > half * 0.6 && p.x > EXTENT * 0.95,
+    );
+    expect(rimTips.length).toBeGreaterThan(0);
+    for (const tip of rimTips) expect(tip.x).toBeCloseTo(EXTENT, 6);
+  });
+
+  it("nests each layer inside the one outside it", () => {
+    const reaches = layers().map((l) => Math.max(...l.points.map((p) => Math.hypot(p.x, p.y))));
+    const spans = layers().map((l) => Math.max(...l.points.map((p) => Math.abs(Math.atan2(p.y, p.x)))));
+    for (let i = 1; i < reaches.length; i++) {
+      expect(reaches[i]!).toBeLessThan(reaches[i - 1]!);
+      expect(spans[i]!).toBeLessThan(spans[i - 1]!);
+    }
+  });
+
+  it("keeps every authored scale inside (0, 1], which is what makes containment geometric", () => {
+    for (const [id, style] of Object.entries(WEAPON_BEAM_STYLES)) {
+      for (const layer of style!.layers) {
+        expect(layer.extentScale, id).toBeGreaterThan(0);
+        expect(layer.extentScale, id).toBeLessThanOrEqual(1);
+        expect(layer.crossScale, id).toBeGreaterThan(0);
+        expect(layer.crossScale, id).toBeLessThanOrEqual(1);
+        // Pull-back only: a negative depth would push a tongue past the hitbox.
+        expect(layer.tongueDepth, id).toBeGreaterThanOrEqual(0);
+        expect(layer.tongueDepth, id).toBeLessThanOrEqual(1);
+        expect(layer.tongues, id).toBeGreaterThanOrEqual(0);
+      }
+    }
+  });
+
+  it("costs one fill per layer however many tongues it has", () => {
+    // The performance contract. Tongues add VERTICES to an existing fill, never fills -- and fills
+    // are what cost, because each is a `fillPoints` call in `renderShots`.
+    expect(layers().length).toBe(WEAPON_BEAM_STYLES.afterburner!.layers.length);
+  });
+
+  it("is stable frame to frame, since the flame does not flicker", () => {
+    expect(beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 0)).toEqual(
+      beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 0),
+    );
+  });
+
+  it("fills its outer layer with the weapon's own table colour", () => {
+    expect(WEAPON_BEAM_STYLES.afterburner!.layers[0]!.color.toUpperCase()).toBe(
+      AFTERBURNER.color.toUpperCase(),
+    );
+  });
+
+  it("anchors the flame to the muzzle and follows the car's heading", () => {
+    const turned = beamDrawLayers("afterburner", 50, 60, Math.PI / 2, EXTENT, 0)[0]!;
+    // The apex is the muzzle itself.
+    expect(turned.points[0]!.x).toBeCloseTo(50, 6);
+    expect(turned.points[0]!.y).toBeCloseTo(60, 6);
+    // Pointing along +y now, so the flame's mass sits above the muzzle rather than beside it.
+    const far = turned.points.reduce((a, b) => (b.y > a.y ? b : a));
+    expect(far.y).toBeGreaterThan(60);
   });
 });

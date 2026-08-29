@@ -50,6 +50,7 @@ import {
   hpBarColor,
   hpFraction,
   instanceDrawShape,
+  beamDrawLayers,
   instanceGlowBands,
   lockBracketArms,
   SHOW_LOCK_BRACKET,
@@ -1077,8 +1078,26 @@ export class ArenaScene extends Phaser.Scene {
       const alpha = this.beamFadeAlpha(instance, room.state.tick);
       if (shape.kind !== "circle") {
         if (shape.points.length === 0) return;
-        gfx.fillStyle(weaponFillOf(instance.weaponId), alpha);
-        gfx.fillPoints(shape.points, true);
+        // Nested layers, outermost first, each filled over the last -- the beam counterpart to the
+        // bands below. An empty list is a beam with no authored look, which falls back to the one
+        // flat fill of its own `color` that this method drew for every beam before styles existed.
+        const layers = beamDrawLayers(
+          instance.weaponId,
+          instance.x,
+          instance.y,
+          instance.angle,
+          instance.extent,
+          elapsedMs,
+        );
+        if (layers.length === 0) {
+          gfx.fillStyle(weaponFillOf(instance.weaponId), alpha);
+          gfx.fillPoints(shape.points, true);
+          return;
+        }
+        for (const layer of layers) {
+          gfx.fillStyle(layer.fill, alpha);
+          gfx.fillPoints(layer.points, true);
+        }
         return;
       }
 
