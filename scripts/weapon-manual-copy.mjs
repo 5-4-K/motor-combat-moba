@@ -9,7 +9,9 @@
 
 export const MANUAL_META = {
   title: "Motor Combat",
-  subtitle: "Weapon Dossier",
+  // Not "Weapon Dossier" any more: the book covers the three chassis as well, and each chassis
+  // page introduces the kit that follows it.
+  subtitle: "Cars & Weapons",
   blurb:
     "Nine weapons. Three chassis. No sharing. Pick a car and you have picked all three of your " +
     "guns — this is what each one of them does, and what it is for.",
