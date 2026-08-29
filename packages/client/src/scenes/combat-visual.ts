@@ -145,6 +145,12 @@ const FLICKER_PHASE_PER_TICK = 0.7;
  * near-white core, every band inside the 12-unit hitbox. The rim is the darkest ring rather than the
  * brightest so the shot still reads as a hard-edged object against a light arena floor, and the
  * white core is what carries at the ~24px this draws at.
+ *
+ * Bands are cheap -- one `fillCircle` per band per shot per frame, against a ceiling of roughly 60
+ * live instances -- so author freely here. What is NOT cheap, and is worth raising before building:
+ * a per-instance `setBlendMode`, a faked gradient wanting 15-20 bands, or a `Graphics` object per
+ * shot instead of `ArenaScene`'s shared `shotGfx`. See
+ * `docs/asset-pipeline.md#how-much-detail-a-shot-can-afford`.
  */
 export const WEAPON_GLOW_STYLES: Partial<Record<WeaponId, GlowStyle>> = {
   fireball: {

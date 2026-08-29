@@ -275,6 +275,44 @@ HUD icon goes through this pipeline. An instance is filled with its weapon's own
 `WEAPON_TABLE.color`, never the firing player's colour, so a weapon looks the same in every car's
 hands — the same rule as the icon's `colorMode: "none"`, applied to the shot.
 
+### How much detail a shot can afford
+
+Shots are drawn in immediate mode by `ArenaScene.renderShots`: one shared `Graphics`
+(`this.shotGfx`) is `clear()`ed and rebuilt every frame, a projectile becomes one `fillCircle` per
+band from `instanceGlowBands`, and a beam becomes one `fillPoints` polygon. Detail therefore costs
+**one extra fill call per band, per shot, per frame** — and nothing else.
+
+**That budget is much larger than it sounds, so do not design timidly.** A car has one fire state
+machine, so a player can only have one weapon mid-volley at a time; the worst realistic case is a
+chassis with overlapping flight times (two fireballs, a six-pellet `pepperbox` burst, a beam) at
+roughly ten live instances, times six players — call it 60. `fireball`'s four bands applied to all
+nine weapons is ~240 `fillCircle` calls per frame, ~14k/second. Phaser batches one Graphics
+object's fills into a single vertex buffer, and the `fillStyle` colour changes *between* bands do
+not break that batch. Authoring a look for every weapon is comfortably within budget.
+
+Four things do cost, and they are the only ones worth stopping for:
+
+| Cliff | Why it hurts |
+|---|---|
+| A **blend mode per instance** (`setBlendMode` for additive glow) | Every change flushes the batch. This is the one that turns a single draw call into one per shot. |
+| **Faking a gradient** with 15–20 bands per shot | Phaser `Graphics` has no gradient fill, so a smooth ramp means many bands. This is the only way band count itself becomes the problem. |
+| **A `Graphics` object per shot** instead of the shared `shotGfx` | Loses the batch entirely, and adds a create/destroy cycle per instance. |
+| **Allocation churn** in `instanceGlowBands` | It returns a fresh array per instance per frame — invisible at today's counts, GC pressure if band counts climb steeply. Cache before reaching for anything cleverer. |
+
+**The binding constraint is honesty, not frame time.** Bands are fractions of the hitbox radius and
+the flicker only ever *shrinks*, so a drawn shot can never render larger than the hitbox that
+actually hits — a shot that looks bigger than it is makes players believe in hits that never
+happened. `combat-visual.test.ts` enforces it. Design detail inside that rule, not around it.
+
+Beams take detail differently: they are `fillPoints` polygons, so the equivalent of a band is a
+smaller cone or rect nested inside the outer one (a bright core inside a translucent cone). Same
+cost story, a few more polygons.
+
+All of it is data in `WEAPON_GLOW_STYLES` (`packages/client/src/scenes/combat-visual.ts`), keyed per
+weapon and `Partial`, so a weapon with no entry keeps the flat disc. Adding a look needs no
+rendering code, no sim change and no wire change — `WEAPON_TABLE.color` and the styles are both
+render-only.
+
 ## Arena art
 
 Arena-owned art is namespaced by arena id, so the release can carry only the active arena's files.
