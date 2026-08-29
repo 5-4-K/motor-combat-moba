@@ -49,6 +49,7 @@ import { freshImpacts, newImpactTracker, type ImpactTracker } from "./impact-fee
 import { carFillOf, carShapeOf, hexagonPoints } from "./car-visual.js";
 import {
   hpBarColor,
+  hpBarPoints,
   hpFraction,
   instanceDrawShape,
   beamDrawLayers,
@@ -57,6 +58,7 @@ import {
   lockBracketArms,
   SHOW_LOCK_BRACKET,
   weaponFillOf,
+  type HpBarGeometry,
 } from "./combat-visual.js";
 import {
   cycleSpectate,
@@ -90,10 +92,13 @@ const HITBOX_PX = 1;
 const SHOT_DEPTH = 50;
 
 const HP_BAR_DEPTH = 60;
-const HP_BAR_W = 44;
-const HP_BAR_H = 5;
-/** Clear of the car's own silhouette, which is `DRIVE_CONFIG.carHeight` tall. */
-const HP_BAR_OFFSET_Y = 30;
+/** The bar lies across the car's tail, so these are in the car's frame, not the screen's. */
+const HP_BAR_GEOMETRY: HpBarGeometry = {
+  length: 44,
+  thickness: 5,
+  // Clear of the car's own silhouette, which is `DRIVE_CONFIG.carWidth` long nose to tail.
+  offset: DRIVE_CONFIG.carWidth / 2 + 6,
+};
 const HP_BAR_BACK = 0x22252b;
 
 /** Under the hp bar, over the shots: the bracket frames a car, it never occludes its own hp. */
@@ -1027,8 +1032,12 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * The hp bar above one car. Drawn unrotated in world space and sized from the car's own maximum,
-   * so a full bar means full hp for that chassis rather than a fixed number of points.
+   * The hp bar of one car: laid across its tail, perpendicular to its facing direction, turning
+   * with it (`hpBarPoints`). Sized from the car's own maximum, so a full bar means full hp for that
+   * chassis rather than a fixed number of points.
+   *
+   * Both quads are filled every frame — the backing plate at full length, the remaining hp over it
+   * — so an empty bar still shows where the hp used to be instead of vanishing.
    */
   private drawHpBar(
     gfx: Phaser.GameObjects.Graphics,
@@ -1036,14 +1045,12 @@ export class ArenaScene extends Phaser.Scene {
     pose: SimBody,
   ): void {
     const fraction = hpFraction(player.hp, player.carId);
-    const left = pose.x - HP_BAR_W / 2;
-    const top = pose.y - HP_BAR_OFFSET_Y;
 
     gfx.fillStyle(HP_BAR_BACK, 0.85);
-    gfx.fillRect(left, top, HP_BAR_W, HP_BAR_H);
+    gfx.fillPoints(hpBarPoints(pose, 1, HP_BAR_GEOMETRY), true);
     if (fraction <= 0) return;
     gfx.fillStyle(hpBarColor(fraction), 1);
-    gfx.fillRect(left, top, HP_BAR_W * fraction, HP_BAR_H);
+    gfx.fillPoints(hpBarPoints(pose, fraction, HP_BAR_GEOMETRY), true);
   }
 
   /**

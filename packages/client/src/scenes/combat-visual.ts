@@ -34,6 +34,51 @@ export function hpBarColor(fraction: number): number {
   return 0x49c46a;
 }
 
+/** How an hp bar sits relative to its car, in world units. */
+export interface HpBarGeometry {
+  /** The bar's long axis, across the car — perpendicular to where it is pointing. */
+  length: number;
+  /** The bar's short axis, along the car's facing direction. */
+  thickness: number;
+  /** Centre of the car to the near edge of the bar, measured backwards along the facing direction. */
+  offset: number;
+}
+
+/**
+ * The four world-space corners of one hp bar, or of the filled part of one.
+ *
+ * The bar rides in the car's own frame — laid across its tail, perpendicular to where it points,
+ * turning with it — rather than hovering axis-aligned above it. In a top-down arena the car's
+ * heading is the thing a player reads first, and a bar that turns with the chassis says whose it is
+ * and which way that car is facing in the same glance; an unrotated bar above a car pointing "up"
+ * and one above a car pointing "left" look identical.
+ *
+ * `fraction` clamps to `[0, 1]` and drains toward the car's left, so a bar always empties from the
+ * same end of the same chassis no matter which way it happens to be pointing. Pass `1` for the
+ * backing plate.
+ */
+export function hpBarPoints(
+  pose: { x: number; y: number; angle: number },
+  fraction: number,
+  bar: HpBarGeometry,
+): Array<{ x: number; y: number }> {
+  // Forward is +x in the car's local frame (see `drawCar`), so perpendicular is its +y.
+  const fx = Math.cos(pose.angle);
+  const fy = Math.sin(pose.angle);
+  const px = -fy;
+  const py = fx;
+  const filled = Math.min(Math.max(fraction, 0), 1) * bar.length;
+  const near = -bar.offset;
+  const far = -(bar.offset + bar.thickness);
+  const left = -bar.length / 2;
+  const right = left + filled;
+  const at = (along: number, across: number) => ({
+    x: pose.x + fx * along + px * across,
+    y: pose.y + fy * along + py * across,
+  });
+  return [at(near, left), at(near, right), at(far, right), at(far, left)];
+}
+
 /**
  * How far a shot has travelled since the patch that reported it, for drawing only.
  *
