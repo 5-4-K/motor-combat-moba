@@ -50,7 +50,11 @@ export const CHASSIS_COPY = {
     codename: "The Anvil",
     theme: "It cannot chase — so it makes you come to it.",
     body:
-      "The slowest chassis, the biggest hull, and the longest crowd control in the game. Bastion " +
+      // NOT "the longest crowd control": bulwark's own riders (`spiked` 3000ms, `fortified` 4500ms)
+      // both outlast thumper's 450ms stun. What thumper alone carries is a full lockout — the only
+      // status in the table that takes the car away instead of degrading it — so the claim here is
+      // about kind, not duration.
+      "The slowest chassis, the biggest hull, and the only hard crowd control in the game. Bastion " +
       "does not catch anybody: it stuns them, lunges at them, and denies the ground they wanted. " +
       "That is the only currency a car that cannot reposition has.",
     beats: "Mirage, the moment it commits to contact range.",
@@ -165,9 +169,12 @@ export const WEAPON_COPY = {
       "second to cross its own range, so at distance it is genuinely dodgeable — and in a brawl it " +
       "is near-unmissable. Everything it hits is stunned: no engine, no steering, no trigger.",
     how:
+      // NOT "the longest crowd control any chassis carries": bulwark's spiked and fortified both
+      // run longer. What this row alone carries is a full lockout, not a longer clock.
       "Bastion is slower than everything else on the map, and this is the button that fixes that. " +
-      "The stun is the longest crowd control any chassis carries, and it comes off a one-second " +
-      "cooldown — too fast to bait out, so it has to be dodged.",
+      "The stun is the roster's only hard CC — the one status that takes the car away instead of " +
+      "just slowing it down — and it is short on purpose: an interrupt window, not a sentence. It " +
+      "comes off a one-second cooldown, too fast to bait out, so it has to be dodged.",
     tip:
       "It buys a window, not a kill. Land it, then spend the stun closing the gap you could never " +
       "close by driving. Everything else Bastion owns happens inside that window.",
