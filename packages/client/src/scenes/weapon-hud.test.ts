@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { MAX_PLAYERS, STATUS_CONFIG, WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
 import type { TextureLookup } from "../assets/car-sprite.js";
 import type { AssetManifest, SpriteEntry } from "../assets/manifest-schema.js";
 import { ARENA_VIEW_WIDTH, HUD_GUTTER_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from "../config/display.js";
@@ -13,6 +14,8 @@ import {
   slotVisualState,
   sweepFraction,
 } from "./weapon-hud.js";
+import { rosterPanelLayout } from "./roster-panel.js";
+import { statusStripLayout } from "./status-hud.js";
 
 describe("sweep", () => {
   it("is full the tick a recharge starts and empty when it ends", () => {
@@ -146,7 +149,10 @@ describe("resolveWeaponIcon", () => {
 });
 
 describe("layout", () => {
-  const boxes = slotBarLayout(3, VIEW_WIDTH, VIEW_HEIGHT, HUD_GUTTER_WIDTH);
+  // Inset 0: the layout as it was before the roster panel existed. Every assertion below is the
+  // regression guard for that — with nothing above them, the slots must still centre in the whole
+  // column exactly as they used to.
+  const boxes = slotBarLayout(3, VIEW_WIDTH, VIEW_HEIGHT, HUD_GUTTER_WIDTH, 0);
 
   /**
    * The whole point of the column. A slot that starts before `ARENA_VIEW_WIDTH` is a slot the arena
@@ -196,6 +202,85 @@ describe("layout", () => {
   });
 
   it("draws nothing for a car with no slots", () => {
-    expect(slotBarLayout(0, VIEW_WIDTH, VIEW_HEIGHT, HUD_GUTTER_WIDTH)).toEqual([]);
+    expect(slotBarLayout(0, VIEW_WIDTH, VIEW_HEIGHT, HUD_GUTTER_WIDTH, 0)).toEqual([]);
+  });
+});
+
+describe("layout with a roster panel above it", () => {
+  const INSET = 100;
+  const inset = slotBarLayout(3, VIEW_WIDTH, VIEW_HEIGHT, HUD_GUTTER_WIDTH, INSET);
+  const flush = slotBarLayout(3, VIEW_WIDTH, VIEW_HEIGHT, HUD_GUTTER_WIDTH, 0);
+
+  it("starts the stack below the panel", () => {
+    expect(inset[0]!.y).toBeGreaterThanOrEqual(INSET);
+  });
+
+  it("centres the stack in what is left, not in the whole column", () => {
+    const top = inset[0]!.y - INSET;
+    const bottom = VIEW_HEIGHT - (inset[2]!.y + inset[2]!.size);
+    expect(top).toBeCloseTo(bottom, 0);
+  });
+
+  /** The panel moves the slots; it must never resize them, or the icons stop fitting their boxes. */
+  it("leaves the stack's own height and column alone", () => {
+    expect(inset[2]!.y - inset[0]!.y).toBe(flush[2]!.y - flush[0]!.y);
+    expect(inset[0]!.size).toBe(flush[0]!.size);
+    expect(inset[0]!.x).toBe(flush[0]!.x);
+  });
+});
+
+/**
+ * The gutter's three tenants at once (D12). Six players, six badges and three slots is a reachable
+ * match and the one the game is designed around, and the coupling between them is the part that is
+ * easy to get wrong: the panel pushes the slots down, the slots drag the badge strip down with
+ * them, and the strip grows UPWARD from there — so making room at the top is also what hands the
+ * strip the headroom it can collide with the panel in.
+ *
+ * This is the test that makes a later nudge to `ROSTER_ROW_HEIGHT_PX` fail loudly instead of
+ * sliding a badge under a player's name.
+ */
+describe("the gutter budget", () => {
+  const panel = rosterPanelLayout(MAX_PLAYERS, VIEW_WIDTH, HUD_GUTTER_WIDTH);
+  const slots = slotBarLayout(
+    WEAPON_SLOT_CONFIG.maxWeaponSlots,
+    VIEW_WIDTH,
+    VIEW_HEIGHT,
+    HUD_GUTTER_WIDTH,
+    panel.height,
+  );
+  const strip = statusStripLayout(
+    STATUS_CONFIG.maxActive,
+    VIEW_WIDTH,
+    VIEW_HEIGHT,
+    HUD_GUTTER_WIDTH,
+    slots[0]!.y,
+  );
+
+  it("lays the worst case out at the numbers the budget was written for", () => {
+    expect(panel.height).toBe(138);
+    expect(slots[0]!.y).toBe(305);
+    expect(strip[0]!.y).toBe(149);
+  });
+
+  it("never lets the badge strip climb into the panel", () => {
+    expect(strip[0]!.y).toBeGreaterThanOrEqual(panel.height);
+  });
+
+  it("never lets the badge strip reach the slots", () => {
+    expect(strip.at(-1)!.y + strip.at(-1)!.height).toBeLessThanOrEqual(slots[0]!.y);
+  });
+
+  it("keeps the slot stack and its names inside the view below the panel", () => {
+    expect(slots[0]!.y).toBeGreaterThanOrEqual(panel.height);
+    expect(slots.at(-1)!.nameY + SLOT_NAME_FONT_PX).toBeLessThanOrEqual(VIEW_HEIGHT);
+  });
+
+  /**
+   * The slack itself, written down rather than merely satisfied. Eleven pixels is what the whole
+   * column has left over: this asserting an exact number is the point, because any constant that
+   * spends more than it should has to show up here as a number that moved.
+   */
+  it("clears the panel by 11 px, and no more", () => {
+    expect(strip[0]!.y - panel.height).toBe(11);
   });
 });

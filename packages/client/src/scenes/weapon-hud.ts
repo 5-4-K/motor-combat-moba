@@ -145,17 +145,27 @@ export interface SlotBox {
  *
  * `gutterWidth` is a parameter rather than an import so this stays a pure function of the layout it
  * is given, the same way `viewWidth`/`viewHeight` already were.
+ *
+ * `topInset` is the height of the roster panel above the slots (`rosterPanelLayout`), and the stack
+ * is centred in what is left **below** it rather than in the whole column (D12). Insetting rather
+ * than hard-coding a new slot top is what keeps the third thing in the gutter working for free:
+ * `statusStripLayout` derives its position from `slotBarLayout(...)[0].y`, so the badge strip
+ * follows the slots down with no signature change of its own. It also means the strip's headroom
+ * grows with the panel, and the strip grows UPWARD — which is why the worst case (six rows, six
+ * badges, three slots) is asserted in the tests rather than assumed. `topInset` 0 is exactly the
+ * layout this had before the panel existed.
  */
 export function slotBarLayout(
   count: number,
   viewWidth: number,
   viewHeight: number,
   gutterWidth: number,
+  topInset: number,
 ): SlotBox[] {
   const shown = Math.min(count, WEAPON_SLOT_CONFIG.maxWeaponSlots);
   if (shown <= 0) return [];
   const totalHeight = shown * BOX_PX + (shown - 1) * GAP_PX;
-  const top = (viewHeight - totalHeight) / 2;
+  const top = topInset + (viewHeight - topInset - totalHeight) / 2;
   const groupWidth = BOX_PX + SLOT_KEY_GAP_PX + SLOT_KEY_COLUMN_PX;
   const x = viewWidth - gutterWidth + (gutterWidth - groupWidth) / 2;
   return Array.from({ length: shown }, (_, i) => {

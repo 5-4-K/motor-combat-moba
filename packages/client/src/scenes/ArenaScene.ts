@@ -16,6 +16,7 @@ import {
   STATUS_CONFIG,
   GameMode,
   INPUT_MESSAGE,
+  MAX_PLAYERS,
   MS_PER_TICK,
   PlayerStatus,
   muzzleOf,
@@ -94,6 +95,12 @@ import {
   statusBadges,
   statusStripLayout,
 } from "./status-hud.js";
+import {
+  ROSTER_NAME_FONT_PX,
+  rosterPanelLayout,
+  rosterRows,
+  truncateName,
+} from "./roster-panel.js";
 
 const ARENA_BORDER_PX = 4;
 const HUD_TEXT = "#1d1f21";
@@ -231,6 +238,21 @@ const HUD_STATUS_TEXT = "#ffffff";
 const HUD_STATUS_WASH_ALPHA = 0.45;
 /** Inset from the badge box to its label. */
 const HUD_STATUS_LABEL_PAD_X = 6;
+
+// --- roster panel ------------------------------------------------------------------------------
+/**
+ * How a dead player is greyed out: one text colour and one alpha on the swatch, so "greyed" is two
+ * constants rather than a scattering of literals in the draw loop. The row stays listed either way
+ * (D3) — the grey is the whole difference between alive and out.
+ *
+ * The colour is `HUD_TEXT` lifted toward the cream gutter until the name reads as present but not
+ * current; the alpha is on the swatch's own player colour, which must stay recognisable as that
+ * player's colour rather than becoming a neutral grey chip.
+ */
+const ROSTER_DEAD_TEXT = "#8d9096";
+const ROSTER_DEAD_SWATCH_ALPHA = 0.3;
+/** A living row's name, matching the rest of the gutter's text. */
+const ROSTER_LIVE_TEXT = HUD_TEXT;
 
 const HUD_KEY_FONT_PX = SLOT_KEY_FONT_PX;
 const HUD_NAME_FONT_PX = SLOT_NAME_FONT_PX;
@@ -487,6 +509,17 @@ export class ArenaScene extends Phaser.Scene {
   private hudIconImages: Phaser.GameObjects.Image[] = [];
   /** One pooled label per badge the strip can ever show — `STATUS_CONFIG.maxActive` of them. */
   private hudStatusTexts: Phaser.GameObjects.Text[] = [];
+  /**
+   * The roster panel: one pooled name per seat (`MAX_PLAYERS` of them), and its **own** Graphics for
+   * the colour swatches.
+   *
+   * The second Graphics is the point. `hudGfx` is `clear()`ed at the top of `renderWeaponHud`, so
+   * swatches drawn into it from a different method would live or die on which method ran last — a
+   * silent ordering dependency that the next person to reorder `update()` would break without a
+   * failing test anywhere. One extra draw call removes the trap entirely.
+   */
+  private rosterGfx: Phaser.GameObjects.Graphics | undefined;
+  private rosterNameTexts: Phaser.GameObjects.Text[] = [];
 
   /**
    * Local-only contact tracker for {@link showImpact}. Purely a render-feel aid — see
@@ -556,6 +589,7 @@ export class ArenaScene extends Phaser.Scene {
     this.lockGfx = this.add.graphics().setDepth(LOCK_DEPTH);
     this.hudGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_BOX_DEPTH);
     this.hudSweepGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_SWEEP_DEPTH);
+    this.rosterGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_BOX_DEPTH);
     this.buildHudTextPool();
 
     // Centred on the arena, not on the canvas: the gutter is off to the right of both of these, and
@@ -682,6 +716,7 @@ export class ArenaScene extends Phaser.Scene {
     const hudObjects: Phaser.GameObjects.GameObject[] = [
       ...(this.hudGfx ? [this.hudGfx] : []),
       ...(this.hudSweepGfx ? [this.hudSweepGfx] : []),
+      ...(this.rosterGfx ? [this.rosterGfx] : []),
       ...(this.countdownText ? [this.countdownText] : []),
       ...(this.spectateText ? [this.spectateText] : []),
       ...this.hudKeyTexts,
@@ -690,6 +725,7 @@ export class ArenaScene extends Phaser.Scene {
       ...this.hudStockTexts,
       ...this.hudIconImages,
       ...this.hudStatusTexts,
+      ...this.rosterNameTexts,
     ];
     const worldObjects: Phaser.GameObjects.GameObject[] = [
       ...(this.arenaGfx ? [this.arenaGfx] : []),
@@ -767,18 +803,22 @@ export class ArenaScene extends Phaser.Scene {
     this.hudGfx = undefined;
     this.hudSweepGfx?.destroy();
     this.hudSweepGfx = undefined;
+    this.rosterGfx?.destroy();
+    this.rosterGfx = undefined;
     for (const text of this.hudKeyTexts) text.destroy();
     for (const text of this.hudNameTexts) text.destroy();
     for (const text of this.hudCountdownTexts) text.destroy();
     for (const text of this.hudStockTexts) text.destroy();
     for (const image of this.hudIconImages) image.destroy();
     for (const text of this.hudStatusTexts) text.destroy();
+    for (const text of this.rosterNameTexts) text.destroy();
     this.hudKeyTexts = [];
     this.hudNameTexts = [];
     this.hudCountdownTexts = [];
     this.hudStockTexts = [];
     this.hudIconImages = [];
     this.hudStatusTexts = [];
+    this.rosterNameTexts = [];
     // Phaser tears the camera itself down with the scene; this just stops `syncCar` handing a
     // destroyed camera an ignore during the shutdown frame.
     this.hudCamera = undefined;
@@ -813,7 +853,13 @@ export class ArenaScene extends Phaser.Scene {
     this.updateSpectate(room, delta);
     this.renderCars(room, delta);
     this.renderShots(room);
-    this.renderWeaponHud(room);
+    // The panel's height is the slots' top inset, so the roster draws first and hands that one
+    // number to the rest of the gutter. Derived here and nowhere else on purpose: the panel lists
+    // every IN_MATCH player while `renderWeaponHud` lays out for `hudTargetPlayer` — the
+    // *spectated* car, which is not always yours — so a second derivation would count a different
+    // set of players and the two would disagree about where the panel ends (D12).
+    const panelHeight = this.renderRosterPanel(room);
+    this.renderWeaponHud(room, panelHeight);
   }
 
   // --- input -------------------------------------------------------------------------------
@@ -1334,6 +1380,11 @@ export class ArenaScene extends Phaser.Scene {
    * `drawHudSlot` gives it a real key with `setTexture` only once a slot actually resolves one.
    */
   private buildHudTextPool(): void {
+    // One name per seat, built once: the panel shows and hides these rather than allocating a Text
+    // when someone joins. Left-centre, hung off the row's `labelX` and centred on its swatch.
+    for (let i = 0; i < MAX_PLAYERS; i++) {
+      this.rosterNameTexts.push(this.makeHudText(ROSTER_NAME_FONT_PX).setOrigin(0, 0.5));
+    }
     // Left-centre, matching the key labels: a badge's text hangs off its box's left inset.
     for (let i = 0; i < STATUS_CONFIG.maxActive; i++) {
       this.hudStatusTexts.push(
@@ -1394,12 +1445,62 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
+   * The roster panel at the top of the gutter: a colour swatch and a name per player in the match,
+   * alive or dead. Returns the panel's height, which is the slot bar's `topInset` — see the call in
+   * `update()` for why exactly one place derives it.
+   *
+   * Every rule about who is listed and in what order is in `roster-panel.ts`; this is the Phaser
+   * half. An empty roster hides every pooled name, draws nothing, and returns 0, so a pre-reveal or
+   * free-roam frame leaves the gutter laid out exactly as it was before the panel existed.
+   */
+  private renderRosterPanel(room: Room<ArenaState>): number {
+    const gfx = this.rosterGfx;
+    if (!gfx) return 0;
+    gfx.clear();
+
+    const rows = rosterRows([...room.state.players.values()]);
+    const panel = rosterPanelLayout(rows.length, VIEW_WIDTH, HUD_GUTTER_WIDTH);
+
+    for (let i = 0; i < this.rosterNameTexts.length; i++) {
+      const row = rows[i];
+      const box = panel.rows[i];
+      const label = this.rosterNameTexts[i]!;
+      if (!row || !box) {
+        label.setVisible(false);
+        continue;
+      }
+
+      // The swatch carries the player's own car colour — `carFillOf`, the same function that paints
+      // the car, so the panel can never disagree with the field about who is who.
+      gfx.fillStyle(carFillOf(row.colorId), row.alive ? 1 : ROSTER_DEAD_SWATCH_ALPHA);
+      gfx.fillRect(box.x, box.y, box.size, box.size);
+
+      // Guarded rather than asserted every frame: Phaser re-renders a Text object's canvas whenever
+      // its style is touched, and a row's aliveness flips once a match, not once a frame. Same
+      // reasoning as the slot labels, which set their colour once at pool build time — this one
+      // cannot, because it is the colour that carries the state.
+      const color = row.alive ? ROSTER_LIVE_TEXT : ROSTER_DEAD_TEXT;
+      if (label.style.color !== color) label.setColor(color);
+      label
+        .setPosition(box.labelX, box.centerY)
+        .setText(truncateName(row.name, panel.nameMaxChars))
+        .setVisible(true);
+    }
+
+    return panel.height;
+  }
+
+  /**
    * The slot bar: camera-fixed, drawing `min(weapons.length, maxWeaponSlots)` boxes for whichever
    * car `hudTargetPlayer` names. Slots beyond the current target (or with no target at all) just
    * hide their pooled text objects rather than destroying anything, so switching who is watched
    * costs no allocation.
+   *
+   * `topInset` is the roster panel's height, passed in rather than derived here: the panel lists
+   * every player in the match while this lays out for one car, so the two count different things
+   * and only the caller can hold the single answer (D12).
    */
-  private renderWeaponHud(room: Room<ArenaState>): void {
+  private renderWeaponHud(room: Room<ArenaState>, topInset: number): void {
     const gfx = this.hudGfx;
     const sweepGfx = this.hudSweepGfx;
     if (!gfx || !sweepGfx) return;
@@ -1407,7 +1508,9 @@ export class ArenaScene extends Phaser.Scene {
     sweepGfx.clear();
 
     const player = this.hudTargetPlayer(room);
-    const boxes = player ? slotBarLayout(player.weapons.length, VIEW_WIDTH, VIEW_HEIGHT, HUD_GUTTER_WIDTH) : [];
+    const boxes = player
+      ? slotBarLayout(player.weapons.length, VIEW_WIDTH, VIEW_HEIGHT, HUD_GUTTER_WIDTH, topInset)
+      : [];
 
     for (let i = 0; i < this.hudKeyTexts.length; i++) {
       const box = boxes[i];
