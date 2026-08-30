@@ -162,12 +162,23 @@ const LOCK_COLOR = 0xf2e14c;
 const LOCK_WIDTH = 2;
 
 /**
- * The countdown arrow's paint. Deliberately not the player's own car colour: the arrow is the one
- * thing on the field that means "you" rather than "someone", and painting it in a colour the player
- * has not learned yet would make it one more thing to tell apart at exactly the moment they cannot
- * tell anything apart. Near-opaque — it is only ever on screen while nothing is moving.
+ * The countdown arrow's paint: the same green the local player's own hp bar draws in, taken from
+ * `hpBarColor` rather than copied as a hex so the two can never drift apart.
+ *
+ * Deliberately not the player's own CAR colour — the arrow means "you" rather than "someone", and a
+ * colour the player has not learned yet would be one more thing to tell apart at exactly the moment
+ * they cannot tell anything apart. Ally green is the colour the HUD is already teaching them in that
+ * same three seconds, on the bar directly under the arrow, so the marker and the bar say "you" in
+ * one voice.
+ *
+ * It replaced an off-white that sat too close to the arena floor to read. Anything painted on this
+ * floor has to clear a light, low-contrast ground; that is the constraint to test against if this is
+ * ever re-picked, and `ARENA_COLOR_DEFAULTS.floor` (`arena-visual.ts`, 0xEBEBEB) is the ground in
+ * question — an arena may override it, so a colour that only just clears the default is not safe.
+ *
+ * Near-opaque — it is only ever on screen while nothing is moving.
  */
-const ARROW_COLOR = 0xf7f7f2;
+const ARROW_COLOR = hpBarColor("ally");
 const ARROW_ALPHA = 0.95;
 
 /**
