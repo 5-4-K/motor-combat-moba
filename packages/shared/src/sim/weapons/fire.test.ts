@@ -319,7 +319,9 @@ describe("the two lockouts", () => {
 describe("volleys and wind-up", () => {
   /**
    * `shockwave` is the table's only real burst: 3 waves at a 250ms == 8-tick interval, on a
-   * 5000ms == 150-tick cooldown. Each wave lives exactly 8 ticks too, so the three are contiguous. It took the role from `pepperbox`, which T12 collapsed to a single
+   * 5000ms == 150-tick cooldown. Each wave lives 9 ticks, one more than the spacing, so consecutive
+   * waves overlap by a tick and the outgoing ring is never alone on screen with a newborn dot.
+   * It took the role from `pepperbox`, which T12 collapsed to a single
    * volley of three pellets — a fan decided at the press has no burst path left to exercise. Every
    * number here is one a player actually fires.
    */

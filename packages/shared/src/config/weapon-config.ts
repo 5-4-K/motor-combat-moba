@@ -329,10 +329,22 @@ export const WEAPON_TABLE = {
   },
   /**
    * Mirage's slot 2 after T15, and the table's only MULTI-WAVE weapon: one press schedules three
-   * separate aura instances 250 ms apart. Each wave expands to 150 units in 100 ms, lingers 150 ms
-   * and dies, so at 500 ms spacing they never overlap — the weapon reads as three distinct pulses
-   * rather than one long field, and each car can be caught once per wave. One press spans 1.25 s
-   * from the first wave's birth to the third wave's death (`2 * 500` + 250).
+   * separate aura instances 250 ms apart. Each wave expands to 150 units in 100 ms (3 ticks) and
+   * then lingers, and each car can be caught once per wave. One press spans 833 ms from the first
+   * wave's birth to the third wave's death.
+   *
+   * **`lifetimeMs` is 200 rather than 250 for a reason nobody would guess from the number.** A
+   * wave's total life is `flight + lifetime` == 3 + 6 == 9 ticks against an 8-tick spacing, so
+   * consecutive waves overlap by exactly one tick. At 150 ms the two were flush — the outgoing ring
+   * died on the very tick its successor was born, and a newborn instance has `extent: 0` because
+   * existing instances step BEFORE new ones are born. The result was one frame per wave showing a
+   * dot and nothing else. With the extra tick, the old ring is still on screen when the new one has
+   * stepped once and reached 50 of its 150 units — a 100-unit ring around a 48-unit car, plainly a
+   * ring rather than a point. Shorten this and the flicker comes back.
+   *
+   * The overlap costs no damage: `damageFrequencyMs` is 0, so an instance hits each car once
+   * however long it lives. It buys one extra tick in which a car entering the radius late is still
+   * caught by that wave.
    *
    * This is the row that makes Task 5's split load-bearing: `volley` moved onto `WeaponBase` so a
    * beam could carry `volleys`, and until this row shipped, `beginFire` reading the table and
@@ -390,7 +402,7 @@ export const WEAPON_TABLE = {
     volley: { volleys: 3, volleyIntervalMs: 250 },
     attached: true,
     origin: "center",
-    lifetimeMs: 150, // per wave: 100ms of expansion + 150ms of linger
+    lifetimeMs: 200, // per wave: 100ms of expansion + 150ms of linger
     // Corrosion, not concussion: 1.3x damage taken for 2.5 s, which is Mirage setting up the burst
     // it is about to land rather than taking the target's car away. `onWave: "final"` means only
     // the third wave applies it — `refresh` would otherwise hand the full duration to whichever

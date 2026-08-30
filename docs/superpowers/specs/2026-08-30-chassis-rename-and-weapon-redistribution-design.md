@@ -353,9 +353,10 @@ Moves to Mirage's slot 2, and becomes three waves.
 | `cooldownMs` | 5000 | **5500** (+10%) |
 | `applies` | `stunned` 700 ms | **`corroded` 2500 ms, final wave only** |
 
-Each wave is its own disc instance: expands to 150 units in 100 ms, lingers 150 ms, dies. Waves are
-500 ms apart, so they never overlap and the weapon reads as three distinct pulses. One press spans
-1.25 s and deals at most 135 (**153**, not the ~~152~~ first written here, on Mirage's 1.13× attack)
+Each wave is its own disc instance: expands to 150 units in 100 ms, lingers, dies. Waves are 250 ms
+apart and each lives 9 ticks against that 8-tick spacing, so consecutive rings overlap by one tick —
+enough that the outgoing ring is still drawn when its successor has grown past looking like a dot.
+One press spans 833 ms and deals at most 135 (**153**, not the ~~152~~ first written here, on Mirage's 1.13× attack)
 against a target that eats all three.
 
 > **CORRECTED IN REVIEW: 152 → 153. The code is authoritative.** `damageFor` scales and rounds
