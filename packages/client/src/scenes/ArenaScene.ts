@@ -95,6 +95,7 @@ import {
   statusBadges,
   statusStripLayout,
 } from "./status-hud.js";
+import { arrowBobOffset, countdownArrowPoints } from "./countdown-arrow.js";
 import {
   ROSTER_NAME_FONT_PX,
   rosterPanelLayout,
@@ -122,10 +123,9 @@ const HP_BAR_DEPTH = 60;
 /** Under the hp bar, over the cars: the bracket frames a car, it never occludes its own hp. */
 const LOCK_DEPTH = 55;
 /**
- * The countdown arrow that marks your own car. Above the cars so the marker is never hidden by the
- * car it is marking, and below `LOCK_DEPTH` / `HP_BAR_DEPTH` so it can never occlude a bracket or a
- * bar. Nothing draws at this depth yet — the arrow itself lands with the rest of the readability
- * work; the layer is named here so the stack above is complete rather than half-stated.
+ * The countdown arrow that marks your own car (`drawCountdownArrow`). Above the cars so the marker
+ * is never hidden by the car it is marking, and below `LOCK_DEPTH` / `HP_BAR_DEPTH` so it can never
+ * occlude a bracket or a bar.
  */
 const ARROW_DEPTH = 52;
 /**
@@ -160,6 +160,15 @@ const HP_BAR_BACK = 0x22252b;
 
 const LOCK_COLOR = 0xf2e14c;
 const LOCK_WIDTH = 2;
+
+/**
+ * The countdown arrow's paint. Deliberately not the player's own car colour: the arrow is the one
+ * thing on the field that means "you" rather than "someone", and painting it in a colour the player
+ * has not learned yet would make it one more thing to tell apart at exactly the moment they cannot
+ * tell anything apart. Near-opaque — it is only ever on screen while nothing is moving.
+ */
+const ARROW_COLOR = 0xf7f7f2;
+const ARROW_ALPHA = 0.95;
 
 /**
  * There is no wreck any more. A dead car is intangible and frozen from the tick it dies (shared
@@ -468,6 +477,7 @@ export class ArenaScene extends Phaser.Scene {
   private shotGfx: Phaser.GameObjects.Graphics | undefined;
   private hpGfx: Phaser.GameObjects.Graphics | undefined;
   private lockGfx: Phaser.GameObjects.Graphics | undefined;
+  private arrowGfx: Phaser.GameObjects.Graphics | undefined;
   private spectateText: Phaser.GameObjects.Text | undefined;
   private keys: SpectateKeys | undefined;
   /** Session id of the car the spectate camera is watching. `""` means "nobody left to watch". */
@@ -580,13 +590,14 @@ export class ArenaScene extends Phaser.Scene {
     this.arena = getArena(arenaId);
     this.drawArena(this.arena);
 
-    // One Graphics for every shot, one for every hp bar, and one for every lock bracket, cleared
-    // and redrawn each frame. All three are drawn in *world* space but must not rotate with any
-    // car, so none can live inside a car's own Graphics; a per-shot object would also mean creating
-    // and destroying objects at the fire rate for no gain.
+    // One Graphics for every shot, one for every hp bar, one for every lock bracket and one for the
+    // countdown arrow, cleared and redrawn each frame. All four are drawn in *world* space but must
+    // not rotate with any car, so none can live inside a car's own Graphics; a per-shot object would
+    // also mean creating and destroying objects at the fire rate for no gain.
     this.shotGfx = this.add.graphics().setDepth(SHOT_DEPTH);
     this.hpGfx = this.add.graphics().setDepth(HP_BAR_DEPTH);
     this.lockGfx = this.add.graphics().setDepth(LOCK_DEPTH);
+    this.arrowGfx = this.add.graphics().setDepth(ARROW_DEPTH);
     this.hudGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_BOX_DEPTH);
     this.hudSweepGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_SWEEP_DEPTH);
     this.rosterGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_BOX_DEPTH);
@@ -735,6 +746,9 @@ export class ArenaScene extends Phaser.Scene {
       // unclipped across the whole canvas, over the gutter (D13). It draws in world space at
       // `LOCK_DEPTH`, so the world camera is the one that keeps it.
       ...(this.lockGfx ? [this.lockGfx] : []),
+      // World space at `ARROW_DEPTH`, drawn over the local car during the countdown, so the world
+      // camera keeps it and the HUD camera must not draw it a second time over the gutter.
+      ...(this.arrowGfx ? [this.arrowGfx] : []),
       ...this.cars.values(),
     ];
 
@@ -799,6 +813,8 @@ export class ArenaScene extends Phaser.Scene {
     this.hpGfx = undefined;
     this.lockGfx?.destroy();
     this.lockGfx = undefined;
+    this.arrowGfx?.destroy();
+    this.arrowGfx = undefined;
     this.hudGfx?.destroy();
     this.hudGfx = undefined;
     this.hudSweepGfx?.destroy();
@@ -961,8 +977,12 @@ export class ArenaScene extends Phaser.Scene {
     const seen = new Set<string>();
     const hp = this.hpGfx;
     const lock = this.lockGfx;
+    const arrow = this.arrowGfx;
     hp?.clear();
     lock?.clear();
+    // Cleared here and refilled below, so the first frame after the countdown draws nothing at all:
+    // the arrow going away is the absence of a draw call, not an animation that has to be stopped.
+    arrow?.clear();
     const poses = new Map<string, SimBody>();
     // Teams alongside poses so the impact-spark pass below can gate on them without a second walk of
     // `room.state.players` (and without carrying `team` through `SimBody`, which has no business
@@ -1048,6 +1068,10 @@ export class ArenaScene extends Phaser.Scene {
         this.showImpact(impact.x, impact.y);
       }
     }
+
+    // The same render pose the spark pass above tested against — predicted and blended for the local
+    // car — so the marker sits on the car that is on screen instead of trailing it by a tick.
+    if (arrow && selfPose) this.drawCountdownArrow(arrow, room, selfPose);
 
     // The bracket follows the CAMERA's subject -- the local car while driving, the watched car while
     // spectating -- which is the same rule the weapon slot bar already uses. Read straight off the
@@ -1222,6 +1246,31 @@ export class ArenaScene extends Phaser.Scene {
         break;
     }
     return gfx;
+  }
+
+  /**
+   * The arrow over your own car during the countdown, and only then.
+   *
+   * Two conditions, not one (D14): the phase, and a local player who is actually `IN_MATCH`.
+   * Someone who joined mid-countdown watches the same phase from the same room but has no car on the
+   * field for the arrow to point at, so the phase alone would hang a triangle over somebody else's.
+   *
+   * The shape itself is `countdown-arrow.ts`; this only fills it. The bob is read from
+   * `performance.now()` rather than driven by a tween, so it is frame-rate independent and there is
+   * nothing to cancel when the phase flips — the next frame simply does not reach this line and the
+   * arrow is gone, with no fade (D4).
+   */
+  private drawCountdownArrow(
+    gfx: Phaser.GameObjects.Graphics,
+    room: Room<ArenaState>,
+    pose: SimBody,
+  ): void {
+    if (room.state.phase !== RoomPhase.COUNTDOWN) return;
+    const local = room.state.players.get(room.sessionId);
+    if (!local || local.status !== PlayerStatus.IN_MATCH) return;
+
+    gfx.fillStyle(ARROW_COLOR, ARROW_ALPHA);
+    gfx.fillPoints(countdownArrowPoints(pose.x, pose.y, arrowBobOffset(performance.now())), true);
   }
 
   /**
