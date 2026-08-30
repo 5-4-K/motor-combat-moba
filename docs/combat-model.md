@@ -339,12 +339,19 @@ tests do and do not reach, exactly:
 
 Hitboxes are a nested tagged object on the weapon def — a cone cannot carry a circle's `radius`, nor
 a beam a projectile's `pierce` — with one hit-test path underneath: circle-vs-OBB is exact, and
-`ellipse` / `rect` / `cone` are converted to convex polygons at table-build time and run through the
+`ellipse` / `capsule` / `rect` / `cone` are converted to convex polygons at table-build time and run through the
 same SAT the car hulls already use.
 
 | Type | Shapes | Config |
 |---|---|---|
-| Projectile | `circle`, `ellipse` | `radius` / `radiusAlong` + `radiusAcross` |
+| Projectile | `circle`, `ellipse`, `capsule` | `radius` / `radiusAlong` + `radiusAcross` |
+
+A `capsule` is a slug: a semicircular nose of `radiusAcross`, and a tail cut flat across. It exists
+because a shot is drawn AS its hitbox (D19), so a weapon whose icon is a flat-backed capsule cannot
+be given that silhouette by the renderer alone — the shape has to be real, or what you see stops
+being what can hurt you. `radiusAlong` must be at least `radiusAcross`, or the nose cap reaches
+behind the tail and the polygon stops being convex; SAT does not reject a concave polygon, it
+silently answers the wrong question about it, so `weapon-config.test.ts` guards the ratio.
 | Beam | `rect`, `cone` | `width` / `angleDeg` |
 
 Each tick, a projectile is tested as the convex hull of its shape at its **previous and current**

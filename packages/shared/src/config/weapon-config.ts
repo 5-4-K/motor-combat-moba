@@ -273,8 +273,8 @@ export const WEAPON_TABLE = {
     lifetimeMs: 150,
   },
   /**
-   * Bastion's slot 1, and after T16 the roster's CC engager. A fat, slow slug: the 20-unit radius is
-   * the largest hitbox in the table and makes it near-unmissable in a brawl, while 450 u/s over 550
+   * Bastion's slot 1, and after T16 the roster's CC engager. A fat, slow slug: at 48 x 30 it is
+   * still the largest hitbox in the table and near-unmissable in a brawl, while 450 u/s over 550
    * units means 1.2 s of flight and a genuinely dodgeable shot at range. It buys pressure, not a
    * ranged win — but Bastion is 99 u/s slower than Bullseye and 261 slower than Mirage, so without
    * one weapon that reaches at all, the slowest chassis has no answer to a patient opponent.
@@ -311,7 +311,7 @@ export const WEAPON_TABLE = {
     id: "thumper",
     kind: "projectile",
     name: "Thumper",
-    color: "#495057",
+    color: "#C9A227",
     unlocksAt: 1,
     damage: 60,
     damageFrequencyMs: 0,
@@ -321,7 +321,7 @@ export const WEAPON_TABLE = {
     cooldownMs: 3000, // 0.33 Hz, 73% clear of the 1.25 Hz cliff
     recoveryMs: 0,
     usesAimAssist: true,
-    hitbox: { shape: "circle", radius: 20 },
+    hitbox: { shape: "capsule", radiusAlong: 24, radiusAcross: 15 },
     pierce: 0,
     volley: { volleys: 1, volleyIntervalMs: 0 },
     pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },

@@ -168,6 +168,17 @@ describe("WEAPON_TABLE", () => {
     expect(afterburner.usesAimAssist).toBe(false);
   });
 
+  it("keeps every capsule long enough for its own nose cap", () => {
+    // A capsule's nose is a semicircle of `radiusAcross` centred at `radiusAlong - radiusAcross`.
+    // Author it shorter than it is wide and that centre moves behind the tail, the cap wraps past
+    // the flat edge, and the polygon stops being convex — which SAT does not reject, it just
+    // silently answers the wrong question about what the shot hit.
+    for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
+      if (def.kind !== "projectile" || def.hitbox.shape !== "capsule") continue;
+      expect(def.hitbox.radiusAlong).toBeGreaterThanOrEqual(def.hitbox.radiusAcross);
+    }
+  });
+
   it("refuses aim assist on an attached beam", () => {
     // A12. An attached beam re-derives its origin and angle from the owner's pose every tick, so it
     // would snap to the lock at birth and immediately re-weld to the car's nose. Dormant until the
@@ -240,7 +251,7 @@ describe("WEAPON_TABLE", () => {
     expect(thumper.cooldownMs).toBe(3000);
     expect(thumper.cooldownMs).toBeGreaterThan(forbiddenHigh);
     expect(forbiddenLow).toBeLessThan(forbiddenHigh); // the band is a band, not a point
-    expect(thumper.hitbox).toEqual({ shape: "circle", radius: 20 });
+    expect(thumper.hitbox).toEqual({ shape: "capsule", radiusAlong: 24, radiusAcross: 15 });
     expect(thumper.range).toBeGreaterThanOrEqual(AIM_CONFIG.lockRange);
   });
 

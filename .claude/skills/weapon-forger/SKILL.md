@@ -40,7 +40,7 @@ Fields to recommend, in order. Stop early once nothing is undetermined.
 | 2 | Projectile or beam | Projectiles travel and freeze at exit; beams grow, linger, can weld to the car |
 | 3 | Damage, and `damageFrequencyMs` | 0 is one hit per target ever; positive re-arms on that interval |
 | 4 | Speed and range | Together they set flight time — `range ÷ speed`. `fireball` is 900/900 = 1 s |
-| 5 | Hitbox | Projectile: circle radius, or ellipse along/across. Beam: rect width, or cone angle |
+| 5 | Hitbox | Projectile: circle radius, ellipse along/across, or capsule along/across (rounded nose, flat tail; needs along >= across). Beam: rect width, cone angle, or disc |
 | 6 | Cooldown, and stocks | A flat `cooldownMs`, or a `stock` block holding charges — see `needler`, the table's only stock weapon. Note what stocks actually buy: the recharge starts at the **first** shot of a dump, so a magazine moves damage earlier without costing sustained DPS |
 | 7 | Wind-up and recovery | `startUpMs` delays the shot; `recoveryMs` gates the car's **other** slots |
 | 8 | `volley` — **both kinds** | `volleys` + `volleyIntervalMs`, on `WeaponBase`. A **beam** can burst too: `shockwave` is three aura waves 500 ms apart, each its own instance with its own `spawnTick` and damage clock. A single shot is `{ volleys: 1, volleyIntervalMs: 0 }` |

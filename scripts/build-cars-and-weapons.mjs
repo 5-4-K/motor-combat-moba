@@ -121,6 +121,8 @@ function hitboxLine(def) {
   const h = def.hitbox;
   if (h.shape === "circle") return { shape: "Circle", size: `${h.radius * 2} across` };
   if (h.shape === "ellipse") return { shape: "Ellipse", size: `${h.radiusAlong * 2} × ${h.radiusAcross * 2}` };
+  if (h.shape === "capsule")
+    return { shape: "Capsule", size: `${h.radiusAlong * 2} × ${h.radiusAcross * 2}, flat tail` };
   if (h.shape === "rect") return { shape: "Beam", size: `${h.width} × ${def.range}` };
   // A disc grows in every direction at once, so its `range` is a radius rather than a reach.
   if (h.shape === "disc") return { shape: "Aura", size: `${def.range} radius` };
@@ -132,6 +134,11 @@ function footprint(def) {
   const h = def.hitbox;
   if (h.shape === "circle") return Math.PI * h.radius ** 2;
   if (h.shape === "ellipse") return Math.PI * h.radiusAlong * h.radiusAcross;
+  // A rectangle from the tail to the nose cap's centre, plus the semicircular cap itself.
+  if (h.shape === "capsule")
+    return (
+      (h.radiusAlong - h.radiusAcross) * 2 * h.radiusAcross * 2 + Math.PI * h.radiusAcross ** 2
+    );
   if (h.shape === "rect") return h.width * def.range;
   if (h.shape === "disc") return Math.PI * def.range ** 2;
   return ((h.angleDeg / 360) * Math.PI * def.range ** 2);

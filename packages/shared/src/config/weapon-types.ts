@@ -55,7 +55,21 @@ export interface PelletDef {
 /** Projectiles are fixed-size, so they configure their full extent. */
 export type ProjectileHitbox =
   | { shape: "circle"; radius: number }
-  | { shape: "ellipse"; radiusAlong: number; radiusAcross: number };
+  | { shape: "ellipse"; radiusAlong: number; radiusAcross: number }
+  /**
+   * A slug: rounded at the nose, cut flat across the tail. `radiusAlong` is half its total length
+   * and `radiusAcross` half its width, matching `ellipse`, so the two are read the same way.
+   *
+   * The nose is a semicircle of `radiusAcross`, which means `radiusAlong` must be at least
+   * `radiusAcross` — below that the cap would have to reach behind the tail and the polygon stops
+   * being convex, which SAT silently mis-answers rather than rejecting. `weapon-config.test.ts`
+   * guards the ratio.
+   *
+   * It exists because a shot is drawn AS its hitbox (D19), so a weapon whose icon is a flat-backed
+   * capsule cannot be given that silhouette by the renderer alone — the shape has to be real, or
+   * what you see stops being what can hurt you.
+   */
+  | { shape: "capsule"; radiusAlong: number; radiusAcross: number };
 
 /**
  * Beams configure their CROSS-SECTION only. The axial extent is the current expansion, growing

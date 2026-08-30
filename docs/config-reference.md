@@ -108,14 +108,14 @@ once, at shared's module load, into the frozen `WEAPON_TICKS` the sim actually r
 
 | id | kind | damage | damageFrequencyMs | speed | range | cooldownMs | startUpMs | recoveryMs | stock | pierce | volley (volleys / intervalMs) | pellets (perVolley / spreadDeg) | attached | lifetimeMs | hitbox | unlocksAt | usesAimAssist | color |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `fireball` | projectile | 50 | 0 | 900 | 900 | 550 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | circle, radius 12 | 1 | true | `#E8590C` |
+| `fireball` | projectile | 50 | 0 | 900 | 900 | 2000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | circle, radius 12 | 1 | true | `#E8590C` |
 | `pepperbox` | projectile | 45 | 0 | 800 | 600 | 1800 | 0 | 200 | — | 0 | 1 / 0 | 3 / 12 | — | — | circle, radius 6 | 1 | true | `#B45309` |
 | `afterburner` | beam | 26 | 200 | 1100 | 220 | 13000 | 0 | 200 | — | — | 1 / 0 | — | true | 2000 | cone, 55° | 1 | false | `#F59F00` |
-| `needler` | projectile | 22 | 0 | 1300 | 850 | 300 | 0 | 0 | max 3, refire 110ms | 0 | 1 / 0 | 1 / 0 | — | — | ellipse, along 9 / across 3 | 1 | true | `#0CA5B0` |
-| `skewer` | projectile | 110 | 0 | 1000 | 650 | 2400 | 250 | 200 | — | 1 | 1 / 0 | 1 / 0 | — | — | ellipse, along 22 / across 5 | 1 | true | `#1864AB` |
-| `lance` | beam | 170 | 0 | 6000 | 1200 | 16000 | 700 | 1000 | — | — | 1 / 0 | — | false | 150 | rect, width 23 | 1 | true | `#6741D9` |
-| `thumper` | projectile | 60 | 0 | 450 | 550 | 1000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | circle, radius 20 | 1 | true | `#495057` |
-| `shockwave` | beam | 45 | 0 | 1500 | 150 | 5500 | 0 | 200 | — | — | **3 / 500** | — | true | 150 | disc (aura, `origin: "center"`) | 1 | false | `#0B3D8A` |
+| `needler` | projectile | 22 | 0 | 1300 | 850 | 600 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | ellipse, along 9 / across 3 | 1 | true | `#0CA5B0` |
+| `skewer` | projectile | 110 | 0 | 1000 | 650 | 6000 | 250 | 200 | — | 1 | 1 / 0 | 1 / 0 | — | — | ellipse, along 22 / across 5 | 1 | true | `#1864AB` |
+| `lance` | beam | 170 | 0 | 6000 | 1200 | 16000 | 700 | 1000 | — | — | 1 / 0 | — | false | 150 | rect, width 57.5 | 1 | true | `#6741D9` |
+| `thumper` | projectile | 60 | 0 | 450 | 550 | 3000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | capsule, along 24 / across 15 (flat tail) | 1 | true | `#C9A227` |
+| `shockwave` | beam | 45 | 0 | 1500 | 150 | 5000 | 0 | 200 | — | — | **3 / 250** | — | true | 200 | disc (aura, `origin: "center"`) | 1 | false | `#0B3D8A` |
 | `bulwark` | beam | 35 | 400 | 550 | 550 | 15000 | 0 | 200 | — | — | 1 / 0 | — | false | 2875 | cone, 60° | 1 | false | `#862E9C` |
 
 **`volley` and `pellets` are two types, split on 2026-08-30.** `VolleyDef` (`volleys`,
