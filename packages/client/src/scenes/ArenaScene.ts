@@ -8,7 +8,6 @@ import type {
   SimBody,
   StepContext,
   WeaponSlotState,
-  WeaponInstanceState,
 } from "@motor-combat-moba/shared";
 import {
   ARENA_IDS,
@@ -23,7 +22,6 @@ import {
   RoomPhase,
   TICK_RATE_HZ,
   WEAPON_SLOT_CONFIG,
-  WeaponKind,
   getArena,
   isArenaId,
   isWeaponId,
@@ -51,6 +49,8 @@ import { carFillOf, carShapeOf, deathFadeAlpha, hexagonPoints } from "./car-visu
 import {
   AURA_FILL_ALPHA,
   AURA_RING_WIDTH,
+  allegianceOf,
+  beamFadeAlpha,
   hpBarColor,
   hpBarPoints,
   isAuraWeapon,
@@ -62,6 +62,7 @@ import {
   lockBracketArms,
   SHOW_LOCK_BRACKET,
   weaponFillOf,
+  type Allegiance,
   type HpBarGeometry,
 } from "./combat-visual.js";
 import {
@@ -94,15 +95,53 @@ import {
   statusStripLayout,
 } from "./status-hud.js";
 
-const ARENA_DEPTH = -10;
 const ARENA_BORDER_PX = 4;
 const HUD_TEXT = "#1d1f21";
 const HITBOX_STROKE = 0x1d1f21;
 const HITBOX_PX = 1;
 
-const SHOT_DEPTH = 50;
-
+// --- the world layer stack ---------------------------------------------------------------------
+/**
+ * Every world-space depth in one ordered block, highest first, so the constants read top to bottom
+ * as the picture does. HUD depths are a separate stack far above all of these (`HUD_DEPTH`).
+ *
+ * The one thing to keep true when adding a layer: a depth that is not written down here is a layer
+ * whose position is an accident of display-list insertion order, and the next person to add an
+ * object will move it without knowing they did.
+ *
+ * Over everything: a bar is the last thing that may ever be hidden.
+ */
 const HP_BAR_DEPTH = 60;
+/** Under the hp bar, over the cars: the bracket frames a car, it never occludes its own hp. */
+const LOCK_DEPTH = 55;
+/**
+ * The countdown arrow that marks your own car. Above the cars so the marker is never hidden by the
+ * car it is marking, and below `LOCK_DEPTH` / `HP_BAR_DEPTH` so it can never occlude a bracket or a
+ * bar. Nothing draws at this depth yet — the arrow itself lands with the rest of the readability
+ * work; the layer is named here so the stack above is complete rather than half-stated.
+ */
+const ARROW_DEPTH = 52;
+/**
+ * The cars. Previously nothing set this at all and the whole stack rested on Phaser's implicit
+ * default of 0 — harmless while every other layer was explicitly above or below it, and no longer
+ * harmless now that weapon instances sit *underneath* the cars: the default became load-bearing the
+ * moment something depended on being below it, so it is written down.
+ */
+const CAR_DEPTH = 0;
+/**
+ * Every live weapon instance — projectiles and beams alike — draws below every car (D7).
+ *
+ * One rule for all instances rather than a per-weapon "is this a ground effect" flag, and the cost
+ * of that is real and accepted: a `fireball` crossing behind a car is briefly hidden by it. The
+ * alternative is a second taxonomy on top of `kind`, encoding a distinction the table already has.
+ * Ship the one rule, play it, and split it only if the hidden projectile turns out to matter more
+ * than the simplicity. The name stays `SHOT_DEPTH` — it is still every instance, it has only
+ * changed layers.
+ */
+const SHOT_DEPTH = -5;
+/** The floor everything else is drawn on. */
+const ARENA_DEPTH = -10;
+
 /** The bar lies across the car's tail, so these are in the car's frame, not the screen's. */
 const HP_BAR_GEOMETRY: HpBarGeometry = {
   length: 44,
@@ -112,8 +151,6 @@ const HP_BAR_GEOMETRY: HpBarGeometry = {
 };
 const HP_BAR_BACK = 0x22252b;
 
-/** Under the hp bar, over the shots: the bracket frames a car, it never occludes its own hp. */
-const LOCK_DEPTH = 55;
 const LOCK_COLOR = 0xf2e14c;
 const LOCK_WIDTH = 2;
 
@@ -626,6 +663,10 @@ export class ArenaScene extends Phaser.Scene {
       ...(this.arenaGfx ? [this.arenaGfx] : []),
       ...(this.shotGfx ? [this.shotGfx] : []),
       ...(this.hpGfx ? [this.hpGfx] : []),
+      // Was in neither list, and so drew twice — once clipped into the arena viewport and once
+      // unclipped across the whole canvas, over the gutter (D13). It draws in world space at
+      // `LOCK_DEPTH`, so the world camera is the one that keeps it.
+      ...(this.lockGfx ? [this.lockGfx] : []),
       ...this.cars.values(),
     ];
 
@@ -842,6 +883,17 @@ export class ArenaScene extends Phaser.Scene {
     // `room.state.players` (and without carrying `team` through `SimBody`, which has no business
     // knowing about it).
     const teams = new Map<string, 0 | 1>();
+    // Whose side each bar is on is answered once per frame, against the LOCAL player and never
+    // against `cameraTarget(room)`: a wreck can cycle the spectate camera through living cars, and
+    // green must stay your team's green while you watch an enemy fill the screen (D2).
+    //
+    // A pure spectator who never took a seat has no `viewer`, and every car is then an enemy —
+    // nobody is your ally if you have no seat, and the alternative (colouring the watched car
+    // green) is exactly the camera-follows-allegiance bug the signature exists to prevent.
+    const viewer = room.state.players.get(room.sessionId);
+    // Hoisted rather than derived twice: the impact-spark pass below wants the same answer, and two
+    // copies of this expression is two things that can drift about what game we are in.
+    const mode = room.state.mode === GameMode.TEAM ? "team" : "ffa";
 
     room.state.players.forEach((player, sessionId) => {
       if (player.status !== PlayerStatus.IN_MATCH) return;
@@ -872,7 +924,12 @@ export class ArenaScene extends Phaser.Scene {
       this.cars.get(sessionId)?.setAlpha(alpha);
       poses.set(sessionId, pose);
       teams.set(sessionId, player.team === 1 ? 1 : 0);
-      if (hp && player.alive) this.drawHpBar(hp, player, pose);
+      if (hp && player.alive) {
+        const allegiance = viewer
+          ? allegianceOf(viewer, { sessionId, team: player.team }, mode)
+          : "enemy";
+        this.drawHpBar(hp, player, pose, allegiance);
+      }
       if (sessionId === this.cameraTarget(room)) this.followCamera(pose, delta);
     });
 
@@ -897,7 +954,6 @@ export class ArenaScene extends Phaser.Scene {
           angle: pose.angle,
           team: teams.get(id) ?? 0,
         }));
-      const mode = room.state.mode === GameMode.TEAM ? "team" : "ffa";
       for (const impact of freshImpacts(
         { sessionId: selfId, team: selfTeam, ...selfPose },
         others,
@@ -1039,6 +1095,10 @@ export class ArenaScene extends Phaser.Scene {
     // fades out, so the field still reads as "someone died here" rather than "someone left".
     // Alpha is set per frame by the render loop (`deathFadeAlpha`), never baked in here: a car
     // built while already dead must pick up the right point in its fade, not a fixed value.
+    //
+    // Depth is set here rather than left to Phaser's default, because weapon instances now draw
+    // below the cars and "0" is the layer they are below — see `CAR_DEPTH`.
+    container.setDepth(CAR_DEPTH);
     return container;
   }
 
@@ -1086,18 +1146,23 @@ export class ArenaScene extends Phaser.Scene {
    *
    * Both quads are filled every frame — the backing plate at full length, the remaining hp over it
    * — so an empty bar still shows where the hp used to be instead of vanishing.
+   *
+   * Length is the whole of the health channel; colour says allegiance and nothing else (D1). The
+   * allegiance arrives as an argument rather than being worked out here, because it is one answer
+   * per frame about the local player and not one answer per bar — see `renderCars`.
    */
   private drawHpBar(
     gfx: Phaser.GameObjects.Graphics,
     player: ArenaPlayer,
     pose: SimBody,
+    allegiance: Allegiance,
   ): void {
     const fraction = hpFraction(player.hp, player.carId);
 
     gfx.fillStyle(HP_BAR_BACK, 0.85);
     gfx.fillPoints(hpBarPoints(pose, 1, HP_BAR_GEOMETRY), true);
     if (fraction <= 0) return;
-    gfx.fillStyle(hpBarColor(fraction), 1);
+    gfx.fillStyle(hpBarColor(allegiance), 1);
     gfx.fillPoints(hpBarPoints(pose, fraction, HP_BAR_GEOMETRY), true);
   }
 
@@ -1113,9 +1178,9 @@ export class ArenaScene extends Phaser.Scene {
    * what a player sees is exactly what can hurt them and every fireball shot in the arena looks
    * alike. Shots were owner-coloured once; they are not, because a shot's colour is asked "what is
    * this" far more often than "whose is it", and the car that fired is on screen in player paint
-   * either way. A beam additionally fades toward transparent through its own configured linger,
-   * never a fixed duration, so a slower-lingering weapon reads as slower rather than snapping off
-   * at some other weapon's timing.
+   * either way. A beam holds full opacity for its whole growth and linger and then snaps off across
+   * a fixed `BEAM_FADE_OUT_MS` window ending at its death tick (`beamFadeAlpha`), so the drawn zone
+   * stops looking safe while it is still dealing damage.
    *
    * A weapon may also carry a LOOK (`instanceGlowBands`): concentric bands filled inside that same
    * hitbox instead of one flat disc. It cannot widen the shot — bands are fractions of the hitbox
@@ -1132,7 +1197,12 @@ export class ArenaScene extends Phaser.Scene {
     room.state.weapons.forEach((instance) => {
       if (!instance.alive) return;
       const shape = instanceDrawShape(instance, elapsedMs);
-      const alpha = this.beamFadeAlpha(instance, room.state.tick);
+      const alpha = beamFadeAlpha(
+        instance.kind,
+        instance.weaponId,
+        instance.spawnTick,
+        room.state.tick,
+      );
       // An aura reaches its own `WorldShape` as a circle, like a round projectile does, so it has to
       // be split off BEFORE the circle branch below — otherwise it would draw as a filled 150-unit
       // disc and hide every car it is about to hit. Ring plus wash: still exactly the hitbox.
@@ -1215,20 +1285,6 @@ export class ArenaScene extends Phaser.Scene {
         gfx.fillCircle(muzzle.x, muzzle.y, orb.radius);
       }
     });
-  }
-
-  /**
-   * How opaque a beam instance should draw: full brightness through its growth, fading to nothing
-   * over its own `WEAPON_TICKS` linger. A projectile, or an instance whose `weaponId` is not in
-   * `WEAPON_TABLE`, always draws fully opaque.
-   */
-  private beamFadeAlpha(instance: WeaponInstanceState, tick: number): number {
-    if (instance.kind !== WeaponKind.BEAM || !isWeaponId(instance.weaponId)) return 1;
-    const ticks = weaponTicksOf(instance.weaponId);
-    if (ticks.lifetime <= 0) return 1;
-    const lingerElapsed = tick - (instance.spawnTick + ticks.flight);
-    if (lingerElapsed <= 0) return 1;
-    return Math.max(0, 1 - lingerElapsed / ticks.lifetime);
   }
 
   // --- weapon slot HUD ---------------------------------------------------------------------

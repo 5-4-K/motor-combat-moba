@@ -5,7 +5,9 @@ import {
   hpOf,
   isCarId,
   isWeaponId,
+  msToTicks,
   projectileShapeAt,
+  WeaponKind,
   weaponDefOf,
   weaponTicksOf,
   type BeamHitbox,
@@ -27,11 +29,56 @@ export function hpFraction(hp: number, carId: string): number {
   return Math.min(1, Math.max(0, hp / max));
 }
 
-/** Bar colour by remaining hp: green, amber under a third, red under a sixth. */
-export function hpBarColor(fraction: number): number {
-  if (fraction <= 1 / 6) return 0xd94040;
-  if (fraction <= 1 / 3) return 0xd9a03a;
-  return 0x49c46a;
+/** Which side of the fight a car is on, from the point of view of one particular player. */
+export type Allegiance = "ally" | "enemy";
+
+/**
+ * Whose side `subject` is on, as far as `viewer` is concerned.
+ *
+ * The viewer is passed in rather than read off the room, for two reasons. It keeps this testable
+ * without a room, and — the one that matters in play — it makes D2 a property of the signature
+ * instead of a comment somebody has to obey: a wreck becomes a spectator and can cycle through
+ * living cars, and allegiance must NOT follow that camera. Green stays your team's green while you
+ * watch an enemy fill the screen, because the question the bars answer is "who is on my side", and
+ * dying does not change the answer. Pass the local player here, never the spectate target.
+ *
+ * Yourself is `"ally"` in both modes. In `"team"` a matching `team` is an ally; in `"ffa"` everyone
+ * else is an enemy, which is what makes the rule degrade to "green is me, red is everyone else"
+ * with no special case to teach.
+ */
+export function allegianceOf(
+  viewer: { sessionId: string; team: number },
+  subject: { sessionId: string; team: number },
+  mode: "ffa" | "team",
+): Allegiance {
+  if (viewer.sessionId === subject.sessionId) return "ally";
+  if (mode === "team" && viewer.team === subject.team) return "ally";
+  return "enemy";
+}
+
+/** Your car and your teammates. The existing healthy green, kept so the palette does not move. */
+const HP_BAR_ALLY = 0x49c46a;
+/** Everyone else. The existing critical red, for the same reason. */
+const HP_BAR_ENEMY = 0xd94040;
+
+/**
+ * Bar colour by allegiance, and by nothing else (D1).
+ *
+ * The bar has one colour channel and two things it could say — "how hurt" and "whose side". It used
+ * to spend that channel on health, which is the sentence the bar's LENGTH already says; length
+ * stays the only health channel, and colour now answers the question a 3v3 actually asks.
+ *
+ * What that gives up is the amber/red low-health warning, and that was a real cue. It was a cue
+ * about a car whose bar you can already read, though, and what replaces it is a cue about a car you
+ * might otherwise shoot by mistake.
+ *
+ * There is deliberately no exception for your own car, not even a gradient kept "just for you": a
+ * rule with one exception is a rule players have to be taught, and a rule with none is one they read
+ * off the screen. The old `fraction` parameter is gone rather than ignored, so there is no trap left
+ * for the next person to author a gradient back into.
+ */
+export function hpBarColor(allegiance: Allegiance): number {
+  return allegiance === "ally" ? HP_BAR_ALLY : HP_BAR_ENEMY;
 }
 
 /** How an hp bar sits relative to its car, in world units. */
@@ -646,6 +693,62 @@ export function instanceDrawShape(instance: DrawableInstance, elapsedMs: number)
   }
   const at = extrapolateShot(instance.x, instance.y, instance.angle, def.speed, elapsedMs);
   return projectileShapeAt(def.hitbox, at.x, at.y, instance.angle);
+}
+
+/**
+ * How long a beam takes to fade out, and the whole of the fade rule (D8).
+ *
+ * One number for all four beams: what already varies between them is their lifetime, and nothing
+ * has yet asked for two beams to cut off at different speeds — so this is a constant rather than a
+ * per-weapon column, and it becomes a table the day one is needed, the way `WEAPON_BEAM_STYLES`
+ * did.
+ *
+ * It is the fade WINDOW, anchored to the death tick, not to the start of linger. The window used to
+ * be the entire lifetime, which made `bulwark` a ghost for 2875 ms while it was still dealing full
+ * damage — a zone lying about where it is safe to stand. Now the beam holds full opacity until the
+ * last `BEAM_FADE_OUT_MS` and then snaps off.
+ *
+ * `lifetimeMs` is deliberately untouched by all of this: the damage window does not move, so no TTK
+ * number changes and the manual's balance fingerprint never sees it. 100 ms is three ticks at 30 Hz
+ * — enough to read as a snap rather than a dropped frame; 0 would give a hard cut with no ramp at
+ * all, which is a legal value here and is what the clamp below degrades to.
+ */
+export const BEAM_FADE_OUT_MS = 100;
+
+/**
+ * How opaque a beam instance should draw: fully opaque through its growth and its linger, then
+ * ramping to nothing across a fixed `BEAM_FADE_OUT_MS` window that ends exactly at the instance's
+ * death tick, so the visual and the hitbox vanish together.
+ *
+ * Plain numbers and strings rather than the schema row, so this is testable in Node without a
+ * canvas or a room — the same reason every other decision in this module takes primitives.
+ *
+ * A projectile, or an instance whose `weaponId` is not in `WEAPON_TABLE`, always draws fully
+ * opaque: neither has a linger to fade through, and a stale or forward-incompatible id must not
+ * turn a shot invisible.
+ */
+export function beamFadeAlpha(
+  kind: number,
+  weaponId: string,
+  spawnTick: number,
+  tick: number,
+): number {
+  if (kind !== WeaponKind.BEAM || !isWeaponId(weaponId)) return 1;
+  const ticks = weaponTicksOf(weaponId);
+  if (ticks.lifetime <= 0) return 1;
+
+  // The same boundary `instanceExpired` uses (`tick - spawnTick >= flight + lifetime`), so the
+  // alpha reaches 0 on exactly the tick the sim stops the instance hitting anything.
+  const deathTick = spawnTick + ticks.flight + ticks.lifetime;
+  // Clamped to the linger: a window longer than the lifetime would otherwise start the fade while
+  // the beam is still growing, which is the one thing the "full opacity until the end" rule exists
+  // to prevent.
+  const fadeTicks = Math.min(msToTicks(BEAM_FADE_OUT_MS), ticks.lifetime);
+  if (fadeTicks <= 0) return 1;
+
+  const remaining = deathTick - tick;
+  if (remaining >= fadeTicks) return 1;
+  return Math.max(0, remaining / fadeTicks);
 }
 
 /**
