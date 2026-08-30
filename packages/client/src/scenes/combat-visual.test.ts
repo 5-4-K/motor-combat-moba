@@ -267,7 +267,7 @@ describe("weaponFillOf", () => {
     for (const def of Object.values(WEAPON_TABLE)) {
       expect(weaponFillOf(def.id)).toBe(Number.parseInt(def.color.slice(1), 16));
     }
-    expect(weaponFillOf("fireball")).toBe(0xe8590c);
+    expect(weaponFillOf("fireball")).toBe(0xd63a14);
   });
 
   it("is the same colour whoever fired it — a shot is never owner-coloured", () => {
@@ -356,10 +356,10 @@ describe("beamDrawLayers", () => {
   }
 
   it("returns nothing for a beam with no authored look, so it keeps its flat polygon", () => {
-    // `shockwave` and `bulwark` are cones with no style yet. A beam must NOT inherit another
-    // weapon's layers, the same rule `instanceGlowBands` holds for bands.
+    // `shockwave` is a disc, which has no cross-section to nest layers inside and is refused at
+    // source. A beam must NOT inherit another weapon's layers, the same rule `instanceGlowBands`
+    // holds for bands.
     expect(beamDrawLayers("shockwave", 0, 0, 0, 150, 0)).toEqual([]);
-    expect(beamDrawLayers("bulwark", 0, 0, 0, 500, 0)).toEqual([]);
   });
 
   it("returns nothing for a projectile, so a mis-branched caller falls back rather than throwing", () => {
@@ -470,9 +470,20 @@ describe("beamDrawLayers", () => {
     );
   });
 
-  it("fills its outer layer with the weapon's own table colour", () => {
-    expect(WEAPON_BEAM_STYLES.afterburner!.layers[0]!.color.toUpperCase()).toBe(
+  it("puts the weapon's own table colour on its body layer, one in from the dark rim", () => {
+    // Not the outer layer: a flame wants its darkest ring outside so it reads as a hard-edged object
+    // on a light floor, which is the convention `fireball`'s bands already followed. The rule that
+    // matters is that the table colour appears in the ramp at all -- otherwise the HUD slot and the
+    // shot are two different weapons.
+    expect(WEAPON_BEAM_STYLES.afterburner!.layers[1]!.color.toUpperCase()).toBe(
       AFTERBURNER.color.toUpperCase(),
+    );
+  });
+
+  it("gives bulwark a ramp whose outer edge IS its table colour", () => {
+    // The other convention: a shield wall's outer edge is its body, so the table colour sits there.
+    expect(WEAPON_BEAM_STYLES.bulwark!.layers[0]!.color.toUpperCase()).toBe(
+      WEAPON_TABLE.bulwark.color.toUpperCase(),
     );
   });
 

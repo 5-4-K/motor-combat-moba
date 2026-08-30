@@ -235,10 +235,14 @@ const FLICKER_PHASE_PER_TICK = 0.7;
 /**
  * Per-weapon looks. Absent means the flat hitbox disc — see `GlowStyle`.
  *
- * `fireball`: a dark ember rim, the weapon's own `#E8590C` body, a hot orange inner, and a
- * near-white core, every band inside the 12-unit hitbox. The rim is the darkest ring rather than the
+ * `fireball`: a maroon ember rim, the weapon's own `#D63A14` body, a hot orange inner, and a gold
+ * core, every band inside the 12-unit hitbox. The rim is the darkest ring rather than the
  * brightest so the shot still reads as a hard-edged object against a light arena floor, and the
- * white core is what carries at the ~24px this draws at.
+ * core is what carries at the ~24px this draws at.
+ *
+ * `pepperbox`: Bullseye's navy with an orange core at half the radius — a quarter of the pellet's
+ * area, since area goes as the square. Two bands rather than a ramp because a pellet is 12px across
+ * at zoom 1 and a third band would have nowhere to land.
  *
  * Bands are cheap -- one `fillCircle` per band per shot per frame, against a ceiling of roughly 60
  * live instances -- so author freely here. What is NOT cheap, and is worth raising before building:
@@ -249,13 +253,21 @@ const FLICKER_PHASE_PER_TICK = 0.7;
 export const WEAPON_GLOW_STYLES: Partial<Record<WeaponId, GlowStyle>> = {
   fireball: {
     bands: [
-      { radiusScale: 1, color: "#8C2A06" },
-      { radiusScale: 0.75, color: "#E8590C" },
-      { radiusScale: 0.5, color: "#FFA53C" },
-      { radiusScale: 0.29, color: "#FFF3D6" },
+      { radiusScale: 1, color: "#601818" },
+      { radiusScale: 0.75, color: "#D63A14" },
+      { radiusScale: 0.5, color: "#F58A20" },
+      { radiusScale: 0.29, color: "#FFC030" },
     ],
     flickerDepth: 1 / 12,
     flickerHz: 8,
+  },
+  pepperbox: {
+    bands: [
+      { radiusScale: 1, color: "#184890" },
+      { radiusScale: 0.5, color: "#FF4800" },
+    ],
+    flickerDepth: 0,
+    flickerHz: 0,
   },
 };
 
@@ -358,25 +370,41 @@ const SAMPLES_PER_TONGUE = 6;
 /**
  * Per-weapon beam looks. Absent means the flat hitbox polygon — see `BeamStyle`.
  *
- * `afterburner`: an amber outer flame licking the hitbox, a yellow body inside it, and a pale core
- * at the nozzle. Each layer is shorter AND slightly narrower than the one outside it, so they nest
- * as tongues rather than stacking as horizontal stripes — which is what a shared apex and a varying
- * reach alone produced, and why the first cut read as a striped triangle. Tongue counts differ per
- * layer (5 / 4 / 3) so the lobes do not line up and the edges stay busy. The outer amber is the
- * weapon's own `WEAPON_TABLE.color`, the same convention `fireball`'s middle band follows.
+ * `afterburner`: a maroon outer flame licking the hitbox, the weapon's own orange body inside it,
+ * and a gold core at the nozzle. Each layer is shorter AND slightly narrower than the one outside
+ * it, so they nest as tongues rather than stacking as horizontal stripes — which is what a shared
+ * apex and a varying reach alone produced, and why the first cut read as a striped triangle. Tongue
+ * counts differ per layer (5 / 4 / 3) so the lobes do not line up and the edges stay busy.
+ *
+ * Its `WEAPON_TABLE.color` is the SECOND layer, not the outer one — the same convention `fireball`
+ * follows. Both are Mirage flame weapons, and both want the darkest ring on the outside so the shot
+ * reads as a hard-edged object against a light floor; a weapon's table colour is its body, which on
+ * a flame is one layer in. `lance` and `bulwark` are the other way round, with the table colour on
+ * the outer edge, because their outer edge IS the body.
  *
  * There is deliberately no flicker or glow here: the beam already grows over its first 200 ms,
  * which is motion enough, and a pulsing two-second flame reads as a strobe.
  *
- * `shockwave` and `bulwark` are cones too and can take layers whenever someone authors them; they
- * are deliberately absent rather than guessed at, and draw flat until then.
+ * `shockwave` is a disc, which has no cross-section to nest layers inside — it draws as a ring and
+ * a wash, and `beamDrawLayers` refuses it at source.
  */
 export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
   afterburner: {
     layers: [
-      { extentScale: 1, crossScale: 1, tongues: 5, tongueDepth: 0.3, color: "#F59F00" },
-      { extentScale: 0.74, crossScale: 0.82, tongues: 4, tongueDepth: 0.34, color: "#FFD43B" },
-      { extentScale: 0.42, crossScale: 0.6, tongues: 3, tongueDepth: 0.38, color: "#FFF3BF" },
+      { extentScale: 1, crossScale: 1, tongues: 5, tongueDepth: 0.3, color: "#7A2018" },
+      { extentScale: 0.74, crossScale: 0.82, tongues: 4, tongueDepth: 0.34, color: "#F05818" },
+      { extentScale: 0.42, crossScale: 0.6, tongues: 3, tongueDepth: 0.38, color: "#FFC030" },
+    ],
+  },
+  /**
+   * `bulwark`: Bastion's gold with a cream inner, matching the wall of stripes on its icon. Two
+   * layers rather than three because it is a 492-unit cone — the widest thing drawn in the game —
+   * and a third would be a band of colour the size of a car.
+   */
+  bulwark: {
+    layers: [
+      { extentScale: 1, crossScale: 1, tongues: 0, tongueDepth: 0, color: "#D9A814" },
+      { extentScale: 0.55, crossScale: 0.8, tongues: 0, tongueDepth: 0, color: "#FFF0C0" },
     ],
   },
   /**
@@ -389,11 +417,16 @@ export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
    * Its charge orb is the wind-up made visible: 700 ms is the entire justification for 170 damage,
    * and an opponent could not previously see it happening. Colours match the beam exactly, so the
    * orb reads as the same thing gathering that is about to be fired.
+   *
+   * Navy body and an orange stripe are its icon exactly. The white core is a deliberate departure
+   * from Bullseye's two colours: white otherwise reads as Bastion here, but a 1200-unit beam is the
+   * one shot big enough to carry a third layer, and the hot centre is what makes it look fired
+   * rather than painted.
    */
   lance: {
     layers: [
-      { extentScale: 1, crossScale: 1, tongues: 0, tongueDepth: 0, color: "#6741D9" },
-      { extentScale: 1, crossScale: 0.55, tongues: 0, tongueDepth: 0, color: "#FFD43B" },
+      { extentScale: 1, crossScale: 1, tongues: 0, tongueDepth: 0, color: "#0F3268" },
+      { extentScale: 1, crossScale: 0.55, tongues: 0, tongueDepth: 0, color: "#F04800" },
       { extentScale: 1, crossScale: 0.22, tongues: 0, tongueDepth: 0, color: "#FFFFFF" },
     ],
     charge: {
@@ -403,8 +436,8 @@ export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
       // under-promise the thing about to be fired, which is the one failure mode a telegraph has.
       maxRadius: 18.9,
       bands: [
-        { radiusScale: 1, color: "#6741D9" },
-        { radiusScale: 0.6, color: "#FFD43B" },
+        { radiusScale: 1, color: "#0F3268" },
+        { radiusScale: 0.6, color: "#F04800" },
         { radiusScale: 0.28, color: "#FFFFFF" },
       ],
     },
@@ -416,6 +449,91 @@ export interface DrawBeamLayer {
   points: { x: number; y: number }[];
   fill: number;
 }
+
+/**
+ * One shape drawn inside a NON-CIRCULAR projectile's hitbox — the ellipse and capsule counterpart to
+ * `GlowBand` and `BeamLayer`.
+ *
+ * It exists because those two tables cannot reach these weapons: `GlowStyle` nests circles by radius,
+ * and `beamDrawLayers` refuses anything whose `kind` is not `beam`. Until this, `needler`, `skewer`
+ * and `thumper` drew one flat `weaponFillOf` polygon and had no way to say anything else.
+ *
+ * Every scale is a FRACTION of the hitbox's own `radiusAlong` or `radiusAcross`, never a world
+ * distance, for the reason `GlowBand.radiusScale` is: a re-tune that resizes the hitbox carries the
+ * whole marking with it, and no layer can drift outside the shape that actually hits.
+ * `projectile-marks.test.ts` holds every authored layer to that.
+ */
+export type ProjectileLayer =
+  /** The whole hitbox, as the base fill. Omit it to draw a silhouette SMALLER than the hitbox. */
+  | { shape: "hull"; color: string }
+  /** The leading end, ahead of a chord at `chordScale` of `radiusAlong`. */
+  | { shape: "tip"; chordScale: number; color: string }
+  /** A band across the middle, `halfWidthScale` of `radiusAlong` to either side of centre. */
+  | { shape: "band"; halfWidthScale: number; color: string }
+  /** A circle at the centre, `radiusScale` of `radiusAcross`. */
+  | { shape: "disc"; radiusScale: number; color: string }
+  /**
+   * Two triangles running from the disc's flanks out to the nose and tail.
+   *
+   * `baseScale` and `halfHeightScale` are fractions of `radiusAcross` — they describe where the spike
+   * meets the DISC, so the pair stays coherent if the hitbox is re-tuned — while the tips always land
+   * on `+/-radiusAlong`, which is what keeps the silhouette as long as the hitbox.
+   */
+  | { shape: "spikes"; baseScale: number; halfHeightScale: number; color: string };
+
+/** How one non-circular projectile draws. Absent means the flat hitbox polygon. */
+export interface ProjectileStyle {
+  /** Outermost first. Each layer is filled over the one before it, so later layers are on top. */
+  layers: ProjectileLayer[];
+}
+
+/**
+ * Vertices spent on a curved edge — a `tip`'s arc or a `disc`'s outline.
+ *
+ * Matches shared's `ELLIPSE_SEGMENTS`, so a marking's curve is faceted exactly as coarsely as the
+ * hull it sits inside and cannot read as a smoother shape than the thing it is part of.
+ */
+const MARK_SEGMENTS = 12;
+
+/**
+ * Per-weapon looks for the three non-circular projectiles. Absent means the flat hitbox polygon.
+ *
+ * `needler`: Bullseye's navy with an orange nose. The chord at 0.404 puts exactly a quarter of the
+ * ellipse's area ahead of it — the fraction is scale-free, so the same number would hold for any
+ * ellipse. It is not a quarter of the LENGTH: an ellipse tapers, so the tip runs the leading 30%.
+ *
+ * `thumper`: Bastion's yellow with a cream band across the middle, which is its icon. A band rather
+ * than a nose is also the cheap shape here — 0.216 of `radiusAlong` keeps it inside the shell's
+ * straight section, so it is a rectangle and needs none of the circular-segment maths a nose on a
+ * capsule would.
+ *
+ * `skewer`: the one weapon that does NOT draw its hull. A disc with two spikes reads as the spiked
+ * shaft on its icon, and it fills 43% of the ellipse — what is left bare is the shoulders above and
+ * below the spikes, under 3 units of slack against a car hull 32 units tall. Nothing is drawn
+ * OUTSIDE the hitbox, which is the half of D19 that protects a player: no shot can hurt you from
+ * somewhere you cannot see it. This is the documented exception to the other half.
+ */
+export const WEAPON_PROJECTILE_STYLES: Partial<Record<WeaponId, ProjectileStyle>> = {
+  needler: {
+    layers: [
+      { shape: "hull", color: "#22579E" },
+      { shape: "tip", chordScale: 0.404, color: "#FF4800" },
+    ],
+  },
+  thumper: {
+    layers: [
+      { shape: "hull", color: "#F0C808" },
+      { shape: "band", halfWidthScale: 0.216, color: "#FFF6D8" },
+    ],
+  },
+  skewer: {
+    layers: [
+      { shape: "spikes", baseScale: 0.908, halfHeightScale: 0.42, color: "#C89A14" },
+      { shape: "disc", radiusScale: 1, color: "#C89A14" },
+      { shape: "disc", radiusScale: 0.55, color: "#FFF6D8" },
+    ],
+  },
+};
 
 /**
  * The concentric bands to fill for one instance, outermost first, or `[]` for a weapon with no
@@ -479,6 +597,123 @@ export function beamGrownExtent(weaponId: string, extent: number, elapsedMs: num
  * property of the geometry instead of a promise: the layers are the same shape the sim would test
  * with, just smaller, so there is no second implementation to drift.
  */
+/**
+ * Half the hull's width, across the heading, at `along` units from its centre.
+ *
+ * The one place the two projectile hull shapes differ, so every marking below is written once against
+ * this rather than branching per shape. Returns 0 past either end, which makes a marking that reaches
+ * too far degenerate rather than escape the hull.
+ *
+ * `along` is SIGNED, and for a capsule that matters: it is a slug, rounded at the nose and cut flat
+ * across the tail, so only the leading end narrows. Treating it as symmetric puts the tail's corners
+ * outside the hull — which is exactly what `projectile-marks.test.ts` catches.
+ */
+function hullHalfAcross(
+  hitbox: Extract<ProjectileHitbox, { shape: "ellipse" | "capsule" }>,
+  along: number,
+): number {
+  const { radiusAlong, radiusAcross } = hitbox;
+  if (along < -radiusAlong || along > radiusAlong) return 0;
+  if (hitbox.shape === "ellipse") {
+    return radiusAcross * Math.sqrt(Math.max(0, 1 - (along / radiusAlong) ** 2));
+  }
+  const noseCentre = radiusAlong - radiusAcross;
+  if (along <= noseCentre) return radiusAcross;
+  return Math.sqrt(Math.max(0, radiusAcross ** 2 - (along - noseCentre) ** 2));
+}
+
+/**
+ * The polygons to fill for one non-circular projectile, in draw order, or `[]` for a weapon with no
+ * style — whose caller falls back to the single flat `weaponFillOf` hull.
+ *
+ * Takes the instance and `elapsedMs` rather than a resolved position so it extrapolates through the
+ * same `extrapolateShot` that `instanceDrawShape` uses. Handing it an already-extrapolated point
+ * would let the markings and the hull drift apart by a frame's worth of travel, which on a
+ * 1300 u/s needler is most of its own length.
+ */
+export function projectileDrawLayers(
+  instance: DrawableInstance,
+  elapsedMs: number,
+): DrawBeamLayer[] {
+  const def = isWeaponId(instance.weaponId) ? weaponDefOf(instance.weaponId) : null;
+  if (!def || def.kind !== "projectile") return [];
+  const style = WEAPON_PROJECTILE_STYLES[def.id];
+  if (!style) return [];
+  // A circle has no heading to arrange markings along, and `GlowStyle` is where a round projectile
+  // says what it looks like. Reaching here with one would mean two tables owning the same weapon.
+  if (def.hitbox.shape === "circle") return [];
+  const hitbox = def.hitbox;
+
+  const { x, y } = extrapolateShot(instance.x, instance.y, instance.angle, def.speed, elapsedMs);
+  const a = instance.angle;
+  const out: DrawBeamLayer[] = [];
+  for (const layer of style.layers) {
+    const fill = hexToFill(layer.color);
+    if (layer.shape === "hull") {
+      const shape = projectileShapeAt(hitbox, x, y, a);
+      if (shape.kind === "polygon") out.push({ points: shape.points, fill });
+      continue;
+    }
+    if (layer.shape === "tip") {
+      const from = clamp01(layer.chordScale) * hitbox.radiusAlong;
+      const forward: { x: number; y: number }[] = [];
+      const back: { x: number; y: number }[] = [];
+      for (let i = 0; i <= MARK_SEGMENTS; i += 1) {
+        const along = from + ((hitbox.radiusAlong - from) * i) / MARK_SEGMENTS;
+        const across = hullHalfAcross(hitbox, along);
+        forward.push(rotateBy(x, y, a, along, -across));
+        back.push(rotateBy(x, y, a, along, across));
+      }
+      out.push({ points: [...forward, ...back.reverse()], fill });
+      continue;
+    }
+    if (layer.shape === "band") {
+      const half = clamp01(layer.halfWidthScale) * hitbox.radiusAlong;
+      // Measured at the band's own edge, not at the centre, so a band on a curved flank stays inside
+      // the hull instead of poking through it at the corners.
+      const across = hullHalfAcross(hitbox, half);
+      if (half <= 0 || across <= 0) continue;
+      out.push({
+        points: [
+          rotateBy(x, y, a, -half, -across),
+          rotateBy(x, y, a, half, -across),
+          rotateBy(x, y, a, half, across),
+          rotateBy(x, y, a, -half, across),
+        ],
+        fill,
+      });
+      continue;
+    }
+    if (layer.shape === "disc") {
+      // Scaled by `radiusAcross`, the SHORT axis, so a centred circle is inside both hull shapes for
+      // any scale up to 1 without needing to know which one it is.
+      const r = clamp01(layer.radiusScale) * hitbox.radiusAcross;
+      if (r <= 0) continue;
+      const points: { x: number; y: number }[] = [];
+      for (let i = 0; i < MARK_SEGMENTS * 2; i += 1) {
+        const t = (i / (MARK_SEGMENTS * 2)) * Math.PI * 2;
+        points.push(rotateBy(x, y, a, Math.cos(t) * r, Math.sin(t) * r));
+      }
+      out.push({ points, fill });
+      continue;
+    }
+    const base = clamp01(layer.baseScale) * hitbox.radiusAcross;
+    const halfHeight = clamp01(layer.halfHeightScale) * hitbox.radiusAcross;
+    if (base >= hitbox.radiusAlong || halfHeight <= 0) continue;
+    for (const sign of [1, -1]) {
+      out.push({
+        points: [
+          rotateBy(x, y, a, sign * base, -halfHeight),
+          rotateBy(x, y, a, sign * hitbox.radiusAlong, 0),
+          rotateBy(x, y, a, sign * base, halfHeight),
+        ],
+        fill,
+      });
+    }
+  }
+  return out;
+}
+
 export function beamDrawLayers(
   weaponId: string,
   x: number,
@@ -808,6 +1043,37 @@ export function lockBracketArms(
     { x1: right, y1: bottom, x2: right - a, y2: bottom },
     { x1: right, y1: bottom, x2: right, y2: bottom - a },
   ];
+}
+
+/**
+ * Every colour this weapon's shots actually draw in, outermost first, with duplicates removed.
+ *
+ * `WEAPON_TABLE.color` alone stopped being the answer once weapons grew ramps and markings: it is
+ * `fireball`'s middle band, one of `lance`'s three layers, and for `skewer` it is a colour the
+ * spindle shares with its own spikes. Anything showing a player or an author "the shot colour" — the
+ * `?dev=assets` swatch today — has to ask for the whole set, or it shows a third of the truth.
+ *
+ * Falls back to the single table colour, which is exactly right for a weapon with no authored style,
+ * since that is the one flat fill `weaponFillOf` gives it.
+ */
+export function shotPaletteOf(weaponId: string): string[] {
+  if (!isWeaponId(weaponId)) return [];
+  const def = weaponDefOf(weaponId);
+  const authored =
+    WEAPON_GLOW_STYLES[def.id]?.bands.map((b) => b.color) ??
+    WEAPON_BEAM_STYLES[def.id]?.layers.map((l) => l.color) ??
+    WEAPON_PROJECTILE_STYLES[def.id]?.layers.map((l) => l.color);
+  return [...new Set((authored ?? [def.color]).map((c) => c.toUpperCase()))];
+}
+
+/**
+ * Is this weapon a projectile? The renderer's fork between the two polygon-layer tables.
+ *
+ * An unrecognised id answers `false`, which routes it to `beamDrawLayers` — and that returns `[]` for
+ * the same reason, so an unknown weapon lands on the flat-fill fallback either way.
+ */
+export function isProjectileWeapon(weaponId: string): boolean {
+  return isWeaponId(weaponId) && weaponDefOf(weaponId).kind === "projectile";
 }
 
 /**

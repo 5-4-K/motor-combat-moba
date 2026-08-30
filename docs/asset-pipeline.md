@@ -285,7 +285,11 @@ node scripts/import-weapon-icon.mjs --weapon <weaponId> --src <path>
 ```
 
 Check a new icon's fit at [`?dev=assets`](#devassets), which draws every weapon's icon in a real HUD
-slot beside its shot colour — no rejoin, and the whole roster at once. The live HUD bar (`npm run
+slot beside every colour that weapon's shots draw in — the swatch is a stack, not a single fill,
+because six of the nine are ramps or markings and `WEAPON_TABLE.color` is only one layer of them.
+No rejoin, and the whole roster at once. Since the icons are themed per chassis, that pairing is also
+where you check a re-imported icon still reads as its car's palette; `npm run check:weapons` scores
+the drift numerically. The live HUD bar (`npm run
 dev`, equip the weapon) is still the final word, since only it shows the icon under the slot's
 cooldown sweep and dim states. The `process-weapon-icon` skill mirrors `process-car-asset`: hand it
 an image and a weapon id, and it runs the importer, reports the manifest row, and covers "why is my
@@ -330,8 +334,14 @@ Beams take detail differently: they are `fillPoints` polygons, so the equivalent
 smaller cone or rect nested inside the outer one (a bright core inside a translucent cone). Same
 cost story, a few more polygons.
 
-All of it is data in `WEAPON_GLOW_STYLES` (`packages/client/src/scenes/combat-visual.ts`), keyed per
-weapon and `Partial`, so a weapon with no entry keeps the flat disc. Adding a look needs no
+A third kind of detail is a **marking**: geometry drawn inside a non-circular projectile's hull, since
+neither of the tables above can reach an ellipse or a capsule. `WEAPON_PROJECTILE_STYLES` holds
+those, built from four primitives — `hull`, `tip`, `band`, `disc`, `spikes` — each a fraction of the
+weapon's own `radiusAlong` or `radiusAcross`. `needler` takes an orange nose, `thumper` a cream band,
+`skewer` a gold spindle with a cream centre. Cost is one extra `fillPoints` per marking per shot.
+
+All of it is data in those three tables (`packages/client/src/scenes/combat-visual.ts`), keyed per
+weapon and `Partial`, so a weapon with no entry keeps the flat fill. Adding a look needs no
 rendering code, no sim change and no wire change — `WEAPON_TABLE.color` and the styles are both
 render-only.
 

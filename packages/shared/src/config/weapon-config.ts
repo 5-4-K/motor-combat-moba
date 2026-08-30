@@ -35,7 +35,7 @@ export const WEAPON_TABLE = {
     id: "fireball",
     kind: "projectile",
     name: "Fireball",
-    color: "#E8590C",
+    color: "#D63A14",
     unlocksAt: 1,
     damage: 50,
     damageFrequencyMs: 0,
@@ -80,7 +80,7 @@ export const WEAPON_TABLE = {
     id: "pepperbox",
     kind: "projectile",
     name: "Pepperbox",
-    color: "#B45309",
+    color: "#184890",
     unlocksAt: 1,
     damage: 45, // per pellet; 3 pellets == 135, 27% of an average car
     damageFrequencyMs: 0,
@@ -121,7 +121,7 @@ export const WEAPON_TABLE = {
     // fills its outer layer with this exact hex, so the colour, the layered look and the HUD icon
     // all describe one weapon. Clear of `COLOR_TABLE` -- deeper and redder than the `Gold` player
     // colour, which is the only one it sits near.
-    color: "#F59F00",
+    color: "#F05818",
     unlocksAt: 1,
     damage: 26, // per tick
     damageFrequencyMs: 200,
@@ -170,7 +170,7 @@ export const WEAPON_TABLE = {
     id: "needler",
     kind: "projectile",
     name: "Needler",
-    color: "#0CA5B0",
+    color: "#22579E",
     unlocksAt: 1,
     damage: 22,
     damageFrequencyMs: 0,
@@ -215,7 +215,7 @@ export const WEAPON_TABLE = {
     id: "skewer",
     kind: "projectile",
     name: "Skewer",
-    color: "#1864AB",
+    color: "#C89A14",
     unlocksAt: 1,
     damage: 110, // 101 per car on Bastion's 0.92x, 202 through a line of two
     damageFrequencyMs: 0,
@@ -256,7 +256,7 @@ export const WEAPON_TABLE = {
     id: "lance",
     kind: "beam",
     name: "Lance",
-    color: "#6741D9",
+    color: "#0F3268",
     unlocksAt: 1,
     damage: 170, // 34% of an average car; 68% if it catches two
     damageFrequencyMs: 0,
@@ -311,7 +311,7 @@ export const WEAPON_TABLE = {
     id: "thumper",
     kind: "projectile",
     name: "Thumper",
-    color: "#C9A227",
+    color: "#F0C808",
     unlocksAt: 1,
     damage: 60,
     damageFrequencyMs: 0,
@@ -380,7 +380,7 @@ export const WEAPON_TABLE = {
     // The navy the HUD icon is built out of (`art/weapon-icons/shockwave.png`), so the ring on the
     // floor and the slot in the bar read as one weapon. Icons ship `colorMode: "none"` and nothing
     // typed ties the two together, so a re-imported icon can silently drift from this.
-    color: "#0B3D8A",
+    color: "#7A1D1D",
     unlocksAt: 1,
     damage: 45, // per wave; 3 waves == 135 at the baseline, 153 on Mirage's 1.13x
     damageFrequencyMs: 0, // one hit per car per wave, not a ticking field
@@ -450,7 +450,7 @@ export const WEAPON_TABLE = {
     id: "bulwark",
     kind: "beam",
     name: "Bulwark",
-    color: "#862E9C",
+    color: "#D9A814",
     unlocksAt: 1,
     damage: 35, // per tick; 10 ticks == 350 at the baseline, 320 on Bastion's 0.92x
     damageFrequencyMs: 400,

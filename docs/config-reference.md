@@ -157,13 +157,19 @@ something is an open design question; nothing here was retuned to make an older 
 `weapon-config.test.ts` requires each to be a unique `#RRGGBB` and none of them to equal a
 `COLOR_TABLE` player colour. See [`combat-model.md`](combat-model.md#what-the-client-shows).
 
-`color` is the *whole* look only for a weapon with no authored style. `fireball` has one — four
-concentric bands, dark ember rim to near-white core, plus a slow shrink-only flicker — held in
-`WEAPON_GLOW_STYLES` in the client's `combat-visual.ts`, not in this table: it is pure appearance,
-nothing the sim or the wire can see. Bands are fractions of the weapon's own hitbox radius, so a
-re-tune that widens the hitbox rescales the glow with it and no band can escape the shape that
-hits. A weapon with no entry there draws the single flat disc of its `color`, which is what every
-weapon but `fireball` still does.
+`color` is the *whole* look only for a weapon with no authored style, and today only `shockwave` —
+drawn as a ring and a wash — is in that position. The other eight carry a style in one of three
+tables in the client's `combat-visual.ts`, not in this one: `WEAPON_GLOW_STYLES` (round projectiles,
+nested by radius), `WEAPON_BEAM_STYLES` (beams), `WEAPON_PROJECTILE_STYLES` (ellipse and capsule
+projectiles). All are pure appearance, nothing the sim or the wire can see. Every scale in them is a
+fraction of the weapon's own hitbox, so a re-tune that widens the hitbox rescales the look with it
+and nothing can escape the shape that hits.
+
+That means `color` is not necessarily the colour you see most of. It is `fireball`'s middle band and
+`afterburner`'s second layer — both flames want their darkest ring outermost so the shot reads as a
+hard edge on a light floor — while `lance` and `bulwark` carry it on the outer edge. `shotPaletteOf`
+returns the full ordered set for anything that needs to show "the shot colour" honestly, which is
+what the `?dev=assets` swatch draws.
 
 `usesAimAssist` is **required** and has no default: `true` fires at the car's ambient target lock
 instead of along its heading. It is the only per-weapon aim-assist knob — all the geometry lives once

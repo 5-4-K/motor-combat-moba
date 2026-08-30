@@ -62,6 +62,8 @@ import {
   instanceGlowBands,
   lockBracketArms,
   SHOW_LOCK_BRACKET,
+  isProjectileWeapon,
+  projectileDrawLayers,
   weaponFillOf,
   type Allegiance,
   type HpBarGeometry,
@@ -1393,14 +1395,20 @@ export class ArenaScene extends Phaser.Scene {
         // Nested layers, outermost first, each filled over the last -- the beam counterpart to the
         // bands below. An empty list is a beam with no authored look, which falls back to the one
         // flat fill of its own `color` that this method drew for every beam before styles existed.
-        const layers = beamDrawLayers(
-          instance.weaponId,
-          instance.x,
-          instance.y,
-          instance.angle,
-          instance.extent,
-          elapsedMs,
-        );
+        //
+        // A polygon here is a beam OR one of the three non-circular projectiles, and the two have
+        // separate tables: whichever the weapon is not returns `[]`, so the flat-fill fallback below
+        // still covers a weapon with no authored look in either.
+        const layers = isProjectileWeapon(instance.weaponId)
+          ? projectileDrawLayers(instance, elapsedMs)
+          : beamDrawLayers(
+              instance.weaponId,
+              instance.x,
+              instance.y,
+              instance.angle,
+              instance.extent,
+              elapsedMs,
+            );
         if (layers.length === 0) {
           gfx.fillStyle(weaponFillOf(instance.weaponId), alpha);
           gfx.fillPoints(shape.points, true);

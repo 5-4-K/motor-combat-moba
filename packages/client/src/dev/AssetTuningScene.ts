@@ -16,6 +16,7 @@ import {
 } from "../assets/car-sprite.js";
 import { assetManifest } from "../scenes/BootScene.js";
 import { HUD_ICON_FIT_SCALE, resolveWeaponIcon, SLOT_BOX_PX } from "../scenes/weapon-hud.js";
+import { shotPaletteOf } from "../scenes/combat-visual.js";
 import {
   NO_TINT,
   orphanWeaponIds,
@@ -108,7 +109,7 @@ export class AssetTuningScene extends Phaser.Scene {
       color: "#9aa0a6",
     });
     this.add
-      .text(this.scale.width - 16, DIVIDER_Y + 14, "swatch = WEAPON_TABLE.color (the shot colour)", {
+      .text(this.scale.width - 16, DIVIDER_Y + 14, "swatch = every colour this weapon shoots in", {
         fontSize: "12px",
         color: "#6f757c",
       })
@@ -320,16 +321,25 @@ export class AssetTuningScene extends Phaser.Scene {
         .setOrigin(0.5);
     }
 
-    // The colour the weapon's SHOTS draw in. Nothing typed ties it to the icon, so putting the two
-    // side by side is the only place the pair can be judged as one weapon.
+    // Every colour the weapon's SHOTS draw in, stacked outermost-first. Nothing typed ties these to
+    // the icon, so putting the two side by side is the only place the pair can be judged as one
+    // weapon -- and since weapons grew ramps and markings, a single swatch of `WEAPON_TABLE.color`
+    // would be a third of the answer for six of the nine.
+    const palette = shotPaletteOf(weaponId);
     const swatchX = cx + WEAPON_SWATCH_DX - WEAPON_SWATCH_PX / 2;
+    const swatchTop = cy - WEAPON_SWATCH_PX / 2;
+    const bandPx = WEAPON_SWATCH_PX / Math.max(1, palette.length);
     const shot = this.add.graphics();
-    shot.fillStyle(Number.parseInt(def.color.slice(1), 16), 1);
-    shot.fillRect(swatchX, cy - WEAPON_SWATCH_PX / 2, WEAPON_SWATCH_PX, WEAPON_SWATCH_PX);
+    palette.forEach((hex, i) => {
+      shot.fillStyle(Number.parseInt(hex.slice(1), 16), 1);
+      shot.fillRect(swatchX, swatchTop + i * bandPx, WEAPON_SWATCH_PX, bandPx);
+    });
     shot.lineStyle(1, 0x000000, 0.5);
-    shot.strokeRect(swatchX, cy - WEAPON_SWATCH_PX / 2, WEAPON_SWATCH_PX, WEAPON_SWATCH_PX);
+    shot.strokeRect(swatchX, swatchTop, WEAPON_SWATCH_PX, WEAPON_SWATCH_PX);
+    const swatchLabel =
+      palette.length > 1 ? `${def.color} +${String(palette.length - 1)}` : def.color;
     this.add
-      .text(swatchX + WEAPON_SWATCH_PX / 2, cy + WEAPON_SWATCH_PX / 2 + 6, def.color, {
+      .text(swatchX + WEAPON_SWATCH_PX / 2, cy + WEAPON_SWATCH_PX / 2 + 6, swatchLabel, {
         fontSize: "10px",
         color: "#9aa0a6",
       })

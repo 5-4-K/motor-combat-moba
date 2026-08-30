@@ -775,22 +775,43 @@ rather than a guess, because the server integrates the identical motion, and not
 feeds back into state. An instance is drawn from its own hitbox shape and dimensions, never a
 sprite — what you see is the hitbox, so a new weapon is playable with no art at all.
 
-A weapon may additionally carry a **look**: an entry in `WEAPON_GLOW_STYLES`
-(`scenes/combat-visual.ts`) naming concentric bands to fill instead of the one flat disc, plus a
-flicker. `fireball` has one; the other eight weapons in the table do not, and a weapon without one
-keeps drawing exactly as everything drew before styles existed. Two rules keep this from undoing
-the paragraph above. Bands
-are fractions of the instance's own hitbox radius rather than world distances, so the glow rescales
-with any hitbox re-tune. And the flicker only ever *shrinks* the rim, never grows it — a flicker
-that could push past the hitbox would make the drawn shot larger than the thing that hits. Styles
-are deliberately per weapon and not a shared formula over `color`: each weapon is meant to have its
-own silhouette in flight, and a shared ramp would make every weapon a differently-tinted copy of
+A weapon may additionally carry a **look**, held in one of three tables in `scenes/combat-visual.ts`,
+split by what the weapon's hitbox is. Each returns `[]` for a weapon it does not own, so the flat
+fill stays the fallback for anything unstyled:
+
+| Table | Owns | Nests by | Today |
+|---|---|---|---|
+| `WEAPON_GLOW_STYLES` | round projectiles | radius | `fireball`, `pepperbox` |
+| `WEAPON_BEAM_STYLES` | beams | extent and cross-section | `afterburner`, `lance`, `bulwark` |
+| `WEAPON_PROJECTILE_STYLES` | ellipse and capsule projectiles | markings inside the hull | `needler`, `skewer`, `thumper` |
+
+Two rules keep this from undoing the paragraph above. Every scale is a fraction of the instance's own
+hitbox rather than a world distance, so a look rescales with any hitbox re-tune. And nothing may draw
+*outside* the hitbox — `fireball`'s flicker only ever shrinks its rim, and every projectile marking is
+inscribed by construction, which `projectile-marks.test.ts` checks at six headings. A drawn shot
+larger than the thing that hits would make players believe in hits that never happened.
+
+The converse — that the drawn shape *fills* the hitbox — holds everywhere except `skewer`, whose
+disc-and-spikes spindle covers 43% of its ellipse. That exception is deliberate and documented on the
+table: the bare shoulders are under 3 units of slack against a car hull 32 units tall, and the half of
+the rule that protects a player (nothing hits you from a place you cannot see) is untouched.
+
+Styles are deliberately per weapon and not a shared formula over `color`: each weapon is meant to have
+its own silhouette in flight, and a shared ramp would make every weapon a differently-tinted copy of
 one object.
 
 Its fill is the **weapon's** `color` (`weaponFillOf`), not the firing player's. Every fireball shot in
-the arena is the same ember orange whoever fired it: a shot's colour answers "what is coming at me",
+the arena is the same red whoever fired it: a shot's colour answers "what is coming at me",
 and the car that fired it is already on screen wearing the player colour, so spending the shot's one
-colour channel on ownership would say the less useful thing twice. Shots were owner-coloured before
+colour channel on ownership would say the less useful thing twice.
+
+Since 2026-08-31 that colour answers a second question: **which chassis**. The nine weapons are
+themed per car to match their HUD icons — Mirage maroon and orange, Bullseye navy and orange, Bastion
+yellow and white — so a car's three weapons deliberately resemble each other and are told apart by
+silhouette instead. `lance`'s white core is the one departure. Do not "separate" those palettes on
+sight: the convergence is the design, and `check:weapons` reports all nine icons matching today.
+`shotPaletteOf` returns every colour a weapon actually draws in, since `color` alone is now only one
+layer of six of them. Shots were owner-coloured before
 weapon colours existed; nothing in the sim ever read that, and nothing does now — `color` is
 render-only, like `name`. `WEAPON_TABLE`'s colours are kept clear of `COLOR_TABLE`'s six player
 colours (a table test enforces it) so a shot can never be mistaken for somebody's paint.
