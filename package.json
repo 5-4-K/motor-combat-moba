@@ -23,6 +23,7 @@
     "build:release": "npm run build && node scripts/build-release.mjs",
     "build:manual": "npm run build -w @motor-combat-moba/shared && node scripts/build-cars-and-weapons.mjs",
     "check:art": "npm run build -w @motor-combat-moba/shared && node scripts/check-art.mjs",
+    "ttk": "npm run build -w @motor-combat-moba/shared && node scripts/ttk.mjs",
     "check:cars": "npm run build -w @motor-combat-moba/shared && node scripts/check-cars.mjs",
     "check:weapons": "npm run build -w @motor-combat-moba/shared && node scripts/check-weapons.mjs"
   },

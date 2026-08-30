@@ -62,6 +62,7 @@ edit — see [`docs/config-reference.md`](docs/config-reference.md#drive_config)
 | Art, manifest, asset swapping | [`docs/asset-pipeline.md`](docs/asset-pipeline.md) |
 | Code graph / MCP setup on a new machine | [`docs/code-review-graph.md`](docs/code-review-graph.md) |
 | Playtest harnesses, and how to run them | [`packages/server/playtest/README.md`](packages/server/playtest/README.md) |
+| Whether a balance edit actually moved time-to-kill | `npm run ttk` — see the header of [`scripts/ttk.mjs`](scripts/ttk.mjs) for what it does and does not model |
 | Terms | [`docs/glossary.md`](docs/glossary.md) |
 | Package local rules | `packages/shared/CLAUDE.md`, `packages/server/CLAUDE.md`, `packages/client/CLAUDE.md` |
 | Spec + tracker | [`docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md`](docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md), [`docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md`](docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md) |
@@ -226,6 +227,7 @@ npm run dev            # shared watch + server :2567 + Vite client :5173
 npm run build:release  # dist-release/motor-combat-moba/ + motor-combat-moba-release.zip
 npm run build:manual   # regenerates the cars & weapons guide page
 npm run check:art      # art integrity: alpha, manifest rows, sizes, tint rules (:cars, :weapons)
+npm run ttk            # full-kit time-to-kill matrix, every chassis vs every chassis
 npm run playtest       # headless sim probes -> packages/server/playtest/reports/<date-NN>/
 npm run playtest:lan   # two bot clients against a server you already started
 ```
