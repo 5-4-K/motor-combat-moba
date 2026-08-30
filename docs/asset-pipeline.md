@@ -68,9 +68,9 @@ a plain object's prototype.
 Adding a car sprite means understanding four steps, in order:
 
 ```
-carId ("hexagon")
-  -> carSpriteKey        "car.hexagon"                packages/client/src/assets/asset-keys.ts
-  -> manifest lookup     sprites["car.hexagon"]        assetManifest() in BootScene.ts
+carId ("bastion")
+  -> carSpriteKey        "car.bastion"                packages/client/src/assets/asset-keys.ts
+  -> manifest lookup     sprites["car.bastion"]        assetManifest() in BootScene.ts
   -> sprite               tinted/rotated/fitted image, if the entry exists AND its texture loaded
   -> procedural fallback  drawCar's silhouette, otherwise
 ```
@@ -105,7 +105,7 @@ resolves to — the procedural silhouette, if the art has not finished loading y
 promise does resolve, clearing `visualKeys` is what makes it visible: that map is `syncCar`'s only
 "has this car's visual changed" check, so clearing it makes every on-screen car look changed and
 each is rebuilt once on the next frame, now with its sprite. This is what a car looking like a
-hexagon for the first second of a match and then popping into its sprite actually is — nothing
+bare hexagon for the first second of a match and then popping into its sprite actually is — nothing
 failed, the swap just had not landed yet. The genuine guarantee is narrower than "waits before the
 first frame": it is that loading is queued once at boot and never re-triggered mid-match, so there
 is at most this one swap shortly after Arena entry, never a texture upload once a match is already
@@ -133,9 +133,12 @@ server's `express.static` returns) does fire both.
 The two failure modes — a missing manifest entry and an unloadable file — look
 identical at the point they resolve, and both fall through to `drawCar`'s `silhouette(...)`: the
 same rect/ellipse/hexagon shapes the game has always drawn, chosen by `carShapeOf` and filled with
-`carFillOf(colorId)`.
+`carFillOf(colorId)`. **Those shapes are a rendering detail, not an identity.** The chassis were
+named for them until 2026-08-30 — `rectangle`, `oval`, `hexagon` — and the mapping survived the
+rename to `mirage` / `bullseye` / `bastion` unchanged: Mirage still falls back to a rect, Bullseye to
+an ellipse, Bastion to a hex.
 
-When you have added a PNG and it still shows as a hexagon (or whatever the procedural shape is),
+When you have added a PNG and it still shows as a procedural shape,
 check in this order: is the manifest key spelled `car.<carId>` exactly; does `file` in the
 manifest match the path under `public/art/` exactly (case matters on a case-sensitive deploy even
 if not on your dev machine); and does the browser console show an `[art] failed to load` or

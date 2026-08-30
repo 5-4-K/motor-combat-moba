@@ -22,7 +22,10 @@ export const CHASSIS_COPY = {
     codename: "The Runner",
     theme: "Your driving is your aim.",
     body:
-      "The fastest thing on the map, and the one that hits hardest per press — but only for as " +
+      // NOT "hits hardest per press": that title belongs to Bastion's Bulwark, which the ranking
+      // page and Bulwark's own card both say outright. Mirage's damage is real but conditional.
+      "The fastest thing on the map, and the one that turns a few seconds of contact into most of " +
+      "a car — but only for as " +
       "long as it is beside you. Two of its three weapons hug the chassis, so Mirage has to pick a " +
       "moment, arrive, and finish. It has the hull of a car that never planned to stay.",
     beats: "Closes on Bullseye before its wind-ups can resolve.",
@@ -39,7 +42,12 @@ export const CHASSIS_COPY = {
     losesTo: "Mirage, which arrives before you have finished winding up.",
   },
   bastion: {
-    codename: "The Bastion",
+    // NOT "The Bastion". The codename is printed right after the chassis name — "Bastion — The
+    // Bastion" on the chassis page and again under the cover triangle — so it has to be a different
+    // word from the name it sits beside. An anvil is the thing you bring the work to rather than
+    // the thing that chases it, which is this chassis's whole argument. Checked against the other
+    // two: "The Runner" and "The Gunner" collide with neither Mirage nor Bullseye.
+    codename: "The Anvil",
     theme: "It cannot chase — so it makes you come to it.",
     body:
       "The slowest chassis, the biggest hull, and the longest crowd control in the game. Bastion " +

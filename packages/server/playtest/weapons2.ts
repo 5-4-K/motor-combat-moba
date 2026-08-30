@@ -1,8 +1,9 @@
 /**
  * Second weapon pass: the probes the first pass raised questions about.
  *
- *  - W3 flagged pepperbox as "tunneling". Separate its ±5 degree pellet spread from any real
- *    straddle before believing that.
+ *  - W3 flagged pepperbox as "tunneling". Separate its ±6 degree pellet spread — one volley of
+ *    three since T12, not three staggered volleys of two — from any real straddle before believing
+ *    that.
  *  - Hits are tested with NO lag compensation and against the target's post-drive pose; the
  *    projectile is smeared across its own tick but the TARGET is not. A crossing car is the case.
  *  - Point-blank was clean head-on. Angled is the harder version: the muzzle can be born inside

@@ -38,4 +38,24 @@ client predicts through the same modifiers (invariant 8). See
 
 An **aura** is a beam with a `disc` hitbox at `origin: "center"`. It reuses `WorldShape`'s circle arm,
 so the hit test needed no new geometry, and it needs no change to `canDamage` — that already refuses
-the owner.
+the owner. `shockwave` is the shipped one, on Mirage's slot 2.
+
+**`stepDrive` does not read the roster.** It takes a resolved `ChassisDrive` — `maxSpeed`,
+`reverseMaxSpeed`, `accel`, `reverseAccel`, `turnRate`, `turnRateAtStop` — from `driveOf(carId)`
+(`config/car-config.ts`, frozen per car at module load in `CHASSIS_DRIVE`), and `stepSim` resolves it
+at the single production call site. Every other caller of `stepDrive` here is a test, and that is the
+point: `golden.test.ts` and `drive.test.ts` pin the drive *equation* against a frozen fixture, so a
+per-car `accel` or `handling` retune can never look like a change to the integration. Balance still
+lives in shared config; the sim receives it rather than reaching into `CAR_TABLE` for it.
+
+**Volleys are on `WeaponBase`, pellets are on the projectile.** `VolleyDef` (`volleys`,
+`volleyIntervalMs`) applies to both kinds, so a beam can be a wave sequence — `shockwave` is three
+aura instances 500 ms apart, each with its own `spawnTick` and its own damage clock. `PelletDef`
+(`pelletsPerVolley`, `spreadAngleDeg`) stays on `ProjectileWeaponDef`, because a beam should not have
+to author `pelletsPerVolley: 1`. `beginFire` reads `def.volley.volleys` for every kind rather than
+hardcoding 1 for beams.
+
+`StatusApplication.onWave` (`"all" | "final"`, absent means `"all"`) gates a status on one wave of a
+multi-wave press. The wave is frozen at spawn and **never networked**: `ShotOrder.finalVolley` →
+`WeaponInstance.finalWave` → the two status-application helpers in `sim/combat.ts`. No schema field
+was added; invariant 8 holds because nothing new that `stepSim` reads crosses the wire.

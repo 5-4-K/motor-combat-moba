@@ -1,7 +1,7 @@
 # Chassis rename, restat, and weapon redistribution
 
 **Date:** 2026-08-30
-**Status:** design agreed, not implemented
+**Status:** implemented; three figures corrected in review — see below
 **Supersedes in part:** the roster halves of
 [`2026-08-29-weapon-roster-design.md`](2026-08-29-weapon-roster-design.md) (L1–L7). The rules there
 still hold; the assignments do not.
@@ -9,6 +9,26 @@ still hold; the assignments do not.
 Decisions in this document are numbered **T1–T22** ("the type reimagining"), continuing the repo's
 convention of one letter series per design (D = weapon system, A = aim assist, L = roster,
 R = ram CC).
+
+> ### Corrections found in review (2026-08-30)
+>
+> This document is a record of decisions, so the three figures below are **struck rather than
+> silently overwritten** — the fact that they were caught after the code shipped is itself part of
+> the record. **The shipped sim is authoritative in every case; the decisions themselves stand.**
+>
+> Two of the three share one root cause: **the sim scales damage per tick and per wave, never once
+> over a total.** `damageFor` runs on each hit as it lands and rounds there, so a total computed at
+> the baseline and multiplied by the chassis's attack scale afterwards is a different number from
+> the one a player takes.
+>
+> | Where | The spec said | The code does | Note |
+> |---|---|---|---|
+> | [T18](#t18--bulwark) | bulwark deals **322** on Bastion | **320** | `damageFor(42, 35)` = 32 per tick × 10 ticks. The spec scaled the 350 total once. |
+> | [T15](#t15--shockwave) | shockwave deals **152** on Mirage | **153** | `damageFor(63, 45)` = 51 per wave × 3. Same root cause, rounding the other way. |
+> | [T11](#t11--needler-was-splinter) | dumping needler's stocks "owes a 900 ms dry spell" | **a 133 ms pause**, and the same 73 DPS | Not a rounding slip: the mechanism never worked that way. See T11. |
+>
+> None of these changed a balance value. Whether `needler` *should* charge for a dump is an open
+> design question left to the user (T11).
 
 ---
 
@@ -236,8 +256,33 @@ Bullseye's slot 1, and the roster's spam weapon.
 | `stock` | 3 @ 130 ms | 3 @ **110 ms** |
 | `applies` | `spiked` 3000 ms | **removed** |
 
-73 sustained DPS, essentially splinter's 75 anchor. Dumping three stocks puts 66 damage out in 220 ms
-and then owes a 900 ms dry spell — the same trigger-discipline question splinter asked, tightened.
+73 sustained DPS, essentially splinter's 75 anchor.
+
+> **CORRECTED IN REVIEW — the paragraph struck below was false, and was measured against the shipped
+> sim rather than re-derived.** It read:
+>
+> > ~~Dumping three stocks puts 66 damage out in 220 ms and then owes a 900 ms dry spell — the same
+> > trigger-discipline question splinter asked, tightened.~~
+>
+> It was inherited word for word from `splinter` and was never true of the mechanism either row
+> shipped on. `releaseShots` sets `rechargeEndsTick` **only when it is 0** (`sim/weapons/fire.ts`),
+> so the recharge starts at the **first** shot of a dump and runs concurrently with it instead of
+> after it. Holding the trigger from full stocks at tick 100, the sim fires on ticks
+> **100, 104, 108, 112, 118, 127, 136, 145** — gaps of 133, 133, 133, 200, then 300 ms forever. Three
+> darts leave inside 267 ms, the pause after them is **133 ms**, a fourth dart lands at tick 112 off
+> the stock that arrived at 109, and the cadence settles onto the 9-tick cooldown at exactly the
+> **73 DPS a tapping player has had the whole time.** Dumping and tapping converge; neither wins the
+> long fight.
+>
+> So the magazine is a one-off credit of two extra darts — 88 damage inside the first 400 ms against
+> a tapper's 44 — that never compounds and costs nothing afterwards. That is a real choice about
+> **when** your damage lands, not the trigger-discipline trade this decision described.
+>
+> **Open question for the user, deliberately not resolved here.** Whether dumping the magazine
+> *ought* to cost something is a design call, and nothing about this row was retuned to make the
+> original sentence true. If it should, the lever is `fire.ts` restarting the recharge on the last
+> shot of a burst rather than the first — a mechanism change, not a number. The code is authoritative
+> as it stands, and `weapon-config.ts` carries the same correction on the row itself.
 
 **Losing `spiked` is a deliberate nerf.** "Spikes" moves to `bulwark` (T17). Leaving it on both would
 make Bullseye's spam weapon a debuff applicator, which fights the clean-sustained-pressure role slot
@@ -308,7 +353,13 @@ Moves to Mirage's slot 2, and becomes three waves.
 
 Each wave is its own disc instance: expands to 150 units in 100 ms, lingers 150 ms, dies. Waves are
 500 ms apart, so they never overlap and the weapon reads as three distinct pulses. One press spans
-1.25 s and deals at most 135 (152 on Mirage's 1.13× attack) against a target that eats all three.
+1.25 s and deals at most 135 (**153**, not the ~~152~~ first written here, on Mirage's 1.13× attack)
+against a target that eats all three.
+
+> **CORRECTED IN REVIEW: 152 → 153. The code is authoritative.** `damageFor` scales and rounds
+> **each wave on its own** — `damageFor(63, 45)` is 51, and 3 × 51 = **153**. The 152 came from
+> scaling the 135 total once (`135 × 1.13`), which is not what the sim does. The decision is
+> unchanged; only the figure was wrong.
 
 **The stun is gone.** Hard CC belongs to Type 3 now, and `stunned` moves to `thumper` (T16). Mirage
 keeps `corroded` as its setup tool, which is a debuff that makes a focus rather than one that makes a
@@ -370,8 +421,14 @@ Stays on Bastion (slot 3). Bigger, faster to deploy, lingers longer, and corrode
 punishes standing in the zone on its own terms instead of only setting up someone else's shot.
 
 The zone's damage ceiling rises with its life. Total life becomes 117 ticks against a 12-tick damage
-interval, so a car held for the whole duration takes **10 ticks = 350** (322 after Bastion's 0.92×),
-up from 315. Bastion's ultimate leading the damage table remains the price of the slowest chassis.
+interval, so a car held for the whole duration takes **10 ticks = 350** (**320**, not the ~~322~~
+first written here, after Bastion's 0.92×), up from 315. Bastion's ultimate leading the damage table
+remains the price of the slowest chassis.
+
+> **CORRECTED IN REVIEW: 322 → 320. The code is authoritative.** `damageFor` scales and rounds
+> **each tick on its own** — `damageFor(42, 35)` is 32, and 10 × 32 = **320**. The 322 came from
+> scaling the 350 total once (`350 × 0.92`), which is not what the sim does. The decision is
+> unchanged; only the figure was wrong. `weapon-config.ts` states the same arithmetic on the row.
 
 ### T19 — `afterburner` is unchanged
 

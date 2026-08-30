@@ -35,11 +35,13 @@ import {
   TICK_RATE_HZ,
   WEAPON_TABLE,
   WEAPON_TICKS,
+  accelOf,
   forwardMaxSpeedOf,
   getArena,
   hpOf,
   slotsOf,
   statusDefOf,
+  turnRateOf,
   weaponDamageOf,
 } from "@motor-combat-moba/shared";
 
@@ -400,8 +402,18 @@ function chassisPage(carId) {
   const car = CAR_TABLE[carId];
   const copy = CHASSIS_COPY[carId];
   const kit = slotsOf(carId).map((id) => byId[id]);
+  // Six ratings, not the four this rendered until 2026-08-30 — `accel` and `handling` became real
+  // per-chassis axes and a page that omitted them would describe three cars that drive identically
+  // off the line and through a corner.
+  //
+  // Handling prints its turn RADIUS beside its turn rate because the rate alone actively misleads on
+  // this roster: Bullseye has the lowest rate of the three and still corners tighter than Mirage,
+  // whose far higher top speed carries it wider. Radius is `speed / turnRate`, so it is the number a
+  // player actually feels — how much ground a corner costs — while the rate is what the rating sets.
   const ratings = [
     ["Speed", car.speed, `${round(forwardMaxSpeedOf(carId))} u/s top`],
+    ["Accel", car.accel, `${round(accelOf(carId))} u/s² · ${round(forwardMaxSpeedOf(carId) / accelOf(carId), 2)}s to top`],
+    ["Handling", car.handling, `${round(turnRateOf(carId), 2)} rad/s · ${round(forwardMaxSpeedOf(carId) / turnRateOf(carId))}u turn radius`],
     ["Attack", car.attack, `${round(1 + (car.attack - COMBAT_CONFIG.attackBaseline) * COMBAT_CONFIG.damagePerAttack, 2)}× damage`],
     ["Hull", car.hp, `${hpOf(carId)} HP`],
     ["Mass", car.mass, "ram authority"],

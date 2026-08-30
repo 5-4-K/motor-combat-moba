@@ -6,18 +6,32 @@ LAN-hosted top-down 2D multiplayer car combat (last player/team standing, max 6)
 `STATUS_TABLE`. Every channel is a **multiplier** with 1 as neutral, and `Modifiers` is the only type
 that reaches the sim: driving, ramming and combat never look at a status list. A status does not own
 its duration — the applier does (`WeaponDef.applies`, or `CombatInput.statusRequests` for future
-pickups) — and never stacks with itself. `applyDamage` is no longer the only HP writer;
-**`sim/damage.ts` is**, now that repair pulses exist. See
+pickups) — and never stacks with itself. Hard CC belongs to Bastion: **`stunned` is `thumper`'s**,
+not `shockwave`'s, since the 2026-08-30 redistribution. `applyDamage` is no longer the only HP
+writer; **`sim/damage.ts` is**, now that repair pulses exist. See
 [`docs/combat-model.md`](docs/combat-model.md#statuses).
 
 An **aura** is a beam with a `disc` hitbox at `origin: "center"` — a field around a car rather than a
 line of fire. `shockwave` is the shipped one, and it changed from a 140° cone to a 360° ring in the
-process: a real buff to Hexagon's slot 2, and the first thing to re-tune from play.
+process. It is now **Mirage's slot 2**, and the table's only multi-wave row: one press schedules
+**three** aura instances 500 ms apart, 45 damage each, and the `corroded` it applies rides the
+**final wave only** (`StatusApplication.onWave`). A ring on the roster's fastest chassis rewards
+driving *through* a fight, and it is the first thing to re-tune from play.
 
-Chassis ratings (`speed`, `attack`, `hp`, `mass`) are four independent 0-100 values. The 150-point
-budget that used to cap `speed`+`attack`+`hp` was deleted on 2026-08-29 so `mass` could be a
-free-floating fourth rating, and no replacement guard was adopted — see
+**The three chassis are `bullseye`, `mirage` and `bastion`** — a type triangle, not three shapes.
+Their ratings (`speed`, `accel`, `handling`, `attack`, `hp`, `mass`) are **six** independent 0-100
+values; `accel` and `handling` landed on 2026-08-30 so cars could differ in how they launch and how
+they corner. **`handling` is turn RATE, not turn radius.** Radius is `speed / turnRate`, so Bullseye
+has the roster's lowest turn rate and still corners tighter (121 u) than the much faster Mirage
+(137 u), while Bastion turns inside 59 u and is the best tracker in the game. The 150-point budget
+that used to cap `speed`+`attack`+`hp` was deleted on 2026-08-29 so `mass` could be a free-floating
+rating, and no replacement guard was adopted — see
 [`docs/config-reference.md`](docs/config-reference.md#car_table).
+
+**`stepDrive` no longer reads the roster.** It takes a resolved `ChassisDrive` (six numbers) from
+`driveOf(carId)`; `stepSim` resolves it at the single production call site. That is what lets
+`golden.test.ts` pin the drive integration against a frozen fixture through every future balance
+edit — see [`docs/config-reference.md`](docs/config-reference.md#drive_config).
 
 ## Hard invariants
 
@@ -53,6 +67,7 @@ free-floating fourth rating, and no replacement guard was adopted — see
 | Spec + tracker | [`docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md`](docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md), [`docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md`](docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md) |
 | Weapon system decisions (D1–D22), aim assist and target lock (A1–A14), online-play review, future work | [`docs/superpowers/specs/2026-08-27-weapon-system-design.md`](docs/superpowers/specs/2026-08-27-weapon-system-design.md), [`docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md`](docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md), [`docs/superpowers/plans/2026-08-27-weapon-system.md`](docs/superpowers/plans/2026-08-27-weapon-system.md) |
 | The nine-weapon roster, per-chassis kits (L1–L7) | [`docs/superpowers/specs/2026-08-29-weapon-roster-design.md`](docs/superpowers/specs/2026-08-29-weapon-roster-design.md) |
+| The three chassis types and their triangle, the `accel`/`handling` ratings, the weapon redistribution (T1–T22) — **supersedes L1–L7's assignments** | [`docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md`](docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md) |
 | Ram CC and knockback decisions (R1–R20): severity, side bonus, authority/shove/spin, the `mass` rating | [`docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md`](docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md) |
 | Status (buff/debuff) decisions: channels, re-apply rules, clamps, pulses, auras, the application seams | [`docs/superpowers/specs/2026-08-29-status-mechanism-design.md`](docs/superpowers/specs/2026-08-29-status-mechanism-design.md) |
 | The user's own idea / invariant notes | `docs/ideas/`, `docs/invariants/` — **off limits unless the user names them**, see below |

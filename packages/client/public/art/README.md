@@ -55,13 +55,13 @@ The hull it fits against comes from `DRIVE_CONFIG` in shared, so shared must be 
 ## Adding a car sprite by hand
 
 1. Save the image as `cars/<carId>.png`, where `<carId>` is a key of `CAR_TABLE`
-   (`rectangle`, `oval`, `hexagon`).
+   (`mirage`, `bullseye`, `bastion`).
 2. Add a row:
 
 ```json
 {
   "sprites": {
-    "car.hexagon": { "file": "cars/hexagon.png" }
+    "car.bastion": { "file": "cars/bastion.png" }
   }
 }
 ```
