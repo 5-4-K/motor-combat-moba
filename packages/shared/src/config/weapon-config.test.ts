@@ -99,9 +99,12 @@ describe("WEAPON_TABLE", () => {
     expect(needler.range).toBe(850);
     expect(needler.usesAimAssist).toBe(true);
     expect(needler.stock).toEqual({ max: 3, refireDelayMs: 110 });
-    // 300ms is the whole design: tapping one dart sustains 73 DPS, dumping all three puts 66
-    // damage out in 220ms and then owes a 900ms refill. 22 * (1000 / 300) is 73.333..., so this is
-    // a close-to rather than the exact equality the 30/400 pair happened to allow.
+    // 300ms is the whole design: one dart per recharge sustains 73 DPS, and dumping all three puts
+    // 66 damage out inside 267ms (two 4-tick refire gaps) WITHOUT giving that rate up — the
+    // recharge starts at the first shot of a dump and is never restarted, so the magazine refills
+    // through the burst and the cadence returns to one dart per 300ms either way. The burst moves
+    // damage earlier; it does not add or cost any. 22 * (1000 / 300) is 73.333..., so this is a
+    // close-to rather than the exact equality the 30/400 pair happened to allow.
     expect(needler.damage * (1000 / needler.cooldownMs)).toBeCloseTo(73.3, 1);
     // T11 took `spiked` off this row and gave it to `bulwark`: a spam weapon that also applied a
     // refreshing debuff was doing slot 3's job from slot 1.

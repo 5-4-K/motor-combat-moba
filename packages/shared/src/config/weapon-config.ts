@@ -90,8 +90,9 @@ export const WEAPON_TABLE = {
     cooldownMs: 1800, // 0.56 Hz, 56% clear of the 1.25 Hz aim-assist cliff
     recoveryMs: 200,
     usesAimAssist: true,
-    // 10% smaller than the r7 it fired at two-per-volley. Three pellets in one tick overlap far
-    // more than two did, so the same radius would have made the fan read as one wide slug.
+    // r7 -> r6 is 14.3% off the radius (not the 10% T12 wrote; the shipped 6 is what was wanted).
+    // Three pellets on one tick overlap far more than two on staggered ticks did, so the old radius
+    // would have made the fan read as one wide slug.
     hitbox: { shape: "circle", radius: 6 },
     pierce: 0,
     volley: { volleys: 1, volleyIntervalMs: 0 },
@@ -147,11 +148,25 @@ export const WEAPON_TABLE = {
    *
    * `cooldownMs: 300` is the entire design and is not a knob to round off. One dart per 300 ms
    * sustains `22 * 1000 / 300` == 73 DPS, essentially the 75 this row anchored on before T11 and
-   * four fifths of `fireball`'s 91. Dumping all three stocks puts 66 damage out in 220 ms (two
-   * 110 ms refire gaps) and then owes a 900 ms refill — three 300 ms recharges — for 66 damage per
-   * 1120 ms, 59 DPS across the cycle. So tapping wins the long fight and dumping wins the moment,
-   * which is the trigger discipline the weapon exists to ask for. The 22/300 pair is a tightened
-   * restatement of the 30/400 it shipped with, not a new question.
+   * four fifths of `fireball`'s 91.
+   *
+   * **Dumping the magazine buys TIMING, not damage, and the comment here claimed otherwise until
+   * 2026-08-30.** It said three stocks cost a 900 ms refill and 59 DPS across the cycle, so that
+   * tapping won the long fight — inherited word for word from `splinter`, and never true of the
+   * shipped mechanism. `releaseShots` starts the recharge at the FIRST shot of a dump and
+   * deliberately never restarts a running timer (`fire.ts`: it only sets `rechargeEndsTick` when it
+   * is 0), so the refill runs CONCURRENTLY with the burst instead of after it. Held from full at
+   * tick 100 the sim fires on ticks 100, 104, 108, 112, 118, 127, 136, 145 — gaps of 133, 133, 133,
+   * 200, then 300 ms forever. Three darts leave inside 267 ms, the pause after them is 4 ticks
+   * (133 ms) rather than a dry spell, a fourth lands at tick 112 off the stock that arrived at 109,
+   * and the cadence then settles on the 9-tick cooldown at exactly the same 73 DPS a tapping player
+   * has had the whole time.
+   *
+   * So the magazine is a one-off credit of two extra darts — 88 damage inside the first 400 ms
+   * against a tapper's 44 — that never compounds and costs nothing afterwards. That is a real
+   * choice about WHEN your damage lands, not the trigger-discipline trade the old text described.
+   * Whether dumping ought to cost something is a live design question and deliberately not answered
+   * here: nothing about this row was retuned to make the sentence true.
    *
    * **It no longer applies `spiked`.** Three stocks landing on one `refresh` debuff made the
    * skirmisher's spam weapon a debuff applicator as well, which fights the clean sustained-pressure
@@ -429,7 +444,8 @@ export const WEAPON_TABLE = {
     //
     // The `self` entry is the roster's only one, and it is what makes the weapon a stand-and-hold
     // rather than a place-and-run: the buff arrives whether or not the zone ever catches anybody.
-    // 4500 ms is 4000 + the 15% the zone's own life gained, so the buff still outlasts the deploy.
+    // 4000 -> 4500 is +12.5%, NOT the +15% the zone's own life gained — 4000 x 1.15 would be 4600.
+    // What the number has to do is outlast the deploy, and 4.5 s against a 3.875 s zone does.
     applies: [
       { statusId: "spiked", target: "opponents", durationMs: 3000 },
       { statusId: "fortified", target: "self", durationMs: 4500 },

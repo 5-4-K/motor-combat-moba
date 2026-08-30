@@ -471,7 +471,15 @@ function specRows(w) {
   if (w.beam && w.waves > 1)
     rows.push(["Waves", `${w.waves}`, `${d.volley.volleyIntervalMs}ms apart · ${round(w.burstSpanMs / 1000, 2)}s to land them all`]);
   if (!w.beam && d.pierce > 0) rows.push(["Pierce", `${d.pierce + 1} cars`, "keeps going after the first"]);
-  if (d.stock) rows.push(["Salvo", `${d.stock.max} × ${w.perHit} = ${d.stock.max * w.perHit}`, `dumped in ${round(((d.stock.max - 1) * d.stock.refireDelayMs) / 1000, 2)}s`]);
+  // The dump window is counted in TICKS, not in authored milliseconds: `refireDelayMs: 110` rounds
+  // up to 4 ticks (133ms), so two gaps are 267ms rather than the 220ms the raw field multiplies to.
+  // The player waits whole ticks, so the page must print whole ticks.
+  if (d.stock)
+    rows.push([
+      "Salvo",
+      `${d.stock.max} × ${w.perHit} = ${d.stock.max * w.perHit}`,
+      `dumped in ${round(((d.stock.max - 1) * w.ticks.refireDelay * 1000) / TICK_RATE_HZ / 1000, 2)}s`,
+    ]);
   if (d.startUpMs > 0) rows.push(["Wind-up", `${d.startUpMs}ms`, `${w.ticks.startUp} ticks — you are visible`]);
   rows.push(["Recovery", d.recoveryMs > 0 ? `${d.recoveryMs}ms` : "none", d.recoveryMs > 0 ? "other slots locked" : "gates nothing else"]);
   rows.push(["Lock-on", d.usesAimAssist ? "Yes" : "No", d.usesAimAssist ? `assists inside ${AIM_CONFIG.lockRange} units` : "fires down your nose"]);

@@ -104,15 +104,18 @@ export const WEAPON_COPY = {
     tagline: "Three darts. Spend them well.",
     shape: "Banked darts · thin and fast · locks on",
     what:
-      "Up to three shots held in reserve, released as fast as a ninth of a second apart, each one " +
-      "recharging on its own timer. Thin, quick, long-ranged, and it finds its own target.",
+      "Up to three shots held in reserve, released as fast as an eighth of a second apart and " +
+      "restored one at a time on a rolling recharge. Thin, quick, long-ranged, and it finds its " +
+      "own target.",
     how:
       "Tap one dart per recharge and you sustain output forever — four fifths of what Fireball " +
-      "manages, from further away. Dump all three and you put an eighth of a car out in a fifth of " +
-      "a second, then stand silent for the better part of one.",
+      "manages, from further away. Dump all three and the same eighth of a car arrives in a " +
+      "quarter of a second instead. The magazine refills while you are firing it, so you pause " +
+      "for a beat and then carry on at the same rate you were already on.",
     tip:
-      "Tapping wins the long fight; dumping wins the moment. Choosing between them every few " +
-      "seconds is the entire weapon. Do not dump on reflex.",
+      "Dumping moves your damage earlier; it does not buy you any more of it. Bank the darts when " +
+      "nothing is in range, and spend them when a target is briefly worth killing — a dive you " +
+      "want to punish now, or someone about to break line of sight.",
   },
   skewer: {
     tagline: "Line them up.",
