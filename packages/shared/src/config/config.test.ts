@@ -28,7 +28,9 @@ describe("CAR_TABLE", () => {
   });
 
   it("matches the locked ratings", () => {
-    expect(CAR_TABLE.mirage).toMatchObject({ speed: 88, accel: 85, handling: 50, attack: 63, hp: 48, mass: 48 });
+    // Mirage's handling was 50 until 2026-08-31, when it went to 60 to pull its turn radius in from
+    // 91.4 u to 84.2 u without touching its speed. It is no longer the average-handling chassis.
+    expect(CAR_TABLE.mirage).toMatchObject({ speed: 88, accel: 85, handling: 60, attack: 63, hp: 48, mass: 48 });
     expect(CAR_TABLE.bullseye).toMatchObject({ speed: 52, accel: 45, handling: 28, attack: 55, hp: 30, mass: 30 });
     expect(CAR_TABLE.bastion).toMatchObject({ speed: 30, accel: 20, handling: 82, attack: 42, hp: 82, mass: 90 });
   });
@@ -263,10 +265,12 @@ describe("the three types (T5/T6)", () => {
     expect(accelOf("mirage")).toBeCloseTo(1032, 9);
     expect(accelOf("bastion")).toBeCloseTo(564, 9);
 
-    // 1.5x their pre-2026-08-31 rates (3.408 / 4.2 / 5.352): the whole roster was raised together,
-    // so the type triangle's agility ordering and spacing are exactly as they were.
+    // Bullseye and Bastion are 1.5x their pre-2026-08-31 rates (3.408 / 5.352), from the roster-wide
+    // raise that scaled both halves of the turn scale together. Mirage is 6.84 rather than that
+    // raise's 6.3 because a second, per-car edit the same day took its handling 50 -> 60; it is the
+    // one chassis whose rating moved, so it is the one whose spacing in the triangle changed.
     expect(turnRateOf("bullseye")).toBeCloseTo(5.112, 9);
-    expect(turnRateOf("mirage")).toBeCloseTo(6.3, 9);
+    expect(turnRateOf("mirage")).toBeCloseTo(6.84, 9);
     expect(turnRateOf("bastion")).toBeCloseTo(8.028, 9);
 
     expect(hpOf("bullseye")).toBe(300);

@@ -25,7 +25,7 @@ Canonical sim rate is `TICK_RATE_HZ` in `@motor-combat-moba/shared`. Patch rate 
 
 | id | name | speed | accel | handling | attack | hp | mass | weapons |
 |---|---|---|---|---|---|---|---|---|
-| `mirage` | Mirage | 88 | 85 | 50 | 63 | 48 | 48 | `["fireball", "shockwave", "afterburner"]` |
+| `mirage` | Mirage | 88 | 85 | 60 | 63 | 48 | 48 | `["fireball", "shockwave", "afterburner"]` |
 | `bullseye` | Bullseye | 52 | 45 | 28 | 55 | 30 | 30 | `["needler", "pepperbox", "lance"]` |
 | `bastion` | Bastion | 30 | 20 | 82 | 42 | 82 | 90 | `["thumper", "skewer", "bulwark"]` |
 
@@ -48,11 +48,16 @@ the same way on both — but it would make "fastest top speed, worst launch" str
 for any future chassis. `handling` cannot be derived at all: Bullseye is mid-speed with the *lowest*
 turn rate and Bastion is the slowest with the *highest*.
 
+Which of these to reach for when turning feels wrong is indexed by outcome in
+[`turn-tuning.md`](turn-tuning.md).
+
 **`handling` is turn RATE, not turn radius, and the difference is the design.** Radius is
 `forwardMaxSpeedOf(id) / turnRateOf(id)`, so a chassis with a high `speed` rating and only average
 `handling` still corners wide. Bullseye reorients slowest of the three and *still* has a tighter arc
 than Mirage, whose speed carries it wider; Bastion turns inside 39 units and is the best tracker in
-the game, which is the mechanical reason the tank punishes a diver. Raising a car's `speed` without
+the game, which is the mechanical reason the tank punishes a diver. Mirage's `handling` went 50 -> 60
+on 2026-08-31 for exactly this reason — its 88 speed had left it with the roster's widest arc at
+91 u, and the fix was rating, not a speed cut. At 84 u it is still the widest. Raising a car's `speed` without
 raising its `handling` to match is what makes it feel *less* agile despite the higher ceiling.
 
 Derived, per car (Mirage / Bullseye / Bastion):
@@ -64,9 +69,9 @@ Derived, per car (Mirage / Bullseye / Bastion):
 | `reverseMaxSpeedOf` | forward × `reverseSpeedRatio` | 374 | 269 | 205 |
 | `accelOf` | `baseAccel` + accel × `accelPerRating` | 1032 | 744 | 564 |
 | `reverseAccelOf` | `accelOf` × `reverseAccelFactor` | 1455 | 1049 | 795 |
-| `turnRateOf` | `baseTurnRate` + handling × `turnRatePerRating` | 6.3 | 5.112 | 8.028 |
-| `turnRateAtStopOf` | `turnRateOf` × `stopTurnRatio` | 3.15 | 2.556 | 4.014 |
-| **turn radius** | `forwardMaxSpeedOf / turnRateOf` — derived, never typed | 91 u | 81 u | **39 u** |
+| `turnRateOf` | `baseTurnRate` + handling × `turnRatePerRating` | 6.84 | 5.112 | 8.028 |
+| `turnRateAtStopOf` | `turnRateOf` × `stopTurnRatio` | 3.42 | 2.556 | 4.014 |
+| **turn radius** | `forwardMaxSpeedOf / turnRateOf` — derived, never typed | 84 u | 81 u | **39 u** |
 | time to top | `forwardMaxSpeedOf / accelOf` | 0.56 s | 0.56 s | 0.56 s |
 | `massOf` | mass × `RAM_CONFIG.massPerRating` | 480 | 300 | 900 |
 | attack scale | `damageFor` at that rating | 1.13× | 1.05× | 0.92× |

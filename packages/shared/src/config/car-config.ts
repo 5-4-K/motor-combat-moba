@@ -6,8 +6,10 @@ import type { CarDef, CarId } from "./types.js";
 /**
  * The roster. Every rating is an integer 0-100 with 50 as average.
  *
- * The three types (T1): **Mirage** is the all-round speedster — highest speed and accel, average
- * handling, the lightest-armoured glass cannon on offense but middling hp. **Bullseye** is the
+ * The three types (T1): **Mirage** is the all-round speedster — highest speed and accel,
+ * above-average handling since 2026-08-31, the lightest-armoured glass cannon on offense but
+ * middling hp. Its `handling` was 50 until then; 60 pulled its turn radius in from 91.4 u to 84.2 u
+ * without cutting its speed, and it is still the widest arc on the roster. **Bullseye** is the
  * light, precise skirmisher — the roster's lowest hp and mass, modest speed and accel, and the
  * lowest handling (T6: a low turn RATE, not a tight turn RADIUS — see below). **Bastion** is the
  * tank — lowest speed and accel by far, the roster's highest hp and mass, and paradoxically the
@@ -31,12 +33,16 @@ import type { CarDef, CarId } from "./types.js";
  * `mass` is not durability. It scales how hard this chassis rams and how easily it is rammed, and it
  * touches nothing else — see `RAM_CONFIG.massPerRating`.
  *
+ * **Changing a car's `handling` or `speed` also owes `docs/turn-tuning.md` an edit**, and a fourth
+ * chassis owes it a new column. That page tabulates every turn rate and radius on the roster by
+ * hand and no test recomputes it; see its "Keeping this page honest" section.
+ *
  * `weapons` is the chassis's kit in slot order, and the kits are EXCLUSIVE: no weapon id appears on
  * two chassis (L1). `weapon-slots.test.ts` enforces that, so moving a weapon between chassis means
  * swapping a pair, never copying one.
  */
 export const CAR_TABLE = {
-  mirage: { id: "mirage", name: "Mirage", speed: 88, accel: 85, handling: 50, attack: 63, hp: 48, mass: 48, weapons: ["fireball", "shockwave", "afterburner"] },
+  mirage: { id: "mirage", name: "Mirage", speed: 88, accel: 85, handling: 60, attack: 63, hp: 48, mass: 48, weapons: ["fireball", "shockwave", "afterburner"] },
   bullseye: { id: "bullseye", name: "Bullseye", speed: 52, accel: 45, handling: 28, attack: 55, hp: 30, mass: 30, weapons: ["needler", "pepperbox", "lance"] },
   bastion: { id: "bastion", name: "Bastion", speed: 30, accel: 20, handling: 82, attack: 42, hp: 82, mass: 90, weapons: ["thumper", "skewer", "bulwark"] },
 } as const satisfies Record<CarId, CarDef>;

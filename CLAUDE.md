@@ -23,7 +23,7 @@ Their ratings (`speed`, `accel`, `handling`, `attack`, `hp`, `mass`) are **six**
 values; `accel` and `handling` landed on 2026-08-30 so cars could differ in how they launch and how
 they corner. **`handling` is turn RATE, not turn radius.** Radius is `speed / turnRate`, so Bullseye
 has the roster's lowest turn rate and still corners tighter (81 u) than the much faster Mirage
-(91 u), while Bastion turns inside 39 u and is the best tracker in the game. Those radii are a third
+(84 u), while Bastion turns inside 39 u and is the best tracker in the game. Those radii are a third
 tighter than they were before **2026-08-31, when the whole roster's turn rate was raised 1.5x** —
 `DRIVE_CONFIG.baseTurnRate` and `turnRatePerRating` scaled together, speeds untouched — because
 driving and aiming read as too heavy. The 150-point budget
@@ -58,6 +58,7 @@ edit — see [`docs/config-reference.md`](docs/config-reference.md#drive_config)
 | Input / prediction seams | [`docs/networking.md`](docs/networking.md) |
 | Schema fields | [`docs/schema-reference.md`](docs/schema-reference.md) |
 | Env knobs / balance tables | [`docs/config-reference.md`](docs/config-reference.md) |
+| Which knob to tune for a turning/aiming complaint, and every turn stat on the roster | [`docs/turn-tuning.md`](docs/turn-tuning.md) — **hand-maintained, see below** |
 | LAN zip / `start.bat` | [`docs/deployment.md`](docs/deployment.md) |
 | Language / import rules | [`docs/conventions.md`](docs/conventions.md) |
 | Plan sequence | [`docs/roadmap.md`](docs/roadmap.md) |
@@ -175,6 +176,20 @@ to main, rebase on main, or open a PR against main, the target is `development/m
 behind; tooling that guesses a default branch (git's own "main branch" hint, PR base defaults) will
 often name `master` anyway — ignore that and use `development/main`. Only touch `master` when the
 user names it explicitly.
+
+## `docs/turn-tuning.md` tabulates turn stats by hand, and no test catches it going stale
+
+[`docs/turn-tuning.md`](docs/turn-tuning.md) is the index of which knob to reach for when turning or
+aiming feels wrong, and it carries two tables of the roster's turn numbers — the authored ratings and
+every value derived from them. **Both are hand-written. Nothing recomputes them and no test compares
+them to the config**, unlike the players' guide, which `balanceStamp` fingerprints.
+
+**Update it in the same commit whenever you change** a car's `handling` or `speed` in `CAR_TABLE`;
+`baseTurnRate`, `turnRatePerRating`, `stopTurnRatio`, `baseMaxSpeed`, `speedPerRating` or
+`reverseSpeedRatio` in `DRIVE_CONFIG`; `overheated`'s `turnRate` in `STATUS_TABLE`;
+`authorityFloor` or `spinMaxRate` in `RAM_CONFIG`; or `TICK_RATE_HZ`. Adding a chassis means a new
+column. The page's "Keeping this page honest" section holds that list and a snippet that prints the
+derived values from built shared — do not retype them by hand.
 
 ## Playtest: say so loudly when the sim changes under the probes
 
