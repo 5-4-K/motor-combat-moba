@@ -76,6 +76,12 @@ import { ROOM_FULL_ERROR, shouldRejectSecondArena } from "./singleton-arena.js";
 export class ArenaRoom extends Room<ArenaState> {
   maxClients = MAX_PLAYERS;
   private inputQueues = new Map<string, InputMessage[]>();
+  /**
+   * What each player's last SIMULATED input had held down, so `serverTick` can tell a press from a
+   * held key. Server-only and never networked: the client does not predict firing, so nothing on the
+   * other half of the lockstep needs it.
+   */
+  private prevFireMasks = new Map<string, number>();
   private pendingCarId = new Map<string, CarId>();
   private matchRoster = new Set<string>();
   private postMatchIds = new Set<string>();
@@ -227,6 +233,7 @@ export class ArenaRoom extends Room<ArenaState> {
     player.y = 300;
     this.state.players.set(client.sessionId, player);
     this.inputQueues.set(client.sessionId, []);
+    this.prevFireMasks.set(client.sessionId, 0);
     if (!this.state.hostSessionId) {
       this.state.hostSessionId = client.sessionId;
     }
@@ -239,6 +246,7 @@ export class ArenaRoom extends Room<ArenaState> {
 
     this.state.players.delete(client.sessionId);
     this.inputQueues.delete(client.sessionId);
+    this.prevFireMasks.delete(client.sessionId);
     this.pendingCarId.delete(client.sessionId);
     this.postMatchIds.delete(client.sessionId);
     this.matchRoster.delete(client.sessionId);
@@ -312,6 +320,7 @@ export class ArenaRoom extends Room<ArenaState> {
       dt,
       this.state.phase,
       statusMods,
+      this.prevFireMasks,
     );
     // Ramming, after driving and before combat. The order is the rule: contacts are measured against
     // the poses driving actually produced, and the knock written here is read by stepDrive next tick.

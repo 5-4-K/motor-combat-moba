@@ -11,10 +11,10 @@ function respondWith(body: unknown, ok = true, status = 200): typeof fetch {
 
 describe("loadManifest", () => {
   it("parses a served manifest", async () => {
-    const fetchImpl = respondWith({ sprites: { "car.oval": { file: "cars/oval.png" } } });
+    const fetchImpl = respondWith({ sprites: { "car.bullseye": { file: "cars/bullseye.png" } } });
     const { manifest, problems } = await loadManifest("art/manifest.json", fetchImpl);
     expect(problems).toEqual([]);
-    expect(manifest.sprites["car.oval"].file).toBe("cars/oval.png");
+    expect(manifest.sprites["car.bullseye"].file).toBe("cars/bullseye.png");
   });
 
   it("degrades to the empty manifest on a non-ok response", async () => {

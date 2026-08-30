@@ -1,8 +1,9 @@
 /**
  * Second weapon pass: the probes the first pass raised questions about.
  *
- *  - W3 flagged pepperbox as "tunneling". Separate its ±5 degree pellet spread from any real
- *    straddle before believing that.
+ *  - W3 flagged pepperbox as "tunneling". Separate its ±6 degree pellet spread — one volley of
+ *    three since T12, not three staggered volleys of two — from any real straddle before believing
+ *    that.
  *  - Hits are tested with NO lag compensation and against the target's post-drive pose; the
  *    projectile is smeared across its own tick but the TARGET is not. A crossing car is the case.
  *  - Point-blank was clean head-on. Angled is the harder version: the muzzle can be born inside
@@ -26,27 +27,47 @@ const reporter = new Reporter(
 );
 const report = reporter.report.bind(reporter);
 function carrierOf(weaponId: WeaponId): CarId {
-  return (Object.keys(CAR_TABLE) as CarId[]).find((c) => slotsOf(c).includes(weaponId))!;
+  const id = (Object.keys(CAR_TABLE) as CarId[]).find((c) => slotsOf(c).includes(weaponId));
+  if (!id) throw new Error(`no chassis carries ${weaponId}`);
+  return id;
 }
+/**
+ * Which slot index (1-based bitmask) carries this weapon on its chassis. Throws rather than
+ * silently returning a garbage bit: `1 << -1` is `-2147483648`, and a scenario naming a weapon its
+ * chassis no longer carries would otherwise fire that mask and report a clean, empty result —
+ * exactly the failure T8 found in three scenarios here and in weapons.ts. A setup mistake like
+ * this is allowed to be loud; only the measurement loop over live scenarios has to keep going.
+ */
 function slotBitFor(carId: CarId, weaponId: WeaponId): number {
-  return 1 << slotsOf(carId).indexOf(weaponId);
+  const i = slotsOf(carId).indexOf(weaponId);
+  if (i < 0) throw new Error(`${carId} does not carry ${weaponId}`);
+  return 1 << i;
 }
 
 /* ------------------------------------ W3b. is pepperbox tunneling, or is it just spread? */
+/**
+ * T12 collapsed pepperbox from three sequential volleys of two pellets (+/-5 degrees, no pellet on
+ * the heading) into one volley of THREE pellets at -6/0/+6 degrees. That is a different shape, not
+ * just a smaller one: `fanOffset` puts the middle pellet's offset at exactly 0, so — unlike the old
+ * fan — one pellet always travels the centre line. The old finding here ("the volley cannot hit a
+ * car dead ahead at all beyond ~effective range") was a property of a fan with nothing on-axis, and
+ * it cannot recur now that one always exists. What is still worth measuring is whether the two
+ * OUTER pellets keep connecting, and whether the always-on-axis pellet ever somehow fails to.
+ */
 function pepperboxSpread(): void {
   const rows: string[] = [];
   const carrier = carrierOf("pepperbox");
   const bit = slotBitFor(carrier, "pepperbox");
-  // Half-spread is 5 degrees; lateral miss distance grows with range.
+  let centrePelletEverMissed = false;
   for (const base of [60, 120, 200, 300, 450, 560]) {
-    let hits = 0;
     let total = 0;
     let dmg = 0;
+    let zeroDamagePhases = 0;
     for (let phase = 0; phase < 27; phase++) {
       const distance = base + phase;
       const w = new PlaytestWorld([
         { id: "s", carId: carrier, x: 100, y: 360, angle: 0 },
-        { id: "t", carId: "hexagon", x: 100 + distance, y: 360, angle: 0 },
+        { id: "t", carId: "bastion", x: 100 + distance, y: 360, angle: 0 },
       ]);
       const hp0 = w.get("t").hp;
       for (let i = 0; i < 90; i++) {
@@ -55,28 +76,29 @@ function pepperboxSpread(): void {
       }
       const d = hp0 - w.get("t").hp;
       total++;
-      if (d > 0) hits++;
       dmg += d;
+      if (d === 0) zeroDamagePhases++;
     }
-    const lateral = base * Math.tan((5 * Math.PI) / 180);
+    // A total miss (0 damage) at any range inside the weapon's own reach means even the on-axis
+    // pellet failed to connect — that IS a finding, unlike the old flanking-pellet miss.
+    if (zeroDamagePhases > 0) centrePelletEverMissed = true;
+    const outerLateral = base * Math.tan((6 * Math.PI) / 180);
     rows.push(
-      `range ~${String(base).padStart(3)}u: ${hits}/${total} phases connected, mean damage ` +
-        `${(dmg / total).toFixed(0)}/168 max — pellet is ${lateral.toFixed(0)}u off axis, ` +
-        `target half-width is ${DRIVE_CONFIG.carHeight / 2}u + 7u pellet radius`,
+      `range ~${String(base).padStart(3)}u: mean damage ${(dmg / total).toFixed(0)}/135 max ` +
+        `(${zeroDamagePhases}/${total} phases dealt 0${zeroDamagePhases > 0 ? " <- CENTRE PELLET MISSED" : ""}) — ` +
+        `outer pellets are ${outerLateral.toFixed(0)}u off axis, target half-width is ` +
+        `${DRIVE_CONFIG.carHeight / 2}u + 6u pellet radius`,
     );
   }
-  // Two separate answers here. "Not tunneling" is OK — W3's flag was a false positive. But a weapon
-  // that cannot connect at half its own authored range IS a finding, and it is the same measurement.
-  const effectiveRange = Math.round(23 / Math.tan((5 * Math.PI) / 180));
   const authoredRange = WEAPON_TABLE.pepperbox.range;
   report(
     "W3b. Pepperbox: pellet spread (not tunneling), and the reach it actually has",
-    effectiveRange < authoredRange * 0.75 ? "FINDING" : "OK",
-    `NOT tunneling: W3's flag was a false positive. Pepperbox fires 2 pellets per volley at\n` +
-      `+/-5 degrees, so nothing travels down the centre line.\n` +
-      `The finding is the reach: beyond ~${effectiveRange}u BOTH pellets clear a car's flank and the\n` +
-      `volley cannot hit a car dead ahead at all — against an authored range of ${authoredRange},\n` +
-      `which is also what manual.html advertises.\n` +
+    centrePelletEverMissed ? "FINDING" : "OK",
+    `NOT tunneling: W3's flag was a false positive. Pepperbox now fires ONE volley of THREE\n` +
+      `pellets at 0/+6/-6 degrees, so — unlike the old two-pellet fan this replaced — one pellet\n` +
+      `always travels the heading. A target dead ahead can lose the two flanking pellets to range\n` +
+      `(the old finding, and expected) but should never be missed outright inside the weapon's own\n` +
+      `${authoredRange}u range, which is also what manual.html advertises.\n` +
       rows.join("\n"),
   );
 }
@@ -88,7 +110,7 @@ function trueTunneling(): void {
   for (const id of Object.keys(WEAPON_TABLE) as WeaponId[]) {
     const def = WEAPON_TABLE[id];
     if (def.kind !== "projectile") continue;
-    if (def.volley.pelletsPerVolley > 1) continue; // covered by W3b
+    if (def.pellets.pelletsPerVolley > 1) continue; // covered by W3b
     const carrier = carrierOf(id);
     const bit = slotBitFor(carrier, id);
     let misses = 0;
@@ -97,7 +119,7 @@ function trueTunneling(): void {
       const distance = 100 + i; // sweeps > 2 full tick-steps of every weapon
       const w = new PlaytestWorld([
         { id: "s", carId: carrier, x: 100, y: 360, angle: 0 },
-        { id: "t", carId: "hexagon", x: 100 + distance, y: 360, angle: 0 },
+        { id: "t", carId: "bastion", x: 100 + distance, y: 360, angle: 0 },
       ]);
       const hp0 = w.get("t").hp;
       for (let k = 0; k < 90; k++) {
@@ -118,13 +140,13 @@ function trueTunneling(): void {
 /* --------------------------------------- W14. crossing target: the un-smeared half of the test */
 /**
  * `hits.ts` smears the PROJECTILE across its tick but tests against the target's single post-drive
- * pose. A car crossing the line of fire at top speed moves 18 u/tick; can it end up on the far side
- * of a shot that should have hit it?
+ * pose. A car crossing the line of fire at top speed moves 19.2 u/tick (Mirage's top speed rose
+ * 540 -> 576 in T8's restat); can it end up on the far side of a shot that should have hit it?
  */
 function crossingTarget(): void {
   const rows: string[] = [];
   let ghosted = false;
-  for (const id of ["fireball", "splinter", "skewer", "thumper"] as WeaponId[]) {
+  for (const id of ["fireball", "needler", "skewer", "thumper"] as WeaponId[]) {
     const carrier = carrierOf(id);
     const bit = slotBitFor(carrier, id);
     let missesWhileCrossing = 0;
@@ -134,7 +156,7 @@ function crossingTarget(): void {
     for (let offset = -40; offset <= 40; offset += 2) {
       const w = new PlaytestWorld([
         { id: "s", carId: carrier, x: 200, y: 360, angle: 0 },
-        { id: "t", carId: "rectangle", x: 600, y: 360 + offset, angle: -Math.PI / 2, speed: forwardMaxSpeedOf("rectangle") },
+        { id: "t", carId: "mirage", x: 600, y: 360 + offset, angle: -Math.PI / 2, speed: forwardMaxSpeedOf("mirage") },
       ]);
       const hp0 = w.get("t").hp;
       let closestApproach = Infinity;
@@ -154,7 +176,7 @@ function crossingTarget(): void {
     }
     if (missesWhileCrossing > 0) ghosted = true;
     rows.push(
-      `${id.padEnd(10)} target crossing at ${forwardMaxSpeedOf("rectangle")} u/s: ` +
+      `${id.padEnd(10)} target crossing at ${forwardMaxSpeedOf("mirage")} u/s: ` +
         `${missesWhileCrossing}/${total} lateral phases where a shot passed within 20u and dealt nothing ` +
         `${missesWhileCrossing > 0 ? "<- GHOSTED" : ""}`,
     );
@@ -181,7 +203,7 @@ function angledPointBlank(): void {
       // Shooter nosed right up against the victim from every direction, at contact distance.
       const w = new PlaytestWorld([
         { id: "s", carId: carrier, x: 640 - Math.cos(a) * 46, y: 360 - Math.sin(a) * 46, angle: a },
-        { id: "t", carId: "hexagon", x: 640, y: 360, angle: 0 },
+        { id: "t", carId: "bastion", x: 640, y: 360, angle: 0 },
       ]);
       const hp0 = w.get("t").hp;
       for (let k = 0; k < 90; k++) {
@@ -205,11 +227,11 @@ function angledPointBlank(): void {
 /** A car spun by a ram accumulates `angle` without bound. Normalisation bugs live here. */
 function spinningShooter(): void {
   const w = new PlaytestWorld([
-    { id: "s", carId: "oval", x: 300, y: 360, angle: 0 },
-    { id: "t", carId: "hexagon", x: 700, y: 360, angle: 0 },
+    { id: "s", carId: "bullseye", x: 300, y: 360, angle: 0 },
+    { id: "t", carId: "bastion", x: 700, y: 360, angle: 0 },
   ]);
   w.get("s").angVel = 6; // the ram spin ceiling
-  const bit = slotBitFor("oval", "splinter");
+  const bit = slotBitFor("bullseye", "needler");
   let anyNaN = false;
   let maxAngle = 0;
   for (let i = 0; i < 400; i++) {
@@ -235,11 +257,11 @@ function spinningShooter(): void {
 /* --------------------------------------------- W17. does a wreck still block shots and cars? */
 function wreckAsCover(): void {
   const w = new PlaytestWorld([
-    { id: "s", carId: "oval", x: 200, y: 360, angle: 0, team: 0 },
-    { id: "wreck", carId: "hexagon", x: 450, y: 360, angle: 0, team: 0, hp: 1 },
-    { id: "t", carId: "hexagon", x: 700, y: 360, angle: 0, team: 0 },
+    { id: "s", carId: "bullseye", x: 200, y: 360, angle: 0, team: 0 },
+    { id: "wreck", carId: "bastion", x: 450, y: 360, angle: 0, team: 0, hp: 1 },
+    { id: "t", carId: "bastion", x: 700, y: 360, angle: 0, team: 0 },
   ]);
-  const bit = slotBitFor("oval", "splinter");
+  const bit = slotBitFor("bullseye", "needler");
   // Kill the middle car first.
   for (let i = 0; i < 60; i++) {
     w.input("s", { fireSlots: bit });
@@ -255,8 +277,8 @@ function wreckAsCover(): void {
   const dealt = hp0 - w.get("t").hp;
   // And is the wreck still solid to driving?
   const mover = new PlaytestWorld([
-    { id: "m", carId: "rectangle", x: 300, y: 360, angle: 0 },
-    { id: "dead", carId: "hexagon", x: 500, y: 360, angle: 0, hp: 0 },
+    { id: "m", carId: "mirage", x: 300, y: 360, angle: 0 },
+    { id: "dead", carId: "bastion", x: 500, y: 360, angle: 0, hp: 0 },
   ]);
   mover.get("dead").alive = false;
   for (let i = 0; i < 60; i++) {

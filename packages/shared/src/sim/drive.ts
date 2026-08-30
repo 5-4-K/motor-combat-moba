@@ -1,5 +1,4 @@
-import type { CarId } from "../config/types.js";
-import { forwardMaxSpeedOf, reverseMaxSpeedOf } from "../config/car-config.js";
+import type { ChassisDrive } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import { RAM_CONFIG, RAM_DECAY } from "../config/ram-config.js";
 import type { InputMessage } from "../net/input.js";
@@ -20,15 +19,18 @@ import type { SimBody } from "./step.js";
  * throttle has stopped being a car. `STATUS_LIMITS.brakeDecel.min` keeps scaled braking above drag
  * for the same reason: the brake pedal must always beat lifting off, or the control reads as broken
  * rather than degraded.
+ *
+ * `chassis` is this car's resolved drive numbers (`driveOf`). The sim is handed them rather than
+ * looking them up, so the integration below has no knowledge of the roster at all.
  */
 export function stepDrive(
   body: SimBody,
   input: InputMessage,
   dt: number,
-  carId: CarId,
+  chassis: ChassisDrive,
   mods: Readonly<Modifiers>,
 ): SimBody {
-  const baseTurnRate = isMoving(body.speed) ? DRIVE_CONFIG.turnRate : DRIVE_CONFIG.turnRateAtStop;
+  const baseTurnRate = isMoving(body.speed) ? chassis.turnRate : chassis.turnRateAtStop;
   const turnRate = baseTurnRate * mods.turnRate;
   // `steeringLocked` kills the driver's input, never the injected spin below: a stunned car that is
   // rammed still tumbles, which is the whole reason the two terms are added rather than multiplied.
@@ -46,7 +48,7 @@ export function stepDrive(
   // resolve, and speed bleeds off through drag rather than snapping to 0 — an instant stop at speed
   // reads as hitting an invisible wall, not as being stunned.
   const throttle = mods.immobilised ? 0 : input.throttle;
-  const { speed, reverseHold } = nextSpeed(body.speed, body.reverseHold, throttle, dt, carId, mods);
+  const { speed, reverseHold } = nextSpeed(body.speed, body.reverseHold, throttle, dt, chassis, mods);
 
   // cos/sin are not guaranteed bit-identical across JS engines (server V8 vs. client browser
   // engine), so replayed positions can drift by an ULP or two. That's fine here: Task 4
@@ -112,14 +114,14 @@ function nextSpeed(
   reverseHold: number,
   throttle: InputMessage["throttle"],
   dt: number,
-  carId: CarId,
+  chassis: ChassisDrive,
   mods: Readonly<Modifiers>,
 ): { speed: number; reverseHold: number } {
   if (throttle === 1) {
-    return { speed: accelerateForward(speed, dt, carId, mods), reverseHold: 0 };
+    return { speed: accelerateForward(speed, dt, chassis, mods), reverseHold: 0 };
   }
   if (throttle === -1) {
-    return brakeOrReverse(speed, reverseHold, dt, carId, mods);
+    return brakeOrReverse(speed, reverseHold, dt, chassis, mods);
   }
   return { speed: coast(speed, dt), reverseHold: 0 };
 }
@@ -138,15 +140,15 @@ function nextSpeed(
 function accelerateForward(
   speed: number,
   dt: number,
-  carId: CarId,
+  chassis: ChassisDrive,
   mods: Readonly<Modifiers>,
 ): number {
   if (speed < -DRIVE_CONFIG.stopEpsilon) {
     return Math.min(0, speed + DRIVE_CONFIG.brakeDecel * mods.brakeDecel * dt);
   }
   return Math.min(
-    forwardMaxSpeedOf(carId) * mods.topSpeed,
-    speed + DRIVE_CONFIG.accel * mods.accel * dt,
+    chassis.maxSpeed * mods.topSpeed,
+    speed + chassis.accel * mods.accel * dt,
   );
 }
 
@@ -160,7 +162,7 @@ function brakeOrReverse(
   speed: number,
   reverseHold: number,
   dt: number,
-  carId: CarId,
+  chassis: ChassisDrive,
   mods: Readonly<Modifiers>,
 ): { speed: number; reverseHold: number } {
   if (speed > DRIVE_CONFIG.stopEpsilon) {
@@ -172,7 +174,7 @@ function brakeOrReverse(
   }
   if (speed < -DRIVE_CONFIG.stopEpsilon) {
     // Already reversing — keep accelerating; do not re-arm the hold delay.
-    return { speed: reverseFurther(speed, dt, carId, mods), reverseHold: DRIVE_CONFIG.reverseHoldTicks };
+    return { speed: reverseFurther(speed, dt, chassis, mods), reverseHold: DRIVE_CONFIG.reverseHoldTicks };
   }
   // At rest: accumulate toward the reverse threshold. Clamped so the uint16-networked field
   // stays idempotent at the threshold instead of growing unbounded (and eventually truncating
@@ -181,7 +183,7 @@ function brakeOrReverse(
   if (heldTicks < DRIVE_CONFIG.reverseHoldTicks) {
     return { speed, reverseHold: heldTicks };
   }
-  return { speed: reverseFurther(speed, dt, carId, mods), reverseHold: heldTicks };
+  return { speed: reverseFurther(speed, dt, chassis, mods), reverseHold: heldTicks };
 }
 
 /**
@@ -193,12 +195,12 @@ function brakeOrReverse(
 function reverseFurther(
   speed: number,
   dt: number,
-  carId: CarId,
+  chassis: ChassisDrive,
   mods: Readonly<Modifiers>,
 ): number {
   return Math.max(
-    -reverseMaxSpeedOf(carId) * mods.topSpeed,
-    speed - DRIVE_CONFIG.reverseAccel * mods.accel * dt,
+    -chassis.reverseMaxSpeed * mods.topSpeed,
+    speed - chassis.reverseAccel * mods.accel * dt,
   );
 }
 

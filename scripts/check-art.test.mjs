@@ -158,15 +158,15 @@ describe("checkCarSprite", () => {
 describe("checkManifestShape", () => {
   it("passes a manifest whose rows and files agree", () => {
     const out = checkManifestShape({
-      rows: { "car.oval": { file: "cars/oval.png" } },
-      files: ["cars/oval.png"],
+      rows: { "car.bullseye": { file: "cars/bullseye.png" } },
+      files: ["cars/bullseye.png"],
     });
     assert.deepEqual(out, []);
   });
 
   it("blocks a row pointing at a file that is gone", () => {
     const out = checkManifestShape({
-      rows: { "car.oval": { file: "cars/oval.png" } },
+      rows: { "car.bullseye": { file: "cars/bullseye.png" } },
       files: [],
     });
     assert.equal(levelOf(out, "dangling-row"), "blocker");
@@ -197,7 +197,7 @@ describe("checkManifestShape", () => {
 
 describe("isKnownNamespace", () => {
   it("accepts the namespaces the client resolves", () => {
-    assert.ok(isKnownNamespace("car.oval"));
+    assert.ok(isKnownNamespace("car.bullseye"));
     assert.ok(isKnownNamespace("weapon-icon.shockwave"));
   });
 

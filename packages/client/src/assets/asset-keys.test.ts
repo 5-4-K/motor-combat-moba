@@ -3,31 +3,31 @@ import { carSpriteKey, shouldLoadAssetKey, weaponIconKey } from "./asset-keys.js
 
 describe("carSpriteKey", () => {
   it("namespaces a known car id", () => {
-    expect(carSpriteKey("hexagon")).toBe("car.hexagon");
-    expect(carSpriteKey("oval")).toBe("car.oval");
+    expect(carSpriteKey("bastion")).toBe("car.bastion");
+    expect(carSpriteKey("bullseye")).toBe("car.bullseye");
   });
 
   it("falls back to the default chassis for anything unrecognised", () => {
-    expect(carSpriteKey("bogus")).toBe("car.rectangle");
-    expect(carSpriteKey("")).toBe("car.rectangle");
+    expect(carSpriteKey("bogus")).toBe("car.mirage");
+    expect(carSpriteKey("")).toBe("car.mirage");
   });
 
   it("does not treat inherited object properties as car ids", () => {
-    expect(carSpriteKey("constructor")).toBe("car.rectangle");
-    expect(carSpriteKey("toString")).toBe("car.rectangle");
+    expect(carSpriteKey("constructor")).toBe("car.mirage");
+    expect(carSpriteKey("toString")).toBe("car.mirage");
   });
 });
 
 describe("weaponIconKey", () => {
   it("namespaces a weapon id", () => {
     expect(weaponIconKey("fireball")).toBe("weapon-icon.fireball");
-    expect(weaponIconKey("splinter")).toBe("weapon-icon.splinter");
+    expect(weaponIconKey("needler")).toBe("weapon-icon.needler");
   });
 });
 
 describe("shouldLoadAssetKey", () => {
   it("loads everything outside the arena namespace", () => {
-    expect(shouldLoadAssetKey("car.rectangle", "arena-01")).toBe(true);
+    expect(shouldLoadAssetKey("car.mirage", "arena-01")).toBe(true);
     expect(shouldLoadAssetKey("powerup.boost", "arena-01")).toBe(true);
   });
 

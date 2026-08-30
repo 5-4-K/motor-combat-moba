@@ -118,12 +118,12 @@ describe("pruneArenaAssets", () => {
       fs.writeFileSync(path.join(art, "arenas", arena, "floor.png"), "x".repeat(100));
     }
     fs.mkdirSync(path.join(art, "cars"), { recursive: true });
-    fs.writeFileSync(path.join(art, "cars", "rectangle.png"), "x");
+    fs.writeFileSync(path.join(art, "cars", "mirage.png"), "x");
     fs.writeFileSync(
       path.join(art, "manifest.json"),
       JSON.stringify({
         sprites: {
-          "car.rectangle": { file: "cars/rectangle.png" },
+          "car.mirage": { file: "cars/mirage.png" },
           "arena.common.floor": { file: "arenas/common/floor.png" },
           "arena.arena-01.floor": { file: "arenas/arena-01/floor.png" },
           "arena.arena-02.floor": { file: "arenas/arena-02/floor.png" },
@@ -153,7 +153,7 @@ describe("pruneArenaAssets", () => {
     assert.deepEqual(Object.keys(manifest.sprites).sort(), [
       "arena.arena-01.floor",
       "arena.common.floor",
-      "car.rectangle",
+      "car.mirage",
     ]);
   });
 

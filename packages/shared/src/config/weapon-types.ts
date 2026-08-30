@@ -5,7 +5,7 @@ export type WeaponId =
   | "fireball"
   | "pepperbox"
   | "afterburner"
-  | "splinter"
+  | "needler"
   | "skewer"
   | "lance"
   | "thumper"
@@ -27,22 +27,49 @@ export interface StockDef {
   refireDelayMs: number;
 }
 
-/** One press: `volleys` groups of `pelletsPerVolley`, fanned across `spreadAngleDeg`. */
+/**
+ * One press fires `volleys` sequential groups, `volleyIntervalMs` apart. 1 = a single shot, a single
+ * shotgun blast, or a single beam.
+ *
+ * On `WeaponBase` rather than on projectiles alone, so a beam can be a WAVE SEQUENCE: `shockwave`
+ * pulses three rings out of the car half a second apart. Each group is a fresh instance emitted from
+ * the car's pose at ITS OWN tick, which is what makes a sequence steerable.
+ */
 export interface VolleyDef {
-  /** Sequential groups. 1 = a single shot or a single shotgun blast. */
   volleys: number;
-  /** Gap between sequential groups. Ignored when `volleys` is 1. */
   volleyIntervalMs: number;
-  /** Simultaneous instances per group. 1 = not a shotgun. */
+}
+
+/**
+ * Projectiles only: how many instances one group emits, and how wide they fan.
+ *
+ * Kept apart from `VolleyDef` rather than merged into one four-field block on the base, for the
+ * reason `BeamStyle` is kept apart from `GlowStyle`: a merged type makes every author answer for the
+ * half that cannot apply to their row, and a beam has no pellets to fan.
+ */
+export interface PelletDef {
   pelletsPerVolley: number;
-  /** Total fan width, split evenly and symmetrically about the car's heading. */
   spreadAngleDeg: number;
 }
 
 /** Projectiles are fixed-size, so they configure their full extent. */
 export type ProjectileHitbox =
   | { shape: "circle"; radius: number }
-  | { shape: "ellipse"; radiusAlong: number; radiusAcross: number };
+  | { shape: "ellipse"; radiusAlong: number; radiusAcross: number }
+  /**
+   * A slug: rounded at the nose, cut flat across the tail. `radiusAlong` is half its total length
+   * and `radiusAcross` half its width, matching `ellipse`, so the two are read the same way.
+   *
+   * The nose is a semicircle of `radiusAcross`, which means `radiusAlong` must be at least
+   * `radiusAcross` — below that the cap would have to reach behind the tail and the polygon stops
+   * being convex, which SAT silently mis-answers rather than rejecting. `weapon-config.test.ts`
+   * guards the ratio.
+   *
+   * It exists because a shot is drawn AS its hitbox (D19), so a weapon whose icon is a flat-backed
+   * capsule cannot be given that silhouette by the renderer alone — the shape has to be real, or
+   * what you see stops being what can hurt you.
+   */
+  | { shape: "capsule"; radiusAlong: number; radiusAcross: number };
 
 /**
  * Beams configure their CROSS-SECTION only. The axial extent is the current expansion, growing
@@ -102,6 +129,7 @@ interface WeaponBase {
    */
   usesAimAssist: boolean;
   stock?: StockDef;
+  volley: VolleyDef;
   /**
    * Statuses this weapon applies, and to whom, and for how long.
    *
@@ -144,6 +172,17 @@ export interface StatusApplication {
   target: StatusTarget;
   /** Converted to whole ticks once, in `WEAPON_TICKS`. Capped by `STATUS_CONFIG.maxDurationMs`. */
   durationMs: number;
+  /**
+   * Which volley of a multi-wave press this application rides.
+   *
+   * - `"all"` (the default when absent) — every wave applies it. Correct for anything a lingering or
+   *   repeating source should keep topping up.
+   * - `"final"` — only the last wave. This is what lets a wave sequence build to something: the
+   *   early pulses are pressure and the last one is the payload, without needing two weapon rows.
+   *
+   * Absent means `"all"`, so adding this field changed no shipped row.
+   */
+  onWave?: "all" | "final";
 }
 
 export interface ProjectileWeaponDef extends WeaponBase {
@@ -151,7 +190,7 @@ export interface ProjectileWeaponDef extends WeaponBase {
   hitbox: ProjectileHitbox;
   /** Additional opponents passed through after damaging one. 0 = dies on the first car it damages. */
   pierce: number;
-  volley: VolleyDef;
+  pellets: PelletDef;
 }
 
 export interface BeamWeaponDef extends WeaponBase {

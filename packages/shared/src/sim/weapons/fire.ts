@@ -157,7 +157,9 @@ export function releaseShots(
   const cooldown = scaleTicks(ticks.cooldown, cooldownMult);
   const refireDelay = scaleTicks(ticks.refireDelay, cooldownMult);
   const recovery = scaleTicks(ticks.recovery, cooldownMult);
-  const orders: ShotOrder[] = [{ weaponId: pending.weaponId, slot: pending.slot }];
+  const orders: ShotOrder[] = [
+    { weaponId: pending.weaponId, slot: pending.slot, finalVolley: pending.shotsLeft === 1 },
+  ];
   const shotsLeft = pending.shotsLeft - 1;
 
   if (shotsLeft > 0) {
@@ -221,7 +223,7 @@ export function beginFire(state: FireState, mask: number, tick: number): FireSta
     if (sameSlot && tick < slot.refireLockUntilTick) continue;
     if (!sameSlot && tick < state.switchLockUntilTick) continue;
 
-    const volleys = def.kind === "projectile" ? def.volley.volleys : 1;
+    const volleys = def.volley.volleys;
     return {
       ...state,
       slots: state.slots.map((s, i) => (i === index ? { ...s, stocks: s.stocks - 1 } : s)),

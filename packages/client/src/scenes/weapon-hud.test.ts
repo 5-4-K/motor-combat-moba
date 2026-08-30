@@ -138,7 +138,7 @@ describe("resolveWeaponIcon", () => {
     const resolved = resolveWeaponIcon(
       manifestOf({ "weapon-icon.fireball": iconEntry() }),
       loaded({ "weapon-icon.fireball": { width: 128, height: 128 } }),
-      "splinter",
+      "needler",
       64,
     );
     expect(resolved).toBeUndefined();

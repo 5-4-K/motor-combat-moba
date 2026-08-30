@@ -17,6 +17,14 @@ export interface WeaponInstance {
   id: string;
   ownerSessionId: string;
   /**
+   * Whether this instance came from the last volley of its press. Frozen at spawn and SIM-ONLY —
+   * never networked — for exactly the reason `damage` and `ownerTeam` are: it must be answerable at
+   * impact, long after the press, without reading back mutable state.
+   *
+   * Always true for a single-volley weapon, which is every row but `shockwave`.
+   */
+  finalWave: boolean;
+  /**
    * The owner's team, frozen at the moment this instance is spawned — never looked up later.
    * `resolveInstanceHits` (hits.ts) tests against a snapshot of living fighters only, so an owner
    * wrecked while their own shot is still in flight would otherwise vanish from that snapshot and a
@@ -56,6 +64,12 @@ export interface WeaponInstance {
 export interface ShotOrder {
   weaponId: WeaponId;
   slot: number;
+  /**
+   * True on the LAST volley of the press. Carried rather than recomputed downstream: only
+   * `releaseShots` knows how many volleys are left, and a `StatusApplication` marked
+   * `onWave: "final"` needs the answer at hit time, arbitrarily far from the press.
+   */
+  finalVolley: boolean;
 }
 
 export interface OwnerPose {
@@ -86,10 +100,7 @@ export const MUZZLE_STEP_UNITS = 4;
  * symmetrically across `spreadRad`, so a 3-pellet 60-degree fan is -30 / 0 / +30 and a single pellet
  * sits exactly on the heading whatever the configured spread.
  *
- * Its own function, and exported, because no shipped weapon has `pelletsPerVolley > 1` (D22 ships
- * zero balance change): `spawnInstances` can only ever be observed emitting one pellet, so inline
- * this formula would be untestable and would first run in anger on the day someone authors a
- * shotgun.
+ * Its own function, and exported, so the fan math is directly testable rather than inlined.
  */
 export function fanOffset(index: number, pellets: number, spreadRad: number): number {
   if (pellets <= 1) return 0;
@@ -130,8 +141,8 @@ export function spawnInstances(
 ): { instances: WeaponInstance[]; seq: number } {
   const def = weaponDefOf(order.weaponId);
   const damage = scaleDamage(weaponDamageOf(carIdOf(owner), order.weaponId), damageMult);
-  const pellets = def.kind === "projectile" ? def.volley.pelletsPerVolley : 1;
-  const spread = def.kind === "projectile" ? (def.volley.spreadAngleDeg * Math.PI) / 180 : 0;
+  const pellets = def.kind === "projectile" ? def.pellets.pelletsPerVolley : 1;
+  const spread = def.kind === "projectile" ? (def.pellets.spreadAngleDeg * Math.PI) / 180 : 0;
   // A centre-origin beam is BORN at the car centre as well as re-anchored there every tick, so an
   // aura's first frame is already concentric rather than jumping back on its second.
   const nose = def.kind === "beam" && def.origin === "center" ? 0 : muzzleOffset();
@@ -149,6 +160,7 @@ export function spawnInstances(
       id: `${owner.sessionId}-${next}`,
       ownerSessionId: owner.sessionId,
       ownerTeam: owner.team,
+      finalWave: order.finalVolley,
       damage,
       weaponId: order.weaponId,
       kind: def.kind,

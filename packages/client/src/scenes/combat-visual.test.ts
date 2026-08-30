@@ -26,25 +26,25 @@ import {
 
 describe("hpFraction", () => {
   it("is 1 at full hp", () => {
-    expect(hpFraction(hpOf("rectangle"), "rectangle")).toBe(1);
+    expect(hpFraction(hpOf("mirage"), "mirage")).toBe(1);
   });
 
   it("is 0 for a wreck", () => {
-    expect(hpFraction(0, "rectangle")).toBe(0);
+    expect(hpFraction(0, "mirage")).toBe(0);
   });
 
   it("measures each chassis against its own maximum", () => {
-    expect(hpFraction(hpOf("hexagon") / 2, "hexagon")).toBe(0.5);
-    expect(hpFraction(hpOf("oval") / 2, "oval")).toBe(0.5);
+    expect(hpFraction(hpOf("bastion") / 2, "bastion")).toBe(0.5);
+    expect(hpFraction(hpOf("bullseye") / 2, "bullseye")).toBe(0.5);
   });
 
   it("clamps rather than overflowing the bar", () => {
-    expect(hpFraction(hpOf("rectangle") * 2, "rectangle")).toBe(1);
-    expect(hpFraction(-5, "rectangle")).toBe(0);
+    expect(hpFraction(hpOf("mirage") * 2, "mirage")).toBe(1);
+    expect(hpFraction(-5, "mirage")).toBe(0);
   });
 
   it("falls back to the default chassis for an unrecognised carId", () => {
-    expect(hpFraction(hpOf("rectangle"), "not-a-car")).toBe(1);
+    expect(hpFraction(hpOf("mirage"), "not-a-car")).toBe(1);
     expect(Number.isNaN(hpFraction(10, ""))).toBe(false);
   });
 });
@@ -254,9 +254,9 @@ describe("instanceGlowBands", () => {
   const RADIUS = WEAPON_TABLE.fireball.hitbox.radius;
 
   it("returns nothing for a weapon with no authored look, so it keeps its flat disc", () => {
-    // `splinter` is the whole point of this assertion: styles are per weapon, not a shared formula
+    // `needler` is the whole point of this assertion: styles are per weapon, not a shared formula
     // over `color`, so a second weapon must NOT silently inherit the fireball's bands.
-    expect(instanceGlowBands("splinter", 3, 0, 0)).toEqual([]);
+    expect(instanceGlowBands("needler", 3, 0, 0)).toEqual([]);
   });
 
   it("returns nothing for an unrecognised weapon id rather than throwing", () => {

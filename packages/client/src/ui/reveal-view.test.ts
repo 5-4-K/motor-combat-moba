@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { GameMode, PlayerStatus, TICK_RATE_HZ } from "@motor-combat-moba/shared";
 import { REVEAL_SLOTS, revealView, secondsLeft } from "./reveal-view.js";
 
-const p = (sessionId: string, team: number, carId = "rectangle") => ({
+const p = (sessionId: string, team: number, carId = "mirage") => ({
   sessionId,
   name: sessionId,
   colorId: 0,
@@ -101,8 +101,8 @@ describe("revealView — rows", () => {
   });
 
   it("points each row at the car that player locked in", () => {
-    const view = revealView(state([p("a1", 0, "hexagon")]), "a1");
-    expect(view.panelA.rows[0]?.carImage).toBe('url("art/cars/hexagon.png")');
+    const view = revealView(state([p("a1", 0, "bastion")]), "a1");
+    expect(view.panelA.rows[0]?.carImage).toBe('url("art/cars/bastion.png")');
   });
 
   it("omits players who are not in the match", () => {

@@ -100,12 +100,18 @@ export {
   DEFAULT_CAR_ID,
   RAM_REFERENCE,
   RAM_REFERENCE_MASS,
+  accelOf,
+  driveOf,
   forwardMaxSpeedOf,
   hpOf,
   isCarId,
   massOf,
+  reverseAccelOf,
   reverseMaxSpeedOf,
+  turnRateAtStopOf,
+  turnRateOf,
 } from "./config/car-config.js";
+export type { ChassisDrive } from "./config/car-config.js";
 export { COLOR_TABLE } from "./config/color-config.js";
 export { WEAPON_TABLE, isWeaponId, weaponDefOf } from "./config/weapon-config.js";
 export type {
@@ -113,6 +119,7 @@ export type {
   BeamOrigin,
   BeamWeaponDef,
   Hitbox,
+  PelletDef,
   ProjectileHitbox,
   ProjectileWeaponDef,
   StatusApplication,
@@ -125,7 +132,7 @@ export type {
 export { WEAPON_TICKS, msToTicks, scaleTicks, weaponTicksOf } from "./config/weapon-ticks.js";
 export type { WeaponTicks } from "./config/weapon-ticks.js";
 export { WEAPON_SLOT_CONFIG, slotsFrom, slotsOf } from "./config/weapon-slots.js";
-export { COMBAT_CONFIG } from "./config/combat-config.js";
+export { COMBAT_CONFIG, DEATH_FADE_MS } from "./config/combat-config.js";
 
 // --- statuses (buffs and debuffs) ----------------------------------------------------------
 export {

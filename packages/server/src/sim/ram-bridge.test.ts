@@ -17,7 +17,7 @@ const NO_EFFECTS = new Map<string, Modifiers>();
 function addPlayer(state: ArenaState, id: string, over: Partial<PlayerState> = {}): PlayerState {
   const p = new PlayerState();
   p.sessionId = id;
-  p.carId = "rectangle";
+  p.carId = "mirage";
   p.status = PlayerStatus.IN_MATCH;
   p.alive = true;
   Object.assign(p, over);
@@ -118,7 +118,7 @@ describe("ramTick", () => {
 
   it("does not let a later, weaker ram overwrite a standing stronger knock (no rescue)", () => {
     const state = arena();
-    // A full-severity rear ram: a top-speed rectangle into the back of "b". Lands well below the
+    // A full-severity rear ram: a top-speed mirage into the back of "b". Lands well below the
     // authority floor's midpoint.
     addPlayer(state, "strong", { x: 0, y: 400, angle: 0, speed: 540 });
     const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
@@ -139,15 +139,18 @@ describe("ramTick", () => {
 
   it("lets a later, STRONGER ram overwrite a standing knock", () => {
     const state = arena();
-    addPlayer(state, "medium", { x: 0, y: 400, angle: 0, speed: 540 });
+    // A sub-top-speed mirage: T4 raised both mirage's mass and RAM_REFERENCE, and at mirage's own
+    // top speed (576) the ram now saturates severity same as bastion's does below, leaving no gap
+    // for a "stronger" ram to widen. 300 u/s keeps this a genuine partial-severity ram.
+    addPlayer(state, "medium", { x: 0, y: 400, angle: 0, speed: 300 });
     const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
     const memory = newRamMemory();
     ramTick(state, new Set(["medium", "b"]), memory, "ffa", NO_EFFECTS, approachSpeeds(state));
     const afterMediumRam = victim.authority;
 
-    // A heavier attacker (hexagon) rear-ends the same victim at its own top speed on a later tick —
+    // A heavier attacker (bastion) rear-ends the same victim at its own top speed on a later tick —
     // strictly harder than the first ram, so its lower authority must win.
-    addPlayer(state, "hexy", { x: 0, y: 400, angle: 0, speed: 315, carId: "hexagon" });
+    addPlayer(state, "hexy", { x: 0, y: 400, angle: 0, speed: 315, carId: "bastion" });
     ramTick(state, new Set(["medium", "b", "hexy"]), memory, "ffa", NO_EFFECTS, approachSpeeds(state));
 
     expect(victim.authority).toBeLessThan(afterMediumRam);

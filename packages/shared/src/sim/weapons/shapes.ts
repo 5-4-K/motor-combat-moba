@@ -15,6 +15,8 @@ export type PolygonShape = Extract<WorldShape, { kind: "polygon" }>;
 
 /** Segments in a generated ellipse. Even, so the shape is symmetric about both axes. */
 export const ELLIPSE_SEGMENTS = 12;
+/** Segments in a capsule's nose cap. Half a ring, so its facets match an ellipse of the same size. */
+export const CAPSULE_NOSE_SEGMENTS = 6;
 /** Segments used when a circle has to become a polygon (only inside `smear`). */
 export const CIRCLE_SEGMENTS = 12;
 
@@ -25,12 +27,50 @@ export function projectileShapeAt(
   angle: number,
 ): WorldShape {
   if (hitbox.shape === "circle") return { kind: "circle", x, y, radius: hitbox.radius };
+  if (hitbox.shape === "capsule") return capsuleShapeAt(hitbox, x, y, angle);
   return {
     kind: "polygon",
     points: ring(ELLIPSE_SEGMENTS).map((t) =>
       rotateInto(x, y, angle, Math.cos(t) * hitbox.radiusAlong, Math.sin(t) * hitbox.radiusAcross),
     ),
   };
+}
+
+/**
+ * A flat-tailed slug, nose forward along `angle`.
+ *
+ * Built as a rectangle from the tail to the start of the cap, closed by a semicircular nose of
+ * `radiusAcross` centred at `radiusAlong - radiusAcross`. Convex by construction for any
+ * `radiusAlong >= radiusAcross`, which is what SAT needs; at exactly equal it degenerates to a
+ * circle-with-a-flat-back, which is still convex and still correct.
+ *
+ * The winding matches the ellipse branch above — tail, along one flank, around the nose, back along
+ * the other — so callers that hull two of these together (`smear`) see the same vertex ordering
+ * they see from every other projectile.
+ */
+function capsuleShapeAt(
+  hitbox: Extract<ProjectileHitbox, { shape: "capsule" }>,
+  x: number,
+  y: number,
+  angle: number,
+): PolygonShape {
+  const { radiusAlong, radiusAcross } = hitbox;
+  const noseCentre = radiusAlong - radiusAcross;
+  const points: Vec2[] = [rotateInto(x, y, angle, -radiusAlong, -radiusAcross)];
+  for (let i = 0; i <= CAPSULE_NOSE_SEGMENTS; i += 1) {
+    const t = -Math.PI / 2 + (i / CAPSULE_NOSE_SEGMENTS) * Math.PI;
+    points.push(
+      rotateInto(
+        x,
+        y,
+        angle,
+        noseCentre + Math.cos(t) * radiusAcross,
+        Math.sin(t) * radiusAcross,
+      ),
+    );
+  }
+  points.push(rotateInto(x, y, angle, -radiusAlong, radiusAcross));
+  return { kind: "polygon", points };
 }
 
 /**

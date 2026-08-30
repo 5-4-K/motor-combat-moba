@@ -6,7 +6,7 @@ import { PlayerStatus } from "../constants.js";
 import { carHullOf, carIdOf, isOnField, otherCarHulls, type ContextEntry, type ContextPlayer } from "./context.js";
 
 function player(over: Partial<ContextPlayer> = {}): ContextPlayer {
-  return { x: 0, y: 0, angle: 0, status: PlayerStatus.IN_MATCH, carId: "rectangle", ...over };
+  return { x: 0, y: 0, angle: 0, status: PlayerStatus.IN_MATCH, carId: "mirage", alive: true, ...over };
 }
 
 function entry(sessionId: string, over: Partial<ContextPlayer> = {}): ContextEntry {
@@ -14,17 +14,24 @@ function entry(sessionId: string, over: Partial<ContextPlayer> = {}): ContextEnt
 }
 
 describe("isOnField", () => {
-  it("is true only for IN_MATCH", () => {
-    expect(isOnField({ status: PlayerStatus.IN_MATCH })).toBe(true);
-    expect(isOnField({ status: PlayerStatus.READY })).toBe(false);
-    expect(isOnField({ status: PlayerStatus.POST_MATCH })).toBe(false);
+  it("is true only for a LIVING player in the match", () => {
+    expect(isOnField({ status: PlayerStatus.IN_MATCH, alive: true })).toBe(true);
+    expect(isOnField({ status: PlayerStatus.READY, alive: true })).toBe(false);
+    expect(isOnField({ status: PlayerStatus.POST_MATCH, alive: true })).toBe(false);
+  });
+
+  it("takes a dead car off the field immediately — there is no wreck", () => {
+    // Before 2026-08-30 a dead car stayed IN_MATCH and so stayed a collision hull: solid to
+    // driving, transparent to combat. It is now intangible from the tick it dies, and the client
+    // fades it out over DEATH_FADE_MS. This predicate is the whole mechanism.
+    expect(isOnField({ status: PlayerStatus.IN_MATCH, alive: false })).toBe(false);
   });
 });
 
 describe("carIdOf", () => {
   it("passes through a real car id", () => {
-    expect(carIdOf({ carId: "hexagon" })).toBe("hexagon");
-    expect(carIdOf({ carId: "oval" })).toBe("oval");
+    expect(carIdOf({ carId: "bastion" })).toBe("bastion");
+    expect(carIdOf({ carId: "bullseye" })).toBe("bullseye");
   });
 
   it("falls back to the default chassis for unset and unrecognised ids", () => {

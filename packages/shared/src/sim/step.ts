@@ -1,3 +1,4 @@
+import { driveOf } from "../config/car-config.js";
 import type { CarId } from "../config/types.js";
 import type { InputMessage } from "../net/input.js";
 import { resolveWorld, type Aabb, type Bounds, type Obb } from "./collide.js";
@@ -57,6 +58,6 @@ export interface StepContext {
  * neither half may be reordered or skipped on one side only. Pure — `body` and `ctx` are never mutated.
  */
 export function stepSim(body: SimBody, input: InputMessage, dt: number, ctx: StepContext): SimBody {
-  const driven = stepDrive(body, input, dt, ctx.carId, ctx.modifiers);
+  const driven = stepDrive(body, input, dt, driveOf(ctx.carId), ctx.modifiers);
   return resolveWorld(driven, ctx.others, ctx.obstacles, ctx.bounds);
 }

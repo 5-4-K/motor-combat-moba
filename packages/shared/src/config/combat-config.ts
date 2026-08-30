@@ -13,9 +13,19 @@ export const COMBAT_CONFIG = {
    *
    * Multiplicative, not additive, and that is load-bearing: a FLAT bonus would be collected once per
    * shot and so pay out in proportion to fire rate, quietly making `attack` a fire-rate stat — a
-   * three-stock weapon like `splinter` would bank it three times per volley. A percentage gives a
+   * three-stock weapon like `needler` would bank it three times per volley. A percentage gives a
    * fast weapon and a slow weapon the same proportional gain, so `attack` means the same thing
    * whatever is in the slot.
    */
   damagePerAttack: 0.01,
 } as const;
+
+/**
+ * How long a dead car takes to fade off the field, in milliseconds.
+ *
+ * Render-only: nothing in `stepSim` reads it, and the car is already intangible and frozen the
+ * instant it dies (`isOnField`). This only decides how long the corpse is still drawn. It lives in
+ * shared rather than in the client so the value is stated once, next to the rest of the combat
+ * numbers, rather than buried in a scene file.
+ */
+export const DEATH_FADE_MS = 1000;

@@ -47,7 +47,7 @@ import { arenaBorderRect, arenaColorsOf } from "./arena-visual.js";
 import { fitsViewport } from "./arena-camera.js";
 import { assetManifest, assetsReady } from "./BootScene.js";
 import { freshImpacts, newImpactTracker, type ImpactTracker } from "./impact-feedback.js";
-import { carFillOf, carShapeOf, hexagonPoints } from "./car-visual.js";
+import { carFillOf, carShapeOf, deathFadeAlpha, hexagonPoints } from "./car-visual.js";
 import {
   AURA_FILL_ALPHA,
   AURA_RING_WIDTH,
@@ -117,8 +117,11 @@ const LOCK_DEPTH = 55;
 const LOCK_COLOR = 0xf2e14c;
 const LOCK_WIDTH = 2;
 
-/** A wreck stays on the field as an obstacle-shaped memento; it just stops looking alive. */
-const WRECK_ALPHA = 0.3;
+/**
+ * There is no wreck any more. A dead car is intangible and frozen from the tick it dies (shared
+ * `isOnField` reads `alive`), and the client fades it to nothing over `DEATH_FADE_MS` and then stops
+ * drawing it — see `deathFadeAlpha`. Nothing here holds a fixed wreck alpha.
+ */
 
 const HUD_DEPTH = 1000;
 
@@ -314,6 +317,7 @@ interface ArenaPlayer {
   lastProcessedInputSeq: number;
   hp: number;
   alive: boolean;
+  diedAtTick: number;
   name: string;
 }
 
@@ -344,7 +348,7 @@ function bodyOf(player: ArenaPlayer): SimBody {
 
 /**
  * A car is redrawn from scratch only when its chassis, colour, or living state changes, not every
- * frame. `alive` is part of the key because a wreck is drawn differently, and without it a car that
+ * frame. `alive` is part of the key because a dead car is drawn differently, and without it a car that
  * died would keep its living silhouette until something else happened to change the key.
  */
 function visualKeyOf(player: ArenaPlayer): string {
@@ -854,7 +858,18 @@ export class ArenaScene extends Phaser.Scene {
           ? this.localRenderPose(serverPose)
           : this.remotePose(sessionId, serverPose);
 
+      // No wreck: a dead car fades out and is then gone. At alpha 0 the container is destroyed
+      // rather than left invisible, so nothing accumulates on the field over a long match.
+      const alpha = deathFadeAlpha(player.alive, player.diedAtTick, room.state.tick);
+      if (alpha <= 0) {
+        this.cars.get(sessionId)?.destroy();
+        this.cars.delete(sessionId);
+        this.visualKeys.delete(sessionId);
+        return;
+      }
+
       this.syncCar(sessionId, player, pose);
+      this.cars.get(sessionId)?.setAlpha(alpha);
       poses.set(sessionId, pose);
       teams.set(sessionId, player.team === 1 ? 1 : 0);
       if (hp && player.alive) this.drawHpBar(hp, player, pose);
@@ -1013,7 +1028,7 @@ export class ArenaScene extends Phaser.Scene {
     container.add(body);
 
     // The hitbox is the OBB the sim actually collides with, which is not the drawn silhouette for
-    // the oval or the hexagon. Only shown behind `?debug=1` so ordinary play sees the shape, not the box.
+    // bullseye or bastion. Only shown behind `?debug=1` so ordinary play sees the shape, not the box.
     if (this.debug) {
       const box = this.add.graphics();
       box.lineStyle(HITBOX_PX, HITBOX_STROKE, 1);
@@ -1022,7 +1037,8 @@ export class ArenaScene extends Phaser.Scene {
     }
     // A wreck keeps its silhouette and its collision box — it is still solid to everyone — and just
     // fades out, so the field still reads as "someone died here" rather than "someone left".
-    if (!alive) container.setAlpha(WRECK_ALPHA);
+    // Alpha is set per frame by the render loop (`deathFadeAlpha`), never baked in here: a car
+    // built while already dead must pick up the right point in its fade, not a fixed value.
     return container;
   }
 
@@ -1384,10 +1400,10 @@ export class ArenaScene extends Phaser.Scene {
    * stays right between two patches at 20 Hz) and `PlayerState.lastFiredSlot` (which slot owns the
    * recovery every OTHER slot is dimmed by).
    *
-   * Every one of these paths is now exercised by a carried weapon: `skewer` and `lance` (Oval's
-   * slots 2 and 3) carry `startUpMs > 0`, `pepperbox` (Rectangle's slot 2) carries
+   * Every one of these paths is now exercised by a carried weapon: `skewer` and `lance` (Bullseye's
+   * slots 2 and 3) carry `startUpMs > 0`, `pepperbox` (Mirage's slot 2) carries
    * `volley.volleys: 3`, and `recoveryMs > 0` is the common case — every weapon but `fireball`,
-   * `splinter` and `thumper` carries one. That also covers the mid-volley case: `beginFire` zeroes a
+   * `needler` and `thumper` carries one. That also covers the mid-volley case: `beginFire` zeroes a
    * slot's `stocks` at press time and does not set `rechargeEndsTick` until the volley's LAST shot,
    * and `slotVisualState` answers "car-locked"
    * for that whole window because a real `pending` reaches it — rather than falling through to

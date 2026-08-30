@@ -60,7 +60,7 @@ function shootAt(opts: {
   const angle = opts.angle ?? 0;
   const sx = opts.sx ?? 200;
   const sy = opts.sy ?? 360;
-  const targetCar = opts.targetCar ?? "hexagon";
+  const targetCar = opts.targetCar ?? "bastion";
   const w = new PlaytestWorld(
     [
       { id: "shooter", carId: shooterCar, x: sx, y: sy, angle, team: 0 },
@@ -149,7 +149,7 @@ function pointBlank(): void {
 }
 
 /* --------------------------------------------------- W3. projectile tunneling through a car */
-/** Skewer moves 46.7 u/tick against a 32u-wide hull. The smear is what must stop it straddling. */
+/** Skewer moves 33.3 u/tick (speed dropped 1400 -> 1000 with T17's range cut) against a 32u-wide hull. The smear is what must stop it straddling. */
 function projectileTunneling(): void {
   const rows: string[] = [];
   let tunneled = 0;
@@ -208,20 +208,31 @@ function friendlyFire(): void {
 
 /* ------------------------------------------------------------------ W5. damage after death */
 /**
- * A wreck is scenery. Nothing may damage it further, and — the subtler half — a bleed applied
- * before death must not keep ticking a corpse, nor may a heal lift one off 0.
+ * Nothing may damage a dead car further, and — the subtler half — a bleed applied before death must
+ * not keep ticking it, nor may a heal lift it off 0.
+ *
+ * Since 2026-08-30 there is no wreck to be scenery: `isOnField` reads `alive`, so a dead car leaves
+ * the field on the tick it dies — intangible, frozen, no longer a ram participant — and the client
+ * fades it out. The question stands: "off the field" is a collision and drive property, while
+ * whether anything can still move its `hp` is decided in `runCombat`.
+ *
+ * **The trigger is tapped, not held.** Fire is edge-triggered on the server as of the same date, so
+ * a held `fireSlots` fires exactly once — which left this probe putting a single 23-damage dart into
+ * a 40 hp target, never killing it, and reporting OK with every assertion below unreached.
  */
 function damageAfterDeath(): void {
   const w = new PlaytestWorld([
-    { id: "shooter", carId: "oval", x: 200, y: 360, angle: 0 },
-    { id: "target", carId: "oval", x: 500, y: 360, angle: 0, hp: 40 },
+    { id: "shooter", carId: "bullseye", x: 200, y: 360, angle: 0 },
+    { id: "target", carId: "bullseye", x: 500, y: 360, angle: 0, hp: 40 },
   ]);
-  const bit = slotBitFor("oval", "splinter");
+  const bit = slotBitFor("bullseye", "needler");
   let hpBelowZero = false;
   let deadTookDamage = false;
   let deadAt = -1;
   for (let i = 0; i < 120; i++) {
-    w.input("shooter", { fireSlots: bit });
+    // Release between presses: a held key is ONE press. needler recharges in 18 ticks, so tapping
+    // every other tick lands ~6 shots — enough to kill a 40 hp target and keep shooting the corpse.
+    w.input("shooter", { fireSlots: i % 2 === 0 ? bit : 0 });
     w.tick();
     const t = w.get("target");
     if (t.hp < 0) hpBelowZero = true;
@@ -232,17 +243,29 @@ function damageAfterDeath(): void {
   report(
     "W5. Damage and bleed after death",
     hpBelowZero || deadTookDamage ? "FINDING" : "OK",
-    `target wrecked on tick ${deadAt + 1}, final hp ${t.hp}, alive ${t.alive}\n` +
+    `target died on tick ${deadAt + 1}, final hp ${t.hp}, alive ${t.alive}\n` +
       `hp ever negative: ${hpBelowZero}; hp moved after death: ${deadTookDamage}\n` +
-      `statuses still on the wreck: ${statusesOf(t).map((s) => s.statusId).join(",") || "none"} ` +
-      `(spiked keeps its badge but 'runCombat' gates pulses on 'alive')`,
+      `statuses still on the dead car: ${statusesOf(t).map((s) => s.statusId).join(",") || "none"} ` +
+      `(needler applies no status now — T18 moved its old 'spiked' rider to bulwark — but any bleed\n` +
+      `still would keep its badge here, since 'runCombat' gates pulses on 'alive', not the badge)`,
   );
 }
 
 /* ------------------------------------------------- W6. fire-rate exploit via input flooding */
 /**
- * A hand-rolled client can send many inputs per tick. `serverTick` caps how many are SIMULATED but
- * OR-s their fire masks together; the weapon cooldown is what must actually bound the rate.
+ * A hand-rolled client can send many inputs per tick. `serverTick` caps how many are SIMULATED; the
+ * weapon cooldown is what must actually bound the rate.
+ *
+ * **The exploit this probe hunts moved on 2026-08-30.** Fire became edge-triggered: `fireSlots` is
+ * key state, and only a bit that was NOT down on the previous simulated input counts as a press. The
+ * old attack — flood the same held mask and hope the OR buys extra shots — now buys nothing, and
+ * comparing 1 held input against 8 held ones would report a meaningless 1.00x with both arms firing
+ * exactly once.
+ *
+ * The new surface is the one edge detection opened: `prev` advances PER INPUT, so a client that
+ * ALTERNATES its mask inside a single tick (`bit, 0, bit, 0, ...`) manufactures a press edge every
+ * other input — four presses in one tick out of one physically-held key. That is what the flooding
+ * arm does here. The cooldown is still the thing that must refuse them.
  */
 function fireRateExploit(): void {
   const rows: string[] = [];
@@ -254,12 +277,19 @@ function fireRateExploit(): void {
     for (const perTick of [1, 8]) {
       const w = new PlaytestWorld([
         { id: "shooter", carId: carrier, x: 200, y: 360, angle: 0 },
-        { id: "target", carId: "hexagon", x: 200 + Math.min(WEAPON_TABLE[id].range * 0.5, 300), y: 360, angle: 0 },
+        { id: "target", carId: "bastion", x: 200 + Math.min(WEAPON_TABLE[id].range * 0.5, 300), y: 360, angle: 0 },
       ]);
       let spawned = 0;
       const seen = new Set<string>();
       for (let i = 0; i < 300; i++) {
-        for (let k = 0; k < perTick; k++) w.input("shooter", { fireSlots: bit });
+        if (perTick === 1) {
+          // The honest client: one input per tick, releasing between presses — the fastest a real
+          // player can legitimately ask to fire.
+          w.input("shooter", { fireSlots: i % 2 === 0 ? bit : 0 });
+        } else {
+          // The flooder: alternate inside the tick so every other input is a fresh press edge.
+          for (let k = 0; k < perTick; k++) w.input("shooter", { fireSlots: k % 2 === 0 ? bit : 0 });
+        }
         w.tick();
         for (const inst of w.instances()) if (!seen.has(inst.id)) { seen.add(inst.id); spawned++; }
       }
@@ -268,33 +298,42 @@ function fireRateExploit(): void {
     const ratio = counts[0]! === 0 ? 0 : counts[1]! / counts[0]!;
     if (ratio > 1.05) exploitable = true;
     rows.push(
-      `${id.padEnd(11)} 1 input/tick -> ${String(counts[0]).padStart(3)} shots;  ` +
-        `8 inputs/tick -> ${String(counts[1]).padStart(3)} shots  (${ratio.toFixed(2)}x) ` +
+      `${id.padEnd(11)} honest tap -> ${String(counts[0]).padStart(3)} shots;  ` +
+        `8 alternating inputs/tick -> ${String(counts[1]).padStart(3)} shots  (${ratio.toFixed(2)}x) ` +
         `${ratio > 1.05 ? "<- RATE EXPLOIT" : ""}`,
     );
   }
-  report("W6. Fire-rate exploit by flooding inputs (300 ticks = 10s)", exploitable ? "FINDING" : "OK", rows.join("\n"));
+  report("W6. Fire-rate exploit by manufacturing press edges (300 ticks = 10s)", exploitable ? "FINDING" : "OK", rows.join("\n"));
 }
 
 /* ------------------------------------------------------------ W7. status chain / perma-CC */
 /**
  * `stunned` is `reapply: "ignore"` so it cannot be chained. `overheated`/`spiked`/`corroded` are
  * `refresh`, so a sustained source holds them indefinitely — by design, but the ceiling matters.
+ *
+ * The perma-stun attempt used to be two Bastions spamming `shockwave`. T16 moved the stun off
+ * shockwave (which no longer stuns at all — it applies `corroded` on its third wave) and onto
+ * `thumper`, Bastion's own slot 1, at 900ms. That is now the roster's only stun source, so it is
+ * what this probe has to stress.
  */
 function statusChain(): void {
   const rows: string[] = [];
-  // Two hexagons alternating shockwave on one victim: the perma-stun attempt.
+  // Two bastions alternating thumper on one victim: the perma-stun attempt.
   const w = new PlaytestWorld([
-    { id: "hexA", carId: "hexagon", x: 600, y: 360, angle: 0, team: 0 },
-    { id: "hexB", carId: "hexagon", x: 680, y: 360, angle: Math.PI, team: 0 },
-    { id: "victim", carId: "rectangle", x: 640, y: 360, angle: 0, team: 0, hp: 100000 },
+    { id: "bastA", carId: "bastion", x: 600, y: 360, angle: 0, team: 0 },
+    { id: "bastB", carId: "bastion", x: 680, y: 360, angle: Math.PI, team: 0 },
+    { id: "victim", carId: "mirage", x: 640, y: 360, angle: 0, team: 0, hp: 100000 },
   ]);
-  const bit = slotBitFor("hexagon", "shockwave");
+  const bit = slotBitFor("bastion", "thumper");
   let stunnedTicks = 0;
   const total = 900; // 30 seconds
   for (let i = 0; i < total; i++) {
-    w.input("hexA", { fireSlots: bit });
-    w.input("hexB", { fireSlots: bit });
+    // Released on alternate ticks: fire is edge-triggered, so a held mask is ONE press and this
+    // would otherwise measure a single stun rather than a chain. thumper recharges in 90 ticks, so
+    // tapping every other tick asks to fire far more often than the cooldown allows.
+    const press = i % 2 === 0 ? bit : 0;
+    w.input("bastA", { fireSlots: press });
+    w.input("bastB", { fireSlots: press });
     w.input("victim", {});
     w.tick();
     if (statusesOf(w.get("victim")).some((s) => s.statusId === "stunned" && s.endsTick > w.state.tick)) {
@@ -302,16 +341,16 @@ function statusChain(): void {
     }
   }
   rows.push(
-    `two Hexagons spamming Shockwave on one car for ${total} ticks (30s): ` +
+    `two Bastions spamming Thumper on one car for ${total} ticks (30s): ` +
       `stunned for ${stunnedTicks} ticks (${((stunnedTicks / total) * 100).toFixed(0)}% of the fight)`,
   );
 
   // Sustained afterburner: how long can `overheated` be held?
   const w2 = new PlaytestWorld([
-    { id: "r", carId: "rectangle", x: 600, y: 360, angle: 0 },
-    { id: "v", carId: "hexagon", x: 700, y: 360, angle: 0, hp: 100000 },
+    { id: "r", carId: "mirage", x: 600, y: 360, angle: 0 },
+    { id: "v", carId: "bastion", x: 700, y: 360, angle: 0, hp: 100000 },
   ]);
-  const abBit = slotBitFor("rectangle", "afterburner");
+  const abBit = slotBitFor("mirage", "afterburner");
   let overheatedTicks = 0;
   for (let i = 0; i < 900; i++) {
     w2.input("r", { fireSlots: abBit });
@@ -321,7 +360,7 @@ function statusChain(): void {
     }
   }
   rows.push(
-    `one Rectangle holding Afterburner on one car for 900 ticks: ` +
+    `one Mirage holding Afterburner on one car for 900 ticks: ` +
       `overheated for ${overheatedTicks} ticks (${((overheatedTicks / 900) * 100).toFixed(0)}%)`,
   );
 
@@ -353,7 +392,7 @@ function beamsThroughWalls(): void {
     const w = new PlaytestWorld(
       [
         { id: "shooter", carId: carrier, x: sx, y, angle: 0 },
-        { id: "target", carId: "hexagon", x: tx, y, angle: 0 },
+        { id: "target", carId: "bastion", x: tx, y, angle: 0 },
       ],
       "ffa",
       "arena-02",
@@ -381,48 +420,63 @@ function beamsThroughWalls(): void {
 }
 
 /* ----------------------------------------------------- W9. shockwave aura through a wall */
-/** Documented: a disc grows to full range and passes through geometry. Confirm the play impact. */
+/**
+ * Documented: a disc grows to full range and passes through geometry. Confirm the play impact.
+ *
+ * Shockwave moved from Bastion to Mirage (T15) and is now three 250ms waves 500ms apart rather
+ * than one instant pulse, so this needs Mirage as the shooter and enough ticks to see all three
+ * waves connect, not just the first.
+ */
 function auraThroughWall(): void {
   const arena = getArena("arena-02");
   const box = arena.obstacles[2]!;
-  // Hexagon hugging the west face of the box; victim hugging the east face. 200u of solid wall
-  // between them, well inside shockwave's 150 radius? No — check the real geometry.
+  // Mirage hugging the west face of the box; victim hugging the east face. 140u of solid wall
+  // between them, well inside shockwave's 150 radius.
   const y = box.y + box.h / 2;
   const w = new PlaytestWorld(
     [
-      { id: "hex", carId: "hexagon", x: box.x - 25, y, angle: 0 },
-      { id: "victim", carId: "rectangle", x: box.x - 25 + 140, y, angle: 0 },
+      { id: "mir", carId: "mirage", x: box.x - 25, y, angle: 0 },
+      { id: "victim", carId: "bastion", x: box.x - 25 + 140, y, angle: 0 },
     ],
     "ffa",
     "arena-02",
   );
-  const bit = slotBitFor("hexagon", "shockwave");
+  const bit = slotBitFor("mirage", "shockwave");
   const startHp = w.get("victim").hp;
-  for (let i = 0; i < 30; i++) {
-    w.input("hex", { fireSlots: i === 0 ? bit : 0 });
+  // 3 waves x (500ms spacing) + the third wave's own 250ms life == 1.25s == ~38 ticks; run 45 to
+  // give the whole cycle margin.
+  for (let i = 0; i < 45; i++) {
+    w.input("mir", { fireSlots: i === 0 ? bit : 0 });
     w.tick();
   }
   const dealt = startHp - w.get("victim").hp;
   report(
     "W9. Shockwave (disc aura) reaching through a wall",
     dealt > 0 ? "KNOWN-BY-DESIGN" : "OK",
-    `Hexagon on the west face of a 200x200 block, victim 140u away with the block between them: ` +
-      `dealt ${dealt}, victim statuses ${statusesOf(w.get("victim")).map((s) => s.statusId).join(",") || "none"}.\n` +
+    `Mirage on the west face of a 200x200 block, victim 140u away with the block between them: ` +
+      `dealt ${dealt} across all three waves (up to 153 at Mirage's 1.13x attack), victim statuses ` +
+      `${statusesOf(w.get("victim")).map((s) => s.statusId).join(",") || "none"}.\n` +
       `instances.ts states a disc "grows to its full range and passes through level geometry" — ` +
-      `intentional, but it is a stun through a solid wall, which reads as a bug from the receiving end.`,
+      `intentional, but it is corrosion damage through a solid wall, which reads as a bug from the ` +
+      `receiving end. The stun that used to ride here moved to thumper (T16), Bastion's slot 1.`,
   );
 }
 
 /* ---------------------------------------------------------------- W10. pierce accounting */
-/** `skewer` has pierce: 1, documented as "TWO CARS, not one and not three". */
+/**
+ * `skewer` has pierce: 1, documented as "TWO CARS, not one and not three". T17 moved skewer from
+ * Bullseye to Bastion and cut its range 1100 -> 650, so the shooter is Bastion here; the target
+ * line at 400/500/600 from a shooter at 200 (distances 200/300/400) is comfortably inside the new
+ * 650 range.
+ */
 function pierce(): void {
   const w = new PlaytestWorld([
-    { id: "shooter", carId: "oval", x: 200, y: 360, angle: 0, team: 0 },
-    { id: "t1", carId: "hexagon", x: 400, y: 360, angle: 0, team: 0 },
-    { id: "t2", carId: "hexagon", x: 500, y: 360, angle: 0, team: 0 },
-    { id: "t3", carId: "hexagon", x: 600, y: 360, angle: 0, team: 0 },
+    { id: "shooter", carId: "bastion", x: 200, y: 360, angle: 0, team: 0 },
+    { id: "t1", carId: "bastion", x: 400, y: 360, angle: 0, team: 0 },
+    { id: "t2", carId: "bastion", x: 500, y: 360, angle: 0, team: 0 },
+    { id: "t3", carId: "bastion", x: 600, y: 360, angle: 0, team: 0 },
   ]);
-  const bit = slotBitFor("oval", "skewer");
+  const bit = slotBitFor("bastion", "skewer");
   const before = ["t1", "t2", "t3"].map((id) => w.get(id).hp);
   for (let i = 0; i < 60; i++) {
     w.input("shooter", { fireSlots: i === 0 ? bit : 0 });
@@ -465,12 +519,12 @@ function instanceLeak(): void {
 /* --------------------------------------------------------- W12. attached beam vs owner death */
 function beamOwnerDeath(): void {
   const w = new PlaytestWorld([
-    { id: "burner", carId: "rectangle", x: 600, y: 360, angle: 0, hp: 30, team: 0 },
-    { id: "victim", carId: "hexagon", x: 700, y: 360, angle: 0, team: 0 },
-    { id: "killer", carId: "oval", x: 600, y: 200, angle: Math.PI / 2, team: 0 },
+    { id: "burner", carId: "mirage", x: 600, y: 360, angle: 0, hp: 30, team: 0 },
+    { id: "victim", carId: "bastion", x: 700, y: 360, angle: 0, team: 0 },
+    { id: "killer", carId: "bullseye", x: 600, y: 200, angle: Math.PI / 2, team: 0 },
   ]);
-  const abBit = slotBitFor("rectangle", "afterburner");
-  const spBit = slotBitFor("oval", "splinter");
+  const abBit = slotBitFor("mirage", "afterburner");
+  const spBit = slotBitFor("bullseye", "needler");
   let beamAfterDeath = 0;
   let burnerDeadAt = -1;
   for (let i = 0; i < 90; i++) {

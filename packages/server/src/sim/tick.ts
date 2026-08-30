@@ -105,12 +105,24 @@ export interface TickResult {
  * `resolveWorld` had a chance to reflect it. `ramTick` reads it as its approach term — see
  * `TickResult.approachSpeeds` for why it cannot use the speed left on `PlayerState`.
  */
+/**
+ * **The fire mask carries PRESSES, not held keys.** `fireSlots` on the wire is raw key state, so a
+ * player holding the trigger sets the same bit on every input. `prevFireMasks` remembers what each
+ * player's last SIMULATED input had down, and only a newly-set bit counts as a press
+ * (`clean & ~prev`), evaluated per input in sequence order so a release and re-press inside one
+ * tick's batch still reads as two presses. Holding the trigger therefore fires exactly once.
+ *
+ * Edge detection lives here rather than on the client because the client is not trusted with it: a
+ * hand-rolled one could otherwise send a pulsing mask and buy back auto-fire. The weapon cooldown in
+ * `runCombat` still bounds the rate on top of this.
+ */
 export function serverTick(
   state: ArenaState,
   queues: Map<string, InputMessage[]>,
   dt: number,
   phase: RoomPhase,
   statusMods: ReadonlyMap<string, Modifiers>,
+  prevFireMasks: Map<string, number>,
 ): TickResult {
   const world = tickWorldOf(getArena(state.arenaId));
   const moving = phase === RoomPhase.MATCH;
@@ -174,7 +186,13 @@ export function serverTick(
         writeBody(player, stepSim(bodyOf(player), msg, dt, ctx));
         const raw = msg.fireSlots;
         const clean = Number.isInteger(raw) && raw > 0 ? raw & SLOT_MASK : 0;
-        if (clean !== 0) masks.set(sessionId, (masks.get(sessionId) ?? 0) | clean);
+        // Only bits that were NOT down on this player's previous simulated input count as a press.
+        // `prev` advances per input rather than per tick, so a release and re-press inside one batch
+        // is two presses, not one held key.
+        const prev = prevFireMasks.get(sessionId) ?? 0;
+        const pressed = clean & ~prev;
+        prevFireMasks.set(sessionId, clean);
+        if (pressed !== 0) masks.set(sessionId, (masks.get(sessionId) ?? 0) | pressed);
       }
       player.lastProcessedInputSeq = msg.seq;
     }

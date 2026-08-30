@@ -21,7 +21,8 @@ function player(over: Partial<ContextPlayer> = {}): ContextPlayer {
     y: 0,
     angle: 0,
     status: PlayerStatus.IN_MATCH,
-    carId: "rectangle",
+    carId: "mirage",
+    alive: true,
     ...over,
   };
 }
@@ -99,7 +100,7 @@ describe("buildStepContext", () => {
   });
 
   it("uses the local player's chosen car", () => {
-    expect(buildStepContext(ARENA, state({ me: player({ carId: "hexagon" }) }), "me", NEUTRAL_MODIFIERS).carId).toBe("hexagon");
+    expect(buildStepContext(ARENA, state({ me: player({ carId: "bastion" }) }), "me", NEUTRAL_MODIFIERS).carId).toBe("bastion");
   });
 
   it("falls back to the shared default chassis for an unset or unknown carId", () => {

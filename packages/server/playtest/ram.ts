@@ -60,7 +60,7 @@ function triggerPhaseSweep(): void {
     let fired = 0;
     let total = 0;
     for (let gap = 0; gap < 21; gap += 1) {
-      const r = ramOf(gap, "hexagon", "oval", side);
+      const r = ramOf(gap, "bastion", "bullseye", side);
       total++;
       if (r.shove > 0.01) fired++;
       line.push(r.shove > 0.01 ? `${gap}:${r.shove.toFixed(0)}` : `${gap}:--`);
@@ -72,7 +72,7 @@ function triggerPhaseSweep(): void {
   report(
     "R1. Does a ram fire at all, as a function of where the tick grid lands?",
     worstRate < 0.9 ? "FINDING" : "OK",
-    "A hexagon (mass 85, the designated rammer) at top speed hits a stationary oval.\n" +
+    "A bastion (mass 90, the designated rammer) at top speed hits a stationary bullseye.\n" +
       "`startGap` is the clearance at t=0; the car covers 10.5 u/tick, so sweeping the gap sweeps\n" +
       "the sub-tick phase of the impact — the only thing that differs between these runs.\n" +
       rows.join("\n"),
@@ -83,7 +83,7 @@ function triggerPhaseSweep(): void {
 function pairingMatrix(): void {
   const rows: string[] = [];
   let worstRate = 1;
-  const cars: CarId[] = ["rectangle", "oval", "hexagon"];
+  const cars: CarId[] = ["mirage", "bullseye", "bastion"];
   for (const atk of cars) {
     for (const vic of cars) {
       const out: string[] = [];
@@ -123,8 +123,8 @@ function pairingMatrix(): void {
  */
 function speedBeforeAndAfterResolve(): void {
   const w = new PlaytestWorld([
-    { id: "atk", carId: "hexagon", x: 640 - 48 - 4, y: 360, angle: 0, speed: forwardMaxSpeedOf("hexagon") },
-    { id: "vic", carId: "oval", x: 640, y: 360, angle: 0 },
+    { id: "atk", carId: "bastion", x: 640 - 48 - 4, y: 360, angle: 0, speed: forwardMaxSpeedOf("bastion") },
+    { id: "vic", carId: "bullseye", x: 640, y: 360, angle: 0 },
   ]);
   const rows: string[] = [];
   let firedOnContactTick = false;
@@ -165,7 +165,7 @@ function speedBeforeAndAfterResolve(): void {
 function drivenRam(): void {
   const rows: string[] = [];
   let worstRate = 1;
-  for (const atk of ["rectangle", "oval", "hexagon"] as CarId[]) {
+  for (const atk of ["mirage", "bullseye", "bastion"] as CarId[]) {
     let fired = 0;
     const runs = 40;
     let peakShove = 0;
@@ -173,7 +173,7 @@ function drivenRam(): void {
       // Vary the run-up distance by 1 unit per run: same drive, different sub-tick impact phase.
       const w = new PlaytestWorld([
         { id: "atk", carId: atk, x: 300 + d, y: 360, angle: 0 },
-        { id: "vic", carId: "oval", x: 640, y: 360, angle: 0 },
+        { id: "vic", carId: "bullseye", x: 640, y: 360, angle: 0 },
       ]);
       let shove = 0;
       for (let i = 0; i < 90; i++) {
@@ -187,7 +187,7 @@ function drivenRam(): void {
     }
     worstRate = Math.min(worstRate, fired / runs);
     rows.push(
-      `${atk.padEnd(9)} rear-ends a parked oval from ${runs} different run-up distances: ` +
+      `${atk.padEnd(9)} rear-ends a parked bullseye from ${runs} different run-up distances: ` +
         `${fired}/${runs} landed a knock (${Math.round((fired / runs) * 100)}%), ` +
         `peak shove ${peakShove.toFixed(0)} u/s`,
     );

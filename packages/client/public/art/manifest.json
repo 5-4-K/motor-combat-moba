@@ -1,13 +1,13 @@
 {
   "sprites": {
-    "car.rectangle": {
-      "file": "cars/rectangle.png"
+    "car.mirage": {
+      "file": "cars/mirage.png"
     },
-    "car.hexagon": {
-      "file": "cars/hexagon.png"
+    "car.bastion": {
+      "file": "cars/bastion.png"
     },
-    "car.oval": {
-      "file": "cars/oval.png"
+    "car.bullseye": {
+      "file": "cars/bullseye.png"
     },
     "weapon-icon.fireball": {
       "file": "weapon-icons/fireball.png",
@@ -24,8 +24,8 @@
       "colorMode": "none",
       "scale": "fit"
     },
-    "weapon-icon.splinter": {
-      "file": "weapon-icons/splinter.png",
+    "weapon-icon.needler": {
+      "file": "weapon-icons/needler.png",
       "colorMode": "none",
       "scale": "fit"
     },

@@ -21,9 +21,10 @@ const report = reporter.report.bind(reporter);
 /* ------------------------------------------------------------------ 1. tunneling */
 /**
  * Can a car pass THROUGH another between two ticks? Cars are only tested at their post-step pose —
- * there is no swept test for driving (unlike projectiles, which smear). At 30 Hz a rectangle covers
- * 18 u/tick; a head-on pair closes 36. The hull is 48 long, so ordinary driving cannot tunnel. Ram
- * shove is the extra term: it is added to the drive velocity and is not capped by top speed.
+ * there is no swept test for driving (unlike projectiles, which smear). At 30 Hz a mirage (top
+ * speed rose 540 -> 576 in T8's restat) covers 19.2 u/tick; a head-on pair closes 38.4. The hull is
+ * 48 long, so ordinary driving cannot tunnel. Ram shove is the extra term: it is added to the drive
+ * velocity and is not capped by top speed.
  */
 function tunneling(): void {
   const rows: string[] = [];
@@ -33,8 +34,8 @@ function tunneling(): void {
   for (const shove of [0, 200, 400, 600, 900, 1400, 2000]) {
     const gap = 200;
     const w = new PlaytestWorld([
-      { id: "A", carId: "rectangle", x: 640 - gap / 2, y: 360, angle: 0, speed: forwardMaxSpeedOf("rectangle") },
-      { id: "B", carId: "rectangle", x: 640 + gap / 2, y: 360, angle: Math.PI, speed: forwardMaxSpeedOf("rectangle") },
+      { id: "A", carId: "mirage", x: 640 - gap / 2, y: 360, angle: 0, speed: forwardMaxSpeedOf("mirage") },
+      { id: "B", carId: "mirage", x: 640 + gap / 2, y: 360, angle: Math.PI, speed: forwardMaxSpeedOf("mirage") },
     ]);
     w.get("A").shoveX = shove;
     w.get("B").shoveX = -shove;
@@ -46,7 +47,7 @@ function tunneling(): void {
       // A started left of B. If A ends up right of B, they swapped sides: a tunnel.
       if (w.get("A").x > w.get("B").x) passedThrough = true;
     }
-    const perTick = (forwardMaxSpeedOf("rectangle") + shove) / 30;
+    const perTick = (forwardMaxSpeedOf("mirage") + shove) / 30;
     // The FIRST shove that tunnels, not the largest — the threshold is the interesting number.
     if (passedThrough && worst === 0) worst = shove;
     rows.push(
@@ -59,7 +60,7 @@ function tunneling(): void {
   report(
     "1. Car-car tunneling at extreme closing speed",
     worst > 0 && worst <= maxRamShove ? "FINDING" : "OK",
-    `Hull is ${W}x${H}. Driving alone closes 36 u/tick head-on, well under the hull length.\n` +
+    `Hull is ${W}x${H}. Driving alone closes 38.4 u/tick head-on, well under the hull length.\n` +
       rows.join("\n") +
       (worst > 0
         ? `\nFirst tunnel at injected shove ${worst} u/s on BOTH cars. The hardest shove the ram can ` +
@@ -78,7 +79,7 @@ function wallSandwich(): void {
   const rows: string[] = [];
   let deepest = 0;
   let escaped = false;
-  for (const carId of ["rectangle", "oval", "hexagon"] as CarId[]) {
+  for (const carId of ["mirage", "bullseye", "bastion"] as CarId[]) {
     // B parked flush against the left wall, A driving into it at full speed.
     const w = new PlaytestWorld([
       { id: "A", carId, x: 400, y: 360, angle: Math.PI, speed: forwardMaxSpeedOf(carId) },
@@ -119,7 +120,7 @@ function pileUp(): void {
   const w = new PlaytestWorld(
     ids.map((id, i) => ({
       id,
-      carId: (["rectangle", "oval", "hexagon"] as CarId[])[i % 3]!,
+      carId: (["mirage", "bullseye", "bastion"] as CarId[])[i % 3]!,
       x: 300 + i * 60,
       y: 300 + (i % 2) * 60,
       angle: Math.atan2(80 - (300 + (i % 2) * 60), 80 - (300 + i * 60)),
@@ -180,11 +181,11 @@ function pileUp(): void {
 function ramIntoWall(): void {
   const rows: string[] = [];
   let escaped = false;
-  for (const victim of ["rectangle", "oval", "hexagon"] as CarId[]) {
-    // Hexagon (mass 85) at top speed rear-ending a victim parked against the right wall.
+  for (const victim of ["mirage", "bullseye", "bastion"] as CarId[]) {
+    // Bastion (mass 90) at top speed rear-ending a victim parked against the right wall.
     const wallX = ARENA.width - W / 2;
     const w = new PlaytestWorld([
-      { id: "attacker", carId: "hexagon", x: wallX - W - 4, y: 360, angle: 0, speed: forwardMaxSpeedOf("hexagon") },
+      { id: "attacker", carId: "bastion", x: wallX - W - 4, y: 360, angle: 0, speed: forwardMaxSpeedOf("bastion") },
       { id: "victim", carId: victim, x: wallX, y: 360, angle: 0 },
     ]);
     let maxX = -Infinity;
@@ -216,8 +217,8 @@ function ramIntoWall(): void {
 function silentWall(): void {
   // Approach slowly enough to stay under minApproachSpeed (60 u/s) at the moment of contact.
   const w = new PlaytestWorld([
-    { id: "mover", carId: "rectangle", x: 640 - W - 30, y: 360, angle: 0 },
-    { id: "parked", carId: "rectangle", x: 640, y: 360, angle: 0 },
+    { id: "mover", carId: "mirage", x: 640 - W - 30, y: 360, angle: 0 },
+    { id: "parked", carId: "mirage", x: 640, y: 360, angle: 0 },
   ]);
   let maxDepth = 0;
   let knockWritten = false;
@@ -248,9 +249,9 @@ function silentWall(): void {
 function orderDependence(): void {
   const build = (idA: string, idB: string, idC: string) => {
     const w = new PlaytestWorld([
-      { id: idA, carId: "rectangle", x: 200, y: 360, angle: 0, speed: 400 },
-      { id: idB, carId: "rectangle", x: 260, y: 360, angle: 0 },
-      { id: idC, carId: "rectangle", x: 320, y: 360, angle: 0 },
+      { id: idA, carId: "mirage", x: 200, y: 360, angle: 0, speed: 400 },
+      { id: idB, carId: "mirage", x: 260, y: 360, angle: 0 },
+      { id: idC, carId: "mirage", x: 320, y: 360, angle: 0 },
     ]);
     for (let i = 0; i < 60; i++) {
       w.input(idA, { throttle: 1 });
@@ -283,8 +284,8 @@ function energyGain(): void {
   for (let deg = 0; deg < 180; deg += 5) {
     const angle = (deg * Math.PI) / 180;
     const w = new PlaytestWorld([
-      { id: "A", carId: "rectangle", x: 500, y: 360, angle, speed: 500 },
-      { id: "B", carId: "hexagon", x: 560, y: 360, angle: Math.PI },
+      { id: "A", carId: "mirage", x: 500, y: 360, angle, speed: 500 },
+      { id: "B", carId: "bastion", x: 560, y: 360, angle: Math.PI },
     ]);
     w.get("A").shoveX = 300;
     w.get("A").shoveY = 120;
@@ -320,7 +321,7 @@ function glancingSignFlip(): void {
   for (let deg = 20; deg <= 45; deg += 1) {
     const angle = (deg * Math.PI) / 180;
     // Drive into the left wall at `deg` off the normal.
-    const w = new PlaytestWorld([{ id: "A", carId: "rectangle", x: 60, y: 360, angle: Math.PI - angle, speed: 400 }]);
+    const w = new PlaytestWorld([{ id: "A", carId: "mirage", x: 60, y: 360, angle: Math.PI - angle, speed: 400 }]);
     w.input("A", { throttle: 1 });
     w.tick();
     const s = w.get("A").speed;
@@ -343,9 +344,9 @@ function glancingSignFlip(): void {
 /** Edge-triggered rams should not stun-lock. Two attackers alternating on one victim is the stress. */
 function ramChain(): void {
   const w = new PlaytestWorld([
-    { id: "atk1", carId: "hexagon", x: 500, y: 320, angle: Math.PI / 2 },
-    { id: "atk2", carId: "hexagon", x: 500, y: 400, angle: -Math.PI / 2 },
-    { id: "victim", carId: "oval", x: 500, y: 360, angle: 0 },
+    { id: "atk1", carId: "bastion", x: 500, y: 320, angle: Math.PI / 2 },
+    { id: "atk2", carId: "bastion", x: 500, y: 400, angle: -Math.PI / 2 },
+    { id: "victim", carId: "bullseye", x: 500, y: 360, angle: 0 },
   ]);
   let ticksBelowFullAuthority = 0;
   let minAuthority = 1;

@@ -14,7 +14,7 @@ import { PredictionBuffer } from "./prediction.js";
 
 const arena = getArena(ACTIVE_ARENA_ID);
 const ctx: StepContext = {
-  carId: "rectangle",
+  carId: "mirage",
   others: [],
   obstacles: arena.obstacles,
   bounds: { width: arena.width, height: arena.height },

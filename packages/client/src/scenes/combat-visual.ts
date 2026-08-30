@@ -16,8 +16,8 @@ import {
 /**
  * How full a car's hp bar is, in `[0, 1]`.
  *
- * The denominator comes from the car's own `CAR_TABLE` hp, not from a shared maximum: a hexagon at
- * half hp and a rectangle at half hp must both read as half a bar, or the bar tells you about the
+ * The denominator comes from the car's own `CAR_TABLE` hp, not from a shared maximum: a bastion at
+ * half hp and a mirage at half hp must both read as half a bar, or the bar tells you about the
  * chassis instead of about the fight. An unrecognised `carId` falls back to the default chassis,
  * the same fallback the sim uses, rather than dividing by an undefined maximum and rendering NaN.
  */
@@ -281,7 +281,7 @@ export interface BeamStyle {
  * **This is the one thing the game draws in the world that is not a hitbox**, and the exception is
  * deliberate rather than an erosion of the rule. Every shot draws as its own hitbox (D19) so that
  * what you see is what can hurt you; an orb hurts nobody and is a *telegraph*, a second category.
- * `lance` is built around being telegraphed — a 700 ms wind-up is what pays for 180 damage — but
+ * `lance` is built around being telegraphed — a 700 ms wind-up is what pays for 170 damage — but
  * until this existed an opponent saw nothing at all during it, so the tell lived in the design and
  * not on the screen. Anything drawn here must stay a warning: it may never imply a hitbox that is
  * not there, which is why it sits at the muzzle rather than out where the beam will land.
@@ -339,7 +339,7 @@ export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
    * shorten a shape whose whole read is "a straight line of light" — and `rectPoints` ignores them
    * regardless.
    *
-   * Its charge orb is the wind-up made visible: 700 ms is the entire justification for 180 damage,
+   * Its charge orb is the wind-up made visible: 700 ms is the entire justification for 170 damage,
    * and an opponent could not previously see it happening. Colours match the beam exactly, so the
    * orb reads as the same thing gathering that is about to be fired.
    */
@@ -351,7 +351,10 @@ export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
     ],
     charge: {
       minRadius: 2,
-      maxRadius: 18,
+      // Tracks the beam's own 15% widening (T13: `hitbox.width` 20 -> 23), so the telegraph keeps
+      // matching what it warns about. A charge orb that stopped growing with the beam would
+      // under-promise the thing about to be fired, which is the one failure mode a telegraph has.
+      maxRadius: 18.9,
       bands: [
         { radiusScale: 1, color: "#6741D9" },
         { radiusScale: 0.6, color: "#FFD43B" },

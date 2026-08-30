@@ -84,3 +84,69 @@ describe("smear", () => {
     expect(shapeHitsObb(smear(still, still), hull)).toBe(true);
   });
 });
+
+describe("capsule projectiles", () => {
+  const capsule = { shape: "capsule", radiusAlong: 24, radiusAcross: 15 } as const;
+
+  /** Cross product of consecutive edges; a convex polygon never changes its sign. */
+  function turnsConsistently(points: Array<{ x: number; y: number }>): boolean {
+    let sign = 0;
+    for (let i = 0; i < points.length; i += 1) {
+      const a = points[i]!;
+      const b = points[(i + 1) % points.length]!;
+      const c = points[(i + 2) % points.length]!;
+      const cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+      if (Math.abs(cross) < 1e-9) continue;
+      const next = Math.sign(cross);
+      if (sign === 0) sign = next;
+      else if (next !== sign) return false;
+    }
+    return true;
+  }
+
+  it("is convex, which is the whole contract SAT rests on", () => {
+    // SAT does not reject a concave polygon, it just answers the wrong question about it. Every
+    // ratio down to the degenerate square-backed circle has to stay convex.
+    for (const radiusAlong of [15, 16, 20, 24, 40]) {
+      const shape = projectileShapeAt({ ...capsule, radiusAlong }, 0, 0, 0);
+      if (shape.kind !== "polygon") throw new Error("a capsule must be a polygon");
+      expect(turnsConsistently(shape.points)).toBe(true);
+    }
+  });
+
+  it("is flat across the tail and round at the nose", () => {
+    const shape = projectileShapeAt(capsule, 0, 0, 0);
+    if (shape.kind !== "polygon") throw new Error("a capsule must be a polygon");
+    // Exactly two vertices sit on the tail edge: it is a cut, not a curve.
+    const onTail = shape.points.filter((p) => Math.abs(p.x + 24) < 1e-9);
+    expect(onTail).toHaveLength(2);
+    // The nose reaches its full half-length, and does so at a single forward-most point.
+    const foremost = Math.max(...shape.points.map((p) => p.x));
+    expect(foremost).toBeCloseTo(24, 9);
+    expect(shape.points.filter((p) => Math.abs(p.x - foremost) < 1e-9)).toHaveLength(1);
+  });
+
+  it("points its nose along the shot's angle, not along the world", () => {
+    const east = projectileShapeAt(capsule, 0, 0, 0);
+    const north = projectileShapeAt(capsule, 0, 0, -Math.PI / 2);
+    if (east.kind !== "polygon" || north.kind !== "polygon") throw new Error("polygons expected");
+    expect(Math.max(...east.points.map((p) => p.x))).toBeCloseTo(24, 6);
+    expect(Math.min(...north.points.map((p) => p.y))).toBeCloseTo(-24, 6);
+  });
+
+  it("catches on its squared tail where the same ellipse slips past", () => {
+    // The shapes share an extent, so the difference is not reach — it is that the tail is FULL
+    // WIDTH at its extreme where an ellipse has tapered to a point. Parked off the hull's corner,
+    // the capsule's back edge clips it and the ellipse of identical dimensions does not. This is
+    // the whole behavioural consequence of the shape change, so it is worth one explicit case.
+    const ellipse = { shape: "ellipse", radiusAlong: 24, radiusAcross: 15 } as const;
+    expect(shapeHitsObb(projectileShapeAt(capsule, 246, 128, 0), hull)).toBe(true);
+    expect(shapeHitsObb(projectileShapeAt(ellipse, 246, 128, 0), hull)).toBe(false);
+  });
+
+  it("smears into a swept hull like any other projectile", () => {
+    const before = projectileShapeAt(capsule, 100, 100, 0);
+    const after = projectileShapeAt(capsule, 300, 100, 0);
+    expect(shapeHitsObb(smear(before, after), hull)).toBe(true);
+  });
+});

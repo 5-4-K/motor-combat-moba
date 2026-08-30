@@ -35,11 +35,13 @@ import {
   TICK_RATE_HZ,
   WEAPON_TABLE,
   WEAPON_TICKS,
+  accelOf,
   forwardMaxSpeedOf,
   getArena,
   hpOf,
   slotsOf,
   statusDefOf,
+  turnRateOf,
   weaponDamageOf,
 } from "@motor-combat-moba/shared";
 
@@ -65,6 +67,17 @@ const AVERAGE_HP = AVERAGE_RATING * COMBAT_CONFIG.hpPerRating;
 // ---------------------------------------------------------------------------- derived stats
 
 const CAR_IDS = Object.keys(CAR_TABLE);
+
+/**
+ * How many weapons carry a magazine, said in words. Derived rather than written down: this line
+ * asserted "One weapon has them" until `needler` lost its stock and nobody noticed the page had
+ * started lying to players.
+ */
+function stockBlurb() {
+  const n = Object.values(WEAPON_TABLE).filter((d) => d.stock).length;
+  if (n === 0) return "No weapon carries them right now.";
+  return n === 1 ? "One weapon has them." : `${n} weapons have them.`;
+}
 const OWNER_OF = Object.fromEntries(
   CAR_IDS.flatMap((carId) => slotsOf(carId).map((weaponId) => [weaponId, carId])),
 );
@@ -108,6 +121,8 @@ function hitboxLine(def) {
   const h = def.hitbox;
   if (h.shape === "circle") return { shape: "Circle", size: `${h.radius * 2} across` };
   if (h.shape === "ellipse") return { shape: "Ellipse", size: `${h.radiusAlong * 2} × ${h.radiusAcross * 2}` };
+  if (h.shape === "capsule")
+    return { shape: "Capsule", size: `${h.radiusAlong * 2} × ${h.radiusAcross * 2}, flat tail` };
   if (h.shape === "rect") return { shape: "Beam", size: `${h.width} × ${def.range}` };
   // A disc grows in every direction at once, so its `range` is a radius rather than a reach.
   if (h.shape === "disc") return { shape: "Aura", size: `${def.range} radius` };
@@ -119,6 +134,11 @@ function footprint(def) {
   const h = def.hitbox;
   if (h.shape === "circle") return Math.PI * h.radius ** 2;
   if (h.shape === "ellipse") return Math.PI * h.radiusAlong * h.radiusAcross;
+  // A rectangle from the tail to the nose cap's centre, plus the semicircular cap itself.
+  if (h.shape === "capsule")
+    return (
+      (h.radiusAlong - h.radiusAcross) * 2 * h.radiusAcross * 2 + Math.PI * h.radiusAcross ** 2
+    );
   if (h.shape === "rect") return h.width * def.range;
   if (h.shape === "disc") return Math.PI * def.range ** 2;
   return ((h.angleDeg / 360) * Math.PI * def.range ** 2);
@@ -132,8 +152,15 @@ function derive(id) {
   const slot = slotsOf(carId).indexOf(id);
   const beam = def.kind === "beam";
 
-  const shotsPerPress = beam ? 1 : def.volley.volleys * def.volley.pelletsPerVolley;
-  const burstSpanMs = beam ? 0 : (def.volley.volleys - 1) * def.volley.volleyIntervalMs;
+  // `volley` lives on `WeaponBase`, so a BEAM can be a wave sequence too — `shockwave` is three
+  // discs 500ms apart. This file is plain `.mjs` and the compiler never checks it, so a "beams fire
+  // once per press" shortcut here would silently under-report a real weapon on the page players
+  // read. Both kinds go through the same volley arithmetic; only what one volley *contains*
+  // differs, which is exactly the line `PelletDef` was split out on.
+  const shotsPerPress = beam
+    ? def.volley.volleys
+    : def.volley.volleys * def.pellets.pelletsPerVolley;
+  const burstSpanMs = (def.volley.volleys - 1) * def.volley.volleyIntervalMs;
   const extendMs = (def.range / def.speed) * 1000;
   const totalLifeMs = beam ? extendMs + def.lifetimeMs : extendMs;
   // A ticking beam re-arms on its own interval for as long as it lives; everything else lands once
@@ -150,7 +177,9 @@ function derive(id) {
     ticks.damageInterval === Number.POSITIVE_INFINITY
       ? 1
       : Math.floor((aliveTicks - 1) / ticks.damageInterval) + 1;
-  const hitsPerTarget = beam ? damageTicks : shotsPerPress;
+  // Each of a beam's volleys is its own instance with its own damage clock, so a target that eats
+  // every wave takes `damageTicks` from each: `shockwave` is 1 x 3, `bulwark` 10 x 1.
+  const hitsPerTarget = beam ? damageTicks * def.volley.volleys : shotsPerPress;
 
   const baseBurst = def.damage * hitsPerTarget;
   // Recharge starts at the LAST shot of a press (`fire.ts`), so a multi-volley burst pushes the
@@ -168,6 +197,7 @@ function derive(id) {
     slot,
     beam,
     shotsPerPress,
+    waves: def.volley.volleys,
     burstSpanMs,
     extendMs,
     totalLifeMs,
@@ -353,11 +383,11 @@ function legend() {
        <div>
          <h3>Terms</h3>
          <dl class="defs">
-           <dt>Lock-on</dt><dd>Some weapons fire at whatever the car has locked instead of straight down the nose. The lock reaches ${AIM_CONFIG.lockRange} units and aims where the target <i>is</i>, with no lead — so it helps most up close. Six of the nine weapons do not use it at all.</dd>
+           <dt>Lock-on</dt><dd>Some weapons fire at whatever the car has locked instead of straight down the nose. The lock reaches ${AIM_CONFIG.lockRange} units and aims where the target <i>is</i>, with no lead — so it helps most up close. ${WEAPONS.filter((w) => !w.def.usesAimAssist).length} of the ${WEAPONS.length} weapons do not use it at all.</dd>
            <dt>Wind-up</dt><dd>Delay between the press and the shot. You keep driving, but you cannot take the press back.</dd>
            <dt>Recovery</dt><dd>Lockout on your <i>other</i> two slots after a press.</dd>
            <dt>Recharge</dt><dd>Time before this weapon is ready again. It starts at the last shot of the press, not the first.</dd>
-           <dt>Stock</dt><dd>Shots you can bank. One weapon has them.</dd>
+           <dt>Stock</dt><dd>Shots you can bank. ${stockBlurb()}</dd>
            <dt>Pierce</dt><dd>Cars a shot carries on through after the first one it hits.</dd>
            <dt>Attack scale</dt><dd>Your chassis multiplies every weapon's damage. ${CAR_IDS.map(
              (id) => `${CAR_TABLE[id].name} ${round(1 + (CAR_TABLE[id].attack - COMBAT_CONFIG.attackBaseline) * COMBAT_CONFIG.damagePerAttack, 1)}×`,
@@ -380,7 +410,7 @@ function legend() {
            <p>${esc(CHASSIS_COPY[carId].theme)}</p>
          </div>${i < CAR_IDS.length - 1 ? '<i class="arrow">&#9654;</i>' : ""}`,
        ).join("")}</div>
-       <p class="note">Rectangle catches Oval · Oval kites Hexagon · Hexagon punishes Rectangle.
+       <p class="note">Mirage catches Bullseye · Bullseye kites Bastion · Bastion punishes Mirage.
          Nobody is safe from everybody — and the kit is most of the reason why.</p>
      </div>`,
   );
@@ -390,8 +420,18 @@ function chassisPage(carId) {
   const car = CAR_TABLE[carId];
   const copy = CHASSIS_COPY[carId];
   const kit = slotsOf(carId).map((id) => byId[id]);
+  // Six ratings, not the four this rendered until 2026-08-30 — `accel` and `handling` became real
+  // per-chassis axes and a page that omitted them would describe three cars that drive identically
+  // off the line and through a corner.
+  //
+  // Handling prints its turn RADIUS beside its turn rate because the rate alone actively misleads on
+  // this roster: Bullseye has the lowest rate of the three and still corners tighter than Mirage,
+  // whose far higher top speed carries it wider. Radius is `speed / turnRate`, so it is the number a
+  // player actually feels — how much ground a corner costs — while the rate is what the rating sets.
   const ratings = [
     ["Speed", car.speed, `${round(forwardMaxSpeedOf(carId))} u/s top`],
+    ["Accel", car.accel, `${round(accelOf(carId))} u/s² · ${round(forwardMaxSpeedOf(carId) / accelOf(carId), 2)}s to top`],
+    ["Handling", car.handling, `${round(turnRateOf(carId), 2)} rad/s · ${round(forwardMaxSpeedOf(carId) / turnRateOf(carId))}u turn radius`],
     ["Attack", car.attack, `${round(1 + (car.attack - COMBAT_CONFIG.attackBaseline) * COMBAT_CONFIG.damagePerAttack, 2)}× damage`],
     ["Hull", car.hp, `${hpOf(carId)} HP`],
     ["Mass", car.mass, "ram authority"],
@@ -442,7 +482,8 @@ function specRows(w) {
   const multi = w.hitsPerTarget > 1;
   const rows = [
     ["Damage", `${d.damage}${multi ? ` × ${w.hitsPerTarget}` : ""}`,
-      multi ? (w.beam ? "per tick" : "per shot") : `${round(w.pctOfAverageCar)}% of an average car`],
+      multi ? (w.beam ? (w.waves > 1 ? "per wave" : "per tick") : "per shot")
+            : `${round(w.pctOfAverageCar)}% of an average car`],
     ["On ${car}", `${w.perHit}${w.hitsPerTarget > 1 ? ` × ${w.hitsPerTarget} = ${w.liveBurst}` : ""}`,
       `${round(w.attackScale, 1)}× attack scale`],
     ["Recharge", `${round(d.cooldownMs / 1000, 2)}s`, d.stock ? `per stock · ${d.stock.max} banked` : "single stock"],
@@ -453,10 +494,22 @@ function specRows(w) {
   ];
   if (multi) rows.splice(1, 0, ["Full connect", `${w.baseBurst}`, `${round(w.pctOfAverageCar)}% of an average car`]);
   if (w.beam) rows.push(["Lifetime", `${round(w.totalLifeMs / 1000, 2)}s`, d.attached ? "rides your car" : "stamped in place"]);
-  if (!w.beam && d.volley.volleys * d.volley.pelletsPerVolley > 1)
-    rows.push(["Volley", `${d.volley.volleys} × ${d.volley.pelletsPerVolley}`, `${d.volley.volleyIntervalMs}ms apart · ${d.volley.spreadAngleDeg}° fan`]);
+  if (!w.beam && d.volley.volleys * d.pellets.pelletsPerVolley > 1)
+    rows.push(["Volley", `${d.volley.volleys} × ${d.pellets.pelletsPerVolley}`, `${d.volley.volleyIntervalMs}ms apart · ${d.pellets.spreadAngleDeg}° fan`]);
+  // A beam sequence has no pellets to fan, so it gets its own row rather than sharing the one
+  // above: three waves is the whole shape of the press and the page must say so.
+  if (w.beam && w.waves > 1)
+    rows.push(["Waves", `${w.waves}`, `${d.volley.volleyIntervalMs}ms apart · ${round(w.burstSpanMs / 1000, 2)}s to land them all`]);
   if (!w.beam && d.pierce > 0) rows.push(["Pierce", `${d.pierce + 1} cars`, "keeps going after the first"]);
-  if (d.stock) rows.push(["Salvo", `${d.stock.max} × ${w.perHit} = ${d.stock.max * w.perHit}`, `dumped in ${round(((d.stock.max - 1) * d.stock.refireDelayMs) / 1000, 2)}s`]);
+  // The dump window is counted in TICKS, not in authored milliseconds: `refireDelayMs: 110` rounds
+  // up to 4 ticks (133ms), so two gaps are 267ms rather than the 220ms the raw field multiplies to.
+  // The player waits whole ticks, so the page must print whole ticks.
+  if (d.stock)
+    rows.push([
+      "Salvo",
+      `${d.stock.max} × ${w.perHit} = ${d.stock.max * w.perHit}`,
+      `dumped in ${round(((d.stock.max - 1) * w.ticks.refireDelay * 1000) / TICK_RATE_HZ / 1000, 2)}s`,
+    ]);
   if (d.startUpMs > 0) rows.push(["Wind-up", `${d.startUpMs}ms`, `${w.ticks.startUp} ticks — you are visible`]);
   rows.push(["Recovery", d.recoveryMs > 0 ? `${d.recoveryMs}ms` : "none", d.recoveryMs > 0 ? "other slots locked" : "gates nothing else"]);
   rows.push(["Lock-on", d.usesAimAssist ? "Yes" : "No", d.usesAimAssist ? `assists inside ${AIM_CONFIG.lockRange} units` : "fires down your nose"]);
@@ -464,10 +517,14 @@ function specRows(w) {
   // for: nothing on screen says "this one stuns", and the badge only appears once it is too late.
   for (const a of d.applies ?? []) {
     const def = statusDefOf(a.statusId);
+    // `onWave: "final"` is a real rule a player has to plan around — shockwave's debuff arrives
+    // only if the target is still in the ring for the LAST wave — so it goes on the page rather
+    // than staying a table detail.
+    const wave = a.onWave === "final" && w.waves > 1 ? ` · last wave only` : "";
     rows.push([
       a.target === "self" ? "Grants you" : "Inflicts",
       def.name,
-      `${round(a.durationMs / 1000, 2)}s · ${statusBlurb(def)}`,
+      `${round(a.durationMs / 1000, 2)}s · ${statusBlurb(def)}${wave}`,
     ]);
   }
 

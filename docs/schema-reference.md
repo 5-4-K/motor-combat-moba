@@ -141,8 +141,10 @@ slot with nothing left to fire.
 
 `fireSlots: number` — a uint8 bitmask, bit 0 = slot 1 — replaced the single `fire: boolean`. The
 server masks it to `WEAPON_SLOT_CONFIG.maxWeaponSlots` bits and to the car's actual slot count
-before the sim ever sees it; multiple bits set on one tick resolve to the lowest slot. See
-[`combat-model.md`](combat-model.md).
+before the sim ever sees it; multiple bits set on one tick resolve to the lowest slot.
+
+It carries **key state, not presses**. The server derives the press edge itself from its own
+`prevFireMasks`, so holding the trigger fires once — see [`combat-model.md`](combat-model.md).
 
 ## Join options
 

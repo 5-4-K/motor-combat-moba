@@ -45,6 +45,15 @@ const read = (file) => fs.readFileSync(file, "utf8");
  * a paraphrase of that order is what the arithmetic this guards already got wrong once. The target
  * is swept down the firing line rather than parked at one distance: a growing beam covers a near car
  * for more of its life than a far one, and the printed ceiling is the best case over all placements.
+ *
+ * ONE PRESS, not one instance. A beam can now be a wave sequence (`shockwave` is three discs 500 ms
+ * apart), and each wave is a separate instance with its own per-target damage clock, so a press's
+ * ceiling is the sum over its waves. Every wave is run through the real `spawnInstances` with a
+ * well-formed `ShotOrder` (`weaponId`, `slot`, `finalVolley`) rather than the first wave's count
+ * being multiplied, so a future weapon whose waves differ in damage or hitbox is measured rather
+ * than assumed. Only `.damage` is read here, so `finalVolley` does not change this function's
+ * number — it is set correctly anyway because a malformed `ShotOrder` is still a bug waiting for a
+ * caller that reads more of it.
  */
 function simHitsPerTarget(weaponId) {
   const def = WEAPON_TABLE[weaponId];
@@ -55,22 +64,28 @@ function simHitsPerTarget(weaponId) {
   let best = 0;
 
   for (let distance = 30; distance <= def.range; distance += 10) {
-    let instance = spawnInstances({ weaponId, volleyIndex: 0 }, owner, 0, 0).instances[0];
     const snapshot = [
       { sessionId: "target", team: 1, hull: carHullOf(owner.x + distance, owner.y, 0) },
     ];
     let hits = 0;
-    for (let tick = 0; tick < 600; tick++) {
-      const previous = instance;
-      // Tick 0 is the spawn tick: `combat.ts` steps only instances that already existed, so a fresh
-      // shot is hit-tested at the muzzle before it has moved. Stepping it here would skip a tick.
-      if (tick > 0) {
-        instance = stepInstance(instance, { dt, tick, obstacles: [], bounds, ownerPose: owner });
+    for (let volleyIndex = 0; volleyIndex < def.volley.volleys; volleyIndex++) {
+      // The waves of a shipped sequence never overlap (500 ms apart, 250 ms of life), so each runs
+      // on its own clock from tick 0 and their hits simply add.
+      const finalVolley = volleyIndex === def.volley.volleys - 1;
+      let instance = spawnInstances({ weaponId, slot: 0, finalVolley }, owner, 0, 0).instances[0];
+      for (let tick = 0; tick < 600; tick++) {
+        const previous = instance;
+        // Tick 0 is the spawn tick: `combat.ts` steps only instances that already existed, so a
+        // fresh shot is hit-tested at the muzzle before it has moved. Stepping it here would skip a
+        // tick.
+        if (tick > 0) {
+          instance = stepInstance(instance, { dt, tick, obstacles: [], bounds, ownerPose: owner });
+        }
+        if (instanceExpired(instance, tick)) break;
+        const outcome = resolveInstanceHits(instance, previous, snapshot, "ffa", tick);
+        instance = outcome.instance;
+        if (outcome.damaged.length > 0) hits++;
       }
-      if (instanceExpired(instance, tick)) break;
-      const outcome = resolveInstanceHits(instance, previous, snapshot, "ffa", tick);
-      instance = outcome.instance;
-      if (outcome.damaged.length > 0) hits++;
     }
     best = Math.max(best, hits);
   }
@@ -135,6 +150,26 @@ describe("the generated manual page", () => {
 
   it("is the file the build script names as its own output", () => {
     assert.equal(OUT_WEB_HTML, path.join(PUBLIC_DIR, manualPath()));
+  });
+
+  /**
+   * The staleness guard above proves the page was REBUILT after the tables changed. It cannot prove
+   * the rebuild computed anything real: a field the builder reads that has moved to a different path
+   * on `WeaponDef` resolves to `undefined`, every arithmetic expression built from it turns to `NaN`,
+   * and the stamp still matches because the stamp only fingerprints the SOURCE tables, never the
+   * builder's own output. That is exactly how `Damage: NaN` reached a committed page, in five of nine
+   * weapon cards, through a fully green suite (R9) — `build-cars-and-weapons.mjs` is plain `.mjs` and
+   * nothing else in the repo typechecks it.
+   */
+  it("never renders NaN anywhere on the page", () => {
+    const html = read(path.join(PUBLIC_DIR, manualPath()));
+    assert.equal(
+      html.includes("NaN"),
+      false,
+      "the guide page contains NaN — a field build-cars-and-weapons.mjs reads no longer exists at " +
+        "that path on WeaponDef. Find the stale access (grep the script for the field that moved) " +
+        "and fix it, then run `npm run build:manual` and commit the page it writes.",
+    );
   });
 
   /**

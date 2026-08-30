@@ -40,10 +40,11 @@ Fields to recommend, in order. Stop early once nothing is undetermined.
 | 2 | Projectile or beam | Projectiles travel and freeze at exit; beams grow, linger, can weld to the car |
 | 3 | Damage, and `damageFrequencyMs` | 0 is one hit per target ever; positive re-arms on that interval |
 | 4 | Speed and range | Together they set flight time — `range ÷ speed`. `fireball` is 900/900 = 1 s |
-| 5 | Hitbox | Projectile: circle radius, or ellipse along/across. Beam: rect width, or cone angle |
-| 6 | Cooldown, and stocks | A flat `cooldownMs`, or a `stock` block holding charges — see `splinter` |
+| 5 | Hitbox | Projectile: circle radius, ellipse along/across, or capsule along/across (rounded nose, flat tail; needs along >= across). Beam: rect width, cone angle, or disc |
+| 6 | Cooldown, and stocks | A flat `cooldownMs`, or a `stock` block holding charges — see `needler`, the table's only stock weapon. Note what stocks actually buy: the recharge starts at the **first** shot of a dump, so a magazine moves damage earlier without costing sustained DPS |
 | 7 | Wind-up and recovery | `startUpMs` delays the shot; `recoveryMs` gates the car's **other** slots |
-| 8 | Volley (projectiles) | `pelletsPerVolley` + `spreadAngleDeg` for a shotgun; `volleys` + `volleyIntervalMs` for a burst |
+| 8 | `volley` — **both kinds** | `volleys` + `volleyIntervalMs`, on `WeaponBase`. A **beam** can burst too: `shockwave` is three aura waves 500 ms apart, each its own instance with its own `spawnTick` and damage clock. A single shot is `{ volleys: 1, volleyIntervalMs: 0 }` |
+| 8b | `pellets` (projectiles only) | `pelletsPerVolley` + `spreadAngleDeg` for a shotgun fan. Split off `VolleyDef` deliberately, so a beam never has to author `pelletsPerVolley: 1` |
 | 9 | Pierce (projectiles) | Extra opponents passed through after damaging one; 0 dies on the first |
 | 10 | Beam only | `lifetimeMs` after full extension; `attached: true` sweeps with the car |
 | 11 | Targeting — `usesAimAssist` | Required, no default. `true` fires at the car's ambient lock instead of its heading; ask whether this weapon should feel assisted (like `fireball`) or purely manual (like `skewer`) — this is the whole reason the field is required rather than optional |
@@ -55,16 +56,20 @@ Then edit six files, in this order:
 1. **`config/weapon-types.ts`** — add the id to the `WeaponId` union. Nothing else compiles until
    the row exists, which is the point.
 2. **`config/weapon-config.ts`** — the row. The union decides which fields are writable:
-   `pierce`/`volley` on a projectile, `attached`/`lifetimeMs` on a beam. Durations are
-   **milliseconds** — never write ticks.
+   `pierce`/`pellets` on a projectile, `attached`/`lifetimeMs` on a beam, and `volley` on **both**
+   because it lives on `WeaponBase`. Durations are **milliseconds** — never write ticks. If the
+   weapon applies a status and is multi-wave, `StatusApplication.onWave` (`"all" | "final"`, absent
+   means `"all"`) decides whether the status rides every wave or only the last — `shockwave`'s
+   `corroded` is `"final"`, so the first two waves are the commitment and the debuff is the payoff.
 3. **`config/car-config.ts`** — add the id to that chassis's `weapons` array. Index is the slot;
    `maxWeaponSlots` is 3.
 4. **`config/weapon-slots.test.ts`** — it pins each car's loadout by value, so a loadout change
    fails it by design. Update it in the same edit.
 5. **`docs/config-reference.md`** — the `WEAPON_TABLE` and `CAR_TABLE` tables.
 6. **`docs/combat-model.md`** — the roster sentence under "## Weapon", **and any claim your weapon
-   falsifies**. Its coverage list names paths "no shipped weapon exercises"; a beam or a multi-pellet
-   weapon makes some of that untrue. Grep the docs for the mechanic you introduced.
+   falsifies**. Its coverage list names paths that are still only *tested* through a borrowed row;
+   a weapon that exercises one for real makes that entry untrue. Grep the docs for the mechanic you
+   introduced.
 7. **The players' guide** — run `npm run build:manual` and commit
    `packages/client/public/manual.html`. It is generated from the tables but committed, so a new
    weapon does not reach players on its own. See "Rebuild the guide" below.

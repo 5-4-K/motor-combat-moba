@@ -88,9 +88,11 @@ export const STATUS_TABLE = {
    *
    * 0.65 is the reciprocal of the old 1.55, so the turn radius widens by the factor it used to
    * narrow. The mirror value (0.45) was rejected: radius scales as `speed / turnRate`, so it nearly
-   * doubles the radius, and stacked with brake fade a 1.5s window of it starts doing Stunned's job
-   * — which is a 700ms `reapply: "ignore"` row precisely so hard CC cannot be chained. 0.65 also
-   * leaves headroom above `STATUS_LIMITS.turnRate.min` (0.4) for a harsher handling debuff later.
+   * doubles the radius, and stacked with brake fade a 1.5s window of it starts encroaching on
+   * Stunned's territory — the roster's only hard CC, currently applied at `thumper`'s 450ms (see
+   * `stunned`'s row below for why `reapply: "ignore"` does not by itself bound how strong that gets).
+   * 0.65 also leaves headroom above `STATUS_LIMITS.turnRate.min` (0.4) for a harsher handling debuff
+   * later.
    *
    * What would make this better is losing grip — a car that slides wide. The drive model cannot do
    * it: motion is welded to the heading (`x += cos(angle) * speed`), so there is no lateral velocity
@@ -120,10 +122,14 @@ export const STATUS_TABLE = {
    * through drag, because an instant stop at speed reads as hitting an invisible wall rather than as
    * being stunned. Injected ram spin still applies, so a stunned car that gets hit still tumbles.
    *
-   * Kept short, and `ignore` on top of that so it cannot be chained — it must run out before another
-   * can land, so two attackers cannot hold one car parked between them. Both of those are the price
-   * of a debuff with no counterplay gradient; if it ever needs to be stronger, the answer is a
-   * different status, not a longer stun.
+   * Kept short, and `ignore` on top of that — but `ignore` only blocks EXTENSION: a running stun
+   * cannot be refreshed or re-timed by a second landing hit, it just runs its course. It says
+   * nothing about how often a stun can restart. The real bound on a lock is the ratio of the
+   * applier's duration to its own cooldown, and that is the applier's responsibility, not this row's
+   * — `thumper` is the shipped example, at 450 ms against a 1000 ms cooldown (a 47% duty cycle,
+   * under the W7 playtest probe's 60% threshold). A duration long enough relative to its own
+   * cooldown can still hold a target parked solo; `ignore` does not prevent that on its own.
+   * If this ever needs to be stronger, the answer is a different status, not a longer stun.
    */
   stunned: {
     id: "stunned",

@@ -82,7 +82,7 @@ applyDamage(hp, amount) // max(0, hp - amount); a non-positive amount changes no
 ```
 
 Every damage source routes through it, so a later shield or damage cap is one edit. `hp === 0` sets
-`alive = false`; that is the wreck.
+`alive = false`. **There is no wreck**: the car leaves the field on that tick — see Elimination below.
 
 Two functions beside it complete the set, both added by the status system:
 
@@ -103,19 +103,38 @@ Every car carries an ordered list of weapons, `CAR_TABLE[car].weapons` — index
 order *is* the slot mapping, so a chassis's whole identity (speed, attack, hp, guns) lives in one
 table row. `WEAPON_SLOT_CONFIG.maxWeaponSlots` (3) caps how many slots any chassis may present; a
 car listing more logs one `console.warn` naming the car and truncates the extras, never a thrown
-error or a failed test. Today's roster ships three exclusive kits, one per chassis: Rectangle carries
-`["fireball", "pepperbox", "afterburner"]`, Oval carries `["splinter", "skewer", "lance"]`, and
-Hexagon carries `["thumper", "shockwave", "bulwark"]` — no weapon id appears on two chassis. See
+error or a failed test. Today's roster ships three exclusive kits, one per chassis, redistributed on
+2026-08-30 so each kit serves its chassis's **type**:
+
+| Chassis | Type | Slot 1 | Slot 2 | Slot 3 |
+|---|---|---|---|---|
+| **Bullseye** | moderate damage, long range | `needler` | `pepperbox` | `lance` |
+| **Mirage** | burst damage, high mobility | `fireball` | `shockwave` | `afterburner` |
+| **Bastion** | crowd control, slow and tanky | `thumper` | `skewer` | `bulwark` |
+
+No weapon id appears on two chassis (L1), and `weapon-slots.test.ts` enforces that — so moving a
+weapon between chassis means swapping a pair, never copying one. See
 [`config-reference.md`](config-reference.md) for the full table.
 
 To add one, see [Authoring a weapon](#authoring-a-weapon) below; the sections between here and there
 are the rules a weapon's stats are interpreted by.
 
-`splinter` is Oval's slot 1 and the table's only multi-stock weapon — three stocks, a 400 ms
+`needler` is Bullseye's slot 1 and the table's only multi-stock weapon — three stocks, a 300 ms
 recharge, carried into every match rather than sitting only in unit-test fixtures, so a stock bug now
-surfaces on screen rather than only in `fire.test.ts`.
+surfaces on screen rather than only in `fire.test.ts`. **Dumping the magazine buys timing, not
+damage:** `releaseShots` sets `rechargeEndsTick` only when it is 0, so the recharge starts at the
+*first* shot of a dump and runs concurrently with it. The pause after three darts is one refire gap
+(133 ms), and dumping converges on the same 73 DPS as tapping.
 
 ### Firing input
+
+**One shot per press.** `fireSlots` is raw key state on the wire, so a held trigger sets the same
+bit on every input. `serverTick` keeps a server-only `prevFireMasks` per player and counts only a
+newly-set bit as a press (`clean & ~prev`), advancing `prev` per input in sequence order so a
+release and re-press inside one tick's batch is two presses rather than one held key. Holding the
+trigger therefore fires exactly once; the player must release and press again. The edge is detected
+on the server, not the client, because a hand-rolled client could otherwise pulse the mask and buy
+back auto-fire — and the weapon cooldown still bounds the rate on top of it.
 
 `InputMessage.fireSlots` is a **uint8 bitmask** (bit 0 = slot 1), the successor to the old single
 `fire: boolean`. The server masks it to `maxWeaponSlots` bits and to the car's actual slot count
@@ -239,14 +258,16 @@ anything.
 Every fired shot is a **hitbox**, never hitscan. Two kinds:
 
 - **Projectile.** Travels in a straight line at `speed` from its frozen exit pose; dies at `range`,
-  on an obstacle, or outside the arena. A weapon's `volley` block (`volleys`, `volleyIntervalMs`,
-  `pelletsPerVolley`, `spreadAngleDeg`) composes burst and spread in one place: `pelletsPerVolley`
-  fans evenly and symmetrically about the car's heading and spawns on the same tick, each its own
-  instance with its own pierce budget; sequential `volleys` exit on their own ticks, each from the
-  car's pose *at that tick*. The burst holds the car's global fire lock for its whole duration — no
-  other slot may fire until the last shot lands and `recovery` elapses — and the slot's own recharge
-  starts at that **last** shot, so total downtime is burst duration + `cooldownMs`. Being wrecked
-  mid-burst cancels the remaining shots. A plain single shot is simply a volley of 1/0/1/0.
+  on an obstacle, or outside the arena. Burst and spread are **two blocks, not one**: `volley`
+  (`volleys`, `volleyIntervalMs`) lives on `WeaponBase` because a beam can burst too, and `pellets`
+  (`pelletsPerVolley`, `spreadAngleDeg`) lives on the projectile because a beam has no pellets to
+  fan. `pelletsPerVolley` fans evenly and symmetrically about the car's heading and spawns on the
+  same tick, each its own instance with its own pierce budget; sequential `volleys` exit on their own
+  ticks, each from the car's pose *at that tick*. The burst holds the car's global fire lock for its
+  whole duration — no other slot may fire until the last shot lands and `recovery` elapses — and the
+  slot's own recharge starts at that **last** shot, so total downtime is burst duration +
+  `cooldownMs`. Being wrecked mid-burst cancels the remaining shots. A plain single shot is a
+  `volley` of 1/0 and `pellets` of 1/0.
 - **Beam.** Grows from the muzzle at `speed` toward `range`, then **lingers** for `lifetimeMs`
   before vanishing in one tick — it never retracts — so total life is `range ÷ speed + lifetimeMs`;
   tuning `range` never silently changes how long a beam holds. Expansion is capped by a raycast down
@@ -258,11 +279,16 @@ Every fired shot is a **hitbox**, never hitscan. Two kinds:
   stamps the beam into the world at its fire-tick pose and it never moves again. An **attached** beam
   dies the instant its owner is wrecked — a wreck does not shoot — but a detached beam already
   stamped, and a projectile already in flight, finish their lives regardless: a shot already
-  committed does not un-commit because its owner didn't survive to see it land. Beams are
-  single-instance; `volley` does not apply to them.
+  committed does not un-commit because its owner didn't survive to see it land. **A beam is no longer
+  single-instance:** `VolleyDef` moved onto `WeaponBase` on 2026-08-30, so a press can schedule
+  several beam instances in sequence — `shockwave` is three aura waves 500 ms apart, each with its
+  own `spawnTick`, so each dies 250 ms after its *own* birth rather than all three ending together.
+  What a beam still has no use for is `PelletDef`, which stayed on projectiles; that is the line the
+  old four-field `VolleyDef` was split along.
 
 Four chassis slots ship beams (`afterburner` and `shockwave` attached, `lance` and `bulwark`
-detached), one ships a multi-pellet multi-volley burst (`pepperbox`), one ships `pierce` (`skewer`),
+detached), one ships a multi-wave press (`shockwave`), one ships a multi-pellet fan (`pepperbox`),
+one ships `pierce` (`skewer`),
 two ship a wind-up (`skewer`, `lance`), and six of the nine rows now carry `recoveryMs > 0` — none of
 this is theoretical any more, and all of it is reachable from a real match. But "shipped and carried"
 and "unit-tested by the weapon that carries it" are different claims, and several of these paths are
@@ -276,8 +302,12 @@ tests do and do not reach, exactly:
   because that borrowed row's `lifetimeMs` is 0, the expiry test still asserts `flight` alone: **no
   test exercises a non-zero linger**, even though all four shipped beams have one (150–2500 ms).
 - **Volleys.** Genuinely covered now: `weapons/fire.test.ts`'s "volleys and wind-up" block drives
-  `pepperbox`'s real 3-volley/2-pellet burst through `beginFire`/`releaseShots` tick by tick, rather
-  than hand-staging the `pending` a press would have produced.
+  `shockwave`'s real 3-wave press through `beginFire`/`releaseShots` tick by tick, rather than
+  hand-staging the `pending` a press would have produced. It took that role from `pepperbox`, which
+  T12 collapsed to a single volley of three pellets — a fan decided at the press has no burst path
+  left to exercise. The same block asserts a **beam** gets its volley count from the table rather
+  than the hardcoded 1 `beginFire` used to give every beam; until `shockwave` had more than one
+  volley those two were indistinguishable.
 - **Wind-up and the two clocks.** Also genuinely covered: `weapons/fire.test.ts`'s "the two lockouts"
   block drives `lance`'s real 700 ms `startUpMs` and 1000 ms `recoveryMs` through `beginFire` and
   `releaseShots`, including the same-weapon-in-two-slots case (`["lance", "lance"]`) that used to be
@@ -285,8 +315,8 @@ tests do and do not reach, exactly:
 - **The pellet fan.** Still only partially reached: `fanOffset` itself is tested directly and
   correctly, but `spawnInstances` — the function that actually turns `pelletsPerVolley` into multiple
   live instances — is still only ever driven with `fireball` in `weapons/instances.test.ts`. No test
-  calls `spawnInstances` with `pepperbox` to prove the wiring from its `pelletsPerVolley: 2` through
-  to two emitted pellets.
+  calls `spawnInstances` with `pepperbox` to prove the wiring from its `pelletsPerVolley: 3` through
+  to three emitted pellets.
 - **Pierce.** Also only partially reached: `hits.test.ts` tests the pierce-spending mechanism by
   hand-setting `pierceLeft` on a generic instance, and `instances.test.ts`'s only assertion that
   `spawnInstances` carries a weapon's `pierce` onto `pierceLeft` uses `fireball` (`pierce: 0`). No
@@ -296,8 +326,8 @@ tests do and do not reach, exactly:
   real match, but `hits.test.ts` only exercises `damageFrequencyMs: 0`'s arm-at-infinity behaviour,
   and `weapon-config.test.ts` / `weapon-ticks.test.ts` only pin the raw ms/tick values — no test
   drives an instance through a re-arm and a second hit on the same target.
-- **`splinter`.** Driven through `runCombat` for real (`combat.test.ts`, "drives splinter, the
-  table's only multi-stock weapon, through a real tick" — Oval's actual loadout, not a hand-built
+- **`needler`.** Driven through `runCombat` for real (`combat.test.ts`, "drives needler, the
+  table's only multi-stock weapon, through a real tick" — Bullseye's actual loadout, not a hand-built
   one), so the stock mechanic is no longer seen only in hand-built `FireState` literals.
 - **Drawing.** `instanceDrawShape`'s beam branch runs on every screen now — any of the four shipped
   beams reaches it in a live match. The client-side unit test in `combat-visual.test.ts` still
@@ -309,12 +339,19 @@ tests do and do not reach, exactly:
 
 Hitboxes are a nested tagged object on the weapon def — a cone cannot carry a circle's `radius`, nor
 a beam a projectile's `pierce` — with one hit-test path underneath: circle-vs-OBB is exact, and
-`ellipse` / `rect` / `cone` are converted to convex polygons at table-build time and run through the
+`ellipse` / `capsule` / `rect` / `cone` are converted to convex polygons at table-build time and run through the
 same SAT the car hulls already use.
 
 | Type | Shapes | Config |
 |---|---|---|
-| Projectile | `circle`, `ellipse` | `radius` / `radiusAlong` + `radiusAcross` |
+| Projectile | `circle`, `ellipse`, `capsule` | `radius` / `radiusAlong` + `radiusAcross` |
+
+A `capsule` is a slug: a semicircular nose of `radiusAcross`, and a tail cut flat across. It exists
+because a shot is drawn AS its hitbox (D19), so a weapon whose icon is a flat-backed capsule cannot
+be given that silhouette by the renderer alone — the shape has to be real, or what you see stops
+being what can hurt you. `radiusAlong` must be at least `radiusAcross`, or the nose cap reaches
+behind the tail and the polygon stops being convex; SAT does not reject a concave polygon, it
+silently answers the wrong question about it, so `weapon-config.test.ts` guards the ratio.
 | Beam | `rect`, `cone` | `width` / `angleDeg` |
 
 Each tick, a projectile is tested as the convex hull of its shape at its **previous and current**
@@ -354,7 +391,8 @@ predicate, used by every weapon instance:
 - **FFA:** anyone else. Teams are only seating.
 - **Team:** enemies only. A shot passes straight through a teammate and keeps going.
 
-A wreck is not a target: shots pass through it rather than being spent on it.
+A dead car is not a target: shots pass through it rather than being spent on it. It is not an
+obstacle either — see Elimination.
 
 One consequence worth knowing rather than fixing: the pose snapshot is built **once per tick**,
 before any instance resolves, so a car wrecked earlier in that same tick is still a contact for
@@ -386,10 +424,12 @@ row, which is the point.
 
 **2. Add the row** to `WEAPON_TABLE` in
 [`packages/shared/src/config/weapon-config.ts`](../packages/shared/src/config/weapon-config.ts).
-Copy `fireball` for a projectile; there is no beam in the table yet, so a beam starts from the
-`BeamWeaponDef` type. The union decides which fields you may write: `pierce` and `volley` exist only
-on a projectile, `attached` and `lifetimeMs` only on a beam, and writing the wrong one is a compile
-error rather than a silently ignored field.
+Copy `fireball` for a projectile or `bulwark` for a beam — four rows ship a beam now, so neither kind
+starts from the bare type any more. The union decides which fields you may write: `pierce` and
+`pellets` exist only on a projectile, `attached` and `lifetimeMs` only on a beam, and writing the
+wrong one is a compile error rather than a silently ignored field. **`volley` is on `WeaponBase` and
+so is required on both** — a beam may be a wave sequence (`shockwave` is three), and a single-shot
+row of either kind authors `{ volleys: 1, volleyIntervalMs: 0 }`.
 
 Every duration is **milliseconds**, converted once to ticks by `WEAPON_TICKS` — never write ticks.
 The row also carries `color`, the `#RRGGBB` every instance of the weapon draws in; pick one that is
@@ -430,10 +470,11 @@ fingerprints the tables and fails if the committed page predates them, so this s
 rather than remembered. Art is the exception: the page links `public/art/`, so an icon added later
 appears with no rebuild.
 
-**What to expect the first time.** No shipped weapon exercises a beam, a multi-pellet volley, a
-wind-up or a non-zero recovery in live play — those paths are covered by unit tests only (see the
-coverage list above). The first weapon that uses one is also that path's first real shakedown, so
-watch the HUD dim states and the instance count on the wire.
+**What to expect the first time.** Beams, multi-pellet fans, multi-wave presses, wind-ups and
+non-zero recovery are all reachable from a real match now, so none of them is a first shakedown any
+more — but several are still *tested* through a borrowed row rather than the weapon that carries
+them (see the coverage list above). Watch the HUD dim states and the instance count on the wire for
+anything your row is the first to combine.
 
 **If you are re-tuning `fireball` rather than adding a weapon**, expect tests to fail on purpose.
 Several read the real table at run time and hard-code numbers derived from it, so the suite is how
@@ -442,7 +483,7 @@ you find out which:
 | File | Why it breaks |
 |---|---|
 | `config/weapon-config.test.ts` | Pins `fireball`'s stats digit-for-digit — the migration's zero-balance-change guard |
-| `config/weapon-config.test.ts` | "keeps aim-assist weapons off the behavioural cliff" — `fireball`'s `cooldownMs` must stay outside ±15% of `1000 / AIM_CONFIG.lockTimeoutMs`. A 500 → 700ms nerf gives a sustained rate of 1.43 Hz against a 1.25 Hz cliff: `\|1.43 − 1.25\| / 1.25 = 0.143 < 0.15`, so the guard fires |
+| `config/weapon-config.test.ts` | "keeps aim-assist weapons off the behavioural cliff" — `fireball`'s `cooldownMs` must stay outside ±15% of `1000 / AIM_CONFIG.lockTimeoutMs`. A 550 → 700ms nerf gives a sustained rate of 1.43 Hz against a 1.25 Hz cliff: `\|1.43 − 1.25\| / 1.25 = 0.143 < 0.15`, so the guard fires |
 | `config/weapon-ticks.test.ts` | Pins the tick counts derived from them (`cooldown`, `flight`) |
 | `sim/weapons/fire.test.ts` | Simulates recharge tick-by-tick across a hard-coded window |
 | `sim/weapons/instances.test.ts` | Beam tests still borrow `weaponId: "fireball"` for its range rather than a real beam row — see the coverage list above |
@@ -519,6 +560,50 @@ Two consequences worth knowing. `applyStatus` takes an explicit `durationTicks` 
 non-positive one outright rather than clamping — a duration of zero means the applier is
 misconfigured. And `startTick` is networked, because with the total no longer in the table it is the
 only way a reader can know it: the HUD's drain bar is `(endsTick - tick) / (endsTick - startTick)`.
+
+A third consequence carries the roster's whole CC design. **Per-chassis CC duration needs no new
+mechanism** — the applier owns the duration and kits are exclusive, so "Mirage's CC is short,
+Bastion's is long" falls out of authoring each weapon's `durationMs`, with no `statusDuration`
+channel and no per-chassis resistance stat.
+
+### Who applies what
+
+Five of the six rows are reachable from a weapon; the sixth is waiting on pickups.
+
+| Status | Applied by | Chassis | For |
+|---|---|---|---|
+| `overheated` | `afterburner` | Mirage | 1.5 s |
+| `corroded` | `shockwave`, **wave 3 only** | Mirage | 2.5 s |
+| `stunned` | `thumper` | Bastion | 0.9 s |
+| `spiked` | `bulwark` | Bastion | 3 s |
+| `fortified` | `bulwark`, **self** | Bastion | 4.5 s |
+| `overhauled` | nothing — still the pickup row | — | — |
+
+**Bullseye applies nothing at all.** `needler` lost `spiked` on 2026-08-30 so the skirmisher's spam
+weapon would stop being a debuff applicator, and hard CC moved to Bastion, where Type 3's identity
+lives: `stunned` came off `shockwave` and onto `thumper` when `shockwave` moved to Mirage.
+
+### `onWave` — a status that rides one wave of a press
+
+`StatusApplication.onWave` is `"all" | "final"`, and **absent means `"all"`**, so every row written
+before it existed behaves exactly as it did. `shockwave` is the only user: `corroded` lands on the
+third wave only. Without the gate, `refresh` would hand the full duration to whichever wave connected
+first and make the other two free — the first two waves are the commitment and the debuff is the
+payoff for the target still being there at the end.
+
+The wave a shot belongs to is carried exactly the way `damage` and `ownerTeam` are — **frozen at
+spawn, sim-only, never networked.** `ShotOrder` carries `weaponId`, `slot`, and `finalVolley`
+(`releaseShots` already knows it: `finalVolley === (pending.shotsLeft === 1)`); there is no
+`volleyIndex` field — it was considered and deliberately not added, since `onWave` is only
+`"all" | "final"` and an index would have no consumer. `spawnInstances` freezes `finalVolley` onto
+`WeaponInstance.finalWave`, and `applyOpponentStatuses` / `applySelfStatuses` skip `onWave: "final"`
+entries when it is false. **No schema field was added and the client needed no change** — it already
+draws instances by `weaponId` and hitbox. Invariant 8 holds because nothing new that `stepSim` reads
+crosses the wire.
+
+Cooldown and recovery still start from the **last** volley, so `cooldownMs` means "time until another
+press" rather than partly serving its own wave sequence, and a car wrecked mid-sequence loses the
+remaining waves (`cancelPending`).
 
 ### Per-tick order
 
@@ -618,9 +703,14 @@ lingers, and already re-applies on the per-target damage clock. Three things are
 An aura aimed at opponents needs **no change to `canDamage`** — it already refuses the owner, so a car
 never touches its own field.
 
-`shockwave` is the shipped aura. It was a 140° forward cone and is now a 360° ring at the same radius,
-which is a real buff to Hexagon's slot 2: a chassis that cannot disengage no longer has to face its
-attacker to answer them. That is the first thing to re-tune from play.
+`shockwave` is the shipped aura, and since 2026-08-30 it is **Mirage's slot 2** rather than the
+tank's. It was a 140° forward cone and is now a 360° ring at the same 150-unit radius, so it reaches
+behind the car as well: on the roster's fastest chassis that rewards driving *through* a fight rather
+than facing it, which is the shape Mirage already wants. It is also the table's only **multi-wave**
+row — one press schedules three separate aura instances 500 ms apart, 45 damage each, and because
+`damageFrequencyMs: 0` means one hit per car *per instance*, the same car can be caught three times.
+That is why per-wave damage had to fall from 100 to 45. The extra arc is still the first thing to
+re-tune from play.
 
 ### What is networked, and why all of it
 
@@ -654,8 +744,18 @@ for how long, and what that status does, derived from `STATUS_TABLE` itself so i
 
 ## Elimination and winning
 
-- HP reaches 0 → `alive = false`. The wreck stays on the field and stays **solid** — it is still an
-  obstacle to everyone — and stops firing and being shot.
+- HP reaches 0 → `alive = false`, and the car **leaves the field on that tick**. `isOnField` reads
+  `alive` as well as `status`, and that single predicate gates all three of: being simulated (so
+  the car freezes at the pose it died on), being solid (so it is intangible immediately), and being
+  a ram participant. It stops firing and being shot as it always did.
+- **There is no wreck.** Until 2026-08-30 a dead car stayed `IN_MATCH` and so stayed a collision
+  hull — solid to driving but transparent to combat — parked on the field for the rest of the match.
+  It now fades out on the client over `DEATH_FADE_MS` (1 s) from the networked `diedAtTick`, and is
+  then not drawn at all. The fade is render-only; the car is already gone from the sim before the
+  first frame of it.
+- `diedAtTick` is networked rather than derived from `alive` flipping, so a spectator or a late
+  joiner — neither of whom saw the transition — fades it correctly instead of drawing a corpse
+  forever.
 - After damage each tick, `livingSides(mode, roster)` counts the living sides. `sides <= 1` ends the
   match through the same `endMatch` a disconnect uses. FFA names a `winnerSessionId`; team mode names
   a `winnerTeam`; zero living sides is a draw (`-1`, `""`), which a mutual head-on kill can produce.
@@ -706,8 +806,9 @@ use different, deliberately distinguishable dims so "you don't have this yet" ca
 for "back in a few seconds." See [`asset-pipeline.md`](asset-pipeline.md) for how a slot's icon
 resolves and its procedural fallback.
 
-Four chassis slots carry a beam (`afterburner`, `shockwave`, `lance`, `bulwark`) and one carries a
-multi-pellet, multi-volley weapon (`pepperbox`), so the beam half of the drawing code above runs in
+Four chassis slots carry a beam (`afterburner`, `shockwave`, `lance`, `bulwark`), one of those is a
+three-wave press (`shockwave`) and one projectile is a multi-pellet fan (`pepperbox`), so the beam
+half of the drawing code above runs in
 every live match now: `instanceDrawShape` branches on the weapon definition's own `kind`, and a
 `beam` definition is reachable the moment any of those four fires. What the *tests* for that branch
 do and do not reach is narrower than what play reaches — see the coverage list under

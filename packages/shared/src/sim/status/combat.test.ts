@@ -39,7 +39,7 @@ function world(over: Partial<CombatWorld> = {}): CombatWorld {
 }
 
 function player(sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlayer {
-  const carId = over.carId ?? "rectangle";
+  const carId = over.carId ?? "mirage";
   return {
     sessionId,
     x: 300,
@@ -47,11 +47,11 @@ function player(sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlay
     angle: 0,
     team: 0,
     carId,
-    hp: hpOf(carId as "rectangle"),
+    hp: hpOf(carId as "mirage"),
     alive: true,
     inRoster: true,
     fireMask: 0,
-    fireState: newFireState(carId as "rectangle", 1),
+    fireState: newFireState(carId as "mirage", 1),
     lock: newLockState(),
     statuses: [],
     ...over,
@@ -86,7 +86,7 @@ describe("status pulses", () => {
   it("removes hp on the pulse tick and not before", () => {
     const interval = statusPulseTicksOf("spiked");
     const damage = statusDefOf("spiked").pulse!.damage!;
-    const full = hpOf("rectangle");
+    const full = hpOf("mirage");
 
     const before = runCombat({
       world: world({ tick: 100 + interval - 1 }),
@@ -108,11 +108,11 @@ describe("status pulses", () => {
   it("restores hp for a healing status, capped at the chassis maximum", () => {
     const interval = statusPulseTicksOf("fortified");
     const heal = statusDefOf("fortified").pulse!.heal!;
-    const full = hpOf("hexagon");
+    const full = hpOf("bastion");
 
     const hurt = runCombat({
       world: world({ tick: 100 + interval }),
-      players: [player("aaa", { carId: "hexagon", hp: 100, statuses: live("fortified", 100, 400) })],
+      players: [player("aaa", { carId: "bastion", hp: 100, statuses: live("fortified", 100, 400) })],
       instances: [],
       instanceSeq: 0,
     });
@@ -120,7 +120,7 @@ describe("status pulses", () => {
 
     const nearlyFull = runCombat({
       world: world({ tick: 100 + interval }),
-      players: [player("aaa", { carId: "hexagon", hp: full - 1, statuses: live("fortified", 100, 400) })],
+      players: [player("aaa", { carId: "bastion", hp: full - 1, statuses: live("fortified", 100, 400) })],
       instances: [],
       instanceSeq: 0,
     });
@@ -238,8 +238,11 @@ describe("weapons apply statuses", () => {
     ];
   }
 
-  it("splinter spikes what it hits, for its own authored duration", () => {
-    const shooter = { carId: "oval" as const, fireState: newFireState("oval", 1) };
+  it("thumper stuns what it hits, for its own authored duration", () => {
+    // T16 moved hard CC onto Bastion's slot 1 and took `spiked` off `needler` entirely, so the
+    // projectile-lands-a-debuff seam is exercised here rather than through the skirmisher's spam
+    // weapon. `thumper` is slow (450 u/s), so this needs more ticks of flight than `needler` did.
+    const shooter = { carId: "bastion" as const, fireState: newFireState("bastion", 1) };
     let state = runCombat({
       world: world(),
       players: duel(shooter),
@@ -249,14 +252,14 @@ describe("weapons apply statuses", () => {
     state = advance(state, 100, 10);
 
     const hit = find(state.players, "bbb");
-    expect(hit.hp).toBeLessThan(hpOf("rectangle"));
-    expect(hasStatus(hit.statuses, "spiked", 110)).toBe(true);
+    expect(hit.hp).toBeLessThan(hpOf("mirage"));
+    expect(hasStatus(hit.statuses, "stunned", 110)).toBe(true);
     // The shooter is the source, and never a target of its own opponent-facing application.
     expect(hit.statuses[0]!.sourceSessionId).toBe("aaa");
     expect(find(state.players, "aaa").statuses).toHaveLength(0);
 
     const applied = hit.statuses[0]!;
-    expect(applied.endsTick - applied.startTick).toBe(weaponTicksOf("splinter").applyDurations[0]);
+    expect(applied.endsTick - applied.startTick).toBe(weaponTicksOf("thumper").applyDurations[0]);
   });
 
   it("bulwark fortifies the car that deployed it, whether or not it catches anyone", () => {
@@ -264,7 +267,7 @@ describe("weapons apply statuses", () => {
     const result = runCombat({
       world: world(),
       players: [
-        player("aaa", { carId: "hexagon", fireState: newFireState("hexagon", 1), fireMask: 0b100 }),
+        player("aaa", { carId: "bastion", fireState: newFireState("bastion", 1), fireMask: 0b100 }),
       ],
       instances: [],
       instanceSeq: 0,
@@ -280,7 +283,7 @@ describe("weapons apply statuses", () => {
     const first = runCombat({
       world: world(),
       players: [
-        player("aaa", { carId: "hexagon", fireState: newFireState("hexagon", 1), fireMask: 0b100 }),
+        player("aaa", { carId: "bastion", fireState: newFireState("bastion", 1), fireMask: 0b100 }),
       ],
       instances: [],
       instanceSeq: 0,
@@ -302,7 +305,7 @@ describe("weapons apply statuses", () => {
     let state = runCombat({
       world: world({ mode: "team" }),
       players: [
-        player("aaa", { carId: "oval", fireState: newFireState("oval", 1), fireMask: 0b001, x: 300 }),
+        player("aaa", { carId: "bullseye", fireState: newFireState("bullseye", 1), fireMask: 0b001, x: 300 }),
         player("bbb", { x: 360, team: 0 }),
       ],
       instances: [],
@@ -331,10 +334,11 @@ describe("weapons apply statuses", () => {
   });
 
   it("`disarmed` lets a press already committed finish", () => {
-    // `skewer` has a wind-up, so a press on tick 100 is still pending on 101.
+    // `skewer` has a wind-up, so a press on tick 100 is still pending on 101. It is Bastion's
+    // slot 2 since T17.
     const pressed = runCombat({
       world: world(),
-      players: [player("aaa", { carId: "oval", fireState: newFireState("oval", 1), fireMask: 0b010 })],
+      players: [player("aaa", { carId: "bastion", fireState: newFireState("bastion", 1), fireMask: 0b010 })],
       instances: [],
       instanceSeq: 0,
     });
@@ -358,14 +362,14 @@ describe("weapons apply statuses", () => {
       let state = runCombat({
         world: world(),
         players: [
-          player("aaa", { carId: "oval", fireState: newFireState("oval", 1), fireMask: 0b001, x: 300 }),
+          player("aaa", { carId: "bullseye", fireState: newFireState("bullseye", 1), fireMask: 0b001, x: 300 }),
           player("bbb", { x: 360, team: 1, statuses }),
         ],
         instances: [],
         instanceSeq: 0,
       });
       state = advance(state, 100, 10);
-      return hpOf("rectangle") - find(state.players, "bbb").hp;
+      return hpOf("mirage") - find(state.players, "bbb").hp;
     };
     const plain = land([]);
     expect(plain).toBeGreaterThan(0);
@@ -397,7 +401,7 @@ describe("the aura", () => {
     let state = runCombat({
       world: world(),
       players: [
-        player("aaa", { carId: "hexagon", fireState: newFireState("hexagon", 1), fireMask: 0b010, x: 400, angle: 0 }),
+        player("aaa", { carId: "mirage", fireState: newFireState("mirage", 1), fireMask: 0b010, x: 400, angle: 0 }),
         player("bbb", { x: 340, team: 1 }),
       ],
       instances: [],
@@ -406,15 +410,26 @@ describe("the aura", () => {
     state = advance(state, 100, 6);
 
     const behind = find(state.players, "bbb");
-    expect(behind.hp).toBeLessThan(hpOf("rectangle"));
-    expect(hasStatus(behind.statuses, "stunned", 106)).toBe(true);
+    const afterWaveOne = behind.hp;
+    expect(afterWaveOne).toBeLessThan(hpOf("mirage"));
+    // The debuff rides `onWave: "final"`, so wave 1 hurts and applies nothing. Asserting the
+    // absence here is what keeps `onWave` from silently degrading back to "all".
+    expect(behind.statuses).toHaveLength(0);
+
+    // Waves 2 and 3 land at ticks 115 and 130 (a 500ms == 15-tick interval). Only the third
+    // corrodes, and by then the target has taken all three.
+    state = advance(state, 106, 30);
+    const soaked = find(state.players, "bbb");
+    expect(soaked.hp).toBeLessThan(afterWaveOne);
+    expect(hasStatus(soaked.statuses, "corroded", 136)).toBe(true);
+    expect(soaked.statuses.some((s) => s.statusId === "stunned")).toBe(false); // the stun is thumper's
   });
 
   it("spawns concentric with the car rather than at its nose", () => {
     const result = runCombat({
       world: world(),
       players: [
-        player("aaa", { carId: "hexagon", fireState: newFireState("hexagon", 1), fireMask: 0b010, x: 400, y: OPEN_Y }),
+        player("aaa", { carId: "mirage", fireState: newFireState("mirage", 1), fireMask: 0b010, x: 400, y: OPEN_Y }),
       ],
       instances: [],
       instanceSeq: 0,
@@ -430,14 +445,14 @@ describe("the aura", () => {
     let state = runCombat({
       world: world(),
       players: [
-        player("aaa", { carId: "hexagon", fireState: newFireState("hexagon", 1), fireMask: 0b010, x: 400 }),
+        player("aaa", { carId: "mirage", fireState: newFireState("mirage", 1), fireMask: 0b010, x: 400 }),
       ],
       instances: [],
       instanceSeq: 0,
     });
     state = advance(state, 100, 6);
     const caster = find(state.players, "aaa");
-    expect(caster.hp).toBe(hpOf("hexagon"));
+    expect(caster.hp).toBe(hpOf("mirage"));
     expect(caster.statuses).toHaveLength(0);
   });
 
@@ -445,7 +460,7 @@ describe("the aura", () => {
     let state = runCombat({
       world: world(),
       players: [
-        player("aaa", { carId: "hexagon", fireState: newFireState("hexagon", 1), fireMask: 0b010, x: 400 }),
+        player("aaa", { carId: "mirage", fireState: newFireState("mirage", 1), fireMask: 0b010, x: 400 }),
       ],
       instances: [],
       instanceSeq: 0,
@@ -464,7 +479,7 @@ describe("the aura", () => {
     let state = runCombat({
       world: world(),
       players: [
-        player("aaa", { carId: "hexagon", fireState: newFireState("hexagon", 1), fireMask: 0b010, x: 400 }),
+        player("aaa", { carId: "mirage", fireState: newFireState("mirage", 1), fireMask: 0b010, x: 400 }),
       ],
       instances: [],
       instanceSeq: 0,

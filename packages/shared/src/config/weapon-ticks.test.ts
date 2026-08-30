@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TICK_RATE_HZ } from "../constants.js";
 import { WEAPON_TABLE } from "./weapon-config.js";
+import type { WeaponId } from "./weapon-types.js";
 import { WEAPON_TICKS, msToTicks, weaponTicksOf } from "./weapon-ticks.js";
 
 describe("msToTicks", () => {
@@ -20,7 +21,9 @@ describe("msToTicks", () => {
 describe("WEAPON_TICKS", () => {
   it("derives the fireball's clocks from its milliseconds", () => {
     const ticks = weaponTicksOf("fireball");
-    expect(ticks.cooldown).toBe(15); // 500ms at 30Hz — the old fireCooldownTicks()
+    // 550ms at 30Hz is 16.5, rounded UP to 17 so the authored cooldown is never shorter than
+    // written. It was 15 at the 500ms this row shipped with, before T14's +10%.
+    expect(ticks.cooldown).toBe(60);
     expect(ticks.startUp).toBe(0);
     expect(ticks.recovery).toBe(0);
     expect(ticks.refireDelay).toBe(0); // no stock block
@@ -40,5 +43,12 @@ describe("WEAPON_TICKS", () => {
       expect(WEAPON_TICKS[id as keyof typeof WEAPON_TABLE]).toBeDefined();
     }
     expect(Object.isFrozen(WEAPON_TICKS)).toBe(true);
+  });
+
+  it("converts volleyInterval for beams as well as projectiles", () => {
+    for (const id of Object.keys(WEAPON_TABLE) as WeaponId[]) {
+      const def = WEAPON_TABLE[id];
+      expect(weaponTicksOf(id).volleyInterval).toBe(msToTicks(def.volley.volleyIntervalMs));
+    }
   });
 });

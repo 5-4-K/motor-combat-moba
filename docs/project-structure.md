@@ -21,7 +21,9 @@ motor-combat-MOBA/
 │   ├── index.ts                  # the package's whole public surface
 │   ├── constants.ts              # TICK_RATE_HZ, enums, MAX_PLAYERS
 │   ├── config/                   # car, color, weapon, combat, drive/camera, flow, net tables
-│   │   ├── weapon-types.ts       # WeaponDef discriminated union, StockDef, VolleyDef, Hitbox
+│   │   ├── car-config.ts         # CAR_TABLE, DEFAULT_CAR_ID, the derived stats, ChassisDrive/driveOf
+│   │   ├── drive-config.ts       # DRIVE_CONFIG (base + per-rating scales), CAMERA_CONFIG
+│   │   ├── weapon-types.ts       # WeaponDef union, StockDef, VolleyDef (base) / PelletDef (projectile), Hitbox, StatusApplication.onWave
 │   │   ├── weapon-config.ts      # WEAPON_TABLE
 │   │   ├── weapon-slots.ts       # WEAPON_SLOT_CONFIG, slotsOf (loadout, capped and warned)
 │   │   ├── weapon-ticks.ts       # WEAPON_TICKS: ms -> ticks, derived and frozen once; scaleTicks
@@ -41,7 +43,7 @@ motor-combat-MOBA/
 │   ├── flow/                     # match-flow reducer, spawn assignment, livingSides
 │   └── sim/
 │       ├── step.ts               # stepSim: the lockstep (drive, then resolve)
-│       ├── drive.ts              # arcade drive model
+│       ├── drive.ts              # arcade drive model; takes a resolved ChassisDrive, never a CarId
 │       ├── collide.ts            # SAT, MTV, bounds clamp, point tests
 │       ├── context.ts            # StepContext parts both sides must share
 │       ├── combat.ts             # runCombat: one tick of combat, pure

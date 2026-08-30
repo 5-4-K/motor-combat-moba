@@ -3,9 +3,11 @@ import {
   CAR_TABLE,
   DRIVE_CONFIG,
   TICK_RATE_HZ,
+  accelOf,
   forwardMaxSpeedOf,
   hpOf,
   reverseMaxSpeedOf,
+  turnRateOf,
   weaponDamageOf,
   weaponDefOf,
   type CarId,
@@ -21,48 +23,75 @@ const state = (over = {}) => ({
 
 describe("fullStatsFor", () => {
   it("derives every row from the shared config, never from hardcoded numbers", () => {
-    const rows = fullStatsFor("rectangle");
+    const rows = fullStatsFor("mirage");
     const byLabel = Object.fromEntries(rows.map((r) => [r.label, r.value]));
-    expect(byLabel["Top speed"]).toBe(`${forwardMaxSpeedOf("rectangle")} u/s`);
-    expect(byLabel["Hull HP"]).toBe(String(hpOf("rectangle")));
+    expect(byLabel["Top speed"]).toBe(`${forwardMaxSpeedOf("mirage")} u/s`);
+    expect(byLabel["Hull HP"]).toBe(String(hpOf("mirage")));
   });
 
-  it("reports Rectangle's top speed straight from the shared config", () => {
+  it("reports Mirage's top speed straight from the shared config", () => {
     // Derived rather than pinned to a literal: these rows exist to mirror DRIVE_CONFIG, so a
     // hardcoded number here fails every tuning pass without ever catching a real display bug.
-    expect(fullStatsFor("rectangle").find((r) => r.label === "Top speed")?.value).toBe(
-      `${forwardMaxSpeedOf("rectangle")} u/s`,
+    expect(fullStatsFor("mirage").find((r) => r.label === "Top speed")?.value).toBe(
+      `${forwardMaxSpeedOf("mirage")} u/s`,
     );
   });
 
   it("scales reverse speed by the configured ratio", () => {
-    expect(fullStatsFor("rectangle").find((r) => r.label === "Reverse speed")?.value).toBe(
-      `${reverseMaxSpeedOf("rectangle")} u/s`,
+    // Rounded to match the panel's own `trim` (one decimal, no float noise): mirage's reverse speed
+    // is now 576 * 0.65 = 374.4, which IEEE-754 represents as 374.40000000000003 — a raw
+    // string-interpolation of the float would fail against the panel's trimmed display.
+    expect(fullStatsFor("mirage").find((r) => r.label === "Reverse speed")?.value).toBe(
+      `${Math.round(reverseMaxSpeedOf("mirage") * 100) / 100} u/s`,
     );
-    expect(reverseMaxSpeedOf("rectangle")).toBeCloseTo(
-      forwardMaxSpeedOf("rectangle") * DRIVE_CONFIG.reverseSpeedRatio,
+    expect(reverseMaxSpeedOf("mirage")).toBeCloseTo(
+      forwardMaxSpeedOf("mirage") * DRIVE_CONFIG.reverseSpeedRatio,
       9,
     );
   });
 
+  it("derives acceleration, turn rate and turn radius from the shared config, per car", () => {
+    // The panel rounds to at most one decimal for display, so parse the number back out rather
+    // than string-matching the raw float (turnRateOf can land on 4.199999999999999).
+    for (const id of Object.keys(CAR_TABLE) as CarId[]) {
+      const rows = fullStatsFor(id);
+      const accelRow = rows.find((r) => r.label === "Acceleration")!;
+      expect(accelRow.value.endsWith(" u/s²")).toBe(true);
+      expect(Number(accelRow.value.replace(" u/s²", ""))).toBeCloseTo(accelOf(id), 1);
+
+      const turnRateRow = rows.find((r) => r.label === "Turn rate")!;
+      expect(turnRateRow.value.endsWith(" rad/s")).toBe(true);
+      expect(Number(turnRateRow.value.replace(" rad/s", ""))).toBeCloseTo(turnRateOf(id), 1);
+
+      const turnRadiusRow = rows.find((r) => r.label === "Turn radius")!;
+      expect(turnRadiusRow.value.endsWith(" u")).toBe(true);
+      expect(Number(turnRadiusRow.value.replace(" u", ""))).toBeCloseTo(
+        forwardMaxSpeedOf(id) / turnRateOf(id),
+        1,
+      );
+    }
+  });
+
   it("lists the design's rows plus one damage row per equipped weapon, in order", () => {
-    expect(fullStatsFor("hexagon").map((r) => r.label)).toEqual([
+    expect(fullStatsFor("bastion").map((r) => r.label)).toEqual([
       "Top speed",
       "Reverse speed",
+      "Acceleration",
       "Turn rate",
+      "Turn radius",
       "Hull HP",
       "Mass",
       "Hull size",
       "Thumper damage",
-      "Shockwave damage",
+      "Skewer damage",
       "Bulwark damage",
     ]);
   });
 
   it("gives each car its own numbers", () => {
-    const speed = (id: "rectangle" | "oval" | "hexagon") =>
+    const speed = (id: "mirage" | "bullseye" | "bastion") =>
       fullStatsFor(id).find((r) => r.label === "Top speed")?.value;
-    expect(new Set([speed("rectangle"), speed("oval"), speed("hexagon")]).size).toBe(3);
+    expect(new Set([speed("mirage"), speed("bullseye"), speed("bastion")]).size).toBe(3);
   });
 
   it("shows each chassis's own damage for every weapon it carries", () => {
@@ -71,9 +100,9 @@ describe("fullStatsFor", () => {
     // Task 5's rewire each chassis's slot-1 weapon is its own id (no shared "Fireball damage" row
     // across all three any more), so this pins each chassis's actual opener by label AND value.
     const expected: Record<keyof typeof CAR_TABLE, { label: string; value: string }> = {
-      rectangle: { label: "Fireball damage", value: "40" },
-      oval: { label: "Splinter damage", value: "36" },
-      hexagon: { label: "Thumper damage", value: "75" },
+      mirage: { label: "Fireball damage", value: "57" },
+      bullseye: { label: "Needler damage", value: "23" },
+      bastion: { label: "Thumper damage", value: "55" },
     };
     for (const id of Object.keys(CAR_TABLE) as (keyof typeof CAR_TABLE)[]) {
       const row = fullStatsFor(id).find((r) => r.label === expected[id].label);
@@ -98,66 +127,66 @@ describe("fullStatsFor", () => {
   });
 
   it("still reports the hull HP the sim actually gives the car", () => {
-    expect(fullStatsFor("hexagon").find((r) => r.label === "Hull HP")!.value).toBe("700");
+    expect(fullStatsFor("bastion").find((r) => r.label === "Hull HP")!.value).toBe("820");
   });
 
   it("shows mass among the full stats", () => {
-    const rows = fullStatsFor("hexagon");
+    const rows = fullStatsFor("bastion");
     const mass = rows.find((r) => r.label === "Mass");
-    expect(mass?.value).toBe("850");
+    expect(mass?.value).toBe("900");
   });
 
   it("shows a heavier mass for the tank than the speedster", () => {
     const of = (id: CarId) => fullStatsFor(id).find((r) => r.label === "Mass")!.value;
-    expect(Number(of("hexagon"))).toBeGreaterThan(Number(of("rectangle")));
+    expect(Number(of("bastion"))).toBeGreaterThan(Number(of("mirage")));
   });
 });
 
 describe("carSelectView", () => {
   it("offers every car in CAR_TABLE", () => {
-    const view = carSelectView(state(), "rectangle", false);
+    const view = carSelectView(state(), "mirage", false);
     expect(view.cars.map((c) => c.id)).toEqual(Object.keys(CAR_TABLE));
   });
 
   it("marks only the selected card", () => {
-    const view = carSelectView(state(), "oval", false);
-    expect(view.cars.filter((c) => c.selected).map((c) => c.id)).toEqual(["oval"]);
+    const view = carSelectView(state(), "bullseye", false);
+    expect(view.cars.filter((c) => c.selected).map((c) => c.id)).toEqual(["bullseye"]);
   });
 
   it("carries each bar's rating verbatim, already on a 0-100 scale", () => {
-    const rect = carSelectView(state(), "rectangle", false).cars[0];
+    const rect = carSelectView(state(), "mirage", false).cars[0];
     const speedBar = rect?.bars.find((b) => b.key === "speed");
-    expect(speedBar?.percent).toBe(CAR_TABLE.rectangle.speed);
+    expect(speedBar?.percent).toBe(CAR_TABLE.mirage.speed);
   });
 
   it("carries the three summary bars the card shows", () => {
-    const rect = carSelectView(state(), "rectangle", false).cars[0];
+    const rect = carSelectView(state(), "mirage", false).cars[0];
     expect(rect?.bars.map((b) => b.key)).toEqual(CAR_BARS);
   });
 
   it("titles the stats panel with the selected car", () => {
-    expect(carSelectView(state(), "hexagon", false).selectedName).toBe("Hexagon");
+    expect(carSelectView(state(), "bastion", false).selectedName).toBe("Bastion");
   });
 
   it("counts the deadline down and turns urgent at ten seconds", () => {
-    expect(carSelectView(state(), "rectangle", false).urgent).toBe(false);
-    const late = carSelectView(state({ tick: 51 * TICK_RATE_HZ }), "rectangle", false);
+    expect(carSelectView(state(), "mirage", false).urgent).toBe(false);
+    const late = carSelectView(state({ tick: 51 * TICK_RATE_HZ }), "mirage", false);
     expect(late.secondsLeft).toBe(9);
     expect(late.urgent).toBe(true);
   });
 
   it("formats the clock as m:ss", () => {
-    expect(carSelectView(state(), "rectangle", false).clock).toBe("1:00");
-    expect(carSelectView(state({ tick: 13 * TICK_RATE_HZ }), "rectangle", false).clock).toBe("0:47");
+    expect(carSelectView(state(), "mirage", false).clock).toBe("1:00");
+    expect(carSelectView(state({ tick: 13 * TICK_RATE_HZ }), "mirage", false).clock).toBe("0:47");
   });
 
   it("disables locking in once the pick is committed", () => {
-    expect(carSelectView(state(), "rectangle", false).canLockIn).toBe(true);
-    expect(carSelectView(state(), "rectangle", true).canLockIn).toBe(false);
+    expect(carSelectView(state(), "mirage", false).canLockIn).toBe(true);
+    expect(carSelectView(state(), "mirage", true).canLockIn).toBe(false);
   });
 
   it("says so when the pick is already locked", () => {
-    expect(carSelectView(state(), "rectangle", true).lockLabel).toBe("Locked in");
-    expect(carSelectView(state(), "rectangle", false).lockLabel).toBe("Lock in");
+    expect(carSelectView(state(), "mirage", true).lockLabel).toBe("Locked in");
+    expect(carSelectView(state(), "mirage", false).lockLabel).toBe("Lock in");
   });
 });

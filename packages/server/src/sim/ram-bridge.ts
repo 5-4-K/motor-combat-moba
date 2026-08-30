@@ -101,7 +101,7 @@ export function ramTick(
     const player = state.players.get(knock.sessionId);
     if (!player) continue;
     // `applyRams` only ever picks the hardest knock WITHIN one tick — it says nothing about a knock
-    // arriving on top of one still standing from an EARLIER tick. Without this guard: a hexagon rams
+    // arriving on top of one still standing from an EARLIER tick. Without this guard: a bastion rams
     // a victim at full severity (authority drops to 0.35), and five ticks later, still mid-knock, a
     // third car barely taps the same victim just above `minApproachSpeed` (severity near zero,
     // authority near 1.0). Writing that knock unconditionally would overwrite the 0.35 with ~1.0 and

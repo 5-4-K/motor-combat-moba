@@ -23,25 +23,65 @@ Canonical sim rate is `TICK_RATE_HZ` in `@motor-combat-moba/shared`. Patch rate 
 
 ## CAR_TABLE
 
-| id | name | speed | attack | hp | mass | weapons |
-|---|---|---|---|---|---|---|
-| `rectangle` | Rectangle | 80 | 30 | 40 | 35 | `["fireball", "pepperbox", "afterburner"]` |
-| `oval` | Oval | 50 | 70 | 30 | 45 | `["splinter", "skewer", "lance"]` |
-| `hexagon` | Hexagon | 30 | 50 | 70 | 85 | `["thumper", "shockwave", "bulwark"]` |
+| id | name | speed | accel | handling | attack | hp | mass | weapons |
+|---|---|---|---|---|---|---|---|---|
+| `mirage` | Mirage | 88 | 85 | 50 | 63 | 48 | 48 | `["fireball", "shockwave", "afterburner"]` |
+| `bullseye` | Bullseye | 52 | 45 | 28 | 55 | 30 | 30 | `["needler", "pepperbox", "lance"]` |
+| `bastion` | Bastion | 30 | 20 | 82 | 42 | 82 | 90 | `["thumper", "skewer", "bulwark"]` |
 
-Ratings are integers 0-100 with 50 as average. `speed`/`attack`/`hp` used to be held to a 150-point
-budget across the three — the roster's only automatic guard against a fourth chassis being authored
-strictly better than these three. That budget was **deliberately deleted on 2026-08-29** so `mass`
-could be a free-floating fourth rating (see [`combat-model.md`](combat-model.md#ramming)), and no
-replacement guard was adopted. `config.test.ts` still checks the 0-100 range on all four ratings,
-`mass` included, but nothing checks their sum. Roster fairness is a review-time judgement from here
-on.
+`DEFAULT_CAR_ID` is `mirage` — the chassis anyone with no valid `carId` drives, so server tick and
+client prediction must agree on it.
 
-Derived: `hpOf` = hp × `COMBAT_CONFIG.hpPerRating` (400 / 300 / 700). `forwardMaxSpeedOf` =
-`baseMaxSpeed` + speed × `speedPerRating` (540 / 405 / 315 u/s). `reverseMaxSpeedOf` = forward ×
-`reverseSpeedRatio`. `weaponDamageOf(carId, weaponId)` = `damageFor(attack, weapon.damage)` — a
-fireball is 40 / 60 / 50 depending on who fires it. `massOf` = mass × `RAM_CONFIG.massPerRating`
-(350 / 450 / 850) — affects ramming only, never acceleration or top speed (see `RAM_CONFIG` below).
+Ratings are integers 0-100 with 50 as average. **There are six**, not the four this table carried
+until 2026-08-30: `accel` and `handling` were added so the roster could express how a chassis
+launches and how it corners, which used to be single global constants. `speed`/`attack`/`hp` used to
+be held to a 150-point budget across the three — the roster's only automatic guard against a fourth
+chassis being authored strictly better than these three. That budget was **deliberately deleted on
+2026-08-29** so `mass` could be a free-floating rating (see
+[`combat-model.md`](combat-model.md#ramming)), and no replacement guard was adopted. `config.test.ts`
+still checks the 0-100 range on all six ratings, but nothing checks their sum. Roster fairness is a
+review-time judgement from here on.
+
+**`accel` is a rating of its own rather than a function of `speed`, and `handling` correlates with
+nothing.** Deriving `accel` from `speed` would reproduce this roster exactly — the three cars order
+the same way on both — but it would make "fastest top speed, worst launch" structurally impossible
+for any future chassis. `handling` cannot be derived at all: Bullseye is mid-speed with the *lowest*
+turn rate and Bastion is the slowest with the *highest*.
+
+**`handling` is turn RATE, not turn radius, and the difference is the design.** Radius is
+`forwardMaxSpeedOf(id) / turnRateOf(id)`, so a chassis with a high `speed` rating and only average
+`handling` still corners wide. Bullseye reorients slowest of the three and *still* has a tighter arc
+than Mirage, whose speed carries it wider; Bastion turns inside 59 units and is the best tracker in
+the game, which is the mechanical reason the tank punishes a diver. Raising a car's `speed` without
+raising its `handling` to match is what makes it feel *less* agile despite the higher ceiling.
+
+Derived, per car (Mirage / Bullseye / Bastion):
+
+| Derived | From | Mirage | Bullseye | Bastion |
+|---|---|---|---|---|
+| `hpOf` | hp × `COMBAT_CONFIG.hpPerRating` | 480 | 300 | 820 |
+| `forwardMaxSpeedOf` | `baseMaxSpeed` + speed × `speedPerRating` | 576 u/s | 414 u/s | 315 u/s |
+| `reverseMaxSpeedOf` | forward × `reverseSpeedRatio` | 374 | 269 | 205 |
+| `accelOf` | `baseAccel` + accel × `accelPerRating` | 1032 | 744 | 564 |
+| `reverseAccelOf` | `accelOf` × `reverseAccelFactor` | 1455 | 1049 | 795 |
+| `turnRateOf` | `baseTurnRate` + handling × `turnRatePerRating` | 4.2 | 3.408 | 5.352 |
+| `turnRateAtStopOf` | `turnRateOf` × `stopTurnRatio` | 2.1 | 1.704 | 2.676 |
+| **turn radius** | `forwardMaxSpeedOf / turnRateOf` — derived, never typed | 137 u | 121 u | **59 u** |
+| time to top | `forwardMaxSpeedOf / accelOf` | 0.56 s | 0.56 s | 0.56 s |
+| `massOf` | mass × `RAM_CONFIG.massPerRating` | 480 | 300 | 900 |
+| attack scale | `damageFor` at that rating | 1.13× | 1.05× | 0.92× |
+
+`weaponDamageOf(carId, weaponId)` = `damageFor(attack, weapon.damage)` — a fireball is 57 / 53 / 46
+depending on who fires it, though only Mirage actually carries one. `massOf` affects ramming only,
+never acceleration or top speed (see `RAM_CONFIG` below).
+
+Time to top speed landing at 0.56 s for all three is a **consequence** of the ratings, not a
+constraint: this roster's accel ordering happens to track its speed ordering. Nothing stops a future
+chassis breaking that.
+
+`driveOf(id)` bundles six of these — `maxSpeed`, `reverseMaxSpeed`, `accel`, `reverseAccel`,
+`turnRate`, `turnRateAtStop` — into one frozen `ChassisDrive`, and **that, not a `CarId`, is what
+`stepDrive` takes**. See [`DRIVE_CONFIG`](#drive_config).
 
 `weapons` is an ordered list of `WEAPON_TABLE` ids — index 0 is slot 1, and order *is* the slot
 mapping. `slotsOf(carId)` (`config/weapon-slots.ts`) is what actually reads it, capped at
@@ -66,25 +106,46 @@ chassis carries and in what slot order. Durations are authored in **milliseconds
 once, at shared's module load, into the frozen `WEAPON_TICKS` the sim actually reads — see
 "Authoring in milliseconds" below.
 
-| id | kind | damage | damageFrequencyMs | speed | range | cooldownMs | startUpMs | recoveryMs | stock | pierce | volley (volleys/intervalMs/pellets/spreadDeg) | attached | lifetimeMs | hitbox | unlocksAt | usesAimAssist | color |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `fireball` | projectile | 50 | 0 | 900 | 900 | 500 | 0 | 0 | — | 0 | 1 / 0 / 1 / 0 | — | — | circle, radius 12 | 1 | true | `#E8590C` |
-| `pepperbox` | projectile | 28 | 0 | 800 | 600 | 1800 | 0 | 200 | — | 0 | 3 / 100 / 2 / 10 | — | — | circle, radius 7 | 1 | false | `#B45309` |
-| `afterburner` | beam | 26 | 200 | 1100 | 220 | 13000 | 0 | 200 | — | — | — | true | 2000 | cone, 55° | 1 | false | `#D6336C` |
-| `splinter` | projectile | 30 | 0 | 1100 | 850 | 400 | 0 | 0 | max 3, refire 130ms | 0 | 1 / 0 / 1 / 0 | — | — | circle, radius 5 | 1 | true | `#0CA5B0` |
-| `skewer` | projectile | 110 | 0 | 1400 | 1100 | 2400 | 250 | 200 | — | 1 | 1 / 0 / 1 / 0 | — | — | ellipse, along 22 / across 5 | 1 | false | `#1864AB` |
-| `lance` | beam | 180 | 0 | 6000 | 1200 | 16000 | 700 | 1000 | — | — | — | false | 150 | rect, width 20 | 1 | false | `#6741D9` |
-| `thumper` | projectile | 75 | 0 | 450 | 550 | 1000 | 0 | 0 | — | 0 | 1 / 0 / 1 / 0 | — | — | circle, radius 20 | 1 | true | `#495057` |
-| `shockwave` | beam | 100 | 0 | 1500 | 150 | 5000 | 0 | 200 | — | — | — | true | 150 | cone, 140° | 1 | false | `#5C940D` |
-| `bulwark` | beam | 35 | 400 | 500 | 500 | 15000 | 0 | 200 | — | — | — | false | 2500 | cone, 60° | 1 | false | `#862E9C` |
+| id | kind | damage | damageFrequencyMs | speed | range | cooldownMs | startUpMs | recoveryMs | stock | pierce | volley (volleys / intervalMs) | pellets (perVolley / spreadDeg) | attached | lifetimeMs | hitbox | unlocksAt | usesAimAssist | color |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `fireball` | projectile | 50 | 0 | 900 | 900 | 2000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | circle, radius 12 | 1 | true | `#E8590C` |
+| `pepperbox` | projectile | 45 | 0 | 800 | 600 | 1800 | 0 | 200 | — | 0 | 1 / 0 | 3 / 12 | — | — | circle, radius 6 | 1 | true | `#B45309` |
+| `afterburner` | beam | 26 | 200 | 1100 | 220 | 13000 | 0 | 200 | — | — | 1 / 0 | — | true | 2000 | cone, 55° | 1 | false | `#F59F00` |
+| `needler` | projectile | 22 | 0 | 1300 | 850 | 600 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | ellipse, along 9 / across 3 | 1 | true | `#0CA5B0` |
+| `skewer` | projectile | 110 | 0 | 1000 | 650 | 6000 | 250 | 200 | — | 1 | 1 / 0 | 1 / 0 | — | — | ellipse, along 22 / across 5 | 1 | true | `#1864AB` |
+| `lance` | beam | 170 | 0 | 6000 | 1200 | 16000 | 700 | 1000 | — | — | 1 / 0 | — | false | 150 | rect, width 57.5 | 1 | true | `#6741D9` |
+| `thumper` | projectile | 60 | 0 | 450 | 550 | 3000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | capsule, along 24 / across 15 (flat tail) | 1 | true | `#C9A227` |
+| `shockwave` | beam | 45 | 0 | 1500 | 150 | 5000 | 0 | 200 | — | — | **3 / 250** | — | true | 200 | disc (aura, `origin: "center"`) | 1 | false | `#0B3D8A` |
+| `bulwark` | beam | 35 | 400 | 550 | 550 | 15000 | 0 | 200 | — | — | 1 / 0 | — | false | 2875 | cone, 60° | 1 | false | `#862E9C` |
+
+**`volley` and `pellets` are two types, split on 2026-08-30.** `VolleyDef` (`volleys`,
+`volleyIntervalMs`) sits on `WeaponBase`, so a **beam** can be a wave sequence too — `shockwave` is
+the only row that uses it, and the only reason the split exists. `PelletDef` (`pelletsPerVolley`,
+`spreadAngleDeg`) stays on `ProjectileWeaponDef`, because a beam has no pellets to fan and should not
+have to author `pelletsPerVolley: 1`. `beginFire` now reads `def.volley.volleys` for every kind
+rather than hardcoding 1 for beams, and `weaponTicksOf` converts `volleyIntervalMs` for every kind.
 
 `damage` is what the weapon deals from a chassis at `COMBAT_CONFIG.attackBaseline` — an *average*
 car, not every car; `damageFor` (`sim/damage.ts`) moves it ±50% with the firing chassis's `attack`
-rating. `fireball`'s 50 is solved, not chosen: an average chassis has 500 hull HP and fireball fires
-twice a second, so 50 is the number that makes an average-vs-average kill take the design target of
-5 seconds. `splinter`'s 30 is solved from its own recharge rather than from `fireball`: 30 damage per
-400 ms is 75 sustained DPS, three quarters of the anchor, which is where a 1.2x `attack` chassis wants
-its go-to.
+rating. **It scales and rounds each hit as it lands — per tick, per pellet, per wave — never once
+over a press total**, so `bulwark` on Bastion is `10 × damageFor(42, 35)` = 320, not `350 × 0.92`,
+and `shockwave` on Mirage is `3 × damageFor(63, 45)` = 153, not `135 × 1.13`.
+
+`fireball`'s 50 is solved, not chosen: an average chassis has 500 hull HP, so 50 per press is the
+number that made an average-vs-average kill take the design target of 5 seconds at the 500 ms
+cooldown it shipped with. At **550 ms** it sustains 91 DPS and that kill takes 5.5 s — the +10% is
+Mirage paying for `shockwave` arriving in its slot 2, and the kill time moved rather than the damage
+being re-solved. `needler`'s 22 is solved from its own recharge rather than from `fireball`: 22 per
+300 ms is 73 sustained DPS, four fifths of the anchor, which is where a skirmisher wants a go-to it
+fires from outside the fight. `pepperbox`'s 45 × 3 = 135 per press sustains 75, deliberately level
+with `needler` — the two are Bullseye's paired pressure, differing in shape rather than output.
+
+**Dumping `needler`'s three stocks costs nothing.** `releaseShots` sets `rechargeEndsTick` only when
+it is 0, so the recharge starts at the **first** shot of a dump and runs concurrently with it. Held
+from full, the shot ticks are 100, 104, 108, 112, 118, 127, 136 — the pause after three darts is
+**133 ms**, not a dry spell, and the cadence settles onto the same 73 DPS a tapping player already
+had. The magazine is a one-off credit of two darts that never compounds. Whether that *ought* to cost
+something is an open design question; nothing here was retuned to make an older claim true.
 
 `color` is render-only, like `name`: it is the fill every live instance of that weapon draws in, per
 **weapon** rather than per player, so two cars carrying a fireball fire identically coloured shots.
@@ -103,9 +164,10 @@ weapon but `fireball` still does.
 instead of along its heading. It is the only per-weapon aim-assist knob — all the geometry lives once
 in `AIM_CONFIG` below. See [`combat-model.md`](combat-model.md#aim-assist-and-the-target-lock).
 
-`fireball` carries the pre-weapon-system shot's exact numbers for everything except `damage`:
-`fireRateHz: 2` became `cooldownMs: 500`, and `lifetimeTicks: 30` became `range: 900` (one second of
-flight at 900 u/s). Its **hitbox is also not a migrated value**: it shipped as a 3-unit circle — the
+`fireball` carries the pre-weapon-system shot's exact numbers for everything except `damage` and, as
+of 2026-08-30, its cooldown: `fireRateHz: 2` became `cooldownMs: 500` and has since been retuned to
+**550**, and `lifetimeTicks: 30` became `range: 900` (one second of flight at 900 u/s). Its **hitbox
+is also not a migrated value**: it shipped as a 3-unit circle — the
 smallest that kept the old point-hit feel while satisfying "every weapon has a hitbox" — and was
 widened to 12 so the shot reads on screen, since the client draws the hitbox itself rather than a
 sprite. `damage` itself was re-solved when the `attack` stat landed — see the paragraph above.
@@ -120,8 +182,8 @@ becomes 8 ticks (266 ms) — server and client both compute it from the same bui
 always round the same way or neither does.
 
 **Adding a weapon with a real wind-up, burst, or recovery window is a config edit and nothing
-else.** `skewer` and `lance` (both Oval) carry `startUpMs > 0`, `pepperbox` (Rectangle) carries
-`volleys: 3`, and `recoveryMs > 0` is now the common case — every weapon but `fireball`, `splinter`
+else.** `lance` (Bullseye) and `skewer` (Bastion) carry `startUpMs > 0`, `shockwave` (Mirage) carries
+`volleys: 3`, and `recoveryMs > 0` is now the common case — every weapon but `fireball`, `needler`
 and `thumper` carries one. The wire already carried what they need before any of them shipped:
 `PlayerState.pendingUntilTick` and `PlayerState.lastFiredSlot` give the HUD the car-wide lockout, and
 the slot's recharge is anchored to the volley's last shot, so `cooldownMs` still means "time until
@@ -188,36 +250,63 @@ different knob entirely: `usesAimAssist` per weapon in `WEAPON_TABLE`.
 |---|---|
 | `baseMaxSpeed` | 180 |
 | `speedPerRating` | 4.5 |
-| `accel` | 780 |
 | `brakeDecel` | 1600 (must stay above `drag`) |
 | `drag` | 900 (throttle released) |
-| `turnRate` | 4.2 |
-| `turnRateAtStop` | 2.1 |
+| `baseTurnRate` | 2.4 |
+| `turnRatePerRating` | 0.036 |
+| `stopTurnRatio` | 0.5 (steering at rest, as a fraction of the moving rate) |
+| `baseAccel` | 420 |
+| `accelPerRating` | 7.2 |
 | `reverseSpeedRatio` | 0.65 |
-| `reverseAccel` | 1100 (reverse has its own rate; does not borrow `accel`) |
+| `reverseAccelFactor` | 1.41 (reverse push as a fraction of forward) |
 | `reverseHoldTicks` | 2 (66ms at `TICK_RATE_HZ` 30) |
 | `stopEpsilon` | 1e-3 (below this \|speed\| the car counts as stopped) |
 | `carWidth` | 48 |
 | `carHeight` | 32 |
 | `restitution` | 0.35 |
 
-Resulting top speeds, `baseMaxSpeed + speed rating × speedPerRating`:
+**The four flat constants `accel`, `reverseAccel`, `turnRate` and `turnRateAtStop` are gone**, split
+on 2026-08-30 into the six base/per-rating knobs above so `accel` and `handling` could be per-chassis
+ratings. Nothing reads a global turn rate or a global engine push any more; the four resolvers do:
 
-| Car | Forward | Reverse |
-|---|---|---|
-| rectangle (80) | 540 | 351 |
-| oval (50) | 405 | 263 |
-| hexagon (30) | 315 | 205 |
+| Resolver | Formula |
+|---|---|
+| `turnRateOf(id)` | `baseTurnRate + handling × turnRatePerRating` |
+| `turnRateAtStopOf(id)` | `turnRateOf(id) × stopTurnRatio` |
+| `accelOf(id)` | `baseAccel + accel × accelPerRating` |
+| `reverseAccelOf(id)` | `accelOf(id) × reverseAccelFactor` |
 
-Quoted for the fastest chassis: 0.69s to top speed, 0.60s to coast to rest, 0.34s to brake to rest,
-0.32s to reach the reverse cap, 129 world units of turn radius.
+**Both forward scales are anchored so rating 50 reproduces the old global constant exactly** —
+`turnRateOf` at 50 is 4.2 and `accelOf` at 50 is 780, the two values this game shipped with. The
+roster moves around a fixed pivot rather than drifting off one, and "an average chassis drives like
+the old game" stays true as a reading aid. `config.test.ts` pins both anchors, so a future scale edit
+cannot silently move the pivot. `stopTurnRatio: 0.5` preserves the shipped 2.1 / 4.2 exactly.
+`reverseAccelFactor: 1.41` yields 1099.8 at rating 50 against the 1100 that shipped — a deliberate
+0.02% rounding, stated rather than hidden, because the exact ratio (`1100/780`) is not a number
+anyone should have to read in a config file.
 
-**These knobs are coupled.** Turn radius is `speed / turnRate` and time-to-top-speed is
-`maxSpeed / accel`, so raising the two speed knobs without raising `turnRate` and `accel` makes a
-faster car feel *less* agile. `brakeDecel` must exceed `drag` or the brake button is pointless, and
-`CAMERA_CONFIG.freeRoamSpeed` must exceed the fastest car — both are asserted in `config.test.ts`.
-`baseMaxSpeed` and `speedPerRating` scale together on purpose: their ratio decides how much the
-per-car `speed` rating matters, so moving only one re-balances the roster.
+`driveOf(id)` resolves all six into a frozen `ChassisDrive` (`maxSpeed`, `reverseMaxSpeed`, `accel`,
+`reverseAccel`, `turnRate`, `turnRateAtStop`), and `CHASSIS_DRIVE` freezes one per car at module
+load so the lookup never allocates. **`stepDrive` takes that `ChassisDrive`, not a `CarId`** —
+`stepSim` resolves it at the single production call site; every other caller in the repo is a test.
+That is deliberate: `golden.test.ts` freezes drive numbers to nine decimal places and forbids editing
+any expectation in it, a rule that is only safe while the drive constants cannot legitimately move.
+Per-car `accel` moves them. With the chassis passed in, that suite and `drive.test.ts` pin the
+*equation* against a frozen fixture and survive every future balance edit untouched. This
+strengthens invariant 2 rather than bending it: balance still lives in shared config, and the sim now
+receives it instead of reaching into the roster table for it.
+
+Per-car top speeds, radii and launch times are tabulated under [`CAR_TABLE`](#car_table).
+
+**These knobs are coupled, and both couplings are now per-car.** Turn radius is
+`forwardMaxSpeedOf(id) / turnRateOf(id)` and time-to-top-speed is
+`forwardMaxSpeedOf(id) / accelOf(id)`, so raising a chassis's `speed` rating without raising its
+`handling` and `accel` to match makes that car feel *less* agile despite the higher ceiling — reason
+per chassis, not for "the fastest car". `brakeDecel` must exceed `drag` or the brake button is
+pointless, and `CAMERA_CONFIG.freeRoamSpeed` (1050) must exceed the fastest car (576) — both are
+asserted in `config.test.ts`. `baseMaxSpeed` and `speedPerRating` scale together on purpose: their
+ratio decides how much the per-car `speed` rating matters, so moving only one re-balances the roster.
+`baseTurnRate`/`turnRatePerRating` and `baseAccel`/`accelPerRating` pair the same way.
 
 ## RAM_CONFIG
 
@@ -229,7 +318,7 @@ numbers. See [`combat-model.md`](combat-model.md#ramming) for the mechanic.
 | Knob | Value | Notes |
 |---|---|---|
 | `contactPad` | 1 | World units each hull is inflated by for the contact test — `resolveWorld` leaves cars exactly touching, and a strict overlap test would never fire on a real ram |
-| `minApproachSpeed` | 60 | Below this closing speed, contact is a nudge and no ram is written — about 11% of the roster's top speed |
+| `minApproachSpeed` | 60 | Below this closing speed, contact is a nudge and no ram is written — about 10% of the roster's top speed |
 | `massPerRating` | 10 | Mirrors `COMBAT_CONFIG.hpPerRating`; scales the 0-100 `mass` rating |
 | `bonusFront` / `bonusFlank` / `bonusRear` | 0.3 / 1.0 / 1.3 | Multiplies severity by impact side; the most important balance lever in the feature |
 | `authorityFloor` | 0.35 | Steering multiplier at maximum severity — the feel dial |
@@ -326,9 +415,9 @@ and stacking diminishes on its own (a 5% and a 10% slow are 14.5% together, not 
 | Channel | Scales | Read by |
 |---|---|---|
 | `topSpeed` | `forwardMaxSpeedOf` and `reverseMaxSpeedOf` | `stepDrive` |
-| `accel` | `DRIVE_CONFIG.accel` and `reverseAccel` | `stepDrive` |
-| `turnRate` | the steering rate, alongside (not instead of) the ram's `authority`. **Above 1 corners tighter**; steering is binary (`-1 \| 0 \| 1`), so a raise is a straight gain | `stepDrive` |
-| `brakeDecel` | `DRIVE_CONFIG.brakeDecel` — brake fade | `stepDrive` |
+| `accel` | the chassis's resolved `accel` and `reverseAccel` (`accelOf` / `reverseAccelOf`, via `ChassisDrive`) | `stepDrive` |
+| `turnRate` | the chassis's resolved steering rate (`turnRateOf` / `turnRateAtStopOf`), alongside (not instead of) the ram's `authority`. **Above 1 corners tighter**; steering is binary (`-1 \| 0 \| 1`), so a raise is a straight gain | `stepDrive` |
+| `brakeDecel` | `DRIVE_CONFIG.brakeDecel` — brake fade. Still global: braking is the one drive number with no per-car rating | `stepDrive` |
 | `damageDealt` | outgoing damage, frozen into the instance at spawn | `spawnInstances` |
 | `damageTaken` | incoming damage, applied at impact | `runCombat` |
 | `weaponCooldown` | `cooldown`, `refireDelay`, `recovery` — **not** `startUp` or `volleyInterval` | `tickRecharge`, `releaseShots` |
@@ -382,16 +471,36 @@ many sources piling up, and a row that needs it to be legal is a row whose autho
 ## Weapon status applications
 
 `WeaponDef.applies` is how a status reaches a car. Each entry is
-`{ statusId, target, durationMs }`, and durations are converted to ticks once in
+`{ statusId, target, durationMs, onWave? }`, and durations are converted to ticks once in
 `WEAPON_TICKS.applyDurations`, positionally parallel to `applies`.
 
-| Weapon | Applies | To | For |
-|---|---|---|---|
-| `afterburner` | `overheated` | opponents | 1.5 s |
-| `splinter` | `spiked` | opponents | 3 s |
-| `shockwave` | `stunned` | opponents | 0.7 s |
-| `bulwark` | `corroded` | opponents | 2.5 s |
-| `bulwark` | `fortified` | **self** | 4 s |
+| Weapon | Chassis | Applies | To | For | On wave |
+|---|---|---|---|---|---|
+| `afterburner` | Mirage | `overheated` | opponents | 1.5 s | all |
+| `shockwave` | Mirage | `corroded` | opponents | 2.5 s | **final only** |
+| `thumper` | Bastion | `stunned` | opponents | 0.9 s | all |
+| `bulwark` | Bastion | `spiked` | opponents | 3 s | all |
+| `bulwark` | Bastion | `fortified` | **self** | 4.5 s | all |
+
+Bullseye applies nothing. That is the point of Type 1: `needler` lost `spiked` on 2026-08-30 so the
+skirmisher's spam weapon would stop being a debuff applicator, and "spikes" moved to `bulwark`, where
+a slow-plus-bleed suits an exclusion zone. **Hard CC belongs to Bastion**: `stunned` moved off
+`shockwave` onto `thumper` when `shockwave` moved to Mirage.
+
+**Per-chassis CC duration needs no mechanism.** A status does not own its duration, the applier does,
+and kits are exclusive — so "Mirage's CC is short, Bastion's is long" falls straight out of authoring
+each weapon's `durationMs`. Mirage applies 1.5 s and 2.5 s; Bastion applies 0.9 s, 3 s and 4.5 s.
+
+`onWave` is `"all" | "final"`, and **absent means `"all"`**, so every pre-existing row is unaffected.
+It exists for `shockwave`: `corroded` lands on the third wave only, because `refresh` would otherwise
+hand the full duration to whichever wave connected first and make the other two free. The wave a shot
+belongs to is carried the way `damage` and `ownerTeam` are — **frozen at spawn, sim-only, never
+networked**: `ShotOrder` carries `weaponId`, `slot`, and `finalVolley` (no `volleyIndex` — it was
+deliberately not implemented, since `onWave` is only `"all" | "final"` and an index would have no
+consumer), `spawnInstances` freezes `WeaponInstance.finalWave` from it, and
+`applyOpponentStatuses` / `applySelfStatuses` skip
+`onWave: "final"` entries when it is false. **No schema field was added** — invariant 8 holds,
+because nothing new that `stepSim` reads crosses the wire.
 
 `target` is `"self"` or `"opponents"`. **There is no `"teammates"`** — reaching a teammate means
 changing `canDamage`, the one predicate deciding friendly fire for the whole game, and that decision

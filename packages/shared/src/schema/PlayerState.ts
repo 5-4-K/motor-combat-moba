@@ -31,6 +31,14 @@ export class PlayerState extends Schema {
   @type("number") authority = 1;
   @type("uint16") hp = 0;
   @type("boolean") alive = true;
+  /**
+   * The tick this car's hp reached 0, or 0 while it lives. Drives the client's death fade.
+   *
+   * Networked rather than derived client-side from `alive` flipping, so a spectator or a late
+   * joiner sees the right thing: without it, a client that never observed the transition would draw
+   * a dead car parked on the field forever. Render-only — `stepSim` never reads it.
+   */
+  @type("uint32") diedAtTick = 0;
   @type("boolean") selectLocked = false;
   @type([WeaponSlotState]) weapons = new ArraySchema<WeaponSlotState>();
   @type("uint32") switchLockUntilTick = 0;

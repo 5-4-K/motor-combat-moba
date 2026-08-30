@@ -7,6 +7,7 @@ import {
   PlayerState,
   PlayerStatus,
   RoomPhase,
+  driveOf,
   type InputMessage,
   type Modifiers,
   type SimBody,
@@ -38,7 +39,7 @@ function makePlayer(
   p.y = y;
   p.angle = angle;
   p.status = status;
-  p.carId = "rectangle";
+  p.carId = "mirage";
   p.lastProcessedInputSeq = 0;
   return p;
 }
@@ -79,11 +80,11 @@ describe("serverTick", () => {
     const state = stateWith(player);
     const queues = new Map<string, InputMessage[]>([["p1", [{ ...UP, seq: 7 }]]]);
 
-    serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS);
+    serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
 
     expect(player.x).toBeGreaterThan(300);
     expect(player.y).toBe(CORRIDOR_Y);
-    expect(player.speed).toBeCloseTo(DRIVE_CONFIG.accel * DT, 6);
+    expect(player.speed).toBeCloseTo(driveOf("mirage").accel * DT, 6);
     expect(player.lastProcessedInputSeq).toBe(7);
     expect(queues.get("p1")).toEqual([]);
   });
@@ -93,10 +94,10 @@ describe("serverTick", () => {
     const state = stateWith(player);
     const queues = new Map<string, InputMessage[]>([["p1", ups(1, 2, 3)]]);
 
-    serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS);
+    serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
 
     // Would be a single `accel * DT` if `speed` were only written back after the last input.
-    expect(player.speed).toBeCloseTo(3 * DRIVE_CONFIG.accel * DT, 6);
+    expect(player.speed).toBeCloseTo(3 * driveOf("mirage").accel * DT, 6);
   });
 
   it("leaves a player with an empty or missing queue unchanged", () => {
@@ -108,7 +109,7 @@ describe("serverTick", () => {
 
     const queues = new Map<string, InputMessage[]>([["empty", []]]);
 
-    serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS);
+    serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
 
     expect(poseOf(emptyQ)).toEqual({
       x: 1,
@@ -150,7 +151,7 @@ describe("serverTick", () => {
       ],
     ]);
 
-    serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS);
+    serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
 
     expect(player.lastProcessedInputSeq).toBe(5);
     expect(queues.get("p1")).toEqual([]);
@@ -160,8 +161,8 @@ describe("serverTick", () => {
     const slow = makePlayer("p1", 300, CORRIDOR_Y, 0);
     const fast = makePlayer("p1", 300, CORRIDOR_Y, 0);
 
-    serverTick(stateWith(slow), new Map([["p1", ups(1)]]), DT, RoomPhase.MATCH, NO_EFFECTS);
-    serverTick(stateWith(fast), new Map([["p1", ups(1)]]), DT * 2, RoomPhase.MATCH, NO_EFFECTS);
+    serverTick(stateWith(slow), new Map([["p1", ups(1)]]), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
+    serverTick(stateWith(fast), new Map([["p1", ups(1)]]), DT * 2, RoomPhase.MATCH, NO_EFFECTS, new Map());
 
     expect(fast.speed).toBeCloseTo(slow.speed * 2, 6);
     expect(fast.x - 300).toBeGreaterThan(slow.x - 300);
@@ -180,7 +181,7 @@ describe("serverTick", () => {
 
     function runWith(queue: InputMessage[]): PlayerState {
       const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
-      serverTick(stateWith(player), new Map([["p1", queue]]), DT, RoomPhase.MATCH, NO_EFFECTS);
+      serverTick(stateWith(player), new Map([["p1", queue]]), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
       return player;
     }
 
@@ -206,7 +207,7 @@ describe("serverTick", () => {
 
     const flooder = makePlayer("p1", 300, CORRIDOR_Y, 0);
     const floodQueue = ups(...Array.from({ length: burst }, (_, i) => i + 1));
-    serverTick(stateWith(flooder), new Map([["p1", floodQueue]]), DT, RoomPhase.MATCH, NO_EFFECTS);
+    serverTick(stateWith(flooder), new Map([["p1", floodQueue]]), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
 
     const honest = makePlayer("p1", 300, CORRIDOR_Y, 0);
     serverTick(
@@ -215,6 +216,7 @@ describe("serverTick", () => {
       DT,
       RoomPhase.MATCH,
       NO_EFFECTS,
+      new Map(),
     );
 
     // Flooding buys no distance *beyond the cap*: both clients here send `maxInputsPerTick`, so
@@ -234,7 +236,7 @@ describe("serverTick", () => {
         const state = stateWith(player);
         const queues = new Map<string, InputMessage[]>([["p1", ups(1, 2, 9)]]);
 
-        serverTick(state, queues, DT, phase, NO_EFFECTS);
+        serverTick(state, queues, DT, phase, NO_EFFECTS, new Map());
 
         expect(poseOf(player)).toEqual({ x: 300, y: CORRIDOR_Y, angle: 0, speed: 0, reverseHold: 0, angVel: 0, shoveX: 0, shoveY: 0, authority: 1 });
         expect(player.lastProcessedInputSeq).toBe(9);
@@ -251,7 +253,7 @@ describe("serverTick", () => {
       const state = stateWith(offField);
       const queues = new Map<string, InputMessage[]>([["p1", ups(1, 2, 9)]]);
 
-      serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS);
+      serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
 
       expect(poseOf(offField)).toEqual({ x: 300, y: CORRIDOR_Y, angle: 0, speed: 0, reverseHold: 0, angVel: 0, shoveX: 0, shoveY: 0, authority: 1 });
       expect(offField.lastProcessedInputSeq).toBe(9);
@@ -268,7 +270,7 @@ describe("serverTick", () => {
       const blocker = makePlayer("b-blocker", 500, CORRIDOR_Y, 0, blockerStatus);
       const state = stateWith(driver, blocker);
       for (let i = 0; i < TICKS; i++) {
-        serverTick(state, new Map([["a-driver", ups(i + 1)]]), DT, RoomPhase.MATCH, NO_EFFECTS);
+        serverTick(state, new Map([["a-driver", ups(i + 1)]]), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
       }
       return driver;
     }
@@ -295,7 +297,7 @@ describe("serverTick", () => {
         ["aaa", ups(1)],
         ["bbb", ups(1)],
       ]);
-      serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS);
+      serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
       return [poseOf(a), poseOf(b)];
     }
 
@@ -321,7 +323,7 @@ describe("serverTick", () => {
       ["bbb", coasts(1)],
     ]);
 
-    serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS);
+    serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
 
     // The leader really did drive clear, so the follower's contact genuinely depends on which pose
     // it was tested against.
@@ -347,7 +349,7 @@ describe("serverTick", () => {
       // not from ordinary driving.
       const queues = new Map<string, InputMessage[]>([["p1", coasts(1)]]);
 
-      serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS);
+      serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
 
       // The knock state actually reached stepDrive and moved the car.
       expect(player.angle).not.toBe(0);
@@ -371,12 +373,12 @@ describe("serverTick", () => {
     function driveOneTickAs(carId: string): PlayerState {
       const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
       player.carId = carId;
-      serverTick(stateWith(player), new Map([["p1", ups(1)]]), DT, RoomPhase.MATCH, NO_EFFECTS);
+      serverTick(stateWith(player), new Map([["p1", ups(1)]]), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
       return player;
     }
 
     it("drives a pre-reveal player (carId \"\") as the default chassis", () => {
-      expect(poseOf(driveOneTickAs(""))).toEqual(poseOf(driveOneTickAs("rectangle")));
+      expect(poseOf(driveOneTickAs(""))).toEqual(poseOf(driveOneTickAs("mirage")));
     });
 
     it("does not mistake an inherited Object property for a car id", () => {
@@ -384,7 +386,7 @@ describe("serverTick", () => {
       // undefined and NaNs the whole drive step.
       const inherited = driveOneTickAs("constructor");
       expect(Number.isFinite(inherited.x)).toBe(true);
-      expect(poseOf(inherited)).toEqual(poseOf(driveOneTickAs("rectangle")));
+      expect(poseOf(inherited)).toEqual(poseOf(driveOneTickAs("mirage")));
     });
   });
 });
@@ -399,9 +401,51 @@ describe("serverTick fire mask reporting", () => {
     queue: InputMessage[],
     phase: RoomPhase = RoomPhase.MATCH,
   ): Map<string, number> {
-    return serverTick(stateWith(player), new Map([[player.sessionId, queue]]), DT, phase, NO_EFFECTS)
+    return serverTick(stateWith(player), new Map([[player.sessionId, queue]]), DT, phase, NO_EFFECTS, new Map())
       .masks;
   }
+
+  it("reports a HELD trigger as exactly one press, not one per tick", () => {
+    // The whole point of edge detection: `fireSlots` is raw key state, so a player holding the
+    // trigger sets the same bit on every input. Only the transition counts.
+    const prev = new Map<string, number>();
+    const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    const tick = (mask: number) =>
+      serverTick(stateWith(player), new Map([["p1", [{ seq: 1, steer: 0, throttle: 0, fireSlots: mask }]]]),
+        DT, RoomPhase.MATCH, NO_EFFECTS, prev).masks.get("p1");
+
+    expect(tick(0b001)).toBe(0b001); // key goes down: a press
+    expect(tick(0b001)).toBeUndefined(); // still held: nothing
+    expect(tick(0b001)).toBeUndefined(); // still held: still nothing
+    expect(tick(0b000)).toBeUndefined(); // released
+    expect(tick(0b001)).toBe(0b001); // pressed again: a second press
+  });
+
+  it("sees a release and re-press INSIDE one tick's batch, from an already-held key", () => {
+    // `prev` advances per input, not once per tick. Seeded as already-held, the first input is not a
+    // press — so the only way a press is reported here is if the release in the middle of the batch
+    // was seen. Advancing `prev` once per tick instead would report nothing at all.
+    const prev = new Map<string, number>([["p1", 0b001]]);
+    const masks = serverTick(
+      stateWith(makePlayer("p1", 300, CORRIDOR_Y, 0)),
+      new Map([["p1", [fires(1, 0b001), fires(2, 0b000), fires(3, 0b001)]]]),
+      DT, RoomPhase.MATCH, NO_EFFECTS, prev,
+    ).masks;
+    expect(masks.get("p1")).toBe(0b001);
+    expect(prev.get("p1")).toBe(0b001); // the batch ended with the key down again
+  });
+
+  it("counts a second slot pressed while the first is held", () => {
+    // Edge detection is per BIT, not per mask: holding slot 1 must not swallow a slot 2 press.
+    const prev = new Map<string, number>();
+    const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
+    const tick = (mask: number) =>
+      serverTick(stateWith(player), new Map([["p1", [{ seq: 1, steer: 0, throttle: 0, fireSlots: mask }]]]),
+        DT, RoomPhase.MATCH, NO_EFFECTS, prev).masks.get("p1");
+
+    expect(tick(0b001)).toBe(0b001);
+    expect(tick(0b011)).toBe(0b010); // slot 1 still held, slot 2 newly down
+  });
 
   it("reports the slot mask from an input it actually simulated", () => {
     const masks = tickWith(makePlayer("p1", 300, CORRIDOR_Y, 0), [fires(1, 0b001)]);
@@ -466,6 +510,7 @@ describe("serverTick fire mask reporting", () => {
       DT,
       RoomPhase.MATCH,
       NO_EFFECTS,
+      new Map(),
     );
     expect([...masks.keys()].sort()).toEqual(["aaa", "bbb"]);
   });
@@ -490,21 +535,21 @@ describe("serverTick coasts a knocked player who has stopped sending input", () 
   it("moves a knocked player whose queue is empty", () => {
     const player = knocked();
     const state = stateWith(player);
-    serverTick(state, new Map([["v", []]]), DT, RoomPhase.MATCH, NO_EFFECTS);
+    serverTick(state, new Map([["v", []]]), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
     expect(player.x).toBeGreaterThan(500);
   });
 
   it("moves a knocked player who is absent from the queue map entirely", () => {
     const player = knocked();
     const state = stateWith(player);
-    serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS);
+    serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
     expect(player.x).toBeGreaterThan(500);
   });
 
   it("decays the knock rather than freezing it at full strength", () => {
     const player = knocked();
     const state = stateWith(player);
-    serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS);
+    serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
     expect(player.shoveX).toBeLessThan(300);
     expect(player.shoveX).toBeGreaterThan(0);
   });
@@ -512,7 +557,7 @@ describe("serverTick coasts a knocked player who has stopped sending input", () 
   it("carries every knock component, not just shove", () => {
     const player = knocked({ shoveX: 0, angVel: 3, authority: 0.35 });
     const state = stateWith(player);
-    serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS);
+    serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
     expect(player.angVel).toBeLessThan(3);
     expect(player.authority).toBeGreaterThan(0.35);
     expect(player.angle).not.toBe(0);
@@ -521,12 +566,12 @@ describe("serverTick coasts a knocked player who has stopped sending input", () 
   it("settles to exact neutral and then stops moving the car", () => {
     const player = knocked({ angVel: 3, authority: 0.35 });
     const state = stateWith(player);
-    for (let i = 0; i < 300; i++) serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS);
+    for (let i = 0; i < 300; i++) serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
     expect(player.shoveX).toBe(0);
     expect(player.angVel).toBe(0);
     expect(player.authority).toBe(1);
     const restingX = player.x;
-    serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS);
+    serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
     expect(player.x).toBe(restingX);
   });
 
@@ -534,7 +579,7 @@ describe("serverTick coasts a knocked player who has stopped sending input", () 
     const player = makePlayer("v", 500, 400, 0);
     player.speed = 200;
     const state = stateWith(player);
-    serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS);
+    serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
     expect(player.x).toBe(500);
     expect(player.speed).toBe(200);
   });
@@ -542,26 +587,26 @@ describe("serverTick coasts a knocked player who has stopped sending input", () 
   it("does not advance the input ack — a coast step acknowledges nothing", () => {
     const player = knocked({ lastProcessedInputSeq: 7 });
     const state = stateWith(player);
-    serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS);
+    serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
     expect(player.lastProcessedInputSeq).toBe(7);
   });
 
   it("reports no fire mask for a coast step", () => {
     const state = stateWith(knocked());
-    expect(serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS).masks.size).toBe(0);
+    expect(serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map()).masks.size).toBe(0);
   });
 
   it("does not coast outside MATCH", () => {
     const player = knocked();
     const state = stateWith(player);
-    serverTick(state, new Map(), DT, RoomPhase.COUNTDOWN, NO_EFFECTS);
+    serverTick(state, new Map(), DT, RoomPhase.COUNTDOWN, NO_EFFECTS, new Map());
     expect(player.x).toBe(500);
   });
 
   it("does not coast a player who is not on the field", () => {
     const player = knocked({ status: PlayerStatus.POST_MATCH });
     const state = stateWith(player);
-    serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS);
+    serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
     expect(player.x).toBe(500);
   });
 
@@ -570,7 +615,7 @@ describe("serverTick coasts a knocked player who has stopped sending input", () 
     const victim = knocked({ shoveX: 600 });
     const wall = makePlayer("w", 560, 400, 0);
     const state = stateWith(victim, wall);
-    for (let i = 0; i < 5; i++) serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS);
+    for (let i = 0; i < 5; i++) serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
     expect(victim.x).toBeLessThan(560 - 40);
   });
 });

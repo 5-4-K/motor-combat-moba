@@ -49,7 +49,7 @@ function world(over: Partial<CombatWorld> = {}): CombatWorld {
 
 /** Shared by every describe block below except "firing", which shadows this with its own shape. */
 function player(sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlayer {
-  const carId = over.carId ?? "rectangle";
+  const carId = over.carId ?? "mirage";
   return {
     sessionId,
     x: 400,
@@ -57,7 +57,7 @@ function player(sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlay
     angle: 0,
     team: 0,
     carId,
-    hp: hpOf("rectangle"),
+    hp: hpOf("mirage"),
     alive: true,
     inRoster: true,
     fireMask: 0,
@@ -98,12 +98,12 @@ describe("firing", () => {
       y: OPEN_Y,
       angle: 0,
       team: 0,
-      carId: "rectangle",
-      hp: hpOf("rectangle"),
+      carId: "mirage",
+      hp: hpOf("mirage"),
       alive: true,
       inRoster: true,
       fireMask: 0,
-      fireState: newFireState("rectangle", 1),
+      fireState: newFireState("mirage", 1),
       lock: newLockState(),
       statuses: [],
       ...over,
@@ -163,7 +163,7 @@ describe("firing", () => {
       hp: 0,
       alive: false,
       fireState: {
-        ...newFireState("rectangle", 1),
+        ...newFireState("mirage", 1),
         pending: { weaponId: "fireball", slot: 0, shotsLeft: 2, nextShotTick: 100 },
       },
     });
@@ -186,7 +186,8 @@ describe("firing", () => {
       id: "beam-1",
       ownerSessionId: "aaa",
       ownerTeam: 0,
-      damage: weaponDamageOf("rectangle", "fireball"),
+      finalWave: true,
+      damage: weaponDamageOf("mirage", "fireball"),
       weaponId: "fireball",
       kind: "beam",
       x: 300,
@@ -233,17 +234,23 @@ describe("firing", () => {
       instanceSeq: 0,
     });
     const hit = result.players.find((p) => p.sessionId === "bbb")!;
-    expect(hit.hp).toBe(hpOf("rectangle") - weaponDamageOf("rectangle", "fireball"));
+    expect(hit.hp).toBe(hpOf("mirage") - weaponDamageOf("mirage", "fireball"));
   });
 
-  it("drives splinter, the table's only multi-stock weapon, through a real tick", () => {
-    // Oval carries splinter, so this is now the shipped path rather than a hand-built loadout
-    // proving an unreachable weapon. Kept as an explicit fixture anyway: it is the only test that
-    // walks the stock mechanic through `runCombat` rather than through `FireState` literals.
+  /**
+   * SKIPPED since 2026-08-30, alongside the stock suites in `fire.test.ts`, and deliberately kept.
+   *
+   * `needler` was the table's only weapon with a `stock` block and the tuning pass removed it, so
+   * there is no longer a stocked row for this to drive. It is the only test that walks the stock
+   * mechanic through `runCombat` rather than through `FireState` literals, which is exactly why it
+   * is worth keeping: **un-skip it the moment any weapon authors a `stock` block again**, and
+   * re-point it at that weapon and its chassis.
+   */
+  it.skip("drives needler, the table's only multi-stock weapon, through a real tick", () => {
     const shooter = player({
       fireMask: 0b001,
       fireState: {
-        slots: [{ weaponId: "splinter", stocks: 2, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
+        slots: [{ weaponId: "needler", stocks: 2, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
         switchLockUntilTick: 0,
         lastFiredSlot: -1,
         pending: null,
@@ -256,18 +263,18 @@ describe("firing", () => {
       instances: [],
       instanceSeq: 0,
     });
-    expect(result.instances.map((i) => i.weaponId)).toEqual(["splinter"]);
+    expect(result.instances.map((i) => i.weaponId)).toEqual(["needler"]);
 
     const fired = result.players[0]!.fireState;
     expect(fired.slots[0]!.stocks).toBe(1); // one of two spent
-    expect(fired.slots[0]!.rechargeEndsTick).toBe(112); // tick 100 + a 400ms cooldown == 12 ticks
-    expect(fired.slots[0]!.refireLockUntilTick).toBe(104); // 130ms refire delay == 4 ticks
-    expect(fired.switchLockUntilTick).toBe(100); // splinter's recoveryMs is 0 — a go-to never gates
+    expect(fired.slots[0]!.rechargeEndsTick).toBe(109); // tick 100 + a 300ms cooldown == 9 ticks
+    expect(fired.slots[0]!.refireLockUntilTick).toBe(104); // 110ms refire delay == 4 ticks
+    expect(fired.switchLockUntilTick).toBe(100); // needler's recoveryMs is 0 — a go-to never gates
     expect(fired.lastFiredSlot).toBe(0);
   });
 
   it("does not mutate the caller's players or instances", () => {
-    const fireState = newFireState("rectangle", 1);
+    const fireState = newFireState("mirage", 1);
     const players = [player({ fireMask: 0b001, fireState })];
     const instances: WeaponInstance[] = [];
     runCombat({
@@ -287,7 +294,8 @@ describe("shots in flight", () => {
     id: "p1",
     ownerSessionId: "a",
     ownerTeam: 0,
-    damage: weaponDamageOf("rectangle", "fireball"),
+    finalWave: true,
+    damage: weaponDamageOf("mirage", "fireball"),
     weaponId: "fireball",
     kind: "projectile",
     x: 400,
@@ -357,7 +365,8 @@ describe("shots landing", () => {
       id: "p1",
       ownerSessionId,
       ownerTeam,
-      damage: weaponDamageOf("rectangle", "fireball"),
+      finalWave: true,
+      damage: weaponDamageOf("mirage", "fireball"),
       weaponId: "fireball",
       kind: "projectile",
       x: target.x - WEAPON_TABLE.fireball.speed * DT,
@@ -379,14 +388,14 @@ describe("shots landing", () => {
       players: [player("a"), target],
       instances: [aimedAt(target, "a")],
     });
-    expect(find(result, "b").hp).toBe(hpOf("rectangle") - weaponDamageOf("rectangle", "fireball"));
+    expect(find(result, "b").hp).toBe(hpOf("mirage") - weaponDamageOf("mirage", "fireball"));
     expect(result.instances).toHaveLength(0);
   });
 
   it("never damages the shooter", () => {
     const shooter = player("a", { x: 800 });
     const result = run({ players: [shooter], instances: [aimedAt(shooter, "a")] });
-    expect(find(result, "a").hp).toBe(hpOf("rectangle"));
+    expect(find(result, "a").hp).toBe(hpOf("mirage"));
     expect(result.instances).toHaveLength(1);
   });
 
@@ -397,7 +406,7 @@ describe("shots landing", () => {
       players: [player("a", { team: 0 }), target],
       instances: [aimedAt(target, "a")],
     });
-    expect(find(result, "b").hp).toBe(hpOf("rectangle"));
+    expect(find(result, "b").hp).toBe(hpOf("mirage"));
     expect(result.instances).toHaveLength(1);
   });
 
@@ -408,7 +417,7 @@ describe("shots landing", () => {
       players: [player("a", { team: 0 }), target],
       instances: [aimedAt(target, "a")],
     });
-    expect(find(result, "b").hp).toBe(hpOf("rectangle") - weaponDamageOf("rectangle", "fireball"));
+    expect(find(result, "b").hp).toBe(hpOf("mirage") - weaponDamageOf("mirage", "fireball"));
   });
 
   it("damages a same-team id in ffa, where teams mean nothing", () => {
@@ -417,7 +426,7 @@ describe("shots landing", () => {
       players: [player("a", { team: 0 }), target],
       instances: [aimedAt(target, "a")],
     });
-    expect(find(result, "b").hp).toBe(hpOf("rectangle") - weaponDamageOf("rectangle", "fireball"));
+    expect(find(result, "b").hp).toBe(hpOf("mirage") - weaponDamageOf("mirage", "fireball"));
   });
 
   it("passes through a wreck rather than being spent on it", () => {
@@ -427,7 +436,7 @@ describe("shots landing", () => {
   });
 
   it("wrecks a car whose hp reaches zero", () => {
-    const target = player("b", { x: 800, hp: weaponDamageOf("rectangle", "fireball") });
+    const target = player("b", { x: 800, hp: weaponDamageOf("mirage", "fireball") });
     const result = run({ players: [player("a"), target], instances: [aimedAt(target, "a")] });
     expect(find(result, "b").hp).toBe(0);
     expect(find(result, "b").alive).toBe(false);
@@ -440,7 +449,7 @@ describe("shots landing", () => {
       players: [player("a"), first, second],
       instances: [aimedAt(first, "a")],
     });
-    const damaged = result.players.filter((p) => p.hp < hpOf("rectangle"));
+    const damaged = result.players.filter((p) => p.hp < hpOf("mirage"));
     expect(damaged).toHaveLength(1);
     // Sorted session id order decides which, so the pick is reproducible.
     expect(damaged[0]!.sessionId).toBe("b");
@@ -457,7 +466,8 @@ describe("shots landing", () => {
           id: "p1",
           ownerSessionId: "a",
           ownerTeam: 0,
-          damage: weaponDamageOf("rectangle", "fireball"),
+          finalWave: true,
+          damage: weaponDamageOf("mirage", "fireball"),
           weaponId: "fireball",
           kind: "projectile",
           x: box.x + box.w / 2 - WEAPON_TABLE.fireball.speed * DT,
@@ -474,23 +484,23 @@ describe("shots landing", () => {
       ],
     });
     expect(result.instances).toHaveLength(0);
-    expect(find(result, "b").hp).toBe(hpOf("rectangle"));
+    expect(find(result, "b").hp).toBe(hpOf("mirage"));
   });
 
   it("keeps a shot's damage after its owner is wrecked mid-flight", () => {
     // S8: the owner is looked up once, at spawn. A live lookup at hit time would find nothing —
     // the pose snapshot holds living fighters only — and silently fall back to a default chassis.
     const target = player("b", { x: 800 });
-    const shooter = player("a", { carId: "oval", alive: false });
-    const shot = { ...aimedAt(target, "a"), damage: weaponDamageOf("oval", "fireball") };
+    const shooter = player("a", { carId: "bullseye", alive: false });
+    const shot = { ...aimedAt(target, "a"), damage: weaponDamageOf("bullseye", "fireball") };
     const result = run({ players: [shooter, target], instances: [shot] });
-    expect(find(result, "b").hp).toBe(hpOf("rectangle") - weaponDamageOf("oval", "fireball"));
+    expect(find(result, "b").hp).toBe(hpOf("mirage") - weaponDamageOf("bullseye", "fireball"));
   });
 });
 
 describe("chassis attack scales weapon damage through a real tick", () => {
-  /** One shot, fired for real, from `carId` into a stationary rectangle. Returns the hp it cost. */
-  const damageDealtBy = (carId: "rectangle" | "oval" | "hexagon"): number => {
+  /** One shot, fired for real, from `carId` into a stationary mirage. Returns the hp it cost. */
+  const damageDealtBy = (carId: "mirage" | "bullseye" | "bastion"): number => {
     // Slot 1 is forced to fireball for every chassis, overriding `carId`'s real loadout: since Task
     // 5 the three chassis no longer share a weapon, so deriving `fireState` from
     // `newFireState(carId, 1)` would fire three DIFFERENT weapons and conflate the weapon's own
@@ -522,15 +532,15 @@ describe("chassis attack scales weapon damage through a real tick", () => {
         instanceSeq: state.instanceSeq,
       });
     }
-    return hpOf("rectangle") - find(state, "b").hp;
+    return hpOf("mirage") - find(state, "b").hp;
   };
 
   it("lands a different number for each chassis firing the identical weapon", () => {
     // Spec test 5: through the real tick, not by calling damageFor. `attack` is invisible in the
     // weapon table, so this is the only place the roster's damage spread is actually observable.
-    expect(damageDealtBy("rectangle")).toBe(40);
-    expect(damageDealtBy("oval")).toBe(60);
-    expect(damageDealtBy("hexagon")).toBe(50);
+    expect(damageDealtBy("mirage")).toBe(57);
+    expect(damageDealtBy("bullseye")).toBe(53);
+    expect(damageDealtBy("bastion")).toBe(46);
   });
 });
 
@@ -542,7 +552,7 @@ describe("chassis attack scales weapon damage through a real tick", () => {
 describe("collision deals no damage", () => {
   const OPEN = { width: ARENA_01.width, height: ARENA_01.height };
   const CLEAR = {
-    carId: "rectangle" as const,
+    carId: "mirage" as const,
     obstacles: [] as never[],
     bounds: OPEN,
     modifiers: NEUTRAL_MODIFIERS,
@@ -602,7 +612,7 @@ describe("collision deals no damage", () => {
       a,
       b,
       players: [
-        player("a", { x: a.x, y: a.y, angle: 0, carId: "oval" }),
+        player("a", { x: a.x, y: a.y, angle: 0, carId: "bullseye" }),
         player("b", { x: b.x, y: b.y, angle: bAngle }),
       ],
     };
@@ -611,15 +621,15 @@ describe("collision deals no damage", () => {
   it("a car driven into the back of another deals no damage", () => {
     let state = pair(0);
     for (let tick = 0; tick < 20; tick++) state = simTick(state, tick, { a: THROTTLE, b: COAST });
-    expect(state.players[0]!.hp).toBe(hpOf("rectangle"));
-    expect(state.players[1]!.hp).toBe(hpOf("rectangle"));
+    expect(state.players[0]!.hp).toBe(hpOf("mirage"));
+    expect(state.players[1]!.hp).toBe(hpOf("mirage"));
   });
 
   it("a head-on deals no damage to either car", () => {
     let state = pair(Math.PI);
     for (let tick = 0; tick < 20; tick++) state = simTick(state, tick, { a: THROTTLE, b: THROTTLE });
-    expect(state.players[0]!.hp).toBe(hpOf("rectangle"));
-    expect(state.players[1]!.hp).toBe(hpOf("rectangle"));
+    expect(state.players[0]!.hp).toBe(hpOf("mirage"));
+    expect(state.players[1]!.hp).toBe(hpOf("mirage"));
   });
 
   it("the cars still collide: contact halts the trailing car rather than letting it pass through", () => {
@@ -686,9 +696,11 @@ describe("aim assist through a real tick", () => {
 describe("aimAngleFor", () => {
   // Direct coverage of both branches of the per-weapon opt-in (A1). Deleting the `usesAimAssist`
   // check entirely still passes most other tests in this file, so these two call `aimAngleFor`
-  // directly. `skewer` is Oval's slot 2 and is `usesAimAssist: false` by design rather than by
-  // constraint — its range clears `AIM_CONFIG.lockRange`, so the row could have taken assist and
-  // deliberately does not.
+  // directly. `afterburner` is Mirage's slot 3 and holds the "off" branch: it is `usesAimAssist:
+  // false` by constraint rather than by taste — an attached beam re-derives its angle from the
+  // owner's pose every tick, so a lock would have nothing to decide, and the authoring guard in
+  // `weapon-config.test.ts` refuses the combination outright. `skewer` used to hold this branch and
+  // took the lock in T17, which is why the row named here moved.
 
   it("returns null for a weapon with usesAimAssist: false, even with a live lock", () => {
     const a = player("a", {
@@ -702,8 +714,8 @@ describe("aimAngleFor", () => {
       ["a", a],
       ["b", b],
     ]);
-    // "skewer" is usesAimAssist: false and exists in WEAPON_TABLE.
-    expect(aimAngleFor(a, "skewer", byId)).toBeNull();
+    // "afterburner" is usesAimAssist: false and exists in WEAPON_TABLE.
+    expect(aimAngleFor(a, "afterburner", byId)).toBeNull();
   });
 
   it("returns the muzzle-derived bearing to the lock target for a weapon with usesAimAssist: true", () => {
@@ -730,7 +742,7 @@ describe("aimAngleFor", () => {
 });
 
 it("damages a target with a real attached beam fired from a real loadout, once it has grown to reach", () => {
-  // afterburner is Rectangle's slot 3 and the game's first beam. Its cone is 55 degrees out to
+  // afterburner is Mirage's slot 3 and the game's first beam. Its cone is 55 degrees out to
   // 220 units, so a target 100 units directly ahead at angle 0 is inside it once the beam has
   // grown that far. Slot 3 is bit 2. `player` builds its fireState with `newFireState(carId, 1)`,
   // so the slot only exists because Task 5 put three weapons on the chassis — this test is
@@ -768,7 +780,7 @@ it("damages a target with a real attached beam fired from a real loadout, once i
   expect(result!.instances.map((i) => i.weaponId)).toEqual(["afterburner"]);
   const hit = result!.players.find((p) => p.sessionId === "bbb")!;
   // damageFrequencyMs: 200 is 6 ticks at 30 Hz; this loop only runs 3, so exactly one damage tick
-  // can have landed. 26 base * scale(0.8 for Rectangle's attack 30 vs baseline 50) = 20.8, rounds
+  // can have landed. 26 base * scale(0.8 for Mirage's attack 30 vs baseline 50) = 20.8, rounds
   // to 21 (weaponDamageOf, damage.ts's `damageFor`).
-  expect(hit.hp).toBe(hpOf("rectangle") - weaponDamageOf("rectangle", "afterburner"));
+  expect(hit.hp).toBe(hpOf("mirage") - weaponDamageOf("mirage", "afterburner"));
 });

@@ -41,7 +41,7 @@ describe("PlayerState", () => {
     p.colorId = 3;
     p.team = 1;
     p.joinedAtTick = 42;
-    p.carId = "oval";
+    p.carId = "bullseye";
     p.speed = 180;
     p.reverseHold = 6;
     p.hp = 50;
@@ -51,7 +51,7 @@ describe("PlayerState", () => {
     expect(p.colorId).toBe(3);
     expect(p.team).toBe(1);
     expect(p.joinedAtTick).toBe(42);
-    expect(p.carId).toBe("oval");
+    expect(p.carId).toBe("bullseye");
     expect(p.speed).toBe(180);
     expect(p.reverseHold).toBe(6);
     expect(p.hp).toBe(50);
