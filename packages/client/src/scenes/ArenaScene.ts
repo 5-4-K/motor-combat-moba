@@ -97,6 +97,15 @@ import {
 } from "./status-hud.js";
 import { arrowBobOffset, countdownArrowPoints } from "./countdown-arrow.js";
 import {
+  MOVEMENT_ARROWS,
+  MOVEMENT_JOINER,
+  MOVEMENT_KEYS,
+  MOVEMENT_LABEL,
+  movementHintItems,
+  placeMovementHint,
+  showMovementHint,
+} from "./movement-hint.js";
+import {
   ROSTER_NAME_FONT_PX,
   rosterPanelLayout,
   rosterRows,
@@ -298,6 +307,20 @@ const HUD_NAME_FONT_STYLE = "bold";
 const HUD_KEY_PILL_PAD_X = 8;
 const HUD_KEY_PILL_PAD_Y = 3;
 /**
+ * The movement hint's row along the bottom of the arena. `MOVEMENT_HINT_Y` is the spectate
+ * banner's line: the hint is countdown-only and the banner is match-only, so they share the row
+ * rather than stacking and stealing another band of floor.
+ *
+ * A step under the banner's 22px, and no further. It was 15 on the theory that it would sit beneath
+ * a live fight all match; countdown-only changed that — it is on screen for a few seconds, during a
+ * lull, aimed at someone who has never driven this game, and at 15 it asked to be squinted at in the
+ * one window where it has to be read at a glance. Staying below the banner keeps the two legible as
+ * different things when a player meets them minutes apart on the same line of floor.
+ */
+const MOVEMENT_HINT_Y = 660;
+const MOVEMENT_HINT_FONT_PX = 18;
+const MOVEMENT_HINT_GAP = 8;
+/**
  * How much of the slot the icon is fitted into. Between the inscribed square of the circle (0.707)
  * and the full bounding box: imported icons are trimmed and centred (`scripts/import-weapon-icon.mjs`),
  * so their extreme corners are usually empty and a strict inscription would waste visible area.
@@ -490,6 +513,9 @@ export class ArenaScene extends Phaser.Scene {
   private lockGfx: Phaser.GameObjects.Graphics | undefined;
   private arrowGfx: Phaser.GameObjects.Graphics | undefined;
   private spectateText: Phaser.GameObjects.Text | undefined;
+  /** Pill plates behind the movement hint's key glyphs. Drawn once, then only toggled. */
+  private movementHintGfx: Phaser.GameObjects.Graphics | undefined;
+  private movementHintTexts: Phaser.GameObjects.Text[] = [];
   private keys: SpectateKeys | undefined;
   /** Session id of the car the spectate camera is watching. `""` means "nobody left to watch". */
   private spectateTarget = "";
@@ -631,6 +657,8 @@ export class ArenaScene extends Phaser.Scene {
       .setDepth(HUD_DEPTH)
       .setVisible(false);
 
+    this.buildMovementHint();
+
     this.splitCameras();
     this.bindRoom(this.room);
     this.syncMatchHud();
@@ -741,6 +769,8 @@ export class ArenaScene extends Phaser.Scene {
       ...(this.rosterGfx ? [this.rosterGfx] : []),
       ...(this.countdownText ? [this.countdownText] : []),
       ...(this.spectateText ? [this.spectateText] : []),
+      ...(this.movementHintGfx ? [this.movementHintGfx] : []),
+      ...this.movementHintTexts,
       ...this.hudKeyTexts,
       ...this.hudNameTexts,
       ...this.hudCountdownTexts,
@@ -818,6 +848,10 @@ export class ArenaScene extends Phaser.Scene {
     this.countdownText = undefined;
     this.spectateText?.destroy();
     this.spectateText = undefined;
+    this.movementHintGfx?.destroy();
+    this.movementHintGfx = undefined;
+    for (const text of this.movementHintTexts) text.destroy();
+    this.movementHintTexts = [];
     this.shotGfx?.destroy();
     this.shotGfx = undefined;
     this.hpGfx?.destroy();
@@ -2054,6 +2088,74 @@ export class ArenaScene extends Phaser.Scene {
     }
 
     this.syncSpectateHud(room);
+    this.syncMovementHint(room);
+  }
+
+  /**
+   * Build the hint once and never again. Its text never changes, so the pills can be measured, laid
+   * out and stroked into `movementHintGfx` at creation and the whole row reduced to a visibility
+   * flag afterwards — a per-frame `clear()` and re-fill would repaint eight plates every tick to
+   * draw the identical picture.
+   */
+  private buildMovementHint(): void {
+    const gfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_BOX_DEPTH).setVisible(false);
+    this.movementHintGfx = gfx;
+
+    const glyphs = [...MOVEMENT_KEYS, MOVEMENT_JOINER, ...MOVEMENT_ARROWS, MOVEMENT_LABEL];
+    // Pills carry the white-on-copper of the slot keys; the joiner and the trailing label are plain
+    // HUD text on the floor, so the row reads as a sentence with keys set into it.
+    const isPill = (index: number): boolean =>
+      index < MOVEMENT_KEYS.length ||
+      (index > MOVEMENT_KEYS.length && index <= MOVEMENT_KEYS.length + MOVEMENT_ARROWS.length);
+    this.movementHintTexts = glyphs.map((glyph, index) =>
+      this.add
+        .text(0, MOVEMENT_HINT_Y, glyph, {
+          fontSize: `${MOVEMENT_HINT_FONT_PX}px`,
+          color: isPill(index) ? HUD_KEY_PILL_TEXT : HUD_TEXT,
+        })
+        .setOrigin(0.5)
+        .setScrollFactor(0)
+        .setDepth(HUD_TEXT_DEPTH)
+        .setVisible(false),
+    );
+
+    const width = (index: number): number => this.movementHintTexts[index]!.width;
+    const keyCount = MOVEMENT_KEYS.length;
+    const items = movementHintItems(
+      MOVEMENT_KEYS.map((_, i) => width(i)),
+      width(keyCount),
+      MOVEMENT_ARROWS.map((_, i) => width(keyCount + 1 + i)),
+      width(glyphs.length - 1),
+    );
+    const { placements } = placeMovementHint(items, {
+      padX: HUD_KEY_PILL_PAD_X,
+      gap: MOVEMENT_HINT_GAP,
+      centerX: ARENA_VIEW_WIDTH / 2,
+    });
+
+    const pillHeight = this.movementHintTexts[0]!.height + HUD_KEY_PILL_PAD_Y * 2;
+    gfx.fillStyle(HUD_RING_COLOR, 1);
+    placements.forEach((placement, index) => {
+      this.movementHintTexts[index]!.setX(placement.x + placement.width / 2);
+      if (!isPill(index)) return;
+      gfx.fillRoundedRect(
+        placement.x,
+        MOVEMENT_HINT_Y - pillHeight / 2,
+        placement.width,
+        pillHeight,
+        pillHeight / 2,
+      );
+    });
+  }
+
+  /**
+   * The movement hint's one job after `buildMovementHint`: appear and disappear. `showMovementHint`
+   * owns the rule — countdown only, which is also what keeps it off the spectate banner's row.
+   */
+  private syncMovementHint(room: Room<ArenaState>): void {
+    const visible = showMovementHint(room.state.phase);
+    this.movementHintGfx?.setVisible(visible);
+    for (const text of this.movementHintTexts) text.setVisible(visible);
   }
 
   /**
