@@ -354,7 +354,7 @@ export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
       // Tracks the beam's own 15% widening (T13: `hitbox.width` 20 -> 23), so the telegraph keeps
       // matching what it warns about. A charge orb that stopped growing with the beam would
       // under-promise the thing about to be fired, which is the one failure mode a telegraph has.
-      maxRadius: 21,
+      maxRadius: 18.9,
       bands: [
         { radiusScale: 1, color: "#6741D9" },
         { radiusScale: 0.6, color: "#FFD43B" },

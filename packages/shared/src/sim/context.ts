@@ -14,6 +14,8 @@ export interface ContextPlayer {
   angle: number;
   status: number;
   carId: string;
+  /** 0 hp. A dead car is intangible while it fades out — see `isOnField`. */
+  alive: boolean;
 }
 
 /** One player with the session id that orders it. */
@@ -26,11 +28,17 @@ export interface ContextEntry {
  * Only players actually on the field are simulated, and only they are solid to each other. Lobby
  * and post-match players are in the room but must not act as invisible walls.
  *
+ * **A dead car is off the field the instant it dies.** There is no wreck: it stops being simulated,
+ * stops being solid, and stops being a ram participant on the tick its hp reaches 0, then fades out
+ * on the client over `DEATH_FADE_MS` and is drawn no more. Before 2026-08-30 a wreck stayed
+ * `IN_MATCH` and so stayed a collision hull — solid to driving but transparent to combat — which is
+ * why this predicate deliberately reads `alive` now as well as `status`.
+ *
  * The mover gate and the wall gate have to be the same predicate, or a player who is not in the
  * match would be driven around the arena while staying invisible to everyone else's collisions.
  */
-export function isOnField(player: Pick<ContextPlayer, "status">): boolean {
-  return player.status === PlayerStatus.IN_MATCH;
+export function isOnField(player: Pick<ContextPlayer, "status" | "alive">): boolean {
+  return player.status === PlayerStatus.IN_MATCH && player.alive;
 }
 
 /**

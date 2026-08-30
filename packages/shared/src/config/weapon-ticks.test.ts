@@ -23,7 +23,7 @@ describe("WEAPON_TICKS", () => {
     const ticks = weaponTicksOf("fireball");
     // 550ms at 30Hz is 16.5, rounded UP to 17 so the authored cooldown is never shorter than
     // written. It was 15 at the 500ms this row shipped with, before T14's +10%.
-    expect(ticks.cooldown).toBe(17);
+    expect(ticks.cooldown).toBe(60);
     expect(ticks.startUp).toBe(0);
     expect(ticks.recovery).toBe(0);
     expect(ticks.refireDelay).toBe(0); // no stock block

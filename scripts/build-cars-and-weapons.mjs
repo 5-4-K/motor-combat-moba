@@ -67,6 +67,17 @@ const AVERAGE_HP = AVERAGE_RATING * COMBAT_CONFIG.hpPerRating;
 // ---------------------------------------------------------------------------- derived stats
 
 const CAR_IDS = Object.keys(CAR_TABLE);
+
+/**
+ * How many weapons carry a magazine, said in words. Derived rather than written down: this line
+ * asserted "One weapon has them" until `needler` lost its stock and nobody noticed the page had
+ * started lying to players.
+ */
+function stockBlurb() {
+  const n = Object.values(WEAPON_TABLE).filter((d) => d.stock).length;
+  if (n === 0) return "No weapon carries them right now.";
+  return n === 1 ? "One weapon has them." : `${n} weapons have them.`;
+}
 const OWNER_OF = Object.fromEntries(
   CAR_IDS.flatMap((carId) => slotsOf(carId).map((weaponId) => [weaponId, carId])),
 );
@@ -369,7 +380,7 @@ function legend() {
            <dt>Wind-up</dt><dd>Delay between the press and the shot. You keep driving, but you cannot take the press back.</dd>
            <dt>Recovery</dt><dd>Lockout on your <i>other</i> two slots after a press.</dd>
            <dt>Recharge</dt><dd>Time before this weapon is ready again. It starts at the last shot of the press, not the first.</dd>
-           <dt>Stock</dt><dd>Shots you can bank. One weapon has them.</dd>
+           <dt>Stock</dt><dd>Shots you can bank. ${stockBlurb()}</dd>
            <dt>Pierce</dt><dd>Cars a shot carries on through after the first one it hits.</dd>
            <dt>Attack scale</dt><dd>Your chassis multiplies every weapon's damage. ${CAR_IDS.map(
              (id) => `${CAR_TABLE[id].name} ${round(1 + (CAR_TABLE[id].attack - COMBAT_CONFIG.attackBaseline) * COMBAT_CONFIG.damagePerAttack, 1)}×`,

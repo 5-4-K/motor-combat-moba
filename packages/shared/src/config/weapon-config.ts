@@ -19,8 +19,8 @@ import type { WeaponDef, WeaponId } from "./weapon-types.js";
  * `damage` is what the weapon deals from a chassis at `COMBAT_CONFIG.attackBaseline` — an *average*
  * car, not every car. `damageFor` (`sim/damage.ts`) moves it +/-50% with the firing chassis's
  * `attack` rating. `fireball` is still the anchor every other row is read against: 50 damage per
- * 550 ms is `50 * 1000 / 550` == 91 sustained DPS, so an average chassis's 500 hull HP takes
- * `500 / 91` == 5.5 s to grind down average-on-average. That was 5.0 s at the 500 ms cooldown this
+ * 2000 ms is `50 * 1000 / 2000` == 25 sustained DPS, so an average chassis's 500 hull HP takes
+ * `500 / 25` == 20 s to grind down average-on-average. That was 5.0 s at the 500 ms cooldown this
  * row shipped with; the +10% is Mirage paying for `shockwave` arriving in its slot 2 (T14), and the
  * kill time moved with it rather than the damage being re-solved to hold 5 s.
  *
@@ -42,7 +42,7 @@ export const WEAPON_TABLE = {
     speed: 900,
     range: 900,
     startUpMs: 0,
-    cooldownMs: 550, // 1.82 Hz, 45% clear of the 1.25 Hz aim-assist cliff
+    cooldownMs: 2000, // 0.5 Hz, 60% clear of the 1.25 Hz aim-assist cliff
     recoveryMs: 0,
     // `fireball` is Mirage's slot 1 only, not a universal weapon. Aim assist is not universal
     // either, though the redistribution tipped it into the majority: six of the nine rows take it
@@ -142,38 +142,29 @@ export const WEAPON_TABLE = {
     applies: [{ statusId: "overheated", target: "opponents", durationMs: 1500 }],
   },
   /**
-   * Bullseye's slot 1, and the table's only multi-stock weapon. It replaced `repeater`, which held this
-   * reference role while carried by no car; a reachable reference is strictly better, because stock
-   * bugs now surface in matches instead of only in `fire.test.ts`.
+   * Bullseye's slot 1: a plain, fast, single-shot dart.
    *
-   * `cooldownMs: 300` is the entire design and is not a knob to round off. One dart per 300 ms
-   * sustains `22 * 1000 / 300` == 73 DPS, essentially the 75 this row anchored on before T11 and
-   * four fifths of `fireball`'s 91.
+   * **The magazine is gone.** This row carried `stock: { max: 3, refireDelayMs: 110 }` until
+   * 2026-08-30 and was the table's only multi-stock weapon — the reference the stock machinery
+   * existed to exercise in real matches rather than only in `fire.test.ts`. `StockDef` still ships
+   * and is still tested, but nothing carries it now, so a stock bug will surface only in a unit test
+   * until some future row takes the role back.
    *
-   * **Dumping the magazine buys TIMING, not damage, and the comment here claimed otherwise until
-   * 2026-08-30.** It said three stocks cost a 900 ms refill and 59 DPS across the cycle, so that
-   * tapping won the long fight — inherited word for word from `splinter`, and never true of the
-   * shipped mechanism. `releaseShots` starts the recharge at the FIRST shot of a dump and
-   * deliberately never restarts a running timer (`fire.ts`: it only sets `rechargeEndsTick` when it
-   * is 0), so the refill runs CONCURRENTLY with the burst instead of after it. Held from full at
-   * tick 100 the sim fires on ticks 100, 104, 108, 112, 118, 127, 136, 145 — gaps of 133, 133, 133,
-   * 200, then 300 ms forever. Three darts leave inside 267 ms, the pause after them is 4 ticks
-   * (133 ms) rather than a dry spell, a fourth lands at tick 112 off the stock that arrived at 109,
-   * and the cadence then settles on the 9-tick cooldown at exactly the same 73 DPS a tapping player
-   * has had the whole time.
+   * Dropping the stock and doubling the cooldown together halve the weapon: 22 damage per 600 ms is
+   * 37 sustained DPS at the baseline and 38 on Bullseye's 1.05x attack, against the 73 it sustained
+   * while it could bank three darts. That is the intended shape of the 2026-08-30 pass — every
+   * cooldown roughly tripled, and one press now means exactly one shot — not a side effect of
+   * removing the block.
    *
-   * So the magazine is a one-off credit of two extra darts — 88 damage inside the first 400 ms
-   * against a tapper's 44 — that never compounds and costs nothing afterwards. That is a real
-   * choice about WHEN your damage lands, not the trigger-discipline trade the old text described.
-   * Whether dumping ought to cost something is a live design question and deliberately not answered
-   * here: nothing about this row was retuned to make the sentence true.
+   * With no magazine there is no dump, so the "should dumping cost anything" question this row used
+   * to carry is closed by deletion rather than by an answer.
    *
-   * **It no longer applies `spiked`.** Three stocks landing on one `refresh` debuff made the
-   * skirmisher's spam weapon a debuff applicator as well, which fights the clean sustained-pressure
-   * job slot 1 exists to do. "Spikes" is `bulwark`'s now (T18), where a bleed suits an exclusion
-   * zone. Losing it here is a deliberate nerf, not an oversight.
+   * **It applies no status.** Three stocks landing on one `refresh` debuff made the skirmisher's
+   * spam weapon a debuff applicator as well, which fought the clean sustained-pressure job slot 1
+   * exists to do. "Spikes" is `bulwark`'s now (T18). The magazine that made that a problem is gone
+   * as well, but the role argument stands on its own.
    *
-   * 3.33 Hz is 167% clear of the 1.25 Hz cliff, the widest margin in the assisted half of the table.
+   * 1.67 Hz is 33% clear of the 1.25 Hz cliff, and 600 ms sits below the forbidden 696-941 ms band.
    */
   needler: {
     id: "needler",
@@ -186,7 +177,7 @@ export const WEAPON_TABLE = {
     speed: 1300,
     range: 850, // >= AIM_CONFIG.lockRange (400), required for usesAimAssist
     startUpMs: 0,
-    cooldownMs: 300, // 3.33 Hz, clear of the 1.25 Hz aim-assist cliff by 167%
+    cooldownMs: 600, // 1.67 Hz, 33% clear of the 1.25 Hz aim-assist cliff
     recoveryMs: 0, // a go-to never gates another slot (L5)
     usesAimAssist: true,
     // A dart rather than a pellet: long and thin along its own flight, so it reads as a needle at
@@ -195,7 +186,6 @@ export const WEAPON_TABLE = {
     pierce: 0,
     volley: { volleys: 1, volleyIntervalMs: 0 },
     pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
-    stock: { max: 3, refireDelayMs: 110 },
   },
   /**
    * Bastion's slot 2, moved off Bullseye by T17, and the table's first `pierce`.
@@ -218,7 +208,7 @@ export const WEAPON_TABLE = {
    * 650-unit lunge on the slowest chassis in the roster: Bastion has to be inside a Mirage's
    * preferred range, after a 250 ms wind-up, on a car that cannot reposition to fix a miss, and the
    * lock only ever reaches 400 of those 650 units. The line-up is still the player's to find — the
-   * assist nudges the shot, it does not choose the pair. 650 >= 400 and 0.42 Hz is 67% clear of the
+   * assist nudges the shot, it does not choose the pair. 650 >= 400 and 0.17 Hz is 87% clear of the
    * 1.25 Hz cliff, so the row is legal on both guards.
    */
   skewer: {
@@ -232,7 +222,7 @@ export const WEAPON_TABLE = {
     speed: 1000,
     range: 650, // >= AIM_CONFIG.lockRange (400), required for usesAimAssist
     startUpMs: 250, // rounds up to 8 ticks == 266ms at 30Hz
-    cooldownMs: 2400, // 0.42 Hz, 67% clear of the 1.25 Hz aim-assist cliff
+    cooldownMs: 6000, // 0.17 Hz, 87% clear of the 1.25 Hz aim-assist cliff
     recoveryMs: 200,
     usesAimAssist: true,
     hitbox: { shape: "ellipse", radiusAlong: 22, radiusAcross: 5 },
@@ -276,7 +266,7 @@ export const WEAPON_TABLE = {
     cooldownMs: 16000, // 0.06 Hz, 95% clear of the 1.25 Hz aim-assist cliff
     recoveryMs: 1000,
     usesAimAssist: true,
-    hitbox: { shape: "rect", width: 23 }, // +15%; the charge orb's maxRadius tracks it at 21
+    hitbox: { shape: "rect", width: 57.5 }, // 2.5x wider; the charge orb deliberately does NOT track it
     volley: { volleys: 1, volleyIntervalMs: 0 },
     attached: false,
     origin: "muzzle",
@@ -304,9 +294,15 @@ export const WEAPON_TABLE = {
    * `damage` drops 75 -> 60 to pay for it: 55 on Bastion's 0.92x attack, a shot that opens a fight
    * rather than one that wins an exchange on its own.
    *
-   * `cooldownMs: 1000` IS CONSTRAINED, not chosen for feel, and 1 s is also what keeps this press
-   * un-baitable — Mirage must dodge it rather than drain it, which is what stops in-and-out being a
-   * free solution to Type 3 (T1). The aim-assist cliff guard rejects any assisted weapon whose
+   * **`cooldownMs` went 1000 -> 3000 in the 2026-08-30 tuning pass, and that moved two things this
+   * comment used to argue.** First, the stun's duty cycle fell from 47% to 14/90 == 16%, so the 450
+   * ms cut above is now belt-and-braces rather than the thing holding the lock open; if Bastion's CC
+   * reads as too thin in play, this row's `durationMs` is the knob, and it has a lot of headroom
+   * before 60% again. Second, a 3 s recharge IS baitable, where 1 s was not — so T1's claim that
+   * in-and-out is no free solution against Type 3 no longer rests on thumper being un-drainable. It
+   * now rests on Mirage having to survive `bulwark` and `skewer` while it waits.
+   *
+   * The cooldown is still CONSTRAINED at the low end. The aim-assist cliff guard rejects any assisted weapon whose
    * `1000 / cooldownMs` is within 15% of `1000 / AIM_CONFIG.lockTimeoutMs`, which forbids every
    * value between 696 and 941. This row was first drafted at 900 and would have failed the suite.
    * Do not "round it down" to 900 without re-reading that guard.
@@ -322,7 +318,7 @@ export const WEAPON_TABLE = {
     speed: 450,
     range: 550, // >= AIM_CONFIG.lockRange (400), required for usesAimAssist
     startUpMs: 0,
-    cooldownMs: 1000, // 1.0 Hz — 20% clear of the 1.25 Hz cliff
+    cooldownMs: 3000, // 0.33 Hz, 73% clear of the 1.25 Hz cliff
     recoveryMs: 0,
     usesAimAssist: true,
     hitbox: { shape: "circle", radius: 20 },
@@ -333,7 +329,7 @@ export const WEAPON_TABLE = {
   },
   /**
    * Mirage's slot 2 after T15, and the table's only MULTI-WAVE weapon: one press schedules three
-   * separate aura instances 500 ms apart. Each wave expands to 150 units in 100 ms, lingers 150 ms
+   * separate aura instances 250 ms apart. Each wave expands to 150 units in 100 ms, lingers 150 ms
    * and dies, so at 500 ms spacing they never overlap — the weapon reads as three distinct pulses
    * rather than one long field, and each car can be caught once per wave. One press spans 1.25 s
    * from the first wave's birth to the third wave's death (`2 * 500` + 250).
@@ -379,7 +375,7 @@ export const WEAPON_TABLE = {
     speed: 1500, // expands its 150 radius in 100ms; +150ms linger == 250ms per wave
     range: 150,
     startUpMs: 0,
-    cooldownMs: 5500,
+    cooldownMs: 5000,
     recoveryMs: 200,
     usesAimAssist: false,
     // The table's first AURA: a `disc` hitbox anchored at `origin: "center"`, so it expands as a
@@ -391,7 +387,7 @@ export const WEAPON_TABLE = {
     // already wants. The cost of the extra arc is still the first thing to re-tune from play.
     // Reverting is a two-line edit back to `{ shape: "cone", angleDeg: 140 }` and `"muzzle"`.
     hitbox: { shape: "disc" },
-    volley: { volleys: 3, volleyIntervalMs: 500 },
+    volley: { volleys: 3, volleyIntervalMs: 250 },
     attached: true,
     origin: "center",
     lifetimeMs: 150, // per wave: 100ms of expansion + 150ms of linger

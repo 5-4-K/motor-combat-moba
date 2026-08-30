@@ -237,10 +237,16 @@ describe("firing", () => {
     expect(hit.hp).toBe(hpOf("mirage") - weaponDamageOf("mirage", "fireball"));
   });
 
-  it("drives needler, the table's only multi-stock weapon, through a real tick", () => {
-    // Bullseye carries needler, so this is now the shipped path rather than a hand-built loadout
-    // proving an unreachable weapon. Kept as an explicit fixture anyway: it is the only test that
-    // walks the stock mechanic through `runCombat` rather than through `FireState` literals.
+  /**
+   * SKIPPED since 2026-08-30, alongside the stock suites in `fire.test.ts`, and deliberately kept.
+   *
+   * `needler` was the table's only weapon with a `stock` block and the tuning pass removed it, so
+   * there is no longer a stocked row for this to drive. It is the only test that walks the stock
+   * mechanic through `runCombat` rather than through `FireState` literals, which is exactly why it
+   * is worth keeping: **un-skip it the moment any weapon authors a `stock` block again**, and
+   * re-point it at that weapon and its chassis.
+   */
+  it.skip("drives needler, the table's only multi-stock weapon, through a real tick", () => {
     const shooter = player({
       fireMask: 0b001,
       fireState: {

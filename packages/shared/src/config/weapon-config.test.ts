@@ -15,7 +15,7 @@ describe("WEAPON_TABLE", () => {
     expect(fireball.damage).toBe(50);
     // Was fireRateHz: 2 == 500ms; T14 put it up 10% to pay for shockwave arriving in Mirage's
     // slot 2, which is what moved the headline kill from 5.0 s to 5.5 s.
-    expect(fireball.cooldownMs).toBe(550);
+    expect(fireball.cooldownMs).toBe(2000);
     expect(fireball.speed).toBe(900);
     expect(fireball.range).toBe(900); // was lifetimeTicks: 30 == 1s of flight at 900 u/s
     expect(fireball.startUpMs).toBe(0);
@@ -90,22 +90,19 @@ describe("WEAPON_TABLE", () => {
     expect(weaponDefOf("fireball").id).toBe("fireball");
   });
 
-  it("ships needler as the table's multi-stock reference, now carried rather than dormant", () => {
+  it("ships needler as a plain single-shot dart, its magazine removed", () => {
     const needler = WEAPON_TABLE.needler;
     expect(needler.kind).toBe("projectile");
     expect(needler.damage).toBe(22);
-    expect(needler.cooldownMs).toBe(300);
+    expect(needler.cooldownMs).toBe(600);
     expect(needler.speed).toBe(1300);
     expect(needler.range).toBe(850);
     expect(needler.usesAimAssist).toBe(true);
-    expect(needler.stock).toEqual({ max: 3, refireDelayMs: 110 });
-    // 300ms is the whole design: one dart per recharge sustains 73 DPS, and dumping all three puts
-    // 66 damage out inside 267ms (two 4-tick refire gaps) WITHOUT giving that rate up — the
-    // recharge starts at the first shot of a dump and is never restarted, so the magazine refills
-    // through the burst and the cadence returns to one dart per 300ms either way. The burst moves
-    // damage earlier; it does not add or cost any. 22 * (1000 / 300) is 73.333..., so this is a
-    // close-to rather than the exact equality the 30/400 pair happened to allow.
-    expect(needler.damage * (1000 / needler.cooldownMs)).toBeCloseTo(73.3, 1);
+    // The 2026-08-30 pass took the magazine off. This row was the table's ONLY multi-stock weapon,
+    // so `StockDef` now ships carried by nothing — see the row's own comment.
+    expect(needler.stock).toBeUndefined();
+    // 22 per 600ms is 36.67 sustained DPS, half the 73 it held while it could bank three darts.
+    expect(needler.damage * (1000 / needler.cooldownMs)).toBeCloseTo(36.7, 1);
     // T11 took `spiked` off this row and gave it to `bulwark`: a spam weapon that also applied a
     // refreshing debuff was doing slot 3's job from slot 1.
     expect(needler.applies).toBeUndefined();
@@ -205,7 +202,7 @@ describe("WEAPON_TABLE", () => {
     if (lance.kind !== "beam") throw new Error("lance must be a beam");
     expect(lance.attached).toBe(false);
     expect(lance.damage).toBe(170); // T13 trimmed 180 to pay for +15% width AND the lock
-    expect(lance.hitbox).toEqual({ shape: "rect", width: 23 });
+    expect(lance.hitbox).toEqual({ shape: "rect", width: 57.5 });
     expect(lance.damageFrequencyMs).toBe(0); // one hit per car, not a ticking zone
     expect(lance.startUpMs).toBe(700);
     // Legal because the "no assist on a beam" guard refuses ATTACHED beams only, and this one
@@ -240,7 +237,7 @@ describe("WEAPON_TABLE", () => {
     // 900ms first drafted for this row sat inside the band and would have failed the suite.
     const forbiddenLow = 1000 / (1.25 * 1.15);
     const forbiddenHigh = 1000 / (1.25 * 0.85);
-    expect(thumper.cooldownMs).toBe(1000);
+    expect(thumper.cooldownMs).toBe(3000);
     expect(thumper.cooldownMs).toBeGreaterThan(forbiddenHigh);
     expect(forbiddenLow).toBeLessThan(forbiddenHigh); // the band is a band, not a point
     expect(thumper.hitbox).toEqual({ shape: "circle", radius: 20 });
@@ -277,7 +274,7 @@ describe("WEAPON_TABLE", () => {
   it("ships shockwave as a three-wave aura whose last wave carries the debuff", () => {
     const sw = WEAPON_TABLE.shockwave;
     if (sw.kind !== "beam") throw new Error("shockwave must be a beam");
-    expect(sw.volley).toEqual({ volleys: 3, volleyIntervalMs: 500 });
+    expect(sw.volley).toEqual({ volleys: 3, volleyIntervalMs: 250 });
     expect(sw.damage).toBe(45); // 135 if all three connect, against the old single 100
     expect(sw.applies).toEqual([
       { statusId: "corroded", target: "opponents", durationMs: 2500, onWave: "final" },

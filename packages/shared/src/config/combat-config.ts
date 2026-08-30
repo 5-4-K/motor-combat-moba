@@ -19,3 +19,13 @@ export const COMBAT_CONFIG = {
    */
   damagePerAttack: 0.01,
 } as const;
+
+/**
+ * How long a dead car takes to fade off the field, in milliseconds.
+ *
+ * Render-only: nothing in `stepSim` reads it, and the car is already intangible and frozen the
+ * instant it dies (`isOnField`). This only decides how long the corpse is still drawn. It lives in
+ * shared rather than in the client so the value is stated once, next to the rest of the combat
+ * numbers, rather than buried in a scene file.
+ */
+export const DEATH_FADE_MS = 1000;

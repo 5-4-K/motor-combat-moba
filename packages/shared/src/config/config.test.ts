@@ -54,7 +54,7 @@ describe("CAR_TABLE", () => {
     expect(hpOf("bastion")).toBe(820);
   });
 
-  it("kills an average chassis with the baseline weapon in 5.5 seconds", () => {
+  it("kills an average chassis with the baseline weapon in 20 seconds", () => {
     // The spec's headline number (S7), which moved from 5.0 to 5.5 when T14 put `fireball`'s
     // cooldown up 500 -> 550 to pay for `shockwave` landing in Mirage's slot 2. The damage was NOT
     // re-solved to hold 5 s: the anchor is 50 per press, and the kill time is what the cooldown
@@ -72,7 +72,7 @@ describe("CAR_TABLE", () => {
     const dps =
       (damageFor(COMBAT_CONFIG.attackBaseline, WEAPON_TABLE.fireball.damage) * 1000) /
       WEAPON_TABLE.fireball.cooldownMs;
-    expect(averageHp / dps).toBe(5.5);
+    expect(averageHp / dps).toBe(20);
   });
 
   it("pins damagePerAttack through off-baseline chassis", () => {

@@ -52,6 +52,12 @@ export const IDLE: Omit<InputMessage, "seq"> = { steer: 0, throttle: 0, fireSlot
 export class PlaytestWorld {
   readonly state = new ArenaState();
   readonly queues = new Map<string, InputMessage[]>();
+  /**
+   * Mirrors `ArenaRoom.prevFireMasks`: what each player's last simulated input had held down, so
+   * `serverTick` can tell a press from a held key. A probe that presses on one tick and holds
+   * thereafter fires ONCE — set the mask back to 0 on a tick to release the trigger.
+   */
+  readonly prevFireMasks = new Map<string, number>();
   readonly roster = new Set<string>();
   private combat: CombatMemory = newCombatMemory();
   private ram: RamMemory = newRamMemory();
@@ -117,6 +123,7 @@ export class PlaytestWorld {
       DT,
       this.state.phase,
       statusMods,
+      this.prevFireMasks,
     );
     if (this.state.phase === RoomPhase.MATCH && this.roster.size > 0) {
       ramTick(this.state, this.roster, this.ram, this.mode, statusMods, approachSpeeds);

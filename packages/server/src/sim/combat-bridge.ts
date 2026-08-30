@@ -141,6 +141,9 @@ export function applyCombatResult(state: ArenaState, result: CombatResult, memor
     const player = state.players.get(p.sessionId);
     if (!player) continue;
     player.hp = p.hp;
+    // Stamp the death tick on the TRANSITION only, so a car that is already dead keeps the tick it
+    // died on rather than having it rewritten every tick it stays dead. The client fades from here.
+    if (player.alive && !p.alive) player.diedAtTick = state.tick;
     player.alive = p.alive;
     player.level = p.fireState.level;
     player.switchLockUntilTick = p.fireState.switchLockUntilTick;

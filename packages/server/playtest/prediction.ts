@@ -148,12 +148,12 @@ function bodyOf(p: {
 /** The client's `StepContext`: remotes frozen at the last pose it was told about. */
 function clientContext(snap: Snapshot | null, self: SimBody): StepContext {
   const entries: ContextEntry[] = [
-    { sessionId: "me", player: { x: self.x, y: self.y, angle: self.angle, status: 3, carId: "mirage" } },
+    { sessionId: "me", player: { x: self.x, y: self.y, angle: self.angle, status: 3, carId: "mirage", alive: true } },
   ];
   for (const o of snap?.others ?? []) {
     entries.push({
       sessionId: o.sessionId,
-      player: { x: o.x, y: o.y, angle: o.angle, status: 3, carId: "mirage" },
+      player: { x: o.x, y: o.y, angle: o.angle, status: 3, carId: "mirage", alive: true },
     });
   }
   entries.sort((a, b) => (a.sessionId < b.sessionId ? -1 : 1));

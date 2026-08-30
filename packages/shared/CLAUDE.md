@@ -27,7 +27,7 @@ reproduces the pre-status sim exactly (`golden.test.ts` pins it).
 itself; different statuses on one channel stack by multiplication.
 
 `applyDamage` is no longer the only HP writer — **`sim/damage.ts` is.** `applyHeal` sits beside it for
-repair pulses, clamped to `hpOf` and refusing to lift a wreck off 0. Keeping the pair in one file is
+repair pulses, clamped to `hpOf` and refusing to lift a dead car off 0. Keeping the pair in one file is
 what preserves the property the original rule protected.
 
 Expiry runs once per tick, before driving; pulses run first inside `runCombat`; new statuses are only

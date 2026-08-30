@@ -132,7 +132,7 @@ export type {
 export { WEAPON_TICKS, msToTicks, scaleTicks, weaponTicksOf } from "./config/weapon-ticks.js";
 export type { WeaponTicks } from "./config/weapon-ticks.js";
 export { WEAPON_SLOT_CONFIG, slotsFrom, slotsOf } from "./config/weapon-slots.js";
-export { COMBAT_CONFIG } from "./config/combat-config.js";
+export { COMBAT_CONFIG, DEATH_FADE_MS } from "./config/combat-config.js";
 
 // --- statuses (buffs and debuffs) ----------------------------------------------------------
 export {

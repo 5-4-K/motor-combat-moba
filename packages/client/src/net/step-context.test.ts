@@ -22,6 +22,7 @@ function player(over: Partial<ContextPlayer> = {}): ContextPlayer {
     angle: 0,
     status: PlayerStatus.IN_MATCH,
     carId: "mirage",
+    alive: true,
     ...over,
   };
 }

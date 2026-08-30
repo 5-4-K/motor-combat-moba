@@ -13,7 +13,9 @@
 | **hostSessionId** | Session of the room host (first joiner; reassigned on leave). |
 | **InputMessage** | `{ seq, steer, throttle, fire }` sent as `"input"`. |
 | **Wreck** | A car at 0 HP: `alive = false`. Still solid, no longer fires or can be shot. |
-| **Spectate** | What a wrecked player does: a local camera following a living car, or free roam. Server has no notion of it. |
+| **Spectate** | What a dead player does: a local camera following a living car, or free roam. Server has no notion of it. |
+| **Death fade** | A dead car is intangible and frozen from the tick its hp hits 0 — there is no wreck. The client fades it out over `DEATH_FADE_MS` from the networked `diedAtTick`, then stops drawing it. |
+| **Fire edge** | `fireSlots` carries key state; the server turns it into presses with `prevFireMasks`, so holding the trigger fires once. |
 | **Status** | A timed condition a car is in: a row in `STATUS_TABLE` plus a start and end tick. Scales numbers the sim already reads, and may pulse hp or cleanse on arrival. Never moves a car. Its duration belongs to whatever applied it, not to the row. |
 | **Channel** | One number a status may scale (`topSpeed`, `brakeDecel`, `damageDealt`, …). Always a multiplier, 1 = neutral. |
 | **Modifiers** | A car's whole status list collapsed into one set of multipliers and flags. The only thing the sim reads — driving, ramming and combat never look at a status list. |

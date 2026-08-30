@@ -82,7 +82,7 @@ applyDamage(hp, amount) // max(0, hp - amount); a non-positive amount changes no
 ```
 
 Every damage source routes through it, so a later shield or damage cap is one edit. `hp === 0` sets
-`alive = false`; that is the wreck.
+`alive = false`. **There is no wreck**: the car leaves the field on that tick — see Elimination below.
 
 Two functions beside it complete the set, both added by the status system:
 
@@ -127,6 +127,14 @@ damage:** `releaseShots` sets `rechargeEndsTick` only when it is 0, so the recha
 (133 ms), and dumping converges on the same 73 DPS as tapping.
 
 ### Firing input
+
+**One shot per press.** `fireSlots` is raw key state on the wire, so a held trigger sets the same
+bit on every input. `serverTick` keeps a server-only `prevFireMasks` per player and counts only a
+newly-set bit as a press (`clean & ~prev`), advancing `prev` per input in sequence order so a
+release and re-press inside one tick's batch is two presses rather than one held key. Holding the
+trigger therefore fires exactly once; the player must release and press again. The edge is detected
+on the server, not the client, because a hand-rolled client could otherwise pulse the mask and buy
+back auto-fire — and the weapon cooldown still bounds the rate on top of it.
 
 `InputMessage.fireSlots` is a **uint8 bitmask** (bit 0 = slot 1), the successor to the old single
 `fire: boolean`. The server masks it to `maxWeaponSlots` bits and to the car's actual slot count
@@ -376,7 +384,8 @@ predicate, used by every weapon instance:
 - **FFA:** anyone else. Teams are only seating.
 - **Team:** enemies only. A shot passes straight through a teammate and keeps going.
 
-A wreck is not a target: shots pass through it rather than being spent on it.
+A dead car is not a target: shots pass through it rather than being spent on it. It is not an
+obstacle either — see Elimination.
 
 One consequence worth knowing rather than fixing: the pose snapshot is built **once per tick**,
 before any instance resolves, so a car wrecked earlier in that same tick is still a contact for
@@ -728,8 +737,18 @@ for how long, and what that status does, derived from `STATUS_TABLE` itself so i
 
 ## Elimination and winning
 
-- HP reaches 0 → `alive = false`. The wreck stays on the field and stays **solid** — it is still an
-  obstacle to everyone — and stops firing and being shot.
+- HP reaches 0 → `alive = false`, and the car **leaves the field on that tick**. `isOnField` reads
+  `alive` as well as `status`, and that single predicate gates all three of: being simulated (so
+  the car freezes at the pose it died on), being solid (so it is intangible immediately), and being
+  a ram participant. It stops firing and being shot as it always did.
+- **There is no wreck.** Until 2026-08-30 a dead car stayed `IN_MATCH` and so stayed a collision
+  hull — solid to driving but transparent to combat — parked on the field for the rest of the match.
+  It now fades out on the client over `DEATH_FADE_MS` (1 s) from the networked `diedAtTick`, and is
+  then not drawn at all. The fade is render-only; the car is already gone from the sim before the
+  first frame of it.
+- `diedAtTick` is networked rather than derived from `alive` flipping, so a spectator or a late
+  joiner — neither of whom saw the transition — fades it correctly instead of drawing a corpse
+  forever.
 - After damage each tick, `livingSides(mode, roster)` counts the living sides. `sides <= 1` ends the
   match through the same `endMatch` a disconnect uses. FFA names a `winnerSessionId`; team mode names
   a `winnerTeam`; zero living sides is a draw (`-1`, `""`), which a mutual head-on kill can produce.
