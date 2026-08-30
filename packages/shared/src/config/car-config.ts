@@ -36,9 +36,9 @@ import type { CarDef, CarId } from "./types.js";
  * swapping a pair, never copying one.
  */
 export const CAR_TABLE = {
-  mirage: { id: "mirage", name: "Mirage", speed: 88, accel: 85, handling: 50, attack: 63, hp: 48, mass: 48, weapons: ["fireball", "pepperbox", "afterburner"] },
-  bullseye: { id: "bullseye", name: "Bullseye", speed: 52, accel: 45, handling: 28, attack: 55, hp: 30, mass: 30, weapons: ["needler", "skewer", "lance"] },
-  bastion: { id: "bastion", name: "Bastion", speed: 30, accel: 20, handling: 82, attack: 42, hp: 82, mass: 90, weapons: ["thumper", "shockwave", "bulwark"] },
+  mirage: { id: "mirage", name: "Mirage", speed: 88, accel: 85, handling: 50, attack: 63, hp: 48, mass: 48, weapons: ["fireball", "shockwave", "afterburner"] },
+  bullseye: { id: "bullseye", name: "Bullseye", speed: 52, accel: 45, handling: 28, attack: 55, hp: 30, mass: 30, weapons: ["needler", "pepperbox", "lance"] },
+  bastion: { id: "bastion", name: "Bastion", speed: 30, accel: 20, handling: 82, attack: 42, hp: 82, mass: 90, weapons: ["thumper", "skewer", "bulwark"] },
 } as const satisfies Record<CarId, CarDef>;
 
 /**

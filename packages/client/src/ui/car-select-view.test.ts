@@ -83,7 +83,7 @@ describe("fullStatsFor", () => {
       "Mass",
       "Hull size",
       "Thumper damage",
-      "Shockwave damage",
+      "Skewer damage",
       "Bulwark damage",
     ]);
   });
@@ -101,8 +101,8 @@ describe("fullStatsFor", () => {
     // across all three any more), so this pins each chassis's actual opener by label AND value.
     const expected: Record<keyof typeof CAR_TABLE, { label: string; value: string }> = {
       mirage: { label: "Fireball damage", value: "57" },
-      bullseye: { label: "Needler damage", value: "32" },
-      bastion: { label: "Thumper damage", value: "69" },
+      bullseye: { label: "Needler damage", value: "23" },
+      bastion: { label: "Thumper damage", value: "55" },
     };
     for (const id of Object.keys(CAR_TABLE) as (keyof typeof CAR_TABLE)[]) {
       const row = fullStatsFor(id).find((r) => r.label === expected[id].label);

@@ -261,8 +261,8 @@ describe("firing", () => {
 
     const fired = result.players[0]!.fireState;
     expect(fired.slots[0]!.stocks).toBe(1); // one of two spent
-    expect(fired.slots[0]!.rechargeEndsTick).toBe(112); // tick 100 + a 400ms cooldown == 12 ticks
-    expect(fired.slots[0]!.refireLockUntilTick).toBe(104); // 130ms refire delay == 4 ticks
+    expect(fired.slots[0]!.rechargeEndsTick).toBe(109); // tick 100 + a 300ms cooldown == 9 ticks
+    expect(fired.slots[0]!.refireLockUntilTick).toBe(104); // 110ms refire delay == 4 ticks
     expect(fired.switchLockUntilTick).toBe(100); // needler's recoveryMs is 0 — a go-to never gates
     expect(fired.lastFiredSlot).toBe(0);
   });
@@ -690,9 +690,11 @@ describe("aim assist through a real tick", () => {
 describe("aimAngleFor", () => {
   // Direct coverage of both branches of the per-weapon opt-in (A1). Deleting the `usesAimAssist`
   // check entirely still passes most other tests in this file, so these two call `aimAngleFor`
-  // directly. `skewer` is Bullseye's slot 2 and is `usesAimAssist: false` by design rather than by
-  // constraint — its range clears `AIM_CONFIG.lockRange`, so the row could have taken assist and
-  // deliberately does not.
+  // directly. `afterburner` is Mirage's slot 3 and holds the "off" branch: it is `usesAimAssist:
+  // false` by constraint rather than by taste — an attached beam re-derives its angle from the
+  // owner's pose every tick, so a lock would have nothing to decide, and the authoring guard in
+  // `weapon-config.test.ts` refuses the combination outright. `skewer` used to hold this branch and
+  // took the lock in T17, which is why the row named here moved.
 
   it("returns null for a weapon with usesAimAssist: false, even with a live lock", () => {
     const a = player("a", {
@@ -706,8 +708,8 @@ describe("aimAngleFor", () => {
       ["a", a],
       ["b", b],
     ]);
-    // "skewer" is usesAimAssist: false and exists in WEAPON_TABLE.
-    expect(aimAngleFor(a, "skewer", byId)).toBeNull();
+    // "afterburner" is usesAimAssist: false and exists in WEAPON_TABLE.
+    expect(aimAngleFor(a, "afterburner", byId)).toBeNull();
   });
 
   it("returns the muzzle-derived bearing to the lock target for a weapon with usesAimAssist: true", () => {

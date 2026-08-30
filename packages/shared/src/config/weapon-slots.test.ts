@@ -13,10 +13,10 @@ describe("loadouts", () => {
     }
   });
 
-  it("gives each chassis its own exclusive three-weapon kit", () => {
-    expect(CAR_TABLE.mirage.weapons).toEqual(["fireball", "pepperbox", "afterburner"]);
-    expect(CAR_TABLE.bullseye.weapons).toEqual(["needler", "skewer", "lance"]);
-    expect(CAR_TABLE.bastion.weapons).toEqual(["thumper", "shockwave", "bulwark"]);
+  it("gives each chassis the kit its type calls for", () => {
+    expect(CAR_TABLE.bullseye.weapons).toEqual(["needler", "pepperbox", "lance"]);
+    expect(CAR_TABLE.mirage.weapons).toEqual(["fireball", "shockwave", "afterburner"]);
+    expect(CAR_TABLE.bastion.weapons).toEqual(["thumper", "skewer", "bulwark"]);
   });
 
   it("shares no weapon between two chassis, so car select is a real choice", () => {
@@ -32,7 +32,7 @@ describe("loadouts", () => {
   });
 
   it("returns the car's list in slot order", () => {
-    expect(slotsOf("bastion")).toEqual(["thumper", "shockwave", "bulwark"]);
+    expect(slotsOf("bastion")).toEqual(["thumper", "skewer", "bulwark"]);
   });
 
   it("truncates an over-long loadout to the slot limit and warns once, naming the car", () => {

@@ -21,7 +21,9 @@ describe("msToTicks", () => {
 describe("WEAPON_TICKS", () => {
   it("derives the fireball's clocks from its milliseconds", () => {
     const ticks = weaponTicksOf("fireball");
-    expect(ticks.cooldown).toBe(15); // 500ms at 30Hz — the old fireCooldownTicks()
+    // 550ms at 30Hz is 16.5, rounded UP to 17 so the authored cooldown is never shorter than
+    // written. It was 15 at the 500ms this row shipped with, before T14's +10%.
+    expect(ticks.cooldown).toBe(17);
     expect(ticks.startUp).toBe(0);
     expect(ticks.recovery).toBe(0);
     expect(ticks.refireDelay).toBe(0); // no stock block

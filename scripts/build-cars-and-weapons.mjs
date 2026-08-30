@@ -132,8 +132,15 @@ function derive(id) {
   const slot = slotsOf(carId).indexOf(id);
   const beam = def.kind === "beam";
 
-  const shotsPerPress = beam ? 1 : def.volley.volleys * def.pellets.pelletsPerVolley;
-  const burstSpanMs = beam ? 0 : (def.volley.volleys - 1) * def.volley.volleyIntervalMs;
+  // `volley` lives on `WeaponBase`, so a BEAM can be a wave sequence too — `shockwave` is three
+  // discs 500ms apart. This file is plain `.mjs` and the compiler never checks it, so a "beams fire
+  // once per press" shortcut here would silently under-report a real weapon on the page players
+  // read. Both kinds go through the same volley arithmetic; only what one volley *contains*
+  // differs, which is exactly the line `PelletDef` was split out on.
+  const shotsPerPress = beam
+    ? def.volley.volleys
+    : def.volley.volleys * def.pellets.pelletsPerVolley;
+  const burstSpanMs = (def.volley.volleys - 1) * def.volley.volleyIntervalMs;
   const extendMs = (def.range / def.speed) * 1000;
   const totalLifeMs = beam ? extendMs + def.lifetimeMs : extendMs;
   // A ticking beam re-arms on its own interval for as long as it lives; everything else lands once
@@ -150,7 +157,9 @@ function derive(id) {
     ticks.damageInterval === Number.POSITIVE_INFINITY
       ? 1
       : Math.floor((aliveTicks - 1) / ticks.damageInterval) + 1;
-  const hitsPerTarget = beam ? damageTicks : shotsPerPress;
+  // Each of a beam's volleys is its own instance with its own damage clock, so a target that eats
+  // every wave takes `damageTicks` from each: `shockwave` is 1 x 3, `bulwark` 10 x 1.
+  const hitsPerTarget = beam ? damageTicks * def.volley.volleys : shotsPerPress;
 
   const baseBurst = def.damage * hitsPerTarget;
   // Recharge starts at the LAST shot of a press (`fire.ts`), so a multi-volley burst pushes the
@@ -168,6 +177,7 @@ function derive(id) {
     slot,
     beam,
     shotsPerPress,
+    waves: def.volley.volleys,
     burstSpanMs,
     extendMs,
     totalLifeMs,
@@ -353,7 +363,7 @@ function legend() {
        <div>
          <h3>Terms</h3>
          <dl class="defs">
-           <dt>Lock-on</dt><dd>Some weapons fire at whatever the car has locked instead of straight down the nose. The lock reaches ${AIM_CONFIG.lockRange} units and aims where the target <i>is</i>, with no lead — so it helps most up close. Six of the nine weapons do not use it at all.</dd>
+           <dt>Lock-on</dt><dd>Some weapons fire at whatever the car has locked instead of straight down the nose. The lock reaches ${AIM_CONFIG.lockRange} units and aims where the target <i>is</i>, with no lead — so it helps most up close. ${WEAPONS.filter((w) => !w.def.usesAimAssist).length} of the ${WEAPONS.length} weapons do not use it at all.</dd>
            <dt>Wind-up</dt><dd>Delay between the press and the shot. You keep driving, but you cannot take the press back.</dd>
            <dt>Recovery</dt><dd>Lockout on your <i>other</i> two slots after a press.</dd>
            <dt>Recharge</dt><dd>Time before this weapon is ready again. It starts at the last shot of the press, not the first.</dd>
@@ -442,7 +452,8 @@ function specRows(w) {
   const multi = w.hitsPerTarget > 1;
   const rows = [
     ["Damage", `${d.damage}${multi ? ` × ${w.hitsPerTarget}` : ""}`,
-      multi ? (w.beam ? "per tick" : "per shot") : `${round(w.pctOfAverageCar)}% of an average car`],
+      multi ? (w.beam ? (w.waves > 1 ? "per wave" : "per tick") : "per shot")
+            : `${round(w.pctOfAverageCar)}% of an average car`],
     ["On ${car}", `${w.perHit}${w.hitsPerTarget > 1 ? ` × ${w.hitsPerTarget} = ${w.liveBurst}` : ""}`,
       `${round(w.attackScale, 1)}× attack scale`],
     ["Recharge", `${round(d.cooldownMs / 1000, 2)}s`, d.stock ? `per stock · ${d.stock.max} banked` : "single stock"],
@@ -455,6 +466,10 @@ function specRows(w) {
   if (w.beam) rows.push(["Lifetime", `${round(w.totalLifeMs / 1000, 2)}s`, d.attached ? "rides your car" : "stamped in place"]);
   if (!w.beam && d.volley.volleys * d.pellets.pelletsPerVolley > 1)
     rows.push(["Volley", `${d.volley.volleys} × ${d.pellets.pelletsPerVolley}`, `${d.volley.volleyIntervalMs}ms apart · ${d.pellets.spreadAngleDeg}° fan`]);
+  // A beam sequence has no pellets to fan, so it gets its own row rather than sharing the one
+  // above: three waves is the whole shape of the press and the page must say so.
+  if (w.beam && w.waves > 1)
+    rows.push(["Waves", `${w.waves}`, `${d.volley.volleyIntervalMs}ms apart · ${round(w.burstSpanMs / 1000, 2)}s to land them all`]);
   if (!w.beam && d.pierce > 0) rows.push(["Pierce", `${d.pierce + 1} cars`, "keeps going after the first"]);
   if (d.stock) rows.push(["Salvo", `${d.stock.max} × ${w.perHit} = ${d.stock.max * w.perHit}`, `dumped in ${round(((d.stock.max - 1) * d.stock.refireDelayMs) / 1000, 2)}s`]);
   if (d.startUpMs > 0) rows.push(["Wind-up", `${d.startUpMs}ms`, `${w.ticks.startUp} ticks — you are visible`]);
@@ -464,10 +479,14 @@ function specRows(w) {
   // for: nothing on screen says "this one stuns", and the badge only appears once it is too late.
   for (const a of d.applies ?? []) {
     const def = statusDefOf(a.statusId);
+    // `onWave: "final"` is a real rule a player has to plan around — shockwave's debuff arrives
+    // only if the target is still in the ring for the LAST wave — so it goes on the page rather
+    // than staying a table detail.
+    const wave = a.onWave === "final" && w.waves > 1 ? ` · last wave only` : "";
     rows.push([
       a.target === "self" ? "Grants you" : "Inflicts",
       def.name,
-      `${round(a.durationMs / 1000, 2)}s · ${statusBlurb(def)}`,
+      `${round(a.durationMs / 1000, 2)}s · ${statusBlurb(def)}${wave}`,
     ]);
   }
 

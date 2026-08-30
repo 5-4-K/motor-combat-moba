@@ -339,7 +339,7 @@ export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
    * shorten a shape whose whole read is "a straight line of light" — and `rectPoints` ignores them
    * regardless.
    *
-   * Its charge orb is the wind-up made visible: 700 ms is the entire justification for 180 damage,
+   * Its charge orb is the wind-up made visible: 700 ms is the entire justification for 170 damage,
    * and an opponent could not previously see it happening. Colours match the beam exactly, so the
    * orb reads as the same thing gathering that is about to be fired.
    */
@@ -351,7 +351,10 @@ export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
     ],
     charge: {
       minRadius: 2,
-      maxRadius: 18,
+      // Tracks the beam's own 15% widening (T13: `hitbox.width` 20 -> 23), so the telegraph keeps
+      // matching what it warns about. A charge orb that stopped growing with the beam would
+      // under-promise the thing about to be fired, which is the one failure mode a telegraph has.
+      maxRadius: 21,
       bands: [
         { radiusScale: 1, color: "#6741D9" },
         { radiusScale: 0.6, color: "#FFD43B" },

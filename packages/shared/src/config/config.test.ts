@@ -33,12 +33,14 @@ describe("CAR_TABLE", () => {
     expect(CAR_TABLE.bastion).toMatchObject({ speed: 30, accel: 20, handling: 82, attack: 42, hp: 82, mass: 90 });
   });
 
-  it("gives every chassis whole 0-100 ratings on all four axes", () => {
+  it("gives every chassis whole 0-100 ratings on all six axes", () => {
     // The 150-point budget that used to be asserted here was removed on 2026-08-29 so that `mass`
     // could be a free-floating fourth rating. Nothing enforces roster fairness now; see CAR_TABLE.
+    // `accel` and `handling` joined the sweep once they became real per-chassis ratings rather than
+    // global drive constants: every one of the six feeds a derivation that NaNs on a non-number.
     for (const id of Object.keys(CAR_TABLE) as CarId[]) {
       const def = CAR_TABLE[id];
-      for (const rating of [def.speed, def.attack, def.hp, def.mass]) {
+      for (const rating of [def.speed, def.accel, def.handling, def.attack, def.hp, def.mass]) {
         expect(Number.isInteger(rating)).toBe(true);
         expect(rating).toBeGreaterThanOrEqual(0);
         expect(rating).toBeLessThanOrEqual(100);
@@ -52,11 +54,15 @@ describe("CAR_TABLE", () => {
     expect(hpOf("bastion")).toBe(820);
   });
 
-  it("kills an average chassis with the baseline weapon in 5 seconds", () => {
-    // The spec's headline number (S7). An "average" chassis is one rating point of each at the
-    // baseline: attackBaseline -> 500 hull HP. TTK is reckoned as hullHP / DPS, the sustained-fire
-    // figure. This test is deliberately over-coupled: it should go red if hpPerRating,
-    // attackBaseline, or fireball.damage drifts.
+  it("kills an average chassis with the baseline weapon in 5.5 seconds", () => {
+    // The spec's headline number (S7), which moved from 5.0 to 5.5 when T14 put `fireball`'s
+    // cooldown up 500 -> 550 to pay for `shockwave` landing in Mirage's slot 2. The damage was NOT
+    // re-solved to hold 5 s: the anchor is 50 per press, and the kill time is what the cooldown
+    // makes of it. 50 damage per 550 ms is 91 DPS, and 500 hull HP / 91 is 5.5 s.
+    //
+    // An "average" chassis is one rating point of each at the baseline: attackBaseline -> 500 hull
+    // HP. TTK is reckoned as hullHP / DPS, the sustained-fire figure. This test is deliberately
+    // over-coupled: it should go red if hpPerRating, attackBaseline, or fireball.damage drifts.
     //
     // It canNOT pin damagePerAttack: evaluated exactly at the baseline, damageFor's
     // `(attack - attackBaseline)` term is 0, so the scale is identically 1 whatever
@@ -66,7 +72,7 @@ describe("CAR_TABLE", () => {
     const dps =
       (damageFor(COMBAT_CONFIG.attackBaseline, WEAPON_TABLE.fireball.damage) * 1000) /
       WEAPON_TABLE.fireball.cooldownMs;
-    expect(averageHp / dps).toBe(5);
+    expect(averageHp / dps).toBe(5.5);
   });
 
   it("pins damagePerAttack through off-baseline chassis", () => {

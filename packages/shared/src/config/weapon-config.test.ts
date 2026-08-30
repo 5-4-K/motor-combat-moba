@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { CAR_TABLE } from "./car-config.js";
 import { COLOR_TABLE } from "./color-config.js";
+import type { CarId } from "./types.js";
 import { WEAPON_TABLE, isWeaponId, weaponDefOf } from "./weapon-config.js";
+import { slotsOf } from "./weapon-slots.js";
+import { weaponTicksOf } from "./weapon-ticks.js";
 import type { WeaponDef } from "./weapon-types.js";
 import { AIM_CONFIG } from "./aim-config.js";
 
@@ -9,7 +13,9 @@ describe("WEAPON_TABLE", () => {
     const fireball = WEAPON_TABLE.fireball;
     expect(fireball.kind).toBe("projectile");
     expect(fireball.damage).toBe(50);
-    expect(fireball.cooldownMs).toBe(500); // was fireRateHz: 2
+    // Was fireRateHz: 2 == 500ms; T14 put it up 10% to pay for shockwave arriving in Mirage's
+    // slot 2, which is what moved the headline kill from 5.0 s to 5.5 s.
+    expect(fireball.cooldownMs).toBe(550);
     expect(fireball.speed).toBe(900);
     expect(fireball.range).toBe(900); // was lifetimeTicks: 30 == 1s of flight at 900 u/s
     expect(fireball.startUpMs).toBe(0);
@@ -87,15 +93,19 @@ describe("WEAPON_TABLE", () => {
   it("ships needler as the table's multi-stock reference, now carried rather than dormant", () => {
     const needler = WEAPON_TABLE.needler;
     expect(needler.kind).toBe("projectile");
-    expect(needler.damage).toBe(30);
-    expect(needler.cooldownMs).toBe(400);
-    expect(needler.speed).toBe(1100);
+    expect(needler.damage).toBe(22);
+    expect(needler.cooldownMs).toBe(300);
+    expect(needler.speed).toBe(1300);
     expect(needler.range).toBe(850);
     expect(needler.usesAimAssist).toBe(true);
-    expect(needler.stock).toEqual({ max: 3, refireDelayMs: 130 });
-    // 400ms is the whole design: tapping one dart sustains 75 DPS, dumping all three puts 90
-    // damage out in 260ms and then leaves a 1.2s dry spell. See the spec's derivation rule.
-    expect(needler.damage * (1000 / needler.cooldownMs)).toBe(75);
+    expect(needler.stock).toEqual({ max: 3, refireDelayMs: 110 });
+    // 300ms is the whole design: tapping one dart sustains 73 DPS, dumping all three puts 66
+    // damage out in 220ms and then owes a 900ms refill. 22 * (1000 / 300) is 73.333..., so this is
+    // a close-to rather than the exact equality the 30/400 pair happened to allow.
+    expect(needler.damage * (1000 / needler.cooldownMs)).toBeCloseTo(73.3, 1);
+    // T11 took `spiked` off this row and gave it to `bulwark`: a spam weapon that also applied a
+    // refreshing debuff was doing slot 3's job from slot 1.
+    expect(needler.applies).toBeUndefined();
   });
 
   it("never lets an aim-assist weapon lock past its own reach", () => {
@@ -128,16 +138,19 @@ describe("WEAPON_TABLE", () => {
     }
   });
 
-  it("ships pepperbox as the table's first burst-and-fan weapon", () => {
+  it("ships pepperbox as a single fan rather than a sequential burst", () => {
     const pepperbox = WEAPON_TABLE.pepperbox;
     if (pepperbox.kind !== "projectile") throw new Error("pepperbox must be a projectile");
-    expect(pepperbox.volley).toEqual({ volleys: 3, volleyIntervalMs: 100 });
-    expect(pepperbox.pellets).toEqual({ pelletsPerVolley: 2, spreadAngleDeg: 10 });
-    // 6 pellets x 28 = 168 in a 200ms window. Its all-pellets-connect sustained DPS is 83, BELOW
-    // fireball's 100 — that is the burst-over-sustained trade, not a bug. See the spec's rule.
+    // T12 collapsed 3 volleys of 2 into 1 volley of 3. The steer-through-the-burst skill expression
+    // went with it, deliberately: one volley means the fan is decided entirely at the press.
+    expect(pepperbox.volley).toEqual({ volleys: 1, volleyIntervalMs: 0 });
+    expect(pepperbox.pellets).toEqual({ pelletsPerVolley: 3, spreadAngleDeg: 12 });
+    // 3 pellets x 45 = 135 on one tick, against the old 168 across 200ms. 135 per 1800ms is 75
+    // sustained DPS, level with needler's 73 — the pair is Bullseye's mid-range pressure, so
+    // neither should out-sustain the other.
     const pellets = pepperbox.volley.volleys * pepperbox.pellets.pelletsPerVolley;
-    expect(pellets * pepperbox.damage).toBe(168);
-    expect(pepperbox.usesAimAssist).toBe(false);
+    expect(pellets * pepperbox.damage).toBe(135);
+    expect(pepperbox.usesAimAssist).toBe(true);
   });
 
   it("ships afterburner as the table's first beam, attached and ticking", () => {
@@ -171,20 +184,31 @@ describe("WEAPON_TABLE", () => {
     const skewer = WEAPON_TABLE.skewer;
     if (skewer.kind !== "projectile") throw new Error("skewer must be a projectile");
     // `pierce` counts opponents passed through AFTER the first, so 1 == two cars. At `pierce: 2`
-    // a 110-damage shot deals 396 on Bullseye's 1.2x attack and out-damages `lance`, the ultimate.
+    // a 110-damage shot puts 3 x 101 == 303 into a line off a 2.4s cooldown, which is
+    // ultimate-scale output from a slot that is not Bastion's ultimate.
     expect(skewer.pierce).toBe(1);
     expect(skewer.hitbox).toEqual({ shape: "ellipse", radiusAlong: 22, radiusAcross: 5 });
     expect(skewer.startUpMs).toBe(250);
-    expect(skewer.usesAimAssist).toBe(false);
+    // T17 reversed the "assist off by choice" argument that used to sit on this row: it held for an
+    // 1100-unit poke on a precise skirmisher and does not for a 650-unit lunge on the slowest
+    // chassis. The lock still only reaches AIM_CONFIG.lockRange of the 650.
+    expect(skewer.range).toBe(650);
+    expect(skewer.speed).toBe(1000);
+    expect(skewer.usesAimAssist).toBe(true);
   });
 
   it("ships lance as a detached beam with the roster's only substantial recovery", () => {
     const lance = WEAPON_TABLE.lance;
     if (lance.kind !== "beam") throw new Error("lance must be a beam");
     expect(lance.attached).toBe(false);
-    expect(lance.damage).toBe(180);
+    expect(lance.damage).toBe(170); // T13 trimmed 180 to pay for +15% width AND the lock
+    expect(lance.hitbox).toEqual({ shape: "rect", width: 23 });
     expect(lance.damageFrequencyMs).toBe(0); // one hit per car, not a ticking zone
     expect(lance.startUpMs).toBe(700);
+    // Legal because the "no assist on a beam" guard refuses ATTACHED beams only, and this one
+    // stamps at its fire-tick pose. Range 1200 clears lockRange three times over, so the assist
+    // covers only the near third of the beam's reach.
+    expect(lance.usesAimAssist).toBe(true);
     // The wind-up alone is not the whole cost: a missed lance also owes a second of silence, which
     // is what makes it punishing on a 300 HP chassis (L5).
     expect(lance.recoveryMs).toBe(1000);
@@ -196,9 +220,13 @@ describe("WEAPON_TABLE", () => {
 
   it("keeps both branches of usesAimAssist populated by carried weapons", () => {
     // The pair that makes `usesAimAssist` a real switch rather than a global: one row on, one off.
-    // Both are now weapons a player can fire, unlike the fireball/repeater pair this replaced.
+    // Both are weapons a player can fire. The redistribution tipped assist into the majority (six
+    // of nine), and `skewer` — which used to hold the "off" half here — flipped on with T17, so
+    // this reaches for `afterburner` instead: Mirage's slot 3, and off by the attached-beam guard.
     expect(WEAPON_TABLE.fireball.usesAimAssist).toBe(true);
-    expect(WEAPON_TABLE.skewer.usesAimAssist).toBe(false);
+    expect(WEAPON_TABLE.afterburner.usesAimAssist).toBe(false);
+    const off = Object.values(WEAPON_TABLE).filter((d) => !d.usesAimAssist);
+    expect(off.map((d) => d.id).sort()).toEqual(["afterburner", "bulwark", "shockwave"]);
   });
 
   it("keeps thumper's cooldown clear of the band the aim-assist cliff forbids", () => {
@@ -220,17 +248,76 @@ describe("WEAPON_TABLE", () => {
     const bulwark = WEAPON_TABLE.bulwark;
     if (bulwark.kind !== "beam") throw new Error("bulwark must be a beam");
     expect(bulwark.attached).toBe(false); // stamped into the world, unlike afterburner
-    expect(bulwark.lifetimeMs).toBe(2500);
+    expect(bulwark.lifetimeMs).toBe(2875); // T18: +15%, and it is the +15% that crosses a tick
     expect(bulwark.damageFrequencyMs).toBe(400);
-    // Total life is range/speed + lifetime == 1s + 2.5s. At one tick per 400ms that is ~8 ticks
-    // == 280 max, matching afterburner's ceiling as L6 intends.
-    expect(bulwark.range / bulwark.speed + bulwark.lifetimeMs / 1000).toBeCloseTo(3.5);
+    // `range` and `speed` rise together, so the zone is 10% bigger and still grows out in exactly
+    // one second: total life is range/speed + lifetime == 1s + 2.875s.
+    expect(bulwark.range / bulwark.speed).toBe(1);
+    expect(bulwark.range / bulwark.speed + bulwark.lifetimeMs / 1000).toBeCloseTo(3.875);
+    // The damage ceiling, spelled out because the arithmetic is not the obvious one:
+    // `resolveInstanceHits` damages on the first covered tick and only THEN arms the clock, so the
+    // opening tick is free. 117 total ticks against a 12-tick interval is floor(116/12)+1 == 10.
+    const life = weaponTicksOf("bulwark");
+    expect(life.flight + life.lifetime).toBe(117);
+    expect(life.damageInterval).toBe(12);
+    const ticks = Math.floor((life.flight + life.lifetime - 1) / life.damageInterval) + 1;
+    expect(ticks).toBe(10);
+    expect(ticks * bulwark.damage).toBe(350);
   });
 
   it("carries exactly nine weapons, every one a different colour", () => {
     const rows = Object.values(WEAPON_TABLE);
     expect(rows).toHaveLength(9);
     expect(new Set(rows.map((def) => def.color.toUpperCase())).size).toBe(9);
+  });
+
+  it("ships shockwave as a three-wave aura whose last wave carries the debuff", () => {
+    const sw = WEAPON_TABLE.shockwave;
+    if (sw.kind !== "beam") throw new Error("shockwave must be a beam");
+    expect(sw.volley).toEqual({ volleys: 3, volleyIntervalMs: 500 });
+    expect(sw.damage).toBe(45); // 135 if all three connect, against the old single 100
+    expect(sw.applies).toEqual([
+      { statusId: "corroded", target: "opponents", durationMs: 2500, onWave: "final" },
+    ]);
+    // The stun moved to `thumper` with Type 3's CC identity. It must not linger here.
+    expect((sw.applies ?? []).some((a) => a.statusId === "stunned")).toBe(false);
+  });
+
+  it("keeps Bullseye reaching further than anything Bastion carries", () => {
+    // T1's "1 beats 3" edge, asserted rather than asserted-in-prose. Cutting skewer's range is the
+    // whole reason the kite works; at its old 1100 the tank out-ranged two thirds of the kiter's kit.
+    const reach = (id: CarId) => Math.max(...slotsOf(id).map((w) => weaponDefOf(w).range));
+    expect(reach("bullseye")).toBeGreaterThan(reach("bastion"));
+    expect(WEAPON_TABLE.skewer.range).toBe(650);
+    // `slotsOf` truncates to the slot limit, so measure that it is the whole authored kit above.
+    expect(slotsOf("bastion")).toEqual([...CAR_TABLE.bastion.weapons]);
+  });
+
+  it("keeps Bastion's crowd control the longest in the roster", () => {
+    // T20: per-chassis CC duration needs no mechanism, because kits are exclusive and the applier
+    // owns the duration. This is what makes that true rather than merely claimed.
+    const longestCc = (id: CarId) =>
+      Math.max(
+        0,
+        ...slotsOf(id).flatMap((w) =>
+          (weaponDefOf(w).applies ?? [])
+            .filter((a) => a.target === "opponents")
+            .map((a) => a.durationMs),
+        ),
+      );
+    expect(longestCc("bastion")).toBeGreaterThan(longestCc("mirage"));
+    expect(longestCc("bastion")).toBeGreaterThan(longestCc("bullseye"));
+  });
+
+  it("keeps every status in the table reachable from some weapon", () => {
+    const applied = new Set(
+      Object.values(WEAPON_TABLE).flatMap((d) => (d.applies ?? []).map((a) => a.statusId)),
+    );
+    for (const id of ["overheated", "corroded", "stunned", "spiked", "fortified"] as const) {
+      expect(applied.has(id)).toBe(true);
+    }
+    // `overhauled` is the pickup row and is deliberately applied by nothing.
+    expect(applied.has("overhauled")).toBe(false);
   });
 
   it("defaults every status application to firing on all waves", () => {
