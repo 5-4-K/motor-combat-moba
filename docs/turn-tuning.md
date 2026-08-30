@@ -41,8 +41,9 @@ it wide. Reading a radius complaint as a rate complaint is the easiest mistake t
 
 ## Current values
 
-**These tables are hand-maintained and nothing recomputes them. See
-[Keeping this page honest](#keeping-this-page-honest) below before you change a config value.**
+**These tables are hand-maintained, and `scripts/turn-tuning-doc.test.mjs` checks every cell in them
+against shared. See [Keeping this page honest](#keeping-this-page-honest) below before you change a
+config value.**
 
 ### Authored in config
 
@@ -146,10 +147,23 @@ read it against speed.
 
 ## Keeping this page honest
 
-**Both tables above are hand-written, and no test recomputes them.** Change a value in the list below
-and this page is wrong until someone edits it — which is the same trap the players' guide has, minus
-the `balanceStamp` fingerprint that catches it there. Until an equivalent guard exists, this is a
-discipline rule.
+**The tables above are hand-written, and `scripts/turn-tuning-doc.test.mjs` reads them back out of
+this file and recomputes every cell from built shared.** Change any value in the list below without
+editing the tables and `npm test` fails, naming the row and the chassis:
+
+```
+derived "Turn rate" / mirage: page says 6.3, config gives 6.84
+```
+
+It checks values rather than a fingerprint. The players' guide can hash its inputs because it is
+generated, so a matching `balanceStamp` proves the builder re-ran; nothing generates this page, so a
+stamp would only prove someone typed a new stamp. Reading the numbers back is also the stronger
+check — it catches a hand-edit that updated four cells and missed the fifth.
+
+Precision comes from each cell, so the page stays free to print 6.84 in one row and 0.1704 in
+another. The chassis columns are matched against `CAR_TABLE` by name, so **a fourth chassis fails the
+suite until it has a column in both tables**, and the ordered row list means an inserted or reordered
+row fails rather than going silently unchecked.
 
 **Update the two tables in [Current values](#current-values) whenever you change:**
 
@@ -174,7 +188,12 @@ node -e "const s=require('./packages/shared/dist/index.js');for(const id of ['bu
 ```
 
 The same edits almost always owe a `npm run build:manual` too — that page is generated and
-fingerprinted, so the suite will tell you. This page has no such alarm.
+fingerprinted, so the suite will tell you about it as well.
+
+**What no test covers: numbers in prose.** This page argues from figures inside sentences — how far
+the Bullseye/Mirage radius inversion narrowed, what raising `turnRatePerRating` to 0.072 would do to
+Bastion. A table parser will never see those. They stay a review-time responsibility, so re-read the
+prose after a tuning pass even when the suite is green.
 
 ## Before you commit to a number
 

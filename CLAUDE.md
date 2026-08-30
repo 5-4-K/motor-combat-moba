@@ -177,19 +177,25 @@ behind; tooling that guesses a default branch (git's own "main branch" hint, PR 
 often name `master` anyway — ignore that and use `development/main`. Only touch `master` when the
 user names it explicitly.
 
-## `docs/turn-tuning.md` tabulates turn stats by hand, and no test catches it going stale
+## `docs/turn-tuning.md` tabulates turn stats by hand, and a test holds it to the config
 
 [`docs/turn-tuning.md`](docs/turn-tuning.md) is the index of which knob to reach for when turning or
-aiming feels wrong, and it carries two tables of the roster's turn numbers — the authored ratings and
-every value derived from them. **Both are hand-written. Nothing recomputes them and no test compares
-them to the config**, unlike the players' guide, which `balanceStamp` fingerprints.
+aiming feels wrong, and it carries three hand-written tables of the roster's turn numbers — the
+per-car ratings, the global knobs, and every value derived from them.
+**`scripts/turn-tuning-doc.test.mjs` parses them out of the markdown and recomputes every cell from
+built shared**, so a config edit that skips the page fails `npm test` naming the row and the chassis.
+It checks values, not a `balanceStamp`-style fingerprint: nothing generates this page, so a stamp
+would only prove someone typed a new stamp.
 
 **Update it in the same commit whenever you change** a car's `handling` or `speed` in `CAR_TABLE`;
 `baseTurnRate`, `turnRatePerRating`, `stopTurnRatio`, `baseMaxSpeed`, `speedPerRating` or
 `reverseSpeedRatio` in `DRIVE_CONFIG`; `overheated`'s `turnRate` in `STATUS_TABLE`;
-`authorityFloor` or `spinMaxRate` in `RAM_CONFIG`; or `TICK_RATE_HZ`. Adding a chassis means a new
-column. The page's "Keeping this page honest" section holds that list and a snippet that prints the
-derived values from built shared — do not retype them by hand.
+`authorityFloor` or `spinMaxRate` in `RAM_CONFIG`; or `TICK_RATE_HZ`. Adding a chassis needs a new
+column in two tables, and the test fails until it has one. The page's "Keeping this page honest"
+section holds that list and a snippet that prints the derived values — do not retype them by hand.
+
+**The test cannot see numbers in prose**, and that page argues from figures inside sentences. Re-read
+them after a tuning pass even when the suite is green.
 
 ## Playtest: say so loudly when the sim changes under the probes
 

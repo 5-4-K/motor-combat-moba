@@ -25,10 +25,11 @@
  * the whole roster is the other edit, and it means scaling a pair together — as the 1.5x turn-rate
  * raise on 2026-08-31 did.
  *
- * **`docs/turn-tuning.md` tabulates every turn number this file produces, by hand.** Nothing
- * recomputes it, so editing `baseTurnRate`, `turnRatePerRating`, `stopTurnRatio`, `baseMaxSpeed`,
- * `speedPerRating` or `reverseSpeedRatio` leaves that page wrong until you update it. Its "Keeping
- * this page honest" section carries the field list and a snippet that prints the new values.
+ * **`docs/turn-tuning.md` tabulates every turn number this file produces, by hand**, and
+ * `scripts/turn-tuning-doc.test.mjs` holds those tables to this config. Editing `baseTurnRate`,
+ * `turnRatePerRating`, `stopTurnRatio`, `baseMaxSpeed`, `speedPerRating` or `reverseSpeedRatio`
+ * fails that test until the page is updated with it. Its "Keeping this page honest" section carries
+ * the field list and a snippet that prints the new values.
  */
 export const DRIVE_CONFIG = {
   baseMaxSpeed: 180,
