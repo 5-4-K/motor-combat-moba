@@ -433,8 +433,18 @@ export const WEAPON_TABLE = {
    * 350 total once — the design doc quotes the latter. Bastion's ultimate leading the damage table
    * is a fair price for the slowest chassis.
    *
-   * `range` and `speed` both rise 10% together (500 -> 550), so the zone is 10% bigger and still
-   * takes exactly one second to grow out: visible before it is dangerous, as before.
+   * `range` and `speed` move together, and always have: `range / speed` is the growth time, so
+   * holding the ratio at 1.0 is what keeps the zone taking exactly one second to grow out —
+   * visible before it is dangerous. Change one without the other and that invariant breaks (and
+   * so does the 30-tick flight term in the arithmetic above).
+   *
+   * They went 500 -> 550 for T18's +10% and back down to **492 on 2026-08-30**, a 20% cut to the
+   * cone's area: area is `1/2 * r^2 * theta`, so `550 * sqrt(0.8)` == 491.9, rounded to 492. The
+   * 20% comes out of **reach, not angle** (D6). A narrower wedge would be the same 20% on paper
+   * and a different weapon in play — it gets walked around the sides, turning a zone you must
+   * leave into a line you must not cross, and area denial is what buys the roster's slowest
+   * chassis the fights it cannot drive to. Nothing else on the row moved, so a target that stays
+   * in the zone takes exactly what it took before; the zone just covers less ground.
    */
   bulwark: {
     id: "bulwark",
@@ -444,8 +454,8 @@ export const WEAPON_TABLE = {
     unlocksAt: 1,
     damage: 35, // per tick; 10 ticks == 350 at the baseline, 320 on Bastion's 0.92x
     damageFrequencyMs: 400,
-    speed: 550, // grows out over a full second, so it is visible before it is dangerous
-    range: 550,
+    speed: 492, // grows out over a full second, so it is visible before it is dangerous
+    range: 492, // 550 x sqrt(0.8): 20% less cone area, all of it out of reach (D6)
     startUpMs: 0,
     cooldownMs: 15000,
     recoveryMs: 200,

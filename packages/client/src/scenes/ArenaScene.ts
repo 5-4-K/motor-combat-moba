@@ -8,7 +8,6 @@ import type {
   SimBody,
   StepContext,
   WeaponSlotState,
-  WeaponInstanceState,
 } from "@motor-combat-moba/shared";
 import {
   ARENA_IDS,
@@ -17,13 +16,13 @@ import {
   STATUS_CONFIG,
   GameMode,
   INPUT_MESSAGE,
+  MAX_PLAYERS,
   MS_PER_TICK,
   PlayerStatus,
   muzzleOf,
   RoomPhase,
   TICK_RATE_HZ,
   WEAPON_SLOT_CONFIG,
-  WeaponKind,
   getArena,
   isArenaId,
   isWeaponId,
@@ -51,6 +50,8 @@ import { carFillOf, carShapeOf, deathFadeAlpha, hexagonPoints } from "./car-visu
 import {
   AURA_FILL_ALPHA,
   AURA_RING_WIDTH,
+  allegianceOf,
+  beamFadeAlpha,
   hpBarColor,
   hpBarPoints,
   isAuraWeapon,
@@ -62,6 +63,7 @@ import {
   lockBracketArms,
   SHOW_LOCK_BRACKET,
   weaponFillOf,
+  type Allegiance,
   type HpBarGeometry,
 } from "./combat-visual.js";
 import {
@@ -93,16 +95,60 @@ import {
   statusBadges,
   statusStripLayout,
 } from "./status-hud.js";
+import { arrowBobOffset, countdownArrowPoints } from "./countdown-arrow.js";
+import {
+  ROSTER_NAME_FONT_PX,
+  rosterPanelLayout,
+  rosterRows,
+  truncateName,
+} from "./roster-panel.js";
 
-const ARENA_DEPTH = -10;
 const ARENA_BORDER_PX = 4;
 const HUD_TEXT = "#1d1f21";
 const HITBOX_STROKE = 0x1d1f21;
 const HITBOX_PX = 1;
 
-const SHOT_DEPTH = 50;
-
+// --- the world layer stack ---------------------------------------------------------------------
+/**
+ * Every world-space depth in one ordered block, highest first, so the constants read top to bottom
+ * as the picture does. HUD depths are a separate stack far above all of these (`HUD_DEPTH`).
+ *
+ * The one thing to keep true when adding a layer: a depth that is not written down here is a layer
+ * whose position is an accident of display-list insertion order, and the next person to add an
+ * object will move it without knowing they did.
+ *
+ * Over everything: a bar is the last thing that may ever be hidden.
+ */
 const HP_BAR_DEPTH = 60;
+/** Under the hp bar, over the cars: the bracket frames a car, it never occludes its own hp. */
+const LOCK_DEPTH = 55;
+/**
+ * The countdown arrow that marks your own car (`drawCountdownArrow`). Above the cars so the marker
+ * is never hidden by the car it is marking, and below `LOCK_DEPTH` / `HP_BAR_DEPTH` so it can never
+ * occlude a bracket or a bar.
+ */
+const ARROW_DEPTH = 52;
+/**
+ * The cars. Previously nothing set this at all and the whole stack rested on Phaser's implicit
+ * default of 0 — harmless while every other layer was explicitly above or below it, and no longer
+ * harmless now that weapon instances sit *underneath* the cars: the default became load-bearing the
+ * moment something depended on being below it, so it is written down.
+ */
+const CAR_DEPTH = 0;
+/**
+ * Every live weapon instance — projectiles and beams alike — draws below every car (D7).
+ *
+ * One rule for all instances rather than a per-weapon "is this a ground effect" flag, and the cost
+ * of that is real and accepted: a `fireball` crossing behind a car is briefly hidden by it. The
+ * alternative is a second taxonomy on top of `kind`, encoding a distinction the table already has.
+ * Ship the one rule, play it, and split it only if the hidden projectile turns out to matter more
+ * than the simplicity. The name stays `SHOT_DEPTH` — it is still every instance, it has only
+ * changed layers.
+ */
+const SHOT_DEPTH = -5;
+/** The floor everything else is drawn on. */
+const ARENA_DEPTH = -10;
+
 /** The bar lies across the car's tail, so these are in the car's frame, not the screen's. */
 const HP_BAR_GEOMETRY: HpBarGeometry = {
   length: 44,
@@ -112,10 +158,28 @@ const HP_BAR_GEOMETRY: HpBarGeometry = {
 };
 const HP_BAR_BACK = 0x22252b;
 
-/** Under the hp bar, over the shots: the bracket frames a car, it never occludes its own hp. */
-const LOCK_DEPTH = 55;
 const LOCK_COLOR = 0xf2e14c;
 const LOCK_WIDTH = 2;
+
+/**
+ * The countdown arrow's paint: the same green the local player's own hp bar draws in, taken from
+ * `hpBarColor` rather than copied as a hex so the two can never drift apart.
+ *
+ * Deliberately not the player's own CAR colour — the arrow means "you" rather than "someone", and a
+ * colour the player has not learned yet would be one more thing to tell apart at exactly the moment
+ * they cannot tell anything apart. Ally green is the colour the HUD is already teaching them in that
+ * same three seconds, on the bar directly under the arrow, so the marker and the bar say "you" in
+ * one voice.
+ *
+ * It replaced an off-white that sat too close to the arena floor to read. Anything painted on this
+ * floor has to clear a light, low-contrast ground; that is the constraint to test against if this is
+ * ever re-picked, and `ARENA_COLOR_DEFAULTS.floor` (`arena-visual.ts`, 0xEBEBEB) is the ground in
+ * question — an arena may override it, so a colour that only just clears the default is not safe.
+ *
+ * Near-opaque — it is only ever on screen while nothing is moving.
+ */
+const ARROW_COLOR = hpBarColor("ally");
+const ARROW_ALPHA = 0.95;
 
 /**
  * There is no wreck any more. A dead car is intangible and frozen from the tick it dies (shared
@@ -194,6 +258,21 @@ const HUD_STATUS_TEXT = "#ffffff";
 const HUD_STATUS_WASH_ALPHA = 0.45;
 /** Inset from the badge box to its label. */
 const HUD_STATUS_LABEL_PAD_X = 6;
+
+// --- roster panel ------------------------------------------------------------------------------
+/**
+ * How a dead player is greyed out: one text colour and one alpha on the swatch, so "greyed" is two
+ * constants rather than a scattering of literals in the draw loop. The row stays listed either way
+ * (D3) — the grey is the whole difference between alive and out.
+ *
+ * The colour is `HUD_TEXT` lifted toward the cream gutter until the name reads as present but not
+ * current; the alpha is on the swatch's own player colour, which must stay recognisable as that
+ * player's colour rather than becoming a neutral grey chip.
+ */
+const ROSTER_DEAD_TEXT = "#8d9096";
+const ROSTER_DEAD_SWATCH_ALPHA = 0.3;
+/** A living row's name, matching the rest of the gutter's text. */
+const ROSTER_LIVE_TEXT = HUD_TEXT;
 
 const HUD_KEY_FONT_PX = SLOT_KEY_FONT_PX;
 const HUD_NAME_FONT_PX = SLOT_NAME_FONT_PX;
@@ -321,7 +400,24 @@ interface ArenaPlayer {
   name: string;
 }
 
-/** The keys this scene binds beyond Phaser's cursor keys and the weapon slots: spectator controls. */
+/**
+ * WASD, sitting alongside the cursor keys rather than replacing them. Both sets steer at all times
+ * and there is no setting: two players on one keyboard is not a mode this game has, so accepting
+ * both costs nothing (D5).
+ *
+ * These are the same four codes `bindKeys` binds for the spectator's free-roam pan, and Phaser's
+ * `addKey` hands back the Key it already made for a code — so this is one binding read from two
+ * places, not two bindings competing. The modes never overlap anyway: free roam is only reachable
+ * once you are a wreck with no car to drive.
+ */
+interface DriveKeys {
+  up: Phaser.Input.Keyboard.Key;
+  left: Phaser.Input.Keyboard.Key;
+  down: Phaser.Input.Keyboard.Key;
+  right: Phaser.Input.Keyboard.Key;
+}
+
+/** The keys this scene binds beyond the drive keys and the weapon slots: spectator controls. */
 interface SpectateKeys {
   prev: Phaser.Input.Keyboard.Key;
   next: Phaser.Input.Keyboard.Key;
@@ -364,6 +460,8 @@ export class ArenaScene extends Phaser.Scene {
   private arenaGfx: Phaser.GameObjects.Graphics | undefined;
   private arena: ArenaDef | undefined;
   private cursors: Phaser.Types.Input.Keyboard.CursorKeys | undefined;
+  /** WASD, ORed with `cursors` in `sendInputTick`; see `DriveKeys`. */
+  private driveKeys: DriveKeys | undefined;
   /** One Phaser key per `SLOT_KEYS` entry, same order, so `slotMaskFrom` reads them index-for-index. */
   private slotKeys: Phaser.Input.Keyboard.Key[] | undefined;
   private predicted: SimBody | undefined;
@@ -390,6 +488,7 @@ export class ArenaScene extends Phaser.Scene {
   private shotGfx: Phaser.GameObjects.Graphics | undefined;
   private hpGfx: Phaser.GameObjects.Graphics | undefined;
   private lockGfx: Phaser.GameObjects.Graphics | undefined;
+  private arrowGfx: Phaser.GameObjects.Graphics | undefined;
   private spectateText: Phaser.GameObjects.Text | undefined;
   private keys: SpectateKeys | undefined;
   /** Session id of the car the spectate camera is watching. `""` means "nobody left to watch". */
@@ -431,6 +530,17 @@ export class ArenaScene extends Phaser.Scene {
   private hudIconImages: Phaser.GameObjects.Image[] = [];
   /** One pooled label per badge the strip can ever show — `STATUS_CONFIG.maxActive` of them. */
   private hudStatusTexts: Phaser.GameObjects.Text[] = [];
+  /**
+   * The roster panel: one pooled name per seat (`MAX_PLAYERS` of them), and its **own** Graphics for
+   * the colour swatches.
+   *
+   * The second Graphics is the point. `hudGfx` is `clear()`ed at the top of `renderWeaponHud`, so
+   * swatches drawn into it from a different method would live or die on which method ran last — a
+   * silent ordering dependency that the next person to reorder `update()` would break without a
+   * failing test anywhere. One extra draw call removes the trap entirely.
+   */
+  private rosterGfx: Phaser.GameObjects.Graphics | undefined;
+  private rosterNameTexts: Phaser.GameObjects.Text[] = [];
 
   /**
    * Local-only contact tracker for {@link showImpact}. Purely a render-feel aid — see
@@ -470,6 +580,7 @@ export class ArenaScene extends Phaser.Scene {
     );
 
     this.cursors = this.input.keyboard?.createCursorKeys();
+    this.driveKeys = this.bindDriveKeys();
     this.keys = this.bindKeys();
     this.slotKeys = this.bindSlotKeys();
 
@@ -490,15 +601,17 @@ export class ArenaScene extends Phaser.Scene {
     this.arena = getArena(arenaId);
     this.drawArena(this.arena);
 
-    // One Graphics for every shot, one for every hp bar, and one for every lock bracket, cleared
-    // and redrawn each frame. All three are drawn in *world* space but must not rotate with any
-    // car, so none can live inside a car's own Graphics; a per-shot object would also mean creating
-    // and destroying objects at the fire rate for no gain.
+    // One Graphics for every shot, one for every hp bar, one for every lock bracket and one for the
+    // countdown arrow, cleared and redrawn each frame. All four are drawn in *world* space but must
+    // not rotate with any car, so none can live inside a car's own Graphics; a per-shot object would
+    // also mean creating and destroying objects at the fire rate for no gain.
     this.shotGfx = this.add.graphics().setDepth(SHOT_DEPTH);
     this.hpGfx = this.add.graphics().setDepth(HP_BAR_DEPTH);
     this.lockGfx = this.add.graphics().setDepth(LOCK_DEPTH);
+    this.arrowGfx = this.add.graphics().setDepth(ARROW_DEPTH);
     this.hudGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_BOX_DEPTH);
     this.hudSweepGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_SWEEP_DEPTH);
+    this.rosterGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_BOX_DEPTH);
     this.buildHudTextPool();
 
     // Centred on the arena, not on the canvas: the gutter is off to the right of both of these, and
@@ -546,10 +659,22 @@ export class ArenaScene extends Phaser.Scene {
     };
   }
 
+  /** WASD for steering and throttle, read beside the cursor keys. See `DriveKeys` for why both. */
+  private bindDriveKeys(): DriveKeys | undefined {
+    const keyboard = this.input.keyboard;
+    if (!keyboard) return undefined;
+    const Codes = Phaser.Input.Keyboard.KeyCodes;
+    return {
+      up: keyboard.addKey(Codes.W),
+      left: keyboard.addKey(Codes.A),
+      down: keyboard.addKey(Codes.S),
+      right: keyboard.addKey(Codes.D),
+    };
+  }
+
   /**
-   * One Phaser key per `SLOT_KEYS` entry. Bound explicitly, like the old single `fire` key, so the
-   * browser does not scroll the page under the canvas on Space, and so the other bound slot keys
-   * do not fall through to whatever the page would otherwise do with them.
+   * One Phaser key per `SLOT_KEYS` entry. Bound explicitly, like the old single `fire` key, so a
+   * slot key never falls through to whatever the page would otherwise do with it.
    */
   private bindSlotKeys(): Phaser.Input.Keyboard.Key[] | undefined {
     const keyboard = this.input.keyboard;
@@ -613,6 +738,7 @@ export class ArenaScene extends Phaser.Scene {
     const hudObjects: Phaser.GameObjects.GameObject[] = [
       ...(this.hudGfx ? [this.hudGfx] : []),
       ...(this.hudSweepGfx ? [this.hudSweepGfx] : []),
+      ...(this.rosterGfx ? [this.rosterGfx] : []),
       ...(this.countdownText ? [this.countdownText] : []),
       ...(this.spectateText ? [this.spectateText] : []),
       ...this.hudKeyTexts,
@@ -621,11 +747,19 @@ export class ArenaScene extends Phaser.Scene {
       ...this.hudStockTexts,
       ...this.hudIconImages,
       ...this.hudStatusTexts,
+      ...this.rosterNameTexts,
     ];
     const worldObjects: Phaser.GameObjects.GameObject[] = [
       ...(this.arenaGfx ? [this.arenaGfx] : []),
       ...(this.shotGfx ? [this.shotGfx] : []),
       ...(this.hpGfx ? [this.hpGfx] : []),
+      // Was in neither list, and so drew twice — once clipped into the arena viewport and once
+      // unclipped across the whole canvas, over the gutter (D13). It draws in world space at
+      // `LOCK_DEPTH`, so the world camera is the one that keeps it.
+      ...(this.lockGfx ? [this.lockGfx] : []),
+      // World space at `ARROW_DEPTH`, drawn over the local car during the countdown, so the world
+      // camera keeps it and the HUD camera must not draw it a second time over the gutter.
+      ...(this.arrowGfx ? [this.arrowGfx] : []),
       ...this.cars.values(),
     ];
 
@@ -690,26 +824,33 @@ export class ArenaScene extends Phaser.Scene {
     this.hpGfx = undefined;
     this.lockGfx?.destroy();
     this.lockGfx = undefined;
+    this.arrowGfx?.destroy();
+    this.arrowGfx = undefined;
     this.hudGfx?.destroy();
     this.hudGfx = undefined;
     this.hudSweepGfx?.destroy();
     this.hudSweepGfx = undefined;
+    this.rosterGfx?.destroy();
+    this.rosterGfx = undefined;
     for (const text of this.hudKeyTexts) text.destroy();
     for (const text of this.hudNameTexts) text.destroy();
     for (const text of this.hudCountdownTexts) text.destroy();
     for (const text of this.hudStockTexts) text.destroy();
     for (const image of this.hudIconImages) image.destroy();
     for (const text of this.hudStatusTexts) text.destroy();
+    for (const text of this.rosterNameTexts) text.destroy();
     this.hudKeyTexts = [];
     this.hudNameTexts = [];
     this.hudCountdownTexts = [];
     this.hudStockTexts = [];
     this.hudIconImages = [];
     this.hudStatusTexts = [];
+    this.rosterNameTexts = [];
     // Phaser tears the camera itself down with the scene; this just stops `syncCar` handing a
     // destroyed camera an ignore during the shutdown frame.
     this.hudCamera = undefined;
     this.cursors = undefined;
+    this.driveKeys = undefined;
     this.keys = undefined;
     this.slotKeys = undefined;
     this.prediction = new PredictionBuffer();
@@ -739,7 +880,13 @@ export class ArenaScene extends Phaser.Scene {
     this.updateSpectate(room, delta);
     this.renderCars(room, delta);
     this.renderShots(room);
-    this.renderWeaponHud(room);
+    // The panel's height is the slots' top inset, so the roster draws first and hands that one
+    // number to the rest of the gutter. Derived here and nowhere else on purpose: the panel lists
+    // every IN_MATCH player while `renderWeaponHud` lays out for `hudTargetPlayer` — the
+    // *spectated* car, which is not always yours — so a second derivation would count a different
+    // set of players and the two would disagree about where the panel ends (D12).
+    const panelHeight = this.renderRosterPanel(room);
+    this.renderWeaponHud(room, panelHeight);
   }
 
   // --- input -------------------------------------------------------------------------------
@@ -775,8 +922,14 @@ export class ArenaScene extends Phaser.Scene {
     this.inputSeq += 1;
     const input: InputMessage = {
       seq: this.inputSeq,
-      steer: axisOf(this.cursors?.left.isDown ?? false, this.cursors?.right.isDown ?? false),
-      throttle: axisOf(this.cursors?.down.isDown ?? false, this.cursors?.up.isDown ?? false),
+      steer: axisOf(
+        (this.cursors?.left.isDown ?? false) || (this.driveKeys?.left.isDown ?? false),
+        (this.cursors?.right.isDown ?? false) || (this.driveKeys?.right.isDown ?? false),
+      ),
+      throttle: axisOf(
+        (this.cursors?.down.isDown ?? false) || (this.driveKeys?.down.isDown ?? false),
+        (this.cursors?.up.isDown ?? false) || (this.driveKeys?.up.isDown ?? false),
+      ),
       // Held, not tapped: the server's weapon cooldown decides the rate, so holding a slot key fires
       // it as fast as that slot allows and no faster. Sampling `JustDown` here instead would drop
       // shots whenever a frame straddled two input ticks.
@@ -835,13 +988,28 @@ export class ArenaScene extends Phaser.Scene {
     const seen = new Set<string>();
     const hp = this.hpGfx;
     const lock = this.lockGfx;
+    const arrow = this.arrowGfx;
     hp?.clear();
     lock?.clear();
+    // Cleared here and refilled below, so the first frame after the countdown draws nothing at all:
+    // the arrow going away is the absence of a draw call, not an animation that has to be stopped.
+    arrow?.clear();
     const poses = new Map<string, SimBody>();
     // Teams alongside poses so the impact-spark pass below can gate on them without a second walk of
     // `room.state.players` (and without carrying `team` through `SimBody`, which has no business
     // knowing about it).
     const teams = new Map<string, 0 | 1>();
+    // Whose side each bar is on is answered once per frame, against the LOCAL player and never
+    // against `cameraTarget(room)`: a wreck can cycle the spectate camera through living cars, and
+    // green must stay your team's green while you watch an enemy fill the screen (D2).
+    //
+    // A pure spectator who never took a seat has no `viewer`, and every car is then an enemy —
+    // nobody is your ally if you have no seat, and the alternative (colouring the watched car
+    // green) is exactly the camera-follows-allegiance bug the signature exists to prevent.
+    const viewer = room.state.players.get(room.sessionId);
+    // Hoisted rather than derived twice: the impact-spark pass below wants the same answer, and two
+    // copies of this expression is two things that can drift about what game we are in.
+    const mode = room.state.mode === GameMode.TEAM ? "team" : "ffa";
 
     room.state.players.forEach((player, sessionId) => {
       if (player.status !== PlayerStatus.IN_MATCH) return;
@@ -872,7 +1040,12 @@ export class ArenaScene extends Phaser.Scene {
       this.cars.get(sessionId)?.setAlpha(alpha);
       poses.set(sessionId, pose);
       teams.set(sessionId, player.team === 1 ? 1 : 0);
-      if (hp && player.alive) this.drawHpBar(hp, player, pose);
+      if (hp && player.alive) {
+        const allegiance = viewer
+          ? allegianceOf(viewer, { sessionId, team: player.team }, mode)
+          : "enemy";
+        this.drawHpBar(hp, player, pose, allegiance);
+      }
       if (sessionId === this.cameraTarget(room)) this.followCamera(pose, delta);
     });
 
@@ -897,7 +1070,6 @@ export class ArenaScene extends Phaser.Scene {
           angle: pose.angle,
           team: teams.get(id) ?? 0,
         }));
-      const mode = room.state.mode === GameMode.TEAM ? "team" : "ffa";
       for (const impact of freshImpacts(
         { sessionId: selfId, team: selfTeam, ...selfPose },
         others,
@@ -907,6 +1079,10 @@ export class ArenaScene extends Phaser.Scene {
         this.showImpact(impact.x, impact.y);
       }
     }
+
+    // The same render pose the spark pass above tested against — predicted and blended for the local
+    // car — so the marker sits on the car that is on screen instead of trailing it by a tick.
+    if (arrow && selfPose) this.drawCountdownArrow(arrow, room, selfPose);
 
     // The bracket follows the CAMERA's subject -- the local car while driving, the watched car while
     // spectating -- which is the same rule the weapon slot bar already uses. Read straight off the
@@ -1039,6 +1215,10 @@ export class ArenaScene extends Phaser.Scene {
     // fades out, so the field still reads as "someone died here" rather than "someone left".
     // Alpha is set per frame by the render loop (`deathFadeAlpha`), never baked in here: a car
     // built while already dead must pick up the right point in its fade, not a fixed value.
+    //
+    // Depth is set here rather than left to Phaser's default, because weapon instances now draw
+    // below the cars and "0" is the layer they are below — see `CAR_DEPTH`.
+    container.setDepth(CAR_DEPTH);
     return container;
   }
 
@@ -1080,24 +1260,54 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
+   * The arrow over your own car during the countdown, and only then.
+   *
+   * Two conditions, not one (D14): the phase, and a local player who is actually `IN_MATCH`.
+   * Someone who joined mid-countdown watches the same phase from the same room but has no car on the
+   * field for the arrow to point at, so the phase alone would hang a triangle over somebody else's.
+   *
+   * The shape itself is `countdown-arrow.ts`; this only fills it. The bob is read from
+   * `performance.now()` rather than driven by a tween, so it is frame-rate independent and there is
+   * nothing to cancel when the phase flips — the next frame simply does not reach this line and the
+   * arrow is gone, with no fade (D4).
+   */
+  private drawCountdownArrow(
+    gfx: Phaser.GameObjects.Graphics,
+    room: Room<ArenaState>,
+    pose: SimBody,
+  ): void {
+    if (room.state.phase !== RoomPhase.COUNTDOWN) return;
+    const local = room.state.players.get(room.sessionId);
+    if (!local || local.status !== PlayerStatus.IN_MATCH) return;
+
+    gfx.fillStyle(ARROW_COLOR, ARROW_ALPHA);
+    gfx.fillPoints(countdownArrowPoints(pose.x, pose.y, arrowBobOffset(performance.now())), true);
+  }
+
+  /**
    * The hp bar of one car: laid across its tail, perpendicular to its facing direction, turning
    * with it (`hpBarPoints`). Sized from the car's own maximum, so a full bar means full hp for that
    * chassis rather than a fixed number of points.
    *
    * Both quads are filled every frame — the backing plate at full length, the remaining hp over it
    * — so an empty bar still shows where the hp used to be instead of vanishing.
+   *
+   * Length is the whole of the health channel; colour says allegiance and nothing else (D1). The
+   * allegiance arrives as an argument rather than being worked out here, because it is one answer
+   * per frame about the local player and not one answer per bar — see `renderCars`.
    */
   private drawHpBar(
     gfx: Phaser.GameObjects.Graphics,
     player: ArenaPlayer,
     pose: SimBody,
+    allegiance: Allegiance,
   ): void {
     const fraction = hpFraction(player.hp, player.carId);
 
     gfx.fillStyle(HP_BAR_BACK, 0.85);
     gfx.fillPoints(hpBarPoints(pose, 1, HP_BAR_GEOMETRY), true);
     if (fraction <= 0) return;
-    gfx.fillStyle(hpBarColor(fraction), 1);
+    gfx.fillStyle(hpBarColor(allegiance), 1);
     gfx.fillPoints(hpBarPoints(pose, fraction, HP_BAR_GEOMETRY), true);
   }
 
@@ -1113,9 +1323,9 @@ export class ArenaScene extends Phaser.Scene {
    * what a player sees is exactly what can hurt them and every fireball shot in the arena looks
    * alike. Shots were owner-coloured once; they are not, because a shot's colour is asked "what is
    * this" far more often than "whose is it", and the car that fired is on screen in player paint
-   * either way. A beam additionally fades toward transparent through its own configured linger,
-   * never a fixed duration, so a slower-lingering weapon reads as slower rather than snapping off
-   * at some other weapon's timing.
+   * either way. A beam holds full opacity for its whole growth and linger and then snaps off across
+   * a fixed `BEAM_FADE_OUT_MS` window ending at its death tick (`beamFadeAlpha`), so the drawn zone
+   * stops looking safe while it is still dealing damage.
    *
    * A weapon may also carry a LOOK (`instanceGlowBands`): concentric bands filled inside that same
    * hitbox instead of one flat disc. It cannot widen the shot — bands are fractions of the hitbox
@@ -1132,7 +1342,12 @@ export class ArenaScene extends Phaser.Scene {
     room.state.weapons.forEach((instance) => {
       if (!instance.alive) return;
       const shape = instanceDrawShape(instance, elapsedMs);
-      const alpha = this.beamFadeAlpha(instance, room.state.tick);
+      const alpha = beamFadeAlpha(
+        instance.kind,
+        instance.weaponId,
+        instance.spawnTick,
+        room.state.tick,
+      );
       // An aura reaches its own `WorldShape` as a circle, like a round projectile does, so it has to
       // be split off BEFORE the circle branch below — otherwise it would draw as a filled 150-unit
       // disc and hide every car it is about to hit. Ring plus wash: still exactly the hitbox.
@@ -1217,20 +1432,6 @@ export class ArenaScene extends Phaser.Scene {
     });
   }
 
-  /**
-   * How opaque a beam instance should draw: full brightness through its growth, fading to nothing
-   * over its own `WEAPON_TICKS` linger. A projectile, or an instance whose `weaponId` is not in
-   * `WEAPON_TABLE`, always draws fully opaque.
-   */
-  private beamFadeAlpha(instance: WeaponInstanceState, tick: number): number {
-    if (instance.kind !== WeaponKind.BEAM || !isWeaponId(instance.weaponId)) return 1;
-    const ticks = weaponTicksOf(instance.weaponId);
-    if (ticks.lifetime <= 0) return 1;
-    const lingerElapsed = tick - (instance.spawnTick + ticks.flight);
-    if (lingerElapsed <= 0) return 1;
-    return Math.max(0, 1 - lingerElapsed / ticks.lifetime);
-  }
-
   // --- weapon slot HUD ---------------------------------------------------------------------
 
   /**
@@ -1239,6 +1440,11 @@ export class ArenaScene extends Phaser.Scene {
    * `drawHudSlot` gives it a real key with `setTexture` only once a slot actually resolves one.
    */
   private buildHudTextPool(): void {
+    // One name per seat, built once: the panel shows and hides these rather than allocating a Text
+    // when someone joins. Left-centre, hung off the row's `labelX` and centred on its swatch.
+    for (let i = 0; i < MAX_PLAYERS; i++) {
+      this.rosterNameTexts.push(this.makeHudText(ROSTER_NAME_FONT_PX).setOrigin(0, 0.5));
+    }
     // Left-centre, matching the key labels: a badge's text hangs off its box's left inset.
     for (let i = 0; i < STATUS_CONFIG.maxActive; i++) {
       this.hudStatusTexts.push(
@@ -1299,12 +1505,62 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
+   * The roster panel at the top of the gutter: a colour swatch and a name per player in the match,
+   * alive or dead. Returns the panel's height, which is the slot bar's `topInset` — see the call in
+   * `update()` for why exactly one place derives it.
+   *
+   * Every rule about who is listed and in what order is in `roster-panel.ts`; this is the Phaser
+   * half. An empty roster hides every pooled name, draws nothing, and returns 0, so a pre-reveal or
+   * free-roam frame leaves the gutter laid out exactly as it was before the panel existed.
+   */
+  private renderRosterPanel(room: Room<ArenaState>): number {
+    const gfx = this.rosterGfx;
+    if (!gfx) return 0;
+    gfx.clear();
+
+    const rows = rosterRows([...room.state.players.values()]);
+    const panel = rosterPanelLayout(rows.length, VIEW_WIDTH, HUD_GUTTER_WIDTH);
+
+    for (let i = 0; i < this.rosterNameTexts.length; i++) {
+      const row = rows[i];
+      const box = panel.rows[i];
+      const label = this.rosterNameTexts[i]!;
+      if (!row || !box) {
+        label.setVisible(false);
+        continue;
+      }
+
+      // The swatch carries the player's own car colour — `carFillOf`, the same function that paints
+      // the car, so the panel can never disagree with the field about who is who.
+      gfx.fillStyle(carFillOf(row.colorId), row.alive ? 1 : ROSTER_DEAD_SWATCH_ALPHA);
+      gfx.fillRect(box.x, box.y, box.size, box.size);
+
+      // Guarded rather than asserted every frame: Phaser re-renders a Text object's canvas whenever
+      // its style is touched, and a row's aliveness flips once a match, not once a frame. Same
+      // reasoning as the slot labels, which set their colour once at pool build time — this one
+      // cannot, because it is the colour that carries the state.
+      const color = row.alive ? ROSTER_LIVE_TEXT : ROSTER_DEAD_TEXT;
+      if (label.style.color !== color) label.setColor(color);
+      label
+        .setPosition(box.labelX, box.centerY)
+        .setText(truncateName(row.name, panel.nameMaxChars))
+        .setVisible(true);
+    }
+
+    return panel.height;
+  }
+
+  /**
    * The slot bar: camera-fixed, drawing `min(weapons.length, maxWeaponSlots)` boxes for whichever
    * car `hudTargetPlayer` names. Slots beyond the current target (or with no target at all) just
    * hide their pooled text objects rather than destroying anything, so switching who is watched
    * costs no allocation.
+   *
+   * `topInset` is the roster panel's height, passed in rather than derived here: the panel lists
+   * every player in the match while this lays out for one car, so the two count different things
+   * and only the caller can hold the single answer (D12).
    */
-  private renderWeaponHud(room: Room<ArenaState>): void {
+  private renderWeaponHud(room: Room<ArenaState>, topInset: number): void {
     const gfx = this.hudGfx;
     const sweepGfx = this.hudSweepGfx;
     if (!gfx || !sweepGfx) return;
@@ -1312,7 +1568,9 @@ export class ArenaScene extends Phaser.Scene {
     sweepGfx.clear();
 
     const player = this.hudTargetPlayer(room);
-    const boxes = player ? slotBarLayout(player.weapons.length, VIEW_WIDTH, VIEW_HEIGHT, HUD_GUTTER_WIDTH) : [];
+    const boxes = player
+      ? slotBarLayout(player.weapons.length, VIEW_WIDTH, VIEW_HEIGHT, HUD_GUTTER_WIDTH, topInset)
+      : [];
 
     for (let i = 0; i < this.hudKeyTexts.length; i++) {
       const box = boxes[i];
