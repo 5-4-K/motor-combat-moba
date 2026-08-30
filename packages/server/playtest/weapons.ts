@@ -208,8 +208,17 @@ function friendlyFire(): void {
 
 /* ------------------------------------------------------------------ W5. damage after death */
 /**
- * A wreck is scenery. Nothing may damage it further, and — the subtler half — a bleed applied
- * before death must not keep ticking a corpse, nor may a heal lift one off 0.
+ * Nothing may damage a dead car further, and — the subtler half — a bleed applied before death must
+ * not keep ticking it, nor may a heal lift it off 0.
+ *
+ * Since 2026-08-30 there is no wreck to be scenery: `isOnField` reads `alive`, so a dead car leaves
+ * the field on the tick it dies — intangible, frozen, no longer a ram participant — and the client
+ * fades it out. The question stands: "off the field" is a collision and drive property, while
+ * whether anything can still move its `hp` is decided in `runCombat`.
+ *
+ * **The trigger is tapped, not held.** Fire is edge-triggered on the server as of the same date, so
+ * a held `fireSlots` fires exactly once — which left this probe putting a single 23-damage dart into
+ * a 40 hp target, never killing it, and reporting OK with every assertion below unreached.
  */
 function damageAfterDeath(): void {
   const w = new PlaytestWorld([
@@ -221,7 +230,9 @@ function damageAfterDeath(): void {
   let deadTookDamage = false;
   let deadAt = -1;
   for (let i = 0; i < 120; i++) {
-    w.input("shooter", { fireSlots: bit });
+    // Release between presses: a held key is ONE press. needler recharges in 18 ticks, so tapping
+    // every other tick lands ~6 shots — enough to kill a 40 hp target and keep shooting the corpse.
+    w.input("shooter", { fireSlots: i % 2 === 0 ? bit : 0 });
     w.tick();
     const t = w.get("target");
     if (t.hp < 0) hpBelowZero = true;
@@ -232,9 +243,9 @@ function damageAfterDeath(): void {
   report(
     "W5. Damage and bleed after death",
     hpBelowZero || deadTookDamage ? "FINDING" : "OK",
-    `target wrecked on tick ${deadAt + 1}, final hp ${t.hp}, alive ${t.alive}\n` +
+    `target died on tick ${deadAt + 1}, final hp ${t.hp}, alive ${t.alive}\n` +
       `hp ever negative: ${hpBelowZero}; hp moved after death: ${deadTookDamage}\n` +
-      `statuses still on the wreck: ${statusesOf(t).map((s) => s.statusId).join(",") || "none"} ` +
+      `statuses still on the dead car: ${statusesOf(t).map((s) => s.statusId).join(",") || "none"} ` +
       `(needler applies no status now — T18 moved its old 'spiked' rider to bulwark — but any bleed\n` +
       `still would keep its badge here, since 'runCombat' gates pulses on 'alive', not the badge)`,
   );
@@ -242,8 +253,19 @@ function damageAfterDeath(): void {
 
 /* ------------------------------------------------- W6. fire-rate exploit via input flooding */
 /**
- * A hand-rolled client can send many inputs per tick. `serverTick` caps how many are SIMULATED but
- * OR-s their fire masks together; the weapon cooldown is what must actually bound the rate.
+ * A hand-rolled client can send many inputs per tick. `serverTick` caps how many are SIMULATED; the
+ * weapon cooldown is what must actually bound the rate.
+ *
+ * **The exploit this probe hunts moved on 2026-08-30.** Fire became edge-triggered: `fireSlots` is
+ * key state, and only a bit that was NOT down on the previous simulated input counts as a press. The
+ * old attack — flood the same held mask and hope the OR buys extra shots — now buys nothing, and
+ * comparing 1 held input against 8 held ones would report a meaningless 1.00x with both arms firing
+ * exactly once.
+ *
+ * The new surface is the one edge detection opened: `prev` advances PER INPUT, so a client that
+ * ALTERNATES its mask inside a single tick (`bit, 0, bit, 0, ...`) manufactures a press edge every
+ * other input — four presses in one tick out of one physically-held key. That is what the flooding
+ * arm does here. The cooldown is still the thing that must refuse them.
  */
 function fireRateExploit(): void {
   const rows: string[] = [];
@@ -260,7 +282,14 @@ function fireRateExploit(): void {
       let spawned = 0;
       const seen = new Set<string>();
       for (let i = 0; i < 300; i++) {
-        for (let k = 0; k < perTick; k++) w.input("shooter", { fireSlots: bit });
+        if (perTick === 1) {
+          // The honest client: one input per tick, releasing between presses — the fastest a real
+          // player can legitimately ask to fire.
+          w.input("shooter", { fireSlots: i % 2 === 0 ? bit : 0 });
+        } else {
+          // The flooder: alternate inside the tick so every other input is a fresh press edge.
+          for (let k = 0; k < perTick; k++) w.input("shooter", { fireSlots: k % 2 === 0 ? bit : 0 });
+        }
         w.tick();
         for (const inst of w.instances()) if (!seen.has(inst.id)) { seen.add(inst.id); spawned++; }
       }
@@ -269,12 +298,12 @@ function fireRateExploit(): void {
     const ratio = counts[0]! === 0 ? 0 : counts[1]! / counts[0]!;
     if (ratio > 1.05) exploitable = true;
     rows.push(
-      `${id.padEnd(11)} 1 input/tick -> ${String(counts[0]).padStart(3)} shots;  ` +
-        `8 inputs/tick -> ${String(counts[1]).padStart(3)} shots  (${ratio.toFixed(2)}x) ` +
+      `${id.padEnd(11)} honest tap -> ${String(counts[0]).padStart(3)} shots;  ` +
+        `8 alternating inputs/tick -> ${String(counts[1]).padStart(3)} shots  (${ratio.toFixed(2)}x) ` +
         `${ratio > 1.05 ? "<- RATE EXPLOIT" : ""}`,
     );
   }
-  report("W6. Fire-rate exploit by flooding inputs (300 ticks = 10s)", exploitable ? "FINDING" : "OK", rows.join("\n"));
+  report("W6. Fire-rate exploit by manufacturing press edges (300 ticks = 10s)", exploitable ? "FINDING" : "OK", rows.join("\n"));
 }
 
 /* ------------------------------------------------------------ W7. status chain / perma-CC */
@@ -299,8 +328,12 @@ function statusChain(): void {
   let stunnedTicks = 0;
   const total = 900; // 30 seconds
   for (let i = 0; i < total; i++) {
-    w.input("bastA", { fireSlots: bit });
-    w.input("bastB", { fireSlots: bit });
+    // Released on alternate ticks: fire is edge-triggered, so a held mask is ONE press and this
+    // would otherwise measure a single stun rather than a chain. thumper recharges in 90 ticks, so
+    // tapping every other tick asks to fire far more often than the cooldown allows.
+    const press = i % 2 === 0 ? bit : 0;
+    w.input("bastA", { fireSlots: press });
+    w.input("bastB", { fireSlots: press });
     w.input("victim", {});
     w.tick();
     if (statusesOf(w.get("victim")).some((s) => s.statusId === "stunned" && s.endsTick > w.state.tick)) {
