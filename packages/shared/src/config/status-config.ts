@@ -88,9 +88,11 @@ export const STATUS_TABLE = {
    *
    * 0.65 is the reciprocal of the old 1.55, so the turn radius widens by the factor it used to
    * narrow. The mirror value (0.45) was rejected: radius scales as `speed / turnRate`, so it nearly
-   * doubles the radius, and stacked with brake fade a 1.5s window of it starts doing Stunned's job
-   * — which is a 700ms `reapply: "ignore"` row precisely so hard CC cannot be chained. 0.65 also
-   * leaves headroom above `STATUS_LIMITS.turnRate.min` (0.4) for a harsher handling debuff later.
+   * doubles the radius, and stacked with brake fade a 1.5s window of it starts encroaching on
+   * Stunned's territory — the roster's only hard CC, currently applied at `thumper`'s 450ms (see
+   * `stunned`'s row below for why `reapply: "ignore"` does not by itself bound how strong that gets).
+   * 0.65 also leaves headroom above `STATUS_LIMITS.turnRate.min` (0.4) for a harsher handling debuff
+   * later.
    *
    * What would make this better is losing grip — a car that slides wide. The drive model cannot do
    * it: motion is welded to the heading (`x += cos(angle) * speed`), so there is no lateral velocity
