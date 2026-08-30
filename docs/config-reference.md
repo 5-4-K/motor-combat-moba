@@ -2,6 +2,12 @@
 
 Balance tables live in `@motor-combat-moba/shared`. Env knobs override process settings only.
 
+**`CAR_TABLE`, `WEAPON_TABLE`, `COMBAT_CONFIG`, `DRIVE_CONFIG` and `AIM_CONFIG.lockRange` are also
+printed to players**, by the generated cars-and-weapons guide the join screen links. It is committed
+rather than built on demand, so editing any of them means `npm run build:manual` and committing
+`packages/client/public/manual.html` in the same change — see the root `CLAUDE.md`.
+`scripts/manual-page.test.mjs` fails when the committed page predates the tables.
+
 ## Env knobs
 
 | Knob | Where | Default |
@@ -17,13 +23,30 @@ Canonical sim rate is `TICK_RATE_HZ` in `@motor-combat-moba/shared`. Patch rate 
 
 ## CAR_TABLE
 
-| id | name | speed | strength | hp |
-|---|---|---|---|---|
-| `rectangle` | Rectangle | 8 | 3 | 5 |
-| `oval` | Oval | 5 | 8 | 3 |
-| `hexagon` | Hexagon | 3 | 5 | 8 |
+| id | name | speed | attack | hp | mass | weapons |
+|---|---|---|---|---|---|---|
+| `rectangle` | Rectangle | 80 | 30 | 40 | 35 | `["fireball", "pepperbox", "afterburner"]` |
+| `oval` | Oval | 50 | 70 | 30 | 45 | `["splinter", "skewer", "lance"]` |
+| `hexagon` | Hexagon | 30 | 50 | 70 | 85 | `["thumper", "shockwave", "bulwark"]` |
 
-Derived: `hpOf` = hp × `COMBAT_CONFIG.hpPerRating` (50 / 30 / 80). `forwardMaxSpeedOf` = `baseMaxSpeed` + speed × `speedPerRating`. `reverseMaxSpeedOf` = forward × `reverseSpeedRatio`.
+Ratings are integers 0-100 with 50 as average. `speed`/`attack`/`hp` used to be held to a 150-point
+budget across the three — the roster's only automatic guard against a fourth chassis being authored
+strictly better than these three. That budget was **deliberately deleted on 2026-08-29** so `mass`
+could be a free-floating fourth rating (see [`combat-model.md`](combat-model.md#ramming)), and no
+replacement guard was adopted. `config.test.ts` still checks the 0-100 range on all four ratings,
+`mass` included, but nothing checks their sum. Roster fairness is a review-time judgement from here
+on.
+
+Derived: `hpOf` = hp × `COMBAT_CONFIG.hpPerRating` (400 / 300 / 700). `forwardMaxSpeedOf` =
+`baseMaxSpeed` + speed × `speedPerRating` (540 / 405 / 315 u/s). `reverseMaxSpeedOf` = forward ×
+`reverseSpeedRatio`. `weaponDamageOf(carId, weaponId)` = `damageFor(attack, weapon.damage)` — a
+fireball is 40 / 60 / 50 depending on who fires it. `massOf` = mass × `RAM_CONFIG.massPerRating`
+(350 / 450 / 850) — affects ramming only, never acceleration or top speed (see `RAM_CONFIG` below).
+
+`weapons` is an ordered list of `WEAPON_TABLE` ids — index 0 is slot 1, and order *is* the slot
+mapping. `slotsOf(carId)` (`config/weapon-slots.ts`) is what actually reads it, capped at
+`WEAPON_SLOT_CONFIG.maxWeaponSlots`; see [`combat-model.md`](combat-model.md) for the fire model
+that consumes it.
 
 ## COLOR_TABLE
 
@@ -36,41 +59,356 @@ Derived: `hpOf` = hp × `COMBAT_CONFIG.hpPerRating` (50 / 30 / 80). `forwardMaxS
 | 4 | Violet | `#9B59B6` |
 | 5 | Orange | `#E67E22` |
 
-## WEAPON_CONFIG
+## WEAPON_TABLE
+
+Every weapon in the game, keyed by id. `CAR_TABLE[car].weapons` (above) names which of these ids a
+chassis carries and in what slot order. Durations are authored in **milliseconds** and converted
+once, at shared's module load, into the frozen `WEAPON_TICKS` the sim actually reads — see
+"Authoring in milliseconds" below.
+
+| id | kind | damage | damageFrequencyMs | speed | range | cooldownMs | startUpMs | recoveryMs | stock | pierce | volley (volleys/intervalMs/pellets/spreadDeg) | attached | lifetimeMs | hitbox | unlocksAt | usesAimAssist | color |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `fireball` | projectile | 50 | 0 | 900 | 900 | 500 | 0 | 0 | — | 0 | 1 / 0 / 1 / 0 | — | — | circle, radius 12 | 1 | true | `#E8590C` |
+| `pepperbox` | projectile | 28 | 0 | 800 | 600 | 1800 | 0 | 200 | — | 0 | 3 / 100 / 2 / 10 | — | — | circle, radius 7 | 1 | false | `#B45309` |
+| `afterburner` | beam | 26 | 200 | 1100 | 220 | 13000 | 0 | 200 | — | — | — | true | 2000 | cone, 55° | 1 | false | `#D6336C` |
+| `splinter` | projectile | 30 | 0 | 1100 | 850 | 400 | 0 | 0 | max 3, refire 130ms | 0 | 1 / 0 / 1 / 0 | — | — | circle, radius 5 | 1 | true | `#0CA5B0` |
+| `skewer` | projectile | 110 | 0 | 1400 | 1100 | 2400 | 250 | 200 | — | 1 | 1 / 0 / 1 / 0 | — | — | ellipse, along 22 / across 5 | 1 | false | `#1864AB` |
+| `lance` | beam | 180 | 0 | 6000 | 1200 | 16000 | 700 | 1000 | — | — | — | false | 150 | rect, width 20 | 1 | false | `#6741D9` |
+| `thumper` | projectile | 75 | 0 | 450 | 550 | 1000 | 0 | 0 | — | 0 | 1 / 0 / 1 / 0 | — | — | circle, radius 20 | 1 | true | `#495057` |
+| `shockwave` | beam | 100 | 0 | 1500 | 150 | 5000 | 0 | 200 | — | — | — | true | 150 | cone, 140° | 1 | false | `#5C940D` |
+| `bulwark` | beam | 35 | 400 | 500 | 500 | 15000 | 0 | 200 | — | — | — | false | 2500 | cone, 60° | 1 | false | `#862E9C` |
+
+`damage` is what the weapon deals from a chassis at `COMBAT_CONFIG.attackBaseline` — an *average*
+car, not every car; `damageFor` (`sim/damage.ts`) moves it ±50% with the firing chassis's `attack`
+rating. `fireball`'s 50 is solved, not chosen: an average chassis has 500 hull HP and fireball fires
+twice a second, so 50 is the number that makes an average-vs-average kill take the design target of
+5 seconds. `splinter`'s 30 is solved from its own recharge rather than from `fireball`: 30 damage per
+400 ms is 75 sustained DPS, three quarters of the anchor, which is where a 1.2x `attack` chassis wants
+its go-to.
+
+`color` is render-only, like `name`: it is the fill every live instance of that weapon draws in, per
+**weapon** rather than per player, so two cars carrying a fireball fire identically coloured shots.
+`weapon-config.test.ts` requires each to be a unique `#RRGGBB` and none of them to equal a
+`COLOR_TABLE` player colour. See [`combat-model.md`](combat-model.md#what-the-client-shows).
+
+`color` is the *whole* look only for a weapon with no authored style. `fireball` has one — four
+concentric bands, dark ember rim to near-white core, plus a slow shrink-only flicker — held in
+`WEAPON_GLOW_STYLES` in the client's `combat-visual.ts`, not in this table: it is pure appearance,
+nothing the sim or the wire can see. Bands are fractions of the weapon's own hitbox radius, so a
+re-tune that widens the hitbox rescales the glow with it and no band can escape the shape that
+hits. A weapon with no entry there draws the single flat disc of its `color`, which is what every
+weapon but `fireball` still does.
+
+`usesAimAssist` is **required** and has no default: `true` fires at the car's ambient target lock
+instead of along its heading. It is the only per-weapon aim-assist knob — all the geometry lives once
+in `AIM_CONFIG` below. See [`combat-model.md`](combat-model.md#aim-assist-and-the-target-lock).
+
+`fireball` carries the pre-weapon-system shot's exact numbers for everything except `damage`:
+`fireRateHz: 2` became `cooldownMs: 500`, and `lifetimeTicks: 30` became `range: 900` (one second of
+flight at 900 u/s). Its **hitbox is also not a migrated value**: it shipped as a 3-unit circle — the
+smallest that kept the old point-hit feel while satisfying "every weapon has a hitbox" — and was
+widened to 12 so the shot reads on screen, since the client draws the hitbox itself rather than a
+sprite. `damage` itself was re-solved when the `attack` stat landed — see the paragraph above.
+
+**Authoring in milliseconds.** Every duration on a weapon — `startUpMs`, `cooldownMs`, `recoveryMs`,
+`stock.refireDelayMs`, a beam's `lifetimeMs` — is milliseconds, never ticks, so a balance number
+never hard-codes 30 Hz into itself (invariant 1). `WEAPON_TICKS` (`config/weapon-ticks.ts`), built
+and frozen once at module load, converts each with `ceil(ms × TICK_RATE_HZ / 1000)` and separately
+derives `flightTicks = ceil(range / speed × TICK_RATE_HZ)`. The sim reads only the derived ticks,
+never raw ms. The cost is rounding, not drift: at 30 Hz a tick is 33.3 ms, so `startUpMs: 250`
+becomes 8 ticks (266 ms) — server and client both compute it from the same built `dist`, so they
+always round the same way or neither does.
+
+**Adding a weapon with a real wind-up, burst, or recovery window is a config edit and nothing
+else.** `skewer` and `lance` (both Oval) carry `startUpMs > 0`, `pepperbox` (Rectangle) carries
+`volleys: 3`, and `recoveryMs > 0` is now the common case — every weapon but `fireball`, `splinter`
+and `thumper` carries one. The wire already carried what they need before any of them shipped:
+`PlayerState.pendingUntilTick` and `PlayerState.lastFiredSlot` give the HUD the car-wide lockout, and
+the slot's recharge is anchored to the volley's last shot, so `cooldownMs` still means "time until
+another stock" for a burst weapon. Nothing about a `startUpMs > 0`, `volleys > 1`, or `recoveryMs > 0`
+weapon required a schema change. See [`schema-reference.md`](schema-reference.md#playerstate) for the
+two fields.
+
+## WEAPON_SLOT_CONFIG
 
 | Knob | Value |
 |---|---|
-| `damage` | 8 |
-| `fireRateHz` | 2 |
-| `projectileSpeed` | 900 |
-| `lifetimeTicks` | 30 |
+| `maxWeaponSlots` | 3 |
+
+Caps how many slots any chassis may present. A car whose `weapons` list is longer logs one
+`console.warn` naming the car and the extras are truncated — a warning, never a thrown error or a
+failed test.
+
+## AIM_CONFIG
+
+Aim assist geometry and feel, global to every weapon that opts in with `usesAimAssist: true` (A1).
+See [`combat-model.md`](combat-model.md#aim-assist-and-the-target-lock) for how these knobs combine.
+
+| Knob | Value | Unit |
+|---|---|---|
+| `coneDeg` | 20 | degrees (half-angle of the acquisition cone) |
+| `lateralMax` | 120 | world units (perpendicular offset from centreline) |
+| `lockRange` | 400 | world units |
+| `retentionConeDeg` | 5 | degrees (pad added to `coneDeg` to hold an already-locked target) |
+| `retentionLateralUnits` | 30 | world units (pad added to `lateralMax`) |
+| `retentionRangeUnits` | 60 | world units (pad added to `lockRange`) |
+| `scorePerDistanceUnit` | 0.04 | per world unit (scoring: `abs(angleDeg) + distance × scorePerDistanceUnit`) |
+| `stealMarginFraction` | 0.25 | fraction (a rival must score this much better to steal the lock) |
+| `commitMs` | 400 | ms (minimum time on a target before it may be stolen) |
+| `lockTimeoutMs` | 800 | ms (how long after the last fire press the lock keeps incumbency) |
+| `losGraceMs` | 300 | ms (how long a target may be out of sight before the lock releases) |
+
+`commitMs`, `lockTimeoutMs`, and `losGraceMs` are authored in milliseconds and converted once, at
+shared's module load, into the frozen `AIM_TICKS` (`commit` / `lockTimeout` / `losGrace`) the sim
+actually reads — the same pattern as `WEAPON_TICKS` above.
+
+`lockRange` is deliberately its own number, not borrowed from a weapon's `range` (A3):
+`weapon-config.test.ts` asserts every aim-assist weapon's `range` is at least `lockRange`, and
+separately asserts every aim-assist weapon's sustained fire rate sits outside a ±15% band around the
+`1000 / lockTimeoutMs` cliff — see `combat-model.md` for what that cliff means.
+
+Nothing in `AIM_CONFIG` decides whether you can *see* the lock. The bracket is drawn by the client
+alone, from `PlayerState.lockTargetSessionId` on the wire, and `SHOW_LOCK_BRACKET` in the client's
+`scenes/combat-visual.ts` (default `true`) is the source switch that suppresses that draw. It is a
+render flag with no sim effect whatsoever — with it `false` the server acquires, holds, steals, and
+fires at the same targets, and the field still ships on every patch. Turning aim assist *off* is a
+different knob entirely: `usesAimAssist` per weapon in `WEAPON_TABLE`.
 
 ## COMBAT_CONFIG
 
 | Knob | Value |
 |---|---|
 | `hpPerRating` | 10 |
-| `collisionDamagePerStrength` | 1 |
-| `ramDotThreshold` | 0.5 |
-| `collisionDamageCooldownTicks` | 15 |
-| `ramContactPad` | 1 (hull inflation for ram contact; see [`combat-model.md`](combat-model.md)) |
+| `attackBaseline` | 50 (the `attack` rating `damageFor` treats as an average chassis) |
+| `damagePerAttack` | 0.01 (fractional damage change per point of `attack` away from `attackBaseline`; see [`combat-model.md`](combat-model.md#damage)) |
 
 ## DRIVE_CONFIG
 
 | Knob | Value |
 |---|---|
-| `baseMaxSpeed` | 120 |
-| `speedPerRating` | 30 |
-| `accel` | 520 |
-| `brakeDecel` | 780 |
-| `drag` | 140 |
-| `turnRate` | 2.8 |
-| `turnRateAtStop` | 1.4 |
-| `reverseSpeedRatio` | 0.5 |
-| `reverseHoldTicks` | 6 |
+| `baseMaxSpeed` | 180 |
+| `speedPerRating` | 4.5 |
+| `accel` | 780 |
+| `brakeDecel` | 1600 (must stay above `drag`) |
+| `drag` | 900 (throttle released) |
+| `turnRate` | 4.2 |
+| `turnRateAtStop` | 2.1 |
+| `reverseSpeedRatio` | 0.65 |
+| `reverseAccel` | 1100 (reverse has its own rate; does not borrow `accel`) |
+| `reverseHoldTicks` | 2 (66ms at `TICK_RATE_HZ` 30) |
+| `stopEpsilon` | 1e-3 (below this \|speed\| the car counts as stopped) |
 | `carWidth` | 48 |
 | `carHeight` | 32 |
 | `restitution` | 0.35 |
+
+Resulting top speeds, `baseMaxSpeed + speed rating × speedPerRating`:
+
+| Car | Forward | Reverse |
+|---|---|---|
+| rectangle (80) | 540 | 351 |
+| oval (50) | 405 | 263 |
+| hexagon (30) | 315 | 205 |
+
+Quoted for the fastest chassis: 0.69s to top speed, 0.60s to coast to rest, 0.34s to brake to rest,
+0.32s to reach the reverse cap, 129 world units of turn radius.
+
+**These knobs are coupled.** Turn radius is `speed / turnRate` and time-to-top-speed is
+`maxSpeed / accel`, so raising the two speed knobs without raising `turnRate` and `accel` makes a
+faster car feel *less* agile. `brakeDecel` must exceed `drag` or the brake button is pointless, and
+`CAMERA_CONFIG.freeRoamSpeed` must exceed the fastest car — both are asserted in `config.test.ts`.
+`baseMaxSpeed` and `speedPerRating` scale together on purpose: their ratio decides how much the
+per-car `speed` rating matters, so moving only one re-balances the roster.
+
+## RAM_CONFIG
+
+Ram control-and-knockback tuning — the values `packages/shared/src/sim/ram.ts` and `stepDrive` read
+to turn a car-vs-car contact into a spin, a shove, and a steering penalty. Networked balance, not
+render preference: server tick and client prediction both depend on the two computing the same
+numbers. See [`combat-model.md`](combat-model.md#ramming) for the mechanic.
+
+| Knob | Value | Notes |
+|---|---|---|
+| `contactPad` | 1 | World units each hull is inflated by for the contact test — `resolveWorld` leaves cars exactly touching, and a strict overlap test would never fire on a real ram |
+| `minApproachSpeed` | 60 | Below this closing speed, contact is a nudge and no ram is written — about 11% of the roster's top speed |
+| `massPerRating` | 10 | Mirrors `COMBAT_CONFIG.hpPerRating`; scales the 0-100 `mass` rating |
+| `bonusFront` / `bonusFlank` / `bonusRear` | 0.3 / 1.0 / 1.3 | Multiplies severity by impact side; the most important balance lever in the feature |
+| `authorityFloor` | 0.35 | Steering multiplier at maximum severity — the feel dial |
+| `knockMaxSpeed` | 260 | Peak shove impulse (expressed as a speed) at severity 1.0, before the victim mass factor |
+| `massFactorMin` / `massFactorMax` | 0.6 / 1.6 | Bounds on `RAM_REFERENCE_MASS / victimMass`, so neither the heaviest nor the lightest chassis degenerates |
+| `spinScale` | 100 | Calibration multiplier on the torque-derived spin rate |
+| `spinMaxRate` | 6.0 | rad/s ceiling on injected spin |
+| `inertiaCoefficient` | 277.33 **[D]** | `(DRIVE_CONFIG.carWidth² + carHeight²) / 12` — derived from the hull, never typed, so it cannot drift out of step with `carHullOf` |
+| `spinHalfLifeSeconds` | 0.35 | |
+| `shoveHalfLifeSeconds` | 0.25 | |
+| `authorityHalfLifeSeconds` | 0.30 | The gap to 1.0 halves this often |
+| `counterSteerHalfLifeSeconds` | 0.15 | Spin decay while the player steers against it — shorter than `spinHalfLifeSeconds` on purpose, so countersteering shortens recovery instead of only offsetting it |
+| `spinEpsilon` / `shoveEpsilon` / `authorityEpsilon` | 0.01 / 1 / 0.01 | Below these magnitudes a knock snaps to exact rest, as `stopEpsilon` does for `speed` |
+
+**`spinScale` is 100 in the shipped code, not the `1.0` an earlier draft of the design spec's Numbers
+table carried.** At `1.0` the spin channel was structurally inert — the hardest possible ram produced
+about 0.077 rad/s against the 6.0 `spinMaxRate` ceiling and the 0.01 rad/s rest threshold, roughly 2
+degrees of total rotation. 100 is what makes a solid flank ram land near 2.1 rad/s.
+
+**Decays are authored as half-lives in seconds, not as per-tick multipliers.** `halfLifeToPerTick`
+converts each once, at module load, into the per-tick multiplier `stepDrive` actually reads
+(`RAM_DECAY`): `perTick = 0.5 ** (1 / (halfLifeSeconds * TICK_RATE_HZ))`. Authoring in seconds keeps
+the table tick-rate independent — a per-tick value copied unchanged from a design written against
+60 Hz would silently halve every recovery time at this project's 30 Hz. Same principle as
+`weapon-ticks.ts` converting authored milliseconds to ticks exactly once.
+
+`massOf(id)` = `CAR_TABLE[id].mass * massPerRating` — see [`CAR_TABLE`](#car_table). `RAM_REFERENCE_MASS`
+(`car-config.ts`) is `50 * massPerRating`, an average-rated chassis and the "1.0 severity" anchor.
+`RAM_REFERENCE` is `RAM_REFERENCE_MASS * (the roster's highest forwardMaxSpeedOf)`, so raising
+`baseMaxSpeed` or any car's `speed` rating moves the anchor with it instead of leaving severity stuck
+against a stale ceiling. Both are derived, never typed.
+
+The hull half-extents the spin lever arm is clamped into are `DRIVE_CONFIG.carWidth / 2` and
+`DRIVE_CONFIG.carHeight / 2` (24 and 16 today) — read from `DRIVE_CONFIG`, not hardcoded, for the
+same reason `inertiaCoefficient` is derived above: both must move with `carHullOf` in lockstep, or
+the torque lever and the inertia it divides by could silently disagree about the hull a ram actually
+collided against.
+
+## STATUS_TABLE
+
+The status roster: `packages/shared/src/config/status-config.ts`. Networked balance, not render
+preference — server tick and client prediction both derive their multipliers from these rows, so the
+two must compute the same numbers. See [`combat-model.md`](combat-model.md#statuses) for the
+mechanic.
+
+**A status does not own its duration.** How long it lasts is decided by whatever applied it — a
+weapon's `applies` entry today, a pickup later. The same status is therefore a flicker from a fast
+repeating source and a real window from a heavy one, without the table growing a near-duplicate row
+per duration.
+
+| Status | Kind | Re-apply | Modifiers | Flags | Pulse | On apply |
+|---|---|---|---|---|---|---|
+| `overheated` | debuff | refresh | `turnRate` 0.65, `brakeDecel` 0.65, `topSpeed` 0.92 | — | — | — |
+| `corroded` | debuff | refresh | `damageTaken` 1.3 | — | — | — |
+| `stunned` | debuff | **ignore** | — | `immobilised`, `steeringLocked`, `disarmed` | — | — |
+| `spiked` | debuff | refresh | `topSpeed` 0.82 | — | 8 hp / 400 ms | — |
+| `fortified` | buff | refresh | `damageTaken` 0.7, `ramMass` 1.25 | — | repairs 12 hp / 500 ms | — |
+| `overhauled` | buff | **ignore** | — | — | — | cleanse `debuff` |
+
+Per-row fields: `id`, `name`, `kind`, `color` (`#rrggbb`, render-only like `WeaponDef.color`),
+`reapply`, `modifiers`, optional `flags`, optional `pulse`, optional `onApply`.
+
+`kind` is **load-bearing, not display**: `onApply.cleanse` names a kind, so it decides what a repair
+strips. A row whose kind is wrong is a rule bug.
+
+`reapply` decides what happens when a status already running is applied again:
+
+- **`refresh`** — the clock is EXTENDED, never shortened (`endsTick = max(existing, now + duration)`),
+  and `startTick` is left alone so the pulse cadence is not restarted. A weak short source can
+  therefore never cut a long one down. Anything applied repeatedly by a lingering source wants this;
+  an aura especially, since `ignore` would make a car standing inside one watch the status lapse and
+  re-arm on a loop.
+- **`ignore`** — nothing happens at all, not even the clock. The anti-chain rule, and every row that
+  flips a flag is required to use it (`status-config.test.ts` enforces that), so two attackers cannot
+  hold one car stunned between them.
+
+There is no third option that compounds magnitude. **A status never stacks with itself** — one id on
+one car is exactly one instance at exactly the strength its row states. Different statuses touching
+the same channel do stack, by multiplication.
+
+`pulse` is authored as **an amount per pulse plus an interval**, deliberately not as a rate per
+second — it mirrors `WeaponDef.damageFrequencyMs`, and it means the number in the table is the number
+the player sees. Pulses are counted from the status's own `startTick`, so two cars hit a tick apart
+bleed a tick apart and no accumulator has to exist or be networked. The first pulse lands one interval
+*in*, never on the application tick.
+
+### Channels
+
+Every channel is a **multiplier**, 1 = neutral, never an additive term and never an absolute value.
+That buys three things: neutral is exactly reproducible (a car in no status multiplies by 1 and
+reproduces the pre-status sim bit for bit — `golden.test.ts` pins it), sources compose in any order,
+and stacking diminishes on its own (a 5% and a 10% slow are 14.5% together, not 15%).
+
+| Channel | Scales | Read by |
+|---|---|---|
+| `topSpeed` | `forwardMaxSpeedOf` and `reverseMaxSpeedOf` | `stepDrive` |
+| `accel` | `DRIVE_CONFIG.accel` and `reverseAccel` | `stepDrive` |
+| `turnRate` | the steering rate, alongside (not instead of) the ram's `authority`. **Above 1 corners tighter**; steering is binary (`-1 \| 0 \| 1`), so a raise is a straight gain | `stepDrive` |
+| `brakeDecel` | `DRIVE_CONFIG.brakeDecel` — brake fade | `stepDrive` |
+| `damageDealt` | outgoing damage, frozen into the instance at spawn | `spawnInstances` |
+| `damageTaken` | incoming damage, applied at impact | `runCombat` |
+| `weaponCooldown` | `cooldown`, `refireDelay`, `recovery` — **not** `startUp` or `volleyInterval` | `tickRecharge`, `releaseShots` |
+| `ramMass` | `massOf`, both as attacker and as victim | `resolveRam` |
+
+**Drag is the one drive constant no channel scales.** A car that would not slow down even off the
+throttle has stopped being a car.
+
+Flags are booleans, OR-ed across sources, and each is deliberately one thing so a status composes the
+condition it wants: `immobilised` (throttle forced neutral — the car still steers, brakes and coasts),
+`steeringLocked` (steer input forced to 0; injected ram spin untouched, so a stunned car still
+tumbles), `disarmed` (no *new* press; one already committed still finishes).
+
+## STATUS_CONFIG
+
+| Knob | Value | Notes |
+|---|---|---|
+| `maxActive` | 6 | Most statuses one car may be in. A wire guard *and* a design ceiling. At the cap a **new** status is dropped rather than evicting a running one, so a cheap status can never strip a meaningful one off a target |
+| `maxDurationMs` | 8000 | Longest duration any applier may ask for. Past roughly a fight's length a status stops being a window and becomes a state of the match |
+
+## STATUS_LIMITS
+
+The floor and ceiling each channel is clamped to **after** every source has been multiplied together.
+Not the balance lever — multiplication already diminishes each further source — but the guarantee:
+however many future weapons and pickups land on one car at once, a player keeps at least half their
+top speed, still steers, still brakes, and still shoots. **A debuff may take the fight off you; it may
+not take the car off you.**
+
+| Channel | Min | Max |
+|---|---|---|
+| `topSpeed` | 0.5 | 2 |
+| `accel` | 0.4 | 2.5 |
+| `turnRate` | 0.4 | 2 |
+| `brakeDecel` | 0.6 | 1.5 |
+| `damageDealt` | 0.5 | 2 |
+| `damageTaken` | 0.4 | 2.5 |
+| `weaponCooldown` | 0.4 | 3 |
+| `ramMass` | 0.5 | 2 |
+
+`topSpeed`'s floor is the load-bearing one: below roughly half speed a car cannot disengage from
+anything, so every slow past that point converts a fight into an execution — which is the ram knock's
+job (bounded, ~1s, countersteerable), never a status's.
+
+`brakeDecel`'s floor is not a free choice. Scaled braking must stay above `DRIVE_CONFIG.drag`, or the
+brake pedal becomes worse than lifting off; `status-config.test.ts` asserts that against the live
+drive numbers rather than trusting the constant.
+
+A **single** row must land inside its channel's limits on its own: clamping is the backstop against
+many sources piling up, and a row that needs it to be legal is a row whose authored number is a lie.
+
+## Weapon status applications
+
+`WeaponDef.applies` is how a status reaches a car. Each entry is
+`{ statusId, target, durationMs }`, and durations are converted to ticks once in
+`WEAPON_TICKS.applyDurations`, positionally parallel to `applies`.
+
+| Weapon | Applies | To | For |
+|---|---|---|---|
+| `afterburner` | `overheated` | opponents | 1.5 s |
+| `splinter` | `spiked` | opponents | 3 s |
+| `shockwave` | `stunned` | opponents | 0.7 s |
+| `bulwark` | `corroded` | opponents | 2.5 s |
+| `bulwark` | `fortified` | **self** | 4 s |
+
+`target` is `"self"` or `"opponents"`. **There is no `"teammates"`** — reaching a teammate means
+changing `canDamage`, the one predicate deciding friendly fire for the whole game, and that decision
+has not been made. Shipping the member as a value that silently did nothing would be worse than not
+having it.
+
+`opponents` rides the damage list, so it inherits every rule already there: friendly fire, the
+shooter's own immunity, wrecks, pierce, and the per-target damage clock that stops a lingering beam
+re-applying every tick. `self` lands when a shot actually goes out — a press the cooldown rejected
+buys nothing, and a wind-up pays off at its end.
+
+A weapon may deal damage, apply statuses, or both; a pure applicator authors `damage: 0` and still
+works, because a status rides the hit rather than the number. `weapon-config.test.ts` enforces only
+that a weapon does *something*.
+
+`overhauled` is applied by nothing. It is the pickup status, and the room's `statusRequests` queue can
+already deliver it the day a pickup system exists.
 
 ## CAMERA_CONFIG
 
@@ -78,9 +416,17 @@ Render knobs only — nothing in `stepSim` reads them.
 
 | Knob | Value |
 |---|---|
-| `camLerp` | 0.12 (fraction of remaining distance closed per **frame**) |
-| `zoom` | 1.5 (above 1 = zoomed in; keep within 1–2 so the 2x car textures stay sharp) |
-| `freeRoamSpeed` | 700 (spectator free-look pan, world units per **second**) |
+| `camLerp` | 0.18 (fraction of remaining distance closed per **60 Hz frame**, rescaled to the real frame time by `smoothFollow`) |
+| `zoom` | 1 (above 1 = zoomed in; keep within 1–2 so the 2x car textures stay sharp) |
+| `freeRoamSpeed` | 1050 (spectator free-look pan, world units per **second**; must exceed the fastest car) |
+
+`camLerp` is per *reference* frame, not per rendered frame. Applied flat per frame it would close the
+gap 2.4x faster at 144 Hz than at 60 Hz, settling into a trailing offset of `speed / (fps × camLerp)`
+— 75 world units of lag at 60 Hz against 31 at 144, so the slower display would see meaningfully less
+road ahead. `smoothFollow` compounds it per elapsed millisecond instead, matching `panFreeCam`.
+
+At `zoom` 1 the visible world is the full 1280x720 units, so the fastest car crosses it in 2.4
+seconds and the camera's trailing offset is 12% of the half-view.
 
 ## FLOW_CONFIG
 
@@ -101,15 +447,45 @@ Render knobs only — nothing in `stepSim` reads them.
 | `reconcileEaseRate` | 0.25 |
 | `interpolationDelayMs` | 50 |
 
-## ARENA_01
+## Arena selection
 
-`DEFAULT_ARENA_ID` = `"arena-01"`. `getArena(id)` throws if unknown.
+`ACTIVE_ARENA_ID` in `packages/shared/src/config/arena-config.ts` names the one arena a build plays
+and ships. Changing arenas is that single edit:
 
-| Knob | Value |
-|---|---|
-| `id` | `arena-01` |
-| `width` × `height` | 2400 × 1600 |
-| `obstacles` | 6 AABBs: (500,350,220×80), (1680,350,220×80), (500,1170,220×80), (1680,1170,220×80), (1080,620,240×360), (200,720,80×160) |
-| `ffaSpawns` | 6: corners + mid-top / mid-bottom |
-| `teamASpawns` | 3 on the left (`x=220`, angles `0`) |
-| `teamBSpawns` | 3 on the right (`x=2180`, angles `π`) |
+1. Set `ACTIVE_ARENA_ID` to a key of `ARENAS` in `packages/shared/src/arena/registry.ts`.
+2. Rebuild shared — `npm run build -w @motor-combat-moba/shared`, or just restart `npm run dev`.
+
+A value that is not a registered id fails `arena.test.ts`, so a typo breaks the build rather than a
+live room. `ArenaState.arenaId` defaults to this constant, which is how the server tells clients
+which arena to draw.
+
+To add an arena: write `packages/shared/src/arena/arena-0N.ts`, add one row to `ARENAS`, and export
+it from `packages/shared/src/index.ts`. `arena.test.ts` validates every registered arena against the
+clearance and spawn rules automatically — no test to write.
+
+## Arena registry
+
+`ARENAS` in `packages/shared/src/arena/registry.ts` currently holds two entries. `arena.test.ts`
+checks every registered arena by rule — bounds, obstacle clearance, corridor width, spawn counts,
+spawn placement — rather than by pinned values, so the table below is orientation, not a spec to
+keep hand-in-sync as more arenas land.
+
+| id | width × height | obstacles | palette |
+|---|---|---|---|
+| `arena-01` | 1280 × 720 | 0 | none — uses the client's default palette |
+| `arena-02` | 2000 × 2000 | 6 | `#d8cfc4` floor / `#6b5b4b` obstacle / `#2f2a26` border |
+
+`arena-01` is one open rectangle with nothing in it, sized to the client's logical canvas so that at
+`CAMERA_CONFIG.zoom` of 1 the camera shows the whole of it and never scrolls. Rescaling it without
+rescaling the zoom to match breaks that, and `arena-camera.test.ts` on the client is what fails.
+Its 6 `ffaSpawns` are the four corners and the midpoint of each long wall, all 160 units off the
+wall; corner cars face across the arena and the two midpoint cars face each other. Its 3
+`teamASpawns` sit at `x=160` facing `0` and its 3 `teamBSpawns` at `x=1120` facing `π`, at
+`y=180/360/540` — quarters of the height, so the gap between team-mates equals the gap to the wall.
+`arena-02` ("Crossroads") is a square arena built around one central plus-shaped mass with four
+corner bunkers, and is the registry's example of an arena too large to fit the view: it keeps the
+follow camera and spectator free roam that `arena-01` no longer needs.
+
+`getArena(id)` throws on an unknown id; it exists for the server's sim path, where an unresolvable
+arena is a programming error with no sane fallback. The client checks `isArenaId` first and shows a
+mismatch message instead of calling it.

@@ -2,6 +2,14 @@ import archiver from "archiver";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+// No `requireBuiltDist` guard for shared: this static import IS the guard. ESM resolves it before
+// any code in this module runs, so a missing `packages/shared/dist` fails at load time and names
+// the exact missing path — a runtime check here could never execute.
+import {
+  ACTIVE_ARENA_ID,
+  ARENA_ART_COMMON,
+  arenaIdFromArtKey,
+} from "../packages/shared/dist/index.js";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const distReleaseDir = path.join(rootDir, "dist-release");
@@ -110,6 +118,149 @@ export function assertNoDevOnlyCode(clientDistDir) {
   }
 }
 
+/**
+ * The faces `src/ui/organic.css` declares with `@font-face`. Vendored rather than pulled from
+ * fonts.googleapis.com because this zip is played on LANs with no route to the internet, where a
+ * remote font does not fail loudly — it falls back to system-ui and quietly wrecks the type.
+ */
+export const REQUIRED_FONTS = [
+  "caprasimo-v6-latin-regular.woff2",
+  "figtree-v9-latin-regular.woff2",
+  "figtree-v9-latin-600.woff2",
+  "figtree-v9-latin-700.woff2",
+];
+
+/** Throw if a vendored face did not reach the release, or if the CSS reaches for the network again. */
+export function assertFontsVendored(clientDistDir) {
+  const missing = REQUIRED_FONTS.filter(
+    (name) => !fs.existsSync(path.join(clientDistDir, "fonts", name)),
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `fonts missing from the release: ${missing.join(", ")}. They belong in ` +
+        `packages/client/public/fonts/ so Vite copies them to dist/fonts/. Without them the LAN ` +
+        `build falls back to system-ui.`,
+    );
+  }
+
+  for (const file of fs.readdirSync(clientDistDir, { recursive: true, withFileTypes: true })) {
+    if (!file.name.endsWith(".css")) continue;
+    const body = fs.readFileSync(path.join(file.parentPath ?? file.path, file.name), "utf8");
+    if (body.includes("fonts.googleapis.com") || body.includes("fonts.gstatic.com")) {
+      throw new Error(
+        `remote font reference shipped in ${file.name}. organic.css must declare @font-face against ` +
+          `the vendored /fonts/*.woff2, never an @import from Google Fonts.`,
+      );
+    }
+  }
+}
+
+function directorySize(dir) {
+  let total = 0;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) total += directorySize(full);
+    else total += fs.statSync(full).size;
+  }
+  return total;
+}
+
+function readManifest(manifestPath) {
+  if (!fs.existsSync(manifestPath)) return undefined;
+  const text = fs.readFileSync(manifestPath, "utf8");
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch (err) {
+    throw new Error(
+      `could not parse manifest at ${manifestPath}: ${err.message}. The release cannot prune ` +
+        `arena art from a manifest it cannot read — fix the JSON and rebuild the client.`,
+    );
+  }
+  if (!raw || typeof raw !== "object") return undefined;
+  if (!raw.sprites || typeof raw.sprites !== "object") return undefined;
+  return raw;
+}
+
+/**
+ * Strip every arena's art but the active one's from a built client tree.
+ *
+ * Two namespaces always survive: `arena.common.*`, for art several arenas share, and every key
+ * outside the `arena.` prefix. `arenaIdFromArtKey` is imported from shared rather than reimplemented
+ * here so the file-level rule and the client's boot-time load filter cannot drift apart.
+ *
+ * Call this on the **copied** release tree, never on `packages/client/dist`: the source dist stays
+ * complete and reusable, and running a release twice in a row does the same thing as running it once.
+ */
+export function pruneArenaAssets(clientDistDir, activeArenaId) {
+  const arenasDir = path.join(clientDistDir, "art", "arenas");
+  const kept = [];
+  const removed = [];
+  let bytesRemoved = 0;
+
+  if (fs.existsSync(arenasDir)) {
+    for (const entry of fs.readdirSync(arenasDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      if (entry.name === ARENA_ART_COMMON || entry.name === activeArenaId) {
+        kept.push(entry.name);
+        continue;
+      }
+      const full = path.join(arenasDir, entry.name);
+      bytesRemoved += directorySize(full);
+      fs.rmSync(full, { recursive: true, force: true });
+      removed.push(entry.name);
+    }
+  }
+
+  const manifestPath = path.join(clientDistDir, "art", "manifest.json");
+  const manifest = readManifest(manifestPath);
+  if (manifest) {
+    for (const key of Object.keys(manifest.sprites)) {
+      const arenaId = arenaIdFromArtKey(key);
+      if (arenaId === undefined) continue;
+      if (arenaId === ARENA_ART_COMMON || arenaId === activeArenaId) continue;
+      delete manifest.sprites[key];
+    }
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  }
+
+  return { kept: kept.sort(), removed: removed.sort(), bytesRemoved };
+}
+
+/**
+ * Throw if any non-active arena's art or manifest key reached the release. Checks the condition the
+ * player would actually suffer — a file in the zip — rather than trusting that the prune ran, the
+ * same way `assertFontsVendored` checks the file rather than the copy step.
+ */
+export function assertOnlyActiveArenaShipped(clientDistDir, activeArenaId) {
+  const offenders = [];
+  const arenasDir = path.join(clientDistDir, "art", "arenas");
+  if (fs.existsSync(arenasDir)) {
+    for (const entry of fs.readdirSync(arenasDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      if (entry.name === ARENA_ART_COMMON || entry.name === activeArenaId) continue;
+      offenders.push(`art/arenas/${entry.name}/`);
+    }
+  }
+
+  const manifest = readManifest(path.join(clientDistDir, "art", "manifest.json"));
+  if (manifest) {
+    for (const key of Object.keys(manifest.sprites)) {
+      const arenaId = arenaIdFromArtKey(key);
+      if (arenaId === undefined) continue;
+      if (arenaId === ARENA_ART_COMMON || arenaId === activeArenaId) continue;
+      offenders.push(`manifest key ${key}`);
+    }
+  }
+
+  if (offenders.length > 0) {
+    throw new Error(
+      `non-active arena art shipped (ACTIVE_ARENA_ID is "${activeArenaId}"): ${offenders.join(", ")}. ` +
+        `pruneArenaAssets should have removed these from the copied client dist.`,
+    );
+  }
+}
+
 function writeZip(sourceDir, destination) {
   return new Promise((resolve, reject) => {
     const output = fs.createWriteStream(destination);
@@ -126,6 +277,7 @@ export async function main() {
   requireBuiltDist(serverDist, "packages/server/dist");
   requireBuiltDist(clientDist, "packages/client/dist");
   assertNoDevOnlyCode(clientDist);
+  assertFontsVendored(clientDist);
 
   fs.rmSync(distReleaseDir, { recursive: true, force: true });
   fs.mkdirSync(appDir, { recursive: true });
@@ -136,6 +288,10 @@ export async function main() {
   fs.cpSync(clientDist, path.join(appDir, "packages", "client", "dist"), {
     recursive: true,
   });
+
+  const releaseClientDist = path.join(appDir, "packages", "client", "dist");
+  const pruned = pruneArenaAssets(releaseClientDist, ACTIVE_ARENA_ID);
+  assertOnlyActiveArenaShipped(releaseClientDist, ACTIVE_ARENA_ID);
 
   const serverPkg = JSON.parse(
     fs.readFileSync(path.join(rootDir, "packages", "server", "package.json"), "utf8"),
@@ -158,6 +314,11 @@ export async function main() {
 
   console.log(`Release folder: ${appDir}`);
   console.log(`Release zip: ${zipPath}`);
+  console.log(`Arena: ${ACTIVE_ARENA_ID}`);
+  if (pruned.removed.length > 0) {
+    const kb = Math.round(pruned.bytesRemoved / 1024);
+    console.log(`Pruned arena art: ${pruned.removed.join(", ")} (${kb} KB)`);
+  }
 }
 
 const invokedPath = process.argv[1] && path.resolve(process.argv[1]);

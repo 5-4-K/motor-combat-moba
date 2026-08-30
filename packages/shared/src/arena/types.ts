@@ -22,6 +22,19 @@ export interface Spawn {
   angle: number;
 }
 
+/**
+ * How an arena is painted. Hex strings in the manner of `COLOR_TABLE`, converted to Phaser's colour
+ * integers on the client.
+ *
+ * Render-only: `stepSim` never reads it, so it is not a schema field and invariant 8 does not apply.
+ * Optional — an arena without one uses the client's default palette, which is what `ARENA_01` does.
+ */
+export interface ArenaPalette {
+  readonly floor: string;
+  readonly obstacle: string;
+  readonly border: string;
+}
+
 export interface ArenaDef {
   id: string;
   width: number;
@@ -30,4 +43,5 @@ export interface ArenaDef {
   ffaSpawns: readonly Spawn[];
   teamASpawns: readonly Spawn[];
   teamBSpawns: readonly Spawn[];
+  palette?: ArenaPalette;
 }

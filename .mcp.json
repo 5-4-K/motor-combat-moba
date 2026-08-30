@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "code-review-graph": {
+      "command": "uvx",
+      "args": [
+        "--quiet",
+        "code-review-graph@2.3.8",
+        "serve",
+        "--auto-watch"
+      ]
+    }
+  }
+}

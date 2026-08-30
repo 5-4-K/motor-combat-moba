@@ -1,64 +1,301 @@
 import Phaser from "phaser";
 import type { Room } from "colyseus.js";
-import type { ArenaDef, ArenaState, InputMessage, SimBody, StepContext } from "@motor-combat-moba/shared";
+import type {
+  ArenaDef,
+  ArenaState,
+  InputMessage,
+  PlayerState,
+  SimBody,
+  StepContext,
+  WeaponSlotState,
+  WeaponInstanceState,
+} from "@motor-combat-moba/shared";
 import {
+  ARENA_IDS,
   CAMERA_CONFIG,
   DRIVE_CONFIG,
+  STATUS_CONFIG,
+  GameMode,
   INPUT_MESSAGE,
   MS_PER_TICK,
   PlayerStatus,
+  muzzleOf,
   RoomPhase,
   TICK_RATE_HZ,
+  WEAPON_SLOT_CONFIG,
+  WeaponKind,
   getArena,
+  isArenaId,
+  isWeaponId,
+  weaponDefOf,
+  weaponTicksOf,
 } from "@motor-combat-moba/shared";
 import { applyCarSprite, phaserTextures, resolveCarSprite } from "../assets/car-sprite.js";
 import { isDebugEnabled } from "../config/client-mode.js";
+import { ARENA_VIEW_WIDTH, HUD_GUTTER_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from "../config/display.js";
+import { SLOT_KEYS, slotMaskFrom } from "../config/slot-keys.js";
 import { InterpolationBuffer } from "../net/interpolation.js";
 import { PredictionBuffer } from "../net/prediction.js";
 import { blendPose } from "../net/interpolation.js";
-import { buildStepContext } from "../net/step-context.js";
+import { buildStepContext, localModifiers } from "../net/step-context.js";
 import { bindViewRouter } from "../net/view.js";
+import { ScreenOverlay } from "../ui/overlay.js";
+import { renderArenaMismatch } from "../ui/screens/arena-mismatch.js";
+import { arenaMismatchMessage } from "./arena-mismatch.js";
 import { axisOf, drainTicks } from "./arena-input.js";
+import { arenaBorderRect, arenaColorsOf } from "./arena-visual.js";
+import { fitsViewport } from "./arena-camera.js";
 import { assetManifest, assetsReady } from "./BootScene.js";
+import { freshImpacts, newImpactTracker, type ImpactTracker } from "./impact-feedback.js";
 import { carFillOf, carShapeOf, hexagonPoints } from "./car-visual.js";
-import { extrapolateShot, hpBarColor, hpFraction } from "./combat-visual.js";
+import {
+  AURA_FILL_ALPHA,
+  AURA_RING_WIDTH,
+  hpBarColor,
+  hpBarPoints,
+  isAuraWeapon,
+  hpFraction,
+  instanceDrawShape,
+  beamDrawLayers,
+  chargeOrbBands,
+  instanceGlowBands,
+  lockBracketArms,
+  SHOW_LOCK_BRACKET,
+  weaponFillOf,
+  type HpBarGeometry,
+} from "./combat-visual.js";
 import {
   cycleSpectate,
   isSpectating,
   panFreeCam,
   resolveSpectateTarget,
+  smoothFollow,
   spectatableIds,
   type SpectateCandidate,
 } from "./spectate.js";
+import {
+  HUD_DIM,
+  countdownSeconds,
+  resolveWeaponIcon,
+  SLOT_KEY_FONT_PX,
+  SLOT_NAME_FONT_PX,
+  type SlotBox,
+  slotBarLayout,
+  slotVisualState,
+  sweepFraction,
+  type ResolvedWeaponIcon,
+  type SlotVisual,
+} from "./weapon-hud.js";
+import {
+  STATUS_BADGE_HEIGHT_PX,
+  STATUS_BAR_WIDTH_PX,
+  STATUS_LABEL_FONT_PX,
+  statusBadges,
+  statusStripLayout,
+} from "./status-hud.js";
 
 const ARENA_DEPTH = -10;
-/** Light floor. Obstacles, border, HUD text, and shots are all picked to read against this, and
- * against the six saturated player colours in `COLOR_TABLE` — hence desaturated, dark tones. */
-const ARENA_FLOOR = 0xebebeb;
-const OBSTACLE_FILL = 0x4a5568;
-const ARENA_BORDER = 0x2d3436;
 const ARENA_BORDER_PX = 4;
 const HUD_TEXT = "#1d1f21";
 const HITBOX_STROKE = 0x1d1f21;
 const HITBOX_PX = 1;
 
 const SHOT_DEPTH = 50;
-const SHOT_FILL = 0xc77800;
-const SHOT_RADIUS = 4;
-/** Drawn behind each shot so the eye reads which way it is going, not just where it is. */
-const SHOT_TRAIL_PX = 14;
 
 const HP_BAR_DEPTH = 60;
-const HP_BAR_W = 44;
-const HP_BAR_H = 5;
-/** Clear of the car's own silhouette, which is `DRIVE_CONFIG.carHeight` tall. */
-const HP_BAR_OFFSET_Y = 30;
+/** The bar lies across the car's tail, so these are in the car's frame, not the screen's. */
+const HP_BAR_GEOMETRY: HpBarGeometry = {
+  length: 44,
+  thickness: 5,
+  // Clear of the car's own silhouette, which is `DRIVE_CONFIG.carWidth` long nose to tail.
+  offset: DRIVE_CONFIG.carWidth / 2 + 6,
+};
 const HP_BAR_BACK = 0x22252b;
+
+/** Under the hp bar, over the shots: the bracket frames a car, it never occludes its own hp. */
+const LOCK_DEPTH = 55;
+const LOCK_COLOR = 0xf2e14c;
+const LOCK_WIDTH = 2;
 
 /** A wreck stays on the field as an obstacle-shaped memento; it just stops looking alive. */
 const WRECK_ALPHA = 0.3;
 
 const HUD_DEPTH = 1000;
+
+// --- weapon slot HUD ---------------------------------------------------------------------------
+/**
+ * Explicit per-layer depths, strictly above `HUD_DEPTH` itself (which stays the depth of unrelated
+ * top-of-screen HUD text). Phaser resolves equal-depth objects by display-list insertion order, so
+ * without these a slot's manifest icon — added to the display list in `buildHudTextPool`, after
+ * that slot's own key/countdown/stock text — would draw ON TOP of its countdown number, and the
+ * cooldown sweep wedge — previously just another shape drawn into the same `Graphics` as the box
+ * background — would draw entirely UNDER the icon instead of over it. Order here must stay ring,
+ * icon, sweep, text: the sweep is a cooldown overlay and has to sit above whatever it is timing out
+ * (icon or procedural glyph alike), and the text has to stay legible above that overlay.
+ */
+const HUD_BOX_DEPTH = HUD_DEPTH;
+const HUD_ICON_DEPTH = HUD_DEPTH + 1;
+const HUD_SWEEP_DEPTH = HUD_DEPTH + 2;
+const HUD_TEXT_DEPTH = HUD_DEPTH + 3;
+/**
+ * The slot's copper ring and the wash inside it.
+ *
+ * A slot used to be a filled black disc, which read as a hole punched in the cream gutter rather
+ * than a frame around a weapon. It is now a ring with the icon in the middle and the gutter showing
+ * through. Everything in this block is a knob rather than a derived value: the look was settled
+ * against mockups, so the numbers most likely to want another pass are named and gathered here.
+ */
+const HUD_RING_COLOR = 0xc67139;
+const HUD_RING_WIDTH_PX = 3;
+/** Fill inside the ring, as an alpha on `HUD_RING_COLOR`. 0 leaves the slot fully transparent. */
+const HUD_RING_WASH_ALPHA = 0.12;
+/**
+ * The unspent part of the ring while a cooldown drains it. Deliberately low: the bright remaining
+ * arc is the "how much is left" channel now that no wedge darkens the middle, and a track drawn at
+ * full strength would compete with it.
+ */
+const HUD_RING_TRACK_ALPHA = 0.22;
+/**
+ * Whether the draining ring keeps full brightness while the rest of the slot dims to
+ * `HUD_DIM.recharging`. True is the shipped look: the arc is the one live thing in a recharging
+ * slot, and dimming it to 0.4 alongside the wash and glyph left the timer the hardest part of the
+ * slot to read. Flip to false to have the whole slot, ring included, dim as one.
+ */
+const HUD_SWEEP_HOLDS_FULL = true;
+
+/**
+ * The procedural glyph's colours. A manifest icon PNG never reaches these — it keeps whatever
+ * colour it shipped with (`colorMode: "none"`, see `applyWeaponIcon`) — so this is the palette of
+ * the permanent fallback only.
+ *
+ * The outline is what keeps a bright yellow legible: `HUD_GLYPH_COLOR` and the cream gutter sit
+ * close enough in luminance that a bare flame reads as a smudge at 64px, and the ring's wash under
+ * it only narrows the gap.
+ */
+const HUD_GLYPH_COLOR = 0xffe066;
+const HUD_GLYPH_CORE_COLOR = 0xfff3b0;
+const HUD_GLYPH_OUTLINE_COLOR = 0x8a4f1c;
+const HUD_GLYPH_OUTLINE_PX = 1.5;
+/** Fraction of the box half-width the procedural glyph fills, leaving a frame around it. */
+const HUD_GLYPH_SCALE = 0.42;
+/** The hot core, as a fraction of the flame's radius. */
+const HUD_GLYPH_CORE_SCALE = 0.55;
+/** How far the core sits below the flame's centre, so the flame's tip stays a single tone. */
+const HUD_GLYPH_CORE_OFFSET_SCALE = 0.1;
+/** Beam glyph is a bar, not a flame — this is its width as a fraction of the icon radius. */
+const HUD_BEAM_WIDTH_SCALE = 0.5;
+// --- buff / debuff badges ------------------------------------------------------------------
+/** The strip's own text colour, over each badge's `STATUS_TABLE.color` wash. */
+const HUD_STATUS_TEXT = "#ffffff";
+/** Alpha on the badge's colour for the body of the pill. The drain bar draws at full. */
+const HUD_STATUS_WASH_ALPHA = 0.45;
+/** Inset from the badge box to its label. */
+const HUD_STATUS_LABEL_PAD_X = 6;
+
+const HUD_KEY_FONT_PX = SLOT_KEY_FONT_PX;
+const HUD_NAME_FONT_PX = SLOT_NAME_FONT_PX;
+
+/**
+ * `HUD_RING_COLOR` as a CSS string, for the `Text` objects that have to match the ring — `Graphics`
+ * takes the number, `Text` takes the string, and deriving the second from the first is what stops
+ * the two drifting apart the next time the ring is re-coloured.
+ */
+const HUD_RING_CSS = `#${HUD_RING_COLOR.toString(16).padStart(6, "0")}`;
+/**
+ * The key label's pill: the ring's colour behind it, white on top. Padding is what turns the label
+ * into a pill rather than a tight swatch, and it is also why `SLOT_KEY_COLUMN_PX` had to grow —
+ * see that constant, and `HUD_GUTTER_WIDTH` behind it.
+ */
+const HUD_KEY_PILL_TEXT = "#ffffff";
+/**
+ * The weapon name's weight. Bold because the name is the only thing in the gutter carrying a word
+ * rather than a shape, and at `SLOT_NAME_FONT_PX` in the ring's copper it was the first thing to
+ * fall away against the cream — a heavier face buys back contrast that a smaller palette cannot.
+ */
+const HUD_NAME_FONT_STYLE = "bold";
+const HUD_KEY_PILL_PAD_X = 8;
+const HUD_KEY_PILL_PAD_Y = 3;
+/**
+ * How much of the slot the icon is fitted into. Between the inscribed square of the circle (0.707)
+ * and the full bounding box: imported icons are trimmed and centred (`scripts/import-weapon-icon.mjs`),
+ * so their extreme corners are usually empty and a strict inscription would waste visible area.
+ */
+const HUD_ICON_FIT_SCALE = 0.8;
+/**
+ * Stock count offset from the centre along the diagonal, as a fraction of the radius. Pulled in
+ * from 0.55 when the black disc went: the count used to have an opaque backing and could sit near
+ * the edge, but against a ring it collided with the stroke itself.
+ */
+const HUD_STOCK_RADIUS_SCALE = 0.45;
+const HUD_COUNTDOWN_FONT_PX = 18;
+const HUD_STOCK_FONT_PX = 13;
+/**
+ * The countdown hangs under the key label rather than in the middle of the slot. The middle used to
+ * be free — a dark wedge covered it and the glyph was a small dot — but the flame owns it now, and
+ * a number over the flame is unreadable at this size. Left-aligned on `SlotBox.keyX`, the same
+ * column the key uses, so the two stack.
+ *
+ * 24, not the 20 it shipped at: measured against Phaser's default Courier, the key pill is 22px
+ * tall and the 18px countdown 20px, so 20 put the number 1px INSIDE the pill above it. 24 clears
+ * the pill by 3px and still stops 4px short of the name band at `SLOT_NAME_GAP_PX` below.
+ */
+const HUD_COUNTDOWN_KEY_OFFSET_PX = 24;
+/** Straight up, so the arc drains clockwise from 12 o'clock like a standard ability cooldown. */
+const HUD_SWEEP_START_ANGLE = -Math.PI / 2;
+
+/**
+ * The flame silhouette in unit space: a teardrop with its tip at (0, -1) and its belly at (0, 1).
+ *
+ * The shape was authored as four cubic beziers, but `Graphics` has no bezier command — only
+ * `Curves.Path` does, and building one per slot per frame to draw a 27px glyph is not worth it. So
+ * the curves are flattened to a polygon once here, at module load, and `drawWeaponGlyph` scales the
+ * same points twice: once for the flame, once for its hot core.
+ *
+ * Each segment's samples start at `t` one step in, because a segment's start point is the previous
+ * segment's end and has already been pushed. The outline is closed by the caller, which is what
+ * supplies the one missing edge back to the tip.
+ */
+const FLAME_UNIT_POINTS: ReadonlyArray<{ readonly x: number; readonly y: number }> = (() => {
+  const segments: ReadonlyArray<readonly number[]> = [
+    [0, -1, 0.5, -0.5, 0.9, -0.2, 0.9, 0.25],
+    [0.9, 0.25, 0.9, 0.75, 0.5, 1, 0, 1],
+    [0, 1, -0.5, 1, -0.9, 0.75, -0.9, 0.25],
+    [-0.9, 0.25, -0.9, -0.2, -0.5, -0.5, 0, -1],
+  ];
+  const stepsPerSegment = 10;
+  const points: { x: number; y: number }[] = [];
+  for (const seg of segments) {
+    const [x0, y0, x1, y1, x2, y2, x3, y3] = seg as [
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+    ];
+    for (let i = 1; i <= stepsPerSegment; i++) {
+      const t = i / stepsPerSegment;
+      const u = 1 - t;
+      const a = u * u * u;
+      const b = 3 * u * u * t;
+      const c = 3 * u * t * t;
+      const d = t * t * t;
+      points.push({ x: a * x0 + b * x1 + c * x2 + d * x3, y: a * y0 + b * y1 + c * y2 + d * y3 });
+    }
+  }
+  return points;
+})();
+
+/**
+ * Scratch buffer `flamePoints` writes into, so drawing a flame costs no allocation per frame.
+ *
+ * One buffer, deliberately: the flame and its core are drawn back to back, and every `fillPoints` /
+ * `strokePoints` call reads the array before returning. Anything that needs two flame outlines
+ * ALIVE at once has to stop sharing this.
+ */
+const flameScratch: Phaser.Geom.Point[] = FLAME_UNIT_POINTS.map(() => new Phaser.Geom.Point());
 
 /** The subset of `PlayerState` the arena renders and predicts from. */
 interface ArenaPlayer {
@@ -67,6 +304,10 @@ interface ArenaPlayer {
   angle: number;
   speed: number;
   reverseHold: number;
+  angVel: number;
+  shoveX: number;
+  shoveY: number;
+  authority: number;
   status: number;
   carId: string;
   colorId: number;
@@ -76,9 +317,8 @@ interface ArenaPlayer {
   name: string;
 }
 
-/** The keys this scene binds beyond Phaser's cursor keys: firing, and the spectator controls. */
+/** The keys this scene binds beyond Phaser's cursor keys and the weapon slots: spectator controls. */
 interface SpectateKeys {
-  fire: Phaser.Input.Keyboard.Key;
   prev: Phaser.Input.Keyboard.Key;
   next: Phaser.Input.Keyboard.Key;
   freeRoam: Phaser.Input.Keyboard.Key;
@@ -95,6 +335,10 @@ function bodyOf(player: ArenaPlayer): SimBody {
     angle: player.angle,
     speed: player.speed,
     reverseHold: player.reverseHold,
+    angVel: player.angVel,
+    shoveX: player.shoveX,
+    shoveY: player.shoveY,
+    authority: player.authority,
   };
 }
 
@@ -116,6 +360,8 @@ export class ArenaScene extends Phaser.Scene {
   private arenaGfx: Phaser.GameObjects.Graphics | undefined;
   private arena: ArenaDef | undefined;
   private cursors: Phaser.Types.Input.Keyboard.CursorKeys | undefined;
+  /** One Phaser key per `SLOT_KEYS` entry, same order, so `slotMaskFrom` reads them index-for-index. */
+  private slotKeys: Phaser.Input.Keyboard.Key[] | undefined;
   private predicted: SimBody | undefined;
   /** The predicted pose before the newest tick; `renderCars` blends from it toward `predicted`. */
   private predictedPrev: SimBody | undefined;
@@ -139,16 +385,55 @@ export class ArenaScene extends Phaser.Scene {
   private countdownText: Phaser.GameObjects.Text | undefined;
   private shotGfx: Phaser.GameObjects.Graphics | undefined;
   private hpGfx: Phaser.GameObjects.Graphics | undefined;
+  private lockGfx: Phaser.GameObjects.Graphics | undefined;
   private spectateText: Phaser.GameObjects.Text | undefined;
   private keys: SpectateKeys | undefined;
   /** Session id of the car the spectate camera is watching. `""` means "nobody left to watch". */
   private spectateTarget = "";
   private freeRoam = false;
   /**
+   * True when the arena is small enough to be on screen in its entirety, which is what `ARENA_01`
+   * is authored for. The camera is then parked on the arena centre for the whole match: following a
+   * car could only scroll a picture that is already complete, and would jitter it every time
+   * reconciliation nudged the local pose. Larger arenas keep the follow camera and free roam.
+   */
+  private staticCamera = false;
+  /**
    * When the last state patch landed, for drawing shots between patches. `performance.now()` rather
    * than Phaser's clock, for the reason spelled out in `pushRemoteSnapshots`.
    */
   private lastPatchMs = 0;
+  private mismatchOverlay: ScreenOverlay | undefined;
+
+  /**
+   * The weapon slot HUD: one Graphics for every box and glyph, a second Graphics for the cooldown
+   * sweep wedge (kept separate so it can sit at `HUD_SWEEP_DEPTH`, above the icon pool — see that
+   * constant's comment), both cleared and redrawn each frame same as `shotGfx`/`hpGfx`, and a
+   * fixed-size pool of Text objects — one per possible slot — reused across frames rather than
+   * created and destroyed at the render rate.
+   */
+  private hudCamera: Phaser.Cameras.Scene2D.Camera | undefined;
+  private hudGfx: Phaser.GameObjects.Graphics | undefined;
+  private hudSweepGfx: Phaser.GameObjects.Graphics | undefined;
+  private hudKeyTexts: Phaser.GameObjects.Text[] = [];
+  private hudNameTexts: Phaser.GameObjects.Text[] = [];
+  private hudCountdownTexts: Phaser.GameObjects.Text[] = [];
+  private hudStockTexts: Phaser.GameObjects.Text[] = [];
+  /**
+   * One pooled Image per possible slot, for the manifest icon. Hidden and left textureless until a
+   * slot resolves one; a slot with no manifest icon never touches this pool and keeps drawing
+   * `drawWeaponGlyph`'s procedural shape instead, same fallback contract as a car's silhouette.
+   */
+  private hudIconImages: Phaser.GameObjects.Image[] = [];
+  /** One pooled label per badge the strip can ever show — `STATUS_CONFIG.maxActive` of them. */
+  private hudStatusTexts: Phaser.GameObjects.Text[] = [];
+
+  /**
+   * Local-only contact tracker for {@link showImpact}. Purely a render-feel aid — see
+   * `impact-feedback.ts` — and reset in `create` alongside the rest of per-match scene state so a
+   * re-entered arena does not carry a stale "still touching" contact from the previous match.
+   */
+  private impacts: ImpactTracker = newImpactTracker();
 
   constructor() {
     super({ key: "arena" });
@@ -182,41 +467,61 @@ export class ArenaScene extends Phaser.Scene {
 
     this.cursors = this.input.keyboard?.createCursorKeys();
     this.keys = this.bindKeys();
+    this.slotKeys = this.bindSlotKeys();
+
+    // Guarded rather than resolved directly: `getArena` throws, and this line runs before the rest
+    // of create() builds anything, so an unknown id would leave a half-constructed scene and a
+    // stack trace instead of a black screen with a reason on it.
+    const arenaId = this.room.state.arenaId;
+    if (!isArenaId(arenaId)) {
+      const message = arenaMismatchMessage(arenaId, ARENA_IDS);
+      this.mismatchOverlay = new ScreenOverlay(this);
+      this.mismatchOverlay.render(renderArenaMismatch(message));
+      console.error(`[arena] ${message}`);
+      return;
+    }
 
     // Hoisted out of the 30 Hz prediction path: `getArena` is a lookup that throws, and the arena
     // cannot change while the scene is alive.
-    this.arena = getArena(this.room.state.arenaId);
+    this.arena = getArena(arenaId);
     this.drawArena(this.arena);
 
-    // One Graphics for every shot and one for every hp bar, cleared and redrawn each frame. Both
-    // are drawn in *world* space but must not rotate with any car, so neither can live inside a
-    // car's own Graphics; a per-shot object would also mean creating and destroying objects at the
-    // fire rate for no gain.
+    // One Graphics for every shot, one for every hp bar, and one for every lock bracket, cleared
+    // and redrawn each frame. All three are drawn in *world* space but must not rotate with any
+    // car, so none can live inside a car's own Graphics; a per-shot object would also mean creating
+    // and destroying objects at the fire rate for no gain.
     this.shotGfx = this.add.graphics().setDepth(SHOT_DEPTH);
     this.hpGfx = this.add.graphics().setDepth(HP_BAR_DEPTH);
+    this.lockGfx = this.add.graphics().setDepth(LOCK_DEPTH);
+    this.hudGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_BOX_DEPTH);
+    this.hudSweepGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_SWEEP_DEPTH);
+    this.buildHudTextPool();
 
+    // Centred on the arena, not on the canvas: the gutter is off to the right of both of these, and
+    // a countdown that drifted to the canvas centre would sit off-centre over the floor everyone is
+    // actually looking at.
     this.countdownText = this.add
-      .text(640, 280, "", { fontSize: "96px", color: HUD_TEXT })
+      .text(ARENA_VIEW_WIDTH / 2, 280, "", { fontSize: "96px", color: HUD_TEXT })
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(HUD_DEPTH)
       .setVisible(false);
 
     this.spectateText = this.add
-      .text(640, 660, "", { fontSize: "22px", color: HUD_TEXT })
+      .text(ARENA_VIEW_WIDTH / 2, 660, "", { fontSize: "22px", color: HUD_TEXT })
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(HUD_DEPTH)
       .setVisible(false);
 
+    this.splitCameras();
     this.bindRoom(this.room);
     this.syncMatchHud();
   }
 
   /**
-   * Space fires; `[` / `]` and, once you are a wreck, Left / Right cycle who you are watching; `V`
-   * toggles free roam. Space is bound rather than merely read so the browser does not scroll the
-   * page under the canvas every time you shoot.
+   * `[` / `]` and, once you are a wreck, Left / Right cycle who you are watching; `V` toggles free
+   * roam.
    *
    * The arrows do double duty on purpose, and the modes are what keep that unambiguous: while you
    * are alive they steer, and only a spectator can cycle with them. In free roam they pan instead,
@@ -227,7 +532,6 @@ export class ArenaScene extends Phaser.Scene {
     if (!keyboard) return undefined;
     const Codes = Phaser.Input.Keyboard.KeyCodes;
     return {
-      fire: keyboard.addKey(Codes.SPACE),
       prev: keyboard.addKey(Codes.OPEN_BRACKET),
       next: keyboard.addKey(Codes.CLOSED_BRACKET),
       freeRoam: keyboard.addKey(Codes.V),
@@ -238,22 +542,91 @@ export class ArenaScene extends Phaser.Scene {
     };
   }
 
+  /**
+   * One Phaser key per `SLOT_KEYS` entry. Bound explicitly, like the old single `fire` key, so the
+   * browser does not scroll the page under the canvas on Space, and so the other bound slot keys
+   * do not fall through to whatever the page would otherwise do with them.
+   */
+  private bindSlotKeys(): Phaser.Input.Keyboard.Key[] | undefined {
+    const keyboard = this.input.keyboard;
+    if (!keyboard) return undefined;
+    return SLOT_KEYS.map((key) => keyboard.addKey(key.code));
+  }
+
   private drawArena(arena: ArenaDef): void {
+    const colors = arenaColorsOf(arena);
     const gfx = this.add.graphics().setDepth(ARENA_DEPTH);
-    gfx.fillStyle(OBSTACLE_FILL, 1);
+    gfx.fillStyle(colors.obstacle, 1);
     for (const obstacle of arena.obstacles) {
       gfx.fillRect(obstacle.x, obstacle.y, obstacle.w, obstacle.h);
     }
-    gfx.lineStyle(ARENA_BORDER_PX, ARENA_BORDER, 1);
-    gfx.strokeRect(0, 0, arena.width, arena.height);
+    gfx.lineStyle(ARENA_BORDER_PX, colors.border, 1);
+    const border = arenaBorderRect(arena, ARENA_BORDER_PX);
+    gfx.strokeRect(border.x, border.y, border.w, border.h);
     this.arenaGfx = gfx;
 
     const cam = this.cameras.main;
+    // Clipped to the arena's share of the canvas, leaving `HUD_GUTTER_WIDTH` down the right for the
+    // weapon slots. This must come before `centerOn` below, which reads the camera's width to work
+    // out its scroll — resizing the viewport afterwards would leave the arena off-centre by half the
+    // gutter. It also bounds the background fill on the next line, which is what stops the floor
+    // colour flooding the gutter the way it used to flood the whole canvas.
+    cam.setViewport(0, 0, ARENA_VIEW_WIDTH, VIEW_HEIGHT);
     // Scene-scoped: the global game background stays dark for the lobby and results screens.
-    cam.setBackgroundColor(ARENA_FLOOR);
+    cam.setBackgroundColor(colors.floor);
     cam.setZoom(CAMERA_CONFIG.zoom);
     // Stops the soft follow from panning past the arena edge into empty space.
     cam.setBounds(0, 0, arena.width, arena.height);
+
+    // `ARENA_VIEW_WIDTH`, never `VIEW_WIDTH`: how much world anyone can see is the camera's
+    // business, and widening the canvas for HUD must not quietly widen the view of the floor.
+    this.staticCamera = fitsViewport(
+      arena,
+      { width: ARENA_VIEW_WIDTH, height: VIEW_HEIGHT },
+      CAMERA_CONFIG.zoom,
+    );
+    if (this.staticCamera) cam.centerOn(arena.width / 2, arena.height / 2);
+  }
+
+  /**
+   * Splits the scene across two cameras: the world one clipped to the arena, and a HUD one covering
+   * the whole canvas so the slot column can live in the gutter that the world camera cannot reach.
+   *
+   * Phaser renders the entire display list once PER camera, so the two `ignore` lists are not an
+   * optimisation — without them the arena would draw twice, once clipped into its viewport and once
+   * whole across the canvas on top of it. Every object in the scene must therefore be ignored by
+   * exactly one camera: ignored by neither and it double-draws, ignored by both and it vanishes.
+   *
+   * That makes this the one place to remember when adding to the scene. Everything the HUD owns is
+   * pooled up front and listed here; the only object created later is a car's container, which
+   * `syncCar` hands to the HUD camera's ignore list at birth.
+   */
+  private splitCameras(): void {
+    const world = this.cameras.main;
+    const hud = this.cameras.add(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
+    this.hudCamera = hud;
+
+    const hudObjects: Phaser.GameObjects.GameObject[] = [
+      ...(this.hudGfx ? [this.hudGfx] : []),
+      ...(this.hudSweepGfx ? [this.hudSweepGfx] : []),
+      ...(this.countdownText ? [this.countdownText] : []),
+      ...(this.spectateText ? [this.spectateText] : []),
+      ...this.hudKeyTexts,
+      ...this.hudNameTexts,
+      ...this.hudCountdownTexts,
+      ...this.hudStockTexts,
+      ...this.hudIconImages,
+      ...this.hudStatusTexts,
+    ];
+    const worldObjects: Phaser.GameObjects.GameObject[] = [
+      ...(this.arenaGfx ? [this.arenaGfx] : []),
+      ...(this.shotGfx ? [this.shotGfx] : []),
+      ...(this.hpGfx ? [this.hpGfx] : []),
+      ...this.cars.values(),
+    ];
+
+    world.ignore(hudObjects);
+    hud.ignore(worldObjects);
   }
 
   private bindRoom(room: Room<ArenaState>): void {
@@ -311,8 +684,30 @@ export class ArenaScene extends Phaser.Scene {
     this.shotGfx = undefined;
     this.hpGfx?.destroy();
     this.hpGfx = undefined;
+    this.lockGfx?.destroy();
+    this.lockGfx = undefined;
+    this.hudGfx?.destroy();
+    this.hudGfx = undefined;
+    this.hudSweepGfx?.destroy();
+    this.hudSweepGfx = undefined;
+    for (const text of this.hudKeyTexts) text.destroy();
+    for (const text of this.hudNameTexts) text.destroy();
+    for (const text of this.hudCountdownTexts) text.destroy();
+    for (const text of this.hudStockTexts) text.destroy();
+    for (const image of this.hudIconImages) image.destroy();
+    for (const text of this.hudStatusTexts) text.destroy();
+    this.hudKeyTexts = [];
+    this.hudNameTexts = [];
+    this.hudCountdownTexts = [];
+    this.hudStockTexts = [];
+    this.hudIconImages = [];
+    this.hudStatusTexts = [];
+    // Phaser tears the camera itself down with the scene; this just stops `syncCar` handing a
+    // destroyed camera an ignore during the shutdown frame.
+    this.hudCamera = undefined;
     this.cursors = undefined;
     this.keys = undefined;
+    this.slotKeys = undefined;
     this.prediction = new PredictionBuffer();
     this.predicted = undefined;
     this.predictedPrev = undefined;
@@ -321,17 +716,26 @@ export class ArenaScene extends Phaser.Scene {
     this.spectateTarget = "";
     this.freeRoam = false;
     this.lastPatchMs = 0;
+    this.mismatchOverlay?.destroy();
+    this.mismatchOverlay = undefined;
+    this.impacts = newImpactTracker();
   }
 
   update(_time: number, delta: number): void {
     const room = this.room;
-    if (!room) return;
+    // `this.room` is assigned before the arena-mismatch guard in `create()`, and that guard can
+    // return early without clearing it — so a truthy room is not proof `create()` finished. `arena`
+    // is the field the mismatch path actually leaves unset, and everything below reaches it sooner
+    // or later (`pumpInput` -> `stepContext` falls back to `getArena(room.state.arenaId)`, the same
+    // id that just failed `isArenaId`), so it is the one precondition worth checking here.
+    if (!room || !this.arena) return;
 
     this.syncMatchHud();
     this.pumpInput(room, delta);
     this.updateSpectate(room, delta);
-    this.renderCars(room);
+    this.renderCars(room, delta);
     this.renderShots(room);
+    this.renderWeaponHud(room);
   }
 
   // --- input -------------------------------------------------------------------------------
@@ -369,10 +773,10 @@ export class ArenaScene extends Phaser.Scene {
       seq: this.inputSeq,
       steer: axisOf(this.cursors?.left.isDown ?? false, this.cursors?.right.isDown ?? false),
       throttle: axisOf(this.cursors?.down.isDown ?? false, this.cursors?.up.isDown ?? false),
-      // Held, not tapped: the server's weapon cooldown decides the rate, so holding Space fires as
-      // fast as the weapon allows and no faster. Sampling `JustDown` here instead would drop shots
-      // whenever a frame straddled two input ticks.
-      fire: this.keys?.fire.isDown ?? false,
+      // Held, not tapped: the server's weapon cooldown decides the rate, so holding a slot key fires
+      // it as fast as that slot allows and no faster. Sampling `JustDown` here instead would drop
+      // shots whenever a frame straddled two input ticks.
+      fireSlots: slotMaskFrom(this.slotKeys?.map((key) => key.isDown) ?? []),
     };
     room.send(INPUT_MESSAGE, input);
 
@@ -383,7 +787,15 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private stepContext(room: Room<ArenaState>): StepContext {
-    return buildStepContext(this.arena ?? getArena(room.state.arenaId), room.state, room.sessionId);
+    return buildStepContext(
+      this.arena ?? getArena(room.state.arenaId),
+      room.state,
+      room.sessionId,
+      // Read fresh on every predicted and reconciled step rather than cached: an effect can lapse
+      // between two of them, and the tick it lapses on is the one thing both halves of the lockstep
+      // have to agree about.
+      localModifiers(room.state, room.sessionId, room.state.tick),
+    );
   }
 
   private reconcileLocal(room: Room<ArenaState>): void {
@@ -415,10 +827,17 @@ export class ArenaScene extends Phaser.Scene {
 
   // --- rendering ---------------------------------------------------------------------------
 
-  private renderCars(room: Room<ArenaState>): void {
+  private renderCars(room: Room<ArenaState>, delta: number): void {
     const seen = new Set<string>();
     const hp = this.hpGfx;
+    const lock = this.lockGfx;
     hp?.clear();
+    lock?.clear();
+    const poses = new Map<string, SimBody>();
+    // Teams alongside poses so the impact-spark pass below can gate on them without a second walk of
+    // `room.state.players` (and without carrying `team` through `SimBody`, which has no business
+    // knowing about it).
+    const teams = new Map<string, 0 | 1>();
 
     room.state.players.forEach((player, sessionId) => {
       if (player.status !== PlayerStatus.IN_MATCH) return;
@@ -436,9 +855,62 @@ export class ArenaScene extends Phaser.Scene {
           : this.remotePose(sessionId, serverPose);
 
       this.syncCar(sessionId, player, pose);
+      poses.set(sessionId, pose);
+      teams.set(sessionId, player.team === 1 ? 1 : 0);
       if (hp && player.alive) this.drawHpBar(hp, player, pose);
-      if (sessionId === this.cameraTarget(room)) this.followCamera(pose);
+      if (sessionId === this.cameraTarget(room)) this.followCamera(pose, delta);
     });
+
+    // Instant, render-only impact feedback: covers the round trip before the authoritative ram
+    // knock arrives from the server (see `impact-feedback.ts`). Placed here because this is the
+    // first point in the frame where every car's final render pose is known — predicted for the
+    // local car, interpolated for remotes, raw for a wreck — so contact is tested against exactly
+    // what is on screen, not a pose that will still move this frame.
+    //
+    // Team-gated: a ram is structurally impossible between teammates (R15), so the spark must not
+    // fire on one either — see `freshImpacts`'s doc comment.
+    const selfId = this.room?.sessionId;
+    const selfPose = selfId ? poses.get(selfId) : undefined;
+    const selfTeam = selfId ? teams.get(selfId) : undefined;
+    if (selfId && selfPose && selfTeam !== undefined) {
+      const others = [...poses.entries()]
+        .filter(([id]) => id !== selfId)
+        .map(([id, pose]) => ({
+          sessionId: id,
+          x: pose.x,
+          y: pose.y,
+          angle: pose.angle,
+          team: teams.get(id) ?? 0,
+        }));
+      const mode = room.state.mode === GameMode.TEAM ? "team" : "ffa";
+      for (const impact of freshImpacts(
+        { sessionId: selfId, team: selfTeam, ...selfPose },
+        others,
+        this.impacts,
+        mode,
+      )) {
+        this.showImpact(impact.x, impact.y);
+      }
+    }
+
+    // The bracket follows the CAMERA's subject -- the local car while driving, the watched car while
+    // spectating -- which is the same rule the weapon slot bar already uses. Read straight off the
+    // wire and never computed here: combat is server-only, and a mispredicted bracket is a lie about
+    // where your shot is going. `SHOW_LOCK_BRACKET` is the source switch that suppresses the draw;
+    // it is read here rather than folded into `lockBracketArms` so that hiding the bracket skips the
+    // stroke entirely instead of stroking an empty list.
+    const subject = room.state.players.get(this.cameraTarget(room));
+    const target = subject?.lockTargetSessionId ?? "";
+    const at = target === "" ? undefined : poses.get(target);
+    if (SHOW_LOCK_BRACKET && lock && at) {
+      lock.lineStyle(LOCK_WIDTH, LOCK_COLOR, 0.9);
+      for (const arm of lockBracketArms(at.x, at.y)) {
+        lock.beginPath();
+        lock.moveTo(arm.x1, arm.y1);
+        lock.lineTo(arm.x2, arm.y2);
+        lock.strokePath();
+      }
+    }
 
     for (const [sessionId, gfx] of this.cars) {
       if (seen.has(sessionId)) continue;
@@ -494,11 +966,33 @@ export class ArenaScene extends Phaser.Scene {
     if (!gfx || this.visualKeys.get(sessionId) !== key) {
       gfx?.destroy();
       gfx = this.drawCar(player.carId, player.colorId, player.alive);
+      // The one world object born after `splitCameras` ran, so it opts out of the HUD camera here or
+      // it would be drawn a second time, unclipped, over the gutter. Ignoring the container covers
+      // the sprite and hitbox inside it.
+      this.hudCamera?.ignore(gfx);
       this.cars.set(sessionId, gfx);
       this.visualKeys.set(sessionId, key);
     }
     gfx.setPosition(pose.x, pose.y);
     gfx.setRotation(pose.angle);
+  }
+
+  /**
+   * Impact feedback: a brief shake and a spark at the contact point. Render-only — this reacts to
+   * locally observed contact, not to an authoritative ram, so it must never change anything the sim
+   * or the schema can see.
+   */
+  private showImpact(x: number, y: number): void {
+    this.cameras.main.shake(120, 0.006);
+    const spark = this.add.circle(x, y, 10, 0xffffff, 0.9);
+    this.hudCamera?.ignore(spark);
+    this.tweens.add({
+      targets: spark,
+      alpha: 0,
+      scale: 2.2,
+      duration: 180,
+      onComplete: () => spark.destroy(),
+    });
   }
 
   /**
@@ -570,8 +1064,12 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * The hp bar above one car. Drawn unrotated in world space and sized from the car's own maximum,
-   * so a full bar means full hp for that chassis rather than a fixed number of points.
+   * The hp bar of one car: laid across its tail, perpendicular to its facing direction, turning
+   * with it (`hpBarPoints`). Sized from the car's own maximum, so a full bar means full hp for that
+   * chassis rather than a fixed number of points.
+   *
+   * Both quads are filled every frame — the backing plate at full length, the remaining hp over it
+   * — so an empty bar still shows where the hp used to be instead of vanishing.
    */
   private drawHpBar(
     gfx: Phaser.GameObjects.Graphics,
@@ -579,42 +1077,584 @@ export class ArenaScene extends Phaser.Scene {
     pose: SimBody,
   ): void {
     const fraction = hpFraction(player.hp, player.carId);
-    const left = pose.x - HP_BAR_W / 2;
-    const top = pose.y - HP_BAR_OFFSET_Y;
 
     gfx.fillStyle(HP_BAR_BACK, 0.85);
-    gfx.fillRect(left, top, HP_BAR_W, HP_BAR_H);
+    gfx.fillPoints(hpBarPoints(pose, 1, HP_BAR_GEOMETRY), true);
     if (fraction <= 0) return;
     gfx.fillStyle(hpBarColor(fraction), 1);
-    gfx.fillRect(left, top, HP_BAR_W * fraction, HP_BAR_H);
+    gfx.fillPoints(hpBarPoints(pose, fraction, HP_BAR_GEOMETRY), true);
   }
 
   /**
-   * Every shot in flight, drawn from `state.projectiles` and nothing else.
+   * Every live weapon instance, drawn from `state.weapons` and nothing else.
    *
-   * The client deliberately does not spawn a local shot on the keypress. A predicted bullet that the
-   * server never fired — because the cooldown had not actually expired, or the input arrived a tick
-   * late — is a phantom that either vanishes or, worse, reads as a hit that never happened. Shots
-   * are cheap to draw late and expensive to draw wrongly.
+   * The client deliberately does not spawn a local instance on the keypress. A predicted shot that
+   * the server never fired — because the cooldown had not actually expired, or the input arrived a
+   * tick late — is a phantom that either vanishes or, worse, reads as a hit that never happened.
+   * Shots are cheap to draw late and expensive to draw wrongly.
+   *
+   * Each instance draws as its own hitbox (D19, `instanceDrawShape`) in its WEAPON's colour, so
+   * what a player sees is exactly what can hurt them and every fireball shot in the arena looks
+   * alike. Shots were owner-coloured once; they are not, because a shot's colour is asked "what is
+   * this" far more often than "whose is it", and the car that fired is on screen in player paint
+   * either way. A beam additionally fades toward transparent through its own configured linger,
+   * never a fixed duration, so a slower-lingering weapon reads as slower rather than snapping off
+   * at some other weapon's timing.
+   *
+   * A weapon may also carry a LOOK (`instanceGlowBands`): concentric bands filled inside that same
+   * hitbox instead of one flat disc. It cannot widen the shot — bands are fractions of the hitbox
+   * radius and the flicker only shrinks — so the sentence above survives it. No entry means the
+   * flat disc, which is every weapon but `fireball`.
    */
   private renderShots(room: Room<ArenaState>): void {
     const gfx = this.shotGfx;
     if (!gfx) return;
     gfx.clear();
 
-    const elapsedMs = this.lastPatchMs === 0 ? 0 : performance.now() - this.lastPatchMs;
-    room.state.projectiles.forEach((shot) => {
-      const at = extrapolateShot(shot.x, shot.y, shot.angle, shot.speed, elapsedMs);
-      gfx.lineStyle(2, SHOT_FILL, 0.5);
-      gfx.lineBetween(
-        at.x,
-        at.y,
-        at.x - Math.cos(shot.angle) * SHOT_TRAIL_PX,
-        at.y - Math.sin(shot.angle) * SHOT_TRAIL_PX,
-      );
-      gfx.fillStyle(SHOT_FILL, 1);
-      gfx.fillCircle(at.x, at.y, SHOT_RADIUS);
+    const nowMs = performance.now();
+    const elapsedMs = this.lastPatchMs === 0 ? 0 : nowMs - this.lastPatchMs;
+    room.state.weapons.forEach((instance) => {
+      if (!instance.alive) return;
+      const shape = instanceDrawShape(instance, elapsedMs);
+      const alpha = this.beamFadeAlpha(instance, room.state.tick);
+      // An aura reaches its own `WorldShape` as a circle, like a round projectile does, so it has to
+      // be split off BEFORE the circle branch below — otherwise it would draw as a filled 150-unit
+      // disc and hide every car it is about to hit. Ring plus wash: still exactly the hitbox.
+      if (shape.kind === "circle" && isAuraWeapon(instance.weaponId)) {
+        const fill = weaponFillOf(instance.weaponId);
+        gfx.fillStyle(fill, alpha * AURA_FILL_ALPHA);
+        gfx.fillCircle(shape.x, shape.y, shape.radius);
+        gfx.lineStyle(AURA_RING_WIDTH, fill, alpha);
+        gfx.strokeCircle(shape.x, shape.y, shape.radius);
+        return;
+      }
+      if (shape.kind !== "circle") {
+        if (shape.points.length === 0) return;
+        // Nested layers, outermost first, each filled over the last -- the beam counterpart to the
+        // bands below. An empty list is a beam with no authored look, which falls back to the one
+        // flat fill of its own `color` that this method drew for every beam before styles existed.
+        const layers = beamDrawLayers(
+          instance.weaponId,
+          instance.x,
+          instance.y,
+          instance.angle,
+          instance.extent,
+          elapsedMs,
+        );
+        if (layers.length === 0) {
+          gfx.fillStyle(weaponFillOf(instance.weaponId), alpha);
+          gfx.fillPoints(shape.points, true);
+          return;
+        }
+        for (const layer of layers) {
+          gfx.fillStyle(layer.fill, alpha);
+          gfx.fillPoints(layer.points, true);
+        }
+        return;
+      }
+
+      // Bands, outermost first, each filled over the last. An empty list is a weapon with no
+      // authored look, which is every weapon but `fireball` today -- it falls back to the one
+      // flat fill of its own `color` that this method drew for everything before styles existed.
+      const bands = instanceGlowBands(instance.weaponId, shape.radius, instance.spawnTick, nowMs);
+      if (bands.length === 0) {
+        gfx.fillStyle(weaponFillOf(instance.weaponId), alpha);
+        gfx.fillCircle(shape.x, shape.y, shape.radius);
+        return;
+      }
+      for (const band of bands) {
+        gfx.fillStyle(band.fill, alpha);
+        gfx.fillCircle(shape.x, shape.y, band.radius);
+      }
     });
+
+    this.renderChargeOrbs(room, gfx);
+  }
+
+  /**
+   * The orb a wind-up weapon gathers at its muzzle before firing.
+   *
+   * A second pass over PLAYERS rather than more work inside the instance loop, because a charging
+   * weapon has spawned nothing yet — `state.weapons` is empty for it until the wind-up ends, which
+   * is exactly the window this draws. Everything it needs is already networked: `pendingUntilTick`,
+   * `lastFiredSlot`, and the pose, so the telegraph costs no schema field.
+   *
+   * Drawn into the same `shotGfx` as everything else, so it adds fills to an existing batch rather
+   * than a draw call of its own — see `docs/asset-pipeline.md`'s note on what shot detail costs.
+   */
+  private renderChargeOrbs(room: Room<ArenaState>, gfx: Phaser.GameObjects.Graphics): void {
+    room.state.players.forEach((player) => {
+      if (player.status !== PlayerStatus.IN_MATCH || !player.alive) return;
+      if (player.lastFiredSlot < 0) return;
+      const slot = player.weapons[player.lastFiredSlot];
+      if (!slot) return;
+
+      const orbs = chargeOrbBands(slot.weaponId, player.pendingUntilTick, room.state.tick);
+      if (orbs.length === 0) return;
+
+      // The muzzle, not the car centre: the orb is the shot gathering where the shot will leave.
+      const muzzle = muzzleOf(player);
+      for (const orb of orbs) {
+        gfx.fillStyle(orb.fill, 1);
+        gfx.fillCircle(muzzle.x, muzzle.y, orb.radius);
+      }
+    });
+  }
+
+  /**
+   * How opaque a beam instance should draw: full brightness through its growth, fading to nothing
+   * over its own `WEAPON_TICKS` linger. A projectile, or an instance whose `weaponId` is not in
+   * `WEAPON_TABLE`, always draws fully opaque.
+   */
+  private beamFadeAlpha(instance: WeaponInstanceState, tick: number): number {
+    if (instance.kind !== WeaponKind.BEAM || !isWeaponId(instance.weaponId)) return 1;
+    const ticks = weaponTicksOf(instance.weaponId);
+    if (ticks.lifetime <= 0) return 1;
+    const lingerElapsed = tick - (instance.spawnTick + ticks.flight);
+    if (lingerElapsed <= 0) return 1;
+    return Math.max(0, 1 - lingerElapsed / ticks.lifetime);
+  }
+
+  // --- weapon slot HUD ---------------------------------------------------------------------
+
+  /**
+   * One Text per possible slot for each of the three pieces of text a slot can show, plus one Image
+   * for its manifest icon. The image starts on Phaser's built-in placeholder texture and hidden —
+   * `drawHudSlot` gives it a real key with `setTexture` only once a slot actually resolves one.
+   */
+  private buildHudTextPool(): void {
+    // Left-centre, matching the key labels: a badge's text hangs off its box's left inset.
+    for (let i = 0; i < STATUS_CONFIG.maxActive; i++) {
+      this.hudStatusTexts.push(
+        this.makeHudText(STATUS_LABEL_FONT_PX).setOrigin(0, 0.5).setColor(HUD_STATUS_TEXT),
+      );
+    }
+    for (let i = 0; i < WEAPON_SLOT_CONFIG.maxWeaponSlots; i++) {
+      // Left-centre origin: the key sits `SLOT_KEY_GAP_PX` to the RIGHT of the slot and centred on
+      // it, so `keyX` is the label's left edge and `cy` its middle. A centred origin would pull the
+      // label back over the frame, and D18 wants the key outside it.
+      //
+      // White, and the weapon name copper: both are set ONCE here rather than per frame in
+      // `drawHudSlot`. Phaser re-renders a `Text` object's canvas whenever its style is touched, so
+      // re-asserting a colour that never changes would repaint every label every frame. Only alpha
+      // varies with slot state, and that is a cheap tint rather than a re-render.
+      this.hudKeyTexts.push(this.makeHudText(HUD_KEY_FONT_PX).setOrigin(0, 0.5).setColor(HUD_KEY_PILL_TEXT));
+      // Top-centre: `nameY` is the top of the name's band under the slot.
+      this.hudNameTexts.push(
+        this.makeHudText(HUD_NAME_FONT_PX)
+          .setOrigin(0.5, 0)
+          .setColor(HUD_RING_CSS)
+          .setFontStyle(HUD_NAME_FONT_STYLE),
+      );
+      // Left-centre, matching the key above it: the countdown shares the key's column, so both
+      // hang off the same `keyX` edge rather than one being centred and the other not.
+      this.hudCountdownTexts.push(this.makeHudText(HUD_COUNTDOWN_FONT_PX).setOrigin(0, 0.5));
+      this.hudStockTexts.push(this.makeHudText(HUD_STOCK_FONT_PX));
+      this.hudIconImages.push(
+        this.add
+          .image(0, 0, "__DEFAULT")
+          .setScrollFactor(0)
+          .setDepth(HUD_ICON_DEPTH)
+          .setVisible(false),
+      );
+    }
+  }
+
+  private makeHudText(fontSizePx: number): Phaser.GameObjects.Text {
+    return this.add
+      .text(0, 0, "", { fontSize: `${fontSizePx}px`, color: HUD_TEXT })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(HUD_TEXT_DEPTH)
+      .setVisible(false);
+  }
+
+  /**
+   * The car whose slots the bar shows: your own while playing, the watched car while spectating,
+   * or nobody in free roam — the bar is read-only and has nothing to say about a free-floating
+   * camera that is not attached to any car.
+   */
+  private hudTargetPlayer(room: Room<ArenaState>): PlayerState | undefined {
+    if (this.isSpectating(room)) {
+      if (this.freeRoam || this.spectateTarget === "") return undefined;
+      return room.state.players.get(this.spectateTarget);
+    }
+    return room.state.players.get(room.sessionId);
+  }
+
+  /**
+   * The slot bar: camera-fixed, drawing `min(weapons.length, maxWeaponSlots)` boxes for whichever
+   * car `hudTargetPlayer` names. Slots beyond the current target (or with no target at all) just
+   * hide their pooled text objects rather than destroying anything, so switching who is watched
+   * costs no allocation.
+   */
+  private renderWeaponHud(room: Room<ArenaState>): void {
+    const gfx = this.hudGfx;
+    const sweepGfx = this.hudSweepGfx;
+    if (!gfx || !sweepGfx) return;
+    gfx.clear();
+    sweepGfx.clear();
+
+    const player = this.hudTargetPlayer(room);
+    const boxes = player ? slotBarLayout(player.weapons.length, VIEW_WIDTH, VIEW_HEIGHT, HUD_GUTTER_WIDTH) : [];
+
+    for (let i = 0; i < this.hudKeyTexts.length; i++) {
+      const box = boxes[i];
+      const slot = player && box ? player.weapons.at(i) : undefined;
+      if (!player || !box || !slot) {
+        this.hudKeyTexts[i]!.setVisible(false);
+        this.hudNameTexts[i]!.setVisible(false);
+        this.hudCountdownTexts[i]!.setVisible(false);
+        this.hudStockTexts[i]!.setVisible(false);
+        this.hudIconImages[i]!.setVisible(false);
+        continue;
+      }
+      this.drawHudSlot(gfx, sweepGfx, i, box, slot, player, room.state.tick);
+    }
+
+    // Same `gfx`, same clear, same target car: the badges belong to the slot bar's column and share
+    // its lifetime, so they are drawn here rather than from their own pass with their own Graphics.
+    this.drawStatusStrip(gfx, player, boxes[0]?.y ?? VIEW_HEIGHT / 2, room.state.tick);
+  }
+
+  /**
+   * The status badges above the slot bar, for whichever car `hudTargetPlayer` named.
+   *
+   * Every rule about what is shown and in what order is in `status-hud.ts`; this is the Phaser half
+   * and nothing else. A car in no status draws no badges and hides every pooled label — the common
+   * case, and it costs one empty array.
+   */
+  private drawStatusStrip(
+    gfx: Phaser.GameObjects.Graphics,
+    player: PlayerState | undefined,
+    slotBarTop: number,
+    tick: number,
+  ): void {
+    const badges = player ? statusBadges(player.statuses, tick) : [];
+    const boxes = statusStripLayout(
+      badges.length,
+      VIEW_WIDTH,
+      VIEW_HEIGHT,
+      HUD_GUTTER_WIDTH,
+      slotBarTop,
+    );
+
+    for (let i = 0; i < this.hudStatusTexts.length; i++) {
+      const badge = badges[i];
+      const box = boxes[i];
+      const label = this.hudStatusTexts[i]!;
+      if (!badge || !box) {
+        label.setVisible(false);
+        continue;
+      }
+
+      // The pill: a wash of the effect's own colour, so a debuff is told apart from a buff by
+      // colour before the label is read at all.
+      gfx.fillStyle(badge.fill, HUD_STATUS_WASH_ALPHA);
+      gfx.fillRect(box.x, box.y, box.width, box.height);
+      // The drain bar down the left edge, at full alpha and shrinking from the bottom. Height, not
+      // width: a strip of vertical bars all draining at once is legible at a glance in a way a row
+      // of shrinking pills is not, and it leaves the label's own width alone.
+      const barHeight = box.height * badge.fraction;
+      gfx.fillStyle(badge.fill, 1);
+      gfx.fillRect(
+        box.x,
+        box.y + box.height - barHeight,
+        STATUS_BAR_WIDTH_PX,
+        barHeight,
+      );
+
+      label
+        .setPosition(
+          box.x + STATUS_BAR_WIDTH_PX + HUD_STATUS_LABEL_PAD_X,
+          box.y + STATUS_BADGE_HEIGHT_PX / 2,
+        )
+        .setText(`${badge.name}  ${badge.secondsLeft}s`)
+        .setVisible(true);
+    }
+  }
+
+  /**
+   * One slot's box, glyph, sweep and labels.
+   *
+   * Both halves of D18's car-wide lockout come off the wire. `FireState`'s `pending` machine itself
+   * stays server-only — the same rule that keeps `damageClock`/`pierceLeft` off it — but the two
+   * facts the HUD cannot derive from slot rows do not: `PlayerState.pendingUntilTick` (the tick a
+   * committed press next fires, so `tick < pendingUntilTick` is "mid wind-up or mid volley", and
+   * stays right between two patches at 20 Hz) and `PlayerState.lastFiredSlot` (which slot owns the
+   * recovery every OTHER slot is dimmed by).
+   *
+   * Every one of these paths is now exercised by a carried weapon: `skewer` and `lance` (Oval's
+   * slots 2 and 3) carry `startUpMs > 0`, `pepperbox` (Rectangle's slot 2) carries
+   * `volley.volleys: 3`, and `recoveryMs > 0` is the common case — every weapon but `fireball`,
+   * `splinter` and `thumper` carries one. That also covers the mid-volley case: `beginFire` zeroes a
+   * slot's `stocks` at press time and does not set `rechargeEndsTick` until the volley's LAST shot,
+   * and `slotVisualState` answers "car-locked"
+   * for that whole window because a real `pending` reaches it — rather than falling through to
+   * full-brightness "ready" with nothing left to fire.
+   */
+  private drawHudSlot(
+    gfx: Phaser.GameObjects.Graphics,
+    sweepGfx: Phaser.GameObjects.Graphics,
+    index: number,
+    box: SlotBox,
+    slot: WeaponSlotState,
+    player: PlayerState,
+    tick: number,
+  ): void {
+    const def = isWeaponId(slot.weaponId) ? weaponDefOf(slot.weaponId) : undefined;
+    const state = slotVisualState(
+      { stocks: slot.stocks, rechargeEndsTick: slot.rechargeEndsTick },
+      { unlocksAt: def?.unlocksAt ?? 1 },
+      player.level,
+      player.switchLockUntilTick,
+      tick < player.pendingUntilTick ? { slot: player.lastFiredSlot } : null,
+      tick,
+      index === player.lastFiredSlot,
+    );
+    const dim = this.hudDimFor(state);
+    const cx = box.x + box.size / 2;
+    const cy = box.y + box.size / 2;
+
+    // Ready-but-recharging happens only for a `stock` weapon banking another charge while one is
+    // still in hand: `slotVisualState` correctly keeps the icon at full brightness (you can still
+    // fire), but the timer running underneath is exactly the "in-progress recharge" D18 asks a
+    // stock weapon's sweep to show. `locked` and `car-locked` never show it — the heavier/static
+    // locked dim and the car-wide lockout must each stay visually unambiguous.
+    //
+    // Resolved before anything is drawn, because the ring IS the cooldown now: a draining slot's
+    // ring is a dim track waiting for its arc, not the solid frame every other state wears.
+    const recharging = slot.rechargeEndsTick !== 0 && (state === "recharging" || state === "ready");
+    const fraction =
+      recharging && def
+        ? sweepFraction(slot.rechargeEndsTick, weaponTicksOf(def.id).cooldown, tick)
+        : 0;
+
+    this.drawSlotRing(gfx, cx, cy, box.size, dim, fraction > 0);
+
+    // A slot with a manifest icon draws the sprite; a slot without one keeps the procedural glyph.
+    // That fallback is permanent, not a placeholder for art that has not shipped yet — a missing or
+    // unloaded icon PNG must never be a bug, only a slot that still looks like it always has.
+    const icon = def
+      ? resolveWeaponIcon(
+          assetManifest(),
+          phaserTextures(this.textures),
+          def.id,
+          box.size * HUD_ICON_FIT_SCALE,
+        )
+      : undefined;
+    if (icon) {
+      this.applyWeaponIcon(this.hudIconImages[index]!, icon, cx, cy, dim);
+    } else {
+      this.hudIconImages[index]!.setVisible(false);
+      this.drawWeaponGlyph(gfx, def, cx, cy, box.size, dim);
+    }
+
+    // Own Graphics object at `HUD_SWEEP_DEPTH`, deliberately not `gfx` (the ring/glyph layer at
+    // `HUD_BOX_DEPTH`): the arc must render above the icon pool (`HUD_ICON_DEPTH`) sitting between
+    // them, or a resolved icon overlapping the ring would cut it. See the depth block's comment
+    // near `HUD_BOX_DEPTH` for the full layering rationale.
+    if (fraction > 0) this.drawSweepArc(sweepGfx, cx, cy, box.size, fraction, dim);
+
+    const countdownText = this.hudCountdownTexts[index]!;
+    const seconds = recharging ? countdownSeconds(slot.rechargeEndsTick, tick) : null;
+    if (seconds !== null) {
+      countdownText
+        .setText(String(Math.ceil(seconds)))
+        .setPosition(box.keyX, cy + HUD_COUNTDOWN_KEY_OFFSET_PX)
+        .setVisible(true);
+    } else {
+      countdownText.setVisible(false);
+    }
+
+    // Beside the slot, outside the frame — never over the icon — and dimmed with it, so a locked
+    // slot's key reads as unavailable too. The band under the slot belongs to the name now.
+    const keyText = this.hudKeyTexts[index]!;
+    keyText
+      .setText(SLOT_KEYS[index]?.glyph ?? "")
+      .setPosition(box.keyX + HUD_KEY_PILL_PAD_X, cy)
+      .setAlpha(dim)
+      .setVisible(true);
+    // The pill behind it, sized from the label's MEASURED width — `SLOT_KEY_COLUMN_PX` is only the
+    // layout's reservation, and a pill drawn to that budget would be too wide for every key but
+    // "space". Drawn into `gfx` (the ring layer) so it lands under `HUD_TEXT_DEPTH`, never over the
+    // glyph it borders, and dimmed with the slot like the label it wraps.
+    const pillHeight = keyText.height + HUD_KEY_PILL_PAD_Y * 2;
+    gfx.fillStyle(HUD_RING_COLOR, dim);
+    gfx.fillRoundedRect(
+      box.keyX,
+      cy - pillHeight / 2,
+      keyText.width + HUD_KEY_PILL_PAD_X * 2,
+      pillHeight,
+      pillHeight / 2,
+    );
+
+    // Centred under the slot. A slot whose weapon id is unknown has no name to print, which is the
+    // same fall-through `def` already drives for the icon and the sweep.
+    const nameText = this.hudNameTexts[index]!;
+    if (def) {
+      nameText.setText(def.name).setPosition(cx, box.nameY).setAlpha(dim).setVisible(true);
+    } else {
+      nameText.setVisible(false);
+    }
+
+    const stockText = this.hudStockTexts[index]!;
+    if (def?.stock) {
+      // Pulled in along the diagonal to sit inside the circle: the old bottom-right corner of the
+      // bounding box is outside a round slot entirely.
+      const inset = (box.size / 2) * HUD_STOCK_RADIUS_SCALE;
+      stockText
+        .setText(String(slot.stocks))
+        .setPosition(cx + inset, cy + inset)
+        .setVisible(true);
+    } else {
+      stockText.setVisible(false);
+    }
+  }
+
+  /** `SlotVisual` to `HUD_DIM`; only the "car-locked" name differs from its dim key. */
+  private hudDimFor(state: SlotVisual): number {
+    return state === "car-locked" ? HUD_DIM.carLocked : HUD_DIM[state];
+  }
+
+  /**
+   * Apply a resolved icon to its slot's pooled Image. Position, not just fit, because unlike a car
+   * sprite (positioned by its container) this Image has no other parent to place it — `cx`/`cy` are
+   * the box's own centre in camera-fixed HUD space.
+   *
+   * `clearTint` guards a rule, not a bug: weapon icons keep their colour and are never player-tinted
+   * (`colorMode: "none"`, written by `scripts/import-weapon-icon.mjs`) — the car importer desaturates
+   * *because* cars are tinted, and doing the same to an icon would leave every weapon a grey blob.
+   * Dimming for `locked`/`recharging`/`car-locked` therefore rides on alpha alone, the same channel
+   * the procedural glyph dims through.
+   */
+  private applyWeaponIcon(
+    image: Phaser.GameObjects.Image,
+    resolved: ResolvedWeaponIcon,
+    cx: number,
+    cy: number,
+    dim: number,
+  ): void {
+    image
+      .setTexture(resolved.key)
+      .setPosition(cx, cy)
+      .setOrigin(resolved.fit.originX, resolved.fit.originY)
+      .setScale(resolved.fit.scale)
+      .setRotation(resolved.fit.rotation)
+      .setAlpha(dim)
+      .clearTint()
+      .setVisible(true);
+  }
+
+  /**
+   * The procedural glyph: a filled circle for a projectile, a bar for a beam. Draw-only shorthand
+   * for "what kind of weapon is this", not the weapon's actual hitbox (that is `instanceDrawShape`,
+   * drawn for live instances only). Drawn only when `drawHudSlot` found no manifest icon for this
+   * slot's weapon — see `resolveWeaponIcon` in `weapon-hud.ts` for that fallback contract.
+   */
+  private drawWeaponGlyph(
+    gfx: Phaser.GameObjects.Graphics,
+    def: { kind: string } | undefined,
+    cx: number,
+    cy: number,
+    boxSize: number,
+    dim: number,
+  ): void {
+    const radius = (boxSize / 2) * HUD_GLYPH_SCALE;
+    if (def?.kind === "beam") {
+      const width = radius * 2 * HUD_BEAM_WIDTH_SCALE;
+      gfx.fillStyle(HUD_GLYPH_COLOR, dim);
+      gfx.fillRect(cx - width / 2, cy - radius, width, radius * 2);
+      gfx.lineStyle(HUD_GLYPH_OUTLINE_PX, HUD_GLYPH_OUTLINE_COLOR, dim);
+      gfx.strokeRect(cx - width / 2, cy - radius, width, radius * 2);
+      return;
+    }
+    const flame = this.flamePoints(cx, cy, radius);
+    gfx.fillStyle(HUD_GLYPH_COLOR, dim);
+    gfx.fillPoints(flame, true);
+    gfx.lineStyle(HUD_GLYPH_OUTLINE_PX, HUD_GLYPH_OUTLINE_COLOR, dim);
+    gfx.strokePoints(flame, true);
+    // The core is the same outline nested and nudged down, so the flame's tip stays one tone. No
+    // stroke on it: a second dark edge this small closes up into a blob at 64px. This overwrites
+    // `flame` — see `flameScratch` — which is safe only because both calls above have returned.
+    const core = this.flamePoints(
+      cx,
+      cy + radius * HUD_GLYPH_CORE_OFFSET_SCALE,
+      radius * HUD_GLYPH_CORE_SCALE,
+    );
+    gfx.fillStyle(HUD_GLYPH_CORE_COLOR, dim);
+    gfx.fillPoints(core, true);
+  }
+
+  /**
+   * `FLAME_UNIT_POINTS` placed at `cx`/`cy` and scaled to radius `r`, ready to fill or stroke as a
+   * closed polygon. Returns the shared `flameScratch` rather than a fresh array — read the result
+   * before calling again.
+   */
+  private flamePoints(cx: number, cy: number, r: number): Phaser.Geom.Point[] {
+    for (let i = 0; i < FLAME_UNIT_POINTS.length; i++) {
+      const unit = FLAME_UNIT_POINTS[i]!;
+      flameScratch[i]!.setTo(cx + unit.x * r, cy + unit.y * r);
+    }
+    return flameScratch;
+  }
+
+  /**
+   * The slot's wash and its ring.
+   *
+   * While a cooldown runs the ring is drawn here as a dim TRACK and the bright remaining arc goes
+   * on top in `drawSweepArc` — same centre, same radius, same width, so the two read as one stroke
+   * partly spent rather than two concentric rings.
+   *
+   * The wash always dims with the slot. The ring only dims when it is not a cooldown track:
+   * `HUD_SWEEP_HOLDS_FULL` is what keeps a recharging slot's timer readable at `HUD_DIM.recharging`.
+   */
+  private drawSlotRing(
+    gfx: Phaser.GameObjects.Graphics,
+    cx: number,
+    cy: number,
+    boxSize: number,
+    dim: number,
+    draining: boolean,
+  ): void {
+    const radius = this.slotRingRadius(boxSize);
+    if (HUD_RING_WASH_ALPHA > 0) {
+      gfx.fillStyle(HUD_RING_COLOR, HUD_RING_WASH_ALPHA * dim);
+      gfx.fillCircle(cx, cy, radius);
+    }
+    const ringDim = draining && HUD_SWEEP_HOLDS_FULL ? 1 : dim;
+    gfx.lineStyle(HUD_RING_WIDTH_PX, HUD_RING_COLOR, draining ? HUD_RING_TRACK_ALPHA * ringDim : ringDim);
+    gfx.strokeCircle(cx, cy, radius);
+  }
+
+  /**
+   * The cooldown, as the ring itself draining: a full circle at `fraction` 1 (recharge just
+   * started), shrinking clockwise from 12 o'clock to nothing as `fraction` reaches 0, so it reads
+   * the same way a MOBA ability cooldown does. This replaced a dark wedge over the icon, which had
+   * nothing to darken once the slot's black fill became a transparent ring.
+   */
+  private drawSweepArc(
+    gfx: Phaser.GameObjects.Graphics,
+    cx: number,
+    cy: number,
+    boxSize: number,
+    fraction: number,
+    dim: number,
+  ): void {
+    const endAngle = HUD_SWEEP_START_ANGLE + fraction * Phaser.Math.PI2;
+    gfx.lineStyle(HUD_RING_WIDTH_PX, HUD_RING_COLOR, HUD_SWEEP_HOLDS_FULL ? 1 : dim);
+    gfx.beginPath();
+    gfx.arc(cx, cy, this.slotRingRadius(boxSize), HUD_SWEEP_START_ANGLE, endAngle, false);
+    gfx.strokePath();
+  }
+
+  /**
+   * The ring's centreline radius. Inset by half the stroke so the ring's OUTER edge lands on the
+   * box `slotBarLayout` reserved — a stroke straddles its path, and without this a 3px ring would
+   * spill 1.5px past the layout on every side.
+   */
+  private slotRingRadius(boxSize: number): number {
+    return boxSize / 2 - HUD_RING_WIDTH_PX / 2;
   }
 
   // --- spectating --------------------------------------------------------------------------
@@ -655,7 +1695,9 @@ export class ArenaScene extends Phaser.Scene {
     this.spectateTarget = resolveSpectateTarget(ids, this.spectateTarget);
     if (!keys) return;
 
-    if (Phaser.Input.Keyboard.JustDown(keys.freeRoam)) {
+    // Free roam pans a camera that cannot scroll when the whole arena already fits, so the key is
+    // inert there rather than toggling a mode with no visible effect.
+    if (!this.staticCamera && Phaser.Input.Keyboard.JustDown(keys.freeRoam)) {
       this.freeRoam = !this.freeRoam;
       // Free roam starts wherever the camera already is, so toggling it does not teleport the view.
       if (!this.freeRoam) this.camFocus = undefined;
@@ -705,13 +1747,17 @@ export class ArenaScene extends Phaser.Scene {
    * Soft follow. `centerOn` each frame with the focus eased by `CAMERA_CONFIG.camLerp` keeps a
    * reconciliation snap from throwing the whole view; the first frame seeds the focus outright so
    * the match does not open with the camera flying in from the arena origin.
+   *
+   * `smoothFollow` rather than `Phaser.Math.Linear` so the easing is per elapsed millisecond rather
+   * than per frame — see its docstring for why a flat per-frame fraction frames the same car
+   * differently on a 60 Hz and a 144 Hz display.
    */
-  private followCamera(pose: SimBody): void {
+  private followCamera(pose: SimBody, delta: number): void {
+    if (this.staticCamera) return;
     if (!this.camFocus) {
       this.camFocus = { x: pose.x, y: pose.y };
     } else {
-      this.camFocus.x = Phaser.Math.Linear(this.camFocus.x, pose.x, CAMERA_CONFIG.camLerp);
-      this.camFocus.y = Phaser.Math.Linear(this.camFocus.y, pose.y, CAMERA_CONFIG.camLerp);
+      this.camFocus = smoothFollow(this.camFocus, pose, CAMERA_CONFIG.camLerp, delta);
     }
     this.cameras.main.centerOn(this.camFocus.x, this.camFocus.y);
   }

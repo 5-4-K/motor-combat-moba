@@ -24,6 +24,11 @@ export function getCarSelectSeconds(fallback: number): number {
   return parseCarSelectSeconds(process.env.CAR_SELECT_SECONDS, fallback);
 }
 
+/** Same shape as the car-select override, so the reveal dwell can be shortened while testing a flow. */
+export function getRevealSeconds(fallback: number): number {
+  return parseCarSelectSeconds(process.env.REVEAL_SECONDS, fallback);
+}
+
 export function getSimulatedLatency(): LatencyConfig {
   const latencyMs = Number(process.env.SIM_LATENCY_MS);
   const jitterMs = Number(process.env.SIM_JITTER_MS);

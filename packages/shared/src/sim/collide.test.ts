@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { Aabb, Obb } from "./collide.js";
-import { obbsOverlap, pointInAabb, pointInObb, resolveWorld } from "./collide.js";
+import {
+  circleOverlapsObb,
+  contactNormalBetween,
+  convexOverlap,
+  obbCorners,
+  obbsOverlap,
+  pointInAabb,
+  pointInObb,
+  resolveWorld,
+} from "./collide.js";
 import type { SimBody } from "./step.js";
 
 const CAR_W = DRIVE_CONFIG.carWidth;
@@ -12,7 +21,18 @@ const BOUNDS = { width: 1000, height: 1000 };
 const TOUCH_SLACK = 1e-6;
 
 function body(patch: Partial<SimBody>): SimBody {
-  return { x: 0, y: 0, angle: 0, speed: 0, reverseHold: 0, ...patch };
+  return {
+    x: 0,
+    y: 0,
+    angle: 0,
+    speed: 0,
+    reverseHold: 0,
+    angVel: 0,
+    shoveX: 0,
+    shoveY: 0,
+    authority: 1,
+    ...patch,
+  };
 }
 
 function carObb(b: SimBody): Obb {
@@ -650,5 +670,116 @@ describe("pointInAabb", () => {
     expect(pointInAabb(140, 220, box)).toBe(true);
     expect(pointInAabb(141, 220, box)).toBe(false);
     expect(pointInAabb(140, 221, box)).toBe(false);
+  });
+});
+
+describe("convex overlap", () => {
+  const box = { x: 100, y: 100, angle: 0, w: 40, h: 20 };
+
+  it("reports the four corners of an axis-aligned box", () => {
+    const corners = obbCorners(box);
+    expect(corners).toHaveLength(4);
+    const xs = corners.map((c) => c.x).sort((a, b) => a - b);
+    const ys = corners.map((c) => c.y).sort((a, b) => a - b);
+    expect(xs[0]).toBeCloseTo(80);
+    expect(xs[3]).toBeCloseTo(120);
+    expect(ys[0]).toBeCloseTo(90);
+    expect(ys[3]).toBeCloseTo(110);
+  });
+
+  it("finds overlap between a triangle and a box they share area with", () => {
+    const triangle = [
+      { x: 100, y: 100 },
+      { x: 200, y: 60 },
+      { x: 200, y: 140 },
+    ];
+    expect(convexOverlap(triangle, obbCorners(box))).toBe(true);
+  });
+
+  it("reports separation for a triangle clear of the box", () => {
+    const triangle = [
+      { x: 300, y: 300 },
+      { x: 400, y: 260 },
+      { x: 400, y: 340 },
+    ];
+    expect(convexOverlap(triangle, obbCorners(box))).toBe(false);
+  });
+
+  it("treats mere touching as separated, matching the driving resolver", () => {
+    const flush = [
+      { x: 120, y: 95 },
+      { x: 160, y: 95 },
+      { x: 160, y: 105 },
+      { x: 120, y: 105 },
+    ];
+    expect(convexOverlap(flush, obbCorners(box))).toBe(false);
+  });
+
+  it("tests a circle against a box exactly, including the corner case", () => {
+    expect(circleOverlapsObb(100, 100, 1, box)).toBe(true); // inside
+    expect(circleOverlapsObb(125, 100, 6, box)).toBe(true); // overlapping the right face
+    expect(circleOverlapsObb(125, 100, 4, box)).toBe(false); // clear of it
+    expect(circleOverlapsObb(123, 113, 5, box)).toBe(true); // nearest point is the corner
+    expect(circleOverlapsObb(126, 116, 5, box)).toBe(false); // just past the corner
+  });
+
+  it("respects rotation", () => {
+    const turned = { x: 100, y: 100, angle: Math.PI / 2, w: 40, h: 20 };
+    expect(circleOverlapsObb(100, 118, 1, turned)).toBe(true); // long axis now vertical
+    expect(circleOverlapsObb(118, 100, 1, turned)).toBe(false);
+  });
+});
+
+describe("contactNormalBetween", () => {
+  const car = (x: number, y: number, angle = 0) => ({ x, y, angle, w: 48, h: 32 });
+
+  it("returns null for boxes that are nowhere near each other", () => {
+    expect(contactNormalBetween(car(0, 0), car(500, 500), 1)).toBeNull();
+  });
+
+  it("points from b toward a — the pinned sign convention", () => {
+    // a sits to the LEFT of b and just touching, so the normal must point in -x.
+    const n = contactNormalBetween(car(0, 0), car(48, 0), 1);
+    expect(n).not.toBeNull();
+    expect(n!.x).toBeCloseTo(-1, 6);
+    expect(n!.y).toBeCloseTo(0, 6);
+  });
+
+  it("flips with the argument order", () => {
+    const forward = contactNormalBetween(car(0, 0), car(48, 0), 1)!;
+    const backward = contactNormalBetween(car(48, 0), car(0, 0), 1)!;
+    expect(backward.x).toBeCloseTo(-forward.x, 6);
+  });
+
+  it("returns a unit vector", () => {
+    const n = contactNormalBetween(car(0, 0), car(40, 6), 1)!;
+    expect(Math.hypot(n.x, n.y)).toBeCloseTo(1, 9);
+  });
+
+  it("finds contact where a strict overlap test does not, which is the whole reason it pads", () => {
+    // Exactly touching: resolveWorld leaves colliding cars here, and SAT calls it separated.
+    const a = car(0, 0);
+    const b = car(48, 0);
+    expect(obbsOverlap(a, b)).toBe(false);
+    expect(contactNormalBetween(a, b, 1)).not.toBeNull();
+  });
+});
+
+describe("applyContact reflects shove", () => {
+  // `BOUNDS` and `body(patch)` are this file's existing fixtures — reuse them, do not add new ones.
+  it("rebounds a shoved car off a wall instead of pinning it there", () => {
+    const out = resolveWorld(body({ x: 10, y: 400, shoveX: -300 }), [], [], BOUNDS);
+    expect(out.shoveX).toBeGreaterThan(0);
+  });
+
+  it("leaves a car with no shove behaving exactly as before", () => {
+    const out = resolveWorld(body({ x: 10, y: 400, speed: 200, angle: Math.PI }), [], [], BOUNDS);
+    expect(out.shoveX).toBe(0);
+    expect(out.shoveY).toBe(0);
+  });
+
+  it("does not amplify a shove that is already moving away from the surface", () => {
+    const out = resolveWorld(body({ x: 10, y: 400, shoveX: 300 }), [], [], BOUNDS);
+    expect(out.shoveX).toBeCloseTo(300, 9);
   });
 });

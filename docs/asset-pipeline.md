@@ -234,6 +234,107 @@ and one selector (`?dev=<id>`) with one registry, one dynamic-import site, and o
 keeps adding tool number two a one-line change instead of a second copy of this whole strip
 mechanism.
 
+## Weapon icons
+
+Weapon slot icons resolve through the same manifest chain as a car sprite, under their own
+namespace: `weaponIconKey(id)` (`packages/client/src/assets/asset-keys.ts`) builds
+`"weapon-icon.<id>"`; `weapon-hud.ts`'s `resolveWeaponIcon` looks it up in the manifest and the
+texture manager exactly the way `resolveCarSprite` does for a car; and a missing manifest entry or
+an unloaded texture both fall through to the same kind of procedural fallback — a glyph drawn from
+the weapon's `kind` (a circle for a projectile, a bar for a beam) rather than a car silhouette. That
+fallback is permanent, not a placeholder: a brand-new weapon is playable, and its slot readable,
+with zero art.
+
+Icons take **different defaults** than car sprites, because the two are not the same kind of art:
+
+| Default | Car sprite | Weapon icon | Why |
+|---|---|---|---|
+| `colorMode` | `"tint"` | `"none"` | An icon is not player-tinted; desaturating it the way a car sprite is prepared would leave every weapon's icon the same grey blob. |
+| Fit target | 48×32 hull | square slot box (~64 px on screen, imported at 128×128) | An icon is not a chassis; it fits the HUD's box, not the car's OBB. |
+
+`scripts/import-weapon-icon.mjs` is `import-art.mjs`'s weapon-icon sibling: trim the transparent
+margin, square the canvas, downscale to 128×128 (`ICON_PX` — 2× the ~64 px slot box, so the deferred
+device-pixel-ratio work needs no re-import), write
+`packages/client/public/art/weapon-icons/<weaponId>.png`, and upsert the `weapon-icon.<id>` manifest
+row with the defaults above, preserving any field already tuned by hand. There is deliberately no
+desaturation step anywhere in this script — see its header comment for why applying the car
+importer's treatment here would be actively wrong, not merely unnecessary. Run it with:
+
+```bash
+node scripts/import-weapon-icon.mjs --weapon <weaponId> --src <path>
+```
+
+There is no `?dev=assets`-style preview for icons — that tool is car-only. Check a new icon's fit by
+running `npm run dev`, equipping the weapon, and looking at its slot in the live HUD bar. The
+`process-weapon-icon` skill mirrors `process-car-asset`: hand it an image and a weapon id, and it
+runs the importer, reports the manifest row, and covers "why is my icon blurry / missing / wrong."
+
+World instances — the actual projectile or beam hitbox flying through the arena — are never
+sprites; see [`combat-model.md`](combat-model.md) for why that stays procedural instead. Only the
+HUD icon goes through this pipeline. An instance is filled with its weapon's own
+`WEAPON_TABLE.color`, never the firing player's colour, so a weapon looks the same in every car's
+hands — the same rule as the icon's `colorMode: "none"`, applied to the shot.
+
+### How much detail a shot can afford
+
+Shots are drawn in immediate mode by `ArenaScene.renderShots`: one shared `Graphics`
+(`this.shotGfx`) is `clear()`ed and rebuilt every frame, a projectile becomes one `fillCircle` per
+band from `instanceGlowBands`, and a beam becomes one `fillPoints` polygon. Detail therefore costs
+**one extra fill call per band, per shot, per frame** — and nothing else.
+
+**That budget is much larger than it sounds, so do not design timidly.** A car has one fire state
+machine, so a player can only have one weapon mid-volley at a time; the worst realistic case is a
+chassis with overlapping flight times (two fireballs, a six-pellet `pepperbox` burst, a beam) at
+roughly ten live instances, times six players — call it 60. `fireball`'s four bands applied to all
+nine weapons is ~240 `fillCircle` calls per frame, ~14k/second. Phaser batches one Graphics
+object's fills into a single vertex buffer, and the `fillStyle` colour changes *between* bands do
+not break that batch. Authoring a look for every weapon is comfortably within budget.
+
+Four things do cost, and they are the only ones worth stopping for:
+
+| Cliff | Why it hurts |
+|---|---|
+| A **blend mode per instance** (`setBlendMode` for additive glow) | Every change flushes the batch. This is the one that turns a single draw call into one per shot. |
+| **Faking a gradient** with 15–20 bands per shot | Phaser `Graphics` has no gradient fill, so a smooth ramp means many bands. This is the only way band count itself becomes the problem. |
+| **A `Graphics` object per shot** instead of the shared `shotGfx` | Loses the batch entirely, and adds a create/destroy cycle per instance. |
+| **Allocation churn** in `instanceGlowBands` | It returns a fresh array per instance per frame — invisible at today's counts, GC pressure if band counts climb steeply. Cache before reaching for anything cleverer. |
+
+**The binding constraint is honesty, not frame time.** Bands are fractions of the hitbox radius and
+the flicker only ever *shrinks*, so a drawn shot can never render larger than the hitbox that
+actually hits — a shot that looks bigger than it is makes players believe in hits that never
+happened. `combat-visual.test.ts` enforces it. Design detail inside that rule, not around it.
+
+Beams take detail differently: they are `fillPoints` polygons, so the equivalent of a band is a
+smaller cone or rect nested inside the outer one (a bright core inside a translucent cone). Same
+cost story, a few more polygons.
+
+All of it is data in `WEAPON_GLOW_STYLES` (`packages/client/src/scenes/combat-visual.ts`), keyed per
+weapon and `Partial`, so a weapon with no entry keeps the flat disc. Adding a look needs no
+rendering code, no sim change and no wire change — `WEAPON_TABLE.color` and the styles are both
+render-only.
+
+## Arena art
+
+Arena-owned art is namespaced by arena id, so the release can carry only the active arena's files.
+
+| Manifest key | On disk | In the release? |
+|---|---|---|
+| `arena.<arenaId>.<slot>` | `public/art/arenas/<arenaId>/<slot>.png` | Only when `<arenaId>` is `ACTIVE_ARENA_ID` |
+| `arena.common.<slot>` | `public/art/arenas/common/<slot>.png` | Always |
+| `car.*`, and anything else | as before | Always |
+
+Two places apply the same rule, both through `arenaIdFromArtKey` in
+`packages/shared/src/arena/art-keys.ts`: `shouldLoadAssetKey` filters manifest entries at boot so a
+dev build only loads the active arena's art, and `pruneArenaAssets` in `scripts/build-release.mjs`
+deletes the other arenas' files from the release.
+
+The consequence worth knowing: an arena you are experimenting with costs the shipped zip nothing, so
+there is no reason to delete an arena to keep the download small.
+
+No arena art exists in the repo yet — every arena still renders from `ArenaScene.drawArena`'s
+procedural `fillRect` loop, coloured by `arenaColorsOf` (`packages/client/src/scenes/arena-visual.ts`).
+The namespace above is the seam for when sprites land, not something already shipping.
+
 ## Deferred
 
 Each of these was considered and deliberately deferred, not overlooked — each is its own future

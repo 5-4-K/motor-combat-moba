@@ -17,12 +17,14 @@ import {
   MSG_KICK,
   MSG_START_ERROR,
   MSG_SELECT_CAR,
+  MSG_PREVIEW_CAR,
   MSG_RETURN_TO_LOBBY,
   validateName,
   isNameTaken,
   pickColor,
   pickTeam,
   canStart,
+  canSwitchTeam,
   reduceFlow,
   assignSpawns,
   livingSides,
@@ -36,19 +38,26 @@ import {
   type InputMessage,
   type StartRulePlayer,
 } from "@motor-combat-moba/shared";
-import { getTickRateHz, getSimulatedLatency, getCarSelectSeconds } from "../mode.js";
+import {
+  getTickRateHz,
+  getSimulatedLatency,
+  getCarSelectSeconds,
+  getRevealSeconds,
+} from "../mode.js";
 import { isInputMessage } from "../net/input-message.js";
 import { withSimulatedLatency } from "../net/latency-injector.js";
 import { serverTick } from "../sim/tick.js";
 import {
   applyCombatResult,
-  clearProjectiles,
+  clearInstances,
   newCombatMemory,
   runCombat,
   toCombatPlayers,
-  toProjectiles,
+  toInstances,
   type CombatMemory,
 } from "../sim/combat-bridge.js";
+import { statusTick } from "../sim/status-bridge.js";
+import { clearKnock, newRamMemory, ramTick, type RamMemory } from "../sim/ram-bridge.js";
 import {
   fromFlowPhase,
   fromFlowStatus,
@@ -57,9 +66,9 @@ import {
   toFlowStatus,
 } from "./flow-map.js";
 import {
+  carAtDeadline,
   copySpawnNumbers,
   livingAfterLeave,
-  pickRandomCarId,
 } from "./match-helpers.js";
 import { selectNextHost } from "./select-next-host.js";
 import { ROOM_FULL_ERROR, shouldRejectSecondArena } from "./singleton-arena.js";
@@ -72,11 +81,13 @@ export class ArenaRoom extends Room<ArenaState> {
   private postMatchIds = new Set<string>();
   private flow: FlowState | null = null;
   /**
-   * Ram pair cooldowns and the projectile id counter. Server-only by design: neither is anything a
-   * client needs to render, and putting them on the schema would patch a per-pair map to everyone at
-   * the tick rate for no visible gain.
+   * The instance id counter, per-player fire state, and the live instances themselves. Server-only
+   * by design: none of it is anything a client needs to render, and putting it on the schema would
+   * patch per-instance timers with no wire representation to everyone at the tick rate for no
+   * visible gain.
    */
   private combat: CombatMemory = newCombatMemory();
+  private ram: RamMemory = newRamMemory();
 
   async onCreate(): Promise<void> {
     const listings = await matchMaker.query({ name: ROOM_NAME });
@@ -104,7 +115,12 @@ export class ArenaRoom extends Room<ArenaState> {
 
     this.onMessage(MSG_SWITCH_TEAM, (client) => {
       const player = this.state.players.get(client.sessionId);
-      if (!player || player.status !== PlayerStatus.READY) return;
+      if (!player) return;
+      const teams: number[] = [];
+      this.state.players.forEach((p) => teams.push(p.team));
+      // Same predicate the lobby uses to grey the button out; the client cannot be trusted to have
+      // run it, so the cap is decided here.
+      if (!canSwitchTeam({ status: toFlowStatus(player.status), team: player.team }, teams)) return;
       player.team = player.team === 0 ? 1 : 0;
     });
 
@@ -159,7 +175,19 @@ export class ArenaRoom extends Room<ArenaState> {
       if (!player || player.selectLocked) return;
       this.pendingCarId.set(client.sessionId, msg.carId);
       this.reduce({ type: "lock_car", sessionId: client.sessionId });
-      if (this.allRosterLocked()) this.revealAndCountdown();
+      if (this.allRosterLocked()) this.revealCars();
+    });
+
+    // A preview, not a commitment: it records what the player is sitting on so the deadline can hand
+    // them that exact car. Same guards as MSG_SELECT_CAR minus the lock, and it
+    // deliberately refuses once locked so a stray click cannot rewrite a committed pick.
+    this.onMessage(MSG_PREVIEW_CAR, (client, msg: unknown) => {
+      if (this.state.phase !== RoomPhase.CAR_SELECT) return;
+      if (!isSelectCarPayload(msg)) return;
+      if (!this.matchRoster.has(client.sessionId)) return;
+      const player = this.state.players.get(client.sessionId);
+      if (!player || player.selectLocked) return;
+      this.pendingCarId.set(client.sessionId, msg.carId);
     });
 
     this.onMessage(MSG_RETURN_TO_LOBBY, (client) => {
@@ -251,10 +279,20 @@ export class ArenaRoom extends Room<ArenaState> {
       for (const id of this.matchRoster) {
         const player = this.state.players.get(id);
         if (!player || player.selectLocked) continue;
-        this.pendingCarId.set(id, pickRandomCarId(Math.random));
+        this.pendingCarId.set(id, carAtDeadline(this.pendingCarId.get(id)));
         this.reduce({ type: "lock_car", sessionId: id });
       }
-      this.revealAndCountdown();
+      this.revealCars();
+    } else if (
+      this.state.phase === RoomPhase.REVEAL &&
+      this.state.tick >= this.state.revealEndsTick
+    ) {
+      // The grid has held its dwell; hand over to the 3-2-1 on the field.
+      this.reduce({
+        type: "begin_countdown",
+        nowTick: this.state.tick,
+        countdownTicks: FLOW_CONFIG.countdownSeconds * TICK_RATE_HZ,
+      });
     } else if (
       this.state.phase === RoomPhase.COUNTDOWN &&
       this.state.tick >= this.state.countdownEndsTick
@@ -262,22 +300,49 @@ export class ArenaRoom extends Room<ArenaState> {
       this.reduce({ type: "go" });
     }
     const dt = 1 / getTickRateHz(TICK_RATE_HZ);
-    const fired = serverTick(this.state, this.inputQueues, dt, this.state.phase);
-    this.combatTick(dt, fired);
+    // Buffs and debuffs FIRST, before anything reads a modifier. `statusTick` sweeps every expired
+    // effect and returns the multipliers driving, ramming and combat all share for this tick, so no
+    // two phases can disagree about whether a car is still slowed, and no tick ever simulates an
+    // effect whose last tick was the previous one. New effects are only ever added at the far end of
+    // the tick, by combat, and take hold on the next one.
+    const statusMods = statusTick(this.state, this.state.tick);
+    const { masks, approachSpeeds } = serverTick(
+      this.state,
+      this.inputQueues,
+      dt,
+      this.state.phase,
+      statusMods,
+    );
+    // Ramming, after driving and before combat. The order is the rule: contacts are measured against
+    // the poses driving actually produced, and the knock written here is read by stepDrive next tick.
+    //
+    // `approachSpeeds` is the one thing ram must NOT read from the poses driving produced. Contact
+    // resolution reflected `speed` on its way through `serverTick`, so the post-drive value is the
+    // rebound, not the impact — see `TickResult.approachSpeeds`.
+    if (this.state.phase === RoomPhase.MATCH && this.matchRoster.size > 0) {
+      ramTick(
+        this.state,
+        this.matchRoster,
+        this.ram,
+        toFlowMode(this.state.mode),
+        statusMods,
+        approachSpeeds,
+      );
+    }
+    this.combatTick(dt, masks);
   }
 
   /**
    * Combat, after driving. The order is the rule, not an implementation detail: hits are tested
-   * against the poses cars actually ended the tick at, so a ram is judged by where the collision
-   * left both cars rather than by where they were a moment before it.
+   * against the poses cars actually ended the tick at, not where they were a moment before.
    *
    * Only `MATCH` runs combat, and only with a live roster. Outside that the whole thing is skipped
-   * and any shot still in flight is cleared — a projectile that survived into the lobby would be
+   * and any instance still in flight is cleared — a shot that survived into the lobby would be
    * drawn to everyone and could never hit anything.
    */
-  private combatTick(dt: number, fired: ReadonlySet<string>): void {
+  private combatTick(dt: number, masks: ReadonlyMap<string, number>): void {
     if (this.state.phase !== RoomPhase.MATCH || this.matchRoster.size === 0) {
-      if (this.state.projectiles.size > 0) clearProjectiles(this.state);
+      if (this.state.weapons.size > 0) clearInstances(this.state, this.combat);
       return;
     }
 
@@ -290,15 +355,13 @@ export class ArenaRoom extends Room<ArenaState> {
         obstacles: arena.obstacles,
         bounds: { width: arena.width, height: arena.height },
       },
-      players: toCombatPlayers(this.state, this.matchRoster, fired),
-      projectiles: toProjectiles(this.state),
-      ramCooldowns: this.combat.ramCooldowns,
-      projectileSeq: this.combat.projectileSeq,
+      players: toCombatPlayers(this.state, this.matchRoster, masks, this.combat),
+      instances: toInstances(this.combat),
+      instanceSeq: this.combat.instanceSeq,
     });
 
-    applyCombatResult(this.state, result);
-    this.combat.ramCooldowns = result.ramCooldowns;
-    this.combat.projectileSeq = result.projectileSeq;
+    applyCombatResult(this.state, result, this.combat);
+    this.combat.instanceSeq = result.instanceSeq;
 
     // Win check every tick, on the state combat just wrote. `livingSides` counts only roster
     // members who are still alive, so a wreck and a disconnect end the match by the same rule.
@@ -337,6 +400,7 @@ export class ArenaRoom extends Room<ArenaState> {
       mode: toFlowMode(this.state.mode),
       tick: this.state.tick,
       carSelectDeadlineTick: this.state.carSelectDeadlineTick,
+      revealEndsTick: this.state.revealEndsTick,
       countdownEndsTick: this.state.countdownEndsTick,
       roster: [...this.matchRoster],
       postMatchIds: [...this.postMatchIds],
@@ -347,9 +411,16 @@ export class ArenaRoom extends Room<ArenaState> {
   }
 
   private applyFlow(next: FlowState): void {
+    const previousPhase = this.state.phase;
     this.flow = next;
     this.state.phase = fromFlowPhase(next.phase);
+    // Stamp the match clock on the edge into MATCH, not on every tick inside it, so the results
+    // duration counts from the green light rather than resetting under its own feet.
+    if (this.state.phase === RoomPhase.MATCH && previousPhase !== RoomPhase.MATCH) {
+      this.state.matchStartedAtTick = this.state.tick;
+    }
     this.state.carSelectDeadlineTick = next.carSelectDeadlineTick;
+    this.state.revealEndsTick = next.revealEndsTick;
     this.state.countdownEndsTick = next.countdownEndsTick;
     this.state.winnerSessionId = next.winnerSessionId;
     this.state.winnerTeam = next.winnerTeam;
@@ -382,16 +453,17 @@ export class ArenaRoom extends Room<ArenaState> {
     return true;
   }
 
-  private revealAndCountdown(): void {
+  /** Assigns cars, places everyone, and opens the reveal grid. The countdown follows on its deadline. */
+  private revealCars(): void {
     const cars: Record<string, string> = {};
     for (const [sessionId, carId] of this.pendingCarId) {
       cars[sessionId] = carId;
     }
     let next = reduceFlow(this.buildFlow(), { type: "reveal", cars });
     next = reduceFlow(next, {
-      type: "begin_countdown",
+      type: "begin_reveal",
       nowTick: this.state.tick,
-      countdownTicks: FLOW_CONFIG.countdownSeconds * TICK_RATE_HZ,
+      revealTicks: getRevealSeconds(FLOW_CONFIG.revealSeconds) * TICK_RATE_HZ,
     });
     this.applyFlow(next);
 
@@ -406,13 +478,14 @@ export class ArenaRoom extends Room<ArenaState> {
         player.hp = hpOf(carId);
       }
       player.speed = 0;
-      // A cooldown carried over from the last match would swallow the first shot of this one.
-      player.weaponCooldown = 0;
+      // Nothing from the previous match survives into this one — a knock included, or a car would
+      // spawn already spinning with its steering degraded.
+      clearKnock(player);
     }
-    // Nothing from the previous match survives into this one: no shots in flight, and no ram pair
-    // cooldown that would make the opening contact of a fresh match deal nothing.
-    clearProjectiles(this.state);
-    this.combat.ramCooldowns = new Map();
+    // Nothing from the previous match survives into this one: no shots in flight, and no stale fire
+    // state (a stock or a switch lock the new car never earned).
+    clearInstances(this.state, this.combat);
+    this.ram = newRamMemory();
     const spawns = assignSpawns(
       getArena(this.state.arenaId),
       this.state.mode,
@@ -434,8 +507,7 @@ export class ArenaRoom extends Room<ArenaState> {
     this.reduce({ type: "end", winnerSessionId, winnerTeam });
     this.matchRoster.clear();
     this.pendingCarId.clear();
-    clearProjectiles(this.state);
-    this.combat.ramCooldowns = new Map();
+    clearInstances(this.state, this.combat);
   }
 
   private hasPlayerInMatch(): boolean {

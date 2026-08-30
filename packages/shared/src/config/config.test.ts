@@ -2,11 +2,12 @@ import { describe, expect, it } from "vitest";
 import { CAR_TABLE, DEFAULT_CAR_ID, hpOf, forwardMaxSpeedOf, isCarId } from "./car-config.js";
 import type { CarId } from "./types.js";
 import { COLOR_TABLE } from "./color-config.js";
-import { WEAPON_CONFIG } from "./weapon-config.js";
 import { COMBAT_CONFIG } from "./combat-config.js";
 import { CAMERA_CONFIG, DRIVE_CONFIG } from "./drive-config.js";
 import { FLOW_CONFIG } from "./flow-config.js";
 import { NET_CONFIG } from "./net-config.js";
+import { WEAPON_TABLE } from "./weapon-config.js";
+import { damageFor, weaponDamageOf } from "../sim/damage.js";
 
 describe("CAR_TABLE", () => {
   it("has exactly rectangle, oval, hexagon", () => {
@@ -14,15 +15,67 @@ describe("CAR_TABLE", () => {
   });
 
   it("matches the locked ratings", () => {
-    expect(CAR_TABLE.rectangle).toMatchObject({ speed: 8, strength: 3, hp: 5 });
-    expect(CAR_TABLE.oval).toMatchObject({ speed: 5, strength: 8, hp: 3 });
-    expect(CAR_TABLE.hexagon).toMatchObject({ speed: 3, strength: 5, hp: 8 });
+    expect(CAR_TABLE.rectangle).toMatchObject({ speed: 80, attack: 30, hp: 40 });
+    expect(CAR_TABLE.oval).toMatchObject({ speed: 50, attack: 70, hp: 30 });
+    expect(CAR_TABLE.hexagon).toMatchObject({ speed: 30, attack: 50, hp: 70 });
+  });
+
+  it("gives every chassis whole 0-100 ratings on all four axes", () => {
+    // The 150-point budget that used to be asserted here was removed on 2026-08-29 so that `mass`
+    // could be a free-floating fourth rating. Nothing enforces roster fairness now; see CAR_TABLE.
+    for (const id of Object.keys(CAR_TABLE) as CarId[]) {
+      const def = CAR_TABLE[id];
+      for (const rating of [def.speed, def.attack, def.hp, def.mass]) {
+        expect(Number.isInteger(rating)).toBe(true);
+        expect(rating).toBeGreaterThanOrEqual(0);
+        expect(rating).toBeLessThanOrEqual(100);
+      }
+    }
   });
 
   it("derives actual HP via hpPerRating", () => {
-    expect(hpOf("rectangle")).toBe(50);
-    expect(hpOf("oval")).toBe(30);
-    expect(hpOf("hexagon")).toBe(80);
+    expect(hpOf("rectangle")).toBe(400);
+    expect(hpOf("oval")).toBe(300);
+    expect(hpOf("hexagon")).toBe(700);
+  });
+
+  it("keeps every top speed exactly where it was before the ratings widened", () => {
+    // The 10x rating change is cancelled by speedPerRating 45 -> 4.5. This is a combat change; if a
+    // car's top speed moved, the cancellation is wrong.
+    expect(forwardMaxSpeedOf("rectangle")).toBe(540);
+    expect(forwardMaxSpeedOf("oval")).toBe(405);
+    expect(forwardMaxSpeedOf("hexagon")).toBe(315);
+  });
+
+  it("kills an average chassis with the baseline weapon in 5 seconds", () => {
+    // The spec's headline number (S7). An "average" chassis is one rating point of each at the
+    // baseline: attackBaseline -> 500 hull HP. TTK is reckoned as hullHP / DPS, the sustained-fire
+    // figure. This test is deliberately over-coupled: it should go red if hpPerRating,
+    // attackBaseline, or fireball.damage drifts.
+    //
+    // It canNOT pin damagePerAttack: evaluated exactly at the baseline, damageFor's
+    // `(attack - attackBaseline)` term is 0, so the scale is identically 1 whatever
+    // damagePerAttack holds. damagePerAttack is pinned instead by the off-baseline cells in the
+    // "pins the roster's TTK spread" test below, where the modifier is not 1.
+    const averageHp = COMBAT_CONFIG.attackBaseline * COMBAT_CONFIG.hpPerRating;
+    const dps =
+      (damageFor(COMBAT_CONFIG.attackBaseline, WEAPON_TABLE.fireball.damage) * 1000) /
+      WEAPON_TABLE.fireball.cooldownMs;
+    expect(averageHp / dps).toBe(5);
+  });
+
+  it("pins the roster's TTK spread, and with it damagePerAttack", () => {
+    // The baseline anchor above cannot constrain damagePerAttack -- at attackBaseline the modifier
+    // is 1 by definition, so no baseline-only assertion can see it move. These two off-baseline
+    // cells from the spec's own TTK matrix close that gap: rectangle (attack 30, modifier 0.8)
+    // killing the highest-hp chassis, and oval (attack 70, modifier 1.2) killing itself. A drift in
+    // damagePerAttack moves both numbers, because both are evaluated away from the baseline.
+    const rectangleVsHexagonDps =
+      (weaponDamageOf("rectangle", "fireball") * 1000) / WEAPON_TABLE.fireball.cooldownMs;
+    expect(hpOf("hexagon") / rectangleVsHexagonDps).toBe(8.75);
+
+    const ovalVsOvalDps = (weaponDamageOf("oval", "fireball") * 1000) / WEAPON_TABLE.fireball.cooldownMs;
+    expect(hpOf("oval") / ovalVsOvalDps).toBe(2.5);
   });
 
   it("derives forward max speed from the speed rating", () => {
@@ -59,20 +112,36 @@ describe("COLOR_TABLE", () => {
 });
 
 describe("weapon / combat / drive / flow knobs exist", () => {
-  it("weapon defaults", () => {
-    expect(WEAPON_CONFIG.damage).toBe(8);
-    expect(WEAPON_CONFIG.fireRateHz).toBe(2);
-    expect(WEAPON_CONFIG.projectileSpeed).toBe(900);
-    expect(WEAPON_CONFIG.lifetimeTicks).toBe(30);
-  });
   it("combat defaults", () => {
-    expect(COMBAT_CONFIG.collisionDamagePerStrength).toBe(1);
-    expect(COMBAT_CONFIG.ramDotThreshold).toBe(0.5);
-    expect(COMBAT_CONFIG.collisionDamageCooldownTicks).toBe(15);
     expect(COMBAT_CONFIG.hpPerRating).toBe(10);
+    expect(COMBAT_CONFIG.attackBaseline).toBe(50);
+    expect(COMBAT_CONFIG.damagePerAttack).toBe(0.01);
   });
-  it("reverse is half of forward", () => {
-    expect(DRIVE_CONFIG.reverseSpeedRatio).toBe(0.5);
+  it("reverse is slower than forward, but not a crawl", () => {
+    expect(DRIVE_CONFIG.reverseSpeedRatio).toBe(0.65);
+    expect(DRIVE_CONFIG.reverseSpeedRatio).toBeLessThan(1);
+  });
+
+  it("brakes harder than it coasts, or the brake button would mean nothing", () => {
+    // Ranged, not pinned: the ordering is what matters. A drag above brakeDecel would make holding
+    // Down *slower* to stop than releasing the throttle entirely.
+    expect(DRIVE_CONFIG.brakeDecel).toBeGreaterThan(DRIVE_CONFIG.drag);
+  });
+
+  it("gives reverse its own acceleration rate, at least as quick as forward pickup", () => {
+    // Ranged, not pinned: reverseAccel exists to be tuned by feel, so an exact value here would go
+    // red on every good change as readily as a bad one. What must hold is that it is a real rate
+    // and that splitting it from `accel` bought something — a reverseAccel below `accel` would make
+    // backing out slower than the forward curve it was separated from.
+    expect(DRIVE_CONFIG.reverseAccel).toBeGreaterThan(0);
+    expect(DRIVE_CONFIG.reverseAccel).toBeGreaterThanOrEqual(DRIVE_CONFIG.accel);
+  });
+
+  it("keeps stopEpsilon a small positive rest band", () => {
+    // Zero would leave a car creeping forever instead of settling, and a band wide enough to reach
+    // real driving speeds would freeze the car mid-roll and steer it at turnRateAtStop.
+    expect(DRIVE_CONFIG.stopEpsilon).toBeGreaterThan(0);
+    expect(DRIVE_CONFIG.stopEpsilon).toBeLessThan(1);
   });
   it("flow timers", () => {
     expect(FLOW_CONFIG.carSelectSeconds).toBe(60);
@@ -81,10 +150,10 @@ describe("weapon / combat / drive / flow knobs exist", () => {
   it("camera follows softly and pushes the view in", () => {
     // Pinned, not ranged: these are the tuned values, and a camLerp outside (0, 1] either never
     // reaches the car or overshoots it every frame. Zoom 2 would draw the 2x car textures at 1:1;
-    // 1.5 trades a little sprite sharpness for field of view. Below 1 the textures shimmer, so a
-    // change here is also a change to how sharp every car sprite is.
-    expect(CAMERA_CONFIG.camLerp).toBe(0.12);
-    expect(CAMERA_CONFIG.zoom).toBe(1.5);
+    // 1 trades sprite sharpness for the widest field of view the range allows. Below 1 the
+    // textures shimmer, so a change here is also a change to how sharp every car sprite is.
+    expect(CAMERA_CONFIG.camLerp).toBe(0.18);
+    expect(CAMERA_CONFIG.zoom).toBe(1);
   });
   it("lets a spectator's free-look camera outrun the fastest car", () => {
     // Ranged, not pinned: what matters is that free roam can get ahead of the action rather than

@@ -5,6 +5,7 @@ import {
   isSpectating,
   panFreeCam,
   resolveSpectateTarget,
+  smoothFollow,
   spectatableIds,
   type SpectateCandidate,
 } from "./spectate.js";
@@ -142,5 +143,73 @@ describe("isSpectating", () => {
   it("is false for someone who is not in the match at all", () => {
     expect(isSpectating(RoomPhase.MATCH, PlayerStatus.READY, false)).toBe(false);
     expect(isSpectating(RoomPhase.MATCH, PlayerStatus.POST_MATCH, false)).toBe(false);
+  });
+});
+
+describe("smoothFollow", () => {
+  const REF_FRAME_MS = 1000 / 60;
+
+  /**
+   * Distance still separating focus from a stationary target after `ms` of following at `fps`.
+   * Frame count is derived rather than accumulated: summing `dt` drifts by an ULP and silently
+   * buys the slower rate an extra frame, which reads as a real difference in decay.
+   */
+  function gapAfter(ms: number, fps: number, camLerp: number): number {
+    const dt = 1000 / fps;
+    const frames = Math.round(ms / dt);
+    let focus = { x: 0, y: 0 };
+    for (let i = 0; i < frames; i++) {
+      focus = smoothFollow(focus, { x: 100, y: 0 }, camLerp, dt);
+    }
+    return 100 - focus.x;
+  }
+
+  /** Steady-state trailing offset behind a target moving at `speed` world units per second. */
+  function settledLag(fps: number, speed: number, camLerp: number): number {
+    const dt = 1000 / fps;
+    let focus = { x: 0, y: 0 };
+    let target = 0;
+    for (let i = 0; i < fps * 5; i++) {
+      target += (speed * dt) / 1000;
+      focus = smoothFollow(focus, { x: target, y: 0 }, camLerp, dt);
+    }
+    return target - focus.x;
+  }
+
+  it("closes camLerp of the gap on a 60 Hz frame, leaving that rate's tuned feel unchanged", () => {
+    expect(smoothFollow({ x: 0, y: 0 }, { x: 100, y: 0 }, 0.18, REF_FRAME_MS).x).toBeCloseTo(18, 9);
+  });
+
+  it("closes the same fraction of a gap per second at any frame rate", () => {
+    // The exact property: decay over equal *elapsed time* must match, however that time is sliced
+    // into frames. This is what a per-frame constant gets wrong.
+    expect(gapAfter(1000, 60, 0.18)).toBeCloseTo(gapAfter(1000, 144, 0.18), 6);
+    expect(gapAfter(500, 30, 0.18)).toBeCloseTo(gapAfter(500, 240, 0.18), 6);
+  });
+
+  it("trails a moving car by the same distance at 60 and 144 Hz", () => {
+    // A per-frame constant trails 75 units at 60 Hz and 31 at 144 — a 44-unit difference in how
+    // much road ahead each player sees. Time-based smoothing leaves only the sub-frame sampling
+    // difference, which is a couple of units.
+    const at60 = settledLag(60, 540, 0.18);
+    const at144 = settledLag(144, 540, 0.18);
+    expect(at60).toBeGreaterThan(0);
+    expect(Math.abs(at60 - at144)).toBeLessThan(5);
+  });
+
+  it("pulls both axes toward the target", () => {
+    const out = smoothFollow({ x: 0, y: 100 }, { x: 100, y: 0 }, 0.5, REF_FRAME_MS);
+    expect(out.x).toBeCloseTo(50, 9);
+    expect(out.y).toBeCloseTo(50, 9);
+  });
+
+  it("stays put when it is already on the target", () => {
+    expect(smoothFollow({ x: 7, y: 9 }, { x: 7, y: 9 }, 0.18, REF_FRAME_MS)).toEqual({ x: 7, y: 9 });
+  });
+
+  it("does not mutate the focus it was given", () => {
+    const focus = { x: 10, y: 20 };
+    smoothFollow(focus, { x: 999, y: 999 }, 0.18, REF_FRAME_MS);
+    expect(focus).toEqual({ x: 10, y: 20 });
   });
 });

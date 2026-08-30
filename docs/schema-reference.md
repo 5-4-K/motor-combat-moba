@@ -16,7 +16,7 @@ Colyseus `@type` fields. Enums are explicit uint8; never renumber. `pendingCarId
 | `winnerTeam` | int8 | `-1` | `-1` none/draw, `0` A, `1` B |
 | `winnerSessionId` | string | `""` | FFA winner; else empty |
 | `players` | map `PlayerState` | empty | Keyed by sessionId |
-| `projectiles` | map `ProjectileState` | empty | Live shots |
+| `weapons` | map `WeaponInstanceState` | empty | Live projectile and beam instances, keyed by instance id |
 
 ## PlayerState
 
@@ -33,26 +33,115 @@ Colyseus `@type` fields. Enums are explicit uint8; never renumber. `pendingCarId
 | `carId` | string | `""` | `""` until reveal |
 | `speed` | number | `0` | Signed along heading |
 | `reverseHold` | uint16 | `0` | Ticks held in reverse |
+| `angVel` | number | `0` | Ram-injected spin, rad/s. Decays toward `0` |
+| `shoveX`, `shoveY` | number | `0` | Ram-injected lateral knock, u/s. Decays toward `0` |
+| `authority` | number | `1` | Steering multiplier; `1` = full control. A ram dips it toward `RAM_CONFIG.authorityFloor`, then it decays back toward `1`. Defaults to `1`, not `0` — a `0` default would mean "no steering" for every player never touched, presenting as an undriveable car on first spawn |
 | `hp` | uint16 | `0` | Actual HP |
 | `alive` | boolean | `true` | False when eliminated |
-| `weaponCooldown` | uint32 | `0` | Ticks remaining |
 | `selectLocked` | boolean | `false` | Car-select lock; pick still hidden |
+| `weapons` | array `WeaponSlotState` | empty | Per-slot state; array **position** is the slot index |
+| `switchLockUntilTick` | uint32 | `0` | Tick a DIFFERENT weapon may fire; the weapon that just fired instead is gated by its own slot's `refireLockUntilTick` |
+| `level` | uint8 | `1` | In-match level; pinned to 1 until the level system exists. Gates `unlocksAt` |
+| `pendingUntilTick` | uint32 | `0` | Tick a committed press next puts a shot out (wind-up, or the next volley of a burst). `0` = nothing pending; the HUD reads mid-press as `tick < pendingUntilTick` |
+| `lastFiredSlot` | int8 | `-1` | Slot the car most recently committed to firing; `-1` = never fired. Signed because `-1` is the natural "never" for an index |
+| `lockTargetSessionId` | string | `""` | Session id of this car's aim-assist target, or `""`. The only part of the lock that is networked |
+| `statuses` | array `StatusState` | empty | The statuses this car is in, capped at `STATUS_CONFIG.maxActive` (6). Sorted by `statusId` so a patch carries a diff rather than a reshuffle |
 
-## ProjectileState
+`weaponCooldown` (a single counter for the one pre-weapon-system shot) is gone — replaced by
+`weapons` above, one row per slot.
+
+`angVel`, `shoveX`, `shoveY`, and `authority` are the ram knock state (see
+[`combat-model.md`](combat-model.md#ramming)). They join `speed` and `reverseHold` in
+`PredictionBuffer.reconcile`'s always-**snap** set rather than the ease path — all four feed the
+next `stepSim` integration directly, so a half-eased value would poison every subsequent step rather
+than merely look wrong. See [`config-reference.md`](config-reference.md#ram_config) for the tuning
+that produces them.
+
+## StatusState
+
+One running status on one car. Array position carries no meaning — `modifiersOf` multiplies and OR-s,
+both of which commute — so the sim keeps rows sorted by `statusId` purely to keep patches small.
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
-| `id` | string | `""` | Projectile id (map key) |
+| `statusId` | string | `""` | Lookup key into `STATUS_TABLE`. Validated through `isStatusId` by every reader |
+| `startTick` | uint32 | `0` | The tick it was applied on. Two readers need it and neither can derive it: pulses are counted from here, and the drain bar's total is not in the status table because the applier chose it |
+| `endsTick` | uint32 | `0` | The tick it stops applying. Active while `tick < endsTick` — a tick, not a countdown, so it stays right between two patches at 20 Hz |
+| `sourceSessionId` | string | `""` | Who applied it; `""` for the world (a pickup, a hazard). The sim never reads it |
+
+There is deliberately **no `stacks` field**. A status cannot stack with itself — one id on one car is
+exactly one instance at exactly the strength its row states — so a count would only ever be 1.
+
+**Statuses are the one system with no server-only half.** `FireState`'s `pending` machine, an
+instance's `damageClock`, and the lock's commit timers all stay off the wire because the client is
+told the result rather than the rules. A status is the opposite case: `stepSim` reads the modifiers
+derived from these rows (invariant 8), so the client must hold the same list to predict the same car.
+`sourceSessionId` is the one field the sim does not read, and it is networked anyway so the schema
+stays the whole truth about a car's statuses rather than half of it beside a server-only map.
+
+Reconciliation does **not** snap or ease these. `angVel`/`shoveX`/`shoveY`/`authority` are values
+being integrated, so a half-eased one poisons the next step; a status list is the *rules* the
+integration runs under, and both halves of the lockstep derive it from the same tick through the same
+shared `modifiersFromRows`. See [`combat-model.md`](combat-model.md#statuses) for the model and
+[`config-reference.md`](config-reference.md#status_table) for the tuning.
+
+## WeaponInstanceState
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `id` | string | `""` | Instance id (map key) |
 | `ownerSessionId` | string | `""` | Shooter session |
+| `weaponId` | string | `""` | Lookup key into `WEAPON_TABLE` |
+| `kind` | uint8 `WeaponKind` | `PROJECTILE` | PROJECTILE=0, BEAM=1 |
 | `x`, `y`, `angle` | number | `0` | Canonical world pose |
-| `speed` | number | `0` | Along heading |
-| `spawnTick` | uint32 | `0` | Tick spawned; lifetime is measured against it |
+| `extent` | number | `0` | Beams: current reach. Projectiles: always 0 |
+| `spawnTick` | uint32 | `0` | Tick spawned |
 | `alive` | boolean | `true` | False when spent |
 
-Projectiles are server-owned. `runCombat` spawns, moves, and drops them; the room diffs the result
-onto the map by `id` rather than clearing and refilling it, so an unchanged shot is not re-patched.
-Entries are deleted the tick a shot expires, hits geometry, leaves the arena, or lands, and the whole
-map is cleared when a match starts or ends. Clients read it to draw and never write it. See
+`ArenaState.weapons` is a `MapSchema`, not an array, keyed by instance id — the bridge **diffs**
+live instances by id, and a collection cleared and refilled every tick would patch every instance to
+every client every tick, exactly the bandwidth the patch rate exists to avoid. The row is
+deliberately minimal: speed, range, shape, dimensions, colour and icon all come from a client-side
+`WEAPON_TABLE` lookup by `weaponId`, never duplicated onto the row. Colour is the case worth
+naming, because it used to come from somewhere else: an instance draws in its weapon's own
+`WEAPON_TABLE.color`, not its owner's `PlayerState.colorId`. `ownerSessionId` is a **sim** field —
+`canDamage` reads it for friendly fire, and an attached beam is re-anchored to (and killed with)
+its owner through it. The client does not read it at all; drawing a shot needs only `weaponId`. `runCombat` spawns, moves and
+drops instances; `combat-bridge.ts`'s `applyCombatResult` is the only writer, and the whole map is
+cleared when a match starts or ends. `damageClock` and `pierceLeft` are server-only sim state
+(`WeaponInstance` in `sim/weapons/instances.ts`) and never reach the wire. Clients read this map to
+draw and never write it. See [`combat-model.md`](combat-model.md).
+
+## WeaponSlotState
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `weaponId` | string | `""` | Lookup key into `WEAPON_TABLE` |
+| `stocks` | uint8 | `0` | Charges currently held |
+| `rechargeEndsTick` | uint32 | `0` | Tick the running recharge completes; `0` = not recharging |
+| `refireLockUntilTick` | uint32 | `0` | Tick this same weapon may fire again |
+
+`PlayerState.weapons` is an `ArraySchema<WeaponSlotState>` — array **position** is the slot index,
+matching `CAR_TABLE[car].weapons`' own ordering (index 0 = slot 1). Populated when the chassis is
+revealed; a player with no chassis yet (or an unrecognised `carId`) has an empty array and can fire
+nothing.
+
+**What a slot row cannot say.** Two facts the car-wide lockout needs are per *car*, not per slot, so
+they live on `PlayerState` rather than here: `pendingUntilTick` and `lastFiredSlot` (both above).
+`fire.ts`'s `pending` machine itself stays server-only — like `damageClock` and `pierceLeft` — and
+only the tick it next fires on crosses the wire.
+
+With those two, a weapon with `startUpMs > 0`, `volleys > 1`, or `recoveryMs > 0` is a `CAR_TABLE`
+edit and nothing else: the HUD dims every slot through a wind-up or volley and the other slots
+through recovery, and a mid-volley slot — `stocks` already spent at press time, `rechargeEndsTick`
+not written until the volley's last shot — reads as locked rather than as a full-brightness "ready"
+slot with nothing left to fire.
+
+## InputMessage.fireSlots
+
+`fireSlots: number` — a uint8 bitmask, bit 0 = slot 1 — replaced the single `fire: boolean`. The
+server masks it to `WEAPON_SLOT_CONFIG.maxWeaponSlots` bits and to the car's actual slot count
+before the sim ever sees it; multiple bits set on one tick resolve to the lowest slot. See
 [`combat-model.md`](combat-model.md).
 
 ## Join options

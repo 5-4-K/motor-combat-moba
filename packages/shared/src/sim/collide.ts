@@ -27,7 +27,7 @@ export interface Bounds {
   height: number;
 }
 
-interface Vec2 {
+export interface Vec2 {
   x: number;
   y: number;
 }
@@ -111,7 +111,17 @@ export function resolveWorld(
     // actually struck: each distinct surface damps the speed exactly once, never r^2 or r^3.
     next = clampIntoBounds(next, bounds);
   }
-  return { x: next.x, y: next.y, angle: next.angle, speed: next.speed, reverseHold: next.reverseHold };
+  return {
+    x: next.x,
+    y: next.y,
+    angle: next.angle,
+    speed: next.speed,
+    reverseHold: next.reverseHold,
+    angVel: next.angVel,
+    shoveX: next.shoveX,
+    shoveY: next.shoveY,
+    authority: next.authority,
+  };
 }
 
 /**
@@ -164,6 +174,10 @@ function clampIntoBounds(body: SimBody, bounds: Bounds): SimBody {
     angle: body.angle,
     speed: body.speed,
     reverseHold: body.reverseHold,
+    angVel: body.angVel,
+    shoveX: body.shoveX,
+    shoveY: body.shoveY,
+    authority: body.authority,
   };
 }
 
@@ -217,12 +231,30 @@ function applyContact(body: SimBody, push: Vec2): SimBody {
   const magnitude = Math.hypot(vx, vy);
   const speed = vx * forward.x + vy * forward.y < 0 ? -magnitude : magnitude;
 
+  // Ram shove is a second velocity the drive model does not know about, so it needs its own
+  // reflection or a knocked car would be driven into the surface every tick and held there by the
+  // clamp until the shove decayed. Same normal, same restitution, and gated on actually moving INTO
+  // the surface so a shove already leaving it is never amplified. A zero shove is a no-op, which is
+  // why the pre-ram collide tests are unaffected.
+  let shoveX = body.shoveX;
+  let shoveY = body.shoveY;
+  const shoveIntoSurface = shoveX * n.x + shoveY * n.y;
+  if (shoveIntoSurface < 0) {
+    const shoveScale = (1 + DRIVE_CONFIG.restitution) * shoveIntoSurface;
+    shoveX -= shoveScale * n.x;
+    shoveY -= shoveScale * n.y;
+  }
+
   return {
     x: body.x + push.x,
     y: body.y + push.y,
     angle: body.angle,
     speed,
     reverseHold: body.reverseHold,
+    angVel: body.angVel,
+    shoveX,
+    shoveY,
+    authority: body.authority,
   };
 }
 
@@ -270,7 +302,7 @@ function mtvBetween(a: Obb, b: Obb): Vec2 | null {
 }
 
 /** The four corners, in a fixed local order so projections are deterministic. */
-function obbCorners(o: Obb): Vec2[] {
+export function obbCorners(o: Obb): Vec2[] {
   const c = Math.cos(o.angle);
   const s = Math.sin(o.angle);
   const hw = o.w / 2;
@@ -324,11 +356,11 @@ function hullHalfExtents(body: SimBody): Vec2 {
 
 /**
  * Do two oriented boxes overlap? The same SAT the resolver uses, asked as a yes/no question rather
- * than for a push vector — car-vs-car ram detection needs the contact, not the correction.
+ * than for a push vector — a contact test needs the fact of overlap, not the correction.
  *
- * Sharing `mtvBetween` is the point: a separate overlap test would drift from the resolver, and a
- * ram that registered on a pair the resolver had already pushed apart (or vice versa) would read as
- * damage from nothing. "Merely touching" is not an overlap here, exactly as it is not there.
+ * Sharing `mtvBetween` is the point: a separate overlap test would drift from the resolver, so
+ * whatever consumes this answer can never disagree with what the resolver already pushed apart (or
+ * didn't). "Merely touching" is not an overlap here, exactly as it is not there.
  */
 export function obbsOverlap(a: Obb, b: Obb): boolean {
   return mtvBetween(a, b) !== null;
@@ -340,12 +372,18 @@ export function obbsOverlap(a: Obb, b: Obb): boolean {
  * This exists because `obbsOverlap` answers the wrong question for anything that runs *after*
  * resolution. `resolveWorld` pushes a car out to exactly the separation boundary, and the SAT treats
  * "just touching" as separated — so two cars that collided this tick end it at a measured gap of
- * zero and `obbsOverlap` is false. Ram detection asked that question first and never fired once in a
- * live match, while passing every unit test, because the tests hand-placed cars in a state the sim
- * never actually produces.
+ * zero and `obbsOverlap` is false.
+ *
+ * Kept as a tested pure-geometry predicate on the package's public surface even though it now has
+ * zero callers: its original caller, ram detection, was removed on 2026-08-28 when collision stopped
+ * dealing damage (see `docs/superpowers/specs/2026-08-28-attack-stat-damage-formula-design.md`).
+ * `resolveInstanceHits`/projectile hit tests use `pointInObb` instead, so nothing in the live tick
+ * calls this today — it stays as a documented, exercised primitive for whatever next needs a padded
+ * contact test.
  *
  * The slack is applied to the half-extents of both boxes, so the effective tolerance on the gap
- * between them is `2 * pad`. Keep it small — see `COMBAT_CONFIG.ramContactPad`.
+ * between them is `2 * pad`. Keep it small — the config key that used to size it,
+ * `COMBAT_CONFIG.ramContactPad`, was deleted with ram detection; a future caller supplies its own.
  */
 export function obbsInContact(a: Obb, b: Obb, pad: number): boolean {
   return obbsOverlap(inflate(a, pad), inflate(b, pad));
@@ -353,6 +391,27 @@ export function obbsInContact(a: Obb, b: Obb, pad: number): boolean {
 
 function inflate(o: Obb, pad: number): Obb {
   return { x: o.x, y: o.y, angle: o.angle, w: o.w + pad * 2, h: o.h + pad * 2 };
+}
+
+/**
+ * The unit contact normal between two boxes that are touching or overlapping within `pad`, or `null`
+ * when they are apart.
+ *
+ * **`n` points from `b` toward `a`**, matching `mtvBetween`'s contract that its vector moves `a`
+ * clear of `b`. Pinned by test, because an inverted normal here would spin ram victims the wrong way
+ * and classify every front hit as a rear one.
+ *
+ * The pad is not optional decoration. `resolveWorld` runs before anything that would ask this
+ * question and pushes colliding cars out to *exactly* the separation boundary, where SAT reports
+ * them separated — so an unpadded normal is `null` on every tick of a real collision. This is the
+ * same problem, and the same fix, as `obbsInContact`.
+ */
+export function contactNormalBetween(a: Obb, b: Obb, pad: number): Vec2 | null {
+  const mtv = mtvBetween(inflate(a, pad), inflate(b, pad));
+  if (mtv === null) return null;
+  const length = Math.hypot(mtv.x, mtv.y);
+  if (length <= MIN_OVERLAP) return null;
+  return { x: mtv.x / length, y: mtv.y / length };
 }
 
 /**
@@ -373,4 +432,81 @@ export function pointInObb(px: number, py: number, o: Obb): boolean {
 /** Point-in-axis-aligned-box, with `box.x, box.y` the TOP-LEFT corner as arena obstacles author it. */
 export function pointInAabb(px: number, py: number, box: Aabb): boolean {
   return px >= box.x && px <= box.x + box.w && py >= box.y && py <= box.y + box.h;
+}
+
+/**
+ * The four corners of an axis-aligned box, so an obstacle can be fed to `convexOverlap` alongside a
+ * weapon's swept hull. Routed through `obbCorners` rather than spelled out again, so obstacles
+ * always wind the same way the car hulls do.
+ */
+export function aabbCorners(box: Aabb): Vec2[] {
+  return obbCorners(aabbToObb(box));
+}
+
+/**
+ * Is this point off the field? INCLUSIVE on every edge — a point exactly on the boundary is out —
+ * matching `pointInAabb`'s convention that a point on an obstacle's face is inside it.
+ *
+ * One spelling of one rule, shared by everything that asks it: a projectile leaving the arena
+ * (`combat.ts`) and a beam clipping against it (`weapons/instances.ts`) used to disagree by a strict
+ * `<` against a `<=`, so a shot exactly on the edge survived where a beam already stopped.
+ */
+export function pointOutsideBounds(px: number, py: number, bounds: Bounds): boolean {
+  return px <= 0 || py <= 0 || px >= bounds.width || py >= bounds.height;
+}
+
+/**
+ * Separating Axis Theorem over two convex polygons, as a yes/no. Shares `MIN_OVERLAP` with
+ * `mtvBetween`, so "just touching" counts as separated here exactly as it does for driving. That is
+ * the same property `obbsInContact` exists to work around, and weapon hit tests inherit it rather
+ * than contradicting it: one rule about touching, applied everywhere.
+ *
+ * Both inputs must be convex and wound consistently. Weapon hitboxes are generated by
+ * `sim/weapons/shapes.ts`, never hand-authored, which is what makes that safe to assume.
+ */
+export function convexOverlap(a: readonly Vec2[], b: readonly Vec2[]): boolean {
+  if (a.length < 3 || b.length < 3) return false;
+  for (const axis of [...edgeNormals(a), ...edgeNormals(b)]) {
+    const spanA = projectOnto(a, axis);
+    const spanB = projectOnto(b, axis);
+    if (spanA.max - spanB.min <= MIN_OVERLAP) return false;
+    if (spanB.max - spanA.min <= MIN_OVERLAP) return false;
+  }
+  return true;
+}
+
+/** Outward normals of each edge, the candidate separating axes for a convex polygon. */
+function edgeNormals(points: readonly Vec2[]): Vec2[] {
+  const axes: Vec2[] = [];
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i]!;
+    const q = points[(i + 1) % points.length]!;
+    const ex = q.x - p.x;
+    const ey = q.y - p.y;
+    const length = Math.hypot(ex, ey);
+    if (length <= MIN_OVERLAP) continue;
+    axes.push({ x: -ey / length, y: ex / length });
+  }
+  return axes;
+}
+
+/**
+ * Exact circle-vs-OBB: rotate the circle's centre into the box's local frame, clamp to the box, and
+ * compare the distance to the radius. Exact rather than polygonal because a circle is the common
+ * projectile hitbox and an inscribed polygon would quietly under-report hits.
+ */
+export function circleOverlapsObb(cx: number, cy: number, r: number, box: Obb): boolean {
+  const cos = Math.cos(-box.angle);
+  const sin = Math.sin(-box.angle);
+  const dx = cx - box.x;
+  const dy = cy - box.y;
+  const localX = dx * cos - dy * sin;
+  const localY = dx * sin + dy * cos;
+
+  const hx = box.w / 2;
+  const hy = box.h / 2;
+  const nearestX = Math.min(hx, Math.max(-hx, localX));
+  const nearestY = Math.min(hy, Math.max(-hy, localY));
+
+  return Math.hypot(localX - nearestX, localY - nearestY) < r;
 }

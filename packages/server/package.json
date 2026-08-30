@@ -7,8 +7,10 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsup",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p playtest/tsconfig.json",
+    "test": "vitest run",
+    "playtest": "tsx playtest/run-all.ts",
+    "playtest:lan": "tsx playtest/lan.ts"
   },
   "dependencies": {
     "@motor-combat-moba/shared": "*",

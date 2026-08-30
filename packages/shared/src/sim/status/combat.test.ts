@@ -1,0 +1,478 @@
+import { describe, expect, it } from "vitest";
+import { ARENA_01 } from "../../arena/arena-01.js";
+import { hpOf } from "../../config/car-config.js";
+import { STATUS_TABLE, statusDefOf } from "../../config/status-config.js";
+import { statusPulseTicksOf } from "../../config/status-ticks.js";
+import { WEAPON_TABLE } from "../../config/weapon-config.js";
+import { weaponTicksOf } from "../../config/weapon-ticks.js";
+import { MS_PER_TICK } from "../../constants.js";
+import {
+  runCombat,
+  type CombatPlayer,
+  type CombatResult,
+  type CombatWorld,
+} from "../combat.js";
+import { newFireState } from "../weapons/fire.js";
+import { newLockState } from "../weapons/lock.js";
+import { hasStatus, type ActiveStatus } from "./statuses.js";
+
+/**
+ * Statuses as `runCombat` sees them: pulses, the two application seams, and the aura.
+ *
+ * Everything here runs against the SHIPPED weapon table rather than a patched one. That is the
+ * point — the mechanism is wired to real weapons now, so these tests fail if a re-tune quietly
+ * unhooks one.
+ */
+
+const DT = MS_PER_TICK / 1000;
+const OPEN_Y = 360;
+
+function world(over: Partial<CombatWorld> = {}): CombatWorld {
+  return {
+    tick: 100,
+    dt: DT,
+    mode: "ffa",
+    obstacles: ARENA_01.obstacles,
+    bounds: { width: ARENA_01.width, height: ARENA_01.height },
+    ...over,
+  };
+}
+
+function player(sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlayer {
+  const carId = over.carId ?? "rectangle";
+  return {
+    sessionId,
+    x: 300,
+    y: OPEN_Y,
+    angle: 0,
+    team: 0,
+    carId,
+    hp: hpOf(carId as "rectangle"),
+    alive: true,
+    inRoster: true,
+    fireMask: 0,
+    fireState: newFireState(carId as "rectangle", 1),
+    lock: newLockState(),
+    statuses: [],
+    ...over,
+  };
+}
+
+function find(players: CombatPlayer[], sessionId: string): CombatPlayer {
+  const found = players.find((p) => p.sessionId === sessionId);
+  if (!found) throw new Error(`no player ${sessionId}`);
+  return found;
+}
+
+function live(statusId: keyof typeof STATUS_TABLE, startTick: number, endsTick: number): ActiveStatus[] {
+  return [{ statusId, startTick, endsTick, sourceSessionId: "" }];
+}
+
+/** Run `ticks` ticks forward from a result, firing nothing further. */
+function advance(from: CombatResult, startTick: number, ticks: number): CombatResult {
+  let state = from;
+  for (let i = 1; i <= ticks; i++) {
+    state = runCombat({
+      world: world({ tick: startTick + i }),
+      players: state.players.map((p) => ({ ...p, fireMask: 0 })),
+      instances: state.instances,
+      instanceSeq: state.instanceSeq,
+    });
+  }
+  return state;
+}
+
+describe("status pulses", () => {
+  it("removes hp on the pulse tick and not before", () => {
+    const interval = statusPulseTicksOf("spiked");
+    const damage = statusDefOf("spiked").pulse!.damage!;
+    const full = hpOf("rectangle");
+
+    const before = runCombat({
+      world: world({ tick: 100 + interval - 1 }),
+      players: [player("aaa", { statuses: live("spiked", 100, 400) })],
+      instances: [],
+      instanceSeq: 0,
+    });
+    expect(find(before.players, "aaa").hp).toBe(full);
+
+    const on = runCombat({
+      world: world({ tick: 100 + interval }),
+      players: [player("aaa", { statuses: live("spiked", 100, 400) })],
+      instances: [],
+      instanceSeq: 0,
+    });
+    expect(find(on.players, "aaa").hp).toBe(full - damage);
+  });
+
+  it("restores hp for a healing status, capped at the chassis maximum", () => {
+    const interval = statusPulseTicksOf("fortified");
+    const heal = statusDefOf("fortified").pulse!.heal!;
+    const full = hpOf("hexagon");
+
+    const hurt = runCombat({
+      world: world({ tick: 100 + interval }),
+      players: [player("aaa", { carId: "hexagon", hp: 100, statuses: live("fortified", 100, 400) })],
+      instances: [],
+      instanceSeq: 0,
+    });
+    expect(find(hurt.players, "aaa").hp).toBe(100 + heal);
+
+    const nearlyFull = runCombat({
+      world: world({ tick: 100 + interval }),
+      players: [player("aaa", { carId: "hexagon", hp: full - 1, statuses: live("fortified", 100, 400) })],
+      instances: [],
+      instanceSeq: 0,
+    });
+    expect(find(nearlyFull.players, "aaa").hp).toBe(full);
+  });
+
+  it("wrecks a car whose bleed takes it to 0, by the same path a bullet does", () => {
+    const interval = statusPulseTicksOf("spiked");
+    const result = runCombat({
+      world: world({ tick: 100 + interval }),
+      players: [player("aaa", { hp: 5, statuses: live("spiked", 100, 400) })],
+      instances: [],
+      instanceSeq: 0,
+    });
+    const dead = find(result.players, "aaa");
+    expect(dead.hp).toBe(0);
+    expect(dead.alive).toBe(false);
+  });
+
+  it("denies the last shot to a car its own bleed killed this tick", () => {
+    // Pulses run before firing precisely so this is true: you died to the burn already on you.
+    const interval = statusPulseTicksOf("spiked");
+    const result = runCombat({
+      world: world({ tick: 100 + interval }),
+      players: [player("aaa", { hp: 5, fireMask: 0b001, statuses: live("spiked", 100, 400) })],
+      instances: [],
+      instanceSeq: 0,
+    });
+    expect(find(result.players, "aaa").alive).toBe(false);
+    expect(result.instances).toHaveLength(0);
+  });
+
+  it("neither burns nor heals a wreck", () => {
+    const interval = statusPulseTicksOf("fortified");
+    const result = runCombat({
+      world: world({ tick: 100 + interval }),
+      players: [
+        player("aaa", { hp: 0, alive: false, statuses: live("fortified", 100, 400) }),
+        player("bbb", { x: 900, hp: 0, alive: false, statuses: live("spiked", 100, 400) }),
+      ],
+      instances: [],
+      instanceSeq: 0,
+    });
+    expect(find(result.players, "aaa").hp).toBe(0);
+    expect(find(result.players, "aaa").alive).toBe(false);
+    expect(find(result.players, "bbb").hp).toBe(0);
+  });
+});
+
+describe("the room's status request queue", () => {
+  it("puts the requested status on the named car for the duration the room asked for", () => {
+    const result = runCombat({
+      world: world(),
+      players: [player("aaa")],
+      instances: [],
+      instanceSeq: 0,
+      statusRequests: [{ targetSessionId: "aaa", statusId: "overhauled", durationTicks: 40 }],
+    });
+    const target = find(result.players, "aaa");
+    expect(hasStatus(target.statuses, "overhauled", 100)).toBe(true);
+    expect(target.statuses[0]!.startTick).toBe(100);
+    expect(target.statuses[0]!.endsTick).toBe(140);
+  });
+
+  it("delivers the repair a pickup will want: strips debuffs, restores no hp", () => {
+    const hurt = 200;
+    const result = runCombat({
+      world: world(),
+      players: [player("aaa", { hp: hurt, statuses: live("spiked", 90, 400) })],
+      instances: [],
+      instanceSeq: 0,
+      statusRequests: [{ targetSessionId: "aaa", statusId: "overhauled", durationTicks: 30 }],
+    });
+    const target = find(result.players, "aaa");
+    expect(hasStatus(target.statuses, "spiked", 100)).toBe(false);
+    expect(target.hp).toBe(hurt);
+  });
+
+  it("ignores a request for a car that is not in the fight, and an unknown id", () => {
+    const result = runCombat({
+      world: world(),
+      players: [player("aaa", { alive: false }), player("bbb", { inRoster: false, x: 900 })],
+      instances: [],
+      instanceSeq: 0,
+      statusRequests: [
+        { targetSessionId: "aaa", statusId: "corroded", durationTicks: 40 },
+        { targetSessionId: "bbb", statusId: "corroded", durationTicks: 40 },
+        { targetSessionId: "nobody", statusId: "corroded", durationTicks: 40 },
+        { targetSessionId: "aaa", statusId: "nonsense" as never, durationTicks: 40 },
+      ],
+    });
+    for (const p of result.players) expect(p.statuses).toHaveLength(0);
+  });
+
+  it("does not bite on the tick it lands", () => {
+    const withRequest = runCombat({
+      world: world(),
+      players: [player("aaa", { hp: 100, statuses: live("spiked", 99, 400) })],
+      instances: [],
+      instanceSeq: 0,
+      statusRequests: [{ targetSessionId: "aaa", statusId: "overhauled", durationTicks: 30 }],
+    });
+    // The cleanse landed, but the modifiers this tick were read before it: a request cannot
+    // retroactively change what already happened on the tick it arrived.
+    expect(hasStatus(find(withRequest.players, "aaa").statuses, "spiked", 100)).toBe(false);
+  });
+});
+
+describe("weapons apply statuses", () => {
+  /** A shooter facing a target close enough for one press to land within a few ticks. */
+  function duel(shooterOver: Partial<CombatPlayer> = {}): CombatPlayer[] {
+    return [
+      player("aaa", { fireMask: 0b001, x: 300, angle: 0, ...shooterOver }),
+      player("bbb", { x: 360, team: 1 }),
+    ];
+  }
+
+  it("splinter spikes what it hits, for its own authored duration", () => {
+    const shooter = { carId: "oval" as const, fireState: newFireState("oval", 1) };
+    let state = runCombat({
+      world: world(),
+      players: duel(shooter),
+      instances: [],
+      instanceSeq: 0,
+    });
+    state = advance(state, 100, 10);
+
+    const hit = find(state.players, "bbb");
+    expect(hit.hp).toBeLessThan(hpOf("rectangle"));
+    expect(hasStatus(hit.statuses, "spiked", 110)).toBe(true);
+    // The shooter is the source, and never a target of its own opponent-facing application.
+    expect(hit.statuses[0]!.sourceSessionId).toBe("aaa");
+    expect(find(state.players, "aaa").statuses).toHaveLength(0);
+
+    const applied = hit.statuses[0]!;
+    expect(applied.endsTick - applied.startTick).toBe(weaponTicksOf("splinter").applyDurations[0]);
+  });
+
+  it("bulwark fortifies the car that deployed it, whether or not it catches anyone", () => {
+    // The roster's only `self` application, and the only one that needs no hit at all.
+    const result = runCombat({
+      world: world(),
+      players: [
+        player("aaa", { carId: "hexagon", fireState: newFireState("hexagon", 1), fireMask: 0b100 }),
+      ],
+      instances: [],
+      instanceSeq: 0,
+    });
+    const owner = find(result.players, "aaa");
+    expect(hasStatus(owner.statuses, "fortified", 100)).toBe(true);
+    expect(owner.statuses[0]!.sourceSessionId).toBe("aaa");
+  });
+
+  it("applies a `self` status only when a shot actually goes out", () => {
+    // A press the cooldown rejects buys nothing: the first press fires and fortifies, the second is
+    // refused and must not top the buff up.
+    const first = runCombat({
+      world: world(),
+      players: [
+        player("aaa", { carId: "hexagon", fireState: newFireState("hexagon", 1), fireMask: 0b100 }),
+      ],
+      instances: [],
+      instanceSeq: 0,
+    });
+    const applied = find(first.players, "aaa").statuses[0]!;
+
+    const second = runCombat({
+      world: world({ tick: 101 }),
+      players: first.players.map((p) => ({ ...p, fireMask: 0b100 })),
+      instances: first.instances,
+      instanceSeq: first.instanceSeq,
+    });
+    const after = find(second.players, "aaa").statuses[0]!;
+    expect(after.endsTick).toBe(applied.endsTick);
+  });
+
+  it("carries no status onto a car the shot never damaged", () => {
+    // Same team in team mode: `canDamage` refuses, so there is no hit for a status to ride.
+    let state = runCombat({
+      world: world({ mode: "team" }),
+      players: [
+        player("aaa", { carId: "oval", fireState: newFireState("oval", 1), fireMask: 0b001, x: 300 }),
+        player("bbb", { x: 360, team: 0 }),
+      ],
+      instances: [],
+      instanceSeq: 0,
+    });
+    for (let i = 1; i <= 10; i++) {
+      state = runCombat({
+        world: world({ tick: 100 + i, mode: "team" }),
+        players: state.players.map((p) => ({ ...p, fireMask: 0 })),
+        instances: state.instances,
+        instanceSeq: state.instanceSeq,
+      });
+    }
+    expect(find(state.players, "bbb").statuses).toHaveLength(0);
+  });
+
+  it("`disarmed` blocks a new press and spends no stock", () => {
+    const jammed = runCombat({
+      world: world(),
+      players: [player("aaa", { fireMask: 0b001, statuses: live("stunned", 99, 400) })],
+      instances: [],
+      instanceSeq: 0,
+    });
+    expect(jammed.instances).toHaveLength(0);
+    expect(find(jammed.players, "aaa").fireState.slots[0]!.stocks).toBe(1);
+  });
+
+  it("`disarmed` lets a press already committed finish", () => {
+    // `skewer` has a wind-up, so a press on tick 100 is still pending on 101.
+    const pressed = runCombat({
+      world: world(),
+      players: [player("aaa", { carId: "oval", fireState: newFireState("oval", 1), fireMask: 0b010 })],
+      instances: [],
+      instanceSeq: 0,
+    });
+    expect(pressed.instances).toHaveLength(0);
+    expect(find(pressed.players, "aaa").fireState.pending).not.toBeNull();
+
+    let state = pressed;
+    for (let tick = 101; tick < 130 && state.instances.length === 0; tick++) {
+      state = runCombat({
+        world: world({ tick }),
+        players: state.players.map((p) => ({ ...p, fireMask: 0, statuses: live("stunned", 99, 400) })),
+        instances: state.instances,
+        instanceSeq: state.instanceSeq,
+      });
+    }
+    expect(state.instances).toHaveLength(1);
+  });
+
+  it("`damageTaken` scales what a landing shot costs the target", () => {
+    const land = (statuses: ActiveStatus[]) => {
+      let state = runCombat({
+        world: world(),
+        players: [
+          player("aaa", { carId: "oval", fireState: newFireState("oval", 1), fireMask: 0b001, x: 300 }),
+          player("bbb", { x: 360, team: 1, statuses }),
+        ],
+        instances: [],
+        instanceSeq: 0,
+      });
+      state = advance(state, 100, 10);
+      return hpOf("rectangle") - find(state.players, "bbb").hp;
+    };
+    const plain = land([]);
+    expect(plain).toBeGreaterThan(0);
+    expect(land(live("corroded", 99, 400))).toBeGreaterThan(plain);
+    expect(land(live("fortified", 99, 400))).toBeLessThan(plain);
+  });
+
+  it("reads a car's modifiers once, from the list it was handed", () => {
+    // A status lapsing on this very tick must not act on it.
+    const lapsed = runCombat({
+      world: world({ tick: 100 }),
+      players: [player("aaa", { fireMask: 0b001, statuses: live("stunned", 60, 100) })],
+      instances: [],
+      instanceSeq: 0,
+    });
+    expect(lapsed.instances).toHaveLength(1);
+  });
+});
+
+describe("the aura", () => {
+  it("shockwave is a car-centred disc, and reaches behind the car as well as in front", () => {
+    const def = WEAPON_TABLE.shockwave;
+    expect(def.kind).toBe("beam");
+    expect(def.hitbox).toEqual({ shape: "disc" });
+    expect(def.origin).toBe("center");
+    expect(def.attached).toBe(true);
+
+    // A target directly BEHIND the shooter: unreachable by the forward cone this weapon used to be.
+    let state = runCombat({
+      world: world(),
+      players: [
+        player("aaa", { carId: "hexagon", fireState: newFireState("hexagon", 1), fireMask: 0b010, x: 400, angle: 0 }),
+        player("bbb", { x: 340, team: 1 }),
+      ],
+      instances: [],
+      instanceSeq: 0,
+    });
+    state = advance(state, 100, 6);
+
+    const behind = find(state.players, "bbb");
+    expect(behind.hp).toBeLessThan(hpOf("rectangle"));
+    expect(hasStatus(behind.statuses, "stunned", 106)).toBe(true);
+  });
+
+  it("spawns concentric with the car rather than at its nose", () => {
+    const result = runCombat({
+      world: world(),
+      players: [
+        player("aaa", { carId: "hexagon", fireState: newFireState("hexagon", 1), fireMask: 0b010, x: 400, y: OPEN_Y }),
+      ],
+      instances: [],
+      instanceSeq: 0,
+    });
+    expect(result.instances).toHaveLength(1);
+    expect(result.instances[0]!.x).toBe(400);
+    expect(result.instances[0]!.y).toBe(OPEN_Y);
+  });
+
+  it("never touches the car that cast it", () => {
+    // `canDamage` already refuses the owner, which is exactly why an opponent-facing aura needs no
+    // change to the friendly-fire predicate at all.
+    let state = runCombat({
+      world: world(),
+      players: [
+        player("aaa", { carId: "hexagon", fireState: newFireState("hexagon", 1), fireMask: 0b010, x: 400 }),
+      ],
+      instances: [],
+      instanceSeq: 0,
+    });
+    state = advance(state, 100, 6);
+    const caster = find(state.players, "aaa");
+    expect(caster.hp).toBe(hpOf("hexagon"));
+    expect(caster.statuses).toHaveLength(0);
+  });
+
+  it("follows the car it is attached to", () => {
+    let state = runCombat({
+      world: world(),
+      players: [
+        player("aaa", { carId: "hexagon", fireState: newFireState("hexagon", 1), fireMask: 0b010, x: 400 }),
+      ],
+      instances: [],
+      instanceSeq: 0,
+    });
+    // Driving happens outside combat, so move the car and step: the aura must come with it.
+    state = runCombat({
+      world: world({ tick: 101 }),
+      players: state.players.map((p) => ({ ...p, fireMask: 0, x: 480 })),
+      instances: state.instances,
+      instanceSeq: state.instanceSeq,
+    });
+    expect(state.instances[0]!.x).toBe(480);
+  });
+
+  it("grows out to its authored radius", () => {
+    let state = runCombat({
+      world: world(),
+      players: [
+        player("aaa", { carId: "hexagon", fireState: newFireState("hexagon", 1), fireMask: 0b010, x: 400 }),
+      ],
+      instances: [],
+      instanceSeq: 0,
+    });
+    expect(state.instances[0]!.extent).toBe(0);
+    state = advance(state, 100, 5);
+    expect(state.instances[0]?.extent ?? WEAPON_TABLE.shockwave.range).toBeLessThanOrEqual(
+      WEAPON_TABLE.shockwave.range,
+    );
+  });
+});

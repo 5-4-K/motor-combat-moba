@@ -5,7 +5,9 @@ import path from "node:path";
 import { after, describe, it } from "node:test";
 import {
   assertNoDevOnlyCode,
+  assertOnlyActiveArenaShipped,
   DEV_ONLY_MARKERS,
+  pruneArenaAssets,
   releasePackageJson,
   startBat,
   startSh,
@@ -97,5 +99,113 @@ describe("assertNoDevOnlyCode", () => {
 
   it("declares at least one marker", () => {
     assert.ok(DEV_ONLY_MARKERS.length > 0);
+  });
+});
+
+describe("pruneArenaAssets", () => {
+  const madeDirs = [];
+  after(() => {
+    for (const dir of madeDirs) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** A client dist holding three arenas' art plus a car and a shared wall, with a manifest naming all five. */
+  function makeDist() {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcm-arena-"));
+    madeDirs.push(dir);
+    const art = path.join(dir, "art");
+    for (const arena of ["arena-01", "arena-02", "arena-03", "common"]) {
+      fs.mkdirSync(path.join(art, "arenas", arena), { recursive: true });
+      fs.writeFileSync(path.join(art, "arenas", arena, "floor.png"), "x".repeat(100));
+    }
+    fs.mkdirSync(path.join(art, "cars"), { recursive: true });
+    fs.writeFileSync(path.join(art, "cars", "rectangle.png"), "x");
+    fs.writeFileSync(
+      path.join(art, "manifest.json"),
+      JSON.stringify({
+        sprites: {
+          "car.rectangle": { file: "cars/rectangle.png" },
+          "arena.common.floor": { file: "arenas/common/floor.png" },
+          "arena.arena-01.floor": { file: "arenas/arena-01/floor.png" },
+          "arena.arena-02.floor": { file: "arenas/arena-02/floor.png" },
+          "arena.arena-03.floor": { file: "arenas/arena-03/floor.png" },
+        },
+      }),
+    );
+    return dir;
+  }
+
+  it("keeps the active arena and common, removes the rest", () => {
+    const dir = makeDist();
+    const result = pruneArenaAssets(dir, "arena-01");
+    assert.deepEqual(result.kept, ["arena-01", "common"]);
+    assert.deepEqual(result.removed, ["arena-02", "arena-03"]);
+    assert.ok(result.bytesRemoved >= 200);
+    assert.ok(fs.existsSync(path.join(dir, "art", "arenas", "arena-01", "floor.png")));
+    assert.ok(fs.existsSync(path.join(dir, "art", "arenas", "common", "floor.png")));
+    assert.ok(!fs.existsSync(path.join(dir, "art", "arenas", "arena-02")));
+    assert.ok(!fs.existsSync(path.join(dir, "art", "arenas", "arena-03")));
+  });
+
+  it("drops the pruned arenas' manifest keys and keeps every other key", () => {
+    const dir = makeDist();
+    pruneArenaAssets(dir, "arena-01");
+    const manifest = JSON.parse(fs.readFileSync(path.join(dir, "art", "manifest.json"), "utf8"));
+    assert.deepEqual(Object.keys(manifest.sprites).sort(), [
+      "arena.arena-01.floor",
+      "arena.common.floor",
+      "car.rectangle",
+    ]);
+  });
+
+  it("is idempotent", () => {
+    const dir = makeDist();
+    pruneArenaAssets(dir, "arena-01");
+    const second = pruneArenaAssets(dir, "arena-01");
+    assert.deepEqual(second.removed, []);
+    assert.equal(second.bytesRemoved, 0);
+  });
+
+  it("does nothing when there is no arena art at all", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcm-arena-"));
+    madeDirs.push(dir);
+    const result = pruneArenaAssets(dir, "arena-01");
+    assert.deepEqual(result.kept, []);
+    assert.deepEqual(result.removed, []);
+  });
+
+  it("passes its own assertion afterwards", () => {
+    const dir = makeDist();
+    pruneArenaAssets(dir, "arena-01");
+    assert.doesNotThrow(() => assertOnlyActiveArenaShipped(dir, "arena-01"));
+  });
+});
+
+describe("assertOnlyActiveArenaShipped", () => {
+  const madeDirs = [];
+  after(() => {
+    for (const dir of madeDirs) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  function makeDir() {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcm-assert-"));
+    madeDirs.push(dir);
+    fs.mkdirSync(path.join(dir, "art", "arenas", "arena-01"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "art", "manifest.json"), JSON.stringify({ sprites: {} }));
+    return dir;
+  }
+
+  it("throws when another arena's directory survived", () => {
+    const dir = makeDir();
+    fs.mkdirSync(path.join(dir, "art", "arenas", "arena-07"), { recursive: true });
+    assert.throws(() => assertOnlyActiveArenaShipped(dir, "arena-01"), /arena-07/);
+  });
+
+  it("throws when another arena's manifest key survived", () => {
+    const dir = makeDir();
+    fs.writeFileSync(
+      path.join(dir, "art", "manifest.json"),
+      JSON.stringify({ sprites: { "arena.arena-07.floor": { file: "arenas/arena-07/floor.png" } } }),
+    );
+    assert.throws(() => assertOnlyActiveArenaShipped(dir, "arena-01"), /arena\.arena-07\.floor/);
   });
 });

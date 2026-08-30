@@ -4,6 +4,22 @@ Drop PNGs in here and name them in `manifest.json`. Nothing else is required —
 no rebuild. A key with no entry, or an entry whose file is missing, falls back to the procedural
 silhouette the game drew before any art existed.
 
+## Checking what is in here
+
+```bash
+npm run check:art
+```
+
+Reports every problem this directory can have: a lost alpha channel, a manifest row naming a file
+that is gone, a file nothing references, an off-size icon, a car sprite that still carries colour
+while being player-tinted, an icon whose colour has drifted from its weapon's `WEAPON_TABLE.color`.
+`npm run check:cars` and `npm run check:weapons` scope it to one asset class.
+
+Worth running after editing a PNG **in place** — an image editor bypasses the importers below, and
+the nastiest failure is silent: a PNG saved without alpha (Paint.NET's "24-bit" option, and the
+equivalent elsewhere) still loads, so nothing falls back. It just draws an opaque box. `npm test`
+runs the blocker-level checks for that reason; the warnings are advisory and never fail it.
+
 ## Importing a generated image
 
 For anything that did not arrive already sized for the hull — an AI generation, a pack sprite —
@@ -51,6 +67,30 @@ The hull it fits against comes from `DRIVE_CONFIG` in shared, so shared must be 
 ```
 
 3. Reload with `?dev=assets` to check the fit against the hitbox.
+
+## Weapon icons
+
+The weapon slot HUD draws a procedural glyph (a filled circle for a projectile, a bar for a beam)
+for any slot whose weapon has no manifest icon. To replace one with real art:
+
+```bash
+node scripts/import-weapon-icon.mjs --weapon <weaponId> --src <path>
+```
+
+It trims the transparent margin, fits the result into a 128x128 square (`ICON_PX` — twice the
+~64px HUD box, so the icon stays sharp and the deferred device-pixel-ratio work needs no
+re-import), and writes `weapon-icons/<weaponId>.png`, adding or updating the `weapon-icon.<id>`
+manifest row. Re-run it on the same weapon to replace its icon; **fields you tuned by hand are
+preserved**, only `file` is rewritten.
+
+**Icons keep their colour.** A weapon icon is never player-tinted — the row is always written with
+`"colorMode": "none"` — so unlike `import-art.mjs` this importer has no `--keep-color` flag and no
+desaturation step at all. The car importer desaturates *because* car sprites are multiplied by the
+player's colour at runtime; doing that to an icon would leave every weapon's icon the same grey
+blob rather than the colour it was drawn in.
+
+There is no `?dev=assets` preview for icons — that tool is car-only. Check the fit by running
+`npm run dev`, joining a match with the weapon equipped, and looking at its slot in the HUD bar.
 
 ## Fields
 

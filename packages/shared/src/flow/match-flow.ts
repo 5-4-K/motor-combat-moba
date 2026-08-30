@@ -10,10 +10,11 @@ export interface FlowPlayer {
 }
 
 export interface FlowState {
-  phase: "lobby" | "car_select" | "countdown" | "match";
+  phase: "lobby" | "car_select" | "reveal" | "countdown" | "match";
   mode: "ffa" | "team";
   tick: number;
   carSelectDeadlineTick: number;
+  revealEndsTick: number;
   countdownEndsTick: number;
   roster: string[];
   postMatchIds: string[];
@@ -26,6 +27,7 @@ export type FlowEvent =
   | { type: "start"; readyIds: string[]; nowTick: number; carSelectTicks: number }
   | { type: "lock_car"; sessionId: string }
   | { type: "reveal"; cars: Record<string, string> }
+  | { type: "begin_reveal"; nowTick: number; revealTicks: number }
   | { type: "begin_countdown"; nowTick: number; countdownTicks: number }
   | { type: "go" }
   | { type: "end"; winnerSessionId: string; winnerTeam: number }
@@ -39,6 +41,12 @@ export function reduceFlow(state: FlowState, event: FlowEvent): FlowState {
       return applyLockCar(state, event.sessionId);
     case "reveal":
       return applyReveal(state, event.cars);
+    case "begin_reveal":
+      return {
+        ...state,
+        phase: "reveal",
+        revealEndsTick: event.nowTick + event.revealTicks,
+      };
     case "begin_countdown":
       return {
         ...state,

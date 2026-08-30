@@ -1,0 +1,10 @@
+node_modules/
+dist/
+build/
+dist-release/
+coverage/
+packages/*/dist/
+packages/client/.vite/
+.worktrees/
+.claude/worktrees/
+*.min.js
