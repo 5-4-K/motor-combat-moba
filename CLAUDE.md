@@ -22,8 +22,11 @@ driving *through* a fight, and it is the first thing to re-tune from play.
 Their ratings (`speed`, `accel`, `handling`, `attack`, `hp`, `mass`) are **six** independent 0-100
 values; `accel` and `handling` landed on 2026-08-30 so cars could differ in how they launch and how
 they corner. **`handling` is turn RATE, not turn radius.** Radius is `speed / turnRate`, so Bullseye
-has the roster's lowest turn rate and still corners tighter (121 u) than the much faster Mirage
-(137 u), while Bastion turns inside 59 u and is the best tracker in the game. The 150-point budget
+has the roster's lowest turn rate and still corners tighter (81 u) than the much faster Mirage
+(91 u), while Bastion turns inside 39 u and is the best tracker in the game. Those radii are a third
+tighter than they were before **2026-08-31, when the whole roster's turn rate was raised 1.5x** —
+`DRIVE_CONFIG.baseTurnRate` and `turnRatePerRating` scaled together, speeds untouched — because
+driving and aiming read as too heavy. The 150-point budget
 that used to cap `speed`+`attack`+`hp` was deleted on 2026-08-29 so `mass` could be a free-floating
 rating, and no replacement guard was adopted — see
 [`docs/config-reference.md`](docs/config-reference.md#car_table).

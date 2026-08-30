@@ -52,7 +52,7 @@ describe("fullStatsFor", () => {
 
   it("derives acceleration, turn rate and turn radius from the shared config, per car", () => {
     // The panel rounds to at most one decimal for display, so parse the number back out rather
-    // than string-matching the raw float (turnRateOf can land on 4.199999999999999).
+    // than string-matching the raw float (turnRateOf can land on 6.300000000000001).
     for (const id of Object.keys(CAR_TABLE) as CarId[]) {
       const rows = fullStatsFor(id);
       const accelRow = rows.find((r) => r.label === "Acceleration")!;

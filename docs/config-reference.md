@@ -51,7 +51,7 @@ turn rate and Bastion is the slowest with the *highest*.
 **`handling` is turn RATE, not turn radius, and the difference is the design.** Radius is
 `forwardMaxSpeedOf(id) / turnRateOf(id)`, so a chassis with a high `speed` rating and only average
 `handling` still corners wide. Bullseye reorients slowest of the three and *still* has a tighter arc
-than Mirage, whose speed carries it wider; Bastion turns inside 59 units and is the best tracker in
+than Mirage, whose speed carries it wider; Bastion turns inside 39 units and is the best tracker in
 the game, which is the mechanical reason the tank punishes a diver. Raising a car's `speed` without
 raising its `handling` to match is what makes it feel *less* agile despite the higher ceiling.
 
@@ -64,9 +64,9 @@ Derived, per car (Mirage / Bullseye / Bastion):
 | `reverseMaxSpeedOf` | forward × `reverseSpeedRatio` | 374 | 269 | 205 |
 | `accelOf` | `baseAccel` + accel × `accelPerRating` | 1032 | 744 | 564 |
 | `reverseAccelOf` | `accelOf` × `reverseAccelFactor` | 1455 | 1049 | 795 |
-| `turnRateOf` | `baseTurnRate` + handling × `turnRatePerRating` | 4.2 | 3.408 | 5.352 |
-| `turnRateAtStopOf` | `turnRateOf` × `stopTurnRatio` | 2.1 | 1.704 | 2.676 |
-| **turn radius** | `forwardMaxSpeedOf / turnRateOf` — derived, never typed | 137 u | 121 u | **59 u** |
+| `turnRateOf` | `baseTurnRate` + handling × `turnRatePerRating` | 6.3 | 5.112 | 8.028 |
+| `turnRateAtStopOf` | `turnRateOf` × `stopTurnRatio` | 3.15 | 2.556 | 4.014 |
+| **turn radius** | `forwardMaxSpeedOf / turnRateOf` — derived, never typed | 91 u | 81 u | **39 u** |
 | time to top | `forwardMaxSpeedOf / accelOf` | 0.56 s | 0.56 s | 0.56 s |
 | `massOf` | mass × `RAM_CONFIG.massPerRating` | 480 | 300 | 900 |
 | attack scale | `damageFor` at that rating | 1.13× | 1.05× | 0.92× |
@@ -252,8 +252,8 @@ different knob entirely: `usesAimAssist` per weapon in `WEAPON_TABLE`.
 | `speedPerRating` | 4.5 |
 | `brakeDecel` | 1600 (must stay above `drag`) |
 | `drag` | 900 (throttle released) |
-| `baseTurnRate` | 2.4 |
-| `turnRatePerRating` | 0.036 |
+| `baseTurnRate` | 3.6 (was 2.4 — see the 1.5x raise below) |
+| `turnRatePerRating` | 0.054 (was 0.036 — scaled with `baseTurnRate`) |
 | `stopTurnRatio` | 0.5 (steering at rest, as a fraction of the moving rate) |
 | `baseAccel` | 420 |
 | `accelPerRating` | 7.2 |
@@ -276,11 +276,19 @@ ratings. Nothing reads a global turn rate or a global engine push any more; the 
 | `accelOf(id)` | `baseAccel + accel × accelPerRating` |
 | `reverseAccelOf(id)` | `accelOf(id) × reverseAccelFactor` |
 
-**Both forward scales are anchored so rating 50 reproduces the old global constant exactly** —
-`turnRateOf` at 50 is 4.2 and `accelOf` at 50 is 780, the two values this game shipped with. The
-roster moves around a fixed pivot rather than drifting off one, and "an average chassis drives like
-the old game" stays true as a reading aid. `config.test.ts` pins both anchors, so a future scale edit
-cannot silently move the pivot. `stopTurnRatio: 0.5` preserves the shipped 2.1 / 4.2 exactly.
+**Both forward scales are anchored so rating 50 lands on one stated global constant** — `turnRateOf`
+at 50 is 6.3 and `accelOf` at 50 is 780. The roster moves around a fixed pivot rather than drifting
+off one, so "rating 50 is average" stays a reading aid rather than a slogan. `config.test.ts` pins
+both anchors, so a scale edit cannot silently move a pivot. `stopTurnRatio: 0.5` puts steering at
+rest at 3.15 / 6.3.
+
+**The turn pivot was 4.2 — the game's original single global turn rate — until 2026-08-31**, when
+`baseTurnRate` and `turnRatePerRating` were multiplied by 1.5 **together**: driving, and therefore
+aiming, read as heavier than intended, so every chassis now turns half again as sharply. Scaling the
+pair rather than the base alone is what keeps a point of `handling` worth the same 1.5x on every
+car, so the type triangle's agility ordering and spacing are untouched and only the roster's absolute
+sharpness moved. Top speeds were **not** touched, so every turn radius shrank by that same 1.5x. The
+accel pivot is still the pre-2026-08-30 global 780.
 `reverseAccelFactor: 1.41` yields 1099.8 at rating 50 against the 1100 that shipped — a deliberate
 0.02% rounding, stated rather than hidden, because the exact ratio (`1100/780`) is not a number
 anyone should have to read in a config file.

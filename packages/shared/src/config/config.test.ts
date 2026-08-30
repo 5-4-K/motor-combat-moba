@@ -127,14 +127,18 @@ describe("driveOf", () => {
 });
 
 describe("per-car drive ratings", () => {
-  it("anchors both scales so rating 50 reproduces the constants that shipped globally", () => {
-    // The pivot in T7. `turnRateOf` and `accelOf` are authored so an exactly-average chassis
-    // drives like the pre-2026-08-30 game did, which is what keeps "rating 50 is average" a
-    // reading aid rather than a slogan. A scale edit that moves the pivot fails here.
-    // `toBeCloseTo`, not `toBe`: 2.4 + 50 * 0.036 is 4.199999999999999 in IEEE-754. The anchor is
-    // the design intent, not a bit pattern, and no decimal scale reproduces 4.2 exactly.
+  it("anchors both scales so rating 50 lands on one global constant apiece", () => {
+    // The pivot in T7: `turnRateOf` and `accelOf` are authored so an exactly-average chassis drives
+    // like a single global constant would, which is what keeps "rating 50 is average" a reading aid
+    // rather than a slogan. A scale edit that moves a pivot fails here, so raising the whole roster
+    // is a deliberate two-line change plus this number, never a drift.
+    // The accel pivot is still the pre-2026-08-30 global 780. The turn pivot was that era's 4.2
+    // until 2026-08-31, when both halves of the turn scale were multiplied by 1.5 — driving, and so
+    // aiming, read as too heavy — putting every chassis at 1.5x its old rate and the pivot at 6.3.
+    // `toBeCloseTo`, not `toBe`: 3.6 + 50 * 0.054 is 6.300000000000001 in IEEE-754. The anchor is
+    // the design intent, not a bit pattern, and no decimal scale reproduces 6.3 exactly.
     const { baseTurnRate, turnRatePerRating, baseAccel, accelPerRating } = DRIVE_CONFIG;
-    expect(baseTurnRate + 50 * turnRatePerRating).toBeCloseTo(4.2, 9);
+    expect(baseTurnRate + 50 * turnRatePerRating).toBeCloseTo(6.3, 9);
     expect(baseAccel + 50 * accelPerRating).toBeCloseTo(780, 9);
   });
 
@@ -259,9 +263,11 @@ describe("the three types (T5/T6)", () => {
     expect(accelOf("mirage")).toBeCloseTo(1032, 9);
     expect(accelOf("bastion")).toBeCloseTo(564, 9);
 
-    expect(turnRateOf("bullseye")).toBeCloseTo(3.408, 9);
-    expect(turnRateOf("mirage")).toBeCloseTo(4.2, 9);
-    expect(turnRateOf("bastion")).toBeCloseTo(5.352, 9);
+    // 1.5x their pre-2026-08-31 rates (3.408 / 4.2 / 5.352): the whole roster was raised together,
+    // so the type triangle's agility ordering and spacing are exactly as they were.
+    expect(turnRateOf("bullseye")).toBeCloseTo(5.112, 9);
+    expect(turnRateOf("mirage")).toBeCloseTo(6.3, 9);
+    expect(turnRateOf("bastion")).toBeCloseTo(8.028, 9);
 
     expect(hpOf("bullseye")).toBe(300);
     expect(hpOf("mirage")).toBe(480);
@@ -275,7 +281,9 @@ describe("the three types (T5/T6)", () => {
     const radius = (id: CarId) => forwardMaxSpeedOf(id) / turnRateOf(id);
     expect(radius("bastion")).toBeLessThan(radius("bullseye"));
     expect(radius("bullseye")).toBeLessThan(radius("mirage"));
-    expect(radius("bastion")).toBeCloseTo(58.9, 1);
+    // Two thirds of the 58.9 it was before the 2026-08-31 turn-rate raise. Speed was untouched, so
+    // every radius on the roster shrank by exactly the 1.5x the rates grew by.
+    expect(radius("bastion")).toBeCloseTo(39.2, 1);
   });
 
   it("orders the three types on every axis the design names", () => {

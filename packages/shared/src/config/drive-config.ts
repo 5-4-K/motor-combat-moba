@@ -20,9 +20,10 @@
  * `baseMaxSpeed` and `speedPerRating` scale together deliberately: the ratio between them is what
  * decides how much the per-car `speed` rating matters. Moving only one re-balances the roster.
  * `baseTurnRate`/`turnRatePerRating` and `baseAccel`/`accelPerRating` are anchored the same way: at
- * rating 50 they reproduce the single global `turnRate` and `accel` this game shipped with, so
- * retuning `handling` or `accel` per car is a driving change, never accidentally a re-anchor of the
- * whole roster.
+ * rating 50 each pair reproduces one global `turnRate` and `accel`, so retuning `handling` or
+ * `accel` per car is a driving change, never accidentally a re-anchor of the whole roster. Moving
+ * the whole roster is the other edit, and it means scaling a pair together — as the 1.5x turn-rate
+ * raise on 2026-08-31 did.
  */
 export const DRIVE_CONFIG = {
   baseMaxSpeed: 180,
@@ -39,13 +40,16 @@ export const DRIVE_CONFIG = {
   /**
    * Turn rate is `baseTurnRate + handling * turnRatePerRating`, resolved per car by `turnRateOf`.
    *
-   * Anchored so rating 50 yields exactly 4.2 — the single global turn rate this game shipped with —
-   * so the roster moves around a fixed pivot and "an average chassis corners like the old game" stays
-   * true. `config.test.ts` pins that anchor.
+   * Anchored so rating 50 yields exactly 6.3. That pivot was 4.2 — the single global turn rate this
+   * game shipped with — until 2026-08-31, when both halves of the scale were multiplied by 1.5
+   * together: driving, and therefore aiming, read as too heavy, so every chassis now turns half again
+   * as sharply while the roster's relative agility is untouched. Scaling the pair rather than the
+   * base alone is what keeps a point of `handling` worth the same 1.5x on every car.
+   * `config.test.ts` pins the anchor.
    */
-  baseTurnRate: 2.4,
-  turnRatePerRating: 0.036,
-  /** Steering at rest, as a fraction of the moving rate. Preserves the shipped 2.1 / 4.2. */
+  baseTurnRate: 3.6,
+  turnRatePerRating: 0.054,
+  /** Steering at rest, as a fraction of the moving rate. Half the moving rate: 3.15 / 6.3. */
   stopTurnRatio: 0.5,
   /**
    * Engine push is `baseAccel + accel * accelPerRating`, resolved per car by `accelOf`. Anchored the
