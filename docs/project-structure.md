@@ -88,7 +88,7 @@ motor-combat-MOBA/
         ├── main.ts
         ├── config/client-mode.ts
         ├── config/display.ts     # FIT-to-window scaling rationale + fullscreen key
-        ├── config/slot-keys.ts   # SLOT_KEYS: key code + glyph per slot; slotMaskFrom
+        ├── config/slot-keys.ts   # SLOT_KEYS: J/K/L key code + glyph per slot; slotMaskFrom
         ├── assets/
         │   ├── manifest-schema.ts # SpriteEntry, SPRITE_DEFAULTS, parseManifest (never throws)
         │   ├── load-manifest.ts   # MANIFEST_URL, fetch + parse, empty manifest on any failure
@@ -111,8 +111,10 @@ motor-combat-MOBA/
         │   ├── arena-mismatch.ts # builds the mismatch message string (pure, testable)
         │   ├── arena-visual.ts   # arena palette → Phaser colour ints; inset border rect
         │   ├── car-visual.ts     # chassis silhouettes, colours
-        │   ├── combat-visual.ts  # hp bar maths, instance extrapolation and draw shape (projectile + beam)
-        │   ├── weapon-hud.ts     # pure HUD derivations: sweepFraction, slotVisualState, countdownSeconds
+        │   ├── combat-visual.ts  # hp bar maths + allegiance colour, instance extrapolation, draw shape, beam fade
+        │   ├── countdown-arrow.ts # the "this one is yours" marker: bob phase, triangle points (screen-up)
+        │   ├── weapon-hud.ts     # pure HUD derivations: sweepFraction, slotVisualState, countdownSeconds, slotBarLayout
+        │   ├── roster-panel.ts   # pure roster derivations: row order, panel layout, name truncation
         │   ├── status-hud.ts     # pure status badge derivations: order, drain, strip layout
         │   ├── spectate.ts       # spectate cycle, free-roam pan
         │   └── lobby-signature.ts
@@ -120,7 +122,8 @@ motor-combat-MOBA/
 ```
 
 `ArenaScene` itself cannot be unit-tested without a browser, so its logic lives in the plain modules
-beside it (`arena-camera`, `arena-input`, `car-visual`, `combat-visual`, `status-hud`, `spectate`) and the scene stays
+beside it (`arena-camera`, `arena-input`, `car-visual`, `combat-visual`, `countdown-arrow`, `weapon-hud`,
+`roster-panel`, `status-hud`, `spectate`) and the scene stays
 a thin shell
 over them. `assets/` is the same idea one directory over: the manifest parse, the key namespace, the
 hull fit, and the sprite-or-silhouette decision are all pure modules there, so the only thing left in

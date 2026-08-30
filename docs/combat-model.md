@@ -810,13 +810,42 @@ Four chassis slots carry a beam (`afterburner`, `shockwave`, `lance`, `bulwark`)
 three-wave press (`shockwave`) and one projectile is a multi-pellet fan (`pepperbox`), so the beam
 half of the drawing code above runs in
 every live match now: `instanceDrawShape` branches on the weapon definition's own `kind`, and a
-`beam` definition is reachable the moment any of those four fires. What the *tests* for that branch
+`beam` definition is reachable the moment any of those four fires.
+
+**Every live instance draws below every car** (`SHOT_DEPTH`, under `CAR_DEPTH`) — one rule for
+projectiles and beams alike, so parking inside your own `bulwark` never hides you under it. The
+accepted cost is that a projectile crossing behind a car is briefly occluded by it; the alternative
+is a per-weapon "is this a ground effect" flag, which is a second taxonomy encoding a distinction
+`kind` already carries. This does not weaken "what you see is the hitbox": the drawn shape is still
+exactly the shape that hits, it is merely occluded by cars rather than occluding them.
+
+A beam holds **full opacity for its whole life** and then ramps out across a fixed
+`BEAM_FADE_OUT_MS` window that ends exactly on its death tick, so the visual and the hitbox vanish
+together (`beamFadeAlpha`). The window used to be the entire lifetime, which left `bulwark` a ghost
+for 2875 ms while it was still dealing full damage — a zone lying about where it was safe to stand.
+One constant covers all four beams, clamped to the linger so it can never start the fade before the
+beam is fully grown; `lifetimeMs` is untouched by it, so no damage window and no TTK number moves. What the *tests* for that branch
 do and do not reach is narrower than what play reaches — see the coverage list under
 [Instances: two lifecycles](#instances-two-lifecycles) for exactly what the sim-side and client-side
 tests do reach.
 
-Living cars carry an HP bar scaled to their own chassis maximum (`hpFraction`), and a wreck fades to
-`WRECK_ALPHA` and stops being predicted or interpolated.
+Living cars carry an HP bar scaled to their own chassis maximum (`hpFraction`), so a bastion at half
+hp and a bullseye at half hp both read as half a bar. Its **length is the whole of the health
+channel; its colour says allegiance and nothing else** — green for you and your teammates, red for
+every enemy, at full hp and at one hp alike (`allegianceOf`, `hpBarColor`). That deliberately gives
+up the old amber/red low-health warning: colour was spending its one channel on the sentence length
+already said, while the question a 3v3 actually asks went unanswered. There is no exception for your
+own car — a rule with one exception has to be taught. In FFA the rule degrades to "green is me, red
+is everyone else".
+
+Allegiance is always computed against the **local player**, never against whoever the spectate camera
+is following: a wreck can cycle through living cars, and green stays your team's green while you
+watch an enemy fill the screen. `allegianceOf` takes the viewer as an argument rather than reading
+the room, so that is a property of the signature rather than a rule somebody has to remember.
+
+There is no wreck alpha. A dead car is intangible and frozen from the tick it dies, fades to nothing
+over `DEATH_FADE_MS` (`deathFadeAlpha`, driven by the networked `diedAtTick`), and is then not drawn
+at all — it also stops being predicted or interpolated.
 
 A wrecked player becomes a spectator: `[` / `]` — or Left / Right — cycle the living cars, `V`
 toggles free roam, and WASD or the arrows pan in free roam. All of it is local; the server has no
