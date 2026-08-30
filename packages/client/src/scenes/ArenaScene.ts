@@ -358,7 +358,24 @@ interface ArenaPlayer {
   name: string;
 }
 
-/** The keys this scene binds beyond Phaser's cursor keys and the weapon slots: spectator controls. */
+/**
+ * WASD, sitting alongside the cursor keys rather than replacing them. Both sets steer at all times
+ * and there is no setting: two players on one keyboard is not a mode this game has, so accepting
+ * both costs nothing (D5).
+ *
+ * These are the same four codes `bindKeys` binds for the spectator's free-roam pan, and Phaser's
+ * `addKey` hands back the Key it already made for a code — so this is one binding read from two
+ * places, not two bindings competing. The modes never overlap anyway: free roam is only reachable
+ * once you are a wreck with no car to drive.
+ */
+interface DriveKeys {
+  up: Phaser.Input.Keyboard.Key;
+  left: Phaser.Input.Keyboard.Key;
+  down: Phaser.Input.Keyboard.Key;
+  right: Phaser.Input.Keyboard.Key;
+}
+
+/** The keys this scene binds beyond the drive keys and the weapon slots: spectator controls. */
 interface SpectateKeys {
   prev: Phaser.Input.Keyboard.Key;
   next: Phaser.Input.Keyboard.Key;
@@ -401,6 +418,8 @@ export class ArenaScene extends Phaser.Scene {
   private arenaGfx: Phaser.GameObjects.Graphics | undefined;
   private arena: ArenaDef | undefined;
   private cursors: Phaser.Types.Input.Keyboard.CursorKeys | undefined;
+  /** WASD, ORed with `cursors` in `sendInputTick`; see `DriveKeys`. */
+  private driveKeys: DriveKeys | undefined;
   /** One Phaser key per `SLOT_KEYS` entry, same order, so `slotMaskFrom` reads them index-for-index. */
   private slotKeys: Phaser.Input.Keyboard.Key[] | undefined;
   private predicted: SimBody | undefined;
@@ -507,6 +526,7 @@ export class ArenaScene extends Phaser.Scene {
     );
 
     this.cursors = this.input.keyboard?.createCursorKeys();
+    this.driveKeys = this.bindDriveKeys();
     this.keys = this.bindKeys();
     this.slotKeys = this.bindSlotKeys();
 
@@ -583,10 +603,22 @@ export class ArenaScene extends Phaser.Scene {
     };
   }
 
+  /** WASD for steering and throttle, read beside the cursor keys. See `DriveKeys` for why both. */
+  private bindDriveKeys(): DriveKeys | undefined {
+    const keyboard = this.input.keyboard;
+    if (!keyboard) return undefined;
+    const Codes = Phaser.Input.Keyboard.KeyCodes;
+    return {
+      up: keyboard.addKey(Codes.W),
+      left: keyboard.addKey(Codes.A),
+      down: keyboard.addKey(Codes.S),
+      right: keyboard.addKey(Codes.D),
+    };
+  }
+
   /**
-   * One Phaser key per `SLOT_KEYS` entry. Bound explicitly, like the old single `fire` key, so the
-   * browser does not scroll the page under the canvas on Space, and so the other bound slot keys
-   * do not fall through to whatever the page would otherwise do with them.
+   * One Phaser key per `SLOT_KEYS` entry. Bound explicitly, like the old single `fire` key, so a
+   * slot key never falls through to whatever the page would otherwise do with it.
    */
   private bindSlotKeys(): Phaser.Input.Keyboard.Key[] | undefined {
     const keyboard = this.input.keyboard;
@@ -751,6 +783,7 @@ export class ArenaScene extends Phaser.Scene {
     // destroyed camera an ignore during the shutdown frame.
     this.hudCamera = undefined;
     this.cursors = undefined;
+    this.driveKeys = undefined;
     this.keys = undefined;
     this.slotKeys = undefined;
     this.prediction = new PredictionBuffer();
@@ -816,8 +849,14 @@ export class ArenaScene extends Phaser.Scene {
     this.inputSeq += 1;
     const input: InputMessage = {
       seq: this.inputSeq,
-      steer: axisOf(this.cursors?.left.isDown ?? false, this.cursors?.right.isDown ?? false),
-      throttle: axisOf(this.cursors?.down.isDown ?? false, this.cursors?.up.isDown ?? false),
+      steer: axisOf(
+        (this.cursors?.left.isDown ?? false) || (this.driveKeys?.left.isDown ?? false),
+        (this.cursors?.right.isDown ?? false) || (this.driveKeys?.right.isDown ?? false),
+      ),
+      throttle: axisOf(
+        (this.cursors?.down.isDown ?? false) || (this.driveKeys?.down.isDown ?? false),
+        (this.cursors?.up.isDown ?? false) || (this.driveKeys?.up.isDown ?? false),
+      ),
       // Held, not tapped: the server's weapon cooldown decides the rate, so holding a slot key fires
       // it as fast as that slot allows and no faster. Sampling `JustDown` here instead would drop
       // shots whenever a frame straddled two input ticks.
