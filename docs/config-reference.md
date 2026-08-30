@@ -495,8 +495,10 @@ each weapon's `durationMs`. Mirage applies 1.5 s and 2.5 s; Bastion applies 0.9 
 It exists for `shockwave`: `corroded` lands on the third wave only, because `refresh` would otherwise
 hand the full duration to whichever wave connected first and make the other two free. The wave a shot
 belongs to is carried the way `damage` and `ownerTeam` are — **frozen at spawn, sim-only, never
-networked**: `ShotOrder` gains `volleyIndex` and `finalVolley`, `spawnInstances` freezes
-`WeaponInstance.finalWave` from it, and `applyOpponentStatuses` / `applySelfStatuses` skip
+networked**: `ShotOrder` carries `weaponId`, `slot`, and `finalVolley` (no `volleyIndex` — it was
+deliberately not implemented, since `onWave` is only `"all" | "final"` and an index would have no
+consumer), `spawnInstances` freezes `WeaponInstance.finalWave` from it, and
+`applyOpponentStatuses` / `applySelfStatuses` skip
 `onWave: "final"` entries when it is false. **No schema field was added** — invariant 8 holds,
 because nothing new that `stepSim` reads crosses the wire.
 

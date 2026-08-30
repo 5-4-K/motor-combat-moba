@@ -1,7 +1,7 @@
 # Chassis rename, restat, and weapon redistribution
 
 **Date:** 2026-08-30
-**Status:** implemented; three figures corrected in review — see below
+**Status:** implemented; four figures corrected in review — see below
 **Supersedes in part:** the roster halves of
 [`2026-08-29-weapon-roster-design.md`](2026-08-29-weapon-roster-design.md) (L1–L7). The rules there
 still hold; the assignments do not.
@@ -26,8 +26,10 @@ R = ram CC).
 > | [T18](#t18--bulwark) | bulwark deals **322** on Bastion | **320** | `damageFor(42, 35)` = 32 per tick × 10 ticks. The spec scaled the 350 total once. |
 > | [T15](#t15--shockwave) | shockwave deals **152** on Mirage | **153** | `damageFor(63, 45)` = 51 per wave × 3. Same root cause, rounding the other way. |
 > | [T11](#t11--needler-was-splinter) | dumping needler's stocks "owes a 900 ms dry spell" | **a 133 ms pause**, and the same 73 DPS | Not a rounding slip: the mechanism never worked that way. See T11. |
+> | [T16](#t16--thumper) | thumper's `stunned` ships at **900 ms**, "the roster's longest CC," and `reapply: "ignore"` means "it still cannot be chained" | **450 ms** | 900 ms against this row's own 1000 ms cooldown is a **90% duty cycle** — a Bastion can hold a car stunned and disarmed almost permanently. `ignore` blocks re-*extension*, not re-*application*; it never bounded the duty cycle. This one is a real balance defect, not a rounding slip — see T16. |
 >
-> None of these changed a balance value. Whether `needler` *should* charge for a dump is an open
+> None of these changed a balance value, except T16, which did: thumper's `stunned` duration moved
+> 900 ms → 450 ms as part of this correction. Whether `needler` *should* charge for a dump is an open
 > design question left to the user (T11).
 
 ---
@@ -377,9 +379,22 @@ Bastion's slot 1, and now its CC engager.
 | `damage` | 75 | **60** |
 | `applies` | — | **`stunned` 900 ms, opponents** |
 
-900 ms against shockwave's old 700: Bastion carries the roster's longest CC, which is the whole
-identity of Type 3. `stunned` is `reapply: "ignore"`, so it still cannot be chained — two Bastions
-cannot hold a car parked between them.
+> ~~900 ms against shockwave's old 700: Bastion carries the roster's longest CC, which is the whole
+> identity of Type 3. `stunned` is `reapply: "ignore"`, so it still cannot be chained — two Bastions
+> cannot hold a car parked between them.~~
+>
+> **CORRECTED IN REVIEW — the paragraph struck above was false, and shipped a real balance defect
+> rather than a documentation slip.** 900 ms against this row's own 1000 ms cooldown is a **90% duty
+> cycle**: a single Bastion can hold one car stunned (and disarmed, since `stunned` carries that flag)
+> almost permanently, far past the W7 playtest probe's 60% threshold and well above shockwave's old
+> 700-on-5000 (14%). `reapply: "ignore"` blocks a running stun from being **re-extended** by a second
+> hit; it says nothing about how often the stun can **restart**, so it never bounded the duty cycle
+> and the "cannot be chained" claim does not follow from it. The shipped fix is **`durationMs: 450`**
+> (14 ticks against this row's 30-tick cooldown, a 47% duty cycle) — a real interrupt window, bounded
+> by thumper's own recharge because a stun longer than its cooldown is a lock. Bastion's "longest CC"
+> identity now rests on `bulwark` (`spiked` 3000 ms, `fortified` 4500 ms), which are still the
+> roster's longest durations. `status-config.ts` and `weapon-config.ts` carry the same correction on
+> the rows themselves.
 
 **`cooldownMs` stays at 1000 and must not be "rounded down".** The aim-assist cliff guard rejects any
 assisted weapon between 696 ms and 941 ms; 1000 sits 20% clear and 900 would fail the suite.

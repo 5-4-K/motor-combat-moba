@@ -290,11 +290,16 @@ export const WEAPON_TABLE = {
    * one weapon that reaches at all, the slowest chassis has no answer to a patient opponent.
    *
    * **The stun is this row's now, taken from `shockwave` when that moved to Mirage.** Hard CC is
-   * Type 3's whole identity, so it belongs on the tank rather than on the speedster, and 900 ms
-   * against shockwave's old 700 makes Bastion the longest-CC chassis in the roster on purpose —
-   * that is the shape of the "1 beats 3" counterplay, where Bastion's answer to a kiter is to land
-   * a skillshot and close inside the window it buys. `stunned` is `reapply: "ignore"`, so two
-   * Bastions still cannot chain it and park a car between them; a stun is a window, not a sentence.
+   * Type 3's whole identity, so it belongs on the tank rather than on the speedster. It shipped at
+   * 900 ms and was cut to 450 in review: at this row's own 1000 ms cooldown, 900 ms is a 90% duty
+   * cycle — one Bastion can hold a car stunned and disarmed almost permanently, far past the W7
+   * playtest probe's 60% threshold and well above shockwave's old 700-on-5000 (14%). **A stun's
+   * duration is bounded by its own applier's cooldown, not by `reapply` rules** — see `stunned`'s
+   * row in `status-config.ts` for why `ignore` does not save you here. 450 ms is 14 ticks against
+   * this row's 30-tick cooldown, a 47% duty cycle: a real interrupt window, not a sentence, bounded
+   * by thumper's own recharge because a stun longer than its cooldown is a lock.
+   * Bastion's "longest CC" identity now rests on `bulwark` (`spiked` 3000 ms, `fortified` 4500 ms),
+   * which are still the roster's longest durations — this row no longer claims that title.
    *
    * `damage` drops 75 -> 60 to pay for it: 55 on Bastion's 0.92x attack, a shot that opens a fight
    * rather than one that wins an exchange on its own.
@@ -324,7 +329,7 @@ export const WEAPON_TABLE = {
     pierce: 0,
     volley: { volleys: 1, volleyIntervalMs: 0 },
     pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
-    applies: [{ statusId: "stunned", target: "opponents", durationMs: 900 }],
+    applies: [{ statusId: "stunned", target: "opponents", durationMs: 450 }],
   },
   /**
    * Mirage's slot 2 after T15, and the table's only MULTI-WAVE weapon: one press schedules three
@@ -353,6 +358,12 @@ export const WEAPON_TABLE = {
    *
    * `usesAimAssist: false` is FORCED, same as `afterburner`: `range` (150) is far below
    * `AIM_CONFIG.lockRange`, and attached beams are refused assist by a separate guard.
+   *
+   * **This is the row that makes "every press ignored mid-volley" (`docs/combat-model.md:201`)
+   * expensive rather than academic.** `pending` stays set across all three waves — 30 ticks, 1.0 s
+   * at 500 ms spacing — so `beginFire` ignores every slot, not just this one, for that whole
+   * stretch, plus the 200 ms `recoveryMs` after the third wave lands. One press takes Mirage's
+   * entire kit offline for about 1.2 s, not just this slot's own cooldown.
    */
   shockwave: {
     id: "shockwave",

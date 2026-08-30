@@ -120,10 +120,14 @@ export const STATUS_TABLE = {
    * through drag, because an instant stop at speed reads as hitting an invisible wall rather than as
    * being stunned. Injected ram spin still applies, so a stunned car that gets hit still tumbles.
    *
-   * Kept short, and `ignore` on top of that so it cannot be chained — it must run out before another
-   * can land, so two attackers cannot hold one car parked between them. Both of those are the price
-   * of a debuff with no counterplay gradient; if it ever needs to be stronger, the answer is a
-   * different status, not a longer stun.
+   * Kept short, and `ignore` on top of that — but `ignore` only blocks EXTENSION: a running stun
+   * cannot be refreshed or re-timed by a second landing hit, it just runs its course. It says
+   * nothing about how often a stun can restart. The real bound on a lock is the ratio of the
+   * applier's duration to its own cooldown, and that is the applier's responsibility, not this row's
+   * — `thumper` is the shipped example, at 450 ms against a 1000 ms cooldown (a 47% duty cycle,
+   * under the W7 playtest probe's 60% threshold). A duration long enough relative to its own
+   * cooldown can still hold a target parked solo; `ignore` does not prevent that on its own.
+   * If this ever needs to be stronger, the answer is a different status, not a longer stun.
    */
   stunned: {
     id: "stunned",

@@ -576,8 +576,10 @@ first and make the other two free — the first two waves are the commitment and
 payoff for the target still being there at the end.
 
 The wave a shot belongs to is carried exactly the way `damage` and `ownerTeam` are — **frozen at
-spawn, sim-only, never networked.** `ShotOrder` gains `volleyIndex` and `finalVolley` (`releaseShots`
-already knows both: `finalVolley === (pending.shotsLeft === 1)`), `spawnInstances` freezes it onto
+spawn, sim-only, never networked.** `ShotOrder` carries `weaponId`, `slot`, and `finalVolley`
+(`releaseShots` already knows it: `finalVolley === (pending.shotsLeft === 1)`); there is no
+`volleyIndex` field — it was considered and deliberately not added, since `onWave` is only
+`"all" | "final"` and an index would have no consumer. `spawnInstances` freezes `finalVolley` onto
 `WeaponInstance.finalWave`, and `applyOpponentStatuses` / `applySelfStatuses` skip `onWave: "final"`
 entries when it is false. **No schema field was added and the client needed no change** — it already
 draws instances by `weaponId` and hitbox. Invariant 8 holds because nothing new that `stepSim` reads

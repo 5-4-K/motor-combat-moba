@@ -48,9 +48,12 @@ const read = (file) => fs.readFileSync(file, "utf8");
  *
  * ONE PRESS, not one instance. A beam can now be a wave sequence (`shockwave` is three discs 500 ms
  * apart), and each wave is a separate instance with its own per-target damage clock, so a press's
- * ceiling is the sum over its waves. Every wave is run through the real `spawnInstances` with its
- * own `volleyIndex` rather than the first wave's count being multiplied, so a future weapon whose
- * waves differ by index is measured rather than assumed.
+ * ceiling is the sum over its waves. Every wave is run through the real `spawnInstances` with a
+ * well-formed `ShotOrder` (`weaponId`, `slot`, `finalVolley`) rather than the first wave's count
+ * being multiplied, so a future weapon whose waves differ in damage or hitbox is measured rather
+ * than assumed. Only `.damage` is read here, so `finalVolley` does not change this function's
+ * number — it is set correctly anyway because a malformed `ShotOrder` is still a bug waiting for a
+ * caller that reads more of it.
  */
 function simHitsPerTarget(weaponId) {
   const def = WEAPON_TABLE[weaponId];
@@ -68,7 +71,8 @@ function simHitsPerTarget(weaponId) {
     for (let volleyIndex = 0; volleyIndex < def.volley.volleys; volleyIndex++) {
       // The waves of a shipped sequence never overlap (500 ms apart, 250 ms of life), so each runs
       // on its own clock from tick 0 and their hits simply add.
-      let instance = spawnInstances({ weaponId, volleyIndex }, owner, 0, 0).instances[0];
+      const finalVolley = volleyIndex === def.volley.volleys - 1;
+      let instance = spawnInstances({ weaponId, slot: 0, finalVolley }, owner, 0, 0).instances[0];
       for (let tick = 0; tick < 600; tick++) {
         const previous = instance;
         // Tick 0 is the spawn tick: `combat.ts` steps only instances that already existed, so a

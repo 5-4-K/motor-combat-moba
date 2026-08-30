@@ -19,9 +19,12 @@ import { secondsLeft } from "./reveal-view.js";
  * Room state to the car select screen.
  *
  * Every number here is *derived* from the shared config tables, never transcribed from the design
- * handoff. The handoff quotes "Mirage 120 + 8x30 = 360 u/s" as a worked example, and a test pins
- * that exact figure — but it is checked against `forwardMaxSpeedOf`, so retuning `speedPerRating`
- * moves the panel and the sim together instead of leaving the screen quietly lying about the car.
+ * handoff. The handoff quotes "Rectangle 120 + 8x30 = 360 u/s" as a worked example — that arithmetic
+ * belongs to the old `baseMaxSpeed 120 / speedPerRating 30` config and to the chassis then called
+ * Rectangle (now Mirage), so it is quoted here as history, not as a live figure. No test pins that
+ * number: `car-select-view.test.ts` checks this panel's "Top speed" row against `forwardMaxSpeedOf`,
+ * so retuning `speedPerRating` moves the panel and the sim together instead of leaving the screen
+ * quietly lying about the car.
  */
 
 /** The three summary bars on a card. The panel carries the detail; the card stays readable. */

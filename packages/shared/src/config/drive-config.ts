@@ -20,9 +20,9 @@
  * `baseMaxSpeed` and `speedPerRating` scale together deliberately: the ratio between them is what
  * decides how much the per-car `speed` rating matters. Moving only one re-balances the roster.
  * `baseTurnRate`/`turnRatePerRating` and `baseAccel`/`accelPerRating` are anchored the same way: at
- * this task's ratings (every car authored at 50) they reproduce the single global `turnRate` and
- * `accel` this game shipped with, so retuning `handling` or `accel` per car is a driving change,
- * never accidentally a re-anchor of the whole roster.
+ * rating 50 they reproduce the single global `turnRate` and `accel` this game shipped with, so
+ * retuning `handling` or `accel` per car is a driving change, never accidentally a re-anchor of the
+ * whole roster.
  */
 export const DRIVE_CONFIG = {
   baseMaxSpeed: 180,
