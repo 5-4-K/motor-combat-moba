@@ -116,7 +116,7 @@ once, at shared's module load, into the frozen `WEAPON_TICKS` the sim actually r
 | `lance` | beam | 170 | 0 | 6000 | 1200 | 16000 | 700 | 1000 | — | — | 1 / 0 | — | false | 150 | rect, width 57.5 | 1 | true | `#6741D9` |
 | `thumper` | projectile | 60 | 0 | 450 | 550 | 3000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | capsule, along 24 / across 15 (flat tail) | 1 | true | `#C9A227` |
 | `shockwave` | beam | 45 | 0 | 1500 | 150 | 5000 | 0 | 200 | — | — | **3 / 250** | — | true | 200 | disc (aura, `origin: "center"`) | 1 | false | `#0B3D8A` |
-| `bulwark` | beam | 35 | 400 | 550 | 550 | 15000 | 0 | 200 | — | — | 1 / 0 | — | false | 2875 | cone, 60° | 1 | false | `#862E9C` |
+| `bulwark` | beam | 35 | 400 | 492 | 492 | 15000 | 0 | 200 | — | — | 1 / 0 | — | false | 2875 | cone, 60° | 1 | false | `#862E9C` |
 
 **`volley` and `pellets` are two types, split on 2026-08-30.** `VolleyDef` (`volleys`,
 `volleyIntervalMs`) sits on `WeaponBase`, so a **beam** can be a wave sequence too — `shockwave` is
