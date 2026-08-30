@@ -210,14 +210,14 @@ describe("damageDealt reaches the shot, frozen at spawn", () => {
   const owner = { sessionId: "a", team: 0 as const, carId: CAR, x: 0, y: 0, angle: 0 };
 
   it("scales the instance's damage", () => {
-    const plain = spawnInstances({ weaponId: "fireball", slot: 0 }, owner, 0, 0).instances[0]!;
-    const buffed = spawnInstances({ weaponId: "fireball", slot: 0 }, owner, 0, 0, null, 1.25).instances[0]!;
+    const plain = spawnInstances({ weaponId: "fireball", slot: 0, finalVolley: true }, owner, 0, 0).instances[0]!;
+    const buffed = spawnInstances({ weaponId: "fireball", slot: 0, finalVolley: true }, owner, 0, 0, null, 1.25).instances[0]!;
     expect(buffed.damage).toBe(scaleDamage(plain.damage, 1.25));
     expect(buffed.damage).toBeGreaterThan(plain.damage);
   });
 
   it("rounds to a whole number, so a piercing shot costs every car the same", () => {
-    const shot = spawnInstances({ weaponId: "fireball", slot: 0 }, owner, 0, 0, null, 1.13).instances[0]!;
+    const shot = spawnInstances({ weaponId: "fireball", slot: 0, finalVolley: true }, owner, 0, 0, null, 1.13).instances[0]!;
     expect(Number.isInteger(shot.damage)).toBe(true);
   });
 });

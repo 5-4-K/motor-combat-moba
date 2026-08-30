@@ -232,4 +232,15 @@ describe("WEAPON_TABLE", () => {
     expect(rows).toHaveLength(9);
     expect(new Set(rows.map((def) => def.color.toUpperCase())).size).toBe(9);
   });
+
+  it("defaults every status application to firing on all waves", () => {
+    // `onWave` absent must mean today's behaviour, so adding the field cannot change any row that
+    // does not opt in.
+    for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
+      for (const a of def.applies ?? []) {
+        if (a.onWave === undefined) continue;
+        expect(["all", "final"]).toContain(a.onWave);
+      }
+    }
+  });
 });

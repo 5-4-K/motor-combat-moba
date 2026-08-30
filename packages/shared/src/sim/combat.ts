@@ -307,7 +307,7 @@ export function runCombat(input: CombatInput): CombatResult {
       // `self` statuses land when a shot actually goes OUT, not when the key went down: a press that
       // a cooldown rejected buys nothing, and a wind-up pays off at the end of the wind-up. No hit
       // test is involved, so a self-buff works whether or not the weapon connects with anything.
-      applySelfStatuses(player, order.weaponId, world.tick);
+      applySelfStatuses(player, order.weaponId, world.tick, order.finalVolley);
     }
   }
 
@@ -346,7 +346,7 @@ export function runCombat(input: CombatInput): CombatResult {
       // Statuses ride the DAMAGE list, so they inherit its rules for free: friendly fire, the
       // shooter's own immunity, wrecks, pierce, and the per-target damage clock that stops a
       // lingering beam re-applying every single tick.
-      applyOpponentStatuses(target, instance.weaponId, world.tick, instance.ownerSessionId);
+      applyOpponentStatuses(target, instance.weaponId, world.tick, instance.ownerSessionId, instance.finalWave);
     }
     if (outcome.instance.alive) survivors.push(outcome.instance);
   }
@@ -422,12 +422,18 @@ function hitsWorld(instance: WeaponInstance, previous: WeaponInstance, world: Co
  * `applies` array — converted from milliseconds exactly once, at module load, so the two halves of
  * the lockstep can never round differently.
  */
-function applySelfStatuses(player: CombatPlayer, weaponId: WeaponId, tick: number): void {
+function applySelfStatuses(
+  player: CombatPlayer,
+  weaponId: WeaponId,
+  tick: number,
+  finalWave: boolean,
+): void {
   const applies = weaponDefOf(weaponId).applies;
   if (!applies) return;
   const durations = weaponTicksOf(weaponId).applyDurations;
   applies.forEach((application, index) => {
     if (application.target !== "self") return;
+    if (application.onWave === "final" && !finalWave) return;
     player.statuses = applyStatus(
       player.statuses,
       application.statusId,
@@ -444,12 +450,14 @@ function applyOpponentStatuses(
   weaponId: WeaponId,
   tick: number,
   sourceSessionId: string,
+  finalWave: boolean,
 ): void {
   const applies = weaponDefOf(weaponId).applies;
   if (!applies) return;
   const durations = weaponTicksOf(weaponId).applyDurations;
   applies.forEach((application, index) => {
     if (application.target !== "opponents") return;
+    if (application.onWave === "final" && !finalWave) return;
     target.statuses = applyStatus(
       target.statuses,
       application.statusId,

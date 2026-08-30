@@ -17,6 +17,14 @@ export interface WeaponInstance {
   id: string;
   ownerSessionId: string;
   /**
+   * Whether this instance came from the last volley of its press. Frozen at spawn and SIM-ONLY —
+   * never networked — for exactly the reason `damage` and `ownerTeam` are: it must be answerable at
+   * impact, long after the press, without reading back mutable state.
+   *
+   * Always true for a single-volley weapon, which is every row but `shockwave`.
+   */
+  finalWave: boolean;
+  /**
    * The owner's team, frozen at the moment this instance is spawned — never looked up later.
    * `resolveInstanceHits` (hits.ts) tests against a snapshot of living fighters only, so an owner
    * wrecked while their own shot is still in flight would otherwise vanish from that snapshot and a
@@ -56,6 +64,12 @@ export interface WeaponInstance {
 export interface ShotOrder {
   weaponId: WeaponId;
   slot: number;
+  /**
+   * True on the LAST volley of the press. Carried rather than recomputed downstream: only
+   * `releaseShots` knows how many volleys are left, and a `StatusApplication` marked
+   * `onWave: "final"` needs the answer at hit time, arbitrarily far from the press.
+   */
+  finalVolley: boolean;
 }
 
 export interface OwnerPose {
@@ -146,6 +160,7 @@ export function spawnInstances(
       id: `${owner.sessionId}-${next}`,
       ownerSessionId: owner.sessionId,
       ownerTeam: owner.team,
+      finalWave: order.finalVolley,
       damage,
       weaponId: order.weaponId,
       kind: def.kind,

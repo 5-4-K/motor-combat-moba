@@ -71,7 +71,7 @@ describe("releasing", () => {
   it("emits the order on the scheduled tick and starts the recharge", () => {
     const pressed = beginFire(fresh(), SLOT_1, 100);
     const { state, orders } = releaseShots(pressed, 100);
-    expect(orders).toEqual([{ weaponId: "fireball", slot: 0 }]);
+    expect(orders).toEqual([{ weaponId: "fireball", slot: 0, finalVolley: true }]);
     expect(state.pending).toBeNull();
     expect(state.slots[0]!.rechargeEndsTick).toBe(115); // 500ms == 15 ticks
     expect(state.lastFiredSlot).toBe(0);
@@ -168,7 +168,7 @@ describe("per-tick order", () => {
     let step1 = step(state, 100, SLOT_1);
     state = step1.state;
     seen.push(...step1.orders);
-    expect(seen).toEqual([{ weaponId: "fireball", slot: 0 }]);
+    expect(seen).toEqual([{ weaponId: "fireball", slot: 0, finalVolley: true }]);
     expect(state.pending).toBeNull();
     expect(state.slots[0]!.stocks).toBe(0);
 
@@ -187,8 +187,8 @@ describe("per-tick order", () => {
     state = step2.state;
     seen.push(...step2.orders);
     expect(seen).toEqual([
-      { weaponId: "fireball", slot: 0 },
-      { weaponId: "fireball", slot: 0 },
+      { weaponId: "fireball", slot: 0, finalVolley: true },
+      { weaponId: "fireball", slot: 0, finalVolley: true },
     ]);
   });
 
@@ -210,7 +210,7 @@ describe("per-tick order", () => {
 
     // The next call to releaseShots happens on the NEXT tick, 101 — one tick after nextShotTick.
     const releasedNextTick = releaseShots(state, 101);
-    expect(releasedNextTick.orders).toEqual([{ weaponId: "fireball", slot: 0 }]); // late, but not lost
+    expect(releasedNextTick.orders).toEqual([{ weaponId: "fireball", slot: 0, finalVolley: true }]); // late, but not lost
     expect(releasedNextTick.state.pending).toBeNull();
   });
 });

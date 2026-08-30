@@ -158,6 +158,17 @@ export interface StatusApplication {
   target: StatusTarget;
   /** Converted to whole ticks once, in `WEAPON_TICKS`. Capped by `STATUS_CONFIG.maxDurationMs`. */
   durationMs: number;
+  /**
+   * Which volley of a multi-wave press this application rides.
+   *
+   * - `"all"` (the default when absent) — every wave applies it. Correct for anything a lingering or
+   *   repeating source should keep topping up.
+   * - `"final"` — only the last wave. This is what lets a wave sequence build to something: the
+   *   early pulses are pressure and the last one is the payload, without needing two weapon rows.
+   *
+   * Absent means `"all"`, so adding this field changed no shipped row.
+   */
+  onWave?: "all" | "final";
 }
 
 export interface ProjectileWeaponDef extends WeaponBase {

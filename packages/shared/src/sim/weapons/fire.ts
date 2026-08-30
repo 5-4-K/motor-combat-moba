@@ -157,7 +157,9 @@ export function releaseShots(
   const cooldown = scaleTicks(ticks.cooldown, cooldownMult);
   const refireDelay = scaleTicks(ticks.refireDelay, cooldownMult);
   const recovery = scaleTicks(ticks.recovery, cooldownMult);
-  const orders: ShotOrder[] = [{ weaponId: pending.weaponId, slot: pending.slot }];
+  const orders: ShotOrder[] = [
+    { weaponId: pending.weaponId, slot: pending.slot, finalVolley: pending.shotsLeft === 1 },
+  ];
   const shotsLeft = pending.shotsLeft - 1;
 
   if (shotsLeft > 0) {

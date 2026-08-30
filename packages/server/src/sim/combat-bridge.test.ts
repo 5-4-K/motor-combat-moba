@@ -38,6 +38,7 @@ function liveInstance(over: Partial<WeaponInstance> = {}): WeaponInstance {
     id: "aaa-1",
     ownerSessionId: "aaa",
     ownerTeam: 0,
+    finalWave: true,
     damage: weaponDamageOf("mirage", "fireball"),
     weaponId: "fireball",
     kind: "projectile",
