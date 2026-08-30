@@ -126,17 +126,25 @@ function slotRow(slot: LobbySlot, handlers: LobbyHandlers): HTMLElement {
   );
 }
 
+/**
+ * One column of seats. `showHeading` is false in Brawl, where the columns are seating rather than
+ * sides — the heading row is dropped whole rather than blanked, so the panel loses its 16px offset
+ * with it instead of opening a gap where a title used to be. Same shape as `reveal.ts`'s panel.
+ */
 function teamPanel(
   title: string,
   count: string,
   slots: LobbySlot[],
   handlers: LobbyHandlers,
+  showHeading: boolean,
 ): HTMLElement {
   return h("div", { style: "background: var(--color-surface); border-radius: 32px; padding: 22px 22px 26px;" }, [
-    h("div", { style: "display: flex; align-items: center; gap: 10px; margin-bottom: 16px;" }, [
-      h("h4", { style: "margin: 0; font-size: 22px;" }, [title]),
-      h("span", { style: "font-size: 12px; color: var(--color-neutral-600);" }, [count]),
-    ]),
+    showHeading
+      ? h("div", { style: "display: flex; align-items: center; gap: 10px; margin-bottom: 16px;" }, [
+          h("h4", { style: "margin: 0; font-size: 22px;" }, [title]),
+          h("span", { style: "font-size: 12px; color: var(--color-neutral-600);" }, [count]),
+        ])
+      : null,
     h(
       "div",
       { style: "display: flex; flex-direction: column; gap: 10px;" },
@@ -265,8 +273,8 @@ export function renderLobby(
         view.isHost ? settings : h("div", { style: "margin-left: auto;" }),
       ]),
       h("div", { style: "display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 24px;" }, [
-        teamPanel("Team A", view.teamACount, view.teamA, handlers),
-        teamPanel("Team B", view.teamBCount, view.teamB, handlers),
+        teamPanel("Team A", view.teamACount, view.teamA, handlers, view.showTeamHeadings),
+        teamPanel("Team B", view.teamBCount, view.teamB, handlers, view.showTeamHeadings),
       ]),
       h("div", { style: "display: flex; justify-content: center; margin-top: 18px;" }, [switchButton]),
       h("div", { style: "margin-top: auto; display: flex; align-items: center; gap: 12px;" }, [

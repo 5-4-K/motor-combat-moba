@@ -131,7 +131,40 @@ describe("lobbyView", () => {
     const view = lobbyView(state([player()], { mode: GameMode.FFA }), "p1", "");
     expect(view.modeLabel).toBe("Brawl");
     expect(view.countLabel).toBe("1 / 6 players");
+  });
+
+  it("heads the columns Team A and Team B only in Team brawl", () => {
+    const view = lobbyView(state([player()], { mode: GameMode.TEAM }), "p1", "");
+    expect(view.showTeamHeadings).toBe(true);
     expect(view.teamACount).toBe(`1 / ${MAX_TEAM_SIZE}`);
+    expect(view.teamBCount).toBe(`0 / ${MAX_TEAM_SIZE}`);
+  });
+
+  /**
+   * Brawl has no teams — `targets.ts` calls every car hostile and `spawns.ts` never reads `team` —
+   * so heading the columns "Team A" and "Team B" named a division the mode does not have. The
+   * occupancy goes with the heading: "1 / 3" counts seats on a team nobody is on.
+   */
+  it("drops the team headings and their occupancy in Brawl", () => {
+    const view = lobbyView(state([player()], { mode: GameMode.FFA }), "p1", "");
+    expect(view.showTeamHeadings).toBe(false);
+    expect(view.teamACount).toBe("");
+    expect(view.teamBCount).toBe("");
+  });
+
+  /**
+   * The columns still split on `team` in Brawl, because `pickTeam` runs in every mode and keeps
+   * them even. Losing the headings must not lose the seats — a player seated on team 1 belongs in
+   * the right-hand column whether or not that column is called anything.
+   */
+  it("still seats players across both columns in Brawl", () => {
+    const view = lobbyView(
+      state([player(), player({ sessionId: "p2", team: 1 })], { mode: GameMode.FFA }),
+      "p1",
+      "",
+    );
+    expect(view.teamA.filter((s) => s.filled).map((s) => s.sessionId)).toEqual(["p1"]);
+    expect(view.teamB.filter((s) => s.filled).map((s) => s.sessionId)).toEqual(["p2"]);
   });
 
   it("carries the start error through untouched", () => {

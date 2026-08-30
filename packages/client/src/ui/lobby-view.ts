@@ -56,6 +56,12 @@ export interface LobbySlot {
 export interface LobbyView {
   modeLabel: string;
   countLabel: string;
+  /**
+   * Whether the two columns are teams. False in Brawl, where `pickTeam` still seats players 0/1 to
+   * keep the columns even but nothing in the match reads the value — so calling them Team A and
+   * Team B would name a division the mode does not have. Mirrors `RevealView.showTeamHeadings`.
+   */
+  showTeamHeadings: boolean;
   teamACount: string;
   teamBCount: string;
   isHost: boolean;
@@ -89,6 +95,7 @@ export function lobbyView(
   startError: string,
 ): LobbyView {
   const isHost = localSessionId === state.hostSessionId;
+  const isTeam = state.mode === GameMode.TEAM;
   const teamA = state.players.filter((p) => p.team !== 1);
   const teamB = state.players.filter((p) => p.team === 1);
   const local = state.players.find((p) => p.sessionId === localSessionId);
@@ -96,8 +103,12 @@ export function lobbyView(
   return {
     modeLabel: modeLabel(state.mode),
     countLabel: `${state.players.length} / ${MAX_PLAYERS} players`,
-    teamACount: `${teamA.length} / ${TEAM_SLOTS}`,
-    teamBCount: `${teamB.length} / ${TEAM_SLOTS}`,
+    showTeamHeadings: isTeam,
+    // Blank rather than absent in Brawl: the heading row is dropped whole, so an occupancy that
+    // counts seats on a team nobody is on never reaches the screen and never reaches a reader of
+    // this model either. The lobby still splits on `team` — that is seating, not sides.
+    teamACount: isTeam ? `${teamA.length} / ${TEAM_SLOTS}` : "",
+    teamBCount: isTeam ? `${teamB.length} / ${TEAM_SLOTS}` : "",
     isHost,
     canSwitchTeam: local
       ? canSwitchTeam(
