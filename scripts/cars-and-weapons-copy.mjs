@@ -25,7 +25,7 @@ export const CHASSIS_COPY = {
       // NOT "hits hardest per press": that title belongs to Bastion's Bulwark, which the ranking
       // page and Bulwark's own card both say outright. Mirage's damage is real but conditional.
       "The fastest thing on the map, and the one that turns a few seconds of contact into most of " +
-      "a car — but only for as " +
+      "a car's HP — but only for as " +
       "long as it is beside you. Two of its three weapons hug the chassis, so Mirage has to pick a " +
       "moment, arrive, and finish. It has the hull of a car that never planned to stay.",
     beats: "Closes on Bullseye before its wind-ups can resolve.",
