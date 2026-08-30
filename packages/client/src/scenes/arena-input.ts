@@ -28,6 +28,10 @@ export function drainTicks(accMs: number, deltaMs: number): DrainResult {
  * One axis of a two-key control as the `-1 | 0 | 1` the wire expects. Both keys down is a
  * deliberate `0` rather than a last-key-wins fight: holding left and right at once should mean "no
  * steering", not an arbitrary direction that depends on keyboard scan order.
+ *
+ * That rule is also what lets each side be an OR of two key sets — the arrows and WASD both steer,
+ * and the free-look camera pans on either — without this function knowing there are two. Holding A
+ * and Right is the same situation as holding Left and Right, and it already answers 0.
  */
 export function axisOf(negative: boolean, positive: boolean): -1 | 0 | 1 {
   if (negative === positive) return 0;

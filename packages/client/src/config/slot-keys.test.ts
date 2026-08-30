@@ -24,7 +24,12 @@ describe("slot keys", () => {
 });
 
 describe("slot key glyphs", () => {
-  it("prints the space bar as a word — the ␣ symbol is unreadable at HUD size", () => {
-    expect(SLOT_KEYS.find((key) => key.code === 32)?.glyph).toBe("space");
+  it("binds the slots to J / K / L, in slot order", () => {
+    expect(SLOT_KEYS.map((key) => key.code)).toEqual([74, 75, 76]);
+    expect(SLOT_KEYS.map((key) => key.glyph)).toEqual(["J", "K", "L"]);
+  });
+
+  it("keeps no hidden alternate on the old Space / Q / E codes", () => {
+    for (const code of [32, 81, 69]) expect(SLOT_KEYS.some((key) => key.code === code)).toBe(false);
   });
 });

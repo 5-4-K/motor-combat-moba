@@ -6,8 +6,13 @@ import {
   WEAPON_TABLE,
   WeaponKind,
   hpOf,
+  msToTicks,
+  weaponTicksOf,
 } from "@motor-combat-moba/shared";
 import {
+  allegianceOf,
+  BEAM_FADE_OUT_MS,
+  beamFadeAlpha,
   extrapolateShot,
   hpBarColor,
   hpBarPoints,
@@ -49,21 +54,53 @@ describe("hpFraction", () => {
   });
 });
 
+describe("allegianceOf", () => {
+  const me = { sessionId: "me", team: 0 };
+  const mate = { sessionId: "mate", team: 0 };
+  const foe = { sessionId: "foe", team: 1 };
+
+  it("makes you your own ally, in both modes", () => {
+    expect(allegianceOf(me, me, "ffa")).toBe("ally");
+    expect(allegianceOf(me, me, "team")).toBe("ally");
+  });
+
+  it("makes a teammate an ally only in team mode", () => {
+    expect(allegianceOf(me, mate, "team")).toBe("ally");
+    // In FFA everyone shares team 0, and everyone but you is still an enemy.
+    expect(allegianceOf(me, mate, "ffa")).toBe("enemy");
+  });
+
+  it("makes an opponent an enemy in both modes", () => {
+    expect(allegianceOf(me, foe, "ffa")).toBe("enemy");
+    expect(allegianceOf(me, foe, "team")).toBe("enemy");
+  });
+
+  it("answers from the viewer, so a spectate camera can never flip it (D2)", () => {
+    // You are a wreck watching `foe` fill the screen. Your teammate is still an ally and `foe` is
+    // still an enemy — dying changed nothing, because nothing about the camera reaches this.
+    expect(allegianceOf(me, mate, "team")).toBe("ally");
+    expect(allegianceOf(me, foe, "team")).toBe("enemy");
+    // Handing the WATCHED car in as the viewer is what would flip it, which is the whole reason
+    // the viewer is a parameter rather than something this function reads for itself.
+    expect(allegianceOf(foe, foe, "team")).toBe("ally");
+  });
+});
+
 describe("hpBarColor", () => {
-  it("is green while healthy", () => {
-    expect(hpBarColor(1)).toBe(hpBarColor(0.5));
+  it("tells the two sides apart", () => {
+    expect(hpBarColor("ally")).not.toBe(hpBarColor("enemy"));
   });
 
-  it("changes colour as hp drops", () => {
-    const healthy = hpBarColor(1);
-    const hurt = hpBarColor(0.3);
-    const critical = hpBarColor(0.1);
-    expect(hurt).not.toBe(healthy);
-    expect(critical).not.toBe(hurt);
+  it("is one colour per side and nothing else", () => {
+    // Allegiance is the only input left; there is no fraction to vary, and no exception for the
+    // viewer's own car (D1).
+    expect(hpBarColor("ally")).toBe(hpBarColor("ally"));
+    expect(hpBarColor("enemy")).toBe(hpBarColor("enemy"));
   });
 
-  it("is the critical colour at zero", () => {
-    expect(hpBarColor(0)).toBe(hpBarColor(0.1));
+  it("keeps the shipped palette: the healthy green for allies, the critical red for enemies", () => {
+    expect(hpBarColor("ally")).toBe(0x49c46a);
+    expect(hpBarColor("enemy")).toBe(0xd94040);
   });
 });
 
@@ -549,6 +586,70 @@ describe("lance beam layers", () => {
         expect(point.x).toBeLessThanOrEqual(1200 + 1e-9);
         expect(point.x).toBeGreaterThanOrEqual(-1e-9);
       }
+    }
+  });
+});
+
+describe("beamFadeAlpha", () => {
+  const FADE_TICKS = msToTicks(BEAM_FADE_OUT_MS);
+  const SPAWN = 500;
+  const beams = (Object.keys(WEAPON_TABLE) as Array<keyof typeof WEAPON_TABLE>).filter(
+    (id) => WEAPON_TABLE[id].kind === "beam",
+  );
+  const deathTickOf = (id: keyof typeof WEAPON_TABLE) => {
+    const ticks = weaponTicksOf(id);
+    return SPAWN + ticks.flight + ticks.lifetime;
+  };
+
+  it("holds full opacity everywhere but the last window", () => {
+    for (const id of beams) {
+      const death = deathTickOf(id);
+      for (const tick of [SPAWN, SPAWN + 1, death - FADE_TICKS - 1, death - FADE_TICKS]) {
+        expect(beamFadeAlpha(WeaponKind.BEAM, id, SPAWN, tick)).toBe(1);
+      }
+    }
+  });
+
+  it("ramps down across the window and reaches 0 exactly at the death tick", () => {
+    for (const id of beams) {
+      const death = deathTickOf(id);
+      const ramp: number[] = [];
+      for (let tick = death - FADE_TICKS; tick <= death; tick++) {
+        ramp.push(beamFadeAlpha(WeaponKind.BEAM, id, SPAWN, tick));
+      }
+      for (let i = 1; i < ramp.length; i++) expect(ramp[i]!).toBeLessThan(ramp[i - 1]!);
+      expect(ramp[ramp.length - 1]!).toBe(0);
+    }
+  });
+
+  it("is still visible on the last tick it is drawn, so nothing ever draws at alpha 0", () => {
+    // The sim stops the instance hitting anything ON the death tick (`instanceExpired`), so the
+    // last frame that carries a live beam is one tick earlier — and it must still be on screen.
+    for (const id of beams) {
+      expect(beamFadeAlpha(WeaponKind.BEAM, id, SPAWN, deathTickOf(id) - 1)).toBeGreaterThan(0);
+    }
+  });
+
+  it("never begins the fade before the beam is fully grown, however short the linger", () => {
+    // This is the clamp: `fadeTicks` is capped at the lifetime, so a window longer than the linger
+    // eats into the linger rather than into the growth. No shipped beam lingers for fewer than
+    // `FADE_TICKS` today, so this is the guard that catches the first one that does.
+    for (const id of beams) {
+      for (let tick = SPAWN; tick <= SPAWN + weaponTicksOf(id).flight; tick++) {
+        expect(beamFadeAlpha(WeaponKind.BEAM, id, SPAWN, tick)).toBe(1);
+      }
+    }
+  });
+
+  it("leaves projectiles fully opaque for their whole flight", () => {
+    for (let tick = SPAWN; tick < SPAWN + 200; tick += 7) {
+      expect(beamFadeAlpha(WeaponKind.PROJECTILE, "fireball", SPAWN, tick)).toBe(1);
+    }
+  });
+
+  it("leaves an unknown weapon id fully opaque rather than blanking it", () => {
+    for (let tick = SPAWN; tick < SPAWN + 200; tick += 7) {
+      expect(beamFadeAlpha(WeaponKind.BEAM, "not-a-weapon", SPAWN, tick)).toBe(1);
     }
   });
 });
