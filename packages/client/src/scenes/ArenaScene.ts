@@ -78,6 +78,7 @@ import {
 import {
   HUD_DIM,
   countdownSeconds,
+  HUD_ICON_FIT_SCALE,
   resolveWeaponIcon,
   SLOT_KEY_FONT_PX,
   SLOT_NAME_FONT_PX,
@@ -297,12 +298,6 @@ const HUD_KEY_PILL_TEXT = "#ffffff";
 const HUD_NAME_FONT_STYLE = "bold";
 const HUD_KEY_PILL_PAD_X = 8;
 const HUD_KEY_PILL_PAD_Y = 3;
-/**
- * How much of the slot the icon is fitted into. Between the inscribed square of the circle (0.707)
- * and the full bounding box: imported icons are trimmed and centred (`scripts/import-weapon-icon.mjs`),
- * so their extreme corners are usually empty and a strict inscription would waste visible area.
- */
-const HUD_ICON_FIT_SCALE = 0.8;
 /**
  * Stock count offset from the centre along the diagonal, as a fraction of the radius. Pulled in
  * from 0.55 when the black disc went: the count used to have an opaque backing and could sit near

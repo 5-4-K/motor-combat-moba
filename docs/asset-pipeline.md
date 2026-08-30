@@ -190,13 +190,30 @@ step (see [Deferred](#deferred) below for why there is no automated downscale ye
 ## `?dev=assets`
 
 Reload the client at `?dev=assets` and `BootScene` routes into `AssetTuningScene`
-(`packages/client/src/dev/AssetTuningScene.ts`) instead of the join screen: every chassis in
-`CAR_TABLE`, parked on its own OBB hull with no server connection, art or "no art" label, key name,
-and current `scale`/`rotationOffset` printed underneath. It exists because `rotationOffset`,
-`scale`, and `origin` have to be tuned by eye per sprite, and the alternative loop is a full
-rejoin per attempt — the client has no reconnect or session persistence, so checking one sprite's
-alignment any other way means the name prompt, lobby, car select, and countdown again before you
-can look at the car once more.
+(`packages/client/src/dev/AssetTuningScene.ts`) instead of the join screen. Two sections, no server
+connection:
+
+- **Chassis** — every car in `CAR_TABLE` parked on its own OBB hull, art or "no art" label, key
+  name, and current `scale`/`rotationOffset` printed underneath. Cars draw **untinted** by default,
+  because a player's colour is a lobby assignment rather than a property of the art. The tint picker
+  beside them (click a swatch, or press `0`–`6`) puts a real `COLOR_TABLE` colour on when the
+  question is whether a sprite tints cleanly; it re-applies through `applyCarSprite`, so a
+  `colorMode: "none"` row keeps refusing the tint exactly as it does in a match.
+- **Weapon icons** — every weapon on every chassis kit, one row per chassis, cells left to right in
+  slot order. Each sits in a real `SLOT_BOX_PX` HUD slot circle and is fitted by `resolveWeaponIcon`
+  at `HUD_ICON_FIT_SCALE`, the same resolver and the same box the live HUD uses, beside a swatch of
+  its `WEAPON_TABLE.color` — the colour its *shots* draw in. Nothing typed ties an icon to that hex,
+  so putting the two side by side is the only place the pair can be judged as one weapon. The grid
+  is built from kits, so a weapon no car carries has no cell; the header names it rather than
+  dropping it silently.
+
+It exists because `rotationOffset`, `scale`, and `origin` have to be tuned by eye per sprite, and
+the alternative loop is a full rejoin per attempt — the client has no reconnect or session
+persistence, so checking one sprite's alignment any other way means the name prompt, lobby, car
+select, and countdown again before you can look at the car once more.
+
+The layout arithmetic lives in `packages/client/src/dev/tuning-layout.ts` and is unit-tested; the
+scene itself cannot be, since client tests run in node and never import Phaser.
 
 This only works when the page is actually running in dev mode — `npm run dev`'s Vite dev server,
 not a built `dist`. That is not a limitation to work around; it is the point.
@@ -267,10 +284,12 @@ importer's treatment here would be actively wrong, not merely unnecessary. Run i
 node scripts/import-weapon-icon.mjs --weapon <weaponId> --src <path>
 ```
 
-There is no `?dev=assets`-style preview for icons — that tool is car-only. Check a new icon's fit by
-running `npm run dev`, equipping the weapon, and looking at its slot in the live HUD bar. The
-`process-weapon-icon` skill mirrors `process-car-asset`: hand it an image and a weapon id, and it
-runs the importer, reports the manifest row, and covers "why is my icon blurry / missing / wrong."
+Check a new icon's fit at [`?dev=assets`](#devassets), which draws every weapon's icon in a real HUD
+slot beside its shot colour — no rejoin, and the whole roster at once. The live HUD bar (`npm run
+dev`, equip the weapon) is still the final word, since only it shows the icon under the slot's
+cooldown sweep and dim states. The `process-weapon-icon` skill mirrors `process-car-asset`: hand it
+an image and a weapon id, and it runs the importer, reports the manifest row, and covers "why is my
+icon blurry / missing / wrong."
 
 World instances — the actual projectile or beam hitbox flying through the arena — are never
 sprites; see [`combat-model.md`](combat-model.md) for why that stays procedural instead. Only the

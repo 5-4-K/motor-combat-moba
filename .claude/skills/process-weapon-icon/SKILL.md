@@ -89,9 +89,12 @@ replace its icon; **fields you tuned by hand — `origin`, in particular — are
   (128x128),
 - the manifest row (`weapon-icon.<weaponId>` → `weapon-icons/<weaponId>.png`, `colorMode: "none"`,
   `scale: "fit"`),
-- and the next step: `npm run dev`, join a match with that weapon equipped, and check its slot in
-  the HUD bar. There is no `?dev=assets` preview for weapon icons — that tool is car-only — so the
-  live HUD is the only place to judge the fit.
+- and the next step: `npm run dev`, then `http://localhost:5173/?dev=assets`, which draws every
+  weapon's icon in a real HUD slot circle beside its `WEAPON_TABLE.color` swatch — fitted by the
+  same resolver at the same box the live HUD uses, so it is the fast way to judge fit and to see
+  whether the icon and the shot read as one weapon. Joining a match with the weapon equipped is
+  still worth doing before calling it done: only the live HUD shows the icon under the cooldown
+  sweep and the dim states.
 
 Leave both the PNG and the manifest edit uncommitted. They are a visual change, and the person
 should see the icon in the HUD before deciding it is right.

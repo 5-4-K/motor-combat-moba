@@ -9,8 +9,23 @@ export type SlotVisual = "ready" | "recharging" | "locked" | "car-locked";
 /** Icon alpha per state. The locked dim is heavier AND static, so it cannot read as a cooldown. */
 export const HUD_DIM = { ready: 1, recharging: 0.4, locked: 0.25, carLocked: 0.7 } as const;
 
-/** The slot's diameter. Still square in the arithmetic — a circle's bounding box is its diameter. */
-const BOX_PX = 64;
+/**
+ * The slot's diameter. Still square in the arithmetic — a circle's bounding box is its diameter.
+ *
+ * Exported so the `?dev=assets` tuning tool can draw an icon against the real slot rather than a
+ * number of its own, for the same reason `resolveWeaponIcon` is shared with it: a preview fitted to
+ * a different box than the HUD uses is a preview that can lie.
+ */
+export const SLOT_BOX_PX = 64;
+
+/**
+ * How much of the slot the icon is fitted into. Between the inscribed square of the circle (0.707)
+ * and the full bounding box: imported icons are trimmed and centred (`scripts/import-weapon-icon.mjs`),
+ * so their extreme corners are usually empty and a strict inscription would waste visible area.
+ *
+ * Lives here rather than in `ArenaScene` so the tuning tool fits icons exactly as the HUD does.
+ */
+export const HUD_ICON_FIT_SCALE = 0.8;
 
 /**
  * The key label, drawn to the RIGHT of the slot and vertically centred on it. D18 wants the key
@@ -164,18 +179,18 @@ export function slotBarLayout(
 ): SlotBox[] {
   const shown = Math.min(count, WEAPON_SLOT_CONFIG.maxWeaponSlots);
   if (shown <= 0) return [];
-  const totalHeight = shown * BOX_PX + (shown - 1) * GAP_PX;
+  const totalHeight = shown * SLOT_BOX_PX + (shown - 1) * GAP_PX;
   const top = topInset + (viewHeight - topInset - totalHeight) / 2;
-  const groupWidth = BOX_PX + SLOT_KEY_GAP_PX + SLOT_KEY_COLUMN_PX;
+  const groupWidth = SLOT_BOX_PX + SLOT_KEY_GAP_PX + SLOT_KEY_COLUMN_PX;
   const x = viewWidth - gutterWidth + (gutterWidth - groupWidth) / 2;
   return Array.from({ length: shown }, (_, i) => {
-    const y = top + i * (BOX_PX + GAP_PX);
+    const y = top + i * (SLOT_BOX_PX + GAP_PX);
     return {
       x,
       y,
-      size: BOX_PX,
-      keyX: x + BOX_PX + SLOT_KEY_GAP_PX,
-      nameY: y + BOX_PX + SLOT_NAME_GAP_PX,
+      size: SLOT_BOX_PX,
+      keyX: x + SLOT_BOX_PX + SLOT_KEY_GAP_PX,
+      nameY: y + SLOT_BOX_PX + SLOT_NAME_GAP_PX,
     };
   });
 }

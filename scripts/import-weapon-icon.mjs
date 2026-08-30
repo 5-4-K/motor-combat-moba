@@ -114,18 +114,18 @@ export async function main(argv = process.argv.slice(2)) {
   console.log(`colorMode     none (icons keep their colour, never desaturated)`);
   console.log(`\nwrote         ${path.relative(rootDir, dest)}  ${ICON_PX}x${ICON_PX}`);
   console.log(`manifest      ${key} -> ${file}`);
-  // Unlike a car sprite, there is no `?dev=assets` preview for weapon icons — that tool only ever
-  // walked `CAR_TABLE`. The only place to judge the fit is the live HUD, which means the icon is
-  // only visible at all if some car's loadout actually carries this weapon. Every shipped weapon
-  // has a carrier today -- the nine-weapon roster is exclusive but complete, with no orphan id --
-  // so this branch only fires for a weapon still being authored, before it is wired into a
-  // `CAR_TABLE` loadout. "join a match with it equipped" is advice nobody can follow yet in that
-  // case: say so instead.
+  // `?dev=assets` previews weapon icons as well as car sprites, and fits them through the HUD's own
+  // resolver at the HUD's own box, so it is the fast way to judge one: no rejoin, and every weapon
+  // on screen at once. It draws the grid from `CAR_TABLE` kits, though, so a weapon no car carries
+  // still has no cell there — the page names it in its header rather than dropping it silently.
+  // Every shipped weapon has a carrier today -- the nine-weapon roster is exclusive but complete,
+  // with no orphan id -- so that branch only fires for a weapon still being authored, before it is
+  // wired into a `CAR_TABLE` loadout.
   const carriers = Object.keys(CAR_TABLE).filter((carId) => CAR_TABLE[carId].weapons.includes(weapon));
   console.log(
     carriers.length > 0
-      ? `next          npm run dev, drive ${carriers.join(" / ")}, check the HUD slot bar`
-      : `next          no car carries "${weapon}", so no HUD slot shows it — add it to a CAR_TABLE loadout to judge the fit`,
+      ? `next          npm run dev, then http://localhost:5173/?dev=assets — or drive ${carriers.join(" / ")} and check the HUD slot bar`
+      : `next          no car carries "${weapon}", so neither a HUD slot nor ?dev=assets shows it — add it to a CAR_TABLE loadout to judge the fit`,
   );
 }
 
