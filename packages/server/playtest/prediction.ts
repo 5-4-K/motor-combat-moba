@@ -17,6 +17,7 @@ import {
   MS_PER_TICK,
   NEUTRAL_MODIFIERS,
   TICK_RATE_HZ,
+  forwardMaxSpeedOf,
   getArena,
   carHullOf,
   otherCarHulls,
@@ -192,7 +193,7 @@ const reporter = new Reporter(
     // A correction past a car length is a snap the player sees; free driving must stay at zero.
     worstCollision > DRIVE_CONFIG.carWidth || worstFree > 1 ? "FINDING" : "OK",
     `sim ${TICK_RATE_HZ} Hz, patches ${DEFAULT_PATCH_RATE_HZ} Hz. "correction" is how far one\n` +
-      `reconcile moves the local car — what the player sees as a snap. A mirage covers 18 u/tick\n` +
+      `reconcile moves the local car — what the player sees as a snap. A mirage covers 19.2 u/tick\n` +
       `and its hull is ${DRIVE_CONFIG.carWidth} x ${DRIVE_CONFIG.carHeight}.\n` +
       rows.join("\n") +
       `\nworst free-driving correction ${worstFree.toFixed(2)}u; worst collision correction ` +
@@ -204,13 +205,14 @@ const reporter = new Reporter(
 {
   const rows: string[] = [];
   const patchEvery = Math.round(TICK_RATE_HZ / DEFAULT_PATCH_RATE_HZ);
+  const mirageTopSpeed = forwardMaxSpeedOf("mirage"); // 576 u/s after T8's restat (was 540)
   for (const latencyMs of [0, 15, 30, 60, 120]) {
     const latencyTicks = Math.round((latencyMs / 1000) * TICK_RATE_HZ);
     const staleTicks = latencyTicks + patchEvery;
     rows.push(
       `${String(latencyMs).padStart(4)} ms one-way: remote pose up to ${staleTicks} ticks old ` +
         `(${(staleTicks * MS_PER_TICK).toFixed(0)} ms) = ` +
-        `${(staleTicks * (540 / TICK_RATE_HZ)).toFixed(0)}u of travel at Mirage's top speed`,
+        `${(staleTicks * (mirageTopSpeed / TICK_RATE_HZ)).toFixed(0)}u of travel at Mirage's top speed`,
     );
   }
   reporter.report(

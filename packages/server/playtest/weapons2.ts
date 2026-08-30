@@ -26,22 +26,42 @@ const reporter = new Reporter(
 );
 const report = reporter.report.bind(reporter);
 function carrierOf(weaponId: WeaponId): CarId {
-  return (Object.keys(CAR_TABLE) as CarId[]).find((c) => slotsOf(c).includes(weaponId))!;
+  const id = (Object.keys(CAR_TABLE) as CarId[]).find((c) => slotsOf(c).includes(weaponId));
+  if (!id) throw new Error(`no chassis carries ${weaponId}`);
+  return id;
 }
+/**
+ * Which slot index (1-based bitmask) carries this weapon on its chassis. Throws rather than
+ * silently returning a garbage bit: `1 << -1` is `-2147483648`, and a scenario naming a weapon its
+ * chassis no longer carries would otherwise fire that mask and report a clean, empty result —
+ * exactly the failure T8 found in three scenarios here and in weapons.ts. A setup mistake like
+ * this is allowed to be loud; only the measurement loop over live scenarios has to keep going.
+ */
 function slotBitFor(carId: CarId, weaponId: WeaponId): number {
-  return 1 << slotsOf(carId).indexOf(weaponId);
+  const i = slotsOf(carId).indexOf(weaponId);
+  if (i < 0) throw new Error(`${carId} does not carry ${weaponId}`);
+  return 1 << i;
 }
 
 /* ------------------------------------ W3b. is pepperbox tunneling, or is it just spread? */
+/**
+ * T12 collapsed pepperbox from three sequential volleys of two pellets (+/-5 degrees, no pellet on
+ * the heading) into one volley of THREE pellets at -6/0/+6 degrees. That is a different shape, not
+ * just a smaller one: `fanOffset` puts the middle pellet's offset at exactly 0, so — unlike the old
+ * fan — one pellet always travels the centre line. The old finding here ("the volley cannot hit a
+ * car dead ahead at all beyond ~effective range") was a property of a fan with nothing on-axis, and
+ * it cannot recur now that one always exists. What is still worth measuring is whether the two
+ * OUTER pellets keep connecting, and whether the always-on-axis pellet ever somehow fails to.
+ */
 function pepperboxSpread(): void {
   const rows: string[] = [];
   const carrier = carrierOf("pepperbox");
   const bit = slotBitFor(carrier, "pepperbox");
-  // Half-spread is 5 degrees; lateral miss distance grows with range.
+  let centrePelletEverMissed = false;
   for (const base of [60, 120, 200, 300, 450, 560]) {
-    let hits = 0;
     let total = 0;
     let dmg = 0;
+    let zeroDamagePhases = 0;
     for (let phase = 0; phase < 27; phase++) {
       const distance = base + phase;
       const w = new PlaytestWorld([
@@ -55,28 +75,29 @@ function pepperboxSpread(): void {
       }
       const d = hp0 - w.get("t").hp;
       total++;
-      if (d > 0) hits++;
       dmg += d;
+      if (d === 0) zeroDamagePhases++;
     }
-    const lateral = base * Math.tan((5 * Math.PI) / 180);
+    // A total miss (0 damage) at any range inside the weapon's own reach means even the on-axis
+    // pellet failed to connect — that IS a finding, unlike the old flanking-pellet miss.
+    if (zeroDamagePhases > 0) centrePelletEverMissed = true;
+    const outerLateral = base * Math.tan((6 * Math.PI) / 180);
     rows.push(
-      `range ~${String(base).padStart(3)}u: ${hits}/${total} phases connected, mean damage ` +
-        `${(dmg / total).toFixed(0)}/168 max — pellet is ${lateral.toFixed(0)}u off axis, ` +
-        `target half-width is ${DRIVE_CONFIG.carHeight / 2}u + 7u pellet radius`,
+      `range ~${String(base).padStart(3)}u: mean damage ${(dmg / total).toFixed(0)}/135 max ` +
+        `(${zeroDamagePhases}/${total} phases dealt 0${zeroDamagePhases > 0 ? " <- CENTRE PELLET MISSED" : ""}) — ` +
+        `outer pellets are ${outerLateral.toFixed(0)}u off axis, target half-width is ` +
+        `${DRIVE_CONFIG.carHeight / 2}u + 6u pellet radius`,
     );
   }
-  // Two separate answers here. "Not tunneling" is OK — W3's flag was a false positive. But a weapon
-  // that cannot connect at half its own authored range IS a finding, and it is the same measurement.
-  const effectiveRange = Math.round(23 / Math.tan((5 * Math.PI) / 180));
   const authoredRange = WEAPON_TABLE.pepperbox.range;
   report(
     "W3b. Pepperbox: pellet spread (not tunneling), and the reach it actually has",
-    effectiveRange < authoredRange * 0.75 ? "FINDING" : "OK",
-    `NOT tunneling: W3's flag was a false positive. Pepperbox fires 2 pellets per volley at\n` +
-      `+/-5 degrees, so nothing travels down the centre line.\n` +
-      `The finding is the reach: beyond ~${effectiveRange}u BOTH pellets clear a car's flank and the\n` +
-      `volley cannot hit a car dead ahead at all — against an authored range of ${authoredRange},\n` +
-      `which is also what manual.html advertises.\n` +
+    centrePelletEverMissed ? "FINDING" : "OK",
+    `NOT tunneling: W3's flag was a false positive. Pepperbox now fires ONE volley of THREE\n` +
+      `pellets at 0/+6/-6 degrees, so — unlike the old two-pellet fan this replaced — one pellet\n` +
+      `always travels the heading. A target dead ahead can lose the two flanking pellets to range\n` +
+      `(the old finding, and expected) but should never be missed outright inside the weapon's own\n` +
+      `${authoredRange}u range, which is also what manual.html advertises.\n` +
       rows.join("\n"),
   );
 }
@@ -118,8 +139,8 @@ function trueTunneling(): void {
 /* --------------------------------------- W14. crossing target: the un-smeared half of the test */
 /**
  * `hits.ts` smears the PROJECTILE across its tick but tests against the target's single post-drive
- * pose. A car crossing the line of fire at top speed moves 18 u/tick; can it end up on the far side
- * of a shot that should have hit it?
+ * pose. A car crossing the line of fire at top speed moves 19.2 u/tick (Mirage's top speed rose
+ * 540 -> 576 in T8's restat); can it end up on the far side of a shot that should have hit it?
  */
 function crossingTarget(): void {
   const rows: string[] = [];

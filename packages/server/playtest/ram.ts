@@ -72,7 +72,7 @@ function triggerPhaseSweep(): void {
   report(
     "R1. Does a ram fire at all, as a function of where the tick grid lands?",
     worstRate < 0.9 ? "FINDING" : "OK",
-    "A bastion (mass 85, the designated rammer) at top speed hits a stationary bullseye.\n" +
+    "A bastion (mass 90, the designated rammer) at top speed hits a stationary bullseye.\n" +
       "`startGap` is the clearance at t=0; the car covers 10.5 u/tick, so sweeping the gap sweeps\n" +
       "the sub-tick phase of the impact — the only thing that differs between these runs.\n" +
       rows.join("\n"),

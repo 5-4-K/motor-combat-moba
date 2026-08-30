@@ -24,9 +24,21 @@ const reporter = new Reporter(
 );
 const report = reporter.report.bind(reporter);
 const ARENA = getArena("arena-02");
-const carrierOf = (w: WeaponId): CarId =>
-  (Object.keys(CAR_TABLE) as CarId[]).find((c) => slotsOf(c).includes(w))!;
-const slotBitFor = (c: CarId, w: WeaponId): number => 1 << slotsOf(c).indexOf(w);
+function carrierOf(w: WeaponId): CarId {
+  const id = (Object.keys(CAR_TABLE) as CarId[]).find((c) => slotsOf(c).includes(w));
+  if (!id) throw new Error(`no chassis carries ${w}`);
+  return id;
+}
+/**
+ * Which slot index (1-based bitmask) carries this weapon on its chassis. Throws rather than
+ * silently returning a garbage bit: `1 << -1` is `-2147483648`, which would fire a nonsense mask
+ * and let a scenario naming a weapon its chassis no longer carries report a clean, empty result.
+ */
+function slotBitFor(c: CarId, w: WeaponId): number {
+  const i = slotsOf(c).indexOf(w);
+  if (i < 0) throw new Error(`${c} does not carry ${w}`);
+  return 1 << i;
+}
 
 /** Is this pose inside any obstacle? Measured on the hull's axis-aligned envelope. */
 function insideObstacle(x: number, y: number, angle: number): number {

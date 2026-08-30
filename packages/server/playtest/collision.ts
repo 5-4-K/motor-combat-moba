@@ -21,9 +21,10 @@ const report = reporter.report.bind(reporter);
 /* ------------------------------------------------------------------ 1. tunneling */
 /**
  * Can a car pass THROUGH another between two ticks? Cars are only tested at their post-step pose —
- * there is no swept test for driving (unlike projectiles, which smear). At 30 Hz a mirage covers
- * 18 u/tick; a head-on pair closes 36. The hull is 48 long, so ordinary driving cannot tunnel. Ram
- * shove is the extra term: it is added to the drive velocity and is not capped by top speed.
+ * there is no swept test for driving (unlike projectiles, which smear). At 30 Hz a mirage (top
+ * speed rose 540 -> 576 in T8's restat) covers 19.2 u/tick; a head-on pair closes 38.4. The hull is
+ * 48 long, so ordinary driving cannot tunnel. Ram shove is the extra term: it is added to the drive
+ * velocity and is not capped by top speed.
  */
 function tunneling(): void {
   const rows: string[] = [];
@@ -59,7 +60,7 @@ function tunneling(): void {
   report(
     "1. Car-car tunneling at extreme closing speed",
     worst > 0 && worst <= maxRamShove ? "FINDING" : "OK",
-    `Hull is ${W}x${H}. Driving alone closes 36 u/tick head-on, well under the hull length.\n` +
+    `Hull is ${W}x${H}. Driving alone closes 38.4 u/tick head-on, well under the hull length.\n` +
       rows.join("\n") +
       (worst > 0
         ? `\nFirst tunnel at injected shove ${worst} u/s on BOTH cars. The hardest shove the ram can ` +
@@ -181,7 +182,7 @@ function ramIntoWall(): void {
   const rows: string[] = [];
   let escaped = false;
   for (const victim of ["mirage", "bullseye", "bastion"] as CarId[]) {
-    // Bastion (mass 85) at top speed rear-ending a victim parked against the right wall.
+    // Bastion (mass 90) at top speed rear-ending a victim parked against the right wall.
     const wallX = ARENA.width - W / 2;
     const w = new PlaytestWorld([
       { id: "attacker", carId: "bastion", x: wallX - W - 4, y: 360, angle: 0, speed: forwardMaxSpeedOf("bastion") },

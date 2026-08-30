@@ -149,7 +149,7 @@ function pointBlank(): void {
 }
 
 /* --------------------------------------------------- W3. projectile tunneling through a car */
-/** Skewer moves 46.7 u/tick against a 32u-wide hull. The smear is what must stop it straddling. */
+/** Skewer moves 33.3 u/tick (speed dropped 1400 -> 1000 with T17's range cut) against a 32u-wide hull. The smear is what must stop it straddling. */
 function projectileTunneling(): void {
   const rows: string[] = [];
   let tunneled = 0;
@@ -235,7 +235,8 @@ function damageAfterDeath(): void {
     `target wrecked on tick ${deadAt + 1}, final hp ${t.hp}, alive ${t.alive}\n` +
       `hp ever negative: ${hpBelowZero}; hp moved after death: ${deadTookDamage}\n` +
       `statuses still on the wreck: ${statusesOf(t).map((s) => s.statusId).join(",") || "none"} ` +
-      `(spiked keeps its badge but 'runCombat' gates pulses on 'alive')`,
+      `(needler applies no status now — T18 moved its old 'spiked' rider to bulwark — but any bleed\n` +
+      `still would keep its badge here, since 'runCombat' gates pulses on 'alive', not the badge)`,
   );
 }
 
@@ -280,21 +281,26 @@ function fireRateExploit(): void {
 /**
  * `stunned` is `reapply: "ignore"` so it cannot be chained. `overheated`/`spiked`/`corroded` are
  * `refresh`, so a sustained source holds them indefinitely — by design, but the ceiling matters.
+ *
+ * The perma-stun attempt used to be two Bastions spamming `shockwave`. T16 moved the stun off
+ * shockwave (which no longer stuns at all — it applies `corroded` on its third wave) and onto
+ * `thumper`, Bastion's own slot 1, at 900ms. That is now the roster's only stun source, so it is
+ * what this probe has to stress.
  */
 function statusChain(): void {
   const rows: string[] = [];
-  // Two bastions alternating shockwave on one victim: the perma-stun attempt.
+  // Two bastions alternating thumper on one victim: the perma-stun attempt.
   const w = new PlaytestWorld([
-    { id: "hexA", carId: "bastion", x: 600, y: 360, angle: 0, team: 0 },
-    { id: "hexB", carId: "bastion", x: 680, y: 360, angle: Math.PI, team: 0 },
+    { id: "bastA", carId: "bastion", x: 600, y: 360, angle: 0, team: 0 },
+    { id: "bastB", carId: "bastion", x: 680, y: 360, angle: Math.PI, team: 0 },
     { id: "victim", carId: "mirage", x: 640, y: 360, angle: 0, team: 0, hp: 100000 },
   ]);
-  const bit = slotBitFor("bastion", "shockwave");
+  const bit = slotBitFor("bastion", "thumper");
   let stunnedTicks = 0;
   const total = 900; // 30 seconds
   for (let i = 0; i < total; i++) {
-    w.input("hexA", { fireSlots: bit });
-    w.input("hexB", { fireSlots: bit });
+    w.input("bastA", { fireSlots: bit });
+    w.input("bastB", { fireSlots: bit });
     w.input("victim", {});
     w.tick();
     if (statusesOf(w.get("victim")).some((s) => s.statusId === "stunned" && s.endsTick > w.state.tick)) {
@@ -302,7 +308,7 @@ function statusChain(): void {
     }
   }
   rows.push(
-    `two Bastions spamming Shockwave on one car for ${total} ticks (30s): ` +
+    `two Bastions spamming Thumper on one car for ${total} ticks (30s): ` +
       `stunned for ${stunnedTicks} ticks (${((stunnedTicks / total) * 100).toFixed(0)}% of the fight)`,
   );
 
@@ -381,48 +387,63 @@ function beamsThroughWalls(): void {
 }
 
 /* ----------------------------------------------------- W9. shockwave aura through a wall */
-/** Documented: a disc grows to full range and passes through geometry. Confirm the play impact. */
+/**
+ * Documented: a disc grows to full range and passes through geometry. Confirm the play impact.
+ *
+ * Shockwave moved from Bastion to Mirage (T15) and is now three 250ms waves 500ms apart rather
+ * than one instant pulse, so this needs Mirage as the shooter and enough ticks to see all three
+ * waves connect, not just the first.
+ */
 function auraThroughWall(): void {
   const arena = getArena("arena-02");
   const box = arena.obstacles[2]!;
-  // Bastion hugging the west face of the box; victim hugging the east face. 200u of solid wall
-  // between them, well inside shockwave's 150 radius? No — check the real geometry.
+  // Mirage hugging the west face of the box; victim hugging the east face. 140u of solid wall
+  // between them, well inside shockwave's 150 radius.
   const y = box.y + box.h / 2;
   const w = new PlaytestWorld(
     [
-      { id: "hex", carId: "bastion", x: box.x - 25, y, angle: 0 },
-      { id: "victim", carId: "mirage", x: box.x - 25 + 140, y, angle: 0 },
+      { id: "mir", carId: "mirage", x: box.x - 25, y, angle: 0 },
+      { id: "victim", carId: "bastion", x: box.x - 25 + 140, y, angle: 0 },
     ],
     "ffa",
     "arena-02",
   );
-  const bit = slotBitFor("bastion", "shockwave");
+  const bit = slotBitFor("mirage", "shockwave");
   const startHp = w.get("victim").hp;
-  for (let i = 0; i < 30; i++) {
-    w.input("hex", { fireSlots: i === 0 ? bit : 0 });
+  // 3 waves x (500ms spacing) + the third wave's own 250ms life == 1.25s == ~38 ticks; run 45 to
+  // give the whole cycle margin.
+  for (let i = 0; i < 45; i++) {
+    w.input("mir", { fireSlots: i === 0 ? bit : 0 });
     w.tick();
   }
   const dealt = startHp - w.get("victim").hp;
   report(
     "W9. Shockwave (disc aura) reaching through a wall",
     dealt > 0 ? "KNOWN-BY-DESIGN" : "OK",
-    `Bastion on the west face of a 200x200 block, victim 140u away with the block between them: ` +
-      `dealt ${dealt}, victim statuses ${statusesOf(w.get("victim")).map((s) => s.statusId).join(",") || "none"}.\n` +
+    `Mirage on the west face of a 200x200 block, victim 140u away with the block between them: ` +
+      `dealt ${dealt} across all three waves (up to 153 at Mirage's 1.13x attack), victim statuses ` +
+      `${statusesOf(w.get("victim")).map((s) => s.statusId).join(",") || "none"}.\n` +
       `instances.ts states a disc "grows to its full range and passes through level geometry" — ` +
-      `intentional, but it is a stun through a solid wall, which reads as a bug from the receiving end.`,
+      `intentional, but it is corrosion damage through a solid wall, which reads as a bug from the ` +
+      `receiving end. The stun that used to ride here moved to thumper (T16), Bastion's slot 1.`,
   );
 }
 
 /* ---------------------------------------------------------------- W10. pierce accounting */
-/** `skewer` has pierce: 1, documented as "TWO CARS, not one and not three". */
+/**
+ * `skewer` has pierce: 1, documented as "TWO CARS, not one and not three". T17 moved skewer from
+ * Bullseye to Bastion and cut its range 1100 -> 650, so the shooter is Bastion here; the target
+ * line at 400/500/600 from a shooter at 200 (distances 200/300/400) is comfortably inside the new
+ * 650 range.
+ */
 function pierce(): void {
   const w = new PlaytestWorld([
-    { id: "shooter", carId: "bullseye", x: 200, y: 360, angle: 0, team: 0 },
+    { id: "shooter", carId: "bastion", x: 200, y: 360, angle: 0, team: 0 },
     { id: "t1", carId: "bastion", x: 400, y: 360, angle: 0, team: 0 },
     { id: "t2", carId: "bastion", x: 500, y: 360, angle: 0, team: 0 },
     { id: "t3", carId: "bastion", x: 600, y: 360, angle: 0, team: 0 },
   ]);
-  const bit = slotBitFor("bullseye", "skewer");
+  const bit = slotBitFor("bastion", "skewer");
   const before = ["t1", "t2", "t3"].map((id) => w.get(id).hp);
   for (let i = 0; i < 60; i++) {
     w.input("shooter", { fireSlots: i === 0 ? bit : 0 });
