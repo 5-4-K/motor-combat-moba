@@ -55,6 +55,7 @@ function player(sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlay
     x: 400,
     y: OPEN_Y,
     angle: 0,
+    speed: 0,
     team: 0,
     carId,
     hp: hpOf("mirage"),
@@ -97,6 +98,7 @@ describe("firing", () => {
       x: 300,
       y: OPEN_Y,
       angle: 0,
+      speed: 0,
       team: 0,
       carId: "mirage",
       hp: hpOf("mirage"),
@@ -750,6 +752,19 @@ describe("aimAngleFor", () => {
       ["b", target],
     ]);
     expect(aimAngleFor(shooter, "fireball", byId)).toBeNull(); // 430 > 400 -> welded to heading
+  });
+
+  it("leads a moving locked target (assisted projectiles fire at the intercept, spec S1)", () => {
+    const shooter = player("a", { x: 0, y: 0, angle: 0 });
+    shooter.lock = { targetSessionId: "b", lockedAtTick: 0, losLostSinceTick: 0, lastPressTick: 0 };
+    const target = player("b", { x: 300, y: 0, angle: Math.PI / 2, speed: 300 }); // heading +y
+    const byId = new Map([
+      ["a", shooter],
+      ["b", target],
+    ]);
+    const led = aimAngleFor(shooter, "fireball", byId)!;
+    const direct = Math.atan2(0 - 0, 300 - 24); // muzzle at x=24
+    expect(led).toBeGreaterThan(direct); // aimed ahead of the target, up the +y path
   });
 });
 

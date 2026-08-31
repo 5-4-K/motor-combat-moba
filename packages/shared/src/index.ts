@@ -58,6 +58,7 @@ export type {
 export { applyRams, impactSideOf, pairKey, resolveRam } from "./sim/ram.js";
 export type { ImpactSide, RamCar, RamHit, RamKnock } from "./sim/ram.js";
 export { canDamage } from "./sim/weapons/targets.js";
+export { interceptAngle, interceptTime } from "./sim/weapons/aim.js";
 export {
   hasLineOfSight,
   inAcquireRegion,

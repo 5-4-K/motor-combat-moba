@@ -92,6 +92,7 @@ export function toCombatPlayers(
       x: player.x,
       y: player.y,
       angle: player.angle,
+      speed: player.speed,
       team: player.team === 1 ? 1 : 0,
       carId: player.carId,
       hp: player.hp,
