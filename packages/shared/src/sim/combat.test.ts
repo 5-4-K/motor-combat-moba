@@ -8,12 +8,15 @@ import { MS_PER_TICK } from "../constants.js";
 import {
   aimAngleFor,
   runCombat,
+  startManeuver,
   type CombatInput,
   type CombatPlayer,
   type CombatResult,
   type CombatWorld,
 } from "./combat.js";
 import { carHullOf } from "./context.js";
+import { ManeuverKind } from "./maneuver.js";
+import type { ManeuverWeaponDef } from "../config/weapon-types.js";
 import { NEUTRAL_MODIFIERS } from "./status/modifiers.js";
 import { weaponDamageOf } from "./damage.js";
 import { newFireState } from "./weapons/fire.js";
@@ -65,8 +68,18 @@ function player(sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlay
     fireState: newFireState(carId as CarId | "", 1),
     lock: newLockState(),
     statuses: [],
+    maneuver: 0,
+    maneuverTicksLeft: 0,
+    maneuverAngle: 0,
+    maneuverSpeed: 0,
+    maneuverWeaponId: "" as const,
     ...over,
   };
+}
+
+/** A player at a given pose, for tests that only care about position and heading. */
+function playerAt(sessionId: string, x: number, y: number, angle: number): CombatPlayer {
+  return player(sessionId, { x, y, angle });
 }
 
 function run(over: Partial<CombatInput> = {}): ReturnType<typeof runCombat> {
@@ -108,6 +121,11 @@ describe("firing", () => {
       fireState: newFireState("mirage", 1),
       lock: newLockState(),
       statuses: [],
+      maneuver: 0,
+      maneuverTicksLeft: 0,
+      maneuverAngle: 0,
+      maneuverSpeed: 0,
+      maneuverWeaponId: "" as const,
       ...over,
     };
   }
@@ -826,4 +844,59 @@ it("damages a target with a real attached beam fired from a real loadout, once i
   // can have landed. 26 base * scale(0.8 for Mirage's attack 30 vs baseline 50) = 20.8, rounds
   // to 21 (weaponDamageOf, damage.ts's `damageFor`).
   expect(hit.hp).toBe(hpOf("mirage") - weaponDamageOf("mirage", "afterburner"));
+});
+
+/**
+ * `startManeuver`/`dashAngleFor` take their `ManeuverWeaponDef` as a parameter rather than reading a
+ * table row, so these synthetic defs exercise both maneuver shapes without needing a maneuver-kind
+ * weapon in `WEAPON_TABLE` yet. Coverage note: the full `runCombat` path (press -> `beginFire` ->
+ * order -> `startManeuver`) is exercised end-to-end only once Plan 3 lands a maneuver row on the
+ * table; these helpers carry the logic and are covered directly here, the same honesty as the repo's
+ * existing borrowed-row notes.
+ */
+describe("startManeuver", () => {
+  const dashDef = {
+    ...WEAPON_TABLE.fireball,
+    kind: "maneuver",
+    maneuver: { type: "dash" },
+    speed: 1600,
+    aimRangeUnits: 400,
+    usesAimAssist: true,
+  } as unknown as ManeuverWeaponDef;
+  const chargeDef = {
+    ...WEAPON_TABLE.fireball,
+    id: "fireball",
+    kind: "maneuver",
+    maneuver: { type: "charge", durationMs: 10000, slamsStunned: true },
+    usesAimAssist: false,
+    aimRangeUnits: undefined,
+  } as unknown as ManeuverWeaponDef;
+
+  it("starts a dash toward the lock, distance = aimRangeUnits at def.speed", () => {
+    const p = playerAt("a", 0, 0, 0);
+    p.lock = { targetSessionId: "b", lockedAtTick: 0, losLostSinceTick: 0, lastPressTick: 0 };
+    const byId = new Map([["a", p], ["b", playerAt("b", 0, 300, 0)]]);
+    startManeuver(p, dashDef, byId);
+    expect(p.maneuver).toBe(ManeuverKind.DASH);
+    expect(p.maneuverAngle).toBeCloseTo(Math.PI / 2); // snapped toward the target, no lead
+    expect(p.maneuverSpeed).toBe(1600);
+    expect(p.maneuverTicksLeft).toBe(Math.ceil((400 / 1600) * 30)); // 8 ticks
+    expect(p.maneuverWeaponId).toBe(dashDef.id);
+  });
+
+  it("dashes along the heading with no lock", () => {
+    const p = playerAt("a", 0, 0, 1.2);
+    startManeuver(p, dashDef, new Map([["a", p]]));
+    expect(p.maneuverAngle).toBeCloseTo(1.2);
+  });
+
+  it("starts a charge for its authored duration and refuses to stack maneuvers", () => {
+    const p = playerAt("a", 0, 0, 0);
+    startManeuver(p, chargeDef, new Map([["a", p]]));
+    expect(p.maneuver).toBe(ManeuverKind.CHARGE);
+    expect(p.maneuverTicksLeft).toBe(300); // msToTicks(10000)
+    const before = { ...p };
+    startManeuver(p, dashDef, new Map([["a", p]])); // second press mid-charge
+    expect(p.maneuver).toBe(before.maneuver);
+  });
 });

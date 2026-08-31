@@ -31,12 +31,22 @@ export function newRamMemory(): RamMemory {
   return { contacts: new Set() };
 }
 
-/** Reset a player's knock state to neutral. `authority` is 1 at rest, not 0. */
+/**
+ * Reset a player's knock state to neutral. `authority` is 1 at rest, not 0.
+ *
+ * Also clears the four maneuver fields, the same "nothing survives into a fresh match" rule this
+ * already applies to ram state: a car must not spawn into the countdown still mid-dash or mid-charge
+ * from the match that just ended.
+ */
 export function clearKnock(player: PlayerState): void {
   player.angVel = 0;
   player.shoveX = 0;
   player.shoveY = 0;
   player.authority = 1;
+  player.maneuver = 0;
+  player.maneuverTicksLeft = 0;
+  player.maneuverAngle = 0;
+  player.maneuverSpeed = 0;
 }
 
 /**

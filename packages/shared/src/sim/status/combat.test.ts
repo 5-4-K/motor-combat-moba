@@ -55,6 +55,11 @@ function player(sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlay
     fireState: newFireState(carId as "mirage", 1),
     lock: newLockState(),
     statuses: [],
+    maneuver: 0,
+    maneuverTicksLeft: 0,
+    maneuverAngle: 0,
+    maneuverSpeed: 0,
+    maneuverWeaponId: "" as const,
     ...over,
   };
 }

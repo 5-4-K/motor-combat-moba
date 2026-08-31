@@ -220,6 +220,11 @@ describe("applyCombatResult", () => {
       fireState: newFireState(isCarId(player.carId) ? player.carId : "", 1),
       lock: newLockState(),
       statuses: [],
+      maneuver: 0,
+      maneuverTicksLeft: 0,
+      maneuverAngle: 0,
+      maneuverSpeed: 0,
+      maneuverWeaponId: "" as const,
       ...over,
     };
   }
@@ -282,6 +287,11 @@ describe("applyCombatResult", () => {
             fireState: newFireState("mirage", 1),
             lock: newLockState(),
             statuses: [],
+            maneuver: 0,
+            maneuverTicksLeft: 0,
+            maneuverAngle: 0,
+            maneuverSpeed: 0,
+            maneuverWeaponId: "" as const,
           },
         ],
         instances: [],
@@ -394,6 +404,31 @@ describe("applyCombatResult", () => {
     applyCombatResult(state, result({ instances: [] }), memory);
     expect(state.weapons.size).toBe(0);
     expect(memory.instances.size).toBe(0);
+  });
+});
+
+describe("maneuver fields across the bridge", () => {
+  it("round-trips maneuver fields through toCombatPlayers/applyCombatResult", () => {
+    const state = new ArenaState();
+    playerIn(state, "p1");
+    const memory = newCombatMemory();
+    const roster = new Set(["p1"]);
+    const player = state.players.get("p1")!;
+
+    player.maneuver = 3;
+    player.maneuverTicksLeft = 250;
+    memory.maneuverWeapons.set("p1", "fireball");
+    const combat = toCombatPlayers(state, roster, new Map(), memory);
+    const p = combat.find((c) => c.sessionId === "p1")!;
+    expect(p.maneuver).toBe(3);
+    expect(p.maneuverWeaponId).toBe("fireball");
+
+    p.maneuver = 0;
+    p.maneuverTicksLeft = 0;
+    p.maneuverWeaponId = "";
+    applyCombatResult(state, { players: combat, instances: [], instanceSeq: 0 }, memory);
+    expect(player.maneuver).toBe(0);
+    expect(memory.maneuverWeapons.get("p1")).toBe("");
   });
 });
 

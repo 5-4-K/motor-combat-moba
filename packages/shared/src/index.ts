@@ -49,7 +49,7 @@ export {
   pointInObb,
   resolveWorld,
 } from "./sim/collide.js";
-export { runCombat } from "./sim/combat.js";
+export { dashAngleFor, runCombat, startManeuver } from "./sim/combat.js";
 export type {
   CombatInput,
   CombatPlayer,

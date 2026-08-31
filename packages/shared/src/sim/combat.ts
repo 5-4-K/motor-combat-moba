@@ -3,8 +3,9 @@ import { isStatusId } from "../config/status-config.js";
 import type { StatusId } from "../config/status-types.js";
 import { weaponDefOf } from "../config/weapon-config.js";
 import { carAimRangeOf } from "../config/weapon-slots.js";
-import { weaponTicksOf } from "../config/weapon-ticks.js";
-import type { WeaponId } from "../config/weapon-types.js";
+import { msToTicks, weaponTicksOf } from "../config/weapon-ticks.js";
+import type { ManeuverWeaponDef, WeaponId } from "../config/weapon-types.js";
+import { TICK_RATE_HZ } from "../constants.js";
 import {
   aabbCorners,
   convexOverlap,
@@ -14,6 +15,7 @@ import {
 } from "./collide.js";
 import { carHullOf, carIdOf } from "./context.js";
 import { applyDamage, applyHeal, scaleDamage } from "./damage.js";
+import { ManeuverKind, NO_MANEUVER } from "./maneuver.js";
 import { applyStatus, statusPulses, type ActiveStatus } from "./status/statuses.js";
 import { modifiersOf, NEUTRAL_MODIFIERS, type Modifiers } from "./status/modifiers.js";
 import { interceptAngle } from "./weapons/aim.js";
@@ -69,6 +71,19 @@ export interface CombatPlayer {
    * that everything reading a modifier this tick reads the same one.
    */
   statuses: readonly ActiveStatus[];
+  /** `ManeuverKind` value. 0 = none. Server-only, carried in and back out like `fireState`. */
+  maneuver: number;
+  maneuverTicksLeft: number;
+  /** Dash heading, radians. 0 outside a dash. */
+  maneuverAngle: number;
+  /** Dash translation speed, world units/sec. 0 outside a dash. */
+  maneuverSpeed: number;
+  /**
+   * Which weapon started the running maneuver, or "". Server-only, carried in and out like
+   * `fireState`: the contact pass reads it to price a slam/dash hit, and the stun sweep reads its
+   * `isUnInterruptable`. Never networked — `stepSim` reads the four numeric fields, not this.
+   */
+  maneuverWeaponId: WeaponId | "";
 }
 
 /** Everything about the tick that is the same for every player in it. */
@@ -226,6 +241,9 @@ export function runCombat(input: CombatInput): CombatResult {
   for (const player of players) {
     if (!isFighting(player)) {
       player.fireState = cancelPending(player.fireState);
+      // A wreck holds nothing: the same "nothing survives" rule `clearKnock` applies to ram state.
+      Object.assign(player, NO_MANEUVER);
+      player.maneuverWeaponId = "";
       continue;
     }
     player.fireState = tickRecharge(
@@ -302,13 +320,36 @@ export function runCombat(input: CombatInput): CombatResult {
     // landing mid-wind-up would otherwise eat a stock and produce nothing — a debuff that is
     // strictly worse the better your timing was. Jam what has not been committed yet; let what has
     // finish.
+    // A press that would start a maneuver (or a hold weapon) while one runs is ignored BEFORE the
+    // stock is spent — masked out of the press, not swallowed after commitment.
+    const blocked = player.maneuver !== ManeuverKind.NONE ? maneuverSlotMask(player.fireState) : 0;
     if (!mods.disarmed) {
-      player.fireState = beginFire(player.fireState, player.fireMask, world.tick);
+      const prevPending = player.fireState.pending;
+      player.fireState = beginFire(player.fireState, player.fireMask & ~blocked, world.tick);
+      // A hold weapon commits the car the moment the wind-up starts (O10): press -> HOLD for
+      // wind-up + growth + linger, released early only by wreck or stun.
+      const pending = player.fireState.pending;
+      if (pending !== null && prevPending === null) {
+        const pendingDef = weaponDefOf(pending.weaponId);
+        if (pendingDef.kind === "beam" && pendingDef.holdsDuringFire && player.maneuver === ManeuverKind.NONE) {
+          const t = weaponTicksOf(pendingDef.id);
+          player.maneuver = ManeuverKind.HOLD;
+          player.maneuverTicksLeft = t.startUp + t.flight + t.lifetime;
+          player.maneuverWeaponId = pendingDef.id;
+        }
+      }
     }
     const released = releaseShots(player.fireState, world.tick, mods.weaponCooldown);
     player.fireState = released.state;
     for (const order of released.orders) {
       const def = weaponDefOf(order.weaponId);
+      // A press that would start a maneuver-kind weapon moves the car instead of spawning an
+      // instance — no aim, no hit test, just the trigger for `startManeuver`.
+      if (def.kind === "maneuver") {
+        startManeuver(player, def, byId);
+        applySelfStatuses(player, order.weaponId, world.tick, order.finalVolley);
+        continue;
+      }
       const aim = aimAngleFor(player, order.weaponId, byId);
       // A homing shot needs both a live lock AND a successful aim assist — `aim === null` means the
       // lock was out of range, absent, or the weapon declined assist for some other reason, and
@@ -419,6 +460,52 @@ export function aimAngleFor(
     );
   }
   return Math.atan2(target.y - muzzle.y, target.x - muzzle.x);
+}
+
+/** The dash direction: the lock target's bearing (NO lead — the car arrives, not a shot), or the heading. */
+export function dashAngleFor(
+  player: CombatPlayer,
+  def: ManeuverWeaponDef,
+  byId: ReadonlyMap<string, CombatPlayer>,
+): number {
+  if (!def.usesAimAssist || player.lock.targetSessionId === "") return player.angle;
+  const target = byId.get(player.lock.targetSessionId);
+  if (!target || !isFighting(target)) return player.angle;
+  const distance = Math.hypot(target.x - player.x, target.y - player.y);
+  if (distance > (def.aimRangeUnits ?? 0)) return player.angle;
+  return Math.atan2(target.y - player.y, target.x - player.x);
+}
+
+/** Begin a maneuver-kind weapon's effect. One maneuver at a time; a second press is ignored. */
+export function startManeuver(
+  player: CombatPlayer,
+  def: ManeuverWeaponDef,
+  byId: ReadonlyMap<string, CombatPlayer>,
+): void {
+  if (player.maneuver !== ManeuverKind.NONE) return;
+  player.maneuverWeaponId = def.id;
+  if (def.maneuver.type === "dash") {
+    const distance = def.aimRangeUnits ?? def.range;
+    player.maneuver = ManeuverKind.DASH;
+    player.maneuverSpeed = def.speed;
+    player.maneuverTicksLeft = Math.max(1, Math.ceil((distance / def.speed) * TICK_RATE_HZ));
+    player.maneuverAngle = dashAngleFor(player, def, byId);
+  } else {
+    player.maneuver = ManeuverKind.CHARGE;
+    player.maneuverTicksLeft = msToTicks(def.maneuver.durationMs);
+    player.maneuverAngle = 0;
+    player.maneuverSpeed = 0;
+  }
+}
+
+/** Bitmask of slots whose weapon starts a maneuver or a hold — the presses masked out mid-maneuver. */
+function maneuverSlotMask(fireState: FireState): number {
+  let mask = 0;
+  fireState.slots.forEach((slot, index) => {
+    const def = weaponDefOf(slot.weaponId);
+    if (def.kind === "maneuver" || (def.kind === "beam" && def.holdsDuringFire)) mask |= 1 << index;
+  });
+  return mask;
 }
 
 /**

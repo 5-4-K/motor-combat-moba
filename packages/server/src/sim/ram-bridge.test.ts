@@ -171,4 +171,17 @@ describe("clearKnock", () => {
     expect(p.shoveY).toBe(0);
     expect(p.authority).toBe(1);
   });
+
+  it("zeroes a running maneuver too, so a fresh match never inherits a dash or charge", () => {
+    const p = new PlayerState();
+    p.maneuver = 3;
+    p.maneuverTicksLeft = 250;
+    p.maneuverAngle = 1.2;
+    p.maneuverSpeed = 1600;
+    clearKnock(p);
+    expect(p.maneuver).toBe(0);
+    expect(p.maneuverTicksLeft).toBe(0);
+    expect(p.maneuverAngle).toBe(0);
+    expect(p.maneuverSpeed).toBe(0);
+  });
 });
