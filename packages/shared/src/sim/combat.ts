@@ -1,4 +1,4 @@
-import { hpOf } from "../config/car-config.js";
+import { DEFAULT_CAR_ID, hpOf } from "../config/car-config.js";
 import { isStatusId } from "../config/status-config.js";
 import type { StatusId } from "../config/status-types.js";
 import { weaponDefOf } from "../config/weapon-config.js";
@@ -13,8 +13,9 @@ import {
   type Aabb,
   type Bounds,
 } from "./collide.js";
+import type { ContactHit } from "./contact.js";
 import { carHullOf, carIdOf } from "./context.js";
-import { applyDamage, applyHeal, scaleDamage } from "./damage.js";
+import { applyDamage, applyHeal, scaleDamage, weaponDamageOf } from "./damage.js";
 import { ManeuverKind, NO_MANEUVER } from "./maneuver.js";
 import { applyStatus, statusPulses, type ActiveStatus } from "./status/statuses.js";
 import { modifiersOf, NEUTRAL_MODIFIERS, type Modifiers } from "./status/modifiers.js";
@@ -128,6 +129,12 @@ export interface CombatInput {
    * which is every tick today: no pickup system exists yet.
    */
   statusRequests?: readonly StatusRequest[];
+  /**
+   * Dash hits and hard slams the contact pass (`sim/contact.ts`) found this tick, priced and applied
+   * in phase 0d below — see that phase's comment. Absent is none, which is every tick a match has no
+   * live contact.
+   */
+  contactHits?: readonly ContactHit[];
 }
 
 export interface CombatResult {
@@ -234,6 +241,20 @@ export function runCombat(input: CombatInput): CombatResult {
       request.durationTicks,
       request.sourceSessionId ?? "",
     );
+  }
+
+  // 0d. Contact damage — a dash landing or a hard slam, discovered by the contact pass this tick.
+  // Priced exactly like a shot: the attacker's weapon row through their `attack` and `damageDealt`,
+  // the target's `damageTaken` at impact, and the weapon's `applies` riding the hit (spec S3). The
+  // hull was the hitbox; this is the damage half arriving through the same seam a pickup would.
+  for (const hit of input.contactHits ?? []) {
+    const target = byId.get(hit.targetSessionId);
+    if (!target || !isFighting(target)) continue;
+    const attacker = byId.get(hit.attackerSessionId);
+    const base = weaponDamageOf(attacker ? carIdOf(attacker) : DEFAULT_CAR_ID, hit.weaponId);
+    const dealt = scaleDamage(base, attacker ? modsOf(hit.attackerSessionId).damageDealt : 1);
+    damage(target, scaleDamage(dealt, modsOf(hit.targetSessionId).damageTaken));
+    applyOpponentStatuses(target, hit.weaponId, world.tick, hit.attackerSessionId, true);
   }
 
   // 1. Recharge first, so a stock that lands this tick can be spent this tick. A player who has left

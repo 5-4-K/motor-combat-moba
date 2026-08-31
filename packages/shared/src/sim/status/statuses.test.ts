@@ -6,6 +6,7 @@ import {
   applyStatus,
   clearStatuses,
   expireStatuses,
+  expireStatusesFromSource,
   hasStatus,
   modifiersFromRows,
   newStatusState,
@@ -160,6 +161,15 @@ describe("expireStatuses", () => {
     let state = applyStatus(newStatusState(), IGNORING, 0, 10);
     state = applyStatus(state, REFRESHING, 0, 90);
     expect(expireStatuses(state, 10).map((s) => s.statusId)).toEqual([REFRESHING]);
+  });
+});
+
+describe("expireStatusesFromSource", () => {
+  it("strips only that source's live rows", () => {
+    let s = applyStatus([], "fortified", 10, 300, "a");
+    s = applyStatus(s, "corroded", 10, 60, "b");
+    const out = expireStatusesFromSource(s, "a", 12);
+    expect(out.map((r) => r.statusId)).toEqual(["corroded"]);
   });
 });
 

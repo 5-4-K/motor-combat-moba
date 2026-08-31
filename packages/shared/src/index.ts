@@ -168,6 +168,7 @@ export {
   applyStatus,
   clearStatuses,
   expireStatuses,
+  expireStatusesFromSource,
   hasStatus,
   modifiersFromRows,
   newStatusState,

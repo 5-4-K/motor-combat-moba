@@ -900,3 +900,20 @@ describe("startManeuver", () => {
     expect(p.maneuver).toBe(before.maneuver);
   });
 });
+
+describe("contact hits", () => {
+  it("prices a contact hit like a shot: attacker's weapon and attack, target's damageTaken, applies ride it", () => {
+    const attacker = player("a", { x: 0, y: 0, angle: 0, carId: "bastion" });
+    const target = playerAt("b", 500, 0, 0);
+    const result = runCombat({
+      world: world(),
+      players: [attacker, target],
+      instances: [],
+      instanceSeq: 0,
+      contactHits: [{ attackerSessionId: "a", targetSessionId: "b", weaponId: "thumper" }],
+    });
+    const hit = find(result, "b");
+    expect(hit.hp).toBe(hpOf("mirage") - weaponDamageOf("bastion", "thumper"));
+    expect(hit.statuses.some((s) => s.statusId === "stunned")).toBe(true);
+  });
+});
