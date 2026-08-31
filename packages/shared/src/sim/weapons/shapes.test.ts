@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { beamShapeAt, projectileShapeAt, shapeHitsObb, smear } from "./shapes.js";
+import { beamShapeAt, projectileShapeAt, shapeHitsObb, smear, type PolygonShape } from "./shapes.js";
 
 const hull = { x: 200, y: 100, angle: 0, w: 48, h: 32 };
 

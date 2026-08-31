@@ -610,16 +610,13 @@ export function beamGrownExtent(weaponId: string, extent: number, elapsedMs: num
  * outside the hull — which is exactly what `projectile-marks.test.ts` catches.
  */
 function hullHalfAcross(
-  hitbox: Extract<ProjectileHitbox, { shape: "ellipse" | "capsule" | "bar" }>,
+  hitbox: Extract<ProjectileHitbox, { shape: "ellipse" | "capsule" }>,
   along: number,
 ): number {
   const { radiusAlong, radiusAcross } = hitbox;
   if (along < -radiusAlong || along > radiusAlong) return 0;
   if (hitbox.shape === "ellipse") {
     return radiusAcross * Math.sqrt(Math.max(0, 1 - (along / radiusAlong) ** 2));
-  }
-  if (hitbox.shape === "bar") {
-    return radiusAcross;
   }
   const noseCentre = radiusAlong - radiusAcross;
   if (along <= noseCentre) return radiusAcross;
@@ -645,7 +642,8 @@ export function projectileDrawLayers(
   if (!style) return [];
   // A circle has no heading to arrange markings along, and `GlowStyle` is where a round projectile
   // says what it looks like. Reaching here with one would mean two tables owning the same weapon.
-  if (def.hitbox.shape === "circle") return [];
+  // A bar is drawn by the generic fallback: the raw hitbox polygon from `projectileShapeAt`.
+  if (def.hitbox.shape === "circle" || def.hitbox.shape === "bar") return [];
   const hitbox = def.hitbox;
 
   const { x, y } = extrapolateShot(instance.x, instance.y, instance.angle, def.speed, elapsedMs);
