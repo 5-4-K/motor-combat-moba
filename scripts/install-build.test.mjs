@@ -199,3 +199,33 @@ describe("copyInto", () => {
     assert.equal(fs.readFileSync(path.join(target, "README.md"), "utf8"), "released\n");
   });
 });
+
+describe("--port passthrough", () => {
+  // install-build does not parse ports itself; it delegates to release-env so the two scripts
+  // cannot disagree about what a valid port is. These pin the contract it relies on.
+  it("shares one parser with the release build", async () => {
+    const releaseEnv = await import("./release-env.mjs");
+    const installBuild = await import("./install-build.mjs");
+    assert.equal(typeof releaseEnv.parsePortArg, "function");
+    // install-build imports it statically; a rename here would break the install, not just a test.
+    assert.ok(
+      fs.readFileSync(new URL("./install-build.mjs", import.meta.url), "utf8").includes(
+        'from "./release-env.mjs"',
+      ),
+    );
+    assert.equal(typeof installBuild.main, "function");
+  });
+
+  it("reads --port alongside --yes, in either order", async () => {
+    const { parsePortArg } = await import("./release-env.mjs");
+    assert.deepEqual(parsePortArg(["--yes", "--port", "80"]), { port: 80 });
+    assert.deepEqual(parsePortArg(["--port=80", "-y"]), { port: 80 });
+  });
+
+  // Matches an import/`await import` of build-release.mjs, not a mention of it in a comment —
+  // the comments there explain precisely why it is not imported.
+  it("does not import build-release.mjs, which needs built shared before validation can run", () => {
+    const body = fs.readFileSync(new URL("./install-build.mjs", import.meta.url), "utf8");
+    assert.equal(/(?:from|import\s*\()\s*["'`][^"'`]*build-release\.mjs/.test(body), false);
+  });
+});

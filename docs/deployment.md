@@ -9,7 +9,7 @@ npm run build:release
 Writes `dist-release/motor-combat-moba/` and `dist-release/motor-combat-moba-release.zip`. `start.bat` / `start.sh` `npm install` if `node_modules` is missing, then `node packages/server/dist/index.js`.
 
 The release build prints the arena it shipped (`Arena: arena-01`), the port it configured
-(`Port: 80 (from .env.release)`) and, when it removed any, the
+(`Port: 2567 (default; pass --port <n> to change)`) and, when it removed any, the
 arenas whose art it pruned and how much that saved. `assertOnlyActiveArenaShipped` then re-walks the
 copied client dist and fails the build if any non-active arena's directory or manifest key survived.
 
@@ -25,33 +25,45 @@ Default `DEPLOY_MODE=lan` serves the built client from Express. Do not add cloud
 
 Optional `CAR_SELECT_SECONDS` (positive number) overrides car-select length on the server; default remains `FLOW_CONFIG.carSelectSeconds` (60).
 
-## The release ships a real `.env`, built from `.env.release`
+## The release ships a real `.env`, and `--port` sets what is in it
 
-`.env.release` (committed, repo root) is the configuration the zip runs on. `build-release.mjs`
-merges it with an optional `.env.release.local` and writes the result to `.env` beside `start.bat`,
-where the server's `dotenv/config` reads it — `start.bat` / `start.sh` `cd` to that folder first, so
-cwd is the app root. Nothing has to be renamed after unzipping.
+`build-release.mjs` generates a `.env` beside `start.bat`, where the server's `dotenv/config` reads
+it — `start.bat` / `start.sh` `cd` to that folder first, so cwd is the app root. Nothing has to be
+renamed after unzipping, and the file can be edited in place afterwards with no rebuild.
 
-`.env.example` is **not** copied into the release. Two env files disagreeing about `PORT` in one
-folder is how someone edits the one dotenv never reads; `.env.release` carries the same
-documentation as comments, and comments survive the merge.
+`.env.example` is **not** copied alongside it. Two env files disagreeing about `PORT` in one folder
+is how someone edits the one dotenv never reads; the generated file carries the same documentation
+as comments.
 
-- **Change the shipped default for everyone**: edit `.env.release` and commit it.
-- **Change it for your machine only**: create `.env.release.local` (gitignored by the existing
-  `.env.*.local` rule) with just the keys you want. It is overlaid key by key — an overridden key is
-  rewritten in place so it keeps its comment, and a new key is appended.
-- **Change it after unzipping**: edit `.env` in the release folder and restart. No rebuild.
+With no argument, `PORT` is `DEFAULT_RELEASE_PORT` — 2567, the same fallback `getPort()` uses in
+`packages/server/src/mode.ts`. A release is therefore boring by default: no privileged port, no
+platform where it fails to start out of the box. A different port is asked for per build:
 
-`releasePort` parses `PORT` back out of the generated `.env` so `README.md` prints URLs that work:
-`http://localhost` on port 80, `http://localhost:2567` anywhere else. Its fallback (2567) must stay
-in step with `getPort()` in `packages/server/src/mode.ts`, and `build-release.test.mjs` pins both.
+```bash
+npm run build:release                  # PORT=2567
+npm run build:release -- --port 80     # PORT=80
+npm run build:release -- --port=8080   # same thing
+```
+
+`--port` is validated (a whole number, 1–65535) and the build prints what it configured. `releasePort`
+reads the value back out of the generated file so `README.md` prints URLs that work — `http://localhost`
+on 80, `http://localhost:2567` otherwise — and adds a privileged-port note only below 1024.
+
+There is no committed template the port comes from. That is deliberate: a port baked into the repo
+is a decision every future release inherits silently, and the one worth having (80) is exactly the
+one that breaks on two of three platforms. Asking for it per build keeps the intent in the command
+that produced the artifact.
+
+One rough edge: `build:release` runs `npm run build` before the script, so `--port abc` fails after
+the compile rather than before it. The error is clear, it just costs one build. `install-build`
+validates first and does not have this problem.
 
 ### Port 80
 
-The shipped default is `PORT=80`, so players reach the game by name alone — `http://gamepc` — with
-no port to memorise. Resolution is theirs to arrange; mDNS (`http://gamepc.local`) needs nothing
-installed on Windows 10+, macOS or most Linux desktops, and beats a hosts-file entry that every
-player must edit as admin and that breaks on the next DHCP lease.
+`--port 80` lets players reach the game by name alone — `http://gamepc` — with no port to memorise.
+Resolution is theirs to arrange; mDNS (`http://gamepc.local`) needs nothing installed on Windows 10+,
+macOS or most Linux desktops, and beats a hosts-file entry that every player must edit as admin and
+that breaks on the next DHCP lease.
 
 Binding it is the part that varies:
 
@@ -71,8 +83,9 @@ transport rides on the same HTTP server that serves the client — there is only
 ## Installing to a folder: `npm run install-build`
 
 ```bash
-npm run install-build          # asks before touching anything
-npm run install-build -- --yes # skip the prompt (scripted runs)
+npm run install-build              # asks before touching anything
+npm run install-build -- --yes     # skip the prompt (scripted runs)
+npm run install-build -- --port 80 # build with PORT=80 and install that
 ```
 
 Builds a release and installs it into a folder you name once, in `.install-target` at the repo root —
@@ -92,18 +105,26 @@ It runs in this order, and the order is the point:
    `README.md`. `packages/` is removed wholesale rather than merged, because Vite emits
    content-hashed filenames and copying over the top would accumulate every past build's assets
    forever.
-5. **Seed `.env`** — copied in only if the target does not already have one.
+5. **Seed `.env`** — copied in only if the target does not already have one. Then, if `--port` was
+   given and an existing `.env` was kept, rewrite just its `PORT` line.
 6. **`npm install --omit=dev`** in the target.
 
 Everything else in the folder survives — `node_modules`, logs, and the `package-lock.json` npm
 itself writes there on the first install.
 
 `.env` is seeded, not managed, and that split is deliberate. A first install into an empty folder
-must arrive configured, or the shipped `PORT=80` silently does not apply and the server comes up on
-2567. But a folder that already has a `.env` has a host's own edits in it, and an install is not the
-moment to discard them — so an existing one is never overwritten, and the run says it kept it. To
-take a changed `.env.release` into an existing install, delete the target's `.env` and re-run, or
-edit it in place.
+must arrive configured. But a folder that already has a `.env` has a host's own edits in it, and a
+routine reinstall is not the moment to discard them — so an existing one is never overwritten, and
+the run says it kept it.
+
+`--port` is the exception, and it wins: you only type it when you mean it, and a flag that silently
+did nothing on every install after the first would be the worse surprise. It rewrites **only** the
+`PORT` line of the kept file — every other key and comment survives — and the run says so
+(`Updated PORT=80 in the existing .env (other keys kept)`). `--port` is passed straight through to
+the release build too, so the zip in `dist-release/` and the installed folder agree.
+
+To take a whole freshly generated `.env` into an existing install, delete the target's `.env` and
+re-run.
 
 ### Why `npm install` and not `npm ci`
 

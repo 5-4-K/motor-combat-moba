@@ -20,6 +20,9 @@ import path from "node:path";
 import readline from "node:readline/promises";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
+// `release-env.mjs` and not `build-release.mjs`: that module statically imports built shared, and
+// this script must parse and validate before anything is built.
+import { parsePortArg, releaseOrigin, releasePort, setEnvPort } from "./release-env.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -42,10 +45,11 @@ export const MANAGED_ENTRIES = ["packages", "package.json", "start.bat", "start.
  * Released files copied in only when the target does not already have them.
  *
  * `.env` is the whole reason this category exists. A first install into an empty folder has to
- * arrive configured or the release's `PORT=80` silently does not apply and the server comes up on
- * 2567 — so it cannot simply be left out. But a folder that already has a `.env` has a host's own
- * edits in it, and an install is not the moment to throw those away — so it cannot be managed
- * either. Seeding is the only behaviour that is right in both folders.
+ * arrive configured, or a release built with `--port` would install with no port set at all — so it
+ * cannot simply be left out. But a folder that already has a `.env` has a host's own edits in it,
+ * and a routine reinstall is not the moment to throw those away — so it cannot be managed either.
+ * Seeding is the only behaviour that is right in both folders. An explicit `--port` overrides a
+ * kept file's PORT line afterwards; see `main`.
  */
 export const SEEDED_ENTRIES = [".env"];
 
@@ -406,6 +410,13 @@ export function copyInto(sourceDir, targetDir) {
 export async function main(argv = process.argv.slice(2)) {
   const autoYes = argv.includes("--yes") || argv.includes("-y");
 
+  // Parsed here — before the prompt and before the build — so a typo'd port fails in a second, the
+  // same way a typo'd target path does. `release-env.mjs` owns the parsing so this script and the
+  // release build cannot disagree about what a valid port is.
+  const parsedPort = parsePortArg(argv);
+  if (parsedPort.error) fail(parsedPort.error);
+  const requestedPort = parsedPort.port;
+
   const { targetFilePath, raw } = readTarget();
   const targetDir = resolveAndValidate(raw, targetFilePath);
   probeWritable(targetDir);
@@ -415,7 +426,10 @@ export async function main(argv = process.argv.slice(2)) {
 
   // Build first, target untouched: a failed build must never cost a working install.
   console.log("Building release...\n");
-  const buildStatus = run("npm", ["run", "build:release"], rootDir, "npm run build:release");
+  const buildArgs = ["run", "build:release"];
+  // `npm run <script> -- --port 80`: the bare `--` is what stops npm eating the flag itself.
+  if (requestedPort !== undefined) buildArgs.push("--", "--port", String(requestedPort));
+  const buildStatus = run("npm", buildArgs, rootDir, "npm run build:release");
   if (buildStatus !== 0) {
     fail(
       `the release build failed, so ${targetDir} was left exactly as it was.\n` +
@@ -431,8 +445,23 @@ export async function main(argv = process.argv.slice(2)) {
   console.log(`\nInstalling into ${targetDir}\n`);
   for (const name of MANAGED_ENTRIES) removeManaged(targetDir, name);
   const { kept } = copyInto(appDir, targetDir);
+  // A kept `.env` whose PORT is about to be rewritten below is not reported as merely "kept" —
+  // saying both would describe two different outcomes for one file.
+  const overridingPort = requestedPort !== undefined && kept.includes(".env");
   for (const name of kept) {
+    if (name === ".env" && overridingPort) continue;
     console.log(`Kept the existing ${name} — delete it and re-run to take the released one.`);
+  }
+
+  // An explicit `--port` beats a kept `.env`. Seeding protects a host's hand-edited file from a
+  // routine reinstall, but they only type `--port` when they mean it, and a flag that silently did
+  // nothing on every install after the first would be the worse surprise. Only the PORT line moves;
+  // every other key and comment in their file survives.
+  const installedEnv = path.join(targetDir, ".env");
+  if (overridingPort) {
+    const before = fs.readFileSync(installedEnv, "utf8");
+    fs.writeFileSync(installedEnv, setEnvPort(before, requestedPort));
+    console.log(`Updated PORT=${requestedPort} in the existing .env (other keys kept).`);
   }
 
   console.log("Installing dependencies...\n");
@@ -451,12 +480,6 @@ export async function main(argv = process.argv.slice(2)) {
     fail(`installed, but ${serverEntry} is missing. The copy did not complete — re-run.`);
   }
 
-  // Imported here rather than at the top of the file: `build-release.mjs` statically imports built
-  // shared, so a top-level import would make this script fail to load whenever `packages/shared/dist`
-  // is missing — including before the validation that is meant to fail in a second. By this line the
-  // release build has run, so shared is guaranteed built.
-  const { releaseOrigin, releasePort } = await import("./build-release.mjs");
-  const installedEnv = path.join(targetDir, ".env");
   const port = releasePort(
     fs.existsSync(installedEnv) ? fs.readFileSync(installedEnv, "utf8") : "",
   );
