@@ -1383,17 +1383,17 @@ describe("startManeuver", () => {
 
   it("dashes along the heading with no lock", () => {
     const p = playerAt("a", 0, 0, 1.2);
-    startManeuver(p, dashDef, new Map([["a", p]]), 100);
+    startManeuver(p, dashDef, new Map([["a", p]]));
     expect(p.maneuverAngle).toBeCloseTo(1.2);
   });
 
   it("starts a charge for its authored duration and refuses to stack maneuvers", () => {
     const p = playerAt("a", 0, 0, 0);
-    startManeuver(p, chargeDef, new Map([["a", p]]), 100);
+    startManeuver(p, chargeDef, new Map([["a", p]]));
     expect(p.maneuver).toBe(ManeuverKind.CHARGE);
     expect(p.maneuverTicksLeft).toBe(300); // msToTicks(10000)
     const before = { ...p };
-    startManeuver(p, dashDef, new Map([["a", p]]), 101); // second press mid-charge
+    startManeuver(p, dashDef, new Map([["a", p]])); // second press mid-charge
     expect(p.maneuver).toBe(before.maneuver);
   });
 });
@@ -1460,7 +1460,6 @@ export function startManeuver(
   player: CombatPlayer,
   def: ManeuverWeaponDef,
   byId: ReadonlyMap<string, CombatPlayer>,
-  tick: number,
 ): void {
   if (player.maneuver !== ManeuverKind.NONE) return;
   player.maneuverWeaponId = def.id;
@@ -1520,9 +1519,10 @@ function maneuverSlotMask(fireState: FireState): number {
 In the orders loop, branch before `spawnInstances`:
 
 ```ts
-      const orderDef = weaponDefOf(order.weaponId);
-      if (orderDef.kind === "maneuver") {
-        startManeuver(player, orderDef, byId, world.tick);
+      // Task 6 already made this loop compute `const def = weaponDefOf(order.weaponId);` —
+      // insert this branch right after that line and reuse its `def`.
+      if (def.kind === "maneuver") {
+        startManeuver(player, def, byId);
         applySelfStatuses(player, order.weaponId, world.tick, order.finalVolley);
         continue;
       }
