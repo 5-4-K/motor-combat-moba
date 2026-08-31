@@ -62,7 +62,11 @@ enforces the pairing both ways). Every assisted row in this pass authors **400**
 - **Acquisition** uses the car's largest `aimRangeUnits` across its assisted weapons (a per-car
   derived constant, frozen at table build).
 - **At fire time**, a weapon whose own `aimRangeUnits` is smaller than the current lock distance
-  fires straight ahead instead. Invisible while every range is 400.
+  fires straight ahead instead. Invisible at acquisition ranges, since every row authors 400 there
+  too — but not invisible overall: lock *retention* holds a target out to `lockRange +
+  retentionRangeUnits` (460 u), so a lock held in the 400–460 hysteresis band now fires straight
+  ahead where it used to steer the shot. A second live behavior change alongside lead, and a
+  deliberate consequence of this section (S1).
 - The old guard "assisted weapon `range` ≥ `AIM_CONFIG.lockRange`" becomes "≥ its own
   `aimRangeUnits`".
 - Thunderclap's dash distance reads this same field (its dash *is* its assist range).

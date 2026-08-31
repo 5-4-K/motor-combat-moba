@@ -23,7 +23,12 @@ import {
 } from "@motor-combat-moba/shared";
 import { serverTick } from "../src/sim/tick.js";
 import { statusTick } from "../src/sim/status-bridge.js";
-import { contactTick, newContactMemory, type ContactMemory } from "../src/sim/ram-bridge.js";
+import {
+  contactTick,
+  newContactMemory,
+  type ContactMemory,
+  type ContactTickResult,
+} from "../src/sim/ram-bridge.js";
 import {
   applyCombatResult,
   newCombatMemory,
@@ -125,8 +130,9 @@ export class PlaytestWorld {
       statusMods,
       this.prevFireMasks,
     );
+    let contact: ContactTickResult = { contactHits: [], statusRequests: [] };
     if (this.state.phase === RoomPhase.MATCH && this.roster.size > 0) {
-      contactTick(
+      contact = contactTick(
         this.state,
         this.roster,
         this.ram,
@@ -151,6 +157,8 @@ export class PlaytestWorld {
       players: toCombatPlayers(this.state, this.roster, masks, this.combat),
       instances: toInstances(this.combat),
       instanceSeq: this.combat.instanceSeq,
+      contactHits: contact.contactHits,
+      statusRequests: contact.statusRequests,
     });
     applyCombatResult(this.state, result, this.combat);
     this.combat.instanceSeq = result.instanceSeq;
