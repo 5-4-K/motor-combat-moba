@@ -1,7 +1,7 @@
 import { DEFAULT_CAR_ID, hpOf } from "../config/car-config.js";
 import { isStatusId } from "../config/status-config.js";
 import type { StatusId } from "../config/status-types.js";
-import { weaponDefOf } from "../config/weapon-config.js";
+import { isWeaponId, weaponDefOf } from "../config/weapon-config.js";
 import { carAimRangeOf } from "../config/weapon-slots.js";
 import { msToTicks, weaponTicksOf } from "../config/weapon-ticks.js";
 import type { ManeuverWeaponDef, WeaponId } from "../config/weapon-types.js";
@@ -17,7 +17,7 @@ import type { ContactHit } from "./contact.js";
 import { carHullOf, carIdOf } from "./context.js";
 import { applyDamage, applyHeal, scaleDamage, weaponDamageOf } from "./damage.js";
 import { ManeuverKind, NO_MANEUVER } from "./maneuver.js";
-import { applyStatus, statusPulses, type ActiveStatus } from "./status/statuses.js";
+import { applyStatus, hasStatus, statusPulses, type ActiveStatus } from "./status/statuses.js";
 import { modifiersOf, NEUTRAL_MODIFIERS, type Modifiers } from "./status/modifiers.js";
 import { interceptAngle } from "./weapons/aim.js";
 import { beginFire, cancelPending, releaseShots, tickRecharge, type FireState } from "./weapons/fire.js";
@@ -192,6 +192,14 @@ export function runCombat(input: CombatInput): CombatResult {
     .sort((a, b) => (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0));
   const byId = new Map(players.map((p) => [p.sessionId, p]));
   let instanceSeq = input.instanceSeq;
+
+  // Stun interruption (O8) needs to know who was ALREADY stunned coming into this tick, captured
+  // before phase 0c (or anything else) can add a fresh `stunned` — so the end-of-tick sweep below
+  // only fires for a car whose stun is new this tick, never re-interrupting one still riding out an
+  // older application.
+  const wasStunned = new Set(
+    players.filter((p) => hasStatus(p.statuses, "stunned", world.tick)).map((p) => p.sessionId),
+  );
 
   // 0. Every car's modifiers, derived ONCE — before this tick's own statuses are added — and read
   // by every phase below. `expireStatuses` swept the list before driving, so this is the same
@@ -436,7 +444,33 @@ export function runCombat(input: CombatInput): CombatResult {
     if (outcome.instance.alive) survivors.push(outcome.instance);
   }
 
-  return { players, instances: survivors, instanceSeq };
+  // Stun interruption (O8): a stun landing THIS tick cancels the car's committed states at the end
+  // of the tick — after this tick's already-released shots resolved, the same one-tick seam every
+  // other on-apply consequence accepts. Runs after hit resolution so it catches a stun applied by
+  // any path this tick (0c request, 0d contact, or this tick's own hits), and `wasStunned` (captured
+  // before any of those ran) keeps a car already riding out an older stun from being re-swept.
+  // `isUnInterruptable` exempts a weapon's wind-up or maneuver per-row. Stocks spent on a cancelled
+  // wind-up stay spent (O14): interruption is the stun's payoff.
+  const interrupted = new Set<string>();
+  for (const player of players) {
+    if (wasStunned.has(player.sessionId)) continue;
+    if (!hasStatus(player.statuses, "stunned", world.tick)) continue;
+    const pending = player.fireState.pending;
+    if (pending && !weaponDefOf(pending.weaponId).isUnInterruptable) {
+      player.fireState = cancelPending(player.fireState);
+    }
+    const maneuverDef = isWeaponId(player.maneuverWeaponId) ? weaponDefOf(player.maneuverWeaponId) : null;
+    if (player.maneuver !== ManeuverKind.NONE && !maneuverDef?.isUnInterruptable) {
+      Object.assign(player, NO_MANEUVER);
+      player.maneuverWeaponId = "";
+    }
+    interrupted.add(player.sessionId);
+  }
+  const kept = survivors.filter(
+    (i) => !(interrupted.has(i.ownerSessionId) && i.attached && !weaponDefOf(i.weaponId).isUnInterruptable),
+  );
+
+  return { players, instances: kept, instanceSeq };
 }
 
 /** In the match and not yet a wreck: the gate for firing and being shot alike. */

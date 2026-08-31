@@ -13,11 +13,13 @@ import {
   type CombatPlayer,
   type CombatResult,
   type CombatWorld,
+  type StatusRequest,
 } from "./combat.js";
 import { carHullOf } from "./context.js";
 import { ManeuverKind } from "./maneuver.js";
-import type { ManeuverWeaponDef } from "../config/weapon-types.js";
+import type { ManeuverWeaponDef, WeaponId } from "../config/weapon-types.js";
 import { NEUTRAL_MODIFIERS } from "./status/modifiers.js";
+import { applyStatus } from "./status/statuses.js";
 import { weaponDamageOf } from "./damage.js";
 import { newFireState } from "./weapons/fire.js";
 import type { WeaponInstance } from "./weapons/instances.js";
@@ -915,5 +917,118 @@ describe("contact hits", () => {
     const hit = find(result, "b");
     expect(hit.hp).toBe(hpOf("mirage") - weaponDamageOf("bastion", "thumper"));
     expect(hit.statuses.some((s) => s.statusId === "stunned")).toBe(true);
+  });
+});
+
+describe("stun interruption (O8)", () => {
+  /** A second, uninvolved car — every case here only cares about "a". */
+  const other = (): CombatPlayer => player("z", { x: 1200, y: OPEN_Y });
+
+  /** Bullseye at the origin end of the arena, its real loadout (`lance` is slot 3). */
+  const bullseyeAt = (sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlayer =>
+    player(sessionId, { x: 300, y: OPEN_Y, carId: "bullseye", ...over });
+
+  /** Mirage at the origin end of the arena, its real loadout (`afterburner` is slot 3). */
+  const mirageAt = (sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlayer =>
+    player(sessionId, { x: 300, y: OPEN_Y, carId: "mirage", ...over });
+
+  const stunRequest = (id: string): StatusRequest[] => [
+    { targetSessionId: id, statusId: "stunned", durationTicks: 14, sourceSessionId: "x" },
+  ];
+
+  /** A live weapon instance, built from the table's real numbers, owned by `ownerSessionId`. */
+  function builtInstance(
+    weaponId: WeaponId,
+    ownerSessionId: string,
+    over: Partial<WeaponInstance> = {},
+  ): WeaponInstance {
+    const def = WEAPON_TABLE[weaponId];
+    return {
+      id: `${weaponId}-${ownerSessionId}`,
+      ownerSessionId,
+      ownerTeam: 0,
+      finalWave: true,
+      damage: weaponDamageOf("mirage", weaponId),
+      weaponId,
+      kind: def.kind === "beam" ? "beam" : "projectile",
+      x: 300,
+      y: OPEN_Y,
+      angle: 0,
+      extent: 10,
+      spawnTick: 90,
+      distance: 0,
+      pierceLeft: 0,
+      attached: def.kind === "beam" ? def.attached : false,
+      damageClock: new Map(),
+      alive: true,
+      muzzleDir: 0,
+      homingTargetId: "",
+      homingUntilTick: 0,
+      expiresAtTick: 0,
+      ...over,
+    };
+  }
+
+  it("cancels a committed wind-up, without refunding the stock", () => {
+    // Bullseye presses lance (slot 3, fireMask bit 2 == 4) on tick 100; the stun lands the same
+    // tick. Lance's 700ms wind-up means `beginFire` spends the stock and schedules a shot for a
+    // LATER tick, so the pending burst is still sitting there for the sweep to cancel.
+    const p = bullseyeAt("a", { fireMask: 0b100 });
+    const result = runCombat({
+      world: world(),
+      players: [p, other()],
+      instances: [],
+      instanceSeq: 0,
+      statusRequests: stunRequest("a"),
+    });
+    const out = find(result, "a");
+    expect(out.fireState.pending).toBeNull(); // wind-up cancelled
+    expect(out.fireState.slots[2]!.stocks).toBe(0); // the press stayed spent (O14)
+  });
+
+  it("kills the stunned car's attached beams and spares detached ones", () => {
+    const attached = builtInstance("afterburner", "a"); // a live attached instance owned by "a"
+    const detached = builtInstance("bulwark", "a");
+    const result = runCombat({
+      world: world(),
+      players: [mirageAt("a"), other()],
+      instances: [attached, detached],
+      instanceSeq: 2,
+      statusRequests: stunRequest("a"),
+    });
+    const ids = result.instances.map((i) => i.weaponId);
+    expect(ids).not.toContain("afterburner");
+    expect(ids).toContain("bulwark"); // a committed detached shot persists
+  });
+
+  it("ends the stunned car's maneuver", () => {
+    const p = mirageAt("a");
+    p.maneuver = ManeuverKind.DASH;
+    p.maneuverTicksLeft = 5;
+    p.maneuverSpeed = 1600;
+    p.maneuverWeaponId = "fireball"; // interruptible (no isUnInterruptable on the row)
+    const result = runCombat({
+      world: world(),
+      players: [p, other()],
+      instances: [],
+      instanceSeq: 0,
+      statusRequests: stunRequest("a"),
+    });
+    expect(find(result, "a").maneuver).toBe(ManeuverKind.NONE);
+  });
+
+  it("does not re-sweep a car that was already stunned", () => {
+    const p = mirageAt("a");
+    p.statuses = applyStatus([], "stunned", 90, 30, "x"); // stunned since tick 90, through tick 120
+    p.maneuver = ManeuverKind.CHARGE;
+    p.maneuverTicksLeft = 100;
+    p.maneuverWeaponId = "fireball";
+    const result = runCombat({
+      world: world(), // tick 100 — still inside the existing stun's window
+      players: [p, other()],
+      instances: [],
+      instanceSeq: 0,
+    });
+    expect(find(result, "a").maneuver).toBe(ManeuverKind.CHARGE);
   });
 });
