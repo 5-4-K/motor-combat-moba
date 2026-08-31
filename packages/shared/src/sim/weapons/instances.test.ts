@@ -6,6 +6,7 @@ import { DEFAULT_CAR_ID } from "../../config/car-config.js";
 import { WEAPON_TABLE } from "../../config/weapon-config.js";
 import { weaponDamageOf } from "../damage.js";
 import {
+  bounceOffWorld,
   fanOffset,
   instanceExpired,
   muzzleOffset,
@@ -177,6 +178,7 @@ describe("beam growth and expiry", () => {
     muzzleDir: 0,
     homingTargetId: "",
     homingUntilTick: 0,
+    expiresAtTick: 0,
     ...over,
   });
 
@@ -374,5 +376,33 @@ describe("homing", () => {
     expect(instances[0]!.homingTargetId).toBe("");
     const stepped = stepInstance(instances[0]!, homingCtx(11, null), rocket);
     expect(stepped.angle).toBe(0);
+  });
+});
+
+const bouncer = { ...WEAPON_TABLE.thumper, bounce: { lifetimeMs: 2900 } } as const;
+const bounds = { width: 1000, height: 1000 };
+
+describe("bounce", () => {
+  it("reflects off the arena edge, folding position and mirroring the angle", () => {
+    const r = bounceOffWorld(990, 500, 1010, 500, 0, [], bounds);
+    expect(r.x).toBeCloseTo(990); // folded back inside
+    expect(Math.cos(r.angle)).toBeCloseTo(-1); // now travelling -x
+  });
+
+  it("reflects off an obstacle face chosen by approach side", () => {
+    const wall = { x: 500, y: 0, w: 40, h: 1000 };
+    const r = bounceOffWorld(480, 500, 510, 500, 0, [wall], bounds);
+    expect(r.x).toBeLessThanOrEqual(500);
+    expect(Math.cos(r.angle)).toBeCloseTo(-1);
+  });
+
+  it("expires on its clock, not at range", () => {
+    const owner = { sessionId: "a", team: 0 as const, carId: "bastion", x: 0, y: 0, angle: 0 };
+    const order = { weaponId: "thumper", slot: 0, finalVolley: true } as const;
+    const { instances } = spawnInstances(order, owner, 100, 0, null, 1, "", bouncer);
+    const shot = instances[0]!;
+    expect(shot.expiresAtTick).toBe(100 + 87); // msToTicks(2900) at 30 Hz
+    expect(instanceExpired({ ...shot, distance: 99999 }, 150, bouncer)).toBe(false); // range ignored
+    expect(instanceExpired(shot, 187, bouncer)).toBe(true);
   });
 });

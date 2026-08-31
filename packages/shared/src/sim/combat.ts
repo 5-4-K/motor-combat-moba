@@ -435,7 +435,9 @@ export function aimAngleFor(
  */
 function hitsWorld(instance: WeaponInstance, previous: WeaponInstance, world: CombatWorld): boolean {
   const def = weaponDefOf(instance.weaponId);
-  if (def.kind !== "projectile" || instance.kind !== "projectile") return false;
+  // A bouncing projectile is never destroyed by the world — `stepInstance` reflected it instead,
+  // and testing the pre-reflection smear here would kill it on the very wall it just bounced off.
+  if (def.kind !== "projectile" || instance.kind !== "projectile" || def.bounce) return false;
 
   const swept = smear(
     projectileShapeAt(def.hitbox, previous.x, previous.y, previous.angle),

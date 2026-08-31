@@ -68,6 +68,11 @@ export interface WeaponInstance {
   homingTargetId: string;
   /** Homing only: the tick guidance ends; 0 for a non-homing shot. Frozen at spawn. */
   homingUntilTick: number;
+  /**
+   * Bouncing rows only: the flight clock, frozen at spawn from `bounce.lifetimeMs`. 0 = expire at
+   * `range` as ever.
+   */
+  expiresAtTick: number;
 }
 
 /** One group of instances to emit: which weapon, from which slot. */
@@ -174,6 +179,8 @@ export function spawnInstances(
   const homing = def.kind === "projectile" ? def.homing : undefined;
   const homingTarget = homing && homingTargetId !== "" ? homingTargetId : "";
   const homingUntil = homingTarget !== "" ? tick + msToTicks(homing!.durationMs) : 0;
+  const bounce = def.kind === "projectile" ? def.bounce : undefined;
+  const expiresAt = bounce ? tick + msToTicks(bounce.lifetimeMs) : 0;
 
   const instances: WeaponInstance[] = [];
   let next = seq;
@@ -210,6 +217,7 @@ export function spawnInstances(
         muzzleDir: dir,
         homingTargetId: homingTarget,
         homingUntilTick: homingUntil,
+        expiresAtTick: expiresAt,
       });
     }
   }
@@ -251,10 +259,16 @@ export function stepInstance(
       angle += Math.max(-maxTurn, Math.min(maxTurn, delta));
     }
     const step = def.speed * ctx.dt;
+    let x = instance.x + Math.cos(angle) * step;
+    let y = instance.y + Math.sin(angle) * step;
+    if (def.kind === "projectile" && def.bounce) {
+      const bounced = bounceOffWorld(instance.x, instance.y, x, y, angle, ctx.obstacles, ctx.bounds);
+      x = bounced.x; y = bounced.y; angle = bounced.angle;
+    }
     return {
       ...instance,
-      x: instance.x + Math.cos(angle) * step,
-      y: instance.y + Math.sin(angle) * step,
+      x,
+      y,
       angle,
       distance: instance.distance + step,
       // Fresh copy, not the input's reference: a shallow spread would otherwise alias `damageClock`
@@ -311,9 +325,56 @@ export function instanceExpired(
   tick: number,
   def: WeaponDef = weaponDefOf(instance.weaponId),
 ): boolean {
-  if (instance.kind === "projectile") return instance.distance >= def.range;
+  if (instance.kind === "projectile") {
+    if (instance.expiresAtTick > 0) return tick >= instance.expiresAtTick;
+    return instance.distance >= def.range;
+  }
   const ticks = weaponTicksOf(instance.weaponId);
   return tick - instance.spawnTick >= ticks.flight + ticks.lifetime;
+}
+
+/**
+ * Reflect a bouncing projectile off axis-aligned level geometry. The world is bounds plus AABBs,
+ * so every reflection is a single component flip: crossing a vertical face mirrors the angle to
+ * `PI - a`, a horizontal face to `-a`, and position folds across the face so speed is conserved.
+ * Which obstacle face was crossed is decided by the side the shot came FROM (prev position); a
+ * corner hit flips both. Centre-point test, deliberately: a face-accurate polygon sweep buys
+ * precision nobody can see on a 30-unit-per-tick shot.
+ */
+export function bounceOffWorld(
+  prevX: number,
+  prevY: number,
+  x: number,
+  y: number,
+  angle: number,
+  obstacles: readonly Aabb[],
+  bounds: Bounds,
+): { x: number; y: number; angle: number } {
+  let a = angle;
+  if (x < 0) { x = -x; a = Math.PI - a; }
+  else if (x > bounds.width) { x = 2 * bounds.width - x; a = Math.PI - a; }
+  if (y < 0) { y = -y; a = -a; }
+  else if (y > bounds.height) { y = 2 * bounds.height - y; a = -a; }
+  for (const o of obstacles) {
+    if (!pointInAabb(x, y, o)) continue;
+    const fromLeft = prevX <= o.x;
+    const fromRight = prevX >= o.x + o.w;
+    const fromTop = prevY <= o.y;
+    const fromBottom = prevY >= o.y + o.h;
+    if ((fromLeft || fromRight) && !(fromTop || fromBottom)) {
+      x = fromLeft ? 2 * o.x - x : 2 * (o.x + o.w) - x;
+      a = Math.PI - a;
+    } else if ((fromTop || fromBottom) && !(fromLeft || fromRight)) {
+      y = fromTop ? 2 * o.y - y : 2 * (o.y + o.h) - y;
+      a = -a;
+    } else {
+      x = fromLeft ? 2 * o.x - x : 2 * (o.x + o.w) - x;
+      y = fromTop ? 2 * o.y - y : 2 * (o.y + o.h) - y;
+      a = a + Math.PI;
+    }
+    break;
+  }
+  return { x, y, angle: a };
 }
 
 /**

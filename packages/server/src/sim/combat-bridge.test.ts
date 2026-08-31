@@ -55,6 +55,7 @@ function liveInstance(over: Partial<WeaponInstance> = {}): WeaponInstance {
     muzzleDir: 0,
     homingTargetId: "",
     homingUntilTick: 0,
+    expiresAtTick: 0,
     ...over,
   };
 }

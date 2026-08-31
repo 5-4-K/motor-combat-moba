@@ -205,6 +205,7 @@ describe("firing", () => {
       muzzleDir: 0,
       homingTargetId: "",
       homingUntilTick: 0,
+      expiresAtTick: 0,
     };
     const inFlightShot: WeaponInstance = {
       ...attachedBeam,
@@ -316,6 +317,7 @@ describe("shots in flight", () => {
     muzzleDir: 0,
     homingTargetId: "",
     homingUntilTick: 0,
+    expiresAtTick: 0,
     ...over,
   });
 
@@ -390,6 +392,7 @@ describe("shots landing", () => {
       muzzleDir: 0,
       homingTargetId: "",
       homingUntilTick: 0,
+      expiresAtTick: 0,
     };
   }
 
@@ -494,6 +497,7 @@ describe("shots landing", () => {
           muzzleDir: 0,
           homingTargetId: "",
           homingUntilTick: 0,
+          expiresAtTick: 0,
         },
       ],
     });
