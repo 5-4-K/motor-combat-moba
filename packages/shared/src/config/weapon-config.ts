@@ -51,6 +51,8 @@ export const WEAPON_TABLE = {
     // refused by the guard, and `bulwark` opts out by choice — a zone is aimed at ground, and a
     // lock that swung it onto a car would aim it at the one thing that can drive out of it.
     usesAimAssist: true,
+    // = AIM_CONFIG.lockRange today; per-weapon from here (spec S1). Literal: importing aim-config here is a cycle.
+    aimRangeUnits: 400,
     hitbox: { shape: "circle", radius: 12 },
     pierce: 0,
     volley: { volleys: 1, volleyIntervalMs: 0 },
@@ -90,6 +92,7 @@ export const WEAPON_TABLE = {
     cooldownMs: 1800, // 0.56 Hz, 56% clear of the 1.25 Hz aim-assist cliff
     recoveryMs: 200,
     usesAimAssist: true,
+    aimRangeUnits: 400,
     // r7 -> r6 is 14.3% off the radius (not the 10% T12 wrote; the shipped 6 is what was wanted).
     // Three pellets on one tick overlap far more than two on staggered ticks did, so the old radius
     // would have made the fan read as one wide slug.
@@ -180,6 +183,7 @@ export const WEAPON_TABLE = {
     cooldownMs: 600, // 1.67 Hz, 33% clear of the 1.25 Hz aim-assist cliff
     recoveryMs: 0, // a go-to never gates another slot (L5)
     usesAimAssist: true,
+    aimRangeUnits: 400,
     // A dart rather than a pellet: long and thin along its own flight, so it reads as a needle at
     // 1300 u/s and is genuinely thinner across than the r5 circle it replaced.
     hitbox: { shape: "ellipse", radiusAlong: 9, radiusAcross: 3 },
@@ -225,6 +229,7 @@ export const WEAPON_TABLE = {
     cooldownMs: 6000, // 0.17 Hz, 87% clear of the 1.25 Hz aim-assist cliff
     recoveryMs: 200,
     usesAimAssist: true,
+    aimRangeUnits: 400,
     hitbox: { shape: "ellipse", radiusAlong: 22, radiusAcross: 5 },
     pierce: 1,
     volley: { volleys: 1, volleyIntervalMs: 0 },
@@ -266,6 +271,7 @@ export const WEAPON_TABLE = {
     cooldownMs: 16000, // 0.06 Hz, 95% clear of the 1.25 Hz aim-assist cliff
     recoveryMs: 1000,
     usesAimAssist: true,
+    aimRangeUnits: 400,
     hitbox: { shape: "rect", width: 57.5 }, // 2.5x wider; the charge orb deliberately does NOT track it
     volley: { volleys: 1, volleyIntervalMs: 0 },
     attached: false,
@@ -321,6 +327,7 @@ export const WEAPON_TABLE = {
     cooldownMs: 3000, // 0.33 Hz, 73% clear of the 1.25 Hz cliff
     recoveryMs: 0,
     usesAimAssist: true,
+    aimRangeUnits: 400,
     hitbox: { shape: "capsule", radiusAlong: 24, radiusAcross: 15 },
     pierce: 0,
     volley: { volleys: 1, volleyIntervalMs: 0 },

@@ -128,6 +128,22 @@ interface WeaponBase {
    * weapon cannot silently inherit a targeting behaviour nobody chose.
    */
   usesAimAssist: boolean;
+  /**
+   * This weapon's own aim-assist reach, world units. Required exactly when `usesAimAssist` is
+   * true (test-enforced both ways). Lock ACQUISITION uses the car's largest value
+   * (`carAimRangeOf`); at fire time a lock farther than this fires straight ahead. Every row in
+   * this pass authors 400 — `AIM_CONFIG.lockRange`'s value, written literally because importing
+   * aim-config here is a cycle — so behavior is identical until the numbers diverge.
+   */
+  aimRangeUnits?: number;
+  /**
+   * Muzzle directions, degrees off the heading. Absent means `[0]`. Each muzzle emits the full
+   * pellet fan (or its own beam instance). More than one requires `usesAimAssist: false` — a lock
+   * cannot steer four directions at once.
+   */
+  muzzles?: readonly number[];
+  /** Exempt from the stun interrupt sweep (O8). Absent = false; `wildcharge` will be the one true. */
+  isUnInterruptable?: boolean;
   stock?: StockDef;
   volley: VolleyDef;
   /**
@@ -185,12 +201,28 @@ export interface StatusApplication {
   onWave?: "all" | "final";
 }
 
+/** Homing guidance for a projectile fired with a lock (spec: Homing). */
+export interface HomingDef {
+  /** Max steering rate toward the frozen target, degrees per second. The counterplay dial. */
+  turnRateDegPerSec: number;
+  /** Guidance window after spawn. Afterwards the shot flies straight forever. */
+  durationMs: number;
+}
+
+/** Wall-bouncing flight: reflect off level geometry; expire on this clock instead of at `range`. */
+export interface BounceDef {
+  /** Total flight time. Guarded < `cooldownMs` so two instances can never coexist. */
+  lifetimeMs: number;
+}
+
 export interface ProjectileWeaponDef extends WeaponBase {
   kind: "projectile";
   hitbox: ProjectileHitbox;
   /** Additional opponents passed through after damaging one. 0 = dies on the first car it damages. */
   pierce: number;
   pellets: PelletDef;
+  homing?: HomingDef;
+  bounce?: BounceDef;
 }
 
 export interface BeamWeaponDef extends WeaponBase {
@@ -210,6 +242,32 @@ export interface BeamWeaponDef extends WeaponBase {
   origin: BeamOrigin;
   /** Linger AFTER full extension. Total life = range/speed + this. */
   lifetimeMs: number;
+  /**
+   * The car is held (no translation, steering only) from the press until the beam dies — the
+   * HOLD maneuver, O10. Lance is the intended user; absent = false.
+   */
+  holdsDuringFire?: boolean;
 }
 
-export type WeaponDef = ProjectileWeaponDef | BeamWeaponDef;
+export type ManeuverSpec =
+  | { type: "dash" }
+  | {
+      type: "charge";
+      /** How long the charged state lasts (also ended early by the first slam, O2). */
+      durationMs: number;
+      /** May this weapon's hard slam land on a stunned victim (O3/O18)? */
+      slamsStunned: boolean;
+    };
+
+/**
+ * A weapon that moves the CAR instead of spawning an instance (spec: Maneuvers). The press rides
+ * the same fire state machine as every other weapon — stocks, cooldown, recovery — and `damage`
+ * is what its contact deals, resolved in `runCombat` like any hit. `speed` is the dash speed;
+ * `aimRangeUnits` doubles as the dash distance. A charge uses neither.
+ */
+export interface ManeuverWeaponDef extends WeaponBase {
+  kind: "maneuver";
+  maneuver: ManeuverSpec;
+}
+
+export type WeaponDef = ProjectileWeaponDef | BeamWeaponDef | ManeuverWeaponDef;

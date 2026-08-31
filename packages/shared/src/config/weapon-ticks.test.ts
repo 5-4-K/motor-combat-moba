@@ -51,4 +51,13 @@ describe("WEAPON_TICKS", () => {
       expect(weaponTicksOf(id).volleyInterval).toBe(msToTicks(def.volley.volleyIntervalMs));
     }
   });
+
+  it("derives zero homing/bounce/maneuver ticks for every current row", () => {
+    for (const id of Object.keys(WEAPON_TABLE) as WeaponId[]) {
+      const t = weaponTicksOf(id);
+      expect(t.homingDuration).toBe(0);
+      expect(t.bounceLifetime).toBe(0);
+      expect(t.maneuverDuration).toBe(0);
+    }
+  });
 });

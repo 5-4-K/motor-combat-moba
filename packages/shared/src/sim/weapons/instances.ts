@@ -140,6 +140,9 @@ export function spawnInstances(
   damageMult = 1,
 ): { instances: WeaponInstance[]; seq: number } {
   const def = weaponDefOf(order.weaponId);
+  // A maneuver moves the car instead of spawning an instance (Task 10's real branch); no table row
+  // is one yet, so this narrows `def` back to the two kinds this function has ever had to handle.
+  if (def.kind === "maneuver") throw new Error(`spawnInstances: maneuver weapon ${def.id} spawns no instance`);
   const damage = scaleDamage(weaponDamageOf(carIdOf(owner), order.weaponId), damageMult);
   const pellets = def.kind === "projectile" ? def.pellets.pelletsPerVolley : 1;
   const spread = def.kind === "projectile" ? (def.pellets.spreadAngleDeg * Math.PI) / 180 : 0;
@@ -188,6 +191,9 @@ export function spawnInstances(
  */
 export function stepInstance(instance: WeaponInstance, ctx: StepInstanceContext): WeaponInstance {
   const def = weaponDefOf(instance.weaponId);
+  // `WeaponInstance.kind` excludes "maneuver" — a maneuver spawns no instance (Task 10) — so this
+  // narrows `def` the same way, and every read below it is only ever projectile or beam.
+  if (def.kind === "maneuver") throw new Error(`stepInstance: maneuver weapon ${def.id} has no instance`);
 
   if (instance.kind === "projectile") {
     const step = def.speed * ctx.dt;

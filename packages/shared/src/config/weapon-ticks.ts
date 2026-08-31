@@ -27,6 +27,12 @@ export interface WeaponTicks {
   volleyInterval: number;
   /** Projectiles: ticks to cross `range`. Beams: ticks to reach full extension. */
   flight: number;
+  /** Homing guidance window; 0 for a non-homing weapon. */
+  homingDuration: number;
+  /** Bounce flight clock; 0 for a non-bouncing weapon. */
+  bounceLifetime: number;
+  /** Charge duration; 0 for anything that is not a charge maneuver. */
+  maneuverDuration: number;
   /**
    * How long each of this weapon's `applies` entries lasts, in ticks, positionally parallel to
    * `WeaponDef.applies`. Empty for a weapon that applies nothing.
@@ -49,7 +55,11 @@ function ticksFor(def: WeaponDef): WeaponTicks {
     damageInterval:
       def.damageFrequencyMs === 0 ? Number.POSITIVE_INFINITY : msToTicks(def.damageFrequencyMs),
     volleyInterval: msToTicks(def.volley.volleyIntervalMs),
-    flight: Math.ceil((def.range / def.speed) * TICK_RATE_HZ),
+    flight: def.kind === "maneuver" ? 0 : Math.ceil((def.range / def.speed) * TICK_RATE_HZ),
+    homingDuration: def.kind === "projectile" && def.homing ? msToTicks(def.homing.durationMs) : 0,
+    bounceLifetime: def.kind === "projectile" && def.bounce ? msToTicks(def.bounce.lifetimeMs) : 0,
+    maneuverDuration:
+      def.kind === "maneuver" && def.maneuver.type === "charge" ? msToTicks(def.maneuver.durationMs) : 0,
     applyDurations: Object.freeze(
       (def.applies ?? []).map((a) => msToTicks(Math.min(a.durationMs, STATUS_CONFIG.maxDurationMs))),
     ),

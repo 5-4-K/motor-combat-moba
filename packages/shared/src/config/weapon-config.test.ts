@@ -39,8 +39,10 @@ describe("WEAPON_TABLE", () => {
     for (const def of rows) {
       expect(def.unlocksAt).toBeGreaterThanOrEqual(1);
       expect(def.damage).toBeGreaterThan(0);
-      expect(def.speed).toBeGreaterThan(0);
-      expect(def.range).toBeGreaterThan(0);
+      if (def.kind !== "maneuver") {
+        expect(def.speed).toBeGreaterThan(0);
+        expect(def.range).toBeGreaterThan(0);
+      }
       expect(def.name.length).toBeGreaterThan(0);
       if (def.stock) {
         expect(def.stock.max).toBeGreaterThanOrEqual(2);
@@ -108,14 +110,57 @@ describe("WEAPON_TABLE", () => {
     expect(needler.applies).toBeUndefined();
   });
 
-  it("never lets an aim-assist weapon lock past its own reach", () => {
-    // A9.3. This is the one corner case a single per-car lock leaves open: with global geometry, a
-    // weapon can hold a lock on a target its own `range` cannot reach, so it fires at a visible
-    // bracket and falls short. Caught at authoring time instead of in play.
-    for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
-      if (!def.usesAimAssist) continue;
-      expect(def.range).toBeGreaterThanOrEqual(AIM_CONFIG.lockRange);
-    }
+  describe("per-weapon aim range (spec S1)", () => {
+    it("pairs aimRangeUnits with usesAimAssist, both ways", () => {
+      for (const def of Object.values(WEAPON_TABLE)) {
+        if (def.usesAimAssist) {
+          expect(def.aimRangeUnits, `${def.id} uses aim assist and must author aimRangeUnits`).toBeGreaterThan(0);
+        } else {
+          expect(def.aimRangeUnits, `${def.id} must not author aimRangeUnits without usesAimAssist`).toBeUndefined();
+        }
+      }
+    });
+
+    it("keeps every assisted weapon's range at or beyond its own aim range", () => {
+      // Replaces the old `range >= AIM_CONFIG.lockRange` guard: the lock is now bounded per weapon.
+      for (const def of Object.values(WEAPON_TABLE)) {
+        if (!def.usesAimAssist || def.kind === "maneuver") continue;
+        expect(def.range, `${def.id}`).toBeGreaterThanOrEqual(def.aimRangeUnits!);
+      }
+    });
+  });
+
+  describe("new-mechanic guards (vacuous until plan 3's rows land — they gate authoring, not code)", () => {
+    it("keeps multi-muzzle weapons off aim assist", () => {
+      for (const def of Object.values(WEAPON_TABLE)) {
+        if ((def.muzzles?.length ?? 1) > 1) expect(def.usesAimAssist, def.id).toBe(false);
+      }
+    });
+    it("requires aim assist on homing weapons", () => {
+      for (const def of Object.values(WEAPON_TABLE)) {
+        if (def.kind === "projectile" && def.homing) expect(def.usesAimAssist, def.id).toBe(true);
+      }
+    });
+    it("bounds a bounce lifetime under its own cooldown, so two instances never coexist", () => {
+      for (const def of Object.values(WEAPON_TABLE)) {
+        if (def.kind === "projectile" && def.bounce) expect(def.bounce.lifetimeMs, def.id).toBeLessThan(def.cooldownMs);
+      }
+    });
+    it("bounds a charge duration under its own cooldown", () => {
+      for (const def of Object.values(WEAPON_TABLE)) {
+        if (def.kind === "maneuver" && def.maneuver.type === "charge") {
+          expect(def.maneuver.durationMs, def.id).toBeLessThan(def.cooldownMs);
+        }
+      }
+    });
+    it("requires a dash to author positive speed and an aim range (its distance)", () => {
+      for (const def of Object.values(WEAPON_TABLE)) {
+        if (def.kind === "maneuver" && def.maneuver.type === "dash") {
+          expect(def.speed, def.id).toBeGreaterThan(0);
+          expect(def.aimRangeUnits, def.id).toBeGreaterThan(0);
+        }
+      }
+    });
   });
 
   it("keeps aim-assist weapons off the behavioural cliff", () => {
@@ -252,7 +297,6 @@ describe("WEAPON_TABLE", () => {
     expect(thumper.cooldownMs).toBeGreaterThan(forbiddenHigh);
     expect(forbiddenLow).toBeLessThan(forbiddenHigh); // the band is a band, not a point
     expect(thumper.hitbox).toEqual({ shape: "capsule", radiusAlong: 24, radiusAcross: 15 });
-    expect(thumper.range).toBeGreaterThanOrEqual(AIM_CONFIG.lockRange);
   });
 
   it("ships bulwark as a detached beam that lingers and ticks", () => {

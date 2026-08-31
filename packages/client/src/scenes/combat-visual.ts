@@ -914,7 +914,10 @@ function capMs(elapsedMs: number): number {
  */
 export function instanceDrawShape(instance: DrawableInstance, elapsedMs: number): WorldShape {
   const def = isWeaponId(instance.weaponId) ? weaponDefOf(instance.weaponId) : null;
-  if (!def) {
+  // A maneuver moves the car instead of spawning an instance (Task 10's real branch), so
+  // `state.weapons` never carries one — same fallback as an unrecognised id, since neither should
+  // ever reach a draw call and both must draw *something* rather than throw.
+  if (!def || def.kind === "maneuver") {
     return { kind: "circle", x: instance.x, y: instance.y, radius: UNKNOWN_WEAPON_RADIUS };
   }
 

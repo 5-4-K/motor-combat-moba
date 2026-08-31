@@ -46,6 +46,9 @@ export function resolveInstanceHits(
   tick: number,
 ): HitOutcome {
   const def = weaponDefOf(instance.weaponId);
+  // A maneuver spawns no `WeaponInstance` (Task 10 handles that branch), so this is unreachable
+  // today — narrows `def` back to the two kinds a hit test has ever had to handle.
+  if (def.kind === "maneuver") throw new Error(`resolveInstanceHits: maneuver weapon ${def.id} has no instance`);
   const interval = weaponTicksOf(instance.weaponId).damageInterval;
 
   const shape =
