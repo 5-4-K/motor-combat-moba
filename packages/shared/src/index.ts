@@ -59,6 +59,9 @@ export type {
 } from "./sim/combat.js";
 export { applyRams, impactSideOf, pairKey, resolveRam } from "./sim/ram.js";
 export type { ImpactSide, RamCar, RamHit, RamKnock } from "./sim/ram.js";
+export { SLAM_CONFIG, SLAM_TICKS } from "./config/slam-config.js";
+export { hullTouchesWorld, resolveContacts } from "./sim/contact.js";
+export type { ContactCar, ContactEvents, ContactHit } from "./sim/contact.js";
 export { canDamage } from "./sim/weapons/targets.js";
 export { interceptAngle, interceptTime } from "./sim/weapons/aim.js";
 export {
