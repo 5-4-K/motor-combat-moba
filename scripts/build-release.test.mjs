@@ -7,8 +7,12 @@ import {
   assertNoDevOnlyCode,
   assertOnlyActiveArenaShipped,
   DEV_ONLY_MARKERS,
+  mergeReleaseEnv,
   pruneArenaAssets,
+  releaseOrigin,
   releasePackageJson,
+  releasePort,
+  releaseReadme,
   startBat,
   startSh,
 } from "./build-release.mjs";
@@ -207,5 +211,71 @@ describe("assertOnlyActiveArenaShipped", () => {
       JSON.stringify({ sprites: { "arena.arena-07.floor": { file: "arenas/arena-07/floor.png" } } }),
     );
     assert.throws(() => assertOnlyActiveArenaShipped(dir, "arena-01"), /arena\.arena-07\.floor/);
+  });
+});
+
+describe("mergeReleaseEnv", () => {
+  it("keeps the base file verbatim when there is no local override", () => {
+    const base = "# why this port\nPORT=80\n\nDEPLOY_MODE=lan\n";
+    assert.equal(mergeReleaseEnv(base), base);
+  });
+
+  it("overrides a key in place so it keeps the comment above it", () => {
+    const merged = mergeReleaseEnv("# why this port\nPORT=80\nDEPLOY_MODE=lan\n", "PORT=2567\n");
+    assert.equal(merged, "# why this port\nPORT=2567\nDEPLOY_MODE=lan\n");
+  });
+
+  it("appends a key only the override declares, after one blank separator", () => {
+    assert.equal(mergeReleaseEnv("PORT=80\n", "TICK_RATE_HZ=60\n"), "PORT=80\n\nTICK_RATE_HZ=60\n");
+  });
+
+  it("normalises trailing blank lines so the separator does not depend on the base file", () => {
+    assert.equal(mergeReleaseEnv("PORT=80\n\n\n", "TICK_RATE_HZ=60\n"), "PORT=80\n\nTICK_RATE_HZ=60\n");
+  });
+
+  it("ignores comments in the override and ends with exactly one newline", () => {
+    const merged = mergeReleaseEnv("PORT=80\n\n\n", "# just a note\n");
+    assert.equal(merged, "PORT=80\n");
+  });
+});
+
+describe("releasePort", () => {
+  it("reads PORT out of the shipped env text", () => {
+    assert.equal(releasePort("DEPLOY_MODE=lan\nPORT=80\n"), 80);
+  });
+
+  it("takes the last assignment, the way dotenv folds a file into one object", () => {
+    assert.equal(releasePort("PORT=80\nPORT=3000\n"), 3000);
+  });
+
+  // Must stay in step with getPort() in packages/server/src/mode.ts.
+  it("falls back to 2567 when PORT is absent, blank or not a positive number", () => {
+    assert.equal(releasePort("DEPLOY_MODE=lan\n"), 2567);
+    assert.equal(releasePort("PORT=\n"), 2567);
+    assert.equal(releasePort("PORT=nope\n"), 2567);
+    assert.equal(releasePort("PORT=0\n"), 2567);
+  });
+});
+
+describe("releaseOrigin", () => {
+  it("drops the port only for 80, which is the point of shipping it", () => {
+    assert.equal(releaseOrigin("localhost", 80), "http://localhost");
+    assert.equal(releaseOrigin("<LAN-IP>", 2567), "http://<LAN-IP>:2567");
+  });
+});
+
+describe("releaseReadme", () => {
+  it("prints port-less URLs and the privileged-port note on 80", () => {
+    const readme = releaseReadme(80);
+    assert.match(readme, /Open http:\/\/localhost on this machine/);
+    assert.match(readme, /cap_net_bind_service/);
+    assert.equal(readme.includes("http://localhost:80"), false);
+  });
+
+  it("prints the port and no privileged note above 1024", () => {
+    const readme = releaseReadme(2567);
+    assert.match(readme, /http:\/\/localhost:2567/);
+    assert.match(readme, /http:\/\/<LAN-IP>:2567/);
+    assert.equal(readme.includes("cap_net_bind_service"), false);
   });
 });

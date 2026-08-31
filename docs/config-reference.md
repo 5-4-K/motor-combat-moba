@@ -13,13 +13,28 @@ rather than built on demand, so editing any of them means `npm run build:manual`
 | Knob | Where | Default |
 |---|---|---|
 | `DEPLOY_MODE` | server `mode.ts` | `lan` (`cloud` is CORS-only; no hosting) |
-| `PORT` | server `mode.ts` | `2567` |
+| `PORT` | server `mode.ts` | `2567` (the release ships `80`; see below) |
 | `TICK_RATE_HZ` | env override of shared constant | shared `30` |
 | `SIM_LATENCY_MS` | latency injector | `0` |
 | `SIM_JITTER_MS` | latency injector | `0` |
 | `CLIENT_ORIGIN` | server CORS (Vite) | unset; `npm run dev` sets `http://localhost:5173` |
 
 Canonical sim rate is `TICK_RATE_HZ` in `@motor-combat-moba/shared`. Patch rate is `DEFAULT_PATCH_RATE_HZ` (20), not an env knob.
+
+The defaults above are what the process falls back to with no env file. Which file supplies them
+depends on how the server was started, because `dotenv/config` reads `.env` from **cwd**:
+
+| Running | cwd | Env file |
+|---|---|---|
+| `npm run dev` | `packages/server/` | `packages/server/.env` |
+| Release zip (`start.bat` / `start.sh`) | release app root | `.env`, generated from `.env.release` |
+
+`packages/server/.env` is the one that catches people out — a root `.env` is not read by
+`npm run dev`, because `npm run -w` sets cwd to the workspace directory.
+
+The release's `.env` is built at package time from committed `.env.release`, overlaid with an
+optional gitignored `.env.release.local`. See
+[`deployment.md`](deployment.md#the-release-ships-a-real-env-built-from-envrelease).
 
 ## CAR_TABLE
 

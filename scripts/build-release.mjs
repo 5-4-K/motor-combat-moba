@@ -60,16 +60,104 @@ export function releasePackageJson(serverDependencies) {
   };
 }
 
-export function releaseReadme() {
+/**
+ * One line of an env file: a `key=value` assignment, or a raw passthrough (comment, blank line).
+ *
+ * Comments are kept as lines rather than discarded because `.env.release` is where the shipped
+ * configuration is *documented*, not just declared — a merge that dropped its prose would hand the
+ * LAN host a bare list of keys with no hint what any of them do.
+ */
+function parseEnvLines(text) {
+  return text.split(/\r?\n/).map((raw) => {
+    const match = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/.exec(raw);
+    return match ? { key: match[1], value: match[2].trim() } : { raw };
+  });
+}
+
+/**
+ * Overlay `.env.release.local` onto `.env.release`, key by key, and render the `.env` the release
+ * ships. An overridden key is rewritten where it already sits so it keeps its explanatory comment;
+ * a key only the override declares is appended.
+ *
+ * Merging rather than replacing is what makes the local file a one-line override: a host who only
+ * wants a different port writes `PORT=2567` and keeps every other shipped value.
+ */
+export function mergeReleaseEnv(baseText, overrideText = "") {
+  const overrides = new Map();
+  for (const line of parseEnvLines(overrideText)) {
+    if (line.key !== undefined) overrides.set(line.key, line.value);
+  }
+
+  const applied = new Set();
+  const merged = parseEnvLines(baseText).map((line) => {
+    if (line.key === undefined || !overrides.has(line.key)) return line;
+    applied.add(line.key);
+    return { key: line.key, value: overrides.get(line.key) };
+  });
+  // Trailing blank lines are trimmed before appending so the separator below is the same one line
+  // whether the base file ended with none, one, or three — the shipped `.env` should not inherit
+  // whitespace noise from how someone happened to save `.env.release`.
+  const appended = [...overrides].filter(([key]) => !applied.has(key));
+  if (appended.length > 0) {
+    while (merged.length > 0 && merged.at(-1).key === undefined && !merged.at(-1).raw.trim()) {
+      merged.pop();
+    }
+    if (merged.length > 0) merged.push({ raw: "" });
+    for (const [key, value] of appended) merged.push({ key, value });
+  }
+
+  const body = merged
+    .map((line) => (line.key === undefined ? line.raw : `${line.key}=${line.value}`))
+    .join("\n")
+    .replace(/\n+$/, "");
+  return `${body}\n`;
+}
+
+/**
+ * The port the shipped `.env` actually selects, so the release README can print URLs a player can
+ * click. Last assignment wins, matching how dotenv folds a file into one object.
+ *
+ * The fallback must stay in step with `getPort()` in the server's `mode.ts`: a `.env` with no
+ * usable `PORT` leaves the server on its own default, and a README naming a different number would
+ * send every player to a closed port.
+ */
+export function releasePort(envText, fallback = 2567) {
+  let port = fallback;
+  for (const line of parseEnvLines(envText)) {
+    if (line.key !== "PORT") continue;
+    const n = Number(line.value);
+    if (Number.isFinite(n) && n > 0) port = n;
+  }
+  return port;
+}
+
+/** `http://host` on port 80, `http://host:port` anywhere else — the whole point of shipping :80. */
+export function releaseOrigin(host, port) {
+  return port === 80 ? `http://${host}` : `http://${host}:${port}`;
+}
+
+export function releaseReadme(port) {
+  const privileged = port < 1024;
   return `# Motor Combat MOBA (LAN)
 
 Requires Node.js 20 or newer.
 
 1. Double-click \`start.bat\` (Windows) or run \`./start.sh\` (macOS/Linux).
 2. The first launch installs dependencies, then starts the server.
-3. Open http://localhost:2567 on this machine.
-4. Share http://<LAN-IP>:2567 with other players on the same network.
-`;
+3. Open ${releaseOrigin("localhost", port)} on this machine.
+4. Share ${releaseOrigin("<LAN-IP>", port)} with other players on the same network.
+
+The port is \`PORT\` in \`.env\`, next to \`start.bat\`. Change it there and restart.
+${
+  privileged
+    ? `
+Port ${port} is a privileged port. Windows binds it without admin rights, but macOS and Linux do
+not: run \`sudo setcap 'cap_net_bind_service=+ep' $(which node)\` once, or set a port above 1024 in
+\`.env\`. If the port is already taken the server exits on startup — on Windows that is usually IIS
+(\`net stop http /y\`).
+`
+    : ""
+}`;
 }
 
 function requireBuiltDist(dir, label) {
@@ -299,22 +387,40 @@ export async function main() {
   const pkg = releasePackageJson(serverPkg.dependencies);
   fs.writeFileSync(path.join(appDir, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
 
-  const envExample = path.join(rootDir, ".env.example");
-  if (fs.existsSync(envExample)) {
-    fs.copyFileSync(envExample, path.join(appDir, ".env.example"));
+  // A real `.env`, not a `.env.example` the host has to notice and rename. `.env.example` is
+  // deliberately NOT copied alongside it: two env files disagreeing about PORT in one folder is how
+  // someone edits the one dotenv never reads.
+  const envSources = [];
+  let baseEnvText = "";
+  for (const candidate of [".env.release", ".env.example"]) {
+    const full = path.join(rootDir, candidate);
+    if (!fs.existsSync(full)) continue;
+    baseEnvText = fs.readFileSync(full, "utf8");
+    envSources.push(candidate);
+    break;
   }
+  const localEnvPath = path.join(rootDir, ".env.release.local");
+  const localEnvText = fs.existsSync(localEnvPath) ? fs.readFileSync(localEnvPath, "utf8") : "";
+  if (localEnvText) envSources.push(".env.release.local");
+  const envText = mergeReleaseEnv(baseEnvText, localEnvText);
+  fs.writeFileSync(path.join(appDir, ".env"), envText);
+  const port = releasePort(envText);
 
   fs.writeFileSync(path.join(appDir, "start.bat"), startBat());
   const startShPath = path.join(appDir, "start.sh");
   fs.writeFileSync(startShPath, startSh());
   fs.chmodSync(startShPath, 0o755);
-  fs.writeFileSync(path.join(appDir, "README.md"), releaseReadme());
+  fs.writeFileSync(path.join(appDir, "README.md"), releaseReadme(port));
 
   await writeZip(appDir, zipPath);
 
   console.log(`Release folder: ${appDir}`);
   console.log(`Release zip: ${zipPath}`);
   console.log(`Arena: ${ACTIVE_ARENA_ID}`);
+  console.log(
+    `Port: ${port} (from ${envSources.join(" + ") || "built-in default"})` +
+      `${port < 1024 ? " — privileged on macOS/Linux" : ""}`,
+  );
   if (pruned.removed.length > 0) {
     const kb = Math.round(pruned.bytesRemoved / 1024);
     console.log(`Pruned arena art: ${pruned.removed.join(", ")} (${kb} KB)`);
