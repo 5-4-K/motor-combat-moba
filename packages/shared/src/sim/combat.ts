@@ -226,7 +226,7 @@ export function runCombat(input: CombatInput): CombatResult {
       // Deliberately NOT scaled by `damageTaken`: that channel is about incoming *weapon* damage,
       // and letting one status amplify another's bleed would compound two rows into a number
       // neither of them states. A pulse deals what its row says it deals.
-      if (pulse.damage > 0) damage(player, pulse.damage);
+      if (pulse.damage > 0) dealDamageTo(player, pulse.damage, modsOf(player.sessionId));
       // `applyHeal` refuses to lift a wreck off 0, so a repair landing on the tick a bleed killed
       // its target cannot un-eliminate them.
       if (pulse.heal > 0) player.hp = applyHeal(player.hp, pulse.heal, hpOf(carIdOf(player)));
@@ -261,7 +261,8 @@ export function runCombat(input: CombatInput): CombatResult {
     const attacker = byId.get(hit.attackerSessionId);
     const base = weaponDamageOf(attacker ? carIdOf(attacker) : DEFAULT_CAR_ID, hit.weaponId);
     const dealt = scaleDamage(base, attacker ? modsOf(hit.attackerSessionId).damageDealt : 1);
-    damage(target, scaleDamage(dealt, modsOf(hit.targetSessionId).damageTaken));
+    const targetMods = modsOf(hit.targetSessionId);
+    dealDamageTo(target, scaleDamage(dealt, targetMods.damageTaken), targetMods);
     applyOpponentStatuses(target, hit.weaponId, world.tick, hit.attackerSessionId, true);
   }
 
@@ -435,7 +436,8 @@ export function runCombat(input: CombatInput): CombatResult {
       //
       // `hit.amount` may legitimately be 0: a pure applicator weapon still registers a hit, because
       // a status rides the hit rather than the number.
-      damage(target, scaleDamage(hit.amount, modsOf(hit.sessionId).damageTaken));
+      const targetMods = modsOf(hit.sessionId);
+      dealDamageTo(target, scaleDamage(hit.amount, targetMods.damageTaken), targetMods);
       // Statuses ride the DAMAGE list, so they inherit its rules for free: friendly fire, the
       // shooter's own immunity, wrecks, pierce, and the per-target damage clock that stops a
       // lingering beam re-applying every single tick.
@@ -650,9 +652,13 @@ function applyOpponentStatuses(
   });
 }
 
-/** The only writer of `hp` and `alive`. 0 hp is the wreck: the car stays on the field, inert. */
-function damage(player: CombatPlayer, amount: number): void {
-  player.hp = applyDamage(player.hp, amount);
+/**
+ * The only writer of `hp`/`alive` in combat. `invulnerable` zeroes the amount — the hit still
+ * happened (pierce spent, statuses ride, the clock arms); only the hp change is refused. 0 hp is
+ * the wreck: the car stays on the field, inert.
+ */
+export function dealDamageTo(player: CombatPlayer, amount: number, mods: Readonly<Modifiers>): void {
+  if (!mods.invulnerable) player.hp = applyDamage(player.hp, amount);
   if (player.hp === 0) player.alive = false;
 }
 

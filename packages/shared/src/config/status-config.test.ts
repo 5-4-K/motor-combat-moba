@@ -117,6 +117,12 @@ describe("STATUS_TABLE", () => {
   });
 });
 
+describe("STATUS_CONFIG", () => {
+  it("ceiling covers the longest authored application (wildcharge's 10s fortified, plan 3)", () => {
+    expect(STATUS_CONFIG.maxDurationMs).toBe(10000);
+  });
+});
+
 describe("isStatusId", () => {
   it("accepts every id in the table", () => {
     for (const id of IDS) expect(isStatusId(id)).toBe(true);

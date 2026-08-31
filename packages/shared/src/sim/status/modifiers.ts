@@ -27,6 +27,8 @@ export interface Modifiers {
   disarmed: boolean;
   /** Speed forced to 0 every tick, after `stepDrive`'s normal integration runs. Shove is untouched. */
   fullStop: boolean;
+  /** Every combat damage site deals 0 hp to this car. Riders (statuses, pierce) still land. */
+  invulnerable: boolean;
 }
 
 /**
@@ -51,6 +53,7 @@ export const NEUTRAL_MODIFIERS: Readonly<Modifiers> = Object.freeze({
   steeringLocked: false,
   disarmed: false,
   fullStop: false,
+  invulnerable: false,
 });
 
 const CHANNELS = Object.keys(STATUS_LIMITS) as StatusChannel[];
@@ -103,5 +106,6 @@ export function modifiersOf(statuses: readonly ActiveStatus[], tick: number): Mo
   mods.steeringLocked = flags.has("steeringLocked");
   mods.disarmed = flags.has("disarmed");
   mods.fullStop = flags.has("fullStop");
+  mods.invulnerable = flags.has("invulnerable");
   return mods;
 }

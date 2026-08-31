@@ -7,6 +7,7 @@ import { WEAPON_TABLE } from "../config/weapon-config.js";
 import { MS_PER_TICK } from "../constants.js";
 import {
   aimAngleFor,
+  dealDamageTo,
   runCombat,
   startManeuver,
   type CombatInput,
@@ -533,6 +534,24 @@ describe("shots landing", () => {
     const shot = { ...aimedAt(target, "a"), damage: weaponDamageOf("bullseye", "fireball") };
     const result = run({ players: [shooter, target], instances: [shot] });
     expect(find(result, "b").hp).toBe(hpOf("mirage") - weaponDamageOf("bullseye", "fireball"));
+  });
+});
+
+describe("dealDamageTo", () => {
+  it("refuses hp from an invulnerable target but reports the hit", () => {
+    const target = playerAt("b", 0, 0, 0);
+    const before = target.hp;
+    dealDamageTo(target, 40, { ...NEUTRAL_MODIFIERS, invulnerable: true });
+    expect(target.hp).toBe(before);
+    dealDamageTo(target, 40, NEUTRAL_MODIFIERS);
+    expect(target.hp).toBe(before - 40);
+  });
+
+  it("still wrecks a car whose hp reaches zero while invulnerable is off", () => {
+    const target = playerAt("b", 0, 0, 0);
+    dealDamageTo(target, target.hp, NEUTRAL_MODIFIERS);
+    expect(target.hp).toBe(0);
+    expect(target.alive).toBe(false);
   });
 });
 

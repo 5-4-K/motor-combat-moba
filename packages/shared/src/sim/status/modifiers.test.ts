@@ -17,6 +17,7 @@ describe("NEUTRAL_MODIFIERS", () => {
     expect(NEUTRAL_MODIFIERS.steeringLocked).toBe(false);
     expect(NEUTRAL_MODIFIERS.disarmed).toBe(false);
     expect(NEUTRAL_MODIFIERS.fullStop).toBe(false);
+    expect(NEUTRAL_MODIFIERS.invulnerable).toBe(false);
   });
 
   it("is what a car in no status gets", () => {
@@ -82,6 +83,8 @@ describe("modifiersOf", () => {
     // No row carries `fullStop` yet — it lands on `stunned` in Plan 2. Until then this stays false
     // no matter what is applied, `stunned` included.
     expect(stunned.fullStop).toBe(false);
+    // No row carries `invulnerable` yet either (`armored` lands in Task 2 of this plan).
+    expect(stunned.invulnerable).toBe(false);
   });
 
   it("skips an expired row rather than trusting the list — the patch-stale client guard", () => {

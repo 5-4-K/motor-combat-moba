@@ -88,7 +88,15 @@ export type StatusFlag =
    * spin are untouched: a slammed car still slides into the wall, which is what wall-stun reads.
    * No row carries this until the Plan-2 status table lands it on `stunned`.
    */
-  | "fullStop";
+  | "fullStop"
+  /**
+   * Takes 0 damage — every source: weapon hits, contact hits, pulses (O7). A FLAG, deliberately
+   * not `damageTaken: 0`: that channel's clamp floor is 0.4, and a floor exists so no stack of
+   * debuffs can take the car off you — armour is a different statement, "damage is off", and it
+   * is applier-owned risk exactly as stun duty cycle is. Status riders still land on an armored
+   * car: armour stops hp loss, not consequences.
+   */
+  | "invulnerable";
 
 /**
  * What happens when a status that is already running is applied again.

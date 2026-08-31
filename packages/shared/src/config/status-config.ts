@@ -21,8 +21,11 @@ export const STATUS_CONFIG = {
    * Longest duration any applier may ask for. Bounds the ceiling of the design rather than any one
    * row: past roughly a fight's length a status stops being a window and becomes a state of the
    * match, and in a six-player free-for-all that is how one early engagement decides everything.
+   *
+   * Raised from 8000 for `wildcharge`'s 10 s fortified (spec); still bounds a status to roughly a
+   * fight's length.
    */
-  maxDurationMs: 8000,
+  maxDurationMs: 10000,
 } as const;
 
 /**
