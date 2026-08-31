@@ -1,6 +1,7 @@
 import { FLOW_CONFIG } from "@motor-combat-moba/shared";
 import { button, h } from "../dom.js";
 import { FULLSCREEN_KEY } from "../../config/display.js";
+import { FEEDBACK_LABEL, FEEDBACK_URL } from "../../config/feedback.js";
 import { MANUAL_LABEL, MANUAL_PATH } from "../../config/manual.js";
 
 /**
@@ -66,6 +67,22 @@ export function renderJoin(handlers: JoinHandlers): JoinScreen {
     [MANUAL_LABEL],
   );
 
+  /**
+   * Same anchor treatment as the manual, plus `noreferrer`: this one leaves the machine, and the
+   * form has no business knowing which page sent the player. `setBusy` leaves it alone too.
+   */
+  const feedbackLink = h(
+    "a",
+    {
+      class: "btn btn-secondary",
+      href: FEEDBACK_URL,
+      target: "_blank",
+      rel: "noopener noreferrer",
+      style: "min-height: 52px; font-size: 18px; padding-inline: 28px;",
+    },
+    [FEEDBACK_LABEL],
+  );
+
   const error = h("div", {
     style:
       "font-size: 14px; min-height: 20px; color: var(--color-accent-700); max-width: 480px;",
@@ -93,14 +110,22 @@ export function renderJoin(handlers: JoinHandlers): JoinScreen {
             },
             ["Top down car shooter battle arena"],
           ),
-          h("div", { style: "display: flex; align-items: flex-end; gap: 12px; margin-top: 12px;" }, [
-            h("div", { class: "field", style: "width: 320px;" }, [
-              h("label", { for: "pname" }, ["Your name"]),
-              input,
-            ]),
-            joinButton,
-            manualLink,
-          ]),
+          h(
+            "div",
+            {
+              style:
+                "display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-top: 12px;",
+            },
+            [
+              h("div", { class: "field", style: "width: 320px;" }, [
+                h("label", { for: "pname" }, ["Your name"]),
+                input,
+              ]),
+              joinButton,
+              manualLink,
+              feedbackLink,
+            ],
+          ),
           error,
           h("div", { style: "font-size: 13px; color: var(--color-neutral-600);" }, [
             `Max ${FLOW_CONFIG.nameMax} characters. ${FULLSCREEN_KEY.toUpperCase()} — fullscreen.`,
