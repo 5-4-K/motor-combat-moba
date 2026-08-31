@@ -244,6 +244,10 @@ export function runCombat(input: CombatInput): CombatResult {
     // An attached beam dies with its owner: a wreck does not shoot. Everything already frozen at
     // birth — projectiles, detached beams — finishes its life regardless.
     if (instance.attached && (!owner || !isFighting(owner))) continue;
+    // The locked car's LIVE pose, looked up fresh every tick — never the shooter's own state, and
+    // never cached from spawn. `null` when it has died, left the roster, or the shot never locked.
+    const homingOwner =
+      instance.homingTargetId !== "" ? byId.get(instance.homingTargetId) : undefined;
     stepped.push(
       stepInstance(instance, {
         dt: world.dt,
@@ -251,7 +255,8 @@ export function runCombat(input: CombatInput): CombatResult {
         obstacles: world.obstacles,
         bounds: world.bounds,
         ownerPose: owner ? { x: owner.x, y: owner.y, angle: owner.angle } : null,
-        homingTarget: null, // Task 6 wires this up
+        homingTarget:
+          homingOwner && isFighting(homingOwner) ? { x: homingOwner.x, y: homingOwner.y } : null,
       }),
     );
   }
@@ -303,13 +308,22 @@ export function runCombat(input: CombatInput): CombatResult {
     const released = releaseShots(player.fireState, world.tick, mods.weaponCooldown);
     player.fireState = released.state;
     for (const order of released.orders) {
+      const def = weaponDefOf(order.weaponId);
+      const aim = aimAngleFor(player, order.weaponId, byId);
+      // A homing shot needs both a live lock AND a successful aim assist — `aim === null` means the
+      // lock was out of range, absent, or the weapon declined assist for some other reason, and
+      // firing a rocket that steers toward a target it did not actually aim at would be a stealth
+      // buff no other weapon gets.
+      const homingTargetId =
+        def.kind === "projectile" && def.homing && aim !== null ? player.lock.targetSessionId : "";
       const spawned = spawnInstances(
         order,
         player,
         world.tick,
         instanceSeq,
-        aimAngleFor(player, order.weaponId, byId),
+        aim,
         mods.damageDealt,
+        homingTargetId,
       );
       instanceSeq = spawned.seq;
       stepped.push(...spawned.instances);

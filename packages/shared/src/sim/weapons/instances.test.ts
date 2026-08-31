@@ -175,6 +175,8 @@ describe("beam growth and expiry", () => {
     damageClock: new Map(),
     alive: true,
     muzzleDir: 0,
+    homingTargetId: "",
+    homingUntilTick: 0,
     ...over,
   });
 
@@ -334,5 +336,43 @@ describe("multi-muzzle", () => {
     );
     expect(stepped.x).toBeCloseTo(200 - muzzleOffset()); // welded to the TAIL as the car moves
     expect(stepped.angle).toBeCloseTo(Math.PI);
+  });
+});
+
+const rocket = {
+  ...WEAPON_TABLE.fireball,
+  speed: 600,
+  homing: { turnRateDegPerSec: 120, durationMs: 1200 },
+} as const;
+const homingCtx = (tick: number, target: { x: number; y: number } | null) => ({
+  dt: 1 / 30, tick, obstacles: [], bounds: { width: 4000, height: 4000 },
+  ownerPose: null, homingTarget: target,
+});
+const homingOwner = { sessionId: "a", team: 0 as const, carId: "mirage", x: 0, y: 0, angle: 0 };
+const homingOrder = { weaponId: "fireball", slot: 0, finalVolley: true } as const;
+
+describe("homing", () => {
+  it("freezes the lock target at spawn and bends toward it, capped at the turn rate", () => {
+    const { instances } = spawnInstances(homingOrder, homingOwner, 10, 0, 0, 1, "victim", rocket);
+    const shot = instances[0]!;
+    expect(shot.homingTargetId).toBe("victim");
+    const stepped = stepInstance(shot, homingCtx(11, { x: 500, y: 500 }), rocket); // 45 deg off
+    const maxTurn = (120 * Math.PI / 180) / 30;
+    expect(stepped.angle).toBeCloseTo(maxTurn); // clamped, not snapped to 45 deg
+  });
+
+  it("flies straight after the guidance window", () => {
+    const { instances } = spawnInstances(homingOrder, homingOwner, 10, 0, 0, 1, "victim", rocket);
+    const until = instances[0]!.homingUntilTick;
+    expect(until).toBe(10 + 36); // msToTicks(1200) at 30 Hz
+    const past = stepInstance({ ...instances[0]!, x: 100 }, homingCtx(until + 1, { x: 500, y: 500 }), rocket);
+    expect(past.angle).toBe(0);
+  });
+
+  it("flies straight when fired without a lock", () => {
+    const { instances } = spawnInstances(homingOrder, homingOwner, 10, 0, null, 1, "", rocket);
+    expect(instances[0]!.homingTargetId).toBe("");
+    const stepped = stepInstance(instances[0]!, homingCtx(11, null), rocket);
+    expect(stepped.angle).toBe(0);
   });
 });

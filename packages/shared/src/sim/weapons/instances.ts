@@ -1,6 +1,6 @@
 import { DRIVE_CONFIG } from "../../config/drive-config.js";
 import { weaponDefOf } from "../../config/weapon-config.js";
-import { weaponTicksOf } from "../../config/weapon-ticks.js";
+import { msToTicks, weaponTicksOf } from "../../config/weapon-ticks.js";
 import type { WeaponDef, WeaponId } from "../../config/weapon-types.js";
 import { pointInAabb, pointOutsideBounds, type Aabb, type Bounds } from "../collide.js";
 import { carIdOf } from "../context.js";
@@ -64,6 +64,10 @@ export interface WeaponInstance {
    * it every tick, so a rear flame stays welded to the tail rather than snapping to the nose.
    */
   muzzleDir: number;
+  /** Homing only: the locked car frozen at spawn (O11), or "". Sim-only, never networked. */
+  homingTargetId: string;
+  /** Homing only: the tick guidance ends; 0 for a non-homing shot. Frozen at spawn. */
+  homingUntilTick: number;
 }
 
 /** One group of instances to emit: which weapon, from which slot. */
@@ -91,7 +95,10 @@ export interface StepInstanceContext {
   bounds: Bounds;
   /** The owner's current pose, for an attached beam. `null` for everything else. */
   ownerPose: OwnerPose | null;
-  /** A homing shot's current target point. Inert until Task 6; `null` for everything else. */
+  /**
+   * The homing target's live pose, or null — dead, missing, or no homing. The caller owns the
+   * lookup; this module never reads player state.
+   */
   homingTarget: { x: number; y: number } | null;
 }
 
@@ -164,6 +171,10 @@ export function spawnInstances(
   // -pi/2 one — because nothing downstream needs the shot on a canonical range.
   const muzzleDirs = (def.muzzles ?? [0]).map((deg) => (deg * Math.PI) / 180);
 
+  const homing = def.kind === "projectile" ? def.homing : undefined;
+  const homingTarget = homing && homingTargetId !== "" ? homingTargetId : "";
+  const homingUntil = homingTarget !== "" ? tick + msToTicks(homing!.durationMs) : 0;
+
   const instances: WeaponInstance[] = [];
   let next = seq;
   for (const dir of muzzleDirs) {
@@ -197,6 +208,8 @@ export function spawnInstances(
         damageClock: new Map(),
         alive: true,
         muzzleDir: dir,
+        homingTargetId: homingTarget,
+        homingUntilTick: homingUntil,
       });
     }
   }
@@ -220,11 +233,29 @@ export function stepInstance(
   if (def.kind === "maneuver") throw new Error(`stepInstance: maneuver weapon ${def.id} has no instance`);
 
   if (instance.kind === "projectile") {
+    let angle = instance.angle;
+    const homing = def.kind === "projectile" ? def.homing : undefined;
+    if (
+      homing &&
+      instance.homingTargetId !== "" &&
+      ctx.homingTarget !== null &&
+      ctx.tick <= instance.homingUntilTick
+    ) {
+      // Bend toward the target's live position, capped at the turn rate — the counterplay is the
+      // turning circle, so the cap is the whole mechanic (spec: Homing).
+      const desired = Math.atan2(ctx.homingTarget.y - instance.y, ctx.homingTarget.x - instance.x);
+      let delta = desired - angle;
+      while (delta > Math.PI) delta -= Math.PI * 2;
+      while (delta <= -Math.PI) delta += Math.PI * 2;
+      const maxTurn = ((homing.turnRateDegPerSec * Math.PI) / 180) * ctx.dt;
+      angle += Math.max(-maxTurn, Math.min(maxTurn, delta));
+    }
     const step = def.speed * ctx.dt;
     return {
       ...instance,
-      x: instance.x + Math.cos(instance.angle) * step,
-      y: instance.y + Math.sin(instance.angle) * step,
+      x: instance.x + Math.cos(angle) * step,
+      y: instance.y + Math.sin(angle) * step,
+      angle,
       distance: instance.distance + step,
       // Fresh copy, not the input's reference: a shallow spread would otherwise alias `damageClock`
       // between the pre- and post-step instance, so a later write through either object would be

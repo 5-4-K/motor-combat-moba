@@ -203,6 +203,8 @@ describe("firing", () => {
       damageClock: new Map(),
       alive: true,
       muzzleDir: 0,
+      homingTargetId: "",
+      homingUntilTick: 0,
     };
     const inFlightShot: WeaponInstance = {
       ...attachedBeam,
@@ -312,6 +314,8 @@ describe("shots in flight", () => {
     damageClock: new Map(),
     alive: true,
     muzzleDir: 0,
+    homingTargetId: "",
+    homingUntilTick: 0,
     ...over,
   });
 
@@ -384,6 +388,8 @@ describe("shots landing", () => {
       damageClock: new Map(),
       alive: true,
       muzzleDir: 0,
+      homingTargetId: "",
+      homingUntilTick: 0,
     };
   }
 
@@ -486,6 +492,8 @@ describe("shots landing", () => {
           damageClock: new Map(),
           alive: true,
           muzzleDir: 0,
+          homingTargetId: "",
+          homingUntilTick: 0,
         },
       ],
     });
