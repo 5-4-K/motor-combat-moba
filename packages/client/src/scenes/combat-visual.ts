@@ -11,6 +11,7 @@ import {
   weaponDefOf,
   weaponTicksOf,
   type BeamHitbox,
+  type ProjectileHitbox,
   type WeaponId,
   type WorldShape,
 } from "@motor-combat-moba/shared";
