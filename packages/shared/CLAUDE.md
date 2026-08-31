@@ -36,6 +36,17 @@ networked in full — unlike `FireState` and the lock, a status has no server-on
 client predicts through the same modifiers (invariant 8). See
 [`docs/combat-model.md`](../../docs/combat-model.md#statuses).
 
+**Maneuvers (spec S3) own three files.** `sim/maneuver.ts` declares `ManeuverKind`
+(NONE/DASH/HOLD/CHARGE, frozen uint8 values) and `NO_MANEUVER`, the four-field neutral spread used to
+reset a car. `sim/contact.ts`'s `resolveContacts` is where a maneuver actually does something: it
+extends `applyRams`'s pair loop with a dash (reports a `ContactHit`, no knock) and a charge (a hard
+slam — a fixed impulse, replacing the graded ram) ahead of the ordinary ram fallback, and runs where
+`applyRams` used to. `config/slam-config.ts`'s `SLAM_CONFIG`/`SLAM_TICKS` tune the slam alone — knock
+speed, victim authority, wall-stun window, re-slam immunity — kept separate from `RAM_CONFIG` because
+a slam is deliberately not graded like a ram. All three are dormant: no `WEAPON_TABLE` row is
+`kind: "maneuver"` yet, so nothing reaches this path outside tests until Plan 3 lands one. See
+[`docs/combat-model.md`](../../docs/combat-model.md#maneuvers-and-the-contact-pass).
+
 An **aura** is a beam with a `disc` hitbox at `origin: "center"`. It reuses `WorldShape`'s circle arm,
 so the hit test needed no new geometry, and it needs no change to `canDamage` — that already refuses
 the owner. `shockwave` is the shipped one, on Mirage's slot 2.

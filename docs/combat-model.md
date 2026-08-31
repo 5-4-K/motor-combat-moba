@@ -75,6 +75,54 @@ shove, and no authority loss.
 See [`superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md`](superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md)
 for the full decision record (R1–R20), including the deviations recorded there.
 
+## Maneuvers and the contact pass
+
+A `kind: "maneuver"` weapon (spec S3) moves the car itself instead of spawning an instance. It rides
+the same fire state machine as any other weapon — stocks, cooldown, recovery — but `runCombat`
+routes its order to `startManeuver` rather than `spawnInstances`, and the effect plays out through
+four networked `PlayerState` fields (`maneuver`, `maneuverTicksLeft`, `maneuverAngle`,
+`maneuverSpeed` — see [`schema-reference.md`](schema-reference.md#playerstate)) and `sim/maneuver.ts`'s
+`ManeuverKind`, not through `state.weapons`. There are three kinds:
+
+- **Dash** — a scripted translation at a locked angle and speed (the lock target's bearing with no
+  lead, since the car itself arrives rather than a shot), face welded for its duration, handed back
+  rolling at the chassis's speed cap so it doesn't read as a stall. Landing on an opponent it may
+  damage is a `dashHit`, priced in `runCombat` exactly like a shot (attacker's `attack`/`damageDealt`,
+  target's `damageTaken`, the weapon's own `applies`); landing on a wall instead ends the dash
+  stopped, not at cap.
+- **Hold** — speed pinned to zero, steering only, from the press until the attached
+  `holdsDuringFire` beam it powers dies (O10) — committed the instant the beam's wind-up begins, the
+  intended mechanism for `lance`-style weapons that root the car while they fire.
+- **Charge** — drives normally and only counts down, ending early on its first slam (or its own
+  `durationMs`). While charging, contact with an opponent it may damage is a **hard slam** instead of
+  a graded ram: a fixed impulse from `SLAM_CONFIG` (same knock for every attacker and victim, no mass
+  factor, no side bonus), gated off if the victim is already `stunned` and the charger's weapon
+  doesn't set `slamsStunned` (O3/O18), or if the victim is still inside `SLAM_CONFIG.reslamImmunityMs`
+  of a previous slam. A landed slam ends the attacker's charge, restores
+  `SLAM_CONFIG.selfKeepFactor` of its pre-impact speed, and expires the attacker's own self-applied
+  statuses (`expireStatusesFromSource`) — a window that closed early cannot leave its buff running
+  past it. A victim shoved into a wall within `SLAM_CONFIG.wallStunWindowMs` of the slam is stunned
+  once for `wallStunDurationMs` (O2).
+
+`sim/contact.ts`'s `resolveContacts` is where this lives: it extends `applyRams`'s pair loop —
+checking each car for a dash, then a charge/slam, and only falling through to an ordinary ram when
+neither side produced one — and runs in the same slot `ramTick` used to, between drive and combat.
+The server-side half is `packages/server/src/sim/ram-bridge.ts`'s `contactTick`, which also tracks
+each slam's wall-stun window and re-slam immunity in room memory and turns a landed wall-stun into a
+`StatusRequest`.
+
+**Stun interruption (O8/O14).** A `stunned` status that lands fresh this tick — not one already
+running — cancels the car's committed states at the end of that same tick: a pending wind-up (its
+stock stays spent, O14), a running maneuver, and any attached instance the car owns; a detached shot
+or a projectile already in flight persists, since a shot already committed to the world does not
+un-commit because its owner got stunned. `WeaponDef.isUnInterruptable` exempts a weapon's wind-up or
+maneuver from the sweep, row by row; no shipped row opts in yet.
+
+**All of it is dormant.** No chassis carries a `maneuver`-kind weapon, and `isUnInterruptable` has no
+row set to `true` — both wait on Plan 3's roster. Every path above is real and covered by
+unit tests today, but only through synthetic `ManeuverWeaponDef`s and hand-set fields, never a shot
+fired from a real car in a real match.
+
 ## `sim/damage.ts` is the only place hp moves
 
 ```ts
@@ -195,6 +243,22 @@ the centre); the muzzle never swings to the aim angle, it stays the car's physic
 still translates and rotates with the car — it just never deflects toward a locked target); and a
 pellet fan or a sequential burst re-reads the lock at each shot's own tick, the same way it already
 re-reads the car's pose.
+
+**Lead** (spec S1) applies only to a projectile: `aimAngleFor` fires `interceptAngle`'s first-order
+intercept — the target's centre plus its heading × speed, solved against the shot's own `speed` —
+instead of the target's current bearing, which is what stops the far half of every lock acquiring
+reliably and missing reliably. A beam is untouched (it crosses its reach near-instantly, so leading
+it would only mis-aim it) and so is a maneuver (it aims the car at the target's bearing, not a shot
+at its future position — see [Maneuvers and the contact pass](#maneuvers-and-the-contact-pass)
+below). Re-derived per shot, not once per press, so a burst's later volleys lead wherever the target
+has moved to by their own tick.
+
+**Per-weapon range** (spec S1) is a second gate below the lock itself. Lock *acquisition* uses the
+car's single largest `aimRangeUnits` across its assisted weapons (`carAimRangeOf`), so a bracket can
+appear on a target only the car's longest-ranged gun can actually reach. At fire time each weapon
+checks the target against its **own** `aimRangeUnits`, centre-to-centre exactly as lock scoring
+measures it — a held lock farther than the weapon in hand can reach makes that weapon decline the
+assist and fire straight ahead rather than refuse to fire.
 
 `skewer` is the table's reference row for `usesAimAssist: false`, as `fireball` is for `true`.
 See [`superpowers/specs/2026-08-27-aim-assist-target-lock-design.md`](superpowers/specs/2026-08-27-aim-assist-target-lock-design.md)
@@ -683,7 +747,11 @@ invisible wall rather than as being stunned.
 `disarmed` blocks a **new** press only; one already committed still finishes. `beginFire` spends the
 stock at press time because a wind-up cannot be cancelled, so a stun landing mid-wind-up would
 otherwise eat the stock and produce nothing — a debuff that is strictly worse the better your timing
-was.
+was. **The interrupt exception:** since O8/O14, a `stunned` application that is new *this* tick no
+longer just sits there — it actively cancels the pending press (and any running maneuver, and any
+attached instance) at the end of the tick, rather than leaving it to fire once the wind-up completes.
+The stock still stays spent either way; what changed is that the shot no longer goes out at all. See
+[Maneuvers and the contact pass](#maneuvers-and-the-contact-pass) above.
 
 ### Auras
 
