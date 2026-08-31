@@ -89,9 +89,9 @@ export class PredictionBuffer {
       shoveX: authoritative.shoveX,
       shoveY: authoritative.shoveY,
       authority: authoritative.authority,
-      // Pass-through today, same treatment as the knock fields below: these feed the next
-      // integration, so they snap to the authoritative value rather than easing. Task 9 formalizes
-      // any maneuver-specific reconcile rule on top of this.
+      // Same reasoning as the knock fields below: a maneuver is rules for the next integration, not
+      // a drawn pose, so it snaps to the authoritative value rather than easing. No maneuver-specific
+      // reconcile rule beyond the snap is needed — see the "snaps maneuver state" test.
       maneuver: authoritative.maneuver,
       maneuverTicksLeft: authoritative.maneuverTicksLeft,
       maneuverAngle: authoritative.maneuverAngle,

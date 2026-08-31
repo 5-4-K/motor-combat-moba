@@ -463,7 +463,6 @@ function bodyOf(player: ArenaPlayer): SimBody {
     shoveX: player.shoveX,
     shoveY: player.shoveY,
     authority: player.authority,
-    // Pass-through today, same as the server's bodyOf: Task 9 wires the maneuver trigger.
     maneuver: player.maneuver,
     maneuverTicksLeft: player.maneuverTicksLeft,
     maneuverAngle: player.maneuverAngle,

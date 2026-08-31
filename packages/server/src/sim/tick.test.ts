@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ArenaState,
   DRIVE_CONFIG,
+  ManeuverKind,
   MS_PER_TICK,
   NET_CONFIG,
   PlayerState,
@@ -366,6 +367,28 @@ describe("serverTick", () => {
       expect(player.shoveY).toBeGreaterThan(-60);
       expect(player.authority).toBeGreaterThan(0.5);
       expect(player.authority).toBeLessThan(1);
+    });
+  });
+
+  describe("maneuver state keeps a silent player moving", () => {
+    // `hasKnock` gates the same silent-coast step that rescues a knocked player who stopped
+    // sending input (see the `serverTick coasts a knocked player...` block below). A DASH is the
+    // same shape of problem: motion applied from OUTSIDE the player's own inputs, via
+    // `maneuverAngle`/`maneuverSpeed` rather than `shoveX`/`shoveY`. Until `hasKnock` also checks
+    // `player.maneuver`, a dashing player who goes silent mid-dash freezes holding the whole
+    // state instead of finishing the dash the status/ram system already committed them to.
+    it("keeps stepping a silent player mid-dash — a dash is motion applied from outside", () => {
+      const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
+      player.maneuver = ManeuverKind.DASH;
+      player.maneuverTicksLeft = 8;
+      player.maneuverAngle = 0;
+      player.maneuverSpeed = 1600;
+      const before = player.x;
+
+      serverTick(stateWith(player), new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
+
+      expect(player.x).toBeGreaterThan(before);
+      expect(player.maneuverTicksLeft).toBe(7);
     });
   });
 
