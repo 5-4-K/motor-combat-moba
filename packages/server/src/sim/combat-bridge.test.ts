@@ -53,6 +53,8 @@ function liveInstance(over: Partial<WeaponInstance> = {}): WeaponInstance {
     damageClock: new Map<string, number>(),
     alive: true,
     muzzleDir: 0,
+    homingTargetId: "",
+    homingUntilTick: 0,
     ...over,
   };
 }
