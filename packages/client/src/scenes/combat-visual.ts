@@ -610,13 +610,16 @@ export function beamGrownExtent(weaponId: string, extent: number, elapsedMs: num
  * outside the hull — which is exactly what `projectile-marks.test.ts` catches.
  */
 function hullHalfAcross(
-  hitbox: Extract<ProjectileHitbox, { shape: "ellipse" | "capsule" }>,
+  hitbox: Extract<ProjectileHitbox, { shape: "ellipse" | "capsule" | "bar" }>,
   along: number,
 ): number {
   const { radiusAlong, radiusAcross } = hitbox;
   if (along < -radiusAlong || along > radiusAlong) return 0;
   if (hitbox.shape === "ellipse") {
     return radiusAcross * Math.sqrt(Math.max(0, 1 - (along / radiusAlong) ** 2));
+  }
+  if (hitbox.shape === "bar") {
+    return radiusAcross;
   }
   const noseCentre = radiusAlong - radiusAcross;
   if (along <= noseCentre) return radiusAcross;

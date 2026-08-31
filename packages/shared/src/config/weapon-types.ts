@@ -69,7 +69,14 @@ export type ProjectileHitbox =
    * capsule cannot be given that silhouette by the renderer alone — the shape has to be real, or
    * what you see stops being what can hurt you.
    */
-  | { shape: "capsule"; radiusAlong: number; radiusAcross: number };
+  | { shape: "capsule"; radiusAlong: number; radiusAcross: number }
+  /**
+   * A wall sweeping forward: long axis PERPENDICULAR to flight, travelling along its short axis.
+   * `radiusAlong` is half its thickness along the flight direction and `radiusAcross` half its
+   * length across it, so the two are read the same way as `ellipse`/`capsule`. Guarded
+   * `radiusAcross >= radiusAlong` — a bar thicker than it is wide is an ellipse job.
+   */
+  | { shape: "bar"; radiusAlong: number; radiusAcross: number };
 
 /**
  * Beams configure their CROSS-SECTION only. The axial extent is the current expansion, growing

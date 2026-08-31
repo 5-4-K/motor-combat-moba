@@ -224,6 +224,14 @@ describe("WEAPON_TABLE", () => {
     }
   });
 
+  it("keeps bar hitboxes wider than they are thick", () => {
+    for (const def of Object.values(WEAPON_TABLE)) {
+      if (def.kind === "projectile" && def.hitbox.shape === "bar") {
+        expect(def.hitbox.radiusAcross, def.id).toBeGreaterThanOrEqual(def.hitbox.radiusAlong);
+      }
+    }
+  });
+
   it("refuses aim assist on an attached beam", () => {
     // A12. An attached beam re-derives its origin and angle from the owner's pose every tick, so it
     // would snap to the lock at birth and immediately re-weld to the car's nose. Dormant until the
