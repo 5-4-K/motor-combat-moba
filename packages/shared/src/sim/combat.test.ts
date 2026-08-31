@@ -739,6 +739,18 @@ describe("aimAngleFor", () => {
     // "fireball" is usesAimAssist: true.
     expect(aimAngleFor(a, "fireball", byId)).toBeCloseTo(expected, 10);
   });
+
+  it("fires straight ahead when the lock sits beyond the weapon's own aimRangeUnits", () => {
+    // Retention can hold a lock out to lockRange + retentionRangeUnits (460), past fireball's 400.
+    const shooter = player("a", { x: 0, y: 0, angle: 0 });
+    shooter.lock = { targetSessionId: "b", lockedAtTick: 0, losLostSinceTick: 0, lastPressTick: 0 };
+    const target = player("b", { x: 430, y: 0 });
+    const byId = new Map([
+      ["a", shooter],
+      ["b", target],
+    ]);
+    expect(aimAngleFor(shooter, "fireball", byId)).toBeNull(); // 430 > 400 -> welded to heading
+  });
 });
 
 it("damages a target with a real attached beam fired from a real loadout, once it has grown to reach", () => {

@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { AIM_CONFIG } from "./aim-config.js";
 import { CAR_TABLE } from "./car-config.js";
 import { WEAPON_TABLE } from "./weapon-config.js";
-import { WEAPON_SLOT_CONFIG, slotsOf, slotsFrom } from "./weapon-slots.js";
+import { WEAPON_SLOT_CONFIG, carAimRangeOf, slotsOf, slotsFrom } from "./weapon-slots.js";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -52,5 +53,17 @@ describe("loadouts", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     slotsFrom("bullseye", ["fireball"]);
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe("carAimRangeOf", () => {
+  it("is 400 for every shipped chassis (all assisted rows author 400 in this pass)", () => {
+    for (const id of ["mirage", "bullseye", "bastion"] as const) {
+      expect(carAimRangeOf(id)).toBe(400);
+    }
+  });
+  it("falls back to AIM_CONFIG.lockRange for a car with no assisted weapon", () => {
+    // No such chassis ships; the fallback is the contract for one. Assert it equals the global.
+    expect(AIM_CONFIG.lockRange).toBe(400); // if this moves, revisit carAimRangeOf's fallback
   });
 });

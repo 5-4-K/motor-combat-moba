@@ -2,6 +2,7 @@ import { hpOf } from "../config/car-config.js";
 import { isStatusId } from "../config/status-config.js";
 import type { StatusId } from "../config/status-types.js";
 import { weaponDefOf } from "../config/weapon-config.js";
+import { carAimRangeOf } from "../config/weapon-slots.js";
 import { weaponTicksOf } from "../config/weapon-ticks.js";
 import type { WeaponId } from "../config/weapon-types.js";
 import {
@@ -276,6 +277,7 @@ export function runCombat(input: CombatInput): CombatResult {
       obstacles: world.obstacles,
       bounds: world.bounds,
       tick: world.tick,
+      lockRangeUnits: carAimRangeOf(carIdOf(player)),
     });
   }
 
@@ -379,6 +381,12 @@ export function aimAngleFor(
   if (player.lock.targetSessionId === "") return null;
   const target = byId.get(player.lock.targetSessionId);
   if (!target || !isFighting(target)) return null;
+  const def = weaponDefOf(weaponId);
+  // Per-weapon range gate (spec S1): a lock the car holds through its longest assisted weapon may
+  // still be out of THIS weapon's reach — then the weapon declines the assist and fires straight.
+  // Centre-to-centre, matching how lock scoring measures distance.
+  const distance = Math.hypot(target.x - player.x, target.y - player.y);
+  if (distance > (def.aimRangeUnits ?? 0)) return null;
   const muzzle = muzzleOf({ x: player.x, y: player.y, angle: player.angle });
   return Math.atan2(target.y - muzzle.y, target.x - muzzle.x);
 }
