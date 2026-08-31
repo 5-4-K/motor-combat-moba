@@ -249,6 +249,7 @@ the probe.
 ```bash
 npm run dev            # shared watch + server :2567 + Vite client :5173
 npm run build:release  # dist-release/motor-combat-moba/ + motor-combat-moba-release.zip
+npm run install-build  # build a release and install it into the folder named in .install-target
 npm run build:manual   # regenerates the cars & weapons guide page
 npm run check:art      # art integrity: alpha, manifest rows, sizes, tint rules (:cars, :weapons)
 npm run ttk            # full-kit time-to-kill matrix, every chassis vs every chassis

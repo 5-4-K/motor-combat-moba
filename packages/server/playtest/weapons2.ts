@@ -23,7 +23,7 @@ import { Reporter } from "./reporter.js";
 
 const reporter = new Reporter(
   "weapons2",
-  "Pellet spread vs tunneling, crossing targets, point-blank angles, spin, wrecks as cover.",
+  "Pellet spread vs tunneling, crossing targets, point-blank angles, spin, dead cars as cover.",
 );
 const report = reporter.report.bind(reporter);
 function carrierOf(weaponId: WeaponId): CarId {
@@ -254,11 +254,25 @@ function spinningShooter(): void {
   );
 }
 
-/* --------------------------------------------- W17. does a wreck still block shots and cars? */
-function wreckAsCover(): void {
+/* ------------------------------- W17. is a dead car intangible to shots AND to driving? */
+/**
+ * There is no wreck. `isOnField` has read `alive` since 2026-08-30, so a car leaves the field the
+ * tick its hp reaches 0: not simulated, not solid, not a ram participant, and gone from the hit
+ * snapshot. It is only still DRAWN, fading over `DEATH_FADE_MS`.
+ *
+ * Before that a corpse stayed a collision hull — solid to driving but transparent to combat — and
+ * this probe existed to document that asymmetry. It now checks the opposite: that both halves agree
+ * a corpse stops nothing. Either one blocking again is a FINDING.
+ *
+ * The trigger has to be RELEASED between shots. Holding `fireSlots` fires once on the press edge and
+ * never again, and the phase-2 zero that produces reads exactly like a corpse blocking every shot —
+ * which is how this probe used to conclude "not cover" from a run that fired no bullets at all.
+ * `shotsFired` is reported so that zero can never be mistaken for a measurement again.
+ */
+function deadCarIsIntangible(): void {
   const w = new PlaytestWorld([
     { id: "s", carId: "bullseye", x: 200, y: 360, angle: 0, team: 0 },
-    { id: "wreck", carId: "bastion", x: 450, y: 360, angle: 0, team: 0, hp: 1 },
+    { id: "corpse", carId: "bastion", x: 450, y: 360, angle: 0, team: 0, hp: 1 },
     { id: "t", carId: "bastion", x: 700, y: 360, angle: 0, team: 0 },
   ]);
   const bit = slotBitFor("bullseye", "needler");
@@ -266,16 +280,22 @@ function wreckAsCover(): void {
   for (let i = 0; i < 60; i++) {
     w.input("s", { fireSlots: bit });
     w.tick();
-    if (!w.get("wreck").alive) break;
+    if (!w.get("corpse").alive) break;
   }
-  const wreckDead = !w.get("wreck").alive;
+  const corpseDead = !w.get("corpse").alive;
   const hp0 = w.get("t").hp;
+  let shotsFired = 0;
+  let live = w.instances().length;
   for (let i = 0; i < 120; i++) {
-    w.input("s", { fireSlots: bit });
+    // Release every other tick: the sim fires on a press EDGE, not on a held key.
+    w.input("s", { fireSlots: i % 2 === 1 ? 0 : bit });
     w.tick();
+    const now = w.instances().length;
+    if (now > live) shotsFired += now - live;
+    live = now;
   }
   const dealt = hp0 - w.get("t").hp;
-  // And is the wreck still solid to driving?
+  // And is the corpse solid to driving?
   const mover = new PlaytestWorld([
     { id: "m", carId: "mirage", x: 300, y: 360, angle: 0 },
     { id: "dead", carId: "bastion", x: 500, y: 360, angle: 0, hp: 0 },
@@ -286,15 +306,17 @@ function wreckAsCover(): void {
     mover.tick();
   }
   const blocked = mover.get("m").x < 460;
+  const shotsPassed = dealt > 0;
   report(
-    "W17. A wreck: shots pass through it, but it is still a solid car",
-    "KNOWN-BY-DESIGN",
-    `middle car wrecked: ${wreckDead}. Shots then dealt ${dealt} to the car behind it — ` +
-      `a wreck is NOT cover (it leaves the hit snapshot the moment it dies).\n` +
-      `Driving: a live car ran into the wreck and stopped at x ${mover.get("m").x.toFixed(0)} ` +
-      `(${blocked ? "still solid" : "drove through"}) — so a wreck blocks cars but not bullets.\n` +
-      `Defensible, but it is the asymmetry players notice: you can hide behind a living team-mate ` +
-      `in team mode and not behind a corpse.`,
+    "W17. A dead car is intangible to shots and to driving",
+    corpseDead && shotsPassed && !blocked ? "OK" : "FINDING",
+    `middle car killed: ${corpseDead}. The shooter then fired ${shotsFired} needles through where ` +
+      `it died and dealt ${dealt} to the car behind it — the corpse is ` +
+      `${shotsPassed ? "not cover" : "acting as COVER"}.\n` +
+      `Driving: a live car ran at the corpse and ended at x ${mover.get("m").x.toFixed(0)} ` +
+      `(${blocked ? "STILL SOLID" : "drove through"}); it would have stopped near x 452 if solid.\n` +
+      `Both halves have to agree: a corpse leaves the field the tick it dies, so it stops neither ` +
+      `bullets nor cars. Either one blocking is the regression this probe watches for.`,
   );
 }
 
@@ -303,6 +325,6 @@ trueTunneling();
 crossingTarget();
 angledPointBlank();
 spinningShooter();
-wreckAsCover();
+deadCarIsIntangible();
 
 reporter.finish();

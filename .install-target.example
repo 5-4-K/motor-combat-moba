@@ -1,0 +1,16 @@
+# Where `npm run install-build` installs the release build.
+#
+# Copy this file to `.install-target` (no extension change) and put your folder on one line.
+# `.install-target` is gitignored: the path is yours, not the repo's.
+#
+# The folder must already exist — install-build will not create it, because a typo that
+# silently makes a new folder is how a build lands somewhere nobody looks.
+#
+# Windows:
+#   D:\games\motor-combat-moba
+# macOS / Linux:
+#   /home/you/games/motor-combat-moba
+#
+# Blank lines and lines starting with # are ignored. Exactly one path may be left uncommented.
+
+/absolute/path/to/your/install/folder

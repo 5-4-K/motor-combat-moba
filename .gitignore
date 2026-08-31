@@ -32,3 +32,6 @@ packages/client/.vite/
 
 # Playtest run reports — a record of one run on one machine, never source
 packages/server/playtest/reports/
+
+# install-build target folder — machine-specific, see .install-target.example
+.install-target
