@@ -29,6 +29,15 @@ export class PlayerState extends Schema {
   @type("number") shoveX = 0;
   @type("number") shoveY = 0;
   @type("number") authority = 1;
+  /**
+   * Maneuver state (spec S3, arch O13). Networked because `stepDrive` reads all four (invariant
+   * 8) — server-written like the ram knock, integrated by both halves of the lockstep, snapped on
+   * reconcile. `maneuver` holds a `ManeuverKind` value; values are stable, never renumbered.
+   */
+  @type("uint8") maneuver = 0;
+  @type("uint16") maneuverTicksLeft = 0;
+  @type("number") maneuverAngle = 0;
+  @type("number") maneuverSpeed = 0;
   @type("uint16") hp = 0;
   @type("boolean") alive = true;
   /**

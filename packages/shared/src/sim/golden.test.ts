@@ -55,6 +55,10 @@ function body(over: Partial<SimBody> = {}): SimBody {
     shoveX: 0,
     shoveY: 0,
     authority: 1,
+    maneuver: 0,
+    maneuverTicksLeft: 0,
+    maneuverAngle: 0,
+    maneuverSpeed: 0,
     ...over,
   };
 }

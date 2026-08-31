@@ -25,6 +25,8 @@ export interface Modifiers {
   steeringLocked: boolean;
   /** No new press may be committed. A press already committed still finishes — see `runCombat`. */
   disarmed: boolean;
+  /** Speed forced to 0 every tick, after `stepDrive`'s normal integration runs. Shove is untouched. */
+  fullStop: boolean;
 }
 
 /**
@@ -48,6 +50,7 @@ export const NEUTRAL_MODIFIERS: Readonly<Modifiers> = Object.freeze({
   immobilised: false,
   steeringLocked: false,
   disarmed: false,
+  fullStop: false,
 });
 
 const CHANNELS = Object.keys(STATUS_LIMITS) as StatusChannel[];
@@ -99,5 +102,6 @@ export function modifiersOf(statuses: readonly ActiveStatus[], tick: number): Mo
   mods.immobilised = flags.has("immobilised");
   mods.steeringLocked = flags.has("steeringLocked");
   mods.disarmed = flags.has("disarmed");
+  mods.fullStop = flags.has("fullStop");
   return mods;
 }

@@ -4,6 +4,7 @@ import { DRIVE_CONFIG } from "../config/drive-config.js";
 import { RAM_CONFIG } from "../config/ram-config.js";
 import type { InputMessage } from "../net/input.js";
 import { stepDrive } from "./drive.js";
+import { ManeuverKind } from "./maneuver.js";
 import { NEUTRAL_MODIFIERS } from "./status/modifiers.js";
 import type { SimBody } from "./step.js";
 
@@ -31,7 +32,21 @@ function input(steer: -1 | 0 | 1, throttle: -1 | 0 | 1): InputMessage {
 }
 
 function rest(): SimBody {
-  return { x: 0, y: 0, angle: 0, speed: 0, reverseHold: 0, angVel: 0, shoveX: 0, shoveY: 0, authority: 1 };
+  return {
+    x: 0,
+    y: 0,
+    angle: 0,
+    speed: 0,
+    reverseHold: 0,
+    angVel: 0,
+    shoveX: 0,
+    shoveY: 0,
+    authority: 1,
+    maneuver: 0,
+    maneuverTicksLeft: 0,
+    maneuverAngle: 0,
+    maneuverSpeed: 0,
+  };
 }
 
 function drive(body: SimBody, msg: InputMessage, ticks: number): SimBody {
@@ -407,5 +422,70 @@ describe("stepDrive: ram knock state", () => {
 
     expect(full.angle).toBeCloseTo(steerContribution + spinContribution, 9);
     expect(halved.angle).toBeCloseTo(steerContribution * 0.5 + spinContribution, 9);
+  });
+});
+
+describe("maneuvers (spec S3 / O13)", () => {
+  const movingBody: SimBody = { ...rest(), speed: 200 };
+
+  it("DASH translates at maneuverSpeed along maneuverAngle, ignoring inputs, face welded", () => {
+    const restingBody = rest();
+    const dashing: SimBody = {
+      ...restingBody,
+      maneuver: ManeuverKind.DASH,
+      maneuverTicksLeft: 8,
+      maneuverAngle: Math.PI / 2,
+      maneuverSpeed: 1600,
+    };
+    const out = stepDrive(
+      dashing,
+      { seq: 1, steer: 1, throttle: -1, fireSlots: 0 },
+      DT,
+      GOLDEN_CHASSIS,
+      NEUTRAL_MODIFIERS,
+    );
+    expect(out.y).toBeCloseTo(restingBody.y + 1600 * DT);
+    expect(out.x).toBeCloseTo(restingBody.x);
+    expect(out.angle).toBe(Math.PI / 2); // welded, steer ignored
+    expect(out.maneuverTicksLeft).toBe(7);
+  });
+
+  it("DASH hands the car back at the chassis speed cap on its last tick", () => {
+    const lastTick: SimBody = {
+      ...rest(),
+      maneuver: ManeuverKind.DASH,
+      maneuverTicksLeft: 1,
+      maneuverAngle: 0,
+      maneuverSpeed: 1600,
+    };
+    const out = stepDrive(lastTick, input(0, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
+    expect(out.maneuver).toBe(ManeuverKind.NONE);
+    expect(out.speed).toBeCloseTo(GOLDEN_CHASSIS.maxSpeed);
+  });
+
+  it("HOLD pins the car and steers at the stopped turn rate", () => {
+    const restingBody = rest();
+    const held: SimBody = { ...restingBody, speed: 200, maneuver: ManeuverKind.HOLD, maneuverTicksLeft: 10 };
+    const out = stepDrive(held, { seq: 1, steer: 1, throttle: 1, fireSlots: 0 }, DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
+    expect(out.x).toBeCloseTo(restingBody.x); // throttle dead
+    expect(out.speed).toBe(0);
+    expect(out.angle).toBeCloseTo(restingBody.angle + GOLDEN_CHASSIS.turnRateAtStop * DT);
+    expect(out.maneuverTicksLeft).toBe(9);
+  });
+
+  it("CHARGE drives completely normally and only counts down", () => {
+    const charging: SimBody = { ...movingBody, maneuver: ManeuverKind.CHARGE, maneuverTicksLeft: 300 };
+    const plain = stepDrive(movingBody, input(0, 1), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
+    const out = stepDrive(charging, input(0, 1), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
+    expect(out.x).toBe(plain.x);
+    expect(out.speed).toBe(plain.speed);
+    expect(out.maneuverTicksLeft).toBe(299);
+  });
+
+  it("fullStop zeroes speed while shove still moves the car", () => {
+    const stunned: SimBody = { ...movingBody, speed: 250, shoveX: 100 };
+    const out = stepDrive(stunned, input(0, 1), DT, GOLDEN_CHASSIS, { ...NEUTRAL_MODIFIERS, fullStop: true });
+    expect(out.speed).toBe(0);
+    expect(out.x).toBeCloseTo(movingBody.x + 100 * DT); // the slam can still push you into a wall
   });
 });

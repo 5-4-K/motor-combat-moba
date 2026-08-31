@@ -36,6 +36,8 @@ export { applyDamage, applyHeal, damageFor, scaleDamage, weaponDamageOf } from "
 export { stepSim } from "./sim/step.js";
 export type { SimBody, StepContext } from "./sim/step.js";
 export { stepDrive } from "./sim/drive.js";
+export { ManeuverKind, NO_MANEUVER } from "./sim/maneuver.js";
+export type { ManeuverKindValue } from "./sim/maneuver.js";
 export {
   circleOverlapsObb,
   contactNormalBetween,

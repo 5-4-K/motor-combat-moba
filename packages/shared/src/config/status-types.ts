@@ -82,7 +82,13 @@ export type StatusFlag =
   /** Steer input forced to 0. Injected ram spin is untouched — a stunned car still spins when hit. */
   | "steeringLocked"
   /** No NEW press may be committed. A press already committed still finishes. */
-  | "disarmed";
+  | "disarmed"
+  /**
+   * Speed forced to 0 every tick — the "total stop" half of the new stun (O6). Shove and injected
+   * spin are untouched: a slammed car still slides into the wall, which is what wall-stun reads.
+   * No row carries this until the Plan-2 status table lands it on `stunned`.
+   */
+  | "fullStop";
 
 /**
  * What happens when a status that is already running is applied again.

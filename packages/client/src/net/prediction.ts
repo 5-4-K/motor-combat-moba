@@ -89,6 +89,13 @@ export class PredictionBuffer {
       shoveX: authoritative.shoveX,
       shoveY: authoritative.shoveY,
       authority: authoritative.authority,
+      // Pass-through today, same treatment as the knock fields below: these feed the next
+      // integration, so they snap to the authoritative value rather than easing. Task 9 formalizes
+      // any maneuver-specific reconcile rule on top of this.
+      maneuver: authoritative.maneuver,
+      maneuverTicksLeft: authoritative.maneuverTicksLeft,
+      maneuverAngle: authoritative.maneuverAngle,
+      maneuverSpeed: authoritative.maneuverSpeed,
     };
     for (const entry of this.pending) {
       target = stepSim(target, entry.input, DT_SECONDS, ctx);
@@ -121,6 +128,10 @@ export class PredictionBuffer {
       shoveX: target.shoveX,
       shoveY: target.shoveY,
       authority: target.authority,
+      maneuver: target.maneuver,
+      maneuverTicksLeft: target.maneuverTicksLeft,
+      maneuverAngle: target.maneuverAngle,
+      maneuverSpeed: target.maneuverSpeed,
     };
   }
 }

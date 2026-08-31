@@ -5,7 +5,21 @@ import { InterpolationBuffer, blendPose } from "./interpolation.js";
 const DELAY = NET_CONFIG.interpolationDelayMs;
 
 function pose(x: number, y: number, angle = 0): SimBody {
-  return { x, y, angle, speed: 0, reverseHold: 0, angVel: 0, shoveX: 0, shoveY: 0, authority: 1 };
+  return {
+    x,
+    y,
+    angle,
+    speed: 0,
+    reverseHold: 0,
+    angVel: 0,
+    shoveX: 0,
+    shoveY: 0,
+    authority: 1,
+    maneuver: 0,
+    maneuverTicksLeft: 0,
+    maneuverAngle: 0,
+    maneuverSpeed: 0,
+  };
 }
 
 describe("InterpolationBuffer", () => {
@@ -72,8 +86,14 @@ describe("InterpolationBuffer", () => {
 
   it("carries speed and reverseHold from the snapshot being interpolated toward", () => {
     const buf = new InterpolationBuffer();
-    buf.push(1000, { x: 0, y: 0, angle: 0, speed: 10, reverseHold: 0, angVel: 0, shoveX: 0, shoveY: 0, authority: 1 });
-    buf.push(1100, { x: 100, y: 0, angle: 0, speed: 90, reverseHold: 4, angVel: 0, shoveX: 0, shoveY: 0, authority: 1 });
+    buf.push(1000, {
+      x: 0, y: 0, angle: 0, speed: 10, reverseHold: 0, angVel: 0, shoveX: 0, shoveY: 0, authority: 1,
+      maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0, maneuverSpeed: 0,
+    });
+    buf.push(1100, {
+      x: 100, y: 0, angle: 0, speed: 90, reverseHold: 4, angVel: 0, shoveX: 0, shoveY: 0, authority: 1,
+      maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0, maneuverSpeed: 0,
+    });
 
     const out = buf.sample(1050 + DELAY);
     expect(out?.speed).toBe(90);
@@ -117,6 +137,10 @@ describe("blendPose", () => {
       shoveX: 0,
       shoveY: 0,
       authority: 1,
+      maneuver: 0,
+      maneuverTicksLeft: 0,
+      maneuverAngle: 0,
+      maneuverSpeed: 0,
     };
     expect(blendPose(from, to, 0.25)).toEqual({
       x: 25,
@@ -128,6 +152,10 @@ describe("blendPose", () => {
       shoveX: 0,
       shoveY: 0,
       authority: 1,
+      maneuver: 0,
+      maneuverTicksLeft: 0,
+      maneuverAngle: 0,
+      maneuverSpeed: 0,
     });
   });
 

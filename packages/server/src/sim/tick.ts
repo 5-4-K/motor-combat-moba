@@ -255,6 +255,13 @@ function bodyOf(player: PlayerState): SimBody {
     shoveX: player.shoveX,
     shoveY: player.shoveY,
     authority: player.authority,
+    // Pass-through today: Task 9 wires the maneuver trigger. Reading/writing the four fields here
+    // is what makes stepDrive's DASH/HOLD/CHARGE integration and fullStop take hold once something
+    // upstream sets them, without this bridge needing to change again.
+    maneuver: player.maneuver,
+    maneuverTicksLeft: player.maneuverTicksLeft,
+    maneuverAngle: player.maneuverAngle,
+    maneuverSpeed: player.maneuverSpeed,
   };
 }
 
@@ -268,4 +275,8 @@ function writeBody(player: PlayerState, body: SimBody): void {
   player.shoveX = body.shoveX;
   player.shoveY = body.shoveY;
   player.authority = body.authority;
+  player.maneuver = body.maneuver;
+  player.maneuverTicksLeft = body.maneuverTicksLeft;
+  player.maneuverAngle = body.maneuverAngle;
+  player.maneuverSpeed = body.maneuverSpeed;
 }

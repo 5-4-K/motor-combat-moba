@@ -121,6 +121,10 @@ export function resolveWorld(
     shoveX: next.shoveX,
     shoveY: next.shoveY,
     authority: next.authority,
+    maneuver: next.maneuver,
+    maneuverTicksLeft: next.maneuverTicksLeft,
+    maneuverAngle: next.maneuverAngle,
+    maneuverSpeed: next.maneuverSpeed,
   };
 }
 
@@ -178,6 +182,10 @@ function clampIntoBounds(body: SimBody, bounds: Bounds): SimBody {
     shoveX: body.shoveX,
     shoveY: body.shoveY,
     authority: body.authority,
+    maneuver: body.maneuver,
+    maneuverTicksLeft: body.maneuverTicksLeft,
+    maneuverAngle: body.maneuverAngle,
+    maneuverSpeed: body.maneuverSpeed,
   };
 }
 
@@ -255,6 +263,10 @@ function applyContact(body: SimBody, push: Vec2): SimBody {
     shoveX,
     shoveY,
     authority: body.authority,
+    maneuver: body.maneuver,
+    maneuverTicksLeft: body.maneuverTicksLeft,
+    maneuverAngle: body.maneuverAngle,
+    maneuverSpeed: body.maneuverSpeed,
   };
 }
 

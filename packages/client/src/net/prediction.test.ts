@@ -33,6 +33,10 @@ const START: SimBody = {
   shoveX: 0,
   shoveY: 0,
   authority: 1,
+  maneuver: 0,
+  maneuverTicksLeft: 0,
+  maneuverAngle: 0,
+  maneuverSpeed: 0,
 };
 
 function up(seq: number): InputMessage {
@@ -151,6 +155,10 @@ describe("PredictionBuffer.reconcile", () => {
       shoveX: 0,
       shoveY: 0,
       authority: 1,
+      maneuver: 0,
+      maneuverTicksLeft: 0,
+      maneuverAngle: 0,
+      maneuverSpeed: 0,
     };
     const wayOff: SimBody = {
       ...authoritative,
@@ -172,6 +180,10 @@ describe("PredictionBuffer.reconcile", () => {
       shoveX: 0,
       shoveY: 0,
       authority: 1,
+      maneuver: 0,
+      maneuverTicksLeft: 0,
+      maneuverAngle: 0,
+      maneuverSpeed: 0,
     };
     const twisted: SimBody = { ...authoritative, angle: NET_CONFIG.reconcileSnapAngle + 0.1 };
 
@@ -190,6 +202,10 @@ describe("PredictionBuffer.reconcile", () => {
       shoveX: 0,
       shoveY: 0,
       authority: 1,
+      maneuver: 0,
+      maneuverTicksLeft: 0,
+      maneuverAngle: 0,
+      maneuverSpeed: 0,
     };
     const nearby: SimBody = { ...authoritative, x: 410, y: 406 };
 
@@ -213,6 +229,10 @@ describe("PredictionBuffer.reconcile", () => {
       shoveX: 0,
       shoveY: 0,
       authority: 1,
+      maneuver: 0,
+      maneuverTicksLeft: 0,
+      maneuverAngle: 0,
+      maneuverSpeed: 0,
     };
     const nearby: SimBody = {
       x: 410,
@@ -224,6 +244,10 @@ describe("PredictionBuffer.reconcile", () => {
       shoveX: 0,
       shoveY: 0,
       authority: 1,
+      maneuver: 0,
+      maneuverTicksLeft: 0,
+      maneuverAngle: 0,
+      maneuverSpeed: 0,
     };
 
     const out = buf.reconcile(authoritative, 0, nearby, ctx);
@@ -246,6 +270,10 @@ describe("PredictionBuffer.reconcile", () => {
       shoveX: 0,
       shoveY: 0,
       authority: 1,
+      maneuver: 0,
+      maneuverTicksLeft: 0,
+      maneuverAngle: 0,
+      maneuverSpeed: 0,
     };
     const wound = 0.1 + 100 * 2 * Math.PI;
     const spun: SimBody = { ...authoritative, angle: wound };
@@ -273,6 +301,10 @@ describe("PredictionBuffer.reconcile", () => {
       shoveX: 120,
       shoveY: -60,
       authority: 0.4,
+      maneuver: 0,
+      maneuverTicksLeft: 0,
+      maneuverAngle: 0,
+      maneuverSpeed: 0,
     };
     const nearby: SimBody = {
       x: 405,
@@ -284,6 +316,10 @@ describe("PredictionBuffer.reconcile", () => {
       shoveX: 0,
       shoveY: 0,
       authority: 1,
+      maneuver: 0,
+      maneuverTicksLeft: 0,
+      maneuverAngle: 0,
+      maneuverSpeed: 0,
     };
 
     const out = buf.reconcile(authoritative, 0, nearby, ctx);
@@ -310,6 +346,10 @@ describe("PredictionBuffer.reconcile", () => {
       shoveX: 0,
       shoveY: 0,
       authority: 1,
+      maneuver: 0,
+      maneuverTicksLeft: 0,
+      maneuverAngle: 0,
+      maneuverSpeed: 0,
     };
     const nearWrap: SimBody = { ...authoritative, angle: 3 };
 
