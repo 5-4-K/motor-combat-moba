@@ -202,6 +202,7 @@ describe("firing", () => {
       attached: true,
       damageClock: new Map(),
       alive: true,
+      muzzleDir: 0,
     };
     const inFlightShot: WeaponInstance = {
       ...attachedBeam,
@@ -310,6 +311,7 @@ describe("shots in flight", () => {
     attached: false,
     damageClock: new Map(),
     alive: true,
+    muzzleDir: 0,
     ...over,
   });
 
@@ -381,6 +383,7 @@ describe("shots landing", () => {
       attached: false,
       damageClock: new Map(),
       alive: true,
+      muzzleDir: 0,
     };
   }
 
@@ -482,6 +485,7 @@ describe("shots landing", () => {
           attached: false,
           damageClock: new Map(),
           alive: true,
+          muzzleDir: 0,
         },
       ],
     });

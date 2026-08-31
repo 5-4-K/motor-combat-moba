@@ -3,6 +3,7 @@ import { MS_PER_TICK } from "../../constants.js";
 import { DRIVE_CONFIG } from "../../config/drive-config.js";
 import { weaponTicksOf } from "../../config/weapon-ticks.js";
 import { DEFAULT_CAR_ID } from "../../config/car-config.js";
+import { WEAPON_TABLE } from "../../config/weapon-config.js";
 import { weaponDamageOf } from "../damage.js";
 import {
   fanOffset,
@@ -22,6 +23,7 @@ const ctx = (over: Partial<Parameters<typeof stepInstance>[1]> = {}) => ({
   obstacles: [],
   bounds: BOUNDS,
   ownerPose: null,
+  homingTarget: null,
   ...over,
 });
 
@@ -172,6 +174,7 @@ describe("beam growth and expiry", () => {
     attached: false,
     damageClock: new Map(),
     alive: true,
+    muzzleDir: 0,
     ...over,
   });
 
@@ -274,5 +277,62 @@ describe("spawnInstances aim angle", () => {
     const swung = spawnInstances(order, owner, 0, 0, Math.PI / 3).instances[0]!;
     expect(swung.x).toBeCloseTo(straight.x, 6);
     expect(swung.y).toBeCloseTo(straight.y, 6);
+  });
+});
+
+/** A synthetic def for mechanics no shipped row carries yet (see the plan's "Testing seams"). */
+const quadMuzzle = {
+  ...WEAPON_TABLE.needler,
+  usesAimAssist: false,
+  aimRangeUnits: undefined,
+  muzzles: [0, 90, 180, 270],
+} as const;
+
+describe("multi-muzzle", () => {
+  const order = { weaponId: "needler", slot: 0, finalVolley: true } as const;
+  const owner = { sessionId: "a", team: 0 as const, carId: "bullseye", x: 100, y: 100, angle: 0 };
+
+  it("emits one fan per muzzle, each centred on its own direction", () => {
+    const { instances } = spawnInstances(order, owner, 1, 0, null, 1, "", quadMuzzle);
+    expect(instances).toHaveLength(4); // 4 muzzles x 1 pellet
+    // Muzzle degrees convert to radians unnormalized: with owner.angle = 0 the four instance
+    // angles are exactly [0, pi/2, pi, 3pi/2] -- no wraparound to [-pi, pi] happens anywhere in
+    // this path.
+    const angles = instances.map((i) => i.angle).sort((a, b) => a - b);
+    expect(angles[0]).toBeCloseTo(0);
+    expect(angles[1]).toBeCloseTo(Math.PI / 2);
+    expect(angles[2]).toBeCloseTo(Math.PI);
+    expect(angles[3]).toBeCloseTo((3 * Math.PI) / 2);
+    // Each dart leaves the hull edge along its own direction, not the nose. cos(pi) = -1 while
+    // cos(3pi/2) = 0, so this predicate isolates the rear (180 deg) dart from the other three.
+    const rear = instances.find((i) => Math.abs(Math.cos(i.angle) + 1) < 1e-6)!;
+    expect(rear.x).toBeCloseTo(100 - muzzleOffset());
+    expect(rear.muzzleDir).toBeCloseTo(Math.PI);
+  });
+
+  it("defaults to the single forward muzzle, byte-for-byte as before", () => {
+    const single = spawnInstances(order, owner, 1, 0, null, 1);
+    expect(single.instances).toHaveLength(1);
+    expect(single.instances[0]!.x).toBeCloseTo(100 + muzzleOffset());
+    expect(single.instances[0]!.muzzleDir).toBe(0);
+  });
+
+  it("re-anchors an attached beam through its own muzzle direction", () => {
+    const rearFlame = { ...WEAPON_TABLE.afterburner, muzzles: [180] } as const;
+    const { instances } = spawnInstances(order, owner, 1, 0, null, 1, "", rearFlame);
+    const stepped = stepInstance(
+      instances[0]!,
+      {
+        dt: 1 / 30,
+        tick: 2,
+        obstacles: [],
+        bounds: { width: 4000, height: 4000 },
+        ownerPose: { x: 200, y: 100, angle: 0 },
+        homingTarget: null,
+      },
+      rearFlame,
+    );
+    expect(stepped.x).toBeCloseTo(200 - muzzleOffset()); // welded to the TAIL as the car moves
+    expect(stepped.angle).toBeCloseTo(Math.PI);
   });
 });

@@ -28,7 +28,14 @@ function shotFrom(x: number, y: number, angle = 0, team: 0 | 1 = 0, carId = "mir
 describe("hit resolution", () => {
   it("damages a car the shot has reached", () => {
     const shot = shotFrom(400, 300);
-    const moved = stepInstance(shot, { dt: DT, tick: 101, obstacles: [], bounds: BOUNDS, ownerPose: null });
+    const moved = stepInstance(shot, {
+      dt: DT,
+      tick: 101,
+      obstacles: [],
+      bounds: BOUNDS,
+      ownerPose: null,
+      homingTarget: null,
+    });
     const out = resolveInstanceHits(moved, shot, snapshot([{ sessionId: "bbb", x: 434, y: 300 }]), "ffa", 101);
     expect(out.damaged).toEqual([{ sessionId: "bbb", amount: weaponDamageOf("mirage", "fireball") }]);
   });
@@ -37,7 +44,14 @@ describe("hit resolution", () => {
     // The whole point of freezing at spawn: a bullseye's fireball hits harder than a mirage's, and
     // hits.ts learns that from the instance rather than by looking the owner up.
     const shot = shotFrom(400, 300, 0, 0, "bullseye");
-    const moved = stepInstance(shot, { dt: DT, tick: 101, obstacles: [], bounds: BOUNDS, ownerPose: null });
+    const moved = stepInstance(shot, {
+      dt: DT,
+      tick: 101,
+      obstacles: [],
+      bounds: BOUNDS,
+      ownerPose: null,
+      homingTarget: null,
+    });
     const out = resolveInstanceHits(moved, shot, snapshot([{ sessionId: "bbb", x: 434, y: 300 }]), "ffa", 101);
     expect(out.damaged).toEqual([{ sessionId: "bbb", amount: 53 }]);
     expect(out.damaged[0]!.amount).not.toBe(WEAPON_TABLE.fireball.damage);

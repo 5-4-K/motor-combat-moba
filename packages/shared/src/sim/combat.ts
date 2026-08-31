@@ -251,6 +251,7 @@ export function runCombat(input: CombatInput): CombatResult {
         obstacles: world.obstacles,
         bounds: world.bounds,
         ownerPose: owner ? { x: owner.x, y: owner.y, angle: owner.angle } : null,
+        homingTarget: null, // Task 6 wires this up
       }),
     );
   }
