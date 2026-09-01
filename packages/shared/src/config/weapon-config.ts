@@ -347,6 +347,56 @@ export const WEAPON_TABLE = {
     volley: { volleys: 1, volleyIntervalMs: 0 },
     applies: [{ statusId: "fortified", target: "self", durationMs: 10000 }],
   },
+  /**
+   * The retired `bulwark`'s silhouette reborn as a presence zone, CARRIED BY NO CHASSIS — the
+   * table's one deliberately unassigned row, waiting on a loadout decision. Inert but legal:
+   * nothing can press it until a `CAR_TABLE` kit lists it (and the players' guide only shows
+   * carried weapons, so it is invisible to players until then).
+   *
+   * Geometry and cadence are bulwark's exactly (60° detached cone, 492/492 so the zone grows out
+   * over one full second, 2.875 s linger, 15 s cooldown). The damage is re-solved for a round
+   * total: total life is `msToTicks(1000) + msToTicks(2875)` == 30 + 87 == 117 ticks against a
+   * 12-tick interval, and `resolveInstanceHits` damages on the first covered tick before arming
+   * the clock, so the count is `floor(116 / 12) + 1` == 10 ticks — **25 × 10 == 250 base on a
+   * full connect**, the authored design figure.
+   *
+   * Both riders are PRESENCE effects — on while you are in the zone, gone moments after you leave:
+   *
+   * - `spiked` on opponents rides the 400 ms damage tick with a 600 ms duration, so `refresh`
+   *   holds it exactly while a target stands in the zone and it lapses ≤0.6 s after they break
+   *   out — the `afterburner`/`overheated` pattern.
+   * - `fortified` via `ownerInside`: `runCombat` re-applies it every tick the OWNER's hull stands
+   *   inside the live zone (300 ms duration, ~0.3 s lapse after stepping out). The owner is not
+   *   automatically inside — the cone grows from the nose, so holding the buff means driving into
+   *   your own zone and staying, which is the stand-and-hold identity the old bulwark only gestured
+   *   at.
+   */
+  tremor: {
+    id: "tremor",
+    kind: "beam",
+    name: "Tremor",
+    // Dark bronze: bulwark's old amber family, but its exact #D9A814 belongs to wildcharge now.
+    // Unique among weapons, clear of COLOR_TABLE, dark enough for a light floor.
+    color: "#8A6D12",
+    unlocksAt: 1,
+    damage: 25, // per tick; 10 ticks == 250 base on a target that stays the whole life
+    damageFrequencyMs: 400,
+    speed: 492, // grows out over a full second — visible before it is dangerous (bulwark's rule)
+    range: 492,
+    startUpMs: 0,
+    cooldownMs: 15000,
+    recoveryMs: 200,
+    usesAimAssist: false, // a zone is aimed at ground; a lock would drag it onto the one thing that can leave
+    hitbox: { shape: "cone", angleDeg: 60 },
+    volley: { volleys: 1, volleyIntervalMs: 0 },
+    attached: false,
+    origin: "muzzle",
+    lifetimeMs: 2875,
+    applies: [
+      { statusId: "spiked", target: "opponents", durationMs: 600 },
+      { statusId: "fortified", target: "ownerInside", durationMs: 300 },
+    ],
+  },
 } as const satisfies Record<WeaponId, WeaponDef>;
 
 /**

@@ -27,9 +27,14 @@ describe("loadouts", () => {
     expect(new Set(all).size).toBe(all.length);
   });
 
-  it("puts every weapon in the table on exactly one chassis", () => {
+  it("carries every table row on exactly one chassis, except the deliberately unassigned set", () => {
+    // `tremor` is the table's one authored-but-uncarried row (loadout decision pending). Naming the
+    // set here keeps the guard honest: a weapon accidentally dropped from a kit still fails, and
+    // adding an unassigned row is a conscious edit to this list rather than a silent pass.
+    const UNCARRIED = ["tremor"];
     const carried = new Set(Object.values(CAR_TABLE).flatMap((car) => [...car.weapons]));
-    expect(carried.size).toBe(Object.keys(WEAPON_TABLE).length);
+    for (const id of UNCARRIED) expect(carried.has(id)).toBe(false);
+    expect(carried.size).toBe(Object.keys(WEAPON_TABLE).length - UNCARRIED.length);
   });
 
   it("returns the car's list in slot order", () => {

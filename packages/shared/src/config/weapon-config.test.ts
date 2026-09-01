@@ -274,6 +274,7 @@ describe("WEAPON_TABLE", () => {
       "lance",
       "pepperbox",
       "roadblock",
+      "tremor", // a zone is aimed at ground — bulwark's old argument, inherited with its shape
       "wildcharge",
     ]);
   });
@@ -292,10 +293,20 @@ describe("WEAPON_TABLE", () => {
     expect(thumper.hitbox).toEqual({ shape: "capsule", radiusAlong: 24, radiusAcross: 15 });
   });
 
-  it("carries exactly nine weapons, every one a different colour", () => {
+  it("carries ten weapons — nine on the roster plus the unassigned tremor — every one a different colour", () => {
     const rows = Object.values(WEAPON_TABLE);
-    expect(rows).toHaveLength(9);
-    expect(new Set(rows.map((def) => def.color.toUpperCase())).size).toBe(9);
+    expect(rows).toHaveLength(10);
+    expect(new Set(rows.map((def) => def.color.toUpperCase())).size).toBe(10);
+  });
+
+  it("puts ownerInside applications on beams only — a zone is a place to stand", () => {
+    for (const def of Object.values(WEAPON_TABLE)) {
+      for (const application of def.applies ?? []) {
+        if (application.target === "ownerInside") {
+          expect(def.kind, `${def.id} authors ownerInside on a non-beam`).toBe("beam");
+        }
+      }
+    }
   });
 
   it("ships shockwave as a plain single-shot dart, the retired aura's id and nothing else", () => {

@@ -137,6 +137,12 @@ once, at shared's module load, into the frozen `WEAPON_TICKS` the sim actually r
 | `thumper` | projectile | 60 | 0 | 450 | 1305 (bounce, 2900 ms lifetime) | 3000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | capsule, along 24 / across 15 (flat tail) | 1 | true | `#F0C808` |
 | `roadblock` | projectile | 100 | 0 | 600 | 500 | 6000 | 0 | 200 | — | 4 | 1 / 0 | 1 / 0 | — | — | bar, along 6 / across 60 | 1 | false | `#C89A14` |
 | `wildcharge` | maneuver (charge) | 250 | 0 | 0 | 0 | 20000 | 0 | 200 | — | — | 1 / 0 | — | — | — | — (`isUnInterruptable`, 10 s window, `slamsStunned`) | 1 | false | `#D9A814` |
+| `tremor` | beam | 25 (per tick; 10 ticks == 250 full connect) | 400 | 492 | 492 | 15000 | 0 | 200 | — | — | 1 / 0 | — | false | 2875 | cone, 60° | 1 | false | `#8A6D12` |
+
+**`tremor` is carried by no chassis** — the table's one deliberately unassigned row, the retired
+`bulwark`'s geometry re-solved as a presence zone (loadout decision pending;
+`weapon-slots.test.ts` names it in the sanctioned-uncarried set, and the players' guide only shows
+carried weapons, so it is invisible to players until a kit lists it).
 
 `fireball`, `needler`, `skewer` and `bulwark` were retired outright by the 2026-09-01 weapon-status
 overhaul; their ids are gone from `WeaponId` and their comment history lives in git rather than here.
@@ -534,7 +540,9 @@ many sources piling up, and a row that needs it to be legal is a row whose autho
 | `roadblock` | Bastion | `stunned` | opponents | 1 s | all |
 | `thunderclap` | Mirage | `stunned` | opponents | 1 s | all |
 | `thumper` | Bastion | `spiked` | opponents | 3 s | all |
+| `tremor` | — (uncarried) | `spiked` | opponents | 0.6 s, re-applied by every 400 ms damage tick — held while the target stands in the zone | all |
 | `wildcharge` | Bastion | `fortified` | **self** | 10 s, ended early with the charge | all |
+| `tremor` | — (uncarried) | `fortified` | **`ownerInside`** | 0.3 s, re-applied every tick the owner's hull stands inside the live zone | all |
 
 A third `stunned` source sits outside this table entirely: a landed `wildcharge` hard slam that shoves
 its victim into a wall within `SLAM_CONFIG.wallStunWindowMs` stuns them for `wallStunDurationMs`

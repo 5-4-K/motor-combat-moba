@@ -527,8 +527,9 @@ the suite immediately rather than misbehaving at run time.
 
 **3. Give it to a car.** Add the id to that chassis's `weapons` array in `CAR_TABLE` — array index
 is the slot index, and `maxWeaponSlots` (3) is the cap. A weapon in the table that no car carries is
-inert but legal — every row in today's table happens to be carried by exactly one chassis (L1), but
-nothing enforces that for a weapon still being authored.
+inert but legal — `tremor` is the shipped example, authored in full but assigned to nobody while its
+loadout decision is pending. `weapon-slots.test.ts` names the deliberately-uncarried set, so an id
+accidentally dropped from a kit still fails while a conscious "not yet" passes.
 
 **4. Rebuild shared.** `npm run dev` does it for you. Otherwise
 `npm run build -w @motor-combat-moba/shared`, or the server keeps running the previous table while
@@ -652,8 +653,9 @@ Re-tabled by the 2026-09-01 weapon-status overhaul (Plan 3) against the current 
 for the numbers.
 
 Five of the seven rows are reachable from a weapon; two — `overhauled` and `armored` — are waiting on
-pickups. `stunned` is now the one status with more than one source, one of them outside `applies`
-entirely:
+pickups. Three statuses now have more than one source (`stunned`'s third arriving outside `applies`
+entirely), and `tremor`'s two rows are presence effects — short durations a live zone keeps topping
+back up, held exactly while a car stands in it:
 
 | Status | Applied by | Chassis | For |
 |---|---|---|---|
@@ -663,7 +665,9 @@ entirely:
 | `stunned` | `thunderclap` | Mirage | 1 s |
 | `stunned` | hard-slam wall impact (`wildcharge`'s contact-pass mechanic, not `applies`) | Bastion | 0.5 s |
 | `spiked` | `thumper` | Bastion | 3 s |
+| `spiked` | `tremor` | — (uncarried) | 0.6 s per damage tick — held while the target stands in the zone |
 | `fortified` | `wildcharge`, **self** | Bastion | 10 s, ended early with the charge |
+| `fortified` | `tremor`, **`ownerInside`** | — (uncarried) | 0.3 s per covered tick — held while the OWNER stands in their own zone |
 | `overhauled` | nothing — the pickup row | — | — |
 | `armored` | nothing — the pickup row beside `overhauled` | — | — |
 
@@ -756,7 +760,11 @@ invariant it protects does not depend on whether a row currently uses it.
 
 - **`WeaponDef.applies`** — `{ statusId, target, durationMs }` entries. `opponents` rides the damage
   list, inheriting friendly fire, the shooter's own immunity, wrecks, pierce and the per-target damage
-  clock for free. `self` lands when a shot actually goes out. There is deliberately no `teammates` —
+  clock for free. `self` lands when a shot actually goes out. `ownerInside` (beams only) re-lands
+  every tick the firing car's own hull stands inside the live beam — a dedicated owner-hull test in
+  `runCombat`, because the damage list's `canDamage` refuses the owner by design; author a short
+  duration and the row's `refresh` turns the per-tick flicker into a window held exactly while the
+  owner keeps the zone (`tremor`'s fortified). There is deliberately no `teammates` —
   see [`config-reference.md`](config-reference.md#weapon-status-applications).
 - **`CombatInput.statusRequests`** — `{ targetSessionId, statusId, durationTicks, sourceSessionId? }`,
   for anything that is not a weapon. This is the seam a pickup system uses. A request rather than a
@@ -895,7 +903,7 @@ fill stays the fallback for anything unstyled:
 | Table | Owns | Nests by | Today |
 |---|---|---|---|
 | `WEAPON_GLOW_STYLES` | round projectiles | radius | **none** — empty since the 2026-09-01 overhaul retired `fireball`, its one weapon with a flicker |
-| `WEAPON_BEAM_STYLES` | beams | extent and cross-section | `afterburner`, `lance` |
+| `WEAPON_BEAM_STYLES` | beams | extent and cross-section | `afterburner`, `lance`, `tremor` |
 | `WEAPON_PROJECTILE_STYLES` | ellipse and capsule projectiles | markings inside the hull | `thumper` |
 
 Two rules keep this from undoing the paragraph above. Every scale is a fraction of the instance's own

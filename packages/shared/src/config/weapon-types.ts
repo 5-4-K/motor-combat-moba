@@ -10,7 +10,8 @@ export type WeaponId =
   | "afterburner"
   | "thumper"
   | "roadblock"
-  | "wildcharge";
+  | "wildcharge"
+  | "tremor";
 
 /**
  * Optional charge system. Absent means single-stock, which is exactly the pre-weapon-system
@@ -190,13 +191,19 @@ interface WeaponBase {
  *   re-applying every single tick.
  * - `self` — the firing car, on the tick a shot actually goes out. No hit test is involved, so it
  *   works for any weapon whether or not it hits anything.
+ * - `ownerInside` — the firing car, re-applied every tick its own hull stands inside this weapon's
+ *   live BEAM instance. The presence-buff seam (`tremor`'s fortified): author a duration a little
+ *   past one tick and `refresh` keeps it up exactly while the owner holds the zone, lapsing moments
+ *   after they leave. Beams only — a zone is a place to stand, and a travelling projectile is not.
+ *   It cannot ride the damage list (`canDamage` refuses the owner by design), so `runCombat` runs a
+ *   dedicated owner-hull-vs-beam test for it each tick.
  *
  * There is deliberately no `teammates` member. Reaching a teammate means changing `canDamage`, which
  * is the one predicate deciding friendly fire for the whole game, and that is a design decision
  * nobody has made yet. Shipping the member as a value that silently does nothing would be worse than
  * not having it: adding a union member later is a one-line change the compiler will help with.
  */
-export type StatusTarget = "self" | "opponents";
+export type StatusTarget = "self" | "opponents" | "ownerInside";
 
 /** One status a weapon applies: which, to whom, for how long. */
 export interface StatusApplication {
