@@ -14,7 +14,7 @@ const { carWidth: W, carHeight: H } = DRIVE_CONFIG;
 
 const reporter = new Reporter(
   "collision",
-  "Car-on-car collision: tunneling, crush, pile-ups, resolve order, energy, ram chaining.",
+  "Car-on-car collision: tunneling, crush, pile-ups, resolve order, energy, ram chaining, wall pins.",
 );
 const report = reporter.report.bind(reporter);
 
@@ -376,6 +376,97 @@ function ramChain(): void {
   );
 }
 
+/* ------------------------------------------------------------ 10. wall pin / can the victim leave */
+/**
+ * Probe 2 measures how deep a wall crush gets; this one asks the question a pinned player actually
+ * has: CAN I GET OUT? The heaviest car (bastion) holds full throttle into the lightest (bullseye)
+ * against the right wall, forever, in the two geometries a pin happens in:
+ *
+ *  - NOSE PIN — victim nose-first into the wall, attacker square on its tail. The victim tries the
+ *    three things a player would: reverse straight (shoving back against the pusher), reverse at
+ *    full lock (walking the tail out), and forward at full lock (pivoting along the wall).
+ *  - BROADSIDE PIN — victim parallel to the wall, attacker perpendicular on its flank. The escape
+ *    is simply driving forward along the wall; hulls have no friction, so nothing but geometry can
+ *    hold the car.
+ *
+ * Alignment is swept: a pin is never pixel-perfect in play, and an offset pusher is both easier
+ * and harder to escape depending on which corner it loads. Escape = the victim's centre moves 80u
+ * from where it was pinned (about 1.7 car lengths) inside 300 ticks (10 s) — a pin a player can
+ * break in ten seconds of trying is pressure; one they cannot is a cage.
+ */
+function wallPin(): void {
+  const wallX = ARENA.width;
+  const strategies = [
+    { name: "reverse straight", input: { throttle: -1, steer: 0 } },
+    { name: "reverse, full lock", input: { throttle: -1, steer: 1 } },
+    { name: "forward, full lock", input: { throttle: 1, steer: 1 } },
+  ] as const;
+  const rows: string[] = [];
+  let nosePinCaged = false;
+
+  for (const offset of [-12, -6, 0, 6, 12]) {
+    const cells: string[] = [];
+    let anyEscape = false;
+    for (const strategy of strategies) {
+      const w = new PlaytestWorld([
+        { id: "vic", carId: "bullseye", x: wallX - W / 2, y: 360, angle: 0 },
+        { id: "atk", carId: "bastion", x: wallX - W / 2 - W, y: 360 + offset, angle: 0 },
+      ]);
+      const start = { x: w.get("vic").x, y: w.get("vic").y };
+      let escapedAt = 0;
+      let travelled = 0;
+      for (let t = 1; t <= 300 && escapedAt === 0; t++) {
+        w.input("atk", { throttle: 1 });
+        w.input("vic", strategy.input);
+        w.tick();
+        travelled = Math.hypot(w.get("vic").x - start.x, w.get("vic").y - start.y);
+        if (travelled > 80) escapedAt = t;
+      }
+      if (escapedAt > 0) anyEscape = true;
+      cells.push(
+        `${strategy.name} ${escapedAt > 0 ? `ESCAPED t${escapedAt}` : `caged (moved ${travelled.toFixed(0)}u)`}`,
+      );
+    }
+    if (!anyEscape) nosePinCaged = true;
+    rows.push(`NOSE PIN, attacker offset ${String(offset).padStart(3)}u: ${cells.join(" | ")}`);
+  }
+
+  let broadsideCaged = false;
+  for (const offset of [-12, -6, 0, 6, 12]) {
+    const w = new PlaytestWorld([
+      { id: "vic", carId: "bullseye", x: wallX - H / 2, y: 360, angle: Math.PI / 2 },
+      { id: "atk", carId: "bastion", x: wallX - H / 2 - H / 2 - W / 2, y: 360 + offset, angle: 0 },
+    ]);
+    let escapedAt = 0;
+    let travelled = 0;
+    for (let t = 1; t <= 300 && escapedAt === 0; t++) {
+      w.input("atk", { throttle: 1 });
+      w.input("vic", { throttle: 1 });
+      w.tick();
+      travelled = Math.abs(w.get("vic").y - 360);
+      if (travelled > 80) escapedAt = t;
+    }
+    if (escapedAt === 0) broadsideCaged = true;
+    rows.push(
+      `BROADSIDE PIN, attacker offset ${String(offset).padStart(3)}u: drive along the wall ` +
+        `${escapedAt > 0 ? `ESCAPED t${escapedAt}` : `caged (moved ${travelled.toFixed(0)}u)`}`,
+    );
+  }
+
+  report(
+    "10. Wall pin: heaviest car holds the lightest against the wall — can it get out?",
+    nosePinCaged || broadsideCaged ? "FINDING" : "OK",
+    `bastion (mass 90) holds full throttle into a bullseye (mass 30) on the right wall for 300 ` +
+      `ticks; the victim drives each escape a player would try. Escape = centre moved 80u.\n` +
+      rows.join("\n") +
+      (nosePinCaged || broadsideCaged
+        ? `\nAt least one geometry left the victim with NO working escape — that is a cage, not ` +
+          `pressure, and nothing documents it as intended.`
+        : `\nEvery pin had a working escape. A pin still costs the victim the seconds it takes to ` +
+          `break — that is the intended pressure, priced in time rather than in a cage.`),
+  );
+}
+
 /* ---------------------------------------------------------------------------- run */
 tunneling();
 wallSandwich();
@@ -386,5 +477,6 @@ orderDependence();
 energyGain();
 glancingSignFlip();
 ramChain();
+wallPin();
 
 reporter.finish();
