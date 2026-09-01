@@ -18,6 +18,23 @@ process. It is now **Mirage's slot 2**, and the table's only multi-wave row: one
 **final wave only** (`StatusApplication.onWave`). A ring on the roster's fastest chassis rewards
 driving *through* a fight, and it is the first thing to re-tune from play.
 
+**The `GameMode` enum now has two FFA win conditions**, not one. `FFA_LAST_STANDING` (the renamed
+original — wire value still `0`) ends the match when `livingSides` drops to one side; `FFA_DEATHMATCH`
+(`2`) never calls `livingSides` at all — it runs a `respawnSweep` on a `DEATHMATCH_CONFIG.respawnDelaySeconds`
+timer, grants the respawned car a `phased` status (driveable, not solid, not targetable) for at least
+`phaseSeconds`, and ends on `ArenaState.matchEndsTick` or the kills-then-deaths ranking in
+`deathmatchOutcome`. `winRuleOf(mode)` is the single place that answers "what ends the match"; every
+older consumer keeps reading `sidesOf(mode)`, which still returns `"ffa"` for both. See
+[`docs/superpowers/specs/2026-09-01-ffa-game-modes-design.md`](docs/superpowers/specs/2026-09-01-ffa-game-modes-design.md)
+and [`docs/combat-model.md`](docs/combat-model.md#elimination-and-winning).
+
+**`isOnField` split into two predicates on the same date.** It now covers only the **mover** gate — may
+this car be simulated at all — in `sim/tick.ts`. Whether it is **solid** — participates in contacts,
+can be rammed, can be a weapon target — is `isSolid` (`isOnField && !phased`), read by `otherCarHulls`
+and the ram pair list. Outside Deathmatch no car is ever `phased`, so the two predicates agree
+everywhere else in the game; a phased car is the one case where they must disagree, and nothing else
+may let them.
+
 **The three chassis are `bullseye`, `mirage` and `bastion`** — a type triangle, not three shapes.
 Their ratings (`speed`, `accel`, `handling`, `attack`, `hp`, `mass`) are **six** independent 0-100
 values; `accel` and `handling` landed on 2026-08-30 so cars could differ in how they launch and how
@@ -75,6 +92,7 @@ edit — see [`docs/config-reference.md`](docs/config-reference.md#drive_config)
 | The three chassis types and their triangle, the `accel`/`handling` ratings, the weapon redistribution (T1–T22) — **supersedes L1–L7's assignments** | [`docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md`](docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md) |
 | Ram CC and knockback decisions (R1–R20): severity, side bonus, authority/shove/spin, the `mass` rating | [`docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md`](docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md) |
 | Status (buff/debuff) decisions: channels, re-apply rules, clamps, pulses, auras, the application seams | [`docs/superpowers/specs/2026-08-29-status-mechanism-design.md`](docs/superpowers/specs/2026-08-29-status-mechanism-design.md) |
+| FFA Deathmatch: the second win condition, kill attribution, respawn and spawn-protection lifecycle, the `isOnField`/`isSolid` split (M1–M33) | [`docs/superpowers/specs/2026-09-01-ffa-game-modes-design.md`](docs/superpowers/specs/2026-09-01-ffa-game-modes-design.md) |
 | The user's own idea / invariant notes | `docs/ideas/`, `docs/invariants/` — **off limits unless the user names them**, see below |
 
 ## `docs/ideas/` and `docs/invariants/` are the user's, not the agent's

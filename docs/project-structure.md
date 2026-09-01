@@ -30,7 +30,8 @@ motor-combat-MOBA/
 │   │   ├── status-types.ts      # StatusDef, StatusChannel, StatusFlag, StatusPulse, StatusOnApply
 │   │   ├── status-config.ts      # STATUS_TABLE, STATUS_CONFIG, STATUS_LIMITS, isStatusId
 │   │   ├── status-ticks.ts       # STATUS_PULSE_TICKS: ms -> ticks, derived and frozen once
-│   │   └── arena-config.ts       # the one ACTIVE_ARENA_ID constant
+│   │   ├── arena-config.ts       # the one ACTIVE_ARENA_ID constant
+│   │   └── deathmatch-config.ts  # DEATHMATCH_CONFIG, DEATHMATCH_TICKS: match/respawn/phase timing
 │   ├── schema/                   # PlayerState, StatusState, WeaponInstanceState, WeaponSlotState, ArenaState
 │   ├── arena/
 │   │   ├── types.ts              # ArenaDef, Obstacle, Spawn, ArenaPalette
@@ -41,6 +42,8 @@ motor-combat-MOBA/
 │   ├── net/                      # InputMessage (fireSlots bitmask), lobby message names
 │   ├── lobby/                    # names, teams, start rules, status → view
 │   ├── flow/                     # match-flow reducer, spawn assignment, livingSides
+│   │   ├── modes.ts              # sidesOf (ffa|team), winRuleOf (last_standing|deathmatch)
+│   │   └── respawn.ts            # farthestSpawn, isDueToRespawn, phaseDecision (the M23 state machine)
 │   └── sim/
 │       ├── step.ts               # stepSim: the lockstep (drive, then resolve)
 │       ├── drive.ts              # arcade drive model; takes a resolved ChassisDrive, never a CarId
@@ -116,6 +119,7 @@ motor-combat-MOBA/
         │   ├── weapon-hud.ts     # pure HUD derivations: sweepFraction, slotVisualState, countdownSeconds, slotBarLayout
         │   ├── roster-panel.ts   # pure roster derivations: row order, panel layout, name truncation
         │   ├── status-hud.ts     # pure status badge derivations: order, drain, strip layout
+        │   ├── deathmatch-hud.ts # pure Deathmatch derivations: match clock, respawn countdown, killed-by banner
         │   ├── spectate.ts       # spectate cycle, free-roam pan
         │   └── lobby-signature.ts
         └── ui/screens/arena-mismatch.ts # renders that message as DOM

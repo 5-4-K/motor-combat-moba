@@ -580,6 +580,35 @@ seconds and the camera's trailing offset is 12% of the half-view.
 | `nameMin` | 1 |
 | `nameMax` | 16 |
 
+## DEATHMATCH_CONFIG
+
+`packages/shared/src/config/deathmatch-config.ts`. Networked balance, not render preference — the
+room's respawn sweep and the client's HUD both derive from it, so the two must agree. Read only in
+`FFA_DEATHMATCH` (`winRuleOf(mode) === "deathmatch"`); no car in any other mode is ever `phased`. See
+[`combat-model.md`](combat-model.md#the-respawn-lifecycle).
+
+| Knob | Value | Rationale |
+|---|---|---|
+| `matchSeconds` | 300 | Five minutes — long enough for the lead to change hands more than once |
+| `respawnDelaySeconds` | 5 | Long enough to sting, short enough not to be a spectate sentence |
+| `phaseSeconds` | 1.5 | The minimum spawn-protection window after respawn |
+| `phaseMaxSeconds` | 3 | The hard cap on protection (contact-clear, below), twice the minimum |
+
+All four are first-pass numbers meant to be re-tuned from play. They sequence deliberately: 3 s of
+"[name] killed you," then 2 s of respawn countdown, then a return to the field with 1.5 s of
+protection.
+
+`DEATHMATCH_TICKS` (`match` / `respawnDelay` / `phase` / `phaseMax`) converts each once at module
+load, the same `WEAPON_TICKS` / `STATUS_PULSE_TICKS` pattern — the sim reads only the derived ticks,
+never raw seconds.
+
+`phaseMaxSeconds` is belt-and-braces, not load-bearing: `phaseSeconds` is a **minimum**, not a fixed
+window — the phase actually ends on whichever comes first of the timer, a clear contact test (no
+overlap with any other solid car — "contact-clear" in the glossary), or the player committing a
+press. Parking on a phased car to hold it intangible past the minimum is weak griefing, since the
+camper cannot damage it and is only delaying their own shot; `phaseMaxSeconds` is what stops that
+delay being indefinite.
+
 ## NET_CONFIG
 
 | Knob | Value |

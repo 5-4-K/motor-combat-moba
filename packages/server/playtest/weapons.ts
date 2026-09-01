@@ -216,6 +216,10 @@ function friendlyFire(): void {
  * fades it out. The question stands: "off the field" is a collision and drive property, while
  * whether anything can still move its `hp` is decided in `runCombat`.
  *
+ * In Deathmatch it leaves and then comes BACK: `respawnSweep` returns it after
+ * `DEATHMATCH_TICKS.respawnDelay`, briefly `phased` and so still not solid. These probes run
+ * last-standing rules, where the original sentence holds unchanged.
+ *
  * **The trigger is tapped, not held.** Fire is edge-triggered on the server as of the same date, so
  * a held `fireSlots` fires exactly once — which left this probe putting a single 23-damage dart into
  * a 40 hp target, never killing it, and reporting OK with every assertion below unreached.

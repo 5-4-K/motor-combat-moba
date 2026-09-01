@@ -260,6 +260,10 @@ function spinningShooter(): void {
  * tick its hp reaches 0: not simulated, not solid, not a ram participant, and gone from the hit
  * snapshot. It is only still DRAWN, fading over `DEATH_FADE_MS`.
  *
+ * In Deathmatch it leaves and then comes BACK: `respawnSweep` returns it after
+ * `DEATHMATCH_TICKS.respawnDelay`, briefly `phased` and so still not solid. These probes run
+ * last-standing rules, where the original sentence holds unchanged.
+ *
  * Before that a corpse stayed a collision hull — solid to driving but transparent to combat — and
  * this probe existed to document that asymmetry. It now checks the opposite: that both halves agree
  * a corpse stops nothing. Either one blocking again is a FINDING.

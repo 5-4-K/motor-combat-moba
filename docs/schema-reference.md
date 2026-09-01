@@ -9,10 +9,12 @@ Colyseus `@type` fields. Enums are explicit uint8; never renumber. `pendingCarId
 | `phase` | uint8 `RoomPhase` | `LOBBY` | LOBBY=0, CAR_SELECT=1, COUNTDOWN=2, MATCH=3 |
 | `tick` | uint32 | `0` | Sim tick counter |
 | `hostSessionId` | string | `""` | First joiner; transfers on leave |
-| `mode` | uint8 `GameMode` | `FFA` | FFA=0, TEAM=1 |
+| `mode` | uint8 `GameMode` | `FFA_LAST_STANDING` | FFA_LAST_STANDING=0 (renamed from FFA; wire value unchanged), TEAM=1, FFA_DEATHMATCH=2 |
 | `arenaId` | string | `"arena-01"` | Current arena definition id |
 | `carSelectDeadlineTick` | uint32 | `0` | 0 if not selecting |
 | `countdownEndsTick` | uint32 | `0` | 0 if not counting down |
+| `matchStartedAtTick` | uint32 | `0` | Stamped on the transition into MATCH. Display only — `stepSim` never reads it |
+| `matchEndsTick` | uint32 | `0` | The tick `FFA_DEATHMATCH` ends on; `0` in every other mode. Stamped on the same edge as `matchStartedAtTick`, for the same reason: one number patched to everyone beats a local stopwatch per machine |
 | `winnerTeam` | int8 | `-1` | `-1` none/draw, `0` A, `1` B |
 | `winnerSessionId` | string | `""` | FFA winner; else empty |
 | `players` | map `PlayerState` | empty | Keyed by sessionId |
@@ -38,6 +40,10 @@ Colyseus `@type` fields. Enums are explicit uint8; never renumber. `pendingCarId
 | `authority` | number | `1` | Steering multiplier; `1` = full control. A ram dips it toward `RAM_CONFIG.authorityFloor`, then it decays back toward `1`. Defaults to `1`, not `0` — a `0` default would mean "no steering" for every player never touched, presenting as an undriveable car on first spawn |
 | `hp` | uint16 | `0` | Actual HP |
 | `alive` | boolean | `true` | False when eliminated |
+| `diedAtTick` | uint32 | `0` | The tick this car's hp reached 0, or `0` while it lives. Drives the client's death fade; also the "has not died" sentinel `isDueToRespawn`/`respawnSeconds` read |
+| `kills` | uint8 | `0` | Counted in every mode; only `FFA_DEATHMATCH` decides a winner from them. `uint8` is ample: six players over a five-minute match cannot approach 255 |
+| `deaths` | uint8 | `0` | Counted in every mode; the tie-break under `deathmatchOutcome` |
+| `killedBySessionId` | string | `""` | Who landed the killing blow, or `""` while alive. Render-only — `stepSim` never reads it. Networked for the same reason `diedAtTick` is: a spectator or a late joiner who never saw the death still needs to be able to name the killer. Cleared on respawn, which is also what dismisses the "killed you" banner |
 | `selectLocked` | boolean | `false` | Car-select lock; pick still hidden |
 | `weapons` | array `WeaponSlotState` | empty | Per-slot state; array **position** is the slot index |
 | `switchLockUntilTick` | uint32 | `0` | Tick a DIFFERENT weapon may fire; the weapon that just fired instead is gated by its own slot's `refireLockUntilTick` |

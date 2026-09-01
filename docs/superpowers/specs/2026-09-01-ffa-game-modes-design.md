@@ -1,7 +1,7 @@
 # Motor Combat MOBA — FFA Game Modes Design
 
 **Designed:** 2026-09-01 · **Recorded in repo:** 2026-09-01
-**Status:** Designed, not implemented.
+**Status:** Implemented.
 **Builds on:** [`2026-08-29-status-mechanism-design.md`](2026-08-29-status-mechanism-design.md),
 whose duration layer and room-application seam this uses rather than duplicates.
 
@@ -247,6 +247,36 @@ And because `otherCarHulls` is the same shared function that both `serverTick` a
 keeps hull dimensions honest.
 
 `ContextPlayer` gains the status rows; both callers already hold them on the schema.
+
+**Correction, caught during implementation.** The paragraph above is wrong, and it is worth recording
+why rather than quietly rewriting it: it argues from a picture of collision that this codebase does
+not use.
+
+`resolveWorld(body, others, obstacles, bounds)` separates a **single body** against a list — each car
+pushes *itself* out of what it sees. Mutual separation is emergent from both cars independently
+running their own step, each with its own view of `others`. Filtering the *entry* controls only one
+side of that: it stops every *other* solid car from being handed the phased car's hull, so nobody
+else collides with the ghost. It says nothing about what the ghost is handed back. A phased car
+calling `otherCarHulls` with the entry-only filter still receives everyone else's real hulls and still
+pushes itself out of them — a respawning car would be blocked and speed-bounced by the very car
+camping its spawn. That is not "one car shoving a ghost," which the original paragraph correctly
+worried about; it is the reverse asymmetry, and it defeats spawn protection (M14) and the "not a
+collider" half of M13 just as completely. Filtering on the entry alone does not make symmetry
+structural — it only chooses which of the two directions the asymmetry lands on.
+
+Mutual intangibility needs **both** directions, and the shipped `otherCarHulls` does both: it still
+drops a phased entry from everyone else's list (the paragraph above is correct about that half), and
+it additionally returns `[]` outright when the *caller's own* entry is phased — so a phased car sees
+nothing and pushes against nothing, symmetric with being unseen. The one exception is a caller absent
+from `entries` altogether (the client's "local player not loaded yet" path), which falls back to
+"solid" rather than phased, since `buildStepContext` must still hand prediction real hulls to run
+against, not an empty world for a car nobody has actually put into spawn protection.
+
+What the original paragraph got right, and what is still true of the shipped code: the filter lives
+inside `otherCarHulls` itself, the one function both `serverTick` and the client's `buildStepContext`
+call, so both halves of the lockstep still change together — that property was never in question, only
+which direction of filtering it bought symmetry in. `resolveWorld`, the OBB hull model, and
+`carHullOf` remain exactly as untouched as M16 says.
 
 ### M16. `resolveWorld` and the hull model are not touched
 
