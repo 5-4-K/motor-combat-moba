@@ -64,8 +64,8 @@ describe("damageFor", () => {
 
 describe("weaponDamageOf", () => {
   it("gives each chassis its own damage with the same weapon", () => {
-    expect(weaponDamageOf("mirage", "shockwave")).toBe(25);
-    expect(weaponDamageOf("bullseye", "shockwave")).toBe(23);
-    expect(weaponDamageOf("bastion", "shockwave")).toBe(20);
+    expect(weaponDamageOf("mirage", "magmablast")).toBe(25);
+    expect(weaponDamageOf("bullseye", "magmablast")).toBe(23);
+    expect(weaponDamageOf("bastion", "magmablast")).toBe(20);
   });
 })

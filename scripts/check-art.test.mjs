@@ -198,7 +198,7 @@ describe("checkManifestShape", () => {
 describe("isKnownNamespace", () => {
   it("accepts the namespaces the client resolves", () => {
     assert.ok(isKnownNamespace("car.bullseye"));
-    assert.ok(isKnownNamespace("weapon-icon.shockwave"));
+    assert.ok(isKnownNamespace("weapon-icon.magmablast"));
   });
 
   it("accepts arena keys, whose convention is live before any arena art exists", () => {

@@ -15,7 +15,7 @@ describe("loadouts", () => {
   });
 
   it("gives each chassis the kit its type calls for", () => {
-    expect(CAR_TABLE.bullseye.weapons).toEqual(["shockwave", "pepperbox", "lance"]);
+    expect(CAR_TABLE.bullseye.weapons).toEqual(["magmablast", "pepperbox", "lance"]);
     expect(CAR_TABLE.mirage.weapons).toEqual(["predator", "thunderclap", "afterburner"]);
     expect(CAR_TABLE.bastion.weapons).toEqual(["thumper", "roadblock", "wildcharge"]);
   });
@@ -43,7 +43,7 @@ describe("loadouts", () => {
 
   it("truncates an over-long loadout to the slot limit and warns once, naming the car", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const over = ["shockwave", "shockwave", "shockwave", "shockwave"] as const;
+    const over = ["magmablast", "magmablast", "magmablast", "magmablast"] as const;
 
     const first = slotsFrom("bastion", over);
     const second = slotsFrom("bastion", over);
@@ -56,7 +56,7 @@ describe("loadouts", () => {
 
   it("does not warn for a loadout inside the limit", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    slotsFrom("bullseye", ["shockwave"]);
+    slotsFrom("bullseye", ["magmablast"]);
     expect(warn).not.toHaveBeenCalled();
   });
 });

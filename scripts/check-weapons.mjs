@@ -15,16 +15,15 @@
  * How far a weapon's `WEAPON_TABLE.color` may sit from the nearest colour its icon actually uses,
  * as a plain RGB distance, before this warns about drift.
  *
- * Calibrated against the committed roster rather than picked. As of the 2026-09-01 roster cutover
- * only five weapons carry an icon at all (`predator`, `thunderclap`, `roadblock` and `wildcharge`
- * have none yet, and warn separately as a missing manifest row): pepperbox (0, exact match),
- * thumper (27), afterburner (40) and lance (47) all sit well under this limit. `shockwave` (153) is
- * the one exception, and it is EXPECTED to warn — its icon still depicts the retired three-wave
- * aura and has not been re-imported against the redefined weapon's navy, which the roster cutover's
- * own task history flags as an open owner decision, not a bug in this check. 100 sits
- * above every icon whose colour is arguably the same hue family and below the one that is plainly a
- * different colour from its shot. It is a warning, never a blocker — an icon is allowed more than
- * one colour, and only a person can say whether the pair reads as one weapon.
+ * Calibrated against the committed roster rather than picked. Six weapons carry an icon today
+ * (`thunderclap`, `roadblock`, `wildcharge` and `tremor` have none yet, and warn separately as a
+ * missing manifest row): predator (57), afterburner (35), magmablast (95), pepperbox (72), lance
+ * (47) and thumper (27) all sit at or under this limit. 100 sits above every icon whose colour is
+ * arguably the same hue family and below the one that is plainly a different colour from its shot.
+ * It is a warning, never a blocker — an icon is allowed more than one colour, and only a person can
+ * say whether the pair reads as one weapon. `magmablast` (formerly `shockwave`) is the one to watch:
+ * it passes today, but its icon is a fire orange/red against the row's still-navy `#22579E` — a
+ * deliberate reskin (new name, new icon) that has not yet been followed by a matching `color` edit.
  */
 export const COLOR_DRIFT_LIMIT = 100;
 

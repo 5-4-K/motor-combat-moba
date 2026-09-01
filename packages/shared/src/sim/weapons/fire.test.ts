@@ -114,7 +114,7 @@ describe.skip("stocks", () => {
    * rounds up to 4 ticks at 30Hz. `weaponId` below is a placeholder (see the block comment above).
    */
   const stocked = (): FireState => ({
-    slots: [{ weaponId: "shockwave", stocks: 1, rechargeEndsTick: 190, refireLockUntilTick: 0 }],
+    slots: [{ weaponId: "magmablast", stocks: 1, rechargeEndsTick: 190, refireLockUntilTick: 0 }],
     switchLockUntilTick: 0,
     lastFiredSlot: -1,
     pending: null,
@@ -130,7 +130,7 @@ describe.skip("stocks", () => {
   it("clears the timer at max stocks rather than banking progress", () => {
     const nearlyFull: FireState = {
       ...stocked(),
-      slots: [{ weaponId: "shockwave", stocks: 2, rechargeEndsTick: 190, refireLockUntilTick: 0 }],
+      slots: [{ weaponId: "magmablast", stocks: 2, rechargeEndsTick: 190, refireLockUntilTick: 0 }],
     };
     const full = tickRecharge(nearlyFull, 190);
     expect(full.slots[0]!.stocks).toBe(3);
@@ -140,7 +140,7 @@ describe.skip("stocks", () => {
   it("starts a fresh full timer when firing from max, however long it sat full", () => {
     const full: FireState = {
       ...stocked(),
-      slots: [{ weaponId: "shockwave", stocks: 3, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
+      slots: [{ weaponId: "magmablast", stocks: 3, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
     };
     const waited = idle(full, 200, 500);
     const fired = releaseShots(beginFire(waited, SLOT_1, 700), 700).state;
@@ -164,7 +164,7 @@ describe.skip("refire delay", () => {
     // stocks banked so a second press has ammo to spend; only the refire lock, not stock count, is
     // under test here.
     const twoStocks: FireState = {
-      slots: [{ weaponId: "shockwave", stocks: 2, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
+      slots: [{ weaponId: "magmablast", stocks: 2, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
       switchLockUntilTick: 0,
       lastFiredSlot: -1,
       pending: null,
@@ -248,7 +248,7 @@ describe("the two lockouts", () => {
    * The roster splits the two clocks across two weapons, so the fixture carries both. `lance` in
    * slot 2 owns the recovery (1000ms == 30 ticks) — it is the only row with a substantial one, and
    * most other rows' is 0, so a zero-recovery fixture can only prove the gate by hand-setting
-   * `switchLockUntilTick`, never that `releaseShots` WRITES it. Slot 1 below carries `shockwave`
+   * `switchLockUntilTick`, never that `releaseShots` WRITES it. Slot 1 below carries `magmablast`
    * (`recoveryMs: 0`), which is itself worth asserting: a go-to must never gate another slot. It was
    * `needler` historically, retired 2026-09-01 — see the "stocks" block above for why a retired id
    * cannot stand in a live fixture any more, even one that never dereferences its `stock` block.
@@ -260,7 +260,7 @@ describe("the two lockouts", () => {
    */
   const twoSlots = (): FireState => ({
     slots: [
-      { weaponId: "shockwave", stocks: 2, rechargeEndsTick: 0, refireLockUntilTick: 0 },
+      { weaponId: "magmablast", stocks: 2, rechargeEndsTick: 0, refireLockUntilTick: 0 },
       { weaponId: "lance", stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0 },
     ],
     switchLockUntilTick: 0,
@@ -292,7 +292,7 @@ describe("the two lockouts", () => {
 
   // SKIPPED with the stock suites above: the refire-delay half of this needs a stocked weapon.
   // Numbers below are needler's historical ones (retired 2026-09-01); slot 0 above is a type-valid
-  // placeholder, not a claim that `shockwave` itself has a 4-tick refire delay.
+  // placeholder, not a claim that `magmablast` itself has a 4-tick refire delay.
   it.skip("gates the same slot on its own refire delay, and gates no other slot at zero recovery", () => {
     // needler's startUpMs was 0, so its shot exited on the press tick and both clocks landed at 200.
     const fired = releaseShots(beginFire(twoSlots(), SLOT_1, 200), 200).state;
@@ -324,7 +324,8 @@ describe("the two lockouts", () => {
 // A whole "volleys and wind-up" suite drove `shockwave`'s old three-wave burst (a beam, 250ms
 // interval, `onWave: "final"`) through this real fire-state machinery — the load-bearing proof that
 // `beginFire` reads `def.volley.volleys` for a beam rather than hardcoding 1. As of the 2026-09-01
-// overhaul `shockwave` is a plain single-volley dart and no shipped row is multi-wave any more:
+// overhaul that row (`magmablast`, née `shockwave`) is a plain single-volley dart and no shipped
+// row is multi-wave any more:
 // multi-wave volleys, `onWave`, and the aura (`disc`/`origin: "center"`) are dormant machinery —
 // `VolleyDef` and `beginFire`'s kind-agnostic read of it are still exercised generically elsewhere
 // in this file (see "per-tick order"), just not against a real multi-wave row. Deleted rather than

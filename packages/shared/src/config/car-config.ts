@@ -44,7 +44,7 @@ import type { CarDef, CarId } from "./types.js";
  */
 export const CAR_TABLE = {
   mirage: { id: "mirage", name: "Mirage", speed: 88, accel: 85, handling: 60, attack: 63, hp: 70, mass: 48, weapons: ["predator", "thunderclap", "afterburner"], isActive: true },
-  bullseye: { id: "bullseye", name: "Bullseye", speed: 52, accel: 45, handling: 28, attack: 55, hp: 65, mass: 30, weapons: ["shockwave", "pepperbox", "lance"], isActive: true },
+  bullseye: { id: "bullseye", name: "Bullseye", speed: 52, accel: 45, handling: 28, attack: 55, hp: 65, mass: 30, weapons: ["magmablast", "pepperbox", "lance"], isActive: true },
   bastion: { id: "bastion", name: "Bastion", speed: 30, accel: 20, handling: 82, attack: 42, hp: 90, mass: 90, weapons: ["thumper", "roadblock", "wildcharge"], isActive: true },
 } as const satisfies Record<CarId, CarDef>;
 

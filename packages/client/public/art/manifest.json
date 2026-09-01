@@ -29,8 +29,13 @@
       "colorMode": "none",
       "scale": "fit"
     },
-    "weapon-icon.shockwave": {
-      "file": "weapon-icons/shockwave.png",
+    "weapon-icon.magmablast": {
+      "file": "weapon-icons/magmablast.png",
+      "colorMode": "none",
+      "scale": "fit"
+    },
+    "weapon-icon.predator": {
+      "file": "weapon-icons/predator.png",
       "colorMode": "none",
       "scale": "fit"
     }

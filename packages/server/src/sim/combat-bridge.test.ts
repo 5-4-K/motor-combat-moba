@@ -46,8 +46,8 @@ function liveInstance(over: Partial<WeaponInstance> = {}): WeaponInstance {
     ownerSessionId: "aaa",
     ownerTeam: 0,
     finalWave: true,
-    damage: weaponDamageOf("mirage", "shockwave"),
-    weaponId: "shockwave",
+    damage: weaponDamageOf("mirage", "magmablast"),
+    weaponId: "magmablast",
     kind: "projectile",
     x: 100,
     y: 100,
@@ -202,10 +202,10 @@ describe("toCombatPlayers", () => {
  * Empty in every real match, which is what keeps `ArenaRoom` on the chassis kit unchanged.
  */
 describe("explicit loadouts", () => {
-  const CUSTOM: readonly WeaponId[] = ["lance", "thumper", "shockwave"];
+  const CUSTOM: readonly WeaponId[] = ["lance", "thumper", "magmablast"];
 
   it("loadoutFor prefers the explicit list and falls back to the chassis kit", () => {
-    expect(loadoutFor("mirage", CUSTOM)).toEqual(["lance", "thumper", "shockwave"]);
+    expect(loadoutFor("mirage", CUSTOM)).toEqual(["lance", "thumper", "magmablast"]);
     expect(loadoutFor("mirage", undefined)).toEqual(slotsOf("mirage"));
     // The empty-carId fallback the pre-reveal path relies on is unchanged.
     expect(loadoutFor("", undefined)).toEqual([]);
@@ -218,7 +218,7 @@ describe("explicit loadouts", () => {
     memory.loadouts.set("aaa", CUSTOM);
 
     const fireState = toCombatPlayers(state, new Set(["aaa"]), new Map(), memory)[0]!.fireState;
-    expect(fireState.slots.map((s) => s.weaponId)).toEqual(["lance", "thumper", "shockwave"]);
+    expect(fireState.slots.map((s) => s.weaponId)).toEqual(["lance", "thumper", "magmablast"]);
   });
 
   it("does not call a fire state stale while it matches the explicit loadout, so it survives a tick", () => {
@@ -234,7 +234,7 @@ describe("explicit loadouts", () => {
     memory.fireStates.set("aaa", { ...first, switchLockUntilTick: 77 });
 
     const second = toCombatPlayers(state, new Set(["aaa"]), new Map(), memory)[0]!.fireState;
-    expect(second.slots.map((s) => s.weaponId)).toEqual(["lance", "thumper", "shockwave"]);
+    expect(second.slots.map((s) => s.weaponId)).toEqual(["lance", "thumper", "magmablast"]);
     expect(second.switchLockUntilTick).toBe(77); // reused, not rebuilt
   });
 
@@ -262,7 +262,7 @@ describe("explicit loadouts", () => {
     expect(memory.fireStates.get("aaa")!.slots.map((s) => s.weaponId)).toEqual([
       "lance",
       "thumper",
-      "shockwave",
+      "magmablast",
     ]);
     // And the rest of the respawn is unchanged: full hp for the chassis, back on the field.
     expect(player.hp).toBe(hpOf("mirage"));

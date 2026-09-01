@@ -41,7 +41,7 @@ Build with `npm run build:release -- --port <n>` to bake in a different one. See
 | id | name | speed | accel | handling | attack | hp | mass | weapons |
 |---|---|---|---|---|---|---|---|---|
 | `mirage` | Mirage | 88 | 85 | 60 | 63 | 70 | 48 | `["predator", "thunderclap", "afterburner"]` |
-| `bullseye` | Bullseye | 52 | 45 | 28 | 55 | 65 | 30 | `["shockwave", "pepperbox", "lance"]` |
+| `bullseye` | Bullseye | 52 | 45 | 28 | 55 | 65 | 30 | `["magmablast", "pepperbox", "lance"]` |
 | `bastion` | Bastion | 30 | 20 | 82 | 42 | 90 | 90 | `["thumper", "roadblock", "wildcharge"]` |
 
 `isActive` is a seventh field on `CarDef`, not a rating. All three shipped cars are `true` today.
@@ -140,7 +140,7 @@ once, at shared's module load, into the frozen `WEAPON_TICKS` the sim actually r
 | `predator` | projectile | 50 | 0 | 600 | 900 | 2000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | capsule, along 14 / across 6 (homing 120°/s × 1200 ms) | 1 | true | `#D63A14` |
 | `thunderclap` | maneuver (dash) | 90 | 0 | 1600 (dash speed) | 400 (dash distance) | 5000 | 0 | 200 | — | — | 1 / 0 | — | — | — | — | 1 | true | `#7A1D1D` |
 | `afterburner` | beam | 49 | 500 | 1100 | 220 | 13000 | 0 | 200 | — | — | 1 / 0 | — | true | 2000 | cone, 55° (muzzles `[0, 180]`) | 1 | false | `#F05818` |
-| `shockwave` | projectile | 22 | 0 | 900 | 900 | 600 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | circle, radius 12 | 1 | true | `#22579E` |
+| `magmablast` | projectile | 22 | 0 | 900 | 900 | 600 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | circle, radius 12 | 1 | true | `#22579E` |
 | `pepperbox` | projectile | 45 (per pellet) | 0 | 800 | 600 | 1800 | 0 | 200 | — | 0 | 1 / 0 | 3 / 12 | — | — | ellipse, along 9 / across 3 (muzzles `[0, 90, 180, 270]`) | 1 | false | `#184890` |
 | `lance` | beam | 170 | 0 | 6000 | 1200 | 16000 | 700 | 1000 | — | — | 1 / 0 | — | true | 1500 | rect, width 57.5 (`holdsDuringFire`) | 1 | false | `#0F3268` |
 | `thumper` | projectile | 60 | 0 | 450 | 1305 (bounce, 2900 ms lifetime) | 3000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | capsule, along 24 / across 15 (flat tail) | 1 | true | `#F0C808` |
@@ -155,10 +155,11 @@ carried weapons, so it is invisible to players until a kit lists it).
 
 `fireball`, `needler`, `skewer` and `bulwark` were retired outright by the 2026-09-01 weapon-status
 overhaul; their ids are gone from `WeaponId` and their comment history lives in git rather than here.
-`shockwave` survives as an id but lost its old identity: it carried the roster's one aura (a `disc`
-hitbox beam, `origin: "center"`) on Mirage's slot 2, and is now a plain single-volley projectile dart
-on **Bullseye's** slot 1 — see [`combat-model.md`](combat-model.md#auras-dormant-machinery) for what
-the aura and multi-wave machinery left dormant.
+`shockwave` carried the roster's one aura (a `disc` hitbox beam, `origin: "center"`) on Mirage's slot
+2, then survived the overhaul as an id — losing the aura identity for a plain single-volley
+projectile dart on **Bullseye's** slot 1 — before being renamed again to `magmablast`, its current
+id, alongside its display name. See [`combat-model.md`](combat-model.md#auras-dormant-machinery) for
+what the aura and multi-wave machinery left dormant.
 
 **`volley` and `pellets` are two types, split on 2026-08-30.** `VolleyDef` (`volleys`,
 `volleyIntervalMs`) sits on `WeaponBase`, so a **beam** can be a wave sequence too — the old
@@ -205,7 +206,7 @@ them to equal a `COLOR_TABLE` player colour. See
 [`combat-model.md`](combat-model.md#what-the-client-shows).
 
 `color` is the *whole* look for a weapon with no authored style — today that is every round projectile
-(`predator`, `shockwave`, `pepperbox`, `thumper`, `roadblock`) plus every maneuver, since
+(`predator`, `magmablast`, `pepperbox`, `thumper`, `roadblock`) plus every maneuver, since
 `WEAPON_GLOW_STYLES` has gone **empty**: the 2026-09-01 overhaul retired `fireball`, the table's one
 weapon with a flicker, and moved `pepperbox` to an ellipse hitbox that table cannot own. The other two
 rows — `afterburner` and `lance` — carry a style in `WEAPON_BEAM_STYLES`; `thumper` alone carries one
@@ -240,7 +241,7 @@ always round the same way or neither does.
 
 **Adding a weapon with a real wind-up, burst, or recovery window is a config edit and nothing
 else.** `lance` carries `startUpMs > 0`, and `recoveryMs > 0` is the common case — six of the nine
-rows carry one (`predator`, `shockwave` and `thumper` are the exceptions). The wire already carried
+rows carry one (`predator`, `magmablast` and `thumper` are the exceptions). The wire already carried
 what they need before any of them shipped: `PlayerState.pendingUntilTick` and
 `PlayerState.lastFiredSlot` give the HUD the car-wide lockout, and the slot's recharge is anchored to
 the volley's last shot, so `cooldownMs` still means "time until another stock" for a burst weapon.
@@ -575,7 +576,7 @@ its victim into a wall within `SLAM_CONFIG.wallStunWindowMs` stuns them for `wal
 [`combat-model.md`](combat-model.md#maneuvers-and-the-contact-pass). `overhauled` and `armored` have
 no applier yet; see below.
 
-Bullseye applies nothing. All three of its weapons — `shockwave`, `pepperbox`, `lance` — carry no
+Bullseye applies nothing. All three of its weapons — `magmablast`, `pepperbox`, `lance` — carry no
 `applies` entry, same as before the 2026-09-01 weapon-status overhaul; the skirmisher's kit stays pure
 damage. **Hard CC no longer belongs to one chassis.** Before the overhaul, `stunned` sat on `thumper`
 alone and Bastion owned it outright; the overhaul gave `thumper` `spiked` instead (a slow, not a stop)

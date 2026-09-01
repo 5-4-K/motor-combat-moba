@@ -2007,9 +2007,9 @@ export class ArenaScene extends Phaser.Scene {
    * recovery every OTHER slot is dimmed by).
    *
    * Most of these paths are exercised by a carried weapon today: `lance` (Bullseye's slot 3) carries
-   * `startUpMs > 0`, and `recoveryMs > 0` is the common case — `predator`, `shockwave` and `thumper`
+   * `startUpMs > 0`, and `recoveryMs > 0` is the common case — `predator`, `magmablast` and `thumper`
    * are the only zero-recovery rows as of the 2026-09-01 roster cutover. The multi-volley case
-   * (`volley.volleys > 1`) is dormant — no shipped weapon has one since `shockwave` was redefined
+   * (`volley.volleys > 1`) is dormant — no shipped weapon has one since `magmablast` was redefined
    * out of it — but the machinery stays live for whichever weapon next carries one: `beginFire`
    * zeroes a slot's `stocks` at press time and does not set `rechargeEndsTick` until the volley's
    * LAST shot, and `slotVisualState` answers "car-locked" for that whole window because a real

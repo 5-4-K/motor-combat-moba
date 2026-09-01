@@ -39,7 +39,7 @@ Fields to recommend, in order. Stop early once nothing is undetermined.
 | 1 | Id and display name | Id is the `WeaponId` union member, lowercase, no spaces |
 | 2 | Projectile or beam | Projectiles travel and freeze at exit; beams grow, linger, can weld to the car |
 | 3 | Damage, and `damageFrequencyMs` | 0 is one hit per target ever; positive re-arms on that interval |
-| 4 | Speed and range | Together they set flight time — `range ÷ speed`. `shockwave` is 900/900 = 1 s |
+| 4 | Speed and range | Together they set flight time — `range ÷ speed`. `magmablast` is 900/900 = 1 s |
 | 5 | Hitbox | Projectile: circle radius, ellipse along/across, or capsule along/across (rounded nose, flat tail; needs along >= across). Beam: rect width, cone angle, or disc |
 | 6 | Cooldown, and stocks | A flat `cooldownMs`, or a `stock` block holding charges. No shipped row currently authors one — stocks are dormant machinery, still real in `fire.ts` (the retired `needler` was the one example). Note what stocks actually buy: the recharge starts at the **first** shot of a dump, so a magazine moves damage earlier without costing sustained DPS |
 | 7 | Wind-up and recovery | `startUpMs` delays the shot; `recoveryMs` gates the car's **other** slots |
@@ -95,11 +95,11 @@ by accident — the suite is how you find out which:
 
 | File | Why it breaks |
 |---|---|
-| `config/weapon-config.test.ts` | Pins `shockwave`'s stats digit-for-digit — the per-row zero-balance-change guard |
+| `config/weapon-config.test.ts` | Pins `magmablast`'s stats digit-for-digit — the per-row zero-balance-change guard |
 | `config/weapon-config.test.ts` | "keeps aim-assist weapons off the behavioural cliff" — an aim-assist weapon's sustained rate (`1000 / cooldownMs`) must stay outside ±15% of `1000 / AIM_CONFIG.lockTimeoutMs` |
 | `config/weapon-ticks.test.ts` | Pins the tick counts derived from them (`cooldown`, `flight`) |
 | `sim/weapons/fire.test.ts` | Simulates recharge tick-by-tick across a hard-coded window |
-| `sim/weapons/instances.test.ts` | Beam tests hand-build a synthetic beam over `shockwave`'s numbers rather than reading a real beam row like `afterburner` |
+| `sim/weapons/instances.test.ts` | Beam tests hand-build a synthetic beam over `magmablast`'s numbers rather than reading a real beam row like `afterburner` |
 | `sim/combat.test.ts` | Its `50.5` fixture is derived from hitbox radius — only if you change the hitbox |
 
 A failure here is usually the guard doing its job, not a bug: update the assertion in the same

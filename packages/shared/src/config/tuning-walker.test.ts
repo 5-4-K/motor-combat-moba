@@ -50,7 +50,7 @@ describe("tuning walker", () => {
   // exactly the NaN-poisoning and silently-broken-maneuver bugs review caught. Now they are simply
   // not in the field map at all, so both are rejected as unknown paths.
   it("rejects a hitbox-shape or maneuver-type override — the field no longer exists to tune", () => {
-    expect(validateTuning({ "weapon.shockwave.hitbox.shape": "capsule" }).ok).toBe(false);
+    expect(validateTuning({ "weapon.magmablast.hitbox.shape": "capsule" }).ok).toBe(false);
     expect(validateTuning({ "weapon.thunderclap.maneuver.type": "charge" }).ok).toBe(false);
   });
 
