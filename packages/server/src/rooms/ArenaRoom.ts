@@ -698,6 +698,13 @@ export class ArenaRoom extends Room<ArenaState> {
     this.reduce({ type: "end", winnerSessionId, winnerTeam });
     this.matchRoster.clear();
     this.phaseCaps.clear();
+    // The match clock is written only on the edge INTO `MATCH`, so a finished deathmatch's value
+    // would otherwise survive the whole of the next match's LOBBY, CAR_SELECT, REVEAL and
+    // COUNTDOWN. `viewFor` routes COUNTDOWN to the arena scene and `syncDeathmatchHud` has no phase
+    // gate, so last match's countdown clock draws over the next match's 3-2-1 — including a Last
+    // Standing one, which has no match clock at all. Same rule as `phaseCaps` above: nothing this
+    // match ends holding is allowed to be read by the next one.
+    this.state.matchEndsTick = 0;
     this.pendingCarId.clear();
     clearInstances(this.state, this.combat);
   }
