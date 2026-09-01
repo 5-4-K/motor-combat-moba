@@ -1,17 +1,20 @@
 import Phaser from "phaser";
 import type { Room } from "colyseus.js";
 import type { PlaygroundState, TuningOverrides } from "@motor-combat-moba/shared";
-import { MSG_PLAYGROUND_SETUP, defaultPlaygroundSetup, setTuning } from "@motor-combat-moba/shared";
+import { MSG_PLAYGROUND_SETUP, MSG_PLAYGROUND_TUNING, setTuning } from "@motor-combat-moba/shared";
 import { joinPlayground } from "../net/connection.js";
 import { DEV_TOOL_MARKER } from "./registry.js";
 import { mountPlaygroundOverlay } from "./playground/overlay.js";
+import { loadStored } from "./playground/storage.js";
 
 /**
  * `?dev=playground` (spec PG2). Thin on purpose: this scene's whole job is joining the dev-only
  * `playground` room, handing the real `ArenaScene` its room the same way `JoinScene` does for
  * ordinary play, and mounting `playground/overlay.ts` (Task 10 — pause menu, setup selections; Task
- * 11 adds the tuning sliders and the stored-setup replay). This scene sends only the placeholder
- * default setup the room's own `onJoin` already applied, so the send is idempotent.
+ * 11 adds the tuning sliders and the stored-setup replay). This scene replays whatever
+ * `loadStored()` finds in localStorage (spec PG19/PG20) -- a fresh browser with nothing saved yet
+ * replays `defaultPlaygroundSetup()` + `{}`, which is exactly as idempotent against the room's own
+ * `onJoin` default as the old hardcoded send was.
  *
  * `BootScene`'s dev branch adds this under the key `dev.<id>` (`dev.playground` here) and starts it
  * immediately — the `key` passed to `super()` below is overridden at that `scene.add` call and only
@@ -86,9 +89,13 @@ export class PlaygroundScene extends Phaser.Scene {
 
     this.room = room;
     this.lastTuningJson = room.state.tuningJson;
-    // Task 11 replaces this with the client's stored replay. Sending the same default the room's own
-    // `onJoin` already applied is harmless -- `applySetup` no-ops when nothing actually changed.
-    room.send(MSG_PLAYGROUND_SETUP, defaultPlaygroundSetup());
+    // Replay whatever this browser last saved (spec PG19/PG20): the setup first, then the tuning
+    // overrides on top of it. A server-side validation failure on either just leaves the room's own
+    // `onJoin` defaults standing -- the same silent-reject behaviour `evaluate`/`leaveSettings` in
+    // the overlay already rely on for a live edit.
+    const stored = loadStored();
+    room.send(MSG_PLAYGROUND_SETUP, stored.setup);
+    room.send(MSG_PLAYGROUND_TUNING, stored.overrides);
 
     const onState = (): void => this.syncTuning();
     room.onStateChange(onState);

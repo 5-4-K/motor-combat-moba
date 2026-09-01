@@ -1,5 +1,5 @@
-import type { CarId, WeaponId } from "@motor-combat-moba/shared";
-import { ARENAS, CAR_TABLE, WEAPON_TABLE } from "@motor-combat-moba/shared";
+import type { CarId, PlaygroundSetup, TunableField, WeaponId } from "@motor-combat-moba/shared";
+import { ARENAS, CAR_TABLE, WEAPON_TABLE, tunableFields } from "@motor-combat-moba/shared";
 
 /**
  * Pure derivations for the playground overlay (Task 10, spec PG16/PG19). `overlay.ts` is the thin,
@@ -57,4 +57,37 @@ export function isLoadoutLegal(
   weapons: readonly WeaponId[],
 ): weapons is [WeaponId, WeaponId, WeaponId] {
   return weapons.length === 3 && new Set(weapons).size === 3;
+}
+
+/**
+ * Groups `tunableFields()`'s flat list into the sections the Task 11 Stats area draws (spec PG13):
+ * one section per SELECTED chassis (`setup.me.carId`/`setup.opponent.carId`, deduped when both cars
+ * picked the same one), a single "Global" section holding every drive/ram/combat field, and one
+ * section per SELECTED weapon (the union of both loadouts, deduped). Every other field --
+ * an unselected car's or weapon's rows -- is filtered out entirely; the playground only ever tunes
+ * what's actually on the field. Row order within a section, and section order overall (car, Global,
+ * weapon), follows `tunableFields()`'s own order since this only filters, never re-sorts.
+ */
+export function sliderGroups(setup: PlaygroundSetup): { title: string; fields: TunableField[] }[] {
+  const fields = tunableFields();
+  const groups: { title: string; fields: TunableField[] }[] = [];
+
+  const carIds = [...new Set([setup.me.carId, setup.opponent.carId])];
+  for (const carId of carIds) {
+    const carFields = fields.filter((f) => f.group === "car" && f.ownerId === carId);
+    if (carFields.length > 0) groups.push({ title: CAR_TABLE[carId].name, fields: carFields });
+  }
+
+  groups.push({
+    title: "Global",
+    fields: fields.filter((f) => f.group === "drive" || f.group === "ram" || f.group === "combat"),
+  });
+
+  const weaponIds = [...new Set([...setup.me.weapons, ...setup.opponent.weapons])];
+  for (const weaponId of weaponIds) {
+    const weaponFields = fields.filter((f) => f.group === "weapon" && f.ownerId === weaponId);
+    if (weaponFields.length > 0) groups.push({ title: WEAPON_TABLE[weaponId].name, fields: weaponFields });
+  }
+
+  return groups;
 }
