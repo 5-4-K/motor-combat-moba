@@ -29,9 +29,21 @@ import {
   assignSpawns,
   livingSides,
   sidesOf,
+  winRuleOf,
   getArena,
   hpOf,
   isCarId,
+  DEATHMATCH_TICKS,
+  farthestSpawn,
+  isDueToRespawn,
+  phaseDecision,
+  applyStatus,
+  newFireState,
+  hasStatus,
+  carHullOf,
+  obbsOverlap,
+  isSolid,
+  carIdOf,
   type CarId,
   type FlowEvent,
   type FlowPlayer,
@@ -57,7 +69,7 @@ import {
   toInstances,
   type CombatMemory,
 } from "../sim/combat-bridge.js";
-import { statusTick } from "../sim/status-bridge.js";
+import { readStatuses, statusTick, writeStatuses } from "../sim/status-bridge.js";
 import { clearKnock, newRamMemory, ramTick, type RamMemory } from "../sim/ram-bridge.js";
 import {
   fromFlowPhase,
@@ -84,6 +96,11 @@ export class ArenaRoom extends Room<ArenaState> {
   private prevFireMasks = new Map<string, number>();
   private pendingCarId = new Map<string, CarId>();
   private matchRoster = new Set<string>();
+  /**
+   * Per-player tick at which spawn protection must end no matter what. Server-only: the client reads
+   * the status row's own `endsTick`, and this is the ceiling that row may never pass.
+   */
+  private phaseCaps = new Map<string, number>();
   private postMatchIds = new Set<string>();
   private flow: FlowState | null = null;
   /**
@@ -250,6 +267,7 @@ export class ArenaRoom extends Room<ArenaState> {
     this.pendingCarId.delete(client.sessionId);
     this.postMatchIds.delete(client.sessionId);
     this.matchRoster.delete(client.sessionId);
+    this.phaseCaps.delete(client.sessionId);
 
     if (this.state.hostSessionId === client.sessionId) {
       const remaining: { sessionId: string; joinedAtTick: number }[] = [];
@@ -280,6 +298,12 @@ export class ArenaRoom extends Room<ArenaState> {
 
   private tick(): void {
     this.state.tick += 1;
+    if (
+      this.state.phase === RoomPhase.MATCH &&
+      winRuleOf(this.state.mode) === "deathmatch"
+    ) {
+      this.respawnSweep();
+    }
     if (
       this.state.phase === RoomPhase.CAR_SELECT &&
       this.state.tick >= this.state.carSelectDeadlineTick
@@ -372,6 +396,8 @@ export class ArenaRoom extends Room<ArenaState> {
     applyCombatResult(this.state, result, this.combat);
     this.combat.instanceSeq = result.instanceSeq;
 
+    if (winRuleOf(this.state.mode) === "deathmatch") this.phaseEndSweep(masks);
+
     // Win check every tick, on the state combat just wrote. `livingSides` counts only roster
     // members who are still alive, so a wreck and a disconnect end the match by the same rule.
     const outcome = livingSides(
@@ -386,6 +412,115 @@ export class ArenaRoom extends Room<ArenaState> {
     if (outcome.sides <= 1) {
       this.endMatch(outcome.winnerSessionId, outcome.winnerTeam);
     }
+  }
+
+  /**
+   * Bring back everyone whose respawn timer has run out.
+   *
+   * Runs at the TOP of the tick, before `statusTick`, and that placement is the decision (M21):
+   * writing the status list here means the modifiers derived moments later already include `phased`,
+   * so there is no tick on which a freshly respawned car is solid. The documented `statusRequests`
+   * seam is the right route for a pickup and the wrong one here, because by design a request lands
+   * this tick and bites on the NEXT one — precisely the window a spawn must not have.
+   */
+  private respawnSweep(): void {
+    for (const id of this.matchRoster) {
+      const player = this.state.players.get(id);
+      if (!player || player.alive) continue;
+      if (!isDueToRespawn(player.diedAtTick, this.state.tick)) continue;
+      this.respawn(player);
+    }
+  }
+
+  /** One car back on the field. Nothing survives a death except the score. */
+  private respawn(player: PlayerState): void {
+    const enemies: { x: number; y: number }[] = [];
+    for (const id of this.matchRoster) {
+      if (id === player.sessionId) continue;
+      const other = this.state.players.get(id);
+      if (other?.alive) enemies.push({ x: other.x, y: other.y });
+    }
+
+    const spawn = farthestSpawn(getArena(this.state.arenaId).ffaSpawns, enemies);
+    player.x = spawn.x;
+    player.y = spawn.y;
+    player.angle = spawn.angle;
+    player.speed = 0;
+    // Or the car returns already spinning, its steering still degraded by the ram that killed it.
+    clearKnock(player);
+
+    const carId = carIdOf(player);
+    player.hp = hpOf(carId);
+    player.alive = true;
+    player.diedAtTick = 0;
+    player.killedBySessionId = "";
+
+    // No stock, no switch lock and no half-finished burst carries across a death.
+    this.combat.fireStates.set(player.sessionId, newFireState(carId, player.level));
+    // Or whoever last hurt you before this death is credited with your next one.
+    this.combat.lastDamagers.set(player.sessionId, "");
+
+    this.phaseCaps.set(player.sessionId, this.state.tick + DEATHMATCH_TICKS.phaseMax);
+    // Applied to an EMPTY list, not to the car's current one: every debuff goes with the wreck, so a
+    // lingering slow cannot ride back onto the field with a car that was just rebuilt.
+    writeStatuses(
+      player,
+      applyStatus([], "phased", this.state.tick, DEATHMATCH_TICKS.phase, ""),
+    );
+  }
+
+  /**
+   * End spawn protection, per `phaseDecision`.
+   *
+   * Runs at the END of the tick, unlike `respawnSweep`, and the asymmetry is deliberate: this needs
+   * the fire masks the tick actually simulated and the poses driving finally settled on. A one-tick
+   * lag on *ending* protection is harmless; a one-tick lag on *starting* it would leave a car solid
+   * on its spawn frame.
+   */
+  private phaseEndSweep(masks: ReadonlyMap<string, number>): void {
+    const tick = this.state.tick;
+    for (const id of this.matchRoster) {
+      const player = this.state.players.get(id);
+      if (!player) continue;
+
+      const rows = readStatuses(player);
+      if (!hasStatus(rows, "phased", tick)) {
+        this.phaseCaps.delete(id);
+        continue;
+      }
+      const phase = rows.find((s) => s.statusId === "phased");
+      if (!phase) continue;
+
+      const action = phaseDecision({
+        tick,
+        endsTick: phase.endsTick,
+        capTick: this.phaseCaps.get(id) ?? tick,
+        fired: (masks.get(id) ?? 0) !== 0,
+        overlapping: this.overlapsSolid(player),
+      });
+
+      if (action === "run") continue;
+      if (action === "drop") {
+        writeStatuses(player, rows.filter((s) => s.statusId !== "phased"));
+        this.phaseCaps.delete(id);
+        continue;
+      }
+      // `refresh` extends rather than overwrites, which is what `chainable` exists to permit for a
+      // flag-carrying row. Two ticks, so the new end is strictly beyond the one about to lapse.
+      writeStatuses(player, applyStatus(rows, "phased", tick, 2, ""));
+    }
+  }
+
+  /** Is this car's hull touching any car that is actually solid right now? */
+  private overlapsSolid(player: PlayerState): boolean {
+    const hull = carHullOf(player.x, player.y, player.angle);
+    for (const id of this.matchRoster) {
+      if (id === player.sessionId) continue;
+      const other = this.state.players.get(id);
+      if (!other || !isSolid(other, this.state.tick)) continue;
+      if (obbsOverlap(hull, carHullOf(other.x, other.y, other.angle))) return true;
+    }
+    return false;
   }
 
   private reduce(event: FlowEvent): void {
@@ -515,6 +650,7 @@ export class ArenaRoom extends Room<ArenaState> {
   private endMatch(winnerSessionId: string, winnerTeam: number): void {
     this.reduce({ type: "end", winnerSessionId, winnerTeam });
     this.matchRoster.clear();
+    this.phaseCaps.clear();
     this.pendingCarId.clear();
     clearInstances(this.state, this.combat);
   }
