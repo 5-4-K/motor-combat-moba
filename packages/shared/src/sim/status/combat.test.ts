@@ -44,7 +44,6 @@ function player(sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlay
     x: 300,
     y: OPEN_Y,
     angle: 0,
-    speed: 0,
     team: 0,
     carId,
     hp: hpOf(carId as "mirage"),

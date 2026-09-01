@@ -63,7 +63,6 @@ export { SLAM_CONFIG, SLAM_TICKS } from "./config/slam-config.js";
 export { hullTouchesWorld, resolveContacts } from "./sim/contact.js";
 export type { ContactCar, ContactEvents, ContactHit } from "./sim/contact.js";
 export { canDamage } from "./sim/weapons/targets.js";
-export { interceptAngle, interceptTime } from "./sim/weapons/aim.js";
 export {
   hasLineOfSight,
   inAcquireRegion,

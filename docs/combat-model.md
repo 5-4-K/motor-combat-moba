@@ -249,14 +249,14 @@ still translates and rotates with the car — it just never deflects toward a lo
 pellet fan or a sequential burst re-reads the lock at each shot's own tick, the same way it already
 re-reads the car's pose.
 
-**Lead** (spec S1) applies only to a projectile: `aimAngleFor` fires `interceptAngle`'s first-order
-intercept — the target's centre plus its heading × speed, solved against the shot's own `speed` —
-instead of the target's current bearing, which is what stops the far half of every lock acquiring
-reliably and missing reliably. A beam is untouched (it crosses its reach near-instantly, so leading
-it would only mis-aim it) and so is a maneuver (it aims the car at the target's bearing, not a shot
-at its future position — see [Maneuvers and the contact pass](#maneuvers-and-the-contact-pass)
-below). Re-derived per shot, not once per press, so a burst's later volleys lead wherever the target
-has moved to by their own tick.
+**There is no lead** (A3), for any weapon kind. `aimAngleFor` returns the target's *current* bearing
+from the muzzle: the assist sets the shot's direction, and carrying the lead against a crossing
+target stays the player's job. First-order interception — aiming at where the target *will* be,
+solved against the shot's own `speed` — shipped briefly and was **reverted**: it decided the shot
+rather than pointing it, so a lock read as an aimbot. The known cost is the one A3 states plainly:
+against a full-speed crosser a no-lead lock only connects at close range, which is a skill boundary
+rather than a bug. Re-derived per shot, not once per press, so a burst's later volleys track the
+target's new position at their own tick.
 
 **Per-weapon range** (spec S1) is a second gate below the lock itself. Lock *acquisition* uses the
 car's single largest `aimRangeUnits` across its assisted weapons (`carAimRangeOf`), so a bracket can
