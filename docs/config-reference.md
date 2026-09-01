@@ -157,7 +157,8 @@ for beams, and `weaponTicksOf` converts `volleyIntervalMs` for every kind.
 car, not every car; `damageFor` (`sim/damage.ts`) moves it ±50% with the firing chassis's `attack`
 rating. **It scales and rounds each hit as it lands — per tick, per pellet, per wave — never once
 over a press total**, so a single `pepperbox` fan — the 3 darts a target actually standing in front of
-the car eats — is `3 × damageFor(55, 45)`, ~135 on Bullseye; the weapon fires four such fans at once
+the car eats — is `3 × damageFor(55, 45)` = 141 on Bullseye (`round(45 × 1.05) = 47` per dart); the
+weapon fires four such fans at once
 (`muzzles: [0, 90, 180, 270]`), but that ×4 is total output across four directions, not damage any one
 target takes. `afterburner` on Mirage is `damageFor(63, 26)` per 200 ms tick, not a press total scaled
 once.
