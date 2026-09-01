@@ -1,4 +1,4 @@
-import type { CarId, PlaygroundSetup, TunableField, WeaponId } from "@motor-combat-moba/shared";
+import type { CarId, PlaygroundSetup, TunableField, TuningValue, WeaponId } from "@motor-combat-moba/shared";
 import { ARENAS, CAR_TABLE, WEAPON_TABLE, tunableFields } from "@motor-combat-moba/shared";
 
 /**
@@ -90,4 +90,25 @@ export function sliderGroups(setup: PlaygroundSetup): { title: string; fields: T
   }
 
   return groups;
+}
+
+/**
+ * Whether `value` should count as "shipped" for `field` -- i.e. whether the overrides map should
+ * hold NO entry for this row (Task 11 review finding). A `number` field's `<input type=range>` snaps
+ * to a `min`/`step` grid, and `numberRange` (`tuning-walker.ts`) sets `step = max/100` with
+ * `max = shipped * 3` for most rows: `shipped` then sits at `33.33` steps from `min`, off the grid
+ * the control can actually land on. Exact `===` against `shipped` is therefore false for ~70% of the
+ * numeric fields even when the user dragged the slider all the way back to the shipped position, and
+ * the map would keep a phantom entry Copy overrides exports and the sim runs under. A number counts
+ * as shipped when it lands within half a step of it -- the same tolerance a snapped grid position
+ * would land within -- so dragging back to shipped always clears the override. `boolean`/`enum`
+ * fields have no grid to snap to and keep strict equality.
+ */
+export function isAtShipped(field: TunableField, value: TuningValue): boolean {
+  if (field.kind !== "number" || typeof value !== "number" || typeof field.shipped !== "number") {
+    return value === field.shipped;
+  }
+  const step = field.step ?? 0;
+  if (step <= 0) return value === field.shipped;
+  return Math.abs(value - field.shipped) < step / 2;
 }

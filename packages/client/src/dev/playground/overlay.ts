@@ -27,6 +27,7 @@ import { loadStored, saveStored } from "./storage.js";
 import {
   arenaOptions,
   carOptions,
+  isAtShipped,
   isLoadoutLegal,
   pauseKeyAction,
   sliderGroups,
@@ -413,9 +414,12 @@ export function mountPlaygroundOverlay(
     const statsContainer = h("div", { class: "pg-stats" });
 
     /** One slider/checkbox/select row for `field`, wired straight into the shared `overrides` map:
-     * the map holds an entry iff the control's live value differs from `field.shipped` (spec PG13),
-     * and every edit re-paints the readout, re-saves (spec PG19), and leaves sending to
-     * `leaveSettings`. */
+     * the map holds an entry iff the control's live value differs from `field.shipped` by more than
+     * `isAtShipped`'s tolerance (spec PG13) -- exact `===` is not enough, because a range input snaps
+     * to its `step` grid and `shipped` itself very often does not land on that grid (see
+     * `isAtShipped`'s own comment in `ui-model.ts`), which would leave a phantom override every time
+     * the user dragged a slider all the way back to its shipped position. Every edit re-paints the
+     * readout, re-saves (spec PG19), and leaves sending to `leaveSettings`. */
     function fieldRow(field: TunableField): HTMLElement {
       const path = field.path;
       const hasOverride = Object.prototype.hasOwnProperty.call(overrides, path);
@@ -459,19 +463,29 @@ export function mountPlaygroundOverlay(
 
       const valueSpan = h("span", { class: "pg-value" }, [String(current)]);
 
+      /** Drops the override, snaps the control AND the readout to the exact shipped number (not
+       * whatever off-grid value the control happened to be showing), and saves. Shared by a drag that
+       * lands within tolerance of shipped and by the row's own reset button. */
+      function snapToShipped(): void {
+        delete overrides[path];
+        applyValue(field.shipped);
+        valueSpan.textContent = String(field.shipped);
+      }
+
       function onEdit(): void {
         const value = readValue();
-        if (value === field.shipped) delete overrides[path];
-        else overrides[path] = value;
-        valueSpan.textContent = String(value);
+        if (isAtShipped(field, value)) {
+          snapToShipped();
+        } else {
+          overrides[path] = value;
+          valueSpan.textContent = String(value);
+        }
         persist();
       }
       control.addEventListener(field.kind === "number" ? "input" : "change", onEdit);
 
       const resetBtn = button({ class: "pg-reset", title: "Reset to shipped" }, ["↺"], () => {
-        delete overrides[path];
-        applyValue(field.shipped);
-        valueSpan.textContent = String(field.shipped);
+        snapToShipped();
         persist();
       });
 

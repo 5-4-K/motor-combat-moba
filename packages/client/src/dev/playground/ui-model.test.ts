@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { CAR_TABLE, WEAPON_TABLE, ARENAS, defaultPlaygroundSetup } from "@motor-combat-moba/shared";
-import type { CarId, PlaygroundSetup, WeaponId } from "@motor-combat-moba/shared";
+import type { CarId, PlaygroundSetup, TunableField, WeaponId } from "@motor-combat-moba/shared";
 import {
   arenaOptions,
   carOptions,
+  isAtShipped,
   isLoadoutLegal,
   pauseKeyAction,
   sliderGroups,
@@ -151,5 +152,60 @@ describe("sliderGroups", () => {
     };
     const groups = sliderGroups(withNewWeapon);
     expect(groups.some((g) => g.fields.some((f) => f.ownerId === notYetSelected))).toBe(true);
+  });
+});
+
+describe("isAtShipped", () => {
+  /** shipped=34 does not land on the min=0/step=1.2 grid (34 / 1.2 = 28.33), mirroring the real
+   * `numberRange` shape (`step = max/100`) that put most numeric fields off their own grid. */
+  const offGridField: TunableField = {
+    path: "test.offGrid",
+    group: "combat",
+    label: "offGrid",
+    kind: "number",
+    shipped: 34,
+    min: 0,
+    max: 100,
+    step: 1.2,
+  };
+
+  /** A car rating: shipped is always an integer on an integer (`step: 1`) grid, so the slider can
+   * land exactly on it. */
+  const onGridField: TunableField = {
+    path: "test.onGrid",
+    group: "car",
+    ownerId: "mirage",
+    label: "speed",
+    kind: "number",
+    shipped: 88,
+    min: 0,
+    max: 100,
+    step: 1,
+  };
+
+  const boolField: TunableField = {
+    path: "test.bool",
+    group: "combat",
+    label: "bool",
+    kind: "boolean",
+    shipped: true,
+  };
+
+  it("treats an off-grid shipped value's nearest reachable grid point as shipped", () => {
+    expect(isAtShipped(offGridField, 34)).toBe(true); // exact
+    expect(isAtShipped(offGridField, 33.6)).toBe(true); // nearest grid point below, diff 0.4 < step/2 (0.6)
+    expect(isAtShipped(offGridField, 34.8)).toBe(false); // next grid point up, diff 0.8 >= step/2
+    expect(isAtShipped(offGridField, 60)).toBe(false); // an unambiguous real override
+  });
+
+  it("keeps strict-enough tolerance for an on-grid rating -- a neighboring integer is a real override", () => {
+    expect(isAtShipped(onGridField, 88)).toBe(true);
+    expect(isAtShipped(onGridField, 87)).toBe(false);
+    expect(isAtShipped(onGridField, 89)).toBe(false);
+  });
+
+  it("keeps boolean fields strictly equal, with no tolerance", () => {
+    expect(isAtShipped(boolField, true)).toBe(true);
+    expect(isAtShipped(boolField, false)).toBe(false);
   });
 });

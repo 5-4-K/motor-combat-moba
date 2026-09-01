@@ -89,13 +89,18 @@ export class PlaygroundScene extends Phaser.Scene {
 
     this.room = room;
     this.lastTuningJson = room.state.tuningJson;
-    // Replay whatever this browser last saved (spec PG19/PG20): the setup first, then the tuning
-    // overrides on top of it. A server-side validation failure on either just leaves the room's own
-    // `onJoin` defaults standing -- the same silent-reject behaviour `evaluate`/`leaveSettings` in
-    // the overlay already rely on for a live edit.
+    // Replay whatever this browser last saved (spec PG19/PG20): TUNING first, THEN setup. Order
+    // matters here and is not interchangeable -- `PlaygroundRoom`'s `MSG_PLAYGROUND_SETUP` handler
+    // calls `applySetup`, which respawns both cars and reads their hp through `hpOf`, itself reading
+    // the module-level tuning store (`setTuning`, driven by `MSG_PLAYGROUND_TUNING`). Sending SETUP
+    // first would respawn against the still-shipped tables, so a persisted `car.*.hp` override
+    // would silently miss that spawn and only take effect after some later respawn. A server-side
+    // validation failure on either message just leaves the room's own `onJoin` defaults standing --
+    // the same silent-reject behaviour `evaluate`/`leaveSettings` in the overlay already rely on for
+    // a live edit.
     const stored = loadStored();
-    room.send(MSG_PLAYGROUND_SETUP, stored.setup);
     room.send(MSG_PLAYGROUND_TUNING, stored.overrides);
+    room.send(MSG_PLAYGROUND_SETUP, stored.setup);
 
     const onState = (): void => this.syncTuning();
     room.onStateChange(onState);
