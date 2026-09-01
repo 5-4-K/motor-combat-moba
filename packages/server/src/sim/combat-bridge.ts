@@ -42,6 +42,8 @@ export interface CombatMemory {
   instances: Map<string, WeaponInstance>;
   /** Per-player target lock. Server-only; only `targetSessionId` is projected onto the schema. */
   locks: Map<string, LockState>;
+  /** Who last damaged each player. Server-only; the schema carries only the frozen `killedBy`. */
+  lastDamagers: Map<string, string>;
 }
 
 export function newCombatMemory(): CombatMemory {
@@ -50,6 +52,7 @@ export function newCombatMemory(): CombatMemory {
     fireStates: new Map(),
     instances: new Map(),
     locks: new Map(),
+    lastDamagers: new Map(),
   };
 }
 
@@ -105,9 +108,7 @@ export function toCombatPlayers(
       // no server-only half to keep beside it — unlike `fireState` and `lock`, every field of a
       // status is networked, because the client predicts through the same modifiers.
       statuses: readStatuses(player),
-      // Kill attribution (M5-M8) is wired through this bridge in Task 6; until then this rebuilds
-      // empty every tick, same as a fresh fire state would.
-      lastDamagerSessionId: "",
+      lastDamagerSessionId: memory.lastDamagers.get(sessionId) ?? "",
     });
   });
   return players;
@@ -141,12 +142,24 @@ export function applyCombatResult(state: ArenaState, result: CombatResult, memor
   for (const p of result.players) {
     memory.fireStates.set(p.sessionId, p.fireState);
     memory.locks.set(p.sessionId, p.lock);
+    memory.lastDamagers.set(p.sessionId, p.lastDamagerSessionId);
     const player = state.players.get(p.sessionId);
     if (!player) continue;
     player.hp = p.hp;
     // Stamp the death tick on the TRANSITION only, so a car that is already dead keeps the tick it
     // died on rather than having it rewritten every tick it stays dead. The client fades from here.
-    if (player.alive && !p.alive) player.diedAtTick = state.tick;
+    //
+    // This is also the one place a kill is booked (M9). It is the only line in the codebase that
+    // detects the moment of death, so scoring anywhere else would need a second one.
+    if (player.alive && !p.alive) {
+      player.diedAtTick = state.tick;
+      player.deaths += 1;
+      player.killedBySessionId = p.lastDamagerSessionId;
+      // A killer who has since left the room gets no increment — but the victim still records who
+      // it was, so the banner names them correctly.
+      const killer = state.players.get(p.lastDamagerSessionId);
+      if (killer && killer !== player) killer.kills += 1;
+    }
     player.alive = p.alive;
     player.level = p.fireState.level;
     player.switchLockUntilTick = p.fireState.switchLockUntilTick;

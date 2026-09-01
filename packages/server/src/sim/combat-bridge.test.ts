@@ -7,6 +7,7 @@ import {
   newFireState,
   newLockState,
   weaponDamageOf,
+  type CombatPlayer,
   type CombatResult,
   type WeaponInstance,
 } from "@motor-combat-moba/shared";
@@ -476,5 +477,81 @@ describe("lock state across the bridge", () => {
     // COUNTDOWN onward, before combat has run a single tick, so a stale `lockTargetSessionId` would
     // draw a lock bracket through the whole countdown of the next match.
     expect(state.players.get("a")!.lockTargetSessionId).toBe("");
+  });
+});
+
+describe("kill booking", () => {
+  /** One entry of a `CombatResult`, matching the schema player `playerIn` created. */
+  const combatant = (sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlayer => ({
+    sessionId,
+    x: 400, y: 150, angle: 0,
+    team: 0,
+    carId: "mirage",
+    hp: hpOf("mirage"),
+    alive: true,
+    inRoster: true,
+    fireMask: 0,
+    fireState: newFireState("mirage", 1),
+    lock: newLockState(),
+    statuses: [],
+    lastDamagerSessionId: "",
+    ...over,
+  });
+
+  it("credits the killer and charges the victim on the death transition only", () => {
+    const state = new ArenaState();
+    playerIn(state, "a");
+    playerIn(state, "b");
+    const memory = newCombatMemory();
+    const wreck: CombatResult = {
+      players: [
+        combatant("a"),
+        combatant("b", { hp: 0, alive: false, lastDamagerSessionId: "a" }),
+      ],
+      instances: [],
+      instanceSeq: 0,
+    };
+
+    applyCombatResult(state, wreck, memory);
+    expect(state.players.get("a")!.kills).toBe(1);
+    expect(state.players.get("b")!.deaths).toBe(1);
+    expect(state.players.get("b")!.killedBySessionId).toBe("a");
+
+    // Still dead on the next tick. The score must not tick up for every tick spent as a wreck.
+    applyCombatResult(state, wreck, memory);
+    expect(state.players.get("a")!.kills).toBe(1);
+    expect(state.players.get("b")!.deaths).toBe(1);
+  });
+
+  it("still records the killer's id when the killer has left the room", () => {
+    const state = new ArenaState();
+    playerIn(state, "b");
+    applyCombatResult(
+      state,
+      {
+        players: [combatant("b", { hp: 0, alive: false, lastDamagerSessionId: "gone" })],
+        instances: [],
+        instanceSeq: 0,
+      },
+      newCombatMemory(),
+    );
+    expect(state.players.get("b")!.deaths).toBe(1);
+    expect(state.players.get("b")!.killedBySessionId).toBe("gone");
+  });
+
+  it("never credits a car for killing itself", () => {
+    const state = new ArenaState();
+    playerIn(state, "a");
+    applyCombatResult(
+      state,
+      {
+        players: [combatant("a", { hp: 0, alive: false, lastDamagerSessionId: "a" })],
+        instances: [],
+        instanceSeq: 0,
+      },
+      newCombatMemory(),
+    );
+    expect(state.players.get("a")!.kills).toBe(0);
+    expect(state.players.get("a")!.deaths).toBe(1);
   });
 });
