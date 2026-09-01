@@ -44,6 +44,14 @@ Build with `npm run build:release -- --port <n>` to bake in a different one. See
 | `bullseye` | Bullseye | 52 | 45 | 28 | 55 | 30 | 30 | `["shockwave", "pepperbox", "lance"]` |
 | `bastion` | Bastion | 30 | 20 | 82 | 42 | 82 | 90 | `["thumper", "roadblock", "wildcharge"]` |
 
+`isActive` is a seventh field on `CarDef`, not a rating. All three shipped cars are `true` today.
+`CarSelectScene`'s grid and `ArenaRoom`'s `MSG_SELECT_CAR`/`MSG_PREVIEW_CAR` guard both filter to
+`activeCarIds()`, so an inactive car is unreachable from a real match on either side of the wire; the
+dev-only playground (below) lists `CAR_TABLE` whole and never writes the flag, since activating a car
+is a config edit with its own doc obligations, not something a runtime sandbox should toggle.
+`config.test.ts` requires at least one active car and `DEFAULT_CAR_ID` to be among them, which is what
+keeps `carAtDeadline`'s fallback legal.
+
 `DEFAULT_CAR_ID` is `mirage` — the chassis anyone with no valid `carId` drives, so server tick and
 client prediction must agree on it.
 
@@ -658,6 +666,34 @@ delay being indefinite.
 | `reconcileSnapAngle` | 0.6 |
 | `reconcileEaseRate` | 0.25 |
 | `interpolationDelayMs` | 50 |
+
+## Tuning store (dev-only)
+
+`packages/shared/src/config/tuning.ts` (`setTuning`, PG12) and `config/tuning-walker.ts`
+(`tunableFields` / `validateTuning` / `sanitizeStoredTuning`, PG14) are a dev-only runtime override
+seam over five of the tables above — `CAR_TABLE`, `DRIVE_CONFIG`, `RAM_CONFIG`, `COMBAT_CONFIG`,
+`WEAPON_TABLE`. `setTuning(overrides)` validates every dot-path (`"car.mirage.speed"`,
+`"drive.baseTurnRate"`, `"weapon.predator.damage"`, …) against the shipped shape, restores the five
+source tables from a frozen snapshot, then writes the overrides back **in place** — object identity is
+preserved, so every existing importer (the sim, the render tables, the server) keeps reading the same
+objects with no call-site change. Only the artifacts derived once at module load —
+`CHASSIS_DRIVE`, `WEAPON_TICKS`, the ram reference pair, `RAM_DECAY` — are told to re-resolve.
+**`setTuning(null)` restores the frozen defaults by reference**: after a reset, the five tables are
+exactly the objects they were before any override was ever applied, not a copy of them.
+
+The walker enumerates the tunable surface from the tables themselves rather than a hand-written list,
+skipping identity/shape fields — `id`, `name`, `kind`, `color`, the discriminated-union tags `shape`
+and `type`, and `drive.carWidth`/`carHeight` (the OBB hitbox model, out of tuning scope). Its output
+doubles as the server's validation whitelist, so a playground UI and the validator cannot drift apart.
+
+**Never called in production.** The only two call sites in the repo are
+`packages/server/src/rooms/PlaygroundRoom.ts` and `packages/client/src/dev/PlaygroundScene.ts` —
+both dev-only, gated behind `DEV_TOOLS=1` server-side and the `?dev=playground` dev tool client-side
+(see root `CLAUDE.md`). `ArenaRoom` and every release build never call `setTuning`, so `golden.test.ts`
+and every other suite run against the untouched defaults — their staying green is the proof the seam
+is inert in production. See
+[`docs/superpowers/specs/2026-09-01-playtest-playground-design.md`](superpowers/specs/2026-09-01-playtest-playground-design.md)
+(PG12–PG17, PG20) for the full design.
 
 ## Arena selection
 

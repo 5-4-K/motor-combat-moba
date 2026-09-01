@@ -4,10 +4,10 @@ npm workspaces: `@motor-combat-moba/shared`, `@motor-combat-moba/server`, `@moto
 
 One room: `ROOM_NAME` `"arena"`, class `ArenaRoom`, `maxClients = MAX_PLAYERS` (6); a second `arena` room is rejected with `4003` so LAN stays one room. Simulation interval uses `TICK_RATE_HZ` (30); patches use `DEFAULT_PATCH_RATE_HZ` (20).
 
-**Server tick, in order.** `ArenaRoom.tick` advances `ArenaState.tick`, runs the phase machine (car-select deadline, countdown expiry), then:
+**Server tick, in order.** `ArenaRoom.tick` advances `ArenaState.tick`, runs the phase machine (car-select deadline, countdown expiry), then calls `rooms/tick-pipeline.ts`'s `runPipeline` (shared by `ArenaRoom` and the dev-only `PlaygroundRoom`), which runs:
 
 1. `serverTick(state, queues, dt, phase)` — drains each session's input queue in `seq` order, steps living on-field cars through shared `stepSim` (drive, then collision resolve), writes `{x, y, angle}` and `lastProcessedInputSeq`, and returns each session's `fireSlots` bitmask from a *simulated* input.
-2. `combatTick(dt, masks)` — maps `ArenaState` onto plain objects, runs shared `runCombat` (recharge, shots fired, shots flown, shots landed), writes HP / `alive` / per-slot weapon state and the live-instance map back, then ends the match when `livingSides` drops to one side or none.
+2. `combatTick(dt, masks)` (also in `rooms/tick-pipeline.ts`) — maps `ArenaState` onto plain objects, runs shared `runCombat` (recharge, shots fired, shots flown, shots landed), writes HP / `alive` / per-slot weapon state and the live-instance map back, then ends the match when `livingSides` drops to one side or none.
 
 Order is the rule, not an accident: combat reads the poses driving just produced. See [`combat-model.md`](combat-model.md).
 

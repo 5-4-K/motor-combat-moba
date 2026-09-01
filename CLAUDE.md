@@ -95,6 +95,7 @@ edit — see [`docs/config-reference.md`](docs/config-reference.md#drive_config)
 | Ram CC and knockback decisions (R1–R20): severity, side bonus, authority/shove/spin, the `mass` rating | [`docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md`](docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md) |
 | Status (buff/debuff) decisions: channels, re-apply rules, clamps, pulses, auras, the application seams | [`docs/superpowers/specs/2026-08-29-status-mechanism-design.md`](docs/superpowers/specs/2026-08-29-status-mechanism-design.md) |
 | FFA Deathmatch: the second win condition, kill attribution, respawn and spawn-protection lifecycle, the `isOnField`/`isSolid` split (M1–M33) | [`docs/superpowers/specs/2026-09-01-ffa-game-modes-design.md`](docs/superpowers/specs/2026-09-01-ffa-game-modes-design.md) |
+| The dev-only playtest playground: `?dev=playground`, the extracted tick pipeline, the runtime tuning store, `isActive`, the bot, persistence/export (PG1–PG23) | [`docs/superpowers/specs/2026-09-01-playtest-playground-design.md`](docs/superpowers/specs/2026-09-01-playtest-playground-design.md) |
 | The user's own idea / invariant notes | `docs/ideas/`, `docs/invariants/` — **off limits unless the user names them**, see below |
 
 ## `docs/ideas/` and `docs/invariants/` are the user's, not the agent's
@@ -267,7 +268,10 @@ the probe.
 ## Commands
 
 ```bash
-npm run dev            # shared watch + server :2567 + Vite client :5173
+npm run dev            # shared watch + server :2567 + Vite client :5173; also sets DEV_TOOLS=1
+                       #   -- http://localhost:5173/?dev=playground opens the dev-only playtest
+                       #      playground (spec: docs/superpowers/specs/2026-09-01-playtest-playground-design.md);
+                       #      needs DEV_TOOLS=1, never present in a release build
 npm run build:release  # dist-release/motor-combat-moba/ + motor-combat-moba-release.zip
                        #   -- --port <n> bakes that port into the release's .env (default 2567)
 npm run install-build  # build a release and install it into the folder named in .install-target

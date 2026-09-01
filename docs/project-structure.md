@@ -31,8 +31,11 @@ motor-combat-MOBA/
 │   │   ├── status-config.ts      # STATUS_TABLE, STATUS_CONFIG, STATUS_LIMITS, isStatusId
 │   │   ├── status-ticks.ts       # STATUS_PULSE_TICKS: ms -> ticks, derived and frozen once
 │   │   ├── arena-config.ts       # the one ACTIVE_ARENA_ID constant
-│   │   └── deathmatch-config.ts  # DEATHMATCH_CONFIG, DEATHMATCH_TICKS: match/respawn/phase timing
+│   │   ├── deathmatch-config.ts  # DEATHMATCH_CONFIG, DEATHMATCH_TICKS: match/respawn/phase timing
+│   │   ├── tuning.ts             # setTuning: dev-only runtime override store over 5 balance tables (PG12)
+│   │   └── tuning-walker.ts      # tunableFields/validateTuning/sanitizeStoredTuning (PG14)
 │   ├── schema/                   # PlayerState, StatusState, WeaponInstanceState, WeaponSlotState, ArenaState
+│   │   └── PlaygroundState.ts    # extends ArenaState: paused, controlledSessionId, botEnabled, tuningJson (PG5)
 │   ├── arena/
 │   │   ├── types.ts              # ArenaDef, Obstacle, Spawn, ArenaPalette
 │   │   ├── arena-01.ts           # first arena layout
@@ -40,6 +43,7 @@ motor-combat-MOBA/
 │   │   ├── registry.ts           # ARENAS map, ArenaId, isArenaId, getArena, ARENA_IDS
 │   │   └── art-keys.ts           # arena.<id>.<slot> namespace parser, used by client and release script
 │   ├── net/                      # InputMessage (fireSlots bitmask), lobby message names
+│   │   └── playground-messages.ts # MSG_PLAYGROUND_*, PlaygroundSetup + validator, defaultPlaygroundSetup (PG13)
 │   ├── lobby/                    # names, teams, start rules, status → view
 │   ├── flow/                     # match-flow reducer, spawn assignment, livingSides
 │   │   ├── modes.ts              # sidesOf (ffa|team), winRuleOf (last_standing|deathmatch)
@@ -68,6 +72,9 @@ motor-combat-MOBA/
 │   ├── monitor.ts
 │   ├── rooms/
 │   │   ├── ArenaRoom.ts          # the room: messages, phase machine, tick
+│   │   ├── tick-pipeline.ts      # runPipeline: statusTick→serverTick→contactTick→combatTick, shared by ArenaRoom and PlaygroundRoom (PG4)
+│   │   ├── PlaygroundRoom.ts     # dev-only room ("playground"), DEV_TOOLS=1-gated; pause/switch/tuning/setup, bot-or-alone, endless respawns
+│   │   ├── playground-bot.ts     # the synthetic client's InputMessage: chase-and-fire steering, pulsed fire mask (PG10)
 │   │   ├── flow-map.ts           # schema enums ↔ flow reducer strings
 │   │   ├── match-helpers.ts
 │   │   ├── select-next-host.ts
@@ -100,7 +107,12 @@ motor-combat-MOBA/
         │   └── car-sprite.ts      # the resolution chain ArenaScene and the tuning tool share
         ├── dev/                   # stripped from release builds, asserted by build-release.mjs
         │   ├── registry.ts        # ?dev=<id> → dynamic import, one guard for the whole suite
-        │   └── AssetTuningScene.ts
+        │   ├── AssetTuningScene.ts
+        │   ├── PlaygroundScene.ts # ?dev=playground: joins the "playground" room, launches ArenaScene, mounts the overlay (PG2)
+        │   └── playground/
+        │       ├── overlay.ts     # DOM pause menu + settings shell (untested; wires the pure modules below onto the panel)
+        │       ├── ui-model.ts    # pure derivations: view state, auto-generated sliders from tunableFields (PG14, PG19)
+        │       └── storage.ts     # localStorage codec under "motor-combat.playground.v1" (PG20)
         ├── net/
         │   ├── connection.ts
         │   ├── prediction.ts     # predict + reconcile-by-replay
@@ -109,6 +121,7 @@ motor-combat-MOBA/
         │   └── view.ts           # status + phase → scene
         ├── scenes/
         │   ├── {Boot,Join,Lobby,CarSelect,Arena,Results}Scene.ts
+        │   ├── controlled-car.ts # controlledCarOf/isPlaygroundPaused: which car to drive, whether the sim is frozen — resolves to the real match answer on a base ArenaState (PG7, PG9)
         │   ├── arena-camera.ts   # whether the arena fits the view, so the camera need not scroll
         │   ├── arena-input.ts    # sim-clock input drain, axis folding
         │   ├── arena-mismatch.ts # builds the mismatch message string (pure, testable)

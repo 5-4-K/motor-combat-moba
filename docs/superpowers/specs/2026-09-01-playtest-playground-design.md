@@ -1,7 +1,7 @@
 # Motor Combat MOBA — Playtest Playground Design
 
 **Designed:** 2026-09-01 · **Recorded in repo:** 2026-09-01
-**Status:** Approved, not yet implemented.
+**Status:** Implemented.
 **Builds on:** [`2026-09-01-ffa-game-modes-design.md`](2026-09-01-ffa-game-modes-design.md) (whose
 respawn/spawn-protection machinery this reuses) and
 [`2026-08-29-status-mechanism-design.md`](2026-08-29-status-mechanism-design.md).

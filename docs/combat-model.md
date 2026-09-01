@@ -7,7 +7,8 @@ the knobs, not copies of them. See [`config-reference.md`](config-reference.md) 
 ## Where combat runs
 
 `runCombat` in `packages/shared/src/sim/combat.ts` is the whole step, pure and over plain objects.
-The server calls it once per tick from `ArenaRoom.combatTick`, **after** `serverTick` has driven and
+The server calls it once per tick from `rooms/tick-pipeline.ts`'s `combatTick` (called by `runPipeline`,
+shared by `ArenaRoom` and the dev-only `PlaygroundRoom`), **after** `serverTick` has driven and
 resolved every car, so hit tests read the poses cars actually ended the tick at.
 `packages/server/src/sim/combat-bridge.ts` is the only file that knows about the Colyseus schema; it
 maps `ArenaState` onto the POJOs and writes the answer back. No rules live there.
@@ -18,10 +19,11 @@ dead for 80 ms". Prediction covers the local car's motion and nothing else.
 
 ## Ramming
 
-Ram is a separate pass, not part of `combatTick`: `ArenaRoom.tick` runs `serverTick` (drive), then
-`ramTick` (`packages/server/src/sim/ram-bridge.ts`), then `combatTick`. `ramTick` maps `ArenaState`
-onto plain `RamCar`s and calls `applyRams`, the pure step in `packages/shared/src/sim/ram.ts` — no
-schema, no room. Running between the two means ram detection reads the poses driving actually
+Ram is a separate pass, not part of `combatTick`: `rooms/tick-pipeline.ts`'s `runPipeline` runs
+`serverTick` (drive), then `contactTick` (`packages/server/src/sim/ram-bridge.ts`), then `combatTick`.
+`contactTick` maps `ArenaState` onto plain `RamCar`s and calls `applyRams`, the pure step in
+`packages/shared/src/sim/ram.ts` — no schema, no room. Running between the two means ram detection
+reads the poses driving actually
 produced this tick, and the knock it writes is what `stepDrive` reads on the next one. Ram is
 server-only, like combat, and the client never computes an authoritative outcome — it does run its
 own local contact check against remote hulls to fire a camera shake and impact spark immediately,
@@ -708,7 +710,7 @@ remaining waves (`cancelPending`).
 
 ### Per-tick order
 
-    statusTick (expire, derive modifiers) -> serverTick (drive) -> ramTick -> combatTick
+    statusTick (expire, derive modifiers) -> serverTick (drive) -> contactTick -> combatTick
 
 Expiry runs **first**, before anything reads a modifier, so no two phases can disagree about whether
 a car is still slowed and no tick ever simulates a status whose last tick was the previous one.
