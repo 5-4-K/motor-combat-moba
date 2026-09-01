@@ -204,7 +204,14 @@ function angledPointBlank(): void {
     // Its damage rides the contact pass, which fires on contact ENTRY: hulls parked flush give a
     // dash no edge to enter on, and a stationary charge slams nobody, so both would read as a
     // point-blank miss here while working exactly as authored (thunderclap 22/24, wildcharge
-    // 24/24 when this swept them).
+    // 24/24 when this last swept them).
+    //
+    // The 22/24 was ALSO a real bug for a while, and is no longer: a dash covering 53.3u per tick
+    // teleported clean through its target and was ejected sideways by the MTV resolver. Fixed
+    // 2026-09-02 by substepping the dash translation (`docs/superpowers/specs/
+    // 2026-09-02-dash-substepping-design.md`). That fix does not change this row's verdict — a car
+    // that starts flush still has no contact edge to enter on, whatever its travel per check — so
+    // the skip below stands on its own reasoning, not on the old number.
     if (WEAPON_TABLE[id].kind === "maneuver") {
       rows.push(`${id.padEnd(11)} KNOWN-BY-DESIGN — no muzzle: a maneuver damages through the contact pass, not a spawned shot`);
       continue;
