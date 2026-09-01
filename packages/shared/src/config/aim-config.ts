@@ -13,7 +13,7 @@ import { msToTicks } from "./weapon-ticks.js";
  *
  * **What the two region bounds are for.** Neither survives alone in this arena.
  * A pure cone's half-width scales with distance -- at 20 degrees that is 0.36x, so 327 units at
- * shockwave's 900 unit range, a 654 unit wide region inside a 1280 unit wide arena.
+ * magmablast's 900 unit range, a 654 unit wide region inside a 1280 unit wide arena.
  * A pure lateral lane has the mirror-image flaw: its ANGULAR width collapses with distance and
  * explodes near the car, so a 120 unit lane accepts a target 13 units ahead sitting 83 degrees off
  * the nose. Cars still collide and brawl at contact range, so cars spend much of a match at exactly
@@ -31,9 +31,9 @@ export const AIM_CONFIG = {
    * any weapon's `range` (A3).
    *
    * The lock aims where the target IS, with no lead. Displacement during flight is
-   * `(targetSpeed / projectileSpeed) * distance`; at mirage's 576 top speed over shockwave's 900
+   * `(targetSpeed / projectileSpeed) * distance`; at mirage's 576 top speed over magmablast's 900
    * that is `0.64 * distance` against a tolerance of about 28 units (half a car's 32 unit width plus
-   * shockwave's 12 unit hitbox), so a full-speed crosser is only hittable inside roughly 44 units.
+   * magmablast's 12 unit hitbox), so a full-speed crosser is only hittable inside roughly 44 units.
    * Inheriting a 900 unit weapon range would make the far half of every lock acquire reliably and
    * miss reliably -- a strong-looking snap that whiffs, which reads as a broken system rather than
    * as a skill boundary.
@@ -76,7 +76,7 @@ export const AIM_CONFIG = {
    * never blanks for a frame. What lapses is the steal margin and the commit timer, so the next
    * evaluation simply picks the best-scoring target. That is what splits weapons into two classes --
    * faster than `1000 / lockTimeoutMs` holds locks and the margin governs; slower re-picks the best
-   * target every shot. 800 ms puts the cliff at 1.25 Hz, clear of `shockwave`'s 1.67 Hz -- the
+   * target every shot. 800 ms puts the cliff at 1.25 Hz, clear of `magmablast`'s 1.67 Hz -- the
    * fastest aim-assisted weapon in the roster today. At the 600 ms this was first drafted at, the
    * cliff sat at 1.67 Hz and the only shipped weapon landed inside the unstable band its own guard
    * test rejects.

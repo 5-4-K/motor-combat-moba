@@ -227,7 +227,7 @@ function lockThroughWall(): void {
     "ffa",
     "arena-02",
   );
-  const bit = slotBitFor("bullseye", "shockwave");
+  const bit = slotBitFor("bullseye", "magmablast");
   let lockedTicks = 0;
   for (let i = 0; i < 120; i++) {
     w.input("s", { fireSlots: bit });
@@ -284,10 +284,10 @@ function beamInWall(): void {
       for (const inst of w.instances()) maxExtent = Math.max(maxExtent, inst.extent);
     }
     const dealt = hp0 - w.get("t").hp;
-    if (dealt > 0 && id !== "shockwave") leak = true;
+    if (dealt > 0 && id !== "magmablast") leak = true;
     rows.push(
       `${id.padEnd(11)} muzzle inside the block: max extent ${maxExtent.toFixed(0)}u, ` +
-        `damage to the car on the far side ${dealt} ${dealt > 0 ? (id === "shockwave" ? "(disc — passes through by design)" : "<- THROUGH THE WALL") : ""}`,
+        `damage to the car on the far side ${dealt} ${dealt > 0 ? (id === "magmablast" ? "(disc — passes through by design)" : "<- THROUGH THE WALL") : ""}`,
     );
   }
   report("G6. Beam fired with its muzzle buried in level geometry", leak ? "FINDING" : "OK", rows.join("\n"));

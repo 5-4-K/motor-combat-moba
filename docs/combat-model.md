@@ -160,14 +160,15 @@ its chassis's **type**:
 
 | Chassis | Type | Slot 1 | Slot 2 | Slot 3 |
 |---|---|---|---|---|
-| **Bullseye** | moderate damage, long range | `shockwave` | `pepperbox` | `lance` |
+| **Bullseye** | moderate damage, long range | `magmablast` | `pepperbox` | `lance` |
 | **Mirage** | burst damage, high mobility | `predator` | `thunderclap` | `afterburner` |
 | **Bastion** | crowd control, slow and tanky | `thumper` | `roadblock` | `wildcharge` |
 
 `fireball`, `needler`, `skewer` and `bulwark` were retired outright by the 2026-09-01 overhaul; their
 ids are gone from `WeaponId` and their comment history lives in git rather than here. `shockwave`
-survives as an id but not as the weapon it named — it lost its aura identity and is now a plain
-single-volley dart on Bullseye's slot 1 (see [Auras](#auras-dormant-machinery) below).
+survived that overhaul as an id but not as the weapon it named — it lost its aura identity for a
+plain single-volley dart on Bullseye's slot 1 (see [Auras](#auras-dormant-machinery) below) — before
+being renamed again to `magmablast`, its current id, alongside its display name.
 
 No weapon id appears on two chassis (L1), and `weapon-slots.test.ts` enforces that — so moving a
 weapon between chassis means swapping a pair, never copying one. See
@@ -369,8 +370,8 @@ do not reach, exactly:
 - **Beam growth, clamping, attached re-anchoring/re-clipping, and expiry on `flight + lifetime`** are
   all real in play now — both shipped beams grow, clip against walls, and follow their owner the way
   `weapons/instances.test.ts` describes. That suite hand-builds a synthetic `kind: "beam"` instance
-  over `shockwave`'s row (900 u/s across a 900-unit range — the flight profile the retired `fireball`
-  shipped and `shockwave` inherited) rather than driving a real beam id through it, and because that
+  over `magmablast`'s row (900 u/s across a 900-unit range — the flight profile the retired `fireball`
+  shipped and `magmablast` inherited) rather than driving a real beam id through it, and because that
   borrowed row's `lifetimeMs` is 0, the expiry test still asserts `flight` alone: **no test exercises
   a non-zero linger**, even though both shipped beams have one (1500–2000 ms).
 - **Volleys.** No longer covered by a real row. `weapons/fire.test.ts`'s "volleys and wind-up" block
@@ -384,13 +385,13 @@ do not reach, exactly:
   illustrated only in prose.
 - **The pellet fan.** Still only partially reached: `fanOffset` itself is tested directly and
   correctly, but `spawnInstances` — the function that actually turns `pelletsPerVolley` into multiple
-  live instances — is still only ever driven with a synthetic def spread from `shockwave`'s numbers
+  live instances — is still only ever driven with a synthetic def spread from `magmablast`'s numbers
   (carrying the retired `needler`'s numeric shape) in `weapons/instances.test.ts`. No test calls
   `spawnInstances` with `pepperbox` to prove the wiring from its `pelletsPerVolley: 3` and four
   muzzles through to twelve emitted pellets.
 - **Pierce.** Also only partially reached: `hits.test.ts` tests the pierce-spending mechanism by
   hand-setting `pierceLeft` on a generic instance, and `instances.test.ts`'s only assertion that
-  `spawnInstances` carries a weapon's `pierce` onto `pierceLeft` uses `shockwave` (`pierce: 0`). No
+  `spawnInstances` carries a weapon's `pierce` onto `pierceLeft` uses `magmablast` (`pierce: 0`). No
   test derives `pierceLeft` from `roadblock`'s real `pierce: 4` end to end.
 - **`damageFrequencyMs > 0`, the re-arming per-target clock.** Still genuinely uncovered, and now down
   to one shipped example: `afterburner` (500 ms) ships it and re-ticks a target still standing in the
@@ -404,7 +405,7 @@ do not reach, exactly:
   behaviour) keeps its hand-built coverage in `fire.test.ts` alone, while no shipped row banks stocks.
 - **Drawing.** `instanceDrawShape`'s beam branch runs on every screen now — either shipped beam
   reaches it in a live match. The client-side unit test in `combat-visual.test.ts` exercises that
-  branch through a synthetic "claiming beam" fixture built over `shockwave`'s numbers (a circular
+  branch through a synthetic "claiming beam" fixture built over `magmablast`'s numbers (a circular
   projectile flagged as a beam, so the test proves the branch reads the definition rather than a
   stale row byte) rather than a real beam weapon id, so it is covered by mechanism but not by a real
   def; `beamShapeAt`'s own rect and cone geometry is covered in `weapons/shapes.test.ts` regardless.
@@ -446,7 +447,7 @@ and re-testing its full reach every tick already covers it.
 ### Pierce and per-target damage clocks
 
 `pierce` is an integer, and counts **cars only**: `0` destroys a projectile on the first car it
-damages (`shockwave`'s value today), `4` damages up to five cars before dying (`roadblock`'s value,
+damages (`magmablast`'s value today), `4` damages up to five cars before dying (`roadblock`'s value,
 reaching every possible opponent in a full six-player match). Teammates and wrecks
 are not contacts at all — a shot passes through them freely and they consume no pierce, which falls
 out of `canDamage` below. Walls, obstacles and the arena edge destroy a projectile regardless of
@@ -576,7 +577,7 @@ you find out which:
 | `config/weapon-config.test.ts` | "keeps aim-assist weapons off the behavioural cliff" — every `usesAimAssist` weapon's `cooldownMs` must stay outside ±15% of `1000 / AIM_CONFIG.lockTimeoutMs`; `thumper`'s row is the named example of a value (900 ms) that was first drafted inside the forbidden band and had to move |
 | `config/weapon-ticks.test.ts` | Pins the tick counts derived from them (`cooldown`, `flight`) |
 | `sim/weapons/fire.test.ts` | Simulates recharge tick-by-tick across a hard-coded window; `lance`'s real `startUpMs`/`recoveryMs` are driven end to end here |
-| `sim/weapons/instances.test.ts` | Beam tests borrow `weaponId: "shockwave"` for its range rather than a real beam row — see the coverage list above |
+| `sim/weapons/instances.test.ts` | Beam tests borrow `weaponId: "magmablast"` for its range rather than a real beam row — see the coverage list above |
 | `sim/combat.test.ts` | The `50.5` offset is derived from `predator`'s capsule hitbox (`radiusAlong: 14`) — only if you change that hitbox |
 
 That last one is the subtle case: `50.5` places the two hulls 2.5 units apart, which must stay
@@ -681,7 +682,7 @@ back up, held exactly while a car stands in it:
 | `overhauled` | nothing — the pickup row | — | — |
 | `armored` | nothing — the pickup row beside `overhauled` | — | — |
 
-**Bullseye applies nothing at all.** All three of its weapons — `shockwave`, `pepperbox`, `lance` —
+**Bullseye applies nothing at all.** All three of its weapons — `magmablast`, `pepperbox`, `lance` —
 carry no `applies` entry; the skirmisher's kit is pure damage, same as before the overhaul.
 
 **Hard CC no longer belongs to one chassis.** Before the 2026-09-01 overhaul, `stunned` moved from
@@ -833,12 +834,13 @@ lingers, and already re-applies on the per-target damage clock. Three things are
 An aura aimed at opponents needs **no change to `canDamage`** — it already refuses the owner, so a car
 never touches its own field.
 
-**`shockwave` was the shipped aura, and it no longer is.** From 2026-08-30 it was Mirage's slot 2: a
-140° forward cone widened to a 360° ring at 150-unit radius, reaching behind the car as well, and the
-table's only multi-wave row — one press scheduled three separate aura instances 500 ms apart, 45
-damage each, catching the same car up to three times because `damageFrequencyMs: 0` arms per
-instance. The 2026-09-01 weapon-status overhaul retired that identity outright: `shockwave` is now a
-plain single-volley projectile dart on **Bullseye's** slot 1 (see the [kit table](#weapon) above), and
+**`magmablast` (as `shockwave`) was the shipped aura, and it no longer is.** From 2026-08-30 it was
+Mirage's slot 2: a 140° forward cone widened to a 360° ring at 150-unit radius, reaching behind the
+car as well, and the table's only multi-wave row — one press scheduled three separate aura instances
+500 ms apart, 45 damage each, catching the same car up to three times because `damageFrequencyMs: 0`
+arms per instance. The 2026-09-01 weapon-status overhaul retired that identity outright: the row is
+now a plain single-volley projectile dart on **Bullseye's** slot 1 (see the [kit table](#weapon)
+above), and
 no row in the current `WEAPON_TABLE` uses a `disc` hitbox. Everything above this paragraph is real,
 unit-tested code with no weapon currently driving it — the geometry, the wall-pass rule and the ring
 render all stay in place for whichever future row (or pickup) picks a `disc` hitbox back up.
@@ -1061,8 +1063,9 @@ Two chassis slots carry a beam today (`afterburner`, `lance`) and one projectile
 (`pepperbox`, four muzzles), so the beam half of the drawing code above still runs in every live match:
 `instanceDrawShape` branches on the weapon definition's own `kind`, and a `beam` definition is
 reachable the moment either fires. The 2026-09-01 overhaul retired two beams from this list —
-`shockwave` (now a plain projectile) and `bulwark` outright — and with them the roster's one
-multi-wave beam press; see [Auras (dormant machinery)](#auras-dormant-machinery) above.
+`magmablast` (formerly `shockwave`, now a plain projectile) and `bulwark` outright — and with them
+the roster's one multi-wave beam press; see [Auras (dormant machinery)](#auras-dormant-machinery)
+above.
 
 **Every live instance draws below every car** (`SHOT_DEPTH`, under `CAR_DEPTH`) — one rule for
 projectiles and beams alike, so parking inside your own beam never hides you under it. The

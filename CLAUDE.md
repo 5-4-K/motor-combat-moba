@@ -15,10 +15,11 @@ pickups) — and never stacks with itself. Hard CC no longer belongs to one chas
 
 An **aura** is a beam with a `disc` hitbox at `origin: "center"` — a field around a car rather than a
 line of fire. It shipped once, as `shockwave` on Mirage's slot 2, but the 2026-09-01 overhaul retired
-that weapon's aura identity: `shockwave` is now a plain single-volley dart on **Bullseye's** slot 1,
-and no row in the roster uses a `disc` hitbox any more. The mechanism — and the multi-wave `VolleyDef`
-machinery that rode alongside it — is **dormant, not deleted**: the render and hit-test code stays
-live and unit-tested, waiting for the next weapon or pickup to reach it.
+that weapon's aura identity: the row is now a plain single-volley dart on **Bullseye's** slot 1,
+renamed `magmablast` alongside its display name, and no row in the roster uses a `disc` hitbox any
+more. The mechanism — and the multi-wave `VolleyDef` machinery that rode alongside it — is **dormant,
+not deleted**: the render and hit-test code stays live and unit-tested, waiting for the next weapon
+or pickup to reach it.
 
 **The `GameMode` enum now has two FFA win conditions**, not one. `FFA_LAST_STANDING` (the renamed
 original — wire value still `0`) ends the match when `livingSides` drops to one side; `FFA_DEATHMATCH`
@@ -337,12 +338,12 @@ sprite that still carries colour, an icon whose colour has drifted from its `WEA
 `scripts/check-art.test.mjs` runs the blockers as part of `npm test`, so a save that dropped the
 alpha fails the suite instead of reaching the HUD as an opaque square. **Warnings never fail the
 suite** — an icon is allowed more than one colour, and only a person looking at the screen can say
-whether a pair reads as one weapon. The 2026-09-01 weapon-status overhaul left `npm run check:weapons`
-warning on six of the nine rows, and none of it is a docs problem — it is unimported icon art, tracked
-separately: `predator`, `thunderclap`, `roadblock` and `wildcharge` have no manifest row yet and fall
-back to the procedural glyph, and `shockwave` kept its old aura-era icon, whose colour no longer
-matches the row it now draws (distance 153). `afterburner`, `pepperbox`, `lance` and `thumper` read
-`ok`.
+whether a pair reads as one weapon. `npm run check:weapons` warns on four of the ten rows today —
+`thunderclap`, `roadblock`, `wildcharge` and `tremor` have no manifest row yet and fall back to the
+procedural glyph. `predator`, `afterburner`, `magmablast`, `pepperbox`, `lance` and `thumper` all read
+`ok`; `magmablast` (renamed from `shockwave`, and reskinned from a navy dart to a fire orange/red
+icon) sits closest to the warning threshold, since its `WEAPON_TABLE.color` is still the old navy
+`#22579E` — a `color` edit nobody has made yet, not a bug in the check.
 
 One pairing nothing enforces: a weapon's icon and its `WEAPON_TABLE.color` are meant to read as the
 same weapon, but icons ship `colorMode: "none"` and no typed reference ties the two together. Either

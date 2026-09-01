@@ -2,7 +2,7 @@ import type { StatusId } from "./status-types.js";
 
 /** Every weapon in the game. Add an id here and a row in `WEAPON_TABLE`. */
 export type WeaponId =
-  | "shockwave"
+  | "magmablast"
   | "pepperbox"
   | "lance"
   | "predator"

@@ -66,8 +66,9 @@ roster's one `isUnInterruptable: true` row. See
 An **aura** is a beam with a `disc` hitbox at `origin: "center"`. It reuses `WorldShape`'s circle arm,
 so the hit test needed no new geometry, and it needs no change to `canDamage` — that already refuses
 the owner. `shockwave` shipped as the one aura, on the old Mirage slot 2, but the 2026-09-01 overhaul
-gave it a plain single-volley-dart identity on **Bullseye's** slot 1 instead — no row in the current
-`WEAPON_TABLE` uses a `disc` hitbox. The aura is **dormant machinery**: the geometry and hit-test path
+gave it a plain single-volley-dart identity on **Bullseye's** slot 1 instead — later renamed
+`magmablast` alongside its display name. No row in the current `WEAPON_TABLE` uses a `disc` hitbox.
+The aura is **dormant machinery**: the geometry and hit-test path
 stay live and covered by generic unit tests, just not exercised by a real weapon until one ships
 again.
 

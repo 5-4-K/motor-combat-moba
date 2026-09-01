@@ -272,7 +272,7 @@ function damageAfterDeath(): void {
     { id: "shooter", carId: "bullseye", x: 200, y: 360, angle: 0 },
     { id: "target", carId: "bullseye", x: 500, y: 360, angle: 0, hp: 40 },
   ]);
-  const bit = slotBitFor("bullseye", "shockwave");
+  const bit = slotBitFor("bullseye", "magmablast");
   let hpBelowZero = false;
   let deadTookDamage = false;
   let deadAt = -1;
@@ -492,7 +492,7 @@ function auraThroughWall(): void {
     "ffa",
     "arena-02",
   );
-  const bit = slotBitFor("bullseye", "shockwave");
+  const bit = slotBitFor("bullseye", "magmablast");
   const startHp = w.get("victim").hp;
   // 3 waves x (500ms spacing) + the third wave's own 250ms life == 1.25s == ~38 ticks; run 45 to
   // give the whole cycle margin.
@@ -577,7 +577,7 @@ function beamOwnerDeath(): void {
     { id: "killer", carId: "bullseye", x: 600, y: 200, angle: Math.PI / 2, team: 0 },
   ]);
   const abBit = slotBitFor("mirage", "afterburner");
-  const spBit = slotBitFor("bullseye", "shockwave");
+  const spBit = slotBitFor("bullseye", "magmablast");
   let beamAfterDeath = 0;
   let burnerDeadAt = -1;
   for (let i = 0; i < 90; i++) {

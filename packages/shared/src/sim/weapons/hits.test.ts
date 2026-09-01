@@ -18,7 +18,7 @@ const snapshot = (
 
 function shotFrom(x: number, y: number, angle = 0, team: 0 | 1 = 0, carId = "mirage"): WeaponInstance {
   return spawnInstances(
-    { weaponId: "shockwave", slot: 0, finalVolley: true },
+    { weaponId: "magmablast", slot: 0, finalVolley: true },
     { sessionId: "aaa", team, carId, x, y, angle },
     100,
     0,
@@ -37,11 +37,11 @@ describe("hit resolution", () => {
       homingTarget: null,
     });
     const out = resolveInstanceHits(moved, shot, snapshot([{ sessionId: "bbb", x: 434, y: 300 }]), "ffa", 101);
-    expect(out.damaged).toEqual([{ sessionId: "bbb", amount: weaponDamageOf("mirage", "shockwave") }]);
+    expect(out.damaged).toEqual([{ sessionId: "bbb", amount: weaponDamageOf("mirage", "magmablast") }]);
   });
 
   it("uses the damage frozen on the instance, not the weapon table's own number", () => {
-    // The whole point of freezing at spawn: a bullseye's shockwave scales off bullseye's own attack
+    // The whole point of freezing at spawn: a bullseye's magmablast scales off bullseye's own attack
     // rating (55, not the table's raw 22), and hits.ts learns that from the instance rather than by
     // looking the owner up.
     const shot = shotFrom(400, 300, 0, 0, "bullseye");
@@ -55,7 +55,7 @@ describe("hit resolution", () => {
     });
     const out = resolveInstanceHits(moved, shot, snapshot([{ sessionId: "bbb", x: 434, y: 300 }]), "ffa", 101);
     expect(out.damaged).toEqual([{ sessionId: "bbb", amount: 23 }]);
-    expect(out.damaged[0]!.amount).not.toBe(WEAPON_TABLE.shockwave.damage);
+    expect(out.damaged[0]!.amount).not.toBe(WEAPON_TABLE.magmablast.damage);
   });
 
   it("never damages the shooter", () => {
@@ -130,7 +130,7 @@ describe("hit resolution", () => {
       { sessionId: "ccc", team: 0, x: 424, y: 300 }, // enemy: must still be damaged
     ]);
     const out = resolveInstanceHits(shot, shot, mixed, "team", 100);
-    expect(out.damaged).toEqual([{ sessionId: "ccc", amount: weaponDamageOf("mirage", "shockwave") }]);
+    expect(out.damaged).toEqual([{ sessionId: "ccc", amount: weaponDamageOf("mirage", "magmablast") }]);
   });
 });
 

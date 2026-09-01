@@ -19,8 +19,8 @@ describe("msToTicks", () => {
 });
 
 describe("WEAPON_TICKS", () => {
-  it("derives shockwave's clocks from its milliseconds", () => {
-    const ticks = weaponTicksOf("shockwave");
+  it("derives magmablast's clocks from its milliseconds", () => {
+    const ticks = weaponTicksOf("magmablast");
     // 600ms at 30Hz is exactly 18 ticks.
     expect(ticks.cooldown).toBe(18);
     expect(ticks.startUp).toBe(0);
@@ -30,11 +30,11 @@ describe("WEAPON_TICKS", () => {
 
   it("derives flight ticks from range and speed", () => {
     // 900 units at 900 u/s = 1s = 30 ticks.
-    expect(weaponTicksOf("shockwave").flight).toBe(30);
+    expect(weaponTicksOf("magmablast").flight).toBe(30);
   });
 
   it("maps damageFrequencyMs 0 to Infinity, meaning one hit per target ever", () => {
-    expect(weaponTicksOf("shockwave").damageInterval).toBe(Number.POSITIVE_INFINITY);
+    expect(weaponTicksOf("magmablast").damageInterval).toBe(Number.POSITIVE_INFINITY);
   });
 
   it("derives the roster's new-mechanic clocks for the rows that carry them (spec 2026-09-01)", () => {

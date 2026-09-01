@@ -126,15 +126,16 @@ export const WEAPON_TABLE = {
     applies: [{ statusId: "overheated", target: "opponents", durationMs: 1500 }],
   },
   /**
-   * Bullseye's slot 1 — the id survives from the retired Mirage aura, the weapon does not (O16/O17).
+   * Bullseye's slot 1 — this row's weapon is not the retired Mirage aura (O16/O17); it briefly kept
+   * that aura's `shockwave` id before being renamed to `magmablast` alongside its display name.
    * Fireball's flight profile carrying needler's output: 22 per 600 ms is needler's old 37
    * sustained DPS, the skirmisher's clean pressure slot. 1.67 Hz sits 33% clear of the 1.25 Hz
    * aim-assist cliff.
    */
-  shockwave: {
-    id: "shockwave",
+  magmablast: {
+    id: "magmablast",
     kind: "projectile",
-    name: "Shockwave",
+    name: "Magma Blast",
     color: "#22579E", // needler's navy — Bullseye's palette
     unlocksAt: 1,
     damage: 22,

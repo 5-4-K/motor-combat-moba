@@ -98,9 +98,9 @@ describe("projectile markings", () => {
 
   it("returns nothing for a beam, a round projectile, or an unknown id", () => {
     // Each of these has another table that owns it; two tables answering for one weapon would draw
-    // it twice. `lance` is a beam, `shockwave` is a circle with a `GlowStyle` (empty today, but the
+    // it twice. `lance` is a beam, `magmablast` is a circle with a `GlowStyle` (empty today, but the
     // table it belongs to regardless).
-    for (const id of ["lance", "shockwave"] as WeaponId[]) {
+    for (const id of ["lance", "magmablast"] as WeaponId[]) {
       expect(projectileDrawLayers(instanceAt(id, 0.5), 0)).toEqual([]);
     }
     expect(

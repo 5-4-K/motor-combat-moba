@@ -24,8 +24,9 @@ An **aura** (a `disc`-hitbox beam at `origin: "center"`) is the one instance too
 drawn as a ring plus a low-alpha wash by the branch above the circle case in `renderShots`, because a
 filled 150-unit disc would hide the cars it is about to hit. The ring still sits exactly on the
 hitbox, so "what you see is what will hit you" survives. This is **dormant machinery** since the
-2026-09-01 roster cutover: `shockwave` carried the one shipped aura and no longer does (it is now a
-plain projectile dart on Bullseye's slot 1), so no weapon reaches this branch in a real match today —
+2026-09-01 roster cutover: `shockwave` carried the one shipped aura and no longer does (the row is now
+a plain projectile dart on Bullseye's slot 1, since renamed `magmablast`), so no weapon reaches this
+branch in a real match today —
 the draw path stays in place for whichever row picks a `disc` hitbox next.
 
 `?debug=1` draws the car OBB hitbox.
@@ -42,13 +43,14 @@ and white — matching the HUD icons, which are themed the same way. So the thre
 deliberately look alike, told apart by silhouette instead (a lobbed ball, a spread of pellets, a
 1200-unit beam). **That convergence is the design, not a defect**, and colour is spent on the question
 "who is shooting at me". Every colour in `WEAPON_TABLE` and in the three style tables below is meant
-to trace to its weapon's icon, and `npm run check:weapons` reports the distance — but the 2026-09-01
-weapon-status overhaul outran the icon art: `predator`, `thunderclap`, `roadblock` and `wildcharge`
-have no manifest row yet (procedural glyph fallback) and `shockwave` kept its old aura-era icon, whose
-colour no longer matches the row (distance 153). `afterburner`, `pepperbox`, `lance` and `thumper`
-read `ok` today. `lance`'s white core is the one deliberate departure — white otherwise reads as
-Bastion, but a 1200-unit beam is the only shot big enough to carry a third layer. Do not "separate"
-these palettes without saying so first.
+to trace to its weapon's icon, and `npm run check:weapons` reports the distance. `thunderclap`,
+`roadblock`, `wildcharge` and `tremor` have no manifest row yet (procedural glyph fallback);
+`predator`, `afterburner`, `magmablast`, `pepperbox`, `lance` and `thumper` all read `ok` today.
+`magmablast` (renamed from `shockwave`, and reskinned from its old navy dart icon to a fire
+orange/red one) sits closest to the warning threshold: its `WEAPON_TABLE.color` is still the old navy
+`#22579E`, a `color` edit nobody has made yet. `lance`'s white core is the one deliberate departure —
+white otherwise reads as Bastion, but a 1200-unit beam is the only shot big enough to carry a third
+layer. Do not "separate" these palettes without saying so first.
 
 Three tables own how a shot looks, split by what the weapon's hitbox is, and each returns `[]` for a
 weapon it does not own so the flat `weaponFillOf` fill stays the fallback: `WEAPON_GLOW_STYLES`

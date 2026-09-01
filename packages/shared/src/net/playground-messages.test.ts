@@ -43,7 +43,7 @@ describe("isPlaygroundSetup", () => {
   const valid = (): PlaygroundSetup => ({
     botEnabled: true,
     arenaId: "arena-01",
-    me: { carId: "bullseye", weapons: ["shockwave", "pepperbox", "lance"] },
+    me: { carId: "bullseye", weapons: ["magmablast", "pepperbox", "lance"] },
     opponent: { carId: "bastion", weapons: ["thumper", "roadblock", "wildcharge"] },
   });
 

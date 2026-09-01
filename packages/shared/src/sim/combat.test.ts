@@ -210,8 +210,8 @@ describe("firing", () => {
       ownerSessionId: "aaa",
       ownerTeam: 0,
       finalWave: true,
-      damage: weaponDamageOf("mirage", "shockwave"),
-      weaponId: "shockwave",
+      damage: weaponDamageOf("mirage", "magmablast"),
+      weaponId: "magmablast",
       kind: "beam",
       x: 300,
       y: OPEN_Y,
@@ -293,8 +293,8 @@ describe("shots in flight", () => {
     ownerSessionId: "a",
     ownerTeam: 0,
     finalWave: true,
-    damage: weaponDamageOf("mirage", "shockwave"),
-    weaponId: "shockwave",
+    damage: weaponDamageOf("mirage", "magmablast"),
+    weaponId: "magmablast",
     kind: "projectile",
     x: 400,
     y: OPEN_Y,
@@ -315,17 +315,17 @@ describe("shots in flight", () => {
 
   it("advances a shot by one tick of travel", () => {
     const result = run({ instances: [flying()] });
-    expect(result.instances[0]!.x).toBeCloseTo(400 + WEAPON_TABLE.shockwave.speed * DT, 6);
+    expect(result.instances[0]!.x).toBeCloseTo(400 + WEAPON_TABLE.magmablast.speed * DT, 6);
   });
 
   it("drops a shot that has outlived its range", () => {
-    const result = run({ instances: [flying({ distance: WEAPON_TABLE.shockwave.range })] });
+    const result = run({ instances: [flying({ distance: WEAPON_TABLE.magmablast.range })] });
     expect(result.instances).toHaveLength(0);
   });
 
   it("drops a shot that flies into an obstacle", () => {
     const box = TEST_BOX;
-    const justShort = box.x - WEAPON_TABLE.shockwave.speed * DT + 1;
+    const justShort = box.x - WEAPON_TABLE.magmablast.speed * DT + 1;
     const result = run({
       world: world({ obstacles: [box] }),
       instances: [flying({ x: justShort, y: box.y + box.h / 2 })],
@@ -355,7 +355,7 @@ describe("shots in flight", () => {
   it("drops a shot that lands exactly on the arena edge, as a beam clips there", () => {
     // One spelling of one rule: `pointOutsideBounds` is inclusive on every edge, so a projectile on
     // the boundary is out exactly where `wallClipDistance` already stopped a beam.
-    const result = run({ instances: [flying({ x: ARENA_01.width - WEAPON_TABLE.shockwave.speed * DT })] });
+    const result = run({ instances: [flying({ x: ARENA_01.width - WEAPON_TABLE.magmablast.speed * DT })] });
     expect(result.instances).toHaveLength(0);
   });
 });
@@ -368,10 +368,10 @@ describe("shots landing", () => {
       ownerSessionId,
       ownerTeam,
       finalWave: true,
-      damage: weaponDamageOf("mirage", "shockwave"),
-      weaponId: "shockwave",
+      damage: weaponDamageOf("mirage", "magmablast"),
+      weaponId: "magmablast",
       kind: "projectile",
-      x: target.x - WEAPON_TABLE.shockwave.speed * DT,
+      x: target.x - WEAPON_TABLE.magmablast.speed * DT,
       y: target.y,
       angle: 0,
       extent: 0,
@@ -394,7 +394,7 @@ describe("shots landing", () => {
       players: [player("a"), target],
       instances: [aimedAt(target, "a")],
     });
-    expect(find(result, "b").hp).toBe(hpOf("mirage") - weaponDamageOf("mirage", "shockwave"));
+    expect(find(result, "b").hp).toBe(hpOf("mirage") - weaponDamageOf("mirage", "magmablast"));
     expect(result.instances).toHaveLength(0);
   });
 
@@ -423,7 +423,7 @@ describe("shots landing", () => {
       players: [player("a", { team: 0 }), target],
       instances: [aimedAt(target, "a")],
     });
-    expect(find(result, "b").hp).toBe(hpOf("mirage") - weaponDamageOf("mirage", "shockwave"));
+    expect(find(result, "b").hp).toBe(hpOf("mirage") - weaponDamageOf("mirage", "magmablast"));
   });
 
   it("damages a same-team id in ffa, where teams mean nothing", () => {
@@ -432,7 +432,7 @@ describe("shots landing", () => {
       players: [player("a", { team: 0 }), target],
       instances: [aimedAt(target, "a")],
     });
-    expect(find(result, "b").hp).toBe(hpOf("mirage") - weaponDamageOf("mirage", "shockwave"));
+    expect(find(result, "b").hp).toBe(hpOf("mirage") - weaponDamageOf("mirage", "magmablast"));
   });
 
   it("passes through a wreck rather than being spent on it", () => {
@@ -442,7 +442,7 @@ describe("shots landing", () => {
   });
 
   it("wrecks a car whose hp reaches zero", () => {
-    const target = player("b", { x: 800, hp: weaponDamageOf("mirage", "shockwave") });
+    const target = player("b", { x: 800, hp: weaponDamageOf("mirage", "magmablast") });
     const result = run({ players: [player("a"), target], instances: [aimedAt(target, "a")] });
     expect(find(result, "b").hp).toBe(0);
     expect(find(result, "b").alive).toBe(false);
@@ -473,10 +473,10 @@ describe("shots landing", () => {
           ownerSessionId: "a",
           ownerTeam: 0,
           finalWave: true,
-          damage: weaponDamageOf("mirage", "shockwave"),
-          weaponId: "shockwave",
+          damage: weaponDamageOf("mirage", "magmablast"),
+          weaponId: "magmablast",
           kind: "projectile",
-          x: box.x + box.w / 2 - WEAPON_TABLE.shockwave.speed * DT,
+          x: box.x + box.w / 2 - WEAPON_TABLE.magmablast.speed * DT,
           y: box.y + box.h / 2,
           angle: 0,
           extent: 0,
@@ -502,9 +502,9 @@ describe("shots landing", () => {
     // the pose snapshot holds living fighters only — and silently fall back to a default chassis.
     const target = player("b", { x: 800 });
     const shooter = player("a", { carId: "bullseye", alive: false });
-    const shot = { ...aimedAt(target, "a"), damage: weaponDamageOf("bullseye", "shockwave") };
+    const shot = { ...aimedAt(target, "a"), damage: weaponDamageOf("bullseye", "magmablast") };
     const result = run({ players: [shooter, target], instances: [shot] });
-    expect(find(result, "b").hp).toBe(hpOf("mirage") - weaponDamageOf("bullseye", "shockwave"));
+    expect(find(result, "b").hp).toBe(hpOf("mirage") - weaponDamageOf("bullseye", "magmablast"));
   });
 });
 
@@ -533,15 +533,15 @@ describe("dealDamageTo", () => {
 describe("chassis attack scales weapon damage through a real tick", () => {
   /** One shot, fired for real, from `carId` into a stationary mirage. Returns the hp it cost. */
   const damageDealtBy = (carId: "mirage" | "bullseye" | "bastion"): number => {
-    // Slot 1 is forced to shockwave for every chassis, overriding `carId`'s real loadout: since
+    // Slot 1 is forced to magmablast for every chassis, overriding `carId`'s real loadout: since
     // Task 5 the three chassis no longer share a weapon, so deriving `fireState` from
     // `newFireState(carId, 1)` would fire three DIFFERENT weapons and conflate the weapon's own
-    // damage with the attack-rating scaling this test exists to isolate. `shockwave` stands in for
+    // damage with the attack-rating scaling this test exists to isolate. `magmablast` stands in for
     // the retired `fireball` here (rule: like-for-like borrow swap) — its own real owner is
     // bullseye, but this fixture forces it onto every chassis on purpose.
-    const shockwaveSlot1 = {
+    const magmablastSlot1 = {
       ...newFireState(carId, 1),
-      slots: [{ weaponId: "shockwave" as const, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
+      slots: [{ weaponId: "magmablast" as const, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
     };
     let state = run({
       players: [
@@ -551,13 +551,13 @@ describe("chassis attack scales weapon damage through a real tick", () => {
           angle: 0,
           carId,
           fireMask: 1,
-          fireState: shockwaveSlot1,
+          fireState: magmablastSlot1,
         }),
         player("b", { x: 400 + DRIVE_CONFIG.carWidth + 40, y: OPEN_Y }),
       ],
     });
     // The shot leaves the muzzle on tick 100 and covers the ~40 unit gap in about two ticks.
-    // Bounded at 110, well inside shockwave's 18-tick cooldown, so exactly one shot is measured.
+    // Bounded at 110, well inside magmablast's 18-tick cooldown, so exactly one shot is measured.
     for (let tick = 101; tick <= 110; tick++) {
       state = run({
         world: world({ tick }),
@@ -572,7 +572,7 @@ describe("chassis attack scales weapon damage through a real tick", () => {
   it("lands a different number for each chassis firing the identical weapon", () => {
     // Spec test 5: through the real tick, not by calling damageFor. `attack` is invisible in the
     // weapon table, so this is the only place the roster's damage spread is actually observable.
-    // shockwave's base damage is 22, scaled by each chassis's own attack rating.
+    // magmablast's base damage is 22, scaled by each chassis's own attack rating.
     expect(damageDealtBy("mirage")).toBe(25);
     expect(damageDealtBy("bullseye")).toBe(23);
     expect(damageDealtBy("bastion")).toBe(20);
@@ -771,12 +771,12 @@ describe("aimAngleFor", () => {
     // muzzle is at (24, 0). Target "b" is at (124, 100), so dx = 124 - 24 = 100 and dy = 100 - 0 =
     // 100. atan2(100, 100) = atan(1) = pi/4 radians (45 degrees).
     const expected = Math.PI / 4;
-    // "shockwave" is usesAimAssist: true.
-    expect(aimAngleFor(a, "shockwave", byId, () => false)).toBeCloseTo(expected, 10);
+    // "magmablast" is usesAimAssist: true.
+    expect(aimAngleFor(a, "magmablast", byId, () => false)).toBeCloseTo(expected, 10);
   });
 
   it("fires straight ahead when the lock sits beyond the weapon's own aimRangeUnits", () => {
-    // Retention can hold a lock out to lockRange + retentionRangeUnits (460), past shockwave's 400.
+    // Retention can hold a lock out to lockRange + retentionRangeUnits (460), past magmablast's 400.
     const shooter = player("a", { x: 0, y: 0, angle: 0 });
     shooter.lock = { targetSessionId: "b", lockedAtTick: 0, losLostSinceTick: 0, lastPressTick: 0 };
     const target = player("b", { x: 430, y: 0 });
@@ -784,7 +784,7 @@ describe("aimAngleFor", () => {
       ["a", shooter],
       ["b", target],
     ]);
-    expect(aimAngleFor(shooter, "shockwave", byId, () => false)).toBeNull(); // 430 > 400 -> welded to heading
+    expect(aimAngleFor(shooter, "magmablast", byId, () => false)).toBeNull(); // 430 > 400 -> welded to heading
   });
 
   it("does NOT lead a moving locked target — it aims where the target is (A3)", () => {
@@ -798,7 +798,7 @@ describe("aimAngleFor", () => {
       ["a", shooter],
       ["b", target],
     ]);
-    const aimed = aimAngleFor(shooter, "shockwave", byId, () => false)!;
+    const aimed = aimAngleFor(shooter, "magmablast", byId, () => false)!;
     // Muzzle at x = 24, target dead ahead on the x axis: straight down the +x axis, angle 0.
     expect(aimed).toBeCloseTo(Math.atan2(0, 300 - 24), 10);
   });
@@ -1307,8 +1307,8 @@ describe("kill attribution", () => {
     ownerSessionId: owner,
     ownerTeam: 0,
     finalWave: true,
-    damage: weaponDamageOf("mirage", "shockwave"),
-    weaponId: "shockwave",
+    damage: weaponDamageOf("mirage", "magmablast"),
+    weaponId: "magmablast",
     kind: "projectile",
     x, y,
     angle: 0,
@@ -1396,7 +1396,7 @@ describe("spawn protection: a phased car is not a target", () => {
 
   /**
    * A shot parked on top of `(x, y)` so it connects on the tick it is fed in, modelled on the
-   * kill-attribution block's `shotAt`. `thumper` rather than `shockwave` because it is the roster's
+   * kill-attribution block's `shotAt`. `thumper` rather than `magmablast` because it is the roster's
    * projectile that applies an on-hit status (`spiked`, since the 2026-09-01 redistribution), which
    * is the second half of M13's case against `damageTaken: 0` — a shot that still *connects* lands
    * its statuses whatever the number. `pierceLeft` is a field on the instance, not a lookup, so it
@@ -1484,10 +1484,10 @@ describe("spawn protection: a phased car is not a target", () => {
       ["bbb", b],
     ]);
     const phased = (sessionId: string): boolean => sessionId === "bbb";
-    expect(aimAngleFor(a, "shockwave", byId, phased)).toBeNull();
+    expect(aimAngleFor(a, "magmablast", byId, phased)).toBeNull();
     // Same call with nobody phasing still aims, so this pins the new guard rather than a typo in
     // the lock id: muzzle at (24, 0), target at (124, 100), atan2(100, 100) = pi/4.
-    expect(aimAngleFor(a, "shockwave", byId, () => false)).toBeCloseTo(Math.PI / 4, 10);
+    expect(aimAngleFor(a, "magmablast", byId, () => false)).toBeCloseTo(Math.PI / 4, 10);
   });
 
   it("can still fire while phasing", () => {
@@ -1538,10 +1538,10 @@ describe("wall-piercing projectiles (`piercesWalls`, roadblock's row)", () => {
     expect(hpOf("mirage") - hit.hp).toBe(weaponDamageOf("bastion", "roadblock"));
   });
 
-  it("passes through an interior wall and lands on the camper behind it — where shockwave dies on it", () => {
+  it("passes through an interior wall and lands on the camper behind it — where magmablast dies on it", () => {
     // The design's whole point (anti-wall-camper): the bar crosses level geometry; its damage and
     // its 1 s stun land on the far side. The contrast run pins that this is roadblock's authored
-    // `piercesWalls`, not a broken world test — shockwave, with no flag, still dies on the wall.
+    // `piercesWalls`, not a broken world test — magmablast, with no flag, still dies on the wall.
     const wall = { x: 400, y: 260, w: 60, h: 200 }; // fully covers the firing line at y=360
     const camper = player("bbb", { x: 600, y: 360, team: 1 });
 

@@ -240,7 +240,7 @@ const FLICKER_PHASE_PER_TICK = 0.7;
  * and `pepperbox` — which moved OUT deliberately (O9) rather than being retired: its hitbox is now
  * an ellipse (the dart silhouette carried over from `needler`), and a round-glow table nested by
  * `radiusScale` cannot own a non-circular hitbox. The flat weapon-colour fill is `pepperbox`'s
- * correct, intentional look, not a placeholder. No new id (`predator`, `shockwave`, `roadblock`)
+ * correct, intentional look, not a placeholder. No new id (`predator`, `magmablast`, `roadblock`)
  * has an authored look either — the flat fill is the shipped look until an owner arts one — so
  * every circular projectile in the game draws its flat disc today.
  *

@@ -9,7 +9,7 @@ import { AIM_CONFIG } from "./aim-config.js";
 
 describe("WEAPON_TABLE", () => {
   it("pins the overhaul roster's load-bearing numbers (spec 2026-09-01)", () => {
-    expect(WEAPON_TABLE.shockwave).toMatchObject({ damage: 22, cooldownMs: 600, speed: 900, range: 900 });
+    expect(WEAPON_TABLE.magmablast).toMatchObject({ damage: 22, cooldownMs: 600, speed: 900, range: 900 });
     expect(WEAPON_TABLE.predator.homing).toEqual({ turnRateDegPerSec: 120, durationMs: 1200 });
     expect(WEAPON_TABLE.thunderclap).toMatchObject({ damage: 90, speed: 1600, aimRangeUnits: 400 });
     expect(WEAPON_TABLE.roadblock).toMatchObject({ damage: 100, pierce: 4 });
@@ -76,14 +76,14 @@ describe("WEAPON_TABLE", () => {
   });
 
   it("rejects prototype names as weapon ids", () => {
-    expect(isWeaponId("shockwave")).toBe(true);
+    expect(isWeaponId("magmablast")).toBe(true);
     expect(isWeaponId("constructor")).toBe(false);
     expect(isWeaponId("__proto__")).toBe(false);
     expect(isWeaponId(7)).toBe(false);
   });
 
   it("resolves a def by id", () => {
-    expect(weaponDefOf("shockwave").id).toBe("shockwave");
+    expect(weaponDefOf("magmablast").id).toBe("magmablast");
   });
 
   describe("per-weapon aim range (spec S1)", () => {
@@ -269,7 +269,7 @@ describe("WEAPON_TABLE", () => {
     // nine): the multi-muzzle and held-beam guards forced `pepperbox`, `lance` and `afterburner`
     // off, and `roadblock` opts out by choice — the same "aim yourself" argument `bulwark` used to
     // carry.
-    expect(WEAPON_TABLE.shockwave.usesAimAssist).toBe(true);
+    expect(WEAPON_TABLE.magmablast.usesAimAssist).toBe(true);
     expect(WEAPON_TABLE.roadblock.usesAimAssist).toBe(false);
     const off = Object.values(WEAPON_TABLE).filter((d) => !d.usesAimAssist);
     expect(off.map((d) => d.id).sort()).toEqual([
@@ -312,9 +312,9 @@ describe("WEAPON_TABLE", () => {
     }
   });
 
-  it("ships shockwave as a plain single-shot dart, the retired aura's id and nothing else", () => {
-    const sw = WEAPON_TABLE.shockwave;
-    if (sw.kind !== "projectile") throw new Error("shockwave must be a projectile now");
+  it("ships magmablast as a plain single-shot dart, no longer even the retired aura's old id", () => {
+    const sw = WEAPON_TABLE.magmablast;
+    if (sw.kind !== "projectile") throw new Error("magmablast must be a projectile now");
     expect(sw.volley).toEqual({ volleys: 1, volleyIntervalMs: 0 });
     expect(sw.damage).toBe(22);
     expect(sw.applies).toBeUndefined();
