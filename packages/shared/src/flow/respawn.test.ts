@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Spawn } from "../arena/types.js";
-import { farthestSpawn } from "./respawn.js";
+import { DEATHMATCH_TICKS } from "../config/deathmatch-config.js";
+import { farthestSpawn, isDueToRespawn, phaseDecision, type PhaseInput } from "./respawn.js";
 
 const spawns: Spawn[] = [
   { x: 0, y: 0, angle: 0 },
@@ -34,5 +35,59 @@ describe("farthestSpawn", () => {
 
   it("throws on an empty spawn list rather than returning undefined", () => {
     expect(() => farthestSpawn([], [])).toThrow(/spawn/i);
+  });
+});
+
+describe("isDueToRespawn", () => {
+  it("waits out the full delay, then fires", () => {
+    expect(isDueToRespawn(100, 100 + DEATHMATCH_TICKS.respawnDelay - 1)).toBe(false);
+    expect(isDueToRespawn(100, 100 + DEATHMATCH_TICKS.respawnDelay)).toBe(true);
+  });
+
+  it("never fires for a car that has not died", () => {
+    // 0 is the "alive" sentinel `diedAtTick` carries, not tick zero.
+    expect(isDueToRespawn(0, 999999)).toBe(false);
+  });
+});
+
+describe("phaseDecision", () => {
+  const input = (over: Partial<PhaseInput> = {}): PhaseInput => ({
+    tick: 100,
+    endsTick: 200,
+    capTick: 300,
+    fired: false,
+    overlapping: false,
+    ...over,
+  });
+
+  it("leaves protection alone while its minimum window is still running", () => {
+    expect(phaseDecision(input())).toBe("run");
+  });
+
+  it("drops it the moment the player fires, whatever else is true", () => {
+    expect(phaseDecision(input({ fired: true }))).toBe("drop");
+    expect(phaseDecision(input({ fired: true, overlapping: true }))).toBe("drop");
+  });
+
+  it("drops it at the hard cap even while overlapped, so it cannot be held forever", () => {
+    expect(phaseDecision(input({ tick: 300, endsTick: 400, overlapping: true }))).toBe("drop");
+  });
+
+  it("lets it lapse on schedule when the car is clear", () => {
+    expect(phaseDecision(input({ tick: 199, endsTick: 200 }))).toBe("drop");
+  });
+
+  it("extends it when it would otherwise lapse inside another car", () => {
+    expect(phaseDecision(input({ tick: 199, endsTick: 200, overlapping: true }))).toBe("extend");
+  });
+
+  it("does not extend early — overlap only matters on the tick it would lapse", () => {
+    expect(phaseDecision(input({ tick: 100, endsTick: 200, overlapping: true }))).toBe("run");
+  });
+
+  it("prefers the cap over an extension when both apply", () => {
+    expect(
+      phaseDecision(input({ tick: 250, endsTick: 251, capTick: 250, overlapping: true })),
+    ).toBe("drop");
   });
 });

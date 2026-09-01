@@ -86,3 +86,23 @@ export function deathmatchOutcome(players: readonly DeathmatchPlayer[]): LivingS
 
   return { sides: 1, winnerSessionId: leader.sessionId, winnerTeam: -1 };
 }
+
+/**
+ * Is this deathmatch over?
+ *
+ * Two ways in, and neither is "one side is left standing" — with respawns every player can be dead
+ * at once while their timers run, which says nothing at all about who is winning (M25).
+ *
+ * A `matchEndsTick` of 0 means the mode has no clock, and must never read as "already past the end":
+ * that would end a last-standing match on its first tick.
+ */
+export function deathmatchEnded(
+  rosterSize: number,
+  tick: number,
+  matchEndsTick: number,
+): boolean {
+  // Nobody left to fight. A lone survivor would otherwise drive in circles until the clock ran out.
+  if (rosterSize < 2) return true;
+  if (matchEndsTick <= 0) return false;
+  return tick >= matchEndsTick;
+}

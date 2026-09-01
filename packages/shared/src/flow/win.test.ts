@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deathmatchOutcome, livingSides } from "./win.js";
+import { deathmatchEnded, deathmatchOutcome, livingSides } from "./win.js";
 
 const a = { sessionId: "a", team: 0 as const, alive: true, inRoster: true };
 const b = { sessionId: "b", team: 1 as const, alive: true, inRoster: true };
@@ -128,5 +128,22 @@ describe("deathmatchOutcome", () => {
 
   it("draws on an empty roster rather than throwing", () => {
     expect(deathmatchOutcome([]).winnerSessionId).toBe("");
+  });
+});
+
+describe("deathmatchEnded", () => {
+  it("ends on the clock", () => {
+    expect(deathmatchEnded(4, 899, 900)).toBe(false);
+    expect(deathmatchEnded(4, 900, 900)).toBe(true);
+  });
+
+  it("ends early once there is nobody left to fight", () => {
+    expect(deathmatchEnded(1, 10, 900)).toBe(true);
+    expect(deathmatchEnded(0, 10, 900)).toBe(true);
+  });
+
+  it("never ends a mode that has no clock, however long it runs", () => {
+    // `matchEndsTick` is 0 outside deathmatch, and 0 must not read as "already past the end".
+    expect(deathmatchEnded(4, 5000, 0)).toBe(false);
   });
 });
