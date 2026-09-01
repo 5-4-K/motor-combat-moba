@@ -6,18 +6,24 @@ import {
   isCarId,
   newFireState,
   newLockState,
+  slotsOf,
   weaponDamageOf,
+  TICK_RATE_HZ,
   type CombatPlayer,
   type CombatResult,
+  type WeaponId,
   type WeaponInstance,
 } from "@motor-combat-moba/shared";
+import { respawnPlayer } from "../rooms/tick-pipeline.js";
 import {
   applyCombatResult,
   clearInstances,
+  loadoutFor,
   newCombatMemory,
   toCombatPlayers,
   toInstances,
 } from "./combat-bridge.js";
+import { newContactMemory } from "./ram-bridge.js";
 
 function playerIn(state: ArenaState, sessionId: string, over: Partial<PlayerState> = {}): PlayerState {
   const player = new PlayerState();
@@ -188,6 +194,79 @@ describe("toCombatPlayers", () => {
     player.carId = "mirage";
     const afterReveal = toCombatPlayers(state, new Set(["aaa"]), new Map(), memory)[0]!.fireState;
     expect(afterReveal.slots.map((s) => s.weaponId)).toEqual(["predator", "thunderclap", "afterburner"]);
+  });
+});
+
+/**
+ * `CombatMemory.loadouts` — the explicit per-player slot list the dev-only playground writes (PG17).
+ * Empty in every real match, which is what keeps `ArenaRoom` on the chassis kit unchanged.
+ */
+describe("explicit loadouts", () => {
+  const CUSTOM: readonly WeaponId[] = ["lance", "thumper", "shockwave"];
+
+  it("loadoutFor prefers the explicit list and falls back to the chassis kit", () => {
+    expect(loadoutFor("mirage", CUSTOM)).toEqual(["lance", "thumper", "shockwave"]);
+    expect(loadoutFor("mirage", undefined)).toEqual(slotsOf("mirage"));
+    // The empty-carId fallback the pre-reveal path relies on is unchanged.
+    expect(loadoutFor("", undefined)).toEqual([]);
+  });
+
+  it("builds a fire state from the explicit loadout rather than the chassis kit", () => {
+    const state = new ArenaState();
+    playerIn(state, "aaa");
+    const memory = newCombatMemory();
+    memory.loadouts.set("aaa", CUSTOM);
+
+    const fireState = toCombatPlayers(state, new Set(["aaa"]), new Map(), memory)[0]!.fireState;
+    expect(fireState.slots.map((s) => s.weaponId)).toEqual(["lance", "thumper", "shockwave"]);
+  });
+
+  it("does not call a fire state stale while it matches the explicit loadout, so it survives a tick", () => {
+    // The staleness test compares the running slots against what the car is SUPPOSED to carry. Ask
+    // the chassis kit instead of this map and a custom loadout is rebuilt away on the very next tick,
+    // which is a silent revert rather than a failure.
+    const state = new ArenaState();
+    playerIn(state, "aaa");
+    const memory = newCombatMemory();
+    memory.loadouts.set("aaa", CUSTOM);
+
+    const first = toCombatPlayers(state, new Set(["aaa"]), new Map(), memory)[0]!.fireState;
+    memory.fireStates.set("aaa", { ...first, switchLockUntilTick: 77 });
+
+    const second = toCombatPlayers(state, new Set(["aaa"]), new Map(), memory)[0]!.fireState;
+    expect(second.slots.map((s) => s.weaponId)).toEqual(["lance", "thumper", "shockwave"]);
+    expect(second.switchLockUntilTick).toBe(77); // reused, not rebuilt
+  });
+
+  it("a playground loadout survives death: respawn restores it, not the chassis kit", () => {
+    const state = new ArenaState();
+    const player = playerIn(state, "aaa", { alive: false, hp: 0 });
+    const memory = newCombatMemory();
+    memory.loadouts.set("aaa", CUSTOM);
+
+    respawnPlayer(
+      {
+        state,
+        inputQueues: new Map(),
+        prevFireMasks: new Map(),
+        matchRoster: new Set(["aaa"]),
+        phaseCaps: new Map(),
+        combat: memory,
+        ram: newContactMemory(),
+        hz: TICK_RATE_HZ,
+        runPhaseSweep: true,
+      },
+      player,
+    );
+
+    expect(memory.fireStates.get("aaa")!.slots.map((s) => s.weaponId)).toEqual([
+      "lance",
+      "thumper",
+      "shockwave",
+    ]);
+    // And the rest of the respawn is unchanged: full hp for the chassis, back on the field.
+    expect(player.hp).toBe(hpOf("mirage"));
+    expect(player.alive).toBe(true);
   });
 });
 

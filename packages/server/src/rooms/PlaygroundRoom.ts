@@ -52,6 +52,13 @@ export const ARENA_BUSY_ERROR = "Close the arena first: playground tuning is pro
 const ARENA_BUSY_CODE = 4004;
 
 /**
+ * How often the bot's fire bits are allowed to be set: one tick in this many, zero on the rest. 2 is
+ * the smallest value that still produces a press edge every time the bot wants to shoot — see the
+ * comment in `enqueueOpponentInput` for why a latched mask fires once and then stops.
+ */
+const OPPONENT_FIRE_PERIOD = 2;
+
+/**
  * May a playground room open right now? No, if anyone at all is sitting in the arena (spec PG15):
  * the tuning store is a module-level singleton shared by every room in the process, so overrides
  * typed into the playground would silently re-balance a live match next door.
@@ -90,11 +97,11 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
   /** The human's session id, fixed for the room's life. Control routes; identity does not. */
   private humanSessionId = "";
   /**
-   * The bot's input `seq`. Monotonic across the room rather than per car, which is all `serverTick`
-   * needs — it sorts a batch by seq and acks the highest, and never compares one player's seq to
-   * another's.
+   * The un-driven car's input `seq`. Monotonic across the room rather than per car, which is all
+   * `serverTick` needs — it sorts a batch by seq and acks the highest, and never compares one
+   * player's seq to another's.
    */
-  private botSeq = 0;
+  private opponentSeq = 0;
 
   async onCreate(): Promise<void> {
     const listings = await matchMaker.query({ name: ROOM_NAME });
@@ -244,29 +251,60 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
     if (this.state.paused) return;
     this.state.tick += 1;
     respawnSweep(this.ctx());
-    if (this.state.botEnabled) this.enqueueBotInput();
+    this.enqueueOpponentInput();
     // No win check, ever (PG6) — `runPipeline`'s players are deliberately dropped.
     runPipeline(this.ctx());
   }
 
   /**
-   * The bot drives whichever car the human is not. It goes through the ordinary input queue, so the
-   * "clients send inputs, never state" invariant holds: the bot is a client, just an in-process one.
+   * One input per tick for whichever car the human is NOT driving — the bot's intent with the bot on,
+   * a neutral input with it off. Either way it goes through the ordinary input queue, so the "clients
+   * send inputs, never state" invariant holds: the bot is a client, just an in-process one.
    */
-  private enqueueBotInput(): void {
-    const botId = otherPlaygroundId(this.state.controlledSessionId, this.humanSessionId);
-    const self = this.state.players.get(botId);
-    const queue = this.inputQueues.get(botId);
+  private enqueueOpponentInput(): void {
+    const opponentId = otherPlaygroundId(this.state.controlledSessionId, this.humanSessionId);
+    const self = this.state.players.get(opponentId);
+    const queue = this.inputQueues.get(opponentId);
     if (!self || !queue) return;
+
+    this.opponentSeq += 1;
+    const seq = this.opponentSeq;
+
+    // Alone mode (PG11) sends a NEUTRAL input, not silence. `serverTick` leaves an input-less player
+    // unstepped unless it is carrying a knock, so a dummy handed no input freezes exactly where the
+    // bot was switched off — and it keeps the `speed` it was carrying, which `serverTick` reports as
+    // that car's `approachSpeeds` on every subsequent tick. `resolveRam` reads that as the approach
+    // term, so a parked target dummy scores as an attacker at its last driving speed in every
+    // contact, forever. Coasting it on zeros runs it through the ordinary drive model instead: it
+    // decelerates and its speed reaches 0, the way letting go of the throttle does.
+    if (!this.state.botEnabled) {
+      queue.push({ seq, steer: 0, throttle: 0, fireSlots: 0 });
+      return;
+    }
 
     const driven = this.state.players.get(this.state.controlledSessionId);
     // A dead target is no target: the bot coasts rather than chasing the wreck's last pose.
     const target = driven?.alive ? poseOf(driven) : null;
-    const slots = this.combat.fireStates.get(botId)?.slots ?? [];
-    this.botSeq += 1;
-    queue.push(
-      botInput(this.botSeq, poseOf(self), target, slots.map((slot) => weaponDefOf(slot.weaponId).range)),
+    const slots = this.combat.fireStates.get(opponentId)?.slots ?? [];
+    const intent = botInput(
+      seq,
+      poseOf(self),
+      target,
+      slots.map((slot) => weaponDefOf(slot.weaponId).range),
     );
+
+    // The fire mask is PULSED rather than passed straight through, and that is this room's decision
+    // to make rather than `botInput`'s — the bot reports intent, the room decides what reaches the
+    // wire, exactly as a real client's key state does.
+    //
+    // `serverTick` counts only newly-set bits as a press (`clean & ~prev`), so a bot holding the same
+    // bits for as long as its target stays in cone and in range fires each slot exactly ONCE and then
+    // never again; `respawnPlayer` does not clear `prevFireMasks` either, so a killed bot comes back
+    // still latched. Zeroing the bits on odd ticks turns every tick the bot wants to shoot into a
+    // fresh press edge. It does not make the bot fire twice as fast: `runCombat`'s stocks, recharges
+    // and switch lock are what bound the rate, and feeling those is the whole point of tuning here.
+    const pressed = this.state.tick % OPPONENT_FIRE_PERIOD === 0 ? intent.fireSlots : 0;
+    queue.push({ ...intent, fireSlots: pressed });
   }
 
   /**
