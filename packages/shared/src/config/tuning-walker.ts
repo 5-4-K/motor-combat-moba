@@ -37,8 +37,20 @@ const CAR_RATINGS = ["speed", "accel", "handling", "attack", "hp", "mass"] as co
  * Skipped at ANY depth while walking a weapon row — render/render-adjacent or purely nominal, never
  * balance. `kind` also gates which weapons compare against which for enum options (see below), so
  * emitting it as a tunable field would let a playground blob silently reclassify a weapon.
+ *
+ * `shape` and `type` are discriminated-union TAGS, not identity strings, but they belong here for
+ * the same reason: each one gates which sibling keys the object is allowed to have (`ProjectileHitbox`'s
+ * `shape` decides whether `radius` or `radiusAlong`/`radiusAcross` exist; `ManeuverSpec`'s `type`
+ * decides whether `durationMs`/`slamsStunned` exist). Flipping only the tag through a validated
+ * `setTuning` write leaves those siblings as whatever the ORIGINAL variant authored — a `capsule`'s
+ * `radiusAlong`/`radiusAcross` surviving under a `circle` tag that wants `radius` — and
+ * `capsuleShapeAt`/`circleShapeAt` (`sim/weapons/shapes.ts`) then read a field the new variant never
+ * defined, computing `undefined - undefined` and NaN-poisoning every hit-test vertex downstream. A
+ * leaf write can never update siblings, so a union tag can never be safe as a leaf; unlike `id`/
+ * `name`/`kind`/`color` this is a general rule about tags, not a name-by-name exclusion list, but
+ * every shipped tag key happens to be named `shape` or `type` today.
  */
-const SKIP_KEYS = new Set(["id", "name", "kind", "color"]);
+const SKIP_KEYS = new Set(["id", "name", "kind", "color", "shape", "type"]);
 
 /**
  * `drive.carWidth`/`drive.carHeight` are the OBB hitbox model — out of tuning scope by spec — and
