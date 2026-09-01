@@ -7,6 +7,7 @@ import {
   MSG_PLAYGROUND_SETUP,
   MSG_PLAYGROUND_SWITCH,
   MSG_PLAYGROUND_TUNING,
+  PLAYGROUND_ROOM_NAME,
   PlayerState,
   PlayerStatus,
   PlaygroundState,
@@ -28,6 +29,7 @@ import { isInputMessage } from "../net/input-message.js";
 import { newCombatMemory, type CombatMemory } from "../sim/combat-bridge.js";
 import { newContactMemory, type ContactMemory } from "../sim/ram-bridge.js";
 import { botInput, type BotPose } from "./playground-bot.js";
+import { shouldRejectSecondArena } from "./singleton-arena.js";
 import {
   respawnPlayer,
   respawnSweep,
@@ -50,6 +52,16 @@ export const ARENA_BUSY_ERROR = "Close the arena first: playground tuning is pro
  * and 4000/4001/4002 (bad name, taken name, kicked) in the room-defined 4000+ block.
  */
 const ARENA_BUSY_CODE = 4004;
+
+/**
+ * The string a second playground tab sees. `maxClients = 1` only keeps ONE client out of a given
+ * room; `joinOrCreate` on a full room asks Colyseus to make a new one, and nothing before this guard
+ * stopped it (PG15). Same "name the fix" shape as `ARENA_BUSY_ERROR`.
+ */
+export const PLAYGROUND_BUSY_ERROR = "A playground session is already open";
+
+/** The close code carried with `PLAYGROUND_BUSY_ERROR`, next in the room-defined 4000+ block. */
+const PLAYGROUND_BUSY_CODE = 4005;
 
 /**
  * How often the bot's fire bits are allowed to be set: one tick in this many, zero on the rest. 2 is
@@ -107,6 +119,17 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
     const listings = await matchMaker.query({ name: ROOM_NAME });
     if (shouldRefusePlayground(listings)) {
       throw new ServerError(ARENA_BUSY_CODE, ARENA_BUSY_ERROR);
+    }
+
+    // Second query, same reasoning (PG15): the tuning store this room writes through `setTuning` is
+    // module-level, one per process — not per room — so two playground rooms alive at once fight over
+    // it, and either one closing wipes the tables the other still thinks are active. `maxClients = 1`
+    // does not prevent this: it only rejects a second CLIENT, and `joinPlayground`'s `joinOrCreate`
+    // reacts to a full room by asking Colyseus to create another one. Reuses `shouldRejectSecondArena`
+    // unchanged — "any listed room besides myself" is exactly the rule here too.
+    const playgroundListings = await matchMaker.query({ name: PLAYGROUND_ROOM_NAME });
+    if (shouldRejectSecondArena(playgroundListings, this.roomId)) {
+      throw new ServerError(PLAYGROUND_BUSY_CODE, PLAYGROUND_BUSY_ERROR);
     }
 
     this.setState(new PlaygroundState());

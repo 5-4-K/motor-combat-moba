@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import { BOT_SESSION_ID, WEAPON_TABLE } from "@motor-combat-moba/shared";
 import {
   ARENA_BUSY_ERROR,
+  PLAYGROUND_BUSY_ERROR,
   PLAYGROUND_LEVEL,
   otherPlaygroundId,
   shouldRefusePlayground,
 } from "./PlaygroundRoom.js";
+import { shouldRejectSecondArena } from "./singleton-arena.js";
 
 describe("shouldRefusePlayground", () => {
   it("allows an empty arena listing", () => {
@@ -19,6 +21,30 @@ describe("shouldRefusePlayground", () => {
   it("refuses while anyone is in the arena — the tuning store is process-wide", () => {
     expect(shouldRefusePlayground([{ clients: 2 }])).toBe(true);
     expect(shouldRefusePlayground([{ clients: 0 }, { clients: 1 }])).toBe(true);
+  });
+});
+
+// `PlaygroundRoom.onCreate` reuses `shouldRejectSecondArena` unchanged to refuse a SECOND playground
+// room (PG15): `maxClients = 1` only rejects a second client, so a full room makes `joinOrCreate`
+// spin up another one, and the tuning store `setTuning` writes through is process-wide — two
+// playground rooms alive at once fight over it, and either closing wipes the survivor's tables.
+describe("shouldRejectSecondArena (reused for the second-playground guard)", () => {
+  it("refuses when another playground room is already listed", () => {
+    expect(shouldRejectSecondArena([{ roomId: "old" }], "new")).toBe(true);
+  });
+
+  it("allows when only this room (about to finish creating) is listed", () => {
+    expect(shouldRejectSecondArena([{ roomId: "self" }], "self")).toBe(false);
+  });
+
+  it("allows an empty listing", () => {
+    expect(shouldRejectSecondArena([], "self")).toBe(false);
+  });
+});
+
+describe("PLAYGROUND_BUSY_ERROR", () => {
+  it("names what happened, not the mechanism", () => {
+    expect(PLAYGROUND_BUSY_ERROR).toContain("already open");
   });
 });
 
