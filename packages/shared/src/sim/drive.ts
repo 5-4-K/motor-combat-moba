@@ -32,7 +32,7 @@ export function stepDrive(
   chassis: ChassisDrive,
   mods: Readonly<Modifiers>,
 ): SimBody {
-  if (body.maneuver === ManeuverKind.DASH && body.maneuverTicksLeft > 0) {
+  if (isDashing(body)) {
     return stepDash(body, dt, chassis, mods);
   }
   if (body.maneuver === ManeuverKind.HOLD && body.maneuverTicksLeft > 0) {
@@ -93,13 +93,58 @@ export function stepDrive(
   };
 }
 
-/** DASH: scripted translation. Inputs are ignored; knock decay still runs; the face is welded. */
+/**
+ * Is this body in a live DASH? Exactly the condition `stepDrive` branches on above, named once so
+ * the substep gate in `stepSim` and the drive branch here can never drift apart.
+ */
+export function isDashing(body: SimBody): boolean {
+  return body.maneuver === ManeuverKind.DASH && body.maneuverTicksLeft > 0;
+}
+
+/**
+ * The displacement a dash covers in `dt` seconds — a DELTA, not a position.
+ *
+ * Factored out of `stepDash` so `stepSim` can apply it N times at `dt / N` without also re-running
+ * the per-tick bookkeeping around it (C6). One place computes the dash's motion, so a substepped
+ * walk and a single full-`dt` step can never disagree about direction or speed.
+ */
+export function dashTranslation(body: SimBody, dt: number): { x: number; y: number } {
+  return {
+    x: Math.cos(body.maneuverAngle) * body.maneuverSpeed * dt,
+    y: Math.sin(body.maneuverAngle) * body.maneuverSpeed * dt,
+  };
+}
+
+/**
+ * How many collision checks this tick of dash needs: enough that no single translation exceeds
+ * `DRIVE_CONFIG.dashSubstepMaxUnits`.
+ *
+ * DERIVED from distance rather than hardcoded (C3), so the value stays correct if
+ * `thunderclap.speed`, `TICK_RATE_HZ` or the hull dimensions are ever retuned — including by a
+ * later rescale of the dash itself. At 1600 u/s and 30Hz that is 53.3u against a 16u bound: 4.
+ */
+export function dashSubstepCount(body: SimBody, dt: number): number {
+  const travel = Math.abs(body.maneuverSpeed) * dt;
+  return Math.max(1, Math.ceil(travel / DRIVE_CONFIG.dashSubstepMaxUnits));
+}
+
+/**
+ * DASH: scripted translation. Inputs are ignored; knock decay still runs; the face is welded.
+ *
+ * Everything here except the two position lines is PER-TICK and must run exactly once —
+ * `maneuverTicksLeft - 1`, the `done` exit-speed handoff, `decayShove`, `recoverAuthority`,
+ * `nextAngVel`. That is why `stepSim` re-walks the position itself rather than calling this N
+ * times: four substeps of this function would burn the dash's duration and decay a knock four
+ * times as fast. This still applies the FULL `dt` translation, so `stepDrive` on its own is
+ * arithmetically what it always was.
+ */
 function stepDash(body: SimBody, dt: number, chassis: ChassisDrive, mods: Readonly<Modifiers>): SimBody {
   const ticksLeft = body.maneuverTicksLeft - 1;
   const done = ticksLeft <= 0;
+  const step = dashTranslation(body, dt);
   return {
-    x: body.x + Math.cos(body.maneuverAngle) * body.maneuverSpeed * dt,
-    y: body.y + Math.sin(body.maneuverAngle) * body.maneuverSpeed * dt,
+    x: body.x + step.x,
+    y: body.y + step.y,
     angle: body.maneuverAngle,
     // Hand the car back already rolling at its cap — a dash that exits frozen reads as a stall.
     speed: done ? chassis.maxSpeed * mods.topSpeed : body.speed,
