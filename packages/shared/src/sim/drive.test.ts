@@ -3,7 +3,7 @@ import type { ChassisDrive } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import { RAM_CONFIG } from "../config/ram-config.js";
 import type { InputMessage } from "../net/input.js";
-import { stepDrive } from "./drive.js";
+import { dashSubstepCount, dashTranslation, isDashing, stepDrive } from "./drive.js";
 import { ManeuverKind } from "./maneuver.js";
 import { NEUTRAL_MODIFIERS } from "./status/modifiers.js";
 import type { SimBody } from "./step.js";
@@ -487,5 +487,55 @@ describe("maneuvers (spec S3 / O13)", () => {
     const out = stepDrive(stunned, input(0, 1), DT, GOLDEN_CHASSIS, { ...NEUTRAL_MODIFIERS, fullStop: true });
     expect(out.speed).toBe(0);
     expect(out.x).toBeCloseTo(movingBody.x + 100 * DT); // the slam can still push you into a wall
+  });
+});
+
+describe("dash substep helpers (spec C3 / C6)", () => {
+  const dashing: SimBody = {
+    ...rest(),
+    maneuver: ManeuverKind.DASH,
+    maneuverTicksLeft: 8,
+    maneuverAngle: 0,
+    maneuverSpeed: 1600,
+  };
+
+  it("recognises a live dash and nothing else", () => {
+    expect(isDashing(dashing)).toBe(true);
+    // A dash whose duration has run out is not one: `stepDrive` falls through to ordinary driving
+    // on exactly this condition, and the substep gate must agree with it or the two disagree about
+    // which body is being stepped.
+    expect(isDashing({ ...dashing, maneuverTicksLeft: 0 })).toBe(false);
+    expect(isDashing({ ...dashing, maneuver: ManeuverKind.HOLD })).toBe(false);
+    expect(isDashing({ ...dashing, maneuver: ManeuverKind.CHARGE })).toBe(false);
+    expect(isDashing(rest())).toBe(false);
+  });
+
+  it("returns the dash displacement for dt, as a delta rather than a position", () => {
+    const full = dashTranslation(dashing, DT);
+    expect(full.x).toBeCloseTo(1600 * DT, 9);
+    expect(full.y).toBeCloseTo(0, 9);
+
+    const sideways = dashTranslation({ ...dashing, maneuverAngle: Math.PI / 2 }, DT);
+    expect(sideways.x).toBeCloseTo(0, 9);
+    expect(sideways.y).toBeCloseTo(1600 * DT, 9);
+  });
+
+  it("splits a quarter-dt translation into exactly a quarter of the travel", () => {
+    const quarter = dashTranslation(dashing, DT / 4);
+    expect(quarter.x).toBeCloseTo((1600 * DT) / 4, 9);
+  });
+
+  it("derives the substep count from distance, so it survives a retune of speed or tick rate", () => {
+    // thunderclap: 1600 u/s at 30Hz = 53.3u per tick against a 16u bound -> 4 substeps.
+    expect(dashSubstepCount(dashing, DT)).toBe(4);
+    // Derived, not hardcoded: halving the speed halves the travel and needs half the substeps.
+    expect(dashSubstepCount({ ...dashing, maneuverSpeed: 800 }, DT)).toBe(2);
+    // Exactly on the bound is one substep, not two — `ceil` of exactly 1.
+    expect(dashSubstepCount({ ...dashing, maneuverSpeed: DRIVE_CONFIG.dashSubstepMaxUnits / DT }, DT)).toBe(1);
+  });
+
+  it("never returns fewer than one substep, however slow the dash", () => {
+    expect(dashSubstepCount({ ...dashing, maneuverSpeed: 0 }, DT)).toBe(1);
+    expect(dashSubstepCount({ ...dashing, maneuverSpeed: 1 }, DT)).toBe(1);
   });
 });

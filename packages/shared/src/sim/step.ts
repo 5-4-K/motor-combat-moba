@@ -2,7 +2,7 @@ import { driveOf } from "../config/car-config.js";
 import type { CarId } from "../config/types.js";
 import type { InputMessage } from "../net/input.js";
 import { resolveWorld, type Aabb, type Bounds, type Obb } from "./collide.js";
-import { stepDrive } from "./drive.js";
+import { dashSubstepCount, dashTranslation, isDashing, stepDrive } from "./drive.js";
 import type { Modifiers } from "./status/modifiers.js";
 
 export interface SimBody {
@@ -71,5 +71,55 @@ export interface StepContext {
  */
 export function stepSim(body: SimBody, input: InputMessage, dt: number, ctx: StepContext): SimBody {
   const driven = stepDrive(body, input, dt, driveOf(ctx.carId), ctx.modifiers);
-  return resolveWorld(driven, ctx.others, ctx.obstacles, ctx.bounds);
+  if (!isDashing(body)) {
+    return resolveWorld(driven, ctx.others, ctx.obstacles, ctx.bounds);
+  }
+  return resolveDash(body, driven, dt, ctx);
+}
+
+/**
+ * A dash, resolved in bounded steps instead of one teleport.
+ *
+ * `thunderclap` covers 53.3 units per tick against a 48x32 hull, so a single translation lands the
+ * car deep inside whatever it hit — and `mtvBetween` returns the SHORTEST way out of an overlap,
+ * which for a deep overlap is not the way the car came in. The resolver is not wrong; it is being
+ * asked the wrong question (C1). Rather than teach it where the body came from — an entry-normal
+ * or a swept hull, a rewrite of `resolveWorld` and its ordering contract — this bounds how far the
+ * body may move between checks, so "shortest way out" and "back the way you came" stay the same
+ * direction and the existing resolver is already right (C2).
+ *
+ * Three things this deliberately does:
+ *
+ * - **Re-walks from the ORIGINAL position, carrying the tick's bookkeeping.** `driven` already
+ *   holds the once-per-tick state — the duration countdown, the exit-speed handoff, the shove and
+ *   authority decay — and `stepDrive` applied the full-`dt` translation on top of it. Winding the
+ *   position back to `body.x/y` and walking it forward in N pieces re-does only the translation
+ *   (C6). In free air the N pieces sum to the same distance, so an uncontested dash is unchanged.
+ * - **Holds the world frozen across substeps.** `ctx.others`, `ctx.obstacles` and `ctx.bounds` are
+ *   the start-of-tick snapshot every car is already stepped against; re-reading mid-tick would
+ *   make the outcome depend on iteration order (C7).
+ * - **Does not break out early when a substep is blocked.** Later substeps translate into the
+ *   target again and are pushed out again, so the car settles flush against what it hit. Detecting
+ *   "made no progress" needs a float epsilon for no behavioural gain (C8).
+ *
+ * Gated on DASH by the caller even though the derived count would independently be 1 for every
+ * other body in the game — the roster's fastest car covers ~10.5u per tick. `applyContact` damps
+ * `speed` and reflects the shove on every call, and `resolveWorld`'s contract is that each distinct
+ * surface damps exactly once, never r^2 or r^3. Repeating it is harmless for a dash, whose motion
+ * comes from `maneuverSpeed` and whose `speed` is overwritten by `endDash` on the tick the hit
+ * lands; it would not be harmless for ordinary driving (C9). The gate documents that intent.
+ */
+function resolveDash(body: SimBody, driven: SimBody, dt: number, ctx: StepContext): SimBody {
+  const substeps = dashSubstepCount(body, dt);
+  const step = dashTranslation(body, dt / substeps);
+  let next: SimBody = { ...driven, x: body.x, y: body.y };
+  for (let i = 0; i < substeps; i++) {
+    next = resolveWorld(
+      { ...next, x: next.x + step.x, y: next.y + step.y },
+      ctx.others,
+      ctx.obstacles,
+      ctx.bounds,
+    );
+  }
+  return next;
 }
