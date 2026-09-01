@@ -147,6 +147,8 @@ export { WEAPON_SLOT_CONFIG, carAimRangeOf, slotsFrom, slotsOf } from "./config/
 export { COMBAT_CONFIG, DEATH_FADE_MS } from "./config/combat-config.js";
 export { activeTuning, setTuning } from "./config/tuning.js";
 export type { TuningOverrides, TuningValue } from "./config/tuning.js";
+export { sanitizeStoredTuning, tunableFields, validateTuning } from "./config/tuning-walker.js";
+export type { TunableField } from "./config/tuning-walker.js";
 
 // --- statuses (buffs and debuffs) ----------------------------------------------------------
 export {
