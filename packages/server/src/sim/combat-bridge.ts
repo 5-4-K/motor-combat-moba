@@ -42,7 +42,10 @@ export interface CombatMemory {
   instances: Map<string, WeaponInstance>;
   /** Per-player target lock. Server-only; only `targetSessionId` is projected onto the schema. */
   locks: Map<string, LockState>;
-  /** Who last damaged each player. Server-only; the schema carries only the frozen `killedBy`. */
+  /**
+   * Who last damaged each player. Server-only; the schema carries only the frozen
+   * `killedBySessionId`, stamped on the tick the car died and never rewritten after.
+   */
   lastDamagers: Map<string, string>;
 }
 
@@ -229,6 +232,12 @@ export function clearInstances(state: ArenaState, memory: CombatMemory): void {
   memory.instances.clear();
   memory.fireStates.clear();
   memory.locks.clear();
+  // Not observable today — every path that zeroes hp stamps a fresh source before `alive` flips, so
+  // no carried-over entry can currently be read. Cleared anyway on both counts this map is here
+  // for: it is keyed by session id and never pruned, so a long-lived room accumulates one entry per
+  // player who ever played in it; and leaving the one omission in a function whose whole job is
+  // per-match hygiene reads as a deliberate exception, which invites the next reader to preserve it.
+  memory.lastDamagers.clear();
   // The schema projection has to be cleared here too, separately from the memory map above: combat
   // only runs in RoomPhase.MATCH, but ArenaScene is on screen from COUNTDOWN onward, and `endMatch`
   // freezes whatever `lockTargetSessionId` was last written. Without this, the second match onward
