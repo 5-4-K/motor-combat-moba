@@ -16,6 +16,7 @@ import {
   STATUS_CONFIG,
   GameMode,
   INPUT_MESSAGE,
+  ManeuverKind,
   MAX_PLAYERS,
   MS_PER_TICK,
   PlayerStatus,
@@ -47,6 +48,13 @@ import { fitsViewport } from "./arena-camera.js";
 import { assetManifest, assetsReady } from "./BootScene.js";
 import { freshImpacts, newImpactTracker, type ImpactTracker } from "./impact-feedback.js";
 import { carFillOf, carShapeOf, deathFadeAlpha, hexagonPoints } from "./car-visual.js";
+import {
+  dashGhostAlphas,
+  dashGhostOffsets,
+  dashGhostPose,
+  hullOutlinePoints,
+  maneuverOutline,
+} from "./maneuver-visual.js";
 import {
   AURA_FILL_ALPHA,
   AURA_RING_WIDTH,
@@ -147,6 +155,17 @@ const ARROW_DEPTH = 52;
  * moment something depended on being below it, so it is written down.
  */
 const CAR_DEPTH = 0;
+/**
+ * The wild-charge outline and the thunderclap dash ghosts (`maneuver-visual.ts`). Above the cars —
+ * a charging car's outline would be pointless drawn underneath its own sprite — and below every HUD
+ * and marker layer, since both are cosmetic reads of `PlayerState.maneuver` and neither should ever
+ * occlude a bracket or a bar.
+ */
+const MANEUVER_DEPTH = 2;
+/** Stroke width of each dash ghost outline. Thinner than the charge outline (`CHARGE_OUTLINE_WIDTH`
+ * in `maneuver-visual.ts`) since the ghosts already fade by alpha and three thick strokes would
+ * read as a solid trail rather than three distinct echoes. */
+const DASH_GHOST_WIDTH = 2;
 /**
  * Every live weapon instance — projectiles and beams alike — draws below every car (D7).
  *
@@ -517,6 +536,8 @@ export class ArenaScene extends Phaser.Scene {
   private hpGfx: Phaser.GameObjects.Graphics | undefined;
   private lockGfx: Phaser.GameObjects.Graphics | undefined;
   private arrowGfx: Phaser.GameObjects.Graphics | undefined;
+  /** The wild-charge outline and the thunderclap dash ghosts, cleared and redrawn every frame. */
+  private maneuverGfx: Phaser.GameObjects.Graphics | undefined;
   private spectateText: Phaser.GameObjects.Text | undefined;
   /** Pill plates behind the movement hint's key glyphs. Drawn once, then only toggled. */
   private movementHintGfx: Phaser.GameObjects.Graphics | undefined;
@@ -640,6 +661,7 @@ export class ArenaScene extends Phaser.Scene {
     this.hpGfx = this.add.graphics().setDepth(HP_BAR_DEPTH);
     this.lockGfx = this.add.graphics().setDepth(LOCK_DEPTH);
     this.arrowGfx = this.add.graphics().setDepth(ARROW_DEPTH);
+    this.maneuverGfx = this.add.graphics().setDepth(MANEUVER_DEPTH);
     this.hudGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_BOX_DEPTH);
     this.hudSweepGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_SWEEP_DEPTH);
     this.rosterGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_BOX_DEPTH);
@@ -795,6 +817,8 @@ export class ArenaScene extends Phaser.Scene {
       // World space at `ARROW_DEPTH`, drawn over the local car during the countdown, so the world
       // camera keeps it and the HUD camera must not draw it a second time over the gutter.
       ...(this.arrowGfx ? [this.arrowGfx] : []),
+      // World space at `MANEUVER_DEPTH`, drawn over the cars — the same reason `arrowGfx` is here.
+      ...(this.maneuverGfx ? [this.maneuverGfx] : []),
       ...this.cars.values(),
     ];
 
@@ -865,6 +889,8 @@ export class ArenaScene extends Phaser.Scene {
     this.lockGfx = undefined;
     this.arrowGfx?.destroy();
     this.arrowGfx = undefined;
+    this.maneuverGfx?.destroy();
+    this.maneuverGfx = undefined;
     this.hudGfx?.destroy();
     this.hudGfx = undefined;
     this.hudSweepGfx?.destroy();
@@ -1028,11 +1054,13 @@ export class ArenaScene extends Phaser.Scene {
     const hp = this.hpGfx;
     const lock = this.lockGfx;
     const arrow = this.arrowGfx;
+    const maneuver = this.maneuverGfx;
     hp?.clear();
     lock?.clear();
     // Cleared here and refilled below, so the first frame after the countdown draws nothing at all:
     // the arrow going away is the absence of a draw call, not an animation that has to be stopped.
     arrow?.clear();
+    maneuver?.clear();
     const poses = new Map<string, SimBody>();
     // Teams alongside poses so the impact-spark pass below can gate on them without a second walk of
     // `room.state.players` (and without carrying `team` through `SimBody`, which has no business
@@ -1085,6 +1113,7 @@ export class ArenaScene extends Phaser.Scene {
           : "enemy";
         this.drawHpBar(hp, player, pose, allegiance);
       }
+      if (maneuver && player.alive) this.drawManeuverVisuals(maneuver, player, pose);
       if (sessionId === this.cameraTarget(room)) this.followCamera(pose, delta);
     });
 
@@ -1348,6 +1377,48 @@ export class ArenaScene extends Phaser.Scene {
     if (fraction <= 0) return;
     gfx.fillStyle(hpBarColor(allegiance), 1);
     gfx.fillPoints(hpBarPoints(pose, fraction, HP_BAR_GEOMETRY), true);
+  }
+
+  /**
+   * The wild-charge outline and the thunderclap dash streak: two render-only reads of
+   * `PlayerState.maneuver` (spec S6), drawn for every car including remotes and the spectated one —
+   * the field is networked in full, so nobody needs to predict it.
+   *
+   * `maneuverOutline`/`dashGhostAlphas`/`dashGhostOffsets`/`hullOutlinePoints`/`dashGhostPose`
+   * (`maneuver-visual.ts`) do all the deciding; this only turns their answers into `Graphics` calls,
+   * same split as `drawHpBar`. Nothing here reaches back into the sim or the schema.
+   *
+   * A charging car (`ManeuverKind.CHARGE`) gets a single stroked rect around its own hull footprint,
+   * in wildcharge's own colour. A dashing car (`ManeuverKind.DASH`) instead gets three ghost hull
+   * outlines trailing it along `-maneuverAngle`, stroked in the car's OWN paint (`carFillOf`) rather
+   * than a fixed colour, so the streak reads as "this car, a moment ago" instead of a second weapon
+   * effect. Both are drawn against the CURRENT pose every frame and nothing is kept between frames,
+   * so either vanishes the instant the networked `maneuver` does — no separate cleanup path, the
+   * same reason `hpGfx` needs none.
+   */
+  private drawManeuverVisuals(
+    gfx: Phaser.GameObjects.Graphics,
+    player: ArenaPlayer,
+    pose: SimBody,
+  ): void {
+    const { carWidth: w, carHeight: h } = DRIVE_CONFIG;
+
+    const outline = maneuverOutline(player.maneuver);
+    if (outline) {
+      gfx.lineStyle(outline.width, outline.color, 1);
+      gfx.strokePoints(hullOutlinePoints(pose, w, h), true);
+      return;
+    }
+
+    if (player.maneuver !== ManeuverKind.DASH) return;
+    const fill = carFillOf(player.colorId);
+    const alphas = dashGhostAlphas();
+    const offsets = dashGhostOffsets();
+    for (let i = 0; i < alphas.length; i++) {
+      const ghostPose = dashGhostPose(pose, player.maneuverAngle, offsets[i]!);
+      gfx.lineStyle(DASH_GHOST_WIDTH, fill, alphas[i]!);
+      gfx.strokePoints(hullOutlinePoints(ghostPose, w, h), true);
+    }
   }
 
   /**
