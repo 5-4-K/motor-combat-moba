@@ -111,11 +111,7 @@ import {
   showMovementHint,
 } from "./movement-hint.js";
 import {
-  ROSTER_NAME_CHAR_PX,
   ROSTER_NAME_FONT_PX,
-  ROSTER_PAD_X_PX,
-  ROSTER_SWATCH_GAP_PX,
-  ROSTER_SWATCH_PX,
   rosterPanelLayout,
   rosterRows,
   truncateName,
@@ -297,24 +293,6 @@ const ROSTER_DEAD_TEXT = "#8d9096";
 const ROSTER_DEAD_SWATCH_ALPHA = 0.3;
 /** A living row's name, matching the rest of the gutter's text. */
 const ROSTER_LIVE_TEXT = HUD_TEXT;
-/**
- * The kills column's width, in Deathmatch only — it mirrors the swatch column on the other side of
- * the row, so a row reads as a name between two equal gutters rather than a name with a number
- * bolted onto its end.
- *
- * Deliberately not a number of its own: `rosterPanelLayout` spends the whole gutter on the label
- * column (six players at `HUD_GUTTER_WIDTH` afford 13 characters, and its own test asserts that is
- * already fewer than `FLOW_CONFIG.nameMax`), so a number right-aligned on the panel's edge would sit
- * *under* any name that used its full budget. Something has to give the column back, and reusing the
- * swatch's own two constants keeps the panel's arithmetic to the values `roster-panel.ts` already
- * publishes instead of inventing a second measuring scheme here.
- *
- * `ROSTER_NAME_CHAR_PX` turns that width back into a character budget — the same monospace advance
- * the label column is budgeted in, for the same reason: measuring the real string needs a canvas.
- */
-const ROSTER_KILLS_COLUMN_PX = ROSTER_SWATCH_PX + ROSTER_SWATCH_GAP_PX;
-const ROSTER_KILLS_NAME_CHARS = Math.ceil(ROSTER_KILLS_COLUMN_PX / ROSTER_NAME_CHAR_PX);
-
 // --- the deathmatch HUD ------------------------------------------------------------------------
 /**
  * Ghost alpha for a car the sim is treating as intangible, multiplied INTO whatever
@@ -1696,29 +1674,23 @@ export class ArenaScene extends Phaser.Scene {
    * half. An empty roster hides every pooled name, draws nothing, and returns 0, so a pre-reveal or
    * free-roam frame leaves the gutter laid out exactly as it was before the panel existed.
    *
-   * In Deathmatch each row also carries its kill count, right-aligned on the panel's edge — the
-   * live scoreboard, so nobody has to wait for the results screen to know whether they are winning.
-   * That column costs the name column a few characters, and only in that mode; see
-   * {@link ROSTER_KILLS_COLUMN_PX}. `winRuleOf` is what decides, so the panel asks the same question
-   * about the mode that the server's win check does rather than testing the enum itself.
+   * In Deathmatch each row also carries its kill count, right-aligned on `panel.killsX` — the live
+   * scoreboard, so nobody has to wait for the results screen to know whether they are winning. What
+   * that column costs the name beside it is `rosterPanelLayout`'s arithmetic and not this method's:
+   * all this does is answer whether there is a column and truncate to the budget it is handed.
    */
   private renderRosterPanel(room: Room<ArenaState>): number {
     const gfx = this.rosterGfx;
     if (!gfx) return 0;
     gfx.clear();
 
-    const rows = rosterRows([...room.state.players.values()]);
-    const panel = rosterPanelLayout(rows.length, VIEW_WIDTH, HUD_GUTTER_WIDTH);
-
-    // The one mode check the panel makes. Skipping the whole column — not drawing a blank one —
-    // is what keeps Last Standing's and Team's panels exactly what they were before Deathmatch
-    // existed, name budget included.
+    // The one mode question the panel asks, and it asks it once: `rosterPanelLayout` charges the
+    // column against the name budget, so passing this in is what keeps the two halves of one row
+    // from disagreeing about how wide the label column is. Answered through `winRuleOf` rather than
+    // by testing the enum, so the panel asks what the server's win check asks.
     const showKills = winRuleOf(room.state.mode) === "deathmatch";
-    const nameMaxChars = showKills
-      ? Math.max(1, panel.nameMaxChars - ROSTER_KILLS_NAME_CHARS)
-      : panel.nameMaxChars;
-    // The panel's right edge, the mirror of `rosterPanelLayout`'s left inset.
-    const killsX = VIEW_WIDTH - ROSTER_PAD_X_PX;
+    const rows = rosterRows([...room.state.players.values()]);
+    const panel = rosterPanelLayout(rows.length, VIEW_WIDTH, HUD_GUTTER_WIDTH, showKills);
 
     for (let i = 0; i < this.rosterNameTexts.length; i++) {
       const row = rows[i];
@@ -1744,14 +1716,14 @@ export class ArenaScene extends Phaser.Scene {
       if (label.style.color !== color) label.setColor(color);
       label
         .setPosition(box.labelX, box.centerY)
-        .setText(truncateName(row.name, nameMaxChars))
+        .setText(truncateName(row.name, panel.nameMaxChars))
         .setVisible(true);
 
       if (!showKills) continue;
       // Greyed with its name rather than on its own rule: a dead row is one row, and a score left
       // at full contrast beside a faded name would read as the live half of a split player.
       if (kills.style.color !== color) kills.setColor(color);
-      kills.setPosition(killsX, box.centerY).setText(String(row.kills)).setVisible(true);
+      kills.setPosition(panel.killsX, box.centerY).setText(String(row.kills)).setVisible(true);
     }
 
     return panel.height;
