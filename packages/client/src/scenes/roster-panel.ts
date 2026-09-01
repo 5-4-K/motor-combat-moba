@@ -28,6 +28,8 @@ export interface RosterPlayer {
   readonly joinedAtTick: number;
   readonly alive: boolean;
   readonly status: PlayerStatus;
+  /** Shown only in Deathmatch; the panel's caller decides whether to draw the column. */
+  readonly kills: number;
 }
 
 /** One row to draw, in panel order. */
@@ -36,6 +38,8 @@ export interface RosterRow {
   readonly name: string;
   readonly colorId: number;
   readonly alive: boolean;
+  /** Shown only in Deathmatch; the panel's caller decides whether to draw the column. */
+  readonly kills: number;
 }
 
 /**
@@ -64,6 +68,7 @@ export function rosterRows(players: readonly RosterPlayer[]): RosterRow[] {
       name: player.name,
       colorId: player.colorId,
       alive: player.alive,
+      kills: player.kills,
     }));
 }
 

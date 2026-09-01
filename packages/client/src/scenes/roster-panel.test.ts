@@ -22,6 +22,7 @@ function player(over: Partial<RosterPlayer> = {}): RosterPlayer {
     joinedAtTick: 0,
     alive: true,
     status: PlayerStatus.IN_MATCH,
+    kills: 0,
     ...over,
   };
 }
@@ -75,6 +76,11 @@ describe("rosterRows", () => {
 
   it("carries the colour, so the panel never re-derives it", () => {
     expect(rosterRows([player({ colorId: 4 })])[0]!.colorId).toBe(4);
+  });
+
+  it("carries each player's kill count through to the row", () => {
+    const rows = rosterRows([player({ sessionId: "a", kills: 4 })]);
+    expect(rows[0]!.kills).toBe(4);
   });
 });
 
