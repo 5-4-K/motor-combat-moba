@@ -21,7 +21,8 @@
  * dominate.
  *
  * **The defender does nothing.** No dodging, no cover, and — the one that really bites — none of its
- * own kit: Bastion's `fortified` self-heal would stretch its own mirror considerably.
+ * own kit: Bastion's `fortified` (pure 0.7x damage taken, no heal since the status overhaul) would
+ * stretch its own mirror considerably if the defender ever got to raise it.
  *
  * **No travel time.** Projectiles land on the tick they exit, so this is a point-blank reading.
  * Distance is exactly the axis Bullseye's whole design lives on, so the matrix understates it by

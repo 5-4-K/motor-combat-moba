@@ -83,8 +83,9 @@ export const WEAPON_TABLE = {
    * == 2.2 s; at a 200 ms damage interval that is about 11 ticks, 286 damage, 57% of an average car
    * — but only against a target held in the cone for the full duration.
    *
-   * `usesAimAssist: false` is FORCED twice over: `range` (220) is below `AIM_CONFIG.lockRange`, and
-   * a separate guard refuses aim assist on any attached beam. Do not "fix" this to true.
+   * `usesAimAssist: false` is FORCED twice over: the attached-beam guard (it re-derives its angle
+   * from the owner every tick, so a lock would have nothing to decide) and the multi-muzzle guard
+   * (`muzzles.length > 1` forces assist off, same as `pepperbox`). Do not "fix" this to true.
    *
    * `recoveryMs: 200` is deliberately small (L5). The beam lives on its own once spawned, so the
    * driver stays free to keep firing `predator` into a target that is already burning.

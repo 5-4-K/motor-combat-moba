@@ -147,8 +147,9 @@ export const WEAPON_COPY = {
       "think about it. It is the reason Bullseye can afford to spend its other two slots on " +
       "weapons that ask more of you.",
     tip:
-      "Never stop pressing it. Shockwave has no recovery, so it gates nothing — you can keep it " +
-      "running between presses of Pepperbox or while Lance winds up.",
+      "Never stop pressing it. Shockwave has no recovery, so firing it never locks out Pepperbox " +
+      "or Lance afterward. It cannot fire through their wind-up either way, though — a press in " +
+      "flight on any slot blocks every slot, Shockwave included, until it resolves.",
   },
   pepperbox: {
     tagline: "Twelve darts, one press.",
