@@ -105,20 +105,32 @@ export function massOf(id: CarId): number {
   return CAR_TABLE[id].mass * RAM_CONFIG.massPerRating;
 }
 
+/** The rating an "average" chassis carries — the anchor, not a mass. */
+const REFERENCE_MASS_RATING = 50;
+
+function resolveRamReferenceMass(): number {
+  return REFERENCE_MASS_RATING * RAM_CONFIG.massPerRating;
+}
+
+function resolveRamReference(): number {
+  return (
+    resolveRamReferenceMass() *
+    Math.max(...(Object.keys(CAR_TABLE) as CarId[]).map((id) => forwardMaxSpeedOf(id)))
+  );
+}
+
 /**
  * The mass of a chassis rated exactly average. Ram severity is measured against this, so a rating of
  * 50 at top speed is the natural "1.0 severity" anchor rather than an arbitrary number.
  */
-export const RAM_REFERENCE_MASS = 50 * RAM_CONFIG.massPerRating;
+export const RAM_REFERENCE_MASS = resolveRamReferenceMass();
 
 /**
  * The momentum that saturates ram severity: an average-mass chassis travelling at the roster's
  * highest top speed. Derived, never typed — raising `baseMaxSpeed` or a car's `speed` rating moves
  * this with it, so ram severity stays anchored to what a car can actually achieve.
  */
-export const RAM_REFERENCE =
-  RAM_REFERENCE_MASS *
-  Math.max(...(Object.keys(CAR_TABLE) as CarId[]).map((id) => forwardMaxSpeedOf(id)));
+export const RAM_REFERENCE = resolveRamReference();
 
 /**
  * Everything `stepDrive` needs to move one chassis for one tick, resolved from the roster and the
@@ -139,25 +151,29 @@ export interface ChassisDrive {
   turnRateAtStop: number;
 }
 
+function resolveChassisDrive(): Readonly<Record<CarId, ChassisDrive>> {
+  return Object.freeze(
+    Object.fromEntries(
+      (Object.keys(CAR_TABLE) as CarId[]).map((id) => [
+        id,
+        Object.freeze({
+          maxSpeed: forwardMaxSpeedOf(id),
+          reverseMaxSpeed: reverseMaxSpeedOf(id),
+          accel: accelOf(id),
+          reverseAccel: reverseAccelOf(id),
+          turnRate: turnRateOf(id),
+          turnRateAtStop: turnRateAtStopOf(id),
+        }),
+      ]),
+    ) as Record<CarId, ChassisDrive>,
+  );
+}
+
 /**
  * Resolved once at module load and frozen, mirroring `WEAPON_TICKS`. `stepSim` runs this lookup for
  * every player every tick on both halves of the lockstep, so it must not allocate.
  */
-export const CHASSIS_DRIVE: Readonly<Record<CarId, ChassisDrive>> = Object.freeze(
-  Object.fromEntries(
-    (Object.keys(CAR_TABLE) as CarId[]).map((id) => [
-      id,
-      Object.freeze({
-        maxSpeed: forwardMaxSpeedOf(id),
-        reverseMaxSpeed: reverseMaxSpeedOf(id),
-        accel: accelOf(id),
-        reverseAccel: reverseAccelOf(id),
-        turnRate: turnRateOf(id),
-        turnRateAtStop: turnRateAtStopOf(id),
-      }),
-    ]),
-  ) as Record<CarId, ChassisDrive>,
-);
+export const CHASSIS_DRIVE: Readonly<Record<CarId, ChassisDrive>> = resolveChassisDrive();
 
 /**
  * What `driveOf` actually hands the sim. It IS `CHASSIS_DRIVE` — the same object, not a copy —
@@ -186,25 +202,9 @@ export function rebuildResolvedDrive(hasOverrides: boolean): void {
     activeRamReferenceMass = RAM_REFERENCE_MASS;
     return;
   }
-  ACTIVE_DRIVE = Object.freeze(
-    Object.fromEntries(
-      (Object.keys(CAR_TABLE) as CarId[]).map((id) => [
-        id,
-        Object.freeze({
-          maxSpeed: forwardMaxSpeedOf(id),
-          reverseMaxSpeed: reverseMaxSpeedOf(id),
-          accel: accelOf(id),
-          reverseAccel: reverseAccelOf(id),
-          turnRate: turnRateOf(id),
-          turnRateAtStop: turnRateAtStopOf(id),
-        }),
-      ]),
-    ) as Record<CarId, ChassisDrive>,
-  );
-  activeRamReferenceMass = 50 * RAM_CONFIG.massPerRating;
-  activeRamReference =
-    activeRamReferenceMass *
-    Math.max(...(Object.keys(CAR_TABLE) as CarId[]).map((id) => forwardMaxSpeedOf(id)));
+  ACTIVE_DRIVE = resolveChassisDrive();
+  activeRamReferenceMass = resolveRamReferenceMass();
+  activeRamReference = resolveRamReference();
 }
 
 /** The live `RAM_REFERENCE` — equal to the constant unless playground tuning is active. */

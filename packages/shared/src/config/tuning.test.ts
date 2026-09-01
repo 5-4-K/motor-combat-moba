@@ -1,7 +1,15 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { CAR_TABLE, CHASSIS_DRIVE, driveOf, hpOf, ramReference } from "./car-config.js";
+import {
+  CAR_TABLE,
+  CHASSIS_DRIVE,
+  RAM_REFERENCE,
+  driveOf,
+  hpOf,
+  ramReference,
+} from "./car-config.js";
 import { COMBAT_CONFIG } from "./combat-config.js";
 import { DRIVE_CONFIG } from "./drive-config.js";
+import { RAM_DECAY, ramDecay } from "./ram-config.js";
 import { WEAPON_TABLE } from "./weapon-config.js";
 import { WEAPON_TICKS, weaponTicksOf } from "./weapon-ticks.js";
 import { activeTuning, setTuning } from "./tuning.js";
@@ -69,6 +77,24 @@ describe("tuning store", () => {
     expect(entry.durationMs as number).toBe(2000);
     expect(CAR_TABLE.bastion.weapons).toBe(weapons);
     expect([...weapons]).toEqual(["thumper", "roadblock", "wildcharge"]);
+  });
+
+  it("a half-life override moves the decay the sim reads, not just the seconds it is authored in", () => {
+    const shipped = RAM_DECAY.spin;
+    setTuning({ "ram.spinHalfLifeSeconds": 2 });
+    expect(ramDecay().spin).toBeGreaterThan(shipped);
+    expect(ramDecay().shove).toBe(RAM_DECAY.shove);
+
+    setTuning(null);
+    expect(ramDecay()).toBe(RAM_DECAY);
+  });
+
+  it("a no-op override re-resolves to the shipped derivations, value for value", () => {
+    const shippedSpeed: number = CAR_TABLE.bastion.speed;
+    setTuning({ "car.bastion.speed": shippedSpeed });
+    expect(driveOf("bastion")).toEqual(CHASSIS_DRIVE.bastion);
+    expect(ramReference()).toBe(RAM_REFERENCE);
+    expect(ramDecay()).toEqual(RAM_DECAY);
   });
 
   it("a mass-scale override moves the ram reference", () => {

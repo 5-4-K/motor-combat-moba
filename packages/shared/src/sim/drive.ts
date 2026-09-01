@@ -1,6 +1,6 @@
 import type { ChassisDrive } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
-import { RAM_CONFIG, RAM_DECAY } from "../config/ram-config.js";
+import { RAM_CONFIG, ramDecay } from "../config/ram-config.js";
 import type { InputMessage } from "../net/input.js";
 import { ManeuverKind, NO_MANEUVER } from "./maneuver.js";
 import type { Modifiers } from "./status/modifiers.js";
@@ -161,12 +161,13 @@ function tickCharge(body: SimBody): Pick<SimBody, "maneuver" | "maneuverTicksLef
  */
 function nextAngVel(angVel: number, steer: InputMessage["steer"]): number {
   const fighting = steer * angVel < 0;
-  const next = angVel * (fighting ? RAM_DECAY.counterSteer : RAM_DECAY.spin);
+  const decay = ramDecay();
+  const next = angVel * (fighting ? decay.counterSteer : decay.spin);
   return Math.abs(next) < RAM_CONFIG.spinEpsilon ? 0 : next;
 }
 
 function decayShove(component: number): number {
-  const next = component * RAM_DECAY.shove;
+  const next = component * ramDecay().shove;
   return Math.abs(next) < RAM_CONFIG.shoveEpsilon ? 0 : next;
 }
 
@@ -176,7 +177,7 @@ function decayShove(component: number): number {
  * steering — exponential recovery never actually arrives.
  */
 function recoverAuthority(authority: number): number {
-  const next = 1 - (1 - authority) * RAM_DECAY.authority;
+  const next = 1 - (1 - authority) * ramDecay().authority;
   return 1 - next < RAM_CONFIG.authorityEpsilon ? 1 : next;
 }
 

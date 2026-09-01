@@ -96,13 +96,45 @@ export function halfLifeToPerTick(halfLifeSeconds: number): number {
   return 0.5 ** (1 / (halfLifeSeconds * TICK_RATE_HZ));
 }
 
+/** The four decays `stepDrive` applies, as per-tick multipliers. */
+export interface RamDecay {
+  spin: number;
+  shove: number;
+  authority: number;
+  counterSteer: number;
+}
+
+function resolveRamDecay(): Readonly<RamDecay> {
+  return Object.freeze({
+    spin: halfLifeToPerTick(RAM_CONFIG.spinHalfLifeSeconds),
+    shove: halfLifeToPerTick(RAM_CONFIG.shoveHalfLifeSeconds),
+    authority: halfLifeToPerTick(RAM_CONFIG.authorityHalfLifeSeconds),
+    counterSteer: halfLifeToPerTick(RAM_CONFIG.counterSteerHalfLifeSeconds),
+  });
+}
+
 /**
  * The per-tick multipliers, derived once at module load and frozen. Server and client both import
  * shared's built `dist`, so both compute identical decays or neither does.
  */
-export const RAM_DECAY = Object.freeze({
-  spin: halfLifeToPerTick(RAM_CONFIG.spinHalfLifeSeconds),
-  shove: halfLifeToPerTick(RAM_CONFIG.shoveHalfLifeSeconds),
-  authority: halfLifeToPerTick(RAM_CONFIG.authorityHalfLifeSeconds),
-  counterSteer: halfLifeToPerTick(RAM_CONFIG.counterSteerHalfLifeSeconds),
-});
+export const RAM_DECAY: Readonly<RamDecay> = resolveRamDecay();
+
+/** `RAM_DECAY` itself until playground tuning overrides a half-life, and again once it clears. */
+let ACTIVE_DECAY: Readonly<RamDecay> = RAM_DECAY;
+
+/**
+ * What the sim actually decays by. `stepDrive` reads this rather than `RAM_DECAY` so the four
+ * half-life knobs are reachable by tuning at all — they are authored in seconds and nothing in the
+ * sim reads them directly.
+ */
+export function ramDecay(): Readonly<RamDecay> {
+  return ACTIVE_DECAY;
+}
+
+/**
+ * Playground tuning only (spec PG12) — see `rebuildResolvedDrive` for why `hasOverrides` is passed
+ * in rather than read back from the tuning store.
+ */
+export function rebuildRamDecay(hasOverrides: boolean): void {
+  ACTIVE_DECAY = hasOverrides ? resolveRamDecay() : RAM_DECAY;
+}
