@@ -19,7 +19,6 @@ import { applyDamage, applyHeal, scaleDamage, weaponDamageOf } from "./damage.js
 import { ManeuverKind, NO_MANEUVER } from "./maneuver.js";
 import { applyStatus, hasStatus, statusPulses, type ActiveStatus } from "./status/statuses.js";
 import { modifiersOf, NEUTRAL_MODIFIERS, type Modifiers } from "./status/modifiers.js";
-import { interceptAngle } from "./weapons/aim.js";
 import { beginFire, cancelPending, releaseShots, tickRecharge, type FireState } from "./weapons/fire.js";
 import { resolveInstanceHits, type PoseSnapshot } from "./weapons/hits.js";
 import {
@@ -45,11 +44,6 @@ export interface CombatPlayer {
   x: number;
   y: number;
   angle: number;
-  /**
-   * Scalar velocity along the heading, for aim lead — the same reading `stepDrive` integrates.
-   * Post-collision is fine: lead is an estimate, not a promise.
-   */
-  speed: number;
   team: 0 | 1;
   carId: string;
   hp: number;
@@ -582,19 +576,9 @@ export function aimAngleFor(
   const distance = Math.hypot(target.x - player.x, target.y - player.y);
   if (distance > (def.aimRangeUnits ?? 0)) return null;
   const muzzle = muzzleOf({ x: player.x, y: player.y, angle: player.angle });
-  if (def.kind === "projectile") {
-    // Lead is projectiles-only (spec S1): a beam crosses its reach near-instantly, and a maneuver
-    // aims the car, not a shot. Target velocity is heading x speed — shove is small and decaying.
-    // For a DASHING target, `target.speed` is stale: `stepDash` (sim/drive.ts) holds `body.speed`
-    // at its pre-dash value for the whole dash rather than reporting `maneuverSpeed`, so the
-    // direction here is right (dash sets `angle` to `maneuverAngle` every tick) but the magnitude
-    // understates a fast dash — acceptable, since lead is an estimate rather than a promise.
-    return interceptAngle(
-      muzzle.x, muzzle.y, target.x, target.y,
-      Math.cos(target.angle) * target.speed, Math.sin(target.angle) * target.speed,
-      def.speed,
-    );
-  }
+  // NO lead, for any kind (A3): the assist points the shot at where the target IS and the player
+  // carries the lead themselves. Aiming at a first-order intercept instead shipped briefly and was
+  // reverted -- it made the assist decide the shot rather than set its direction.
   return Math.atan2(target.y - muzzle.y, target.x - muzzle.x);
 }
 

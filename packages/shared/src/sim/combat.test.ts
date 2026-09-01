@@ -61,7 +61,6 @@ function player(sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlay
     x: 400,
     y: OPEN_Y,
     angle: 0,
-    speed: 0,
     team: 0,
     carId,
     hp: hpOf("mirage"),
@@ -115,7 +114,6 @@ describe("firing", () => {
       x: 300,
       y: OPEN_Y,
       angle: 0,
-      speed: 0,
       team: 0,
       carId: "mirage",
       hp: hpOf("mirage"),
@@ -789,17 +787,20 @@ describe("aimAngleFor", () => {
     expect(aimAngleFor(shooter, "shockwave", byId, () => false)).toBeNull(); // 430 > 400 -> welded to heading
   });
 
-  it("leads a moving locked target (assisted projectiles fire at the intercept, spec S1)", () => {
+  it("does NOT lead a moving locked target — it aims where the target is (A3)", () => {
+    // The assist sets direction, never lead: a crossing target is shot at, not shot ahead of, and
+    // carrying the lead stays the player's job. Aiming at a first-order intercept shipped briefly
+    // and was reverted.
     const shooter = player("a", { x: 0, y: 0, angle: 0 });
     shooter.lock = { targetSessionId: "b", lockedAtTick: 0, losLostSinceTick: 0, lastPressTick: 0 };
-    const target = player("b", { x: 300, y: 0, angle: Math.PI / 2, speed: 300 }); // heading +y
+    const target = player("b", { x: 300, y: 0, angle: Math.PI / 2 }); // crossing at full tilt, +y
     const byId = new Map([
       ["a", shooter],
       ["b", target],
     ]);
-    const led = aimAngleFor(shooter, "shockwave", byId, () => false)!;
-    const direct = Math.atan2(0 - 0, 300 - 24); // muzzle at x=24
-    expect(led).toBeGreaterThan(direct); // aimed ahead of the target, up the +y path
+    const aimed = aimAngleFor(shooter, "shockwave", byId, () => false)!;
+    // Muzzle at x = 24, target dead ahead on the x axis: straight down the +x axis, angle 0.
+    expect(aimed).toBeCloseTo(Math.atan2(0, 300 - 24), 10);
   });
 });
 
