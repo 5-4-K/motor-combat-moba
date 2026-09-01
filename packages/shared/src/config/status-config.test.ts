@@ -62,10 +62,32 @@ describe("STATUS_TABLE", () => {
     }
   });
 
-  it("makes every flag-carrying row `ignore`, so hard CC can never be chained", () => {
+  // O7: `armored` is the one refresh-able flag row. A repeatedly-refreshed invulnerability is a
+  // real design risk, owned by whatever future applier grants it — the same way stun duty cycle
+  // is the applier's problem, not the row's. Every OTHER flag row must still be `ignore`.
+  const FLAG_REAPPLY_EXEMPT: readonly StatusId[] = ["armored"];
+
+  it("makes every flag-carrying row `ignore`, so hard CC can never be chained — except the documented exemption", () => {
     for (const id of IDS) {
+      if (FLAG_REAPPLY_EXEMPT.includes(id)) continue;
       if ((statusDefOf(id).flags?.length ?? 0) > 0) expect(statusDefOf(id).reapply).toBe("ignore");
     }
+  });
+
+  it("matches the overhaul table (spec 2026-09-01)", () => {
+    expect(STATUS_TABLE.overheated.modifiers).toEqual({});
+    expect(STATUS_TABLE.overheated.pulse).toEqual({ intervalMs: 400, damage: 8 });
+    expect(STATUS_TABLE.spiked.modifiers).toEqual({ topSpeed: 0.6 });
+    expect(STATUS_TABLE.spiked.pulse).toBeUndefined();
+    expect(STATUS_TABLE.fortified.modifiers).toEqual({ damageTaken: 0.7 });
+    expect(STATUS_TABLE.fortified.pulse).toBeUndefined();
+    expect(STATUS_TABLE.stunned.flags).toEqual(["immobilised", "steeringLocked", "disarmed", "fullStop"]);
+    expect(STATUS_TABLE.armored.flags).toEqual(["invulnerable"]);
+    expect(STATUS_TABLE.armored.reapply).toBe("refresh");
+  });
+
+  it("keeps spiked's slow above the topSpeed clamp floor", () => {
+    expect(STATUS_TABLE.spiked.modifiers.topSpeed!).toBeGreaterThan(STATUS_LIMITS.topSpeed.min);
   });
 
   it("gives every pulse a positive interval and exactly one direction", () => {

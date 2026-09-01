@@ -7,7 +7,6 @@ import {
   CAR_TABLE,
   DRIVE_CONFIG,
   RAM_CONFIG,
-  STATUS_TABLE,
   TICK_RATE_HZ,
   driveOf,
 } from "@motor-combat-moba/shared";
@@ -159,7 +158,6 @@ describe("docs/turn-tuning.md", () => {
       baseTurnRate: DRIVE_CONFIG.baseTurnRate,
       turnRatePerRating: DRIVE_CONFIG.turnRatePerRating,
       stopTurnRatio: DRIVE_CONFIG.stopTurnRatio,
-      "overheated turnRate": STATUS_TABLE.overheated.modifiers.turnRate,
       authorityFloor: RAM_CONFIG.authorityFloor,
       spinMaxRate: RAM_CONFIG.spinMaxRate,
       baseMaxSpeed: DRIVE_CONFIG.baseMaxSpeed,
@@ -185,7 +183,6 @@ describe("docs/turn-tuning.md", () => {
     );
     const columns = carColumns(header, "derived values");
 
-    const overheated = STATUS_TABLE.overheated.modifiers.turnRate;
     const floor = RAM_CONFIG.authorityFloor;
     const spec = [
       ["Turn rate", (d) => d.turnRate],
@@ -201,7 +198,6 @@ describe("docs/turn-tuning.md", () => {
       ["180° while moving", (d) => Math.PI / d.turnRate],
       ["360° while moving", (d) => (2 * Math.PI) / d.turnRate],
       ["180° from standstill", (d) => Math.PI / d.turnRateAtStop],
-      ["Rate while overheated", (d) => d.turnRate * overheated],
       ["Rate at ram authority floor", (d) => d.turnRate * floor],
     ];
     assert.deepEqual(
@@ -219,11 +215,11 @@ describe("docs/turn-tuning.md", () => {
   });
 
   /**
-   * The last two derived rows restate a multiplier in their formula column. Nothing typed ties that
-   * text to the config it quotes, so it is the cell most able to contradict the row it labels — the
-   * page would go on printing "x 0.65" beside values correctly recomputed at 0.7.
+   * The last derived row restates a multiplier in its formula column. Nothing typed ties that text
+   * to the config it quotes, so it is the cell most able to contradict the row it labels — the page
+   * would go on printing "x 0.3" beside values correctly recomputed at 0.35.
    */
-  it("quotes the two turn multipliers at their configured values", () => {
+  it("quotes the turn multiplier at its configured value", () => {
     const { rows } = tableWhere(
       tables,
       (h) => labelOf(h) === "Stat" && h.some((c) => labelOf([c]) === "Formula"),
@@ -231,7 +227,6 @@ describe("docs/turn-tuning.md", () => {
     );
     const formulaOf = (label) => rows.find((cells) => labelOf(cells) === label)?.[1];
     for (const [label, expected] of [
-      ["Rate while overheated", STATUS_TABLE.overheated.modifiers.turnRate],
       ["Rate at ram authority floor", RAM_CONFIG.authorityFloor],
     ]) {
       const formula = formulaOf(label);

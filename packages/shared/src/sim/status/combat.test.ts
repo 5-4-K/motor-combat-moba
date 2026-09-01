@@ -14,7 +14,7 @@ import {
 } from "../combat.js";
 import { newFireState } from "../weapons/fire.js";
 import { newLockState } from "../weapons/lock.js";
-import { hasStatus, type ActiveStatus } from "./statuses.js";
+import { applyStatus, hasStatus, type ActiveStatus } from "./statuses.js";
 
 /**
  * Statuses as `runCombat` sees them: pulses, the two application seams, and the aura.
@@ -90,13 +90,15 @@ function advance(from: CombatResult, startTick: number, ticks: number): CombatRe
 
 describe("status pulses", () => {
   it("removes hp on the pulse tick and not before", () => {
-    const interval = statusPulseTicksOf("spiked");
-    const damage = statusDefOf("spiked").pulse!.damage!;
+    // `overheated` carries the pulse since the 2026-09-01 overhaul (O4: pure burn) — `spiked` lost
+    // its bleed to it.
+    const interval = statusPulseTicksOf("overheated");
+    const damage = statusDefOf("overheated").pulse!.damage!;
     const full = hpOf("mirage");
 
     const before = runCombat({
       world: world({ tick: 100 + interval - 1 }),
-      players: [player("aaa", { statuses: live("spiked", 100, 400) })],
+      players: [player("aaa", { statuses: live("overheated", 100, 400) })],
       instances: [],
       instanceSeq: 0,
     });
@@ -104,40 +106,18 @@ describe("status pulses", () => {
 
     const on = runCombat({
       world: world({ tick: 100 + interval }),
-      players: [player("aaa", { statuses: live("spiked", 100, 400) })],
+      players: [player("aaa", { statuses: live("overheated", 100, 400) })],
       instances: [],
       instanceSeq: 0,
     });
     expect(find(on.players, "aaa").hp).toBe(full - damage);
   });
 
-  it("restores hp for a healing status, capped at the chassis maximum", () => {
-    const interval = statusPulseTicksOf("fortified");
-    const heal = statusDefOf("fortified").pulse!.heal!;
-    const full = hpOf("bastion");
-
-    const hurt = runCombat({
-      world: world({ tick: 100 + interval }),
-      players: [player("aaa", { carId: "bastion", hp: 100, statuses: live("fortified", 100, 400) })],
-      instances: [],
-      instanceSeq: 0,
-    });
-    expect(find(hurt.players, "aaa").hp).toBe(100 + heal);
-
-    const nearlyFull = runCombat({
-      world: world({ tick: 100 + interval }),
-      players: [player("aaa", { carId: "bastion", hp: full - 1, statuses: live("fortified", 100, 400) })],
-      instances: [],
-      instanceSeq: 0,
-    });
-    expect(find(nearlyFull.players, "aaa").hp).toBe(full);
-  });
-
-  it("wrecks a car whose bleed takes it to 0, by the same path a bullet does", () => {
-    const interval = statusPulseTicksOf("spiked");
+  it("wrecks a car whose burn takes it to 0, by the same path a bullet does", () => {
+    const interval = statusPulseTicksOf("overheated");
     const result = runCombat({
       world: world({ tick: 100 + interval }),
-      players: [player("aaa", { hp: 5, statuses: live("spiked", 100, 400) })],
+      players: [player("aaa", { hp: 5, statuses: live("overheated", 100, 400) })],
       instances: [],
       instanceSeq: 0,
     });
@@ -146,12 +126,12 @@ describe("status pulses", () => {
     expect(dead.alive).toBe(false);
   });
 
-  it("denies the last shot to a car its own bleed killed this tick", () => {
+  it("denies the last shot to a car its own burn killed this tick", () => {
     // Pulses run before firing precisely so this is true: you died to the burn already on you.
-    const interval = statusPulseTicksOf("spiked");
+    const interval = statusPulseTicksOf("overheated");
     const result = runCombat({
       world: world({ tick: 100 + interval }),
-      players: [player("aaa", { hp: 5, fireMask: 0b001, statuses: live("spiked", 100, 400) })],
+      players: [player("aaa", { hp: 5, fireMask: 0b001, statuses: live("overheated", 100, 400) })],
       instances: [],
       instanceSeq: 0,
     });
@@ -159,20 +139,16 @@ describe("status pulses", () => {
     expect(result.instances).toHaveLength(0);
   });
 
-  it("neither burns nor heals a wreck", () => {
-    const interval = statusPulseTicksOf("fortified");
+  it("does not burn a wreck", () => {
+    const interval = statusPulseTicksOf("overheated");
     const result = runCombat({
       world: world({ tick: 100 + interval }),
-      players: [
-        player("aaa", { hp: 0, alive: false, statuses: live("fortified", 100, 400) }),
-        player("bbb", { x: 900, hp: 0, alive: false, statuses: live("spiked", 100, 400) }),
-      ],
+      players: [player("aaa", { hp: 0, alive: false, statuses: live("overheated", 100, 400) })],
       instances: [],
       instanceSeq: 0,
     });
     expect(find(result.players, "aaa").hp).toBe(0);
     expect(find(result.players, "aaa").alive).toBe(false);
-    expect(find(result.players, "bbb").hp).toBe(0);
   });
 });
 
@@ -266,6 +242,27 @@ describe("weapons apply statuses", () => {
 
     const applied = hit.statuses[0]!;
     expect(applied.endsTick - applied.startTick).toBe(weaponTicksOf("thumper").applyDurations[0]);
+  });
+
+  it("an armored car takes 0 from a landed shot but still receives its riders", () => {
+    // O7: armour stops hp loss, not consequences — the rider still lands. Applied with startTick 99
+    // so it is already live by tick 100, where `world()` starts: statuses take hold the tick AFTER
+    // they land, so applying it on the tick under test would be too late to gate that tick's hit.
+    const shooter = { carId: "bastion" as const, fireState: newFireState("bastion", 1) };
+    const target = { statuses: applyStatus([], "armored", 99, 300, "") };
+    let state = runCombat({
+      world: world(),
+      players: duel(shooter).map((p) => (p.sessionId === "bbb" ? { ...p, ...target } : p)),
+      instances: [],
+      instanceSeq: 0,
+    });
+    state = advance(state, 100, 10);
+
+    const hit = find(state.players, "bbb");
+    expect(hit.hp).toBe(hpOf("mirage"));
+    // The rider still rides — `thumper` still applies `stunned` (Bastion's own stun, not
+    // shockwave's, per the 2026-08-30 redistribution).
+    expect(hasStatus(hit.statuses, "stunned", 110)).toBe(true);
   });
 
   it("bulwark fortifies the car that deployed it, whether or not it catches anyone", () => {

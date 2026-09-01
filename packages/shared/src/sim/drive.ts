@@ -15,8 +15,9 @@ import type { SimBody } from "./step.js";
  * every product is a multiplication by 1 and this function is arithmetically identical to its
  * pre-status self, which is the property `golden.test.ts` pins.
  *
- * **Drag is the one constant no channel scales.** Braking is now scalable (`overheated` fades it),
- * but drag is what a car does with no input at all, and a car that would not slow down even off the
+ * **Drag is the one constant no channel scales.** Braking is scalable in principle (no row fades it
+ * today — `overheated` did until the 2026-09-01 overhaul made it a pure burn), but drag is what a
+ * car does with no input at all, and a car that would not slow down even off the
  * throttle has stopped being a car. `STATUS_LIMITS.brakeDecel.min` keeps scaled braking above drag
  * for the same reason: the brake pedal must always beat lifting off, or the control reads as broken
  * rather than degraded.

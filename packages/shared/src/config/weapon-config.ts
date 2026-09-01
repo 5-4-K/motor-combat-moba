@@ -473,10 +473,12 @@ export const WEAPON_TABLE = {
     origin: "muzzle",
     lifetimeMs: 2875,
     // The zone spikes whoever stands in it, and deploying it hardens the car that deployed it.
-    // `spiked` rather than the `corroded` this shipped with (T18): slow-plus-bleed punishes standing
-    // in the zone on the zone's own terms, where a damage-taken debuff only set up somebody else's
-    // shot. It is also `needler`'s old rider — the skirmisher's spam weapon should not have been a
-    // debuff applicator, and an exclusion zone is where a bleed belongs.
+    // `spiked` rather than the `corroded` this shipped with (T18): a pure slow keeps a target inside
+    // the zone's own damage rather than merely scaling somebody else's shot. (The "bleed" that
+    // reasoning originally leaned on moved off this row in the 2026-09-01 overhaul — `spiked` is a
+    // pure slow now, and `overheated` carries the burn.) It is also `needler`'s old rider — the
+    // skirmisher's spam weapon should not have been a debuff applicator, and an exclusion zone is
+    // where a hard slow belongs.
     //
     // The `self` entry is the roster's only one, and it is what makes the weapon a stand-and-hold
     // rather than a place-and-run: the buff arrives whether or not the zone ever catches anybody.

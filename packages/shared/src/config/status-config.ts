@@ -41,10 +41,11 @@ export const STATUS_CONFIG = {
  * anything, so every slow past that point converts a fight into an execution — which is the ram
  * knock's job (bounded, ~1s, with countersteer as counterplay), never a status's.
  *
- * `turnRate`'s ceiling is above 1 so a future buff can sharpen a car's cornering; nothing in the
- * table uses it in that direction today. `overheated` used to, and the reasoning did not survive
- * contact with the input model — see its row for why binary steering makes a raised `turnRate` a
- * gain rather than a penalty. The floor is the side that carries the roster now.
+ * `turnRate`'s ceiling is above 1 so a future buff can sharpen a car's cornering; no row uses it in
+ * either direction today — `overheated` carried a `turnRate` debuff until the 2026-09-01 overhaul
+ * made it a pure burn (git history and the 2026-08-29 status spec have the reasoning: binary
+ * steering makes a raised `turnRate` a gain rather than a penalty, which is why it never shipped
+ * on the floor side either). The channel stays defined for whatever picks it up next.
  *
  * `brakeDecel`'s floor is not a free choice. Scaled braking must stay above `DRIVE_CONFIG.drag` or
  * the brake pedal becomes worse than lifting off, which reads as the control being broken rather
@@ -73,33 +74,10 @@ export const STATUS_LIMITS: Readonly<Record<StatusChannel, { min: number; max: n
  */
 export const STATUS_TABLE = {
   /**
-   * The handling debuff: a car that corners wide instead of one that is merely slow.
-   *
-   * `turnRate` goes DOWN. It was authored at 1.55 — deliberately above 1, on the theory that an
-   * over-responsive car is harder to place than a sluggish one. That theory needs analog steering
-   * to hold, and this game does not have it: `InputMessage.steer` is `-1 | 0 | 1`, so there is no
-   * fine control to lose. You cannot oversteer when the only inputs are hard-left, hard-right and
-   * centre, and releasing stops the turn on the same tick. Under binary steering a higher
-   * `turnRate` is a strict gain — a tighter radius (`speed / turnRate`) and faster reorientation.
-   *
-   * Worse, `stepDrive` ADDS steering to injected spin rather than multiplying:
-   * `angle += (steer * turnRate * authority + angVel) * dt`. Countersteering is free by
-   * construction, so a raised `turnRate` also bought more authority to countersteer out of a ram —
-   * a debuff handing out a defensive buff. And afterburner, the only applier, is a 220-unit
-   * attached beam that has to stay glued to its target: making that target better at rotating out
-   * of the cone works against the weapon applying it.
-   *
-   * 0.65 is the reciprocal of the old 1.55, so the turn radius widens by the factor it used to
-   * narrow. The mirror value (0.45) was rejected: radius scales as `speed / turnRate`, so it nearly
-   * doubles the radius, and stacked with brake fade a 1.5s window of it starts encroaching on
-   * Stunned's territory — the roster's only hard CC, currently applied at `thumper`'s 450ms (see
-   * `stunned`'s row below for why `reapply: "ignore"` does not by itself bound how strong that gets).
-   * 0.65 also leaves headroom above `STATUS_LIMITS.turnRate.min` (0.4) for a harsher handling debuff
-   * later.
-   *
-   * What would make this better is losing grip — a car that slides wide. The drive model cannot do
-   * it: motion is welded to the heading (`x += cos(angle) * speed`), so there is no lateral velocity
-   * to lose. That is a drive-model rewrite, not a status, and it is deliberately not attempted here.
+   * Overheated is a pure burn now (O4): 8 hp per 400 ms is 20 hp/s — 30 hp over afterburner's
+   * 1.5 s application, topped up while the target stays in the flame. The handling-debuff identity
+   * this row shipped with left the game with the overhaul; the long comment arguing turnRate 0.65
+   * vs 1.55 went with it (see git history and the 2026-08-29 status spec for the record).
    */
   overheated: {
     id: "overheated",
@@ -107,7 +85,8 @@ export const STATUS_TABLE = {
     kind: "debuff",
     color: "#d9480f",
     reapply: "refresh",
-    modifiers: { turnRate: 0.65, brakeDecel: 0.65, topSpeed: 0.92 },
+    modifiers: {},
+    pulse: { intervalMs: 400, damage: 8 },
   },
   /** The pure "you are easier to kill" debuff. Sets up a focus, does nothing on its own. */
   corroded: {
@@ -121,9 +100,9 @@ export const STATUS_TABLE = {
   /**
    * Hard CC, and the only row in the table that takes the car away rather than degrading it.
    *
-   * Engine, steering and trigger all dead. Speed is deliberately NOT zeroed: the car coasts down
-   * through drag, because an instant stop at speed reads as hitting an invisible wall rather than as
-   * being stunned. Injected ram spin still applies, so a stunned car that gets hit still tumbles.
+   * Engine, steering and trigger all dead. Total stop (O6): `fullStop` zeroes speed each tick while
+   * shove and injected spin still resolve, so a slammed car still slides into the wall. Landing it
+   * also triggers the interrupt sweep — see `runCombat`.
    *
    * Kept short, and `ignore` on top of that — but `ignore` only blocks EXTENSION: a running stun
    * cannot be refreshed or re-timed by a second landing hit, it just runs its course. It says
@@ -141,14 +120,11 @@ export const STATUS_TABLE = {
     color: "#4263eb",
     reapply: "ignore",
     modifiers: {},
-    flags: ["immobilised", "steeringLocked", "disarmed"],
+    flags: ["immobilised", "steeringLocked", "disarmed", "fullStop"],
   },
   /**
-   * Slow plus bleed. The pressure debuff: it costs you hp for staying in the fight and speed for
-   * trying to leave, so it makes the decision rather than making it for you.
-   *
-   * 8 hp per 400 ms is 20 hp/s — over a 3 s application, 60 hp, about 12% of an average chassis.
-   * Meaningful as a rider on a weapon that already dealt damage; never a kill on its own.
+   * Pure harsh slow (spec table): 0.6 topSpeed, no bleed — the bleed moved to `overheated`.
+   * Above the 0.5 clamp floor, deliberately: the floor is the guarantee a car can always leave.
    */
   spiked: {
     id: "spiked",
@@ -156,30 +132,22 @@ export const STATUS_TABLE = {
     kind: "debuff",
     color: "#0c8599",
     reapply: "refresh",
-    modifiers: { topSpeed: 0.82 },
-    pulse: { intervalMs: 400, damage: 8 },
+    modifiers: { topSpeed: 0.6 },
   },
-  /**
-   * The defensive buff, and the game's first source of healing of any kind.
-   *
-   * 12 hp per 500 ms is 24 hp/s — over a 4 s application, 96 hp. On the 700 hp chassis most likely
-   * to carry it that is 14%, gated behind a 15 s weapon cooldown, so it is a reason to hold ground
-   * rather than a second health bar. This is the number most likely to be wrong on first play.
-   */
+  /** Pure damage reduction (O5): 0.7x incoming. The heal and ramMass left with the overhaul. */
   fortified: {
     id: "fortified",
     name: "Fortified",
     kind: "buff",
     color: "#1971c2",
     reapply: "refresh",
-    modifiers: { damageTaken: 0.7, ramMass: 1.25 },
-    pulse: { intervalMs: 500, heal: 12 },
+    modifiers: { damageTaken: 0.7 },
   },
   /**
    * Field repair: strips every debuff, and that is all it does.
    *
-   * **It restores no hp.** Cleansing `spiked` stops the bleeding but does not give back what has
-   * already bled — which is exactly what keeps a cleanse from being a heal wearing different words,
+   * **It restores no hp.** Cleansing `overheated` stops the burn but does not give back what has
+   * already burned — which is exactly what keeps a cleanse from being a heal wearing different words,
    * and what lets it be generous without being oppressive.
    *
    * It carries no ongoing rules at all, so its duration only decides how long the badge shows. It is
@@ -194,6 +162,21 @@ export const STATUS_TABLE = {
     reapply: "ignore",
     modifiers: {},
     onApply: { cleanse: "debuff" },
+  },
+  /**
+   * Takes 0 damage (O7). No applier yet — the second pickup-tier row beside `overhauled`,
+   * reachable through `statusRequests` the day something grants it. `refresh` breaks the
+   * flag-rows-are-ignore rule with a documented carve-out: the risk of a refreshed
+   * invulnerability belongs to its future applier.
+   */
+  armored: {
+    id: "armored",
+    name: "Armored",
+    kind: "buff",
+    color: "#868e96",
+    reapply: "refresh",
+    modifiers: {},
+    flags: ["invulnerable"],
   },
 } as const satisfies Record<StatusId, StatusDef>;
 

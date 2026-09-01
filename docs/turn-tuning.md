@@ -65,7 +65,6 @@ whether you are moving one chassis or all three.
 | `baseTurnRate` | `DRIVE_CONFIG` | 3.6 | Flat part of every car's turn rate |
 | `turnRatePerRating` | `DRIVE_CONFIG` | 0.054 | What one point of `handling` buys |
 | `stopTurnRatio` | `DRIVE_CONFIG` | 0.5 | Steering at rest, as a fraction of the moving rate |
-| `overheated` `turnRate` | `STATUS_TABLE` | 0.65 | Multiplier while the debuff is up |
 | `authorityFloor` | `RAM_CONFIG` | 0.35 | Most steering a ram can strip |
 | `spinMaxRate` | `RAM_CONFIG` | 6 rad/s | Cap on ram-imposed rotation |
 | `baseMaxSpeed` | `DRIVE_CONFIG` | 180 | Radius only — no effect on turn rate |
@@ -106,7 +105,6 @@ Nothing here is typed anywhere — all of it is computed from the two tables abo
 | 180° while moving | `π / turnRate` | 0.61 s | 0.46 s | 0.39 s |
 | 360° while moving | `2π / turnRate` | 1.23 s | 0.92 s | 0.78 s |
 | 180° from standstill | `π / turnRateAtStop` | 1.23 s | 0.92 s | 0.78 s |
-| Rate while `overheated` | `× 0.65` | 3.323 rad/s | 4.446 rad/s | 5.218 rad/s |
 | Rate at ram authority floor | `× 0.35` | 1.789 rad/s | 2.394 rad/s | 2.810 rad/s |
 
 The split is the point: **Bastion has the highest authored `handling` and the tightest derived
@@ -171,7 +169,7 @@ row fails rather than going silently unchecked.
 |---|---|
 | `CAR_TABLE` | any car's `handling` or `speed` |
 | `DRIVE_CONFIG` | `baseTurnRate`, `turnRatePerRating`, `stopTurnRatio`, `baseMaxSpeed`, `speedPerRating`, `reverseSpeedRatio` |
-| `STATUS_TABLE` | `overheated`'s `turnRate` — or any new status carrying a `turnRate` modifier, which needs a new row |
+| `STATUS_TABLE` | any status carrying a `turnRate` modifier, which needs a new row — no row does today; `overheated`'s left with the 2026-09-01 status overhaul |
 | `RAM_CONFIG` | `authorityFloor`, `spinMaxRate` |
 | shared | `TICK_RATE_HZ` (the per-tick rows only) |
 

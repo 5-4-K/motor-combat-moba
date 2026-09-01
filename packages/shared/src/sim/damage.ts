@@ -66,8 +66,10 @@ export function scaleDamage(amount: number, multiplier: number): number {
 /**
  * The only place hp is ever restored, and the counterpart to `applyDamage` above.
  *
- * Healing exists because a status can pulse it (`fortified`). That means `applyDamage` is no longer
- * the *only* writer of hp — **`sim/damage.ts` is**, and the pair of functions here is the whole set.
+ * Healing exists because a `StatusPulse` can carry a `heal` — no row does today (`fortified`'s heal
+ * left with the 2026-09-01 overhaul), but the mechanism stays live for whatever applies one next.
+ * That means `applyDamage` is no longer the *only* writer of hp — **`sim/damage.ts` is**, and the
+ * pair of functions here is the whole set.
  * Keeping them side by side is what preserves the property the original rule was protecting: one
  * file to read when asking "what can move a car's hp", and one place to add a cap, a shield, or a
  * damage-over-time interaction.
