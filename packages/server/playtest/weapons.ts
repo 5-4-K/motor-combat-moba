@@ -111,6 +111,16 @@ function baseline(): void {
   for (const id of ALL_WEAPONS) {
     const def = WEAPON_TABLE[id];
     const carrier = carrierOf(id);
+    // A charge maneuver (`wildcharge`) authors range 0 — "a charge dashes nowhere" — so "half its
+    // range" is meaningless and its damage exists only on a driven hull contact inside the window.
+    // A stationary press dealing 0 is the row working as authored, not a broken weapon. A dash
+    // (`thunderclap`) still measures: it carries the car to the target and must land its hit.
+    if (def.kind === "maneuver" && def.maneuver.type === "charge") {
+      rows.push(
+        `${id.padEnd(11)} KNOWN-BY-DESIGN — a charge fires no shot and has range 0: damage lands only on driven hull contact inside its window`,
+      );
+      continue;
+    }
     // Half of the weapon's range, but inside a beam's reach.
     const distance = Math.min(def.range * 0.5, def.range - 20);
     const r = shootAt({ weaponId: id, distance, ticks: 120 });
@@ -141,6 +151,15 @@ function pointBlank(): void {
   const rows: string[] = [];
   let misses = 0;
   for (const id of ALL_WEAPONS) {
+    const def = WEAPON_TABLE[id];
+    // A maneuver row spawns no instance from a muzzle, so the bug this probe exists to catch —
+    // "the shot spawns past the hitbox" — cannot happen to it. Its damage rides the contact pass,
+    // which fires on contact ENTRY: hulls already flush give a dash no edge to enter on, and a
+    // stationary charge slams nobody. Both read as MISS here while working exactly as authored.
+    if (def.kind === "maneuver") {
+      rows.push(`${id.padEnd(11)} KNOWN-BY-DESIGN — no muzzle: a maneuver damages through the contact pass, not a spawned shot`);
+      continue;
+    }
     const results: string[] = [];
     for (const distance of [40, 48, 56, 64, 80]) {
       const r = shootAt({ weaponId: id, distance, ticks: 90 });
@@ -479,10 +498,12 @@ function auraThroughWall(): void {
 
 /* ---------------------------------------------------------------- W10. pierce accounting */
 /**
- * `skewer` has pierce: 1, documented as "TWO CARS, not one and not three". T17 moved skewer from
- * Bullseye to Bastion and cut its range 1100 -> 650, so the shooter is Bastion here; the target
- * line at 400/500/600 from a shooter at 200 (distances 200/300/400) is comfortably inside the new
- * 650 range.
+ * `roadblock` (Bastion's slot 2, which took over this probe when the 2026-09-01 overhaul retired
+ * `skewer` and its pierce-1 budget) authors `pierce: 4` and is documented as piercing everything
+ * it crosses: pierce counts cars AFTER the first, so 4 reaches all five possible opponents. Three
+ * cars in its path must therefore ALL be hit, each for the full amount — a shot that stops early
+ * is the regression. The line at 400/500/600 from a shooter at 200 puts the far target 400u out,
+ * inside roadblock's 500 range.
  */
 function pierce(): void {
   const w = new PlaytestWorld([
@@ -500,10 +521,10 @@ function pierce(): void {
   const after = ["t1", "t2", "t3"].map((id) => w.get(id).hp);
   const hit = before.map((b, i) => b - after[i]!);
   report(
-    "W10. Skewer pierce (spec: exactly two cars)",
-    hit.filter((d) => d > 0).length === 2 ? "OK" : "FINDING",
+    "W10. Roadblock pierce (spec: everything in its path)",
+    hit.filter((d) => d > 0).length === 3 ? "OK" : "FINDING",
     `three cars in a line at 400/500/600, shooter at 200: damage [${hit.join(", ")}] ` +
-      `-> ${hit.filter((d) => d > 0).length} cars hit`,
+      `-> ${hit.filter((d) => d > 0).length} cars hit (pierce 4 counts cars after the first; all three must be hit)`,
   );
 }
 

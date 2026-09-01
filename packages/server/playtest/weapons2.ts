@@ -200,6 +200,15 @@ function angledPointBlank(): void {
       rows.push(`${id.padEnd(11)} SKIPPED — authored but on no chassis's loadout`);
       continue;
     }
+    // A maneuver row has no muzzle to bury in the victim — the bug this probe exists to catch.
+    // Its damage rides the contact pass, which fires on contact ENTRY: hulls parked flush give a
+    // dash no edge to enter on, and a stationary charge slams nobody, so both would read as a
+    // point-blank miss here while working exactly as authored (thunderclap 22/24, wildcharge
+    // 24/24 when this swept them).
+    if (WEAPON_TABLE[id].kind === "maneuver") {
+      rows.push(`${id.padEnd(11)} KNOWN-BY-DESIGN — no muzzle: a maneuver damages through the contact pass, not a spawned shot`);
+      continue;
+    }
     const carrier = carrierOf(id);
     const bit = slotBitFor(carrier, id);
     let missed = 0;
