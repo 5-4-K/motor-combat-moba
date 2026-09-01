@@ -3,6 +3,7 @@ import {
   DRIVE_CONFIG,
   GameMode,
   accelOf,
+  activeCarIds,
   forwardMaxSpeedOf,
   hpOf,
   massOf,
@@ -113,7 +114,7 @@ export function carSelectView(
     clock: clockLabel(remaining),
     secondsLeft: remaining,
     urgent: remaining <= URGENT_SECONDS,
-    cars: (Object.keys(CAR_TABLE) as CarId[]).map((id) => ({
+    cars: activeCarIds().map((id) => ({
       id,
       name: CAR_TABLE[id].name,
       selected: id === selectedId,

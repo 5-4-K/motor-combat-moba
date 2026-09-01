@@ -25,6 +25,8 @@ export interface CarDef {
   handling: number;
   /** Ordered loadout: index 0 is slot 1. Order IS the slot mapping. */
   weapons: readonly WeaponId[];
+  /** Selectable in real matches. The playground ignores this — that is how a car is tested before release (spec PG18). */
+  isActive: boolean;
 }
 export interface ColorDef {
   colorId: number;

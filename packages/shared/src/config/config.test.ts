@@ -3,9 +3,11 @@ import {
   CAR_TABLE,
   DEFAULT_CAR_ID,
   accelOf,
+  activeCarIds,
   driveOf,
   forwardMaxSpeedOf,
   hpOf,
+  isActiveCarId,
   isCarId,
   massOf,
   reverseAccelOf,
@@ -90,6 +92,20 @@ describe("isCarId", () => {
     expect(isCarId("constructor")).toBe(false);
     expect(isCarId("toString")).toBe(false);
     expect(isCarId("hasOwnProperty")).toBe(false);
+  });
+});
+
+describe("isActive", () => {
+  it("ships every current car active, and at least one car is always active", () => {
+    expect(activeCarIds()).toEqual(["mirage", "bullseye", "bastion"]);
+  });
+  it("keeps DEFAULT_CAR_ID active, so every fallback path resolves to a selectable car", () => {
+    expect(CAR_TABLE[DEFAULT_CAR_ID].isActive).toBe(true);
+  });
+  it("isActiveCarId refuses unknown ids and inherited names", () => {
+    expect(isActiveCarId("mirage")).toBe(true);
+    expect(isActiveCarId("toString")).toBe(false);
+    expect(isActiveCarId(undefined)).toBe(false);
   });
 });
 

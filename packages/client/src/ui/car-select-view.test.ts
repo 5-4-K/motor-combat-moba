@@ -4,6 +4,7 @@ import {
   DRIVE_CONFIG,
   TICK_RATE_HZ,
   accelOf,
+  activeCarIds,
   forwardMaxSpeedOf,
   hpOf,
   reverseMaxSpeedOf,
@@ -145,9 +146,11 @@ describe("fullStatsFor", () => {
 });
 
 describe("carSelectView", () => {
-  it("offers every car in CAR_TABLE", () => {
+  it("offers only active cars, in activeCarIds order", () => {
+    // All three ship active today, so this also equals Object.keys(CAR_TABLE) — but the grid is
+    // meant to track activeCarIds, not the full roster, once an inactive car lands.
     const view = carSelectView(state(), "mirage", false);
-    expect(view.cars.map((c) => c.id)).toEqual(Object.keys(CAR_TABLE));
+    expect(view.cars.map((c) => c.id)).toEqual(activeCarIds());
   });
 
   it("marks only the selected card", () => {

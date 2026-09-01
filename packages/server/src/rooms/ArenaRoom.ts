@@ -32,7 +32,7 @@ import {
   winRuleOf,
   getArena,
   hpOf,
-  isCarId,
+  isActiveCarId,
   DEATHMATCH_TICKS,
   farthestSpawn,
   isDueToRespawn,
@@ -752,6 +752,6 @@ function isSelectCarPayload(msg: unknown): msg is { carId: CarId } {
   return (
     msg !== null &&
     typeof msg === "object" &&
-    isCarId((msg as { carId?: unknown }).carId)
+    isActiveCarId((msg as { carId?: unknown }).carId)
   );
 }
