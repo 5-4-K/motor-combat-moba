@@ -157,8 +157,8 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
 
   it("does not let a later, weaker ram overwrite a standing stronger knock (no rescue)", () => {
     const state = arena();
-    // A full-severity rear ram: a top-speed mirage into the back of "b". Lands well below the
-    // authority floor's midpoint.
+    // A full-severity rear ram: a mirage well past top speed into the back of "b". Lands well below
+    // the authority floor's midpoint.
     addPlayer(state, "strong", { x: 0, y: 400, angle: 0, speed: 540 });
     const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
     const memory = newContactMemory();
@@ -184,10 +184,11 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
 
   it("lets a later, STRONGER ram overwrite a standing knock", () => {
     const state = arena();
-    // A sub-top-speed mirage: T4 raised both mirage's mass and RAM_REFERENCE, and at mirage's own
-    // top speed (576) the ram now saturates severity same as bastion's does below, leaving no gap
-    // for a "stronger" ram to widen. 300 u/s keeps this a genuine partial-severity ram.
-    addPlayer(state, "medium", { x: 0, y: 400, angle: 0, speed: 300 });
+    // A sub-top-speed mirage: at mirage's own top speed the rear ram saturates severity same as
+    // bastion's does below, leaving no gap for a "stronger" ram to widen. 150 u/s keeps this a
+    // genuine partial-severity ram (300 stopped being one when the 2026-09-01 half-speed cut halved
+    // RAM_REFERENCE with the roster's top speed).
+    addPlayer(state, "medium", { x: 0, y: 400, angle: 0, speed: 150 });
     const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
     const memory = newContactMemory();
     contactTick(
@@ -198,7 +199,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
 
     // A heavier attacker (bastion) rear-ends the same victim at its own top speed on a later tick —
     // strictly harder than the first ram, so its lower authority must win.
-    addPlayer(state, "hexy", { x: 0, y: 400, angle: 0, speed: 315, carId: "bastion" });
+    addPlayer(state, "hexy", { x: 0, y: 400, angle: 0, speed: 157.5, carId: "bastion" });
     contactTick(
       state, new Set(["medium", "b", "hexy"]), memory, "ffa", NO_EFFECTS, approachSpeeds(state),
       NO_MANEUVER_WEAPONS, 11,

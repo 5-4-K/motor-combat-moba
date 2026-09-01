@@ -32,16 +32,21 @@
  * the field list and a snippet that prints the new values.
  */
 export const DRIVE_CONFIG = {
-  baseMaxSpeed: 180,
+  /**
+   * Halved from 180 together with `speedPerRating` (4.5 -> 2.25) on 2026-09-01 — a roster-wide 50%
+   * top-speed cut, scaled as a pair so the per-car `speed` rating kept its relative weight.
+   */
+  baseMaxSpeed: 90,
   /**
    * Ratings are 0-100 (see `CAR_TABLE`), so this is a tenth of what it would be on a 0-10 scale.
    * It was 45 against 0-10 ratings and became 4.5 when they widened, precisely so that every car's
    * top speed stayed where it was: widening the ratings is a combat change, not a driving one.
+   * 2.25 since the 2026-09-01 half-speed cut — see `baseMaxSpeed`.
    */
-  speedPerRating: 4.5,
-  /** Holding Down against forward motion. Also brakes reverse when Up is held. 0.34s to rest. */
+  speedPerRating: 2.25,
+  /** Holding Down against forward motion. Also brakes reverse when Up is held. 0.18s to rest. */
   brakeDecel: 1600,
-  /** Throttle released. 0.60s to rest — kept below `brakeDecel` so braking stays the faster option. */
+  /** Throttle released. 0.32s to rest — kept below `brakeDecel` so braking stays the faster option. */
   drag: 900,
   /**
    * Turn rate is `baseTurnRate + handling * turnRatePerRating`, resolved per car by `turnRateOf`.

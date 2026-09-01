@@ -118,8 +118,10 @@ describe("resolveRam", () => {
   });
 
   it("grades severity by attacker mass", () => {
-    const light = car({ sessionId: "a", speed: 300, carId: "mirage" as CarId });
-    const heavy = car({ sessionId: "a", speed: 300, carId: "bastion" as CarId });
+    // 100, not the 300 this test used before the 2026-09-01 half-speed cut: RAM_REFERENCE halved
+    // with the roster's top speed, and at 300 both chassis saturate the severity clamp and tie.
+    const light = car({ sessionId: "a", speed: 100, carId: "mirage" as CarId });
+    const heavy = car({ sessionId: "a", speed: 100, carId: "bastion" as CarId });
     const victim = car({ sessionId: "b", x: 47 });
     const lightHit = resolveRam(light, victim, "ffa")!;
     const heavyHit = resolveRam(heavy, victim, "ffa")!;
@@ -206,8 +208,8 @@ describe("resolveRam", () => {
     // Speeds chosen so severity lands well short of the clamp — at the clamp both would trivially
     // agree at 1.0 and the test would prove nothing.
     const victim = car({ sessionId: "b", x: 47, carId: "bullseye" as CarId });
-    const heavySlow = car({ sessionId: "a", speed: 150, carId: "bastion" as CarId });
-    const scaled = (massOf("bastion") * 150) / massOf("mirage");
+    const heavySlow = car({ sessionId: "a", speed: 70, carId: "bastion" as CarId });
+    const scaled = (massOf("bastion") * 70) / massOf("mirage");
     const lightFast = car({ sessionId: "a", speed: scaled, carId: "mirage" as CarId });
     const one = resolveRam(heavySlow, victim, "ffa")!;
     const two = resolveRam(lightFast, victim, "ffa")!;

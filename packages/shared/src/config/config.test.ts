@@ -29,9 +29,9 @@ describe("CAR_TABLE", () => {
   it("matches the locked ratings", () => {
     // Mirage's handling was 50 until 2026-08-31, when it went to 60 to pull its turn radius in from
     // 91.4 u to 84.2 u without touching its speed. It is no longer the average-handling chassis.
-    expect(CAR_TABLE.mirage).toMatchObject({ speed: 88, accel: 85, handling: 60, attack: 63, hp: 48, mass: 48 });
-    expect(CAR_TABLE.bullseye).toMatchObject({ speed: 52, accel: 45, handling: 28, attack: 55, hp: 30, mass: 30 });
-    expect(CAR_TABLE.bastion).toMatchObject({ speed: 30, accel: 20, handling: 82, attack: 42, hp: 82, mass: 90 });
+    expect(CAR_TABLE.mirage).toMatchObject({ speed: 88, accel: 85, handling: 60, attack: 63, hp: 70, mass: 48 });
+    expect(CAR_TABLE.bullseye).toMatchObject({ speed: 52, accel: 45, handling: 28, attack: 55, hp: 65, mass: 30 });
+    expect(CAR_TABLE.bastion).toMatchObject({ speed: 30, accel: 20, handling: 82, attack: 42, hp: 90, mass: 90 });
   });
 
   it("gives every chassis whole 0-100 ratings on all six axes", () => {
@@ -50,9 +50,9 @@ describe("CAR_TABLE", () => {
   });
 
   it("derives actual HP via hpPerRating", () => {
-    expect(hpOf("mirage")).toBe(480);
-    expect(hpOf("bullseye")).toBe(300);
-    expect(hpOf("bastion")).toBe(820);
+    expect(hpOf("mirage")).toBe(700);
+    expect(hpOf("bullseye")).toBe(650);
+    expect(hpOf("bastion")).toBe(900);
   });
 
   // The spec's headline TTK number (S7) was pinned to `fireball` as the roster's one anchor weapon
@@ -241,9 +241,11 @@ describe("weapon / combat / drive / flow knobs exist", () => {
 
 describe("the three types (T5/T6)", () => {
   it("derives the roster's drive profile from its ratings", () => {
-    expect(forwardMaxSpeedOf("bullseye")).toBe(414);
-    expect(forwardMaxSpeedOf("mirage")).toBe(576);
-    expect(forwardMaxSpeedOf("bastion")).toBe(315);
+    // Half the pre-2026-09-01 values (414 / 576 / 315): the roster-wide 50% top-speed cut scaled
+    // `baseMaxSpeed` and `speedPerRating` together, so the spacing between the three is untouched.
+    expect(forwardMaxSpeedOf("bullseye")).toBe(207);
+    expect(forwardMaxSpeedOf("mirage")).toBe(288);
+    expect(forwardMaxSpeedOf("bastion")).toBe(157.5);
 
     expect(accelOf("bullseye")).toBeCloseTo(744, 9);
     expect(accelOf("mirage")).toBeCloseTo(1032, 9);
@@ -257,9 +259,9 @@ describe("the three types (T5/T6)", () => {
     expect(turnRateOf("mirage")).toBeCloseTo(6.84, 9);
     expect(turnRateOf("bastion")).toBeCloseTo(8.028, 9);
 
-    expect(hpOf("bullseye")).toBe(300);
-    expect(hpOf("mirage")).toBe(480);
-    expect(hpOf("bastion")).toBe(820);
+    expect(hpOf("bullseye")).toBe(650);
+    expect(hpOf("mirage")).toBe(700);
+    expect(hpOf("bastion")).toBe(900);
   });
 
   it("gives Bastion the tightest turn radius despite being the slowest", () => {
@@ -269,9 +271,10 @@ describe("the three types (T5/T6)", () => {
     const radius = (id: CarId) => forwardMaxSpeedOf(id) / turnRateOf(id);
     expect(radius("bastion")).toBeLessThan(radius("bullseye"));
     expect(radius("bullseye")).toBeLessThan(radius("mirage"));
-    // Two thirds of the 58.9 it was before the 2026-08-31 turn-rate raise. Speed was untouched, so
-    // every radius on the roster shrank by exactly the 1.5x the rates grew by.
-    expect(radius("bastion")).toBeCloseTo(39.2, 1);
+    // Half the 39.2 it was before the 2026-09-01 half-speed cut (itself two thirds of the 58.9 that
+    // preceded the 2026-08-31 turn-rate raise). Turn rates were untouched this time, so every radius
+    // on the roster halved with the top speeds.
+    expect(radius("bastion")).toBeCloseTo(19.6, 1);
   });
 
   it("orders the three types on every axis the design names", () => {

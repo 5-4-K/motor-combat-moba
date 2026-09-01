@@ -18,13 +18,13 @@ describe("pressPlan", () => {
   it("scales every hit through damageFor rather than the total once", () => {
     // The sim rounds at each impact, so a total scaled afterwards is a different number from the
     // one a player takes. afterburner (the roster's held ticking beam, since the 2026-09-01 roster
-    // cutover retired bulwark) is the sharpest remaining case: 11 ticks of 26 on Mirage's 1.13x is
-    // 11 x 29 = 319, where 286 x 1.13 rounded once would be 323.
+    // cutover retired bulwark) is the sharpest remaining case: 5 pulses of 49 on Mirage's 1.13x is
+    // 5 x 55 = 275, where 245 x 1.13 rounded once would be 277.
     const plan = pressPlan("mirage", "afterburner");
     const perTick = damageFor(CAR_TABLE.mirage.attack, WEAPON_TABLE.afterburner.damage);
-    assert.equal(perTick, 29);
+    assert.equal(perTick, 55);
     assert.equal(plan.total, perTick * plan.events.length);
-    assert.equal(plan.total, 319);
+    assert.equal(plan.total, 275);
   });
 
   it("counts every pellet of a fan as one simultaneous hit", () => {
