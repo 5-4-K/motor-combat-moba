@@ -28,6 +28,7 @@ import {
   reduceFlow,
   assignSpawns,
   livingSides,
+  sidesOf,
   getArena,
   hpOf,
   isCarId,
@@ -61,7 +62,6 @@ import { clearKnock, newRamMemory, ramTick, type RamMemory } from "../sim/ram-br
 import {
   fromFlowPhase,
   fromFlowStatus,
-  toFlowMode,
   toFlowPhase,
   toFlowStatus,
 } from "./flow-map.js";
@@ -270,7 +270,7 @@ export class ArenaRoom extends Room<ArenaState> {
       });
     });
     const result = livingSides(
-      toFlowMode(this.state.mode),
+      sidesOf(this.state.mode),
       livingAfterLeave(remainingPlayers, this.matchRoster),
     );
     if (result.sides <= 1) {
@@ -333,7 +333,7 @@ export class ArenaRoom extends Room<ArenaState> {
         this.state,
         this.matchRoster,
         this.ram,
-        toFlowMode(this.state.mode),
+        sidesOf(this.state.mode),
         statusMods,
         approachSpeeds,
       );
@@ -360,7 +360,7 @@ export class ArenaRoom extends Room<ArenaState> {
       world: {
         tick: this.state.tick,
         dt,
-        mode: toFlowMode(this.state.mode),
+        mode: sidesOf(this.state.mode),
         obstacles: arena.obstacles,
         bounds: { width: arena.width, height: arena.height },
       },
@@ -375,7 +375,7 @@ export class ArenaRoom extends Room<ArenaState> {
     // Win check every tick, on the state combat just wrote. `livingSides` counts only roster
     // members who are still alive, so a wreck and a disconnect end the match by the same rule.
     const outcome = livingSides(
-      toFlowMode(this.state.mode),
+      sidesOf(this.state.mode),
       result.players.map((p) => ({
         sessionId: p.sessionId,
         team: p.team,
@@ -406,7 +406,7 @@ export class ArenaRoom extends Room<ArenaState> {
     });
     return {
       phase: toFlowPhase(this.state.phase),
-      mode: toFlowMode(this.state.mode),
+      mode: sidesOf(this.state.mode),
       tick: this.state.tick,
       carSelectDeadlineTick: this.state.carSelectDeadlineTick,
       revealEndsTick: this.state.revealEndsTick,
@@ -531,7 +531,11 @@ export class ArenaRoom extends Room<ArenaState> {
 function isSetModePayload(msg: unknown): msg is { mode: GameMode } {
   if (msg === null || typeof msg !== "object") return false;
   const mode = (msg as { mode?: unknown }).mode;
-  return mode === GameMode.FFA || mode === GameMode.TEAM;
+  return (
+    mode === GameMode.FFA_LAST_STANDING ||
+    mode === GameMode.TEAM ||
+    mode === GameMode.FFA_DEATHMATCH
+  );
 }
 
 function isKickPayload(msg: unknown): msg is { sessionId: string } {

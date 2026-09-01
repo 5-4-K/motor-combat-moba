@@ -194,6 +194,7 @@ export type { StatusInput, ViewId } from "./lobby/status.js";
 export { reduceFlow } from "./flow/match-flow.js";
 export type { FlowStatus, FlowPlayer, FlowState, FlowEvent } from "./flow/match-flow.js";
 export { assignSpawns } from "./flow/spawns.js";
+export { sidesOf, winRuleOf } from "./flow/modes.js";
 export { livingSides } from "./flow/win.js";
 export type { LivingPlayer, LivingSidesResult } from "./flow/win.js";
 

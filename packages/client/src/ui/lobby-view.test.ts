@@ -128,7 +128,7 @@ describe("lobbyView", () => {
   });
 
   it("labels mode and player count", () => {
-    const view = lobbyView(state([player()], { mode: GameMode.FFA }), "p1", "");
+    const view = lobbyView(state([player()], { mode: GameMode.FFA_LAST_STANDING }), "p1", "");
     expect(view.modeLabel).toBe("Brawl");
     expect(view.countLabel).toBe("1 / 6 players");
   });
@@ -146,7 +146,7 @@ describe("lobbyView", () => {
    * occupancy goes with the heading: "1 / 3" counts seats on a team nobody is on.
    */
   it("drops the team headings and their occupancy in Brawl", () => {
-    const view = lobbyView(state([player()], { mode: GameMode.FFA }), "p1", "");
+    const view = lobbyView(state([player()], { mode: GameMode.FFA_LAST_STANDING }), "p1", "");
     expect(view.showTeamHeadings).toBe(false);
     expect(view.teamACount).toBe("");
     expect(view.teamBCount).toBe("");
@@ -159,7 +159,7 @@ describe("lobbyView", () => {
    */
   it("still seats players across both columns in Brawl", () => {
     const view = lobbyView(
-      state([player(), player({ sessionId: "p2", team: 1 })], { mode: GameMode.FFA }),
+      state([player(), player({ sessionId: "p2", team: 1 })], { mode: GameMode.FFA_LAST_STANDING }),
       "p1",
       "",
     );

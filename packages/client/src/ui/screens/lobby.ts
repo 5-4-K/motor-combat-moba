@@ -22,7 +22,7 @@ const SWAP_ARROWS =
 
 const MODE_CARDS = [
   {
-    id: GameMode.FFA,
+    id: GameMode.FFA_LAST_STANDING,
     name: "Brawl",
     kicker: "Free-for-all",
     body: "Everyone fights everyone. Last car driving takes the round.",

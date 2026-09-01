@@ -52,7 +52,7 @@ describe("revealView — team brawl", () => {
 
 describe("revealView — brawl", () => {
   const brawl = (players: ReturnType<typeof p>[]) =>
-    revealView(state(players, { mode: GameMode.FFA }), "a1");
+    revealView(state(players, { mode: GameMode.FFA_LAST_STANDING }), "a1");
 
   it("drops the team headings and occupancy entirely", () => {
     const view = brawl([p("a1", 0), p("b1", 1)]);

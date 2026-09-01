@@ -21,7 +21,7 @@ describe("assignSpawns FFA", () => {
       { sessionId: "f", team: 1 as const },
     ];
 
-    const assigned = assignSpawns(ARENA_01, GameMode.FFA, roster, identityRandom);
+    const assigned = assignSpawns(ARENA_01, GameMode.FFA_LAST_STANDING, roster, identityRandom);
     const keys = roster.map((p) => spawnKey(assigned[p.sessionId]!));
     expect(new Set(keys).size).toBe(6);
 
@@ -38,8 +38,8 @@ describe("assignSpawns FFA", () => {
       { sessionId: "c", team: 1 as const },
     ];
 
-    const identity = assignSpawns(ARENA_01, GameMode.FFA, roster, identityRandom);
-    const shuffled = assignSpawns(ARENA_01, GameMode.FFA, roster, () => 0);
+    const identity = assignSpawns(ARENA_01, GameMode.FFA_LAST_STANDING, roster, identityRandom);
+    const shuffled = assignSpawns(ARENA_01, GameMode.FFA_LAST_STANDING, roster, () => 0);
 
     expect(identity.a).toEqual(ARENA_01.ffaSpawns[0]);
     expect(identity.b).toEqual(ARENA_01.ffaSpawns[1]);
@@ -51,7 +51,7 @@ describe("assignSpawns FFA", () => {
     const before = ARENA_01.ffaSpawns.map((s) => ({ ...s }));
     assignSpawns(
       ARENA_01,
-      GameMode.FFA,
+      GameMode.FFA_LAST_STANDING,
       [
         { sessionId: "a", team: 0 as const },
         { sessionId: "b", team: 1 as const },
@@ -66,7 +66,7 @@ describe("assignSpawns FFA", () => {
       sessionId: `p${i}`,
       team: 0 as const,
     }));
-    expect(() => assignSpawns(ARENA_01, GameMode.FFA, roster, () => 0)).toThrow(/spawn/i);
+    expect(() => assignSpawns(ARENA_01, GameMode.FFA_LAST_STANDING, roster, () => 0)).toThrow(/spawn/i);
   });
 });
 

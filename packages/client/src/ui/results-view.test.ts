@@ -41,7 +41,7 @@ describe("durationLabel", () => {
 
 describe("resultsView", () => {
   it("names the winning player in Brawl", () => {
-    const view = resultsView(state({ mode: GameMode.FFA, winnerSessionId: "p1" }), "p1");
+    const view = resultsView(state({ mode: GameMode.FFA_LAST_STANDING, winnerSessionId: "p1" }), "p1");
     expect(view.winnerLabel).toBe("Vex wins");
   });
 
