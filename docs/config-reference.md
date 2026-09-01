@@ -40,9 +40,9 @@ Build with `npm run build:release -- --port <n>` to bake in a different one. See
 
 | id | name | speed | accel | handling | attack | hp | mass | weapons |
 |---|---|---|---|---|---|---|---|---|
-| `mirage` | Mirage | 88 | 85 | 60 | 63 | 48 | 48 | `["predator", "thunderclap", "afterburner"]` |
-| `bullseye` | Bullseye | 52 | 45 | 28 | 55 | 30 | 30 | `["shockwave", "pepperbox", "lance"]` |
-| `bastion` | Bastion | 30 | 20 | 82 | 42 | 82 | 90 | `["thumper", "roadblock", "wildcharge"]` |
+| `mirage` | Mirage | 88 | 85 | 60 | 63 | 70 | 48 | `["predator", "thunderclap", "afterburner"]` |
+| `bullseye` | Bullseye | 52 | 45 | 28 | 55 | 65 | 30 | `["shockwave", "pepperbox", "lance"]` |
+| `bastion` | Bastion | 30 | 20 | 82 | 42 | 90 | 90 | `["thumper", "roadblock", "wildcharge"]` |
 
 `DEFAULT_CAR_ID` is `mirage` — the chassis anyone with no valid `carId` drives, so server tick and
 client prediction must agree on it.
@@ -79,7 +79,7 @@ Derived, per car (Mirage / Bullseye / Bastion):
 
 | Derived | From | Mirage | Bullseye | Bastion |
 |---|---|---|---|---|
-| `hpOf` | hp × `COMBAT_CONFIG.hpPerRating` | 480 | 300 | 820 |
+| `hpOf` | hp × `COMBAT_CONFIG.hpPerRating` | 700 | 650 | 900 |
 | `forwardMaxSpeedOf` | `baseMaxSpeed` + speed × `speedPerRating` | 576 u/s | 414 u/s | 315 u/s |
 | `reverseMaxSpeedOf` | forward × `reverseSpeedRatio` | 374 | 269 | 205 |
 | `accelOf` | `baseAccel` + accel × `accelPerRating` | 1032 | 744 | 564 |
@@ -129,8 +129,8 @@ once, at shared's module load, into the frozen `WEAPON_TICKS` the sim actually r
 | id | kind | damage | damageFrequencyMs | speed | range | cooldownMs | startUpMs | recoveryMs | stock | pierce | volley (volleys / intervalMs) | pellets (perVolley / spreadDeg) | attached | lifetimeMs | hitbox | unlocksAt | usesAimAssist | color |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | `predator` | projectile | 50 | 0 | 600 | 900 | 2000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | capsule, along 14 / across 6 (homing 120°/s × 1200 ms) | 1 | true | `#D63A14` |
-| `thunderclap` | maneuver (dash) | 100 | 0 | 1600 (dash speed) | 400 (dash distance) | 5000 | 0 | 200 | — | — | 1 / 0 | — | — | — | — | 1 | true | `#7A1D1D` |
-| `afterburner` | beam | 26 | 200 | 1100 | 220 | 13000 | 0 | 200 | — | — | 1 / 0 | — | true | 2000 | cone, 55° (muzzles `[0, 180]`) | 1 | false | `#F05818` |
+| `thunderclap` | maneuver (dash) | 90 | 0 | 1600 (dash speed) | 400 (dash distance) | 5000 | 0 | 200 | — | — | 1 / 0 | — | — | — | — | 1 | true | `#7A1D1D` |
+| `afterburner` | beam | 49 | 500 | 1100 | 220 | 13000 | 0 | 200 | — | — | 1 / 0 | — | true | 2000 | cone, 55° (muzzles `[0, 180]`) | 1 | false | `#F05818` |
 | `shockwave` | projectile | 22 | 0 | 900 | 900 | 600 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | circle, radius 12 | 1 | true | `#22579E` |
 | `pepperbox` | projectile | 45 (per pellet) | 0 | 800 | 600 | 1800 | 0 | 200 | — | 0 | 1 / 0 | 3 / 12 | — | — | ellipse, along 9 / across 3 (muzzles `[0, 90, 180, 270]`) | 1 | false | `#184890` |
 | `lance` | beam | 170 | 0 | 6000 | 1200 | 16000 | 700 | 1000 | — | — | 1 / 0 | — | true | 1500 | rect, width 57.5 (`holdsDuringFire`) | 1 | false | `#0F3268` |
@@ -166,11 +166,11 @@ over a press total**, so a single `pepperbox` fan — the 3 darts a target actua
 the car eats — is `3 × damageFor(55, 45)` = 141 on Bullseye (`round(45 × 1.05) = 47` per dart); the
 weapon fires four such fans at once
 (`muzzles: [0, 90, 180, 270]`), but that ×4 is total output across four directions, not damage any one
-target takes. `afterburner` on Mirage is `damageFor(63, 26)` per 200 ms tick, not a press total scaled
+target takes. `afterburner` on Mirage is `damageFor(63, 49)` per 500 ms pulse, not a press total scaled
 once.
 
 `predator`'s 50 carries the pre-weapon-system `fireball` shot's original damage number forward
-unchanged, but not its pace: an average chassis has 500 hull HP, and `fireball`'s 5-second
+unchanged, but not its pace: an average chassis had 500 hull HP at the time, and `fireball`'s 5-second
 average-vs-average kill target was solved against its own original **500 ms** cooldown (100 DPS
 sustained). `predator` fires the same 50 damage at a **2000 ms** cooldown — 25 DPS sustained, a
 ~20-second average-on-average kill — so the anchor damage moved forward while the kill-time target

@@ -391,7 +391,7 @@ do not reach, exactly:
   `spawnInstances` carries a weapon's `pierce` onto `pierceLeft` uses `shockwave` (`pierce: 0`). No
   test derives `pierceLeft` from `roadblock`'s real `pierce: 4` end to end.
 - **`damageFrequencyMs > 0`, the re-arming per-target clock.** Still genuinely uncovered, and now down
-  to one shipped example: `afterburner` (200 ms) ships it and re-ticks a target still standing in the
+  to one shipped example: `afterburner` (500 ms) ships it and re-ticks a target still standing in the
   flame during a real match (`bulwark`, the table's other example, retired with the overhaul), but
   `hits.test.ts` only exercises `damageFrequencyMs: 0`'s arm-at-infinity behaviour, and
   `weapon-config.test.ts` / `weapon-ticks.test.ts` only pin the raw ms/tick values — no test drives an

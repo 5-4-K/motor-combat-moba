@@ -61,7 +61,7 @@ export const WEAPON_TABLE = {
     name: "Thunderclap",
     color: "#7A1D1D", // the retired aura's maroon — Mirage's palette
     unlocksAt: 1,
-    damage: 100,
+    damage: 90,
     damageFrequencyMs: 0,
     speed: 1600, // ⚙ dash speed
     range: 400, // = the dash distance, for the guide's reach figure
@@ -80,8 +80,10 @@ export const WEAPON_TABLE = {
    *
    * `attached: true` welds its origin and angle to the car every tick, so it sweeps as the driver
    * steers and dies the instant its owner is wrecked. Total life is `range / speed + lifetimeMs`
-   * == 2.2 s; at a 200 ms damage interval that is about 11 ticks, 286 damage, 57% of an average car
-   * — but only against a target held in the cone for the full duration.
+   * == 2.2 s; at a 500 ms damage interval that is 5 pulses, 245 base damage, about a third of an
+   * average car — but only against a target held in the cone for the full duration. The pulses were
+   * 11 × 26 every 200 ms until the 2026-09-01 balance pass chunked them: same-ish press total,
+   * but escaping between pulses is now worth something and grazing the cone costs real HP.
    *
    * `usesAimAssist: false` is FORCED twice over: the attached-beam guard (it re-derives its angle
    * from the owner every tick, so a lock would have nothing to decide) and the multi-muzzle guard
@@ -104,8 +106,8 @@ export const WEAPON_TABLE = {
     // colour, which is the only one it sits near.
     color: "#F05818",
     unlocksAt: 1,
-    damage: 26, // per tick
-    damageFrequencyMs: 200,
+    damage: 49, // per pulse
+    damageFrequencyMs: 500,
     speed: 1100, // extends its 220 range in 200ms
     range: 220,
     startUpMs: 0,
@@ -119,7 +121,7 @@ export const WEAPON_TABLE = {
     origin: "muzzle",
     lifetimeMs: 2000,
     // A flamethrower that cooks the car it is pointed at. `refresh` on `overheated` is what makes a
-    // ticking source work: each 200 ms tick tops the clock back up, so the debuff holds for as long
+    // ticking source work: each 500 ms pulse tops the clock back up, so the debuff holds for as long
     // as the target stays in the flame and lapses 1.5 s after they break away.
     applies: [{ statusId: "overheated", target: "opponents", durationMs: 1500 }],
   },
