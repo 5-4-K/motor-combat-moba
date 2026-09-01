@@ -37,6 +37,10 @@ function carrierOf(weaponId: WeaponId): CarId {
   if (!id) throw new Error(`no chassis carries ${weaponId}`);
   return id;
 }
+/** An authored row no chassis carries (`tremor` today) cannot be fired through the real slot pipeline. */
+function hasCarrier(weaponId: WeaponId): boolean {
+  return (Object.keys(CAR_TABLE) as CarId[]).some((c) => slotsOf(c).includes(weaponId));
+}
 
 /**
  * Fire `weaponId` from a shooter at `(sx, sy, angle)` at a target `distance` away along the same
@@ -94,7 +98,11 @@ function shootAt(opts: {
   };
 }
 
-const ALL_WEAPONS = Object.keys(WEAPON_TABLE) as WeaponId[];
+// Every probe here fires through the real slot pipeline, so the sweep covers CARRIED rows only.
+// `tremor` (the 2026-09-01 overhaul's unassigned presence zone) is authored but on no loadout;
+// W1 names every skipped row loudly rather than iterating it into a crash.
+const ALL_WEAPONS = (Object.keys(WEAPON_TABLE) as WeaponId[]).filter(hasCarrier);
+const UNCARRIED_WEAPONS = (Object.keys(WEAPON_TABLE) as WeaponId[]).filter((id) => !hasCarrier(id));
 
 /* ------------------------------------------------------- W1. baseline: every weapon connects */
 function baseline(): void {
@@ -112,6 +120,9 @@ function baseline(): void {
       `${id.padEnd(11)} @${String(Math.round(distance)).padStart(4)}u  dealt ${String(r.damage).padStart(4)}  ` +
         `(one hit = ${expected})  statuses on target: ${r.statuses.join(",") || "-"}`,
     );
+  }
+  for (const id of UNCARRIED_WEAPONS) {
+    rows.push(`${id.padEnd(11)} SKIPPED — authored but on no chassis's loadout; nothing can fire it through the real slot pipeline`);
   }
   report(
     "W1. Every weapon connects at half its range",

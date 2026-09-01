@@ -194,6 +194,12 @@ function angledPointBlank(): void {
   const rows: string[] = [];
   let misses = 0;
   for (const id of Object.keys(WEAPON_TABLE) as WeaponId[]) {
+    // `tremor` (unassigned since the 2026-09-01 overhaul) is on no loadout, so nothing can press it
+    // through the real slot pipeline — skipped loudly rather than iterated into a crash.
+    if (!(Object.keys(CAR_TABLE) as CarId[]).some((c) => slotsOf(c).includes(id))) {
+      rows.push(`${id.padEnd(11)} SKIPPED — authored but on no chassis's loadout`);
+      continue;
+    }
     const carrier = carrierOf(id);
     const bit = slotBitFor(carrier, id);
     let missed = 0;
