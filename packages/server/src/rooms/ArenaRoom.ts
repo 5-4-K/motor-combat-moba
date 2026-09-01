@@ -662,6 +662,16 @@ export class ArenaRoom extends Room<ArenaState> {
       // Nothing from the previous match survives into this one — a knock included, or a car would
       // spawn already spinning with its steering degraded.
       clearKnock(player);
+      // The score is match-scoped, and this is the only match boundary that owns it. `PlayerState`
+      // lives as long as the connection, not as long as the match, and the only other writers are
+      // the increments in `combat-bridge.ts` and the per-respawn clear in `respawn` — so without
+      // this, match two is scored on match one's totals, a player who joined for match two starts
+      // behind accumulated numbers they never earned, `uint8` eventually wraps past 255, and the
+      // Last Standing and Team scoreboards show a running career tally where they promise a match.
+      player.kills = 0;
+      player.deaths = 0;
+      player.killedBySessionId = "";
+      player.diedAtTick = 0;
     }
     // Nothing from the previous match survives into this one: no shots in flight, and no stale fire
     // state (a stock or a switch lock the new car never earned).
