@@ -24,12 +24,24 @@ export {
   MSG_PREVIEW_CAR,
   MSG_RETURN_TO_LOBBY,
 } from "./net/lobby-messages.js";
+export {
+  BOT_SESSION_ID,
+  MSG_PLAYGROUND_PAUSE,
+  MSG_PLAYGROUND_SETUP,
+  MSG_PLAYGROUND_SWITCH,
+  MSG_PLAYGROUND_TUNING,
+  PLAYGROUND_ROOM_NAME,
+  defaultPlaygroundSetup,
+  isPlaygroundSetup,
+} from "./net/playground-messages.js";
+export type { PlaygroundCarSetup, PlaygroundSetup } from "./net/playground-messages.js";
 
 export { StatusState } from "./schema/StatusState.js";
 export { PlayerState } from "./schema/PlayerState.js";
 export { WeaponInstanceState } from "./schema/WeaponInstanceState.js";
 export { WeaponSlotState } from "./schema/WeaponSlotState.js";
 export { ArenaState } from "./schema/ArenaState.js";
+export { PlaygroundState } from "./schema/PlaygroundState.js";
 
 export { RAM_CONFIG, RAM_DECAY, halfLifeToPerTick } from "./config/ram-config.js";
 export { applyDamage, applyHeal, damageFor, scaleDamage, weaponDamageOf } from "./sim/damage.js";

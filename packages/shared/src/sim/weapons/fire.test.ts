@@ -26,6 +26,15 @@ describe("slots", () => {
   it("gives a player with no car no slots at all", () => {
     expect(newFireState("", 1).slots).toEqual([]);
   });
+
+  it("takes an explicit weaponIds loadout in place of the roster's, for the playground (PG13)", () => {
+    const state = newFireState("mirage", 1, ["lance", "pepperbox", "thumper"]);
+    expect(state.slots.map((s) => s.weaponId)).toEqual(["lance", "pepperbox", "thumper"]);
+  });
+
+  it("falls back to the roster's slots when weaponIds is omitted, matching a plain call", () => {
+    expect(newFireState("mirage", 1, undefined)).toEqual(newFireState("mirage", 1));
+  });
 });
 
 describe("pressing", () => {

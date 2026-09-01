@@ -1,7 +1,7 @@
 import { isCarId } from "../../config/car-config.js";
 import type { CarId } from "../../config/types.js";
 import { weaponDefOf } from "../../config/weapon-config.js";
-import { WEAPON_SLOT_CONFIG, slotsOf } from "../../config/weapon-slots.js";
+import { WEAPON_SLOT_CONFIG, slotsFrom, slotsOf } from "../../config/weapon-slots.js";
 import { scaleTicks, weaponTicksOf } from "../../config/weapon-ticks.js";
 import type { WeaponId } from "../../config/weapon-types.js";
 import type { ShotOrder } from "./instances.js";
@@ -75,9 +75,13 @@ export interface FireState {
  * A car's slots at spawn: one stock each, no locks. A player with no chassis — pre-reveal, or an
  * unrecognised `carId` on the wire — gets no slots and can fire nothing, the same gate the old
  * `carId === ""` check applied.
+ *
+ * `weaponIds` is an optional explicit loadout, in slot order, that overrides the roster's own kit —
+ * the dev-only playground picks any car/weapon combination rather than the shipped pairing (PG13).
+ * It still runs through `slotsFrom` so the 3-slot cap holds exactly as it does for a roster loadout.
  */
-export function newFireState(carId: CarId | "", level: number): FireState {
-  const weapons = isCarId(carId) ? slotsOf(carId) : [];
+export function newFireState(carId: CarId | "", level: number, weaponIds?: readonly WeaponId[]): FireState {
+  const weapons = weaponIds ? slotsFrom(carId, weaponIds) : isCarId(carId) ? slotsOf(carId) : [];
   return {
     slots: weapons.map((weaponId) => ({
       weaponId,
