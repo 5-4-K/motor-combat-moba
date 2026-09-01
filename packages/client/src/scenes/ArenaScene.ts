@@ -25,9 +25,11 @@ import {
   WEAPON_SLOT_CONFIG,
   getArena,
   isArenaId,
+  isPhasedAt,
   isWeaponId,
   weaponDefOf,
   weaponTicksOf,
+  winRuleOf,
 } from "@motor-combat-moba/shared";
 import { applyCarSprite, phaserTextures, resolveCarSprite } from "../assets/car-sprite.js";
 import { isDebugEnabled } from "../config/client-mode.js";
@@ -109,11 +111,21 @@ import {
   showMovementHint,
 } from "./movement-hint.js";
 import {
+  ROSTER_NAME_CHAR_PX,
   ROSTER_NAME_FONT_PX,
+  ROSTER_PAD_X_PX,
+  ROSTER_SWATCH_GAP_PX,
+  ROSTER_SWATCH_PX,
   rosterPanelLayout,
   rosterRows,
   truncateName,
 } from "./roster-panel.js";
+import {
+  killedByText,
+  matchClockLabel,
+  respawnSeconds,
+  showKilledBy,
+} from "./deathmatch-hud.js";
 
 const ARENA_BORDER_PX = 4;
 const HUD_TEXT = "#1d1f21";
@@ -285,6 +297,58 @@ const ROSTER_DEAD_TEXT = "#8d9096";
 const ROSTER_DEAD_SWATCH_ALPHA = 0.3;
 /** A living row's name, matching the rest of the gutter's text. */
 const ROSTER_LIVE_TEXT = HUD_TEXT;
+/**
+ * The kills column's width, in Deathmatch only — it mirrors the swatch column on the other side of
+ * the row, so a row reads as a name between two equal gutters rather than a name with a number
+ * bolted onto its end.
+ *
+ * Deliberately not a number of its own: `rosterPanelLayout` spends the whole gutter on the label
+ * column (six players at `HUD_GUTTER_WIDTH` afford 13 characters, and its own test asserts that is
+ * already fewer than `FLOW_CONFIG.nameMax`), so a number right-aligned on the panel's edge would sit
+ * *under* any name that used its full budget. Something has to give the column back, and reusing the
+ * swatch's own two constants keeps the panel's arithmetic to the values `roster-panel.ts` already
+ * publishes instead of inventing a second measuring scheme here.
+ *
+ * `ROSTER_NAME_CHAR_PX` turns that width back into a character budget — the same monospace advance
+ * the label column is budgeted in, for the same reason: measuring the real string needs a canvas.
+ */
+const ROSTER_KILLS_COLUMN_PX = ROSTER_SWATCH_PX + ROSTER_SWATCH_GAP_PX;
+const ROSTER_KILLS_NAME_CHARS = Math.ceil(ROSTER_KILLS_COLUMN_PX / ROSTER_NAME_CHAR_PX);
+
+// --- the deathmatch HUD ------------------------------------------------------------------------
+/**
+ * Ghost alpha for a car the sim is treating as intangible, multiplied INTO whatever
+ * `deathFadeAlpha` already returned rather than replacing it. Translucency is the only channel the
+ * client has to say "this car is not in the world right now"; it has to be light enough to read as
+ * a ghost from across the arena and heavy enough that the car is still trackable while its driver
+ * is the one flying it.
+ *
+ * Nothing but Deathmatch's spawn protection grants `phased` today, so in every other mode this
+ * constant is unreachable rather than merely unused.
+ */
+const PHASED_ALPHA = 0.45;
+/**
+ * The match clock, top-centre over the arena floor rather than in the gutter: it belongs to the
+ * whole match, not to one car's slots, and the gutter's vertical budget is already spent three ways
+ * (see `rosterPanelLayout`). `ARENA_VIEW_WIDTH`, never `VIEW_WIDTH`, for the same reason the
+ * countdown uses it — centring on the canvas would push it off-centre over the floor by half the
+ * gutter.
+ */
+const MATCH_CLOCK_Y = 16;
+const MATCH_CLOCK_FONT_PX = 30;
+/**
+ * "[name] killed you", and the respawn countdown under it. Both sit above the arena's middle, where
+ * the eye already is at the moment of dying, and clear of the spectate banner's row at
+ * `MOVEMENT_HINT_Y` — a wreck reads both at once in Deathmatch.
+ *
+ * The countdown's 96px numeral shares this band, and that is safe rather than lucky: it draws only
+ * in `RoomPhase.COUNTDOWN` and these draw only for a car that has died, which cannot happen before
+ * the match is live.
+ */
+const KILLED_BY_Y = 300;
+const KILLED_BY_FONT_PX = 34;
+const RESPAWN_Y = 348;
+const RESPAWN_FONT_PX = 24;
 
 const HUD_KEY_FONT_PX = SLOT_KEY_FONT_PX;
 const HUD_NAME_FONT_PX = SLOT_NAME_FONT_PX;
@@ -510,6 +574,19 @@ export class ArenaScene extends Phaser.Scene {
   private lockGfx: Phaser.GameObjects.Graphics | undefined;
   private arrowGfx: Phaser.GameObjects.Graphics | undefined;
   private spectateText: Phaser.GameObjects.Text | undefined;
+  /**
+   * The three Deathmatch banners, each one `Text` that only ever changes its string and its
+   * visibility — same lifetime contract as `spectateText`: made in `create`, driven by
+   * `syncMatchHud`, destroyed in `resetMatchState`.
+   *
+   * Not gated on the mode at creation. Which of them ever becomes visible is decided per frame by
+   * the derivations in `deathmatch-hud.ts`, and `matchClockLabel` answers `""` outside Deathmatch —
+   * so the clock hides itself with no mode check on this side at all. Building them unconditionally
+   * costs three idle `Text` objects in a Last Standing match and keeps one creation path.
+   */
+  private matchClockText: Phaser.GameObjects.Text | undefined;
+  private killedByBanner: Phaser.GameObjects.Text | undefined;
+  private respawnText: Phaser.GameObjects.Text | undefined;
   /** Pill plates behind the movement hint's key glyphs. Drawn once, then only toggled. */
   private movementHintGfx: Phaser.GameObjects.Graphics | undefined;
   private movementHintTexts: Phaser.GameObjects.Text[] = [];
@@ -564,6 +641,12 @@ export class ArenaScene extends Phaser.Scene {
    */
   private rosterGfx: Phaser.GameObjects.Graphics | undefined;
   private rosterNameTexts: Phaser.GameObjects.Text[] = [];
+  /**
+   * One pooled kill count per seat, alongside the names. Built in every mode and shown in none but
+   * Deathmatch — a pool that existed only sometimes would be one more thing `splitCameras` and
+   * `resetMatchState` could be out of step with, for six hidden `Text` objects' worth of saving.
+   */
+  private rosterKillTexts: Phaser.GameObjects.Text[] = [];
 
   /**
    * Local-only contact tracker for {@link showImpact}. Purely a render-feel aid — see
@@ -649,6 +732,38 @@ export class ArenaScene extends Phaser.Scene {
 
     this.spectateText = this.add
       .text(ARENA_VIEW_WIDTH / 2, 660, "", { fontSize: "22px", color: HUD_TEXT })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(HUD_DEPTH)
+      .setVisible(false);
+
+    // Top-anchored rather than centred vertically, so the clock hangs from the top edge of the
+    // arena view instead of straddling it.
+    this.matchClockText = this.add
+      .text(ARENA_VIEW_WIDTH / 2, MATCH_CLOCK_Y, "", {
+        fontSize: `${MATCH_CLOCK_FONT_PX}px`,
+        color: HUD_TEXT,
+      })
+      .setOrigin(0.5, 0)
+      .setScrollFactor(0)
+      .setDepth(HUD_DEPTH)
+      .setVisible(false);
+
+    this.killedByBanner = this.add
+      .text(ARENA_VIEW_WIDTH / 2, KILLED_BY_Y, "", {
+        fontSize: `${KILLED_BY_FONT_PX}px`,
+        color: HUD_TEXT,
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(HUD_DEPTH)
+      .setVisible(false);
+
+    this.respawnText = this.add
+      .text(ARENA_VIEW_WIDTH / 2, RESPAWN_Y, "", {
+        fontSize: `${RESPAWN_FONT_PX}px`,
+        color: HUD_TEXT,
+      })
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(HUD_DEPTH)
@@ -766,6 +881,11 @@ export class ArenaScene extends Phaser.Scene {
       ...(this.rosterGfx ? [this.rosterGfx] : []),
       ...(this.countdownText ? [this.countdownText] : []),
       ...(this.spectateText ? [this.spectateText] : []),
+      // Camera-fixed like every other banner: they are drawn over the arena's floor, but at a fixed
+      // place on the canvas rather than at a place in the world.
+      ...(this.matchClockText ? [this.matchClockText] : []),
+      ...(this.killedByBanner ? [this.killedByBanner] : []),
+      ...(this.respawnText ? [this.respawnText] : []),
       ...(this.movementHintGfx ? [this.movementHintGfx] : []),
       ...this.movementHintTexts,
       ...this.hudKeyTexts,
@@ -775,6 +895,7 @@ export class ArenaScene extends Phaser.Scene {
       ...this.hudIconImages,
       ...this.hudStatusTexts,
       ...this.rosterNameTexts,
+      ...this.rosterKillTexts,
     ];
     const worldObjects: Phaser.GameObjects.GameObject[] = [
       ...(this.arenaGfx ? [this.arenaGfx] : []),
@@ -845,6 +966,12 @@ export class ArenaScene extends Phaser.Scene {
     this.countdownText = undefined;
     this.spectateText?.destroy();
     this.spectateText = undefined;
+    this.matchClockText?.destroy();
+    this.matchClockText = undefined;
+    this.killedByBanner?.destroy();
+    this.killedByBanner = undefined;
+    this.respawnText?.destroy();
+    this.respawnText = undefined;
     this.movementHintGfx?.destroy();
     this.movementHintGfx = undefined;
     for (const text of this.movementHintTexts) text.destroy();
@@ -870,6 +997,7 @@ export class ArenaScene extends Phaser.Scene {
     for (const image of this.hudIconImages) image.destroy();
     for (const text of this.hudStatusTexts) text.destroy();
     for (const text of this.rosterNameTexts) text.destroy();
+    for (const text of this.rosterKillTexts) text.destroy();
     this.hudKeyTexts = [];
     this.hudNameTexts = [];
     this.hudCountdownTexts = [];
@@ -877,6 +1005,7 @@ export class ArenaScene extends Phaser.Scene {
     this.hudIconImages = [];
     this.hudStatusTexts = [];
     this.rosterNameTexts = [];
+    this.rosterKillTexts = [];
     // Phaser tears the camera itself down with the scene; this just stops `syncCar` handing a
     // destroyed camera an ignore during the shutdown frame.
     this.hudCamera = undefined;
@@ -1060,13 +1189,25 @@ export class ArenaScene extends Phaser.Scene {
 
       // No wreck: a dead car fades out and is then gone. At alpha 0 the container is destroyed
       // rather than left invisible, so nothing accumulates on the field over a long match.
-      const alpha = deathFadeAlpha(player.alive, player.diedAtTick, room.state.tick);
-      if (alpha <= 0) {
+      const fade = deathFadeAlpha(player.alive, player.diedAtTick, room.state.tick);
+      if (fade <= 0) {
         this.cars.get(sessionId)?.destroy();
         this.cars.delete(sessionId);
         this.visualKeys.delete(sessionId);
         return;
       }
+
+      // A car under spawn protection is drawn as a ghost, because it is one: `isSolid` has dropped
+      // it out of the collision world entirely and it will drive straight through anyone in its way.
+      // The alpha multiplies into the death fade rather than replacing it, so the two effects can
+      // never fight over which one owns the car's opacity.
+      //
+      // `isPhasedAt` and not a scan for the status id: it is the same function `isSolid` calls, so
+      // what the player sees and what the sim believes about this car resolve through one derivation
+      // and cannot disagree. It reads `room.state.tick` — the last PATCHED tick — where the server
+      // reads its live one, so at a phase boundary the ghost can turn solid a frame or two late.
+      // That seam is the one every client-side status read already lives with.
+      const alpha = isPhasedAt(player.statuses, room.state.tick) ? fade * PHASED_ALPHA : fade;
 
       this.syncCar(sessionId, player, pose);
       this.cars.get(sessionId)?.setAlpha(alpha);
@@ -1482,6 +1623,10 @@ export class ArenaScene extends Phaser.Scene {
     // when someone joins. Left-centre, hung off the row's `labelX` and centred on its swatch.
     for (let i = 0; i < MAX_PLAYERS; i++) {
       this.rosterNameTexts.push(this.makeHudText(ROSTER_NAME_FONT_PX).setOrigin(0, 0.5));
+      // Right-centre, the mirror of the name's left-centre: the count is anchored to the panel's
+      // right edge and grows leftward, so one and two digit scores share a column rather than
+      // shifting it.
+      this.rosterKillTexts.push(this.makeHudText(ROSTER_NAME_FONT_PX).setOrigin(1, 0.5));
     }
     // Left-centre, matching the key labels: a badge's text hangs off its box's left inset.
     for (let i = 0; i < STATUS_CONFIG.maxActive; i++) {
@@ -1550,6 +1695,12 @@ export class ArenaScene extends Phaser.Scene {
    * Every rule about who is listed and in what order is in `roster-panel.ts`; this is the Phaser
    * half. An empty roster hides every pooled name, draws nothing, and returns 0, so a pre-reveal or
    * free-roam frame leaves the gutter laid out exactly as it was before the panel existed.
+   *
+   * In Deathmatch each row also carries its kill count, right-aligned on the panel's edge — the
+   * live scoreboard, so nobody has to wait for the results screen to know whether they are winning.
+   * That column costs the name column a few characters, and only in that mode; see
+   * {@link ROSTER_KILLS_COLUMN_PX}. `winRuleOf` is what decides, so the panel asks the same question
+   * about the mode that the server's win check does rather than testing the enum itself.
    */
   private renderRosterPanel(room: Room<ArenaState>): number {
     const gfx = this.rosterGfx;
@@ -1559,10 +1710,22 @@ export class ArenaScene extends Phaser.Scene {
     const rows = rosterRows([...room.state.players.values()]);
     const panel = rosterPanelLayout(rows.length, VIEW_WIDTH, HUD_GUTTER_WIDTH);
 
+    // The one mode check the panel makes. Skipping the whole column — not drawing a blank one —
+    // is what keeps Last Standing's and Team's panels exactly what they were before Deathmatch
+    // existed, name budget included.
+    const showKills = winRuleOf(room.state.mode) === "deathmatch";
+    const nameMaxChars = showKills
+      ? Math.max(1, panel.nameMaxChars - ROSTER_KILLS_NAME_CHARS)
+      : panel.nameMaxChars;
+    // The panel's right edge, the mirror of `rosterPanelLayout`'s left inset.
+    const killsX = VIEW_WIDTH - ROSTER_PAD_X_PX;
+
     for (let i = 0; i < this.rosterNameTexts.length; i++) {
       const row = rows[i];
       const box = panel.rows[i];
       const label = this.rosterNameTexts[i]!;
+      const kills = this.rosterKillTexts[i]!;
+      if (!row || !box || !showKills) kills.setVisible(false);
       if (!row || !box) {
         label.setVisible(false);
         continue;
@@ -1581,8 +1744,14 @@ export class ArenaScene extends Phaser.Scene {
       if (label.style.color !== color) label.setColor(color);
       label
         .setPosition(box.labelX, box.centerY)
-        .setText(truncateName(row.name, panel.nameMaxChars))
+        .setText(truncateName(row.name, nameMaxChars))
         .setVisible(true);
+
+      if (!showKills) continue;
+      // Greyed with its name rather than on its own rule: a dead row is one row, and a score left
+      // at full contrast beside a faded name would read as the live half of a split player.
+      if (kills.style.color !== color) kills.setColor(color);
+      kills.setPosition(killsX, box.centerY).setText(String(row.kills)).setVisible(true);
     }
 
     return panel.height;
@@ -2093,6 +2262,58 @@ export class ArenaScene extends Phaser.Scene {
 
     this.syncSpectateHud(room);
     this.syncMovementHint(room);
+    this.syncDeathmatchHud(room);
+  }
+
+  /**
+   * The three Deathmatch banners: the match clock, "[name] killed you", and the respawn countdown.
+   *
+   * Every decision here comes out of `deathmatch-hud.ts`, which is where it can be tested — this
+   * method sets strings and flips `visible`, and holds no threshold of its own. Two of the three
+   * carry no mode check at all: `matchClockLabel` answers `""` when `matchEndsTick` is 0, which is
+   * every mode but this one, and `showKilledBy` answers on the local player's own death alone.
+   *
+   * **The banner is deliberately ungated.** Being told who killed you is worth having in Last
+   * Standing too, where it is the last thing you learn before the spectate camera takes over. The
+   * respawn countdown is the only one gated on the mode, because it is the only one making a promise
+   * — "you are coming back" — that Last Standing cannot keep.
+   *
+   * All three are local-player-only, read through `room.sessionId`. Nobody ever sees another
+   * player's death message, and a pure spectator who never took a seat has no local player and sees
+   * none of it.
+   */
+  private syncDeathmatchHud(room: Room<ArenaState>): void {
+    const local = room.state.players.get(room.sessionId);
+    const tick = room.state.tick;
+
+    if (this.matchClockText) {
+      const label = matchClockLabel(tick, room.state.matchEndsTick);
+      this.matchClockText.setText(label).setVisible(label !== "");
+    }
+
+    const showBanner = !!local && showKilledBy(local.alive, local.diedAtTick, tick);
+    if (this.killedByBanner) {
+      if (showBanner) {
+        // A killer who left the room before this patch landed is gone from `players` and leaves no
+        // name — `killedByText` owns what to say then, so an empty id and a departed killer read
+        // the same way rather than printing a session id at the player.
+        const killer = room.state.players.get(local!.killedBySessionId);
+        this.killedByBanner.setText(killedByText(killer?.name ?? ""));
+      }
+      this.killedByBanner.setVisible(showBanner);
+    }
+
+    if (this.respawnText) {
+      // `respawnSeconds` guards its own "has not died" sentinel (`diedAtTick` of 0), so this is
+      // called for a living car as freely as a dead one and answers 0 — no `alive` gate here, which
+      // would be a second copy of a rule the schema already carries.
+      const seconds =
+        local && winRuleOf(room.state.mode) === "deathmatch"
+          ? respawnSeconds(local.diedAtTick, tick)
+          : 0;
+      if (seconds > 0) this.respawnText.setText(`Respawning in ${seconds}`);
+      this.respawnText.setVisible(seconds > 0);
+    }
   }
 
   /**
