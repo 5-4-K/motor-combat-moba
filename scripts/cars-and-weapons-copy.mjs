@@ -53,14 +53,17 @@ export const CHASSIS_COPY = {
     codename: "The Anvil",
     theme: "It cannot chase — so it makes you come to it.",
     body:
-      // NOT "the longest crowd control": `fortified` (10000ms, wildcharge's own self-buff) and
-      // `spiked` (3000ms, thumper's own rider) both outlast roadblock's 1000ms stun — the only stun
-      // left in Bastion's kit, since T18/O16 moved hard CC off thumper onto roadblock. What
-      // roadblock alone carries is a full lockout — the only status in the table that takes the car
-      // away instead of degrading it — so the claim here is about kind, not duration.
-      "The slowest chassis, the biggest hull, and the only hard crowd control in the game. Bastion " +
-      "does not catch anybody: it stops them, slams them, and denies the ground they wanted. " +
-      "That is the only currency a car that cannot reposition has.",
+      // NOT "the only hard crowd control in the game": `thunderclap` (Mirage's dash) applies
+      // `stunned` too, the same 1000ms as roadblock — CC is not exclusive to this chassis any more.
+      // What IS true, and what the claim below rests on instead, is the kit's own shape: two of
+      // Bastion's three weapons (`roadblock`, `wildcharge`) stun or slam a car to a stop; `thumper`
+      // only slows one. NOT "the longest crowd control" either: `fortified` (10000ms, wildcharge's
+      // own self-buff) and `spiked` (3000ms, thumper's own rider) both outlast roadblock's 1000ms
+      // stun. The claim is about kind and count on this chassis, not duration or exclusivity.
+      "The slowest chassis and the biggest hull, built around stopping people rather than catching " +
+      "them — two of its three weapons stun or slam a car to a dead stop. Bastion does not catch " +
+      "anybody: it stops them, slams them, and denies the ground they wanted. That is the only " +
+      "currency a car that cannot reposition has.",
     beats: "Mirage, the moment it commits to contact range.",
     losesTo: "Bullseye, which simply refuses to come within reach.",
   },
