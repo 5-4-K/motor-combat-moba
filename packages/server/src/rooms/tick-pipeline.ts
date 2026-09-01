@@ -202,8 +202,13 @@ export function respawnPlayer(ctx: PipelineCtx, player: PlayerState): void {
   player.diedAtTick = 0;
   player.killedBySessionId = "";
 
-  // No stock, no switch lock and no half-finished burst carries across a death.
-  ctx.combat.fireStates.set(player.sessionId, newFireState(carId, player.level));
+  // No stock, no switch lock and no half-finished burst carries across a death. The explicit
+  // loadout does carry: it is the car's configuration, not something the match handed it, and in a
+  // real arena the map is empty so this is `newFireState(carId, level)` unchanged.
+  ctx.combat.fireStates.set(
+    player.sessionId,
+    newFireState(carId, player.level, ctx.combat.loadouts.get(player.sessionId)),
+  );
   // Or whoever last hurt you before this death is credited with your next one.
   ctx.combat.lastDamagers.set(player.sessionId, "");
 

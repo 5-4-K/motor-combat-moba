@@ -7,6 +7,7 @@ import {
   newFireState,
   newLockState,
   runCombat,
+  slotsFrom,
   slotsOf,
   type ArenaState,
   type CarId,
@@ -55,6 +56,17 @@ export interface CombatMemory {
    * `killedBySessionId`, stamped on the tick the car died and never rewritten after.
    */
   lastDamagers: Map<string, string>;
+  /**
+   * An EXPLICIT loadout per player, overriding the chassis's own kit (PG17). Empty in a real match —
+   * `ArenaRoom` never writes it, so every arena car resolves through `slotsOf(carId)` exactly as
+   * before — and written only by the dev-only playground, where a car may carry any three weapons.
+   *
+   * It has to live here rather than only in the fire state, because `toCombatPlayers` decides a fire
+   * state is stale by comparing its slots against what the car is *supposed* to carry. Without this
+   * map that comparison names the roster kit, and a custom loadout is rebuilt away on the very next
+   * tick.
+   */
+  loadouts: Map<string, readonly WeaponId[]>;
 }
 
 /**
@@ -71,6 +83,7 @@ export function newCombatMemory(): CombatMemory {
     locks: new Map(),
     maneuverWeapons: new Map(),
     lastDamagers: new Map(),
+    loadouts: new Map(),
   };
 }
 
@@ -98,8 +111,12 @@ export function toCombatPlayers(
   state.players.forEach((player, sessionId) => {
     const existing = memory.fireStates.get(sessionId);
     const carId = isCarId(player.carId) ? player.carId : "";
-    const stale = !existing || existing.slots.map((s) => s.weaponId).join() !== slotsFor(carId).join();
-    const fireState = stale ? newFireState(carId, player.level) : { ...existing, level: player.level };
+    const loadout = memory.loadouts.get(sessionId);
+    const want = loadoutFor(carId, loadout);
+    const stale = !existing || existing.slots.map((s) => s.weaponId).join() !== want.join();
+    const fireState = stale
+      ? newFireState(carId, player.level, loadout)
+      : { ...existing, level: player.level };
     memory.fireStates.set(sessionId, fireState);
 
     // Carried forward rather than rebuilt from the schema: `lockedAtTick` and `losLostSinceTick`
@@ -141,7 +158,16 @@ export function toCombatPlayers(
   return players;
 }
 
-function slotsFor(carId: CarId | ""): readonly string[] {
+/**
+ * What a car is supposed to be carrying right now: its explicit loadout if one was set for it, and
+ * otherwise the chassis's own kit. Mirrors `newFireState`'s own fallback, so the staleness test above
+ * compares against exactly what a rebuild would produce.
+ */
+export function loadoutFor(
+  carId: CarId | "",
+  explicit: readonly WeaponId[] | undefined,
+): readonly string[] {
+  if (explicit) return slotsFrom(carId, explicit);
   return isCarId(carId) ? slotsOf(carId) : [];
 }
 

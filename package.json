@@ -17,7 +17,7 @@
     "playtest:lan": "npm run playtest:lan -w @motor-combat-moba/server",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "dev:shared": "npm run dev -w @motor-combat-moba/shared",
-    "dev:server": "cross-env DEPLOY_MODE=lan CLIENT_ORIGIN=http://localhost:5173 npm run dev -w @motor-combat-moba/server",
+    "dev:server": "cross-env DEPLOY_MODE=lan DEV_TOOLS=1 CLIENT_ORIGIN=http://localhost:5173 npm run dev -w @motor-combat-moba/server",
     "dev:client": "npm run dev -w @motor-combat-moba/client",
     "dev": "npm run build -w @motor-combat-moba/shared && concurrently -n shared,server,client -c blue.bold,green.bold,magenta.bold \"npm:dev:shared\" \"npm:dev:server\" \"npm:dev:client\"",
     "build:release": "npm run build && node scripts/build-release.mjs",

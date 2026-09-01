@@ -6,11 +6,12 @@ import express from "express";
 import cors from "cors";
 import { Server } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
-import { ROOM_NAME } from "@motor-combat-moba/shared";
-import { getDeployMode, getPort } from "./mode.js";
+import { PLAYGROUND_ROOM_NAME, ROOM_NAME } from "@motor-combat-moba/shared";
+import { getDeployMode, getPort, isDevToolsEnabled } from "./mode.js";
 import { mountHealth } from "./health.js";
 import { mountMonitor } from "./monitor.js";
 import { ArenaRoom } from "./rooms/ArenaRoom.js";
+import { PlaygroundRoom } from "./rooms/PlaygroundRoom.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -35,6 +36,14 @@ const gameServer = new Server({
   transport: new WebSocketTransport({ server: httpServer }),
 });
 gameServer.define(ROOM_NAME, ArenaRoom);
+// Dev only (spec PG3). A release build leaves the name unregistered, so `?dev=playground` gets a
+// plain "room not found" rather than a sandbox that can re-balance the process.
+if (isDevToolsEnabled()) {
+  gameServer.define(PLAYGROUND_ROOM_NAME, PlaygroundRoom);
+}
 
 await gameServer.listen(port);
-console.log(`[server] mode=${mode} port=${port} monitor=/colyseus health=/health`);
+console.log(
+  `[server] mode=${mode} port=${port} monitor=/colyseus health=/health` +
+    (isDevToolsEnabled() ? ` playground=${PLAYGROUND_ROOM_NAME}` : ""),
+);
