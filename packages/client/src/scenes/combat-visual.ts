@@ -372,6 +372,18 @@ const SAMPLES_PER_TONGUE = 6;
  * 2026-09-01 redefinition. `afterburner` and `lance` are the only two beams left in the roster.
  */
 export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
+  /**
+   * `tremor`: the retired `bulwark`'s two-layer recipe, recoloured to tremor's own bronze — full
+   * cone in the table colour with a cream inner wedge. Two layers rather than three for the reason
+   * bulwark's comment gave: a 492-unit cone is the widest thing drawn in the game, and a third
+   * layer would be a band of colour the size of a car.
+   */
+  tremor: {
+    layers: [
+      { extentScale: 1, crossScale: 1, tongues: 0, tongueDepth: 0, color: "#8A6D12" },
+      { extentScale: 0.55, crossScale: 0.8, tongues: 0, tongueDepth: 0, color: "#FFF0C0" },
+    ],
+  },
   afterburner: {
     layers: [
       { extentScale: 1, crossScale: 1, tongues: 5, tongueDepth: 0.3, color: "#7A2018" },

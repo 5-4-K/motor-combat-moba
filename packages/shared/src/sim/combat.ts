@@ -29,7 +29,7 @@ import {
   type WeaponInstance,
 } from "./weapons/instances.js";
 import { muzzleOf, updateLock, type LockState, type LockTarget } from "./weapons/lock.js";
-import { projectileShapeAt, smear } from "./weapons/shapes.js";
+import { beamShapeAt, projectileShapeAt, shapeHitsObb, smear } from "./weapons/shapes.js";
 
 /**
  * One player as the combat step sees them. Plain data on purpose: the room maps `PlayerState` onto
@@ -449,6 +449,11 @@ export function runCombat(input: CombatInput): CombatResult {
       // lingering beam re-applying every single tick.
       applyOpponentStatuses(target, instance.weaponId, world.tick, instance.ownerSessionId, instance.finalWave);
     }
+    // `ownerInside` statuses cannot ride the damage list — `canDamage` refuses the owner by design —
+    // so a live zone runs its own owner-hull test each tick. Placed here, beside the other status
+    // application, so both kinds of rider land at the same point of the tick and take hold on the
+    // next one like every other status.
+    applyOwnerInsideStatuses(instance, byId, world.tick);
     if (outcome.instance.alive) survivors.push(outcome.instance);
   }
 
@@ -633,6 +638,43 @@ function applySelfStatuses(
       tick,
       durations[index] ?? 0,
       player.sessionId,
+    );
+  });
+}
+
+/**
+ * Put this weapon's `ownerInside` statuses on the firing car for every tick its own hull stands
+ * inside this live BEAM instance — the presence-buff seam (`tremor`'s fortified).
+ *
+ * A dedicated test rather than a damage rider, because the one predicate the damage list runs on
+ * (`canDamage`) refuses the owner by design and must keep doing so. Beams only: a zone is a place
+ * to stand. The application re-fires every covered tick, so the authored duration is meant to be
+ * short and the row's `reapply: "refresh"` is what turns the flicker into a held window — the same
+ * shape as `afterburner` holding `overheated` through its damage ticks.
+ */
+function applyOwnerInsideStatuses(
+  instance: WeaponInstance,
+  byId: ReadonlyMap<string, CombatPlayer>,
+  tick: number,
+): void {
+  if (instance.kind !== "beam") return;
+  const def = weaponDefOf(instance.weaponId);
+  if (def.kind !== "beam") return;
+  const applies = def.applies;
+  if (!applies || !applies.some((a) => a.target === "ownerInside")) return;
+  const owner = byId.get(instance.ownerSessionId);
+  if (!owner || !isFighting(owner)) return;
+  const shape = beamShapeAt(def.hitbox, instance.x, instance.y, instance.angle, instance.extent);
+  if (!shapeHitsObb(shape, carHullOf(owner.x, owner.y, owner.angle))) return;
+  const durations = weaponTicksOf(instance.weaponId).applyDurations;
+  applies.forEach((application, index) => {
+    if (application.target !== "ownerInside") return;
+    owner.statuses = applyStatus(
+      owner.statuses,
+      application.statusId,
+      tick,
+      durations[index] ?? 0,
+      owner.sessionId,
     );
   });
 }

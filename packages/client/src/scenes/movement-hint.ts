@@ -1,4 +1,5 @@
 import { RoomPhase } from "@motor-combat-moba/shared";
+import { SLOT_KEYS } from "../config/slot-keys.js";
 
 /**
  * The "how do I drive this" line along the bottom of the arena — key pills for both bindings and a
@@ -25,6 +26,16 @@ export const MOVEMENT_JOINER = "or";
 
 /** Closes the row. Names the verb, because eight key caps alone do not say what they are for. */
 export const MOVEMENT_LABEL = "to move";
+
+/**
+ * The action row's clusters, derived from `SLOT_KEYS` so a rebind can never leave the hint teaching
+ * keys the game stopped listening to. This countdown row is where the letter bindings are printed —
+ * the gutter pill carries only the mouse-hand `glyph` — so between the two, every binding a slot
+ * holds is on screen somewhere, which is what the no-hidden-alternates rule demands.
+ */
+export const ACTION_KEYS: readonly string[] = SLOT_KEYS.map((key) => key.keyGlyph);
+export const ACTION_ALTS: readonly string[] = SLOT_KEYS.map((key) => key.glyph);
+export const ACTION_LABEL = "to fire";
 
 /**
  * One thing on the row. A `pill` gets padding and a rounded plate behind it; a `label` is bare text

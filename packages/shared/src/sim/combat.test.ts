@@ -1161,3 +1161,103 @@ describe("real-row integration (2026-09-01 roster)", () => {
     expect(homed!.angle - angleAtSpawn).toBeLessThanOrEqual(2 * maxTurnPerTick + 1e-9);
   });
 });
+
+describe("tremor (the unassigned row): presence effects", () => {
+  /**
+   * No chassis carries `tremor`, so the real pipeline is reached the way any authored-but-uncarried
+   * row is testable: a hand-built fire state whose slot 1 holds it. `beginFire` reads the slot's
+   * weapon id, not the loadout, so everything downstream of the press is the production path.
+   */
+  const tremorState = () => ({
+    ...newFireState("mirage", 1),
+    slots: [{ weaponId: "tremor" as const, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
+  });
+
+  /** One combat tick at `tick`, threading the previous result's instances and seq. */
+  function step(
+    tick: number,
+    players: CombatPlayer[],
+    prev: { instances: WeaponInstance[]; instanceSeq: number },
+  ): ReturnType<typeof runCombat> {
+    return runCombat({ world: world({ tick }), players, instances: prev.instances, instanceSeq: prev.instanceSeq });
+  }
+
+  it("grants fortified only while the owner stands inside their own zone, and stops refreshing on exit", () => {
+    // Fire from (300, OPEN_Y) heading +x: the cone's apex sits at the nose (324) and grows +x at
+    // 492 u/s — 16.4 units a tick — so the zone is ahead of the car and the owner is NOT inside it
+    // at the moment of firing. Holding the buff means driving in.
+    const shooter = player("a", { x: 300, fireState: tremorState(), fireMask: 0b001 });
+    let result = runCombat({ world: world({ tick: 100 }), players: [shooter], instances: [], instanceSeq: 0 });
+    expect(result.instances).toHaveLength(1);
+    expect(find(result, "a").statuses.find((s) => s.statusId === "fortified")).toBeUndefined();
+
+    // Parked behind the apex, the zone can grow all it likes: never inside, never fortified.
+    let out = find(result, "a");
+    out.fireMask = 0;
+    result = step(101, [out], result);
+    expect(find(result, "a").statuses.find((s) => s.statusId === "fortified")).toBeUndefined();
+
+    // Drive into the zone (hull at 426..474, on the axis) and stay. By tick 112 the extent has
+    // long covered the hull, and the application re-fires EVERY covered tick: `fortified` is
+    // `refresh`, so its clock always reads <last covered tick> + 9 (msToTicks(300)).
+    for (let tick = 102; tick <= 112; tick++) {
+      out = find(result, "a");
+      out.x = 450;
+      out.fireMask = 0;
+      result = step(tick, [out], result);
+    }
+    const held = find(result, "a").statuses.find((s) => s.statusId === "fortified");
+    expect(held).toBeDefined();
+    expect(held!.sourceSessionId).toBe("a");
+    expect(held!.endsTick).toBe(112 + 9); // re-applied on the LAST tick inside — presence, not a one-shot
+
+    // Step back out: the status stops being refreshed — its clock freezes where the last covered
+    // tick left it, so it lapses ~0.3 s later instead of holding.
+    for (let tick = 113; tick <= 115; tick++) {
+      out = find(result, "a");
+      out.x = 300;
+      out.fireMask = 0;
+      result = step(tick, [out], result);
+    }
+    const leaving = find(result, "a").statuses.find((s) => s.statusId === "fortified");
+    expect(leaving!.endsTick).toBe(112 + 9); // unchanged: no re-apply since leaving
+  });
+
+  it("ticks 25-base damage into a standing target and holds spiked exactly while they stay", () => {
+    // Mirage's 1.13x attack makes each zone tick `round(25 * 1.13)` == 28. The victim parks at
+    // x=500 in the beam's path; the zone covers their hull once its extent reaches them, damages on
+    // that first covered tick, then re-arms every 12 ticks (msToTicks(400)) — and `spiked` (600 ms
+    // == 18 ticks, `refresh`) rides every one of those damage ticks.
+    const shooter = player("a", { x: 300, fireState: tremorState(), fireMask: 0b001 });
+    const victim = player("b", { x: 500, team: 1 });
+    const fullHp = victim.hp;
+    let result = runCombat({
+      world: world({ tick: 100 }),
+      players: [shooter, victim],
+      instances: [],
+      instanceSeq: 0,
+    });
+
+    let firstHitTick = 0;
+    for (let tick = 101; tick <= 130 && firstHitTick === 0; tick++) {
+      const players = result.players.map((p) => ({ ...p, fireMask: 0 }));
+      result = step(tick, players, result);
+      if (find(result, "b").hp < fullHp) firstHitTick = tick;
+    }
+    expect(firstHitTick).toBeGreaterThan(0);
+    expect(find(result, "b").hp).toBe(fullHp - 28);
+    const spiked = find(result, "b").statuses.find((s) => s.statusId === "spiked");
+    expect(spiked).toBeDefined();
+    expect(spiked!.endsTick).toBe(firstHitTick + 18);
+
+    // Stay put through the next re-arm: a second 28 lands 12 ticks later and the slow's clock is
+    // topped back up — the zone holds its grip for exactly as long as the target stands in it.
+    for (let tick = firstHitTick + 1; tick <= firstHitTick + 12; tick++) {
+      const players = result.players.map((p) => ({ ...p, fireMask: 0 }));
+      result = step(tick, players, result);
+    }
+    expect(find(result, "b").hp).toBe(fullHp - 56);
+    const refreshed = find(result, "b").statuses.find((s) => s.statusId === "spiked");
+    expect(refreshed!.endsTick).toBe(firstHitTick + 12 + 18);
+  });
+});
