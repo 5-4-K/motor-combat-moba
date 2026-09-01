@@ -1,5 +1,5 @@
 import { RAM_CONFIG } from "../config/ram-config.js";
-import { RAM_REFERENCE, RAM_REFERENCE_MASS, massOf } from "../config/car-config.js";
+import { massOf, ramReference, ramReferenceMass } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { CarId } from "../config/types.js";
 import { contactNormalBetween, type Vec2 } from "./collide.js";
@@ -172,7 +172,7 @@ export function resolveRam(a: RamCar, b: RamCar, mode: "ffa" | "team"): RamHit |
   const side = impactSideOf(incoming, victim.angle);
   // Attacker mass enters HERE and nowhere else. Clamped before the side bonus and again after, so a
   // rear hit on an already-saturated ram cannot drive `authority` below its own floor.
-  const raw = clamp01((approach * effectiveMassOf(attacker)) / RAM_REFERENCE);
+  const raw = clamp01((approach * effectiveMassOf(attacker)) / ramReference());
   const severity = clamp01(raw * bonusFor(side));
 
   const impulse = severity * RAM_CONFIG.knockMaxSpeed;
@@ -180,7 +180,7 @@ export function resolveRam(a: RamCar, b: RamCar, mode: "ffa" | "team"): RamHit |
   // Victim mass enters HERE — the same impulse displaces a light car further. Clamped at both ends so
   // neither the heaviest nor the lightest chassis degenerates.
   const massFactor = clamp(
-    RAM_REFERENCE_MASS / victimMass,
+    ramReferenceMass() / victimMass,
     RAM_CONFIG.massFactorMin,
     RAM_CONFIG.massFactorMax,
   );

@@ -71,14 +71,29 @@ function ticksFor(def: WeaponDef): WeaponTicks {
  * both compute identical tick counts or neither does — which is what keeps ms-authored balance
  * safe for a lockstep sim.
  */
-export const WEAPON_TICKS: Readonly<Record<WeaponId, WeaponTicks>> = Object.freeze(
-  Object.fromEntries(
-    (Object.keys(WEAPON_TABLE) as WeaponId[]).map((id) => [id, Object.freeze(ticksFor(WEAPON_TABLE[id]))]),
-  ) as Record<WeaponId, WeaponTicks>,
-);
+export const WEAPON_TICKS: Readonly<Record<WeaponId, WeaponTicks>> = resolveTicks();
+
+function resolveTicks(): Readonly<Record<WeaponId, WeaponTicks>> {
+  return Object.freeze(
+    Object.fromEntries(
+      (Object.keys(WEAPON_TABLE) as WeaponId[]).map((id) => [id, Object.freeze(ticksFor(WEAPON_TABLE[id]))]),
+    ) as Record<WeaponId, WeaponTicks>,
+  );
+}
+
+/** `WEAPON_TICKS` itself until playground tuning overrides a weapon row, and again once it clears. */
+let ACTIVE_TICKS: Readonly<Record<WeaponId, WeaponTicks>> = WEAPON_TICKS;
 
 export function weaponTicksOf(id: WeaponId): WeaponTicks {
-  return WEAPON_TICKS[id];
+  return ACTIVE_TICKS[id];
+}
+
+/**
+ * Playground tuning only (spec PG12) — see `rebuildResolvedDrive` for why `hasOverrides` is passed
+ * in rather than read back from the tuning store.
+ */
+export function rebuildWeaponTicks(hasOverrides: boolean): void {
+  ACTIVE_TICKS = hasOverrides ? resolveTicks() : WEAPON_TICKS;
 }
 
 /**

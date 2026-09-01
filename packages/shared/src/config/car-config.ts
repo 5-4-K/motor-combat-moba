@@ -159,6 +159,60 @@ export const CHASSIS_DRIVE: Readonly<Record<CarId, ChassisDrive>> = Object.freez
   ) as Record<CarId, ChassisDrive>,
 );
 
+/**
+ * What `driveOf` actually hands the sim. It IS `CHASSIS_DRIVE` — the same object, not a copy —
+ * until playground tuning overrides a balance table, and again the moment tuning is cleared.
+ */
+let ACTIVE_DRIVE: Readonly<Record<CarId, ChassisDrive>> = CHASSIS_DRIVE;
+let activeRamReference = RAM_REFERENCE;
+let activeRamReferenceMass = RAM_REFERENCE_MASS;
+
 export function driveOf(id: CarId): ChassisDrive {
-  return CHASSIS_DRIVE[id];
+  return ACTIVE_DRIVE[id];
+}
+
+/**
+ * Playground tuning only (spec PG12) — called by `setTuning`, never from the sim. With no overrides
+ * it reassigns the module-load defaults BY REFERENCE rather than recomputing them, so an untuned
+ * build resolves the identical frozen objects it always has and cannot drift by a float.
+ *
+ * `hasOverrides` is a parameter rather than a read of `activeTuning()` because `tuning.ts` imports
+ * this module: asking it back would be an import cycle.
+ */
+export function rebuildResolvedDrive(hasOverrides: boolean): void {
+  if (!hasOverrides) {
+    ACTIVE_DRIVE = CHASSIS_DRIVE;
+    activeRamReference = RAM_REFERENCE;
+    activeRamReferenceMass = RAM_REFERENCE_MASS;
+    return;
+  }
+  ACTIVE_DRIVE = Object.freeze(
+    Object.fromEntries(
+      (Object.keys(CAR_TABLE) as CarId[]).map((id) => [
+        id,
+        Object.freeze({
+          maxSpeed: forwardMaxSpeedOf(id),
+          reverseMaxSpeed: reverseMaxSpeedOf(id),
+          accel: accelOf(id),
+          reverseAccel: reverseAccelOf(id),
+          turnRate: turnRateOf(id),
+          turnRateAtStop: turnRateAtStopOf(id),
+        }),
+      ]),
+    ) as Record<CarId, ChassisDrive>,
+  );
+  activeRamReferenceMass = 50 * RAM_CONFIG.massPerRating;
+  activeRamReference =
+    activeRamReferenceMass *
+    Math.max(...(Object.keys(CAR_TABLE) as CarId[]).map((id) => forwardMaxSpeedOf(id)));
+}
+
+/** The live `RAM_REFERENCE` — equal to the constant unless playground tuning is active. */
+export function ramReference(): number {
+  return activeRamReference;
+}
+
+/** The live `RAM_REFERENCE_MASS` — equal to the constant unless playground tuning is active. */
+export function ramReferenceMass(): number {
+  return activeRamReferenceMass;
 }
