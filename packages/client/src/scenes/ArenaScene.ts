@@ -979,6 +979,7 @@ export class ArenaScene extends Phaser.Scene {
       this.arena ?? getArena(room.state.arenaId),
       room.state,
       room.sessionId,
+      room.state.tick,
       // Read fresh on every predicted and reconciled step rather than cached: an effect can lapse
       // between two of them, and the tick it lapses on is the one thing both halves of the lockstep
       // have to agree about.

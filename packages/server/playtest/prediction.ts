@@ -148,18 +148,21 @@ function bodyOf(p: {
 /** The client's `StepContext`: remotes frozen at the last pose it was told about. */
 function clientContext(snap: Snapshot | null, self: SimBody): StepContext {
   const entries: ContextEntry[] = [
-    { sessionId: "me", player: { x: self.x, y: self.y, angle: self.angle, status: 3, carId: "mirage", alive: true } },
+    {
+      sessionId: "me",
+      player: { x: self.x, y: self.y, angle: self.angle, status: 3, carId: "mirage", alive: true, statuses: [] },
+    },
   ];
   for (const o of snap?.others ?? []) {
     entries.push({
       sessionId: o.sessionId,
-      player: { x: o.x, y: o.y, angle: o.angle, status: 3, carId: "mirage", alive: true },
+      player: { x: o.x, y: o.y, angle: o.angle, status: 3, carId: "mirage", alive: true, statuses: [] },
     });
   }
   entries.sort((a, b) => (a.sessionId < b.sessionId ? -1 : 1));
   return {
     carId: "mirage",
-    others: otherCarHulls(entries, "me"),
+    others: otherCarHulls(entries, "me", 0),
     obstacles: ARENA.obstacles,
     bounds: { width: ARENA.width, height: ARENA.height },
     modifiers: NEUTRAL_MODIFIERS,

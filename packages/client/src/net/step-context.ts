@@ -31,10 +31,14 @@ export interface ContextState {
  * owns is getting the roster into sorted `sessionId` order, because `resolveWorld` resolves contacts
  * sequentially and `MapSchema` iteration order is not stable enough to rely on.
  *
- * Scope note: the `IN_MATCH` filter inside `otherCarHulls` is only the **wall** half of the gate —
- * which players are solid. The **mover** half, whether the local player's inputs may move anything
- * at all, is the caller's: see `ArenaScene.canDrive` and `reconcileLocal`. Calling this function
- * does not by itself gate movement.
+ * Scope note: the `isSolid` filter inside `otherCarHulls` is only the **wall** half of the gate —
+ * which players are solid (a respawning car passes it once its phase lapses, per M14). The **mover**
+ * half, whether the local player's inputs may move anything at all, is the caller's: see
+ * `ArenaScene.canDrive` and `reconcileLocal`. Calling this function does not by itself gate movement.
+ *
+ * `tick` has to be the state's own tick, the same one `localModifiers` reads: `isSolid` and
+ * `modifiersFromRows` both judge a status by `tick < endsTick`, so a client reading its own local
+ * clock here instead would let phasing and slows lapse on a different tick than the server's.
  *
  * Remotes enter at their last-known *server* pose. The client predicts only itself, and that is also
  * what the server saw when it built its own `others`.
@@ -43,6 +47,7 @@ export function buildStepContext(
   arena: ArenaDef,
   state: ContextState,
   selfSessionId: string,
+  tick: number,
   modifiers: Readonly<Modifiers>,
 ): StepContext {
   const entries: ContextEntry[] = [];
@@ -56,7 +61,7 @@ export function buildStepContext(
   return {
     // A missing local player still yields a usable context; `carIdOf` supplies the default chassis.
     carId: carIdOf(self?.player ?? { carId: "" }),
-    others: otherCarHulls(entries, selfSessionId),
+    others: otherCarHulls(entries, selfSessionId, tick),
     obstacles: arena.obstacles,
     bounds: { width: arena.width, height: arena.height },
     modifiers,

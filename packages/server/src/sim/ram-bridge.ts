@@ -1,7 +1,7 @@
 import {
   applyRams,
   carIdOf,
-  isOnField,
+  isSolid,
   type ArenaState,
   type Modifiers,
   type PlayerState,
@@ -40,9 +40,10 @@ export function clearKnock(player: PlayerState): void {
 }
 
 /**
- * Only living roster members on the field can ram or be rammed. A lobby player standing in the room
- * is not part of the fight, and a wreck is scenery — both still collide through `resolveWorld`, they
- * just neither deal nor take control loss.
+ * Only living roster members who are `isSolid` can ram or be rammed. A lobby player standing in the
+ * room is not part of the fight. A wreck is no longer merely "scenery that still collides" — it is
+ * not solid either, the same as a lobby player — and neither, now, is a car mid-phase (M14): a
+ * respawning car is driveable but must pass through everyone without dealing or taking a ram.
  */
 function ramCarsOf(
   state: ArenaState,
@@ -53,8 +54,7 @@ function ramCarsOf(
   const cars: RamCar[] = [];
   state.players.forEach((player, sessionId) => {
     if (!roster.has(sessionId)) return;
-    if (!isOnField(player)) return;
-    if (!player.alive) return;
+    if (!isSolid(player, state.tick)) return;
     cars.push({
       sessionId,
       team: player.team === 1 ? 1 : 0,

@@ -106,6 +106,18 @@ export function modifiersFromRows(rows: Iterable<StatusRow>, tick: number): Modi
 }
 
 /**
+ * Is this car phasing, from wire rows alone?
+ *
+ * Deliberately routed through `modifiersFromRows` rather than scanning for the id directly. One
+ * derivation, not two: a hand-rolled scan would have to reproduce `toActiveStatuses`' validation and
+ * `modifiersOf`'s exclusive end-of-clock rule exactly, and the two would drift the first time either
+ * changed. Most cars carry no rows at all, where this early-outs to the shared frozen neutral.
+ */
+export function isPhasedAt(rows: Iterable<StatusRow>, tick: number): boolean {
+  return modifiersFromRows(rows, tick).phased;
+}
+
+/**
  * Drop everything whose clock has run out, as of `tick`.
  *
  * Returns the SAME array reference when nothing expired. Most cars are in no status on most ticks,
