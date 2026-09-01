@@ -62,6 +62,20 @@ export interface CombatPlayer {
    * that everything reading a modifier this tick reads the same one.
    */
   statuses: readonly ActiveStatus[];
+  /**
+   * Who last took hp off this car, or `""` if nothing has.
+   *
+   * The whole of kill attribution (M5–M7). There is no damage ledger and no contribution window,
+   * because there are no assists: the last point of damage decides the kill outright.
+   *
+   * Carried in and back out like `fireState` and `lock`, and server-only for the same reason — the
+   * client does not predict damage, so putting it on the wire would patch a string to everyone at
+   * the tick rate for nothing. `stepSim` never reads it, so invariant 8 does not apply.
+   *
+   * This is well-defined for every death in the game: ramming deals no damage, and status pulses
+   * already carry `sourceSessionId`. There is no world kill to attribute to nobody.
+   */
+  lastDamagerSessionId: string;
 }
 
 /** Everything about the tick that is the same for every player in it. */
@@ -189,7 +203,7 @@ export function runCombat(input: CombatInput): CombatResult {
       // Deliberately NOT scaled by `damageTaken`: that channel is about incoming *weapon* damage,
       // and letting one status amplify another's bleed would compound two rows into a number
       // neither of them states. A pulse deals what its row says it deals.
-      if (pulse.damage > 0) damage(player, pulse.damage);
+      if (pulse.damage > 0) damage(player, pulse.damage, pulse.sourceSessionId);
       // `applyHeal` refuses to lift a wreck off 0, so a repair landing on the tick a bleed killed
       // its target cannot un-eliminate them.
       if (pulse.heal > 0) player.hp = applyHeal(player.hp, pulse.heal, hpOf(carIdOf(player)));
@@ -342,7 +356,11 @@ export function runCombat(input: CombatInput): CombatResult {
       //
       // `hit.amount` may legitimately be 0: a pure applicator weapon still registers a hit, because
       // a status rides the hit rather than the number.
-      damage(target, scaleDamage(hit.amount, modsOf(hit.sessionId).damageTaken));
+      damage(
+        target,
+        scaleDamage(hit.amount, modsOf(hit.sessionId).damageTaken),
+        instance.ownerSessionId,
+      );
       // Statuses ride the DAMAGE list, so they inherit its rules for free: friendly fire, the
       // shooter's own immunity, wrecks, pierce, and the per-target damage clock that stops a
       // lingering beam re-applying every single tick.
@@ -468,8 +486,15 @@ function applyOpponentStatuses(
   });
 }
 
-/** The only writer of `hp` and `alive`. 0 hp is the wreck: the car stays on the field, inert. */
-function damage(player: CombatPlayer, amount: number): void {
+/**
+ * The only writer of `hp` and `alive`. 0 hp is the wreck: the car stays on the field, inert.
+ *
+ * `sourceSessionId` is stamped only when the hit actually costs hp. A pure applicator weapon
+ * legitimately deals 0 and still registers as a hit, and letting that claim the kill would credit a
+ * player who never scratched the target.
+ */
+function damage(player: CombatPlayer, amount: number, sourceSessionId: string): void {
+  if (amount > 0 && sourceSessionId !== "") player.lastDamagerSessionId = sourceSessionId;
   player.hp = applyDamage(player.hp, amount);
   if (player.hp === 0) player.alive = false;
 }

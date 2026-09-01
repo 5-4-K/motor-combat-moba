@@ -215,6 +215,7 @@ describe("applyCombatResult", () => {
       fireState: newFireState(isCarId(player.carId) ? player.carId : "", 1),
       lock: newLockState(),
       statuses: [],
+      lastDamagerSessionId: "",
       ...over,
     };
   }
@@ -276,6 +277,7 @@ describe("applyCombatResult", () => {
             fireState: newFireState("mirage", 1),
             lock: newLockState(),
             statuses: [],
+            lastDamagerSessionId: "",
           },
         ],
         instances: [],

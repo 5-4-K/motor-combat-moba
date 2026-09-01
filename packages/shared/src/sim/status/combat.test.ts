@@ -54,6 +54,7 @@ function player(sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlay
     fireState: newFireState(carId as "mirage", 1),
     lock: newLockState(),
     statuses: [],
+    lastDamagerSessionId: "",
     ...over,
   };
 }

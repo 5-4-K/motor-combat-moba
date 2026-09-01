@@ -105,6 +105,9 @@ export function toCombatPlayers(
       // no server-only half to keep beside it — unlike `fireState` and `lock`, every field of a
       // status is networked, because the client predicts through the same modifiers.
       statuses: readStatuses(player),
+      // Kill attribution (M5-M8) is wired through this bridge in Task 6; until then this rebuilds
+      // empty every tick, same as a fresh fire state would.
+      lastDamagerSessionId: "",
     });
   });
   return players;

@@ -4,7 +4,7 @@ import { hpOf } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { CarId } from "../config/types.js";
 import { WEAPON_TABLE } from "../config/weapon-config.js";
-import { MS_PER_TICK } from "../constants.js";
+import { MS_PER_TICK, TICK_RATE_HZ } from "../constants.js";
 import {
   aimAngleFor,
   runCombat,
@@ -64,6 +64,7 @@ function player(sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlay
     fireState: newFireState(carId as CarId | "", 1),
     lock: newLockState(),
     statuses: [],
+    lastDamagerSessionId: "",
     ...over,
   };
 }
@@ -106,6 +107,7 @@ describe("firing", () => {
       fireState: newFireState("mirage", 1),
       lock: newLockState(),
       statuses: [],
+      lastDamagerSessionId: "",
       ...over,
     };
   }
@@ -783,4 +785,103 @@ it("damages a target with a real attached beam fired from a real loadout, once i
   // can have landed. 26 base * scale(0.8 for Mirage's attack 30 vs baseline 50) = 20.8, rounds
   // to 21 (weaponDamageOf, damage.ts's `damageFor`).
   expect(hit.hp).toBe(hpOf("mirage") - weaponDamageOf("mirage", "afterburner"));
+});
+
+describe("kill attribution", () => {
+  const HP = hpOf("mirage");
+
+  const combatant = (sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlayer => ({
+    sessionId,
+    x: 400, y: 150, angle: 0,
+    team: 0,
+    carId: "mirage",
+    hp: HP,
+    alive: true,
+    inRoster: true,
+    fireMask: 0,
+    fireState: newFireState("mirage", 1),
+    lock: newLockState(),
+    statuses: [],
+    lastDamagerSessionId: "",
+    ...over,
+  });
+
+  const worldAt = (tick: number): CombatWorld => ({
+    tick,
+    dt: 1 / TICK_RATE_HZ,
+    mode: "ffa",
+    obstacles: [],
+    bounds: { width: 1600, height: 900 },
+  });
+
+  // Mirrors `combat-bridge.test.ts`'s `liveInstance`, parked on top of the victim so it connects.
+  const shotAt = (owner: string, x: number, y: number): WeaponInstance => ({
+    id: `${owner}-1`,
+    ownerSessionId: owner,
+    ownerTeam: 0,
+    finalWave: true,
+    damage: weaponDamageOf("mirage", "fireball"),
+    weaponId: "fireball",
+    kind: "projectile",
+    x, y,
+    angle: 0,
+    extent: 0,
+    spawnTick: 0,
+    distance: 0,
+    pierceLeft: 0,
+    attached: false,
+    damageClock: new Map<string, number>(),
+    alive: true,
+  });
+
+  it("records the owner of the shot that landed", () => {
+    const victim = combatant("b");
+    const out = runCombat({
+      world: worldAt(1),
+      players: [combatant("a"), victim],
+      instances: [shotAt("a", victim.x, victim.y)],
+      instanceSeq: 1,
+    });
+    const b = out.players.find((p) => p.sessionId === "b")!;
+    expect(b.hp).toBeLessThan(HP);
+    expect(b.lastDamagerSessionId).toBe("a");
+  });
+
+  it("overwrites, so the LAST damager wins and no ledger is needed", () => {
+    const victim = combatant("c", { lastDamagerSessionId: "a" });
+    const out = runCombat({
+      world: worldAt(1),
+      players: [combatant("b"), victim],
+      instances: [shotAt("b", victim.x, victim.y)],
+      instanceSeq: 1,
+    });
+    expect(out.players.find((p) => p.sessionId === "c")!.lastDamagerSessionId).toBe("b");
+  });
+
+  it("credits a bleed to whoever applied the status, not to the world", () => {
+    // Stepped until the pulse fires, so the test does not depend on `spiked`'s authored interval.
+    let victim = combatant("victim", {
+      statuses: [{ statusId: "spiked", startTick: 0, endsTick: 300, sourceSessionId: "a" }],
+    });
+    for (let tick = 1; tick <= 300 && victim.hp === HP; tick++) {
+      victim = runCombat({
+        world: worldAt(tick),
+        players: [victim],
+        instances: [],
+        instanceSeq: 0,
+      }).players[0]!;
+    }
+    expect(victim.hp).toBeLessThan(HP);
+    expect(victim.lastDamagerSessionId).toBe("a");
+  });
+
+  it("stays empty for a car nothing has damaged", () => {
+    const out = runCombat({
+      world: worldAt(1),
+      players: [combatant("a"), combatant("b")],
+      instances: [],
+      instanceSeq: 0,
+    });
+    expect(out.players.every((p) => p.lastDamagerSessionId === "")).toBe(true);
+  });
 });
