@@ -15,11 +15,11 @@ type SceneCtor = new () => Phaser.Scene;
  * only when asked for and the whole suite sits behind the one `import.meta.env.DEV` branch in
  * `BootScene` — one guard and one strip marker no matter how many tools accumulate.
  *
- * Empty until Task 9. `import type Phaser` is erased at compile time, so this module stays
- * importable from a node test.
+ * `import type Phaser` is erased at compile time, so this module stays importable from a node test.
  */
 export const DEV_TOOLS: Record<string, () => Promise<SceneCtor>> = {
   assets: async () => (await import("./AssetTuningScene.js")).AssetTuningScene,
+  playground: async () => (await import("./PlaygroundScene.js")).PlaygroundScene,
 };
 
 /**

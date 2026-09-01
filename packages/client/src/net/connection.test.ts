@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ROOM_NAME } from "@motor-combat-moba/shared";
+import { PLAYGROUND_ROOM_NAME, ROOM_NAME } from "@motor-combat-moba/shared";
 
 const joinOrCreate = vi.fn();
 const Client = vi.fn().mockImplementation(() => ({ joinOrCreate }));
@@ -30,6 +30,27 @@ describe("joinArena", () => {
     expect(detectServerEndpoint).toHaveBeenCalled();
     expect(Client).toHaveBeenCalledWith("ws://localhost:2567");
     expect(joinOrCreate).toHaveBeenCalledWith(ROOM_NAME, { name: "Ada" });
+    expect(result).toBe(room);
+  });
+});
+
+describe("joinPlayground", () => {
+  beforeEach(() => {
+    joinOrCreate.mockReset();
+    Client.mockClear();
+    detectServerEndpoint.mockClear();
+  });
+
+  it("joins or creates the playground room as \"Dev\" (PG2)", async () => {
+    const room = { sessionId: "s1" };
+    joinOrCreate.mockResolvedValue(room);
+
+    const { joinPlayground } = await import("./connection.js");
+    const result = await joinPlayground();
+
+    expect(detectServerEndpoint).toHaveBeenCalled();
+    expect(Client).toHaveBeenCalledWith("ws://localhost:2567");
+    expect(joinOrCreate).toHaveBeenCalledWith(PLAYGROUND_ROOM_NAME, { name: "Dev" });
     expect(result).toBe(room);
   });
 });

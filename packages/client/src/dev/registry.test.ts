@@ -8,6 +8,11 @@ describe("dev tool registry", () => {
     expect(isDevToolId(undefined)).toBe(false);
   });
 
+  it("carries the known dev tool ids (PG2)", () => {
+    expect(Object.keys(DEV_TOOLS)).toEqual(["assets", "playground"]);
+    expect(isDevToolId("playground")).toBe(true);
+  });
+
   it("does not treat inherited object properties as tool ids", () => {
     expect(isDevToolId("constructor")).toBe(false);
     expect(isDevToolId("toString")).toBe(false);
