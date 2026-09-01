@@ -509,8 +509,8 @@ export class ArenaScene extends Phaser.Scene {
   private cursors: Phaser.Types.Input.Keyboard.CursorKeys | undefined;
   /** WASD, ORed with `cursors` in `sendInputTick`; see `DriveKeys`. */
   private driveKeys: DriveKeys | undefined;
-  /** One Phaser key per `SLOT_KEYS` entry, same order, so `slotMaskFrom` reads them index-for-index. */
-  private slotKeys: Phaser.Input.Keyboard.Key[] | undefined;
+  /** One Phaser key list per `SLOT_KEYS` entry, same order, so `slotMaskFrom` reads them index-for-index. */
+  private slotKeys: Phaser.Input.Keyboard.Key[][] | undefined;
   private predicted: SimBody | undefined;
   /** The predicted pose before the newest tick; `renderCars` blends from it toward `predicted`. */
   private predictedPrev: SimBody | undefined;
@@ -635,6 +635,10 @@ export class ArenaScene extends Phaser.Scene {
     this.driveKeys = this.bindDriveKeys();
     this.keys = this.bindKeys();
     this.slotKeys = this.bindSlotKeys();
+    // Slot 2 lives on the right mouse button, so the browser's context menu would otherwise open on
+    // every shot. This is a listener on the game canvas, not scene state — it outlives the arena —
+    // which is fine: no screen in this client offers anything on right-click.
+    this.input.mouse?.disableContextMenu();
 
     // Guarded rather than resolved directly: `getArena` throws, and this line runs before the rest
     // of create() builds anything, so an unknown id would leave a half-constructed scene and a
@@ -728,13 +732,15 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * One Phaser key per `SLOT_KEYS` entry. Bound explicitly, like the old single `fire` key, so a
-   * slot key never falls through to whatever the page would otherwise do with it.
+   * One Phaser key per code in each `SLOT_KEYS` entry. Bound explicitly, like the old single `fire`
+   * key, so a slot key never falls through to whatever the page would otherwise do with it — for
+   * Space in particular, `addKey` captures it, which is what stops it scrolling the page. Mouse
+   * buttons need no binding at all: `sendInputTick` reads the pointer's held-buttons bitmask.
    */
-  private bindSlotKeys(): Phaser.Input.Keyboard.Key[] | undefined {
+  private bindSlotKeys(): Phaser.Input.Keyboard.Key[][] | undefined {
     const keyboard = this.input.keyboard;
     if (!keyboard) return undefined;
-    return SLOT_KEYS.map((key) => keyboard.addKey(key.code));
+    return SLOT_KEYS.map((slot) => slot.codes.map((code) => keyboard.addKey(code)));
   }
 
   private drawArena(arena: ArenaDef): void {
@@ -997,8 +1003,13 @@ export class ArenaScene extends Phaser.Scene {
       ),
       // Held, not tapped: the server's weapon cooldown decides the rate, so holding a slot key fires
       // it as fast as that slot allows and no faster. Sampling `JustDown` here instead would drop
-      // shots whenever a frame straddled two input ticks.
-      fireSlots: slotMaskFrom(this.slotKeys?.map((key) => key.isDown) ?? []),
+      // shots whenever a frame straddled two input ticks. `mousePointer`, not `activePointer`: the
+      // slot bindings are mouse BUTTONS, and on a touch device the active pointer is a finger whose
+      // synthetic `buttons` bit would fire slot 1 on every drag.
+      fireSlots: slotMaskFrom(
+        this.slotKeys?.map((keys) => keys.some((key) => key.isDown)) ?? [],
+        this.input.mousePointer?.buttons ?? 0,
+      ),
     };
     room.send(INPUT_MESSAGE, input);
 
