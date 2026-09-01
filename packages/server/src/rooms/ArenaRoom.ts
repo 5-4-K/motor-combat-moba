@@ -44,7 +44,10 @@ import {
   obbsOverlap,
   isSolid,
   carIdOf,
+  deathmatchEnded,
+  deathmatchOutcome,
   type CarId,
+  type DeathmatchPlayer,
   type FlowEvent,
   type FlowPlayer,
   type FlowState,
@@ -279,6 +282,11 @@ export class ArenaRoom extends Room<ArenaState> {
 
     if (!wasInMatch || !wasInRoster || this.state.phase === RoomPhase.LOBBY) return;
 
+    if (winRuleOf(this.state.mode) === "deathmatch") {
+      this.checkDeathmatchEnd();
+      return;
+    }
+
     const remainingPlayers: { sessionId: string; team: 0 | 1; alive: boolean }[] = [];
     this.state.players.forEach((player) => {
       remainingPlayers.push({
@@ -398,8 +406,14 @@ export class ArenaRoom extends Room<ArenaState> {
 
     if (winRuleOf(this.state.mode) === "deathmatch") this.phaseEndSweep(masks);
 
-    // Win check every tick, on the state combat just wrote. `livingSides` counts only roster
-    // members who are still alive, so a wreck and a disconnect end the match by the same rule.
+    // Win check every tick, on the state combat just wrote.
+    if (winRuleOf(this.state.mode) === "deathmatch") {
+      this.checkDeathmatchEnd();
+      return;
+    }
+
+    // `livingSides` counts only roster members who are still alive, so a wreck and a disconnect end
+    // the match by the same rule.
     const outcome = livingSides(
       sidesOf(this.state.mode),
       result.players.map((p) => ({
@@ -412,6 +426,23 @@ export class ArenaRoom extends Room<ArenaState> {
     if (outcome.sides <= 1) {
       this.endMatch(outcome.winnerSessionId, outcome.winnerTeam);
     }
+  }
+
+  /**
+   * Deathmatch never asks `livingSides` (M25). With respawns every player can be dead at once while
+   * their timers run, and that would read as a draw and end the match under everyone's feet.
+   */
+  private checkDeathmatchEnd(): void {
+    const players: DeathmatchPlayer[] = [];
+    for (const id of this.matchRoster) {
+      const player = this.state.players.get(id);
+      if (!player) continue;
+      players.push({ sessionId: id, kills: player.kills, deaths: player.deaths, inRoster: true });
+    }
+
+    if (!deathmatchEnded(players.length, this.state.tick, this.state.matchEndsTick)) return;
+    const outcome = deathmatchOutcome(players);
+    this.endMatch(outcome.winnerSessionId, outcome.winnerTeam);
   }
 
   /**
@@ -562,6 +593,12 @@ export class ArenaRoom extends Room<ArenaState> {
     // duration counts from the green light rather than resetting under its own feet.
     if (this.state.phase === RoomPhase.MATCH && previousPhase !== RoomPhase.MATCH) {
       this.state.matchStartedAtTick = this.state.tick;
+      // 0 in every other mode: nothing reads it there, and a stale non-zero value would hand the
+      // client's HUD a clock to count down that means nothing.
+      this.state.matchEndsTick =
+        winRuleOf(this.state.mode) === "deathmatch"
+          ? this.state.tick + DEATHMATCH_TICKS.match
+          : 0;
     }
     this.state.carSelectDeadlineTick = next.carSelectDeadlineTick;
     this.state.revealEndsTick = next.revealEndsTick;
