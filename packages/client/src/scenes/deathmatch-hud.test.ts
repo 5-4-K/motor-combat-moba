@@ -28,9 +28,9 @@ describe("matchClockLabel", () => {
 
 describe("respawnSeconds", () => {
   it("counts whole seconds down from the delay, rounding up so it ends on 1 not 0", () => {
-    expect(respawnSeconds(0, 0)).toBe(5);
-    expect(respawnSeconds(0, TICK_RATE_HZ)).toBe(4);
-    expect(respawnSeconds(0, 5 * TICK_RATE_HZ)).toBe(0);
+    expect(respawnSeconds(100, 100)).toBe(5);
+    expect(respawnSeconds(100, 100 + TICK_RATE_HZ)).toBe(4);
+    expect(respawnSeconds(100, 100 + 5 * TICK_RATE_HZ)).toBe(0);
   });
 
   it("is zero for a car that has not died", () => {

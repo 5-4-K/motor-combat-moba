@@ -27,12 +27,14 @@ export function matchClockLabel(tick: number, matchEndsTick: number): string {
  * Whole seconds until this car is back, or 0 once it is due.
  *
  * Rounds UP, so the last displayed number is 1 rather than a second of "0" the player sits through
- * wondering whether the game has hung. `diedAtTick` defaults to 0 for a car that has never died;
- * arithmetically that reads as "died at tick 0", so once the match clock has run past the respawn
- * delay this already resolves to 0 on its own. The caller is expected to gate the call on `alive` —
- * the same shape `showKilledBy` takes below — rather than this function re-deriving it from the tick.
+ * wondering whether the game has hung. `diedAtTick` of 0 is `PlayerState`'s own "has not died"
+ * sentinel — its doc comment reads "the tick this car's hp reached 0, or 0 while it lives," and
+ * `ArenaRoom.tick()` increments `state.tick` before anything else runs, so a real death can never be
+ * stamped at tick 0. That makes this function safe to call unconditionally, alive or dead: no `alive`
+ * parameter needed, and no second source of the same truth for it to drift from.
  */
 export function respawnSeconds(diedAtTick: number, tick: number): number {
+  if (diedAtTick <= 0) return 0;
   const remaining = diedAtTick + DEATHMATCH_TICKS.respawnDelay - tick;
   if (remaining <= 0) return 0;
   return Math.ceil(remaining / TICK_RATE_HZ);
