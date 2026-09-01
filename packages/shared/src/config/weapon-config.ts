@@ -61,7 +61,7 @@ export const WEAPON_TABLE = {
     name: "Thunderclap",
     color: "#7A1D1D", // the retired aura's maroon — Mirage's palette
     unlocksAt: 1,
-    damage: 100,
+    damage: 90,
     damageFrequencyMs: 0,
     speed: 1600, // ⚙ dash speed
     range: 400, // = the dash distance, for the guide's reach figure
@@ -80,8 +80,10 @@ export const WEAPON_TABLE = {
    *
    * `attached: true` welds its origin and angle to the car every tick, so it sweeps as the driver
    * steers and dies the instant its owner is wrecked. Total life is `range / speed + lifetimeMs`
-   * == 2.2 s; at a 200 ms damage interval that is about 11 ticks, 286 damage, 57% of an average car
-   * — but only against a target held in the cone for the full duration.
+   * == 2.2 s; at a 500 ms damage interval that is 5 pulses, 245 base damage, about a third of an
+   * average car — but only against a target held in the cone for the full duration. The pulses were
+   * 11 × 26 every 200 ms until the 2026-09-01 balance pass chunked them: same-ish press total,
+   * but escaping between pulses is now worth something and grazing the cone costs real HP.
    *
    * `usesAimAssist: false` is FORCED twice over: the attached-beam guard (it re-derives its angle
    * from the owner every tick, so a lock would have nothing to decide) and the multi-muzzle guard
@@ -104,8 +106,8 @@ export const WEAPON_TABLE = {
     // colour, which is the only one it sits near.
     color: "#F05818",
     unlocksAt: 1,
-    damage: 26, // per tick
-    damageFrequencyMs: 200,
+    damage: 49, // per pulse
+    damageFrequencyMs: 500,
     speed: 1100, // extends its 220 range in 200ms
     range: 220,
     startUpMs: 0,
@@ -119,7 +121,7 @@ export const WEAPON_TABLE = {
     origin: "muzzle",
     lifetimeMs: 2000,
     // A flamethrower that cooks the car it is pointed at. `refresh` on `overheated` is what makes a
-    // ticking source work: each 200 ms tick tops the clock back up, so the debuff holds for as long
+    // ticking source work: each 500 ms pulse tops the clock back up, so the debuff holds for as long
     // as the target stays in the flame and lapses 1.5 s after they break away.
     applies: [{ statusId: "overheated", target: "opponents", durationMs: 1500 }],
   },
@@ -346,6 +348,56 @@ export const WEAPON_TABLE = {
     maneuver: { type: "charge", durationMs: 10000, slamsStunned: true },
     volley: { volleys: 1, volleyIntervalMs: 0 },
     applies: [{ statusId: "fortified", target: "self", durationMs: 10000 }],
+  },
+  /**
+   * The retired `bulwark`'s silhouette reborn as a presence zone, CARRIED BY NO CHASSIS — the
+   * table's one deliberately unassigned row, waiting on a loadout decision. Inert but legal:
+   * nothing can press it until a `CAR_TABLE` kit lists it (and the players' guide only shows
+   * carried weapons, so it is invisible to players until then).
+   *
+   * Geometry and cadence are bulwark's exactly (60° detached cone, 492/492 so the zone grows out
+   * over one full second, 2.875 s linger, 15 s cooldown). The damage is re-solved for a round
+   * total: total life is `msToTicks(1000) + msToTicks(2875)` == 30 + 87 == 117 ticks against a
+   * 12-tick interval, and `resolveInstanceHits` damages on the first covered tick before arming
+   * the clock, so the count is `floor(116 / 12) + 1` == 10 ticks — **25 × 10 == 250 base on a
+   * full connect**, the authored design figure.
+   *
+   * Both riders are PRESENCE effects — on while you are in the zone, gone moments after you leave:
+   *
+   * - `spiked` on opponents rides the 400 ms damage tick with a 600 ms duration, so `refresh`
+   *   holds it exactly while a target stands in the zone and it lapses ≤0.6 s after they break
+   *   out — the `afterburner`/`overheated` pattern.
+   * - `fortified` via `ownerInside`: `runCombat` re-applies it every tick the OWNER's hull stands
+   *   inside the live zone (300 ms duration, ~0.3 s lapse after stepping out). The owner is not
+   *   automatically inside — the cone grows from the nose, so holding the buff means driving into
+   *   your own zone and staying, which is the stand-and-hold identity the old bulwark only gestured
+   *   at.
+   */
+  tremor: {
+    id: "tremor",
+    kind: "beam",
+    name: "Tremor",
+    // Dark bronze: bulwark's old amber family, but its exact #D9A814 belongs to wildcharge now.
+    // Unique among weapons, clear of COLOR_TABLE, dark enough for a light floor.
+    color: "#8A6D12",
+    unlocksAt: 1,
+    damage: 25, // per tick; 10 ticks == 250 base on a target that stays the whole life
+    damageFrequencyMs: 400,
+    speed: 492, // grows out over a full second — visible before it is dangerous (bulwark's rule)
+    range: 492,
+    startUpMs: 0,
+    cooldownMs: 15000,
+    recoveryMs: 200,
+    usesAimAssist: false, // a zone is aimed at ground; a lock would drag it onto the one thing that can leave
+    hitbox: { shape: "cone", angleDeg: 60 },
+    volley: { volleys: 1, volleyIntervalMs: 0 },
+    attached: false,
+    origin: "muzzle",
+    lifetimeMs: 2875,
+    applies: [
+      { statusId: "spiked", target: "opponents", durationMs: 600 },
+      { statusId: "fortified", target: "ownerInside", durationMs: 300 },
+    ],
   },
 } as const satisfies Record<WeaponId, WeaponDef>;
 

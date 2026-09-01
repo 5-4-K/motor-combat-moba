@@ -3,7 +3,7 @@ import { WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
 import { SLOT_KEYS, slotMaskFrom } from "./slot-keys.js";
 
 describe("slot keys", () => {
-  it("binds at least as many keys as there are slots", () => {
+  it("binds at least as many slots as there are weapon slots", () => {
     expect(SLOT_KEYS.length).toBeGreaterThanOrEqual(WEAPON_SLOT_CONFIG.maxWeaponSlots);
   });
 
@@ -21,15 +21,41 @@ describe("slot keys", () => {
   it("ignores keys past the slot limit", () => {
     expect(slotMaskFrom([true, true, true, true])).toBe(0b111);
   });
+
+  it("fires slot 1 from the left mouse button and slot 2 from the right", () => {
+    expect(slotMaskFrom([], 0b01)).toBe(0b001);
+    expect(slotMaskFrom([], 0b10)).toBe(0b010);
+    expect(slotMaskFrom([], 0b11)).toBe(0b011);
+  });
+
+  it("ORs mouse buttons with keys instead of replacing them", () => {
+    expect(slotMaskFrom([false, false, true], 0b01)).toBe(0b101);
+    expect(slotMaskFrom([true, false, false], 0)).toBe(0b001);
+  });
+
+  it("ignores mouse bits no slot claims", () => {
+    // Middle button (bit 4 of MouseEvent.buttons) is deliberately unbound.
+    expect(slotMaskFrom([], 0b100)).toBe(0);
+  });
 });
 
 describe("slot key glyphs", () => {
-  it("binds the slots to J / K / L, in slot order", () => {
-    expect(SLOT_KEYS.map((key) => key.code)).toEqual([74, 75, 76]);
-    expect(SLOT_KEYS.map((key) => key.glyph)).toEqual(["J", "K", "L"]);
+  it("binds the slots to J / K / L with the mouse-hand alternates, in slot order", () => {
+    expect(SLOT_KEYS.map((key) => [...key.codes])).toEqual([[74], [75], [76, 32]]);
+    expect(SLOT_KEYS.map((key) => key.buttonsMask)).toEqual([1, 2, 0]);
   });
 
-  it("keeps no hidden alternate on the old Space / Q / E codes", () => {
-    for (const code of [32, 81, 69]) expect(SLOT_KEYS.some((key) => key.code === code)).toBe(false);
+  it("prints the mouse-hand binding on the gutter pill and keeps a letter glyph for the hint", () => {
+    // The gutter pill shows the mouse-hand binding; the countdown action hint prints keyGlyph and
+    // glyph together, which is what keeps the letter bindings out of hidden-alternate territory —
+    // movement-hint.test.ts holds that end of the bargain.
+    expect(SLOT_KEYS.map((key) => key.glyph)).toEqual(["LMB", "RMB", "SPACE"]);
+    expect(SLOT_KEYS.map((key) => key.keyGlyph)).toEqual(["J", "K", "L"]);
+  });
+
+  it("leaves Q and E unbound — still reserved", () => {
+    for (const code of [81, 69]) {
+      expect(SLOT_KEYS.some((key) => (key.codes as readonly number[]).includes(code))).toBe(false);
+    }
   });
 });

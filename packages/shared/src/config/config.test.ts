@@ -29,9 +29,9 @@ describe("CAR_TABLE", () => {
   it("matches the locked ratings", () => {
     // Mirage's handling was 50 until 2026-08-31, when it went to 60 to pull its turn radius in from
     // 91.4 u to 84.2 u without touching its speed. It is no longer the average-handling chassis.
-    expect(CAR_TABLE.mirage).toMatchObject({ speed: 88, accel: 85, handling: 60, attack: 63, hp: 48, mass: 48 });
-    expect(CAR_TABLE.bullseye).toMatchObject({ speed: 52, accel: 45, handling: 28, attack: 55, hp: 30, mass: 30 });
-    expect(CAR_TABLE.bastion).toMatchObject({ speed: 30, accel: 20, handling: 82, attack: 42, hp: 82, mass: 90 });
+    expect(CAR_TABLE.mirage).toMatchObject({ speed: 88, accel: 85, handling: 60, attack: 63, hp: 70, mass: 48 });
+    expect(CAR_TABLE.bullseye).toMatchObject({ speed: 52, accel: 45, handling: 28, attack: 55, hp: 65, mass: 30 });
+    expect(CAR_TABLE.bastion).toMatchObject({ speed: 30, accel: 20, handling: 82, attack: 42, hp: 90, mass: 90 });
   });
 
   it("gives every chassis whole 0-100 ratings on all six axes", () => {
@@ -50,9 +50,9 @@ describe("CAR_TABLE", () => {
   });
 
   it("derives actual HP via hpPerRating", () => {
-    expect(hpOf("mirage")).toBe(480);
-    expect(hpOf("bullseye")).toBe(300);
-    expect(hpOf("bastion")).toBe(820);
+    expect(hpOf("mirage")).toBe(700);
+    expect(hpOf("bullseye")).toBe(650);
+    expect(hpOf("bastion")).toBe(900);
   });
 
   // The spec's headline TTK number (S7) was pinned to `fireball` as the roster's one anchor weapon
@@ -257,9 +257,9 @@ describe("the three types (T5/T6)", () => {
     expect(turnRateOf("mirage")).toBeCloseTo(6.84, 9);
     expect(turnRateOf("bastion")).toBeCloseTo(8.028, 9);
 
-    expect(hpOf("bullseye")).toBe(300);
-    expect(hpOf("mirage")).toBe(480);
-    expect(hpOf("bastion")).toBe(820);
+    expect(hpOf("bullseye")).toBe(650);
+    expect(hpOf("mirage")).toBe(700);
+    expect(hpOf("bastion")).toBe(900);
   });
 
   it("gives Bastion the tightest turn radius despite being the slowest", () => {

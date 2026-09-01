@@ -224,7 +224,7 @@ describe("weapon status applications", () => {
     for (const id of WEAPON_IDS) {
       for (const application of WEAPON_TABLE[id].applies ?? []) {
         expect(isStatusId(application.statusId)).toBe(true);
-        expect(["self", "opponents"]).toContain(application.target);
+        expect(["self", "opponents", "ownerInside"]).toContain(application.target);
         expect(application.durationMs).toBeGreaterThan(0);
       }
     }
