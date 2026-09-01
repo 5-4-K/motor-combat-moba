@@ -175,6 +175,10 @@ export function mountPlaygroundOverlay(
   let lastSentArenaId = isArenaId(room.state.arenaId)
     ? room.state.arenaId
     : defaultPlaygroundSetup().arenaId;
+  /** Mirrors `backBtn.disabled` (set alongside it in `buildSettings`'s `evaluate`) so the P-key
+   * "back-to-menu" action honours the same disabled-Back guard as the mouse: an illegal loadout must
+   * trap the user in settings either way, not just when they're not reaching for the keyboard. */
+  let settingsIllegal = false;
 
   function effectiveView(): OverlayView {
     return room.state.paused ? subView : "hidden";
@@ -262,6 +266,7 @@ export function mountPlaygroundOverlay(
       meLoadoutRow.classList.toggle("pg-illegal", !meLegal);
       oppLoadoutRow.classList.toggle("pg-illegal", !oppLegal);
       backBtn.disabled = !meLegal || !oppLegal;
+      settingsIllegal = backBtn.disabled;
       if (!send || !meLegal || !oppLegal) return;
 
       const arenaChanged = setup.arenaId !== lastSentArenaId;
@@ -304,12 +309,16 @@ export function mountPlaygroundOverlay(
   }
 
   function onKeyDown(e: KeyboardEvent): void {
+    if (e.repeat) return; // holding P must not machine-gun the pause toggle at OS repeat rate
     if (e.key !== "p" && e.key !== "P") return;
     const tag = (e.target as HTMLElement | null)?.tagName ?? "";
     const action = pauseKeyAction(effectiveView(), tag);
     if (action === "toggle") {
       room.send(MSG_PLAYGROUND_PAUSE);
     } else if (action === "back-to-menu") {
+      // Same guard the disabled Back button enforces (see `settingsIllegal`'s comment) -- P must not
+      // be a side door out of settings while a loadout is illegal.
+      if (settingsIllegal) return;
       subView = "menu";
       render();
     }
