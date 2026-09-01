@@ -46,7 +46,7 @@ project owner:
 | O12 | Thunderclap's dash ends at the first enemy contact (100 damage + 1 s stun to them) or at a wall; one target per dash. The car's own hull is the hit volume — no spawned instance. |
 | O13 | Car-moving combat is server-authoritative now, structured for later prediction (arch decision C): maneuver state is networked `PlayerState` fields that `stepSim` integrates, so upgrading to client-predicted triggers is additive, never a redesign. |
 | O14 | No stock refund on interruption: a windup cancelled by a stun has spent its press. Interruption is the stun's payoff. |
-| O15 | Roadblock pierces everything (pierce 5 = max players − self): one bar can stun a whole line. |
+| O15 | Roadblock pierces everything (pierce 4: it counts cars hit AFTER the first, so 4 reaches all 5 possible opponents in a 6-player game once the shooter is excluded): one bar can stun a whole line. |
 | O16 | New Shockwave = fireball's flight profile (900 speed / 900 range, circle r12, assist on) with needler's damage **and cooldown** (22 dmg / 600 ms → needler's old 37 sustained DPS). |
 | O17 | The four retired ids — `fireball`, `needler`, `skewer`, `bulwark` — leave `WeaponId` and `WEAPON_TABLE` entirely. `shockwave` is redefined, not retired. |
 | O18 | The two hard-slam anti-pin guards (0.6 s per-target re-slam immunity; no slam on a stunned target) are built into the mechanic even though Wild Charge — exempt from one and ended-on-first-hit past the other — exercises neither. They exist for future slam sources, and the spec says so rather than pretending they are load-bearing today. |
@@ -229,7 +229,7 @@ settled; ⚙ numbers are not commitments.
 | Mirage 2 | `thunderclap` | maneuver: dash | 100 dmg, dash 400 u @ ⚙1600 u/s, cd ⚙5000 ms | ON, 400 | stunned 1 s |
 | Mirage 3 | `afterburner` | beam, attached | as today + muzzles [0°, 180°] | OFF | overheated 1.5 s |
 | Bastion 1 | `thumper` | projectile, bouncing | 60 dmg, 450 u/s, capsule 24×15, cd 3000 ms, lifespan ⚙2900 ms | ON, 400 | spiked 3 s |
-| Bastion 2 | `roadblock` | projectile, bar | 100 dmg, bar 120×12, ⚙600 u/s, ⚙500 range, pierce 5, cd ⚙6000 ms | ⚙OFF | stunned 1 s |
+| Bastion 2 | `roadblock` | projectile, bar | 100 dmg, bar 120×12, ⚙600 u/s, ⚙500 range, pierce 4 (all 5 opponents; pierce counts cars after the first), cd ⚙6000 ms | ⚙OFF | stunned 1 s |
 | Bastion 3 | `wildcharge` | maneuver: charge | 250 contact dmg, 10 s duration, cd ⚙20000 ms, `isUnInterruptable` | OFF | fortified (self), charge window |
 
 - `WeaponDef` grows a third kind: `{ kind: "maneuver"; maneuver: "dash" | "charge"; ... }`. It

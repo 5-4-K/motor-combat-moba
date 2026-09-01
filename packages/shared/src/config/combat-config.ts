@@ -13,9 +13,10 @@ export const COMBAT_CONFIG = {
    *
    * Multiplicative, not additive, and that is load-bearing: a FLAT bonus would be collected once per
    * shot and so pay out in proportion to fire rate, quietly making `attack` a fire-rate stat — a
-   * three-stock weapon like `needler` would bank it three times per volley. A percentage gives a
-   * fast weapon and a slow weapon the same proportional gain, so `attack` means the same thing
-   * whatever is in the slot.
+   * three-stock weapon would bank it three times per volley (`StockDef`; no shipped row authors one
+   * as of the 2026-09-01 roster cutover, but the mechanism stays live for whichever weapon next
+   * does). A percentage gives a fast weapon and a slow weapon the same proportional gain, so `attack`
+   * means the same thing whatever is in the slot.
    */
   damagePerAttack: 0.01,
 } as const;

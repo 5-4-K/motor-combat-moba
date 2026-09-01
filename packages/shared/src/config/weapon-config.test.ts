@@ -12,7 +12,7 @@ describe("WEAPON_TABLE", () => {
     expect(WEAPON_TABLE.shockwave).toMatchObject({ damage: 22, cooldownMs: 600, speed: 900, range: 900 });
     expect(WEAPON_TABLE.predator.homing).toEqual({ turnRateDegPerSec: 120, durationMs: 1200 });
     expect(WEAPON_TABLE.thunderclap).toMatchObject({ damage: 100, speed: 1600, aimRangeUnits: 400 });
-    expect(WEAPON_TABLE.roadblock).toMatchObject({ damage: 100, pierce: 5 });
+    expect(WEAPON_TABLE.roadblock).toMatchObject({ damage: 100, pierce: 4 });
     expect(WEAPON_TABLE.roadblock.hitbox).toEqual({ shape: "bar", radiusAlong: 6, radiusAcross: 60 });
     expect(WEAPON_TABLE.wildcharge.maneuver).toEqual({ type: "charge", durationMs: 10000, slamsStunned: true });
     expect(WEAPON_TABLE.wildcharge.isUnInterruptable).toBe(true);
@@ -225,8 +225,10 @@ describe("WEAPON_TABLE", () => {
   it("ships roadblock piercing everything, aim assist deliberately off", () => {
     const roadblock = WEAPON_TABLE.roadblock;
     if (roadblock.kind !== "projectile") throw new Error("roadblock must be a projectile");
-    // pierce: 5 == max players (6) minus the shooter — the wall passes through the whole lobby.
-    expect(roadblock.pierce).toBe(5);
+    // pierce counts cars hit AFTER the first, so pierce: 4 reaches all 5 possible opponents in a
+    // 6-player game once the shooter is excluded — the wall passes through the whole lobby.
+    // (pierce: 5 would reach a sixth car, which cannot exist once the shooter is excluded.)
+    expect(roadblock.pierce).toBe(4);
     expect(roadblock.hitbox).toEqual({ shape: "bar", radiusAlong: 6, radiusAcross: 60 });
     // A 120-unit face aims itself; skewer's old "help the slowest chassis" argument is answered by
     // width here instead of by a lock.
@@ -305,11 +307,24 @@ describe("WEAPON_TABLE", () => {
   });
 
   it("keeps Bullseye's straight-line reach further than anything Bastion carries", () => {
-    // T1's "1 beats 3" edge, asserted rather than asserted-in-prose. `thumper`'s own `range` is no
-    // longer a straight threat distance as of the 2026-09-01 overhaul: it now expires on
-    // `bounce.lifetimeMs` and its `range` is just the honest total-path figure for a shot that can
-    // zigzag off walls, not a poke Bastion can point straight at a kiting Bullseye — excluded here
-    // for that reason. `roadblock`'s cutdown-from-skewer 500 is Bastion's real straight reach.
+    // T1's "1 beats 3" edge, asserted rather than asserted-in-prose.
+    //
+    // This is a DELIBERATE, documented exclusion, not a workaround: `thumper.range` (1305) is the
+    // total length of a bounce PATH — 450 u/s for `bounce.lifetimeMs` (2.9s), zigzagging off
+    // whatever walls it meets — not a distance Bastion can point straight at a kiting Bullseye and
+    // threaten. A poke is measured by how far a shot reaches in the direction it was fired, and a
+    // bouncing shot's `range` field does not answer that question, so the guard compares
+    // straight-line pokes only and excludes any `bounce`-carrying row from both sides of the
+    // comparison.
+    //
+    // Read literally, off `WEAPON_TABLE` alone and with no notion of "straight" at all, `thumper`'s
+    // 1305 is now the single largest `range` value in the whole roster — larger than `lance`'s 1200
+    // and `predator`'s 900. That is a real number on the page (the guide prints it, unqualified,
+    // wherever it prints "Reach"), and whether a bouncing 1305 is worth more or less than a straight
+    // 1200 in actual play is a genuine open balance question this test does not settle — it only
+    // pins the narrower, uncontroversial claim that Bullseye's straight threat range is longer than
+    // Bastion's. Surfaced here for the owner's next tuning pass rather than decided unilaterally.
+    // `roadblock`'s cutdown-from-skewer 500 is Bastion's real straight reach.
     const straightReach = (id: CarId) =>
       Math.max(
         0,

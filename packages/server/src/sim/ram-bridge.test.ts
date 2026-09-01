@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   ArenaState,
   ManeuverKind,
+  NEUTRAL_MODIFIERS,
   PlayerState,
   PlayerStatus,
   RAM_CONFIG,
   SLAM_CONFIG,
   SLAM_TICKS,
   applyStatus,
+  forwardMaxSpeedOf,
   type Modifiers,
   type WeaponId,
 } from "@motor-combat-moba/shared";
@@ -204,6 +206,55 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
 
     expect(victim.authority).toBeLessThan(afterMediumRam);
     expect(victim.authority).toBeCloseTo(RAM_CONFIG.authorityFloor, 2);
+  });
+});
+
+describe("contactTick (dash, O12)", () => {
+  it("caps a dasher at one ContactHit even when its hull freshly touches two enemies in the same tick", () => {
+    const state = arena();
+    const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, speed: 0 });
+    attacker.maneuver = ManeuverKind.DASH;
+    // "b" touches via the x-axis gap (47 = 24+24-1, the same margin `contactPad` gives every other
+    // touching test in this file); "c" touches via the y-axis gap (31 = 16+16-1, the mirror of that
+    // margin against the hull's 32-unit height) — two DIFFERENT, both-fresh contacts in one tick,
+    // and "b"/"c" are far enough apart (dx 47, dy 31) that they never touch each other.
+    addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
+    addPlayer(state, "c", { x: 0, y: 431, angle: 0 });
+    const result = contactTick(
+      state,
+      new Set(["a", "b", "c"]),
+      newContactMemory(),
+      "ffa",
+      NO_EFFECTS,
+      approachSpeeds(state),
+      new Map<string, WeaponId | "">([["a", "thunderclap"]]),
+      10,
+    );
+    // `resolveContacts` itself reports a dashHit per touching pair (two, here) — `contactTick` is
+    // what collapses that to the first one per dasher and drops the rest, per O12.
+    expect(result.contactHits).toEqual([{ attackerSessionId: "a", targetSessionId: "b", weaponId: "thunderclap" }]);
+    expect(attacker.maneuver).toBe(0); // the dash ended on the one hit it kept
+  });
+
+  it("exits a dash hit at the drive cap SCALED by a live topSpeed modifier, not the unmodified cap", () => {
+    const state = arena();
+    const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, speed: 0 });
+    attacker.maneuver = ManeuverKind.DASH;
+    addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
+    const debuffed = new Map([["a", { ...NEUTRAL_MODIFIERS, topSpeed: 0.6 }]]);
+    contactTick(
+      state,
+      new Set(["a", "b"]),
+      newContactMemory(),
+      "ffa",
+      debuffed,
+      approachSpeeds(state),
+      new Map<string, WeaponId | "">([["a", "thunderclap"]]),
+      10,
+    );
+    const unmodifiedCap = forwardMaxSpeedOf("mirage"); // "a"'s default carId, per addPlayer
+    expect(attacker.speed).toBeCloseTo(unmodifiedCap * 0.6, 6);
+    expect(attacker.speed).not.toBeCloseTo(unmodifiedCap, 6);
   });
 });
 

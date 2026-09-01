@@ -995,7 +995,7 @@ describe("stun interruption (O8)", () => {
     p.maneuver = ManeuverKind.DASH;
     p.maneuverTicksLeft = 5;
     p.maneuverSpeed = 1600;
-    p.maneuverWeaponId = "predator"; // interruptible (no isUnInterruptable on the row)
+    p.maneuverWeaponId = "thunderclap"; // interruptible (no isUnInterruptable on the row)
     const result = runCombat({
       world: world(),
       players: [p, other()],
@@ -1011,7 +1011,7 @@ describe("stun interruption (O8)", () => {
     p.statuses = applyStatus([], "stunned", 90, 30, "x"); // stunned since tick 90, through tick 120
     p.maneuver = ManeuverKind.CHARGE;
     p.maneuverTicksLeft = 100;
-    p.maneuverWeaponId = "predator";
+    p.maneuverWeaponId = "thunderclap";
     const result = runCombat({
       world: world(), // tick 100 — still inside the existing stun's window
       players: [p, other()],
@@ -1033,14 +1033,14 @@ describe("stun interruption (O8)", () => {
     });
     expect(find(state, "a").maneuver).toBe(ManeuverKind.CHARGE);
 
-    // A second, INTERRUPTIBLE maneuver alongside it (predator has no isUnInterruptable), so a
+    // A second, INTERRUPTIBLE maneuver alongside it (thunderclap has no isUnInterruptable), so a
     // freshly-landing stun on tick 101 proves the sweep still runs in general — it is wildcharge's
     // own row, not some global exemption, that keeps "a" charging.
     const dasher = mirageAt("z", {
       maneuver: ManeuverKind.DASH,
       maneuverTicksLeft: 5,
       maneuverSpeed: 1600,
-      maneuverWeaponId: "predator",
+      maneuverWeaponId: "thunderclap",
     });
     state = runCombat({
       world: world({ tick: 101 }),
@@ -1150,6 +1150,14 @@ describe("real-row integration (2026-09-01 roster)", () => {
     }
     const homed = state.instances.find((i) => i.id === spawned.id);
     expect(homed).toBeDefined();
-    expect(homed!.angle).not.toBe(angleAtSpawn);
+    // The target only ever moves further +y (never behind, never level), so the shot has to bend
+    // toward a strictly LARGER angle to keep tracking it — not just "some" different angle, which a
+    // sign error or an inverted turn could also satisfy.
+    expect(homed!.angle).toBeGreaterThan(angleAtSpawn);
+    // And the bend is bounded by the 120 deg/s clamp (spec: Homing) over the two real ticks the shot
+    // was actually stepped (it is born on the spawn tick without moving, per `instances.ts`, so only
+    // the two ticks in the loop above count): `turnRateDegPerSec * dt` per tick, times 2.
+    const maxTurnPerTick = (WEAPON_TABLE.predator.homing!.turnRateDegPerSec * Math.PI * DT) / 180;
+    expect(homed!.angle - angleAtSpawn).toBeLessThanOrEqual(2 * maxTurnPerTick + 1e-9);
   });
 });

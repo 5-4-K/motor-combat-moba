@@ -103,6 +103,56 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
     expect(r.events.slams).toHaveLength(0);
     expect(r.knocks).toHaveLength(0);
   });
+
+  it("wins a tie against an ordinary ram already at severity 1 (best-knock-per-victim, >=)", () => {
+    // Three cars: a rammer and a charger touch the SAME victim from opposite sides in one tick, so
+    // both pairs land in `resolveContacts`' shared per-victim `best` map. The rammer is placed at an
+    // extreme approach speed specifically so its severity clamps to EXACTLY 1 — the one value where
+    // `>` and `>=` disagree on the slam's own overwrite check (`1 >= standing.severity`). A weaker
+    // ram (severity < 1) would pass even a buggy strict `>`, since 1 > anything-less-than-1 is also
+    // true; only the tie actually exercises the `>=`.
+    //
+    // Session ids are chosen so the RAM pair is enumerated (and its knock recorded) BEFORE the SLAM
+    // pair: `resolveContacts` sorts by session id ("aRam" < "victim" < "zCharge"), so the nested pair
+    // loop visits (aRam, victim) — the ram — ahead of (victim, zCharge) — the slam.
+    const rammer = car({
+      sessionId: "aRam",
+      x: -47,
+      y: 0,
+      angle: 0,
+      speed: 100000, // saturates `clamp01` to exactly severity 1, same idiom as ram.test.ts
+      carId: "bastion" as CarId,
+    });
+    const victim = car({ sessionId: "victim", x: 0, y: 0, angle: 0, carId: "mirage" as CarId });
+    const charger2 = car({
+      sessionId: "zCharge",
+      x: 47,
+      y: 0,
+      angle: Math.PI,
+      speed: 300,
+      carId: "bastion" as CarId,
+      maneuver: ManeuverKind.CHARGE,
+      maneuverWeaponId: "wildcharge",
+      slamsStunned: true,
+    });
+    const r = resolveContacts([rammer, victim, charger2], new Set(), "ffa", 10, new Map(), [], bounds);
+
+    expect(r.events.slams).toEqual([
+      { attackerSessionId: "zCharge", targetSessionId: "victim", weaponId: "wildcharge" },
+    ]);
+    expect(r.knocks).toHaveLength(1);
+    const knock = r.knocks[0]!;
+    expect(knock.sessionId).toBe("victim");
+    // The decisive evidence: a slam's knock is a FIXED 520 with no spin (SLAM_CONFIG.knockSpeed,
+    // exactly 2x RAM_CONFIG.knockMaxSpeed); even a fully-saturated ram tops out at 260 times a mass
+    // factor clamped to [0.6, 1.6] — 156 to 416, always short of 520 — and always carries some
+    // spin. `authority` alone cannot tell the two apart (SLAM_CONFIG.victimAuthority is
+    // RAM_CONFIG.authorityFloor's own value, by design), so the knock's magnitude and lack of spin
+    // are what actually prove the slam overwrote the ram rather than losing to its own `>` sibling.
+    expect(knock.angVel).toBe(0);
+    expect(Math.abs(knock.shoveX)).toBeCloseTo(SLAM_CONFIG.knockSpeed, 6);
+    expect(knock.authority).toBe(SLAM_CONFIG.victimAuthority);
+  });
 });
 
 describe("dash contact", () => {

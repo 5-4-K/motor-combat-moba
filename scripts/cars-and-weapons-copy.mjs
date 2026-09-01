@@ -22,8 +22,11 @@ export const CHASSIS_COPY = {
     codename: "The Runner",
     theme: "Your driving is your aim.",
     body:
-      // NOT "hits hardest per press": that title belongs to Bastion's Bulwark, which the ranking
-      // page and Bulwark's own card both say outright. Mirage's damage is real but conditional.
+      // NOT "hits hardest per press": Bastion's Bulwark (the old titleholder) is retired, and
+      // Afterburner — Mirage's OWN weapon — is now the roster's largest full-connect number (286,
+      // top of the ranking page) once it lands. The claim stays conditional rather than flat,
+      // because that number needs the whole 2.2s burn held on one target; Mirage's damage is real
+      // but conditional either way.
       "The fastest thing on the map, and the one that turns a few seconds of contact into most of " +
       "a car's HP — but only for as " +
       "long as it is beside you. Two of its three weapons hug the chassis, so Mirage has to pick a " +
@@ -35,9 +38,9 @@ export const CHASSIS_COPY = {
     codename: "The Gunner",
     theme: "Reach and precision, punished hard when caught.",
     body:
-      "A glass cannon that wants never to be touched. It carries the longest weapon in the game " +
-      "and two mid-range answers underneath it, all three of which take the lock — the reach is " +
-      "the skill, not the aiming. It has the thinnest hull on the grid to pay for it.",
+      "A glass cannon that wants never to be touched. It carries the longest straight-line reach " +
+      "in the game and two mid-range answers underneath it, though only its opener takes the lock " +
+      "— the other two ask you to aim yourself. It has the thinnest hull on the grid to pay for it.",
     beats: "Kites Bastion forever; it can never close the speed gap.",
     losesTo: "Mirage, which arrives before you have finished winding up.",
   },
@@ -50,12 +53,13 @@ export const CHASSIS_COPY = {
     codename: "The Anvil",
     theme: "It cannot chase — so it makes you come to it.",
     body:
-      // NOT "the longest crowd control": bulwark's own riders (`spiked` 3000ms, `fortified` 4500ms)
-      // both outlast thumper's 450ms stun. What thumper alone carries is a full lockout — the only
-      // status in the table that takes the car away instead of degrading it — so the claim here is
-      // about kind, not duration.
+      // NOT "the longest crowd control": `fortified` (10000ms, wildcharge's own self-buff) and
+      // `spiked` (3000ms, thumper's own rider) both outlast roadblock's 1000ms stun — the only stun
+      // left in Bastion's kit, since T18/O16 moved hard CC off thumper onto roadblock. What
+      // roadblock alone carries is a full lockout — the only status in the table that takes the car
+      // away instead of degrading it — so the claim here is about kind, not duration.
       "The slowest chassis, the biggest hull, and the only hard crowd control in the game. Bastion " +
-      "does not catch anybody: it stuns them, lunges at them, and denies the ground they wanted. " +
+      "does not catch anybody: it stops them, slams them, and denies the ground they wanted. " +
       "That is the only currency a car that cannot reposition has.",
     beats: "Mirage, the moment it commits to contact range.",
     losesTo: "Bullseye, which simply refuses to come within reach.",
@@ -213,18 +217,19 @@ export const WEAPON_COPY = {
       "chassis stops mattering.",
   },
   wildcharge: {
-    tagline: "Ten seconds of armor and intent.",
+    tagline: "Ten seconds of armor — 30% less damage taken — and intent.",
     shape: "Charge · one hit ends it · no lock",
     what:
-      "One press opens a ten-second window: you take no damage for its length, and the car wears " +
-      "the charge outline the whole time. The first enemy hull you touch is hard-slammed for a " +
-      "fixed impulse plus 250 damage, and the window closes right there — one hit, then it is " +
+      "One press opens a ten-second window: you take 30% less damage for its length, and the car " +
+      "wears the charge outline the whole time. The first enemy hull you touch is hard-slammed for " +
+      "a fixed impulse plus 250 damage, and the window closes right there — one hit, then it is " +
       "over.",
     how:
       "It is the roster's only exemption from the stun interrupt: a stun still stops the car dead, " +
       "but the armor and the charge state hold through it, because a state that cannot chain into " +
-      "anything else is safe to protect. Speed and range are both zero — a charge dashes nowhere, " +
-      "it only waits for the first car foolish enough to get close.",
+      "anything else is safe to protect. Armor cuts what gets through, it does not stop it — this " +
+      "buys you a fight, not a free pass through one. Speed and range are both zero — a charge " +
+      "dashes nowhere, it only waits for the first car foolish enough to get close.",
     tip:
       "Press it before a fight, not during one — the ten seconds have to still be running when you " +
       "make contact. Whoever you catch takes the hit, the slam, and loses the exchange before it " +

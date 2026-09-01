@@ -253,7 +253,12 @@ export const WEAPON_TABLE = {
    * `bounce: { lifetimeMs: 2900 }` — the shot now expires on a wall-bouncing flight clock rather
    * than at `range`, guarded strictly under the 3000 ms cooldown so two bouncing instances can never
    * coexist. `range: 1305` is `450 u/s x 2.9 s`, the honest reach figure now that expiry is
-   * clock-based and `range` is otherwise unread by a bouncing shot.
+   * clock-based and `range` is otherwise unread by a bouncing shot. Read plainly, that makes 1305
+   * the largest `range` value in the whole roster — bigger than `lance`'s straight 1200 — even
+   * though it is a bounced total-path length, not a poke Bastion can threaten with;
+   * `weapon-config.test.ts`'s straight-line-reach guard excludes it for exactly that reason, and
+   * whether a bouncing 1305 should out-rank a straight 1200 in play is an open balance question,
+   * not settled here.
    *
    * The cooldown is still CONSTRAINED at the low end. The aim-assist cliff guard rejects any assisted
    * weapon whose `1000 / cooldownMs` is within 15% of `1000 / AIM_CONFIG.lockTimeoutMs`, which
@@ -284,10 +289,15 @@ export const WEAPON_TABLE = {
   },
   /**
    * Bastion's slot 2: a wall that stops what it touches (O15). The bar is 120 wide by 12 thick,
-   * travels along its short axis, pierces everything (5 = max players minus the shooter), and
-   * stuns each car it crosses for 1 s. Aim assist is deliberately OFF: a 120-unit face aims
-   * itself, and skewer's old "help the slowest chassis" argument is answered by width here. ⚙
-   * speed/range/cooldown are first-pass.
+   * travels along its short axis, pierces everything, and stuns each car it crosses for 1 s. Aim
+   * assist is deliberately OFF: a 120-unit face aims itself, and skewer's old "help the slowest
+   * chassis" argument is answered by width here. ⚙ speed/range/cooldown are first-pass.
+   *
+   * `pierce: 4` reaches all five possible opponents: pierce counts cars after the first, so the
+   * first hit is free and each further hit spends one — `pierce: 5` would have reached SIX cars,
+   * which cannot exist in a six-player game once the shooter is excluded. Corrected from an
+   * authoring off-by-one (the original "5 = max players minus the shooter" comment counted total
+   * hits, not the pierce budget past the first).
    */
   roadblock: {
     id: "roadblock",
@@ -304,7 +314,7 @@ export const WEAPON_TABLE = {
     recoveryMs: 200,
     usesAimAssist: false,
     hitbox: { shape: "bar", radiusAlong: 6, radiusAcross: 60 },
-    pierce: 5,
+    pierce: 4,
     volley: { volleys: 1, volleyIntervalMs: 0 },
     pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
     applies: [{ statusId: "stunned", target: "opponents", durationMs: 1000 }],

@@ -201,11 +201,13 @@ function derive(id) {
   // otherwise be read off a row that does not carry them.
   const maneuver = def.kind === "maneuver";
 
-  // `volley` lives on `WeaponBase`, so a BEAM can be a wave sequence too — `shockwave` is three
-  // discs 500ms apart. This file is plain `.mjs` and the compiler never checks it, so a "beams fire
-  // once per press" shortcut here would silently under-report a real weapon on the page players
-  // read. Both kinds go through the same volley arithmetic; only what one volley *contains*
-  // differs, which is exactly the line `PelletDef` was split out on.
+  // `volley` lives on `WeaponBase`, so a BEAM can be a wave sequence too — dormant today (no
+  // shipped row has `volleys > 1`; `shockwave` used to be three discs 500ms apart before the
+  // 2026-09-01 cutover redefined it into a single-volley projectile). This file is plain `.mjs`
+  // and the compiler never checks it, so a "beams fire once per press" shortcut here would
+  // silently under-report a real weapon on the page the day one next ships. Both kinds go through
+  // the same volley arithmetic; only what one volley *contains* differs, which is exactly the line
+  // `PelletDef` was split out on.
   const shotsPerPress = beam
     ? def.volley.volleys
     : maneuver
@@ -232,7 +234,10 @@ function derive(id) {
       ? 1
       : Math.floor((aliveTicks - 1) / ticks.damageInterval) + 1;
   // Each of a beam's volleys is its own instance with its own damage clock, so a target that eats
-  // every wave takes `damageTicks` from each: `shockwave` is 1 x 3, `bulwark` 10 x 1.
+  // every wave takes `damageTicks` from each — dormant today alongside `volleys > 1` itself (see
+  // above); `shockwave`'s old three-wave shape (1 x 3) and the retired `bulwark`'s single 10-tick
+  // wave (10 x 1) were the last two rows that exercised more than the `hitsPerTarget = shotsPerPress`
+  // branch below.
   const hitsPerTarget = beam ? damageTicks * def.volley.volleys : shotsPerPress;
 
   const baseBurst = def.damage * hitsPerTarget;
@@ -601,9 +606,10 @@ function specRows(w) {
   // for: nothing on screen says "this one stuns", and the badge only appears once it is too late.
   for (const a of d.applies ?? []) {
     const def = statusDefOf(a.statusId);
-    // `onWave: "final"` is a real rule a player has to plan around — shockwave's debuff arrives
-    // only if the target is still in the ring for the LAST wave — so it goes on the page rather
-    // than staying a table detail.
+    // `onWave: "final"` is a real rule a player has to plan around when a weapon has it — the old
+    // three-wave shockwave's debuff only landed if the target was still in the ring for the LAST
+    // wave — so it goes on the page rather than staying a table detail. Dormant today: no shipped
+    // row authors `onWave` at all, since none has `volleys > 1` (see `derive()`'s own note on that).
     const wave = a.onWave === "final" && w.waves > 1 ? ` · last wave only` : "";
     rows.push([
       a.target === "self" ? "Grants you" : "Inflicts",
