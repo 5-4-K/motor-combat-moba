@@ -34,16 +34,6 @@ import {
   hpOf,
   isActiveCarId,
   DEATHMATCH_TICKS,
-  farthestSpawn,
-  isDueToRespawn,
-  phaseDecision,
-  applyStatus,
-  newFireState,
-  hasStatus,
-  carHullOf,
-  obbsOverlap,
-  isSolid,
-  carIdOf,
   deathmatchEnded,
   deathmatchOutcome,
   type CarId,
@@ -62,24 +52,21 @@ import {
 } from "../mode.js";
 import { isInputMessage } from "../net/input-message.js";
 import { withSimulatedLatency } from "../net/latency-injector.js";
-import { serverTick } from "../sim/tick.js";
 import {
-  applyCombatResult,
   clearInstances,
   newCombatMemory,
-  runCombat,
-  toCombatPlayers,
-  toInstances,
   type CombatMemory,
 } from "../sim/combat-bridge.js";
-import { readStatuses, statusTick, writeStatuses } from "../sim/status-bridge.js";
 import {
   clearKnock,
-  contactTick,
   newContactMemory,
   type ContactMemory,
-  type ContactTickResult,
 } from "../sim/ram-bridge.js";
+import {
+  respawnSweep,
+  runPipeline,
+  type PipelineCtx,
+} from "./tick-pipeline.js";
 import {
   fromFlowPhase,
   fromFlowStatus,
@@ -316,7 +303,7 @@ export class ArenaRoom extends Room<ArenaState> {
       this.state.phase === RoomPhase.MATCH &&
       winRuleOf(this.state.mode) === "deathmatch"
     ) {
-      this.respawnSweep();
+      respawnSweep(this.ctx());
     }
     if (
       this.state.phase === RoomPhase.CAR_SELECT &&
@@ -345,78 +332,9 @@ export class ArenaRoom extends Room<ArenaState> {
     ) {
       this.reduce({ type: "go" });
     }
-    const dt = 1 / getTickRateHz(TICK_RATE_HZ);
-    // Buffs and debuffs FIRST, before anything reads a modifier. `statusTick` sweeps every expired
-    // effect and returns the multipliers driving, ramming and combat all share for this tick, so no
-    // two phases can disagree about whether a car is still slowed, and no tick ever simulates an
-    // effect whose last tick was the previous one. New effects are only ever added at the far end of
-    // the tick, by combat, and take hold on the next one.
-    const statusMods = statusTick(this.state, this.state.tick);
-    const { masks, approachSpeeds } = serverTick(
-      this.state,
-      this.inputQueues,
-      dt,
-      this.state.phase,
-      statusMods,
-      this.prevFireMasks,
-    );
-    // Contact, after driving and before combat. The order is the rule: contacts are measured against
-    // the poses driving actually produced, and the knock written here is read by stepDrive next tick.
-    // Dash hits and hard slams it finds this tick are priced by combat below, in phase 0d.
-    //
-    // `approachSpeeds` is the one thing contact must NOT read from the poses driving produced.
-    // Contact resolution reflected `speed` on its way through `serverTick`, so the post-drive value
-    // is the rebound, not the impact — see `TickResult.approachSpeeds`.
-    let contact: ContactTickResult = { contactHits: [], statusRequests: [] };
-    if (this.state.phase === RoomPhase.MATCH && this.matchRoster.size > 0) {
-      contact = contactTick(
-        this.state,
-        this.matchRoster,
-        this.ram,
-        sidesOf(this.state.mode),
-        statusMods,
-        approachSpeeds,
-        this.combat.maneuverWeapons,
-        this.state.tick,
-      );
-    }
-    this.combatTick(dt, masks, contact);
-  }
-
-  /**
-   * Combat, after driving. The order is the rule, not an implementation detail: hits are tested
-   * against the poses cars actually ended the tick at, not where they were a moment before.
-   *
-   * Only `MATCH` runs combat, and only with a live roster. Outside that the whole thing is skipped
-   * and any instance still in flight is cleared — a shot that survived into the lobby would be
-   * drawn to everyone and could never hit anything.
-   */
-  private combatTick(dt: number, masks: ReadonlyMap<string, number>, contact: ContactTickResult): void {
-    if (this.state.phase !== RoomPhase.MATCH || this.matchRoster.size === 0) {
-      if (this.state.weapons.size > 0) clearInstances(this.state, this.combat);
-      return;
-    }
-
-    const arena = getArena(this.state.arenaId);
-    const result = runCombat({
-      world: {
-        tick: this.state.tick,
-        dt,
-        mode: sidesOf(this.state.mode),
-        obstacles: arena.obstacles,
-        bounds: { width: arena.width, height: arena.height },
-      },
-      players: toCombatPlayers(this.state, this.matchRoster, masks, this.combat),
-      instances: toInstances(this.combat),
-      instanceSeq: this.combat.instanceSeq,
-      contactHits: contact.contactHits,
-      statusRequests: contact.statusRequests,
-    });
-
-    applyCombatResult(this.state, result, this.combat);
-    this.combat.instanceSeq = result.instanceSeq;
-
-    if (winRuleOf(this.state.mode) === "deathmatch") this.phaseEndSweep(masks);
+    const { combatPlayers } = runPipeline(this.ctx());
+    // Combat was skipped this tick (no match, or no roster), so there is nothing to win on.
+    if (!combatPlayers) return;
 
     // Win check every tick, on the state combat just wrote.
     if (winRuleOf(this.state.mode) === "deathmatch") {
@@ -428,7 +346,7 @@ export class ArenaRoom extends Room<ArenaState> {
     // the match by the same rule.
     const outcome = livingSides(
       sidesOf(this.state.mode),
-      result.players.map((p) => ({
+      combatPlayers.map((p) => ({
         sessionId: p.sessionId,
         team: p.team,
         alive: p.alive,
@@ -438,6 +356,21 @@ export class ArenaRoom extends Room<ArenaState> {
     if (outcome.sides <= 1) {
       this.endMatch(outcome.winnerSessionId, outcome.winnerTeam);
     }
+  }
+
+  /** The room's long-lived maps and memory bags, handed to the pipeline for one tick. */
+  private ctx(): PipelineCtx {
+    return {
+      state: this.state,
+      inputQueues: this.inputQueues,
+      prevFireMasks: this.prevFireMasks,
+      matchRoster: this.matchRoster,
+      phaseCaps: this.phaseCaps,
+      combat: this.combat,
+      ram: this.ram,
+      hz: getTickRateHz(TICK_RATE_HZ),
+      runPhaseSweep: winRuleOf(this.state.mode) === "deathmatch",
+    };
   }
 
   /**
@@ -455,115 +388,6 @@ export class ArenaRoom extends Room<ArenaState> {
     if (!deathmatchEnded(players.length, this.state.tick, this.state.matchEndsTick)) return;
     const outcome = deathmatchOutcome(players);
     this.endMatch(outcome.winnerSessionId, outcome.winnerTeam);
-  }
-
-  /**
-   * Bring back everyone whose respawn timer has run out.
-   *
-   * Runs at the TOP of the tick, before `statusTick`, and that placement is the decision (M21):
-   * writing the status list here means the modifiers derived moments later already include `phased`,
-   * so there is no tick on which a freshly respawned car is solid. The documented `statusRequests`
-   * seam is the right route for a pickup and the wrong one here, because by design a request lands
-   * this tick and bites on the NEXT one — precisely the window a spawn must not have.
-   */
-  private respawnSweep(): void {
-    for (const id of this.matchRoster) {
-      const player = this.state.players.get(id);
-      if (!player || player.alive) continue;
-      if (!isDueToRespawn(player.diedAtTick, this.state.tick)) continue;
-      this.respawn(player);
-    }
-  }
-
-  /** One car back on the field. Nothing survives a death except the score. */
-  private respawn(player: PlayerState): void {
-    const enemies: { x: number; y: number }[] = [];
-    for (const id of this.matchRoster) {
-      if (id === player.sessionId) continue;
-      const other = this.state.players.get(id);
-      if (other?.alive) enemies.push({ x: other.x, y: other.y });
-    }
-
-    const spawn = farthestSpawn(getArena(this.state.arenaId).ffaSpawns, enemies);
-    player.x = spawn.x;
-    player.y = spawn.y;
-    player.angle = spawn.angle;
-    player.speed = 0;
-    // Or the car returns already spinning, its steering still degraded by the ram that killed it.
-    clearKnock(player);
-
-    const carId = carIdOf(player);
-    player.hp = hpOf(carId);
-    player.alive = true;
-    player.diedAtTick = 0;
-    player.killedBySessionId = "";
-
-    // No stock, no switch lock and no half-finished burst carries across a death.
-    this.combat.fireStates.set(player.sessionId, newFireState(carId, player.level));
-    // Or whoever last hurt you before this death is credited with your next one.
-    this.combat.lastDamagers.set(player.sessionId, "");
-
-    this.phaseCaps.set(player.sessionId, this.state.tick + DEATHMATCH_TICKS.phaseMax);
-    // Applied to an EMPTY list, not to the car's current one: every debuff goes with the wreck, so a
-    // lingering slow cannot ride back onto the field with a car that was just rebuilt.
-    writeStatuses(
-      player,
-      applyStatus([], "phased", this.state.tick, DEATHMATCH_TICKS.phase, ""),
-    );
-  }
-
-  /**
-   * End spawn protection, per `phaseDecision`.
-   *
-   * Runs at the END of the tick, unlike `respawnSweep`, and the asymmetry is deliberate: this needs
-   * the fire masks the tick actually simulated and the poses driving finally settled on. A one-tick
-   * lag on *ending* protection is harmless; a one-tick lag on *starting* it would leave a car solid
-   * on its spawn frame.
-   */
-  private phaseEndSweep(masks: ReadonlyMap<string, number>): void {
-    const tick = this.state.tick;
-    for (const id of this.matchRoster) {
-      const player = this.state.players.get(id);
-      if (!player) continue;
-
-      const rows = readStatuses(player);
-      if (!hasStatus(rows, "phased", tick)) {
-        this.phaseCaps.delete(id);
-        continue;
-      }
-      const phase = rows.find((s) => s.statusId === "phased");
-      if (!phase) continue;
-
-      const action = phaseDecision({
-        tick,
-        endsTick: phase.endsTick,
-        capTick: this.phaseCaps.get(id) ?? tick,
-        fired: (masks.get(id) ?? 0) !== 0,
-        overlapping: this.overlapsSolid(player),
-      });
-
-      if (action === "run") continue;
-      if (action === "drop") {
-        writeStatuses(player, rows.filter((s) => s.statusId !== "phased"));
-        this.phaseCaps.delete(id);
-        continue;
-      }
-      // `refresh` extends rather than overwrites, which is what `chainable` exists to permit for a
-      // flag-carrying row. Two ticks, so the new end is strictly beyond the one about to lapse.
-      writeStatuses(player, applyStatus(rows, "phased", tick, 2, ""));
-    }
-  }
-
-  /** Is this car's hull touching any car that is actually solid right now? */
-  private overlapsSolid(player: PlayerState): boolean {
-    const hull = carHullOf(player.x, player.y, player.angle);
-    for (const id of this.matchRoster) {
-      if (id === player.sessionId) continue;
-      const other = this.state.players.get(id);
-      if (!other || !isSolid(other, this.state.tick)) continue;
-      if (obbsOverlap(hull, carHullOf(other.x, other.y, other.angle))) return true;
-    }
-    return false;
   }
 
   private reduce(event: FlowEvent): void {
@@ -676,7 +500,7 @@ export class ArenaRoom extends Room<ArenaState> {
       clearKnock(player);
       // The score is match-scoped, and this is the only match boundary that owns it. `PlayerState`
       // lives as long as the connection, not as long as the match, and the only other writers are
-      // the increments in `combat-bridge.ts` and the per-respawn clear in `respawn` — so without
+      // the increments in `combat-bridge.ts` and the per-respawn clear in `respawnPlayer` — so without
       // this, match two is scored on match one's totals, a player who joined for match two starts
       // behind accumulated numbers they never earned, `uint8` eventually wraps past 255, and the
       // Last Standing and Team scoreboards show a running career tally where they promise a match.

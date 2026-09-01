@@ -57,6 +57,12 @@ export interface CombatMemory {
   lastDamagers: Map<string, string>;
 }
 
+/**
+ * One player as `runCombat` hands them back. Exported so a caller can hold the result's players
+ * across a function boundary — the win checks read `alive`/`inRoster` off exactly these.
+ */
+export type CombatResultPlayer = CombatResult["players"][number];
+
 export function newCombatMemory(): CombatMemory {
   return {
     instanceSeq: 0,
