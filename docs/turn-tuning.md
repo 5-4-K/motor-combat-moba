@@ -67,18 +67,19 @@ whether you are moving one chassis or all three.
 | `stopTurnRatio` | `DRIVE_CONFIG` | 0.5 | Steering at rest, as a fraction of the moving rate |
 | `authorityFloor` | `RAM_CONFIG` | 0.35 | Most steering a ram can strip |
 | `spinMaxRate` | `RAM_CONFIG` | 6 rad/s | Cap on ram-imposed rotation |
-| `baseMaxSpeed` | `DRIVE_CONFIG` | 180 | Radius only — no effect on turn rate |
-| `speedPerRating` | `DRIVE_CONFIG` | 4.5 | Radius only — what one point of `speed` buys |
+| `baseMaxSpeed` | `DRIVE_CONFIG` | 90 | Radius only — no effect on turn rate |
+| `speedPerRating` | `DRIVE_CONFIG` | 2.25 | Radius only — what one point of `speed` buys |
 | `reverseSpeedRatio` | `DRIVE_CONFIG` | 0.65 | Reverse radius only |
 
 **A global knob is not a blunt version of a per-car one.** `turnRatePerRating` multiplies the
 rating, so raising it hands the most to whoever already has the most: pushing it from 0.054 to 0.072
-to pull Mirage's radius to 80 u would also drag Bastion's from 39.2 u to 33.1 u — buying one car's
+to pull Mirage's radius to 36.4 u would also drag Bastion's from 19.6 u to 16.6 u — buying one car's
 fix by buffing the car that least needs it.
 
 **That is the trade Mirage's 2026-08-31 rating edit avoided.** Its radius was 91.4 u, the roster's
 widest, purely because its speed is 88; the fix was `handling` 50 -> 60, taking it to 84.2 u with
-speed untouched and the other two chassis untouched. A global knob could not have done it: Mirage was
+speed untouched and the other two chassis untouched (those are pre-2026-09-01 figures — the
+half-speed cut later halved every radius, so the same pair reads 45.7 u -> 42.1 u today). A global knob could not have done it: Mirage was
 sitting on `handling` 50, the anchor rating, so the standard "widen the spread" move (raise
 `turnRatePerRating`, lower `baseTurnRate` to hold the pivot) would have left it exactly where it
 was.
@@ -98,10 +99,10 @@ Nothing here is typed anywhere — all of it is computed from the two tables abo
 | — degrees per tick | ″ | 9.76° | 13.06° | 15.33° |
 | **Turn rate at rest** | `turnRate × stopTurnRatio` | 2.556 rad/s | 3.42 rad/s | 4.014 rad/s |
 | — in degrees | ″ | 146.4°/s | 196.0°/s | 230.0°/s |
-| Top speed | `baseMaxSpeed + speed × speedPerRating` | 414 u/s | 576 u/s | 315 u/s |
-| Reverse top speed | `× reverseSpeedRatio` | 269.1 u/s | 374.4 u/s | 204.8 u/s |
-| **Turn radius** | `topSpeed / turnRate` | 81.0 u | 84.2 u | **39.2 u** |
-| Reverse turn radius | `reverseSpeed / turnRate` | 52.6 u | 54.7 u | 25.5 u |
+| Top speed | `baseMaxSpeed + speed × speedPerRating` | 207 u/s | 288 u/s | 157.5 u/s |
+| Reverse top speed | `× reverseSpeedRatio` | 134.6 u/s | 187.2 u/s | 102.4 u/s |
+| **Turn radius** | `topSpeed / turnRate` | 40.5 u | 42.1 u | **19.6 u** |
+| Reverse turn radius | `reverseSpeed / turnRate` | 26.3 u | 27.4 u | 12.8 u |
 | 180° while moving | `π / turnRate` | 0.61 s | 0.46 s | 0.39 s |
 | 360° while moving | `2π / turnRate` | 1.23 s | 0.92 s | 0.78 s |
 | 180° from standstill | `π / turnRateAtStop` | 1.23 s | 0.92 s | 0.78 s |
@@ -110,8 +111,9 @@ Nothing here is typed anywhere — all of it is computed from the two tables abo
 The split is the point: **Bastion has the highest authored `handling` and the tightest derived
 radius, but Bullseye's radius still beats Mirage's despite a rating 32 points lower** — because
 `speed` is the other input, and Mirage's 88 carries it wide. That inversion narrowed from 10.4 u to
-3.2 u when Mirage went to `handling` 60, and it is worth watching: it is part of what makes
-Bullseye's skirmisher identity work, and another 5 points on Mirage erases it.
+3.2 u when Mirage went to `handling` 60 (1.6 u at today's halved speeds), and it is worth watching:
+it is part of what makes Bullseye's skirmisher identity work, and another 5 points on Mirage erases
+it.
 
 ## What to reach for, by outcome
 

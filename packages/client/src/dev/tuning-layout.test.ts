@@ -74,7 +74,7 @@ describe("tintOptions", () => {
   it("carries the real player colours, in table order", () => {
     const [, ...colors] = tintOptions();
     expect(colors.map((c) => c.label)).toEqual(COLOR_TABLE.map((c) => c.name));
-    expect(colors[0]?.fill).toBe(0xe74c3c);
+    expect(colors[0]?.fill).toBe(0xbf1402);
   });
 });
 

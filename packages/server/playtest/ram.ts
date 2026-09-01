@@ -48,7 +48,7 @@ function ramOf(
 
 const reporter = new Reporter(
   "ram",
-  "Ram trigger rate as a function of the sub-tick phase of the impact.",
+  "Ram trigger rate as a function of the sub-tick phase of the impact, and whether a chase can ram-lock.",
 );
 
 /* ------------------------------------------------------------------ R1. does a ram fire at all */
@@ -199,11 +199,108 @@ function drivenRam(): void {
   );
 }
 
+/* ------------------------------------------------------- R5. ram-lock: chase in open space */
+/**
+ * Can the roster's heaviest rammer hold the roster's lightest car in a knock loop, or does one
+ * clean escape window always exist? Bastion (mass 90) rear-ends a bullseye (mass 30) that starts
+ * at rest with the whole arena open in front of it; from the impact on, both hold full throttle
+ * and the victim steers to straighten out — the best escape a player could drive. Bullseye's top
+ * speed rating (52) beats Bastion's (30), so the design intent is that control returns and the
+ * gap opens; a phase where it never does is a lock the ram's edge-triggering was built to forbid.
+ *
+ * Swept two ways: the approach gap (the sub-tick phase of the first impact, as R1) and a small
+ * lateral offset — a real chase ram lands slightly off-centre, and the off-centre hit is the one
+ * that imparts spin, which is the realistic "can never straighten out" hazard.
+ */
+function chaseRamLock(): void {
+  const rows: string[] = [];
+  let worstEscape = { escaped: true, gap: 0, phase: "", rams: 0 };
+  let maxRams = 0;
+  let minAuthoritySeen = 1;
+  for (const offset of [0, 6, 12]) {
+    let escapes = 0;
+    let runs = 0;
+    let worstGap = Infinity;
+    let ramsAtWorst = 0;
+    for (let gap = 0; gap < 21; gap++) {
+      const w = new PlaytestWorld([
+        {
+          id: "atk",
+          carId: "bastion",
+          x: 260 - 48 - gap,
+          y: 360 + offset,
+          angle: 0,
+          speed: forwardMaxSpeedOf("bastion"),
+        },
+        { id: "vic", carId: "bullseye", x: 260, y: 360, angle: 0 },
+      ]);
+      let rams = 0;
+      let prevShove = 0;
+      let minAuthority = 1;
+      let midGap = 0;
+      const ticks = 240;
+      let t = 0;
+      for (; t < ticks; t++) {
+        const v = w.get("vic");
+        // The victim drives its escape: full throttle up the open lane, steering to straighten —
+        // a P-controller on heading, which is also what counter-steers any injected spin.
+        w.input("atk", { throttle: 1 });
+        w.input("vic", { throttle: 1, steer: Math.max(-1, Math.min(1, -v.angle * 3)) });
+        w.tick();
+        const shove = Math.hypot(w.get("vic").shoveX, w.get("vic").shoveY);
+        // Knock only decays between impacts, so any rise is a fresh ram landing.
+        if (shove > prevShove + 5) rams++;
+        prevShove = shove;
+        minAuthority = Math.min(minAuthority, w.get("vic").authority);
+        if (t === Math.floor(ticks / 2)) midGap = w.get("vic").x - w.get("atk").x - 48;
+        // The runway ends where open space does: stop at the far wall, judge what we have.
+        if (w.get("vic").x > 1280 - 60) break;
+      }
+      const finalGap = w.get("vic").x - w.get("atk").x - 48;
+      // Escaped = clear separation that is still growing when the runway ends. A locked victim
+      // ends piled near the attacker (small gap, not growing) whatever tick the run stopped on.
+      const escaped = finalGap >= 60 && finalGap > midGap;
+      runs++;
+      if (escaped) escapes++;
+      maxRams = Math.max(maxRams, rams);
+      minAuthoritySeen = Math.min(minAuthoritySeen, minAuthority);
+      if (finalGap < worstGap) {
+        worstGap = finalGap;
+        ramsAtWorst = rams;
+      }
+      if (!escaped && (worstEscape.escaped || finalGap < worstEscape.gap)) {
+        worstEscape = { escaped: false, gap: finalGap, phase: `offset ${offset} gap ${gap}`, rams };
+      }
+    }
+    rows.push(
+      `offset ${String(offset).padStart(2)}u: escaped ${escapes}/${runs} phases, ` +
+        `worst final gap ${worstGap.toFixed(0)}u (${ramsAtWorst} rams landed on that run)`,
+    );
+  }
+  report(
+    "R5. Ram-lock: heaviest rammer chasing the lightest car up an open lane",
+    worstEscape.escaped ? "OK" : "FINDING",
+    `bastion (mass 90, top speed rating 30) rear-ends a resting bullseye (mass 30, rating 52) and ` +
+      `keeps chasing; the victim floors it and straightens out. 63 runs: approach gap 0-20 x ` +
+      `lateral offset {0, 6, 12}.\n` +
+      rows.join("\n") +
+      `\nmost rams landed in any single run: ${maxRams}; deepest authority dip ${minAuthoritySeen.toFixed(2)} ` +
+      `(RAM_CONFIG.authorityFloor ${RAM_CONFIG.authorityFloor}).` +
+      (worstEscape.escaped
+        ? `\nEvery phase escaped: the first knock is the attacker's whole payday — by the time ` +
+          `authority recovers the speed advantage has the gap opening, and the edge-triggered ram ` +
+          `never re-fires without a genuine re-approach.`
+        : `\nNOT ESCAPED at ${worstEscape.phase}: final gap ${worstEscape.gap.toFixed(0)}u after ` +
+          `${worstEscape.rams} rams — the knock loop closed faster than control returned.`),
+  );
+}
+
 const report = reporter.report.bind(reporter);
 
 triggerPhaseSweep();
 pairingMatrix();
 speedBeforeAndAfterResolve();
 drivenRam();
+chaseRamLock();
 
 reporter.finish();

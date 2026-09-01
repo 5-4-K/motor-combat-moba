@@ -40,9 +40,9 @@ Build with `npm run build:release -- --port <n>` to bake in a different one. See
 
 | id | name | speed | accel | handling | attack | hp | mass | weapons |
 |---|---|---|---|---|---|---|---|---|
-| `mirage` | Mirage | 88 | 85 | 60 | 63 | 48 | 48 | `["predator", "thunderclap", "afterburner"]` |
-| `bullseye` | Bullseye | 52 | 45 | 28 | 55 | 30 | 30 | `["shockwave", "pepperbox", "lance"]` |
-| `bastion` | Bastion | 30 | 20 | 82 | 42 | 82 | 90 | `["thumper", "roadblock", "wildcharge"]` |
+| `mirage` | Mirage | 88 | 85 | 60 | 63 | 70 | 48 | `["predator", "thunderclap", "afterburner"]` |
+| `bullseye` | Bullseye | 52 | 45 | 28 | 55 | 65 | 30 | `["shockwave", "pepperbox", "lance"]` |
+| `bastion` | Bastion | 30 | 20 | 82 | 42 | 90 | 90 | `["thumper", "roadblock", "wildcharge"]` |
 
 `isActive` is a seventh field on `CarDef`, not a rating. All three shipped cars are `true` today.
 `CarSelectScene`'s grid and `ArenaRoom`'s `MSG_SELECT_CAR`/`MSG_PREVIEW_CAR` guard both filter to
@@ -77,25 +77,26 @@ Which of these to reach for when turning feels wrong is indexed by outcome in
 **`handling` is turn RATE, not turn radius, and the difference is the design.** Radius is
 `forwardMaxSpeedOf(id) / turnRateOf(id)`, so a chassis with a high `speed` rating and only average
 `handling` still corners wide. Bullseye reorients slowest of the three and *still* has a tighter arc
-than Mirage, whose speed carries it wider; Bastion turns inside 39 units and is the best tracker in
+than Mirage, whose speed carries it wider; Bastion turns inside 20 units and is the best tracker in
 the game, which is the mechanical reason the tank punishes a diver. Mirage's `handling` went 50 -> 60
 on 2026-08-31 for exactly this reason — its 88 speed had left it with the roster's widest arc at
-91 u, and the fix was rating, not a speed cut. At 84 u it is still the widest. Raising a car's `speed` without
+91 u, and the fix was rating, not a speed cut (pre-2026-09-01 figures; the half-speed cut halved
+every radius, and Mirage's 42 u is still the widest). Raising a car's `speed` without
 raising its `handling` to match is what makes it feel *less* agile despite the higher ceiling.
 
 Derived, per car (Mirage / Bullseye / Bastion):
 
 | Derived | From | Mirage | Bullseye | Bastion |
 |---|---|---|---|---|
-| `hpOf` | hp × `COMBAT_CONFIG.hpPerRating` | 480 | 300 | 820 |
-| `forwardMaxSpeedOf` | `baseMaxSpeed` + speed × `speedPerRating` | 576 u/s | 414 u/s | 315 u/s |
-| `reverseMaxSpeedOf` | forward × `reverseSpeedRatio` | 374 | 269 | 205 |
+| `hpOf` | hp × `COMBAT_CONFIG.hpPerRating` | 700 | 650 | 900 |
+| `forwardMaxSpeedOf` | `baseMaxSpeed` + speed × `speedPerRating` | 288 u/s | 207 u/s | 157.5 u/s |
+| `reverseMaxSpeedOf` | forward × `reverseSpeedRatio` | 187 | 135 | 102 |
 | `accelOf` | `baseAccel` + accel × `accelPerRating` | 1032 | 744 | 564 |
 | `reverseAccelOf` | `accelOf` × `reverseAccelFactor` | 1455 | 1049 | 795 |
 | `turnRateOf` | `baseTurnRate` + handling × `turnRatePerRating` | 6.84 | 5.112 | 8.028 |
 | `turnRateAtStopOf` | `turnRateOf` × `stopTurnRatio` | 3.42 | 2.556 | 4.014 |
-| **turn radius** | `forwardMaxSpeedOf / turnRateOf` — derived, never typed | 84 u | 81 u | **39 u** |
-| time to top | `forwardMaxSpeedOf / accelOf` | 0.56 s | 0.56 s | 0.56 s |
+| **turn radius** | `forwardMaxSpeedOf / turnRateOf` — derived, never typed | 42 u | 40 u | **20 u** |
+| time to top | `forwardMaxSpeedOf / accelOf` | 0.28 s | 0.28 s | 0.28 s |
 | `massOf` | mass × `RAM_CONFIG.massPerRating` | 480 | 300 | 900 |
 | attack scale | `damageFor` at that rating | 1.13× | 1.05× | 0.92× |
 
@@ -103,7 +104,7 @@ Derived, per car (Mirage / Bullseye / Bastion):
 `predator`'s is 57 / 53 / 46 depending on who fires it, though only Mirage actually carries one.
 `massOf` affects ramming only, never acceleration or top speed (see `RAM_CONFIG` below).
 
-Time to top speed landing at 0.56 s for all three is a **consequence** of the ratings, not a
+Time to top speed landing at 0.28 s for all three is a **consequence** of the ratings, not a
 constraint: this roster's accel ordering happens to track its speed ordering. Nothing stops a future
 chassis breaking that.
 
@@ -120,12 +121,12 @@ that consumes it.
 
 | colorId | name | hex |
 |---|---|---|
-| 0 | Crimson | `#E74C3C` |
+| 0 | Crimson | `#BF1402` |
 | 1 | Azure | `#3498DB` |
 | 2 | Emerald | `#2ECC71` |
 | 3 | Gold | `#F1C40F` |
 | 4 | Violet | `#9B59B6` |
-| 5 | Orange | `#E67E22` |
+| 5 | Orange | `#DB6C09` |
 
 ## WEAPON_TABLE
 
@@ -137,13 +138,13 @@ once, at shared's module load, into the frozen `WEAPON_TICKS` the sim actually r
 | id | kind | damage | damageFrequencyMs | speed | range | cooldownMs | startUpMs | recoveryMs | stock | pierce | volley (volleys / intervalMs) | pellets (perVolley / spreadDeg) | attached | lifetimeMs | hitbox | unlocksAt | usesAimAssist | color |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | `predator` | projectile | 50 | 0 | 600 | 900 | 2000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | capsule, along 14 / across 6 (homing 120°/s × 1200 ms) | 1 | true | `#D63A14` |
-| `thunderclap` | maneuver (dash) | 100 | 0 | 1600 (dash speed) | 400 (dash distance) | 5000 | 0 | 200 | — | — | 1 / 0 | — | — | — | — | 1 | true | `#7A1D1D` |
-| `afterburner` | beam | 26 | 200 | 1100 | 220 | 13000 | 0 | 200 | — | — | 1 / 0 | — | true | 2000 | cone, 55° (muzzles `[0, 180]`) | 1 | false | `#F05818` |
+| `thunderclap` | maneuver (dash) | 90 | 0 | 1600 (dash speed) | 400 (dash distance) | 5000 | 0 | 200 | — | — | 1 / 0 | — | — | — | — | 1 | true | `#7A1D1D` |
+| `afterburner` | beam | 49 | 500 | 1100 | 220 | 13000 | 0 | 200 | — | — | 1 / 0 | — | true | 2000 | cone, 55° (muzzles `[0, 180]`) | 1 | false | `#F05818` |
 | `shockwave` | projectile | 22 | 0 | 900 | 900 | 600 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | circle, radius 12 | 1 | true | `#22579E` |
 | `pepperbox` | projectile | 45 (per pellet) | 0 | 800 | 600 | 1800 | 0 | 200 | — | 0 | 1 / 0 | 3 / 12 | — | — | ellipse, along 9 / across 3 (muzzles `[0, 90, 180, 270]`) | 1 | false | `#184890` |
 | `lance` | beam | 170 | 0 | 6000 | 1200 | 16000 | 700 | 1000 | — | — | 1 / 0 | — | true | 1500 | rect, width 57.5 (`holdsDuringFire`) | 1 | false | `#0F3268` |
 | `thumper` | projectile | 60 | 0 | 450 | 1305 (bounce, 2900 ms lifetime) | 3000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | capsule, along 24 / across 15 (flat tail) | 1 | true | `#F0C808` |
-| `roadblock` | projectile | 100 | 0 | 600 | 500 | 6000 | 0 | 200 | — | 4 | 1 / 0 | 1 / 0 | — | — | bar, along 6 / across 60 | 1 | false | `#C89A14` |
+| `roadblock` | projectile | 100 | 0 | 600 | 500 | 6000 | 0 | 200 | — | 4 | 1 / 0 | 1 / 0 | — | — | bar, along 6 / across 60 (`piercesWalls`) | 1 | false | `#C89A14` |
 | `wildcharge` | maneuver (charge) | 250 | 0 | 0 | 0 | 20000 | 0 | 200 | — | — | 1 / 0 | — | — | — | — (`isUnInterruptable`, 10 s window, `slamsStunned`) | 1 | false | `#D9A814` |
 | `tremor` | beam | 25 (per tick; 10 ticks == 250 full connect) | 400 | 492 | 492 | 15000 | 0 | 200 | — | — | 1 / 0 | — | false | 2875 | cone, 60° | 1 | false | `#8A6D12` |
 
@@ -167,6 +168,15 @@ authors more than one volley. `PelletDef` (`pelletsPerVolley`, `spreadAngleDeg`)
 `pelletsPerVolley: 1`. `beginFire` reads `def.volley.volleys` for every kind rather than hardcoding 1
 for beams, and `weaponTicksOf` converts `volleyIntervalMs` for every kind.
 
+**`piercesWalls` (projectiles only, absent = false)** exempts the shot from world destruction in
+`hitsWorld`: level geometry and the arena bounds never kill it, and only its own `range` clock ends
+it — the same exemption shape as `bounce`, which trades the world test for reflection plus a flight
+clock. `roadblock` is the one row that authors it, for two reasons that arrived in that order: its
+bar reaches 60u to each side of its travel axis, so without the flag a press within a wingtip of any
+wall killed the shot on its own spawn tick (cooldown spent, nothing on the wire); and as identity,
+the wall that already passes through five cars now passes through cover too, stun riding — the
+anti-wall-camper lever, available to future rows by authoring the same field.
+
 `damage` is what the weapon deals from a chassis at `COMBAT_CONFIG.attackBaseline` — an *average*
 car, not every car; `damageFor` (`sim/damage.ts`) moves it ±50% with the firing chassis's `attack`
 rating. **It scales and rounds each hit as it lands — per tick, per pellet, per wave — never once
@@ -174,11 +184,11 @@ over a press total**, so a single `pepperbox` fan — the 3 darts a target actua
 the car eats — is `3 × damageFor(55, 45)` = 141 on Bullseye (`round(45 × 1.05) = 47` per dart); the
 weapon fires four such fans at once
 (`muzzles: [0, 90, 180, 270]`), but that ×4 is total output across four directions, not damage any one
-target takes. `afterburner` on Mirage is `damageFor(63, 26)` per 200 ms tick, not a press total scaled
+target takes. `afterburner` on Mirage is `damageFor(63, 49)` per 500 ms pulse, not a press total scaled
 once.
 
 `predator`'s 50 carries the pre-weapon-system `fireball` shot's original damage number forward
-unchanged, but not its pace: an average chassis has 500 hull HP, and `fireball`'s 5-second
+unchanged, but not its pace: an average chassis had 500 hull HP at the time, and `fireball`'s 5-second
 average-vs-average kill target was solved against its own original **500 ms** cooldown (100 DPS
 sustained). `predator` fires the same 50 damage at a **2000 ms** cooldown — 25 DPS sustained, a
 ~20-second average-on-average kill — so the anchor damage moved forward while the kill-time target
@@ -300,8 +310,8 @@ different knob entirely: `usesAimAssist` per weapon in `WEAPON_TABLE`.
 
 | Knob | Value |
 |---|---|
-| `baseMaxSpeed` | 180 |
-| `speedPerRating` | 4.5 |
+| `baseMaxSpeed` | 90 (was 180 — see the 2026-09-01 half-speed cut below) |
+| `speedPerRating` | 2.25 (was 4.5 — scaled with `baseMaxSpeed`) |
 | `brakeDecel` | 1600 (must stay above `drag`) |
 | `drag` | 900 (throttle released) |
 | `baseTurnRate` | 3.6 (was 2.4 — see the 1.5x raise below) |
@@ -341,6 +351,11 @@ pair rather than the base alone is what keeps a point of `handling` worth the sa
 car, so the type triangle's agility ordering and spacing are untouched and only the roster's absolute
 sharpness moved. Top speeds were **not** touched, so every turn radius shrank by that same 1.5x. The
 accel pivot is still the pre-2026-08-30 global 780.
+**Top speeds halved on 2026-09-01**: `baseMaxSpeed` 180 -> 90 and `speedPerRating` 4.5 -> 2.25,
+scaled **together** for the same reason the turn pair was — the ratio between them is what decides
+how much the per-car `speed` rating matters, so the roster's spacing came through untouched. Turn
+rates and accel were not moved, so every turn radius and every time-to-top-speed halved with it, and
+`RAM_REFERENCE` (derived from the fastest car) halved to 144000.
 `reverseAccelFactor: 1.41` yields 1099.8 at rating 50 against the 1100 that shipped — a deliberate
 0.02% rounding, stated rather than hidden, because the exact ratio (`1100/780`) is not a number
 anyone should have to read in a config file.
@@ -363,7 +378,7 @@ Per-car top speeds, radii and launch times are tabulated under [`CAR_TABLE`](#ca
 `forwardMaxSpeedOf(id) / accelOf(id)`, so raising a chassis's `speed` rating without raising its
 `handling` and `accel` to match makes that car feel *less* agile despite the higher ceiling — reason
 per chassis, not for "the fastest car". `brakeDecel` must exceed `drag` or the brake button is
-pointless, and `CAMERA_CONFIG.freeRoamSpeed` (1050) must exceed the fastest car (576) — both are
+pointless, and `CAMERA_CONFIG.freeRoamSpeed` (1050) must exceed the fastest car (288) — both are
 asserted in `config.test.ts`. `baseMaxSpeed` and `speedPerRating` scale together on purpose: their
 ratio decides how much the per-car `speed` rating matters, so moving only one re-balances the roster.
 `baseTurnRate`/`turnRatePerRating` and `baseAccel`/`accelPerRating` pair the same way.

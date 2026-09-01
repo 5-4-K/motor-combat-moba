@@ -251,14 +251,14 @@ still translates and rotates with the car — it just never deflects toward a lo
 pellet fan or a sequential burst re-reads the lock at each shot's own tick, the same way it already
 re-reads the car's pose.
 
-**Lead** (spec S1) applies only to a projectile: `aimAngleFor` fires `interceptAngle`'s first-order
-intercept — the target's centre plus its heading × speed, solved against the shot's own `speed` —
-instead of the target's current bearing, which is what stops the far half of every lock acquiring
-reliably and missing reliably. A beam is untouched (it crosses its reach near-instantly, so leading
-it would only mis-aim it) and so is a maneuver (it aims the car at the target's bearing, not a shot
-at its future position — see [Maneuvers and the contact pass](#maneuvers-and-the-contact-pass)
-below). Re-derived per shot, not once per press, so a burst's later volleys lead wherever the target
-has moved to by their own tick.
+**There is no lead** (A3), for any weapon kind. `aimAngleFor` returns the target's *current* bearing
+from the muzzle: the assist sets the shot's direction, and carrying the lead against a crossing
+target stays the player's job. First-order interception — aiming at where the target *will* be,
+solved against the shot's own `speed` — shipped briefly and was **reverted**: it decided the shot
+rather than pointing it, so a lock read as an aimbot. The known cost is the one A3 states plainly:
+against a full-speed crosser a no-lead lock only connects at close range, which is a skill boundary
+rather than a bug. Re-derived per shot, not once per press, so a burst's later volleys track the
+target's new position at their own tick.
 
 **Per-weapon range** (spec S1) is a second gate below the lock itself. Lock *acquisition* uses the
 car's single largest `aimRangeUnits` across its assisted weapons (`carAimRangeOf`), so a bracket can
@@ -393,7 +393,7 @@ do not reach, exactly:
   `spawnInstances` carries a weapon's `pierce` onto `pierceLeft` uses `shockwave` (`pierce: 0`). No
   test derives `pierceLeft` from `roadblock`'s real `pierce: 4` end to end.
 - **`damageFrequencyMs > 0`, the re-arming per-target clock.** Still genuinely uncovered, and now down
-  to one shipped example: `afterburner` (200 ms) ships it and re-ticks a target still standing in the
+  to one shipped example: `afterburner` (500 ms) ships it and re-ticks a target still standing in the
   flame during a real match (`bulwark`, the table's other example, retired with the overhaul), but
   `hits.test.ts` only exercises `damageFrequencyMs: 0`'s arm-at-infinity behaviour, and
   `weapon-config.test.ts` / `weapon-ticks.test.ts` only pin the raw ms/tick values — no test drives an
@@ -449,9 +449,17 @@ and re-testing its full reach every tick already covers it.
 damages (`shockwave`'s value today), `4` damages up to five cars before dying (`roadblock`'s value,
 reaching every possible opponent in a full six-player match). Teammates and wrecks
 are not contacts at all — a shot passes through them freely and they consume no pierce, which falls
-out of `canDamage` below. Walls, obstacles and the arena edge always destroy a projectile regardless
-of pierce budget; pierce is about cars, never about cover. Beams never spend a pierce budget — they
-are never destroyed by contact and may hit several cars on the same tick.
+out of `canDamage` below. Walls, obstacles and the arena edge destroy a projectile regardless of
+pierce budget — pierce is about cars, never about cover — with two authored exceptions read in the
+same place (`hitsWorld`): a `bounce` row (`thumper`) is reflected by `stepInstance` instead and dies
+on its own flight clock, and a `piercesWalls` row (`roadblock`) flies straight through geometry and
+bounds alike and dies only at `range`. `piercesWalls` exists because roadblock's bar reaches 60u to
+each side of its travel axis: without it, firing within a wingtip of a wall killed the shot on its
+own spawn tick — a press that spent the cooldown and put nothing on the wire. It doubles as the
+row's identity: the wall stops for nothing, so cover is no cover from it, and its stun rides through
+(nothing rendered outside the bounds is ever visible, so a shot crossing the outer wall reads as
+absorbed by it). Beams never spend a pierce budget — they are never destroyed by contact and may hit
+several cars on the same tick.
 
 Repeat damage is a **per-instance, per-target clock**: every live instance owns a map from
 `sessionId` to the next tick it may damage that car again. `damageFrequencyMs: 0` (every weapon
@@ -505,7 +513,7 @@ row, which is the point.
 [`packages/shared/src/config/weapon-config.ts`](../packages/shared/src/config/weapon-config.ts).
 Copy `predator` or `roadblock` for a projectile, or `afterburner` or `lance` for a beam — every shape
 in the current roster has at least one real row to start from. The union decides which fields you may
-write: `pierce` and `pellets` exist only on a projectile, `attached` and `lifetimeMs` only on a beam,
+write: `pierce`, `pellets` and `piercesWalls` exist only on a projectile, `attached` and `lifetimeMs` only on a beam,
 and writing the wrong one is a compile error rather than a silently ignored field. **`volley` is on
 `WeaponBase` and so is required on both** — a beam or a projectile may in principle be a wave sequence
 (the retired `shockwave` shipped three aura waves; no current row does — see

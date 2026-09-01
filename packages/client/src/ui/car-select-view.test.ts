@@ -130,7 +130,7 @@ describe("fullStatsFor", () => {
   });
 
   it("still reports the hull HP the sim actually gives the car", () => {
-    expect(fullStatsFor("bastion").find((r) => r.label === "Hull HP")!.value).toBe("820");
+    expect(fullStatsFor("bastion").find((r) => r.label === "Hull HP")!.value).toBe("900");
   });
 
   it("shows mass among the full stats", () => {

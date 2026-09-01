@@ -61,7 +61,6 @@ function player(sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlay
     x: 400,
     y: OPEN_Y,
     angle: 0,
-    speed: 0,
     team: 0,
     carId,
     hp: hpOf("mirage"),
@@ -115,7 +114,6 @@ describe("firing", () => {
       x: 300,
       y: OPEN_Y,
       angle: 0,
-      speed: 0,
       team: 0,
       carId: "mirage",
       hp: hpOf("mirage"),
@@ -789,17 +787,20 @@ describe("aimAngleFor", () => {
     expect(aimAngleFor(shooter, "shockwave", byId, () => false)).toBeNull(); // 430 > 400 -> welded to heading
   });
 
-  it("leads a moving locked target (assisted projectiles fire at the intercept, spec S1)", () => {
+  it("does NOT lead a moving locked target — it aims where the target is (A3)", () => {
+    // The assist sets direction, never lead: a crossing target is shot at, not shot ahead of, and
+    // carrying the lead stays the player's job. Aiming at a first-order intercept shipped briefly
+    // and was reverted.
     const shooter = player("a", { x: 0, y: 0, angle: 0 });
     shooter.lock = { targetSessionId: "b", lockedAtTick: 0, losLostSinceTick: 0, lastPressTick: 0 };
-    const target = player("b", { x: 300, y: 0, angle: Math.PI / 2, speed: 300 }); // heading +y
+    const target = player("b", { x: 300, y: 0, angle: Math.PI / 2 }); // crossing at full tilt, +y
     const byId = new Map([
       ["a", shooter],
       ["b", target],
     ]);
-    const led = aimAngleFor(shooter, "shockwave", byId, () => false)!;
-    const direct = Math.atan2(0 - 0, 300 - 24); // muzzle at x=24
-    expect(led).toBeGreaterThan(direct); // aimed ahead of the target, up the +y path
+    const aimed = aimAngleFor(shooter, "shockwave", byId, () => false)!;
+    // Muzzle at x = 24, target dead ahead on the x axis: straight down the +x axis, angle 0.
+    expect(aimed).toBeCloseTo(Math.atan2(0, 300 - 24), 10);
   });
 });
 
@@ -1498,5 +1499,87 @@ describe("spawn protection: a phased car is not a target", () => {
       players: [player("aaa", { x: 300, y: OPEN_Y, fireMask: 1, statuses: [PHASED] })],
     });
     expect(result.instances.filter((i) => i.ownerSessionId === "aaa").length).toBeGreaterThan(0);
+  });
+});
+
+describe("wall-piercing projectiles (`piercesWalls`, roadblock's row)", () => {
+  const bastionAt = (sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlayer =>
+    player(sessionId, { carId: "bastion", fireState: newFireState("bastion", 1), ...over });
+
+  /** Step `ticks` combat ticks forward from `state`, nobody pressing anything further. */
+  function settle(state: CombatResult, over: Partial<CombatWorld>, ticks: number): CombatResult {
+    for (let i = 1; i <= ticks; i++) {
+      state = runCombat({
+        world: world({ ...over, tick: 100 + i }),
+        players: state.players.map((p) => ({ ...p, fireMask: 0 })),
+        instances: state.instances,
+        instanceSeq: state.instanceSeq,
+      });
+    }
+    return state;
+  }
+
+  it("survives being born with a wingtip past the arena bounds, and still lands downrange", () => {
+    // The dud from playtest: the bar reaches 60u to each side, so a car within 60u of a wall firing
+    // parallel to it had the shot die in `hitsWorld` on its own spawn tick — press animation and
+    // cooldown spent, nothing ever written to the schema. Roadblock is slot 2 on Bastion (0b010).
+    let state = runCombat({
+      world: world(),
+      players: [
+        bastionAt("aaa", { x: 200, y: 50, angle: 0, fireMask: 0b010 }),
+        player("bbb", { x: 500, y: 50, team: 1 }),
+      ],
+      instances: [],
+      instanceSeq: 0,
+    });
+    expect(state.instances).toHaveLength(1);
+    state = settle(state, {}, 20); // 300u at roadblock's 20u/tick, with slack
+    const hit = find(state, "bbb");
+    expect(hpOf("mirage") - hit.hp).toBe(weaponDamageOf("bastion", "roadblock"));
+  });
+
+  it("passes through an interior wall and lands on the camper behind it — where shockwave dies on it", () => {
+    // The design's whole point (anti-wall-camper): the bar crosses level geometry; its damage and
+    // its 1 s stun land on the far side. The contrast run pins that this is roadblock's authored
+    // `piercesWalls`, not a broken world test — shockwave, with no flag, still dies on the wall.
+    const wall = { x: 400, y: 260, w: 60, h: 200 }; // fully covers the firing line at y=360
+    const camper = player("bbb", { x: 600, y: 360, team: 1 });
+
+    let pierced = runCombat({
+      world: world({ obstacles: [wall] }),
+      players: [bastionAt("aaa", { x: 200, y: 360, angle: 0, fireMask: 0b010 }), { ...camper }],
+      instances: [],
+      instanceSeq: 0,
+    });
+    pierced = settle(pierced, { obstacles: [wall] }, 25);
+    const hit = find(pierced, "bbb");
+    expect(hpOf("mirage") - hit.hp).toBe(weaponDamageOf("bastion", "roadblock"));
+    expect(hit.statuses.some((s) => s.statusId === "stunned")).toBe(true);
+
+    let blocked = runCombat({
+      world: world({ obstacles: [wall] }),
+      players: [
+        player("aaa", { carId: "bullseye", fireState: newFireState("bullseye", 1), x: 200, y: 360, angle: 0, fireMask: 0b001 }),
+        { ...camper },
+      ],
+      instances: [],
+      instanceSeq: 0,
+    });
+    blocked = settle(blocked, { obstacles: [wall] }, 25);
+    expect(find(blocked, "bbb").hp).toBe(hpOf("mirage"));
+  });
+
+  it("still dies by its own range clock, walls or no walls", () => {
+    // Exempt from the world is not exempt from expiry: the flag must never mint an immortal
+    // instance sliding along outside the field. 500u at 20u/tick is 25 ticks; 40 is slack.
+    let state = runCombat({
+      world: world(),
+      players: [bastionAt("aaa", { x: 200, y: 50, angle: 0, fireMask: 0b010 })],
+      instances: [],
+      instanceSeq: 0,
+    });
+    expect(state.instances).toHaveLength(1);
+    state = settle(state, {}, 40);
+    expect(state.instances).toHaveLength(0);
   });
 });

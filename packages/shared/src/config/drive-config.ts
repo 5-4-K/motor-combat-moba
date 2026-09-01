@@ -32,16 +32,21 @@
  * the field list and a snippet that prints the new values.
  */
 export const DRIVE_CONFIG = {
-  baseMaxSpeed: 180,
+  /**
+   * Halved from 180 together with `speedPerRating` (4.5 -> 2.25) on 2026-09-01 — a roster-wide 50%
+   * top-speed cut, scaled as a pair so the per-car `speed` rating kept its relative weight.
+   */
+  baseMaxSpeed: 90,
   /**
    * Ratings are 0-100 (see `CAR_TABLE`), so this is a tenth of what it would be on a 0-10 scale.
    * It was 45 against 0-10 ratings and became 4.5 when they widened, precisely so that every car's
    * top speed stayed where it was: widening the ratings is a combat change, not a driving one.
+   * 2.25 since the 2026-09-01 half-speed cut — see `baseMaxSpeed`.
    */
-  speedPerRating: 4.5,
-  /** Holding Down against forward motion. Also brakes reverse when Up is held. 0.34s to rest. */
+  speedPerRating: 2.25,
+  /** Holding Down against forward motion. Also brakes reverse when Up is held. 0.18s to rest. */
   brakeDecel: 1600,
-  /** Throttle released. 0.60s to rest — kept below `brakeDecel` so braking stays the faster option. */
+  /** Throttle released. 0.32s to rest — kept below `brakeDecel` so braking stays the faster option. */
   drag: 900,
   /**
    * Turn rate is `baseTurnRate + handling * turnRatePerRating`, resolved per car by `turnRateOf`.
@@ -83,6 +88,23 @@ export const DRIVE_CONFIG = {
   stopEpsilon: 1e-3,
   carWidth: 48,
   carHeight: 32,
+  /**
+   * Max world units a DASH may translate between collision checks. Half the car's SHORT axis.
+   *
+   * `mtvBetween` answers "what is the shortest way out of this overlap", which is the way the car
+   * came in only while the overlap is shallow. For two axis-aligned cars the backwards push wins
+   * only while the centres are more than 16u apart on the dash axis, so there is a 32-unit-wide
+   * band in which the resolver is already right — and `thunderclap` at 1600 u/s covers 53.3u per
+   * tick, jumping clean over it. Capping the travel per check at half the 32-unit face keeps every
+   * sample inside that band from any approach angle; the 48-unit face is the wrong one to size
+   * against, because a rotated car can always present the thin one as the competing escape axis.
+   *
+   * It lives here rather than on a weapon row because it is a property of the collision resolver's
+   * correct band, not of any one weapon — a second dash weapon inherits it. `config.test.ts` pins
+   * it to the hull rather than to 16, so shrinking a car fails the suite instead of quietly
+   * reopening the tunnelling bug.
+   */
+  dashSubstepMaxUnits: 16,
   restitution: 0.35,
 } as const;
 

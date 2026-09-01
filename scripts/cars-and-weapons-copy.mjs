@@ -208,8 +208,9 @@ export const WEAPON_COPY = {
     shape: "Piercing bar · 120 units wide · no lock",
     what:
       "A 120-unit-wide bar that travels along its short axis and pierces everything in its path " +
-      "— up to five cars, every other player in the match. Everything it touches takes the hit " +
-      "and stops dead for a full second.",
+      "— up to five cars, every other player in the match, and the walls themselves: level " +
+      "geometry does not stop it. Everything it touches takes the hit and stops dead for a full " +
+      "second.",
     how:
       "Aim assist would be wasted here: a 120-unit face aims itself, wide enough to answer the " +
       "same 'help the slowest chassis hit something' problem a lock used to solve, just by " +
@@ -218,7 +219,8 @@ export const WEAPON_COPY = {
     tip:
       "Fire it across a chokepoint or a doorway rather than at a single target — its width is the " +
       "point. A crowd caught in it stops as one, which is exactly the moment Bastion's own slow " +
-      "chassis stops mattering.",
+      "chassis stops mattering. And nobody is safe behind cover: it stuns the camper through the " +
+      "wall they are hiding behind.",
   },
   wildcharge: {
     tagline: "Ten seconds of armor — 30% less damage taken — and intent.",

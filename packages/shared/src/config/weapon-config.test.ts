@@ -11,7 +11,7 @@ describe("WEAPON_TABLE", () => {
   it("pins the overhaul roster's load-bearing numbers (spec 2026-09-01)", () => {
     expect(WEAPON_TABLE.shockwave).toMatchObject({ damage: 22, cooldownMs: 600, speed: 900, range: 900 });
     expect(WEAPON_TABLE.predator.homing).toEqual({ turnRateDegPerSec: 120, durationMs: 1200 });
-    expect(WEAPON_TABLE.thunderclap).toMatchObject({ damage: 100, speed: 1600, aimRangeUnits: 400 });
+    expect(WEAPON_TABLE.thunderclap).toMatchObject({ damage: 90, speed: 1600, aimRangeUnits: 400 });
     expect(WEAPON_TABLE.roadblock).toMatchObject({ damage: 100, pierce: 4 });
     expect(WEAPON_TABLE.roadblock.hitbox).toEqual({ shape: "bar", radiusAlong: 6, radiusAcross: 60 });
     expect(WEAPON_TABLE.wildcharge.maneuver).toEqual({ type: "charge", durationMs: 10000, slamsStunned: true });
@@ -181,10 +181,10 @@ describe("WEAPON_TABLE", () => {
     if (afterburner.kind !== "beam") throw new Error("afterburner must be a beam");
     expect(afterburner.attached).toBe(true);
     expect(afterburner.lifetimeMs).toBe(2000);
-    expect(afterburner.damageFrequencyMs).toBe(200);
+    expect(afterburner.damageFrequencyMs).toBe(500);
     expect(afterburner.hitbox).toEqual({ shape: "cone", angleDeg: 55 });
-    // Total life is range/speed + lifetime == 200ms + 2000ms. At one tick per 200ms that is ~11
-    // ticks == 286 max, 57% of an average car's 500 hull HP.
+    // Total life is range/speed + lifetime == 200ms + 2000ms. At one pulse per 500ms that is 5
+    // pulses == 245 base max, about a third of an average car's hull HP.
     expect(afterburner.range / afterburner.speed + afterburner.lifetimeMs / 1000).toBeCloseTo(2.2);
     // Forced, not chosen: range 220 < AIM_CONFIG.lockRange, and an attached beam re-derives its
     // angle from the owner every tick, so a lock would have nothing to decide.
@@ -230,6 +230,9 @@ describe("WEAPON_TABLE", () => {
     // (pierce: 5 would reach a sixth car, which cannot exist once the shooter is excluded.)
     expect(roadblock.pierce).toBe(4);
     expect(roadblock.hitbox).toEqual({ shape: "bar", radiusAlong: 6, radiusAcross: 60 });
+    // The wall stops for nothing — walls included. Without this the 60u wingtips killed the shot
+    // in `hitsWorld` on its own spawn tick whenever Bastion fired within a wingtip of a wall.
+    expect(roadblock.piercesWalls).toBe(true);
     // A 120-unit face aims itself; skewer's old "help the slowest chassis" argument is answered by
     // width here instead of by a lock.
     expect(roadblock.usesAimAssist).toBe(false);

@@ -346,6 +346,11 @@ git commit -m "feat(shared): per-weapon aim-assist range — carAimRangeOf acqui
 
 ### Task 3: Aim lead
 
+> **REVERTED 2026-09-02.** Aim lead shipped and was taken back out: the assist sets a shot's
+> direction, it does not decide the shot (A3). `aim.ts` and `CombatPlayer.speed` are gone and
+> `aimAngleFor` aims at the target's current bearing again. This task is kept as a record of what
+> was built, not as a description of the code.
+
 **Files:**
 - Create: `packages/shared/src/sim/weapons/aim.ts`
 - Create: `packages/shared/src/sim/weapons/aim.test.ts`

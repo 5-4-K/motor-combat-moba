@@ -282,9 +282,11 @@ describe("ramMass reaches the ram, both as attacker and as victim", () => {
   }
 
   it("makes a buffed attacker hit harder", () => {
+    // 100, not the 400 this test used before the 2026-09-01 half-speed cut: RAM_REFERENCE halved
+    // with the roster's top speed, and at 400 both rams saturate the severity clamp and tie.
     const victim = car({ sessionId: "b", x: 47 });
-    expect(resolveRam(car({ speed: 400, massMult: 1.5 }), victim, "ffa")!.severity).toBeGreaterThan(
-      resolveRam(car({ speed: 400 }), victim, "ffa")!.severity,
+    expect(resolveRam(car({ speed: 100, massMult: 1.5 }), victim, "ffa")!.severity).toBeGreaterThan(
+      resolveRam(car({ speed: 100 }), victim, "ffa")!.severity,
     );
   });
 
