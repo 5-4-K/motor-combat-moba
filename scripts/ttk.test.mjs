@@ -130,6 +130,26 @@ describe("simulateTtk", () => {
     }
   });
 
+  it("keeps wildcharge out of the sustained rotation but leaves thunderclap in it", () => {
+    // wildcharge is a 20s one-hit ultimate whose 250 damage is conditional on a hull contact inside
+    // its 10s window; folding it into the greedy loop would read as free damage every cycle. It
+    // still has to show up in pressPlan (asserted elsewhere), just never as a press here.
+    for (const defender of CARS) {
+      const result = simulateTtk("bastion", defender);
+      assert.ok(
+        !result.presses.has("wildcharge"),
+        `wildcharge should never be pressed in a sustained rotation (vs ${defender})`,
+      );
+    }
+    // thunderclap is an ordinary maneuver row by contrast — damage on a cooldown, same as any
+    // projectile or beam — so it stays eligible and should actually get pressed.
+    const mirageVsBastion = simulateTtk("mirage", "bastion");
+    assert.ok(
+      mirageVsBastion.presses.has("thunderclap"),
+      "thunderclap should be pressed like any other row in a long enough fight",
+    );
+  });
+
   it("respects the switch lock between two different slots", () => {
     // lance leaves the roster's only substantial recovery (1s), so Bullseye cannot follow it
     // immediately with another slot. A scheduler ignoring `recoveryMs` would fire on the next tick.
