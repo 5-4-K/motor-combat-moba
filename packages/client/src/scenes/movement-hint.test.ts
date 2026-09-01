@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { PlayerStatus, RoomPhase } from "@motor-combat-moba/shared";
 import { isSpectating } from "./spectate.js";
+import { SLOT_KEYS } from "../config/slot-keys.js";
 import {
+  ACTION_ALTS,
+  ACTION_KEYS,
   MOVEMENT_ARROWS,
   MOVEMENT_KEYS,
   movementHintItems,
@@ -78,6 +81,15 @@ describe("movementHintItems", () => {
   it("prints both bindings, because arena-input accepts either", () => {
     expect(MOVEMENT_KEYS).toEqual(["W", "A", "S", "D"]);
     expect(MOVEMENT_ARROWS).toHaveLength(MOVEMENT_KEYS.length);
+  });
+
+  it("teaches every fire binding: the letters live here, the mouse glyphs match the gutter", () => {
+    // The gutter pill prints only the mouse-hand glyph, so this countdown row is the one place the
+    // J/K/L letters are shown. Derived from SLOT_KEYS, so a rebind cannot leave the hint stale.
+    expect(ACTION_KEYS).toEqual(["J", "K", "L"]);
+    expect(ACTION_ALTS).toEqual(["LMB", "RMB", "SPACE"]);
+    expect(ACTION_ALTS).toEqual(SLOT_KEYS.map((key) => key.glyph));
+    expect(ACTION_KEYS).toEqual(SLOT_KEYS.map((key) => key.keyGlyph));
   });
 });
 

@@ -108,6 +108,9 @@ import {
 } from "./status-hud.js";
 import { arrowBobOffset, countdownArrowPoints } from "./countdown-arrow.js";
 import {
+  ACTION_ALTS,
+  ACTION_KEYS,
+  ACTION_LABEL,
   MOVEMENT_ARROWS,
   MOVEMENT_JOINER,
   MOVEMENT_KEYS,
@@ -342,6 +345,13 @@ const HUD_KEY_PILL_PAD_Y = 3;
 const MOVEMENT_HINT_Y = 660;
 const MOVEMENT_HINT_FONT_PX = 18;
 const MOVEMENT_HINT_GAP = 8;
+/**
+ * The action row ("J K L or LMB RMB SPACE to fire") sits one pill-height under the movement row,
+ * still above the floor's bottom edge at `VIEW_HEIGHT` 720. It shares the movement row's lifetime
+ * (countdown only), font, and pill styling, and it is the one place the letter bindings are
+ * printed — the gutter pill shows only the mouse-hand glyph. See `SLOT_KEYS`.
+ */
+const ACTION_HINT_Y = MOVEMENT_HINT_Y + 34;
 /**
  * Stock count offset from the centre along the diagonal, as a fraction of the radius. Pulled in
  * from 0.55 when the black disc went: the count used to have an opaque backing and could sit near
@@ -2189,24 +2199,42 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * Build the hint once and never again. Its text never changes, so the pills can be measured, laid
-   * out and stroked into `movementHintGfx` at creation and the whole row reduced to a visibility
-   * flag afterwards — a per-frame `clear()` and re-fill would repaint eight plates every tick to
-   * draw the identical picture.
+   * Build the hint block once and never again. Its text never changes, so the pills can be
+   * measured, laid out and stroked into `movementHintGfx` at creation and the whole block reduced
+   * to a visibility flag afterwards — a per-frame `clear()` and re-fill would repaint every plate
+   * every tick to draw the identical picture.
+   *
+   * Two rows, one lifetime: how to move, then how to fire. Both live in the same `Graphics` and
+   * the same text list, so `syncMovementHint` toggles the block as one thing.
    */
   private buildMovementHint(): void {
     const gfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_BOX_DEPTH).setVisible(false);
     this.movementHintGfx = gfx;
+    this.movementHintTexts = [
+      ...this.buildHintRow(gfx, MOVEMENT_KEYS, MOVEMENT_ARROWS, MOVEMENT_LABEL, MOVEMENT_HINT_Y),
+      ...this.buildHintRow(gfx, ACTION_KEYS, ACTION_ALTS, ACTION_LABEL, ACTION_HINT_Y),
+    ];
+  }
 
-    const glyphs = [...MOVEMENT_KEYS, MOVEMENT_JOINER, ...MOVEMENT_ARROWS, MOVEMENT_LABEL];
+  /**
+   * One hint row: `keys` or `alts` label, e.g. "W A S D or ↑ ← ↓ → to move". Creates the texts,
+   * lays them out through `placeMovementHint`, and strokes the pill plates into `gfx`.
+   */
+  private buildHintRow(
+    gfx: Phaser.GameObjects.Graphics,
+    keys: readonly string[],
+    alts: readonly string[],
+    label: string,
+    y: number,
+  ): Phaser.GameObjects.Text[] {
+    const glyphs = [...keys, MOVEMENT_JOINER, ...alts, label];
     // Pills carry the white-on-copper of the slot keys; the joiner and the trailing label are plain
     // HUD text on the floor, so the row reads as a sentence with keys set into it.
     const isPill = (index: number): boolean =>
-      index < MOVEMENT_KEYS.length ||
-      (index > MOVEMENT_KEYS.length && index <= MOVEMENT_KEYS.length + MOVEMENT_ARROWS.length);
-    this.movementHintTexts = glyphs.map((glyph, index) =>
+      index < keys.length || (index > keys.length && index <= keys.length + alts.length);
+    const texts = glyphs.map((glyph, index) =>
       this.add
-        .text(0, MOVEMENT_HINT_Y, glyph, {
+        .text(0, y, glyph, {
           fontSize: `${MOVEMENT_HINT_FONT_PX}px`,
           color: isPill(index) ? HUD_KEY_PILL_TEXT : HUD_TEXT,
         })
@@ -2216,12 +2244,11 @@ export class ArenaScene extends Phaser.Scene {
         .setVisible(false),
     );
 
-    const width = (index: number): number => this.movementHintTexts[index]!.width;
-    const keyCount = MOVEMENT_KEYS.length;
+    const width = (index: number): number => texts[index]!.width;
     const items = movementHintItems(
-      MOVEMENT_KEYS.map((_, i) => width(i)),
-      width(keyCount),
-      MOVEMENT_ARROWS.map((_, i) => width(keyCount + 1 + i)),
+      keys.map((_, i) => width(i)),
+      width(keys.length),
+      alts.map((_, i) => width(keys.length + 1 + i)),
       width(glyphs.length - 1),
     );
     const { placements } = placeMovementHint(items, {
@@ -2230,19 +2257,20 @@ export class ArenaScene extends Phaser.Scene {
       centerX: ARENA_VIEW_WIDTH / 2,
     });
 
-    const pillHeight = this.movementHintTexts[0]!.height + HUD_KEY_PILL_PAD_Y * 2;
+    const pillHeight = texts[0]!.height + HUD_KEY_PILL_PAD_Y * 2;
     gfx.fillStyle(HUD_RING_COLOR, 1);
     placements.forEach((placement, index) => {
-      this.movementHintTexts[index]!.setX(placement.x + placement.width / 2);
+      texts[index]!.setX(placement.x + placement.width / 2);
       if (!isPill(index)) return;
       gfx.fillRoundedRect(
         placement.x,
-        MOVEMENT_HINT_Y - pillHeight / 2,
+        y - pillHeight / 2,
         placement.width,
         pillHeight,
         pillHeight / 2,
       );
     });
+    return texts;
   }
 
   /**

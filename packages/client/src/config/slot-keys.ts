@@ -1,16 +1,19 @@
 import { WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
 
 /**
- * Which inputs fire which slot, and what the HUD prints beside that slot's icon.
+ * Which inputs fire which slot, and what the HUD prints for that slot.
  *
  * Client-only on purpose: the server never sees a key or a mouse button, only a slot index, so a
  * re-bind is a local change with no protocol consequence. Must be at least `maxWeaponSlots` long.
  *
- * Each slot now has TWO bindings: the J / K / L home-row keys under the right hand (for driving on
+ * Each slot has TWO bindings: the J / K / L home-row keys under the right hand (for driving on
  * WASD), and a mouse-hand alternate — left button, right button, Space — for players who rest that
  * hand on the mouse instead. The rule from the 2026-08-30 controls pass still stands: a binding
- * nobody printed is a thing that breaks quietly later. That is why every alternate appears in the
- * `glyph` the HUD prints ("J·LMB", not a hidden extra), and why Q and E stay unbound — they are
+ * nobody printed is a thing that breaks quietly later. Both bindings ARE printed, just in different
+ * places: the gutter pill carries `glyph` (the mouse-hand binding, "LMB" / "RMB" / "SPACE"), and
+ * the countdown action hint prints `keyGlyph` and `glyph` together ("J K L or LMB RMB SPACE to
+ * fire") — that hint is the one place the letter bindings are taught, so removing it would demote
+ * J / K / L to exactly the hidden alternate the rule forbids. Q and E stay unbound — they are
  * still reserved for a future feature, and nothing here may quietly take them.
  *
  * `codes` are standard DOM `KeyboardEvent.keyCode` values — the same numbers `Phaser.Input.
@@ -24,14 +27,14 @@ import { WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
  * `Pointer.buttons` carries — so a slot fires while any of its bits is held. 0 means the slot has
  * no mouse binding.
  *
- * The glyphs are five characters each, the same width budget as the word `"space"` that
- * `SLOT_KEY_COLUMN_PX` was measured against — a longer label overflows the gutter's right edge, so
- * re-measure before wording one differently.
+ * "SPACE" is five characters, the same width budget as the word `"space"` that `SLOT_KEY_COLUMN_PX`
+ * was measured against — a longer pill label overflows the gutter's right edge, so re-measure
+ * before wording one differently.
  */
 export const SLOT_KEYS = [
-  { codes: [74], buttonsMask: 1, glyph: "J·LMB" },
-  { codes: [75], buttonsMask: 2, glyph: "K·RMB" },
-  { codes: [76, 32], buttonsMask: 0, glyph: "L·SPC" },
+  { codes: [74], buttonsMask: 1, glyph: "LMB", keyGlyph: "J" },
+  { codes: [75], buttonsMask: 2, glyph: "RMB", keyGlyph: "K" },
+  { codes: [76, 32], buttonsMask: 0, glyph: "SPACE", keyGlyph: "L" },
 ] as const;
 
 /**

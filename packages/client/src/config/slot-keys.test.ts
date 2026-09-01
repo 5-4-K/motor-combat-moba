@@ -43,15 +43,19 @@ describe("slot key glyphs", () => {
   it("binds the slots to J / K / L with the mouse-hand alternates, in slot order", () => {
     expect(SLOT_KEYS.map((key) => [...key.codes])).toEqual([[74], [75], [76, 32]]);
     expect(SLOT_KEYS.map((key) => key.buttonsMask)).toEqual([1, 2, 0]);
-    expect(SLOT_KEYS.map((key) => key.glyph)).toEqual(["J·LMB", "K·RMB", "L·SPC"]);
   });
 
-  it("prints every binding it holds — no hidden alternates", () => {
-    // Space is bound again, but on the pill ("L·SPC"), not as a silent extra; Q and E stay
-    // reserved and unbound.
+  it("prints the mouse-hand binding on the gutter pill and keeps a letter glyph for the hint", () => {
+    // The gutter pill shows the mouse-hand binding; the countdown action hint prints keyGlyph and
+    // glyph together, which is what keeps the letter bindings out of hidden-alternate territory —
+    // movement-hint.test.ts holds that end of the bargain.
+    expect(SLOT_KEYS.map((key) => key.glyph)).toEqual(["LMB", "RMB", "SPACE"]);
+    expect(SLOT_KEYS.map((key) => key.keyGlyph)).toEqual(["J", "K", "L"]);
+  });
+
+  it("leaves Q and E unbound — still reserved", () => {
     for (const code of [81, 69]) {
       expect(SLOT_KEYS.some((key) => (key.codes as readonly number[]).includes(code))).toBe(false);
     }
-    expect(SLOT_KEYS[2].glyph).toContain("SPC");
   });
 });
