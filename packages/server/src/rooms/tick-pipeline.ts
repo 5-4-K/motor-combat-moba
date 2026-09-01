@@ -43,6 +43,10 @@ import {
  *
  * Everything the pipeline touches arrives in a `PipelineCtx`. The room still owns the maps and the
  * memory bags — they are long-lived per-room state — and hands them over each tick.
+ *
+ * Build a ctx fresh at every use and never cache one across a tick's flow handling: `applyFlow`
+ * reassigns `matchRoster` and `revealCars` reassigns `ram` wholesale, so a ctx built before them
+ * would silently run the pre-reveal roster and the previous match's contact memory.
  */
 export interface PipelineCtx {
   state: ArenaState;
