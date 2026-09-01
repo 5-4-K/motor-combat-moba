@@ -19,7 +19,6 @@ import { COMBAT_CONFIG } from "./combat-config.js";
 import { CAMERA_CONFIG, DRIVE_CONFIG } from "./drive-config.js";
 import { FLOW_CONFIG } from "./flow-config.js";
 import { NET_CONFIG } from "./net-config.js";
-import { WEAPON_TABLE } from "./weapon-config.js";
 import { damageFor } from "../sim/damage.js";
 
 describe("CAR_TABLE", () => {
@@ -56,26 +55,11 @@ describe("CAR_TABLE", () => {
     expect(hpOf("bastion")).toBe(820);
   });
 
-  it("kills an average chassis with the baseline weapon in 20 seconds", () => {
-    // The spec's headline number (S7), which moved from 5.0 to 5.5 when T14 put `fireball`'s
-    // cooldown up 500 -> 550 to pay for `shockwave` landing in Mirage's slot 2. The damage was NOT
-    // re-solved to hold 5 s: the anchor is 50 per press, and the kill time is what the cooldown
-    // makes of it. 50 damage per 550 ms is 91 DPS, and 500 hull HP / 91 is 5.5 s.
-    //
-    // An "average" chassis is one rating point of each at the baseline: attackBaseline -> 500 hull
-    // HP. TTK is reckoned as hullHP / DPS, the sustained-fire figure. This test is deliberately
-    // over-coupled: it should go red if hpPerRating, attackBaseline, or fireball.damage drifts.
-    //
-    // It canNOT pin damagePerAttack: evaluated exactly at the baseline, damageFor's
-    // `(attack - attackBaseline)` term is 0, so the scale is identically 1 whatever
-    // damagePerAttack holds. damagePerAttack is pinned instead by the off-baseline cells in the
-    // "pins damagePerAttack through off-baseline chassis" test below, where the modifier is not 1.
-    const averageHp = COMBAT_CONFIG.attackBaseline * COMBAT_CONFIG.hpPerRating;
-    const dps =
-      (damageFor(COMBAT_CONFIG.attackBaseline, WEAPON_TABLE.fireball.damage) * 1000) /
-      WEAPON_TABLE.fireball.cooldownMs;
-    expect(averageHp / dps).toBe(20);
-  });
+  // The spec's headline TTK number (S7) was pinned to `fireball` as the roster's one anchor weapon
+  // that every other row was solved against. The 2026-09-01 overhaul (O17) retired `fireball`
+  // outright and with it the idea of a single anchor row — the nine current weapons are each solved
+  // on their own terms (see each row's comment in `weapon-config.ts`) rather than against one
+  // headline TTK figure. `npm run ttk` is the roster-wide replacement for this kind of check.
 
   it("pins damagePerAttack through off-baseline chassis", () => {
     // At `attackBaseline` the scale is identically 1, so no baseline assertion can see

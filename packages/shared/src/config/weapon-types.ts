@@ -2,15 +2,15 @@ import type { StatusId } from "./status-types.js";
 
 /** Every weapon in the game. Add an id here and a row in `WEAPON_TABLE`. */
 export type WeaponId =
-  | "fireball"
-  | "pepperbox"
-  | "afterburner"
-  | "needler"
-  | "skewer"
-  | "lance"
-  | "thumper"
   | "shockwave"
-  | "bulwark";
+  | "pepperbox"
+  | "lance"
+  | "predator"
+  | "thunderclap"
+  | "afterburner"
+  | "thumper"
+  | "roadblock"
+  | "wildcharge";
 
 /**
  * Optional charge system. Absent means single-stock, which is exactly the pre-weapon-system
@@ -149,7 +149,16 @@ interface WeaponBase {
    * cannot steer four directions at once.
    */
   muzzles?: readonly number[];
-  /** Exempt from the stun interrupt sweep (O8). Absent = false; `wildcharge` will be the one true. */
+  /**
+   * Exempt from the stun interrupt sweep (O8). Absent = false; `wildcharge` is the one shipped row
+   * that authors `true`.
+   *
+   * `stepDrive`'s DASH branch (`stepDash`, `sim/drive.ts`) never consults `mods.fullStop` — a stun
+   * landing mid-dash has nothing to override there. Safe today only because the O8 sweep clears
+   * every INTERRUPTIBLE maneuver, dashes included, the moment a fresh stun lands, and the one
+   * uninterruptable row is a charge, not a dash: `stepDash` is never reached with `fullStop` active
+   * in practice. An uninterruptable dash would need that gap closed.
+   */
   isUnInterruptable?: boolean;
   stock?: StockDef;
   volley: VolleyDef;

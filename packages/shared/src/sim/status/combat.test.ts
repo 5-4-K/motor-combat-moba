@@ -3,7 +3,6 @@ import { ARENA_01 } from "../../arena/arena-01.js";
 import { hpOf } from "../../config/car-config.js";
 import { STATUS_TABLE, statusDefOf } from "../../config/status-config.js";
 import { statusPulseTicksOf } from "../../config/status-ticks.js";
-import { WEAPON_TABLE } from "../../config/weapon-config.js";
 import { weaponTicksOf } from "../../config/weapon-ticks.js";
 import { MS_PER_TICK } from "../../constants.js";
 import {
@@ -220,10 +219,10 @@ describe("weapons apply statuses", () => {
     ];
   }
 
-  it("thumper stuns what it hits, for its own authored duration", () => {
-    // T16 moved hard CC onto Bastion's slot 1 and took `spiked` off `needler` entirely, so the
-    // projectile-lands-a-debuff seam is exercised here rather than through the skirmisher's spam
-    // weapon. `thumper` is slow (450 u/s), so this needs more ticks of flight than `needler` did.
+  it("thumper spikes what it hits, for its own authored duration", () => {
+    // The 2026-09-01 overhaul moved hard CC off this row entirely: `thumper` now spikes
+    // (`spiked`, a pure slow) rather than stunning — hard CC is `roadblock`'s job now. `thumper` is
+    // slow (450 u/s), so this needs a few ticks of flight to connect.
     const shooter = { carId: "bastion" as const, fireState: newFireState("bastion", 1) };
     let state = runCombat({
       world: world(),
@@ -235,7 +234,7 @@ describe("weapons apply statuses", () => {
 
     const hit = find(state.players, "bbb");
     expect(hit.hp).toBeLessThan(hpOf("mirage"));
-    expect(hasStatus(hit.statuses, "stunned", 110)).toBe(true);
+    expect(hasStatus(hit.statuses, "spiked", 110)).toBe(true);
     // The shooter is the source, and never a target of its own opponent-facing application.
     expect(hit.statuses[0]!.sourceSessionId).toBe("aaa");
     expect(find(state.players, "aaa").statuses).toHaveLength(0);
@@ -260,13 +259,14 @@ describe("weapons apply statuses", () => {
 
     const hit = find(state.players, "bbb");
     expect(hit.hp).toBe(hpOf("mirage"));
-    // The rider still rides — `thumper` still applies `stunned` (Bastion's own stun, not
-    // shockwave's, per the 2026-08-30 redistribution).
-    expect(hasStatus(hit.statuses, "stunned", 110)).toBe(true);
+    // The rider still rides — `thumper` still applies `spiked` (a pure slow, not the hard CC that
+    // lives on `roadblock` now, per the 2026-09-01 redistribution).
+    expect(hasStatus(hit.statuses, "spiked", 110)).toBe(true);
   });
 
-  it("bulwark fortifies the car that deployed it, whether or not it catches anyone", () => {
-    // The roster's only `self` application, and the only one that needs no hit at all.
+  it("wildcharge fortifies the car that deployed it, whether or not it catches anyone", () => {
+    // The roster's only `self` application, and the only one that needs no hit at all. A maneuver
+    // press (`startManeuver`) applies self statuses exactly like a weapon press does (combat.ts).
     const result = runCombat({
       world: world(),
       players: [
@@ -337,11 +337,12 @@ describe("weapons apply statuses", () => {
   });
 
   it("`disarmed` lets a press already committed finish", () => {
-    // `skewer` has a wind-up, so a press on tick 100 is still pending on 101. It is Bastion's
-    // slot 2 since T17.
+    // `lance` has a 700ms wind-up, so a press on tick 100 is still pending on 101. It is
+    // Bullseye's slot 3 as of the 2026-09-01 overhaul, and now the only weapon in the table with a
+    // wind-up at all — every row that used to carry one (`skewer`) is retired.
     const pressed = runCombat({
       world: world(),
-      players: [player("aaa", { carId: "bastion", fireState: newFireState("bastion", 1), fireMask: 0b010 })],
+      players: [player("aaa", { carId: "bullseye", fireState: newFireState("bullseye", 1), fireMask: 0b100 })],
       instances: [],
       instanceSeq: 0,
     });
@@ -392,105 +393,11 @@ describe("weapons apply statuses", () => {
   });
 });
 
-describe("the aura", () => {
-  it("shockwave is a car-centred disc, and reaches behind the car as well as in front", () => {
-    const def = WEAPON_TABLE.shockwave;
-    expect(def.kind).toBe("beam");
-    expect(def.hitbox).toEqual({ shape: "disc" });
-    expect(def.origin).toBe("center");
-    expect(def.attached).toBe(true);
-
-    // A target directly BEHIND the shooter: unreachable by the forward cone this weapon used to be.
-    let state = runCombat({
-      world: world(),
-      players: [
-        player("aaa", { carId: "mirage", fireState: newFireState("mirage", 1), fireMask: 0b010, x: 400, angle: 0 }),
-        player("bbb", { x: 340, team: 1 }),
-      ],
-      instances: [],
-      instanceSeq: 0,
-    });
-    state = advance(state, 100, 6);
-
-    const behind = find(state.players, "bbb");
-    const afterWaveOne = behind.hp;
-    expect(afterWaveOne).toBeLessThan(hpOf("mirage"));
-    // The debuff rides `onWave: "final"`, so wave 1 hurts and applies nothing. Asserting the
-    // absence here is what keeps `onWave` from silently degrading back to "all".
-    expect(behind.statuses).toHaveLength(0);
-
-    // Waves 2 and 3 land at ticks 115 and 130 (a 500ms == 15-tick interval). Only the third
-    // corrodes, and by then the target has taken all three.
-    state = advance(state, 106, 30);
-    const soaked = find(state.players, "bbb");
-    expect(soaked.hp).toBeLessThan(afterWaveOne);
-    expect(hasStatus(soaked.statuses, "corroded", 136)).toBe(true);
-    expect(soaked.statuses.some((s) => s.statusId === "stunned")).toBe(false); // the stun is thumper's
-  });
-
-  it("spawns concentric with the car rather than at its nose", () => {
-    const result = runCombat({
-      world: world(),
-      players: [
-        player("aaa", { carId: "mirage", fireState: newFireState("mirage", 1), fireMask: 0b010, x: 400, y: OPEN_Y }),
-      ],
-      instances: [],
-      instanceSeq: 0,
-    });
-    expect(result.instances).toHaveLength(1);
-    expect(result.instances[0]!.x).toBe(400);
-    expect(result.instances[0]!.y).toBe(OPEN_Y);
-  });
-
-  it("never touches the car that cast it", () => {
-    // `canDamage` already refuses the owner, which is exactly why an opponent-facing aura needs no
-    // change to the friendly-fire predicate at all.
-    let state = runCombat({
-      world: world(),
-      players: [
-        player("aaa", { carId: "mirage", fireState: newFireState("mirage", 1), fireMask: 0b010, x: 400 }),
-      ],
-      instances: [],
-      instanceSeq: 0,
-    });
-    state = advance(state, 100, 6);
-    const caster = find(state.players, "aaa");
-    expect(caster.hp).toBe(hpOf("mirage"));
-    expect(caster.statuses).toHaveLength(0);
-  });
-
-  it("follows the car it is attached to", () => {
-    let state = runCombat({
-      world: world(),
-      players: [
-        player("aaa", { carId: "mirage", fireState: newFireState("mirage", 1), fireMask: 0b010, x: 400 }),
-      ],
-      instances: [],
-      instanceSeq: 0,
-    });
-    // Driving happens outside combat, so move the car and step: the aura must come with it.
-    state = runCombat({
-      world: world({ tick: 101 }),
-      players: state.players.map((p) => ({ ...p, fireMask: 0, x: 480 })),
-      instances: state.instances,
-      instanceSeq: state.instanceSeq,
-    });
-    expect(state.instances[0]!.x).toBe(480);
-  });
-
-  it("grows out to its authored radius", () => {
-    let state = runCombat({
-      world: world(),
-      players: [
-        player("aaa", { carId: "mirage", fireState: newFireState("mirage", 1), fireMask: 0b010, x: 400 }),
-      ],
-      instances: [],
-      instanceSeq: 0,
-    });
-    expect(state.instances[0]!.extent).toBe(0);
-    state = advance(state, 100, 5);
-    expect(state.instances[0]?.extent ?? WEAPON_TABLE.shockwave.range).toBeLessThanOrEqual(
-      WEAPON_TABLE.shockwave.range,
-    );
-  });
-});
+// "the aura" describe block drove the OLD `shockwave` — Mirage's slot 2, a car-centred `disc`
+// hitbox at `origin: "center"`, three waves 500ms apart, `onWave: "final"` carrying `corroded` —
+// through this same real-row `runCombat` pipeline. As of the 2026-09-01 overhaul `shockwave` is a
+// plain single-volley projectile dart on Bullseye's slot 1, and mirage's old slot 2 is now
+// `thunderclap`, a dash maneuver: multi-wave volleys, `onWave`, and the aura (`disc`/
+// `origin: "center"`) are dormant machinery with no real row to drive any more — the underlying
+// `instances.ts`/`hits.ts` code and its generic unit tests stay live, just untested against a real
+// aura row until one ships again.

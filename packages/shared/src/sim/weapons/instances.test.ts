@@ -32,33 +32,33 @@ const owner = { sessionId: "aaa", team: 0 as const, carId: "mirage", x: 500, y: 
 
 describe("spawning", () => {
   it("births a shot at the car's nose, not its centre", () => {
-    const { instances } = spawnInstances({ weaponId: "fireball", slot: 0, finalVolley: true }, owner, 100, 0);
+    const { instances } = spawnInstances({ weaponId: "shockwave", slot: 0, finalVolley: true }, owner, 100, 0);
     expect(instances).toHaveLength(1);
     expect(instances[0]!.x).toBeCloseTo(500 + DRIVE_CONFIG.carWidth / 2);
     expect(instances[0]!.y).toBeCloseTo(300);
   });
 
   it("gives every instance a unique id from the sequence and returns the advanced sequence", () => {
-    const first = spawnInstances({ weaponId: "fireball", slot: 0, finalVolley: true }, owner, 100, 7);
-    const second = spawnInstances({ weaponId: "fireball", slot: 0, finalVolley: true }, owner, 101, first.seq);
+    const first = spawnInstances({ weaponId: "shockwave", slot: 0, finalVolley: true }, owner, 100, 7);
+    const second = spawnInstances({ weaponId: "shockwave", slot: 0, finalVolley: true }, owner, 101, first.seq);
     expect(first.seq).toBe(8);
     expect(second.seq).toBe(9);
     expect(first.instances[0]!.id).not.toBe(second.instances[0]!.id);
   });
 
   it("carries the weapon's pierce budget onto the instance", () => {
-    const { instances } = spawnInstances({ weaponId: "fireball", slot: 0, finalVolley: true }, owner, 100, 0);
+    const { instances } = spawnInstances({ weaponId: "shockwave", slot: 0, finalVolley: true }, owner, 100, 0);
     expect(instances[0]!.pierceLeft).toBe(0);
   });
 
   it("puts a single-pellet volley exactly on the heading", () => {
-    const { instances } = spawnInstances({ weaponId: "fireball", slot: 0, finalVolley: true }, owner, 100, 0);
+    const { instances } = spawnInstances({ weaponId: "shockwave", slot: 0, finalVolley: true }, owner, 100, 0);
     expect(instances[0]!.angle).toBe(owner.angle);
   });
 
   it("freezes the owner's chassis-scaled damage onto the instance", () => {
-    const { instances } = spawnInstances({ weaponId: "fireball", slot: 0, finalVolley: true }, owner, 100, 0);
-    expect(instances[0]!.damage).toBe(weaponDamageOf("mirage", "fireball"));
+    const { instances } = spawnInstances({ weaponId: "shockwave", slot: 0, finalVolley: true }, owner, 100, 0);
+    expect(instances[0]!.damage).toBe(weaponDamageOf("mirage", "shockwave"));
   });
 
   it("gives a harder-hitting chassis a harder-hitting shot from the same weapon", () => {
@@ -67,26 +67,26 @@ describe("spawning", () => {
     // bastion is the pair that still orders the way the test name says.
     const softHitter = { ...owner, carId: "bastion" };
     const hardHitter = { ...owner, carId: "bullseye" };
-    const soft = spawnInstances({ weaponId: "fireball", slot: 0, finalVolley: true }, softHitter, 100, 0).instances[0]!;
-    const hard = spawnInstances({ weaponId: "fireball", slot: 0, finalVolley: true }, hardHitter, 100, 0).instances[0]!;
-    expect(hard.damage).toBe(weaponDamageOf("bullseye", "fireball"));
-    expect(soft.damage).toBe(weaponDamageOf("bastion", "fireball"));
+    const soft = spawnInstances({ weaponId: "shockwave", slot: 0, finalVolley: true }, softHitter, 100, 0).instances[0]!;
+    const hard = spawnInstances({ weaponId: "shockwave", slot: 0, finalVolley: true }, hardHitter, 100, 0).instances[0]!;
+    expect(hard.damage).toBe(weaponDamageOf("bullseye", "shockwave"));
+    expect(soft.damage).toBe(weaponDamageOf("bastion", "shockwave"));
     expect(hard.damage).toBeGreaterThan(soft.damage);
   });
 
   it("falls back to the default chassis for an unrecognised carId rather than NaN-ing damage", () => {
     const unknown = { ...owner, carId: "not-a-car" };
-    const { instances } = spawnInstances({ weaponId: "fireball", slot: 0, finalVolley: true }, unknown, 100, 0);
-    expect(instances[0]!.damage).toBe(weaponDamageOf(DEFAULT_CAR_ID, "fireball"));
+    const { instances } = spawnInstances({ weaponId: "shockwave", slot: 0, finalVolley: true }, unknown, 100, 0);
+    expect(instances[0]!.damage).toBe(weaponDamageOf(DEFAULT_CAR_ID, "shockwave"));
   });
 
   it("freezes the wave's finality onto every instance it spawns", () => {
     const owner = { sessionId: "a", team: 0 as const, carId: "mirage", x: 0, y: 0, angle: 0 };
     const mid = spawnInstances(
-      { weaponId: "fireball", slot: 0, finalVolley: false }, owner, 0, 0,
+      { weaponId: "shockwave", slot: 0, finalVolley: false }, owner, 0, 0,
     );
     const last = spawnInstances(
-      { weaponId: "fireball", slot: 0, finalVolley: true }, owner, 0, 0,
+      { weaponId: "shockwave", slot: 0, finalVolley: true }, owner, 0, 0,
     );
     expect(mid.instances[0]!.finalWave).toBe(false);
     expect(last.instances[0]!.finalWave).toBe(true);
@@ -116,21 +116,21 @@ describe("the volley fan", () => {
 
 describe("projectile flight", () => {
   it("moves along its own frozen heading and accumulates distance", () => {
-    const { instances } = spawnInstances({ weaponId: "fireball", slot: 0, finalVolley: true }, owner, 100, 0);
+    const { instances } = spawnInstances({ weaponId: "shockwave", slot: 0, finalVolley: true }, owner, 100, 0);
     const stepped = stepInstance(instances[0]!, ctx());
     expect(stepped.x).toBeCloseTo(instances[0]!.x + 900 * DT);
     expect(stepped.distance).toBeCloseTo(900 * DT);
   });
 
   it("ignores the owner's pose, even when the owner turns", () => {
-    const { instances } = spawnInstances({ weaponId: "fireball", slot: 0, finalVolley: true }, owner, 100, 0);
+    const { instances } = spawnInstances({ weaponId: "shockwave", slot: 0, finalVolley: true }, owner, 100, 0);
     const stepped = stepInstance(instances[0]!, ctx({ ownerPose: { x: 0, y: 0, angle: Math.PI } }));
     expect(stepped.angle).toBe(instances[0]!.angle);
     expect(stepped.x).toBeGreaterThan(instances[0]!.x);
   });
 
   it("expires once it has travelled its range", () => {
-    const { instances } = spawnInstances({ weaponId: "fireball", slot: 0, finalVolley: true }, owner, 100, 0);
+    const { instances } = spawnInstances({ weaponId: "shockwave", slot: 0, finalVolley: true }, owner, 100, 0);
     const spent: WeaponInstance = { ...instances[0]!, distance: 900 };
     const short: WeaponInstance = { ...instances[0]!, distance: 899 };
     expect(instanceExpired(spent, 130)).toBe(true);
@@ -138,7 +138,7 @@ describe("projectile flight", () => {
   });
 
   it("does not alias damageClock with the instance it was stepped from", () => {
-    const { instances } = spawnInstances({ weaponId: "fireball", slot: 0, finalVolley: true }, owner, 100, 0);
+    const { instances } = spawnInstances({ weaponId: "shockwave", slot: 0, finalVolley: true }, owner, 100, 0);
     const before: WeaponInstance = { ...instances[0]!, damageClock: new Map([["bbb", 105]]) };
     const after = stepInstance(before, ctx());
     after.damageClock.set("ccc", 999);
@@ -149,21 +149,22 @@ describe("projectile flight", () => {
 
 describe("beam growth and expiry", () => {
   /**
-   * No beam ships in `WEAPON_TABLE` (D22 ships zero balance change), so these hand-build a
-   * `kind: "beam"` instance over `fireball`'s numbers — 900 u/s across a 900-unit range — exactly as
-   * `combat.test.ts` does for the ownership gate. `stepInstance`'s beam branch reads only
-   * `def.range`/`def.speed` and `instanceExpired`'s only `flight`/`lifetime`, so borrowing a
-   * projectile's row exercises the real branches with real numbers. The one thing it cannot show is
-   * a non-zero linger: `fireball` has none, so the expiry below is `flight` alone — asserted through
-   * `weaponTicksOf` rather than a literal, so it moves with the def the day a real beam arrives.
+   * These hand-build a `kind: "beam"` instance over `shockwave`'s numbers — 900 u/s across a
+   * 900-unit range, the same flight profile `fireball` shipped and `shockwave` deliberately
+   * inherited (2026-09-01 overhaul) — exactly as `combat.test.ts` does for the ownership gate.
+   * `stepInstance`'s beam branch reads only `def.range`/`def.speed` and `instanceExpired`'s only
+   * `flight`/`lifetime`, so borrowing a projectile's row exercises the real branches with real
+   * numbers. The one thing it cannot show is a non-zero linger: `shockwave` has none, so the expiry
+   * below is `flight` alone — asserted through `weaponTicksOf` rather than a literal, so it moves
+   * with the def the day a real beam ships one.
    */
   const beam = (over: Partial<WeaponInstance> = {}): WeaponInstance => ({
     id: "b1",
     ownerSessionId: "aaa",
     ownerTeam: 0,
     finalWave: true,
-    damage: weaponDamageOf("mirage", "fireball"),
-    weaponId: "fireball",
+    damage: weaponDamageOf("mirage", "shockwave"),
+    weaponId: "shockwave",
     kind: "beam",
     x: 500,
     y: 300,
@@ -235,7 +236,7 @@ describe("beam growth and expiry", () => {
   });
 
   it("expires on its clock rather than on distance, unlike a projectile", () => {
-    const ticks = weaponTicksOf("fireball");
+    const ticks = weaponTicksOf("shockwave");
     const life = ticks.flight + ticks.lifetime; // borrowed row: `lifetime` is 0, so this is `flight`
     const held = beam({ extent: 900 });
     expect(instanceExpired(held, 100 + life - 1)).toBe(false);
@@ -262,7 +263,7 @@ describe("wall clipping", () => {
 
 describe("spawnInstances aim angle", () => {
   const owner = { sessionId: "p1", team: 0 as const, carId: "mirage", x: 100, y: 100, angle: 0 };
-  const order = { weaponId: "fireball" as const, slot: 0, finalVolley: true };
+  const order = { weaponId: "shockwave" as const, slot: 0, finalVolley: true };
 
   it("uses the owner's heading when no aim angle is given", () => {
     const { instances } = spawnInstances(order, owner, 0, 0);
@@ -284,16 +285,20 @@ describe("spawnInstances aim angle", () => {
   });
 });
 
-/** A synthetic def for mechanics no shipped row carries yet (see the plan's "Testing seams"). */
+/**
+ * A synthetic def spread from `shockwave` — retired `needler`'s numeric shape, carried over as the
+ * generic single-shot dart to spread multi-muzzle fields onto, independent of any one shipped
+ * multi-muzzle row's own numbers.
+ */
 const quadMuzzle = {
-  ...WEAPON_TABLE.needler,
+  ...WEAPON_TABLE.shockwave,
   usesAimAssist: false,
   aimRangeUnits: undefined,
   muzzles: [0, 90, 180, 270],
 } as const;
 
 describe("multi-muzzle", () => {
-  const order = { weaponId: "needler", slot: 0, finalVolley: true } as const;
+  const order = { weaponId: "shockwave", slot: 0, finalVolley: true } as const;
   const owner = { sessionId: "a", team: 0 as const, carId: "bullseye", x: 100, y: 100, angle: 0 };
 
   it("emits one fan per muzzle, each centred on its own direction", () => {
@@ -341,17 +346,15 @@ describe("multi-muzzle", () => {
   });
 });
 
-const rocket = {
-  ...WEAPON_TABLE.fireball,
-  speed: 600,
-  homing: { turnRateDegPerSec: 120, durationMs: 1200 },
-} as const;
+// `predator` now ships exactly this shape for real (speed 600, homing 120deg/s over 1200ms), so this
+// exercises the real row rather than a synthetic spread.
+const rocket = WEAPON_TABLE.predator;
 const homingCtx = (tick: number, target: { x: number; y: number } | null) => ({
   dt: 1 / 30, tick, obstacles: [], bounds: { width: 4000, height: 4000 },
   ownerPose: null, homingTarget: target,
 });
 const homingOwner = { sessionId: "a", team: 0 as const, carId: "mirage", x: 0, y: 0, angle: 0 };
-const homingOrder = { weaponId: "fireball", slot: 0, finalVolley: true } as const;
+const homingOrder = { weaponId: "predator", slot: 0, finalVolley: true } as const;
 
 describe("homing", () => {
   it("freezes the lock target at spawn and bends toward it, capped at the turn rate", () => {
@@ -379,7 +382,8 @@ describe("homing", () => {
   });
 });
 
-const bouncer = { ...WEAPON_TABLE.thumper, bounce: { lifetimeMs: 2900 } } as const;
+// `thumper` now ships `bounce.lifetimeMs: 2900` for real, so this exercises the real row.
+const bouncer = WEAPON_TABLE.thumper;
 const bounds = { width: 1000, height: 1000 };
 
 describe("bounce", () => {

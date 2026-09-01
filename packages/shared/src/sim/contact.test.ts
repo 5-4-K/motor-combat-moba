@@ -35,7 +35,7 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
       speed: 300,
       carId: "bastion" as CarId,
       maneuver: ManeuverKind.CHARGE,
-      maneuverWeaponId: "fireball",
+      maneuverWeaponId: "wildcharge",
       slamsStunned: true,
       ...over,
     });
@@ -115,7 +115,7 @@ describe("dash contact", () => {
       speed: 1600,
       carId: "mirage" as CarId,
       maneuver: ManeuverKind.DASH,
-      maneuverWeaponId: "fireball",
+      maneuverWeaponId: "thunderclap",
     });
     const r = resolveContacts(
       [dasher, car({ sessionId: "b", x: 47, y: 0, angle: 0, speed: 0, carId: "bastion" as CarId })],
@@ -126,7 +126,7 @@ describe("dash contact", () => {
       [],
       { width: 4000, height: 4000 },
     );
-    expect(r.events.dashHits).toEqual([{ attackerSessionId: "a", targetSessionId: "b", weaponId: "fireball" }]);
+    expect(r.events.dashHits).toEqual([{ attackerSessionId: "a", targetSessionId: "b", weaponId: "thunderclap" }]);
     expect(r.knocks).toHaveLength(0);
   });
 
@@ -139,7 +139,7 @@ describe("dash contact", () => {
       speed: 1600,
       carId: "mirage" as CarId,
       maneuver: ManeuverKind.DASH,
-      maneuverWeaponId: "fireball",
+      maneuverWeaponId: "thunderclap",
     });
     const r = resolveContacts([dasher], new Set(), "ffa", 10, new Map(), [], { width: 4000, height: 4000 });
     expect(r.events.wallBlockedDashers).toEqual(["a"]);

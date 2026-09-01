@@ -87,6 +87,12 @@ export interface CombatPlayer {
   maneuverWeaponId: WeaponId | "";
 }
 
+/** Reset a car's four maneuver fields to neutral and drop its `maneuverWeaponId` (O8/O14). */
+function clearManeuver(player: CombatPlayer): void {
+  Object.assign(player, NO_MANEUVER);
+  player.maneuverWeaponId = "";
+}
+
 /** Everything about the tick that is the same for every player in it. */
 export interface CombatWorld {
   tick: number;
@@ -221,7 +227,8 @@ export function runCombat(input: CombatInput): CombatResult {
     if (!isFighting(player)) continue;
     for (const pulse of statusPulses(player.statuses, world.tick)) {
       // Through the same `damage` as a bullet, so a bleed kill sets `alive` by exactly the same
-      // path and the win check cannot tell the two apart.
+      // path and the win check cannot tell the two apart — except `invulnerable`, which zeroes
+      // everything, a pulse included.
       //
       // Deliberately NOT scaled by `damageTaken`: that channel is about incoming *weapon* damage,
       // and letting one status amplify another's bleed would compound two rows into a number
@@ -272,8 +279,7 @@ export function runCombat(input: CombatInput): CombatResult {
     if (!isFighting(player)) {
       player.fireState = cancelPending(player.fireState);
       // A wreck holds nothing: the same "nothing survives" rule `clearKnock` applies to ram state.
-      Object.assign(player, NO_MANEUVER);
-      player.maneuverWeaponId = "";
+      clearManeuver(player);
       continue;
     }
     player.fireState = tickRecharge(
@@ -463,8 +469,7 @@ export function runCombat(input: CombatInput): CombatResult {
     }
     const maneuverDef = isWeaponId(player.maneuverWeaponId) ? weaponDefOf(player.maneuverWeaponId) : null;
     if (player.maneuver !== ManeuverKind.NONE && !maneuverDef?.isUnInterruptable) {
-      Object.assign(player, NO_MANEUVER);
-      player.maneuverWeaponId = "";
+      clearManeuver(player);
     }
     interrupted.add(player.sessionId);
   }
@@ -510,6 +515,10 @@ export function aimAngleFor(
   if (def.kind === "projectile") {
     // Lead is projectiles-only (spec S1): a beam crosses its reach near-instantly, and a maneuver
     // aims the car, not a shot. Target velocity is heading x speed — shove is small and decaying.
+    // For a DASHING target, `target.speed` is stale: `stepDash` (sim/drive.ts) holds `body.speed`
+    // at its pre-dash value for the whole dash rather than reporting `maneuverSpeed`, so the
+    // direction here is right (dash sets `angle` to `maneuverAngle` every tick) but the magnitude
+    // understates a fast dash — acceptable, since lead is an estimate rather than a promise.
     return interceptAngle(
       muzzle.x, muzzle.y, target.x, target.y,
       Math.cos(target.angle) * target.speed, Math.sin(target.angle) * target.speed,
@@ -653,7 +662,8 @@ function applyOpponentStatuses(
 }
 
 /**
- * The only writer of `hp`/`alive` in combat. `invulnerable` zeroes the amount — the hit still
+ * The only writer of damage-inflicted `hp`/`alive` changes in combat — `applyHeal` is the other half
+ * of what moves `hp`, for the opposite direction. `invulnerable` zeroes the amount — the hit still
  * happened (pierce spent, statuses ride, the clock arms); only the hp change is refused. 0 hp is
  * the wreck: the car stays on the field, inert.
  */

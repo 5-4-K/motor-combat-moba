@@ -203,14 +203,14 @@ describe("damageDealt reaches the shot, frozen at spawn", () => {
   const owner = { sessionId: "a", team: 0 as const, carId: CAR, x: 0, y: 0, angle: 0 };
 
   it("scales the instance's damage", () => {
-    const plain = spawnInstances({ weaponId: "fireball", slot: 0, finalVolley: true }, owner, 0, 0).instances[0]!;
-    const buffed = spawnInstances({ weaponId: "fireball", slot: 0, finalVolley: true }, owner, 0, 0, null, 1.25).instances[0]!;
+    const plain = spawnInstances({ weaponId: "predator", slot: 0, finalVolley: true }, owner, 0, 0).instances[0]!;
+    const buffed = spawnInstances({ weaponId: "predator", slot: 0, finalVolley: true }, owner, 0, 0, null, 1.25).instances[0]!;
     expect(buffed.damage).toBe(scaleDamage(plain.damage, 1.25));
     expect(buffed.damage).toBeGreaterThan(plain.damage);
   });
 
   it("rounds to a whole number, so a piercing shot costs every car the same", () => {
-    const shot = spawnInstances({ weaponId: "fireball", slot: 0, finalVolley: true }, owner, 0, 0, null, 1.13).instances[0]!;
+    const shot = spawnInstances({ weaponId: "predator", slot: 0, finalVolley: true }, owner, 0, 0, null, 1.13).instances[0]!;
     expect(Number.isInteger(shot.damage)).toBe(true);
   });
 });
@@ -251,7 +251,7 @@ describe("weaponCooldown reaches the three refire clocks and no others", () => {
     const spent = { ...state, slots: state.slots.map((s) => ({ ...s, stocks: 0 })) };
     const hasted = tickRecharge(spent, 0, 0.5);
     const plain = tickRecharge(spent, 0, 1);
-    expect(hasted.slots[0]!.rechargeEndsTick).toBe(scaleTicks(weaponTicksOf("fireball").cooldown, 0.5));
+    expect(hasted.slots[0]!.rechargeEndsTick).toBe(scaleTicks(weaponTicksOf("predator").cooldown, 0.5));
     expect(hasted.slots[0]!.rechargeEndsTick).toBeLessThan(plain.slots[0]!.rechargeEndsTick);
   });
 
@@ -259,10 +259,10 @@ describe("weaponCooldown reaches the three refire clocks and no others", () => {
     const state = newFireState("bullseye", 1);
     const pending = {
       ...state,
-      pending: { weaponId: "skewer" as const, slot: 1, shotsLeft: 1, nextShotTick: 0 },
+      pending: { weaponId: "lance" as const, slot: 1, shotsLeft: 1, nextShotTick: 0 },
     };
     expect(releaseShots(pending, 0, 0.5).state.switchLockUntilTick).toBe(
-      scaleTicks(weaponTicksOf("skewer").recovery, 0.5),
+      scaleTicks(weaponTicksOf("lance").recovery, 0.5),
     );
   });
 

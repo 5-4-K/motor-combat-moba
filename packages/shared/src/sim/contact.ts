@@ -210,8 +210,9 @@ function resolvePair(
       };
       const standing = best.get(other.sessionId);
       // A slam is severity 1 — the maximum a graded ram can ever reach — so it always wins the
-      // best-knock-per-victim contest without needing a special comparison.
-      if (standing === undefined || 1 > standing.severity) {
+      // best-knock-per-victim contest, including a tie against an EARLIER slam on the same victim
+      // this tick (two chargers landing on one car): `>=`, not `>`, is what makes "always" literal.
+      if (standing === undefined || 1 >= standing.severity) {
         best.set(other.sessionId, { severity: 1, knock });
       }
       anyEvent = true;

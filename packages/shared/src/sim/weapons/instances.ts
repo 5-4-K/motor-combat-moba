@@ -21,7 +21,10 @@ export interface WeaponInstance {
    * never networked — for exactly the reason `damage` and `ownerTeam` are: it must be answerable at
    * impact, long after the press, without reading back mutable state.
    *
-   * Always true for a single-volley weapon, which is every row but `shockwave`.
+   * Always true for a single-volley weapon — every shipped row, as of the 2026-09-01 overhaul that
+   * retired the table's one multi-wave row (the old `shockwave` aura). Multi-volley remains live,
+   * generically-tested machinery (`VolleyDef` on `WeaponBase`) for whenever a future row picks it
+   * back up.
    */
   finalWave: boolean;
   /**

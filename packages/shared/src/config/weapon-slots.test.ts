@@ -15,9 +15,9 @@ describe("loadouts", () => {
   });
 
   it("gives each chassis the kit its type calls for", () => {
-    expect(CAR_TABLE.bullseye.weapons).toEqual(["needler", "pepperbox", "lance"]);
-    expect(CAR_TABLE.mirage.weapons).toEqual(["fireball", "shockwave", "afterburner"]);
-    expect(CAR_TABLE.bastion.weapons).toEqual(["thumper", "skewer", "bulwark"]);
+    expect(CAR_TABLE.bullseye.weapons).toEqual(["shockwave", "pepperbox", "lance"]);
+    expect(CAR_TABLE.mirage.weapons).toEqual(["predator", "thunderclap", "afterburner"]);
+    expect(CAR_TABLE.bastion.weapons).toEqual(["thumper", "roadblock", "wildcharge"]);
   });
 
   it("shares no weapon between two chassis, so car select is a real choice", () => {
@@ -33,12 +33,12 @@ describe("loadouts", () => {
   });
 
   it("returns the car's list in slot order", () => {
-    expect(slotsOf("bastion")).toEqual(["thumper", "skewer", "bulwark"]);
+    expect(slotsOf("bastion")).toEqual(["thumper", "roadblock", "wildcharge"]);
   });
 
   it("truncates an over-long loadout to the slot limit and warns once, naming the car", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const over = ["fireball", "fireball", "fireball", "fireball"] as const;
+    const over = ["shockwave", "shockwave", "shockwave", "shockwave"] as const;
 
     const first = slotsFrom("bastion", over);
     const second = slotsFrom("bastion", over);
@@ -51,7 +51,7 @@ describe("loadouts", () => {
 
   it("does not warn for a loadout inside the limit", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    slotsFrom("bullseye", ["fireball"]);
+    slotsFrom("bullseye", ["shockwave"]);
     expect(warn).not.toHaveBeenCalled();
   });
 });

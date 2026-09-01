@@ -19,23 +19,28 @@ describe("msToTicks", () => {
 });
 
 describe("WEAPON_TICKS", () => {
-  it("derives the fireball's clocks from its milliseconds", () => {
-    const ticks = weaponTicksOf("fireball");
-    // 550ms at 30Hz is 16.5, rounded UP to 17 so the authored cooldown is never shorter than
-    // written. It was 15 at the 500ms this row shipped with, before T14's +10%.
-    expect(ticks.cooldown).toBe(60);
+  it("derives shockwave's clocks from its milliseconds", () => {
+    const ticks = weaponTicksOf("shockwave");
+    // 600ms at 30Hz is exactly 18 ticks.
+    expect(ticks.cooldown).toBe(18);
     expect(ticks.startUp).toBe(0);
     expect(ticks.recovery).toBe(0);
     expect(ticks.refireDelay).toBe(0); // no stock block
   });
 
   it("derives flight ticks from range and speed", () => {
-    // 900 units at 900 u/s = 1s = 30 ticks, the old WEAPON_CONFIG.lifetimeTicks
-    expect(weaponTicksOf("fireball").flight).toBe(30);
+    // 900 units at 900 u/s = 1s = 30 ticks.
+    expect(weaponTicksOf("shockwave").flight).toBe(30);
   });
 
   it("maps damageFrequencyMs 0 to Infinity, meaning one hit per target ever", () => {
-    expect(weaponTicksOf("fireball").damageInterval).toBe(Number.POSITIVE_INFINITY);
+    expect(weaponTicksOf("shockwave").damageInterval).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it("derives the roster's new-mechanic clocks for the rows that carry them (spec 2026-09-01)", () => {
+    expect(weaponTicksOf("thumper").bounceLifetime).toBe(87); // 2900ms at 30Hz
+    expect(weaponTicksOf("wildcharge").maneuverDuration).toBe(300); // 10000ms at 30Hz
+    expect(weaponTicksOf("predator").homingDuration).toBe(36); // 1200ms at 30Hz
   });
 
   it("covers every weapon in the table and is frozen", () => {
@@ -52,12 +57,15 @@ describe("WEAPON_TICKS", () => {
     }
   });
 
-  it("derives zero homing/bounce/maneuver ticks for every current row", () => {
+  it("derives zero homing/bounce/maneuver ticks for every row that does not carry the mechanic", () => {
+    const homing: WeaponId[] = ["predator"];
+    const bounce: WeaponId[] = ["thumper"];
+    const chargeManeuver: WeaponId[] = ["wildcharge"];
     for (const id of Object.keys(WEAPON_TABLE) as WeaponId[]) {
       const t = weaponTicksOf(id);
-      expect(t.homingDuration).toBe(0);
-      expect(t.bounceLifetime).toBe(0);
-      expect(t.maneuverDuration).toBe(0);
+      if (!homing.includes(id)) expect(t.homingDuration, id).toBe(0);
+      if (!bounce.includes(id)) expect(t.bounceLifetime, id).toBe(0);
+      if (!chargeManeuver.includes(id)) expect(t.maneuverDuration, id).toBe(0);
     }
   });
 });
