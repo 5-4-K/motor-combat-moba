@@ -186,8 +186,8 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     const state = arena();
     // A sub-top-speed mirage: at mirage's own top speed the rear ram saturates severity same as
     // bastion's does below, leaving no gap for a "stronger" ram to widen. 150 u/s keeps this a
-    // genuine partial-severity ram (300 stopped being one when the 2026-09-01 half-speed cut halved
-    // RAM_REFERENCE with the roster's top speed).
+    // genuine partial-severity ram against the 2026-09-02 RAM_REFERENCE (224750, up from 144000
+    // now that mirage's top speed is 449.5 u/s rather than 288).
     addPlayer(state, "medium", { x: 0, y: 400, angle: 0, speed: 150 });
     const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
     const memory = newContactMemory();
@@ -197,9 +197,10 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     );
     const afterMediumRam = victim.authority;
 
-    // A heavier attacker (bastion) rear-ends the same victim at its own top speed on a later tick —
-    // strictly harder than the first ram, so its lower authority must win.
-    addPlayer(state, "hexy", { x: 0, y: 400, angle: 0, speed: 157.5, carId: "bastion" });
+    // A heavier attacker (bastion) rear-ends the same victim at its own top speed (320 u/s since the
+    // 2026-09-02 speed rewrite, up from 157.5) on a later tick — strictly harder than the first ram,
+    // so its lower authority must win.
+    addPlayer(state, "hexy", { x: 0, y: 400, angle: 0, speed: 320, carId: "bastion" });
     contactTick(
       state, new Set(["medium", "b", "hexy"]), memory, "ffa", NO_EFFECTS, approachSpeeds(state),
       NO_MANEUVER_WEAPONS, 11,

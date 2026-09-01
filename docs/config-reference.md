@@ -40,9 +40,9 @@ Build with `npm run build:release -- --port <n>` to bake in a different one. See
 
 | id | name | speed | accel | handling | attack | hp | mass | weapons |
 |---|---|---|---|---|---|---|---|---|
-| `mirage` | Mirage | 88 | 85 | 60 | 63 | 70 | 48 | `["predator", "thunderclap", "afterburner"]` |
-| `bullseye` | Bullseye | 52 | 45 | 28 | 55 | 65 | 30 | `["magmablast", "pepperbox", "lance"]` |
-| `bastion` | Bastion | 30 | 20 | 82 | 42 | 90 | 90 | `["thumper", "roadblock", "wildcharge"]` |
+| `mirage` | Mirage | 85 | 85 | 85 | 63 | 70 | 48 | `["predator", "thunderclap", "afterburner"]` |
+| `bullseye` | Bullseye | 65 | 45 | 65 | 55 | 65 | 30 | `["magmablast", "pepperbox", "lance"]` |
+| `bastion` | Bastion | 50 | 20 | 50 | 42 | 90 | 90 | `["thumper", "roadblock", "wildcharge"]` |
 
 `isActive` is a seventh field on `CarDef`, not a rating. All three shipped cars are `true` today.
 `CarSelectScene`'s grid and `ArenaRoom`'s `MSG_SELECT_CAR`/`MSG_PREVIEW_CAR` guard both filter to
@@ -65,38 +65,37 @@ chassis being authored strictly better than these three. That budget was **delib
 still checks the 0-100 range on all six ratings, but nothing checks their sum. Roster fairness is a
 review-time judgement from here on.
 
-**`accel` is a rating of its own rather than a function of `speed`, and `handling` correlates with
-nothing.** Deriving `accel` from `speed` would reproduce this roster exactly — the three cars order
-the same way on both — but it would make "fastest top speed, worst launch" structurally impossible
-for any future chassis. `handling` cannot be derived at all: Bullseye is mid-speed with the *lowest*
-turn rate and Bastion is the slowest with the *highest*.
+**`accel` is a rating of its own rather than a function of `speed`.** As of the 2026-09-02 rewrite
+`handling` is no longer independent of `speed` either — the two now carry the same rating per car
+(85/85, 65/65, 50/50) rather than trading off. Before that, `handling` correlated with nothing:
+Bullseye was mid-speed with the *lowest* turn rate and Bastion was the slowest with the *highest*.
+That inversion is what let a slow tank out-turn everyone; it no longer holds.
 
 Which of these to reach for when turning feels wrong is indexed by outcome in
 [`turn-tuning.md`](turn-tuning.md).
 
-**`handling` is turn RATE, not turn radius, and the difference is the design.** Radius is
-`forwardMaxSpeedOf(id) / turnRateOf(id)`, so a chassis with a high `speed` rating and only average
-`handling` still corners wide. Bullseye reorients slowest of the three and *still* has a tighter arc
-than Mirage, whose speed carries it wider; Bastion turns inside 20 units and is the best tracker in
-the game, which is the mechanical reason the tank punishes a diver. Mirage's `handling` went 50 -> 60
-on 2026-08-31 for exactly this reason — its 88 speed had left it with the roster's widest arc at
-91 u, and the fix was rating, not a speed cut (pre-2026-09-01 figures; the half-speed cut halved
-every radius, and Mirage's 42 u is still the widest). Raising a car's `speed` without
-raising its `handling` to match is what makes it feel *less* agile despite the higher ceiling.
+**`handling` is turn RATE, not turn radius.** Radius is `forwardMaxSpeedOf(id) / turnRateOf(id)`, so
+a chassis with a high `speed` rating and only average `handling` still corners wide — that mechanism
+is unchanged. What changed on 2026-09-02 is that `speed` and `handling` now move together per car, so
+turn radius orders the same way top speed does: Mirage widest (55 u), Bullseye next (53 u), Bastion
+tightest (51 u). Bastion still finishes tightest — its lower speed outweighs its lower rate — but by a
+few units rather than the 20+ u gap the old inverse ratings produced, and it is no longer "the best
+tracker in the game" by design; its tank identity now rests on hp and mass, not handling. See
+[`turn-tuning.md`](turn-tuning.md#current-values) for the full derivation and history.
 
 Derived, per car (Mirage / Bullseye / Bastion):
 
 | Derived | From | Mirage | Bullseye | Bastion |
 |---|---|---|---|---|
 | `hpOf` | hp × `COMBAT_CONFIG.hpPerRating` | 700 | 650 | 900 |
-| `forwardMaxSpeedOf` | `baseMaxSpeed` + speed × `speedPerRating` | 288 u/s | 207 u/s | 157.5 u/s |
-| `reverseMaxSpeedOf` | forward × `reverseSpeedRatio` | 187 | 135 | 102 |
+| `forwardMaxSpeedOf` | `baseMaxSpeed` + speed × `speedPerRating` | 449.5 u/s | 375.5 u/s | 320 u/s |
+| `reverseMaxSpeedOf` | forward × `reverseSpeedRatio` | 292 | 244 | 208 |
 | `accelOf` | `baseAccel` + accel × `accelPerRating` | 1032 | 744 | 564 |
 | `reverseAccelOf` | `accelOf` × `reverseAccelFactor` | 1455 | 1049 | 795 |
-| `turnRateOf` | `baseTurnRate` + handling × `turnRatePerRating` | 6.84 | 5.112 | 8.028 |
-| `turnRateAtStopOf` | `turnRateOf` × `stopTurnRatio` | 3.42 | 2.556 | 4.014 |
-| **turn radius** | `forwardMaxSpeedOf / turnRateOf` — derived, never typed | 42 u | 40 u | **20 u** |
-| time to top | `forwardMaxSpeedOf / accelOf` | 0.28 s | 0.28 s | 0.28 s |
+| `turnRateOf` | `baseTurnRate` + handling × `turnRatePerRating` | 8.19 | 7.11 | 6.3 |
+| `turnRateAtStopOf` | `turnRateOf` × `stopTurnRatio` | 4.095 | 3.555 | 3.15 |
+| **turn radius** | `forwardMaxSpeedOf / turnRateOf` — derived, never typed | **55 u** | 53 u | 51 u |
+| time to top | `forwardMaxSpeedOf / accelOf` | 0.44 s | 0.50 s | 0.57 s |
 | `massOf` | mass × `RAM_CONFIG.massPerRating` | 480 | 300 | 900 |
 | attack scale | `damageFor` at that rating | 1.13× | 1.05× | 0.92× |
 
@@ -104,9 +103,11 @@ Derived, per car (Mirage / Bullseye / Bastion):
 `predator`'s is 57 / 53 / 46 depending on who fires it, though only Mirage actually carries one.
 `massOf` affects ramming only, never acceleration or top speed (see `RAM_CONFIG` below).
 
-Time to top speed landing at 0.28 s for all three is a **consequence** of the ratings, not a
-constraint: this roster's accel ordering happens to track its speed ordering. Nothing stops a future
-chassis breaking that.
+Time to top speed no longer lands at the same figure for all three, unlike before the 2026-09-02
+rewrite: `speed` moved independently of `accel` this time (only `handling` was set to match `speed`),
+so the roster's accel ordering and its (now-boosted) speed ordering no longer produce equal ratios.
+Mirage reaches top speed fastest despite having the furthest to go, because its accel lead is larger
+than its speed lead; Bastion is slowest to spool up as well as slowest at the top.
 
 `driveOf(id)` bundles six of these — `maxSpeed`, `reverseMaxSpeed`, `accel`, `reverseAccel`,
 `turnRate`, `turnRateAtStop` — into one frozen `ChassisDrive`, and **that, not a `CarId`, is what
@@ -311,8 +312,8 @@ different knob entirely: `usesAimAssist` per weapon in `WEAPON_TABLE`.
 
 | Knob | Value |
 |---|---|
-| `baseMaxSpeed` | 90 (was 180 — see the 2026-09-01 half-speed cut below) |
-| `speedPerRating` | 2.25 (was 4.5 — scaled with `baseMaxSpeed`) |
+| `baseMaxSpeed` | 135 (was 90 — see the 2026-09-02 speed rewrite below) |
+| `speedPerRating` | 3.7 (was 2.25 — raised alongside `baseMaxSpeed`, but past the pair-preserving 3.375) |
 | `brakeDecel` | 1600 (must stay above `drag`) |
 | `drag` | 900 (throttle released) |
 | `baseTurnRate` | 3.6 (was 2.4 — see the 1.5x raise below) |
@@ -357,6 +358,16 @@ scaled **together** for the same reason the turn pair was — the ratio between 
 how much the per-car `speed` rating matters, so the roster's spacing came through untouched. Turn
 rates and accel were not moved, so every turn radius and every time-to-top-speed halved with it, and
 `RAM_REFERENCE` (derived from the fastest car) halved to 144000.
+
+**Raised again on 2026-09-02**, this time alongside a `CAR_TABLE` rewrite (see
+[`CAR_TABLE`](#car_table)): `baseMaxSpeed` 90 -> 135 and `speedPerRating` 2.25 -> 3.7. The
+`baseMaxSpeed` half alone is the pair-preserving 1.5x; `speedPerRating` was deliberately pushed
+further, to 3.7 rather than 3.375, so top speeds rose by more than a uniform 1.5x and a point of
+`speed` now buys more than it used to. The same edit also set every car's `handling` to match its
+`speed` rating, so turn rate stopped being independent of top speed — see the note on `CAR_TABLE`.
+Turn rates were **not** rescaled by this edit (only by the per-car rating rewrite), so radii and
+launch times moved unevenly across the roster rather than uniformly; `RAM_REFERENCE` rose to 224750
+with mirage's new top speed.
 `reverseAccelFactor: 1.41` yields 1099.8 at rating 50 against the 1100 that shipped — a deliberate
 0.02% rounding, stated rather than hidden, because the exact ratio (`1100/780`) is not a number
 anyone should have to read in a config file.
@@ -379,7 +390,7 @@ Per-car top speeds, radii and launch times are tabulated under [`CAR_TABLE`](#ca
 `forwardMaxSpeedOf(id) / accelOf(id)`, so raising a chassis's `speed` rating without raising its
 `handling` and `accel` to match makes that car feel *less* agile despite the higher ceiling — reason
 per chassis, not for "the fastest car". `brakeDecel` must exceed `drag` or the brake button is
-pointless, and `CAMERA_CONFIG.freeRoamSpeed` (1050) must exceed the fastest car (288) — both are
+pointless, and `CAMERA_CONFIG.freeRoamSpeed` (1050) must exceed the fastest car (449.5) — both are
 asserted in `config.test.ts`. `baseMaxSpeed` and `speedPerRating` scale together on purpose: their
 ratio decides how much the per-car `speed` rating matters, so moving only one re-balances the roster.
 `baseTurnRate`/`turnRatePerRating` and `baseAccel`/`accelPerRating` pair the same way.
@@ -394,7 +405,7 @@ numbers. See [`combat-model.md`](combat-model.md#ramming) for the mechanic.
 | Knob | Value | Notes |
 |---|---|---|
 | `contactPad` | 1 | World units each hull is inflated by for the contact test — `resolveWorld` leaves cars exactly touching, and a strict overlap test would never fire on a real ram |
-| `minApproachSpeed` | 60 | Below this closing speed, contact is a nudge and no ram is written — about 10% of the roster's top speed |
+| `minApproachSpeed` | 60 | Below this closing speed, contact is a nudge and no ram is written — about 13% of the roster's top speed (449.5, mirage), down from 10% before the 2026-09-02 speed increase; this knob was not raised alongside it |
 | `massPerRating` | 10 | Mirrors `COMBAT_CONFIG.hpPerRating`; scales the 0-100 `mass` rating |
 | `bonusFront` / `bonusFlank` / `bonusRear` | 0.3 / 1.0 / 1.3 | Multiplies severity by impact side; the most important balance lever in the feature |
 | `authorityFloor` | 0.35 | Steering multiplier at maximum severity — the feel dial |

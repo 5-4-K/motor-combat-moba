@@ -6,15 +6,21 @@ import type { CarDef, CarId } from "./types.js";
 /**
  * The roster. Every rating is an integer 0-100 with 50 as average.
  *
- * The three types (T1): **Mirage** is the all-round speedster — highest speed and accel,
- * above-average handling since 2026-08-31, the lightest-armoured glass cannon on offense but
- * middling hp. Its `handling` was 50 until then; 60 pulled its turn radius in from 91.4 u to 84.2 u
- * without cutting its speed, and it is still the widest arc on the roster. **Bullseye** is the
- * light, precise skirmisher — the roster's lowest hp and mass, modest speed and accel, and the
- * lowest handling (T6: a low turn RATE, not a tight turn RADIUS — see below). **Bastion** is the
- * tank — lowest speed and accel by far, the roster's highest hp and mass, and paradoxically the
- * highest handling of the three, which is what lets it out-turn faster chassis despite being the
- * slowest (T6).
+ * The three types (T1): **Mirage** is the all-round speedster — highest speed AND handling, the
+ * lightest-armoured glass cannon on offense but middling hp. **Bullseye** is the light, precise
+ * skirmisher — the roster's lowest hp and mass, and mid-pack on both speed and handling. **Bastion**
+ * is the tank — lowest speed and accel by far, the roster's highest hp and mass, and, since the
+ * 2026-09-02 rebalance, also the lowest handling: its durability carries the tank identity alone now,
+ * not a handling edge.
+ *
+ * As of 2026-09-02 `speed` and `handling` move together per car (85/85, 65/65, 50/50) rather than
+ * trading off — before that, Bastion's `handling` (82) was the roster's *highest* despite its `speed`
+ * (30) being the lowest, which is what let a car with the widest turn RATE spread also carry the
+ * tightest turn RADIUS (T6). That inversion is gone: turn radius (`forwardMaxSpeedOf(id) /
+ * turnRateOf(id)`) now orders the same way rating does — Mirage widest, Bastion tightest — because a
+ * car with more of one now reliably has more of the other. Bastion still finishes with the tightest
+ * radius (its lower turn rate is outweighed by its lower speed), but the margin between the three
+ * shrank from tens of units to a few.
  *
  * Ratings used to be held to a 150-point budget across speed/attack/hp, which was the roster's only
  * automatic guard against a fourth chassis being authored strictly better than these three. That
@@ -43,9 +49,9 @@ import type { CarDef, CarId } from "./types.js";
  * swapping a pair, never copying one.
  */
 export const CAR_TABLE = {
-  mirage: { id: "mirage", name: "Mirage", speed: 88, accel: 85, handling: 60, attack: 63, hp: 70, mass: 48, weapons: ["predator", "thunderclap", "afterburner"], isActive: true },
-  bullseye: { id: "bullseye", name: "Bullseye", speed: 52, accel: 45, handling: 28, attack: 55, hp: 65, mass: 30, weapons: ["magmablast", "pepperbox", "lance"], isActive: true },
-  bastion: { id: "bastion", name: "Bastion", speed: 30, accel: 20, handling: 82, attack: 42, hp: 90, mass: 90, weapons: ["thumper", "roadblock", "wildcharge"], isActive: true },
+  mirage: { id: "mirage", name: "Mirage", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, mass: 48, weapons: ["predator", "thunderclap", "afterburner"], isActive: true },
+  bullseye: { id: "bullseye", name: "Bullseye", speed: 65, accel: 45, handling: 65, attack: 55, hp: 65, mass: 30, weapons: ["magmablast", "pepperbox", "lance"], isActive: true },
+  bastion: { id: "bastion", name: "Bastion", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, mass: 90, weapons: ["thumper", "roadblock", "wildcharge"], isActive: true },
 } as const satisfies Record<CarId, CarDef>;
 
 /**

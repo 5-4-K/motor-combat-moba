@@ -90,11 +90,11 @@ describe("mass rating", () => {
   });
 
   it("derives the ram reference from an average chassis at the roster's top speed", () => {
-    // RAM_REFERENCE moves with the roster's fastest car: mirage's top speed halved to 288 u/s in
-    // the 2026-09-01 half-speed cut, so 500 * 288 = 144000 replaces the old 288000 — ram severity
-    // stays anchored to what a car can actually achieve.
+    // RAM_REFERENCE moves with the roster's fastest car: mirage's top speed rose to 449.5 u/s in the
+    // 2026-09-02 speed rewrite, so 500 * 449.5 = 224750 replaces the old 144000 — ram severity stays
+    // anchored to what a car can actually achieve.
     expect(RAM_REFERENCE_MASS).toBe(500);
     expect(RAM_REFERENCE).toBe(RAM_REFERENCE_MASS * forwardMaxSpeedOf("mirage"));
-    expect(RAM_REFERENCE).toBe(144000);
+    expect(RAM_REFERENCE).toBe(224750);
   });
 });

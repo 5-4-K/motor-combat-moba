@@ -41,12 +41,24 @@ may let them.
 **The three chassis are `bullseye`, `mirage` and `bastion`** — a type triangle, not three shapes.
 Their ratings (`speed`, `accel`, `handling`, `attack`, `hp`, `mass`) are **six** independent 0-100
 values; `accel` and `handling` landed on 2026-08-30 so cars could differ in how they launch and how
-they corner. **`handling` is turn RATE, not turn radius.** Radius is `speed / turnRate`, so Bullseye
-has the roster's lowest turn rate and still corners tighter (40 u) than the much faster Mirage
-(42 u), while Bastion turns inside 20 u and is the best tracker in the game. Those radii are a third
-tighter than they were before **2026-08-31, when the whole roster's turn rate was raised 1.5x** —
-`DRIVE_CONFIG.baseTurnRate` and `turnRatePerRating` scaled together, speeds untouched — because
-driving and aiming read as too heavy. The 150-point budget
+they corner. **`handling` is turn RATE, not turn radius.** Radius is `speed / turnRate`.
+
+Until **2026-09-02**, `speed` and `handling` traded off per car — Bastion carried the roster's
+*highest* `handling` (82) despite the *lowest* `speed` (30), which let it turn inside every other
+chassis (20 u) even though Bullseye's low-rate-but-tight-radius arc (40 u, beating Mirage's 42 u
+despite a lower turn RATE) was the more subtle version of the same trick. **That inversion is gone.**
+`speed` and `handling` now carry the *same* rating per car (Mirage 85/85, Bullseye 65/65, Bastion
+50/50), alongside a roster-wide top-speed increase (`DRIVE_CONFIG.baseMaxSpeed` 90 -> 135,
+`speedPerRating` 2.25 -> 3.7 — deliberately more than a uniform 1.5x). Turn radius now orders with
+top speed rather than against it: Mirage widest (55 u), Bullseye next (53 u), Bastion tightest
+(51 u) — Bastion still wins, but by a few units instead of tens, and its tank identity now rests on
+hp and mass alone, not a handling edge. See
+[`docs/turn-tuning.md`](docs/turn-tuning.md#current-values) for the full numbers.
+
+Turn rates themselves were last touched on **2026-08-31, when the whole roster's turn rate was raised
+1.5x** — `DRIVE_CONFIG.baseTurnRate` and `turnRatePerRating` scaled together, speeds untouched at the
+time — because driving and aiming read as too heavy; the 2026-09-02 edit above did not rescale that
+pair again, only the per-car ratings and the speed knobs. The 150-point budget
 that used to cap `speed`+`attack`+`hp` was deleted on 2026-08-29 so `mass` could be a free-floating
 rating, and no replacement guard was adopted — see
 [`docs/config-reference.md`](docs/config-reference.md#car_table).

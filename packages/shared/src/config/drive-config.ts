@@ -34,16 +34,20 @@
 export const DRIVE_CONFIG = {
   /**
    * Halved from 180 together with `speedPerRating` (4.5 -> 2.25) on 2026-09-01 — a roster-wide 50%
-   * top-speed cut, scaled as a pair so the per-car `speed` rating kept its relative weight.
+   * top-speed cut, scaled as a pair so the per-car `speed` rating kept its relative weight. Raised
+   * 1.5x again on 2026-09-02, to 135, alongside a same-day rating rewrite (see `CAR_TABLE`) — this
+   * half of the pair alone would have kept every car's top speed at exactly 1.5x its prior value.
    */
-  baseMaxSpeed: 90,
+  baseMaxSpeed: 135,
   /**
    * Ratings are 0-100 (see `CAR_TABLE`), so this is a tenth of what it would be on a 0-10 scale.
    * It was 45 against 0-10 ratings and became 4.5 when they widened, precisely so that every car's
-   * top speed stayed where it was: widening the ratings is a combat change, not a driving one.
-   * 2.25 since the 2026-09-01 half-speed cut — see `baseMaxSpeed`.
+   * top speed stayed where it was. 2.25 since the 2026-09-01 half-speed cut — see `baseMaxSpeed`.
+   * Raised again on 2026-09-02, but not to the pair-preserving 3.375 (2.25 x 1.5) — 3.7 was a
+   * deliberate extra push on top of the uniform 1.5x, so a point of `speed` now buys more than it did
+   * before the 2026-09-01 cut, not merely 1.5x more.
    */
-  speedPerRating: 2.25,
+  speedPerRating: 3.7,
   /** Holding Down against forward motion. Also brakes reverse when Up is held. 0.18s to rest. */
   brakeDecel: 1600,
   /** Throttle released. 0.32s to rest — kept below `brakeDecel` so braking stays the faster option. */
