@@ -241,9 +241,11 @@ describe("weapon / combat / drive / flow knobs exist", () => {
 
 describe("the three types (T5/T6)", () => {
   it("derives the roster's drive profile from its ratings", () => {
-    expect(forwardMaxSpeedOf("bullseye")).toBe(414);
-    expect(forwardMaxSpeedOf("mirage")).toBe(576);
-    expect(forwardMaxSpeedOf("bastion")).toBe(315);
+    // Half the pre-2026-09-01 values (414 / 576 / 315): the roster-wide 50% top-speed cut scaled
+    // `baseMaxSpeed` and `speedPerRating` together, so the spacing between the three is untouched.
+    expect(forwardMaxSpeedOf("bullseye")).toBe(207);
+    expect(forwardMaxSpeedOf("mirage")).toBe(288);
+    expect(forwardMaxSpeedOf("bastion")).toBe(157.5);
 
     expect(accelOf("bullseye")).toBeCloseTo(744, 9);
     expect(accelOf("mirage")).toBeCloseTo(1032, 9);
@@ -269,9 +271,10 @@ describe("the three types (T5/T6)", () => {
     const radius = (id: CarId) => forwardMaxSpeedOf(id) / turnRateOf(id);
     expect(radius("bastion")).toBeLessThan(radius("bullseye"));
     expect(radius("bullseye")).toBeLessThan(radius("mirage"));
-    // Two thirds of the 58.9 it was before the 2026-08-31 turn-rate raise. Speed was untouched, so
-    // every radius on the roster shrank by exactly the 1.5x the rates grew by.
-    expect(radius("bastion")).toBeCloseTo(39.2, 1);
+    // Half the 39.2 it was before the 2026-09-01 half-speed cut (itself two thirds of the 58.9 that
+    // preceded the 2026-08-31 turn-rate raise). Turn rates were untouched this time, so every radius
+    // on the roster halved with the top speeds.
+    expect(radius("bastion")).toBeCloseTo(19.6, 1);
   });
 
   it("orders the three types on every axis the design names", () => {
