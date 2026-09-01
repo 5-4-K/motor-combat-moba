@@ -212,7 +212,7 @@ and firing is never blocked.
 
 **The region** is a cone intersected with a lateral cap, out to `AIM_CONFIG.lockRange` — all three
 bounds, because neither of the first two survives alone. A pure cone's width scales with distance,
-so at `predator`'s 900-unit range it would span most of the arena; a pure lane's angular width explodes near the
+so at `predator`'s 900-unit range it would span half the arena; a pure lane's angular width explodes near the
 car, so it would accept a target 83° off your nose during a collision. The cone governs contact range, the
 cap governs long range. They cross over at `lateralMax / tan(coneDeg)` ≈ 330 units measured **along
 the car's axis** (the forward leg of the triangle at the cone's edge), which is ≈351 units measured

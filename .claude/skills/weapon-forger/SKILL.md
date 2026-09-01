@@ -39,15 +39,15 @@ Fields to recommend, in order. Stop early once nothing is undetermined.
 | 1 | Id and display name | Id is the `WeaponId` union member, lowercase, no spaces |
 | 2 | Projectile or beam | Projectiles travel and freeze at exit; beams grow, linger, can weld to the car |
 | 3 | Damage, and `damageFrequencyMs` | 0 is one hit per target ever; positive re-arms on that interval |
-| 4 | Speed and range | Together they set flight time — `range ÷ speed`. `fireball` is 900/900 = 1 s |
+| 4 | Speed and range | Together they set flight time — `range ÷ speed`. `shockwave` is 900/900 = 1 s |
 | 5 | Hitbox | Projectile: circle radius, ellipse along/across, or capsule along/across (rounded nose, flat tail; needs along >= across). Beam: rect width, cone angle, or disc |
-| 6 | Cooldown, and stocks | A flat `cooldownMs`, or a `stock` block holding charges — see `needler`, the table's only stock weapon. Note what stocks actually buy: the recharge starts at the **first** shot of a dump, so a magazine moves damage earlier without costing sustained DPS |
+| 6 | Cooldown, and stocks | A flat `cooldownMs`, or a `stock` block holding charges. No shipped row currently authors one — stocks are dormant machinery, still real in `fire.ts` (the retired `needler` was the one example). Note what stocks actually buy: the recharge starts at the **first** shot of a dump, so a magazine moves damage earlier without costing sustained DPS |
 | 7 | Wind-up and recovery | `startUpMs` delays the shot; `recoveryMs` gates the car's **other** slots |
 | 8 | `volley` — **both kinds** | `volleys` + `volleyIntervalMs`, on `WeaponBase`. A **beam** can burst too: `shockwave` is three aura waves 500 ms apart, each its own instance with its own `spawnTick` and damage clock. A single shot is `{ volleys: 1, volleyIntervalMs: 0 }` |
 | 8b | `pellets` (projectiles only) | `pelletsPerVolley` + `spreadAngleDeg` for a shotgun fan. Split off `VolleyDef` deliberately, so a beam never has to author `pelletsPerVolley: 1` |
 | 9 | Pierce (projectiles) | Extra opponents passed through after damaging one; 0 dies on the first |
 | 10 | Beam only | `lifetimeMs` after full extension; `attached: true` sweeps with the car |
-| 11 | Targeting — `usesAimAssist` | Required, no default. `true` fires at the car's ambient lock instead of its heading; ask whether this weapon should feel assisted (like `fireball`) or purely manual (like `skewer`) — this is the whole reason the field is required rather than optional |
+| 11 | Targeting — `usesAimAssist` | Required, no default. `true` fires at the car's ambient lock instead of its heading; ask whether this weapon should feel assisted (like `predator`) or purely manual (like `roadblock`) — this is the whole reason the field is required rather than optional |
 | 12 | `color` | The `#RRGGBB` its shots draw in — per weapon, never per player. Must be unique among weapons, must not be a `COLOR_TABLE` player colour, and must read against a light floor |
 | 12 | **Which chassis, which slot** | Ask outright whether it **replaces** an existing weapon or is **added** alongside — never decide this |
 
@@ -95,11 +95,11 @@ by accident — the suite is how you find out which:
 
 | File | Why it breaks |
 |---|---|
-| `config/weapon-config.test.ts` | Pins `fireball`'s stats digit-for-digit — the migration's zero-balance-change guard |
+| `config/weapon-config.test.ts` | Pins `shockwave`'s stats digit-for-digit — the per-row zero-balance-change guard |
 | `config/weapon-config.test.ts` | "keeps aim-assist weapons off the behavioural cliff" — an aim-assist weapon's sustained rate (`1000 / cooldownMs`) must stay outside ±15% of `1000 / AIM_CONFIG.lockTimeoutMs` |
 | `config/weapon-ticks.test.ts` | Pins the tick counts derived from them (`cooldown`, `flight`) |
 | `sim/weapons/fire.test.ts` | Simulates recharge tick-by-tick across a hard-coded window |
-| `sim/weapons/instances.test.ts` | Beam tests hand-build a synthetic beam over `fireball`'s numbers rather than reading a real beam row like `afterburner` |
+| `sim/weapons/instances.test.ts` | Beam tests hand-build a synthetic beam over `shockwave`'s numbers rather than reading a real beam row like `afterburner` |
 | `sim/combat.test.ts` | Its `50.5` fixture is derived from hitbox radius — only if you change the hitbox |
 
 A failure here is usually the guard doing its job, not a bug: update the assertion in the same
@@ -107,9 +107,9 @@ commit. If a test fails for a reason you cannot explain from your own change, st
 
 **Retuning `cooldownMs` on an aim-assist weapon can walk it onto the cliff even without
 intending to.** The cliff sits at `1000 / AIM_CONFIG.lockTimeoutMs` (1.25 Hz today); a guard rejects
-any sustained rate within 15% of it. A 500 → 700ms nerf on `fireball`, for example, lands at 1.43 Hz —
-`|1.43 − 1.25| / 1.25 ≈ 0.143`, inside the forbidden band — and the guard fires. Check the new
-`cooldownMs` against the cliff before proposing the number, not after the test fails.
+any sustained rate within 15% of it — the band runs 696–941 ms, which is why `thumper` (an aim-assist
+row) ships at 3000 ms rather than the 900 ms first drafted for it. Check the new `cooldownMs` against
+the cliff before proposing the number, not after the test fails.
 
 **One stat reaches other weapons.** `recoveryMs` gates how soon that car's **other** slots may fire.
 Raising it on one weapon slows down every other weapon on any chassis carrying it — say so out loud
@@ -149,8 +149,8 @@ grep -c "<a new or changed value>" packages/server/dist/index.js
 ```
 
 For a genuinely new mechanic — one this table has never shipped, unlike beams, multi-pellet volleys,
-wind-ups and non-zero recovery, which all ship today (see `afterburner`, `pepperbox`, `skewer` /
-`lance`) — the suites are not enough alone: a path with only unit tests has never run in live play.
+wind-ups and non-zero recovery, which all ship today (see `afterburner`, `pepperbox`, `lance`) — the
+suites are not enough alone: a path with only unit tests has never run in live play.
 Drive it through `runCombat` in a scenario test at two or three ranges and check the damage curve
 matches what you agreed.
 

@@ -156,14 +156,22 @@ for beams, and `weaponTicksOf` converts `volleyIntervalMs` for every kind.
 `damage` is what the weapon deals from a chassis at `COMBAT_CONFIG.attackBaseline` — an *average*
 car, not every car; `damageFor` (`sim/damage.ts`) moves it ±50% with the firing chassis's `attack`
 rating. **It scales and rounds each hit as it lands — per tick, per pellet, per wave — never once
-over a press total**, so `pepperbox` on Bullseye is `3 × damageFor(55, 45) × 4 muzzles`, and
-`afterburner` on Mirage is `damageFor(63, 26)` per 200 ms tick, not a press total scaled once.
+over a press total**, so a single `pepperbox` fan — the 3 darts a target actually standing in front of
+the car eats — is `3 × damageFor(55, 45)`, ~135 on Bullseye; the weapon fires four such fans at once
+(`muzzles: [0, 90, 180, 270]`), but that ×4 is total output across four directions, not damage any one
+target takes. `afterburner` on Mirage is `damageFor(63, 26)` per 200 ms tick, not a press total scaled
+once.
 
-`predator`'s 50 carries the pre-weapon-system `fireball` shot's original number forward: an average
-chassis has 500 hull HP, so 50 per press is what made an average-vs-average kill take the design
-target of 5 seconds at a 2-second-class cooldown. `roadblock`'s 100 and `thumper`'s 60 are Bastion's
-pressure pair — a fat, near-unmissable slug and a bouncing skirmish shot — while `wildcharge`'s 250 is
-priced as a one-hit finisher for a 10-second commitment, not a sustained-DPS number at all.
+`predator`'s 50 carries the pre-weapon-system `fireball` shot's original damage number forward
+unchanged, but not its pace: an average chassis has 500 hull HP, and `fireball`'s 5-second
+average-vs-average kill target was solved against its own original **500 ms** cooldown (100 DPS
+sustained). `predator` fires the same 50 damage at a **2000 ms** cooldown — 25 DPS sustained, a
+~20-second average-on-average kill — so the anchor damage moved forward while the kill-time target
+did not; the pace changed with the 2026-08-30 weapon-system redistribution and the 2026-09-01
+overhaul rather than being re-solved to hit 5 seconds again. `roadblock`'s 100 and `thumper`'s 60 are
+Bastion's pressure pair — a fat, near-unmissable slug and a bouncing skirmish shot — while
+`wildcharge`'s 250 is priced as a one-hit finisher for a 10-second commitment, not a sustained-DPS
+number at all.
 
 `color` is render-only, like `name`: it is the fill every live instance of that weapon draws in, per
 **weapon** rather than per player, so two cars carrying `predator` fire identically coloured shots
