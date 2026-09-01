@@ -24,7 +24,7 @@ describe("carFillOf", () => {
     for (const color of COLOR_TABLE) {
       expect(carFillOf(color.colorId)).toBe(Number.parseInt(color.hex.slice(1), 16));
     }
-    expect(carFillOf(0)).toBe(0xe74c3c);
+    expect(carFillOf(0)).toBe(0xbf1402);
   });
 
   it("falls back to a real colour for an out-of-range colorId instead of NaN", () => {

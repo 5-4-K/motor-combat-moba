@@ -1,7 +1,7 @@
 import type { ColorDef } from "./types.js";
 
 export const COLOR_TABLE = [
-  { colorId: 0, name: "Crimson", hex: "#E74C3C" },
+  { colorId: 0, name: "Crimson", hex: "#BF1402" },
   { colorId: 1, name: "Azure", hex: "#3498DB" },
   { colorId: 2, name: "Emerald", hex: "#2ECC71" },
   { colorId: 3, name: "Gold", hex: "#F1C40F" },

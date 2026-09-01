@@ -113,7 +113,7 @@ that consumes it.
 
 | colorId | name | hex |
 |---|---|---|
-| 0 | Crimson | `#E74C3C` |
+| 0 | Crimson | `#BF1402` |
 | 1 | Azure | `#3498DB` |
 | 2 | Emerald | `#2ECC71` |
 | 3 | Gold | `#F1C40F` |
