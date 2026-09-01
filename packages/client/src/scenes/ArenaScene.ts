@@ -45,6 +45,7 @@ import { ScreenOverlay } from "../ui/overlay.js";
 import { renderArenaMismatch } from "../ui/screens/arena-mismatch.js";
 import { arenaMismatchMessage } from "./arena-mismatch.js";
 import { axisOf, drainTicks } from "./arena-input.js";
+import { controlledCarOf, isPlaygroundPaused } from "./controlled-car.js";
 import { arenaBorderRect, arenaColorsOf } from "./arena-visual.js";
 import { fitsViewport } from "./arena-camera.js";
 import { assetManifest, assetsReady } from "./BootScene.js";
@@ -556,6 +557,12 @@ export class ArenaScene extends Phaser.Scene {
   private predicted: SimBody | undefined;
   /** The predicted pose before the newest tick; `renderCars` blends from it toward `predicted`. */
   private predictedPrev: SimBody | undefined;
+  /**
+   * The car `drivenSid` answered with last frame, so `syncDrivenCar` can notice a playground handing
+   * the wheel to the other car. Undefined until `create` seeds it; outside the playground it is set
+   * once and never changes again.
+   */
+  private lastDrivenSid: string | undefined;
   private camFocus: { x: number; y: number } | undefined;
   private inputAccumulatorMs = 0;
   /**
@@ -689,8 +696,12 @@ export class ArenaScene extends Phaser.Scene {
 
     this.inputSeq = Math.max(
       this.inputSeq,
-      this.room.state.players.get(this.room.sessionId)?.lastProcessedInputSeq ?? 0,
+      this.room.state.players.get(this.drivenSid(this.room))?.lastProcessedInputSeq ?? 0,
     );
+    // Seeded here rather than left undefined so the first `update` frame is not itself a "switch":
+    // `syncDrivenCar` would otherwise reset a buffer that `resetMatchState` just built, which is
+    // harmless but would make the production path differ from the pre-playground one for no reason.
+    this.lastDrivenSid = this.drivenSid(this.room);
 
     this.cursors = this.input.keyboard?.createCursorKeys();
     this.driveKeys = this.bindDriveKeys();
@@ -1028,6 +1039,7 @@ export class ArenaScene extends Phaser.Scene {
     this.prediction = new PredictionBuffer();
     this.predicted = undefined;
     this.predictedPrev = undefined;
+    this.lastDrivenSid = undefined;
     this.camFocus = undefined;
     this.inputAccumulatorMs = 0;
     this.spectateTarget = "";
@@ -1065,7 +1077,15 @@ export class ArenaScene extends Phaser.Scene {
 
   /** Inputs go out on the sim clock, not the render clock. See `drainTicks` for the arithmetic. */
   private pumpInput(room: Room<ArenaState>, delta: number): void {
-    if (!this.canDrive(room)) {
+    // Ahead of every gate below, so a switch made while paused (or while the driven car is a wreck)
+    // is still picked up. This is the first thing `update` reaches, and `renderCars` runs after it,
+    // so a stale predicted pose can never reach the screen even though the switch actually arrived
+    // on a patch — between frames — and `reconcileLocal` saw it first.
+    this.syncDrivenCar(room);
+    // A paused playground stops the input clock outright: no send, and — because `sendInputTick` is
+    // the only thing that predicts — no predicted step either. Interpolation of the other cars keeps
+    // running, which costs nothing, since a paused room stops patching new poses anyway (spec PG7).
+    if (!this.canDrive(room) || isPlaygroundPaused(room.state)) {
       this.inputAccumulatorMs = 0;
       return;
     }
@@ -1076,6 +1096,43 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
+   * The car this client drives: its own seat in every shipped room, and whichever car the dev
+   * playground has handed the wheel to inside one (spec PG9). Every "the car I drive" read in this
+   * scene — prediction, the step context, the camera, the slot bar, the hp-bar allegiance — goes
+   * through here, so the camera and the HUD can never disagree about whose car is mine.
+   *
+   * `room.sessionId` survives only where the question really is "which connection am I": nowhere in
+   * this file today, since the playground still routes one human's inputs through one connection.
+   */
+  private drivenSid(room: Room<ArenaState>): string {
+    return controlledCarOf(room.state, room.sessionId);
+  }
+
+  /**
+   * Hand prediction over to a newly-driven car. No-op on every frame but the one the wheel moves on.
+   *
+   * Both halves of the prediction state are per-car: the `PredictionBuffer` holds inputs that only
+   * the previous car's server-side queue will ever ack, and `predicted` is that car's pose. Carrying
+   * either across a switch would replay one car's inputs onto another car's pose, so the buffer is
+   * rebuilt exactly as `resetMatchState` first builds it and the pose is snapped to the new car's
+   * authoritative one — the same seeding `reconcileLocal` does when it has no prediction yet.
+   *
+   * `inputSeq` deliberately does NOT reset. It is monotonic for the page (see the field's comment):
+   * the server never rewinds `lastProcessedInputSeq`, and a seq restarting below the standing ack
+   * would have reconciliation discard every pending input from here on.
+   */
+  private syncDrivenCar(room: Room<ArenaState>): void {
+    const driven = this.drivenSid(room);
+    if (this.lastDrivenSid === driven) return;
+    this.lastDrivenSid = driven;
+
+    this.prediction = new PredictionBuffer();
+    const car = room.state.players.get(driven);
+    this.predicted = car ? bodyOf(car) : undefined;
+    this.predictedPrev = undefined;
+  }
+
+  /**
    * The same gate `serverTick` and `runCombat` use, so a client never predicts a step the server
    * would not have run. `alive` is part of it: a wreck's inputs are drained and acked but move
    * nothing and fire nothing, so continuing to send them would only spend bandwidth predicting a
@@ -1083,12 +1140,12 @@ export class ArenaScene extends Phaser.Scene {
    */
   private canDrive(room: Room<ArenaState>): boolean {
     if (room.state.phase !== RoomPhase.MATCH) return false;
-    const local = room.state.players.get(room.sessionId);
+    const local = room.state.players.get(this.drivenSid(room));
     return local?.status === PlayerStatus.IN_MATCH && local.alive;
   }
 
   private sendInputTick(room: Room<ArenaState>): void {
-    const local = room.state.players.get(room.sessionId);
+    const local = room.state.players.get(this.drivenSid(room));
     if (!local) return;
 
     this.inputSeq += 1;
@@ -1116,20 +1173,21 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private stepContext(room: Room<ArenaState>): StepContext {
+    const self = this.drivenSid(room);
     return buildStepContext(
       this.arena ?? getArena(room.state.arenaId),
       room.state,
-      room.sessionId,
+      self,
       room.state.tick,
       // Read fresh on every predicted and reconciled step rather than cached: an effect can lapse
       // between two of them, and the tick it lapses on is the one thing both halves of the lockstep
       // have to agree about.
-      localModifiers(room.state, room.sessionId, room.state.tick),
+      localModifiers(room.state, self, room.state.tick),
     );
   }
 
   private reconcileLocal(room: Room<ArenaState>): void {
-    const local = room.state.players.get(room.sessionId);
+    const local = room.state.players.get(this.drivenSid(room));
     // Same gate as `canDrive`. A wreck stops predicting: the server has stopped stepping it, so a
     // prediction buffer left running would replay pending inputs against a car that cannot move and
     // then be snapped back every patch.
@@ -1181,7 +1239,7 @@ export class ArenaScene extends Phaser.Scene {
     // A pure spectator who never took a seat has no `viewer`, and every car is then an enemy —
     // nobody is your ally if you have no seat, and the alternative (colouring the watched car
     // green) is exactly the camera-follows-allegiance bug the signature exists to prevent.
-    const viewer = room.state.players.get(room.sessionId);
+    const viewer = room.state.players.get(this.drivenSid(room));
     // Hoisted rather than derived twice: the impact-spark pass below wants the same answer, and two
     // copies of this expression is two things that can drift about what game we are in.
     const mode = room.state.mode === GameMode.TEAM ? "team" : "ffa";
@@ -1191,7 +1249,7 @@ export class ArenaScene extends Phaser.Scene {
       seen.add(sessionId);
 
       const serverPose = bodyOf(player);
-      const isLocal = sessionId === room.sessionId;
+      const isLocal = sessionId === this.drivenSid(room);
       // The local car draws its predicted pose; remotes draw an interpolated one, so they glide
       // between patches instead of stepping once per packet. A wreck draws the raw server pose:
       // it is not moving, so there is nothing to smooth and nothing to predict.
@@ -1245,10 +1303,13 @@ export class ArenaScene extends Phaser.Scene {
     //
     // Team-gated: a ram is structurally impossible between teammates (R15), so the spark must not
     // fire on one either — see `freshImpacts`'s doc comment.
-    const selfId = this.room?.sessionId;
-    const selfPose = selfId ? poses.get(selfId) : undefined;
-    const selfTeam = selfId ? teams.get(selfId) : undefined;
-    if (selfId && selfPose && selfTeam !== undefined) {
+    // The driven car, so the spark fires on the car the player is steering rather than on the seat
+    // their connection happens to hold. `drivenSid` always answers an id — the previous
+    // `this.room?.sessionId` could not — so the pose and team lookups are the only guards left.
+    const selfId = this.drivenSid(room);
+    const selfPose = poses.get(selfId);
+    const selfTeam = teams.get(selfId);
+    if (selfPose && selfTeam !== undefined) {
       const others = [...poses.entries()]
         .filter(([id]) => id !== selfId)
         .map(([id, pose]) => ({
@@ -1312,8 +1373,13 @@ export class ArenaScene extends Phaser.Scene {
     // same frame would share a timestamp and the earlier pose would be silently shadowed. Phaser's
     // own clock is driven from `performance.now()`, so `sample` reads the same epoch.
     const now = performance.now();
+    // The DRIVEN car is the one excluded, not the connection's own seat: it is the car prediction
+    // owns, and `renderCars`'s `isLocal` splits the two the same way. If these two picked different
+    // cars, one car would be drawn from an interpolation buffer nothing fills and the other from a
+    // prediction nothing runs.
+    const driven = this.drivenSid(room);
     room.state.players.forEach((player, sessionId) => {
-      if (sessionId === room.sessionId) return;
+      if (sessionId === driven) return;
       if (player.status !== PlayerStatus.IN_MATCH) return;
       let buf = this.interps.get(sessionId);
       if (!buf) {
@@ -1465,7 +1531,7 @@ export class ArenaScene extends Phaser.Scene {
     pose: SimBody,
   ): void {
     if (room.state.phase !== RoomPhase.COUNTDOWN) return;
-    const local = room.state.players.get(room.sessionId);
+    const local = room.state.players.get(this.drivenSid(room));
     if (!local || local.status !== PlayerStatus.IN_MATCH) return;
 
     gfx.fillStyle(ARROW_COLOR, ARROW_ALPHA);
@@ -1744,7 +1810,7 @@ export class ArenaScene extends Phaser.Scene {
       if (this.freeRoam || this.spectateTarget === "") return undefined;
       return room.state.players.get(this.spectateTarget);
     }
-    return room.state.players.get(room.sessionId);
+    return room.state.players.get(this.drivenSid(room));
   }
 
   /**
@@ -2197,7 +2263,7 @@ export class ArenaScene extends Phaser.Scene {
 
   /** Are you watching rather than playing? The rule itself lives in `spectate.ts`. */
   private isSpectating(room: Room<ArenaState>): boolean {
-    const local = room.state.players.get(room.sessionId);
+    const local = room.state.players.get(this.drivenSid(room));
     if (!local) return false;
     return isSpectating(room.state.phase, local.status, local.alive);
   }
@@ -2208,7 +2274,7 @@ export class ArenaScene extends Phaser.Scene {
    * already has every pose in hand, including the predicted one for the local car.
    */
   private cameraTarget(room: Room<ArenaState>): string {
-    return this.isSpectating(room) ? this.spectateTarget : room.sessionId;
+    return this.isSpectating(room) ? this.spectateTarget : this.drivenSid(room);
   }
 
   /**
@@ -2333,12 +2399,11 @@ export class ArenaScene extends Phaser.Scene {
    * respawn countdown is the only one gated on the mode, because it is the only one making a promise
    * — "you are coming back" — that Last Standing cannot keep.
    *
-   * All three are local-player-only, read through `room.sessionId`. Nobody ever sees another
-   * player's death message, and a pure spectator who never took a seat has no local player and sees
-   * none of it.
+   * All three are driven-car-only, read through `drivenSid`. Nobody ever sees another player's death
+   * message, and a pure spectator who never took a seat has no car and sees none of it.
    */
   private syncDeathmatchHud(room: Room<ArenaState>): void {
-    const local = room.state.players.get(room.sessionId);
+    const local = room.state.players.get(this.drivenSid(room));
     const tick = room.state.tick;
 
     if (this.matchClockText) {
