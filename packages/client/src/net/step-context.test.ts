@@ -23,6 +23,7 @@ function player(over: Partial<ContextPlayer> = {}): ContextPlayer {
     status: PlayerStatus.IN_MATCH,
     carId: "mirage",
     alive: true,
+    statuses: [],
     ...over,
   };
 }
@@ -41,7 +42,7 @@ function state(players: Record<string, ContextPlayer>): ContextState {
 
 describe("buildStepContext", () => {
   it("takes obstacles and bounds from the state's arena", () => {
-    const ctx = buildStepContext(ARENA, state({ me: player() }), "me", NEUTRAL_MODIFIERS);
+    const ctx = buildStepContext(ARENA, state({ me: player() }), "me", 0, NEUTRAL_MODIFIERS);
     expect(ctx.obstacles).toEqual(ARENA.obstacles);
     expect(ctx.bounds).toEqual({ width: ARENA.width, height: ARENA.height });
   });
@@ -51,12 +52,13 @@ describe("buildStepContext", () => {
       ARENA,
       state({ me: player({ x: 10 }), other: player({ x: 20 }) }),
       "me",
+      0,
       NEUTRAL_MODIFIERS,
     );
     expect(ctx.others.map((hull) => hull.x)).toEqual([20]);
   });
 
-  it("omits players who are not in the match, matching the server's mover gate", () => {
+  it("omits players who are not in the match, matching the server's wall gate (isSolid)", () => {
     const ctx = buildStepContext(
       ARENA,
       state({
@@ -66,6 +68,7 @@ describe("buildStepContext", () => {
         rival: player({ x: 50 }),
       }),
       "me",
+      0,
       NEUTRAL_MODIFIERS,
     );
     expect(ctx.others.map((hull) => hull.x)).toEqual([50]);
@@ -83,13 +86,20 @@ describe("buildStepContext", () => {
         mike: player({ x: 3 }),
       }),
       "me",
+      0,
       NEUTRAL_MODIFIERS,
     );
     expect(ctx.others.map((hull) => hull.x)).toEqual([2, 3, 1]);
   });
 
   it("sizes hulls from DRIVE_CONFIG and carries the other car's angle", () => {
-    const ctx = buildStepContext(ARENA, state({ me: player(), them: player({ angle: 1.25 }) }), "me", NEUTRAL_MODIFIERS);
+    const ctx = buildStepContext(
+      ARENA,
+      state({ me: player(), them: player({ angle: 1.25 }) }),
+      "me",
+      0,
+      NEUTRAL_MODIFIERS,
+    );
     expect(ctx.others[0]).toEqual({
       x: 0,
       y: 0,
@@ -100,18 +110,24 @@ describe("buildStepContext", () => {
   });
 
   it("uses the local player's chosen car", () => {
-    expect(buildStepContext(ARENA, state({ me: player({ carId: "bastion" }) }), "me", NEUTRAL_MODIFIERS).carId).toBe("bastion");
+    expect(
+      buildStepContext(ARENA, state({ me: player({ carId: "bastion" }) }), "me", 0, NEUTRAL_MODIFIERS).carId,
+    ).toBe("bastion");
   });
 
   it("falls back to the shared default chassis for an unset or unknown carId", () => {
-    expect(buildStepContext(ARENA, state({ me: player({ carId: "" }) }), "me", NEUTRAL_MODIFIERS).carId).toBe(DEFAULT_CAR_ID);
-    expect(buildStepContext(ARENA, state({ me: player({ carId: "constructor" }) }), "me", NEUTRAL_MODIFIERS).carId).toBe(
-      DEFAULT_CAR_ID,
-    );
+    expect(
+      buildStepContext(ARENA, state({ me: player({ carId: "" }) }), "me", 0, NEUTRAL_MODIFIERS).carId,
+    ).toBe(DEFAULT_CAR_ID);
+    expect(
+      buildStepContext(ARENA, state({ me: player({ carId: "constructor" }) }), "me", 0, NEUTRAL_MODIFIERS).carId,
+    ).toBe(DEFAULT_CAR_ID);
   });
 
   it("falls back to the default chassis when the local player is missing entirely", () => {
-    expect(buildStepContext(ARENA, state({ other: player() }), "me", NEUTRAL_MODIFIERS).carId).toBe(DEFAULT_CAR_ID);
+    expect(buildStepContext(ARENA, state({ other: player() }), "me", 0, NEUTRAL_MODIFIERS).carId).toBe(
+      DEFAULT_CAR_ID,
+    );
   });
 });
 
@@ -153,7 +169,7 @@ describe("localModifiers", () => {
 describe("buildStepContext carries the modifiers it is given", () => {
   it("puts them on the context, untouched", () => {
     const mods = modifiersFromRows([{ statusId: "fortified", startTick: 0, endsTick: 500 }], 0);
-    const ctx = buildStepContext(ARENA, state({ me: player() }), "me", mods);
+    const ctx = buildStepContext(ARENA, state({ me: player() }), "me", 0, mods);
     expect(ctx.modifiers).toBe(mods);
   });
 });

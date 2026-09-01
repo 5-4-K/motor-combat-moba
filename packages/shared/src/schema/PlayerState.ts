@@ -48,6 +48,22 @@ export class PlayerState extends Schema {
    * a dead car parked on the field forever. Render-only — `stepSim` never reads it.
    */
   @type("uint32") diedAtTick = 0;
+  /**
+   * Kills and deaths this match. Counted in every mode; only Deathmatch decides a winner from them
+   * (M11), and the results scoreboard has been drawing placeholder zeroes for both since it shipped.
+   *
+   * `uint8` is ample: six players over a five-minute match cannot approach 255.
+   */
+  @type("uint8") kills = 0;
+  @type("uint8") deaths = 0;
+  /**
+   * Who landed the killing blow, or `""` while alive. Render-only — `stepSim` never reads it — and
+   * networked for the same reason `diedAtTick` is: a spectator or a late joiner who never observed
+   * the death still has to be able to name the killer.
+   *
+   * Survives until the respawn clears it, which is also what dismisses the "killed you" banner.
+   */
+  @type("string") killedBySessionId = "";
   @type("boolean") selectLocked = false;
   @type([WeaponSlotState]) weapons = new ArraySchema<WeaponSlotState>();
   @type("uint32") switchLockUntilTick = 0;

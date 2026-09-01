@@ -6,10 +6,10 @@ const ready = (team: 0 | 1) => ({ status: "ready" as const, team });
 
 describe("canStart FFA", () => {
   it("rejects fewer than 2 ready", () => {
-    expect(canStart(GameMode.FFA, [ready(0)]).ok).toBe(false);
+    expect(canStart(GameMode.FFA_LAST_STANDING, [ready(0)]).ok).toBe(false);
   });
   it("accepts 2+ ready regardless of team", () => {
-    expect(canStart(GameMode.FFA, [ready(0), ready(1)]).ok).toBe(true);
+    expect(canStart(GameMode.FFA_LAST_STANDING, [ready(0), ready(1)]).ok).toBe(true);
   });
   it("ignores in-match and post-match", () => {
     const players = [
@@ -17,14 +17,14 @@ describe("canStart FFA", () => {
       { status: "in_match" as const, team: 0 },
       { status: "post_match" as const, team: 1 },
     ];
-    expect(canStart(GameMode.FFA, players).ok).toBe(false);
+    expect(canStart(GameMode.FFA_LAST_STANDING, players).ok).toBe(false);
   });
   it("returns a stable error when fewer than 2 ready", () => {
-    expect(canStart(GameMode.FFA, [ready(0)])).toEqual({
+    expect(canStart(GameMode.FFA_LAST_STANDING, [ready(0)])).toEqual({
       ok: false,
       error: "Need at least 2 ready players",
     });
-    expect(canStart(GameMode.FFA, [])).toEqual({
+    expect(canStart(GameMode.FFA_LAST_STANDING, [])).toEqual({
       ok: false,
       error: "Need at least 2 ready players",
     });

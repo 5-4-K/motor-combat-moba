@@ -47,6 +47,8 @@ export class ResultsScene extends Phaser.Scene {
         team: player.team,
         carId: player.carId,
         status: player.status,
+        kills: player.kills,
+        deaths: player.deaths,
       });
     });
 

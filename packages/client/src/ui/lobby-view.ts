@@ -86,7 +86,9 @@ export interface LobbyViewState {
 }
 
 export function modeLabel(mode: GameMode): string {
-  return mode === GameMode.TEAM ? "Team brawl" : "Brawl";
+  if (mode === GameMode.TEAM) return "Team brawl";
+  if (mode === GameMode.FFA_DEATHMATCH) return "Deathmatch";
+  return "Brawl";
 }
 
 export function lobbyView(

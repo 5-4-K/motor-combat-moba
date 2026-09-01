@@ -74,9 +74,12 @@ export interface TickResult {
  * the countdown and the car lurches the moment the gate opens, and without the seq advance the
  * client's pending-input buffer never clears, so reconciliation replays stale inputs forever.
  *
- * The mover gate is deliberately the same predicate as the `others` filter — both are shared
- * `isOnField`. If they diverged, a player who is not in the match would be driven around the arena
- * and would collide with real players while staying invisible to *their* collision checks.
+ * The mover gate here is `isOnField`; the wall gate inside `otherCarHulls` is the narrower
+ * `isSolid` (`isOnField` plus "not currently phased"). They are deliberately NOT the same predicate
+ * anymore — a respawning car (M14) must steer normally while passing through everyone, so it passes
+ * this gate but fails the wall gate. Outside that one case the two still have to agree, or a player
+ * who is not in the match would be driven around the arena while staying invisible to *their*
+ * collision checks.
  *
  * `carIdOf` and `otherCarHulls` live in `@motor-combat-moba/shared` because the client's prediction
  * assembles the *same* `StepContext` (see `buildStepContext` in the client's `net/step-context.ts`).
@@ -146,7 +149,7 @@ export function serverTick(
         ? {
             ...world,
             carId: carIdOf(player),
-            others: otherCarHulls(entries, sessionId),
+            others: otherCarHulls(entries, sessionId, state.tick),
             // Swept and derived once for the whole tick by `statusTick`, never per player here: a
             // second derivation is a second chance for the two halves of the lockstep to disagree,
             // and the client builds its own from the same list through the same shared function.

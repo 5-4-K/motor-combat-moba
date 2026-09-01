@@ -8,7 +8,7 @@ export class ArenaState extends Schema {
   @type("uint8") phase: RoomPhase = RoomPhase.LOBBY;
   @type("uint32") tick = 0;
   @type("string") hostSessionId = "";
-  @type("uint8") mode: GameMode = GameMode.FFA;
+  @type("uint8") mode: GameMode = GameMode.FFA_LAST_STANDING;
   @type("string") arenaId = ACTIVE_ARENA_ID;
   @type("uint32") carSelectDeadlineTick = 0;
   /** When the reveal grid gives way to the countdown. Server-authoritative so all clients leave together. */
@@ -20,6 +20,12 @@ export class ArenaState extends Schema {
    * and drift apart over a match; this is one number, set once, patched to everyone.
    */
   @type("uint32") matchStartedAtTick = 0;
+  /**
+   * The tick a Deathmatch ends on, or 0 in every other mode. Stamped on the same edge into MATCH
+   * that `matchStartedAtTick` is, and for the same reason: one number patched to everyone beats a
+   * local stopwatch per machine, which would start whenever each client loaded the arena.
+   */
+  @type("uint32") matchEndsTick = 0;
   @type("int8") winnerTeam = -1;
   @type("string") winnerSessionId = "";
   @type({ map: PlayerState }) players = new MapSchema<PlayerState>();

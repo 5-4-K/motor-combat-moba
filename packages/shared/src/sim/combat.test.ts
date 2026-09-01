@@ -4,7 +4,7 @@ import { hpOf } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { CarId } from "../config/types.js";
 import { WEAPON_TABLE } from "../config/weapon-config.js";
-import { MS_PER_TICK } from "../constants.js";
+import { MS_PER_TICK, TICK_RATE_HZ } from "../constants.js";
 import {
   aimAngleFor,
   dealDamageTo,
@@ -76,6 +76,7 @@ function player(sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlay
     maneuverAngle: 0,
     maneuverSpeed: 0,
     maneuverWeaponId: "" as const,
+    lastDamagerSessionId: "",
     ...over,
   };
 }
@@ -129,6 +130,7 @@ describe("firing", () => {
       maneuverAngle: 0,
       maneuverSpeed: 0,
       maneuverWeaponId: "" as const,
+      lastDamagerSessionId: "",
       ...over,
     };
   }
@@ -512,15 +514,19 @@ describe("dealDamageTo", () => {
   it("refuses hp from an invulnerable target but reports the hit", () => {
     const target = playerAt("b", 0, 0, 0);
     const before = target.hp;
-    dealDamageTo(target, 40, { ...NEUTRAL_MODIFIERS, invulnerable: true });
+    dealDamageTo(target, 40, { ...NEUTRAL_MODIFIERS, invulnerable: true }, "a");
     expect(target.hp).toBe(before);
-    dealDamageTo(target, 40, NEUTRAL_MODIFIERS);
+    // No hp moved, so no kill credit either: an attacker who never scratched an armored car
+    // cannot claim its later death (M5-M7 x O7).
+    expect(target.lastDamagerSessionId).toBe("");
+    dealDamageTo(target, 40, NEUTRAL_MODIFIERS, "a");
     expect(target.hp).toBe(before - 40);
+    expect(target.lastDamagerSessionId).toBe("a");
   });
 
   it("still wrecks a car whose hp reaches zero while invulnerable is off", () => {
     const target = playerAt("b", 0, 0, 0);
-    dealDamageTo(target, target.hp, NEUTRAL_MODIFIERS);
+    dealDamageTo(target, target.hp, NEUTRAL_MODIFIERS, "a");
     expect(target.hp).toBe(0);
     expect(target.alive).toBe(false);
   });
@@ -746,7 +752,7 @@ describe("aimAngleFor", () => {
       ["b", b],
     ]);
     // "afterburner" is usesAimAssist: false and exists in WEAPON_TABLE.
-    expect(aimAngleFor(a, "afterburner", byId)).toBeNull();
+    expect(aimAngleFor(a, "afterburner", byId, () => false)).toBeNull();
   });
 
   it("returns the muzzle-derived bearing to the lock target for a weapon with usesAimAssist: true", () => {
@@ -768,7 +774,7 @@ describe("aimAngleFor", () => {
     // 100. atan2(100, 100) = atan(1) = pi/4 radians (45 degrees).
     const expected = Math.PI / 4;
     // "shockwave" is usesAimAssist: true.
-    expect(aimAngleFor(a, "shockwave", byId)).toBeCloseTo(expected, 10);
+    expect(aimAngleFor(a, "shockwave", byId, () => false)).toBeCloseTo(expected, 10);
   });
 
   it("fires straight ahead when the lock sits beyond the weapon's own aimRangeUnits", () => {
@@ -780,7 +786,7 @@ describe("aimAngleFor", () => {
       ["a", shooter],
       ["b", target],
     ]);
-    expect(aimAngleFor(shooter, "shockwave", byId)).toBeNull(); // 430 > 400 -> welded to heading
+    expect(aimAngleFor(shooter, "shockwave", byId, () => false)).toBeNull(); // 430 > 400 -> welded to heading
   });
 
   it("leads a moving locked target (assisted projectiles fire at the intercept, spec S1)", () => {
@@ -791,7 +797,7 @@ describe("aimAngleFor", () => {
       ["a", shooter],
       ["b", target],
     ]);
-    const led = aimAngleFor(shooter, "shockwave", byId)!;
+    const led = aimAngleFor(shooter, "shockwave", byId, () => false)!;
     const direct = Math.atan2(0 - 0, 300 - 24); // muzzle at x=24
     expect(led).toBeGreaterThan(direct); // aimed ahead of the target, up the +y path
   });
@@ -1259,5 +1265,238 @@ describe("tremor (the unassigned row): presence effects", () => {
     expect(find(result, "b").hp).toBe(fullHp - 56);
     const refreshed = find(result, "b").statuses.find((s) => s.statusId === "spiked");
     expect(refreshed!.endsTick).toBe(firstHitTick + 12 + 18);
+  });
+});
+
+describe("kill attribution", () => {
+  const HP = hpOf("mirage");
+
+  const combatant = (sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlayer => ({
+    sessionId,
+    x: 400, y: 150, angle: 0,
+    team: 0,
+    carId: "mirage",
+    hp: HP,
+    alive: true,
+    inRoster: true,
+    fireMask: 0,
+    fireState: newFireState("mirage", 1),
+    lock: newLockState(),
+    statuses: [],
+    maneuver: 0,
+    maneuverTicksLeft: 0,
+    maneuverAngle: 0,
+    maneuverSpeed: 0,
+    maneuverWeaponId: "" as const,
+    lastDamagerSessionId: "",
+    ...over,
+  });
+
+  const worldAt = (tick: number): CombatWorld => ({
+    tick,
+    dt: 1 / TICK_RATE_HZ,
+    mode: "ffa",
+    obstacles: [],
+    bounds: { width: 1600, height: 900 },
+  });
+
+  // Mirrors `combat-bridge.test.ts`'s `liveInstance`, parked on top of the victim so it connects.
+  const shotAt = (owner: string, x: number, y: number): WeaponInstance => ({
+    id: `${owner}-1`,
+    ownerSessionId: owner,
+    ownerTeam: 0,
+    finalWave: true,
+    damage: weaponDamageOf("mirage", "shockwave"),
+    weaponId: "shockwave",
+    kind: "projectile",
+    x, y,
+    angle: 0,
+    extent: 0,
+    spawnTick: 0,
+    distance: 0,
+    pierceLeft: 0,
+    attached: false,
+    damageClock: new Map<string, number>(),
+    alive: true,
+    muzzleDir: 0,
+    homingTargetId: "",
+    homingUntilTick: 0,
+    expiresAtTick: 0,
+  });
+
+  it("records the owner of the shot that landed", () => {
+    const victim = combatant("b");
+    const out = runCombat({
+      world: worldAt(1),
+      players: [combatant("a"), victim],
+      instances: [shotAt("a", victim.x, victim.y)],
+      instanceSeq: 1,
+    });
+    const b = out.players.find((p) => p.sessionId === "b")!;
+    expect(b.hp).toBeLessThan(HP);
+    expect(b.lastDamagerSessionId).toBe("a");
+  });
+
+  it("overwrites, so the LAST damager wins and no ledger is needed", () => {
+    const victim = combatant("c", { lastDamagerSessionId: "a" });
+    const out = runCombat({
+      world: worldAt(1),
+      players: [combatant("b"), victim],
+      instances: [shotAt("b", victim.x, victim.y)],
+      instanceSeq: 1,
+    });
+    expect(out.players.find((p) => p.sessionId === "c")!.lastDamagerSessionId).toBe("b");
+  });
+
+  it("credits a bleed to whoever applied the status, not to the world", () => {
+    // Stepped until the pulse fires, so the test does not depend on `overheated`'s authored
+    // interval. (`overheated` carries the burn since the 2026-09-01 overhaul; `spiked` is a pure
+    // slow now.)
+    let victim = combatant("victim", {
+      statuses: [{ statusId: "overheated", startTick: 0, endsTick: 300, sourceSessionId: "a" }],
+    });
+    for (let tick = 1; tick <= 300 && victim.hp === HP; tick++) {
+      victim = runCombat({
+        world: worldAt(tick),
+        players: [victim],
+        instances: [],
+        instanceSeq: 0,
+      }).players[0]!;
+    }
+    expect(victim.hp).toBeLessThan(HP);
+    expect(victim.lastDamagerSessionId).toBe("a");
+  });
+
+  it("stays empty for a car nothing has damaged", () => {
+    const out = runCombat({
+      world: worldAt(1),
+      players: [combatant("a"), combatant("b")],
+      instances: [],
+      instanceSeq: 0,
+    });
+    expect(out.players.every((p) => p.lastDamagerSessionId === "")).toBe(true);
+  });
+});
+
+describe("spawn protection: a phased car is not a target", () => {
+  // M13's central promise: "a phasing car is not present in the world. Not a collider, not a ram
+  // partner, not a weapon target, not an aim-assist lock candidate." Collision and ramming were
+  // provisioned by `otherCarHulls` and the ram pair list (M15); combat's half was not, which is
+  // what these cases pin. Every one of them passes trivially if the target-side gates are removed,
+  // so each asserts a number combat would otherwise have moved.
+
+  /** Live for the whole of `world()`'s tick 100. `""` source: the room grants this, not a weapon. */
+  const PHASED = Object.freeze({
+    statusId: "phased" as const,
+    startTick: 0,
+    endsTick: 300,
+    sourceSessionId: "",
+  });
+
+  /**
+   * A shot parked on top of `(x, y)` so it connects on the tick it is fed in, modelled on the
+   * kill-attribution block's `shotAt`. `thumper` rather than `shockwave` because it is the roster's
+   * projectile that applies an on-hit status (`spiked`, since the 2026-09-01 redistribution), which
+   * is the second half of M13's case against `damageTaken: 0` — a shot that still *connects* lands
+   * its statuses whatever the number. `pierceLeft` is a field on the instance, not a lookup, so it
+   * can be armed here even though `thumper`'s row authors `pierce: 0`.
+   */
+  const thumperAt = (owner: string, x: number, y: number, pierceLeft = 0): WeaponInstance => ({
+    id: `${owner}-1`,
+    ownerSessionId: owner,
+    ownerTeam: 0,
+    finalWave: true,
+    damage: weaponDamageOf("mirage", "thumper"),
+    weaponId: "thumper",
+    kind: "projectile",
+    x,
+    y,
+    angle: 0,
+    extent: 0,
+    spawnTick: 0,
+    distance: 0,
+    pierceLeft,
+    attached: false,
+    damageClock: new Map<string, number>(),
+    alive: true,
+    muzzleDir: 0,
+    homingTargetId: "",
+    homingUntilTick: 0,
+    expiresAtTick: 0,
+  });
+
+  it("takes no damage from a shot that would otherwise land on it", () => {
+    const result = run({
+      players: [
+        player("aaa", { x: 300, y: OPEN_Y }),
+        player("bbb", { x: 500, y: OPEN_Y, statuses: [PHASED] }),
+      ],
+      instances: [thumperAt("aaa", 500, OPEN_Y)],
+      instanceSeq: 1,
+    });
+    const victim = find(result, "bbb");
+    expect(victim.hp).toBe(hpOf("mirage"));
+    expect(victim.lastDamagerSessionId).toBe("");
+  });
+
+  it("is passed through: no pierce spent, and no on-hit status lands", () => {
+    const result = run({
+      players: [
+        player("aaa", { x: 300, y: OPEN_Y }),
+        player("bbb", { x: 500, y: OPEN_Y, statuses: [PHASED] }),
+      ],
+      instances: [thumperAt("aaa", 500, OPEN_Y, 1)],
+      instanceSeq: 1,
+    });
+    // A contact would have spent the pierce; a contact with pierce already at 0 would have killed
+    // the shot outright. Neither happened, so the shot never saw the car at all.
+    const shot = result.instances.find((i) => i.ownerSessionId === "aaa");
+    expect(shot).toBeDefined();
+    expect(shot!.pierceLeft).toBe(1);
+    expect(find(result, "bbb").statuses.map((s) => s.statusId)).toEqual(["phased"]);
+  });
+
+  it("is not acquired as an aim-assist lock target", () => {
+    // The mirror of "never locks a wreck" above: a ghost is no more lockable than a hulk.
+    const result = run({
+      players: [
+        player("aaa", { x: 300, y: 300, angle: 0 }),
+        player("bbb", { x: 500, y: 300, angle: Math.PI, statuses: [PHASED] }),
+      ],
+    });
+    expect(find(result, "aaa").lock.targetSessionId).toBe("");
+  });
+
+  it("stops steering a lock that was already held when it began phasing", () => {
+    // Locks survive a tick past the event that invalidates them (`runCombat`'s own comment on the
+    // lock phase), so the target guard inside `aimAngleFor` is what stops that one stale tick from
+    // curving a shot into an untouchable car.
+    const a = player("aaa", {
+      x: 0,
+      y: 0,
+      angle: 0,
+      lock: { ...newLockState(), targetSessionId: "bbb" },
+    });
+    const b = player("bbb", { x: 124, y: 100, statuses: [PHASED] });
+    const byId = new Map([
+      ["aaa", a],
+      ["bbb", b],
+    ]);
+    const phased = (sessionId: string): boolean => sessionId === "bbb";
+    expect(aimAngleFor(a, "shockwave", byId, phased)).toBeNull();
+    // Same call with nobody phasing still aims, so this pins the new guard rather than a typo in
+    // the lock id: muzzle at (24, 0), target at (124, 100), atan2(100, 100) = pi/4.
+    expect(aimAngleFor(a, "shockwave", byId, () => false)).toBeCloseTo(Math.PI / 4, 10);
+  });
+
+  it("can still fire while phasing", () => {
+    // The trap in the fix, pinned. `phased` MUST NOT be folded into `isFighting`: M23's first
+    // termination condition is "the player commits a press", which requires the firing path to run
+    // for a phased car. Gating the shooter side would make spawn protection unbreakable by firing
+    // and silently change the state machine. Fold it in and this test goes red.
+    const result = run({
+      players: [player("aaa", { x: 300, y: OPEN_Y, fireMask: 1, statuses: [PHASED] })],
+    });
+    expect(result.instances.filter((i) => i.ownerSessionId === "aaa").length).toBeGreaterThan(0);
   });
 });

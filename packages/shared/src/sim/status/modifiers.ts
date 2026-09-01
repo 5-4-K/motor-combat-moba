@@ -29,6 +29,8 @@ export interface Modifiers {
   fullStop: boolean;
   /** Every combat damage site deals 0 hp to this car. Riders (statuses, pierce) still land. */
   invulnerable: boolean;
+  /** Not present in the world: no collision, no ram, no weapon target. See StatusFlag. */
+  phased: boolean;
 }
 
 /**
@@ -54,6 +56,7 @@ export const NEUTRAL_MODIFIERS: Readonly<Modifiers> = Object.freeze({
   disarmed: false,
   fullStop: false,
   invulnerable: false,
+  phased: false,
 });
 
 const CHANNELS = Object.keys(STATUS_LIMITS) as StatusChannel[];
@@ -107,5 +110,6 @@ export function modifiersOf(statuses: readonly ActiveStatus[], tick: number): Mo
   mods.disarmed = flags.has("disarmed");
   mods.fullStop = flags.has("fullStop");
   mods.invulnerable = flags.has("invulnerable");
+  mods.phased = flags.has("phased");
   return mods;
 }

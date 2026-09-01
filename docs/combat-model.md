@@ -866,22 +866,121 @@ for how long, and what that status does, derived from `STATUS_TABLE` itself so i
 ## Elimination and winning
 
 - HP reaches 0 → `alive = false`, and the car **leaves the field on that tick**. `isOnField` reads
-  `alive` as well as `status`, and that single predicate gates all three of: being simulated (so
-  the car freezes at the pose it died on), being solid (so it is intangible immediately), and being
-  a ram participant. It stops firing and being shot as it always did.
+  `alive` as well as `status`, and gates being simulated (so the car freezes at the pose it died on)
+  — the **mover** gate only, as of the FFA-game-modes work. Being solid (so it is intangible
+  immediately) and being a ram participant are gated by `isSolid` instead (`isOnField && !phased`,
+  below); the two agree everywhere except a `phased` car, which is the one case they are allowed to
+  disagree. It stops firing and being shot as it always did.
 - **There is no wreck.** Until 2026-08-30 a dead car stayed `IN_MATCH` and so stayed a collision
   hull — solid to driving but transparent to combat — parked on the field for the rest of the match.
   It now fades out on the client over `DEATH_FADE_MS` (1 s) from the networked `diedAtTick`, and is
   then not drawn at all. The fade is render-only; the car is already gone from the sim before the
-  first frame of it.
+  first frame of it. In `FFA_DEATHMATCH` the car comes back (see "The respawn lifecycle" below) —
+  but it still leaves the field the instant it dies, and still fades out the same way in the
+  meantime. There is still no wreck; there is now a return.
 - `diedAtTick` is networked rather than derived from `alive` flipping, so a spectator or a late
   joiner — neither of whom saw the transition — fades it correctly instead of drawing a corpse
   forever.
-- After damage each tick, `livingSides(mode, roster)` counts the living sides. `sides <= 1` ends the
-  match through the same `endMatch` a disconnect uses. FFA names a `winnerSessionId`; team mode names
-  a `winnerTeam`; zero living sides is a draw (`-1`, `""`), which a mutual head-on kill can produce.
+- **Two win conditions now**, picked per-match by `GameMode` and read through `winRuleOf(mode)`:
+  - `"last_standing"` (`FFA_LAST_STANDING` and `TEAM`) — after damage each tick, `livingSides(mode,
+    roster)` counts the living sides. `sides <= 1` ends the match through the same `endMatch` a
+    disconnect uses. FFA names a `winnerSessionId`; team mode names a `winnerTeam`; zero living sides
+    is a draw (`-1`, `""`), which a mutual head-on kill can produce.
+  - `"deathmatch"` (`FFA_DEATHMATCH`) — `livingSides` is never called: with respawns, every player
+    can be simultaneously dead while waiting out a timer, and `livingSides` would read that as zero
+    living sides and end the match. The mode ends instead on `tick >= ArenaState.matchEndsTick` or
+    fewer than two roster players remaining, and the winner is `deathmatchOutcome(players)` — ranked
+    kills descending, then deaths ascending. A top position still tied on both is the existing draw
+    path (`winnerSessionId: ""`), which reads identically to "nobody won"; naming tied leaders is
+    deliberately out of scope. See "Kill attribution" and "The respawn lifecycle" below.
 - Ending a match clears every shot in flight, and so does setting one up, so nothing from a previous
   match can carry into the next one.
+
+## Kill attribution
+
+The kill goes to whoever dealt damage last — not most damage, not a share, not a contribution window.
+There is no per-attacker damage ledger; one string per car is the whole mechanism.
+
+Every point of hp loss already has a known attacker: the plain ram deals no damage (see Ramming
+above), status damage-over-time carries `ActiveStatus.sourceSessionId`, and a contact hit (a dash
+landing or a hard slam) carries `ContactHit.attackerSessionId`. `CombatPlayer` carries
+`lastDamagerSessionId`, stamped by `dealDamageTo()` in `sim/combat.ts` — the sim's one hp/`alive`
+writer — from the shot's `ownerSessionId`, the pulse's `sourceSessionId`, or the contact hit's
+attacker, and only when hp actually moved: an `invulnerable` (armored) target yields no credit,
+exactly as a 0-damage pure-applicator hit does. It is **server-only,
+never networked**: the client does not predict damage, so putting it on the schema would patch a
+string to every client at the tick rate for nothing (invariant 8, satisfied by the front door).
+
+`combat-bridge.ts`'s existing death-transition detector books the kill the tick a car's `alive` flips
+false: `victim.deaths += 1`, `victim.killedBySessionId = lastDamagerSessionId`, and
+`killer.kills += 1` if that id still resolves to a present player. A killer who has disconnected
+simply does not get the increment — the victim's `killedBySessionId` still names them, so the "killed
+you" banner reads correctly even for a departed killer. `lastDamagerSessionId` is cleared on
+respawn, so an attacker who hurt you earlier can never be credited with a later death.
+
+Kills and deaths are counted in **every** mode — the attribution code runs regardless, so gating it
+would cost a mode check in the damage path and buy nothing. Only `FFA_DEATHMATCH` decides a winner
+from them; Last Standing and Team get a real K/D scoreboard out of it for free, replacing the
+placeholder zeroes `results-view.ts` used to render. Assists remain zero everywhere — there are none
+to attribute.
+
+## The respawn lifecycle
+
+**This section applies to `FFA_DEATHMATCH` only.** In `FFA_LAST_STANDING` and `TEAM` no car is ever
+granted `phased`, no respawn sweep runs, and death stays terminal exactly as described above.
+
+A roster player who is `!alive` and has waited `DEATHMATCH_TICKS.respawnDelay` since `diedAtTick`
+(`isDueToRespawn`, `flow/respawn.ts`) respawns at the top of the room tick, before `statusTick` — so
+there is no tick on which a freshly respawned car reads as solid. Respawn:
+
+- picks the arena's `ffaSpawns` entry that maximises distance to the nearest living enemy
+  (`farthestSpawn`, pure and unit-tested);
+- resets the car exactly as `revealCars` already does: pose to the chosen spawn, `speed = 0`, ram
+  knock cleared, `hp = hpOf(carId)`, `alive = true`, `diedAtTick = 0`, `killedBySessionId = ""`,
+  `lastDamagerSessionId = ""`, statuses cleared, fire state fresh — nothing survives a death, no
+  stock, no switch lock, no lingering debuff, no knock; and
+- grants `phased`.
+
+**`phased` is intangible and invulnerable as one rule, not two.** Rather than "cannot be hurt" plus
+"passes through cars," a phasing car is simply not present in the world: not a collider, not a ram
+partner, not a weapon target, not an aim-assist lock candidate. It is a status — networked on
+`PlayerState.statuses`, client-predicted, rendered as a HUD badge and a ghost alpha — that flips one
+`Modifiers` flag and scales nothing. It is granted `chainable: true` (`StatusDef`), the one row
+allowed to be `reapply: "refresh"` while carrying a flag, because contact-clear extension (below)
+needs to re-arm it without the anti-chain rule that keeps hard CC from being held on a car
+indefinitely by an opponent — a rule `phased` cannot violate, since only the room grants it and no
+opponent can apply it at all.
+
+The predicate that reads it splits in two: `isOnField` stays the **mover** gate (may this car be
+simulated), unchanged; `isSolid` is the new **wall** gate (`isOnField && !phased`), read by
+`otherCarHulls` (both `serverTick` and the client's `buildStepContext` call it, so both halves of the
+lockstep change together) and the ram pair list in `ram-bridge.ts`. `resolveWorld`, the OBB hull
+model, and `carHullOf` are all untouched — only which cars are *members* of a contact test changes.
+
+**A phase ends on whichever comes first**, decided each tick by the pure `phaseDecision` in
+`flow/respawn.ts`:
+
+1. the player commits a press — protection is traded for the shot;
+2. the hard cap (`DEATHMATCH_TICKS.phaseMax`) elapses, regardless of overlap — belt-and-braces, since
+   parking on a phased car to hold it intangible is weak griefing that only delays the camper's own
+   shot; or otherwise
+3. the timer (`DEATHMATCH_TICKS.phase`) elapses **and** the car's OBB overlaps no other solid car —
+   "contact-clear." Checked only on the tick the phase would otherwise lapse, never sooner, so a car
+   merely driving past someone is not extended.
+
+If the timer would lapse while still overlapping, the phase is extended (a `reapply: "refresh"`
+application) rather than ending — this is the failure `phaseSeconds` being a floor rather than a fixed
+window exists to prevent: two cars suddenly interpenetrating and `resolveWorld` separating them with a
+single-tick position push and a speed bounce. This is the Quake/Source-lineage answer — a spawning
+body stays non-solid until its hull is unobstructed — reusing `collide.ts`'s existing SAT rather than
+reimplementing the overlap test.
+
+Phasing passes through **cars only**; obstacles and the arena bounds stay solid, so a phased car
+cannot leave the map.
+
+See [`superpowers/specs/2026-09-01-ffa-game-modes-design.md`](superpowers/specs/2026-09-01-ffa-game-modes-design.md)
+for the full decision record (M1–M33), including the M15 correction on why the phased filter has to
+apply in both directions inside `otherCarHulls`.
 
 ## What the client shows
 

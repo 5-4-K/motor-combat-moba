@@ -50,6 +50,11 @@ export interface CombatMemory {
    * the four numeric maneuver fields, which ARE networked directly on `PlayerState`.
    */
   maneuverWeapons: Map<string, WeaponId | "">;
+  /**
+   * Who last damaged each player. Server-only; the schema carries only the frozen
+   * `killedBySessionId`, stamped on the tick the car died and never rewritten after.
+   */
+  lastDamagers: Map<string, string>;
 }
 
 export function newCombatMemory(): CombatMemory {
@@ -59,6 +64,7 @@ export function newCombatMemory(): CombatMemory {
     instances: new Map(),
     locks: new Map(),
     maneuverWeapons: new Map(),
+    lastDamagers: new Map(),
   };
 }
 
@@ -123,6 +129,7 @@ export function toCombatPlayers(
       maneuverAngle: player.maneuverAngle,
       maneuverSpeed: player.maneuverSpeed,
       maneuverWeaponId: memory.maneuverWeapons.get(sessionId) ?? "",
+      lastDamagerSessionId: memory.lastDamagers.get(sessionId) ?? "",
     });
   });
   return players;
@@ -166,6 +173,7 @@ export function applyCombatResult(state: ArenaState, result: CombatResult, memor
       p.sessionId,
       p.maneuver === ManeuverKind.NONE ? "" : p.maneuverWeaponId,
     );
+    memory.lastDamagers.set(p.sessionId, p.lastDamagerSessionId);
     const player = state.players.get(p.sessionId);
     if (!player) continue;
     player.hp = p.hp;
@@ -175,7 +183,18 @@ export function applyCombatResult(state: ArenaState, result: CombatResult, memor
     player.maneuverSpeed = p.maneuverSpeed;
     // Stamp the death tick on the TRANSITION only, so a car that is already dead keeps the tick it
     // died on rather than having it rewritten every tick it stays dead. The client fades from here.
-    if (player.alive && !p.alive) player.diedAtTick = state.tick;
+    //
+    // This is also the one place a kill is booked (M9). It is the only line in the codebase that
+    // detects the moment of death, so scoring anywhere else would need a second one.
+    if (player.alive && !p.alive) {
+      player.diedAtTick = state.tick;
+      player.deaths += 1;
+      player.killedBySessionId = p.lastDamagerSessionId;
+      // A killer who has since left the room gets no increment — but the victim still records who
+      // it was, so the banner names them correctly.
+      const killer = state.players.get(p.lastDamagerSessionId);
+      if (killer && killer !== player) killer.kills += 1;
+    }
     player.alive = p.alive;
     player.level = p.fireState.level;
     player.switchLockUntilTick = p.fireState.switchLockUntilTick;
@@ -246,6 +265,12 @@ export function clearInstances(state: ArenaState, memory: CombatMemory): void {
   memory.fireStates.clear();
   memory.locks.clear();
   memory.maneuverWeapons.clear();
+  // Not observable today — every path that zeroes hp stamps a fresh source before `alive` flips, so
+  // no carried-over entry can currently be read. Cleared anyway on both counts this map is here
+  // for: it is keyed by session id and never pruned, so a long-lived room accumulates one entry per
+  // player who ever played in it; and leaving the one omission in a function whose whole job is
+  // per-match hygiene reads as a deliberate exception, which invites the next reader to preserve it.
+  memory.lastDamagers.clear();
   // The schema projection has to be cleared here too, separately from the memory map above: combat
   // only runs in RoomPhase.MATCH, but ArenaScene is on screen from COUNTDOWN onward, and `endMatch`
   // freezes whatever `lockTargetSessionId` was last written. Without this, the second match onward

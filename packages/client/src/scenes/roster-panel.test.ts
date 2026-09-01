@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import { FLOW_CONFIG, MAX_PLAYERS, PlayerStatus } from "@motor-combat-moba/shared";
 import { ARENA_VIEW_WIDTH, HUD_GUTTER_WIDTH, VIEW_WIDTH } from "../config/display.js";
 import {
+  ROSTER_KILLS_COLUMN_PX,
   ROSTER_NAME_CHAR_PX,
   ROSTER_PAD_BOTTOM_PX,
   ROSTER_PAD_TOP_PX,
+  ROSTER_PAD_X_PX,
   ROSTER_ROW_GAP_PX,
   ROSTER_ROW_HEIGHT_PX,
   type RosterPlayer,
@@ -22,6 +24,7 @@ function player(over: Partial<RosterPlayer> = {}): RosterPlayer {
     joinedAtTick: 0,
     alive: true,
     status: PlayerStatus.IN_MATCH,
+    kills: 0,
     ...over,
   };
 }
@@ -75,6 +78,11 @@ describe("rosterRows", () => {
 
   it("carries the colour, so the panel never re-derives it", () => {
     expect(rosterRows([player({ colorId: 4 })])[0]!.colorId).toBe(4);
+  });
+
+  it("carries each player's kill count through to the row", () => {
+    const rows = rosterRows([player({ sessionId: "a", kills: 4 })]);
+    expect(rows[0]!.kills).toBe(4);
   });
 });
 
@@ -138,6 +146,114 @@ describe("rosterPanelLayout", () => {
   /** The gutter is narrower than the longest legal name, so truncation is a real case. */
   it("affords fewer characters than a name may legally hold", () => {
     expect(full.nameMaxChars).toBeLessThan(FLOW_CONFIG.nameMax);
+  });
+});
+
+describe("rosterPanelLayout's kills column", () => {
+  const without = rosterPanelLayout(MAX_PLAYERS, VIEW_WIDTH, HUD_GUTTER_WIDTH);
+  const with_ = rosterPanelLayout(MAX_PLAYERS, VIEW_WIDTH, HUD_GUTTER_WIDTH, true);
+
+  /**
+   * The default path, pinned to the CONCRETE numbers it produced before `killsColumn` existed —
+   * literals, not a second call to the same function. Asserting `layout(…, false)` equals
+   * `layout(…)` would prove nothing: `killsColumn = false` is a default parameter, so "explicitly
+   * false" and "omitted" are one code path and the comparison is `x === x`.
+   *
+   * These are the numbers Last Standing and Team have to keep. Nothing else in the suite pins them —
+   * its siblings assert the height (138), loose inequalities, or y-positions — so an off-by-one in
+   * the label column's arithmetic would otherwise pass the whole suite.
+   *
+   * ```
+   * labelX       1424 - 144 + 16 + 12 + 6        = 1314
+   * killsX       1424 - 16                       = 1408
+   * labelWidth   1408 - 1314                     =   94
+   * nameMaxChars floor(94 / 7.2) = floor(13.05)  =   13
+   * ```
+   */
+  it("lays the default path out exactly as it did before the column existed", () => {
+    expect(without.rows[0]!.labelX).toBe(1314);
+    expect(without.killsX).toBe(1408);
+    expect(without.nameMaxChars).toBe(13);
+  });
+
+  /** The column is horizontal budget only — it must not move a row or change the slots' inset. */
+  it("changes nothing but the name budget", () => {
+    expect(with_.height).toBe(without.height);
+    expect(with_.rows).toEqual(without.rows);
+    expect(with_.killsX).toBe(without.killsX);
+    expect(with_.nameMaxChars).toBeLessThan(without.nameMaxChars);
+  });
+
+  /**
+   * The flagged path, pinned to literals for the same reason as the default one — recomputing
+   * `floor((killsX - labelX - reserve) / charPx)` here would only restate the implementation.
+   *
+   * ```
+   * reserve      12 + 6                          =   18   (the swatch column, mirrored)
+   * labelWidth   94 - 18                         =   76
+   * nameMaxChars floor(76 / 7.2) = floor(10.55)  =   10
+   * ```
+   */
+  it("charges the swatch column's width against the name budget", () => {
+    expect(ROSTER_KILLS_COLUMN_PX).toBe(18);
+    expect(with_.nameMaxChars).toBe(10);
+  });
+
+  /** Right-aligned on the panel's edge, the mirror of the swatch column's left inset. */
+  it("anchors the count on the panel's right edge, inside the gutter", () => {
+    expect(without.killsX).toBe(VIEW_WIDTH - ROSTER_PAD_X_PX);
+    expect(without.killsX).toBeLessThan(VIEW_WIDTH);
+    expect(without.killsX).toBeGreaterThan(without.rows[0]!.labelX);
+  });
+
+  /**
+   * The bug the column was written to avoid, and the one test here that can actually catch it.
+   *
+   * `nameMaxChars` is the residual of every other claim on the row, so without the reservation a
+   * name using its full budget runs under a count right-aligned on `killsX`. The name is truncated
+   * to the budget, so the longest one that can ever be DRAWN is `nameMaxChars` characters — even
+   * though a player may legally hold `nameMax` of them.
+   *
+   * It passes on `floor()`'s slack and only just: 1386.0 against 1386.4. Shrinking
+   * `ROSTER_KILLS_COLUMN_PX` to 14 buys the name an eleventh character and turns this red, which is
+   * what makes it a guard rather than a restatement.
+   */
+  it("keeps the longest drawable name clear of a three-digit count", () => {
+    const labelX = with_.rows[0]!.labelX;
+    const longest = truncateName("W".repeat(FLOW_CONFIG.nameMax), with_.nameMaxChars);
+    expect(longest).toHaveLength(with_.nameMaxChars);
+
+    const nameRight = labelX + longest.length * ROSTER_NAME_CHAR_PX;
+    // Right-aligned, so a count grows leftward from `killsX`. Three digits is past anything this
+    // mode's clock affords, which is the point: the budget is not sized to the expected score.
+    const countLeft = with_.killsX - 3 * ROSTER_NAME_CHAR_PX;
+    expect(nameRight).toBeLessThanOrEqual(countLeft);
+  });
+
+  /**
+   * Why the reserve is needed at all, stated as a number rather than as an inequality.
+   *
+   * The unreserved name column ends 0.4 px short of the count's own anchor, so a count of ANY width
+   * would be drawn over. Deliberately pinned as a literal: `nameMaxChars = floor(labelWidth /
+   * charPx)` puts the name within one character of `killsX` for *any* choice of constants, so
+   * asserting that general inequality could never fail and would prove nothing. The concrete value
+   * can fail, and does the moment the label column's arithmetic moves.
+   */
+  it("pins how far the unreserved name column overruns the count's anchor", () => {
+    const nameRight = without.rows[0]!.labelX + without.nameMaxChars * ROSTER_NAME_CHAR_PX;
+    expect(nameRight).toBeCloseTo(1407.6, 5);
+    expect(without.killsX - nameRight).toBeCloseTo(0.4, 5);
+  });
+
+  /** A gutter too narrow to seat both must still hand back a budget a name can be cut to. */
+  it("never starves the name column, however narrow the gutter", () => {
+    const narrow = rosterPanelLayout(MAX_PLAYERS, 400, 40, true);
+    expect(narrow.nameMaxChars).toBeGreaterThan(0);
+  });
+
+  /** An empty roster returns no rows, but still has to answer where the column would sit. */
+  it("answers killsX with nobody in the match", () => {
+    expect(rosterPanelLayout(0, VIEW_WIDTH, HUD_GUTTER_WIDTH, true).killsX).toBe(without.killsX);
   });
 });
 

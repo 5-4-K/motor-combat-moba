@@ -106,6 +106,36 @@ export function modifiersFromRows(rows: Iterable<StatusRow>, tick: number): Modi
 }
 
 /**
+ * Is this car phasing, from wire rows alone?
+ *
+ * Deliberately routed through `modifiersFromRows` rather than scanning for the id directly. One
+ * derivation, not two: a hand-rolled scan would have to reproduce `toActiveStatuses`' validation and
+ * `modifiersOf`'s exclusive end-of-clock rule exactly, and the two would drift the first time either
+ * changed. This does allocate a full `Modifiers` (and a `Set`) for every call, even for a car with no
+ * rows at all — `modifiersOf` never short-circuits to the frozen `NEUTRAL_MODIFIERS` singleton, it
+ * always builds a fresh copy.
+ *
+ * It is called far more than once per car per tick, and deliberately so. `otherCarHulls` asks it
+ * once for the caller's own entry and once for every other entry, and every moving car calls
+ * `otherCarHulls` — so the collision gate alone is O(n²), up to ~36 calls a tick at the 6-player
+ * cap. On top of that: once per player building the ram pair list, once per candidate inside
+ * `overlapsSolid` for each car whose phase is being tested for a clear exit, once per car per FRAME
+ * in `renderCars`, and once more per predicted and per replayed step on the client, which are the
+ * same O(n²) again at the client's own frame rate.
+ *
+ * An early-out on "no rows" would remove most of that, and is deliberately NOT added. The whole
+ * point of routing through `modifiersFromRows` is that there is exactly one derivation of what a
+ * status list means: a hand-rolled fast path would have to reproduce `toActiveStatuses`' wire
+ * validation and `modifiersOf`'s exclusive end-of-clock rule, and the two would drift the first time
+ * either changed — silently, since the fast path only fires for cars in no status, which is most
+ * cars most ticks. Bounded by `MAX_PLAYERS` of 6, the allocations are small change; the guarantee
+ * that the ghost the player sees and the ghost the sim believes in are the same one is not.
+ */
+export function isPhasedAt(rows: Iterable<StatusRow>, tick: number): boolean {
+  return modifiersFromRows(rows, tick).phased;
+}
+
+/**
  * Drop everything whose clock has run out, as of `tick`.
  *
  * Returns the SAME array reference when nothing expired. Most cars are in no status on most ticks,

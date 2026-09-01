@@ -16,6 +16,11 @@ import { STATUS_STRIP_GAP_PX } from "./status-hud.js";
  * down by exactly its height: `slotBarLayout` takes it as a `topInset`, and the status strip follows
  * for free because it is anchored to the slots. Every constant below is therefore spending against
  * a budget three things draw from — see the arithmetic on {@link rosterPanelLayout}.
+ *
+ * There is a second, horizontal budget across one row, and Deathmatch's kills column is its fourth
+ * claimant: swatch, gap, name, count. The name column is the residual of the other three, so a
+ * caller cannot net its own column off afterwards — {@link rosterPanelLayout}'s `killsColumn` is
+ * where that is charged, and {@link ROSTER_KILLS_COLUMN_PX} is what it costs.
  */
 
 /** One player as the panel needs them. A structural subset of `PlayerState`, so the scene can pass
@@ -28,6 +33,8 @@ export interface RosterPlayer {
   readonly joinedAtTick: number;
   readonly alive: boolean;
   readonly status: PlayerStatus;
+  /** Shown only in Deathmatch; the panel's caller decides whether to draw the column. */
+  readonly kills: number;
 }
 
 /** One row to draw, in panel order. */
@@ -36,6 +43,8 @@ export interface RosterRow {
   readonly name: string;
   readonly colorId: number;
   readonly alive: boolean;
+  /** Shown only in Deathmatch; the panel's caller decides whether to draw the column. */
+  readonly kills: number;
 }
 
 /**
@@ -64,6 +73,7 @@ export function rosterRows(players: readonly RosterPlayer[]): RosterRow[] {
       name: player.name,
       colorId: player.colorId,
       alive: player.alive,
+      kills: player.kills,
     }));
 }
 
@@ -105,6 +115,21 @@ export const ROSTER_NAME_FONT_PX = 12;
  * budget rather than a measurement.
  */
 export const ROSTER_NAME_CHAR_PX = ROSTER_NAME_FONT_PX * 0.6;
+/**
+ * The kills column's width, charged only in Deathmatch — the mode whose scoreboard this is.
+ *
+ * Deliberately the swatch column's own two constants rather than a number of its own, so a row reads
+ * as a name between two equal gutters rather than a name with a count bolted onto its end, and so
+ * the panel keeps ONE set of measurements when either side moves.
+ *
+ * It is charged against the label column, and it has to be: without it `nameMaxChars` spends the
+ * whole gutter (13 characters is 93.6 px of a 94 px column at the shipped numbers), so a count
+ * right-aligned on the panel's edge would draw underneath any name using its full budget —
+ * reachable, not theoretical, since `FLOW_CONFIG.nameMax` is 16. 18 px affords a two-digit score
+ * with 3.6 px of air and still clears a three-digit one; `rosterPanelLayout`'s test pins that the
+ * longest legal name cannot reach either.
+ */
+export const ROSTER_KILLS_COLUMN_PX = ROSTER_SWATCH_PX + ROSTER_SWATCH_GAP_PX;
 
 /** One row's anchors: the swatch's rect, and where its name hangs off it. */
 export interface RosterRowBox {
@@ -128,8 +153,19 @@ export interface RosterPanelLayout {
    * it is today rather than insetting it by two paddings' worth of nothing.
    */
   readonly height: number;
-  /** Characters a name may draw before {@link truncateName} has to cut it. */
+  /**
+   * Characters a name may draw before {@link truncateName} has to cut it. Already net of the kills
+   * column when one was asked for, so the caller truncates to this and never does the subtraction
+   * itself.
+   */
   readonly nameMaxChars: number;
+  /**
+   * Right edge of the kills column — the mirror of the swatch column's left inset, and therefore
+   * the anchor for a right-origin count. Returned in every mode, because it is just the panel's
+   * right edge and a caller that draws no column simply never reads it; whether the column exists
+   * is the caller's own question, answered from the mode.
+   */
+  readonly killsX: number;
 }
 
 /**
@@ -154,19 +190,30 @@ export interface RosterPanelLayout {
  *
  * `HUD_GUTTER_WIDTH` does not grow to fit a long name (D12) — every pixel of the gutter is width the
  * whole picture loses to `FIT`, so names truncate to the column instead.
+ *
+ * `killsColumn` is Deathmatch's live scoreboard asking for its share of the row. It is a parameter
+ * rather than a mode read because this module knows nothing about modes — the caller answers
+ * `winRuleOf` and passes the result — and it defaults to **false** so every existing caller, and
+ * therefore Last Standing's and Team's panel, is laid out exactly as it was before Deathmatch
+ * existed. All it changes is `nameMaxChars`: the horizontal budget is a residual, so the only way to
+ * seat a fourth drawer is to charge it here.
  */
 export function rosterPanelLayout(
   count: number,
   viewWidth: number,
   gutterWidth: number,
+  killsColumn = false,
 ): RosterPanelLayout {
   const shown = Math.min(count, MAX_PLAYERS);
   const labelX = viewWidth - gutterWidth + ROSTER_PAD_X_PX + ROSTER_SWATCH_PX + ROSTER_SWATCH_GAP_PX;
-  // Both paddings, both insets: what is left of the gutter once the swatch column and the panel's
-  // own margins are paid for.
-  const labelWidth = viewWidth - ROSTER_PAD_X_PX - labelX;
+  const killsX = viewWidth - ROSTER_PAD_X_PX;
+  // Both paddings, both insets, and the kills column when there is one: what is left of the gutter
+  // once every other claim on it has been paid. The label column is the residual, which is the whole
+  // reason a fourth drawer has to be charged HERE rather than netted off by whoever draws it — see
+  // {@link ROSTER_KILLS_COLUMN_PX}.
+  const labelWidth = killsX - labelX - (killsColumn ? ROSTER_KILLS_COLUMN_PX : 0);
   const nameMaxChars = Math.max(1, Math.floor(labelWidth / ROSTER_NAME_CHAR_PX));
-  if (shown <= 0) return { rows: [], height: 0, nameMaxChars };
+  if (shown <= 0) return { rows: [], height: 0, nameMaxChars, killsX };
 
   const x = viewWidth - gutterWidth + ROSTER_PAD_X_PX;
   const pitch = ROSTER_ROW_HEIGHT_PX + ROSTER_ROW_GAP_PX;
@@ -190,6 +237,7 @@ export function rosterPanelLayout(
       (shown - 1) * ROSTER_ROW_GAP_PX +
       ROSTER_PAD_BOTTOM_PX,
     nameMaxChars,
+    killsX,
   };
 }
 

@@ -27,11 +27,13 @@ Two rows carry flags rather than modifiers. `stunned` is `fullStop` on top of th
 to 0 every tick, though shove and injected ram spin still resolve, so a slammed-then-stunned car still
 slides into the wall. `armored` is `invulnerable` alone: 0 damage from every source, weapon hits,
 contact hits and pulses alike — status riders still land, only hp loss stops. A flag is boolean and
-has no counterplay gradient, so every row that flips one is required to be `reapply: "ignore"` —
-except `armored`, `refresh` by a documented carve-out (`status-config.test.ts`'s
-`FLAG_REAPPLY_EXEMPT`): a repeatedly-refreshed invulnerability is a risk owned by whatever future
-applier grants it, the same way a stun's duty cycle is owned by its own applier's cooldown rather than
-by this rule.
+has no counterplay gradient, so every flag-carrying DEBUFF is required to be `reapply: "ignore"`,
+and a flag-carrying buff may be `refresh` only by declaring `chainable: true` on its own row
+(`status-config.test.ts` polices both, and that a chainable row is always a buff). `armored` and
+`phased` are the two chainable rows today: a repeatedly-refreshed invulnerability is a risk owned by
+whatever future applier grants it, the same way a stun's duty cycle is owned by its own applier's
+cooldown rather than by this rule, and `phased` (spawn protection) must be extendable by the room
+while a respawned car still overlaps someone.
 
 **A status does not own its duration** — the applier does (`WeaponDef.applies`, or the room's
 `statusRequests`), so `applyStatus` takes an explicit `durationTicks`. A status never stacks with

@@ -8,7 +8,7 @@ import {
   getArena,
   hasStatus,
   hullTouchesWorld,
-  isOnField,
+  isSolid,
   isWeaponId,
   resolveContacts,
   weaponDefOf,
@@ -105,9 +105,11 @@ function immuneMapFrom(slammed: ReadonlyMap<string, SlamRecord>): Map<string, nu
 }
 
 /**
- * Only living roster members on the field can contact or be contacted. A lobby player standing in
- * the room is not part of the fight, and a wreck is scenery — both still collide through
- * `resolveWorld`, they just neither deal nor take control loss.
+ * Only living roster members who are `isSolid` can contact or be contacted. A lobby player standing
+ * in the room is not part of the fight. A wreck is no longer merely "scenery that still collides" —
+ * it is not solid either, the same as a lobby player — and neither, now, is a car mid-phase (M14): a
+ * respawning car is driveable but must pass through everyone without dealing or taking a ram, a
+ * slam, or a dash hit.
  */
 function contactCarsOf(
   state: ArenaState,
@@ -120,8 +122,7 @@ function contactCarsOf(
   const cars: ContactCar[] = [];
   state.players.forEach((player, sessionId) => {
     if (!roster.has(sessionId)) return;
-    if (!isOnField(player)) return;
-    if (!player.alive) return;
+    if (!isSolid(player, tick)) return;
     const maneuverWeaponId = maneuverWeapons.get(sessionId) ?? "";
     cars.push({
       sessionId,
@@ -245,8 +246,10 @@ export function contactTick(
       continue;
     }
     if (tick >= entry.wallStunUntilTick) continue;
+    // `isSolid`, not `isOnField`: a victim who died and respawned phased inside the window is not
+    // in the world (M13/M14), and spawn protection must not be broken by a stun from the old life.
     const player = state.players.get(victimId);
-    if (!player || !isOnField(player)) continue;
+    if (!player || !isSolid(player, tick)) continue;
     if (!hullTouchesWorld(carHullOf(player.x, player.y, player.angle), arena.obstacles, bounds, SLAM_CONFIG.wallContactPad)) {
       continue;
     }

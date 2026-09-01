@@ -12,7 +12,7 @@ export type CanStartResult = { ok: true } | { ok: false; error: string };
 export function canStart(mode: GameMode, players: readonly StartRulePlayer[]): CanStartResult {
   const ready = players.filter((p) => p.status === "ready");
 
-  if (mode === GameMode.FFA) {
+  if (mode !== GameMode.TEAM) {
     if (ready.length < 2) {
       return { ok: false, error: "Need at least 2 ready players" };
     }

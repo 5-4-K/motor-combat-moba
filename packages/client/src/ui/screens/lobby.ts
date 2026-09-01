@@ -1,4 +1,4 @@
-import { GameMode } from "@motor-combat-moba/shared";
+import { DEATHMATCH_CONFIG, GameMode } from "@motor-combat-moba/shared";
 import { button, h, svg } from "../dom.js";
 import type { LobbySlot, LobbyView } from "../lobby-view.js";
 
@@ -22,7 +22,7 @@ const SWAP_ARROWS =
 
 const MODE_CARDS = [
   {
-    id: GameMode.FFA,
+    id: GameMode.FFA_LAST_STANDING,
     name: "Brawl",
     kicker: "Free-for-all",
     body: "Everyone fights everyone. Last car driving takes the round.",
@@ -36,6 +36,18 @@ const MODE_CARDS = [
     body: "Two teams, shared victory. Last team with a car standing wins.",
     metaA: "2v2 – 3v3",
     metaB: "Last team standing",
+  },
+  {
+    id: GameMode.FFA_DEATHMATCH,
+    name: "Deathmatch",
+    kicker: "Free-for-all",
+    // Kept close in length to the two cards beside it: all three sit in one grid row, so the longest
+    // body sets the height of the row and this one is the only card that can make it tall. The
+    // respawn delay is read rather than spelled out, so retuning `respawnDelaySeconds` cannot leave
+    // the host reading a number the room no longer plays by.
+    body: `Everyone fights everyone. Dying costs ${DEATHMATCH_CONFIG.respawnDelaySeconds} seconds, not the round. Most kills on the clock wins.`,
+    metaA: "2-6 players",
+    metaB: `${DEATHMATCH_CONFIG.matchSeconds / 60} minutes`,
   },
 ];
 
@@ -166,7 +178,11 @@ function modesModal(view: LobbyView, menus: LobbyMenus, handlers: LobbyHandlers)
       ]),
       h(
         "div",
-        { style: "display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 22px;" },
+        // One column per mode. Was `1fr 1fr` from when there were two modes, which dropped
+        // Deathmatch alone onto a second row at half width — on the one screen where the host
+        // decides whether to try it. Three columns in a 760px modal, less 32px padding either side
+        // and two 18px gaps, is ~230px a card.
+        { style: "display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px; margin-top: 22px;" },
         MODE_CARDS.map((mode) => {
           const active = mode.id === menus.pendingMode;
           const card = h(

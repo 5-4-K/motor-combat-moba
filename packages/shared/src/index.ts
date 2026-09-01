@@ -97,7 +97,7 @@ export type { PoseEntry, PoseSnapshot } from "./sim/weapons/hits.js";
 export { beamShapeAt, projectileShapeAt, shapeHitsObb, smear } from "./sim/weapons/shapes.js";
 export type { WorldShape } from "./sim/weapons/shapes.js";
 export type { Aabb, Bounds, Obb, Vec2 } from "./sim/collide.js";
-export { carHullOf, carIdOf, isOnField, otherCarHulls } from "./sim/context.js";
+export { carHullOf, carIdOf, isOnField, isSolid, otherCarHulls } from "./sim/context.js";
 export type { ContextEntry, ContextPlayer } from "./sim/context.js";
 
 export type { CarDef, CarId, ColorDef } from "./config/types.js";
@@ -170,6 +170,7 @@ export {
   expireStatuses,
   expireStatusesFromSource,
   hasStatus,
+  isPhasedAt,
   modifiersFromRows,
   newStatusState,
   remainingTicks,
@@ -183,6 +184,7 @@ export { AIM_CONFIG, AIM_TICKS } from "./config/aim-config.js";
 export type { AimTicks } from "./config/aim-config.js";
 export { CAMERA_CONFIG, DRIVE_CONFIG } from "./config/drive-config.js";
 export { FLOW_CONFIG } from "./config/flow-config.js";
+export { DEATHMATCH_CONFIG, DEATHMATCH_TICKS } from "./config/deathmatch-config.js";
 export { NET_CONFIG } from "./config/net-config.js";
 
 export type { ArenaDef, Obstacle, Spawn } from "./arena/types.js";
@@ -205,6 +207,9 @@ export type { StatusInput, ViewId } from "./lobby/status.js";
 export { reduceFlow } from "./flow/match-flow.js";
 export type { FlowStatus, FlowPlayer, FlowState, FlowEvent } from "./flow/match-flow.js";
 export { assignSpawns } from "./flow/spawns.js";
-export { livingSides } from "./flow/win.js";
-export type { LivingPlayer, LivingSidesResult } from "./flow/win.js";
+export { sidesOf, winRuleOf } from "./flow/modes.js";
+export { farthestSpawn, isDueToRespawn, phaseDecision } from "./flow/respawn.js";
+export type { PhaseAction, PhaseInput } from "./flow/respawn.js";
+export { deathmatchEnded, deathmatchOutcome, livingSides } from "./flow/win.js";
+export type { DeathmatchPlayer, LivingPlayer, LivingSidesResult } from "./flow/win.js";
 

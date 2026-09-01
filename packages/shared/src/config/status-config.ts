@@ -165,9 +165,9 @@ export const STATUS_TABLE = {
   },
   /**
    * Takes 0 damage (O7). No applier yet — the second pickup-tier row beside `overhauled`,
-   * reachable through `statusRequests` the day something grants it. `refresh` breaks the
-   * flag-rows-are-ignore rule with a documented carve-out: the risk of a refreshed
-   * invulnerability belongs to its future applier.
+   * reachable through `statusRequests` the day something grants it. `refresh` on a flag row is
+   * only legal because the row declares itself `chainable` — a buff-only escape hatch — and the
+   * risk of a refreshed invulnerability belongs to its future applier.
    */
   armored: {
     id: "armored",
@@ -175,8 +175,30 @@ export const STATUS_TABLE = {
     kind: "buff",
     color: "#868e96",
     reapply: "refresh",
+    chainable: true,
     modifiers: {},
     flags: ["invulnerable"],
+  },
+  /**
+   * Spawn protection: the car is not in the world (M13, M18).
+   *
+   * Not a new mechanic — the game already had this. `isOnField` reads `alive`, so a wreck is already
+   * dropped from every collision list, every ram pair and every target list; this is that same
+   * condition held a moment past the respawn.
+   *
+   * It scales nothing. Its whole effect is the flag, and its duration is the applier's as always —
+   * the room's, from `DEATHMATCH_TICKS`. `refresh` because the phase must be extendable while the
+   * car is still overlapping someone, which is what `chainable` exists to permit.
+   */
+  phased: {
+    id: "phased",
+    name: "Phasing",
+    kind: "buff",
+    color: "#4dabf7",
+    reapply: "refresh",
+    chainable: true,
+    modifiers: {},
+    flags: ["phased"],
   },
 } as const satisfies Record<StatusId, StatusDef>;
 

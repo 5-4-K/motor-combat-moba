@@ -444,12 +444,14 @@ strips. A row whose kind is wrong is a rule bug.
   therefore never cut a long one down. Anything applied repeatedly by a lingering source wants this;
   an aura especially, since `ignore` would make a car standing inside one watch the status lapse and
   re-arm on a loop.
-- **`ignore`** — nothing happens at all, not even the clock. The anti-chain rule, and every row that
-  flips a flag is required to use it (`status-config.test.ts` enforces that) — with one documented
-  exemption: `armored` is `refresh`. A repeatedly-refreshed invulnerability is a real design risk, and
-  the test carries the carve-out explicitly (`FLAG_REAPPLY_EXEMPT`), owning the risk on whatever
-  future applier grants the status rather than on this rule. Every other flag row — `stunned` today —
-  stays `ignore`, so two attackers cannot hold one car stunned between them.
+- **`ignore`** — nothing happens at all, not even the clock. The anti-chain rule: every
+  flag-carrying DEBUFF is required to use it, and a flag-carrying BUFF may escape only by declaring
+  `chainable: true` on its own row (`status-config.test.ts` enforces both, and that a chainable row
+  is always a buff, which is what keeps the CC hole closed). `armored` and `phased` are the two
+  chainable `refresh` rows today — a repeatedly-refreshed invulnerability is a risk owned on whatever
+  future applier grants it, and spawn protection must be extendable while a respawned car still
+  overlaps someone. Every flag-carrying debuff — `stunned` today — stays `ignore`, so two attackers
+  cannot hold one car stunned between them.
 
 There is no third option that compounds magnitude. **A status never stacks with itself** — one id on
 one car is exactly one instance at exactly the strength its row states. Different statuses touching
@@ -617,6 +619,35 @@ seconds and the camera's trailing offset is 12% of the half-view.
 | `countdownSeconds` | 3 |
 | `nameMin` | 1 |
 | `nameMax` | 16 |
+
+## DEATHMATCH_CONFIG
+
+`packages/shared/src/config/deathmatch-config.ts`. Networked balance, not render preference — the
+room's respawn sweep and the client's HUD both derive from it, so the two must agree. Read only in
+`FFA_DEATHMATCH` (`winRuleOf(mode) === "deathmatch"`); no car in any other mode is ever `phased`. See
+[`combat-model.md`](combat-model.md#the-respawn-lifecycle).
+
+| Knob | Value | Rationale |
+|---|---|---|
+| `matchSeconds` | 300 | Five minutes — long enough for the lead to change hands more than once |
+| `respawnDelaySeconds` | 5 | Long enough to sting, short enough not to be a spectate sentence |
+| `phaseSeconds` | 1.5 | The minimum spawn-protection window after respawn |
+| `phaseMaxSeconds` | 3 | The hard cap on protection (contact-clear, below), twice the minimum |
+
+All four are first-pass numbers meant to be re-tuned from play. They sequence deliberately: 3 s of
+"[name] killed you," then 2 s of respawn countdown, then a return to the field with 1.5 s of
+protection.
+
+`DEATHMATCH_TICKS` (`match` / `respawnDelay` / `phase` / `phaseMax`) converts each once at module
+load, the same `WEAPON_TICKS` / `STATUS_PULSE_TICKS` pattern — the sim reads only the derived ticks,
+never raw seconds.
+
+`phaseMaxSeconds` is belt-and-braces, not load-bearing: `phaseSeconds` is a **minimum**, not a fixed
+window — the phase actually ends on whichever comes first of the timer, a clear contact test (no
+overlap with any other solid car — "contact-clear" in the glossary), or the player committing a
+press. Parking on a phased car to hold it intangible past the minimum is weak griefing, since the
+camper cannot damage it and is only delaying their own shot; `phaseMaxSeconds` is what stops that
+delay being indefinite.
 
 ## NET_CONFIG
 

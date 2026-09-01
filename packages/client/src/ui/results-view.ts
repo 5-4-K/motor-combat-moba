@@ -4,10 +4,8 @@ import { modeLabel } from "./lobby-view.js";
 /**
  * Room state to everything the post-match screen draws. Pure, for the same reason `lobby-view.ts` is.
  *
- * K/D/A render as zeroes on purpose. The columns are in the design and the table is built to carry
- * them, but nothing in `stepSim` attributes a kill to an attacker yet — inventing numbers here would
- * be worse than showing honest zeroes, and wiring real attribution touches the weapon-damage rules,
- * which is its own conversation.
+ * K and D are real as of 2026-09-01. A stays zero on purpose: the game attributes a kill to whoever
+ * dealt damage last and tracks no assists at all, so an assist column would be inventing a number.
  */
 
 const FALLBACK_HEX = "#888888";
@@ -39,6 +37,8 @@ export interface ResultsViewPlayer {
   team: number;
   carId: string;
   status: PlayerStatus;
+  kills: number;
+  deaths: number;
 }
 
 export interface ResultsViewState {
@@ -84,8 +84,8 @@ function rows(players: readonly ResultsViewPlayer[], localSessionId: string): St
     hex: COLOR_TABLE[p.colorId]?.hex ?? FALLBACK_HEX,
     carImage: `url("art/cars/${p.carId || FALLBACK_CAR}.png")`,
     isYou: p.sessionId === localSessionId,
-    k: 0,
-    d: 0,
+    k: p.kills,
+    d: p.deaths,
     a: 0,
   }));
 }

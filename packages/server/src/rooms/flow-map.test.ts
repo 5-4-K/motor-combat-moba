@@ -1,19 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { GameMode, PlayerStatus, RoomPhase } from "@motor-combat-moba/shared";
+import { PlayerStatus, RoomPhase } from "@motor-combat-moba/shared";
 import {
   fromFlowPhase,
   fromFlowStatus,
-  toFlowMode,
   toFlowPhase,
   toFlowStatus,
 } from "./flow-map.js";
 
-describe("toFlowMode / fromFlowPhase", () => {
-  it("maps GameMode to flow mode strings", () => {
-    expect(toFlowMode(GameMode.FFA)).toBe("ffa");
-    expect(toFlowMode(GameMode.TEAM)).toBe("team");
-  });
-
+describe("fromFlowPhase / toFlowPhase", () => {
   it("maps RoomPhase to flow phase strings and back", () => {
     expect(toFlowPhase(RoomPhase.LOBBY)).toBe("lobby");
     expect(toFlowPhase(RoomPhase.CAR_SELECT)).toBe("car_select");

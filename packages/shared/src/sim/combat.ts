@@ -85,6 +85,21 @@ export interface CombatPlayer {
    * `isUnInterruptable`. Never networked — `stepSim` reads the four numeric fields, not this.
    */
   maneuverWeaponId: WeaponId | "";
+  /**
+   * Who last took hp off this car, or `""` if nothing has.
+   *
+   * The whole of kill attribution (M5–M7). There is no damage ledger and no contribution window,
+   * because there are no assists: the last point of damage decides the kill outright.
+   *
+   * Carried in and back out like `fireState` and `lock`, and server-only for the same reason — the
+   * client does not predict damage, so putting it on the wire would patch a string to everyone at
+   * the tick rate for nothing. `stepSim` never reads it, so invariant 8 does not apply.
+   *
+   * This is well-defined for every death in the game: status pulses already carry
+   * `sourceSessionId`, and contact hits are priced with their attacker. There is no world kill to
+   * attribute to nobody.
+   */
+  lastDamagerSessionId: string;
 }
 
 /** Reset a car's four maneuver fields to neutral and drop its `maneuverWeaponId` (O8/O14). */
@@ -219,6 +234,25 @@ export function runCombat(input: CombatInput): CombatResult {
   );
   const modsOf = (sessionId: string): Readonly<Modifiers> =>
     modifiersFor.get(sessionId) ?? NEUTRAL_MODIFIERS;
+  /**
+   * Spawn protection, on the TARGET side only (M13).
+   *
+   * A phasing car is not present in the world: not a collider, not a ram partner, not a weapon
+   * target, not an aim-assist lock candidate. Collision and the ram pair list got that through
+   * `otherCarHulls` (M15); this is combat's half of the same promise. It reads the answer off the
+   * modifiers derived once above rather than re-scanning the status rows, so there is exactly one
+   * derivation per car per tick and every phase below sees the same one.
+   *
+   * Deliberately NOT folded into `isFighting`, which gates firing as well as being hit. A phased
+   * car must still be able to shoot: M23's first termination condition is "the player commits a
+   * press", so the firing path has to run for them, or spawn protection becomes unbreakable by
+   * firing and the state machine quietly changes shape. Gate the three places a car is looked at as
+   * a target; leave every place it acts alone.
+   */
+  const isPhasedOf = (sessionId: string): boolean => modsOf(sessionId).phased;
+  /** In the fight AND actually present: the gate for everything that treats a car as a target. */
+  const isTargetable = (player: CombatPlayer): boolean =>
+    isFighting(player) && !isPhasedOf(player.sessionId);
 
   // 0b. Burn and repair, before anything else this tick can act. A car whose bleed kills it here is
   // `alive: false` for every phase below, so it does not get a parting shot — which is the right
@@ -233,7 +267,9 @@ export function runCombat(input: CombatInput): CombatResult {
       // Deliberately NOT scaled by `damageTaken`: that channel is about incoming *weapon* damage,
       // and letting one status amplify another's bleed would compound two rows into a number
       // neither of them states. A pulse deals what its row says it deals.
-      if (pulse.damage > 0) dealDamageTo(player, pulse.damage, modsOf(player.sessionId));
+      if (pulse.damage > 0) {
+        dealDamageTo(player, pulse.damage, modsOf(player.sessionId), pulse.sourceSessionId);
+      }
       // `applyHeal` refuses to lift a wreck off 0, so a repair landing on the tick a bleed killed
       // its target cannot un-eliminate them.
       if (pulse.heal > 0) player.hp = applyHeal(player.hp, pulse.heal, hpOf(carIdOf(player)));
@@ -269,7 +305,7 @@ export function runCombat(input: CombatInput): CombatResult {
     const base = weaponDamageOf(attacker ? carIdOf(attacker) : DEFAULT_CAR_ID, hit.weaponId);
     const dealt = scaleDamage(base, attacker ? modsOf(hit.attackerSessionId).damageDealt : 1);
     const targetMods = modsOf(hit.targetSessionId);
-    dealDamageTo(target, scaleDamage(dealt, targetMods.damageTaken), targetMods);
+    dealDamageTo(target, scaleDamage(dealt, targetMods.damageTaken), targetMods, hit.attackerSessionId);
     applyOpponentStatuses(target, hit.weaponId, world.tick, hit.attackerSessionId, true);
   }
 
@@ -322,8 +358,12 @@ export function runCombat(input: CombatInput): CombatResult {
   //
   // A car wrecked by THIS tick's hit resolution is still locked until the next tick's update: the
   // same one-tick seam the pose snapshot already accepts, worth at most one shot at 30 Hz.
+  //
+  // A car under spawn protection is not a candidate: `isTargetable`, not `isFighting`, because a
+  // phasing car may still hold and use a lock of its own — the OWNER gate a few lines below stays
+  // `isFighting` for exactly that reason.
   const lockTargets: LockTarget[] = players
-    .filter(isFighting)
+    .filter(isTargetable)
     .map((p) => ({ sessionId: p.sessionId, team: p.team, x: p.x, y: p.y }));
 
   for (const player of players) {
@@ -386,7 +426,7 @@ export function runCombat(input: CombatInput): CombatResult {
         applySelfStatuses(player, order.weaponId, world.tick, order.finalVolley);
         continue;
       }
-      const aim = aimAngleFor(player, order.weaponId, byId);
+      const aim = aimAngleFor(player, order.weaponId, byId, isPhasedOf);
       // A homing shot needs both a live lock AND a successful aim assist — `aim === null` means the
       // lock was out of range, absent, or the weapon declined assist for some other reason, and
       // firing a rocket that steers toward a target it did not actually aim at would be a stealth
@@ -412,8 +452,13 @@ export function runCombat(input: CombatInput): CombatResult {
   }
 
   // 4. Hits, against a snapshot rather than player state (the lag-compensation seam).
+  //
+  // `isTargetable` drops a phasing car from the snapshot entirely, which is what makes M13's
+  // "invulnerability falls out of intangibility" literally true here: the shot never sees the car,
+  // so it deals no damage, spends no pierce, is not stopped by it, and lands none of its on-hit
+  // statuses. That is precisely what the rejected `damageTaken: 0` could not buy.
   const snapshot: PoseSnapshot = players
-    .filter(isFighting)
+    .filter(isTargetable)
     .map((p) => ({ sessionId: p.sessionId, team: p.team, hull: carHullOf(p.x, p.y, p.angle) }));
 
   const survivors: WeaponInstance[] = [];
@@ -443,7 +488,12 @@ export function runCombat(input: CombatInput): CombatResult {
       // `hit.amount` may legitimately be 0: a pure applicator weapon still registers a hit, because
       // a status rides the hit rather than the number.
       const targetMods = modsOf(hit.sessionId);
-      dealDamageTo(target, scaleDamage(hit.amount, targetMods.damageTaken), targetMods);
+      dealDamageTo(
+        target,
+        scaleDamage(hit.amount, targetMods.damageTaken),
+        targetMods,
+        instance.ownerSessionId,
+      );
       // Statuses ride the DAMAGE list, so they inherit its rules for free: friendly fire, the
       // shooter's own immunity, wrecks, pierce, and the per-target damage clock that stops a
       // lingering beam re-applying every single tick.
@@ -485,7 +535,14 @@ export function runCombat(input: CombatInput): CombatResult {
   return { players, instances: kept, instanceSeq };
 }
 
-/** In the match and not yet a wreck: the gate for firing and being shot alike. */
+/**
+ * In the match and not yet a wreck: the gate for ACTING — firing, holding a lock, keeping an
+ * attached beam alive, receiving a status the room asked for.
+ *
+ * Being *shot at* is the strictly narrower `isTargetable` inside `runCombat`, which adds "and not
+ * phasing". Do not merge the two: see the note on `isPhasedOf` for what folding `phased` in here
+ * would break.
+ */
 function isFighting(player: CombatPlayer): boolean {
   return player.inRoster && player.alive;
 }
@@ -505,11 +562,19 @@ export function aimAngleFor(
   player: CombatPlayer,
   weaponId: WeaponId,
   byId: ReadonlyMap<string, CombatPlayer>,
+  isPhased: (sessionId: string) => boolean,
 ): number | null {
   if (!weaponDefOf(weaponId).usesAimAssist) return null;
   if (player.lock.targetSessionId === "") return null;
   const target = byId.get(player.lock.targetSessionId);
   if (!target || !isFighting(target)) return null;
+  // A lock outlives by one tick the event that invalidates it — `updateLock` runs before hits, and
+  // dropping a car from `lockTargets` only stops the NEXT acquisition, never the lock already held.
+  // Without this guard that one stale tick curves a shot into a car spawn protection says is not
+  // there. `isPhased` is a parameter rather than something derived here so `runCombat`'s single
+  // per-tick derivation stays the only reading of the flag anywhere in combat; it is required, not
+  // optional, so a future call site has to answer the question rather than inherit "no".
+  if (isPhased(target.sessionId)) return null;
   const def = weaponDefOf(weaponId);
   // Per-weapon range gate (spec S1): a lock the car holds through its longest assisted weapon may
   // still be out of THIS weapon's reach — then the weapon declines the assist and fires straight.
@@ -708,9 +773,21 @@ function applyOpponentStatuses(
  * of what moves `hp`, for the opposite direction. `invulnerable` zeroes the amount — the hit still
  * happened (pierce spent, statuses ride, the clock arms); only the hp change is refused. 0 hp is
  * the wreck: the car stays on the field, inert.
+ *
+ * `sourceSessionId` is stamped only when the hit actually costs hp (M5–M7). A pure applicator
+ * weapon legitimately deals 0 and still registers as a hit, and an armored car loses nothing —
+ * letting either claim the kill would credit a player who never scratched the target.
  */
-export function dealDamageTo(player: CombatPlayer, amount: number, mods: Readonly<Modifiers>): void {
-  if (!mods.invulnerable) player.hp = applyDamage(player.hp, amount);
+export function dealDamageTo(
+  player: CombatPlayer,
+  amount: number,
+  mods: Readonly<Modifiers>,
+  sourceSessionId: string,
+): void {
+  if (!mods.invulnerable) {
+    if (amount > 0 && sourceSessionId !== "") player.lastDamagerSessionId = sourceSessionId;
+    player.hp = applyDamage(player.hp, amount);
+  }
   if (player.hp === 0) player.alive = false;
 }
 
