@@ -68,146 +68,166 @@ export const SLOT_ROLES = [
   { name: "Ultimate", line: "A commitment. Used properly, it wins the fight." },
 ];
 
+// Prose for the 2026-09-01 weapon-status overhaul roster: `fireball`, `needler`, `skewer` and
+// `bulwark` are retired outright (their copy history lives in git); `shockwave` is redefined from
+// the retired Mirage aura into Bullseye's fast opener; `predator`, `thunderclap`, `roadblock` and
+// `wildcharge` are new. `afterburner`, `pepperbox`, `lance` and `thumper` keep their old ids but
+// pick up new behaviour (two-cone afterburner, four-muzzle pepperbox, held-and-steered lance, a
+// bouncing spiking thumper) and are rewritten below to match.
 export const WEAPON_COPY = {
-  fireball: {
-    tagline: "The shot everyone knows.",
-    shape: "Ember bolt · locks on",
+  predator: {
+    tagline: "A rocket that remembers who it was fired at.",
+    shape: "Homing rocket · locks on",
     what:
-      "Not quite twice a second, out to seven tenths of the arena, with a 24-unit disc for a " +
-      "hitbox — three quarters of a car's width. It finds its own target inside 400 units, so the " +
-      "only thing you have to do is keep the trigger warm.",
+      "Fired with a lock, it chases the frozen target for 1.2 seconds at 120 degrees per second — a " +
+      "turning circle Mirage and Bullseye can corner inside and Bastion mostly cannot. Fired bare, " +
+      "with no lock, it is just a slow straight shot. Either way, a hit leaves the target corroded " +
+      "for two seconds.",
     how:
-      "This is the yardstick every other weapon in the game is read against: five and a half " +
-      "unbroken seconds of Fireball kills an average car, and 50 a shot is where that comes from.",
+      "600 units a second is the second-slowest aimed shot in the game — reactable at range, which " +
+      "is the trade for guidance nobody can outrun in a straight line. Corroded stacks with whatever " +
+      "the rest of the kit does next: a target that eats a Predator takes a third more from " +
+      "everything that follows it.",
     tip:
-      "Never stop pressing it. Fireball has zero recovery, so it gates nothing — you can keep " +
-      "throwing bolts into a target while your Afterburner is already cooking them.",
+      "Lead with it before you commit. The corrode window is short, so whatever finishes the fight " +
+      "— Thunderclap, Afterburner, a teammate's shot — needs to land while it is still ticking, not " +
+      "after.",
   },
-  pepperbox: {
-    tagline: "A drive-by, in three pieces.",
-    shape: "One fan of three · 12° spread · locks on",
+  thunderclap: {
+    tagline: "A lunge that ends the fight where it lands.",
+    shape: "Dash · hits the first car it touches · locks on",
     what:
-      "Three pellets on a single trigger pull, thrown across a narrow fan out to just under half " +
-      "the arena. The whole spread is decided on the tick you press — where your nose points at " +
-      "that instant is where the fan goes, and nothing you do afterwards moves it.",
+      "A 400-unit lunge toward the lock, covering the distance in well under a second. The first " +
+      "enemy hull it touches takes the hit and stops dead — stunned for a full second — and the " +
+      "dash ends right there, on top of them. A wall ends it just as hard, with nothing to show for " +
+      "it.",
     how:
-      "All three connecting is a bit over a quarter of an average car, on a rhythm that sustains " +
-      "almost exactly what Needler does. They are a pair, not a favourite and a spare: one dart " +
-      "far out, one cone up close.",
+      "Only the first car it touches matters: a dash that clips two cars in the same tick still " +
+      "only hits one. That is the whole trade of a maneuver weapon — no instance to dodge, no " +
+      "travel time to react to, just whether you are still there when it lands.",
     tip:
-      "Fire it on the pass. The fan is fixed at the press, so the closer you are the more of it " +
-      "lands — which makes it a closing tool rather than a poke, whatever the lock does for you.",
+      "Use it to close, not to open from range — it is not a ranged threat, it is the last few " +
+      "metres. Landing it stuns them right as you arrive, which is exactly when Afterburner wants " +
+      "them held still.",
   },
   afterburner: {
-    tagline: "Catch them. Then cook them.",
-    shape: "Flame cone · welded to your nose · ticks",
+    tagline: "The same flame, now pouring from both ends.",
+    shape: "Flame cone · welded to your nose and tail · ticks",
     what:
-      "A wide cone bolted to the front of the car for a little over two seconds, burning everything " +
-      "inside it five times a second. It sweeps as you steer, and it dies the instant you do.",
+      "Two mirrored cones, one off the nose and one off the tail, burning everything inside either " +
+      "of them five times a second for a little over two seconds. It sweeps as you steer, and both " +
+      "cones die the instant you do.",
     how:
-      "Held on a target for the full duration it is over half an average car's health. A four or " +
-      "five tick sweep on a drive-by is still the biggest press in the kit.",
+      "The per-cone numbers are unchanged from a single flame; the ceiling only doubles against a " +
+      "target somehow held in both cones at once, which in practice means someone chasing you " +
+      "through your own exhaust. Recovery is tiny on purpose — the beam lives on its own once " +
+      "spawned, so you stay free to keep firing Predator into a target that is already burning.",
     tip:
-      "Press it when you are already on somebody's bumper. No other chassis can catch a fleeing " +
-      "car — this is what turns the catch into a kill. Recovery is tiny on purpose: keep firing " +
-      "Fireball the whole time it burns.",
-  },
-  needler: {
-    tagline: "Three darts. Spend them well.",
-    shape: "Banked darts · thin and fast · locks on",
-    what:
-      "A single thin dart, quick and long-ranged, and it finds its own target. It used to hold " +
-      "three shots in reserve; that magazine is gone.",
-    how:
-      "One dart per recharge, and the recharge is the whole weapon now — there is nothing to bank " +
-      "and nothing to dump. It reaches further than anything else you can fire this often, which " +
-      "is the entire argument for it.",
-    tip:
-      "This is the shot you take while you are backing away. It will not win a stand-up fight on " +
-      "its own any more, so use the range: land it on the approach, and be somewhere else by the " +
-      "time they arrive.",
-  },
-  skewer: {
-    tagline: "Line them up.",
-    shape: "Piercing bolt · passes through two cars · locks on",
-    what:
-      "A long, thin bolt that reaches about half the arena and does not stop at the first car it " +
-      "hits. Short wind-up before it leaves, and two thirds of a second in the air over its full " +
-      "reach — long enough to be dodged if they see it coming.",
-    how:
-      "Pierce counts cars AFTER the first, so this is two cars, not one. Catching a second body on " +
-      "the same line very nearly doubles the press, and it is still the biggest non-ultimate press " +
-      "in the game.",
-    tip:
-      "It is a lunge, not a poke. You have to be inside half the arena on the slowest chassis " +
-      "there is, and you cannot reposition to fix a miss — so the lock helps you inside 400 units " +
-      "and nothing helps you past that. Finding the line is still your job.",
-  },
-  lance: {
-    tagline: "Seven tenths of a second of nerve.",
-    shape: "Stamped beam · one hit per car · locks on up close",
-    what:
-      "A long wind-up during which you are a stationary, visible, extremely soft target. Then a " +
-      "narrow beam stamped clean across the arena, effectively instantly. It hits each car once and " +
-      "is gone.",
-    how:
-      "The wind-up is only half the cost. A full second of recovery afterwards means a miss buys " +
-      "your opponent a free second as well. The lock only reaches 400 units of the beam's 1200, so " +
-      "for most of its length this is a shot you aim yourself.",
-    tip:
-      "Fire it at somebody who cannot spend the next three quarters of a second dodging: cornered, " +
-      "mid-commitment, or standing behind a second car so the beam catches both. On this hull, a " +
-      "whiff is close to a death sentence.",
-  },
-  thumper: {
-    tagline: "Slow, fat, and hard to argue with.",
-    shape: "Heavy slug · biggest projectile in the game · locks on",
-    what:
-      "A lumbering shell with the largest projectile hitbox in the game. It takes well over a " +
-      "second to cross its own range, so at distance it is genuinely dodgeable — and in a brawl it " +
-      "is near-unmissable. Everything it hits is stunned: no engine, no steering, no trigger.",
-    how:
-      // NOT "the longest crowd control any chassis carries": bulwark's spiked and fortified both
-      // run longer. What this row alone carries is a full lockout, not a longer clock.
-      "Bastion is slower than everything else on the map, and this is the button that fixes that. " +
-      "The stun is the roster's only hard CC — the one status that takes the car away instead of " +
-      "just slowing it down — and it is short on purpose: an interrupt window, not a sentence. It " +
-      "comes off a one-second cooldown, too fast to bait out, so it has to be dodged.",
-    tip:
-      "It buys a window, not a kill. Land it, then spend the stun closing the gap you could never " +
-      "close by driving. Everything else Bastion owns happens inside that window.",
+      "Press it when you are on somebody's bumper, or when somebody is on yours. No other chassis " +
+      "can catch a fleeing car, and now nothing catches Mirage either — the tail cone overheats " +
+      "whoever tries.",
   },
   shockwave: {
-    tagline: "Three times, or not at all.",
-    shape: "Three rings around the car · half a second apart · one hit per car per ring",
+    tagline: "Bullseye's bread and butter.",
+    shape: "Straight bolt · locks on",
     what:
-      "One press, three separate rings. Each expands out of the car for a quarter of a second and " +
-      "hits every enemy it reaches exactly once — behind you as readily as in front — and the next " +
-      "one arrives half a second later. The whole press takes a second and a quarter to finish.",
+      "A fast, straight bolt and Bullseye's bread and butter. Nothing fancy — it arrives quickly, " +
+      "often, and exactly where the assist points it. Not quite twice a second, out to seven " +
+      "tenths of the arena, with a 24-unit disc for a hitbox — three quarters of a car's width.",
     how:
-      "It is not aimed at all. It is triggered, and it moves with you, so the question is never " +
-      "where you are pointing — it is whether they are still beside you when ring three goes off. " +
-      "Only that last ring corrodes, and corroded cars take a third more from everything.",
+      "This is the yardstick every other weapon on this chassis is read against: at that rate, " +
+      "sustained fire from close range adds up fast, and the aim assist means you rarely have to " +
+      "think about it. It is the reason Bullseye can afford to spend its other two slots on " +
+      "weapons that ask more of you.",
     tip:
-      "Press it as you arrive, not as you leave. Driving straight through somebody keeps them " +
-      "inside all three rings; peeling off after the first throws two thirds of the press away, " +
-      "and the debuff that sets up your Afterburner with it.",
+      "Never stop pressing it. Shockwave has no recovery, so it gates nothing — you can keep it " +
+      "running between presses of Pepperbox or while Lance winds up.",
   },
-  bulwark: {
-    tagline: "You may not come in.",
-    shape: "Stamped zone · ticks · lingers",
+  pepperbox: {
+    tagline: "Twelve darts, one press.",
+    shape: "Four-way spray · no lock",
     what:
-      "A wide cone dropped into the world and left there for nearly four seconds, re-arming " +
-      "against anything still inside it every four tenths of a second. It grows out over a full " +
-      "second, so it is visible before it is dangerous. Anything it catches is spiked: slowed, and " +
-      "bleeding for as long as the spikes hold.",
+      "One press, twelve darts: a three-dart, 12° fan fires from the nose, the tail, and both " +
+      "flanks at once. The panic button that punishes anyone who closes in — or the drive-by that " +
+      "clips everyone around you as you pass.",
     how:
-      "It cannot hurt you, and there is no friendly fire. You can park inside your own Bulwark. " +
-      "That asymmetry is most of the weapon: it is not a hazard, it is an exclusion zone. Ten " +
-      "ticks on a car that never leaves makes it the hardest single press in the game.",
+      "Per-target reality is one fan: the four muzzles are 90 degrees apart, so at most one lines " +
+      "up with any single car, and that fan is still 135 damage if all three darts land. No lock " +
+      "steers a spray firing in four directions at once — where your nose points at the press is " +
+      "where all four fans go.",
     tip:
-      "Drop it on yourself to become unapproachable for four seconds, or lay it across the only " +
-      "path between an enemy and their escape. Damage is the secondary output — the ground is the " +
-      "point. But never treat it as a wall you can drive through.",
+      "Fire it when someone is already on top of you, or when you are threading a pass through a " +
+      "crowd. It punishes proximity from any direction, which is exactly what a lock-on weapon " +
+      "cannot do.",
+  },
+  lance: {
+    tagline: "Stand still, then sweep the line.",
+    shape: "Held beam · steer while it fires · no lock",
+    what:
+      "Seven hundred milliseconds standing still and visible, then a beam that grows to full " +
+      "extent almost instantly and lingers a second and a half — all of it steerable, because the " +
+      "car is held rather than stopped. The wheel still works; the beam sweeps wherever you turn " +
+      "it.",
+    how:
+      "The old aim-assist argument no longer applies: a lock could once steer a stamped beam, but " +
+      "this one sweeps live under your own hands while the car is held, which is a strictly " +
+      "stronger form of aim. Windup plus growth plus linger is about 2.4 seconds committed end to " +
+      "end, before the second of recovery after — the roster's biggest single-press risk, paid up " +
+      "front, during, and after all at once.",
+    tip:
+      "Fire it at somebody who cannot spend the next two and a half seconds finding cover — " +
+      "cornered, mid-commitment, or lined up with a second car so the sweep catches both. A whiff " +
+      "on this hull is close to a death sentence.",
+  },
+  thumper: {
+    tagline: "It doesn't stop at the wall any more.",
+    shape: "Bouncing slug · biggest projectile in the game · locks on",
+    what:
+      "The largest projectile hitbox in the game, and it no longer dies against level geometry — " +
+      "it bounces off walls until it finds someone or its nearly-three-second flight clock runs " +
+      "out. Whatever it finds, it spikes: 40% slower for three seconds, with no bleed.",
+    how:
+      "Hard CC has moved on to Roadblock; this is the bouncing pressure shot instead. Bastion is " +
+      "slower than everything else on the map, and a target it spikes cannot simply drive away " +
+      "from that fact — the slow keeps them inside the fight rather than taking it away from them " +
+      "outright.",
+    tip:
+      "Bounce it down a corridor or off an angled wall to reach someone hiding from a straight " +
+      "line. It buys time to close, not a kill on its own — spend the window it opens.",
+  },
+  roadblock: {
+    tagline: "A wall on the move.",
+    shape: "Piercing bar · 120 units wide · no lock",
+    what:
+      "A 120-unit-wide bar that travels along its short axis and pierces everything in its path " +
+      "— up to five cars, every other player in the match. Everything it touches takes the hit " +
+      "and stops dead for a full second.",
+    how:
+      "Aim assist would be wasted here: a 120-unit face aims itself, wide enough to answer the " +
+      "same 'help the slowest chassis hit something' problem a lock used to solve, just by " +
+      "covering more ground. Line up two or three opponents and the whole line stops together — " +
+      "the roster's only hard CC that hits more than one car at once.",
+    tip:
+      "Fire it across a chokepoint or a doorway rather than at a single target — its width is the " +
+      "point. A crowd caught in it stops as one, which is exactly the moment Bastion's own slow " +
+      "chassis stops mattering.",
+  },
+  wildcharge: {
+    tagline: "Ten seconds of armor and intent.",
+    shape: "Charge · one hit ends it · no lock",
+    what:
+      "One press opens a ten-second window: you take no damage for its length, and the car wears " +
+      "the charge outline the whole time. The first enemy hull you touch is hard-slammed for a " +
+      "fixed impulse plus 250 damage, and the window closes right there — one hit, then it is " +
+      "over.",
+    how:
+      "It is the roster's only exemption from the stun interrupt: a stun still stops the car dead, " +
+      "but the armor and the charge state hold through it, because a state that cannot chain into " +
+      "anything else is safe to protect. Speed and range are both zero — a charge dashes nowhere, " +
+      "it only waits for the first car foolish enough to get close.",
+    tip:
+      "Press it before a fight, not during one — the ten seconds have to still be running when you " +
+      "make contact. Whoever you catch takes the hit, the slam, and loses the exchange before it " +
+      "starts; everyone else just watches you stand there, armored, until you find someone.",
   },
 };

@@ -223,10 +223,10 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
       "ffa",
       NO_EFFECTS,
       new Map([["a", 300], ["b", 0]]),
-      new Map<string, WeaponId | "">([["a", "thumper"]]),
+      new Map<string, WeaponId | "">([["a", "wildcharge"]]),
       10,
     );
-    expect(result.contactHits).toEqual([{ attackerSessionId: "a", targetSessionId: "b", weaponId: "thumper" }]);
+    expect(result.contactHits).toEqual([{ attackerSessionId: "a", targetSessionId: "b", weaponId: "wildcharge" }]);
     expect(attacker.maneuver).toBe(0);
     expect(readStatuses(attacker)).toHaveLength(0); // fortified expired with the charge (O2)
     expect(attacker.speed).toBeCloseTo(300 * SLAM_CONFIG.selfKeepFactor);

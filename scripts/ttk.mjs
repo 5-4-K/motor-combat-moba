@@ -14,10 +14,11 @@
  * ## What it deliberately does NOT model, and why the numbers are an upper bound
  *
  * **Every shot connects and the target never leaves range.** That is generous everywhere and wildly
- * generous for two rows: `afterburner` is a 220-unit attached cone that has to be held on a moving
- * car for 2.2 s, and `bulwark` is a stationary zone the target has to keep standing in for 3.6 s of
- * ticks. Those two are the largest single numbers on the board and the least likely to be earned in
- * full. Discount them heavily when reading a matchup they dominate.
+ * generous for the roster's held/attached weapons — `afterburner` is a 220-unit attached cone that
+ * has to be held on a moving car for 2.2 s, and `lance` is a beam the shooter has to steer onto the
+ * target for 1.5 s of linger after its 0.7 s windup. Those are the largest single numbers on the
+ * board and the least likely to be earned in full. Discount them heavily when reading a matchup they
+ * dominate.
  *
  * **The defender does nothing.** No dodging, no cover, and — the one that really bites — none of its
  * own kit: Bastion's `fortified` self-heal would stretch its own mirror considerably.

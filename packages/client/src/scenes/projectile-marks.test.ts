@@ -11,9 +11,11 @@ import {
  * The one rule every marking has to obey: it may never draw outside the hitbox.
  *
  * That is the half of D19 that protects a player — no shot can hurt you from somewhere you cannot
- * see it. The other half (that the drawn shape FILLS the hitbox) is deliberately relaxed for
- * `skewer`, whose spindle covers 43% of its ellipse; see the note on `WEAPON_PROJECTILE_STYLES`.
- * Nothing here asserts coverage, and that is on purpose.
+ * see it. The other half (that the drawn shape FILLS the hitbox) was deliberately relaxed for
+ * `skewer`, whose spindle covered 43% of its ellipse; that weapon was retired outright by the
+ * 2026-09-01 roster cutover (O17), and `thumper` — the table's one surviving styled weapon — fills
+ * its hull fully, so the exception has no live example today. Nothing here asserts coverage, and
+ * that is on purpose.
  *
  * Every scale in the table is a fraction of `radiusAlong` or `radiusAcross`, so this holds for any
  * future re-tune of a hitbox as well as for today's numbers.
@@ -50,14 +52,21 @@ function instanceAt(weaponId: WeaponId, angle: number): DrawableInstance {
 
 describe("projectile markings", () => {
   it("covers every non-circular projectile in the roster or leaves it deliberately flat", () => {
+    // "bar" is excluded here, not just unstyled: `projectileDrawLayers` refuses it at source (same
+    // early return as "circle") because the hull/tip/band/disc/spikes vocabulary below assumes an
+    // along/across ellipse-ish geometry a bar does not have. It is architecturally never a candidate
+    // for this table, so it does not belong in the universe this list is checking.
     const shaped = (Object.keys(WEAPON_TABLE) as WeaponId[]).filter((id) => {
       const def = weaponDefOf(id);
-      return def.kind === "projectile" && def.hitbox.shape !== "circle";
+      return def.kind === "projectile" && def.hitbox.shape !== "circle" && def.hitbox.shape !== "bar";
     });
-    // Not an assertion that all three are styled forever -- it is the list that keeps this file
-    // honest about what it is covering, so removing a style shows up here rather than silently.
-    expect(shaped.sort()).toEqual(["needler", "skewer", "thumper"]);
-    expect(styled.sort()).toEqual(["needler", "skewer", "thumper"]);
+    // Not an assertion that every one of these is styled forever -- it is the list that keeps this
+    // file honest about what it is covering, so removing a style shows up here rather than silently.
+    // `predator` (capsule) and `pepperbox` (ellipse) are shaped but deliberately flat: `pepperbox`'s
+    // hitbox moved to an ellipse in the 2026-09-01 roster cutover specifically because a round-glow
+    // table cannot own it, and this one has not styled it either yet.
+    expect(shaped.sort()).toEqual(["pepperbox", "predator", "thumper"]);
+    expect(styled.sort()).toEqual(["thumper"]);
   });
 
   it("keeps every authored vertex inside its own hitbox, at every heading", () => {
@@ -83,23 +92,15 @@ describe("projectile markings", () => {
     }
   });
 
-  it("draws skewer without a hull layer, which is the documented D19 exception", () => {
-    // If someone adds a `hull` layer to skewer the spindle stops being visible at all, since the
-    // hull and the spikes are the same gold -- so this pins the omission as intentional.
-    const shapes = WEAPON_PROJECTILE_STYLES.skewer?.layers.map((l) => l.shape);
-    expect(shapes).toEqual(["spikes", "disc", "disc"]);
-  });
-
-  it("gives needler and thumper a hull layer, so their markings sit on a filled body", () => {
-    for (const id of ["needler", "thumper"] as const) {
-      expect(WEAPON_PROJECTILE_STYLES[id]?.layers[0]?.shape).toBe("hull");
-    }
+  it("gives thumper a hull layer, so its markings sit on a filled body", () => {
+    expect(WEAPON_PROJECTILE_STYLES.thumper?.layers[0]?.shape).toBe("hull");
   });
 
   it("returns nothing for a beam, a round projectile, or an unknown id", () => {
     // Each of these has another table that owns it; two tables answering for one weapon would draw
-    // it twice. `lance` is a beam, `fireball` is a circle with a `GlowStyle`.
-    for (const id of ["lance", "fireball"] as WeaponId[]) {
+    // it twice. `lance` is a beam, `shockwave` is a circle with a `GlowStyle` (empty today, but the
+    // table it belongs to regardless).
+    for (const id of ["lance", "shockwave"] as WeaponId[]) {
       expect(projectileDrawLayers(instanceAt(id, 0.5), 0)).toEqual([]);
     }
     expect(
@@ -115,11 +116,11 @@ describe("projectile markings", () => {
   });
 
   it("carries the markings along with the shot as it is extrapolated", () => {
-    // The markings must ride the same extrapolation as the hull. A needler covers 43 units in one
-    // patch interval -- more than twice its own length -- so a mark left at the un-extrapolated
-    // position would visibly detach.
-    const still = projectileDrawLayers(instanceAt("needler", 0), 0);
-    const moved = projectileDrawLayers(instanceAt("needler", 0), 33);
+    // The markings must ride the same extrapolation as the hull. A thumper covers real, visible
+    // distance in one patch interval (~15 units at its 450 u/s in 33ms), so a mark left at the
+    // un-extrapolated position would visibly detach.
+    const still = projectileDrawLayers(instanceAt("thumper", 0), 0);
+    const moved = projectileDrawLayers(instanceAt("thumper", 0), 33);
     const dx = moved[0]!.points[0]!.x - still[0]!.points[0]!.x;
     expect(dx).toBeGreaterThan(0);
     for (const [i, layer] of moved.entries()) {

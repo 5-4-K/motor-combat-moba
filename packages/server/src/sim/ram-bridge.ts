@@ -195,9 +195,22 @@ export function contactTick(
 
   const contactHits: ContactHit[] = [];
 
+  // One target per dash (O12): only the FIRST hit a dasher lands this tick counts, and the dash ends
+  // there — a dasher that clips two cars in the same tick does not get to hit both. `events.dashHits`
+  // is produced by `resolvePair`'s per-pair loop, so a dasher touching several cars at once can
+  // appear more than once here; every entry after the first for a given attacker is dropped.
+  const dashedThisTick = new Set<string>();
   for (const hit of events.dashHits) {
+    if (dashedThisTick.has(hit.attackerSessionId)) continue;
+    dashedThisTick.add(hit.attackerSessionId);
     const attacker = state.players.get(hit.attackerSessionId);
-    if (attacker) endDash(attacker, forwardMaxSpeedOf(carIdOf(attacker)));
+    if (attacker) {
+      // Exit at the drive model's cap, the same way natural dash expiry does — not the unmodified
+      // rating, so a dash that ends on a hit while `topSpeed` is debuffed (or buffed) exits at the
+      // speed the car would actually be capped to that tick.
+      const mods = modifiersFor(statusMods, hit.attackerSessionId);
+      endDash(attacker, forwardMaxSpeedOf(carIdOf(attacker)) * mods.topSpeed);
+    }
     contactHits.push(hit);
   }
 

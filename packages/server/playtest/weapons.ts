@@ -225,7 +225,7 @@ function damageAfterDeath(): void {
     { id: "shooter", carId: "bullseye", x: 200, y: 360, angle: 0 },
     { id: "target", carId: "bullseye", x: 500, y: 360, angle: 0, hp: 40 },
   ]);
-  const bit = slotBitFor("bullseye", "needler");
+  const bit = slotBitFor("bullseye", "shockwave");
   let hpBelowZero = false;
   let deadTookDamage = false;
   let deadAt = -1;
@@ -435,13 +435,13 @@ function auraThroughWall(): void {
   const y = box.y + box.h / 2;
   const w = new PlaytestWorld(
     [
-      { id: "mir", carId: "mirage", x: box.x - 25, y, angle: 0 },
+      { id: "mir", carId: "bullseye", x: box.x - 25, y, angle: 0 },
       { id: "victim", carId: "bastion", x: box.x - 25 + 140, y, angle: 0 },
     ],
     "ffa",
     "arena-02",
   );
-  const bit = slotBitFor("mirage", "shockwave");
+  const bit = slotBitFor("bullseye", "shockwave");
   const startHp = w.get("victim").hp;
   // 3 waves x (500ms spacing) + the third wave's own 250ms life == 1.25s == ~38 ticks; run 45 to
   // give the whole cycle margin.
@@ -476,7 +476,7 @@ function pierce(): void {
     { id: "t2", carId: "bastion", x: 500, y: 360, angle: 0, team: 0 },
     { id: "t3", carId: "bastion", x: 600, y: 360, angle: 0, team: 0 },
   ]);
-  const bit = slotBitFor("bastion", "skewer");
+  const bit = slotBitFor("bastion", "roadblock");
   const before = ["t1", "t2", "t3"].map((id) => w.get(id).hp);
   for (let i = 0; i < 60; i++) {
     w.input("shooter", { fireSlots: i === 0 ? bit : 0 });
@@ -524,7 +524,7 @@ function beamOwnerDeath(): void {
     { id: "killer", carId: "bullseye", x: 600, y: 200, angle: Math.PI / 2, team: 0 },
   ]);
   const abBit = slotBitFor("mirage", "afterburner");
-  const spBit = slotBitFor("bullseye", "needler");
+  const spBit = slotBitFor("bullseye", "shockwave");
   let beamAfterDeath = 0;
   let burnerDeadAt = -1;
   for (let i = 0; i < 90; i++) {

@@ -1368,8 +1368,10 @@ export class ArenaScene extends Phaser.Scene {
    *
    * A weapon may also carry a LOOK (`instanceGlowBands`): concentric bands filled inside that same
    * hitbox instead of one flat disc. It cannot widen the shot — bands are fractions of the hitbox
-   * radius and the flicker only shrinks — so the sentence above survives it. No entry means the
-   * flat disc, which is every weapon but `fireball`.
+   * radius and the flicker only shrinks — so the sentence above survives it. `WEAPON_GLOW_STYLES` is
+   * empty as of the 2026-09-01 roster cutover (its two rows, `fireball` and `pepperbox`, are gone —
+   * the latter moved out to an ellipse hitbox a round-glow table cannot own), so every weapon draws
+   * its flat disc today; the table stays live for whichever weapon next earns a look.
    */
   private renderShots(room: Room<ArenaState>): void {
     const gfx = this.shotGfx;
@@ -1430,8 +1432,9 @@ export class ArenaScene extends Phaser.Scene {
       }
 
       // Bands, outermost first, each filled over the last. An empty list is a weapon with no
-      // authored look, which is every weapon but `fireball` today -- it falls back to the one
-      // flat fill of its own `color` that this method drew for everything before styles existed.
+      // authored look, which is every weapon today (`WEAPON_GLOW_STYLES` is dormant since the
+      // 2026-09-01 roster cutover) -- it falls back to the one flat fill of its own `color` that
+      // this method drew for everything before styles existed.
       const bands = instanceGlowBands(instance.weaponId, shape.radius, instance.spawnTick, nowMs);
       if (bands.length === 0) {
         gfx.fillStyle(weaponFillOf(instance.weaponId), alpha);
@@ -1703,14 +1706,15 @@ export class ArenaScene extends Phaser.Scene {
    * stays right between two patches at 20 Hz) and `PlayerState.lastFiredSlot` (which slot owns the
    * recovery every OTHER slot is dimmed by).
    *
-   * Every one of these paths is now exercised by a carried weapon: `skewer` and `lance` (Bullseye's
-   * slots 2 and 3) carry `startUpMs > 0`, `pepperbox` (Mirage's slot 2) carries
-   * `volley.volleys: 3`, and `recoveryMs > 0` is the common case — every weapon but `fireball`,
-   * `needler` and `thumper` carries one. That also covers the mid-volley case: `beginFire` zeroes a
-   * slot's `stocks` at press time and does not set `rechargeEndsTick` until the volley's LAST shot,
-   * and `slotVisualState` answers "car-locked"
-   * for that whole window because a real `pending` reaches it — rather than falling through to
-   * full-brightness "ready" with nothing left to fire.
+   * Most of these paths are exercised by a carried weapon today: `lance` (Bullseye's slot 3) carries
+   * `startUpMs > 0`, and `recoveryMs > 0` is the common case — `predator`, `shockwave` and `thumper`
+   * are the only zero-recovery rows as of the 2026-09-01 roster cutover. The multi-volley case
+   * (`volley.volleys > 1`) is dormant — no shipped weapon has one since `shockwave` was redefined
+   * out of it — but the machinery stays live for whichever weapon next carries one: `beginFire`
+   * zeroes a slot's `stocks` at press time and does not set `rechargeEndsTick` until the volley's
+   * LAST shot, and `slotVisualState` answers "car-locked" for that whole window because a real
+   * `pending` reaches it — rather than falling through to full-brightness "ready" with nothing left
+   * to fire.
    */
   private drawHudSlot(
     gfx: Phaser.GameObjects.Graphics,

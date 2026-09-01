@@ -146,7 +146,7 @@ function trueTunneling(): void {
 function crossingTarget(): void {
   const rows: string[] = [];
   let ghosted = false;
-  for (const id of ["fireball", "needler", "skewer", "thumper"] as WeaponId[]) {
+  for (const id of ["predator", "shockwave", "roadblock", "thumper"] as WeaponId[]) {
     const carrier = carrierOf(id);
     const bit = slotBitFor(carrier, id);
     let missesWhileCrossing = 0;
@@ -231,7 +231,7 @@ function spinningShooter(): void {
     { id: "t", carId: "bastion", x: 700, y: 360, angle: 0 },
   ]);
   w.get("s").angVel = 6; // the ram spin ceiling
-  const bit = slotBitFor("bullseye", "needler");
+  const bit = slotBitFor("bullseye", "shockwave");
   let anyNaN = false;
   let maxAngle = 0;
   for (let i = 0; i < 400; i++) {
@@ -275,7 +275,7 @@ function deadCarIsIntangible(): void {
     { id: "corpse", carId: "bastion", x: 450, y: 360, angle: 0, team: 0, hp: 1 },
     { id: "t", carId: "bastion", x: 700, y: 360, angle: 0, team: 0 },
   ]);
-  const bit = slotBitFor("bullseye", "needler");
+  const bit = slotBitFor("bullseye", "shockwave");
   // Kill the middle car first.
   for (let i = 0; i < 60; i++) {
     w.input("s", { fireSlots: bit });

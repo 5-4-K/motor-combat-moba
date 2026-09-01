@@ -1,4 +1,5 @@
 import {
+  ManeuverKind,
   WeaponInstanceState,
   WeaponKind,
   WeaponSlotState,
@@ -155,7 +156,16 @@ export function applyCombatResult(state: ArenaState, result: CombatResult, memor
   for (const p of result.players) {
     memory.fireStates.set(p.sessionId, p.fireState);
     memory.locks.set(p.sessionId, p.lock);
-    memory.maneuverWeapons.set(p.sessionId, p.maneuverWeaponId);
+    // A dash or charge that ends by natural expiry (rather than a stun interruption, which already
+    // clears `maneuverWeaponId` through `clearManeuver`) sets `player.maneuver` back to NONE on the
+    // networked numeric fields without touching this server-only map — `stepDrive` only knows the
+    // four numeric fields, never the weapon id behind them. Left alone, the map would keep naming a
+    // maneuver that is no longer running, which `contactTick` reads on every later tick. Cleared here,
+    // at the single write site, rather than duplicated in `ram-bridge.ts`'s `contactCarsOf`.
+    memory.maneuverWeapons.set(
+      p.sessionId,
+      p.maneuver === ManeuverKind.NONE ? "" : p.maneuverWeaponId,
+    );
     const player = state.players.get(p.sessionId);
     if (!player) continue;
     player.hp = p.hp;
