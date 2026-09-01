@@ -1,4 +1,4 @@
-import { GameMode } from "@motor-combat-moba/shared";
+import { DEATHMATCH_CONFIG, GameMode } from "@motor-combat-moba/shared";
 import { button, h, svg } from "../dom.js";
 import type { LobbySlot, LobbyView } from "../lobby-view.js";
 
@@ -36,6 +36,14 @@ const MODE_CARDS = [
     body: "Two teams, shared victory. Last team with a car standing wins.",
     metaA: "2v2 – 3v3",
     metaB: "Last team standing",
+  },
+  {
+    id: GameMode.FFA_DEATHMATCH,
+    name: "Deathmatch",
+    kicker: "Free-for-all",
+    body: "Everyone fights everyone, and dying costs you five seconds instead of the round. Most kills when the clock runs out takes it.",
+    metaA: "2-6 players",
+    metaB: `${DEATHMATCH_CONFIG.matchSeconds / 60} minutes`,
   },
 ];
 

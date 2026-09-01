@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GameMode, MAX_TEAM_SIZE, PlayerStatus } from "@motor-combat-moba/shared";
-import { lobbyView, TEAM_SLOTS } from "./lobby-view.js";
+import { lobbyView, modeLabel, TEAM_SLOTS } from "./lobby-view.js";
 
 const player = (over: Partial<LobbyTestPlayer> = {}): LobbyTestPlayer => ({
   sessionId: "p1",
@@ -175,5 +175,13 @@ describe("lobbyView", () => {
   it("falls back to the session id when a name is empty", () => {
     const view = lobbyView(state([player({ name: "" })]), "p1", "");
     expect(view.teamA[0]?.name).toBe("p1");
+  });
+});
+
+describe("modeLabel", () => {
+  it("names all three modes distinctly", () => {
+    expect(modeLabel(GameMode.FFA_LAST_STANDING)).toBe("Brawl");
+    expect(modeLabel(GameMode.TEAM)).toBe("Team brawl");
+    expect(modeLabel(GameMode.FFA_DEATHMATCH)).toBe("Deathmatch");
   });
 });
