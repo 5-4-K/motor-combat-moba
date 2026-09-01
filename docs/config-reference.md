@@ -118,7 +118,7 @@ that consumes it.
 | 2 | Emerald | `#2ECC71` |
 | 3 | Gold | `#F1C40F` |
 | 4 | Violet | `#9B59B6` |
-| 5 | Orange | `#E67E22` |
+| 5 | Orange | `#DB6C09` |
 
 ## WEAPON_TABLE
 
