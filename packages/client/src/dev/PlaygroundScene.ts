@@ -25,6 +25,8 @@ export class PlaygroundScene extends Phaser.Scene {
   /** Last `tuningJson` this scene has already reacted to, so a state patch that did not touch it
    * (e.g. a car respawn) is not re-parsed on every tick. */
   private lastTuningJson: string | undefined;
+  /** The "joining..." line, cleared once the room connects — see `connect()`. */
+  private joiningText: Phaser.GameObjects.Text | undefined;
   private unbind: Array<() => void> = [];
   /** Unmount for the DOM overlay (Task 10) -- `undefined` until `connect()` has mounted it. */
   private unmountOverlay: (() => void) | undefined;
@@ -42,7 +44,7 @@ export class PlaygroundScene extends Phaser.Scene {
 
     this.cameras.main.setBackgroundColor(0x1d1f21);
     this.add.text(16, 12, DEV_TOOL_MARKER, { fontSize: "20px", color: "#ffffff" });
-    this.add.text(16, 38, "joining the playground room...", {
+    this.joiningText = this.add.text(16, 38, "joining the playground room...", {
       fontSize: "13px",
       color: "#9aa0a6",
     });
@@ -86,6 +88,18 @@ export class PlaygroundScene extends Phaser.Scene {
       void room.leave();
       return;
     }
+
+    // This scene never stops itself (it keeps listening on `room` for the whole session), and it
+    // renders ABOVE `arena` (added later, at runtime, via BootScene's dev branch). Left alone, its
+    // opaque camera background from `create()` would permanently cover the arena it just launched --
+    // a successful join would look identical to a hung one. Drop the background and the "joining..."
+    // line now that there is something underneath worth seeing.
+    // `transparent = true` alone is not enough -- Phaser still clears with `backgroundColor`'s own
+    // alpha unless that is zeroed too.
+    this.cameras.main.transparent = true;
+    this.cameras.main.backgroundColor.alpha = 0;
+    this.joiningText?.destroy();
+    this.joiningText = undefined;
 
     this.room = room;
     this.lastTuningJson = room.state.tuningJson;
