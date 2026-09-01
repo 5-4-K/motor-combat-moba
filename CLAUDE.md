@@ -6,17 +6,19 @@ LAN-hosted top-down 2D multiplayer car combat (last player/team standing, max 6)
 `STATUS_TABLE`. Every channel is a **multiplier** with 1 as neutral, and `Modifiers` is the only type
 that reaches the sim: driving, ramming and combat never look at a status list. A status does not own
 its duration — the applier does (`WeaponDef.applies`, or `CombatInput.statusRequests` for future
-pickups) — and never stacks with itself. Hard CC belongs to Bastion: **`stunned` is `thumper`'s**,
-not `shockwave`'s, since the 2026-08-30 redistribution. `applyDamage` is no longer the only HP
-writer; **`sim/damage.ts` is**, now that repair pulses exist. See
+pickups) — and never stacks with itself. Hard CC no longer belongs to one chassis alone: since the
+2026-09-01 weapon-status overhaul, **`stunned` comes from `roadblock` (Bastion), `thunderclap`
+(Mirage's dash), and the hard-slam's wall impact** (`wildcharge`, 500 ms) — `thumper` applies
+`spiked` now, a slow rather than a stop. `applyDamage` is no longer the only HP writer;
+**`sim/damage.ts` is**, now that repair pulses exist. See
 [`docs/combat-model.md`](docs/combat-model.md#statuses).
 
 An **aura** is a beam with a `disc` hitbox at `origin: "center"` — a field around a car rather than a
-line of fire. `shockwave` is the shipped one, and it changed from a 140° cone to a 360° ring in the
-process. It is now **Mirage's slot 2**, and the table's only multi-wave row: one press schedules
-**three** aura instances 500 ms apart, 45 damage each, and the `corroded` it applies rides the
-**final wave only** (`StatusApplication.onWave`). A ring on the roster's fastest chassis rewards
-driving *through* a fight, and it is the first thing to re-tune from play.
+line of fire. It shipped once, as `shockwave` on Mirage's slot 2, but the 2026-09-01 overhaul retired
+that weapon's aura identity: `shockwave` is now a plain single-volley dart on **Bullseye's** slot 1,
+and no row in the roster uses a `disc` hitbox any more. The mechanism — and the multi-wave `VolleyDef`
+machinery that rode alongside it — is **dormant, not deleted**: the render and hit-test code stays
+live and unit-tested, waiting for the next weapon or pickup to reach it.
 
 **The three chassis are `bullseye`, `mirage` and `bastion`** — a type triangle, not three shapes.
 Their ratings (`speed`, `accel`, `handling`, `attack`, `hp`, `mass`) are **six** independent 0-100
@@ -313,8 +315,12 @@ sprite that still carries colour, an icon whose colour has drifted from its `WEA
 `scripts/check-art.test.mjs` runs the blockers as part of `npm test`, so a save that dropped the
 alpha fails the suite instead of reaching the HUD as an opaque square. **Warnings never fail the
 suite** — an icon is allowed more than one colour, and only a person looking at the screen can say
-whether a pair reads as one weapon. Two weapons warn today: `lance` and `bulwark` both carry icons
-in a different colour from their shots.
+whether a pair reads as one weapon. The 2026-09-01 weapon-status overhaul left `npm run check:weapons`
+warning on six of the nine rows, and none of it is a docs problem — it is unimported icon art, tracked
+separately: `predator`, `thunderclap`, `roadblock` and `wildcharge` have no manifest row yet and fall
+back to the procedural glyph, and `shockwave` kept its old aura-era icon, whose colour no longer
+matches the row it now draws (distance 153). `afterburner`, `pepperbox`, `lance` and `thumper` read
+`ok`.
 
 One pairing nothing enforces: a weapon's icon and its `WEAPON_TABLE.color` are meant to read as the
 same weapon, but icons ship `colorMode: "none"` and no typed reference ties the two together. Either

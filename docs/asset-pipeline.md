@@ -310,11 +310,12 @@ band from `instanceGlowBands`, and a beam becomes one `fillPoints` polygon. Deta
 
 **That budget is much larger than it sounds, so do not design timidly.** A car has one fire state
 machine, so a player can only have one weapon mid-volley at a time; the worst realistic case is a
-chassis with overlapping flight times (two fireballs, a six-pellet `pepperbox` burst, a beam) at
-roughly ten live instances, times six players — call it 60. `fireball`'s four bands applied to all
-nine weapons is ~240 `fillCircle` calls per frame, ~14k/second. Phaser batches one Graphics
-object's fills into a single vertex buffer, and the `fillStyle` colour changes *between* bands do
-not break that batch. Authoring a look for every weapon is comfortably within budget.
+chassis with overlapping flight times (two `predator`s, a twelve-pellet `pepperbox` burst across its
+four muzzles, a beam) at roughly ten live instances, times six players — call it 60. A four-band glow
+style applied to all nine weapons would be ~240 `fillCircle` calls per frame, ~14k/second. Phaser
+batches one Graphics object's fills into a single vertex buffer, and the `fillStyle` colour changes
+*between* bands do not break that batch. Authoring a look for every weapon is comfortably within
+budget.
 
 Four things do cost, and they are the only ones worth stopping for:
 
@@ -337,8 +338,9 @@ cost story, a few more polygons.
 A third kind of detail is a **marking**: geometry drawn inside a non-circular projectile's hull, since
 neither of the tables above can reach an ellipse or a capsule. `WEAPON_PROJECTILE_STYLES` holds
 those, built from four primitives — `hull`, `tip`, `band`, `disc`, `spikes` — each a fraction of the
-weapon's own `radiusAlong` or `radiusAcross`. `needler` takes an orange nose, `thumper` a cream band,
-`skewer` a gold spindle with a cream centre. Cost is one extra `fillPoints` per marking per shot.
+weapon's own `radiusAlong` or `radiusAcross`. `thumper` takes a cream band across its hull today;
+`predator` and `pepperbox`, the roster's other two non-circular projectiles, still draw the flat
+hitbox fill until an owner arts them. Cost is one extra `fillPoints` per marking per shot.
 
 All of it is data in those three tables (`packages/client/src/scenes/combat-visual.ts`), keyed per
 weapon and `Partial`, so a weapon with no entry keeps the flat fill. Adding a look needs no

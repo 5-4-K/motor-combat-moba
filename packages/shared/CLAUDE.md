@@ -54,13 +54,20 @@ extends `applyRams`'s pair loop with a dash (reports a `ContactHit`, no knock) a
 slam — a fixed impulse, replacing the graded ram) ahead of the ordinary ram fallback, and runs where
 `applyRams` used to. `config/slam-config.ts`'s `SLAM_CONFIG`/`SLAM_TICKS` tune the slam alone — knock
 speed, victim authority, wall-stun window, re-slam immunity — kept separate from `RAM_CONFIG` because
-a slam is deliberately not graded like a ram. All three are dormant: no `WEAPON_TABLE` row is
-`kind: "maneuver"` yet, so nothing reaches this path outside tests until Plan 3 lands one. See
+a slam is deliberately not graded like a ram. **No longer dormant as of the 2026-09-01 weapon-status
+overhaul (Plan 3):** `thunderclap` (Mirage) is a `kind: "maneuver"` dash and `wildcharge` (Bastion) is
+a `kind: "maneuver"` charge, both real rows in `WEAPON_TABLE`, so `resolveContacts` and
+`SLAM_CONFIG`/`SLAM_TICKS` now run from a real match, not only from tests. `wildcharge` is also the
+roster's one `isUnInterruptable: true` row. See
 [`docs/combat-model.md`](../../docs/combat-model.md#maneuvers-and-the-contact-pass).
 
 An **aura** is a beam with a `disc` hitbox at `origin: "center"`. It reuses `WorldShape`'s circle arm,
 so the hit test needed no new geometry, and it needs no change to `canDamage` — that already refuses
-the owner. `shockwave` is the shipped one, on Mirage's slot 2.
+the owner. `shockwave` shipped as the one aura, on the old Mirage slot 2, but the 2026-09-01 overhaul
+gave it a plain single-volley-dart identity on **Bullseye's** slot 1 instead — no row in the current
+`WEAPON_TABLE` uses a `disc` hitbox. The aura is **dormant machinery**: the geometry and hit-test path
+stay live and covered by generic unit tests, just not exercised by a real weapon until one ships
+again.
 
 **`stepDrive` does not read the roster.** It takes a resolved `ChassisDrive` — `maxSpeed`,
 `reverseMaxSpeed`, `accel`, `reverseAccel`, `turnRate`, `turnRateAtStop` — from `driveOf(carId)`
@@ -71,13 +78,17 @@ per-car `accel` or `handling` retune can never look like a change to the integra
 lives in shared config; the sim receives it rather than reaching into `CAR_TABLE` for it.
 
 **Volleys are on `WeaponBase`, pellets are on the projectile.** `VolleyDef` (`volleys`,
-`volleyIntervalMs`) applies to both kinds, so a beam can be a wave sequence — `shockwave` is three
-aura instances 500 ms apart, each with its own `spawnTick` and its own damage clock. `PelletDef`
-(`pelletsPerVolley`, `spreadAngleDeg`) stays on `ProjectileWeaponDef`, because a beam should not have
-to author `pelletsPerVolley: 1`. `beginFire` reads `def.volley.volleys` for every kind rather than
-hardcoding 1 for beams.
+`volleyIntervalMs`) applies to both kinds, so a beam can be a wave sequence in principle — the old
+`shockwave` shipped that way, three aura instances 500 ms apart, each with its own `spawnTick` and its
+own damage clock. As of the 2026-09-01 overhaul no row in `WEAPON_TABLE` authors more than one volley:
+multi-wave is **dormant machinery**, same standing as the aura above. `PelletDef` (`pelletsPerVolley`,
+`spreadAngleDeg`) stays on `ProjectileWeaponDef`, because a beam should not have to author
+`pelletsPerVolley: 1`; `pepperbox` is the shipped multi-pellet row today (3 pellets × 4 muzzles).
+`beginFire` reads `def.volley.volleys` for every kind rather than hardcoding 1 for beams.
 
 `StatusApplication.onWave` (`"all" | "final"`, absent means `"all"`) gates a status on one wave of a
 multi-wave press. The wave is frozen at spawn and **never networked**: `ShotOrder.finalVolley` →
 `WeaponInstance.finalWave` → the two status-application helpers in `sim/combat.ts`. No schema field
-was added; invariant 8 holds because nothing new that `stepSim` reads crosses the wire.
+was added; invariant 8 holds because nothing new that `stepSim` reads crosses the wire. Like
+multi-wave volleys and the aura above, `onWave` is **dormant machinery** since the 2026-09-01
+overhaul: no shipped `applies` entry sets it, so every current status application runs as `"all"`.
