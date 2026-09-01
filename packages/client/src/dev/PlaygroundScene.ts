@@ -4,13 +4,14 @@ import type { PlaygroundState, TuningOverrides } from "@motor-combat-moba/shared
 import { MSG_PLAYGROUND_SETUP, defaultPlaygroundSetup, setTuning } from "@motor-combat-moba/shared";
 import { joinPlayground } from "../net/connection.js";
 import { DEV_TOOL_MARKER } from "./registry.js";
+import { mountPlaygroundOverlay } from "./playground/overlay.js";
 
 /**
  * `?dev=playground` (spec PG2). Thin on purpose: this scene's whole job is joining the dev-only
- * `playground` room and handing the real `ArenaScene` its room, the same way `JoinScene` does for
- * ordinary play. Everything about what the sandbox can DO — setup panel, tuning sliders,
- * pause/switch — is Task 10's overlay and Task 11's stored-setup replay; this scene sends only the
- * placeholder default setup the room's own `onJoin` already applied, so the send is idempotent.
+ * `playground` room, handing the real `ArenaScene` its room the same way `JoinScene` does for
+ * ordinary play, and mounting `playground/overlay.ts` (Task 10 — pause menu, setup selections; Task
+ * 11 adds the tuning sliders and the stored-setup replay). This scene sends only the placeholder
+ * default setup the room's own `onJoin` already applied, so the send is idempotent.
  *
  * `BootScene`'s dev branch adds this under the key `dev.<id>` (`dev.playground` here) and starts it
  * immediately — the `key` passed to `super()` below is overridden at that `scene.add` call and only
@@ -22,6 +23,8 @@ export class PlaygroundScene extends Phaser.Scene {
    * (e.g. a car respawn) is not re-parsed on every tick. */
   private lastTuningJson: string | undefined;
   private unbind: Array<() => void> = [];
+  /** Unmount for the DOM overlay (Task 10) -- `undefined` until `connect()` has mounted it. */
+  private unmountOverlay: (() => void) | undefined;
 
   constructor() {
     super({ key: "dev.playground" });
@@ -31,6 +34,8 @@ export class PlaygroundScene extends Phaser.Scene {
     this.room = undefined;
     this.lastTuningJson = undefined;
     this.unbindAll();
+    this.unmountOverlay?.();
+    this.unmountOverlay = undefined;
 
     this.cameras.main.setBackgroundColor(0x1d1f21);
     this.add.text(16, 12, DEV_TOOL_MARKER, { fontSize: "20px", color: "#ffffff" });
@@ -45,6 +50,8 @@ export class PlaygroundScene extends Phaser.Scene {
 
   private onShutdown(): void {
     this.unbindAll();
+    this.unmountOverlay?.();
+    this.unmountOverlay = undefined;
     // Never leave a dev override active for whatever runs next in this process (the arena this scene
     // itself just launched, or a retried join) — the same rule `PlaygroundRoom.onLeave` enforces
     // server-side, mirrored here for the client-side tuning store.
@@ -91,7 +98,19 @@ export class PlaygroundScene extends Phaser.Scene {
     // ordinary play.
     this.registry.set("room", room);
     this.scene.launch("arena");
-    mountPlaygroundOverlay(room);
+    this.unmountOverlay = mountPlaygroundOverlay(room, () => this.onArenaChanged());
+  }
+
+  /**
+   * An arena change respawns both cars into new geometry (Task 7's `applySetup`), so the running
+   * `ArenaScene` has to restart to draw it -- it reads the arena purely from `room.state.arenaId` at
+   * `create()` time and never re-reads it mid-match. Stopping and relaunching re-triggers `create()`,
+   * which runs `resetMatchState()` and rebuilds everything (prediction buffer, interpolation, HUD)
+   * from the room's current state -- the same clean slate a fresh join gets.
+   */
+  private onArenaChanged(): void {
+    this.scene.stop("arena");
+    this.scene.launch("arena");
   }
 
   /**
@@ -127,13 +146,4 @@ export class PlaygroundScene extends Phaser.Scene {
       wordWrap: { width: this.scale.width - 32 },
     });
   }
-}
-
-/**
- * Stub until Task 10 lands the real DOM overlay (setup panel, tuning sliders, pause/switch). Keeping
- * the call site here now means Task 10 changes one function body instead of wiring a new call into
- * this scene.
- */
-function mountPlaygroundOverlay(room: Room<PlaygroundState>): void {
-  console.log(`[playground] overlay mount pending (Task 10) - room ${room.roomId}`);
 }
