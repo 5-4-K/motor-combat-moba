@@ -148,23 +148,35 @@ function baseline(): void {
  * the shot spawns *past* the hitbox and a point-blank shot misses.
  */
 function pointBlank(): void {
+  /** Centres this far apart put the hulls in contact; any closer and they interpenetrate. */
+  const HULLS_TOUCH_AT = 48;
   const rows: string[] = [];
   let misses = 0;
   for (const id of ALL_WEAPONS) {
     const def = WEAPON_TABLE[id];
-    // A maneuver row spawns no instance from a muzzle, so the bug this probe exists to catch —
-    // "the shot spawns past the hitbox" — cannot happen to it. Its damage rides the contact pass,
-    // which fires on contact ENTRY: hulls already flush give a dash no edge to enter on, and a
-    // stationary charge slams nobody. Both read as MISS here while working exactly as authored.
-    if (def.kind === "maneuver") {
-      rows.push(`${id.padEnd(11)} KNOWN-BY-DESIGN — no muzzle: a maneuver damages through the contact pass, not a spawned shot`);
+    // Neither maneuver row spawns an instance from a muzzle, so the bug this probe exists to
+    // catch — "the shot spawns past the hitbox" — cannot happen to either. What each is still
+    // held to differs, and the split matches W1's.
+    //
+    // A charge (`wildcharge`) authors range 0 and never leaves the spot it was pressed from, so
+    // every distance below is out of its reach by authorship. There is nothing here to measure.
+    if (def.kind === "maneuver" && def.maneuver.type === "charge") {
+      rows.push(`${id.padEnd(11)} KNOWN-BY-DESIGN — a charge fires no shot and dashes nowhere: damage lands only on driven hull contact inside its window`);
       continue;
     }
+    // A dash (`thunderclap`) DOES measure: it carries the car into the target and must land its
+    // hit. Its damage rides the contact pass, which fires on contact ENTRY, so hulls already flush
+    // leave it no edge to enter on — dealing nothing at 40 and 48 (centres at or inside the
+    // touching distance) is that rule working, not a point-blank miss. Every distance it has room
+    // to close stays held to the hit, which is the coverage a blanket maneuver skip threw away:
+    // the dash lands its full damage at 56, 64 and 80, and a regression there is a finding.
+    const flushExempt = def.kind === "maneuver";
     const results: string[] = [];
     for (const distance of [40, 48, 56, 64, 80]) {
       const r = shootAt({ weaponId: id, distance, ticks: 90 });
-      if (r.damage === 0) results.push(`${distance}:MISS`);
-      else results.push(`${distance}:${r.damage}`);
+      if (r.damage > 0) results.push(`${distance}:${r.damage}`);
+      else if (flushExempt && distance <= HULLS_TOUCH_AT) results.push(`${distance}:none(flush)`);
+      else results.push(`${distance}:MISS`);
     }
     const missed = results.filter((s) => s.includes("MISS")).length;
     if (missed > 0) misses++;
@@ -174,6 +186,7 @@ function pointBlank(): void {
     "W2. Point-blank (centres 40-80u apart; hulls touch at 48)",
     misses > 0 ? "FINDING" : "OK",
     `muzzle is born 24u ahead of the shooter's centre — right on a flush victim's face.\n` +
+      `none(flush) is a dash at or inside ${HULLS_TOUCH_AT}u: no contact edge to enter on, by design.\n` +
       rows.join("\n"),
   );
 }
