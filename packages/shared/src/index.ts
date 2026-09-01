@@ -199,4 +199,5 @@ export { assignSpawns } from "./flow/spawns.js";
 export { sidesOf, winRuleOf } from "./flow/modes.js";
 export { livingSides } from "./flow/win.js";
 export type { LivingPlayer, LivingSidesResult } from "./flow/win.js";
+export { farthestSpawn } from "./flow/respawn.js";
 
