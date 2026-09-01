@@ -25,6 +25,18 @@ export interface SimBody {
    * — never throttle, so a knocked player can always drive their way out. Neutral is 1, not 0.
    */
   authority: number;
+  /**
+   * The maneuver this car is in — dash, hold or charge (spec S3). Server-written and
+   * `stepDrive`-integrated, exactly the ram-knock pattern above (invariant 8, arch O13): that is
+   * what keeps a later client-predicted trigger an additive upgrade rather than a rewrite.
+   */
+  /** ManeuverKind value. 0 = none. */
+  maneuver: number;
+  maneuverTicksLeft: number;
+  /** DASH only: the direction the car translates and faces. */
+  maneuverAngle: number;
+  /** DASH only: world units per second. */
+  maneuverSpeed: number;
 }
 
 /**

@@ -1,9 +1,11 @@
-import { hpOf } from "../config/car-config.js";
+import { DEFAULT_CAR_ID, hpOf } from "../config/car-config.js";
 import { isStatusId } from "../config/status-config.js";
 import type { StatusId } from "../config/status-types.js";
-import { weaponDefOf } from "../config/weapon-config.js";
-import { weaponTicksOf } from "../config/weapon-ticks.js";
-import type { WeaponId } from "../config/weapon-types.js";
+import { isWeaponId, weaponDefOf } from "../config/weapon-config.js";
+import { carAimRangeOf } from "../config/weapon-slots.js";
+import { msToTicks, weaponTicksOf } from "../config/weapon-ticks.js";
+import type { ManeuverWeaponDef, WeaponId } from "../config/weapon-types.js";
+import { TICK_RATE_HZ } from "../constants.js";
 import {
   aabbCorners,
   convexOverlap,
@@ -11,10 +13,13 @@ import {
   type Aabb,
   type Bounds,
 } from "./collide.js";
+import type { ContactHit } from "./contact.js";
 import { carHullOf, carIdOf } from "./context.js";
-import { applyDamage, applyHeal, scaleDamage } from "./damage.js";
-import { applyStatus, statusPulses, type ActiveStatus } from "./status/statuses.js";
+import { applyDamage, applyHeal, scaleDamage, weaponDamageOf } from "./damage.js";
+import { ManeuverKind, NO_MANEUVER } from "./maneuver.js";
+import { applyStatus, hasStatus, statusPulses, type ActiveStatus } from "./status/statuses.js";
 import { modifiersOf, NEUTRAL_MODIFIERS, type Modifiers } from "./status/modifiers.js";
+import { interceptAngle } from "./weapons/aim.js";
 import { beginFire, cancelPending, releaseShots, tickRecharge, type FireState } from "./weapons/fire.js";
 import { resolveInstanceHits, type PoseSnapshot } from "./weapons/hits.js";
 import {
@@ -24,7 +29,7 @@ import {
   type WeaponInstance,
 } from "./weapons/instances.js";
 import { muzzleOf, updateLock, type LockState, type LockTarget } from "./weapons/lock.js";
-import { projectileShapeAt, smear } from "./weapons/shapes.js";
+import { beamShapeAt, projectileShapeAt, shapeHitsObb, smear } from "./weapons/shapes.js";
 
 /**
  * One player as the combat step sees them. Plain data on purpose: the room maps `PlayerState` onto
@@ -40,6 +45,11 @@ export interface CombatPlayer {
   x: number;
   y: number;
   angle: number;
+  /**
+   * Scalar velocity along the heading, for aim lead — the same reading `stepDrive` integrates.
+   * Post-collision is fine: lead is an estimate, not a promise.
+   */
+  speed: number;
   team: 0 | 1;
   carId: string;
   hp: number;
@@ -62,6 +72,25 @@ export interface CombatPlayer {
    * that everything reading a modifier this tick reads the same one.
    */
   statuses: readonly ActiveStatus[];
+  /** `ManeuverKind` value. 0 = none. Server-only, carried in and back out like `fireState`. */
+  maneuver: number;
+  maneuverTicksLeft: number;
+  /** Dash heading, radians. 0 outside a dash. */
+  maneuverAngle: number;
+  /** Dash translation speed, world units/sec. 0 outside a dash. */
+  maneuverSpeed: number;
+  /**
+   * Which weapon started the running maneuver, or "". Server-only, carried in and out like
+   * `fireState`: the contact pass reads it to price a slam/dash hit, and the stun sweep reads its
+   * `isUnInterruptable`. Never networked — `stepSim` reads the four numeric fields, not this.
+   */
+  maneuverWeaponId: WeaponId | "";
+}
+
+/** Reset a car's four maneuver fields to neutral and drop its `maneuverWeaponId` (O8/O14). */
+function clearManeuver(player: CombatPlayer): void {
+  Object.assign(player, NO_MANEUVER);
+  player.maneuverWeaponId = "";
 }
 
 /** Everything about the tick that is the same for every player in it. */
@@ -106,6 +135,12 @@ export interface CombatInput {
    * which is every tick today: no pickup system exists yet.
    */
   statusRequests?: readonly StatusRequest[];
+  /**
+   * Dash hits and hard slams the contact pass (`sim/contact.ts`) found this tick, priced and applied
+   * in phase 0d below — see that phase's comment. Absent is none, which is every tick a match has no
+   * live contact.
+   */
+  contactHits?: readonly ContactHit[];
 }
 
 export interface CombatResult {
@@ -164,6 +199,14 @@ export function runCombat(input: CombatInput): CombatResult {
   const byId = new Map(players.map((p) => [p.sessionId, p]));
   let instanceSeq = input.instanceSeq;
 
+  // Stun interruption (O8) needs to know who was ALREADY stunned coming into this tick, captured
+  // before phase 0c (or anything else) can add a fresh `stunned` — so the end-of-tick sweep below
+  // only fires for a car whose stun is new this tick, never re-interrupting one still riding out an
+  // older application.
+  const wasStunned = new Set(
+    players.filter((p) => hasStatus(p.statuses, "stunned", world.tick)).map((p) => p.sessionId),
+  );
+
   // 0. Every car's modifiers, derived ONCE — before this tick's own statuses are added — and read
   // by every phase below. `expireStatuses` swept the list before driving, so this is the same
   // reading driving and ramming already took. A car in no status gets the shared frozen
@@ -184,12 +227,13 @@ export function runCombat(input: CombatInput): CombatResult {
     if (!isFighting(player)) continue;
     for (const pulse of statusPulses(player.statuses, world.tick)) {
       // Through the same `damage` as a bullet, so a bleed kill sets `alive` by exactly the same
-      // path and the win check cannot tell the two apart.
+      // path and the win check cannot tell the two apart — except `invulnerable`, which zeroes
+      // everything, a pulse included.
       //
       // Deliberately NOT scaled by `damageTaken`: that channel is about incoming *weapon* damage,
       // and letting one status amplify another's bleed would compound two rows into a number
       // neither of them states. A pulse deals what its row says it deals.
-      if (pulse.damage > 0) damage(player, pulse.damage);
+      if (pulse.damage > 0) dealDamageTo(player, pulse.damage, modsOf(player.sessionId));
       // `applyHeal` refuses to lift a wreck off 0, so a repair landing on the tick a bleed killed
       // its target cannot un-eliminate them.
       if (pulse.heal > 0) player.hp = applyHeal(player.hp, pulse.heal, hpOf(carIdOf(player)));
@@ -214,11 +258,28 @@ export function runCombat(input: CombatInput): CombatResult {
     );
   }
 
+  // 0d. Contact damage — a dash landing or a hard slam, discovered by the contact pass this tick.
+  // Priced exactly like a shot: the attacker's weapon row through their `attack` and `damageDealt`,
+  // the target's `damageTaken` at impact, and the weapon's `applies` riding the hit (spec S3). The
+  // hull was the hitbox; this is the damage half arriving through the same seam a pickup would.
+  for (const hit of input.contactHits ?? []) {
+    const target = byId.get(hit.targetSessionId);
+    if (!target || !isFighting(target)) continue;
+    const attacker = byId.get(hit.attackerSessionId);
+    const base = weaponDamageOf(attacker ? carIdOf(attacker) : DEFAULT_CAR_ID, hit.weaponId);
+    const dealt = scaleDamage(base, attacker ? modsOf(hit.attackerSessionId).damageDealt : 1);
+    const targetMods = modsOf(hit.targetSessionId);
+    dealDamageTo(target, scaleDamage(dealt, targetMods.damageTaken), targetMods);
+    applyOpponentStatuses(target, hit.weaponId, world.tick, hit.attackerSessionId, true);
+  }
+
   // 1. Recharge first, so a stock that lands this tick can be spent this tick. A player who has left
   // the fight cannot bank a shot, and drops any pending burst — a wreck does not finish firing.
   for (const player of players) {
     if (!isFighting(player)) {
       player.fireState = cancelPending(player.fireState);
+      // A wreck holds nothing: the same "nothing survives" rule `clearKnock` applies to ram state.
+      clearManeuver(player);
       continue;
     }
     player.fireState = tickRecharge(
@@ -237,6 +298,10 @@ export function runCombat(input: CombatInput): CombatResult {
     // An attached beam dies with its owner: a wreck does not shoot. Everything already frozen at
     // birth — projectiles, detached beams — finishes its life regardless.
     if (instance.attached && (!owner || !isFighting(owner))) continue;
+    // The locked car's LIVE pose, looked up fresh every tick — never the shooter's own state, and
+    // never cached from spawn. `null` when it has died, left the roster, or the shot never locked.
+    const homingOwner =
+      instance.homingTargetId !== "" ? byId.get(instance.homingTargetId) : undefined;
     stepped.push(
       stepInstance(instance, {
         dt: world.dt,
@@ -244,6 +309,8 @@ export function runCombat(input: CombatInput): CombatResult {
         obstacles: world.obstacles,
         bounds: world.bounds,
         ownerPose: owner ? { x: owner.x, y: owner.y, angle: owner.angle } : null,
+        homingTarget:
+          homingOwner && isFighting(homingOwner) ? { x: homingOwner.x, y: homingOwner.y } : null,
       }),
     );
   }
@@ -276,6 +343,7 @@ export function runCombat(input: CombatInput): CombatResult {
       obstacles: world.obstacles,
       bounds: world.bounds,
       tick: world.tick,
+      lockRangeUnits: carAimRangeOf(carIdOf(player)),
     });
   }
 
@@ -288,19 +356,51 @@ export function runCombat(input: CombatInput): CombatResult {
     // landing mid-wind-up would otherwise eat a stock and produce nothing — a debuff that is
     // strictly worse the better your timing was. Jam what has not been committed yet; let what has
     // finish.
+    // A press that would start a maneuver (or a hold weapon) while one runs is ignored BEFORE the
+    // stock is spent — masked out of the press, not swallowed after commitment.
+    const blocked = player.maneuver !== ManeuverKind.NONE ? maneuverSlotMask(player.fireState) : 0;
     if (!mods.disarmed) {
-      player.fireState = beginFire(player.fireState, player.fireMask, world.tick);
+      const prevPending = player.fireState.pending;
+      player.fireState = beginFire(player.fireState, player.fireMask & ~blocked, world.tick);
+      // A hold weapon commits the car the moment the wind-up starts (O10): press -> HOLD for
+      // wind-up + growth + linger, released early only by wreck or stun.
+      const pending = player.fireState.pending;
+      if (pending !== null && prevPending === null) {
+        const pendingDef = weaponDefOf(pending.weaponId);
+        if (pendingDef.kind === "beam" && pendingDef.holdsDuringFire && player.maneuver === ManeuverKind.NONE) {
+          const t = weaponTicksOf(pendingDef.id);
+          player.maneuver = ManeuverKind.HOLD;
+          player.maneuverTicksLeft = t.startUp + t.flight + t.lifetime;
+          player.maneuverWeaponId = pendingDef.id;
+        }
+      }
     }
     const released = releaseShots(player.fireState, world.tick, mods.weaponCooldown);
     player.fireState = released.state;
     for (const order of released.orders) {
+      const def = weaponDefOf(order.weaponId);
+      // A press that would start a maneuver-kind weapon moves the car instead of spawning an
+      // instance — no aim, no hit test, just the trigger for `startManeuver`.
+      if (def.kind === "maneuver") {
+        startManeuver(player, def, byId);
+        applySelfStatuses(player, order.weaponId, world.tick, order.finalVolley);
+        continue;
+      }
+      const aim = aimAngleFor(player, order.weaponId, byId);
+      // A homing shot needs both a live lock AND a successful aim assist — `aim === null` means the
+      // lock was out of range, absent, or the weapon declined assist for some other reason, and
+      // firing a rocket that steers toward a target it did not actually aim at would be a stealth
+      // buff no other weapon gets.
+      const homingTargetId =
+        def.kind === "projectile" && def.homing && aim !== null ? player.lock.targetSessionId : "";
       const spawned = spawnInstances(
         order,
         player,
         world.tick,
         instanceSeq,
-        aimAngleFor(player, order.weaponId, byId),
+        aim,
         mods.damageDealt,
+        homingTargetId,
       );
       instanceSeq = spawned.seq;
       stepped.push(...spawned.instances);
@@ -342,16 +442,47 @@ export function runCombat(input: CombatInput): CombatResult {
       //
       // `hit.amount` may legitimately be 0: a pure applicator weapon still registers a hit, because
       // a status rides the hit rather than the number.
-      damage(target, scaleDamage(hit.amount, modsOf(hit.sessionId).damageTaken));
+      const targetMods = modsOf(hit.sessionId);
+      dealDamageTo(target, scaleDamage(hit.amount, targetMods.damageTaken), targetMods);
       // Statuses ride the DAMAGE list, so they inherit its rules for free: friendly fire, the
       // shooter's own immunity, wrecks, pierce, and the per-target damage clock that stops a
       // lingering beam re-applying every single tick.
       applyOpponentStatuses(target, instance.weaponId, world.tick, instance.ownerSessionId, instance.finalWave);
     }
+    // `ownerInside` statuses cannot ride the damage list — `canDamage` refuses the owner by design —
+    // so a live zone runs its own owner-hull test each tick. Placed here, beside the other status
+    // application, so both kinds of rider land at the same point of the tick and take hold on the
+    // next one like every other status.
+    applyOwnerInsideStatuses(instance, byId, world.tick);
     if (outcome.instance.alive) survivors.push(outcome.instance);
   }
 
-  return { players, instances: survivors, instanceSeq };
+  // Stun interruption (O8): a stun landing THIS tick cancels the car's committed states at the end
+  // of the tick — after this tick's already-released shots resolved, the same one-tick seam every
+  // other on-apply consequence accepts. Runs after hit resolution so it catches a stun applied by
+  // any path this tick (0c request, 0d contact, or this tick's own hits), and `wasStunned` (captured
+  // before any of those ran) keeps a car already riding out an older stun from being re-swept.
+  // `isUnInterruptable` exempts a weapon's wind-up or maneuver per-row. Stocks spent on a cancelled
+  // wind-up stay spent (O14): interruption is the stun's payoff.
+  const interrupted = new Set<string>();
+  for (const player of players) {
+    if (wasStunned.has(player.sessionId)) continue;
+    if (!hasStatus(player.statuses, "stunned", world.tick)) continue;
+    const pending = player.fireState.pending;
+    if (pending && !weaponDefOf(pending.weaponId).isUnInterruptable) {
+      player.fireState = cancelPending(player.fireState);
+    }
+    const maneuverDef = isWeaponId(player.maneuverWeaponId) ? weaponDefOf(player.maneuverWeaponId) : null;
+    if (player.maneuver !== ManeuverKind.NONE && !maneuverDef?.isUnInterruptable) {
+      clearManeuver(player);
+    }
+    interrupted.add(player.sessionId);
+  }
+  const kept = survivors.filter(
+    (i) => !(interrupted.has(i.ownerSessionId) && i.attached && !weaponDefOf(i.weaponId).isUnInterruptable),
+  );
+
+  return { players, instances: kept, instanceSeq };
 }
 
 /** In the match and not yet a wreck: the gate for firing and being shot alike. */
@@ -379,8 +510,73 @@ export function aimAngleFor(
   if (player.lock.targetSessionId === "") return null;
   const target = byId.get(player.lock.targetSessionId);
   if (!target || !isFighting(target)) return null;
+  const def = weaponDefOf(weaponId);
+  // Per-weapon range gate (spec S1): a lock the car holds through its longest assisted weapon may
+  // still be out of THIS weapon's reach — then the weapon declines the assist and fires straight.
+  // Centre-to-centre, matching how lock scoring measures distance.
+  const distance = Math.hypot(target.x - player.x, target.y - player.y);
+  if (distance > (def.aimRangeUnits ?? 0)) return null;
   const muzzle = muzzleOf({ x: player.x, y: player.y, angle: player.angle });
+  if (def.kind === "projectile") {
+    // Lead is projectiles-only (spec S1): a beam crosses its reach near-instantly, and a maneuver
+    // aims the car, not a shot. Target velocity is heading x speed — shove is small and decaying.
+    // For a DASHING target, `target.speed` is stale: `stepDash` (sim/drive.ts) holds `body.speed`
+    // at its pre-dash value for the whole dash rather than reporting `maneuverSpeed`, so the
+    // direction here is right (dash sets `angle` to `maneuverAngle` every tick) but the magnitude
+    // understates a fast dash — acceptable, since lead is an estimate rather than a promise.
+    return interceptAngle(
+      muzzle.x, muzzle.y, target.x, target.y,
+      Math.cos(target.angle) * target.speed, Math.sin(target.angle) * target.speed,
+      def.speed,
+    );
+  }
   return Math.atan2(target.y - muzzle.y, target.x - muzzle.x);
+}
+
+/** The dash direction: the lock target's bearing (NO lead — the car arrives, not a shot), or the heading. */
+export function dashAngleFor(
+  player: CombatPlayer,
+  def: ManeuverWeaponDef,
+  byId: ReadonlyMap<string, CombatPlayer>,
+): number {
+  if (!def.usesAimAssist || player.lock.targetSessionId === "") return player.angle;
+  const target = byId.get(player.lock.targetSessionId);
+  if (!target || !isFighting(target)) return player.angle;
+  const distance = Math.hypot(target.x - player.x, target.y - player.y);
+  if (distance > (def.aimRangeUnits ?? 0)) return player.angle;
+  return Math.atan2(target.y - player.y, target.x - player.x);
+}
+
+/** Begin a maneuver-kind weapon's effect. One maneuver at a time; a second press is ignored. */
+export function startManeuver(
+  player: CombatPlayer,
+  def: ManeuverWeaponDef,
+  byId: ReadonlyMap<string, CombatPlayer>,
+): void {
+  if (player.maneuver !== ManeuverKind.NONE) return;
+  player.maneuverWeaponId = def.id;
+  if (def.maneuver.type === "dash") {
+    const distance = def.aimRangeUnits ?? def.range;
+    player.maneuver = ManeuverKind.DASH;
+    player.maneuverSpeed = def.speed;
+    player.maneuverTicksLeft = Math.max(1, Math.ceil((distance / def.speed) * TICK_RATE_HZ));
+    player.maneuverAngle = dashAngleFor(player, def, byId);
+  } else {
+    player.maneuver = ManeuverKind.CHARGE;
+    player.maneuverTicksLeft = msToTicks(def.maneuver.durationMs);
+    player.maneuverAngle = 0;
+    player.maneuverSpeed = 0;
+  }
+}
+
+/** Bitmask of slots whose weapon starts a maneuver or a hold — the presses masked out mid-maneuver. */
+function maneuverSlotMask(fireState: FireState): number {
+  let mask = 0;
+  fireState.slots.forEach((slot, index) => {
+    const def = weaponDefOf(slot.weaponId);
+    if (def.kind === "maneuver" || (def.kind === "beam" && def.holdsDuringFire)) mask |= 1 << index;
+  });
+  return mask;
 }
 
 /**
@@ -397,7 +593,9 @@ export function aimAngleFor(
  */
 function hitsWorld(instance: WeaponInstance, previous: WeaponInstance, world: CombatWorld): boolean {
   const def = weaponDefOf(instance.weaponId);
-  if (def.kind !== "projectile" || instance.kind !== "projectile") return false;
+  // A bouncing projectile is never destroyed by the world — `stepInstance` reflected it instead,
+  // and testing the pre-reflection smear here would kill it on the very wall it just bounced off.
+  if (def.kind !== "projectile" || instance.kind !== "projectile" || def.bounce) return false;
 
   const swept = smear(
     projectileShapeAt(def.hitbox, previous.x, previous.y, previous.angle),
@@ -444,6 +642,43 @@ function applySelfStatuses(
   });
 }
 
+/**
+ * Put this weapon's `ownerInside` statuses on the firing car for every tick its own hull stands
+ * inside this live BEAM instance — the presence-buff seam (`tremor`'s fortified).
+ *
+ * A dedicated test rather than a damage rider, because the one predicate the damage list runs on
+ * (`canDamage`) refuses the owner by design and must keep doing so. Beams only: a zone is a place
+ * to stand. The application re-fires every covered tick, so the authored duration is meant to be
+ * short and the row's `reapply: "refresh"` is what turns the flicker into a held window — the same
+ * shape as `afterburner` holding `overheated` through its damage ticks.
+ */
+function applyOwnerInsideStatuses(
+  instance: WeaponInstance,
+  byId: ReadonlyMap<string, CombatPlayer>,
+  tick: number,
+): void {
+  if (instance.kind !== "beam") return;
+  const def = weaponDefOf(instance.weaponId);
+  if (def.kind !== "beam") return;
+  const applies = def.applies;
+  if (!applies || !applies.some((a) => a.target === "ownerInside")) return;
+  const owner = byId.get(instance.ownerSessionId);
+  if (!owner || !isFighting(owner)) return;
+  const shape = beamShapeAt(def.hitbox, instance.x, instance.y, instance.angle, instance.extent);
+  if (!shapeHitsObb(shape, carHullOf(owner.x, owner.y, owner.angle))) return;
+  const durations = weaponTicksOf(instance.weaponId).applyDurations;
+  applies.forEach((application, index) => {
+    if (application.target !== "ownerInside") return;
+    owner.statuses = applyStatus(
+      owner.statuses,
+      application.statusId,
+      tick,
+      durations[index] ?? 0,
+      owner.sessionId,
+    );
+  });
+}
+
 /** Put this weapon's `opponents` statuses on a car its shot just damaged. */
 function applyOpponentStatuses(
   target: CombatPlayer,
@@ -468,9 +703,14 @@ function applyOpponentStatuses(
   });
 }
 
-/** The only writer of `hp` and `alive`. 0 hp is the wreck: the car stays on the field, inert. */
-function damage(player: CombatPlayer, amount: number): void {
-  player.hp = applyDamage(player.hp, amount);
+/**
+ * The only writer of damage-inflicted `hp`/`alive` changes in combat — `applyHeal` is the other half
+ * of what moves `hp`, for the opposite direction. `invulnerable` zeroes the amount — the hit still
+ * happened (pierce spent, statuses ride, the clock arms); only the hp change is refused. 0 hp is
+ * the wreck: the car stays on the field, inert.
+ */
+export function dealDamageTo(player: CombatPlayer, amount: number, mods: Readonly<Modifiers>): void {
+  if (!mods.invulnerable) player.hp = applyDamage(player.hp, amount);
   if (player.hp === 0) player.alive = false;
 }
 

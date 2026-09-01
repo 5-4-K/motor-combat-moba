@@ -1,4 +1,5 @@
 import {
+  ManeuverKind,
   WeaponInstanceState,
   WeaponKind,
   WeaponSlotState,
@@ -14,6 +15,7 @@ import {
   type FireState,
   type LockState,
   type PlayerState,
+  type WeaponId,
   type WeaponInstance,
 } from "@motor-combat-moba/shared";
 import { clearPlayerStatuses, readStatuses, writeStatuses } from "./status-bridge.js";
@@ -42,6 +44,12 @@ export interface CombatMemory {
   instances: Map<string, WeaponInstance>;
   /** Per-player target lock. Server-only; only `targetSessionId` is projected onto the schema. */
   locks: Map<string, LockState>;
+  /**
+   * Which weapon started each player's running maneuver, or "". Server-only, carried like
+   * `fireStates`: `CombatPlayer.maneuverWeaponId` has no wire representation — `stepSim` reads only
+   * the four numeric maneuver fields, which ARE networked directly on `PlayerState`.
+   */
+  maneuverWeapons: Map<string, WeaponId | "">;
 }
 
 export function newCombatMemory(): CombatMemory {
@@ -50,6 +58,7 @@ export function newCombatMemory(): CombatMemory {
     fireStates: new Map(),
     instances: new Map(),
     locks: new Map(),
+    maneuverWeapons: new Map(),
   };
 }
 
@@ -92,6 +101,7 @@ export function toCombatPlayers(
       x: player.x,
       y: player.y,
       angle: player.angle,
+      speed: player.speed,
       team: player.team === 1 ? 1 : 0,
       carId: player.carId,
       hp: player.hp,
@@ -105,6 +115,14 @@ export function toCombatPlayers(
       // no server-only half to keep beside it — unlike `fireState` and `lock`, every field of a
       // status is networked, because the client predicts through the same modifiers.
       statuses: readStatuses(player),
+      // The four numeric fields ARE networked (`stepDrive` reads them, invariant 8) and come
+      // straight off the schema; `maneuverWeaponId` has no wire representation and is carried in
+      // room memory instead, exactly like `fireState` and `lock`.
+      maneuver: player.maneuver,
+      maneuverTicksLeft: player.maneuverTicksLeft,
+      maneuverAngle: player.maneuverAngle,
+      maneuverSpeed: player.maneuverSpeed,
+      maneuverWeaponId: memory.maneuverWeapons.get(sessionId) ?? "",
     });
   });
   return players;
@@ -138,9 +156,23 @@ export function applyCombatResult(state: ArenaState, result: CombatResult, memor
   for (const p of result.players) {
     memory.fireStates.set(p.sessionId, p.fireState);
     memory.locks.set(p.sessionId, p.lock);
+    // A dash or charge that ends by natural expiry (rather than a stun interruption, which already
+    // clears `maneuverWeaponId` through `clearManeuver`) sets `player.maneuver` back to NONE on the
+    // networked numeric fields without touching this server-only map — `stepDrive` only knows the
+    // four numeric fields, never the weapon id behind them. Left alone, the map would keep naming a
+    // maneuver that is no longer running, which `contactTick` reads on every later tick. Cleared here,
+    // at the single write site, rather than duplicated in `ram-bridge.ts`'s `contactCarsOf`.
+    memory.maneuverWeapons.set(
+      p.sessionId,
+      p.maneuver === ManeuverKind.NONE ? "" : p.maneuverWeaponId,
+    );
     const player = state.players.get(p.sessionId);
     if (!player) continue;
     player.hp = p.hp;
+    player.maneuver = p.maneuver;
+    player.maneuverTicksLeft = p.maneuverTicksLeft;
+    player.maneuverAngle = p.maneuverAngle;
+    player.maneuverSpeed = p.maneuverSpeed;
     // Stamp the death tick on the TRANSITION only, so a car that is already dead keeps the tick it
     // died on rather than having it rewritten every tick it stays dead. The client fades from here.
     if (player.alive && !p.alive) player.diedAtTick = state.tick;
@@ -213,6 +245,7 @@ export function clearInstances(state: ArenaState, memory: CombatMemory): void {
   memory.instances.clear();
   memory.fireStates.clear();
   memory.locks.clear();
+  memory.maneuverWeapons.clear();
   // The schema projection has to be cleared here too, separately from the memory map above: combat
   // only runs in RoomPhase.MATCH, but ArenaScene is on screen from COUNTDOWN onward, and `endMatch`
   // freezes whatever `lockTargetSessionId` was last written. Without this, the second match onward

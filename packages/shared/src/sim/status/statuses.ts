@@ -119,6 +119,19 @@ export function expireStatuses(statuses: ActiveStatus[], tick: number): ActiveSt
 }
 
 /**
+ * Expire every live status this source applied — the "ends with the charge" rule (O2): a power
+ * whose window closes early takes its own riders with it. Returns the same-content list when the
+ * source owns nothing live, mirroring `expireStatuses`' cheap path.
+ */
+export function expireStatusesFromSource(
+  statuses: readonly ActiveStatus[],
+  sourceSessionId: string,
+  tick: number,
+): ActiveStatus[] {
+  return statuses.filter((s) => !(s.sourceSessionId === sourceSessionId && s.endsTick > tick));
+}
+
+/**
  * Apply one status to a car for `durationTicks`, returning the new list. Pure: the input is never
  * mutated.
  *

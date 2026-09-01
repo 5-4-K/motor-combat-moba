@@ -227,7 +227,7 @@ function lockThroughWall(): void {
     "ffa",
     "arena-02",
   );
-  const bit = slotBitFor("bullseye", "needler");
+  const bit = slotBitFor("bullseye", "shockwave");
   let lockedTicks = 0;
   for (let i = 0; i < 120; i++) {
     w.input("s", { fireSlots: bit });
@@ -264,7 +264,7 @@ function beamInWall(): void {
   const box = ARENA.obstacles[2]!;
   const rows: string[] = [];
   let leak = false;
-  for (const id of ["afterburner", "lance", "bulwark", "shockwave"] as WeaponId[]) {
+  for (const id of ["afterburner", "lance"] as WeaponId[]) {
     const carrier = carrierOf(id);
     const bit = slotBitFor(carrier, id);
     // Shooter nosed into the block's west face, firing east — the muzzle lands inside the wall.

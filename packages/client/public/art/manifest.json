@@ -9,11 +9,6 @@
     "car.bullseye": {
       "file": "cars/bullseye.png"
     },
-    "weapon-icon.fireball": {
-      "file": "weapon-icons/fireball.png",
-      "colorMode": "none",
-      "scale": "fit"
-    },
     "weapon-icon.pepperbox": {
       "file": "weapon-icons/pepperbox.png",
       "colorMode": "none",
@@ -21,16 +16,6 @@
     },
     "weapon-icon.afterburner": {
       "file": "weapon-icons/afterburner.png",
-      "colorMode": "none",
-      "scale": "fit"
-    },
-    "weapon-icon.needler": {
-      "file": "weapon-icons/needler.png",
-      "colorMode": "none",
-      "scale": "fit"
-    },
-    "weapon-icon.skewer": {
-      "file": "weapon-icons/skewer.png",
       "colorMode": "none",
       "scale": "fit"
     },
@@ -46,11 +31,6 @@
     },
     "weapon-icon.shockwave": {
       "file": "weapon-icons/shockwave.png",
-      "colorMode": "none",
-      "scale": "fit"
-    },
-    "weapon-icon.bulwark": {
-      "file": "weapon-icons/bulwark.png",
       "colorMode": "none",
       "scale": "fit"
     }

@@ -83,8 +83,8 @@ describe("fullStatsFor", () => {
       "Mass",
       "Hull size",
       "Thumper damage",
-      "Skewer damage",
-      "Bulwark damage",
+      "Roadblock damage",
+      "Wild Charge damage",
     ]);
   });
 
@@ -96,12 +96,14 @@ describe("fullStatsFor", () => {
 
   it("shows each chassis's own damage for every weapon it carries", () => {
     // Literals, not a re-derivation: comparing against weaponDamageOf would pass just as well
-    // against a hard-coded panel, and would not catch the row being wired to the wrong car. Since
-    // Task 5's rewire each chassis's slot-1 weapon is its own id (no shared "Fireball damage" row
-    // across all three any more), so this pins each chassis's actual opener by label AND value.
+    // against a hard-coded panel, and would not catch the row being wired to the wrong car. Each
+    // chassis's slot-1 weapon is its own id (no shared damage row across all three), so this pins
+    // each chassis's actual opener by label AND value. `fireball`/`needler` retired outright and
+    // `predator`/`shockwave` shipped in their place by the 2026-09-01 roster cutover (O17); bastion's
+    // opener (`thumper`) is unchanged.
     const expected: Record<keyof typeof CAR_TABLE, { label: string; value: string }> = {
-      mirage: { label: "Fireball damage", value: "57" },
-      bullseye: { label: "Needler damage", value: "23" },
+      mirage: { label: "Predator damage", value: "57" },
+      bullseye: { label: "Shockwave damage", value: "23" },
       bastion: { label: "Thumper damage", value: "55" },
     };
     for (const id of Object.keys(CAR_TABLE) as (keyof typeof CAR_TABLE)[]) {

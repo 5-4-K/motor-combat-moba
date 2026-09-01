@@ -149,7 +149,7 @@ Or from `packages/server`, `npx tsx playtest/lan.ts`. Point it elsewhere with
 ## The two harnesses
 
 **`world.ts` — offline.** `PlaytestWorld` drives the exact pipeline `ArenaRoom.tick` runs —
-`statusTick` → `serverTick` → `ramTick` → `runCombat`, through the real bridges — with no Colyseus
+`statusTick` → `serverTick` → `contactTick` (ram/slam/dash) → `runCombat`, through the real bridges — with no Colyseus
 room, no sockets and no wall clock. It lets a scenario be *placed*: cars at exact poses, at exact
 speeds, on an exact tick. Driving a car into a corner case through the lobby and three seconds of
 countdown is not a test, it is a coincidence waiting to not happen.

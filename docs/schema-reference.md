@@ -36,6 +36,10 @@ Colyseus `@type` fields. Enums are explicit uint8; never renumber. `pendingCarId
 | `angVel` | number | `0` | Ram-injected spin, rad/s. Decays toward `0` |
 | `shoveX`, `shoveY` | number | `0` | Ram-injected lateral knock, u/s. Decays toward `0` |
 | `authority` | number | `1` | Steering multiplier; `1` = full control. A ram dips it toward `RAM_CONFIG.authorityFloor`, then it decays back toward `1`. Defaults to `1`, not `0` — a `0` default would mean "no steering" for every player never touched, presenting as an undriveable car on first spawn |
+| `maneuver` | uint8 `ManeuverKind` | `0` | NONE=0, DASH=1, HOLD=2, CHARGE=3 |
+| `maneuverTicksLeft` | uint16 | `0` | Ticks left in the current maneuver; `0` whenever `maneuver` is NONE |
+| `maneuverAngle` | number | `0` | The locked heading a DASH translates along (radians); `0` and unread for HOLD/CHARGE |
+| `maneuverSpeed` | number | `0` | The locked speed a DASH translates at (u/s); `0` and unread for HOLD/CHARGE |
 | `hp` | uint16 | `0` | Actual HP |
 | `alive` | boolean | `true` | False when eliminated |
 | `selectLocked` | boolean | `false` | Car-select lock; pick still hidden |
@@ -56,6 +60,16 @@ Colyseus `@type` fields. Enums are explicit uint8; never renumber. `pendingCarId
 next `stepSim` integration directly, so a half-eased value would poison every subsequent step rather
 than merely look wrong. See [`config-reference.md`](config-reference.md#ram_config) for the tuning
 that produces them.
+
+`maneuver`, `maneuverTicksLeft`, `maneuverAngle`, and `maneuverSpeed` are the maneuver state behind
+dash/hold/charge (see [`combat-model.md`](combat-model.md#maneuvers-and-the-contact-pass)) —
+networked for the same reason as the ram knock fields (`stepDrive` reads all four, invariant 8) and
+snapped, never eased, on `PredictionBuffer.reconcile` for the same reason: they are rules for the
+next integration, not a drawn pose. `maneuverWeaponId` — which maneuver-kind weapon is running — is
+**not** one of the four: it stays server-only, carried in `CombatMemory` alongside `fireState`,
+because `stepSim` itself only ever reads the `ManeuverKind` and the two locked numbers, never the
+weapon id. Every trigger that writes these fields is dormant — no chassis carries a maneuver-kind
+weapon yet (Plan 3).
 
 ## StatusState
 

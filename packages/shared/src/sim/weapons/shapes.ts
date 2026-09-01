@@ -28,6 +28,17 @@ export function projectileShapeAt(
 ): WorldShape {
   if (hitbox.shape === "circle") return { kind: "circle", x, y, radius: hitbox.radius };
   if (hitbox.shape === "capsule") return capsuleShapeAt(hitbox, x, y, angle);
+  if (hitbox.shape === "bar") {
+    return {
+      kind: "polygon",
+      points: [
+        rotateInto(x, y, angle, hitbox.radiusAlong, -hitbox.radiusAcross),
+        rotateInto(x, y, angle, hitbox.radiusAlong, hitbox.radiusAcross),
+        rotateInto(x, y, angle, -hitbox.radiusAlong, hitbox.radiusAcross),
+        rotateInto(x, y, angle, -hitbox.radiusAlong, -hitbox.radiusAcross),
+      ],
+    };
+  }
   return {
     kind: "polygon",
     points: ring(ELLIPSE_SEGMENTS).map((t) =>

@@ -1,5 +1,6 @@
 import {
   ArenaState,
+  ManeuverKind,
   NET_CONFIG,
   PlayerState,
   RoomPhase,
@@ -221,7 +222,11 @@ const COAST_INPUT: InputMessage = { seq: 0, steer: 0, throttle: 0, fireSlots: 0 
  */
 function hasKnock(player: PlayerState): boolean {
   return (
-    player.angVel !== 0 || player.shoveX !== 0 || player.shoveY !== 0 || player.authority !== 1
+    player.angVel !== 0 || player.shoveX !== 0 || player.shoveY !== 0 || player.authority !== 1 ||
+    // A maneuver is also motion applied from outside the player's own inputs: a dashing or held
+    // car must keep integrating when its owner goes silent, or it freezes mid-dash holding the
+    // whole state. Ends on its own when the ticks run out, exactly as the knock decays do.
+    player.maneuver !== ManeuverKind.NONE
   );
 }
 
@@ -255,6 +260,14 @@ function bodyOf(player: PlayerState): SimBody {
     shoveX: player.shoveX,
     shoveY: player.shoveY,
     authority: player.authority,
+    // Reading/writing the four fields here is what makes stepDrive's DASH/HOLD/CHARGE integration
+    // and fullStop take hold once something upstream sets them (a weapon or status effect, not yet
+    // wired), without this bridge needing to change again. `hasKnock` below also treats a live
+    // maneuver as motion that must keep integrating even when the player goes silent.
+    maneuver: player.maneuver,
+    maneuverTicksLeft: player.maneuverTicksLeft,
+    maneuverAngle: player.maneuverAngle,
+    maneuverSpeed: player.maneuverSpeed,
   };
 }
 
@@ -268,4 +281,8 @@ function writeBody(player: PlayerState, body: SimBody): void {
   player.shoveX = body.shoveX;
   player.shoveY = body.shoveY;
   player.authority = body.authority;
+  player.maneuver = body.maneuver;
+  player.maneuverTicksLeft = body.maneuverTicksLeft;
+  player.maneuverAngle = body.maneuverAngle;
+  player.maneuverSpeed = body.maneuverSpeed;
 }

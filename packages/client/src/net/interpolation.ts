@@ -71,6 +71,10 @@ export class InterpolationBuffer {
         shoveX: pose.shoveX,
         shoveY: pose.shoveY,
         authority: pose.authority,
+        maneuver: pose.maneuver,
+        maneuverTicksLeft: pose.maneuverTicksLeft,
+        maneuverAngle: pose.maneuverAngle,
+        maneuverSpeed: pose.maneuverSpeed,
       },
     });
     this.prune(time);
@@ -112,6 +116,10 @@ export class InterpolationBuffer {
         shoveX: to.pose.shoveX,
         shoveY: to.pose.shoveY,
         authority: to.pose.authority,
+        maneuver: to.pose.maneuver,
+        maneuverTicksLeft: to.pose.maneuverTicksLeft,
+        maneuverAngle: to.pose.maneuverAngle,
+        maneuverSpeed: to.pose.maneuverSpeed,
       };
     }
     return { ...last.pose };

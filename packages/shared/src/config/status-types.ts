@@ -17,7 +17,8 @@ export type StatusId =
   | "stunned"
   | "spiked"
   | "fortified"
-  | "overhauled";
+  | "overhauled"
+  | "armored";
 
 /**
  * Every number in the sim a status may scale. One channel per thing the sim already reads, and a
@@ -82,7 +83,21 @@ export type StatusFlag =
   /** Steer input forced to 0. Injected ram spin is untouched — a stunned car still spins when hit. */
   | "steeringLocked"
   /** No NEW press may be committed. A press already committed still finishes. */
-  | "disarmed";
+  | "disarmed"
+  /**
+   * Speed forced to 0 every tick — the "total stop" half of the new stun (O6). Shove and injected
+   * spin are untouched: a slammed car still slides into the wall, which is what wall-stun reads.
+   * `stunned` is the one row that carries this, since the 2026-09-01 overhaul.
+   */
+  | "fullStop"
+  /**
+   * Takes 0 damage — every source: weapon hits, contact hits, pulses (O7). A FLAG, deliberately
+   * not `damageTaken: 0`: that channel's clamp floor is 0.4, and a floor exists so no stack of
+   * debuffs can take the car off you — armour is a different statement, "damage is off", and it
+   * is applier-owned risk exactly as stun duty cycle is. Status riders still land on an armored
+   * car: armour stops hp loss, not consequences.
+   */
+  | "invulnerable";
 
 /**
  * What happens when a status that is already running is applied again.

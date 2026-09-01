@@ -22,7 +22,6 @@ import {
   instanceDrawShape,
   instanceGlowBands,
   WEAPON_BEAM_STYLES,
-  WEAPON_GLOW_STYLES,
   lockBracketArms,
   LOCK_BRACKET_HALF,
   SHOW_LOCK_BRACKET,
@@ -156,7 +155,7 @@ describe("hpBarPoints", () => {
 });
 
 describe("extrapolateShot", () => {
-  const SPEED = WEAPON_TABLE.fireball.speed;
+  const SPEED = WEAPON_TABLE.shockwave.speed;
 
   it("does not move a shot reported this instant", () => {
     expect(extrapolateShot(100, 100, 0, SPEED, 0)).toEqual({ x: 100, y: 100 });
@@ -186,12 +185,12 @@ describe("extrapolateShot", () => {
 });
 
 describe("instance drawing", () => {
-  const projectile = { weaponId: "fireball", x: 100, y: 100, angle: 0, extent: 0 };
+  const projectile = { weaponId: "shockwave", x: 100, y: 100, angle: 0, extent: 0 };
 
   it("extrapolates a projectile along its own heading between patches", () => {
     const still = instanceDrawShape(projectile, 0);
     const later = instanceDrawShape(projectile, 25);
-    if (still.kind !== "circle" || later.kind !== "circle") throw new Error("fireball draws as a circle");
+    if (still.kind !== "circle" || later.kind !== "circle") throw new Error("shockwave draws as a circle");
     expect(later.x).toBeGreaterThan(still.x);
   });
 
@@ -204,16 +203,16 @@ describe("instance drawing", () => {
 
   it("draws by the weapon's own kind, so a stale row byte cannot pick the wrong shape", () => {
     // There is no beam in the shipped table, so the honest thing this can assert is the branch
-    // itself: a row claiming to be a beam still draws `fireball`'s projectile circle, because the
+    // itself: a row claiming to be a beam still draws `shockwave`'s projectile circle, because the
     // definition decides. The previous version of this test paired `weaponId: "fireball"` with a BEAM
     // byte and got a polygon two of whose three vertices were NaN — `beamShapeAt` reading
     // `angleDeg` off a circle — and asserted only `kind === "polygon"`, so it passed on garbage.
     // `beamShapeAt`'s own rect/cone geometry is covered in shared's `shapes.test.ts`.
-    const claimingBeam = { weaponId: "fireball", kind: WeaponKind.BEAM, x: 100, y: 100, angle: 0, extent: 200 };
+    const claimingBeam = { weaponId: "shockwave", kind: WeaponKind.BEAM, x: 100, y: 100, angle: 0, extent: 200 };
     const shape = instanceDrawShape(claimingBeam, 0);
     expect(shape.kind).toBe("circle");
     if (shape.kind !== "circle") throw new Error("circle expected");
-    expect(shape.radius).toBe(WEAPON_TABLE.fireball.hitbox.radius);
+    expect(shape.radius).toBe(WEAPON_TABLE.shockwave.hitbox.radius);
   });
 
   it("falls back to a small dot for an unrecognised weapon id rather than blanking the layer", () => {
@@ -267,7 +266,7 @@ describe("weaponFillOf", () => {
     for (const def of Object.values(WEAPON_TABLE)) {
       expect(weaponFillOf(def.id)).toBe(Number.parseInt(def.color.slice(1), 16));
     }
-    expect(weaponFillOf("fireball")).toBe(0xd63a14);
+    expect(weaponFillOf("shockwave")).toBe(0x22579e);
   });
 
   it("is the same colour whoever fired it — a shot is never owner-coloured", () => {
@@ -288,27 +287,41 @@ describe("weaponFillOf", () => {
 });
 
 describe("instanceGlowBands", () => {
-  const RADIUS = WEAPON_TABLE.fireball.hitbox.radius;
+  const RADIUS = WEAPON_TABLE.shockwave.hitbox.radius;
 
   it("returns nothing for a weapon with no authored look, so it keeps its flat disc", () => {
-    // `needler` is the whole point of this assertion: styles are per weapon, not a shared formula
-    // over `color`, so a second weapon must NOT silently inherit the fireball's bands.
-    expect(instanceGlowBands("needler", 3, 0, 0)).toEqual([]);
+    // `WEAPON_GLOW_STYLES` is empty as of the 2026-09-01 roster cutover (see the table's own
+    // comment), so every real weapon id proves this branch today. `predator` stands in for "any
+    // weapon with no authored look."
+    expect(instanceGlowBands("predator", 3, 0, 0)).toEqual([]);
   });
 
   it("returns nothing for an unrecognised weapon id rather than throwing", () => {
     expect(instanceGlowBands("not-a-weapon", 12, 0, 0)).toEqual([]);
   });
 
-  it("draws the fireball outermost first, so each band is filled over the last", () => {
+  // The five tests below pin `instanceGlowBands`' actual band math -- ordering, containment,
+  // flicker, phase, scaling -- and every one of them needs a REAL `WEAPON_GLOW_STYLES` entry to
+  // exercise it against. The table is empty since the 2026-09-01 roster cutover retired `fireball`
+  // (its one weapon with a flicker) and moved `pepperbox` out to an ellipse hitbox a round-glow
+  // table cannot own, so nothing in the shipped roster carries a look. Skipped rather than deleted
+  // or faked against data that describes no shipped weapon: the mechanism is still live code, ready
+  // for whichever weapon next earns bands. `fireball`'s retired numbers are frozen here as literals
+  // (it is no longer a valid `WeaponId`, so `WEAPON_GLOW_STYLES` can no longer be indexed by it) —
+  // un-skip and point these at a real weapon's id and its real `WEAPON_GLOW_STYLES` entry once one
+  // exists.
+  const RETIRED_FIREBALL_BAND_COUNT = 4;
+  const RETIRED_FIREBALL_FLICKER_DEPTH = 1 / 12;
+
+  it.skip("draws the fireball outermost first, so each band is filled over the last", () => {
     const bands = instanceGlowBands("fireball", RADIUS, 0, 0);
-    expect(bands.length).toBe(WEAPON_GLOW_STYLES.fireball!.bands.length);
+    expect(bands.length).toBe(RETIRED_FIREBALL_BAND_COUNT);
     for (let i = 1; i < bands.length; i++) {
       expect(bands[i]!.radius).toBeLessThan(bands[i - 1]!.radius);
     }
   });
 
-  it("never draws outside the hitbox, at any point in the flicker", () => {
+  it.skip("never draws outside the hitbox, at any point in the flicker", () => {
     // The invariant the whole style system rests on: what you see is what can hurt you. A flicker
     // that could push the rim past the hitbox would make the drawn shot bigger than the thing that
     // hits, so the wave is [0, 1] and only ever subtracts. Swept across several full cycles at
@@ -320,21 +333,20 @@ describe("instanceGlowBands", () => {
     }
   });
 
-  it("flickers between the full hitbox and one flicker depth inside it", () => {
+  it.skip("flickers between the full hitbox and one flicker depth inside it", () => {
     const outer: number[] = [];
     for (let ms = 0; ms < 1000; ms += 0.5) outer.push(instanceGlowBands("fireball", RADIUS, 0, ms)[0]!.radius);
-    const depth = WEAPON_GLOW_STYLES.fireball!.flickerDepth;
     expect(Math.max(...outer)).toBeCloseTo(RADIUS, 2);
-    expect(Math.min(...outer)).toBeCloseTo(RADIUS * (1 - depth), 2);
+    expect(Math.min(...outer)).toBeCloseTo(RADIUS * (1 - RETIRED_FIREBALL_FLICKER_DEPTH), 2);
   });
 
-  it("puts shots spawned on different ticks out of phase, so a stream does not pulse in lockstep", () => {
+  it.skip("puts shots spawned on different ticks out of phase, so a stream does not pulse in lockstep", () => {
     const a = instanceGlowBands("fireball", RADIUS, 100, 0)[0]!.radius;
     const b = instanceGlowBands("fireball", RADIUS, 101, 0)[0]!.radius;
     expect(a).not.toBeCloseTo(b, 3);
   });
 
-  it("scales the whole glow with the hitbox, so a re-tuned radius cannot strand a band", () => {
+  it.skip("scales the whole glow with the hitbox, so a re-tuned radius cannot strand a band", () => {
     const wide = instanceGlowBands("fireball", RADIUS * 2, 0, 0);
     const base = instanceGlowBands("fireball", RADIUS, 0, 0);
     wide.forEach((band, i) => expect(band.radius).toBeCloseTo(base[i]!.radius * 2, 6));
@@ -355,15 +367,12 @@ describe("beamDrawLayers", () => {
     return (AFTERBURNER.hitbox.angleDeg * Math.PI) / 360;
   }
 
-  it("returns nothing for a beam with no authored look, so it keeps its flat polygon", () => {
-    // `shockwave` is a disc, which has no cross-section to nest layers inside and is refused at
-    // source. A beam must NOT inherit another weapon's layers, the same rule `instanceGlowBands`
-    // holds for bands.
-    expect(beamDrawLayers("shockwave", 0, 0, 0, 150, 0)).toEqual([]);
-  });
-
   it("returns nothing for a projectile, so a mis-branched caller falls back rather than throwing", () => {
-    expect(beamDrawLayers("fireball", 0, 0, 0, 100, 0)).toEqual([]);
+    // `shockwave` used to be a disc-hitbox aura here; it was redefined into a plain circular
+    // projectile by the 2026-09-01 roster cutover, so it now proves this branch (not a beam) rather
+    // than the disc-specific refusal `beamDrawLayers` still carries for whichever weapon next ships
+    // one (see the "disc has no cross-section" comment beside that early return).
+    expect(beamDrawLayers("shockwave", 0, 0, 0, 100, 0)).toEqual([]);
     expect(beamDrawLayers("not-a-weapon", 0, 0, 0, 100, 0)).toEqual([]);
   });
 
@@ -472,18 +481,10 @@ describe("beamDrawLayers", () => {
 
   it("puts the weapon's own table colour on its body layer, one in from the dark rim", () => {
     // Not the outer layer: a flame wants its darkest ring outside so it reads as a hard-edged object
-    // on a light floor, which is the convention `fireball`'s bands already followed. The rule that
-    // matters is that the table colour appears in the ramp at all -- otherwise the HUD slot and the
-    // shot are two different weapons.
+    // on a light floor. The rule that matters is that the table colour appears in the ramp at all --
+    // otherwise the HUD slot and the shot are two different weapons.
     expect(WEAPON_BEAM_STYLES.afterburner!.layers[1]!.color.toUpperCase()).toBe(
       AFTERBURNER.color.toUpperCase(),
-    );
-  });
-
-  it("gives bulwark a ramp whose outer edge IS its table colour", () => {
-    // The other convention: a shield wall's outer edge is its body, so the table colour sits there.
-    expect(WEAPON_BEAM_STYLES.bulwark!.layers[0]!.color.toUpperCase()).toBe(
-      WEAPON_TABLE.bulwark.color.toUpperCase(),
     );
   });
 
@@ -507,10 +508,12 @@ describe("chargeOrbBands", () => {
   const orbAt = (tick: number) => chargeOrbBands("lance", EXIT, tick);
 
   it("draws nothing for a weapon with no authored charge", () => {
-    // afterburner is a beam with layers but no wind-up and no orb; shockwave has neither.
+    // afterburner is a beam with layers but no wind-up and no orb; shockwave (a plain circular
+    // projectile as of the 2026-09-01 roster cutover) and predator (a capsule projectile) have
+    // neither.
     expect(chargeOrbBands("afterburner", EXIT, PRESS)).toEqual([]);
     expect(chargeOrbBands("shockwave", EXIT, PRESS)).toEqual([]);
-    expect(chargeOrbBands("fireball", EXIT, PRESS)).toEqual([]);
+    expect(chargeOrbBands("predator", EXIT, PRESS)).toEqual([]);
     expect(chargeOrbBands("not-a-weapon", EXIT, PRESS)).toEqual([]);
   });
 
@@ -654,7 +657,7 @@ describe("beamFadeAlpha", () => {
 
   it("leaves projectiles fully opaque for their whole flight", () => {
     for (let tick = SPAWN; tick < SPAWN + 200; tick += 7) {
-      expect(beamFadeAlpha(WeaponKind.PROJECTILE, "fireball", SPAWN, tick)).toBe(1);
+      expect(beamFadeAlpha(WeaponKind.PROJECTILE, "shockwave", SPAWN, tick)).toBe(1);
     }
   });
 

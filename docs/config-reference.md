@@ -40,9 +40,9 @@ Build with `npm run build:release -- --port <n>` to bake in a different one. See
 
 | id | name | speed | accel | handling | attack | hp | mass | weapons |
 |---|---|---|---|---|---|---|---|---|
-| `mirage` | Mirage | 88 | 85 | 60 | 63 | 48 | 48 | `["fireball", "shockwave", "afterburner"]` |
-| `bullseye` | Bullseye | 52 | 45 | 28 | 55 | 30 | 30 | `["needler", "pepperbox", "lance"]` |
-| `bastion` | Bastion | 30 | 20 | 82 | 42 | 82 | 90 | `["thumper", "skewer", "bulwark"]` |
+| `mirage` | Mirage | 88 | 85 | 60 | 63 | 48 | 48 | `["predator", "thunderclap", "afterburner"]` |
+| `bullseye` | Bullseye | 52 | 45 | 28 | 55 | 30 | 30 | `["shockwave", "pepperbox", "lance"]` |
+| `bastion` | Bastion | 30 | 20 | 82 | 42 | 82 | 90 | `["thumper", "roadblock", "wildcharge"]` |
 
 `DEFAULT_CAR_ID` is `mirage` — the chassis anyone with no valid `carId` drives, so server tick and
 client prediction must agree on it.
@@ -91,9 +91,9 @@ Derived, per car (Mirage / Bullseye / Bastion):
 | `massOf` | mass × `RAM_CONFIG.massPerRating` | 480 | 300 | 900 |
 | attack scale | `damageFor` at that rating | 1.13× | 1.05× | 0.92× |
 
-`weaponDamageOf(carId, weaponId)` = `damageFor(attack, weapon.damage)` — a fireball is 57 / 53 / 46
-depending on who fires it, though only Mirage actually carries one. `massOf` affects ramming only,
-never acceleration or top speed (see `RAM_CONFIG` below).
+`weaponDamageOf(carId, weaponId)` = `damageFor(attack, weapon.damage)` — a 50-damage hit like
+`predator`'s is 57 / 53 / 46 depending on who fires it, though only Mirage actually carries one.
+`massOf` affects ramming only, never acceleration or top speed (see `RAM_CONFIG` below).
 
 Time to top speed landing at 0.56 s for all three is a **consequence** of the ratings, not a
 constraint: this roster's accel ordering happens to track its speed ordering. Nothing stops a future
@@ -128,75 +128,88 @@ once, at shared's module load, into the frozen `WEAPON_TICKS` the sim actually r
 
 | id | kind | damage | damageFrequencyMs | speed | range | cooldownMs | startUpMs | recoveryMs | stock | pierce | volley (volleys / intervalMs) | pellets (perVolley / spreadDeg) | attached | lifetimeMs | hitbox | unlocksAt | usesAimAssist | color |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `fireball` | projectile | 50 | 0 | 900 | 900 | 2000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | circle, radius 12 | 1 | true | `#E8590C` |
-| `pepperbox` | projectile | 45 | 0 | 800 | 600 | 1800 | 0 | 200 | — | 0 | 1 / 0 | 3 / 12 | — | — | circle, radius 6 | 1 | true | `#B45309` |
-| `afterburner` | beam | 26 | 200 | 1100 | 220 | 13000 | 0 | 200 | — | — | 1 / 0 | — | true | 2000 | cone, 55° | 1 | false | `#F59F00` |
-| `needler` | projectile | 22 | 0 | 1300 | 850 | 600 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | ellipse, along 9 / across 3 | 1 | true | `#0CA5B0` |
-| `skewer` | projectile | 110 | 0 | 1000 | 650 | 6000 | 250 | 200 | — | 1 | 1 / 0 | 1 / 0 | — | — | ellipse, along 22 / across 5 | 1 | true | `#1864AB` |
-| `lance` | beam | 170 | 0 | 6000 | 1200 | 16000 | 700 | 1000 | — | — | 1 / 0 | — | false | 150 | rect, width 57.5 | 1 | true | `#6741D9` |
-| `thumper` | projectile | 60 | 0 | 450 | 550 | 3000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | capsule, along 24 / across 15 (flat tail) | 1 | true | `#C9A227` |
-| `shockwave` | beam | 45 | 0 | 1500 | 150 | 5000 | 0 | 200 | — | — | **3 / 250** | — | true | 200 | disc (aura, `origin: "center"`) | 1 | false | `#0B3D8A` |
-| `bulwark` | beam | 35 | 400 | 492 | 492 | 15000 | 0 | 200 | — | — | 1 / 0 | — | false | 2875 | cone, 60° | 1 | false | `#862E9C` |
+| `predator` | projectile | 50 | 0 | 600 | 900 | 2000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | capsule, along 14 / across 6 (homing 120°/s × 1200 ms) | 1 | true | `#D63A14` |
+| `thunderclap` | maneuver (dash) | 100 | 0 | 1600 (dash speed) | 400 (dash distance) | 5000 | 0 | 200 | — | — | 1 / 0 | — | — | — | — | 1 | true | `#7A1D1D` |
+| `afterburner` | beam | 26 | 200 | 1100 | 220 | 13000 | 0 | 200 | — | — | 1 / 0 | — | true | 2000 | cone, 55° (muzzles `[0, 180]`) | 1 | false | `#F05818` |
+| `shockwave` | projectile | 22 | 0 | 900 | 900 | 600 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | circle, radius 12 | 1 | true | `#22579E` |
+| `pepperbox` | projectile | 45 (per pellet) | 0 | 800 | 600 | 1800 | 0 | 200 | — | 0 | 1 / 0 | 3 / 12 | — | — | ellipse, along 9 / across 3 (muzzles `[0, 90, 180, 270]`) | 1 | false | `#184890` |
+| `lance` | beam | 170 | 0 | 6000 | 1200 | 16000 | 700 | 1000 | — | — | 1 / 0 | — | true | 1500 | rect, width 57.5 (`holdsDuringFire`) | 1 | false | `#0F3268` |
+| `thumper` | projectile | 60 | 0 | 450 | 1305 (bounce, 2900 ms lifetime) | 3000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | capsule, along 24 / across 15 (flat tail) | 1 | true | `#F0C808` |
+| `roadblock` | projectile | 100 | 0 | 600 | 500 | 6000 | 0 | 200 | — | 4 | 1 / 0 | 1 / 0 | — | — | bar, along 6 / across 60 | 1 | false | `#C89A14` |
+| `wildcharge` | maneuver (charge) | 250 | 0 | 0 | 0 | 20000 | 0 | 200 | — | — | 1 / 0 | — | — | — | — (`isUnInterruptable`, 10 s window, `slamsStunned`) | 1 | false | `#D9A814` |
+| `tremor` | beam | 25 (per tick; 10 ticks == 250 full connect) | 400 | 492 | 492 | 15000 | 0 | 200 | — | — | 1 / 0 | — | false | 2875 | cone, 60° | 1 | false | `#8A6D12` |
+
+**`tremor` is carried by no chassis** — the table's one deliberately unassigned row, the retired
+`bulwark`'s geometry re-solved as a presence zone (loadout decision pending;
+`weapon-slots.test.ts` names it in the sanctioned-uncarried set, and the players' guide only shows
+carried weapons, so it is invisible to players until a kit lists it).
+
+`fireball`, `needler`, `skewer` and `bulwark` were retired outright by the 2026-09-01 weapon-status
+overhaul; their ids are gone from `WeaponId` and their comment history lives in git rather than here.
+`shockwave` survives as an id but lost its old identity: it carried the roster's one aura (a `disc`
+hitbox beam, `origin: "center"`) on Mirage's slot 2, and is now a plain single-volley projectile dart
+on **Bullseye's** slot 1 — see [`combat-model.md`](combat-model.md#auras-dormant-machinery) for what
+the aura and multi-wave machinery left dormant.
 
 **`volley` and `pellets` are two types, split on 2026-08-30.** `VolleyDef` (`volleys`,
-`volleyIntervalMs`) sits on `WeaponBase`, so a **beam** can be a wave sequence too — `shockwave` is
-the only row that uses it, and the only reason the split exists. `PelletDef` (`pelletsPerVolley`,
-`spreadAngleDeg`) stays on `ProjectileWeaponDef`, because a beam has no pellets to fan and should not
-have to author `pelletsPerVolley: 1`. `beginFire` now reads `def.volley.volleys` for every kind
-rather than hardcoding 1 for beams, and `weaponTicksOf` converts `volleyIntervalMs` for every kind.
+`volleyIntervalMs`) sits on `WeaponBase`, so a **beam** can be a wave sequence too — the old
+`shockwave` was the one row that used it, and the only reason the split exists; no current row
+authors more than one volley. `PelletDef` (`pelletsPerVolley`, `spreadAngleDeg`) stays on
+`ProjectileWeaponDef`, because a beam has no pellets to fan and should not have to author
+`pelletsPerVolley: 1`. `beginFire` reads `def.volley.volleys` for every kind rather than hardcoding 1
+for beams, and `weaponTicksOf` converts `volleyIntervalMs` for every kind.
 
 `damage` is what the weapon deals from a chassis at `COMBAT_CONFIG.attackBaseline` — an *average*
 car, not every car; `damageFor` (`sim/damage.ts`) moves it ±50% with the firing chassis's `attack`
 rating. **It scales and rounds each hit as it lands — per tick, per pellet, per wave — never once
-over a press total**, so `bulwark` on Bastion is `10 × damageFor(42, 35)` = 320, not `350 × 0.92`,
-and `shockwave` on Mirage is `3 × damageFor(63, 45)` = 153, not `135 × 1.13`.
+over a press total**, so a single `pepperbox` fan — the 3 darts a target actually standing in front of
+the car eats — is `3 × damageFor(55, 45)` = 141 on Bullseye (`round(45 × 1.05) = 47` per dart); the
+weapon fires four such fans at once
+(`muzzles: [0, 90, 180, 270]`), but that ×4 is total output across four directions, not damage any one
+target takes. `afterburner` on Mirage is `damageFor(63, 26)` per 200 ms tick, not a press total scaled
+once.
 
-`fireball`'s 50 is solved, not chosen: an average chassis has 500 hull HP, so 50 per press is the
-number that made an average-vs-average kill take the design target of 5 seconds at the 500 ms
-cooldown it shipped with. At **550 ms** it sustains 91 DPS and that kill takes 5.5 s — the +10% is
-Mirage paying for `shockwave` arriving in its slot 2, and the kill time moved rather than the damage
-being re-solved. `needler`'s 22 is solved from its own recharge rather than from `fireball`: 22 per
-300 ms is 73 sustained DPS, four fifths of the anchor, which is where a skirmisher wants a go-to it
-fires from outside the fight. `pepperbox`'s 45 × 3 = 135 per press sustains 75, deliberately level
-with `needler` — the two are Bullseye's paired pressure, differing in shape rather than output.
-
-**Dumping `needler`'s three stocks costs nothing.** `releaseShots` sets `rechargeEndsTick` only when
-it is 0, so the recharge starts at the **first** shot of a dump and runs concurrently with it. Held
-from full, the shot ticks are 100, 104, 108, 112, 118, 127, 136 — the pause after three darts is
-**133 ms**, not a dry spell, and the cadence settles onto the same 73 DPS a tapping player already
-had. The magazine is a one-off credit of two darts that never compounds. Whether that *ought* to cost
-something is an open design question; nothing here was retuned to make an older claim true.
+`predator`'s 50 carries the pre-weapon-system `fireball` shot's original damage number forward
+unchanged, but not its pace: an average chassis has 500 hull HP, and `fireball`'s 5-second
+average-vs-average kill target was solved against its own original **500 ms** cooldown (100 DPS
+sustained). `predator` fires the same 50 damage at a **2000 ms** cooldown — 25 DPS sustained, a
+~20-second average-on-average kill — so the anchor damage moved forward while the kill-time target
+did not; the pace changed with the 2026-08-30 weapon-system redistribution and the 2026-09-01
+overhaul rather than being re-solved to hit 5 seconds again. `roadblock`'s 100 and `thumper`'s 60 are
+Bastion's pressure pair — a fat, near-unmissable slug and a bouncing skirmish shot — while
+`wildcharge`'s 250 is priced as a one-hit finisher for a 10-second commitment, not a sustained-DPS
+number at all.
 
 `color` is render-only, like `name`: it is the fill every live instance of that weapon draws in, per
-**weapon** rather than per player, so two cars carrying a fireball fire identically coloured shots.
-`weapon-config.test.ts` requires each to be a unique `#RRGGBB` and none of them to equal a
-`COLOR_TABLE` player colour. See [`combat-model.md`](combat-model.md#what-the-client-shows).
+**weapon** rather than per player, so two cars carrying `predator` fire identically coloured shots
+(only Mirage does today). `weapon-config.test.ts` requires each to be a unique `#RRGGBB` and none of
+them to equal a `COLOR_TABLE` player colour. See
+[`combat-model.md`](combat-model.md#what-the-client-shows).
 
-`color` is the *whole* look only for a weapon with no authored style, and today only `shockwave` —
-drawn as a ring and a wash — is in that position. The other eight carry a style in one of three
-tables in the client's `combat-visual.ts`, not in this one: `WEAPON_GLOW_STYLES` (round projectiles,
-nested by radius), `WEAPON_BEAM_STYLES` (beams), `WEAPON_PROJECTILE_STYLES` (ellipse and capsule
-projectiles). All are pure appearance, nothing the sim or the wire can see. Every scale in them is a
-fraction of the weapon's own hitbox, so a re-tune that widens the hitbox rescales the look with it
-and nothing can escape the shape that hits.
+`color` is the *whole* look for a weapon with no authored style — today that is every round projectile
+(`predator`, `shockwave`, `pepperbox`, `thumper`, `roadblock`) plus every maneuver, since
+`WEAPON_GLOW_STYLES` has gone **empty**: the 2026-09-01 overhaul retired `fireball`, the table's one
+weapon with a flicker, and moved `pepperbox` to an ellipse hitbox that table cannot own. The other two
+rows — `afterburner` and `lance` — carry a style in `WEAPON_BEAM_STYLES`; `thumper` alone carries one
+in `WEAPON_PROJECTILE_STYLES`. All three tables live in the client's `combat-visual.ts`, not in this
+one, and are pure appearance, nothing the sim or the wire can see. Every scale in them is a fraction of
+the weapon's own hitbox, so a re-tune that widens the hitbox rescales the look with it and nothing can
+escape the shape that hits.
 
-That means `color` is not necessarily the colour you see most of. It is `fireball`'s middle band and
-`afterburner`'s second layer — both flames want their darkest ring outermost so the shot reads as a
-hard edge on a light floor — while `lance` and `bulwark` carry it on the outer edge. `shotPaletteOf`
-returns the full ordered set for anything that needs to show "the shot colour" honestly, which is
-what the `?dev=assets` swatch draws.
+That means `color` is not necessarily the colour you see most of. It is `afterburner`'s second
+layer — the flame wants its darkest ring outermost so the shot reads as a hard edge on a light
+floor — while `lance` carries it on the outer edge. `shotPaletteOf` returns the full ordered set for
+anything that needs to show "the shot colour" honestly, which is what the `?dev=assets` swatch draws.
 
 `usesAimAssist` is **required** and has no default: `true` fires at the car's ambient target lock
 instead of along its heading. It is the only per-weapon aim-assist knob — all the geometry lives once
 in `AIM_CONFIG` below. See [`combat-model.md`](combat-model.md#aim-assist-and-the-target-lock).
 
-`fireball` carries the pre-weapon-system shot's exact numbers for everything except `damage` and, as
-of 2026-08-30, its cooldown: `fireRateHz: 2` became `cooldownMs: 500` and has since been retuned to
-**550**, and `lifetimeTicks: 30` became `range: 900` (one second of flight at 900 u/s). Its **hitbox
-is also not a migrated value**: it shipped as a 3-unit circle — the
-smallest that kept the old point-hit feel while satisfying "every weapon has a hitbox" — and was
-widened to 12 so the shot reads on screen, since the client draws the hitbox itself rather than a
-sprite. `damage` itself was re-solved when the `attack` stat landed — see the paragraph above.
+`predator`'s hitbox is a capsule, not a migrated circle: the retired `fireball` it replaces shipped a
+12-unit circle (widened from an original 3-unit point-hit shape so the shot reads on screen, since the
+client draws the hitbox itself rather than a sprite), while `predator` carries its own homing shape
+and numbers (see the row above). `damage` itself is re-solved per row against the `attack` stat, not
+migrated — see the paragraph above.
 
 **Authoring in milliseconds.** Every duration on a weapon — `startUpMs`, `cooldownMs`, `recoveryMs`,
 `stock.refireDelayMs`, a beam's `lifetimeMs` — is milliseconds, never ticks, so a balance number
@@ -208,14 +221,19 @@ becomes 8 ticks (266 ms) — server and client both compute it from the same bui
 always round the same way or neither does.
 
 **Adding a weapon with a real wind-up, burst, or recovery window is a config edit and nothing
-else.** `lance` (Bullseye) and `skewer` (Bastion) carry `startUpMs > 0`, `shockwave` (Mirage) carries
-`volleys: 3`, and `recoveryMs > 0` is now the common case — every weapon but `fireball`, `needler`
-and `thumper` carries one. The wire already carried what they need before any of them shipped:
-`PlayerState.pendingUntilTick` and `PlayerState.lastFiredSlot` give the HUD the car-wide lockout, and
-the slot's recharge is anchored to the volley's last shot, so `cooldownMs` still means "time until
-another stock" for a burst weapon. Nothing about a `startUpMs > 0`, `volleys > 1`, or `recoveryMs > 0`
-weapon required a schema change. See [`schema-reference.md`](schema-reference.md#playerstate) for the
-two fields.
+else.** `lance` carries `startUpMs > 0`, and `recoveryMs > 0` is the common case — six of the nine
+rows carry one (`predator`, `shockwave` and `thumper` are the exceptions). The wire already carried
+what they need before any of them shipped: `PlayerState.pendingUntilTick` and
+`PlayerState.lastFiredSlot` give the HUD the car-wide lockout, and the slot's recharge is anchored to
+the volley's last shot, so `cooldownMs` still means "time until another stock" for a burst weapon.
+Nothing about a `startUpMs > 0`, `volleys > 1`, or `recoveryMs > 0` weapon required a schema change.
+See [`schema-reference.md`](schema-reference.md#playerstate) for the two fields.
+
+**No shipped weapon carries a `stock` block today.** `needler`, the table's one multi-stock weapon
+(three stocks, a 300 ms recharge, dumped without cost because `releaseShots` starts the recharge at
+the dump's first shot rather than its last), was retired with the 2026-09-01 overhaul. The mechanism
+is dormant, not deleted: it stays real in `sim/weapons/fire.ts` and covered by `fire.test.ts`, waiting
+for the next weapon that authors a `stock` block.
 
 ## WEAPON_SLOT_CONFIG
 
@@ -405,12 +423,13 @@ per duration.
 
 | Status | Kind | Re-apply | Modifiers | Flags | Pulse | On apply |
 |---|---|---|---|---|---|---|
-| `overheated` | debuff | refresh | `turnRate` 0.65, `brakeDecel` 0.65, `topSpeed` 0.92 | — | — | — |
+| `overheated` | debuff | refresh | — | — | 8 hp / 400 ms | — |
 | `corroded` | debuff | refresh | `damageTaken` 1.3 | — | — | — |
-| `stunned` | debuff | **ignore** | — | `immobilised`, `steeringLocked`, `disarmed` | — | — |
-| `spiked` | debuff | refresh | `topSpeed` 0.82 | — | 8 hp / 400 ms | — |
-| `fortified` | buff | refresh | `damageTaken` 0.7, `ramMass` 1.25 | — | repairs 12 hp / 500 ms | — |
+| `stunned` | debuff | **ignore** | — | `immobilised`, `steeringLocked`, `disarmed`, `fullStop` | — | — |
+| `spiked` | debuff | refresh | `topSpeed` 0.6 | — | — | — |
+| `fortified` | buff | refresh | `damageTaken` 0.7 | — | — | — |
 | `overhauled` | buff | **ignore** | — | — | — | cleanse `debuff` |
+| `armored` | buff | **refresh** (documented exemption) | — | `invulnerable` | — | — |
 
 Per-row fields: `id`, `name`, `kind`, `color` (`#rrggbb`, render-only like `WeaponDef.color`),
 `reapply`, `modifiers`, optional `flags`, optional `pulse`, optional `onApply`.
@@ -426,8 +445,11 @@ strips. A row whose kind is wrong is a rule bug.
   an aura especially, since `ignore` would make a car standing inside one watch the status lapse and
   re-arm on a loop.
 - **`ignore`** — nothing happens at all, not even the clock. The anti-chain rule, and every row that
-  flips a flag is required to use it (`status-config.test.ts` enforces that), so two attackers cannot
-  hold one car stunned between them.
+  flips a flag is required to use it (`status-config.test.ts` enforces that) — with one documented
+  exemption: `armored` is `refresh`. A repeatedly-refreshed invulnerability is a real design risk, and
+  the test carries the carve-out explicitly (`FLAG_REAPPLY_EXEMPT`), owning the risk on whatever
+  future applier grants the status rather than on this rule. Every other flag row — `stunned` today —
+  stays `ignore`, so two attackers cannot hold one car stunned between them.
 
 There is no third option that compounds magnitude. **A status never stacks with itself** — one id on
 one car is exactly one instance at exactly the strength its row states. Different statuses touching
@@ -463,14 +485,17 @@ throttle has stopped being a car.
 Flags are booleans, OR-ed across sources, and each is deliberately one thing so a status composes the
 condition it wants: `immobilised` (throttle forced neutral — the car still steers, brakes and coasts),
 `steeringLocked` (steer input forced to 0; injected ram spin untouched, so a stunned car still
-tumbles), `disarmed` (no *new* press; one already committed still finishes).
+tumbles), `disarmed` (no *new* press; one already committed still finishes), `fullStop` (speed forced
+to 0 every tick; shove and injected ram spin untouched, so a slammed car still slides into the wall),
+`invulnerable` (0 damage from every source — weapon hits, contact hits, pulses; status riders still
+land, only hp loss stops).
 
 ## STATUS_CONFIG
 
 | Knob | Value | Notes |
 |---|---|---|
 | `maxActive` | 6 | Most statuses one car may be in. A wire guard *and* a design ceiling. At the cap a **new** status is dropped rather than evicting a running one, so a cheap status can never strip a meaningful one off a target |
-| `maxDurationMs` | 8000 | Longest duration any applier may ask for. Past roughly a fight's length a status stops being a window and becomes a state of the match |
+| `maxDurationMs` | 10000 | Longest duration any applier may ask for. Raised from 8000 to make room for a future 10 s `fortified` grant; still bounds a status to roughly a fight's length, past which it stops being a window and becomes a state of the match |
 
 ## STATUS_LIMITS
 
@@ -511,30 +536,43 @@ many sources piling up, and a row that needs it to be legal is a row whose autho
 | Weapon | Chassis | Applies | To | For | On wave |
 |---|---|---|---|---|---|
 | `afterburner` | Mirage | `overheated` | opponents | 1.5 s | all |
-| `shockwave` | Mirage | `corroded` | opponents | 2.5 s | **final only** |
-| `thumper` | Bastion | `stunned` | opponents | 0.9 s | all |
-| `bulwark` | Bastion | `spiked` | opponents | 3 s | all |
-| `bulwark` | Bastion | `fortified` | **self** | 4.5 s | all |
+| `predator` | Mirage | `corroded` | opponents | 2 s | all |
+| `roadblock` | Bastion | `stunned` | opponents | 1 s | all |
+| `thunderclap` | Mirage | `stunned` | opponents | 1 s | all |
+| `thumper` | Bastion | `spiked` | opponents | 3 s | all |
+| `tremor` | — (uncarried) | `spiked` | opponents | 0.6 s, re-applied by every 400 ms damage tick — held while the target stands in the zone | all |
+| `wildcharge` | Bastion | `fortified` | **self** | 10 s, ended early with the charge | all |
+| `tremor` | — (uncarried) | `fortified` | **`ownerInside`** | 0.3 s, re-applied every tick the owner's hull stands inside the live zone | all |
 
-Bullseye applies nothing. That is the point of Type 1: `needler` lost `spiked` on 2026-08-30 so the
-skirmisher's spam weapon would stop being a debuff applicator, and "spikes" moved to `bulwark`, where
-a slow-plus-bleed suits an exclusion zone. **Hard CC belongs to Bastion**: `stunned` moved off
-`shockwave` onto `thumper` when `shockwave` moved to Mirage.
+A third `stunned` source sits outside this table entirely: a landed `wildcharge` hard slam that shoves
+its victim into a wall within `SLAM_CONFIG.wallStunWindowMs` stuns them for `wallStunDurationMs`
+(500 ms) through the room's `statusRequests` queue, not through `WeaponDef.applies` — see
+[`combat-model.md`](combat-model.md#maneuvers-and-the-contact-pass). `overhauled` and `armored` have
+no applier yet; see below.
+
+Bullseye applies nothing. All three of its weapons — `shockwave`, `pepperbox`, `lance` — carry no
+`applies` entry, same as before the 2026-09-01 weapon-status overhaul; the skirmisher's kit stays pure
+damage. **Hard CC no longer belongs to one chassis.** Before the overhaul, `stunned` sat on `thumper`
+alone and Bastion owned it outright; the overhaul gave `thumper` `spiked` instead (a slow, not a stop)
+and put `stunned` on three sources — Bastion's `roadblock`, Mirage's `thunderclap` (a dash lands its
+own stun on contact), and the wall-slam mechanic above. Bastion still carries the CC-focused *type*,
+but Mirage's dash is now a real second source of the same status.
 
 **Per-chassis CC duration needs no mechanism.** A status does not own its duration, the applier does,
 and kits are exclusive — so "Mirage's CC is short, Bastion's is long" falls straight out of authoring
-each weapon's `durationMs`. Mirage applies 1.5 s and 2.5 s; Bastion applies 0.9 s, 3 s and 4.5 s.
+each weapon's `durationMs`.
 
 `onWave` is `"all" | "final"`, and **absent means `"all"`**, so every pre-existing row is unaffected.
-It exists for `shockwave`: `corroded` lands on the third wave only, because `refresh` would otherwise
-hand the full duration to whichever wave connected first and make the other two free. The wave a shot
-belongs to is carried the way `damage` and `ownerTeam` are — **frozen at spawn, sim-only, never
-networked**: `ShotOrder` carries `weaponId`, `slot`, and `finalVolley` (no `volleyIndex` — it was
-deliberately not implemented, since `onWave` is only `"all" | "final"` and an index would have no
-consumer), `spawnInstances` freezes `WeaponInstance.finalWave` from it, and
-`applyOpponentStatuses` / `applySelfStatuses` skip
-`onWave: "final"` entries when it is false. **No schema field was added** — invariant 8 holds,
-because nothing new that `stepSim` reads crosses the wire.
+It existed for the old `shockwave`: `corroded` landed on the third of its three aura waves only,
+because `refresh` would otherwise have handed the full duration to whichever wave connected first and
+made the other two free. That row retired with the 2026-09-01 overhaul, and every current `applies`
+entry above is `"all"` — `onWave` is **dormant machinery** today. The wave a shot belongs to is
+carried the way `damage` and `ownerTeam` are — **frozen at spawn, sim-only, never networked**:
+`ShotOrder` carries `weaponId`, `slot`, and `finalVolley` (no `volleyIndex` — it was deliberately not
+implemented, since `onWave` is only `"all" | "final"` and an index would have no consumer),
+`spawnInstances` freezes `WeaponInstance.finalWave` from it, and `applyOpponentStatuses` /
+`applySelfStatuses` skip `onWave: "final"` entries when it is false. **No schema field was added** —
+invariant 8 holds, because nothing new that `stepSim` reads crosses the wire.
 
 `target` is `"self"` or `"opponents"`. **There is no `"teammates"`** — reaching a teammate means
 changing `canDamage`, the one predicate deciding friendly fire for the whole game, and that decision

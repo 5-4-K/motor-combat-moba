@@ -1,7 +1,7 @@
 /**
  * A headless match, driven through the EXACT pipeline `ArenaRoom.tick` runs:
  *
- *     statusTick -> serverTick -> ramTick -> runCombat (via the combat bridge)
+ *     statusTick -> serverTick -> contactTick -> runCombat (via the combat bridge)
  *
  * No Colyseus room, no sockets, no wall clock — but the same `ArenaState`, the same bridges, and
  * the same shared `dist` the LAN server bundles. Anything this reproduces, a real room reproduces.
@@ -23,7 +23,12 @@ import {
 } from "@motor-combat-moba/shared";
 import { serverTick } from "../src/sim/tick.js";
 import { statusTick } from "../src/sim/status-bridge.js";
-import { newRamMemory, ramTick, type RamMemory } from "../src/sim/ram-bridge.js";
+import {
+  contactTick,
+  newContactMemory,
+  type ContactMemory,
+  type ContactTickResult,
+} from "../src/sim/ram-bridge.js";
 import {
   applyCombatResult,
   newCombatMemory,
@@ -60,7 +65,7 @@ export class PlaytestWorld {
   readonly prevFireMasks = new Map<string, number>();
   readonly roster = new Set<string>();
   private combat: CombatMemory = newCombatMemory();
-  private ram: RamMemory = newRamMemory();
+  private ram: ContactMemory = newContactMemory();
   private seq = new Map<string, number>();
 
   constructor(
@@ -125,8 +130,18 @@ export class PlaytestWorld {
       statusMods,
       this.prevFireMasks,
     );
+    let contact: ContactTickResult = { contactHits: [], statusRequests: [] };
     if (this.state.phase === RoomPhase.MATCH && this.roster.size > 0) {
-      ramTick(this.state, this.roster, this.ram, this.mode, statusMods, approachSpeeds);
+      contact = contactTick(
+        this.state,
+        this.roster,
+        this.ram,
+        this.mode,
+        statusMods,
+        approachSpeeds,
+        this.combat.maneuverWeapons,
+        this.state.tick,
+      );
     }
     if (this.state.phase !== RoomPhase.MATCH || this.roster.size === 0) return;
 
@@ -142,6 +157,8 @@ export class PlaytestWorld {
       players: toCombatPlayers(this.state, this.roster, masks, this.combat),
       instances: toInstances(this.combat),
       instanceSeq: this.combat.instanceSeq,
+      contactHits: contact.contactHits,
+      statusRequests: contact.statusRequests,
     });
     applyCombatResult(this.state, result, this.combat);
     this.combat.instanceSeq = result.instanceSeq;

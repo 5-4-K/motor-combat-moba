@@ -17,13 +17,14 @@ const CARS = Object.keys(CAR_TABLE);
 describe("pressPlan", () => {
   it("scales every hit through damageFor rather than the total once", () => {
     // The sim rounds at each impact, so a total scaled afterwards is a different number from the
-    // one a player takes. bulwark is the sharpest case: 10 ticks of 35 on Bastion's 0.92x is
-    // 10 x 32 = 320, where 350 x 0.92 rounded once would be 322.
-    const plan = pressPlan("bastion", "bulwark");
-    const perTick = damageFor(CAR_TABLE.bastion.attack, WEAPON_TABLE.bulwark.damage);
-    assert.equal(perTick, 32);
+    // one a player takes. afterburner (the roster's held ticking beam, since the 2026-09-01 roster
+    // cutover retired bulwark) is the sharpest remaining case: 11 ticks of 26 on Mirage's 1.13x is
+    // 11 x 29 = 319, where 286 x 1.13 rounded once would be 323.
+    const plan = pressPlan("mirage", "afterburner");
+    const perTick = damageFor(CAR_TABLE.mirage.attack, WEAPON_TABLE.afterburner.damage);
+    assert.equal(perTick, 29);
     assert.equal(plan.total, perTick * plan.events.length);
-    assert.equal(plan.total, 320);
+    assert.equal(plan.total, 319);
   });
 
   it("counts every pellet of a fan as one simultaneous hit", () => {
@@ -32,7 +33,14 @@ describe("pressPlan", () => {
     assert.equal(plan.total, damageFor(CAR_TABLE.bullseye.attack, WEAPON_TABLE.pepperbox.damage) * 3);
   });
 
-  it("spreads a multi-wave beam across its volley interval", () => {
+  // The 2026-09-01 roster cutover retired the last multi-wave row: shockwave was redefined from a
+  // three-wave aura (Mirage's old slot 2) into a single-volley projectile (Bullseye's slot 1), and
+  // no other WEAPON_TABLE row was ever authored with `volley.volleys > 1`. `pressPlan`'s multi-wave
+  // loop and its `onWave: "final"` gate are still live code — nothing here proves they are correct
+  // against real data, only that they exist for whichever future weapon lands with `volleys > 1`.
+  // Skipped rather than deleted or faked against data that no longer describes any shipped weapon;
+  // un-skip and point at that weapon's id once one exists.
+  it.skip("spreads a multi-wave beam across its volley interval", () => {
     const plan = pressPlan("mirage", "shockwave");
     const gap = weaponTicksOf("shockwave").volleyInterval;
     assert.equal(plan.events.length, 3);
@@ -44,7 +52,7 @@ describe("pressPlan", () => {
     assert.equal(plan.exit, gap * 2);
   });
 
-  it("puts a final-wave status on the last wave only", () => {
+  it.skip("puts a final-wave status on the last wave only", () => {
     const plan = pressPlan("mirage", "shockwave");
     const corroded = plan.applies.filter((entry) => entry[1] === "corroded");
     assert.equal(corroded.length, 1, "corroded rides wave 3 alone (onWave: final)");
@@ -120,6 +128,26 @@ describe("simulateTtk", () => {
         );
       }
     }
+  });
+
+  it("keeps wildcharge out of the sustained rotation but leaves thunderclap in it", () => {
+    // wildcharge is a 20s one-hit ultimate whose 250 damage is conditional on a hull contact inside
+    // its 10s window; folding it into the greedy loop would read as free damage every cycle. It
+    // still has to show up in pressPlan (asserted elsewhere), just never as a press here.
+    for (const defender of CARS) {
+      const result = simulateTtk("bastion", defender);
+      assert.ok(
+        !result.presses.has("wildcharge"),
+        `wildcharge should never be pressed in a sustained rotation (vs ${defender})`,
+      );
+    }
+    // thunderclap is an ordinary maneuver row by contrast — damage on a cooldown, same as any
+    // projectile or beam — so it stays eligible and should actually get pressed.
+    const mirageVsBastion = simulateTtk("mirage", "bastion");
+    assert.ok(
+      mirageVsBastion.presses.has("thunderclap"),
+      "thunderclap should be pressed like any other row in a long enough fight",
+    );
   });
 
   it("respects the switch lock between two different slots", () => {

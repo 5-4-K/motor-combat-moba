@@ -14,18 +14,38 @@
  * ## What it deliberately does NOT model, and why the numbers are an upper bound
  *
  * **Every shot connects and the target never leaves range.** That is generous everywhere and wildly
- * generous for two rows: `afterburner` is a 220-unit attached cone that has to be held on a moving
- * car for 2.2 s, and `bulwark` is a stationary zone the target has to keep standing in for 3.6 s of
- * ticks. Those two are the largest single numbers on the board and the least likely to be earned in
- * full. Discount them heavily when reading a matchup they dominate.
+ * generous for the roster's held/attached weapons — `afterburner` is a 220-unit attached cone that
+ * has to be held on a moving car for 2.2 s, and `lance` is a beam the shooter has to steer onto the
+ * target for 1.5 s of linger after its 0.7 s windup. Those are the largest single numbers on the
+ * board and the least likely to be earned in full. Discount them heavily when reading a matchup they
+ * dominate.
  *
  * **The defender does nothing.** No dodging, no cover, and — the one that really bites — none of its
- * own kit: Bastion's `fortified` self-heal would stretch its own mirror considerably.
+ * own kit: Bastion's `fortified` (pure 0.7x damage taken, no heal since the status overhaul) would
+ * stretch its own mirror considerably if the defender ever got to raise it.
  *
  * **No travel time.** Projectiles land on the tick they exit, so this is a point-blank reading.
  * Distance is exactly the axis Bullseye's whole design lives on, so the matrix understates it by
  * construction — see the type triangle's "1 beats 3" edge in
  * `docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md` (T1).
+ *
+ * **Homing accuracy, dash landing, slam windows and bounce paths are unmodeled.** `predator`'s
+ * homing always finds its target; `thunderclap`'s dash always lands its hull hit; `wildcharge`'s
+ * 10 s charge window always ends in a slam rather than expiring unspent; `thumper`'s bounce always
+ * re-threads a target rather than bouncing off into empty arena. Every one of those is a chance to
+ * whiff that this file cannot see, and Mirage and Bastion carry three of the four between them — so
+ * on top of the point-blank and never-leaves-range assumptions above, the matrix specifically
+ * UNDERSTATES Mirage and Bastion relative to how their kits actually land in play.
+ *
+ * **`kind: "maneuver"` rows are not a special case for `pressPlan`** — a dash or a charge is just
+ * another instant hit landing on the press tick, same as any zero-wind-up projectile. `thunderclap`
+ * (Mirage) plays that straight and contributes its `damage` on its `cooldownMs` to a sustained
+ * rotation like any other row. `wildcharge` (Bastion) does not: it is a 20 s one-hit ultimate whose
+ * 250 damage only pays out on a hull contact that may never come inside its 10 s window, and folding
+ * a windfall that size into a greedy sustained-DPS loop would read as free damage every cycle rather
+ * than the swingy, conditional hit it is. `SUSTAINED_ROTATION_EXCLUDED` below drops it from the
+ * matrix and the presses breakdown for that reason; `pressPlan("bastion", "wildcharge")` still works
+ * and still shows up in the "what one press does" table, since that number is honest on its own.
  *
  * It is a damage-ceiling model, not a prediction of play. `npm run playtest` measures what the sim
  * actually does; this measures what the tables permit.
@@ -53,6 +73,13 @@ const SPIKE_PULSE_TICKS = Math.ceil((400 * TICK_RATE_HZ) / 1000);
 const SPIKE_PULSE_DAMAGE = 8;
 /** `corroded`'s `damageTaken` multiplier. */
 const CORRODED_MULTIPLIER = 1.3;
+
+/**
+ * Weapons dropped from the greedy sustained-rotation loop in `simulateTtk`, even though `pressPlan`
+ * still describes them normally. See the header's `kind: "maneuver"` section for why `wildcharge`
+ * alone is here and `thunderclap` deliberately is not.
+ */
+const SUSTAINED_ROTATION_EXCLUDED = new Set(["wildcharge"]);
 
 /**
  * Everything one press of `weaponId` does to a SINGLE target, on the tick grid.
@@ -103,7 +130,8 @@ export function pressPlan(attacker, weaponId) {
 
 /**
  * Seconds for `attacker`'s whole kit to kill `defender`, playing greedily: whenever the car is free
- * to act, press the biggest thing currently off cooldown and not switch-locked.
+ * to act, press the biggest thing currently off cooldown and not switch-locked, among slots not in
+ * `SUSTAINED_ROTATION_EXCLUDED`.
  *
  * Greedy is not provably optimal — a patient player could hold a big cooldown for a corroded window
  * — but it is close, and it is behaviour a reader can check by hand against `presses`.
@@ -113,7 +141,9 @@ export function pressPlan(attacker, weaponId) {
  */
 export function simulateTtk(attacker, defender, options = {}) {
   const debuffs = options.debuffs !== false;
-  const kit = slotsOf(attacker).map((id) => pressPlan(attacker, id));
+  const kit = slotsOf(attacker)
+    .filter((id) => !SUSTAINED_ROTATION_EXCLUDED.has(id))
+    .map((id) => pressPlan(attacker, id));
   const maxHp = hpOf(defender);
   const limit = TTK_LIMIT_SECONDS * TICK_RATE_HZ;
 

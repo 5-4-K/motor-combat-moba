@@ -1,7 +1,7 @@
 import { DRIVE_CONFIG } from "../../config/drive-config.js";
 import { weaponDefOf } from "../../config/weapon-config.js";
-import { weaponTicksOf } from "../../config/weapon-ticks.js";
-import type { WeaponId } from "../../config/weapon-types.js";
+import { msToTicks, weaponTicksOf } from "../../config/weapon-ticks.js";
+import type { WeaponDef, WeaponId } from "../../config/weapon-types.js";
 import { pointInAabb, pointOutsideBounds, type Aabb, type Bounds } from "../collide.js";
 import { carIdOf } from "../context.js";
 import { scaleDamage, weaponDamageOf } from "../damage.js";
@@ -21,7 +21,10 @@ export interface WeaponInstance {
    * never networked — for exactly the reason `damage` and `ownerTeam` are: it must be answerable at
    * impact, long after the press, without reading back mutable state.
    *
-   * Always true for a single-volley weapon, which is every row but `shockwave`.
+   * Always true for a single-volley weapon — every shipped row, as of the 2026-09-01 overhaul that
+   * retired the table's one multi-wave row (the old `shockwave` aura). Multi-volley remains live,
+   * generically-tested machinery (`VolleyDef` on `WeaponBase`) for whenever a future row picks it
+   * back up.
    */
   finalWave: boolean;
   /**
@@ -58,6 +61,21 @@ export interface WeaponInstance {
   attached: boolean;
   damageClock: Map<string, number>;
   alive: boolean;
+  /**
+   * This instance's muzzle direction, radians off the owner's heading, frozen at spawn. 0 for
+   * every single-muzzle weapon. Sim-only, like `damageClock`: an attached beam re-anchors through
+   * it every tick, so a rear flame stays welded to the tail rather than snapping to the nose.
+   */
+  muzzleDir: number;
+  /** Homing only: the locked car frozen at spawn (O11), or "". Sim-only, never networked. */
+  homingTargetId: string;
+  /** Homing only: the tick guidance ends; 0 for a non-homing shot. Frozen at spawn. */
+  homingUntilTick: number;
+  /**
+   * Bouncing rows only: the flight clock, frozen at spawn from `bounce.lifetimeMs`. 0 = expire at
+   * `range` as ever.
+   */
+  expiresAtTick: number;
 }
 
 /** One group of instances to emit: which weapon, from which slot. */
@@ -85,6 +103,11 @@ export interface StepInstanceContext {
   bounds: Bounds;
   /** The owner's current pose, for an attached beam. `null` for everything else. */
   ownerPose: OwnerPose | null;
+  /**
+   * The homing target's live pose, or null — dead, missing, or no homing. The caller owns the
+   * lookup; this module never reads player state.
+   */
+  homingTarget: { x: number; y: number } | null;
 }
 
 /** How far ahead of the car's centre an instance is born: the front face of its hull. */
@@ -138,43 +161,68 @@ export function spawnInstances(
   seq: number,
   aimAngle: number | null = null,
   damageMult = 1,
+  homingTargetId = "", // consumed in Task 6; "" = none
+  def: WeaponDef = weaponDefOf(order.weaponId), // test seam — see plan "Testing seams"
 ): { instances: WeaponInstance[]; seq: number } {
-  const def = weaponDefOf(order.weaponId);
+  // A maneuver moves the car instead of spawning an instance (Task 10's real branch); no table row
+  // is one yet, so this narrows `def` back to the two kinds this function has ever had to handle.
+  if (def.kind === "maneuver") throw new Error(`spawnInstances: maneuver weapon ${def.id} spawns no instance`);
   const damage = scaleDamage(weaponDamageOf(carIdOf(owner), order.weaponId), damageMult);
   const pellets = def.kind === "projectile" ? def.pellets.pelletsPerVolley : 1;
   const spread = def.kind === "projectile" ? (def.pellets.spreadAngleDeg * Math.PI) / 180 : 0;
   // A centre-origin beam is BORN at the car centre as well as re-anchored there every tick, so an
   // aura's first frame is already concentric rather than jumping back on its second.
   const nose = def.kind === "beam" && def.origin === "center" ? 0 : muzzleOffset();
-  // A11b: the muzzle is derived from the HEADING, never from the aim angle.
-  const muzzleX = owner.x + Math.cos(owner.angle) * nose;
-  const muzzleY = owner.y + Math.sin(owner.angle) * nose;
-  const axis = aimAngle ?? owner.angle;
+
+  // Absent means `[0]`: one muzzle, dead ahead, exactly the pre-multi-muzzle behavior. Degrees
+  // convert to radians unnormalized — a 270-degree muzzle produces a 3*pi/2 instance angle, not a
+  // -pi/2 one — because nothing downstream needs the shot on a canonical range.
+  const muzzleDirs = (def.muzzles ?? [0]).map((deg) => (deg * Math.PI) / 180);
+
+  const homing = def.kind === "projectile" ? def.homing : undefined;
+  const homingTarget = homing && homingTargetId !== "" ? homingTargetId : "";
+  const homingUntil = homingTarget !== "" ? tick + msToTicks(homing!.durationMs) : 0;
+  const bounce = def.kind === "projectile" ? def.bounce : undefined;
+  const expiresAt = bounce ? tick + msToTicks(bounce.lifetimeMs) : 0;
 
   const instances: WeaponInstance[] = [];
   let next = seq;
-  for (let i = 0; i < pellets; i++) {
-    const angle = axis + fanOffset(i, pellets, spread);
-    next += 1;
-    instances.push({
-      id: `${owner.sessionId}-${next}`,
-      ownerSessionId: owner.sessionId,
-      ownerTeam: owner.team,
-      finalWave: order.finalVolley,
-      damage,
-      weaponId: order.weaponId,
-      kind: def.kind,
-      x: muzzleX,
-      y: muzzleY,
-      angle,
-      extent: 0,
-      spawnTick: tick,
-      distance: 0,
-      pierceLeft: def.kind === "projectile" ? def.pierce : 0,
-      attached: def.kind === "beam" ? def.attached : false,
-      damageClock: new Map(),
-      alive: true,
-    });
+  for (const dir of muzzleDirs) {
+    // A11b: the muzzle is derived from the HEADING (plus this muzzle's own offset), never from the
+    // aim angle.
+    const exitHeading = owner.angle + dir;
+    const muzzleX = owner.x + Math.cos(exitHeading) * nose;
+    const muzzleY = owner.y + Math.sin(exitHeading) * nose;
+    // Multi-muzzle forces assist off (table guard), so `aimAngle` only ever steers the single
+    // forward muzzle — for every other direction the axis is the heading plus the muzzle offset.
+    const axis = (aimAngle ?? owner.angle) + dir;
+    for (let i = 0; i < pellets; i++) {
+      const angle = axis + fanOffset(i, pellets, spread);
+      next += 1;
+      instances.push({
+        id: `${owner.sessionId}-${next}`,
+        ownerSessionId: owner.sessionId,
+        ownerTeam: owner.team,
+        finalWave: order.finalVolley,
+        damage,
+        weaponId: order.weaponId,
+        kind: def.kind,
+        x: muzzleX,
+        y: muzzleY,
+        angle,
+        extent: 0,
+        spawnTick: tick,
+        distance: 0,
+        pierceLeft: def.kind === "projectile" ? def.pierce : 0,
+        attached: def.kind === "beam" ? def.attached : false,
+        damageClock: new Map(),
+        alive: true,
+        muzzleDir: dir,
+        homingTargetId: homingTarget,
+        homingUntilTick: homingUntil,
+        expiresAtTick: expiresAt,
+      });
+    }
   }
   return { instances, seq: next };
 }
@@ -186,15 +234,45 @@ export function spawnInstances(
  * beam grows toward `min(range, wall)` and then holds; an attached beam re-reads its owner's pose
  * and re-runs the wall clip every tick, which is what lets it be swept by turning.
  */
-export function stepInstance(instance: WeaponInstance, ctx: StepInstanceContext): WeaponInstance {
-  const def = weaponDefOf(instance.weaponId);
+export function stepInstance(
+  instance: WeaponInstance,
+  ctx: StepInstanceContext,
+  def: WeaponDef = weaponDefOf(instance.weaponId),
+): WeaponInstance {
+  // `WeaponInstance.kind` excludes "maneuver" — a maneuver spawns no instance (Task 10) — so this
+  // narrows `def` the same way, and every read below it is only ever projectile or beam.
+  if (def.kind === "maneuver") throw new Error(`stepInstance: maneuver weapon ${def.id} has no instance`);
 
   if (instance.kind === "projectile") {
+    let angle = instance.angle;
+    const homing = def.kind === "projectile" ? def.homing : undefined;
+    if (
+      homing &&
+      instance.homingTargetId !== "" &&
+      ctx.homingTarget !== null &&
+      ctx.tick <= instance.homingUntilTick
+    ) {
+      // Bend toward the target's live position, capped at the turn rate — the counterplay is the
+      // turning circle, so the cap is the whole mechanic (spec: Homing).
+      const desired = Math.atan2(ctx.homingTarget.y - instance.y, ctx.homingTarget.x - instance.x);
+      let delta = desired - angle;
+      while (delta > Math.PI) delta -= Math.PI * 2;
+      while (delta <= -Math.PI) delta += Math.PI * 2;
+      const maxTurn = ((homing.turnRateDegPerSec * Math.PI) / 180) * ctx.dt;
+      angle += Math.max(-maxTurn, Math.min(maxTurn, delta));
+    }
     const step = def.speed * ctx.dt;
+    let x = instance.x + Math.cos(angle) * step;
+    let y = instance.y + Math.sin(angle) * step;
+    if (def.kind === "projectile" && def.bounce) {
+      const bounced = bounceOffWorld(instance.x, instance.y, x, y, angle, ctx.obstacles, ctx.bounds);
+      x = bounced.x; y = bounced.y; angle = bounced.angle;
+    }
     return {
       ...instance,
-      x: instance.x + Math.cos(instance.angle) * step,
-      y: instance.y + Math.sin(instance.angle) * step,
+      x,
+      y,
+      angle,
       distance: instance.distance + step,
       // Fresh copy, not the input's reference: a shallow spread would otherwise alias `damageClock`
       // between the pre- and post-step instance, so a later write through either object would be
@@ -207,12 +285,16 @@ export function stepInstance(instance: WeaponInstance, ctx: StepInstanceContext)
   // A centre-origin beam (an aura) grows from the car itself rather than from its nose. That single
   // offset is the whole geometric difference between an aura and every other beam in the game.
   const nose = def.kind === "beam" && def.origin === "center" ? 0 : muzzleOffset();
+  // Re-anchored through the instance's OWN frozen muzzle direction, not the car's nose: a rear
+  // flame (muzzleDir == pi) stays welded to the tail as the car turns, rather than snapping to
+  // whichever direction happens to be dead ahead.
+  const anchorAngle = ctx.ownerPose ? ctx.ownerPose.angle + instance.muzzleDir : instance.angle;
   const origin =
     instance.attached && ctx.ownerPose
       ? {
-          x: ctx.ownerPose.x + Math.cos(ctx.ownerPose.angle) * nose,
-          y: ctx.ownerPose.y + Math.sin(ctx.ownerPose.angle) * nose,
-          angle: ctx.ownerPose.angle,
+          x: ctx.ownerPose.x + Math.cos(anchorAngle) * nose,
+          y: ctx.ownerPose.y + Math.sin(anchorAngle) * nose,
+          angle: anchorAngle,
         }
       : { x: instance.x, y: instance.y, angle: instance.angle };
 
@@ -241,11 +323,61 @@ export function stepInstance(instance: WeaponInstance, ctx: StepInstanceContext)
  * extension for its linger. Obstacle and bounds death for projectiles is handled by the caller,
  * which owns the world.
  */
-export function instanceExpired(instance: WeaponInstance, tick: number): boolean {
-  const def = weaponDefOf(instance.weaponId);
-  if (instance.kind === "projectile") return instance.distance >= def.range;
+export function instanceExpired(
+  instance: WeaponInstance,
+  tick: number,
+  def: WeaponDef = weaponDefOf(instance.weaponId),
+): boolean {
+  if (instance.kind === "projectile") {
+    if (instance.expiresAtTick > 0) return tick >= instance.expiresAtTick;
+    return instance.distance >= def.range;
+  }
   const ticks = weaponTicksOf(instance.weaponId);
   return tick - instance.spawnTick >= ticks.flight + ticks.lifetime;
+}
+
+/**
+ * Reflect a bouncing projectile off axis-aligned level geometry. The world is bounds plus AABBs,
+ * so every reflection is a single component flip: crossing a vertical face mirrors the angle to
+ * `PI - a`, a horizontal face to `-a`, and position folds across the face so speed is conserved.
+ * Which obstacle face was crossed is decided by the side the shot came FROM (prev position); a
+ * corner hit flips both. Centre-point test, deliberately: a face-accurate polygon sweep buys
+ * precision nobody can see on a 30-unit-per-tick shot.
+ */
+export function bounceOffWorld(
+  prevX: number,
+  prevY: number,
+  x: number,
+  y: number,
+  angle: number,
+  obstacles: readonly Aabb[],
+  bounds: Bounds,
+): { x: number; y: number; angle: number } {
+  let a = angle;
+  if (x < 0) { x = -x; a = Math.PI - a; }
+  else if (x > bounds.width) { x = 2 * bounds.width - x; a = Math.PI - a; }
+  if (y < 0) { y = -y; a = -a; }
+  else if (y > bounds.height) { y = 2 * bounds.height - y; a = -a; }
+  for (const o of obstacles) {
+    if (!pointInAabb(x, y, o)) continue;
+    const fromLeft = prevX <= o.x;
+    const fromRight = prevX >= o.x + o.w;
+    const fromTop = prevY <= o.y;
+    const fromBottom = prevY >= o.y + o.h;
+    if ((fromLeft || fromRight) && !(fromTop || fromBottom)) {
+      x = fromLeft ? 2 * o.x - x : 2 * (o.x + o.w) - x;
+      a = Math.PI - a;
+    } else if ((fromTop || fromBottom) && !(fromLeft || fromRight)) {
+      y = fromTop ? 2 * o.y - y : 2 * (o.y + o.h) - y;
+      a = -a;
+    } else {
+      x = fromLeft ? 2 * o.x - x : 2 * (o.x + o.w) - x;
+      y = fromTop ? 2 * o.y - y : 2 * (o.y + o.h) - y;
+      a = a + Math.PI;
+    }
+    break;
+  }
+  return { x, y, angle: a };
 }
 
 /**

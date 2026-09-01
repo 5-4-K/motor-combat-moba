@@ -66,26 +66,26 @@ describe("lockScore", () => {
 
 describe("inAcquireRegion", () => {
   it("accepts a target inside every bound", () => {
-    expect(inAcquireRegion(5, 150)).toBe(true);
+    expect(inAcquireRegion(5, 150, AIM_CONFIG.lockRange)).toBe(true);
   });
 
   it("rejects on the cone alone, with the lateral cap satisfied", () => {
     // 40 units out at 45 degrees: lateral offset is only 28 units, far inside the 120 unit cap, and
     // the distance is far inside lockRange. The cone is the only thing saying no -- which is the
     // whole reason a pure lateral lane was rejected.
-    expect(inAcquireRegion(45, 40)).toBe(false);
+    expect(inAcquireRegion(45, 40, AIM_CONFIG.lockRange)).toBe(false);
   });
 
   it("rejects on the lateral cap alone, with the cone satisfied", () => {
     // 380 units out at 19 degrees: inside the 20 degree cone, but the lateral offset is 124 units,
     // just past the 120 unit cap. The cap is the only thing saying no -- the reason a pure cone was
     // rejected.
-    expect(inAcquireRegion(19, 380)).toBe(false);
+    expect(inAcquireRegion(19, 380, AIM_CONFIG.lockRange)).toBe(false);
   });
 
   it("rejects on range alone", () => {
-    expect(inAcquireRegion(0, AIM_CONFIG.lockRange + 1)).toBe(false);
-    expect(inAcquireRegion(0, AIM_CONFIG.lockRange)).toBe(true);
+    expect(inAcquireRegion(0, AIM_CONFIG.lockRange + 1, AIM_CONFIG.lockRange)).toBe(false);
+    expect(inAcquireRegion(0, AIM_CONFIG.lockRange, AIM_CONFIG.lockRange)).toBe(true);
   });
 
   it("hands over from the cone to the cap at the crossover distance", () => {
@@ -101,35 +101,37 @@ describe("inAcquireRegion", () => {
     const justInside = crossover - 20;
     const justOutside = crossover + 20;
     // At the cone's exact edge: accepted below the crossover, rejected above it.
-    expect(inAcquireRegion(AIM_CONFIG.coneDeg, justInside)).toBe(true);
-    expect(inAcquireRegion(AIM_CONFIG.coneDeg, justOutside)).toBe(false);
+    expect(inAcquireRegion(AIM_CONFIG.coneDeg, justInside, AIM_CONFIG.lockRange)).toBe(true);
+    expect(inAcquireRegion(AIM_CONFIG.coneDeg, justOutside, AIM_CONFIG.lockRange)).toBe(false);
   });
 });
 
 describe("inRetainRegion", () => {
   it("is wider than acquisition on the cone", () => {
     const justPastCone = AIM_CONFIG.coneDeg + AIM_CONFIG.retentionConeDeg / 2;
-    expect(inAcquireRegion(justPastCone, 100)).toBe(false);
-    expect(inRetainRegion(justPastCone, 100)).toBe(true);
+    expect(inAcquireRegion(justPastCone, 100, AIM_CONFIG.lockRange)).toBe(false);
+    expect(inRetainRegion(justPastCone, 100, AIM_CONFIG.lockRange)).toBe(true);
   });
 
   it("is wider than acquisition on the lateral cap", () => {
     // The bound that a cone-only retention pad would miss entirely (A6). At 380 units the cap binds,
     // so widening only the angle would leave this target with no hysteresis at all.
-    expect(inAcquireRegion(19, 380)).toBe(false);
-    expect(inRetainRegion(19, 380)).toBe(true);
+    expect(inAcquireRegion(19, 380, AIM_CONFIG.lockRange)).toBe(false);
+    expect(inRetainRegion(19, 380, AIM_CONFIG.lockRange)).toBe(true);
   });
 
   it("is wider than acquisition on range", () => {
     const justPast = AIM_CONFIG.lockRange + AIM_CONFIG.retentionRangeUnits / 2;
-    expect(inAcquireRegion(0, justPast)).toBe(false);
-    expect(inRetainRegion(0, justPast)).toBe(true);
+    expect(inAcquireRegion(0, justPast, AIM_CONFIG.lockRange)).toBe(false);
+    expect(inRetainRegion(0, justPast, AIM_CONFIG.lockRange)).toBe(true);
   });
 
   it("still releases once every pad is exceeded", () => {
-    expect(inRetainRegion(AIM_CONFIG.coneDeg + AIM_CONFIG.retentionConeDeg + 1, 100)).toBe(false);
     expect(
-      inRetainRegion(0, AIM_CONFIG.lockRange + AIM_CONFIG.retentionRangeUnits + 1),
+      inRetainRegion(AIM_CONFIG.coneDeg + AIM_CONFIG.retentionConeDeg + 1, 100, AIM_CONFIG.lockRange),
+    ).toBe(false);
+    expect(
+      inRetainRegion(0, AIM_CONFIG.lockRange + AIM_CONFIG.retentionRangeUnits + 1, AIM_CONFIG.lockRange),
     ).toBe(false);
   });
 });
@@ -192,6 +194,7 @@ function ctxFor(
     obstacles: [] as Aabb[],
     bounds: BOUNDS,
     tick,
+    lockRangeUnits: AIM_CONFIG.lockRange,
     ...overrides,
   };
 }

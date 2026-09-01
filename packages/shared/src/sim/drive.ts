@@ -2,6 +2,7 @@ import type { ChassisDrive } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import { RAM_CONFIG, RAM_DECAY } from "../config/ram-config.js";
 import type { InputMessage } from "../net/input.js";
+import { ManeuverKind, NO_MANEUVER } from "./maneuver.js";
 import type { Modifiers } from "./status/modifiers.js";
 import type { SimBody } from "./step.js";
 
@@ -14,8 +15,9 @@ import type { SimBody } from "./step.js";
  * every product is a multiplication by 1 and this function is arithmetically identical to its
  * pre-status self, which is the property `golden.test.ts` pins.
  *
- * **Drag is the one constant no channel scales.** Braking is now scalable (`overheated` fades it),
- * but drag is what a car does with no input at all, and a car that would not slow down even off the
+ * **Drag is the one constant no channel scales.** Braking is scalable in principle (no row fades it
+ * today — `overheated` did until the 2026-09-01 overhaul made it a pure burn), but drag is what a
+ * car does with no input at all, and a car that would not slow down even off the
  * throttle has stopped being a car. `STATUS_LIMITS.brakeDecel.min` keeps scaled braking above drag
  * for the same reason: the brake pedal must always beat lifting off, or the control reads as broken
  * rather than degraded.
@@ -30,6 +32,14 @@ export function stepDrive(
   chassis: ChassisDrive,
   mods: Readonly<Modifiers>,
 ): SimBody {
+  if (body.maneuver === ManeuverKind.DASH && body.maneuverTicksLeft > 0) {
+    return stepDash(body, dt, chassis, mods);
+  }
+  if (body.maneuver === ManeuverKind.HOLD && body.maneuverTicksLeft > 0) {
+    return stepHold(body, input, dt, chassis, mods);
+  }
+  const maneuverNext = tickCharge(body);
+
   const baseTurnRate = isMoving(body.speed) ? chassis.turnRate : chassis.turnRateAtStop;
   const turnRate = baseTurnRate * mods.turnRate;
   // `steeringLocked` kills the driver's input, never the injected spin below: a stunned car that is
@@ -50,6 +60,12 @@ export function stepDrive(
   const throttle = mods.immobilised ? 0 : input.throttle;
   const { speed, reverseHold } = nextSpeed(body.speed, body.reverseHold, throttle, dt, chassis, mods);
 
+  // `fullStop` forces speed to 0 AFTER `nextSpeed` has run — the "total stop" half of the new stun
+  // (O6). It never touches `body.shoveX/shoveY` below, so a slammed car still slides: applied here
+  // rather than upstream, the throttle/brake/drag maths still run (so nothing downstream sees a
+  // discontinuous derivative), only the result is discarded.
+  const held = mods.fullStop ? { speed: 0, reverseHold: 0 } : { speed, reverseHold };
+
   // cos/sin are not guaranteed bit-identical across JS engines (server V8 vs. client browser
   // engine), so replayed positions can drift by an ULP or two. That's fine here: Task 4
   // reconciles client prediction against authoritative server state rather than trusting
@@ -58,22 +74,82 @@ export function stepDrive(
   // Shove is added to the drive velocity, never substituted for it: a car that is both driving and
   // knocked does both. At `shoveX/shoveY` of 0 this is arithmetically identical to the pre-ram
   // model, which `golden.test.ts` pins.
-  const x = body.x + (Math.cos(angle) * speed + body.shoveX) * dt;
-  const y = body.y + (Math.sin(angle) * speed + body.shoveY) * dt;
+  const x = body.x + (Math.cos(angle) * held.speed + body.shoveX) * dt;
+  const y = body.y + (Math.sin(angle) * held.speed + body.shoveY) * dt;
 
   return {
     x,
     y,
     angle,
-    speed,
-    reverseHold,
+    speed: held.speed,
+    reverseHold: held.reverseHold,
     // `steer`, not `input.steer`: a driver whose wheel is locked cannot countersteer out of a spin
     // either, so the fast decay has to be gated by the same value the rotation above used.
     angVel: nextAngVel(body.angVel, steer),
     shoveX: decayShove(body.shoveX),
     shoveY: decayShove(body.shoveY),
     authority: recoverAuthority(body.authority),
+    ...maneuverNext,
   };
+}
+
+/** DASH: scripted translation. Inputs are ignored; knock decay still runs; the face is welded. */
+function stepDash(body: SimBody, dt: number, chassis: ChassisDrive, mods: Readonly<Modifiers>): SimBody {
+  const ticksLeft = body.maneuverTicksLeft - 1;
+  const done = ticksLeft <= 0;
+  return {
+    x: body.x + Math.cos(body.maneuverAngle) * body.maneuverSpeed * dt,
+    y: body.y + Math.sin(body.maneuverAngle) * body.maneuverSpeed * dt,
+    angle: body.maneuverAngle,
+    // Hand the car back already rolling at its cap — a dash that exits frozen reads as a stall.
+    speed: done ? chassis.maxSpeed * mods.topSpeed : body.speed,
+    reverseHold: 0,
+    angVel: nextAngVel(body.angVel, 0),
+    shoveX: decayShove(body.shoveX),
+    shoveY: decayShove(body.shoveY),
+    authority: recoverAuthority(body.authority),
+    maneuver: done ? ManeuverKind.NONE : ManeuverKind.DASH,
+    maneuverTicksLeft: done ? 0 : ticksLeft,
+    maneuverAngle: done ? 0 : body.maneuverAngle,
+    maneuverSpeed: done ? 0 : body.maneuverSpeed,
+  };
+}
+
+/** HOLD: the engine is dead but the wheel is not. Speed forced to 0; shove still displaces. */
+function stepHold(
+  body: SimBody,
+  input: InputMessage,
+  dt: number,
+  chassis: ChassisDrive,
+  mods: Readonly<Modifiers>,
+): SimBody {
+  const steer = mods.steeringLocked ? 0 : input.steer;
+  const angle = body.angle + (steer * chassis.turnRateAtStop * mods.turnRate * body.authority + body.angVel) * dt;
+  const ticksLeft = body.maneuverTicksLeft - 1;
+  const done = ticksLeft <= 0;
+  return {
+    x: body.x + body.shoveX * dt,
+    y: body.y + body.shoveY * dt,
+    angle,
+    speed: 0,
+    reverseHold: 0,
+    angVel: nextAngVel(body.angVel, steer),
+    shoveX: decayShove(body.shoveX),
+    shoveY: decayShove(body.shoveY),
+    authority: recoverAuthority(body.authority),
+    maneuver: done ? ManeuverKind.NONE : ManeuverKind.HOLD,
+    maneuverTicksLeft: done ? 0 : ticksLeft,
+    maneuverAngle: 0,
+    maneuverSpeed: 0,
+  };
+}
+
+/** CHARGE only counts down here; its rules live in the contact pass. Also normalises stale kinds. */
+function tickCharge(body: SimBody): Pick<SimBody, "maneuver" | "maneuverTicksLeft" | "maneuverAngle" | "maneuverSpeed"> {
+  if (body.maneuver !== ManeuverKind.CHARGE || body.maneuverTicksLeft <= 0) return { ...NO_MANEUVER };
+  const ticksLeft = body.maneuverTicksLeft - 1;
+  if (ticksLeft <= 0) return { ...NO_MANEUVER };
+  return { maneuver: ManeuverKind.CHARGE, maneuverTicksLeft: ticksLeft, maneuverAngle: 0, maneuverSpeed: 0 };
 }
 
 /**

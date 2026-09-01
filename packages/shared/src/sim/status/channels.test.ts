@@ -149,13 +149,6 @@ describe("turnRate reaches steering, in both directions", () => {
     expect(sharper.angle).toBeCloseTo(plain.angle * 1.55, 9);
   });
 
-  it("keeps `overheated` on the widening side, because binary steering makes a raise a buff", () => {
-    // `InputMessage.steer` is `-1 | 0 | 1`, so there is no fine control for a twitchy car to lose:
-    // a higher turnRate is a tighter radius AND more countersteer authority out of a ram. This
-    // guards the row from being flipped back to the > 1 it shipped with.
-    expect(STATUS_TABLE.overheated.modifiers.turnRate).toBeLessThan(1);
-  });
-
   it("multiplies with authority, so a sluggish car mid-ram is both", () => {
     const rolling = body({ speed: 200, authority: 0.5 });
     const both = stepDrive(rolling, input(1, 0), DT, GOLDEN_CHASSIS, mods({ turnRate: 0.5 }));
@@ -210,14 +203,14 @@ describe("damageDealt reaches the shot, frozen at spawn", () => {
   const owner = { sessionId: "a", team: 0 as const, carId: CAR, x: 0, y: 0, angle: 0 };
 
   it("scales the instance's damage", () => {
-    const plain = spawnInstances({ weaponId: "fireball", slot: 0, finalVolley: true }, owner, 0, 0).instances[0]!;
-    const buffed = spawnInstances({ weaponId: "fireball", slot: 0, finalVolley: true }, owner, 0, 0, null, 1.25).instances[0]!;
+    const plain = spawnInstances({ weaponId: "predator", slot: 0, finalVolley: true }, owner, 0, 0).instances[0]!;
+    const buffed = spawnInstances({ weaponId: "predator", slot: 0, finalVolley: true }, owner, 0, 0, null, 1.25).instances[0]!;
     expect(buffed.damage).toBe(scaleDamage(plain.damage, 1.25));
     expect(buffed.damage).toBeGreaterThan(plain.damage);
   });
 
   it("rounds to a whole number, so a piercing shot costs every car the same", () => {
-    const shot = spawnInstances({ weaponId: "fireball", slot: 0, finalVolley: true }, owner, 0, 0, null, 1.13).instances[0]!;
+    const shot = spawnInstances({ weaponId: "predator", slot: 0, finalVolley: true }, owner, 0, 0, null, 1.13).instances[0]!;
     expect(Number.isInteger(shot.damage)).toBe(true);
   });
 });
@@ -258,7 +251,7 @@ describe("weaponCooldown reaches the three refire clocks and no others", () => {
     const spent = { ...state, slots: state.slots.map((s) => ({ ...s, stocks: 0 })) };
     const hasted = tickRecharge(spent, 0, 0.5);
     const plain = tickRecharge(spent, 0, 1);
-    expect(hasted.slots[0]!.rechargeEndsTick).toBe(scaleTicks(weaponTicksOf("fireball").cooldown, 0.5));
+    expect(hasted.slots[0]!.rechargeEndsTick).toBe(scaleTicks(weaponTicksOf("predator").cooldown, 0.5));
     expect(hasted.slots[0]!.rechargeEndsTick).toBeLessThan(plain.slots[0]!.rechargeEndsTick);
   });
 
@@ -266,10 +259,10 @@ describe("weaponCooldown reaches the three refire clocks and no others", () => {
     const state = newFireState("bullseye", 1);
     const pending = {
       ...state,
-      pending: { weaponId: "skewer" as const, slot: 1, shotsLeft: 1, nextShotTick: 0 },
+      pending: { weaponId: "lance" as const, slot: 1, shotsLeft: 1, nextShotTick: 0 },
     };
     expect(releaseShots(pending, 0, 0.5).state.switchLockUntilTick).toBe(
-      scaleTicks(weaponTicksOf("skewer").recovery, 0.5),
+      scaleTicks(weaponTicksOf("lance").recovery, 0.5),
     );
   });
 
@@ -304,7 +297,7 @@ describe("ramMass reaches the ram, both as attacker and as victim", () => {
     );
   });
 
-  it("is one channel doing both, so a mass buff can never be a pure upside", () => {
-    expect(STATUS_TABLE.fortified.modifiers.ramMass).toBeGreaterThan(1);
-  });
+  // `ramMass` left `fortified`'s row in the 2026-09-01 overhaul (O5: pure damage reduction now) and
+  // no other row has picked it up, so "one channel doing both" has no live row to demonstrate today
+  // — the mechanism above still proves the channel itself cuts both ways for whoever authors one.
 });

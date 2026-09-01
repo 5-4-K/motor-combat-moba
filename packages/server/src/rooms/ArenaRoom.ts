@@ -57,7 +57,13 @@ import {
   type CombatMemory,
 } from "../sim/combat-bridge.js";
 import { statusTick } from "../sim/status-bridge.js";
-import { clearKnock, newRamMemory, ramTick, type RamMemory } from "../sim/ram-bridge.js";
+import {
+  clearKnock,
+  contactTick,
+  newContactMemory,
+  type ContactMemory,
+  type ContactTickResult,
+} from "../sim/ram-bridge.js";
 import {
   fromFlowPhase,
   fromFlowStatus,
@@ -93,7 +99,7 @@ export class ArenaRoom extends Room<ArenaState> {
    * visible gain.
    */
   private combat: CombatMemory = newCombatMemory();
-  private ram: RamMemory = newRamMemory();
+  private ram: ContactMemory = newContactMemory();
 
   async onCreate(): Promise<void> {
     const listings = await matchMaker.query({ name: ROOM_NAME });
@@ -322,23 +328,27 @@ export class ArenaRoom extends Room<ArenaState> {
       statusMods,
       this.prevFireMasks,
     );
-    // Ramming, after driving and before combat. The order is the rule: contacts are measured against
+    // Contact, after driving and before combat. The order is the rule: contacts are measured against
     // the poses driving actually produced, and the knock written here is read by stepDrive next tick.
+    // Dash hits and hard slams it finds this tick are priced by combat below, in phase 0d.
     //
-    // `approachSpeeds` is the one thing ram must NOT read from the poses driving produced. Contact
-    // resolution reflected `speed` on its way through `serverTick`, so the post-drive value is the
-    // rebound, not the impact — see `TickResult.approachSpeeds`.
+    // `approachSpeeds` is the one thing contact must NOT read from the poses driving produced.
+    // Contact resolution reflected `speed` on its way through `serverTick`, so the post-drive value
+    // is the rebound, not the impact — see `TickResult.approachSpeeds`.
+    let contact: ContactTickResult = { contactHits: [], statusRequests: [] };
     if (this.state.phase === RoomPhase.MATCH && this.matchRoster.size > 0) {
-      ramTick(
+      contact = contactTick(
         this.state,
         this.matchRoster,
         this.ram,
         toFlowMode(this.state.mode),
         statusMods,
         approachSpeeds,
+        this.combat.maneuverWeapons,
+        this.state.tick,
       );
     }
-    this.combatTick(dt, masks);
+    this.combatTick(dt, masks, contact);
   }
 
   /**
@@ -349,7 +359,7 @@ export class ArenaRoom extends Room<ArenaState> {
    * and any instance still in flight is cleared — a shot that survived into the lobby would be
    * drawn to everyone and could never hit anything.
    */
-  private combatTick(dt: number, masks: ReadonlyMap<string, number>): void {
+  private combatTick(dt: number, masks: ReadonlyMap<string, number>, contact: ContactTickResult): void {
     if (this.state.phase !== RoomPhase.MATCH || this.matchRoster.size === 0) {
       if (this.state.weapons.size > 0) clearInstances(this.state, this.combat);
       return;
@@ -367,6 +377,8 @@ export class ArenaRoom extends Room<ArenaState> {
       players: toCombatPlayers(this.state, this.matchRoster, masks, this.combat),
       instances: toInstances(this.combat),
       instanceSeq: this.combat.instanceSeq,
+      contactHits: contact.contactHits,
+      statusRequests: contact.statusRequests,
     });
 
     applyCombatResult(this.state, result, this.combat);
@@ -494,7 +506,7 @@ export class ArenaRoom extends Room<ArenaState> {
     // Nothing from the previous match survives into this one: no shots in flight, and no stale fire
     // state (a stock or a switch lock the new car never earned).
     clearInstances(this.state, this.combat);
-    this.ram = newRamMemory();
+    this.ram = newContactMemory();
     const spawns = assignSpawns(
       getArena(this.state.arenaId),
       this.state.mode,

@@ -89,6 +89,13 @@ export class PredictionBuffer {
       shoveX: authoritative.shoveX,
       shoveY: authoritative.shoveY,
       authority: authoritative.authority,
+      // Same reasoning as the knock fields below: a maneuver is rules for the next integration, not
+      // a drawn pose, so it snaps to the authoritative value rather than easing. No maneuver-specific
+      // reconcile rule beyond the snap is needed — see the "snaps maneuver state" test.
+      maneuver: authoritative.maneuver,
+      maneuverTicksLeft: authoritative.maneuverTicksLeft,
+      maneuverAngle: authoritative.maneuverAngle,
+      maneuverSpeed: authoritative.maneuverSpeed,
     };
     for (const entry of this.pending) {
       target = stepSim(target, entry.input, DT_SECONDS, ctx);
@@ -121,6 +128,10 @@ export class PredictionBuffer {
       shoveX: target.shoveX,
       shoveY: target.shoveY,
       authority: target.authority,
+      maneuver: target.maneuver,
+      maneuverTicksLeft: target.maneuverTicksLeft,
+      maneuverAngle: target.maneuverAngle,
+      maneuverSpeed: target.maneuverSpeed,
     };
   }
 }

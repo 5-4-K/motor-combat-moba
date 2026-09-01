@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ACTIVE_ARENA_ID,
+  ManeuverKind,
   MS_PER_TICK,
   NEUTRAL_MODIFIERS,
   NET_CONFIG,
@@ -33,6 +34,10 @@ const START: SimBody = {
   shoveX: 0,
   shoveY: 0,
   authority: 1,
+  maneuver: 0,
+  maneuverTicksLeft: 0,
+  maneuverAngle: 0,
+  maneuverSpeed: 0,
 };
 
 function up(seq: number): InputMessage {
@@ -151,6 +156,10 @@ describe("PredictionBuffer.reconcile", () => {
       shoveX: 0,
       shoveY: 0,
       authority: 1,
+      maneuver: 0,
+      maneuverTicksLeft: 0,
+      maneuverAngle: 0,
+      maneuverSpeed: 0,
     };
     const wayOff: SimBody = {
       ...authoritative,
@@ -172,6 +181,10 @@ describe("PredictionBuffer.reconcile", () => {
       shoveX: 0,
       shoveY: 0,
       authority: 1,
+      maneuver: 0,
+      maneuverTicksLeft: 0,
+      maneuverAngle: 0,
+      maneuverSpeed: 0,
     };
     const twisted: SimBody = { ...authoritative, angle: NET_CONFIG.reconcileSnapAngle + 0.1 };
 
@@ -190,6 +203,10 @@ describe("PredictionBuffer.reconcile", () => {
       shoveX: 0,
       shoveY: 0,
       authority: 1,
+      maneuver: 0,
+      maneuverTicksLeft: 0,
+      maneuverAngle: 0,
+      maneuverSpeed: 0,
     };
     const nearby: SimBody = { ...authoritative, x: 410, y: 406 };
 
@@ -213,6 +230,10 @@ describe("PredictionBuffer.reconcile", () => {
       shoveX: 0,
       shoveY: 0,
       authority: 1,
+      maneuver: 0,
+      maneuverTicksLeft: 0,
+      maneuverAngle: 0,
+      maneuverSpeed: 0,
     };
     const nearby: SimBody = {
       x: 410,
@@ -224,6 +245,10 @@ describe("PredictionBuffer.reconcile", () => {
       shoveX: 0,
       shoveY: 0,
       authority: 1,
+      maneuver: 0,
+      maneuverTicksLeft: 0,
+      maneuverAngle: 0,
+      maneuverSpeed: 0,
     };
 
     const out = buf.reconcile(authoritative, 0, nearby, ctx);
@@ -246,6 +271,10 @@ describe("PredictionBuffer.reconcile", () => {
       shoveX: 0,
       shoveY: 0,
       authority: 1,
+      maneuver: 0,
+      maneuverTicksLeft: 0,
+      maneuverAngle: 0,
+      maneuverSpeed: 0,
     };
     const wound = 0.1 + 100 * 2 * Math.PI;
     const spun: SimBody = { ...authoritative, angle: wound };
@@ -273,6 +302,10 @@ describe("PredictionBuffer.reconcile", () => {
       shoveX: 120,
       shoveY: -60,
       authority: 0.4,
+      maneuver: 0,
+      maneuverTicksLeft: 0,
+      maneuverAngle: 0,
+      maneuverSpeed: 0,
     };
     const nearby: SimBody = {
       x: 405,
@@ -284,6 +317,10 @@ describe("PredictionBuffer.reconcile", () => {
       shoveX: 0,
       shoveY: 0,
       authority: 1,
+      maneuver: 0,
+      maneuverTicksLeft: 0,
+      maneuverAngle: 0,
+      maneuverSpeed: 0,
     };
 
     const out = buf.reconcile(authoritative, 0, nearby, ctx);
@@ -298,6 +335,58 @@ describe("PredictionBuffer.reconcile", () => {
     expect(out.authority).toBe(0.4);
   });
 
+  it("snaps maneuver state on reconcile — it is rules for the next integration, not a pose", () => {
+    // Same reasoning as the knock fields above: maneuver state feeds the next `stepSim` call rather
+    // than describing a drawn pose, so it must snap to the authoritative value on both the snap AND
+    // ease branches, never ease toward it. Exercised on the EASE branch (small positional error)
+    // since every other reconcile test in this file uses ManeuverKind.NONE on both sides, which
+    // would let a `lerp` slipped in beside the maneuver fields pass unnoticed.
+    const buf = new PredictionBuffer();
+    const authoritative: SimBody = {
+      x: 400,
+      y: 400,
+      angle: 0,
+      speed: 0,
+      reverseHold: 0,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
+      maneuver: ManeuverKind.DASH,
+      maneuverTicksLeft: 5,
+      maneuverAngle: 2,
+      maneuverSpeed: 1600,
+    };
+    const nearby: SimBody = {
+      x: 405,
+      y: 402,
+      angle: 0,
+      speed: 0,
+      reverseHold: 0,
+      angVel: 0,
+      shoveX: 0,
+      shoveY: 0,
+      authority: 1,
+      maneuver: ManeuverKind.NONE,
+      maneuverTicksLeft: 0,
+      maneuverAngle: 0,
+      maneuverSpeed: 0,
+    };
+
+    const out = buf.reconcile(authoritative, 0, nearby, ctx);
+
+    // Precondition: this really is the ease path, not the snap path.
+    expect(out.x).not.toBe(authoritative.x);
+    expect(out.y).not.toBe(authoritative.y);
+
+    // No pending inputs are queued on this fresh buffer, so the replayed tail is empty and the
+    // authoritative maneuver state passes through untouched.
+    expect(out.maneuver).toBe(ManeuverKind.DASH);
+    expect(out.maneuverTicksLeft).toBe(5);
+    expect(out.maneuverAngle).toBe(2);
+    expect(out.maneuverSpeed).toBe(1600);
+  });
+
   it("eases angle the short way round the wrap", () => {
     const buf = new PredictionBuffer();
     const authoritative: SimBody = {
@@ -310,6 +399,10 @@ describe("PredictionBuffer.reconcile", () => {
       shoveX: 0,
       shoveY: 0,
       authority: 1,
+      maneuver: 0,
+      maneuverTicksLeft: 0,
+      maneuverAngle: 0,
+      maneuverSpeed: 0,
     };
     const nearWrap: SimBody = { ...authoritative, angle: 3 };
 

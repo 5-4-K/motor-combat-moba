@@ -236,41 +236,21 @@ const FLICKER_PHASE_PER_TICK = 0.7;
 /**
  * Per-weapon looks. Absent means the flat hitbox disc — see `GlowStyle`.
  *
- * `fireball`: a maroon ember rim, the weapon's own `#D63A14` body, a hot orange inner, and a gold
- * core, every band inside the 12-unit hitbox. The rim is the darkest ring rather than the
- * brightest so the shot still reads as a hard-edged object against a light arena floor, and the
- * core is what carries at the ~24px this draws at.
- *
- * `pepperbox`: Bullseye's navy with an orange core at half the radius — a quarter of the pellet's
- * area, since area goes as the square. Two bands rather than a ramp because a pellet is 12px across
- * at zoom 1 and a third band would have nowhere to land.
+ * Empty as of the 2026-09-01 roster cutover. Its two rows were `fireball` (retired outright, O17)
+ * and `pepperbox` — which moved OUT deliberately (O9) rather than being retired: its hitbox is now
+ * an ellipse (the dart silhouette carried over from `needler`), and a round-glow table nested by
+ * `radiusScale` cannot own a non-circular hitbox. The flat weapon-colour fill is `pepperbox`'s
+ * correct, intentional look, not a placeholder. No new id (`predator`, `shockwave`, `roadblock`)
+ * has an authored look either — the flat fill is the shipped look until an owner arts one — so
+ * every circular projectile in the game draws its flat disc today.
  *
  * Bands are cheap -- one `fillCircle` per band per shot per frame, against a ceiling of roughly 60
- * live instances -- so author freely here. What is NOT cheap, and is worth raising before building:
- * a per-instance `setBlendMode`, a faked gradient wanting 15-20 bands, or a `Graphics` object per
- * shot instead of `ArenaScene`'s shared `shotGfx`. See
+ * live instances -- so author freely here when a weapon earns a look. What is NOT cheap, and is
+ * worth raising before building: a per-instance `setBlendMode`, a faked gradient wanting 15-20
+ * bands, or a `Graphics` object per shot instead of `ArenaScene`'s shared `shotGfx`. See
  * `docs/asset-pipeline.md#how-much-detail-a-shot-can-afford`.
  */
-export const WEAPON_GLOW_STYLES: Partial<Record<WeaponId, GlowStyle>> = {
-  fireball: {
-    bands: [
-      { radiusScale: 1, color: "#601818" },
-      { radiusScale: 0.75, color: "#D63A14" },
-      { radiusScale: 0.5, color: "#F58A20" },
-      { radiusScale: 0.29, color: "#FFC030" },
-    ],
-    flickerDepth: 1 / 12,
-    flickerHz: 8,
-  },
-  pepperbox: {
-    bands: [
-      { radiusScale: 1, color: "#184890" },
-      { radiusScale: 0.5, color: "#FF4800" },
-    ],
-    flickerDepth: 0,
-    flickerHz: 0,
-  },
-};
+export const WEAPON_GLOW_STYLES: Partial<Record<WeaponId, GlowStyle>> = {};
 
 /** A band resolved to world units and a Phaser fill, ready to stroke. */
 export interface DrawBand {
@@ -377,35 +357,38 @@ const SAMPLES_PER_TONGUE = 6;
  * apex and a varying reach alone produced, and why the first cut read as a striped triangle. Tongue
  * counts differ per layer (5 / 4 / 3) so the lobes do not line up and the edges stay busy.
  *
- * Its `WEAPON_TABLE.color` is the SECOND layer, not the outer one — the same convention `fireball`
- * follows. Both are Mirage flame weapons, and both want the darkest ring on the outside so the shot
- * reads as a hard-edged object against a light floor; a weapon's table colour is its body, which on
- * a flame is one layer in. `lance` and `bulwark` are the other way round, with the table colour on
- * the outer edge, because their outer edge IS the body.
+ * Its `WEAPON_TABLE.color` is the SECOND layer, not the outer one: the darkest ring sits outside so
+ * the shot reads as a hard-edged object against a light floor, and a weapon's table colour is its
+ * body, which on a flame is one layer in. `lance` below is the other way round, with the table
+ * colour on the outer edge, because a beam's outer edge IS its body when there is no flame licking
+ * past it.
  *
  * There is deliberately no flicker or glow here: the beam already grows over its first 200 ms,
  * which is motion enough, and a pulsing two-second flame reads as a strobe.
  *
- * `shockwave` is a disc, which has no cross-section to nest layers inside — it draws as a ring and
- * a wash, and `beamDrawLayers` refuses it at source.
+ * `bulwark` (the roster's other gold-cream cone, retired outright O17) used to sit here and
+ * `shockwave` used to be a disc-hitbox aura, drawn as a ring and a wash rather than nested layers —
+ * `beamDrawLayers` still refuses a disc hitbox at source, but no shipped weapon has one since the
+ * 2026-09-01 redefinition. `afterburner` and `lance` are the only two beams left in the roster.
  */
 export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
+  /**
+   * `tremor`: the retired `bulwark`'s two-layer recipe, recoloured to tremor's own bronze — full
+   * cone in the table colour with a cream inner wedge. Two layers rather than three for the reason
+   * bulwark's comment gave: a 492-unit cone is the widest thing drawn in the game, and a third
+   * layer would be a band of colour the size of a car.
+   */
+  tremor: {
+    layers: [
+      { extentScale: 1, crossScale: 1, tongues: 0, tongueDepth: 0, color: "#8A6D12" },
+      { extentScale: 0.55, crossScale: 0.8, tongues: 0, tongueDepth: 0, color: "#FFF0C0" },
+    ],
+  },
   afterburner: {
     layers: [
       { extentScale: 1, crossScale: 1, tongues: 5, tongueDepth: 0.3, color: "#7A2018" },
       { extentScale: 0.74, crossScale: 0.82, tongues: 4, tongueDepth: 0.34, color: "#F05818" },
       { extentScale: 0.42, crossScale: 0.6, tongues: 3, tongueDepth: 0.38, color: "#FFC030" },
-    ],
-  },
-  /**
-   * `bulwark`: Bastion's gold with a cream inner, matching the wall of stripes on its icon. Two
-   * layers rather than three because it is a 492-unit cone — the widest thing drawn in the game —
-   * and a third would be a band of colour the size of a car.
-   */
-  bulwark: {
-    layers: [
-      { extentScale: 1, crossScale: 1, tongues: 0, tongueDepth: 0, color: "#D9A814" },
-      { extentScale: 0.55, crossScale: 0.8, tongues: 0, tongueDepth: 0, color: "#FFF0C0" },
     ],
   },
   /**
@@ -456,8 +439,8 @@ export interface DrawBeamLayer {
  * `GlowBand` and `BeamLayer`.
  *
  * It exists because those two tables cannot reach these weapons: `GlowStyle` nests circles by radius,
- * and `beamDrawLayers` refuses anything whose `kind` is not `beam`. Until this, `needler`, `skewer`
- * and `thumper` drew one flat `weaponFillOf` polygon and had no way to say anything else.
+ * and `beamDrawLayers` refuses anything whose `kind` is not `beam`. Before this existed, every
+ * non-circular projectile drew one flat `weaponFillOf` polygon and had no way to say anything else.
  *
  * Every scale is a FRACTION of the hitbox's own `radiusAlong` or `radiusAcross`, never a world
  * distance, for the reason `GlowBand.radiusScale` is: a re-tune that resizes the hitbox carries the
@@ -497,41 +480,27 @@ export interface ProjectileStyle {
 const MARK_SEGMENTS = 12;
 
 /**
- * Per-weapon looks for the three non-circular projectiles. Absent means the flat hitbox polygon.
- *
- * `needler`: Bullseye's navy with an orange nose. The chord at 0.404 puts exactly a quarter of the
- * ellipse's area ahead of it — the fraction is scale-free, so the same number would hold for any
- * ellipse. It is not a quarter of the LENGTH: an ellipse tapers, so the tip runs the leading 30%.
+ * Per-weapon looks for the non-circular projectiles. Absent means the flat hitbox polygon.
  *
  * `thumper`: Bastion's yellow with a cream band across the middle, which is its icon. A band rather
  * than a nose is also the cheap shape here — 0.216 of `radiusAlong` keeps it inside the shell's
  * straight section, so it is a rectangle and needs none of the circular-segment maths a nose on a
  * capsule would.
  *
- * `skewer`: the one weapon that does NOT draw its hull. A disc with two spikes reads as the spiked
- * shaft on its icon, and it fills 43% of the ellipse — what is left bare is the shoulders above and
- * below the spikes, under 3 units of slack against a car hull 32 units tall. Nothing is drawn
- * OUTSIDE the hitbox, which is the half of D19 that protects a player: no shot can hurt you from
- * somewhere you cannot see it. This is the documented exception to the other half.
+ * `needler` and `skewer` (a nosed dart and a disc-and-spikes spindle) were retired outright with
+ * the 2026-09-01 roster cutover (O17); their comment history lives in git. Two non-circular
+ * projectiles ship without a style today: `predator` (a capsule, Mirage's homing rocket) and
+ * `pepperbox` (an ellipse, carrying `needler`'s old dart silhouette per O9) — both draw the flat
+ * hitbox-colour fill until an owner arts them. `roadblock`'s bar hitbox is a third, architecturally
+ * distinct case: `projectileDrawLayers` refuses a bar at source regardless of this table, because
+ * the hull/tip/band/disc/spikes vocabulary below assumes an along/across ellipse-ish geometry a bar
+ * does not have — it always draws its raw hitbox polygon, the same as `beamDrawLayers`'s fallback.
  */
 export const WEAPON_PROJECTILE_STYLES: Partial<Record<WeaponId, ProjectileStyle>> = {
-  needler: {
-    layers: [
-      { shape: "hull", color: "#22579E" },
-      { shape: "tip", chordScale: 0.404, color: "#FF4800" },
-    ],
-  },
   thumper: {
     layers: [
       { shape: "hull", color: "#F0C808" },
       { shape: "band", halfWidthScale: 0.216, color: "#FFF6D8" },
-    ],
-  },
-  skewer: {
-    layers: [
-      { shape: "spikes", baseScale: 0.908, halfHeightScale: 0.42, color: "#C89A14" },
-      { shape: "disc", radiusScale: 1, color: "#C89A14" },
-      { shape: "disc", radiusScale: 0.55, color: "#FFF6D8" },
     ],
   },
 };
@@ -629,8 +598,8 @@ function hullHalfAcross(
  *
  * Takes the instance and `elapsedMs` rather than a resolved position so it extrapolates through the
  * same `extrapolateShot` that `instanceDrawShape` uses. Handing it an already-extrapolated point
- * would let the markings and the hull drift apart by a frame's worth of travel, which on a
- * 1300 u/s needler is most of its own length.
+ * would let the markings and the hull drift apart by a frame's worth of travel — real distance for
+ * a fast styled projectile, not a rounding error.
  */
 export function projectileDrawLayers(
   instance: DrawableInstance,
@@ -642,7 +611,8 @@ export function projectileDrawLayers(
   if (!style) return [];
   // A circle has no heading to arrange markings along, and `GlowStyle` is where a round projectile
   // says what it looks like. Reaching here with one would mean two tables owning the same weapon.
-  if (def.hitbox.shape === "circle") return [];
+  // A bar is drawn by the generic fallback: the raw hitbox polygon from `projectileShapeAt`.
+  if (def.hitbox.shape === "circle" || def.hitbox.shape === "bar") return [];
   const hitbox = def.hitbox;
 
   const { x, y } = extrapolateShot(instance.x, instance.y, instance.angle, def.speed, elapsedMs);
@@ -914,7 +884,10 @@ function capMs(elapsedMs: number): number {
  */
 export function instanceDrawShape(instance: DrawableInstance, elapsedMs: number): WorldShape {
   const def = isWeaponId(instance.weaponId) ? weaponDefOf(instance.weaponId) : null;
-  if (!def) {
+  // A maneuver moves the car instead of spawning an instance (Task 10's real branch), so
+  // `state.weapons` never carries one — same fallback as an unrecognised id, since neither should
+  // ever reach a draw call and both must draw *something* rather than throw.
+  if (!def || def.kind === "maneuver") {
     return { kind: "circle", x: instance.x, y: instance.y, radius: UNKNOWN_WEAPON_RADIUS };
   }
 
@@ -934,15 +907,15 @@ export function instanceDrawShape(instance: DrawableInstance, elapsedMs: number)
 /**
  * How long a beam takes to fade out, and the whole of the fade rule (D8).
  *
- * One number for all four beams: what already varies between them is their lifetime, and nothing
- * has yet asked for two beams to cut off at different speeds — so this is a constant rather than a
- * per-weapon column, and it becomes a table the day one is needed, the way `WEAPON_BEAM_STYLES`
- * did.
+ * One number for every beam in the roster (`afterburner` and `lance` today): what already varies
+ * between them is their lifetime, and nothing has yet asked for two beams to cut off at different
+ * speeds — so this is a constant rather than a per-weapon column, and it becomes a table the day
+ * one is needed, the way `WEAPON_BEAM_STYLES` did.
  *
  * It is the fade WINDOW, anchored to the death tick, not to the start of linger. The window used to
- * be the entire lifetime, which made `bulwark` a ghost for 2875 ms while it was still dealing full
- * damage — a zone lying about where it is safe to stand. Now the beam holds full opacity until the
- * last `BEAM_FADE_OUT_MS` and then snaps off.
+ * be the entire lifetime, which made `bulwark` (retired O17) a ghost for 2875 ms while it was still
+ * dealing full damage — a zone lying about where it is safe to stand. Now the beam holds full
+ * opacity until the last `BEAM_FADE_OUT_MS` and then snaps off.
  *
  * `lifetimeMs` is deliberately untouched by all of this: the damage window does not move, so no TTK
  * number changes and the manual's balance fingerprint never sees it. 100 ms is three ticks at 30 Hz
@@ -1050,8 +1023,8 @@ export function lockBracketArms(
  * Every colour this weapon's shots actually draw in, outermost first, with duplicates removed.
  *
  * `WEAPON_TABLE.color` alone stopped being the answer once weapons grew ramps and markings: it is
- * `fireball`'s middle band, one of `lance`'s three layers, and for `skewer` it is a colour the
- * spindle shares with its own spikes. Anything showing a player or an author "the shot colour" — the
+ * `afterburner`'s middle layer, one of `lance`'s three layers, and for `thumper` it is the hull
+ * layer the cream band sits on. Anything showing a player or an author "the shot colour" — the
  * `?dev=assets` swatch today — has to ask for the whole set, or it shows a third of the truth.
  *
  * Falls back to the single table colour, which is exactly right for a weapon with no authored style,

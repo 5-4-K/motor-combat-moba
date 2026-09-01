@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { beamShapeAt, projectileShapeAt, shapeHitsObb, smear } from "./shapes.js";
+import { beamShapeAt, projectileShapeAt, shapeHitsObb, smear, type PolygonShape } from "./shapes.js";
 
 const hull = { x: 200, y: 100, angle: 0, w: 48, h: 32 };
 
@@ -148,5 +148,30 @@ describe("capsule projectiles", () => {
     const before = projectileShapeAt(capsule, 100, 100, 0);
     const after = projectileShapeAt(capsule, 300, 100, 0);
     expect(shapeHitsObb(smear(before, after), hull)).toBe(true);
+  });
+});
+
+describe("bar", () => {
+  const bar = { shape: "bar", radiusAlong: 6, radiusAcross: 60 } as const;
+
+  it("is long across the travel axis and thin along it", () => {
+    const s = projectileShapeAt(bar, 0, 0, 0); // travelling +x
+    expect(s.kind).toBe("polygon");
+    const xs = (s as PolygonShape).points.map((p) => p.x);
+    const ys = (s as PolygonShape).points.map((p) => p.y);
+    expect(Math.max(...xs) - Math.min(...xs)).toBeCloseTo(12); // 2 * radiusAlong
+    expect(Math.max(...ys) - Math.min(...ys)).toBeCloseTo(120); // 2 * radiusAcross
+  });
+
+  it("rotates with the flight angle", () => {
+    const s = projectileShapeAt(bar, 0, 0, Math.PI / 2) as PolygonShape; // travelling +y
+    const xs = s.points.map((p) => p.x);
+    expect(Math.max(...xs) - Math.min(...xs)).toBeCloseTo(120); // long side now spans x
+  });
+
+  it("catches two hulls a car-length apart at once", () => {
+    const s = projectileShapeAt(bar, 0, 0, 0);
+    expect(shapeHitsObb(s, { x: 10, y: 50, angle: 0, w: 48, h: 32 })).toBe(true);
+    expect(shapeHitsObb(s, { x: 10, y: -50, angle: 0, w: 48, h: 32 })).toBe(true);
   });
 });

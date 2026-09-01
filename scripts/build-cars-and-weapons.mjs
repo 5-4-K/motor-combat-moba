@@ -21,7 +21,7 @@
  * so an icon swap needs no rebuild here.
  */
 import { createHash } from "node:crypto";
-import { mkdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -93,7 +93,13 @@ const round = (n, dp = 0) => Number(n.toFixed(dp));
  */
 function statusBlurb(def) {
   const parts = [];
+  // `fullStop` (stunned) and `invulnerable` (armored) are the two flags a flag-only row can carry
+  // with nothing else in `modifiers` — before this, either row printed no effect line at all: an
+  // empty `parts` array joins to "". Worst-first, so the total stop (the roster's only hard CC)
+  // leads even over "no control".
+  if ((def.flags ?? []).includes("fullStop")) parts.push("total stop");
   if ((def.flags ?? []).includes("immobilised")) parts.push("no control");
+  if ((def.flags ?? []).includes("invulnerable")) parts.push("takes no damage");
   if (def.pulse?.damage) parts.push(`${def.pulse.damage} hp per ${round(def.pulse.intervalMs / 1000, 2)}s`);
   if (def.pulse?.heal) parts.push(`repairs ${def.pulse.heal} hp per ${round(def.pulse.intervalMs / 1000, 2)}s`);
   if (def.onApply?.cleanse) parts.push(`clears every ${def.onApply.cleanse}`);
@@ -116,21 +122,48 @@ const CHANNEL_WORDS = {
   ramMass: "ram weight",
 };
 
-/** `{ shape, size }` — `size` is kept short enough never to wrap inside the spec panel. */
+/**
+ * `{ shape, size }` — `size` is kept short enough never to wrap inside the spec panel.
+ *
+ * A `maneuver` weapon has no `hitbox` at all: the car's own hull is the hit volume (O12/O2), so
+ * there is no separate shape to report — "car hull" is the honest answer, and the shape word is the
+ * same "Dash"/"Charge" label the guide uses everywhere else a weapon's kind is named.
+ */
 function hitboxLine(def) {
+  if (def.kind === "maneuver") return { shape: kindLabel(def), size: "car hull" };
   const h = def.hitbox;
   if (h.shape === "circle") return { shape: "Circle", size: `${h.radius * 2} across` };
   if (h.shape === "ellipse") return { shape: "Ellipse", size: `${h.radiusAlong * 2} × ${h.radiusAcross * 2}` };
   if (h.shape === "capsule")
     return { shape: "Capsule", size: `${h.radiusAlong * 2} × ${h.radiusAcross * 2}, flat tail` };
+  // A bar travels along its SHORT axis (`radiusAlong` is the thickness along flight), so its
+  // "reach" is really its face width, printed first the way every other shape leads with its
+  // longest dimension.
+  if (h.shape === "bar") return { shape: "Bar", size: `${h.radiusAcross * 2} × ${h.radiusAlong * 2}` };
   if (h.shape === "rect") return { shape: "Beam", size: `${h.width} × ${def.range}` };
   // A disc grows in every direction at once, so its `range` is a radius rather than a reach.
   if (h.shape === "disc") return { shape: "Aura", size: `${def.range} radius` };
   return { shape: "Cone", size: `${h.angleDeg}° × ${def.range}` };
 }
 
-/** Rough swept footprint, only ever compared against the other eight rows. */
+/**
+ * "Beam" / "Shot" / "Dash" / "Charge" — the one word the guide uses everywhere a weapon's kind is
+ * named: the compare table's Type column and (via `hitboxLine`) the Area bar's own label.
+ */
+function kindLabel(def) {
+  if (def.kind === "beam") return "Beam";
+  if (def.kind === "maneuver") return def.maneuver.type === "dash" ? "Dash" : "Charge";
+  return "Shot";
+}
+
+/**
+ * Rough swept footprint, only ever compared against the other eight rows.
+ *
+ * A `maneuver` weapon's hit volume is the car's own hull (see `hitboxLine`), so its footprint is the
+ * hull's own area rather than anything read off a `hitbox` field it does not have.
+ */
 function footprint(def) {
+  if (def.kind === "maneuver") return DRIVE_CONFIG.carWidth * DRIVE_CONFIG.carHeight;
   const h = def.hitbox;
   if (h.shape === "circle") return Math.PI * h.radius ** 2;
   if (h.shape === "ellipse") return Math.PI * h.radiusAlong * h.radiusAcross;
@@ -139,9 +172,20 @@ function footprint(def) {
     return (
       (h.radiusAlong - h.radiusAcross) * 2 * h.radiusAcross * 2 + Math.PI * h.radiusAcross ** 2
     );
+  if (h.shape === "bar") return h.radiusAlong * 2 * h.radiusAcross * 2;
   if (h.shape === "rect") return h.width * def.range;
   if (h.shape === "disc") return Math.PI * def.range ** 2;
   return ((h.angleDeg / 360) * Math.PI * def.range ** 2);
+}
+
+/**
+ * `range` as the guide prints it. A dash's 400 is a real reach worth stating; a charge's 0 is not a
+ * reach of zero units, it is the absence of one ("speed/range are 0: a charge dashes nowhere," per
+ * `wildcharge`'s own row comment) — so it reads as "—" rather than a number that invites a percent
+ * and a car-lengths conversion of nothing.
+ */
+function reachText(range) {
+  return range > 0 ? String(range) : "—";
 }
 
 function derive(id) {
@@ -151,17 +195,29 @@ function derive(id) {
   const car = CAR_TABLE[carId];
   const slot = slotsOf(carId).indexOf(id);
   const beam = def.kind === "beam";
+  // A maneuver has neither `hitbox` nor `pellets` — the car's own hull is the hit volume and one
+  // press lands exactly one hit (the contact, priced in `runCombat` like any other) — so it takes
+  // its own branch everywhere the projectile-only fields (`pellets`, `pierce`, `hitbox`) would
+  // otherwise be read off a row that does not carry them.
+  const maneuver = def.kind === "maneuver";
 
-  // `volley` lives on `WeaponBase`, so a BEAM can be a wave sequence too — `shockwave` is three
-  // discs 500ms apart. This file is plain `.mjs` and the compiler never checks it, so a "beams fire
-  // once per press" shortcut here would silently under-report a real weapon on the page players
-  // read. Both kinds go through the same volley arithmetic; only what one volley *contains*
-  // differs, which is exactly the line `PelletDef` was split out on.
+  // `volley` lives on `WeaponBase`, so a BEAM can be a wave sequence too — dormant today (no
+  // shipped row has `volleys > 1`; `shockwave` used to be three discs 500ms apart before the
+  // 2026-09-01 cutover redefined it into a single-volley projectile). This file is plain `.mjs`
+  // and the compiler never checks it, so a "beams fire once per press" shortcut here would
+  // silently under-report a real weapon on the page the day one next ships. Both kinds go through
+  // the same volley arithmetic; only what one volley *contains* differs, which is exactly the line
+  // `PelletDef` was split out on.
   const shotsPerPress = beam
     ? def.volley.volleys
-    : def.volley.volleys * def.pellets.pelletsPerVolley;
+    : maneuver
+      ? 1
+      : def.volley.volleys * def.pellets.pelletsPerVolley;
   const burstSpanMs = (def.volley.volleys - 1) * def.volley.volleyIntervalMs;
-  const extendMs = (def.range / def.speed) * 1000;
+  // `wildcharge` (a charge) is the one row with `speed: 0` and `range: 0` — a plain division would
+  // be 0/0, NaN. `thunderclap` (a dash) has both, and crosses its 400-unit `range` at its `speed`
+  // exactly like a projectile would.
+  const extendMs = def.speed > 0 ? (def.range / def.speed) * 1000 : 0;
   const totalLifeMs = beam ? extendMs + def.lifetimeMs : extendMs;
   // A ticking beam re-arms on its own interval for as long as it lives; everything else lands once
   // per instance, so a projectile's ceiling on one car is its whole pellet count.
@@ -178,7 +234,10 @@ function derive(id) {
       ? 1
       : Math.floor((aliveTicks - 1) / ticks.damageInterval) + 1;
   // Each of a beam's volleys is its own instance with its own damage clock, so a target that eats
-  // every wave takes `damageTicks` from each: `shockwave` is 1 x 3, `bulwark` 10 x 1.
+  // every wave takes `damageTicks` from each — dormant today alongside `volleys > 1` itself (see
+  // above); `shockwave`'s old three-wave shape (1 x 3) and the retired `bulwark`'s single 10-tick
+  // wave (10 x 1) were the last two rows that exercised more than the `hitsPerTarget = shotsPerPress`
+  // branch below.
   const hitsPerTarget = beam ? damageTicks * def.volley.volleys : shotsPerPress;
 
   const baseBurst = def.damage * hitsPerTarget;
@@ -196,6 +255,7 @@ function derive(id) {
     car,
     slot,
     beam,
+    maneuver,
     shotsPerPress,
     waves: def.volley.volleys,
     burstSpanMs,
@@ -245,7 +305,7 @@ function bars(w) {
   return [
     ["Damage", (w.baseBurst / MAX.power) * 100, `${w.baseBurst} full connect`],
     ["Rate", ((1000 / w.cycleMs) / MAX.cadence) * 100, `${round(1000 / w.cycleMs, 2)} presses/s`],
-    ["Reach", (w.def.range / MAX.reach) * 100, `${w.def.range} units`],
+    ["Reach", (w.def.range / MAX.reach) * 100, w.def.range > 0 ? `${w.def.range} units` : "—"],
     ["Area", (Math.sqrt(w.footprint) / MAX.area) * 100, `${hitboxLine(w.def).shape}, ${hitboxLine(w.def).size}`],
     [
       "Commitment",
@@ -294,6 +354,24 @@ export const STAMP_META_NAME = "mc-balance-stamp";
  */
 const iconUrl = (id) => `art/weapon-icons/${id}.png`;
 const carUrl = (id) => `art/cars/${id}.png`;
+/**
+ * The manifest is one convention; the file actually being on disk is the one this page can check for
+ * itself. A weapon id with no icon yet (the HUD's permanent procedural-glyph fallback, per
+ * `docs/asset-pipeline.md`) would otherwise become an `<img>` with a dead `src` — `manual-page.test.mjs`
+ * asserts every image the page links actually exists in `packages/client/public/`, so this is what
+ * keeps a new, still-unarted weapon id from failing that guard the moment it ships.
+ */
+const hasWeaponIcon = (id) => existsSync(resolve(ROOT, "packages/client/public", iconUrl(id)));
+/**
+ * An icon `<img>`, or a flat colour swatch in its place for a weapon with no art yet — the guide's
+ * own version of the HUD's procedural fallback. The swatch carries `.icon-fallback`, which `css()`
+ * sizes identically to the real `<img>` in every spot one is drawn (`.cover-grid img`, `.kit img`,
+ * `.hero img`), so it fills exactly the same box without a second set of dimensions to keep in sync.
+ */
+function iconMarkup(w) {
+  if (hasWeaponIcon(w.id)) return `<img src="${iconUrl(w.id)}" alt="">`;
+  return `<div class="icon-fallback" style="background:${w.def.color}" aria-hidden="true"></div>`;
+}
 
 /** Weapon colours are authored to read on the arena's light floor; lift them for a dark page. */
 function lift(hex, amount = 0.42) {
@@ -343,7 +421,7 @@ function page(cls, inner) {
 function cover() {
   const grid = WEAPONS.map(
     (w) =>
-      `<figure><img src="${iconUrl(w.id)}" alt=""><figcaption style="color:${lift(w.def.color)}">${esc(
+      `<figure>${iconMarkup(w)}<figcaption style="color:${lift(w.def.color)}">${esc(
         w.def.name,
       )}</figcaption></figure>`,
   ).join("");
@@ -445,13 +523,13 @@ function chassisPage(carId) {
   const kitRows = kit
     .map(
       (w) => `<li style="--acc:${lift(w.def.color)}">
-        <img src="${iconUrl(w.id)}" alt="">
+        ${iconMarkup(w)}
         <div class="kn"><b>${esc(w.def.name)}</b><span>${esc(SLOT_LABEL[w.slot])}</span>
           <p>${esc(WEAPON_COPY[w.id].tagline)}</p></div>
         <dl class="kstats">
           <div><dt>Damage</dt><dd>${w.liveBurst}</dd></div>
           <div><dt>Recharge</dt><dd>${round(w.def.cooldownMs / 1000, 1)}s</dd></div>
-          <div><dt>Reach</dt><dd>${w.def.range}</dd></div>
+          <div><dt>Reach</dt><dd>${reachText(w.def.range)}</dd></div>
           <div><dt>Lock</dt><dd>${w.def.usesAimAssist ? "Yes" : "No"}</dd></div>
         </dl>
       </li>`,
@@ -488,19 +566,30 @@ function specRows(w) {
       `${round(w.attackScale, 1)}× attack scale`],
     ["Recharge", `${round(d.cooldownMs / 1000, 2)}s`, d.stock ? `per stock · ${d.stock.max} banked` : "single stock"],
     ["Sustained", `${round(w.sustainedDps)} dps`, "if every press connects"],
-    ["Reach", `${d.range}`, `${round((d.range / ARENA_WIDTH) * 100)}% of the arena · ${round(d.range / DRIVE_CONFIG.carWidth, 1)} car lengths`],
-    ["Speed", `${d.speed} u/s`, w.beam ? `full extent in ${round(w.extendMs)}ms` : `crosses its range in ${round(w.extendMs)}ms`],
+    ["Reach", reachText(d.range),
+      d.range > 0
+        ? `${round((d.range / ARENA_WIDTH) * 100)}% of the arena · ${round(d.range / DRIVE_CONFIG.carWidth, 1)} car lengths`
+        : "a charge dashes nowhere"],
+    ["Speed", `${d.speed} u/s`,
+      d.range === 0
+        ? "a charge dashes nowhere"
+        : w.beam
+          ? `full extent in ${round(w.extendMs)}ms`
+          : `crosses its range in ${round(w.extendMs)}ms`],
     ["Hitbox", hitboxLine(d).size, hitboxLine(d).shape.toLowerCase()],
   ];
   if (multi) rows.splice(1, 0, ["Full connect", `${w.baseBurst}`, `${round(w.pctOfAverageCar)}% of an average car`]);
   if (w.beam) rows.push(["Lifetime", `${round(w.totalLifeMs / 1000, 2)}s`, d.attached ? "rides your car" : "stamped in place"]);
-  if (!w.beam && d.volley.volleys * d.pellets.pelletsPerVolley > 1)
+  // `d.pellets` does not exist on a maneuver row, so it is excluded here alongside beams rather
+  // than merely relying on `d.pellets?.` to fail quietly.
+  if (!w.beam && !w.maneuver && d.volley.volleys * d.pellets.pelletsPerVolley > 1)
     rows.push(["Volley", `${d.volley.volleys} × ${d.pellets.pelletsPerVolley}`, `${d.volley.volleyIntervalMs}ms apart · ${d.pellets.spreadAngleDeg}° fan`]);
   // A beam sequence has no pellets to fan, so it gets its own row rather than sharing the one
   // above: three waves is the whole shape of the press and the page must say so.
   if (w.beam && w.waves > 1)
     rows.push(["Waves", `${w.waves}`, `${d.volley.volleyIntervalMs}ms apart · ${round(w.burstSpanMs / 1000, 2)}s to land them all`]);
-  if (!w.beam && d.pierce > 0) rows.push(["Pierce", `${d.pierce + 1} cars`, "keeps going after the first"]);
+  // `d.pierce` likewise does not exist on a maneuver row.
+  if (!w.beam && !w.maneuver && d.pierce > 0) rows.push(["Pierce", `${d.pierce + 1} cars`, "keeps going after the first"]);
   // The dump window is counted in TICKS, not in authored milliseconds: `refireDelayMs: 110` rounds
   // up to 4 ticks (133ms), so two gaps are 267ms rather than the 220ms the raw field multiplies to.
   // The player waits whole ticks, so the page must print whole ticks.
@@ -517,9 +606,10 @@ function specRows(w) {
   // for: nothing on screen says "this one stuns", and the badge only appears once it is too late.
   for (const a of d.applies ?? []) {
     const def = statusDefOf(a.statusId);
-    // `onWave: "final"` is a real rule a player has to plan around — shockwave's debuff arrives
-    // only if the target is still in the ring for the LAST wave — so it goes on the page rather
-    // than staying a table detail.
+    // `onWave: "final"` is a real rule a player has to plan around when a weapon has it — the old
+    // three-wave shockwave's debuff only landed if the target was still in the ring for the LAST
+    // wave — so it goes on the page rather than staying a table detail. Dormant today: no shipped
+    // row authors `onWave` at all, since none has `volleys > 1` (see `derive()`'s own note on that).
     const wave = a.onWave === "final" && w.waves > 1 ? ` · last wave only` : "";
     rows.push([
       a.target === "self" ? "Grants you" : "Inflicts",
@@ -551,7 +641,7 @@ function weaponPage(w, index) {
        <header class="phead"><span class="pnum">${String(index + 1).padStart(2, "0")} / ${String(WEAPONS.length).padStart(2, "0")}</span>
          <span class="owner">${esc(w.car.name)} · ${esc(SLOT_LABEL[w.slot])}</span></header>
        <div class="hero">
-         <img src="${iconUrl(w.id)}" alt="">
+         ${iconMarkup(w)}
          <div>
            <h1>${esc(w.def.name)}</h1>
            <p class="shape">${esc(copy.shape)}</p>
@@ -581,12 +671,12 @@ function compare() {
       <td class="nm"><span class="dot" style="background:${w.def.color}"></span>${esc(w.def.name)}</td>
       <td>${esc(w.car.name)}</td>
       <td>${w.slot + 1}</td>
-      <td>${w.beam ? "Beam" : "Shot"}</td>
+      <td>${kindLabel(w.def)}</td>
       <td class="n">${w.def.damage}${w.hitsPerTarget > 1 ? `×${w.hitsPerTarget}` : ""}</td>
       <td class="n">${w.baseBurst}</td>
       <td class="n">${round(w.pctOfAverageCar)}%</td>
       <td class="n">${round(w.def.cooldownMs / 1000, 2)}s</td>
-      <td class="n">${w.def.range}</td>
+      <td class="n">${reachText(w.def.range)}</td>
       <td class="n">${round(w.sustainedDps)}</td>
       <td>${w.def.usesAimAssist ? "Yes" : "—"}</td>
     </tr>`,
@@ -719,7 +809,7 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: .85em; color: var(
 .cover-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7mm 6mm; margin-top: auto; margin-bottom: 8mm; }
 .cover-grid figure { background: var(--panel); border: 1pt solid var(--line); border-radius: 2mm;
         padding: 5mm 3mm 3.5mm; text-align: center; }
-.cover-grid img { width: 18mm; height: 18mm; }
+.cover-grid img, .cover-grid .icon-fallback { width: 18mm; height: 18mm; }
 .cover-grid figcaption { font-family: var(--display); font-size: 9.5pt; text-transform: uppercase;
         letter-spacing: .1em; margin-top: 2.5mm; }
 .cover-foot { font-size: 8.5pt; color: var(--faint); border-top: 1pt solid var(--line); padding-top: 3mm; }
@@ -764,7 +854,7 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: .85em; color: var(
 .kstats dt { font-family: var(--display); font-size: 7pt; text-transform: uppercase;
         letter-spacing: .1em; color: var(--faint); }
 .kstats dd { font-family: var(--display); font-size: 12pt; color: var(--ink); }
-.kit img { width: 14mm; height: 14mm; }
+.kit img, .kit .icon-fallback { width: 14mm; height: 14mm; }
 .kit b { font-family: var(--display); font-size: 13pt; text-transform: uppercase; letter-spacing: .06em;
         color: var(--acc); display: block; }
 .kit span { font-size: 8.5pt; color: var(--faint); letter-spacing: .1em; text-transform: uppercase; }
@@ -773,7 +863,8 @@ code { font-family: "DejaVu Sans Mono", monospace; font-size: .85em; color: var(
 /* ---- weapon ---- */
 .wpn { display: flex; flex-direction: column; height: 100%; }
 .hero { display: grid; grid-template-columns: 30mm 1fr; gap: 7mm; align-items: center; margin-bottom: 6mm; }
-.hero img { width: 30mm; height: 30mm; }
+.hero img, .hero .icon-fallback { width: 30mm; height: 30mm; }
+.icon-fallback { border-radius: 1.5mm; border: 1pt solid var(--line); }
 .hero h1 { font-size: 34pt; line-height: 1; color: var(--acc); letter-spacing: .02em; }
 .shape { font-size: 8.5pt; color: var(--faint); letter-spacing: .16em; text-transform: uppercase; margin-top: 2mm; }
 .tagline { font-size: 13pt; color: var(--dim); font-style: italic; margin-top: 3mm; }

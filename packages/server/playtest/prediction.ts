@@ -138,10 +138,13 @@ function trial(opts: {
 function bodyOf(p: {
   x: number; y: number; angle: number; speed: number; reverseHold: number;
   angVel: number; shoveX: number; shoveY: number; authority: number;
+  maneuver: number; maneuverTicksLeft: number; maneuverAngle: number; maneuverSpeed: number;
 }): SimBody {
   return {
     x: p.x, y: p.y, angle: p.angle, speed: p.speed, reverseHold: p.reverseHold,
     angVel: p.angVel, shoveX: p.shoveX, shoveY: p.shoveY, authority: p.authority,
+    maneuver: p.maneuver, maneuverTicksLeft: p.maneuverTicksLeft,
+    maneuverAngle: p.maneuverAngle, maneuverSpeed: p.maneuverSpeed,
   };
 }
 

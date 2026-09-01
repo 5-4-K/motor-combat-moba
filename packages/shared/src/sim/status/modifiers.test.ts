@@ -16,6 +16,8 @@ describe("NEUTRAL_MODIFIERS", () => {
     expect(NEUTRAL_MODIFIERS.immobilised).toBe(false);
     expect(NEUTRAL_MODIFIERS.steeringLocked).toBe(false);
     expect(NEUTRAL_MODIFIERS.disarmed).toBe(false);
+    expect(NEUTRAL_MODIFIERS.fullStop).toBe(false);
+    expect(NEUTRAL_MODIFIERS.invulnerable).toBe(false);
   });
 
   it("is what a car in no status gets", () => {
@@ -49,25 +51,28 @@ describe("modifiersOf", () => {
   });
 
   it("multiplies across DIFFERENT statuses touching one channel — the only stacking there is", () => {
-    const both = modifiersOf([live("spiked"), live("overheated")], 0);
-    const expected = STATUS_TABLE.spiked.modifiers.topSpeed * STATUS_TABLE.overheated.modifiers.topSpeed;
-    expect(both.topSpeed).toBeCloseTo(expected, 10);
+    // Since the 2026-09-01 overhaul, `damageTaken` is the only channel two rows still share:
+    // `corroded` (worse) and `fortified` (better).
+    const both = modifiersOf([live("corroded"), live("fortified")], 0);
+    const expected = STATUS_TABLE.corroded.modifiers.damageTaken * STATUS_TABLE.fortified.modifiers.damageTaken;
+    expect(both.damageTaken).toBeCloseTo(expected, 10);
   });
 
   it("stacks multiplicatively rather than additively", () => {
-    // Two slows on one channel compose to their product, not to the sum of their reductions. With
-    // the shipped rows that is 0.82 * 0.92, a 24.6% loss, where adding the two would give 26%.
-    const slow = STATUS_TABLE.spiked.modifiers.topSpeed;
-    const alsoSlow = STATUS_TABLE.overheated.modifiers.topSpeed;
-    const additive = 1 - ((1 - slow) + (1 - alsoSlow));
-    const combined = modifiersOf([live("spiked"), live("overheated")], 0).topSpeed;
-    expect(combined).toBeCloseTo(slow * alsoSlow, 10);
-    expect(combined).toBeGreaterThan(additive);
+    // A +30% debuff and a -30% buff on the same channel do not cancel to neutral: their product is
+    // 1.3 * 0.7 = 0.91, not the 1.0 naive addition of the deltas would give — multiplying a pair of
+    // equal-and-opposite percentage changes always lands below neutral (AM-GM).
+    const worse = STATUS_TABLE.corroded.modifiers.damageTaken;
+    const better = STATUS_TABLE.fortified.modifiers.damageTaken;
+    const additive = 1 - ((1 - worse) + (1 - better));
+    const combined = modifiersOf([live("corroded"), live("fortified")], 0).damageTaken;
+    expect(combined).toBeCloseTo(worse * better, 10);
+    expect(combined).toBeLessThan(additive);
   });
 
   it("does not depend on the order statuses are listed in", () => {
-    const forwards = modifiersOf([live("spiked"), live("overheated"), live("fortified")], 0);
-    const backwards = modifiersOf([live("fortified"), live("overheated"), live("spiked")], 0);
+    const forwards = modifiersOf([live("spiked"), live("corroded"), live("fortified")], 0);
+    const backwards = modifiersOf([live("fortified"), live("corroded"), live("spiked")], 0);
     expect(forwards).toEqual(backwards);
   });
 
@@ -76,8 +81,17 @@ describe("modifiersOf", () => {
     expect(stunned.immobilised).toBe(true);
     expect(stunned.steeringLocked).toBe(true);
     expect(stunned.disarmed).toBe(true);
+    // Total stop (O6): `fullStop` rides the same row now.
+    expect(stunned.fullStop).toBe(true);
     expect(modifiersOf([live("stunned"), live("spiked")], 0).immobilised).toBe(true);
     expect(modifiersOf([live("spiked")], 0).immobilised).toBe(false);
+    // Stun does not make you invulnerable — that flag is `armored`'s alone.
+    expect(stunned.invulnerable).toBe(false);
+
+    const armored = modifiersOf([live("armored")], 0);
+    expect(armored.invulnerable).toBe(true);
+    expect(armored.fullStop).toBe(false);
+    expect(armored.immobilised).toBe(false);
   });
 
   it("skips an expired row rather than trusting the list — the patch-stale client guard", () => {

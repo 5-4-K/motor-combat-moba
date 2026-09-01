@@ -2,15 +2,16 @@ import type { StatusId } from "./status-types.js";
 
 /** Every weapon in the game. Add an id here and a row in `WEAPON_TABLE`. */
 export type WeaponId =
-  | "fireball"
-  | "pepperbox"
-  | "afterburner"
-  | "needler"
-  | "skewer"
-  | "lance"
-  | "thumper"
   | "shockwave"
-  | "bulwark";
+  | "pepperbox"
+  | "lance"
+  | "predator"
+  | "thunderclap"
+  | "afterburner"
+  | "thumper"
+  | "roadblock"
+  | "wildcharge"
+  | "tremor";
 
 /**
  * Optional charge system. Absent means single-stock, which is exactly the pre-weapon-system
@@ -69,7 +70,14 @@ export type ProjectileHitbox =
    * capsule cannot be given that silhouette by the renderer alone — the shape has to be real, or
    * what you see stops being what can hurt you.
    */
-  | { shape: "capsule"; radiusAlong: number; radiusAcross: number };
+  | { shape: "capsule"; radiusAlong: number; radiusAcross: number }
+  /**
+   * A wall sweeping forward: long axis PERPENDICULAR to flight, travelling along its short axis.
+   * `radiusAlong` is half its thickness along the flight direction and `radiusAcross` half its
+   * length across it, so the two are read the same way as `ellipse`/`capsule`. Guarded
+   * `radiusAcross >= radiusAlong` — a bar thicker than it is wide is an ellipse job.
+   */
+  | { shape: "bar"; radiusAlong: number; radiusAcross: number };
 
 /**
  * Beams configure their CROSS-SECTION only. The axial extent is the current expansion, growing
@@ -128,6 +136,31 @@ interface WeaponBase {
    * weapon cannot silently inherit a targeting behaviour nobody chose.
    */
   usesAimAssist: boolean;
+  /**
+   * This weapon's own aim-assist reach, world units. Required exactly when `usesAimAssist` is
+   * true (test-enforced both ways). Lock ACQUISITION uses the car's largest value
+   * (`carAimRangeOf`); at fire time a lock farther than this fires straight ahead. Every row in
+   * this pass authors 400 — `AIM_CONFIG.lockRange`'s value, written literally because importing
+   * aim-config here is a cycle — so behavior is identical until the numbers diverge.
+   */
+  aimRangeUnits?: number;
+  /**
+   * Muzzle directions, degrees off the heading. Absent means `[0]`. Each muzzle emits the full
+   * pellet fan (or its own beam instance). More than one requires `usesAimAssist: false` — a lock
+   * cannot steer four directions at once.
+   */
+  muzzles?: readonly number[];
+  /**
+   * Exempt from the stun interrupt sweep (O8). Absent = false; `wildcharge` is the one shipped row
+   * that authors `true`.
+   *
+   * `stepDrive`'s DASH branch (`stepDash`, `sim/drive.ts`) never consults `mods.fullStop` — a stun
+   * landing mid-dash has nothing to override there. Safe today only because the O8 sweep clears
+   * every INTERRUPTIBLE maneuver, dashes included, the moment a fresh stun lands, and the one
+   * uninterruptable row is a charge, not a dash: `stepDash` is never reached with `fullStop` active
+   * in practice. An uninterruptable dash would need that gap closed.
+   */
+  isUnInterruptable?: boolean;
   stock?: StockDef;
   volley: VolleyDef;
   /**
@@ -158,13 +191,19 @@ interface WeaponBase {
  *   re-applying every single tick.
  * - `self` — the firing car, on the tick a shot actually goes out. No hit test is involved, so it
  *   works for any weapon whether or not it hits anything.
+ * - `ownerInside` — the firing car, re-applied every tick its own hull stands inside this weapon's
+ *   live BEAM instance. The presence-buff seam (`tremor`'s fortified): author a duration a little
+ *   past one tick and `refresh` keeps it up exactly while the owner holds the zone, lapsing moments
+ *   after they leave. Beams only — a zone is a place to stand, and a travelling projectile is not.
+ *   It cannot ride the damage list (`canDamage` refuses the owner by design), so `runCombat` runs a
+ *   dedicated owner-hull-vs-beam test for it each tick.
  *
  * There is deliberately no `teammates` member. Reaching a teammate means changing `canDamage`, which
  * is the one predicate deciding friendly fire for the whole game, and that is a design decision
  * nobody has made yet. Shipping the member as a value that silently does nothing would be worse than
  * not having it: adding a union member later is a one-line change the compiler will help with.
  */
-export type StatusTarget = "self" | "opponents";
+export type StatusTarget = "self" | "opponents" | "ownerInside";
 
 /** One status a weapon applies: which, to whom, for how long. */
 export interface StatusApplication {
@@ -185,12 +224,28 @@ export interface StatusApplication {
   onWave?: "all" | "final";
 }
 
+/** Homing guidance for a projectile fired with a lock (spec: Homing). */
+export interface HomingDef {
+  /** Max steering rate toward the frozen target, degrees per second. The counterplay dial. */
+  turnRateDegPerSec: number;
+  /** Guidance window after spawn. Afterwards the shot flies straight forever. */
+  durationMs: number;
+}
+
+/** Wall-bouncing flight: reflect off level geometry; expire on this clock instead of at `range`. */
+export interface BounceDef {
+  /** Total flight time. Guarded < `cooldownMs` so two instances can never coexist. */
+  lifetimeMs: number;
+}
+
 export interface ProjectileWeaponDef extends WeaponBase {
   kind: "projectile";
   hitbox: ProjectileHitbox;
   /** Additional opponents passed through after damaging one. 0 = dies on the first car it damages. */
   pierce: number;
   pellets: PelletDef;
+  homing?: HomingDef;
+  bounce?: BounceDef;
 }
 
 export interface BeamWeaponDef extends WeaponBase {
@@ -210,6 +265,32 @@ export interface BeamWeaponDef extends WeaponBase {
   origin: BeamOrigin;
   /** Linger AFTER full extension. Total life = range/speed + this. */
   lifetimeMs: number;
+  /**
+   * The car is held (no translation, steering only) from the press until the beam dies — the
+   * HOLD maneuver, O10. Lance is the intended user; absent = false.
+   */
+  holdsDuringFire?: boolean;
 }
 
-export type WeaponDef = ProjectileWeaponDef | BeamWeaponDef;
+export type ManeuverSpec =
+  | { type: "dash" }
+  | {
+      type: "charge";
+      /** How long the charged state lasts (also ended early by the first slam, O2). */
+      durationMs: number;
+      /** May this weapon's hard slam land on a stunned victim (O3/O18)? */
+      slamsStunned: boolean;
+    };
+
+/**
+ * A weapon that moves the CAR instead of spawning an instance (spec: Maneuvers). The press rides
+ * the same fire state machine as every other weapon — stocks, cooldown, recovery — and `damage`
+ * is what its contact deals, resolved in `runCombat` like any hit. `speed` is the dash speed;
+ * `aimRangeUnits` doubles as the dash distance. A charge uses neither.
+ */
+export interface ManeuverWeaponDef extends WeaponBase {
+  kind: "maneuver";
+  maneuver: ManeuverSpec;
+}
+
+export type WeaponDef = ProjectileWeaponDef | BeamWeaponDef | ManeuverWeaponDef;

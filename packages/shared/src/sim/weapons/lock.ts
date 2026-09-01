@@ -75,6 +75,10 @@ export function lockScore(angleDeg: number, distance: number): number {
 /**
  * The three bounds of the acquisition region, each optionally widened by a pad. Acquisition passes
  * zero pads; retention passes `AIM_CONFIG`'s (A6).
+ *
+ * `lockRangeUnits` replaces a direct `AIM_CONFIG.lockRange` read: acquisition is now bounded by the
+ * PER-CAR range (`carAimRangeOf`, the longest-reaching assisted weapon), not the flat global. No
+ * default — same "the compiler keeps the two halves honest" reasoning as `StepContext.modifiers`.
  */
 function withinRegion(
   angleDeg: number,
@@ -82,27 +86,29 @@ function withinRegion(
   conePadDeg: number,
   lateralPadUnits: number,
   rangePadUnits: number,
+  lockRangeUnits: number,
 ): boolean {
   const absDeg = Math.abs(angleDeg);
   if (absDeg > AIM_CONFIG.coneDeg + conePadDeg) return false;
-  if (distance > AIM_CONFIG.lockRange + rangePadUnits) return false;
+  if (distance > lockRangeUnits + rangePadUnits) return false;
   const lateral = distance * Math.sin(absDeg * RAD_PER_DEG);
   return lateral <= AIM_CONFIG.lateralMax + lateralPadUnits;
 }
 
 /** Cone AND lateral cap AND lock range (A2). All three, or the region is wrong at one end. */
-export function inAcquireRegion(angleDeg: number, distance: number): boolean {
-  return withinRegion(angleDeg, distance, 0, 0, 0);
+export function inAcquireRegion(angleDeg: number, distance: number, lockRangeUnits: number): boolean {
+  return withinRegion(angleDeg, distance, 0, 0, 0, lockRangeUnits);
 }
 
 /** Acquisition widened by every retention pad. Strictly wider than `inAcquireRegion` (A6). */
-export function inRetainRegion(angleDeg: number, distance: number): boolean {
+export function inRetainRegion(angleDeg: number, distance: number, lockRangeUnits: number): boolean {
   return withinRegion(
     angleDeg,
     distance,
     AIM_CONFIG.retentionConeDeg,
     AIM_CONFIG.retentionLateralUnits,
     AIM_CONFIG.retentionRangeUnits,
+    lockRangeUnits,
   );
 }
 
@@ -182,6 +188,13 @@ export interface UpdateLockContext {
   obstacles: readonly Aabb[];
   bounds: Bounds;
   tick: number;
+  /**
+   * The acquisition (and, padded, retention) range for THIS car's lock -- `carAimRangeOf(carIdOf(
+   * owner))`, the longest-reaching assisted weapon it carries. Required, no default: the caller
+   * always knows the owner's chassis, and defaulting here would let a car silently lock out to the
+   * global `AIM_CONFIG.lockRange` instead of its own kit's reach.
+   */
+  lockRangeUnits: number;
 }
 
 interface ScoredTarget {
@@ -243,7 +256,7 @@ export function updateLock(state: LockState, ctx: UpdateLockContext): LockState 
     // skipping its raycast is behaviour-preserving. On arena-02 (2000x2000, ~16 obstacles) this caps
     // the ray at `AIM_CONFIG.lockRange` + retention pads (460 units) instead of casting across the
     // whole map, roughly a 30x reduction in traced distance.
-    const inRegion = inRetainRegion(angleDeg, distance);
+    const inRegion = inRetainRegion(angleDeg, distance, ctx.lockRangeUnits);
     scored.push({
       sessionId: target.sessionId,
       score: lockScore(angleDeg, distance),
@@ -258,7 +271,7 @@ export function updateLock(state: LockState, ctx: UpdateLockContext): LockState 
   let losLostSinceTick = 0;
   let held: ScoredTarget | null = null;
 
-  if (current && inRetainRegion(current.angleDeg, current.distance)) {
+  if (current && inRetainRegion(current.angleDeg, current.distance, ctx.lockRangeUnits)) {
     if (current.visible) {
       held = current;
     } else {
@@ -273,7 +286,9 @@ export function updateLock(state: LockState, ctx: UpdateLockContext): LockState 
   // --- The best target anyone could acquire fresh this tick. Sight is required NOW. ---
   let best: ScoredTarget | null = null;
   for (const candidate of scored) {
-    if (!candidate.visible || !inAcquireRegion(candidate.angleDeg, candidate.distance)) continue;
+    if (!candidate.visible || !inAcquireRegion(candidate.angleDeg, candidate.distance, ctx.lockRangeUnits)) {
+      continue;
+    }
     if (best === null || candidate.score < best.score) best = candidate;
   }
 

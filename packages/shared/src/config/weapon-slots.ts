@@ -1,5 +1,7 @@
+import { AIM_CONFIG } from "./aim-config.js";
 import { CAR_TABLE } from "./car-config.js";
 import type { CarId } from "./types.js";
+import { WEAPON_TABLE } from "./weapon-config.js";
 import type { WeaponId } from "./weapon-types.js";
 
 /**
@@ -31,4 +33,19 @@ export function slotsFrom(carId: string, weapons: readonly WeaponId[]): readonly
 
 export function slotsOf(carId: CarId): readonly WeaponId[] {
   return slotsFrom(carId, CAR_TABLE[carId].weapons);
+}
+
+/**
+ * The lock-acquisition range for one chassis: the LARGEST `aimRangeUnits` across its assisted
+ * slots (spec S1 — one ambient lock per car, bounded by the longest-reaching assisted weapon; a
+ * shorter weapon then declines the lock at fire time). Falls back to `AIM_CONFIG.lockRange` for a
+ * car with no assisted weapon, so the bracket math never divides by a missing table.
+ */
+export function carAimRangeOf(carId: CarId): number {
+  let max = 0;
+  for (const id of slotsOf(carId)) {
+    const def = WEAPON_TABLE[id];
+    if (def.usesAimAssist && def.aimRangeUnits !== undefined) max = Math.max(max, def.aimRangeUnits);
+  }
+  return max > 0 ? max : AIM_CONFIG.lockRange;
 }

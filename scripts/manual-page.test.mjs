@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 import {
+  CAR_TABLE,
   TICK_RATE_HZ,
   WEAPON_TABLE,
   carHullOf,
@@ -188,6 +189,10 @@ describe("the generated manual page", () => {
       // hits", which no single placement can reproduce — a fanned burst is spread across an arc by
       // construction. A beam's ceiling is a real, reachable number, which is why it can be pinned.
       if (def.kind !== "beam") continue;
+      // Uncarried rows (`tremor`) are excluded because the page is: the guide derives its numbers
+      // from the kits, so a weapon on no chassis prints nothing this test could pin. The moment a
+      // kit lists it, this loop picks it up again with no edit here.
+      if (!Object.values(CAR_TABLE).some((car) => car.weapons.includes(id))) continue;
       assert.equal(
         simHitsPerTarget(id),
         hitsPerTargetOf(id),

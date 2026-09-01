@@ -6,6 +6,7 @@ import {
   applyStatus,
   clearStatuses,
   expireStatuses,
+  expireStatusesFromSource,
   hasStatus,
   modifiersFromRows,
   newStatusState,
@@ -14,10 +15,10 @@ import {
   toActiveStatuses,
 } from "./statuses.js";
 
-const REFRESHING: StatusId = "overheated";
+const REFRESHING: StatusId = "corroded";
 const IGNORING: StatusId = "stunned";
-const BLEEDING: StatusId = "spiked";
-const HEALING: StatusId = "fortified";
+const BURNING: StatusId = "overheated";
+const PROTECTING: StatusId = "fortified";
 const CLEANSING: StatusId = "overhauled";
 
 describe("applyStatus", () => {
@@ -65,8 +66,8 @@ describe("applyStatus", () => {
   });
 
   it("`refresh` keeps the original startTick, so its pulse cadence is not restarted", () => {
-    const first = applyStatus(newStatusState(), BLEEDING, 0, 60);
-    const again = applyStatus(first, BLEEDING, 17, 60);
+    const first = applyStatus(newStatusState(), BURNING, 0, 60);
+    const again = applyStatus(first, BURNING, 17, 60);
     expect(again[0]!.startTick).toBe(0);
     expect(again[0]!.endsTick).toBe(77);
   });
@@ -105,15 +106,15 @@ describe("applyStatus", () => {
 
 describe("onApply cleanse", () => {
   it("strips every running debuff", () => {
-    let state = applyStatus(newStatusState(), BLEEDING, 0, 200);
+    let state = applyStatus(newStatusState(), BURNING, 0, 200);
     state = applyStatus(state, REFRESHING, 0, 200);
-    state = applyStatus(state, HEALING, 0, 200);
+    state = applyStatus(state, PROTECTING, 0, 200);
 
     const after = applyStatus(state, CLEANSING, 10, 30);
-    expect(hasStatus(after, BLEEDING, 10)).toBe(false);
+    expect(hasStatus(after, BURNING, 10)).toBe(false);
     expect(hasStatus(after, REFRESHING, 10)).toBe(false);
     // Buffs survive: this cleanses one kind, not everything.
-    expect(hasStatus(after, HEALING, 10)).toBe(true);
+    expect(hasStatus(after, PROTECTING, 10)).toBe(true);
     expect(hasStatus(after, CLEANSING, 10)).toBe(true);
   });
 
@@ -122,11 +123,11 @@ describe("onApply cleanse", () => {
     expect(hasStatus(after, CLEANSING, 0)).toBe(true);
   });
 
-  it("stops a bleed but gives back no hp — it removes statuses, it does not heal", () => {
-    // The cleanse's whole contract, and the reason it can be generous: after it, the bleed produces
+  it("stops a burn but gives back no hp — it removes statuses, it does not heal", () => {
+    // The cleanse's whole contract, and the reason it can be generous: after it, the burn produces
     // no more pulses, and nothing anywhere hands hp back.
-    let state = applyStatus(newStatusState(), BLEEDING, 0, 300);
-    const interval = statusPulseTicksOf(BLEEDING);
+    let state = applyStatus(newStatusState(), BURNING, 0, 300);
+    const interval = statusPulseTicksOf(BURNING);
     expect(statusPulses(state, interval)).toHaveLength(1);
 
     state = applyStatus(state, CLEANSING, 1, 30);
@@ -163,47 +164,55 @@ describe("expireStatuses", () => {
   });
 });
 
+describe("expireStatusesFromSource", () => {
+  it("strips only that source's live rows", () => {
+    let s = applyStatus([], "fortified", 10, 300, "a");
+    s = applyStatus(s, "corroded", 10, 60, "b");
+    const out = expireStatusesFromSource(s, "a", 12);
+    expect(out.map((r) => r.statusId)).toEqual(["corroded"]);
+  });
+});
+
 describe("statusPulses", () => {
   it("fires one interval IN, not on the tick the status landed", () => {
-    const state = applyStatus(newStatusState(), BLEEDING, 100, 300);
-    const interval = statusPulseTicksOf(BLEEDING);
+    const state = applyStatus(newStatusState(), BURNING, 100, 300);
+    const interval = statusPulseTicksOf(BURNING);
     expect(statusPulses(state, 100)).toHaveLength(0);
     expect(statusPulses(state, 100 + interval - 1)).toHaveLength(0);
     expect(statusPulses(state, 100 + interval)).toHaveLength(1);
   });
 
   it("repeats on its own cadence", () => {
-    const state = applyStatus(newStatusState(), BLEEDING, 0, 300);
-    const interval = statusPulseTicksOf(BLEEDING);
+    const state = applyStatus(newStatusState(), BURNING, 0, 300);
+    const interval = statusPulseTicksOf(BURNING);
     for (const n of [1, 2, 3, 7]) expect(statusPulses(state, interval * n)).toHaveLength(1);
     expect(statusPulses(state, interval * 2 + 1)).toHaveLength(0);
   });
 
-  it("is anchored to its own startTick, so two cars hit a tick apart bleed a tick apart", () => {
-    const interval = statusPulseTicksOf(BLEEDING);
-    const early = applyStatus(newStatusState(), BLEEDING, 0, 300);
-    const late = applyStatus(newStatusState(), BLEEDING, 1, 300);
+  it("is anchored to its own startTick, so two cars hit a tick apart burn a tick apart", () => {
+    const interval = statusPulseTicksOf(BURNING);
+    const early = applyStatus(newStatusState(), BURNING, 0, 300);
+    const late = applyStatus(newStatusState(), BURNING, 1, 300);
     expect(statusPulses(early, interval)).toHaveLength(1);
     expect(statusPulses(late, interval)).toHaveLength(0);
     expect(statusPulses(late, interval + 1)).toHaveLength(1);
   });
 
   it("stops on the tick the status expires", () => {
-    const interval = statusPulseTicksOf(BLEEDING);
-    const state = applyStatus(newStatusState(), BLEEDING, 0, interval * 2);
+    const interval = statusPulseTicksOf(BURNING);
+    const state = applyStatus(newStatusState(), BURNING, 0, interval * 2);
     expect(statusPulses(state, interval)).toHaveLength(1);
     expect(statusPulses(state, interval * 2)).toHaveLength(0);
   });
 
-  it("reports the row's authored amount and its source, and never both directions at once", () => {
-    const bleed = statusPulses(applyStatus(newStatusState(), BLEEDING, 0, 300, "a"), statusPulseTicksOf(BLEEDING))[0]!;
-    expect(bleed.damage).toBe(statusDefOf(BLEEDING).pulse!.damage);
-    expect(bleed.heal).toBe(0);
-    expect(bleed.sourceSessionId).toBe("a");
-
-    const repair = statusPulses(applyStatus(newStatusState(), HEALING, 0, 300), statusPulseTicksOf(HEALING))[0]!;
-    expect(repair.heal).toBe(statusDefOf(HEALING).pulse!.heal);
-    expect(repair.damage).toBe(0);
+  it("reports the row's authored amount and its source", () => {
+    // `overheated` is the one pulsing row since the 2026-09-01 overhaul (`spiked` and `fortified`
+    // both lost theirs) — "never both directions at once" is enforced at the table level instead,
+    // by `status-config.test.ts`'s "gives every pulse a positive interval and exactly one direction".
+    const burn = statusPulses(applyStatus(newStatusState(), BURNING, 0, 300, "a"), statusPulseTicksOf(BURNING))[0]!;
+    expect(burn.damage).toBe(statusDefOf(BURNING).pulse!.damage);
+    expect(burn.heal).toBe(0);
+    expect(burn.sourceSessionId).toBe("a");
   });
 
   it("says nothing for a status with no pulse", () => {
@@ -238,7 +247,7 @@ describe("clearStatuses, hasStatus and remainingTicks", () => {
     const state = applyStatus(newStatusState(), REFRESHING, 0, 30);
     expect(hasStatus(state, REFRESHING, 29)).toBe(true);
     expect(hasStatus(state, REFRESHING, 30)).toBe(false);
-    expect(hasStatus(state, BLEEDING, 0)).toBe(false);
+    expect(hasStatus(state, BURNING, 0)).toBe(false);
   });
 
   it("remainingTicks counts down to 0 and never below", () => {
@@ -251,8 +260,8 @@ describe("clearStatuses, hasStatus and remainingTicks", () => {
 
 describe("modifiersFromRows", () => {
   it("is the wire path to the same answer modifiersOf gives", () => {
-    const mods = modifiersFromRows([{ statusId: BLEEDING, startTick: 0, endsTick: 100 }], 0);
-    expect(mods.topSpeed).toBeCloseTo(statusDefOf(BLEEDING).modifiers.topSpeed!, 10);
+    const mods = modifiersFromRows([{ statusId: "spiked", startTick: 0, endsTick: 100 }], 0);
+    expect(mods.topSpeed).toBeCloseTo(statusDefOf("spiked").modifiers.topSpeed!, 10);
   });
 
   it("is neutral for rows the client cannot make sense of", () => {

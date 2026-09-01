@@ -39,8 +39,8 @@ function liveInstance(over: Partial<WeaponInstance> = {}): WeaponInstance {
     ownerSessionId: "aaa",
     ownerTeam: 0,
     finalWave: true,
-    damage: weaponDamageOf("mirage", "fireball"),
-    weaponId: "fireball",
+    damage: weaponDamageOf("mirage", "shockwave"),
+    weaponId: "shockwave",
     kind: "projectile",
     x: 100,
     y: 100,
@@ -52,6 +52,10 @@ function liveInstance(over: Partial<WeaponInstance> = {}): WeaponInstance {
     attached: false,
     damageClock: new Map<string, number>(),
     alive: true,
+    muzzleDir: 0,
+    homingTargetId: "",
+    homingUntilTick: 0,
+    expiresAtTick: 0,
     ...over,
   };
 }
@@ -123,7 +127,7 @@ describe("toCombatPlayers", () => {
     const memory = newCombatMemory();
 
     const players = toCombatPlayers(state, new Set(["aaa"]), new Map([["aaa", 0b001]]), memory);
-    expect(players[0]!.fireState.slots.map((s) => s.weaponId)).toEqual(["fireball", "shockwave", "afterburner"]);
+    expect(players[0]!.fireState.slots.map((s) => s.weaponId)).toEqual(["predator", "thunderclap", "afterburner"]);
     expect(players[0]!.fireMask).toBe(0b001);
   });
 
@@ -182,7 +186,7 @@ describe("toCombatPlayers", () => {
 
     player.carId = "mirage";
     const afterReveal = toCombatPlayers(state, new Set(["aaa"]), new Map(), memory)[0]!.fireState;
-    expect(afterReveal.slots.map((s) => s.weaponId)).toEqual(["fireball", "shockwave", "afterburner"]);
+    expect(afterReveal.slots.map((s) => s.weaponId)).toEqual(["predator", "thunderclap", "afterburner"]);
   });
 });
 
@@ -206,6 +210,7 @@ describe("applyCombatResult", () => {
       x: player.x,
       y: player.y,
       angle: player.angle,
+      speed: 0,
       team: 0 as const,
       carId: player.carId,
       hp: player.hp,
@@ -215,6 +220,11 @@ describe("applyCombatResult", () => {
       fireState: newFireState(isCarId(player.carId) ? player.carId : "", 1),
       lock: newLockState(),
       statuses: [],
+      maneuver: 0,
+      maneuverTicksLeft: 0,
+      maneuverAngle: 0,
+      maneuverSpeed: 0,
+      maneuverWeaponId: "" as const,
       ...over,
     };
   }
@@ -267,6 +277,7 @@ describe("applyCombatResult", () => {
             x: 0,
             y: 0,
             angle: 0,
+            speed: 0,
             team: 0,
             carId: "mirage",
             hp: 50,
@@ -276,6 +287,11 @@ describe("applyCombatResult", () => {
             fireState: newFireState("mirage", 1),
             lock: newLockState(),
             statuses: [],
+            maneuver: 0,
+            maneuverTicksLeft: 0,
+            maneuverAngle: 0,
+            maneuverSpeed: 0,
+            maneuverWeaponId: "" as const,
           },
         ],
         instances: [],
@@ -285,8 +301,8 @@ describe("applyCombatResult", () => {
     );
     const player = state.players.get("aaa")!;
     expect(player.weapons.length).toBe(3);
-    expect(player.weapons.at(0)!.weaponId).toBe("fireball");
-    expect(player.weapons.at(1)!.weaponId).toBe("shockwave");
+    expect(player.weapons.at(0)!.weaponId).toBe("predator");
+    expect(player.weapons.at(1)!.weaponId).toBe("thunderclap");
     expect(player.weapons.at(2)!.weaponId).toBe("afterburner");
     expect(player.weapons.at(0)!.stocks).toBe(1);
   });
@@ -306,7 +322,7 @@ describe("applyCombatResult", () => {
     const fireState = {
       ...newFireState("mirage", 1),
       lastFiredSlot: 0,
-      pending: { weaponId: "fireball" as const, slot: 0, shotsLeft: 2, nextShotTick: 205 },
+      pending: { weaponId: "predator" as const, slot: 0, shotsLeft: 2, nextShotTick: 205 },
     };
     applyCombatResult(state, result({ players: [combatPlayerFor(player, { fireState })] }), newCombatMemory());
     expect(player.pendingUntilTick).toBe(205);
@@ -388,6 +404,31 @@ describe("applyCombatResult", () => {
     applyCombatResult(state, result({ instances: [] }), memory);
     expect(state.weapons.size).toBe(0);
     expect(memory.instances.size).toBe(0);
+  });
+});
+
+describe("maneuver fields across the bridge", () => {
+  it("round-trips maneuver fields through toCombatPlayers/applyCombatResult", () => {
+    const state = new ArenaState();
+    playerIn(state, "p1");
+    const memory = newCombatMemory();
+    const roster = new Set(["p1"]);
+    const player = state.players.get("p1")!;
+
+    player.maneuver = 3;
+    player.maneuverTicksLeft = 250;
+    memory.maneuverWeapons.set("p1", "thunderclap");
+    const combat = toCombatPlayers(state, roster, new Map(), memory);
+    const p = combat.find((c) => c.sessionId === "p1")!;
+    expect(p.maneuver).toBe(3);
+    expect(p.maneuverWeaponId).toBe("thunderclap");
+
+    p.maneuver = 0;
+    p.maneuverTicksLeft = 0;
+    p.maneuverWeaponId = "";
+    applyCombatResult(state, { players: combat, instances: [], instanceSeq: 0 }, memory);
+    expect(player.maneuver).toBe(0);
+    expect(memory.maneuverWeapons.get("p1")).toBe("");
   });
 });
 

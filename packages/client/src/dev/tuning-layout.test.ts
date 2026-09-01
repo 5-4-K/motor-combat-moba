@@ -100,13 +100,16 @@ describe("orphanWeaponIds", () => {
    * roster is exclusive but complete; this pins that, so adding a weapon without a carrier is
    * noticed here rather than as a silently absent cell.
    */
-  it("reports no orphans on the shipped roster", () => {
+  it("reports exactly the sanctioned orphan set on the shipped roster", () => {
+    // `tremor` is deliberately authored-but-uncarried (loadout decision pending), and the overlay
+    // caption names it rather than hiding it. Pinning the exact set keeps the original guarantee:
+    // a weapon accidentally dropped from a kit still shows up here as an unexpected orphan.
     expect(
       orphanWeaponIds(
         Object.keys(WEAPON_TABLE),
         Object.values(CAR_TABLE).map((car) => car.weapons),
       ),
-    ).toEqual([]);
+    ).toEqual(["tremor"]);
   });
 });
 
