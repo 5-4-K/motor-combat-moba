@@ -22,6 +22,17 @@ sim.** Driving, ramming and combat never look at a status list — they read a `
 makes adding a status free and adding a channel a one-call-site change, and why `NEUTRAL_MODIFIERS`
 reproduces the pre-status sim exactly (`golden.test.ts` pins it).
 
+Two rows carry flags rather than modifiers. `stunned` is `fullStop` on top of the older
+`immobilised`/`steeringLocked`/`disarmed` trio — engine, steering and trigger dead, and speed forced
+to 0 every tick, though shove and injected ram spin still resolve, so a slammed-then-stunned car still
+slides into the wall. `armored` is `invulnerable` alone: 0 damage from every source, weapon hits,
+contact hits and pulses alike — status riders still land, only hp loss stops. A flag is boolean and
+has no counterplay gradient, so every row that flips one is required to be `reapply: "ignore"` —
+except `armored`, `refresh` by a documented carve-out (`status-config.test.ts`'s
+`FLAG_REAPPLY_EXEMPT`): a repeatedly-refreshed invulnerability is a risk owned by whatever future
+applier grants it, the same way a stun's duty cycle is owned by its own applier's cooldown rather than
+by this rule.
+
 **A status does not own its duration** — the applier does (`WeaponDef.applies`, or the room's
 `statusRequests`), so `applyStatus` takes an explicit `durationTicks`. A status never stacks with
 itself; different statuses on one channel stack by multiplication.

@@ -632,16 +632,24 @@ channel and no per-chassis resistance stat.
 
 ### Who applies what
 
-Five of the six rows are reachable from a weapon; the sixth is waiting on pickups.
+The appliers below are still the ones from the 2026-08-30 chassis redistribution — Plan 3 re-tables
+this section against the roster rework. `stunned`'s duration is corrected here to the number
+`thumper` actually carries, 450 ms, not the 900 ms this table listed before; every other row's
+duration is unchanged. Each row's *effect* is `STATUS_TABLE`'s, above — see
+[`config-reference.md`](config-reference.md#status_table) for the new numbers.
+
+Five of the seven rows are reachable from a weapon; two — `overhauled` and `armored` — are waiting on
+pickups.
 
 | Status | Applied by | Chassis | For |
 |---|---|---|---|
 | `overheated` | `afterburner` | Mirage | 1.5 s |
 | `corroded` | `shockwave`, **wave 3 only** | Mirage | 2.5 s |
-| `stunned` | `thumper` | Bastion | 0.9 s |
+| `stunned` | `thumper` | Bastion | 0.45 s |
 | `spiked` | `bulwark` | Bastion | 3 s |
 | `fortified` | `bulwark`, **self** | Bastion | 4.5 s |
-| `overhauled` | nothing — still the pickup row | — | — |
+| `overhauled` | nothing — the pickup row | — | — |
+| `armored` | nothing — the pickup row beside `overhauled` | — | — |
 
 **Bullseye applies nothing at all.** `needler` lost `spiked` on 2026-08-30 so the skirmisher's spam
 weapon would stop being a debuff applicator, and hard CC moved to Bastion, where Type 3's identity
@@ -705,11 +713,19 @@ two cars hit a tick apart bleed a tick apart, and no accumulator has to exist (a
 change every tick, so it would patch every tick, for every burning car). The first pulse lands one
 interval *in* — the weapon that applied the status already dealt its impact damage.
 
+`overheated` is the only pulsing row today: 8 hp every 400 ms is its entire effect (O4), a pure burn
+with no modifiers at all. `spiked` carried that pulse before the 2026-09-01 overhaul and carries none
+now — it is a pure `topSpeed` slow. No row pulses `heal` today; `fortified`'s heal left with the same
+overhaul (O5), so `heal` sits in `StatusPulse` unused until a future row picks it up, the same way
+`turnRate` sits in `StatusChannel` unused.
+
 **Healing means `applyDamage` is no longer the only HP writer.** `sim/damage.ts` is: `applyDamage`
 and `applyHeal` together are the whole set, side by side, so the property the original rule protected
 survives — one file to read when asking what can move a car's hp. `applyHeal` clamps to the chassis's
 `hpOf` and refuses to lift a wreck off 0, so a repair landing on the tick a bleed killed its target
-cannot un-eliminate a player who is already spectating.
+cannot un-eliminate a player who is already spectating. Nothing calls it from a shipped row today —
+`runCombat`'s pulse loop and the tests are its only callers — but it stays in this file because the
+invariant it protects does not depend on whether a row currently uses it.
 
 ### Applying one
 
@@ -725,9 +741,10 @@ cannot un-eliminate a player who is already spectating.
 ### Cleanse repairs, it does not heal
 
 `onApply.cleanse` strips every running status of a kind, before the cleansing status is added — so it
-can never remove itself. It restores **no hp**: cleansing a bleed stops the bleeding but does not give
-back what has already bled. That is the whole difference between a repair and a heal, and it is what
-lets a cleanse be generous without being a second health bar.
+can never remove itself. It restores **no hp**: cleansing `overheated`'s burn stops the damage but
+does not give back what has already burned. That is the whole difference between a repair and a heal
+— and since the 2026-09-01 overhaul, no status in the game heals at all (`fortified`'s heal left with
+it), so a cleanse is the closest thing to a repair a car has, and even it never touches hp.
 
 ### Why a car can always drive
 
@@ -740,9 +757,11 @@ lets a cleanse be generous without being a second health bar.
 3. **`STATUS_LIMITS`** clamps every channel after aggregation.
 
 `stunned` is the one row that takes the car away rather than degrading it, and it pays for that with
-the shortest duration in the table plus `ignore`, so it cannot be chained. Its speed is deliberately
-*not* zeroed — the car coasts down through drag, because an instant stop at speed reads as hitting an
-invisible wall rather than as being stunned.
+the shortest duration in the table plus `ignore`, so it cannot be chained. Its speed IS zeroed, every
+tick, for as long as the status runs (`fullStop`, O6) — the total-stop identity the row carries since
+the 2026-09-01 overhaul, replacing the coast-down design this section used to describe. Shove and
+injected ram spin are untouched, so a car stunned mid-slam still slides into the wall; only the
+engine, steering and trigger go dead.
 
 `disarmed` blocks a **new** press only; one already committed still finishes. `beginFire` spends the
 stock at press time because a wind-up cannot be cancelled, so a stun landing mid-wind-up would

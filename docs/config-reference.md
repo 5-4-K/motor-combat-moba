@@ -405,12 +405,13 @@ per duration.
 
 | Status | Kind | Re-apply | Modifiers | Flags | Pulse | On apply |
 |---|---|---|---|---|---|---|
-| `overheated` | debuff | refresh | `turnRate` 0.65, `brakeDecel` 0.65, `topSpeed` 0.92 | — | — | — |
+| `overheated` | debuff | refresh | — | — | 8 hp / 400 ms | — |
 | `corroded` | debuff | refresh | `damageTaken` 1.3 | — | — | — |
-| `stunned` | debuff | **ignore** | — | `immobilised`, `steeringLocked`, `disarmed` | — | — |
-| `spiked` | debuff | refresh | `topSpeed` 0.82 | — | 8 hp / 400 ms | — |
-| `fortified` | buff | refresh | `damageTaken` 0.7, `ramMass` 1.25 | — | repairs 12 hp / 500 ms | — |
+| `stunned` | debuff | **ignore** | — | `immobilised`, `steeringLocked`, `disarmed`, `fullStop` | — | — |
+| `spiked` | debuff | refresh | `topSpeed` 0.6 | — | — | — |
+| `fortified` | buff | refresh | `damageTaken` 0.7 | — | — | — |
 | `overhauled` | buff | **ignore** | — | — | — | cleanse `debuff` |
+| `armored` | buff | **refresh** (documented exemption) | — | `invulnerable` | — | — |
 
 Per-row fields: `id`, `name`, `kind`, `color` (`#rrggbb`, render-only like `WeaponDef.color`),
 `reapply`, `modifiers`, optional `flags`, optional `pulse`, optional `onApply`.
@@ -426,8 +427,11 @@ strips. A row whose kind is wrong is a rule bug.
   an aura especially, since `ignore` would make a car standing inside one watch the status lapse and
   re-arm on a loop.
 - **`ignore`** — nothing happens at all, not even the clock. The anti-chain rule, and every row that
-  flips a flag is required to use it (`status-config.test.ts` enforces that), so two attackers cannot
-  hold one car stunned between them.
+  flips a flag is required to use it (`status-config.test.ts` enforces that) — with one documented
+  exemption: `armored` is `refresh`. A repeatedly-refreshed invulnerability is a real design risk, and
+  the test carries the carve-out explicitly (`FLAG_REAPPLY_EXEMPT`), owning the risk on whatever
+  future applier grants the status rather than on this rule. Every other flag row — `stunned` today —
+  stays `ignore`, so two attackers cannot hold one car stunned between them.
 
 There is no third option that compounds magnitude. **A status never stacks with itself** — one id on
 one car is exactly one instance at exactly the strength its row states. Different statuses touching
@@ -463,14 +467,17 @@ throttle has stopped being a car.
 Flags are booleans, OR-ed across sources, and each is deliberately one thing so a status composes the
 condition it wants: `immobilised` (throttle forced neutral — the car still steers, brakes and coasts),
 `steeringLocked` (steer input forced to 0; injected ram spin untouched, so a stunned car still
-tumbles), `disarmed` (no *new* press; one already committed still finishes).
+tumbles), `disarmed` (no *new* press; one already committed still finishes), `fullStop` (speed forced
+to 0 every tick; shove and injected ram spin untouched, so a slammed car still slides into the wall),
+`invulnerable` (0 damage from every source — weapon hits, contact hits, pulses; status riders still
+land, only hp loss stops).
 
 ## STATUS_CONFIG
 
 | Knob | Value | Notes |
 |---|---|---|
 | `maxActive` | 6 | Most statuses one car may be in. A wire guard *and* a design ceiling. At the cap a **new** status is dropped rather than evicting a running one, so a cheap status can never strip a meaningful one off a target |
-| `maxDurationMs` | 8000 | Longest duration any applier may ask for. Past roughly a fight's length a status stops being a window and becomes a state of the match |
+| `maxDurationMs` | 10000 | Longest duration any applier may ask for. Raised from 8000 to make room for a future 10 s `fortified` grant; still bounds a status to roughly a fight's length, past which it stops being a window and becomes a state of the match |
 
 ## STATUS_LIMITS
 
