@@ -200,4 +200,6 @@ export { sidesOf, winRuleOf } from "./flow/modes.js";
 export { livingSides } from "./flow/win.js";
 export type { LivingPlayer, LivingSidesResult } from "./flow/win.js";
 export { farthestSpawn } from "./flow/respawn.js";
+export { deathmatchOutcome } from "./flow/win.js";
+export type { DeathmatchPlayer } from "./flow/win.js";
 
