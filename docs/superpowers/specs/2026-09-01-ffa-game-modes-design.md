@@ -232,6 +232,37 @@ normally. `tick.ts` carries a comment warning that divergence between the mover 
 gate would drive a non-match player around the arena; this split is deliberate and that comment must
 be updated to describe both predicates.
 
+**Correction, caught in whole-branch review.** The table above is incomplete, and the omission is
+what let spawn protection ship without existing. It lists two consumers of "participates in
+contacts" — `otherCarHulls` and the ram pair list — and stops there. But M13 promises four things:
+not a collider, not a ram partner, **not a weapon target, not an aim-assist lock candidate.** The
+last two live in `sim/combat.ts` behind a third predicate the table never names, `isFighting`
+(`inRoster && alive`), and nothing in this design ever told anyone to touch it. Every task-level
+review read M14 as the provisioning list for M13, found both of its rows done, and passed. The
+result was a car that phased through cars and rams while taking full weapon damage, consuming
+pierce, collecting on-hit statuses, and serving as a lock target — the feature's central promise,
+absent, with five documents asserting it worked.
+
+The table should always have read:
+
+| Predicate | Meaning | Consumed by |
+|---|---|---|
+| `isOnField` | may be simulated | the mover gate in `sim/tick.ts` — **unchanged** |
+| `isSolid` | participates in contacts | `otherCarHulls`, the ram pair list in `ram-bridge.ts` |
+| `isTargetable` | may be shot at or locked | the hit snapshot, the lock candidate list, and `aimAngleFor`'s target guard — all in `sim/combat.ts` |
+
+`isTargetable` is `isFighting && !phased`, derived from the modifiers `runCombat` already computes
+once per car per tick.
+
+The reason it is a **third** predicate rather than a change to `isFighting` is the same asymmetry
+M15's correction turned on, pointing the other way: `isFighting` gates being shot at *and* acting —
+firing, holding a lock, keeping an attached beam alive. Folding `phased` into it would stop a
+phasing car from firing, and M23's first termination condition is "the player commits a press". A
+protection that cannot be given up by shooting is a different mechanic from the one this spec
+designed. So the rule is one line long and worth stating outright: **gate the places a car is looked
+at as a target; leave every place it acts alone.** `combat.test.ts` pins both halves, including a
+case that fails if someone later "simplifies" the two predicates into one.
+
 ### M15. The filter lives on the entry, which is what makes it symmetric
 
 `otherCarHulls(entries, selfSessionId)` gains a `tick` parameter and drops any entry that is phased,

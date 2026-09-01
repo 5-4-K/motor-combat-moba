@@ -190,6 +190,25 @@ export function runCombat(input: CombatInput): CombatResult {
   );
   const modsOf = (sessionId: string): Readonly<Modifiers> =>
     modifiersFor.get(sessionId) ?? NEUTRAL_MODIFIERS;
+  /**
+   * Spawn protection, on the TARGET side only (M13).
+   *
+   * A phasing car is not present in the world: not a collider, not a ram partner, not a weapon
+   * target, not an aim-assist lock candidate. Collision and the ram pair list got that through
+   * `otherCarHulls` (M15); this is combat's half of the same promise. It reads the answer off the
+   * modifiers derived once above rather than re-scanning the status rows, so there is exactly one
+   * derivation per car per tick and every phase below sees the same one.
+   *
+   * Deliberately NOT folded into `isFighting`, which gates firing as well as being hit. A phased
+   * car must still be able to shoot: M23's first termination condition is "the player commits a
+   * press", so the firing path has to run for them, or spawn protection becomes unbreakable by
+   * firing and the state machine quietly changes shape. Gate the three places a car is looked at as
+   * a target; leave every place it acts alone.
+   */
+  const isPhasedOf = (sessionId: string): boolean => modsOf(sessionId).phased;
+  /** In the fight AND actually present: the gate for everything that treats a car as a target. */
+  const isTargetable = (player: CombatPlayer): boolean =>
+    isFighting(player) && !isPhasedOf(player.sessionId);
 
   // 0b. Burn and repair, before anything else this tick can act. A car whose bleed kills it here is
   // `alive: false` for every phase below, so it does not get a parting shot — which is the right
@@ -269,8 +288,12 @@ export function runCombat(input: CombatInput): CombatResult {
   //
   // A car wrecked by THIS tick's hit resolution is still locked until the next tick's update: the
   // same one-tick seam the pose snapshot already accepts, worth at most one shot at 30 Hz.
+  //
+  // A car under spawn protection is not a candidate: `isTargetable`, not `isFighting`, because a
+  // phasing car may still hold and use a lock of its own — the OWNER gate a few lines below stays
+  // `isFighting` for exactly that reason.
   const lockTargets: LockTarget[] = players
-    .filter(isFighting)
+    .filter(isTargetable)
     .map((p) => ({ sessionId: p.sessionId, team: p.team, x: p.x, y: p.y }));
 
   for (const player of players) {
@@ -313,7 +336,7 @@ export function runCombat(input: CombatInput): CombatResult {
         player,
         world.tick,
         instanceSeq,
-        aimAngleFor(player, order.weaponId, byId),
+        aimAngleFor(player, order.weaponId, byId, isPhasedOf),
         mods.damageDealt,
       );
       instanceSeq = spawned.seq;
@@ -326,8 +349,13 @@ export function runCombat(input: CombatInput): CombatResult {
   }
 
   // 4. Hits, against a snapshot rather than player state (the lag-compensation seam).
+  //
+  // `isTargetable` drops a phasing car from the snapshot entirely, which is what makes M13's
+  // "invulnerability falls out of intangibility" literally true here: the shot never sees the car,
+  // so it deals no damage, spends no pierce, is not stopped by it, and lands none of its on-hit
+  // statuses. That is precisely what the rejected `damageTaken: 0` could not buy.
   const snapshot: PoseSnapshot = players
-    .filter(isFighting)
+    .filter(isTargetable)
     .map((p) => ({ sessionId: p.sessionId, team: p.team, hull: carHullOf(p.x, p.y, p.angle) }));
 
   const survivors: WeaponInstance[] = [];
@@ -372,7 +400,14 @@ export function runCombat(input: CombatInput): CombatResult {
   return { players, instances: survivors, instanceSeq };
 }
 
-/** In the match and not yet a wreck: the gate for firing and being shot alike. */
+/**
+ * In the match and not yet a wreck: the gate for ACTING — firing, holding a lock, keeping an
+ * attached beam alive, receiving a status the room asked for.
+ *
+ * Being *shot at* is the strictly narrower `isTargetable` inside `runCombat`, which adds "and not
+ * phasing". Do not merge the two: see the note on `isPhasedOf` for what folding `phased` in here
+ * would break.
+ */
 function isFighting(player: CombatPlayer): boolean {
   return player.inRoster && player.alive;
 }
@@ -392,11 +427,19 @@ export function aimAngleFor(
   player: CombatPlayer,
   weaponId: WeaponId,
   byId: ReadonlyMap<string, CombatPlayer>,
+  isPhased: (sessionId: string) => boolean,
 ): number | null {
   if (!weaponDefOf(weaponId).usesAimAssist) return null;
   if (player.lock.targetSessionId === "") return null;
   const target = byId.get(player.lock.targetSessionId);
   if (!target || !isFighting(target)) return null;
+  // A lock outlives by one tick the event that invalidates it — `updateLock` runs before hits, and
+  // dropping a car from `lockTargets` only stops the NEXT acquisition, never the lock already held.
+  // Without this guard that one stale tick curves a shot into a car spawn protection says is not
+  // there. `isPhased` is a parameter rather than something derived here so `runCombat`'s single
+  // per-tick derivation stays the only reading of the flag anywhere in combat; it is required, not
+  // optional, so a future call site has to answer the question rather than inherit "no".
+  if (isPhased(target.sessionId)) return null;
   const muzzle = muzzleOf({ x: player.x, y: player.y, angle: player.angle });
   return Math.atan2(target.y - muzzle.y, target.x - muzzle.x);
 }

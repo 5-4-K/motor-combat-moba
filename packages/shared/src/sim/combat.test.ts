@@ -717,7 +717,7 @@ describe("aimAngleFor", () => {
       ["b", b],
     ]);
     // "afterburner" is usesAimAssist: false and exists in WEAPON_TABLE.
-    expect(aimAngleFor(a, "afterburner", byId)).toBeNull();
+    expect(aimAngleFor(a, "afterburner", byId, () => false)).toBeNull();
   });
 
   it("returns the muzzle-derived bearing to the lock target for a weapon with usesAimAssist: true", () => {
@@ -739,7 +739,7 @@ describe("aimAngleFor", () => {
     // 100. atan2(100, 100) = atan(1) = pi/4 radians (45 degrees).
     const expected = Math.PI / 4;
     // "fireball" is usesAimAssist: true.
-    expect(aimAngleFor(a, "fireball", byId)).toBeCloseTo(expected, 10);
+    expect(aimAngleFor(a, "fireball", byId, () => false)).toBeCloseTo(expected, 10);
   });
 });
 
@@ -883,5 +883,124 @@ describe("kill attribution", () => {
       instanceSeq: 0,
     });
     expect(out.players.every((p) => p.lastDamagerSessionId === "")).toBe(true);
+  });
+});
+
+describe("spawn protection: a phased car is not a target", () => {
+  // M13's central promise: "a phasing car is not present in the world. Not a collider, not a ram
+  // partner, not a weapon target, not an aim-assist lock candidate." Collision and ramming were
+  // provisioned by `otherCarHulls` and the ram pair list (M15); combat's half was not, which is
+  // what these cases pin. Every one of them passes trivially if the target-side gates are removed,
+  // so each asserts a number combat would otherwise have moved.
+
+  /** Live for the whole of `world()`'s tick 100. `""` source: the room grants this, not a weapon. */
+  const PHASED = Object.freeze({
+    statusId: "phased" as const,
+    startTick: 0,
+    endsTick: 300,
+    sourceSessionId: "",
+  });
+
+  /**
+   * A shot parked on top of `(x, y)` so it connects on the tick it is fed in, modelled on the
+   * kill-attribution block's `shotAt`. `thumper` rather than `fireball` because it is the roster's
+   * projectile that applies an on-hit status (`stunned`), which is the second half of M13's case
+   * against `damageTaken: 0` — a shot that still *connects* lands its statuses whatever the number.
+   * `pierceLeft` is a field on the instance, not a lookup, so it can be armed here even though
+   * `thumper`'s row authors `pierce: 0`.
+   */
+  const thumperAt = (owner: string, x: number, y: number, pierceLeft = 0): WeaponInstance => ({
+    id: `${owner}-1`,
+    ownerSessionId: owner,
+    ownerTeam: 0,
+    finalWave: true,
+    damage: weaponDamageOf("mirage", "thumper"),
+    weaponId: "thumper",
+    kind: "projectile",
+    x,
+    y,
+    angle: 0,
+    extent: 0,
+    spawnTick: 0,
+    distance: 0,
+    pierceLeft,
+    attached: false,
+    damageClock: new Map<string, number>(),
+    alive: true,
+  });
+
+  it("takes no damage from a shot that would otherwise land on it", () => {
+    const result = run({
+      players: [
+        player("aaa", { x: 300, y: OPEN_Y }),
+        player("bbb", { x: 500, y: OPEN_Y, statuses: [PHASED] }),
+      ],
+      instances: [thumperAt("aaa", 500, OPEN_Y)],
+      instanceSeq: 1,
+    });
+    const victim = find(result, "bbb");
+    expect(victim.hp).toBe(hpOf("mirage"));
+    expect(victim.lastDamagerSessionId).toBe("");
+  });
+
+  it("is passed through: no pierce spent, and no on-hit status lands", () => {
+    const result = run({
+      players: [
+        player("aaa", { x: 300, y: OPEN_Y }),
+        player("bbb", { x: 500, y: OPEN_Y, statuses: [PHASED] }),
+      ],
+      instances: [thumperAt("aaa", 500, OPEN_Y, 1)],
+      instanceSeq: 1,
+    });
+    // A contact would have spent the pierce; a contact with pierce already at 0 would have killed
+    // the shot outright. Neither happened, so the shot never saw the car at all.
+    const shot = result.instances.find((i) => i.ownerSessionId === "aaa");
+    expect(shot).toBeDefined();
+    expect(shot!.pierceLeft).toBe(1);
+    expect(find(result, "bbb").statuses.map((s) => s.statusId)).toEqual(["phased"]);
+  });
+
+  it("is not acquired as an aim-assist lock target", () => {
+    // The mirror of "never locks a wreck" above: a ghost is no more lockable than a hulk.
+    const result = run({
+      players: [
+        player("aaa", { x: 300, y: 300, angle: 0 }),
+        player("bbb", { x: 500, y: 300, angle: Math.PI, statuses: [PHASED] }),
+      ],
+    });
+    expect(find(result, "aaa").lock.targetSessionId).toBe("");
+  });
+
+  it("stops steering a lock that was already held when it began phasing", () => {
+    // Locks survive a tick past the event that invalidates them (`runCombat`'s own comment on the
+    // lock phase), so the target guard inside `aimAngleFor` is what stops that one stale tick from
+    // curving a shot into an untouchable car.
+    const a = player("aaa", {
+      x: 0,
+      y: 0,
+      angle: 0,
+      lock: { ...newLockState(), targetSessionId: "bbb" },
+    });
+    const b = player("bbb", { x: 124, y: 100, statuses: [PHASED] });
+    const byId = new Map([
+      ["aaa", a],
+      ["bbb", b],
+    ]);
+    const phased = (sessionId: string): boolean => sessionId === "bbb";
+    expect(aimAngleFor(a, "fireball", byId, phased)).toBeNull();
+    // Same call with nobody phasing still aims, so this pins the new guard rather than a typo in
+    // the lock id: muzzle at (24, 0), target at (124, 100), atan2(100, 100) = pi/4.
+    expect(aimAngleFor(a, "fireball", byId, () => false)).toBeCloseTo(Math.PI / 4, 10);
+  });
+
+  it("can still fire while phasing", () => {
+    // The trap in the fix, pinned. `phased` MUST NOT be folded into `isFighting`: M23's first
+    // termination condition is "the player commits a press", which requires the firing path to run
+    // for a phased car. Gating the shooter side would make spawn protection unbreakable by firing
+    // and silently change the state machine. Fold it in and this test goes red.
+    const result = run({
+      players: [player("aaa", { x: 300, y: OPEN_Y, fireMask: 1, statuses: [PHASED] })],
+    });
+    expect(result.instances.filter((i) => i.ownerSessionId === "aaa").length).toBeGreaterThan(0);
   });
 });
