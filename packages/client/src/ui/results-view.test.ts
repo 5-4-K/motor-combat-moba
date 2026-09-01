@@ -1,10 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { GameMode, PlayerStatus, TICK_RATE_HZ } from "@motor-combat-moba/shared";
-import { durationLabel, resultsView } from "./results-view.js";
+import { durationLabel, resultsView, type ResultsViewPlayer } from "./results-view.js";
+
+const basePlayer = (over: Partial<ResultsViewPlayer> = {}): ResultsViewPlayer => ({
+  sessionId: "p1",
+  name: "Vex",
+  colorId: 0,
+  team: 0,
+  carId: "mirage",
+  status: PlayerStatus.POST_MATCH,
+  kills: 0,
+  deaths: 0,
+  ...over,
+});
 
 const roster = [
-  { sessionId: "p1", name: "Vex", colorId: 0, team: 0, carId: "mirage", status: PlayerStatus.POST_MATCH },
-  { sessionId: "p2", name: "Nyx", colorId: 2, team: 1, carId: "bullseye", status: PlayerStatus.POST_MATCH },
+  basePlayer(),
+  basePlayer({ sessionId: "p2", name: "Nyx", colorId: 2, team: 1, carId: "bullseye" }),
 ];
 
 const state = (over = {}) => ({
@@ -82,5 +94,28 @@ describe("resultsView", () => {
     }];
     const view = resultsView(state({ players: withSpectator }), "p1");
     expect(view.statsA.map((r) => r.name)).toEqual(["Vex"]);
+  });
+});
+
+describe("scoreboard stats", () => {
+  it("carries real kills and deaths through to the row", () => {
+    const view = resultsView(
+      state({
+        mode: GameMode.FFA_DEATHMATCH,
+        winnerSessionId: "p1",
+        players: [{ ...basePlayer(), sessionId: "p1", kills: 7, deaths: 2 }],
+      }),
+      "p1",
+    );
+    expect(view.statsA[0]!.k).toBe(7);
+    expect(view.statsA[0]!.d).toBe(2);
+  });
+
+  it("still reports zero assists, which the game does not track", () => {
+    const view = resultsView(
+      state({ players: [{ ...basePlayer(), sessionId: "p1", kills: 7, deaths: 2 }] }),
+      "p1",
+    );
+    expect(view.statsA[0]!.a).toBe(0);
   });
 });
