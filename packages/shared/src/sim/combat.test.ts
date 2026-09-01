@@ -1500,3 +1500,85 @@ describe("spawn protection: a phased car is not a target", () => {
     expect(result.instances.filter((i) => i.ownerSessionId === "aaa").length).toBeGreaterThan(0);
   });
 });
+
+describe("wall-piercing projectiles (`piercesWalls`, roadblock's row)", () => {
+  const bastionAt = (sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlayer =>
+    player(sessionId, { carId: "bastion", fireState: newFireState("bastion", 1), ...over });
+
+  /** Step `ticks` combat ticks forward from `state`, nobody pressing anything further. */
+  function settle(state: CombatResult, over: Partial<CombatWorld>, ticks: number): CombatResult {
+    for (let i = 1; i <= ticks; i++) {
+      state = runCombat({
+        world: world({ ...over, tick: 100 + i }),
+        players: state.players.map((p) => ({ ...p, fireMask: 0 })),
+        instances: state.instances,
+        instanceSeq: state.instanceSeq,
+      });
+    }
+    return state;
+  }
+
+  it("survives being born with a wingtip past the arena bounds, and still lands downrange", () => {
+    // The dud from playtest: the bar reaches 60u to each side, so a car within 60u of a wall firing
+    // parallel to it had the shot die in `hitsWorld` on its own spawn tick — press animation and
+    // cooldown spent, nothing ever written to the schema. Roadblock is slot 2 on Bastion (0b010).
+    let state = runCombat({
+      world: world(),
+      players: [
+        bastionAt("aaa", { x: 200, y: 50, angle: 0, fireMask: 0b010 }),
+        player("bbb", { x: 500, y: 50, team: 1 }),
+      ],
+      instances: [],
+      instanceSeq: 0,
+    });
+    expect(state.instances).toHaveLength(1);
+    state = settle(state, {}, 20); // 300u at roadblock's 20u/tick, with slack
+    const hit = find(state, "bbb");
+    expect(hpOf("mirage") - hit.hp).toBe(weaponDamageOf("bastion", "roadblock"));
+  });
+
+  it("passes through an interior wall and lands on the camper behind it — where shockwave dies on it", () => {
+    // The design's whole point (anti-wall-camper): the bar crosses level geometry; its damage and
+    // its 1 s stun land on the far side. The contrast run pins that this is roadblock's authored
+    // `piercesWalls`, not a broken world test — shockwave, with no flag, still dies on the wall.
+    const wall = { x: 400, y: 260, w: 60, h: 200 }; // fully covers the firing line at y=360
+    const camper = player("bbb", { x: 600, y: 360, team: 1 });
+
+    let pierced = runCombat({
+      world: world({ obstacles: [wall] }),
+      players: [bastionAt("aaa", { x: 200, y: 360, angle: 0, fireMask: 0b010 }), { ...camper }],
+      instances: [],
+      instanceSeq: 0,
+    });
+    pierced = settle(pierced, { obstacles: [wall] }, 25);
+    const hit = find(pierced, "bbb");
+    expect(hpOf("mirage") - hit.hp).toBe(weaponDamageOf("bastion", "roadblock"));
+    expect(hit.statuses.some((s) => s.statusId === "stunned")).toBe(true);
+
+    let blocked = runCombat({
+      world: world({ obstacles: [wall] }),
+      players: [
+        player("aaa", { carId: "bullseye", fireState: newFireState("bullseye", 1), x: 200, y: 360, angle: 0, fireMask: 0b001 }),
+        { ...camper },
+      ],
+      instances: [],
+      instanceSeq: 0,
+    });
+    blocked = settle(blocked, { obstacles: [wall] }, 25);
+    expect(find(blocked, "bbb").hp).toBe(hpOf("mirage"));
+  });
+
+  it("still dies by its own range clock, walls or no walls", () => {
+    // Exempt from the world is not exempt from expiry: the flag must never mint an immortal
+    // instance sliding along outside the field. 500u at 20u/tick is 25 ticks; 40 is slack.
+    let state = runCombat({
+      world: world(),
+      players: [bastionAt("aaa", { x: 200, y: 50, angle: 0, fireMask: 0b010 })],
+      instances: [],
+      instanceSeq: 0,
+    });
+    expect(state.instances).toHaveLength(1);
+    state = settle(state, {}, 40);
+    expect(state.instances).toHaveLength(0);
+  });
+});

@@ -439,11 +439,15 @@ function beamsThroughWalls(): void {
     }
     const dealt = startHp - w.get("target").hp;
     const reach = tx - sx;
-    const inRange = WEAPON_TABLE[id].range >= reach;
+    const def = WEAPON_TABLE[id];
+    const inRange = def.range >= reach;
+    // A row that authors `piercesWalls` (roadblock) is SUPPOSED to land through the wall — that is
+    // its identity, not a leak. Only an unauthored through-wall hit is the regression here.
+    const authored = def.kind === "projectile" && def.piercesWalls === true;
     rows.push(
-      `${id.padEnd(11)} range ${String(WEAPON_TABLE[id].range).padStart(4)} vs ${reach}u gap ` +
+      `${id.padEnd(11)} range ${String(def.range).padStart(4)} vs ${reach}u gap ` +
         `${inRange ? "(in range)" : "(OUT of range)"} through a 200x200 wall: dealt ${dealt} ` +
-        `${dealt > 0 && inRange ? "<- SHOT THROUGH THE WALL" : ""}`,
+        `${dealt > 0 && inRange ? (authored ? "<- through the wall by authored piercesWalls" : "<- SHOT THROUGH THE WALL") : ""}`,
     );
   }
   report(

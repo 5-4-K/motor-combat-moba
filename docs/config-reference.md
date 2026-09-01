@@ -135,7 +135,7 @@ once, at shared's module load, into the frozen `WEAPON_TICKS` the sim actually r
 | `pepperbox` | projectile | 45 (per pellet) | 0 | 800 | 600 | 1800 | 0 | 200 | — | 0 | 1 / 0 | 3 / 12 | — | — | ellipse, along 9 / across 3 (muzzles `[0, 90, 180, 270]`) | 1 | false | `#184890` |
 | `lance` | beam | 170 | 0 | 6000 | 1200 | 16000 | 700 | 1000 | — | — | 1 / 0 | — | true | 1500 | rect, width 57.5 (`holdsDuringFire`) | 1 | false | `#0F3268` |
 | `thumper` | projectile | 60 | 0 | 450 | 1305 (bounce, 2900 ms lifetime) | 3000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | capsule, along 24 / across 15 (flat tail) | 1 | true | `#F0C808` |
-| `roadblock` | projectile | 100 | 0 | 600 | 500 | 6000 | 0 | 200 | — | 4 | 1 / 0 | 1 / 0 | — | — | bar, along 6 / across 60 | 1 | false | `#C89A14` |
+| `roadblock` | projectile | 100 | 0 | 600 | 500 | 6000 | 0 | 200 | — | 4 | 1 / 0 | 1 / 0 | — | — | bar, along 6 / across 60 (`piercesWalls`) | 1 | false | `#C89A14` |
 | `wildcharge` | maneuver (charge) | 250 | 0 | 0 | 0 | 20000 | 0 | 200 | — | — | 1 / 0 | — | — | — | — (`isUnInterruptable`, 10 s window, `slamsStunned`) | 1 | false | `#D9A814` |
 | `tremor` | beam | 25 (per tick; 10 ticks == 250 full connect) | 400 | 492 | 492 | 15000 | 0 | 200 | — | — | 1 / 0 | — | false | 2875 | cone, 60° | 1 | false | `#8A6D12` |
 
@@ -158,6 +158,15 @@ authors more than one volley. `PelletDef` (`pelletsPerVolley`, `spreadAngleDeg`)
 `ProjectileWeaponDef`, because a beam has no pellets to fan and should not have to author
 `pelletsPerVolley: 1`. `beginFire` reads `def.volley.volleys` for every kind rather than hardcoding 1
 for beams, and `weaponTicksOf` converts `volleyIntervalMs` for every kind.
+
+**`piercesWalls` (projectiles only, absent = false)** exempts the shot from world destruction in
+`hitsWorld`: level geometry and the arena bounds never kill it, and only its own `range` clock ends
+it — the same exemption shape as `bounce`, which trades the world test for reflection plus a flight
+clock. `roadblock` is the one row that authors it, for two reasons that arrived in that order: its
+bar reaches 60u to each side of its travel axis, so without the flag a press within a wingtip of any
+wall killed the shot on its own spawn tick (cooldown spent, nothing on the wire); and as identity,
+the wall that already passes through five cars now passes through cover too, stun riding — the
+anti-wall-camper lever, available to future rows by authoring the same field.
 
 `damage` is what the weapon deals from a chassis at `COMBAT_CONFIG.attackBaseline` — an *average*
 car, not every car; `damageFor` (`sim/damage.ts`) moves it ±50% with the firing chassis's `attack`

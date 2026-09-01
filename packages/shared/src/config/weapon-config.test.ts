@@ -230,6 +230,9 @@ describe("WEAPON_TABLE", () => {
     // (pierce: 5 would reach a sixth car, which cannot exist once the shooter is excluded.)
     expect(roadblock.pierce).toBe(4);
     expect(roadblock.hitbox).toEqual({ shape: "bar", radiusAlong: 6, radiusAcross: 60 });
+    // The wall stops for nothing — walls included. Without this the 60u wingtips killed the shot
+    // in `hitsWorld` on its own spawn tick whenever Bastion fired within a wingtip of a wall.
+    expect(roadblock.piercesWalls).toBe(true);
     // A 120-unit face aims itself; skewer's old "help the slowest chassis" argument is answered by
     // width here instead of by a lock.
     expect(roadblock.usesAimAssist).toBe(false);

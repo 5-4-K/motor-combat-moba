@@ -660,7 +660,12 @@ function hitsWorld(instance: WeaponInstance, previous: WeaponInstance, world: Co
   const def = weaponDefOf(instance.weaponId);
   // A bouncing projectile is never destroyed by the world — `stepInstance` reflected it instead,
   // and testing the pre-reflection smear here would kill it on the very wall it just bounced off.
+  // A `piercesWalls` row is exempt too, by authored identity rather than mechanism: it flies
+  // through geometry and bounds alike, and only its own `range` clock ends it. Both exemptions
+  // matter most on the SPAWN tick, where the smear collapses to the shape at the muzzle — a
+  // wide bar born with a wingtip touching a wall would otherwise die before any client saw it.
   if (def.kind !== "projectile" || instance.kind !== "projectile" || def.bounce) return false;
+  if (def.piercesWalls) return false;
 
   const swept = smear(
     projectileShapeAt(def.hitbox, previous.x, previous.y, previous.angle),

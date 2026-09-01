@@ -316,6 +316,11 @@ export const WEAPON_TABLE = {
     usesAimAssist: false,
     hitbox: { shape: "bar", radiusAlong: 6, radiusAcross: 60 },
     pierce: 4,
+    // The wall stops for nothing: cars are pierced (above) and level geometry too — the bar's 60u
+    // wingtips otherwise killed it in `hitsWorld` the tick it spawned whenever Bastion fired
+    // within a wingtip of a wall, reading as a dud press that still spent the 6 s cooldown. Range
+    // alone ends it, and a camper's cover is no cover from it.
+    piercesWalls: true,
     volley: { volleys: 1, volleyIntervalMs: 0 },
     pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
     applies: [{ statusId: "stunned", target: "opponents", durationMs: 1000 }],

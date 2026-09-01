@@ -447,9 +447,17 @@ and re-testing its full reach every tick already covers it.
 damages (`shockwave`'s value today), `4` damages up to five cars before dying (`roadblock`'s value,
 reaching every possible opponent in a full six-player match). Teammates and wrecks
 are not contacts at all — a shot passes through them freely and they consume no pierce, which falls
-out of `canDamage` below. Walls, obstacles and the arena edge always destroy a projectile regardless
-of pierce budget; pierce is about cars, never about cover. Beams never spend a pierce budget — they
-are never destroyed by contact and may hit several cars on the same tick.
+out of `canDamage` below. Walls, obstacles and the arena edge destroy a projectile regardless of
+pierce budget — pierce is about cars, never about cover — with two authored exceptions read in the
+same place (`hitsWorld`): a `bounce` row (`thumper`) is reflected by `stepInstance` instead and dies
+on its own flight clock, and a `piercesWalls` row (`roadblock`) flies straight through geometry and
+bounds alike and dies only at `range`. `piercesWalls` exists because roadblock's bar reaches 60u to
+each side of its travel axis: without it, firing within a wingtip of a wall killed the shot on its
+own spawn tick — a press that spent the cooldown and put nothing on the wire. It doubles as the
+row's identity: the wall stops for nothing, so cover is no cover from it, and its stun rides through
+(nothing rendered outside the bounds is ever visible, so a shot crossing the outer wall reads as
+absorbed by it). Beams never spend a pierce budget — they are never destroyed by contact and may hit
+several cars on the same tick.
 
 Repeat damage is a **per-instance, per-target clock**: every live instance owns a map from
 `sessionId` to the next tick it may damage that car again. `damageFrequencyMs: 0` (every weapon
@@ -503,7 +511,7 @@ row, which is the point.
 [`packages/shared/src/config/weapon-config.ts`](../packages/shared/src/config/weapon-config.ts).
 Copy `predator` or `roadblock` for a projectile, or `afterburner` or `lance` for a beam — every shape
 in the current roster has at least one real row to start from. The union decides which fields you may
-write: `pierce` and `pellets` exist only on a projectile, `attached` and `lifetimeMs` only on a beam,
+write: `pierce`, `pellets` and `piercesWalls` exist only on a projectile, `attached` and `lifetimeMs` only on a beam,
 and writing the wrong one is a compile error rather than a silently ignored field. **`volley` is on
 `WeaponBase` and so is required on both** — a beam or a projectile may in principle be a wave sequence
 (the retired `shockwave` shipped three aura waves; no current row does — see

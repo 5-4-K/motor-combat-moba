@@ -246,6 +246,22 @@ export interface ProjectileWeaponDef extends WeaponBase {
   pellets: PelletDef;
   homing?: HomingDef;
   bounce?: BounceDef;
+  /**
+   * The world never destroys this shot: level geometry and the arena bounds alike, it flies
+   * through, and only its own `range` clock ends it. Absent is false — dying on the first wall
+   * stays the projectile default.
+   *
+   * Authored for a shot whose lateral extent dwarfs its travel axis (`roadblock`'s 120u bar):
+   * without it, firing within a wingtip's reach of a wall killed the instance on its own spawn
+   * tick — cooldown spent, nothing on the wire, a press that visibly did nothing. It is also a
+   * design lever in its own right: a wall-piercing shot reaches the car camping behind cover.
+   * Nothing rendered outside the bounds is ever visible (the camera is clamped to the arena), so
+   * a shot crossing the outer wall simply reads as absorbed by it.
+   *
+   * Projectile-only on purpose: beams already have their own wall rule (`wallClipDistance`
+   * clipping), and a maneuver spawns no instance.
+   */
+  piercesWalls?: boolean;
 }
 
 export interface BeamWeaponDef extends WeaponBase {
