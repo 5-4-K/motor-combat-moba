@@ -192,6 +192,27 @@ export const STATUS_TABLE = {
     modifiers: {},
     onApply: { cleanse: "debuff" },
   },
+  /**
+   * Spawn protection: the car is not in the world (M13, M18).
+   *
+   * Not a new mechanic — the game already had this. `isOnField` reads `alive`, so a wreck is already
+   * dropped from every collision list, every ram pair and every target list; this is that same
+   * condition held a moment past the respawn.
+   *
+   * It scales nothing. Its whole effect is the flag, and its duration is the applier's as always —
+   * the room's, from `DEATHMATCH_TICKS`. `refresh` because the phase must be extendable while the
+   * car is still overlapping someone, which is what `chainable` exists to permit.
+   */
+  phased: {
+    id: "phased",
+    name: "Phasing",
+    kind: "buff",
+    color: "#4dabf7",
+    reapply: "refresh",
+    chainable: true,
+    modifiers: {},
+    flags: ["phased"],
+  },
 } as const satisfies Record<StatusId, StatusDef>;
 
 /**

@@ -62,9 +62,27 @@ describe("STATUS_TABLE", () => {
     }
   });
 
-  it("makes every flag-carrying row `ignore`, so hard CC can never be chained", () => {
+  it("makes every flag-carrying DEBUFF `ignore`, so hard CC can never be chained", () => {
     for (const id of IDS) {
-      if ((statusDefOf(id).flags?.length ?? 0) > 0) expect(statusDefOf(id).reapply).toBe("ignore");
+      const def = statusDefOf(id);
+      if ((def.flags?.length ?? 0) === 0) continue;
+      if (def.kind !== "debuff") continue;
+      expect(def.reapply).toBe("ignore");
+    }
+  });
+
+  it("only lets a row escape that rule by declaring itself chainable", () => {
+    for (const id of IDS) {
+      const def = statusDefOf(id);
+      if ((def.flags?.length ?? 0) === 0) continue;
+      if (def.reapply === "ignore") continue;
+      expect(def.chainable).toBe(true);
+    }
+  });
+
+  it("never lets a buff be chainable AND a debuff, which would reopen the CC hole", () => {
+    for (const id of IDS) {
+      if (statusDefOf(id).chainable) expect(statusDefOf(id).kind).toBe("buff");
     }
   });
 
@@ -248,6 +266,26 @@ describe("weapon status applications", () => {
     for (const id of WEAPON_IDS) {
       const def = WEAPON_TABLE[id];
       expect(def.damage > 0 || (def.applies?.length ?? 0) > 0).toBe(true);
+    }
+  });
+});
+
+describe("phased", () => {
+  it("is a buff that flips one flag and scales nothing", () => {
+    const def = statusDefOf("phased");
+    expect(def.kind).toBe("buff");
+    expect(def.flags).toEqual(["phased"]);
+    expect(Object.keys(def.modifiers)).toEqual([]);
+  });
+
+  it("refreshes, because contact-clear extension has to lengthen it", () => {
+    expect(statusDefOf("phased").reapply).toBe("refresh");
+    expect(statusDefOf("phased").chainable).toBe(true);
+  });
+
+  it("cannot be cleansed, because nothing in the game cleanses a buff", () => {
+    for (const id of IDS) {
+      expect(statusDefOf(id).onApply?.cleanse).not.toBe("buff");
     }
   });
 });

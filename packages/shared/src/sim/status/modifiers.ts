@@ -25,6 +25,8 @@ export interface Modifiers {
   steeringLocked: boolean;
   /** No new press may be committed. A press already committed still finishes — see `runCombat`. */
   disarmed: boolean;
+  /** Not present in the world: no collision, no ram, no weapon target. See StatusFlag. */
+  phased: boolean;
 }
 
 /**
@@ -48,6 +50,7 @@ export const NEUTRAL_MODIFIERS: Readonly<Modifiers> = Object.freeze({
   immobilised: false,
   steeringLocked: false,
   disarmed: false,
+  phased: false,
 });
 
 const CHANNELS = Object.keys(STATUS_LIMITS) as StatusChannel[];
@@ -99,5 +102,6 @@ export function modifiersOf(statuses: readonly ActiveStatus[], tick: number): Mo
   mods.immobilised = flags.has("immobilised");
   mods.steeringLocked = flags.has("steeringLocked");
   mods.disarmed = flags.has("disarmed");
+  mods.phased = flags.has("phased");
   return mods;
 }

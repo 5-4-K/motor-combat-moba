@@ -17,7 +17,8 @@ export type StatusId =
   | "stunned"
   | "spiked"
   | "fortified"
-  | "overhauled";
+  | "overhauled"
+  | "phased";
 
 /**
  * Every number in the sim a status may scale. One channel per thing the sim already reads, and a
@@ -82,7 +83,16 @@ export type StatusFlag =
   /** Steer input forced to 0. Injected ram spin is untouched — a stunned car still spins when hit. */
   | "steeringLocked"
   /** No NEW press may be committed. A press already committed still finishes. */
-  | "disarmed";
+  | "disarmed"
+  /**
+   * Not present in the world at all: no collision, no ram, no weapon target, no aim-assist lock.
+   *
+   * The one flag that is a BUFF. Intangibility and invulnerability are deliberately the same rule
+   * rather than two (M13) — a car that is not there cannot be hit, so invulnerability falls out
+   * instead of needing a second mechanism. `damageTaken: 0` was rejected: it clamps to 0.4, and even
+   * at zero a shot still connects, consuming pierce and landing its on-hit statuses.
+   */
+  | "phased";
 
 /**
  * What happens when a status that is already running is applied again.
@@ -133,15 +143,18 @@ export interface StatusPulse {
 /** One-shot work done the moment a status is applied, before any of its ongoing rules run. */
 export interface StatusOnApply {
   /**
-   * Strip every running status of this kind from the car.
+   * Strip every running DEBUFF from the car.
+   *
+   * Narrowed from `StatusKind` on 2026-09-01: a buff-cleanse would strip spawn protection, so the
+   * type makes one impossible rather than leaving a test to police it (M20). A future "strip enemy
+   * buffs" weapon needs a deliberate widening here, which is the point.
    *
    * Cleansing a damage-over-time status stops the bleeding; it does **not** give back hp already
-   * lost. That is the whole difference between a repair and a heal, and it is why a cleanse can be
-   * generous with its duration without being a second health bar.
+   * lost. That is the whole difference between a repair and a heal.
    *
    * A status never cleanses itself: the strip runs before it is added.
    */
-  cleanse?: StatusKind;
+  cleanse?: "debuff";
 }
 
 export interface StatusDef {
@@ -152,6 +165,18 @@ export interface StatusDef {
   /** The HUD badge colour, `#rrggbb`. Render-only, like `WeaponDef.color`. */
   color: string;
   reapply: StatusReapply;
+  /**
+   * May this row be `refresh` even though it carries a flag? Absent is false.
+   *
+   * The flag-carrying rows are otherwise forced to `ignore` so hard CC can never be chained. That
+   * rule protects against an OPPONENT holding you in a boolean state indefinitely, which is why the
+   * escape hatch is restricted to buffs: `phased` is granted by the room to a car about itself, and
+   * no opponent can apply it at all.
+   *
+   * Deliberately NOT called `canStack`. Stacking means compounding magnitude, which nothing in this
+   * system does — a refresh extends a clock and changes no number.
+   */
+  chainable?: boolean;
   /**
    * Per-channel multipliers. An absent channel is 1 — a row states only what it changes, so reading
    * a row tells you its whole effect.

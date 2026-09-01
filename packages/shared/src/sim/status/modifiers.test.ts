@@ -114,3 +114,18 @@ describe("modifiersOf", () => {
     expect(modifiersOf(applied, 0).topSpeed).toBeCloseTo(modifiersOf([live("spiked")], 0).topSpeed, 10);
   });
 });
+
+describe("phased", () => {
+  it("is false for a car in no status", () => {
+    expect(NEUTRAL_MODIFIERS.phased).toBe(false);
+    expect(modifiersOf([], 0).phased).toBe(false);
+  });
+
+  it("is true while the status runs and false on the tick it lapses", () => {
+    const rows = [
+      { statusId: "phased" as const, startTick: 0, endsTick: 10, sourceSessionId: "" },
+    ];
+    expect(modifiersOf(rows, 9).phased).toBe(true);
+    expect(modifiersOf(rows, 10).phased).toBe(false);
+  });
+});
