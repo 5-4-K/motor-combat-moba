@@ -58,7 +58,7 @@ describe("buildStepContext", () => {
     expect(ctx.others.map((hull) => hull.x)).toEqual([20]);
   });
 
-  it("omits players who are not in the match, matching the server's mover gate", () => {
+  it("omits players who are not in the match, matching the server's wall gate (isSolid)", () => {
     const ctx = buildStepContext(
       ARENA,
       state({

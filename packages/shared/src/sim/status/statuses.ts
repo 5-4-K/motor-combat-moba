@@ -111,7 +111,10 @@ export function modifiersFromRows(rows: Iterable<StatusRow>, tick: number): Modi
  * Deliberately routed through `modifiersFromRows` rather than scanning for the id directly. One
  * derivation, not two: a hand-rolled scan would have to reproduce `toActiveStatuses`' validation and
  * `modifiersOf`'s exclusive end-of-clock rule exactly, and the two would drift the first time either
- * changed. Most cars carry no rows at all, where this early-outs to the shared frozen neutral.
+ * changed. This does allocate a full `Modifiers` (and a `Set`) for every call, even for a car with no
+ * rows at all — `modifiersOf` never short-circuits to the frozen `NEUTRAL_MODIFIERS` singleton, it
+ * always builds a fresh copy. That is fine at this project's 6-player cap: the single-derivation
+ * guarantee is worth more than the allocation, and this is called at most once per car per tick.
  */
 export function isPhasedAt(rows: Iterable<StatusRow>, tick: number): boolean {
   return modifiersFromRows(rows, tick).phased;

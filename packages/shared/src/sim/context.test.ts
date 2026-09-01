@@ -153,7 +153,10 @@ describe("otherCarHulls with a phasing car", () => {
     statuses: [], ...over,
   });
 
-  it("drops a phasing car from EVERY other car's list, not just its own", () => {
+  it("is MUTUAL: drops a phasing car from every other car's list, and gives the phasing car an empty list back", () => {
+    // `resolveWorld` separates a single body against a list, so one-sided filtering would leave the
+    // phasing car still handed everyone else's hull and still bounced by it. Real intangibility
+    // needs BOTH halves: the ghost is invisible to others, and others are invisible to the ghost.
     const entries = [
       { sessionId: "a", player: player({ x: 100 }) },
       {
@@ -166,25 +169,41 @@ describe("otherCarHulls with a phasing car", () => {
     ];
     // The solid car cannot see the ghost...
     expect(otherCarHulls(entries, "a", 5)).toHaveLength(0);
-    // ...and the ghost still cannot see the solid car it is passing through, so neither shoves.
-    expect(otherCarHulls(entries, "b", 5)).toHaveLength(1);
+    // ...and the ghost cannot see the solid car it is passing through either, so neither shoves.
+    expect(otherCarHulls(entries, "b", 5)).toHaveLength(0);
+  });
+
+  it("falls back to solid for a caller absent from entries — a not-yet-loaded local player must not ghost", () => {
+    // `buildStepContext` looks up the local player by session id and can come up empty (the client's
+    // "local player hasn't arrived on the schema yet" path). That absence must never read as
+    // phased, or prediction would silently see an empty world for a car nobody put into spawn
+    // protection.
+    const entries = [
+      { sessionId: "a", player: player({ x: 100 }) },
+      { sessionId: "b", player: player({ x: 200 }) },
+    ];
+    expect(otherCarHulls(entries, "missing", 5)).toHaveLength(2);
   });
 
   it("phases through CARS only — a wall is not a car (M17)", () => {
     // The whole guarantee, pinned as a fact about this function's inputs: `otherCarHulls` is handed
     // nothing but car entries, so there is no code path by which phasing could drop an obstacle.
-    // Obstacles and bounds reach `resolveWorld` straight off the arena, and a phasing car therefore
-    // still collides with both — which is what stops it driving out of the map.
+    // Obstacles and bounds reach `resolveWorld` straight off the arena rather than through here —
+    // mutual intangibility only ever removes CAR hulls, and every hull that survives is still a real
+    // car hull, never an arena box.
     const ghost = player({
       statuses: [{ statusId: "phased", startTick: 0, endsTick: 10, sourceSessionId: "" }],
     });
-    const solid = player({ x: 100 });
+    const solidA = player({ x: 100 });
+    const solidB = player({ x: 200 });
     const entries = [
       { sessionId: "ghost", player: ghost },
-      { sessionId: "solid", player: solid },
+      { sessionId: "a", player: solidA },
+      { sessionId: "b", player: solidB },
     ];
-    // Every hull that survives the filter is a car hull at a car's pose, never an arena box.
-    const hulls = otherCarHulls(entries, "ghost", 5);
-    expect(hulls).toEqual([carHullOf(solid.x, solid.y, solid.angle)]);
+    // From a solid car's point of view: the ghost is filtered out, another solid car is not, and
+    // what comes back is a car hull at a car's pose.
+    const hulls = otherCarHulls(entries, "a", 5);
+    expect(hulls).toEqual([carHullOf(solidB.x, solidB.y, solidB.angle)]);
   });
 });

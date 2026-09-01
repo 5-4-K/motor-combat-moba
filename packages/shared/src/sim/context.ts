@@ -77,7 +77,9 @@ export function carIdOf(player: Pick<ContextPlayer, "carId">): CarId {
 }
 
 /**
- * Hulls of every *other* solid player (`isSolid`), in the order `entries` are given.
+ * Hulls of every *other* solid player (`isSolid`), in the order `entries` are given — UNLESS the
+ * caller itself is not solid, in which case this returns `[]` regardless of who else is on the
+ * field. See the caller-side guard below for why that second half is required.
  *
  * **`entries` must be sorted by `sessionId`, and the resulting order is load-bearing rather than
  * cosmetic:** `resolveWorld` applies contacts sequentially over `others`, and the last contact
@@ -94,12 +96,25 @@ export function otherCarHulls(
   selfSessionId: string,
   tick: number,
 ): Obb[] {
+  const self = entries.find((entry) => entry.sessionId === selfSessionId);
+  // `resolveWorld` separates a SINGLE body against a list — each car pushes itself out of what it
+  // sees. Mutual passage is emergent from both sides running their own step with an empty view of
+  // each other; it is not automatic from filtering the ENTRY alone. Entry-only filtering makes A
+  // invisible to B, but B is still handed A's hull and gets shoved and speed-bounced by it — a
+  // respawning car would be blocked and knocked around by the very car camping its spawn, which
+  // defeats spawn protection (M14) and the "not a collider" half of M13. So a non-solid caller sees
+  // NOTHING, on top of being filtered out of everyone else's list below — both directions are
+  // required for real intangibility.
+  //
+  // A caller absent from `entries` (the client's "local player not loaded yet" path) defaults to
+  // solid rather than phased: `buildStepContext` must still return real hulls for prediction to run
+  // against, not an empty world for a car nobody has actually put into spawn protection.
+  if (self && !isSolid(self.player, tick)) return [];
+
   const hulls: Obb[] = [];
   for (const { sessionId, player } of entries) {
     if (sessionId === selfSessionId) continue;
-    // Filtered on the ENTRY, never on the caller. That is what makes intangibility symmetric: were
-    // a car to drop hulls according to its OWN phased state, A would pass through B while B still
-    // collided with A, and one car would spend the spawn shoving a ghost.
+    // Filtered on the ENTRY as well — a solid caller must still not see anyone ELSE who is phasing.
     if (!isSolid(player, tick)) continue;
     hulls.push(carHullOf(player.x, player.y, player.angle));
   }
