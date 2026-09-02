@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { COLOR_TABLE, isColorId } from "../config/color-config.js";
 import {
   BOT_SESSION_ID,
   MSG_PLAYGROUND_PAUSE,
@@ -7,6 +8,7 @@ import {
   MSG_PLAYGROUND_TUNING,
   PLAYGROUND_ROOM_NAME,
   defaultPlaygroundSetup,
+  isBotDifficulty,
   isPlaygroundSetup,
   type PlaygroundSetup,
 } from "./playground-messages.js";
@@ -26,12 +28,20 @@ describe("playground message constants", () => {
 });
 
 describe("defaultPlaygroundSetup", () => {
-  it("uses the default car's shipped loadout for both cars, the active arena, and bot on", () => {
+  it("uses the default car's shipped loadout for both cars, the active arena, and bot off", () => {
     const setup = defaultPlaygroundSetup();
     expect(setup.arenaId).toBe("arena-01");
-    expect(setup.botEnabled).toBe(true);
-    expect(setup.me).toEqual({ carId: "mirage", weapons: ["predator", "thunderclap", "afterburner"] });
-    expect(setup.opponent).toEqual({ carId: "mirage", weapons: ["predator", "thunderclap", "afterburner"] });
+    expect(setup.botEnabled).toBe(false);
+    expect(setup.me).toEqual({
+      carId: "mirage",
+      colorId: 0,
+      weapons: ["predator", "thunderclap", "afterburner"],
+    });
+    expect(setup.opponent).toEqual({
+      carId: "mirage",
+      colorId: 1,
+      weapons: ["predator", "thunderclap", "afterburner"],
+    });
   });
 
   it("passes its own validator", () => {
@@ -42,9 +52,10 @@ describe("defaultPlaygroundSetup", () => {
 describe("isPlaygroundSetup", () => {
   const valid = (): PlaygroundSetup => ({
     botEnabled: true,
+    botDifficulty: "medium",
     arenaId: "arena-01",
-    me: { carId: "bullseye", weapons: ["magmablast", "pepperbox", "lance"] },
-    opponent: { carId: "bastion", weapons: ["thumper", "roadblock", "wildcharge"] },
+    me: { carId: "bullseye", colorId: 0, weapons: ["magmablast", "pepperbox", "lance"] },
+    opponent: { carId: "bastion", colorId: 1, weapons: ["thumper", "roadblock", "wildcharge"] },
   });
 
   it("accepts a well-formed setup", () => {
@@ -87,5 +98,83 @@ describe("isPlaygroundSetup", () => {
     expect(isPlaygroundSetup(undefined)).toBe(false);
     expect(isPlaygroundSetup("nope")).toBe(false);
     expect(isPlaygroundSetup(42)).toBe(false);
+  });
+});
+
+describe("isBotDifficulty", () => {
+  it("accepts the three literals", () => {
+    expect(isBotDifficulty("easy")).toBe(true);
+    expect(isBotDifficulty("medium")).toBe(true);
+    expect(isBotDifficulty("hard")).toBe(true);
+  });
+
+  it("rejects anything else, including prototype-chain names", () => {
+    expect(isBotDifficulty("HARD")).toBe(false);
+    expect(isBotDifficulty("")).toBe(false);
+    expect(isBotDifficulty("toString")).toBe(false);
+    expect(isBotDifficulty("constructor")).toBe(false);
+    expect(isBotDifficulty(0)).toBe(false);
+    expect(isBotDifficulty(null)).toBe(false);
+    expect(isBotDifficulty(undefined)).toBe(false);
+  });
+});
+
+describe("defaultPlaygroundSetup (PG26)", () => {
+  it("opens alone, on medium, with two distinct colours", () => {
+    const setup = defaultPlaygroundSetup();
+    expect(setup.botEnabled).toBe(false);
+    expect(setup.botDifficulty).toBe("medium");
+    expect(setup.me.colorId).not.toBe(setup.opponent.colorId);
+    expect(isColorId(setup.me.colorId)).toBe(true);
+    expect(isColorId(setup.opponent.colorId)).toBe(true);
+  });
+
+  it("is itself a valid setup", () => {
+    expect(isPlaygroundSetup(defaultPlaygroundSetup())).toBe(true);
+  });
+});
+
+describe("isPlaygroundSetup (PG24 — the three new fields)", () => {
+  /** A full, valid v2 payload. Each rejection case below mutates exactly one field of a clone. */
+  function valid(): Record<string, unknown> {
+    return JSON.parse(JSON.stringify(defaultPlaygroundSetup())) as Record<string, unknown>;
+  }
+
+  it("accepts a full v2 payload", () => {
+    expect(isPlaygroundSetup(valid())).toBe(true);
+  });
+
+  it("rejects a missing botDifficulty", () => {
+    const msg = valid();
+    delete msg.botDifficulty;
+    expect(isPlaygroundSetup(msg)).toBe(false);
+  });
+
+  it("rejects an unknown botDifficulty", () => {
+    expect(isPlaygroundSetup({ ...valid(), botDifficulty: "nightmare" })).toBe(false);
+  });
+
+  it("rejects a missing colorId on either car", () => {
+    const noMine = valid();
+    delete (noMine.me as Record<string, unknown>).colorId;
+    expect(isPlaygroundSetup(noMine)).toBe(false);
+
+    const noTheirs = valid();
+    delete (noTheirs.opponent as Record<string, unknown>).colorId;
+    expect(isPlaygroundSetup(noTheirs)).toBe(false);
+  });
+
+  it("rejects a colorId that is not an integer in COLOR_TABLE", () => {
+    for (const bad of [-1, 1.5, COLOR_TABLE.length, "0", null, NaN]) {
+      const msg = valid();
+      (msg.me as Record<string, unknown>).colorId = bad;
+      expect(isPlaygroundSetup(msg)).toBe(false);
+    }
+  });
+
+  it("still accepts the SAME colour on both cars (PG31 — no guard)", () => {
+    const msg = valid();
+    (msg.opponent as Record<string, unknown>).colorId = (msg.me as Record<string, unknown>).colorId;
+    expect(isPlaygroundSetup(msg)).toBe(true);
   });
 });

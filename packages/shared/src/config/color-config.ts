@@ -8,3 +8,12 @@ export const COLOR_TABLE = [
   { colorId: 4, name: "Violet", hex: "#9B59B6" },
   { colorId: 5, name: "Orange", hex: "#DB6C09" },
 ] as const satisfies readonly ColorDef[];
+
+/**
+ * A real index into `COLOR_TABLE`. `colorId` is a wire value and a schema field, so this is the one
+ * place that answers "is this a colour" — an out-of-range id would paint a car through
+ * `carFillOf`'s silent fallback rather than being rejected at the edge.
+ */
+export function isColorId(value: unknown): value is number {
+  return Number.isInteger(value) && (value as number) >= 0 && (value as number) < COLOR_TABLE.length;
+}

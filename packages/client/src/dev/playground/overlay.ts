@@ -206,6 +206,8 @@ function setupFromState(room: Room<PlaygroundState>): PlaygroundSetup {
   const fallback = defaultPlaygroundSetup();
   return {
     botEnabled: room.state.botEnabled,
+    // TODO(later task): read the live botDifficulty off room.state instead of the default.
+    botDifficulty: fallback.botDifficulty,
     arenaId: isArenaId(room.state.arenaId) ? room.state.arenaId : fallback.arenaId,
     me: carSetupFromPlayer(room.state.players.get(room.sessionId), fallback.me),
     opponent: carSetupFromPlayer(room.state.players.get(BOT_SESSION_ID), fallback.opponent),
@@ -219,10 +221,11 @@ function carSetupFromPlayer(
   const carId = player?.carId;
   if (!carId || !isCarId(carId)) return fallback;
   const weapons = player!.weapons.map((slot) => slot.weaponId);
+  // TODO(later task): read the car's live colorId instead of the default.
   if (weapons.every(isWeaponId) && isLoadoutLegal(weapons)) {
-    return { carId, weapons };
+    return { carId, colorId: fallback.colorId, weapons };
   }
-  return { carId, weapons: fallback.weapons };
+  return { carId, colorId: fallback.colorId, weapons: fallback.weapons };
 }
 
 /** Best-effort read of the currently-active tuning off `PlaygroundState.tuningJson` (empty string
@@ -352,13 +355,18 @@ export function mountPlaygroundOverlay(
     function readSetup(): PlaygroundSetup {
       return {
         botEnabled: modeBot.checked,
+        // TODO(later task): read the panel's own difficulty control instead of carrying `initial` forward.
+        botDifficulty: initial.botDifficulty,
         arenaId: arenaSelect.value,
         me: {
           carId: meCarSelect.value as CarId,
+          // TODO(later task): read the panel's own colour control instead of carrying `initial` forward.
+          colorId: initial.me.colorId,
           weapons: meWeaponSelects.map((s) => s.value) as [WeaponId, WeaponId, WeaponId],
         },
         opponent: {
           carId: oppCarSelect.value as CarId,
+          colorId: initial.opponent.colorId,
           weapons: oppWeaponSelects.map((s) => s.value) as [WeaponId, WeaponId, WeaponId],
         },
       };

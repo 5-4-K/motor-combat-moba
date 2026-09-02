@@ -12,4 +12,7 @@ export class PlaygroundState extends ArenaState {
   @type("string") controlledSessionId = "";
   @type("boolean") botEnabled = true;
   @type("string") tuningJson = "";
+  /** The active bot difficulty (PG30). Not read by `stepSim`; networked so the settings panel can
+   * seed its select from state rather than from a local guess that goes stale on reopen. */
+  @type("string") botDifficulty = "medium";
 }

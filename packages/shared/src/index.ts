@@ -32,9 +32,10 @@ export {
   MSG_PLAYGROUND_TUNING,
   PLAYGROUND_ROOM_NAME,
   defaultPlaygroundSetup,
+  isBotDifficulty,
   isPlaygroundSetup,
 } from "./net/playground-messages.js";
-export type { PlaygroundCarSetup, PlaygroundSetup } from "./net/playground-messages.js";
+export type { BotDifficulty, PlaygroundCarSetup, PlaygroundSetup } from "./net/playground-messages.js";
 
 export { StatusState } from "./schema/StatusState.js";
 export { PlayerState } from "./schema/PlayerState.js";
@@ -131,7 +132,7 @@ export {
   turnRateOf,
 } from "./config/car-config.js";
 export type { ChassisDrive } from "./config/car-config.js";
-export { COLOR_TABLE } from "./config/color-config.js";
+export { COLOR_TABLE, isColorId } from "./config/color-config.js";
 export { WEAPON_TABLE, isWeaponId, weaponDefOf } from "./config/weapon-config.js";
 export type {
   BeamHitbox,

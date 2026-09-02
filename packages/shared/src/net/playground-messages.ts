@@ -1,6 +1,7 @@
 import { isArenaId } from "../arena/registry.js";
 import { ACTIVE_ARENA_ID } from "../config/arena-config.js";
 import { DEFAULT_CAR_ID, isCarId } from "../config/car-config.js";
+import { COLOR_TABLE, isColorId } from "../config/color-config.js";
 import type { CarId } from "../config/types.js";
 import { isWeaponId } from "../config/weapon-config.js";
 import { slotsOf } from "../config/weapon-slots.js";
@@ -17,13 +18,27 @@ export const MSG_PLAYGROUND_SWITCH = "pg_switch"; // no payload: flip control
 export const MSG_PLAYGROUND_TUNING = "pg_tuning"; // payload: TuningOverrides (flat object)
 export const MSG_PLAYGROUND_SETUP = "pg_setup"; // payload: PlaygroundSetup
 
+/** How hard the playground's bot plays (PG27). Wire value is the literal string, not an index. */
+export type BotDifficulty = "easy" | "medium" | "hard";
+
+const BOT_DIFFICULTIES: readonly BotDifficulty[] = ["easy", "medium", "hard"];
+
+/** Narrows a `<select>`'s string, and guards the wire. Uses `includes` over a frozen list rather
+ * than an object lookup, so a prototype-chain name (`"toString"`) can never pass. */
+export function isBotDifficulty(value: unknown): value is BotDifficulty {
+  return typeof value === "string" && BOT_DIFFICULTIES.includes(value as BotDifficulty);
+}
+
 export interface PlaygroundCarSetup {
   carId: CarId;
+  /** Index into `COLOR_TABLE` (PG31). Purely visual: a colour change never respawns (PG32). */
+  colorId: number;
   weapons: readonly [WeaponId, WeaponId, WeaponId];
 }
 
 export interface PlaygroundSetup {
   botEnabled: boolean;
+  botDifficulty: BotDifficulty;
   arenaId: string;
   me: PlaygroundCarSetup;
   opponent: PlaygroundCarSetup;
@@ -39,6 +54,7 @@ function isPlaygroundCarSetup(value: unknown): value is PlaygroundCarSetup {
   if (value === null || typeof value !== "object") return false;
   const rec = value as Record<string, unknown>;
   if (!isCarId(rec.carId)) return false;
+  if (!isColorId(rec.colorId)) return false;
   const weapons = rec.weapons;
   if (!Array.isArray(weapons) || weapons.length !== 3) return false;
   if (!weapons.every((w) => isWeaponId(w))) return false;
@@ -52,6 +68,7 @@ export function isPlaygroundSetup(msg: unknown): msg is PlaygroundSetup {
   const rec = msg as Record<string, unknown>;
   return (
     typeof rec.botEnabled === "boolean" &&
+    isBotDifficulty(rec.botDifficulty) &&
     typeof rec.arenaId === "string" &&
     isArenaId(rec.arenaId) &&
     isPlaygroundCarSetup(rec.me) &&
@@ -59,15 +76,18 @@ export function isPlaygroundSetup(msg: unknown): msg is PlaygroundSetup {
   );
 }
 
-/** The playground's opening setup (spec PG20): the default chassis's shipped loadout on both cars,
- * the live arena, bot on. */
+/** The playground's opening setup (PG20/PG26): the default chassis's shipped loadout on both cars,
+ * the live arena, and — since most sessions open by driving rather than fighting — the bot OFF, on
+ * medium for whenever it is switched on. The two `colorId`s are the first two of `COLOR_TABLE` and
+ * are deliberately distinct, so a fresh playground never opens with two identically-painted cars. */
 export function defaultPlaygroundSetup(): PlaygroundSetup {
   const [slot0, slot1, slot2] = slotsOf(DEFAULT_CAR_ID);
   const weapons: readonly [WeaponId, WeaponId, WeaponId] = [slot0!, slot1!, slot2!];
   return {
-    botEnabled: true,
+    botEnabled: false,
+    botDifficulty: "medium",
     arenaId: ACTIVE_ARENA_ID,
-    me: { carId: DEFAULT_CAR_ID, weapons },
-    opponent: { carId: DEFAULT_CAR_ID, weapons },
+    me: { carId: DEFAULT_CAR_ID, colorId: 0, weapons },
+    opponent: { carId: DEFAULT_CAR_ID, colorId: 1, weapons },
   };
 }
