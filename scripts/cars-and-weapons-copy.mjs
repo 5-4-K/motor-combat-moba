@@ -75,31 +75,36 @@ export const SLOT_ROLES = [
   { name: "Ultimate", line: "A commitment. Used properly, it wins the fight." },
 ];
 
-// Prose for the 2026-09-01 weapon-status overhaul roster: `fireball`, `needler`, `skewer` and
-// `bulwark` are retired outright (their copy history lives in git); `magmablast` (originally
-// `shockwave`) is redefined from the retired Mirage aura into Bullseye's fast opener; `predator`,
-// `thunderclap`, `roadblock` and `wildcharge` are new. `afterburner`, `pepperbox`, `lance` and
-// `thumper` keep their old ids but
-// pick up new behaviour (two-cone afterburner, four-muzzle pepperbox, held-and-steered lance, a
-// bouncing spiking thumper) and are rewritten below to match.
+// Prose for the current roster, in two layers of history. The 2026-09-01 weapon-status overhaul
+// retired `fireball`, `needler`, `skewer` and `bulwark` outright (their copy history lives in git);
+// redefined `magmablast` (originally `shockwave`) from the retired Mirage aura into a plain fast
+// dart on Bullseye's slot 1; added `predator`, `thunderclap`, `roadblock` and `wildcharge`; and gave
+// `afterburner`, `pepperbox`, `lance` and `thumper` new behaviour (two-cone afterburner, four-muzzle
+// pepperbox, held-and-steered lance, a bouncing spiking thumper) under their old ids. The
+// 2026-09-02 predator/magmablast pass then swapped the two between chassis and redesigned both:
+// `magmablast` moved to **Mirage's** slot 1 and picked up an `ExplosionDef` — it now detonates on
+// death into a corroding blast, reviving the aura mechanism the first rename had left dormant.
+// `predator` moved to **Bullseye's** slot 1 and lost its lock-frozen homing and `corroded` rider for
+// a proximity seeker that flies blind until something wanders close.
 export const WEAPON_COPY = {
   predator: {
-    tagline: "A rocket that remembers who it was fired at.",
-    shape: "Homing rocket · locks on",
+    tagline: "It picks its target after it's already in the air.",
+    shape: "Proximity-seeking dart · locks on",
     what:
-      "Fired with a lock, it chases the frozen target for 1.2 seconds at 120 degrees per second — a " +
-      "turning circle Mirage and Bullseye can corner inside and Bastion mostly cannot. Fired bare, " +
-      "with no lock, it is just a slow straight shot. Either way, a hit leaves the target corroded " +
-      "for two seconds.",
+      "It leaves the muzzle with no target at all — fired at your lock like anything else in this " +
+      "slot, but blind to who is actually out there once it's away. The instant an enemy car drifts " +
+      "within 200 units of the shot itself, it locks onto them and won't let go for the rest of its " +
+      "two-second life, curling a tight turn to stay on their line. A hit is a hit — nothing rides " +
+      "along with the damage.",
     how:
-      "600 units a second is the second-slowest aimed shot in the game — reactable at range, which " +
-      "is the trade for guidance nobody can outrun in a straight line. Corroded stacks with whatever " +
-      "the rest of the kit does next: a target that eats a Predator takes a third more from " +
-      "everything that follows it.",
+      "Three hundred milliseconds between presses and a two-second flight time means up to seven of " +
+      "these can be in the air from one car at once, each one hunting on its own. That rate is the " +
+      "whole weapon: it carries no real range, only a life span, so a shot that finds nobody simply " +
+      "runs out rather than travelling on.",
     tip:
-      "Lead with it before you commit. The corrode window is short, so whatever finishes the fight " +
-      "— Thunderclap, Afterburner, a teammate's shot — needs to land while it is still ticking, not " +
-      "after.",
+      "Fire into a group rather than at one target — whichever car wanders inside 200 units of any " +
+      "shot already in flight is the one that eats it. It can't close out a fight on its own at this " +
+      "rate; follow it with Pepperbox or Lance rather than expecting one press to do the work.",
   },
   thunderclap: {
     tagline: "A lunge that ends the fight where it lands.",
@@ -129,28 +134,31 @@ export const WEAPON_COPY = {
       "The per-cone numbers are unchanged from a single flame; the ceiling only doubles against a " +
       "target somehow held in both cones at once, which in practice means someone chasing you " +
       "through your own exhaust. Recovery is tiny on purpose — the beam lives on its own once " +
-      "spawned, so you stay free to keep firing Predator into a target that is already burning.",
+      "spawned, so you stay free to keep firing Magma Blast into a target that is already burning.",
     tip:
       "Press it when you are on somebody's bumper, or when somebody is on yours. No other chassis " +
       "can catch a fleeing car, and now nothing catches Mirage either — the tail cone overheats " +
       "whoever tries.",
   },
   magmablast: {
-    tagline: "Bullseye's bread and butter.",
-    shape: "Straight bolt · locks on",
+    tagline: "It doesn't stop working when it lands.",
+    shape: "Explosive bolt · locks on",
     what:
-      "A fast, straight bolt and Bullseye's bread and butter. Nothing fancy — it arrives quickly, " +
-      "often, and exactly where the assist points it. Not quite twice a second, out to seven " +
-      "tenths of the arena, with a 24-unit disc for a hitbox — three quarters of a car's width.",
+      "A fast, straight bolt, and Mirage's bread and butter — except it no longer stops at the " +
+      "hit. Whatever kills the shot, a car, a wall, the arena edge, or its own reach running out, " +
+      "sets it off: a 60-unit blast that lingers for a moment and corrodes anyone it catches for " +
+      "two seconds, 30% more damage taken from everything that follows. A direct hit takes the " +
+      "impact and the blast both.",
     how:
-      "This is the yardstick every other weapon on this chassis is read against: at that rate, " +
-      "sustained fire from close range adds up fast, and the aim assist means you rarely have to " +
-      "think about it. It is the reason Bullseye can afford to spend its other two slots on " +
-      "weapons that ask more of you.",
+      "This is the round every other weapon on this chassis gets read against: it arrives quickly, " +
+      "often, and exactly where the assist points it, so sustained fire from close range adds up " +
+      "fast without asking much of you. The corrode is the real payoff — it does little on its " +
+      "own, but it makes whatever Thunderclap or Afterburner lands next hit harder. And because the " +
+      "blast has no straight-line hitbox, it reaches through a wall a target thinks is cover.",
     tip:
-      "Never stop pressing it. Magma Blast has no recovery, so firing it never locks out Pepperbox " +
-      "or Lance afterward. It cannot fire through their wind-up either way, though — a press in " +
-      "flight on any slot blocks every slot, Magma Blast included, until it resolves.",
+      "Never stop pressing it. Magma Blast has no recovery, so firing it never locks out Thunderclap " +
+      "or Afterburner afterward. It cannot fire through their wind-up either way, though — a press " +
+      "in flight on any slot blocks every slot, Magma Blast included, until it resolves.",
   },
   pepperbox: {
     tagline: "Twelve darts, one press.",

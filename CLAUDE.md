@@ -10,16 +10,20 @@ pickups) — and never stacks with itself. Hard CC no longer belongs to one chas
 2026-09-01 weapon-status overhaul, **`stunned` comes from `roadblock` (Bastion), `thunderclap`
 (Mirage's dash), and the hard-slam's wall impact** (`wildcharge`, 500 ms) — `thumper` applies
 `spiked` now, a slow rather than a stop. `applyDamage` is no longer the only HP writer;
-**`sim/damage.ts` is**, now that repair pulses exist. See
+**`sim/damage.ts` is**, now that repair pulses exist. **`corroded`'s only source in the game is now
+an explosion** — `magmablast`'s detonation, and nothing else applies it (grep `applies:.*corroded`
+if a second source ever needs checking). See
 [`docs/combat-model.md`](docs/combat-model.md#statuses).
 
 An **aura** is a beam with a `disc` hitbox at `origin: "center"` — a field around a car rather than a
-line of fire. It shipped once, as `shockwave` on Mirage's slot 2, but the 2026-09-01 overhaul retired
-that weapon's aura identity: the row is now a plain single-volley dart on **Bullseye's** slot 1,
-renamed `magmablast` alongside its display name, and no row in the roster uses a `disc` hitbox any
-more. The mechanism — and the multi-wave `VolleyDef` machinery that rode alongside it — is **dormant,
-not deleted**: the render and hit-test code stays live and unit-tested, waiting for the next weapon
-or pickup to reach it.
+line of fire. It shipped once, as `shockwave` on Mirage's slot 2, and the 2026-09-01 overhaul retired
+that weapon's aura identity, leaving no row using a `disc` hitbox — but a disc ships again as of the
+2026-09-02 predator/magmablast pass: `magmablast` (moved back to **Mirage's** slot 1 by that pass, off
+Bullseye's) is now an explosive shell whose detonation is a real `WeaponInstance`, a detached
+centre-origin `disc`-hitbox beam synthesized by `instanceDefOf(id, isExplosion)` from the shell's
+`ExplosionDef`. The aura mechanism was never deleted while dormant, and this is what it was waiting
+for. The multi-wave `VolleyDef` machinery that rode alongside the original aura is still **dormant**:
+no row authors more than one volley.
 
 **The `GameMode` enum now has two FFA win conditions**, not one. `FFA_LAST_STANDING` (the renamed
 original — wire value still `0`) ends the match when `livingSides` drops to one side; `FFA_DEATHMATCH`

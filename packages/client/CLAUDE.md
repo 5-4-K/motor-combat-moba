@@ -21,13 +21,16 @@ so the strip is load-bearing, not decoration. The drain bar is measured from the
 `startTick`, because a status's duration comes from whatever applied it and is not in the table.
 
 An **aura** (a `disc`-hitbox beam at `origin: "center"`) is the one instance too big to fill in: it is
-drawn as a ring plus a low-alpha wash by the branch above the circle case in `renderShots`, because a
-filled 150-unit disc would hide the cars it is about to hit. The ring still sits exactly on the
-hitbox, so "what you see is what will hit you" survives. This is **dormant machinery** since the
-2026-09-01 roster cutover: `shockwave` carried the one shipped aura and no longer does (the row is now
-a plain projectile dart on Bullseye's slot 1, since renamed `magmablast`), so no weapon reaches this
-branch in a real match today —
-the draw path stays in place for whichever row picks a `disc` hitbox next.
+drawn as a ring plus a low-alpha wash by `isAuraInstance`'s branch in `combat-visual.ts`, because a
+filled disc would hide the cars it is about to hit. The ring still sits exactly on the hitbox, so
+"what you see is what will hit you" survives. This sat as **dormant machinery** from the 2026-09-01
+roster cutover — `shockwave` carried the one shipped aura and lost it to a plain projectile dart on
+Bullseye's slot 1, since renamed `magmablast` — until the 2026-09-02 predator/magmablast pass revived
+it: `magmablast` now detonates on death into a real `disc`-hitbox burst, drawn through this exact
+branch in every live match. `drawDefOf` is what makes that reachable at all: a burst instance carries
+its parent shell's `weaponId`, so the branch takes the whole `DrawableInstance` (`isExplosion` and
+all) rather than a bare `weaponId`, and resolves the def through `instanceDefOf` before asking what
+its hitbox is.
 
 `?debug=1` draws the car OBB hitbox.
 

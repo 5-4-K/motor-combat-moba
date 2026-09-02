@@ -117,6 +117,7 @@ shared `modifiersFromRows`. See [`combat-model.md`](combat-model.md#statuses) fo
 | `extent` | number | `0` | Beams: current reach. Projectiles: always 0 |
 | `spawnTick` | uint32 | `0` | Tick spawned |
 | `alive` | boolean | `true` | False when spent |
+| `isExplosion` | boolean | `false` | True when this row is its weapon's explosion, not its shell |
 
 `ArenaState.weapons` is a `MapSchema`, not an array, keyed by instance id — the bridge **diffs**
 live instances by id, and a collection cleared and refilled every tick would patch every instance to
@@ -131,6 +132,16 @@ drops instances; `combat-bridge.ts`'s `applyCombatResult` is the only writer, an
 cleared when a match starts or ends. `damageClock` and `pierceLeft` are server-only sim state
 (`WeaponInstance` in `sim/weapons/instances.ts`) and never reach the wire. Clients read this map to
 draw and never write it. See [`combat-model.md`](combat-model.md).
+
+`isExplosion`, added for the 2026-09-02 predator/magmablast pass, is on the wire for the same reason
+`weaponId` is: a burst row still carries its **parent** shell's `weaponId` (a projectile), not one of
+its own, so without a flag the client would resolve `magmablast`'s dart def and draw a 12 u circle
+where a 60 u disc belongs. Both `combat-visual.ts`'s `drawDefOf` and the sim's own `instanceDefOf`
+take it alongside `weaponId` and route to a synthesized `BeamWeaponDef` when it is true. It is
+derivable in principle — a row whose `kind` disagrees with its own weapon's authored `kind` can only
+be an explosion — but networked anyway as a hedge against a future weapon spawning some other kind of
+child instance, where that inference would stop holding. Frozen at spawn: written once when the row
+is created, never patched after.
 
 ## WeaponSlotState
 

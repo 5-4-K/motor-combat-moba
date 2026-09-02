@@ -277,7 +277,7 @@ function damageAfterDeath(): void {
   let deadTookDamage = false;
   let deadAt = -1;
   for (let i = 0; i < 120; i++) {
-    // Release between presses: a held key is ONE press. needler recharges in 18 ticks, so tapping
+    // Release between presses: a held key is ONE press. predator recharges in 9 ticks, so tapping
     // every other tick lands ~6 shots — enough to kill a 40 hp target and keep shooting the corpse.
     w.input("shooter", { fireSlots: i % 2 === 0 ? bit : 0 });
     w.tick();

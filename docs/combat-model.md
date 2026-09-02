@@ -160,15 +160,20 @@ its chassis's **type**:
 
 | Chassis | Type | Slot 1 | Slot 2 | Slot 3 |
 |---|---|---|---|---|
-| **Bullseye** | moderate damage, long range | `magmablast` | `pepperbox` | `lance` |
-| **Mirage** | burst damage, high mobility | `predator` | `thunderclap` | `afterburner` |
+| **Bullseye** | moderate damage, long range | `predator` | `pepperbox` | `lance` |
+| **Mirage** | burst damage, high mobility | `magmablast` | `thunderclap` | `afterburner` |
 | **Bastion** | crowd control, slow and tanky | `thumper` | `roadblock` | `wildcharge` |
 
 `fireball`, `needler`, `skewer` and `bulwark` were retired outright by the 2026-09-01 overhaul; their
 ids are gone from `WeaponId` and their comment history lives in git rather than here. `shockwave`
 survived that overhaul as an id but not as the weapon it named — it lost its aura identity for a
-plain single-volley dart on Bullseye's slot 1 (see [Auras](#auras-dormant-machinery) below) — before
-being renamed again to `magmablast`, its current id, alongside its display name.
+plain single-volley dart on Bullseye's slot 1 (see [Auras](#auras) below) — before being renamed
+again to `magmablast`, its current id, alongside its display name. The 2026-09-02 predator/magmablast
+pass moved it a second time, swapping it onto **Mirage's** slot 1 in exchange for `predator` (which
+moved to Bullseye's), and gave it an explosive-shell identity: it detonates on death into a real
+`disc`-hitbox beam instance, reviving the aura mechanism the earlier rename had left dormant.
+`predator` picked up a matching redesign on its way to Bullseye — it dropped its `applies` entry and
+its lock-frozen homing for a proximity seeker that acquires blind.
 
 No weapon id appears on two chassis (L1), and `weapon-slots.test.ts` enforces that — so moving a
 weapon between chassis means swapping a pair, never copying one. See
@@ -215,7 +220,7 @@ and firing is never blocked.
 
 **The region** is a cone intersected with a lateral cap, out to `AIM_CONFIG.lockRange` — all three
 bounds, because neither of the first two survives alone. A pure cone's width scales with distance,
-so at `predator`'s 900-unit range it would span half the arena; a pure lane's angular width explodes near the
+so at `magmablast`'s 900-unit range it would span half the arena; a pure lane's angular width explodes near the
 car, so it would accept a target 83° off your nose during a collision. The cone governs contact range, the
 cap governs long range. They cross over at `lateralMax / tan(coneDeg)` ≈ 330 units measured **along
 the car's axis** (the forward leg of the triangle at the cone's edge), which is ≈351 units measured
@@ -357,7 +362,7 @@ Every fired shot is a **hitbox**, never hitscan. Two kinds:
   apart, each with its own `spawnTick`, so each died 250 ms after its *own* birth rather than all
   three ending together. That row retired with the 2026-09-01 overhaul, and no beam shipped since
   authors more than one volley, so a multi-wave beam is dormant machinery today (see
-  [Auras](#auras-dormant-machinery) below). What a beam still has no use for is `PelletDef`, which stayed on
+  [Auras](#auras) below). What a beam still has no use for is `PelletDef`, which stayed on
   projectiles; that is the line the old four-field `VolleyDef` was split along.
 
 Two chassis slots ship beams today (`afterburner`, attached; `lance`, attached and holding the car
@@ -370,8 +375,9 @@ do not reach, exactly:
 - **Beam growth, clamping, attached re-anchoring/re-clipping, and expiry on `flight + lifetime`** are
   all real in play now — both shipped beams grow, clip against walls, and follow their owner the way
   `weapons/instances.test.ts` describes. That suite hand-builds a synthetic `kind: "beam"` instance
-  over `magmablast`'s row (900 u/s across a 900-unit range — the flight profile the retired `fireball`
-  shipped and `magmablast` inherited) rather than driving a real beam id through it, and because that
+  over `magmablast`'s row (600 u/s across a 900-unit range as of the 2026-09-02 detonation pass, down
+  from the 900 u/s `fireball` shipped and `magmablast` originally inherited) rather than driving a
+  real beam id through it, and because that
   borrowed row's `lifetimeMs` is 0, the expiry test still asserts `flight` alone: **no test exercises
   a non-zero linger**, even though both shipped beams have one (1500–2000 ms).
 - **Volleys.** No longer covered by a real row. `weapons/fire.test.ts`'s "volleys and wind-up" block
@@ -514,11 +520,15 @@ row, which is the point.
 [`packages/shared/src/config/weapon-config.ts`](../packages/shared/src/config/weapon-config.ts).
 Copy `predator` or `roadblock` for a projectile, or `afterburner` or `lance` for a beam — every shape
 in the current roster has at least one real row to start from. The union decides which fields you may
-write: `pierce`, `pellets` and `piercesWalls` exist only on a projectile, `attached` and `lifetimeMs` only on a beam,
-and writing the wrong one is a compile error rather than a silently ignored field. **`volley` is on
-`WeaponBase` and so is required on both** — a beam or a projectile may in principle be a wave sequence
-(the retired `shockwave` shipped three aura waves; no current row does — see
-[Auras](#auras-dormant-machinery) above), and a single-shot row of either kind authors
+write: `pierce`, `pellets`, `piercesWalls` and `explosion` exist only on a projectile, `attached` only
+on a beam, and writing the wrong one is a compile error rather than a silently ignored field.
+**`lifetimeMs` is on both**, but means different things either side of the union: a beam's own linger
+after full extension (`afterburner`, `lance`, `tremor`), or a projectile's independent expiry clock
+instead of dying at `range` (`thumper`'s bounce, `predator`'s proximity seeker — see
+[`config-reference.md`](config-reference.md#weapon_table) for `ProjectileWeaponDef.lifetimeMs`/
+`.bounces`). **`volley` is on `WeaponBase` and so is required on both** — a beam or a projectile may
+in principle be a wave sequence (the retired `shockwave` shipped three aura waves; no current row does
+— see [Auras](#auras) above), and a single-shot row of either kind authors
 `{ volleys: 1, volleyIntervalMs: 0 }`, which is every row today.
 
 Every duration is **milliseconds**, converted once to ticks by `WEAPON_TICKS` — never write ticks.
@@ -671,7 +681,7 @@ back up, held exactly while a car stands in it:
 | Status | Applied by | Chassis | For |
 |---|---|---|---|
 | `overheated` | `afterburner` | Mirage | 1.5 s |
-| `corroded` | `predator` | Mirage | 2 s |
+| `corroded` | `magmablast`'s explosion | Mirage | 2 s |
 | `stunned` | `roadblock` | Bastion | 1 s |
 | `stunned` | `thunderclap` | Mirage | 1 s |
 | `stunned` | hard-slam wall impact (`wildcharge`'s contact-pass mechanic, not `applies`) | Bastion | 0.5 s |
@@ -682,8 +692,11 @@ back up, held exactly while a car stands in it:
 | `overhauled` | nothing — the pickup row | — | — |
 | `armored` | nothing — the pickup row beside `overhauled` | — | — |
 
-**Bullseye applies nothing at all.** All three of its weapons — `magmablast`, `pepperbox`, `lance` —
-carry no `applies` entry; the skirmisher's kit is pure damage, same as before the overhaul.
+**Bullseye applies nothing at all.** All three of its weapons — `predator`, `pepperbox`, `lance` —
+carry no `applies` entry; the skirmisher's kit is pure damage, same as before the overhaul. `predator`
+dropped its own `corroded` rider along with its lock-frozen homing when the 2026-09-02
+predator/magmablast pass turned it into a proximity seeker — **`corroded`'s only source in the game
+is now `magmablast`'s explosion**, nothing else authors it.
 
 **Hard CC no longer belongs to one chassis.** Before the 2026-09-01 overhaul, `stunned` moved from
 `shockwave` to `thumper` and Bastion owned it outright. The overhaul gave `thumper` `spiked` instead
@@ -816,7 +829,7 @@ attached instance) at the end of the tick, rather than leaving it to fire once t
 The stock still stays spent either way; what changed is that the shot no longer goes out at all. See
 [Maneuvers and the contact pass](#maneuvers-and-the-contact-pass) above.
 
-### Auras (dormant machinery)
+### Auras
 
 An aura is a beam with a `disc` hitbox anchored at `origin: "center"`. It is not a new concept: the
 attached-beam machinery already re-anchors to the owner every tick, already grows 0→range, already
@@ -828,22 +841,33 @@ lingers, and already re-applies on the per-target damage clock. Three things are
 - **It passes through walls.** `wallClipDistance` raycasts along a single angle and a disc has none.
   Clipping a radial field would mean an occlusion test per target, which is a different feature.
 - **It is drawn as a ring, not a solid.** Every other shot is drawn *as* its hitbox (D19), which works
-  because a shot is small; a filled 150-unit disc would hide the cars inside it. The ring sits exactly
+  because a shot is small; a filled disc would hide the cars inside it. The ring sits exactly
   on the hitbox edge with a low-alpha wash inside, so what you see is still what will hit you.
 
 An aura aimed at opponents needs **no change to `canDamage`** — it already refuses the owner, so a car
 never touches its own field.
 
-**`magmablast` (as `shockwave`) was the shipped aura, and it no longer is.** From 2026-08-30 it was
-Mirage's slot 2: a 140° forward cone widened to a 360° ring at 150-unit radius, reaching behind the
-car as well, and the table's only multi-wave row — one press scheduled three separate aura instances
-500 ms apart, 45 damage each, catching the same car up to three times because `damageFrequencyMs: 0`
-arms per instance. The 2026-09-01 weapon-status overhaul retired that identity outright: the row is
-now a plain single-volley projectile dart on **Bullseye's** slot 1 (see the [kit table](#weapon)
-above), and
-no row in the current `WEAPON_TABLE` uses a `disc` hitbox. Everything above this paragraph is real,
-unit-tested code with no weapon currently driving it — the geometry, the wall-pass rule and the ring
-render all stay in place for whichever future row (or pickup) picks a `disc` hitbox back up.
+**`magmablast` (as `shockwave`) was the shipped aura, went dormant, and now ships again as a
+different kind of aura.** From 2026-08-30 it was Mirage's slot 2: a 140° forward cone widened to a
+360° ring at 150-unit radius, reaching behind the car as well, and the table's only multi-wave row —
+one press scheduled three separate aura instances 500 ms apart, 45 damage each, catching the same
+car up to three times because `damageFrequencyMs: 0` arms per instance. The 2026-09-01 weapon-status
+overhaul retired that identity outright: the row became a plain single-volley projectile dart, first
+on Bullseye's slot 1, and for a while **no row in `WEAPON_TABLE` used a `disc` hitbox at all** — the
+geometry, the wall-pass rule and the ring render stayed in place as real, unit-tested code with
+nothing driving it.
+
+**That is no longer true.** The 2026-09-02 predator/magmablast pass gave `magmablast` — now on
+**Mirage's** slot 1 — an `ExplosionDef`: the shell detonates whenever its instance is removed for any
+reason (enemy contact, wall, obstacle, arena bound, or its own `range`), and `instanceDefOf(id, true)`
+synthesizes a detached, centre-origin `disc`-hitbox `BeamWeaponDef` from the block — a 60-unit-radius
+field that lingers 150 ms and applies `corroded` to opponents for 2 s. It is not the old aura's
+identity back (attached, cone-widened, multi-wave, owner-carried); it is a new, one-shot use of the
+same dormant machinery, spawned once at full extent rather than grown, and driven from a `WeaponDef`
+that never appears in `WEAPON_TABLE` itself — see [`config-reference.md`](config-reference.md#weapon_table)
+for `ExplosionDef`. **`corroded`'s only source in the game is now this explosion.** The multi-wave
+`VolleyDef` machinery that rode alongside the original aura is still genuinely dormant: no row,
+including this one, authors more than one volley.
 
 ### What is networked, and why all of it
 
@@ -1059,13 +1083,15 @@ use different, deliberately distinguishable dims so "you don't have this yet" ca
 for "back in a few seconds." See [`asset-pipeline.md`](asset-pipeline.md) for how a slot's icon
 resolves and its procedural fallback.
 
-Two chassis slots carry a beam today (`afterburner`, `lance`) and one projectile is a multi-pellet fan
-(`pepperbox`, four muzzles), so the beam half of the drawing code above still runs in every live match:
-`instanceDrawShape` branches on the weapon definition's own `kind`, and a `beam` definition is
-reachable the moment either fires. The 2026-09-01 overhaul retired two beams from this list —
-`magmablast` (formerly `shockwave`, now a plain projectile) and `bulwark` outright — and with them
-the roster's one multi-wave beam press; see [Auras (dormant machinery)](#auras-dormant-machinery)
-above.
+Two chassis slots author a beam **row** today (`afterburner`, `lance`) and one projectile is a
+multi-pellet fan (`pepperbox`, four muzzles), so the beam half of the drawing code above still runs
+in every live match: `instanceDrawShape` branches on the weapon definition's own `kind`, and a `beam`
+definition is reachable the moment either fires. The 2026-09-01 overhaul retired two beams from this
+list — `magmablast` (formerly `shockwave`, then a plain projectile) and `bulwark` outright — and with
+them the roster's one multi-wave beam press; see [Auras](#auras) above. A third path to a `beam`
+definition opened back up on 2026-09-02: `magmablast`'s explosion is synthesized as a `kind: "beam"`
+def by `instanceDefOf` even though the shell itself is authored `kind: "projectile"`, so the
+disc-drawing branch runs on every magmablast detonation without either shipped beam **row** changing.
 
 **Every live instance draws below every car** (`SHOT_DEPTH`, under `CAR_DEPTH`) — one rule for
 projectiles and beams alike, so parking inside your own beam never hides you under it. The

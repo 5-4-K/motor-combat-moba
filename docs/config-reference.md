@@ -40,8 +40,8 @@ Build with `npm run build:release -- --port <n>` to bake in a different one. See
 
 | id | name | speed | accel | handling | attack | hp | mass | weapons |
 |---|---|---|---|---|---|---|---|---|
-| `mirage` | Mirage | 85 | 85 | 85 | 63 | 70 | 48 | `["predator", "thunderclap", "afterburner"]` |
-| `bullseye` | Bullseye | 65 | 45 | 65 | 55 | 65 | 30 | `["magmablast", "pepperbox", "lance"]` |
+| `mirage` | Mirage | 85 | 85 | 85 | 63 | 70 | 48 | `["magmablast", "thunderclap", "afterburner"]` |
+| `bullseye` | Bullseye | 65 | 45 | 65 | 55 | 65 | 30 | `["predator", "pepperbox", "lance"]` |
 | `bastion` | Bastion | 50 | 20 | 50 | 42 | 90 | 90 | `["thumper", "roadblock", "wildcharge"]` |
 
 `isActive` is a seventh field on `CarDef`, not a rating. All three shipped cars are `true` today.
@@ -138,10 +138,10 @@ once, at shared's module load, into the frozen `WEAPON_TICKS` the sim actually r
 
 | id | kind | damage | damageFrequencyMs | speed | range | cooldownMs | startUpMs | recoveryMs | stock | pierce | volley (volleys / intervalMs) | pellets (perVolley / spreadDeg) | attached | lifetimeMs | hitbox | unlocksAt | usesAimAssist | color |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `predator` | projectile | 50 | 0 | 600 | 900 | 2000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | capsule, along 14 / across 6 (homing 120°/s × 1200 ms) | 1 | true | `#D63A14` |
+| `predator` | projectile | 25 | 0 | 900 | 1800 (no real range — speed × 2000 ms lifetime; see below) | 300 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | 2000 | capsule, along 14 / across 6 (homing: proximity acquire, 200u radius, 300°/s) | 1 | true | `#D63A14` |
 | `thunderclap` | maneuver (dash) | 90 | 0 | 1600 (dash speed) | 400 (dash distance) | 5000 | 0 | 200 | — | — | 1 / 0 | — | — | — | — | 1 | true | `#7A1D1D` |
 | `afterburner` | beam | 49 | 500 | 1100 | 220 | 13000 | 0 | 200 | — | — | 1 / 0 | — | true | 2000 | cone, 55° (muzzles `[0, 180]`) | 1 | false | `#F05818` |
-| `magmablast` | projectile | 22 | 0 | 900 | 900 | 600 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | circle, radius 12 | 1 | true | `#22579E` |
+| `magmablast` | projectile | 50 | 0 | 600 | 900 | 1000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | circle, radius 12 (explosion on death: 60u disc, +15 splash, 150 ms linger, corrodes 2s; see below) | 1 | true | `#22579E` |
 | `pepperbox` | projectile | 45 (per pellet) | 0 | 800 | 600 | 1800 | 0 | 200 | — | 0 | 1 / 0 | 3 / 12 | — | — | ellipse, along 9 / across 3 (muzzles `[0, 90, 180, 270]`) | 1 | false | `#184890` |
 | `lance` | beam | 170 | 0 | 6000 | 1200 | 16000 | 700 | 1000 | — | — | 1 / 0 | — | true | 1500 | rect, width 57.5 (`holdsDuringFire`) | 1 | false | `#0F3268` |
 | `thumper` | projectile | 60 | 0 | 450 | 1305 (bounce, 2900 ms lifetime) | 3000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | capsule, along 24 / across 15 (flat tail) | 1 | true | `#F0C808` |
@@ -159,8 +159,39 @@ overhaul; their ids are gone from `WeaponId` and their comment history lives in 
 `shockwave` carried the roster's one aura (a `disc` hitbox beam, `origin: "center"`) on Mirage's slot
 2, then survived the overhaul as an id — losing the aura identity for a plain single-volley
 projectile dart on **Bullseye's** slot 1 — before being renamed again to `magmablast`, its current
-id, alongside its display name. See [`combat-model.md`](combat-model.md#auras-dormant-machinery) for
-what the aura and multi-wave machinery left dormant.
+id, alongside its display name. The 2026-09-02 predator/magmablast pass moved `magmablast` again, to
+**Mirage's** slot 1 (swapping places with `predator`, which moved the other way onto Bullseye), and
+gave it a second life as an aura source: it now detonates into a real `disc`-hitbox beam instance on
+death. See [`combat-model.md`](combat-model.md#auras) for the aura mechanism and what is still
+dormant (only the multi-wave `VolleyDef` machinery, today).
+
+**`ExplosionDef` (projectiles only, optional field `explosion`)** — `{ radius, damage, lingerMs,
+applies? }` — is what makes a shell detonate. `magmablast` is the one row that authors it: on death
+for any reason (enemy hit, wall, obstacle, arena bound, or its own `range`), `instanceDefOf(id, true)`
+synthesizes a detached, centre-origin `disc`-hitbox `BeamWeaponDef` from the block — `speed` derived
+so the disc spawns at full `radius` in exactly one tick, `lifetimeMs` set to `lingerMs`, and `applies`
+carried straight through if present. The synthesized def keeps the parent's `id` and `color`, so the
+burst still reads as `magmablast` everywhere a lookup is keyed by weapon. Because a `disc` hitbox has
+no axis for the wall raycast to follow, the field passes through level geometry — not a special case,
+just the shape having nothing for `wallClipDistance` to clip against. `damage` here is the **splash**
+add-on; the shell's own `damage` field is the contact hit, so a direct hit costs both (50 + 15 today).
+
+**`HomingDef.acquire` (`"lock" | "proximity"`) plus `acquireRadius`** decide how a homing shot picks
+its target. `"lock"` (the original design) freezes the car's ambient aim-assist lock at the exit pose
+and steers toward that one car for `durationMs`. `"proximity"` — `predator`'s mode — spawns with no
+target at all and, every tick it has none, grabs the nearest eligible car within `acquireRadius` of
+the **instance itself** (not the firing car), then commits to that target for the rest of its
+`durationMs`/lifetime exactly as a locked shot would. `acquireRadius` is meaningless for `"lock"` and
+required for `"proximity"`; `weapon-config.test.ts` enforces that pairing.
+
+**`ProjectileWeaponDef.lifetimeMs` and `.bounces`** (optional, hoisted off the deleted `BounceDef`)
+give a projectile its own expiry clock instead of dying at `range`. `bounces: true` (`thumper`)
+reflects off walls until the clock runs out; `predator` sets `lifetimeMs` with no `bounces` at all —
+it simply expires in the open after 2000 ms, `range` authored only because `WEAPON_TICKS.flight`, the
+guide's reach figure, and the `range >= aimRangeUnits` validator all read it (at `900 × 2000ms =
+1800` the flight-tick count equals the lifetime, so the two clocks can never disagree). Reading
+`predator`'s 1800 as a real threat radius is the mistake this paragraph exists to head off: the shot
+has no meaningful range in play, only a life span.
 
 **`volley` and `pellets` are two types, split on 2026-08-30.** `VolleyDef` (`volleys`,
 `volleyIntervalMs`) sits on `WeaponBase`, so a **beam** can be a wave sequence too — the old
@@ -189,16 +220,14 @@ weapon fires four such fans at once
 target takes. `afterburner` on Mirage is `damageFor(63, 49)` per 500 ms pulse, not a press total scaled
 once.
 
-`predator`'s 50 carries the pre-weapon-system `fireball` shot's original damage number forward
-unchanged, but not its pace: an average chassis had 500 hull HP at the time, and `fireball`'s 5-second
-average-vs-average kill target was solved against its own original **500 ms** cooldown (100 DPS
-sustained). `predator` fires the same 50 damage at a **2000 ms** cooldown — 25 DPS sustained, a
-~20-second average-on-average kill — so the anchor damage moved forward while the kill-time target
-did not; the pace changed with the 2026-08-30 weapon-system redistribution and the 2026-09-01
-overhaul rather than being re-solved to hit 5 seconds again. `roadblock`'s 100 and `thumper`'s 60 are
-Bastion's pressure pair — a fat, near-unmissable slug and a bouncing skirmish shot — while
-`wildcharge`'s 250 is priced as a one-hit finisher for a 10-second commitment, not a sustained-DPS
-number at all.
+`predator`'s numbers moved with the 2026-09-02 predator/magmablast pass, along with its chassis: 25
+base damage on a **300 ms** cooldown is 83.3 DPS sustained before attack scaling — `damageFor(55,
+25)` on Bullseye, its only carrier, rounds to 26 per hit, ~87 DPS sustained, the roster's highest by a
+wide margin. That rate is the trade for a shot with no lasting reach: it lives 2000 ms and then it is
+gone, and it has to acquire a target within 200 u of itself to matter at all (see `HomingDef.acquire`
+above). `roadblock`'s 100 and `thumper`'s 60 are Bastion's pressure pair — a fat, near-unmissable
+slug and a bouncing skirmish shot — while `wildcharge`'s 250 is priced as a one-hit finisher for a
+10-second commitment, not a sustained-DPS number at all.
 
 `color` is render-only, like `name`: it is the fill every live instance of that weapon draws in, per
 **weapon** rather than per player, so two cars carrying `predator` fire identically coloured shots
@@ -573,7 +602,7 @@ many sources piling up, and a row that needs it to be legal is a row whose autho
 | Weapon | Chassis | Applies | To | For | On wave |
 |---|---|---|---|---|---|
 | `afterburner` | Mirage | `overheated` | opponents | 1.5 s | all |
-| `predator` | Mirage | `corroded` | opponents | 2 s | all |
+| `magmablast`'s explosion | Mirage | `corroded` | opponents | 2 s | all |
 | `roadblock` | Bastion | `stunned` | opponents | 1 s | all |
 | `thunderclap` | Mirage | `stunned` | opponents | 1 s | all |
 | `thumper` | Bastion | `spiked` | opponents | 3 s | all |
@@ -587,13 +616,17 @@ its victim into a wall within `SLAM_CONFIG.wallStunWindowMs` stuns them for `wal
 [`combat-model.md`](combat-model.md#maneuvers-and-the-contact-pass). `overhauled` and `armored` have
 no applier yet; see below.
 
-Bullseye applies nothing. All three of its weapons — `magmablast`, `pepperbox`, `lance` — carry no
-`applies` entry, same as before the 2026-09-01 weapon-status overhaul; the skirmisher's kit stays pure
-damage. **Hard CC no longer belongs to one chassis.** Before the overhaul, `stunned` sat on `thumper`
-alone and Bastion owned it outright; the overhaul gave `thumper` `spiked` instead (a slow, not a stop)
-and put `stunned` on three sources — Bastion's `roadblock`, Mirage's `thunderclap` (a dash lands its
-own stun on contact), and the wall-slam mechanic above. Bastion still carries the CC-focused *type*,
-but Mirage's dash is now a real second source of the same status.
+Bullseye applies nothing. All three of its weapons — `predator`, `pepperbox`, `lance` — carry no
+`applies` entry: `predator` lost its `corroded` rider along with its lock-frozen homing when the
+2026-09-02 pass turned it into a proximity seeker, so the skirmisher's kit stays pure damage, same as
+it was before that pass (and before the 2026-09-01 weapon-status overhaul, when `magmablast` held the
+slot and was equally silent). **`corroded`'s only source in the game is now `magmablast`'s explosion**
+— nothing else authors it. **Hard CC no longer belongs to one chassis.** Before the 2026-09-01
+overhaul, `stunned` sat on `thumper` alone and Bastion owned it outright; that overhaul gave `thumper`
+`spiked` instead (a slow, not a stop) and put `stunned` on three sources — Bastion's `roadblock`,
+Mirage's `thunderclap` (a dash lands its own stun on contact), and the wall-slam mechanic above.
+Bastion still carries the CC-focused *type*, but Mirage's dash is now a real second source of the
+same status.
 
 **Per-chassis CC duration needs no mechanism.** A status does not own its duration, the applier does,
 and kits are exclusive — so "Mirage's CC is short, Bastion's is long" falls straight out of authoring

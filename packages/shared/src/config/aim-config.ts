@@ -35,8 +35,11 @@ export const AIM_CONFIG = {
    * the roster's fastest) over `magmablast`'s speed -- 600, not the 900 of its `range` field -- that
    * is `0.749 * distance` against a tolerance of about 28 units (half a car's 32 unit width plus
    * magmablast's 12 unit hitbox), so a full-speed crosser is only hittable inside roughly 37 units.
-   * `magmablast` now rides Mirage's own slot 1 (2026-09-02 loadout swap), so this is a car outrunning
-   * its own shell, not a hypothetical. Inheriting a 900 unit weapon range would make the far half of
+   * `magmablast` now rides Mirage's own slot 1 (2026-09-02 loadout swap), so the crosser this
+   * bounds is exactly what Mirage itself fights: something cutting across the shot's line at full
+   * speed, not a hypothetical -- the shell at 600 u/s is still faster than any car in the roster, so
+   * the miss is about lead, not the shell losing a race. Inheriting a 900 unit weapon range would
+   * make the far half of
    * every lock acquire reliably and miss reliably -- a strong-looking snap that whiffs, which reads
    * as a broken system rather than as a skill boundary.
    */
