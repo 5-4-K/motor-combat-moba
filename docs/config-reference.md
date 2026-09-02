@@ -713,6 +713,13 @@ skipping identity/shape fields — `id`, `name`, `kind`, `color`, the discrimina
 and `type`, and `drive.carWidth`/`carHeight` (the OBB hitbox model, out of tuning scope). Its output
 doubles as the server's validation whitelist, so a playground UI and the validator cannot drift apart.
 
+`packages/server/src/rooms/playground-bot.ts` carries the same dev-only shape one level up:
+`BOT_PROFILES` is a frozen `Record<BotDifficulty, BotProfile>` with three rows — `easy`, `medium`,
+`hard` — read only by `PlaygroundRoom` and never by `stepSim` or any release path. Its `hard` row is
+pinned by test to the exact six numbers the single pre-split bot shipped with, so replacing one
+relentless setting with three preserves today's behaviour by construction rather than by re-tuning
+(PG27).
+
 **Never called in production.** The only two call sites in the repo are
 `packages/server/src/rooms/PlaygroundRoom.ts` and `packages/client/src/dev/PlaygroundScene.ts` —
 both dev-only, gated behind `DEV_TOOLS=1` server-side and the `?dev=playground` dev tool client-side
@@ -720,7 +727,9 @@ both dev-only, gated behind `DEV_TOOLS=1` server-side and the `?dev=playground` 
 and every other suite run against the untouched defaults — their staying green is the proof the seam
 is inert in production. See
 [`docs/superpowers/specs/2026-09-01-playtest-playground-design.md`](superpowers/specs/2026-09-01-playtest-playground-design.md)
-(PG12–PG17, PG20) for the full design.
+(PG12–PG17, PG20) and
+[`docs/superpowers/specs/2026-09-02-playground-usability-and-bot-difficulty-design.md`](superpowers/specs/2026-09-02-playground-usability-and-bot-difficulty-design.md)
+(PG27–PG29) for the full design.
 
 ## Arena selection
 
