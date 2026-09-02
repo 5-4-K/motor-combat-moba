@@ -243,9 +243,10 @@ function chaseRamLock(): void {
       for (; t < ticks; t++) {
         const v = w.get("vic");
         // The victim drives its escape: full throttle up the open lane, steering to straighten —
-        // a P-controller on heading, which is also what counter-steers any injected spin.
+        // a bang-bang heading corrector (InputMessage.steer is the digital -1|0|1 a real client
+        // sends, not a continuous value), which is also what counter-steers any injected spin.
         w.input("atk", { throttle: 1 });
-        w.input("vic", { throttle: 1, steer: Math.max(-1, Math.min(1, -v.angle * 3)) });
+        w.input("vic", { throttle: 1, steer: v.angle > 0 ? -1 : v.angle < 0 ? 1 : 0 });
         w.tick();
         const shove = Math.hypot(w.get("vic").shoveX, w.get("vic").shoveY);
         // Knock only decays between impacts, so any rise is a fresh ram landing.

@@ -253,7 +253,7 @@ function spinningShooter(): void {
     { id: "t", carId: "bastion", x: 700, y: 360, angle: 0 },
   ]);
   w.get("s").angVel = 6; // the ram spin ceiling
-  const bit = slotBitFor("bullseye", "magmablast");
+  const bit = slotBitFor("bullseye", "predator");
   let anyNaN = false;
   let maxAngle = 0;
   for (let i = 0; i < 400; i++) {
@@ -301,7 +301,7 @@ function deadCarIsIntangible(): void {
     { id: "corpse", carId: "bastion", x: 450, y: 360, angle: 0, team: 0, hp: 1 },
     { id: "t", carId: "bastion", x: 700, y: 360, angle: 0, team: 0 },
   ]);
-  const bit = slotBitFor("bullseye", "magmablast");
+  const bit = slotBitFor("bullseye", "predator");
   // Kill the middle car first.
   for (let i = 0; i < 60; i++) {
     w.input("s", { fireSlots: bit });
@@ -336,7 +336,7 @@ function deadCarIsIntangible(): void {
   report(
     "W17. A dead car is intangible to shots and to driving",
     corpseDead && shotsPassed && !blocked ? "OK" : "FINDING",
-    `middle car killed: ${corpseDead}. The shooter then fired ${shotsFired} needles through where ` +
+    `middle car killed: ${corpseDead}. The shooter then fired ${shotsFired} shots through where ` +
       `it died and dealt ${dealt} to the car behind it — the corpse is ` +
       `${shotsPassed ? "not cover" : "acting as COVER"}.\n` +
       `Driving: a live car ran at the corpse and ended at x ${mover.get("m").x.toFixed(0)} ` +
