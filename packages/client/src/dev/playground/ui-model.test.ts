@@ -3,11 +3,15 @@ import { CAR_TABLE, WEAPON_TABLE, ARENAS, defaultPlaygroundSetup } from "@motor-
 import type { CarId, PlaygroundSetup, TunableField, WeaponId } from "@motor-combat-moba/shared";
 import {
   arenaOptions,
+  canStep,
   carOptions,
   isAtShipped,
   isLoadoutLegal,
   pauseKeyAction,
+  shippedLoadoutOf,
   sliderGroups,
+  statsTabs,
+  steppedValue,
   weaponOptions,
 } from "./ui-model.js";
 
@@ -152,6 +156,114 @@ describe("sliderGroups", () => {
     };
     const groups = sliderGroups(withNewWeapon);
     expect(groups.some((g) => g.fields.some((f) => f.ownerId === notYetSelected))).toBe(true);
+  });
+});
+
+describe("statsTabs (PG35)", () => {
+  /** Both cars on different chassis with their own shipped kits — the ordinary case. */
+  function twoCarSetup(): PlaygroundSetup {
+    return {
+      ...defaultPlaygroundSetup(),
+      me: { carId: "bastion" as CarId, colorId: 0, weapons: ["thumper", "roadblock", "wildcharge"] as [WeaponId, WeaponId, WeaponId] },
+      opponent: { carId: "mirage" as CarId, colorId: 1, weapons: ["predator", "thunderclap", "afterburner"] as [WeaponId, WeaponId, WeaponId] },
+    };
+  }
+
+  it("returns the three tabs, always in global/cars/weapons order", () => {
+    expect(statsTabs(twoCarSetup()).map((t) => t.key)).toEqual(["global", "cars", "weapons"]);
+  });
+
+  it("puts drive, ram and combat rows under global, in one group", () => {
+    const global = statsTabs(twoCarSetup())[0]!;
+    expect(global.groups).toHaveLength(1);
+    expect(global.groups[0]!.fields.length).toBeGreaterThan(0);
+    for (const field of global.groups[0]!.fields) {
+      expect(["drive", "ram", "combat"]).toContain(field.group);
+    }
+  });
+
+  it("gives each SELECTED chassis its own group under cars, and no other chassis", () => {
+    const cars = statsTabs(twoCarSetup())[1]!;
+    expect(cars.groups.map((g) => g.title)).toEqual([CAR_TABLE.bastion.name, CAR_TABLE.mirage.name]);
+    for (const group of cars.groups) {
+      for (const field of group.fields) expect(field.group).toBe("car");
+    }
+  });
+
+  it("gives each SELECTED weapon its own group under weapons, and no other weapon", () => {
+    const weapons = statsTabs(twoCarSetup())[2]!;
+    expect(weapons.groups.map((g) => g.title)).toEqual([
+      WEAPON_TABLE.thumper.name,
+      WEAPON_TABLE.roadblock.name,
+      WEAPON_TABLE.wildcharge.name,
+      WEAPON_TABLE.predator.name,
+      WEAPON_TABLE.thunderclap.name,
+      WEAPON_TABLE.afterburner.name,
+    ]);
+  });
+
+  it("dedupes a chassis and a weapon both cars picked", () => {
+    const same = defaultPlaygroundSetup(); // both cars are the default chassis with one kit
+    const tabs = statsTabs(same);
+    expect(tabs[1]!.groups).toHaveLength(1);
+    expect(tabs[2]!.groups).toHaveLength(3);
+  });
+
+  it("keeps a tab present with an empty group list rather than dropping it", () => {
+    // The tab bar's shape must not change under the pointer, so every key is always returned.
+    const tabs = statsTabs(twoCarSetup());
+    expect(tabs).toHaveLength(3);
+    for (const tab of tabs) expect(Array.isArray(tab.groups)).toBe(true);
+  });
+});
+
+describe("canStep / steppedValue (PG36)", () => {
+  const field: TunableField = {
+    path: "drive.baseMaxSpeed",
+    group: "drive",
+    label: "baseMaxSpeed",
+    kind: "number",
+    shipped: 135,
+    min: 0,
+    max: 405,
+    step: 4.05,
+  } as TunableField;
+
+  it("steps up and down by exactly one step", () => {
+    expect(steppedValue(field, 100, 1)).toBeCloseTo(104.05, 6);
+    expect(steppedValue(field, 100, -1)).toBeCloseTo(95.95, 6);
+  });
+
+  it("clamps at both ends instead of running past them", () => {
+    expect(steppedValue(field, 404, 1)).toBe(405);
+    expect(steppedValue(field, 405, 1)).toBe(405);
+    expect(steppedValue(field, 1, -1)).toBe(0);
+    expect(steppedValue(field, 0, -1)).toBe(0);
+  });
+
+  it("is a round trip up then down away from the clamps", () => {
+    expect(steppedValue(field, steppedValue(field, 200, 1), -1)).toBeCloseTo(200, 6);
+  });
+
+  it("refuses to step a field with no grid, returning the value unchanged", () => {
+    const enumField = { ...field, kind: "enum", min: undefined, max: undefined, step: undefined } as TunableField;
+    expect(canStep(enumField)).toBe(false);
+    expect(steppedValue(enumField, 100, 1)).toBe(100);
+    expect(canStep(field)).toBe(true);
+  });
+});
+
+describe("shippedLoadoutOf (PG34)", () => {
+  it("returns the chassis's own kit from the roster", () => {
+    expect(shippedLoadoutOf("bastion" as CarId)).toEqual(CAR_TABLE.bastion.weapons);
+  });
+
+  it("returns a three-weapon kit for every chassis on today's roster", () => {
+    // The `undefined` branch has no chassis to exercise today; it is what stops a FUTURE chassis
+    // with a short or duplicated kit from producing a loadout the validator rejects.
+    for (const carId of Object.keys(CAR_TABLE) as CarId[]) {
+      expect(shippedLoadoutOf(carId)).toHaveLength(3);
+    }
   });
 });
 

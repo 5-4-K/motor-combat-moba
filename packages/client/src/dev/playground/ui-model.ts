@@ -1,5 +1,5 @@
 import type { CarId, PlaygroundSetup, TunableField, TuningValue, WeaponId } from "@motor-combat-moba/shared";
-import { ARENAS, CAR_TABLE, WEAPON_TABLE, tunableFields } from "@motor-combat-moba/shared";
+import { ARENAS, CAR_TABLE, WEAPON_TABLE, slotsOf, tunableFields } from "@motor-combat-moba/shared";
 
 /**
  * Pure derivations for the playground overlay (Task 10, spec PG16/PG19). `overlay.ts` is the thin,
@@ -90,6 +90,108 @@ export function sliderGroups(setup: PlaygroundSetup): { title: string; fields: T
   }
 
   return groups;
+}
+
+export type StatsTabKey = "global" | "cars" | "weapons";
+
+export interface StatsGroup {
+  title: string;
+  fields: TunableField[];
+}
+
+export interface StatsTab {
+  key: StatsTabKey;
+  title: string;
+  groups: StatsGroup[];
+}
+
+/**
+ * The Stats area's three tabs (PG35), replacing the single flat scroll `sliderGroups` produced.
+ *
+ * The FILTER is unchanged from that function and from spec PG13: only what is actually on the field
+ * is tunable — the one or two selected chassis, the up-to-six selected weapons, and the global
+ * drive/ram/combat rows. Tuning a chassis that is not spawned changes nothing observable, so
+ * widening this would only lengthen the scroll.
+ *
+ * All three tabs are ALWAYS returned, in this order, even when a tab's group list is empty: the tab
+ * bar's shape must not change under the pointer. Row order within a group, and group order within a
+ * tab, follow `tunableFields()`'s own order, since this only filters and never re-sorts.
+ */
+export function statsTabs(setup: PlaygroundSetup): StatsTab[] {
+  const fields = tunableFields();
+
+  const carIds = [...new Set([setup.me.carId, setup.opponent.carId])];
+  const carGroups: StatsGroup[] = [];
+  for (const carId of carIds) {
+    const carFields = fields.filter((f) => f.group === "car" && f.ownerId === carId);
+    if (carFields.length > 0) carGroups.push({ title: CAR_TABLE[carId].name, fields: carFields });
+  }
+
+  const weaponIds = [...new Set([...setup.me.weapons, ...setup.opponent.weapons])];
+  const weaponGroups: StatsGroup[] = [];
+  for (const weaponId of weaponIds) {
+    const weaponFields = fields.filter((f) => f.group === "weapon" && f.ownerId === weaponId);
+    if (weaponFields.length > 0) {
+      weaponGroups.push({ title: WEAPON_TABLE[weaponId].name, fields: weaponFields });
+    }
+  }
+
+  return [
+    {
+      key: "global",
+      title: "Global",
+      groups: [
+        {
+          title: "Global",
+          fields: fields.filter(
+            (f) => f.group === "drive" || f.group === "ram" || f.group === "combat",
+          ),
+        },
+      ],
+    },
+    { key: "cars", title: "Cars", groups: carGroups },
+    { key: "weapons", title: "Weapons", groups: weaponGroups },
+  ];
+}
+
+/**
+ * Can this row's value be nudged a step at a time (PG36)? Only a `number` row with a full
+ * `min`/`max`/`step` grid — all three are optional on `TunableField`, and a boolean or enum row has
+ * nothing to step. The overlay omits the buttons entirely when this is false, rather than rendering
+ * a pair that does nothing.
+ */
+export function canStep(field: TunableField): boolean {
+  return (
+    field.kind === "number" &&
+    typeof field.min === "number" &&
+    typeof field.max === "number" &&
+    typeof field.step === "number" &&
+    field.step > 0
+  );
+}
+
+/**
+ * `current` moved one `step` in `direction`, clamped into `[min, max]` (PG36).
+ *
+ * The caller passes the range input's CURRENT value — already snapped by the browser to the
+ * `min`/`step` grid — rather than a float the buttons track themselves, which is what makes
+ * up-then-down a round trip instead of a slow drift. Returns `current` untouched for a row that
+ * `canStep` rejects.
+ */
+export function steppedValue(field: TunableField, current: number, direction: 1 | -1): number {
+  if (!canStep(field)) return current;
+  const next = current + direction * field.step!;
+  return Math.min(field.max!, Math.max(field.min!, next));
+}
+
+/**
+ * A chassis's shipped kit (PG34) — what the "restore loadout" button beside each car select writes.
+ * `undefined` when the kit is not three distinct weapons, so a future chassis with a short or
+ * duplicated kit disables the button rather than producing a loadout `isPlaygroundSetup` rejects.
+ */
+export function shippedLoadoutOf(carId: CarId): [WeaponId, WeaponId, WeaponId] | undefined {
+  const kit = slotsOf(carId);
+  return isLoadoutLegal(kit) ? [kit[0], kit[1], kit[2]] : undefined;
 }
 
 /**
