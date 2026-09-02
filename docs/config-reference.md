@@ -138,7 +138,7 @@ once, at shared's module load, into the frozen `WEAPON_TICKS` the sim actually r
 
 | id | kind | damage | damageFrequencyMs | speed | range | cooldownMs | startUpMs | recoveryMs | stock | pierce | volley (volleys / intervalMs) | pellets (perVolley / spreadDeg) | attached | lifetimeMs | hitbox | unlocksAt | usesAimAssist | color |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `predator` | projectile | 25 | 0 | 900 | 1800 (no real range — speed × 2000 ms lifetime; see below) | 1000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | 2000 | capsule, along 14 / across 6 (homing: proximity acquire, 200u radius, 300°/s) | 1 | true | `#606060` |
+| `predator` | projectile | 30 | 0 | 900 | 1800 (no real range — speed × 2000 ms lifetime; see below) | 1000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | 2000 | capsule, along 14 / across 6 (homing: proximity acquire, 200u radius, 300°/s) | 1 | true | `#606060` |
 | `thunderclap` | maneuver (dash) | 90 | 0 | 1600 (dash speed) | 400 (dash distance) | 5000 | 0 | 200 | — | — | 1 / 0 | — | — | — | — | 1 | true | `#3ED1FA` |
 | `afterburner` | beam | 49 | 500 | 1100 | 220 | 13000 | 0 | 200 | — | — | 1 / 0 | — | true | 2000 | cone, 55° (muzzles `[0, 180]`) | 1 | false | `#FF9000` |
 | `magmablast` | projectile | 50 | 0 | 600 | 900 | 1600 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | circle, radius 12 (explosion on death: 60u disc, +15 splash, 150 ms linger, corrodes 2s; see below) | 1 | true | `#FF6000` |
@@ -221,14 +221,14 @@ target takes. `afterburner` on Mirage is `damageFor(63, 49)` per 500 ms pulse, n
 once.
 
 `predator`'s numbers moved with the 2026-09-02 predator/magmablast pass, along with its chassis, and
-its cooldown moved again afterwards: 25 base damage on a **1000 ms** cooldown is 25 DPS sustained
-before attack scaling — `damageFor(55, 25)` on Bullseye, its only carrier, rounds to 26 per hit, 26
-DPS sustained. That is no longer the roster's highest; `pepperbox`'s 75 per-target DPS leads by a wide
-margin, and `magmablast` outpaces it too. The shot also has no lasting reach: it lives 2000 ms and
-then it is gone, and it has to acquire a target within 200 u of itself to matter at all (see
-`HomingDef.acquire` above). `roadblock`'s 100 and `thumper`'s 60 are Bastion's pressure pair — a fat, near-unmissable
-slug and a bouncing skirmish shot — while `wildcharge`'s 250 is priced as a one-hit finisher for a
-10-second commitment, not a sustained-DPS number at all.
+its cooldown and damage moved again afterwards: 30 base damage on a **1000 ms** cooldown is 30 DPS
+sustained before attack scaling — `damageFor(55, 30)` on Bullseye, its only carrier, rounds to 32
+per hit, 32 DPS sustained. That is no longer the roster's highest; `pepperbox`'s 75 per-target DPS
+leads by a wide margin, and `magmablast` outpaces it too. The shot also has no lasting reach: it
+lives 2000 ms and then it is gone, and it has to acquire a target within 200 u of itself to matter
+at all (see `HomingDef.acquire` above). `roadblock`'s 100 and `thumper`'s 60 are Bastion's pressure
+pair — a fat, near-unmissable slug and a bouncing skirmish shot — while `wildcharge`'s 250 is
+priced as a one-hit finisher for a 10-second commitment, not a sustained-DPS number at all.
 
 `color` is render-only, like `name`: it is the fill every live instance of that weapon draws in, per
 **weapon** rather than per player, so two cars carrying `predator` fire identically coloured shots

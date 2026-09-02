@@ -52,7 +52,7 @@ export const WEAPON_TABLE = {
     // with this and lays the icon's red nose stripe across the middle as a band.
     color: "#606060",
     unlocksAt: 1,
-    damage: 25,
+    damage: 30,
     damageFrequencyMs: 0,
     speed: 900,
     range: 1800, // = speed x lifetimeMs; see the comment above for why this is authored at all
