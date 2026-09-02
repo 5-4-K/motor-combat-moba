@@ -30,14 +30,17 @@ import { button, h } from "../../ui/dom.js";
 import { loadStored, saveStored } from "./storage.js";
 import {
   arenaOptions,
+  canStep,
   carOptions,
   isAtShipped,
   isLoadoutLegal,
   pauseKeyAction,
   shippedLoadoutOf,
-  sliderGroups,
+  statsTabs,
+  steppedValue,
   weaponOptions,
   type OverlayView,
+  type StatsTabKey,
 } from "./ui-model.js";
 
 /**
@@ -257,6 +260,37 @@ const CSS = `
   border-radius: 4px;
   font-family: monospace;
   font-size: 11px;
+}
+.pg-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 14px 0 4px;
+  border-bottom: 1px solid #333;
+}
+.pg-tabs button {
+  flex: 1;
+  width: auto;
+  margin: 0;
+  border-radius: 4px 4px 0 0;
+  border-bottom: none;
+  font-size: 13px;
+}
+.pg-tabs button.pg-tab-active {
+  background: #3a4048;
+  color: #ffffff;
+}
+.pg-tab-empty {
+  margin: 10px 0;
+  font-size: 12px;
+  color: #6f757c;
+}
+.pg-stat-row .pg-step {
+  flex: 0 0 auto;
+  width: auto;
+  margin: 0;
+  padding: 1px 6px;
+  font-size: 12px;
+  line-height: 1.2;
 }
 `;
 
@@ -511,13 +545,18 @@ export function mountPlaygroundOverlay(
     ];
     for (const el of controls) el.addEventListener("change", () => evaluate(true));
 
-    // The car/weapon selects also decide which sections `sliderGroups` draws (spec PG13) -- rebuild
+    // The car/weapon selects also decide which sections `statsTabs` draws (spec PG13) -- rebuild
     // the Stats area on exactly those, on top of the `evaluate(true)` every control already gets above.
     for (const el of [meCarSelect, oppCarSelect, ...meWeaponSelects, ...oppWeaponSelects]) {
       el.addEventListener("change", () => renderStats());
     }
 
     const statsContainer = h("div", { class: "pg-stats" });
+
+    /** Which stats tab is showing (PG35). Local to this settings session and NOT persisted: it opens
+     * on Global every time, and `renderStats` preserves it across a car/weapon change. */
+    let activeTab: StatsTabKey = "global";
+    const tabBar = h("div", { class: "pg-tabs" });
 
     /** One slider/checkbox/select row for `field`, wired straight into the shared `overrides` map:
      * the map holds an entry iff the control's live value differs from `field.shipped` by more than
@@ -590,6 +629,24 @@ export function mountPlaygroundOverlay(
       }
       control.addEventListener(field.kind === "number" ? "input" : "change", onEdit);
 
+      /** Nudge by one `field.step`, clamped, then run the ordinary edit path (PG36) so the
+       * `isAtShipped` tolerance, the readout and the localStorage save all behave as a drag's do.
+       * Reads the control's CURRENT value — already snapped by the browser to the min/step grid —
+       * rather than tracking a float here, which is what makes up-then-down a round trip. */
+      function stepBy(direction: 1 | -1): void {
+        const value = readValue();
+        if (typeof value !== "number") return;
+        applyValue(steppedValue(field, value, direction));
+        onEdit();
+      }
+
+      const steppers = canStep(field)
+        ? [
+            button({ class: "pg-step", title: "One step down" }, ["−"], () => stepBy(-1)),
+            button({ class: "pg-step", title: "One step up" }, ["+"], () => stepBy(1)),
+          ]
+        : [];
+
       const resetBtn = button({ class: "pg-reset", title: "Reset to shipped" }, ["↺"], () => {
         snapToShipped();
         persist();
@@ -597,21 +654,42 @@ export function mountPlaygroundOverlay(
 
       return h("div", { class: "pg-row pg-stat-row" }, [
         h("label", { title: path }, [`${field.label} (shipped ${String(field.shipped)})`]),
+        steppers[0] ?? null,
         control,
+        steppers[1] ?? null,
         valueSpan,
         resetBtn,
       ]);
     }
 
-    /** Rebuilds the whole Stats area from `sliderGroups(readSetup())` -- the section list depends on
-     * which cars/weapons are currently selected (spec PG13), so this is called both once up front and
-     * again whenever a car/weapon select changes. Never called mid-drag of a range input: that would
-     * tear down the very element the pointer has captured. */
+    /** Rebuilds the tab bar and the active tab's rows from `statsTabs(readSetup())` — the sections
+     * depend on which cars/weapons are selected (PG13/PG35), so this runs once up front and again
+     * whenever a car or weapon select changes. Never called mid-drag of a range input: that would
+     * tear down the element the pointer has captured. */
     function renderStats(): void {
+      const tabs = statsTabs(readSetup());
+
+      tabBar.replaceChildren();
+      for (const tab of tabs) {
+        const btn = button({ class: tab.key === activeTab ? "pg-tab-active" : "" }, [tab.title], () => {
+          activeTab = tab.key;
+          renderStats();
+        });
+        tabBar.appendChild(btn);
+      }
+
       statsContainer.replaceChildren();
-      for (const group of sliderGroups(readSetup())) {
+      const current = tabs.find((tab) => tab.key === activeTab) ?? tabs[0]!;
+      if (current.groups.length === 0) {
+        statsContainer.appendChild(h("div", { class: "pg-tab-empty" }, ["Nothing selected."]));
+        return;
+      }
+      for (const group of current.groups) {
         statsContainer.appendChild(
-          h("div", { class: "pg-stat-group" }, [h("h3", {}, [group.title]), ...group.fields.map(fieldRow)]),
+          h("div", { class: "pg-stat-group" }, [
+            h("h3", {}, [group.title]),
+            ...group.fields.map(fieldRow),
+          ]),
         );
       }
     }
@@ -721,6 +799,7 @@ export function mountPlaygroundOverlay(
       carRow("Opponent car", oppCarSelect, oppColorSelect, oppRestoreBtn),
       row("Opponent loadout", oppLoadoutRow),
       h("div", { class: "pg-stats-toolbar" }, [resetAllBtn, copyBtn]),
+      tabBar,
       statsContainer,
     ]);
   }

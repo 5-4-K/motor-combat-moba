@@ -59,39 +59,6 @@ export function isLoadoutLegal(
   return weapons.length === 3 && new Set(weapons).size === 3;
 }
 
-/**
- * Groups `tunableFields()`'s flat list into the sections the Task 11 Stats area draws (spec PG13):
- * one section per SELECTED chassis (`setup.me.carId`/`setup.opponent.carId`, deduped when both cars
- * picked the same one), a single "Global" section holding every drive/ram/combat field, and one
- * section per SELECTED weapon (the union of both loadouts, deduped). Every other field --
- * an unselected car's or weapon's rows -- is filtered out entirely; the playground only ever tunes
- * what's actually on the field. Row order within a section, and section order overall (car, Global,
- * weapon), follows `tunableFields()`'s own order since this only filters, never re-sorts.
- */
-export function sliderGroups(setup: PlaygroundSetup): { title: string; fields: TunableField[] }[] {
-  const fields = tunableFields();
-  const groups: { title: string; fields: TunableField[] }[] = [];
-
-  const carIds = [...new Set([setup.me.carId, setup.opponent.carId])];
-  for (const carId of carIds) {
-    const carFields = fields.filter((f) => f.group === "car" && f.ownerId === carId);
-    if (carFields.length > 0) groups.push({ title: CAR_TABLE[carId].name, fields: carFields });
-  }
-
-  groups.push({
-    title: "Global",
-    fields: fields.filter((f) => f.group === "drive" || f.group === "ram" || f.group === "combat"),
-  });
-
-  const weaponIds = [...new Set([...setup.me.weapons, ...setup.opponent.weapons])];
-  for (const weaponId of weaponIds) {
-    const weaponFields = fields.filter((f) => f.group === "weapon" && f.ownerId === weaponId);
-    if (weaponFields.length > 0) groups.push({ title: WEAPON_TABLE[weaponId].name, fields: weaponFields });
-  }
-
-  return groups;
-}
-
 export type StatsTabKey = "global" | "cars" | "weapons";
 
 export interface StatsGroup {
@@ -106,12 +73,12 @@ export interface StatsTab {
 }
 
 /**
- * The Stats area's three tabs (PG35), replacing the single flat scroll `sliderGroups` produced.
+ * The Stats area's three tabs (PG35), replacing the single flat scroll the panel used to render.
  *
- * The FILTER is unchanged from that function and from spec PG13: only what is actually on the field
- * is tunable — the one or two selected chassis, the up-to-six selected weapons, and the global
- * drive/ram/combat rows. Tuning a chassis that is not spawned changes nothing observable, so
- * widening this would only lengthen the scroll.
+ * The FILTER is unchanged from spec PG13: only what is actually on the field is tunable — the one
+ * or two selected chassis, the up-to-six selected weapons, and the global drive/ram/combat rows.
+ * Tuning a chassis that is not spawned changes nothing observable, so widening this would only
+ * lengthen the scroll.
  *
  * All three tabs are ALWAYS returned, in this order, even when a tab's group list is empty: the tab
  * bar's shape must not change under the pointer. Row order within a group, and group order within a
