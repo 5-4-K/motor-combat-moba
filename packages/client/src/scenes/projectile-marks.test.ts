@@ -47,7 +47,7 @@ const styled = Object.keys(WEAPON_PROJECTILE_STYLES) as WeaponId[];
 const ANGLES = [0, 0.4, Math.PI / 2, 2.1, Math.PI, -1.3];
 
 function instanceAt(weaponId: WeaponId, angle: number): DrawableInstance {
-  return { weaponId, x: 500, y: 300, angle, extent: 0 };
+  return { weaponId, isExplosion: false, x: 500, y: 300, angle, extent: 0 };
 }
 
 describe("projectile markings", () => {
@@ -104,7 +104,10 @@ describe("projectile markings", () => {
       expect(projectileDrawLayers(instanceAt(id, 0.5), 0)).toEqual([]);
     }
     expect(
-      projectileDrawLayers({ weaponId: "not-a-weapon", x: 0, y: 0, angle: 0, extent: 0 }, 0),
+      projectileDrawLayers(
+        { weaponId: "not-a-weapon", isExplosion: false, x: 0, y: 0, angle: 0, extent: 0 },
+        0,
+      ),
     ).toEqual([]);
   });
 

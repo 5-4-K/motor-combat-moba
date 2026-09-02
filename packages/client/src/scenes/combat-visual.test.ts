@@ -21,11 +21,13 @@ import {
   chargeOrbBands,
   instanceDrawShape,
   instanceGlowBands,
+  isAuraInstance,
   WEAPON_BEAM_STYLES,
   lockBracketArms,
   LOCK_BRACKET_HALF,
   SHOW_LOCK_BRACKET,
   weaponFillOf,
+  type DrawableInstance,
 } from "./combat-visual.js";
 
 describe("hpFraction", () => {
@@ -185,7 +187,7 @@ describe("extrapolateShot", () => {
 });
 
 describe("instance drawing", () => {
-  const projectile = { weaponId: "magmablast", x: 100, y: 100, angle: 0, extent: 0 };
+  const projectile = { weaponId: "magmablast", isExplosion: false, x: 100, y: 100, angle: 0, extent: 0 };
 
   it("extrapolates a projectile along its own heading between patches", () => {
     const still = instanceDrawShape(projectile, 0);
@@ -208,7 +210,15 @@ describe("instance drawing", () => {
     // byte and got a polygon two of whose three vertices were NaN — `beamShapeAt` reading
     // `angleDeg` off a circle — and asserted only `kind === "polygon"`, so it passed on garbage.
     // `beamShapeAt`'s own rect/cone geometry is covered in shared's `shapes.test.ts`.
-    const claimingBeam = { weaponId: "magmablast", kind: WeaponKind.BEAM, x: 100, y: 100, angle: 0, extent: 200 };
+    const claimingBeam = {
+      weaponId: "magmablast",
+      isExplosion: false,
+      kind: WeaponKind.BEAM,
+      x: 100,
+      y: 100,
+      angle: 0,
+      extent: 200,
+    };
     const shape = instanceDrawShape(claimingBeam, 0);
     expect(shape.kind).toBe("circle");
     if (shape.kind !== "circle") throw new Error("circle expected");
@@ -218,6 +228,23 @@ describe("instance drawing", () => {
   it("falls back to a small dot for an unrecognised weapon id rather than blanking the layer", () => {
     const shape = instanceDrawShape({ ...projectile, weaponId: "not-a-weapon" }, 0);
     expect(shape.kind).toBe("circle");
+  });
+
+  it("draws a magmablast burst as its disc, not as the shell's dart", () => {
+    const burst: DrawableInstance = {
+      weaponId: "magmablast", isExplosion: true, x: 100, y: 100, angle: 0, extent: 60,
+    };
+    const shape = instanceDrawShape(burst, 0);
+    expect(shape.kind).toBe("circle");
+    expect(shape).toMatchObject({ x: 100, y: 100, radius: 60 });
+    expect(isAuraInstance(burst)).toBe(true);
+  });
+
+  it("still draws the shell as a projectile", () => {
+    const shell: DrawableInstance = {
+      weaponId: "magmablast", isExplosion: false, x: 100, y: 100, angle: 0, extent: 0,
+    };
+    expect(isAuraInstance(shell)).toBe(false);
   });
 });
 
@@ -370,8 +397,10 @@ describe("beamDrawLayers", () => {
   it("returns nothing for a projectile, so a mis-branched caller falls back rather than throwing", () => {
     // `magmablast` used to be a disc-hitbox aura here; it was redefined into a plain circular
     // projectile by the 2026-09-01 roster cutover, so it now proves this branch (not a beam) rather
-    // than the disc-specific refusal `beamDrawLayers` still carries for whichever weapon next ships
-    // one (see the "disc has no cross-section" comment beside that early return).
+    // than the disc-specific refusal `beamDrawLayers` still carries. A disc hitbox ships again as of
+    // the magmablast explosion mechanic — but as a BURST instance, reached through `isAuraInstance`
+    // (which resolves the def via `instanceDefOf`), never through this function: `beamDrawLayers`
+    // takes a bare `weaponId`, and magmablast's own row is still this projectile.
     expect(beamDrawLayers("magmablast", 0, 0, 0, 100, 0)).toEqual([]);
     expect(beamDrawLayers("not-a-weapon", 0, 0, 0, 100, 0)).toEqual([]);
   });
@@ -665,5 +694,24 @@ describe("beamFadeAlpha", () => {
     for (let tick = SPAWN; tick < SPAWN + 200; tick += 7) {
       expect(beamFadeAlpha(WeaponKind.BEAM, "not-a-weapon", SPAWN, tick)).toBe(1);
     }
+  });
+
+  it("fades a magmablast burst using the explosion's own linger, not the shell's flight", () => {
+    // `magmablast`'s own ticks report `lifetime: 0` (it is a projectile row), so resolving ticks by
+    // bare `weaponId` alone — ignoring `isExplosion` — makes `lifetime <= 0` true and the function
+    // return 1 unconditionally: a burst that never fades. The fifth argument routes it to
+    // `WeaponTicks.explosion` instead, the same table `instanceExpired` uses for a burst's own
+    // death tick.
+    const ticks = weaponTicksOf("magmablast");
+    const burstDeath = SPAWN + ticks.explosion!.flight + ticks.explosion!.lifetime;
+    expect(beamFadeAlpha(WeaponKind.BEAM, "magmablast", SPAWN, SPAWN, true)).toBe(1);
+    expect(
+      beamFadeAlpha(WeaponKind.BEAM, "magmablast", SPAWN, burstDeath - 1, true),
+    ).toBeGreaterThan(0);
+    expect(beamFadeAlpha(WeaponKind.BEAM, "magmablast", SPAWN, burstDeath, true)).toBe(0);
+  });
+
+  it("defaults isExplosion to false, so every existing caller keeps its shell-row behaviour", () => {
+    expect(beamFadeAlpha(WeaponKind.PROJECTILE, "magmablast", SPAWN, SPAWN)).toBe(1);
   });
 });
