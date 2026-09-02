@@ -1,5 +1,5 @@
 import { DRIVE_CONFIG } from "../../config/drive-config.js";
-import { weaponDefOf } from "../../config/weapon-config.js";
+import { instanceDefOf, weaponDefOf } from "../../config/weapon-config.js";
 import { msToTicks, weaponTicksOf } from "../../config/weapon-ticks.js";
 import type { WeaponDef, WeaponId } from "../../config/weapon-types.js";
 import { pointInAabb, pointOutsideBounds, type Aabb, type Bounds } from "../collide.js";
@@ -84,6 +84,13 @@ export interface WeaponInstance {
    * ever. Not limited to bouncing rows — `predator` uses this without bouncing at all.
    */
   expiresAtTick: number;
+  /**
+   * This instance is its weapon's EXPLOSION, not its shell (spec P22-P27). Frozen at spawn.
+   *
+   * It carries the parent's `weaponId`, so this flag is the only thing separating the two, and
+   * every def lookup for a live instance must go through `instanceDefOf` rather than `weaponDefOf`.
+   */
+  isExplosion: boolean;
 }
 
 /** One group of instances to emit: which weapon, from which slot. */
@@ -240,6 +247,7 @@ export function spawnInstances(
         homingTargetId: homingTarget,
         homingUntilTick: homingUntil,
         expiresAtTick: expiresAt,
+        isExplosion: false,
       });
     }
   }
@@ -256,7 +264,7 @@ export function spawnInstances(
 export function stepInstance(
   instance: WeaponInstance,
   ctx: StepInstanceContext,
-  def: WeaponDef = weaponDefOf(instance.weaponId),
+  def: WeaponDef = instanceDefOf(instance.weaponId, instance.isExplosion),
 ): WeaponInstance {
   // `WeaponInstance.kind` excludes "maneuver" — a maneuver spawns no instance (Task 10) — so this
   // narrows `def` the same way, and every read below it is only ever projectile or beam.
@@ -345,14 +353,17 @@ export function stepInstance(
 export function instanceExpired(
   instance: WeaponInstance,
   tick: number,
-  def: WeaponDef = weaponDefOf(instance.weaponId),
+  def: WeaponDef = instanceDefOf(instance.weaponId, instance.isExplosion),
 ): boolean {
   if (instance.kind === "projectile") {
     if (instance.expiresAtTick > 0) return tick >= instance.expiresAtTick;
     return instance.distance >= def.range;
   }
   const ticks = weaponTicksOf(instance.weaponId);
-  return tick - instance.spawnTick >= ticks.flight + ticks.lifetime;
+  const life = instance.isExplosion
+    ? ticks.explosion!.flight + ticks.explosion!.lifetime
+    : ticks.flight + ticks.lifetime;
+  return tick - instance.spawnTick >= life;
 }
 
 /**

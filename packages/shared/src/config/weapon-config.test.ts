@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CAR_TABLE } from "./car-config.js";
 import { COLOR_TABLE } from "./color-config.js";
 import type { CarId } from "./types.js";
+import type { StatusId } from "./status-types.js";
 import { WEAPON_TABLE, instanceDefOf, isWeaponId, weaponDefOf } from "./weapon-config.js";
 import { slotsOf } from "./weapon-slots.js";
 import type { WeaponDef } from "./weapon-types.js";
@@ -9,7 +10,7 @@ import { AIM_CONFIG } from "./aim-config.js";
 
 describe("WEAPON_TABLE", () => {
   it("pins the overhaul roster's load-bearing numbers (spec 2026-09-01)", () => {
-    expect(WEAPON_TABLE.magmablast).toMatchObject({ damage: 22, cooldownMs: 600, speed: 900, range: 900 });
+    expect(WEAPON_TABLE.magmablast).toMatchObject({ damage: 50, cooldownMs: 1000, speed: 600, range: 900 });
     expect(WEAPON_TABLE.predator.homing).toEqual({
       acquire: "proximity",
       acquireRadius: 200,
@@ -340,7 +341,7 @@ describe("WEAPON_TABLE", () => {
     const sw = WEAPON_TABLE.magmablast;
     if (sw.kind !== "projectile") throw new Error("magmablast must be a projectile now");
     expect(sw.volley).toEqual({ volleys: 1, volleyIntervalMs: 0 });
-    expect(sw.damage).toBe(22);
+    expect(sw.damage).toBe(50);
     expect(sw.applies).toBeUndefined();
   });
 
@@ -394,9 +395,14 @@ describe("WEAPON_TABLE", () => {
   });
 
   it("keeps every status in the table reachable from some weapon", () => {
-    const applied = new Set(
-      Object.values(WEAPON_TABLE).flatMap((d) => (d.applies ?? []).map((a) => a.statusId)),
-    );
+    const applied = new Set<StatusId>();
+    for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
+      for (const a of def.applies ?? []) applied.add(a.statusId);
+      // An explosion's statuses are reachable too — corroded's only source since 2026-09-02.
+      if (def.kind === "projectile") {
+        for (const a of def.explosion?.applies ?? []) applied.add(a.statusId);
+      }
+    }
     for (const id of ["overheated", "corroded", "stunned", "spiked", "fortified"] as const) {
       expect(applied.has(id)).toBe(true);
     }

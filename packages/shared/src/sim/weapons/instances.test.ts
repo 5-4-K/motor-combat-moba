@@ -118,8 +118,8 @@ describe("projectile flight", () => {
   it("moves along its own frozen heading and accumulates distance", () => {
     const { instances } = spawnInstances({ weaponId: "magmablast", slot: 0, finalVolley: true }, owner, 100, 0);
     const stepped = stepInstance(instances[0]!, ctx());
-    expect(stepped.x).toBeCloseTo(instances[0]!.x + 900 * DT);
-    expect(stepped.distance).toBeCloseTo(900 * DT);
+    expect(stepped.x).toBeCloseTo(instances[0]!.x + WEAPON_TABLE.magmablast.speed * DT);
+    expect(stepped.distance).toBeCloseTo(WEAPON_TABLE.magmablast.speed * DT);
   });
 
   it("ignores the owner's pose, even when the owner turns", () => {
@@ -149,14 +149,13 @@ describe("projectile flight", () => {
 
 describe("beam growth and expiry", () => {
   /**
-   * These hand-build a `kind: "beam"` instance over `magmablast`'s numbers — 900 u/s across a
-   * 900-unit range, the same flight profile `fireball` shipped and `magmablast` deliberately
-   * inherited (2026-09-01 overhaul) — exactly as `combat.test.ts` does for the ownership gate.
-   * `stepInstance`'s beam branch reads only `def.range`/`def.speed` and `instanceExpired`'s only
-   * `flight`/`lifetime`, so borrowing a projectile's row exercises the real branches with real
-   * numbers. The one thing it cannot show is a non-zero linger: `magmablast` has none, so the expiry
-   * below is `flight` alone — asserted through `weaponTicksOf` rather than a literal, so it moves
-   * with the def the day a real beam ships one.
+   * These hand-build a `kind: "beam"` instance over `magmablast`'s numbers — 600 u/s across a
+   * 900-unit range as of the 2026-09-02 detonation pass — exactly as `combat.test.ts` does for the
+   * ownership gate. `stepInstance`'s beam branch reads only `def.range`/`def.speed` and
+   * `instanceExpired`'s only `flight`/`lifetime`, so borrowing a projectile's row exercises the real
+   * branches with real numbers. The one thing it cannot show is a non-zero linger: the shell itself
+   * (as opposed to its burst) has none, so the expiry below is `flight` alone — asserted through
+   * `weaponTicksOf` rather than a literal, so it moves with the def the day a real beam ships one.
    */
   const beam = (over: Partial<WeaponInstance> = {}): WeaponInstance => ({
     id: "b1",
@@ -188,8 +187,8 @@ describe("beam growth and expiry", () => {
 
   it("grows from the muzzle at its own speed, a tick at a time", () => {
     const first = stepInstance(beam(), ctx({ bounds: ROOMY }));
-    expect(first.extent).toBeCloseTo(900 * DT);
-    expect(stepInstance(first, ctx({ bounds: ROOMY })).extent).toBeCloseTo(900 * DT * 2);
+    expect(first.extent).toBeCloseTo(WEAPON_TABLE.magmablast.speed * DT);
+    expect(stepInstance(first, ctx({ bounds: ROOMY })).extent).toBeCloseTo(WEAPON_TABLE.magmablast.speed * DT * 2);
   });
 
   it("holds at full range rather than growing past it", () => {

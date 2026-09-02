@@ -21,16 +21,16 @@ describe("msToTicks", () => {
 describe("WEAPON_TICKS", () => {
   it("derives magmablast's clocks from its milliseconds", () => {
     const ticks = weaponTicksOf("magmablast");
-    // 600ms at 30Hz is exactly 18 ticks.
-    expect(ticks.cooldown).toBe(18);
+    // 1000ms at 30Hz is exactly 30 ticks.
+    expect(ticks.cooldown).toBe(30);
     expect(ticks.startUp).toBe(0);
     expect(ticks.recovery).toBe(0);
     expect(ticks.refireDelay).toBe(0); // no stock block
   });
 
   it("derives flight ticks from range and speed", () => {
-    // 900 units at 900 u/s = 1s = 30 ticks.
-    expect(weaponTicksOf("magmablast").flight).toBe(30);
+    // 900 units at 600 u/s = 1.5s = 45 ticks.
+    expect(weaponTicksOf("magmablast").flight).toBe(45);
   });
 
   it("maps damageFrequencyMs 0 to Infinity, meaning one hit per target ever", () => {

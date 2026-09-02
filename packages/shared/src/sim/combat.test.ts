@@ -102,6 +102,18 @@ function find(result: { players: CombatPlayer[] }, sessionId: string): CombatPla
   return found;
 }
 
+/**
+ * Is the shell instance built by this file's `flying`/`aimedAt` helpers (always id "p1") gone from
+ * the result? Since Task 5 (2026-09-02) any of magmablast's own removals also leaves a fresh burst
+ * instance behind (spec P13), so `result.instances` is no longer necessarily empty once a hand-built
+ * magmablast shell dies. Asserting on the shell's own id, rather than the array's length, keeps
+ * these generic shot-removal tests about REMOVAL without re-asserting the detonation behaviour that
+ * this file's own "magma blast detonation" describe block already covers.
+ */
+function shellGone(result: CombatResult): boolean {
+  return !result.instances.some((i) => i.id === "p1");
+}
+
 describe("firing", () => {
   /**
    * Local, single-argument shape: every case here only needs one shooter with `fireMask` set (or
@@ -321,7 +333,7 @@ describe("shots in flight", () => {
 
   it("drops a shot that has outlived its range", () => {
     const result = run({ instances: [flying({ distance: WEAPON_TABLE.magmablast.range })] });
-    expect(result.instances).toHaveLength(0);
+    expect(shellGone(result)).toBe(true);
   });
 
   it("drops a shot that flies into an obstacle", () => {
@@ -331,33 +343,33 @@ describe("shots in flight", () => {
       world: world({ obstacles: [box] }),
       instances: [flying({ x: justShort, y: box.y + box.h / 2 })],
     });
-    expect(result.instances).toHaveLength(0);
+    expect(shellGone(result)).toBe(true);
   });
 
   it("drops a shot that leaves the arena", () => {
     const result = run({ instances: [flying({ x: ARENA_01.width - 1 })] });
-    expect(result.instances).toHaveLength(0);
+    expect(shellGone(result)).toBe(true);
   });
 
   it("drops a shot that steps clean past a wall thinner than one tick of travel", () => {
-    // The smear's whole reason for existing on the world test (D8): at 900 u/s a shot covers 30
-    // units a tick, so a point sample at the landing position looks straight past anything thinner
-    // than that. This box is 4 units thick and sits between the pre-step and post-step positions —
-    // the shot is never AT it on any tick, and a point test reports a clean miss.
+    // The smear's whole reason for existing on the world test (D8): at magmablast's 600 u/s a shot
+    // covers 20 units a tick, so a point sample at the landing position looks straight past anything
+    // thinner than that. This box is 4 units thick and sits between the pre-step and post-step
+    // positions — the shot is never AT it on any tick, and a point test reports a clean miss.
     const thin = { x: 700, y: 300, w: 4, h: 120 };
-    const before = thin.x - 10; // one tick of travel (30 units) lands at 720, past the far face
+    const before = thin.x - 10; // one tick of travel (20 units) lands at 710, past the far face
     const result = run({
       world: world({ obstacles: [thin] }),
       instances: [flying({ x: before, y: thin.y + thin.h / 2 })],
     });
-    expect(result.instances).toHaveLength(0);
+    expect(shellGone(result)).toBe(true);
   });
 
   it("drops a shot that lands exactly on the arena edge, as a beam clips there", () => {
     // One spelling of one rule: `pointOutsideBounds` is inclusive on every edge, so a projectile on
     // the boundary is out exactly where `wallClipDistance` already stopped a beam.
     const result = run({ instances: [flying({ x: ARENA_01.width - WEAPON_TABLE.magmablast.speed * DT })] });
-    expect(result.instances).toHaveLength(0);
+    expect(shellGone(result)).toBe(true);
   });
 });
 
@@ -396,7 +408,7 @@ describe("shots landing", () => {
       instances: [aimedAt(target, "a")],
     });
     expect(find(result, "b").hp).toBe(hpOf("mirage") - weaponDamageOf("mirage", "magmablast"));
-    expect(result.instances).toHaveLength(0);
+    expect(shellGone(result)).toBe(true);
   });
 
   it("never damages the shooter", () => {
@@ -494,7 +506,7 @@ describe("shots landing", () => {
         },
       ],
     });
-    expect(result.instances).toHaveLength(0);
+    expect(shellGone(result)).toBe(true);
     expect(find(result, "b").hp).toBe(hpOf("mirage"));
   });
 
@@ -534,15 +546,20 @@ describe("dealDamageTo", () => {
 describe("chassis attack scales weapon damage through a real tick", () => {
   /** One shot, fired for real, from `carId` into a stationary mirage. Returns the hp it cost. */
   const damageDealtBy = (carId: "mirage" | "bullseye" | "bastion"): number => {
-    // Slot 1 is forced to magmablast for every chassis, overriding `carId`'s real loadout: since
+    // Slot 1 is forced to roadblock for every chassis, overriding `carId`'s real loadout: since
     // Task 5 the three chassis no longer share a weapon, so deriving `fireState` from
     // `newFireState(carId, 1)` would fire three DIFFERENT weapons and conflate the weapon's own
-    // damage with the attack-rating scaling this test exists to isolate. `magmablast` stands in for
+    // damage with the attack-rating scaling this test exists to isolate. `roadblock` stands in for
     // the retired `fireball` here (rule: like-for-like borrow swap) — its own real owner is
-    // bullseye, but this fixture forces it onto every chassis on purpose.
-    const magmablastSlot1 = {
+    // bastion, but this fixture forces it onto every chassis on purpose. `magmablast` no longer
+    // qualifies as of this same task (2026-09-02): its splash would land on "b" a few ticks after
+    // contact and add an attack-scaled number of its own, contaminating exactly the measurement
+    // this test exists to isolate. `roadblock` has no explosion, no homing and no multi-pellet fan
+    // to complicate a single clean hit, and its 6000ms cooldown cannot recharge inside this test's
+    // 10-tick window the way magmablast's shorter one once did.
+    const roadblockSlot1 = {
       ...newFireState(carId, 1),
-      slots: [{ weaponId: "magmablast" as const, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
+      slots: [{ weaponId: "roadblock" as const, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
     };
     let state = run({
       players: [
@@ -552,13 +569,13 @@ describe("chassis attack scales weapon damage through a real tick", () => {
           angle: 0,
           carId,
           fireMask: 1,
-          fireState: magmablastSlot1,
+          fireState: roadblockSlot1,
         }),
         player("b", { x: 400 + DRIVE_CONFIG.carWidth + 40, y: OPEN_Y }),
       ],
     });
     // The shot leaves the muzzle on tick 100 and covers the ~40 unit gap in about two ticks.
-    // Bounded at 110, well inside magmablast's 18-tick cooldown, so exactly one shot is measured.
+    // Bounded at 110, well inside roadblock's 180-tick cooldown, so exactly one shot is measured.
     for (let tick = 101; tick <= 110; tick++) {
       state = run({
         world: world({ tick }),
@@ -573,10 +590,10 @@ describe("chassis attack scales weapon damage through a real tick", () => {
   it("lands a different number for each chassis firing the identical weapon", () => {
     // Spec test 5: through the real tick, not by calling damageFor. `attack` is invisible in the
     // weapon table, so this is the only place the roster's damage spread is actually observable.
-    // magmablast's base damage is 22, scaled by each chassis's own attack rating.
-    expect(damageDealtBy("mirage")).toBe(25);
-    expect(damageDealtBy("bullseye")).toBe(23);
-    expect(damageDealtBy("bastion")).toBe(20);
+    // roadblock's base damage is 100, scaled by each chassis's own attack rating.
+    expect(damageDealtBy("mirage")).toBe(113);
+    expect(damageDealtBy("bullseye")).toBe(105);
+    expect(damageDealtBy("bastion")).toBe(92);
   });
 });
 
@@ -1704,5 +1721,118 @@ describe("proximity homing (spec P1-P6)", () => {
     const shot = result.instances.find((i) => i.weaponId === "predator")!;
     expect(LIFETIME_TICKS).toBeGreaterThan(0);
     expect(shot.expiresAtTick).toBe(shot.spawnTick + LIFETIME_TICKS);
+  });
+});
+
+describe("magma blast detonation (spec P13-P21)", () => {
+  const BULLSEYE_HP = hpOf("bullseye");
+  const CONTACT = weaponDamageOf("bullseye", "magmablast");
+
+  function shooter(over: Partial<CombatPlayer> = {}): CombatPlayer {
+    return player("aaa", { carId: "bullseye", hp: BULLSEYE_HP, fireState: newFireState("bullseye", 1), ...over });
+  }
+
+  /** Fire bullseye's slot 1 from `from` and step `ticks` times. */
+  function fire(
+    from: Partial<CombatPlayer>,
+    others: CombatPlayer[],
+    ticks: number,
+    obstacles: CombatWorld["obstacles"] = [],
+  ): CombatResult {
+    let world_ = world({ obstacles });
+    let players: CombatPlayer[] = [shooter({ ...from, fireMask: 0b001 }), ...others];
+    let instances: readonly WeaponInstance[] = [];
+    let instanceSeq = 0;
+    let result: CombatResult | null = null;
+    for (let i = 0; i < ticks; i++) {
+      result = runCombat({ world: world_, players, instances, instanceSeq });
+      players = result.players.map((p) => (p.sessionId === "aaa" ? { ...p, fireMask: 0 } : p));
+      instances = result.instances;
+      instanceSeq = result.instanceSeq;
+      world_ = { ...world_, tick: world_.tick + 1 };
+    }
+    return result!;
+  }
+
+  const bursts = (r: CombatResult) => r.instances.filter((i) => i.isExplosion);
+
+  it("costs a directly-hit car contact PLUS splash, and corrodes it (P16)", () => {
+    // Muzzle at x=324, shell at 600 u/s = 20 u/tick, target hull's near edge at 400-24=376.
+    // Contact around tick 4; one more tick for the burst to resolve.
+    const result = fire(
+      { x: 300, y: OPEN_Y, angle: 0 },
+      [player("bbb", { x: 400, y: OPEN_Y, hp: BULLSEYE_HP })],
+      7,
+    );
+    const victim = find(result, "bbb");
+    // Strictly MORE than contact alone — that difference is the splash, and it is the whole point.
+    expect(victim.hp).toBeLessThan(BULLSEYE_HP - CONTACT);
+    expect(victim.statuses.some((s) => s.statusId === "corroded")).toBe(true);
+  });
+
+  it("spawns exactly one burst per shot, already at full extent (P13a/P15)", () => {
+    const result = fire(
+      { x: 300, y: OPEN_Y, angle: 0 },
+      [player("bbb", { x: 400, y: OPEN_Y, hp: BULLSEYE_HP })],
+      6,
+    );
+    expect(bursts(result)).toHaveLength(1);
+    // Full size on the tick it forms, not grown into over several. This is what makes the
+    // direct-hit test above deterministic rather than a race with the victim driving away.
+    expect(bursts(result)[0]!.extent).toBe(WEAPON_TABLE.magmablast.explosion!.radius);
+    expect(bursts(result)[0]!.kind).toBe("beam");
+  });
+
+  it("never damages its own shooter, even detonating on its nose (P18)", () => {
+    // A wall directly in front of the muzzle: the shell dies almost immediately and the 60u field
+    // certainly covers the shooter. `canDamage` refusing the owner is the only thing saving them.
+    const result = fire({ x: 300, y: OPEN_Y, angle: 0 }, [], 6, [
+      { x: 340, y: OPEN_Y - 100, w: 40, h: 200 },
+    ]);
+    expect(bursts(result).length).toBeGreaterThan(0);
+    expect(find(result, "aaa").hp).toBe(BULLSEYE_HP);
+  });
+
+  it("detonates at the PRE-step pose on a wall, never inside it (P14)", () => {
+    const box = { x: 600, y: OPEN_Y - 100, w: 240, h: 200 };
+    const result = fire({ x: 300, y: OPEN_Y, angle: 0 }, [], 20, [box]);
+    const burst = bursts(result)[0];
+    expect(burst).toBeDefined();
+    // The shell crossed into the box on the tick it died; the burst belongs on the near side.
+    expect(burst!.x).toBeLessThan(box.x);
+  });
+
+  it("reaches a car on the far side of a wall, because a disc has no wall clip (P17)", () => {
+    // Thin wall so the far car sits inside the 60u radius of a burst forming on the near face.
+    const wall = { x: 600, y: OPEN_Y - 100, w: 20, h: 200 };
+    const result = fire(
+      { x: 300, y: OPEN_Y, angle: 0 },
+      [player("bbb", { x: 650, y: OPEN_Y, hp: BULLSEYE_HP })],
+      20,
+      [wall],
+    );
+    expect(find(result, "bbb").hp).toBeLessThan(BULLSEYE_HP);
+  });
+
+  it("detonates at max range with nothing hit at all", () => {
+    // No obstacles, no other cars, aimed along open floor. The shell dies on its range and must
+    // still leave a burst.
+    const ticks = weaponTicksOf("magmablast").flight + 3;
+    const result = fire({ x: 100, y: OPEN_Y, angle: 0 }, [], ticks);
+    // It leaves the arena before its range clock in this arena, which is itself a P13 death — the
+    // rule is "any removal detonates", so a bounds kill counts exactly the same.
+    expect(bursts(result).length + result.instances.length).toBeGreaterThan(0);
+  });
+
+  it("does not spawn another burst when the burst itself expires (P25a)", () => {
+    // THE RECURSION GUARD. If the detonation check read weaponDefOf rather than instanceDefOf, the
+    // burst would see magmablast's `explosion` on its own expiry and spawn another, every tick,
+    // forever. The instance list must drain to empty instead.
+    const result = fire(
+      { x: 300, y: OPEN_Y, angle: 0 },
+      [player("bbb", { x: 400, y: OPEN_Y, hp: BULLSEYE_HP })],
+      60,
+    );
+    expect(result.instances).toHaveLength(0);
   });
 });

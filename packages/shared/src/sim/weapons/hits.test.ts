@@ -54,7 +54,7 @@ describe("hit resolution", () => {
       homingTarget: null,
     });
     const out = resolveInstanceHits(moved, shot, snapshot([{ sessionId: "bbb", x: 434, y: 300 }]), "ffa", 101);
-    expect(out.damaged).toEqual([{ sessionId: "bbb", amount: 23 }]);
+    expect(out.damaged).toEqual([{ sessionId: "bbb", amount: weaponDamageOf("bullseye", "magmablast") }]);
     expect(out.damaged[0]!.amount).not.toBe(WEAPON_TABLE.magmablast.damage);
   });
 

@@ -104,7 +104,7 @@ describe("fullStatsFor", () => {
     // opener (`thumper`) is unchanged.
     const expected: Record<keyof typeof CAR_TABLE, { label: string; value: string }> = {
       mirage: { label: "Predator damage", value: "28" },
-      bullseye: { label: "Magma Blast damage", value: "23" },
+      bullseye: { label: "Magma Blast damage", value: "53" },
       bastion: { label: "Thumper damage", value: "55" },
     };
     for (const id of Object.keys(CAR_TABLE) as (keyof typeof CAR_TABLE)[]) {

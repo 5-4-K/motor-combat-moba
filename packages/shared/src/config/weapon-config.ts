@@ -139,24 +139,37 @@ export const WEAPON_TABLE = {
     applies: [{ statusId: "overheated", target: "opponents", durationMs: 1500 }],
   },
   /**
-   * Bullseye's slot 1 — this row's weapon is not the retired Mirage aura (O16/O17); it briefly kept
-   * that aura's `shockwave` id before being renamed to `magmablast` alongside its display name.
-   * Fireball's flight profile carrying needler's output: 22 per 600 ms is needler's old 37
-   * sustained DPS, the skirmisher's clean pressure slot. 1.67 Hz sits 33% clear of the 1.25 Hz
-   * aim-assist cliff.
+   * Bullseye's slot 1 until the 2026-09-02 pass moves it to Mirage: the explosive shell. It flies
+   * as an ordinary aimed dart and detonates on ANY death — a car, a wall, the arena edge, or its
+   * own 900 u range — leaving a 60 u corroding field for 150 ms.
+   *
+   * A direct hit costs contact AND splash, 65 base plus the corrode: the burst is born at full
+   * extent on the tick the shell dies, so the car that stopped it is standing inside it. Excluding
+   * the victim would have made a perfect shot the one way to not apply your own weapon's effect.
+   *
+   * The field passes through level geometry, and that is not a special case: a `disc` has no axis
+   * for the wall raycast to follow, so it never had a clip to skip. A car hugging the far side of
+   * a wall within 60 u takes the splash.
+   *
+   * 1.0 Hz sits 20% clear of the 1.25 Hz aim cliff — it passes the guard's 15% floor, but it is the
+   * tightest margin in the table. Do not retune this cooldown toward 800 ms without re-reading that
+   * guard.
    */
   magmablast: {
     id: "magmablast",
     kind: "projectile",
     name: "Magma Blast",
-    color: "#22579E", // needler's navy — Bullseye's palette
+    // Kept as authored through the 2026-09-02 move to Mirage. It reads navy against a fire-orange
+    // icon, which `npm run check:weapons` warns about; that drift is a known, deliberate deferral
+    // rather than an oversight, and warnings never fail the suite.
+    color: "#22579E",
     unlocksAt: 1,
-    damage: 22,
+    damage: 50,
     damageFrequencyMs: 0,
-    speed: 900,
+    speed: 600,
     range: 900, // >= aimRangeUnits, required for usesAimAssist
     startUpMs: 0,
-    cooldownMs: 600,
+    cooldownMs: 1000,
     recoveryMs: 0,
     usesAimAssist: true,
     aimRangeUnits: 400,

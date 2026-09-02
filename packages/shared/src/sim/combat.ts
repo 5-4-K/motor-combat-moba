@@ -1,10 +1,11 @@
-import { DEFAULT_CAR_ID, hpOf } from "../config/car-config.js";
+import { CAR_TABLE, DEFAULT_CAR_ID, hpOf } from "../config/car-config.js";
 import { isStatusId } from "../config/status-config.js";
 import type { StatusId } from "../config/status-types.js";
-import { isWeaponId, weaponDefOf } from "../config/weapon-config.js";
+import { instanceDefOf, isWeaponId, weaponDefOf } from "../config/weapon-config.js";
 import { carAimRangeOf } from "../config/weapon-slots.js";
 import { msToTicks, weaponTicksOf } from "../config/weapon-ticks.js";
 import type { ManeuverWeaponDef, WeaponId } from "../config/weapon-types.js";
+import type { CarId } from "../config/types.js";
 import { TICK_RATE_HZ } from "../constants.js";
 import {
   aabbCorners,
@@ -15,7 +16,7 @@ import {
 } from "./collide.js";
 import type { ContactHit } from "./contact.js";
 import { carHullOf, carIdOf } from "./context.js";
-import { applyDamage, applyHeal, scaleDamage, weaponDamageOf } from "./damage.js";
+import { applyDamage, applyHeal, damageFor, scaleDamage, weaponDamageOf } from "./damage.js";
 import { ManeuverKind, NO_MANEUVER } from "./maneuver.js";
 import { applyStatus, hasStatus, statusPulses, type ActiveStatus } from "./status/statuses.js";
 import { modifiersOf, NEUTRAL_MODIFIERS, type Modifiers } from "./status/modifiers.js";
@@ -303,7 +304,7 @@ export function runCombat(input: CombatInput): CombatResult {
     const dealt = scaleDamage(base, attacker ? modsOf(hit.attackerSessionId).damageDealt : 1);
     const targetMods = modsOf(hit.targetSessionId);
     dealDamageTo(target, scaleDamage(dealt, targetMods.damageTaken), targetMods, hit.attackerSessionId);
-    applyOpponentStatuses(target, hit.weaponId, world.tick, hit.attackerSessionId, true);
+    applyOpponentStatuses(target, hit.weaponId, false, world.tick, hit.attackerSessionId, true);
   }
 
   // 1. Recharge first, so a stock that lands this tick can be spent this tick. A player who has left
@@ -466,14 +467,39 @@ export function runCombat(input: CombatInput): CombatResult {
     .filter(isTargetable)
     .map((p) => ({ sessionId: p.sessionId, team: p.team, hull: carHullOf(p.x, p.y, p.angle) }));
 
+  // Bursts are collected separately and appended AFTER the loop, so a burst spawned this tick is
+  // not itself hit-tested before every shell this tick has finished resolving (spec P13a).
   const survivors: WeaponInstance[] = [];
+  const bursts: WeaponInstance[] = [];
   for (const instance of stepped) {
-    if (instanceExpired(instance, world.tick)) continue;
     // The pose to sweep from, shared by the world test and the car test so they cannot disagree
     // about where this tick's path started. `?? instance` covers one born this tick, which has no
-    // previous pose: its smear collapses to its shape at the muzzle.
+    // previous pose: its smear collapses to its shape at the muzzle. Moved above the expiry check,
+    // along with `owner`, since all three removal sites below need them.
     const before = previous.get(instance.id) ?? instance;
-    if (hitsWorld(instance, before, world)) continue;
+    const owner = byId.get(instance.ownerSessionId);
+    const damageMult = owner ? modsOf(owner.sessionId).damageDealt : 1;
+    const carId = owner ? carIdOf(owner) : DEFAULT_CAR_ID;
+
+    if (instanceExpired(instance, world.tick)) {
+      const blast = detonate(instance, instance.x, instance.y, world.tick, instanceSeq, damageMult, carId);
+      if (blast) {
+        bursts.push(blast.burst);
+        instanceSeq = blast.seq;
+      }
+      continue;
+    }
+    if (hitsWorld(instance, before, world)) {
+      // P14: the PRE-step pose. `hitsWorld` fires when the swept hull CROSSED a boundary, so the
+      // post-step point can be inside a wall or off the field entirely — the shell blows up where
+      // it last legitimately was.
+      const blast = detonate(instance, before.x, before.y, world.tick, instanceSeq, damageMult, carId);
+      if (blast) {
+        bursts.push(blast.burst);
+        instanceSeq = blast.seq;
+      }
+      continue;
+    }
 
     const outcome = resolveInstanceHits(
       instance,
@@ -502,15 +528,31 @@ export function runCombat(input: CombatInput): CombatResult {
       // Statuses ride the DAMAGE list, so they inherit its rules for free: friendly fire, the
       // shooter's own immunity, wrecks, pierce, and the per-target damage clock that stops a
       // lingering beam re-applying every single tick.
-      applyOpponentStatuses(target, instance.weaponId, world.tick, instance.ownerSessionId, instance.finalWave);
+      applyOpponentStatuses(
+        target,
+        instance.weaponId,
+        instance.isExplosion,
+        world.tick,
+        instance.ownerSessionId,
+        instance.finalWave,
+      );
     }
     // `ownerInside` statuses cannot ride the damage list — `canDamage` refuses the owner by design —
     // so a live zone runs its own owner-hull test each tick. Placed here, beside the other status
     // application, so both kinds of rider land at the same point of the tick and take hold on the
     // next one like every other status.
     applyOwnerInsideStatuses(instance, byId, world.tick);
-    if (outcome.instance.alive) survivors.push(outcome.instance);
+    if (outcome.instance.alive) {
+      survivors.push(outcome.instance);
+    } else {
+      const blast = detonate(instance, instance.x, instance.y, world.tick, instanceSeq, damageMult, carId);
+      if (blast) {
+        bursts.push(blast.burst);
+        instanceSeq = blast.seq;
+      }
+    }
   }
+  survivors.push(...bursts);
 
   // Stun interruption (O8): a stun landing THIS tick cancels the car's committed states at the end
   // of the tick — after this tick's already-released shots resolved, the same one-tick seam every
@@ -694,6 +736,68 @@ function acquireByProximity(
 }
 
 /**
+ * The burst one dying shot leaves behind, or `null` if its weapon authors no explosion.
+ *
+ * Born at FULL extent rather than growing from zero (spec P15). That is what makes "a direct hit
+ * costs contact plus splash" true without a timing race: the car that stopped the shell is inside
+ * the field on the very tick it forms, rather than a tick or two later once it has grown out.
+ *
+ * Damage is re-derived from the burst's own def and the owner's chassis, and frozen here for the
+ * same reason a shell's is frozen at the muzzle: it must be answerable at impact without reading
+ * player state, and the shooter may be wrecked before the field expires.
+ *
+ * Takes `damageMult` and `carId` rather than the whole owner: `modsOf` is a `runCombat`-local
+ * closure over that tick's derived-once modifiers cache, so a module-level function cannot reach
+ * it — the caller resolves both at the call site (`owner ? modsOf(owner.sessionId).damageDealt : 1`
+ * and `owner ? carIdOf(owner) : DEFAULT_CAR_ID`), the same fallback phase 0d already uses for a
+ * contact hit with no live attacker.
+ */
+function detonate(
+  shell: WeaponInstance,
+  x: number,
+  y: number,
+  tick: number,
+  seq: number,
+  damageMult: number,
+  carId: CarId,
+): { burst: WeaponInstance; seq: number } | null {
+  const def = instanceDefOf(shell.weaponId, shell.isExplosion);
+  if (def.kind !== "projectile" || !def.explosion) return null;
+  const burstDef = instanceDefOf(shell.weaponId, true);
+  const next = seq + 1;
+  return {
+    seq: next,
+    burst: {
+      id: `${shell.ownerSessionId}-${next}`,
+      ownerSessionId: shell.ownerSessionId,
+      ownerTeam: shell.ownerTeam,
+      finalWave: shell.finalWave,
+      // `weaponDamageOf` reads the weapon ROW's damage — the shell's 50, not the burst's 15 — so
+      // it is the wrong helper here. `damageFor` takes an explicit base, which is what a burst
+      // needs. Do not widen `weaponDamageOf` to mean two things.
+      damage: scaleDamage(damageFor(CAR_TABLE[carId].attack, burstDef.damage), damageMult),
+      weaponId: shell.weaponId,
+      kind: "beam",
+      x,
+      y,
+      angle: 0,
+      extent: burstDef.range,
+      spawnTick: tick,
+      distance: 0,
+      pierceLeft: 0,
+      attached: false,
+      damageClock: new Map(),
+      alive: true,
+      muzzleDir: 0,
+      homingTargetId: "",
+      homingUntilTick: 0,
+      expiresAtTick: 0,
+      isExplosion: true,
+    },
+  };
+}
+
+/**
  * A projectile that has left the arena or entered level geometry is spent, whatever its pierce.
  *
  * Tested as the SMEAR between the pre-step and post-step poses — the same solid the car test uses
@@ -706,7 +810,7 @@ function acquireByProximity(
  * weapon def's.
  */
 function hitsWorld(instance: WeaponInstance, previous: WeaponInstance, world: CombatWorld): boolean {
-  const def = weaponDefOf(instance.weaponId);
+  const def = instanceDefOf(instance.weaponId, instance.isExplosion);
   // A bouncing projectile is never destroyed by the world — `stepInstance` reflected it instead,
   // and testing the pre-reflection smear here would kill it on the very wall it just bounced off.
   // A `piercesWalls` row is exempt too, by authored identity rather than mechanism: it flies
@@ -798,17 +902,25 @@ function applyOwnerInsideStatuses(
   });
 }
 
-/** Put this weapon's `opponents` statuses on a car its shot just damaged. */
+/**
+ * Put this weapon's `opponents` statuses on a car its shot just damaged.
+ *
+ * `isExplosion` routes the lookup through `instanceDefOf`: a burst's `applies` list lives on the
+ * EXPLOSION's def, not the shell's (`magmablast.explosion.applies`, never `magmablast.applies`),
+ * so a plain `weaponDefOf` here would silently drop `corroded` on every direct-splash hit.
+ */
 function applyOpponentStatuses(
   target: CombatPlayer,
   weaponId: WeaponId,
+  isExplosion: boolean,
   tick: number,
   sourceSessionId: string,
   finalWave: boolean,
 ): void {
-  const applies = weaponDefOf(weaponId).applies;
+  const applies = instanceDefOf(weaponId, isExplosion).applies;
   if (!applies) return;
-  const durations = weaponTicksOf(weaponId).applyDurations;
+  const ticks = weaponTicksOf(weaponId);
+  const durations = isExplosion ? ticks.explosion!.applyDurations : ticks.applyDurations;
   applies.forEach((application, index) => {
     if (application.target !== "opponents") return;
     if (application.onWave === "final" && !finalWave) return;
