@@ -266,7 +266,7 @@ describe("weaponFillOf", () => {
     for (const def of Object.values(WEAPON_TABLE)) {
       expect(weaponFillOf(def.id)).toBe(Number.parseInt(def.color.slice(1), 16));
     }
-    expect(weaponFillOf("magmablast")).toBe(0x22579e);
+    expect(weaponFillOf("magmablast")).toBe(0xff6000);
   });
 
   it("is the same colour whoever fired it — a shot is never owner-coloured", () => {
@@ -561,18 +561,23 @@ describe("chargeOrbBands", () => {
     for (let i = 1; i < radii.length; i++) expect(radii[i]!).toBeLessThan(radii[i - 1]!);
   });
 
-  it("wears the same three colours as the beam it is charging", () => {
-    // The orb has to read as the shot gathering, not as a separate effect.
+  it("wears the same colours as the beam it is charging, in the same order", () => {
+    // The orb has to read as the shot gathering, not as a separate effect. Deliberately compared
+    // layer for layer rather than at a fixed count: lance dropped its white core on 2026-09-02 and
+    // the orb had to drop a band with it, which is the failure this catches.
     const beam = WEAPON_BEAM_STYLES.lance!.layers.map((l) => l.color.toUpperCase());
     const orb = CHARGE.bands.map((b) => b.color.toUpperCase());
     expect(orb).toEqual(beam);
-    // And the outermost is the weapon's own table colour, as everywhere else.
-    expect(orb[0]).toBe(WEAPON_TABLE.lance.color.toUpperCase());
+    // NOT asserted here: that the outermost band is the weapon's table colour. It is for every
+    // other beam, but `lance`'s table colour is its CORE — `thunderclap` holds its outer `#3ED1FA`
+    // and weapon colours must be unique. The orb follows the beam, and the beam is what matters.
+    expect(orb).toContain(WEAPON_TABLE.lance.color.toUpperCase());
   });
 
-  it("costs three fills per charging car, however long the wind-up runs", () => {
+  it("costs one fill per beam layer per charging car, however long the wind-up runs", () => {
+    const layers = WEAPON_BEAM_STYLES.lance!.layers.length;
     for (const tick of [PRESS, PRESS + 7, PRESS + 14, EXIT - 1]) {
-      expect(orbAt(tick)).toHaveLength(3);
+      expect(orbAt(tick)).toHaveLength(layers);
     }
   });
 });
@@ -580,7 +585,8 @@ describe("chargeOrbBands", () => {
 describe("lance beam layers", () => {
   it("nests by WIDTH, since narrowing a rect's length would hide it inside itself", () => {
     const layers = beamDrawLayers("lance", 0, 0, 0, 1200, 0);
-    expect(layers).toHaveLength(3);
+    expect(layers).toHaveLength(WEAPON_BEAM_STYLES.lance!.layers.length);
+    expect(layers.length).toBeGreaterThan(1);
     const halfWidths = layers.map((l) => Math.max(...l.points.map((p) => Math.abs(p.y))));
     const lengths = layers.map((l) => Math.max(...l.points.map((p) => p.x)));
     for (let i = 1; i < layers.length; i++) {

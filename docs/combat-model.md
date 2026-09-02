@@ -1037,13 +1037,14 @@ in the arena is the same red whoever fired it: a shot's colour answers "what is 
 and the car that fired it is already on screen wearing the player colour, so spending the shot's one
 colour channel on ownership would say the less useful thing twice.
 
-Since 2026-08-31 that colour answers a second question: **which chassis**. The nine weapons are
-themed per car to match their HUD icons — Mirage maroon and orange, Bullseye navy and orange, Bastion
-yellow and white — so a car's three weapons deliberately resemble each other and are told apart by
-silhouette instead. `lance`'s white core is the one departure. Do not "separate" those palettes on
-sight: the convergence is the design, and `check:weapons` reports all nine icons matching today.
-`shotPaletteOf` returns every colour a weapon actually draws in, since `color` alone is now only one
-layer of six of them. Shots were owner-coloured before
+That is the only question a shot's colour answers. It does **not** encode which chassis fired it:
+between 2026-08-31 and 2026-09-02 the roster carried a per-car palette (Mirage maroon, Bullseye
+navy, Bastion yellow) so a car's three weapons resembled each other, and that theme has been
+retired — colours are now chosen per weapon on their own merits, and two weapons on different cars
+sharing a hue is not a defect to fix. What a colour is still held to is its own weapon's **HUD
+icon**, so the slot and the shot read as one weapon; `check:weapons` measures that distance and
+warns, never blocks. `shotPaletteOf` returns every colour a weapon actually draws in, since `color`
+alone is only one layer of six of them. Shots were owner-coloured before
 weapon colours existed; nothing in the sim ever read that, and nothing does now — `color` is
 render-only, like `name`. `WEAPON_TABLE`'s colours are kept clear of `COLOR_TABLE`'s six player
 colours (a table test enforces it) so a shot can never be mistaken for somebody's paint.

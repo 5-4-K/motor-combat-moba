@@ -31,7 +31,9 @@ export const WEAPON_TABLE = {
     id: "predator",
     kind: "projectile",
     name: "Predator",
-    color: "#D63A14", // fireball's ember — Mirage's palette
+    // The icon's missile body, not its flame: `WEAPON_PROJECTILE_STYLES` fills the capsule hull
+    // with this and lays the icon's red nose stripe across the middle as a band.
+    color: "#606060",
     unlocksAt: 1,
     damage: 50,
     damageFrequencyMs: 0,
@@ -59,7 +61,10 @@ export const WEAPON_TABLE = {
     id: "thunderclap",
     kind: "maneuver",
     name: "Thunderclap",
-    color: "#7A1D1D", // the retired aura's maroon — Mirage's palette
+    // Its icon's electric blue. A maneuver spawns no instance, so nothing in the world is filled
+    // with this — the dash's ghost outlines are stroked in the CAR's own paint on purpose. It
+    // reaches the HUD slot and the players' guide, and nowhere else.
+    color: "#3ED1FA",
     unlocksAt: 1,
     damage: 90,
     damageFrequencyMs: 0,
@@ -100,11 +105,10 @@ export const WEAPON_TABLE = {
     id: "afterburner",
     kind: "beam",
     name: "Afterburner",
-    // Amber rather than the magenta this shipped with: the flame drawn by `WEAPON_BEAM_STYLES`
-    // fills its outer layer with this exact hex, so the colour, the layered look and the HUD icon
-    // all describe one weapon. Clear of `COLOR_TABLE` -- deeper and redder than the `Gold` player
-    // colour, which is the only one it sits near.
-    color: "#F05818",
+    // The MIDDLE of the three flame colours sampled from its icon (#FF6000 edge, this, #FFC000
+    // core), because a weapon's table colour is its body and on a flame the body is one layer in.
+    // Clear of `COLOR_TABLE` -- the `Gold` player colour is the only one it sits near.
+    color: "#FF9000",
     unlocksAt: 1,
     damage: 49, // per pulse
     damageFrequencyMs: 500,
@@ -136,7 +140,9 @@ export const WEAPON_TABLE = {
     id: "magmablast",
     kind: "projectile",
     name: "Magma Blast",
-    color: "#22579E", // needler's navy — Bullseye's palette
+    // The fireball icon's body. `WEAPON_GLOW_STYLES` rings it with the icon's own radial ramp:
+    // #C02000 at the hitbox edge, this, then #FFA800 at the core.
+    color: "#FF6000",
     unlocksAt: 1,
     damage: 22,
     damageFrequencyMs: 0,
@@ -177,7 +183,7 @@ export const WEAPON_TABLE = {
     id: "pepperbox",
     kind: "projectile",
     name: "Pepperbox",
-    color: "#184890",
+    color: "#C04818", // the revolver icon's rust barrel
     unlocksAt: 1,
     damage: 45, // per pellet; 3 pellets per fan == 135, 27% of an average car
     damageFrequencyMs: 0,
@@ -221,7 +227,12 @@ export const WEAPON_TABLE = {
     id: "lance",
     kind: "beam",
     name: "Lance",
-    color: "#0F3268",
+    // Its icon's electric yellow -- the beam's CORE, not its #3ED1FA outer edge, which is the one
+    // place this table breaks its own "the table colour is the outer layer of a beam" habit. The
+    // outer layer would be the natural pick, but `thunderclap` already holds that exact hex and
+    // `weapon-config.test.ts` requires every weapon's colour to be unique. The core is the other
+    // colour the beam actually draws, so the HUD slot still names something on screen.
+    color: "#F0FF00",
     unlocksAt: 1,
     damage: 170, // 34% of an average car; 68% if it catches two
     damageFrequencyMs: 0,
@@ -273,7 +284,7 @@ export const WEAPON_TABLE = {
     id: "thumper",
     kind: "projectile",
     name: "Thumper",
-    color: "#F0C808",
+    color: "#FFD800", // the icon's gold shell
     unlocksAt: 1,
     damage: 60,
     damageFrequencyMs: 0,
@@ -307,7 +318,7 @@ export const WEAPON_TABLE = {
     id: "roadblock",
     kind: "projectile",
     name: "Roadblock",
-    color: "#C89A14", // skewer's gold — Bastion's palette
+    color: "#D89000", // the barrier icon's construction gold
     unlocksAt: 1,
     damage: 100,
     damageFrequencyMs: 0,
@@ -340,7 +351,9 @@ export const WEAPON_TABLE = {
     id: "wildcharge",
     kind: "maneuver",
     name: "Wild Charge",
-    color: "#D9A814", // bulwark's amber — Bastion's palette
+    // The bull icon's orange. Drawn in the world too, despite this weapon spawning no instance:
+    // `maneuverOutline` strokes the charging car's hull footprint with this exact hex.
+    color: "#F06000",
     unlocksAt: 1,
     damage: 250,
     damageFrequencyMs: 0,
@@ -383,8 +396,9 @@ export const WEAPON_TABLE = {
     id: "tremor",
     kind: "beam",
     name: "Tremor",
-    // Dark bronze: bulwark's old amber family, but its exact #D9A814 belongs to wildcharge now.
-    // Unique among weapons, clear of COLOR_TABLE, dark enough for a light floor.
+    // Dark bronze, and the one weapon colour NOT taken from an icon: `tremor` has no manifest row
+    // yet, so there is nothing to sample. Unique among weapons, clear of COLOR_TABLE, dark enough
+    // for a light floor. Re-derive it from the art whenever an icon lands.
     color: "#8A6D12",
     unlocksAt: 1,
     damage: 25, // per tick; 10 ticks == 250 base on a target that stays the whole life

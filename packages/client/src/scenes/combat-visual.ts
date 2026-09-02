@@ -236,13 +236,18 @@ const FLICKER_PHASE_PER_TICK = 0.7;
 /**
  * Per-weapon looks. Absent means the flat hitbox disc — see `GlowStyle`.
  *
- * Empty as of the 2026-09-01 roster cutover. Its two rows were `fireball` (retired outright, O17)
- * and `pepperbox` — which moved OUT deliberately (O9) rather than being retired: its hitbox is now
- * an ellipse (the dart silhouette carried over from `needler`), and a round-glow table nested by
+ * Emptied by the 2026-09-01 roster cutover and repopulated on 2026-09-02 by `magmablast`, which is
+ * the only circular projectile in the roster. Its two former rows were `fireball` (retired outright,
+ * O17) and `pepperbox` — which moved OUT deliberately (O9) rather than being retired: its hitbox is
+ * now an ellipse (the dart silhouette carried over from `needler`), and a round-glow table nested by
  * `radiusScale` cannot own a non-circular hitbox. The flat weapon-colour fill is `pepperbox`'s
- * correct, intentional look, not a placeholder. No new id (`predator`, `magmablast`, `roadblock`)
- * has an authored look either — the flat fill is the shipped look until an owner arts one — so
- * every circular projectile in the game draws its flat disc today.
+ * correct, intentional look, not a placeholder.
+ *
+ * `magmablast`: its icon's own radial ramp, measured rather than guessed — the icon was sampled in
+ * rings from the centre out, giving amber at the core, orange through the body, and a deep red at
+ * the rim (the charcoal specks past that are the icon's outline, not a flame colour, so they are
+ * not a band). No flicker: it is a single dart, not a burning volume, and a pulsing outline on a
+ * 12-unit disc reads as a rendering fault rather than as fire.
  *
  * Bands are cheap -- one `fillCircle` per band per shot per frame, against a ceiling of roughly 60
  * live instances -- so author freely here when a weapon earns a look. What is NOT cheap, and is
@@ -250,7 +255,17 @@ const FLICKER_PHASE_PER_TICK = 0.7;
  * bands, or a `Graphics` object per shot instead of `ArenaScene`'s shared `shotGfx`. See
  * `docs/asset-pipeline.md#how-much-detail-a-shot-can-afford`.
  */
-export const WEAPON_GLOW_STYLES: Partial<Record<WeaponId, GlowStyle>> = {};
+export const WEAPON_GLOW_STYLES: Partial<Record<WeaponId, GlowStyle>> = {
+  magmablast: {
+    bands: [
+      { radiusScale: 1, color: "#C02000" },
+      { radiusScale: 0.74, color: "#FF6000" },
+      { radiusScale: 0.42, color: "#FFA800" },
+    ],
+    flickerDepth: 0,
+    flickerHz: 0,
+  },
+};
 
 /** A band resolved to world units and a Phaser fill, ready to stroke. */
 export interface DrawBand {
@@ -351,17 +366,20 @@ const SAMPLES_PER_TONGUE = 6;
 /**
  * Per-weapon beam looks. Absent means the flat hitbox polygon — see `BeamStyle`.
  *
- * `afterburner`: a maroon outer flame licking the hitbox, the weapon's own orange body inside it,
- * and a gold core at the nozzle. Each layer is shorter AND slightly narrower than the one outside
- * it, so they nest as tongues rather than stacking as horizontal stripes — which is what a shared
- * apex and a varying reach alone produced, and why the first cut read as a striped triangle. Tongue
- * counts differ per layer (5 / 4 / 3) so the lobes do not line up and the edges stay busy.
+ * `afterburner`: the three flame colours of its own HUD icon, in the order the icon ramps them —
+ * orange at the edge, yellower inward, yellow at the nozzle. They were sampled from the icon by
+ * distance from the flame's axis, which is why the order is not a guess. Each layer is shorter AND
+ * slightly narrower than the one outside it, so they nest as tongues rather than stacking as
+ * horizontal stripes — which is what a shared apex and a varying reach alone produced, and why the
+ * first cut read as a striped triangle. Tongue counts differ per layer (5 / 4 / 3) so the lobes do
+ * not line up and the edges stay busy.
  *
- * Its `WEAPON_TABLE.color` is the SECOND layer, not the outer one: the darkest ring sits outside so
- * the shot reads as a hard-edged object against a light floor, and a weapon's table colour is its
- * body, which on a flame is one layer in. `lance` below is the other way round, with the table
- * colour on the outer edge, because a beam's outer edge IS its body when there is no flame licking
- * past it.
+ * Its `WEAPON_TABLE.color` is the SECOND layer, not the outer one, because a weapon's table colour
+ * is its body and on a flame the body is one layer in. Note what changed on 2026-09-02: the outer
+ * layer used to be a dark maroon `#7A2018`, chosen so the darkest ring sat outside and the cone read
+ * as a hard-edged object. All three layers are now warm and within one hue family, so adjacent
+ * layers separate by ~48 in RGB rather than ~130 — the cone reads as a smoother gradient than it
+ * did. The silhouette against the light floor is unaffected; this is internal layer separation only.
  *
  * There is deliberately no flicker or glow here: the beam already grows over its first 200 ms,
  * which is motion enough, and a pulsing two-second flame reads as a strobe.
@@ -386,9 +404,9 @@ export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
   },
   afterburner: {
     layers: [
-      { extentScale: 1, crossScale: 1, tongues: 5, tongueDepth: 0.3, color: "#7A2018" },
-      { extentScale: 0.74, crossScale: 0.82, tongues: 4, tongueDepth: 0.34, color: "#F05818" },
-      { extentScale: 0.42, crossScale: 0.6, tongues: 3, tongueDepth: 0.38, color: "#FFC030" },
+      { extentScale: 1, crossScale: 1, tongues: 5, tongueDepth: 0.3, color: "#FF6000" },
+      { extentScale: 0.74, crossScale: 0.82, tongues: 4, tongueDepth: 0.34, color: "#FF9000" },
+      { extentScale: 0.42, crossScale: 0.6, tongues: 3, tongueDepth: 0.38, color: "#FFC000" },
     ],
   },
   /**
@@ -402,16 +420,18 @@ export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
    * and an opponent could not previously see it happening. Colours match the beam exactly, so the
    * orb reads as the same thing gathering that is about to be fired.
    *
-   * Navy body and an orange stripe are its icon exactly. The white core is a deliberate departure
-   * from Bullseye's two colours: white otherwise reads as Bastion here, but a 1200-unit beam is the
-   * one shot big enough to carry a third layer, and the hot centre is what makes it look fired
-   * rather than painted.
+   * Two layers, both straight off its icon: electric blue outside, electric yellow at the core. It
+   * carried a third, white core until 2026-09-02 — dropped because two layers already read as a
+   * beam and the white was doing the "hot centre" job the yellow now does on its own.
+   *
+   * Its `WEAPON_TABLE.color` is the CORE here, not this outer edge, which is the one place the
+   * table breaks its own habit for a beam: `thunderclap` holds `#3ED1FA` already and weapon colours
+   * must be unique. See the note on that row.
    */
   lance: {
     layers: [
-      { extentScale: 1, crossScale: 1, tongues: 0, tongueDepth: 0, color: "#0F3268" },
-      { extentScale: 1, crossScale: 0.55, tongues: 0, tongueDepth: 0, color: "#F04800" },
-      { extentScale: 1, crossScale: 0.22, tongues: 0, tongueDepth: 0, color: "#FFFFFF" },
+      { extentScale: 1, crossScale: 1, tongues: 0, tongueDepth: 0, color: "#3ED1FA" },
+      { extentScale: 1, crossScale: 0.42, tongues: 0, tongueDepth: 0, color: "#F0FF00" },
     ],
     charge: {
       minRadius: 2,
@@ -419,10 +439,11 @@ export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
       // matching what it warns about. A charge orb that stopped growing with the beam would
       // under-promise the thing about to be fired, which is the one failure mode a telegraph has.
       maxRadius: 18.9,
+      // Two bands, mirroring the two beam layers above: the orb is the beam gathering, so a band
+      // the beam does not have would telegraph a shot that is not coming.
       bands: [
-        { radiusScale: 1, color: "#0F3268" },
-        { radiusScale: 0.6, color: "#F04800" },
-        { radiusScale: 0.28, color: "#FFFFFF" },
+        { radiusScale: 1, color: "#3ED1FA" },
+        { radiusScale: 0.46, color: "#F0FF00" },
       ],
     },
   },
@@ -487,11 +508,17 @@ const MARK_SEGMENTS = 12;
  * straight section, so it is a rectangle and needs none of the circular-segment maths a nose on a
  * capsule would.
  *
+ * `predator`: its icon is a grey missile with a red stripe near the nose, so the capsule takes the
+ * icon's body grey and the stripe becomes a band. Same two-shape recipe as `thumper` above, and the
+ * same reason for a band rather than a nose — at 0.216 of `radiusAlong` it stays inside the
+ * capsule's straight section and is a plain rectangle, where a nose would need the circular-segment
+ * maths an end cap demands.
+ *
  * `needler` and `skewer` (a nosed dart and a disc-and-spikes spindle) were retired outright with
- * the 2026-09-01 roster cutover (O17); their comment history lives in git. Two non-circular
- * projectiles ship without a style today: `predator` (a capsule, Mirage's homing rocket) and
- * `pepperbox` (an ellipse, carrying `needler`'s old dart silhouette per O9) — both draw the flat
- * hitbox-colour fill until an owner arts them. `roadblock`'s bar hitbox is a third, architecturally
+ * the 2026-09-01 roster cutover (O17); their comment history lives in git. One non-circular
+ * projectile ships without a style today: `pepperbox` (an ellipse, carrying `needler`'s old dart
+ * silhouette per O9), which draws the flat hitbox-colour fill until an owner arts it.
+ * `roadblock`'s bar hitbox is a third, architecturally
  * distinct case: `projectileDrawLayers` refuses a bar at source regardless of this table, because
  * the hull/tip/band/disc/spikes vocabulary below assumes an along/across ellipse-ish geometry a bar
  * does not have — it always draws its raw hitbox polygon, the same as `beamDrawLayers`'s fallback.
@@ -499,8 +526,14 @@ const MARK_SEGMENTS = 12;
 export const WEAPON_PROJECTILE_STYLES: Partial<Record<WeaponId, ProjectileStyle>> = {
   thumper: {
     layers: [
-      { shape: "hull", color: "#F0C808" },
+      { shape: "hull", color: "#FFD800" },
       { shape: "band", halfWidthScale: 0.216, color: "#FFF6D8" },
+    ],
+  },
+  predator: {
+    layers: [
+      { shape: "hull", color: "#606060" },
+      { shape: "band", halfWidthScale: 0.216, color: "#A81818" },
     ],
   },
 };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ManeuverKind } from "@motor-combat-moba/shared";
+import { ManeuverKind, weaponDefOf } from "@motor-combat-moba/shared";
 import {
   dashGhostAlphas,
   dashGhostOffsets,
@@ -15,8 +15,12 @@ describe("maneuverOutline", () => {
     expect(maneuverOutline(ManeuverKind.HOLD)).toBeNull();
   });
 
-  it("is styled for CHARGE, in wildcharge's own hex", () => {
-    expect(maneuverOutline(ManeuverKind.CHARGE)).toEqual({ color: 0xd9a814, width: 3 });
+  // Asserts AGREEMENT with the weapon table, not a literal. A literal here is what let the colour
+  // and the outline drift apart silently before 2026-09-02: recolouring the weapon moved its HUD
+  // slot and its guide row while the outline stayed gold, and this test stayed green throughout.
+  it("is styled for CHARGE, in whatever hex wildcharge currently carries", () => {
+    const expected = Number.parseInt(weaponDefOf("wildcharge").color.slice(1), 16);
+    expect(maneuverOutline(ManeuverKind.CHARGE)).toEqual({ color: expected, width: 3 });
   });
 
   it("is null for an out-of-range value", () => {

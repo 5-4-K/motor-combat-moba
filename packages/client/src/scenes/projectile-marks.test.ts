@@ -62,11 +62,11 @@ describe("projectile markings", () => {
     });
     // Not an assertion that every one of these is styled forever -- it is the list that keeps this
     // file honest about what it is covering, so removing a style shows up here rather than silently.
-    // `predator` (capsule) and `pepperbox` (ellipse) are shaped but deliberately flat: `pepperbox`'s
-    // hitbox moved to an ellipse in the 2026-09-01 roster cutover specifically because a round-glow
-    // table cannot own it, and this one has not styled it either yet.
+    // `pepperbox` (ellipse) is the one shaped projectile still deliberately flat: its hitbox moved
+    // to an ellipse in the 2026-09-01 roster cutover specifically because a round-glow table cannot
+    // own it, and nothing has authored it a marking since. `predator` gained one on 2026-09-02.
     expect(shaped.sort()).toEqual(["pepperbox", "predator", "thumper"]);
-    expect(styled.sort()).toEqual(["thumper"]);
+    expect(styled.sort()).toEqual(["predator", "thumper"]);
   });
 
   it("keeps every authored vertex inside its own hitbox, at every heading", () => {
