@@ -1,4 +1,4 @@
-import type { InputMessage } from "@motor-combat-moba/shared";
+import type { BotDifficulty, InputMessage } from "@motor-combat-moba/shared";
 
 /** The only pieces of a car's state the bot needs to aim and drive: position and heading. */
 export interface BotPose {
@@ -7,11 +7,62 @@ export interface BotPose {
   angle: number;
 }
 
-/** Tuning for the playground bot's aim, standoff and fire decisions. */
-export const BOT_CONFIG = Object.freeze({
-  aimToleranceRad: 0.3,
-  standoffUnits: 70,
-  fireConeRad: 0.35,
+/** One difficulty's knobs (PG27). Three for pressure, two for accuracy, one for rate of fire. */
+export interface BotProfile {
+  /** Distance the bot tries to hold. */
+  readonly standoffUnits: number;
+  /** Half-width of a band around `standoffUnits` where throttle is 0 — the bot coasts instead of
+   * charging or reversing. 0 reproduces the pre-split behaviour exactly. */
+  readonly deadbandUnits: number;
+  /** How often the ROOM recomputes intent, holding the previous one in between (PG29). Read there,
+   * not here: `botInput` stays a pure function of the pose it is handed. */
+  readonly reactionTicks: number;
+  /** Steering deadzone. Wider settles further off target. MUST stay below `fireConeRad`. */
+  readonly aimToleranceRad: number;
+  /** How well aimed the bot must be to fire. */
+  readonly fireConeRad: number;
+  /** Fire-mask pulse cadence, also read by the room (PG29). */
+  readonly firePeriodTicks: number;
+}
+
+/**
+ * The three difficulties (PG27).
+ *
+ * `hard` is EXACTLY the bot that shipped — the old `BOT_CONFIG` plus the old `OPPONENT_FIRE_PERIOD`
+ * — and `playground-bot.test.ts` pins those six numbers by value so it stays that way.
+ *
+ * `aimToleranceRad < fireConeRad` on every row, and a test asserts it: tolerance is the deadzone the
+ * bot stops steering inside, the cone is the gate it must be inside to fire, so a row with the
+ * inequality backwards produces a bot that settles happily at a heading it can never shoot from.
+ * Easy widens BOTH — it settles further off target and is willing to shoot from there — but that is
+ * the weakest of the six levers, because `resolveAimAngle` rotates a shot toward a locked target for
+ * any weapon with `usesAimAssist`. The pressure knobs and `firePeriodTicks` do the real work.
+ */
+export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.freeze({
+  easy: Object.freeze({
+    standoffUnits: 170,
+    deadbandUnits: 60,
+    reactionTicks: 6,
+    aimToleranceRad: 0.55,
+    fireConeRad: 0.6,
+    firePeriodTicks: 10,
+  }),
+  medium: Object.freeze({
+    standoffUnits: 110,
+    deadbandUnits: 30,
+    reactionTicks: 3,
+    aimToleranceRad: 0.42,
+    fireConeRad: 0.48,
+    firePeriodTicks: 5,
+  }),
+  hard: Object.freeze({
+    standoffUnits: 70,
+    deadbandUnits: 0,
+    reactionTicks: 1,
+    aimToleranceRad: 0.3,
+    fireConeRad: 0.35,
+    firePeriodTicks: 2,
+  }),
 });
 
 /**
@@ -26,6 +77,7 @@ export function botInput(
   self: BotPose,
   target: BotPose | null,
   slotRanges: readonly number[],
+  profile: BotProfile,
 ): InputMessage {
   if (target === null) {
     return { seq, steer: 0, throttle: 0, fireSlots: 0 };
@@ -39,13 +91,24 @@ export function botInput(
   const delta = Math.atan2(Math.sin(bearing - self.angle), Math.cos(bearing - self.angle));
 
   const steer: -1 | 0 | 1 =
-    delta > BOT_CONFIG.aimToleranceRad ? 1 : delta < -BOT_CONFIG.aimToleranceRad ? -1 : 0;
+    delta > profile.aimToleranceRad ? 1 : delta < -profile.aimToleranceRad ? -1 : 0;
 
   const distance = Math.hypot(dx, dy);
-  const throttle: -1 | 0 | 1 = distance > BOT_CONFIG.standoffUnits ? 1 : -1;
+  // Coast inside the deadband rather than charging or reversing (PG28). The old expression was
+  // `distance > standoff ? 1 : -1`, which at the standoff distance oscillates between full ahead and
+  // full astern every tick — a large part of what made the one shipped bot feel relentless.
+  //
+  // The `deadbandUnits > 0` term is load-bearing, not defensive: at exactly `standoffUnits` a zero
+  // band still satisfies `Math.abs(0) <= 0`, so without it hard would COAST where it used to
+  // reverse. Testing the band for width first is what makes `deadbandUnits: 0` reproduce the old
+  // expression exactly, which is the whole basis of "hard is the bot that shipped".
+  const inDeadband =
+    profile.deadbandUnits > 0 &&
+    Math.abs(distance - profile.standoffUnits) <= profile.deadbandUnits;
+  const throttle: -1 | 0 | 1 = inDeadband ? 0 : distance > profile.standoffUnits ? 1 : -1;
 
   let fireSlots = 0;
-  if (Math.abs(delta) < BOT_CONFIG.fireConeRad) {
+  if (Math.abs(delta) < profile.fireConeRad) {
     for (let i = 0; i < slotRanges.length; i++) {
       if (distance < slotRanges[i]) fireSlots |= 1 << i;
     }

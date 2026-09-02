@@ -28,7 +28,7 @@ import { getTickRateHz } from "../mode.js";
 import { isInputMessage } from "../net/input-message.js";
 import { newCombatMemory, type CombatMemory } from "../sim/combat-bridge.js";
 import { newContactMemory, type ContactMemory } from "../sim/ram-bridge.js";
-import { botInput, type BotPose } from "./playground-bot.js";
+import { BOT_PROFILES, botInput, type BotPose } from "./playground-bot.js";
 import { shouldRejectSecondArena } from "./singleton-arena.js";
 import {
   respawnPlayer,
@@ -314,6 +314,10 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
       poseOf(self),
       target,
       slots.map((slot) => weaponDefOf(slot.weaponId).range),
+      // Placeholder: always `hard` until Task 4 wires per-difficulty selection, the reaction hold,
+      // and the fire-period read from the profile. This keeps the call site compiling with no
+      // behaviour change — `hard` is bit-for-bit the profile this room used before the split.
+      BOT_PROFILES.hard,
     );
 
     // The fire mask is PULSED rather than passed straight through, and that is this room's decision
