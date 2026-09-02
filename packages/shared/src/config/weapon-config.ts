@@ -37,8 +37,12 @@ export const WEAPON_TABLE = {
    * 900 u/s this arcs at 172 u — tight enough to convert a 200 u grab. The old 120 deg/s would arc
    * at 430 u and sail past everything it acquired. ⚙
    *
-   * 3.33 Hz, 167% clear of the 1.25 Hz aim cliff, and its 2 s life on a 300 ms cooldown means up to
-   * seven in the air at once — which is why the two-instances guard is scoped to bouncing rows.
+   * 1.0 Hz sits 20% clear of the 1.25 Hz aim cliff — it passes the guard's 15% floor, but it is the
+   * tightest margin in the table, and this is the fastest aim-assisted row the roster carries. Do
+   * not retune this cooldown toward 800 ms without re-reading that guard.
+   *
+   * Its 2 s life on a 1000 ms cooldown means up to two in the air at once — which is why the
+   * two-instances guard is scoped to bouncing rows.
    */
   predator: {
     id: "predator",
@@ -53,7 +57,7 @@ export const WEAPON_TABLE = {
     speed: 900,
     range: 1800, // = speed x lifetimeMs; see the comment above for why this is authored at all
     startUpMs: 0,
-    cooldownMs: 300,
+    cooldownMs: 1000,
     recoveryMs: 0,
     usesAimAssist: true,
     aimRangeUnits: 800,
@@ -155,9 +159,8 @@ export const WEAPON_TABLE = {
    * for the wall raycast to follow, so it never had a clip to skip. A car hugging the far side of
    * a wall within 60 u takes the splash.
    *
-   * 1.0 Hz sits 20% clear of the 1.25 Hz aim cliff — it passes the guard's 15% floor, but it is the
-   * tightest margin in the table. Do not retune this cooldown toward 800 ms without re-reading that
-   * guard.
+   * 0.625 Hz sits 50% clear of the 1.25 Hz aim cliff, comfortably outside the guard's 15% floor.
+   * `predator` carries the table's tightest margin now, not this row.
    */
   magmablast: {
     id: "magmablast",
@@ -172,7 +175,7 @@ export const WEAPON_TABLE = {
     speed: 600,
     range: 900, // >= aimRangeUnits, required for usesAimAssist
     startUpMs: 0,
-    cooldownMs: 1000,
+    cooldownMs: 1600,
     recoveryMs: 0,
     usesAimAssist: true,
     aimRangeUnits: 400,

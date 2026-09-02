@@ -81,10 +81,10 @@ export const AIM_CONFIG = {
    * never blanks for a frame. What lapses is the steal margin and the commit timer, so the next
    * evaluation simply picks the best-scoring target. That is what splits weapons into two classes --
    * faster than `1000 / lockTimeoutMs` holds locks and the margin governs; slower re-picks the best
-   * target every shot. 800 ms puts the cliff at 1.25 Hz. `predator` (300 ms, 3.33 Hz) is the
-   * fastest aim-assisted weapon in the roster today, 167% clear of the cliff. `magmablast` (1000 ms,
-   * 1.0 Hz) sits only 20% clear -- the tightest margin any row in the table carries; do not retune
-   * its cooldown toward 800 ms without re-checking this guard. At the 600 ms this cliff was first
+   * target every shot. 800 ms puts the cliff at 1.25 Hz. `predator` (1000 ms, 1.0 Hz) is the
+   * fastest aim-assisted weapon in the roster today, and sits only 20% clear -- the tightest margin
+   * any row in the table carries; do not retune its cooldown toward 800 ms without re-checking this
+   * guard. `magmablast` (1600 ms, 0.625 Hz) is 50% clear. At the 600 ms this cliff was first
    * drafted at, it sat at 1.67 Hz and the only shipped weapon landed inside the unstable band its
    * own guard test rejects.
    */

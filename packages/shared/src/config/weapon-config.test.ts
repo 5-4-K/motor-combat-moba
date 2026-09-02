@@ -10,7 +10,7 @@ import { AIM_CONFIG } from "./aim-config.js";
 
 describe("WEAPON_TABLE", () => {
   it("pins the overhaul roster's load-bearing numbers (spec 2026-09-01)", () => {
-    expect(WEAPON_TABLE.magmablast).toMatchObject({ damage: 50, cooldownMs: 1000, speed: 600, range: 900 });
+    expect(WEAPON_TABLE.magmablast).toMatchObject({ damage: 50, cooldownMs: 1600, speed: 600, range: 900 });
     expect(WEAPON_TABLE.predator.homing).toEqual({
       acquire: "proximity",
       acquireRadius: 200,
