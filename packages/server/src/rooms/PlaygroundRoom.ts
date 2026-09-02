@@ -15,6 +15,7 @@ import {
   RoomPhase,
   TICK_RATE_HZ,
   defaultPlaygroundSetup,
+  isBotDifficulty,
   isPlaygroundSetup,
   pickColor,
   setTuning,
@@ -64,13 +65,6 @@ export const PLAYGROUND_BUSY_ERROR = "A playground session is already open";
 const PLAYGROUND_BUSY_CODE = 4005;
 
 /**
- * How often the bot's fire bits are allowed to be set: one tick in this many, zero on the rest. 2 is
- * the smallest value that still produces a press edge every time the bot wants to shoot — see the
- * comment in `enqueueOpponentInput` for why a latched mask fires once and then stops.
- */
-const OPPONENT_FIRE_PERIOD = 2;
-
-/**
  * May a playground room open right now? No, if anyone at all is sitting in the arena (spec PG15):
  * the tuning store is a module-level singleton shared by every room in the process, so overrides
  * typed into the playground would silently re-balance a live match next door.
@@ -88,6 +82,52 @@ export function shouldRefusePlayground(listings: readonly { clients: number }[])
  */
 export function otherPlaygroundId(sessionId: string, humanSessionId: string): string {
   return sessionId === humanSessionId ? BOT_SESSION_ID : humanSessionId;
+}
+
+/**
+ * Does this setup change actually require a respawn? Chassis and loadout do; **colour does not**
+ * (PG32) — repainting a car mid-test must not reset its hp, cooldowns and pose. Pure and exported so
+ * the rule is a test rather than a comment inside a room method.
+ */
+export function loadoutOrChassisChanged(
+  currentCarId: string,
+  currentWeapons: readonly string[],
+  setup: PlaygroundCarSetup,
+): boolean {
+  return currentCarId !== setup.carId || currentWeapons.join() !== setup.weapons.join();
+}
+
+/**
+ * Should the bot recompute its intent this tick, or re-enqueue the one it is holding (PG29)?
+ *
+ * A cleared hold always recomputes: a setup change, a bot toggled off and back on, or a dead target
+ * drops the held intent, and waiting out the rest of the interval would enqueue a decision made
+ * against a pose from before the change. A non-positive cadence recomputes every tick rather than
+ * dividing by zero — the table cannot produce one, and a modulo by zero is `NaN`, which is falsy and
+ * would freeze the bot on its last intent forever.
+ */
+export function shouldRecomputeIntent(
+  tick: number,
+  reactionTicks: number,
+  hasHeldIntent: boolean,
+): boolean {
+  if (!hasHeldIntent) return true;
+  if (reactionTicks <= 1) return true;
+  return tick % reactionTicks === 0;
+}
+
+/**
+ * The fire bits that actually reach the wire this tick (PG29).
+ *
+ * `serverTick` counts only newly-set bits as a press (`clean & ~prev`), so a bot holding the same
+ * bits fires each slot ONCE and then never again; `respawnPlayer` does not clear `prevFireMasks`
+ * either, so a killed bot comes back still latched. Zeroing the bits off-pulse turns every pulse
+ * tick into a fresh press edge. It does not make the bot fire faster than its weapons allow —
+ * stocks, recharges and the switch lock still bound the rate, and feeling those is the point.
+ */
+export function pulsedFireSlots(tick: number, firePeriodTicks: number, fireSlots: number): number {
+  if (firePeriodTicks <= 1) return fireSlots;
+  return tick % firePeriodTicks === 0 ? fireSlots : 0;
 }
 
 /**
@@ -114,6 +154,12 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
    * player's seq to another's.
    */
   private opponentSeq = 0;
+  /**
+   * The bot's last computed intent, re-enqueued on the ticks its profile is not recomputing (PG29).
+   * Cleared — set back to `undefined` — whenever it could go stale: a setup change, the bot switched
+   * off, or a target that is no longer alive.
+   */
+  private heldBotIntent: InputMessage | undefined;
 
   async onCreate(): Promise<void> {
     const listings = await matchMaker.query({ name: ROOM_NAME });
@@ -235,6 +281,10 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
    */
   private applySetup(setup: PlaygroundSetup): void {
     this.state.botEnabled = setup.botEnabled;
+    this.state.botDifficulty = setup.botDifficulty;
+    // Any setup change can invalidate a held intent — a new chassis drives differently, a new
+    // difficulty has a different cadence, and the bot may have just been switched off (PG29).
+    this.heldBotIntent = undefined;
     const arenaChanged = this.state.arenaId !== setup.arenaId;
     if (arenaChanged) this.state.arenaId = setup.arenaId;
 
@@ -255,12 +305,16 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
     }
   }
 
-  /** Writes one car's chassis and loadout, and reports whether either actually moved. */
+  /** Writes one car's chassis, loadout and colour, and reports whether a RESPAWN is owed. Colour is
+   * always written and never owes one (PG32). */
   private applyCarSetup(sessionId: string, setup: PlaygroundCarSetup): boolean {
     const player = this.state.players.get(sessionId);
     if (!player) return false;
     const current = this.combat.loadouts.get(sessionId) ?? [];
-    if (player.carId === setup.carId && current.join() === setup.weapons.join()) return false;
+    // Written before the early return, so a colour-only edit still repaints. `ArenaScene` keys its
+    // car container on `carId:colorId:alive`, so this reaches the screen on the next patch.
+    player.colorId = setup.colorId;
+    if (!loadoutOrChassisChanged(player.carId, current, setup)) return false;
     player.carId = setup.carId;
     // Held in combat memory rather than only in the fire state, so `toCombatPlayers` compares the
     // running slots against THIS list instead of the chassis's shipped kit — see `CombatMemory`.
@@ -301,25 +355,39 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
     // contact, forever. Coasting it on zeros runs it through the ordinary drive model instead: it
     // decelerates and its speed reaches 0, the way letting go of the throttle does.
     if (!this.state.botEnabled) {
+      // Dropping the hold here is what stops switching the bot back on from replaying an intent
+      // computed against a pose from minutes ago (PG29).
+      this.heldBotIntent = undefined;
       queue.push({ seq, steer: 0, throttle: 0, fireSlots: 0 });
       return;
     }
 
-    const driven = this.state.players.get(this.state.controlledSessionId);
-    // A dead target is no target: the bot coasts rather than chasing the wreck's last pose.
-    const target = driven?.alive ? poseOf(driven) : null;
-    const slots = this.combat.fireStates.get(opponentId)?.slots ?? [];
-    const intent = botInput(
-      seq,
-      poseOf(self),
-      target,
-      slots.map((slot) => weaponDefOf(slot.weaponId).range),
-      // Placeholder: always `hard` until Task 4 wires per-difficulty selection, the reaction hold,
-      // and the fire-period read from the profile. This keeps the call site compiling with no
-      // behaviour change — `hard` is bit-for-bit the profile this room used before the split.
-      BOT_PROFILES.hard,
-    );
+    const profile = BOT_PROFILES[
+      isBotDifficulty(this.state.botDifficulty) ? this.state.botDifficulty : "medium"
+    ];
 
+    const driven = this.state.players.get(this.state.controlledSessionId);
+    // A dead target is no target: the bot coasts rather than chasing the wreck's last pose, and the
+    // hold is dropped so it reacts the instant the target respawns instead of waiting out its
+    // cadence.
+    const target = driven?.alive ? poseOf(driven) : null;
+    if (target === null) this.heldBotIntent = undefined;
+
+    if (shouldRecomputeIntent(this.state.tick, profile.reactionTicks, this.heldBotIntent !== undefined)) {
+      const slots = this.combat.fireStates.get(opponentId)?.slots ?? [];
+      this.heldBotIntent = botInput(
+        seq,
+        poseOf(self),
+        target,
+        slots.map((slot) => weaponDefOf(slot.weaponId).range),
+        profile,
+      );
+    }
+
+    const intent = this.heldBotIntent ?? { seq, steer: 0, throttle: 0, fireSlots: 0 };
+    // A held intent is re-enqueued with a FRESH seq: `serverTick` wants one input per tick per car,
+    // and reusing a sequence number reads as a duplicate rather than a repeat.
+    //
     // The fire mask is PULSED rather than passed straight through, and that is this room's decision
     // to make rather than `botInput`'s — the bot reports intent, the room decides what reaches the
     // wire, exactly as a real client's key state does.
@@ -327,11 +395,14 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
     // `serverTick` counts only newly-set bits as a press (`clean & ~prev`), so a bot holding the same
     // bits for as long as its target stays in cone and in range fires each slot exactly ONCE and then
     // never again; `respawnPlayer` does not clear `prevFireMasks` either, so a killed bot comes back
-    // still latched. Zeroing the bits on odd ticks turns every tick the bot wants to shoot into a
-    // fresh press edge. It does not make the bot fire twice as fast: `runCombat`'s stocks, recharges
-    // and switch lock are what bound the rate, and feeling those is the whole point of tuning here.
-    const pressed = this.state.tick % OPPONENT_FIRE_PERIOD === 0 ? intent.fireSlots : 0;
-    queue.push({ ...intent, fireSlots: pressed });
+    // still latched. Zeroing the bits off-pulse turns every pulse tick into a fresh press edge. It
+    // does not make the bot fire faster than its weapons allow: `runCombat`'s stocks, recharges and
+    // switch lock are what bound the rate, and feeling those is the whole point of tuning here.
+    queue.push({
+      ...intent,
+      seq,
+      fireSlots: pulsedFireSlots(this.state.tick, profile.firePeriodTicks, intent.fireSlots),
+    });
   }
 
   /**
