@@ -247,7 +247,9 @@ describe("applyHeal is the only way hp goes up", () => {
 
 describe("weaponCooldown reaches the three refire clocks and no others", () => {
   it("shortens a recharge", () => {
-    const state = newFireState(CAR, 1);
+    // Bullseye's slot 1 since the 2026-09-02 loadout swap — predator's 300ms cooldown is what the
+    // assertion below is pinned against, not CAR (mirage), whose slot 1 is magmablast now.
+    const state = newFireState("bullseye", 1);
     const spent = { ...state, slots: state.slots.map((s) => ({ ...s, stocks: 0 })) };
     const hasted = tickRecharge(spent, 0, 0.5);
     const plain = tickRecharge(spent, 0, 1);

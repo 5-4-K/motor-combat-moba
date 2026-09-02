@@ -154,7 +154,7 @@ describe("firing", () => {
       instanceSeq: 0,
     });
     expect(result.instances).toHaveLength(1);
-    expect(result.instances[0]!.weaponId).toBe("predator"); // mirage's real slot 1, since T1's overhaul
+    expect(result.instances[0]!.weaponId).toBe("magmablast"); // mirage's real slot 1, since the 2026-09-02 loadout swap
   });
 
   it("does not fire again inside the cooldown, held or tapped", () => {
@@ -259,13 +259,22 @@ describe("firing", () => {
     expect(ids).toContain("shot-1");
   });
 
-  it("lands mirage's real slot-1 predator on a car in front", () => {
-    const shooter = player({ sessionId: "aaa", x: 300, fireMask: 0b001 });
+  it("lands bullseye's real slot-1 predator on a car in front", () => {
+    // Predator moved to Bullseye's slot 1 in the 2026-09-02 loadout swap — carId AND fireState both
+    // need the override, since this file's local `player()` hardcodes both to mirage otherwise.
+    const shooter = player({
+      sessionId: "aaa",
+      x: 300,
+      carId: "bullseye",
+      fireState: newFireState("bullseye", 1),
+      fireMask: 0b001,
+    });
     // A fresh press spawns its instance at the muzzle and is hit-tested THIS tick, without a tick of
     // travel — so a same-tick hit is necessarily point-blank. `predator`'s hitbox is a capsule whose
     // `radiusAlong` (14) reaches 14 units past the shooter's own hull edge; 50.5 leaves the hulls 2.5
     // units apart, well inside that reach. Shrinking the hitbox back below 2.5 would break this by
-    // making the shot miss.
+    // making the shot miss. The hull itself is the same size for every chassis (`carHullOf` takes no
+    // `carId`), so this geometry does not move with the swap.
     const target = player({ sessionId: "bbb", x: 300 + 50.5, fireMask: 0 });
     const result = runCombat({
       world: world(),
@@ -274,7 +283,7 @@ describe("firing", () => {
       instanceSeq: 0,
     });
     const hit = result.players.find((p) => p.sessionId === "bbb")!;
-    expect(hit.hp).toBe(hpOf("mirage") - weaponDamageOf("mirage", "predator"));
+    expect(hit.hp).toBe(hpOf("mirage") - weaponDamageOf("bullseye", "predator"));
   });
 
   // A skipped "drives needler, the table's only multi-stock weapon, through a real tick" test lived
@@ -1136,7 +1145,8 @@ describe("real-row integration (2026-09-01 roster)", () => {
   });
 
   it("homes a locked predator toward a moving target across two real combat ticks", () => {
-    const shooter = player("a", { x: 300, y: OPEN_Y, angle: 0, carId: "mirage", fireMask: 0b001 });
+    // Predator moved to Bullseye's slot 1 in the 2026-09-02 loadout swap.
+    const shooter = player("a", { x: 300, y: OPEN_Y, angle: 0, carId: "bullseye", fireMask: 0b001 });
     // Same acquisition geometry as the thunderclap test above: 10 degrees off-axis, 300 units out.
     const bearing = (10 * Math.PI) / 180;
     let state = runCombat({
@@ -1605,11 +1615,17 @@ describe("wall-piercing projectiles (`piercesWalls`, roadblock's row)", () => {
 describe("proximity homing (spec P1-P6)", () => {
   const LIFETIME_TICKS = weaponTicksOf("predator").projectileLifetime;
 
-  /** Fire mirage's slot 1 once and step `ticks` times, returning the last result. */
+  /**
+   * Fire bullseye's slot 1 once and step `ticks` times, returning the last result. Predator moved
+   * to Bullseye in the 2026-09-02 loadout swap (it was mirage's slot 1 before); the shooter is
+   * stationary in every case here, so the acquisition geometry below — muzzle offset, 30 u/tick
+   * flight, the 200u acquireRadius bubble — is unaffected by which chassis fires it (`carHullOf`
+   * takes no `carId`, and `predator`'s own speed/homing numbers do not change with the swap).
+   */
   function fireAndStep(bystanders: CombatPlayer[], ticks: number): CombatResult {
     let world_ = world();
     let players: CombatPlayer[] = [
-      player("aaa", { x: 300, y: OPEN_Y, angle: 0, fireMask: 0b001 }),
+      player("aaa", { x: 300, y: OPEN_Y, angle: 0, carId: "bullseye", fireMask: 0b001 }),
       ...bystanders,
     ];
     let instances: readonly WeaponInstance[] = [];
@@ -1687,7 +1703,7 @@ describe("proximity homing (spec P1-P6)", () => {
     // not swing to the other car.
     let world_ = world();
     let players: CombatPlayer[] = [
-      player("aaa", { x: 300, y: OPEN_Y, angle: 0, fireMask: 0b001 }),
+      player("aaa", { x: 300, y: OPEN_Y, angle: 0, carId: "bullseye", fireMask: 0b001 }),
       player("bbb", { x: 600, y: OPEN_Y + 150 }),
       player("ccc", { x: 700, y: OPEN_Y - 150 }),
     ];
@@ -1725,14 +1741,15 @@ describe("proximity homing (spec P1-P6)", () => {
 });
 
 describe("magma blast detonation (spec P13-P21)", () => {
-  const BULLSEYE_HP = hpOf("bullseye");
-  const CONTACT = weaponDamageOf("bullseye", "magmablast");
+  // Magma Blast moved to Mirage's slot 1 in the 2026-09-02 loadout swap (it was Bullseye's before).
+  const MIRAGE_HP = hpOf("mirage");
+  const CONTACT = weaponDamageOf("mirage", "magmablast");
 
   function shooter(over: Partial<CombatPlayer> = {}): CombatPlayer {
-    return player("aaa", { carId: "bullseye", hp: BULLSEYE_HP, fireState: newFireState("bullseye", 1), ...over });
+    return player("aaa", { carId: "mirage", hp: MIRAGE_HP, fireState: newFireState("mirage", 1), ...over });
   }
 
-  /** Fire bullseye's slot 1 from `from` and step `ticks` times. */
+  /** Fire mirage's slot 1 from `from` and step `ticks` times. */
   function fire(
     from: Partial<CombatPlayer>,
     others: CombatPlayer[],
@@ -1761,19 +1778,19 @@ describe("magma blast detonation (spec P13-P21)", () => {
     // Contact around tick 4; one more tick for the burst to resolve.
     const result = fire(
       { x: 300, y: OPEN_Y, angle: 0 },
-      [player("bbb", { x: 400, y: OPEN_Y, hp: BULLSEYE_HP })],
+      [player("bbb", { x: 400, y: OPEN_Y, hp: MIRAGE_HP })],
       7,
     );
     const victim = find(result, "bbb");
     // Strictly MORE than contact alone — that difference is the splash, and it is the whole point.
-    expect(victim.hp).toBeLessThan(BULLSEYE_HP - CONTACT);
+    expect(victim.hp).toBeLessThan(MIRAGE_HP - CONTACT);
     expect(victim.statuses.some((s) => s.statusId === "corroded")).toBe(true);
   });
 
   it("spawns exactly one burst per shot, already at full extent (P13a/P15)", () => {
     const result = fire(
       { x: 300, y: OPEN_Y, angle: 0 },
-      [player("bbb", { x: 400, y: OPEN_Y, hp: BULLSEYE_HP })],
+      [player("bbb", { x: 400, y: OPEN_Y, hp: MIRAGE_HP })],
       6,
     );
     expect(bursts(result)).toHaveLength(1);
@@ -1782,11 +1799,11 @@ describe("magma blast detonation (spec P13-P21)", () => {
     expect(bursts(result)[0]!.extent).toBe(WEAPON_TABLE.magmablast.explosion!.radius);
     expect(bursts(result)[0]!.kind).toBe("beam");
     // Pinned exactly: the burst must cost its OWN 15-damage row through the owner's attack rating
-    // (16 for bullseye), never `weaponDamageOf`'s 53 (the shell's own row). A mutation that swapped
+    // (17 for mirage), never `weaponDamageOf`'s 57 (the shell's own row). A mutation that swapped
     // in the shell's damage here would otherwise slip past every other assertion in this describe —
     // P16's `toBeLessThan` only needs SOME positive splash, not the right number.
     expect(bursts(result)[0]!.damage).toBe(
-      damageFor(CAR_TABLE.bullseye.attack, WEAPON_TABLE.magmablast.explosion!.damage),
+      damageFor(CAR_TABLE.mirage.attack, WEAPON_TABLE.magmablast.explosion!.damage),
     );
   });
 
@@ -1802,7 +1819,7 @@ describe("magma blast detonation (spec P13-P21)", () => {
     // regression back to that branch is the only way this could still pass.
     const result = fire(
       { x: 300, y: OPEN_Y, angle: 0 },
-      [player("bbb", { x: 400, y: OPEN_Y, hp: BULLSEYE_HP })],
+      [player("bbb", { x: 400, y: OPEN_Y, hp: MIRAGE_HP })],
       6 + explosionLife + 1,
     );
     expect(bursts(result)).toHaveLength(0);
@@ -1815,7 +1832,7 @@ describe("magma blast detonation (spec P13-P21)", () => {
       { x: 340, y: OPEN_Y - 100, w: 40, h: 200 },
     ]);
     expect(bursts(result).length).toBeGreaterThan(0);
-    expect(find(result, "aaa").hp).toBe(BULLSEYE_HP);
+    expect(find(result, "aaa").hp).toBe(MIRAGE_HP);
   });
 
   it("detonates at the PRE-step pose on a wall, never inside it (P14)", () => {
@@ -1832,11 +1849,11 @@ describe("magma blast detonation (spec P13-P21)", () => {
     const wall = { x: 600, y: OPEN_Y - 100, w: 20, h: 200 };
     const result = fire(
       { x: 300, y: OPEN_Y, angle: 0 },
-      [player("bbb", { x: 650, y: OPEN_Y, hp: BULLSEYE_HP })],
+      [player("bbb", { x: 650, y: OPEN_Y, hp: MIRAGE_HP })],
       20,
       [wall],
     );
-    expect(find(result, "bbb").hp).toBeLessThan(BULLSEYE_HP);
+    expect(find(result, "bbb").hp).toBeLessThan(MIRAGE_HP);
   });
 
   it("detonates at max range with nothing hit at all", () => {
@@ -1865,7 +1882,7 @@ describe("magma blast detonation (spec P13-P21)", () => {
     // forever. The instance list must drain to empty instead.
     const result = fire(
       { x: 300, y: OPEN_Y, angle: 0 },
-      [player("bbb", { x: 400, y: OPEN_Y, hp: BULLSEYE_HP })],
+      [player("bbb", { x: 400, y: OPEN_Y, hp: MIRAGE_HP })],
       60,
     );
     expect(result.instances).toHaveLength(0);

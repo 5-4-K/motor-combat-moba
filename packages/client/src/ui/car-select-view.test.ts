@@ -100,11 +100,12 @@ describe("fullStatsFor", () => {
     // against a hard-coded panel, and would not catch the row being wired to the wrong car. Each
     // chassis's slot-1 weapon is its own id (no shared damage row across all three), so this pins
     // each chassis's actual opener by label AND value. `fireball`/`needler` retired outright and
-    // `predator`/`magmablast` shipped in their place by the 2026-09-01 roster cutover (O17); bastion's
-    // opener (`thumper`) is unchanged.
+    // `predator`/`magmablast` shipped in their place by the 2026-09-01 roster cutover (O17); the
+    // 2026-09-02 loadout swap then traded those two between Mirage and Bullseye (bastion's opener,
+    // `thumper`, is unchanged throughout).
     const expected: Record<keyof typeof CAR_TABLE, { label: string; value: string }> = {
-      mirage: { label: "Predator damage", value: "28" },
-      bullseye: { label: "Magma Blast damage", value: "53" },
+      mirage: { label: "Magma Blast damage", value: "57" },
+      bullseye: { label: "Predator damage", value: "26" },
       bastion: { label: "Thumper damage", value: "55" },
     };
     for (const id of Object.keys(CAR_TABLE) as (keyof typeof CAR_TABLE)[]) {

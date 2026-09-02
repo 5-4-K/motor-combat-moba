@@ -30,8 +30,8 @@ describe("defaultPlaygroundSetup", () => {
     const setup = defaultPlaygroundSetup();
     expect(setup.arenaId).toBe("arena-01");
     expect(setup.botEnabled).toBe(true);
-    expect(setup.me).toEqual({ carId: "mirage", weapons: ["predator", "thunderclap", "afterburner"] });
-    expect(setup.opponent).toEqual({ carId: "mirage", weapons: ["predator", "thunderclap", "afterburner"] });
+    expect(setup.me).toEqual({ carId: "mirage", weapons: ["magmablast", "thunderclap", "afterburner"] });
+    expect(setup.opponent).toEqual({ carId: "mirage", weapons: ["magmablast", "thunderclap", "afterburner"] });
   });
 
   it("passes its own validator", () => {

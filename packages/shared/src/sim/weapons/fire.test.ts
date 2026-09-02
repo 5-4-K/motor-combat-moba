@@ -5,8 +5,8 @@ import type { ShotOrder } from "./instances.js";
 const SLOT_1 = 0b001;
 const SLOT_2 = 0b010;
 
-/** Mirage, as shipped: slot 1 predator, slot 2 thunderclap, slot 3 afterburner. */
-const fresh = () => newFireState("mirage", 1);
+/** Bullseye, as shipped since the 2026-09-02 loadout swap: slot 1 predator, slot 2 pepperbox, slot 3 lance. */
+const fresh = () => newFireState("bullseye", 1);
 
 /** Drive a state forward n ticks of pure recharge. */
 function idle(state: FireState, from: number, ticks: number): FireState {
@@ -19,7 +19,7 @@ describe("slots", () => {
   it("starts with one stock in every slot", () => {
     const state = fresh();
     expect(state.slots).toHaveLength(3);
-    expect(state.slots.map((s) => s.weaponId)).toEqual(["predator", "thunderclap", "afterburner"]);
+    expect(state.slots.map((s) => s.weaponId)).toEqual(["predator", "pepperbox", "lance"]);
     expect(state.slots.every((s) => s.stocks === 1)).toBe(true);
   });
 

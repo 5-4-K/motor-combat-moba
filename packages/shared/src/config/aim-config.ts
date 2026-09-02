@@ -31,12 +31,14 @@ export const AIM_CONFIG = {
    * any weapon's `range` (A3).
    *
    * The lock aims where the target IS, with no lead. Displacement during flight is
-   * `(targetSpeed / projectileSpeed) * distance`; at mirage's 576 top speed over magmablast's 900
-   * that is `0.64 * distance` against a tolerance of about 28 units (half a car's 32 unit width plus
-   * magmablast's 12 unit hitbox), so a full-speed crosser is only hittable inside roughly 44 units.
-   * Inheriting a 900 unit weapon range would make the far half of every lock acquire reliably and
-   * miss reliably -- a strong-looking snap that whiffs, which reads as a broken system rather than
-   * as a skill boundary.
+   * `(targetSpeed / projectileSpeed) * distance`; at mirage's 576 top speed over `magmablast`'s
+   * speed -- 600 as of the same pass that gave it its explosion, not the 900 of its `range` field
+   * -- that is `0.96 * distance` against a tolerance of about 28 units (half a car's 32 unit width
+   * plus magmablast's 12 unit hitbox), so a full-speed crosser is only hittable inside roughly 29
+   * units. `magmablast` now rides Mirage's own slot 1 (2026-09-02 loadout swap), so this is a car
+   * outrunning its own shell, not a hypothetical. Inheriting a 900 unit weapon range would make the
+   * far half of every lock acquire reliably and miss reliably -- a strong-looking snap that whiffs,
+   * which reads as a broken system rather than as a skill boundary.
    */
   lockRange: 400,
 
@@ -76,10 +78,12 @@ export const AIM_CONFIG = {
    * never blanks for a frame. What lapses is the steal margin and the commit timer, so the next
    * evaluation simply picks the best-scoring target. That is what splits weapons into two classes --
    * faster than `1000 / lockTimeoutMs` holds locks and the margin governs; slower re-picks the best
-   * target every shot. 800 ms puts the cliff at 1.25 Hz, clear of `magmablast`'s 1.67 Hz -- the
-   * fastest aim-assisted weapon in the roster today. At the 600 ms this was first drafted at, the
-   * cliff sat at 1.67 Hz and the only shipped weapon landed inside the unstable band its own guard
-   * test rejects.
+   * target every shot. 800 ms puts the cliff at 1.25 Hz. `predator` (300 ms, 3.33 Hz) is the
+   * fastest aim-assisted weapon in the roster today, 167% clear of the cliff. `magmablast` (1000 ms,
+   * 1.0 Hz) sits only 20% clear -- the tightest margin any row in the table carries; do not retune
+   * its cooldown toward 800 ms without re-checking this guard. At the 600 ms this cliff was first
+   * drafted at, it sat at 1.67 Hz and the only shipped weapon landed inside the unstable band its
+   * own guard test rejects.
    */
   lockTimeoutMs: 800,
   /** How long a target may be out of sight before the lock is released. */

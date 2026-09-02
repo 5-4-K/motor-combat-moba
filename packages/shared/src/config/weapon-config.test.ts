@@ -337,33 +337,41 @@ describe("WEAPON_TABLE", () => {
     }
   });
 
-  it("ships magmablast as a plain single-shot dart, no longer even the retired aura's old id", () => {
+  it("ships magmablast as an explosive shell — one volley, one pellet, a populated explosion", () => {
+    // No longer even the retired aura's old id, and no longer the "plain dart" it was before Task 5
+    // (2026-09-01) gave it a burst on death: `applies` stays undefined at the top level because the
+    // shell itself carries no status — `explosion.applies` is where corroded actually lives.
     const sw = WEAPON_TABLE.magmablast;
     if (sw.kind !== "projectile") throw new Error("magmablast must be a projectile now");
     expect(sw.volley).toEqual({ volleys: 1, volleyIntervalMs: 0 });
+    expect(sw.pellets).toEqual({ pelletsPerVolley: 1, spreadAngleDeg: 0 });
     expect(sw.damage).toBe(50);
     expect(sw.applies).toBeUndefined();
+    expect(sw.explosion).toBeDefined();
+    expect(sw.explosion).toMatchObject({ radius: 60, damage: 15, lingerMs: 150 });
+    expect(sw.explosion!.applies).toEqual([{ statusId: "corroded", target: "opponents", durationMs: 2000 }]);
   });
 
   it("keeps Bullseye's straight-line reach further than anything Bastion carries", () => {
-    // T1's "1 beats 3" edge, asserted rather than asserted-in-prose.
+    // T1's "1 beats 3" edge, asserted rather than asserted-in-prose. Bullseye's longest straight
+    // reach is now `predator`'s 1800 (moved onto Bullseye's slot 1 by the 2026-09-02 loadout swap;
+    // it used to be `magmablast`'s 900).
     //
-    // This is a DELIBERATE, documented exclusion, not a workaround: `thumper.range` (1305) is the
-    // total length of a bounce PATH — 450 u/s for its `lifetimeMs` (2.9s), zigzagging off
-    // whatever walls it meets — not a distance Bastion can point straight at a kiting Bullseye and
-    // threaten. A poke is measured by how far a shot reaches in the direction it was fired, and a
-    // bouncing shot's `range` field does not answer that question, so the guard compares
-    // straight-line pokes only and excludes any `bounces`-carrying row from both sides of the
-    // comparison.
+    // The `bounces`-exclusion below is a DELIBERATE, documented exclusion, not a workaround:
+    // `thumper.range` (1305) is the total length of a bounce PATH — 450 u/s for its `lifetimeMs`
+    // (2.9s), zigzagging off whatever walls it meets — not a distance Bastion can point straight at
+    // a kiting Bullseye and threaten. A poke is measured by how far a shot reaches in the direction
+    // it was fired, and a bouncing shot's `range` field does not answer that question, so the guard
+    // compares straight-line pokes only and excludes any `bounces`-carrying row from both sides of
+    // the comparison. That exclusion still applies post-swap: `thumper` stays on Bastion, unmoved.
     //
-    // Read literally, off `WEAPON_TABLE` alone and with no notion of "straight" at all, `thumper`'s
-    // 1305 is now the single largest `range` value in the whole roster — larger than `lance`'s 1200
-    // and `predator`'s 900. That is a real number on the page (the guide prints it, unqualified,
-    // wherever it prints "Reach"), and whether a bouncing 1305 is worth more or less than a straight
-    // 1200 in actual play is a genuine open balance question this test does not settle — it only
-    // pins the narrower, uncontroversial claim that Bullseye's straight threat range is longer than
-    // Bastion's. Surfaced here for the owner's next tuning pass rather than decided unilaterally.
-    // `roadblock`'s cutdown-from-skewer 500 is Bastion's real straight reach.
+    // Read literally, off `WEAPON_TABLE` alone and with no notion of "straight" at all, `predator`'s
+    // 1800 is the single largest `range` value in the whole roster — larger than `thumper`'s bounced
+    // 1305 and `lance`'s 1200. Since `predator` does not bounce, this is no longer even a "read
+    // literally" curiosity: the guard's own straight-line comparison now puts the roster's biggest
+    // number on Bullseye's side by a wide margin, not the narrow "longer than Bastion's" claim this
+    // test used to have to settle for. `roadblock`'s cutdown-from-skewer 500 is Bastion's real
+    // straight reach.
     const straightReach = (id: CarId) =>
       Math.max(
         0,
