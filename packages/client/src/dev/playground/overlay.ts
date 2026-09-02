@@ -12,13 +12,17 @@ import type {
 } from "@motor-combat-moba/shared";
 import {
   BOT_SESSION_ID,
+  CAR_TABLE,
+  COLOR_TABLE,
   MSG_PLAYGROUND_PAUSE,
   MSG_PLAYGROUND_SETUP,
   MSG_PLAYGROUND_SWITCH,
   MSG_PLAYGROUND_TUNING,
   defaultPlaygroundSetup,
   isArenaId,
+  isBotDifficulty,
   isCarId,
+  isColorId,
   isWeaponId,
   sanitizeStoredTuning,
 } from "@motor-combat-moba/shared";
@@ -30,6 +34,7 @@ import {
   isAtShipped,
   isLoadoutLegal,
   pauseKeyAction,
+  shippedLoadoutOf,
   sliderGroups,
   weaponOptions,
   type OverlayView,
@@ -88,9 +93,66 @@ const CSS = `
   cursor: not-allowed;
 }
 .pg-settings {
-  min-width: 360px;
+  min-width: 420px;
   max-height: 80vh;
   overflow-y: auto;
+}
+.pg-settings-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: -20px -24px 12px;
+  padding: 16px 24px 10px;
+  background: rgba(20, 22, 26, 0.98);
+  border-bottom: 1px solid #333;
+}
+.pg-settings-header h2 {
+  margin: 0;
+}
+.pg-settings-header button {
+  width: auto;
+  margin: 0;
+  padding: 6px 16px;
+}
+.pg-illegal-hint {
+  margin-left: auto;
+  margin-right: 10px;
+  font-size: 11px;
+  color: #d94040;
+}
+.pg-car-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.pg-car-row select.pg-car {
+  flex: 2;
+  min-width: 0;
+}
+.pg-car-row select.pg-color {
+  flex: 1;
+  min-width: 0;
+}
+.pg-car-row button {
+  flex: 0 0 auto;
+  width: auto;
+  margin: 0;
+  padding: 4px 9px;
+}
+.pg-difficulty {
+  margin-left: 10px;
+  padding: 2px 4px;
+  background: #1c1e22;
+  color: #f0f0f0;
+  border: 1px solid #555;
+  border-radius: 4px;
+}
+.pg-difficulty:disabled {
+  opacity: 0.4;
 }
 .pg-row {
   margin: 10px 0;
@@ -206,8 +268,9 @@ function setupFromState(room: Room<PlaygroundState>): PlaygroundSetup {
   const fallback = defaultPlaygroundSetup();
   return {
     botEnabled: room.state.botEnabled,
-    // TODO(later task): read the live botDifficulty off room.state instead of the default.
-    botDifficulty: fallback.botDifficulty,
+    botDifficulty: isBotDifficulty(room.state.botDifficulty)
+      ? room.state.botDifficulty
+      : fallback.botDifficulty,
     arenaId: isArenaId(room.state.arenaId) ? room.state.arenaId : fallback.arenaId,
     me: carSetupFromPlayer(room.state.players.get(room.sessionId), fallback.me),
     opponent: carSetupFromPlayer(room.state.players.get(BOT_SESSION_ID), fallback.opponent),
@@ -220,12 +283,12 @@ function carSetupFromPlayer(
 ): PlaygroundCarSetup {
   const carId = player?.carId;
   if (!carId || !isCarId(carId)) return fallback;
+  const colorId = isColorId(player!.colorId) ? player!.colorId : fallback.colorId;
   const weapons = player!.weapons.map((slot) => slot.weaponId);
-  // TODO(later task): read the car's live colorId instead of the default.
   if (weapons.every(isWeaponId) && isLoadoutLegal(weapons)) {
-    return { carId, colorId: fallback.colorId, weapons };
+    return { carId, colorId, weapons };
   }
-  return { carId, colorId: fallback.colorId, weapons: fallback.weapons };
+  return { carId, colorId, weapons: fallback.weapons };
 }
 
 /** Best-effort read of the currently-active tuning off `PlaygroundState.tuningJson` (empty string
@@ -253,6 +316,17 @@ function selectFor(
     options.map((o) => h("option", { value: o.id }, [o.name])),
   );
   select.value = value;
+  return select;
+}
+
+/** The six player colours, by name, for a car's colour select (PG31). Both cars may pick the same
+ * one — there is deliberately no guard here or on the wire. */
+function colorSelect(value: number): HTMLSelectElement {
+  const select = selectFor(
+    COLOR_TABLE.map((color) => ({ id: String(color.colorId), name: color.name })),
+    String(value),
+  );
+  select.classList.add("pg-color");
   return select;
 }
 
@@ -333,6 +407,30 @@ export function mountPlaygroundOverlay(
     const cars = carOptions();
     const meCarSelect = selectFor(cars, initial.me.carId);
     const oppCarSelect = selectFor(cars, initial.opponent.carId);
+    meCarSelect.classList.add("pg-car");
+    oppCarSelect.classList.add("pg-car");
+
+    const meColorSelect = colorSelect(initial.me.colorId);
+    const oppColorSelect = colorSelect(initial.opponent.colorId);
+
+    const difficultySelect = selectFor(
+      [
+        { id: "easy", name: "Easy" },
+        { id: "medium", name: "Medium" },
+        { id: "hard", name: "Hard" },
+      ],
+      initial.botDifficulty,
+    );
+    difficultySelect.classList.add("pg-difficulty");
+    // Meaningless while the other car is a target dummy, and saying so with the control itself is
+    // clearer than leaving a live select that changes nothing.
+    const syncDifficultyEnabled = (): void => {
+      difficultySelect.disabled = !modeBot.checked;
+    };
+    syncDifficultyEnabled();
+    for (const el of [modeAlone, modeBot]) {
+      el.addEventListener("change", syncDifficultyEnabled);
+    }
 
     const weapons = weaponOptions();
     const meWeaponSelects = initial.me.weapons.map((w) => selectFor(weapons, w));
@@ -355,18 +453,16 @@ export function mountPlaygroundOverlay(
     function readSetup(): PlaygroundSetup {
       return {
         botEnabled: modeBot.checked,
-        // TODO(later task): read the panel's own difficulty control instead of carrying `initial` forward.
-        botDifficulty: initial.botDifficulty,
+        botDifficulty: isBotDifficulty(difficultySelect.value) ? difficultySelect.value : "medium",
         arenaId: arenaSelect.value,
         me: {
           carId: meCarSelect.value as CarId,
-          // TODO(later task): read the panel's own colour control instead of carrying `initial` forward.
-          colorId: initial.me.colorId,
+          colorId: Number(meColorSelect.value),
           weapons: meWeaponSelects.map((s) => s.value) as [WeaponId, WeaponId, WeaponId],
         },
         opponent: {
           carId: oppCarSelect.value as CarId,
-          colorId: initial.opponent.colorId,
+          colorId: Number(oppColorSelect.value),
           weapons: oppWeaponSelects.map((s) => s.value) as [WeaponId, WeaponId, WeaponId],
         },
       };
@@ -389,6 +485,7 @@ export function mountPlaygroundOverlay(
       oppLoadoutRow.classList.toggle("pg-illegal", !oppLegal);
       backBtn.disabled = !meLegal || !oppLegal;
       settingsIllegal = backBtn.disabled;
+      illegalHint.hidden = !backBtn.disabled;
       if (!send || !meLegal || !oppLegal) return;
 
       const arenaChanged = setup.arenaId !== lastSentArenaId;
@@ -406,6 +503,9 @@ export function mountPlaygroundOverlay(
       arenaSelect,
       meCarSelect,
       oppCarSelect,
+      meColorSelect,
+      oppColorSelect,
+      difficultySelect,
       ...meWeaponSelects,
       ...oppWeaponSelects,
     ];
@@ -416,8 +516,6 @@ export function mountPlaygroundOverlay(
     for (const el of [meCarSelect, oppCarSelect, ...meWeaponSelects, ...oppWeaponSelects]) {
       el.addEventListener("change", () => renderStats());
     }
-
-    evaluate(false); // initial legality paint only -- opening the panel must not itself send
 
     const statsContainer = h("div", { class: "pg-stats" });
 
@@ -519,6 +617,39 @@ export function mountPlaygroundOverlay(
     }
     renderStats();
 
+    /** Writes a chassis's shipped kit into one car's three weapon selects (PG34), then runs the
+     * ordinary edit path so the send, the persistence and the stats sections all follow. Disabled
+     * for a chassis whose kit is not three distinct weapons, so it can never build a loadout the
+     * validator would reject. */
+    function restoreButton(
+      carSelect: HTMLSelectElement,
+      weaponSelects: HTMLSelectElement[],
+    ): HTMLButtonElement {
+      const btn = button({ class: "pg-restore" }, ["↺"], () => {
+        const kit = shippedLoadoutOf(carSelect.value as CarId);
+        if (!kit) return;
+        weaponSelects.forEach((select, i) => {
+          select.value = kit[i]!;
+        });
+        evaluate(true);
+        renderStats();
+      });
+      const sync = (): void => {
+        const carId = carSelect.value as CarId;
+        const kit = shippedLoadoutOf(carId);
+        btn.disabled = kit === undefined;
+        btn.title = kit
+          ? `Restore ${CAR_TABLE[carId].name}'s shipped loadout`
+          : "This chassis has no three-weapon kit";
+      };
+      sync();
+      carSelect.addEventListener("change", sync);
+      return btn;
+    }
+
+    const meRestoreBtn = restoreButton(meCarSelect, meWeaponSelects);
+    const oppRestoreBtn = restoreButton(oppCarSelect, oppWeaponSelects);
+
     const resetAllBtn = button({}, ["Reset all"], () => {
       for (const path of Object.keys(overrides)) delete overrides[path];
       persist();
@@ -558,20 +689,39 @@ export function mountPlaygroundOverlay(
     const row = (label: string, control: Node): HTMLElement =>
       h("div", { class: "pg-row" }, [h("label", {}, [label]), control]);
 
+    const illegalHint = h("span", { class: "pg-illegal-hint" }, ["duplicate weapon in a loadout"]);
+    illegalHint.hidden = true; // avoid a flash before the first `evaluate` paints its real state
+
+    // Deferred to here (rather than sitting where the controls are wired, above) because `evaluate`
+    // now touches `illegalHint`: calling it any earlier -- before this `const` has run -- would read
+    // the binding in its temporal dead zone and throw every time the panel opens.
+    evaluate(false); // initial legality paint only -- opening the panel must not itself send
+
+    const carRow = (
+      label: string,
+      carSelect: HTMLSelectElement,
+      colorSel: HTMLSelectElement,
+      restoreBtn: HTMLButtonElement,
+    ): HTMLElement =>
+      h("div", { class: "pg-row" }, [
+        h("label", {}, [label]),
+        h("div", { class: "pg-car-row" }, [carSelect, colorSel, restoreBtn]),
+      ]);
+
     return h("div", { class: "pg-panel pg-settings" }, [
-      h("h2", {}, ["Settings"]),
+      h("div", { class: "pg-settings-header" }, [h("h2", {}, ["Settings"]), illegalHint, backBtn]),
       h("div", { class: "pg-row pg-mode" }, [
         h("label", {}, [modeAlone, " Play alone"]),
         h("label", {}, [modeBot, " Vs bot"]),
+        difficultySelect,
       ]),
       row("Arena", arenaSelect),
-      row("My car", meCarSelect),
+      carRow("My car", meCarSelect, meColorSelect, meRestoreBtn),
       row("My loadout", meLoadoutRow),
-      row("Opponent car", oppCarSelect),
+      carRow("Opponent car", oppCarSelect, oppColorSelect, oppRestoreBtn),
       row("Opponent loadout", oppLoadoutRow),
       h("div", { class: "pg-stats-toolbar" }, [resetAllBtn, copyBtn]),
       statsContainer,
-      backBtn,
     ]);
   }
 
