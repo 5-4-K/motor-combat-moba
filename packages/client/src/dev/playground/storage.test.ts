@@ -153,4 +153,14 @@ describe("decodeStored — v1 upgrade (PG25)", () => {
       defaultPlaygroundSetup(),
     );
   });
+
+  it("does not backfill a whole missing section (e.g. `me`) — the upgrade only fills the new fields", () => {
+    const stub = {
+      botEnabled: true,
+      arenaId: "arena-01",
+      opponent: { carId: "mirage", weapons: ["predator", "thunderclap", "afterburner"] },
+    };
+    const { setup } = decodeStored(JSON.stringify({ setup: stub, overrides: {} }));
+    expect(setup).toEqual(defaultPlaygroundSetup());
+  });
 });

@@ -20,27 +20,31 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Merge a stored `setup` record over `defaultPlaygroundSetup()` before validating it (PG25).
+ * Additively fill in the fields Task 1 added — `botDifficulty` on the setup, `colorId` on each car —
+ * when a stored `setup` record is missing exactly those, before validating it (PG25).
  *
  * `isPlaygroundSetup` guards both the wire and this codec, and it went strict when `colorId` and
  * `botDifficulty` were added — so without this, every setup saved before that change would fail
- * validation and silently discard a car, a loadout and an arena the developer had chosen. The merge
- * is deliberately shallow-per-side: the two car records are merged over their OWN defaults, so an
- * upgraded blob inherits two DISTINCT colours rather than both cars landing on `me`'s.
+ * validation and silently discard a car, a loadout and an arena the developer had chosen.
  *
- * This never loosens the wire. The server still rejects an incomplete payload; only what this
- * browser saved for itself is upgraded, and a blob still invalid after the merge falls back whole.
+ * This is deliberately narrow: it adds `botDifficulty` only when the top-level field is absent, and
+ * adds a car's `colorId` only when that car record is itself present (a plain object) and lacks one —
+ * each from that car's OWN default, so an upgraded blob inherits two DISTINCT colours rather than
+ * both cars landing on `me`'s. It never invents a whole missing section (`arenaId`, `botEnabled`,
+ * `me`, `opponent`) from the defaults — a blob missing one of those stays invalid and, like before
+ * this change, falls back whole. This never loosens the wire: the server still rejects an incomplete
+ * payload; only what this browser saved for itself is upgraded.
  */
 function upgradeStoredSetup(value: unknown): unknown {
   if (!isPlainRecord(value)) return value;
   const fallback = defaultPlaygroundSetup();
-  const mergeCar = (car: unknown, base: PlaygroundCarSetup): unknown =>
-    isPlainRecord(car) ? { ...base, ...car } : base;
+  const upgradeCar = (car: unknown, base: PlaygroundCarSetup): unknown =>
+    isPlainRecord(car) && car.colorId === undefined ? { ...car, colorId: base.colorId } : car;
   return {
-    ...fallback,
     ...value,
-    me: mergeCar(value.me, fallback.me),
-    opponent: mergeCar(value.opponent, fallback.opponent),
+    ...(value.botDifficulty === undefined ? { botDifficulty: fallback.botDifficulty } : {}),
+    ...(value.me !== undefined ? { me: upgradeCar(value.me, fallback.me) } : {}),
+    ...(value.opponent !== undefined ? { opponent: upgradeCar(value.opponent, fallback.opponent) } : {}),
   };
 }
 
