@@ -14,7 +14,7 @@ Substitute `[WEAPON_DESCRIPTION]` and `[WEAPON_COLOR]`, then use verbatim.
 
 `[WEAPON_COLOR]` is **looked up, not chosen.** It is that weapon's own `color` from `WEAPON_TABLE`
 ([`packages/shared/src/config/weapon-config.ts`](../../../packages/shared/src/config/weapon-config.ts))
-— the hex its **shots** already draw in, `#D63A14` for `predator`. Pass the hex itself; a generator
+— the hex its **shots** already draw in, `#606060` for `predator`. Pass the hex itself; a generator
 lands near it rather than on it, and near is enough. A weapon with no row there is not a weapon
 yet: author it with the `weapon-forger` skill first.
 

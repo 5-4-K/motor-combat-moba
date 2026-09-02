@@ -47,7 +47,7 @@ const styled = Object.keys(WEAPON_PROJECTILE_STYLES) as WeaponId[];
 const ANGLES = [0, 0.4, Math.PI / 2, 2.1, Math.PI, -1.3];
 
 function instanceAt(weaponId: WeaponId, angle: number): DrawableInstance {
-  return { weaponId, x: 500, y: 300, angle, extent: 0 };
+  return { weaponId, isExplosion: false, x: 500, y: 300, angle, extent: 0 };
 }
 
 describe("projectile markings", () => {
@@ -62,11 +62,11 @@ describe("projectile markings", () => {
     });
     // Not an assertion that every one of these is styled forever -- it is the list that keeps this
     // file honest about what it is covering, so removing a style shows up here rather than silently.
-    // `predator` (capsule) and `pepperbox` (ellipse) are shaped but deliberately flat: `pepperbox`'s
-    // hitbox moved to an ellipse in the 2026-09-01 roster cutover specifically because a round-glow
-    // table cannot own it, and this one has not styled it either yet.
+    // `pepperbox` (ellipse) is the one shaped projectile still deliberately flat: its hitbox moved
+    // to an ellipse in the 2026-09-01 roster cutover specifically because a round-glow table cannot
+    // own it, and nothing has authored it a marking since. `predator` gained one on 2026-09-02.
     expect(shaped.sort()).toEqual(["pepperbox", "predator", "thumper"]);
-    expect(styled.sort()).toEqual(["thumper"]);
+    expect(styled.sort()).toEqual(["predator", "thumper"]);
   });
 
   it("keeps every authored vertex inside its own hitbox, at every heading", () => {
@@ -104,7 +104,10 @@ describe("projectile markings", () => {
       expect(projectileDrawLayers(instanceAt(id, 0.5), 0)).toEqual([]);
     }
     expect(
-      projectileDrawLayers({ weaponId: "not-a-weapon", x: 0, y: 0, angle: 0, extent: 0 }, 0),
+      projectileDrawLayers(
+        { weaponId: "not-a-weapon", isExplosion: false, x: 0, y: 0, angle: 0, extent: 0 },
+        0,
+      ),
     ).toEqual([]);
   });
 

@@ -1,4 +1,4 @@
-import { ManeuverKind } from "@motor-combat-moba/shared";
+import { ManeuverKind, weaponDefOf } from "@motor-combat-moba/shared";
 
 /**
  * Pure derivations behind two render-only reads of `PlayerState.maneuver` (spec S3, S6): the wild
@@ -8,8 +8,18 @@ import { ManeuverKind } from "@motor-combat-moba/shared";
  * `ArenaScene` keeps only the Phaser calls; everything here is testable without a browser.
  */
 
-/** Wild Charge's own hex — the outline is nowhere else on screen, so it needs no lookup table. */
-const CHARGE_OUTLINE_COLOR = 0xd9a814;
+/**
+ * Wild Charge's own colour, READ from the weapon table rather than repeated as a literal here.
+ *
+ * It was a hardcoded `0xd9a814` until 2026-09-02, on the reasoning that "the outline is nowhere else
+ * on screen, so it needs no lookup table". That is true of the outline and false of the colour: the
+ * same hex is also the weapon's HUD slot and its row in the players' guide, and a copy meant the
+ * 2026-09-02 recolour would have moved those two while leaving the outline gold — with the suite
+ * green, because the test asserted the literal. Derived, the two cannot drift again.
+ *
+ * `wildcharge` spawns no instance, so this is the ONLY place its colour reaches the world.
+ */
+const CHARGE_OUTLINE_COLOR = Number.parseInt(weaponDefOf("wildcharge").color.slice(1), 16);
 const CHARGE_OUTLINE_WIDTH = 3;
 
 export interface ManeuverOutlineStyle {

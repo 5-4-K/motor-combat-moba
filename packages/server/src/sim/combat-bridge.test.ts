@@ -134,7 +134,7 @@ describe("toCombatPlayers", () => {
     const memory = newCombatMemory();
 
     const players = toCombatPlayers(state, new Set(["aaa"]), new Map([["aaa", 0b001]]), memory);
-    expect(players[0]!.fireState.slots.map((s) => s.weaponId)).toEqual(["predator", "thunderclap", "afterburner"]);
+    expect(players[0]!.fireState.slots.map((s) => s.weaponId)).toEqual(["magmablast", "thunderclap", "afterburner"]);
     expect(players[0]!.fireMask).toBe(0b001);
   });
 
@@ -193,7 +193,7 @@ describe("toCombatPlayers", () => {
 
     player.carId = "mirage";
     const afterReveal = toCombatPlayers(state, new Set(["aaa"]), new Map(), memory)[0]!.fireState;
-    expect(afterReveal.slots.map((s) => s.weaponId)).toEqual(["predator", "thunderclap", "afterburner"]);
+    expect(afterReveal.slots.map((s) => s.weaponId)).toEqual(["magmablast", "thunderclap", "afterburner"]);
   });
 });
 
@@ -381,7 +381,7 @@ describe("applyCombatResult", () => {
     );
     const player = state.players.get("aaa")!;
     expect(player.weapons.length).toBe(3);
-    expect(player.weapons.at(0)!.weaponId).toBe("predator");
+    expect(player.weapons.at(0)!.weaponId).toBe("magmablast");
     expect(player.weapons.at(1)!.weaponId).toBe("thunderclap");
     expect(player.weapons.at(2)!.weaponId).toBe("afterburner");
     expect(player.weapons.at(0)!.stocks).toBe(1);

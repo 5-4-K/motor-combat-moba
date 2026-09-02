@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ARENA_01 } from "../arena/arena-01.js";
-import { hpOf } from "../config/car-config.js";
+import { CAR_TABLE, hpOf } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { CarId } from "../config/types.js";
 import { WEAPON_TABLE } from "../config/weapon-config.js";
@@ -21,13 +21,14 @@ import { ManeuverKind } from "./maneuver.js";
 import type { ManeuverWeaponDef, WeaponId } from "../config/weapon-types.js";
 import { NEUTRAL_MODIFIERS } from "./status/modifiers.js";
 import { applyStatus } from "./status/statuses.js";
-import { weaponDamageOf } from "./damage.js";
+import { damageFor, weaponDamageOf } from "./damage.js";
 import { newFireState } from "./weapons/fire.js";
 import type { WeaponInstance } from "./weapons/instances.js";
 import { muzzleOf, newLockState } from "./weapons/lock.js";
 import { stepSim } from "./step.js";
 import type { SimBody } from "./step.js";
 import type { InputMessage } from "../net/input.js";
+import { weaponTicksOf } from "../config/weapon-ticks.js";
 
 const DT = MS_PER_TICK / 1000;
 
@@ -101,6 +102,18 @@ function find(result: { players: CombatPlayer[] }, sessionId: string): CombatPla
   return found;
 }
 
+/**
+ * Is the shell instance built by this file's `flying`/`aimedAt` helpers (always id "p1") gone from
+ * the result? Since Task 5 (2026-09-02) any of magmablast's own removals also leaves a fresh burst
+ * instance behind (spec P13), so `result.instances` is no longer necessarily empty once a hand-built
+ * magmablast shell dies. Asserting on the shell's own id, rather than the array's length, keeps
+ * these generic shot-removal tests about REMOVAL without re-asserting the detonation behaviour that
+ * this file's own "magma blast detonation" describe block already covers.
+ */
+function shellGone(result: CombatResult): boolean {
+  return !result.instances.some((i) => i.id === "p1");
+}
+
 describe("firing", () => {
   /**
    * Local, single-argument shape: every case here only needs one shooter with `fireMask` set (or
@@ -141,7 +154,7 @@ describe("firing", () => {
       instanceSeq: 0,
     });
     expect(result.instances).toHaveLength(1);
-    expect(result.instances[0]!.weaponId).toBe("predator"); // mirage's real slot 1, since T1's overhaul
+    expect(result.instances[0]!.weaponId).toBe("magmablast"); // mirage's real slot 1, since the 2026-09-02 loadout swap
   });
 
   it("does not fire again inside the cooldown, held or tapped", () => {
@@ -246,13 +259,22 @@ describe("firing", () => {
     expect(ids).toContain("shot-1");
   });
 
-  it("lands mirage's real slot-1 predator on a car in front", () => {
-    const shooter = player({ sessionId: "aaa", x: 300, fireMask: 0b001 });
+  it("lands bullseye's real slot-1 predator on a car in front", () => {
+    // Predator moved to Bullseye's slot 1 in the 2026-09-02 loadout swap — carId AND fireState both
+    // need the override, since this file's local `player()` hardcodes both to mirage otherwise.
+    const shooter = player({
+      sessionId: "aaa",
+      x: 300,
+      carId: "bullseye",
+      fireState: newFireState("bullseye", 1),
+      fireMask: 0b001,
+    });
     // A fresh press spawns its instance at the muzzle and is hit-tested THIS tick, without a tick of
     // travel — so a same-tick hit is necessarily point-blank. `predator`'s hitbox is a capsule whose
     // `radiusAlong` (14) reaches 14 units past the shooter's own hull edge; 50.5 leaves the hulls 2.5
     // units apart, well inside that reach. Shrinking the hitbox back below 2.5 would break this by
-    // making the shot miss.
+    // making the shot miss. The hull itself is the same size for every chassis (`carHullOf` takes no
+    // `carId`), so this geometry does not move with the swap.
     const target = player({ sessionId: "bbb", x: 300 + 50.5, fireMask: 0 });
     const result = runCombat({
       world: world(),
@@ -261,7 +283,7 @@ describe("firing", () => {
       instanceSeq: 0,
     });
     const hit = result.players.find((p) => p.sessionId === "bbb")!;
-    expect(hit.hp).toBe(hpOf("mirage") - weaponDamageOf("mirage", "predator"));
+    expect(hit.hp).toBe(hpOf("mirage") - weaponDamageOf("bullseye", "predator"));
   });
 
   // A skipped "drives needler, the table's only multi-stock weapon, through a real tick" test lived
@@ -320,7 +342,7 @@ describe("shots in flight", () => {
 
   it("drops a shot that has outlived its range", () => {
     const result = run({ instances: [flying({ distance: WEAPON_TABLE.magmablast.range })] });
-    expect(result.instances).toHaveLength(0);
+    expect(shellGone(result)).toBe(true);
   });
 
   it("drops a shot that flies into an obstacle", () => {
@@ -330,33 +352,33 @@ describe("shots in flight", () => {
       world: world({ obstacles: [box] }),
       instances: [flying({ x: justShort, y: box.y + box.h / 2 })],
     });
-    expect(result.instances).toHaveLength(0);
+    expect(shellGone(result)).toBe(true);
   });
 
   it("drops a shot that leaves the arena", () => {
     const result = run({ instances: [flying({ x: ARENA_01.width - 1 })] });
-    expect(result.instances).toHaveLength(0);
+    expect(shellGone(result)).toBe(true);
   });
 
   it("drops a shot that steps clean past a wall thinner than one tick of travel", () => {
-    // The smear's whole reason for existing on the world test (D8): at 900 u/s a shot covers 30
-    // units a tick, so a point sample at the landing position looks straight past anything thinner
-    // than that. This box is 4 units thick and sits between the pre-step and post-step positions —
-    // the shot is never AT it on any tick, and a point test reports a clean miss.
+    // The smear's whole reason for existing on the world test (D8): at magmablast's 600 u/s a shot
+    // covers 20 units a tick, so a point sample at the landing position looks straight past anything
+    // thinner than that. This box is 4 units thick and sits between the pre-step and post-step
+    // positions — the shot is never AT it on any tick, and a point test reports a clean miss.
     const thin = { x: 700, y: 300, w: 4, h: 120 };
-    const before = thin.x - 10; // one tick of travel (30 units) lands at 720, past the far face
+    const before = thin.x - 10; // one tick of travel (20 units) lands at 710, past the far face
     const result = run({
       world: world({ obstacles: [thin] }),
       instances: [flying({ x: before, y: thin.y + thin.h / 2 })],
     });
-    expect(result.instances).toHaveLength(0);
+    expect(shellGone(result)).toBe(true);
   });
 
   it("drops a shot that lands exactly on the arena edge, as a beam clips there", () => {
     // One spelling of one rule: `pointOutsideBounds` is inclusive on every edge, so a projectile on
     // the boundary is out exactly where `wallClipDistance` already stopped a beam.
     const result = run({ instances: [flying({ x: ARENA_01.width - WEAPON_TABLE.magmablast.speed * DT })] });
-    expect(result.instances).toHaveLength(0);
+    expect(shellGone(result)).toBe(true);
   });
 });
 
@@ -395,7 +417,7 @@ describe("shots landing", () => {
       instances: [aimedAt(target, "a")],
     });
     expect(find(result, "b").hp).toBe(hpOf("mirage") - weaponDamageOf("mirage", "magmablast"));
-    expect(result.instances).toHaveLength(0);
+    expect(shellGone(result)).toBe(true);
   });
 
   it("never damages the shooter", () => {
@@ -493,7 +515,7 @@ describe("shots landing", () => {
         },
       ],
     });
-    expect(result.instances).toHaveLength(0);
+    expect(shellGone(result)).toBe(true);
     expect(find(result, "b").hp).toBe(hpOf("mirage"));
   });
 
@@ -533,15 +555,20 @@ describe("dealDamageTo", () => {
 describe("chassis attack scales weapon damage through a real tick", () => {
   /** One shot, fired for real, from `carId` into a stationary mirage. Returns the hp it cost. */
   const damageDealtBy = (carId: "mirage" | "bullseye" | "bastion"): number => {
-    // Slot 1 is forced to magmablast for every chassis, overriding `carId`'s real loadout: since
+    // Slot 1 is forced to roadblock for every chassis, overriding `carId`'s real loadout: since
     // Task 5 the three chassis no longer share a weapon, so deriving `fireState` from
     // `newFireState(carId, 1)` would fire three DIFFERENT weapons and conflate the weapon's own
-    // damage with the attack-rating scaling this test exists to isolate. `magmablast` stands in for
+    // damage with the attack-rating scaling this test exists to isolate. `roadblock` stands in for
     // the retired `fireball` here (rule: like-for-like borrow swap) — its own real owner is
-    // bullseye, but this fixture forces it onto every chassis on purpose.
-    const magmablastSlot1 = {
+    // bastion, but this fixture forces it onto every chassis on purpose. `magmablast` no longer
+    // qualifies as of this same task (2026-09-02): its splash would land on "b" a few ticks after
+    // contact and add an attack-scaled number of its own, contaminating exactly the measurement
+    // this test exists to isolate. `roadblock` has no explosion, no homing and no multi-pellet fan
+    // to complicate a single clean hit, and its 6000ms cooldown cannot recharge inside this test's
+    // 10-tick window the way magmablast's shorter one once did.
+    const roadblockSlot1 = {
       ...newFireState(carId, 1),
-      slots: [{ weaponId: "magmablast" as const, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
+      slots: [{ weaponId: "roadblock" as const, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
     };
     let state = run({
       players: [
@@ -551,13 +578,13 @@ describe("chassis attack scales weapon damage through a real tick", () => {
           angle: 0,
           carId,
           fireMask: 1,
-          fireState: magmablastSlot1,
+          fireState: roadblockSlot1,
         }),
         player("b", { x: 400 + DRIVE_CONFIG.carWidth + 40, y: OPEN_Y }),
       ],
     });
     // The shot leaves the muzzle on tick 100 and covers the ~40 unit gap in about two ticks.
-    // Bounded at 110, well inside magmablast's 18-tick cooldown, so exactly one shot is measured.
+    // Bounded at 110, well inside roadblock's 180-tick cooldown, so exactly one shot is measured.
     for (let tick = 101; tick <= 110; tick++) {
       state = run({
         world: world({ tick }),
@@ -572,10 +599,10 @@ describe("chassis attack scales weapon damage through a real tick", () => {
   it("lands a different number for each chassis firing the identical weapon", () => {
     // Spec test 5: through the real tick, not by calling damageFor. `attack` is invisible in the
     // weapon table, so this is the only place the roster's damage spread is actually observable.
-    // magmablast's base damage is 22, scaled by each chassis's own attack rating.
-    expect(damageDealtBy("mirage")).toBe(25);
-    expect(damageDealtBy("bullseye")).toBe(23);
-    expect(damageDealtBy("bastion")).toBe(20);
+    // roadblock's base damage is 100, scaled by each chassis's own attack rating.
+    expect(damageDealtBy("mirage")).toBe(113);
+    expect(damageDealtBy("bullseye")).toBe(105);
+    expect(damageDealtBy("bastion")).toBe(92);
   });
 });
 
@@ -1117,55 +1144,65 @@ describe("real-row integration (2026-09-01 roster)", () => {
     expect(fortified!.sourceSessionId).toBe("a");
   });
 
-  it("homes a locked predator toward a moving target across two real combat ticks", () => {
-    const shooter = player("a", { x: 300, y: OPEN_Y, angle: 0, carId: "mirage", fireMask: 0b001 });
-    // Same acquisition geometry as the thunderclap test above: 10 degrees off-axis, 300 units out.
-    const bearing = (10 * Math.PI) / 180;
+  it("homes a proximity-acquired predator toward a moving target across real combat ticks", () => {
+    // Predator moved to Bullseye's slot 1 in the 2026-09-02 loadout swap, and is `acquire:
+    // "proximity"` (P1): it must NOT pre-commit to a held lock at spawn (regression covered
+    // directly in "proximity homing (spec P1-P6)" above — this row previously drove the lock
+    // straight into `homingTargetId` for ANY homing weapon, regardless of `acquire`). This test
+    // covers the other half through the full `runCombat` pipeline: once proximity acquisition
+    // sticks, steering keeps bending toward the target's LIVE pose each tick, not a pose frozen at
+    // the moment it committed.
+    const shooter = player("a", { x: 300, y: OPEN_Y, angle: 0, carId: "bullseye", fireMask: 0b001 });
+    // Off-axis on +y, same geometry as "grabs a car that comes within acquireRadius" above: the
+    // muzzle sits at x=324 and the shot closes 30u/tick, so it is not yet within the 200u bubble at
+    // spawn (276u away) and commits a few ticks later — proximity, not the lock, does the finding.
     let state = runCombat({
       world: world(),
-      players: [
-        shooter,
-        player("b", {
-          x: shooter.x + 300 * Math.cos(bearing),
-          y: shooter.y + 300 * Math.sin(bearing),
-          angle: Math.PI,
-        }),
-      ],
+      players: [shooter, player("b", { x: 600, y: OPEN_Y + 150, angle: Math.PI })],
       instances: [],
       instanceSeq: 0,
     });
-    expect(find(state, "a").lock.targetSessionId).toBe("b");
     expect(state.instances).toHaveLength(1);
     const spawned = state.instances[0]!;
     expect(spawned.weaponId).toBe("predator");
-    // A locked homing shot freezes its TARGET at spawn (never the position) — see `instances.ts`.
-    expect(spawned.homingTargetId).toBe("b");
-    const angleAtSpawn = spawned.angle;
+    expect(spawned.homingTargetId).toBe(""); // no pre-commit at spawn (P1/P7)
 
-    // `runCombat` never moves anyone itself, so the target is driven by hand — the minimum bar this
-    // test needs to clear is that the shot's own angle bends across two ticks that follow, tracking
-    // the target's LIVE pose each tick rather than a pose frozen at spawn.
-    for (let i = 0; i < 2; i++) {
+    // Step until proximity acquisition sticks. `acquireByProximity` reads the PRE-step pose each
+    // tick, so the shot is checked at x=324, 354, ..., 474 before it moves each time — it clears
+    // the 200u bubble (sqrt(126^2+150^2) ~= 196u) on the check at x=474, seven ticks after spawn.
+    for (let i = 0; i < 6; i++) {
       state = runCombat({
         world: world({ tick: 101 + i }),
-        players: state.players.map((p) =>
-          p.sessionId === "a" ? { ...p, fireMask: 0 } : { ...p, y: p.y + 60 },
-        ),
+        players: state.players.map((p) => (p.sessionId === "a" ? { ...p, fireMask: 0 } : p)),
         instances: state.instances,
         instanceSeq: state.instanceSeq,
       });
     }
-    const homed = state.instances.find((i) => i.id === spawned.id);
+    const acquired = state.instances.find((i) => i.weaponId === "predator")!;
+    expect(acquired.homingTargetId).toBe("b");
+    const angleAtAcquire = acquired.angle;
+
+    // `runCombat` never moves anyone itself, so the target is driven by hand — the minimum bar this
+    // test needs to clear is that the shot's own angle bends across two more ticks, tracking the
+    // target's LIVE pose each tick rather than the pose it had at the moment it committed.
+    for (let i = 0; i < 2; i++) {
+      state = runCombat({
+        world: world({ tick: 107 + i }),
+        players: state.players.map((p) => (p.sessionId === "b" ? { ...p, y: p.y + 60 } : p)),
+        instances: state.instances,
+        instanceSeq: state.instanceSeq,
+      });
+    }
+    const homed = state.instances.find((i) => i.id === acquired.id);
     expect(homed).toBeDefined();
     // The target only ever moves further +y (never behind, never level), so the shot has to bend
     // toward a strictly LARGER angle to keep tracking it — not just "some" different angle, which a
     // sign error or an inverted turn could also satisfy.
-    expect(homed!.angle).toBeGreaterThan(angleAtSpawn);
-    // And the bend is bounded by the 120 deg/s clamp (spec: Homing) over the two real ticks the shot
-    // was actually stepped (it is born on the spawn tick without moving, per `instances.ts`, so only
-    // the two ticks in the loop above count): `turnRateDegPerSec * dt` per tick, times 2.
+    expect(homed!.angle).toBeGreaterThan(angleAtAcquire);
+    // And the bend is bounded by the 300 deg/s clamp (P9) over the two real ticks the shot was
+    // actually stepped after acquisition: `turnRateDegPerSec * dt` per tick, times 2.
     const maxTurnPerTick = (WEAPON_TABLE.predator.homing!.turnRateDegPerSec * Math.PI * DT) / 180;
-    expect(homed!.angle - angleAtSpawn).toBeLessThanOrEqual(2 * maxTurnPerTick + 1e-9);
+    expect(homed!.angle - angleAtAcquire).toBeLessThanOrEqual(2 * maxTurnPerTick + 1e-9);
   });
 });
 
@@ -1581,5 +1618,328 @@ describe("wall-piercing projectiles (`piercesWalls`, roadblock's row)", () => {
     expect(state.instances).toHaveLength(1);
     state = settle(state, {}, 40);
     expect(state.instances).toHaveLength(0);
+  });
+});
+
+describe("proximity homing (spec P1-P6)", () => {
+  const LIFETIME_TICKS = weaponTicksOf("predator").projectileLifetime;
+
+  /**
+   * Fire bullseye's slot 1 once and step `ticks` times, returning the last result. Predator moved
+   * to Bullseye in the 2026-09-02 loadout swap (it was mirage's slot 1 before); the shooter is
+   * stationary in every case here, so the acquisition geometry below — muzzle offset, 30 u/tick
+   * flight, the 200u acquireRadius bubble — is unaffected by which chassis fires it (`carHullOf`
+   * takes no `carId`, and `predator`'s own speed/homing numbers do not change with the swap).
+   */
+  function fireAndStep(bystanders: CombatPlayer[], ticks: number): CombatResult {
+    let world_ = world();
+    let players: CombatPlayer[] = [
+      player("aaa", { x: 300, y: OPEN_Y, angle: 0, carId: "bullseye", fireMask: 0b001 }),
+      ...bystanders,
+    ];
+    let instances: readonly WeaponInstance[] = [];
+    let instanceSeq = 0;
+    let result: CombatResult | null = null;
+    for (let i = 0; i < ticks; i++) {
+      result = runCombat({ world: world_, players, instances, instanceSeq });
+      // Press on the first tick only; a held key would just be rejected by the cooldown anyway.
+      players = result.players.map((p) => (p.sessionId === "aaa" ? { ...p, fireMask: 0 } : p));
+      instances = result.instances;
+      instanceSeq = result.instanceSeq;
+      world_ = { ...world_, tick: world_.tick + 1 };
+    }
+    return result!;
+  }
+
+  it("does not pre-commit to a held lock at spawn (regression: acquire must gate on 'lock')", () => {
+    // Bystander dead ahead at x=700, lateral offset 0: well inside the lock cone (lateralMax 120)
+    // and lock range (aimRangeUnits 800), so a lock exists and aim assist succeeds on tick one —
+    // this is exactly the shape of shot the old `def.homing && aim !== null` check welded to
+    // `player.lock.targetSessionId` at spawn, regardless of `acquire`. The muzzle sits at x=324, so
+    // the bystander at x=700 is 376u away on the spawn tick — outside the 200u proximity bubble.
+    // A correct proximity weapon must NOT commit here; only `acquire: "lock"` rows may use the lock
+    // at spawn, and predator is `acquire: "proximity"`.
+    const spawnTick = fireAndStep([player("bbb", { x: 700, y: OPEN_Y })], 1);
+    const spawnedShot = spawnTick.instances.find((i) => i.weaponId === "predator");
+    expect(spawnedShot).toBeDefined();
+    expect(spawnedShot!.homingTargetId).toBe(""); // no pre-commit at spawn despite the live lock
+    expect(spawnedShot!.angle).toBeCloseTo(0, 5); // aim assist only set the exit angle (P7), which is 0 dead ahead
+
+    // The same in-cone target is legitimately acquired later, once the shot's own 200u proximity
+    // bubble reaches it — the sixth tick or so, same closing math as the off-axis case below.
+    const later = fireAndStep([player("bbb", { x: 700, y: OPEN_Y })], 10);
+    const shot = later.instances.find((i) => i.weaponId === "predator")!;
+    expect(shot.homingTargetId).toBe("bbb");
+  });
+
+  it("grabs a car that comes within acquireRadius and bends toward it", () => {
+    // Bystander 150u off the line: unlockable (lateralMax is 120), so only proximity can find it.
+    // The shot leaves the muzzle at x=324 and covers 30u/tick, so it closes to within 200u of
+    // (600, 300) around x=474 — on the sixth tick. Ten ticks leaves room to see the turn.
+    const result = fireAndStep([player("bbb", { x: 600, y: OPEN_Y + 150 })], 10);
+    const shot = result.instances.find((i) => i.weaponId === "predator");
+    expect(shot).toBeDefined();
+    expect(shot!.homingTargetId).toBe("bbb");
+    // Bystander is at +y, so a shot that acquired turns to a positive angle. It launched at 0.
+    expect(shot!.angle).toBeGreaterThan(0.1);
+  });
+
+  it("ignores a wreck at the same spot", () => {
+    const result = fireAndStep([player("bbb", { x: 600, y: OPEN_Y + 150, alive: false })], 10);
+    const shot = result.instances.find((i) => i.weaponId === "predator");
+    expect(shot!.homingTargetId).toBe("");
+    expect(shot!.angle).toBeCloseTo(0, 5);
+  });
+
+  it("never grabs its own shooter, whose hull the muzzle sits on", () => {
+    // The shot spawns 24u from the shooter's centre — inside its own 200u bubble from tick one.
+    // `canDamage` refusing the owner is the only thing stopping it homing on itself immediately.
+    const result = fireAndStep([], 4);
+    const shot = result.instances.find((i) => i.weaponId === "predator");
+    expect(shot!.homingTargetId).toBe("");
+    expect(shot!.angle).toBeCloseTo(0, 5);
+  });
+
+  it("never grabs a phased car (spawn protection, M13)", () => {
+    // Same spot a live bystander would be grabbed from (see the acquisition test above) — phased
+    // is what keeps it out, not distance or side. Live for the whole 10-tick run.
+    const phased = [{ statusId: "phased" as const, startTick: 0, endsTick: 10_000, sourceSessionId: "" }];
+    const result = fireAndStep([player("bbb", { x: 600, y: OPEN_Y + 150, statuses: phased })], 10);
+    const shot = result.instances.find((i) => i.weaponId === "predator");
+    expect(shot!.homingTargetId).toBe("");
+    expect(shot!.angle).toBeCloseTo(0, 5);
+  });
+
+  it("takes the nearer of two eligible cars", () => {
+    // Both must be within acquireRadius on the SAME tick the shot first finds either one, with
+    // `far` genuinely farther — otherwise a "first eligible in scan order" implementation (`far`
+    // sorts before `near` by sessionId, so it is visited first) would pass this test by accident.
+    // At the qualifying tick (shot at x=474) `far` is ~197.4u out and `near` is ~195.9u out: both
+    // inside the 200u bubble, `far` genuinely farther. One tick earlier (shot at x=444) `far` is
+    // ~217.8u out — not yet eligible — so it cannot lock in ahead of `near` merely by arriving
+    // first in iteration order.
+    const result = fireAndStep(
+      [
+        player("far", { x: 600, y: OPEN_Y + 152 }),
+        player("near", { x: 600, y: OPEN_Y + 150 }),
+      ],
+      10,
+    );
+    expect(result.instances.find((i) => i.weaponId === "predator")!.homingTargetId).toBe("near");
+  });
+
+  it("never grabs a teammate in team mode (spec P4)", () => {
+    // Same spot the FFA acquisition test above grabs a bystander from (x=600, y=OPEN_Y+150) — only
+    // `world.mode`/team now differ. `canDamage` refuses same-team targets outright in "team" mode,
+    // so a teammate must be exactly as invisible to proximity acquisition as the shooter itself.
+    let world_ = world({ mode: "team" });
+    let players: CombatPlayer[] = [
+      player("aaa", { x: 300, y: OPEN_Y, angle: 0, carId: "bullseye", fireMask: 0b001, team: 0 }),
+      player("bbb", { x: 600, y: OPEN_Y + 150, team: 0 }),
+    ];
+    let instances: readonly WeaponInstance[] = [];
+    let instanceSeq = 0;
+    let result: CombatResult | null = null;
+    for (let i = 0; i < 10; i++) {
+      result = runCombat({ world: world_, players, instances, instanceSeq });
+      players = result.players.map((p) => (p.sessionId === "aaa" ? { ...p, fireMask: 0 } : p));
+      instances = result.instances;
+      instanceSeq = result.instanceSeq;
+      world_ = { ...world_, tick: world_.tick + 1 };
+    }
+    const shot = result!.instances.find((i) => i.weaponId === "predator");
+    expect(shot!.homingTargetId).toBe("");
+    expect(shot!.angle).toBeCloseTo(0, 5);
+  });
+
+  it("commits: it does not re-acquire after its target is wrecked (P5)", () => {
+    // Acquire first, then wreck the target and keep stepping. The angle must freeze where it was,
+    // not swing to the other car.
+    let world_ = world();
+    let players: CombatPlayer[] = [
+      player("aaa", { x: 300, y: OPEN_Y, angle: 0, carId: "bullseye", fireMask: 0b001 }),
+      player("bbb", { x: 600, y: OPEN_Y + 150 }),
+      player("ccc", { x: 700, y: OPEN_Y - 150 }),
+    ];
+    let instances: readonly WeaponInstance[] = [];
+    let instanceSeq = 0;
+    let result: CombatResult | null = null;
+    for (let i = 0; i < 8; i++) {
+      result = runCombat({ world: world_, players, instances, instanceSeq });
+      players = result.players.map((p) => (p.sessionId === "aaa" ? { ...p, fireMask: 0 } : p));
+      instances = result.instances;
+      instanceSeq = result.instanceSeq;
+      world_ = { ...world_, tick: world_.tick + 1 };
+    }
+    const acquiredAngle = result!.instances.find((i) => i.weaponId === "predator")!.angle;
+    expect(acquiredAngle).toBeGreaterThan(0);
+
+    players = players.map((p) => (p.sessionId === "bbb" ? { ...p, alive: false } : p));
+    for (let i = 0; i < 3; i++) {
+      result = runCombat({ world: world_, players, instances, instanceSeq });
+      instances = result.instances;
+      instanceSeq = result.instanceSeq;
+      world_ = { ...world_, tick: world_.tick + 1 };
+    }
+    const after = result!.instances.find((i) => i.weaponId === "predator")!;
+    expect(after.homingTargetId).toBe("bbb"); // still committed to the dead one
+    expect(after.angle).toBeCloseTo(acquiredAngle, 5); // flying straight from where it was
+  });
+
+  it("carries a lifetime clock even though it does not bounce (P28a/P30)", () => {
+    const result = fireAndStep([], 1);
+    const shot = result.instances.find((i) => i.weaponId === "predator")!;
+    expect(LIFETIME_TICKS).toBeGreaterThan(0);
+    expect(shot.expiresAtTick).toBe(shot.spawnTick + LIFETIME_TICKS);
+  });
+});
+
+describe("magma blast detonation (spec P13-P21)", () => {
+  // Magma Blast moved to Mirage's slot 1 in the 2026-09-02 loadout swap (it was Bullseye's before).
+  const MIRAGE_HP = hpOf("mirage");
+  const CONTACT = weaponDamageOf("mirage", "magmablast");
+
+  function shooter(over: Partial<CombatPlayer> = {}): CombatPlayer {
+    return player("aaa", { carId: "mirage", hp: MIRAGE_HP, fireState: newFireState("mirage", 1), ...over });
+  }
+
+  /** Fire mirage's slot 1 from `from` and step `ticks` times. */
+  function fire(
+    from: Partial<CombatPlayer>,
+    others: CombatPlayer[],
+    ticks: number,
+    obstacles: CombatWorld["obstacles"] = [],
+  ): CombatResult {
+    let world_ = world({ obstacles });
+    let players: CombatPlayer[] = [shooter({ ...from, fireMask: 0b001 }), ...others];
+    let instances: readonly WeaponInstance[] = [];
+    let instanceSeq = 0;
+    let result: CombatResult | null = null;
+    for (let i = 0; i < ticks; i++) {
+      result = runCombat({ world: world_, players, instances, instanceSeq });
+      players = result.players.map((p) => (p.sessionId === "aaa" ? { ...p, fireMask: 0 } : p));
+      instances = result.instances;
+      instanceSeq = result.instanceSeq;
+      world_ = { ...world_, tick: world_.tick + 1 };
+    }
+    return result!;
+  }
+
+  const bursts = (r: CombatResult) => r.instances.filter((i) => i.isExplosion);
+
+  it("costs a directly-hit car contact PLUS splash, and corrodes it (P16)", () => {
+    // Muzzle at x=324, shell at 600 u/s = 20 u/tick, target hull's near edge at 400-24=376.
+    // Contact around tick 4; one more tick for the burst to resolve.
+    const result = fire(
+      { x: 300, y: OPEN_Y, angle: 0 },
+      [player("bbb", { x: 400, y: OPEN_Y, hp: MIRAGE_HP })],
+      7,
+    );
+    const victim = find(result, "bbb");
+    // Strictly MORE than contact alone — that difference is the splash, and it is the whole point.
+    expect(victim.hp).toBeLessThan(MIRAGE_HP - CONTACT);
+    expect(victim.statuses.some((s) => s.statusId === "corroded")).toBe(true);
+  });
+
+  it("spawns exactly one burst per shot, already at full extent (P13a/P15)", () => {
+    const result = fire(
+      { x: 300, y: OPEN_Y, angle: 0 },
+      [player("bbb", { x: 400, y: OPEN_Y, hp: MIRAGE_HP })],
+      6,
+    );
+    expect(bursts(result)).toHaveLength(1);
+    // Full size on the tick it forms, not grown into over several. This is what makes the
+    // direct-hit test above deterministic rather than a race with the victim driving away.
+    expect(bursts(result)[0]!.extent).toBe(WEAPON_TABLE.magmablast.explosion!.radius);
+    expect(bursts(result)[0]!.kind).toBe("beam");
+    // Pinned exactly: the burst must cost its OWN 15-damage row through the owner's attack rating
+    // (17 for mirage), never `weaponDamageOf`'s 57 (the shell's own row). A mutation that swapped
+    // in the shell's damage here would otherwise slip past every other assertion in this describe —
+    // P16's `toBeLessThan` only needs SOME positive splash, not the right number.
+    expect(bursts(result)[0]!.damage).toBe(
+      damageFor(CAR_TABLE.mirage.attack, WEAPON_TABLE.magmablast.explosion!.damage),
+    );
+  });
+
+  it("expires the burst on its OWN clock, not the shell's flight-plus-lifetime (P25b)", () => {
+    // A mutation that disabled the explosion-aware branch in `instanceExpired` (falling back to the
+    // shell's `flight + lifetime`, 45 ticks) would leave a 1.5s field instead of the authored 150ms
+    // `lingerMs` (the ~200ms `explosionLife` above is that plus the one-tick `flight`), and nothing
+    // else in this file would catch it: P25a only checks that the burst eventually drains to zero,
+    // not on which tick.
+    const ticks = weaponTicksOf("magmablast");
+    const explosionLife = ticks.explosion!.flight + ticks.explosion!.lifetime;
+    // Fire, let the shell land and the burst form (6 ticks, per the test above), then run the burst
+    // out past its own short clock — well short of the shell's 45-tick flight+lifetime, so a
+    // regression back to that branch is the only way this could still pass.
+    const result = fire(
+      { x: 300, y: OPEN_Y, angle: 0 },
+      [player("bbb", { x: 400, y: OPEN_Y, hp: MIRAGE_HP })],
+      6 + explosionLife + 1,
+    );
+    expect(bursts(result)).toHaveLength(0);
+  });
+
+  it("never damages its own shooter, even detonating on its nose (P18)", () => {
+    // A wall directly in front of the muzzle: the shell dies almost immediately and the 60u field
+    // certainly covers the shooter. `canDamage` refusing the owner is the only thing saving them.
+    const result = fire({ x: 300, y: OPEN_Y, angle: 0 }, [], 6, [
+      { x: 340, y: OPEN_Y - 100, w: 40, h: 200 },
+    ]);
+    expect(bursts(result).length).toBeGreaterThan(0);
+    expect(find(result, "aaa").hp).toBe(MIRAGE_HP);
+  });
+
+  it("detonates at the PRE-step pose on a wall, never inside it (P14)", () => {
+    const box = { x: 600, y: OPEN_Y - 100, w: 240, h: 200 };
+    const result = fire({ x: 300, y: OPEN_Y, angle: 0 }, [], 20, [box]);
+    const burst = bursts(result)[0];
+    expect(burst).toBeDefined();
+    // The shell crossed into the box on the tick it died; the burst belongs on the near side.
+    expect(burst!.x).toBeLessThan(box.x);
+  });
+
+  it("reaches a car on the far side of a wall, because a disc has no wall clip (P17)", () => {
+    // Thin wall so the far car sits inside the 60u radius of a burst forming on the near face.
+    const wall = { x: 600, y: OPEN_Y - 100, w: 20, h: 200 };
+    const result = fire(
+      { x: 300, y: OPEN_Y, angle: 0 },
+      [player("bbb", { x: 650, y: OPEN_Y, hp: MIRAGE_HP })],
+      20,
+      [wall],
+    );
+    expect(find(result, "bbb").hp).toBeLessThan(MIRAGE_HP);
+  });
+
+  it("detonates at max range with nothing hit at all", () => {
+    // No obstacles, no other cars, aimed along open floor, firing from x=100: muzzle at 124, range
+    // 900 expires at x=1024 — well inside arena-01's 1280-unit width, so this is a genuine RANGE
+    // kill (not a bounds kill; see the separate test below for that one).
+    const ticks = weaponTicksOf("magmablast").flight + 3;
+    const result = fire({ x: 100, y: OPEN_Y, angle: 0 }, [], ticks);
+    expect(bursts(result)).toHaveLength(1);
+  });
+
+  it("detonates on leaving the arena, before its own range clock ever runs (P13, bounds kill)", () => {
+    // Firing from x=1250 puts the muzzle at 1274, six units short of arena-01's 1280-unit edge — the
+    // shell crosses the boundary in `hitsWorld` within a tick or two, nowhere near its 900u range.
+    // This is the only test in the file that isolates a BOUNDS removal from a range removal: the
+    // "shots in flight" describe covers `hitsWorld` generically, but converting its "leaves the
+    // arena" case to `shellGone` (once magmablast started leaving a burst behind) removed the last
+    // place a bounds-kill detonation was actually observed.
+    const result = fire({ x: 1250, y: OPEN_Y, angle: 0 }, [], 5);
+    expect(bursts(result)).toHaveLength(1);
+  });
+
+  it("does not spawn another burst when the burst itself expires (P25a)", () => {
+    // THE RECURSION GUARD. If the detonation check read weaponDefOf rather than instanceDefOf, the
+    // burst would see magmablast's `explosion` on its own expiry and spawn another, every tick,
+    // forever. The instance list must drain to empty instead.
+    const result = fire(
+      { x: 300, y: OPEN_Y, angle: 0 },
+      [player("bbb", { x: 400, y: OPEN_Y, hp: MIRAGE_HP })],
+      60,
+    );
+    expect(result.instances).toHaveLength(0);
   });
 });

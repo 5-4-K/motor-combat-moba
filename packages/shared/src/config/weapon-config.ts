@@ -1,4 +1,5 @@
-import type { WeaponDef, WeaponId } from "./weapon-types.js";
+import { TICK_RATE_HZ } from "../constants.js";
+import type { BeamWeaponDef, WeaponDef, WeaponId } from "./weapon-types.js";
 
 /**
  * Every weapon in the game, mirroring `CAR_TABLE`. Balance lives here and nowhere else.
@@ -21,33 +22,47 @@ import type { WeaponDef, WeaponId } from "./weapon-types.js";
  */
 export const WEAPON_TABLE = {
   /**
-   * Mirage's slot 1: the homing rocket (O11). Fired with a lock it tracks the frozen target for
-   * 1.2 s at 120 deg/s — a ~286-unit turning circle Mirage and Bullseye can corner inside and
-   * Bastion mostly cannot, which fits the triangle. Fired bare it is a slow straight shot.
-   * 600 u/s is the second-slowest aimed shot in the table: reactable at range. 0.5 Hz, 60% clear
-   * of the aim cliff. ⚙ speed/turn/duration are the spec's first-pass numbers.
+   * Bullseye's slot 1 as of the 2026-09-02 loadout swap (it was Mirage's before): the proximity
+   * seeker. It leaves the muzzle as an ordinary fast dart aimed by the lock, carries no target, and
+   * grabs the first eligible car to come within 200 u of ITSELF — then chases that one until it hits
+   * something or its 2 s clock runs out.
+   *
+   * It has no range in any sense a player experiences: `range` is authored as `speed x lifetime`
+   * (900 x 2 s) purely because `WEAPON_TICKS.flight`, the guide's reach figure and the
+   * `range >= aimRangeUnits` validator all read it. At 1800 the flight count is exactly the
+   * lifetime, so the two clocks cannot disagree. That clears arena-01's 1469 u diagonal; it would
+   * not clear arena-02's, so "no range" is a statement about the shipped arena, not the engine.
+   *
+   * `turnRateDegPerSec: 300` is the counterplay dial. Turn radius is `speed / turnRate`, so at
+   * 900 u/s this arcs at 172 u — tight enough to convert a 200 u grab. The old 120 deg/s would arc
+   * at 430 u and sail past everything it acquired. ⚙
+   *
+   * 3.33 Hz, 167% clear of the 1.25 Hz aim cliff, and its 2 s life on a 300 ms cooldown means up to
+   * seven in the air at once — which is why the two-instances guard is scoped to bouncing rows.
    */
   predator: {
     id: "predator",
     kind: "projectile",
     name: "Predator",
-    color: "#D63A14", // fireball's ember — Mirage's palette
+    // The icon's missile body, not its flame: `WEAPON_PROJECTILE_STYLES` fills the capsule hull
+    // with this and lays the icon's red nose stripe across the middle as a band.
+    color: "#606060",
     unlocksAt: 1,
-    damage: 50,
+    damage: 25,
     damageFrequencyMs: 0,
-    speed: 600,
-    range: 900,
+    speed: 900,
+    range: 1800, // = speed x lifetimeMs; see the comment above for why this is authored at all
     startUpMs: 0,
-    cooldownMs: 2000,
+    cooldownMs: 300,
     recoveryMs: 0,
     usesAimAssist: true,
-    aimRangeUnits: 400,
+    aimRangeUnits: 800,
     hitbox: { shape: "capsule", radiusAlong: 14, radiusAcross: 6 },
     pierce: 0,
-    homing: { turnRateDegPerSec: 120, durationMs: 1200 },
+    lifetimeMs: 2000,
+    homing: { acquire: "proximity", acquireRadius: 200, turnRateDegPerSec: 300, durationMs: 2000 },
     volley: { volleys: 1, volleyIntervalMs: 0 },
     pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
-    applies: [{ statusId: "corroded", target: "opponents", durationMs: 2000 }],
   },
   /**
    * Mirage's slot 2: the dash (O12/O13). `speed` is the dash speed and `aimRangeUnits` the dash
@@ -59,7 +74,10 @@ export const WEAPON_TABLE = {
     id: "thunderclap",
     kind: "maneuver",
     name: "Thunderclap",
-    color: "#7A1D1D", // the retired aura's maroon — Mirage's palette
+    // Its icon's electric blue. A maneuver spawns no instance, so nothing in the world is filled
+    // with this — the dash's ghost outlines are stroked in the CAR's own paint on purpose. It
+    // reaches the HUD slot and the players' guide, and nowhere else.
+    color: "#3ED1FA",
     unlocksAt: 1,
     damage: 90,
     damageFrequencyMs: 0,
@@ -90,7 +108,7 @@ export const WEAPON_TABLE = {
    * (`muzzles.length > 1` forces assist off, same as `pepperbox`). Do not "fix" this to true.
    *
    * `recoveryMs: 200` is deliberately small (L5). The beam lives on its own once spawned, so the
-   * driver stays free to keep firing `predator` into a target that is already burning.
+   * driver stays free to keep firing `afterburner` into a target that is already burning.
    *
    * `muzzles: [0, 180]` fires two mirrored cones off the car's nose and tail every press, each its
    * own instance with its own damage clock. The per-cone numbers above are unchanged; the per-press
@@ -100,11 +118,10 @@ export const WEAPON_TABLE = {
     id: "afterburner",
     kind: "beam",
     name: "Afterburner",
-    // Amber rather than the magenta this shipped with: the flame drawn by `WEAPON_BEAM_STYLES`
-    // fills its outer layer with this exact hex, so the colour, the layered look and the HUD icon
-    // all describe one weapon. Clear of `COLOR_TABLE` -- deeper and redder than the `Gold` player
-    // colour, which is the only one it sits near.
-    color: "#F05818",
+    // The MIDDLE of the three flame colours sampled from its icon (#FF6000 edge, this, #FFC000
+    // core), because a weapon's table colour is its body and on a flame the body is one layer in.
+    // Clear of `COLOR_TABLE` -- the `Gold` player colour is the only one it sits near.
+    color: "#FF9000",
     unlocksAt: 1,
     damage: 49, // per pulse
     damageFrequencyMs: 500,
@@ -126,24 +143,36 @@ export const WEAPON_TABLE = {
     applies: [{ statusId: "overheated", target: "opponents", durationMs: 1500 }],
   },
   /**
-   * Bullseye's slot 1 — this row's weapon is not the retired Mirage aura (O16/O17); it briefly kept
-   * that aura's `shockwave` id before being renamed to `magmablast` alongside its display name.
-   * Fireball's flight profile carrying needler's output: 22 per 600 ms is needler's old 37
-   * sustained DPS, the skirmisher's clean pressure slot. 1.67 Hz sits 33% clear of the 1.25 Hz
-   * aim-assist cliff.
+   * Mirage's slot 1 as of the 2026-09-02 loadout swap (it was Bullseye's before): the explosive
+   * shell. It flies as an ordinary aimed dart and detonates on ANY death — a car, a wall, the arena
+   * edge, or its own 900 u range — leaving a 60 u corroding field for 150 ms.
+   *
+   * A direct hit costs contact AND splash, 65 base plus the corrode: the burst is born at full
+   * extent on the tick the shell dies, so the car that stopped it is standing inside it. Excluding
+   * the victim would have made a perfect shot the one way to not apply your own weapon's effect.
+   *
+   * The field passes through level geometry, and that is not a special case: a `disc` has no axis
+   * for the wall raycast to follow, so it never had a clip to skip. A car hugging the far side of
+   * a wall within 60 u takes the splash.
+   *
+   * 1.0 Hz sits 20% clear of the 1.25 Hz aim cliff — it passes the guard's 15% floor, but it is the
+   * tightest margin in the table. Do not retune this cooldown toward 800 ms without re-reading that
+   * guard.
    */
   magmablast: {
     id: "magmablast",
     kind: "projectile",
     name: "Magma Blast",
-    color: "#22579E", // needler's navy — Bullseye's palette
+    // The fireball icon's body. `WEAPON_GLOW_STYLES` rings it with the icon's own radial ramp:
+    // #C02000 at the hitbox edge, this, then #FFA800 at the core.
+    color: "#FF6000",
     unlocksAt: 1,
-    damage: 22,
+    damage: 50,
     damageFrequencyMs: 0,
-    speed: 900,
+    speed: 600,
     range: 900, // >= aimRangeUnits, required for usesAimAssist
     startUpMs: 0,
-    cooldownMs: 600,
+    cooldownMs: 1000,
     recoveryMs: 0,
     usesAimAssist: true,
     aimRangeUnits: 400,
@@ -151,6 +180,12 @@ export const WEAPON_TABLE = {
     pierce: 0,
     volley: { volleys: 1, volleyIntervalMs: 0 },
     pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
+    explosion: {
+      radius: 60,
+      damage: 15,
+      lingerMs: 150,
+      applies: [{ statusId: "corroded", target: "opponents", durationMs: 2000 }],
+    },
   },
   /**
    * Bullseye's slot 2, moved off Mirage by T12, and a four-muzzle spray as of the 2026-09-01
@@ -177,7 +212,7 @@ export const WEAPON_TABLE = {
     id: "pepperbox",
     kind: "projectile",
     name: "Pepperbox",
-    color: "#184890",
+    color: "#C04818", // the revolver icon's rust barrel
     unlocksAt: 1,
     damage: 45, // per pellet; 3 pellets per fan == 135, 27% of an average car
     damageFrequencyMs: 0,
@@ -221,7 +256,12 @@ export const WEAPON_TABLE = {
     id: "lance",
     kind: "beam",
     name: "Lance",
-    color: "#0F3268",
+    // Its icon's electric yellow -- the beam's CORE, not its #3ED1FA outer edge, which is the one
+    // place this table breaks its own "the table colour is the outer layer of a beam" habit. The
+    // outer layer would be the natural pick, but `thunderclap` already holds that exact hex and
+    // `weapon-config.test.ts` requires every weapon's colour to be unique. The core is the other
+    // colour the beam actually draws, so the HUD slot still names something on screen.
+    color: "#F0FF00",
     unlocksAt: 1,
     damage: 170, // 34% of an average car; 68% if it catches two
     damageFrequencyMs: 0,
@@ -254,7 +294,7 @@ export const WEAPON_TABLE = {
    * `damage` drops 75 -> 60 to pay for it: 55 on Bastion's 0.92x attack, a shot that opens a fight
    * rather than one that wins an exchange on its own.
    *
-   * `bounce: { lifetimeMs: 2900 }` — the shot now expires on a wall-bouncing flight clock rather
+   * `bounces: true` with `lifetimeMs: 2900` — the shot expires on a wall-bouncing flight clock rather
    * than at `range`, guarded strictly under the 3000 ms cooldown so two bouncing instances can never
    * coexist. `range: 1305` is `450 u/s x 2.9 s`, the honest reach figure now that expiry is
    * clock-based and `range` is otherwise unread by a bouncing shot. Read plainly, that makes 1305
@@ -273,7 +313,7 @@ export const WEAPON_TABLE = {
     id: "thumper",
     kind: "projectile",
     name: "Thumper",
-    color: "#F0C808",
+    color: "#FFD800", // the icon's gold shell
     unlocksAt: 1,
     damage: 60,
     damageFrequencyMs: 0,
@@ -286,7 +326,8 @@ export const WEAPON_TABLE = {
     aimRangeUnits: 400,
     hitbox: { shape: "capsule", radiusAlong: 24, radiusAcross: 15 },
     pierce: 0,
-    bounce: { lifetimeMs: 2900 }, // just under the 3000ms cooldown — a second instance can never coexist
+    bounces: true,
+    lifetimeMs: 2900, // just under the 3000ms cooldown — a second bouncing instance can never coexist
     volley: { volleys: 1, volleyIntervalMs: 0 },
     pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
     applies: [{ statusId: "spiked", target: "opponents", durationMs: 3000 }],
@@ -307,7 +348,7 @@ export const WEAPON_TABLE = {
     id: "roadblock",
     kind: "projectile",
     name: "Roadblock",
-    color: "#C89A14", // skewer's gold — Bastion's palette
+    color: "#D89000", // the barrier icon's construction gold
     unlocksAt: 1,
     damage: 100,
     damageFrequencyMs: 0,
@@ -340,7 +381,9 @@ export const WEAPON_TABLE = {
     id: "wildcharge",
     kind: "maneuver",
     name: "Wild Charge",
-    color: "#D9A814", // bulwark's amber — Bastion's palette
+    // The bull icon's orange. Drawn in the world too, despite this weapon spawning no instance:
+    // `maneuverOutline` strokes the charging car's hull footprint with this exact hex.
+    color: "#F06000",
     unlocksAt: 1,
     damage: 250,
     damageFrequencyMs: 0,
@@ -383,8 +426,9 @@ export const WEAPON_TABLE = {
     id: "tremor",
     kind: "beam",
     name: "Tremor",
-    // Dark bronze: bulwark's old amber family, but its exact #D9A814 belongs to wildcharge now.
-    // Unique among weapons, clear of COLOR_TABLE, dark enough for a light floor.
+    // Dark bronze, and the one weapon colour NOT taken from an icon: `tremor` has no manifest row
+    // yet, so there is nothing to sample. Unique among weapons, clear of COLOR_TABLE, dark enough
+    // for a light floor. Re-derive it from the art whenever an icon lands.
     color: "#8A6D12",
     unlocksAt: 1,
     damage: 25, // per tick; 10 ticks == 250 base on a target that stays the whole life
@@ -418,4 +462,91 @@ export function isWeaponId(value: unknown): value is WeaponId {
 
 export function weaponDefOf(id: WeaponId): WeaponDef {
   return WEAPON_TABLE[id];
+}
+
+/**
+ * The def that describes one LIVE instance — which is not always its weapon's own row.
+ *
+ * A weapon's explosion is spawned as an instance carrying its parent's `weaponId`, so a plain
+ * `weaponDefOf` lookup would describe the shell when the thing in the world is the burst: a
+ * 12-unit dart where a 60-unit disc belongs, and — worse — a `def.explosion` that is still
+ * populated, so the burst's own expiry would spawn another burst, every tick, forever (P25a).
+ *
+ * Routing every instance-side lookup through here makes that unrepresentable rather than merely
+ * unlikely: what comes back for a burst is a `BeamWeaponDef`, and a `BeamWeaponDef` has no
+ * `explosion` field for the recursion to read.
+ */
+export function instanceDefOf(id: WeaponId, isExplosion: boolean): WeaponDef {
+  if (!isExplosion) return WEAPON_TABLE[id];
+  const burst = ACTIVE_BURST_DEFS[id];
+  if (!burst) throw new Error(`instanceDefOf: ${id} authors no explosion`);
+  return burst;
+}
+
+/**
+ * Synthesized once at module load, not per call, so the returned def is referentially stable and
+ * free — the same reasoning as `WEAPON_TICKS`.
+ *
+ * The fields a `WeaponDef` requires but an explosion has no opinion about are fixed here rather
+ * than left to the author. `id` and `color` are the PARENT's: the burst is Magma Blast in every
+ * lookup keyed by weapon, and only its shape and stats differ. The fire-control clocks are inert —
+ * a burst is spawned, never fired — and take the parent's values rather than zeroes, so a future
+ * reader who does reach for one finds a coherent number instead of a trap.
+ *
+ * Built with an explicit loop rather than a `filter`/`fromEntries` chain: `WEAPON_TABLE` is typed
+ * `as const satisfies Record<WeaponId, WeaponDef>`, so indexing it with a bare `WeaponId` yields a
+ * union of the individual rows' literal types rather than the plain `WeaponDef` interface union,
+ * and a `.filter` callback's narrowing does not carry into a later `.map` over the same array. Going
+ * through `weaponDefOf` first (declared to return `WeaponDef`) sidesteps that: ordinary discriminated
+ * narrowing on `.kind` and `.explosion` then works exactly as it does everywhere else in this file.
+ */
+const BURST_DEFS: Partial<Record<WeaponId, BeamWeaponDef>> = buildBurstDefs();
+
+/** `BURST_DEFS` itself until playground tuning overrides a weapon row, and again once it clears. */
+let ACTIVE_BURST_DEFS: Partial<Record<WeaponId, BeamWeaponDef>> = BURST_DEFS;
+
+/**
+ * Playground tuning only (spec PG12) — see `rebuildResolvedDrive`/`rebuildWeaponTicks` for why
+ * `hasOverrides` is passed in rather than read back from the tuning store. Without this,
+ * `weapon.magmablast.explosion.radius`/`.damage` sliders would move `WEAPON_TABLE` and change
+ * nothing: `BURST_DEFS` copies those numbers out at module load and is otherwise never revisited.
+ */
+export function rebuildBurstDefs(hasOverrides: boolean): void {
+  ACTIVE_BURST_DEFS = hasOverrides ? buildBurstDefs() : BURST_DEFS;
+}
+
+function buildBurstDefs(): Partial<Record<WeaponId, BeamWeaponDef>> {
+  const bursts: Partial<Record<WeaponId, BeamWeaponDef>> = {};
+  for (const id of Object.keys(WEAPON_TABLE) as WeaponId[]) {
+    const parent = weaponDefOf(id);
+    if (parent.kind !== "projectile" || !parent.explosion) continue;
+    const blast = parent.explosion;
+    const burst: BeamWeaponDef = {
+      id: parent.id,
+      kind: "beam",
+      name: parent.name,
+      color: parent.color,
+      unlocksAt: parent.unlocksAt,
+      damage: blast.damage,
+      // Once per car, ever. See ExplosionDef for why there is no knob.
+      damageFrequencyMs: 0,
+      // Derived so `WEAPON_TICKS.flight` is exactly one tick (P25b): a beam expires at
+      // `flight + lifetime`, so a small speed here would give a burst that outlives the match.
+      // Growth itself is irrelevant — the instance is spawned at full extent.
+      speed: blast.radius * TICK_RATE_HZ,
+      range: blast.radius,
+      startUpMs: parent.startUpMs,
+      cooldownMs: parent.cooldownMs,
+      recoveryMs: parent.recoveryMs,
+      usesAimAssist: false,
+      hitbox: { shape: "disc" },
+      attached: false,
+      origin: "center",
+      lifetimeMs: blast.lingerMs,
+      volley: { volleys: 1, volleyIntervalMs: 0 },
+      ...(blast.applies ? { applies: blast.applies } : {}),
+    };
+    bursts[id] = Object.freeze(burst);
+  }
+  return Object.freeze(bursts);
 }

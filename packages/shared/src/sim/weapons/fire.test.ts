@@ -5,8 +5,8 @@ import type { ShotOrder } from "./instances.js";
 const SLOT_1 = 0b001;
 const SLOT_2 = 0b010;
 
-/** Mirage, as shipped: slot 1 predator, slot 2 thunderclap, slot 3 afterburner. */
-const fresh = () => newFireState("mirage", 1);
+/** Bullseye, as shipped since the 2026-09-02 loadout swap: slot 1 predator, slot 2 pepperbox, slot 3 lance. */
+const fresh = () => newFireState("bullseye", 1);
 
 /** Drive a state forward n ticks of pure recharge. */
 function idle(state: FireState, from: number, ticks: number): FireState {
@@ -19,7 +19,7 @@ describe("slots", () => {
   it("starts with one stock in every slot", () => {
     const state = fresh();
     expect(state.slots).toHaveLength(3);
-    expect(state.slots.map((s) => s.weaponId)).toEqual(["predator", "thunderclap", "afterburner"]);
+    expect(state.slots.map((s) => s.weaponId)).toEqual(["predator", "pepperbox", "lance"]);
     expect(state.slots.every((s) => s.stocks === 1)).toBe(true);
   });
 
@@ -81,7 +81,7 @@ describe("releasing", () => {
     const { state, orders } = releaseShots(pressed, 100);
     expect(orders).toEqual([{ weaponId: "predator", slot: 0, finalVolley: true }]);
     expect(state.pending).toBeNull();
-    expect(state.slots[0]!.rechargeEndsTick).toBe(160); // 2000ms == 60 ticks
+    expect(state.slots[0]!.rechargeEndsTick).toBe(109); // 300ms == 9 ticks
     expect(state.lastFiredSlot).toBe(0);
   });
 
@@ -187,7 +187,7 @@ describe("per-tick order", () => {
   }
 
   it("fires a zero-start-up weapon on the tick it is pressed, in the canonical recharge -> beginFire -> releaseShots order", () => {
-    let state = fresh(); // predator: startUpMs 0, cooldownMs 2000ms == 60 ticks, single stock
+    let state = fresh(); // predator: startUpMs 0, cooldownMs 300ms == 9 ticks, single stock
     const seen: ShotOrder[] = [];
 
     // Tick 100: press and fire must both land on this SAME tick — not the next one. Under the
@@ -200,8 +200,8 @@ describe("per-tick order", () => {
     expect(state.pending).toBeNull();
     expect(state.slots[0]!.stocks).toBe(0);
 
-    // Ticks 101-159: idle, no stock yet, nothing fires.
-    for (let tick = 101; tick < 160; tick++) {
+    // Ticks 101-108: idle, no stock yet, nothing fires.
+    for (let tick = 101; tick < 109; tick++) {
       const idled = step(state, tick, 0);
       state = idled.state;
       seen.push(...idled.orders);
@@ -209,9 +209,9 @@ describe("per-tick order", () => {
     expect(seen).toHaveLength(1);
     expect(state.slots[0]!.stocks).toBe(0);
 
-    // Tick 160: the stock lands on this exact tick (100 + 60). A second press must fire again, same
+    // Tick 109: the stock lands on this exact tick (100 + 9). A second press must fire again, same
     // tick, proving the cycle repeats rather than being a one-shot fluke.
-    const step2 = step(state, 160, SLOT_1);
+    const step2 = step(state, 109, SLOT_1);
     state = step2.state;
     seen.push(...step2.orders);
     expect(seen).toEqual([
@@ -324,13 +324,17 @@ describe("the two lockouts", () => {
 // A whole "volleys and wind-up" suite drove `shockwave`'s old three-wave burst (a beam, 250ms
 // interval, `onWave: "final"`) through this real fire-state machinery — the load-bearing proof that
 // `beginFire` reads `def.volley.volleys` for a beam rather than hardcoding 1. As of the 2026-09-01
-// overhaul that row (`magmablast`, née `shockwave`) is a plain single-volley dart and no shipped
+// overhaul that row (`magmablast`, née `shockwave`) is a plain single-volley dart, and the
+// 2026-09-02 pass gave it an on-death explosion instead of a second identity change — no shipped
 // row is multi-wave any more:
-// multi-wave volleys, `onWave`, and the aura (`disc`/`origin: "center"`) are dormant machinery —
-// `VolleyDef` and `beginFire`'s kind-agnostic read of it are still exercised generically elsewhere
-// in this file (see "per-tick order"), just not against a real multi-wave row. Deleted rather than
-// retargeted: `fire.ts` has no `def` override seam (unlike `instances.ts`), so there is no way to
-// drive a synthetic multi-wave def through it — only a real `WEAPON_TABLE` row, and none is one.
+// multi-wave volleys and `onWave` are dormant machinery — `VolleyDef` and `beginFire`'s kind-agnostic
+// read of it are still exercised generically elsewhere in this file (see "per-tick order"), just not
+// against a real multi-wave row. Deleted rather than retargeted: `fire.ts` has no `def` override
+// seam (unlike `instances.ts`), so there is no way to drive a synthetic multi-wave def through it —
+// only a real `WEAPON_TABLE` row, and none is one. The `disc`/`origin: "center"` aura itself is NOT
+// dormant, unlike the claim this comment used to make: `magmablast`'s explosion is a real
+// detached, centre-origin `disc` instance (see `combat.ts`'s "magma blast detonation" tests) — it
+// is just spawned by `runCombat`'s detonation path, never by this file's fire-state machinery.
 
 describe("cancelling", () => {
   it("drops a pending burst, as a wreck does mid-volley", () => {

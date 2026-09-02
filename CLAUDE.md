@@ -10,16 +10,20 @@ pickups) — and never stacks with itself. Hard CC no longer belongs to one chas
 2026-09-01 weapon-status overhaul, **`stunned` comes from `roadblock` (Bastion), `thunderclap`
 (Mirage's dash), and the hard-slam's wall impact** (`wildcharge`, 500 ms) — `thumper` applies
 `spiked` now, a slow rather than a stop. `applyDamage` is no longer the only HP writer;
-**`sim/damage.ts` is**, now that repair pulses exist. See
+**`sim/damage.ts` is**, now that repair pulses exist. **`corroded`'s only source in the game is now
+an explosion** — `magmablast`'s detonation, and nothing else applies it (grep `applies:.*corroded`
+if a second source ever needs checking). See
 [`docs/combat-model.md`](docs/combat-model.md#statuses).
 
 An **aura** is a beam with a `disc` hitbox at `origin: "center"` — a field around a car rather than a
-line of fire. It shipped once, as `shockwave` on Mirage's slot 2, but the 2026-09-01 overhaul retired
-that weapon's aura identity: the row is now a plain single-volley dart on **Bullseye's** slot 1,
-renamed `magmablast` alongside its display name, and no row in the roster uses a `disc` hitbox any
-more. The mechanism — and the multi-wave `VolleyDef` machinery that rode alongside it — is **dormant,
-not deleted**: the render and hit-test code stays live and unit-tested, waiting for the next weapon
-or pickup to reach it.
+line of fire. It shipped once, as `shockwave` on Mirage's slot 2, and the 2026-09-01 overhaul retired
+that weapon's aura identity, leaving no row using a `disc` hitbox — but a disc ships again as of the
+2026-09-02 predator/magmablast pass: `magmablast` (moved back to **Mirage's** slot 1 by that pass, off
+Bullseye's) is now an explosive shell whose detonation is a real `WeaponInstance`, a detached
+centre-origin `disc`-hitbox beam synthesized by `instanceDefOf(id, isExplosion)` from the shell's
+`ExplosionDef`. The aura mechanism was never deleted while dormant, and this is what it was waiting
+for. The multi-wave `VolleyDef` machinery that rode alongside the original aura is still **dormant**:
+no row authors more than one volley.
 
 **The `GameMode` enum now has two FFA win conditions**, not one. `FFA_LAST_STANDING` (the renamed
 original — wire value still `0`) ends the match when `livingSides` drops to one side; `FFA_DEATHMATCH`
@@ -351,12 +355,11 @@ sprite that still carries colour, an icon whose colour has drifted from its `WEA
 `scripts/check-art.test.mjs` runs the blockers as part of `npm test`, so a save that dropped the
 alpha fails the suite instead of reaching the HUD as an opaque square. **Warnings never fail the
 suite** — an icon is allowed more than one colour, and only a person looking at the screen can say
-whether a pair reads as one weapon. `npm run check:weapons` warns on four of the ten rows today —
-`thunderclap`, `roadblock`, `wildcharge` and `tremor` have no manifest row yet and fall back to the
-procedural glyph. `predator`, `afterburner`, `magmablast`, `pepperbox`, `lance` and `thumper` all read
-`ok`; `magmablast` (renamed from `shockwave`, and reskinned from a navy dart to a fire orange/red
-icon) sits closest to the warning threshold, since its `WEAPON_TABLE.color` is still the old navy
-`#22579E` — a `color` edit nobody has made yet, not a bug in the check.
+whether a pair reads as one weapon. `npm run check:weapons` warns on exactly one of the ten rows
+today: `tremor`, which has no manifest row yet and falls back to the procedural glyph. **All nine
+carried weapons read `ok`**, most of them at a colour distance of 0-9, because the 2026-09-02 icon
+pass repainted every `WEAPON_TABLE.color` from its own icon rather than from a per-chassis palette.
+`thunderclap`'s 66 is the widest surviving gap and still well inside the limit.
 
 One pairing nothing enforces: a weapon's icon and its `WEAPON_TABLE.color` are meant to read as the
 same weapon, but icons ship `colorMode: "none"` and no typed reference ties the two together. Either

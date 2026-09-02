@@ -21,13 +21,16 @@ so the strip is load-bearing, not decoration. The drain bar is measured from the
 `startTick`, because a status's duration comes from whatever applied it and is not in the table.
 
 An **aura** (a `disc`-hitbox beam at `origin: "center"`) is the one instance too big to fill in: it is
-drawn as a ring plus a low-alpha wash by the branch above the circle case in `renderShots`, because a
-filled 150-unit disc would hide the cars it is about to hit. The ring still sits exactly on the
-hitbox, so "what you see is what will hit you" survives. This is **dormant machinery** since the
-2026-09-01 roster cutover: `shockwave` carried the one shipped aura and no longer does (the row is now
-a plain projectile dart on Bullseye's slot 1, since renamed `magmablast`), so no weapon reaches this
-branch in a real match today —
-the draw path stays in place for whichever row picks a `disc` hitbox next.
+drawn as a ring plus a low-alpha wash by `isAuraInstance`'s branch in `combat-visual.ts`, because a
+filled disc would hide the cars it is about to hit. The ring still sits exactly on the hitbox, so
+"what you see is what will hit you" survives. This sat as **dormant machinery** from the 2026-09-01
+roster cutover — `shockwave` carried the one shipped aura and lost it to a plain projectile dart on
+Bullseye's slot 1, since renamed `magmablast` — until the 2026-09-02 predator/magmablast pass revived
+it: `magmablast` now detonates on death into a real `disc`-hitbox burst, drawn through this exact
+branch in every live match. `drawDefOf` is what makes that reachable at all: a burst instance carries
+its parent shell's `weaponId`, so the branch takes the whole `DrawableInstance` (`isExplosion` and
+all) rather than a bare `weaponId`, and resolves the def through `instanceDefOf` before asking what
+its hitbox is.
 
 `?debug=1` draws the car OBB hitbox.
 
@@ -37,20 +40,16 @@ The lock bracket is drawn from `PlayerState.lockTargetSessionId` for whichever c
 
 **Player colour is for cars; weapon colour is for shots.**
 
-**Shot colour says which CHASSIS fired it; shot shape says which weapon.** Since 2026-08-31 the nine
-weapons are themed per chassis — Mirage maroon and orange, Bullseye navy and orange, Bastion yellow
-and white — matching the HUD icons, which are themed the same way. So the three weapons on one car
-deliberately look alike, told apart by silhouette instead (a lobbed ball, a spread of pellets, a
-1200-unit beam). **That convergence is the design, not a defect**, and colour is spent on the question
-"who is shooting at me". Every colour in `WEAPON_TABLE` and in the three style tables below is meant
-to trace to its weapon's icon, and `npm run check:weapons` reports the distance. `thunderclap`,
-`roadblock`, `wildcharge` and `tremor` have no manifest row yet (procedural glyph fallback);
-`predator`, `afterburner`, `magmablast`, `pepperbox`, `lance` and `thumper` all read `ok` today.
-`magmablast` (renamed from `shockwave`, and reskinned from its old navy dart icon to a fire
-orange/red one) sits closest to the warning threshold: its `WEAPON_TABLE.color` is still the old navy
-`#22579E`, a `color` edit nobody has made yet. `lance`'s white core is the one deliberate departure —
-white otherwise reads as Bastion, but a 1200-unit beam is the only shot big enough to carry a third
-layer. Do not "separate" these palettes without saying so first.
+**Shot colour is an authoring choice, not a signal.** It says nothing about which chassis fired the
+shot, and nothing systematic about the weapon either — a weapon is told apart by its silhouette (a
+lobbed ball, a spread of pellets, a 1200-unit beam). Colours are picked because they look right.
+There is no per-chassis palette to preserve and no rule that the three weapons on one car should
+resemble each other; do not reintroduce one, and do not "fix" two weapons that happen to share a hue.
+
+The one pairing that *is* meant to hold is a weapon's `WEAPON_TABLE.color` against **its own HUD
+icon**, so the slot and the thing crossing the arena read as the same weapon. Nothing typed enforces
+it — `npm run check:weapons` measures the RGB distance and warns past `COLOR_DRIFT_LIMIT`, which is a
+warning and never fails the suite. Every weapon but `tremor` carries an icon today.
 
 Three tables own how a shot looks, split by what the weapon's hitbox is, and each returns `[]` for a
 weapon it does not own so the flat `weaponFillOf` fill stays the fallback: `WEAPON_GLOW_STYLES`

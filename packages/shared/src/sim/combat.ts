@@ -1,10 +1,11 @@
-import { DEFAULT_CAR_ID, hpOf } from "../config/car-config.js";
+import { CAR_TABLE, DEFAULT_CAR_ID, hpOf } from "../config/car-config.js";
 import { isStatusId } from "../config/status-config.js";
 import type { StatusId } from "../config/status-types.js";
-import { isWeaponId, weaponDefOf } from "../config/weapon-config.js";
+import { instanceDefOf, isWeaponId, weaponDefOf } from "../config/weapon-config.js";
 import { carAimRangeOf } from "../config/weapon-slots.js";
 import { msToTicks, weaponTicksOf } from "../config/weapon-ticks.js";
 import type { ManeuverWeaponDef, WeaponId } from "../config/weapon-types.js";
+import type { CarId } from "../config/types.js";
 import { TICK_RATE_HZ } from "../constants.js";
 import {
   aabbCorners,
@@ -15,7 +16,7 @@ import {
 } from "./collide.js";
 import type { ContactHit } from "./contact.js";
 import { carHullOf, carIdOf } from "./context.js";
-import { applyDamage, applyHeal, scaleDamage, weaponDamageOf } from "./damage.js";
+import { applyDamage, applyHeal, damageFor, scaleDamage, weaponDamageOf } from "./damage.js";
 import { ManeuverKind, NO_MANEUVER } from "./maneuver.js";
 import { applyStatus, hasStatus, statusPulses, type ActiveStatus } from "./status/statuses.js";
 import { modifiersOf, NEUTRAL_MODIFIERS, type Modifiers } from "./status/modifiers.js";
@@ -29,6 +30,7 @@ import {
 } from "./weapons/instances.js";
 import { muzzleOf, updateLock, type LockState, type LockTarget } from "./weapons/lock.js";
 import { beamShapeAt, projectileShapeAt, shapeHitsObb, smear } from "./weapons/shapes.js";
+import { canDamage } from "./weapons/targets.js";
 
 /**
  * One player as the combat step sees them. Plain data on purpose: the room maps `PlayerState` onto
@@ -240,8 +242,10 @@ export function runCombat(input: CombatInput): CombatResult {
    * Deliberately NOT folded into `isFighting`, which gates firing as well as being hit. A phased
    * car must still be able to shoot: M23's first termination condition is "the player commits a
    * press", so the firing path has to run for them, or spawn protection becomes unbreakable by
-   * firing and the state machine quietly changes shape. Gate the three places a car is looked at as
-   * a target; leave every place it acts alone.
+   * firing and the state machine quietly changes shape. Gate every place a car is looked at as a
+   * target — lock candidates, the hit-resolution snapshot, a held lock's continued validity
+   * (`aimAngleFor`), and now proximity acquisition (`acquireByProximity`, passed this same
+   * `isTargetable` closure rather than deriving its own) — and leave every place it acts alone.
    */
   const isPhasedOf = (sessionId: string): boolean => modsOf(sessionId).phased;
   /** In the fight AND actually present: the gate for everything that treats a car as a target. */
@@ -300,7 +304,7 @@ export function runCombat(input: CombatInput): CombatResult {
     const dealt = scaleDamage(base, attacker ? modsOf(hit.attackerSessionId).damageDealt : 1);
     const targetMods = modsOf(hit.targetSessionId);
     dealDamageTo(target, scaleDamage(dealt, targetMods.damageTaken), targetMods, hit.attackerSessionId);
-    applyOpponentStatuses(target, hit.weaponId, world.tick, hit.attackerSessionId, true);
+    applyOpponentStatuses(target, hit.weaponId, false, world.tick, hit.attackerSessionId, true);
   }
 
   // 1. Recharge first, so a stock that lands this tick can be spent this tick. A player who has left
@@ -328,12 +332,16 @@ export function runCombat(input: CombatInput): CombatResult {
     // An attached beam dies with its owner: a wreck does not shoot. Everything already frozen at
     // birth — projectiles, detached beams — finishes its life regardless.
     if (instance.attached && (!owner || !isFighting(owner))) continue;
-    // The locked car's LIVE pose, looked up fresh every tick — never the shooter's own state, and
-    // never cached from spawn. `null` when it has died, left the roster, or the shot never locked.
-    const homingOwner =
-      instance.homingTargetId !== "" ? byId.get(instance.homingTargetId) : undefined;
-    stepped.push(
-      stepInstance(instance, {
+    // The locked car's LIVE pose, looked up fresh every tick. For a proximity shot the target is
+    // not known at spawn: it is chosen HERE, where the pose list is, so `instances.ts` keeps its
+    // rule that it never reads player state (spec P1).
+    let targetId = instance.homingTargetId;
+    if (targetId === "") {
+      targetId = acquireByProximity(instance, players, world.mode, isTargetable);
+    }
+    const homingOwner = targetId !== "" ? byId.get(targetId) : undefined;
+    stepped.push({
+      ...stepInstance(instance, {
         dt: world.dt,
         tick: world.tick,
         obstacles: world.obstacles,
@@ -342,7 +350,11 @@ export function runCombat(input: CombatInput): CombatResult {
         homingTarget:
           homingOwner && isFighting(homingOwner) ? { x: homingOwner.x, y: homingOwner.y } : null,
       }),
-    );
+      // Commit: once chosen the shot keeps this target for life, and flies straight if it dies
+      // (spec P5). Written back here rather than inside `stepInstance` for the same reason the
+      // scan is here — the choice is the caller's, the steering is the instance's.
+      homingTargetId: targetId,
+    });
   }
 
   // 2b. Locks, BEFORE any shot is aimed by one. `spawnInstances` reads the lock in phase 3, and
@@ -426,7 +438,9 @@ export function runCombat(input: CombatInput): CombatResult {
       // firing a rocket that steers toward a target it did not actually aim at would be a stealth
       // buff no other weapon gets.
       const homingTargetId =
-        def.kind === "projectile" && def.homing && aim !== null ? player.lock.targetSessionId : "";
+        def.kind === "projectile" && def.homing?.acquire === "lock" && aim !== null
+          ? player.lock.targetSessionId
+          : "";
       const spawned = spawnInstances(
         order,
         player,
@@ -455,14 +469,41 @@ export function runCombat(input: CombatInput): CombatResult {
     .filter(isTargetable)
     .map((p) => ({ sessionId: p.sessionId, team: p.team, hull: carHullOf(p.x, p.y, p.angle) }));
 
+  // Bursts are collected separately and appended after the loop over `stepped`. Nothing inside the
+  // loop reads `survivors`, so pushing a burst straight into it would behave identically — this is
+  // bookkeeping clarity, not a correctness mechanism. (Spec P13a is "exactly one burst per shot,"
+  // not an ordering rule; see `detonate`'s own guard for how that one is actually enforced.)
   const survivors: WeaponInstance[] = [];
+  const bursts: WeaponInstance[] = [];
   for (const instance of stepped) {
-    if (instanceExpired(instance, world.tick)) continue;
     // The pose to sweep from, shared by the world test and the car test so they cannot disagree
     // about where this tick's path started. `?? instance` covers one born this tick, which has no
-    // previous pose: its smear collapses to its shape at the muzzle.
+    // previous pose: its smear collapses to its shape at the muzzle. Moved above the expiry check,
+    // along with `owner`, since all three removal sites below need them.
     const before = previous.get(instance.id) ?? instance;
-    if (hitsWorld(instance, before, world)) continue;
+    const owner = byId.get(instance.ownerSessionId);
+    const damageMult = owner ? modsOf(owner.sessionId).damageDealt : 1;
+    const carId = owner ? carIdOf(owner) : DEFAULT_CAR_ID;
+
+    if (instanceExpired(instance, world.tick)) {
+      const blast = detonate(instance, instance.x, instance.y, world.tick, instanceSeq, damageMult, carId);
+      if (blast) {
+        bursts.push(blast.burst);
+        instanceSeq = blast.seq;
+      }
+      continue;
+    }
+    if (hitsWorld(instance, before, world)) {
+      // P14: the PRE-step pose. `hitsWorld` fires when the swept hull CROSSED a boundary, so the
+      // post-step point can be inside a wall or off the field entirely — the shell blows up where
+      // it last legitimately was.
+      const blast = detonate(instance, before.x, before.y, world.tick, instanceSeq, damageMult, carId);
+      if (blast) {
+        bursts.push(blast.burst);
+        instanceSeq = blast.seq;
+      }
+      continue;
+    }
 
     const outcome = resolveInstanceHits(
       instance,
@@ -491,15 +532,31 @@ export function runCombat(input: CombatInput): CombatResult {
       // Statuses ride the DAMAGE list, so they inherit its rules for free: friendly fire, the
       // shooter's own immunity, wrecks, pierce, and the per-target damage clock that stops a
       // lingering beam re-applying every single tick.
-      applyOpponentStatuses(target, instance.weaponId, world.tick, instance.ownerSessionId, instance.finalWave);
+      applyOpponentStatuses(
+        target,
+        instance.weaponId,
+        instance.isExplosion,
+        world.tick,
+        instance.ownerSessionId,
+        instance.finalWave,
+      );
     }
     // `ownerInside` statuses cannot ride the damage list — `canDamage` refuses the owner by design —
     // so a live zone runs its own owner-hull test each tick. Placed here, beside the other status
     // application, so both kinds of rider land at the same point of the tick and take hold on the
     // next one like every other status.
     applyOwnerInsideStatuses(instance, byId, world.tick);
-    if (outcome.instance.alive) survivors.push(outcome.instance);
+    if (outcome.instance.alive) {
+      survivors.push(outcome.instance);
+    } else {
+      const blast = detonate(instance, instance.x, instance.y, world.tick, instanceSeq, damageMult, carId);
+      if (blast) {
+        bursts.push(blast.burst);
+        instanceSeq = blast.seq;
+      }
+    }
   }
+  survivors.push(...bursts);
 
   // Stun interruption (O8): a stun landing THIS tick cancels the car's committed states at the end
   // of the tick — after this tick's already-released shots resolved, the same one-tick seam every
@@ -522,6 +579,10 @@ export function runCombat(input: CombatInput): CombatResult {
     }
     interrupted.add(player.sessionId);
   }
+  // `weaponDefOf(i.weaponId)` here would describe the SHELL for a burst (whose `weaponId` is its
+  // parent's), not the burst's own synthesized def — but `&&` short-circuits on `i.attached` first,
+  // and a burst is never `attached` (P22, `buildBurstDefs`), so this is never reached for one. Safe
+  // as written; do not reorder the `&&` operands without swapping this back to `instanceDefOf`.
   const kept = survivors.filter(
     (i) => !(interrupted.has(i.ownerSessionId) && i.attached && !weaponDefOf(i.weaponId).isUnInterruptable),
   );
@@ -629,11 +690,133 @@ function maneuverSlotMask(fireState: FireState): number {
 }
 
 /**
+ * The nearest car this shot may grab, or `""` for none (spec P1-P4).
+ *
+ * A full 360-degree bubble around the SHOT — not a cone off the shooter's nose. Eligibility is the
+ * same pair of predicates the hit test already uses, so a proximity shot can never chase something
+ * it could not have damaged: `canDamage` refuses the owner and teammates, `isTargetable` refuses
+ * wrecks and phased cars. No third notion of "valid target" is introduced.
+ *
+ * `isTargetable` is a PARAMETER rather than something derived here, on purpose: it is the
+ * `runCombat`-local closure reading that tick's single derived-once modifiers cache
+ * (`modifiersFor`/`modsOf`), not a hand-rolled re-scan of `player.statuses`. A second derivation
+ * would drift from the cache the moment a status's flag came from `STATUS_TABLE.flags` rather than
+ * matching its id, or the moment a mid-tick addition needed the same "lands this tick, bites next"
+ * treatment `isPhasedOf`'s cache already gives it for free.
+ *
+ * Deterministic under a distance TIE only because `runCombat` sorts `players` by `sessionId` before
+ * this runs (this function does not re-sort), combined with the strict `distSq >= bestSq` below —
+ * a later equal-distance candidate never displaces an earlier one. Moving that sort would silently
+ * make acquisition order-dependent, which a lockstep sim cannot tolerate.
+ *
+ * Returns `""` for any instance whose weapon does not acquire by proximity, so the caller needs no
+ * guard of its own.
+ *
+ * Reached for every live instance every tick — bursts included, since the caller runs before it
+ * knows whether `targetId` will turn out empty. `instanceDefOf` (not `weaponDefOf`) is what makes
+ * that safe: a burst's `weaponId` is its PARENT's, and `magmablast`'s shell authors no `homing`, so
+ * today the two lookups agree — but a future row with both `homing` and `explosion` would have its
+ * burst run this same acquisition scan if this read the shell's def instead of the burst's own.
+ */
+function acquireByProximity(
+  instance: WeaponInstance,
+  players: readonly CombatPlayer[],
+  mode: "ffa" | "team",
+  isTargetable: (player: CombatPlayer) => boolean,
+): string {
+  const def = instanceDefOf(instance.weaponId, instance.isExplosion);
+  if (def.kind !== "projectile") return "";
+  const homing = def.homing;
+  if (!homing || homing.acquire !== "proximity") return "";
+  const radius = homing.acquireRadius ?? 0;
+  if (radius <= 0) return "";
+
+  const radiusSq = radius * radius;
+  let bestId = "";
+  let bestSq = Number.POSITIVE_INFINITY;
+  for (const player of players) {
+    if (!isTargetable(player)) continue;
+    if (!canDamage(instance.ownerSessionId, instance.ownerTeam, player.sessionId, player.team, mode)) {
+      continue;
+    }
+    const dx = player.x - instance.x;
+    const dy = player.y - instance.y;
+    const distSq = dx * dx + dy * dy;
+    if (distSq > radiusSq || distSq >= bestSq) continue;
+    bestSq = distSq;
+    bestId = player.sessionId;
+  }
+  return bestId;
+}
+
+/**
+ * The burst one dying shot leaves behind, or `null` if its weapon authors no explosion.
+ *
+ * Born at FULL extent rather than growing from zero (spec P15). That is what makes "a direct hit
+ * costs contact plus splash" true without a timing race: the car that stopped the shell is inside
+ * the field on the very tick it forms, rather than a tick or two later once it has grown out.
+ *
+ * Damage is re-derived from the burst's own def and the owner's chassis, and frozen here for the
+ * same reason a shell's is frozen at the muzzle: it must be answerable at impact without reading
+ * player state, and the shooter may be wrecked before the field expires.
+ *
+ * Takes `damageMult` and `carId` rather than the whole owner: `modsOf` is a `runCombat`-local
+ * closure over that tick's derived-once modifiers cache, so a module-level function cannot reach
+ * it — the caller resolves both at the call site (`owner ? modsOf(owner.sessionId).damageDealt : 1`
+ * and `owner ? carIdOf(owner) : DEFAULT_CAR_ID`), the same fallback phase 0d already uses for a
+ * contact hit with no live attacker.
+ */
+function detonate(
+  shell: WeaponInstance,
+  x: number,
+  y: number,
+  tick: number,
+  seq: number,
+  damageMult: number,
+  carId: CarId,
+): { burst: WeaponInstance; seq: number } | null {
+  const def = instanceDefOf(shell.weaponId, shell.isExplosion);
+  if (def.kind !== "projectile" || !def.explosion) return null;
+  const burstDef = instanceDefOf(shell.weaponId, true);
+  const next = seq + 1;
+  return {
+    seq: next,
+    burst: {
+      id: `${shell.ownerSessionId}-${next}`,
+      ownerSessionId: shell.ownerSessionId,
+      ownerTeam: shell.ownerTeam,
+      finalWave: shell.finalWave,
+      // `weaponDamageOf` reads the weapon ROW's damage — the shell's 50, not the burst's 15 — so
+      // it is the wrong helper here. `damageFor` takes an explicit base, which is what a burst
+      // needs. Do not widen `weaponDamageOf` to mean two things.
+      damage: scaleDamage(damageFor(CAR_TABLE[carId].attack, burstDef.damage), damageMult),
+      weaponId: shell.weaponId,
+      kind: "beam",
+      x,
+      y,
+      angle: 0,
+      extent: burstDef.range,
+      spawnTick: tick,
+      distance: 0,
+      pierceLeft: 0,
+      attached: false,
+      damageClock: new Map(),
+      alive: true,
+      muzzleDir: 0,
+      homingTargetId: "",
+      homingUntilTick: 0,
+      expiresAtTick: 0,
+      isExplosion: true,
+    },
+  };
+}
+
+/**
  * A projectile that has left the arena or entered level geometry is spent, whatever its pierce.
  *
  * Tested as the SMEAR between the pre-step and post-step poses — the same solid the car test uses
  * (D8) — not as a point at the landing position. That is what actually retires the old authoring
- * rule that every obstacle be at least 30 units thick: a point sample at 900 u/s only looks every 30
+ * rule that every obstacle be at least 30 units thick: a point sample at 600 u/s only looks every 20
  * units, so a fast shot passed clean through a thin wall while the docs claimed it could not.
  *
  * Beams are never destroyed by the world; they are CLIPPED by `wallClipDistance` as they grow, so
@@ -641,14 +824,14 @@ function maneuverSlotMask(fireState: FireState): number {
  * weapon def's.
  */
 function hitsWorld(instance: WeaponInstance, previous: WeaponInstance, world: CombatWorld): boolean {
-  const def = weaponDefOf(instance.weaponId);
+  const def = instanceDefOf(instance.weaponId, instance.isExplosion);
   // A bouncing projectile is never destroyed by the world — `stepInstance` reflected it instead,
   // and testing the pre-reflection smear here would kill it on the very wall it just bounced off.
   // A `piercesWalls` row is exempt too, by authored identity rather than mechanism: it flies
   // through geometry and bounds alike, and only its own `range` clock ends it. Both exemptions
   // matter most on the SPAWN tick, where the smear collapses to the shape at the muzzle — a
   // wide bar born with a wingtip touching a wall would otherwise die before any client saw it.
-  if (def.kind !== "projectile" || instance.kind !== "projectile" || def.bounce) return false;
+  if (def.kind !== "projectile" || instance.kind !== "projectile" || def.bounces) return false;
   if (def.piercesWalls) return false;
 
   const swept = smear(
@@ -712,7 +895,7 @@ function applyOwnerInsideStatuses(
   tick: number,
 ): void {
   if (instance.kind !== "beam") return;
-  const def = weaponDefOf(instance.weaponId);
+  const def = instanceDefOf(instance.weaponId, instance.isExplosion);
   if (def.kind !== "beam") return;
   const applies = def.applies;
   if (!applies || !applies.some((a) => a.target === "ownerInside")) return;
@@ -720,7 +903,8 @@ function applyOwnerInsideStatuses(
   if (!owner || !isFighting(owner)) return;
   const shape = beamShapeAt(def.hitbox, instance.x, instance.y, instance.angle, instance.extent);
   if (!shapeHitsObb(shape, carHullOf(owner.x, owner.y, owner.angle))) return;
-  const durations = weaponTicksOf(instance.weaponId).applyDurations;
+  const ticks = weaponTicksOf(instance.weaponId);
+  const durations = instance.isExplosion ? ticks.explosion!.applyDurations : ticks.applyDurations;
   applies.forEach((application, index) => {
     if (application.target !== "ownerInside") return;
     owner.statuses = applyStatus(
@@ -733,17 +917,25 @@ function applyOwnerInsideStatuses(
   });
 }
 
-/** Put this weapon's `opponents` statuses on a car its shot just damaged. */
+/**
+ * Put this weapon's `opponents` statuses on a car its shot just damaged.
+ *
+ * `isExplosion` routes the lookup through `instanceDefOf`: a burst's `applies` list lives on the
+ * EXPLOSION's def, not the shell's (`magmablast.explosion.applies`, never `magmablast.applies`),
+ * so a plain `weaponDefOf` here would silently drop `corroded` on every direct-splash hit.
+ */
 function applyOpponentStatuses(
   target: CombatPlayer,
   weaponId: WeaponId,
+  isExplosion: boolean,
   tick: number,
   sourceSessionId: string,
   finalWave: boolean,
 ): void {
-  const applies = weaponDefOf(weaponId).applies;
+  const applies = instanceDefOf(weaponId, isExplosion).applies;
   if (!applies) return;
-  const durations = weaponTicksOf(weaponId).applyDurations;
+  const ticks = weaponTicksOf(weaponId);
+  const durations = isExplosion ? ticks.explosion!.applyDurations : ticks.applyDurations;
   applies.forEach((application, index) => {
     if (application.target !== "opponents") return;
     if (application.onWave === "final" && !finalWave) return;

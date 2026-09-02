@@ -2,7 +2,7 @@ import { CAR_TABLE, rebuildResolvedDrive } from "./car-config.js";
 import { COMBAT_CONFIG } from "./combat-config.js";
 import { DRIVE_CONFIG } from "./drive-config.js";
 import { RAM_CONFIG, rebuildRamDecay } from "./ram-config.js";
-import { WEAPON_TABLE } from "./weapon-config.js";
+import { rebuildBurstDefs, WEAPON_TABLE } from "./weapon-config.js";
 import { rebuildWeaponTicks } from "./weapon-ticks.js";
 
 export type TuningValue = number | boolean | string;
@@ -22,9 +22,9 @@ export type TuningOverrides = Readonly<Record<string, TuningValue>>;
  * mutating them IN PLACE. That is the whole trick: object identity is preserved, so every existing
  * importer — the sim, the render tables, the server — keeps reading the same object and needs no
  * call-site change. Only the artifacts derived once at module load — the resolved drive, the weapon
- * ticks, the ram reference pair, and the ram decay multipliers — have to be told to re-resolve.
- * Anything else derived from one of these tables at module load owes this list an entry, or its
- * source knob is dead to tuning.
+ * ticks, the ram reference pair, the ram decay multipliers, and each exploding weapon's synthesized
+ * burst def (`BURST_DEFS`) — have to be told to re-resolve. Anything else derived from one of these
+ * tables at module load owes this list an entry, or its source knob is dead to tuning.
  *
  * A deep clone of each table is snapshotted at module load and deep-frozen; every `setTuning` call
  * restores from that snapshot before applying, so overrides replace rather than accumulate and
@@ -137,6 +137,7 @@ export function setTuning(overrides: TuningOverrides | null): void {
   rebuildResolvedDrive(active !== null);
   rebuildWeaponTicks(active !== null);
   rebuildRamDecay(active !== null);
+  rebuildBurstDefs(active !== null);
 }
 
 export function activeTuning(): TuningOverrides | null {

@@ -1,4 +1,4 @@
-import { weaponDefOf } from "../../config/weapon-config.js";
+import { instanceDefOf } from "../../config/weapon-config.js";
 import { weaponTicksOf } from "../../config/weapon-ticks.js";
 import type { Obb } from "../collide.js";
 import type { WeaponInstance } from "./instances.js";
@@ -45,11 +45,12 @@ export function resolveInstanceHits(
   mode: "ffa" | "team",
   tick: number,
 ): HitOutcome {
-  const def = weaponDefOf(instance.weaponId);
+  const def = instanceDefOf(instance.weaponId, instance.isExplosion);
   // A maneuver spawns no `WeaponInstance` (Task 10 handles that branch), so this is unreachable
   // today — narrows `def` back to the two kinds a hit test has ever had to handle.
   if (def.kind === "maneuver") throw new Error(`resolveInstanceHits: maneuver weapon ${def.id} has no instance`);
-  const interval = weaponTicksOf(instance.weaponId).damageInterval;
+  const ticks = weaponTicksOf(instance.weaponId);
+  const interval = instance.isExplosion ? ticks.explosion!.damageInterval : ticks.damageInterval;
 
   const shape =
     def.kind === "projectile"

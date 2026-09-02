@@ -118,8 +118,8 @@ describe("projectile flight", () => {
   it("moves along its own frozen heading and accumulates distance", () => {
     const { instances } = spawnInstances({ weaponId: "magmablast", slot: 0, finalVolley: true }, owner, 100, 0);
     const stepped = stepInstance(instances[0]!, ctx());
-    expect(stepped.x).toBeCloseTo(instances[0]!.x + 900 * DT);
-    expect(stepped.distance).toBeCloseTo(900 * DT);
+    expect(stepped.x).toBeCloseTo(instances[0]!.x + WEAPON_TABLE.magmablast.speed * DT);
+    expect(stepped.distance).toBeCloseTo(WEAPON_TABLE.magmablast.speed * DT);
   });
 
   it("ignores the owner's pose, even when the owner turns", () => {
@@ -149,14 +149,13 @@ describe("projectile flight", () => {
 
 describe("beam growth and expiry", () => {
   /**
-   * These hand-build a `kind: "beam"` instance over `magmablast`'s numbers — 900 u/s across a
-   * 900-unit range, the same flight profile `fireball` shipped and `magmablast` deliberately
-   * inherited (2026-09-01 overhaul) — exactly as `combat.test.ts` does for the ownership gate.
-   * `stepInstance`'s beam branch reads only `def.range`/`def.speed` and `instanceExpired`'s only
-   * `flight`/`lifetime`, so borrowing a projectile's row exercises the real branches with real
-   * numbers. The one thing it cannot show is a non-zero linger: `magmablast` has none, so the expiry
-   * below is `flight` alone — asserted through `weaponTicksOf` rather than a literal, so it moves
-   * with the def the day a real beam ships one.
+   * These hand-build a `kind: "beam"` instance over `magmablast`'s numbers — 600 u/s across a
+   * 900-unit range as of the 2026-09-02 detonation pass — exactly as `combat.test.ts` does for the
+   * ownership gate. `stepInstance`'s beam branch reads only `def.range`/`def.speed` and
+   * `instanceExpired`'s only `flight`/`lifetime`, so borrowing a projectile's row exercises the real
+   * branches with real numbers. The one thing it cannot show is a non-zero linger: the shell itself
+   * (as opposed to its burst) has none, so the expiry below is `flight` alone — asserted through
+   * `weaponTicksOf` rather than a literal, so it moves with the def the day a real beam ships one.
    */
   const beam = (over: Partial<WeaponInstance> = {}): WeaponInstance => ({
     id: "b1",
@@ -188,8 +187,8 @@ describe("beam growth and expiry", () => {
 
   it("grows from the muzzle at its own speed, a tick at a time", () => {
     const first = stepInstance(beam(), ctx({ bounds: ROOMY }));
-    expect(first.extent).toBeCloseTo(900 * DT);
-    expect(stepInstance(first, ctx({ bounds: ROOMY })).extent).toBeCloseTo(900 * DT * 2);
+    expect(first.extent).toBeCloseTo(WEAPON_TABLE.magmablast.speed * DT);
+    expect(stepInstance(first, ctx({ bounds: ROOMY })).extent).toBeCloseTo(WEAPON_TABLE.magmablast.speed * DT * 2);
   });
 
   it("holds at full range rather than growing past it", () => {
@@ -346,8 +345,14 @@ describe("multi-muzzle", () => {
   });
 });
 
-// `predator` now ships exactly this shape for real (speed 600, homing 120deg/s over 1200ms), so this
-// exercises the real row rather than a synthetic spread.
+// `predator` now ships exactly this shape for real (speed 900, homing 300deg/s over 2000ms), so this
+// exercises the real row rather than a synthetic spread. It is `acquire: "proximity"` in
+// production, so a real shot always spawns with `homingTargetId: ""` — `sim/combat.ts`'s
+// `runCombat` writes a target in later, the tick a car first comes within `acquireRadius`; this
+// module never performs that scan itself. The tests below instead hand `spawnInstances` an
+// explicit target so they can drive the STEERING branch (turn-rate clamp, guidance window) in
+// isolation. That is a legitimate way to exercise steering, but the target is hand-set, not
+// acquired — it does not reflect how a `predator` shot actually gets a target in a real tick.
 const rocket = WEAPON_TABLE.predator;
 const homingCtx = (tick: number, target: { x: number; y: number } | null) => ({
   dt: 1 / 30, tick, obstacles: [], bounds: { width: 4000, height: 4000 },
@@ -357,19 +362,19 @@ const homingOwner = { sessionId: "a", team: 0 as const, carId: "mirage", x: 0, y
 const homingOrder = { weaponId: "predator", slot: 0, finalVolley: true } as const;
 
 describe("homing", () => {
-  it("freezes the lock target at spawn and bends toward it, capped at the turn rate", () => {
+  it("bends toward a hand-set target, capped at the turn rate (steering only, not acquisition)", () => {
     const { instances } = spawnInstances(homingOrder, homingOwner, 10, 0, 0, 1, "victim", rocket);
     const shot = instances[0]!;
     expect(shot.homingTargetId).toBe("victim");
     const stepped = stepInstance(shot, homingCtx(11, { x: 500, y: 500 }), rocket); // 45 deg off
-    const maxTurn = (120 * Math.PI / 180) / 30;
+    const maxTurn = (300 * Math.PI / 180) / 30;
     expect(stepped.angle).toBeCloseTo(maxTurn); // clamped, not snapped to 45 deg
   });
 
   it("flies straight after the guidance window", () => {
     const { instances } = spawnInstances(homingOrder, homingOwner, 10, 0, 0, 1, "victim", rocket);
     const until = instances[0]!.homingUntilTick;
-    expect(until).toBe(10 + 36); // msToTicks(1200) at 30 Hz
+    expect(until).toBe(10 + 60); // msToTicks(2000) at 30 Hz
     const past = stepInstance({ ...instances[0]!, x: 100 }, homingCtx(until + 1, { x: 500, y: 500 }), rocket);
     expect(past.angle).toBe(0);
   });
@@ -377,12 +382,17 @@ describe("homing", () => {
   it("flies straight when fired without a lock", () => {
     const { instances } = spawnInstances(homingOrder, homingOwner, 10, 0, null, 1, "", rocket);
     expect(instances[0]!.homingTargetId).toBe("");
+    // The guidance clock still arms at spawn — off `homing` alone, not off having a target (this is
+    // the fix a proximity row needs: it also spawns with no target, but must still gain a window to
+    // use once it later acquires one). It just never matters here, because `stepInstance`'s gate
+    // ALSO requires a non-empty `homingTargetId`, which a bare lock-mode shot never gets.
+    expect(instances[0]!.homingUntilTick).toBe(10 + 60); // msToTicks(2000) at 30 Hz, same as spawned-with-a-lock
     const stepped = stepInstance(instances[0]!, homingCtx(11, null), rocket);
     expect(stepped.angle).toBe(0);
   });
 });
 
-// `thumper` now ships `bounce.lifetimeMs: 2900` for real, so this exercises the real row.
+// `thumper` now ships `bounces: true` with `lifetimeMs: 2900` for real, so this exercises the real row.
 const bouncer = WEAPON_TABLE.thumper;
 const bounds = { width: 1000, height: 1000 };
 

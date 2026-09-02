@@ -132,6 +132,10 @@ describe("weapon schema", () => {
     expect(instance.alive).toBe(true);
   });
 
+  it("defaults isExplosion to false", () => {
+    expect(new WeaponInstanceState().isExplosion).toBe(false);
+  });
+
   it("carries instances on the arena keyed by id", () => {
     const state = new ArenaState();
     const instance = new WeaponInstanceState();

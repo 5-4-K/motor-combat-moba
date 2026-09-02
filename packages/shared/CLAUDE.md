@@ -67,10 +67,14 @@ An **aura** is a beam with a `disc` hitbox at `origin: "center"`. It reuses `Wor
 so the hit test needed no new geometry, and it needs no change to `canDamage` — that already refuses
 the owner. `shockwave` shipped as the one aura, on the old Mirage slot 2, but the 2026-09-01 overhaul
 gave it a plain single-volley-dart identity on **Bullseye's** slot 1 instead — later renamed
-`magmablast` alongside its display name. No row in the current `WEAPON_TABLE` uses a `disc` hitbox.
-The aura is **dormant machinery**: the geometry and hit-test path
-stay live and covered by generic unit tests, just not exercised by a real weapon until one ships
-again.
+`magmablast` alongside its display name. From there the mechanism sat **dormant** for one release:
+the geometry and hit-test path stayed live and covered by generic unit tests with no row driving
+them. **The 2026-09-02 predator/magmablast pass ended that.** `magmablast` (now on **Mirage's** slot
+1, swapped with `predator`) authors an `ExplosionDef`: on death for any reason, `instanceDefOf(id,
+true)` (`config/weapon-config.ts`) synthesizes a detached, centre-origin `disc`-hitbox `BeamWeaponDef`
+from it, so a real aura instance spawns on every detonation. `corroded`'s only source in the game is
+this explosion. What is still dormant is narrower now: only the multi-wave `VolleyDef` machinery
+below, since no row — this one included — authors more than one volley.
 
 **`stepDrive` does not read the roster.** It takes a resolved `ChassisDrive` — `maxSpeed`,
 `reverseMaxSpeed`, `accel`, `reverseAccel`, `turnRate`, `turnRateAtStop` — from `driveOf(carId)`
@@ -83,8 +87,9 @@ lives in shared config; the sim receives it rather than reaching into `CAR_TABLE
 **Volleys are on `WeaponBase`, pellets are on the projectile.** `VolleyDef` (`volleys`,
 `volleyIntervalMs`) applies to both kinds, so a beam can be a wave sequence in principle — the old
 `shockwave` shipped that way, three aura instances 500 ms apart, each with its own `spawnTick` and its
-own damage clock. As of the 2026-09-01 overhaul no row in `WEAPON_TABLE` authors more than one volley:
-multi-wave is **dormant machinery**, same standing as the aura above. `PelletDef` (`pelletsPerVolley`,
+own damage clock. As of the 2026-09-01 overhaul no row in `WEAPON_TABLE` authors more than one volley,
+including `magmablast`'s revived aura explosion: multi-wave is **dormant machinery**, unlike the aura
+mechanism above, which a real weapon drives again. `PelletDef` (`pelletsPerVolley`,
 `spreadAngleDeg`) stays on `ProjectileWeaponDef`, because a beam should not have to author
 `pelletsPerVolley: 1`; `pepperbox` is the shipped multi-pellet row today (3 pellets × 4 muzzles).
 `beginFire` reads `def.volley.volleys` for every kind rather than hardcoding 1 for beams.
@@ -93,5 +98,6 @@ multi-wave is **dormant machinery**, same standing as the aura above. `PelletDef
 multi-wave press. The wave is frozen at spawn and **never networked**: `ShotOrder.finalVolley` →
 `WeaponInstance.finalWave` → the two status-application helpers in `sim/combat.ts`. No schema field
 was added; invariant 8 holds because nothing new that `stepSim` reads crosses the wire. Like
-multi-wave volleys and the aura above, `onWave` is **dormant machinery** since the 2026-09-01
-overhaul: no shipped `applies` entry sets it, so every current status application runs as `"all"`.
+multi-wave volleys above, `onWave` is **dormant machinery** since the 2026-09-01
+overhaul: no shipped `applies` entry sets it, including `magmablast`'s explosion, so every current
+status application runs as `"all"`.

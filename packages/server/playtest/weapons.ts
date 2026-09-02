@@ -272,13 +272,14 @@ function damageAfterDeath(): void {
     { id: "shooter", carId: "bullseye", x: 200, y: 360, angle: 0 },
     { id: "target", carId: "bullseye", x: 500, y: 360, angle: 0, hp: 40 },
   ]);
-  const bit = slotBitFor("bullseye", "magmablast");
+  const bit = slotBitFor("bullseye", "predator");
   let hpBelowZero = false;
   let deadTookDamage = false;
   let deadAt = -1;
   for (let i = 0; i < 120; i++) {
-    // Release between presses: a held key is ONE press. needler recharges in 18 ticks, so tapping
-    // every other tick lands ~6 shots — enough to kill a 40 hp target and keep shooting the corpse.
+    // Release between presses: a held key is ONE press. predator recharges in 9 ticks, so tapping
+    // every other tick (well inside the recharge window) lands ~13 shots over 120 ticks — enough to
+    // kill a 40 hp target and keep shooting the corpse.
     w.input("shooter", { fireSlots: i % 2 === 0 ? bit : 0 });
     w.tick();
     const t = w.get("target");
@@ -293,8 +294,9 @@ function damageAfterDeath(): void {
     `target died on tick ${deadAt + 1}, final hp ${t.hp}, alive ${t.alive}\n` +
       `hp ever negative: ${hpBelowZero}; hp moved after death: ${deadTookDamage}\n` +
       `statuses still on the dead car: ${statusesOf(t).map((s) => s.statusId).join(",") || "none"} ` +
-      `(needler applies no status now — T18 moved its old 'spiked' rider to bulwark — but any bleed\n` +
-      `still would keep its badge here, since 'runCombat' gates pulses on 'alive', not the badge)`,
+      `(predator applies no status at all — it dropped its old 'corroded' rider in the 2026-09-02\n` +
+      `proximity-seeker redesign — but any bleed still would keep its badge here, since 'runCombat'\n` +
+      `gates pulses on 'alive', not the badge)`,
   );
 }
 
@@ -359,9 +361,10 @@ function fireRateExploit(): void {
  * `refresh`, so a sustained source holds them indefinitely — by design, but the ceiling matters.
  *
  * The perma-stun attempt used to be two Bastions spamming `shockwave`. T16 moved the stun off
- * shockwave (which no longer stuns at all — it applies `corroded` on its third wave) and onto
- * `thumper`, Bastion's own slot 1, at 900ms. That is now the roster's only stun source, so it is
- * what this probe has to stress.
+ * shockwave and onto `thumper`, Bastion's own slot 1, at 900ms. That is now the roster's only
+ * stun source, so it is what this probe has to stress. (Shockwave itself, renamed `magmablast`
+ * and now Mirage's slot 1 again as of the 2026-09-02 loadout swap, still applies `corroded` — but
+ * from a single burst on the shell's one death, not a third wave of a three-wave aura.)
  */
 function statusChain(): void {
   const rows: string[] = [];
@@ -452,7 +455,11 @@ function beamsThroughWalls(): void {
     }
     const dealt = startHp - w.get("target").hp;
     const reach = tx - sx;
-    const def = WEAPON_TABLE[id];
+    // `weaponDefOf`, not `WEAPON_TABLE[id]`: indexing the table with a bare `WeaponId` yields the
+    // union of each row's own literal type (see the comment on `buildBurstDefs` in
+    // weapon-config.ts), which does not discriminate on `.kind` the way the plain `WeaponDef`
+    // union does. Only `weaponDefOf`'s declared return type narrows `piercesWalls` below.
+    const def = weaponDefOf(id);
     const inRange = def.range >= reach;
     // A row that authors `piercesWalls` (roadblock) is SUPPOSED to land through the wall — that is
     // its identity, not a leak. Only an unauthored through-wall hit is the regression here.
@@ -470,46 +477,56 @@ function beamsThroughWalls(): void {
   );
 }
 
-/* ----------------------------------------------------- W9. shockwave aura through a wall */
+/* ------------------------------------------------- W9. magmablast's burst through a wall */
 /**
- * Documented: a disc grows to full range and passes through geometry. Confirm the play impact.
+ * Documented (spec P17): the burst is a `disc`, and a disc has no axis for the wall raycast to
+ * follow, so its splash reaches the far side of level geometry. Confirm the play impact.
  *
- * Shockwave moved from Bastion to Mirage (T15) and is now three 250ms waves 500ms apart rather
- * than one instant pulse, so this needs Mirage as the shooter and enough ticks to see all three
- * waves connect, not just the first.
+ * As of the 2026-09-02 loadout swap magmablast is Mirage's slot 1 again, and it is no longer the
+ * old three-wave shockwave aura: one aimed shell, one detonation on whatever kills it (spec
+ * P13) — here, the wall itself — spawning a single 60u burst at full extent (P15) that lingers
+ * 150ms. Mirage is the shooter and one press is enough; there is no second or third wave to wait
+ * on anymore.
  */
 function auraThroughWall(): void {
   const arena = getArena("arena-02");
-  const box = arena.obstacles[2]!;
-  // Mirage hugging the west face of the box; victim hugging the east face. 140u of solid wall
-  // between them, well inside shockwave's 150 radius.
+  const box = arena.obstacles[2]!; // { x: 400, y: 400, w: 200, h: 200 }
+  // Mirage hugging the west face of the box; victim 140u from Mirage's own position, which lands
+  // this victim INSIDE the block's 200u footprint rather than past its far face — a leftover
+  // placement from when the aura's radius (150) was anchored to the shooter, not to where a shell
+  // dies. It still exercises the question this probe asks (does the burst's splash cross the near
+  // face at all), just not "the far side of the whole block" the way the name implies; see W9's
+  // reported numbers for what actually happens.
   const y = box.y + box.h / 2;
   const w = new PlaytestWorld(
     [
-      { id: "mir", carId: "bullseye", x: box.x - 25, y, angle: 0 },
+      { id: "mir", carId: "mirage", x: box.x - 25, y, angle: 0 },
       { id: "victim", carId: "bastion", x: box.x - 25 + 140, y, angle: 0 },
     ],
     "ffa",
     "arena-02",
   );
-  const bit = slotBitFor("bullseye", "magmablast");
+  const bit = slotBitFor("mirage", "magmablast");
   const startHp = w.get("victim").hp;
-  // 3 waves x (500ms spacing) + the third wave's own 250ms life == 1.25s == ~38 ticks; run 45 to
-  // give the whole cycle margin.
-  for (let i = 0; i < 45; i++) {
+  // One press: the shell (600u/s) covers the 25u to the wall in two ticks, dies there, and the
+  // resulting burst lingers 150ms (~5 ticks). 30 ticks leaves ample margin either side.
+  for (let i = 0; i < 30; i++) {
     w.input("mir", { fireSlots: i === 0 ? bit : 0 });
     w.tick();
   }
   const dealt = startHp - w.get("victim").hp;
   report(
-    "W9. Shockwave (disc aura) reaching through a wall",
+    "W9. Magma Blast's burst reaching through a wall",
     dealt > 0 ? "KNOWN-BY-DESIGN" : "OK",
-    `Mirage on the west face of a 200x200 block, victim 140u away with the block between them: ` +
-      `dealt ${dealt} across all three waves (up to 153 at Mirage's 1.13x attack), victim statuses ` +
+    `Mirage on the west face of a 200x200 block, victim 140u from Mirage (inside the block's own ` +
+      `footprint, not past its far face): dealt ${dealt} (splash alone is 15 base, up to ~17 at ` +
+      `Mirage's 1.13x attack), victim statuses ` +
       `${statusesOf(w.get("victim")).map((s) => s.statusId).join(",") || "none"}.\n` +
-      `instances.ts states a disc "grows to its full range and passes through level geometry" — ` +
-      `intentional, but it is corrosion damage through a solid wall, which reads as a bug from the ` +
-      `receiving end. The stun that used to ride here moved to thumper (T16), Bastion's slot 1.`,
+      `weapon-config.ts documents the burst as passing through level geometry by design (P17) — ` +
+      `intentional, but corrosion damage reaching through a solid wall still reads as a bug from ` +
+      `the receiving end. The 200u block is thicker than the 60u burst radius, so this particular ` +
+      `wall can still block it depending on exactly where the shell dies; a thinner obstacle would ` +
+      `show the pass-through more reliably (see packages/shared/src/sim/combat.test.ts's P17 case).`,
   );
 }
 
@@ -577,7 +594,7 @@ function beamOwnerDeath(): void {
     { id: "killer", carId: "bullseye", x: 600, y: 200, angle: Math.PI / 2, team: 0 },
   ]);
   const abBit = slotBitFor("mirage", "afterburner");
-  const spBit = slotBitFor("bullseye", "magmablast");
+  const spBit = slotBitFor("bullseye", "predator");
   let beamAfterDeath = 0;
   let burnerDeadAt = -1;
   for (let i = 0; i < 90; i++) {

@@ -224,18 +224,64 @@ export interface StatusApplication {
   onWave?: "all" | "final";
 }
 
-/** Homing guidance for a projectile fired with a lock (spec: Homing). */
+/** Homing guidance for a projectile (spec: Homing, and 2026-09-02 P1-P9). */
 export interface HomingDef {
-  /** Max steering rate toward the frozen target, degrees per second. The counterplay dial. */
+  /**
+   * How this shot finds a target.
+   *
+   * - `"lock"` — the car's aim-assist lock, frozen at spawn. The shot commits to whatever the
+   *   driver had bracketed when they pressed, and needs the aim to have actually resolved.
+   * - `"proximity"` — no target at spawn. Each tick the shot takes the nearest eligible car within
+   *   `acquireRadius` of ITSELF, then commits to it. The driver aims the launch; the shot finds
+   *   the victim.
+   *
+   * Required rather than defaulted, for the reason `usesAimAssist` is: a homing row must state how
+   * it finds things, so a new weapon cannot silently inherit an acquisition rule nobody chose.
+   */
+  acquire: "lock" | "proximity";
+  /**
+   * Proximity only: how near a car must come to the SHOT to be grabbed, world units. Required
+   * exactly when `acquire: "proximity"` and forbidden otherwise (test-enforced both ways).
+   *
+   * Deliberately its own number rather than a fraction of `aimRangeUnits`. The two answer different
+   * questions — one is how far the driver may bracket, the other is how near the missile must pass —
+   * and coupling them means a balance edit to either silently moves the other.
+   */
+  acquireRadius?: number;
+  /** Max steering rate toward the target, degrees per second. The counterplay dial. */
   turnRateDegPerSec: number;
   /** Guidance window after spawn. Afterwards the shot flies straight forever. */
   durationMs: number;
 }
 
-/** Wall-bouncing flight: reflect off level geometry; expire on this clock instead of at `range`. */
-export interface BounceDef {
-  /** Total flight time. Guarded < `cooldownMs` so two instances can never coexist. */
-  lifetimeMs: number;
+/**
+ * An area effect left where a projectile died (spec P13-P21).
+ *
+ * It is spawned as a real `WeaponInstance` — a detached, centre-origin `disc` beam — rather than
+ * resolved inline, so it inherits every rule already written for instances: the per-target damage
+ * clock, damage frozen at spawn, friendly fire, status application, networking and rendering. The
+ * synthesis lives in `instanceDefOf`.
+ *
+ * There is deliberately no damage-frequency knob. A burst hits each car once, ever; a repeating
+ * explosion is a different feature and should be argued for on its own terms rather than arriving
+ * as a field nobody chose a value for.
+ */
+export interface ExplosionDef {
+  /** Radius of the field, world units. It is the synthesized beam's `range`. */
+  radius: number;
+  /** Damage to every car caught, before chassis and status scaling. */
+  damage: number;
+  /**
+   * How long the field persists. Mostly for the eye, but not only: the per-target clock is
+   * once-ever, so a car that drives in during the linger is caught.
+   */
+  lingerMs: number;
+  /**
+   * Statuses the field applies. `opponents` only — `self` means the shooter, whom `canDamage`
+   * refuses, and `ownerInside` is a presence buff for a zone the owner stands in, which a brief
+   * burst at a remote impact point is not. Guarded in `weapon-config.test.ts`.
+   */
+  applies?: readonly StatusApplication[];
 }
 
 export interface ProjectileWeaponDef extends WeaponBase {
@@ -245,7 +291,21 @@ export interface ProjectileWeaponDef extends WeaponBase {
   pierce: number;
   pellets: PelletDef;
   homing?: HomingDef;
-  bounce?: BounceDef;
+  /**
+   * Total flight time. When present the shot expires on this clock instead of at `range`, which is
+   * what lets a weapon be authored as "no range, just lifetime".
+   *
+   * Hoisted off the old `BounceDef` (2026-09-02): a bouncing shot needs a clock because `range` is
+   * meaningless once it reflects, but a clock is not a fact about bouncing. `predator` uses one
+   * without bouncing at all.
+   */
+  lifetimeMs?: number;
+  /**
+   * Wall-bouncing flight: reflect off level geometry rather than dying on it. Requires `lifetimeMs`,
+   * and `weapon-config.test.ts` holds that lifetime strictly under `cooldownMs` so two bouncing
+   * instances of one weapon can never coexist. Absent is false.
+   */
+  bounces?: boolean;
   /**
    * The world never destroys this shot: level geometry and the arena bounds alike, it flies
    * through, and only its own `range` clock ends it. Absent is false — dying on the first wall
@@ -262,6 +322,8 @@ export interface ProjectileWeaponDef extends WeaponBase {
    * clipping), and a maneuver spawns no instance.
    */
   piercesWalls?: boolean;
+  /** Detonate on ANY death — enemy, wall, bounds or max range (spec P13). */
+  explosion?: ExplosionDef;
 }
 
 export interface BeamWeaponDef extends WeaponBase {

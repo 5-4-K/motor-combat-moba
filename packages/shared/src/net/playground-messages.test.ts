@@ -35,12 +35,12 @@ describe("defaultPlaygroundSetup", () => {
     expect(setup.me).toEqual({
       carId: "mirage",
       colorId: 0,
-      weapons: ["predator", "thunderclap", "afterburner"],
+      weapons: ["magmablast", "thunderclap", "afterburner"],
     });
     expect(setup.opponent).toEqual({
       carId: "mirage",
       colorId: 1,
-      weapons: ["predator", "thunderclap", "afterburner"],
+      weapons: ["magmablast", "thunderclap", "afterburner"],
     });
   });
 

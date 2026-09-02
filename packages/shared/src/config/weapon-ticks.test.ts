@@ -21,16 +21,16 @@ describe("msToTicks", () => {
 describe("WEAPON_TICKS", () => {
   it("derives magmablast's clocks from its milliseconds", () => {
     const ticks = weaponTicksOf("magmablast");
-    // 600ms at 30Hz is exactly 18 ticks.
-    expect(ticks.cooldown).toBe(18);
+    // 1000ms at 30Hz is exactly 30 ticks.
+    expect(ticks.cooldown).toBe(30);
     expect(ticks.startUp).toBe(0);
     expect(ticks.recovery).toBe(0);
     expect(ticks.refireDelay).toBe(0); // no stock block
   });
 
   it("derives flight ticks from range and speed", () => {
-    // 900 units at 900 u/s = 1s = 30 ticks.
-    expect(weaponTicksOf("magmablast").flight).toBe(30);
+    // 900 units at 600 u/s = 1.5s = 45 ticks.
+    expect(weaponTicksOf("magmablast").flight).toBe(45);
   });
 
   it("maps damageFrequencyMs 0 to Infinity, meaning one hit per target ever", () => {
@@ -38,9 +38,9 @@ describe("WEAPON_TICKS", () => {
   });
 
   it("derives the roster's new-mechanic clocks for the rows that carry them (spec 2026-09-01)", () => {
-    expect(weaponTicksOf("thumper").bounceLifetime).toBe(87); // 2900ms at 30Hz
+    expect(weaponTicksOf("thumper").projectileLifetime).toBe(87); // 2900ms at 30Hz
     expect(weaponTicksOf("wildcharge").maneuverDuration).toBe(300); // 10000ms at 30Hz
-    expect(weaponTicksOf("predator").homingDuration).toBe(36); // 1200ms at 30Hz
+    expect(weaponTicksOf("predator").homingDuration).toBe(60); // 2000ms at 30Hz
   });
 
   it("covers every weapon in the table and is frozen", () => {
@@ -57,15 +57,28 @@ describe("WEAPON_TICKS", () => {
     }
   });
 
-  it("derives zero homing/bounce/maneuver ticks for every row that does not carry the mechanic", () => {
+  it("derives zero homing/lifetime/maneuver ticks for every row that does not carry the mechanic", () => {
     const homing: WeaponId[] = ["predator"];
-    const bounce: WeaponId[] = ["thumper"];
+    const hasLifetime: WeaponId[] = ["thumper", "predator"];
     const chargeManeuver: WeaponId[] = ["wildcharge"];
     for (const id of Object.keys(WEAPON_TABLE) as WeaponId[]) {
       const t = weaponTicksOf(id);
       if (!homing.includes(id)) expect(t.homingDuration, id).toBe(0);
-      if (!bounce.includes(id)) expect(t.bounceLifetime, id).toBe(0);
+      if (!hasLifetime.includes(id)) expect(t.projectileLifetime, id).toBe(0);
       if (!chargeManeuver.includes(id)) expect(t.maneuverDuration, id).toBe(0);
     }
+  });
+
+  it("derives an explosion's ticks, with flight pinned at one tick (spec P25b)", () => {
+    const ticks = weaponTicksOf("magmablast").explosion;
+    expect(ticks).not.toBeNull();
+    expect(ticks!.flight).toBe(1);
+    expect(ticks!.lifetime).toBe(msToTicks(WEAPON_TABLE.magmablast.explosion!.lingerMs));
+    expect(ticks!.damageInterval).toBe(Number.POSITIVE_INFINITY);
+    expect(ticks!.applyDurations).toEqual([msToTicks(2000)]);
+  });
+
+  it("leaves explosion ticks null for a weapon with no explosion", () => {
+    expect(weaponTicksOf("predator").explosion).toBeNull();
   });
 });

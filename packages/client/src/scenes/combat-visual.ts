@@ -3,6 +3,7 @@ import {
   DEFAULT_CAR_ID,
   beamShapeAt,
   hpOf,
+  instanceDefOf,
   isCarId,
   isWeaponId,
   msToTicks,
@@ -12,6 +13,7 @@ import {
   weaponTicksOf,
   type BeamHitbox,
   type ProjectileHitbox,
+  type WeaponDef,
   type WeaponId,
   type WorldShape,
 } from "@motor-combat-moba/shared";
@@ -158,10 +160,22 @@ export function extrapolateShot(
  */
 export interface DrawableInstance {
   weaponId: string;
+  /** `WeaponInstanceState.isExplosion` — routes the def lookup through `drawDefOf`/`instanceDefOf`, since a burst carries its parent's `weaponId` rather than one of its own. */
+  isExplosion: boolean;
   x: number;
   y: number;
   angle: number;
   extent: number;
+}
+
+/**
+ * The def describing one drawable instance — the parent row, or its synthesized burst def. Mirrors
+ * the sim's `instanceDefOf` (spec P24); a burst carries the parent's `weaponId`, so a bare
+ * `weaponDefOf` would draw the shell's 12 u dart where a 60 u disc belongs.
+ */
+function drawDefOf(instance: DrawableInstance): WeaponDef | null {
+  if (!isWeaponId(instance.weaponId)) return null;
+  return instanceDefOf(instance.weaponId, instance.isExplosion);
 }
 
 /**
@@ -236,13 +250,18 @@ const FLICKER_PHASE_PER_TICK = 0.7;
 /**
  * Per-weapon looks. Absent means the flat hitbox disc — see `GlowStyle`.
  *
- * Empty as of the 2026-09-01 roster cutover. Its two rows were `fireball` (retired outright, O17)
- * and `pepperbox` — which moved OUT deliberately (O9) rather than being retired: its hitbox is now
- * an ellipse (the dart silhouette carried over from `needler`), and a round-glow table nested by
+ * Emptied by the 2026-09-01 roster cutover and repopulated on 2026-09-02 by `magmablast`, which is
+ * the only circular projectile in the roster. Its two former rows were `fireball` (retired outright,
+ * O17) and `pepperbox` — which moved OUT deliberately (O9) rather than being retired: its hitbox is
+ * now an ellipse (the dart silhouette carried over from `needler`), and a round-glow table nested by
  * `radiusScale` cannot own a non-circular hitbox. The flat weapon-colour fill is `pepperbox`'s
- * correct, intentional look, not a placeholder. No new id (`predator`, `magmablast`, `roadblock`)
- * has an authored look either — the flat fill is the shipped look until an owner arts one — so
- * every circular projectile in the game draws its flat disc today.
+ * correct, intentional look, not a placeholder.
+ *
+ * `magmablast`: its icon's own radial ramp, measured rather than guessed — the icon was sampled in
+ * rings from the centre out, giving amber at the core, orange through the body, and a deep red at
+ * the rim (the charcoal specks past that are the icon's outline, not a flame colour, so they are
+ * not a band). No flicker: it is a single dart, not a burning volume, and a pulsing outline on a
+ * 12-unit disc reads as a rendering fault rather than as fire.
  *
  * Bands are cheap -- one `fillCircle` per band per shot per frame, against a ceiling of roughly 60
  * live instances -- so author freely here when a weapon earns a look. What is NOT cheap, and is
@@ -250,7 +269,17 @@ const FLICKER_PHASE_PER_TICK = 0.7;
  * bands, or a `Graphics` object per shot instead of `ArenaScene`'s shared `shotGfx`. See
  * `docs/asset-pipeline.md#how-much-detail-a-shot-can-afford`.
  */
-export const WEAPON_GLOW_STYLES: Partial<Record<WeaponId, GlowStyle>> = {};
+export const WEAPON_GLOW_STYLES: Partial<Record<WeaponId, GlowStyle>> = {
+  magmablast: {
+    bands: [
+      { radiusScale: 1, color: "#C02000" },
+      { radiusScale: 0.74, color: "#FF6000" },
+      { radiusScale: 0.42, color: "#FFA800" },
+    ],
+    flickerDepth: 0,
+    flickerHz: 0,
+  },
+};
 
 /** A band resolved to world units and a Phaser fill, ready to stroke. */
 export interface DrawBand {
@@ -351,25 +380,31 @@ const SAMPLES_PER_TONGUE = 6;
 /**
  * Per-weapon beam looks. Absent means the flat hitbox polygon — see `BeamStyle`.
  *
- * `afterburner`: a maroon outer flame licking the hitbox, the weapon's own orange body inside it,
- * and a gold core at the nozzle. Each layer is shorter AND slightly narrower than the one outside
- * it, so they nest as tongues rather than stacking as horizontal stripes — which is what a shared
- * apex and a varying reach alone produced, and why the first cut read as a striped triangle. Tongue
- * counts differ per layer (5 / 4 / 3) so the lobes do not line up and the edges stay busy.
+ * `afterburner`: the three flame colours of its own HUD icon, in the order the icon ramps them —
+ * orange at the edge, yellower inward, yellow at the nozzle. They were sampled from the icon by
+ * distance from the flame's axis, which is why the order is not a guess. Each layer is shorter AND
+ * slightly narrower than the one outside it, so they nest as tongues rather than stacking as
+ * horizontal stripes — which is what a shared apex and a varying reach alone produced, and why the
+ * first cut read as a striped triangle. Tongue counts differ per layer (5 / 4 / 3) so the lobes do
+ * not line up and the edges stay busy.
  *
- * Its `WEAPON_TABLE.color` is the SECOND layer, not the outer one: the darkest ring sits outside so
- * the shot reads as a hard-edged object against a light floor, and a weapon's table colour is its
- * body, which on a flame is one layer in. `lance` below is the other way round, with the table
- * colour on the outer edge, because a beam's outer edge IS its body when there is no flame licking
- * past it.
+ * Its `WEAPON_TABLE.color` is the SECOND layer, not the outer one, because a weapon's table colour
+ * is its body and on a flame the body is one layer in. Note what changed on 2026-09-02: the outer
+ * layer used to be a dark maroon `#7A2018`, chosen so the darkest ring sat outside and the cone read
+ * as a hard-edged object. All three layers are now warm and within one hue family, so adjacent
+ * layers separate by ~48 in RGB rather than ~130 — the cone reads as a smoother gradient than it
+ * did. The silhouette against the light floor is unaffected; this is internal layer separation only.
  *
  * There is deliberately no flicker or glow here: the beam already grows over its first 200 ms,
  * which is motion enough, and a pulsing two-second flame reads as a strobe.
  *
  * `bulwark` (the roster's other gold-cream cone, retired outright O17) used to sit here and
  * `shockwave` used to be a disc-hitbox aura, drawn as a ring and a wash rather than nested layers —
- * `beamDrawLayers` still refuses a disc hitbox at source, but no shipped weapon has one since the
- * 2026-09-01 redefinition. `afterburner` and `lance` are the only two beams left in the roster.
+ * `beamDrawLayers` still refuses a disc hitbox at source. A disc ships again as of the magmablast
+ * explosion mechanic, but as a BURST instance rather than a weapon's own row: `isAuraInstance`
+ * (routed through `instanceDefOf`) catches it before `beamDrawLayers` is ever called with one, so
+ * this refusal stays defence in depth rather than the path a real burst takes. `afterburner` and
+ * `lance` are the only two beams whose OWN row ships in the roster.
  */
 export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
   /**
@@ -386,9 +421,9 @@ export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
   },
   afterburner: {
     layers: [
-      { extentScale: 1, crossScale: 1, tongues: 5, tongueDepth: 0.3, color: "#7A2018" },
-      { extentScale: 0.74, crossScale: 0.82, tongues: 4, tongueDepth: 0.34, color: "#F05818" },
-      { extentScale: 0.42, crossScale: 0.6, tongues: 3, tongueDepth: 0.38, color: "#FFC030" },
+      { extentScale: 1, crossScale: 1, tongues: 5, tongueDepth: 0.3, color: "#FF6000" },
+      { extentScale: 0.74, crossScale: 0.82, tongues: 4, tongueDepth: 0.34, color: "#FF9000" },
+      { extentScale: 0.42, crossScale: 0.6, tongues: 3, tongueDepth: 0.38, color: "#FFC000" },
     ],
   },
   /**
@@ -402,16 +437,18 @@ export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
    * and an opponent could not previously see it happening. Colours match the beam exactly, so the
    * orb reads as the same thing gathering that is about to be fired.
    *
-   * Navy body and an orange stripe are its icon exactly. The white core is a deliberate departure
-   * from Bullseye's two colours: white otherwise reads as Bastion here, but a 1200-unit beam is the
-   * one shot big enough to carry a third layer, and the hot centre is what makes it look fired
-   * rather than painted.
+   * Two layers, both straight off its icon: electric blue outside, electric yellow at the core. It
+   * carried a third, white core until 2026-09-02 — dropped because two layers already read as a
+   * beam and the white was doing the "hot centre" job the yellow now does on its own.
+   *
+   * Its `WEAPON_TABLE.color` is the CORE here, not this outer edge, which is the one place the
+   * table breaks its own habit for a beam: `thunderclap` holds `#3ED1FA` already and weapon colours
+   * must be unique. See the note on that row.
    */
   lance: {
     layers: [
-      { extentScale: 1, crossScale: 1, tongues: 0, tongueDepth: 0, color: "#0F3268" },
-      { extentScale: 1, crossScale: 0.55, tongues: 0, tongueDepth: 0, color: "#F04800" },
-      { extentScale: 1, crossScale: 0.22, tongues: 0, tongueDepth: 0, color: "#FFFFFF" },
+      { extentScale: 1, crossScale: 1, tongues: 0, tongueDepth: 0, color: "#3ED1FA" },
+      { extentScale: 1, crossScale: 0.42, tongues: 0, tongueDepth: 0, color: "#F0FF00" },
     ],
     charge: {
       minRadius: 2,
@@ -419,10 +456,11 @@ export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
       // matching what it warns about. A charge orb that stopped growing with the beam would
       // under-promise the thing about to be fired, which is the one failure mode a telegraph has.
       maxRadius: 18.9,
+      // Two bands, mirroring the two beam layers above: the orb is the beam gathering, so a band
+      // the beam does not have would telegraph a shot that is not coming.
       bands: [
-        { radiusScale: 1, color: "#0F3268" },
-        { radiusScale: 0.6, color: "#F04800" },
-        { radiusScale: 0.28, color: "#FFFFFF" },
+        { radiusScale: 1, color: "#3ED1FA" },
+        { radiusScale: 0.46, color: "#F0FF00" },
       ],
     },
   },
@@ -487,11 +525,17 @@ const MARK_SEGMENTS = 12;
  * straight section, so it is a rectangle and needs none of the circular-segment maths a nose on a
  * capsule would.
  *
+ * `predator`: its icon is a grey missile with a red stripe near the nose, so the capsule takes the
+ * icon's body grey and the stripe becomes a band. Same two-shape recipe as `thumper` above, and the
+ * same reason for a band rather than a nose — at 0.216 of `radiusAlong` it stays inside the
+ * capsule's straight section and is a plain rectangle, where a nose would need the circular-segment
+ * maths an end cap demands.
+ *
  * `needler` and `skewer` (a nosed dart and a disc-and-spikes spindle) were retired outright with
- * the 2026-09-01 roster cutover (O17); their comment history lives in git. Two non-circular
- * projectiles ship without a style today: `predator` (a capsule, Mirage's homing rocket) and
- * `pepperbox` (an ellipse, carrying `needler`'s old dart silhouette per O9) — both draw the flat
- * hitbox-colour fill until an owner arts them. `roadblock`'s bar hitbox is a third, architecturally
+ * the 2026-09-01 roster cutover (O17); their comment history lives in git. One non-circular
+ * projectile ships without a style today: `pepperbox` (an ellipse, carrying `needler`'s old dart
+ * silhouette per O9), which draws the flat hitbox-colour fill until an owner arts it.
+ * `roadblock`'s bar hitbox is a third, architecturally
  * distinct case: `projectileDrawLayers` refuses a bar at source regardless of this table, because
  * the hull/tip/band/disc/spikes vocabulary below assumes an along/across ellipse-ish geometry a bar
  * does not have — it always draws its raw hitbox polygon, the same as `beamDrawLayers`'s fallback.
@@ -499,8 +543,14 @@ const MARK_SEGMENTS = 12;
 export const WEAPON_PROJECTILE_STYLES: Partial<Record<WeaponId, ProjectileStyle>> = {
   thumper: {
     layers: [
-      { shape: "hull", color: "#F0C808" },
+      { shape: "hull", color: "#FFD800" },
       { shape: "band", halfWidthScale: 0.216, color: "#FFF6D8" },
+    ],
+  },
+  predator: {
+    layers: [
+      { shape: "hull", color: "#606060" },
+      { shape: "band", halfWidthScale: 0.216, color: "#A81818" },
     ],
   },
 };
@@ -547,11 +597,16 @@ export function instanceGlowBands(
  * Shared by `instanceDrawShape` and `beamDrawLayers` rather than written out in both, because the
  * outer silhouette and the layers inside it must agree on the beam's length exactly — two copies of
  * this would let a flame creep past its own hitbox the moment one of them was tuned.
+ *
+ * A burst is spawned at full extent, and its synthesized `speed` (`instanceDefOf`) exists only to
+ * make its expiry clock read one tick — extrapolating growth from it would creep the drawn disc
+ * outward for no reason, so growth is skipped entirely for `instance.isExplosion`.
  */
-export function beamGrownExtent(weaponId: string, extent: number, elapsedMs: number): number {
-  const def = isWeaponId(weaponId) ? weaponDefOf(weaponId) : null;
-  if (!def || def.kind !== "beam") return Math.max(0, extent);
-  return Math.min(def.range, extent + (def.speed * capMs(elapsedMs)) / 1000);
+export function beamGrownExtent(instance: DrawableInstance, elapsedMs: number): number {
+  if (instance.isExplosion) return instance.extent;
+  const def = drawDefOf(instance);
+  if (!def || def.kind !== "beam") return Math.max(0, instance.extent);
+  return Math.min(def.range, instance.extent + (def.speed * capMs(elapsedMs)) / 1000);
 }
 
 /**
@@ -605,7 +660,7 @@ export function projectileDrawLayers(
   instance: DrawableInstance,
   elapsedMs: number,
 ): DrawBeamLayer[] {
-  const def = isWeaponId(instance.weaponId) ? weaponDefOf(instance.weaponId) : null;
+  const def = drawDefOf(instance);
   if (!def || def.kind !== "projectile") return [];
   const style = WEAPON_PROJECTILE_STYLES[def.id];
   if (!style) return [];
@@ -701,10 +756,12 @@ export function beamDrawLayers(
   if (!style) return [];
 
   // A disc has no cross-section to nest layers inside, and it is drawn as a ring rather than as a
-  // filled solid — see `isAuraWeapon`. Layered styles are a directional-beam idea.
+  // filled solid — see `isAuraInstance`. Layered styles are a directional-beam idea. A burst instance
+  // always carries a disc hitbox, so this refusal is also what keeps one from ever reaching the
+  // `beamGrownExtent` call below — the `isExplosion: false` there is never actually load-bearing.
   if (def.hitbox.shape === "disc") return [];
 
-  const grown = beamGrownExtent(def.id, extent, elapsedMs);
+  const grown = beamGrownExtent({ weaponId, isExplosion: false, x, y, angle, extent }, elapsedMs);
   const layers: DrawBeamLayer[] = [];
   for (const layer of style.layers) {
     const points =
@@ -883,7 +940,7 @@ function capMs(elapsedMs: number): number {
  * or forward-incompatible id must never blank the whole shot layer.
  */
 export function instanceDrawShape(instance: DrawableInstance, elapsedMs: number): WorldShape {
-  const def = isWeaponId(instance.weaponId) ? weaponDefOf(instance.weaponId) : null;
+  const def = drawDefOf(instance);
   // A maneuver moves the car instead of spawning an instance (Task 10's real branch), so
   // `state.weapons` never carries one — same fallback as an unrecognised id, since neither should
   // ever reach a draw call and both must draw *something* rather than throw.
@@ -897,7 +954,7 @@ export function instanceDrawShape(instance: DrawableInstance, elapsedMs: number)
       instance.x,
       instance.y,
       instance.angle,
-      beamGrownExtent(instance.weaponId, instance.extent, elapsedMs),
+      beamGrownExtent(instance, elapsedMs),
     );
   }
   const at = extrapolateShot(instance.x, instance.y, instance.angle, def.speed, elapsedMs);
@@ -935,24 +992,36 @@ export const BEAM_FADE_OUT_MS = 100;
  * A projectile, or an instance whose `weaponId` is not in `WEAPON_TABLE`, always draws fully
  * opaque: neither has a linger to fade through, and a stale or forward-incompatible id must not
  * turn a shot invisible.
+ *
+ * `isExplosion` defaults to `false` so every existing caller keeps resolving the shell's own
+ * `WeaponTicks`. Pass it `true` for a burst: `weaponTicksOf(weaponId)` resolves by the SHELL's id
+ * either way (a burst carries its parent's `weaponId`), and the shell's own `ticks.lifetime` is 0
+ * because the shell itself is a projectile row — so without this flag a burst's `lifetime <= 0`
+ * check would trip on the wrong table and the burst would never fade, only snap off. `isExplosion`
+ * routes the death-tick and fade-window math through `ticks.explosion` instead, the same table
+ * `instanceExpired` uses for a burst's own expiry.
  */
 export function beamFadeAlpha(
   kind: number,
   weaponId: string,
   spawnTick: number,
   tick: number,
+  isExplosion = false,
 ): number {
   if (kind !== WeaponKind.BEAM || !isWeaponId(weaponId)) return 1;
   const ticks = weaponTicksOf(weaponId);
-  if (ticks.lifetime <= 0) return 1;
+  const burst = isExplosion ? ticks.explosion : null;
+  const flight = burst ? burst.flight : ticks.flight;
+  const lifetime = burst ? burst.lifetime : ticks.lifetime;
+  if (lifetime <= 0) return 1;
 
   // The same boundary `instanceExpired` uses (`tick - spawnTick >= flight + lifetime`), so the
   // alpha reaches 0 on exactly the tick the sim stops the instance hitting anything.
-  const deathTick = spawnTick + ticks.flight + ticks.lifetime;
+  const deathTick = spawnTick + flight + lifetime;
   // Clamped to the linger: a window longer than the lifetime would otherwise start the fade while
   // the beam is still growing, which is the one thing the "full opacity until the end" rule exists
   // to prevent.
-  const fadeTicks = Math.min(msToTicks(BEAM_FADE_OUT_MS), ticks.lifetime);
+  const fadeTicks = Math.min(msToTicks(BEAM_FADE_OUT_MS), lifetime);
   if (fadeTicks <= 0) return 1;
 
   const remaining = deathTick - tick;
@@ -1051,18 +1120,21 @@ export function isProjectileWeapon(weaponId: string): boolean {
 }
 
 /**
- * Is this weapon drawn as an AURA — a ring around a car — rather than as a solid shape?
+ * Is this instance drawn as an AURA — a ring around a car — rather than as a solid shape?
  *
  * An aura is the one instance in the game whose hitbox is too big to fill in. Every other shot is
- * drawn *as* its hitbox (D19), which works because a shot is small; a 150-unit disc filled opaquely
+ * drawn *as* its hitbox (D19), which works because a shot is small; a 60-unit disc filled opaquely
  * would hide the cars inside it, including the one being stunned, so the rule has to bend to keep
  * its own purpose. It bends as little as possible: the ring sits exactly ON the hitbox edge and the
  * wash inside it is the same colour, so what you see is still precisely what will hit you.
+ *
+ * Takes the INSTANCE, not a bare `weaponId`: a magmablast burst carries the shell's `weaponId` and
+ * only its own hitbox is a disc, so the answer depends on `isExplosion` too, and `drawDefOf` is what
+ * resolves that.
  */
-export function isAuraWeapon(weaponId: string): boolean {
-  if (!isWeaponId(weaponId)) return false;
-  const def = weaponDefOf(weaponId);
-  return def.kind === "beam" && def.hitbox.shape === "disc";
+export function isAuraInstance(instance: DrawableInstance): boolean {
+  const def = drawDefOf(instance);
+  return def?.kind === "beam" && def.hitbox.shape === "disc";
 }
 
 /** The aura ring's stroke width, in world units. */

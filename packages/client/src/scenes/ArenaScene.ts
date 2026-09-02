@@ -65,7 +65,7 @@ import {
   beamFadeAlpha,
   hpBarColor,
   hpBarPoints,
-  isAuraWeapon,
+  isAuraInstance,
   hpFraction,
   instanceDrawShape,
   beamDrawLayers,
@@ -1666,11 +1666,12 @@ export class ArenaScene extends Phaser.Scene {
         instance.weaponId,
         instance.spawnTick,
         room.state.tick,
+        instance.isExplosion,
       );
       // An aura reaches its own `WorldShape` as a circle, like a round projectile does, so it has to
-      // be split off BEFORE the circle branch below — otherwise it would draw as a filled 150-unit
+      // be split off BEFORE the circle branch below — otherwise it would draw as a filled 60-unit
       // disc and hide every car it is about to hit. Ring plus wash: still exactly the hitbox.
-      if (shape.kind === "circle" && isAuraWeapon(instance.weaponId)) {
+      if (shape.kind === "circle" && isAuraInstance(instance)) {
         const fill = weaponFillOf(instance.weaponId);
         gfx.fillStyle(fill, alpha * AURA_FILL_ALPHA);
         gfx.fillCircle(shape.x, shape.y, shape.radius);
