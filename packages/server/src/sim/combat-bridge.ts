@@ -260,6 +260,7 @@ export function applyCombatResult(state: ArenaState, result: CombatResult, memor
       row.ownerSessionId = instance.ownerSessionId;
       row.weaponId = instance.weaponId;
       row.kind = instance.kind === "beam" ? WeaponKind.BEAM : WeaponKind.PROJECTILE;
+      row.isExplosion = instance.isExplosion;
       row.spawnTick = instance.spawnTick;
       state.weapons.set(instance.id, row);
     }

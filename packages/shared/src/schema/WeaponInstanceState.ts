@@ -11,6 +11,17 @@ export class WeaponInstanceState extends Schema {
   @type("string") ownerSessionId = "";
   @type("string") weaponId = "";
   @type("uint8") kind: WeaponKind = WeaponKind.PROJECTILE;
+  /**
+   * This row is its weapon's explosion rather than its shell (spec P27).
+   *
+   * On the wire because the client resolves a def from `weaponId`, which names the parent — a
+   * projectile — so without this it would draw a 12 u dart where a 60 u disc belongs. Deriving it
+   * instead (a row whose `kind` disagrees with its def's `kind` can only be an explosion) is true
+   * today and rots the first time another weapon spawns a child instance.
+   *
+   * Frozen at spawn, so it is written on row creation and never patched after.
+   */
+  @type("boolean") isExplosion = false;
   @type("number") x = 0;
   @type("number") y = 0;
   @type("number") angle = 0;
