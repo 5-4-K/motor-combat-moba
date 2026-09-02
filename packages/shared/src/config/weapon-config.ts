@@ -44,7 +44,7 @@ export const WEAPON_TABLE = {
     aimRangeUnits: 400,
     hitbox: { shape: "capsule", radiusAlong: 14, radiusAcross: 6 },
     pierce: 0,
-    homing: { turnRateDegPerSec: 120, durationMs: 1200 },
+    homing: { acquire: "lock", turnRateDegPerSec: 120, durationMs: 1200 },
     volley: { volleys: 1, volleyIntervalMs: 0 },
     pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
     applies: [{ statusId: "corroded", target: "opponents", durationMs: 2000 }],

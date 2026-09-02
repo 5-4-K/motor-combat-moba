@@ -10,7 +10,7 @@ import { AIM_CONFIG } from "./aim-config.js";
 describe("WEAPON_TABLE", () => {
   it("pins the overhaul roster's load-bearing numbers (spec 2026-09-01)", () => {
     expect(WEAPON_TABLE.magmablast).toMatchObject({ damage: 22, cooldownMs: 600, speed: 900, range: 900 });
-    expect(WEAPON_TABLE.predator.homing).toEqual({ turnRateDegPerSec: 120, durationMs: 1200 });
+    expect(WEAPON_TABLE.predator.homing).toEqual({ acquire: "lock", turnRateDegPerSec: 120, durationMs: 1200 });
     expect(WEAPON_TABLE.thunderclap).toMatchObject({ damage: 90, speed: 1600, aimRangeUnits: 400 });
     expect(WEAPON_TABLE.roadblock).toMatchObject({ damage: 100, pierce: 4 });
     expect(WEAPON_TABLE.roadblock.hitbox).toEqual({ shape: "bar", radiusAlong: 6, radiusAcross: 60 });
@@ -143,6 +143,16 @@ describe("WEAPON_TABLE", () => {
         if (def.kind === "maneuver" && def.maneuver.type === "dash") {
           expect(def.speed, def.id).toBeGreaterThan(0);
           expect(def.aimRangeUnits, def.id).toBeGreaterThan(0);
+        }
+      }
+    });
+    it("pairs acquireRadius with proximity acquisition, both ways", () => {
+      for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
+        if (def.kind !== "projectile" || !def.homing) continue;
+        if (def.homing.acquire === "proximity") {
+          expect(def.homing.acquireRadius, `${def.id} acquires by proximity`).toBeGreaterThan(0);
+        } else {
+          expect(def.homing.acquireRadius, `${def.id} acquires by lock`).toBeUndefined();
         }
       }
     });

@@ -224,9 +224,31 @@ export interface StatusApplication {
   onWave?: "all" | "final";
 }
 
-/** Homing guidance for a projectile fired with a lock (spec: Homing). */
+/** Homing guidance for a projectile (spec: Homing, and 2026-09-02 P1-P9). */
 export interface HomingDef {
-  /** Max steering rate toward the frozen target, degrees per second. The counterplay dial. */
+  /**
+   * How this shot finds a target.
+   *
+   * - `"lock"` — the car's aim-assist lock, frozen at spawn. The shot commits to whatever the
+   *   driver had bracketed when they pressed, and needs the aim to have actually resolved.
+   * - `"proximity"` — no target at spawn. Each tick the shot takes the nearest eligible car within
+   *   `acquireRadius` of ITSELF, then commits to it. The driver aims the launch; the shot finds
+   *   the victim.
+   *
+   * Required rather than defaulted, for the reason `usesAimAssist` is: a homing row must state how
+   * it finds things, so a new weapon cannot silently inherit an acquisition rule nobody chose.
+   */
+  acquire: "lock" | "proximity";
+  /**
+   * Proximity only: how near a car must come to the SHOT to be grabbed, world units. Required
+   * exactly when `acquire: "proximity"` and forbidden otherwise (test-enforced both ways).
+   *
+   * Deliberately its own number rather than a fraction of `aimRangeUnits`. The two answer different
+   * questions — one is how far the driver may bracket, the other is how near the missile must pass —
+   * and coupling them means a balance edit to either silently moves the other.
+   */
+  acquireRadius?: number;
+  /** Max steering rate toward the target, degrees per second. The counterplay dial. */
   turnRateDegPerSec: number;
   /** Guidance window after spawn. Afterwards the shot flies straight forever. */
   durationMs: number;
