@@ -4,13 +4,21 @@ import { WeaponKind } from "../constants.js";
 /**
  * One live hitbox as the client sees it. Deliberately minimal: speed, range, shape, dimensions,
  * colour and icon are all looked up client-side from `WEAPON_TABLE` by `weaponId`, so the row
- * carries only what cannot be derived.
+ * carries only what cannot be derived — plus `isExplosion`, which is derivable today but networked
+ * as a hedge against future weapons spawning different kinds of child instances.
  */
 export class WeaponInstanceState extends Schema {
   @type("string") id = "";
   @type("string") ownerSessionId = "";
   @type("string") weaponId = "";
   @type("uint8") kind: WeaponKind = WeaponKind.PROJECTILE;
+  @type("number") x = 0;
+  @type("number") y = 0;
+  @type("number") angle = 0;
+  /** Beams: current reach. Projectiles: always 0. */
+  @type("number") extent = 0;
+  @type("uint32") spawnTick = 0;
+  @type("boolean") alive = true;
   /**
    * This row is its weapon's explosion rather than its shell (spec P27).
    *
@@ -22,11 +30,4 @@ export class WeaponInstanceState extends Schema {
    * Frozen at spawn, so it is written on row creation and never patched after.
    */
   @type("boolean") isExplosion = false;
-  @type("number") x = 0;
-  @type("number") y = 0;
-  @type("number") angle = 0;
-  /** Beams: current reach. Projectiles: always 0. */
-  @type("number") extent = 0;
-  @type("uint32") spawnTick = 0;
-  @type("boolean") alive = true;
 }
