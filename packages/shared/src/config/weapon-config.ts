@@ -254,7 +254,7 @@ export const WEAPON_TABLE = {
    * `damage` drops 75 -> 60 to pay for it: 55 on Bastion's 0.92x attack, a shot that opens a fight
    * rather than one that wins an exchange on its own.
    *
-   * `bounce: { lifetimeMs: 2900 }` — the shot now expires on a wall-bouncing flight clock rather
+   * `bounces: true` with `lifetimeMs: 2900` — the shot expires on a wall-bouncing flight clock rather
    * than at `range`, guarded strictly under the 3000 ms cooldown so two bouncing instances can never
    * coexist. `range: 1305` is `450 u/s x 2.9 s`, the honest reach figure now that expiry is
    * clock-based and `range` is otherwise unread by a bouncing shot. Read plainly, that makes 1305
@@ -286,7 +286,8 @@ export const WEAPON_TABLE = {
     aimRangeUnits: 400,
     hitbox: { shape: "capsule", radiusAlong: 24, radiusAcross: 15 },
     pierce: 0,
-    bounce: { lifetimeMs: 2900 }, // just under the 3000ms cooldown — a second instance can never coexist
+    bounces: true,
+    lifetimeMs: 2900, // just under the 3000ms cooldown — a second bouncing instance can never coexist
     volley: { volleys: 1, volleyIntervalMs: 0 },
     pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
     applies: [{ statusId: "spiked", target: "opponents", durationMs: 3000 }],

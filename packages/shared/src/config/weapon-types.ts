@@ -232,12 +232,6 @@ export interface HomingDef {
   durationMs: number;
 }
 
-/** Wall-bouncing flight: reflect off level geometry; expire on this clock instead of at `range`. */
-export interface BounceDef {
-  /** Total flight time. Guarded < `cooldownMs` so two instances can never coexist. */
-  lifetimeMs: number;
-}
-
 export interface ProjectileWeaponDef extends WeaponBase {
   kind: "projectile";
   hitbox: ProjectileHitbox;
@@ -245,7 +239,21 @@ export interface ProjectileWeaponDef extends WeaponBase {
   pierce: number;
   pellets: PelletDef;
   homing?: HomingDef;
-  bounce?: BounceDef;
+  /**
+   * Total flight time. When present the shot expires on this clock instead of at `range`, which is
+   * what lets a weapon be authored as "no range, just lifetime".
+   *
+   * Hoisted off the old `BounceDef` (2026-09-02): a bouncing shot needs a clock because `range` is
+   * meaningless once it reflects, but a clock is not a fact about bouncing. `predator` uses one
+   * without bouncing at all.
+   */
+  lifetimeMs?: number;
+  /**
+   * Wall-bouncing flight: reflect off level geometry rather than dying on it. Requires `lifetimeMs`,
+   * and `weapon-config.test.ts` holds that lifetime strictly under `cooldownMs` so two bouncing
+   * instances of one weapon can never coexist. Absent is false.
+   */
+  bounces?: boolean;
   /**
    * The world never destroys this shot: level geometry and the arena bounds alike, it flies
    * through, and only its own `range` clock ends it. Absent is false — dying on the first wall

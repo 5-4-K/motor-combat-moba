@@ -137,7 +137,6 @@ export type {
   BeamHitbox,
   BeamOrigin,
   BeamWeaponDef,
-  BounceDef,
   Hitbox,
   HomingDef,
   ManeuverSpec,

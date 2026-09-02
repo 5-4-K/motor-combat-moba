@@ -648,7 +648,7 @@ function hitsWorld(instance: WeaponInstance, previous: WeaponInstance, world: Co
   // through geometry and bounds alike, and only its own `range` clock ends it. Both exemptions
   // matter most on the SPAWN tick, where the smear collapses to the shape at the muzzle — a
   // wide bar born with a wingtip touching a wall would otherwise die before any client saw it.
-  if (def.kind !== "projectile" || instance.kind !== "projectile" || def.bounce) return false;
+  if (def.kind !== "projectile" || instance.kind !== "projectile" || def.bounces) return false;
   if (def.piercesWalls) return false;
 
   const swept = smear(

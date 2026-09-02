@@ -72,8 +72,8 @@ export interface WeaponInstance {
   /** Homing only: the tick guidance ends; 0 for a non-homing shot. Frozen at spawn. */
   homingUntilTick: number;
   /**
-   * Bouncing rows only: the flight clock, frozen at spawn from `bounce.lifetimeMs`. 0 = expire at
-   * `range` as ever.
+   * Rows authoring `lifetimeMs` only: the flight clock, frozen at spawn. 0 = expire at `range` as
+   * ever. Not limited to bouncing rows — `predator` uses this without bouncing at all.
    */
   expiresAtTick: number;
 }
@@ -182,8 +182,13 @@ export function spawnInstances(
   const homing = def.kind === "projectile" ? def.homing : undefined;
   const homingTarget = homing && homingTargetId !== "" ? homingTargetId : "";
   const homingUntil = homingTarget !== "" ? tick + msToTicks(homing!.durationMs) : 0;
-  const bounce = def.kind === "projectile" ? def.bounce : undefined;
-  const expiresAt = bounce ? tick + msToTicks(bounce.lifetimeMs) : 0;
+  // Any row authoring a lifetime expires on the clock, bouncing or not (spec P28a). Read straight
+  // off `def` rather than `weaponTicksOf(def.id)`: `def` is an injectable test seam whose `id` need
+  // not be a real WEAPON_TABLE key.
+  const expiresAt =
+    def.kind === "projectile" && def.lifetimeMs !== undefined
+      ? tick + msToTicks(def.lifetimeMs)
+      : 0;
 
   const instances: WeaponInstance[] = [];
   let next = seq;
@@ -264,7 +269,7 @@ export function stepInstance(
     const step = def.speed * ctx.dt;
     let x = instance.x + Math.cos(angle) * step;
     let y = instance.y + Math.sin(angle) * step;
-    if (def.kind === "projectile" && def.bounce) {
+    if (def.kind === "projectile" && def.bounces) {
       const bounced = bounceOffWorld(instance.x, instance.y, x, y, angle, ctx.obstacles, ctx.bounds);
       x = bounced.x; y = bounced.y; angle = bounced.angle;
     }

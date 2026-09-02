@@ -16,7 +16,7 @@ describe("WEAPON_TABLE", () => {
     expect(WEAPON_TABLE.roadblock.hitbox).toEqual({ shape: "bar", radiusAlong: 6, radiusAcross: 60 });
     expect(WEAPON_TABLE.wildcharge.maneuver).toEqual({ type: "charge", durationMs: 10000, slamsStunned: true });
     expect(WEAPON_TABLE.wildcharge.isUnInterruptable).toBe(true);
-    expect(WEAPON_TABLE.thumper.bounce).toEqual({ lifetimeMs: 2900 });
+    expect(WEAPON_TABLE.thumper).toMatchObject({ bounces: true, lifetimeMs: 2900 });
     expect(WEAPON_TABLE.pepperbox.muzzles).toEqual([0, 90, 180, 270]);
     expect(WEAPON_TABLE.afterburner.muzzles).toEqual([0, 180]);
     expect(WEAPON_TABLE.lance).toMatchObject({ attached: true, lifetimeMs: 1500, holdsDuringFire: true, usesAimAssist: false });
@@ -117,9 +117,18 @@ describe("WEAPON_TABLE", () => {
         if (def.kind === "projectile" && def.homing) expect(def.usesAimAssist, def.id).toBe(true);
       }
     });
-    it("bounds a bounce lifetime under its own cooldown, so two instances never coexist", () => {
-      for (const def of Object.values(WEAPON_TABLE)) {
-        if (def.kind === "projectile" && def.bounce) expect(def.bounce.lifetimeMs, def.id).toBeLessThan(def.cooldownMs);
+    it("bounds a BOUNCING row's lifetime under its own cooldown, so two never coexist", () => {
+      for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
+        if (def.kind !== "projectile" || !def.bounces) continue;
+        expect(def.lifetimeMs).toBeDefined();
+        expect(def.lifetimeMs!).toBeLessThan(def.cooldownMs);
+      }
+    });
+
+    it("keeps any authored projectile lifetime positive", () => {
+      for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
+        if (def.kind !== "projectile" || def.lifetimeMs === undefined) continue;
+        expect(def.lifetimeMs).toBeGreaterThan(0);
       }
     });
     it("bounds a charge duration under its own cooldown", () => {
@@ -324,11 +333,11 @@ describe("WEAPON_TABLE", () => {
     // T1's "1 beats 3" edge, asserted rather than asserted-in-prose.
     //
     // This is a DELIBERATE, documented exclusion, not a workaround: `thumper.range` (1305) is the
-    // total length of a bounce PATH — 450 u/s for `bounce.lifetimeMs` (2.9s), zigzagging off
+    // total length of a bounce PATH — 450 u/s for its `lifetimeMs` (2.9s), zigzagging off
     // whatever walls it meets — not a distance Bastion can point straight at a kiting Bullseye and
     // threaten. A poke is measured by how far a shot reaches in the direction it was fired, and a
     // bouncing shot's `range` field does not answer that question, so the guard compares
-    // straight-line pokes only and excludes any `bounce`-carrying row from both sides of the
+    // straight-line pokes only and excludes any `bounces`-carrying row from both sides of the
     // comparison.
     //
     // Read literally, off `WEAPON_TABLE` alone and with no notion of "straight" at all, `thumper`'s
@@ -344,7 +353,7 @@ describe("WEAPON_TABLE", () => {
         0,
         ...slotsOf(id)
           .map((w) => weaponDefOf(w))
-          .filter((def) => !(def.kind === "projectile" && def.bounce))
+          .filter((def) => !(def.kind === "projectile" && def.bounces))
           .map((def) => def.range),
       );
     expect(straightReach("bullseye")).toBeGreaterThan(straightReach("bastion"));

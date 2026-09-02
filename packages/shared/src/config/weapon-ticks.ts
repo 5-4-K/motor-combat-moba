@@ -29,8 +29,8 @@ export interface WeaponTicks {
   flight: number;
   /** Homing guidance window; 0 for a non-homing weapon. */
   homingDuration: number;
-  /** Bounce flight clock; 0 for a non-bouncing weapon. */
-  bounceLifetime: number;
+  /** Projectile flight clock from `lifetimeMs`; 0 when the row expires at `range` instead. */
+  projectileLifetime: number;
   /** Charge duration; 0 for anything that is not a charge maneuver. */
   maneuverDuration: number;
   /**
@@ -57,7 +57,8 @@ function ticksFor(def: WeaponDef): WeaponTicks {
     volleyInterval: msToTicks(def.volley.volleyIntervalMs),
     flight: def.kind === "maneuver" ? 0 : Math.ceil((def.range / def.speed) * TICK_RATE_HZ),
     homingDuration: def.kind === "projectile" && def.homing ? msToTicks(def.homing.durationMs) : 0,
-    bounceLifetime: def.kind === "projectile" && def.bounce ? msToTicks(def.bounce.lifetimeMs) : 0,
+    projectileLifetime:
+      def.kind === "projectile" && def.lifetimeMs !== undefined ? msToTicks(def.lifetimeMs) : 0,
     maneuverDuration:
       def.kind === "maneuver" && def.maneuver.type === "charge" ? msToTicks(def.maneuver.durationMs) : 0,
     applyDurations: Object.freeze(

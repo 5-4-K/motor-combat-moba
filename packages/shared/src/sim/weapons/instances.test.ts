@@ -382,7 +382,7 @@ describe("homing", () => {
   });
 });
 
-// `thumper` now ships `bounce.lifetimeMs: 2900` for real, so this exercises the real row.
+// `thumper` now ships `bounces: true` with `lifetimeMs: 2900` for real, so this exercises the real row.
 const bouncer = WEAPON_TABLE.thumper;
 const bounds = { width: 1000, height: 1000 };
 
