@@ -181,7 +181,13 @@ export function spawnInstances(
 
   const homing = def.kind === "projectile" ? def.homing : undefined;
   const homingTarget = homing && homingTargetId !== "" ? homingTargetId : "";
-  const homingUntil = homingTarget !== "" ? tick + msToTicks(homing!.durationMs) : 0;
+  // The clock is "after spawn" (HomingDef.durationMs), not "after acquisition" — so it is armed off
+  // `homing` alone, not off `homingTarget`. That distinction was invisible while every homing row
+  // used `acquire: "lock"`, where a target is already resolved (or never will be) at spawn, so the
+  // two conditions always agreed. A proximity shot spawns with `homingTargetId === ""` by design
+  // (spec P1) and grabs one several ticks later; gating this clock on the target would freeze it at
+  // 0 forever and the shot could never home once it did acquire.
+  const homingUntil = homing ? tick + msToTicks(homing.durationMs) : 0;
   // Any row authoring a lifetime expires on the clock, bouncing or not (spec P28a). Read straight
   // off `def` rather than `weaponTicksOf(def.id)`: `def` is an injectable test seam whose `id` need
   // not be a real WEAPON_TABLE key.

@@ -346,7 +346,7 @@ describe("multi-muzzle", () => {
   });
 });
 
-// `predator` now ships exactly this shape for real (speed 600, homing 120deg/s over 1200ms), so this
+// `predator` now ships exactly this shape for real (speed 900, homing 300deg/s over 2000ms), so this
 // exercises the real row rather than a synthetic spread.
 const rocket = WEAPON_TABLE.predator;
 const homingCtx = (tick: number, target: { x: number; y: number } | null) => ({
@@ -362,14 +362,14 @@ describe("homing", () => {
     const shot = instances[0]!;
     expect(shot.homingTargetId).toBe("victim");
     const stepped = stepInstance(shot, homingCtx(11, { x: 500, y: 500 }), rocket); // 45 deg off
-    const maxTurn = (120 * Math.PI / 180) / 30;
+    const maxTurn = (300 * Math.PI / 180) / 30;
     expect(stepped.angle).toBeCloseTo(maxTurn); // clamped, not snapped to 45 deg
   });
 
   it("flies straight after the guidance window", () => {
     const { instances } = spawnInstances(homingOrder, homingOwner, 10, 0, 0, 1, "victim", rocket);
     const until = instances[0]!.homingUntilTick;
-    expect(until).toBe(10 + 36); // msToTicks(1200) at 30 Hz
+    expect(until).toBe(10 + 60); // msToTicks(2000) at 30 Hz
     const past = stepInstance({ ...instances[0]!, x: 100 }, homingCtx(until + 1, { x: 500, y: 500 }), rocket);
     expect(past.angle).toBe(0);
   });

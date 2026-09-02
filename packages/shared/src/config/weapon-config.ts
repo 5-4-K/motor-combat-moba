@@ -21,33 +21,45 @@ import type { WeaponDef, WeaponId } from "./weapon-types.js";
  */
 export const WEAPON_TABLE = {
   /**
-   * Mirage's slot 1: the homing rocket (O11). Fired with a lock it tracks the frozen target for
-   * 1.2 s at 120 deg/s — a ~286-unit turning circle Mirage and Bullseye can corner inside and
-   * Bastion mostly cannot, which fits the triangle. Fired bare it is a slow straight shot.
-   * 600 u/s is the second-slowest aimed shot in the table: reactable at range. 0.5 Hz, 60% clear
-   * of the aim cliff. ⚙ speed/turn/duration are the spec's first-pass numbers.
+   * Mirage's slot 1 until the 2026-09-02 pass moves it to Bullseye: the proximity seeker. It leaves
+   * the muzzle as an ordinary fast dart aimed by the lock, carries no target, and grabs the first
+   * eligible car to come within 200 u of ITSELF — then chases that one until it hits something or
+   * its 2 s clock runs out.
+   *
+   * It has no range in any sense a player experiences: `range` is authored as `speed x lifetime`
+   * (900 x 2 s) purely because `WEAPON_TICKS.flight`, the guide's reach figure and the
+   * `range >= aimRangeUnits` validator all read it. At 1800 the flight count is exactly the
+   * lifetime, so the two clocks cannot disagree. That clears arena-01's 1469 u diagonal; it would
+   * not clear arena-02's, so "no range" is a statement about the shipped arena, not the engine.
+   *
+   * `turnRateDegPerSec: 300` is the counterplay dial. Turn radius is `speed / turnRate`, so at
+   * 900 u/s this arcs at 172 u — tight enough to convert a 200 u grab. The old 120 deg/s would arc
+   * at 430 u and sail past everything it acquired. ⚙
+   *
+   * 3.33 Hz, 167% clear of the 1.25 Hz aim cliff, and its 2 s life on a 300 ms cooldown means up to
+   * seven in the air at once — which is why the two-instances guard is scoped to bouncing rows.
    */
   predator: {
     id: "predator",
     kind: "projectile",
     name: "Predator",
-    color: "#D63A14", // fireball's ember — Mirage's palette
+    color: "#D63A14",
     unlocksAt: 1,
-    damage: 50,
+    damage: 25,
     damageFrequencyMs: 0,
-    speed: 600,
-    range: 900,
+    speed: 900,
+    range: 1800, // = speed x lifetimeMs; see the comment above for why this is authored at all
     startUpMs: 0,
-    cooldownMs: 2000,
+    cooldownMs: 300,
     recoveryMs: 0,
     usesAimAssist: true,
-    aimRangeUnits: 400,
+    aimRangeUnits: 800,
     hitbox: { shape: "capsule", radiusAlong: 14, radiusAcross: 6 },
     pierce: 0,
-    homing: { acquire: "lock", turnRateDegPerSec: 120, durationMs: 1200 },
+    lifetimeMs: 2000,
+    homing: { acquire: "proximity", acquireRadius: 200, turnRateDegPerSec: 300, durationMs: 2000 },
     volley: { volleys: 1, volleyIntervalMs: 0 },
     pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
-    applies: [{ statusId: "corroded", target: "opponents", durationMs: 2000 }],
   },
   /**
    * Mirage's slot 2: the dash (O12/O13). `speed` is the dash speed and `aimRangeUnits` the dash

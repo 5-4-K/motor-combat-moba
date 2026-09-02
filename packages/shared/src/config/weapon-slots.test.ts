@@ -62,10 +62,13 @@ describe("loadouts", () => {
 });
 
 describe("carAimRangeOf", () => {
-  it("is 400 for every shipped chassis (all assisted rows author 400 in this pass)", () => {
-    for (const id of ["mirage", "bullseye", "bastion"] as const) {
-      expect(carAimRangeOf(id)).toBe(400);
-    }
+  it("is the longest assisted reach on each chassis", () => {
+    // Mirage and Bastion carry only 400 u assisted rows. Predator authors 800, which lifts the
+    // whole car's acquisition range — carAimRangeOf returns the MAX across assisted slots, so one
+    // long-reaching weapon re-ranges the car's ambient lock (spec: Bullseye's lock doubles).
+    expect(carAimRangeOf("mirage")).toBe(800);
+    expect(carAimRangeOf("bullseye")).toBe(400);
+    expect(carAimRangeOf("bastion")).toBe(400);
   });
   it("falls back to AIM_CONFIG.lockRange for a car with no assisted weapon", () => {
     // No such chassis ships; the fallback is the contract for one. Assert it equals the global.

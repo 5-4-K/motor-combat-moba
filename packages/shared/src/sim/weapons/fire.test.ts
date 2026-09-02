@@ -81,7 +81,7 @@ describe("releasing", () => {
     const { state, orders } = releaseShots(pressed, 100);
     expect(orders).toEqual([{ weaponId: "predator", slot: 0, finalVolley: true }]);
     expect(state.pending).toBeNull();
-    expect(state.slots[0]!.rechargeEndsTick).toBe(160); // 2000ms == 60 ticks
+    expect(state.slots[0]!.rechargeEndsTick).toBe(109); // 300ms == 9 ticks
     expect(state.lastFiredSlot).toBe(0);
   });
 
@@ -187,7 +187,7 @@ describe("per-tick order", () => {
   }
 
   it("fires a zero-start-up weapon on the tick it is pressed, in the canonical recharge -> beginFire -> releaseShots order", () => {
-    let state = fresh(); // predator: startUpMs 0, cooldownMs 2000ms == 60 ticks, single stock
+    let state = fresh(); // predator: startUpMs 0, cooldownMs 300ms == 9 ticks, single stock
     const seen: ShotOrder[] = [];
 
     // Tick 100: press and fire must both land on this SAME tick — not the next one. Under the
@@ -200,8 +200,8 @@ describe("per-tick order", () => {
     expect(state.pending).toBeNull();
     expect(state.slots[0]!.stocks).toBe(0);
 
-    // Ticks 101-159: idle, no stock yet, nothing fires.
-    for (let tick = 101; tick < 160; tick++) {
+    // Ticks 101-108: idle, no stock yet, nothing fires.
+    for (let tick = 101; tick < 109; tick++) {
       const idled = step(state, tick, 0);
       state = idled.state;
       seen.push(...idled.orders);
@@ -209,9 +209,9 @@ describe("per-tick order", () => {
     expect(seen).toHaveLength(1);
     expect(state.slots[0]!.stocks).toBe(0);
 
-    // Tick 160: the stock lands on this exact tick (100 + 60). A second press must fire again, same
+    // Tick 109: the stock lands on this exact tick (100 + 9). A second press must fire again, same
     // tick, proving the cycle repeats rather than being a one-shot fluke.
-    const step2 = step(state, 160, SLOT_1);
+    const step2 = step(state, 109, SLOT_1);
     state = step2.state;
     seen.push(...step2.orders);
     expect(seen).toEqual([

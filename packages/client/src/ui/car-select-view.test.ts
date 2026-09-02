@@ -103,7 +103,7 @@ describe("fullStatsFor", () => {
     // `predator`/`magmablast` shipped in their place by the 2026-09-01 roster cutover (O17); bastion's
     // opener (`thumper`) is unchanged.
     const expected: Record<keyof typeof CAR_TABLE, { label: string; value: string }> = {
-      mirage: { label: "Predator damage", value: "57" },
+      mirage: { label: "Predator damage", value: "28" },
       bullseye: { label: "Magma Blast damage", value: "23" },
       bastion: { label: "Thumper damage", value: "55" },
     };

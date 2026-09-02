@@ -40,7 +40,7 @@ describe("WEAPON_TICKS", () => {
   it("derives the roster's new-mechanic clocks for the rows that carry them (spec 2026-09-01)", () => {
     expect(weaponTicksOf("thumper").projectileLifetime).toBe(87); // 2900ms at 30Hz
     expect(weaponTicksOf("wildcharge").maneuverDuration).toBe(300); // 10000ms at 30Hz
-    expect(weaponTicksOf("predator").homingDuration).toBe(36); // 1200ms at 30Hz
+    expect(weaponTicksOf("predator").homingDuration).toBe(60); // 2000ms at 30Hz
   });
 
   it("covers every weapon in the table and is frozen", () => {
@@ -59,7 +59,7 @@ describe("WEAPON_TICKS", () => {
 
   it("derives zero homing/lifetime/maneuver ticks for every row that does not carry the mechanic", () => {
     const homing: WeaponId[] = ["predator"];
-    const hasLifetime: WeaponId[] = ["thumper"];
+    const hasLifetime: WeaponId[] = ["thumper", "predator"];
     const chargeManeuver: WeaponId[] = ["wildcharge"];
     for (const id of Object.keys(WEAPON_TABLE) as WeaponId[]) {
       const t = weaponTicksOf(id);

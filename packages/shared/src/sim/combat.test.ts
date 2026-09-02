@@ -28,6 +28,7 @@ import { muzzleOf, newLockState } from "./weapons/lock.js";
 import { stepSim } from "./step.js";
 import type { SimBody } from "./step.js";
 import type { InputMessage } from "../net/input.js";
+import { weaponTicksOf } from "../config/weapon-ticks.js";
 
 const DT = MS_PER_TICK / 1000;
 
@@ -1581,5 +1582,110 @@ describe("wall-piercing projectiles (`piercesWalls`, roadblock's row)", () => {
     expect(state.instances).toHaveLength(1);
     state = settle(state, {}, 40);
     expect(state.instances).toHaveLength(0);
+  });
+});
+
+describe("proximity homing (spec P1-P6)", () => {
+  const LIFETIME_TICKS = weaponTicksOf("predator").projectileLifetime;
+
+  /** Fire mirage's slot 1 once and step `ticks` times, returning the last result. */
+  function fireAndStep(bystanders: CombatPlayer[], ticks: number): CombatResult {
+    let world_ = world();
+    let players: CombatPlayer[] = [
+      player("aaa", { x: 300, y: OPEN_Y, angle: 0, fireMask: 0b001 }),
+      ...bystanders,
+    ];
+    let instances: readonly WeaponInstance[] = [];
+    let instanceSeq = 0;
+    let result: CombatResult | null = null;
+    for (let i = 0; i < ticks; i++) {
+      result = runCombat({ world: world_, players, instances, instanceSeq });
+      // Press on the first tick only; a held key would just be rejected by the cooldown anyway.
+      players = result.players.map((p) => (p.sessionId === "aaa" ? { ...p, fireMask: 0 } : p));
+      instances = result.instances;
+      instanceSeq = result.instanceSeq;
+      world_ = { ...world_, tick: world_.tick + 1 };
+    }
+    return result!;
+  }
+
+  it("grabs a car that comes within acquireRadius and bends toward it", () => {
+    // Bystander 150u off the line: unlockable (lateralMax is 120), so only proximity can find it.
+    // The shot leaves the muzzle at x=324 and covers 30u/tick, so it closes to within 200u of
+    // (600, 300) around x=520 — roughly tick 7. Ten ticks leaves room to see the turn.
+    const result = fireAndStep([player("bbb", { x: 600, y: OPEN_Y + 150 })], 10);
+    const shot = result.instances.find((i) => i.weaponId === "predator");
+    expect(shot).toBeDefined();
+    expect(shot!.homingTargetId).toBe("bbb");
+    // Bystander is at +y, so a shot that acquired turns to a positive angle. It launched at 0.
+    expect(shot!.angle).toBeGreaterThan(0.1);
+  });
+
+  it("ignores a wreck at the same spot", () => {
+    const result = fireAndStep([player("bbb", { x: 600, y: OPEN_Y + 150, alive: false })], 10);
+    const shot = result.instances.find((i) => i.weaponId === "predator");
+    expect(shot!.homingTargetId).toBe("");
+    expect(shot!.angle).toBeCloseTo(0, 5);
+  });
+
+  it("never grabs its own shooter, whose hull the muzzle sits on", () => {
+    // The shot spawns 24u from the shooter's centre — inside its own 200u bubble from tick one.
+    // `canDamage` refusing the owner is the only thing stopping it homing on itself immediately.
+    const result = fireAndStep([], 4);
+    const shot = result.instances.find((i) => i.weaponId === "predator");
+    expect(shot!.homingTargetId).toBe("");
+    expect(shot!.angle).toBeCloseTo(0, 5);
+  });
+
+  it("takes the nearer of two eligible cars", () => {
+    const result = fireAndStep(
+      [
+        player("far", { x: 640, y: OPEN_Y + 190 }),
+        player("near", { x: 600, y: OPEN_Y + 150 }),
+      ],
+      10,
+    );
+    expect(result.instances.find((i) => i.weaponId === "predator")!.homingTargetId).toBe("near");
+  });
+
+  it("commits: it does not re-acquire after its target is wrecked (P5)", () => {
+    // Acquire first, then wreck the target and keep stepping. The angle must freeze where it was,
+    // not swing to the other car.
+    let world_ = world();
+    let players: CombatPlayer[] = [
+      player("aaa", { x: 300, y: OPEN_Y, angle: 0, fireMask: 0b001 }),
+      player("bbb", { x: 600, y: OPEN_Y + 150 }),
+      player("ccc", { x: 700, y: OPEN_Y - 150 }),
+    ];
+    let instances: readonly WeaponInstance[] = [];
+    let instanceSeq = 0;
+    let result: CombatResult | null = null;
+    for (let i = 0; i < 8; i++) {
+      result = runCombat({ world: world_, players, instances, instanceSeq });
+      players = result.players.map((p) => (p.sessionId === "aaa" ? { ...p, fireMask: 0 } : p));
+      instances = result.instances;
+      instanceSeq = result.instanceSeq;
+      world_ = { ...world_, tick: world_.tick + 1 };
+    }
+    const acquiredAngle = result!.instances.find((i) => i.weaponId === "predator")!.angle;
+    expect(acquiredAngle).toBeGreaterThan(0);
+
+    players = players.map((p) => (p.sessionId === "bbb" ? { ...p, alive: false } : p));
+    for (let i = 0; i < 3; i++) {
+      result = runCombat({ world: world_, players, instances, instanceSeq });
+      instances = result.instances;
+      instanceSeq = result.instanceSeq;
+      world_ = { ...world_, tick: world_.tick + 1 };
+    }
+    const after = result!.instances.find((i) => i.weaponId === "predator")!;
+    expect(after.homingTargetId).toBe("bbb"); // still committed to the dead one
+    expect(after.angle).toBeCloseTo(acquiredAngle, 5); // flying straight from where it was
+  });
+
+  it("carries a lifetime clock even though it does not bounce (P28a/P30)", () => {
+    const result = fireAndStep([], 1);
+    const shot = result.instances.find((i) => i.weaponId === "predator")!;
+    expect(LIFETIME_TICKS).toBeGreaterThan(0);
+    expect(shot.expiresAtTick).toBe(shot.spawnTick + LIFETIME_TICKS);
   });
 });

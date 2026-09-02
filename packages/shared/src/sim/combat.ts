@@ -29,6 +29,7 @@ import {
 } from "./weapons/instances.js";
 import { muzzleOf, updateLock, type LockState, type LockTarget } from "./weapons/lock.js";
 import { beamShapeAt, projectileShapeAt, shapeHitsObb, smear } from "./weapons/shapes.js";
+import { canDamage } from "./weapons/targets.js";
 
 /**
  * One player as the combat step sees them. Plain data on purpose: the room maps `PlayerState` onto
@@ -244,9 +245,6 @@ export function runCombat(input: CombatInput): CombatResult {
    * a target; leave every place it acts alone.
    */
   const isPhasedOf = (sessionId: string): boolean => modsOf(sessionId).phased;
-  /** In the fight AND actually present: the gate for everything that treats a car as a target. */
-  const isTargetable = (player: CombatPlayer): boolean =>
-    isFighting(player) && !isPhasedOf(player.sessionId);
 
   // 0b. Burn and repair, before anything else this tick can act. A car whose bleed kills it here is
   // `alive: false` for every phase below, so it does not get a parting shot — which is the right
@@ -328,12 +326,16 @@ export function runCombat(input: CombatInput): CombatResult {
     // An attached beam dies with its owner: a wreck does not shoot. Everything already frozen at
     // birth — projectiles, detached beams — finishes its life regardless.
     if (instance.attached && (!owner || !isFighting(owner))) continue;
-    // The locked car's LIVE pose, looked up fresh every tick — never the shooter's own state, and
-    // never cached from spawn. `null` when it has died, left the roster, or the shot never locked.
-    const homingOwner =
-      instance.homingTargetId !== "" ? byId.get(instance.homingTargetId) : undefined;
-    stepped.push(
-      stepInstance(instance, {
+    // The locked car's LIVE pose, looked up fresh every tick. For a proximity shot the target is
+    // not known at spawn: it is chosen HERE, where the pose list is, so `instances.ts` keeps its
+    // rule that it never reads player state (spec P1).
+    let targetId = instance.homingTargetId;
+    if (targetId === "") {
+      targetId = acquireByProximity(instance, players, world.mode);
+    }
+    const homingOwner = targetId !== "" ? byId.get(targetId) : undefined;
+    stepped.push({
+      ...stepInstance(instance, {
         dt: world.dt,
         tick: world.tick,
         obstacles: world.obstacles,
@@ -342,7 +344,11 @@ export function runCombat(input: CombatInput): CombatResult {
         homingTarget:
           homingOwner && isFighting(homingOwner) ? { x: homingOwner.x, y: homingOwner.y } : null,
       }),
-    );
+      // Commit: once chosen the shot keeps this target for life, and flies straight if it dies
+      // (spec P5). Written back here rather than inside `stepInstance` for the same reason the
+      // scan is here — the choice is the caller's, the steering is the instance's.
+      homingTargetId: targetId,
+    });
   }
 
   // 2b. Locks, BEFORE any shot is aimed by one. `spawnInstances` reads the lock in phase 3, and
@@ -533,12 +539,26 @@ export function runCombat(input: CombatInput): CombatResult {
  * In the match and not yet a wreck: the gate for ACTING — firing, holding a lock, keeping an
  * attached beam alive, receiving a status the room asked for.
  *
- * Being *shot at* is the strictly narrower `isTargetable` inside `runCombat`, which adds "and not
- * phasing". Do not merge the two: see the note on `isPhasedOf` for what folding `phased` in here
- * would break.
+ * Being *shot at* is the strictly narrower `isTargetable` below, which adds "and not phasing". Do
+ * not merge the two: see the note on `isPhasedOf` for what folding `phased` in here would break.
  */
 function isFighting(player: CombatPlayer): boolean {
   return player.inRoster && player.alive;
+}
+
+/**
+ * In the fight AND actually present: the gate for everything that treats a car as a target — locks,
+ * hit resolution, and now proximity acquisition (spec P3/P4). Module-level, unlike `isFighting`'s
+ * sibling `isPhasedOf` inside `runCombat`, because `acquireByProximity` needs it and has no map of
+ * per-car modifiers to read.
+ *
+ * `phased` is read straight off the status list rather than through that per-tick modifiers cache.
+ * That is safe, not a second derivation: `runCombat` receives an already-expired list, and anything
+ * added mid-tick (0c/0d) is born with `endsTick` in the future, so every row still in the list is
+ * active by construction — a presence check needs no tick of its own to agree with the cached one.
+ */
+function isTargetable(player: CombatPlayer): boolean {
+  return isFighting(player) && !player.statuses.some((s) => s.statusId === "phased");
 }
 
 /**
@@ -626,6 +646,47 @@ function maneuverSlotMask(fireState: FireState): number {
     if (def.kind === "maneuver" || (def.kind === "beam" && def.holdsDuringFire)) mask |= 1 << index;
   });
   return mask;
+}
+
+/**
+ * The nearest car this shot may grab, or `""` for none (spec P1-P4).
+ *
+ * A full 360-degree bubble around the SHOT — not a cone off the shooter's nose. Eligibility is the
+ * same pair of predicates the hit test already uses, so a proximity shot can never chase something
+ * it could not have damaged: `canDamage` refuses the owner and teammates, `isTargetable` refuses
+ * wrecks and phased cars. No third notion of "valid target" is introduced.
+ *
+ * Returns `""` for any instance whose weapon does not acquire by proximity, so the caller needs no
+ * guard of its own.
+ */
+function acquireByProximity(
+  instance: WeaponInstance,
+  players: readonly CombatPlayer[],
+  mode: "ffa" | "team",
+): string {
+  const def = weaponDefOf(instance.weaponId);
+  if (def.kind !== "projectile") return "";
+  const homing = def.homing;
+  if (!homing || homing.acquire !== "proximity") return "";
+  const radius = homing.acquireRadius ?? 0;
+  if (radius <= 0) return "";
+
+  const radiusSq = radius * radius;
+  let bestId = "";
+  let bestSq = Number.POSITIVE_INFINITY;
+  for (const player of players) {
+    if (!isTargetable(player)) continue;
+    if (!canDamage(instance.ownerSessionId, instance.ownerTeam, player.sessionId, player.team, mode)) {
+      continue;
+    }
+    const dx = player.x - instance.x;
+    const dy = player.y - instance.y;
+    const distSq = dx * dx + dy * dy;
+    if (distSq > radiusSq || distSq >= bestSq) continue;
+    bestSq = distSq;
+    bestId = player.sessionId;
+  }
+  return bestId;
 }
 
 /**

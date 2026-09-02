@@ -64,17 +64,19 @@ describe("tuning store", () => {
   });
 
   it("restores nested objects and arrays without replacing their identity", () => {
-    const applies = WEAPON_TABLE.predator.applies;
+    // predator dropped its `applies` in the 2026-09-02 proximity-homing pass (corroded moved off
+    // it); thunderclap is now the array-of-objects fixture for this test.
+    const applies = WEAPON_TABLE.thunderclap.applies;
     const entry = applies[0];
     const weapons = CAR_TABLE.bastion.weapons;
 
-    setTuning({ "weapon.predator.applies.0.durationMs": 9000 });
-    expect(WEAPON_TABLE.predator.applies).toBe(applies);
-    expect(WEAPON_TABLE.predator.applies[0]).toBe(entry);
+    setTuning({ "weapon.thunderclap.applies.0.durationMs": 9000 });
+    expect(WEAPON_TABLE.thunderclap.applies).toBe(applies);
+    expect(WEAPON_TABLE.thunderclap.applies[0]).toBe(entry);
     expect(entry.durationMs as number).toBe(9000);
 
     setTuning(null);
-    expect(entry.durationMs as number).toBe(2000);
+    expect(entry.durationMs as number).toBe(1000);
     expect(CAR_TABLE.bastion.weapons).toBe(weapons);
     expect([...weapons]).toEqual(["thumper", "roadblock", "wildcharge"]);
   });
