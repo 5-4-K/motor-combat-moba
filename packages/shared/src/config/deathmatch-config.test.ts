@@ -5,7 +5,7 @@ import { DEATHMATCH_CONFIG, DEATHMATCH_TICKS } from "./deathmatch-config.js";
 
 describe("DEATHMATCH_TICKS", () => {
   it("derives whole ticks from the authored seconds", () => {
-    expect(DEATHMATCH_TICKS.match).toBe(300 * TICK_RATE_HZ);
+    expect(DEATHMATCH_TICKS.match).toBe(180 * TICK_RATE_HZ);
     expect(DEATHMATCH_TICKS.respawnDelay).toBe(5 * TICK_RATE_HZ);
     expect(DEATHMATCH_TICKS.phase).toBe(45);
     expect(DEATHMATCH_TICKS.phaseMax).toBe(3 * TICK_RATE_HZ);

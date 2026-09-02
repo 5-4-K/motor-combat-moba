@@ -10,8 +10,8 @@ import { TICK_RATE_HZ } from "../constants.js";
  * return to the field with 1.5 s of protection.
  */
 export const DEATHMATCH_CONFIG = Object.freeze({
-  /** Match length. Five minutes is long enough for the lead to change hands more than once. */
-  matchSeconds: 300,
+  /** Match length. Three minutes keeps a match tight enough to stay urgent end to end. */
+  matchSeconds: 180,
   /**
    * How long a wreck waits. Long enough to sting, short enough that a death is a setback rather than
    * the spectate sentence Last Standing hands out.

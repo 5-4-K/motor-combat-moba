@@ -698,7 +698,7 @@ room's respawn sweep and the client's HUD both derive from it, so the two must a
 
 | Knob | Value | Rationale |
 |---|---|---|
-| `matchSeconds` | 300 | Five minutes — long enough for the lead to change hands more than once |
+| `matchSeconds` | 180 | Three minutes — keeps a match tight enough to stay urgent end to end |
 | `respawnDelaySeconds` | 5 | Long enough to sting, short enough not to be a spectate sentence |
 | `phaseSeconds` | 1.5 | The minimum spawn-protection window after respawn |
 | `phaseMaxSeconds` | 3 | The hard cap on protection (contact-clear, below), twice the minimum |

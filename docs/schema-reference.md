@@ -45,7 +45,7 @@ Colyseus `@type` fields. Enums are explicit uint8; never renumber. `pendingCarId
 | `hp` | uint16 | `0` | Actual HP |
 | `alive` | boolean | `true` | False when eliminated |
 | `diedAtTick` | uint32 | `0` | The tick this car's hp reached 0, or `0` while it lives. Drives the client's death fade; also the "has not died" sentinel `isDueToRespawn`/`respawnSeconds` read |
-| `kills` | uint8 | `0` | Counted in every mode; only `FFA_DEATHMATCH` decides a winner from them. `uint8` is ample: six players over a five-minute match cannot approach 255 |
+| `kills` | uint8 | `0` | Counted in every mode; only `FFA_DEATHMATCH` decides a winner from them. `uint8` is ample: six players over a three-minute match cannot approach 255 |
 | `deaths` | uint8 | `0` | Counted in every mode; the tie-break under `deathmatchOutcome` |
 | `killedBySessionId` | string | `""` | Who landed the killing blow, or `""` while alive. Render-only — `stepSim` never reads it. Networked for the same reason `diedAtTick` is: a spectator or a late joiner who never saw the death still needs to be able to name the killer. Cleared on respawn, which is also what dismisses the "killed you" banner |
 | `selectLocked` | boolean | `false` | Car-select lock; pick still hidden |
