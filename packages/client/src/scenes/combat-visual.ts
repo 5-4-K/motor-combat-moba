@@ -1091,7 +1091,7 @@ export function isProjectileWeapon(weaponId: string): boolean {
  * Is this instance drawn as an AURA — a ring around a car — rather than as a solid shape?
  *
  * An aura is the one instance in the game whose hitbox is too big to fill in. Every other shot is
- * drawn *as* its hitbox (D19), which works because a shot is small; a 150-unit disc filled opaquely
+ * drawn *as* its hitbox (D19), which works because a shot is small; a 60-unit disc filled opaquely
  * would hide the cars inside it, including the one being stunned, so the rule has to bend to keep
  * its own purpose. It bends as little as possible: the ring sits exactly ON the hitbox edge and the
  * wash inside it is the same colour, so what you see is still precisely what will hit you.

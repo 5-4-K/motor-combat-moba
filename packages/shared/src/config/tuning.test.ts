@@ -10,7 +10,7 @@ import {
 import { COMBAT_CONFIG } from "./combat-config.js";
 import { DRIVE_CONFIG } from "./drive-config.js";
 import { RAM_DECAY, ramDecay } from "./ram-config.js";
-import { WEAPON_TABLE } from "./weapon-config.js";
+import { instanceDefOf, WEAPON_TABLE } from "./weapon-config.js";
 import { WEAPON_TICKS, weaponTicksOf } from "./weapon-ticks.js";
 import { activeTuning, setTuning } from "./tuning.js";
 
@@ -61,6 +61,25 @@ describe("tuning store", () => {
 
     setTuning(null);
     expect(WEAPON_TABLE.pepperbox.hitbox.radiusAlong as number).toBe(9);
+  });
+
+  it("an explosion override re-derives the synthesized burst def (BURST_DEFS)", () => {
+    // `magmablast.explosion.radius`/`.damage` are copied into `instanceDefOf`'s synthesized burst
+    // def once at module load (BURST_DEFS); without a rebuild here, this override would move
+    // `WEAPON_TABLE` and change nothing an actual detonation reads.
+    const before = instanceDefOf("magmablast", true);
+    expect(before.range).toBe(WEAPON_TABLE.magmablast.explosion!.radius);
+    expect(before.damage).toBe(WEAPON_TABLE.magmablast.explosion!.damage);
+
+    setTuning({ "weapon.magmablast.explosion.radius": 999, "weapon.magmablast.explosion.damage": 777 });
+    const overridden = instanceDefOf("magmablast", true);
+    expect(overridden.range).toBe(999);
+    expect(overridden.damage).toBe(777);
+
+    setTuning(null);
+    const restored = instanceDefOf("magmablast", true);
+    expect(restored.range).toBe(60);
+    expect(restored.damage).toBe(15);
   });
 
   it("restores nested objects and arrays without replacing their identity", () => {

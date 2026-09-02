@@ -438,7 +438,9 @@ export function runCombat(input: CombatInput): CombatResult {
       // firing a rocket that steers toward a target it did not actually aim at would be a stealth
       // buff no other weapon gets.
       const homingTargetId =
-        def.kind === "projectile" && def.homing && aim !== null ? player.lock.targetSessionId : "";
+        def.kind === "projectile" && def.homing?.acquire === "lock" && aim !== null
+          ? player.lock.targetSessionId
+          : "";
       const spawned = spawnInstances(
         order,
         player,
@@ -467,8 +469,10 @@ export function runCombat(input: CombatInput): CombatResult {
     .filter(isTargetable)
     .map((p) => ({ sessionId: p.sessionId, team: p.team, hull: carHullOf(p.x, p.y, p.angle) }));
 
-  // Bursts are collected separately and appended AFTER the loop, so a burst spawned this tick is
-  // not itself hit-tested before every shell this tick has finished resolving (spec P13a).
+  // Bursts are collected separately and appended after the loop over `stepped`. Nothing inside the
+  // loop reads `survivors`, so pushing a burst straight into it would behave identically — this is
+  // bookkeeping clarity, not a correctness mechanism. (Spec P13a is "exactly one burst per shot,"
+  // not an ordering rule; see `detonate`'s own guard for how that one is actually enforced.)
   const survivors: WeaponInstance[] = [];
   const bursts: WeaponInstance[] = [];
   for (const instance of stepped) {
@@ -575,6 +579,10 @@ export function runCombat(input: CombatInput): CombatResult {
     }
     interrupted.add(player.sessionId);
   }
+  // `weaponDefOf(i.weaponId)` here would describe the SHELL for a burst (whose `weaponId` is its
+  // parent's), not the burst's own synthesized def — but `&&` short-circuits on `i.attached` first,
+  // and a burst is never `attached` (P22, `buildBurstDefs`), so this is never reached for one. Safe
+  // as written; do not reorder the `&&` operands without swapping this back to `instanceDefOf`.
   const kept = survivors.filter(
     (i) => !(interrupted.has(i.ownerSessionId) && i.attached && !weaponDefOf(i.weaponId).isUnInterruptable),
   );
@@ -703,6 +711,12 @@ function maneuverSlotMask(fireState: FireState): number {
  *
  * Returns `""` for any instance whose weapon does not acquire by proximity, so the caller needs no
  * guard of its own.
+ *
+ * Reached for every live instance every tick — bursts included, since the caller runs before it
+ * knows whether `targetId` will turn out empty. `instanceDefOf` (not `weaponDefOf`) is what makes
+ * that safe: a burst's `weaponId` is its PARENT's, and `magmablast`'s shell authors no `homing`, so
+ * today the two lookups agree — but a future row with both `homing` and `explosion` would have its
+ * burst run this same acquisition scan if this read the shell's def instead of the burst's own.
  */
 function acquireByProximity(
   instance: WeaponInstance,
@@ -710,7 +724,7 @@ function acquireByProximity(
   mode: "ffa" | "team",
   isTargetable: (player: CombatPlayer) => boolean,
 ): string {
-  const def = weaponDefOf(instance.weaponId);
+  const def = instanceDefOf(instance.weaponId, instance.isExplosion);
   if (def.kind !== "projectile") return "";
   const homing = def.homing;
   if (!homing || homing.acquire !== "proximity") return "";

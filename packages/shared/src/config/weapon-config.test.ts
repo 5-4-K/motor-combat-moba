@@ -339,7 +339,7 @@ describe("WEAPON_TABLE", () => {
 
   it("ships magmablast as an explosive shell — one volley, one pellet, a populated explosion", () => {
     // No longer even the retired aura's old id, and no longer the "plain dart" it was before Task 5
-    // (2026-09-01) gave it a burst on death: `applies` stays undefined at the top level because the
+    // (2026-09-02) gave it a burst on death: `applies` stays undefined at the top level because the
     // shell itself carries no status — `explosion.applies` is where corroded actually lives.
     const sw = WEAPON_TABLE.magmablast;
     if (sw.kind !== "projectile") throw new Error("magmablast must be a projectile now");

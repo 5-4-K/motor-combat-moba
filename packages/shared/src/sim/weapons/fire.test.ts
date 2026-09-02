@@ -324,13 +324,17 @@ describe("the two lockouts", () => {
 // A whole "volleys and wind-up" suite drove `shockwave`'s old three-wave burst (a beam, 250ms
 // interval, `onWave: "final"`) through this real fire-state machinery — the load-bearing proof that
 // `beginFire` reads `def.volley.volleys` for a beam rather than hardcoding 1. As of the 2026-09-01
-// overhaul that row (`magmablast`, née `shockwave`) is a plain single-volley dart and no shipped
+// overhaul that row (`magmablast`, née `shockwave`) is a plain single-volley dart, and the
+// 2026-09-02 pass gave it an on-death explosion instead of a second identity change — no shipped
 // row is multi-wave any more:
-// multi-wave volleys, `onWave`, and the aura (`disc`/`origin: "center"`) are dormant machinery —
-// `VolleyDef` and `beginFire`'s kind-agnostic read of it are still exercised generically elsewhere
-// in this file (see "per-tick order"), just not against a real multi-wave row. Deleted rather than
-// retargeted: `fire.ts` has no `def` override seam (unlike `instances.ts`), so there is no way to
-// drive a synthetic multi-wave def through it — only a real `WEAPON_TABLE` row, and none is one.
+// multi-wave volleys and `onWave` are dormant machinery — `VolleyDef` and `beginFire`'s kind-agnostic
+// read of it are still exercised generically elsewhere in this file (see "per-tick order"), just not
+// against a real multi-wave row. Deleted rather than retargeted: `fire.ts` has no `def` override
+// seam (unlike `instances.ts`), so there is no way to drive a synthetic multi-wave def through it —
+// only a real `WEAPON_TABLE` row, and none is one. The `disc`/`origin: "center"` aura itself is NOT
+// dormant, unlike the claim this comment used to make: `magmablast`'s explosion is a real
+// detached, centre-origin `disc` instance (see `combat.ts`'s "magma blast detonation" tests) — it
+// is just spawned by `runCombat`'s detonation path, never by this file's fire-state machinery.
 
 describe("cancelling", () => {
   it("drops a pending burst, as a wreck does mid-volley", () => {

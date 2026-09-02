@@ -346,7 +346,13 @@ describe("multi-muzzle", () => {
 });
 
 // `predator` now ships exactly this shape for real (speed 900, homing 300deg/s over 2000ms), so this
-// exercises the real row rather than a synthetic spread.
+// exercises the real row rather than a synthetic spread. It is `acquire: "proximity"` in
+// production, so a real shot always spawns with `homingTargetId: ""` — `sim/combat.ts`'s
+// `runCombat` writes a target in later, the tick a car first comes within `acquireRadius`; this
+// module never performs that scan itself. The tests below instead hand `spawnInstances` an
+// explicit target so they can drive the STEERING branch (turn-rate clamp, guidance window) in
+// isolation. That is a legitimate way to exercise steering, but the target is hand-set, not
+// acquired — it does not reflect how a `predator` shot actually gets a target in a real tick.
 const rocket = WEAPON_TABLE.predator;
 const homingCtx = (tick: number, target: { x: number; y: number } | null) => ({
   dt: 1 / 30, tick, obstacles: [], bounds: { width: 4000, height: 4000 },
@@ -356,7 +362,7 @@ const homingOwner = { sessionId: "a", team: 0 as const, carId: "mirage", x: 0, y
 const homingOrder = { weaponId: "predator", slot: 0, finalVolley: true } as const;
 
 describe("homing", () => {
-  it("freezes the lock target at spawn and bends toward it, capped at the turn rate", () => {
+  it("bends toward a hand-set target, capped at the turn rate (steering only, not acquisition)", () => {
     const { instances } = spawnInstances(homingOrder, homingOwner, 10, 0, 0, 1, "victim", rocket);
     const shot = instances[0]!;
     expect(shot.homingTargetId).toBe("victim");

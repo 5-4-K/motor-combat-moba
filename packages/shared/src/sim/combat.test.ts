@@ -1144,56 +1144,65 @@ describe("real-row integration (2026-09-01 roster)", () => {
     expect(fortified!.sourceSessionId).toBe("a");
   });
 
-  it("homes a locked predator toward a moving target across two real combat ticks", () => {
-    // Predator moved to Bullseye's slot 1 in the 2026-09-02 loadout swap.
+  it("homes a proximity-acquired predator toward a moving target across real combat ticks", () => {
+    // Predator moved to Bullseye's slot 1 in the 2026-09-02 loadout swap, and is `acquire:
+    // "proximity"` (P1): it must NOT pre-commit to a held lock at spawn (regression covered
+    // directly in "proximity homing (spec P1-P6)" above — this row previously drove the lock
+    // straight into `homingTargetId` for ANY homing weapon, regardless of `acquire`). This test
+    // covers the other half through the full `runCombat` pipeline: once proximity acquisition
+    // sticks, steering keeps bending toward the target's LIVE pose each tick, not a pose frozen at
+    // the moment it committed.
     const shooter = player("a", { x: 300, y: OPEN_Y, angle: 0, carId: "bullseye", fireMask: 0b001 });
-    // Same acquisition geometry as the thunderclap test above: 10 degrees off-axis, 300 units out.
-    const bearing = (10 * Math.PI) / 180;
+    // Off-axis on +y, same geometry as "grabs a car that comes within acquireRadius" above: the
+    // muzzle sits at x=324 and the shot closes 30u/tick, so it is not yet within the 200u bubble at
+    // spawn (276u away) and commits a few ticks later — proximity, not the lock, does the finding.
     let state = runCombat({
       world: world(),
-      players: [
-        shooter,
-        player("b", {
-          x: shooter.x + 300 * Math.cos(bearing),
-          y: shooter.y + 300 * Math.sin(bearing),
-          angle: Math.PI,
-        }),
-      ],
+      players: [shooter, player("b", { x: 600, y: OPEN_Y + 150, angle: Math.PI })],
       instances: [],
       instanceSeq: 0,
     });
-    expect(find(state, "a").lock.targetSessionId).toBe("b");
     expect(state.instances).toHaveLength(1);
     const spawned = state.instances[0]!;
     expect(spawned.weaponId).toBe("predator");
-    // A locked homing shot freezes its TARGET at spawn (never the position) — see `instances.ts`.
-    expect(spawned.homingTargetId).toBe("b");
-    const angleAtSpawn = spawned.angle;
+    expect(spawned.homingTargetId).toBe(""); // no pre-commit at spawn (P1/P7)
 
-    // `runCombat` never moves anyone itself, so the target is driven by hand — the minimum bar this
-    // test needs to clear is that the shot's own angle bends across two ticks that follow, tracking
-    // the target's LIVE pose each tick rather than a pose frozen at spawn.
-    for (let i = 0; i < 2; i++) {
+    // Step until proximity acquisition sticks. `acquireByProximity` reads the PRE-step pose each
+    // tick, so the shot is checked at x=324, 354, ..., 474 before it moves each time — it clears
+    // the 200u bubble (sqrt(126^2+150^2) ~= 196u) on the check at x=474, seven ticks after spawn.
+    for (let i = 0; i < 6; i++) {
       state = runCombat({
         world: world({ tick: 101 + i }),
-        players: state.players.map((p) =>
-          p.sessionId === "a" ? { ...p, fireMask: 0 } : { ...p, y: p.y + 60 },
-        ),
+        players: state.players.map((p) => (p.sessionId === "a" ? { ...p, fireMask: 0 } : p)),
         instances: state.instances,
         instanceSeq: state.instanceSeq,
       });
     }
-    const homed = state.instances.find((i) => i.id === spawned.id);
+    const acquired = state.instances.find((i) => i.weaponId === "predator")!;
+    expect(acquired.homingTargetId).toBe("b");
+    const angleAtAcquire = acquired.angle;
+
+    // `runCombat` never moves anyone itself, so the target is driven by hand — the minimum bar this
+    // test needs to clear is that the shot's own angle bends across two more ticks, tracking the
+    // target's LIVE pose each tick rather than the pose it had at the moment it committed.
+    for (let i = 0; i < 2; i++) {
+      state = runCombat({
+        world: world({ tick: 107 + i }),
+        players: state.players.map((p) => (p.sessionId === "b" ? { ...p, y: p.y + 60 } : p)),
+        instances: state.instances,
+        instanceSeq: state.instanceSeq,
+      });
+    }
+    const homed = state.instances.find((i) => i.id === acquired.id);
     expect(homed).toBeDefined();
     // The target only ever moves further +y (never behind, never level), so the shot has to bend
     // toward a strictly LARGER angle to keep tracking it — not just "some" different angle, which a
     // sign error or an inverted turn could also satisfy.
-    expect(homed!.angle).toBeGreaterThan(angleAtSpawn);
-    // And the bend is bounded by the 120 deg/s clamp (spec: Homing) over the two real ticks the shot
-    // was actually stepped (it is born on the spawn tick without moving, per `instances.ts`, so only
-    // the two ticks in the loop above count): `turnRateDegPerSec * dt` per tick, times 2.
+    expect(homed!.angle).toBeGreaterThan(angleAtAcquire);
+    // And the bend is bounded by the 300 deg/s clamp (P9) over the two real ticks the shot was
+    // actually stepped after acquisition: `turnRateDegPerSec * dt` per tick, times 2.
     const maxTurnPerTick = (WEAPON_TABLE.predator.homing!.turnRateDegPerSec * Math.PI * DT) / 180;
-    expect(homed!.angle - angleAtSpawn).toBeLessThanOrEqual(2 * maxTurnPerTick + 1e-9);
+    expect(homed!.angle - angleAtAcquire).toBeLessThanOrEqual(2 * maxTurnPerTick + 1e-9);
   });
 });
 
@@ -1642,6 +1651,27 @@ describe("proximity homing (spec P1-P6)", () => {
     return result!;
   }
 
+  it("does not pre-commit to a held lock at spawn (regression: acquire must gate on 'lock')", () => {
+    // Bystander dead ahead at x=700, lateral offset 0: well inside the lock cone (lateralMax 120)
+    // and lock range (aimRangeUnits 800), so a lock exists and aim assist succeeds on tick one —
+    // this is exactly the shape of shot the old `def.homing && aim !== null` check welded to
+    // `player.lock.targetSessionId` at spawn, regardless of `acquire`. The muzzle sits at x=324, so
+    // the bystander at x=700 is 376u away on the spawn tick — outside the 200u proximity bubble.
+    // A correct proximity weapon must NOT commit here; only `acquire: "lock"` rows may use the lock
+    // at spawn, and predator is `acquire: "proximity"`.
+    const spawnTick = fireAndStep([player("bbb", { x: 700, y: OPEN_Y })], 1);
+    const spawnedShot = spawnTick.instances.find((i) => i.weaponId === "predator");
+    expect(spawnedShot).toBeDefined();
+    expect(spawnedShot!.homingTargetId).toBe(""); // no pre-commit at spawn despite the live lock
+    expect(spawnedShot!.angle).toBeCloseTo(0, 5); // aim assist only set the exit angle (P7), which is 0 dead ahead
+
+    // The same in-cone target is legitimately acquired later, once the shot's own 200u proximity
+    // bubble reaches it — the sixth tick or so, same closing math as the off-axis case below.
+    const later = fireAndStep([player("bbb", { x: 700, y: OPEN_Y })], 10);
+    const shot = later.instances.find((i) => i.weaponId === "predator")!;
+    expect(shot.homingTargetId).toBe("bbb");
+  });
+
   it("grabs a car that comes within acquireRadius and bends toward it", () => {
     // Bystander 150u off the line: unlockable (lateralMax is 120), so only proximity can find it.
     // The shot leaves the muzzle at x=324 and covers 30u/tick, so it closes to within 200u of
@@ -1696,6 +1726,30 @@ describe("proximity homing (spec P1-P6)", () => {
       10,
     );
     expect(result.instances.find((i) => i.weaponId === "predator")!.homingTargetId).toBe("near");
+  });
+
+  it("never grabs a teammate in team mode (spec P4)", () => {
+    // Same spot the FFA acquisition test above grabs a bystander from (x=600, y=OPEN_Y+150) — only
+    // `world.mode`/team now differ. `canDamage` refuses same-team targets outright in "team" mode,
+    // so a teammate must be exactly as invisible to proximity acquisition as the shooter itself.
+    let world_ = world({ mode: "team" });
+    let players: CombatPlayer[] = [
+      player("aaa", { x: 300, y: OPEN_Y, angle: 0, carId: "bullseye", fireMask: 0b001, team: 0 }),
+      player("bbb", { x: 600, y: OPEN_Y + 150, team: 0 }),
+    ];
+    let instances: readonly WeaponInstance[] = [];
+    let instanceSeq = 0;
+    let result: CombatResult | null = null;
+    for (let i = 0; i < 10; i++) {
+      result = runCombat({ world: world_, players, instances, instanceSeq });
+      players = result.players.map((p) => (p.sessionId === "aaa" ? { ...p, fireMask: 0 } : p));
+      instances = result.instances;
+      instanceSeq = result.instanceSeq;
+      world_ = { ...world_, tick: world_.tick + 1 };
+    }
+    const shot = result!.instances.find((i) => i.weaponId === "predator");
+    expect(shot!.homingTargetId).toBe("");
+    expect(shot!.angle).toBeCloseTo(0, 5);
   });
 
   it("commits: it does not re-acquire after its target is wrecked (P5)", () => {
@@ -1809,9 +1863,10 @@ describe("magma blast detonation (spec P13-P21)", () => {
 
   it("expires the burst on its OWN clock, not the shell's flight-plus-lifetime (P25b)", () => {
     // A mutation that disabled the explosion-aware branch in `instanceExpired` (falling back to the
-    // shell's `flight + lifetime`, 45 ticks) would leave a 1.5s field instead of the authored 200ms
-    // one, and nothing else in this file would catch it: P25a only checks that the burst eventually
-    // drains to zero, not on which tick.
+    // shell's `flight + lifetime`, 45 ticks) would leave a 1.5s field instead of the authored 150ms
+    // `lingerMs` (the ~200ms `explosionLife` above is that plus the one-tick `flight`), and nothing
+    // else in this file would catch it: P25a only checks that the burst eventually drains to zero,
+    // not on which tick.
     const ticks = weaponTicksOf("magmablast");
     const explosionLife = ticks.explosion!.flight + ticks.explosion!.lifetime;
     // Fire, let the shell land and the burst form (6 ticks, per the test above), then run the burst

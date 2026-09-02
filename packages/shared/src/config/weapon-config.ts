@@ -103,7 +103,7 @@ export const WEAPON_TABLE = {
    * (`muzzles.length > 1` forces assist off, same as `pepperbox`). Do not "fix" this to true.
    *
    * `recoveryMs: 200` is deliberately small (L5). The beam lives on its own once spawned, so the
-   * driver stays free to keep firing `predator` into a target that is already burning.
+   * driver stays free to keep firing `afterburner` into a target that is already burning.
    *
    * `muzzles: [0, 180]` fires two mirrored cones off the car's nose and tail every press, each its
    * own instance with its own damage clock. The per-cone numbers above are unchanged; the per-press
@@ -467,7 +467,7 @@ export function weaponDefOf(id: WeaponId): WeaponDef {
  */
 export function instanceDefOf(id: WeaponId, isExplosion: boolean): WeaponDef {
   if (!isExplosion) return WEAPON_TABLE[id];
-  const burst = BURST_DEFS[id];
+  const burst = ACTIVE_BURST_DEFS[id];
   if (!burst) throw new Error(`instanceDefOf: ${id} authors no explosion`);
   return burst;
 }
@@ -490,6 +490,19 @@ export function instanceDefOf(id: WeaponId, isExplosion: boolean): WeaponDef {
  * narrowing on `.kind` and `.explosion` then works exactly as it does everywhere else in this file.
  */
 const BURST_DEFS: Partial<Record<WeaponId, BeamWeaponDef>> = buildBurstDefs();
+
+/** `BURST_DEFS` itself until playground tuning overrides a weapon row, and again once it clears. */
+let ACTIVE_BURST_DEFS: Partial<Record<WeaponId, BeamWeaponDef>> = BURST_DEFS;
+
+/**
+ * Playground tuning only (spec PG12) — see `rebuildResolvedDrive`/`rebuildWeaponTicks` for why
+ * `hasOverrides` is passed in rather than read back from the tuning store. Without this,
+ * `weapon.magmablast.explosion.radius`/`.damage` sliders would move `WEAPON_TABLE` and change
+ * nothing: `BURST_DEFS` copies those numbers out at module load and is otherwise never revisited.
+ */
+export function rebuildBurstDefs(hasOverrides: boolean): void {
+  ACTIVE_BURST_DEFS = hasOverrides ? buildBurstDefs() : BURST_DEFS;
+}
 
 function buildBurstDefs(): Partial<Record<WeaponId, BeamWeaponDef>> {
   const bursts: Partial<Record<WeaponId, BeamWeaponDef>> = {};
