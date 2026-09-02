@@ -508,9 +508,11 @@ export function mountPlaygroundOverlay(
       saveStored({ setup: readSetup(), overrides: { ...overrides } });
     }
 
-    /** Re-evaluates legality (always) and, when `send` is true and both loadouts are legal, ships
-     * the rebuilt setup and fires `onArenaChanged` on top of an arena move. An illegal loadout never
-     * reaches `room.send` — `isPlaygroundSetup` would reject it server-side anyway, silently. */
+    /** Re-evaluates legality (always) — toggling both loadout rows' `pg-illegal` class and
+     * `illegalHint`'s visibility to match, and disabling `backBtn` while either is illegal — and,
+     * when `send` is true and both loadouts are legal, ships the rebuilt setup and fires
+     * `onArenaChanged` on top of an arena move. An illegal loadout never reaches `room.send` —
+     * `isPlaygroundSetup` would reject it server-side anyway, silently. */
     function evaluate(send: boolean): void {
       const setup = readSetup();
       const meLegal = isLoadoutLegal(setup.me.weapons);

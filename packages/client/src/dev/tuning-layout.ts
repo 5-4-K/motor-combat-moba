@@ -115,6 +115,34 @@ export function unassignedCellPosition(
   };
 }
 
+/**
+ * Vertical distance from a weapon cell's centre to the lowest pixel `drawWeaponCell` actually draws
+ * — the manifest-entry line (`cy + 84`), plus headroom for that line's own text height so its
+ * descenders are not the thing that gets clipped by the scroll clamp.
+ */
+export const WEAPON_CELL_BOTTOM_OFFSET_PX = 84 + 14;
+
+/** Breathing room below the last row before the scrollable content ends. */
+export const CONTENT_BOTTOM_MARGIN_PX = 24;
+
+/**
+ * How tall the weapon grid's content actually is (PG38): the bottom edge, in scene-space y, of the
+ * last drawn row — a chassis row, or the unassigned row past it once PG37 has orphans to show —
+ * plus a margin.
+ *
+ * Takes the roster counts rather than reading `CAR_TABLE`/`WEAPON_TABLE`, for the same reason
+ * `orphanWeaponIds` and `unassignedCellPosition` do: a chassis or an orphan added later is covered
+ * by a fixture instead of silently repeating PG38, where the last row was laid out below the fold
+ * with nothing that knew to scroll it into view.
+ */
+export function weaponGridContentBottom(chassisCount: number, orphanCount: number): number {
+  const lastRow =
+    orphanCount > 0
+      ? unassignedCellPosition(orphanCount - 1, chassisCount).row
+      : chassisCount - 1;
+  return weaponCellCenter(lastRow, 0).y + WEAPON_CELL_BOTTOM_OFFSET_PX + CONTENT_BOTTOM_MARGIN_PX;
+}
+
 /** The box for the swatch at `index`, counting from the left of the strip. */
 export function swatchRect(index: number): Rect {
   return {

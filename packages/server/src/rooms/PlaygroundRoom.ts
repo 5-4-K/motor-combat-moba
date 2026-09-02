@@ -201,6 +201,11 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
         this.state.controlledSessionId,
         this.humanSessionId,
       );
+      // Switching flips which car `enqueueOpponentInput` drives as the bot (PG29's third staleness
+      // case, missed by the original pass): a held intent was computed from the OLD bot car's pose,
+      // and re-enqueuing it against the newly-bot-driven car for the rest of the reaction window
+      // would fire it from a pose that car was never in.
+      this.heldBotIntent = undefined;
     });
 
     this.onMessage(MSG_PLAYGROUND_TUNING, (_client, msg: unknown) => {

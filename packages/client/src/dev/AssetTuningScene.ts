@@ -28,6 +28,7 @@ import {
   tintOptions,
   unassignedCellPosition,
   weaponCellCenter,
+  weaponGridContentBottom,
 } from "./tuning-layout.js";
 
 /**
@@ -77,6 +78,8 @@ export class AssetTuningScene extends Phaser.Scene {
   private tints: TintOption[] = [];
   private tintHighlight?: Phaser.GameObjects.Graphics;
   private tintLabel?: Phaser.GameObjects.Text;
+  /** Bottom edge of the laid-out content, set once `drawWeaponGrid` knows the roster's row count. */
+  private contentBottom = 0;
 
   constructor() {
     // `BootScene` registers this under `dev.assets`; the key here is overridden at `scene.add` time,
@@ -106,10 +109,15 @@ export class AssetTuningScene extends Phaser.Scene {
     const divider = this.add.graphics();
     divider.lineStyle(1, 0x3a3d42, 1);
     divider.lineBetween(16, DIVIDER_Y, this.scale.width - 16, DIVIDER_Y);
-    this.add.text(16, DIVIDER_Y + 14, "weapon icons - fitted as the HUD fits them", {
-      fontSize: "13px",
-      color: "#9aa0a6",
-    });
+    this.add.text(
+      16,
+      DIVIDER_Y + 14,
+      "weapon icons - fitted as the HUD fits them - scroll for rows below the fold",
+      {
+        fontSize: "13px",
+        color: "#9aa0a6",
+      },
+    );
     this.add
       .text(this.scale.width - 16, DIVIDER_Y + 14, "swatch = every colour this weapon shoots in", {
         fontSize: "12px",
@@ -118,6 +126,37 @@ export class AssetTuningScene extends Phaser.Scene {
       .setOrigin(1, 0);
 
     this.drawWeaponGrid();
+    this.bindScroll();
+  }
+
+  /**
+   * Mouse-wheel vertical scroll (PG38): the weapon grid can run past the bottom of the fixed
+   * 1424x720 canvas once PG37's unassigned row is in play, and this scene never zooms or resizes,
+   * so a scrolling camera is the only way the row reaches the screen at all. Clamped to
+   * `contentBottom` (set by `drawWeaponGrid`, once the roster's actual row count is known) rather
+   * than a guessed constant, so a chassis or an orphan added later stays reachable without a second
+   * edit here.
+   *
+   * The tint picker's hit test already reads `pointer.worldX`/`worldY` (camera-scroll-aware), so
+   * scrolling this camera does not need to touch it.
+   */
+  private bindScroll(): void {
+    this.input.on(
+      "wheel",
+      (
+        _pointer: Phaser.Input.Pointer,
+        _gameObjects: unknown,
+        _deltaX: number,
+        deltaY: number,
+      ) => {
+        const maxScroll = Math.max(0, this.contentBottom - this.scale.height);
+        this.cameras.main.scrollY = Phaser.Math.Clamp(
+          this.cameras.main.scrollY + deltaY,
+          0,
+          maxScroll,
+        );
+      },
+    );
   }
 
   private summary(carCount: number, iconCount: number): string {
@@ -303,6 +342,8 @@ export class AssetTuningScene extends Phaser.Scene {
       if (col === 0) this.drawGridRowLabel(row, "unassigned", "on no kit");
       this.drawWeaponCell(weaponId as WeaponId, row, col);
     });
+
+    this.contentBottom = weaponGridContentBottom(cars.length, orphans.length);
   }
 
   /** The label pair to the left of one weapon-grid row, plus an optional amber tag beneath. */

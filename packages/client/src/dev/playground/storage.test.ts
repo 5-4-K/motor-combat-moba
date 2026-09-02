@@ -163,4 +163,26 @@ describe("decodeStored — v1 upgrade (PG25)", () => {
     const { setup } = decodeStored(JSON.stringify({ setup: stub, overrides: {} }));
     expect(setup).toEqual(defaultPlaygroundSetup());
   });
+
+  /**
+   * `upgradeStoredSetup` only fills a field that is ABSENT — a present-but-malformed value is left
+   * alone and reaches `isPlaygroundSetup` unchanged, which rejects it, which falls the whole setup
+   * back to `defaultPlaygroundSetup()`. That asymmetry (missing gets filled, wrong gets nothing)
+   * is currently defended only by the function's doc comment; this pins it against both new fields
+   * so a future "upgrade a wrong value too" change fails here first.
+   */
+  it("falls back whole on a present-but-malformed new field, rather than coercing or filling it", () => {
+    const withBadColor = {
+      ...v1Setup,
+      me: { ...v1Setup.me, colorId: "blue" },
+    };
+    expect(decodeStored(JSON.stringify({ setup: withBadColor, overrides: {} })).setup).toEqual(
+      defaultPlaygroundSetup(),
+    );
+
+    const withBadDifficulty = { ...v1Setup, botDifficulty: "nonsense" };
+    expect(
+      decodeStored(JSON.stringify({ setup: withBadDifficulty, overrides: {} })).setup,
+    ).toEqual(defaultPlaygroundSetup());
+  });
 });

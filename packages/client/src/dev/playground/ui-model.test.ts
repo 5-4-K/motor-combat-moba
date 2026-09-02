@@ -143,8 +143,10 @@ describe("statsTabs (PG35)", () => {
     expect(tabs[2]!.groups).toHaveLength(3);
   });
 
-  it("keeps a tab present with an empty group list rather than dropping it", () => {
-    // The tab bar's shape must not change under the pointer, so every key is always returned.
+  it("always returns all three tabs, whatever the setup", () => {
+    // The tab bar's shape must not change under the pointer, so every key is always returned — not
+    // a claim about any tab's `groups` being empty, which is not constructible through the public
+    // API with today's roster (every chassis and every weapon on it has at least one field).
     const tabs = statsTabs(twoCarSetup());
     expect(tabs).toHaveLength(3);
     for (const tab of tabs) expect(Array.isArray(tab.groups)).toBe(true);
@@ -184,6 +186,21 @@ describe("canStep / steppedValue (PG36)", () => {
     expect(canStep(enumField)).toBe(false);
     expect(steppedValue(enumField, 100, 1)).toBe(100);
     expect(canStep(field)).toBe(true);
+  });
+
+  /**
+   * The case above pairs `kind !== "number"` with a missing `step`, so a naive `kind === "number"`
+   * implementation of `canStep` would pass it too. This isolates the `step` guard: a `kind:
+   * "number"` field with no step (or a zero one) must still refuse, on its own.
+   */
+  it("refuses a number field with no usable step, independent of kind", () => {
+    const noStep = { ...field, step: undefined } as TunableField;
+    expect(canStep(noStep)).toBe(false);
+    expect(steppedValue(noStep, 100, 1)).toBe(100);
+
+    const zeroStep = { ...field, step: 0 } as TunableField;
+    expect(canStep(zeroStep)).toBe(false);
+    expect(steppedValue(zeroStep, 100, 1)).toBe(100);
   });
 });
 

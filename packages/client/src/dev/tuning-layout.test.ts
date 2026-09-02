@@ -1,6 +1,8 @@
 import { CAR_TABLE, COLOR_TABLE, WEAPON_TABLE } from "@motor-combat-moba/shared";
 import { describe, expect, it } from "vitest";
+import { VIEW_HEIGHT } from "../config/display.js";
 import {
+  CONTENT_BOTTOM_MARGIN_PX,
   NO_TINT,
   orphanWeaponIds,
   SWATCH_PX,
@@ -9,6 +11,8 @@ import {
   tintOptions,
   unassignedCellPosition,
   weaponCellCenter,
+  weaponGridContentBottom,
+  WEAPON_CELL_BOTTOM_OFFSET_PX,
   WEAPON_COL_PITCH,
   WEAPON_GRID_COLS,
   WEAPON_ROW_PITCH,
@@ -131,10 +135,45 @@ describe("unassignedCellPosition (PG37)", () => {
     expect(unassignedCellPosition(3, 3)).toEqual({ row: 4, col: 0 });
     expect(unassignedCellPosition(7, 3)).toEqual({ row: 5, col: 1 });
   });
+});
 
-  it("lands on a real grid point, so the cells line up with the kit columns above", () => {
-    const { row, col } = unassignedCellPosition(1, 3);
-    expect(weaponCellCenter(row, col)).toEqual(weaponCellCenter(3, 1));
+describe("weaponGridContentBottom (PG38 - the row must actually be reachable)", () => {
+  it("ends just past the last chassis row when there is no unassigned row", () => {
+    const bottom = weaponGridContentBottom(3, 0);
+    const lastChassisRowY = weaponCellCenter(2, 0).y;
+    expect(bottom).toBe(lastChassisRowY + WEAPON_CELL_BOTTOM_OFFSET_PX + CONTENT_BOTTOM_MARGIN_PX);
+  });
+
+  it("extends further once an unassigned row (PG37) is in play", () => {
+    expect(weaponGridContentBottom(3, 1)).toBeGreaterThan(weaponGridContentBottom(3, 0));
+  });
+
+  /**
+   * Regression for PG38: the unassigned row used to be laid out past the bottom of the fixed
+   * 720px-tall canvas with nothing that knew to scroll it into view — the layout maths and its
+   * tests were correct, but the feature never reached the screen. This recomputes the roster's
+   * actual orphan set and that row's actual cell position independently of the function under
+   * test, then checks two things: that the bug was real (unscrolled, the row's lowest drawn pixel
+   * sits past the viewport), and that the fix reaches it (scrolled to the clamped maximum, the
+   * viewport's bottom edge reaches at least that far). A future chassis or orphan that pushes the
+   * grid taller stays covered by this same assertion rather than by a hardcoded row count.
+   */
+  it("makes today's unassigned row reachable within the scroll clamp", () => {
+    const chassisCount = Object.keys(CAR_TABLE).length;
+    const orphans = orphanWeaponIds(
+      Object.keys(WEAPON_TABLE),
+      Object.values(CAR_TABLE).map((car) => car.weapons),
+    );
+    expect(orphans.length).toBeGreaterThan(0); // otherwise this test proves nothing
+
+    const { row } = unassignedCellPosition(orphans.length - 1, chassisCount);
+    const lastCellLowestY = weaponCellCenter(row, 0).y + WEAPON_CELL_BOTTOM_OFFSET_PX;
+
+    const contentBottom = weaponGridContentBottom(chassisCount, orphans.length);
+    const maxScroll = Math.max(0, contentBottom - VIEW_HEIGHT);
+
+    expect(lastCellLowestY).toBeGreaterThan(VIEW_HEIGHT); // the bug: it sits past the fold
+    expect(VIEW_HEIGHT + maxScroll).toBeGreaterThanOrEqual(lastCellLowestY); // the fix: scroll reaches it
   });
 });
 

@@ -1,7 +1,7 @@
 import { isArenaId } from "../arena/registry.js";
 import { ACTIVE_ARENA_ID } from "../config/arena-config.js";
 import { DEFAULT_CAR_ID, isCarId } from "../config/car-config.js";
-import { COLOR_TABLE, isColorId } from "../config/color-config.js";
+import { isColorId } from "../config/color-config.js";
 import type { CarId } from "../config/types.js";
 import { isWeaponId } from "../config/weapon-config.js";
 import { slotsOf } from "../config/weapon-slots.js";
