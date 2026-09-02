@@ -395,9 +395,10 @@ describe("weapons apply statuses", () => {
 
 // "the aura" describe block drove the OLD `shockwave` — Mirage's slot 2, a car-centred `disc`
 // hitbox at `origin: "center"`, three waves 500ms apart, `onWave: "final"` carrying `corroded` —
-// through this same real-row `runCombat` pipeline. As of the 2026-09-01 overhaul that row is a
-// plain single-volley projectile dart on Bullseye's slot 1 (`magmablast`, née `shockwave`), and
-// mirage's old slot 2 is now
+// through this same real-row `runCombat` pipeline. As of the 2026-09-01 overhaul that row became a
+// single-volley projectile dart (`magmablast`, née `shockwave`) — which the 2026-09-02 loadout swap
+// then moved onto Mirage's own slot 1, and which is no longer a plain dart either, having since
+// gained an on-death explosion. mirage's old slot 2 is now
 // `thunderclap`, a dash maneuver: multi-wave volleys, `onWave`, and the aura (`disc`/
 // `origin: "center"`) are dormant machinery with no real row to drive any more — the underlying
 // `instances.ts`/`hits.ts` code and its generic unit tests stay live, just untested against a real

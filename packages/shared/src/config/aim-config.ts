@@ -31,14 +31,14 @@ export const AIM_CONFIG = {
    * any weapon's `range` (A3).
    *
    * The lock aims where the target IS, with no lead. Displacement during flight is
-   * `(targetSpeed / projectileSpeed) * distance`; at mirage's 576 top speed over `magmablast`'s
-   * speed -- 600 as of the same pass that gave it its explosion, not the 900 of its `range` field
-   * -- that is `0.96 * distance` against a tolerance of about 28 units (half a car's 32 unit width
-   * plus magmablast's 12 unit hitbox), so a full-speed crosser is only hittable inside roughly 29
-   * units. `magmablast` now rides Mirage's own slot 1 (2026-09-02 loadout swap), so this is a car
-   * outrunning its own shell, not a hypothetical. Inheriting a 900 unit weapon range would make the
-   * far half of every lock acquire reliably and miss reliably -- a strong-looking snap that whiffs,
-   * which reads as a broken system rather than as a skill boundary.
+   * `(targetSpeed / projectileSpeed) * distance`; at mirage's 449.5 top speed (`forwardMaxSpeedOf`,
+   * the roster's fastest) over `magmablast`'s speed -- 600, not the 900 of its `range` field -- that
+   * is `0.749 * distance` against a tolerance of about 28 units (half a car's 32 unit width plus
+   * magmablast's 12 unit hitbox), so a full-speed crosser is only hittable inside roughly 37 units.
+   * `magmablast` now rides Mirage's own slot 1 (2026-09-02 loadout swap), so this is a car outrunning
+   * its own shell, not a hypothetical. Inheriting a 900 unit weapon range would make the far half of
+   * every lock acquire reliably and miss reliably -- a strong-looking snap that whiffs, which reads
+   * as a broken system rather than as a skill boundary.
    */
   lockRange: 400,
 

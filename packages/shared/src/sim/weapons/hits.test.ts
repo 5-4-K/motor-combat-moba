@@ -41,9 +41,11 @@ describe("hit resolution", () => {
   });
 
   it("uses the damage frozen on the instance, not the weapon table's own number", () => {
-    // The whole point of freezing at spawn: a bullseye's magmablast scales off bullseye's own attack
-    // rating (55, not the table's raw 50), and hits.ts learns that from the instance rather than by
-    // looking the owner up.
+    // The whole point of freezing at spawn: firing a `magmablast` scales off the owner's own attack
+    // rating (55 for bullseye, not the table's raw 50), and hits.ts learns that from the instance
+    // rather than by looking the owner up. `shotFrom` stamps the owner directly and needs no real
+    // loadout to back it — bullseye no longer carries magmablast since the 2026-09-02 loadout swap,
+    // but the mechanism this test pins does not care which chassis a shot's damage was frozen from.
     const shot = shotFrom(400, 300, 0, 0, "bullseye");
     const moved = stepInstance(shot, {
       dt: DT,

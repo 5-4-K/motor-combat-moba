@@ -22,10 +22,10 @@ import type { BeamWeaponDef, WeaponDef, WeaponId } from "./weapon-types.js";
  */
 export const WEAPON_TABLE = {
   /**
-   * Mirage's slot 1 until the 2026-09-02 pass moves it to Bullseye: the proximity seeker. It leaves
-   * the muzzle as an ordinary fast dart aimed by the lock, carries no target, and grabs the first
-   * eligible car to come within 200 u of ITSELF — then chases that one until it hits something or
-   * its 2 s clock runs out.
+   * Bullseye's slot 1 as of the 2026-09-02 loadout swap (it was Mirage's before): the proximity
+   * seeker. It leaves the muzzle as an ordinary fast dart aimed by the lock, carries no target, and
+   * grabs the first eligible car to come within 200 u of ITSELF — then chases that one until it hits
+   * something or its 2 s clock runs out.
    *
    * It has no range in any sense a player experiences: `range` is authored as `speed x lifetime`
    * (900 x 2 s) purely because `WEAPON_TICKS.flight`, the guide's reach figure and the
@@ -139,9 +139,9 @@ export const WEAPON_TABLE = {
     applies: [{ statusId: "overheated", target: "opponents", durationMs: 1500 }],
   },
   /**
-   * Bullseye's slot 1 until the 2026-09-02 pass moves it to Mirage: the explosive shell. It flies
-   * as an ordinary aimed dart and detonates on ANY death — a car, a wall, the arena edge, or its
-   * own 900 u range — leaving a 60 u corroding field for 150 ms.
+   * Mirage's slot 1 as of the 2026-09-02 loadout swap (it was Bullseye's before): the explosive
+   * shell. It flies as an ordinary aimed dart and detonates on ANY death — a car, a wall, the arena
+   * edge, or its own 900 u range — leaving a 60 u corroding field for 150 ms.
    *
    * A direct hit costs contact AND splash, 65 base plus the corrode: the burst is born at full
    * extent on the tick the shell dies, so the car that stopped it is standing inside it. Excluding

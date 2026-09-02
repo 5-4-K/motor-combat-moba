@@ -506,8 +506,9 @@ const MARK_SEGMENTS = 12;
  *
  * `needler` and `skewer` (a nosed dart and a disc-and-spikes spindle) were retired outright with
  * the 2026-09-01 roster cutover (O17); their comment history lives in git. Two non-circular
- * projectiles ship without a style today: `predator` (a capsule, Mirage's homing rocket) and
- * `pepperbox` (an ellipse, carrying `needler`'s old dart silhouette per O9) — both draw the flat
+ * projectiles ship without a style today: `predator` (a capsule, Bullseye's homing rocket since the
+ * 2026-09-02 loadout swap) and `pepperbox` (an ellipse, carrying `needler`'s old dart silhouette per
+ * O9) — both draw the flat
  * hitbox-colour fill until an owner arts them. `roadblock`'s bar hitbox is a third, architecturally
  * distinct case: `projectileDrawLayers` refuses a bar at source regardless of this table, because
  * the hull/tip/band/disc/spikes vocabulary below assumes an along/across ellipse-ish geometry a bar
