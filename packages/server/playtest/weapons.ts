@@ -293,8 +293,9 @@ function damageAfterDeath(): void {
     `target died on tick ${deadAt + 1}, final hp ${t.hp}, alive ${t.alive}\n` +
       `hp ever negative: ${hpBelowZero}; hp moved after death: ${deadTookDamage}\n` +
       `statuses still on the dead car: ${statusesOf(t).map((s) => s.statusId).join(",") || "none"} ` +
-      `(needler applies no status now — T18 moved its old 'spiked' rider to bulwark — but any bleed\n` +
-      `still would keep its badge here, since 'runCombat' gates pulses on 'alive', not the badge)`,
+      `(predator applies no status at all — it dropped its old 'corroded' rider in the 2026-09-02\n` +
+      `proximity-seeker redesign — but any bleed still would keep its badge here, since 'runCombat'\n` +
+      `gates pulses on 'alive', not the badge)`,
   );
 }
 

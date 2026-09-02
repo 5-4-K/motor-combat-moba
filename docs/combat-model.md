@@ -1065,7 +1065,9 @@ Since 2026-08-31 that colour answers a second question: **which chassis**. The n
 themed per car to match their HUD icons — Mirage maroon and orange, Bullseye navy and orange, Bastion
 yellow and white — so a car's three weapons deliberately resemble each other and are told apart by
 silhouette instead. `lance`'s white core is the one departure. Do not "separate" those palettes on
-sight: the convergence is the design, and `check:weapons` reports all nine icons matching today.
+sight: the convergence is the design, and `check:weapons` is the tool that flags an icon reading as a
+different weapon from its slot's own colour — a warning, not a blocker, since only a person looking
+at the screen can judge a mismatched pair; not every icon clears it as of this writing.
 `shotPaletteOf` returns every colour a weapon actually draws in, since `color` alone is now only one
 layer of six of them. Shots were owner-coloured before
 weapon colours existed; nothing in the sim ever read that, and nothing does now — `color` is

@@ -100,7 +100,7 @@ Derived, per car (Mirage / Bullseye / Bastion):
 | attack scale | `damageFor` at that rating | 1.13× | 1.05× | 0.92× |
 
 `weaponDamageOf(carId, weaponId)` = `damageFor(attack, weapon.damage)` — a 50-damage hit like
-`predator`'s is 57 / 53 / 46 depending on who fires it, though only Mirage actually carries one.
+`magmablast`'s is 57 / 53 / 46 depending on who fires it, though only Mirage actually carries one.
 `massOf` affects ramming only, never acceleration or top speed (see `RAM_CONFIG` below).
 
 Time to top speed no longer lands at the same figure for all three, unlike before the 2026-09-02
