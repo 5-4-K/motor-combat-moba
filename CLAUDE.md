@@ -354,12 +354,11 @@ sprite that still carries colour, an icon whose colour has drifted from its `WEA
 `scripts/check-art.test.mjs` runs the blockers as part of `npm test`, so a save that dropped the
 alpha fails the suite instead of reaching the HUD as an opaque square. **Warnings never fail the
 suite** — an icon is allowed more than one colour, and only a person looking at the screen can say
-whether a pair reads as one weapon. `npm run check:weapons` warns on four of the ten rows today —
-`thunderclap`, `roadblock`, `wildcharge` and `tremor` have no manifest row yet and fall back to the
-procedural glyph. `predator`, `afterburner`, `magmablast`, `pepperbox`, `lance` and `thumper` all read
-`ok`; `magmablast` (renamed from `shockwave`, and reskinned from a navy dart to a fire orange/red
-icon) sits closest to the warning threshold, since its `WEAPON_TABLE.color` is still the old navy
-`#22579E` — a `color` edit nobody has made yet, not a bug in the check.
+whether a pair reads as one weapon. `npm run check:weapons` warns on exactly one of the ten rows
+today: `tremor`, which has no manifest row yet and falls back to the procedural glyph. **All nine
+carried weapons read `ok`**, most of them at a colour distance of 0-9, because the 2026-09-02 icon
+pass repainted every `WEAPON_TABLE.color` from its own icon rather than from a per-chassis palette.
+`thunderclap`'s 66 is the widest surviving gap and still well inside the limit.
 
 One pairing nothing enforces: a weapon's icon and its `WEAPON_TABLE.color` are meant to read as the
 same weapon, but icons ship `colorMode: "none"` and no typed reference ties the two together. Either

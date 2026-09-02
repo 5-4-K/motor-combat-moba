@@ -134,11 +134,18 @@ used elsewhere.
 - **P31.** Mirage: `["magmablast", "thunderclap", "afterburner"]`. Bullseye:
   `["predator", "pepperbox", "lance"]`. Slot 1 both times, so slot bits and HUD ordering are
   untouched.
-- **P32.** Weapon colours are left as authored. `magmablast` keeps the navy `#22579E` it inherited
+- **P32.** ~~Weapon colours are left as authored. `magmablast` keeps the navy `#22579E` it inherited
   from the retired `needler` even though its icon is fire orange/red, so `npm run check:weapons`
   keeps warning on that row. That is a deliberate deferral, not an oversight; warnings never fail the
   suite. Only the stale "Mirage's palette" / "Bullseye's palette" comments on the two rows are
-  corrected.
+  corrected.~~
+
+  **SUPERSEDED on merge to `development/main`.** An independent icon pass on that branch repainted
+  every `WEAPON_TABLE.color` from its own icon and retired the per-chassis palette theme outright.
+  `magmablast` is `#FF6000` and `predator` is `#606060`; the deferral P32 recorded was closed by
+  someone else before this branch landed, and `check:weapons` now reports every carried weapon `ok`.
+  The merge took the repaint wholesale — it is a different concern from this spec's mechanics, and
+  the two do not conflict on anything but the literal hex.
 
 ## Architecture
 

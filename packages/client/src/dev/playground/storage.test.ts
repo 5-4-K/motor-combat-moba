@@ -109,3 +109,48 @@ describe("loadStored / saveStored with an injected storage", () => {
     expect(loadStored()).toEqual({ setup: defaultPlaygroundSetup(), overrides: {} });
   });
 });
+
+describe("decodeStored — v1 upgrade (PG25)", () => {
+  /** A setup as saved BEFORE this change: no `botDifficulty`, no `colorId` on either car. */
+  const v1Setup = {
+    botEnabled: true,
+    arenaId: "arena-01",
+    me: { carId: "bastion", weapons: ["thumper", "roadblock", "wildcharge"] },
+    opponent: { carId: "mirage", weapons: ["predator", "thunderclap", "afterburner"] },
+  };
+
+  it("keeps the car, loadout and arena a v1 blob chose", () => {
+    const { setup } = decodeStored(JSON.stringify({ setup: v1Setup, overrides: {} }));
+    expect(setup.me.carId).toBe("bastion");
+    expect(setup.me.weapons).toEqual(["thumper", "roadblock", "wildcharge"]);
+    expect(setup.opponent.carId).toBe("mirage");
+    expect(setup.arenaId).toBe("arena-01");
+    expect(setup.botEnabled).toBe(true); // the stored value wins over the new default
+  });
+
+  it("fills the new fields from the defaults, keeping the two cars distinct", () => {
+    const { setup } = decodeStored(JSON.stringify({ setup: v1Setup, overrides: {} }));
+    const fallback = defaultPlaygroundSetup();
+    expect(setup.botDifficulty).toBe(fallback.botDifficulty);
+    expect(setup.me.colorId).toBe(fallback.me.colorId);
+    expect(setup.opponent.colorId).toBe(fallback.opponent.colorId);
+    expect(setup.me.colorId).not.toBe(setup.opponent.colorId);
+  });
+
+  it("still falls back whole when the blob is invalid for an older reason", () => {
+    const dupe = { ...v1Setup, me: { carId: "bastion", weapons: ["thumper", "thumper", "lance"] } };
+    const { setup } = decodeStored(JSON.stringify({ setup: dupe, overrides: {} }));
+    expect(setup).toEqual(defaultPlaygroundSetup());
+  });
+
+  it("leaves the overrides half alone either way", () => {
+    const raw = JSON.stringify({ setup: v1Setup, overrides: { "car.bastion.hp": 55 } });
+    expect(decodeStored(raw).overrides).toEqual({ "car.bastion.hp": 55 });
+  });
+
+  it("does not invent a setup out of a non-object", () => {
+    expect(decodeStored(JSON.stringify({ setup: 7, overrides: {} })).setup).toEqual(
+      defaultPlaygroundSetup(),
+    );
+  });
+});

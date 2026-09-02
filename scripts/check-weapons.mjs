@@ -15,15 +15,18 @@
  * How far a weapon's `WEAPON_TABLE.color` may sit from the nearest colour its icon actually uses,
  * as a plain RGB distance, before this warns about drift.
  *
- * Calibrated against the committed roster rather than picked. Six weapons carry an icon today
- * (`thunderclap`, `roadblock`, `wildcharge` and `tremor` have none yet, and warn separately as a
- * missing manifest row): predator (57), afterburner (35), magmablast (95), pepperbox (72), lance
- * (47) and thumper (27) all sit at or under this limit. 100 sits above every icon whose colour is
+ * Calibrated against the committed roster rather than picked. Nine weapons carry an icon today
+ * (only `tremor` has none, and it warns separately as a missing manifest row): predator (0),
+ * pepperbox (0), roadblock (0), wildcharge (0), afterburner (9), magmablast (9), lance (9),
+ * thumper (9) and thunderclap (66) all sit under this limit. Those distances collapsed in the
+ * 2026-09-02 icon pass, which repainted every row from its own icon; the limit is left at 100
+ * rather than tightened to fit, so a future icon swap has room before it trips.
+ * 100 sits above every icon whose colour is
  * arguably the same hue family and below the one that is plainly a different colour from its shot.
  * It is a warning, never a blocker — an icon is allowed more than one colour, and only a person can
- * say whether the pair reads as one weapon. `magmablast` (formerly `shockwave`) is the one to watch:
- * it passes today, but its icon is a fire orange/red against the row's still-navy `#22579E` — a
- * deliberate reskin (new name, new icon) that has not yet been followed by a matching `color` edit.
+ * say whether the pair reads as one weapon. Since the 2026-09-02 icon pass every carried row is
+ * painted from its own icon, so the whole roster now sits at 0-66 and `tremor` — which has no
+ * manifest row at all — is the only warning left.
  */
 export const COLOR_DRIFT_LIMIT = 100;
 

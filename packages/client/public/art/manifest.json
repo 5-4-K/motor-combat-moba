@@ -48,6 +48,11 @@
       "file": "weapon-icons/wildcharge.png",
       "colorMode": "none",
       "scale": "fit"
+    },
+    "weapon-icon.roadblock": {
+      "file": "weapon-icons/roadblock.png",
+      "colorMode": "none",
+      "scale": "fit"
     }
   }
 }
