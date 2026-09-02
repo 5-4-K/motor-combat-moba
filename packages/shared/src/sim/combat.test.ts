@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ARENA_01 } from "../arena/arena-01.js";
-import { hpOf } from "../config/car-config.js";
+import { CAR_TABLE, hpOf } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { CarId } from "../config/types.js";
 import { WEAPON_TABLE } from "../config/weapon-config.js";
@@ -21,7 +21,7 @@ import { ManeuverKind } from "./maneuver.js";
 import type { ManeuverWeaponDef, WeaponId } from "../config/weapon-types.js";
 import { NEUTRAL_MODIFIERS } from "./status/modifiers.js";
 import { applyStatus } from "./status/statuses.js";
-import { weaponDamageOf } from "./damage.js";
+import { damageFor, weaponDamageOf } from "./damage.js";
 import { newFireState } from "./weapons/fire.js";
 import type { WeaponInstance } from "./weapons/instances.js";
 import { muzzleOf, newLockState } from "./weapons/lock.js";
@@ -1781,6 +1781,31 @@ describe("magma blast detonation (spec P13-P21)", () => {
     // direct-hit test above deterministic rather than a race with the victim driving away.
     expect(bursts(result)[0]!.extent).toBe(WEAPON_TABLE.magmablast.explosion!.radius);
     expect(bursts(result)[0]!.kind).toBe("beam");
+    // Pinned exactly: the burst must cost its OWN 15-damage row through the owner's attack rating
+    // (16 for bullseye), never `weaponDamageOf`'s 53 (the shell's own row). A mutation that swapped
+    // in the shell's damage here would otherwise slip past every other assertion in this describe —
+    // P16's `toBeLessThan` only needs SOME positive splash, not the right number.
+    expect(bursts(result)[0]!.damage).toBe(
+      damageFor(CAR_TABLE.bullseye.attack, WEAPON_TABLE.magmablast.explosion!.damage),
+    );
+  });
+
+  it("expires the burst on its OWN clock, not the shell's flight-plus-lifetime (P25b)", () => {
+    // A mutation that disabled the explosion-aware branch in `instanceExpired` (falling back to the
+    // shell's `flight + lifetime`, 45 ticks) would leave a 1.5s field instead of the authored 200ms
+    // one, and nothing else in this file would catch it: P25a only checks that the burst eventually
+    // drains to zero, not on which tick.
+    const ticks = weaponTicksOf("magmablast");
+    const explosionLife = ticks.explosion!.flight + ticks.explosion!.lifetime;
+    // Fire, let the shell land and the burst form (6 ticks, per the test above), then run the burst
+    // out past its own short clock — well short of the shell's 45-tick flight+lifetime, so a
+    // regression back to that branch is the only way this could still pass.
+    const result = fire(
+      { x: 300, y: OPEN_Y, angle: 0 },
+      [player("bbb", { x: 400, y: OPEN_Y, hp: BULLSEYE_HP })],
+      6 + explosionLife + 1,
+    );
+    expect(bursts(result)).toHaveLength(0);
   });
 
   it("never damages its own shooter, even detonating on its nose (P18)", () => {
@@ -1815,13 +1840,23 @@ describe("magma blast detonation (spec P13-P21)", () => {
   });
 
   it("detonates at max range with nothing hit at all", () => {
-    // No obstacles, no other cars, aimed along open floor. The shell dies on its range and must
-    // still leave a burst.
+    // No obstacles, no other cars, aimed along open floor, firing from x=100: muzzle at 124, range
+    // 900 expires at x=1024 — well inside arena-01's 1280-unit width, so this is a genuine RANGE
+    // kill (not a bounds kill; see the separate test below for that one).
     const ticks = weaponTicksOf("magmablast").flight + 3;
     const result = fire({ x: 100, y: OPEN_Y, angle: 0 }, [], ticks);
-    // It leaves the arena before its range clock in this arena, which is itself a P13 death — the
-    // rule is "any removal detonates", so a bounds kill counts exactly the same.
-    expect(bursts(result).length + result.instances.length).toBeGreaterThan(0);
+    expect(bursts(result)).toHaveLength(1);
+  });
+
+  it("detonates on leaving the arena, before its own range clock ever runs (P13, bounds kill)", () => {
+    // Firing from x=1250 puts the muzzle at 1274, six units short of arena-01's 1280-unit edge — the
+    // shell crosses the boundary in `hitsWorld` within a tick or two, nowhere near its 900u range.
+    // This is the only test in the file that isolates a BOUNDS removal from a range removal: the
+    // "shots in flight" describe covers `hitsWorld` generically, but converting its "leaves the
+    // arena" case to `shellGone` (once magmablast started leaving a burst behind) removed the last
+    // place a bounds-kill detonation was actually observed.
+    const result = fire({ x: 1250, y: OPEN_Y, angle: 0 }, [], 5);
+    expect(bursts(result)).toHaveLength(1);
   });
 
   it("does not spawn another burst when the burst itself expires (P25a)", () => {

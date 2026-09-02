@@ -42,7 +42,7 @@ describe("hit resolution", () => {
 
   it("uses the damage frozen on the instance, not the weapon table's own number", () => {
     // The whole point of freezing at spawn: a bullseye's magmablast scales off bullseye's own attack
-    // rating (55, not the table's raw 22), and hits.ts learns that from the instance rather than by
+    // rating (55, not the table's raw 50), and hits.ts learns that from the instance rather than by
     // looking the owner up.
     const shot = shotFrom(400, 300, 0, 0, "bullseye");
     const moved = stepInstance(shot, {

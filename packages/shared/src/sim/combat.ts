@@ -802,7 +802,7 @@ function detonate(
  *
  * Tested as the SMEAR between the pre-step and post-step poses — the same solid the car test uses
  * (D8) — not as a point at the landing position. That is what actually retires the old authoring
- * rule that every obstacle be at least 30 units thick: a point sample at 900 u/s only looks every 30
+ * rule that every obstacle be at least 30 units thick: a point sample at 600 u/s only looks every 20
  * units, so a fast shot passed clean through a thin wall while the docs claimed it could not.
  *
  * Beams are never destroyed by the world; they are CLIPPED by `wallClipDistance` as they grow, so
@@ -881,7 +881,7 @@ function applyOwnerInsideStatuses(
   tick: number,
 ): void {
   if (instance.kind !== "beam") return;
-  const def = weaponDefOf(instance.weaponId);
+  const def = instanceDefOf(instance.weaponId, instance.isExplosion);
   if (def.kind !== "beam") return;
   const applies = def.applies;
   if (!applies || !applies.some((a) => a.target === "ownerInside")) return;
@@ -889,7 +889,8 @@ function applyOwnerInsideStatuses(
   if (!owner || !isFighting(owner)) return;
   const shape = beamShapeAt(def.hitbox, instance.x, instance.y, instance.angle, instance.extent);
   if (!shapeHitsObb(shape, carHullOf(owner.x, owner.y, owner.angle))) return;
-  const durations = weaponTicksOf(instance.weaponId).applyDurations;
+  const ticks = weaponTicksOf(instance.weaponId);
+  const durations = instance.isExplosion ? ticks.explosion!.applyDurations : ticks.applyDurations;
   applies.forEach((application, index) => {
     if (application.target !== "ownerInside") return;
     owner.statuses = applyStatus(
