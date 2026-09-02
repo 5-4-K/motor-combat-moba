@@ -241,10 +241,15 @@ export function runCombat(input: CombatInput): CombatResult {
    * Deliberately NOT folded into `isFighting`, which gates firing as well as being hit. A phased
    * car must still be able to shoot: M23's first termination condition is "the player commits a
    * press", so the firing path has to run for them, or spawn protection becomes unbreakable by
-   * firing and the state machine quietly changes shape. Gate the three places a car is looked at as
-   * a target; leave every place it acts alone.
+   * firing and the state machine quietly changes shape. Gate every place a car is looked at as a
+   * target — lock candidates, the hit-resolution snapshot, a held lock's continued validity
+   * (`aimAngleFor`), and now proximity acquisition (`acquireByProximity`, passed this same
+   * `isTargetable` closure rather than deriving its own) — and leave every place it acts alone.
    */
   const isPhasedOf = (sessionId: string): boolean => modsOf(sessionId).phased;
+  /** In the fight AND actually present: the gate for everything that treats a car as a target. */
+  const isTargetable = (player: CombatPlayer): boolean =>
+    isFighting(player) && !isPhasedOf(player.sessionId);
 
   // 0b. Burn and repair, before anything else this tick can act. A car whose bleed kills it here is
   // `alive: false` for every phase below, so it does not get a parting shot — which is the right
@@ -331,7 +336,7 @@ export function runCombat(input: CombatInput): CombatResult {
     // rule that it never reads player state (spec P1).
     let targetId = instance.homingTargetId;
     if (targetId === "") {
-      targetId = acquireByProximity(instance, players, world.mode);
+      targetId = acquireByProximity(instance, players, world.mode, isTargetable);
     }
     const homingOwner = targetId !== "" ? byId.get(targetId) : undefined;
     stepped.push({
@@ -539,26 +544,12 @@ export function runCombat(input: CombatInput): CombatResult {
  * In the match and not yet a wreck: the gate for ACTING — firing, holding a lock, keeping an
  * attached beam alive, receiving a status the room asked for.
  *
- * Being *shot at* is the strictly narrower `isTargetable` below, which adds "and not phasing". Do
- * not merge the two: see the note on `isPhasedOf` for what folding `phased` in here would break.
+ * Being *shot at* is the strictly narrower `isTargetable` inside `runCombat`, which adds "and not
+ * phasing". Do not merge the two: see the note on `isPhasedOf` for what folding `phased` in here
+ * would break.
  */
 function isFighting(player: CombatPlayer): boolean {
   return player.inRoster && player.alive;
-}
-
-/**
- * In the fight AND actually present: the gate for everything that treats a car as a target — locks,
- * hit resolution, and now proximity acquisition (spec P3/P4). Module-level, unlike `isFighting`'s
- * sibling `isPhasedOf` inside `runCombat`, because `acquireByProximity` needs it and has no map of
- * per-car modifiers to read.
- *
- * `phased` is read straight off the status list rather than through that per-tick modifiers cache.
- * That is safe, not a second derivation: `runCombat` receives an already-expired list, and anything
- * added mid-tick (0c/0d) is born with `endsTick` in the future, so every row still in the list is
- * active by construction — a presence check needs no tick of its own to agree with the cached one.
- */
-function isTargetable(player: CombatPlayer): boolean {
-  return isFighting(player) && !player.statuses.some((s) => s.statusId === "phased");
 }
 
 /**
@@ -656,6 +647,18 @@ function maneuverSlotMask(fireState: FireState): number {
  * it could not have damaged: `canDamage` refuses the owner and teammates, `isTargetable` refuses
  * wrecks and phased cars. No third notion of "valid target" is introduced.
  *
+ * `isTargetable` is a PARAMETER rather than something derived here, on purpose: it is the
+ * `runCombat`-local closure reading that tick's single derived-once modifiers cache
+ * (`modifiersFor`/`modsOf`), not a hand-rolled re-scan of `player.statuses`. A second derivation
+ * would drift from the cache the moment a status's flag came from `STATUS_TABLE.flags` rather than
+ * matching its id, or the moment a mid-tick addition needed the same "lands this tick, bites next"
+ * treatment `isPhasedOf`'s cache already gives it for free.
+ *
+ * Deterministic under a distance TIE only because `runCombat` sorts `players` by `sessionId` before
+ * this runs (this function does not re-sort), combined with the strict `distSq >= bestSq` below —
+ * a later equal-distance candidate never displaces an earlier one. Moving that sort would silently
+ * make acquisition order-dependent, which a lockstep sim cannot tolerate.
+ *
  * Returns `""` for any instance whose weapon does not acquire by proximity, so the caller needs no
  * guard of its own.
  */
@@ -663,6 +666,7 @@ function acquireByProximity(
   instance: WeaponInstance,
   players: readonly CombatPlayer[],
   mode: "ffa" | "team",
+  isTargetable: (player: CombatPlayer) => boolean,
 ): string {
   const def = weaponDefOf(instance.weaponId);
   if (def.kind !== "projectile") return "";

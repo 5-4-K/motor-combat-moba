@@ -377,6 +377,11 @@ describe("homing", () => {
   it("flies straight when fired without a lock", () => {
     const { instances } = spawnInstances(homingOrder, homingOwner, 10, 0, null, 1, "", rocket);
     expect(instances[0]!.homingTargetId).toBe("");
+    // The guidance clock still arms at spawn — off `homing` alone, not off having a target (this is
+    // the fix a proximity row needs: it also spawns with no target, but must still gain a window to
+    // use once it later acquires one). It just never matters here, because `stepInstance`'s gate
+    // ALSO requires a non-empty `homingTargetId`, which a bare lock-mode shot never gets.
+    expect(instances[0]!.homingUntilTick).toBe(10 + 60); // msToTicks(2000) at 30 Hz, same as spawned-with-a-lock
     const stepped = stepInstance(instances[0]!, homingCtx(11, null), rocket);
     expect(stepped.angle).toBe(0);
   });

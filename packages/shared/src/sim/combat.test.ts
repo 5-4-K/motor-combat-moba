@@ -1612,7 +1612,7 @@ describe("proximity homing (spec P1-P6)", () => {
   it("grabs a car that comes within acquireRadius and bends toward it", () => {
     // Bystander 150u off the line: unlockable (lateralMax is 120), so only proximity can find it.
     // The shot leaves the muzzle at x=324 and covers 30u/tick, so it closes to within 200u of
-    // (600, 300) around x=520 — roughly tick 7. Ten ticks leaves room to see the turn.
+    // (600, 300) around x=474 — on the sixth tick. Ten ticks leaves room to see the turn.
     const result = fireAndStep([player("bbb", { x: 600, y: OPEN_Y + 150 })], 10);
     const shot = result.instances.find((i) => i.weaponId === "predator");
     expect(shot).toBeDefined();
@@ -1637,10 +1637,27 @@ describe("proximity homing (spec P1-P6)", () => {
     expect(shot!.angle).toBeCloseTo(0, 5);
   });
 
+  it("never grabs a phased car (spawn protection, M13)", () => {
+    // Same spot a live bystander would be grabbed from (see the acquisition test above) — phased
+    // is what keeps it out, not distance or side. Live for the whole 10-tick run.
+    const phased = [{ statusId: "phased" as const, startTick: 0, endsTick: 10_000, sourceSessionId: "" }];
+    const result = fireAndStep([player("bbb", { x: 600, y: OPEN_Y + 150, statuses: phased })], 10);
+    const shot = result.instances.find((i) => i.weaponId === "predator");
+    expect(shot!.homingTargetId).toBe("");
+    expect(shot!.angle).toBeCloseTo(0, 5);
+  });
+
   it("takes the nearer of two eligible cars", () => {
+    // Both must be within acquireRadius on the SAME tick the shot first finds either one, with
+    // `far` genuinely farther — otherwise a "first eligible in scan order" implementation (`far`
+    // sorts before `near` by sessionId, so it is visited first) would pass this test by accident.
+    // At the qualifying tick (shot at x=474) `far` is ~197.4u out and `near` is ~195.9u out: both
+    // inside the 200u bubble, `far` genuinely farther. One tick earlier (shot at x=444) `far` is
+    // ~217.8u out — not yet eligible — so it cannot lock in ahead of `near` merely by arriving
+    // first in iteration order.
     const result = fireAndStep(
       [
-        player("far", { x: 640, y: OPEN_Y + 190 }),
+        player("far", { x: 600, y: OPEN_Y + 152 }),
         player("near", { x: 600, y: OPEN_Y + 150 }),
       ],
       10,

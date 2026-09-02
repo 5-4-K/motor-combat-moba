@@ -67,7 +67,15 @@ export interface WeaponInstance {
    * it every tick, so a rear flame stays welded to the tail rather than snapping to the nose.
    */
   muzzleDir: number;
-  /** Homing only: the locked car frozen at spawn (O11), or "". Sim-only, never networked. */
+  /**
+   * Homing only: the car this shot is committed to, or "". Sim-only, never networked.
+   *
+   * For `acquire: "lock"` (O11) it IS frozen at spawn: whatever the driver had bracketed, or "" for
+   * good if they had not. For `acquire: "proximity"` it spawns "" and is written back by the
+   * caller (`sim/combat.ts`'s `runCombat`, phase 2) the tick a car first comes within
+   * `acquireRadius` — this module never performs that scan itself (spec P1). Either way, once
+   * non-empty it never changes again: the commit is permanent for the life of the instance.
+   */
   homingTargetId: string;
   /** Homing only: the tick guidance ends; 0 for a non-homing shot. Frozen at spawn. */
   homingUntilTick: number;
