@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CAR_TABLE } from "./car-config.js";
 import { COLOR_TABLE } from "./color-config.js";
 import type { CarId } from "./types.js";
-import { WEAPON_TABLE, isWeaponId, weaponDefOf } from "./weapon-config.js";
+import { WEAPON_TABLE, instanceDefOf, isWeaponId, weaponDefOf } from "./weapon-config.js";
 import { slotsOf } from "./weapon-slots.js";
 import type { WeaponDef } from "./weapon-types.js";
 import { AIM_CONFIG } from "./aim-config.js";
@@ -413,5 +413,52 @@ describe("WEAPON_TABLE", () => {
         expect(["all", "final"]).toContain(a.onWave);
       }
     }
+  });
+
+  describe("explosions (spec P22-P27)", () => {
+    it("requires a positive radius and something to do", () => {
+      for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
+        if (def.kind !== "projectile" || !def.explosion) continue;
+        expect(def.explosion.radius, def.id).toBeGreaterThan(0);
+        expect(def.explosion.lingerMs, def.id).toBeGreaterThan(0);
+        const doesSomething =
+          def.explosion.damage > 0 || (def.explosion.applies?.length ?? 0) > 0;
+        expect(doesSomething, `${def.id}'s explosion must do something`).toBe(true);
+      }
+    });
+
+    it("targets only opponents — self is refused by canDamage, ownerInside is a zone concept", () => {
+      for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
+        if (def.kind !== "projectile" || !def.explosion) continue;
+        for (const a of def.explosion.applies ?? []) {
+          expect(a.target, `${def.id}'s explosion`).toBe("opponents");
+        }
+      }
+    });
+
+    it("resolves an explosion instance to a real disc beam def, and never to another explosion", () => {
+      const burst = instanceDefOf("magmablast", true);
+      expect(burst.kind).toBe("beam");
+      expect(burst.id).toBe("magmablast");
+      expect(burst.color).toBe(WEAPON_TABLE.magmablast.color);
+      if (burst.kind !== "beam") throw new Error("unreachable");
+      expect(burst.hitbox).toEqual({ shape: "disc" });
+      expect(burst.origin).toBe("center");
+      expect(burst.attached).toBe(false);
+      expect(burst.usesAimAssist).toBe(false);
+      expect(burst.range).toBe(WEAPON_TABLE.magmablast.explosion!.radius);
+      expect(burst.damage).toBe(WEAPON_TABLE.magmablast.explosion!.damage);
+      expect(burst.damageFrequencyMs).toBe(0);
+      // P25a: a BeamWeaponDef has no `explosion` field, so a burst cannot spawn a burst.
+      expect("explosion" in burst).toBe(false);
+    });
+
+    it("returns the plain def when the instance is not an explosion", () => {
+      expect(instanceDefOf("magmablast", false)).toBe(WEAPON_TABLE.magmablast);
+    });
+
+    it("synthesizes once, so the def is referentially stable", () => {
+      expect(instanceDefOf("magmablast", true)).toBe(instanceDefOf("magmablast", true));
+    });
   });
 });

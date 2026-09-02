@@ -254,6 +254,36 @@ export interface HomingDef {
   durationMs: number;
 }
 
+/**
+ * An area effect left where a projectile died (spec P13-P21).
+ *
+ * It is spawned as a real `WeaponInstance` — a detached, centre-origin `disc` beam — rather than
+ * resolved inline, so it inherits every rule already written for instances: the per-target damage
+ * clock, damage frozen at spawn, friendly fire, status application, networking and rendering. The
+ * synthesis lives in `instanceDefOf`.
+ *
+ * There is deliberately no damage-frequency knob. A burst hits each car once, ever; a repeating
+ * explosion is a different feature and should be argued for on its own terms rather than arriving
+ * as a field nobody chose a value for.
+ */
+export interface ExplosionDef {
+  /** Radius of the field, world units. It is the synthesized beam's `range`. */
+  radius: number;
+  /** Damage to every car caught, before chassis and status scaling. */
+  damage: number;
+  /**
+   * How long the field persists. Mostly for the eye, but not only: the per-target clock is
+   * once-ever, so a car that drives in during the linger is caught.
+   */
+  lingerMs: number;
+  /**
+   * Statuses the field applies. `opponents` only — `self` means the shooter, whom `canDamage`
+   * refuses, and `ownerInside` is a presence buff for a zone the owner stands in, which a brief
+   * burst at a remote impact point is not. Guarded in `weapon-config.test.ts`.
+   */
+  applies?: readonly StatusApplication[];
+}
+
 export interface ProjectileWeaponDef extends WeaponBase {
   kind: "projectile";
   hitbox: ProjectileHitbox;
@@ -292,6 +322,8 @@ export interface ProjectileWeaponDef extends WeaponBase {
    * clipping), and a maneuver spawns no instance.
    */
   piercesWalls?: boolean;
+  /** Detonate on ANY death — enemy, wall, bounds or max range (spec P13). */
+  explosion?: ExplosionDef;
 }
 
 export interface BeamWeaponDef extends WeaponBase {

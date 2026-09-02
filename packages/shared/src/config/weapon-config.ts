@@ -1,4 +1,5 @@
-import type { WeaponDef, WeaponId } from "./weapon-types.js";
+import { TICK_RATE_HZ } from "../constants.js";
+import type { BeamWeaponDef, WeaponDef, WeaponId } from "./weapon-types.js";
 
 /**
  * Every weapon in the game, mirroring `CAR_TABLE`. Balance lives here and nowhere else.
@@ -163,6 +164,12 @@ export const WEAPON_TABLE = {
     pierce: 0,
     volley: { volleys: 1, volleyIntervalMs: 0 },
     pellets: { pelletsPerVolley: 1, spreadAngleDeg: 0 },
+    explosion: {
+      radius: 60,
+      damage: 15,
+      lingerMs: 150,
+      applies: [{ statusId: "corroded", target: "opponents", durationMs: 2000 }],
+    },
   },
   /**
    * Bullseye's slot 2, moved off Mirage by T12, and a four-muzzle spray as of the 2026-09-01
@@ -431,4 +438,78 @@ export function isWeaponId(value: unknown): value is WeaponId {
 
 export function weaponDefOf(id: WeaponId): WeaponDef {
   return WEAPON_TABLE[id];
+}
+
+/**
+ * The def that describes one LIVE instance — which is not always its weapon's own row.
+ *
+ * A weapon's explosion is spawned as an instance carrying its parent's `weaponId`, so a plain
+ * `weaponDefOf` lookup would describe the shell when the thing in the world is the burst: a
+ * 12-unit dart where a 60-unit disc belongs, and — worse — a `def.explosion` that is still
+ * populated, so the burst's own expiry would spawn another burst, every tick, forever (P25a).
+ *
+ * Routing every instance-side lookup through here makes that unrepresentable rather than merely
+ * unlikely: what comes back for a burst is a `BeamWeaponDef`, and a `BeamWeaponDef` has no
+ * `explosion` field for the recursion to read.
+ */
+export function instanceDefOf(id: WeaponId, isExplosion: boolean): WeaponDef {
+  if (!isExplosion) return WEAPON_TABLE[id];
+  const burst = BURST_DEFS[id];
+  if (!burst) throw new Error(`instanceDefOf: ${id} authors no explosion`);
+  return burst;
+}
+
+/**
+ * Synthesized once at module load, not per call, so the returned def is referentially stable and
+ * free — the same reasoning as `WEAPON_TICKS`.
+ *
+ * The fields a `WeaponDef` requires but an explosion has no opinion about are fixed here rather
+ * than left to the author. `id` and `color` are the PARENT's: the burst is Magma Blast in every
+ * lookup keyed by weapon, and only its shape and stats differ. The fire-control clocks are inert —
+ * a burst is spawned, never fired — and take the parent's values rather than zeroes, so a future
+ * reader who does reach for one finds a coherent number instead of a trap.
+ *
+ * Built with an explicit loop rather than a `filter`/`fromEntries` chain: `WEAPON_TABLE` is typed
+ * `as const satisfies Record<WeaponId, WeaponDef>`, so indexing it with a bare `WeaponId` yields a
+ * union of the individual rows' literal types rather than the plain `WeaponDef` interface union,
+ * and a `.filter` callback's narrowing does not carry into a later `.map` over the same array. Going
+ * through `weaponDefOf` first (declared to return `WeaponDef`) sidesteps that: ordinary discriminated
+ * narrowing on `.kind` and `.explosion` then works exactly as it does everywhere else in this file.
+ */
+const BURST_DEFS: Partial<Record<WeaponId, BeamWeaponDef>> = buildBurstDefs();
+
+function buildBurstDefs(): Partial<Record<WeaponId, BeamWeaponDef>> {
+  const bursts: Partial<Record<WeaponId, BeamWeaponDef>> = {};
+  for (const id of Object.keys(WEAPON_TABLE) as WeaponId[]) {
+    const parent = weaponDefOf(id);
+    if (parent.kind !== "projectile" || !parent.explosion) continue;
+    const blast = parent.explosion;
+    const burst: BeamWeaponDef = {
+      id: parent.id,
+      kind: "beam",
+      name: parent.name,
+      color: parent.color,
+      unlocksAt: parent.unlocksAt,
+      damage: blast.damage,
+      // Once per car, ever. See ExplosionDef for why there is no knob.
+      damageFrequencyMs: 0,
+      // Derived so `WEAPON_TICKS.flight` is exactly one tick (P25b): a beam expires at
+      // `flight + lifetime`, so a small speed here would give a burst that outlives the match.
+      // Growth itself is irrelevant — the instance is spawned at full extent.
+      speed: blast.radius * TICK_RATE_HZ,
+      range: blast.radius,
+      startUpMs: parent.startUpMs,
+      cooldownMs: parent.cooldownMs,
+      recoveryMs: parent.recoveryMs,
+      usesAimAssist: false,
+      hitbox: { shape: "disc" },
+      attached: false,
+      origin: "center",
+      lifetimeMs: blast.lingerMs,
+      volley: { volleys: 1, volleyIntervalMs: 0 },
+      ...(blast.applies ? { applies: blast.applies } : {}),
+    };
+    bursts[id] = Object.freeze(burst);
+  }
+  return Object.freeze(bursts);
 }

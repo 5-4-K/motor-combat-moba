@@ -132,11 +132,12 @@ export {
 } from "./config/car-config.js";
 export type { ChassisDrive } from "./config/car-config.js";
 export { COLOR_TABLE } from "./config/color-config.js";
-export { WEAPON_TABLE, isWeaponId, weaponDefOf } from "./config/weapon-config.js";
+export { WEAPON_TABLE, instanceDefOf, isWeaponId, weaponDefOf } from "./config/weapon-config.js";
 export type {
   BeamHitbox,
   BeamOrigin,
   BeamWeaponDef,
+  ExplosionDef,
   Hitbox,
   HomingDef,
   ManeuverSpec,

@@ -43,6 +43,17 @@ export interface WeaponTicks {
    * mis-authored row is shortened rather than left to outlive the match.
    */
   applyDurations: readonly number[];
+  /**
+   * The burst's own tick counts, or `null` for a weapon that authors no explosion. A parallel
+   * record rather than a second `WeaponTicks`, because most of a weapon's clocks (start-up,
+   * cooldown, volley interval) are meaningless for something that is spawned rather than fired.
+   */
+  explosion: {
+    flight: number;
+    lifetime: number;
+    damageInterval: number;
+    applyDurations: readonly number[];
+  } | null;
 }
 
 function ticksFor(def: WeaponDef): WeaponTicks {
@@ -64,6 +75,23 @@ function ticksFor(def: WeaponDef): WeaponTicks {
     applyDurations: Object.freeze(
       (def.applies ?? []).map((a) => msToTicks(Math.min(a.durationMs, STATUS_CONFIG.maxDurationMs))),
     ),
+    explosion:
+      def.kind === "projectile" && def.explosion
+        ? Object.freeze({
+            // 1 by construction: `instanceDefOf` synthesizes `speed` as `radius * TICK_RATE_HZ`
+            // precisely so `range / speed` is one tick (P25b). Written as the literal rather than
+            // as `radius / (radius * TICK_RATE_HZ) * TICK_RATE_HZ`, which is the same number
+            // spelled unreadably.
+            flight: 1,
+            lifetime: msToTicks(def.explosion.lingerMs),
+            damageInterval: Number.POSITIVE_INFINITY,
+            applyDurations: Object.freeze(
+              (def.explosion.applies ?? []).map((a) =>
+                msToTicks(Math.min(a.durationMs, STATUS_CONFIG.maxDurationMs)),
+              ),
+            ),
+          })
+        : null,
   };
 }
 

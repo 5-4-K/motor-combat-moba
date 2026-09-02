@@ -68,4 +68,17 @@ describe("WEAPON_TICKS", () => {
       if (!chargeManeuver.includes(id)) expect(t.maneuverDuration, id).toBe(0);
     }
   });
+
+  it("derives an explosion's ticks, with flight pinned at one tick (spec P25b)", () => {
+    const ticks = weaponTicksOf("magmablast").explosion;
+    expect(ticks).not.toBeNull();
+    expect(ticks!.flight).toBe(1);
+    expect(ticks!.lifetime).toBe(msToTicks(WEAPON_TABLE.magmablast.explosion!.lingerMs));
+    expect(ticks!.damageInterval).toBe(Number.POSITIVE_INFINITY);
+    expect(ticks!.applyDurations).toEqual([msToTicks(2000)]);
+  });
+
+  it("leaves explosion ticks null for a weapon with no explosion", () => {
+    expect(weaponTicksOf("predator").explosion).toBeNull();
+  });
 });
