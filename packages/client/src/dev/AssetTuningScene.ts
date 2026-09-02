@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import {
   CAR_TABLE,
+  type CarId,
   DRIVE_CONFIG,
   WEAPON_TABLE,
   type WeaponId,
@@ -25,6 +26,7 @@ import {
   swatchRect,
   type TintOption,
   tintOptions,
+  unassignedCellPosition,
   weaponCellCenter,
 } from "./tuning-layout.js";
 
@@ -128,7 +130,7 @@ export class AssetTuningScene extends Phaser.Scene {
       Object.keys(WEAPON_TABLE),
       Object.values(CAR_TABLE).map((car) => car.weapons),
     );
-    const orphanNote = orphans.length > 0 ? ` (${orphans.join(", ")} on no kit, not shown)` : "";
+    const orphanNote = orphans.length > 0 ? ` (${orphans.join(", ")} on no kit)` : "";
     return (
       `${carCount} car entr${carCount === 1 ? "y" : "ies"} - ${chassis} chassis - ` +
       `${iconCount}/${weapons} weapon icons${orphanNote} - white box is the OBB hitbox, ` +
@@ -179,6 +181,12 @@ export class AssetTuningScene extends Phaser.Scene {
         color: "#9aa0a6",
       })
       .setOrigin(0.5);
+
+    if (!CAR_TABLE[carId as CarId].isActive) {
+      this.add
+        .text(x, y + 80, "inactive", { fontSize: "11px", color: "#d99a40" })
+        .setOrigin(0.5);
+    }
   }
 
   /**
@@ -271,21 +279,44 @@ export class AssetTuningScene extends Phaser.Scene {
     );
   }
 
-  /** Every weapon's icon, one row per chassis, cells left to right in the kit's slot order. */
+  /** Every weapon's icon: one row per chassis in kit-slot order, then a row for anything on no kit
+   * at all (PG37) — an orphan is usually a weapon being brought up, and it needs looking at more
+   * than a shipped one does. */
   private drawWeaponGrid(): void {
-    Object.values(CAR_TABLE).forEach((car, row) => {
-      const rowY = weaponCellCenter(row, 0).y;
-      this.add
-        .text(150, rowY, car.id, { fontSize: "15px", color: "#ffffff", fontStyle: "bold" })
-        .setOrigin(1, 0.5);
-      this.add
-        .text(150, rowY + 20, `slots 1-${car.weapons.length}`, {
-          fontSize: "11px",
-          color: "#6f757c",
-        })
-        .setOrigin(1, 0.5);
+    const cars = Object.values(CAR_TABLE);
+    cars.forEach((car, row) => {
+      this.drawGridRowLabel(
+        row,
+        car.id,
+        `slots 1-${car.weapons.length}`,
+        car.isActive ? undefined : "inactive",
+      );
       car.weapons.forEach((weaponId, col) => this.drawWeaponCell(weaponId, row, col));
     });
+
+    const orphans = orphanWeaponIds(
+      Object.keys(WEAPON_TABLE),
+      cars.map((car) => car.weapons),
+    );
+    orphans.forEach((weaponId, index) => {
+      const { row, col } = unassignedCellPosition(index, cars.length);
+      if (col === 0) this.drawGridRowLabel(row, "unassigned", "on no kit");
+      this.drawWeaponCell(weaponId as WeaponId, row, col);
+    });
+  }
+
+  /** The label pair to the left of one weapon-grid row, plus an optional amber tag beneath. */
+  private drawGridRowLabel(row: number, title: string, subtitle: string, tag?: string): void {
+    const rowY = weaponCellCenter(row, 0).y;
+    this.add
+      .text(150, rowY, title, { fontSize: "15px", color: "#ffffff", fontStyle: "bold" })
+      .setOrigin(1, 0.5);
+    this.add
+      .text(150, rowY + 20, subtitle, { fontSize: "11px", color: "#6f757c" })
+      .setOrigin(1, 0.5);
+    if (tag) {
+      this.add.text(150, rowY + 36, tag, { fontSize: "11px", color: "#d99a40" }).setOrigin(1, 0.5);
+    }
   }
 
   /** One weapon: its icon in a real slot circle, its shot colour, and its manifest row. */

@@ -7,8 +7,10 @@ import {
   swatchIndexAt,
   swatchRect,
   tintOptions,
+  unassignedCellPosition,
   weaponCellCenter,
   WEAPON_COL_PITCH,
+  WEAPON_GRID_COLS,
   WEAPON_ROW_PITCH,
 } from "./tuning-layout.js";
 
@@ -110,6 +112,29 @@ describe("orphanWeaponIds", () => {
         Object.values(CAR_TABLE).map((car) => car.weapons),
       ),
     ).toEqual(["tremor"]);
+  });
+});
+
+describe("unassignedCellPosition (PG37)", () => {
+  it("starts on the row below the last chassis row", () => {
+    expect(unassignedCellPosition(0, 3)).toEqual({ row: 3, col: 0 });
+    expect(unassignedCellPosition(0, 1)).toEqual({ row: 1, col: 0 });
+  });
+
+  it("fills left to right before wrapping", () => {
+    expect(unassignedCellPosition(1, 3)).toEqual({ row: 3, col: 1 });
+    expect(unassignedCellPosition(2, 3)).toEqual({ row: 3, col: 2 });
+  });
+
+  it("wraps to a new row every WEAPON_GRID_COLS cells", () => {
+    expect(WEAPON_GRID_COLS).toBe(3);
+    expect(unassignedCellPosition(3, 3)).toEqual({ row: 4, col: 0 });
+    expect(unassignedCellPosition(7, 3)).toEqual({ row: 5, col: 1 });
+  });
+
+  it("lands on a real grid point, so the cells line up with the kit columns above", () => {
+    const { row, col } = unassignedCellPosition(1, 3);
+    expect(weaponCellCenter(row, col)).toEqual(weaponCellCenter(3, 1));
   });
 });
 

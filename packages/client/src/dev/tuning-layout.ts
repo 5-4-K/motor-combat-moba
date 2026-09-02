@@ -91,6 +91,30 @@ export function orphanWeaponIds(
   return weaponIds.filter((id) => !carried.has(id));
 }
 
+/**
+ * Cells per row in the weapon grid. Equal to the kit size, so an unassigned weapon's cell lines up
+ * with the slot columns above it rather than starting a second, differently-pitched grid.
+ */
+export const WEAPON_GRID_COLS = 3;
+
+/**
+ * Where the `index`-th unassigned weapon's cell goes (PG37): straight below the last chassis row,
+ * filling left to right and wrapping every `WEAPON_GRID_COLS`.
+ *
+ * Takes `chassisCount` rather than reading `CAR_TABLE`, for the same reason `orphanWeaponIds` takes
+ * its tables — the wrap and the offset are covered by fixtures instead of by whatever the roster
+ * happens to be today.
+ */
+export function unassignedCellPosition(
+  index: number,
+  chassisCount: number,
+): { row: number; col: number } {
+  return {
+    row: chassisCount + Math.floor(index / WEAPON_GRID_COLS),
+    col: index % WEAPON_GRID_COLS,
+  };
+}
+
 /** The box for the swatch at `index`, counting from the left of the strip. */
 export function swatchRect(index: number): Rect {
   return {
