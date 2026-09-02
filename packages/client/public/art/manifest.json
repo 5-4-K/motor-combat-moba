@@ -38,6 +38,16 @@
       "file": "weapon-icons/predator.png",
       "colorMode": "none",
       "scale": "fit"
+    },
+    "weapon-icon.thunderclap": {
+      "file": "weapon-icons/thunderclap.png",
+      "colorMode": "none",
+      "scale": "fit"
+    },
+    "weapon-icon.wildcharge": {
+      "file": "weapon-icons/wildcharge.png",
+      "colorMode": "none",
+      "scale": "fit"
     }
   }
 }
