@@ -219,11 +219,17 @@ function renderWeaponTable(record: RunRecord): string {
     w.weaponId,
     w.carId,
     String(w.presses),
-    formatInterval(w.hitRate),
+    // A weapon with `presses === 0` was never fired at all, not fired-and-always-missed — printing
+    // `0.0% (0.0-0.0)` there reads as measured inaccuracy when the truth is no measurement exists
+    // (there is no press to have connected or missed). `–` says "no data" the same way the `Derived`
+    // column already does below for a weapon with no derived damage.
+    w.presses === 0 ? "–" : formatInterval(w.hitRate),
     fmt1(w.damage),
     ...(anyDerived ? [w.derivedDamage > 0 ? fmt1(w.derivedDamage) : "–"] : []),
     String(w.kills),
-    fmt1(w.damagePerPress),
+    // Same reasoning as the hit-rate cell above: `damagePerPress` is a ratio over `presses`, and a
+    // zero denominator means no rate exists to show, not a rate of zero.
+    w.presses === 0 ? "–" : fmt1(w.damagePerPress),
     formatPct(w.kitDamageShare) + " of kit",
     fmt1(w.pressesPerMinute),
     w.meanFirstUseSeconds === null ? "never" : fmt1(w.meanFirstUseSeconds),

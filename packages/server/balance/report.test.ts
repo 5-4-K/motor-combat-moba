@@ -167,6 +167,31 @@ describe("writeReport (B38, B39, B40)", () => {
     expect(md).toContain("magmablast");
   });
 
+  it("renders a zero-press weapon's row with — rather than a measured 0.0% hit rate", () => {
+    const base = record();
+    const zeroPress = {
+      ...base.weapons[0]!,
+      presses: 0,
+      connectingPresses: 0,
+      hitRate: wilson(0, 0),
+      damagePerPress: 0,
+    };
+    const withZeroPress = { ...base, weapons: [zeroPress, ...base.weapons.slice(1)] };
+
+    const dir = tempDir();
+    writeReport(dir, withZeroPress);
+    const md = fs.readFileSync(path.join(dir, "summary.md"), "utf8");
+
+    const row = md.split("\n").find((line) => line.includes(`| ${zeroPress.weaponId} |`));
+    expect(row).toBeDefined();
+    const cells = row!.split("|").map((c) => c.trim());
+    const hitRateCell = cells[4]; // "", Weapon, Car, Presses, Hit rate, ...
+    // Never a measured-looking Wilson interval for a weapon nobody pressed — that reads as
+    // "inaccurate" when the truth is "unused," the opposite balance finding.
+    expect(hitRateCell).not.toMatch(/%/);
+    expect(hitRateCell).toBe("–");
+  });
+
   it("adds a deltas section only when a baseline is supplied", () => {
     const dirNoBaseline = tempDir();
     writeReport(dirNoBaseline, record());
