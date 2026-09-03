@@ -1,7 +1,7 @@
 # Motor Combat MOBA — Game Balance Harness Design
 
 **Designed:** 2026-09-03 · **Recorded in repo:** 2026-09-03
-**Status:** Approved, not yet implemented.
+**Status:** Implemented 2026-09-03.
 **Builds on:** [`2026-09-01-playtest-playground-design.md`](2026-09-01-playtest-playground-design.md)
 (whose `tick-pipeline` extraction and bot this reuses),
 [`2026-09-01-ffa-game-modes-design.md`](2026-09-01-ffa-game-modes-design.md) (whose deathmatch

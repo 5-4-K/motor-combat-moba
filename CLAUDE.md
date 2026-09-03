@@ -113,6 +113,7 @@ mid-session reconfiguration. See
 | Art, manifest, asset swapping | [`docs/asset-pipeline.md`](docs/asset-pipeline.md) |
 | Code graph / MCP setup on a new machine | [`docs/code-review-graph.md`](docs/code-review-graph.md) |
 | Playtest harnesses, and how to run them | [`packages/server/playtest/README.md`](packages/server/playtest/README.md) |
+| Balance harness (win rates, matchups), flags, and its known distortions | [`packages/server/balance/README.md`](packages/server/balance/README.md) |
 | Whether a balance edit actually moved time-to-kill | `npm run ttk` — see the header of [`scripts/ttk.mjs`](scripts/ttk.mjs) for what it does and does not model |
 | Terms | [`docs/glossary.md`](docs/glossary.md) |
 | Package local rules | `packages/shared/CLAUDE.md`, `packages/server/CLAUDE.md`, `packages/client/CLAUDE.md` |
@@ -294,6 +295,23 @@ If a change makes a probe's finding obsolete — you fixed the thing it was meas
 probe's expectation so the fix is what now reads as `OK`, and say so in your summary. Do not delete
 the probe.
 
+## Balance harness: glitches vs balance are different questions
+
+`packages/server/balance/` is a second headless harness, run with `npm run balance`. **Not** part of
+the test suite and **not** part of the release build, same as playtest. The two answer different
+questions: playtest asks whether the sim **misbehaves** — a bug you fix; balance asks whether a
+chassis or weapon is **too strong** — a number you tune against. Every number balance reports is
+conditioned on which bot tier played the matches, which is why every report carries a **bot
+fingerprint** (a hash of `BOT_PROFILES`) alongside a config fingerprint — a report from before a bot
+retune is not comparable to one after, and the harness's own `--baseline` flag refuses that
+comparison rather than trusting a reader to remember. See
+[`packages/server/balance/README.md`](packages/server/balance/README.md) for flags, the paired-run
+workflow, how to read a win-rate interval, and the harness's known distortions (the bot cannot press
+`wildcharge`; `corroded`'s amplified damage is credited to whatever weapon lands the hit, not to
+`corroded`), and
+[`docs/superpowers/specs/2026-09-03-game-balance-harness-design.md`](docs/superpowers/specs/2026-09-03-game-balance-harness-design.md)
+for the design.
+
 ## Commands
 
 ```bash
@@ -311,6 +329,8 @@ npm run check:art      # art integrity: alpha, manifest rows, sizes, tint rules 
 npm run ttk            # full-kit time-to-kill matrix, every chassis vs every chassis
 npm run playtest       # headless sim probes -> packages/server/playtest/reports/<date-NN>/
 npm run playtest:lan   # two bot clients against a server you already started
+npm run balance        # headless win-rate/matchup harness -> packages/server/balance/reports/<date-NN>/
+                       #   -- e.g. npm run balance -- --shape=duel --matches=20 --seed=7
 ```
 
 ## The cars & weapons guide is generated, committed, and easy to leave stale
