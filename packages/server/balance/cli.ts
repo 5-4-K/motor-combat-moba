@@ -109,6 +109,35 @@ const KNOWN_FLAGS = new Set([
   "out",
 ]);
 
+/**
+ * Flags with no `parseXxx` validator standing between the raw string and `ParsedArgs` — `baseline`
+ * and `out` are read straight off `flags.get(name)` as paths, with nothing to notice a bare
+ * `--baseline` (no `=value`) landing as the literal string `"true"`. Every OTHER flag already fails
+ * loudly on a bare form for free, because its parser rejects `"true"` as not a valid shape/mode/
+ * skill/integer/arena id — the error reads oddly ("must be an integer, got \"true\"") but it is
+ * still an error. `baseline`/`out` have no such parser, so a bare `--baseline` used to sail through
+ * as a literal path named `true`, surfacing only much later as a confusing "cannot read true/run.json"
+ * filesystem error with no hint the flag itself was the problem. This set is what
+ * `requireExplicitValue` checks before that can happen — any future flag added the same
+ * pass-through way (a raw string, no `parseXxx`) belongs in this set too.
+ */
+const REQUIRES_EXPLICIT_VALUE = new Set(["baseline", "out"]);
+
+/**
+ * Rejects a bare `--name` (no `=value`) for a flag in `REQUIRES_EXPLICIT_VALUE`, naming the flag
+ * rather than letting it silently become the string `"true"`. `bareFlags` is the set of flag names
+ * `parseArgs`'s own tokenizer saw with no `=` at all — distinct from a flag explicitly given the
+ * literal value `"true"` (`--out=true`), which is a legal, if odd, directory name and must not be
+ * rejected.
+ */
+function requireExplicitValue(name: string, bareFlags: ReadonlySet<string>): void {
+  if (bareFlags.has(name)) {
+    throw new Error(
+      `parseArgs: --${name} requires a value (--${name}=<path>) — got a bare flag with nothing after it`,
+    );
+  }
+}
+
 export interface ParsedArgs extends RunConfig {
   /** The player-type vocabulary the flag was actually given in (B42) — kept alongside the resolved
    * `difficulty` so `run.ts` can print both forms without re-deriving one from the other. */
@@ -122,17 +151,22 @@ export interface ParsedArgs extends RunConfig {
  * extras (`skill`, `baseline`, `out`) that do not belong on `RunConfig` itself.
  *
  * Flags come as `--name=value` (bare `--name` is accepted too, e.g. a future boolean flag, and is
- * recorded as `"true"`); order does not matter. Every flag not in `KNOWN_FLAGS` throws, naming the
- * offending flag, per this file's header.
+ * recorded as `"true"`) — EXCEPT the flags in `REQUIRES_EXPLICIT_VALUE` (`baseline`, `out`), which
+ * throw on a bare form rather than silently becoming the path `"true"`. Order does not matter. Every
+ * flag not in `KNOWN_FLAGS` throws, naming the offending flag, per this file's header.
  */
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   const flags = new Map<string, string>();
+  // Names seen with no `=value` at all (a bare `--baseline`, say) — distinct from a flag explicitly
+  // given the literal value `"true"`, which `requireExplicitValue` must not reject.
+  const bareFlags = new Set<string>();
   for (const arg of argv) {
     const match = /^--([^=]+)(?:=(.*))?$/.exec(arg);
     if (!match) {
       throw new Error(`parseArgs: unrecognised argument "${arg}" — flags must look like --name=value`);
     }
     const [, name, value] = match;
+    if (value === undefined) bareFlags.add(name!);
     flags.set(name!, value ?? "true");
   }
 
@@ -141,6 +175,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       throw new Error(`parseArgs: unknown flag "--${name}" — see docs or --help for the flag list`);
     }
   }
+
+  for (const name of REQUIRES_EXPLICIT_VALUE) requireExplicitValue(name, bareFlags);
 
   const shape = flags.has("shape") ? parseShape(flags.get("shape")!) : "ffa";
   const mode = flags.has("mode") ? parseMode(flags.get("mode")!) : defaultMode(shape);

@@ -72,6 +72,21 @@ describe("parseArgs (B41, B42)", () => {
     expect(parseArgs(["--out=/tmp/somewhere"]).out).toBe("/tmp/somewhere");
   });
 
+  it("rejects a bare --baseline or --out rather than silently taking the value \"true\" (fix round 3, defect 7)", () => {
+    // Before the fix, a bare `--baseline` (no `=value`) landed as the literal string "true" and
+    // was passed straight through as a path — surfacing only much later as a confusing
+    // "cannot read true/run.json" filesystem error with no hint the flag itself was the problem.
+    expect(() => parseArgs(["--baseline"])).toThrow(/--baseline requires a value/);
+    expect(() => parseArgs(["--out"])).toThrow(/--out requires a value/);
+  });
+
+  it("still accepts an explicit literal value of \"true\" for --baseline or --out", () => {
+    // A directory or file literally named "true" is legal, if odd — only the BARE form (no "="
+    // at all) is rejected, never an explicit "=true".
+    expect(parseArgs(["--baseline=true"]).baseline).toBe("true");
+    expect(parseArgs(["--out=true"]).out).toBe("true");
+  });
+
   it("defaults --arena to arena-01", () => {
     expect(parseArgs([]).arenaId).toBe("arena-01");
   });
