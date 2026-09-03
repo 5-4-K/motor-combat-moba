@@ -3,10 +3,11 @@ import { ARENA_01 } from "../arena/arena-01.js";
 import { CAR_TABLE, hpOf } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { CarId } from "../config/types.js";
-import { WEAPON_TABLE } from "../config/weapon-config.js";
+import { WEAPON_TABLE, weaponDefOf } from "../config/weapon-config.js";
 import { MS_PER_TICK, TICK_RATE_HZ } from "../constants.js";
 import {
   aimAngleFor,
+  clearManeuver,
   dealDamageTo,
   runCombat,
   startManeuver,
@@ -76,6 +77,7 @@ function player(sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlay
     maneuverAngle: 0,
     maneuverSpeed: 0,
     maneuverWeaponId: "" as const,
+    maneuverPressId: "",
     lastDamagerSessionId: "",
     ...over,
   };
@@ -141,6 +143,7 @@ describe("firing", () => {
       maneuverAngle: 0,
       maneuverSpeed: 0,
       maneuverWeaponId: "" as const,
+      maneuverPressId: "",
       lastDamagerSessionId: "",
       ...over,
     };
@@ -894,28 +897,45 @@ describe("startManeuver", () => {
     const p = playerAt("a", 0, 0, 0);
     p.lock = { targetSessionId: "b", lockedAtTick: 0, losLostSinceTick: 0, lastPressTick: 0 };
     const byId = new Map([["a", p], ["b", playerAt("b", 0, 300, 0)]]);
-    startManeuver(p, dashDef, byId);
+    startManeuver(p, dashDef, byId, "a#0#1");
     expect(p.maneuver).toBe(ManeuverKind.DASH);
     expect(p.maneuverAngle).toBeCloseTo(Math.PI / 2); // snapped toward the target, no lead
     expect(p.maneuverSpeed).toBe(1600);
     expect(p.maneuverTicksLeft).toBe(Math.ceil((400 / 1600) * 30)); // 8 ticks
     expect(p.maneuverWeaponId).toBe(dashDef.id);
+    expect(p.maneuverPressId).toBe("a#0#1"); // B8a: the press that started it is named
   });
 
   it("dashes along the heading with no lock", () => {
     const p = playerAt("a", 0, 0, 1.2);
-    startManeuver(p, dashDef, new Map([["a", p]]));
+    startManeuver(p, dashDef, new Map([["a", p]]), "a#0#1");
     expect(p.maneuverAngle).toBeCloseTo(1.2);
   });
 
   it("starts a charge for its authored duration and refuses to stack maneuvers", () => {
     const p = playerAt("a", 0, 0, 0);
-    startManeuver(p, chargeDef, new Map([["a", p]]));
+    startManeuver(p, chargeDef, new Map([["a", p]]), "a#0#2");
     expect(p.maneuver).toBe(ManeuverKind.CHARGE);
     expect(p.maneuverTicksLeft).toBe(300); // msToTicks(10000)
     const before = { ...p };
-    startManeuver(p, dashDef, new Map([["a", p]])); // second press mid-charge
+    startManeuver(p, dashDef, new Map([["a", p]]), "a#1#1"); // second press mid-charge
     expect(p.maneuver).toBe(before.maneuver);
+  });
+});
+
+describe("maneuverPressId (B8a)", () => {
+  it("startManeuver records the press that started it", () => {
+    const p = player("p1", { carId: "bastion" });
+    startManeuver(p, weaponDefOf("wildcharge") as ManeuverWeaponDef, new Map(), "p1#7#2");
+    expect(p.maneuverPressId).toBe("p1#7#2");
+  });
+
+  it("clearManeuver drops it with the rest of the maneuver state", () => {
+    const p = player("p1", { carId: "bastion" });
+    startManeuver(p, weaponDefOf("wildcharge") as ManeuverWeaponDef, new Map(), "p1#7#2");
+    clearManeuver(p);
+    expect(p.maneuverPressId).toBe("");
+    expect(p.maneuverWeaponId).toBe("");
   });
 });
 
@@ -1326,6 +1346,7 @@ describe("kill attribution", () => {
     maneuverAngle: 0,
     maneuverSpeed: 0,
     maneuverWeaponId: "" as const,
+    maneuverPressId: "",
     lastDamagerSessionId: "",
     ...over,
   });

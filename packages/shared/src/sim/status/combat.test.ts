@@ -58,6 +58,7 @@ function player(sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlay
     maneuverAngle: 0,
     maneuverSpeed: 0,
     maneuverWeaponId: "" as const,
+    maneuverPressId: "",
     lastDamagerSessionId: "",
     ...over,
   };

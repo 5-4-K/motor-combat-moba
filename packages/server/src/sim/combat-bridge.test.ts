@@ -304,6 +304,7 @@ describe("applyCombatResult", () => {
       maneuverAngle: 0,
       maneuverSpeed: 0,
       maneuverWeaponId: "" as const,
+      maneuverPressId: "",
       lastDamagerSessionId: "",
       ...over,
     };
@@ -371,6 +372,7 @@ describe("applyCombatResult", () => {
             maneuverAngle: 0,
             maneuverSpeed: 0,
             maneuverWeaponId: "" as const,
+            maneuverPressId: "",
             lastDamagerSessionId: "",
           },
         ],
@@ -498,17 +500,21 @@ describe("maneuver fields across the bridge", () => {
     player.maneuver = 3;
     player.maneuverTicksLeft = 250;
     memory.maneuverWeapons.set("p1", "thunderclap");
+    memory.maneuverPressIds.set("p1", "p1#7#2");
     const combat = toCombatPlayers(state, roster, new Map(), memory);
     const p = combat.find((c) => c.sessionId === "p1")!;
     expect(p.maneuver).toBe(3);
     expect(p.maneuverWeaponId).toBe("thunderclap");
+    expect(p.maneuverPressId).toBe("p1#7#2");
 
     p.maneuver = 0;
     p.maneuverTicksLeft = 0;
     p.maneuverWeaponId = "";
+    p.maneuverPressId = "";
     applyCombatResult(state, { players: combat, instances: [], instanceSeq: 0 }, memory);
     expect(player.maneuver).toBe(0);
     expect(memory.maneuverWeapons.get("p1")).toBe("");
+    expect(memory.maneuverPressIds.get("p1")).toBe("");
   });
 });
 

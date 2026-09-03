@@ -52,6 +52,13 @@ export interface CombatMemory {
    */
   maneuverWeapons: Map<string, WeaponId | "">;
   /**
+   * The press (B8a) that started each player's running maneuver, or "". Server-only, carried
+   * alongside `maneuverWeapons` for the same reason: `CombatPlayer.maneuverPressId` has no wire
+   * representation, and the contact pass needs it many ticks after the press to name a dash/slam
+   * hit's origin.
+   */
+  maneuverPressIds: Map<string, string>;
+  /**
    * Who last damaged each player. Server-only; the schema carries only the frozen
    * `killedBySessionId`, stamped on the tick the car died and never rewritten after.
    */
@@ -82,6 +89,7 @@ export function newCombatMemory(): CombatMemory {
     instances: new Map(),
     locks: new Map(),
     maneuverWeapons: new Map(),
+    maneuverPressIds: new Map(),
     lastDamagers: new Map(),
     loadouts: new Map(),
   };
@@ -151,6 +159,7 @@ export function toCombatPlayers(
       maneuverAngle: player.maneuverAngle,
       maneuverSpeed: player.maneuverSpeed,
       maneuverWeaponId: memory.maneuverWeapons.get(sessionId) ?? "",
+      maneuverPressId: memory.maneuverPressIds.get(sessionId) ?? "",
       lastDamagerSessionId: memory.lastDamagers.get(sessionId) ?? "",
     });
   });
@@ -203,6 +212,13 @@ export function applyCombatResult(state: ArenaState, result: CombatResult, memor
     memory.maneuverWeapons.set(
       p.sessionId,
       p.maneuver === ManeuverKind.NONE ? "" : p.maneuverWeaponId,
+    );
+    // Cleared on the same NONE transition as `maneuverWeapons` above, for the same reason: a
+    // naturally-expired maneuver must not leave a stale press id for the contact pass to read on a
+    // later tick.
+    memory.maneuverPressIds.set(
+      p.sessionId,
+      p.maneuver === ManeuverKind.NONE ? "" : p.maneuverPressId,
     );
     memory.lastDamagers.set(p.sessionId, p.lastDamagerSessionId);
     const player = state.players.get(p.sessionId);

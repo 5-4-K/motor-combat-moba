@@ -82,6 +82,13 @@ export interface CombatPlayer {
    */
   maneuverWeaponId: WeaponId | "";
   /**
+   * The press that started the running maneuver, or `""` (B8a). Server-only, carried in and out
+   * like `maneuverWeaponId` beside it, and for the same reason: the contact pass prices a dash or
+   * slam hit long after the press, and the damage event it produces has to name that press or the
+   * two maneuver weapons can never be measured for how often they land.
+   */
+  maneuverPressId: string;
+  /**
    * Who last took hp off this car, or `""` if nothing has.
    *
    * The whole of kill attribution (M5–M7). There is no damage ledger and no contribution window,
@@ -98,10 +105,18 @@ export interface CombatPlayer {
   lastDamagerSessionId: string;
 }
 
-/** Reset a car's four maneuver fields to neutral and drop its `maneuverWeaponId` (O8/O14). */
-function clearManeuver(player: CombatPlayer): void {
+/**
+ * Reset a car's four maneuver fields to neutral and drop its `maneuverWeaponId` and
+ * `maneuverPressId` (O8/O14, B8a).
+ *
+ * The two ids are set here rather than folded into `NO_MANEUVER`: that constant's four numeric
+ * fields are also spread by `drive.ts` into `ChassisDrive`'s maneuver-derived state, which has no
+ * `maneuverPressId` of its own and must not gain one by riding along on a shared reset object.
+ */
+export function clearManeuver(player: CombatPlayer): void {
   Object.assign(player, NO_MANEUVER);
   player.maneuverWeaponId = "";
+  player.maneuverPressId = "";
 }
 
 /** Everything about the tick that is the same for every player in it. */
@@ -428,7 +443,7 @@ export function runCombat(input: CombatInput): CombatResult {
       // A press that would start a maneuver-kind weapon moves the car instead of spawning an
       // instance — no aim, no hit test, just the trigger for `startManeuver`.
       if (def.kind === "maneuver") {
-        startManeuver(player, def, byId);
+        startManeuver(player, def, byId, order.pressId);
         applySelfStatuses(player, order.weaponId, world.tick, order.finalVolley);
         continue;
       }
@@ -662,9 +677,11 @@ export function startManeuver(
   player: CombatPlayer,
   def: ManeuverWeaponDef,
   byId: ReadonlyMap<string, CombatPlayer>,
+  pressId: string,
 ): void {
   if (player.maneuver !== ManeuverKind.NONE) return;
   player.maneuverWeaponId = def.id;
+  player.maneuverPressId = pressId;
   if (def.maneuver.type === "dash") {
     const distance = def.aimRangeUnits ?? def.range;
     player.maneuver = ManeuverKind.DASH;
