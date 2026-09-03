@@ -15,18 +15,27 @@ for the design this implements.
 
 ## Before you trust a number
 
-Two things distort every run today. Read both before you read a report.
+One thing distorts every run today, and one distorted every run before 2026-09-04. Read both before
+you read a report.
 
-**The bot cannot press `wildcharge`.** `WEAPON_TABLE.wildcharge` has `range: 0` (a charge dashes
-nowhere, so it was never meant to be range-gated), and the bot's fire logic
-(`packages/server/src/bot/input.ts`) only presses slot `i` when `distance < slotRanges[i]` — a
-distance is never negative, so that comparison can never be true and the bot never presses it. This
-is a **pre-existing bug in the shipped bot**, not something this harness introduced — it also means a
-Bastion bot never uses its ultimate in `PracticeRoom` or the dev playground. The consequence here:
-every Bastion number in a current run is measured with two of its three weapons, and a 0% Bastion win
-rate in an early run is a bot defect wearing a balance result's clothing, not a finding about
-`wildcharge` or about Bastion. Fixing the bot is a bot-session task, not a balance edit — do not
-"fix" this by changing `wildcharge`'s numbers.
+**`wildcharge` was unpressable until 2026-09-04, so older reports understate Bastion.** The bot's
+fire logic only pressed slot `i` when `distance < slotRanges[i]`, and `WEAPON_TABLE.wildcharge` has
+`range: 0` (a charge dashes nowhere, so it was never meant to be range-gated) — a distance is never
+negative, so that comparison could never be true. Bastion played every balance run, every
+`PracticeRoom` and every dev playground with two thirds of its kit, so no early report's Bastion
+numbers are worth reading. `triggerRangeOf` in `packages/server/src/bot/input.ts` now gates a
+range-0 weapon on the profile's own standoff band instead (hard 70u, medium 165u, easy 270u),
+and `wildcharge`'s numbers were deliberately not touched — the table was always right. **Any report
+whose header predates that fix is not comparable to one after it**, the same way a report from before
+a bot retune is not; the bot fingerprint cannot tell you so, because it hashes `BOT_PROFILES` and
+this was a change to the bot's logic, not to its profiles.
+
+What the fix actually moved, measured on a paired 50-match `casual` run either side of it (seed
+1645463066): `wildcharge` went from 0 presses to 1179 (176 kills, 29.7% of Bastion's kit), and
+Bastion's damage dealt rose 39% with its damage ratio going 0.4 to 0.6 — **and its win rate stayed at
+0.0% (0.0–7.1).** So the unpressable ultimate was a real defect and was never the whole story: a
+third of the kit came back and Bastion still won nothing. Whether that is the fixed-standoff pilot
+(the next limitation below) or Bastion itself is not yet answered.
 
 **`corroded` contributes damage without ever dealing any.** Its row is a pure amplifier —
 `modifiers: { damageTaken: 1.3 }` — so it does not hit anyone itself; it makes whatever hits the
@@ -156,14 +165,20 @@ sampling noise. The fix is to hold the sample fixed and vary only the edit:
 
 ```bash
 # 1. Baseline, before the change.
-npm run balance -- --shape=ffa --matches=100 --seed=7 --out=packages/server/balance/reports/before
+npm run balance -- --shape=ffa --matches=100 --seed=7 --out=balance/reports/before
 
 # 2. Make your balance edit (a WEAPON_TABLE or CAR_TABLE number), rebuild shared.
 npm run build -w @motor-combat-moba/shared
 
 # 3. Same seed, same shape, same everything else — only the config changed.
-npm run balance -- --shape=ffa --matches=100 --seed=7 --baseline=packages/server/balance/reports/before
+npm run balance -- --shape=ffa --matches=100 --seed=7 --baseline=balance/reports/before
 ```
+
+**Both paths are relative to `packages/server`, not to the repo root you type the command from** —
+`npm run balance` runs the CLI inside the server workspace, so a repo-root-looking
+`packages/server/balance/reports/before` resolves to `packages/server/packages/server/...` and fails
+`ENOENT` (harmlessly, before any match runs, but only after you have waited for the shared build).
+An absolute path works too.
 
 Same seed on both sides means every match starts from identical conditions — same spawns, same bot
 draws — so whatever moved between the two reports was **caused by the edit**, not sampled around it.
@@ -253,10 +268,10 @@ here so it is discoverable without having run anything yet:
 - **Bot targeting drives kill distribution.** Who the bot chooses to shoot is a bot-tuning decision,
   not a chassis property, and it will move every per-car number here again when the bot improves.
 
-Add to that the two distortions under "Before you trust a number" above (`wildcharge`'s unreachable
-range, and `corroded`'s uncredited amplifier damage) — they are specific instances of the same rule:
-this harness reports what the bot and the sim actually did, not what a human pilot or a perfect
-attribution scheme would show.
+Add to that `corroded`'s uncredited amplifier damage under "Before you trust a number" above (and,
+for any report predating 2026-09-04, `wildcharge`'s unreachable range) — specific instances of the
+same rule: this harness reports what the bot and the sim actually did, not what a human pilot or a
+perfect attribution scheme would show.
 
 Every report also carries a **bot fingerprint** (a hash of `BOT_PROFILES`, whole) precisely because
 every number above is conditioned on which bot tier ran it — a report from before a bot retune is not

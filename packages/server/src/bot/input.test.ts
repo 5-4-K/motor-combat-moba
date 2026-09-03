@@ -4,6 +4,7 @@ import {
   botInput,
   pulsedFireSlots,
   shouldRecomputeIntent,
+  triggerRangeOf,
   type BotPose,
   type BotProfile,
 } from "./input.js";
@@ -228,5 +229,58 @@ describe("pulsedFireSlots (PG29)", () => {
 
   it("never divides by zero on a malformed cadence", () => {
     expect(pulsedFireSlots(7, 0, 0b11)).toBe(0b11);
+  });
+});
+
+describe("botInput — a weapon with no range of its own", () => {
+  // `wildcharge` authors `range: 0` because a charge dashes nowhere, and the fire gate below used
+  // to read that as "unreachable": `distance < 0` is false for every distance, so the roster's one
+  // range-0 row could never be pressed by a bot at all. It is now gated on the distance the bot
+  // itself chooses to fight at.
+  it("fires when the target is inside the profile's standoff band", () => {
+    const self: BotPose = { x: 0, y: 0, angle: 0 };
+    const target: BotPose = { x: 60, y: 0, angle: 0 };
+    expect(botInput(1, self, target, [0], HARD).fireSlots).toBe(0b1);
+  });
+
+  it("holds fire when the target is beyond that band", () => {
+    const self: BotPose = { x: 0, y: 0, angle: 0 };
+    const target: BotPose = { x: 400, y: 0, angle: 0 };
+    expect(botInput(2, self, target, [0], HARD).fireSlots).toBe(0);
+  });
+
+  it("still obeys the fire cone", () => {
+    const self: BotPose = { x: 0, y: 0, angle: 0 };
+    // Bearing 0.4 rad — outside hard's 0.35 fireConeRad, well inside its 70u trigger distance.
+    const bearing = 0.4;
+    const target: BotPose = {
+      x: 50 * Math.cos(bearing),
+      y: 50 * Math.sin(bearing),
+      angle: 0,
+    };
+    expect(botInput(3, self, target, [0], HARD).fireSlots).toBe(0);
+  });
+
+  it("leaves slots that do have a range gated on that range", () => {
+    const self: BotPose = { x: 0, y: 0, angle: 0 };
+    const target: BotPose = { x: 50, y: 0, angle: 0 };
+    // Slot 0 out of its own 40u reach, slot 1 range-0 and inside hard's 70u band, slot 2 out again
+    // — the mixed kit Bastion actually carries, and the regression guard for the other eight rows.
+    expect(botInput(4, self, target, [40, 0, 40], HARD).fireSlots).toBe(0b010);
+  });
+});
+
+describe("triggerRangeOf", () => {
+  it("passes a real range straight through", () => {
+    expect(triggerRangeOf(1800, HARD)).toBe(1800);
+    expect(triggerRangeOf(220, BOT_PROFILES.easy)).toBe(220);
+  });
+
+  it("falls back to the standoff band, per tier", () => {
+    // Pinned by value so a `BOT_PROFILES` retune cannot move a weapon's trigger distance silently:
+    // standoffUnits + deadbandUnits, the outer edge of the band each tier holds.
+    expect(triggerRangeOf(0, BOT_PROFILES.hard)).toBe(70);
+    expect(triggerRangeOf(0, BOT_PROFILES.medium)).toBe(165);
+    expect(triggerRangeOf(0, BOT_PROFILES.easy)).toBe(270);
   });
 });

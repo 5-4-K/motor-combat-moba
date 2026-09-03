@@ -12,9 +12,29 @@ export interface BotPose {
 }
 
 /**
+ * How close the target must be for the bot to press a slot.
+ *
+ * A weapon that authors a real reach is gated on that reach. A weapon with NO reach of its own is
+ * gated on the distance this bot chooses to fight at instead — the outer edge of the band it
+ * holds (`standoffUnits + deadbandUnits`), so the press lands while the target is somewhere the
+ * effect can plausibly reach, and scales with the tier rather than with a number invented here.
+ *
+ * `wildcharge` is the roster's only `range: 0` row (a charge dashes nowhere — it damages through
+ * driven hull contact inside its window, never through a spawned shot). Gating it on its own range
+ * meant gating it on `distance < 0`, which no distance satisfies, so no bot had ever pressed it:
+ * Bastion played every room and every balance run with two thirds of its kit. This is the fix, and
+ * it is the ONE place `LegacyController` knowingly departs from the bot that shipped.
+ */
+export function triggerRangeOf(range: number, profile: BotProfile): number {
+  if (range > 0) return range;
+  return profile.standoffUnits + profile.deadbandUnits;
+}
+
+/**
  * One tick of bot intent, ported from the LAN probe's chaser (`playtest/lan.ts` ~line 97):
  * signed shortest angle delta to the target decides `steer`, distance decides `throttle`, and a
- * slot fires when the target is both inside the fire cone and inside that slot's own range.
+ * slot fires when the target is both inside the fire cone and inside that slot's trigger range
+ * (`triggerRangeOf` above — its own reach, or the standoff band for a weapon that has none).
  *
  * `target: null` — alone mode, or the target has died — coasts: everything zero.
  */
@@ -56,7 +76,7 @@ export function botInput(
   let fireSlots = 0;
   if (Math.abs(delta) < profile.fireConeRad) {
     for (let i = 0; i < slotRanges.length; i++) {
-      if (distance < slotRanges[i]) fireSlots |= 1 << i;
+      if (distance < triggerRangeOf(slotRanges[i], profile)) fireSlots |= 1 << i;
     }
   }
 

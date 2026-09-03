@@ -13,6 +13,12 @@ const COAST: BotIntent = { steer: 0, throttle: 0, fireSlots: 0 };
  * migration in the next two tasks changed nothing. Bot intelligence is a separate session's work
  * (B2) — replacing `decide` is the whole of it.
  *
+ * ONE exception to "reproduces the bot that shipped", added 2026-09-04: `triggerRangeOf` in
+ * `input.ts` lets a `range: 0` weapon be pressed at all. `wildcharge` was gated on
+ * `distance < 0` and so had never been pressed by any bot, in any room, since it shipped — Bastion
+ * fought with two thirds of its kit. That is a defect, not a behaviour worth reproducing, and it is
+ * the only divergence: every weapon with a real range is gated exactly as before.
+ *
  * What moved INTO the bot here is the cadence and the fire pulse, which lived in each room. That
  * overturns `PlaygroundRoom`'s comment calling the pulse "the room's decision... exactly as a real
  * client's key state does" — under an instance model the bot IS the client, and holds its own key
