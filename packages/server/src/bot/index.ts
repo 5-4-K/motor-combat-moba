@@ -6,6 +6,7 @@
  * deployment comes next (B13). Server-side only — a bot authors `InputMessage`s, and only the
  * server authors inputs (invariant 3, B14).
  */
+export * from "./controller.js";
 export * from "./input.js";
 export * from "./rng.js";
 export * from "./types.js";
