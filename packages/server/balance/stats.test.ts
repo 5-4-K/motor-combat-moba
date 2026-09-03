@@ -50,7 +50,7 @@ function synthetic(opts: {
 }
 
 /** One `DamagedEvent` from a plain `weapon` source — the ordinary case, a hit measured directly
- * off the event rather than inferred through a status (contrast the corroded/pulse test below). */
+ * off the event rather than inferred through a status (contrast the overheated/pulse test below). */
 function dmg(opts: {
   pressId: string;
   weaponId: WeaponId;
@@ -136,26 +136,26 @@ describe("aggregate (B30, B31)", () => {
     expect(out.weapons.find((w) => w.weaponId === "lance")!.hitRate.rate).toBe(0);
   });
 
-  it("credits corroded pulse damage to magmablast and tracks it separately (B5a)", () => {
+  it("credits overheated pulse damage to afterburner and tracks it separately (B5a)", () => {
     const out = aggregate([
       synthetic({
-        fired: [{ pressId: "a#1#0", weaponId: "magmablast", shooterSessionId: "a", carId: "mirage", slot: 0, tick: 1 }],
+        fired: [{ pressId: "a#1#0", weaponId: "afterburner", shooterSessionId: "a", carId: "mirage", slot: 0, tick: 1 }],
         damaged: [
-          dmg({ pressId: "a#1#0", weaponId: "magmablast", amount: 50 }),
+          dmg({ pressId: "a#1#0", weaponId: "afterburner", amount: 50 }),
           {
             tick: 5,
             victimSessionId: "b",
             victimCarId: "bastion",
             attackerSessionId: "a",
             attackerCarId: "mirage",
-            source: { kind: "pulse", statusId: "corroded", sourceSessionId: "a" },
+            source: { kind: "pulse", statusId: "overheated", sourceSessionId: "a" },
             amount: 8,
             killingBlow: false,
           },
         ],
       }),
     ]);
-    const row = out.weapons.find((w) => w.weaponId === "magmablast")!;
+    const row = out.weapons.find((w) => w.weaponId === "afterburner")!;
     expect(row.damage).toBe(58);
     expect(row.derivedDamage).toBe(8);
   });

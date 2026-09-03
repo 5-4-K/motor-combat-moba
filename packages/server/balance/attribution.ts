@@ -1,11 +1,11 @@
 /**
  * Which weapon a point of pulse damage belongs to (B5a).
  *
- * A `pulse` `DamageSource` names the status and who applied it, but not the weapon — `corroded`
- * deals 8 damage every 400 ms for 2 s (40 total) from `magmablast`'s explosion, against
- * `magmablast`'s own 50 direct hit. Banking that 40 under the status instead of the weapon
- * understates `magmablast` by nearly half. This module answers "which weapon caused this status"
- * by scanning `WEAPON_TABLE`, so the report can credit pulse damage to the weapon that earned it.
+ * A `pulse` `DamageSource` names the status and who applied it, but not the weapon. `overheated`
+ * is the game's only damaging pulse (8 damage every 400 ms) and `afterburner` is its only
+ * applier — banking that burn under the status instead of the weapon would lose it from the
+ * weapon that caused it. This module answers "which weapon caused this status" by scanning
+ * `WEAPON_TABLE`, so the report can credit pulse damage to the weapon that earned it.
  */
 import { WEAPON_TABLE, weaponDefOf, type DamageSource, type StatusId, type WeaponId } from "@motor-combat-moba/shared";
 
@@ -14,10 +14,13 @@ import { WEAPON_TABLE, weaponDefOf, type DamageSource, type StatusId, type Weapo
  *
  * Derived because a hardcoded status->weapon constant encodes what its author believed on the day
  * they wrote it — and this project's own spec got exactly that wrong (an earlier draft claimed
- * `corroded` was the game's only damaging pulse, at ~40 damage from `magmablast`, which is right,
- * but presented as a fact worth hardcoding rather than a fact worth deriving). A map built from the
- * table cannot be wrong about the table; a constant goes stale in the direction of a WRONG number,
- * not a missing one, the moment a second weapon picks up an existing status or a new one ships.
+ * `corroded` was the game's only damaging pulse, dealing ~40 damage, applied by `magmablast`; the
+ * spec was corrected, but by then it had already been copied into comments and tests elsewhere).
+ * Both the status and the weapon were wrong: `corroded` deals no damage at all (it's a pure
+ * `damageTaken` multiplier), and the real damaging pulse is `overheated`, applied only by
+ * `afterburner`. A map built from the table cannot be wrong about the table; a constant goes stale
+ * in the direction of a WRONG number, not a missing one, the moment a second weapon picks up an
+ * existing status or a new one ships.
  *
  * Only `target: "opponents"` applications count. `self` (e.g. `wildcharge`'s `fortified`) and
  * `ownerInside` (e.g. `tremor`'s `fortified`) damage nobody the weapon fired at, so counting them
@@ -25,10 +28,12 @@ import { WEAPON_TABLE, weaponDefOf, type DamageSource, type StatusId, type Weapo
  *
  * Scans both the row's top-level `applies` (most statuses: `thunderclap`, `afterburner`,
  * `thumper`, `roadblock`) and `explosion.applies` (`corroded`, which `magmablast` applies only
- * from inside its detonation, not from the direct hit). A scan that skipped `explosion` would miss
- * `corroded` entirely — CLAUDE.md's own maintenance note ("grep `applies:.*corroded` if a second
- * source ever needs checking") is exactly the kind of fact this function makes ungreppable-because-
- * unnecessary: the map answers it structurally, every time `WEAPON_TABLE` changes.
+ * from inside its detonation, not from the direct hit — `corroded` deals no damage itself, it's
+ * just the status that proves this scan has to descend into `explosion` at all). A scan that
+ * skipped `explosion` would miss `corroded` entirely — CLAUDE.md's own maintenance note ("grep
+ * `applies:.*corroded` if a second source ever needs checking") is exactly the kind of fact this
+ * function makes ungreppable-because-unnecessary: the map answers it structurally, every time
+ * `WEAPON_TABLE` changes.
  */
 export function buildApplierMap(): ReadonlyMap<StatusId, readonly WeaponId[]> {
   const map = new Map<StatusId, WeaponId[]>();

@@ -229,9 +229,9 @@ function renderWeaponTable(record: RunRecord): string {
     w.meanFirstUseSeconds === null ? "never" : fmt1(w.meanFirstUseSeconds),
   ]);
   const derivedNote = anyDerived
-    ? "\n\n`Derived` damage is credited by INFERENCE through a status pulse (e.g. `corroded`), not " +
-      "measured directly off a damage event — see the weapon-status overhaul's attribution notes. " +
-      "It is included in `Damage` above, not additional to it."
+    ? "\n\n`Derived` damage is credited by INFERENCE through a status pulse — today only " +
+      "`overheated`, which `afterburner` applies — rather than measured directly off a damage " +
+      "event. It is included in `Damage` above, not additional to it."
     : "";
   return ["## Per-weapon", "", mdTable(headers, rows) + derivedNote].join("\n");
 }
