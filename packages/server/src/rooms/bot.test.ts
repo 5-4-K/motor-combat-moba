@@ -81,6 +81,28 @@ describe("BOT_PROFILES (PG27)", () => {
     for (const profile of Object.values(BOT_PROFILES)) expect(Object.isFrozen(profile)).toBe(true);
   });
 
+  it("pins the easy profile (PR18 — retuned for players, not the developer)", () => {
+    expect(BOT_PROFILES.easy).toEqual({
+      standoffUnits: 200,
+      deadbandUnits: 70,
+      reactionTicks: 9,
+      aimToleranceRad: 0.6,
+      fireConeRad: 0.68,
+      firePeriodTicks: 14,
+    });
+  });
+
+  it("pins the medium profile (PR18)", () => {
+    expect(BOT_PROFILES.medium).toEqual({
+      standoffUnits: 130,
+      deadbandUnits: 35,
+      reactionTicks: 4,
+      aimToleranceRad: 0.45,
+      fireConeRad: 0.52,
+      firePeriodTicks: 7,
+    });
+  });
+
   it("hard is EXACTLY the bot that shipped — the whole point of the difficulty split", () => {
     // These six numbers are the pre-split `BOT_CONFIG` plus `PlaygroundRoom`'s own
     // `OPPONENT_FIRE_PERIOD`. Pinned by value, not by comment: "the current one should be hard" has
@@ -115,15 +137,27 @@ describe("BOT_PROFILES (PG27)", () => {
     expect(easy.firePeriodTicks).toBeGreaterThan(medium.firePeriodTicks);
     expect(medium.firePeriodTicks).toBeGreaterThan(hard.firePeriodTicks);
   });
+
+  it("orders the tiers monotonically on every pressure lever (PR18)", () => {
+    const { easy, medium, hard } = BOT_PROFILES;
+    // Closer, quicker, tighter, faster-firing as difficulty rises.
+    expect(easy.standoffUnits).toBeGreaterThan(medium.standoffUnits);
+    expect(medium.standoffUnits).toBeGreaterThan(hard.standoffUnits);
+    expect(easy.reactionTicks).toBeGreaterThan(medium.reactionTicks);
+    expect(medium.reactionTicks).toBeGreaterThan(hard.reactionTicks);
+    expect(easy.firePeriodTicks).toBeGreaterThan(medium.firePeriodTicks);
+    expect(medium.firePeriodTicks).toBeGreaterThan(hard.firePeriodTicks);
+    expect(easy.aimToleranceRad).toBeGreaterThan(medium.aimToleranceRad);
+    expect(medium.aimToleranceRad).toBeGreaterThan(hard.aimToleranceRad);
+  });
 });
 
 describe("botInput — the coast deadband (PG28)", () => {
   it("coasts inside the deadband where hard would charge or reverse", () => {
     const self: BotPose = { x: 0, y: 0, angle: 0 };
-    // 150 units out: inside easy's 170 +- 60 band ([110, 230]), outside medium's 110 +- 30 band
-    // ([80, 140]). (The brief's own draft used 130 here, which is inside BOTH bands — 130 <= 140 —
-    // so it could never have told easy and medium apart; 150 is the corrected distance.)
-    const target: BotPose = { x: 150, y: 0, angle: 0 };
+    // 170 units out: inside easy's 200 +- 70 band ([130, 270]), outside medium's 130 +- 35 band
+    // ([95, 165]). (Distance adjusted for PR18 retune.)
+    const target: BotPose = { x: 170, y: 0, angle: 0 };
     expect(botInput(1, self, target, [60], BOT_PROFILES.easy).throttle).toBe(0);
     expect(botInput(1, self, target, [60], BOT_PROFILES.medium).throttle).toBe(1);
   });
