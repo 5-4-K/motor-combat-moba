@@ -48,3 +48,19 @@ export function getSimulatedLatency(): LatencyConfig {
     jitterMs: Number.isFinite(jitterMs) && jitterMs > 0 ? jitterMs : 0,
   };
 }
+
+/**
+ * How many practice rooms this process will host at once (spec PR29). Same override shape as the
+ * knobs above, and `>= 0` rather than `> 0` on purpose: `MAX_PRACTICE_ROOMS=0` is how a host turns
+ * practice off on a machine that is only there to run the arena.
+ */
+export function getMaxPracticeRooms(fallback: number): number {
+  const raw = process.env.MAX_PRACTICE_ROOMS;
+  // The empty string is excluded before `Number` sees it, because `Number("") === 0` and zero is a
+  // MEANINGFUL value here — a blank `MAX_PRACTICE_ROOMS=` left in a `.env` would otherwise turn
+  // practice off across the whole host. The other overrides above cannot hit this: zero is not a
+  // legal value for any of them, so their `> 0` test already rejects it.
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
