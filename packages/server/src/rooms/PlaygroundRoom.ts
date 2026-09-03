@@ -21,7 +21,6 @@ import {
   pickColor,
   setTuning,
   validateTuning,
-  weaponDefOf,
   type InputMessage,
   type PlaygroundCarSetup,
   type PlaygroundSetup,
@@ -30,13 +29,7 @@ import { getTickRateHz } from "../mode.js";
 import { isInputMessage } from "../net/input-message.js";
 import { newCombatMemory, type CombatMemory } from "../sim/combat-bridge.js";
 import { newContactMemory, type ContactMemory } from "../sim/ram-bridge.js";
-import {
-  BOT_PROFILES,
-  botInput,
-  pulsedFireSlots,
-  shouldRecomputeIntent,
-  type BotPose,
-} from "../bot/index.js";
+import { buildBotView, deriveSeed, makeRng, LegacyController, type BotController } from "../bot/index.js";
 import { shouldRejectSecondArena } from "./singleton-arena.js";
 import {
   respawnPlayer,
@@ -138,11 +131,14 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
    */
   private opponentSeq = 0;
   /**
-   * The bot's last computed intent, re-enqueued on the ticks its profile is not recomputing (PG29).
-   * Cleared — set back to `undefined` — whenever it could go stale: a setup change, the bot switched
-   * off, or a target that is no longer alive.
+   * The bot, as an instance (B10). Rebuilt when the difficulty changes, because a profile is
+   * constructor state — and rebuilding also drops the held intent, which is exactly what the three
+   * old `heldBotIntent = undefined` resets were doing by hand.
    */
-  private heldBotIntent: InputMessage | undefined;
+  private bot: BotController | undefined;
+  /** The playground is interactive, so the seed is a constant — it exists to satisfy the contract,
+   * not to make the playground reproducible. */
+  private readonly botRng = makeRng(deriveSeed(1, "playground-bot"));
 
   async onCreate(): Promise<void> {
     const listings = await matchMaker.query({ name: ROOM_NAME });
@@ -189,7 +185,7 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
       // case, missed by the original pass): a held intent was computed from the OLD bot car's pose,
       // and re-enqueuing it against the newly-bot-driven car for the rest of the reaction window
       // would fire it from a pose that car was never in.
-      this.heldBotIntent = undefined;
+      this.bot = undefined;
     });
 
     this.onMessage(MSG_PLAYGROUND_TUNING, (_client, msg: unknown) => {
@@ -273,7 +269,7 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
     this.state.botDifficulty = setup.botDifficulty;
     // Any setup change can invalidate a held intent — a new chassis drives differently, a new
     // difficulty has a different cadence, and the bot may have just been switched off (PG29).
-    this.heldBotIntent = undefined;
+    this.bot = undefined;
     const arenaChanged = this.state.arenaId !== setup.arenaId;
     if (arenaChanged) this.state.arenaId = setup.arenaId;
 
@@ -329,9 +325,8 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
    */
   private enqueueOpponentInput(): void {
     const opponentId = otherPlaygroundId(this.state.controlledSessionId, this.humanSessionId);
-    const self = this.state.players.get(opponentId);
     const queue = this.inputQueues.get(opponentId);
-    if (!self || !queue) return;
+    if (!queue) return;
 
     this.opponentSeq += 1;
     const seq = this.opponentSeq;
@@ -344,54 +339,35 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
     // contact, forever. Coasting it on zeros runs it through the ordinary drive model instead: it
     // decelerates and its speed reaches 0, the way letting go of the throttle does.
     if (!this.state.botEnabled) {
-      // Dropping the hold here is what stops switching the bot back on from replaying an intent
+      // Dropping the controller is what stops switching the bot back on from replaying an intent
       // computed against a pose from minutes ago (PG29).
-      this.heldBotIntent = undefined;
+      this.bot = undefined;
       queue.push({ seq, steer: 0, throttle: 0, fireSlots: 0 });
       return;
     }
 
-    const profile = BOT_PROFILES[
-      isBotDifficulty(this.state.botDifficulty) ? this.state.botDifficulty : "medium"
-    ];
+    const difficulty = isBotDifficulty(this.state.botDifficulty) ? this.state.botDifficulty : "medium";
+    if (this.bot?.profileId !== difficulty) {
+      this.bot = new LegacyController(difficulty, { targetSessionId: this.state.controlledSessionId });
+    }
+    // The playground can re-point the camera at the other car mid-session, which changes who the
+    // bot is fighting; the target is re-stated every tick rather than only at construction.
+    (this.bot as LegacyController).setTarget(this.state.controlledSessionId);
 
-    const driven = this.state.players.get(this.state.controlledSessionId);
-    // A dead target is no target: the bot coasts rather than chasing the wreck's last pose, and the
-    // hold is dropped so it reacts the instant the target respawns instead of waiting out its
-    // cadence.
-    const target = driven?.alive ? poseOf(driven) : null;
-    if (target === null) this.heldBotIntent = undefined;
-
-    if (shouldRecomputeIntent(this.state.tick, profile.reactionTicks, this.heldBotIntent !== undefined)) {
-      const slots = this.combat.fireStates.get(opponentId)?.slots ?? [];
-      this.heldBotIntent = botInput(
-        seq,
-        poseOf(self),
-        target,
-        slots.map((slot) => weaponDefOf(slot.weaponId).range),
-        profile,
-      );
+    const view = buildBotView({
+      state: this.state,
+      selfSessionId: opponentId,
+      combat: this.combat,
+      rng: this.botRng,
+    });
+    if (!view) {
+      queue.push({ seq, steer: 0, throttle: 0, fireSlots: 0 });
+      return;
     }
 
-    const intent = this.heldBotIntent ?? { seq, steer: 0, throttle: 0, fireSlots: 0 };
-    // A held intent is re-enqueued with a FRESH seq: `serverTick` wants one input per tick per car,
+    // A fresh `seq` every tick, held intent or not: `serverTick` wants one input per tick per car,
     // and reusing a sequence number reads as a duplicate rather than a repeat.
-    //
-    // The fire mask is PULSED rather than passed straight through, and that is this room's decision
-    // to make rather than `botInput`'s — the bot reports intent, the room decides what reaches the
-    // wire, exactly as a real client's key state does.
-    //
-    // `serverTick` counts only newly-set bits as a press (`clean & ~prev`), so a bot holding the same
-    // bits for as long as its target stays in cone and in range fires each slot exactly ONCE and then
-    // never again; `respawnPlayer` does not clear `prevFireMasks` either, so a killed bot comes back
-    // still latched. Zeroing the bits off-pulse turns every pulse tick into a fresh press edge. It
-    // does not make the bot fire faster than its weapons allow: `runCombat`'s stocks, recharges and
-    // switch lock are what bound the rate, and feeling those is the whole point of tuning here.
-    queue.push({
-      ...intent,
-      seq,
-      fireSlots: pulsedFireSlots(this.state.tick, profile.firePeriodTicks, intent.fireSlots),
-    });
+    queue.push({ seq, ...this.bot.decide(view) });
   }
 
   /**
@@ -414,8 +390,4 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
       runPhaseSweep: true,
     };
   }
-}
-
-function poseOf(player: PlayerState): BotPose {
-  return { x: player.x, y: player.y, angle: player.angle };
 }
