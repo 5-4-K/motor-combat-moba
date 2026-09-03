@@ -44,7 +44,6 @@ export interface PracticeSetupScreen {
   root: HTMLElement;
   setError(message: string): void;
   setBusy(busy: boolean): void;
-  value(): Omit<PracticeSetup, "name">;
 }
 
 const SELECT_STYLE = "min-height: 52px; font-size: 18px;";
@@ -158,6 +157,5 @@ export function renderPracticeSetup(
       opponentSelect.disabled = busy;
       difficultySelect.disabled = busy;
     },
-    value,
   };
 }

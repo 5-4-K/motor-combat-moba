@@ -15,6 +15,18 @@ import { MANUAL_LABEL, MANUAL_PATH } from "../../config/manual.js";
 
 export interface JoinHandlers {
   onSubmit(name: string): void;
+  onPractice(name: string): void;
+}
+
+/**
+ * The name a practice session runs under (spec PR20).
+ *
+ * Optional by design: practice rooms are per-player, so the arena's uniqueness rule has no
+ * counterpart here, and blocking a solo mode behind a text field is friction with no payoff. A
+ * player who typed a name sees it in the HUD exactly as in a match; one who did not sees "Player".
+ */
+export function practiceName(raw: string): string {
+  return raw.trim() || "Player";
 }
 
 export interface JoinScreen {
@@ -48,6 +60,20 @@ export function renderJoin(handlers: JoinHandlers): JoinScreen {
     },
     ["Join lobby"],
     submit,
+  );
+
+  /**
+   * A solo car-select-vs-bot session, off `practiceName(input.value)` — same 52px baseline as its
+   * neighbours (PR20). `btn-secondary` because Join lobby is still the primary path onto a LAN game;
+   * Practice is the offline fallback next to it, not a co-equal choice.
+   */
+  const practiceButton = button(
+    {
+      class: "btn btn-secondary",
+      style: "min-height: 52px; font-size: 18px; padding-inline: 28px;",
+    },
+    ["Practice"],
+    () => handlers.onPractice(practiceName(input.value)),
   );
 
   /**
@@ -122,6 +148,7 @@ export function renderJoin(handlers: JoinHandlers): JoinScreen {
                 input,
               ]),
               joinButton,
+              practiceButton,
               manualLink,
               feedbackLink,
             ],
@@ -143,6 +170,7 @@ export function renderJoin(handlers: JoinHandlers): JoinScreen {
     },
     setBusy: (busy) => {
       joinButton.disabled = busy;
+      practiceButton.disabled = busy;
       input.disabled = busy;
     },
   };

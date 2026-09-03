@@ -12,6 +12,8 @@ import {
   PRACTICE_FULL_CLOSE_CODE,
   PRACTICE_FULL_ERROR,
   PRACTICE_IDLE_CLOSE_CODE,
+  PRACTICE_INVALID_SETUP_CLOSE_CODE,
+  PRACTICE_INVALID_SETUP_ERROR,
   PRACTICE_PLAYGROUND_BUSY_CLOSE_CODE,
   PRACTICE_PLAYGROUND_BUSY_ERROR,
   PRACTICE_ROOM_NAME,
@@ -133,7 +135,7 @@ export class PracticeRoom extends Room<PracticeState> {
     // The join options reach `onCreate` too (Colyseus merges the client's options into the create
     // call), so the setup is validated once, before the room exists, rather than on join.
     if (!isPracticeSetup(options)) {
-      throw new ServerError(4000, "Invalid practice setup");
+      throw new ServerError(PRACTICE_INVALID_SETUP_CLOSE_CODE, PRACTICE_INVALID_SETUP_ERROR);
     }
 
     const listings = await matchMaker.query({ name: PRACTICE_ROOM_NAME });

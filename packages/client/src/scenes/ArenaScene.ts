@@ -19,8 +19,12 @@ import {
   ManeuverKind,
   MAX_PLAYERS,
   MS_PER_TICK,
+  MSG_PRACTICE_IDLE_WARNING,
   MSG_PRACTICE_PAUSE,
   PlayerStatus,
+  PRACTICE_CONFIG,
+  PRACTICE_IDLE_CLOSE_CODE,
+  PRACTICE_IDLE_ERROR,
   muzzleOf,
   RoomPhase,
   TICK_RATE_HZ,
@@ -353,6 +357,16 @@ const KILLED_BY_Y = 300;
 const KILLED_BY_FONT_PX = 34;
 const RESPAWN_Y = 348;
 const RESPAWN_FONT_PX = 24;
+/**
+ * `MSG_PRACTICE_IDLE_WARNING`'s banner shares the match clock's row rather than owning one: the
+ * clock never draws in a practice room (`matchClockLabel` answers "" when `matchEndsTick` is 0,
+ * which every practice session is) and this warning never draws anywhere else, so the two can never
+ * collide.
+ */
+const IDLE_WARNING_Y = MATCH_CLOCK_Y;
+const IDLE_WARNING_FONT_PX = MATCH_CLOCK_FONT_PX;
+/** How long the warning stays up before clearing itself — a presentation choice, not a sim rule. */
+const IDLE_WARNING_VISIBLE_MS = 4000;
 
 const HUD_KEY_FONT_PX = SLOT_KEY_FONT_PX;
 const HUD_NAME_FONT_PX = SLOT_NAME_FONT_PX;
@@ -614,6 +628,13 @@ export class ArenaScene extends Phaser.Scene {
   private matchClockText: Phaser.GameObjects.Text | undefined;
   private killedByBanner: Phaser.GameObjects.Text | undefined;
   private respawnText: Phaser.GameObjects.Text | undefined;
+  /**
+   * `MSG_PRACTICE_IDLE_WARNING`'s banner (spec PR28/PR29): same `Text`-object treatment as the three
+   * above — made once, shown by setting its string and visibility — but driven by a one-shot server
+   * message rather than a per-frame state read, so it also owns a timer that clears it back down.
+   */
+  private idleWarningText: Phaser.GameObjects.Text | undefined;
+  private idleWarningTimer: Phaser.Time.TimerEvent | undefined;
   /** Pill plates behind the movement hint's key glyphs. Drawn once, then only toggled. */
   private movementHintGfx: Phaser.GameObjects.Graphics | undefined;
   private movementHintTexts: Phaser.GameObjects.Text[] = [];
@@ -821,6 +842,16 @@ export class ArenaScene extends Phaser.Scene {
       .setDepth(HUD_DEPTH)
       .setVisible(false);
 
+    this.idleWarningText = this.add
+      .text(ARENA_VIEW_WIDTH / 2, IDLE_WARNING_Y, "", {
+        fontSize: `${IDLE_WARNING_FONT_PX}px`,
+        color: HUD_TEXT,
+      })
+      .setOrigin(0.5, 0)
+      .setScrollFactor(0)
+      .setDepth(HUD_DEPTH)
+      .setVisible(false);
+
     this.buildMovementHint();
 
     this.splitCameras();
@@ -950,6 +981,7 @@ export class ArenaScene extends Phaser.Scene {
       ...(this.matchClockText ? [this.matchClockText] : []),
       ...(this.killedByBanner ? [this.killedByBanner] : []),
       ...(this.respawnText ? [this.respawnText] : []),
+      ...(this.idleWarningText ? [this.idleWarningText] : []),
       ...(this.movementHintGfx ? [this.movementHintGfx] : []),
       ...this.movementHintTexts,
       ...this.hudKeyTexts,
@@ -994,8 +1026,16 @@ export class ArenaScene extends Phaser.Scene {
     room.onStateChange(onState);
     this.unbind.push(() => room.onStateChange.remove(onState));
 
-    const onLeave = (): void => {
+    const onLeave = (code: number): void => {
       this.registry.remove("room");
+      // 4006 ends a live practice session (PR25); anything else — a server restart — falls through
+      // to the join screen as every other scene does. 4009 never reaches here: it refuses a join the
+      // player never left the settings page for, and PracticeSetupScene shows it inline.
+      if (code === PRACTICE_IDLE_CLOSE_CODE) {
+        this.registry.set("practiceNotice", PRACTICE_IDLE_ERROR);
+        this.scene.start("practice-setup");
+        return;
+      }
       // `exitTarget` is set just before a deliberate `room.leave()` from the pause menu's Exit
       // button (spec PR22/PR23); every other way this fires — kicked, dropped connection, the
       // server closing the room — leaves it unset, so those keep landing on "join" as before.
@@ -1003,6 +1043,22 @@ export class ArenaScene extends Phaser.Scene {
     };
     room.onLeave(onLeave);
     this.unbind.push(() => room.onLeave.remove(onLeave));
+
+    // A one-shot, server-latched warning (PR28/PR29): no payload, so showing it needs nothing off
+    // the room beyond the fact that it arrived. `idleWarningSeconds` is the room's own countdown
+    // from the same tick this fires (`isIdleWarningDue`), so quoting it here rather than a literal
+    // keeps the banner honest if that config ever changes. Bound unconditionally like every other
+    // room listener; a real match's room just never sends this message.
+    const onIdleWarning = (): void => {
+      this.idleWarningTimer?.remove();
+      this.idleWarningText
+        ?.setText(`No input — session ending in ${PRACTICE_CONFIG.idleWarningSeconds}s`)
+        .setVisible(true);
+      this.idleWarningTimer = this.time.delayedCall(IDLE_WARNING_VISIBLE_MS, () => {
+        this.idleWarningText?.setVisible(false);
+      });
+    };
+    this.unbind.push(room.onMessage(MSG_PRACTICE_IDLE_WARNING, onIdleWarning));
   }
 
   private unbindAll(): void {
@@ -1042,6 +1098,10 @@ export class ArenaScene extends Phaser.Scene {
     this.killedByBanner = undefined;
     this.respawnText?.destroy();
     this.respawnText = undefined;
+    this.idleWarningText?.destroy();
+    this.idleWarningText = undefined;
+    this.idleWarningTimer?.remove();
+    this.idleWarningTimer = undefined;
     this.movementHintGfx?.destroy();
     this.movementHintGfx = undefined;
     for (const text of this.movementHintTexts) text.destroy();
