@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { GameMode, TICK_RATE_HZ } from "@motor-combat-moba/shared";
+import { LegacyController, type BotIntent, type BotView } from "../src/bot/index.js";
 import { runMatch } from "./match.js";
 
 const SETUP = {
@@ -83,5 +84,56 @@ describe("runMatch", () => {
       expect(out.seats.every((s) => s.kills === 0 && s.deaths === 0)).toBe(true);
       expect(out.seats.map((s) => s.placement)).toEqual([1, 1]);
     }
+  });
+
+  describe("observedFires (B18)", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it("carries the PREVIOUS tick's fires into the next tick's view, for another car", () => {
+      // Spies on the real `LegacyController.decide` — the exact instance method `match.ts` calls —
+      // recording every `BotView` it is handed while still running the real decision underneath, so
+      // the match plays out exactly as `runMatch` would on its own. This is the only seam available
+      // to observe a `BotView` from outside `match.ts`, which builds and discards one per bot per
+      // tick without ever returning it.
+      const original = LegacyController.prototype.decide;
+      const seenViews: BotView[] = [];
+      vi.spyOn(LegacyController.prototype, "decide").mockImplementation(
+        function (this: LegacyController, view: BotView): BotIntent {
+          seenViews.push(view);
+          return original.call(this, view);
+        },
+      );
+
+      const out = runMatch(SETUP);
+      expect(out.events.fired.length).toBeGreaterThan(0); // hard bots at close range fire readily
+
+      const withFires = seenViews.filter((v) => v.observedFires.length > 0);
+      expect(withFires.length).toBeGreaterThan(0);
+
+      for (const view of withFires) {
+        for (const fire of view.observedFires) {
+          // The honest model (B18): a shot is seen the tick AFTER it happens, never the same tick.
+          expect(fire.tick).toBe(view.tick - 1);
+          // And it is a REAL fire this match actually recorded, not a fabricated one.
+          expect(out.events.fired).toContainEqual(fire);
+        }
+      }
+    });
+
+    it("is empty on the very first tick — nothing has fired yet to observe", () => {
+      const original = LegacyController.prototype.decide;
+      const seenViews: BotView[] = [];
+      vi.spyOn(LegacyController.prototype, "decide").mockImplementation(
+        function (this: LegacyController, view: BotView): BotIntent {
+          seenViews.push(view);
+          return original.call(this, view);
+        },
+      );
+
+      runMatch(SETUP);
+      const firstTickViews = seenViews.filter((v) => v.tick === 1);
+      expect(firstTickViews.length).toBeGreaterThan(0);
+      for (const view of firstTickViews) expect(view.observedFires).toEqual([]);
+    });
   });
 });
