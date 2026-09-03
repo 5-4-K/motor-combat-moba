@@ -51,8 +51,10 @@ function record(opts: { shape?: Shape; mode?: GameMode } = {}): RunRecord {
     deaths: 15 + i,
     damageDealt: 500 + i * 10,
     damageTaken: 400 + i * 5,
+    damageRatio: (500 + i * 10) / (400 + i * 5),
     meanAliveSeconds: 30 + i,
     phasedFraction: 0.1,
+    killsPerMinuteAlive: (20 + i) / ((30 + i) / 60),
   }));
 
   const weapons = carIds.flatMap((carId) =>

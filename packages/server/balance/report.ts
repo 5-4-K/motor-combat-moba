@@ -197,14 +197,22 @@ function renderCarTable(record: RunRecord): string {
     String(c.deaths),
     fmt1(c.damageDealt),
     fmt1(c.damageTaken),
+    // `null` (damageTaken === 0, this chassis was never hit) prints `–` rather than a fabricated
+    // ratio — same zero-denominator treatment as `damagePerPress` and `meanWinnerHp` elsewhere.
+    c.damageRatio === null ? "–" : fmt1(c.damageRatio),
     fmt1(c.meanAliveSeconds),
     formatPct(c.phasedFraction) + " of alive time",
+    // `null` (this chassis was never alive at all) prints `–` for the same reason.
+    c.killsPerMinuteAlive === null ? "–" : fmt1(c.killsPerMinuteAlive),
   ]);
   return [
     "## Per-car",
     "",
     mdTable(
-      ["Car", "Matches", "Win rate", "Mean placement", "Kills", "Deaths", "Dmg dealt", "Dmg taken", "Mean alive (s)", "Phased"],
+      [
+        "Car", "Matches", "Win rate", "Mean placement", "Kills", "Deaths", "Dmg dealt", "Dmg taken",
+        "Dmg ratio", "Mean alive (s)", "Phased", "Kills/min alive",
+      ],
       rows,
     ),
   ].join("\n");

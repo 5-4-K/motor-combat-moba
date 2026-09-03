@@ -434,4 +434,55 @@ describe("aggregate: win-rate denominator is matches, not seats (fix round 2, de
     expect(mirage.matches).toBe(1);
     expect(mirage.meanAliveSeconds).toBeCloseTo((30 + 90) / 2 / TICK_RATE_HZ, 6);
   });
+
+  it("computes damageRatio as dealt over taken, and null when taken is 0 (Part 4 spec list)", () => {
+    const out = aggregate([
+      synthetic({
+        seats: [
+          seat({ sessionId: "a", carId: "mirage" }),
+          seat({ sessionId: "b", carId: "bastion" }),
+        ],
+        damaged: [
+          {
+            tick: 1, victimSessionId: "b", victimCarId: "bastion", attackerSessionId: "a",
+            attackerCarId: "mirage", source: { kind: "weapon", weaponId: "magmablast", pressId: "p", isExplosion: false },
+            amount: 40, killingBlow: false,
+          },
+        ],
+      }),
+    ]);
+    const mirage = out.cars.find((c) => c.carId === "mirage")!;
+    const bastion = out.cars.find((c) => c.carId === "bastion")!;
+    // mirage dealt 40, took 0 — no denominator to divide by, so null rather than Infinity.
+    expect(mirage.damageDealt).toBe(40);
+    expect(mirage.damageTaken).toBe(0);
+    expect(mirage.damageRatio).toBeNull();
+    // bastion dealt 0, took 40 — a real, computable ratio of 0.
+    expect(bastion.damageRatio).toBe(0);
+  });
+
+  it("computes killsPerMinuteAlive over ALIVE time, distinct from raw kills or match-time pace", () => {
+    // Two mirage lives in one match: 2 kills total, but only 60 ticks alive between them — a very
+    // different number from kills-per-minute-of-MATCH-time, which is the whole point of the "alive"
+    // qualifier (a chassis dying a lot in Deathmatch racks up match-time without being alive for it).
+    const out = aggregate([
+      synthetic({
+        seats: [
+          seat({ sessionId: "m0", carId: "mirage", aliveTicks: 30, kills: 1 }),
+          seat({ sessionId: "m1", carId: "mirage", aliveTicks: 30, kills: 1 }),
+        ],
+      }),
+    ]);
+    const mirage = out.cars.find((c) => c.carId === "mirage")!;
+    const aliveMinutes = 60 / TICK_RATE_HZ / 60;
+    expect(mirage.killsPerMinuteAlive).toBeCloseTo(2 / aliveMinutes, 6);
+  });
+
+  it("reports killsPerMinuteAlive as null for a chassis never alive at all", () => {
+    const out = aggregate([
+      synthetic({ seats: [seat({ sessionId: "m0", carId: "mirage", aliveTicks: 0, kills: 0 })] }),
+    ]);
+    const mirage = out.cars.find((c) => c.carId === "mirage")!;
+    expect(mirage.killsPerMinuteAlive).toBeNull();
+  });
 });
