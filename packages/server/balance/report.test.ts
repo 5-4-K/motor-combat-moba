@@ -36,8 +36,9 @@ afterEach(() => {
 /** One plausible `RunRecord`: three cars, six weapons (one row derives its damage), and — for the
  * `duel` shape — the full 3x3 matchup grid including the three mirrors this shape's own noise-floor
  * section leads with. */
-function record(opts: { shape?: Shape } = {}): RunRecord {
+function record(opts: { shape?: Shape; mode?: GameMode } = {}): RunRecord {
   const shape: Shape = opts.shape ?? "ffa";
+  const mode: GameMode = opts.mode ?? GameMode.FFA_DEATHMATCH;
   const totalMatches = shape === "duel" ? 9 : 30;
 
   const cars = carIds.map((carId, i) => ({
@@ -93,7 +94,7 @@ function record(opts: { shape?: Shape } = {}): RunRecord {
     config: {
       shape,
       matches: shape === "duel" ? 1 : totalMatches,
-      mode: GameMode.FFA_DEATHMATCH,
+      mode,
       difficulty: "hard",
       seed: 7,
       arenaId: "arena-01",
@@ -169,7 +170,7 @@ function outcomesFixture(count: number): MatchOutcome[] {
   });
 }
 
-function readSummary(opts: { shape?: Shape } = {}): string {
+function readSummary(opts: { shape?: Shape; mode?: GameMode } = {}): string {
   const dir = tempDir();
   writeReport(dir, record(opts), []);
   return fs.readFileSync(path.join(dir, "summary.md"), "utf8");
@@ -252,6 +253,23 @@ describe("writeReport (B38, B39, B40)", () => {
     // "inaccurate" when the truth is "unused," the opposite balance finding.
     expect(hitRateCell).not.toMatch(/%/);
     expect(hitRateCell).toBe("–");
+  });
+
+  it("marks 'Hit the clock' n/a for Deathmatch rather than a 0.0% interval that can never move (fix round 3, defect 4)", () => {
+    // Deathmatch's own clock IS this harness's match length (`matchEndsTick = setup.maxTicks`), so
+    // `MatchOutcome.hitClock` is false in every Deathmatch match by construction (see match.ts's
+    // header on `hitClock`) — a 0.0% interval there would read as a measured absence of stalemates
+    // when there is nothing to measure. `record()` defaults to FFA_DEATHMATCH.
+    const paceSection = readSummary().split("## Pace")[1]!.split("## ")[0]!;
+    expect(paceSection).toContain("n/a");
+    expect(paceSection).not.toMatch(/\|[^|]*\d+\.\d%[^|]*\|\s*$/m); // no bracketed % as the last cell
+  });
+
+  it("prints a real interval for 'Hit the clock' in last-standing, where it is a meaningful stalemate signal", () => {
+    const md = readSummary({ mode: GameMode.FFA_LAST_STANDING });
+    const paceSection = md.split("## Pace")[1]!.split("## ")[0]!;
+    expect(paceSection).toMatch(/\d+\.\d%\s*\(\s*\d+\.\d–\d+\.\d\s*\)/);
+    expect(paceSection).not.toContain("n/a");
   });
 
   it("adds a deltas section only when a baseline is supplied", () => {

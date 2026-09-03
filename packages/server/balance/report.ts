@@ -23,7 +23,7 @@
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { GameMode, type CarId, type WeaponId } from "@motor-combat-moba/shared";
+import { GameMode, winRuleOf, type CarId, type WeaponId } from "@motor-combat-moba/shared";
 import { BOT_PROFILES, type BotProfile } from "../src/config/bot-profiles.js";
 import { deriveSeed } from "../src/bot/rng.js";
 import type { MatchOutcome } from "./match.js";
@@ -291,6 +291,19 @@ function renderPace(record: RunRecord): string {
   const clockSuccesses = Math.round(pace.clockFraction * totalMatches);
   const clockInterval = wilson(clockSuccesses, totalMatches);
 
+  // "Hit the clock" is `MatchOutcome.hitClock` (see its doc comment in match.ts) — the last-standing
+  // SAFETY VALVE signal: `livingSides` never dropped to one side, a genuine stalemate. It stays
+  // meaningful only there. In Deathmatch this harness's own match length IS `matchEndsTick`
+  // (`state.matchEndsTick = setup.maxTicks` in `runMatch`), so `deathmatchEnded`'s clock branch and
+  // the loop's own cap fire on the exact same tick, every match — `hitClock` reads false BY
+  // CONSTRUCTION, not because no deathmatch run ever ran long. Printing a 0.0% interval there would
+  // read as a measured absence of stalemates; there is nothing to measure, so the column is marked
+  // n/a for that mode instead of printing a number that cannot move.
+  const clockCell =
+    winRuleOf(record.config.mode) === "deathmatch"
+      ? "n/a (deathmatch's clock is this harness's own match length — see summary below)"
+      : formatInterval(clockInterval);
+
   return [
     "## Pace",
     "",
@@ -300,9 +313,19 @@ function renderPace(record: RunRecord): string {
         fmt1(pace.meanMatchSeconds),
         pace.meanFirstBloodSeconds === null ? "no kills recorded" : fmt1(pace.meanFirstBloodSeconds),
         fmt1(pace.killsPerMinute),
-        formatInterval(clockInterval),
+        clockCell,
       ]],
     ),
+    "",
+    winRuleOf(record.config.mode) === "deathmatch"
+      ? "`Hit the clock` is n/a here: Deathmatch is timed, and this harness's match length IS " +
+        "`matchEndsTick`, so every Deathmatch match ends via the clock by construction — the column " +
+        "would read 0.0% every run, which is not a finding about any match, only about how this " +
+        "mode's clock is wired. It stays meaningful for `last-standing`, where it flags a genuine " +
+        "stalemate (`livingSides` never dropped to one side within the cap)."
+      : "`Hit the clock` is `last-standing`'s safety-valve signal: the fraction of matches where " +
+        "`livingSides` never dropped to one side within `--match-seconds`, a genuine stalemate worth " +
+        "investigating on its own.",
   ].join("\n");
 }
 

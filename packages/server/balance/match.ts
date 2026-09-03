@@ -53,16 +53,25 @@ export interface MatchOutcome {
   winnerSessionId: string;
   winnerTeam: number;
   /**
-   * The match ran to `setup.maxTicks` rather than ending on its own win rule. What that MEANS
-   * depends on the mode, because Deathmatch's clock IS `maxTicks` here (see `matchEndsTick` below):
+   * `true` when the match loop exited on `setup.maxTicks` rather than a win rule ever concluding it
+   * (`concluded` stays `false`). What that MEANS — and whether it can even happen — depends on the
+   * mode, because Deathmatch's clock IS `maxTicks` here (`state.matchEndsTick = setup.maxTicks`,
+   * see below):
    *
-   * - **Deathmatch**: a normal conclusion, not a safety valve — the mode is timed, and reaching the
-   *   harness's own clock is exactly how a timed mode is supposed to end when nobody runs out the
-   *   roster first. `deathmatchOutcome`'s kills-then-deaths ranking still names a real winner (or a
-   *   real tie) at that point; it is not a sign anything failed to resolve.
-   * - **Last standing**: still the harness's safety valve. This mode has no clock of its own
-   *   (`matchEndsTick` stays 0), so hitting `maxTicks` here means `livingSides` never dropped to one
-   *   side — a genuine stalemate, and a sign a scenario is set up to never resolve within the cap.
+   * - **Deathmatch**: this field is `false` in EVERY match this harness runs, by construction, not
+   *   by observation. `deathmatchEnded`'s own clock check fires the moment `state.tick` reaches
+   *   `state.matchEndsTick` — which is the same value as `setup.maxTicks` here — so the loop's win
+   *   check always concludes the match (`concluded = true`) on the very tick the loop condition
+   *   would otherwise have exited on anyway; there is no tick at which the loop can run out first.
+   *   A reader should not expect this to ever read `true` for Deathmatch, and a report's "Hit the
+   *   clock" column is marked not-applicable for the mode for exactly this reason (`report.ts`) —
+   *   it is not a stalemate signal here, because Deathmatch has no OTHER way to end: it is timed,
+   *   `deathmatchOutcome`'s kills-then-deaths ranking always names a real winner or a real tie at
+   *   that same tick, and reaching the clock is not a sign anything failed to resolve.
+   * - **Last standing**: still the harness's safety valve, and the only mode where this field
+   *   carries information. This mode has no clock of its own (`matchEndsTick` stays 0), so hitting
+   *   `maxTicks` here means `livingSides` never dropped to one side — a genuine stalemate, and a
+   *   sign a scenario is set up to never resolve within the cap.
    */
   hitClock: boolean;
   seats: readonly {
