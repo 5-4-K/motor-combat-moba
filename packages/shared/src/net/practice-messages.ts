@@ -11,14 +11,20 @@ export const MSG_PRACTICE_IDLE_WARNING = "pr_idle_warn"; // no payload: server -
 
 /**
  * Close codes, continuing the room-defined 4000+ block (4000 bad name, 4001 taken name, 4002 kicked,
- * 4003 second arena, 4004 arena busy, 4005 playground busy). The two are NOT interchangeable —
- * 4007 refuses a join the player never left the setup screen for, 4006 ends a live session (PR25).
+ * 4003 second arena, 4004 arena busy, 4005 playground busy). None of these three are
+ * interchangeable — 4007 refuses a join over the room cap, 4008 refuses one because a playground is
+ * live (PR10's mirror: the tuning store it writes through is process-wide, so a practice session born
+ * under its overrides would run on tables no arena is using), and 4006 ends a session already in
+ * progress (PR25).
  */
 export const PRACTICE_IDLE_CLOSE_CODE = 4006;
 export const PRACTICE_FULL_CLOSE_CODE = 4007;
+export const PRACTICE_PLAYGROUND_BUSY_CLOSE_CODE = 4008;
 
 export const PRACTICE_IDLE_ERROR = "Practice session ended — no input for a while";
 export const PRACTICE_FULL_ERROR = "Too many practice sessions are running right now";
+export const PRACTICE_PLAYGROUND_BUSY_ERROR =
+  "Close the playground first: its tuning is process-wide";
 
 /** An explicit active chassis, or "random" — resolved once, server-side, at room creation (PR15). */
 export type PracticeOpponent = CarId | "random";

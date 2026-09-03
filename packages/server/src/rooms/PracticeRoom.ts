@@ -6,10 +6,13 @@ import {
   INPUT_MESSAGE,
   MSG_PRACTICE_IDLE_WARNING,
   MSG_PRACTICE_PAUSE,
+  PLAYGROUND_ROOM_NAME,
   PRACTICE_CONFIG,
   PRACTICE_FULL_CLOSE_CODE,
   PRACTICE_FULL_ERROR,
   PRACTICE_IDLE_CLOSE_CODE,
+  PRACTICE_PLAYGROUND_BUSY_CLOSE_CODE,
+  PRACTICE_PLAYGROUND_BUSY_ERROR,
   PRACTICE_ROOM_NAME,
   PlayerState,
   PlayerStatus,
@@ -41,6 +44,7 @@ import {
   isPracticeIdle,
   resolveOpponentCar,
   shouldRefusePractice,
+  shouldRefusePracticeForPlayground,
 } from "./practice-rules.js";
 import {
   respawnPlayer,
@@ -132,6 +136,16 @@ export class PracticeRoom extends Room<PracticeState> {
     const others = listings.filter((entry) => entry.roomId !== this.roomId);
     if (shouldRefusePractice(others, getMaxPracticeRooms(PRACTICE_CONFIG.maxConcurrentRooms))) {
       throw new ServerError(PRACTICE_FULL_CLOSE_CODE, PRACTICE_FULL_ERROR);
+    }
+
+    // The mirror `shouldRefusePlayground` does not cover on its own (PR10): that guard stops a NEW
+    // playground from opening over a live practice session, but a playground already open when this
+    // room is being created would run it on process-wide tables an arena is not using. Only
+    // reachable on a `DEV_TOOLS=1` process — a release server never calls `gameServer.define` for
+    // `PLAYGROUND_ROOM_NAME` (see `index.ts`), so a release practice room can never be refused here.
+    const playgroundListings = await matchMaker.query({ name: PLAYGROUND_ROOM_NAME });
+    if (shouldRefusePracticeForPlayground(playgroundListings)) {
+      throw new ServerError(PRACTICE_PLAYGROUND_BUSY_CLOSE_CODE, PRACTICE_PLAYGROUND_BUSY_ERROR);
     }
 
     this.setup = options;

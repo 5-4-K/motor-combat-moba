@@ -15,6 +15,23 @@ export function shouldRefusePractice(listings: readonly unknown[], cap: number):
 }
 
 /**
+ * May a practice room open right now? No, while a playground room is live — the mirror of
+ * `shouldRefusePlayground`'s own guard (spec PR10). The tuning store the playground writes through
+ * is a module-level singleton, one per server process rather than one per room, so a practice room
+ * born while overrides are active would run its whole session on tables no arena is using.
+ *
+ * Only reachable on a `DEV_TOOLS=1` process: a release server never registers `PlaygroundRoom` (see
+ * `index.ts`), so a release practice room can never be refused for this reason.
+ *
+ * Pure, and takes only the field it reads, so the rule is testable without a matchmaker.
+ */
+export function shouldRefusePracticeForPlayground(
+  playgroundListings: readonly { clients: number }[],
+): boolean {
+  return playgroundListings.some((listing) => listing.clients > 0);
+}
+
+/**
  * The bot's chassis, resolved ONCE at room creation and never re-rolled — not on respawn (PR15).
  * Cars do not change chassis mid-match, and neither does the bot.
  *

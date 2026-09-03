@@ -8,6 +8,7 @@ import {
   MSG_PLAYGROUND_SWITCH,
   MSG_PLAYGROUND_TUNING,
   PLAYGROUND_ROOM_NAME,
+  PRACTICE_ROOM_NAME,
   PlayerState,
   PlayerStatus,
   PlaygroundState,
@@ -52,7 +53,8 @@ import {
 export const PLAYGROUND_LEVEL = 3;
 
 /** Same shape as `ROOM_FULL_ERROR`: the string the join screen shows, naming the fix. */
-export const ARENA_BUSY_ERROR = "Close the arena first: playground tuning is process-wide";
+export const ARENA_BUSY_ERROR =
+  "Close the arena first, and any practice session too: playground tuning is process-wide";
 
 /**
  * The close code carried with `ARENA_BUSY_ERROR`. Sits alongside `ArenaRoom`'s 4003 (second arena)
@@ -71,14 +73,22 @@ export const PLAYGROUND_BUSY_ERROR = "A playground session is already open";
 const PLAYGROUND_BUSY_CODE = 4005;
 
 /**
- * May a playground room open right now? No, if anyone at all is sitting in the arena (spec PG15):
- * the tuning store is a module-level singleton shared by every room in the process, so overrides
- * typed into the playground would silently re-balance a live match next door.
+ * May a playground room open right now? No, if anyone at all is sitting in the arena OR in a
+ * practice room (spec PG15, widened by PR10): the tuning store is a module-level singleton shared by
+ * every room in the process, so overrides typed into the playground would silently re-balance a live
+ * match — or a player's practice session — next door.
+ *
+ * Practice rooms are registered on EVERY process, the `npm run dev` one included, which is exactly
+ * how a developer's sliders reach a friend's session.
  *
  * Pure, and takes only the field it reads, so the rule is testable without a matchmaker.
  */
-export function shouldRefusePlayground(listings: readonly { clients: number }[]): boolean {
-  return listings.some((listing) => listing.clients > 0);
+export function shouldRefusePlayground(
+  arenaListings: readonly { clients: number }[],
+  practiceListings: readonly { clients: number }[],
+): boolean {
+  const busy = (listing: { clients: number }): boolean => listing.clients > 0;
+  return arenaListings.some(busy) || practiceListings.some(busy);
 }
 
 /**
@@ -136,7 +146,8 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
 
   async onCreate(): Promise<void> {
     const listings = await matchMaker.query({ name: ROOM_NAME });
-    if (shouldRefusePlayground(listings)) {
+    const practiceListings = await matchMaker.query({ name: PRACTICE_ROOM_NAME });
+    if (shouldRefusePlayground(listings, practiceListings)) {
       throw new ServerError(ARENA_BUSY_CODE, ARENA_BUSY_ERROR);
     }
 

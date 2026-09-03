@@ -11,17 +11,25 @@ import {
 import { shouldRejectSecondArena } from "./singleton-arena.js";
 
 describe("shouldRefusePlayground", () => {
-  it("allows an empty arena listing", () => {
-    expect(shouldRefusePlayground([])).toBe(false);
+  it("opens when nothing else is running", () => {
+    expect(shouldRefusePlayground([], [])).toBe(false);
   });
 
-  it("allows an arena room that nobody has joined", () => {
-    expect(shouldRefusePlayground([{ clients: 0 }])).toBe(false);
+  it("opens when the arena is listed but empty", () => {
+    expect(shouldRefusePlayground([{ clients: 0 }], [])).toBe(false);
   });
 
-  it("refuses while anyone is in the arena — the tuning store is process-wide", () => {
-    expect(shouldRefusePlayground([{ clients: 2 }])).toBe(true);
-    expect(shouldRefusePlayground([{ clients: 0 }, { clients: 1 }])).toBe(true);
+  it("refuses while anyone sits in the arena", () => {
+    expect(shouldRefusePlayground([{ clients: 1 }], [])).toBe(true);
+  });
+
+  it("refuses while a practice room is open (PR10)", () => {
+    // The tuning store is process-wide: sliders here would re-balance that session next door.
+    expect(shouldRefusePlayground([], [{ clients: 1 }])).toBe(true);
+  });
+
+  it("refuses when both are busy", () => {
+    expect(shouldRefusePlayground([{ clients: 2 }], [{ clients: 1 }])).toBe(true);
   });
 });
 

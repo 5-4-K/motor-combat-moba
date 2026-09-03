@@ -5,6 +5,7 @@ import {
   isPracticeIdle,
   resolveOpponentCar,
   shouldRefusePractice,
+  shouldRefusePracticeForPlayground,
 } from "./practice-rules.js";
 
 describe("shouldRefusePractice", () => {
@@ -22,6 +23,22 @@ describe("shouldRefusePractice", () => {
 
   it("refuses everything at a cap of zero", () => {
     expect(shouldRefusePractice([], 0)).toBe(true);
+  });
+});
+
+// The mirror of `shouldRefusePlayground` (PR10): an open playground writes through the same
+// process-wide tuning store, so it must block a practice room from opening under its overrides too.
+describe("shouldRefusePracticeForPlayground", () => {
+  it("opens when no playground is listed", () => {
+    expect(shouldRefusePracticeForPlayground([])).toBe(false);
+  });
+
+  it("opens when the playground is listed but empty", () => {
+    expect(shouldRefusePracticeForPlayground([{ clients: 0 }])).toBe(false);
+  });
+
+  it("refuses while anyone sits in the playground", () => {
+    expect(shouldRefusePracticeForPlayground([{ clients: 1 }])).toBe(true);
   });
 });
 
