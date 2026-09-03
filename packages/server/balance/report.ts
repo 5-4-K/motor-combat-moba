@@ -384,7 +384,15 @@ function renderPace(record: RunRecord): string {
   ].join("\n");
 }
 
-function renderDeltas(record: RunRecord, baseline: RunRecord): string {
+/**
+ * `forcedMismatchReasons`, when present and non-empty, means `--force` (B37) overrode a REFUSED
+ * comparison — `run.ts` only ever passes this through when `checkComparable` returned `ok: false`
+ * and the user passed `--force` anyway. The banner it renders is deliberately loud and placed
+ * before the delta table itself: a forced delta must never be mistaken, weeks later, for the clean
+ * paired run B37 exists to guarantee — the whole reason this section exists rather than just the
+ * console warning `run.ts` also prints at run time (which nobody rereads from a saved report).
+ */
+function renderDeltas(record: RunRecord, baseline: RunRecord, forcedMismatchReasons?: readonly string[]): string {
   const baselineByCarId = new Map(baseline.cars.map((c) => [c.carId, c]));
   const rows = record.cars.map((c) => {
     const base = baselineByCarId.get(c.carId);
@@ -396,9 +404,24 @@ function renderDeltas(record: RunRecord, baseline: RunRecord): string {
       deltaPoints === null ? "–" : `${deltaPoints >= 0 ? "+" : ""}${fmt1(deltaPoints)} pts`,
     ];
   });
+
+  const forcedBannerLines =
+    forcedMismatchReasons && forcedMismatchReasons.length > 0
+      ? [
+          "> **⚠ FORCED COMPARISON (`--force`).** B37 refuses a baseline comparison when the config " +
+            "or bot fingerprint (or shape/mode) differs — this run overrode that refusal. The table " +
+            "below is NOT a valid paired run; every delta in it may be measuring one of these " +
+            "differences as much as, or instead of, any real balance change:",
+          ">",
+          ...forcedMismatchReasons.map((reason) => `> - ${reason}`),
+          "",
+        ]
+      : [];
+
   return [
     "## Deltas vs baseline",
     "",
+    ...forcedBannerLines,
     `Baseline run: config fingerprint \`${baseline.fingerprints.config}\`, bot fingerprint \`${baseline.fingerprints.bot}\`, ` +
       `git commit \`${baseline.gitCommit}\`, ${baseline.totalMatches} matches. Win-rate deltas are ` +
       "point estimates only — a point difference smaller than either run's own interval width is " +
@@ -409,14 +432,18 @@ function renderDeltas(record: RunRecord, baseline: RunRecord): string {
   ].join("\n");
 }
 
-function renderSummaryMarkdown(record: RunRecord, baseline?: RunRecord): string {
+function renderSummaryMarkdown(
+  record: RunRecord,
+  baseline?: RunRecord,
+  forcedMismatchReasons?: readonly string[],
+): string {
   const sections = [renderHeader(record), renderLimitations()];
   if (record.config.shape === "duel") sections.push(renderMirrors(record));
   sections.push(renderCarTable(record), renderWeaponTable(record));
   if (record.unattributedPulseDamage.length > 0) sections.push(renderUnattributedPulseDamage(record));
   if (record.config.shape === "duel") sections.push(renderMatchupMatrix(record));
   sections.push(renderPace(record));
-  if (baseline) sections.push(renderDeltas(record, baseline));
+  if (baseline) sections.push(renderDeltas(record, baseline, forcedMismatchReasons));
   return sections.join("\n\n") + "\n";
 }
 
@@ -604,12 +631,19 @@ function writeWeaponsCsv(file: string, rows: readonly WeaponMatchCsvRow[]): void
  * `baseline`, when given, adds a "Deltas vs baseline" section to `summary.md` — but loading a
  * baseline off disk and refusing an invalid comparison (mismatched fingerprints) is Task 20's job,
  * not this function's: `writeReport` renders whatever `RunRecord` it is handed, unconditionally.
+ *
+ * `forcedMismatchReasons` (B37): `run.ts` passes this only when `--force` overrode a refused
+ * comparison, and only the reasons `checkComparable` actually returned — never invented here. It
+ * renders as a loud warning banner ahead of the delta table, so a forced comparison can never later
+ * be mistaken for the clean paired run B37 exists to guarantee. Absent (or empty) for every ordinary
+ * comparison, which is every comparison `--force` was not needed for.
  */
 export function writeReport(
   dir: string,
   record: RunRecord,
   outcomes: readonly MatchOutcome[],
   baseline?: RunRecord,
+  forcedMismatchReasons?: readonly string[],
 ): string[] {
   fs.mkdirSync(dir, { recursive: true });
 
@@ -618,7 +652,7 @@ export function writeReport(
   const weaponsFile = path.join(dir, "weapons.csv");
   const runJsonFile = path.join(dir, "run.json");
 
-  fs.writeFileSync(summaryFile, renderSummaryMarkdown(record, baseline), "utf8");
+  fs.writeFileSync(summaryFile, renderSummaryMarkdown(record, baseline, forcedMismatchReasons), "utf8");
   writeMatchesCsv(matchesFile, buildMatchRows(record, outcomes));
   writeWeaponsCsv(weaponsFile, buildWeaponMatchRows(outcomes));
   fs.writeFileSync(runJsonFile, JSON.stringify(record, null, 2) + "\n", "utf8");

@@ -142,6 +142,7 @@ silently ignoring it.
 | `--seed` | integer | a fresh random seed, printed first | The whole run is a pure function of this seed — same seed, same matches, replayed exactly. |
 | `--arena` | a known arena id | `arena-01` | Which arena to run every match on. Only one arena runs per report; arena geometry is itself a balance input this harness does not vary. |
 | `--baseline` | a previous run's directory | none | Load that run's `run.json` and print a "Deltas vs baseline" section against it. Refuses to run (exits non-zero, before any match is simulated) if the config or bot fingerprint differs — see the paired-run workflow below. |
+| `--force` | flag, no value | off | Overrides a refused `--baseline` comparison (B37) — the run proceeds instead of exiting non-zero. Meaningless without `--baseline`. The report's "Deltas vs baseline" section carries a prominent warning banner naming every mismatch, so a forced delta can never later be mistaken for a valid paired run. |
 | `--match-seconds` | positive integer | `DEATHMATCH_CONFIG.matchSeconds` (180s) for deathmatch, a 120s stalemate safety cap for last-standing | Per-match clock. For deathmatch this doubles as the real `matchEndsTick`, so it is not a mock of the game's clock — it is the game's clock. For last-standing it is a cap, not a target; hitting it is itself a finding (a matchup or bot pairing that cannot resolve). |
 | `--out` | a directory path | a fresh dated folder under `reports/` | Write the report somewhere specific instead of the auto-numbered folder. |
 
@@ -185,6 +186,12 @@ experiment, which is a weaker claim.
 A differing `--seed` is not fatal — it just prints a warning that the comparison is a different
 sample, not a clean paired one. Both fingerprints, along with the git commit, print in every report's
 header, so an old `summary.md` stays self-describing without anyone having to reopen `run.json`.
+
+**`--force` overrides a refusal** (B37) when you genuinely want the delta anyway — for example,
+sanity-checking how much a bot retune alone moved the numbers. The run proceeds, but the report's
+"Deltas vs baseline" section leads with a loud warning banner naming exactly which fingerprints
+differed, so a forced comparison can never later be mistaken for the clean paired run this workflow
+otherwise guarantees.
 
 ---
 

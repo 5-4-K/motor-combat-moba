@@ -342,6 +342,27 @@ describe("writeReport (B38, B39, B40)", () => {
     expect(withBaseline).toContain("Deltas vs baseline");
   });
 
+  it("carries no forced-comparison banner for an ordinary (unforced) baseline delta (B37)", () => {
+    const dir = tempDir();
+    writeReport(dir, record(), [], record());
+    const md = fs.readFileSync(path.join(dir, "summary.md"), "utf8");
+    expect(md).not.toContain("FORCED COMPARISON");
+  });
+
+  it("renders a prominent forced-comparison banner naming the mismatch reasons when --force was used (B37)", () => {
+    const dir = tempDir();
+    const reasons = ["config fingerprint differs (this run: aaa, baseline: bbb) — the two runs measured different games"];
+    writeReport(dir, record(), [], record(), reasons);
+    const md = fs.readFileSync(path.join(dir, "summary.md"), "utf8");
+    const deltasSection = md.split("## Deltas vs baseline")[1]!;
+    expect(deltasSection).toContain("FORCED COMPARISON");
+    expect(deltasSection).toContain("--force");
+    expect(deltasSection).toContain("config fingerprint differs");
+    // The banner must appear BEFORE the delta table itself, not after — a warning read too late is
+    // read after the numbers have already been trusted.
+    expect(deltasSection.indexOf("FORCED COMPARISON")).toBeLessThan(deltasSection.indexOf("| Car |"));
+  });
+
   it("round-trips run.json, so a baseline can be read back", () => {
     const dir = tempDir();
     writeReport(dir, record(), []);
