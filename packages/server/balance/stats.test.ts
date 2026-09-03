@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { CarId, DamagedEvent, FiredEvent, KilledEvent, WeaponId } from "@motor-combat-moba/shared";
+import { TICK_RATE_HZ, type CarId, type DamagedEvent, type FiredEvent, type KilledEvent, type WeaponId } from "@motor-combat-moba/shared";
 import { aggregate, wilson } from "./stats.js";
 import type { MatchOutcome } from "./match.js";
 
@@ -254,5 +254,62 @@ describe("aggregate: matchup matrix", () => {
     const out = aggregate([synthetic({})]);
     expect(out.matchups).toHaveLength(9); // 3x3 including mirrors
     expect(out.matchups.some((m) => m.attacker === "mirage" && m.defender === "mirage")).toBe(true);
+  });
+});
+
+describe("aggregate: win-rate denominator is matches, not seats (fix round 2, defect 2)", () => {
+  // One 2/2/2 field: two seats per chassis, exactly the composition B27 fixes the harness to. A
+  // chassis that wins every match must read 100% — before the fix, `carMatches` incremented once
+  // per SEAT rather than once per match, so a chassis holding two of six seats had its `matches`
+  // count doubled and every win rate read exactly half of the true figure (evidence from the live
+  // run: Mirage won all 3 of 3 matches and the table printed 50.0%, not 100%).
+  const sixSeats = (winnerSessionId: string): readonly Seat[] => [
+    seat({ sessionId: "m0", carId: "mirage", placement: winnerSessionId === "m0" ? 1 : 2 }),
+    seat({ sessionId: "m1", carId: "mirage", placement: winnerSessionId === "m1" ? 1 : 2 }),
+    seat({ sessionId: "y0", carId: "bullseye", placement: 3 }),
+    seat({ sessionId: "y1", carId: "bullseye", placement: 4 }),
+    seat({ sessionId: "b0", carId: "bastion", placement: 5 }),
+    seat({ sessionId: "b1", carId: "bastion", placement: 6 }),
+  ];
+
+  it("reports 1.0, not 0.5, for a chassis that wins every match it appears in twice per match", () => {
+    const outcomes = [
+      synthetic({ winnerSessionId: "m0", seats: sixSeats("m0") }),
+      synthetic({ winnerSessionId: "m1", seats: sixSeats("m1") }), // mirage's OTHER seat wins this one
+      synthetic({ winnerSessionId: "m0", seats: sixSeats("m0") }),
+    ];
+    const out = aggregate(outcomes);
+    const mirage = out.cars.find((c) => c.carId === "mirage")!;
+
+    // Once per MATCH (3), never once per seat (would be 6) — the exact bug: two mirage seats in
+    // every match must still only count as three matches, not six.
+    expect(mirage.matches).toBe(3);
+    expect(mirage.wins).toBe(3);
+    expect(mirage.winRate.rate).toBe(1);
+
+    // A chassis that never won still gets the same, correctly-doubled seat count in `matches` —
+    // this is not "only mirage is special," the denominator fix applies uniformly.
+    const bastion = out.cars.find((c) => c.carId === "bastion")!;
+    expect(bastion.matches).toBe(3);
+    expect(bastion.wins).toBe(0);
+    expect(bastion.winRate.rate).toBe(0);
+  });
+
+  it("computes meanAliveSeconds per seat instance (appearance), not per match", () => {
+    // Two mirage seats in ONE match with different survival times: the mean must be over the two
+    // lives (an appearance-weighted average), not divided by the single match count — dividing by
+    // `matches` here would double the reported figure.
+    const out = aggregate([
+      synthetic({
+        seats: [
+          seat({ sessionId: "m0", carId: "mirage", aliveTicks: 30 }),
+          seat({ sessionId: "m1", carId: "mirage", aliveTicks: 90 }),
+          seat({ sessionId: "b0", carId: "bastion", aliveTicks: 60 }),
+        ],
+      }),
+    ]);
+    const mirage = out.cars.find((c) => c.carId === "mirage")!;
+    expect(mirage.matches).toBe(1);
+    expect(mirage.meanAliveSeconds).toBeCloseTo((30 + 90) / 2 / TICK_RATE_HZ, 6);
   });
 });

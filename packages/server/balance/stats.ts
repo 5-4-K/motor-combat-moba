@@ -136,7 +136,19 @@ export function aggregate(outcomes: readonly MatchOutcome[]): {
 
   // ---- per-car accumulators -------------------------------------------------------------------
   const carIds = Object.keys(CAR_TABLE) as CarId[];
+  // `carMatches` counts a MATCH the chassis appeared in — once per outcome, however many of its
+  // seats that chassis filled. Win rate's denominator has to be this, not seat count: at the fixed
+  // 2/2/2 composition (B27) a chassis holds two of six seats but can still only WIN a given match
+  // once, so counting seats would divide every win rate in half and silently move the null win
+  // rate this file's own header argues for (33.3%) down to 16.7% while the report kept the old
+  // label — the worst kind of wrong, because the printed number would look plausible.
   const carMatches = new Map<CarId, number>();
+  // `carAppearances` counts a SEAT the chassis filled — the per-car-instance denominator for
+  // `meanAliveSeconds` below. Deliberately different from `carMatches`: "how long did a life last,
+  // on average" is a per-instance question (a mirror matchup fills two seats with the same chassis
+  // in one match, and both lives count), unlike "did the chassis win the match," which cannot
+  // happen twice no matter how many seats it holds.
+  const carAppearances = new Map<CarId, number>();
   const carWins = new Map<CarId, number>();
   const carPlacements = new Map<CarId, number[]>();
   const carKills = new Map<CarId, number>();
@@ -147,6 +159,7 @@ export function aggregate(outcomes: readonly MatchOutcome[]): {
   const carPhasedTicks = new Map<CarId, number>();
   for (const carId of carIds) {
     carMatches.set(carId, 0);
+    carAppearances.set(carId, 0);
     carWins.set(carId, 0);
     carPlacements.set(carId, []);
     carKills.set(carId, 0);
@@ -205,7 +218,7 @@ export function aggregate(outcomes: readonly MatchOutcome[]): {
     // ---- per-car bookkeeping, one seat at a time -------------------------------------------
     for (const seat of outcome.seats) {
       const carId = seat.carId;
-      carMatches.set(carId, (carMatches.get(carId) ?? 0) + 1);
+      carAppearances.set(carId, (carAppearances.get(carId) ?? 0) + 1);
       // A draw (`winnerSessionId === ""`, whether from `livingSides`'/`deathmatchOutcome`'s own DRAW
       // or from `runMatch` hitting `maxTicks` with more than one side still standing — the
       // multi-survivor stalemate Task 15 flagged) never matches any real sessionId, so no seat is
@@ -220,6 +233,13 @@ export function aggregate(outcomes: readonly MatchOutcome[]): {
       carDeaths.set(carId, (carDeaths.get(carId) ?? 0) + seat.deaths);
       carAliveTicks.set(carId, (carAliveTicks.get(carId) ?? 0) + seat.aliveTicks);
       carPhasedTicks.set(carId, (carPhasedTicks.get(carId) ?? 0) + seat.phasedTicks);
+    }
+
+    // `carMatches` increments once per DISTINCT chassis this outcome fielded, outside the per-seat
+    // loop above — a mirror matchup (two seats, same carId) must still only count as one match for
+    // that chassis's win-rate denominator, exactly like every other 2/2/2 match does.
+    for (const carId of new Set(outcome.seats.map((s) => s.carId))) {
+      carMatches.set(carId, (carMatches.get(carId) ?? 0) + 1);
     }
 
     // ---- damage dealt/taken per car, read straight off the events' own CarId fields --------
@@ -315,6 +335,7 @@ export function aggregate(outcomes: readonly MatchOutcome[]): {
   // ---- assemble CarStats -------------------------------------------------------------------
   const cars: CarStats[] = carIds.map((carId) => {
     const matches = carMatches.get(carId) ?? 0;
+    const appearances = carAppearances.get(carId) ?? 0;
     const wins = carWins.get(carId) ?? 0;
     const aliveTicks = carAliveTicks.get(carId) ?? 0;
     const phasedTicks = carPhasedTicks.get(carId) ?? 0;
@@ -328,7 +349,11 @@ export function aggregate(outcomes: readonly MatchOutcome[]): {
       deaths: carDeaths.get(carId) ?? 0,
       damageDealt: carDamageDealt.get(carId) ?? 0,
       damageTaken: carDamageTaken.get(carId) ?? 0,
-      meanAliveSeconds: matches > 0 ? aliveTicks / TICK_RATE_HZ / matches : 0,
+      // Denominator is `appearances` (seats filled), not `matches` (distinct matches) — a mean
+      // SURVIVAL TIME is a per-life question. A mirror matchup fills two seats with this chassis in
+      // one match and produces two independent lives to average over; dividing by `matches` instead
+      // would silently double this number whenever a mirror matchup is in the sample.
+      meanAliveSeconds: appearances > 0 ? aliveTicks / TICK_RATE_HZ / appearances : 0,
       // Per-car phased ticks over alive ticks (B28a) — not over match count, since a phased car is
       // still alive; the question this answers is "of the time this car COULD have been shot, what
       // share was it untargetable."

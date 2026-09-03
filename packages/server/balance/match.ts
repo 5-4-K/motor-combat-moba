@@ -11,7 +11,6 @@
  */
 import {
   ArenaState,
-  DEATHMATCH_TICKS,
   GameMode,
   PlayerState,
   PlayerStatus,
@@ -54,9 +53,16 @@ export interface MatchOutcome {
   winnerSessionId: string;
   winnerTeam: number;
   /**
-   * The match ran out of `maxTicks` without its own win rule ever firing — the harness's safety
-   * valve, not a real conclusion. Expected in Deathmatch whenever `maxTicks` is shorter than
-   * `DEATHMATCH_TICKS.match`, and otherwise a sign a scenario is set up to stalemate.
+   * The match ran to `setup.maxTicks` rather than ending on its own win rule. What that MEANS
+   * depends on the mode, because Deathmatch's clock IS `maxTicks` here (see `matchEndsTick` below):
+   *
+   * - **Deathmatch**: a normal conclusion, not a safety valve — the mode is timed, and reaching the
+   *   harness's own clock is exactly how a timed mode is supposed to end when nobody runs out the
+   *   roster first. `deathmatchOutcome`'s kills-then-deaths ranking still names a real winner (or a
+   *   real tie) at that point; it is not a sign anything failed to resolve.
+   * - **Last standing**: still the harness's safety valve. This mode has no clock of its own
+   *   (`matchEndsTick` stays 0), so hitting `maxTicks` here means `livingSides` never dropped to one
+   *   side — a genuine stalemate, and a sign a scenario is set up to never resolve within the cap.
    */
   hitClock: boolean;
   seats: readonly {
@@ -102,9 +108,15 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
   state.arenaId = setup.arenaId;
   state.phase = RoomPhase.MATCH;
   state.mode = setup.mode;
-  // The room writes this only on the edge into MATCH (`ArenaRoom.applyFlow`) — a headless match
-  // opens already on that edge, so it is stamped once, here, the same value that edge would produce.
-  state.matchEndsTick = deathmatch ? DEATHMATCH_TICKS.match : 0;
+  // The harness's own match length IS the deathmatch clock, rather than the game's default 180 s
+  // (`DEATHMATCH_TICKS.match`). A real room always runs the full 180 s, so `ArenaRoom.applyFlow`
+  // stamps that constant on the edge into MATCH — but this harness's loop cap is `setup.maxTicks`,
+  // and for any `matchSeconds` under 180 the loop would exit on that cap before `deathmatchEnded`
+  // ever fires. Every match would record a draw (`winnerSessionId: ""`) and per-car win rate — the
+  // harness's headline statistic — would always read 0%, silently, for exactly the shortened runs
+  // the plan offers for fast iteration (`--match-seconds`). The win RULE stays the room's own
+  // (`deathmatchEnded`, `deathmatchOutcome`) — only the clock it reads is the harness's.
+  state.matchEndsTick = deathmatch ? setup.maxTicks : 0;
 
   const matchRoster = new Set(setup.seats.map((seat) => seat.sessionId));
   const inputQueues = new Map<string, InputMessage[]>();
