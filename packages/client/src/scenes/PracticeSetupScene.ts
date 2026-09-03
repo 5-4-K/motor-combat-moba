@@ -1,9 +1,68 @@
 import Phaser from "phaser";
-import { PRACTICE_INVALID_SETUP_ERROR, isArenaId, type PracticeSetup } from "@motor-combat-moba/shared";
+import type { Room } from "colyseus.js";
+import {
+  PRACTICE_INVALID_SETUP_ERROR,
+  isArenaId,
+  type PracticeSetup,
+  type PracticeState,
+} from "@motor-combat-moba/shared";
 import { joinPractice } from "../net/connection.js";
 import { loadPracticeSetup, savePracticeSetup } from "../practice/storage.js";
 import { ScreenOverlay } from "../ui/overlay.js";
 import { renderPracticeSetup, type PracticeSetupScreen } from "../ui/screens/practice-setup.js";
+
+/**
+ * How long to wait for the room's first full state patch before giving up on it outright. Generous
+ * relative to a LAN round trip — this only ever fires on a genuine stall (see `waitForArenaReady`),
+ * never on a healthy join.
+ */
+const ARENA_STATE_SYNC_TIMEOUT_MS = 5000;
+
+/**
+ * Resolves once `room.state` has decoded far enough to know its arena — immediately if it already
+ * does. `joinPractice` resolves on the JOIN_ROOM handshake alone, which lands before the room's first
+ * full state patch (colyseus.js's `Room.onMessageCallback` sets `hasJoined` and invokes `onJoin` off
+ * the handshake byte, with no wait on a patch); everywhere else in the game that gap is invisible
+ * (Lobby just renders an empty roster for one frame), but this is the one path that jumps straight
+ * from a settings screen into `ArenaScene`, whose `create()` reads `state.arenaId` synchronously and
+ * would otherwise show a false "arena mismatch" screen for what is really just an unsynced state.
+ *
+ * Also races the room's own `onError` and `onLeave` and a timeout, and rejects on whichever comes
+ * first. `joinOrCreate`'s own `onError` listener is torn down the instant `onJoin` fires — i.e. the
+ * instant `joinPractice` resolves (`colyseus.js`'s `Client.js`) — so nothing else is watching for a
+ * server crash or dropped connection between the handshake and the first patch; without this, that
+ * gap would await forever with Start stuck disabled and no way out but a reload.
+ */
+function waitForArenaReady(room: Room<PracticeState>): Promise<void> {
+  if (isArenaId(room.state.arenaId)) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const cleanup = (): void => {
+      room.onStateChange.remove(onState);
+      room.onError.remove(onError);
+      room.onLeave.remove(onLeave);
+      clearTimeout(timer);
+    };
+    const settle = (run: () => void): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      run();
+    };
+    const onState = (): void => settle(resolve);
+    const onError = (_code: number, message?: string): void =>
+      settle(() => reject(new Error(message || "Practice room connection failed")));
+    const onLeave = (): void =>
+      settle(() => reject(new Error("Practice room closed before it was ready")));
+    room.onStateChange(onState);
+    room.onError(onError);
+    room.onLeave(onLeave);
+    const timer = setTimeout(
+      () => settle(() => reject(new Error("Timed out connecting to the practice room"))),
+      ARENA_STATE_SYNC_TIMEOUT_MS,
+    );
+  });
+}
 
 /**
  * The practice settings page (spec PR21). Settings are chosen here and fixed for the session — there
@@ -56,17 +115,11 @@ export class PracticeSetupScene extends Phaser.Scene {
     savePracticeSetup(setup);
     try {
       const room = await joinPractice(setup);
+      // See `waitForArenaReady` above — costs nothing once state has already arrived, which is the
+      // common case; only pays the wait (and can only fail) on the actual race. Held off the registry
+      // until this resolves, so a room that never became ready never lingers there for a later read.
+      await waitForArenaReady(room);
       this.registry.set("room", room);
-      // `joinPractice` resolves on the JOIN_ROOM handshake, which lands before the room's first
-      // full state patch — everywhere else that gap is invisible (Lobby renders an empty roster for
-      // one frame), but this is the one path that jumps straight from a settings screen into
-      // `ArenaScene`, whose `create()` reads `state.arenaId` synchronously and treats an unsynced
-      // state exactly like a real client/server mismatch (found by hand-testing this task's walk;
-      // see task-14-report.md). Waiting one state patch when that race is actually hit costs nothing
-      // once state has already arrived, which is the common case.
-      if (!isArenaId(room.state.arenaId)) {
-        await new Promise<void>((resolve) => room.onStateChange.once(() => resolve()));
-      }
       this.scene.start("arena");
     } catch (err) {
       this.starting = false;

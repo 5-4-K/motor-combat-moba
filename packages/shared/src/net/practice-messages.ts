@@ -16,8 +16,9 @@ export const MSG_PRACTICE_IDLE_WARNING = "pr_idle_warn"; // no payload: server -
  * live (PR10's mirror: the tuning store it writes through is process-wide, so a practice session born
  * under its overrides would run on tables no arena is using), 4006 ends a session already in
  * progress (PR25), and 4009 refuses join options that fail `isPracticeSetup` — this room's own
- * counterpart to 4000's "bad name" in `ArenaRoom`, which 4000 itself was already spoken for. 4010 is
- * colyseus's own `DEVMODE_RESTART` close code — never claim it.
+ * counterpart to `ArenaRoom`'s "bad name" refusal, which claims 4000 there instead, since 4000 was
+ * already spoken for in this room's own block (see above). 4010 is colyseus's own `DEVMODE_RESTART`
+ * close code — never claim it.
  */
 export const PRACTICE_IDLE_CLOSE_CODE = 4006;
 export const PRACTICE_FULL_CLOSE_CODE = 4007;
