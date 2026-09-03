@@ -26,7 +26,6 @@ import {
   getArena,
   isPracticeSetup,
   pickColor,
-  weaponDefOf,
   type BotDifficulty,
   type CarId,
   type InputMessage,
@@ -37,13 +36,7 @@ import { isInputMessage } from "../net/input-message.js";
 import { withSimulatedLatency } from "../net/latency-injector.js";
 import { newCombatMemory, type CombatMemory } from "../sim/combat-bridge.js";
 import { newContactMemory, type ContactMemory } from "../sim/ram-bridge.js";
-import {
-  BOT_PROFILES,
-  botInput,
-  pulsedFireSlots,
-  shouldRecomputeIntent,
-  type BotPose,
-} from "../bot/index.js";
+import { buildBotView, deriveSeed, makeRng, LegacyController, type BotController } from "../bot/index.js";
 import { copySpawnNumbers } from "./match-helpers.js";
 import {
   isActiveInput,
@@ -109,11 +102,9 @@ export class PracticeRoom extends Room<PracticeState> {
    * another's.
    */
   private botSeq = 0;
-  /**
-   * The bot's last computed intent, re-enqueued on the ticks its profile is not recomputing.
-   * Cleared whenever it could go stale — here, only a target that is no longer alive.
-   */
-  private heldBotIntent: InputMessage | undefined;
+  /** The bot, as an instance (B10). Built once: practice has no mid-session reconfiguration. */
+  private bot: BotController | undefined;
+  private readonly botRng = makeRng(deriveSeed(1, "practice-bot"));
   /**
    * Written once in `onCreate` and never again (PR19): a match's opponent does not get easier
    * halfway through, so neither does the bot. Changing it means exiting and starting again.
@@ -354,46 +345,25 @@ export class PracticeRoom extends Room<PracticeState> {
    * writes to the human's queue (PR14); that queue is fed only by the `INPUT_MESSAGE` handler.
    */
   private enqueueBotInput(): void {
-    const self = this.state.players.get(BOT_SESSION_ID);
     const queue = this.inputQueues.get(BOT_SESSION_ID);
-    if (!self || !queue) return;
+    if (!queue) return;
 
     this.botSeq += 1;
     const seq = this.botSeq;
-    const profile = BOT_PROFILES[this.difficulty];
 
-    const human = this.state.players.get(this.humanSessionId);
-    // A dead target is no target: the bot coasts rather than chasing the wreck's last pose, and the
-    // hold is dropped so it reacts the instant the target respawns instead of waiting out its
-    // cadence.
-    const target = human?.alive ? poseOf(human) : null;
-    if (target === null) this.heldBotIntent = undefined;
+    this.bot ??= new LegacyController(this.difficulty, { targetSessionId: this.humanSessionId });
 
-    if (
-      shouldRecomputeIntent(this.state.tick, profile.reactionTicks, this.heldBotIntent !== undefined)
-    ) {
-      const slots = this.combat.fireStates.get(BOT_SESSION_ID)?.slots ?? [];
-      this.heldBotIntent = botInput(
-        seq,
-        poseOf(self),
-        target,
-        slots.map((slot) => weaponDefOf(slot.weaponId).range),
-        profile,
-      );
-    }
-
-    const intent = this.heldBotIntent ?? { seq, steer: 0, throttle: 0, fireSlots: 0 };
-    // A held intent is re-enqueued with a FRESH seq: `serverTick` wants one input per tick per car,
-    // and reusing a sequence number reads as a duplicate rather than a repeat.
-    //
-    // The fire mask is PULSED rather than passed straight through, for the reason spelled out on
-    // `pulsedFireSlots`: `serverTick` counts only newly-set bits as a press, so a bot holding the
-    // same bits fires each slot once and then never again.
-    queue.push({
-      ...intent,
-      seq,
-      fireSlots: pulsedFireSlots(this.state.tick, profile.firePeriodTicks, intent.fireSlots),
+    const view = buildBotView({
+      state: this.state,
+      selfSessionId: BOT_SESSION_ID,
+      combat: this.combat,
+      rng: this.botRng,
     });
+    if (!view) return;
+
+    // A fresh `seq` every tick: `serverTick` wants one input per tick per car, and reusing a
+    // sequence number reads as a duplicate rather than a repeat.
+    queue.push({ seq, ...this.bot.decide(view) });
   }
 
   /**
@@ -415,8 +385,4 @@ export class PracticeRoom extends Room<PracticeState> {
       runPhaseSweep: true,
     };
   }
-}
-
-function poseOf(player: PlayerState): BotPose {
-  return { x: player.x, y: player.y, angle: player.angle };
 }
