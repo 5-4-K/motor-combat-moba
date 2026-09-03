@@ -693,12 +693,40 @@ describe("lance beam layers", () => {
     const at = (nowMs: number) => beamDrawLayers("lance", 0, 0, 0, REACH, 0, nowMs)[0]!.points;
     const hz = WEAPON_BEAM_STYLES.lance!.crackleHz!;
     expect(hz).toBeGreaterThan(0);
-    // Two times inside the same 1/hz frame are identical; a time a frame later is not.
-    const a = at(0);
-    const sameFrame = at(1000 / hz / 4);
-    const nextFrame = at(1000 / hz + 1);
-    expect(sameFrame.map((p) => p.y)).toEqual(a.map((p) => p.y));
-    expect(nextFrame.map((p) => p.y)).not.toEqual(a.map((p) => p.y));
+    // A full period apart the envelope is materially different -- that is the whole point of it.
+    expect(at(1000 / hz).map((p) => p.y)).not.toEqual(at(0).map((p) => p.y));
+  });
+
+  /**
+   * The regression this exists for: lance swept in visible steps rather than smoothly.
+   *
+   * The cause was NOT the sweep. The crackle was indexed by `floor(t * hz)`, which made the shape
+   * piecewise-constant in time: at 14 Hz the envelope held still for ~4 frames and then jumped
+   * 12 units at once, and that jump landing on every fourth frame of a rotation is what read as
+   * snapping. Measured on a STATIONARY beam, so a failure here can only be the crackle -- nothing
+   * about position, rotation or extent is in play.
+   *
+   * The threshold is per RENDERED frame at 60fps. It is deliberately far below the 12.2 units the
+   * quantised version produced and comfortably above what smooth interpolation needs, so it pins
+   * the property (continuity) rather than a particular interpolation curve.
+   */
+  it("moves the envelope continuously between frames, never in jumps", () => {
+    const FRAME_MS = 1000 / 60;
+    let worst = 0;
+    let previous: { x: number; y: number }[] | null = null;
+    for (let f = 0; f < 240; f++) {
+      const points = beamDrawLayers("lance", 0, 0, 0, REACH, 0, f * FRAME_MS)[0]!.points;
+      if (previous) {
+        expect(points).toHaveLength(previous.length);
+        for (const [i, p] of points.entries()) {
+          worst = Math.max(worst, Math.hypot(p.x - previous[i]!.x, p.y - previous[i]!.y));
+        }
+      }
+      previous = points;
+    }
+    expect(worst).toBeLessThan(2);
+    // And it does actually move — a frozen beam would trivially pass the line above.
+    expect(worst).toBeGreaterThan(0);
   });
 
   it("still draws a plain nested bar for a rect beam that asks for no bolt", () => {

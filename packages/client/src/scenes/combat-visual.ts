@@ -510,7 +510,13 @@ export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
     ],
     // 1.565 half-widths = 45 units at the shipped `width: 57.5`, which is 3.75% of its 1200 reach.
     domeScale: 1.565,
-    crackleHz: 14,
+    // 5, not the 14 this first shipped at. Even with the rolls interpolated, the per-frame motion of
+    // the envelope is LINEAR in this number — 14 Hz moved a vertex up to 4.96 units per rendered
+    // frame, which made the beam churn and, under a sweep, read as snapping rather than sweeping.
+    // 5 Hz holds it to 1.81 and still gives ~8 full re-rolls across lance's 1.7 s on screen, so the
+    // bolt is alive without boiling. Raising it is a real visual-quality decision, not a free knob:
+    // `combat-visual.test.ts` caps the per-frame motion, so a large increase fails the suite.
+    crackleHz: 5,
     charge: {
       minRadius: 2,
       // Tracks the beam's own 15% widening (T13: `hitbox.width` 20 -> 23), so the telegraph keeps
@@ -1218,9 +1224,27 @@ function rectPoints(
     return [put(0, -half), put(reach, -half), put(reach, half), put(0, half)];
   }
 
-  // Re-rolls `crackleHz` times a second; a fixed frame when the style asks for no animation.
-  const frame = Math.floor((Math.max(0, nowMs) / 1000) * Math.max(0, style.crackleHz ?? 0));
-  const seed = index * 7919 + frame * 104729;
+  // Re-rolls `crackleHz` times a second, INTERPOLATED between one roll and the next.
+  //
+  // Stepping straight to `floor(t * hz)` was a real bug, not a rough edge: it made the shape
+  // piecewise-constant, so at 14 Hz the envelope sat still for ~4 rendered frames and then moved 12
+  // units in one. On a stationary beam that is a twitch; on a sweeping one it lands on every fourth
+  // frame of a smooth rotation, and the whole beam reads as snapping rather than sweeping. Blending
+  // between consecutive rolls makes every vertex's motion continuous, which is what the eye is
+  // actually reading — `combat-visual.test.ts` pins the per-frame movement that proves it.
+  const phase = (Math.max(0, nowMs) / 1000) * Math.max(0, style.crackleHz ?? 0);
+  const roll = Math.floor(phase);
+  // Smoothstep rather than linear, so the crackle also has no velocity discontinuity at a roll
+  // boundary — linear blending is continuous in position but visibly kinks at each handover.
+  const u = phase - roll;
+  const blend = u * u * (3 - 2 * u);
+  const seedA = index * 7919 + roll * 104729;
+  const seedB = index * 7919 + (roll + 1) * 104729;
+  /** One noise sample, flowing from this roll to the next. */
+  const wave = (i: number, offset: number): number => {
+    const a = noise(i, seedA + offset);
+    return a + (noise(i, seedB + offset) - a) * blend;
+  };
 
   const near: { x: number; y: number }[] = [];
   const far: { x: number; y: number }[] = [];
@@ -1228,10 +1252,10 @@ function rectPoints(
     const t = i / BOLT_STATIONS;
     const along = start + (reach - start) * t;
     // Station 0 keeps the layer's nominal width so the shaft meets the dome exactly, with no notch.
-    const tear = i === 0 ? 0 : crackle * noise(i, seed) * (0.25 + 0.75 * noise(i >> 2, seed + 555));
+    const tear = i === 0 ? 0 : crackle * wave(i, 0) * (0.25 + 0.75 * wave(i >> 2, 555));
     const h = half * (1 - tear);
     // Bounded by the width the tear just freed, so drifting can never push an edge past `half`.
-    const drift = i === 0 ? 0 : (noise(i, seed + 31) - 0.5) * 2 * wander * (half - h);
+    const drift = i === 0 ? 0 : (wave(i, 31) - 0.5) * 2 * wander * (half - h);
     near.push(put(along, drift - h));
     far.push(put(along, drift + h));
   }
