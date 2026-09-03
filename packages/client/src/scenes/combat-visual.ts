@@ -340,6 +340,20 @@ export interface BeamLayer {
   crackle?: number;
   /** RECT beams only. How far this layer's centreline drifts off-axis, as a fraction of half-width. */
   wander?: number;
+  /**
+   * RECT beams only. This layer's own re-roll rate, overriding the style's `crackleHz`.
+   *
+   * Exists because how fast a layer may re-roll is set by how WIDE it tears, not by taste. A vertex
+   * moves, per rendered frame, in proportion to `crackle x rate` — so on `lance` the deep outer
+   * envelope costs 4.96 units/frame at 14 Hz while the shallow yellow layer costs 0.55 at the same
+   * rate. Forcing one rate on every layer therefore prices the whole beam at its widest tear, and
+   * the only way to keep it smooth is to flatten every layer including the cheap ones.
+   *
+   * Splitting the rate buys the flicker back for free: the fine detail runs fast because it is
+   * nearly weightless, the coarse silhouette drifts slowly because it is not. That is also how real
+   * lightning and fire read — coarse structure drifts, fine detail flickers.
+   */
+  crackleHz?: number;
 }
 
 /**
@@ -501,21 +515,21 @@ export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
    */
   lance: {
     layers: [
-      { extentScale: 1, crossScale: 1, tongues: 0, tongueDepth: 0, color: "#0356DC", crackle: 0.42, wander: 0.05 },
-      { extentScale: 1, crossScale: 0.7, tongues: 0, tongueDepth: 0, color: "#0AC6FD", crackle: 0.34, wander: 0.04 },
-      { extentScale: 1, crossScale: 0.34, tongues: 0, tongueDepth: 0, color: "#F0FF00", crackle: 0.14 },
+      // Rates rise as the tears get shallower — see `BeamLayer.crackleHz`. Measured cost per
+      // rendered frame at these settings: 1.81, 1.64 and 0.55 units. Flattening these to one rate
+      // would price the whole beam at the outer layer's 4.96 and force a 60% cut in tear depth.
+      { extentScale: 1, crossScale: 1, tongues: 0, tongueDepth: 0, color: "#0356DC", crackle: 0.42, wander: 0.05, crackleHz: 5 },
+      { extentScale: 1, crossScale: 0.7, tongues: 0, tongueDepth: 0, color: "#0AC6FD", crackle: 0.34, wander: 0.04, crackleHz: 8 },
+      { extentScale: 1, crossScale: 0.34, tongues: 0, tongueDepth: 0, color: "#F0FF00", crackle: 0.14, crackleHz: 14 },
       // The core: no crackle, no wander. This straight line is what reads as a laser; everything
       // outside it is the field around it tearing.
       { extentScale: 1, crossScale: 0.12, tongues: 0, tongueDepth: 0, color: "#FDFFE4" },
     ],
     // 1.565 half-widths = 45 units at the shipped `width: 57.5`, which is 3.75% of its 1200 reach.
     domeScale: 1.565,
-    // 5, not the 14 this first shipped at. Even with the rolls interpolated, the per-frame motion of
-    // the envelope is LINEAR in this number — 14 Hz moved a vertex up to 4.96 units per rendered
-    // frame, which made the beam churn and, under a sweep, read as snapping rather than sweeping.
-    // 5 Hz holds it to 1.81 and still gives ~8 full re-rolls across lance's 1.7 s on screen, so the
-    // bolt is alive without boiling. Raising it is a real visual-quality decision, not a free knob:
-    // `combat-visual.test.ts` caps the per-frame motion, so a large increase fails the suite.
+    // The fallback for a layer that names no rate of its own. Every one of lance's crackling layers
+    // does, so this only covers a layer added later without one — deliberately the slowest rate, so
+    // an unconsidered new layer is smooth by default rather than jumpy by default.
     crackleHz: 5,
     charge: {
       minRadius: 2,
@@ -1232,7 +1246,9 @@ function rectPoints(
   // frame of a smooth rotation, and the whole beam reads as snapping rather than sweeping. Blending
   // between consecutive rolls makes every vertex's motion continuous, which is what the eye is
   // actually reading — `combat-visual.test.ts` pins the per-frame movement that proves it.
-  const phase = (Math.max(0, nowMs) / 1000) * Math.max(0, style.crackleHz ?? 0);
+  // The layer's own rate when it sets one, else the style's. See `BeamLayer.crackleHz` for why a
+  // single rate across layers cannot work: the cost of a rate is set by how wide the layer tears.
+  const phase = (Math.max(0, nowMs) / 1000) * Math.max(0, layer.crackleHz ?? style.crackleHz ?? 0);
   const roll = Math.floor(phase);
   // Smoothstep rather than linear, so the crackle also has no velocity discontinuity at a roll
   // boundary — linear blending is continuous in position but visibly kinks at each handover.

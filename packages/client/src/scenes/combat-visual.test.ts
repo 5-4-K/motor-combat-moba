@@ -690,11 +690,28 @@ describe("lance beam layers", () => {
   });
 
   it("re-rolls the crackle over time, so the bolt is alive rather than a frozen jagged stripe", () => {
-    const at = (nowMs: number) => beamDrawLayers("lance", 0, 0, 0, REACH, 0, nowMs)[0]!.points;
-    const hz = WEAPON_BEAM_STYLES.lance!.crackleHz!;
-    expect(hz).toBeGreaterThan(0);
-    // A full period apart the envelope is materially different -- that is the whole point of it.
-    expect(at(1000 / hz).map((p) => p.y)).not.toEqual(at(0).map((p) => p.y));
+    const style = WEAPON_BEAM_STYLES.lance!;
+    for (const [i, layer] of style.layers.entries()) {
+      if (!layer.crackle) continue;
+      const hz = layer.crackleHz ?? style.crackleHz!;
+      expect(hz).toBeGreaterThan(0);
+      const at = (nowMs: number) => beamDrawLayers("lance", 0, 0, 0, REACH, 0, nowMs)[i]!.points;
+      // A full period apart, every crackling layer is materially different.
+      expect(at(1000 / hz).map((p) => p.y)).not.toEqual(at(0).map((p) => p.y));
+    }
+  });
+
+  it("runs the shallow layers faster than the deep ones, which is what buys the flicker", () => {
+    // The rate a layer may run at is set by how WIDE it tears, not by taste: per-frame motion goes
+    // as `crackle x rate`. So a deeper layer must run slower, or the whole beam is priced at the
+    // widest tear and every layer has to be flattened to pay for it. Ordering rather than exact
+    // values, so a re-tune of either is free as long as it keeps the relationship.
+    const crackling = WEAPON_BEAM_STYLES.lance!.layers.filter((l) => (l.crackle ?? 0) > 0);
+    expect(crackling.length).toBeGreaterThan(1);
+    for (let i = 1; i < crackling.length; i++) {
+      expect(crackling[i]!.crackle!).toBeLessThan(crackling[i - 1]!.crackle!);
+      expect(crackling[i]!.crackleHz!).toBeGreaterThan(crackling[i - 1]!.crackleHz!);
+    }
   });
 
   /**
@@ -710,16 +727,21 @@ describe("lance beam layers", () => {
    * quantised version produced and comfortably above what smooth interpolation needs, so it pins
    * the property (continuity) rather than a particular interpolation curve.
    */
-  it("moves the envelope continuously between frames, never in jumps", () => {
+  it("moves every layer continuously between frames, never in jumps", () => {
+    // Checked across ALL layers, not just the outermost: since the rates differ per layer, the
+    // fastest-moving one is no longer necessarily the widest. The yellow layer runs at 14 Hz.
     const FRAME_MS = 1000 / 60;
     let worst = 0;
-    let previous: { x: number; y: number }[] | null = null;
+    let previous: { x: number; y: number }[][] | null = null;
     for (let f = 0; f < 240; f++) {
-      const points = beamDrawLayers("lance", 0, 0, 0, REACH, 0, f * FRAME_MS)[0]!.points;
+      const layers = beamDrawLayers("lance", 0, 0, 0, REACH, 0, f * FRAME_MS);
+      const points = layers.map((l) => l.points);
       if (previous) {
-        expect(points).toHaveLength(previous.length);
-        for (const [i, p] of points.entries()) {
-          worst = Math.max(worst, Math.hypot(p.x - previous[i]!.x, p.y - previous[i]!.y));
+        for (const [L, layer] of points.entries()) {
+          expect(layer).toHaveLength(previous[L]!.length);
+          for (const [i, p] of layer.entries()) {
+            worst = Math.max(worst, Math.hypot(p.x - previous[L]![i]!.x, p.y - previous[L]![i]!.y));
+          }
         }
       }
       previous = points;

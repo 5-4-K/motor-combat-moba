@@ -83,7 +83,17 @@ the ORIGIN into `thumper`'s capsule head, and it is **carved out of the beam's l
 added behind the muzzle, which is why it needs no hitbox exception (the charge orb, sitting outside on
 the shooter's own car, remains the only one). And `crackleHz` re-rolls the tear off `performance.now()`
 — free, because `renderShots` rebuilds every polygon each frame regardless, but it means two live
-beams crackle in step and different clients see different frames. That is fine and deliberate: nothing
+beams crackle in step and different clients see different frames.
+
+**The rate is per LAYER, and that is not a convenience.** A vertex moves, per rendered frame, in
+proportion to `crackle × rate`, and a beam sweeping while its shape jumps reads as snapping rather
+than sweeping — the bug that shipped in the first cut, at 12.2 units of movement per frame. Two
+things hold it down: consecutive rolls are interpolated with a smoothstep, and each layer runs at the
+rate its own tear depth can afford (lance: 0.42 at 5 Hz, 0.34 at 8 Hz, 0.14 at 14 Hz, measuring 1.81
+/ 1.64 / 0.55 units per frame). Forcing one rate on every layer prices the whole beam at its widest
+tear and costs a 60% cut in depth to stay smooth. `combat-visual.test.ts` caps per-frame movement at
+2 units across every layer, so raising a rate or deepening a tear without re-checking the other fails
+the suite. That is fine and deliberate: nothing
 in the sim reads it, and `instanceGlowBands` already animates off the same clock. `beamDrawLayers`
 takes `nowMs` as a defaulted last parameter, so every other caller keeps drawing a frozen frame.
 
