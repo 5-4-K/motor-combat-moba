@@ -3,6 +3,29 @@ import { GameMode, TICK_RATE_HZ } from "@motor-combat-moba/shared";
 import { LegacyController, type BotIntent, type BotView } from "../src/bot/index.js";
 import { runMatch } from "./match.js";
 
+/**
+ * A stable digest of any JSON-safe value: recursively sort object keys, then `JSON.stringify` —
+ * the same technique `fingerprint.ts`'s `stableStringify` uses, kept local here rather than
+ * imported so this test file does not reach into that module's internals for a one-off. Two
+ * `MatchOutcome`s that digest identically are identical in every field, not just the three or four
+ * a hand-picked assertion happens to name (B43: "the same seed twice produces an identical stats
+ * digest" — this is that property, applied at the single-match level).
+ */
+function sortKeysDeep(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortKeysDeep);
+  if (value !== null && typeof value === "object") {
+    const source = value as Record<string, unknown>;
+    const sorted: Record<string, unknown> = {};
+    for (const key of Object.keys(source).sort()) sorted[key] = sortKeysDeep(source[key]);
+    return sorted;
+  }
+  return value;
+}
+
+function digest(value: unknown): string {
+  return JSON.stringify(sortKeysDeep(value));
+}
+
 const SETUP = {
   seats: [
     { sessionId: "a", carId: "mirage", team: 0 },
@@ -33,6 +56,20 @@ describe("runMatch", () => {
     expect(b.ticks).toBe(a.ticks);
     expect(b.winnerSessionId).toBe(a.winnerSessionId);
     expect(b.events.damaged.length).toBe(a.events.damaged.length);
+  });
+
+  it("produces a byte-identical outcome digest for the same seed (B43)", () => {
+    // The cheaper assertion above (ticks/winner/event COUNTS) would still pass if, say, damage
+    // amounts or event ordering diverged between the two runs — exactly the gap B43 calls out:
+    // "the same seed twice produces an identical stats digest" is a property of the FULL result,
+    // not of three or four hand-picked fields. Comparing the whole `MatchOutcome` (seats, every
+    // event, every field on every event) is what actually asserts that property.
+    const a = runMatch(SETUP);
+    const b = runMatch(SETUP);
+    const digestA = digest(a);
+    const digestB = digest(b);
+    expect(digestA.length).toBeGreaterThan(0); // sanity: the digest isn't vacuously comparing "{}"
+    expect(digestB).toBe(digestA);
   });
 
   it("differs between seeds", () => {
