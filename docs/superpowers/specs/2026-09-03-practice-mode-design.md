@@ -379,7 +379,8 @@ with no explanation — a worse experience than the ghost room the timeout exist
 
 `onCreate` queries practice listings and throws `ServerError(4007)` at or past
 `PRACTICE_CONFIG.maxConcurrentRooms` (default **6** — the game's own player ceiling, so no LAN
-scenario has more practicing humans than the match supports). Overridable by environment through the
+scenario has more practicing humans than the match supports; measured as a comfortable margin below
+where tick drift or CPU actually turn up, see Risk 2). Overridable by environment through the
 `getTickRateHz` / `getCarSelectSeconds` pattern already in `mode.ts`.
 
 Known and accepted: two simultaneous `onCreate` calls can both pass the check, the same race
@@ -448,10 +449,22 @@ widened playground guard), a docs-table row for this spec, plus `project-structu
 
 1. **The `ArenaScene` edit** is the only change to live match code. Mitigated by the room-name gate,
    and by the existing suites staying green without edits.
-2. **The concurrency cost is estimated, not measured.** Two cars per room is cheap in principle, but
-   nothing has been measured. The first implementation step is a throwaway measurement — N practice
-   rooms driven headlessly, watching tick lag — so PR29's default of 6 is chosen from data. If the
-   number is wildly different in either direction, PR29's default changes and this spec is amended.
+2. **The concurrency cost was estimated, then measured (2026-09-03).** N `colyseus.js` clients drove
+   N practice rooms headlessly (30 Hz input, real bot opponent) at N = 1, 3, 6, 12, with the cap
+   raised via `MAX_PRACTICE_ROOMS` for the run only. Two independent readings were taken: the
+   client-observed `state.tick` cadence (patch-rate limited, 20 Hz — the method the design expected
+   to use), and, to separate sim-loop drift from patch/network jitter, a temporary
+   `performance.now()` hook around every room's `setSimulationInterval` callback, added to the
+   **gitignored** server build only and never committed. Both agree: mean tick interval stays within
+   ~0.1 ms of the 33.33 ms target at every N, with no trend as N rises from 1 to 12 — occasional
+   single-tick spikes (35–65 ms) show up even at N=1, so they read as container scheduling noise, not
+   room-count-driven degradation. Server CPU (`/proc/<pid>/stat` utime+stime deltas) rose roughly
+   linearly and stayed light: ~4% at N=1, ~7-8% at N=3, ~7-8% at N=6, ~11-12% at N=12. Measured in a
+   containerized dev sandbox, not the host PC practice actually ships on — the absolute CPU% is not
+   representative of real hardware and the readings carry that container's own scheduling jitter, but
+   the flat-versus-N shape of both the tick-interval and CPU data is the useful result. Verdict: 6
+   holds the tick steady with room to spare; 12 stayed comfortable too in this environment. PR29's
+   default stays at 6 — a safety rail below the observed headroom, not a target raised to meet it.
 3. **Feature drift between practice and the playground.** They share a bot, a pipeline and a pause
    mechanism, and the temptation to unify them further will recur. PR2 is the answer: the playground
    exists to change the numbers, practice exists not to.

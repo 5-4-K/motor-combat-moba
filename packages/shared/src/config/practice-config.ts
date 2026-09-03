@@ -12,6 +12,12 @@ export const PRACTICE_CONFIG = {
    * How many practice rooms may exist at once on one process (PR29). Six is the game's own player
    * ceiling, so no LAN scenario has more practising humans than a match could seat. Overridable by
    * environment through `getMaxPracticeRooms` in the server's `mode.ts`.
+   *
+   * Measured 2026-09-03 (spec Risk 2), not just reasoned: N=1/3/6/12 concurrent rooms all held mean
+   * sim-tick interval within ~0.1 ms of the 33.33 ms target, and even N=12 stayed light on CPU in a
+   * containerized dev sandbox — so 6 is a safety rail with real headroom below it, not a number
+   * pushed up to chase capacity. Left at 6 on purpose; raise it only with a fresh measurement on the
+   * actual host, since a container's CPU numbers do not carry over to someone's LAN PC.
    */
   maxConcurrentRooms: 6,
 } as const;
