@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ArenaState, PlaygroundState } from "@motor-combat-moba/shared";
-import { controlledCarOf, isSimPaused } from "./controlled-car.js";
+import { ArenaState, PlaygroundState, PRACTICE_ROOM_NAME, ROOM_NAME } from "@motor-combat-moba/shared";
+import { controlledCarOf, isPracticeRoom, isSimPaused } from "./controlled-car.js";
 
 describe("controlledCarOf", () => {
   it("resolves a real match to the client's own session", () => {
@@ -41,5 +41,25 @@ describe("isSimPaused", () => {
     const state = new PlaygroundState();
     state.paused = true;
     expect(isSimPaused(state)).toBe(true);
+  });
+});
+
+// Placed here rather than in a `ui/screens/pause.test.ts` (spec PR22): the function these cases
+// pin lives in this module, beside `controlledCarOf` and `isSimPaused`, not in the screen it gates.
+describe("isPracticeRoom", () => {
+  it("is true for a practice room", () => {
+    expect(isPracticeRoom({ name: PRACTICE_ROOM_NAME })).toBe(true);
+  });
+
+  it("is false for the arena, so a real match can never open the menu", () => {
+    expect(isPracticeRoom({ name: ROOM_NAME })).toBe(false);
+  });
+
+  it("is false for the playground, which mounts its own overlay", () => {
+    expect(isPracticeRoom({ name: "playground" })).toBe(false);
+  });
+
+  it("is false when the room reports no name at all", () => {
+    expect(isPracticeRoom({ name: undefined })).toBe(false);
   });
 });

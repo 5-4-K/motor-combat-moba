@@ -1,14 +1,16 @@
-import type { ArenaState } from "@motor-combat-moba/shared";
+import { PRACTICE_ROOM_NAME, type ArenaState } from "@motor-combat-moba/shared";
 
 /**
- * "Which car am I driving?" and "is the world stopped?", answered for both room kinds at once.
+ * "Which car am I driving?", "is the world stopped?", and "is this a practice room?" — answered for
+ * every room kind at once (spec PG7, PG9, PR22).
  *
  * The dev-only playground (`PlaygroundState`) adds `controlledSessionId` and `paused` on top of
- * `ArenaState`; every shipped room state has neither. Both reads are therefore written as *optional*
- * field reads with a neutral answer, so a real match resolves to the client's own session and to
- * "not paused" without `ArenaScene` ever asking which room it is in (spec PG7, PG9). That is the
- * whole point of putting them here: the scene gets one seam instead of a room-kind branch at every
- * identity site, and the seam is a pure function this file's test can pin.
+ * `ArenaState`; the practice room's `PracticeState` adds `paused` too. Every shipped room state has
+ * neither, so the first two are written as *optional* field reads with a neutral answer — a real
+ * match resolves to the client's own session and to "not paused" without `ArenaScene` ever asking
+ * which room it is in. `isPracticeRoom` below is the one function here that deliberately breaks that
+ * pattern: see its own comment for why a room-kind check is the *safer* choice for the pause-menu
+ * gate specifically.
  */
 
 /** The session id of the car this client DRIVES. Base ArenaState has no controlledSessionId, so a
@@ -26,4 +28,13 @@ export function controlledCarOf(state: ArenaState, ownSessionId: string): string
  */
 export function isSimPaused(state: ArenaState): boolean {
   return (state as { paused?: boolean }).paused === true;
+}
+
+/**
+ * Is this a practice room (spec PR22)? Read off the room itself rather than a scene-set flag, which
+ * can go stale: practice, exit, then join a real match, and a flag nobody cleared would put a pause
+ * menu in a live match. The room's name cannot go stale.
+ */
+export function isPracticeRoom(room: { name?: string }): boolean {
+  return room.name === PRACTICE_ROOM_NAME;
 }

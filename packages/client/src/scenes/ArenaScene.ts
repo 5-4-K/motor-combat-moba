@@ -19,6 +19,7 @@ import {
   ManeuverKind,
   MAX_PLAYERS,
   MS_PER_TICK,
+  MSG_PRACTICE_PAUSE,
   PlayerStatus,
   muzzleOf,
   RoomPhase,
@@ -43,9 +44,10 @@ import { buildStepContext, localModifiers } from "../net/step-context.js";
 import { bindViewRouter } from "../net/view.js";
 import { ScreenOverlay } from "../ui/overlay.js";
 import { renderArenaMismatch } from "../ui/screens/arena-mismatch.js";
+import { renderPause } from "../ui/screens/pause.js";
 import { arenaMismatchMessage } from "./arena-mismatch.js";
 import { axisOf, drainTicks } from "./arena-input.js";
-import { controlledCarOf, isSimPaused } from "./controlled-car.js";
+import { controlledCarOf, isPracticeRoom, isSimPaused } from "./controlled-car.js";
 import { arenaBorderRect, arenaColorsOf } from "./arena-visual.js";
 import { fitsViewport } from "./arena-camera.js";
 import { assetManifest, assetsReady } from "./BootScene.js";
@@ -631,6 +633,21 @@ export class ArenaScene extends Phaser.Scene {
    */
   private lastPatchMs = 0;
   private mismatchOverlay: ScreenOverlay | undefined;
+  /** `P` inside a practice room only (spec PR22). Bound unconditionally in `create` like every other
+   *  key; every *read* of it is gated on `isPracticeRoom`, which is what actually keeps it inert in
+   *  a real match. */
+  private pauseKey: Phaser.Input.Keyboard.Key | undefined;
+  private pauseOverlay: ScreenOverlay | undefined;
+  /** Mirrors whether `pauseOverlay` is currently mounted, so `syncPauseOverlay` renders on a change
+   *  in `state.paused` and not on every patch while it holds steady. */
+  private pauseMenuShown = false;
+  /**
+   * Where `onLeave` routes after this room closes. Undefined resolves to "join", the room-close
+   * fallback every other exit from the arena already used; `exitPractice` (PR22/PR23) sets it to
+   * "practice-setup" just before leaving on purpose, so a deliberate Exit lands back on the settings
+   * screen instead of the join screen a kick or a dropped connection would show.
+   */
+  private exitTarget: string | undefined;
 
   /**
    * The weapon slot HUD: one Graphics for every box and glyph, a second Graphics for the cooldown
@@ -717,6 +734,7 @@ export class ArenaScene extends Phaser.Scene {
     this.driveKeys = this.bindDriveKeys();
     this.keys = this.bindKeys();
     this.slotKeys = this.bindSlotKeys();
+    this.pauseKey = this.bindPauseKey();
     // Slot 2 lives on the right mouse button, so the browser's context menu would otherwise open on
     // every shot. This is a listener on the game canvas, not scene state — it outlives the arena —
     // which is fine: no screen in this client offers anything on right-click.
@@ -857,6 +875,16 @@ export class ArenaScene extends Phaser.Scene {
     return SLOT_KEYS.map((slot) => slot.codes.map((code) => keyboard.addKey(code)));
   }
 
+  /**
+   * `P`, for the practice pause menu (spec PR22). `SLOT_KEYS` claims J/K/L and Space, and none of
+   * the drive or spectate bindings reach it either, so it is free. Bound here unconditionally, same
+   * as every other key this scene binds — `pumpPauseKey` and `bindRoom`'s `onState` are what gate
+   * its effect on `isPracticeRoom`, not this method.
+   */
+  private bindPauseKey(): Phaser.Input.Keyboard.Key | undefined {
+    return this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.P);
+  }
+
   private drawArena(arena: ArenaDef): void {
     const colors = arenaColorsOf(arena);
     const gfx = this.add.graphics().setDepth(ARENA_DEPTH);
@@ -960,13 +988,17 @@ export class ArenaScene extends Phaser.Scene {
       this.syncMatchHud();
       this.reconcileLocal(room);
       this.pushRemoteSnapshots(room);
+      this.syncPauseOverlay(room);
     };
     room.onStateChange(onState);
     this.unbind.push(() => room.onStateChange.remove(onState));
 
     const onLeave = (): void => {
       this.registry.remove("room");
-      this.scene.start("join");
+      // `exitTarget` is set just before a deliberate `room.leave()` from the pause menu's Exit
+      // button (spec PR22/PR23); every other way this fires — kicked, dropped connection, the
+      // server closing the room — leaves it unset, so those keep landing on "join" as before.
+      this.scene.start(this.exitTarget ?? "join");
     };
     room.onLeave(onLeave);
     this.unbind.push(() => room.onLeave.remove(onLeave));
@@ -1052,6 +1084,7 @@ export class ArenaScene extends Phaser.Scene {
     this.driveKeys = undefined;
     this.keys = undefined;
     this.slotKeys = undefined;
+    this.pauseKey = undefined;
     this.prediction = new PredictionBuffer();
     this.predicted = undefined;
     this.predictedPrev = undefined;
@@ -1063,6 +1096,12 @@ export class ArenaScene extends Phaser.Scene {
     this.lastPatchMs = 0;
     this.mismatchOverlay?.destroy();
     this.mismatchOverlay = undefined;
+    this.pauseOverlay?.destroy();
+    this.pauseOverlay = undefined;
+    this.pauseMenuShown = false;
+    // Cleared on every entry, not just after a deliberate Exit: a stale target here would send some
+    // LATER real match's kick or dropped connection to "practice-setup" instead of "join".
+    this.exitTarget = undefined;
     this.impacts = newImpactTracker();
   }
 
@@ -1076,6 +1115,7 @@ export class ArenaScene extends Phaser.Scene {
     if (!room || !this.arena) return;
 
     this.syncMatchHud();
+    this.pumpPauseKey(room);
     this.pumpInput(room, delta);
     this.updateSpectate(room, delta);
     this.renderCars(room, delta);
@@ -1109,6 +1149,54 @@ export class ArenaScene extends Phaser.Scene {
     const { accMs, ticks } = drainTicks(this.inputAccumulatorMs, delta);
     this.inputAccumulatorMs = accMs;
     for (let i = 0; i < ticks; i++) this.sendInputTick(room);
+  }
+
+  /**
+   * `P`, sent as the toggle `MSG_PRACTICE_PAUSE` message and nothing else (spec PR22/PR23). No local
+   * state changes here — `syncPauseOverlay` is what shows the menu, and only once the server's own
+   * `state.paused` comes back in a patch, so the player is never looking at a menu the sim has not
+   * actually stopped for yet.
+   */
+  private pumpPauseKey(room: Room<ArenaState>): void {
+    if (!this.pauseKey || !isPracticeRoom(room)) return;
+    if (Phaser.Input.Keyboard.JustDown(this.pauseKey)) {
+      room.send(MSG_PRACTICE_PAUSE);
+    }
+  }
+
+  /**
+   * Mounts or clears the pause menu from `state.paused`, the only source it is allowed to read (spec
+   * PR23) — never the keypress that requested the toggle. Gated on `isPracticeRoom` here too, not
+   * just at the key: `PlaygroundState` carries the same `paused` field for its own overlay, and a
+   * gate on the field alone would stack this menu on top of that one in a playground session.
+   */
+  private syncPauseOverlay(room: Room<ArenaState>): void {
+    if (!isPracticeRoom(room)) return;
+    const paused = isSimPaused(room.state);
+    if (paused === this.pauseMenuShown) return;
+    this.pauseMenuShown = paused;
+    if (paused) {
+      this.pauseOverlay ??= new ScreenOverlay(this);
+      this.pauseOverlay.render(
+        renderPause({
+          onResume: () => room.send(MSG_PRACTICE_PAUSE),
+          onExit: () => this.exitPractice(room),
+        }).root,
+      );
+    } else {
+      this.pauseOverlay?.destroy();
+      this.pauseOverlay = undefined;
+    }
+  }
+
+  /**
+   * Exit, from the pause menu (spec PR22/PR23). PLACEHOLDER: Task 13 routes this through
+   * `PracticeSummaryScene` instead — a snapshot-then-leave that shows the session's stats before
+   * returning to setup. Until that scene exists, leave the room and land straight back on it.
+   */
+  private exitPractice(room: Room<ArenaState>): void {
+    this.exitTarget = "practice-setup";
+    void room.leave();
   }
 
   /**
