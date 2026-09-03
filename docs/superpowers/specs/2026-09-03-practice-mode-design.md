@@ -455,10 +455,14 @@ widened playground guard), a docs-table row for this spec, plus `project-structu
    client-observed `state.tick` cadence (patch-rate limited, 20 Hz — the method the design expected
    to use), and, to separate sim-loop drift from patch/network jitter, a temporary
    `performance.now()` hook around every room's `setSimulationInterval` callback, added to the
-   **gitignored** server build only and never committed. Both agree: mean tick interval stays within
-   ~0.1 ms of the 33.33 ms target at every N, with no trend as N rises from 1 to 12 — occasional
-   single-tick spikes (35–65 ms) show up even at N=1, so they read as container scheduling noise, not
-   room-count-driven degradation. Server CPU (`/proc/<pid>/stat` utime+stime deltas) rose roughly
+   **gitignored** server build only and never committed. The two agree on **shape**, not on absolute
+   value: a client can only observe `state.tick` at the 20 Hz patch boundary, so its reading is
+   aliased by the patch rate and came back around ~37.4 ms, not comparable to the 33.33 ms sim-tick
+   target. Only the server-side instrumented reading measures the actual sim loop, and it is the one
+   that stays within ~0.1 ms of that target at every N. What both readings agree on is the trend: flat
+   as N rises from 1 to 12 with no room-count-driven degradation — occasional single-tick spikes
+   (35–65 ms) show up even at N=1, so they read as container scheduling noise, not room-count-driven
+   degradation. Server CPU (`/proc/<pid>/stat` utime+stime deltas) rose roughly
    linearly and stayed light: ~4% at N=1, ~7-8% at N=3, ~7-8% at N=6, ~11-12% at N=12. Measured in a
    containerized dev sandbox, not the host PC practice actually ships on — the absolute CPU% is not
    representative of real hardware and the readings carry that container's own scheduling jitter, but

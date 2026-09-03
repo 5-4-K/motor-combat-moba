@@ -20,6 +20,34 @@ Colyseus `@type` fields. Enums are explicit uint8; never renumber. `pendingCarId
 | `players` | map `PlayerState` | empty | Keyed by sessionId |
 | `weapons` | map `WeaponInstanceState` | empty | Live projectile and beam instances, keyed by instance id |
 
+## PracticeState
+
+`packages/shared/src/schema/PracticeState.ts` — `ArenaState` plus exactly one field.
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `paused` | boolean | `false` | The sim is frozen. `PracticeRoom.tick()` returns before incrementing `tick` while this is true |
+
+Additive only, and deliberately minimal: `PracticeRoom` reuses `ArenaScene`, which decodes this
+state with the ordinary `ArenaState` reader, so nothing here may renumber or shadow a field
+`ArenaState` already ships. The omissions matter as much as the one field kept:
+
+- No `controlledSessionId` (`PlaygroundState` has one). The player always drives their own car —
+  there is no control-routing feature in practice — so `controlledCarOf` resolves through its
+  absent-field path exactly as a real match does.
+- No `tuningJson`. Practice never calls `setTuning`; there is nothing to carry.
+- No `botEnabled`. There is always exactly one bot — the room's second car — so the flag has no
+  second state to encode.
+- No `botDifficulty`. The player's choice at the settings screen is resolved once, server-side, at
+  room creation (`onCreate` reads it off the join options); networking it would only be a second
+  source of a truth nothing on the wire reads.
+
+`isSimPaused` (`packages/client/src/scenes/controlled-car.ts`) duck-types off a bare `ArenaState`
+rather than off `PracticeState` or `PlaygroundState` specifically, which is what lets one predicate
+cover a paused playground **and** a paused practice session: a real match's state has no `paused`
+field at all, so the check is always false there. See root `CLAUDE.md` and
+[`docs/superpowers/specs/2026-09-03-practice-mode-design.md`](superpowers/specs/2026-09-03-practice-mode-design.md).
+
 ## PlayerState
 
 | Field | Type | Default | Notes |

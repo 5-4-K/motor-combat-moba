@@ -18,6 +18,7 @@ rather than built on demand, so editing any of them means `npm run build:manual`
 | `SIM_LATENCY_MS` | latency injector | `0` |
 | `SIM_JITTER_MS` | latency injector | `0` |
 | `CLIENT_ORIGIN` | server CORS (Vite) | unset; `npm run dev` sets `http://localhost:5173` |
+| `MAX_PRACTICE_ROOMS` | server `mode.ts` (`getMaxPracticeRooms`) | `PRACTICE_CONFIG.maxConcurrentRooms` (`6`) |
 
 Canonical sim rate is `TICK_RATE_HZ` in `@motor-combat-moba/shared`. Patch rate is `DEFAULT_PATCH_RATE_HZ` (20), not an env knob.
 
@@ -727,6 +728,30 @@ delay being indefinite.
 | `reconcileSnapAngle` | 0.6 |
 | `reconcileEaseRate` | 0.25 |
 | `interpolationDelayMs` | 50 |
+
+## PRACTICE_CONFIG
+
+`packages/shared/src/config/practice-config.ts`. Not balance — these three knobs bound what one host
+PC spends on sandboxes nobody is sitting at, not what a player experiences in a session.
+
+| Knob | Value | Notes |
+|---|---|---|
+| `idleTimeoutSeconds` | 300 | Wall-clock seconds without an input before `PracticeRoom` closes itself |
+| `idleWarningSeconds` | 60 | Seconds of that timeout remaining when the client is warned (`MSG_PRACTICE_IDLE_WARNING`) |
+| `maxConcurrentRooms` | 6 | How many practice rooms one server process will host at once; overridable by `MAX_PRACTICE_ROOMS` (see Env knobs above) |
+
+`maxConcurrentRooms` defaults to 6 — the game's own player ceiling, so no LAN scenario has more
+practising humans than a match could seat — not a number pushed up to chase capacity: N=1/3/6/12
+concurrent rooms were measured (2026-09-03) and all held mean sim-tick interval within ~0.1 ms of the
+33.33 ms target, with CPU rising roughly linearly and staying light even at N=12 in a containerized
+dev sandbox. See
+[`docs/superpowers/specs/2026-09-03-practice-mode-design.md`](superpowers/specs/2026-09-03-practice-mode-design.md#risks)
+(Risk 2) for the full measurement, including why the client-side reading of that same run reads a
+different absolute number.
+
+Both timeouts are read against wall-clock time, deliberately not sim ticks: `paused` freezes
+`ArenaState.tick`, so a tick-based idle counter would never advance for a paused room — exactly the
+session most worth reaping.
 
 ## Tuning store (dev-only)
 

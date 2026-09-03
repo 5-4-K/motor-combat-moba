@@ -72,6 +72,17 @@ rating, and no replacement guard was adopted — see
 `golden.test.ts` pin the drive integration against a frozen fixture through every future balance
 edit — see [`docs/config-reference.md`](docs/config-reference.md#drive_config).
 
+**Practice mode ships; the playground does not.** `PracticeRoom` is a third room type registered on
+every server with no `DEV_TOOLS` gate — a player-facing 1v1 against a bot, reached from the join
+screen's Practice button. It runs `runPipeline` and the deathmatch respawn helpers verbatim, pins
+`phase` to `MATCH` with `mode = FFA_DEATHMATCH` and `matchEndsTick` at 0 (which is what hides the
+clock and keeps the kills panel), and **never calls `setTuning`** — the store is process-wide, so a
+practice room that touched it would re-balance every other room in the process. The mirror image of
+that rule is `shouldRefusePlayground`, which refuses to open a playground while an arena **or a
+practice room** has anyone in it. Settings ride as join options, not messages: practice has no
+mid-session reconfiguration. See
+[`docs/superpowers/specs/2026-09-03-practice-mode-design.md`](docs/superpowers/specs/2026-09-03-practice-mode-design.md).
+
 ## Hard invariants
 
 1. `TICK_RATE_HZ` lives once in `@motor-combat-moba/shared`.
@@ -113,6 +124,7 @@ edit — see [`docs/config-reference.md`](docs/config-reference.md#drive_config)
 | Status (buff/debuff) decisions: channels, re-apply rules, clamps, pulses, auras, the application seams | [`docs/superpowers/specs/2026-08-29-status-mechanism-design.md`](docs/superpowers/specs/2026-08-29-status-mechanism-design.md) |
 | FFA Deathmatch: the second win condition, kill attribution, respawn and spawn-protection lifecycle, the `isOnField`/`isSolid` split (M1–M33) | [`docs/superpowers/specs/2026-09-01-ffa-game-modes-design.md`](docs/superpowers/specs/2026-09-01-ffa-game-modes-design.md) |
 | The dev-only playtest playground: `?dev=playground`, the extracted tick pipeline, the runtime tuning store, `isActive`, the bot, persistence/export (PG1–PG23); bot difficulty profiles, per-car colour selection, the settings-panel relayout, and the `?dev=assets` additions (PG24–PG40) | [`docs/superpowers/specs/2026-09-01-playtest-playground-design.md`](docs/superpowers/specs/2026-09-01-playtest-playground-design.md), [`docs/superpowers/specs/2026-09-02-playground-usability-and-bot-difficulty-design.md`](docs/superpowers/specs/2026-09-02-playground-usability-and-bot-difficulty-design.md) |
+| Practice mode: the shipped 1v1-vs-bot room, its settings page, session limits (PR1–PR31) | [`docs/superpowers/specs/2026-09-03-practice-mode-design.md`](docs/superpowers/specs/2026-09-03-practice-mode-design.md) |
 | The user's own idea / invariant notes | `docs/ideas/`, `docs/invariants/` — **off limits unless the user names them**, see below |
 
 ## `docs/ideas/` and `docs/invariants/` are the user's, not the agent's
