@@ -287,10 +287,21 @@ export function aggregate(outcomes: readonly MatchOutcome[]): {
       if (derived) weaponDerivedDamage.set(weaponId, (weaponDerivedDamage.get(weaponId) ?? 0) + event.amount);
     }
     for (const event of outcome.events.killed) {
+      // `totalKills` feeds `pace.killsPerMinute` — the headline pace number, and deliberately a
+      // count of every kill the match RECORDED, not just the ones a weapon could be pinned on.
+      // `weaponKills` is a different, narrower count (kills attributable to a specific weapon for
+      // the per-weapon table) and correctly skips an unattributable kill. Today the only way a kill
+      // reaches here with `weaponId === null` is a damaging status pulse with zero or more-than-one
+      // applier (`overheated` currently has exactly one, `afterburner` — see attribution.ts's
+      // header), but that is a fact about today's STATUS_TABLE, not a guarantee: a future damaging
+      // pulse with a different applier count would silently vanish from `killsPerMinute` if this
+      // counter lived inside the same `if` as `weaponKills`. Counting here, before the
+      // attribution-only `continue`, keeps the two counters' denominators deliberately different: one
+      // counts kills, the other counts kills a weapon can claim credit for.
+      totalKills += 1;
       const { weaponId } = attributeSource(event.source, appliers);
       if (weaponId === null) continue;
       weaponKills.set(weaponId, (weaponKills.get(weaponId) ?? 0) + 1);
-      totalKills += 1;
     }
 
     // Pace: first blood is the earliest kill tick in the match, if any car died at all.

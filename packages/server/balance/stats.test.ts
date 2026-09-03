@@ -212,6 +212,34 @@ describe("aggregate: draws credit no winner (Task 15 gap: multi-survivor stalema
   });
 });
 
+describe("aggregate: pace counts every kill, attributable or not (fix round 3, defect 3)", () => {
+  it("counts an unattributable kill in killsPerMinute even though no weapon can claim it", () => {
+    // `stunned` has two appliers (`thunderclap` and `roadblock`), so `attributeSource` refuses to
+    // guess and returns `weaponId: null` for it — the correct, honest call for `weaponKills`. Before
+    // the fix, `totalKills` was incremented inside the same `if (weaponId === null) continue` guard
+    // as `weaponKills`, so this kill vanished from `killsPerMinute` too, even though the match log
+    // genuinely recorded a kill.
+    const out = aggregate([
+      synthetic({
+        killed: [
+          {
+            tick: 30,
+            victimSessionId: "b",
+            victimCarId: "bastion",
+            killerSessionId: "a",
+            killerCarId: "mirage",
+            source: { kind: "pulse", statusId: "stunned", sourceSessionId: "a" },
+          },
+        ],
+      }),
+    ]);
+    // No weapon can claim credit for this kill...
+    expect(out.weapons.every((w) => w.kills === 0)).toBe(true);
+    // ...but the match still recorded one, and pace must say so.
+    expect(out.pace.killsPerMinute).toBeGreaterThan(0);
+  });
+});
+
 describe("aggregate: car stats", () => {
   it("computes phasedFraction as phased ticks over alive ticks (B28a)", () => {
     const out = aggregate([
