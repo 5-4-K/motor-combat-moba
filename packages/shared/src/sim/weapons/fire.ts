@@ -48,11 +48,23 @@ export interface PendingFire {
   /**
    * Identity of the press this pending shot belongs to (B7). Sim-only, never networked.
    *
-   * `sessionId#tick#slot`, and it needs no counter: `beginFire` returns early when a press is
-   * already pending, so at most one press commits per player per tick. Frozen here and carried onto
-   * every instance the press spawns, which is what makes press-to-damage attribution exact rather
-   * than a correlation window — the difference that matters most for a lingering `lance` beam, an
-   * attached `afterburner` cone, and a bursting `pepperbox`.
+   * `sessionId#tick#slot`, and it needs no counter — but the reason that triple is actually unique
+   * is call discipline, not the `if (state.pending) return state` guard at the top of `beginFire`.
+   * That guard only stops a SECOND call in the same tick from re-committing over an
+   * already-pending press when it is threaded the state the FIRST call just returned; it does
+   * nothing to stop two calls that are each handed their own stale, not-yet-pending copy of
+   * `state` (or two calls from two different call sites) from picking the same `sessionId`, the
+   * same `tick`, and — since a mask collision is entirely possible — the same `slot`, and minting
+   * the identical `pressId` twice. What actually makes the triple unique is that `runCombat`
+   * (`sim/combat.ts`) is the ONLY production call site, and it calls `beginFire` exactly once per
+   * player per tick, threading each player's own `FireState` through in sequence. A future second
+   * call site — a playground shortcut, a debug replay, anything that calls `beginFire` again for a
+   * session/tick pair `runCombat` already processed — would collide two unrelated presses onto one
+   * `pressId` and silently merge their hit-rate and damage-attribution statistics rather than error.
+   * Frozen here and carried onto every instance the press spawns, which is what makes
+   * press-to-damage attribution exact rather than a correlation window — the difference that
+   * matters most for a lingering `lance` beam, an attached `afterburner` cone, and a bursting
+   * `pepperbox`.
    */
   pressId: string;
 }
