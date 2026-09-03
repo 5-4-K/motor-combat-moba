@@ -45,18 +45,19 @@ export class LegacyController implements BotController {
     const target = this.pickTarget(view);
     this.target = target?.sessionId;
 
-    // A dead or absent target is no target: coast rather than chase a wreck's last pose, and drop
-    // the hold so the bot reacts the instant one reappears instead of waiting out its cadence.
-    if (!target) {
-      this.held = undefined;
-      return COAST;
-    }
+    // A dead or absent target clears the hold but does NOT skip the recompute below: `botInput`
+    // answers a null target with all-zeros, so the tick still ENDS with a defined, zero-valued
+    // intent — that is what the old room code did, and it matters on the tick a target returns.
+    // A defined hold means `shouldRecomputeIntent` applies the cadence gate below, so the bot
+    // takes up to `reactionTicks - 1` ticks to re-engage instead of pouncing the instant a target
+    // respawns (which fires on every Deathmatch/Practice respawn, not rarely).
+    if (!target) this.held = undefined;
 
     if (shouldRecomputeIntent(view.tick, this.profile.reactionTicks, this.held !== undefined)) {
       const raw = botInput(
         0, // `seq` belongs to the host; `botInput` only echoes it, and the controller discards it
         { x: view.self.x, y: view.self.y, angle: view.self.angle },
-        { x: target.x, y: target.y, angle: target.angle },
+        target ? { x: target.x, y: target.y, angle: target.angle } : null,
         view.self.slots.map((slot) => slot.range),
         this.profile,
       );

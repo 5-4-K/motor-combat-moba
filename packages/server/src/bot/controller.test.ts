@@ -115,6 +115,23 @@ describe("LegacyController (B22)", () => {
     expect(bot.currentTargetSessionId).toBe("far");
   });
 
+  it("keeps the cadence gate through a dead-target dip on easy's 9-tick cadence", () => {
+    // Pins the fix-round-1 fix: a dead target must clear the hold WITHOUT skipping the recompute
+    // below it, because `botInput(..., null, ...)` answers with a defined, all-zero intent — the
+    // same thing the old room code produced by falling through rather than early-returning. If the
+    // hold were left `undefined` instead, `shouldRecomputeIntent` would see no held intent on the
+    // tick the target reappears and recompute immediately, bypassing the cadence gate the profile
+    // exists to enforce (most visibly right after a Deathmatch/Practice respawn).
+    const bot = new LegacyController("easy", { targetSessionId: "p2" }); // reactionTicks: 9
+    bot.decide(viewAt(9, { targetAlive: false })); // target dies; held becomes defined, zero-valued
+    bot.decide(viewAt(10, { targetAlive: false })); // still dead
+    // Target reappears on tick 11 — NOT a multiple of 9 — at a pose that would steer hard if
+    // recomputed. A held, defined intent means the cadence gate still applies: the bot coasts.
+    const revived = bot.decide(viewAt(11, { targetX: -500 }));
+    expect(revived.steer).toBe(0);
+    expect(revived.throttle).toBe(0);
+  });
+
   it("reproduces botInput exactly for the same pose and profile", () => {
     const bot = new LegacyController("medium", { targetSessionId: "p2" });
     const view = viewAt(1, { targetX: 300 });
