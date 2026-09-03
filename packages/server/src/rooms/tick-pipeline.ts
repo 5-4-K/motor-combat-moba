@@ -15,6 +15,7 @@ import {
   isSolid,
   carIdOf,
   type ArenaState,
+  type CombatEvents,
   type InputMessage,
   type PlayerState,
 } from "@motor-combat-moba/shared";
@@ -66,6 +67,13 @@ export interface PipelineCtx {
    * needs the phased spawn-protection lifecycle without being a deathmatch.
    */
   runPhaseSweep: boolean;
+  /**
+   * Opt-in combat observation sink (B3), forwarded verbatim to `runCombat`'s own `events` field.
+   * `undefined` for every live room today, which is what makes this addition free for them: an
+   * absent sink allocates nothing and `runCombat` behaves exactly as before. Only the balance harness
+   * passes one, to log what a headless match actually did.
+   */
+  events?: CombatEvents;
 }
 
 /**
@@ -151,6 +159,7 @@ function combatTick(
     instanceSeq: ctx.combat.instanceSeq,
     contactHits: contact.contactHits,
     statusRequests: contact.statusRequests,
+    events: ctx.events,
   });
 
   applyCombatResult(state, result, ctx.combat);
