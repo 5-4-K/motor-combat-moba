@@ -2,11 +2,26 @@
  * Two short, stable fingerprints over the balance-relevant config, so a report printed today stays
  * interpretable months from now.
  *
- * `configFingerprint` covers everything `stepSim` and `runCombat` read that a tuning pass could
- * touch — `WEAPON_TABLE`, `CAR_TABLE`, `COMBAT_CONFIG`, `DRIVE_CONFIG`, `STATUS_TABLE` — and
- * `botFingerprint` covers `BOT_PROFILES` separately, because a bot retune and a balance retune are
- * different edits with different implications for whether an old report is still comparable to a
- * new one (Task 20's baseline guard refuses a comparison across either).
+ * `configFingerprint` covers every config `stepSim`, `runCombat`, the contact/ram pass, and the
+ * deathmatch respawn/phase pipeline this harness itself drives (`runPipeline`, `respawnSweep`) read
+ * that a tuning pass could touch: `WEAPON_TABLE`, `CAR_TABLE`, `COMBAT_CONFIG`, `DRIVE_CONFIG`,
+ * `STATUS_TABLE`, `RAM_CONFIG`, `SLAM_CONFIG`, `AIM_CONFIG`, `WEAPON_SLOT_CONFIG`,
+ * `DEATHMATCH_CONFIG`, `TICK_RATE_HZ`, and every registered arena (`ARENAS` — `assignSpawns` reads
+ * an arena's spawn points directly, and its obstacles feed `stepSim`). `botFingerprint` covers
+ * `BOT_PROFILES` separately, because a bot retune and a balance retune are different edits with
+ * different implications for whether an old report is still comparable to a new one (Task 20's
+ * baseline guard refuses a comparison across either).
+ *
+ * **This list is not derived from anything — it is hand-maintained, and it must be kept in sync by
+ * hand.** A config added later (a new `*_CONFIG` table, a new arena, a new tick-derived constant)
+ * that the sim or this harness's own pipeline reads is invisible to `configFingerprint` until it is
+ * added to the object below. Miss one and `--baseline` silently stops doing its job for exactly that
+ * knob: two runs that actually measured different games will report `ok`, the Deltas table will
+ * render, and every number in it will be misattributed to whatever the reader thought they changed
+ * (see finding 2 in the 2026-09-03 review — this is the failure mode that motivated writing this
+ * paragraph out in full). Deliberately NOT covered: `NET_CONFIG` (patch rate, not read by the sim),
+ * `FLOW_CONFIG` (lobby/countdown, never reached — a match starts already in `RoomPhase.MATCH`), and
+ * `PRACTICE_CONFIG` (only `PracticeRoom`, which this harness never runs).
  *
  * Hashed WHOLE, following the precedent `balanceStamp` (`scripts/build-cars-and-weapons.mjs`) set
  * for the manual page — any field of any row counts, not just the ones this file's author thought
@@ -18,7 +33,20 @@
  * keeping this module as small as what it does.
  */
 import { BOT_PROFILES } from "../src/config/bot-profiles.js";
-import { CAR_TABLE, COMBAT_CONFIG, DRIVE_CONFIG, STATUS_TABLE, WEAPON_TABLE } from "@motor-combat-moba/shared";
+import {
+  AIM_CONFIG,
+  ARENAS,
+  CAR_TABLE,
+  COMBAT_CONFIG,
+  DEATHMATCH_CONFIG,
+  DRIVE_CONFIG,
+  RAM_CONFIG,
+  SLAM_CONFIG,
+  STATUS_TABLE,
+  TICK_RATE_HZ,
+  WEAPON_SLOT_CONFIG,
+  WEAPON_TABLE,
+} from "@motor-combat-moba/shared";
 
 // FNV-1a 32-bit constants (the standard offset basis and prime for the 32-bit variant). Named
 // rather than inlined so a reader does not have to recognize the magic numbers as a well-known
@@ -63,10 +91,26 @@ function stableStringify(value: unknown): string {
   return JSON.stringify(sortKeysDeep(value));
 }
 
-/** Fingerprint over `WEAPON_TABLE`, `CAR_TABLE`, `COMBAT_CONFIG`, `DRIVE_CONFIG` and `STATUS_TABLE`,
- * whole. Changes whenever any balance-relevant config field changes, however small. */
+/** Fingerprint over every table named in this module's header comment, whole. Changes whenever any
+ * balance-relevant config field changes, however small. Keep the object below and the header
+ * comment's list in sync — see that comment for what "in sync" costs if it drifts. */
 export function configFingerprint(): string {
-  return fnv1aHex(stableStringify({ WEAPON_TABLE, CAR_TABLE, COMBAT_CONFIG, DRIVE_CONFIG, STATUS_TABLE }));
+  return fnv1aHex(
+    stableStringify({
+      WEAPON_TABLE,
+      CAR_TABLE,
+      COMBAT_CONFIG,
+      DRIVE_CONFIG,
+      STATUS_TABLE,
+      RAM_CONFIG,
+      SLAM_CONFIG,
+      AIM_CONFIG,
+      WEAPON_SLOT_CONFIG,
+      DEATHMATCH_CONFIG,
+      TICK_RATE_HZ,
+      ARENAS,
+    }),
+  );
 }
 
 /** Fingerprint over `BOT_PROFILES`, whole and separate from `configFingerprint` — a bot retune and

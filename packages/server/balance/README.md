@@ -172,9 +172,12 @@ experiment, which is a weaker claim.
 `--baseline=<dir>` reads that directory's `run.json` and adds a "Deltas vs baseline" table to
 `summary.md`, and it **refuses to run** — before simulating a single match — if:
 
-- the **config fingerprint** differs (anything in `WEAPON_TABLE`, `CAR_TABLE`, `COMBAT_CONFIG`,
-  `DRIVE_CONFIG` or `STATUS_TABLE` changed between the two runs, i.e. this genuinely is not the
-  isolated one-number edit it needs to be), or
+- the **config fingerprint** differs (anything the sim or this harness's own match/respawn pipeline
+  reads — `WEAPON_TABLE`, `CAR_TABLE`, `COMBAT_CONFIG`, `DRIVE_CONFIG`, `STATUS_TABLE`, `RAM_CONFIG`,
+  `SLAM_CONFIG`, `AIM_CONFIG`, `WEAPON_SLOT_CONFIG`, `DEATHMATCH_CONFIG`, `TICK_RATE_HZ`, or any
+  registered arena — changed between the two runs, i.e. this genuinely is not the isolated
+  one-number edit it needs to be; `fingerprint.ts`'s header comment is the source of truth for the
+  exact list), or
 - the **bot fingerprint** differs (`BOT_PROFILES` changed — the delta could be a bot retune, not a
   balance change), or
 - `--shape` or `--mode` differs (a duel win rate and an FFA win rate are not the same quantity).

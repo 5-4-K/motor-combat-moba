@@ -45,8 +45,8 @@ export function checkComparable(current: RunRecord, baseline: RunRecord): Compar
     fatal = true;
     reasons.push(
       `config fingerprint differs (this run: ${current.fingerprints.config}, baseline: ` +
-        `${baseline.fingerprints.config}) — the two runs measured different games (WEAPON_TABLE, ` +
-        `CAR_TABLE, COMBAT_CONFIG, DRIVE_CONFIG or STATUS_TABLE changed between them)`,
+        `${baseline.fingerprints.config}) — the two runs measured different games (see ` +
+        `fingerprint.ts's header comment for the full list of what this covers)`,
     );
   }
   if (current.fingerprints.bot !== baseline.fingerprints.bot) {
