@@ -23,11 +23,13 @@
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { GameMode } from "@motor-combat-moba/shared";
+import { GameMode, type CarId, type WeaponId } from "@motor-combat-moba/shared";
 import { BOT_PROFILES, type BotProfile } from "../src/config/bot-profiles.js";
+import { deriveSeed } from "../src/bot/rng.js";
+import type { MatchOutcome } from "./match.js";
 import type { RunConfig } from "./runner.js";
 import type { CarStats, Interval, MatchupCell, PaceStats, WeaponStats } from "./stats.js";
-import { wilson } from "./stats.js";
+import { aggregate, wilson } from "./stats.js";
 
 export interface RunRecord {
   config: RunConfig;
@@ -340,11 +342,17 @@ function renderSummaryMarkdown(record: RunRecord, baseline?: RunRecord): string 
 }
 
 // ---- CSVs -----------------------------------------------------------------------------------
-// `RunRecord` carries `aggregate()`'s OUTPUT — one row per car and one row per weapon for the
-// whole run, not one row per match — so that is what these two files hold: an aggregated summary
-// per car and per weapon, the same rows `summary.md`'s tables render, in a form a spreadsheet can
-// load. (`RunRecord` has no per-match outcomes to expand into a true one-row-per-match CSV; only
-// the CLI driving `runAll` sees those, and Task 19 does not own the CLI.)
+// One row per CAR PER MATCH (`matches.csv`) and one row per WEAPON PER MATCH (`weapons.csv`) —
+// deliberately NOT the aggregated per-car/per-weapon summary `summary.md`'s tables already show in
+// prettier form (Task 20 B38). A mean has no distribution behind it: a chassis that either
+// dominates or gets crushed, never in between, reads identically to a genuinely balanced one on a
+// mean alone. The CSV is what lets a reader compute their own aggregations, look at the spread
+// rather than the average, and find the one outlier match a summary table would smooth away.
+//
+// `run.json` stays the aggregated `RunRecord` it always was (that file is the baseline-comparison
+// record, Task 20 — bloating it with every raw match would make every future `loadBaseline` slower
+// for no reader of it). The raw `MatchOutcome[]` a run produced has to reach this file some other
+// way, so `writeReport` takes it as its own parameter rather than folding it into `RunRecord`.
 
 function csvEscape(value: string): string {
   return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
@@ -354,45 +362,176 @@ function csvRow(fields: readonly (string | number)[]): string {
   return fields.map((f) => csvEscape(String(f))).join(",");
 }
 
-function writeCarsCsv(file: string, cars: readonly CarStats[]): void {
-  const header = csvRow([
-    "carId", "matches", "wins", "winRate", "winRateLow", "winRateHigh", "meanPlacement",
-    "kills", "deaths", "damageDealt", "damageTaken", "meanAliveSeconds", "phasedFraction",
-  ]);
-  const rows = cars.map((c) =>
-    csvRow([
-      c.carId, c.matches, c.wins, c.winRate.rate, c.winRate.low, c.winRate.high, c.meanPlacement,
-      c.kills, c.deaths, c.damageDealt, c.damageTaken, c.meanAliveSeconds, c.phasedFraction,
-    ]),
-  );
-  fs.writeFileSync(file, [header, ...rows].join("\n") + "\n", "utf8");
+interface MatchCsvRow {
+  matchIndex: number;
+  seed: number;
+  shape: string;
+  mode: string;
+  carId: CarId;
+  sessionId: string;
+  kills: number;
+  deaths: number;
+  damageDealt: number;
+  damageTaken: number;
+  aliveTicks: number;
+  phasedTicks: number;
+  placement: number;
+  won: boolean;
+  hpAtEnd: number;
+  matchTicks: number;
 }
 
-function writeWeaponsCsv(file: string, weapons: readonly WeaponStats[]): void {
+/**
+ * One row per SEAT (not per distinct chassis — a mirror match fills two seats with the same
+ * chassis, and both lives are independent data points) in every outcome, in run order.
+ *
+ * `matchIndex` is the outcome's position in `outcomes` — the same index `runAll` used to derive
+ * that match's seed (`deriveSeed(config.seed, "match", i)`), recomputed here identically so a reader
+ * can tell which seed produced a given row without `runAll` having had to hand it back separately.
+ *
+ * Damage dealt/taken is summed straight off `DamagedEvent.attackerSessionId`/`victimSessionId` —
+ * unlike `aggregate()`'s per-CAR damage (which pools a mirror's two seats into one number by
+ * design), a per-match, per-SEAT row needs the two seats kept apart, and `DamagedEvent` already
+ * carries session ids precisely so this split is possible without re-deriving it.
+ */
+function buildMatchRows(record: RunRecord, outcomes: readonly MatchOutcome[]): MatchCsvRow[] {
+  const modeName = GameMode[record.config.mode] ?? String(record.config.mode);
+  const rows: MatchCsvRow[] = [];
+
+  outcomes.forEach((outcome, matchIndex) => {
+    const seed = deriveSeed(record.config.seed, "match", matchIndex);
+
+    const dealtBySession = new Map<string, number>();
+    const takenBySession = new Map<string, number>();
+    for (const event of outcome.events.damaged) {
+      if (event.attackerSessionId !== "") {
+        dealtBySession.set(
+          event.attackerSessionId,
+          (dealtBySession.get(event.attackerSessionId) ?? 0) + event.amount,
+        );
+      }
+      takenBySession.set(event.victimSessionId, (takenBySession.get(event.victimSessionId) ?? 0) + event.amount);
+    }
+
+    for (const seat of outcome.seats) {
+      rows.push({
+        matchIndex,
+        seed,
+        shape: record.config.shape,
+        mode: modeName,
+        carId: seat.carId,
+        sessionId: seat.sessionId,
+        kills: seat.kills,
+        deaths: seat.deaths,
+        damageDealt: dealtBySession.get(seat.sessionId) ?? 0,
+        damageTaken: takenBySession.get(seat.sessionId) ?? 0,
+        aliveTicks: seat.aliveTicks,
+        phasedTicks: seat.phasedTicks,
+        placement: seat.placement,
+        won: outcome.winnerSessionId !== "" && seat.sessionId === outcome.winnerSessionId,
+        hpAtEnd: seat.hp,
+        matchTicks: outcome.ticks,
+      });
+    }
+  });
+
+  return rows;
+}
+
+function writeMatchesCsv(file: string, rows: readonly MatchCsvRow[]): void {
   const header = csvRow([
-    "weaponId", "carId", "presses", "connectingPresses", "hitRate", "hitRateLow", "hitRateHigh",
-    "damage", "derivedDamage", "kills", "damagePerPress", "kitDamageShare", "pressesPerMinute",
-    "meanFirstUseSeconds",
+    "matchIndex", "seed", "shape", "mode", "carId", "sessionId", "kills", "deaths",
+    "damageDealt", "damageTaken", "aliveTicks", "phasedTicks", "placement", "won", "hpAtEnd", "matchTicks",
   ]);
-  const rows = weapons.map((w) =>
+  const lines = rows.map((r) =>
     csvRow([
-      w.weaponId, w.carId, w.presses, w.connectingPresses, w.hitRate.rate, w.hitRate.low, w.hitRate.high,
-      w.damage, w.derivedDamage, w.kills, w.damagePerPress, w.kitDamageShare, w.pressesPerMinute,
-      w.meanFirstUseSeconds ?? "",
+      r.matchIndex, r.seed, r.shape, r.mode, r.carId, r.sessionId, r.kills, r.deaths,
+      r.damageDealt, r.damageTaken, r.aliveTicks, r.phasedTicks, r.placement, r.won ? 1 : 0,
+      r.hpAtEnd, r.matchTicks,
     ]),
   );
-  fs.writeFileSync(file, [header, ...rows].join("\n") + "\n", "utf8");
+  fs.writeFileSync(file, [header, ...lines].join("\n") + "\n", "utf8");
+}
+
+interface WeaponMatchCsvRow {
+  matchIndex: number;
+  carId: CarId;
+  weaponId: WeaponId;
+  presses: number;
+  connectingPresses: number;
+  damage: number;
+  derivedDamage: number;
+  kills: number;
+}
+
+/**
+ * One row per weapon PER MATCH, for every weapon belonging to a chassis that actually played that
+ * match. Built by running `aggregate()` — the SAME function that produces the run-wide `weapons`
+ * table — on a single-element `[outcome]` array per match, per the task brief's "reuse aggregate on
+ * a single-element array rather than writing a second aggregation path": one code path computes
+ * both the whole-run numbers and each match's numbers, so they cannot drift apart.
+ *
+ * `aggregate()` seeds a row for EVERY chassis's EVERY weapon regardless of what any one match's
+ * events mention (B31, so a never-pressed weapon stays visible run-wide) — but per match, a chassis
+ * that did not even play should not get a phantom "0 presses" row for a weapon it never had the
+ * chance to fire this match. Filtering to `carIdsInMatch` here is what keeps a duel's off-roster
+ * chassis (the one of three NOT in this pairing) out of that match's rows, while a genuinely
+ * zero-press weapon on a car that DID play still shows up, exactly like the run-wide table does.
+ */
+function buildWeaponMatchRows(outcomes: readonly MatchOutcome[]): WeaponMatchCsvRow[] {
+  const rows: WeaponMatchCsvRow[] = [];
+
+  outcomes.forEach((outcome, matchIndex) => {
+    const carIdsInMatch = new Set(outcome.seats.map((seat) => seat.carId));
+    const { weapons } = aggregate([outcome]);
+    for (const w of weapons) {
+      if (!carIdsInMatch.has(w.carId)) continue;
+      rows.push({
+        matchIndex,
+        carId: w.carId,
+        weaponId: w.weaponId,
+        presses: w.presses,
+        connectingPresses: w.connectingPresses,
+        damage: w.damage,
+        derivedDamage: w.derivedDamage,
+        kills: w.kills,
+      });
+    }
+  });
+
+  return rows;
+}
+
+function writeWeaponsCsv(file: string, rows: readonly WeaponMatchCsvRow[]): void {
+  const header = csvRow([
+    "matchIndex", "carId", "weaponId", "presses", "connectingPresses", "damage", "derivedDamage", "kills",
+  ]);
+  const lines = rows.map((r) =>
+    csvRow([r.matchIndex, r.carId, r.weaponId, r.presses, r.connectingPresses, r.damage, r.derivedDamage, r.kills]),
+  );
+  fs.writeFileSync(file, [header, ...lines].join("\n") + "\n", "utf8");
 }
 
 /**
  * Write `summary.md`, `matches.csv`, `weapons.csv` and `run.json` into `dir` (typically a folder
  * `createRunDir` just made) and return the four file paths written.
  *
+ * `outcomes` is the raw per-match data `runAll` produced — needed to build the per-match CSVs, but
+ * deliberately NOT part of `RunRecord`/`run.json` (see the CSV section header above). Pass the same
+ * array `runAll` returned; an empty array is legal (a caller that only cares about `summary.md`,
+ * such as a test) and just produces header-only CSVs — required rather than defaulted, so a real
+ * caller cannot forget it and get silently empty CSVs.
+ *
  * `baseline`, when given, adds a "Deltas vs baseline" section to `summary.md` — but loading a
  * baseline off disk and refusing an invalid comparison (mismatched fingerprints) is Task 20's job,
  * not this function's: `writeReport` renders whatever `RunRecord` it is handed, unconditionally.
  */
-export function writeReport(dir: string, record: RunRecord, baseline?: RunRecord): string[] {
+export function writeReport(
+  dir: string,
+  record: RunRecord,
+  outcomes: readonly MatchOutcome[],
+  baseline?: RunRecord,
+): string[] {
   fs.mkdirSync(dir, { recursive: true });
 
   const summaryFile = path.join(dir, "summary.md");
@@ -401,8 +540,8 @@ export function writeReport(dir: string, record: RunRecord, baseline?: RunRecord
   const runJsonFile = path.join(dir, "run.json");
 
   fs.writeFileSync(summaryFile, renderSummaryMarkdown(record, baseline), "utf8");
-  writeCarsCsv(matchesFile, record.cars);
-  writeWeaponsCsv(weaponsFile, record.weapons);
+  writeMatchesCsv(matchesFile, buildMatchRows(record, outcomes));
+  writeWeaponsCsv(weaponsFile, buildWeaponMatchRows(outcomes));
   fs.writeFileSync(runJsonFile, JSON.stringify(record, null, 2) + "\n", "utf8");
 
   return [summaryFile, matchesFile, weaponsFile, runJsonFile];

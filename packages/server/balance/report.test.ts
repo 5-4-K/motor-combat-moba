@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { GameMode, type CarId, type WeaponId } from "@motor-combat-moba/shared";
 import { configFingerprint, botFingerprint } from "./fingerprint.js";
+import type { MatchOutcome } from "./match.js";
 import { writeReport, type RunRecord } from "./report.js";
 import type { Shape } from "./runner.js";
 import { wilson } from "./stats.js";
@@ -115,15 +116,76 @@ function record(opts: { shape?: Shape } = {}): RunRecord {
   };
 }
 
+/** `count` fixed 2/2/2 FFA `MatchOutcome`s (six seats each: bastion, bastion, bullseye, bullseye,
+ * mirage, mirage), one `roadblock` press per match that connects and kills the first bullseye
+ * seat — just enough per-match combat data to exercise per-match attribution in `matches.csv` and
+ * `weapons.csv` without a real `runMatch` call. */
+function outcomesFixture(count: number): MatchOutcome[] {
+  return Array.from({ length: count }, (_, i) => {
+    const pressId = `p${i}`;
+    const seats = [
+      { sessionId: "bastion-0-0", carId: "bastion" as CarId, kills: 1, deaths: 0, aliveTicks: 200, phasedTicks: 0, hp: 80, placement: 1 },
+      { sessionId: "bastion-0-1", carId: "bastion" as CarId, kills: 0, deaths: 0, aliveTicks: 200, phasedTicks: 0, hp: 70, placement: 2 },
+      { sessionId: "bullseye-1-0", carId: "bullseye" as CarId, kills: 0, deaths: 1, aliveTicks: 120, phasedTicks: 0, hp: 0, placement: 6 },
+      { sessionId: "bullseye-1-1", carId: "bullseye" as CarId, kills: 0, deaths: 0, aliveTicks: 200, phasedTicks: 0, hp: 40, placement: 4 },
+      { sessionId: "mirage-2-0", carId: "mirage" as CarId, kills: 0, deaths: 0, aliveTicks: 200, phasedTicks: 15, hp: 50, placement: 3 },
+      { sessionId: "mirage-2-1", carId: "mirage" as CarId, kills: 0, deaths: 0, aliveTicks: 200, phasedTicks: 0, hp: 30, placement: 5 },
+    ];
+    const outcome: MatchOutcome = {
+      ticks: 200 + i,
+      winnerSessionId: "bastion-0-0",
+      winnerTeam: 0,
+      hitClock: false,
+      seats,
+      events: {
+        fired: [
+          { tick: 1, shooterSessionId: "bastion-0-0", carId: "bastion", weaponId: "roadblock", slot: 0, pressId },
+        ],
+        damaged: [
+          {
+            tick: 2,
+            victimSessionId: "bullseye-1-0",
+            victimCarId: "bullseye",
+            attackerSessionId: "bastion-0-0",
+            attackerCarId: "bastion",
+            source: { kind: "weapon", weaponId: "roadblock", pressId, isExplosion: false },
+            amount: 30,
+            killingBlow: true,
+          },
+        ],
+        killed: [
+          {
+            tick: 2,
+            victimSessionId: "bullseye-1-0",
+            victimCarId: "bullseye",
+            killerSessionId: "bastion-0-0",
+            killerCarId: "bastion",
+            source: { kind: "weapon", weaponId: "roadblock", pressId, isExplosion: false },
+          },
+        ],
+      },
+    };
+    return outcome;
+  });
+}
+
 function readSummary(opts: { shape?: Shape } = {}): string {
   const dir = tempDir();
-  writeReport(dir, record(opts));
+  writeReport(dir, record(opts), []);
   return fs.readFileSync(path.join(dir, "summary.md"), "utf8");
+}
+
+function readCsv(file: string): string[][] {
+  return fs
+    .readFileSync(file, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => line.split(","));
 }
 
 describe("writeReport (B38, B39, B40)", () => {
   it("writes summary.md, matches.csv, weapons.csv and run.json", () => {
-    const files = writeReport(tempDir(), record());
+    const files = writeReport(tempDir(), record(), []);
     expect(files.map((f) => path.basename(f)).sort())
       .toEqual(["matches.csv", "run.json", "summary.md", "weapons.csv"]);
   });
@@ -179,7 +241,7 @@ describe("writeReport (B38, B39, B40)", () => {
     const withZeroPress = { ...base, weapons: [zeroPress, ...base.weapons.slice(1)] };
 
     const dir = tempDir();
-    writeReport(dir, withZeroPress);
+    writeReport(dir, withZeroPress, []);
     const md = fs.readFileSync(path.join(dir, "summary.md"), "utf8");
 
     const row = md.split("\n").find((line) => line.includes(`| ${zeroPress.weaponId} |`));
@@ -194,20 +256,104 @@ describe("writeReport (B38, B39, B40)", () => {
 
   it("adds a deltas section only when a baseline is supplied", () => {
     const dirNoBaseline = tempDir();
-    writeReport(dirNoBaseline, record());
+    writeReport(dirNoBaseline, record(), []);
     const withoutBaseline = fs.readFileSync(path.join(dirNoBaseline, "summary.md"), "utf8");
     expect(withoutBaseline).not.toContain("Deltas vs baseline");
 
     const dirWithBaseline = tempDir();
-    writeReport(dirWithBaseline, record(), record());
+    writeReport(dirWithBaseline, record(), [], record());
     const withBaseline = fs.readFileSync(path.join(dirWithBaseline, "summary.md"), "utf8");
     expect(withBaseline).toContain("Deltas vs baseline");
   });
 
   it("round-trips run.json, so a baseline can be read back", () => {
     const dir = tempDir();
-    writeReport(dir, record());
+    writeReport(dir, record(), []);
     const parsed = JSON.parse(fs.readFileSync(path.join(dir, "run.json"), "utf8"));
     expect(parsed.fingerprints.config).toBe(configFingerprint());
+  });
+});
+
+describe("writeReport: per-match CSVs (Task 20 piece 3, B38)", () => {
+  it("writes one matches.csv row per seat per match, not one row per chassis for the whole run", () => {
+    const matches = 3;
+    const outcomes = outcomesFixture(matches);
+    const dir = tempDir();
+    writeReport(dir, record(), outcomes);
+
+    const [header, ...dataRows] = readCsv(path.join(dir, "matches.csv"));
+    expect(header).toEqual([
+      "matchIndex", "seed", "shape", "mode", "carId", "sessionId", "kills", "deaths",
+      "damageDealt", "damageTaken", "aliveTicks", "phasedTicks", "placement", "won", "hpAtEnd", "matchTicks",
+    ]);
+    // 6 seats x 3 matches = 18 rows — NOT the 3 (one per chassis) an aggregated CSV would print.
+    expect(dataRows).toHaveLength(6 * matches);
+  });
+
+  it("attributes damage per SEAT, not per chassis — a mirror's two seats stay independent", () => {
+    const dir = tempDir();
+    writeReport(dir, record(), outcomesFixture(1));
+    const [, ...rows] = readCsv(path.join(dir, "matches.csv"));
+
+    const bastionAttacker = rows.find((r) => r[5] === "bastion-0-0")!;
+    const bastionOtherSeat = rows.find((r) => r[5] === "bastion-0-1")!;
+    const bullseyeVictim = rows.find((r) => r[5] === "bullseye-1-0")!;
+
+    expect(Number(bastionAttacker[8])).toBe(30); // damageDealt
+    expect(Number(bastionOtherSeat[8])).toBe(0); // the OTHER bastion seat dealt nothing
+    expect(Number(bullseyeVictim[9])).toBe(30); // damageTaken
+    expect(bastionAttacker[13]).toBe("1"); // won
+    expect(bastionOtherSeat[13]).toBe("0");
+  });
+
+  it("gives each matchIndex the same seed runAll would have derived for that match position", () => {
+    const dir = tempDir();
+    writeReport(dir, record(), outcomesFixture(2));
+    const [, ...rows] = readCsv(path.join(dir, "matches.csv"));
+    const seedsByMatch = new Map(rows.map((r) => [r[0], r[1]]));
+    expect(seedsByMatch.get("0")).not.toBe(seedsByMatch.get("1")); // distinct matches, distinct seeds
+  });
+
+  it("writes one weapons.csv row per weapon per match, scoped to cars that actually played", () => {
+    const dir = tempDir();
+    writeReport(dir, record(), outcomesFixture(2));
+    const [header, ...rows] = readCsv(path.join(dir, "weapons.csv"));
+    expect(header).toEqual([
+      "matchIndex", "carId", "weaponId", "presses", "connectingPresses", "damage", "derivedDamage", "kills",
+    ]);
+
+    // Every row's carId is one of the three that played (the fixture seats all three every match),
+    // and each match contributes one row per weapon slot across the whole roster (`slotsOf` — every
+    // car carries 3 slots today, so 3 cars x 3 slots).
+    const matchZeroRows = rows.filter((r) => r[0] === "0");
+    expect(matchZeroRows).toHaveLength(9);
+
+    const roadblockRow = matchZeroRows.find((r) => r[2] === "roadblock")!;
+    expect(roadblockRow[3]).toBe("1"); // presses
+    expect(roadblockRow[4]).toBe("1"); // connectingPresses
+    expect(roadblockRow[5]).toBe("30"); // damage
+    expect(roadblockRow[7]).toBe("1"); // kills
+
+    const thumperRow = matchZeroRows.find((r) => r[2] === "thumper")!;
+    expect(thumperRow[3]).toBe("0"); // never pressed this match — still a visible row, not omitted
+  });
+
+  it("omits a weapon row for a chassis that did not play that match (duel)", () => {
+    // A duel seats only two of the three chassis; the sitting-out chassis's weapons must not appear.
+    const outcome: MatchOutcome = {
+      ...outcomesFixture(1)[0]!,
+      seats: outcomesFixture(1)[0]!.seats.filter((s) => s.carId !== "mirage"),
+    };
+    const dir = tempDir();
+    writeReport(dir, record({ shape: "duel" }), [outcome]);
+    const [, ...rows] = readCsv(path.join(dir, "weapons.csv"));
+    expect(rows.some((r) => r[1] === "mirage")).toBe(false);
+  });
+
+  it("leaves matches.csv and weapons.csv header-only when outcomes is empty", () => {
+    const dir = tempDir();
+    writeReport(dir, record(), []);
+    expect(readCsv(path.join(dir, "matches.csv"))).toHaveLength(1); // header only
+    expect(readCsv(path.join(dir, "weapons.csv"))).toHaveLength(1);
   });
 });
