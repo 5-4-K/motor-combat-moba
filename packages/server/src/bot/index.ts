@@ -7,3 +7,4 @@
  * server authors inputs (invariant 3, B14).
  */
 export * from "./input.js";
+export * from "./rng.js";
