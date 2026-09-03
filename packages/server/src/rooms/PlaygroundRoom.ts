@@ -29,7 +29,13 @@ import { getTickRateHz } from "../mode.js";
 import { isInputMessage } from "../net/input-message.js";
 import { newCombatMemory, type CombatMemory } from "../sim/combat-bridge.js";
 import { newContactMemory, type ContactMemory } from "../sim/ram-bridge.js";
-import { BOT_PROFILES, botInput, type BotPose } from "./playground-bot.js";
+import {
+  BOT_PROFILES,
+  botInput,
+  pulsedFireSlots,
+  shouldRecomputeIntent,
+  type BotPose,
+} from "./bot.js";
 import { shouldRejectSecondArena } from "./singleton-arena.js";
 import {
   respawnPlayer,
@@ -95,39 +101,6 @@ export function loadoutOrChassisChanged(
   setup: PlaygroundCarSetup,
 ): boolean {
   return currentCarId !== setup.carId || currentWeapons.join() !== setup.weapons.join();
-}
-
-/**
- * Should the bot recompute its intent this tick, or re-enqueue the one it is holding (PG29)?
- *
- * A cleared hold always recomputes: a setup change, a bot toggled off and back on, or a dead target
- * drops the held intent, and waiting out the rest of the interval would enqueue a decision made
- * against a pose from before the change. A non-positive cadence recomputes every tick rather than
- * dividing by zero — the table cannot produce one, and a modulo by zero is `NaN`, which is falsy and
- * would freeze the bot on its last intent forever.
- */
-export function shouldRecomputeIntent(
-  tick: number,
-  reactionTicks: number,
-  hasHeldIntent: boolean,
-): boolean {
-  if (!hasHeldIntent) return true;
-  if (reactionTicks <= 1) return true;
-  return tick % reactionTicks === 0;
-}
-
-/**
- * The fire bits that actually reach the wire this tick (PG29).
- *
- * `serverTick` counts only newly-set bits as a press (`clean & ~prev`), so a bot holding the same
- * bits fires each slot ONCE and then never again; `respawnPlayer` does not clear `prevFireMasks`
- * either, so a killed bot comes back still latched. Zeroing the bits off-pulse turns every pulse
- * tick into a fresh press edge. It does not make the bot fire faster than its weapons allow —
- * stocks, recharges and the switch lock still bound the rate, and feeling those is the point.
- */
-export function pulsedFireSlots(tick: number, firePeriodTicks: number, fireSlots: number): number {
-  if (firePeriodTicks <= 1) return fireSlots;
-  return tick % firePeriodTicks === 0 ? fireSlots : 0;
 }
 
 /**

@@ -6,8 +6,6 @@ import {
   PLAYGROUND_LEVEL,
   loadoutOrChassisChanged,
   otherPlaygroundId,
-  pulsedFireSlots,
-  shouldRecomputeIntent,
   shouldRefusePlayground,
 } from "./PlaygroundRoom.js";
 import { shouldRejectSecondArena } from "./singleton-arena.js";
@@ -111,49 +109,5 @@ describe("loadoutOrChassisChanged (PG32)", () => {
     expect(
       loadoutOrChassisChanged("bastion", ["thumper", "roadblock", "wildcharge"], repainted),
     ).toBe(false);
-  });
-});
-
-describe("shouldRecomputeIntent (PG29)", () => {
-  it("recomputes every tick at reactionTicks 1 — hard is unchanged", () => {
-    for (const tick of [0, 1, 2, 3, 97]) {
-      expect(shouldRecomputeIntent(tick, 1, true)).toBe(true);
-    }
-  });
-
-  it("recomputes on the cadence and holds in between", () => {
-    expect(shouldRecomputeIntent(9, 3, true)).toBe(true);
-    expect(shouldRecomputeIntent(10, 3, true)).toBe(false);
-    expect(shouldRecomputeIntent(11, 3, true)).toBe(false);
-    expect(shouldRecomputeIntent(12, 3, true)).toBe(true);
-  });
-
-  it("recomputes regardless of cadence when there is nothing held", () => {
-    // A cleared hold — a setup change, the bot toggled off and back on, a dead target — must not
-    // wait out the rest of the interval enqueueing an intent that no longer exists.
-    expect(shouldRecomputeIntent(10, 3, false)).toBe(true);
-    expect(shouldRecomputeIntent(11, 6, false)).toBe(true);
-  });
-
-  it("never divides by zero on a malformed cadence", () => {
-    expect(shouldRecomputeIntent(10, 0, true)).toBe(true);
-    expect(shouldRecomputeIntent(10, -1, true)).toBe(true);
-  });
-});
-
-describe("pulsedFireSlots (PG29)", () => {
-  it("passes the mask through on a pulse tick and zeroes it otherwise", () => {
-    expect(pulsedFireSlots(4, 2, 0b101)).toBe(0b101);
-    expect(pulsedFireSlots(5, 2, 0b101)).toBe(0);
-  });
-
-  it("pulses a tenth as often on easy as hard", () => {
-    expect(pulsedFireSlots(10, 10, 0b1)).toBe(0b1);
-    for (const tick of [11, 12, 13, 19]) expect(pulsedFireSlots(tick, 10, 0b1)).toBe(0);
-    expect(pulsedFireSlots(20, 10, 0b1)).toBe(0b1);
-  });
-
-  it("never divides by zero on a malformed cadence", () => {
-    expect(pulsedFireSlots(7, 0, 0b11)).toBe(0b11);
   });
 });
