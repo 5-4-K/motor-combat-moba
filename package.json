@@ -22,6 +22,7 @@
     "dev": "npm run build -w @motor-combat-moba/shared && concurrently -n shared,server,client -c blue.bold,green.bold,magenta.bold \"npm:dev:shared\" \"npm:dev:server\" \"npm:dev:client\"",
     "build:release": "npm run build && node scripts/build-release.mjs",
     "install-build": "node scripts/install-build.mjs",
+    "install-build-8080": "npm run install-build -- --port 8080 --yes",
     "build:manual": "npm run build -w @motor-combat-moba/shared && node scripts/build-cars-and-weapons.mjs",
     "check:art": "npm run build -w @motor-combat-moba/shared && node scripts/check-art.mjs",
     "ttk": "npm run build -w @motor-combat-moba/shared && node scripts/ttk.mjs",
