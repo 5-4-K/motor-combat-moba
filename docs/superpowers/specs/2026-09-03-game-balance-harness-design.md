@@ -141,10 +141,23 @@ source. Every `ContactHit` the contact pass produces is a dash landing or a hard
 names the maneuver weapon that caused it. `weaponId` on the `contact` source is therefore never
 null.
 
-Pulse damage is the hop that matters. `corroded` is the only damaging status on the table
-(`pulse: { intervalMs: 400, damage: 8 }`), and over its 2 s duration that is **40 damage** — against
-`magmablast`'s 50 on the direct hit. Bank that under "corroded" and the weapon table understates the
-weapon that caused it by nearly half.
+Pulse damage is the hop that matters. **`overheated`** is the only damaging status on the table
+(`pulse: { intervalMs: 400, damage: 8 }`), and its only applier is **`afterburner`**, Mirage's slot 3,
+for 1500 ms per application — the status row's own comment prices that at "30 hp over afterburner's
+1.5 s application, topped up while the target stays in the flame." Bank that under "overheated" and
+the weapon table loses it from the weapon that caused it.
+
+*(Corrected 2026-09-03, during implementation. An earlier draft of this section named `corroded` as
+the damaging pulse and credited it to `magmablast`. That was a misreading: `corroded` carries no
+`pulse` at all — it is `modifiers: { damageTaken: 1.3 }`, a pure amplifier. The mechanism below was
+right; the worked example was wrong.)*
+
+**A consequence worth stating, because no attribution scheme fixes it.** `corroded` contributes
+damage without ever dealing any: it makes every subsequent hit on that car land 30% harder. That
+extra damage is booked to whichever weapon dealt it, which is correct — but it means `magmablast`'s
+real contribution includes damage credited to other weapons, including other players'. An amplifier
+is invisible to a per-weapon damage table by construction. The report says so rather than pretending
+the columns sum to the truth.
 
 **B5a. Pulse damage is credited to the weapon that applied the status, derived at runtime.**
 
@@ -157,10 +170,14 @@ its pulse damage is credited to that weapon and the report says the attribution 
 or more do, attribution is genuinely ambiguous from the event alone, and the damage is reported under
 the status instead.
 
-Derived rather than hardcoded because CLAUDE.md's own note on `corroded` — "grep `applies:.*corroded`
-if a second source ever needs checking" — describes a fact that a future weapon can change silently.
-A map built from the table cannot go stale; a constant would, and would go stale in the direction of
-a wrong number rather than a missing one.
+Today that map credits `overheated`'s burn to `afterburner`, the single applier of the single
+damaging status. Every other row in the map exists for statuses that deal no damage, and costs
+nothing.
+
+Derived rather than hardcoded for a reason this section's own correction history demonstrates: a
+hand-written constant encodes what its author believed about the tables on the day they wrote it, and
+this spec got exactly that wrong on its first pass. A map built from `WEAPON_TABLE` cannot be wrong
+about `WEAPON_TABLE`.
 
 **B6. Emit sites — four, all already single points.**
 

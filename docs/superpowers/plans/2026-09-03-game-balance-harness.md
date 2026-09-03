@@ -1934,7 +1934,10 @@ git commit -m "feat(balance): run one headless match through the real pipeline (
 - Consumes: `WEAPON_TABLE` from shared.
 - Produces: `buildApplierMap(): ReadonlyMap<StatusId, readonly WeaponId[]>`; `attributeSource(source: DamageSource, appliers: ReadonlyMap<StatusId, readonly WeaponId[]>): { weaponId: WeaponId | null; derived: boolean }`.
 
-**Why (B5a):** `corroded` deals 8 damage every 400 ms for 2 s — **40 damage**, against `magmablast`'s 50 on the direct hit. Banking that under the status understates the weapon that caused it by nearly half.
+**Why (B5a):** `overheated` is the only status in `STATUS_TABLE` carrying a `pulse` (8 damage every 400 ms), and its only applier is `afterburner`. Banking that burn under the status loses it from the weapon that caused it.
+
+**The spec's first draft got this pair wrong**, naming `corroded`/`magmablast`. `corroded` carries no pulse at all — it is `modifiers: { damageTaken: 1.3 }`, a pure amplifier. The spec is corrected. Verify the real pair yourself before writing the test:
+`awk '/^    id: "/{id=$2} /pulse:/{print id, $0}' packages/shared/src/config/status-config.ts`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1944,7 +1947,16 @@ import { describe, expect, it } from "vitest";
 import { attributeSource, buildApplierMap } from "./attribution.js";
 
 describe("buildApplierMap (B5a)", () => {
-  it("finds corroded's applier inside magmablast's explosion", () => {
+  it("finds the damaging status's applier: overheated comes from afterburner", () => {
+    // `overheated` is the ONLY status in STATUS_TABLE carrying a `pulse`, and `afterburner` is
+    // its only applier. This is the pair the whole attribution mechanism exists to resolve.
+    expect(buildApplierMap().get("overheated")).toEqual(["afterburner"]);
+  });
+
+  it("still maps a non-damaging status to its applier, cheaply", () => {
+    // `corroded` deals NO damage (it is `damageTaken: 1.3`, a pure amplifier) but it is applied
+    // from inside magmablast's EXPLOSION block, so this also proves the scan descends into
+    // `explosion.applies` rather than only reading the top-level row.
     expect(buildApplierMap().get("corroded")).toEqual(["magmablast"]);
   });
 
@@ -1967,9 +1979,12 @@ describe("attributeSource", () => {
       .toEqual({ weaponId: "predator", derived: false });
   });
 
-  it("credits a corroded pulse to magmablast, and says the credit was derived", () => {
-    expect(attributeSource({ kind: "pulse", statusId: "corroded", sourceSessionId: "p1" }, appliers))
-      .toEqual({ weaponId: "magmablast", derived: true });
+  it("credits an overheated pulse to afterburner, and says the credit was derived", () => {
+    // The only attribution that moves a number today: `overheated` is the game's one damaging
+    // pulse. `derived: true` tells the report the credit is an inference through a status rather
+    // than a measurement off the event.
+    expect(attributeSource({ kind: "pulse", statusId: "overheated", sourceSessionId: "p1" }, appliers))
+      .toEqual({ weaponId: "afterburner", derived: true });
   });
 
   it("refuses to guess when two weapons apply the same status", () => {
@@ -1993,10 +2008,12 @@ import { WEAPON_TABLE, type DamageSource, type StatusId, type WeaponId } from "@
 /**
  * Which weapons can apply each status, scanned out of `WEAPON_TABLE` (B5a).
  *
- * Derived rather than hardcoded because CLAUDE.md's own note on `corroded` — "grep
- * `applies:.*corroded` if a second source ever needs checking" — describes a fact a future weapon
- * can change silently. A map built from the table cannot go stale; a constant would, and would go
- * stale in the direction of a WRONG number rather than a missing one.
+ * Today this resolves exactly one attribution that moves a number: `overheated` — the only status
+ * carrying a `pulse` — to `afterburner`, its only applier.
+ *
+ * Derived rather than hardcoded because a hand-written constant encodes what its author believed
+ * about the tables on the day they wrote it. This plan's own spec named the wrong status and the
+ * wrong weapon on its first pass; a map built from `WEAPON_TABLE` cannot be wrong about it.
  *
  * Only `target: "opponents"` applications count. A self-buff damages nobody, so folding it in would
  * make a weapon the applier of a pulse it can never inflict.
