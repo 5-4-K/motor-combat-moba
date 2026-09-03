@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ArenaState, PlaygroundState } from "@motor-combat-moba/shared";
-import { controlledCarOf, isPlaygroundPaused } from "./controlled-car.js";
+import { controlledCarOf, isSimPaused } from "./controlled-car.js";
 
 describe("controlledCarOf", () => {
   it("resolves a real match to the client's own session", () => {
@@ -28,18 +28,18 @@ describe("controlledCarOf", () => {
   });
 });
 
-describe("isPlaygroundPaused", () => {
+describe("isSimPaused", () => {
   it("is false on a real match state", () => {
-    expect(isPlaygroundPaused(new ArenaState())).toBe(false);
+    expect(isSimPaused(new ArenaState())).toBe(false);
   });
 
   it("is false on an unpaused playground", () => {
-    expect(isPlaygroundPaused(new PlaygroundState())).toBe(false);
+    expect(isSimPaused(new PlaygroundState())).toBe(false);
   });
 
   it("is true on a paused playground", () => {
     const state = new PlaygroundState();
     state.paused = true;
-    expect(isPlaygroundPaused(state)).toBe(true);
+    expect(isSimPaused(state)).toBe(true);
   });
 });

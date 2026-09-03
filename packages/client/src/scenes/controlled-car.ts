@@ -18,7 +18,12 @@ export function controlledCarOf(state: ArenaState, ownSessionId: string): string
   return id || ownSessionId;
 }
 
-/** True only inside a paused playground; false on every real-match state (spec PG7). */
-export function isPlaygroundPaused(state: ArenaState): boolean {
+/**
+ * Is this room's sim frozen? True for a paused playground AND a paused practice session (spec PR22).
+ *
+ * Duck-typed off a bare `ArenaState` rather than off either subclass, which is why one predicate
+ * covers both rooms: a real match's state has no `paused` field, so this is always false there.
+ */
+export function isSimPaused(state: ArenaState): boolean {
   return (state as { paused?: boolean }).paused === true;
 }

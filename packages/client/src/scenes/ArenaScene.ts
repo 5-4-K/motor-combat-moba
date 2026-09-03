@@ -45,7 +45,7 @@ import { ScreenOverlay } from "../ui/overlay.js";
 import { renderArenaMismatch } from "../ui/screens/arena-mismatch.js";
 import { arenaMismatchMessage } from "./arena-mismatch.js";
 import { axisOf, drainTicks } from "./arena-input.js";
-import { controlledCarOf, isPlaygroundPaused } from "./controlled-car.js";
+import { controlledCarOf, isSimPaused } from "./controlled-car.js";
 import { arenaBorderRect, arenaColorsOf } from "./arena-visual.js";
 import { fitsViewport } from "./arena-camera.js";
 import { assetManifest, assetsReady } from "./BootScene.js";
@@ -1101,7 +1101,7 @@ export class ArenaScene extends Phaser.Scene {
     // A paused playground stops the input clock outright: no send, and — because `sendInputTick` is
     // the only thing that predicts — no predicted step either. Interpolation of the other cars keeps
     // running, which costs nothing, since a paused room stops patching new poses anyway (spec PG7).
-    if (!this.canDrive(room) || isPlaygroundPaused(room.state)) {
+    if (!this.canDrive(room) || isSimPaused(room.state)) {
       this.inputAccumulatorMs = 0;
       return;
     }
