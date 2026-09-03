@@ -341,6 +341,17 @@ the join screen's "Cars & weapons guide" button opens. **It is written by
 (`WEAPON_TABLE`, `CAR_TABLE`, `WEAPON_TICKS`, `weaponDamageOf`, `hpOf`); the prose lives beside it in
 `scripts/cars-and-weapons-copy.mjs`.
 
+**The prose quotes numbers through placeholders, never by hand.** Write `{predator.acquireRadius}`,
+not `200`; `{token:words}` spells small whole numbers out. Tokens are defined in
+`scripts/manual-facts.mjs`, every one derived from a table, and an unknown token fails the build.
+This exists because `balanceStamp` **cannot** catch a stale number inside a sentence: it hashes the
+copy file, so it only asks "was the page rebuilt from this text", never "is this text true". Three
+sentences had rotted underneath it by 2026-09-04 — predator claiming a 300 ms recharge against a
+table reading 1000, on a page whose own generated cell two lines above said "1 presses/s".
+`scripts/manual-facts.test.mjs` fails if a token's current value is typed as digits, or if a
+spelled-out measurement ("two seconds", "four muzzles") appears at all. It deliberately does **not**
+watch the word "car": "a dash that clips two cars in the same tick" is prose, not a figure.
+
 **Re-run `npm run build:manual` and commit the page whenever you change:** a weapon row, a chassis
 row, a car's loadout, `COMBAT_CONFIG`, `DRIVE_CONFIG`, `STATUS_TABLE`, `AIM_CONFIG.lockRange`,
 `TICK_RATE_HZ`, `ARENA_WIDTH`, or the prose in `cars-and-weapons-copy.mjs`. The page carries a

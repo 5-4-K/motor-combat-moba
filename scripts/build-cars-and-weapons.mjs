@@ -45,7 +45,26 @@ import {
   weaponDamageOf,
 } from "@motor-combat-moba/shared";
 
-import { CHASSIS_COPY, MANUAL_META, SLOT_ROLES, WEAPON_COPY } from "./cars-and-weapons-copy.mjs";
+import {
+  CHASSIS_COPY as RAW_CHASSIS_COPY,
+  MANUAL_META as RAW_MANUAL_META,
+  SLOT_ROLES as RAW_SLOT_ROLES,
+  WEAPON_COPY as RAW_WEAPON_COPY,
+} from "./cars-and-weapons-copy.mjs";
+import { manualFacts, renderCopy } from "./manual-facts.mjs";
+
+/**
+ * The prose with its `{weapon.fact}` placeholders resolved against the live tables.
+ *
+ * Done ONCE, here, so every consumer below sees finished sentences and no call site has to remember
+ * to render. An unknown token throws out of `renderCopy`, so a typo fails the build rather than
+ * shipping a literal "{predator.lifeSec}" to players.
+ */
+const FACTS = manualFacts();
+const MANUAL_META = renderCopy(RAW_MANUAL_META, FACTS);
+const CHASSIS_COPY = renderCopy(RAW_CHASSIS_COPY, FACTS);
+const SLOT_ROLES = renderCopy(RAW_SLOT_ROLES, FACTS);
+const WEAPON_COPY = renderCopy(RAW_WEAPON_COPY, FACTS);
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 /** Served by the client. Vite copies `public/` verbatim, so this ships in the LAN zip too. */
@@ -337,6 +356,9 @@ export function balanceStamp() {
     lockRange: AIM_CONFIG.lockRange,
     tickRateHz: TICK_RATE_HZ,
     arenaWidth: ARENA_WIDTH,
+    // The RENDERED copy, not the raw templates: the stamp should fingerprint what the page says.
+    // Either would move when a table moves (the tables are hashed above too), but hashing the
+    // resolved text means the stamp is a fingerprint of the finished page rather than of its source.
     copy: { MANUAL_META, CHASSIS_COPY, SLOT_ROLES, WEAPON_COPY },
   };
   return createHash("sha256").update(JSON.stringify(inputs)).digest("hex").slice(0, 16);

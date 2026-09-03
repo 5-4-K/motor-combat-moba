@@ -3,6 +3,18 @@
  * `WEAPON_TABLE`. Numbers never live here — `build-cars-and-weapons.mjs` reads every stat from
  * built shared, so a balance edit reprints the manual correctly without touching this file.
  *
+ * **That rule now covers the SENTENCES too, and did not always.** The stat cells were generated from
+ * the start; the prose quoted figures by hand, and three of them had gone wrong by 2026-09-04 —
+ * predator claiming a 300 ms recharge against a table reading 1000, afterburner claiming five damage
+ * ticks a second against a `damageFrequencyMs` of 500, and a chassis note citing a full-connect
+ * number that appears nowhere on the page. `balanceStamp` cannot catch that: it hashes this file, so
+ * it only asks "was the page rebuilt from this text", never "is this text true".
+ *
+ * So write `{predator.acquireRadius}`, not `200`. Tokens are defined in `manual-facts.mjs`, derived
+ * from the tables; `{token:words}` spells small whole numbers out ("two") where that reads better.
+ * An unknown token fails the build, and `manual-facts.test.mjs` fails if a token's current value is
+ * typed as a literal here instead.
+ *
  * Prose is sourced from `docs/superpowers/specs/2026-08-29-weapon-roster-design.md` and rewritten
  * for players rather than for reviewers.
  */
@@ -13,7 +25,8 @@ export const MANUAL_META = {
   // page introduces the kit that follows it.
   subtitle: "Cars & Weapons",
   blurb:
-    "Nine weapons. Three chassis. No sharing. Pick a car and you have picked all three of your " +
+    "{roster.weapons:words} weapons. {roster.chassis:words} chassis. No sharing. Pick a car and " +
+    "you have picked all three of your " +
     "guns — this is what each one of them does, and what it is for.",
 };
 
@@ -31,7 +44,8 @@ export const CHASSIS_COPY = {
       // few seconds — Afterburner plus a Thunderclap and a Magma Blast — not one press of this.
       "The fastest thing on the map, and the one that turns a few seconds of contact into most of " +
       "a car's HP — but only for as " +
-      "long as it is beside you. Two of its three weapons hug the chassis, so Mirage has to pick a " +
+      "long as it is beside you. Two of its {roster.slotsPerCar:words} weapons hug the chassis, so " +
+      "Mirage has to pick a " +
       "moment, arrive, and finish. It has the hull of a car that never planned to stay.",
     beats: "Closes on Bullseye before its wind-ups can resolve.",
     losesTo: "Bastion. Mirage must come close to use its kit, and close is where Bastion lives.",
@@ -63,7 +77,8 @@ export const CHASSIS_COPY = {
       // own self-buff) and `spiked` (3000ms, thumper's own rider) both outlast roadblock's 1000ms
       // stun. The claim is about kind and count on this chassis, not duration or exclusivity.
       "The slowest chassis and the biggest hull, built around stopping people rather than catching " +
-      "them — two of its three weapons stun or slam a car to a dead stop. Bastion does not catch " +
+      "them — two of its {roster.slotsPerCar:words} weapons stun or slam a car to a dead stop. " +
+      "Bastion does not catch " +
       "anybody: it stops them, slams them, and denies the ground they wanted. That is the only " +
       "currency a car that cannot reposition has.",
     beats: "Mirage, the moment it commits to contact range.",
@@ -95,15 +110,16 @@ export const WEAPON_COPY = {
     what:
       "It leaves the muzzle with no target at all — fired at your lock like anything else in this " +
       "slot, but blind to who is actually out there once it's away. The instant an enemy car drifts " +
-      "within 200 units of the shot itself, it locks onto them and won't let go for the rest of its " +
-      "two-second life, curling a tight turn to stay on their line. A hit is a hit — nothing rides " +
-      "along with the damage.",
+      "within {predator.acquireRadius} units of the shot itself, it locks onto them and won't let " +
+      "go for the rest of its {predator.lifeSec:words}-second life, curling a tight turn to stay " +
+      "on their line. A hit is a hit — nothing rides along with the damage.",
     how:
-      "A press a second against a two-second flight time means up to two of these can be in the air " +
-      "from one car at once, each one hunting on its own. It carries no real range, only a life " +
-      "span, so a shot that finds nobody simply runs out rather than travelling on.",
+      "A {predator.cooldownSec}-second recharge against a {predator.lifeSec:words}-second " +
+      "flight time means up to {predator.inFlight:words} of these can be in the air from one car at " +
+      "once, each one hunting on its own. It carries no real range, only a life span, so a shot " +
+      "that finds nobody simply runs out rather than travelling on.",
     tip:
-      "Fire into a group rather than at one target — whichever car wanders inside 200 units of any " +
+      "Fire into a group rather than at one target — whichever car wanders inside {predator.acquireRadius} units of any " +
       "shot already in flight is the one that eats it. One press will not close out a fight on its " +
       "own; follow it with Pepperbox or Lance rather than expecting it to do the work alone.",
   },
@@ -111,8 +127,8 @@ export const WEAPON_COPY = {
     tagline: "A lunge that ends the fight where it lands.",
     shape: "Dash · hits the first car it touches · locks on",
     what:
-      "A 400-unit lunge toward the lock, covering the distance in well under a second. The first " +
-      "enemy hull it touches takes the hit and stops dead — stunned for a full second — and the " +
+      "A {thunderclap.dashUnits}-unit lunge toward the lock, covering the distance in well under a second. The first " +
+      "enemy hull it touches takes the hit and stops dead — a {thunderclap.stunSec:words}-second stun — and the " +
       "dash ends right there, on top of them. A wall ends it just as hard, with nothing to show for " +
       "it.",
     how:
@@ -129,7 +145,7 @@ export const WEAPON_COPY = {
     shape: "Flame cone · welded to your nose and tail · ticks",
     what:
       "Two mirrored cones, one off the nose and one off the tail, burning everything inside either " +
-      "of them twice a second for a little over two seconds. It sweeps as you steer, and both " +
+      "of them {afterburner.ticksPerSec:words} times a second for {afterburner.burnSec} seconds. It sweeps as you steer, and both " +
       "cones die the instant you do.",
     how:
       "The per-cone numbers are unchanged from a single flame; the ceiling only doubles against a " +
@@ -147,8 +163,9 @@ export const WEAPON_COPY = {
     what:
       "A fast, straight bolt, and Mirage's bread and butter — except it no longer stops at the " +
       "hit. Whatever kills the shot, a car, a wall, the arena edge, or its own reach running out, " +
-      "sets it off: a 60-unit blast that lingers for a moment and corrodes anyone it catches for " +
-      "two seconds, 30% more damage taken from everything that follows. A direct hit takes the " +
+      "sets it off: a {magmablast.blastRadius}-unit blast that lingers for a moment and corrodes anyone it catches for " +
+      "{magmablast.corrodeSec:words} full seconds, {magmablast.corrodePct}% more damage taken from " +
+      "everything that follows. A direct hit takes the " +
       "impact and the blast both.",
     how:
       "This is the round every other weapon on this chassis gets read against: it arrives quickly, " +
@@ -162,15 +179,16 @@ export const WEAPON_COPY = {
       "in flight on any slot blocks every slot, Magma Blast included, until it resolves.",
   },
   pepperbox: {
-    tagline: "Twelve darts, one press.",
+    tagline: "{pepperbox.totalDarts:words} darts, one press.",
     shape: "Four-way spray · no lock",
     what:
-      "One press, twelve darts: a three-dart, 12° fan fires from the nose, the tail, and both " +
+      "One press, {pepperbox.totalDarts} darts: a {pepperbox.dartsPerFan:words}-dart, {pepperbox.spreadDeg}° fan fires from the nose, the tail, and both " +
       "flanks at once. The panic button that punishes anyone who closes in — or the drive-by that " +
       "clips everyone around you as you pass.",
     how:
-      "Per-target reality is one fan: the four muzzles are 90 degrees apart, so at most one lines " +
-      "up with any single car, and that fan is still 135 damage if all three darts land. No lock " +
+      "Per-target reality is one fan: the {pepperbox.muzzleCount:words} muzzles are " +
+      "{pepperbox.muzzleSpacingDeg} degrees apart, so at most one lines " +
+      "up with any single car, and that fan is still {pepperbox.fanDamage} damage if all {pepperbox.dartsPerFan:words} darts land. No lock " +
       "steers a spray firing in four directions at once — where your nose points at the press is " +
       "where all four fans go.",
     tip:
@@ -182,18 +200,18 @@ export const WEAPON_COPY = {
     tagline: "Stand still, then sweep the line.",
     shape: "Held beam · steer while it fires · no lock",
     what:
-      "Seven hundred milliseconds standing still and visible, then a beam that grows to full " +
-      "extent almost instantly and lingers a second and a half — all of it steerable, because the " +
+      "{lance.windupMs} milliseconds standing still and visible, then a beam that grows to full " +
+      "extent almost instantly and lingers {lance.lingerSec} seconds — all of it steerable, because the " +
       "car is held rather than stopped. The wheel still works; the beam sweeps wherever you turn " +
       "it.",
     how:
       "The old aim-assist argument no longer applies: a lock could once steer a stamped beam, but " +
       "this one sweeps live under your own hands while the car is held, which is a strictly " +
-      "stronger form of aim. Windup plus growth plus linger is about 2.4 seconds committed end to " +
-      "end, before the second of recovery after — the roster's biggest single-press risk, paid up " +
+      "stronger form of aim. Windup plus growth plus linger is {lance.committedSec} seconds committed end to " +
+      "end, before the {lance.recoverySec:words}-second recovery after — the roster's biggest single-press risk, paid up " +
       "front, during, and after all at once.",
     tip:
-      "Fire it at somebody who cannot spend the next two and a half seconds finding cover — " +
+      "Fire it at somebody who cannot spend the next {lance.committedSec} seconds finding cover — " +
       "cornered, mid-commitment, or lined up with a second car so the sweep catches both. A whiff " +
       "on this hull is close to a death sentence.",
   },
@@ -202,8 +220,8 @@ export const WEAPON_COPY = {
     shape: "Bouncing slug · biggest projectile in the game · locks on",
     what:
       "The largest projectile hitbox in the game, and it no longer dies against level geometry — " +
-      "it bounces off walls until it finds someone or its nearly-three-second flight clock runs " +
-      "out. Whatever it finds, it spikes: 40% slower for three seconds, with no bleed.",
+      "it bounces off walls until it finds someone or its {thumper.flightSec}-second flight clock runs " +
+      "out. Whatever it finds, it spikes: {thumper.slowPct}% slower for {thumper.spikeSec:words} seconds, with no bleed.",
     how:
       "Hard CC has moved on to Roadblock; this is the bouncing pressure shot instead. Bastion is " +
       "slower than everything else on the map, and a target it spikes cannot simply drive away " +
@@ -215,14 +233,14 @@ export const WEAPON_COPY = {
   },
   roadblock: {
     tagline: "A wall on the move.",
-    shape: "Piercing bar · 120 units wide · no lock",
+    shape: "Piercing bar · {roadblock.widthUnits} units wide · no lock",
     what:
-      "A 120-unit-wide bar that travels along its short axis and pierces everything in its path " +
-      "— up to five cars, every other player in the match, and the walls themselves: level " +
-      "geometry does not stop it. Everything it touches takes the hit and stops dead for a full " +
-      "second.",
+      "A {roadblock.widthUnits}-unit-wide bar that travels along its short axis and pierces everything in its path " +
+      "— up to {roadblock.maxCars:words} cars, every other player in the match, and the walls themselves: level " +
+      "geometry does not stop it. Everything it touches takes the hit and stops dead for a " +
+      "{roadblock.stunSec:words}-second stun.",
     how:
-      "Aim assist would be wasted here: a 120-unit face aims itself, wide enough to answer the " +
+      "Aim assist would be wasted here: a {roadblock.widthUnits}-unit face aims itself, wide enough to answer the " +
       "same 'help the slowest chassis hit something' problem a lock used to solve, just by " +
       "covering more ground. Line up two or three opponents and the whole line stops together — " +
       "the roster's only hard CC that hits more than one car at once.",
@@ -233,12 +251,12 @@ export const WEAPON_COPY = {
       "wall they are hiding behind.",
   },
   wildcharge: {
-    tagline: "Ten seconds of armor — 30% less damage taken — and intent.",
+    tagline: "{wildcharge.armorSec:words} seconds of armor — {wildcharge.armorPct}% less damage taken — and intent.",
     shape: "Charge · one hit ends it · no lock",
     what:
-      "One press opens a ten-second window: you take 30% less damage for its length, and the car " +
+      "One press opens a {wildcharge.armorSec:words}-second window: you take {wildcharge.armorPct}% less damage for its length, and the car " +
       "wears the charge outline the whole time. The first enemy hull you touch is hard-slammed for " +
-      "a fixed impulse plus 250 damage, and the window closes right there — one hit, then it is " +
+      "a fixed impulse plus {wildcharge.slamDamage} damage, and the window closes right there — one hit, then it is " +
       "over.",
     how:
       "It is the roster's only exemption from the stun interrupt: a stun still stops the car dead, " +
@@ -247,7 +265,7 @@ export const WEAPON_COPY = {
       "buys you a fight, not a free pass through one. Speed and range are both zero — a charge " +
       "dashes nowhere, it only waits for the first car foolish enough to get close.",
     tip:
-      "Press it before a fight, not during one — the ten seconds have to still be running when you " +
+      "Press it before a fight, not during one — the {wildcharge.armorSec:words} seconds have to still be running when you " +
       "make contact. Whoever you catch takes the hit, the slam, and loses the exchange before it " +
       "starts; everyone else just watches you stand there, armored, until you find someone.",
   },
