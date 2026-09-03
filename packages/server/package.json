@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p playtest/tsconfig.json && tsc --noEmit -p balance/tsconfig.json",
     "test": "vitest run",
     "playtest": "tsx playtest/run-all.ts",
-    "playtest:lan": "tsx playtest/lan.ts"
+    "playtest:lan": "tsx playtest/lan.ts",
+    "balance": "tsx balance/run.ts"
   },
   "dependencies": {
     "@motor-combat-moba/shared": "*",
