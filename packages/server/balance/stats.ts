@@ -23,6 +23,7 @@ import {
   slotsOf,
   type CarId,
   type DamagedEvent,
+  type StatusId,
   type WeaponId,
 } from "@motor-combat-moba/shared";
 import { attributeSource, buildApplierMap } from "./attribution.js";
@@ -113,6 +114,17 @@ export interface MatchupCell {
   meanWinnerHp: number | null;
 }
 
+/**
+ * One statusId's worth of pulse damage that could not be honestly credited to a single weapon
+ * (B5a) — either two or more weapons can apply the status, or (in principle) none can. Surfaced as
+ * its own report section rather than folded into `weapons`, whose whole point is a per-weapon
+ * number; there is no weapon here to attach it to.
+ */
+export interface UnattributedPulseDamageRow {
+  statusId: StatusId;
+  damage: number;
+}
+
 export interface PaceStats {
   meanMatchSeconds: number;
   meanFirstBloodSeconds: number | null;
@@ -139,6 +151,7 @@ export function aggregate(outcomes: readonly MatchOutcome[]): {
   weapons: WeaponStats[];
   matchups: MatchupCell[];
   pace: PaceStats;
+  unattributedPulseDamage: UnattributedPulseDamageRow[];
 } {
   const appliers = buildApplierMap(); // built once, passed down — not per event, not per match.
 
@@ -212,6 +225,12 @@ export function aggregate(outcomes: readonly MatchOutcome[]): {
   // the same. NUL is used rather than a printable separator because no `CarId` can contain it, so
   // the key cannot collide however the roster grows.
   const matchupKey = (attacker: CarId, defender: CarId): string => `${attacker}\x00${defender}`;
+
+  // ---- unattributed pulse damage (B5a): banked by STATUS, since there is no single weapon to bank
+  // it under. Latent today — `overheated` is the only damaging pulse and has exactly one applier,
+  // so this map stays empty in every real run — but it exists so a second applier (or a status that
+  // ships with none) shows up here instead of silently disappearing from every table. -------------
+  const unattributedPulseDamage = new Map<StatusId, number>();
 
   // ---- pace accumulators -----------------------------------------------------------------------
   const matchSeconds: number[] = [];
@@ -290,7 +309,19 @@ export function aggregate(outcomes: readonly MatchOutcome[]): {
     // ---- damage/derived-damage/kills per weapon, via attribution (B5a) ----------------------
     for (const event of outcome.events.damaged) {
       const { weaponId, derived } = attributeSource(event.source, appliers);
-      if (weaponId === null) continue; // ambiguous or self/ownerInside-only source — bank nowhere.
+      if (weaponId === null) {
+        // Ambiguous (two or more appliers) or, in principle, zero-applier — either way there is no
+        // single weapon this can honestly be credited to (B5a). `attributeSource` only ever returns
+        // a null weaponId for a `pulse` source (`weapon`/`contact` always resolve one), so `source`
+        // is safely narrowed here; the guard is defensive rather than load-bearing. Banked under the
+        // STATUS instead of dropped, so it stays visible in the report's "Unattributed pulse damage"
+        // section rather than quietly vanishing from every table — the bug this replaces.
+        if (event.source.kind === "pulse") {
+          const statusId = event.source.statusId;
+          unattributedPulseDamage.set(statusId, (unattributedPulseDamage.get(statusId) ?? 0) + event.amount);
+        }
+        continue;
+      }
       weaponDamage.set(weaponId, (weaponDamage.get(weaponId) ?? 0) + event.amount);
       if (derived) weaponDerivedDamage.set(weaponId, (weaponDerivedDamage.get(weaponId) ?? 0) + event.amount);
     }
@@ -441,5 +472,12 @@ export function aggregate(outcomes: readonly MatchOutcome[]): {
     clockFraction: outcomes.length > 0 ? hitClockCount / outcomes.length : 0,
   };
 
-  return { cars, weapons, matchups, pace };
+  // ---- assemble unattributed pulse damage rows, sorted by statusId so the section's order is a
+  // property of the status table rather than of Map insertion order (which events happened to hit
+  // first). -----------------------------------------------------------------------------------
+  const unattributed: UnattributedPulseDamageRow[] = [...unattributedPulseDamage.entries()]
+    .map(([statusId, damage]) => ({ statusId, damage }))
+    .sort((a, b) => a.statusId.localeCompare(b.statusId));
+
+  return { cars, weapons, matchups, pace, unattributedPulseDamage: unattributed };
 }

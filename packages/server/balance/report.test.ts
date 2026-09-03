@@ -115,6 +115,7 @@ function record(opts: { shape?: Shape; mode?: GameMode } = {}): RunRecord {
       killsPerMinute: 4.2,
       clockFraction: 0.1,
     },
+    unattributedPulseDamage: [],
   };
 }
 
@@ -296,6 +297,21 @@ describe("writeReport (B38, B39, B40)", () => {
     const paceSection = md.split("## Pace")[1]!.split("## ")[0]!;
     expect(paceSection).toMatch(/\d+\.\d%\s*\(\s*\d+\.\d–\d+\.\d\s*\)/);
     expect(paceSection).not.toContain("n/a");
+  });
+
+  it("omits the unattributed pulse damage section when the run has none (B5a)", () => {
+    const md = readSummary();
+    expect(md).not.toContain("Unattributed pulse damage");
+  });
+
+  it("renders unattributed pulse damage when the run has some (B5a)", () => {
+    const withUnattributed = { ...record(), unattributedPulseDamage: [{ statusId: "stunned" as const, damage: 12 }] };
+    const dir = tempDir();
+    writeReport(dir, withUnattributed, []);
+    const md = fs.readFileSync(path.join(dir, "summary.md"), "utf8");
+    expect(md).toContain("Unattributed pulse damage");
+    expect(md).toContain("stunned");
+    expect(md).toContain("12.0");
   });
 
   it("adds a deltas section only when a baseline is supplied", () => {

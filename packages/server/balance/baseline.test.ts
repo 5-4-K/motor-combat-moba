@@ -31,6 +31,7 @@ function record(): RunRecord {
     weapons: [],
     matchups: [],
     pace: { meanMatchSeconds: 45, meanFirstBloodSeconds: 6.5, killsPerMinute: 4.2, clockFraction: 0.1 },
+    unattributedPulseDamage: [],
   };
 }
 

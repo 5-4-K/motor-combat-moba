@@ -114,7 +114,7 @@ function main(): void {
   console.log(`${totalMatches} matches in ${(matchesElapsedMs / 1000).toFixed(1)}s (${perMatchMs.toFixed(1)} ms/match)`);
 
   // ---- Aggregate, assemble the record, write the report. --------------------------------------
-  const { cars, weapons, matchups, pace } = aggregate(outcomes);
+  const { cars, weapons, matchups, pace, unattributedPulseDamage } = aggregate(outcomes);
   const durationSeconds = (Date.now() - overallStart) / 1000;
 
   const record: RunRecord = {
@@ -128,6 +128,7 @@ function main(): void {
     weapons,
     matchups,
     pace,
+    unattributedPulseDamage,
   };
 
   const outDir = args.out ?? createRunDir(REPORTS_ROOT);

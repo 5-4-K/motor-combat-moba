@@ -28,7 +28,7 @@ import { BOT_PROFILES, type BotProfile } from "../src/config/bot-profiles.js";
 import { deriveSeed } from "../src/bot/rng.js";
 import type { MatchOutcome } from "./match.js";
 import type { RunConfig } from "./runner.js";
-import type { CarStats, Interval, MatchupCell, PaceStats, WeaponStats } from "./stats.js";
+import type { CarStats, Interval, MatchupCell, PaceStats, UnattributedPulseDamageRow, WeaponStats } from "./stats.js";
 import { aggregate, wilson } from "./stats.js";
 
 export interface RunRecord {
@@ -42,6 +42,7 @@ export interface RunRecord {
   weapons: WeaponStats[];
   matchups: MatchupCell[];
   pace: PaceStats;
+  unattributedPulseDamage: UnattributedPulseDamageRow[];
 }
 
 /**
@@ -248,6 +249,27 @@ function renderWeaponTable(record: RunRecord): string {
   return ["## Per-weapon", "", mdTable(headers, rows) + derivedNote].join("\n");
 }
 
+/**
+ * "Unattributed pulse damage" (B5a) — only rendered when non-empty. Latent today (`overheated` is
+ * the only damaging pulse and has exactly one applier, `afterburner`), so a real run's table is
+ * normally empty and this section is simply absent rather than printed always-empty; the moment a
+ * second weapon applies a damaging status, its pulse damage lands here instead of vanishing from
+ * every other table in the report.
+ */
+function renderUnattributedPulseDamage(record: RunRecord): string {
+  const rows = record.unattributedPulseDamage.map((u) => [u.statusId, fmt1(u.damage)]);
+  return [
+    "## Unattributed pulse damage",
+    "",
+    "Two or more weapons can apply each status below (or, in principle, none of them target " +
+      "opponents at all), so a point of its pulse damage cannot be honestly credited to one of " +
+      "them (B5a) — refusing to guess and dropping it would be worse than banking it here. This " +
+      "damage is NOT included in any weapon's `Damage` column above.",
+    "",
+    mdTable(["Status", "Damage"], rows),
+  ].join("\n");
+}
+
 function renderMatchupMatrix(record: RunRecord): string {
   const carIds = [...new Set(record.matchups.map((m) => m.attacker))];
   const cellOf = (attacker: string, defender: string): MatchupCell | undefined =>
@@ -365,6 +387,7 @@ function renderSummaryMarkdown(record: RunRecord, baseline?: RunRecord): string 
   const sections = [renderHeader(record), renderLimitations()];
   if (record.config.shape === "duel") sections.push(renderMirrors(record));
   sections.push(renderCarTable(record), renderWeaponTable(record));
+  if (record.unattributedPulseDamage.length > 0) sections.push(renderUnattributedPulseDamage(record));
   if (record.config.shape === "duel") sections.push(renderMatchupMatrix(record));
   sections.push(renderPace(record));
   if (baseline) sections.push(renderDeltas(record, baseline));

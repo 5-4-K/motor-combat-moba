@@ -236,6 +236,56 @@ describe("aggregate: draws credit no winner (Task 15 gap: multi-survivor stalema
   });
 });
 
+describe("aggregate: unattributed pulse damage is banked under the status, not dropped (B5a)", () => {
+  it("banks damage from a pulse whose status has two or more appliers under the statusId", () => {
+    // `stunned` is appliable by both `thunderclap` and `roadblock` (see attribution.ts's header),
+    // so `attributeSource` refuses to guess and returns `weaponId: null` for it — the same case the
+    // existing kills test above exercises for `weaponKills`. This is the damage-side sibling: before
+    // the fix, this damage vanished from EVERY table with a "bank nowhere" comment that contradicted
+    // the spec (B5a: "the damage is reported under the status instead").
+    const out = aggregate([
+      synthetic({
+        damaged: [
+          {
+            tick: 5,
+            victimSessionId: "b",
+            victimCarId: "bastion",
+            attackerSessionId: "a",
+            attackerCarId: "mirage",
+            source: { kind: "pulse", statusId: "stunned", sourceSessionId: "a" },
+            amount: 12,
+            killingBlow: false,
+          },
+        ],
+      }),
+    ]);
+
+    expect(out.unattributedPulseDamage).toEqual([{ statusId: "stunned", damage: 12 }]);
+    // And it must not ALSO be double-counted onto some weapon's damage total.
+    expect(out.weapons.every((w) => w.damage === 0)).toBe(true);
+  });
+
+  it("is empty when every damaging pulse has exactly one applier, today's real case", () => {
+    const out = aggregate([
+      synthetic({
+        damaged: [
+          {
+            tick: 5,
+            victimSessionId: "b",
+            victimCarId: "bastion",
+            attackerSessionId: "a",
+            attackerCarId: "mirage",
+            source: { kind: "pulse", statusId: "overheated", sourceSessionId: "a" },
+            amount: 8,
+            killingBlow: false,
+          },
+        ],
+      }),
+    ]);
+    expect(out.unattributedPulseDamage).toEqual([]);
+  });
+});
+
 describe("aggregate: pace counts every kill, attributable or not (fix round 3, defect 3)", () => {
   it("counts an unattributable kill in killsPerMinute even though no weapon can claim it", () => {
     // `stunned` has two appliers (`thunderclap` and `roadblock`), so `attributeSource` refuses to
