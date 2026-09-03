@@ -77,7 +77,7 @@ motor-combat-MOBA/
 │   │   └── bot-profiles.ts       # BOT_PROFILES: easy/medium/hard, shared by PlaygroundRoom and PracticeRoom (PR17)
 │   ├── rooms/
 │   │   ├── ArenaRoom.ts          # the room: messages, phase machine, tick
-│   │   ├── tick-pipeline.ts      # runPipeline: statusTick→serverTick→contactTick→combatTick, shared by ArenaRoom, PlaygroundRoom and PracticeRoom (PG4, PR8)
+│   │   ├── tick-pipeline.ts      # runPipeline: statusTick→serverTick→contactTick→combatTick, shared by ArenaRoom, PlaygroundRoom and PracticeRoom (PG4, PR16)
 │   │   ├── PlaygroundRoom.ts     # dev-only room ("playground"), DEV_TOOLS=1-gated; pause/switch/tuning/setup, bot-or-alone, endless respawns
 │   │   ├── PracticeRoom.ts       # shipped room ("practice"), no DEV_TOOLS gate, maxClients=1; runs runPipeline verbatim, never calls setTuning (PR1)
 │   │   ├── practice-rules.ts     # pure predicates: room-cap refusal, playground-busy refusal, opponent roll, idle timeout/warning (PR26–PR29)
@@ -130,7 +130,7 @@ motor-combat-MOBA/
         │   └── view.ts           # status + phase → scene
         ├── scenes/
         │   ├── {Boot,Join,Lobby,CarSelect,Arena,Results}Scene.ts
-        │   ├── PracticeSetupScene.ts   # thin shell: joins "practice" with the chosen setup, launches ArenaScene (PR20)
+        │   ├── PracticeSetupScene.ts   # thin shell: joins "practice" with the chosen setup, launches ArenaScene (PR21)
         │   ├── PracticeSummaryScene.ts # thin shell over ui/screens/practice-summary.ts; reads a pre-leave kills/deaths snapshot, never a live Room (PR24)
         │   ├── controlled-car.ts # controlledCarOf/isSimPaused/isPracticeRoom: which car to drive, whether the sim is frozen, whether the pause-menu gate applies — resolves to the real match answer on a base ArenaState (PG7, PG9, PR22)
         │   ├── arena-camera.ts   # whether the arena fits the view, so the camera need not scroll

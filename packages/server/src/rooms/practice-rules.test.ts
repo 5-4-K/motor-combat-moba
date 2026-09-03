@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { activeCarIds } from "@motor-combat-moba/shared";
+import { activeCarIds, type InputMessage } from "@motor-combat-moba/shared";
 import {
+  isActiveInput,
   isIdleWarningDue,
   isPracticeIdle,
   resolveOpponentCar,
   shouldRefusePractice,
   shouldRefusePracticeForPlayground,
 } from "./practice-rules.js";
+
+const neutral: InputMessage = { seq: 1, steer: 0, throttle: 0, fireSlots: 0 };
 
 describe("shouldRefusePractice", () => {
   it("admits a join while under the cap", () => {
@@ -71,6 +74,34 @@ describe("isPracticeIdle", () => {
   it("measures wall clock, so a frozen sim still ages (PR27)", () => {
     // No sim tick is involved at all: this is the whole point of the wall-clock decision.
     expect(isPracticeIdle(1_000, 302_000, 300)).toBe(true);
+  });
+});
+
+// The client sends one InputMessage per sim tick unconditionally (30/s), whether or not the player
+// touched anything — so "an input arrived" proves nothing about presence. Only a non-neutral one does.
+describe("isActiveInput", () => {
+  it("is not active on the all-neutral input a parked car sends every tick", () => {
+    expect(isActiveInput(neutral)).toBe(false);
+  });
+
+  it("is active on steer alone, either direction", () => {
+    expect(isActiveInput({ ...neutral, steer: 1 })).toBe(true);
+    expect(isActiveInput({ ...neutral, steer: -1 })).toBe(true);
+  });
+
+  it("is active on throttle alone, either direction", () => {
+    expect(isActiveInput({ ...neutral, throttle: 1 })).toBe(true);
+    expect(isActiveInput({ ...neutral, throttle: -1 })).toBe(true);
+  });
+
+  it("is active on a fire mask alone", () => {
+    expect(isActiveInput({ ...neutral, fireSlots: 1 })).toBe(true);
+  });
+
+  it("is active on combinations of the three fields", () => {
+    expect(isActiveInput({ ...neutral, steer: 1, throttle: -1 })).toBe(true);
+    expect(isActiveInput({ ...neutral, steer: 1, fireSlots: 2 })).toBe(true);
+    expect(isActiveInput({ ...neutral, steer: 1, throttle: 1, fireSlots: 4 })).toBe(true);
   });
 });
 

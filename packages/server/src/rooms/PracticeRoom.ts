@@ -46,6 +46,7 @@ import {
 } from "./bot.js";
 import { copySpawnNumbers } from "./match-helpers.js";
 import {
+  isActiveInput,
   isIdleWarningDue,
   isPracticeIdle,
   resolveOpponentCar,
@@ -188,16 +189,27 @@ export class PracticeRoom extends Room<PracticeState> {
 
     this.onMessage(INPUT_MESSAGE, (client, msg: unknown) => {
       if (!isInputMessage(msg)) return;
-      // Stamped on every accepted input, and ONLY here: this is the definition of "not idle".
-      // Stamped BEFORE the latency injector, so injected lag can never make a live player look idle.
-      this.lastInputAtMs = Date.now();
-      this.warnedOfIdle = false;
+      // Gated on `isActiveInput`, not on arrival: `ArenaScene.sendInputTick` sends one message a
+      // tick regardless of whether the player touched anything, so a neutral input is not evidence
+      // of presence and must not reset the idle clock — that is the whole bug I1 fixes. Stamped
+      // BEFORE the latency injector, so injected lag can never make a live player look idle.
+      if (isActiveInput(msg)) {
+        this.lastInputAtMs = Date.now();
+        this.warnedOfIdle = false;
+      }
+      // Enqueued unconditionally, active or not: the sim needs every tick's input to drive
+      // correctly, including "hold nothing". Only the idle stamp above is conditional.
       enqueue({ sessionId: client.sessionId, msg });
     });
 
     // A toggle rather than a set: the client holds no pause state of its own to disagree with.
     this.onMessage(MSG_PRACTICE_PAUSE, () => {
       this.state.paused = !this.state.paused;
+      // Counts as presence (PR27): `sweepIdle` runs at the TOP of `tick()`, ahead of the pause
+      // return, so a player who resumes right at the timeout would otherwise be reaped on the very
+      // next tick, before their first post-resume input has a chance to land and restamp it.
+      this.lastInputAtMs = Date.now();
+      this.warnedOfIdle = false;
     });
   }
 
@@ -225,6 +237,12 @@ export class PracticeRoom extends Room<PracticeState> {
     // human on whichever `ffaSpawn` is farthest from the origin (review F4). Overwritten just below
     // with `assignSpawns`, the same mechanism `ArenaRoom.revealCars` uses to open a real match — a
     // real match never opens on a repeatable spot either.
+    //
+    // The `phased` grant rides along uninvited: a real match's opening (`revealCars`) hands out no
+    // spawn protection at all, so this is a third divergence from strict mirror beyond the two PR1
+    // names. Left as-is because it is harmless, not because it was missed — both cars get it
+    // symmetrically, and `assignSpawns` places them far enough apart that neither can reach the
+    // other before the 1.5-3s window (`STATUS_TABLE.phased`) lapses on its own.
     for (const id of this.matchRoster) {
       const player = this.state.players.get(id);
       if (player) respawnPlayer(this.ctx(), player);

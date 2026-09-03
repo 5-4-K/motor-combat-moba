@@ -32,7 +32,14 @@ const ARENA_STATE_SYNC_TIMEOUT_MS = 5000;
  * instant `joinPractice` resolves (`colyseus.js`'s `Client.js`) — so nothing else is watching for a
  * server crash or dropped connection between the handshake and the first patch; without this, that
  * gap would await forever with Start stuck disabled and no way out but a reload.
+ *
+ * The `onLeave` rejection is tagged with `ROOM_ALREADY_GONE` rather than left as a plain `Error`:
+ * `onStart`'s `catch` needs to tell "the room rejected me and is already gone" apart from "the room
+ * is still sitting there, joined but never ready" — only the second case owes the server a
+ * `room.leave()` call.
  */
+export const ROOM_ALREADY_GONE = "Practice room closed before it was ready";
+
 function waitForArenaReady(room: Room<PracticeState>): Promise<void> {
   if (isArenaId(room.state.arenaId)) return Promise.resolve();
   return new Promise<void>((resolve, reject) => {
@@ -52,8 +59,7 @@ function waitForArenaReady(room: Room<PracticeState>): Promise<void> {
     const onState = (): void => settle(resolve);
     const onError = (_code: number, message?: string): void =>
       settle(() => reject(new Error(message || "Practice room connection failed")));
-    const onLeave = (): void =>
-      settle(() => reject(new Error("Practice room closed before it was ready")));
+    const onLeave = (): void => settle(() => reject(new Error(ROOM_ALREADY_GONE)));
     room.onStateChange(onState);
     room.onError(onError);
     room.onLeave(onLeave);
@@ -113,8 +119,12 @@ export class PracticeSetupScene extends Phaser.Scene {
     const name = (this.registry.get("playerName") as string | undefined) ?? "Player";
     const setup: PracticeSetup = { ...partial, name };
     savePracticeSetup(setup);
+    // Hoisted out of the `try` so the `catch` can still reach a room that joined but never became
+    // ready — that room is real on the server (a cap slot, an open socket) even though this method
+    // is about to fail.
+    let room: Room<PracticeState> | undefined;
     try {
-      const room = await joinPractice(setup);
+      room = await joinPractice(setup);
       // See `waitForArenaReady` above — costs nothing once state has already arrived, which is the
       // common case; only pays the wait (and can only fail) on the actual race. Held off the registry
       // until this resolves, so a room that never became ready never lingers there for a later read.
@@ -124,6 +134,14 @@ export class PracticeSetupScene extends Phaser.Scene {
     } catch (err) {
       this.starting = false;
       this.screen?.setBusy(false);
+      // A room that joined but never became ready still holds a cap slot and an open socket until
+      // the server's own idle timeout eventually reaps it — closing it here is immediate instead.
+      // Skipped when the rejection is `ROOM_ALREADY_GONE`: that came from the room's own `onLeave`,
+      // so there is nothing left to leave, and skipped when `joinPractice` itself never resolved
+      // (`room` still undefined) — a rejected `joinOrCreate` never made a room to leave in the first
+      // place.
+      const alreadyGone = err instanceof Error && err.message === ROOM_ALREADY_GONE;
+      if (room && !alreadyGone) void room.leave();
       // `ServerError` (what every real refusal — 4006-4009 alike — rejects with) extends `Error`, so
       // `err.message` already carries the server's own text; this fallback only guards a rejection
       // shaped by something other than the room, which reads closer to a malformed request than to

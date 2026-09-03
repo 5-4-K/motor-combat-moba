@@ -68,6 +68,14 @@ The two deliberate divergences, both structural rather than mechanical:
   ends it.
 - There is **one opponent**, and it is a bot.
 
+A third, undeliberate but harmless one: `onJoin` builds both cars through `respawnPlayer` (PR16), and
+that grants the real `phased` spawn protection (1.5-3s) along with everything else it does. A real
+match's opening (`ArenaRoom.revealCars`) grants no such protection — an arena match never phases
+anyone before its first shot. Left in place rather than fixed: `assignSpawns` places the two cars far
+enough apart that neither can close the distance inside the window, and both are affected the same
+way, so nothing about the practiced game actually differs. Noted here because a strict reading of PR1
+would otherwise call it a bug.
+
 **PR2. The playground's affordances are not inherited.** No live tuning, no car switching mid-session,
 no free weapon assignment, no inactive chassis, no bot on/off toggle, no arena picker. Practice
 settings are chosen once, before the session starts, and are fixed for its duration. This is not a
@@ -202,11 +210,12 @@ from the player's via the lobby's own `pickColor`.
 
 Teams 0 and 1 are visual only; the mode is FFA and `canDamage` never consults them.
 
-### PR15. `"random"` resolves once, at room creation, over active chassis only
+### PR15. `"random"` resolves once, from `onJoin`, over active chassis only
 
-The opponent chassis is chosen when the room is created and never re-rolled — not on respawn. Cars
-do not change chassis mid-match, and neither does the bot (PR1). `resolveOpponentCar` draws only
-from active chassis, so a chassis hidden from car select cannot appear in practice either.
+The opponent chassis is chosen from `onJoin` — the room's only join, so functionally its creation
+(`maxClients = 1`, no reconnection) — and never re-rolled: not on respawn. Cars do not change chassis
+mid-match, and neither does the bot (PR1). `resolveOpponentCar` draws only from active chassis, so a
+chassis hidden from car select cannot appear in practice either.
 
 ### PR16. Death, respawn and spawn protection are inherited verbatim
 
@@ -357,8 +366,8 @@ how many exist.
 
 ### PR27. Idle is measured in wall clock, and checked before the pause gate
 
-The room stamps `Date.now()` on each input message received. The idle check runs at the **top** of
-`tick()`, before the `paused` early-return of PR13.
+The room stamps `Date.now()` on each **active** input message received, and on the `MSG_PRACTICE_PAUSE`
+toggle. The idle check runs at the **top** of `tick()`, before the `paused` early-return of PR13.
 
 Both halves of that matter. Measuring idle in sim ticks would never advance for a paused room — the
 exact case most worth reaping — and running the check after the pause return would never fire at all
@@ -366,8 +375,18 @@ while paused. `PRACTICE_CONFIG.idleTimeoutSeconds` (default 300) closes the room
 
 A cost asymmetry worth recording, which does *not* change the rule: a paused room is nearly free,
 because `tick()` returns before the pipeline runs. The expensive ghost is an *unpaused* idle room,
-simulating at full rate around a parked car. One rule covers both, and special-casing pause would
-add a branch for no gain.
+simulating at full rate around a parked car.
+
+The two cases are not, however, covered by one identical mechanism, and an earlier draft of this
+page claimed they were. `ArenaScene.sendInputTick` sends one `InputMessage` a tick unconditionally —
+a parked car with no key held still emits 30 neutral inputs a second — so "an input arrived" is not
+evidence of presence in the unpaused case; only a **non-neutral** one (`isActiveInput`: steer,
+throttle, or a fire slot bitmask) restamps `lastInputAtMs`. Presence in the *paused* case has no
+input stream to read at all, so it is stamped separately, on the pause toggle itself — otherwise a
+player who resumes right at the timeout would be reaped on the very next tick, before their first
+post-resume input could land and restamp it. Two stamping sites, one idle rule (`isPracticeIdle`
+itself stays a single wall-clock comparison); special-casing the *rule* would add a branch for no
+gain, but the *inputs* that feed it are not interchangeable.
 
 ### PR28. A warning before the timeout
 

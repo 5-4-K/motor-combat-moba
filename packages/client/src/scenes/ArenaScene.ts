@@ -365,8 +365,6 @@ const RESPAWN_FONT_PX = 24;
  */
 const IDLE_WARNING_Y = MATCH_CLOCK_Y;
 const IDLE_WARNING_FONT_PX = MATCH_CLOCK_FONT_PX;
-/** How long the warning stays up before clearing itself — a presentation choice, not a sim rule. */
-const IDLE_WARNING_VISIBLE_MS = 4000;
 
 const HUD_KEY_FONT_PX = SLOT_KEY_FONT_PX;
 const HUD_NAME_FONT_PX = SLOT_NAME_FONT_PX;
@@ -631,10 +629,15 @@ export class ArenaScene extends Phaser.Scene {
   /**
    * `MSG_PRACTICE_IDLE_WARNING`'s banner (spec PR28/PR29): same `Text`-object treatment as the three
    * above — made once, shown by setting its string and visibility — but driven by a one-shot server
-   * message rather than a per-frame state read, so it also owns a timer that clears it back down.
+   * message rather than a per-frame state read.
+   *
+   * Cleared by the player's own next real input (`sendInputTick`), never by a fixed-duration timer:
+   * a timer clears it whether or not it was ever seen, and it never was in the two cases that
+   * matter — obscured under the pause dialog while paused, and unwatched while the tab is hidden.
+   * Persisting it until an actual steer/throttle/fire input arrives means it is still up the moment
+   * the player resumes (the dialog closes, revealing it underneath) or returns to the tab.
    */
   private idleWarningText: Phaser.GameObjects.Text | undefined;
-  private idleWarningTimer: Phaser.Time.TimerEvent | undefined;
   /** Pill plates behind the movement hint's key glyphs. Drawn once, then only toggled. */
   private movementHintGfx: Phaser.GameObjects.Graphics | undefined;
   private movementHintTexts: Phaser.GameObjects.Text[] = [];
@@ -1050,13 +1053,9 @@ export class ArenaScene extends Phaser.Scene {
     // keeps the banner honest if that config ever changes. Bound unconditionally like every other
     // room listener; a real match's room just never sends this message.
     const onIdleWarning = (): void => {
-      this.idleWarningTimer?.remove();
       this.idleWarningText
         ?.setText(`No input — session ending in ${PRACTICE_CONFIG.idleWarningSeconds}s`)
         .setVisible(true);
-      this.idleWarningTimer = this.time.delayedCall(IDLE_WARNING_VISIBLE_MS, () => {
-        this.idleWarningText?.setVisible(false);
-      });
     };
     this.unbind.push(room.onMessage(MSG_PRACTICE_IDLE_WARNING, onIdleWarning));
   }
@@ -1100,8 +1099,6 @@ export class ArenaScene extends Phaser.Scene {
     this.respawnText = undefined;
     this.idleWarningText?.destroy();
     this.idleWarningText = undefined;
-    this.idleWarningTimer?.remove();
-    this.idleWarningTimer = undefined;
     this.movementHintGfx?.destroy();
     this.movementHintGfx = undefined;
     for (const text of this.movementHintTexts) text.destroy();
@@ -1347,6 +1344,13 @@ export class ArenaScene extends Phaser.Scene {
       ),
     };
     room.send(INPUT_MESSAGE, input);
+
+    // Mirrors the server's own `isActiveInput` (PracticeRoom's presence stamp): a real steer,
+    // throttle or fire input is what the room now counts as "still here", so the warning it sent is
+    // stale the moment one goes out — clearing it here needs no round trip through the server.
+    if (input.steer !== 0 || input.throttle !== 0 || input.fireSlots !== 0) {
+      this.idleWarningText?.setVisible(false);
+    }
 
     // Predict immediately: the local car has to answer on this frame, not a round-trip later.
     const from = this.predicted ?? bodyOf(local);

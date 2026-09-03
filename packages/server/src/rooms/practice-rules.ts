@@ -1,4 +1,9 @@
-import { activeCarIds, type CarId, type PracticeOpponent } from "@motor-combat-moba/shared";
+import {
+  activeCarIds,
+  type CarId,
+  type InputMessage,
+  type PracticeOpponent,
+} from "@motor-combat-moba/shared";
 
 /**
  * May another practice room open right now (spec PR29)?
@@ -32,8 +37,9 @@ export function shouldRefusePracticeForPlayground(
 }
 
 /**
- * The bot's chassis, resolved ONCE at room creation and never re-rolled — not on respawn (PR15).
- * Cars do not change chassis mid-match, and neither does the bot.
+ * The bot's chassis, resolved ONCE — from `onJoin`, the room's only join and so functionally its
+ * creation (`maxClients = 1`, no reconnection) — and never re-rolled, not on respawn (PR15). Cars do
+ * not change chassis mid-match, and neither does the bot.
  *
  * Draws only from ACTIVE chassis, so a car hidden from car select cannot appear in practice either.
  * `Math.min` guards a roll of exactly 1, which `Math.random` never returns but an injected rng in a
@@ -44,6 +50,18 @@ export function resolveOpponentCar(opponent: PracticeOpponent, rng: () => number
   const active = activeCarIds();
   const index = Math.min(active.length - 1, Math.floor(rng() * active.length));
   return active[index]!;
+}
+
+/**
+ * Did the player actually do something with this input (PR27)?
+ *
+ * `ArenaScene.sendInputTick` sends one `InputMessage` per sim tick unconditionally — a parked car
+ * with no key held still emits 30 neutral inputs a second. So "an input arrived" is not evidence of
+ * presence; the room would never age while the tab sits open and focused. Only a non-neutral one —
+ * the player actually steered, throttled, or fired — counts as "still here".
+ */
+export function isActiveInput(msg: InputMessage): boolean {
+  return msg.steer !== 0 || msg.throttle !== 0 || msg.fireSlots !== 0;
 }
 
 /**
