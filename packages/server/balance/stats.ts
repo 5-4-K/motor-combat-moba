@@ -102,7 +102,10 @@ export interface MatchupCell {
   defender: CarId;
   winRate: Interval;
   meanTicks: number;
-  meanWinnerHp: number;
+  /** `null` when every match for this pair drew — there is no winner hp to average. Same treatment
+   * as a zero-press weapon's hit rate: no data means no number, never a fabricated `mean([]) === 0`
+   * that would print as a measured "0.0 hp remaining" for a matchup nobody actually walked. */
+  meanWinnerHp: number | null;
 }
 
 export interface PaceStats {
@@ -409,12 +412,16 @@ export function aggregate(outcomes: readonly MatchOutcome[]): {
       const key = matchupKey(attacker, defender);
       const n = matchupN.get(key) ?? 0;
       const wins = matchupWins.get(key) ?? 0;
+      const winnerHp = matchupWinnerHp.get(key) ?? [];
       matchups.push({
         attacker,
         defender,
         winRate: wilson(wins, n),
         meanTicks: mean(matchupTicks.get(key) ?? []),
-        meanWinnerHp: mean(matchupWinnerHp.get(key) ?? []),
+        // `mean([])` returns 0, which would print as a measured "0.0 hp remaining" for a pair that
+        // never had a winner (every duel drew) — `null` here is what lets the report render `–`
+        // instead, per this file's own "no data means no number" principle (see the header comment).
+        meanWinnerHp: winnerHp.length > 0 ? mean(winnerHp) : null,
       });
     }
   }

@@ -278,6 +278,26 @@ describe("aggregate: matchup matrix", () => {
     expect(bastionOverMirage.winRate.rate).toBe(0);
   });
 
+  it("reports meanWinnerHp as null, not a fabricated 0, when every match for a pair drew (fix round 3, defect 5)", () => {
+    // `winnerSessionId: ""` (the `synthetic` default) is a draw — nobody to credit a winner-hp
+    // sample to. Before the fix, `mean([])` returned 0 and that 0 was indistinguishable from a
+    // winner who finished the match at exactly 0 hp.
+    const out = aggregate([synthetic({ winnerSessionId: "" })]);
+    const mirageOverBastion = out.matchups.find((m) => m.attacker === "mirage" && m.defender === "bastion")!;
+    expect(mirageOverBastion.meanWinnerHp).toBeNull();
+  });
+
+  it("reports meanWinnerHp as a real number once at least one match in the pair has a winner", () => {
+    const out = aggregate([
+      synthetic({
+        winnerSessionId: "a",
+        seats: [seat({ sessionId: "a", carId: "mirage", hp: 55 }), seat({ sessionId: "b", carId: "bastion", hp: 0 })],
+      }),
+    ]);
+    const mirageOverBastion = out.matchups.find((m) => m.attacker === "mirage" && m.defender === "bastion")!;
+    expect(mirageOverBastion.meanWinnerHp).toBe(55);
+  });
+
   it("gives every chassis pair a cell, including the three mirrors (B26a)", () => {
     const out = aggregate([synthetic({})]);
     expect(out.matchups).toHaveLength(9); // 3x3 including mirrors

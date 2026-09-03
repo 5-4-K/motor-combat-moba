@@ -265,6 +265,24 @@ describe("writeReport (B38, B39, B40)", () => {
     expect(paceSection).not.toMatch(/\|[^|]*\d+\.\d%[^|]*\|\s*$/m); // no bracketed % as the last cell
   });
 
+  it("renders a drawn-out matchup's meanWinnerHp as — rather than a fabricated 0.0 hp (fix round 3, defect 5)", () => {
+    const base = record({ shape: "duel" });
+    const drawnPair = { ...base.matchups[0]!, meanWinnerHp: null };
+    const withDrawnPair = { ...base, matchups: [drawnPair, ...base.matchups.slice(1)] };
+
+    const dir = tempDir();
+    writeReport(dir, withDrawnPair, []);
+    const md = fs.readFileSync(path.join(dir, "summary.md"), "utf8");
+
+    const row = md.split("\n").find(
+      (line) => line.includes(`| ${drawnPair.attacker} | ${drawnPair.defender} |`),
+    );
+    expect(row).toBeDefined();
+    const cells = row!.split("|").map((c) => c.trim());
+    const winnerHpCell = cells[cells.length - 2]; // "", Attacker, Defender, Win rate, Mean duel, Mean winner hp, ""
+    expect(winnerHpCell).toBe("–");
+  });
+
   it("prints a real interval for 'Hit the clock' in last-standing, where it is a meaningful stalemate signal", () => {
     const md = readSummary({ mode: GameMode.FFA_LAST_STANDING });
     const paceSection = md.split("## Pace")[1]!.split("## ")[0]!;

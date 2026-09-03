@@ -262,7 +262,10 @@ function renderMatchupMatrix(record: RunRecord): string {
     m.defender,
     formatInterval(m.winRate),
     fmt1(m.meanTicks),
-    fmt1(m.meanWinnerHp),
+    // `null` means every match for this pair drew — no winner, so no hp to average. Same `–`
+    // treatment as a zero-press weapon's hit rate above: printing `fmt1(0)` here would read as a
+    // measured "0.0 hp remaining" for a matchup that was never actually won.
+    m.meanWinnerHp === null ? "–" : fmt1(m.meanWinnerHp),
   ]);
 
   return [
