@@ -1,0 +1,76 @@
+/**
+ * Two short, stable fingerprints over the balance-relevant config, so a report printed today stays
+ * interpretable months from now.
+ *
+ * `configFingerprint` covers everything `stepSim` and `runCombat` read that a tuning pass could
+ * touch — `WEAPON_TABLE`, `CAR_TABLE`, `COMBAT_CONFIG`, `DRIVE_CONFIG`, `STATUS_TABLE` — and
+ * `botFingerprint` covers `BOT_PROFILES` separately, because a bot retune and a balance retune are
+ * different edits with different implications for whether an old report is still comparable to a
+ * new one (Task 20's baseline guard refuses a comparison across either).
+ *
+ * Hashed WHOLE, following the precedent `balanceStamp` (`scripts/build-cars-and-weapons.mjs`) set
+ * for the manual page — any field of any row counts, not just the ones this file's author thought
+ * to name. Computed independently rather than imported: `balanceStamp` lives in a build script
+ * outside the TypeScript packages, and hashes for a different consumer (the player-facing guide,
+ * not this harness). FNV-1a over a `JSON.stringify` with keys sorted at every level, rather than
+ * `node:crypto`'s sha256 that `balanceStamp` uses — a 32-bit FNV-1a is plenty of collision
+ * resistance for "did this file change since the last run" and needs no import from `node:crypto`,
+ * keeping this module as small as what it does.
+ */
+import { BOT_PROFILES } from "../src/config/bot-profiles.js";
+import { CAR_TABLE, COMBAT_CONFIG, DRIVE_CONFIG, STATUS_TABLE, WEAPON_TABLE } from "@motor-combat-moba/shared";
+
+// FNV-1a 32-bit constants (the standard offset basis and prime for the 32-bit variant). Named
+// rather than inlined so a reader does not have to recognize the magic numbers as a well-known
+// hash's constants on sight.
+const FNV_OFFSET_BASIS_32 = 0x811c9dc5;
+const FNV_PRIME_32 = 0x01000193;
+
+/**
+ * FNV-1a over a string, 32-bit, rendered as 8 lowercase hex digits.
+ *
+ * `Math.imul` keeps the multiply inside 32 bits the way the algorithm expects — a plain `*` would
+ * overflow into a float and silently stop being FNV-1a past the first few iterations.
+ */
+function fnv1aHex(input: string): string {
+  let hash = FNV_OFFSET_BASIS_32;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, FNV_PRIME_32);
+  }
+  // `>>> 0` turns the (possibly negative, since JS bitwise ops are signed 32-bit) result into an
+  // unsigned 32-bit value before it goes to hex, so the output is always 8 digits, never a sign.
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+/**
+ * Recursively sorts object keys so `JSON.stringify` produces the same text regardless of the
+ * insertion order the source objects happen to use — the fingerprint is a fact about the DATA, not
+ * about which field a table's author happened to type first.
+ */
+function sortKeysDeep(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortKeysDeep);
+  if (value !== null && typeof value === "object") {
+    const source = value as Record<string, unknown>;
+    const sorted: Record<string, unknown> = {};
+    for (const key of Object.keys(source).sort()) sorted[key] = sortKeysDeep(source[key]);
+    return sorted;
+  }
+  return value;
+}
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(sortKeysDeep(value));
+}
+
+/** Fingerprint over `WEAPON_TABLE`, `CAR_TABLE`, `COMBAT_CONFIG`, `DRIVE_CONFIG` and `STATUS_TABLE`,
+ * whole. Changes whenever any balance-relevant config field changes, however small. */
+export function configFingerprint(): string {
+  return fnv1aHex(stableStringify({ WEAPON_TABLE, CAR_TABLE, COMBAT_CONFIG, DRIVE_CONFIG, STATUS_TABLE }));
+}
+
+/** Fingerprint over `BOT_PROFILES`, whole and separate from `configFingerprint` — a bot retune and
+ * a balance retune are different edits, and a baseline comparison needs to tell them apart. */
+export function botFingerprint(): string {
+  return fnv1aHex(stableStringify({ BOT_PROFILES }));
+}
