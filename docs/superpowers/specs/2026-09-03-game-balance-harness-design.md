@@ -11,7 +11,7 @@ bot and its profiles to shipped balance this inherits), and
 [`2026-08-27-weapon-system-design.md`](2026-08-27-weapon-system-design.md) (whose press/volley model
 the per-weapon statistics are defined against).
 
-Decisions are numbered **B1–B52** (plus B8a, B26a, B28a) and referenced by number elsewhere.
+Decisions are numbered **B1–B52** (plus B5a, B8a, B26a, B28a) and referenced by number elsewhere.
 
 ---
 
@@ -125,16 +125,42 @@ interface KilledEvent  { tick; victimSessionId; victimCarId;
 | Tag | From | Carries |
 |---|---|---|
 | `weapon` | an instance's hit | `weaponId`, `pressId`, `isExplosion` |
-| `contact` | the ram/slam/dash pass | `weaponId` + `pressId` when a maneuver caused it, both `null` for a plain ram |
-| `pulse` | a status pulse (burn) | `statusId` |
+| `contact` | the contact pass | `weaponId`, `pressId` |
+| `pulse` | a status pulse | `statusId`, `sourceSessionId` |
 
 `KilledEvent` duplicates what `killingBlow` already marks on the damage event. That redundancy is
 deliberate: the kill table wants victim and killer without joining across two logs, and the weapon
 table wants credited kills without joining either.
 
-**B5. `source` is what makes the per-car damage totals reconcile.** Ram damage belongs to no weapon.
-Without a bucket for it, a per-weapon table silently loses damage and a reader concludes a chassis
-deals less than it does. Reported as its own row, never folded into a weapon.
+**B5. Every point of damage in this game is weapon-attributable, but two of the three paths arrive
+one hop removed.**
+
+There is no "ram damage" bucket, because **a plain ram deals no damage** — `sim/ram.ts` states it
+outright ("`applyDamage` is never called from here"), and it is what keeps weapons the only damage
+source. Every `ContactHit` the contact pass produces is a dash landing or a hard slam, so it always
+names the maneuver weapon that caused it. `weaponId` on the `contact` source is therefore never
+null.
+
+Pulse damage is the hop that matters. `corroded` is the only damaging status on the table
+(`pulse: { intervalMs: 400, damage: 8 }`), and over its 2 s duration that is **40 damage** — against
+`magmablast`'s 50 on the direct hit. Bank that under "corroded" and the weapon table understates the
+weapon that caused it by nearly half.
+
+**B5a. Pulse damage is credited to the weapon that applied the status, derived at runtime.**
+
+`ActiveStatus` carries `sourceSessionId` but not a source *weapon*, and adding one is not worth it:
+`StatusState` is networked, so it would widen the wire permanently to serve a statistic.
+
+Instead the harness scans `WEAPON_TABLE` once at startup — every row's `applies`, and every
+explosion's `applies` — and builds `statusId → weaponId[]`. When exactly one weapon applies a status,
+its pulse damage is credited to that weapon and the report says the attribution was derived. When two
+or more do, attribution is genuinely ambiguous from the event alone, and the damage is reported under
+the status instead.
+
+Derived rather than hardcoded because CLAUDE.md's own note on `corroded` — "grep `applies:.*corroded`
+if a second source ever needs checking" — describes a fact that a future weapon can change silently.
+A map built from the table cannot go stale; a constant would, and would go stale in the direction of
+a wrong number rather than a missing one.
 
 **B6. Emit sites — four, all already single points.**
 
@@ -554,8 +580,8 @@ intervals, composition generation, CLI parsing, `pressId` uniqueness, seed deter
 the probes.
 
 **B48. The seam gets its own shared tests**: events emitted at each of the four sites, absent sink
-allocates nothing, explosion inherits its shell's `pressId`, contact damage carries a `weaponId` for
-a maneuver and `null` for a plain ram.
+allocates nothing, explosion inherits its shell's `pressId`, and contact damage carries the
+maneuver's `weaponId` and `pressId`.
 
 **B49. The room migration is proven by the tests that already exist** — `bot.test.ts`,
 `practice-room.test.ts`, `playground-room.test.ts` pass unchanged, including the by-value pin on
