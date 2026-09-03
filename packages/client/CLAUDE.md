@@ -55,7 +55,7 @@ Three tables own how a shot looks, split by what the weapon's hitbox is, and eac
 weapon it does not own so the flat `weaponFillOf` fill stays the fallback: `WEAPON_GLOW_STYLES`
 (circles, nested by radius) is currently **empty** — the 2026-09-01 roster cutover retired the row
 that used it and nothing has replaced it yet, so every round projectile draws the flat fallback fill.
-`WEAPON_BEAM_STYLES` (beams, nested by extent and cross-section) styles `afterburner` and `lance`
+`WEAPON_BEAM_STYLES` (beams, nested by extent and cross-section) styles `afterburner`, `lance` and `tremor`
 (`bulwark` retired with the cutover). `WEAPON_PROJECTILE_STYLES` (the ellipse and capsule projectiles)
 styles `thumper` and `predator` (`needler` and `skewer` retired); `pepperbox` is the one non-circular
 projectile still drawing the flat hitbox fill until an owner arts it. The last table
@@ -73,6 +73,19 @@ are one decision, so cropping the plume without shortening the capsule puts the 
 reaching further than it draws. Unlike every other layer, a `poly`'s containment is not implied by
 its parameters — it is `clampToHull`, applied per vertex, which pulls a stray point onto the hull
 rather than dropping the layer.
+
+`lance` is the beam side of the same story, and the table's one **animated** look. It shipped as two
+flat nested rectangles that read as a highlighter stroke; it is now a lightning bolt, and three of its
+parts are load-bearing. `crackle` falls to **zero as the layers go inward**, so a dead-straight
+white-hot core sits inside a torn envelope — an early cut tore every layer equally and the whole beam
+undulated like a ribbon, which is the failure to avoid if you author a second bolt. `domeScale` rounds
+the ORIGIN into `thumper`'s capsule head, and it is **carved out of the beam's length** rather than
+added behind the muzzle, which is why it needs no hitbox exception (the charge orb, sitting outside on
+the shooter's own car, remains the only one). And `crackleHz` re-rolls the tear off `performance.now()`
+— free, because `renderShots` rebuilds every polygon each frame regardless, but it means two live
+beams crackle in step and different clients see different frames. That is fine and deliberate: nothing
+in the sim reads it, and `instanceGlowBands` already animates off the same clock. `beamDrawLayers`
+takes `nowMs` as a defaulted last parameter, so every other caller keeps drawing a frozen frame.
 
 How a shot is *shaped* is `WEAPON_GLOW_STYLES` in `scenes/combat-visual.ts`: per weapon, and today
 empty for every row (see above), so every weapon currently draws the flat `weaponFillOf` disc or

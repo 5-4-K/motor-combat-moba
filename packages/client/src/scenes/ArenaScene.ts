@@ -1866,6 +1866,10 @@ export class ArenaScene extends Phaser.Scene {
               instance.angle,
               instance.extent,
               elapsedMs,
+              // The free-running clock, not the patch-relative `elapsedMs` beside it: a rect beam
+              // whose style sets `crackleHz` animates off this, and `elapsedMs` saws back to zero
+              // every patch, which would tie the crackle to the network instead of to the shot.
+              nowMs,
             );
         if (layers.length === 0) {
           gfx.fillStyle(weaponFillOf(instance.weaponId), alpha);

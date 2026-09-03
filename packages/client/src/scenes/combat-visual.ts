@@ -325,6 +325,21 @@ export interface BeamLayer {
   tongueDepth: number;
   /** `#RRGGBB` this layer fills in. */
   color: string;
+  /**
+   * RECT beams only. How hard this layer's two long edges tear, as a fraction of its own
+   * half-width. 0 leaves them ruled straight.
+   *
+   * **Tear only, never bulge**: the jag is subtracted from `crossScale`, so a crackling layer is
+   * always NARROWER than the clean one it would otherwise be, and containment is inherited rather
+   * than re-checked — the same shrink-only rule `tongueDepth` follows on a cone.
+   *
+   * The gradient across layers is what makes the beam read as a laser rather than as a ribbon. An
+   * early cut tore every layer equally and the whole beam undulated; a real beam holds a straight
+   * hot line and tears at its edges, so `crackle` should fall to 0 as the layers go inward.
+   */
+  crackle?: number;
+  /** RECT beams only. How far this layer's centreline drifts off-axis, as a fraction of half-width. */
+  wander?: number;
 }
 
 /**
@@ -341,6 +356,30 @@ export interface BeamStyle {
   layers: BeamLayer[];
   /** A charge orb drawn at the muzzle through this weapon's wind-up. Absent draws nothing. */
   charge?: ChargeStyle;
+  /**
+   * RECT beams only. A rounded cap on the beam's ORIGIN, as a multiple of the rect's half-width —
+   * the shape a capsule's nose has, which is why `thumper`'s head is the reference for it.
+   *
+   * The cap is carved out of the beam's own length rather than added behind it: the whole beam
+   * starts `domeScale` half-widths forward and the dome fills the gap back to `along = 0`. Adding
+   * it behind the muzzle instead would put it outside the rect, on the shooter's own car. That
+   * would have been defensible as a telegraph — `charge` above is exactly such an exception — but
+   * it is not needed here, and a shape that stays inside the hitbox needs no exception at all.
+   *
+   * Costs the beam that much drawn length: at `lance`'s 1200 range a 1.565 dome is 45 units, 3.75%.
+   */
+  domeScale?: number;
+  /**
+   * RECT beams only. How many times a second the crackle re-rolls. 0 (or absent) freezes it.
+   *
+   * Free at render time — `renderShots` clears and rebuilds every polygon each frame regardless, so
+   * animating costs an extra hash per vertex and no extra allocation, draw call or state change.
+   *
+   * The phase comes from the wall clock, so two beams alive at once crackle in step and different
+   * clients see different frames of it. Both are deliberate: it is cosmetic, nothing in the sim
+   * reads it, and `instanceGlowBands` already animates off the same clock for the same reason.
+   */
+  crackleHz?: number;
 }
 
 /**
@@ -433,34 +472,59 @@ export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
    * shorten a shape whose whole read is "a straight line of light" — and `rectPoints` ignores them
    * regardless.
    *
+   * **It became a lightning bolt on 2026-09-04.** It shipped until then as two flat nested
+   * rectangles, which read as a highlighter stroke rather than as energy — hard parallel edges,
+   * uniform for all 1200 units, and using only two of the three colours its icon is built from. Four
+   * things fixed that, and each is load-bearing:
+   *
+   * - The icon's **deep blue `#0356DC`** is back. It is 27% of the icon's opaque pixels and was
+   *   missing entirely; it is what gives the beam an edge against the pale floor.
+   * - `crackle` **falls to zero as the layers go inward**. An early cut tore every layer equally and
+   *   the whole beam undulated like a ribbon. A laser holds a straight hot line and tears at its
+   *   edges — hence a dead-straight `#FDFFE4` core inside a heavily-torn outer envelope.
+   * - The crackle's amplitude is modulated by a slower noise (see `rectPoints`), so the bolt has
+   *   calm stretches and torn ones. A constant-amplitude zigzag reads as decorative trim.
+   * - `domeScale` rounds the ORIGIN, the shape `thumper`'s capsule head has. It is carved out of the
+   *   beam's length rather than added behind the muzzle, so unlike the charge orb it needs no
+   *   hitbox exception at all.
+   *
    * Its charge orb is the wind-up made visible: 700 ms is the entire justification for 170 damage,
    * and an opponent could not previously see it happening. Colours match the beam exactly, so the
-   * orb reads as the same thing gathering that is about to be fired.
+   * orb reads as the same thing gathering that is about to be fired — it grew from two bands to four
+   * with the beam, and a test compares the two lists element for element.
    *
-   * Two layers, both straight off its icon: electric blue outside, electric yellow at the core. It
-   * carried a third, white core until 2026-09-02 — dropped because two layers already read as a
-   * beam and the white was doing the "hot centre" job the yellow now does on its own.
-   *
-   * Its `WEAPON_TABLE.color` is the CORE here, not this outer edge, which is the one place the
+   * Its `WEAPON_TABLE.color` is the yellow layer, not the outer edge, which is the one place the
    * table breaks its own habit for a beam: `thunderclap` holds `#3ED1FA` already and weapon colours
-   * must be unique. See the note on that row.
+   * must be unique. That is also why the yellow stays `#F0FF00` rather than taking the icon's
+   * measured `#ECFC06` — the two are indistinguishable on screen, and changing it would move
+   * `balanceStamp` and owe the players' guide a rebuild for no visible gain.
    */
   lance: {
     layers: [
-      { extentScale: 1, crossScale: 1, tongues: 0, tongueDepth: 0, color: "#3ED1FA" },
-      { extentScale: 1, crossScale: 0.42, tongues: 0, tongueDepth: 0, color: "#F0FF00" },
+      { extentScale: 1, crossScale: 1, tongues: 0, tongueDepth: 0, color: "#0356DC", crackle: 0.42, wander: 0.05 },
+      { extentScale: 1, crossScale: 0.7, tongues: 0, tongueDepth: 0, color: "#0AC6FD", crackle: 0.34, wander: 0.04 },
+      { extentScale: 1, crossScale: 0.34, tongues: 0, tongueDepth: 0, color: "#F0FF00", crackle: 0.14 },
+      // The core: no crackle, no wander. This straight line is what reads as a laser; everything
+      // outside it is the field around it tearing.
+      { extentScale: 1, crossScale: 0.12, tongues: 0, tongueDepth: 0, color: "#FDFFE4" },
     ],
+    // 1.565 half-widths = 45 units at the shipped `width: 57.5`, which is 3.75% of its 1200 reach.
+    domeScale: 1.565,
+    crackleHz: 14,
     charge: {
       minRadius: 2,
       // Tracks the beam's own 15% widening (T13: `hitbox.width` 20 -> 23), so the telegraph keeps
       // matching what it warns about. A charge orb that stopped growing with the beam would
       // under-promise the thing about to be fired, which is the one failure mode a telegraph has.
       maxRadius: 18.9,
-      // Two bands, mirroring the two beam layers above: the orb is the beam gathering, so a band
-      // the beam does not have would telegraph a shot that is not coming.
+      // One band per beam layer, in the beam's own order: the orb is the beam gathering, so a band
+      // the beam does not have would telegraph a shot that is not coming. `combat-visual.test.ts`
+      // compares the two lists element for element, which is what keeps them moving together.
       bands: [
-        { radiusScale: 1, color: "#3ED1FA" },
-        { radiusScale: 0.46, color: "#F0FF00" },
+        { radiusScale: 1, color: "#0356DC" },
+        { radiusScale: 0.7, color: "#0AC6FD" },
+        { radiusScale: 0.4, color: "#F0FF00" },
+        { radiusScale: 0.16, color: "#FDFFE4" },
       ],
     },
   },
@@ -956,6 +1020,13 @@ export function beamDrawLayers(
   angle: number,
   extent: number,
   elapsedMs: number,
+  /**
+   * A free-running clock (`performance.now()`), for a rect beam whose style asks to animate. Not
+   * the patch-relative `elapsedMs` beside it: that one saws back to zero every patch, which would
+   * tie the crackle to the network rather than to the shot. Defaulted so every existing caller and
+   * test keeps drawing the frozen frame it drew before.
+   */
+  nowMs = 0,
 ): DrawBeamLayer[] {
   const def = isWeaponId(weaponId) ? weaponDefOf(weaponId) : null;
   // A projectile id reaching here would mean the caller branched on the wrong thing; drawing
@@ -972,11 +1043,11 @@ export function beamDrawLayers(
 
   const grown = beamGrownExtent({ weaponId, isExplosion: false, x, y, angle, extent }, elapsedMs);
   const layers: DrawBeamLayer[] = [];
-  for (const layer of style.layers) {
+  for (const [index, layer] of style.layers.entries()) {
     const points =
       def.hitbox.shape === "cone"
         ? conePoints(def.hitbox.angleDeg, x, y, angle, grown, layer)
-        : rectPoints(def.hitbox.width, x, y, angle, grown, layer);
+        : rectPoints(def.hitbox.width, x, y, angle, grown, layer, style, nowMs, index);
     // Fewer than three vertices is a beam on its spawn tick, whose extent is still zero. Dropping
     // it here keeps `fillPoints` off a degenerate shape rather than making the render loop
     // re-check what this already knows.
@@ -1079,6 +1150,38 @@ function conePoints(
  * far edge would shorten a bar whose whole read is "a straight line of light". `lance` narrows with
  * `crossScale` instead, which nests a bright core down its full length.
  */
+/**
+ * Deterministic value noise in `[0, 1)`. A hash rather than `Math.random` so a beam's shape depends
+ * only on its station index and seed — the same frame re-drawn twice is identical, which is what
+ * stops the bolt fizzing between frames instead of crackling at the rate it was authored to.
+ */
+function noise(i: number, seed: number): number {
+  let h = Math.imul(i * 374761393 + seed * 668265263, 1274126177);
+  h = (h ^ (h >>> 15)) >>> 0;
+  return h / 4294967296;
+}
+
+/** Stations down a crackling rect beam. 200 is one station every 6 units at `lance`'s 1200 reach. */
+const BOLT_STATIONS = 200;
+
+/** Vertices spent on a rect beam's rounded origin cap. */
+const DOME_SEGMENTS = 14;
+
+/**
+ * A rect beam's layer.
+ *
+ * Two shapes live here. With no `crackle`, no `wander` and no `domeScale` this is the plain nested
+ * bar every rect beam drew before `lance` became a bolt — tongues are ignored, because cutting
+ * lobes into a rect's far edge would only shorten a shape whose whole read is "a straight line of
+ * light", and `lance` narrows with `crossScale` instead.
+ *
+ * With them, it is a lightning bolt: edges that tear, a centreline that drifts, and a rounded cap
+ * on the origin. **Containment is inherited, not re-checked.** The jag is subtracted from the
+ * layer's half-width and the wander is bounded by what the jag gives back, so a crackling edge is
+ * always inside the clean one; the dome is carved out of the beam's own length rather than added
+ * behind the muzzle. Every vertex is still clamped at the end, because that costs nothing and makes
+ * the guarantee true by construction rather than by argument.
+ */
 function rectPoints(
   width: number,
   x: number,
@@ -1086,16 +1189,62 @@ function rectPoints(
   heading: number,
   extent: number,
   layer: BeamLayer,
+  style: BeamStyle,
+  nowMs: number,
+  index: number,
 ): { x: number; y: number }[] {
   const reach = Math.max(0, extent) * clamp01(layer.extentScale);
-  const half = (width / 2) * clamp01(layer.crossScale);
+  const halfWidth = width / 2;
+  const half = halfWidth * clamp01(layer.crossScale);
   if (reach <= 0 || half <= 0) return [];
-  return [
-    rotateBy(x, y, heading, 0, -half),
-    rotateBy(x, y, heading, reach, -half),
-    rotateBy(x, y, heading, reach, half),
-    rotateBy(x, y, heading, 0, half),
-  ];
+
+  const crackle = clamp01(layer.crackle ?? 0);
+  const wander = clamp01(layer.wander ?? 0);
+  const dome = Math.max(0, style.domeScale ?? 0) * halfWidth * clamp01(layer.crossScale);
+  // The dome is carved out of the beam, so the shaft cannot start past the beam's own end.
+  const start = Math.min(dome, reach);
+
+  /** Clamp into the rect. Cheap, and it makes containment structural rather than an argument. */
+  const put = (along: number, across: number): { x: number; y: number } =>
+    rotateBy(
+      x,
+      y,
+      heading,
+      Math.max(0, Math.min(reach, along)),
+      Math.max(-half, Math.min(half, across)),
+    );
+
+  if (crackle <= 0 && wander <= 0 && dome <= 0) {
+    return [put(0, -half), put(reach, -half), put(reach, half), put(0, half)];
+  }
+
+  // Re-rolls `crackleHz` times a second; a fixed frame when the style asks for no animation.
+  const frame = Math.floor((Math.max(0, nowMs) / 1000) * Math.max(0, style.crackleHz ?? 0));
+  const seed = index * 7919 + frame * 104729;
+
+  const near: { x: number; y: number }[] = [];
+  const far: { x: number; y: number }[] = [];
+  for (let i = 0; i <= BOLT_STATIONS; i++) {
+    const t = i / BOLT_STATIONS;
+    const along = start + (reach - start) * t;
+    // Station 0 keeps the layer's nominal width so the shaft meets the dome exactly, with no notch.
+    const tear = i === 0 ? 0 : crackle * noise(i, seed) * (0.25 + 0.75 * noise(i >> 2, seed + 555));
+    const h = half * (1 - tear);
+    // Bounded by the width the tear just freed, so drifting can never push an edge past `half`.
+    const drift = i === 0 ? 0 : (noise(i, seed + 31) - 0.5) * 2 * wander * (half - h);
+    near.push(put(along, drift - h));
+    far.push(put(along, drift + h));
+  }
+
+  const points = [...near, ...far.reverse()];
+  if (dome <= 0) return points;
+  // Close the far edge back to the near edge around a rounded cap, apex at `start - dome`. Its
+  // flanks land on +/-half at `start`, which is exactly where station 0 sits.
+  for (let i = 1; i < DOME_SEGMENTS; i++) {
+    const th = Math.PI / 2 - (Math.PI * i) / DOME_SEGMENTS;
+    points.push(put(start - dome * Math.cos(th), half * Math.sin(th)));
+  }
+  return points;
 }
 
 /**

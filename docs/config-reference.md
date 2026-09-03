@@ -237,12 +237,10 @@ priced as a one-hit finisher for a 10-second commitment, not a sustained-DPS num
 them to equal a `COLOR_TABLE` player colour. See
 [`combat-model.md`](combat-model.md#what-the-client-shows).
 
-`color` is the *whole* look for a weapon with no authored style — today that is every round projectile
-(`predator`, `magmablast`, `pepperbox`, `thumper`, `roadblock`) plus every maneuver, since
-`WEAPON_GLOW_STYLES` has gone **empty**: the 2026-09-01 overhaul retired `fireball`, the table's one
-weapon with a flicker, and moved `pepperbox` to an ellipse hitbox that table cannot own. The other two
-rows — `afterburner` and `lance` — carry a style in `WEAPON_BEAM_STYLES`; `thumper` alone carries one
-in `WEAPON_PROJECTILE_STYLES`. All three tables live in the client's `combat-visual.ts`, not in this
+`color` is the *whole* look for a weapon with no authored style — today that is `pepperbox` and
+`roadblock` plus every maneuver. Everything else carries one: `magmablast` in `WEAPON_GLOW_STYLES`;
+`afterburner`, `lance` and `tremor` in `WEAPON_BEAM_STYLES`; `thumper` and `predator` in
+`WEAPON_PROJECTILE_STYLES`. All three tables live in the client's `combat-visual.ts`, not in this
 one, and are pure appearance, nothing the sim or the wire can see. Every scale in them is a fraction of
 the weapon's own hitbox, so a re-tune that widens the hitbox rescales the look with it and nothing can
 escape the shape that hits.

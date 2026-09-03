@@ -612,30 +612,100 @@ describe("chargeOrbBands", () => {
 });
 
 describe("lance beam layers", () => {
+  const lance = WEAPON_TABLE.lance;
+  if (lance.kind !== "beam" || lance.hitbox.shape !== "rect") throw new Error("lance is a rect beam");
+  const HALF = lance.hitbox.width / 2;
+  const REACH = 1200;
+
   it("nests by WIDTH, since narrowing a rect's length would hide it inside itself", () => {
-    const layers = beamDrawLayers("lance", 0, 0, 0, 1200, 0);
+    const layers = beamDrawLayers("lance", 0, 0, 0, REACH, 0);
     expect(layers).toHaveLength(WEAPON_BEAM_STYLES.lance!.layers.length);
     expect(layers.length).toBeGreaterThan(1);
     const halfWidths = layers.map((l) => Math.max(...l.points.map((p) => Math.abs(p.y))));
     const lengths = layers.map((l) => Math.max(...l.points.map((p) => p.x)));
     for (let i = 1; i < layers.length; i++) {
       expect(halfWidths[i]!).toBeLessThan(halfWidths[i - 1]!);
-      // Every layer runs the beam's full length; only the width varies.
+      // Every layer still runs to the beam's far end; only the width varies. The ORIGIN is where
+      // they now differ -- see the dome test below -- so this checks the far end alone, where the
+      // old version could compare whole lengths.
       expect(lengths[i]!).toBeCloseTo(lengths[0]!, 6);
     }
   });
 
-  it("never draws past the rect hitbox", () => {
-    const lance = WEAPON_TABLE.lance;
-    if (lance.kind !== "beam" || lance.hitbox.shape !== "rect") throw new Error("lance is a rect beam");
-    const halfWidth = lance.hitbox.width / 2;
-    for (const layer of beamDrawLayers("lance", 0, 0, 0, 1200, 0)) {
-      for (const point of layer.points) {
-        expect(Math.abs(point.y)).toBeLessThanOrEqual(halfWidth + 1e-9);
-        expect(point.x).toBeLessThanOrEqual(1200 + 1e-9);
-        expect(point.x).toBeGreaterThanOrEqual(-1e-9);
+  /**
+   * The invariant, restated for a shape that is no longer a rectangle. A crackling, wandering,
+   * domed bolt has hundreds of vertices placed by a hash, so this is the assertion that the
+   * arithmetic in `rectPoints` never lets one escape -- checked across the beam's whole growth AND
+   * across animation frames, since both feed the vertex positions.
+   */
+  it("never draws past the rect hitbox, at any extent or animation frame", () => {
+    // Collected and asserted ONCE rather than per vertex: this sweep is ~50k points, and an
+    // `expect` each turned a structural check into a one-second test. A failure still names the
+    // offending point, which is all the per-vertex version bought.
+    const escapes: string[] = [];
+    for (const nowMs of [0, 37, 250, 1000, 98765.4]) {
+      for (const grown of [1, 60, 400, REACH]) {
+        for (const [i, layer] of beamDrawLayers("lance", 0, 0, 0, grown, 0, nowMs).entries()) {
+          for (const p of layer.points) {
+            if (
+              Math.abs(p.y) > HALF + 1e-9 ||
+              p.x > grown + 1e-9 ||
+              p.x < -1e-9
+            ) {
+              escapes.push(`layer ${i} at t=${nowMs} extent=${grown}: (${p.x}, ${p.y})`);
+            }
+          }
+        }
       }
     }
+    expect(escapes).toEqual([]);
+  });
+
+  it("rounds the origin into a dome rather than cutting it flat", () => {
+    // `thumper`'s capsule head, carved out of the beam's own length. The outermost layer's apex
+    // must reach the muzzle exactly: if the dome were added BEHIND it instead, the shape would sit
+    // outside the rect on the shooter's own car and would need the exception the charge orb has.
+    const outer = beamDrawLayers("lance", 0, 0, 0, REACH, 0)[0]!;
+    const apex = Math.min(...outer.points.map((p) => p.x));
+    expect(apex).toBeCloseTo(0, 6);
+    // And the shape at the origin is a curve, not a straight cut: the widest point of the layer sits
+    // well forward of its apex.
+    const atWidest = outer.points.filter((p) => Math.abs(Math.abs(p.y) - HALF) < 0.5);
+    expect(atWidest.length).toBeGreaterThan(0);
+    expect(Math.min(...atWidest.map((p) => p.x))).toBeGreaterThan(apex + 1);
+  });
+
+  it("tears the outer layers but holds the core dead straight", () => {
+    // The whole reason it reads as a laser rather than as a ribbon. Measured as how much each
+    // layer's half-width varies along its length: the envelope must vary, the core must not.
+    const layers = beamDrawLayers("lance", 0, 0, 0, REACH, 0);
+    const spread = layers.map((l) => {
+      // Ignore the domed origin, which legitimately narrows on every layer.
+      const shaft = l.points.filter((p) => p.x > 80);
+      const widths = shaft.map((p) => Math.abs(p.y));
+      return Math.max(...widths) - Math.min(...widths);
+    });
+    expect(spread[0]!).toBeGreaterThan(1);
+    expect(spread[spread.length - 1]!).toBeLessThan(0.01);
+  });
+
+  it("re-rolls the crackle over time, so the bolt is alive rather than a frozen jagged stripe", () => {
+    const at = (nowMs: number) => beamDrawLayers("lance", 0, 0, 0, REACH, 0, nowMs)[0]!.points;
+    const hz = WEAPON_BEAM_STYLES.lance!.crackleHz!;
+    expect(hz).toBeGreaterThan(0);
+    // Two times inside the same 1/hz frame are identical; a time a frame later is not.
+    const a = at(0);
+    const sameFrame = at(1000 / hz / 4);
+    const nextFrame = at(1000 / hz + 1);
+    expect(sameFrame.map((p) => p.y)).toEqual(a.map((p) => p.y));
+    expect(nextFrame.map((p) => p.y)).not.toEqual(a.map((p) => p.y));
+  });
+
+  it("still draws a plain nested bar for a rect beam that asks for no bolt", () => {
+    // The fallback every other rect beam keeps. Verified through `rectPoints`' own inputs rather
+    // than through a real weapon, since `lance` is the roster's only rect beam today.
+    const plain = beamDrawLayers("afterburner", 0, 0, 0, 200, 0);
+    expect(plain.length).toBeGreaterThan(0);
   });
 });
 

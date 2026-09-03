@@ -1037,9 +1037,19 @@ fill stays the fallback for anything unstyled:
 
 | Table | Owns | Nests by | Today |
 |---|---|---|---|
-| `WEAPON_GLOW_STYLES` | round projectiles | radius | **none** — empty since the 2026-09-01 overhaul retired `fireball`, its one weapon with a flicker |
+| `WEAPON_GLOW_STYLES` | round projectiles | radius | `magmablast` |
 | `WEAPON_BEAM_STYLES` | beams | extent and cross-section | `afterburner`, `lance`, `tremor` |
-| `WEAPON_PROJECTILE_STYLES` | ellipse and capsule projectiles | markings inside the hull | `thumper` |
+| `WEAPON_PROJECTILE_STYLES` | ellipse and capsule projectiles | markings inside the hull | `thumper`, `predator` |
+
+Two of those rows outgrew "markings on a hitbox" in September 2026 and are worth knowing about
+before authoring a third. `predator` is a **missile** — nose cone, stripe, swept fins and an exhaust
+plume — drawn from a `poly` layer, the free-polygon escape hatch for a silhouette the named shapes
+cannot describe. `lance` is a **lightning bolt**: a dead-straight white-hot core inside an envelope
+whose edges tear, re-rolled `crackleHz` times a second off the wall clock, with a rounded `domeScale`
+cap on its origin. Both stay strictly inside their hitboxes, but neither is inscribed *by
+construction* the way a `band` or a `tongue` is — a `poly`'s vertices are arbitrary and a bolt's are
+placed by a hash — so both are contained by an explicit per-vertex clamp instead, and both are
+tested for it across headings, extents and animation frames rather than at a single pose.
 
 Two rules keep this from undoing the paragraph above. Every scale is a fraction of the instance's own
 hitbox rather than a world distance, so a look rescales with any hitbox re-tune. And nothing may draw
