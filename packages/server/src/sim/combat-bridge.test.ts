@@ -402,7 +402,7 @@ describe("applyCombatResult", () => {
     const fireState = {
       ...newFireState("mirage", 1),
       lastFiredSlot: 0,
-      pending: { weaponId: "predator" as const, slot: 0, shotsLeft: 2, nextShotTick: 205 },
+      pending: { weaponId: "predator" as const, slot: 0, shotsLeft: 2, nextShotTick: 205, pressId: "a#205#0" },
     };
     applyCombatResult(state, result({ players: [combatPlayerFor(player, { fireState })] }), newCombatMemory());
     expect(player.pendingUntilTick).toBe(205);

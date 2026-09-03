@@ -200,7 +200,7 @@ describe("firing", () => {
       alive: false,
       fireState: {
         ...newFireState("mirage", 1),
-        pending: { weaponId: "predator", slot: 0, shotsLeft: 2, nextShotTick: 100 },
+        pending: { weaponId: "predator", slot: 0, shotsLeft: 2, nextShotTick: 100, pressId: "aaa#100#0" },
       },
     });
     const result = runCombat({

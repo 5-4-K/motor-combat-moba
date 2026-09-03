@@ -45,6 +45,16 @@ export interface PendingFire {
   slot: number;
   shotsLeft: number;
   nextShotTick: number;
+  /**
+   * Identity of the press this pending shot belongs to (B7). Sim-only, never networked.
+   *
+   * `sessionId#tick#slot`, and it needs no counter: `beginFire` returns early when a press is
+   * already pending, so at most one press commits per player per tick. Frozen here and carried onto
+   * every instance the press spawns, which is what makes press-to-damage attribution exact rather
+   * than a correlation window — the difference that matters most for a lingering `lance` beam, an
+   * attached `afterburner` cone, and a bursting `pepperbox`.
+   */
+  pressId: string;
 }
 
 export interface FireState {
@@ -207,7 +217,12 @@ export function releaseShots(
  * A press is a commitment: the stock is spent here, at press time, because a wind-up cannot be
  * cancelled. Nothing is queued — a press that cannot fire is dropped.
  */
-export function beginFire(state: FireState, mask: number, tick: number): FireState {
+export function beginFire(
+  sessionId: string,
+  state: FireState,
+  mask: number,
+  tick: number,
+): FireState {
   if (state.pending) return state;
   if (mask <= 0) return state;
 
@@ -237,6 +252,7 @@ export function beginFire(state: FireState, mask: number, tick: number): FireSta
         slot: index,
         shotsLeft: volleys,
         nextShotTick: tick + weaponTicksOf(slot.weaponId).startUp,
+        pressId: `${sessionId}#${tick}#${index}`,
       },
     };
   }

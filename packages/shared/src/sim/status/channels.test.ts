@@ -261,7 +261,7 @@ describe("weaponCooldown reaches the three refire clocks and no others", () => {
     const state = newFireState("bullseye", 1);
     const pending = {
       ...state,
-      pending: { weaponId: "lance" as const, slot: 1, shotsLeft: 1, nextShotTick: 0 },
+      pending: { weaponId: "lance" as const, slot: 1, shotsLeft: 1, nextShotTick: 0, pressId: "p1#0#1" },
     };
     expect(releaseShots(pending, 0, 0.5).state.switchLockUntilTick).toBe(
       scaleTicks(weaponTicksOf("lance").recovery, 0.5),

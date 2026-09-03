@@ -407,7 +407,7 @@ export function runCombat(input: CombatInput): CombatResult {
     const blocked = player.maneuver !== ManeuverKind.NONE ? maneuverSlotMask(player.fireState) : 0;
     if (!mods.disarmed) {
       const prevPending = player.fireState.pending;
-      player.fireState = beginFire(player.fireState, player.fireMask & ~blocked, world.tick);
+      player.fireState = beginFire(player.sessionId, player.fireState, player.fireMask & ~blocked, world.tick);
       // A hold weapon commits the car the moment the wind-up starts (O10): press -> HOLD for
       // wind-up + growth + linger, released early only by wreck or stun.
       const pending = player.fireState.pending;

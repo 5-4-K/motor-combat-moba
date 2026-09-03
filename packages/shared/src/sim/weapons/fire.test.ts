@@ -39,8 +39,14 @@ describe("slots", () => {
 
 describe("pressing", () => {
   it("schedules a shot and spends a stock immediately", () => {
-    const state = beginFire(fresh(), SLOT_1, 100);
-    expect(state.pending).toEqual({ weaponId: "predator", slot: 0, shotsLeft: 1, nextShotTick: 100 });
+    const state = beginFire("p1", fresh(), SLOT_1, 100);
+    expect(state.pending).toEqual({
+      weaponId: "predator",
+      slot: 0,
+      shotsLeft: 1,
+      nextShotTick: 100,
+      pressId: "p1#100#0",
+    });
     expect(state.slots[0]!.stocks).toBe(0);
   });
 
@@ -48,36 +54,39 @@ describe("pressing", () => {
     // Every shipped chassis now fills all three slots (Task 5), so this constructs a car short one
     // slot rather than relying on a real `CarId` to be under-loaded.
     const oneSlot: FireState = { ...fresh(), slots: fresh().slots.slice(0, 1) };
-    expect(beginFire(oneSlot, SLOT_2, 100).pending).toBeNull();
+    expect(beginFire("p1", oneSlot, SLOT_2, 100).pending).toBeNull();
   });
 
   it("ignores a press with no stock left", () => {
-    const spent = beginFire(fresh(), SLOT_1, 100);
+    const spent = beginFire("p1", fresh(), SLOT_1, 100);
     const released = releaseShots(spent, 100).state;
-    expect(beginFire(released, SLOT_1, 101).pending).toBeNull();
+    expect(beginFire("p1", released, SLOT_1, 101).pending).toBeNull();
   });
 
   it("fires the lowest pressed slot when two arrive on one tick", () => {
     const twoSlot = newFireState("mirage", 1);
     twoSlot.slots.push({ ...twoSlot.slots[0]!, weaponId: "predator" });
-    const state = beginFire(twoSlot, SLOT_1 | SLOT_2, 100);
+    const state = beginFire("p1", twoSlot, SLOT_1 | SLOT_2, 100);
     expect(state.pending!.slot).toBe(0);
   });
 
   it("refuses a weapon whose unlocksAt is above the player's level", () => {
     const locked = newFireState("mirage", 0); // level below every weapon's unlocksAt
-    expect(beginFire(locked, SLOT_1, 100).pending).toBeNull();
+    expect(beginFire("p1", locked, SLOT_1, 100).pending).toBeNull();
   });
 
   it("ignores every press while a shot is already pending", () => {
-    const winding: FireState = { ...fresh(), pending: { weaponId: "predator", slot: 0, shotsLeft: 1, nextShotTick: 105 } };
-    expect(beginFire(winding, SLOT_1, 100).pending!.nextShotTick).toBe(105);
+    const winding: FireState = {
+      ...fresh(),
+      pending: { weaponId: "predator", slot: 0, shotsLeft: 1, nextShotTick: 105, pressId: "p1#100#0" },
+    };
+    expect(beginFire("p1", winding, SLOT_1, 100).pending!.nextShotTick).toBe(105);
   });
 });
 
 describe("releasing", () => {
   it("emits the order on the scheduled tick and starts the recharge", () => {
-    const pressed = beginFire(fresh(), SLOT_1, 100);
+    const pressed = beginFire("p1", fresh(), SLOT_1, 100);
     const { state, orders } = releaseShots(pressed, 100);
     expect(orders).toEqual([{ weaponId: "predator", slot: 0, finalVolley: true }]);
     expect(state.pending).toBeNull();
@@ -86,7 +95,7 @@ describe("releasing", () => {
   });
 
   it("emits nothing before the scheduled tick", () => {
-    const pressed = beginFire(fresh(), SLOT_1, 100);
+    const pressed = beginFire("p1", fresh(), SLOT_1, 100);
     expect(releaseShots(pressed, 99).orders).toEqual([]);
   });
 });
@@ -143,13 +152,13 @@ describe.skip("stocks", () => {
       slots: [{ weaponId: "magmablast", stocks: 3, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
     };
     const waited = idle(full, 200, 500);
-    const fired = releaseShots(beginFire(waited, SLOT_1, 700), 700).state;
+    const fired = releaseShots(beginFire("p1", waited, SLOT_1, 700), 700).state;
     expect(fired.slots[0]!.rechargeEndsTick).toBe(709); // 700 + 9, a whole cooldown, not a shortened one
   });
 
   it("leaves a running timer untouched when firing below max", () => {
     const running = stocked();
-    const fired = releaseShots(beginFire(running, SLOT_1, 100), 100).state;
+    const fired = releaseShots(beginFire("p1", running, SLOT_1, 100), 100).state;
     expect(fired.slots[0]!.rechargeEndsTick).toBe(190); // the in-flight timer keeps its remaining time
   });
 });
@@ -170,11 +179,11 @@ describe.skip("refire delay", () => {
       pending: null,
       level: 1,
     };
-    const firstShot = releaseShots(beginFire(twoStocks, SLOT_1, 100), 100).state;
+    const firstShot = releaseShots(beginFire("p1", twoStocks, SLOT_1, 100), 100).state;
     expect(firstShot.slots[0]!.refireLockUntilTick).toBe(104); // 100 + 4
 
-    expect(beginFire(firstShot, SLOT_1, 103).pending).toBeNull(); // still locked
-    expect(beginFire(firstShot, SLOT_1, 104).pending).not.toBeNull(); // lock has elapsed
+    expect(beginFire("p1", firstShot, SLOT_1, 103).pending).toBeNull(); // still locked
+    expect(beginFire("p1", firstShot, SLOT_1, 104).pending).not.toBeNull(); // lock has elapsed
   });
 });
 
@@ -182,7 +191,7 @@ describe("per-tick order", () => {
   /** Every function call below uses the SAME tick number, exactly as a real per-tick loop would. */
   function step(state: FireState, tick: number, mask: number): { state: FireState; orders: ShotOrder[] } {
     const recharged = tickRecharge(state, tick);
-    const pressed = beginFire(recharged, mask, tick);
+    const pressed = beginFire("p1", recharged, mask, tick);
     return releaseShots(pressed, tick);
   }
 
@@ -233,8 +242,14 @@ describe("per-tick order", () => {
     const releasedBeforePress = releaseShots(state, 100); // nothing pending yet: no-op
     expect(releasedBeforePress.orders).toEqual([]);
     state = releasedBeforePress.state;
-    state = beginFire(state, SLOT_1, 100); // press registers AFTER release already ran this tick
-    expect(state.pending).toEqual({ weaponId: "predator", slot: 0, shotsLeft: 1, nextShotTick: 100 });
+    state = beginFire("p1", state, SLOT_1, 100); // press registers AFTER release already ran this tick
+    expect(state.pending).toEqual({
+      weaponId: "predator",
+      slot: 0,
+      shotsLeft: 1,
+      nextShotTick: 100,
+      pressId: "p1#100#0",
+    });
 
     // The next call to releaseShots happens on the NEXT tick, 101 — one tick after nextShotTick.
     const releasedNextTick = releaseShots(state, 101);
@@ -271,7 +286,7 @@ describe("the two lockouts", () => {
 
   /** Press `mask` at `pressTick`, then run ticks until the shot actually exits. */
   function fireAt(state: FireState, mask: number, pressTick: number, throughTick: number): FireState {
-    let next = beginFire(state, mask, pressTick);
+    let next = beginFire("p1", state, mask, pressTick);
     for (let tick = pressTick; tick <= throughTick; tick++) next = releaseShots(next, tick).state;
     return next;
   }
@@ -286,8 +301,8 @@ describe("the two lockouts", () => {
 
   it("blocks a different slot for the firing weapon's recovery", () => {
     const fired = fireAt(twoSlots(), SLOT_2, 200, LANCE_EXIT);
-    expect(beginFire(fired, SLOT_1, 250).pending).toBeNull();
-    expect(beginFire(fired, SLOT_1, 251).pending).not.toBeNull();
+    expect(beginFire("p1", fired, SLOT_1, 250).pending).toBeNull();
+    expect(beginFire("p1", fired, SLOT_1, 251).pending).not.toBeNull();
   });
 
   // SKIPPED with the stock suites above: the refire-delay half of this needs a stocked weapon.
@@ -295,12 +310,12 @@ describe("the two lockouts", () => {
   // placeholder, not a claim that `magmablast` itself has a 4-tick refire delay.
   it.skip("gates the same slot on its own refire delay, and gates no other slot at zero recovery", () => {
     // needler's startUpMs was 0, so its shot exited on the press tick and both clocks landed at 200.
-    const fired = releaseShots(beginFire(twoSlots(), SLOT_1, 200), 200).state;
+    const fired = releaseShots(beginFire("p1", twoSlots(), SLOT_1, 200), 200).state;
     expect(fired.slots[0]!.refireLockUntilTick).toBe(204); // 200 + 4
-    expect(beginFire(fired, SLOT_1, 203).pending).toBeNull(); // same slot, still inside the lock
-    expect(beginFire(fired, SLOT_1, 204).pending).not.toBeNull(); // its own refire delay elapsed
+    expect(beginFire("p1", fired, SLOT_1, 203).pending).toBeNull(); // same slot, still inside the lock
+    expect(beginFire("p1", fired, SLOT_1, 204).pending).not.toBeNull(); // its own refire delay elapsed
     expect(fired.switchLockUntilTick).toBe(200); // recoveryMs 0 on this slot: no switch lock at all
-    expect(beginFire(fired, SLOT_2, 201).pending).not.toBeNull(); // so the other slot is free
+    expect(beginFire("p1", fired, SLOT_2, 201).pending).not.toBeNull(); // so the other slot is free
   });
 
   it("holds the switch lock across two slots carrying the SAME weapon id", () => {
@@ -316,8 +331,8 @@ describe("the two lockouts", () => {
     };
     const fired = fireAt(duplicate, SLOT_1, 200, LANCE_EXIT);
     expect(fired.lastFiredSlot).toBe(0);
-    expect(beginFire(fired, SLOT_2, 250).pending).toBeNull(); // a different SLOT, so the switch lock
-    expect(beginFire(fired, SLOT_2, 251).pending).not.toBeNull();
+    expect(beginFire("p1", fired, SLOT_2, 250).pending).toBeNull(); // a different SLOT, so the switch lock
+    expect(beginFire("p1", fired, SLOT_2, 251).pending).not.toBeNull();
   });
 });
 
@@ -338,7 +353,27 @@ describe("the two lockouts", () => {
 
 describe("cancelling", () => {
   it("drops a pending burst, as a wreck does mid-volley", () => {
-    const pressed = beginFire(fresh(), SLOT_1, 100);
+    const pressed = beginFire("p1", fresh(), SLOT_1, 100);
     expect(cancelPending(pressed).pending).toBeNull();
+  });
+});
+
+describe("beginFire pressId (B7)", () => {
+  it("mints sessionId#tick#slot on the committed press", () => {
+    const state = newFireState("mirage", 1);
+    const next = beginFire("p1", state, 0b1, 10);
+    expect(next.pending?.pressId).toBe("p1#10#0");
+  });
+
+  it("gives two players pressing the same slot on the same tick different ids", () => {
+    const a = beginFire("p1", newFireState("mirage", 1), 0b1, 10);
+    const b = beginFire("p2", newFireState("mirage", 1), 0b1, 10);
+    expect(a.pending?.pressId).not.toBe(b.pending?.pressId);
+  });
+
+  it("gives the same player different ids on different ticks", () => {
+    const a = beginFire("p1", newFireState("mirage", 1), 0b1, 10);
+    const b = beginFire("p1", newFireState("mirage", 1), 0b1, 11);
+    expect(a.pending?.pressId).not.toBe(b.pending?.pressId);
   });
 });
