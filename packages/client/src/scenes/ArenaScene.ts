@@ -45,6 +45,7 @@ import { bindViewRouter } from "../net/view.js";
 import { ScreenOverlay } from "../ui/overlay.js";
 import { renderArenaMismatch } from "../ui/screens/arena-mismatch.js";
 import { renderPause } from "../ui/screens/pause.js";
+import type { PracticeSummaryPlayer } from "../ui/screens/practice-summary.js";
 import { arenaMismatchMessage } from "./arena-mismatch.js";
 import { axisOf, drainTicks } from "./arena-input.js";
 import { controlledCarOf, isPracticeRoom, isSimPaused } from "./controlled-car.js";
@@ -643,9 +644,9 @@ export class ArenaScene extends Phaser.Scene {
   private pauseMenuShown = false;
   /**
    * Where `onLeave` routes after this room closes. Undefined resolves to "join", the room-close
-   * fallback every other exit from the arena already used; `exitPractice` (PR22/PR23) sets it to
-   * "practice-setup" just before leaving on purpose, so a deliberate Exit lands back on the settings
-   * screen instead of the join screen a kick or a dropped connection would show.
+   * fallback every other exit from the arena already used; `exitPractice` (PR22/PR23/PR24) sets it
+   * to "practice-summary" just before leaving on purpose, so a deliberate Exit lands on the session
+   * summary instead of the join screen a kick or a dropped connection would show.
    */
   private exitTarget: string | undefined;
 
@@ -1190,12 +1191,24 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * Exit, from the pause menu (spec PR22/PR23). PLACEHOLDER: Task 13 routes this through
-   * `PracticeSummaryScene` instead — a snapshot-then-leave that shows the session's stats before
-   * returning to setup. Until that scene exists, leave the room and land straight back on it.
+   * Exit, from the pause menu (spec PR22/PR23/PR24). Snapshot FIRST, leave SECOND: Colyseus state is
+   * gone the instant `room.leave()` resolves, the same discipline `ResultsScene.snapshot()` follows —
+   * reversing these two lines yields an empty summary table with no test to catch it.
    */
   private exitPractice(room: Room<ArenaState>): void {
-    this.exitTarget = "practice-setup";
+    const players: PracticeSummaryPlayer[] = [];
+    room.state.players.forEach((player, sessionId) => {
+      players.push({
+        sessionId,
+        name: player.name,
+        carId: player.carId,
+        colorId: player.colorId,
+        kills: player.kills,
+        deaths: player.deaths,
+      });
+    });
+    this.registry.set("practiceSummary", { players, humanSessionId: room.sessionId });
+    this.exitTarget = "practice-summary";
     void room.leave();
   }
 
