@@ -87,6 +87,18 @@ describe("parseArgs (B41, B42)", () => {
     expect(parseArgs(["--out=true"]).out).toBe("true");
   });
 
+  it("defaults --force to false, and a bare --force (no value) sets it (B37)", () => {
+    // Unlike --baseline/--out, --force takes no value — it must NOT be in REQUIRES_EXPLICIT_VALUE,
+    // so the bare form (the only form anyone would actually type) is the one that has to work.
+    expect(parseArgs([]).force).toBe(false);
+    expect(parseArgs(["--force"]).force).toBe(true);
+    expect(() => parseArgs(["--force"])).not.toThrow();
+  });
+
+  it("also accepts --force=true, since a boolean flag's explicit form should not be an error", () => {
+    expect(parseArgs(["--force=true"]).force).toBe(true);
+  });
+
   it("defaults --arena to arena-01", () => {
     expect(parseArgs([]).arenaId).toBe("arena-01");
   });

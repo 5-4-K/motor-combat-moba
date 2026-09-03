@@ -30,6 +30,7 @@ import {
   type CarId,
   type CombatEvents,
   type DeathmatchPlayer,
+  type FiredEvent,
   type InputMessage,
   type LivingPlayer,
 } from "@motor-combat-moba/shared";
@@ -217,6 +218,20 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
   let winnerSessionId = "";
   let winnerTeam = -1;
 
+  // B18: the harness is the ONLY host that turns `observedFires` on — `ArenaRoom` and `PracticeRoom`
+  // pass nothing, correctly (B3, `BotView.observedFires`'s own doc comment), because neither
+  // collects combat events at all. This harness already holds `events` (`CombatEvents`), so it is
+  // the one place populating this is free.
+  //
+  // `firedCursor` is the length of `events.fired` as of the end of the PREVIOUS tick's
+  // `runPipeline`. Every bot's view this tick is built BEFORE `runPipeline` runs (its input is
+  // needed for the tick about to be simulated), so the only fires that exist yet are last tick's —
+  // which is also the honest model: a human sees a shot after it happens, not the instant it does.
+  // Tracking a cursor and slicing the tail is O(new fires) per tick; re-filtering the whole
+  // accumulated log by tick every tick would be O(all fires ever) per tick.
+  let firedCursor = 0;
+  let previousTickFires: readonly FiredEvent[] = [];
+
   while (state.tick < setup.maxTicks) {
     state.tick += 1;
 
@@ -231,7 +246,9 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
       const rng = botRngs.get(seat.sessionId);
       if (!queue || !bot || !rng) continue;
 
-      const view = buildBotView({ state, selfSessionId: seat.sessionId, combat, rng });
+      const view = buildBotView({
+        state, selfSessionId: seat.sessionId, combat, rng, observedFires: previousTickFires,
+      });
       if (!view) continue;
 
       const seq = (seqs.get(seat.sessionId) ?? 0) + 1;
@@ -240,6 +257,10 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
     }
 
     runPipeline(ctx());
+
+    // New fires from the tick `runPipeline` just simulated, ready for NEXT tick's views.
+    previousTickFires = events.fired.slice(firedCursor);
+    firedCursor = events.fired.length;
 
     for (const seat of setup.seats) {
       const player = state.players.get(seat.sessionId);

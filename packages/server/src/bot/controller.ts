@@ -24,10 +24,21 @@ export class LegacyController implements BotController {
   private held: BotIntent | undefined;
   private fixedTarget: string | undefined;
   private target: string | undefined;
+  // Reaction delay (B19): a FIFO of intents already decided but not yet "felt" by the bot's hands.
+  // Untouched — never pushed to, never read — while `reactionDelayTicks` is 0, which is every
+  // profile in this work; see `applyReactionDelay`.
+  private readonly delayLine: BotIntent[] = [];
 
-  constructor(profileId: BotDifficulty, options: { targetSessionId?: string } = {}) {
+  constructor(
+    profileId: BotDifficulty,
+    options: { targetSessionId?: string; profile?: BotProfile } = {},
+  ) {
     this.profileId = profileId;
-    this.profile = BOT_PROFILES[profileId];
+    // `profile` override exists for tests that need a profile shape `BOT_PROFILES` cannot express
+    // (e.g. B19's two knobs genuinely absent, not merely 0) without reaching past this class's own
+    // constructor. No production caller passes it — both rooms and the harness look a difficulty up
+    // through `profileId` exactly as before.
+    this.profile = options.profile ?? BOT_PROFILES[profileId];
     this.fixedTarget = options.targetSessionId;
   }
 
@@ -65,10 +76,32 @@ export class LegacyController implements BotController {
     }
 
     const intent = this.held ?? COAST;
-    return {
+    const pulsed = {
       ...intent,
       fireSlots: pulsedFireSlots(view.tick, this.profile.firePeriodTicks, intent.fireSlots),
     };
+    return this.applyReactionDelay(pulsed);
+  }
+
+  /**
+   * Reaction delay (B19): the gap between SEEING something and the bot's hands moving, distinct
+   * from `reactionTicks`'s recompute cadence above. The intent returned this call is the one
+   * computed `reactionDelayTicks` calls ago, not this call's own — a delay on the decision itself.
+   *
+   * At `reactionDelayTicks` 0 (every profile today) this returns `intent` untouched: the queue is
+   * never pushed to and never read, so behaviour is bit-identical to the controller before this
+   * knob existed (B19's own requirement).
+   */
+  private applyReactionDelay(intent: BotIntent): BotIntent {
+    const delay = this.profile.reactionDelayTicks ?? 0;
+    if (delay === 0) return intent;
+    this.delayLine.push(intent);
+    if (this.delayLine.length > delay) return this.delayLine.shift()!;
+    // Fewer than `delay` calls have happened since this controller was constructed: the reaction to
+    // anything seen so far has not reached the bot's hands yet, same as a human's first instant in
+    // a match. Zero-valued rather than the earliest queued intent, so a mid-fill bot does not act on
+    // a decision it has not "felt" arrive.
+    return COAST;
   }
 
   /**

@@ -141,4 +141,54 @@ describe("LegacyController (B22)", () => {
     expect(viaController.steer).toBe(direct.steer);
     expect(viaController.throttle).toBe(direct.throttle);
   });
+
+  describe("reaction delay (B19)", () => {
+    it("0 is bit-identical to the knob being absent entirely", () => {
+      // Every shipped profile carries `reactionDelayTicks: 0` (this work never sets a real value —
+      // see the spec), but the field is OPTIONAL on `BotProfile`, so a profile shape that omits it
+      // entirely is a distinct, legal input this test can build directly rather than only inferring
+      // from `?? 0` reading the same in both cases.
+      const explicitZero: BotProfile = { ...BOT_PROFILES.hard, viewStalenessTicks: 0, reactionDelayTicks: 0 };
+      const { viewStalenessTicks: _vs, reactionDelayTicks: _rd, ...knobsAbsent } = BOT_PROFILES.hard;
+
+      const a = new LegacyController("hard", { targetSessionId: "p2", profile: explicitZero });
+      const b = new LegacyController("hard", { targetSessionId: "p2", profile: knobsAbsent as BotProfile });
+
+      const ticks = [1, 2, 3, 4, 5, 6, 7, 8];
+      const seqA = ticks.map((t) => a.decide(viewAt(t, { targetX: 400 - t * 15 })));
+      const seqB = ticks.map((t) => b.decide(viewAt(t, { targetX: 400 - t * 15 })));
+      expect(seqB).toEqual(seqA);
+    });
+
+    it("0 returns this tick's own freshly computed intent, never delayed", () => {
+      // hard recomputes every tick (reactionTicks: 1), so at delay 0 every returned intent should
+      // equal what `botInput` computes directly for that same tick's pose — no lag at all.
+      const bot = new LegacyController("hard", { targetSessionId: "p2" });
+      for (const t of [1, 2, 3, 4]) {
+        const view = viewAt(t, { targetX: 500 - t * 40 });
+        const direct = botInput(1, { x: 0, y: 0, angle: 0 }, { x: view.others[0]!.x, y: 0, angle: 0 },
+          view.self.slots.map((s) => s.range), BOT_PROFILES.hard);
+        const intent = bot.decide(view);
+        expect(intent.steer).toBe(direct.steer);
+        expect(intent.throttle).toBe(direct.throttle);
+      }
+    });
+
+    it("nonzero delay lags the returned intent behind what was actually decided", () => {
+      const delayed: BotProfile = { ...BOT_PROFILES.hard, reactionDelayTicks: 2 };
+      const bot = new LegacyController("hard", { targetSessionId: "p2", profile: delayed });
+      // Distinct steer at every tick: target crosses from one side to the other.
+      const decided = [1, 2, 3, 4, 5].map((t) => bot.decide(viewAt(t, { targetX: 400 - t * 200 })));
+      // Undelayed reference run, same poses, delay 0.
+      const reference: BotProfile = { ...BOT_PROFILES.hard, reactionDelayTicks: 0 };
+      const refBot = new LegacyController("hard", { targetSessionId: "p2", profile: reference });
+      const undelayed = [1, 2, 3, 4, 5].map((t) => refBot.decide(viewAt(t, { targetX: 400 - t * 200 })));
+      // Tick 5's delayed output should match tick 3's undelayed decision (5 - 2 = 3).
+      expect(decided[4]).toEqual(undelayed[2]);
+      // The first two calls have no history to draw on yet (delay 2, fewer than 2 prior pushes) —
+      // a human hasn't reacted to anything at the very start of a match either.
+      expect(decided[0]).toEqual({ steer: 0, throttle: 0, fireSlots: 0 });
+      expect(decided[1]).toEqual({ steer: 0, throttle: 0, fireSlots: 0 });
+    });
+  });
 });

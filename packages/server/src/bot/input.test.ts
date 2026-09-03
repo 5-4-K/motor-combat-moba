@@ -89,6 +89,10 @@ describe("BOT_PROFILES (PG27)", () => {
       aimToleranceRad: 0.6,
       fireConeRad: 0.68,
       firePeriodTicks: 14,
+      // B19's two latency knobs are machinery-only in this work — every tier stays a no-op (0)
+      // until the bot session sets real values.
+      viewStalenessTicks: 0,
+      reactionDelayTicks: 0,
     });
   });
 
@@ -100,13 +104,17 @@ describe("BOT_PROFILES (PG27)", () => {
       aimToleranceRad: 0.45,
       fireConeRad: 0.52,
       firePeriodTicks: 7,
+      viewStalenessTicks: 0,
+      reactionDelayTicks: 0,
     });
   });
 
   it("hard is EXACTLY the bot that shipped — the whole point of the difficulty split", () => {
     // These six numbers are the pre-split `BOT_CONFIG` plus `PlaygroundRoom`'s own
     // `OPPONENT_FIRE_PERIOD`. Pinned by value, not by comment: "the current one should be hard" has
-    // to stay true through every later retune of easy and medium.
+    // to stay true through every later retune of easy and medium. B19 added the two latency knobs
+    // below this work; `hard` stays frozen at 0/0 (a no-op) for both, same as the other two tiers —
+    // only the ORIGINAL six numbers are what "frozen" ever meant.
     expect(BOT_PROFILES.hard).toEqual({
       standoffUnits: 70,
       deadbandUnits: 0,
@@ -114,6 +122,8 @@ describe("BOT_PROFILES (PG27)", () => {
       aimToleranceRad: 0.3,
       fireConeRad: 0.35,
       firePeriodTicks: 2,
+      viewStalenessTicks: 0,
+      reactionDelayTicks: 0,
     });
   });
 

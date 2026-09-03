@@ -236,6 +236,56 @@ describe("aggregate: draws credit no winner (Task 15 gap: multi-survivor stalema
   });
 });
 
+describe("aggregate: unattributed pulse damage is banked under the status, not dropped (B5a)", () => {
+  it("banks damage from a pulse whose status has two or more appliers under the statusId", () => {
+    // `stunned` is appliable by both `thunderclap` and `roadblock` (see attribution.ts's header),
+    // so `attributeSource` refuses to guess and returns `weaponId: null` for it — the same case the
+    // existing kills test above exercises for `weaponKills`. This is the damage-side sibling: before
+    // the fix, this damage vanished from EVERY table with a "bank nowhere" comment that contradicted
+    // the spec (B5a: "the damage is reported under the status instead").
+    const out = aggregate([
+      synthetic({
+        damaged: [
+          {
+            tick: 5,
+            victimSessionId: "b",
+            victimCarId: "bastion",
+            attackerSessionId: "a",
+            attackerCarId: "mirage",
+            source: { kind: "pulse", statusId: "stunned", sourceSessionId: "a" },
+            amount: 12,
+            killingBlow: false,
+          },
+        ],
+      }),
+    ]);
+
+    expect(out.unattributedPulseDamage).toEqual([{ statusId: "stunned", damage: 12 }]);
+    // And it must not ALSO be double-counted onto some weapon's damage total.
+    expect(out.weapons.every((w) => w.damage === 0)).toBe(true);
+  });
+
+  it("is empty when every damaging pulse has exactly one applier, today's real case", () => {
+    const out = aggregate([
+      synthetic({
+        damaged: [
+          {
+            tick: 5,
+            victimSessionId: "b",
+            victimCarId: "bastion",
+            attackerSessionId: "a",
+            attackerCarId: "mirage",
+            source: { kind: "pulse", statusId: "overheated", sourceSessionId: "a" },
+            amount: 8,
+            killingBlow: false,
+          },
+        ],
+      }),
+    ]);
+    expect(out.unattributedPulseDamage).toEqual([]);
+  });
+});
+
 describe("aggregate: pace counts every kill, attributable or not (fix round 3, defect 3)", () => {
   it("counts an unattributable kill in killsPerMinute even though no weapon can claim it", () => {
     // `stunned` has two appliers (`thunderclap` and `roadblock`), so `attributeSource` refuses to
@@ -383,5 +433,56 @@ describe("aggregate: win-rate denominator is matches, not seats (fix round 2, de
     const mirage = out.cars.find((c) => c.carId === "mirage")!;
     expect(mirage.matches).toBe(1);
     expect(mirage.meanAliveSeconds).toBeCloseTo((30 + 90) / 2 / TICK_RATE_HZ, 6);
+  });
+
+  it("computes damageRatio as dealt over taken, and null when taken is 0 (Part 4 spec list)", () => {
+    const out = aggregate([
+      synthetic({
+        seats: [
+          seat({ sessionId: "a", carId: "mirage" }),
+          seat({ sessionId: "b", carId: "bastion" }),
+        ],
+        damaged: [
+          {
+            tick: 1, victimSessionId: "b", victimCarId: "bastion", attackerSessionId: "a",
+            attackerCarId: "mirage", source: { kind: "weapon", weaponId: "magmablast", pressId: "p", isExplosion: false },
+            amount: 40, killingBlow: false,
+          },
+        ],
+      }),
+    ]);
+    const mirage = out.cars.find((c) => c.carId === "mirage")!;
+    const bastion = out.cars.find((c) => c.carId === "bastion")!;
+    // mirage dealt 40, took 0 — no denominator to divide by, so null rather than Infinity.
+    expect(mirage.damageDealt).toBe(40);
+    expect(mirage.damageTaken).toBe(0);
+    expect(mirage.damageRatio).toBeNull();
+    // bastion dealt 0, took 40 — a real, computable ratio of 0.
+    expect(bastion.damageRatio).toBe(0);
+  });
+
+  it("computes killsPerMinuteAlive over ALIVE time, distinct from raw kills or match-time pace", () => {
+    // Two mirage lives in one match: 2 kills total, but only 60 ticks alive between them — a very
+    // different number from kills-per-minute-of-MATCH-time, which is the whole point of the "alive"
+    // qualifier (a chassis dying a lot in Deathmatch racks up match-time without being alive for it).
+    const out = aggregate([
+      synthetic({
+        seats: [
+          seat({ sessionId: "m0", carId: "mirage", aliveTicks: 30, kills: 1 }),
+          seat({ sessionId: "m1", carId: "mirage", aliveTicks: 30, kills: 1 }),
+        ],
+      }),
+    ]);
+    const mirage = out.cars.find((c) => c.carId === "mirage")!;
+    const aliveMinutes = 60 / TICK_RATE_HZ / 60;
+    expect(mirage.killsPerMinuteAlive).toBeCloseTo(2 / aliveMinutes, 6);
+  });
+
+  it("reports killsPerMinuteAlive as null for a chassis never alive at all", () => {
+    const out = aggregate([
+      synthetic({ seats: [seat({ sessionId: "m0", carId: "mirage", aliveTicks: 0, kills: 0 })] }),
+    ]);
+    const mirage = out.cars.find((c) => c.carId === "mirage")!;
+    expect(mirage.killsPerMinuteAlive).toBeNull();
   });
 });

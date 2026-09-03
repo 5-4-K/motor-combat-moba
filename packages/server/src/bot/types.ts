@@ -86,9 +86,12 @@ export interface BotArenaView {
  * never cheats": `inputQueues` and `prevFireMasks` — the actual keypresses — are not reachable from
  * inside `decide`, because they are not in the type. A promise decays; a type does not.
  *
- * `arena-01` is authored to fit the viewport exactly, so a human sees every car all the time and
- * `others` needs no vision limit (B17). When an arena larger than the view ships, the limit belongs
- * in `buildBotView` and nowhere else.
+ * `others`/`instances` carry a vision limit as of B17: `arena-01` (1280x720) is authored to fit the
+ * viewport exactly, so a human sees every car all the time and `buildBotView` filters nothing there
+ * — but `arena-02` (2000x2000) does not fit, and on an arena larger than the viewport `buildBotView`
+ * restricts both to what falls inside the viewport rectangle centred on the viewing car, the same
+ * as `arena-01` always effectively did by being small enough that the check never mattered. The
+ * limit lives in `buildBotView` and nowhere else.
  */
 export interface BotView {
   tick: number;

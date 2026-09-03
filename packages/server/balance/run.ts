@@ -50,6 +50,7 @@ function main(): void {
       `match-seconds=${args.matchSeconds}`,
       `arena=${args.arenaId}`,
       args.baseline ? `baseline=${args.baseline}` : "baseline=(none)",
+      ...(args.baseline ? [`force=${args.force}`] : []), // meaningless with no --baseline to force
       args.out ? `out=${args.out}` : "out=(dated folder)",
     ].join(" · "),
   );
@@ -76,21 +77,40 @@ function main(): void {
   // this early. The real, full `RunRecord` built after the run is what actually gets compared for
   // the "Deltas vs baseline" section `writeReport` renders. ---------------------------------------
   let baselineRecord: RunRecord | undefined;
+  // Set only when `--force` (B37) overrode a REFUSED comparison — the exact reasons
+  // `checkComparable` gave, passed through unmodified so the report's banner and this console
+  // warning never disagree about what was overridden.
+  let forcedMismatchReasons: string[] | undefined;
   if (args.baseline) {
     baselineRecord = loadBaseline(args.baseline);
     const precheck = { config, fingerprints } as RunRecord;
     const comparability = checkComparable(precheck, baselineRecord);
-    if (!comparability.ok) {
+    if (!comparability.ok && !args.force) {
       console.error("\nRefusing to run: this config is not comparable to the baseline.\n");
       for (const reason of comparability.reasons) console.error(`  - ${reason}`);
       console.error(
         "\nA refused baseline comparison is a user error worth stopping for, unlike a lopsided " +
-          "result — fix the flags (or drop --baseline) and try again.",
+          "result — fix the flags, or pass --force (B37) to run anyway and get a report with a " +
+          "prominent forced-comparison banner instead of a refusal.",
       );
       process.exitCode = 1;
       return;
     }
-    for (const reason of comparability.reasons) console.warn(`warning: ${reason}`);
+    if (!comparability.ok && args.force) {
+      // Forced past a FATAL mismatch — printed as a WARNING, not the ordinary `warning:` line below,
+      // because this is the one case where a comparison that should have been refused is about to
+      // run anyway.
+      console.error(
+        "\nWARNING: --force is overriding a refused baseline comparison (B37). This is NOT a valid " +
+          "paired run — the report's Deltas section will carry the same warning, listing the exact " +
+          "mismatch(es) below:\n",
+      );
+      for (const reason of comparability.reasons) console.error(`  - ${reason}`);
+      console.error("");
+      forcedMismatchReasons = comparability.reasons;
+    } else {
+      for (const reason of comparability.reasons) console.warn(`warning: ${reason}`);
+    }
   }
 
   // ---- Run. Progress prints as matches complete (B44) so a long default run never looks hung — a
@@ -114,7 +134,7 @@ function main(): void {
   console.log(`${totalMatches} matches in ${(matchesElapsedMs / 1000).toFixed(1)}s (${perMatchMs.toFixed(1)} ms/match)`);
 
   // ---- Aggregate, assemble the record, write the report. --------------------------------------
-  const { cars, weapons, matchups, pace } = aggregate(outcomes);
+  const { cars, weapons, matchups, pace, unattributedPulseDamage } = aggregate(outcomes);
   const durationSeconds = (Date.now() - overallStart) / 1000;
 
   const record: RunRecord = {
@@ -128,10 +148,11 @@ function main(): void {
     weapons,
     matchups,
     pace,
+    unattributedPulseDamage,
   };
 
   const outDir = args.out ?? createRunDir(REPORTS_ROOT);
-  const files = writeReport(outDir, record, outcomes, baselineRecord);
+  const files = writeReport(outDir, record, outcomes, baselineRecord, forcedMismatchReasons);
 
   console.log(`\nwrote ${files.length} files to ${path.relative(process.cwd(), outDir)}/`);
   for (const file of files) console.log(`  ${path.basename(file)}`);

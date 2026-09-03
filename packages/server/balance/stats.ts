@@ -23,6 +23,7 @@ import {
   slotsOf,
   type CarId,
   type DamagedEvent,
+  type StatusId,
   type WeaponId,
 } from "@motor-combat-moba/shared";
 import { attributeSource, buildApplierMap } from "./attribution.js";
@@ -78,8 +79,18 @@ export interface CarStats {
   deaths: number;
   damageDealt: number;
   damageTaken: number;
+  /** `damageDealt / damageTaken`. `null` when `damageTaken` is 0 — a car that took no damage has no
+   * ratio to report, not an infinite one (same zero-denominator treatment as `damagePerPress` and
+   * `meanWinnerHp` elsewhere in this file: no data means no number). */
+  damageRatio: number | null;
   meanAliveSeconds: number;
   phasedFraction: number;
+  /** `kills / (alive seconds / 60)` — kills per minute of TIME THIS CHASSIS SPENT ALIVE, not per
+   * minute of match time. A meaningfully different signal from raw `kills` in a mode (Deathmatch)
+   * where a car spends real time dead between respawns: two chassis tied on raw kills read apart
+   * here if one earned them while dying constantly and the other while alive the whole match.
+   * `null` when the chassis was never alive at all (0 alive ticks across every appearance). */
+  killsPerMinuteAlive: number | null;
 }
 
 export interface WeaponStats {
@@ -113,6 +124,17 @@ export interface MatchupCell {
   meanWinnerHp: number | null;
 }
 
+/**
+ * One statusId's worth of pulse damage that could not be honestly credited to a single weapon
+ * (B5a) — either two or more weapons can apply the status, or (in principle) none can. Surfaced as
+ * its own report section rather than folded into `weapons`, whose whole point is a per-weapon
+ * number; there is no weapon here to attach it to.
+ */
+export interface UnattributedPulseDamageRow {
+  statusId: StatusId;
+  damage: number;
+}
+
 export interface PaceStats {
   meanMatchSeconds: number;
   meanFirstBloodSeconds: number | null;
@@ -139,6 +161,7 @@ export function aggregate(outcomes: readonly MatchOutcome[]): {
   weapons: WeaponStats[];
   matchups: MatchupCell[];
   pace: PaceStats;
+  unattributedPulseDamage: UnattributedPulseDamageRow[];
 } {
   const appliers = buildApplierMap(); // built once, passed down — not per event, not per match.
 
@@ -212,6 +235,12 @@ export function aggregate(outcomes: readonly MatchOutcome[]): {
   // the same. NUL is used rather than a printable separator because no `CarId` can contain it, so
   // the key cannot collide however the roster grows.
   const matchupKey = (attacker: CarId, defender: CarId): string => `${attacker}\x00${defender}`;
+
+  // ---- unattributed pulse damage (B5a): banked by STATUS, since there is no single weapon to bank
+  // it under. Latent today — `overheated` is the only damaging pulse and has exactly one applier,
+  // so this map stays empty in every real run — but it exists so a second applier (or a status that
+  // ships with none) shows up here instead of silently disappearing from every table. -------------
+  const unattributedPulseDamage = new Map<StatusId, number>();
 
   // ---- pace accumulators -----------------------------------------------------------------------
   const matchSeconds: number[] = [];
@@ -290,7 +319,19 @@ export function aggregate(outcomes: readonly MatchOutcome[]): {
     // ---- damage/derived-damage/kills per weapon, via attribution (B5a) ----------------------
     for (const event of outcome.events.damaged) {
       const { weaponId, derived } = attributeSource(event.source, appliers);
-      if (weaponId === null) continue; // ambiguous or self/ownerInside-only source — bank nowhere.
+      if (weaponId === null) {
+        // Ambiguous (two or more appliers) or, in principle, zero-applier — either way there is no
+        // single weapon this can honestly be credited to (B5a). `attributeSource` only ever returns
+        // a null weaponId for a `pulse` source (`weapon`/`contact` always resolve one), so `source`
+        // is safely narrowed here; the guard is defensive rather than load-bearing. Banked under the
+        // STATUS instead of dropped, so it stays visible in the report's "Unattributed pulse damage"
+        // section rather than quietly vanishing from every table — the bug this replaces.
+        if (event.source.kind === "pulse") {
+          const statusId = event.source.statusId;
+          unattributedPulseDamage.set(statusId, (unattributedPulseDamage.get(statusId) ?? 0) + event.amount);
+        }
+        continue;
+      }
       weaponDamage.set(weaponId, (weaponDamage.get(weaponId) ?? 0) + event.amount);
       if (derived) weaponDerivedDamage.set(weaponId, (weaponDerivedDamage.get(weaponId) ?? 0) + event.amount);
     }
@@ -358,16 +399,24 @@ export function aggregate(outcomes: readonly MatchOutcome[]): {
     const wins = carWins.get(carId) ?? 0;
     const aliveTicks = carAliveTicks.get(carId) ?? 0;
     const phasedTicks = carPhasedTicks.get(carId) ?? 0;
+    const kills = carKills.get(carId) ?? 0;
+    const damageDealt = carDamageDealt.get(carId) ?? 0;
+    const damageTaken = carDamageTaken.get(carId) ?? 0;
+    const aliveMinutes = aliveTicks / TICK_RATE_HZ / 60;
     return {
       carId,
       matches,
       wins,
       winRate: wilson(wins, matches),
       meanPlacement: mean(carPlacements.get(carId) ?? []),
-      kills: carKills.get(carId) ?? 0,
+      kills,
       deaths: carDeaths.get(carId) ?? 0,
-      damageDealt: carDamageDealt.get(carId) ?? 0,
-      damageTaken: carDamageTaken.get(carId) ?? 0,
+      damageDealt,
+      damageTaken,
+      // Spec's Part 4 "damage ratio" — dealt over taken. `null`, not `Infinity`, when `damageTaken`
+      // is 0 (a chassis that was never hit): same "no data means no number" rule this file already
+      // applies to `damagePerPress` and `meanWinnerHp`.
+      damageRatio: damageTaken > 0 ? damageDealt / damageTaken : null,
       // Denominator is `appearances` (seats filled), not `matches` (distinct matches) — a mean
       // SURVIVAL TIME is a per-life question. A mirror matchup fills two seats with this chassis in
       // one match and produces two independent lives to average over; dividing by `matches` instead
@@ -377,6 +426,12 @@ export function aggregate(outcomes: readonly MatchOutcome[]): {
       // still alive; the question this answers is "of the time this car COULD have been shot, what
       // share was it untargetable."
       phasedFraction: aliveTicks > 0 ? phasedTicks / aliveTicks : 0,
+      // Spec's Part 4 "kills per minute alive" — deliberately normalized by ALIVE time, not match
+      // time, so a chassis that racks up kills while spending real time dead between Deathmatch
+      // respawns doesn't get the same number as one that earned them in one unbroken life. `null`
+      // when the chassis was never alive at all across every appearance (0 alive ticks) — dividing
+      // by a zero-minute denominator would be a rate over no observed time, not a rate of 0.
+      killsPerMinuteAlive: aliveMinutes > 0 ? kills / aliveMinutes : null,
     };
   });
   const carById = new Map(cars.map((c) => [c.carId, c]));
@@ -441,5 +496,12 @@ export function aggregate(outcomes: readonly MatchOutcome[]): {
     clockFraction: outcomes.length > 0 ? hitClockCount / outcomes.length : 0,
   };
 
-  return { cars, weapons, matchups, pace };
+  // ---- assemble unattributed pulse damage rows, sorted by statusId so the section's order is a
+  // property of the status table rather than of Map insertion order (which events happened to hit
+  // first). -----------------------------------------------------------------------------------
+  const unattributed: UnattributedPulseDamageRow[] = [...unattributedPulseDamage.entries()]
+    .map(([statusId, damage]) => ({ statusId, damage }))
+    .sort((a, b) => a.statusId.localeCompare(b.statusId));
+
+  return { cars, weapons, matchups, pace, unattributedPulseDamage: unattributed };
 }

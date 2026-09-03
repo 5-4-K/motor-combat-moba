@@ -51,8 +51,10 @@ function record(opts: { shape?: Shape; mode?: GameMode } = {}): RunRecord {
     deaths: 15 + i,
     damageDealt: 500 + i * 10,
     damageTaken: 400 + i * 5,
+    damageRatio: (500 + i * 10) / (400 + i * 5),
     meanAliveSeconds: 30 + i,
     phasedFraction: 0.1,
+    killsPerMinuteAlive: (20 + i) / ((30 + i) / 60),
   }));
 
   const weapons = carIds.flatMap((carId) =>
@@ -115,6 +117,7 @@ function record(opts: { shape?: Shape; mode?: GameMode } = {}): RunRecord {
       killsPerMinute: 4.2,
       clockFraction: 0.1,
     },
+    unattributedPulseDamage: [],
   };
 }
 
@@ -214,6 +217,13 @@ describe("writeReport (B38, B39, B40)", () => {
     expect(md).toContain("run #1 validates the rig");
   });
 
+  it("states the corroded-amplifier caveat in the report body, not only the README (B5)", () => {
+    const md = readSummary().toLowerCase();
+    expect(md).toContain("corroded");
+    expect(md).toContain("magmablast");
+    expect(md).toContain("amplifier");
+  });
+
   it("leads the duel table with the mirror noise floor (B26a)", () => {
     const md = readSummary({ shape: "duel" });
     expect(md.indexOf("Mirror")).toBeLessThan(md.indexOf("Matchup matrix"));
@@ -223,6 +233,13 @@ describe("writeReport (B38, B39, B40)", () => {
     const md = readSummary({ shape: "ffa" });
     expect(md).not.toContain("Mirror noise floor");
     expect(md).not.toContain("Matchup matrix");
+  });
+
+  it("notes the phased/spawn-protection distortion beside the hit-rate column (B28a)", () => {
+    const weaponSection = readSummary().split("## Per-weapon")[1]!.split("## ")[0]!;
+    expect(weaponSection.toLowerCase()).toContain("phased");
+    expect(weaponSection.toLowerCase()).toContain("reads as a miss");
+    expect(weaponSection.toLowerCase()).toContain("last-standing");
   });
 
   it("adds a Derived column to the weapon table when derivedDamage > 0, and omits it otherwise", () => {
@@ -298,6 +315,21 @@ describe("writeReport (B38, B39, B40)", () => {
     expect(paceSection).not.toContain("n/a");
   });
 
+  it("omits the unattributed pulse damage section when the run has none (B5a)", () => {
+    const md = readSummary();
+    expect(md).not.toContain("Unattributed pulse damage");
+  });
+
+  it("renders unattributed pulse damage when the run has some (B5a)", () => {
+    const withUnattributed = { ...record(), unattributedPulseDamage: [{ statusId: "stunned" as const, damage: 12 }] };
+    const dir = tempDir();
+    writeReport(dir, withUnattributed, []);
+    const md = fs.readFileSync(path.join(dir, "summary.md"), "utf8");
+    expect(md).toContain("Unattributed pulse damage");
+    expect(md).toContain("stunned");
+    expect(md).toContain("12.0");
+  });
+
   it("adds a deltas section only when a baseline is supplied", () => {
     const dirNoBaseline = tempDir();
     writeReport(dirNoBaseline, record(), []);
@@ -308,6 +340,27 @@ describe("writeReport (B38, B39, B40)", () => {
     writeReport(dirWithBaseline, record(), [], record());
     const withBaseline = fs.readFileSync(path.join(dirWithBaseline, "summary.md"), "utf8");
     expect(withBaseline).toContain("Deltas vs baseline");
+  });
+
+  it("carries no forced-comparison banner for an ordinary (unforced) baseline delta (B37)", () => {
+    const dir = tempDir();
+    writeReport(dir, record(), [], record());
+    const md = fs.readFileSync(path.join(dir, "summary.md"), "utf8");
+    expect(md).not.toContain("FORCED COMPARISON");
+  });
+
+  it("renders a prominent forced-comparison banner naming the mismatch reasons when --force was used (B37)", () => {
+    const dir = tempDir();
+    const reasons = ["config fingerprint differs (this run: aaa, baseline: bbb) — the two runs measured different games"];
+    writeReport(dir, record(), [], record(), reasons);
+    const md = fs.readFileSync(path.join(dir, "summary.md"), "utf8");
+    const deltasSection = md.split("## Deltas vs baseline")[1]!;
+    expect(deltasSection).toContain("FORCED COMPARISON");
+    expect(deltasSection).toContain("--force");
+    expect(deltasSection).toContain("config fingerprint differs");
+    // The banner must appear BEFORE the delta table itself, not after — a warning read too late is
+    // read after the numbers have already been trusted.
+    expect(deltasSection.indexOf("FORCED COMPARISON")).toBeLessThan(deltasSection.indexOf("| Car |"));
   });
 
   it("round-trips run.json, so a baseline can be read back", () => {

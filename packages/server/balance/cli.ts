@@ -107,6 +107,7 @@ const KNOWN_FLAGS = new Set([
   "baseline",
   "match-seconds",
   "out",
+  "force",
 ]);
 
 /**
@@ -144,6 +145,12 @@ export interface ParsedArgs extends RunConfig {
   skill: PlayerSkill;
   baseline?: string;
   out?: string;
+  /** B37: run a `--baseline` comparison even when the config or bot fingerprint (or shape/mode)
+   * differs, instead of refusing. A boolean flag, not a value — `--force` (bare) and `--force=true`
+   * both set it, deliberately NOT in `REQUIRES_EXPLICIT_VALUE` (that set exists to reject exactly
+   * the bare form this flag is meant to be used in). `run.ts` is what actually acts on it; a run with
+   * no `--baseline` at all just carries `force: true` for nothing to apply it to. */
+  force: boolean;
 }
 
 /**
@@ -204,5 +211,6 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     matchSeconds,
     baseline: flags.get("baseline"),
     out: flags.get("out"),
+    force: flags.has("force"),
   };
 }

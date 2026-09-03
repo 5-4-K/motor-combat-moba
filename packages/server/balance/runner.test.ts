@@ -1,6 +1,27 @@
 import { describe, expect, it } from "vitest";
 import { GameMode } from "@motor-combat-moba/shared";
 import { runAll, seatsFor } from "./runner.js";
+import { aggregate } from "./stats.js";
+
+/**
+ * A stable digest of any JSON-safe value: recursively sort object keys, then `JSON.stringify` —
+ * the same technique `fingerprint.ts`'s `stableStringify` uses, kept local here rather than
+ * imported so this test file does not reach into that module's internals for a one-off.
+ */
+function sortKeysDeep(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortKeysDeep);
+  if (value !== null && typeof value === "object") {
+    const source = value as Record<string, unknown>;
+    const sorted: Record<string, unknown> = {};
+    for (const key of Object.keys(source).sort()) sorted[key] = sortKeysDeep(source[key]);
+    return sorted;
+  }
+  return value;
+}
+
+function digest(value: unknown): string {
+  return JSON.stringify(sortKeysDeep(value));
+}
 
 describe("seatsFor (B26, B27)", () => {
   it("seats an ffa match 2/2/2, always", () => {
@@ -40,6 +61,21 @@ describe("runAll (B43)", () => {
     const a = runAll(config);
     const b = runAll(config);
     expect(b.outcomes.map((o) => o.ticks)).toEqual(a.outcomes.map((o) => o.ticks));
+  });
+
+  it("produces an identical stats digest for the same seed twice (B43)", () => {
+    // The property B43 actually names — "the same seed twice produces an identical stats digest" —
+    // is about the STATS a run's config produces, not about tick counts or event counts alone
+    // (which would still match while damage totals, kill attribution, or hit rates diverged). Small
+    // config so the test stays fast: `duel` at `matches: 1` is 9 short matches, `matchSeconds: 5`
+    // caps each one well under its safety-cap default.
+    const small = { ...config, matchSeconds: 5 } as const;
+    const a = aggregate(runAll(small).outcomes);
+    const b = aggregate(runAll(small).outcomes);
+    const digestA = digest(a);
+    const digestB = digest(b);
+    expect(digestA.length).toBeGreaterThan(0); // sanity: not vacuously comparing "{}"
+    expect(digestB).toBe(digestA);
   });
 
   it("gives each match its own derived seed, so two matches are not the same match", () => {

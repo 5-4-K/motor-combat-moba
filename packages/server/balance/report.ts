@@ -28,7 +28,7 @@ import { BOT_PROFILES, type BotProfile } from "../src/config/bot-profiles.js";
 import { deriveSeed } from "../src/bot/rng.js";
 import type { MatchOutcome } from "./match.js";
 import type { RunConfig } from "./runner.js";
-import type { CarStats, Interval, MatchupCell, PaceStats, WeaponStats } from "./stats.js";
+import type { CarStats, Interval, MatchupCell, PaceStats, UnattributedPulseDamageRow, WeaponStats } from "./stats.js";
 import { aggregate, wilson } from "./stats.js";
 
 export interface RunRecord {
@@ -42,6 +42,7 @@ export interface RunRecord {
   weapons: WeaponStats[];
   matchups: MatchupCell[];
   pace: PaceStats;
+  unattributedPulseDamage: UnattributedPulseDamageRow[];
 }
 
 /**
@@ -155,6 +156,13 @@ function renderLimitations(): string {
     "- **Bot targeting drives kill distribution.** Who the bot chooses to shoot is a bot-tuning " +
       "decision, not a chassis property, and it will move every per-car number here again when " +
       "the bot improves.",
+    "- **`corroded` contributes damage without ever dealing any, and no attribution scheme untangles " +
+      "it (B5).** Its row is a pure amplifier (`modifiers: { damageTaken: 1.3 }`), applied only by " +
+      "`magmablast`'s explosion, so it never hits anyone itself — it makes whatever hits the " +
+      "carrier next land 30% harder, and that harder hit is credited entirely to whichever weapon " +
+      "landed it, including another player's. `magmablast`'s real contribution to a match therefore " +
+      "includes damage booked to other weapons' rows above; a per-weapon damage table is blind to " +
+      "amplifiers by construction, not by an oversight this report could fix.",
   ].join("\n");
 }
 
@@ -189,14 +197,22 @@ function renderCarTable(record: RunRecord): string {
     String(c.deaths),
     fmt1(c.damageDealt),
     fmt1(c.damageTaken),
+    // `null` (damageTaken === 0, this chassis was never hit) prints `–` rather than a fabricated
+    // ratio — same zero-denominator treatment as `damagePerPress` and `meanWinnerHp` elsewhere.
+    c.damageRatio === null ? "–" : fmt1(c.damageRatio),
     fmt1(c.meanAliveSeconds),
     formatPct(c.phasedFraction) + " of alive time",
+    // `null` (this chassis was never alive at all) prints `–` for the same reason.
+    c.killsPerMinuteAlive === null ? "–" : fmt1(c.killsPerMinuteAlive),
   ]);
   return [
     "## Per-car",
     "",
     mdTable(
-      ["Car", "Matches", "Win rate", "Mean placement", "Kills", "Deaths", "Dmg dealt", "Dmg taken", "Mean alive (s)", "Phased"],
+      [
+        "Car", "Matches", "Win rate", "Mean placement", "Kills", "Deaths", "Dmg dealt", "Dmg taken",
+        "Dmg ratio", "Mean alive (s)", "Phased", "Kills/min alive",
+      ],
       rows,
     ),
   ].join("\n");
@@ -245,7 +261,39 @@ function renderWeaponTable(record: RunRecord): string {
       "`overheated`, which `afterburner` applies — rather than measured directly off a damage " +
       "event. It is included in `Damage` above, not additional to it."
     : "";
-  return ["## Per-weapon", "", mdTable(headers, rows) + derivedNote].join("\n");
+  // B28a: the note belongs beside `Hit rate`, where the distortion actually bites, not buried in the
+  // Limitations section a reader may have already skimmed past.
+  const phasedNote =
+    "\n\n**`Hit rate` above is distorted by spawn protection.** A shot at a spawn-protected " +
+    "(`phased`) car produces no damage event at all — `runCombat` drops a phased car from the hit " +
+    "snapshot entirely — so that press reads as a MISS. This inflates every weapon's miss rate " +
+    "(depresses `Hit rate`) in proportion to how much of the match cars spent phased; see the " +
+    "per-car `Phased` column above to size it for this run. The harness cannot know whether a press " +
+    "was aimed at a real target or a departed ghost, so it cannot honestly reclassify those presses — " +
+    "sizing the distortion is the most it can do (B28a). **`last-standing` mode has no phasing at " +
+    "all**, making it the cleaner shape to run when hit-rate accuracy is the question.";
+  return ["## Per-weapon", "", mdTable(headers, rows) + derivedNote + phasedNote].join("\n");
+}
+
+/**
+ * "Unattributed pulse damage" (B5a) — only rendered when non-empty. Latent today (`overheated` is
+ * the only damaging pulse and has exactly one applier, `afterburner`), so a real run's table is
+ * normally empty and this section is simply absent rather than printed always-empty; the moment a
+ * second weapon applies a damaging status, its pulse damage lands here instead of vanishing from
+ * every other table in the report.
+ */
+function renderUnattributedPulseDamage(record: RunRecord): string {
+  const rows = record.unattributedPulseDamage.map((u) => [u.statusId, fmt1(u.damage)]);
+  return [
+    "## Unattributed pulse damage",
+    "",
+    "Two or more weapons can apply each status below (or, in principle, none of them target " +
+      "opponents at all), so a point of its pulse damage cannot be honestly credited to one of " +
+      "them (B5a) — refusing to guess and dropping it would be worse than banking it here. This " +
+      "damage is NOT included in any weapon's `Damage` column above.",
+    "",
+    mdTable(["Status", "Damage"], rows),
+  ].join("\n");
 }
 
 function renderMatchupMatrix(record: RunRecord): string {
@@ -336,7 +384,15 @@ function renderPace(record: RunRecord): string {
   ].join("\n");
 }
 
-function renderDeltas(record: RunRecord, baseline: RunRecord): string {
+/**
+ * `forcedMismatchReasons`, when present and non-empty, means `--force` (B37) overrode a REFUSED
+ * comparison — `run.ts` only ever passes this through when `checkComparable` returned `ok: false`
+ * and the user passed `--force` anyway. The banner it renders is deliberately loud and placed
+ * before the delta table itself: a forced delta must never be mistaken, weeks later, for the clean
+ * paired run B37 exists to guarantee — the whole reason this section exists rather than just the
+ * console warning `run.ts` also prints at run time (which nobody rereads from a saved report).
+ */
+function renderDeltas(record: RunRecord, baseline: RunRecord, forcedMismatchReasons?: readonly string[]): string {
   const baselineByCarId = new Map(baseline.cars.map((c) => [c.carId, c]));
   const rows = record.cars.map((c) => {
     const base = baselineByCarId.get(c.carId);
@@ -348,9 +404,24 @@ function renderDeltas(record: RunRecord, baseline: RunRecord): string {
       deltaPoints === null ? "–" : `${deltaPoints >= 0 ? "+" : ""}${fmt1(deltaPoints)} pts`,
     ];
   });
+
+  const forcedBannerLines =
+    forcedMismatchReasons && forcedMismatchReasons.length > 0
+      ? [
+          "> **⚠ FORCED COMPARISON (`--force`).** B37 refuses a baseline comparison when the config " +
+            "or bot fingerprint (or shape/mode) differs — this run overrode that refusal. The table " +
+            "below is NOT a valid paired run; every delta in it may be measuring one of these " +
+            "differences as much as, or instead of, any real balance change:",
+          ">",
+          ...forcedMismatchReasons.map((reason) => `> - ${reason}`),
+          "",
+        ]
+      : [];
+
   return [
     "## Deltas vs baseline",
     "",
+    ...forcedBannerLines,
     `Baseline run: config fingerprint \`${baseline.fingerprints.config}\`, bot fingerprint \`${baseline.fingerprints.bot}\`, ` +
       `git commit \`${baseline.gitCommit}\`, ${baseline.totalMatches} matches. Win-rate deltas are ` +
       "point estimates only — a point difference smaller than either run's own interval width is " +
@@ -361,13 +432,18 @@ function renderDeltas(record: RunRecord, baseline: RunRecord): string {
   ].join("\n");
 }
 
-function renderSummaryMarkdown(record: RunRecord, baseline?: RunRecord): string {
+function renderSummaryMarkdown(
+  record: RunRecord,
+  baseline?: RunRecord,
+  forcedMismatchReasons?: readonly string[],
+): string {
   const sections = [renderHeader(record), renderLimitations()];
   if (record.config.shape === "duel") sections.push(renderMirrors(record));
   sections.push(renderCarTable(record), renderWeaponTable(record));
+  if (record.unattributedPulseDamage.length > 0) sections.push(renderUnattributedPulseDamage(record));
   if (record.config.shape === "duel") sections.push(renderMatchupMatrix(record));
   sections.push(renderPace(record));
-  if (baseline) sections.push(renderDeltas(record, baseline));
+  if (baseline) sections.push(renderDeltas(record, baseline, forcedMismatchReasons));
   return sections.join("\n\n") + "\n";
 }
 
@@ -555,12 +631,19 @@ function writeWeaponsCsv(file: string, rows: readonly WeaponMatchCsvRow[]): void
  * `baseline`, when given, adds a "Deltas vs baseline" section to `summary.md` — but loading a
  * baseline off disk and refusing an invalid comparison (mismatched fingerprints) is Task 20's job,
  * not this function's: `writeReport` renders whatever `RunRecord` it is handed, unconditionally.
+ *
+ * `forcedMismatchReasons` (B37): `run.ts` passes this only when `--force` overrode a refused
+ * comparison, and only the reasons `checkComparable` actually returned — never invented here. It
+ * renders as a loud warning banner ahead of the delta table, so a forced comparison can never later
+ * be mistaken for the clean paired run B37 exists to guarantee. Absent (or empty) for every ordinary
+ * comparison, which is every comparison `--force` was not needed for.
  */
 export function writeReport(
   dir: string,
   record: RunRecord,
   outcomes: readonly MatchOutcome[],
   baseline?: RunRecord,
+  forcedMismatchReasons?: readonly string[],
 ): string[] {
   fs.mkdirSync(dir, { recursive: true });
 
@@ -569,7 +652,7 @@ export function writeReport(
   const weaponsFile = path.join(dir, "weapons.csv");
   const runJsonFile = path.join(dir, "run.json");
 
-  fs.writeFileSync(summaryFile, renderSummaryMarkdown(record, baseline), "utf8");
+  fs.writeFileSync(summaryFile, renderSummaryMarkdown(record, baseline, forcedMismatchReasons), "utf8");
   writeMatchesCsv(matchesFile, buildMatchRows(record, outcomes));
   writeWeaponsCsv(weaponsFile, buildWeaponMatchRows(outcomes));
   fs.writeFileSync(runJsonFile, JSON.stringify(record, null, 2) + "\n", "utf8");

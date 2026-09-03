@@ -221,7 +221,7 @@ export { NEUTRAL_MODIFIERS, modifiersOf } from "./sim/status/modifiers.js";
 export type { Modifiers } from "./sim/status/modifiers.js";
 export { AIM_CONFIG, AIM_TICKS } from "./config/aim-config.js";
 export type { AimTicks } from "./config/aim-config.js";
-export { CAMERA_CONFIG, DRIVE_CONFIG } from "./config/drive-config.js";
+export { CAMERA_CONFIG, DRIVE_CONFIG, LOGICAL_CANVAS } from "./config/drive-config.js";
 export { FLOW_CONFIG } from "./config/flow-config.js";
 export { DEATHMATCH_CONFIG, DEATHMATCH_TICKS } from "./config/deathmatch-config.js";
 export { NET_CONFIG } from "./config/net-config.js";
