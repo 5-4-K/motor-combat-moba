@@ -13,47 +13,22 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRunDir as createRunDirIn, resolveRunDir as resolveRunDirIn } from "../src/run-dir.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const REPORTS_ROOT = path.join(HERE, "reports");
-
-/** Local calendar date as `yyyy-MM-dd`. Local, not UTC: the folder names a person's day. */
-function today(): string {
-  const d = new Date();
-  const pad = (n: number): string => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
 
 /**
  * Create the next run folder for today: `reports/2026-08-29-01`, then `-02`, and so on.
  *
  * The number is derived by scanning what is already on disk rather than held in a counter file,
  * so deleting old reports never makes a new run collide with a name that is still there.
+ * (Implementation lives in `../src/run-dir.ts`, shared with `balance/`.)
  */
-export function createRunDir(): string {
-  fs.mkdirSync(REPORTS_ROOT, { recursive: true });
-  const date = today();
-  const pattern = new RegExp(`^${date}-(\\d+)$`);
-  let highest = 0;
-  for (const entry of fs.readdirSync(REPORTS_ROOT, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const match = pattern.exec(entry.name);
-    if (match) highest = Math.max(highest, Number(match[1]));
-  }
-  const dir = path.join(REPORTS_ROOT, `${date}-${String(highest + 1).padStart(2, "0")}`);
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
+export const createRunDir = (): string => createRunDirIn(REPORTS_ROOT);
 
 /** The folder this probe should write into: the run's shared one, or a fresh one of its own. */
-export function resolveRunDir(): string {
-  const shared = process.env.PLAYTEST_RUN_DIR;
-  if (shared) {
-    fs.mkdirSync(shared, { recursive: true });
-    return shared;
-  }
-  return createRunDir();
-}
+export const resolveRunDir = (): string => resolveRunDirIn(REPORTS_ROOT, "PLAYTEST_RUN_DIR");
 
 export interface Finding {
   probe: string;
