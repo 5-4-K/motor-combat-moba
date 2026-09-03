@@ -23,10 +23,12 @@ export const CHASSIS_COPY = {
     theme: "Your driving is your aim.",
     body:
       // NOT "hits hardest per press": Bastion's Bulwark (the old titleholder) is retired, and
-      // Afterburner — Mirage's OWN weapon — is now the roster's largest full-connect number (286,
-      // top of the ranking page) once it lands. The claim stays conditional rather than flat,
-      // because that number needs the whole 2.2s burn held on one target; Mirage's damage is real
-      // but conditional either way.
+      // Afterburner — Mirage's OWN weapon — is near the top of the full-connect ranking at 245,
+      // though NOT top of it: Wildcharge's 250 edges it, and Tremor ties at 250 (uncarried today).
+      // The claim stays conditional rather than flat, because 245 needs all five damage ticks of
+      // the 2.2s burn held on one target; Mirage's damage is real but conditional either way.
+      // A single cone is ~38% of Bullseye's 650 hp, so "most of a car's HP" below is the KIT over a
+      // few seconds — Afterburner plus a Thunderclap and a Magma Blast — not one press of this.
       "The fastest thing on the map, and the one that turns a few seconds of contact into most of " +
       "a car's HP — but only for as " +
       "long as it is beside you. Two of its three weapons hug the chassis, so Mirage has to pick a " +
@@ -89,7 +91,7 @@ export const SLOT_ROLES = [
 export const WEAPON_COPY = {
   predator: {
     tagline: "It picks its target after it's already in the air.",
-    shape: "Proximity-seeking dart · locks on",
+    shape: "Proximity-seeking missile · locks on",
     what:
       "It leaves the muzzle with no target at all — fired at your lock like anything else in this " +
       "slot, but blind to who is actually out there once it's away. The instant an enemy car drifts " +
@@ -97,14 +99,13 @@ export const WEAPON_COPY = {
       "two-second life, curling a tight turn to stay on their line. A hit is a hit — nothing rides " +
       "along with the damage.",
     how:
-      "Three hundred milliseconds between presses and a two-second flight time means up to seven of " +
-      "these can be in the air from one car at once, each one hunting on its own. That rate is the " +
-      "whole weapon: it carries no real range, only a life span, so a shot that finds nobody simply " +
-      "runs out rather than travelling on.",
+      "A press a second against a two-second flight time means up to two of these can be in the air " +
+      "from one car at once, each one hunting on its own. It carries no real range, only a life " +
+      "span, so a shot that finds nobody simply runs out rather than travelling on.",
     tip:
       "Fire into a group rather than at one target — whichever car wanders inside 200 units of any " +
-      "shot already in flight is the one that eats it. It can't close out a fight on its own at this " +
-      "rate; follow it with Pepperbox or Lance rather than expecting one press to do the work.",
+      "shot already in flight is the one that eats it. One press will not close out a fight on its " +
+      "own; follow it with Pepperbox or Lance rather than expecting it to do the work alone.",
   },
   thunderclap: {
     tagline: "A lunge that ends the fight where it lands.",
@@ -128,7 +129,7 @@ export const WEAPON_COPY = {
     shape: "Flame cone · welded to your nose and tail · ticks",
     what:
       "Two mirrored cones, one off the nose and one off the tail, burning everything inside either " +
-      "of them five times a second for a little over two seconds. It sweeps as you steer, and both " +
+      "of them twice a second for a little over two seconds. It sweeps as you steer, and both " +
       "cones die the instant you do.",
     how:
       "The per-cone numbers are unchanged from a single flame; the ceiling only doubles against a " +
