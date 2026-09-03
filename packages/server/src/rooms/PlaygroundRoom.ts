@@ -360,10 +360,11 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
       combat: this.combat,
       rng: this.botRng,
     });
-    if (!view) {
-      queue.push({ seq, steer: 0, throttle: 0, fireSlots: 0 });
-      return;
-    }
+    // No car for the bot's seat: push NOTHING, exactly as the pre-migration
+    // `if (!self || !queue) return;` did. An input queued for a session that is not in
+    // `state.players` is never consumed by `serverTick`, and would be read as a stale intent if
+    // that seat were ever re-added.
+    if (!view) return;
 
     // A fresh `seq` every tick, held intent or not: `serverTick` wants one input per tick per car,
     // and reusing a sequence number reads as a duplicate rather than a repeat.
