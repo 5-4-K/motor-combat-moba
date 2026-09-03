@@ -67,4 +67,21 @@ describe("runMatch", () => {
     const out = runMatch({ ...SETUP, mode: GameMode.FFA_DEATHMATCH });
     expect(out.seats.map((s) => s.placement).sort()).toEqual([1, 2]);
   });
+
+  it("ties on kills/deaths place equally in deathmatch, regardless of seat order (fix round 3, defect 1)", () => {
+    // One tick is nowhere near enough time for either bot to land a hit, so both seats finish
+    // 0 kills / 0 deaths -- a genuine tie. Before the fix, `placementsFor` broke ties with a stable
+    // sort over `setup.seats`, so the FIRST-listed seat always won the tie (1, 2) purely from table
+    // position -- and seat order is chassis order (`ffaSeats` in runner.ts), so that bug would read
+    // as a per-chassis "Mean placement" signal that was actually measuring nothing but the roster's
+    // listing order. Running the same tie forwards and reversed catches that regression directly.
+    const setup = { ...SETUP, mode: GameMode.FFA_DEATHMATCH, maxTicks: 1 } as const;
+    const forward = runMatch(setup);
+    const reversed = runMatch({ ...setup, seats: [...setup.seats].reverse() });
+
+    for (const out of [forward, reversed]) {
+      expect(out.seats.every((s) => s.kills === 0 && s.deaths === 0)).toBe(true);
+      expect(out.seats.map((s) => s.placement)).toEqual([1, 1]);
+    }
+  });
 });

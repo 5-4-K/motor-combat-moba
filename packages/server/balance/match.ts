@@ -198,9 +198,11 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
   // `MatchOutcome.seats` for why this has to be counted live, tick by tick, rather than after the
   // match ends.
   const phasedTicks = new Map<string, number>(setup.seats.map((seat) => [seat.sessionId, 0]));
-  // Last-standing only: session ids in the order they died, first death first. Deathmatch never
-  // touches this — kills/deaths already rank it, and a respawning car "dies" many times.
-  const eliminationOrder: string[] = [];
+  // Last-standing only: the tick each seat first died on. Deathmatch never touches this — kills/
+  // deaths already rank it, and a respawning car "dies" many times. Recording the TICK rather than
+  // just an order lets `placementsFor` tell "died first" apart from "died on the same tick as
+  // someone else" (see `competitionRank`) — an order-only list cannot represent that tie at all.
+  const deathTick = new Map<string, number>();
 
   let concluded = false;
   let winnerSessionId = "";
@@ -238,8 +240,8 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
         if (hasStatus(readStatuses(player), "phased", state.tick)) {
           phasedTicks.set(seat.sessionId, (phasedTicks.get(seat.sessionId) ?? 0) + 1);
         }
-      } else if (!deathmatch && !eliminationOrder.includes(seat.sessionId)) {
-        eliminationOrder.push(seat.sessionId);
+      } else if (!deathmatch && !deathTick.has(seat.sessionId)) {
+        deathTick.set(seat.sessionId, state.tick);
       }
     }
 
@@ -264,7 +266,7 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
     }
   }
 
-  const placements = placementsFor(setup, state, deathmatch, eliminationOrder);
+  const placements = placementsFor(setup, state, deathmatch, deathTick);
 
   const seats = setup.seats.map((seat) => {
     const player = state.players.get(seat.sessionId);
@@ -315,36 +317,81 @@ function livingPlayers(setup: MatchSetup, state: ArenaState): LivingPlayer[] {
 }
 
 /**
- * Rank every seat, 1 first.
+ * Competition ranking ("1224" style): items that compare equal under `compareBetter` share the
+ * SAME place, and the next distinct place skips ahead by however many items tied for the one
+ * before it (two-way tie for 1st is followed by 3rd, not 2nd). This is deliberate over dense
+ * ranking (which would give that same pair 1st and then 2nd) because it matches how
+ * `deathmatchOutcome` and a scoreboard both already read a tie: two seats with identical
+ * kills/deaths are the same result, not two adjacent results, and dense ranking would still let a
+ * later, unrelated seat's place depend on how many ties happened to precede it.
+ *
+ * `compareBetter(a, b)` must return negative when `a` outranks `b`, positive when `b` outranks `a`,
+ * and exactly `0` when they are tied — `0` is what triggers the shared placement, so the tie test
+ * has to be exact, not "close enough". `Array.prototype.sort` is stable (guaranteed since ES2019),
+ * so items that tie keep their input order for iteration purposes, but because they receive the
+ * same `place` number that input order never reaches the OUTPUT — this is what fixes the bug this
+ * function used to have: `setup.seats` order (== chassis seating order, see this file's header)
+ * used to be silently promoted into a tiebreaker any time two seats matched on kills and deaths.
+ */
+function competitionRank<T>(
+  items: readonly T[],
+  compareBetter: (a: T, b: T) => number,
+  idOf: (item: T) => string,
+): Map<string, number> {
+  const sorted = [...items].sort(compareBetter);
+  const placements = new Map<string, number>();
+  let place = 1;
+  sorted.forEach((item, index) => {
+    if (index > 0 && compareBetter(sorted[index - 1]!, item) !== 0) {
+      place = index + 1;
+    }
+    placements.set(idOf(item), place);
+  });
+  return placements;
+}
+
+/**
+ * Rank every seat, 1 first. Ties share a place (competition ranking, see `competitionRank`) rather
+ * than being broken by `setup.seats` order — that order is chassis seating order (`ffaSeats` in
+ * `runner.ts` groups by `activeCarIds()`), so breaking ties by it would silently turn "who is
+ * listed first" into a per-chassis signal the "Mean placement" column has no business carrying.
  *
  * Deathmatch: `deathmatchOutcome`'s own rule — most kills, then fewest deaths — applied across the
  * whole roster rather than just its winner, so every seat gets a place instead of only the top one.
+ * Two seats tied on both counts (commonly 0 kills / 0 deaths, in a short run) now tie in placement
+ * too, instead of the lower-indexed seat winning the tie by table position.
  *
- * Last standing: elimination order. The survivor (or, on a drawn/clock-hit ending, whoever is still
- * alive) places first; everyone else places by reverse death order — the car that lasted longest
- * among the losers is the runner-up, the first car out finishes last.
+ * Last standing: ranked by how long each seat survived — `deathTick` (undefined for a seat that was
+ * never eliminated, i.e. the winner, or every seat still alive on a drawn/clock-hit stalemate) —
+ * rather than the old elimination-ORDER list, because ORDER alone could not represent two cars
+ * dying on the same tick as a tie: it always recorded whichever seat's turn came first that tick,
+ * which was again `setup.seats` order. Surviving (or co-surviving, on a stalemate) places first;
+ * everyone else places by how late their death tick was, ties included.
  */
 function placementsFor(
   setup: MatchSetup,
   state: ArenaState,
   deathmatch: boolean,
-  eliminationOrder: readonly string[],
+  deathTick: ReadonlyMap<string, number>,
 ): Map<string, number> {
-  const placements = new Map<string, number>();
-
   if (deathmatch) {
-    const ranked = deathmatchPlayers(setup, state).sort(
+    return competitionRank(
+      deathmatchPlayers(setup, state),
       (a, b) => b.kills - a.kills || a.deaths - b.deaths,
+      (player) => player.sessionId,
     );
-    ranked.forEach((player, index) => placements.set(player.sessionId, index + 1));
-    return placements;
   }
 
-  const eliminated = new Set(eliminationOrder);
-  const survivors = setup.seats
-    .map((seat) => seat.sessionId)
-    .filter((sessionId) => !eliminated.has(sessionId));
-  const order = [...survivors, ...[...eliminationOrder].reverse()];
-  order.forEach((sessionId, index) => placements.set(sessionId, index + 1));
-  return placements;
+  return competitionRank(
+    setup.seats,
+    (a, b) => {
+      const tickA = deathTick.get(a.sessionId);
+      const tickB = deathTick.get(b.sessionId);
+      if (tickA === tickB) return 0; // both undefined (both survived), or died the same tick
+      if (tickA === undefined) return -1; // a survived, b did not: a outranks b
+      if (tickB === undefined) return 1; // b survived, a did not: b outranks a
+      return tickB - tickA; // later death tick outranks (survived longer)
+    },
+    (seat) => seat.sessionId,
+  );
 }
