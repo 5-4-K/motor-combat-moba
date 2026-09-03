@@ -21,6 +21,7 @@ import {
   deathmatchEnded,
   deathmatchOutcome,
   getArena,
+  hasStatus,
   hpOf,
   livingSides,
   newCombatEvents,
@@ -36,6 +37,7 @@ import {
 import { buildBotView, deriveSeed, makeRng, LegacyController, type Rng } from "../src/bot/index.js";
 import { newCombatMemory, type CombatMemory } from "../src/sim/combat-bridge.js";
 import { newContactMemory, type ContactMemory } from "../src/sim/ram-bridge.js";
+import { readStatuses } from "../src/sim/status-bridge.js";
 import { respawnSweep, runPipeline, type PipelineCtx } from "../src/rooms/tick-pipeline.js";
 
 export interface MatchSetup {
@@ -63,6 +65,21 @@ export interface MatchOutcome {
     kills: number;
     deaths: number;
     aliveTicks: number;
+    /**
+     * Ticks this seat spent alive AND `phased` (Task 17 / B28a). Outside Deathmatch no car is ever
+     * `phased` (CLAUDE.md), so this is always 0 for `FFA_LAST_STANDING` — tracked here rather than
+     * derived after the fact because `phased` is a per-tick status-list fact that only exists while
+     * `state` is live; once the match ends there is no later point to reconstruct it from.
+     */
+    phasedTicks: number;
+    /**
+     * Hp remaining when the match concluded (or when `maxTicks` was hit). Feeds the matchup
+     * matrix's "mean winner hp" (B33) — the difference between a duel that was walked and one that
+     * was barely edged out, which a win rate alone cannot show. Meaningful mainly in last-standing:
+     * Deathmatch respawns reset hp to full, so a deathmatch seat's final hp says little about how
+     * the match actually went.
+     */
+    hp: number;
     placement: number;
   }[];
   events: CombatEvents;
@@ -165,6 +182,10 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
   });
 
   const aliveTicks = new Map<string, number>(setup.seats.map((seat) => [seat.sessionId, 0]));
+  // Task 17's `phasedFraction` denominator's numerator — see the field's doc comment on
+  // `MatchOutcome.seats` for why this has to be counted live, tick by tick, rather than after the
+  // match ends.
+  const phasedTicks = new Map<string, number>(setup.seats.map((seat) => [seat.sessionId, 0]));
   // Last-standing only: session ids in the order they died, first death first. Deathmatch never
   // touches this — kills/deaths already rank it, and a respawning car "dies" many times.
   const eliminationOrder: string[] = [];
@@ -202,6 +223,9 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
       if (!player) continue;
       if (player.alive) {
         aliveTicks.set(seat.sessionId, (aliveTicks.get(seat.sessionId) ?? 0) + 1);
+        if (hasStatus(readStatuses(player), "phased", state.tick)) {
+          phasedTicks.set(seat.sessionId, (phasedTicks.get(seat.sessionId) ?? 0) + 1);
+        }
       } else if (!deathmatch && !eliminationOrder.includes(seat.sessionId)) {
         eliminationOrder.push(seat.sessionId);
       }
@@ -238,6 +262,8 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
       kills: player?.kills ?? 0,
       deaths: player?.deaths ?? 0,
       aliveTicks: aliveTicks.get(seat.sessionId) ?? 0,
+      phasedTicks: phasedTicks.get(seat.sessionId) ?? 0,
+      hp: player?.hp ?? 0,
       placement: placements.get(seat.sessionId) ?? setup.seats.length,
     };
   });
