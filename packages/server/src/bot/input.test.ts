@@ -6,7 +6,7 @@ import {
   shouldRecomputeIntent,
   type BotPose,
   type BotProfile,
-} from "./bot.js";
+} from "./input.js";
 
 const HARD: BotProfile = BOT_PROFILES.hard;
 

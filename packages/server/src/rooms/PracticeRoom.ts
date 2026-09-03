@@ -43,7 +43,7 @@ import {
   pulsedFireSlots,
   shouldRecomputeIntent,
   type BotPose,
-} from "./bot.js";
+} from "../bot/index.js";
 import { copySpawnNumbers } from "./match-helpers.js";
 import {
   isActiveInput,

@@ -36,7 +36,7 @@ import {
   pulsedFireSlots,
   shouldRecomputeIntent,
   type BotPose,
-} from "./bot.js";
+} from "../bot/index.js";
 import { shouldRejectSecondArena } from "./singleton-arena.js";
 import {
   respawnPlayer,
