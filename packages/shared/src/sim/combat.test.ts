@@ -1595,10 +1595,17 @@ describe("damaged and killed events (B4, B5)", () => {
     expect(events.damaged.some((d) => d.amount === 0 && !d.killingBlow)).toBe(true);
   });
 
-  it("emits no killed event when an already-dead car is hit again", () => {
+  it("a wreck taking another hit produces no second killed event (the isFighting gate)", () => {
     const events = newCombatEvents();
     // Mirrors "passes through a wreck rather than being spent on it": a wreck is not `isFighting`,
     // so no damage path — pulse, contact, or weapon hit resolution — ever reaches it again.
+    //
+    // This pins that gate, not `recordDamage`'s own `wasAlive`-measured-across-the-call guard:
+    // `dealDamageTo` (combat.ts) flips `alive` false in the SAME call that zeroes hp, so a
+    // hp-0-but-still-`alive` `CombatPlayer` can never exist by the time any real caller reaches
+    // `recordDamage` — the `isFighting`/`isTargetable` checks upstream of every one of the three
+    // call sites always filter the wreck out first. `wasAlive` is belt-and-braces for a state no
+    // current caller can construct; this test cannot exercise it, only the gate in front of it.
     const wreck = combatant("p2", { hp: 0, alive: false });
     runCombat({
       world: worldAt(1),
