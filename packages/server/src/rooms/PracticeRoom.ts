@@ -6,6 +6,7 @@ import {
   INPUT_MESSAGE,
   MSG_PRACTICE_IDLE_WARNING,
   MSG_PRACTICE_PAUSE,
+  NET_CONFIG,
   PLAYGROUND_ROOM_NAME,
   PRACTICE_CONFIG,
   PRACTICE_FULL_CLOSE_CODE,
@@ -19,6 +20,8 @@ import {
   PracticeState,
   RoomPhase,
   TICK_RATE_HZ,
+  assignSpawns,
+  getArena,
   isPracticeSetup,
   pickColor,
   weaponDefOf,
@@ -39,6 +42,7 @@ import {
   shouldRecomputeIntent,
   type BotPose,
 } from "./bot.js";
+import { copySpawnNumbers } from "./match-helpers.js";
 import {
   isIdleWarningDue,
   isPracticeIdle,
@@ -79,10 +83,11 @@ export function newPracticeState(): PracticeState {
  * (PR12), no mid-session setup message (PR7) and no singleton guard (PR4) — Colyseus minting one
  * room per player is the feature here, not a bug to suppress.
  *
- * The runtime tuning store the playground writes through is never imported or called from here, and
- * `practice-room.test.ts` reads this source to hold that. It is a module-level singleton, one per
- * server process rather than one per room, so a practice room that touched it would silently
- * re-balance every other room in the process — including a live match next door.
+ * `setTuning`, the store the playground writes through, is never imported or called from here, and
+ * `practice-room.test.ts` reads this source (comments stripped, so naming it right here cannot fail
+ * that test) to hold that. It is a module-level singleton, one per server process rather than one per
+ * room, so a practice room that touched it would silently re-balance every other room in the process
+ * — including a live match next door.
  */
 export class PracticeRoom extends Room<PracticeState> {
   maxClients = 1;
@@ -132,7 +137,10 @@ export class PracticeRoom extends Room<PracticeState> {
     }
 
     const listings = await matchMaker.query({ name: PRACTICE_ROOM_NAME });
-    // Minus this room, which the matchmaker has already listed by the time `onCreate` runs.
+    // Defensive, not currently load-bearing: in the installed @colyseus/core (0.15.57),
+    // `listing.save()` runs AFTER `onCreate`, so this room is never in `listings` yet and the filter
+    // below removes nothing today. Kept anyway so a future Colyseus that lists earlier cannot make
+    // this room count itself toward its own cap.
     const others = listings.filter((entry) => entry.roomId !== this.roomId);
     if (shouldRefusePractice(others, getMaxPracticeRooms(PRACTICE_CONFIG.maxConcurrentRooms))) {
       throw new ServerError(PRACTICE_FULL_CLOSE_CODE, PRACTICE_FULL_ERROR);
@@ -162,7 +170,16 @@ export class PracticeRoom extends Room<PracticeState> {
     const enqueue = withSimulatedLatency<{ sessionId: string; msg: InputMessage }>(
       ({ sessionId, msg }) => {
         const q = this.inputQueues.get(sessionId);
-        if (q) q.push(msg);
+        // Capped, not just eventually drained (review F3): `tick()` returns before `serverTick` ever
+        // runs while `state.paused` is true, so nothing reads this queue for as long as pause holds.
+        // The shipped client stops sending on pause, so a well-behaved session never gets close to
+        // this, but this codebase does not trust a client to shape its own inputs, and a client that
+        // keeps sending through a HELD pause would otherwise grow it without bound for as long as the
+        // pause lasts. Clearing once on the pause->true edge would not close that — the same client
+        // could just keep sending afterward — so the bound is on every push instead. Reuses
+        // `NET_CONFIG.pendingInputCap`, the same "an honest client has this many inputs outstanding"
+        // figure the client already holds itself to on its own prediction buffer.
+        if (q && q.length < NET_CONFIG.pendingInputCap) q.push(msg);
       },
       getSimulatedLatency(),
     );
@@ -199,10 +216,32 @@ export class PracticeRoom extends Room<PracticeState> {
     this.addCar(BOT_SESSION_ID, "Bot", opponentCarId, [human.colorId], 1);
 
     // `respawnPlayer` is the whole of "this car is new": chassis hp, a fire state built from the
-    // chassis's own kit, a spawn away from the other car, and the real `phased` protection (PR16).
+    // chassis's own kit, and the real `phased` protection (PR16). Its pose is `farthestSpawn` — the
+    // right rule for an actual RESPAWN, kept below for that — but it is the wrong rule for this
+    // opening placement: the bot's `PlayerState` is still sitting on its schema default of (0, 0)
+    // when the human's car is respawned first, so every session would deterministically drop the
+    // human on whichever `ffaSpawn` is farthest from the origin (review F4). Overwritten just below
+    // with `assignSpawns`, the same mechanism `ArenaRoom.revealCars` uses to open a real match — a
+    // real match never opens on a repeatable spot either.
     for (const id of this.matchRoster) {
       const player = this.state.players.get(id);
       if (player) respawnPlayer(this.ctx(), player);
+    }
+
+    const roster: { sessionId: string; team: 0 | 1 }[] = [];
+    for (const id of this.matchRoster) {
+      const player = this.state.players.get(id);
+      if (player) roster.push({ sessionId: id, team: player.team === 1 ? 1 : 0 });
+    }
+    const spawns = assignSpawns(getArena(this.state.arenaId), this.state.mode, roster, Math.random);
+    for (const id of this.matchRoster) {
+      const player = this.state.players.get(id);
+      const spawn = spawns[id];
+      if (!player || !spawn) continue;
+      const pose = copySpawnNumbers(spawn);
+      player.x = pose.x;
+      player.y = pose.y;
+      player.angle = pose.angle;
     }
   }
 
