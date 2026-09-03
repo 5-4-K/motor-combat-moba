@@ -36,6 +36,22 @@ export {
   isPlaygroundSetup,
 } from "./net/playground-messages.js";
 export type { BotDifficulty, PlaygroundCarSetup, PlaygroundSetup } from "./net/playground-messages.js";
+export {
+  MSG_PRACTICE_IDLE_WARNING,
+  MSG_PRACTICE_PAUSE,
+  PRACTICE_FULL_CLOSE_CODE,
+  PRACTICE_FULL_ERROR,
+  PRACTICE_IDLE_CLOSE_CODE,
+  PRACTICE_IDLE_ERROR,
+  PRACTICE_INVALID_SETUP_CLOSE_CODE,
+  PRACTICE_INVALID_SETUP_ERROR,
+  PRACTICE_PLAYGROUND_BUSY_CLOSE_CODE,
+  PRACTICE_PLAYGROUND_BUSY_ERROR,
+  PRACTICE_ROOM_NAME,
+  defaultPracticeSetup,
+  isPracticeSetup,
+} from "./net/practice-messages.js";
+export type { PracticeOpponent, PracticeSetup } from "./net/practice-messages.js";
 
 export { StatusState } from "./schema/StatusState.js";
 export { PlayerState } from "./schema/PlayerState.js";
@@ -43,6 +59,7 @@ export { WeaponInstanceState } from "./schema/WeaponInstanceState.js";
 export { WeaponSlotState } from "./schema/WeaponSlotState.js";
 export { ArenaState } from "./schema/ArenaState.js";
 export { PlaygroundState } from "./schema/PlaygroundState.js";
+export { PracticeState } from "./schema/PracticeState.js";
 
 export { RAM_CONFIG, RAM_DECAY, halfLifeToPerTick } from "./config/ram-config.js";
 export { applyDamage, applyHeal, damageFor, scaleDamage, weaponDamageOf } from "./sim/damage.js";
@@ -204,6 +221,7 @@ export { CAMERA_CONFIG, DRIVE_CONFIG } from "./config/drive-config.js";
 export { FLOW_CONFIG } from "./config/flow-config.js";
 export { DEATHMATCH_CONFIG, DEATHMATCH_TICKS } from "./config/deathmatch-config.js";
 export { NET_CONFIG } from "./config/net-config.js";
+export { PRACTICE_CONFIG } from "./config/practice-config.js";
 
 export type { ArenaDef, Obstacle, Spawn } from "./arena/types.js";
 export { ARENA_01 } from "./arena/arena-01.js";

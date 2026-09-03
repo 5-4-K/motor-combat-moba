@@ -1,5 +1,13 @@
 import { Client, type Room } from "colyseus.js";
-import { ArenaState, PLAYGROUND_ROOM_NAME, PlaygroundState, ROOM_NAME } from "@motor-combat-moba/shared";
+import {
+  ArenaState,
+  PLAYGROUND_ROOM_NAME,
+  PlaygroundState,
+  ROOM_NAME,
+  PRACTICE_ROOM_NAME,
+  PracticeState,
+  type PracticeSetup,
+} from "@motor-combat-moba/shared";
 import { detectServerEndpoint } from "../config/client-mode.js";
 
 export async function joinArena(name: string): Promise<Room<ArenaState>> {
@@ -16,4 +24,17 @@ export async function joinArena(name: string): Promise<Room<ArenaState>> {
 export async function joinPlayground(): Promise<Room<PlaygroundState>> {
   const client = new Client(detectServerEndpoint());
   return client.joinOrCreate<PlaygroundState>(PLAYGROUND_ROOM_NAME, { name: "Dev" });
+}
+
+/**
+ * Joins a practice room (spec PR7). Unlike `joinPlayground` this is a shipped path: the room is
+ * registered on every server, and the setup rides as join options because practice settings are
+ * fixed for the session and there is no mid-session message to change them.
+ *
+ * Rejects with the server's error — `PRACTICE_FULL_ERROR` when the host is at capacity — which
+ * `PracticeSetupScene` turns into readable text without leaving the settings page.
+ */
+export async function joinPractice(setup: PracticeSetup): Promise<Room<PracticeState>> {
+  const client = new Client(detectServerEndpoint());
+  return client.joinOrCreate<PracticeState>(PRACTICE_ROOM_NAME, setup);
 }

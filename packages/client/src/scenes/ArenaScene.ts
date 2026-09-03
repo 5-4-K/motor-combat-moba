@@ -19,7 +19,12 @@ import {
   ManeuverKind,
   MAX_PLAYERS,
   MS_PER_TICK,
+  MSG_PRACTICE_IDLE_WARNING,
+  MSG_PRACTICE_PAUSE,
   PlayerStatus,
+  PRACTICE_CONFIG,
+  PRACTICE_IDLE_CLOSE_CODE,
+  PRACTICE_IDLE_ERROR,
   muzzleOf,
   RoomPhase,
   TICK_RATE_HZ,
@@ -43,9 +48,11 @@ import { buildStepContext, localModifiers } from "../net/step-context.js";
 import { bindViewRouter } from "../net/view.js";
 import { ScreenOverlay } from "../ui/overlay.js";
 import { renderArenaMismatch } from "../ui/screens/arena-mismatch.js";
+import { renderPause } from "../ui/screens/pause.js";
+import type { PracticeSummaryPlayer } from "../ui/screens/practice-summary.js";
 import { arenaMismatchMessage } from "./arena-mismatch.js";
 import { axisOf, drainTicks } from "./arena-input.js";
-import { controlledCarOf, isPlaygroundPaused } from "./controlled-car.js";
+import { controlledCarOf, isPracticeRoom, isSimPaused } from "./controlled-car.js";
 import { arenaBorderRect, arenaColorsOf } from "./arena-visual.js";
 import { fitsViewport } from "./arena-camera.js";
 import { assetManifest, assetsReady } from "./BootScene.js";
@@ -350,6 +357,14 @@ const KILLED_BY_Y = 300;
 const KILLED_BY_FONT_PX = 34;
 const RESPAWN_Y = 348;
 const RESPAWN_FONT_PX = 24;
+/**
+ * `MSG_PRACTICE_IDLE_WARNING`'s banner shares the match clock's row rather than owning one: the
+ * clock never draws in a practice room (`matchClockLabel` answers "" when `matchEndsTick` is 0,
+ * which every practice session is) and this warning never draws anywhere else, so the two can never
+ * collide.
+ */
+const IDLE_WARNING_Y = MATCH_CLOCK_Y;
+const IDLE_WARNING_FONT_PX = MATCH_CLOCK_FONT_PX;
 
 const HUD_KEY_FONT_PX = SLOT_KEY_FONT_PX;
 const HUD_NAME_FONT_PX = SLOT_NAME_FONT_PX;
@@ -611,6 +626,18 @@ export class ArenaScene extends Phaser.Scene {
   private matchClockText: Phaser.GameObjects.Text | undefined;
   private killedByBanner: Phaser.GameObjects.Text | undefined;
   private respawnText: Phaser.GameObjects.Text | undefined;
+  /**
+   * `MSG_PRACTICE_IDLE_WARNING`'s banner (spec PR28/PR29): same `Text`-object treatment as the three
+   * above — made once, shown by setting its string and visibility — but driven by a one-shot server
+   * message rather than a per-frame state read.
+   *
+   * Cleared by the player's own next real input (`sendInputTick`), never by a fixed-duration timer:
+   * a timer clears it whether or not it was ever seen, and it never was in the two cases that
+   * matter — obscured under the pause dialog while paused, and unwatched while the tab is hidden.
+   * Persisting it until an actual steer/throttle/fire input arrives means it is still up the moment
+   * the player resumes (the dialog closes, revealing it underneath) or returns to the tab.
+   */
+  private idleWarningText: Phaser.GameObjects.Text | undefined;
   /** Pill plates behind the movement hint's key glyphs. Drawn once, then only toggled. */
   private movementHintGfx: Phaser.GameObjects.Graphics | undefined;
   private movementHintTexts: Phaser.GameObjects.Text[] = [];
@@ -631,6 +658,21 @@ export class ArenaScene extends Phaser.Scene {
    */
   private lastPatchMs = 0;
   private mismatchOverlay: ScreenOverlay | undefined;
+  /** `P` inside a practice room only (spec PR22). Bound unconditionally in `create` like every other
+   *  key; every *read* of it is gated on `isPracticeRoom`, which is what actually keeps it inert in
+   *  a real match. */
+  private pauseKey: Phaser.Input.Keyboard.Key | undefined;
+  private pauseOverlay: ScreenOverlay | undefined;
+  /** Mirrors whether `pauseOverlay` is currently mounted, so `syncPauseOverlay` renders on a change
+   *  in `state.paused` and not on every patch while it holds steady. */
+  private pauseMenuShown = false;
+  /**
+   * Where `onLeave` routes after this room closes. Undefined resolves to "join", the room-close
+   * fallback every other exit from the arena already used; `exitPractice` (PR22/PR23/PR24) sets it
+   * to "practice-summary" just before leaving on purpose, so a deliberate Exit lands on the session
+   * summary instead of the join screen a kick or a dropped connection would show.
+   */
+  private exitTarget: string | undefined;
 
   /**
    * The weapon slot HUD: one Graphics for every box and glyph, a second Graphics for the cooldown
@@ -717,6 +759,7 @@ export class ArenaScene extends Phaser.Scene {
     this.driveKeys = this.bindDriveKeys();
     this.keys = this.bindKeys();
     this.slotKeys = this.bindSlotKeys();
+    this.pauseKey = this.bindPauseKey();
     // Slot 2 lives on the right mouse button, so the browser's context menu would otherwise open on
     // every shot. This is a listener on the game canvas, not scene state — it outlives the arena —
     // which is fine: no screen in this client offers anything on right-click.
@@ -802,6 +845,16 @@ export class ArenaScene extends Phaser.Scene {
       .setDepth(HUD_DEPTH)
       .setVisible(false);
 
+    this.idleWarningText = this.add
+      .text(ARENA_VIEW_WIDTH / 2, IDLE_WARNING_Y, "", {
+        fontSize: `${IDLE_WARNING_FONT_PX}px`,
+        color: HUD_TEXT,
+      })
+      .setOrigin(0.5, 0)
+      .setScrollFactor(0)
+      .setDepth(HUD_DEPTH)
+      .setVisible(false);
+
     this.buildMovementHint();
 
     this.splitCameras();
@@ -855,6 +908,16 @@ export class ArenaScene extends Phaser.Scene {
     const keyboard = this.input.keyboard;
     if (!keyboard) return undefined;
     return SLOT_KEYS.map((slot) => slot.codes.map((code) => keyboard.addKey(code)));
+  }
+
+  /**
+   * `P`, for the practice pause menu (spec PR22). `SLOT_KEYS` claims J/K/L and Space, and none of
+   * the drive or spectate bindings reach it either, so it is free. Bound here unconditionally, same
+   * as every other key this scene binds — `pumpPauseKey` and `bindRoom`'s `onState` are what gate
+   * its effect on `isPracticeRoom`, not this method.
+   */
+  private bindPauseKey(): Phaser.Input.Keyboard.Key | undefined {
+    return this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.P);
   }
 
   private drawArena(arena: ArenaDef): void {
@@ -921,6 +984,7 @@ export class ArenaScene extends Phaser.Scene {
       ...(this.matchClockText ? [this.matchClockText] : []),
       ...(this.killedByBanner ? [this.killedByBanner] : []),
       ...(this.respawnText ? [this.respawnText] : []),
+      ...(this.idleWarningText ? [this.idleWarningText] : []),
       ...(this.movementHintGfx ? [this.movementHintGfx] : []),
       ...this.movementHintTexts,
       ...this.hudKeyTexts,
@@ -960,16 +1024,40 @@ export class ArenaScene extends Phaser.Scene {
       this.syncMatchHud();
       this.reconcileLocal(room);
       this.pushRemoteSnapshots(room);
+      this.syncPauseOverlay(room);
     };
     room.onStateChange(onState);
     this.unbind.push(() => room.onStateChange.remove(onState));
 
-    const onLeave = (): void => {
+    const onLeave = (code: number): void => {
       this.registry.remove("room");
-      this.scene.start("join");
+      // 4006 ends a live practice session (PR25); anything else — a server restart — falls through
+      // to the join screen as every other scene does. 4009 never reaches here: it refuses a join the
+      // player never left the settings page for, and PracticeSetupScene shows it inline.
+      if (code === PRACTICE_IDLE_CLOSE_CODE) {
+        this.registry.set("practiceNotice", PRACTICE_IDLE_ERROR);
+        this.scene.start("practice-setup");
+        return;
+      }
+      // `exitTarget` is set just before a deliberate `room.leave()` from the pause menu's Exit
+      // button (spec PR22/PR23); every other way this fires — kicked, dropped connection, the
+      // server closing the room — leaves it unset, so those keep landing on "join" as before.
+      this.scene.start(this.exitTarget ?? "join");
     };
     room.onLeave(onLeave);
     this.unbind.push(() => room.onLeave.remove(onLeave));
+
+    // A one-shot, server-latched warning (PR28/PR29): no payload, so showing it needs nothing off
+    // the room beyond the fact that it arrived. `idleWarningSeconds` is the room's own countdown
+    // from the same tick this fires (`isIdleWarningDue`), so quoting it here rather than a literal
+    // keeps the banner honest if that config ever changes. Bound unconditionally like every other
+    // room listener; a real match's room just never sends this message.
+    const onIdleWarning = (): void => {
+      this.idleWarningText
+        ?.setText(`No input — session ending in ${PRACTICE_CONFIG.idleWarningSeconds}s`)
+        .setVisible(true);
+    };
+    this.unbind.push(room.onMessage(MSG_PRACTICE_IDLE_WARNING, onIdleWarning));
   }
 
   private unbindAll(): void {
@@ -1009,6 +1097,8 @@ export class ArenaScene extends Phaser.Scene {
     this.killedByBanner = undefined;
     this.respawnText?.destroy();
     this.respawnText = undefined;
+    this.idleWarningText?.destroy();
+    this.idleWarningText = undefined;
     this.movementHintGfx?.destroy();
     this.movementHintGfx = undefined;
     for (const text of this.movementHintTexts) text.destroy();
@@ -1052,6 +1142,7 @@ export class ArenaScene extends Phaser.Scene {
     this.driveKeys = undefined;
     this.keys = undefined;
     this.slotKeys = undefined;
+    this.pauseKey = undefined;
     this.prediction = new PredictionBuffer();
     this.predicted = undefined;
     this.predictedPrev = undefined;
@@ -1063,6 +1154,12 @@ export class ArenaScene extends Phaser.Scene {
     this.lastPatchMs = 0;
     this.mismatchOverlay?.destroy();
     this.mismatchOverlay = undefined;
+    this.pauseOverlay?.destroy();
+    this.pauseOverlay = undefined;
+    this.pauseMenuShown = false;
+    // Cleared on every entry, not just after a deliberate Exit: a stale target here would send some
+    // LATER real match's kick or dropped connection to "practice-setup" instead of "join".
+    this.exitTarget = undefined;
     this.impacts = newImpactTracker();
   }
 
@@ -1076,6 +1173,7 @@ export class ArenaScene extends Phaser.Scene {
     if (!room || !this.arena) return;
 
     this.syncMatchHud();
+    this.pumpPauseKey(room);
     this.pumpInput(room, delta);
     this.updateSpectate(room, delta);
     this.renderCars(room, delta);
@@ -1101,7 +1199,7 @@ export class ArenaScene extends Phaser.Scene {
     // A paused playground stops the input clock outright: no send, and — because `sendInputTick` is
     // the only thing that predicts — no predicted step either. Interpolation of the other cars keeps
     // running, which costs nothing, since a paused room stops patching new poses anyway (spec PG7).
-    if (!this.canDrive(room) || isPlaygroundPaused(room.state)) {
+    if (!this.canDrive(room) || isSimPaused(room.state)) {
       this.inputAccumulatorMs = 0;
       return;
     }
@@ -1109,6 +1207,66 @@ export class ArenaScene extends Phaser.Scene {
     const { accMs, ticks } = drainTicks(this.inputAccumulatorMs, delta);
     this.inputAccumulatorMs = accMs;
     for (let i = 0; i < ticks; i++) this.sendInputTick(room);
+  }
+
+  /**
+   * `P`, sent as the toggle `MSG_PRACTICE_PAUSE` message and nothing else (spec PR22/PR23). No local
+   * state changes here — `syncPauseOverlay` is what shows the menu, and only once the server's own
+   * `state.paused` comes back in a patch, so the player is never looking at a menu the sim has not
+   * actually stopped for yet.
+   */
+  private pumpPauseKey(room: Room<ArenaState>): void {
+    if (!this.pauseKey || !isPracticeRoom(room)) return;
+    if (Phaser.Input.Keyboard.JustDown(this.pauseKey)) {
+      room.send(MSG_PRACTICE_PAUSE);
+    }
+  }
+
+  /**
+   * Mounts or clears the pause menu from `state.paused`, the only source it is allowed to read (spec
+   * PR23) — never the keypress that requested the toggle. Gated on `isPracticeRoom` here too, not
+   * just at the key: `PlaygroundState` carries the same `paused` field for its own overlay, and a
+   * gate on the field alone would stack this menu on top of that one in a playground session.
+   */
+  private syncPauseOverlay(room: Room<ArenaState>): void {
+    if (!isPracticeRoom(room)) return;
+    const paused = isSimPaused(room.state);
+    if (paused === this.pauseMenuShown) return;
+    this.pauseMenuShown = paused;
+    if (paused) {
+      this.pauseOverlay ??= new ScreenOverlay(this);
+      this.pauseOverlay.render(
+        renderPause({
+          onResume: () => room.send(MSG_PRACTICE_PAUSE),
+          onExit: () => this.exitPractice(room),
+        }).root,
+      );
+    } else {
+      this.pauseOverlay?.destroy();
+      this.pauseOverlay = undefined;
+    }
+  }
+
+  /**
+   * Exit, from the pause menu (spec PR22/PR23/PR24). Snapshot FIRST, leave SECOND: Colyseus state is
+   * gone the instant `room.leave()` resolves, the same discipline `ResultsScene.snapshot()` follows —
+   * reversing these two lines yields an empty summary table with no test to catch it.
+   */
+  private exitPractice(room: Room<ArenaState>): void {
+    const players: PracticeSummaryPlayer[] = [];
+    room.state.players.forEach((player, sessionId) => {
+      players.push({
+        sessionId,
+        name: player.name,
+        carId: player.carId,
+        colorId: player.colorId,
+        kills: player.kills,
+        deaths: player.deaths,
+      });
+    });
+    this.registry.set("practiceSummary", { players, humanSessionId: room.sessionId });
+    this.exitTarget = "practice-summary";
+    void room.leave();
   }
 
   /**
@@ -1186,6 +1344,13 @@ export class ArenaScene extends Phaser.Scene {
       ),
     };
     room.send(INPUT_MESSAGE, input);
+
+    // Mirrors the server's own `isActiveInput` (PracticeRoom's presence stamp): a real steer,
+    // throttle or fire input is what the room now counts as "still here", so the warning it sent is
+    // stale the moment one goes out — clearing it here needs no round trip through the server.
+    if (input.steer !== 0 || input.throttle !== 0 || input.fireSlots !== 0) {
+      this.idleWarningText?.setVisible(false);
+    }
 
     // Predict immediately: the local car has to answer on this frame, not a round-trip later.
     const from = this.predicted ?? bodyOf(local);

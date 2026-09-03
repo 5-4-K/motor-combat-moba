@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { BOT_PROFILES, botInput, type BotPose, type BotProfile } from "./playground-bot.js";
+import {
+  BOT_PROFILES,
+  botInput,
+  pulsedFireSlots,
+  shouldRecomputeIntent,
+  type BotPose,
+  type BotProfile,
+} from "./bot.js";
 
 const HARD: BotProfile = BOT_PROFILES.hard;
 
@@ -74,6 +81,28 @@ describe("BOT_PROFILES (PG27)", () => {
     for (const profile of Object.values(BOT_PROFILES)) expect(Object.isFrozen(profile)).toBe(true);
   });
 
+  it("pins the easy profile (PR18 — retuned for players, not the developer)", () => {
+    expect(BOT_PROFILES.easy).toEqual({
+      standoffUnits: 200,
+      deadbandUnits: 70,
+      reactionTicks: 9,
+      aimToleranceRad: 0.6,
+      fireConeRad: 0.68,
+      firePeriodTicks: 14,
+    });
+  });
+
+  it("pins the medium profile (PR18)", () => {
+    expect(BOT_PROFILES.medium).toEqual({
+      standoffUnits: 130,
+      deadbandUnits: 35,
+      reactionTicks: 4,
+      aimToleranceRad: 0.45,
+      fireConeRad: 0.52,
+      firePeriodTicks: 7,
+    });
+  });
+
   it("hard is EXACTLY the bot that shipped — the whole point of the difficulty split", () => {
     // These six numbers are the pre-split `BOT_CONFIG` plus `PlaygroundRoom`'s own
     // `OPPONENT_FIRE_PERIOD`. Pinned by value, not by comment: "the current one should be hard" has
@@ -108,15 +137,27 @@ describe("BOT_PROFILES (PG27)", () => {
     expect(easy.firePeriodTicks).toBeGreaterThan(medium.firePeriodTicks);
     expect(medium.firePeriodTicks).toBeGreaterThan(hard.firePeriodTicks);
   });
+
+  it("orders the tiers monotonically on every pressure lever (PR18)", () => {
+    const { easy, medium, hard } = BOT_PROFILES;
+    // Closer, quicker, tighter, faster-firing as difficulty rises.
+    expect(easy.standoffUnits).toBeGreaterThan(medium.standoffUnits);
+    expect(medium.standoffUnits).toBeGreaterThan(hard.standoffUnits);
+    expect(easy.reactionTicks).toBeGreaterThan(medium.reactionTicks);
+    expect(medium.reactionTicks).toBeGreaterThan(hard.reactionTicks);
+    expect(easy.firePeriodTicks).toBeGreaterThan(medium.firePeriodTicks);
+    expect(medium.firePeriodTicks).toBeGreaterThan(hard.firePeriodTicks);
+    expect(easy.aimToleranceRad).toBeGreaterThan(medium.aimToleranceRad);
+    expect(medium.aimToleranceRad).toBeGreaterThan(hard.aimToleranceRad);
+  });
 });
 
 describe("botInput — the coast deadband (PG28)", () => {
   it("coasts inside the deadband where hard would charge or reverse", () => {
     const self: BotPose = { x: 0, y: 0, angle: 0 };
-    // 150 units out: inside easy's 170 +- 60 band ([110, 230]), outside medium's 110 +- 30 band
-    // ([80, 140]). (The brief's own draft used 130 here, which is inside BOTH bands — 130 <= 140 —
-    // so it could never have told easy and medium apart; 150 is the corrected distance.)
-    const target: BotPose = { x: 150, y: 0, angle: 0 };
+    // 170 units out: inside easy's 200 +- 70 band ([130, 270]), outside medium's 130 +- 35 band
+    // ([95, 165]). (Distance adjusted for PR18 retune.)
+    const target: BotPose = { x: 170, y: 0, angle: 0 };
     expect(botInput(1, self, target, [60], BOT_PROFILES.easy).throttle).toBe(0);
     expect(botInput(1, self, target, [60], BOT_PROFILES.medium).throttle).toBe(1);
   });
@@ -133,5 +174,49 @@ describe("botInput — the coast deadband (PG28)", () => {
     // a zero-width band must not turn that into a coast.
     expect(botInput(4, self, { x: 70, y: 0, angle: 0 }, [60], HARD).throttle).toBe(-1);
     expect(botInput(5, self, { x: 71, y: 0, angle: 0 }, [60], HARD).throttle).toBe(1);
+  });
+});
+
+describe("shouldRecomputeIntent (PG29)", () => {
+  it("recomputes every tick at reactionTicks 1 — hard is unchanged", () => {
+    for (const tick of [0, 1, 2, 3, 97]) {
+      expect(shouldRecomputeIntent(tick, 1, true)).toBe(true);
+    }
+  });
+
+  it("recomputes on the cadence and holds in between", () => {
+    expect(shouldRecomputeIntent(9, 3, true)).toBe(true);
+    expect(shouldRecomputeIntent(10, 3, true)).toBe(false);
+    expect(shouldRecomputeIntent(11, 3, true)).toBe(false);
+    expect(shouldRecomputeIntent(12, 3, true)).toBe(true);
+  });
+
+  it("recomputes regardless of cadence when there is nothing held", () => {
+    // A cleared hold — a setup change, the bot toggled off and back on, a dead target — must not
+    // wait out the rest of the interval enqueueing an intent that no longer exists.
+    expect(shouldRecomputeIntent(10, 3, false)).toBe(true);
+    expect(shouldRecomputeIntent(11, 6, false)).toBe(true);
+  });
+
+  it("never divides by zero on a malformed cadence", () => {
+    expect(shouldRecomputeIntent(10, 0, true)).toBe(true);
+    expect(shouldRecomputeIntent(10, -1, true)).toBe(true);
+  });
+});
+
+describe("pulsedFireSlots (PG29)", () => {
+  it("passes the mask through on a pulse tick and zeroes it otherwise", () => {
+    expect(pulsedFireSlots(4, 2, 0b101)).toBe(0b101);
+    expect(pulsedFireSlots(5, 2, 0b101)).toBe(0);
+  });
+
+  it("pulses a tenth as often on easy as hard", () => {
+    expect(pulsedFireSlots(10, 10, 0b1)).toBe(0b1);
+    for (const tick of [11, 12, 13, 19]) expect(pulsedFireSlots(tick, 10, 0b1)).toBe(0);
+    expect(pulsedFireSlots(20, 10, 0b1)).toBe(0b1);
+  });
+
+  it("never divides by zero on a malformed cadence", () => {
+    expect(pulsedFireSlots(7, 0, 0b11)).toBe(0b11);
   });
 });

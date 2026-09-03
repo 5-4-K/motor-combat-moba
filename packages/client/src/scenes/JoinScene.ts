@@ -15,7 +15,15 @@ export class JoinScene extends Phaser.Scene {
   create(): void {
     this.joining = false;
     this.overlay = new ScreenOverlay(this);
-    this.screen = renderJoin({ onSubmit: (name) => void this.onJoin(name) });
+    this.screen = renderJoin({
+      onSubmit: (name) => void this.onJoin(name),
+      onPractice: (name) => {
+        // Stashed for PracticeSetupScene, which supplies it as the join option (PR20). No connection
+        // is opened here: nothing validates a practice name, so there is nothing to fail.
+        this.registry.set("playerName", name);
+        this.scene.start("practice-setup");
+      },
+    });
     this.overlay.render(this.screen.root);
     this.screen.focus();
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.onShutdown, this);

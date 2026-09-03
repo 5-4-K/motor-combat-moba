@@ -8,6 +8,7 @@ import {
   MSG_PLAYGROUND_SWITCH,
   MSG_PLAYGROUND_TUNING,
   PLAYGROUND_ROOM_NAME,
+  PRACTICE_ROOM_NAME,
   PlayerState,
   PlayerStatus,
   PlaygroundState,
@@ -29,7 +30,13 @@ import { getTickRateHz } from "../mode.js";
 import { isInputMessage } from "../net/input-message.js";
 import { newCombatMemory, type CombatMemory } from "../sim/combat-bridge.js";
 import { newContactMemory, type ContactMemory } from "../sim/ram-bridge.js";
-import { BOT_PROFILES, botInput, type BotPose } from "./playground-bot.js";
+import {
+  BOT_PROFILES,
+  botInput,
+  pulsedFireSlots,
+  shouldRecomputeIntent,
+  type BotPose,
+} from "./bot.js";
 import { shouldRejectSecondArena } from "./singleton-arena.js";
 import {
   respawnPlayer,
@@ -46,7 +53,8 @@ import {
 export const PLAYGROUND_LEVEL = 3;
 
 /** Same shape as `ROOM_FULL_ERROR`: the string the join screen shows, naming the fix. */
-export const ARENA_BUSY_ERROR = "Close the arena first: playground tuning is process-wide";
+export const ARENA_BUSY_ERROR =
+  "Close the arena first, and any practice session too: playground tuning is process-wide";
 
 /**
  * The close code carried with `ARENA_BUSY_ERROR`. Sits alongside `ArenaRoom`'s 4003 (second arena)
@@ -65,14 +73,22 @@ export const PLAYGROUND_BUSY_ERROR = "A playground session is already open";
 const PLAYGROUND_BUSY_CODE = 4005;
 
 /**
- * May a playground room open right now? No, if anyone at all is sitting in the arena (spec PG15):
- * the tuning store is a module-level singleton shared by every room in the process, so overrides
- * typed into the playground would silently re-balance a live match next door.
+ * May a playground room open right now? No, if anyone at all is sitting in the arena OR in a
+ * practice room (spec PG15, widened by PR10): the tuning store is a module-level singleton shared by
+ * every room in the process, so overrides typed into the playground would silently re-balance a live
+ * match — or a player's practice session — next door.
+ *
+ * Practice rooms are registered on EVERY process, the `npm run dev` one included, which is exactly
+ * how a developer's sliders reach a friend's session.
  *
  * Pure, and takes only the field it reads, so the rule is testable without a matchmaker.
  */
-export function shouldRefusePlayground(listings: readonly { clients: number }[]): boolean {
-  return listings.some((listing) => listing.clients > 0);
+export function shouldRefusePlayground(
+  arenaListings: readonly { clients: number }[],
+  practiceListings: readonly { clients: number }[],
+): boolean {
+  const busy = (listing: { clients: number }): boolean => listing.clients > 0;
+  return arenaListings.some(busy) || practiceListings.some(busy);
 }
 
 /**
@@ -95,39 +111,6 @@ export function loadoutOrChassisChanged(
   setup: PlaygroundCarSetup,
 ): boolean {
   return currentCarId !== setup.carId || currentWeapons.join() !== setup.weapons.join();
-}
-
-/**
- * Should the bot recompute its intent this tick, or re-enqueue the one it is holding (PG29)?
- *
- * A cleared hold always recomputes: a setup change, a bot toggled off and back on, or a dead target
- * drops the held intent, and waiting out the rest of the interval would enqueue a decision made
- * against a pose from before the change. A non-positive cadence recomputes every tick rather than
- * dividing by zero — the table cannot produce one, and a modulo by zero is `NaN`, which is falsy and
- * would freeze the bot on its last intent forever.
- */
-export function shouldRecomputeIntent(
-  tick: number,
-  reactionTicks: number,
-  hasHeldIntent: boolean,
-): boolean {
-  if (!hasHeldIntent) return true;
-  if (reactionTicks <= 1) return true;
-  return tick % reactionTicks === 0;
-}
-
-/**
- * The fire bits that actually reach the wire this tick (PG29).
- *
- * `serverTick` counts only newly-set bits as a press (`clean & ~prev`), so a bot holding the same
- * bits fires each slot ONCE and then never again; `respawnPlayer` does not clear `prevFireMasks`
- * either, so a killed bot comes back still latched. Zeroing the bits off-pulse turns every pulse
- * tick into a fresh press edge. It does not make the bot fire faster than its weapons allow —
- * stocks, recharges and the switch lock still bound the rate, and feeling those is the point.
- */
-export function pulsedFireSlots(tick: number, firePeriodTicks: number, fireSlots: number): number {
-  if (firePeriodTicks <= 1) return fireSlots;
-  return tick % firePeriodTicks === 0 ? fireSlots : 0;
 }
 
 /**
@@ -163,7 +146,8 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
 
   async onCreate(): Promise<void> {
     const listings = await matchMaker.query({ name: ROOM_NAME });
-    if (shouldRefusePlayground(listings)) {
+    const practiceListings = await matchMaker.query({ name: PRACTICE_ROOM_NAME });
+    if (shouldRefusePlayground(listings, practiceListings)) {
       throw new ServerError(ARENA_BUSY_CODE, ARENA_BUSY_ERROR);
     }
 

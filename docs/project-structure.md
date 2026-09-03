@@ -33,9 +33,11 @@ motor-combat-MOBA/
 │   │   ├── arena-config.ts       # the one ACTIVE_ARENA_ID constant
 │   │   ├── deathmatch-config.ts  # DEATHMATCH_CONFIG, DEATHMATCH_TICKS: match/respawn/phase timing
 │   │   ├── tuning.ts             # setTuning: dev-only runtime override store over 5 balance tables (PG12)
-│   │   └── tuning-walker.ts      # tunableFields/validateTuning/sanitizeStoredTuning (PG14)
+│   │   ├── tuning-walker.ts      # tunableFields/validateTuning/sanitizeStoredTuning (PG14)
+│   │   └── practice-config.ts    # PRACTICE_CONFIG: idle timeout/warning, maxConcurrentRooms (PR26–PR29)
 │   ├── schema/                   # PlayerState, StatusState, WeaponInstanceState, WeaponSlotState, ArenaState
-│   │   └── PlaygroundState.ts    # extends ArenaState: paused, controlledSessionId, botEnabled, tuningJson (PG5)
+│   │   ├── PlaygroundState.ts    # extends ArenaState: paused, controlledSessionId, botEnabled, tuningJson (PG5)
+│   │   └── PracticeState.ts      # extends ArenaState: paused only — no controlledSessionId, no tuningJson (PR6)
 │   ├── arena/
 │   │   ├── types.ts              # ArenaDef, Obstacle, Spawn, ArenaPalette
 │   │   ├── arena-01.ts           # first arena layout
@@ -43,7 +45,8 @@ motor-combat-MOBA/
 │   │   ├── registry.ts           # ARENAS map, ArenaId, isArenaId, getArena, ARENA_IDS
 │   │   └── art-keys.ts           # arena.<id>.<slot> namespace parser, used by client and release script
 │   ├── net/                      # InputMessage (fireSlots bitmask), lobby message names
-│   │   └── playground-messages.ts # MSG_PLAYGROUND_*, PlaygroundSetup + validator, defaultPlaygroundSetup (PG13)
+│   │   ├── playground-messages.ts # MSG_PLAYGROUND_*, PlaygroundSetup + validator, defaultPlaygroundSetup (PG13)
+│   │   └── practice-messages.ts  # PRACTICE_ROOM_NAME, close codes 4006–4009, PracticeSetup + validator (PR3, PR7)
 │   ├── lobby/                    # names, teams, start rules, status → view
 │   ├── flow/                     # match-flow reducer, spawn assignment, livingSides
 │   │   ├── modes.ts              # sidesOf (ffa|team), winRuleOf (last_standing|deathmatch)
@@ -66,15 +69,19 @@ motor-combat-MOBA/
 │       ├── ram.ts                # ram severity, side bonus, the knock
 │       └── damage.ts             # applyDamage + applyHeal (the only HP writers), damageFor, scaleDamage
 ├── packages/server/src/
-│   ├── index.ts
-│   ├── mode.ts                   # env knobs (DEPLOY_MODE, latency injection, tick rate)
+│   ├── index.ts                  # gameServer.define: arena always, practice always, playground DEV_TOOLS=1-only
+│   ├── mode.ts                   # env knobs (DEPLOY_MODE, latency injection, tick rate, MAX_PRACTICE_ROOMS)
 │   ├── health.ts
 │   ├── monitor.ts
+│   ├── config/
+│   │   └── bot-profiles.ts       # BOT_PROFILES: easy/medium/hard, shared by PlaygroundRoom and PracticeRoom (PR17)
 │   ├── rooms/
 │   │   ├── ArenaRoom.ts          # the room: messages, phase machine, tick
-│   │   ├── tick-pipeline.ts      # runPipeline: statusTick→serverTick→contactTick→combatTick, shared by ArenaRoom and PlaygroundRoom (PG4)
+│   │   ├── tick-pipeline.ts      # runPipeline: statusTick→serverTick→contactTick→combatTick, shared by ArenaRoom, PlaygroundRoom and PracticeRoom (PG4, PR16)
 │   │   ├── PlaygroundRoom.ts     # dev-only room ("playground"), DEV_TOOLS=1-gated; pause/switch/tuning/setup, bot-or-alone, endless respawns
-│   │   ├── playground-bot.ts     # the synthetic client's InputMessage: chase-and-fire steering, pulsed fire mask (PG10)
+│   │   ├── PracticeRoom.ts       # shipped room ("practice"), no DEV_TOOLS gate, maxClients=1; runs runPipeline verbatim, never calls setTuning (PR1)
+│   │   ├── practice-rules.ts     # pure predicates: room-cap refusal, playground-busy refusal, opponent roll, idle timeout/warning (PR26–PR29)
+│   │   ├── bot.ts                # the synthetic client's InputMessage: chase-and-fire steering, pulsed fire mask (PG10; renamed from playground-bot.ts when PracticeRoom took it too)
 │   │   ├── flow-map.ts           # schema enums ↔ flow reducer strings
 │   │   ├── match-helpers.ts
 │   │   ├── select-next-host.ts
@@ -105,6 +112,8 @@ motor-combat-MOBA/
         │   ├── asset-keys.ts      # carId → "car.<id>"; weaponIconKey(id) → "weapon-icon.<id>"
         │   ├── sprite-fit.ts      # fits art to the hull; the hull never follows the art
         │   └── car-sprite.ts      # the resolution chain ArenaScene and the tuning tool share
+        ├── practice/
+        │   └── storage.ts         # localStorage codec for PracticeSetup under "motor-combat.practice.v1" (PR21) — ships, not stripped
         ├── dev/                   # stripped from release builds, asserted by build-release.mjs
         │   ├── registry.ts        # ?dev=<id> → dynamic import, one guard for the whole suite
         │   ├── AssetTuningScene.ts
@@ -121,7 +130,9 @@ motor-combat-MOBA/
         │   └── view.ts           # status + phase → scene
         ├── scenes/
         │   ├── {Boot,Join,Lobby,CarSelect,Arena,Results}Scene.ts
-        │   ├── controlled-car.ts # controlledCarOf/isPlaygroundPaused: which car to drive, whether the sim is frozen — resolves to the real match answer on a base ArenaState (PG7, PG9)
+        │   ├── PracticeSetupScene.ts   # thin shell: joins "practice" with the chosen setup, launches ArenaScene (PR21)
+        │   ├── PracticeSummaryScene.ts # thin shell over ui/screens/practice-summary.ts; reads a pre-leave kills/deaths snapshot, never a live Room (PR24)
+        │   ├── controlled-car.ts # controlledCarOf/isSimPaused/isPracticeRoom: which car to drive, whether the sim is frozen, whether the pause-menu gate applies — resolves to the real match answer on a base ArenaState (PG7, PG9, PR22)
         │   ├── arena-camera.ts   # whether the arena fits the view, so the camera need not scroll
         │   ├── arena-input.ts    # sim-clock input drain, axis folding
         │   ├── arena-mismatch.ts # builds the mismatch message string (pure, testable)
@@ -135,7 +146,11 @@ motor-combat-MOBA/
         │   ├── deathmatch-hud.ts # pure Deathmatch derivations: match clock, respawn countdown, killed-by banner
         │   ├── spectate.ts       # spectate cycle, free-roam pan
         │   └── lobby-signature.ts
-        └── ui/screens/arena-mismatch.ts # renders that message as DOM
+        └── ui/screens/
+            ├── arena-mismatch.ts    # renders that message as DOM
+            ├── pause.ts             # the practice pause menu: Resume/Exit, mounted off state.paused (PR22, PR23)
+            ├── practice-setup.ts    # the practice settings screen: car/opponent/difficulty, Start/Back (PR21)
+            └── practice-summary.ts  # the practice session summary rows — NOT resultsView; a session has no winner or match length (PR24)
 ```
 
 `ArenaScene` itself cannot be unit-tested without a browser, so its logic lives in the plain modules

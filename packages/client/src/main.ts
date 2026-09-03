@@ -1,11 +1,13 @@
 import Phaser from "phaser";
 import { BootScene } from "./scenes/BootScene.js";
 import { JoinScene } from "./scenes/JoinScene.js";
+import { PracticeSetupScene } from "./scenes/PracticeSetupScene.js";
 import { LobbyScene } from "./scenes/LobbyScene.js";
 import { CarSelectScene } from "./scenes/CarSelectScene.js";
 import { RevealScene } from "./scenes/RevealScene.js";
 import { ArenaScene } from "./scenes/ArenaScene.js";
 import { ResultsScene } from "./scenes/ResultsScene.js";
+import { PracticeSummaryScene } from "./scenes/PracticeSummaryScene.js";
 import { VIEW_HEIGHT, VIEW_WIDTH, bindFullscreenToggle } from "./config/display.js";
 
 declare global {
@@ -28,7 +30,17 @@ const game = new Phaser.Game({
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
   pixelArt: false,
   dom: { createContainer: true },
-  scene: [BootScene, JoinScene, LobbyScene, CarSelectScene, RevealScene, ArenaScene, ResultsScene],
+  scene: [
+    BootScene,
+    JoinScene,
+    PracticeSetupScene,
+    LobbyScene,
+    CarSelectScene,
+    RevealScene,
+    ArenaScene,
+    ResultsScene,
+    PracticeSummaryScene,
+  ],
 });
 
 window.game = game;
