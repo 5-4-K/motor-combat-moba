@@ -88,7 +88,9 @@ describe("releasing", () => {
   it("emits the order on the scheduled tick and starts the recharge", () => {
     const pressed = beginFire("p1", fresh(), SLOT_1, 100);
     const { state, orders } = releaseShots(pressed, 100);
-    expect(orders).toEqual([{ weaponId: "predator", slot: 0, finalVolley: true }]);
+    expect(orders).toEqual([
+      { weaponId: "predator", slot: 0, finalVolley: true, pressId: "p1#100#0" },
+    ]);
     expect(state.pending).toBeNull();
     expect(state.slots[0]!.rechargeEndsTick).toBe(130); // 1000ms == 30 ticks
     expect(state.lastFiredSlot).toBe(0);
@@ -205,7 +207,9 @@ describe("per-tick order", () => {
     let step1 = step(state, 100, SLOT_1);
     state = step1.state;
     seen.push(...step1.orders);
-    expect(seen).toEqual([{ weaponId: "predator", slot: 0, finalVolley: true }]);
+    expect(seen).toEqual([
+      { weaponId: "predator", slot: 0, finalVolley: true, pressId: "p1#100#0" },
+    ]);
     expect(state.pending).toBeNull();
     expect(state.slots[0]!.stocks).toBe(0);
 
@@ -224,8 +228,8 @@ describe("per-tick order", () => {
     state = step2.state;
     seen.push(...step2.orders);
     expect(seen).toEqual([
-      { weaponId: "predator", slot: 0, finalVolley: true },
-      { weaponId: "predator", slot: 0, finalVolley: true },
+      { weaponId: "predator", slot: 0, finalVolley: true, pressId: "p1#100#0" },
+      { weaponId: "predator", slot: 0, finalVolley: true, pressId: "p1#130#0" },
     ]);
   });
 
@@ -253,7 +257,9 @@ describe("per-tick order", () => {
 
     // The next call to releaseShots happens on the NEXT tick, 101 — one tick after nextShotTick.
     const releasedNextTick = releaseShots(state, 101);
-    expect(releasedNextTick.orders).toEqual([{ weaponId: "predator", slot: 0, finalVolley: true }]); // late, but not lost
+    expect(releasedNextTick.orders).toEqual([
+      { weaponId: "predator", slot: 0, finalVolley: true, pressId: "p1#100#0" },
+    ]); // late, but not lost
     expect(releasedNextTick.state.pending).toBeNull();
   });
 });

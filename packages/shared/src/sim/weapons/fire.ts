@@ -172,7 +172,12 @@ export function releaseShots(
   const refireDelay = scaleTicks(ticks.refireDelay, cooldownMult);
   const recovery = scaleTicks(ticks.recovery, cooldownMult);
   const orders: ShotOrder[] = [
-    { weaponId: pending.weaponId, slot: pending.slot, finalVolley: pending.shotsLeft === 1 },
+    {
+      weaponId: pending.weaponId,
+      slot: pending.slot,
+      finalVolley: pending.shotsLeft === 1,
+      pressId: pending.pressId,
+    },
   ];
   const shotsLeft = pending.shotsLeft - 1;
 

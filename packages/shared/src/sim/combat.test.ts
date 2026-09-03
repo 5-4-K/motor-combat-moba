@@ -1861,6 +1861,19 @@ describe("magma blast detonation (spec P13-P21)", () => {
     );
   });
 
+  it("a magmablast burst inherits the pressId of the shell that threw it (B8)", () => {
+    // Fire for real through the fire state machine (as every other test in this describe does) so
+    // the shell is minted with a real pressId at press time, step it to detonation, and check the
+    // synthesized burst carries that same pressId rather than reading as its own free shot.
+    const result = fire(
+      { x: 300, y: OPEN_Y, angle: 0 },
+      [player("bbb", { x: 400, y: OPEN_Y, hp: MIRAGE_HP })],
+      6,
+    );
+    // `fire()` presses slot 1 (mask 0b001, slot index 0) on tick `world().tick` (100) from "aaa".
+    expect(bursts(result)[0]!.pressId).toBe("aaa#100#0");
+  });
+
   it("expires the burst on its OWN clock, not the shell's flight-plus-lifetime (P25b)", () => {
     // A mutation that disabled the explosion-aware branch in `instanceExpired` (falling back to the
     // shell's `flight + lifetime`, 45 ticks) would leave a 1.5s field instead of the authored 150ms

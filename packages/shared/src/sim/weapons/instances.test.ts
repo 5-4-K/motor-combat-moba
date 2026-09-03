@@ -420,3 +420,13 @@ describe("bounce", () => {
     expect(instanceExpired(shot, 187, bouncer)).toBe(true);
   });
 });
+
+describe("spawnInstances pressId (B8)", () => {
+  it("stamps every pellet of one press with the same pressId", () => {
+    const order = { weaponId: "pepperbox", slot: 1, finalVolley: true, pressId: "p1#5#1" } as const;
+    const owner = { sessionId: "p1", team: 0, carId: "bullseye", x: 0, y: 0, angle: 0 } as const;
+    const { instances } = spawnInstances(order, owner, 5, 0);
+    expect(instances.length).toBeGreaterThan(1); // pepperbox is a fan
+    expect(instances.every((i) => i.pressId === "p1#5#1")).toBe(true);
+  });
+});

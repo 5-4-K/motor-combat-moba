@@ -18,7 +18,7 @@ const snapshot = (
 
 function shotFrom(x: number, y: number, angle = 0, team: 0 | 1 = 0, carId = "mirage"): WeaponInstance {
   return spawnInstances(
-    { weaponId: "magmablast", slot: 0, finalVolley: true },
+    { weaponId: "magmablast", slot: 0, finalVolley: true, pressId: "aaa#100#0" },
     { sessionId: "aaa", team, carId, x, y, angle },
     100,
     0,

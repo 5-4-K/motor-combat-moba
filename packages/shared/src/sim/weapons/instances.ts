@@ -91,6 +91,15 @@ export interface WeaponInstance {
    * every def lookup for a live instance must go through `instanceDefOf` rather than `weaponDefOf`.
    */
   isExplosion: boolean;
+  /**
+   * The press that spawned this instance (B8). Frozen at spawn and SIM-ONLY — never networked —
+   * for exactly the reason `damage` and `ownerTeam` are: it must be answerable at impact, long
+   * after the press.
+   *
+   * An explosion synthesized by `instanceDefOf` inherits its shell's, so a `magmablast` detonation
+   * is credited to the press that threw the shell rather than reading as its own free shot.
+   */
+  pressId: string;
 }
 
 /** One group of instances to emit: which weapon, from which slot. */
@@ -103,6 +112,8 @@ export interface ShotOrder {
    * `onWave: "final"` needs the answer at hit time, arbitrarily far from the press.
    */
   finalVolley: boolean;
+  /** The press this order belongs to (B8). Sim-only; carried onto every instance it spawns. */
+  pressId: string;
 }
 
 export interface OwnerPose {
@@ -248,6 +259,7 @@ export function spawnInstances(
         homingUntilTick: homingUntil,
         expiresAtTick: expiresAt,
         isExplosion: false,
+        pressId: order.pressId,
       });
     }
   }

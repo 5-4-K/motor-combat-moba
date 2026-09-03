@@ -807,6 +807,7 @@ function detonate(
       homingUntilTick: 0,
       expiresAtTick: 0,
       isExplosion: true,
+      pressId: shell.pressId,
     },
   };
 }
