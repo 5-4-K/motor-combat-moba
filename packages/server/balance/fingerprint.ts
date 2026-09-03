@@ -7,10 +7,13 @@
  * that a tuning pass could touch: `WEAPON_TABLE`, `CAR_TABLE`, `COMBAT_CONFIG`, `DRIVE_CONFIG`,
  * `STATUS_TABLE`, `RAM_CONFIG`, `SLAM_CONFIG`, `AIM_CONFIG`, `WEAPON_SLOT_CONFIG`,
  * `DEATHMATCH_CONFIG`, `TICK_RATE_HZ`, and every registered arena (`ARENAS` — `assignSpawns` reads
- * an arena's spawn points directly, and its obstacles feed `stepSim`). `botFingerprint` covers
- * `BOT_PROFILES` separately, because a bot retune and a balance retune are different edits with
- * different implications for whether an old report is still comparable to a new one (Task 20's
- * baseline guard refuses a comparison across either).
+ * an arena's spawn points directly, and its obstacles feed `stepSim`). Also `CAMERA_CONFIG` and
+ * `LOGICAL_CANVAS` (B17, 2026-09-03): `buildBotView`'s viewport fairness limit is derived from both
+ * (`LOGICAL_CANVAS` divided by `CAMERA_CONFIG.zoom`), and a bot session that can suddenly see less
+ * — or more — of the arena is exactly the kind of change a baseline comparison must not silently
+ * average over. `botFingerprint` covers `BOT_PROFILES` separately, because a bot retune and a
+ * balance retune are different edits with different implications for whether an old report is still
+ * comparable to a new one (Task 20's baseline guard refuses a comparison across either).
  *
  * **This list is not derived from anything — it is hand-maintained, and it must be kept in sync by
  * hand.** A config added later (a new `*_CONFIG` table, a new arena, a new tick-derived constant)
@@ -36,10 +39,12 @@ import { BOT_PROFILES } from "../src/config/bot-profiles.js";
 import {
   AIM_CONFIG,
   ARENAS,
+  CAMERA_CONFIG,
   CAR_TABLE,
   COMBAT_CONFIG,
   DEATHMATCH_CONFIG,
   DRIVE_CONFIG,
+  LOGICAL_CANVAS,
   RAM_CONFIG,
   SLAM_CONFIG,
   STATUS_TABLE,
@@ -109,6 +114,8 @@ export function configFingerprint(): string {
       DEATHMATCH_CONFIG,
       TICK_RATE_HZ,
       ARENAS,
+      CAMERA_CONFIG,
+      LOGICAL_CANVAS,
     }),
   );
 }

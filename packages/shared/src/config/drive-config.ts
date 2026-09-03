@@ -140,3 +140,28 @@ export const CAMERA_CONFIG = {
   zoom: 1,
   freeRoamSpeed: 1050,
 } as const;
+
+/**
+ * The client's logical canvas the arena camera renders into, before any HUD gutter or letterboxing
+ * — `ARENA_01`'s own header calls this out by name: "1280x720 is not a taste call — it is the
+ * client's logical canvas, so at `CAMERA_CONFIG.zoom` of 1 the camera covers the arena exactly."
+ * `packages/client/src/config/display.ts` is where that fact actually drives the Phaser game config
+ * (`ARENA_VIEW_WIDTH`, `VIEW_HEIGHT`) — `shared` cannot import from `client`, so this is that same
+ * fact restated here, for a second consumer client-side code never had: the SERVER.
+ *
+ * `buildBotView` (B17) is that consumer. A bot's fairness rests on "a human sees every car" being
+ * true, which only holds while the arena fits inside this rectangle (divided by `CAMERA_CONFIG.zoom`
+ * — `arena-01`, 1280x720, fits exactly; `arena-02`, 2000x2000, does not). Once an arena is larger
+ * than this, "could a human see this car" stops being "yes, always" and becomes a real question the
+ * server has to answer, and this is the fact it answers it with. Named and pulled from config
+ * instead of a literal 1280/720 inside `buildBotView` because invariant 2 (no magic numbers in
+ * logic) does not stop applying just because the number in question happens to be about rendering
+ * rather than balance.
+ *
+ * Part of `configFingerprint` (`balance/fingerprint.ts`) for the same reason every other table there
+ * is: changing what a bot can see changes what the harness measures.
+ */
+export const LOGICAL_CANVAS = {
+  width: 1280,
+  height: 720,
+} as const;
