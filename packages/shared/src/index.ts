@@ -92,6 +92,10 @@ export type { ImpactSide, RamCar, RamHit, RamKnock } from "./sim/ram.js";
 export { SLAM_CONFIG, SLAM_TICKS } from "./config/slam-config.js";
 export { hullTouchesWorld, resolveContacts } from "./sim/contact.js";
 export type { ContactCar, ContactEvents, ContactHit } from "./sim/contact.js";
+export { newCombatEvents } from "./sim/combat-events.js";
+export type {
+  CombatEvents, DamagedEvent, DamageSource, FiredEvent, KilledEvent,
+} from "./sim/combat-events.js";
 export { canDamage } from "./sim/weapons/targets.js";
 export {
   hasLineOfSight,
