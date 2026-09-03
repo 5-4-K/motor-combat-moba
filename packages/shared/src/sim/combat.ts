@@ -14,6 +14,7 @@ import {
   type Aabb,
   type Bounds,
 } from "./collide.js";
+import type { CombatEvents } from "./combat-events.js";
 import type { ContactHit } from "./contact.js";
 import { carHullOf, carIdOf } from "./context.js";
 import { applyDamage, applyHeal, damageFor, scaleDamage, weaponDamageOf } from "./damage.js";
@@ -167,6 +168,16 @@ export interface CombatInput {
    * live contact.
    */
   contactHits?: readonly ContactHit[];
+  /**
+   * Where this tick's observations go, or absent for none — which is every live room (B3).
+   *
+   * A caller-owned bag rather than a return value: `runCombat` runs at the tick rate and a balance
+   * run wants ONE log for the whole match, so returning an array would allocate and concatenate
+   * 5,400 times per match. When absent, every emit site is a single undefined check.
+   *
+   * Observation only. Nothing in the sim may ever read an event back (B1).
+   */
+  events?: CombatEvents;
 }
 
 export interface CombatResult {
@@ -427,6 +438,14 @@ export function runCombat(input: CombatInput): CombatResult {
       // wind-up + growth + linger, released early only by wreck or stun.
       const pending = player.fireState.pending;
       if (pending !== null && prevPending === null) {
+        input.events?.fired.push({
+          tick: world.tick,
+          shooterSessionId: player.sessionId,
+          carId: carIdOf(player),
+          weaponId: pending.weaponId,
+          slot: pending.slot,
+          pressId: pending.pressId,
+        });
         const pendingDef = weaponDefOf(pending.weaponId);
         if (pendingDef.kind === "beam" && pendingDef.holdsDuringFire && player.maneuver === ManeuverKind.NONE) {
           const t = weaponTicksOf(pendingDef.id);

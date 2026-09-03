@@ -17,6 +17,7 @@ import {
   type CombatWorld,
   type StatusRequest,
 } from "./combat.js";
+import { newCombatEvents } from "./combat-events.js";
 import { carHullOf } from "./context.js";
 import { ManeuverKind } from "./maneuver.js";
 import type { ManeuverWeaponDef, WeaponId } from "../config/weapon-types.js";
@@ -86,6 +87,52 @@ function player(sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlay
 /** A player at a given pose, for tests that only care about position and heading. */
 function playerAt(sessionId: string, x: number, y: number, angle: number): CombatPlayer {
   return player(sessionId, { x, y, angle });
+}
+
+/**
+ * A world at an explicit tick with a fixed 1600x900 bounds, for tests that step through several
+ * ticks by hand (`worldAt(tick)` per tick) rather than reusing one `world()` across a call. Shared
+ * by "kill attribution" and "fired events".
+ */
+function worldAt(tick: number): CombatWorld {
+  return {
+    tick,
+    dt: 1 / TICK_RATE_HZ,
+    mode: "ffa",
+    obstacles: [],
+    bounds: { width: 1600, height: 900 },
+  };
+}
+
+/**
+ * A bare combatant, `carId`-aware so an overridden `carId` gets that chassis's own loadout and hp
+ * rather than mirage's. Shared by "kill attribution" and "fired events".
+ */
+function combatant(sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlayer {
+  const carId = (over.carId ?? "mirage") as CarId;
+  return {
+    sessionId,
+    x: 400,
+    y: 150,
+    angle: 0,
+    team: 0,
+    carId,
+    hp: hpOf(carId),
+    alive: true,
+    inRoster: true,
+    fireMask: 0,
+    fireState: newFireState(carId, 1),
+    lock: newLockState(),
+    statuses: [],
+    maneuver: 0,
+    maneuverTicksLeft: 0,
+    maneuverAngle: 0,
+    maneuverSpeed: 0,
+    maneuverWeaponId: "" as const,
+    maneuverPressId: "",
+    lastDamagerSessionId: "",
+    ...over,
+  };
 }
 
 function run(over: Partial<CombatInput> = {}): ReturnType<typeof runCombat> {
@@ -1329,36 +1376,6 @@ describe("tremor (the unassigned row): presence effects", () => {
 describe("kill attribution", () => {
   const HP = hpOf("mirage");
 
-  const combatant = (sessionId: string, over: Partial<CombatPlayer> = {}): CombatPlayer => ({
-    sessionId,
-    x: 400, y: 150, angle: 0,
-    team: 0,
-    carId: "mirage",
-    hp: HP,
-    alive: true,
-    inRoster: true,
-    fireMask: 0,
-    fireState: newFireState("mirage", 1),
-    lock: newLockState(),
-    statuses: [],
-    maneuver: 0,
-    maneuverTicksLeft: 0,
-    maneuverAngle: 0,
-    maneuverSpeed: 0,
-    maneuverWeaponId: "" as const,
-    maneuverPressId: "",
-    lastDamagerSessionId: "",
-    ...over,
-  });
-
-  const worldAt = (tick: number): CombatWorld => ({
-    tick,
-    dt: 1 / TICK_RATE_HZ,
-    mode: "ffa",
-    obstacles: [],
-    bounds: { width: 1600, height: 900 },
-  });
-
   // Mirrors `combat-bridge.test.ts`'s `liveInstance`, parked on top of the victim so it connects.
   const shotAt = (owner: string, x: number, y: number): WeaponInstance => ({
     id: `${owner}-1`,
@@ -1434,6 +1451,36 @@ describe("kill attribution", () => {
       instanceSeq: 0,
     });
     expect(out.players.every((p) => p.lastDamagerSessionId === "")).toBe(true);
+  });
+});
+
+describe("fired events (B6)", () => {
+  it("emits one event per committed press, not per pellet", () => {
+    const events = newCombatEvents();
+    const shooter = combatant("p1", { carId: "bullseye", fireMask: 0b10 }); // pepperbox, a fan
+    runCombat({ world: worldAt(1), players: [shooter], instances: [], instanceSeq: 0, events });
+    expect(events.fired).toHaveLength(1);
+    expect(events.fired[0]).toMatchObject({
+      shooterSessionId: "p1", carId: "bullseye", weaponId: "pepperbox", slot: 1,
+    });
+  });
+
+  it("emits nothing on the ticks a held burst continues", () => {
+    const events = newCombatEvents();
+    // A press already pending coming into the tick must not re-emit.
+    const shooter = combatant("p1", { carId: "bullseye", fireMask: 0b10 });
+    let state = runCombat({ world: worldAt(1), players: [shooter], instances: [], instanceSeq: 0, events });
+    const before = events.fired.length;
+    runCombat({ world: worldAt(2), players: state.players, instances: state.instances, instanceSeq: state.instanceSeq, events });
+    expect(events.fired.length).toBe(before);
+  });
+
+  it("allocates nothing and behaves identically with no sink", () => {
+    const shooter = combatant("p1", { carId: "bullseye", fireMask: 0b10 });
+    const withSink = runCombat({ world: worldAt(1), players: [combatant("p1", { carId: "bullseye", fireMask: 0b10 })], instances: [], instanceSeq: 0, events: newCombatEvents() });
+    const without = runCombat({ world: worldAt(1), players: [shooter], instances: [], instanceSeq: 0 });
+    expect(without.players).toEqual(withSink.players);
+    expect(without.instances).toEqual(withSink.instances);
   });
 });
 
