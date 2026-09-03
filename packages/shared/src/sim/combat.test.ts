@@ -321,7 +321,7 @@ describe("firing", () => {
     });
     // A fresh press spawns its instance at the muzzle and is hit-tested THIS tick, without a tick of
     // travel — so a same-tick hit is necessarily point-blank. `predator`'s hitbox is a capsule whose
-    // `radiusAlong` (14) reaches 14 units past the shooter's own hull edge; 50.5 leaves the hulls 2.5
+    // `radiusAlong` (19) reaches 19 units past the shooter's own hull edge; 50.5 leaves the hulls 2.5
     // units apart, well inside that reach. Shrinking the hitbox back below 2.5 would break this by
     // making the shot miss. The hull itself is the same size for every chassis (`carHullOf` takes no
     // `carId`), so this geometry does not move with the swap.
@@ -1513,7 +1513,7 @@ describe("damaged and killed events (B4, B5)", () => {
   it("tags a weapon hit with its weaponId and pressId", () => {
     const events = newCombatEvents();
     // Same point-blank geometry as "lands bullseye's real slot-1 predator on a car in front" above:
-    // predator's capsule reaches 14u past the hull, and 50.5u leaves 2.5u of slack — a fresh press
+    // predator's capsule reaches 19u past the hull, and 50.5u leaves 2.5u of slack — a fresh press
     // is hit-tested the same tick it spawns, so this connects with no travel.
     const shooter = combatant("p1", { x: 300, carId: "bullseye", fireMask: 0b001 });
     const target = combatant("p2", { x: 300 + 50.5, fireMask: 0 });

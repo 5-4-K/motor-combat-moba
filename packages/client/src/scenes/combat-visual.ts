@@ -501,7 +501,23 @@ export type ProjectileLayer =
    * meets the DISC, so the pair stays coherent if the hitbox is re-tuned — while the tips always land
    * on `+/-radiusAlong`, which is what keeps the silhouette as long as the hitbox.
    */
-  | { shape: "spikes"; baseScale: number; halfHeightScale: number; color: string };
+  | { shape: "spikes"; baseScale: number; halfHeightScale: number; color: string }
+  /**
+   * A free polygon, as `[alongScale, acrossScale]` vertices — fractions of `radiusAlong` and
+   * `radiusAcross`, exactly like every scale above.
+   *
+   * The escape hatch for a silhouette the four named shapes above cannot describe: a swept fin, an
+   * ogive nose, an exhaust plume. It exists because `predator` is a MISSILE rather than a marked
+   * slug, and no combination of tip/band/disc/spikes draws one.
+   *
+   * **Its containment is the one in this union that is not implied by its own parameters.** The
+   * others multiply a scale INTO the hitbox and so cannot escape it; a poly is an arbitrary list of
+   * points. Every vertex is therefore pushed through `clampToHull` at draw time, which pulls it
+   * onto the hull rather than dropping the layer — so an authoring slip degrades the shape instead
+   * of deleting it, and no poly can draw outside the thing that hits. `projectile-marks.test.ts`
+   * checks the clamp directly rather than only through whatever the table authors today.
+   */
+  | { shape: "poly"; points: readonly (readonly [number, number])[]; color: string };
 
 /** How one non-circular projectile draws. Absent means the flat hitbox polygon. */
 export interface ProjectileStyle {
@@ -525,11 +541,16 @@ const MARK_SEGMENTS = 12;
  * straight section, so it is a rectangle and needs none of the circular-segment maths a nose on a
  * capsule would.
  *
- * `predator`: its icon is a grey missile with a red stripe near the nose, so the capsule takes the
- * icon's body grey and the stripe becomes a band. Same two-shape recipe as `thumper` above, and the
- * same reason for a band rather than a nose — at 0.216 of `radiusAlong` it stays inside the
- * capsule's straight section and is a plain rectangle, where a nose would need the circular-segment
- * maths an end cap demands.
+ * `predator`: a full missile — see `predatorMissileLayers`. It shipped as `thumper`'s two-shape
+ * recipe (grey capsule, red band) until 2026-09-04, which read as a pill rather than as the missile
+ * its icon draws; it is now 15 `poly` layers carrying the icon's nose cone, stripe, swept fins and
+ * exhaust plume. Two things changed with it and are worth knowing before touching either:
+ *
+ * - Its greys are DARKER than the icon's. The floor is `#EBEBEB` and the icon is drawn for a white
+ *   page, so the icon's own body greys wash out on it. Do not "correct" them back toward the icon.
+ * - Its `radiusAlong` grew 14 -> 19 in the same change, to CONTAIN the plume rather than let it
+ *   trail outside the hitbox. The art and that number are one decision, not two: shortening the
+ *   plume without shortening the hitbox leaves reach that draws nothing.
  *
  * `needler` and `skewer` (a nosed dart and a disc-and-spikes spindle) were retired outright with
  * the 2026-09-01 roster cutover (O17); their comment history lives in git. One non-circular
@@ -540,6 +561,162 @@ const MARK_SEGMENTS = 12;
  * the hull/tip/band/disc/spikes vocabulary below assumes an along/across ellipse-ish geometry a bar
  * does not have — it always draws its raw hitbox polygon, the same as `beamDrawLayers`'s fallback.
  */
+/**
+ * `predator`'s colours, measured off its own HUD icon rather than guessed — then DARKENED.
+ *
+ * The icon is drawn to read on a white page; the arena floor is `#EBEBEB`, which is nearly the same
+ * white. Transplanted literally, the icon's body greys (`#8A8A89` and up) washed out and the shot
+ * read as SHORTER than the flat capsule it replaced, because the pale nose cone disappeared into the
+ * floor. These are the icon's hues carried down roughly two stops, which is what buys the silhouette
+ * back. `outline` is the one colour taken at full strength: 16.4% of the icon's opaque pixels are
+ * near-black edge, and on a pale floor that edge is doing most of the work.
+ */
+const PREDATOR_PAINT = {
+  outline: "#171717",
+  noseLight: "#9A9A99",
+  bodyLit: "#7E7E7D",
+  body: "#5E5E5D",
+  bodyShade: "#3C3C3B",
+  fin: "#2E2E2D",
+  stripe: "#B31517",
+  stripeLit: "#E43C3D",
+  nozzle: "#141414",
+  flameOuter: "#C02000",
+  flameMid: "#FF6000",
+  flameCore: "#FFC000",
+} as const;
+
+/**
+ * `predator` as a missile: nose cone, red stripe, barrel, swept fins and an exhaust plume.
+ *
+ * **Built rather than written out.** Fifteen polygons of hand-typed vertices would be unreadable and
+ * impossible to re-tune; the proportions below are the icon's own measurements, taken along its
+ * missile's axis (nose 0, nozzle 1): nose cone to 0.16, red stripe 0.24-0.41, barrel to 0.66, fins
+ * flaring to 2.3x the body half-width by 0.93, dark nozzle to 1.
+ *
+ * Authored against the capsule the weapon ships with — `radiusAlong` 19, `radiusAcross` 6 — and
+ * emitted as SCALES, so a re-tune carries the whole missile with it. A re-tune that moves the two
+ * radii by different factors stretches the drawing; that is the documented behaviour of `band` and
+ * `spikes` too, not a new caveat.
+ *
+ * **The plume is why `radiusAlong` is 19 and not 14.** It was drawn first as art trailing behind the
+ * hitbox, which would have meant a shot whose most legible feature could not hurt anyone; the
+ * hitbox was lengthened to contain it instead, so the exhaust genuinely burns. The plume therefore
+ * has to reach the capsule's tail — if it ever stops short, the weapon reaches further than it
+ * draws, which is the exact failure D19 exists to prevent. `projectile-marks.test.ts` pins that.
+ *
+ * Cost: 15 `fillPoints` per live predator. Predator's 2 s life against its 1000 ms cooldown allows
+ * two in the air per player, so a full six-player room tops out near 180 fills a frame on the shared
+ * `shotGfx` — comfortably inside the budget, since it is one Graphics with no blend-mode change.
+ * See `docs/asset-pipeline.md#how-much-detail-a-shot-can-afford`.
+ */
+function predatorMissileLayers(): ProjectileLayer[] {
+  // The hitbox this art was drawn against. Dividing out at the end is what turns it into scales.
+  const RA = 19;
+  const RC = 6;
+
+  const NOSE = 18.7; // just inside the round cap, so the outline has somewhere to sit
+  const NOZZLE = -9; // where the missile ends and the plume begins
+  const BODY = NOSE - NOZZLE;
+  const BW = RC * 0.56; // body half-width: narrow enough that the fins can flare to the hull edge
+  /** Fraction of the MISSILE's own length, nose = 0, nozzle = 1. */
+  const at = (f: number): number => NOSE - f * BODY;
+
+  type P = [number, number];
+  const halfAt = (along: number): number => hullHalfAcross({ shape: "capsule", radiusAlong: RA, radiusAcross: RC }, along);
+  const clamp = ([a, c]: P): P => {
+    const na = Math.max(-RA, Math.min(RA, a));
+    const lim = halfAt(na);
+    return [na, Math.max(-lim, Math.min(lim, c))];
+  };
+  const box = (a0: number, a1: number, c0: number, c1: number): P[] => [
+    [a0, c0],
+    [a1, c0],
+    [a1, c1],
+    [a0, c1],
+  ];
+  /** A cone that sharpens toward the tip, like the icon's nose. */
+  const ogive = (from: number, tip: number, halfW: number, sign: number): P[] =>
+    Array.from({ length: 7 }, (_, i) => {
+      const t = i / 6;
+      return [from + (tip - from) * t, halfW * Math.sqrt(Math.max(0, 1 - t)) * sign] as P;
+    });
+
+  const FIN_ROOT = at(0.62);
+  const fins: P[][] = [-1, 1].map((s) => [
+    [FIN_ROOT, BW * 0.95 * s],
+    [NOZZLE, (RC - 0.15) * s],
+    [NOZZLE, BW * 0.9 * s],
+  ]);
+  const shoulder = at(0.44);
+  const barrel: P[] = [
+    [NOZZLE, -BW],
+    [shoulder, -BW],
+    ...ogive(shoulder, NOSE, BW, -1),
+    ...ogive(shoulder, NOSE, BW, 1).reverse(),
+    [shoulder, BW],
+    [NOZZLE, BW],
+  ];
+
+  /** Push a polygon out from its own centroid, so the dark edge sits under the whole silhouette. */
+  const outline = (pts: P[]): P[] => {
+    const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length;
+    const cy = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+    return pts.map(([a, c]) => {
+      const dx = a - cx;
+      const dy = c - cy;
+      const len = Math.hypot(dx, dy) || 1;
+      return clamp([a + (dx / len) * 1.15, c + (dy / len) * 1.15]);
+    });
+  };
+
+  // Three nested tongues, widened at the root so the hitbox the re-tune bought is actually drawn.
+  const root = NOZZLE + 0.4;
+  const plume: [number, number, string][] = [
+    [-RA, RC - 0.3, PREDATOR_PAINT.flameOuter],
+    [-RA + 2.6, (RC - 0.3) * 0.68, PREDATOR_PAINT.flameMid],
+    [-RA + 5.2, (RC - 0.3) * 0.38, PREDATOR_PAINT.flameCore],
+  ];
+
+  const layers: { pts: P[]; color: string }[] = [
+    // Outline first, under everything.
+    ...[...fins, barrel].map((p) => ({ pts: outline(p), color: PREDATOR_PAINT.outline })),
+    ...plume.map(([tip, half, color]) => ({
+      pts: [
+        [root, -half],
+        [root - (root - tip) * 0.42, -half * 0.74],
+        [tip, 0],
+        [root - (root - tip) * 0.42, half * 0.74],
+        [root, half],
+      ] as P[],
+      color,
+    })),
+    ...fins.map((p) => ({ pts: p, color: PREDATOR_PAINT.fin })),
+    { pts: barrel, color: PREDATOR_PAINT.body },
+    // Cylinder shading: a lit strip down one flank, a shadow down the other.
+    { pts: box(NOZZLE, shoulder, -BW, -BW * 0.32), color: PREDATOR_PAINT.bodyLit },
+    { pts: box(NOZZLE, shoulder, BW * 0.42, BW), color: PREDATOR_PAINT.bodyShade },
+    { pts: box(at(0.41), at(0.24), -BW, BW), color: PREDATOR_PAINT.stripe },
+    { pts: box(at(0.41), at(0.24), -BW, -BW * 0.32), color: PREDATOR_PAINT.stripeLit },
+    {
+      pts: [
+        [at(0.17), -BW * 0.86],
+        ...ogive(at(0.17), NOSE, BW * 0.86, -1),
+        ...ogive(at(0.17), NOSE, BW * 0.86, 1).reverse(),
+        [at(0.17), BW * 0.86],
+      ] as P[],
+      color: PREDATOR_PAINT.noseLight,
+    },
+    { pts: box(NOZZLE, NOZZLE + 1.6, -BW * 0.8, BW * 0.8), color: PREDATOR_PAINT.nozzle },
+  ];
+
+  return layers.map(({ pts, color }) => ({
+    shape: "poly",
+    points: pts.map(clamp).map(([a, c]) => [a / RA, c / RC] as const),
+    color,
+  }));
+}
+
 export const WEAPON_PROJECTILE_STYLES: Partial<Record<WeaponId, ProjectileStyle>> = {
   thumper: {
     layers: [
@@ -547,12 +724,7 @@ export const WEAPON_PROJECTILE_STYLES: Partial<Record<WeaponId, ProjectileStyle>
       { shape: "band", halfWidthScale: 0.216, color: "#FFF6D8" },
     ],
   },
-  predator: {
-    layers: [
-      { shape: "hull", color: "#606060" },
-      { shape: "band", halfWidthScale: 0.216, color: "#A81818" },
-    ],
-  },
+  predator: { layers: predatorMissileLayers() },
 };
 
 /**
@@ -648,6 +820,29 @@ function hullHalfAcross(
 }
 
 /**
+ * One point pulled onto the hitbox: `along` into `[-radiusAlong, radiusAlong]`, then `across` to
+ * whatever half-width the hull actually has at that station.
+ *
+ * The order matters and is not interchangeable. Clamping `along` FIRST means the width limit is
+ * read at the station the point ends up on, not the one it asked for — which is what keeps a vertex
+ * out past the nose from being narrowed against the straight section's full `radiusAcross` and
+ * landing outside the round cap.
+ *
+ * Exported for `projectile-marks.test.ts`: this function is the entire containment guarantee for a
+ * `poly` layer, so it is checked directly rather than only through the polygons the table happens
+ * to author today.
+ */
+export function clampToHull(
+  hitbox: Extract<ProjectileHitbox, { shape: "ellipse" | "capsule" }>,
+  along: number,
+  across: number,
+): { along: number; across: number } {
+  const a = Math.max(-hitbox.radiusAlong, Math.min(hitbox.radiusAlong, along));
+  const limit = hullHalfAcross(hitbox, a);
+  return { along: a, across: Math.max(-limit, Math.min(limit, across)) };
+}
+
+/**
  * The polygons to fill for one non-circular projectile, in draw order, or `[]` for a weapon with no
  * style — whose caller falls back to the single flat `weaponFillOf` hull.
  *
@@ -706,6 +901,20 @@ export function projectileDrawLayers(
           rotateBy(x, y, a, half, across),
           rotateBy(x, y, a, -half, across),
         ],
+        fill,
+      });
+      continue;
+    }
+    if (layer.shape === "poly") {
+      // Every vertex through `clampToHull`, which is what makes an arbitrary polygon safe. A layer
+      // with fewer than three surviving points is skipped rather than filled: Phaser draws nothing
+      // useful for it, and letting it through would put a degenerate shape in the batch.
+      if (layer.points.length < 3) continue;
+      out.push({
+        points: layer.points.map(([alongScale, acrossScale]) => {
+          const p = clampToHull(hitbox, alongScale * hitbox.radiusAlong, acrossScale * hitbox.radiusAcross);
+          return rotateBy(x, y, a, p.along, p.across);
+        }),
         fill,
       });
       continue;

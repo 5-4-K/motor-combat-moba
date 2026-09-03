@@ -588,7 +588,7 @@ you find out which:
 | `config/weapon-ticks.test.ts` | Pins the tick counts derived from them (`cooldown`, `flight`) |
 | `sim/weapons/fire.test.ts` | Simulates recharge tick-by-tick across a hard-coded window; `lance`'s real `startUpMs`/`recoveryMs` are driven end to end here |
 | `sim/weapons/instances.test.ts` | Beam tests borrow `weaponId: "magmablast"` for its range rather than a real beam row — see the coverage list above |
-| `sim/combat.test.ts` | The `50.5` offset is derived from `predator`'s capsule hitbox (`radiusAlong: 14`) — only if you change that hitbox |
+| `sim/combat.test.ts` | The `50.5` offset is derived from `predator`'s capsule hitbox (`radiusAlong: 19`) — only if you change that hitbox. Both sites assert a HIT, so LENGTHENING the capsule leaves them passing and only their comments go stale; shortening it below 2.5 units of reach is what actually breaks them |
 
 That last one is the subtle case: `50.5` places the two hulls 2.5 units apart, which must stay
 inside the hitbox's reach so the shot lands. At `radiusAlong: 14` there is plenty of headroom above;

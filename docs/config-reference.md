@@ -139,7 +139,7 @@ once, at shared's module load, into the frozen `WEAPON_TICKS` the sim actually r
 
 | id | kind | damage | damageFrequencyMs | speed | range | cooldownMs | startUpMs | recoveryMs | stock | pierce | volley (volleys / intervalMs) | pellets (perVolley / spreadDeg) | attached | lifetimeMs | hitbox | unlocksAt | usesAimAssist | color |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `predator` | projectile | 30 | 0 | 900 | 1800 (no real range — speed × 2000 ms lifetime; see below) | 1000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | 2000 | capsule, along 14 / across 6 (homing: proximity acquire, 200u radius, 300°/s) | 1 | true | `#606060` |
+| `predator` | projectile | 30 | 0 | 900 | 1800 (no real range — speed × 2000 ms lifetime; see below) | 1000 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | 2000 | capsule, along 19 / across 6 (homing: proximity acquire, 200u radius, 300°/s) | 1 | true | `#606060` |
 | `thunderclap` | maneuver (dash) | 90 | 0 | 1600 (dash speed) | 400 (dash distance) | 5000 | 0 | 200 | — | — | 1 / 0 | — | — | — | — | 1 | true | `#3ED1FA` |
 | `afterburner` | beam | 49 | 500 | 1100 | 220 | 13000 | 0 | 200 | — | — | 1 / 0 | — | true | 2000 | cone, 55° (muzzles `[0, 180]`) | 1 | false | `#FF9000` |
 | `magmablast` | projectile | 50 | 0 | 600 | 900 | 1600 | 0 | 0 | — | 0 | 1 / 0 | 1 / 0 | — | — | circle, radius 12 (explosion on death: 60u disc, +15 splash, 150 ms linger, corrodes 2s; see below) | 1 | true | `#FF6000` |
@@ -261,6 +261,17 @@ in `AIM_CONFIG` below. See [`combat-model.md`](combat-model.md#aim-assist-and-th
 client draws the hitbox itself rather than a sprite), while `predator` carries its own homing shape
 and numbers (see the row above). `damage` itself is re-solved per row against the `attack` stat, not
 migrated — see the paragraph above.
+
+Its `radiusAlong` grew **14 → 19 on 2026-09-04**, and that number belongs to the ART as much as to
+the balance table. The client draws `predator` as the missile its icon shows, exhaust plume included
+(`predatorMissileLayers` in `scenes/combat-visual.ts`); the plume was drawn first as art trailing
+*behind* a 28-unit hitbox, which would have made the shot's most legible feature the one part of it
+that could not hurt anybody. The hitbox was lengthened to contain it rather than the plume cropped,
+so D19 still holds exactly — what you see is what hits you — and the capsule is now 38 units long
+with the rear 10 being flame. **It was taken as a buff and nothing was trimmed to pay for it**
+(+36% hit length on a homing, aim-assisted projectile); the intended way to price it is a
+`npm run balance` paired run, not a guessed compensating nerf. Shortening the plume without
+shortening the capsule would put the weapon back to reaching further than it draws.
 
 **Authoring in milliseconds.** Every duration on a weapon — `startUpMs`, `cooldownMs`, `recoveryMs`,
 `stock.refireDelayMs`, a beam's `lifetimeMs` — is milliseconds, never ticks, so a balance number

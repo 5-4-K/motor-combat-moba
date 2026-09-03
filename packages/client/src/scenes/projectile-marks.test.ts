@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { WEAPON_TABLE, weaponDefOf, type WeaponId } from "@motor-combat-moba/shared";
 import {
   WEAPON_PROJECTILE_STYLES,
+  clampToHull,
   isProjectileWeapon,
   projectileDrawLayers,
   type DrawableInstance,
@@ -94,6 +95,77 @@ describe("projectile markings", () => {
 
   it("gives thumper a hull layer, so its markings sit on a filled body", () => {
     expect(WEAPON_PROJECTILE_STYLES.thumper?.layers[0]?.shape).toBe("hull");
+  });
+
+  describe("the poly layer's clamp", () => {
+    // `poly` is the one layer whose containment is not implied by its own parameters -- `tip`,
+    // `band`, `disc` and `spikes` are all built from scales the renderer multiplies INTO the
+    // hitbox, so they cannot escape it, while a poly is a free list of vertices. `clampToHull` is
+    // therefore the whole guarantee, and it is exported so it can be checked directly rather than
+    // only through whatever polygons the table happens to author today.
+    const capsule = { shape: "capsule", radiusAlong: 19, radiusAcross: 6 } as const;
+
+    it("leaves a vertex that is already inside exactly where it is", () => {
+      expect(clampToHull(capsule, 4, 2)).toEqual({ along: 4, across: 2 });
+    });
+
+    it("pulls a vertex past the tail back onto the flat tail", () => {
+      expect(clampToHull(capsule, -40, 0)).toEqual({ along: -19, across: 0 });
+    });
+
+    it("pulls a vertex past the nose back onto the nose, not past it", () => {
+      const { along, across } = clampToHull(capsule, 40, 0);
+      expect(along).toBe(19);
+      expect(across).toBe(0);
+    });
+
+    it("narrows a vertex to the hull's own half-width at that station", () => {
+      // Along the straight section the limit is radiusAcross flat.
+      expect(clampToHull(capsule, 0, 99).across).toBeCloseTo(6, 9);
+      expect(clampToHull(capsule, 0, -99).across).toBeCloseTo(-6, 9);
+      // Inside the rounded nose it is the circular segment, which is strictly narrower.
+      const nose = clampToHull(capsule, 17, 99);
+      expect(nose.across).toBeLessThan(6);
+      expect(nose.across).toBeGreaterThan(0);
+    });
+
+    it("clamps an arbitrary far-outside vertex to somewhere genuinely inside", () => {
+      for (const [a, c] of [
+        [100, 100],
+        [-100, -100],
+        [0, 1000],
+        [18.9, 50],
+      ] as const) {
+        const { along, across } = clampToHull(capsule, a, c);
+        expect(insideHitbox("predator", along, across)).toBe(true);
+      }
+    });
+  });
+
+  it("draws predator as an outlined missile with a contained exhaust plume", () => {
+    // The three facts the art depends on, each of which a later edit could silently undo:
+    // it is built from polys, the darkest layer is drawn FIRST (the icon's outline, which is what
+    // makes it read against the near-white `#EBEBEB` floor), and the plume's flame colours are
+    // present -- the plume is the whole reason the hitbox was lengthened, so a style that lost it
+    // would leave the weapon reaching further than it draws.
+    const layers = WEAPON_PROJECTILE_STYLES.predator?.layers ?? [];
+    expect(layers.length).toBeGreaterThan(0);
+    expect(layers.every((l) => l.shape === "poly")).toBe(true);
+    expect(layers[0]?.color).toBe("#171717");
+    const colors = new Set(layers.map((l) => l.color));
+    for (const flame of ["#C02000", "#FF6000", "#FFC000"]) expect(colors.has(flame)).toBe(true);
+  });
+
+  it("draws predator's plume back to the tail of its lengthened hitbox", () => {
+    // The re-tune grew `radiusAlong` 14 -> 19 specifically so the plume is a real part of the shot
+    // rather than art hanging outside the hitbox. If the art stopped short, the extra 5 units would
+    // be hitbox that hurts and draws nothing -- exactly what D19 exists to prevent.
+    const def = weaponDefOf("predator");
+    if (def.kind !== "projectile" || def.hitbox.shape !== "capsule") throw new Error("shape moved");
+    const layers = projectileDrawLayers(instanceAt("predator", 0), 0);
+    const minX = Math.min(...layers.flatMap((l) => l.points.map((p) => p.x)));
+    // Heading 0, so `along` is +x and the tail sits at `x - radiusAlong`.
+    expect(minX).toBeCloseTo(500 - def.hitbox.radiusAlong, 6);
   });
 
   it("returns nothing for a beam, a round projectile, or an unknown id", () => {

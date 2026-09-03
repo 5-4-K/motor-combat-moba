@@ -57,11 +57,22 @@ weapon it does not own so the flat `weaponFillOf` fill stays the fallback: `WEAP
 that used it and nothing has replaced it yet, so every round projectile draws the flat fallback fill.
 `WEAPON_BEAM_STYLES` (beams, nested by extent and cross-section) styles `afterburner` and `lance`
 (`bulwark` retired with the cutover). `WEAPON_PROJECTILE_STYLES` (the ellipse and capsule projectiles)
-styles `thumper` alone today (`needler` and `skewer` retired); `predator` and `pepperbox` are
-non-circular projectiles that still draw the flat hitbox fill until an owner arts them. The last table
+styles `thumper` and `predator` (`needler` and `skewer` retired); `pepperbox` is the one non-circular
+projectile still drawing the flat hitbox fill until an owner arts it. The last table
 is the one with a rule worth keeping: a marking may never draw OUTSIDE the hitbox, which is the half
 of D19 that protects a player, and `projectile-marks.test.ts` holds every authored layer to it at six
 headings.
+
+`predator` is the table's one full **missile** and the reason the `poly` layer exists: nose cone,
+red stripe, swept fins and an exhaust plume, built by `predatorMissileLayers` from the icon's own
+measured proportions. Two things about it are load-bearing and easy to undo by accident. Its greys
+are deliberately **darker than its icon's** — the floor is `#EBEBEB` and the icon is drawn for a
+white page, so the icon's literal body greys wash out and the shot reads shorter than it is. And its
+`radiusAlong` was grown **14 → 19** in the same change to CONTAIN the plume: the art and that number
+are one decision, so cropping the plume without shortening the capsule puts the weapon back to
+reaching further than it draws. Unlike every other layer, a `poly`'s containment is not implied by
+its parameters — it is `clampToHull`, applied per vertex, which pulls a stray point onto the hull
+rather than dropping the layer.
 
 How a shot is *shaped* is `WEAPON_GLOW_STYLES` in `scenes/combat-visual.ts`: per weapon, and today
 empty for every row (see above), so every weapon currently draws the flat `weaponFillOf` disc or
@@ -69,7 +80,7 @@ polygon. Bands are fractions of the hitbox radius and the flicker only shrinks, 
 never exceed the hitbox — that is the invariant `instanceGlowBands` is tested against, and the reason
 the maths lives in `combat-visual.ts` rather than in `ArenaScene`, which no test can load.
 
-**Adding detail to shots is cheap; four specific things are not.** `renderShots` clears and rebuilds one shared `Graphics` per frame, so a band costs one `fillCircle` per shot per frame and the realistic ceiling is ~60 live instances. Authoring bands for every weapon is well within budget. **Stop and warn before** a per-instance `setBlendMode` (flushes the batch — one draw call becomes one per shot), a faked gradient needing 15–20 bands, a `Graphics` object per shot instead of the shared `shotGfx`, or anything that multiplies `instanceGlowBands`' per-frame allocation. See [How much detail a shot can afford](../../docs/asset-pipeline.md#how-much-detail-a-shot-can-afford). `carFillOf(colorId)` paints a car, `weaponFillOf(weaponId)` paints every instance of a weapon — the same ember red for every car's `predator`. Drawing a shot needs no owner lookup at all (the client never reads `ownerSessionId`), so do not reach for the shooter's `PlayerState` in `renderShots`; that route was deleted on purpose. `WEAPON_TABLE.color` is render-only and stays off the wire.
+**Adding detail to shots is cheap; four specific things are not.** `renderShots` clears and rebuilds one shared `Graphics` per frame, so a band costs one `fillCircle` per shot per frame and the realistic ceiling is ~60 live instances. Authoring bands for every weapon is well within budget. **Stop and warn before** a per-instance `setBlendMode` (flushes the batch — one draw call becomes one per shot), a faked gradient needing 15–20 bands, a `Graphics` object per shot instead of the shared `shotGfx`, or anything that multiplies `instanceGlowBands`' per-frame allocation. See [How much detail a shot can afford](../../docs/asset-pipeline.md#how-much-detail-a-shot-can-afford). `predator` is the current high-water mark at 15 `fillPoints` per shot: two can be in the air per player, so a full room tops out near 180 fills a frame — inside budget, because it is still one `Graphics` with no blend-mode change, but it is the number to check a new authored weapon against rather than assuming headroom. `carFillOf(colorId)` paints a car, `weaponFillOf(weaponId)` paints every instance of a weapon — the same grey for every car's `predator`, and only where a weapon has no entry in the three style tables. Drawing a shot needs no owner lookup at all (the client never reads `ownerSessionId`), so do not reach for the shooter's `PlayerState` in `renderShots`; that route was deleted on purpose. `WEAPON_TABLE.color` is render-only and stays off the wire.
 
 The weapon slot HUD (`scenes/weapon-hud.ts` for the pure derivations, drawn by `ArenaScene.drawHudSlot`) reads `PlayerState.weapons` (`WeaponSlotState[]`, one row per slot) plus four car-wide fields: `level`, `switchLockUntilTick`, `pendingUntilTick` and `lastFiredSlot`. The last two are what let the car-wide lockout dim be correct for any weapon — every slot through a wind-up or volley (`tick < pendingUntilTick`), the other slots through recovery (`index !== lastFiredSlot`) — so a weapon with `startUpMs > 0`, `volleys > 1`, or `recoveryMs > 0` needs no wire change. `fire.ts`'s `pending` machine itself is never networked. See [`docs/schema-reference.md`](../../docs/schema-reference.md#playerstate).
 

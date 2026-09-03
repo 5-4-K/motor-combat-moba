@@ -61,7 +61,15 @@ export const WEAPON_TABLE = {
     recoveryMs: 0,
     usesAimAssist: true,
     aimRangeUnits: 800,
-    hitbox: { shape: "capsule", radiusAlong: 14, radiusAcross: 6 },
+    // 38 units long, of which the rear 10 are the exhaust plume the client draws (2026-09-04).
+    // Grown from 14 deliberately and as a BUFF, not a wash: the plume was drawn first as art
+    // trailing behind a 28-unit hitbox, which would have made the shot's most legible feature the
+    // one part of it that could not hurt anyone. Lengthening the hitbox to contain it keeps D19
+    // intact — what you see is still exactly what hits you — at the cost of +36% hit length on a
+    // homing, aim-assisted projectile. Nothing was trimmed to pay for it; measure it with
+    // `npm run balance` rather than pre-compensating. The art is authored against these two numbers
+    // (`predatorMissileLayers` in the client's `combat-visual.ts`) and scales with them.
+    hitbox: { shape: "capsule", radiusAlong: 19, radiusAcross: 6 },
     pierce: 0,
     lifetimeMs: 2000,
     homing: { acquire: "proximity", acquireRadius: 200, turnRateDegPerSec: 300, durationMs: 2000 },
