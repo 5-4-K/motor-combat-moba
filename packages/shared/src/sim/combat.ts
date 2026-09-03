@@ -14,7 +14,7 @@ import {
   type Aabb,
   type Bounds,
 } from "./collide.js";
-import type { CombatEvents } from "./combat-events.js";
+import type { CombatEvents, DamageSource } from "./combat-events.js";
 import type { ContactHit } from "./contact.js";
 import { carHullOf, carIdOf } from "./context.js";
 import { applyDamage, applyHeal, damageFor, scaleDamage, weaponDamageOf } from "./damage.js";
@@ -292,7 +292,16 @@ export function runCombat(input: CombatInput): CombatResult {
       // and letting one status amplify another's bleed would compound two rows into a number
       // neither of them states. A pulse deals what its row says it deals.
       if (pulse.damage > 0) {
-        dealDamageTo(player, pulse.damage, modsOf(player.sessionId), pulse.sourceSessionId);
+        recordDamage(
+          player,
+          pulse.damage,
+          modsOf(player.sessionId),
+          pulse.sourceSessionId,
+          { kind: "pulse", statusId: pulse.statusId, sourceSessionId: pulse.sourceSessionId },
+          world,
+          byId,
+          input.events,
+        );
       }
       // `applyHeal` refuses to lift a wreck off 0, so a repair landing on the tick a bleed killed
       // its target cannot un-eliminate them.
@@ -329,7 +338,16 @@ export function runCombat(input: CombatInput): CombatResult {
     const base = weaponDamageOf(attacker ? carIdOf(attacker) : DEFAULT_CAR_ID, hit.weaponId);
     const dealt = scaleDamage(base, attacker ? modsOf(hit.attackerSessionId).damageDealt : 1);
     const targetMods = modsOf(hit.targetSessionId);
-    dealDamageTo(target, scaleDamage(dealt, targetMods.damageTaken), targetMods, hit.attackerSessionId);
+    recordDamage(
+      target,
+      scaleDamage(dealt, targetMods.damageTaken),
+      targetMods,
+      hit.attackerSessionId,
+      { kind: "contact", weaponId: hit.weaponId, pressId: byId.get(hit.attackerSessionId)?.maneuverPressId ?? "" },
+      world,
+      byId,
+      input.events,
+    );
     applyOpponentStatuses(target, hit.weaponId, false, world.tick, hit.attackerSessionId, true);
   }
 
@@ -557,11 +575,15 @@ export function runCombat(input: CombatInput): CombatResult {
       // `hit.amount` may legitimately be 0: a pure applicator weapon still registers a hit, because
       // a status rides the hit rather than the number.
       const targetMods = modsOf(hit.sessionId);
-      dealDamageTo(
+      recordDamage(
         target,
         scaleDamage(hit.amount, targetMods.damageTaken),
         targetMods,
         instance.ownerSessionId,
+        { kind: "weapon", weaponId: instance.weaponId, pressId: instance.pressId, isExplosion: instance.isExplosion },
+        world,
+        byId,
+        input.events,
       );
       // Statuses ride the DAMAGE list, so they inherit its rules for free: friendly fire, the
       // shooter's own immunity, wrecks, pierce, and the per-target damage clock that stops a
@@ -984,6 +1006,62 @@ function applyOpponentStatuses(
       sourceSessionId,
     );
   });
+}
+
+/**
+ * `dealDamageTo`, plus the observation of it (B6).
+ *
+ * The emit lives HERE rather than inside `dealDamageTo` because only a call site knows its own
+ * `DamageSource`, and because `dealDamageTo`'s exported signature is pinned by tests that have
+ * nothing to do with this seam. Wrapping is what keeps the seam additive.
+ *
+ * `killingBlow` is measured across the call (`wasAlive && target.hp === 0`), not inferred
+ * afterwards: a car already at 0 coming in is a wreck taking another hit, which is damage but not a
+ * kill. `amount` is likewise `before - target.hp`, not the requested `amount` argument —
+ * `invulnerable` refuses the hp change while the hit still "happens" (pierce spends, statuses ride),
+ * so reporting the requested amount would book damage that was never dealt.
+ */
+function recordDamage(
+  target: CombatPlayer,
+  amount: number,
+  mods: Readonly<Modifiers>,
+  attackerSessionId: string,
+  source: DamageSource,
+  world: CombatWorld,
+  byId: ReadonlyMap<string, CombatPlayer>,
+  events: CombatEvents | undefined,
+): void {
+  const wasAlive = target.hp > 0;
+  const before = target.hp;
+  dealDamageTo(target, amount, mods, attackerSessionId);
+  if (!events) return;
+
+  // `carIdOf` is called on the live player object, matching every other call site in this file
+  // (e.g. phase 0d's `attacker ? carIdOf(attacker) : DEFAULT_CAR_ID`), rather than re-normalizing a
+  // bare `carId` string pulled off it first.
+  const attacker = attackerSessionId === "" ? undefined : byId.get(attackerSessionId);
+  const attackerCarId = attacker ? carIdOf(attacker) : null;
+  const killingBlow = wasAlive && target.hp === 0;
+  events.damaged.push({
+    tick: world.tick,
+    victimSessionId: target.sessionId,
+    victimCarId: carIdOf(target),
+    attackerSessionId,
+    attackerCarId,
+    source,
+    amount: before - target.hp,
+    killingBlow,
+  });
+  if (killingBlow) {
+    events.killed.push({
+      tick: world.tick,
+      victimSessionId: target.sessionId,
+      victimCarId: carIdOf(target),
+      killerSessionId: attackerSessionId,
+      killerCarId: attackerCarId,
+      source,
+    });
+  }
 }
 
 /**

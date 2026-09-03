@@ -1484,6 +1484,133 @@ describe("fired events (B6)", () => {
   });
 });
 
+describe("damaged and killed events (B4, B5)", () => {
+  // Mirrors "kill attribution"'s own `shotAt`, above: a hand-built instance parked on top of the
+  // victim so it connects on the tick it is stepped.
+  const shotAt = (owner: string, x: number, y: number): WeaponInstance => ({
+    id: `${owner}-1`,
+    ownerSessionId: owner,
+    ownerTeam: 0,
+    finalWave: true,
+    damage: weaponDamageOf("mirage", "magmablast"),
+    weaponId: "magmablast",
+    kind: "projectile",
+    x, y,
+    angle: 0,
+    extent: 0,
+    spawnTick: 0,
+    distance: 0,
+    pierceLeft: 0,
+    attached: false,
+    damageClock: new Map<string, number>(),
+    alive: true,
+    muzzleDir: 0,
+    homingTargetId: "",
+    homingUntilTick: 0,
+    expiresAtTick: 0,
+  });
+
+  it("tags a weapon hit with its weaponId and pressId", () => {
+    const events = newCombatEvents();
+    // Same point-blank geometry as "lands bullseye's real slot-1 predator on a car in front" above:
+    // predator's capsule reaches 14u past the hull, and 50.5u leaves 2.5u of slack — a fresh press
+    // is hit-tested the same tick it spawns, so this connects with no travel.
+    const shooter = combatant("p1", { x: 300, carId: "bullseye", fireMask: 0b001 });
+    const target = combatant("p2", { x: 300 + 50.5, fireMask: 0 });
+    runCombat({ world: worldAt(100), players: [shooter, target], instances: [], instanceSeq: 0, events });
+    expect(events.damaged[0]?.source).toMatchObject({ kind: "weapon", weaponId: "predator" });
+    expect((events.damaged[0]?.source as { pressId: string }).pressId).toMatch(/^p1#\d+#0$/);
+  });
+
+  it("tags contact damage with the maneuver weapon and its press", () => {
+    const events = newCombatEvents();
+    // Mirrors "contact hits"'s "prices a contact hit like a shot" above, with the attacker mid-slam
+    // so `maneuverPressId` is the one the contact pass is documented to read.
+    const attacker = combatant("p1", { x: 0, y: 0, angle: 0, carId: "bastion", maneuverPressId: "p1#4#2" });
+    const target = combatant("p2", { x: 500, y: 0, angle: 0 });
+    runCombat({
+      world: worldAt(1),
+      players: [attacker, target],
+      instances: [],
+      instanceSeq: 0,
+      contactHits: [{ attackerSessionId: "p1", targetSessionId: "p2", weaponId: "wildcharge" }],
+      events,
+    });
+    expect(events.damaged[0]?.source).toEqual({
+      kind: "contact", weaponId: "wildcharge", pressId: "p1#4#2",
+    });
+  });
+
+  it("tags pulse damage with the status and who applied it", () => {
+    const events = newCombatEvents();
+    // `overheated` is `STATUS_TABLE`'s only row carrying a `pulse` (8 hp/400ms = 12 ticks at
+    // 30 Hz) — `corroded` (`damageTaken` only, "does nothing on its own") has none and can never
+    // reach `statusPulses`. Mirrors "credits a bleed to whoever applied the status" above, which
+    // uses the same row for the same reason. See the deviation note in the task report.
+    const victim = combatant("p2", {
+      statuses: [{ statusId: "overheated", startTick: 0, endsTick: 300, sourceSessionId: "p1" }],
+    });
+    runCombat({ world: worldAt(12), players: [victim], instances: [], instanceSeq: 0, events });
+    expect(events.damaged[0]?.source).toEqual({
+      kind: "pulse", statusId: "overheated", sourceSessionId: "p1",
+    });
+  });
+
+  it("marks the killing blow and emits exactly one killed event", () => {
+    const events = newCombatEvents();
+    const victim = combatant("p2", { hp: 1 });
+    runCombat({
+      world: worldAt(1),
+      players: [combatant("p1"), victim],
+      instances: [shotAt("p1", victim.x, victim.y)],
+      instanceSeq: 1,
+      events,
+    });
+    expect(events.damaged.filter((d) => d.killingBlow)).toHaveLength(1);
+    expect(events.killed).toHaveLength(1);
+    expect(events.killed[0]).toMatchObject({ victimSessionId: "p2", killerSessionId: "p1" });
+  });
+
+  it("records a 0-damage hit from a pure applicator without a killing blow", () => {
+    const events = newCombatEvents();
+    // `roadblock` (applies `stunned`) still deals real damage on an unarmored target, so `armored`
+    // (the roster's only `invulnerable` row) is what actually drives `amount` to 0 here — the same
+    // "hit registers, hp does not move" rule `dealDamageTo`'s own describe block pins directly.
+    // Travel distance and settle window match "wall-piercing projectiles"'s own roadblock fixture.
+    const shooter = combatant("p1", { x: 200, y: 50, angle: 0, carId: "bastion", fireMask: 0b010 });
+    const target = combatant("p2", {
+      x: 500, y: 50,
+      statuses: [{ statusId: "armored", startTick: 0, endsTick: 300, sourceSessionId: "" }],
+    });
+    let state = runCombat({ world: worldAt(100), players: [shooter, target], instances: [], instanceSeq: 0, events });
+    for (let tick = 101; tick <= 120; tick++) {
+      state = runCombat({
+        world: worldAt(tick),
+        players: state.players.map((p) => ({ ...p, fireMask: 0 })),
+        instances: state.instances,
+        instanceSeq: state.instanceSeq,
+        events,
+      });
+    }
+    expect(events.damaged.some((d) => d.amount === 0 && !d.killingBlow)).toBe(true);
+  });
+
+  it("emits no killed event when an already-dead car is hit again", () => {
+    const events = newCombatEvents();
+    // Mirrors "passes through a wreck rather than being spent on it": a wreck is not `isFighting`,
+    // so no damage path — pulse, contact, or weapon hit resolution — ever reaches it again.
+    const wreck = combatant("p2", { hp: 0, alive: false });
+    runCombat({
+      world: worldAt(1),
+      players: [combatant("p1"), wreck],
+      instances: [shotAt("p1", wreck.x, wreck.y)],
+      instanceSeq: 1,
+      events,
+    });
+    expect(events.killed).toHaveLength(0);
+  });
+});
+
 describe("spawn protection: a phased car is not a target", () => {
   // M13's central promise: "a phasing car is not present in the world. Not a collider, not a ram
   // partner, not a weapon target, not an aim-assist lock candidate." Collision and ramming were
