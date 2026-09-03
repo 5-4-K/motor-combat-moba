@@ -95,6 +95,11 @@ export interface WeaponStats {
   kitDamageShare: number;
   pressesPerMinute: number;
   meanFirstUseSeconds: number | null;
+  /** How many matches `meanFirstUseSeconds` is averaged over — i.e. how many matches this weapon
+   * was fired in at all. Carried alongside the mean because "fired once in fifty matches" and
+   * "fired in every match" read identically as a bare mean; the count is what lets a reader tell
+   * a stable habit apart from one lucky press. */
+  firstUseMatches: number;
 }
 
 export interface MatchupCell {
@@ -402,6 +407,7 @@ export function aggregate(outcomes: readonly MatchOutcome[]): {
       // weapon can only be pressed while its car is alive and on the field.
       pressesPerMinute: carAlive > 0 ? presses / (carAlive / TICK_RATE_HZ / 60) : 0,
       meanFirstUseSeconds: firstUses.length > 0 ? mean(firstUses) : null,
+      firstUseMatches: firstUses.length,
     };
   });
 

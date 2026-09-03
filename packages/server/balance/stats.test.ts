@@ -172,6 +172,30 @@ describe("aggregate (B30, B31)", () => {
   });
 });
 
+describe("aggregate: meanFirstUseSeconds carries its own n (fix round 3, defect 6)", () => {
+  it("counts only the matches the weapon actually fired in, not every match in the run", () => {
+    // Two matches: `lance` fires in the first, never in the second. A bare mean cannot tell
+    // "fired once in two matches" apart from "fired in both" — `firstUseMatches` is what does.
+    const firedOnce = synthetic({
+      fired: [{ pressId: "a#1#0", weaponId: "lance", shooterSessionId: "a", carId: "bullseye", slot: 0, tick: 30 }],
+    });
+    const neverFired = synthetic({ fired: [] });
+
+    const out = aggregate([firedOnce, neverFired]);
+    const lance = out.weapons.find((w) => w.weaponId === "lance")!;
+
+    expect(lance.firstUseMatches).toBe(1);
+    expect(lance.meanFirstUseSeconds).toBeCloseTo(30 / TICK_RATE_HZ, 6);
+  });
+
+  it("reports 0 (and a null mean) for a weapon that never fired in any match", () => {
+    const out = aggregate([synthetic({ fired: [] })]);
+    const lance = out.weapons.find((w) => w.weaponId === "lance")!;
+    expect(lance.firstUseMatches).toBe(0);
+    expect(lance.meanFirstUseSeconds).toBeNull();
+  });
+});
+
 describe("aggregate: draws credit no winner (Task 15 gap: multi-survivor stalemate)", () => {
   it("does not credit any car a win when winnerSessionId is empty", () => {
     // Two matches: one mirage win, one a draw (either an explicit livingSides/deathmatchOutcome DRAW,

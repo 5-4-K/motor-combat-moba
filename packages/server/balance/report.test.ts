@@ -72,6 +72,7 @@ function record(opts: { shape?: Shape; mode?: GameMode } = {}): RunRecord {
       kitDamageShare: 0.5,
       pressesPerMinute: 12,
       meanFirstUseSeconds: 5 + i,
+      firstUseMatches: totalMatches - i,
     })),
   );
 
@@ -263,6 +264,13 @@ describe("writeReport (B38, B39, B40)", () => {
     const paceSection = readSummary().split("## Pace")[1]!.split("## ")[0]!;
     expect(paceSection).toContain("n/a");
     expect(paceSection).not.toMatch(/\|[^|]*\d+\.\d%[^|]*\|\s*$/m); // no bracketed % as the last cell
+  });
+
+  it("prints the sample size alongside meanFirstUseSeconds, so a single lucky press doesn't read like a habit (fix round 3, defect 6)", () => {
+    const md = readSummary();
+    const row = md.split("\n").find((line) => line.includes(`| ${record().weapons[0]!.weaponId} |`));
+    expect(row).toBeDefined();
+    expect(row).toMatch(/\(n=\d+\)/);
   });
 
   it("renders a drawn-out matchup's meanWinnerHp as — rather than a fabricated 0.0 hp (fix round 3, defect 5)", () => {

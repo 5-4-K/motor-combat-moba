@@ -215,7 +215,7 @@ function renderWeaponTable(record: RunRecord): string {
     "Dmg/press",
     "Kit share",
     "Presses/min",
-    "First use (s)",
+    "First use (s, n)",
   ];
   const rows = record.weapons.map((w) => [
     w.weaponId,
@@ -234,7 +234,11 @@ function renderWeaponTable(record: RunRecord): string {
     w.presses === 0 ? "–" : fmt1(w.damagePerPress),
     formatPct(w.kitDamageShare) + " of kit",
     fmt1(w.pressesPerMinute),
-    w.meanFirstUseSeconds === null ? "never" : fmt1(w.meanFirstUseSeconds),
+    // The mean alone can't tell "fired once in fifty matches" apart from "fired in every match" —
+    // both would print as one bare number. `(n=…)` carries the sample size right next to it, out
+    // of `firstUseMatches`, so a reader does not have to cross-reference `Presses` to tell a
+    // stable habit apart from one lucky press.
+    w.meanFirstUseSeconds === null ? "never" : `${fmt1(w.meanFirstUseSeconds)} (n=${w.firstUseMatches})`,
   ]);
   const derivedNote = anyDerived
     ? "\n\n`Derived` damage is credited by INFERENCE through a status pulse — today only " +
