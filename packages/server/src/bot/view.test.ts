@@ -9,7 +9,8 @@ import {
 import { newCombatMemory, toCombatPlayers, type CombatMemory } from "../sim/combat-bridge.js";
 import { writeStatuses } from "../sim/status-bridge.js";
 import { makeRng } from "./rng.js";
-import { buildBotView } from "./view.js";
+import { buildBotView, snapshotWorld } from "./view.js";
+import { ViewRing } from "./view-ring.js";
 
 // Copied from `combat-bridge.test.ts` rather than invented: it is the same shape a real room
 // produces, and `buildBotView` must be tested against exactly that, not a hand-rolled stand-in.
@@ -99,5 +100,40 @@ describe("buildBotView fairness (B15, B16, B18)", () => {
 
   it("returns null when the bot's own car is gone", () => {
     expect(buildBotView({ ...fixture(), selfSessionId: "nobody" })).toBeNull();
+  });
+});
+
+describe("buildBotView view staleness (B19)", () => {
+  it("stalenessTicks 0, absent, and 0-with-a-ring-present all produce the identical others/instances", () => {
+    const f = fixture();
+    const noKnob = buildBotView(f)!;
+    const explicitZero = buildBotView({ ...f, stalenessTicks: 0 })!;
+    const zeroWithRing = buildBotView({ ...f, stalenessTicks: 0, ring: new ViewRing(4) })!;
+    expect(explicitZero.others).toEqual(noKnob.others);
+    expect(explicitZero.instances).toEqual(noKnob.instances);
+    expect(zeroWithRing.others).toEqual(noKnob.others);
+    expect(zeroWithRing.instances).toEqual(noKnob.instances);
+  });
+
+  it("nonzero stalenessTicks reads a past snapshot from the ring, not the live state", () => {
+    const f = fixture();
+    const ring = new ViewRing(8);
+    ring.push(snapshotWorld(f.state, f.combat)); // tick 0: p2 at x=600 (fixture default)
+
+    f.state.players.get("p2")!.x = 999; // world moves on...
+    f.state.tick = 3; // ...three ticks pass with no new snapshot pushed for them
+
+    const stale = buildBotView({ ...f, stalenessTicks: 3, ring })!;
+    expect(stale.others.find((o) => o.sessionId === "p2")?.x).toBe(600);
+
+    const live = buildBotView({ ...f, stalenessTicks: 0 })!;
+    expect(live.others.find((o) => o.sessionId === "p2")?.x).toBe(999);
+  });
+
+  it("falls back to the live world when the ring has nothing that old yet", () => {
+    const f = fixture();
+    f.state.tick = 2; // a fresh ring: nothing has ever been pushed
+    const view = buildBotView({ ...f, stalenessTicks: 5, ring: new ViewRing(8) })!;
+    expect(view.others.find((o) => o.sessionId === "p2")?.x).toBe(600); // live fixture position
   });
 });

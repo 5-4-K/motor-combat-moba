@@ -16,6 +16,24 @@ export interface BotProfile {
   readonly fireConeRad: number;
   /** Fire-mask pulse cadence, also read by the room (PG29). */
   readonly firePeriodTicks: number;
+  /**
+   * View staleness (B19): the world OTHER cars and instances are drawn from is this many ticks old
+   * — models the 20 Hz patch rate plus ping, distinct from `reactionTicks` (how often the bot
+   * RE-DECIDES) and from this field's own sibling below (the delay on acting once something is
+   * seen). 0 is live — every profile's value today, and the exact behaviour `buildBotView` had
+   * before this knob existed. Optional so a profile object built without it (a caller on the old
+   * shape) is read as 0 too, never as a crash. This work only builds the knob; the values below are
+   * the bot session's to set (spec 2026-09-03, B19).
+   */
+  readonly viewStalenessTicks?: number;
+  /**
+   * Reaction delay (B19): the gap between SEEING something and the bot's hands moving — a delay on
+   * the decision itself. `reactionTicks` above is a refresh rate, not a reaction time: a bot can be
+   * slow to re-decide and still respond instantly to what it currently sees. This is the knob that
+   * models real human latency. 0 is instant — every profile's value today. Optional for the same
+   * reason as `viewStalenessTicks`.
+   */
+  readonly reactionDelayTicks?: number;
 }
 
 /**
@@ -46,6 +64,11 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
     aimToleranceRad: 0.6,
     fireConeRad: 0.68,
     firePeriodTicks: 14,
+    // B19's two new knobs are machinery only in this work — every tier stays at 0 (a no-op) until
+    // the bot session sets real tier values. Written explicitly rather than left absent so a report
+    // printing `BOT_PROFILES` verbatim (B39) shows the knob exists, at its current (no-op) value.
+    viewStalenessTicks: 0,
+    reactionDelayTicks: 0,
   }),
   medium: Object.freeze({
     standoffUnits: 130,
@@ -54,7 +77,11 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
     aimToleranceRad: 0.45,
     fireConeRad: 0.52,
     firePeriodTicks: 7,
+    viewStalenessTicks: 0,
+    reactionDelayTicks: 0,
   }),
+  // `hard` is frozen and pinned BY VALUE in `bot/input.test.ts` — adding these two fields is fine
+  // (the spec says so explicitly), changing any of the original six numbers is not.
   hard: Object.freeze({
     standoffUnits: 70,
     deadbandUnits: 0,
@@ -62,5 +89,7 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
     aimToleranceRad: 0.3,
     fireConeRad: 0.35,
     firePeriodTicks: 2,
+    viewStalenessTicks: 0,
+    reactionDelayTicks: 0,
   }),
 });
