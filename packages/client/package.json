@@ -13,7 +13,7 @@
   "dependencies": {
     "@motor-combat-moba/shared": "*",
     "colyseus.js": "^0.15.0",
-    "phaser": "^3.80.0"
+    "phaser": "^4.2.1"
   },
   "devDependencies": {
     "typescript": "^5.5.0",

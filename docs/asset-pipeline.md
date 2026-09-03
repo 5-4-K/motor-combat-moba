@@ -400,7 +400,7 @@ spec and plan:
   nothing today and is the one thing that would otherwise have to be found and changed everywhere
   later.
 - **A texture atlas.** At six players and roughly twenty sprites, the GPU batching an atlas buys is
-  negligible — Phaser 3's WebGL renderer already binds many texture units at once. What an atlas
+  negligible — Phaser's WebGL renderer already binds many texture units at once. What an atlas
   would cost is exactly the friction this whole pipeline exists to avoid: changing one car's art
   means re-running a packer, two files change instead of one, the sheet itself is an unreviewable
   binary blob in git diffs, and packed neighbours risk edge-bleed fringing. If the online build's

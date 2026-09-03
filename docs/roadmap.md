@@ -13,9 +13,9 @@ text, and the open questions left for a human — read it before starting anythi
 **Device-pixel-ratio rendering (post-v1, unplanned).** The client renders a 1408x720 canvas (a
 1280x720 arena viewport plus the 128px HUD gutter) and lets the Scale Manager `FIT` it to the
 window, so on a Windows-scaled display (125–150 %, most 14" laptops) the browser upscales the
-finished frame and the whole picture is uniformly soft. Phaser 3 has no `resolution` switch (removed
-in 3.16), so native pixels would have to be built by hand — and it touches every scene, which is why
-it was split out of the 2026-08-25 scaling change:
+finished frame and the whole picture is uniformly soft. Phaser has no `resolution` switch (removed
+in 3.16 and not reinstated in 4.x), so native pixels would have to be built by hand — and it
+touches every scene, which is why it was split out of the 2026-08-25 scaling change:
 
 - game size becomes `VIEW_WIDTH·dpr × VIEW_HEIGHT·dpr` (read `devicePixelRatio` once at boot, cap at
   2 so a 4K@200 % desktop does not quadruple the fill), with `FIT` still displaying it at the same

@@ -1,6 +1,6 @@
 # Architecture
 
-npm workspaces: `@motor-combat-moba/shared`, `@motor-combat-moba/server`, `@motor-combat-moba/client`. TypeScript ESM. Colyseus `^0.15` + `@colyseus/schema` `^2`. Phaser 3 + Vite 5. Node 20+.
+npm workspaces: `@motor-combat-moba/shared`, `@motor-combat-moba/server`, `@motor-combat-moba/client`. TypeScript ESM. Colyseus `^0.15` + `@colyseus/schema` `^2`. Phaser 4 + Vite 5. Node 20+.
 
 One room: `ROOM_NAME` `"arena"`, class `ArenaRoom`, `maxClients = MAX_PLAYERS` (6); a second `arena` room is rejected with `4003` so LAN stays one room. Simulation interval uses `TICK_RATE_HZ` (30); patches use `DEFAULT_PATCH_RATE_HZ` (20).
 

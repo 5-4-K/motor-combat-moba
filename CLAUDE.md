@@ -1,6 +1,6 @@
 # Motor Combat MOBA
 
-LAN-hosted top-down 2D multiplayer car combat (last player/team standing, max 6). npm workspaces (`@motor-combat-moba/shared`, `@motor-combat-moba/server`, `@motor-combat-moba/client`), one Colyseus `arena` room (`ArenaRoom`), shared `stepSim` as the lockstep, Phaser 3 client. v1 is complete: lobby, car select, countdown, arcade driving with prediction, projectiles, ram knockback, elimination, spectate, last standing.
+LAN-hosted top-down 2D multiplayer car combat (last player/team standing, max 6). npm workspaces (`@motor-combat-moba/shared`, `@motor-combat-moba/server`, `@motor-combat-moba/client`), one Colyseus `arena` room (`ArenaRoom`), shared `stepSim` as the lockstep, Phaser 4 client. v1 is complete: lobby, car select, countdown, arcade driving with prediction, projectiles, ram knockback, elimination, spectate, last standing.
 
 **Statuses** are the sim's duration layer (`sim/status/`) — timed conditions a car is in, listed in
 `STATUS_TABLE`. Every channel is a **multiplier** with 1 as neutral, and `Modifiers` is the only type

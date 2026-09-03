@@ -1,6 +1,6 @@
 # `@motor-combat-moba/client`
 
-Phaser 3 render + join. Boot → Join → Lobby → Car select → Arena → Results, routed by `bindViewRouter`.
+Phaser 4 render + join. Boot → Join → Lobby → Car select → Arena → Results, routed by `bindViewRouter`.
 
 **Local invariant:** send inputs (and lobby intents) only — never authoritative sim state.
 

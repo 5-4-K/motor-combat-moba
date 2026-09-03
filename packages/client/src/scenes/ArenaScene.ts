@@ -57,6 +57,7 @@ import { arenaBorderRect, arenaColorsOf } from "./arena-visual.js";
 import { fitsViewport } from "./arena-camera.js";
 import { assetManifest, assetsReady } from "./BootScene.js";
 import { freshImpacts, newImpactTracker, type ImpactTracker } from "./impact-feedback.js";
+import { pts } from "./graphics-points.js";
 import { carFillOf, carShapeOf, deathFadeAlpha, hexagonPoints } from "./car-visual.js";
 import {
   dashGhostAlphas,
@@ -484,7 +485,7 @@ const FLAME_UNIT_POINTS: ReadonlyArray<{ readonly x: number; readonly y: number 
  * `strokePoints` call reads the array before returning. Anything that needs two flame outlines
  * ALIVE at once has to stop sharing this.
  */
-const flameScratch: Phaser.Geom.Point[] = FLAME_UNIT_POINTS.map(() => new Phaser.Geom.Point());
+const flameScratch: Phaser.Math.Vector2[] = FLAME_UNIT_POINTS.map(() => new Phaser.Math.Vector2());
 
 /** The subset of `PlayerState` the arena renders and predicts from. */
 interface ArenaPlayer {
@@ -1693,7 +1694,7 @@ export class ArenaScene extends Phaser.Scene {
         gfx.fillEllipse(0, 0, w, h);
         break;
       case "hex":
-        gfx.fillPoints(hexagonPoints(w, h), true);
+        gfx.fillPoints(pts(hexagonPoints(w, h)), true);
         break;
     }
     return gfx;
@@ -1721,7 +1722,10 @@ export class ArenaScene extends Phaser.Scene {
     if (!local || local.status !== PlayerStatus.IN_MATCH) return;
 
     gfx.fillStyle(ARROW_COLOR, ARROW_ALPHA);
-    gfx.fillPoints(countdownArrowPoints(pose.x, pose.y, arrowBobOffset(performance.now())), true);
+    gfx.fillPoints(
+      pts(countdownArrowPoints(pose.x, pose.y, arrowBobOffset(performance.now()))),
+      true,
+    );
   }
 
   /**
@@ -1745,10 +1749,10 @@ export class ArenaScene extends Phaser.Scene {
     const fraction = hpFraction(player.hp, player.carId);
 
     gfx.fillStyle(HP_BAR_BACK, 0.85);
-    gfx.fillPoints(hpBarPoints(pose, 1, HP_BAR_GEOMETRY), true);
+    gfx.fillPoints(pts(hpBarPoints(pose, 1, HP_BAR_GEOMETRY)), true);
     if (fraction <= 0) return;
     gfx.fillStyle(hpBarColor(allegiance), 1);
-    gfx.fillPoints(hpBarPoints(pose, fraction, HP_BAR_GEOMETRY), true);
+    gfx.fillPoints(pts(hpBarPoints(pose, fraction, HP_BAR_GEOMETRY)), true);
   }
 
   /**
@@ -1778,7 +1782,7 @@ export class ArenaScene extends Phaser.Scene {
     const outline = maneuverOutline(player.maneuver);
     if (outline) {
       gfx.lineStyle(outline.width, outline.color, 1);
-      gfx.strokePoints(hullOutlinePoints(pose, w, h), true);
+      gfx.strokePoints(pts(hullOutlinePoints(pose, w, h)), true);
       return;
     }
 
@@ -1789,7 +1793,7 @@ export class ArenaScene extends Phaser.Scene {
     for (let i = 0; i < alphas.length; i++) {
       const ghostPose = dashGhostPose(pose, player.maneuverAngle, offsets[i]!);
       gfx.lineStyle(DASH_GHOST_WIDTH, fill, alphas[i]!);
-      gfx.strokePoints(hullOutlinePoints(ghostPose, w, h), true);
+      gfx.strokePoints(pts(hullOutlinePoints(ghostPose, w, h)), true);
     }
   }
 
@@ -1865,12 +1869,12 @@ export class ArenaScene extends Phaser.Scene {
             );
         if (layers.length === 0) {
           gfx.fillStyle(weaponFillOf(instance.weaponId), alpha);
-          gfx.fillPoints(shape.points, true);
+          gfx.fillPoints(pts(shape.points), true);
           return;
         }
         for (const layer of layers) {
           gfx.fillStyle(layer.fill, alpha);
-          gfx.fillPoints(layer.points, true);
+          gfx.fillPoints(pts(layer.points), true);
         }
         return;
       }
@@ -2380,10 +2384,10 @@ export class ArenaScene extends Phaser.Scene {
    * closed polygon. Returns the shared `flameScratch` rather than a fresh array — read the result
    * before calling again.
    */
-  private flamePoints(cx: number, cy: number, r: number): Phaser.Geom.Point[] {
+  private flamePoints(cx: number, cy: number, r: number): Phaser.Math.Vector2[] {
     for (let i = 0; i < FLAME_UNIT_POINTS.length; i++) {
       const unit = FLAME_UNIT_POINTS[i]!;
-      flameScratch[i]!.setTo(cx + unit.x * r, cy + unit.y * r);
+      flameScratch[i]!.set(cx + unit.x * r, cy + unit.y * r);
     }
     return flameScratch;
   }
@@ -2430,7 +2434,7 @@ export class ArenaScene extends Phaser.Scene {
     fraction: number,
     dim: number,
   ): void {
-    const endAngle = HUD_SWEEP_START_ANGLE + fraction * Phaser.Math.PI2;
+    const endAngle = HUD_SWEEP_START_ANGLE + fraction * Phaser.Math.TAU;
     gfx.lineStyle(HUD_RING_WIDTH_PX, HUD_RING_COLOR, HUD_SWEEP_HOLDS_FULL ? 1 : dim);
     gfx.beginPath();
     gfx.arc(cx, cy, this.slotRingRadius(boxSize), HUD_SWEEP_START_ANGLE, endAngle, false);
