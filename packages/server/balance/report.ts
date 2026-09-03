@@ -156,6 +156,13 @@ function renderLimitations(): string {
     "- **Bot targeting drives kill distribution.** Who the bot chooses to shoot is a bot-tuning " +
       "decision, not a chassis property, and it will move every per-car number here again when " +
       "the bot improves.",
+    "- **`corroded` contributes damage without ever dealing any, and no attribution scheme untangles " +
+      "it (B5).** Its row is a pure amplifier (`modifiers: { damageTaken: 1.3 }`), applied only by " +
+      "`magmablast`'s explosion, so it never hits anyone itself — it makes whatever hits the " +
+      "carrier next land 30% harder, and that harder hit is credited entirely to whichever weapon " +
+      "landed it, including another player's. `magmablast`'s real contribution to a match therefore " +
+      "includes damage booked to other weapons' rows above; a per-weapon damage table is blind to " +
+      "amplifiers by construction, not by an oversight this report could fix.",
   ].join("\n");
 }
 

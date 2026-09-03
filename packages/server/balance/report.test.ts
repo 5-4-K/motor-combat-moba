@@ -215,6 +215,13 @@ describe("writeReport (B38, B39, B40)", () => {
     expect(md).toContain("run #1 validates the rig");
   });
 
+  it("states the corroded-amplifier caveat in the report body, not only the README (B5)", () => {
+    const md = readSummary().toLowerCase();
+    expect(md).toContain("corroded");
+    expect(md).toContain("magmablast");
+    expect(md).toContain("amplifier");
+  });
+
   it("leads the duel table with the mirror noise floor (B26a)", () => {
     const md = readSummary({ shape: "duel" });
     expect(md.indexOf("Mirror")).toBeLessThan(md.indexOf("Matchup matrix"));
