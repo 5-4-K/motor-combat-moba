@@ -253,7 +253,18 @@ function renderWeaponTable(record: RunRecord): string {
       "`overheated`, which `afterburner` applies — rather than measured directly off a damage " +
       "event. It is included in `Damage` above, not additional to it."
     : "";
-  return ["## Per-weapon", "", mdTable(headers, rows) + derivedNote].join("\n");
+  // B28a: the note belongs beside `Hit rate`, where the distortion actually bites, not buried in the
+  // Limitations section a reader may have already skimmed past.
+  const phasedNote =
+    "\n\n**`Hit rate` above is distorted by spawn protection.** A shot at a spawn-protected " +
+    "(`phased`) car produces no damage event at all — `runCombat` drops a phased car from the hit " +
+    "snapshot entirely — so that press reads as a MISS. This inflates every weapon's miss rate " +
+    "(depresses `Hit rate`) in proportion to how much of the match cars spent phased; see the " +
+    "per-car `Phased` column above to size it for this run. The harness cannot know whether a press " +
+    "was aimed at a real target or a departed ghost, so it cannot honestly reclassify those presses — " +
+    "sizing the distortion is the most it can do (B28a). **`last-standing` mode has no phasing at " +
+    "all**, making it the cleaner shape to run when hit-rate accuracy is the question.";
+  return ["## Per-weapon", "", mdTable(headers, rows) + derivedNote + phasedNote].join("\n");
 }
 
 /**

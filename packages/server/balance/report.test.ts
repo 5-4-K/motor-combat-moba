@@ -233,6 +233,13 @@ describe("writeReport (B38, B39, B40)", () => {
     expect(md).not.toContain("Matchup matrix");
   });
 
+  it("notes the phased/spawn-protection distortion beside the hit-rate column (B28a)", () => {
+    const weaponSection = readSummary().split("## Per-weapon")[1]!.split("## ")[0]!;
+    expect(weaponSection.toLowerCase()).toContain("phased");
+    expect(weaponSection.toLowerCase()).toContain("reads as a miss");
+    expect(weaponSection.toLowerCase()).toContain("last-standing");
+  });
+
   it("adds a Derived column to the weapon table when derivedDamage > 0, and omits it otherwise", () => {
     const md = readSummary();
     expect(md).toContain("Derived");
