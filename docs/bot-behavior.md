@@ -146,11 +146,23 @@ Named, scored, held for `stanceCommitTicks` unless a pre-emption fires (hp cross
 |---|---|---|
 | `engage` | a target is known and the bot is healthy | hold `preferredRange`, orbit by `orbitBias` |
 | `brawl` | a range-0 weapon is ready, or the bot intends a ram | close to `contactTriggerUnits` |
-| `kite` | target is closer than preferred, or the bot is losing the trade | hold range, back off, keep facing |
+| `kite` | target is closer than 60% of preferred range | hold range, back off, keep facing |
 | `disengage` | hp below `retreatHpFraction` | break contact, keep the target in arc where possible |
-| `reposition` | pinned against a wall or corner, or the shot has no line | move to open floor, hold fire |
+| `reposition` | pinned against a wall or corner | move to open floor, hold fire |
 | `hunt` | no target is currently known | sweep toward last-known or arena centre |
-| `recover` | dead, phased, or fully stunned — no control worth spending | coast |
+| `recover` | dead or phased — no control worth spending | coast |
+
+**Three of those cells differ from an earlier draft of the design spec, which this page originally
+copied verbatim — verify against `stance.ts`/`controller.ts` directly if you ever doubt this table
+again, not the spec.** `recover`'s gate (`controlLost`, defined identically in both `scoreStances`
+and the pre-emption check) is `!self.alive || hasStatus(self.statuses, "phased", tick)` — the bot's
+own `stunned` status is never read anywhere in `bot/brain/`; `stunned` is checked only against the
+*target*, in `firing.ts`, for ult discipline. `reposition`'s score is driven solely by
+`pinnedOnWall`; there is no line-of-sight check anywhere in the stance layer. `kite`'s score is a
+pure distance threshold (`distance < preferredRange * 0.6`); there is no HP or trade comparison in
+it anywhere. None of the three is a defect to fix here — if a bot should someday recover from being
+stunned, back off from a shot with no line, or kite a losing trade rather than a close one, that is a
+design decision for a later pass, not something this table gets to assert into existence.
 
 **Dodging is not one of the seven, and never will be.** It is a steering *desire* in the movement
 layer, blended alongside holding range and orbiting — never a stance that replaces `engage`. That is

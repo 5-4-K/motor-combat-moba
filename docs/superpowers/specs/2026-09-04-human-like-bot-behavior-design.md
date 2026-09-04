@@ -145,11 +145,22 @@ together as the brain grows.
 |---|---|---|
 | `Engage` | a target is known and the bot is healthy | hold `preferredRange`, orbit by `orbitBias` |
 | `Brawl` | a range-0 weapon is ready, or the bot intends a ram | close to `contactTriggerUnits` |
-| `Kite` | target is closer than preferred, or the bot is losing the trade | hold range, back off, keep facing |
+| `Kite` | target is closer than 60% of preferred range | hold range, back off, keep facing |
 | `Disengage` | hp below `retreatHpFraction` | break contact, keep the target in arc where possible |
-| `Reposition` | pinned against a wall or corner, or the shot has no line | move to open floor, hold fire |
+| `Reposition` | pinned against a wall or corner | move to open floor, hold fire |
 | `Hunt` | no target is currently known | sweep toward last-known or arena centre |
-| `Recover` | dead, phased, or fully stunned — no control worth spending | coast |
+| `Recover` | dead or phased — no control worth spending | coast |
+
+**Correction (2026-09-04, post-implementation, Task 10/12 review):** this table originally claimed
+`Recover` also fires on "fully stunned," `Reposition` also fires when "the shot has no line," and
+`Kite` also fires when "the bot is losing the trade." None of those three exist in the shipped
+`stance.ts`/`controller.ts` — `Recover`'s `controlLost` gate never reads the bot's own `stunned`
+status (only `firing.ts` reads `stunned`, and only on the *target*, for ult discipline);
+`Reposition`'s score is driven solely by `pinnedOnWall`, with no line-of-sight check anywhere in the
+stance layer; `Kite`'s score is a pure distance threshold, with no HP or trade comparison anywhere
+in it. The table above is corrected to what the code actually does. Whether the bot *should* someday
+do any of the three original claims is an open design question for a later pass, not something this
+spec gets to retroactively claim was built.
 
 Named stances give the legibility of a state machine (you can print one over the bot); scoring gives
 the wide parameter surface asked for, since every parameter becomes a weight rather than a threshold
