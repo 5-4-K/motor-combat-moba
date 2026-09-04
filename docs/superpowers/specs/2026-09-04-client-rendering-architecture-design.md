@@ -404,9 +404,9 @@ netcode spec (N23a) and on `RenderFrame`.
 
 ## 12. Open questions for the reviewer
 
-1. **The halo allowance (R8).** Today the rule is strict: nothing drawn exceeds the hitbox. A soft
-   additive halo to 1.5× at low alpha is the standard way a glow reads as a glow; if the strict rule
-   is preferred, glows shrink to the hitbox and lose some punch, and nothing else changes.
+1. **The halo allowance (R8) — resolved 2026-09-04: allowed.** The opaque core stays pinned to the
+   hitbox by the existing test; an additive halo may extend to 1.5× at ≤ 25 % alpha, and the test
+   is re-stated in those two terms.
 2. **Cooldown sweep: shader or sheet (R12).** One tiny `Shader` quad per slot is the cleanest; a
    60-frame baked sheet avoids GLSL in the codebase entirely. Either fits the budget.
 3. **Bloom at all (R19).** It is the only filter proposed and it is tier-gated; it can be dropped
