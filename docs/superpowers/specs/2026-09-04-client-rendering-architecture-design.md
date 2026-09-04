@@ -355,7 +355,12 @@ CI; on a real laptop it is the number an effect is judged against (R7). The node
 for this document becomes `scripts/bench-visual.mjs` and measures **bake** time, which is what the
 builders now cost.
 
-**R25 — Acceptance on a 2019 integrated-graphics laptop at 1080p, dpr 1.5, tier Medium.**
+**R25 — Acceptance on the reference machine.** Decided 2026-09-04: the floor is the 2019
+integrated-graphics laptop class — a four-core mobile CPU (Core i5-8250U or Ryzen 5 3500U class),
+Intel UHD 620 or Vega 8 graphics, 8 GB, 1080p at 60 Hz, 125–150 % display scaling — comfortable
+at tier Medium. The 2015–2017 dual-core class (HD 520/620, 4–8 GB) is the Low tier's job, caught by
+the auto-tier (R22) rather than by the acceptance table; budget hardware below that is not a
+target. Measured at 1080p, dpr 1.5, tier Medium:
 
 | Metric | Required |
 |---|---|
