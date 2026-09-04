@@ -896,6 +896,9 @@ sources of jitter (F2, F3).
    binary for the match, tied together by the roster message) and a later version migration
    confined to the lobby half; the cost avoided is rebuilding rooms, sessions, reconnect tokens and
    matchmaking, which a central server will need.
+8. **Transport (N12) — resolved 2026-09-04: WebSocket stays, behind the seam.** WebTransport is
+   evaluated in phase 6 alongside the move to a central server, whose real certificate removes the
+   pinning problem; WebRTC data channels are not pursued.
 
 ## 11. Stop-and-ask items this design touches
 
