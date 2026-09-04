@@ -891,6 +891,11 @@ sources of jitter (F2, F3).
    real advantage that this design does not equalise; and a central server hosting several
    matches needs per-room tuning and the singleton-arena rule lifted, which is server plumbing.
 6. **Ping (§1) — resolved 2026-09-04: round-trip.** The design point is 90 ms RTT, as assumed.
+7. **Keeping Colyseus (N24) — resolved 2026-09-04: keep.** For lifecycle, rooms, lobby and flow;
+   the match hot path bypasses it. The cost accepted is the two-channel split (schema for lobby,
+   binary for the match, tied together by the roster message) and a later version migration
+   confined to the lobby half; the cost avoided is rebuilding rooms, sessions, reconnect tokens and
+   matchmaking, which a central server will need.
 
 ## 11. Stop-and-ask items this design touches
 
