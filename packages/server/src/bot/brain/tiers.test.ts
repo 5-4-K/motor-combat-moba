@@ -103,18 +103,18 @@ describe("tier characterisation", () => {
     // (450 u, inside its 520 u awareness), far enough for hard to keep it a bad moment (700 u,
     // outside lance's 600 u half-reach, still inside hard's 900 u awareness).
     //
-    // TEST FIX (window): `chooseSlot` redraws `ultRoll` on EVERY recompute tick, not once per
-    // target (unlike the ram roll) — so "discipline" is a fresh coin flip each evaluation, and
-    // `ultDisciplineChance` 0.9 held for a genuinely unbounded number of evaluations is not a
-    // "hold" at all: P(never fires) = 0.9^n falls below 30% by n=12 and keeps falling, so the
-    // original 300-tick / 2-tick-cadence window (~140 evaluations after warm-up) makes hard firing
-    // eventually a near-certainty regardless of how disciplined 0.9 is meant to read — confirmed:
-    // hard fires at tick 46 for this scene at seed 17. That is a property of "asked forever", not
-    // of the tier value, and 0.9 is deliberately TF2's airblast-gating figure (see the profile's
-    // own comment), not a knob to inflate away the confound. A bounded engagement window is the
-    // fix: hard gets 40 ticks — acquire (5) plus commit (18) leaves it about a dozen real
-    // evaluations from tick 18 on, comfortably under its first observed slip at 46 — while easy,
-    // with zero discipline, presses on its first real opportunity well inside 90.
+    // MECHANISM FIX, not a test workaround: `chooseSlot` used to redraw `ultRoll` on EVERY
+    // recompute tick rather than once per (target, ready) episode — so "discipline" decayed
+    // geometrically (P(never fires) = 0.9^n keeps falling with every extra evaluation; over a real
+    // fight's worth of recomputes it is indistinguishable from zero) and hard was CERTAIN to burn
+    // the ult eventually no matter how long it took, which is not what "holds it for a stunned or
+    // wounded target" means. `chooseSlot` now rolls once when a slot enters a bad-moment episode
+    // and reuses that decision — held in `ultHold`, keyed per slot, on the controller — until the
+    // moment turns good (fires), the target changes, or the slot is spent and recharges (see the
+    // doc on `UltHoldEntry` in firing.ts, and firing.test.ts's own persisted-episode unit test).
+    // With that fixed, this can honestly ask the real question over a LONG engagement (600 ticks,
+    // far more evaluations than the old 40-tick workaround gave it) rather than hiding the defect
+    // behind a short window.
     const ultPressed = (tier: "easy" | "hard", x: number, ticks: number) => {
       const bot = new HumanController(tier);
       const rng = makeRng(17);
@@ -127,7 +127,7 @@ describe("tier characterisation", () => {
       return fired;
     };
     expect(ultPressed("easy", 650, 90)).toBe(true);
-    expect(ultPressed("hard", 900, 40)).toBe(false);
+    expect(ultPressed("hard", 900, 600)).toBe(false);
   });
 
   it("hard disengages when badly hurt and easy fights on (H37)", () => {
@@ -190,30 +190,64 @@ describe("tier characterisation", () => {
     // measuring `aimToleranceRad`, and comparing two different self positions would just be
     // measuring two different fights.
     //
-    // TEST FIX (tail slice, not the full stream): with NO target held yet, the "hunt" stance steers
-    // toward the ARENA CENTRE, not the wall — and x=1200 (near the wall) is also far from the
-    // centre (640) while x=640 sits exactly on it, so during the acquire+commit warm-up the two
+    // TEST FIX 1 (tail slice, not the full stream): with NO target held yet, the "hunt" stance
+    // steers toward the ARENA CENTRE, not the wall — and x=1200 (near the wall) is also far from
+    // the centre (640) while x=640 sits exactly on it, so during the acquire+commit warm-up the two
     // scenes disagree for a reason that has nothing to do with `wallLookaheadUnits`. Easy's long
     // `stanceCommitTicks` (45) keeps it in "hunt" for roughly the first 55 output ticks, so an
     // exact-equality comparison over the full 90 fails on that confound alone even though the wall
     // mechanism itself never fires for easy. Comparing only the settled tail (ticks 60-89, well
-    // past both tiers' acquire/commit/reaction-delay warm-up) isolates the wall effect: verified
-    // that in this tail, hard's steer is a constant nonzero value that flips sign between the two
-    // `x`s (a real, sustained wall push), while easy's is `0` in both.
-    const steers = (tier: "easy" | "hard", x: number) => {
+    // past both tiers' acquire/commit/reaction-delay warm-up) skips that warm-up window.
+    //
+    // TEST FIX 2 (what the tail slice actually shows, corrected after review): the earlier version
+    // of this comment claimed the tail's steer difference was "a real, sustained wall push" from
+    // `wallDesire`'s own `WALL_WEIGHT` contribution. It is not — confirmed by zeroing `WALL_WEIGHT`
+    // in `movement.ts`, which left every assertion below still passing. What actually drives the
+    // difference is `pinnedOnWall` (`wall !== undefined`, threaded into `scoreStances`), which
+    // raises `reposition`'s score above `engage`/`kite` only when the wall is inside
+    // `wallLookaheadUnits` — hard settles into `"reposition"` near the wall (x=1200) and `"kite"`
+    // away from it (x=640); easy's 40-unit look-ahead never reaches the wall at either position, so
+    // it stays in `"kite"` both times and the pinned gate never fires. `reposition`'s own case in
+    // `controller.ts` then steers toward `centreHeading` regardless of `WALL_WEIGHT`, which is what
+    // the tail's steer values are actually reading. The steer comparison below is kept because it
+    // is a real, honest hard-vs-easy difference (a player would see hard behave differently near a
+    // wall and easy not), but the assertion now also names the mechanism directly —
+    // `pinnedOnWall`/`"reposition"` — rather than implying a steering push that isn't what fires.
+    // `wallDesire` itself (the push, in isolation) is already covered by `movement.test.ts`; adding
+    // an integration-level check that specifically exercises `WALL_WEIGHT`'s own contribution would
+    // mean fighting the scene to make `reposition`'s desire NOT dominate, which is not worth the
+    // complexity for what would still only be re-proving `wallDesire`'s unit test through a second,
+    // noisier path.
+    const run2 = (tier: "easy" | "hard", x: number) => {
       const bot = new HumanController(tier);
       const rng = makeRng(17);
-      const out: number[] = [];
+      const steer: number[] = [];
+      let tailStance: string | undefined;
       for (let tick = 0; tick < 90; tick++) {
         const scene = view(tick, { others: [{ ...enemy, x: x + 200, y: 360 }], rng });
-        out.push(bot.decide({ ...scene, self: { ...scene.self, x, y: 360, angle: 0 } }).steer);
+        steer.push(bot.decide({ ...scene, self: { ...scene.self, x, y: 360, angle: 0 } }).steer);
+        if (tick >= 60) tailStance = bot.debug()?.stance;
       }
-      return out.slice(60).join(",");
+      return { steer: steer.slice(60).join(","), tailStance };
     };
     // Driving at x=1200 puts the far wall (1280) inside hard's 150-unit look-ahead and outside
     // easy's 40-unit one; x=640 is open floor for both.
-    expect(steers("hard", 1200)).not.toBe(steers("hard", 640));
-    expect(steers("easy", 1200)).toBe(steers("easy", 640));
+    const hardNearWall = run2("hard", 1200);
+    const hardOpenFloor = run2("hard", 640);
+    const easyNearWall = run2("easy", 1200);
+    const easyOpenFloor = run2("easy", 640);
+
+    // The mechanism, named directly: the wall gate flips hard into `reposition` and never touches
+    // easy at all.
+    expect(hardNearWall.tailStance).toBe("reposition");
+    expect(hardOpenFloor.tailStance).not.toBe("reposition");
+    expect(easyNearWall.tailStance).not.toBe("reposition");
+    expect(easyOpenFloor.tailStance).not.toBe("reposition");
+
+    // The downstream behavioural consequence: a real, honest hard-vs-easy difference, even though
+    // it flows through `reposition`'s own steering rather than `wallDesire`'s push.
+    expect(hardNearWall.steer).not.toBe(hardOpenFloor.steer);
+    expect(easyNearWall.steer).toBe(easyOpenFloor.steer);
   });
 });
 

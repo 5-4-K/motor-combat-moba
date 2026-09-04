@@ -3,7 +3,9 @@ import { slotsOf, weaponDefOf } from "@motor-combat-moba/shared";
 import { BOT_PROFILES } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import type { BotCarView, BotSelfView, BotSlotView } from "../types.js";
-import { chooseSlot, effectiveRangeOf, isUlt, preferredRangeOf, slotIsReady } from "./firing.js";
+import {
+  chooseSlot, effectiveRangeOf, isUlt, preferredRangeOf, slotIsReady, type UltHoldEntry,
+} from "./firing.js";
 
 function slotsFor(carId: "bullseye" | "mirage" | "bastion"): BotSlotView[] {
   return slotsOf(carId).map((weaponId) => ({
@@ -87,7 +89,7 @@ describe("chooseSlot", () => {
   it("presses nothing while the aim is outside the fire cone", () => {
     const out = chooseSlot({
       ...base, self: self("bullseye"), profile: BOT_PROFILES.hard,
-      aimDelta: 1.2, rng: makeRng(1),
+      aimDelta: 1.2, rng: makeRng(1), ultHold: new Map(),
     });
     expect(out.slot).toBeUndefined();
   });
@@ -95,7 +97,7 @@ describe("chooseSlot", () => {
   it("presses nothing before burstGapTicks has elapsed", () => {
     const out = chooseSlot({
       ...base, self: self("bullseye"), profile: BOT_PROFILES.hard,
-      tick: 1, lastPressTick: 0, rng: makeRng(1),
+      tick: 1, lastPressTick: 0, rng: makeRng(1), ultHold: new Map(),
     });
     expect(out.slot).toBeUndefined();
   });
@@ -103,6 +105,7 @@ describe("chooseSlot", () => {
   it("returns exactly one slot, never a mask (H27)", () => {
     const out = chooseSlot({
       ...base, self: self("bullseye"), profile: BOT_PROFILES.hard, rng: makeRng(1),
+      ultHold: new Map(),
     });
     expect(out.slot === undefined || Number.isInteger(out.slot)).toBe(true);
   });
@@ -122,11 +125,14 @@ describe("chooseSlot", () => {
   }
 
   it("a disciplined bot holds its ult against a full-hp target (H30)", () => {
+    // A fresh `ultHold` per seed, deliberately: each iteration is its OWN single-shot episode (a
+    // bot seeing this exact bad moment for the first time), not 40 recomputes of one continuous
+    // engagement — that continuous-engagement question belongs to the persisted-episode test below.
     let ultPresses = 0;
     for (let seed = 0; seed < 40; seed++) {
       const out = chooseSlot({
         ...base, self: ultOnly("bullseye"), profile: BOT_PROFILES.hard,
-        distance: 1100, rng: makeRng(seed),
+        distance: 1100, rng: makeRng(seed), ultHold: new Map(),
       });
       if (out.slot === 2) ultPresses++;
     }
@@ -138,11 +144,48 @@ describe("chooseSlot", () => {
     for (let seed = 0; seed < 40; seed++) {
       const out = chooseSlot({
         ...base, self: ultOnly("bullseye"), profile: BOT_PROFILES.easy,
-        distance: 1100, rng: makeRng(seed),
+        distance: 1100, rng: makeRng(seed), ultHold: new Map(),
       });
       if (out.slot === 2) ultPresses++;
     }
     expect(ultPresses).toBe(40); // ultDisciplineChance 0 never holds
+  });
+
+  /**
+   * The defect the review caught: rerolling `ultRoll` every recompute makes even a 90%-disciplined
+   * hard bot's hold decay geometrically toward a certainty of firing (0.9^n keeps falling with every
+   * extra evaluation — over a real fight's worth of recomputes it is indistinguishable from zero).
+   * The fix is a memo that survives across calls for as long as the (target, ready) episode does, so
+   * a genuinely long engagement — many more evaluations than the 40 single-shot draws above — must
+   * still show hard holding throughout, not just "less likely to have slipped yet".
+   */
+  it("holds the SAME decision across an entire engagement, not a fresh roll each recompute (H30)", () => {
+    // `rng` is ONE persistent stream across the whole loop, matching production (a bot's `Rng` lives
+    // for the room's lifetime) — a fresh `makeRng(seed)` per tick would replay the same draw at the
+    // same position every tick, which is a different bug this file does not want to reintroduce.
+    const ultHold = new Map<number, UltHoldEntry>();
+    const persistentRng = makeRng(7);
+    let ultPresses = 0;
+    for (let tick = 0; tick < 500; tick++) {
+      const out = chooseSlot({
+        ...base, self: ultOnly("bullseye"), profile: BOT_PROFILES.hard,
+        distance: 1100, tick, lastPressTick: -999, rng: persistentRng, ultHold,
+      });
+      if (out.slot === 2) ultPresses++;
+    }
+    expect(ultPresses).toBe(0);
+    // Reverting to a per-tick reroll (a brand-new `Map()` handed in on every iteration instead of
+    // the one shared above, so every tick looks like a fresh episode) makes this fail — confirmed.
+    const rerolledRng = makeRng(7);
+    let rerolledPresses = 0;
+    for (let tick = 0; tick < 500; tick++) {
+      const out = chooseSlot({
+        ...base, self: ultOnly("bullseye"), profile: BOT_PROFILES.hard,
+        distance: 1100, tick, lastPressTick: -999, rng: rerolledRng, ultHold: new Map(),
+      });
+      if (out.slot === 2) rerolledPresses++;
+    }
+    expect(rerolledPresses).toBeGreaterThan(0);
   });
 
   it("a good window lets the ult win the ranking against a better-value slot (H30)", () => {
@@ -150,7 +193,7 @@ describe("chooseSlot", () => {
     // anyway — otherwise "saves it for a wounded target" could never produce a press.
     const out = chooseSlot({
       ...base, self: self("bullseye"), profile: BOT_PROFILES.hard,
-      distance: 500, target: { ...target, hp: 5 }, rng: makeRng(1),
+      distance: 500, target: { ...target, hp: 5 }, rng: makeRng(1), ultHold: new Map(),
     });
     expect(out.slot).toBe(2);
   });
@@ -159,6 +202,7 @@ describe("chooseSlot", () => {
     const locked = { ...self("bullseye"), switchLockUntilTick: 50 };
     const out = chooseSlot({
       ...base, self: locked, profile: BOT_PROFILES.hard, tick: 10, rng: makeRng(1),
+      ultHold: new Map(),
     });
     // Slot 0 is what a fresh `lastFiredSlot` of -1 would refuse; nothing may be pressed under lock.
     expect(out.slot).toBeUndefined();
@@ -174,7 +218,7 @@ describe("chooseSlot", () => {
     };
     const out = chooseSlot({
       ...base, self: chargeOnly, profile: BOT_PROFILES.easy,
-      distance: 100, target: { ...target, x: 100, hp: 10 }, rng: makeRng(1),
+      distance: 100, target: { ...target, x: 100, hp: 10 }, rng: makeRng(1), ultHold: new Map(),
     });
     expect(out.slot).toBe(2);
   });
@@ -187,7 +231,7 @@ describe("chooseSlot", () => {
     };
     const out = chooseSlot({
       ...base, self: chargeOnly, profile: BOT_PROFILES.easy,
-      distance: 600, rng: makeRng(1),
+      distance: 600, rng: makeRng(1), ultHold: new Map(),
     });
     expect(out.slot).toBeUndefined();
   });

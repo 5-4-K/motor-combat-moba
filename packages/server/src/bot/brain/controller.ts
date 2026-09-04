@@ -4,7 +4,7 @@ import type {
   BotCarView, BotController, BotDebug, BotIntent, BotPersonality, BotView, StanceId,
 } from "../types.js";
 import { interceptPoint, newAimErrorState, signedDelta, stepAimError, type AimErrorState } from "./aim.js";
-import { chooseSlot, preferredRangeOf, slotIsReady } from "./firing.js";
+import { chooseSlot, preferredRangeOf, slotIsReady, type UltHoldEntry } from "./firing.js";
 import { applyHumanize, newHumanizeState, type HumanizeState } from "./humanize.js";
 import { blendHeading, dodgeDesires, orbitDesire, reduceToIntent, wallDesire, type Desire } from "./movement.js";
 import { activeThreats, knownCars, newPerception, perceive, type PerceptionState } from "./perception.js";
@@ -43,6 +43,12 @@ export class HumanController implements BotController {
   private perception: PerceptionState = newPerception();
   /** Tick of the last press this bot actually made, so `chooseSlot` can enforce `burstGapTicks`. */
   private lastPressTick = -999;
+  /**
+   * Per-slot ult discipline memo, owned here and mutated in place by `chooseSlot` (H30). Rolled once
+   * per (target, ready) episode rather than every recompute — see `UltHoldEntry`'s doc for why a
+   * per-tick reroll would make even a disciplined tier's "hold" decay to a certainty of firing.
+   */
+  private ultHold = new Map<number, UltHoldEntry>();
   /**
    * Per-slot preference, rolled per bot from personality (H47). `[1, 1, 1]` is neutral — every slot
    * weighted equally — until the first `decide` call replaces it.
@@ -273,6 +279,7 @@ export class HumanController implements BotController {
     const decision = chooseSlot({
       self, target: target ?? ABSENT_TARGET, distance, aimDelta, profile,
       weights: this.slotWeights, tick, lastPressTick: this.lastPressTick, rng: view.rng,
+      ultHold: this.ultHold,
     });
     const slot = mayFire ? decision.slot : undefined;
     if (slot !== undefined) this.lastPressTick = tick;

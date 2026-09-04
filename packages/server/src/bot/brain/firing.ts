@@ -91,13 +91,33 @@ export interface FireDecision {
 }
 
 /**
+ * One ult slot's held discipline decision for its current (target, ready) episode (H30).
+ *
+ * Keyed by slot index on the controller and mutated in place by `chooseSlot`, the same shape as
+ * `lastPressTick` — `chooseSlot` itself stays otherwise stateless. `holding` is rolled ONCE when a
+ * slot enters a bad-moment episode, then reused verbatim every subsequent tick that episode is
+ * still running: re-rolling every recompute would make even a 90%-disciplined tier's "hold" decay
+ * geometrically to a certainty of firing (0.9^n keeps falling with every extra evaluation), which is
+ * a coin that never stops flipping, not discipline. The episode ends — and the memo is cleared, so
+ * the NEXT bad moment gets its own fresh roll — the moment the slot goes not-ready (fired, or still
+ * mid-recharge) or the target changes; the moment turning good also clears it, because a good moment
+ * is the episode resolving by firing, not by continuing to hold.
+ */
+export interface UltHoldEntry {
+  targetSessionId: string;
+  holding: boolean;
+}
+
+/**
  * Which one slot to press this tick (H27).
  *
  * `beginFire` resolves at most one press per tick and takes the LOWEST set bit it can use, so a bot
  * that ORs every in-range slot fires slot 0 and essentially nothing else. Ranking and returning one
  * slot is what lets a chassis actually use its kit.
  *
- * Draws exactly two random numbers, always, in this order: the discipline roll and the ult roll.
+ * Draws exactly two random numbers, always, in this order: the discipline roll and the ult roll —
+ * this NEVER changes, regardless of whether the ult roll's value ends up used (H21): a draw that
+ * only happens on some ticks would make the stream depend on the branch.
  */
 export function chooseSlot(args: {
   self: BotSelfView;
@@ -109,8 +129,10 @@ export function chooseSlot(args: {
   tick: number;
   lastPressTick: number;
   rng: Rng;
+  /** Per-slot ult discipline memo, owned and persisted by the caller (H30). Mutated in place. */
+  ultHold: Map<number, UltHoldEntry>;
 }): FireDecision {
-  const { self, target, distance, aimDelta, profile, weights, tick, rng } = args;
+  const { self, target, distance, aimDelta, profile, weights, tick, rng, ultHold } = args;
 
   // Both drawn unconditionally, before any early return, so the stream stays aligned (H21).
   const disciplineRoll = rng();
@@ -131,7 +153,12 @@ export function chooseSlot(args: {
 
   for (let i = 0; i < self.slots.length; i++) {
     const slot = self.slots[i]!;
-    if (!slotIsReady(slot, tick)) continue;
+    if (!slotIsReady(slot, tick)) {
+      // Not ready: fired, or still mid-recharge. The episode that memo belonged to is over — the
+      // next time this slot is ready is a fresh one, and earns its own roll (H30).
+      ultHold.delete(i);
+      continue;
+    }
 
     const reach = slot.range > 0 ? slot.range : BRAIN_CONSTANTS.contactTriggerUnits;
     if (distance > reach) continue;
@@ -142,13 +169,27 @@ export function chooseSlot(args: {
         targetHpFraction <= profile.ultWindowHpFraction ||
         targetStunned ||
         distance <= reach / 2;
-      // Discipline is the probability of HOLDING when the moment is not good (H30).
-      if (!goodMoment && ultRoll < profile.ultDisciplineChance) continue;
-      // And when the moment IS good, the ult has to be able to WIN the ranking, or "saves it for a
-      // stunned target" is unobservable: every ult on this roster is worth less per second than the
-      // slot beside it (lance ~10.6/s against predator's 30/s), so raw value would pick the small
-      // gun forever and discipline would only ever read as "never fires the ult".
-      if (goodMoment) windowBonus = ULT_WINDOW_BONUS;
+      if (goodMoment) {
+        // The moment turning good resolves the episode by firing (the whole point of holding), so
+        // there is no held decision left to carry forward (H30).
+        ultHold.delete(i);
+        // And the ult has to be able to WIN the ranking, or "saves it for a stunned target" is
+        // unobservable: every ult on this roster is worth less per second than the slot beside it
+        // (lance ~10.6/s against predator's 30/s), so raw value would pick the small gun forever and
+        // discipline would only ever read as "never fires the ult".
+        windowBonus = ULT_WINDOW_BONUS;
+      } else {
+        // Discipline is the probability of HOLDING when the moment is not good (H30) — rolled ONCE
+        // per (target, ready) episode and held from there, not re-rolled every recompute.
+        const memo = ultHold.get(i);
+        const holding = memo && memo.targetSessionId === target.sessionId
+          ? memo.holding
+          : ultRoll < profile.ultDisciplineChance;
+        if (!memo || memo.targetSessionId !== target.sessionId) {
+          ultHold.set(i, { targetSessionId: target.sessionId, holding });
+        }
+        if (holding) continue;
+      }
     } else if (distance > reach * 0.9 && disciplineRoll < profile.fireDisciplineChance) {
       // A marginal shot at the very edge of reach: a disciplined bot waits, a sprayer takes it (H29).
       continue;
