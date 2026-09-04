@@ -913,6 +913,8 @@ sources of jitter (F2, F3).
     V4 consumes phase 4's events and proceeds on synthesised ones from the bench scene until they
     exist; each worktree runs its own `npm install` and build so it never inlines the other
     stream's shared `dist`.
+11. **Tick-rate override — resolved 2026-09-04: deleted in the wire phase (N11).** Nothing relies
+    on it.
 
 ## 11. Stop-and-ask items this design touches
 
