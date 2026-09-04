@@ -903,6 +903,16 @@ sources of jitter (F2, F3).
    leave the schema and every match message changes; the protocol hash (N11) refuses a mismatched
    join with a readable message, which is the guarantee the never-renumber rule existed to give.
    The rule stands for every field that remains.
+10. **Order of work — resolved 2026-09-04: two parallel streams after a shared preparation step.**
+    First, alone: split `ArenaScene.ts` mechanically into its net half and its render half with no
+    behaviour change, and write down the `RenderFrame` and event interfaces (N23, N23a) with a stub
+    that fills them from today's schema. Then the netcode phases (§8) and the rendering phases
+    (rendering spec §10) run in separate sessions and worktrees, each in its own order, merged into
+    `development/main` after every phase with the other stream rebased on it. Three couplings:
+    netcode phase 1 (60 Hz) lands before rendering V3 so beam timings are authored once; rendering
+    V4 consumes phase 4's events and proceeds on synthesised ones from the bench scene until they
+    exist; each worktree runs its own `npm install` and build so it never inlines the other
+    stream's shared `dist`.
 
 ## 11. Stop-and-ask items this design touches
 
