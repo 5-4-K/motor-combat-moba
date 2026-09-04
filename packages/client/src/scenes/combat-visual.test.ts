@@ -587,6 +587,23 @@ describe("beamDrawLayers", () => {
     }
   });
 
+  /**
+   * The one hazard the per-station scratch buffers introduce, pinned.
+   *
+   * `jetProfile` fills module-level `Float64Array`s and hands them straight back rather than
+   * copying — worth ~240 array allocations a frame for a full room, and safe only because
+   * `conePoints` consumes them before anything else can call it. This asserts that: a flame drawn
+   * between two draws of another flame must not change either of them. If someone ever makes the
+   * draw path re-entrant, this is what fails, and the fix is a buffer pool rather than these.
+   */
+  it("does not leak its shared scratch buffers between flames drawn back to back", () => {
+    const alone = beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 0, 640);
+    beamDrawLayers("afterburner", 90, -40, 1.7, 137, 0, 2100);
+    beamDrawLayers("tremor", 0, 0, 0, 400, 0, 640);
+    const afterOthers = beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 0, 640);
+    expect(afterOthers).toEqual(alone);
+  });
+
   it("draws the same flame twice for the same clock, so a frame never fizzes against itself", () => {
     // The reason the noise is a hash of the station index rather than `Math.random`: two calls at
     // one instant — the two mirrored cones of a single press, or a re-render — must agree.

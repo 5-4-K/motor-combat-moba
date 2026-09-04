@@ -1468,16 +1468,23 @@ function conePoints(
     return fan;
   }
 
-  const flow = jetFlow(layer, style, nowMs, index);
+  const flow = jetProfile(layer, style, nowMs, index);
   const tan = Math.tan(half);
 
   /**
    * Place a station's vertex, clamped into the cone. Structural, not an argument.
    */
+  // The heading's sine and cosine, hoisted out of the station loop. `rotateBy` takes the angle and
+  // computes both per call, which is correct for the handful of vertices every other caller places
+  // and wrong here: a jet places ~200 a layer, so leaving it in cost two trig calls a vertex and
+  // ~25,000 a frame for a full room. Same arithmetic, computed once.
+  const cos = Math.cos(heading);
+  const sin = Math.sin(heading);
   const put = (along: number, across: number): { x: number; y: number } => {
     const a = Math.max(0, Math.min(reach, along));
     const lim = tan * a;
-    return rotateBy(x, y, heading, a, Math.max(-lim, Math.min(lim, across)));
+    const c = Math.max(-lim, Math.min(lim, across));
+    return { x: x + a * cos - c * sin, y: y + a * sin + c * cos };
   };
 
   const near: { x: number; y: number }[] = [];
@@ -1509,15 +1516,15 @@ function conePoints(
     // sides have nothing to do with each other. Two noise fields, one per edge, for one extra
     // sample a station.
     const base = limit * mouth;
-    let wNear = base * (1 - billow * flow.rough(s, 0));
-    let wFar = base * (1 - billow * flow.rough(s, 1));
+    let wNear = base * (1 - billow * flow.near[i]!);
+    let wFar = base * (1 - billow * flow.far[i]!);
     if (s > JET_ROD_FRACTION && breakUp > 0) {
       // Past the rod. Both edges are pinched by ONE shared term — a neck is a neck, and pinching
       // them independently would slide the flame sideways rather than tearing it. Sharpened toward
       // its extremes so the ribbon necks to nothing in places rather than thinning evenly, which is
       // what sheds a mass instead of tapering to a point.
       const past = (s - JET_ROD_FRACTION) / (1 - JET_ROD_FRACTION);
-      const n = flow.rough(s + 0.37, 2);
+      const n = flow.pinch[i]!;
       const pinch = 1 - breakUp * past * (n * n * (3 - 2 * n));
       wNear *= pinch;
       wFar *= pinch;
@@ -1527,7 +1534,7 @@ function conePoints(
 
     // Bounded by the room the widest edge leaves, so a swooping centreline can never push either
     // edge past the cone's wall.
-    const centre = (flow.swoop(s) - 0.5) * 2 * wander * Math.max(0, limit - Math.max(wNear, wFar));
+    const centre = (flow.swoop[i]! - 0.5) * 2 * wander * Math.max(0, limit - Math.max(wNear, wFar));
     near.push(put(along, centre - wNear));
     far.push(put(along, centre + wFar));
   }
@@ -1535,79 +1542,167 @@ function conePoints(
 }
 
 /**
- * The travelling noise field one flame layer reads: `rough` for the silhouette, `swoop` for the
- * centreline. Both take an axial station in `[0, 1]` and return `[0, 1]`.
- *
- * Its own function because the field is the flame — the octave mix, the advection and the seeding
- * are one decision, and splitting them across the two callers is how a shed mass ends up drifting
- * at a different speed from the fire it left and reading as a decal stuck on top of it.
+ * How far past a station the break-up pinch reads its noise. See `conePoints`.
  */
-function jetFlow(
+const JET_PINCH_LOOKAHEAD = 0.37;
+
+/**
+ * Seed offsets that separate the three octaves' noise streams. Arbitrary primes, pinned in one
+ * place so the shape cannot drift — changing one changes the flame, which is a look edit, not a
+ * refactor.
+ */
+const JET_OCTAVE_SEEDS = [0, 131, 263];
+
+/**
+ * Per-station scratch for a flame's noise fields, reused across every call.
+ *
+ * **Module-level mutable state, deliberately, and safe for one specific reason**: `jetProfile` fills
+ * these and `conePoints` consumes them entirely before returning, in one synchronous stretch with
+ * no await, no callback and no re-entry. Nothing holds a reference past the call that made it. The
+ * alternative is four 97-entry `Float64Array`s allocated per layer per instance per frame — 240 a
+ * frame for a full room, which is exactly the per-frame allocation the client's perf note says to
+ * warn about before adding.
+ *
+ * Anything that ever makes the draw path re-entrant — drawing two flames in one interleaved pass,
+ * or a generator — has to give each its own buffers, and the fix is a pool rather than these.
+ */
+const JET_NEAR = new Float64Array(JET_STATIONS + 1);
+const JET_FAR = new Float64Array(JET_STATIONS + 1);
+const JET_PINCH = new Float64Array(JET_STATIONS + 1);
+const JET_SWOOP = new Float64Array(JET_STATIONS + 1);
+const JET_TMP_MID = new Float64Array(JET_STATIONS + 1);
+const JET_TMP_FINE = new Float64Array(JET_STATIONS + 1);
+
+/**
+ * The window of whole noise indices one octave spans across the stations. Sized for the finest
+ * octave the shipped constants ask for, with room to spare; `octaveInto` falls back to a fresh
+ * array rather than truncating if a future tuning outgrows it.
+ */
+const JET_WINDOW = new Float64Array(64);
+
+/**
+ * Fill `out[i]` with one octave's interpolated value at each station, shifted along by `sShift`.
+ *
+ * **This is the shape of the whole optimisation.** The octaves are deliberately low-frequency — the
+ * coarse one spans only `JET_COARSE_WAVES` whole indices across all 96 stations — so consecutive
+ * stations land on the same `floor(p)` again and again. Sampling the window ONCE and then walking
+ * the stations turns what was two hashes per endpoint per station into two hashes per window entry:
+ * about fourteen times less hashing, measured.
+ *
+ * The window slides as `carried` convects the pattern outward, but its WIDTH is fixed by the
+ * octave's own scale, so it stays a handful of entries however long the match has run.
+ */
+function octaveInto(
+  out: Float64Array,
+  gen: (i: number, offset: number) => number,
+  offset: number,
+  carried: number,
+  scale: number,
+  sShift: number,
+): void {
+  const p0 = (sShift - carried) * scale;
+  const p1 = (1 + sShift - carried) * scale;
+  const lo = Math.floor(p0);
+  const count = Math.max(2, Math.floor(p1) - lo + 2);
+  const buf = count <= JET_WINDOW.length ? JET_WINDOW : new Float64Array(count);
+  for (let k = 0; k < count; k++) buf[k] = gen(lo + k, offset);
+
+  const step = (p1 - p0) / JET_STATIONS;
+  let p = p0;
+  for (let i = 0; i <= JET_STATIONS; i++, p += step) {
+    const i0 = Math.floor(p);
+    const f = p - i0;
+    // Smoothstep, so a wave is a wave rather than a staircase and there is no velocity
+    // discontinuity where two window entries hand over.
+    const w = f * f * (3 - 2 * f);
+    // The window covers every station by construction, so this clamp never binds. It is here so a
+    // future caller reaching outside the range lands on the nearest entry rather than reading past
+    // the buffer and painting NaN.
+    const k = Math.max(0, Math.min(count - 2, i0 - lo));
+    out[i] = buf[k]! + (buf[k + 1]! - buf[k]!) * w;
+  }
+}
+
+/**
+ * Fill `out[i]` with the flame's roughness at each station for one edge: three octaves, contrasted,
+ * biased, in `[0, 1]`.
+ */
+function roughInto(
+  out: Float64Array,
+  gens: ((i: number, offset: number) => number)[],
+  carried: number,
+  edge: number,
+  sShift: number,
+): void {
+  const step2 = JET_OCTAVE_STEP * JET_OCTAVE_STEP;
+  octaveInto(out, gens[0]!, 211 + edge * 6151, carried, JET_COARSE_WAVES, sShift);
+  octaveInto(JET_TMP_MID, gens[1]!, 308 + edge * 6151, carried, JET_COARSE_WAVES * JET_OCTAVE_STEP, sShift);
+  octaveInto(JET_TMP_FINE, gens[2]!, 405 + edge * 6151, carried, JET_COARSE_WAVES * step2, sShift);
+
+  const w0 = JET_OCTAVE_WEIGHTS[0]!;
+  const w1 = JET_OCTAVE_WEIGHTS[1]!;
+  const wf = JET_OCTAVE_WEIGHTS[2]!;
+  const bodyWeight = w0 + w1;
+  for (let i = 0; i <= JET_STATIONS; i++) {
+    // The two structural octaves, contrasted, then the fine one added ON TOP of the result.
+    //
+    // Order matters and this was worth getting wrong once. Summed octaves pile up around their
+    // mean, so a raw sum is mostly mid-grey and the edge comes out as a gentle undulation — a
+    // flame's boundary is mostly-full with sharp bites out of it, not a sine wave. Two smoothsteps
+    // put the bites back. But running the FINE octave through the same curve flattens it into the
+    // shoulders it is supposed to be roughening, which is how an edge ends up smooth however many
+    // octaves you claim to have summed.
+    const a = clamp01((w0 * out[i]! + w1 * JET_TMP_MID[i]!) / bodyWeight);
+    const b = a * a * (3 - 2 * a);
+    const shaped = b * b * (3 - 2 * b);
+    // Biased toward 0, and this is a D19 fix as much as a look. `rough` SHRINKS the flame, so a
+    // field averaging 0.5 costs half the authored `billow` at every station and the drawn flame
+    // ends up permanently narrower than the cone that burns — measured at 49% of the hitbox's width
+    // before this line existed, which is a player at the cone's edge being set on fire by something
+    // they cannot see. A flame's boundary is mostly-full with bites taken out of it, so the field
+    // should be mostly-0 with excursions, not centred. The deep bites still reach.
+    out[i] = Math.pow(clamp01(shaped * (1 - wf) + JET_TMP_FINE[i]! * wf), JET_BITE);
+  }
+}
+
+/**
+ * The travelling noise fields one flame layer reads, as per-station arrays: `near` and `far` roughen
+ * the two edges independently, `pinch` tears the tip, `swoop` bends the centreline.
+ *
+ * Its own function because the field IS the flame — the octave mix, the advection and the seeding
+ * are one decision, and splitting them across the two callers is how a shed mass ends up drifting at
+ * a different speed from the fire it left and reading as a decal stuck on top of it.
+ *
+ * **Returns the shared scratch buffers, not copies.** Consume them before calling this again; see
+ * `JET_NEAR` for why that is safe here and what would break it.
+ */
+function jetProfile(
   layer: BeamLayer,
   style: BeamStyle,
   nowMs: number,
   index: number,
-): { rough: (s: number, edge: number) => number; swoop: (s: number) => number } {
+): { near: Float64Array; far: Float64Array; pinch: Float64Array; swoop: Float64Array } {
   const hz = Math.max(0, layer.flameHz ?? style.flameHz ?? 0);
   const advect = Math.max(0, layer.advect ?? 0);
   // `phase` is what lets two layers share one flame — see `BeamLayer.phase`.
   const group = layer.phase ?? index;
-  const octaves = [
-    flowingNoise(nowMs, hz, group),
-    flowingNoise(nowMs, hz * JET_OCTAVE_RATE, group + 131),
-    flowingNoise(nowMs, hz * JET_OCTAVE_RATE * JET_OCTAVE_RATE, group + 263),
-  ];
-  const swoopNoise = flowingNoise(nowMs, hz, group + 397);
-
   // How far the pattern has been carried out of the nozzle, in flame lengths. This is the
   // convection, and it is the difference between fire and bunting.
   const carried = (Math.max(0, nowMs) / 1000) * advect;
 
-  /** Smooth interpolation between whole stations, so a wave is a wave rather than a staircase. */
-  const at = (
-    gen: (i: number, offset: number) => number,
-    p: number,
-    offset: number,
-  ): number => {
-    const i0 = Math.floor(p);
-    const f = p - i0;
-    const w = f * f * (3 - 2 * f);
-    const a = gen(i0, offset);
-    return a + (gen(i0 + 1, offset) - a) * w;
-  };
+  const gens = JET_OCTAVE_SEEDS.map((seed, o) =>
+    flowingNoise(nowMs, hz * Math.pow(JET_OCTAVE_RATE, o), group + seed),
+  );
 
-  return {
-    rough: (s, edge) => {
-      const p = (s - carried) * JET_COARSE_WAVES;
-      // The two structural octaves, contrasted, then the fine one added ON TOP of the result.
-      //
-      // Order matters and this was worth getting wrong once. Summed octaves pile up around their
-      // mean, so a raw sum is mostly mid-grey and the edge comes out as a gentle undulation — a
-      // flame's boundary is mostly-full with sharp bites out of it, not a sine wave. Two
-      // smoothsteps put the bites back. But running the FINE octave through the same curve flattens
-      // it into the shoulders it is supposed to be roughening, which is how an edge ends up smooth
-      // however many octaves you claim to have summed.
-      let body = 0;
-      for (let o = 0; o < 2; o++) {
-        body +=
-          JET_OCTAVE_WEIGHTS[o]! *
-          at(octaves[o]!, p * Math.pow(JET_OCTAVE_STEP, o), 211 + o * 97 + edge * 6151);
-      }
-      const a = clamp01(body / (JET_OCTAVE_WEIGHTS[0]! + JET_OCTAVE_WEIGHTS[1]!));
-      const b = a * a * (3 - 2 * a);
-      const shaped = b * b * (3 - 2 * b);
-      const fine = at(octaves[2]!, p * Math.pow(JET_OCTAVE_STEP, 2), 405 + edge * 6151);
-      const w = JET_OCTAVE_WEIGHTS[2]!;
-      // Biased toward 0, and this is a D19 fix as much as a look. `rough` SHRINKS the flame, so a
-      // field averaging 0.5 costs half the authored `billow` at every station and the drawn flame
-      // ends up permanently narrower than the cone that burns — measured at 49% of the hitbox's
-      // width before this line existed, which is a player at the cone's edge being set on fire by
-      // something they cannot see. A flame's boundary is mostly-full with bites taken out of it, so
-      // the field should be mostly-0 with excursions, not centred. The deep bites still reach.
-      return Math.pow(clamp01(shaped * (1 - w) + fine * w), JET_BITE);
-    },
-    swoop: (s) => at(swoopNoise, (s - carried) * JET_COARSE_WAVES * 0.45, 31),
-  };
+  // Three edges, not two: the near edge, the far edge, and the break-up pinch, which reads a third
+  // independent field so a neck never lands exactly on a bite.
+  roughInto(JET_NEAR, gens, carried, 0, 0);
+  roughInto(JET_FAR, gens, carried, 1, 0);
+  roughInto(JET_PINCH, gens, carried, 2, JET_PINCH_LOOKAHEAD);
+  // The centreline reads a single slow octave — a swoop is one bend down the plume, not a texture.
+  octaveInto(JET_SWOOP, flowingNoise(nowMs, hz, group + 397), 31, carried, JET_COARSE_WAVES * 0.45, 0);
+
+  return { near: JET_NEAR, far: JET_FAR, pinch: JET_PINCH, swoop: JET_SWOOP };
 }
 
 /**
