@@ -918,7 +918,11 @@ sources of jitter (F2, F3).
 
 - **Drive model: the 60 Hz tick (N1a), authorised by the user on 2026-09-04.** `stepDrive` and
   `stepSim` are unchanged in code, but the step halves and three tick-authored behaviours are
-  hand-retuned (N1a names them). Everything else in the drive model is untouched. `angle` is wrapped **on the wire**
+  hand-retuned (N1a names them). Everything else in the drive model is untouched.
+- **Angle normalisation — resolved 2026-09-04: on the wire only, and that is enough.** Because the
+  server adopts its own quantised state after every tick (N9), the angle is wrapped to the 16-bit
+  range on the server each tick as a side effect, and every client resim starts from that wrapped
+  value; the number never grows on either side. `stepDrive` is not edited for it. `angle` is wrapped **on the wire**
   only (N9); the client's local body keeps its unbounded angle and every comparison is already
   wrapped. If the reviewer prefers normalising `angle` inside `stepDrive` for cleanliness, that is a
   drive-model edit and is called out here rather than done.
