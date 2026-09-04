@@ -883,8 +883,14 @@ sources of jitter (F2, F3).
 4. **The user's own note — resolved 2026-09-04: reconciled.** See §13. The file named in the ram
    spec was superseded by `docs/ideas/claude-cursor-netcode-consolidated-architecture-proposal.md`
    (2026-08-30), which is what this document was reconciled against.
-5. **Hosting.** This design assumes the current model: one player runs the server and others
-   connect to it over the internet. Nothing here adds hosting; nothing here prevents it.
+5. **Hosting — resolved 2026-09-04: player-hosted now, a central server later; no decision depends
+   on it.** Three choices were made so the switch is configuration: the transport seam (N12, where
+   a central server's real certificate makes WebTransport worth evaluating), the `snapshotEvery`
+   fallback (N9, which exists only for a home upload), and the per-room protocol hash (N11). Two
+   things to carry forward: a player-hosted server gives the host zero latency and therefore a
+   real advantage that this design does not equalise; and a central server hosting several
+   matches needs per-room tuning and the singleton-arena rule lifted, which is server plumbing.
+6. **Ping (§1) — resolved 2026-09-04: round-trip.** The design point is 90 ms RTT, as assumed.
 
 ## 11. Stop-and-ask items this design touches
 
