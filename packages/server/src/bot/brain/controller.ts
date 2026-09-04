@@ -37,9 +37,12 @@ export class HumanController implements BotController {
    * — every slot weighted equally — until that task replaces it.
    */
   private slotWeights: readonly number[] = [1, 1, 1];
-  /** The range and slot `chase` last computed, threaded into `debug()` (H12). */
+  /**
+   * The range `chase` last computed, threaded into `debug()` (H12). Reset to 0 on the no-target
+   * path in `decide()` — `chase()` does not run that tick, so nothing would otherwise overwrite a
+   * stale value left over from when the bot last had a target.
+   */
   private lastPreferredRange = 0;
-  private lastFiredSlot: number | undefined;
 
   constructor(
     profileId: BotDifficulty,
@@ -75,7 +78,14 @@ export class HumanController implements BotController {
 
     // LAYER 2/3/4 — assess, move, shoot, on the recompute cadence (Tasks 4-6)
     if (this.shouldRecompute(view.tick)) {
-      this.held = target ? this.chase(view, target) : COAST;
+      if (target) {
+        this.held = this.chase(view, target);
+      } else {
+        // No target: `chase()` does not run, so nothing in it would reset `lastPreferredRange` —
+        // do it here, or the overlay keeps showing a range for a fight that no longer exists.
+        this.held = COAST;
+        this.lastPreferredRange = 0;
+      }
     }
 
     this.lastDebug = {
@@ -85,7 +95,10 @@ export class HumanController implements BotController {
       targetSessionId: this.target,
       preferredRange: this.lastPreferredRange,
       personality: "brawler",
-      firedSlot: this.lastFiredSlot,
+      // Derived from `this.held` itself, every tick, rather than cached alongside it (as
+      // `lastFiredSlot` briefly was) — that let the debug object disagree with the intent actually
+      // returned this tick once the no-target path started skipping `chase()` (H12 review fix).
+      firedSlot: this.held.fireSlots === 0 ? undefined : Math.log2(this.held.fireSlots),
     };
 
     // LAYER 5 — humanize (Task 7 replaces this with `applyHumanize()`)
@@ -135,7 +148,6 @@ export class HumanController implements BotController {
       weights: this.slotWeights, tick: view.tick, lastPressTick: this.lastPressTick, rng: view.rng,
     });
     if (decision.slot !== undefined) this.lastPressTick = view.tick;
-    this.lastFiredSlot = decision.slot;
     const fireSlots = decision.slot === undefined ? 0 : 1 << decision.slot;
 
     return { steer, throttle, fireSlots };
