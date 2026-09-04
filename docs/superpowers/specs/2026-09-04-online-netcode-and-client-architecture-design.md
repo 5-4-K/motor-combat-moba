@@ -344,9 +344,16 @@ Instances   count u8 · per instance: owner u8 · shotSeq u16 · weapon u8 · x 
 Events      count u8 · per event: kind u8 · tick-relative i8 · payload (§6.8)
 ```
 
-Quantisation: positions in 1/8 unit (a 2000 × 2000 arena fits `u16`), angle in 2π/65536, speeds
-and knocks in 1/16 u/s, ticks relative to the header tick as `i16` (the longest timer on the roster
-is `wildcharge`'s 600-tick cooldown). Session ids are replaced by a **car index** assigned at
+Quantisation: positions in **1/16 unit** (15 bits of x and 14 of y for a 2000 × 2000 arena, packed
+into a `u16` each with headroom for arena-02), angle in 2π/65536, speeds and knocks in 1/16 u/s,
+ticks relative to the header tick as `i16` (the longest timer on the roster is `wildcharge`'s
+600-tick cooldown). **The server adopts its own quantised state as authoritative**: after each tick
+it rounds every transmitted field in place, so what the client receives *is* the server's state and
+a resim from a snapshot reproduces the server to the ULP. Without that rule every client would sit
+permanently a fraction of a quantum off true and the divergence metric (§7) would measure rounding
+noise instead of bugs. 1/16 rather than 1/8 because quantised positions are fed back into a
+collision solve, not merely drawn, and contact normals amplify position error into different
+push-outs; the cost is a few bytes per snapshot. Session ids are replaced by a **car index** assigned at
 match start and published in the reliable roster message (N24); `sourceSessionId` and
 `lockTargetSessionId` become indices. Steady state for 6 cars and 20 instances is
 **≈ 620 bytes per tick, ≈ 19 KB/s, ≈ 150 kbit/s per client**, under 1 Mbit/s upstream for a home
@@ -358,8 +365,18 @@ snapshot rate is the tick rate or an integer divisor of it, and a snapshot alway
 of one whole tick.* A `snapshotEvery` knob (1) exists for a constrained host and is exercised by the
 harness at 2.
 
-**N10 — Binary input.** `tick u32 · steer 2 bits · throttle 2 bits · fire 3 bits` in one byte, 5
-bytes total, sent every local tick. No redundancy: the transport is reliable and ordered (N12).
+**N10 — Binary input.** `tick u32 · count u8 · inputs[count]`, each input `steer 2 bits ·
+throttle 2 bits · fire 3 bits` in one byte for ticks `tick − count + 1 … tick`. The codec carries a
+run so that an unreliable transport (N12's later option) can send the last 4–8 inputs redundantly
+and a lost datagram costs nothing; over the reliable WebSocket path the client sends `count = 1`,
+6 bytes, every local tick.
+
+**N10a — Inputs are sampled from key events, not from key state per tick.** The client records
+`keydown`/`keyup` with `event.timeStamp` (using `KeyboardEvent.code`, ignoring `event.repeat`) and
+buckets each transition into the local tick it falls in. Sampling key state once per tick on a
+30 fps machine quantises every press to the frame the tick loop happened to run in, which is a
+real difference between a 30 fps and a 144 fps player; event timestamps make the tick a press
+lands on independent of frame rate.
 
 **N11 — Protocol hash at join.** The server's join response carries
 `hash(codec version, TICK_RATE_HZ in effect, CAR_TABLE, WEAPON_TABLE, STATUS_TABLE, DRIVE_CONFIG,
@@ -456,13 +473,38 @@ the baseline; past it the car holds. Remotes' knocks, statuses and maneuver fiel
 snapshot and are integrated forward exactly as the server integrates them, so a remote mid-spin
 keeps spinning between snapshots.
 
-What this costs, quantified for the design point. The baseline is ≈ RTT/2 + buffer ≈ 2.5 ticks old;
-the local present is `lead` ≈ 3 ticks ahead of the server; a remote is therefore extrapolated ≈ 5–6
-ticks (170–200 ms). For a remote that keeps its input, error is zero. For a Mirage that reverses its
-steer at the worst moment, the heading error at the moment of correction is up to 5 × 15.6° = 78°
-and the position error is the chord of that arc — about 18 u lateral, corrected over 120 ms. That
-is the largest visible artefact in this design, and it is the artefact Rocket League ships at the
-same numbers.
+What this costs, quantified for the design point — **corrected on 2026-09-04 after reconciling with
+the user's consolidated note (§13), which showed the first draft's "about 18 u" understated this by
+computing a chord instead of integrating the turn.** The baseline is one-way latency plus the jitter
+buffer old (45–78 ms); the local present is `lead` (100 ms) ahead of the server; a remote is
+therefore extrapolated over a window `W` of **145–178 ms**. Error is exactly zero while the remote
+holds its input. When it changes input at the start of the window, the error is set by the steering
+term `v·ω`, which for a Mirage is 3,681 u/s² — three and a half times its throttle authority — and
+it grows with `W²`:
+
+| Window `W` | Straight → full turn | Full steer reversal (worst) | Throttle change | Interpolated past at the same buffer (unconditional) |
+|---|---|---|---|---|
+| 112 ms (lead 2, no buffer) | 23 u | 43 u | 10 u | 35 u |
+| 145 ms (lead 3, no buffer) | 37 u | 69 u | 17 u | 35 u |
+| 178 ms (lead 3, 1-tick buffer) | 55 u | 97 u | 25 u | 50 u |
+
+A car is 48 u long. So the honest statement is: at the design point approach C's **typical** error is
+zero and its **worst** case — a full reversal by a top-speed Mirage inside the window — is about two
+car lengths, twice what interpolation would show unconditionally. C is chosen on the distribution
+and on contact consistency, not on the worst case, and the 2026-08-31 and 2026-09-02 turn-rate and
+speed increases made this term larger than the note measured (2,419 u/s² then, 3,681 now). Three
+levers bound it, all measured by the harness (§7):
+
+- **Shorten the window.** The lead controller (N4) already lowers lead to 2 on a quiet link, and the
+  jitter buffer (N18) is 0 on one; that is the 112 ms row. Every tick removed takes 20–25 % off.
+- **Model the remote's input, not just repeat it.** `remoteSteerHoldTicks` — how long an
+  extrapolated remote keeps a held steer before it is assumed released — is a client-only knob with
+  no sim meaning; the harness reports which value minimises mean error against recorded matches.
+- **Measure clustering.** The note's open item: input reversals cluster at contact, which is when
+  the error matters most. The input log (N30) is what answers it.
+
+That worst case is the largest visible artefact in this design. It is corrected by a resim and a
+120 ms render offset, never by a snap under 48 u.
 
 **N21 — Contact is predicted.** Because `stepWorld` includes `resolveContacts`, the client predicts
 rams and slams between its local car and the extrapolated remotes: the victim's spin starts on the
@@ -582,17 +624,31 @@ in F6.
 
 ### 6.10 Connection lifecycle
 
-**N26 — Reconnect.** The room calls `allowReconnection(client, 15)` on an unexpected leave; the car
-follows N6 (repeat, then neutral) and keeps its seat. The client keeps the `reconnectionToken`, retries
-with backoff, and on success receives the roster message, restarts clock sync and lead from scratch,
-and takes one full snapshot as a new baseline. A late joiner or a spectator uses the same path.
-Fixes F12.
+**N26 — Reconnect.** The room calls `allowReconnection(client, 60)` on an unexpected leave; the car
+follows N6 (repeat, then neutral: it brakes to a stop and stays where it is, solid and killable — a
+stopped car is a target, not an invulnerable obstacle, so it needs no despawn). The client keeps the
+`reconnectionToken`, retries with backoff, and on success receives the roster message, restarts
+clock sync and lead from scratch, and takes one full snapshot as a new baseline. Under full
+snapshots a reconnecting client needs exactly what a joining one needs, which is why the window can
+be generous. A late joiner or a spectator uses the same path. Fixes F12.
 
 **N27 — Silence and floods.** A client whose inputs are all late for 2 s is shown a warning; the
 netgraph shows the late rate. A client sending more than 3× the tick rate is throttled by ignoring
 the extras (N6) and, after 10 s, disconnected with a reason.
 
 ### 6.11 Bots, practice and playground
+
+**N29 — The `D` knob.** A dev-only render delay: the client can render every car `D` ticks behind
+its present instead of at it. `D = lead + RTT` renders raw server state with prediction bypassed, so a
+bug that survives is in the sim and one that vanishes is in prediction. On a hotkey in the netgraph
+build; never exposed to players, and if it ever were it would apply to every car uniformly — your
+car at the present and remotes in the past is the contact error this design exists to remove.
+
+**N30 — The server logs the per-tick input stream.** About 1.2 KB/s, under 1 MB for a ten-minute
+match, gitignored beside the playtest reports. It gives deterministic bug reproduction, feeds the
+netcode harness with real input distributions (how often inputs change inside the extrapolation
+window, and whether the changes cluster at contact — the one unknown that decides how good N20
+actually is), and makes replays or spectating a later feature rather than a rewrite.
 
 **N28 — No behaviour change in the sim or the bot.** `PracticeRoom` and `PlaygroundRoom` adopt the
 `TickScheduler`, the input ring and the snapshot broadcast through the same `runPipeline`; their
@@ -665,10 +721,30 @@ predicted-shot mismatch rate, bytes per tick, server tick time. The user runs it
 playtest can be read without a harness. **LAN playtest** (`playtest:lan`) is extended to print the
 same counters from real sockets.
 
-**Divergence metric.** The per-field comparison N17 already performs is logged as a histogram; a
-field that diverges beyond a quantum on more than 1 % of ticks in free driving is a bug in the
-shared step, and the harness names the field. This is the desync detector: it needs no checksum
-because the snapshot *is* the checksum.
+**Divergence metric, and the differ.** The per-field comparison N17 already performs is logged as
+a histogram; a field that diverges beyond a quantum on more than 1 % of ticks in free driving is a
+bug in the shared step, and the harness names the field. This is the desync detector: it needs no
+checksum because the snapshot *is* the checksum. Three conditions, taken from the consolidated
+note (§13), keep it honest:
+
+1. **It hashes contact sets and collision booleans, not only poses.** The failure that matters is
+   not slow drift but a discrete branch flip — one ULP of `cos` flipping a separating-axis test at
+   the boundary so one side has a contact the other does not. A pose-only comparison can miss it.
+2. **It runs cross-engine.** Node and Chromium are both V8 and will agree; Firefox's engine ships
+   the same fdlibm-derived math. The engine that can disagree is Safari's, so the harness's
+   browser run includes WebKit before a "no divergence" result counts.
+3. **A pre-committed trigger.** If any cross-engine run shows a contact-set divergence within a
+   ten-tick replay — including one that heals on its own, because it still produced a frame on
+   which two players disagreed about whether they touched — the sim's transcendental calls move to
+   a shared lookup table. Pose drift below the quantisation floor never triggers it.
+
+**Weapon exposure, reported per weapon.** Two metrics from the note, recomputed by the harness
+against the live tables every run: *flight time to the lock range* (the victim's reaction window;
+every projectile clears the RTT bar by a wide margin today and `lance`'s 700 ms wind-up covers its
+own) and *hit tolerance* (perpendicular half-width of the shot plus the car's half-extent — the
+shooter's exposure to prediction error). Alongside them, the netgraph counts the fraction of shots
+fired beyond `AIM_CONFIG.lockRange`, because a locked shot is re-aimed by the server and only the
+manual zone is exposed. These are measurements, not balance decisions.
 
 ## 8. Migration
 
@@ -676,7 +752,7 @@ Each phase ships on its own, keeps every test green, and leaves the game playabl
 
 | Phase | Ships | Fixes | Acceptance |
 |---|---|---|---|
-| 0. Instrument | ping/pong, RTT and jitter estimate, netgraph overlay, the netcode harness with today's client | — | baseline numbers recorded |
+| 0. Instrument | `NET_CONFIG.interpolationDelayMs` 50 → 67 (a one-constant fix for the shipped zero-headroom buffer, deleted again by phase 3); ping/pong, RTT and jitter estimate, netgraph overlay, the input log (N30), the netcode harness with today's client, the differ (§7) | F4 (half) | baseline numbers recorded; frozen-remote frames under 1 % at 25 ms jitter |
 | 1. Time | `TickScheduler`, tick-stamped inputs, input ring with repeat/neutral, lead controller, snapshot on tick (still schema, still floats) | F2, F3, F5, F4 (half) | repeated-input rate < 1 %; free-driving correction stays 0 |
 | 2. Wire | binary snapshot and input codec, car indices, `lastInput`, `shotSeq`, `homingTarget`, protocol hash, schema split (N24), delete `TICK_RATE_HZ` override | F9, F10 | snapshot ≤ 700 B; join refuses a mismatched build |
 | 3. World | `stepWorld` in shared with `ContactMemory` in state; `MatchClient` with whole-world prediction, resim reconcile, jitter buffer, render offsets; `ArenaScene` split into renderers | F1, F7, F8, F11 | contact correction p95 < 12 u, zero snaps |
@@ -718,9 +794,12 @@ sources of jitter (F2, F3).
 | N23a | Reliable events in the snapshot drive all feedback |
 | N24 | Colyseus schema keeps lobby and flow only |
 | N25 | HUD in tick time; hp eased visually |
-| N26 | Reconnect with a 15 s window |
+| N26 | Reconnect with a 60 s window; a disconnected car brakes to a stop and stays killable |
 | N27 | Silence warning; flood throttle |
 | N28 | Bots, practice, playground unchanged in behaviour |
+| N29 | Dev-only `D` render-delay knob |
+| N30 | Server logs the per-tick input stream |
+| N10a | Inputs sampled from key events with timestamps, bucketed into ticks |
 
 ## 10. Open questions for the reviewer
 
@@ -733,8 +812,9 @@ sources of jitter (F2, F3).
    a concern, `snapshotEvery = 2` halves it at the cost of one extra tick of extrapolation.
 3. **Reconnect window (N26).** 15 s is a guess; in last-standing a reconnecting player's car brakes
    to a stop and can be killed meanwhile, which seems right.
-4. **The user's own note.** Whether `docs/ideas/online-netcode-and-client-architecture-spec.md`
-   should be reconciled with this document.
+4. **The user's own note — resolved 2026-09-04: reconciled.** See §13. The file named in the ram
+   spec was superseded by `docs/ideas/claude-cursor-netcode-consolidated-architecture-proposal.md`
+   (2026-08-30), which is what this document was reconciled against.
 5. **Hosting.** This design assumes the current model: one player runs the server and others
    connect to it over the internet. Nothing here adds hosting; nothing here prevents it.
 
@@ -760,3 +840,122 @@ sources of jitter (F2, F3).
   snapshot reference is written beside it.
 - `docs/asset-pipeline.md` "How much detail a shot can afford" and `packages/client/CLAUDE.md`'s
   cost notes — superseded by the rendering spec's §1 measurement and R1–R8.
+
+## 13. Reconciliation with the consolidated netcode note (2026-08-30)
+
+Read at the user's direction on 2026-09-04. The note is
+`docs/ideas/claude-cursor-netcode-consolidated-architecture-proposal.md`, dated 2026-08-30, which
+supersedes the `online-netcode-and-client-architecture-spec.md` the ram spec cites. It was written
+against the roster of that date (older weapon names, Mirage at 576 u/s and 4.2 rad/s, ram CC not yet
+shipped) and assumed a 60 Hz sim and an authorised physics rewrite. Every number below was
+recomputed against the shipped code before deciding.
+
+### 13.1 Where the two agree
+
+| Topic | Note | This document |
+|---|---|---|
+| Remote cars | C1: predict all six through the shared step with repeat-last-input; delete interpolation | N16, N20 |
+| Lag compensation | C2: none; rewind and extrapolation double-count latency in opposite directions; keep a pose history that is authoritative for nothing | §6.7, N14 |
+| Clock and lead | C5: run-ahead, server reports buffer occupancy, time dilation never tick skipping, repeat then decay to neutral, late inputs dropped | N3, N4, N5, N6 |
+| Ram | C3: predict the continuous half (impulse, velocity, spin), server-only for damage, statuses, elimination | N21 |
+| Combat feedback | C11: predict the flash and the tagged spawn, never damage; blend onto the authoritative instance | N22 |
+| Transport seam | C7's fallback: keep Colyseus for lifecycle and lobby, move the state channel to raw binary behind a `send(bytes)` seam | N9, N12, N24 |
+| Protocol | full snapshots, quantised, `lastInputEcho` per car, car indices | N9 |
+| Determinism | no bit-exactness required; no `Math.random`; ticks not milliseconds; sorted iteration | §4 A, §5 |
+| Error smoothing | render-time visual offset, never a sim edit | N17, N19 |
+| Allocation | none on the sim or frame path, as an invariant | R6 of the rendering spec |
+| Reconnect | nearly free under full snapshots | N26 |
+| Refusals | no equalised delay, no client-authoritative hit, no interest management | §5 |
+| Build order | netcode first; the note's own §5.2 argues this over its physics-first table | §8 |
+
+The note's central measurement — that `v·ω`, the steering term, dominates prediction error and both
+earlier drafts had understated it by using throttle — was also right against this document's first
+draft, and §6.6 was corrected accordingly.
+
+### 13.2 Where they disagree, and what was chosen
+
+**Tick rate — note 60 Hz, this document 30 Hz. Chosen: 30 Hz now, 60 Hz as a gated later decision.**
+The note's first reason for 60 Hz is its impulse solver (deep hits at 38 u closing per tick); that
+solver is not adopted (next item). Its second reason stands: a finer tick lets the lead controller
+buy exactly the slack it needs, worth 17–25 ms off the window and 20–25 % of the worst-case error.
+Against that, 60 Hz is a sim behaviour change — contact damping runs per tick, `reverseHoldTicks`
+is in ticks, every probe, the golden fixture and the turn-tuning page move — and the drive-model
+fence applies. Decide it with the harness measuring the error delta, not before.
+
+**Physics rewrite (C8) — note adopts a velocity-vector drive and a sequential-impulse solver; this
+document leaves the sim untouched. Chosen: untouched.** C8's stated purpose was to make a ram
+*graded* so that a contact disagreement degrades to "slightly less spin" instead of "stunned or not".
+The ram-CC design that shipped on 2026-08-29 already did that with severity as a continuous 0–1 from
+approach speed and mass, and explicitly chose not to take the rewrite. The remaining C8 benefit, an
+angular-velocity ramp that trims reversal error by about a quarter, is real and is recorded as a
+lever if the harness shows the tail is too fat — as a drive-model change to be authorised then.
+
+**Transport — note upgrades to Colyseus 0.18 with WebTransport as a first-class path; this document
+stays on 0.15 WebSocket behind the seam. Chosen: stay, and re-evaluate at phase 6.** 0.18.5 exists
+upstream; the note's own top risk is unverified (whether 0.18 delivers unreliable datagrams
+server → client at all). Two further facts weigh against doing it now: WebTransport needs TLS with a
+certificate the browser trusts, which for a player-hosted server means certificate-hash pinning on
+a two-week rotation; and 0.18's built-in prediction helpers do not fit a hand-packed snapshot path.
+The seam is what makes deferring safe.
+
+**Snapshot rate — note 30 Hz then 60 Hz gated; this document 30 Hz. Chosen: 30 Hz.** Follows from
+the tick rate; the two agree at 30.
+
+**Quantisation — note 1/16 u with the server adopting its own quantised state; this document had
+1/8 u with a client-side tolerance band. Chosen: the note's rule.** Quantised positions feed a
+collision solve, so precision matters more than for drawing, and a server that rounds its own state
+makes the snapshot exactly the truth and the divergence metric a real detector. N9 amended.
+
+**Aim assist — note runs the lock on both sides, collapses seven stateful knobs to one commit timer
+plus a steal margin, and replicates the timer; this document keeps the lock server-only and aims
+the ghost shot with the last replicated target. Chosen: server-only for the first cut.** The ghost's
+aim is visible for under one RTT before the authoritative instance takes over with a blend, which
+the acceptance threshold on ghost mismatch already bounds. Collapsing the lock's state is an
+aim-feel change (`commitMs` 400 → 150) outside this brief. The note's warning that the steal margin
+defends against target-choice divergence is accepted and the margin is kept. Running the shared lock
+client-side is the recorded upgrade if the harness shows ghosts diverging.
+
+**Determinism differ — note builds a cross-engine differ hashing contact sets with a pre-committed
+lookup-table trigger; this document had a pose-histogram. Chosen: the note's conditions.** §7
+amended: contact-set hashing, WebKit in the cross-engine run, the trigger as stated.
+
+**Input redundancy and sampling — note sends the previous 8 inputs per packet and samples inputs
+from key events with timestamps; this document sent one input per packet from per-tick key state.
+Chosen: both of the note's, in the form N10 and N10a state.** Redundancy is a codec capability
+used only by an unreliable transport; event-timestamped sampling is cheap and removes a frame-rate
+dependence in where a press lands.
+
+**Jitter margin — note measures a floor of two ticks of buffer occupancy at 30 Hz and calls "1–2
+ticks" too optimistic; this document targeted slack in [1, 2]. Chosen: the note's floor.** N4's
+controller raises lead whenever the 5th-percentile slack drops below one tick, which is the same
+rule; the initial lead of 3 at the design point already sits on it.
+
+**Interpolation buffer today — note's P0 is `interpolationDelayMs` 50 → 67; this document had no
+such step. Chosen: adopted into phase 0.** One constant, fixes a measured zero-headroom buffer in
+the shipped client at any ping, deleted again when interpolation goes.
+
+**Reconnect — note 60–90 s grace, car coasts to a stop and despawns after 5 s; this document 15 s
+and the car stays. Chosen: 60 s, coast to a stop, stays.** A stopped car is a target, not an
+invulnerable obstacle, so it needs no despawn; removing it would also end a last-standing round
+for a player whose Wi-Fi blinked.
+
+**Volley compression — note sends a pellet fan as one row and lets clients derive the pellets; this
+document sends every instance. Chosen: every instance now, the note's compression as a phase 6
+optimisation.** The budget is met without it and per-pellet death events add protocol surface.
+
+**`D` knob and input logging — note has both; this document had neither. Chosen: both, as N29 and
+N30.** Cheap, and the input log is the only way to answer the note's own open question about
+whether input changes cluster at contact.
+
+**Weapon exposure — note derives two per-weapon metrics and a "manual zone" fraction; this document
+argued from flight time only. Chosen: adopt the metrics as harness measurements** (§7), recomputed
+against the live tables because the note's weapon names and numbers predate two roster overhauls.
+No balance change follows from either document.
+
+**Hosting — note recommends in-country single-region hosting; this document assumes a player-hosted
+server. Not decided here**: adding hosting is a stop-and-ask item and nothing in either document
+depends on it.
+
+**Rendering — the note's client section is a page; this document's companion rendering spec is the
+whole subject.** No conflict; the note's "no allocation" and "local VFX on the render timeline" rules
+are in it.
