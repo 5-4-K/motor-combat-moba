@@ -409,8 +409,7 @@ netcode spec (N23a) and on `RenderFrame`.
    is re-stated in those two terms.
 2. **Cooldown sweep: shader or sheet (R12).** One tiny `Shader` quad per slot is the cleanest; a
    60-frame baked sheet avoids GLSL in the codebase entirely. Either fits the budget.
-3. **Bloom at all (R19).** It is the only filter proposed and it is tier-gated; it can be dropped
-   without touching anything else.
+3. **Bloom at all (R19) — resolved 2026-09-04: keep, tier High only.**
 4. **Decals persist for the match (R12).** Skids and scorch marks accumulate until match end. If
    that reads as clutter in a long Deathmatch, a slow fade of the decal layer is a one-line change.
 5. **Beams: flipbook and rope, or a fragment shader (R12, R14) — resolved 2026-09-04: flipbook
