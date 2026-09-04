@@ -124,4 +124,36 @@ export interface BotView {
 export interface BotController {
   readonly profileId: string;
   decide(view: BotView): BotIntent;
+  /** Optional introspection for dev tools (H12). Never required by a host. */
+  debug?(): BotDebug | undefined;
+}
+
+/** The seven stances (H9). A stance publishes desires; it never steers. */
+export type StanceId =
+  | "engage" | "brawl" | "kite" | "disengage" | "reposition" | "hunt" | "recover";
+
+/** The five personality archetypes (H47). */
+export type PersonalityId = "brawler" | "kiter" | "sprayer" | "grudge" | "opportunist";
+
+export interface BotPersonality {
+  readonly id: PersonalityId;
+  /** Preference weight per slot index, rolled per bot. Biases both firing and the range model. */
+  readonly slotWeights: readonly number[];
+}
+
+/**
+ * What the bot was thinking, for the playground overlay (H12).
+ *
+ * The deliberate answer to a scored decision layer's one weakness — that "why did it do that?" is
+ * answered by reading a scoreboard. Never read by the sim, never on the wire from the bot's side.
+ */
+export interface BotDebug {
+  tick: number;
+  stance: StanceId;
+  stanceScores: Readonly<Partial<Record<StanceId, number>>>;
+  targetSessionId: string | undefined;
+  preferredRange: number;
+  personality: PersonalityId;
+  /** The slot pressed this tick, or `undefined` when the bot held fire. */
+  firedSlot: number | undefined;
 }

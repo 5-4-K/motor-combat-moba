@@ -36,7 +36,7 @@ import { isInputMessage } from "../net/input-message.js";
 import { withSimulatedLatency } from "../net/latency-injector.js";
 import { newCombatMemory, type CombatMemory } from "../sim/combat-bridge.js";
 import { newContactMemory, type ContactMemory } from "../sim/ram-bridge.js";
-import { buildBotView, deriveSeed, makeRng, LegacyController, type BotController } from "../bot/index.js";
+import { buildBotView, deriveSeed, makeRng, HumanController, type BotController } from "../bot/index.js";
 import { copySpawnNumbers } from "./match-helpers.js";
 import {
   isActiveInput,
@@ -351,7 +351,7 @@ export class PracticeRoom extends Room<PracticeState> {
     this.botSeq += 1;
     const seq = this.botSeq;
 
-    this.bot ??= new LegacyController(this.difficulty, { targetSessionId: this.humanSessionId });
+    this.bot ??= new HumanController(this.difficulty, { targetSessionId: this.humanSessionId });
 
     const view = buildBotView({
       state: this.state,

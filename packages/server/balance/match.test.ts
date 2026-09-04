@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GameMode, TICK_RATE_HZ } from "@motor-combat-moba/shared";
-import { LegacyController, type BotIntent, type BotView } from "../src/bot/index.js";
+import { HumanController, type BotIntent, type BotView } from "../src/bot/index.js";
 import { runMatch } from "./match.js";
 
 /**
@@ -135,15 +135,15 @@ describe("runMatch", () => {
     afterEach(() => vi.restoreAllMocks());
 
     it("carries the PREVIOUS tick's fires into the next tick's view, for another car", () => {
-      // Spies on the real `LegacyController.decide` — the exact instance method `match.ts` calls —
+      // Spies on the real `HumanController.decide` — the exact instance method `match.ts` calls —
       // recording every `BotView` it is handed while still running the real decision underneath, so
       // the match plays out exactly as `runMatch` would on its own. This is the only seam available
       // to observe a `BotView` from outside `match.ts`, which builds and discards one per bot per
       // tick without ever returning it.
-      const original = LegacyController.prototype.decide;
+      const original = HumanController.prototype.decide;
       const seenViews: BotView[] = [];
-      vi.spyOn(LegacyController.prototype, "decide").mockImplementation(
-        function (this: LegacyController, view: BotView): BotIntent {
+      vi.spyOn(HumanController.prototype, "decide").mockImplementation(
+        function (this: HumanController, view: BotView): BotIntent {
           seenViews.push(view);
           return original.call(this, view);
         },
@@ -166,10 +166,10 @@ describe("runMatch", () => {
     });
 
     it("is empty on the very first tick — nothing has fired yet to observe", () => {
-      const original = LegacyController.prototype.decide;
+      const original = HumanController.prototype.decide;
       const seenViews: BotView[] = [];
-      vi.spyOn(LegacyController.prototype, "decide").mockImplementation(
-        function (this: LegacyController, view: BotView): BotIntent {
+      vi.spyOn(HumanController.prototype, "decide").mockImplementation(
+        function (this: HumanController, view: BotView): BotIntent {
           seenViews.push(view);
           return original.call(this, view);
         },

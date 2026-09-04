@@ -29,7 +29,7 @@ import { getTickRateHz } from "../mode.js";
 import { isInputMessage } from "../net/input-message.js";
 import { newCombatMemory, type CombatMemory } from "../sim/combat-bridge.js";
 import { newContactMemory, type ContactMemory } from "../sim/ram-bridge.js";
-import { buildBotView, deriveSeed, makeRng, LegacyController, type BotController } from "../bot/index.js";
+import { buildBotView, deriveSeed, makeRng, HumanController, type BotController } from "../bot/index.js";
 import { shouldRejectSecondArena } from "./singleton-arena.js";
 import {
   respawnPlayer,
@@ -348,11 +348,11 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
 
     const difficulty = isBotDifficulty(this.state.botDifficulty) ? this.state.botDifficulty : "medium";
     if (this.bot?.profileId !== difficulty) {
-      this.bot = new LegacyController(difficulty, { targetSessionId: this.state.controlledSessionId });
+      this.bot = new HumanController(difficulty, { targetSessionId: this.state.controlledSessionId });
     }
     // The playground can re-point the camera at the other car mid-session, which changes who the
     // bot is fighting; the target is re-stated every tick rather than only at construction.
-    (this.bot as LegacyController).setTarget(this.state.controlledSessionId);
+    (this.bot as HumanController).setTarget(this.state.controlledSessionId);
 
     const view = buildBotView({
       state: this.state,

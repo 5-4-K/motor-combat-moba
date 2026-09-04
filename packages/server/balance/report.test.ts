@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { GameMode, type CarId, type WeaponId } from "@motor-combat-moba/shared";
+import { BOT_PROFILES } from "../src/config/bot-profiles.js";
 import { configFingerprint, botFingerprint } from "./fingerprint.js";
 import type { MatchOutcome } from "./match.js";
 import { writeReport, type RunRecord } from "./report.js";
@@ -208,7 +209,13 @@ describe("writeReport (B38, B39, B40)", () => {
   });
 
   it("prints the bot profile values verbatim, so an old report stays interpretable", () => {
-    expect(readSummary()).toContain("standoffUnits");
+    // `standoffUnits` named a field on the pre-Task-1 profile shape; `BOT_PROFILES` was rewritten to
+    // its 33-knob shape (see `config/bot-profiles.ts`) and that field no longer exists on any tier.
+    // The property this test actually cares about is that the report names every field on the row
+    // it ran with, not any one field's name — asserting against the live table keeps that true
+    // through the next profile reshape too.
+    const md = readSummary();
+    for (const key of Object.keys(BOT_PROFILES.hard)) expect(md).toContain(key);
   });
 
   it("states its limitations in its own body (B40)", () => {

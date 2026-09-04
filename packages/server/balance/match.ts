@@ -34,7 +34,7 @@ import {
   type InputMessage,
   type LivingPlayer,
 } from "@motor-combat-moba/shared";
-import { buildBotView, deriveSeed, makeRng, LegacyController, type Rng } from "../src/bot/index.js";
+import { buildBotView, deriveSeed, makeRng, HumanController, type Rng } from "../src/bot/index.js";
 import { newCombatMemory, type CombatMemory } from "../src/sim/combat-bridge.js";
 import { newContactMemory, type ContactMemory } from "../src/sim/ram-bridge.js";
 import { readStatuses } from "../src/sim/status-bridge.js";
@@ -145,7 +145,7 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
     spawnRng,
   );
 
-  const bots = new Map<string, LegacyController>();
+  const bots = new Map<string, HumanController>();
   const botRngs = new Map<string, Rng>();
   const seqs = new Map<string, number>();
 
@@ -174,7 +174,7 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
     prevFireMasks.set(seat.sessionId, 0);
     seqs.set(seat.sessionId, 0);
 
-    bots.set(seat.sessionId, new LegacyController(setup.difficulty));
+    bots.set(seat.sessionId, new HumanController(setup.difficulty));
     // A distinct, seeded stream per seat rather than one shared stream: two seats sharing an RNG
     // would have each bot's draw depend on the other's turn order, which is not what "seat 0's bot"
     // is supposed to mean.
