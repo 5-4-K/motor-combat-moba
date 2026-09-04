@@ -796,9 +796,11 @@ note (§13), keep it honest:
 1. **It hashes contact sets and collision booleans, not only poses.** The failure that matters is
    not slow drift but a discrete branch flip — one ULP of `cos` flipping a separating-axis test at
    the boundary so one side has a contact the other does not. A pose-only comparison can miss it.
-2. **It runs cross-engine.** Node and Chromium are both V8 and will agree; Firefox's engine ships
-   the same fdlibm-derived math. The engine that can disagree is Safari's, so the harness's
-   browser run includes WebKit before a "no divergence" result counts.
+2. **It runs cross-engine, on the supported browsers.** Decided 2026-09-04: the game supports
+   Chrome, Edge and Firefox; Safari is not a target. Node and Chromium are both V8 and will agree;
+   Firefox's SpiderMonkey ships fdlibm-derived math and is expected to agree too, so the harness's
+   browser run is Chromium and Firefox, and a "no divergence" result needs both. If Safari is ever
+   added, WebKit joins the run before that claim is made again.
 3. **A pre-committed trigger.** If any cross-engine run shows a contact-set divergence within a
    ten-tick replay — including one that heals on its own, because it still produced a frame on
    which two players disagreed about whether they touched — the sim's transcendental calls move to
@@ -915,6 +917,8 @@ sources of jitter (F2, F3).
     stream's shared `dist`.
 11. **Tick-rate override — resolved 2026-09-04: deleted in the wire phase (N11).** Nothing relies
     on it.
+12. **Browsers — resolved 2026-09-04: Chrome, Edge and Firefox.** The differ runs on Chromium and
+    Firefox; the bench scene runs on both.
 
 ## 11. Stop-and-ask items this design touches
 

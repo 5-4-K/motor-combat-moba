@@ -350,8 +350,8 @@ beside it. Both are `BitmapText`.
 **R24 — The bench scene.** `?dev=bench` (dev-only, stripped from release like the playground)
 spawns the ceiling scenario without a server: six cars burning, two lances, forty instances, a
 scripted stream of hit and ram events, 400 particles, and reports p50/p95 frame time and draw
-calls over 10 s. Under Playwright with software GL it is the CPU-side regression check that runs in
-CI; on a real laptop it is the number an effect is judged against (R7). The node microbenchmark used
+calls over 10 s. Under Playwright with software GL, on Chromium and Firefox (the supported browsers with Edge,
+decided 2026-09-04), it is the CPU-side regression check that runs in CI; on a real laptop it is the number an effect is judged against (R7). The node microbenchmark used
 for this document becomes `scripts/bench-visual.mjs` and measures **bake** time, which is what the
 builders now cost.
 
