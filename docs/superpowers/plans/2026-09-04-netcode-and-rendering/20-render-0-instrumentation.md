@@ -2,13 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Give the client the three measuring instruments every later rendering phase is judged against — a `?debug=perf` overlay that splits a frame into sim / frame build / draw / Phaser / render and counts GL draw calls, a `?dev=bench` scene that runs the visual ceiling with no server, and two scripts (`bench-visual.mjs` for the pure builders in node, `bench-arena.mjs` for the bench scene under Playwright on Chromium and Firefox) — and record the baseline numbers.
+**Goal:** Give the client the measuring instruments every later rendering phase is judged against — a `?debug=perf` overlay that splits a frame into sim / build / draw / Phaser / render and counts GL draw calls, a `?dev=bench` scene that runs the visual ceiling with no server, `scripts/bench-visual.mjs` for the pure builders in node, `scripts/bench-arena.mjs` for the bench scene under Playwright on Chromium and Firefox — and record the baseline numbers.
 
-**Architecture:** `render/perf-overlay.ts` hooks Phaser's four game-step events (`PRE_STEP`, `POST_STEP`, `PRE_RENDER`, `POST_RENDER`) and counts draw calls by wrapping `WebGLRenderer.drawElements` / `drawInstancedArrays`, the two methods every render node submits through; the scene adds three marks (`sim`, `build`, `draw`) between them. All statistics live in a pure, tested `render/perf-stats.ts`. `dev/bench-frame.ts` is a pure builder that fabricates a `RenderFrame` for the ceiling (six cars, twelve `afterburner` flames, two `lance` bolts, forty instances) from `WEAPON_TABLE` ids; `dev/BenchScene.ts` draws it with the preparation plan's renderer classes unchanged, so the bench measures the same code a match runs. The scripts print numbers; nothing asserts a number — the acceptance table (spec R25) is read by a person.
+**Architecture:** `render/perf-overlay.ts` hooks Phaser's four game-step events (`PRE_STEP`, `POST_STEP`, `PRE_RENDER`, `POST_RENDER`) and counts draw calls by wrapping `WebGLRenderer.drawElements` / `drawInstancedArrays`, the two methods every render node submits through; the scene adds three marks (`sim`, `build`, `draw`) between them. Statistics live in a pure, tested `render/perf-stats.ts`. `dev/bench-frame.ts` fabricates a `RenderFrame` for the ceiling (six cars, twelve `afterburner` flames, two `lance` bolts, forty instances) from `WEAPON_TABLE` ids; `dev/BenchScene.ts` draws it with the preparation plan's renderer classes unchanged, so the bench measures the code a match runs. The scripts print numbers; nothing asserts a number — the acceptance table (spec R25) is read by a person.
 
-**Tech Stack:** TypeScript (ESM, `.js` import specifiers), Vitest in the node environment, Phaser 4.2.1, `node --test` for `scripts/*.test.mjs`, Playwright 1.62.1 (Chromium and Firefox), `tsx` for importing a `.ts` builder from a node script, Vite's `build --mode development` for a dev-tool-bearing client build.
+**Tech Stack:** TypeScript (ESM, `.js` import specifiers), Vitest in the node environment, Phaser 4.2.1, `node --test` for `scripts/*.test.mjs`, Playwright 1.62.1 (Chromium and Firefox), `tsx` to import a `.ts` builder from a node script, Vite `build --mode development` for a dev-tool-bearing client build.
 
-**Spec:** [`../../specs/2026-09-04-client-rendering-architecture-design.md`](../../specs/2026-09-04-client-rendering-architecture-design.md) — §1 (the measurements), §9 R23 (perf overlay), R24 (bench scene, Playwright runner, `bench-visual.mjs`), R25 (acceptance table), §10 V0 row. Ledger: [`interfaces.md`](interfaces.md) §Client → Rendering (V-plans). Prior plan: [`01-prep-arena-scene-split-and-render-frame.md`](01-prep-arena-scene-split-and-render-frame.md) (assumed landed: `match/render-frame.ts`, `scenes/arena/*`, `scripts/smoke-arena.mjs`, Playwright in root `devDependencies`). Netcode companion for the netgraph hook: [`../../specs/2026-09-04-online-netcode-and-client-architecture-design.md`](../../specs/2026-09-04-online-netcode-and-client-architecture-design.md) §7 (`?debug=net`).
+**Spec:** [`../../specs/2026-09-04-client-rendering-architecture-design.md`](../../specs/2026-09-04-client-rendering-architecture-design.md) — §1 (the measurements), §9 R23 (perf overlay), R24 (bench scene, Playwright runner, `bench-visual.mjs`), R25 (acceptance table), §10 V0 row. Ledger: [`interfaces.md`](interfaces.md) §Client → Rendering (V-plans). Prior plan: [`01-prep-arena-scene-split-and-render-frame.md`](01-prep-arena-scene-split-and-render-frame.md), assumed landed (`match/render-frame.ts`, `scenes/arena/*`, `scripts/smoke-arena.mjs`, Playwright in root `devDependencies`). Netcode companion for the netgraph hook: [`../../specs/2026-09-04-online-netcode-and-client-architecture-design.md`](../../specs/2026-09-04-online-netcode-and-client-architecture-design.md) §7 (`?debug=net`).
 
 ## Global Constraints
 
@@ -19,9 +19,9 @@
 - Do not touch `packages/server/playtest/` except to fix a compile break, and say loudly in the task's commit step which probe numbers your change moves. **This plan moves none:** it adds instrumentation around the sim and never edits `sim/`, a table, the tick order or the client's prediction; no probe reads a client scene or a script.
 - Do not edit `docs/ideas/` or `docs/invariants/`.
 - Commit after every task on branch `claude/gameplay-netcode-architecture-bgp8f6` (each session may use its own worktree branch off it).
-- No magic numbers in logic: every threshold, window, position and count in this plan is a named constant in a config object (`PERF_OVERLAY_CONFIG`, `BENCH_CEILING`, `BENCH_LAYOUT`, `BENCH_ARENA_DEFAULTS`).
-- The bench scene is dev-only: it renders `DEV_TOOL_MARKER` and is reached only through `dev/registry.ts`, so `scripts/build-release.mjs`'s `assertNoDevOnlyCode` strips it exactly as it strips the playground. Never import it statically from anything that ships.
-- This plan changes no balance table, drive constant, `TICK_RATE_HZ`, weapon row, status row, `COMBAT_CONFIG`, `DRIVE_CONFIG`, `AIM_CONFIG.lockRange` or `ARENA_WIDTH`, so neither `npm run build:manual` nor `docs/turn-tuning.md` is owed a change. If a task's diff touches one of those by accident, stop.
+- No magic numbers in logic: every threshold, window, position and count is a named constant (`PERF_OVERLAY_CONFIG`, `BENCH_CEILING`, `BENCH_LAYOUT`, `BENCH_ARENA_DEFAULTS`).
+- The bench scene is dev-only: it renders `DEV_TOOL_MARKER` and is reached only through `dev/registry.ts`, so `scripts/build-release.mjs`'s `assertNoDevOnlyCode` strips it as it strips the playground. Never import it statically from anything that ships.
+- No balance table, drive constant, `TICK_RATE_HZ`, weapon row, status row, `COMBAT_CONFIG`, `DRIVE_CONFIG`, `AIM_CONFIG.lockRange` or `ARENA_WIDTH` changes here, so neither `npm run build:manual` nor `docs/turn-tuning.md` is owed an edit. If a diff touches one by accident, stop.
 
 ## File Structure
 
@@ -29,15 +29,15 @@
 |---|---|
 | `packages/client/src/config/client-mode.ts` (modify) | `debugFlags`, `hasDebugFlag`, `PERF_DEBUG_FLAG`; `isDebugEnabled` reads the same comma list |
 | `packages/client/src/render/perf-stats.ts` (create) | Pure: `SampleRing`, `percentile`, `PerfRings`, `PerfReport`, `formatPerfLines`, `PERF_OVERLAY_CONFIG` |
-| `packages/client/src/render/perf-overlay.ts` (create) | `PerfOverlay`: Phaser event hooks, draw-call wrap, the `Text`, `report()`, the netgraph hook |
-| `packages/client/src/scenes/ArenaScene.ts` (modify) | Construct the overlay under `?debug=perf`; three marks in `update` |
-| `packages/client/src/scenes/arena/arena-floor.ts` (create) | `drawArenaFloor`, the floor and camera setup extracted from `ArenaScene.drawArena` so the bench draws the same floor |
+| `packages/client/src/render/perf-overlay.ts` (create) | `PerfOverlay`: game-event hooks, draw-call wrap, the `Text`, `report()`, the netgraph hook |
+| `packages/client/src/scenes/ArenaScene.ts` (modify) | Construct the overlay under `?debug=perf`; three marks in `update`; `drawArena` delegates to `drawArenaFloor` |
+| `packages/client/src/scenes/arena/arena-floor.ts` (create) | `drawArenaFloor`, the floor and camera setup extracted from `ArenaScene.drawArena` |
 | `packages/client/src/dev/bench-frame.ts` (create) | Pure: `BENCH_CEILING`, `BENCH_LAYOUT`, `benchFrame(tick, nowMs, arena)` |
-| `packages/client/src/dev/BenchScene.ts` (create) | `?dev=bench`: the ceiling drawn by the preparation plan's renderers; publishes `window.__bench` |
+| `packages/client/src/dev/BenchScene.ts` (create) | `?dev=bench`: the ceiling drawn by the match renderers; publishes `window.__bench` |
 | `packages/client/src/dev/registry.ts` (modify) | Register `bench` |
 | `scripts/bench-visual.mjs` (create) | Node microbenchmark: `beamDrawLayers` × 12 flames, earcut over every polygon, the rest of the shot layer |
-| `scripts/bench-arena.mjs` (create) | Playwright runner: dev-mode client build, LAN server, `?dev=bench` on Chromium and Firefox, p50/p95 table |
-| `package.json` (modify) | `bench:visual`, `bench:arena` scripts; `tsx` dev dependency |
+| `scripts/bench-arena.mjs` (create) | Playwright runner: dev-mode client build, LAN server, `?dev=bench` on Chromium and Firefox |
+| `package.json` (modify) | `bench:visual`, `bench:arena`; `tsx` dev dependency |
 | `docs/render-bench.md` (create), `CLAUDE.md`, `packages/client/CLAUDE.md`, `docs/project-structure.md` (modify) | How to run the instruments, and the V0 baseline numbers |
 
 ---
@@ -49,15 +49,13 @@
 - Test: `packages/client/src/config/client-mode.test.ts`
 
 **Interfaces:**
-- Produces: `debugFlags(search?: string): ReadonlySet<string>`; `hasDebugFlag(flag: string, search?: string): boolean`; `PERF_DEBUG_FLAG = "perf"`; `isDebugEnabled` keeps its signature and now means `hasDebugFlag("1")`. Tasks 3 and 5 consume `hasDebugFlag` and `PERF_DEBUG_FLAG`. The netcode stream's `?debug=net` overlay is expected to read `hasDebugFlag("net")` from here too, so `?debug=1,perf,net` turns on all three.
+- Produces: `debugFlags(search?: string): ReadonlySet<string>`; `hasDebugFlag(flag: string, search?: string): boolean`; `PERF_DEBUG_FLAG = "perf"`; `isDebugEnabled` keeps its signature and now means `hasDebugFlag("1")`. Tasks 3 and 5 consume `hasDebugFlag` and `PERF_DEBUG_FLAG`; the netcode stream's `?debug=net` overlay is expected to read `hasDebugFlag("net")` here, so `?debug=1,perf,net` turns on all three.
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `packages/client/src/config/client-mode.test.ts`, and extend the `debugFlags` import:
+Append to `client-mode.test.ts`, extending the import to `{ PERF_DEBUG_FLAG, debugFlags, detectServerEndpoint, devToolId, hasDebugFlag, isDebugEnabled }`:
 
 ```ts
-import { PERF_DEBUG_FLAG, debugFlags, detectServerEndpoint, devToolId, hasDebugFlag, isDebugEnabled } from "./client-mode.js";
-
 describe("debugFlags", () => {
   it("splits a comma list and trims each entry", () => {
     expect([...debugFlags("?debug=1,perf, net")]).toEqual(["1", "perf", "net"]);
@@ -92,10 +90,9 @@ export const PERF_DEBUG_FLAG = "perf";
 const NO_FLAGS: ReadonlySet<string> = new Set();
 
 /**
- * Every developer overlay asked for in the URL, as `?debug=<a>,<b>`: `1` draws the car OBB outline
- * in the arena, `perf` the frame-time overlay, `net` the netgraph. One comma list rather than a
- * flag per overlay, so two can be on at once. A bare `?debug` or a blank entry asks for nothing —
- * an overlay has to be named deliberately.
+ * Every developer overlay asked for in the URL, as `?debug=<a>,<b>`: `1` draws the car OBB outline,
+ * `perf` the frame-time overlay, `net` the netgraph. One comma list rather than a flag per overlay,
+ * so two can be on at once. A bare `?debug` or a blank entry asks for nothing.
  */
 export function debugFlags(search: string = window.location.search): ReadonlySet<string> {
   const raw = new URLSearchParams(search).get("debug");
@@ -121,7 +118,7 @@ export function isDebugEnabled(search: string = window.location.search): boolean
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `cd packages/client && npx vitest run src/config/client-mode.test.ts`
-Expected: PASS — the existing `isDebugEnabled` cases (`?debug`, `?debug=0`, `?debug=true` all false) still hold, because none of those lists contains the entry `1`.
+Expected: PASS — the existing cases (`?debug`, `?debug=0`, `?debug=true` all false) still hold, since none of those lists contains the entry `1`.
 
 - [ ] **Step 5: Commit**
 
@@ -139,19 +136,20 @@ git commit -m "feat(client): ?debug= is a comma list of overlays; add the perf f
 - Test: `packages/client/src/render/perf-stats.test.ts`
 
 **Interfaces:**
-- Produces (Task 3, Task 5 and `scripts/bench-arena.mjs` consume them):
+- Produces (Tasks 3, 5 and `scripts/bench-arena.mjs` consume them):
 
 ```ts
-export const PERF_OVERLAY_CONFIG: { x: number; y: number; fontPx: number; depth: number; refreshMs: number; windowFrames: number; drawCallsUnavailable: number }
+export const PERF_OVERLAY_CONFIG: { x; y; fontPx; depth; refreshMs; windowFrames; drawCallsUnavailable }  // all number
 export function percentile(sorted: ArrayLike<number>, length: number, p: number): number
-export class SampleRing { constructor(capacity: number); push(value: number): void; readonly length: number; percentile(p: number): number; max(): number; clear(): void }
-export interface PerfSample { frameMs; jsMs; simMs; buildMs; drawMs; phaserMs; renderMs; drawCalls }   // all number
+export class SampleRing { constructor(capacity: number); push(v: number): void; readonly length: number; percentile(p: number): number; max(): number }
+export type PerfChannel = "frame" | "js" | "sim" | "build" | "draw" | "phaser" | "render" | "draws"
+export type PerfSample = Record<PerfChannel, number>
 export interface PerfReport {
   frames: number;
   frameMs: { p50: number; p95: number };
   jsMs: { p50: number; p95: number };
   split: { sim: number; build: number; draw: number; phaser: number; render: number };   // p50 ms each
-  drawCalls: { p50: number; max: number };   // PERF_OVERLAY_CONFIG.drawCallsUnavailable on the Canvas renderer
+  drawCalls: { p50: number; max: number };   // PERF_OVERLAY_CONFIG.drawCallsUnavailable on Canvas
   textures: number;
   particles: number;   // 0 until V4's ParticleService reports
   tier: string;        // "medium" until V5's TierManager reports
@@ -165,68 +163,46 @@ export function formatPerfLines(report: PerfReport): string[]
 ```ts
 // packages/client/src/render/perf-stats.test.ts
 import { describe, expect, it } from "vitest";
-import {
-  PERF_OVERLAY_CONFIG,
-  PerfRings,
-  SampleRing,
-  formatPerfLines,
-  percentile,
-  type PerfSample,
-} from "./perf-stats.js";
+import { PERF_OVERLAY_CONFIG, PerfRings, SampleRing, formatPerfLines, percentile, type PerfSample } from "./perf-stats.js";
 
 const sample = (over: Partial<PerfSample> = {}): PerfSample => ({
-  frameMs: 16.7, jsMs: 3, simMs: 0.5, buildMs: 0.7, drawMs: 1.2, phaserMs: 0.3, renderMs: 0.6, drawCalls: 9,
-  ...over,
+  frame: 16.7, js: 3, sim: 0.5, build: 0.7, draw: 1.2, phaser: 0.3, render: 0.6, draws: 9, ...over,
 });
 
 describe("percentile", () => {
-  it("is nearest-rank over the sorted prefix", () => {
+  it("is nearest-rank over the sorted prefix, and 0 over nothing", () => {
     const sorted = Array.from({ length: 100 }, (_, i) => i + 1);
     expect(percentile(sorted, 100, 50)).toBe(50);
     expect(percentile(sorted, 100, 95)).toBe(95);
-    expect(percentile(sorted, 100, 100)).toBe(100);
     expect(percentile(sorted, 10, 95)).toBe(10);
-  });
-
-  it("is 0 over nothing", () => {
     expect(percentile([], 0, 50)).toBe(0);
   });
 });
 
 describe("SampleRing", () => {
-  it("keeps the newest `capacity` samples and reads percentiles off them", () => {
+  it("keeps the newest `capacity` samples and reads percentiles off them without reordering", () => {
     const ring = new SampleRing(4);
     for (const v of [100, 1, 2, 3, 4]) ring.push(v);
     expect(ring.length).toBe(4);
     expect(ring.max()).toBe(4);
     expect(ring.percentile(50)).toBe(2);
     expect(ring.percentile(95)).toBe(4);
-  });
-
-  it("does not disturb the stored order when it sorts for a percentile", () => {
-    const ring = new SampleRing(3);
-    for (const v of [3, 1, 2]) ring.push(v);
-    ring.percentile(50);
-    ring.push(9);
-    // After the push the oldest (3) is gone; had percentile() sorted in place, 1 would have been.
-    expect(ring.max()).toBe(9);
-    expect(ring.percentile(1)).toBe(1);
+    ring.push(9); // overwrites the oldest (1), not the smallest-after-sort
+    expect(ring.percentile(1)).toBe(2);
   });
 });
 
 describe("PerfRings", () => {
-  it("reports p50/p95 of every channel and the extra counters it is handed", () => {
+  it("reports p50/p95 of every channel and the counters it is handed", () => {
     const rings = new PerfRings(8);
-    for (let i = 1; i <= 8; i++) rings.push(sample({ frameMs: i, jsMs: i / 2, drawCalls: i }));
+    for (let i = 1; i <= 8; i++) rings.push(sample({ frame: i, js: i / 2, draws: i }));
     const report = rings.report(14, 0, "medium");
     expect(report.frames).toBe(8);
     expect(report.frameMs).toEqual({ p50: 4, p95: 8 });
     expect(report.jsMs).toEqual({ p50: 2, p95: 4 });
     expect(report.split).toEqual({ sim: 0.5, build: 0.7, draw: 1.2, phaser: 0.3, render: 0.6 });
     expect(report.drawCalls).toEqual({ p50: 4, max: 8 });
-    expect(report.textures).toBe(14);
-    expect(report.particles).toBe(0);
-    expect(report.tier).toBe("medium");
+    expect([report.textures, report.particles, report.tier]).toEqual([14, 0, "medium"]);
   });
 
   it("defaults its window to PERF_OVERLAY_CONFIG.windowFrames", () => {
@@ -237,22 +213,17 @@ describe("PerfRings", () => {
 });
 
 describe("formatPerfLines", () => {
-  it("prints three lines with one decimal and names the draw-call gap on Canvas", () => {
+  it("prints three lines with one decimal, naming the draw-call gap on Canvas", () => {
     const rings = new PerfRings(4);
-    rings.push(sample({ drawCalls: PERF_OVERLAY_CONFIG.drawCallsUnavailable }));
-    const lines = formatPerfLines(rings.report(12, 0, "medium"));
-    expect(lines).toHaveLength(3);
-    expect(lines[0]).toBe("frame 16.7 / 16.7 ms  js 3.0 / 3.0 ms  (p50 / p95, 1 frames)");
-    expect(lines[1]).toBe("sim 0.5  build 0.7  draw 1.2  phaser 0.3  render 0.6  (p50 ms)");
-    expect(lines[2]).toBe("draws n/a (canvas)  textures 12  particles 0  tier medium");
-  });
-
-  it("prints draw calls as p50 (max) on WebGL", () => {
-    const rings = new PerfRings(4);
-    rings.push(sample({ drawCalls: 9 }));
-    rings.push(sample({ drawCalls: 11 }));
+    rings.push(sample({ draws: PERF_OVERLAY_CONFIG.drawCallsUnavailable }));
+    expect(formatPerfLines(rings.report(12, 0, "medium"))).toEqual([
+      "frame 16.7 / 16.7 ms  js 3.0 / 3.0 ms  (p50 / p95, 1 frames)",
+      "sim 0.5  build 0.7  draw 1.2  phaser 0.3  render 0.6  (p50 ms)",
+      "draws n/a (canvas)  textures 12  particles 0  tier medium",
+    ]);
+    rings.push(sample({ draws: 11 }));
     expect(formatPerfLines(rings.report(12, 0, "medium"))[2]).toBe(
-      "draws 9 (max 11)  textures 12  particles 0  tier medium",
+      "draws 11 (max 11)  textures 12  particles 0  tier medium",
     );
   });
 });
@@ -268,45 +239,38 @@ Expected: FAIL — cannot resolve `./perf-stats.js`.
 ```ts
 // packages/client/src/render/perf-stats.ts
 /**
- * The numbers behind the `?debug=perf` overlay (rendering spec R23), kept Phaser-free so they can
- * be tested and so `scripts/bench-arena.mjs` can read the same `PerfReport` shape out of the page.
- *
- * Everything on the per-frame path here is preallocated: rings are typed arrays sized once, a
- * percentile sorts a scratch copy, and `PerfRings.push` writes eight numbers and allocates nothing
- * (spec R6 — an instrument that allocates per frame would show up in its own GC column).
+ * The numbers behind the `?debug=perf` overlay (rendering spec R23), Phaser-free so they can be
+ * tested and so `scripts/bench-arena.mjs` reads the same `PerfReport` shape out of the page.
+ * Everything on the per-frame path is preallocated: rings are typed arrays sized once, a percentile
+ * sorts a scratch copy, and `PerfRings.push` allocates nothing (spec R6).
  */
 
 export const PERF_OVERLAY_CONFIG = {
-  /** Screen position of the text block, in canvas pixels. */
+  /** Screen position of the text block, canvas pixels. */
   x: 8,
   y: 8,
   fontPx: 12,
-  /** Above every HUD element; the overlay is the last thing drawn (layer 7 in spec §4). */
+  /** Above every HUD element — the overlay is layer 7 in spec §4. */
   depth: 1000,
   /**
-   * How often the text is re-rasterised. A `Text.setText` re-uploads a canvas-backed texture (spec
-   * §1), so the overlay refreshes at 4 Hz rather than per frame to keep its own cost off the
-   * numbers it shows. V1 replaces the `Text` with `BitmapText`, which has no such cost.
+   * How often the text re-rasterises. A `Text.setText` re-uploads a canvas texture (spec §1), so the
+   * overlay refreshes at 4 Hz to keep its own cost off the numbers. V1 swaps it for `BitmapText`.
    */
   refreshMs: 250,
-  /** Rolling window: 10 s at 60 Hz, the same window the bench reports over (R24). */
+  /** Rolling window: 10 s at 60 Hz, the window the bench reports over (R24). */
   windowFrames: 600,
-  /** The draw-call value reported when the renderer is Canvas, where there are no GL draw calls. */
+  /** The draw-call value reported on the Canvas renderer, where there are no GL draw calls. */
   drawCallsUnavailable: -1,
 } as const;
 
-/**
- * Nearest-rank percentile over the first `length` entries of an already-sorted sequence. `p` is in
- * [0, 100]. Over nothing the answer is 0, so an overlay on its first frame prints zeros rather
- * than NaN.
- */
+/** Nearest-rank percentile (`p` in [0, 100]) over the first `length` entries of a sorted sequence. */
 export function percentile(sorted: ArrayLike<number>, length: number, p: number): number {
   if (length <= 0) return 0;
   const rank = Math.ceil((p / 100) * length);
   return sorted[Math.min(length - 1, Math.max(0, rank - 1))]!;
 }
 
-/** A fixed-capacity ring of numbers that can answer a percentile and a max without allocating. */
+/** A fixed-capacity ring of numbers answering a percentile and a max without allocating. */
 export class SampleRing {
   private readonly values: Float64Array;
   private readonly scratch: Float64Array;
@@ -328,11 +292,6 @@ export class SampleRing {
     if (this.count < this.capacity) this.count += 1;
   }
 
-  clear(): void {
-    this.next = 0;
-    this.count = 0;
-  }
-
   percentile(p: number): number {
     // Sort a copy: the ring's own order is its age order, which `push` relies on.
     const view = this.scratch.subarray(0, this.count);
@@ -348,25 +307,15 @@ export class SampleRing {
   }
 }
 
-/** One frame's measurements, as `PerfOverlay` fills them in. All milliseconds except `drawCalls`. */
-export interface PerfSample {
-  /** Wall time between this frame and the previous one — `game.loop.rawDelta`. */
-  frameMs: number;
-  /** Everything the game's JavaScript did this frame: the whole step plus the whole render. */
-  jsMs: number;
-  /** The scene's `sim` mark: input pump and prediction. 0 in the bench scene, which has no sim. */
-  simMs: number;
-  /** The scene's `build` mark: `RenderFrame` construction. */
-  buildMs: number;
-  /** The scene's `draw` mark: the renderer classes updating Phaser objects. */
-  drawMs: number;
-  /** The rest of Phaser's step outside the scene's own marks: input, tweens, other scenes. */
-  phaserMs: number;
-  /** `PRE_RENDER` to `POST_RENDER`: scene-graph walk, tessellation, batch submission. */
-  renderMs: number;
-  /** GL draw calls submitted during the render, or `PERF_OVERLAY_CONFIG.drawCallsUnavailable`. */
-  drawCalls: number;
-}
+/**
+ * The per-frame channels, all milliseconds except `draws`: `frame` is wall time between frames
+ * (`game.loop.rawDelta`); `js` the whole step plus the whole render; `sim`, `build`, `draw` the
+ * scene's own marks; `phaser` the rest of the step outside them; `render` `PRE_RENDER` to
+ * `POST_RENDER`; `draws` GL draw calls or `drawCallsUnavailable`.
+ */
+export type PerfChannel = "frame" | "js" | "sim" | "build" | "draw" | "phaser" | "render" | "draws";
+export const PERF_CHANNELS: readonly PerfChannel[] = ["frame", "js", "sim", "build", "draw", "phaser", "render", "draws"];
+export type PerfSample = Record<PerfChannel, number>;
 
 export interface PerfReport {
   frames: number;
@@ -376,61 +325,42 @@ export interface PerfReport {
   split: { sim: number; build: number; draw: number; phaser: number; render: number };
   drawCalls: { p50: number; max: number };
   textures: number;
-  /** Live particles. 0 until V4's `ParticleService` exists to report one. */
+  /** Live particles: 0 until V4's `ParticleService` exists to report one. */
   particles: number;
-  /** The quality tier. The literal "medium" until V5's `TierManager` exists to report one. */
+  /** The quality tier: the literal "medium" until V5's `TierManager` exists to report one. */
   tier: string;
 }
 
 export class PerfRings {
-  private readonly frame: SampleRing;
-  private readonly js: SampleRing;
-  private readonly sim: SampleRing;
-  private readonly build: SampleRing;
-  private readonly draw: SampleRing;
-  private readonly phaser: SampleRing;
-  private readonly render: SampleRing;
-  private readonly draws: SampleRing;
+  private readonly rings: Record<PerfChannel, SampleRing>;
 
   constructor(windowFrames: number = PERF_OVERLAY_CONFIG.windowFrames) {
-    this.frame = new SampleRing(windowFrames);
-    this.js = new SampleRing(windowFrames);
-    this.sim = new SampleRing(windowFrames);
-    this.build = new SampleRing(windowFrames);
-    this.draw = new SampleRing(windowFrames);
-    this.phaser = new SampleRing(windowFrames);
-    this.render = new SampleRing(windowFrames);
-    this.draws = new SampleRing(windowFrames);
+    this.rings = {} as Record<PerfChannel, SampleRing>;
+    for (const channel of PERF_CHANNELS) this.rings[channel] = new SampleRing(windowFrames);
   }
 
   get frames(): number {
-    return this.frame.length;
+    return this.rings.frame.length;
   }
 
   push(sample: PerfSample): void {
-    this.frame.push(sample.frameMs);
-    this.js.push(sample.jsMs);
-    this.sim.push(sample.simMs);
-    this.build.push(sample.buildMs);
-    this.draw.push(sample.drawMs);
-    this.phaser.push(sample.phaserMs);
-    this.render.push(sample.renderMs);
-    this.draws.push(sample.drawCalls);
+    for (const channel of PERF_CHANNELS) this.rings[channel].push(sample[channel]);
   }
 
   report(textures: number, particles: number, tier: string): PerfReport {
+    const r = this.rings;
     return {
-      frames: this.frame.length,
-      frameMs: { p50: this.frame.percentile(50), p95: this.frame.percentile(95) },
-      jsMs: { p50: this.js.percentile(50), p95: this.js.percentile(95) },
+      frames: r.frame.length,
+      frameMs: { p50: r.frame.percentile(50), p95: r.frame.percentile(95) },
+      jsMs: { p50: r.js.percentile(50), p95: r.js.percentile(95) },
       split: {
-        sim: this.sim.percentile(50),
-        build: this.build.percentile(50),
-        draw: this.draw.percentile(50),
-        phaser: this.phaser.percentile(50),
-        render: this.render.percentile(50),
+        sim: r.sim.percentile(50),
+        build: r.build.percentile(50),
+        draw: r.draw.percentile(50),
+        phaser: r.phaser.percentile(50),
+        render: r.render.percentile(50),
       },
-      drawCalls: { p50: this.draws.percentile(50), max: this.draws.max() },
+      drawCalls: { p50: r.draws.percentile(50), max: r.draws.max() },
       textures,
       particles,
       tier,
@@ -440,7 +370,7 @@ export class PerfRings {
 
 const ms = (value: number): string => value.toFixed(1);
 
-/** The three lines the overlay shows, in the order the spec lists the counters (R23). */
+/** The three lines the overlay shows, in the order R23 lists the counters. */
 export function formatPerfLines(report: PerfReport): string[] {
   const draws =
     report.drawCalls.p50 === PERF_OVERLAY_CONFIG.drawCallsUnavailable
@@ -457,7 +387,7 @@ export function formatPerfLines(report: PerfReport): string[] {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `cd packages/client && npx vitest run src/render/perf-stats.test.ts`
-Expected: PASS (8 tests). In the `SampleRing` "keeps the newest" case the stored values are `[1, 2, 3, 4]`: nearest-rank p50 of four is the 2nd (`2`), p95 the 4th (`4`).
+Expected: PASS (5 tests). In the `SampleRing` case the stored values are `[1, 2, 3, 4]`, so nearest-rank p50 of four is the 2nd (`2`) and p95 the 4th (`4`); after `push(9)` they are `[2, 3, 4, 9]` and p1 is `2`. In the second `formatPerfLines` call the two `draws` samples are `-1` and `11`, whose nearest-rank p50 is `11`.
 
 - [ ] **Step 5: Commit**
 
@@ -472,11 +402,11 @@ git commit -m "feat(client): perf-stats — rings, percentiles and the PerfRepor
 
 **Files:**
 - Create: `packages/client/src/render/perf-overlay.ts`
-- Modify: `packages/client/src/scenes/ArenaScene.ts` (the composer the preparation plan's Task 9 produced: its `create`, `update`, `resetMatchState`, and the field list)
+- Modify: `packages/client/src/scenes/ArenaScene.ts` (the composer the preparation plan's Task 9 produced: its fields, `create`, `update`, `resetMatchState`)
 
 **Interfaces:**
 - Consumes: Task 1's `hasDebugFlag`, `PERF_DEBUG_FLAG`; Task 2's `PerfRings`, `PerfSample`, `PerfReport`, `formatPerfLines`, `PERF_OVERLAY_CONFIG`; `ArenaLayers.hud` from the preparation plan.
-- Produces (the ledger's `PerfOverlay`, plus the extras Task 5 and the netgraph need):
+- Produces (the ledger's `PerfOverlay` plus the members Task 5 and the netgraph need):
 
 ```ts
 export type PerfMark = "sim" | "build" | "draw";
@@ -488,7 +418,6 @@ export class PerfOverlay {
   /** N0's netgraph overlay hands its lines here to sit under the perf block; absent, nothing is drawn. */
   attachNetgraph(lines: () => readonly string[]): void;
   report(): PerfReport;
-  /** "webgl" | "canvas" — which renderer the numbers describe. */
   readonly rendererKind: "webgl" | "canvas";
   /** Every object the overlay owns, for the caller to register with `ArenaLayers.hud`. */
   gameObjects(): Phaser.GameObjects.GameObject[];
@@ -496,49 +425,45 @@ export class PerfOverlay {
 }
 ```
 
-Where the counters come from, named exactly (all verified in `node_modules/phaser` 4.2.1):
+Where each counter comes from, verified in `node_modules/phaser` 4.2.1:
 
 | Counter | Source |
 |---|---|
-| frame time | `game.loop.rawDelta` — `Phaser.Core.TimeStep.step` (`src/core/TimeStep.js:718-750`) sets `this.rawDelta = time - this.lastTime` before calling `Game.step`, so reading it in `PRE_STEP` gives this frame's interval |
-| step / render boundaries | `Game.step` (`src/core/Game.js:454-502`) emits `Phaser.Core.Events.PRE_STEP`, then `scene.update`, then `POST_STEP`, then `renderer.preRender()`, `PRE_RENDER`, `scene.render`, `renderer.postRender()`, `POST_RENDER` |
+| frame time | `game.loop.rawDelta` — `TimeStep.step` (`src/core/TimeStep.js:718-750`) sets it before calling `Game.step`, so reading it in `PRE_STEP` gives this frame's interval |
+| step / render boundaries | `Game.step` (`src/core/Game.js:454-502`) emits `Phaser.Core.Events.PRE_STEP`, runs `scene.update`, emits `POST_STEP`, then `renderer.preRender()`, `PRE_RENDER`, `scene.render`, `renderer.postRender()`, `POST_RENDER` |
 | draw calls | there is **no** counter in 4.2.1's `WebGLRenderer` or `RenderNodeManager`; every batch handler submits through `WebGLRenderer.drawElements` (`src/renderer/webgl/WebGLRenderer.js:2068`, "the primary render method") or `drawInstancedArrays` (`:2103`), so the overlay wraps those two on the renderer instance and counts calls |
 | textures | `Object.keys(scene.textures.list).length` — `TextureManager.list` (`src/textures/TextureManager.js:100`) |
-| particles | the literal `0` until V4 |
-| tier | the literal `"medium"` until V5 |
+| particles / tier | the literals `0` and `"medium"` until V4 / V5 |
 
 - [ ] **Step 1: Write the overlay**
 
 ```ts
 // packages/client/src/render/perf-overlay.ts
 import Phaser from "phaser";
-import {
-  PERF_OVERLAY_CONFIG,
-  PerfRings,
-  formatPerfLines,
-  type PerfReport,
-  type PerfSample,
-} from "./perf-stats.js";
+import { PERF_OVERLAY_CONFIG, PerfRings, formatPerfLines, type PerfReport, type PerfSample } from "./perf-stats.js";
 
 export type PerfMark = "sim" | "build" | "draw";
 
-/** The literals the overlay prints until the phases that own them ship (V4 particles, V5 tiers). */
+/** What the overlay prints until the phases that own the counters ship (V4 particles, V5 tiers). */
 const PARTICLES_UNTIL_V4 = 0;
 const TIER_UNTIL_V5 = "medium";
 
 type DrawMethod = "drawElements" | "drawInstancedArrays";
+type DrawFn = (...args: unknown[]) => void;
 const DRAW_METHODS: readonly DrawMethod[] = ["drawElements", "drawInstancedArrays"];
 
 /**
  * Counts GL draw calls by wrapping the two `WebGLRenderer` methods every render node submits
- * through (4.2.1 keeps no counter of its own). The wrap is an own property on the renderer
- * instance, so it shadows the prototype method and `delete` restores it. Returns the unpatch.
+ * through (4.2.1 keeps no counter). The wrap is an own property shadowing the prototype method, so
+ * `delete` restores it — reassigning the original would leave an own property a second overlay
+ * would wrap twice. Returns the unpatch.
  */
 function countDrawCalls(game: Phaser.Game, onDraw: () => void): () => void {
   if (game.config.renderType !== Phaser.WEBGL) return () => {};
-  const renderer = game.renderer as unknown as Record<DrawMethod, (...args: unknown[]) => void>;
+  const renderer = game.renderer as unknown as Partial<Record<DrawMethod, DrawFn>>;
   for (const method of DRAW_METHODS) {
     const original = renderer[method];
+    if (!original) continue;
     renderer[method] = function (this: unknown, ...args: unknown[]) {
       onDraw();
       return original.apply(this, args);
@@ -550,22 +475,16 @@ function countDrawCalls(game: Phaser.Game, onDraw: () => void): () => void {
 }
 
 /**
- * The `?debug=perf` overlay (rendering spec R23): frame time split into the scene's own marks
- * (`sim`, `build`, `draw`), the rest of Phaser's step, and the render; GL draw calls; texture
- * count; particles; tier.
- *
- * The scene brackets its `update` with `frameStart()` … `mark()` … `frameEnd()`; the overlay hooks
- * the game's step events for everything outside that bracket. A frame with no `frameStart` (a
- * scene that does not mark) still records frame, phaser and render time with zero marks.
+ * The `?debug=perf` overlay (rendering spec R23). The scene brackets its `update` with
+ * `frameStart()` … `mark()` … `frameEnd()`; the overlay hooks the game's step events for everything
+ * outside that bracket. A frame with no `frameStart` still records frame, phaser and render time.
  */
 export class PerfOverlay {
   readonly rendererKind: "webgl" | "canvas";
   private readonly game: Phaser.Game;
   private readonly text: Phaser.GameObjects.Text;
   private readonly rings = new PerfRings();
-  private readonly sample: PerfSample = {
-    frameMs: 0, jsMs: 0, simMs: 0, buildMs: 0, drawMs: 0, phaserMs: 0, renderMs: 0, drawCalls: 0,
-  };
+  private readonly sample: PerfSample = { frame: 0, js: 0, sim: 0, build: 0, draw: 0, phaser: 0, render: 0, draws: 0 };
   private readonly unpatch: () => void;
   private netgraph: (() => readonly string[]) | undefined;
   private stepStartMs = 0;
@@ -608,11 +527,8 @@ export class PerfOverlay {
   /** Attributes the time since the previous mark (or `frameStart`) to `label`. */
   mark(label: PerfMark): void {
     const now = performance.now();
-    const spent = now - this.lastMarkMs;
+    this.sample[label] += now - this.lastMarkMs;
     this.lastMarkMs = now;
-    if (label === "sim") this.sample.simMs += spent;
-    else if (label === "build") this.sample.buildMs += spent;
-    else this.sample.drawMs += spent;
   }
 
   frameEnd(): void {
@@ -624,7 +540,7 @@ export class PerfOverlay {
   }
 
   report(): PerfReport {
-    return this.rings.report(this.textureCount(), PARTICLES_UNTIL_V4, TIER_UNTIL_V5);
+    return this.rings.report(Object.keys(this.scene.textures.list).length, PARTICLES_UNTIL_V4, TIER_UNTIL_V5);
   }
 
   gameObjects(): Phaser.GameObjects.GameObject[] {
@@ -641,13 +557,9 @@ export class PerfOverlay {
     this.text.destroy();
   }
 
-  private textureCount(): number {
-    return Object.keys(this.scene.textures.list).length;
-  }
-
   private onPreStep(): void {
     this.stepStartMs = performance.now();
-    this.sample.frameMs = this.game.loop.rawDelta;
+    this.sample.frame = this.game.loop.rawDelta;
   }
 
   private onPostStep(): void {
@@ -661,17 +573,14 @@ export class PerfOverlay {
 
   private onPostRender(): void {
     const now = performance.now();
-    const sample = this.sample;
-    sample.renderMs = now - this.renderStartMs;
-    sample.jsMs = this.stepMs + sample.renderMs;
-    // What Phaser did in the step that was not inside the scene's own bracket.
-    sample.phaserMs = Math.max(0, this.stepMs - this.sceneMs);
-    sample.drawCalls =
-      this.rendererKind === "webgl" ? this.drawCalls : PERF_OVERLAY_CONFIG.drawCallsUnavailable;
-    this.rings.push(sample);
-    sample.simMs = 0;
-    sample.buildMs = 0;
-    sample.drawMs = 0;
+    const s = this.sample;
+    s.render = now - this.renderStartMs;
+    s.js = this.stepMs + s.render;
+    // What Phaser did in the step outside the scene's own bracket: input, tweens, other scenes.
+    s.phaser = Math.max(0, this.stepMs - this.sceneMs);
+    s.draws = this.rendererKind === "webgl" ? this.drawCalls : PERF_OVERLAY_CONFIG.drawCallsUnavailable;
+    this.rings.push(s);
+    s.sim = s.build = s.draw = 0;
     this.sceneMs = 0;
 
     if (now - this.lastRefreshMs >= PERF_OVERLAY_CONFIG.refreshMs) {
@@ -684,26 +593,11 @@ export class PerfOverlay {
 }
 ```
 
-Two notes for the implementer. `Phaser.Core.Events.PRE_STEP` and friends are the string constants at `types/phaser.d.ts:6576-6601`; `game.config.renderType` (`:6032`) is `Phaser.WEBGL` (`2`) once Phaser has resolved `AUTO`. `delete renderer[method]` is the restore rather than reassigning the original, because the original is a prototype method and reassigning it would leave an own property that a second overlay would wrap twice.
+`Phaser.Core.Events.PRE_STEP` and friends are the string constants at `types/phaser.d.ts:6576-6601`; `game.config.renderType` (`:6032`) is `Phaser.WEBGL` (`2`) once Phaser has resolved `AUTO`; `TextureManager.list` is typed `object`, which `Object.keys` accepts.
 
 - [ ] **Step 2: Wire the overlay into `ArenaScene`**
 
-The composer from the preparation plan (Task 9) is the file being edited; apply these four edits.
-
-Imports — add:
-
-```ts
-import { PERF_DEBUG_FLAG, hasDebugFlag, isDebugEnabled } from "../config/client-mode.js";
-import { PerfOverlay } from "../render/perf-overlay.js";
-```
-
-Fields — after `private layers: ArenaLayers | undefined;` add:
-
-```ts
-private perf: PerfOverlay | undefined;
-```
-
-`create` — immediately after `this.layers = new ArenaLayers(this);`:
+Imports — add `PERF_DEBUG_FLAG, hasDebugFlag` to the `../config/client-mode.js` import and `import { PerfOverlay } from "../render/perf-overlay.js";`. Fields — after `private layers: ArenaLayers | undefined;` add `private perf: PerfOverlay | undefined;`. In `create`, immediately after `this.layers = new ArenaLayers(this);`:
 
 ```ts
 if (hasDebugFlag(PERF_DEBUG_FLAG)) {
@@ -712,7 +606,7 @@ if (hasDebugFlag(PERF_DEBUG_FLAG)) {
 }
 ```
 
-`update` — the preparation plan's body with the bracket added. The substitution table names each insertion against that plan's lines:
+In `update`, insert against the preparation plan's body:
 
 | After this line of the preparation plan's `update` | Insert |
 |---|---|
@@ -721,23 +615,16 @@ if (hasDebugFlag(PERF_DEBUG_FLAG)) {
 | `this.lastFrame = frame;` | `this.perf?.mark("build");` |
 | `this.hudRenderer?.render(frame, this.spectate?.hudTarget(frame) ?? frame.localSessionId);` | `this.perf?.mark("draw");` then `this.perf?.frameEnd();` |
 
-`syncBanners` builds a second frame before `pumpInput` runs; that cost lands in `sim`. It is small and it is what the game does, so the bucket is honest; note it in the doc (Task 8) rather than hiding it.
-
-`resetMatchState` — before `this.layers = undefined;`:
-
-```ts
-this.perf?.destroy();
-this.perf = undefined;
-```
+`syncBanners` builds a second frame before `pumpInput` runs, and that cost lands in `sim`; it is small and it is what the game does, so the bucket is honest — Task 8's doc says so. In `resetMatchState`, before `this.layers = undefined;`, add `this.perf?.destroy(); this.perf = undefined;`.
 
 - [ ] **Step 3: Typecheck and the client suite**
 
 Run: `cd packages/client && npm run typecheck && npx vitest run`
-Expected: typecheck clean; every client test green (no test imports the overlay, which imports Phaser).
+Expected: typecheck clean; every client test green (no test imports the overlay).
 
 - [ ] **Step 4: Look at it**
 
-Run `npm run dev`, open `http://localhost:5173/?debug=perf`, Practice → Start. Expected: three monospace lines top-left, refreshing four times a second, `draws` a small integer, `sim`/`build`/`draw` all non-zero once the match runs, `textures` in the teens. Open `?debug=1,perf` and confirm hitboxes and the overlay are both on.
+Run `npm run dev`, open `http://localhost:5173/?debug=perf`, Practice → Start. Expected: three monospace lines top-left refreshing four times a second, `draws` a small integer, `sim`/`build`/`draw` non-zero once the match runs, `textures` in the teens. `?debug=1,perf` shows hitboxes and the overlay together.
 
 - [ ] **Step 5: Commit**
 
@@ -755,30 +642,24 @@ git commit -m "feat(client): ?debug=perf overlay — frame split, draw calls, te
 - Test: `packages/client/src/dev/bench-frame.test.ts`
 
 **Interfaces:**
-- Consumes: `RenderFrame`, `RenderCar`, `RenderInstance` (preparation plan Task 1); `WEAPON_TABLE`, `weaponDefOf`, `slotsOf`, `hpOf`, `muzzleOf`, `COLOR_TABLE`, `WeaponKind`, `PlayerStatus`, `RoomPhase`, `GameMode`, `ArenaDef` from shared.
-- Produces (Task 5 and `scripts/bench-visual.mjs` read the same counts):
+- Consumes: `RenderFrame`, `RenderCar`, `RenderInstance`, `RenderSlot` (preparation plan Task 1); `weaponDefOf`, `slotsOf`, `hpOf`, `muzzleOf`, `COLOR_TABLE`, `WeaponKind`, `PlayerStatus`, `RoomPhase`, `GameMode`, `ArenaDef` from shared.
+- Produces (Task 5 draws it; `scripts/bench-visual.mjs` restates the same counts):
 
 ```ts
 export const BENCH_CEILING: { cars: 6; afterburners: 12; lances: 2; predators: 6; thumpers: 6; magmablasts: 6; pepperboxes: 8 }
-export const BENCH_INSTANCE_COUNT: number          // 40
-export const BENCH_LAYOUT: { carRing: number; shotRing: number; carOrbitRadPerTick: number; shotOrbitRadPerTick: number; lanceX: number; lanceYs: readonly number[]; beamAgeTicks: number }
+export const BENCH_INSTANCE_COUNT: number   // 40
+export const BENCH_LAYOUT: { carRing; shotRing; carOrbitRadPerTick; shotOrbitRadPerTick; lanceX; lanceYs; beamAgeTicks }
 export function benchFrame(tick: number, nowMs: number, arena: ArenaDef): RenderFrame
 ```
 
-The ceiling is a superposition, not a legal match: the six cars cycle through the three chassis so every silhouette is drawn, and the instances are fabricated by weapon id without regard to who could carry them. Twelve `afterburner` flames sit at the two muzzles (`muzzles: [0, 180]`) of every car; the two `lance` bolts are fixed 1200-unit beams across the floor (a lance's `attached: true` matters to the sim, not to the drawing); the twenty-six projectiles orbit on a ring. `12 + 2 + 6 + 6 + 6 + 8 = 40`.
+The ceiling is a superposition, not a legal match: the six cars cycle through the three chassis so every silhouette is drawn, and instances are fabricated by weapon id without regard to who could carry them. Twelve `afterburner` flames sit at the two muzzles (`muzzles: [0, 180]`) of every car; the two `lance` bolts are fixed 1200-unit beams across the floor (a lance's `attached: true` matters to the sim, not the drawing); twenty-six projectiles orbit an outer ring. `12 + 2 + 6 + 6 + 6 + 8 = 40`.
 
 - [ ] **Step 1: Write the failing test**
 
 ```ts
 // packages/client/src/dev/bench-frame.test.ts
 import { describe, expect, it } from "vitest";
-import {
-  ACTIVE_ARENA_ID,
-  WeaponKind,
-  getArena,
-  isWeaponId,
-  weaponDefOf,
-} from "@motor-combat-moba/shared";
+import { ACTIVE_ARENA_ID, WeaponKind, getArena, isWeaponId, weaponDefOf } from "@motor-combat-moba/shared";
 import { beamFadeAlpha } from "../scenes/combat-visual.js";
 import { BENCH_CEILING, BENCH_INSTANCE_COUNT, benchFrame } from "./bench-frame.js";
 
@@ -794,10 +675,7 @@ describe("benchFrame", () => {
     expect(BENCH_INSTANCE_COUNT).toBe(40);
     expect(count(frame, "afterburner")).toBe(BENCH_CEILING.afterburners);
     expect(count(frame, "lance")).toBe(BENCH_CEILING.lances);
-    expect(count(frame, "predator")).toBe(BENCH_CEILING.predators);
-    expect(count(frame, "thumper")).toBe(BENCH_CEILING.thumpers);
-    expect(count(frame, "magmablast")).toBe(BENCH_CEILING.magmablasts);
-    expect(count(frame, "pepperbox")).toBe(BENCH_CEILING.pepperboxes);
+    expect(count(frame, "predator") + count(frame, "thumper") + count(frame, "magmablast") + count(frame, "pepperbox")).toBe(26);
     for (const instance of frame.instances) expect(isWeaponId(instance.weaponId)).toBe(true);
   });
 
@@ -806,27 +684,22 @@ describe("benchFrame", () => {
     for (const instance of frame.instances) {
       if (instance.kind !== WeaponKind.BEAM) continue;
       expect(instance.extent).toBe(weaponDefOf(instance.weaponId as "afterburner" | "lance").range);
-      expect(
-        beamFadeAlpha(instance.kind, instance.weaponId, instance.spawnTick, frame.tick, false),
-      ).toBe(1);
+      expect(beamFadeAlpha(instance.kind, instance.weaponId, instance.spawnTick, frame.tick, false)).toBe(1);
     }
   });
 
-  it("is a match frame with one local car, sorted by session id, every car on the field", () => {
+  it("is a match frame: one local car, sorted session ids, every chassis, all on the field", () => {
     const frame = benchFrame(100, 0, arena);
-    expect(frame.cars.map((c) => c.sessionId)).toEqual([...frame.cars.map((c) => c.sessionId)].sort());
-    expect(frame.cars.filter((c) => c.isLocal)).toHaveLength(1);
-    expect(frame.localSessionId).toBe(frame.cars.find((c) => c.isLocal)!.sessionId);
-    expect(frame.cars.every((c) => c.onField && c.alive)).toBe(true);
-    expect(frame.cars.map((c) => c.carId)).toEqual([
-      "mirage", "bullseye", "bastion", "mirage", "bullseye", "bastion",
-    ]);
-    expect(frame.cars.every((c) => c.weapons.length === 3)).toBe(true);
+    const ids = frame.cars.map((c) => c.sessionId);
+    expect(ids).toEqual([...ids].sort());
+    expect(frame.cars.filter((c) => c.isLocal).map((c) => c.sessionId)).toEqual([frame.localSessionId]);
+    expect(frame.cars.every((c) => c.onField && c.alive && c.weapons.length === 3)).toBe(true);
+    expect(frame.cars.map((c) => c.carId)).toEqual(["mirage", "bullseye", "bastion", "mirage", "bullseye", "bastion"]);
     expect(frame.events).toEqual([]);
     expect(frame.arenaId).toBe(arena.id);
   });
 
-  it("keeps every car and projectile inside the arena as the ring turns", () => {
+  it("keeps cars and projectiles inside the arena as the rings turn, deterministically in tick", () => {
     for (const tick of [0, 250, 1000, 4000]) {
       const frame = benchFrame(tick, 0, arena);
       for (const car of frame.cars) {
@@ -841,9 +714,6 @@ describe("benchFrame", () => {
         expect(instance.x).toBeLessThan(arena.width);
       }
     }
-  });
-
-  it("is deterministic in tick and moves between ticks", () => {
     expect(benchFrame(7, 123, arena).cars).toEqual(benchFrame(7, 456, arena).cars);
     expect(benchFrame(7, 0, arena).cars[0]!.pose.x).not.toBe(benchFrame(8, 0, arena).cars[0]!.pose.x);
     expect(benchFrame(7, 999, arena).nowMs).toBe(999);
@@ -861,19 +731,8 @@ Expected: FAIL — cannot resolve `./bench-frame.js`.
 ```ts
 // packages/client/src/dev/bench-frame.ts
 import {
-  COLOR_TABLE,
-  GameMode,
-  PlayerStatus,
-  RoomPhase,
-  WeaponKind,
-  hpOf,
-  muzzleOf,
-  slotsOf,
-  weaponDefOf,
-  type ArenaDef,
-  type CarId,
-  type SimBody,
-  type WeaponId,
+  COLOR_TABLE, GameMode, PlayerStatus, RoomPhase, WeaponKind, hpOf, muzzleOf, slotsOf, weaponDefOf,
+  type ArenaDef, type CarId, type SimBody, type WeaponId,
 } from "@motor-combat-moba/shared";
 import type { RenderCar, RenderFrame, RenderInstance, RenderSlot } from "../match/render-frame.js";
 
@@ -883,35 +742,23 @@ import type { RenderCar, RenderFrame, RenderInstance, RenderSlot } from "../matc
  * instances. A superposition, not a legal match — nobody checks who could carry what.
  */
 export const BENCH_CEILING = {
-  cars: 6,
-  afterburners: 12,
-  lances: 2,
-  predators: 6,
-  thumpers: 6,
-  magmablasts: 6,
-  pepperboxes: 8,
+  cars: 6, afterburners: 12, lances: 2, predators: 6, thumpers: 6, magmablasts: 6, pepperboxes: 8,
 } as const;
 
 export const BENCH_INSTANCE_COUNT =
-  BENCH_CEILING.afterburners +
-  BENCH_CEILING.lances +
-  BENCH_CEILING.predators +
-  BENCH_CEILING.thumpers +
-  BENCH_CEILING.magmablasts +
-  BENCH_CEILING.pepperboxes;
+  BENCH_CEILING.afterburners + BENCH_CEILING.lances + BENCH_CEILING.predators +
+  BENCH_CEILING.thumpers + BENCH_CEILING.magmablasts + BENCH_CEILING.pepperboxes;
 
 /** Where things sit, in world units and radians per tick. Rings are centred on the arena. */
 export const BENCH_LAYOUT = {
-  /** Radius of the ring the cars drive around. */
   carRing: 200,
-  /** Radius of the ring the projectiles fly around, outside the cars. */
   shotRing: 300,
   carOrbitRadPerTick: 0.006,
   shotOrbitRadPerTick: 0.02,
-  /** The two lances start here and run the full `range` to the right. */
+  /** The two lances start here and run their full `range` to the right. */
   lanceX: 40,
   lanceYs: [300, 420],
-  /** A beam this many ticks old is still at full alpha (`beamFadeAlpha`) and past its spawn tick. */
+  /** A beam this many ticks old is past its spawn tick and still at full alpha (`beamFadeAlpha`). */
   beamAgeTicks: 2,
 } as const;
 
@@ -927,19 +774,25 @@ const body = (x: number, y: number, angle: number): SimBody => ({
 
 const sessionIdOf = (index: number): string => `bench-${index}`;
 
+function onRing(index: number, count: number, radius: number, radPerTick: number, tick: number, arena: ArenaDef) {
+  const theta = (TWO_PI * index) / count + tick * radPerTick;
+  return {
+    x: arena.width / 2 + Math.cos(theta) * radius,
+    y: arena.height / 2 + Math.sin(theta) * radius,
+    // Heading along the ring, so a car faces the way it moves and a shot flies where it points.
+    angle: theta + Math.PI / 2,
+  };
+}
+
 function benchCar(index: number, tick: number, arena: ArenaDef): RenderCar {
   const carId = CHASSIS_CYCLE[index % CHASSIS_CYCLE.length]!;
-  const theta = (TWO_PI * index) / BENCH_CEILING.cars + tick * BENCH_LAYOUT.carOrbitRadPerTick;
-  const x = arena.width / 2 + Math.cos(theta) * BENCH_LAYOUT.carRing;
-  const y = arena.height / 2 + Math.sin(theta) * BENCH_LAYOUT.carRing;
-  // Heading along the ring, so the car faces the way it is moving.
-  const pose = body(x, y, theta + Math.PI / 2);
+  const at = onRing(index, BENCH_CEILING.cars, BENCH_LAYOUT.carRing, BENCH_LAYOUT.carOrbitRadPerTick, tick, arena);
+  const pose = body(at.x, at.y, at.angle);
   const weapons: RenderSlot[] = slotsOf(carId).map((weaponId) => ({
     weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
   }));
-  const sessionId = sessionIdOf(index);
   return {
-    sessionId,
+    sessionId: sessionIdOf(index),
     isLocal: index === LOCAL_CAR,
     status: PlayerStatus.IN_MATCH,
     onField: true,
@@ -969,27 +822,18 @@ function benchCar(index: number, tick: number, arena: ArenaDef): RenderCar {
   };
 }
 
-function instance(
-  id: number,
-  ownerSessionId: string,
-  weaponId: WeaponId,
-  x: number,
-  y: number,
-  angle: number,
-  tick: number,
-): RenderInstance {
+function instance(id: number, owner: string, weaponId: WeaponId, x: number, y: number, angle: number, tick: number): RenderInstance {
   const def = weaponDefOf(weaponId);
-  const beam = def.kind === "beam";
   return {
     id: `bench-shot-${id}`,
-    ownerSessionId,
+    ownerSessionId: owner,
     weaponId,
-    kind: beam ? WeaponKind.BEAM : WeaponKind.PROJECTILE,
+    kind: def.kind === "beam" ? WeaponKind.BEAM : WeaponKind.PROJECTILE,
     x,
     y,
     angle,
     // A beam is drawn fully grown; a projectile's extent is unused by the drawing.
-    extent: beam ? def.range : 0,
+    extent: def.kind === "beam" ? def.range : 0,
     spawnTick: tick - BENCH_LAYOUT.beamAgeTicks,
     alive: true,
     isExplosion: false,
@@ -1003,36 +847,33 @@ export function benchFrame(tick: number, nowMs: number, arena: ArenaDef): Render
 
   const instances: RenderInstance[] = [];
   let next = 0;
-
   // Flames: both muzzles of every car (`afterburner.muzzles` is `[0, 180]`).
   for (const car of cars) {
-    const forward = muzzleOf(car.pose);
-    const rear = muzzleOf({ x: car.pose.x, y: car.pose.y, angle: car.pose.angle + Math.PI });
-    instances.push(instance(next++, car.sessionId, "afterburner", forward.x, forward.y, car.pose.angle, tick));
-    instances.push(instance(next++, car.sessionId, "afterburner", rear.x, rear.y, car.pose.angle + Math.PI, tick));
+    const fore = muzzleOf(car.pose);
+    const aft = muzzleOf({ x: car.pose.x, y: car.pose.y, angle: car.pose.angle + Math.PI });
+    instances.push(instance(next++, car.sessionId, "afterburner", fore.x, fore.y, car.pose.angle, tick));
+    instances.push(instance(next++, car.sessionId, "afterburner", aft.x, aft.y, car.pose.angle + Math.PI, tick));
   }
-
   // Bolts: fixed across the floor, owned by the first two cars.
   for (let i = 0; i < BENCH_CEILING.lances; i++) {
     instances.push(instance(next++, cars[i]!.sessionId, "lance", BENCH_LAYOUT.lanceX, BENCH_LAYOUT.lanceYs[i]!, 0, tick));
   }
-
-  // Projectiles: evenly spaced on the outer ring, heading along it, each owned by some car.
-  const projectiles: WeaponId[] = [];
-  for (let i = 0; i < BENCH_CEILING.predators; i++) projectiles.push("predator");
-  for (let i = 0; i < BENCH_CEILING.thumpers; i++) projectiles.push("thumper");
-  for (let i = 0; i < BENCH_CEILING.magmablasts; i++) projectiles.push("magmablast");
-  for (let i = 0; i < BENCH_CEILING.pepperboxes; i++) projectiles.push("pepperbox");
+  // Projectiles: evenly spaced on the outer ring, each owned by some car.
+  const projectiles: WeaponId[] = [
+    ...Array<WeaponId>(BENCH_CEILING.predators).fill("predator"),
+    ...Array<WeaponId>(BENCH_CEILING.thumpers).fill("thumper"),
+    ...Array<WeaponId>(BENCH_CEILING.magmablasts).fill("magmablast"),
+    ...Array<WeaponId>(BENCH_CEILING.pepperboxes).fill("pepperbox"),
+  ];
   projectiles.forEach((weaponId, i) => {
-    const theta = (TWO_PI * i) / projectiles.length + tick * BENCH_LAYOUT.shotOrbitRadPerTick;
-    const x = arena.width / 2 + Math.cos(theta) * BENCH_LAYOUT.shotRing;
-    const y = arena.height / 2 + Math.sin(theta) * BENCH_LAYOUT.shotRing;
-    instances.push(instance(next++, cars[i % cars.length]!.sessionId, weaponId, x, y, theta + Math.PI / 2, tick));
+    const at = onRing(i, projectiles.length, BENCH_LAYOUT.shotRing, BENCH_LAYOUT.shotOrbitRadPerTick, tick, arena);
+    instances.push(instance(next++, cars[i % cars.length]!.sessionId, weaponId, at.x, at.y, at.angle, tick));
   });
 
   return {
     tick,
     phase: RoomPhase.MATCH,
+    // The practice room's combination: hides the clock, keeps the kills panel — the HUD to draw.
     mode: GameMode.FFA_DEATHMATCH,
     arenaId: arena.id,
     countdownEndsTick: 0,
@@ -1052,12 +893,12 @@ export function benchFrame(tick: number, nowMs: number, arena: ArenaDef): Render
 }
 ```
 
-`muzzleOf` takes a pose (`packages/shared/src/sim/weapons/lock.ts:40`) and is exported from shared's index. `FFA_DEATHMATCH` with `matchEndsTick: 0` is the practice room's combination, which hides the clock and keeps the kills panel — the HUD the bench should draw.
+`muzzleOf` takes a pose (`packages/shared/src/sim/weapons/lock.ts:40`) and is exported from shared's index.
 
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `cd packages/client && npx vitest run src/dev/bench-frame.test.ts`
-Expected: PASS (5 tests). `beamFadeAlpha` returns 1 for a 2-tick-old `afterburner` (lifetime 2000 ms, fade window `BEAM_FADE_OUT_MS` = 100 ms) and `lance` (1500 ms).
+Expected: PASS (4 tests). `beamFadeAlpha` is 1 for a 2-tick-old `afterburner` (lifetime 2000 ms, fade window `BEAM_FADE_OUT_MS` = 100 ms) and `lance` (1500 ms); `hpOf` gives 700 / 650 / 900.
 
 - [ ] **Step 5: Commit**
 
@@ -1072,21 +913,21 @@ git commit -m "feat(client): bench-frame — the visual ceiling as a pure Render
 
 **Files:**
 - Create: `packages/client/src/scenes/arena/arena-floor.ts`
-- Modify: `packages/client/src/scenes/ArenaScene.ts` (`drawArena`, today `ArenaScene.ts:927-960`; after the preparation plan it is the boolean-returning method its Task 9 Step 3 describes)
+- Modify: `packages/client/src/scenes/ArenaScene.ts` (`drawArena`, today `ArenaScene.ts:927-960`; after the preparation plan it is the boolean-returning method its Task 9 Step 3 describes; the constants `ARENA_BORDER_PX` at `:147` and `ARENA_DEPTH` at `:204`)
 - Create: `packages/client/src/dev/BenchScene.ts`
 - Modify: `packages/client/src/dev/registry.ts`, `packages/client/src/dev/registry.test.ts`
 
 **Interfaces:**
-- Consumes: Task 3's `PerfOverlay`; Task 4's `benchFrame`; `ArenaLayers`, `CarRenderer`, `ShotRenderer`, `HudRenderer`, `MatchBanners`, `SpectateView` from the preparation plan; `DEV_TOOL_MARKER`.
+- Consumes: Task 3's `PerfOverlay`; Task 4's `benchFrame`; `ArenaLayers`, `CarRenderer`, `ShotRenderer`, `HudRenderer`, `MatchBanners` (`scenes/arena/*`) and `SpectateView` (`scenes/arena/spectate-camera.ts`) from the preparation plan; `DEV_TOOL_MARKER`.
 - Produces: `drawArenaFloor(scene, layers, arena): { gfx: Phaser.GameObjects.Graphics; staticCamera: boolean }`; the `bench` dev tool; `window.__bench: BenchProbe` (`{ ready: true; renderer: "webgl" | "canvas"; frames(): number; report(): PerfReport }`), which `scripts/bench-arena.mjs` reads.
 
 - [ ] **Step 1: Extract the floor**
 
-`drawArena`'s body is the floor, the camera viewport, background, zoom, bounds and the fit test. Move it into a function so the bench draws the same floor with the same camera, using this substitution table against the preparation plan's `drawArena`:
+Move `drawArena`'s body (the floor, the camera viewport, background, zoom, bounds and the fit test) into a function, with this substitution table against the preparation plan's `drawArena`:
 
 | In `ArenaScene.drawArena` | In `drawArenaFloor` |
 |---|---|
-| `this.add.graphics()` (wrapped in `this.layers!.world(...)`) | `layers.world(scene.add.graphics())` |
+| `this.layers!.world(this.add.graphics().setDepth(ARENA_DEPTH))` | `layers.world(scene.add.graphics().setDepth(ARENA_DEPTH))` |
 | `this.arenaGfx = gfx;` | delete — returned instead |
 | `this.cameras.main` | `scene.cameras.main` |
 | `return staticCamera;` | `return { gfx, staticCamera };` |
@@ -1100,16 +941,14 @@ import { fitsViewport } from "../arena-camera.js";
 import { arenaBorderRect, arenaColorsOf } from "../arena-visual.js";
 import type { ArenaLayers } from "./arena-layers.js";
 
-/** Border stroke width, moved from `ArenaScene`'s `ARENA_BORDER_PX`. */
+/** Border stroke width and the floor's depth, moved from `ArenaScene`. */
 export const ARENA_BORDER_PX = 4;
-/** The floor everything else is drawn on, moved from `ArenaScene`'s `ARENA_DEPTH`. */
 export const ARENA_DEPTH = -10;
 
 /**
  * The arena floor and the world camera's setup, shared by `ArenaScene` and the bench scene so a
- * benchmark draws exactly the floor a match does. Body moved verbatim from `ArenaScene.drawArena`;
- * see that method's comments for why the viewport is set before `centerOn` and why the camera
- * reads `ARENA_VIEW_WIDTH` rather than `VIEW_WIDTH`.
+ * benchmark draws exactly the floor a match does. Body moved verbatim from `ArenaScene.drawArena`,
+ * whose comments (viewport before `centerOn`; `ARENA_VIEW_WIDTH`, never `VIEW_WIDTH`) move with it.
  */
 export function drawArenaFloor(
   scene: Phaser.Scene,
@@ -1119,9 +958,7 @@ export function drawArenaFloor(
   const colors = arenaColorsOf(arena);
   const gfx = layers.world(scene.add.graphics().setDepth(ARENA_DEPTH));
   gfx.fillStyle(colors.obstacle, 1);
-  for (const obstacle of arena.obstacles) {
-    gfx.fillRect(obstacle.x, obstacle.y, obstacle.w, obstacle.h);
-  }
+  for (const obstacle of arena.obstacles) gfx.fillRect(obstacle.x, obstacle.y, obstacle.w, obstacle.h);
   gfx.lineStyle(ARENA_BORDER_PX, colors.border, 1);
   const border = arenaBorderRect(arena, ARENA_BORDER_PX);
   gfx.strokeRect(border.x, border.y, border.w, border.h);
@@ -1131,17 +968,13 @@ export function drawArenaFloor(
   cam.setBackgroundColor(colors.floor);
   cam.setZoom(CAMERA_CONFIG.zoom);
   cam.setBounds(0, 0, arena.width, arena.height);
-  const staticCamera = fitsViewport(
-    arena,
-    { width: ARENA_VIEW_WIDTH, height: VIEW_HEIGHT },
-    CAMERA_CONFIG.zoom,
-  );
+  const staticCamera = fitsViewport(arena, { width: ARENA_VIEW_WIDTH, height: VIEW_HEIGHT }, CAMERA_CONFIG.zoom);
   if (staticCamera) cam.centerOn(arena.width / 2, arena.height / 2);
   return { gfx, staticCamera };
 }
 ```
 
-In `ArenaScene`, delete the `ARENA_BORDER_PX` and `ARENA_DEPTH` constants (import `ARENA_DEPTH` only if something else in the scene still reads it; today nothing does) and replace `drawArena`'s body with:
+In `ArenaScene`, delete the `ARENA_BORDER_PX` and `ARENA_DEPTH` constants and their comments (nothing else in the scene reads them) and replace `drawArena` with:
 
 ```ts
 private drawArena(arena: ArenaDef): boolean {
@@ -1166,8 +999,9 @@ import { ArenaLayers } from "../scenes/arena/arena-layers.js";
 import { drawArenaFloor } from "../scenes/arena/arena-floor.js";
 import { CarRenderer } from "../scenes/arena/car-renderer.js";
 import { HudRenderer } from "../scenes/arena/hud-renderer.js";
-import { MatchBanners, type SpectateView } from "../scenes/arena/match-banners.js";
+import { MatchBanners } from "../scenes/arena/match-banners.js";
 import { ShotRenderer } from "../scenes/arena/shot-renderer.js";
+import type { SpectateView } from "../scenes/arena/spectate-camera.js";
 import { benchFrame } from "./bench-frame.js";
 import { DEV_TOOL_MARKER } from "./registry.js";
 
@@ -1193,17 +1027,16 @@ const MARKER_FONT_PX = 14;
 /**
  * `?dev=bench` (rendering spec R24): the visual ceiling with no server. Every frame is a
  * `benchFrame` at a tick derived from elapsed time, drawn by the SAME renderer classes `ArenaScene`
- * composes, so what this measures is what a match costs. There is no sim here, so the overlay's
- * `sim` bucket reads 0 — the `build` and `draw` buckets are the ones the rendering phases move.
+ * composes, so what this measures is what a match costs. There is no sim, so the overlay's `sim`
+ * bucket reads 0 — `build` and `draw` are the buckets the rendering phases move.
  *
- * `BootScene`'s dev branch adds this under the key `dev.bench` (it overrides the key given to
- * `super()` at its `scene.add` call), which is why the runner finds the scene through
- * `window.__bench` rather than by key. Never started by anything that ships: the registry is the
- * only way in, and `DEV_TOOL_MARKER` below is what `build-release.mjs` asserts absent.
+ * `BootScene`'s dev branch adds this under the key `dev.bench` (its `scene.add` call overrides the
+ * key given to `super()`), which is why the runner finds the scene through `window.__bench` rather
+ * than by key. The registry is the only way in, and `DEV_TOOL_MARKER` is what `build-release.mjs`
+ * asserts absent from a release.
  */
 export class BenchScene extends Phaser.Scene {
   private arena: ArenaDef = getArena(ACTIVE_ARENA_ID);
-  private layers: ArenaLayers | undefined;
   private carRenderer: CarRenderer | undefined;
   private shotRenderer: ShotRenderer | undefined;
   private hudRenderer: HudRenderer | undefined;
@@ -1219,7 +1052,6 @@ export class BenchScene extends Phaser.Scene {
     this.elapsedMs = 0;
     this.arena = getArena(ACTIVE_ARENA_ID);
     const layers = new ArenaLayers(this);
-    this.layers = layers;
     drawArenaFloor(this, layers, this.arena);
     const debug = isDebugEnabled();
     this.carRenderer = new CarRenderer(this, layers, debug);
@@ -1253,8 +1085,8 @@ export class BenchScene extends Phaser.Scene {
     if (!perf || !this.carRenderer || !this.shotRenderer || !this.hudRenderer || !this.banners) return;
     perf.frameStart();
     this.elapsedMs += delta;
-    const tick = Math.floor(this.elapsedMs / MS_PER_TICK);
-    const frame = benchFrame(tick, performance.now(), this.arena);
+    // `MS_PER_TICK` from shared, so N1's move to 60 Hz carries the bench's clock with it.
+    const frame = benchFrame(Math.floor(this.elapsedMs / MS_PER_TICK), performance.now(), this.arena);
     perf.mark("build");
     this.carRenderer.render(frame, frame.localSessionId);
     this.shotRenderer.render(frame);
@@ -1271,39 +1103,26 @@ export class BenchScene extends Phaser.Scene {
     this.hudRenderer?.destroy();
     this.banners?.destroy();
     this.perf?.destroy();
-    this.carRenderer = undefined;
-    this.shotRenderer = undefined;
-    this.hudRenderer = undefined;
-    this.banners = undefined;
-    this.perf = undefined;
-    this.layers = undefined;
+    this.carRenderer = this.shotRenderer = this.hudRenderer = this.banners = this.perf = undefined;
   }
 }
 ```
 
-`MS_PER_TICK` is read from shared, so when N1 moves the sim to 60 Hz the bench's tick clock follows without an edit.
-
 - [ ] **Step 3: Register the tool**
 
-In `packages/client/src/dev/registry.ts`, add to `DEV_TOOLS`:
-
-```ts
-  bench: async () => (await import("./BenchScene.js")).BenchScene,
-```
-
-In `registry.test.ts`, change the expected id list to `["assets", "playground", "bench"]` and add `expect(isDevToolId("bench")).toBe(true);` to the same test.
+In `dev/registry.ts`, add to `DEV_TOOLS`: `bench: async () => (await import("./BenchScene.js")).BenchScene,`. In `registry.test.ts`, change the expected id list to `["assets", "playground", "bench"]` and add `expect(isDevToolId("bench")).toBe(true);` to the same test.
 
 - [ ] **Step 4: Typecheck, test, look**
 
 Run: `cd packages/client && npm run typecheck && npx vitest run`
 Expected: clean; PASS.
 
-Run `npm run dev`, open `http://localhost:5173/?dev=bench`. Expected: the arena floor, six cars driving a ring, twelve flames, two bolts across the floor, twenty-six projectiles on the outer ring, the slot bar and roster, the perf overlay top-left, `MOTOR DEV TOOL` bottom-left; `?dev=bench&debug=1` outlines every hitbox. In the console, `window.__bench.report()` returns a `PerfReport`.
+Run `npm run dev`, open `http://localhost:5173/?dev=bench`. Expected: the arena floor, six cars driving a ring, twelve flames, two bolts across the floor, twenty-six projectiles on the outer ring, the slot bar and roster, the perf overlay top-left, `MOTOR DEV TOOL` bottom-left; `?dev=bench&debug=1` outlines every hitbox; in the console `window.__bench.report()` returns a `PerfReport`.
 
 - [ ] **Step 5: Confirm the release strips it**
 
 Run: `npm run build:release`
-Expected: succeeds; `assertNoDevOnlyCode` passes because `BenchScene` is reached only by the dynamic import behind `import.meta.env.DEV`. Then `grep -l "MOTOR DEV TOOL" dist-release/motor-combat-moba/packages/client/dist/assets/*.js` prints nothing.
+Expected: succeeds — `assertNoDevOnlyCode` passes because `BenchScene` is reached only by the dynamic import behind `import.meta.env.DEV` — and `grep -l "MOTOR DEV TOOL" dist-release/motor-combat-moba/packages/client/dist/assets/*.js` prints nothing.
 
 - [ ] **Step 6: Commit**
 
@@ -1322,14 +1141,14 @@ git commit -m "feat(client): ?dev=bench draws the visual ceiling with the match 
 - Modify: `package.json` (root)
 
 **Interfaces:**
-- Consumes: `beamDrawLayers`, `projectileDrawLayers`, `instanceDrawShape` from `packages/client/src/scenes/combat-visual.ts` (imported through `tsx`'s `tsImport`, since the file is TypeScript and imports only `@motor-combat-moba/shared`); Phaser's earcut at `node_modules/phaser/src/geom/polygon/Earcut.js` (CommonJS, loaded by an absolute-path `require`, which bypasses Phaser's `exports` map); `BENCH_CEILING`'s counts, restated here as `CEILING` because a `.mjs` cannot import the client's `.ts` constant without the same loader.
-- Produces: `runVisualBench({ frames?, nowStepMs? }): Promise<VisualBenchResult>`; `formatVisualRows(result): string[]`; `npm run bench:visual`.
+- Consumes: `beamDrawLayers`, `projectileDrawLayers`, `instanceDrawShape` from `packages/client/src/scenes/combat-visual.ts` (TypeScript that imports only `@motor-combat-moba/shared`, loaded through `tsx`'s `tsImport`); Phaser's earcut at `node_modules/phaser/src/geom/polygon/Earcut.js` (CommonJS — Phaser's `package.json` sets no `"type"` — loaded by an absolute-path `require`, which bypasses the package's `exports` map).
+- Produces: `CEILING`, `runVisualBench({ frames? })`, `formatVisualRows(result)`, `npm run bench:visual`.
 
-The two microbenchmarks are the ones spec §1 was written from. Row 1 times `beamDrawLayers("afterburner", …)` twelve times per frame at full range and counts vertices and polygons. Row 2 times earcut over every polygon row 1 produced — what Phaser's `FillPath` render node does per fill per frame (`renderNodes/FillPath.js:63-91`: it flattens the path to `[x0, y0, x1, y1, …]` and calls `Earcut(polygonCache)`). Row 3 is the rest of the shot layer: two lances through `beamDrawLayers`, and the projectiles through `projectileDrawLayers` where a style exists, else the `instanceDrawShape` polygon or circle (a `fillCircle` is a 101-point path, `GraphicsWebGLRenderer.js:225-278`).
+The two microbenchmarks are the ones spec §1 was written from. Row 1 times `beamDrawLayers("afterburner", …)` twelve times per frame at full range and counts vertices and polygons. Row 2 times earcut over every polygon row 1 produced — what the WebGL `FillPath` render node does per fill per frame (`renderNodes/FillPath.js:63-91` flattens the path to `[x0, y0, x1, y1, …]` and calls `Earcut(polygonCache)`). Row 3 is the rest of the shot layer: two lances through `beamDrawLayers`, and the projectiles through `projectileDrawLayers` where a style exists, else the `instanceDrawShape` polygon or circle (a `fillCircle` is a 101-point path, `GraphicsWebGLRenderer.js:225-278`).
 
 - [ ] **Step 1: Add the dependency and the script**
 
-In root `package.json`: add `"tsx": "^4.16.0"` to `devDependencies` (the server already declares the same range, so the lockfile does not move) and `"bench:visual": "npm run build -w @motor-combat-moba/shared && node scripts/bench-visual.mjs"` to `scripts`. Run `npm install`.
+In root `package.json`: add `"tsx": "^4.16.0"` to `devDependencies` (the server declares the same range, so the lockfile does not move) and `"bench:visual": "npm run build -w @motor-combat-moba/shared && node scripts/bench-visual.mjs"` to `scripts`. Run `npm install`.
 
 - [ ] **Step 2: Write the failing test**
 
@@ -1351,17 +1170,17 @@ describe("runVisualBench", () => {
     const [flame, earcut, rest] = result.rows;
     assert.equal(flame.name, "flame geometry");
     assert.ok(flame.vertices > 0);
-    assert.equal(flame.polygons % CEILING.afterburners, 0, "every flame has the same layer count");
+    // Every flame has at least its authored layers; embers may vary with the noise clock.
+    assert.ok(flame.polygons >= CEILING.afterburners);
     assert.equal(earcut.name, "flame earcut");
     assert.equal(earcut.polygons, flame.polygons);
     assert.ok(earcut.triangles > 0);
     assert.equal(rest.name, "rest of the shot layer");
     assert.ok(rest.vertices > 0);
     for (const row of result.rows) assert.ok(row.msPerFrame >= 0, `${row.name} has a time`);
-    assert.ok(result.totalMs >= flame.msPerFrame + earcut.msPerFrame + rest.msPerFrame - 1e-9);
   });
 
-  it("prints one line per row plus a total, with ms/frame", async () => {
+  it("prints a header, one line per row and a total, with ms/frame", async () => {
     const lines = formatVisualRows(await runVisualBench({ frames: 2 }));
     assert.equal(lines.length, 1 + 3 + 1);
     assert.match(lines[0], /ms\/frame/);
@@ -1371,7 +1190,6 @@ describe("runVisualBench", () => {
   it("runs from the command line", () => {
     const out = execFileSync(process.execPath, [SCRIPT, "--frames", "2"], { encoding: "utf8" });
     assert.match(out, /flame geometry/);
-    assert.match(out, /ms\/frame/);
   });
 });
 ```
@@ -1386,23 +1204,16 @@ Expected: FAIL — cannot find module `./bench-visual.mjs`.
 ```js
 // scripts/bench-visual.mjs
 /**
- * The pure builders at the visual ceiling, timed in node (rendering spec §1, R24).
- *
- * Three rows, median ms per frame over `--frames` (default 200):
- *   1. flame geometry — `beamDrawLayers("afterburner")` x12 at full range: the CPU cost of building
- *      the flame polygons. This is the number the spec's 2.65 ms came from.
- *   2. flame earcut   — Phaser's earcut over every polygon row 1 built, which is what the WebGL
- *      `FillPath` render node does per fill per frame (`renderNodes/FillPath.js:63-91`). The 3.88 ms.
+ * The pure builders at the visual ceiling, timed in node (rendering spec §1, R24). Three rows,
+ * median ms per frame over `--frames` (default 200):
+ *   1. flame geometry — `beamDrawLayers("afterburner")` x12 at full range (the spec's 2.65 ms).
+ *   2. flame earcut   — Phaser's earcut over every polygon row 1 built, which the WebGL `FillPath`
+ *      render node does per fill per frame (`renderNodes/FillPath.js:63-91`). The 3.88 ms.
  *   3. rest of layer  — two lances, and the projectiles through `projectileDrawLayers` or, where a
  *      weapon has no style, the raw `instanceDrawShape` polygon (a circle counts as the 101-point
- *      path `fillCircle` records, `GraphicsWebGLRenderer.js:225-278`).
- *
+ *      path `fillCircle` records).
  * Absolute numbers are this machine's; read the ratios and the vertex counts. V2/V3 turn the
  * builders into boot-time bakes, and this script is what says how long a bake costs.
- *
- * `combat-visual.ts` is TypeScript that imports only built shared, so it is loaded through tsx's
- * `tsImport` rather than compiled first. Earcut is Phaser's own CommonJS module, required by
- * absolute path because Phaser's `exports` map does not expose it.
  */
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -1416,18 +1227,11 @@ const require = createRequire(import.meta.url);
 const earcut = require(path.join(ROOT, "node_modules/phaser/src/geom/polygon/Earcut.js"));
 
 /** Same mix as `packages/client/src/dev/bench-frame.ts`'s `BENCH_CEILING`. */
-export const CEILING = {
-  afterburners: 12,
-  lances: 2,
-  predators: 6,
-  thumpers: 6,
-  magmablasts: 6,
-  pepperboxes: 8,
-};
+export const CEILING = { afterburners: 12, lances: 2, predators: 6, thumpers: 6, magmablasts: 6, pepperboxes: 8 };
 
 const DEFAULT_FRAMES = 200;
-/** A 60 Hz frame; advancing `nowMs` by this per frame exercises the crackle and flicker clocks. */
-const DEFAULT_NOW_STEP_MS = 1000 / 60;
+/** A 60 Hz frame: advancing `nowMs` by this per frame exercises the crackle and flicker clocks. */
+const NOW_STEP_MS = 1000 / 60;
 const WARMUP_FRAMES = 10;
 /** Points in the path `Graphics.fillCircle` records, whatever the radius. */
 const CIRCLE_PATH_POINTS = 101;
@@ -1449,25 +1253,21 @@ function ring(count, radius, cx = 640, cy = 360) {
 }
 
 const FLAMES = ring(CEILING.afterburners, 200);
-const LANCES = [
-  { x: 40, y: 300, angle: 0 },
-  { x: 40, y: 420, angle: 0 },
-];
-const PROJECTILES = [
+const LANCES = [{ x: 40, y: 300, angle: 0 }, { x: 40, y: 420, angle: 0 }];
+const PROJECTILE_IDS = [
   ...Array(CEILING.predators).fill("predator"),
   ...Array(CEILING.thumpers).fill("thumper"),
   ...Array(CEILING.magmablasts).fill("magmablast"),
   ...Array(CEILING.pepperboxes).fill("pepperbox"),
-].map((weaponId, i, all) => ({ weaponId, ...ring(all.length, 300)[i] }));
+];
+const PROJECTILES = ring(PROJECTILE_IDS.length, 300).map((at, i) => ({ weaponId: PROJECTILE_IDS[i], ...at }));
 
 /** Runs `beamDrawLayers` for every flame; returns the polygons it built. */
 function buildFlames(cv, nowMs) {
   const polys = [];
   const range = weaponDefOf("afterburner").range;
   for (const f of FLAMES) {
-    for (const layer of cv.beamDrawLayers("afterburner", f.x, f.y, f.angle, range, 0, nowMs)) {
-      polys.push(layer.points);
-    }
+    for (const layer of cv.beamDrawLayers("afterburner", f.x, f.y, f.angle, range, 0, nowMs)) polys.push(layer.points);
   }
   return polys;
 }
@@ -1490,21 +1290,19 @@ function triangulate(polys) {
 function buildRest(cv, nowMs) {
   let vertices = 0;
   let polygons = 0;
-  const lanceRange = weaponDefOf("lance").range;
-  for (const l of LANCES) {
-    for (const layer of cv.beamDrawLayers("lance", l.x, l.y, l.angle, lanceRange, 0, nowMs)) {
+  const count = (layers) => {
+    for (const layer of layers) {
       vertices += layer.points.length;
       polygons += 1;
     }
-  }
+  };
+  const lanceRange = weaponDefOf("lance").range;
+  for (const l of LANCES) count(cv.beamDrawLayers("lance", l.x, l.y, l.angle, lanceRange, 0, nowMs));
   for (const p of PROJECTILES) {
     const instance = { weaponId: p.weaponId, isExplosion: false, x: p.x, y: p.y, angle: p.angle, extent: 0 };
     const layers = cv.projectileDrawLayers(instance, 0);
     if (layers.length > 0) {
-      for (const layer of layers) {
-        vertices += layer.points.length;
-        polygons += 1;
-      }
+      count(layers);
       continue;
     }
     const shape = cv.instanceDrawShape(instance, 0);
@@ -1520,73 +1318,49 @@ function median(values) {
 }
 
 /** Times `fn(nowMs)` per frame after a warm-up; returns the median ms and the last frame's value. */
-function measure(fn, frames, nowStepMs) {
+function measure(fn, frames) {
   let last;
-  for (let i = 0; i < WARMUP_FRAMES; i++) last = fn(i * nowStepMs);
+  for (let i = 0; i < WARMUP_FRAMES; i++) last = fn(i * NOW_STEP_MS);
   const times = [];
   for (let i = 0; i < frames; i++) {
-    const nowMs = (WARMUP_FRAMES + i) * nowStepMs;
     const start = performance.now();
-    last = fn(nowMs);
+    last = fn((WARMUP_FRAMES + i) * NOW_STEP_MS);
     times.push(performance.now() - start);
   }
   return { msPerFrame: median(times), last };
 }
 
-export async function runVisualBench({ frames = DEFAULT_FRAMES, nowStepMs = DEFAULT_NOW_STEP_MS } = {}) {
+export async function runVisualBench({ frames = DEFAULT_FRAMES } = {}) {
   const cv = await loadBuilders();
-
-  const flame = measure((nowMs) => buildFlames(cv, nowMs), frames, nowStepMs);
-  const flamePolys = flame.last;
-  const flameVertices = flamePolys.reduce((sum, poly) => sum + poly.length, 0);
-
-  const tri = measure(() => triangulate(flamePolys), frames, nowStepMs);
-  const rest = measure((nowMs) => buildRest(cv, nowMs), frames, nowStepMs);
-
+  const flame = measure((nowMs) => buildFlames(cv, nowMs), frames);
+  const polys = flame.last;
+  const tri = measure(() => triangulate(polys), frames);
+  const rest = measure((nowMs) => buildRest(cv, nowMs), frames);
   const rows = [
-    {
-      name: "flame geometry",
-      detail: `beamDrawLayers x${CEILING.afterburners}`,
-      msPerFrame: flame.msPerFrame,
-      vertices: flameVertices,
-      polygons: flamePolys.length,
-      triangles: 0,
-    },
-    {
-      name: "flame earcut",
-      detail: `Earcut x${flamePolys.length}`,
-      msPerFrame: tri.msPerFrame,
-      vertices: 0,
-      polygons: flamePolys.length,
-      triangles: tri.last,
-    },
-    {
-      name: "rest of the shot layer",
-      detail: `${CEILING.lances} lance, ${PROJECTILES.length} projectiles`,
-      msPerFrame: rest.msPerFrame,
-      vertices: rest.last.vertices,
-      polygons: rest.last.polygons,
-      triangles: 0,
-    },
+    { name: "flame geometry", detail: `beamDrawLayers x${CEILING.afterburners}`, msPerFrame: flame.msPerFrame,
+      vertices: polys.reduce((sum, poly) => sum + poly.length, 0), polygons: polys.length, triangles: 0 },
+    { name: "flame earcut", detail: `Earcut x${polys.length}`, msPerFrame: tri.msPerFrame,
+      vertices: 0, polygons: polys.length, triangles: tri.last },
+    { name: "rest of the shot layer", detail: `${CEILING.lances} lance, ${PROJECTILES.length} projectiles`,
+      msPerFrame: rest.msPerFrame, vertices: rest.last.vertices, polygons: rest.last.polygons, triangles: 0 },
   ];
   return { frames, rows, totalMs: rows.reduce((sum, row) => sum + row.msPerFrame, 0) };
 }
 
-const cell = (value, width) => String(value).padStart(width);
-const dash = (value) => (value === 0 ? "-" : value);
+const cell = (value, width) => String(value === 0 ? "-" : value).padStart(width);
 
 export function formatVisualRows(result) {
   const lines = [
-    `bench-visual: builders at the ceiling, median of ${result.frames} frames  ` +
-      `${cell("ms/frame", 9)} ${cell("vertices", 9)} ${cell("polygons", 9)} ${cell("triangles", 10)}`,
+    `bench-visual: builders at the ceiling, median of ${result.frames} frames` +
+      `${"".padEnd(14)}${"ms/frame".padStart(9)}${"vertices".padStart(10)}${"polygons".padStart(10)}${"triangles".padStart(11)}`,
   ];
   for (const row of result.rows) {
     lines.push(
-      `  ${row.name.padEnd(24)} ${row.detail.padEnd(30)} ${cell(row.msPerFrame.toFixed(3), 9)} ` +
-        `${cell(dash(row.vertices), 9)} ${cell(dash(row.polygons), 9)} ${cell(dash(row.triangles), 10)}`,
+      `  ${row.name.padEnd(24)} ${row.detail.padEnd(32)}${row.msPerFrame.toFixed(3).padStart(9)}` +
+        `${cell(row.vertices, 10)}${cell(row.polygons, 10)}${cell(row.triangles, 11)}`,
     );
   }
-  lines.push(`  ${"total".padEnd(24)} ${"".padEnd(30)} ${cell(result.totalMs.toFixed(3), 9)}`);
+  lines.push(`  ${"total".padEnd(24)} ${"".padEnd(32)}${result.totalMs.toFixed(3).padStart(9)}`);
   return lines;
 }
 
@@ -1599,14 +1373,11 @@ function framesArg(argv) {
 }
 
 export async function main(argv = process.argv.slice(2)) {
-  const result = await runVisualBench({ frames: framesArg(argv) });
-  for (const line of formatVisualRows(result)) console.log(line);
+  for (const line of formatVisualRows(await runVisualBench({ frames: framesArg(argv) }))) console.log(line);
 }
 
 const invoked = process.argv[1] && path.resolve(process.argv[1]);
-if (invoked && invoked === path.resolve(fileURLToPath(import.meta.url))) {
-  await main();
-}
+if (invoked && invoked === path.resolve(fileURLToPath(import.meta.url))) await main();
 ```
 
 - [ ] **Step 5: Run the test to verify it passes, then run the bench**
@@ -1615,7 +1386,7 @@ Run: `npm run build -w @motor-combat-moba/shared && node --test scripts/bench-vi
 Expected: PASS (3 tests).
 
 Run: `npm run bench:visual`
-Expected: the header line and four rows; on this container the spec's figures were 2.65 ms / 12,600 vertices / 144 polygons for row 1 and 3.88 ms / 12,132 triangles for row 2 — expect the same vertex, polygon and triangle counts exactly (they are geometry, not timing) and times within a factor of two either way.
+Expected: the header and four rows. The spec's figures on this container were 2.65 ms / 12,600 vertices / 144 polygons for row 1 and 3.88 ms / 12,132 triangles for row 2 — expect the vertex, polygon and triangle counts to match exactly (geometry, not timing) and the times within a factor of two either way.
 
 - [ ] **Step 6: Commit**
 
@@ -1634,10 +1405,10 @@ git commit -m "feat(scripts): bench-visual — the pure builders and earcut at t
 - Modify: `package.json` (root)
 
 **Interfaces:**
-- Consumes: the server-boot code of `scripts/smoke-arena.mjs` (preparation plan Task 10: `spawn(process.execPath, ["packages/server/dist/index.js"], { env: { DEPLOY_MODE: "lan", PORT, CLIENT_ORIGIN } })` and `waitForHealth`), reproduced here on port 2598 so both scripts can run at once; Task 5's `window.__bench`; Playwright's `chromium` and `firefox`.
-- Produces: `parseBenchArgs(argv)`, `formatBenchRows(rows, seconds)`, `npm run bench:arena`; exit 1 on a hard failure only.
+- Consumes: the server-boot code of `scripts/smoke-arena.mjs` (preparation plan Task 10: `spawn(process.execPath, ["packages/server/dist/index.js"], { env: { DEPLOY_MODE: "lan", PORT, CLIENT_ORIGIN } })` plus `waitForHealth`), reproduced here on port 2598 so both can run at once; Task 5's `window.__bench`; Playwright's `chromium` and `firefox`.
+- Produces: `BENCH_ARENA_DEFAULTS`, `parseBenchArgs(argv)`, `formatBenchRows(rows, seconds)`, `npm run bench:arena`; exit 1 on a hard failure only.
 
-Why the client is rebuilt first: a production `vite build` replaces `import.meta.env.DEV` with `false` and drops the dev branch, so `?dev=bench` cannot exist in `packages/client/dist` as `npm run build` leaves it. The script builds the client with `NODE_ENV=development vite build --mode development` — Vite's `resolveConfig` keeps a `NODE_ENV` that is already set and takes the mode from the flag, so `import.meta.env.DEV` is `true` and the dev chunks are emitted — serves that through the LAN server exactly as the smoke check does, and rebuilds the production client afterwards so the tree is left as `npm run build` leaves it (`--keep-dist` skips the restore for a repeat run).
+Why the client is rebuilt first: a production `vite build` replaces `import.meta.env.DEV` with `false` and drops the dev branch, so `?dev=bench` cannot exist in `packages/client/dist` as `npm run build` leaves it. Vite's `resolveConfig` (`node_modules/vite/dist/node/chunks/dep-*.js`, `resolveConfig(inlineConfig, "build", "production", "production")`) keeps a `NODE_ENV` that is already set and takes the mode from the flag, so `NODE_ENV=development vite build --mode development` gives `import.meta.env.DEV === true` and emits the dev chunks. The script serves that through the LAN server exactly as the smoke check serves the production one, then rebuilds the production client so the tree is left as `npm run build` leaves it (`--keep-dist` skips the restore for a repeat run).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1650,24 +1421,14 @@ import { BENCH_ARENA_DEFAULTS, formatBenchRows, parseBenchArgs } from "./bench-a
 
 describe("parseBenchArgs", () => {
   it("defaults to both browsers, the spec's ten seconds, and restoring dist", () => {
-    assert.deepEqual(parseBenchArgs([]), {
-      browsers: [...BENCH_ARENA_DEFAULTS.browsers],
-      seconds: BENCH_ARENA_DEFAULTS.seconds,
-      keepDist: false,
-    });
+    assert.deepEqual(parseBenchArgs([]), { browsers: ["chromium", "firefox"], seconds: 10, keepDist: false });
     assert.deepEqual(BENCH_ARENA_DEFAULTS.browsers, ["chromium", "firefox"]);
-    assert.equal(BENCH_ARENA_DEFAULTS.seconds, 10);
   });
 
-  it("reads --browsers, --seconds and --keep-dist", () => {
+  it("reads --browsers, --seconds and --keep-dist, and rejects what it does not know", () => {
     assert.deepEqual(parseBenchArgs(["--browsers", "firefox", "--seconds", "3", "--keep-dist"]), {
-      browsers: ["firefox"],
-      seconds: 3,
-      keepDist: true,
+      browsers: ["firefox"], seconds: 3, keepDist: true,
     });
-  });
-
-  it("rejects an unknown browser or a bad duration", () => {
     assert.throws(() => parseBenchArgs(["--browsers", "safari"]), /safari/);
     assert.throws(() => parseBenchArgs(["--seconds", "0"]), /--seconds/);
   });
@@ -1685,17 +1446,15 @@ describe("formatBenchRows", () => {
     tier: "medium",
   };
 
-  it("prints a measured browser and a skipped one", () => {
+  it("prints a measured browser with its split, and a skipped one", () => {
     const lines = formatBenchRows(
-      [
-        { browser: "chromium", renderer: "webgl", report },
-        { browser: "firefox", skipped: "Executable doesn't exist" },
-      ],
+      [{ browser: "chromium", renderer: "webgl", report }, { browser: "firefox", skipped: "Executable doesn't exist" }],
       10,
     );
     assert.match(lines[0], /10 s/);
     assert.match(lines[2], /^\s*chromium\s+598\s+16\.7 \/ 17\.9\s+4\.1 \/ 6\.3\s+9 \/ 11\s+14\s+webgl/);
-    assert.match(lines[3], /^\s*firefox\s+skipped: Executable doesn't exist/);
+    assert.match(lines[3], /split p50: sim 0\.0\s+build 0\.6\s+draw 1\.4\s+phaser 0\.3\s+render 1\.8/);
+    assert.match(lines[4], /^\s*firefox\s+skipped: Executable doesn't exist/);
   });
 });
 ```
@@ -1710,20 +1469,15 @@ Expected: FAIL — cannot find module `./bench-arena.mjs`.
 ```js
 // scripts/bench-arena.mjs
 /**
- * The bench scene (`?dev=bench`, rendering spec R24) under Playwright, on Chromium and Firefox,
+ * The bench scene (`?dev=bench`, rendering spec R24) under Playwright on Chromium and Firefox,
  * printing p50/p95 frame time, the JavaScript split and GL draw calls per browser. Numbers are
- * REPORTED, never asserted: the acceptance table (spec R25) is read by a person on the reference
- * machine, and under software GL in CI the absolute values mean little — what CI watches is a
- * jump between two runs of the same commit range. Exit 1 only on a hard failure: a browser error,
- * a page that never publishes `window.__bench`, or no browser at all.
+ * REPORTED, never asserted: the acceptance table (R25) is read by a person on the reference
+ * machine, and under software GL the absolutes mean little — CI watches for a jump between runs.
+ * Exit 1 only on a hard failure: a browser error, a page that never publishes `window.__bench`,
+ * or no browser at all. A browser Playwright has not installed is reported as skipped
+ * (`npx playwright install firefox`), so a machine with only Chromium still gets a number.
  *
- * The client is rebuilt in development mode first, because a production build strips `?dev=`
- * (see the comment at `buildClient`), served by the LAN server the same way `smoke-arena.mjs`
- * serves the production one, and rebuilt for production afterwards.
- *
- * Flags: `--browsers chromium,firefox` `--seconds 10` `--keep-dist`. A browser Playwright has not
- * installed is reported as skipped (`npx playwright install firefox` fixes it) rather than failing
- * the run, so a machine with only Chromium still gets a number.
+ * Flags: `--browsers chromium,firefox` `--seconds 10` `--keep-dist`.
  */
 import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
@@ -1743,7 +1497,7 @@ export const BENCH_ARENA_DEFAULTS = {
   warmupFrames: 120,
   /** A port of its own so this and `smoke-arena.mjs` (2599) can run side by side. */
   port: 2598,
-  /** How long to wait for the page to publish `window.__bench` — the dev-mode bundle is larger. */
+  /** How long to wait for the page to publish `window.__bench` — the dev bundle is larger. */
   readyTimeoutMs: 60_000,
   healthPolls: 100,
   healthPollMs: 100,
@@ -1796,11 +1550,7 @@ export function formatBenchRows(rows, seconds) {
   return lines;
 }
 
-/**
- * `vite build` replaces `import.meta.env.DEV` with `false` unless NODE_ENV is development, and
- * Vite's `resolveConfig` keeps a NODE_ENV that is already set while taking the mode from the flag
- * — so both are given, and `BootScene`'s dev branch (and the `bench` chunk behind it) survive.
- */
+/** `NODE_ENV` and `--mode` both given: see the header of this plan's Task 7 for why. */
 function buildClient(mode) {
   const result = spawnSync(process.execPath, [VITE_BIN, "build", "--mode", mode, "--logLevel", "warn"], {
     cwd: CLIENT_DIR,
@@ -1852,14 +1602,10 @@ async function benchBrowser(name, origin, seconds) {
     page.on("console", (m) => {
       if (m.type() === "error") errors.push(`console.error: ${m.text()}`);
     });
-
     await page.goto(`${origin}/?dev=bench`);
-    await page.waitForFunction(() => window.__bench?.ready === true, null, {
-      timeout: BENCH_ARENA_DEFAULTS.readyTimeoutMs,
-    });
-    await page.waitForFunction((n) => window.__bench.frames() >= n, BENCH_ARENA_DEFAULTS.warmupFrames, {
-      timeout: BENCH_ARENA_DEFAULTS.readyTimeoutMs,
-    });
+    const timeout = BENCH_ARENA_DEFAULTS.readyTimeoutMs;
+    await page.waitForFunction(() => window.__bench?.ready === true, null, { timeout });
+    await page.waitForFunction((n) => window.__bench.frames() >= n, BENCH_ARENA_DEFAULTS.warmupFrames, { timeout });
     await page.waitForTimeout(seconds * 1000);
     const report = await page.evaluate(() => window.__bench.report());
     const renderer = await page.evaluate(() => window.__bench.renderer);
@@ -1873,13 +1619,11 @@ async function benchBrowser(name, origin, seconds) {
 export async function main(argv = process.argv.slice(2)) {
   const args = parseBenchArgs(argv);
   const origin = `http://127.0.0.1:${BENCH_ARENA_DEFAULTS.port}`;
-
   buildClient("development");
   const server = spawn(process.execPath, [SERVER_ENTRY], {
     env: { ...process.env, DEPLOY_MODE: "lan", PORT: String(BENCH_ARENA_DEFAULTS.port), CLIENT_ORIGIN: origin },
     stdio: ["ignore", "inherit", "inherit"],
   });
-
   const rows = [];
   try {
     await waitForHealth(origin);
@@ -1899,31 +1643,26 @@ export async function main(argv = process.argv.slice(2)) {
     fail(String(error.message ?? error));
   } finally {
     server.kill();
-    if (args.keepDist) {
-      console.log("[bench] packages/client/dist is a DEVELOPMENT build (--keep-dist); `npm run build` restores it");
-    } else {
-      buildClient("production");
-    }
+    if (args.keepDist) console.log("[bench] packages/client/dist is a DEVELOPMENT build (--keep-dist); `npm run build` restores it");
+    else buildClient("production");
   }
 }
 
 const invoked = process.argv[1] && path.resolve(process.argv[1]);
-if (invoked && invoked === path.resolve(fileURLToPath(import.meta.url))) {
-  await main();
-}
+if (invoked && invoked === path.resolve(fileURLToPath(import.meta.url))) await main();
 ```
 
 - [ ] **Step 4: Add the script and run the tests**
 
-In root `package.json` `scripts`, add `"bench:arena": "npm run build && node scripts/bench-arena.mjs"` (the full build first, because the LAN server bundle inlines shared and the script rebuilds only the client).
+In root `package.json` `scripts`, add `"bench:arena": "npm run build && node scripts/bench-arena.mjs"` — the full build first, because the LAN server bundle inlines shared and the script rebuilds only the client.
 
 Run: `node --test scripts/bench-arena.test.mjs`
-Expected: PASS (4 tests).
+Expected: PASS (3 tests).
 
 - [ ] **Step 5: Run the bench**
 
 Run: `npm run bench:arena`
-Expected: the dev-mode client build, the server log, then the table with a `chromium` row (`renderer webgl` under SwiftShader; if the software context is refused Phaser's `AUTO` falls back and the row reads `canvas` with `draws -1 / -1` — a real number for the split either way) and a `firefox` row that is either measured or `skipped: Executable doesn't exist …` on this container, where only Chromium is installed; then the production rebuild. Exit 0. If Chromium cannot launch at all, set `SMOKE_CHROMIUM` to the path `ls /opt/pw-browsers` shows, as the smoke check documents.
+Expected: the dev-mode client build, the server log, then the table with a `chromium` row (`renderer webgl` under SwiftShader; if the software context is refused Phaser's `AUTO` falls back and the row reads `canvas` with `draws -1 / -1` — a real split either way) and a `firefox` row that is either measured or `skipped: Executable doesn't exist …` on this container, where only Chromium is installed; then the production rebuild. Exit 0. If Chromium cannot launch at all, set `SMOKE_CHROMIUM` to the path `ls /opt/pw-browsers` shows, as the smoke check documents.
 
 - [ ] **Step 6: Commit**
 
@@ -1941,23 +1680,17 @@ git commit -m "feat(scripts): bench-arena — the bench scene under Playwright o
 - Modify: `CLAUDE.md` (root: the "Read the right doc" table and the "Commands" block), `packages/client/CLAUDE.md`, `docs/project-structure.md`
 
 **Interfaces:**
-- Consumes: everything above.
 - Produces: the V0 baseline — the spec's migration row ships "baseline numbers", and this page is where they live.
 
 - [ ] **Step 1: Record the baselines**
 
-Run, and keep both outputs:
-
-```bash
-npm run bench:visual
-npm run bench:arena
-```
+Run `npm run bench:visual` and `npm run bench:arena` and keep both outputs. Print the machine with `node -p "os.cpus()[0].model + ', ' + os.cpus().length + ' cores'"` and the commit with `git rev-parse --short HEAD`.
 
 - [ ] **Step 2: Write `docs/render-bench.md`**
 
-Write the page below, then paste the two outputs verbatim into the fenced blocks under "Baseline", followed by one line naming the machine (`node -p "os.cpus()[0].model + ', ' + os.cpus().length + ' cores'"` prints it) and the commit (`git rev-parse --short HEAD`).
+Write the page below, then replace each `(paste …)` marker with the corresponding output verbatim. `grep -c "(paste" docs/render-bench.md` must print `0` before the commit.
 
-```markdown
+````markdown
 # Render benchmarks
 
 Three instruments measure what the client costs per frame. They report; nothing asserts a number.
@@ -1967,19 +1700,17 @@ is read off them on the reference machine by a person.
 
 | Instrument | Command | Measures |
 |---|---|---|
-| `?debug=perf` overlay (`render/perf-overlay.ts`) | any match URL with `?debug=perf` (`?debug=1,perf,net` combines overlays) | the live split of one frame: `sim` (input pump, prediction, and the banner frame `syncBanners` builds first), `build` (the `RenderFrame`), `draw` (the renderer classes), `phaser` (the rest of the step), `render` (`PRE_RENDER` to `POST_RENDER`), GL draw calls, texture count, particles, tier |
+| `?debug=perf` overlay (`render/perf-overlay.ts`) | any match URL with `?debug=perf` (`?debug=1,perf,net` combines overlays) | the live split of one frame: `sim` (input pump, prediction, and the banner frame `syncBanners` builds first), `build` (the `RenderFrame`), `draw` (the renderer classes), `phaser` (the rest of the step), `render` (`PRE_RENDER` to `POST_RENDER`); GL draw calls; texture count; particles; tier |
 | `?dev=bench` scene (`dev/BenchScene.ts`) | `npm run dev`, then `http://localhost:5173/?dev=bench` | the ceiling — six cars, twelve `afterburner` flames, two `lance` bolts, forty instances — drawn by the match's own renderers with no server; `sim` reads 0 there by construction |
 | `npm run bench:visual` (`scripts/bench-visual.mjs`) | node, no browser | the pure builders at the ceiling: flame geometry, earcut over it, the rest of the shot layer — ms/frame and vertex counts |
 | `npm run bench:arena` (`scripts/bench-arena.mjs`) | Playwright, Chromium and Firefox, software GL | the bench scene's p50/p95 frame time, JavaScript split and draw calls over 10 s; the CI regression check |
 
-Draw calls are counted by wrapping `WebGLRenderer.drawElements` and `drawInstancedArrays`, the
-two methods every render node submits through — Phaser 4.2.1 keeps no counter of its own. On the
-Canvas renderer the column reads `n/a`. `particles` is 0 until V4 and `tier` is the literal
-`medium` until V5; both are placeholders for the phases that own them.
-
-Two things the numbers are not. `bench:arena` under SwiftShader is the CPU side only — the GPU
-fill budget is measured on a laptop, not in CI. And the overlay's own `Text` re-rasterises four
-times a second, which is inside the numbers it shows until V1 swaps it for `BitmapText`.
+Draw calls are counted by wrapping `WebGLRenderer.drawElements` and `drawInstancedArrays`, the two
+methods every render node submits through — Phaser 4.2.1 keeps no counter of its own; on the Canvas
+renderer the column reads `n/a`. `particles` is 0 until V4 and `tier` is the literal `medium` until
+V5. Two things the numbers are not: `bench:arena` under SwiftShader is the CPU side only (the GPU fill
+budget is measured on a laptop, not in CI), and the overlay's own `Text` re-rasterises four times a
+second, which is inside the numbers it shows until V1 swaps it for `BitmapText`.
 
 ## Baseline
 
@@ -1998,9 +1729,7 @@ V0, before any renderer changed. Every later phase is judged as a delta from the
 ```
 
 Machine: (paste). Commit: (paste).
-```
-
-The two `(paste …)` markers and the machine line must be replaced before the commit; `grep -c "(paste" docs/render-bench.md` must print `0`.
+````
 
 - [ ] **Step 3: Root `CLAUDE.md`**
 
@@ -2032,28 +1761,28 @@ V0 baselines every rendering phase is judged against.
 
 - [ ] **Step 5: `docs/project-structure.md`**
 
-Under `dev/`, after the `PlaygroundScene.ts` line, add:
+Under `dev/`, after the `PlaygroundScene.ts` line:
 
 ```text
         │   ├── BenchScene.ts      # ?dev=bench: the visual ceiling drawn by the match renderers, no server (R24)
         │   ├── bench-frame.ts     # pure: BENCH_CEILING, benchFrame(tick, nowMs, arena) -> RenderFrame
 ```
 
-Add a `render/` entry before `scenes/`:
+A `render/` entry before `scenes/`:
 
 ```text
         ├── render/
         │   ├── perf-stats.ts      # pure: SampleRing, percentile, PerfRings, PerfReport, formatPerfLines
-        │   └── perf-overlay.ts    # ?debug=perf: Phaser step-event hooks, draw-call wrap, the Text (R23)
+        │   └── perf-overlay.ts    # ?debug=perf: game step-event hooks, draw-call wrap, the Text (R23)
 ```
 
-Under `scenes/arena/`, add:
+Under `scenes/arena/`:
 
 ```text
         │   │   ├── arena-floor.ts      # drawArenaFloor: the floor and world-camera setup ArenaScene and BenchScene share
 ```
 
-After the `scripts/build-release.mjs` line at the top of the tree, add:
+After the `scripts/build-release.mjs` line at the top of the tree:
 
 ```text
 ├── scripts/bench-visual.mjs      # pure builders + earcut at the ceiling, in node
@@ -2082,11 +1811,11 @@ git push -u origin claude/gameplay-netcode-architecture-bgp8f6
 
 ## Self-review
 
-**Spec coverage.** §1's two measurements are Task 6's rows 1 and 2, with the "everything else" row as row 3. R23's overlay: frame split (Task 3, five buckets), draw calls (Task 3, the wrap), live particles and tier (Task 3, literals with their owners named), texture count (Task 3), the netgraph beside it (`attachNetgraph`, Task 3, not depended on), `?debug=perf` (Task 1). R24's bench scene: six cars burning, two lances, forty instances (Task 4), no server (Task 5), stripped from release like the playground (Task 5 Step 5), p50/p95 and draw calls over 10 s (Task 3's rings, Task 7's window), Playwright on Chromium and Firefox (Task 7), `bench-visual.mjs` (Task 6). R24's "scripted stream of hit and ram events" and "400 particles" are V4's — the ledger's coupling 2 says V4's bench synthesises events, and there is no particle service to spawn 400 of anything yet; `events: []` is what Task 4 ships. R24's "measures bake time" is V2's meaning of the same script; today the builders are the frame path and that is what Task 6 times. R25's table is the Acceptance section below. §10 V0 row: perf overlay, bench scene, `bench-visual.mjs`, baseline numbers (Task 8) — nothing deleted, matching the row's `—`.
+**Spec coverage.** §1's two measurements are Task 6's rows 1 and 2, with the "everything else" row as row 3. R23: frame split (Task 3, five buckets), draw calls (Task 3, the wrap), particles and tier (Task 3, literals with their owners named), texture count (Task 3), the netgraph beside it (`attachNetgraph`, not depended on), `?debug=perf` (Task 1). R24: six cars burning, two lances, forty instances (Task 4), no server (Task 5), stripped from release like the playground (Task 5 Step 5), p50/p95 and draw calls over 10 s (Task 2's rings, Task 7's window), Playwright on Chromium and Firefox (Task 7), `bench-visual.mjs` (Task 6). R24's "scripted stream of hit and ram events" and "400 particles" are V4's — the ledger's coupling 2 says V4's bench synthesises events, and there is no particle service yet; `events: []` is what Task 4 ships. R24's "measures bake time" is V2's meaning of the same script; today the builders are the frame path and that is what Task 6 times. R25's table is the Acceptance section. §10 V0 row: perf overlay, bench scene, `bench-visual.mjs`, baseline numbers (Task 8); nothing deleted, matching the row's `—`.
 
-**Placeholder scan.** Task 8's `(paste …)` markers are the one thing a step leaves for the executor, and the step says what fills them and checks with `grep -c` that none survives. No "TBD", no "handle edge cases"; every code step prints code.
+**Placeholder scan.** Task 8's `(paste …)` markers are the one thing left to the executor; the step says what fills them and checks with `grep -c` that none survives. No deferred-work markers, no "handle edge cases"; every code step prints code.
 
-**Type consistency.** `PerfOverlay.mark` takes `PerfMark` (`"sim" | "build" | "draw"`), which is what Task 3's `ArenaScene` inserts and Task 5's `BenchScene` calls. `PerfReport` (Task 2) is what `PerfOverlay.report()` (Task 3), `BenchProbe.report()` (Task 5) and `formatBenchRows` (Task 7, reading `frames`, `frameMs`, `jsMs`, `split`, `drawCalls`, `textures`) agree on. `PERF_OVERLAY_CONFIG.drawCallsUnavailable` is the value `PerfOverlay` pushes on Canvas and `formatPerfLines` prints as `n/a`. `drawArenaFloor` (Task 5) returns `{ gfx, staticCamera }` and `ArenaScene.drawArena` reads both. `hasDebugFlag(PERF_DEBUG_FLAG)` (Task 1) is the gate in Task 3's `create`. `window.__bench.frames()` / `.report()` / `.renderer` / `.ready` (Task 5) are the four members Task 7's `page.evaluate` calls read. `CEILING` in Task 6 restates `BENCH_CEILING` from Task 4 by value; the test in Task 6 checks polygon counts divide by `CEILING.afterburners`, not the client constant.
+**Type consistency.** `PerfOverlay.mark` takes `PerfMark` (`"sim" | "build" | "draw"`), which are also `PerfChannel` keys so `this.sample[label] += …` type-checks; Task 3's `ArenaScene` and Task 5's `BenchScene` call it with those literals. `PerfReport` (Task 2) is what `PerfOverlay.report()` (Task 3), `BenchProbe.report()` (Task 5) and `formatBenchRows` (Task 7, reading `frames`, `frameMs`, `jsMs`, `split`, `drawCalls`, `textures`) agree on. `PERF_OVERLAY_CONFIG.drawCallsUnavailable` is the value `PerfOverlay` pushes on Canvas and `formatPerfLines` prints as `n/a`. `drawArenaFloor` (Task 5) returns `{ gfx, staticCamera }` and `ArenaScene.drawArena` reads both. `hasDebugFlag(PERF_DEBUG_FLAG)` (Task 1) gates Task 3's `create`. `window.__bench.ready` / `.frames()` / `.report()` / `.renderer` (Task 5) are the four members Task 7's `page` calls read. `SpectateView` is imported from `spectate-camera.ts`, where the preparation plan's Task 8 defines it. `CEILING` (Task 6) restates `BENCH_CEILING` (Task 4) by value.
 
 ## Acceptance
 
@@ -2105,7 +1834,7 @@ And the numbers the instruments must be able to print, from R25 (measured at 108
 | Frame time at the ceiling, tier Low, dpr 1 | p95 < 8 ms | same, once V5 has a tier to pin |
 | Boot bake | < 150 ms | `npm run bench:visual` is the pre-bake cost of the same builders; V2 adds the bake row |
 
-V0 is the instrument, not the result: today's numbers are expected to *fail* the first two rows — that is the baseline `docs/render-bench.md` records, and V1–V5 are judged as deltas from it. The command that demonstrates V0 itself is `npm test` green plus `npm run bench:visual` and `npm run bench:arena` each printing a table and exiting 0.
+V0 is the instrument, not the result: today's numbers are expected to *fail* the first two rows — that is the baseline `docs/render-bench.md` records, and V1–V5 are judged as deltas from it. The commands that demonstrate V0 itself are `npm test` green plus `npm run bench:visual` and `npm run bench:arena` each printing a table and exiting 0.
 
 ## Handoff
 
@@ -2114,12 +1843,11 @@ Exports beyond the ledger, for V1–V5 and the netcode stream:
 | Export | Where | For |
 |---|---|---|
 | `debugFlags`, `hasDebugFlag`, `PERF_DEBUG_FLAG` | `config/client-mode.ts` | N0's `?debug=net` overlay reads `hasDebugFlag("net")`; overlays combine as `?debug=1,perf,net` |
-| `PerfOverlay.attachNetgraph(lines: () => readonly string[])`, `.report(): PerfReport`, `.rendererKind`, `.gameObjects()` | `render/perf-overlay.ts` | N0 hands its netgraph lines in; V1 registers the objects in `HudScene` and swaps the `Text` for `BitmapText`; V4 and V5 replace the `PARTICLES_UNTIL_V4` / `TIER_UNTIL_V5` literals with `ParticleService` and `TierManager` readings |
-| `PerfMark` (`"sim" \| "build" \| "draw"`) | `render/perf-overlay.ts` | any scene that brackets its `update` |
-| `PERF_OVERLAY_CONFIG`, `SampleRing`, `percentile`, `PerfRings`, `PerfSample`, `PerfReport`, `formatPerfLines` | `render/perf-stats.ts` | V5's `FrameGovernor` and `TierManager` measure p95 over rolling windows — `SampleRing` is that window |
+| `PerfOverlay.attachNetgraph(lines: () => readonly string[])`, `.report(): PerfReport`, `.rendererKind`, `.gameObjects()`; `PerfMark` | `render/perf-overlay.ts` | N0 hands its netgraph lines in; V1 registers the objects in `HudScene` and swaps the `Text` for `BitmapText`; V4 and V5 replace the `PARTICLES_UNTIL_V4` / `TIER_UNTIL_V5` literals with `ParticleService` and `TierManager` readings |
+| `PERF_OVERLAY_CONFIG`, `SampleRing`, `percentile`, `PerfRings`, `PerfChannel`, `PERF_CHANNELS`, `PerfSample`, `PerfReport`, `formatPerfLines` | `render/perf-stats.ts` | V5's `FrameGovernor` and `TierManager` measure p95 over rolling windows — `SampleRing` is that window |
 | `drawArenaFloor`, `ARENA_BORDER_PX`, `ARENA_DEPTH` | `scenes/arena/arena-floor.ts` | V2 replaces the `Graphics` floor with the baked image in one place; `render/layers.ts` takes over `ARENA_DEPTH` |
-| `BENCH_CEILING`, `BENCH_INSTANCE_COUNT`, `BENCH_LAYOUT`, `benchFrame` | `dev/bench-frame.ts` | V4 adds the scripted event stream and particle bursts to the same frame; V3 reads the flame and bolt instances it bakes against |
-| `BenchProbe`, `window.__bench` | `dev/BenchScene.ts` | `scripts/bench-arena.mjs`; V5 adds a `tier` query to pin the tier under test |
+| `BENCH_CEILING`, `BENCH_INSTANCE_COUNT`, `BENCH_LAYOUT`, `benchFrame` | `dev/bench-frame.ts` | V4 adds the scripted event stream and particle bursts to the same frame; V3 bakes against the flame and bolt instances it places |
+| `BenchProbe`, `window.__bench` | `dev/BenchScene.ts` | `scripts/bench-arena.mjs`; V5 adds a tier query to pin the tier under test |
 | `CEILING`, `runVisualBench`, `formatVisualRows` | `scripts/bench-visual.mjs` | V2 adds a bake-time row; V3 re-reads rows 1 and 2 after the flame becomes a flipbook |
-| `BENCH_ARENA_DEFAULTS`, `parseBenchArgs`, `formatBenchRows` | `scripts/bench-arena.mjs` | CI wiring (the repository has no workflow file today; `npm run bench:arena` is the command to call) |
-| `npm run bench:visual`, `npm run bench:arena` | root `package.json` | everyone |
+| `BENCH_ARENA_DEFAULTS`, `parseBenchArgs`, `formatBenchRows` | `scripts/bench-arena.mjs` | CI wiring — the repository has no workflow file today; `npm run bench:arena` is the command to call |
+| `npm run bench:visual`, `npm run bench:arena`; `tsx` in root `devDependencies` | root `package.json` | everyone |
