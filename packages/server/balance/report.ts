@@ -142,10 +142,12 @@ function renderLimitations(): string {
     "- **The pilot is a tiered human-like bot** (see `docs/superpowers/specs/2026-09-04-human-" +
       "like-bot-behavior-design.md` and `docs/bot-behavior.md`). It perceives with a tier-scaled " +
       "latency and attention limit, chooses a stance, dodges, holds a range derived from its own " +
-      "kit, and presses ONE slot per tick. Which tier flew the matches is part of the bot " +
-      "fingerprint, and so is `BOT_BRAIN_VERSION` — a report from before a brain change is not " +
-      "comparable to one after, and `--baseline` refuses the comparison rather than trusting a " +
-      "reader to remember.",
+      "kit, and presses ONE slot per tick. The bot fingerprint covers `BOT_PROFILES` and " +
+      "`BOT_BRAIN_VERSION`, so a report from before a bot retune or a brain change is not " +
+      "comparable to one after. Which TIER flew the matches is not in that hash — the whole table " +
+      "is hashed, so every tier hashes alike — it is recorded in the run config and checked " +
+      "separately. `--baseline` refuses all three mismatches rather than trusting a reader to " +
+      "remember.",
     "- **Reports produced before 2026-09-04 measured a different pilot in a way worth naming.** " +
       "The old bot ORed every in-range slot into one fire mask, and `beginFire` takes the lowest " +
       "usable bit — so it pressed slot 0 almost exclusively. Any historical conclusion about a " +

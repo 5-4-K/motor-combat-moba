@@ -156,7 +156,7 @@ silently ignoring it.
 | `--skill` | `pro` \| `casual` \| `amateur` | `pro` | Player-type vocabulary; maps to bot difficulty `hard` \| `medium` \| `easy` (`SKILL_TO_DIFFICULTY` in `cli.ts` is the one place that mapping lives). The report prints both forms, e.g. `pro (hard)`. |
 | `--seed` | integer | a fresh random seed, printed first | The whole run is a pure function of this seed — same seed, same matches, replayed exactly. |
 | `--arena` | a known arena id | `arena-01` | Which arena to run every match on. Only one arena runs per report; arena geometry is itself a balance input this harness does not vary. |
-| `--baseline` | a previous run's directory | none | Load that run's `run.json` and print a "Deltas vs baseline" section against it. Refuses to run (exits non-zero, before any match is simulated) if the config or bot fingerprint differs — see the paired-run workflow below. |
+| `--baseline` | a previous run's directory | none | Load that run's `run.json` and print a "Deltas vs baseline" section against it. Refuses to run (exits non-zero, before any match is simulated) if the config or bot fingerprint, the shape, the mode or the skill tier differs — see the paired-run workflow below. |
 | `--force` | flag, no value | off | Overrides a refused `--baseline` comparison (B37) — the run proceeds instead of exiting non-zero. Meaningless without `--baseline`. The report's "Deltas vs baseline" section carries a prominent warning banner naming every mismatch, so a forced delta can never later be mistaken for a valid paired run. |
 | `--match-seconds` | positive integer | `DEATHMATCH_CONFIG.matchSeconds` (180s) for deathmatch, a 120s stalemate safety cap for last-standing | Per-match clock. For deathmatch this doubles as the real `matchEndsTick`, so it is not a mock of the game's clock — it is the game's clock. For last-standing it is a cap, not a target; hitting it is itself a finding (a matchup or bot pairing that cannot resolve). |
 | `--out` | a directory path | a fresh dated folder under `reports/` | Write the report somewhere specific instead of the auto-numbered folder. |
@@ -202,7 +202,10 @@ experiment, which is a weaker claim.
   exact list), or
 - the **bot fingerprint** differs (`BOT_PROFILES` or `BOT_BRAIN_VERSION` changed — the delta could
   be a bot retune or a brain behaviour change, not a balance change), or
-- `--shape` or `--mode` differs (a duel win rate and an FFA win rate are not the same quantity).
+- `--shape` or `--mode` differs (a duel win rate and an FFA win rate are not the same quantity), or
+- `--skill` differs (a different tier flew the matches). This is checked as its own field rather
+  than through the bot fingerprint, which hashes `BOT_PROFILES` WHOLE and so gives every tier the
+  same hash — without the separate check, a pro run and a casual run compared as `ok`.
 
 A differing `--seed` is not fatal — it just prints a warning that the comparison is a different
 sample, not a clean paired one. Both fingerprints, along with the git commit, print in every report's
@@ -263,9 +266,11 @@ here so it is discoverable without having run anything yet:
   [`docs/superpowers/specs/2026-09-04-human-like-bot-behavior-design.md`](../../../docs/superpowers/specs/2026-09-04-human-like-bot-behavior-design.md)
   and [`docs/bot-behavior.md`](../../../docs/bot-behavior.md)). It perceives with a tier-scaled
   latency and attention limit, chooses a stance, dodges, holds a range derived from its own kit, and
-  presses ONE slot per tick. Which tier flew the matches is part of the bot fingerprint, and so is
-  `BOT_BRAIN_VERSION` — a report from before a brain change is not comparable to one after, and
-  `--baseline` refuses the comparison rather than trusting a reader to remember.
+  presses ONE slot per tick. The bot fingerprint covers `BOT_PROFILES` and `BOT_BRAIN_VERSION`, so a
+  report from before a bot retune or a brain change is not comparable to one after. Which TIER flew
+  the matches is not in that hash — the whole table is hashed, so every tier hashes alike — it is
+  recorded in the run config and checked separately. `--baseline` refuses all three mismatches
+  rather than trusting a reader to remember.
 - **Reports produced before 2026-09-04 measured a different pilot in a way worth naming.** The old
   bot ORed every in-range slot into one fire mask, and `beginFire` takes the lowest usable bit — so
   it pressed slot 0 almost exclusively. Any historical conclusion about a slot-1 or slot-2 weapon

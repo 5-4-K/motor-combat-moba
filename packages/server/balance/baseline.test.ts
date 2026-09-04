@@ -68,6 +68,25 @@ describe("checkComparable (B37)", () => {
     expect(result.reasons.join(" ")).toContain("mode");
   });
 
+  it("refuses when the difficulty differs, and says so", () => {
+    // The bot FINGERPRINT cannot catch this: it hashes `BOT_PROFILES` whole, so `--skill=casual`,
+    // `--skill=amateur` and `--skill=pro` all produce the same hash. Which tier flew the matches is
+    // a property of the run, and it moves every number in the report.
+    const other = { ...record(), config: { ...record().config, difficulty: "easy" as const } };
+    const result = checkComparable(record(), other);
+    expect(result.ok).toBe(false);
+    expect(result.reasons.join(" ")).toContain("difficulty");
+  });
+
+  it("still has the same bot fingerprint across tiers, which is why the check above is needed", () => {
+    // Pins the reason the clause exists. If `botFingerprint` ever DOES vary by tier, this test fails
+    // and the difficulty clause becomes belt-and-braces rather than the only guard — a fact worth
+    // learning from a failing test rather than by re-deriving it.
+    const pro = { ...record(), config: { ...record().config, difficulty: "hard" as const } };
+    const casual = { ...record(), config: { ...record().config, difficulty: "medium" as const } };
+    expect(pro.fingerprints.bot).toBe(casual.fingerprints.bot);
+  });
+
   it("warns rather than refuses when only the seed differs, since that is just a different sample", () => {
     const other = { ...record(), config: { ...record().config, seed: 99 } };
     const result = checkComparable(record(), other);

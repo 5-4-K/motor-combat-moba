@@ -10,7 +10,12 @@
  * fatal: the two runs measured different games, and a delta between them would attribute a bot
  * improvement to a weapon nerf (the exact mistake B37 exists to prevent) — or the reverse. Shape and
  * mode are fatal for the same underlying reason: a duel win rate and an FFA win rate are not the
- * same quantity, no matter how identical the rest of the config is.
+ * same quantity, no matter how identical the rest of the config is. So is DIFFICULTY, and it has to
+ * be checked here rather than left to the bot fingerprint: `botFingerprint` hashes `BOT_PROFILES`
+ * WHOLE, so every tier hashes to the same value and `--skill=casual` and `--skill=pro` are
+ * indistinguishable to it. Which tier flew the matches is a property of the RUN, not of the table,
+ * and it changes every number in the report — a pro-flown Bastion win rate and a casual-flown one
+ * are two different quantities, exactly like a duel rate and an FFA rate.
  *
  * A differing SEED is not fatal. It is a different sample of the same experiment, which is a
  * legitimate thing to compare; it just is not the PAIRED comparison that makes a one-number edit
@@ -29,7 +34,7 @@ export interface ComparabilityResult {
  * Whether `current` may be compared against `baseline` at all, and why.
  *
  * `ok: false` means at least one FATAL mismatch was found (config fingerprint, bot fingerprint,
- * shape, or mode) — comparing anyway would attribute a change in one of those things to whatever
+ * shape, mode, or difficulty) — comparing anyway would attribute a change in one of those things to whatever
  * number the caller is actually looking at. `ok: true` with `reasons` non-empty means the runs are
  * comparable but not a perfectly paired sample (today, only a differing seed does this) — the
  * caller should still show the reasons, just not refuse.
@@ -68,6 +73,17 @@ export function checkComparable(current: RunRecord, baseline: RunRecord): Compar
   if (current.config.mode !== baseline.config.mode) {
     fatal = true;
     reasons.push(`mode differs (this run: ${current.config.mode}, baseline: ${baseline.config.mode})`);
+  }
+  // NOT covered by the bot fingerprint, which hashes `BOT_PROFILES` whole and so gives every tier
+  // the same hash — see this module's header. Without this clause `--baseline` compared a `--skill=pro`
+  // run against a `--skill=casual` one and reported `ok: true`.
+  if (current.config.difficulty !== baseline.config.difficulty) {
+    fatal = true;
+    reasons.push(
+      `difficulty differs (this run: ${current.config.difficulty}, baseline: ` +
+        `${baseline.config.difficulty}) — a different tier flew the matches, so every number in the ` +
+        `Deltas table would be a bot-skill difference wearing a balance change's clothes`,
+    );
   }
 
   // Not fatal — see the module doc. Still reported, so a caller reading only `reasons` (not `ok`)
