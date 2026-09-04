@@ -386,6 +386,22 @@ describe("beamDrawLayers", () => {
   // checkable with arithmetic rather than a point-in-polygon routine.
   const EXTENT = 220;
   const layers = () => beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 0);
+  /** How many of the returned polygons are the flame itself. The rest are its embers. */
+  const LAYER_COUNT = WEAPON_BEAM_STYLES.afterburner!.layers.length;
+  /** The nested flame layers only, without the ember flecks appended after them. */
+  const flame = (nowMs = 0) =>
+    beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 0, nowMs).slice(0, LAYER_COUNT);
+  /**
+   * Five seconds of rendered frames at 60fps. The flame animates, so anything asserted about its
+   * SHAPE has to be asserted about the shape over time — one frozen frame catches a lick at
+   * whatever phase seed 0 happens to hand it, and a flame's whole point is that the phase moves.
+   *
+   * Longer than the flame's own two-second life on purpose. This is not simulating one shot, it is
+   * sampling the space of shapes the flame can take, and the outer layer only re-rolls four times a
+   * second: two seconds is eight rolls of seven licks, which is too few for the extremes below to
+   * land reliably. At five it reaches full extension exactly, every run.
+   */
+  const FRAMES = Array.from({ length: 300 }, (_, f) => (f * 1000) / 60);
 
   function coneHalfAngle(): number {
     if (AFTERBURNER.kind !== "beam" || AFTERBURNER.hitbox.shape !== "cone") {
@@ -414,14 +430,21 @@ describe("beamDrawLayers", () => {
    * The invariant the whole draw path rests on, stated for beams: nothing drawn may reach past the
    * hitbox that actually hits. Checked at every vertex of every layer, against the cone's real
    * walls rather than its bounding box.
+   *
+   * Swept across the flame's animation rather than taken on one frame. Every flame knob is
+   * shrink-only, so the argument says one frame is enough — but "shrink-only" is exactly the
+   * property a new knob breaks, and a breach that only appears at some phase of the flicker is the
+   * one a single frozen frame would miss.
    */
-  it("never draws past the cone hitbox, at any vertex of any layer", () => {
+  it("never draws past the cone hitbox, at any vertex of any layer, at any moment of the flame", () => {
     const tanHalf = Math.tan(coneHalfAngle());
-    for (const layer of layers()) {
-      for (const point of layer.points) {
-        expect(point.x).toBeGreaterThanOrEqual(-1e-9);
-        expect(point.x).toBeLessThanOrEqual(EXTENT + 1e-9);
-        expect(Math.abs(point.y)).toBeLessThanOrEqual(tanHalf * point.x + 1e-9);
+    for (const nowMs of FRAMES) {
+      for (const layer of beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 0, nowMs)) {
+        for (const point of layer.points) {
+          expect(point.x, `t=${nowMs}`).toBeGreaterThanOrEqual(-1e-9);
+          expect(point.x, `t=${nowMs}`).toBeLessThanOrEqual(EXTENT + 1e-9);
+          expect(Math.abs(point.y), `t=${nowMs}`).toBeLessThanOrEqual(tanHalf * point.x + 1e-9);
+        }
       }
     }
   });
@@ -429,7 +452,9 @@ describe("beamDrawLayers", () => {
   it("holds containment as the beam grows, not just at full extent", () => {
     const tanHalf = Math.tan(coneHalfAngle());
     for (let grown = 1; grown <= EXTENT; grown += 7) {
-      for (const layer of beamDrawLayers("afterburner", 0, 0, 0, grown, 0)) {
+      // A different phase at every length, so growth and flicker are exercised together rather than
+      // the whole growth ramp being checked on one frozen frame of the flame.
+      for (const layer of beamDrawLayers("afterburner", 0, 0, 0, grown, 0, grown * 13)) {
         for (const point of layer.points) {
           expect(Math.abs(point.y)).toBeLessThanOrEqual(tanHalf * point.x + 1e-9);
           expect(point.x).toBeLessThanOrEqual(grown + 1e-9);
@@ -438,49 +463,82 @@ describe("beamDrawLayers", () => {
     }
   });
 
-  it("is a tongued outline, not a triangle", () => {
+  it("is a lumpy ribbon, not a triangle", () => {
     // The whole point of the shape. Three vertices is the plain hitbox cone, which is what this
-    // replaced -- a lobed silhouette needs many more, and the radii must actually vary.
-    const outer = layers()[0]!;
-    expect(outer.points.length).toBeGreaterThan(10);
+    // replaced -- a jet needs a station's worth of vertices down each edge, and the width has to
+    // actually vary along the way.
+    const outer = flame()[0]!;
+    expect(outer.points.length).toBeGreaterThan(50);
     const radii = outer.points.map((p) => Math.hypot(p.x, p.y));
     expect(Math.max(...radii) - Math.min(...radii)).toBeGreaterThan(1);
   });
 
   /**
-   * Containment says the flame never draws PAST the hitbox. This says it actually FILLS it — the
+   * Containment says the flame never draws PAST the hitbox. This says it actually reaches it — the
    * other half, and the half that is easy to lose silently.
    *
-   * Measured along the beam's axis, because the hitbox's far edge is a straight line and not an
-   * arc. An earlier cut placed the tips at a fixed RADIUS instead, which touched the hitbox only on
-   * the centreline and fell 11% short of it at the cone's rim: still contained, still passing every
-   * containment assertion, and visibly smaller than the thing that burns.
+   * The axial half is now exact and unconditional, and that is the ribbon model paying off. The
+   * last station IS `reach`, so the flame lands on the hitbox's far edge on EVERY frame rather than
+   * only on frames where a lobe happened to be fully extended. An earlier cut placed tips at a
+   * fixed RADIUS instead, which touched the hitbox only on the centreline and fell 11% short at the
+   * cone's rim: still contained, still passing every containment assertion, and visibly smaller
+   * than the thing that burns.
+   *
+   * The lateral half is a floor rather than an equality, and it is the flame's real cost. The plume
+   * stops widening with the cone over its outer half (`JET_TIP`) and `breakUp` shreds the far
+   * corners, so the drawn flame covers about two thirds of the cone's width instead of all of it.
+   * That is a deliberate trade — filling a 55-degree cone edge to edge is what made every earlier
+   * cut read as a wedge — and this is the number to argue with if a player ever reports being burned
+   * by fire they could not see.
    */
-  it("lands its tongue tips on the hitbox's far edge across the whole fan, not just on the centreline", () => {
-    const outer = layers()[0]!;
-    const half = coneHalfAngle();
-    // Tips are the local maxima of axial reach; the deepest tip at each end of the fan and the
-    // middle one must all sit on x = EXTENT, which is where the cone's flat far edge is.
-    const axial = outer.points.map((p) => p.x);
-    expect(Math.max(...axial)).toBeCloseTo(EXTENT, 6);
-
-    // And a tip near the RIM reaches the edge too — the assertion the radius-based version failed.
-    const rimTips = outer.points.filter(
-      (p) => Math.abs(Math.atan2(p.y, p.x)) > half * 0.6 && p.x > EXTENT * 0.95,
-    );
-    expect(rimTips.length).toBeGreaterThan(0);
-    for (const tip of rimTips) expect(tip.x).toBeCloseTo(EXTENT, 6);
+  it("reaches the hitbox's far edge every frame, and most of its width", () => {
+    const tanHalf = Math.tan(coneHalfAngle());
+    let worstAxial = Infinity;
+    let worstWidth = Infinity;
+    for (const nowMs of FRAMES) {
+      const outer = beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 0, nowMs)[0]!;
+      let axial = 0;
+      let width = 0;
+      for (const p of outer.points) {
+        axial = Math.max(axial, p.x);
+        width = Math.max(width, Math.abs(p.y));
+      }
+      worstAxial = Math.min(worstAxial, axial);
+      worstWidth = Math.min(worstWidth, width / (tanHalf * EXTENT));
+    }
+    // Every frame, not the best of them: the tip station is the beam's own reach by construction.
+    expect(worstAxial).toBeCloseTo(EXTENT, 2);
+    // Measured at 66% mean and 42% at its narrowest moment when this was written.
+    expect(worstWidth).toBeGreaterThan(0.35);
   });
 
   it("nests each layer inside the one outside it", () => {
-    const reaches = layers().map((l) => Math.max(...l.points.map((p) => Math.hypot(p.x, p.y))));
-    const spans = layers().map((l) => Math.max(...l.points.map((p) => Math.abs(Math.atan2(p.y, p.x)))));
+    // The flame's own layers, not the shed masses after them: a mass is deliberately out past the
+    // rod rather than nested anywhere, so including them here would measure the wrong thing.
+    const reaches = flame().map((l) => Math.max(...l.points.map((p) => p.x)));
+    const spans = flame().map((l) => Math.max(...l.points.map((p) => Math.abs(p.y))));
     for (let i = 1; i < reaches.length; i++) {
       expect(reaches[i]!).toBeLessThan(reaches[i - 1]!);
       expect(spans[i]!).toBeLessThan(spans[i - 1]!);
     }
   });
 
+  it("runs the ramp along the flame's length, coolest at the tip", () => {
+    // The physics, pinned as a property of the authored rows. A jet diffusion flame is pale and
+    // soot-free at its base, luminous and yellow downstream, and cools through orange to deep red
+    // at the tip where it burns out. So each layer inward must be BOTH shorter and narrower — a
+    // ramp that only narrows wraps the coolest colour around the hottest part of the flame, which
+    // is what every fan-shaped cut of this did.
+    const rows = WEAPON_BEAM_STYLES.afterburner!.layers;
+    expect(rows.length).toBeGreaterThan(2);
+    for (let i = 1; i < rows.length; i++) {
+      expect(rows[i]!.extentScale, `layer ${i} length`).toBeLessThan(rows[i - 1]!.extentScale);
+      expect(rows[i]!.crossScale, `layer ${i} width`).toBeLessThan(rows[i - 1]!.crossScale);
+      // And the fringe is torn harder than the core: the outer boundary of a turbulent flame is
+      // intermittent, the inside of it is a solid running body of fire.
+      expect(rows[i]!.billow!, `layer ${i} billow`).toBeLessThan(rows[i - 1]!.billow!);
+    }
+  });
   it("keeps every authored scale inside (0, 1], which is what makes containment geometric", () => {
     for (const [id, style] of Object.entries(WEAPON_BEAM_STYLES)) {
       for (const layer of style!.layers) {
@@ -492,29 +550,158 @@ describe("beamDrawLayers", () => {
         expect(layer.tongueDepth, id).toBeGreaterThanOrEqual(0);
         expect(layer.tongueDepth, id).toBeLessThanOrEqual(1);
         expect(layer.tongues, id).toBeGreaterThanOrEqual(0);
+        // The jet knobs are shrink-only by the same argument, and each is a fraction of the cone's
+        // own half-width at that station — so out of range is out of the hitbox, not merely an
+        // odd-looking flame. `conePoints` clamps them anyway; this is what keeps a row honest.
+        for (const [knob, value] of [
+          ["billow", layer.billow],
+          ["breakUp", layer.breakUp],
+          ["wander", layer.wander],
+        ] as const) {
+          if (value === undefined) continue;
+          expect(value, `${id}.${knob}`).toBeGreaterThanOrEqual(0);
+          expect(value, `${id}.${knob}`).toBeLessThanOrEqual(1);
+        }
+        // Not clamped to 1: `advect` is flame lengths per second, and a fast jet is allowed to run
+        // its structures out faster than one length a second. Only its sign is a constraint —
+        // negative would suck the fire back into the nozzle.
+        if (layer.advect !== undefined) expect(layer.advect, id).toBeGreaterThanOrEqual(0);
+        if (layer.flameHz !== undefined) expect(layer.flameHz, id).toBeGreaterThan(0);
       }
     }
   });
 
-  it("costs one fill per layer however many tongues it has", () => {
-    // The performance contract. Tongues add VERTICES to an existing fill, never fills -- and fills
-    // are what cost, because each is a `fillPoints` call in `renderShots`.
-    expect(layers().length).toBe(WEAPON_BEAM_STYLES.afterburner!.layers.length);
+  it("costs one fill per layer plus one per ember, however many licks it has", () => {
+    // The performance contract. Licks add VERTICES to an existing fill, never fills -- and fills
+    // are what cost, because each is a `fillPoints` call in `renderShots`. Embers are the one thing
+    // that does add fills, which is why they are counted here rather than waved through: this is
+    // the number to look at before raising `EmberStyle.count`.
+    const style = WEAPON_BEAM_STYLES.afterburner!;
+    const ceiling = style.layers.length + style.embers!.count;
+    expect(ceiling).toBe(13);
+    // At most, since an ember that has shrunk to nothing is dropped rather than filled empty.
+    for (const nowMs of [0, 137, 640, 1500]) {
+      const drawn = beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 0, nowMs).length;
+      expect(drawn).toBeLessThanOrEqual(ceiling);
+      expect(drawn).toBeGreaterThanOrEqual(style.layers.length);
+    }
   });
 
-  it("is stable frame to frame, since the flame does not flicker", () => {
-    expect(beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 0)).toEqual(
-      beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 0),
+  it("draws the same flame twice for the same clock, so a frame never fizzes against itself", () => {
+    // The reason the noise is a hash of the station index rather than `Math.random`: two calls at
+    // one instant — the two mirrored cones of a single press, or a re-render — must agree.
+    expect(beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 0, 1234.5)).toEqual(
+      beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 0, 1234.5),
     );
   });
 
-  it("puts the weapon's own table colour on its body layer, one in from the dark rim", () => {
-    // Not the outer layer: a flame wants its darkest ring outside so it reads as a hard-edged object
-    // on a light floor. The rule that matters is that the table colour appears in the ramp at all --
-    // otherwise the HUD slot and the shot are two different weapons.
-    expect(WEAPON_BEAM_STYLES.afterburner!.layers[1]!.color.toUpperCase()).toBe(
-      AFTERBURNER.color.toUpperCase(),
+  /**
+   * The feature, stated as a measurement: **structures travel out of the nozzle**.
+   *
+   * This is what separates the jet from the two fans that came before it, and it is easy to lose
+   * without noticing — a flame with `advect` at 0 still writhes convincingly in a still frame, and
+   * every other test here would still pass.
+   *
+   * Measured by correlation rather than by eye. The flame's half-width down its axis is one signal;
+   * a moment later, that signal should match ITSELF SHIFTED OUTWARD better than it matches itself
+   * in place. A shape that only changes amplitude where it stands cannot do that, whatever its
+   * amplitude is doing.
+   */
+  it("carries its structures outward, rather than writhing in place", () => {
+    const outer = WEAPON_BEAM_STYLES.afterburner!.layers[0]!;
+    expect(outer.advect).toBeGreaterThan(0);
+
+    /** The flame's half-width at each station down the axis, as a profile to correlate. */
+    const profile = (nowMs: number): number[] => {
+      const points = beamDrawLayers("afterburner", 0, 0, 0, EXTENT, 0, nowMs)[0]!.points;
+      // One edge out, the other back: the first half is the near edge, station 0 to the tip.
+      const half = points.length / 2;
+      return points.slice(0, half).map((p) => Math.abs(p.y));
+    };
+
+    /** Mean squared difference between two profiles with one shifted `lag` stations outward. */
+    const misfit = (a: number[], b: number[], lag: number): number => {
+      let sum = 0;
+      let n = 0;
+      for (let i = lag; i < a.length; i++) {
+        const d = b[i]! - a[i - lag]!;
+        sum += d * d;
+        n++;
+      }
+      return sum / n;
+    };
+
+    // A tenth of a second apart. At the shipped `advect` that is about a tenth of the flame's
+    // length, so the best match should be a few stations out rather than none.
+    let shifted = 0;
+    let inPlace = 0;
+    for (const nowMs of FRAMES.slice(0, 60)) {
+      const a = profile(nowMs);
+      const b = profile(nowMs + 100);
+      inPlace += misfit(a, b, 0);
+      // The best outward shift in a plausible range. If the flame convects, one of these fits
+      // better than lag 0; if it only writhes, lag 0 is as good as any.
+      let best = Infinity;
+      for (let lag = 4; lag <= 16; lag++) best = Math.min(best, misfit(a, b, lag));
+      shifted += best;
+    }
+    expect(shifted).toBeLessThan(inPlace);
+  });
+
+  /**
+   * The same continuity property `lance` is held to, and for the same regression: a shape that
+   * re-rolls in steps reads as snapping rather than moving, and it is worst exactly when the car is
+   * turning — which for a 2-second attached flame is most of the time it is on screen.
+   *
+   * The budget is far wider than the bolt's 2 units because the shape is doing something far
+   * bigger. Two things legitimately move a vertex here: the noise re-rolling, and the whole field
+   * being carried outward at over a flame-length a second. What this pins is that the travel is
+   * spread across frames rather than delivered in one — a quantised version of the same numbers
+   * jumps a whole roll at once. Measured at 15 units mean and 38 worst when written.
+   */
+  it("moves every layer continuously between frames, never in jumps", () => {
+    const FRAME_MS = 1000 / 60;
+    let worst = 0;
+    let previous: { x: number; y: number }[][] | null = null;
+    for (let f = 0; f < 240; f++) {
+      // The flame's layers only. An ember that has shrunk away is dropped from the list, so the
+      // ember tail's LENGTH varies frame to frame by design and there is no vertex correspondence
+      // to measure across it.
+      const points = flame(f * FRAME_MS).map((l) => l.points);
+      if (previous) {
+        for (const [L, layer] of points.entries()) {
+          expect(layer).toHaveLength(previous[L]!.length);
+          for (const [i, p] of layer.entries()) {
+            worst = Math.max(worst, Math.hypot(p.x - previous[L]![i]!.x, p.y - previous[L]![i]!.y));
+          }
+        }
+      }
+      previous = points;
+    }
+    expect(worst).toBeLessThan(50);
+    expect(worst).toBeGreaterThan(0);
+  });
+
+  it("still draws the frozen fan for a cone style that authors no flame", () => {
+    // `tremor` is the roster's other cone beam and asks for none of it. Identical at two clocks a
+    // long way apart is the whole claim: a weapon opts INTO burning, and one that has not is not
+    // quietly animated by the machinery being there.
+    expect(beamDrawLayers("tremor", 0, 0, 0, 400, 0, 9999)).toEqual(
+      beamDrawLayers("tremor", 0, 0, 0, 400, 0, 0),
     );
+  });
+
+  it("carries the weapon's own table colour in the ramp, on the body rather than the rim", () => {
+    // The rule that matters is that the table colour appears in the ramp at all -- otherwise the
+    // HUD slot and the shot are two different weapons. Which layer it lands on is authoring: it was
+    // the second of three, and is now the middle of five, because the reference pass added a dark
+    // crimson rim outside it and a pale core inside. Asserted as "in the ramp, not outermost"
+    // rather than as an index, so deepening the ramp again does not fail a test about identity.
+    const ramp = WEAPON_BEAM_STYLES.afterburner!.layers.map((l) => l.color.toUpperCase());
+    expect(ramp).toContain(AFTERBURNER.color.toUpperCase());
+    // Not the rim: a flame wants its darkest ring outside so it reads as a hard-edged object on a
+    // light floor, and the table colour is a body colour.
+    expect(ramp[0]).not.toBe(AFTERBURNER.color.toUpperCase());
   });
 
   it("anchors the flame to the muzzle and follows the car's heading", () => {
