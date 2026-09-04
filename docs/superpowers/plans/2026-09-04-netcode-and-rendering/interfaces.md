@@ -65,12 +65,13 @@ export interface PongMessage { clientMs: number; serverTick: number; msIntoTick:
 export function isPingMessage(value: unknown): value is PingMessage;
 ```
 
-### `net/input.ts` — reshaped N1, consumed by everything after
+### `net/input.ts` — `InputFrame` added N0; `InputMessage` reshaped N1; consumed by everything after
 
 ```ts
 export const INPUT_MESSAGE = "input";                 // unchanged name
-export interface InputFrame { steer: -1 | 0 | 1; throttle: -1 | 0 | 1; fireSlots: number }
-export interface InputMessage extends InputFrame { tick: number }   // `seq` is gone
+export interface InputFrame { steer: -1 | 0 | 1; throttle: -1 | 0 | 1; fireSlots: number }   // N0
+export interface InputMessage extends InputFrame { seq: number }    // N0 shape (today's, re-based on InputFrame)
+export interface InputMessage extends InputFrame { tick: number }   // N1 shape: `seq` is gone
 export const NEUTRAL_INPUT: Readonly<InputFrame>;     // { steer: 0, throttle: 0, fireSlots: 0 }
 ```
 
@@ -254,10 +255,14 @@ export class SnapshotBroadcaster {
 }
 ```
 
-### `net/differ.ts` — N0
+### `net/differ.ts` — N0 (a re-export of shared `sim/world-hash.ts`, which the browser-side differ needs too)
 
 ```ts
+// shared sim/world-hash.ts
 export function worldHash(cars: readonly SimBody[], contacts: readonly string[]): string;   // FNV-1a over quantised poses and the sorted contact-pair list
+export function contactSet(cars: readonly ContactSetCar[], arena: ArenaDef): string[];     // sorted "a|b" pairs plus wall contacts
+export const HASH_QUANT: { posPerUnit: 16; angleSteps: 65536; speedPerUnit: 16 };           // N2 makes this a re-export of codec QUANT
+// server net/differ.ts re-exports the above under the ledger name
 ```
 
 ---
