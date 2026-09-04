@@ -256,13 +256,46 @@ contact through the `brawl` stance (H36).
 Open `http://localhost:5173/?dev=playground`, switch the opponent to **Bot**, and pick a tier from
 the difficulty select beside it — the swap takes effect live, mid-match.
 
-**As of this page, the playground does not yet show a live "what is it thinking" read-out.**
-`HumanController.debug()` exists (`BotDebug`: current stance, every stance's score, the chosen
-target, `preferredRange`, the rolled personality, and the last-pressed slot — see
-`packages/server/src/bot/types.ts`) and is exactly the answer to a scored decision layer's
-characteristic weakness — "why did it do that" otherwise means reading a scoreboard — but nothing
-currently broadcasts it from `PlaygroundRoom` to the client overlay. Until that lands, to see what a
-tier is actually doing:
+The playground now shows a live "what is it thinking" read-out in the corner of the screen —
+`HumanController.debug()` (`BotDebug`: current stance, every stance's score, the chosen target,
+`preferredRange`, the rolled personality, and the last-pressed slot — see
+`packages/server/src/bot/types.ts`), broadcast from `PlaygroundRoom` to the client overlay at 5 Hz
+(every 6 ticks — fast enough to feel live, slow enough to actually read) as
+`MSG_PLAYGROUND_BOT_DEBUG`, and rendered by `mountPlaygroundOverlay` in
+`packages/client/src/dev/playground/overlay.ts`. It is deliberately **not** part of the pause menu:
+the pause menu only shows while the sim is paused, and pausing is exactly what stops the bot
+deciding and the room broadcasting, so a "live" read-out gated behind pause would never update. It
+sits in a small fixed box, always on screen, independent of the pause overlay.
+
+The line reads `<personality> | <stance> | range <preferredRange> | slot <n>` — for example
+`kiter | kite | range 312 | slot 2`. What each field tells you:
+
+- **personality** — one of `brawler`, `kiter`, `sprayer`, `grudge`, `opportunist`, rolled once per
+  bot instance (a fresh roll happens whenever the bot is reconstructed — a difficulty change, a
+  setup change, or `Switch car`). If it stays fixed across a whole session where you expected
+  variety, you are probably re-reading the same `HumanController` instance rather than a new one.
+- **stance** — one of `engage`, `brawl`, `kite`, `disengage`, `reposition`, `hunt`, `recover`. This
+  is the field to watch first when a bot "does something odd" — the label alone usually tells you
+  whether the brain thinks it is fighting (`engage`/`brawl`/`kite`), regrouping
+  (`disengage`/`reposition`), searching (`hunt`), or stripped of control (`recover`, e.g. mid-respawn
+  phase). A stance stuck on one value for far longer than `stanceCommitTicks` while the fight clearly
+  changed shape is a sign to go look at `scoreStances` rather than at movement code.
+- **range** — `preferredRange`, in world units, rounded. It should settle near the kit's own
+  effective-range band (see the formula above) once a target is acquired, and reads **0** whenever
+  there is no target — that is the intentional reset in `controller.ts`'s `plan()`, not a bug. A
+  range wildly outside the kit's band with a live target is the field to check against
+  `preferredRangeOf` and the personality's range bias.
+- **slot** — the weapon slot the bot pressed on the tick this read-out was generated, 1-indexed to
+  match the HUD's own slot numbering, or `-` when it held fire that tick. A slot that never varies
+  while multiple weapons are ready points at `chooseSlot`'s weighting or `ultHold` discipline rather
+  than at a wiring bug; a slot that fires every single recompute even at long range on a short-range
+  kit points the other way.
+
+Since the read-out only updates while the sim is actually running, remember to **resume** (P) after
+opening it from the pause menu — otherwise the numbers are frozen at whatever the bot was doing when
+you paused.
+
+Beyond eyeballing the corner of the screen:
 
 - Run `packages/server/src/bot/brain/tiers.test.ts` — the characterisation suite that pins the
   behavioural differences between tiers directly (dodges vs. doesn't, fires the ult vs. doesn't,
@@ -272,4 +305,6 @@ tier is actually doing:
   hit rates — see [`packages/server/balance/README.md`](../packages/server/balance/README.md).
 - Play a tier in practice mode and watch it. This is still the acceptance test the design spec
   names: every number in the parameter table above is a first pass, and the only way to know if a
-  tier reads as *a kind of player* rather than *a difficulty slider* is to fight it.
+  tier reads as *a kind of player* rather than *a difficulty slider* is to fight it. Practice mode
+  itself carries no debug read-out — `PracticeRoom` ships to players, and the overlay above is
+  strictly a `PlaygroundRoom`/dev-tools thing.

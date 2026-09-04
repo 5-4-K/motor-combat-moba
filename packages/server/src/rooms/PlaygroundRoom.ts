@@ -3,6 +3,7 @@ import {
   BOT_SESSION_ID,
   DEFAULT_PATCH_RATE_HZ,
   INPUT_MESSAGE,
+  MSG_PLAYGROUND_BOT_DEBUG,
   MSG_PLAYGROUND_PAUSE,
   MSG_PLAYGROUND_SETUP,
   MSG_PLAYGROUND_SWITCH,
@@ -343,6 +344,21 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
     // for THIS tick, so this tick's world has to already be in the ring by the time the bot asks.
     this.botRing.push(snapshotWorld(this.state, this.combat));
     this.enqueueOpponentInput();
+
+    // Every 6 ticks (5 Hz): a debug read-out that updates 30 times a second is unreadable, and this
+    // is a dev-only room, so the bandwidth is not the reason for the throttle.
+    const debug = this.bot instanceof HumanController ? this.bot.debug() : undefined;
+    if (debug && this.state.tick % 6 === 0) {
+      this.broadcast(MSG_PLAYGROUND_BOT_DEBUG, {
+        tick: debug.tick,
+        stance: debug.stance,
+        targetSessionId: debug.targetSessionId ?? "",
+        preferredRange: Math.round(debug.preferredRange),
+        personality: debug.personality,
+        firedSlot: debug.firedSlot ?? -1,
+      });
+    }
+
     // No win check, ever (PG6) — `runPipeline`'s players are deliberately dropped.
     runPipeline(this.ctx());
     // This tick's fires, ready for next tick's view, and the bag drained so a long playground

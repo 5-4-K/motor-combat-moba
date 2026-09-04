@@ -18,6 +18,37 @@ export const MSG_PLAYGROUND_SWITCH = "pg_switch"; // no payload: flip control
 export const MSG_PLAYGROUND_TUNING = "pg_tuning"; // payload: TuningOverrides (flat object)
 export const MSG_PLAYGROUND_SETUP = "pg_setup"; // payload: PlaygroundSetup
 
+/** Dev-only: what the bot was thinking, for the playground overlay (H12). Never sent by a client. */
+export const MSG_PLAYGROUND_BOT_DEBUG = "playground-bot-debug";
+
+const STANCES = [
+  "engage", "brawl", "kite", "disengage", "reposition", "hunt", "recover",
+] as const;
+
+export interface BotDebugPayload {
+  tick: number;
+  stance: string;
+  targetSessionId: string;
+  preferredRange: number;
+  personality: string;
+  /** -1 when the bot held fire; a slot index otherwise. */
+  firedSlot: number;
+}
+
+export function isBotDebugPayload(value: unknown): value is BotDebugPayload {
+  if (typeof value !== "object" || value === null) return false;
+  const rec = value as Record<string, unknown>;
+  return (
+    typeof rec.tick === "number" &&
+    typeof rec.stance === "string" &&
+    (STANCES as readonly string[]).includes(rec.stance) &&
+    typeof rec.targetSessionId === "string" &&
+    typeof rec.preferredRange === "number" &&
+    typeof rec.personality === "string" &&
+    typeof rec.firedSlot === "number"
+  );
+}
+
 /** How hard the playground's bot plays (PG27). Wire value is the literal string, not an index. */
 export type BotDifficulty = "easy" | "medium" | "hard";
 

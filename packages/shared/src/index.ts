@@ -26,16 +26,23 @@ export {
 } from "./net/lobby-messages.js";
 export {
   BOT_SESSION_ID,
+  MSG_PLAYGROUND_BOT_DEBUG,
   MSG_PLAYGROUND_PAUSE,
   MSG_PLAYGROUND_SETUP,
   MSG_PLAYGROUND_SWITCH,
   MSG_PLAYGROUND_TUNING,
   PLAYGROUND_ROOM_NAME,
   defaultPlaygroundSetup,
+  isBotDebugPayload,
   isBotDifficulty,
   isPlaygroundSetup,
 } from "./net/playground-messages.js";
-export type { BotDifficulty, PlaygroundCarSetup, PlaygroundSetup } from "./net/playground-messages.js";
+export type {
+  BotDebugPayload,
+  BotDifficulty,
+  PlaygroundCarSetup,
+  PlaygroundSetup,
+} from "./net/playground-messages.js";
 export {
   MSG_PRACTICE_IDLE_WARNING,
   MSG_PRACTICE_PAUSE,

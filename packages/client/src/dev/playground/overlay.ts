@@ -14,12 +14,14 @@ import {
   BOT_SESSION_ID,
   CAR_TABLE,
   COLOR_TABLE,
+  MSG_PLAYGROUND_BOT_DEBUG,
   MSG_PLAYGROUND_PAUSE,
   MSG_PLAYGROUND_SETUP,
   MSG_PLAYGROUND_SWITCH,
   MSG_PLAYGROUND_TUNING,
   defaultPlaygroundSetup,
   isArenaId,
+  isBotDebugPayload,
   isBotDifficulty,
   isCarId,
   isColorId,
@@ -156,6 +158,20 @@ const CSS = `
 }
 .pg-difficulty:disabled {
   opacity: 0.4;
+}
+.pg-bot-debug {
+  position: fixed;
+  top: 12px;
+  right: 16px;
+  z-index: 999;
+  pointer-events: none;
+  font-family: monospace;
+  font-size: 12px;
+  color: #9aa0a6;
+  background: rgba(20, 22, 26, 0.85);
+  border: 1px solid #444;
+  border-radius: 4px;
+  padding: 4px 8px;
 }
 .pg-row {
   margin: 10px 0;
@@ -374,6 +390,18 @@ export function mountPlaygroundOverlay(
 
   const root = h("div", { class: "pg-overlay" });
   document.body.appendChild(root);
+
+  // Always on, independent of `root`'s pause-gated visibility above (H12): the bot only decides, and
+  // `PlaygroundRoom` only broadcasts, while the sim is running -- a read-out that only showed while
+  // paused would never show anything, since pausing is exactly what stops the ticks it reports on.
+  const debugEl = h("div", { class: "pg-bot-debug" }, ["bot: off"]);
+  document.body.appendChild(debugEl);
+  const unbindDebug = room.onMessage(MSG_PLAYGROUND_BOT_DEBUG, (payload: unknown) => {
+    if (!isBotDebugPayload(payload)) return;
+    debugEl.textContent =
+      `${payload.personality} | ${payload.stance} | range ${payload.preferredRange}` +
+      ` | slot ${payload.firedSlot < 0 ? "-" : payload.firedSlot + 1}`;
+  });
 
   let subView: "menu" | "settings" = "menu";
   let wasPaused = room.state.paused;
@@ -837,7 +865,9 @@ export function mountPlaygroundOverlay(
   return function unmount(): void {
     window.removeEventListener("keydown", onKeyDown);
     room.onStateChange.remove(onState);
+    if (typeof unbindDebug === "function") unbindDebug();
     root.remove();
+    debugEl.remove();
     style.remove();
   };
 }

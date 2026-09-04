@@ -8,6 +8,7 @@ import {
   MSG_PLAYGROUND_TUNING,
   PLAYGROUND_ROOM_NAME,
   defaultPlaygroundSetup,
+  isBotDebugPayload,
   isBotDifficulty,
   isPlaygroundSetup,
   type PlaygroundSetup,
@@ -176,5 +177,26 @@ describe("isPlaygroundSetup (PG24 — the three new fields)", () => {
     const msg = valid();
     (msg.opponent as Record<string, unknown>).colorId = (msg.me as Record<string, unknown>).colorId;
     expect(isPlaygroundSetup(msg)).toBe(true);
+  });
+});
+
+describe("isBotDebugPayload", () => {
+  it("accepts a well-formed payload", () => {
+    expect(isBotDebugPayload({
+      tick: 10, stance: "engage", targetSessionId: "them",
+      preferredRange: 300, personality: "kiter", firedSlot: 1,
+    })).toBe(true);
+  });
+
+  it("rejects a payload with an unknown stance", () => {
+    expect(isBotDebugPayload({
+      tick: 10, stance: "vibing", targetSessionId: "them",
+      preferredRange: 300, personality: "kiter", firedSlot: 1,
+    })).toBe(false);
+  });
+
+  it("rejects non-objects", () => {
+    expect(isBotDebugPayload(null)).toBe(false);
+    expect(isBotDebugPayload("engage")).toBe(false);
   });
 });
