@@ -85,11 +85,12 @@ mid-session reconfiguration. See
 
 **The bot is a five-layer brain, and a tier is data.** `packages/server/src/bot/brain/` runs
 perceive → assess → move → shoot → humanize; `easy`/`medium`/`hard` differ only in `BOT_PROFILES`,
-and no module branches on the difficulty name. Dodging is a steering desire, never a stance, so a
-bot can dodge without stopping fighting. The bot presses **one** slot per tick — `beginFire` takes
-the lowest set bit, so an OR of every in-range slot fires slot 0 and nothing else. `BOT_BRAIN_VERSION`
-rides in `botFingerprint`: bump it when behaviour changes without the table moving. See
-[`docs/bot-behavior.md`](docs/bot-behavior.md).
+and no module branches on the difficulty name. Assess holds a **goal** (rush, hold range, setup a
+stun, dump, hunt last-known — never drive to the arena centre), not a mood. Dodging is a steering
+deflection, never a goal, so a bot can dodge without stopping fighting. The bot presses **one** slot
+per tick — `beginFire` takes the lowest set bit, so an OR of every in-range slot fires slot 0 and
+nothing else. `BOT_BRAIN_VERSION` rides in `botFingerprint`: bump it when behaviour changes without
+the table moving. See [`docs/bot-behavior.md`](docs/bot-behavior.md).
 
 ## Hard invariants
 

@@ -24,23 +24,70 @@ function view(overrides: Partial<BotView> = {}): BotView {
 }
 
 describe("HumanController", () => {
-  it("hunts toward the arena centre rather than coasting when there is no target (Task 6)", () => {
-    // Pre-Task-6 this bot coasted with no target — a placeholder, per the removed `chase()`
-    // docstring. Task 6 gives the no-target case a real stance (`hunt`, H9), which is the default
-    // stance from `newStanceState()` and drives the bot toward the arena centre to go looking
-    // rather than sitting still, while never firing (no target to aim `chooseSlot` at).
-    //
-    // Task 7's humanize layer coasts for `reactionDelayTicks` calls before a decision reaches the
-    // output (hard: 4), so this loops past that window rather than reading the very first call —
-    // the same pattern "steers toward a target that is off to one side" below already uses.
-    const bot = new HumanController("hard");
+  it("hunts a quadrant waypoint when it has never seen anyone, never the arena centre (G12)", () => {
+    // Sit ON the centre facing +x. Centre-seeking would keep heading 0 (steer 0). Quadrant search
+    // from (640, 360) toward (320, 180) is a rear-left heading, so steer is visibly non-zero.
+    // Task 7's humanize layer coasts for `reactionDelayTicks` (hard: 4) before a decision reaches
+    // the output, so this loops past that window.
+    const bot = new HumanController("hard", {
+      profile: { ...BOT_PROFILES.hard, blunderChance: 0, idleFidgetChance: 0, aimErrorSigmaRad: 0 },
+    });
+    const selfAtCentre = { ...view().self, x: 640, y: 360, angle: 0 };
     let out = { steer: 0, throttle: 0, fireSlots: 0 };
-    for (let tick = 0; tick < 6; tick++) {
-      out = bot.decide(view({ tick }));
+    for (let tick = 0; tick < 8; tick++) {
+      out = bot.decide(view({ tick, self: selfAtCentre }));
     }
     expect(out.throttle).toBe(1);
     expect(out.steer).not.toBe(0);
     expect(out.fireSlots).toBe(0);
+    expect(bot.debug()?.goal).toBe("huntLastKnown");
+  });
+
+  it("hunts toward a last-known pose, not the arena centre (G12)", () => {
+    // Sit ON the arena centre. Centre-seeking keeps heading 0 (steer 0). A phased car due west
+    // is on screen (Deathmatch respawn) but is not a target — hunt must drive at that visible
+    // pose, which is a 180° heading, so steer is visibly non-zero.
+    const profile = {
+      ...BOT_PROFILES.hard,
+      blunderChance: 0, idleFidgetChance: 0, aimErrorSigmaRad: 0, acquireTicks: 2,
+    };
+    const bot = new HumanController("hard", { profile });
+    const selfView = { ...view().self, x: 640, y: 360, angle: 0 };
+    const ghost = {
+      sessionId: "them", carId: "mirage" as const, team: 0 as const,
+      x: 100, y: 360, angle: 0, speed: 0, hp: 70, maxHp: 70,
+      alive: true, phased: true, statuses: [], maneuver: 0,
+    };
+    let out = { steer: 0, throttle: 0, fireSlots: 0 };
+    for (let tick = 0; tick < 20; tick++) {
+      out = bot.decide(view({ tick, self: selfView, others: [ghost] }));
+    }
+    expect(out.steer).not.toBe(0);
+    expect(out.throttle).toBe(1);
+    expect(out.fireSlots).toBe(0);
+    expect(bot.debug()?.goal).toBe("huntLastKnown");
+  });
+
+  it("continues the previous heading during acquire delay, rather than seeking the centre (G13)", () => {
+    // A living car is on screen but not yet noticed. Centre-seeking from (100, 100) facing +x
+    // would steer toward (640, 360). Continuing the previous heading keeps steer 0.
+    const profile = {
+      ...BOT_PROFILES.hard,
+      blunderChance: 0, idleFidgetChance: 0, aimErrorSigmaRad: 0, acquireTicks: 20,
+    };
+    const bot = new HumanController("hard", { profile });
+    const target = {
+      sessionId: "them", carId: "mirage" as const, team: 0 as const,
+      x: 400, y: 100, angle: 0, speed: 0, hp: 70, maxHp: 70,
+      alive: true, phased: false, statuses: [], maneuver: 0,
+    };
+    let out = { steer: 0, throttle: 0, fireSlots: 0 };
+    for (let tick = 0; tick < 8; tick++) {
+      out = bot.decide(view({ tick, others: [target] }));
+    }
+    expect(out.steer).toBe(0);
+    expect(bot.debug()?.goal).toBe("huntLastKnown");
+    expect(bot.currentTargetSessionId).toBeUndefined();
   });
 
   it("is deterministic for the same seed (H21)", () => {
@@ -72,7 +119,7 @@ describe("HumanController", () => {
   it("reports debug state once it has decided", () => {
     const bot = new HumanController("hard");
     bot.decide(view());
-    expect(bot.debug()?.stance).toBeDefined();
+    expect(bot.debug()?.goal).toBeDefined();
   });
 
   it("clears firedSlot and preferredRange once the target is lost (review fix)", () => {
@@ -169,7 +216,7 @@ describe("HumanController", () => {
     let steerWhileDodging: -1 | 0 | 1 | undefined;
     // `hard`'s `dodgeReactionTicks` is 4 and `acquireTicks` is 5, so the threat is reactable and the
     // target is noticed by tick 5; `recomputeTicks` is 2, so plenty of runway below covers a
-    // recompute tick past both. `stanceCommitTicks` (18) then holds the initial `hunt` stance until
+    // recompute tick past both. `goalCommitTicks` (18) then holds the initial `huntLastKnown` until
     // tick 18, and Task 7's humanize layer coasts the decision another `reactionDelayTicks` (4) ticks
     // before it reaches the output — so the window has to reach past tick 22, not just past 9.
     for (let tick = 0; tick < 30; tick++) {
@@ -184,9 +231,9 @@ describe("HumanController", () => {
     }
 
     expect(firedWhileDodging).toBe(true);
-    // The dodge desire outweighs the aim desire (`DODGE_WEIGHT` 2.5 vs the aim desire's weight 1),
-    // so the blended heading is pulled well off the target — steering visibly responds to the
-    // threat rather than sitting at 0 the way it would if the car were simply pointed at its target.
+    // Dodge is a deflection (`dodgeWeight` 0.8 vs the goal's weight 1), so the blended heading is
+    // pulled off the target — steering visibly responds to the threat rather than sitting at 0 the
+    // way it would if the car were simply pointed at its target.
     expect(steerWhileDodging).not.toBe(0);
   });
 
@@ -198,9 +245,9 @@ describe("HumanController", () => {
     // tick to the last, so the first death or `phased` respawn switched deliberate ramming off for
     // good (measured 22/40 seeds rammed before the first target loss and 0/40 after).
     //
-    // `wantsRam` is private, so this reads it where it actually reaches the sim: `scoreStances`
-    // gives `brawl` a finite score ONLY when a contact weapon is ready or a ram is committed to, and
-    // Bullseye's kit has no `range: 0` row — so a `brawl` stance here IS `wantsRam`.
+    // `wantsRam` is private, so this reads it where it actually reaches the sim: `scoreGoals`
+    // gives `contact` a finite score ONLY when a contact weapon is ready or a ram is committed to,
+    // and Bullseye's kit has no maneuver row — so a `contact` goal here IS `wantsRam`.
     const slots = slotsOf("bullseye").map((weaponId) => ({
       weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
       range: weaponDefOf(weaponId).range,
@@ -216,29 +263,29 @@ describe("HumanController", () => {
     // `kiter` both shift `ramIntentChance` and would silently discard the override.
     const profile = {
       ...BOT_PROFILES.hard,
-      ramIntentChance: 1, memoryTicks: 4, acquireTicks: 2, stanceCommitTicks: 2,
+      ramIntentChance: 1, memoryTicks: 4, acquireTicks: 2, goalCommitTicks: 2,
     };
     const bot = new HumanController("hard", { profile });
     const rng = makeRng(17);
     const self = { ...view().self, slots, x: 100, y: 100 };
-    const stanceAt = (tick: number, others: (typeof target)[]) => {
+    const goalAt = (tick: number, others: (typeof target)[]) => {
       bot.decide(view({ tick, self, others, rng }));
-      return bot.debug()?.stance;
+      return bot.debug()?.goal;
     };
 
-    let brawledFirst = false;
-    for (let tick = 0; tick < 30; tick++) if (stanceAt(tick, [target]) === "brawl") brawledFirst = true;
-    expect(brawledFirst).toBe(true);
+    let contactedFirst = false;
+    for (let tick = 0; tick < 30; tick++) if (goalAt(tick, [target]) === "contact") contactedFirst = true;
+    expect(contactedFirst).toBe(true);
 
     // Target gone for longer than `memoryTicks`: the engagement is over and the roll is spent.
-    for (let tick = 30; tick < 50; tick++) stanceAt(tick, []);
+    for (let tick = 30; tick < 50; tick++) goalAt(tick, []);
     expect(bot.currentTargetSessionId).toBeUndefined();
 
     // Same session id back — a respawn, or a car driving back into view. A NEW engagement, and it
-    // gets its own roll. Before the fix this loop never saw `brawl` again for the rest of the match.
-    let brawledAgain = false;
-    for (let tick = 50; tick < 90; tick++) if (stanceAt(tick, [target]) === "brawl") brawledAgain = true;
-    expect(brawledAgain).toBe(true);
+    // gets its own roll. Before the fix this loop never saw `contact` again for the rest of the match.
+    let contactedAgain = false;
+    for (let tick = 50; tick < 90; tick++) if (goalAt(tick, [target]) === "contact") contactedAgain = true;
+    expect(contactedAgain).toBe(true);
   });
 
   it("draws the same number of random numbers on a recover tick as on a comparable alive tick, and reports no firedSlot (review fix round 2, defect 1)", () => {
@@ -288,7 +335,7 @@ describe("HumanController", () => {
       tick: 0, self: phasedSelf, others: [target], rng: phasedCounter.rng,
     }));
 
-    expect(phasedBot.debug()?.stance).toBe("recover");
+    expect(phasedBot.debug()?.goal).toBe("recover");
     expect(phasedCounter.callCount()).toBe(aliveCounter.callCount());
     expect(phasedOut).toEqual({ steer: 0, throttle: 0, fireSlots: 0 });
     expect(phasedBot.debug()?.firedSlot).toBeUndefined();

@@ -8,10 +8,9 @@ export interface Desire {
   weight: number;
 }
 
-/** How hard dodging pulls relative to holding a range. Reactive, so it outweighs the plan. */
-const DODGE_WEIGHT = 2.5;
 /** How hard a wall pushes once it is inside the look-ahead. Above dodge: a wall does not miss. */
 const WALL_WEIGHT = 3;
+const GOAL_WEIGHT = 1;
 
 /**
  * Collapse the desires into one heading (H13).
@@ -80,9 +79,29 @@ export function orbitDesire(
   return { headingRad: bearingToTarget + (side * Math.PI) / 2, weight: orbitBias };
 }
 
-/** One desire per shot worth leaning off (H26) — never a stance, so it composes with fighting. */
-export function dodgeDesires(threats: readonly KnownThreat[]): Desire[] {
-  return threats.map((threat) => ({ headingRad: threat.awayHeadingRad, weight: DODGE_WEIGHT }));
+/** One desire per shot worth leaning off (G16) — never a goal, so it composes with fighting. */
+export function dodgeDesires(threats: readonly KnownThreat[], weight: number): Desire[] {
+  if (weight <= 0) return [];
+  return threats.map((threat) => ({ headingRad: threat.awayHeadingRad, weight }));
+}
+
+export function goalDesire(headingRad: number): Desire {
+  return { headingRad, weight: GOAL_WEIGHT };
+}
+
+/** True when a point is within `lookaheadUnits` of an arena bound. */
+export function nearBound(
+  x: number,
+  y: number,
+  arena: BotArenaView,
+  lookaheadUnits: number,
+): boolean {
+  return (
+    x < lookaheadUnits ||
+    y < lookaheadUnits ||
+    x > arena.width - lookaheadUnits ||
+    y > arena.height - lookaheadUnits
+  );
 }
 
 /**

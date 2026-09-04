@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blendHeading, dodgeDesires, orbitDesire, reduceToIntent, wallDesire } from "./movement.js";
+import { blendHeading, dodgeDesires, goalDesire, orbitDesire, reduceToIntent, wallDesire } from "./movement.js";
 
 const arena = { width: 1280, height: 720, obstacles: [] };
 
@@ -71,28 +71,35 @@ describe("orbitDesire", () => {
 });
 
 describe("dodgeDesires", () => {
-  it("carries one desire per active threat", () => {
-    const out = dodgeDesires([
-      { id: "a", ownerSessionId: "x", weaponId: "predator", noticedAtTick: 0,
-        reactAtTick: 0, reacting: true, awayHeadingRad: 1 },
-    ]);
+  const threat = {
+    id: "a", ownerSessionId: "x", weaponId: "predator" as const, noticedAtTick: 0,
+    reactAtTick: 0, reacting: true, awayHeadingRad: 1,
+  };
+
+  it("carries one desire per active threat at the given weight (G16)", () => {
+    const out = dodgeDesires([threat], 0.8);
     expect(out).toHaveLength(1);
     expect(out[0]!.headingRad).toBe(1);
-    expect(out[0]!.weight).toBeGreaterThan(0);
+    expect(out[0]!.weight).toBe(0.8);
   });
 
   it("carries one desire per threat when there is more than one", () => {
-    // A single shot must never collapse two threats into one vote, or `blendHeading` would under-
-    // weight dodging exactly when it matters most — two incoming shots at once.
     const out = dodgeDesires([
-      { id: "a", ownerSessionId: "x", weaponId: "predator", noticedAtTick: 0,
-        reactAtTick: 0, reacting: true, awayHeadingRad: 1 },
-      { id: "b", ownerSessionId: "y", weaponId: "thumper", noticedAtTick: 0,
-        reactAtTick: 0, reacting: true, awayHeadingRad: -2 },
-    ]);
+      threat,
+      { ...threat, id: "b", ownerSessionId: "y", weaponId: "thumper", awayHeadingRad: -2 },
+    ], 0.8);
     expect(out).toHaveLength(2);
     expect(out.map((d) => d.headingRad)).toEqual([1, -2]);
-    expect(out.every((d) => d.weight > 0)).toBe(true);
+    expect(out.every((d) => d.weight === 0.8)).toBe(true);
+  });
+
+  it("lets the goal heading win a blend against a hard dodge (G16)", () => {
+    const heading = blendHeading(
+      [goalDesire(0), ...dodgeDesires([threat], 0.8)],
+      0,
+    );
+    expect(heading).toBeGreaterThan(0);
+    expect(heading).toBeLessThan(1);
   });
 });
 

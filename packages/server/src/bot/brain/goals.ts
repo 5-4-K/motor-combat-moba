@@ -1,21 +1,24 @@
 import { hasStatus } from "@motor-combat-moba/shared";
 import type { BotProfile } from "../../config/bot-profiles.js";
 import type { Rng } from "../rng.js";
-import type { BotCarView, BotSelfView, StanceId } from "../types.js";
+import type { BotCarView, BotSelfView, GoalId } from "../types.js";
+import { isUlt, slotIsReady } from "./firing.js";
 import { ticksSinceBlame, type PerceptionState } from "./perception.js";
+import type { KitRoles } from "./roles.js";
 
-export interface StanceState {
-  current: StanceId;
+export interface GoalState {
+  current: GoalId;
   sinceTick: number;
 }
 
 /** A bot starts having seen nothing, so it starts hunting. */
-export function newStanceState(): StanceState {
-  return { current: "hunt", sinceTick: 0 };
+export function newGoalState(): GoalState {
+  return { current: "huntLastKnown", sinceTick: 0 };
 }
 
-const ALL_STANCES: readonly StanceId[] = [
-  "engage", "brawl", "kite", "disengage", "reposition", "hunt", "recover",
+export const ALL_GOALS: readonly GoalId[] = [
+  "recover", "huntLastKnown", "rush", "holdRange", "intercept",
+  "setupCc", "dump", "contact", "reset", "pinWall", "unpin",
 ];
 
 /**
@@ -81,92 +84,114 @@ export function scoreTargets(args: {
 }
 
 /**
- * Score every stance (H9). The winner is chosen by `pickStance`, which also holds it.
+ * Score every goal (G11). The winner is chosen by `pickGoal`, which also holds it.
  *
  * Draws exactly one random number, always, for the score noise.
  */
-export function scoreStances(args: {
+export function scoreGoals(args: {
   self: BotSelfView;
   target: BotCarView | undefined;
   distance: number;
   preferredRange: number;
   profile: BotProfile;
   tick: number;
-  /** A ready `range: 0` weapon — a charge is worth walking into contact for (H36). */
+  roles: KitRoles;
   hasReadyContactWeapon: boolean;
-  /** This bot has rolled and committed to a deliberate ram (H40). */
   wantsRam: boolean;
   pinnedOnWall: boolean;
+  targetNearWall: boolean;
+  ultSpent: boolean;
   rng: Rng;
-}): Record<StanceId, number> {
-  const { self, target, distance, preferredRange, profile, tick, rng } = args;
+}): Record<GoalId, number> {
+  const { self, target, distance, preferredRange, profile, tick, roles, rng } = args;
   const noise = (rng() - 0.5) * 2 * profile.scoreNoiseSigma;
+  const off = Number.NEGATIVE_INFINITY;
 
-  const hpFraction = self.maxHp > 0 ? self.hp / self.maxHp : 1;
-  const controlLost = !self.alive || hasStatus(self.statuses, "phased", tick);
-
-  const scores: Record<StanceId, number> = {
-    engage: 0, brawl: 0, kite: 0, disengage: 0, reposition: 0, hunt: 0, recover: 0,
+  const scores: Record<GoalId, number> = {
+    recover: off, huntLastKnown: off, rush: off, holdRange: off, intercept: off,
+    setupCc: off, dump: off, contact: off, reset: off, pinWall: off, unpin: off,
   };
 
+  const controlLost = !self.alive || hasStatus(self.statuses, "phased", tick);
   if (controlLost) {
     scores.recover = 100;
     return scores;
   }
   if (!target) {
-    scores.hunt = 10 + noise;
+    scores.huntLastKnown = 10 + noise;
     return scores;
   }
 
-  scores.engage = 5 + noise;
+  const hpFraction = self.maxHp > 0 ? self.hp / self.maxHp : 1;
+  const targetHpFraction = target.maxHp > 0 ? target.hp / target.maxHp : 1;
+  const targetStunned = hasStatus(target.statuses, "stunned", tick);
+  const setupReady = roles.setupCcSlot !== undefined &&
+    slotIsReady(self.slots[roles.setupCcSlot]!, tick);
+  const ultReady = self.slots.some((s) => slotIsReady(s, tick) && isUlt(s));
 
-  // A ready charge is worth walking into contact for (H36) — what makes "Bastion is going for the
-  // charge" legible from the outside — and so is a ram the bot has committed to (H40). Ram knockback
-  // and the hard-slam stun are real mechanics no bot has ever used on purpose.
-  scores.brawl = args.hasReadyContactWeapon || args.wantsRam
-    ? 6 + (1 - Math.min(distance / Math.max(preferredRange, 1), 2)) * 2 + noise
-    : -Infinity;
+  scores.rush = profile.rushWeight + noise;
+  scores.holdRange = 5 + noise;
+  scores.intercept = profile.interceptWeight + noise;
 
-  // Too close for the range this kit wants.
-  scores.kite = distance < preferredRange * 0.6 ? 6 + noise : 1 + noise;
+  scores.setupCc = setupReady && !targetStunned
+    ? profile.setupWeight + 2 + noise
+    : off;
 
-  // `retreatHpFraction` 0 means this branch can never win, however hurt the bot is (H37): an easy
-  // bot fights to zero, because self-preservation is a learned habit.
-  scores.disengage = profile.retreatHpFraction > 0 && hpFraction < profile.retreatHpFraction
-    ? 8 + (profile.retreatHpFraction - hpFraction) * 10 + noise
-    : -Infinity;
+  // Small base so dump can win a close call; the authored weight only applies when a dump
+  // condition is actually true (stun, wounded+ult, or we watched their ult go out).
+  let dump = 2 + noise;
+  const dumpNow = targetStunned
+    || (targetHpFraction <= profile.ultWindowHpFraction && ultReady)
+    || args.ultSpent;
+  if (dumpNow) {
+    dump = profile.dumpWeight + noise;
+    if (targetStunned) dump += 3;
+    if (targetHpFraction <= profile.ultWindowHpFraction && ultReady) dump += 2;
+    if (args.ultSpent) dump += 2;
+  }
+  scores.dump = dump;
 
-  scores.reposition = args.pinnedOnWall ? 7 + noise : 0;
+  scores.contact = args.hasReadyContactWeapon || args.wantsRam ? 8 + noise : off;
+
+  if (profile.retreatHpFraction > 0 && hpFraction < profile.retreatHpFraction) {
+    scores.reset = 8 + (profile.retreatHpFraction - hpFraction) * 10 + noise;
+  } else if (distance < preferredRange * 0.6) {
+    scores.reset = 6 + noise;
+  }
+
+  const canPin = args.hasReadyContactWeapon || args.wantsRam || dumpNow;
+  scores.pinWall = args.targetNearWall && canPin ? profile.pinWeight + 2 + noise : off;
+  // Beats contact (8) and setupCc (hard 9): peeling off a wall outranks a commit into it.
+  scores.unpin = args.pinnedOnWall ? 10 + noise : off;
 
   return scores;
 }
 
 /**
- * Hold the current stance for `stanceCommitTicks`, then take the best (H10).
+ * Hold the current goal for `goalCommitTicks`, then take the best (G7).
  *
  * `preempt` is the escape hatch, and there are exactly three of them: hp crossing the retreat
- * threshold, the target dying, and losing control. Dodging is NOT one — it is a steering desire
- * (H26), which is what lets the bot dodge without stopping fighting.
+ * threshold, the target dying, and losing control. Dodging is NOT one — it is a steering overlay.
  */
-export function pickStance(
-  state: StanceState,
-  scores: Record<StanceId, number>,
+export function pickGoal(
+  state: GoalState,
+  scores: Record<GoalId, number>,
   tick: number,
   profile: BotProfile,
-  preempt: StanceId | undefined,
-): StanceState {
+  preempt: GoalId | undefined,
+): GoalState {
   if (preempt !== undefined) {
     return preempt === state.current ? state : { current: preempt, sinceTick: tick };
   }
-  if (tick - state.sinceTick < profile.stanceCommitTicks) return state;
+  if (tick - state.sinceTick < profile.goalCommitTicks) return state;
 
-  let best: StanceId = state.current;
+  let best: GoalId = state.current;
   let bestScore = -Infinity;
-  for (const stance of ALL_STANCES) {
-    const score = scores[stance];
+  for (const goal of ALL_GOALS) {
+    const score = scores[goal];
     if (score > bestScore) {
       bestScore = score;
-      best = stance;
+      best = goal;
     }
   }
   return best === state.current ? { ...state, sinceTick: tick } : { current: best, sinceTick: tick };

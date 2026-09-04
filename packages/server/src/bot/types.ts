@@ -128,9 +128,10 @@ export interface BotController {
   debug?(): BotDebug | undefined;
 }
 
-/** The seven stances (H9). A stance publishes desires; it never steers. */
-export type StanceId =
-  | "engage" | "brawl" | "kite" | "disengage" | "reposition" | "hunt" | "recover";
+/** Tactical tasks the assess layer scores and holds (G4, G11). */
+export type GoalId =
+  | "recover" | "huntLastKnown" | "rush" | "holdRange" | "intercept"
+  | "setupCc" | "dump" | "contact" | "reset" | "pinWall" | "unpin";
 
 /** The five personality archetypes (H47). */
 export type PersonalityId = "brawler" | "kiter" | "sprayer" | "grudge" | "opportunist";
@@ -149,8 +150,8 @@ export interface BotPersonality {
  */
 export interface BotDebug {
   tick: number;
-  stance: StanceId;
-  stanceScores: Readonly<Partial<Record<StanceId, number>>>;
+  goal: GoalId;
+  goalScores: Readonly<Partial<Record<GoalId, number>>>;
   targetSessionId: string | undefined;
   preferredRange: number;
   personality: PersonalityId;

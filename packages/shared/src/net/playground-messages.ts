@@ -21,24 +21,25 @@ export const MSG_PLAYGROUND_SETUP = "pg_setup"; // payload: PlaygroundSetup
 /** Dev-only: what the bot was thinking, for the playground overlay (H12). Never sent by a client. */
 export const MSG_PLAYGROUND_BOT_DEBUG = "playground-bot-debug";
 
-const STANCES = [
-  "engage", "brawl", "kite", "disengage", "reposition", "hunt", "recover",
+const GOALS = [
+  "recover", "huntLastKnown", "rush", "holdRange", "intercept",
+  "setupCc", "dump", "contact", "reset", "pinWall", "unpin",
 ] as const;
 
 export interface BotDebugPayload {
   tick: number;
-  stance: string;
+  goal: string;
   /**
-   * Every stance's score on the tick this was taken, rounded (H12).
+   * Every goal's score on the tick this was taken, rounded (H12 / G9).
    *
-   * The whole point of scoring stances rather than running an if-ladder is that "why did it do
+   * The whole point of scoring goals rather than running an if-ladder is that "why did it do
    * that?" is answered by reading the scoreboard — which only works if the scoreboard is on screen.
-   * A stance may legitimately be absent (`scoreStances` early-returns with only `recover`, or only
-   * `hunt`, set) and a score may legitimately be `-Infinity`, which JSON cannot carry — the sender
-   * drops those keys rather than shipping `null`, so a missing entry reads as "not on the table
-   * this tick".
+   * A goal may legitimately be absent (`scoreGoals` early-returns with only `recover`, or only
+   * `huntLastKnown`, set) and a score may legitimately be `-Infinity`, which JSON cannot carry — the
+   * sender drops those keys rather than shipping `null`, so a missing entry reads as "not on the
+   * table this tick".
    */
-  stanceScores: Record<string, number>;
+  goalScores: Record<string, number>;
   targetSessionId: string;
   preferredRange: number;
   personality: string;
@@ -51,9 +52,9 @@ export function isBotDebugPayload(value: unknown): value is BotDebugPayload {
   const rec = value as Record<string, unknown>;
   return (
     typeof rec.tick === "number" &&
-    typeof rec.stance === "string" &&
-    (STANCES as readonly string[]).includes(rec.stance) &&
-    isStanceScores(rec.stanceScores) &&
+    typeof rec.goal === "string" &&
+    (GOALS as readonly string[]).includes(rec.goal) &&
+    isGoalScores(rec.goalScores) &&
     typeof rec.targetSessionId === "string" &&
     typeof rec.preferredRange === "number" &&
     typeof rec.personality === "string" &&
@@ -61,11 +62,11 @@ export function isBotDebugPayload(value: unknown): value is BotDebugPayload {
   );
 }
 
-/** A plain object whose keys are all real stance ids and whose values are all finite numbers. */
-function isStanceScores(value: unknown): value is Record<string, number> {
+/** A plain object whose keys are all real goal ids and whose values are all finite numbers. */
+function isGoalScores(value: unknown): value is Record<string, number> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   for (const [key, score] of Object.entries(value as Record<string, unknown>)) {
-    if (!(STANCES as readonly string[]).includes(key)) return false;
+    if (!(GOALS as readonly string[]).includes(key)) return false;
     if (typeof score !== "number" || !Number.isFinite(score)) return false;
   }
   return true;

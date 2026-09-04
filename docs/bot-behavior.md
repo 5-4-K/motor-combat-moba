@@ -12,7 +12,9 @@ yourself whenever a tier value changes**, and treat any number here with suspici
 look like they disagree — the config file is the source of truth, this page is a transcription of it.
 
 See [`docs/superpowers/specs/2026-09-04-human-like-bot-behavior-design.md`](superpowers/specs/2026-09-04-human-like-bot-behavior-design.md)
-(decisions H1-H48) for why the brain is built the way it is, and
+(decisions H1–H48) for fairness, determinism, and personalities, and
+[`docs/superpowers/specs/2026-09-04-bot-tactical-intelligence-design.md`](superpowers/specs/2026-09-04-bot-tactical-intelligence-design.md)
+(G1–G28) for the goal layer that replaced H9–H15. See
 [`packages/server/balance/README.md`](../packages/server/balance/README.md) for measuring whether a
 change actually moved anything.
 
@@ -20,9 +22,13 @@ change actually moved anything.
 
 | Symptom | Knob(s) |
 |---|---|
-| "The bot never dodges" | `dodgeChance`, `dodgeReactionTicks`, `dodgeHorizonTicks` |
+| "The bot never dodges" | `dodgeChance`, `dodgeReactionTicks`, `dodgeHorizonTicks`, `dodgeWeight` |
+| "It weaves instead of fighting" | `dodgeWeight` (must stay below 1), and whether the held goal is `holdRange` (the only one that orbits) |
 | "It fights at the wrong distance" | `standoffFraction`, `awarenessRadiusUnits`, and the `effectiveRangeOf` formula (below) |
+| "It charges in / never closes" | `rushWeight`, `dumpWeight`, `contact` readiness |
+| "It lost me and drove around" | hunt cues: last-known memory (`memoryTicks`), `hearChance`, quadrant search — hunt never seeks the arena centre |
 | "It wastes its ult" | `ultDisciplineChance`, `ultWindowHpFraction` |
+| "It never sets up a stun" | `setupWeight`, and whether the kit actually applies `stunned` (`rolesOf`) |
 | "It feels robotic" | `aimErrorDriftTicks`, `scoreNoiseSigma`, `idleFidgetChance`, `blunderChance` |
 | "It never uses its second weapon" | `slotWeights` (personality, see below), and H27's one-press-per-tick rule (below) |
 | "All three tiers feel the same" | Not a knob — read
@@ -32,7 +38,7 @@ change actually moved anything.
 
 Copied by hand from `bot-profiles.ts` on 2026-09-04. Grouped the way the config file groups them —
 perception, aim, fire economy, target politics, positioning/survival, threat reaction and
-consistency — 34 fields per tier.
+consistency — 41 fields per tier.
 
 ### Perception
 
@@ -103,7 +109,18 @@ tell, not a placeholder.
 | `blunderTicks` | 10 | 10 | 10 |
 | `idleFidgetChance` | 0.1 | 0.05 | 0.02 |
 | `scoreNoiseSigma` | 0.3 | 0.15 | 0.05 |
-| `stanceCommitTicks` | 45 | 30 | 18 |
+| `goalCommitTicks` | 45 | 30 | 18 |
+| `rushWeight` | 8 | 2 | 0.4 |
+| `interceptWeight` | 0 | 2 | 5 |
+| `setupWeight` | 0 | 4 | 7 |
+| `dumpWeight` | 1 | 5 | 9 |
+| `pinWeight` | 0 | 1 | 6 |
+| `hearChance` | 0.15 | 0.55 | 1 |
+| `dodgeWeight` | 0.4 | 0.6 | 0.8 |
+
+`dodgeWeight` is always below 1, so a dodge deflects the held goal's heading instead of replacing it.
+`hearChance` is a probability (Easy often ignores a shot it has not identified; Hard always uses it).
+`orbitBias` only applies while the held goal is `holdRange`.
 
 ### Constants shared by every tier
 
@@ -125,54 +142,62 @@ One `decide()` call, five layers, in order (`HumanController` in
 1. **Perceive** (`perception.ts`) — turns a fair view into a human one: acquisition delay, an
    awareness radius, a rear blind arc, a cap on tracked threats, memory decay. Runs every tick. It
    also records which enemy was seen spending which weapon (`ultSeenTick` / `ultIsSpent`, H22) —
-   **built but not consumed**: no other module reads it, and neither does anything read the
-   `maneuver` field carried on `BotCarView`. The bot does not yet push because an enemy's ultimate
-   is down. The seam is kept for a future pass; do not read the code as evidence of the behaviour.
-2. **Assess** (`stance.ts`) — picks a target by weighted score, then scores and holds a stance.
-   Runs on `recomputeTicks`.
-3. **Move** (`movement.ts`) — blends steering desires (hold range, orbit, dodge, avoid a wall) into
-   one heading, then reduces it to `steer`/`throttle`. Runs on `recomputeTicks`.
-4. **Shoot** (`firing.ts`) — ranks the ready slots and presses the single best one. Runs on
-   `recomputeTicks`.
-5. **Humanize** (`humanize.ts`) — reaction delay line, blunders, idle fidget. Runs every tick.
+   consumed by `scoreGoals` as a `dump` bonus (G22). Last-known pose, heard shots, and quadrant
+   search waypoints live here too; hunt never drives to the arena centre.
+2. **Assess** (`goals.ts`) — picks a target by weighted score, derives kit roles from `WeaponDef`
+   (`roles.ts`), then scores and holds a goal. Runs on `recomputeTicks`.
+3. **Move** (`movement.ts`) — serves the held goal's heading (weight 1), with wall and dodge
+   overlays; orbit only on `holdRange`. Reduces to `steer`/`throttle`. Runs on `recomputeTicks`.
+4. **Shoot** (`firing.ts`) — ranks the ready slots for the held goal and presses the single best
+   one. Runs on `recomputeTicks`.
+5. **Humanize** (`humanize.ts`) — reaction delay line, blunders, idle fidget (fidget only on
+   `recover`). Runs every tick.
 
 Perception and humanization run every tick on purpose: a memory that only updates on the recompute
 cadence is not a memory, and a delay line that only shifts on that cadence delays by a multiple of
 the cadence instead of by its own value.
 
-## The seven stances
+## The goals
 
-Named, scored, held for `stanceCommitTicks` unless a pre-emption fires (hp crossing
+Named, scored, held for `goalCommitTicks` unless a pre-emption fires (hp crossing
 `retreatHpFraction`, the target dying/leaving, or the bot losing control). Live in
-[`brain/stance.ts`](../packages/server/src/bot/brain/stance.ts).
+[`brain/goals.ts`](../packages/server/src/bot/brain/goals.ts). This catalog superseded the seven
+named stances (`engage` / `brawl` / `kite` / `disengage` / `reposition` / `hunt` / `recover`) on
+2026-09-04; see
+[`docs/superpowers/specs/2026-09-04-bot-tactical-intelligence-design.md`](superpowers/specs/2026-09-04-bot-tactical-intelligence-design.md)
+(G1–G28).
 
-| Stance | Chosen when | Publishes |
-|---|---|---|
-| `engage` | a target is known and the bot is healthy | hold `preferredRange`, orbit by `orbitBias` |
-| `brawl` | a range-0 weapon is ready, or the bot intends a ram | close to `contactTriggerUnits` |
-| `kite` | target is closer than 60% of preferred range | hold range, back off, keep facing |
-| `disengage` | hp below `retreatHpFraction` | break contact, keep the target in arc where possible |
-| `reposition` | pinned against a wall or corner | move to open floor, hold fire |
-| `hunt` | no target is currently known | drive toward the arena centre |
-| `recover` | dead or phased — no control worth spending | coast |
+| Goal | Chosen when | Movement | Fire |
+|---|---|---|---|
+| `recover` | dead or `phased` | coast | nothing |
+| `huntLastKnown` | no living unphased target | last-known + velocity; else heard shot; else quadrant search. **Never the arena centre.** | hold |
+| `rush` | a target exists (easy’s default) | bearing to target, close | mash `chooseSlot` |
+| `holdRange` | skirmish, no better tactic | kit-derived range; orbit is a lateral offset on this goal only | `chooseSlot` |
+| `intercept` | cut them off | drive to where they will be (lead for the body) | `chooseSlot` |
+| `setupCc` | stun-applying slot ready, target not stunned | geometry that weapon wants | that CC slot |
+| `dump` | target stunned, or low HP with an ult ready, or their ult just seen spent | close to dump range | damage / ult, skip another setup |
+| `contact` | maneuver slot ready, or ram committed | close to `contactTriggerUnits` | the maneuver |
+| `reset` | HP below `retreatHpFraction`, or far inside preferred range | back off, keep them in arc | still shoot |
+| `pinWall` | target near a bound and we have contact/dump | put them between us and the wall | contact / dump |
+| `unpin` | we are the one on the wall | heading to open floor, **still shooting** | `chooseSlot` |
 
-**Three of those cells differ from an earlier draft of the design spec, which this page originally
-copied verbatim — verify against `stance.ts`/`controller.ts` directly if you ever doubt this table
-again, not the spec.** `recover`'s gate (`controlLost`, defined identically in both `scoreStances`
-and the pre-emption check) is `!self.alive || hasStatus(self.statuses, "phased", tick)` — the bot's
-own `stunned` status is never read anywhere in `bot/brain/`; `stunned` is checked only against the
-*target*, in `firing.ts`, for ult discipline. `reposition`'s score is driven solely by
-`pinnedOnWall`; there is no line-of-sight check anywhere in the stance layer. `kite`'s score is a
-pure distance threshold (`distance < preferredRange * 0.6`); there is no HP or trade comparison in
-it anywhere. None of the three is a defect to fix here — if a bot should someday recover from being
-stunned, back off from a shot with no line, or kite a losing trade rather than a close one, that is a
-design decision for a later pass, not something this table gets to assert into existence.
+Combo is emergent: `setupCc` fires → stun lands → `dump` wins the next score. There is no playbook
+file and no `carId` branch under `brain/`. Kit roles are derived from live `WeaponDef` rows in
+[`brain/roles.ts`](../packages/server/src/bot/brain/roles.ts).
 
-**Dodging is not one of the seven, and never will be.** It is a steering *desire* in the movement
-layer, blended alongside holding range and orbiting — never a stance that replaces `engage`. That is
-what lets a bot dodge without stopping fighting; a design where dodging is a state that pre-empts
-`engage` produces a bot that stops fighting to dodge and stops dodging to fight, and both read as
+`recover`'s gate (`controlLost`, defined identically in both `scoreGoals` and the pre-emption check)
+is `!self.alive || hasStatus(self.statuses, "phased", tick)` — the bot's own `stunned` status is
+never read anywhere in `bot/brain/`; `stunned` is checked only against the *target*, in `firing.ts`
+and `goals.ts`. `unpin`'s score is driven solely by `pinnedOnWall`; there is no line-of-sight check
+anywhere in the goal layer.
+
+**Dodging is not a goal, and never will be.** It is a steering *desire* in the movement layer, a
+deflection (`dodgeWeight` < 1) on top of the held goal — never a state that replaces fighting. That
+is what lets a bot dodge without stopping fighting; a design where dodging is a state that pre-empts
+the goal produces a bot that stops fighting to dodge and stops dodging to fight, and both read as
 robotic on screen.
+
+Idle fidget fires **only on `recover`**. Hunt is a job, not an idle.
 
 ## Two mechanisms worth knowing before you touch anything
 
@@ -223,14 +248,14 @@ whichever `BotProfile` it was handed and has no idea whether that profile is `ea
 collapsing back into "the same bot at different speeds" as the brain grows — a rule worth preserving
 in any future edit here, not just observing.
 
-`BOT_BRAIN_VERSION` (currently `"1.1.0"`, in `bot-profiles.ts`) exists for the case a hash of
+`BOT_BRAIN_VERSION` (currently `"2.0.0"`, in `bot-profiles.ts`) exists for the case a hash of
 `BOT_PROFILES` cannot see: a behaviour change made entirely in code, with every tier's numbers left
 untouched. It rides inside `botFingerprint` (`packages/server/balance/fingerprint.ts`) precisely so
 that case still invalidates an old balance report instead of silently comparing two different pilots.
-Bump it whenever the brain's behaviour changes without a number in the table moving. The 1.0.0 ->
-1.1.0 bump is that case exactly: `value_i` gained its `pulses_i` term (above) with every tier's
-parameters untouched, which moved slot ranking and standoff for both chassis carrying a ticking
-beam. A balance report printed before it is not comparable to one printed after.
+Bump it whenever the brain's behaviour changes without a number in the table moving. The 1.1.0 →
+2.0.0 bump is the goal rewrite: stances became tasks, hunt is last-known rather than arena centre,
+dodge is a deflection, and `ultIsSpent` is consumed. A balance report printed before it is not
+comparable to one printed after.
 
 ## Personality: five archetypes, rolled within a tier's band
 
@@ -241,11 +266,11 @@ can never leave the tier's `± personalityJitter` (0.25) window, and never pass 
 
 | Archetype | Shifts |
 |---|---|
-| `brawler` | standoff down, ram up, retreat down, orbit down |
-| `kiter` | standoff up, orbit up, retreat up, ram down |
+| `brawler` | standoff down, ram up, retreat down, orbit down, rush up, setup down |
+| `kiter` | standoff up, orbit up, retreat up, ram down, rush down, intercept up |
 | `sprayer` | discipline down, burst gap down, ult discipline down |
 | `grudge` | vengefulness up, target commit up, wounded bias down |
-| `opportunist` | wounded bias up, ult discipline up, standoff unchanged |
+| `opportunist` | wounded bias up, ult discipline up, standoff unchanged, dump up |
 
 Per-slot preference weights (`slotWeights`) are rolled the same pass, are not clamped, and feed both
 `chooseSlot`'s ranking and `preferredRangeOf`'s range model — a bot that prefers its shotgun also
@@ -273,7 +298,7 @@ never actually win the ranking and press it. `pulses_i` counts the damage ticks 
 reaches, while a held beam's pulses are the ordinary case. `sim/damage.ts` remains the only authority
 on real damage, and nothing in the bot brain may be mistaken for it. Range-0 rows (`wildcharge`) are
 excluded from this average — they would drag it to zero — but a ready one still pulls the bot toward
-contact through the `brawl` stance (H36).
+contact through the `contact` goal (H36).
 
 ## How to read the playground overlay
 
@@ -281,7 +306,7 @@ Open `http://localhost:5173/?dev=playground`, switch the opponent to **Bot**, an
 the difficulty select beside it — the swap takes effect live, mid-match.
 
 The playground now shows a live "what is it thinking" read-out in the corner of the screen —
-`HumanController.debug()` (`BotDebug`: current stance, every stance's score, the chosen target,
+`HumanController.debug()` (`BotDebug`: current goal, every goal's score, the chosen target,
 `preferredRange`, the rolled personality, and the last-pressed slot — see
 `packages/server/src/bot/types.ts`), broadcast from `PlaygroundRoom` to the client overlay at 5 Hz
 (every 6 ticks — fast enough to feel live, slow enough to actually read) as
@@ -292,21 +317,21 @@ deciding and the room broadcasting, so a "live" read-out gated behind pause woul
 sits in a small fixed box, always on screen, independent of the pause overlay.
 
 The read-out is two lines. The first reads
-`<personality> | <stance> | range <preferredRange> | slot <n>` — for example
-`kiter | kite | range 312 | slot 2`. The second is the **stance scoreboard**: every stance the
+`<personality> | <goal> | range <preferredRange> | slot <n>` — for example
+`kiter | holdRange | range 312 | slot 2`. The second is the **goal scoreboard**: every goal the
 scorer put on the table this tick with its score, sorted best first, with the chosen one marked by a
-leading `*` — for example `*kite 6.1  engage 5.2  reposition 0`. What each field tells you:
+leading `*` — for example `*holdRange 5.2  intercept 5.0  rush 0.4`. What each field tells you:
 
 - **personality** — one of `brawler`, `kiter`, `sprayer`, `grudge`, `opportunist`, rolled once per
   bot instance (a fresh roll happens whenever the bot is reconstructed — a difficulty change, a
   setup change, or `Switch car`). If it stays fixed across a whole session where you expected
   variety, you are probably re-reading the same `HumanController` instance rather than a new one.
-- **stance** — one of `engage`, `brawl`, `kite`, `disengage`, `reposition`, `hunt`, `recover`. This
-  is the field to watch first when a bot "does something odd" — the label alone usually tells you
-  whether the brain thinks it is fighting (`engage`/`brawl`/`kite`), regrouping
-  (`disengage`/`reposition`), searching (`hunt`), or stripped of control (`recover`, e.g. mid-respawn
-  phase). A stance stuck on one value for far longer than `stanceCommitTicks` while the fight clearly
-  changed shape is a sign to go look at `scoreStances` rather than at movement code.
+- **goal** — one of `recover`, `huntLastKnown`, `rush`, `holdRange`, `intercept`, `setupCc`, `dump`,
+  `contact`, `reset`, `pinWall`, `unpin`. This is the field to watch first when a bot "does something
+  odd" — the label alone usually tells you whether the brain thinks it is rushing, holding range,
+  setting up a stun, dumping, hunting a last-known pose, or stripped of control (`recover`, e.g.
+  mid-respawn phase). A goal stuck on one value for far longer than `goalCommitTicks` while the fight
+  clearly changed shape is a sign to go look at `scoreGoals` rather than at movement code.
 - **range** — `preferredRange`, in world units, rounded. It should settle near the kit's own
   effective-range band (see the formula above) once a target is acquired, and reads **0** whenever
   there is no target — that is the intentional reset in `controller.ts`'s `plan()`, not a bug. A
@@ -317,14 +342,14 @@ leading `*` — for example `*kite 6.1  engage 5.2  reposition 0`. What each fie
   while multiple weapons are ready points at `chooseSlot`'s weighting or `ultHold` discipline rather
   than at a wiring bug; a slot that fires every single recompute even at long range on a short-range
   kit points the other way.
-- **the scoreboard** — the case for and against the stance that won, which is the whole reason
-  stances are scored rather than picked by an if-ladder (H12). `*kite 6.1  engage 5.2` says the
-  decision was close; `*recover 100` says the bot was stripped of control and nothing else was
-  considered. A stance that is **absent** from the line was taken off the table entirely by
-  `scoreStances` (scored `-Infinity`) rather than merely losing — `brawl` with no ready contact
-  weapon and no ram intent, or `disengage` on a tier whose `retreatHpFraction` is 0. When the
-  stance label looks wrong, read this line before reading any code: it usually says which input was
-  wrong rather than which branch was.
+- **the scoreboard** — the case for and against the goal that won, which is the whole reason
+  goals are scored rather than picked by an if-ladder (H12). `*dump 12.1  setupCc 9.0` says the
+  stun landed and dump took over; `*recover 100` says the bot was stripped of control and nothing
+  else was considered. A goal that is **absent** from the line was taken off the table entirely by
+  `scoreGoals` (scored `-Infinity`) rather than merely losing — `contact` with no ready maneuver and
+  no ram intent, or `reset` on a tier whose `retreatHpFraction` is 0. When the goal label looks
+  wrong, read this line before reading any code: it usually says which input was wrong rather than
+  which branch was.
 
 Since the read-out only updates while the sim is actually running, remember to **resume** (P) after
 opening it from the pause menu — otherwise the numbers are frozen at whatever the bot was doing when

@@ -2,7 +2,8 @@ import { hasStatus, weaponDefOf, weaponTicksOf } from "@motor-combat-moba/shared
 import type { WeaponDef } from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS, type BotProfile } from "../../config/bot-profiles.js";
 import type { Rng } from "../rng.js";
-import type { BotCarView, BotSelfView, BotSlotView } from "../types.js";
+import type { BotCarView, BotSelfView, BotSlotView, GoalId } from "../types.js";
+import type { KitRoles } from "./roles.js";
 
 /**
  * How much a good window is worth to an ult's ranking (H30).
@@ -59,7 +60,7 @@ export function weaponValueOf(slot: BotSlotView, weight: number): number {
  * The range this kit wants to fight at: every ready slot's reach, weighted by its worth (H35).
  *
  * Range-0 rows are excluded — a charge dashes nowhere and would drag the average to nothing — but
- * they still pull the bot in through the `Brawl` stance (H36).
+ * they still pull the bot in through the `contact` goal (H36).
  */
 export function effectiveRangeOf(
   slots: readonly BotSlotView[],
@@ -151,6 +152,9 @@ export function chooseSlot(args: {
   rng: Rng;
   /** Per-slot ult discipline memo, owned and persisted by the caller (H30). Mutated in place. */
   ultHold: Map<number, UltHoldEntry>;
+  /** Held goal (G20). Absent means rank as today — used by unit tests that predate goals. */
+  goal?: GoalId;
+  roles?: KitRoles;
 }): FireDecision {
   const { self, target, distance, aimDelta, profile, weights, tick, rng, ultHold } = args;
 
@@ -182,6 +186,12 @@ export function chooseSlot(args: {
 
     const reach = slot.range > 0 ? slot.range : BRAIN_CONSTANTS.contactTriggerUnits;
     if (distance > reach) continue;
+
+    const def = weaponDefOf(slot.weaponId);
+    // Lock-aim wait (G21): a disciplined bot holds until the HUD lock is on this target.
+    if (def.usesAimAssist && self.lockTargetSessionId !== target.sessionId) {
+      if (disciplineRoll < profile.fireDisciplineChance) continue;
+    }
 
     let windowBonus = 1;
     if (isUlt(slot)) {
@@ -215,9 +225,15 @@ export function chooseSlot(args: {
       continue;
     }
 
-    // Prefer the weapon that is worth the most and fits the current distance best.
+    // Prefer the weapon that is worth the most and fits the current distance best, then apply
+    // the held goal's preference (G20).
     const fit = 1 - Math.min(distance / reach, 1) * 0.5;
-    const score = weaponValueOf(slot, weights[i] ?? 1) * fit * windowBonus;
+    let score = weaponValueOf(slot, weights[i] ?? 1) * fit * windowBonus;
+    const goal = args.goal;
+    const roles = args.roles;
+    if (goal === "setupCc" && roles?.setupCcSlot === i) score += 1000;
+    if (goal === "contact" && roles?.contactSlot === i) score += 1000;
+    if (goal === "dump" && roles?.setupCcSlot === i) score -= 500;
     if (score > bestScore) {
       bestScore = score;
       best = i;

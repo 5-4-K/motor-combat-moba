@@ -182,7 +182,7 @@ describe("isPlaygroundSetup (PG24 — the three new fields)", () => {
 
 describe("isBotDebugPayload", () => {
   const payload = {
-    tick: 10, stance: "engage", stanceScores: { engage: 5.2, kite: 1.1 },
+    tick: 10, goal: "holdRange", goalScores: { holdRange: 5.2, intercept: 1.1 },
     targetSessionId: "them", preferredRange: 300, personality: "kiter", firedSlot: 1,
   };
 
@@ -190,30 +190,30 @@ describe("isBotDebugPayload", () => {
     expect(isBotDebugPayload(payload)).toBe(true);
   });
 
-  it("accepts an empty scoreboard — a tick where every stance was off the table", () => {
-    expect(isBotDebugPayload({ ...payload, stanceScores: {} })).toBe(true);
+  it("accepts an empty scoreboard — a tick where every goal was off the table", () => {
+    expect(isBotDebugPayload({ ...payload, goalScores: {} })).toBe(true);
   });
 
-  it("rejects a payload with an unknown stance", () => {
-    expect(isBotDebugPayload({ ...payload, stance: "vibing" })).toBe(false);
+  it("rejects a payload with an unknown goal", () => {
+    expect(isBotDebugPayload({ ...payload, goal: "vibing" })).toBe(false);
   });
 
-  it("rejects a scoreboard keyed by something that is not a stance", () => {
-    expect(isBotDebugPayload({ ...payload, stanceScores: { vibing: 1 } })).toBe(false);
+  it("rejects a scoreboard keyed by something that is not a goal", () => {
+    expect(isBotDebugPayload({ ...payload, goalScores: { vibing: 1 } })).toBe(false);
   });
 
   it("rejects a scoreboard whose scores are not finite numbers", () => {
     // `-Infinity` cannot survive JSON (it arrives as `null`), so the sender drops those keys rather
     // than shipping them; a payload that carries one anyway is malformed, not merely unusual.
-    expect(isBotDebugPayload({ ...payload, stanceScores: { engage: null } })).toBe(false);
-    expect(isBotDebugPayload({ ...payload, stanceScores: { engage: "5.2" } })).toBe(false);
+    expect(isBotDebugPayload({ ...payload, goalScores: { holdRange: null } })).toBe(false);
+    expect(isBotDebugPayload({ ...payload, goalScores: { holdRange: "5.2" } })).toBe(false);
   });
 
   it("rejects a missing scoreboard, and an array in its place", () => {
-    const { stanceScores, ...withoutScores } = payload;
-    void stanceScores;
+    const { goalScores, ...withoutScores } = payload;
+    void goalScores;
     expect(isBotDebugPayload(withoutScores)).toBe(false);
-    expect(isBotDebugPayload({ ...payload, stanceScores: [] })).toBe(false);
+    expect(isBotDebugPayload({ ...payload, goalScores: [] })).toBe(false);
   });
 
   it("rejects a payload missing any other field", () => {

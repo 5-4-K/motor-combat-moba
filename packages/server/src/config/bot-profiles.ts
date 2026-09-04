@@ -1,7 +1,7 @@
 import type { BotDifficulty } from "@motor-combat-moba/shared";
 
 /**
- * One difficulty's knobs (H44). Thirty-four of them, in six groups: perception, aim, fire
+ * One difficulty's knobs (H44). Forty-one of them, in six groups: perception, aim, fire
  * economy, target politics, positioning, and consistency.
  *
  * Every field is a NUMBER, and no code outside this file branches on which tier it came from (H8).
@@ -87,8 +87,22 @@ export interface BotProfile {
   readonly idleFidgetChance: number;
   /** Standard deviation of the noise added to stance and target scores. */
   readonly scoreNoiseSigma: number;
-  /** How long a stance is held before rescoring is allowed (pre-emptions excepted). */
-  readonly stanceCommitTicks: number;
+  /** How long a goal is held before rescoring is allowed (pre-emptions excepted). */
+  readonly goalCommitTicks: number;
+  /** Score weight for driving straight at the target. Falls up the ladder: easy rushes. */
+  readonly rushWeight: number;
+  /** Score weight for cutting off where the target will be. */
+  readonly interceptWeight: number;
+  /** Score weight for lining up a stun-applying slot. */
+  readonly setupWeight: number;
+  /** Score weight for dumping damage after a stun or onto a wounded target. */
+  readonly dumpWeight: number;
+  /** Score weight for pinning a target against a wall. */
+  readonly pinWeight: number;
+  /** Probability of hunting toward a shot the bot has not identified as a car. */
+  readonly hearChance: number;
+  /** How hard dodge pulls against the held goal's heading. Always below 1 so the goal wins. */
+  readonly dodgeWeight: number;
 }
 
 /**
@@ -112,10 +126,10 @@ export const BRAIN_CONSTANTS = Object.freeze({
  * change made in code with the numbers untouched. Bump this whenever the brain's behaviour changes
  * without the table moving, or the balance harness will happily compare two incomparable pilots.
  */
-// 1.1.0 (2026-09-04): `weaponValueOf` counts a ticking beam's pulses per press instead of reading
-// its per-pulse `damage` raw. Slot ranking and standoff distance both move for the two chassis
-// carrying a ticking beam, with `BOT_PROFILES` untouched — exactly the case this version exists for.
-export const BOT_BRAIN_VERSION = "1.1.0";
+// 2.0.0 (2026-09-04): goals replace stances; hunt is last-known not arena centre; dodge is a
+// deflection; kit roles and ult memory are consumed. Table numbers move too, but the rewrite is
+// the case this version exists for.
+export const BOT_BRAIN_VERSION = "2.0.0";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency
@@ -136,7 +150,9 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
     retreatHpFraction: 0, ramIntentChance: 0.15,
     dodgeChance: 0.05, dodgeReactionTicks: 12, dodgeHorizonTicks: 12,
     blunderChance: 0.12, blunderTicks: 10, idleFidgetChance: 0.1, scoreNoiseSigma: 0.3,
-    stanceCommitTicks: 45,
+    goalCommitTicks: 45,
+    rushWeight: 8, interceptWeight: 0, setupWeight: 0, dumpWeight: 1, pinWeight: 0,
+    hearChance: 0.15, dodgeWeight: 0.4,
   }),
   medium: Object.freeze({
     viewStalenessTicks: 3, reactionDelayTicks: 6, recomputeTicks: 6, acquireTicks: 9,
@@ -149,7 +165,9 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
     retreatHpFraction: 0.3, ramIntentChance: 0.3,
     dodgeChance: 0.55, dodgeReactionTicks: 8, dodgeHorizonTicks: 18,
     blunderChance: 0.05, blunderTicks: 10, idleFidgetChance: 0.05, scoreNoiseSigma: 0.15,
-    stanceCommitTicks: 30,
+    goalCommitTicks: 30,
+    rushWeight: 2, interceptWeight: 2, setupWeight: 4, dumpWeight: 5, pinWeight: 1,
+    hearChance: 0.55, dodgeWeight: 0.6,
   }),
   hard: Object.freeze({
     viewStalenessTicks: 2, reactionDelayTicks: 4, recomputeTicks: 2, acquireTicks: 5,
@@ -162,6 +180,8 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
     retreatHpFraction: 0.45, ramIntentChance: 0.5,
     dodgeChance: 0.95, dodgeReactionTicks: 4, dodgeHorizonTicks: 24,
     blunderChance: 0.015, blunderTicks: 10, idleFidgetChance: 0.02, scoreNoiseSigma: 0.05,
-    stanceCommitTicks: 18,
+    goalCommitTicks: 18,
+    rushWeight: 0.4, interceptWeight: 5, setupWeight: 7, dumpWeight: 9, pinWeight: 6,
+    hearChance: 1, dodgeWeight: 0.8,
   }),
 });

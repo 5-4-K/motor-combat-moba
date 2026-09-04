@@ -130,23 +130,89 @@ export function knownCars(state: PerceptionState, tick: number): BotCarView[] {
   return out;
 }
 
+/** A visible car that has not registered yet — acquire delay, not a hunt (G13). */
+export function acquiringUnnoticed(state: PerceptionState, tick: number): boolean {
+  for (const known of state.cars.values()) {
+    if (tick < known.noticedAtTick) return true;
+  }
+  return false;
+}
+
+/** Where a remembered car is expected to be, coasting on last seen velocity (G12). */
+export function predictedPose(known: KnownCar, tick: number): { x: number; y: number } {
+  const dt = (tick - known.lastSeenTick) / TICK_RATE_HZ;
+  return {
+    x: known.car.x + Math.cos(known.car.angle) * known.car.speed * dt,
+    y: known.car.y + Math.sin(known.car.angle) * known.car.speed * dt,
+  };
+}
+
+/**
+ * Predicted pose of the most recently seen noticed car, or undefined when memory is empty.
+ *
+ * Phased cars still count: a human sees the respawn. Unnoticed cars (acquire delay) do not — using
+ * them would skip G13.
+ */
+export function lastKnownAnchor(
+  state: PerceptionState,
+  tick: number,
+): { x: number; y: number } | undefined {
+  let best: KnownCar | undefined;
+  for (const known of state.cars.values()) {
+    if (tick < known.noticedAtTick) continue;
+    if (!best || known.lastSeenTick > best.lastSeenTick) best = known;
+  }
+  return best ? predictedPose(best, tick) : undefined;
+}
+
+/** Nearest live instance not our own — a shot a human can see even without identifying the car. */
+export function nearestHeardShot(
+  self: { sessionId: string; x: number; y: number },
+  instances: readonly BotView["instances"],
+): { x: number; y: number } | undefined {
+  let best: { x: number; y: number } | undefined;
+  let bestDist = Infinity;
+  for (const inst of instances) {
+    if (inst.ownerSessionId === self.sessionId) continue;
+    const d = Math.hypot(inst.x - self.x, inst.y - self.y);
+    if (d < bestDist) {
+      bestDist = d;
+      best = { x: inst.x, y: inst.y };
+    }
+  }
+  return best;
+}
+
+const SEARCH_FRACTIONS = [
+  { fx: 0.25, fy: 0.25 },
+  { fx: 0.75, fy: 0.25 },
+  { fx: 0.75, fy: 0.75 },
+  { fx: 0.25, fy: 0.75 },
+] as const;
+
+/** One of four quadrant waypoints. Never the arena centre (G12). */
+export function searchWaypoint(
+  index: number,
+  arena: { width: number; height: number },
+): { x: number; y: number } {
+  const frac = SEARCH_FRACTIONS[((index % 4) + 4) % 4]!;
+  return { x: arena.width * frac.fx, y: arena.height * frac.fy };
+}
+
+export function searchWaypointCount(): number {
+  return SEARCH_FRACTIONS.length;
+}
+
 /** Threats the bot both rolled to react to and has had time to react to. */
 export function activeThreats(state: PerceptionState, tick: number): KnownThreat[] {
   return [...state.threats.values()].filter((t) => t.reacting && tick >= t.reactAtTick);
 }
 
 /**
- * Was this car seen spending this weapon inside the last `withinTicks`? (H22)
+ * Was this car seen spending this weapon inside the last `withinTicks`? (H22, consumed by G22)
  *
- * **BUILT, NOT YET CONSUMED — this is a seam for a future pass, not live behaviour.** `perceive`
- * fills `ultSeenTick` every tick from `observedFires`, and this reads it, but nothing under
- * `brain/` calls this function outside its own unit test — and `BotCarView.maneuver`, the other
- * half of what H22 describes, is carried on the view and never read either. No shipped bot presses
- * more boldly because it watched an enemy burn an ultimate.
- *
- * Kept on purpose rather than deleted: the memory is correct, costs one map and three
- * usually-empty loops per tick, and is exactly what "push while their ult is down" would need. Do
- * not read its existence as evidence the behaviour exists — the spec's H22 says the same in prose.
+ * `perceive` fills `ultSeenTick` from `observedFires`. `scoreGoals` reads this as a dump bonus so
+ * a hard bot presses more boldly when it watched an enemy burn an ultimate.
  */
 export function ultIsSpent(
   state: PerceptionState,
@@ -193,23 +259,27 @@ function threatHeading(
   instance: BotView["instances"][number],
   profile: BotProfile,
 ): number | undefined {
-  const speed = weaponDefOf(instance.weaponId).speed;
-  if (speed <= 0) return undefined;
+  const def = weaponDefOf(instance.weaponId);
+  const horizonSeconds = profile.dodgeHorizonTicks / TICK_RATE_HZ;
+  let speed = def.speed;
+  // Attached beams aimed at the bot are threats even when authored speed is 0 (G17). Expansion
+  // speed is used when present; otherwise the beam's range is covered across the dodge horizon.
+  if (speed <= 0) {
+    if (def.kind !== "beam" || !def.attached) return undefined;
+    speed = def.range / Math.max(horizonSeconds, 1 / TICK_RATE_HZ);
+  }
 
   const vx = Math.cos(instance.angle) * speed;
   const vy = Math.sin(instance.angle) * speed;
   const rx = self.x - instance.x;
   const ry = self.y - instance.y;
 
-  const horizonSeconds = profile.dodgeHorizonTicks / TICK_RATE_HZ;
   const vv = vx * vx + vy * vy;
   const t = Math.min(Math.max((rx * vx + ry * vy) / vv, 0), horizonSeconds);
   const missX = rx - vx * t;
   const missY = ry - vy * t;
   if (Math.hypot(missX, missY) > THREAT_LATERAL_UNITS) return undefined;
 
-  // Perpendicular to the shot's travel, on the side we are already closest to: the shortest way off
-  // the line, rather than a turn across it.
   const perp = Math.atan2(vy, vx) + Math.PI / 2;
   const cross = vx * ry - vy * rx;
   return cross >= 0 ? perp : perp + Math.PI;

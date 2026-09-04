@@ -123,22 +123,23 @@ describe("runMatch", () => {
     // assertion below states that premise outright so the two cases can never be confused: if a
     // future balance edit empties the window again, THAT line fails and names the reason.
     //
+    // `seed: 21`, not 27: the 2026-09-04 tactical-intelligence pass replaced stances with goals
+    // (hunt is last-known, dodge is a deflection, kit roles drive setupCc/dump), which moved this
+    // hard-tier Mirage/Bastion matchup again — seed 27's kill no longer lands inside the 30 s
+    // window. Swept seeds 1-60 against the new brain: 21 (and 22) stay decisive at both 30 s and
+    // 60 s. The seed history below is why this is maintenance rather than a regression; the kills
+    // assertion is what tells the two apart.
+    //
     // `seed: 27`, not 8: the 2026-09-04 lance retune made `weaponValueOf` count a ticking beam's
     // pulses (`bot/brain/firing.ts`), which reordered Mirage's slots and moved this matchup again —
-    // seed 8's kill no longer lands inside the 30 s window. Swept seeds 1-40 against the new brain:
-    // 27 is the one that stays decisive at both lengths. The seed history below is why this is
-    // maintenance rather than a regression; the kills assertion is what tells the two apart.
+    // seed 8's kill no longer lands inside the 30 s window.
     //
     // `seed: 8`, not 40: Task 8's host wiring turned view staleness on for real (see the comment on
     // "differs between seeds" above for the full seed history), which moved this hard-tier
     // Mirage/Bastion matchup's dynamics enough that seed 40 stopped landing a kill inside the 30 s
     // window — a legitimate killless window under the new views, not a clock regression, so this
-    // test isn't about that case. Seed 8 lands a decisive kill inside the 30 s window and stays
-    // decisive at full length (used below), so it exercises the clock-firing property this test
-    // actually names without also asserting anything about who should win a fair fight. Verified by
-    // actually running both scenarios across a range of seeds, not by inspection: seed 8 is decisive
-    // on both.
-    const out = runMatch({ ...SETUP, seed: 27, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    // test isn't about that case.
+    const out = runMatch({ ...SETUP, seed: 21, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);

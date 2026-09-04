@@ -1,15 +1,22 @@
-import { hasStatus, weaponDefOf, type BotDifficulty } from "@motor-combat-moba/shared";
+import { hasStatus, WEAPON_TABLE, weaponDefOf, type BotDifficulty, type WeaponId } from "@motor-combat-moba/shared";
 import { BOT_PROFILES, BRAIN_CONSTANTS, type BotProfile } from "../../config/bot-profiles.js";
 import type {
-  BotCarView, BotController, BotDebug, BotIntent, BotPersonality, BotView, StanceId,
+  BotCarView, BotController, BotDebug, BotIntent, BotPersonality, BotView, GoalId,
 } from "../types.js";
 import { interceptPoint, newAimErrorState, signedDelta, stepAimError, type AimErrorState } from "./aim.js";
 import { chooseSlot, preferredRangeOf, slotIsReady, type UltHoldEntry } from "./firing.js";
+import { newGoalState, pickGoal, scoreGoals, scoreTargets, type GoalState } from "./goals.js";
 import { applyHumanize, newHumanizeState, type HumanizeState } from "./humanize.js";
-import { blendHeading, dodgeDesires, orbitDesire, reduceToIntent, wallDesire, type Desire } from "./movement.js";
-import { activeThreats, knownCars, newPerception, perceive, type PerceptionState } from "./perception.js";
+import {
+  blendHeading, dodgeDesires, goalDesire, nearBound, orbitDesire, reduceToIntent, wallDesire,
+  type Desire,
+} from "./movement.js";
+import {
+  acquiringUnnoticed, activeThreats, knownCars, lastKnownAnchor, nearestHeardShot, newPerception,
+  perceive, searchWaypoint, ultIsSpent, type PerceptionState,
+} from "./perception.js";
 import { rollPersonality } from "./personality.js";
-import { newStanceState, pickStance, scoreStances, scoreTargets, type StanceState } from "./stance.js";
+import { rolesOf } from "./roles.js";
 
 const COAST: BotIntent = { steer: 0, throttle: 0, fireSlots: 0 };
 
@@ -55,23 +62,26 @@ export class HumanController implements BotController {
    */
   private slotWeights: readonly number[] = [1, 1, 1];
   /**
-   * The range `plan` last computed, threaded into `debug()` (H12). Reset to 0 on the no-target
-   * path in `decide()` — `plan()` does not run that tick, so nothing would otherwise overwrite a
-   * stale value left over from when the bot last had a target.
+   * The range `plan` last computed, threaded into `debug()` (H12). Hunt / recover set this to 0
+   * because there is no live target to stand off from.
    */
   private lastPreferredRange = 0;
   /** Which way `orbitDesire` circles. Rolled once from personality on the first `decide` call. */
   private orbitSide: 1 | -1 = 1;
-  /** The stance and when it was entered (H9/H10). */
-  private stance: StanceState = newStanceState();
+  /** The goal and when it was entered (G4/G7). */
+  private goal: GoalState = newGoalState();
   /** Tick the current target started being held, for `scoreTargets`'s stickiness bonus. */
   private heldSinceTick = 0;
   /** Whether this bot has committed to ramming its current target (H40). */
   private wantsRam = false;
   /** Which target the ram roll above was already made for — so it happens once per target. */
   private ramRolledForTargetId: string | undefined;
+  /** Hear-toward-shot, rolled once per hunt episode (G12). */
+  private huntHear: boolean | undefined;
+  /** Which quadrant search waypoint the current hunt is committed to. */
+  private searchIndex = 0;
   // Carried out of `plan` for `debug()`, which runs after it.
-  private lastStanceScores: Record<StanceId, number> | undefined;
+  private lastGoalScores: Record<GoalId, number> | undefined;
   private lastFiredSlot: number | undefined;
   /** Humanization state — delay line, blunder window (Task 7). Runs every tick. */
   private humanize: HumanizeState = newHumanizeState();
@@ -129,20 +139,15 @@ export class HumanController implements BotController {
 
     this.lastDebug = {
       tick: view.tick,
-      stance: this.stance.current,
-      stanceScores: this.lastStanceScores ?? {},
+      goal: this.goal.current,
+      goalScores: this.lastGoalScores ?? {},
       targetSessionId: this.target,
       preferredRange: this.lastPreferredRange,
       personality: this.personality.id,
       firedSlot: this.lastFiredSlot,
     };
 
-    // LAYER 5 — humanize: reaction delay, blunders, idle fidget. Runs every tick, never on the
-    // recompute cadence — the one deliberate exception to steer/throttle staying ternary out of
-    // `reduceToIntent`. The delay line and the fidget are genuinely per-tick; only the blunder
-    // ROLL is a per-decision-window event (H41), which is why the cadence is passed in rather than
-    // the whole layer being moved onto it.
-    const idle = this.target === undefined;
+    const idle = this.goal.current === "recover";
     return applyHumanize(
       this.humanize, this.held, view.tick, this.effectiveProfile, view.rng, idle, decisionWindow,
     );
@@ -172,14 +177,14 @@ export class HumanController implements BotController {
     const profile = this.effectiveProfile;
     const self = view.self;
     const tick = view.tick;
+    const roles = rolesOf(self.slots);
 
     const preferred = preferredRangeOf(self, profile, this.slotWeights, tick);
     const distance = target ? Math.hypot(target.x - self.x, target.y - self.y) : Infinity;
     const wall = wallDesire(self, view.arena, profile.wallLookaheadUnits);
-    const hasReadyContactWeapon = self.slots.some((s) => s.range === 0 && slotIsReady(s, tick));
+    const hasReadyContactWeapon = roles.contactSlot !== undefined
+      && slotIsReady(self.slots[roles.contactSlot]!, tick);
 
-    // The ram roll happens ONCE per target, not per tick: re-rolling every tick would ram
-    // everything eventually, the same trap the dodge roll avoids (H25, H40).
     const ramRoll = view.rng();
     if (target && this.ramRolledForTargetId !== target.sessionId) {
       this.ramRolledForTargetId = target.sessionId;
@@ -187,33 +192,33 @@ export class HumanController implements BotController {
     }
     if (!target) {
       this.wantsRam = false;
-      // And the roll is RE-ARMED, not just the intent cleared. Losing the target ends the episode
-      // the roll belonged to, exactly as `chooseSlot` ends an ult's episode when its slot goes
-      // not-ready: the next target — even the same session id, reacquired after a death, a
-      // `phased` respawn or a walk out of awareness — is a new opportunity and earns its own roll.
-      // Leaving the id set here disabled `ramIntentChance` permanently for the rest of the match in
-      // every 1v1 (practice, and the harness's duel shape), where the id never changes: measured
-      // 22/40 seeds rammed before the first target loss and 0/40 after.
       this.ramRolledForTargetId = undefined;
     }
 
-    const scores = scoreStances({
-      self, target, distance, preferredRange: preferred, profile, tick,
-      hasReadyContactWeapon, wantsRam: this.wantsRam,
-      pinnedOnWall: wall !== undefined, rng: view.rng,
-    });
-    this.stance = pickStance(this.stance, scores, tick, profile, this.preemption(view, target));
+    const hearRoll = view.rng();
+    if (target) {
+      this.huntHear = undefined;
+    } else if (this.huntHear === undefined) {
+      this.huntHear = hearRoll < profile.hearChance;
+    }
 
-    this.lastStanceScores = scores;
-    // Threaded into `debug()` (H12), NOT the `preferred` value used below for the movement math:
-    // with no target, `preferred` is still a real number derived from the bot's own ready weapons,
-    // but the overlay must read 0 — a range for a fight that does not exist is stale information,
-    // exactly the cached-field staleness the no-target path used to reintroduce before the review
-    // fix that added this test.
+    const ultSpent = target
+      ? enemyUltSpent(this.perception, target.sessionId, tick, profile.memoryTicks)
+      : false;
+
+    const scores = scoreGoals({
+      self, target, distance, preferredRange: preferred, profile, tick, roles,
+      hasReadyContactWeapon, wantsRam: this.wantsRam,
+      pinnedOnWall: wall !== undefined,
+      targetNearWall: target
+        ? nearBound(target.x, target.y, view.arena, profile.wallLookaheadUnits)
+        : false,
+      ultSpent, rng: view.rng,
+    });
+    this.goal = pickGoal(this.goal, scores, tick, profile, this.preemption(view, target));
+    this.lastGoalScores = scores;
     this.lastPreferredRange = target ? preferred : 0;
 
-    // Aim stays on the TARGET even while the body leans elsewhere: a human dodging is still
-    // pointing their gun at you.
     const leadSlot = self.slots[0];
     const aimPoint = target
       ? interceptPoint(
@@ -227,102 +232,183 @@ export class HumanController implements BotController {
       ? Math.atan2(aimPoint.y - self.y, aimPoint.x - self.x) + this.aimError.offsetRad
       : self.angle;
     const aimDelta = signedDelta(self.angle, aimHeading);
-
-    const centreHeading = Math.atan2(view.arena.height / 2 - self.y, view.arena.width / 2 - self.x);
-    const bearing = target ? Math.atan2(target.y - self.y, target.x - self.x) : centreHeading;
+    const bodyIntercept = target
+      ? interceptPoint(
+          self,
+          { x: target.x, y: target.y, speed: target.speed, angle: target.angle },
+          Math.max(self.speed, 1),
+          profile.leadFactor,
+        )
+      : undefined;
+    const interceptHeading = bodyIntercept
+      ? Math.atan2(bodyIntercept.y - self.y, bodyIntercept.x - self.x)
+      : self.angle;
+    const bearing = target ? Math.atan2(target.y - self.y, target.x - self.x) : self.angle;
 
     const desires: Desire[] = [];
     let range = preferred;
     let closing = true;
-    // Recover never fires — chosen below, past `chooseSlot`, so the two draws it always makes stay
-    // in the stream even on a tick the bot cannot act (H21): losing control is common (every
-    // Deathmatch respawn is a `phased` tick), so skipping the call here would desync a seeded
-    // replay far more often than a corner case would suggest.
-    let mayFire = target !== undefined && this.stance.current !== "recover";
+    let mayFire = target !== undefined && this.goal.current !== "recover"
+      && this.goal.current !== "huntLastKnown";
 
-    switch (this.stance.current) {
-      case "engage":
-        desires.push({ headingRad: aimHeading, weight: 1 });
+    switch (this.goal.current) {
+      case "recover":
         break;
-      case "brawl":
-        desires.push({ headingRad: bearing, weight: 1.5 });
+      case "huntLastKnown": {
+        const hunt = this.huntHeading(view, self.angle);
+        desires.push(goalDesire(hunt.headingRad));
+        range = hunt.range;
+        closing = hunt.closing;
+        mayFire = false;
+        break;
+      }
+      case "rush":
+        desires.push(goalDesire(bearing));
+        range = BRAIN_CONSTANTS.minEngageUnits;
+        closing = false;
+        break;
+      case "holdRange":
+        desires.push(goalDesire(aimHeading));
+        {
+          const orbit = orbitDesire(bearing, profile.orbitBias, this.orbitSide);
+          if (orbit) desires.push(orbit);
+        }
+        break;
+      case "intercept":
+        desires.push(goalDesire(interceptHeading));
+        closing = false;
+        break;
+      case "setupCc": {
+        const slot = roles.setupCcSlot !== undefined ? self.slots[roles.setupCcSlot] : undefined;
+        const isManeuver = slot !== undefined && weaponDefOf(slot.weaponId).kind === "maneuver";
+        desires.push(goalDesire(isManeuver ? bearing : aimHeading));
+        range = slot && slot.range > 0 ? slot.range * 0.8 : preferred;
+        closing = !isManeuver;
+        break;
+      }
+      case "dump":
+        desires.push(goalDesire(bearing));
+        range = Math.max(BRAIN_CONSTANTS.minEngageUnits, preferred * 0.5);
+        closing = false;
+        break;
+      case "contact":
+        desires.push(goalDesire(bearing));
         range = BRAIN_CONSTANTS.contactTriggerUnits;
-        break;
-      case "kite":
-        desires.push({ headingRad: aimHeading, weight: 1 });
-        range = preferred * 1.3;
-        break;
-      case "disengage":
-        // Kites rather than flees (H38): still facing, still able to shoot, backing away. Turning
-        // tail is a blunder outcome, not a plan.
-        desires.push({ headingRad: aimHeading, weight: 1 });
-        range = profile.awarenessRadiusUnits;
-        break;
-      case "reposition":
-        desires.push({ headingRad: centreHeading, weight: 1 });
         closing = false;
-        mayFire = false;
         break;
-      case "hunt":
-        desires.push({ headingRad: centreHeading, weight: 1 });
+      case "reset":
+        desires.push(goalDesire(aimHeading));
+        range = Math.max(preferred * 1.3, BRAIN_CONSTANTS.minEngageUnits);
+        break;
+      case "pinWall":
+        desires.push(goalDesire(bearing));
+        range = BRAIN_CONSTANTS.minEngageUnits;
         closing = false;
-        mayFire = false;
+        break;
+      case "unpin":
+        desires.push(goalDesire(
+          Math.atan2(view.arena.height / 2 - self.y, view.arena.width / 2 - self.x),
+        ));
+        closing = false;
         break;
     }
 
-    const orbit = this.stance.current === "engage" || this.stance.current === "kite"
-      ? orbitDesire(bearing, profile.orbitBias, this.orbitSide)
-      : undefined;
-    if (orbit) desires.push(orbit);
     if (wall) desires.push(wall);
-    desires.push(...dodgeDesires(activeThreats(this.perception, tick)));
+    desires.push(...dodgeDesires(activeThreats(this.perception, tick), profile.dodgeWeight));
 
     const heading = blendHeading(desires, self.angle);
     const { steer, throttle } = reduceToIntent({
       headingError: signedDelta(self.angle, heading),
       distance: Number.isFinite(distance) ? distance : range,
       preferredRange: range,
-      deadband: range * profile.deadbandFraction,
+      deadband: this.goal.current === "holdRange" ? range * profile.deadbandFraction : 0,
       aimToleranceRad: profile.aimToleranceRad,
       closing,
     });
 
-    // `chooseSlot` draws whether or not it may fire, so the stream does not depend on the stance —
-    // recover included, which is exactly why `mayFire` gates the RESULT rather than the call.
     const decision = chooseSlot({
       self, target: target ?? ABSENT_TARGET, distance, aimDelta, profile,
       weights: this.slotWeights, tick, lastPressTick: this.lastPressTick, rng: view.rng,
-      ultHold: this.ultHold,
+      ultHold: this.ultHold, goal: this.goal.current, roles,
     });
     const slot = mayFire ? decision.slot : undefined;
     if (slot !== undefined) this.lastPressTick = tick;
     this.lastFiredSlot = slot;
 
-    // Recover's OUTPUT is COAST — the bot cannot steer or drive without control — but everything
-    // above it (the stance score, the aim math, the `chooseSlot` draws) still ran on this tick, so
-    // the seeded stream matches a comparable alive/unphased tick draw-for-draw.
-    if (this.stance.current === "recover") return COAST;
-
+    if (this.goal.current === "recover") return COAST;
     return { steer, throttle, fireSlots: slot === undefined ? 0 : 1 << slot };
   }
 
   /**
-   * The three cases a stance may be cut short for (H10). Dodging is NOT one of them — it is a
-   * steering desire, which is what lets the bot dodge without stopping fighting (H26).
+   * Hunt heading (G12/G13). Never the arena centre.
    *
-   * `controlLost` mirrors `scoreStances`'s own definition exactly (dead OR `phased`) — the two must
-   * agree, or a bot that goes `phased`-but-alive keeps acting under a stale stance for up to
-   * `stanceCommitTicks` before `scoreStances` would have forced `recover` anyway, and symmetrically
-   * sits in a stale `recover` for up to `stanceCommitTicks` after its spawn protection actually ends.
+   * Acquire delay continues the previous heading. Last-known (noticed memory) wins over heard
+   * shots. Heard shots are gated on the once-per-episode `huntHear` roll. Otherwise a quadrant
+   * waypoint, advanced when the bot arrives.
    */
-  private preemption(view: BotView, target: BotCarView | undefined): StanceId | undefined {
+  private huntHeading(
+    view: BotView,
+    fallbackHeading: number,
+  ): { headingRad: number; range: number; closing: boolean } {
+    const self = view.self;
+    const tick = view.tick;
+    if (acquiringUnnoticed(this.perception, tick) && !lastKnownAnchor(this.perception, tick)) {
+      return { headingRad: fallbackHeading, range: BRAIN_CONSTANTS.minEngageUnits, closing: true };
+    }
+    const known = lastKnownAnchor(this.perception, tick);
+    if (known) {
+      return {
+        headingRad: Math.atan2(known.y - self.y, known.x - self.x),
+        range: BRAIN_CONSTANTS.minEngageUnits,
+        closing: false,
+      };
+    }
+    const heard = this.huntHear ? nearestHeardShot(self, view.instances) : undefined;
+    if (heard) {
+      return {
+        headingRad: Math.atan2(heard.y - self.y, heard.x - self.x),
+        range: BRAIN_CONSTANTS.minEngageUnits,
+        closing: false,
+      };
+    }
+    let waypoint = searchWaypoint(this.searchIndex, view.arena);
+    if (Math.hypot(waypoint.x - self.x, waypoint.y - self.y) < BRAIN_CONSTANTS.minEngageUnits) {
+      this.searchIndex += 1;
+      waypoint = searchWaypoint(this.searchIndex, view.arena);
+    }
+    return {
+      headingRad: Math.atan2(waypoint.y - self.y, waypoint.x - self.x),
+      range: BRAIN_CONSTANTS.minEngageUnits,
+      closing: false,
+    };
+  }
+
+  /**
+   * The three cases a goal may be cut short for (G7). Dodging is NOT one of them.
+   *
+   * `controlLost` mirrors `scoreGoals` (dead OR `phased`).
+   */
+  private preemption(view: BotView, target: BotCarView | undefined): GoalId | undefined {
     const profile = this.effectiveProfile;
     const self = view.self;
     const controlLost = !self.alive || hasStatus(self.statuses, "phased", view.tick);
     if (controlLost) return "recover";
     const hpFraction = self.maxHp > 0 ? self.hp / self.maxHp : 1;
-    if (profile.retreatHpFraction > 0 && hpFraction < profile.retreatHpFraction) return "disengage";
-    if (!target && this.stance.current !== "hunt") return "hunt";
+    if (profile.retreatHpFraction > 0 && hpFraction < profile.retreatHpFraction) return "reset";
+    if (!target && this.goal.current !== "huntLastKnown") return "huntLastKnown";
     return undefined;
   }
+}
+
+function enemyUltSpent(
+  perception: PerceptionState,
+  sessionId: string,
+  tick: number,
+  withinTicks: number,
+): boolean {
+  for (const id of Object.keys(WEAPON_TABLE) as WeaponId[]) {
+    if (weaponDefOf(id).cooldownMs < BRAIN_CONSTANTS.ultCooldownMs) continue;
+    if (ultIsSpent(perception, sessionId, id, tick, withinTicks)) return true;
+  }
+  return false;
 }
