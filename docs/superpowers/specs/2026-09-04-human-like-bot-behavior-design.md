@@ -127,7 +127,7 @@ deciding.
 
 1. **Perceive** — turns a *fair* view into a *human* view: acquisition delay on new threats, an
    awareness radius, a rear blind arc, a cap on simultaneously tracked threats, decay of what is no
-   longer visible, and the enemy-ult memory.
+   longer visible, and the enemy-ult memory (**built but not yet consumed** — see H22).
 2. **Assess** — chooses a target, then scores a stance and holds it for a commitment window.
 3. **Move** — a context-steering blend of desires, collapsed to `steer`/`throttle`.
 4. **Shoot** — a per-slot decision, with aim error and shot leading applied.
@@ -251,6 +251,14 @@ identical intent stream for an identical seed.
 **H22. The bot never reads an enemy's `WeaponSlotState`** (B18, unchanged). Ult tracking is built
 from `observedFires` and the drawn `maneuver` field, both visible to a player.
 
+**H22 as shipped: the memory is BUILT, and nothing reads it yet.** `perceive` records every observed
+press into `ultSeenTick`, and `ultIsSpent` answers "was this car seen spending this weapon recently"
+— but no module under `brain/` calls it, and `BotCarView.maneuver` is carried on the view and never
+read either. Nothing in the shipped bot presses more boldly because it watched an enemy burn an
+ultimate. The plumbing is kept deliberately rather than deleted: it is a correct, cheap seam (one
+map, three zero-length loops per tick) and rebuilding it next pass would be pure waste — but this
+spec must not be read as describing behaviour a player could observe. Consuming it is future work.
+
 **H23. Vengefulness is driven by observed incoming fire, not by damage attribution.** The bot blames
 whoever owns the instances it saw coming at it — `BotInstanceView.ownerSessionId`, which a player can
 see. It can therefore blame the wrong car, which is not a defect: mis-attributing a hit is exactly
@@ -290,8 +298,14 @@ two presses on one tick anyway.
 **H27a. Switch-lock awareness is a skill.** Pressing a different slot than last time is refused while
 `switchLockUntilTick` has not expired, and every press sets that lock afresh. A disciplined bot
 checks its own `switchLockUntilTick` (it is on its own HUD, so reading it is fair) and does not throw
-away a press it cannot make; a casual mashes and eats the refusal. This rides on
-`fireDisciplineChance` rather than earning its own knob.
+away a press it cannot make.
+
+**AMENDED after implementation: the check is uniform across tiers, not a skill.** The original text
+said "a casual mashes and eats the refusal", which was never implemented and is not worth
+implementing: `beginFire` simply ignores a press it refuses, so eating a refusal has no observable
+effect in the sim at all — no wasted cooldown, no animation, nothing a player could see. A tier
+difference that produces no difference is not a tier difference. `chooseSlot` therefore holds fire
+under its own switch lock on every tier, and this decision earns no knob of its own.
 
 **H28. A slot fires only inside the window that weapon wants.** Range is compared against the
 weapon's own `range`; a `range: 0` row (`wildcharge`) uses `contactTriggerUnits` instead, since a
@@ -362,8 +376,16 @@ bot with a 40-unit look-ahead at 320–450 u/s will pin itself on walls, which i
 and costs no extra code.
 
 **H40. `ramIntentChance` gates deliberate ramming.** Ram knockback and the hard-slam stun are real
-mechanics no bot has ever used on purpose. Deliberate ramming favours a heavier chassis and a target
-that is stunned or cornered.
+mechanics no bot has ever used on purpose.
+
+**AMENDED after implementation: the roll is FLAT.** The original text added "deliberate ramming
+favours a heavier chassis and a target that is stunned or cornered", which did not ship and the spec
+was never corrected for it. What shipped is a single unweighted `rng() < ramIntentChance` draw, made
+once per engagement with a target (and re-armed when the target is lost, so a death or a `phased`
+respawn does not switch ramming off for the rest of the match) and read only as `wantsRam` by
+`scoreStances`'s `brawl` row. `carId` is never read anywhere under `brain/`, and neither is the
+target's stun state at this seam. Weighting the roll by chassis mass or target state is a design
+question for a future pass, not a defect in this one.
 
 ### 6.5 Consistency and mistakes
 

@@ -28,8 +28,13 @@ export function newAimErrorState(): AimErrorState {
 }
 
 /**
- * Advance the aim error. Draws EXACTLY ONE random number per call regardless of whether it
+ * Advance the aim error. Takes EXACTLY ONE Gaussian sample per call regardless of whether it
  * resamples, so the stream stays aligned across branches (H21).
+ *
+ * One Gaussian sample is TWO `rng()` calls — `gaussian` is Box-Muller and draws a pair. The count
+ * that matters for H21 is that it is the same count on every call, not that it is one; an earlier
+ * version of this comment said "exactly one random number", which is wrong in the one file whose
+ * subject is how many numbers get drawn.
  */
 export function stepAimError(
   state: AimErrorState,

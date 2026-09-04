@@ -135,7 +135,19 @@ export function activeThreats(state: PerceptionState, tick: number): KnownThreat
   return [...state.threats.values()].filter((t) => t.reacting && tick >= t.reactAtTick);
 }
 
-/** Was this car seen spending this weapon inside the last `withinTicks`? (H22) */
+/**
+ * Was this car seen spending this weapon inside the last `withinTicks`? (H22)
+ *
+ * **BUILT, NOT YET CONSUMED — this is a seam for a future pass, not live behaviour.** `perceive`
+ * fills `ultSeenTick` every tick from `observedFires`, and this reads it, but nothing under
+ * `brain/` calls this function outside its own unit test — and `BotCarView.maneuver`, the other
+ * half of what H22 describes, is carried on the view and never read either. No shipped bot presses
+ * more boldly because it watched an enemy burn an ultimate.
+ *
+ * Kept on purpose rather than deleted: the memory is correct, costs one map and three
+ * usually-empty loops per tick, and is exactly what "push while their ult is down" would need. Do
+ * not read its existence as evidence the behaviour exists — the spec's H22 says the same in prose.
+ */
 export function ultIsSpent(
   state: PerceptionState,
   sessionId: string,

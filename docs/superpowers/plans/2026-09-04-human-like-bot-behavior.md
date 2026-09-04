@@ -30,7 +30,7 @@
 
 | File | Responsibility |
 |---|---|
-| `packages/server/src/config/bot-profiles.ts` | **Rewritten.** `BotProfile` (33 knobs), `BOT_PROFILES`, `BRAIN_CONSTANTS`, `BOT_BRAIN_VERSION` |
+| `packages/server/src/config/bot-profiles.ts` | **Rewritten.** `BotProfile` (34 knobs), `BOT_PROFILES`, `BRAIN_CONSTANTS`, `BOT_BRAIN_VERSION` |
 | `packages/server/src/bot/types.ts` | **Extended.** `StanceId`, `PersonalityId`, `BotPersonality`, `BotDebug`; `BotController.debug?()` |
 | `packages/server/src/bot/brain/controller.ts` | **New.** `HumanController` — owns state, runs the five layers |
 | `packages/server/src/bot/brain/aim.ts` | **New.** Drifting aim error, intercept solve, angle helpers |
@@ -68,7 +68,7 @@ Rewrites the profile table to its final 33-knob shape, deletes the legacy bot, a
 **Interfaces:**
 - Consumes: `BotView`, `BotIntent`, `BotController` from `../types.js`; `Rng` from `../rng.js`.
 - Produces:
-  - `BotProfile` — the 33 readonly fields in Step 3.
+  - `BotProfile` — the 34 readonly fields in Step 3.
   - `BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>>`
   - `BRAIN_CONSTANTS = { minEngageUnits: 70, contactTriggerUnits: 150, ultCooldownMs: 5000, personalityJitter: 0.25 }`
   - `BOT_BRAIN_VERSION: string` (start at `"1.0.0"`)
@@ -163,7 +163,7 @@ Replace the whole file. Keep the file's existing doc-comment voice: each field g
 import type { BotDifficulty } from "@motor-combat-moba/shared";
 
 /**
- * One difficulty's knobs (H44). Thirty-three of them, in five groups: perception, aim, fire
+ * One difficulty's knobs (H44). Thirty-four of them, in six groups: perception, aim, fire
  * economy, target politics, positioning, and consistency.
  *
  * Every field is a NUMBER, and no code outside this file branches on which tier it came from (H8).

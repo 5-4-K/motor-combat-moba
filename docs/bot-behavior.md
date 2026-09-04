@@ -123,7 +123,11 @@ One `decide()` call, five layers, in order (`HumanController` in
 [`brain/controller.ts`](../packages/server/src/bot/brain/controller.ts)):
 
 1. **Perceive** (`perception.ts`) — turns a fair view into a human one: acquisition delay, an
-   awareness radius, a rear blind arc, a cap on tracked threats, memory decay. Runs every tick.
+   awareness radius, a rear blind arc, a cap on tracked threats, memory decay. Runs every tick. It
+   also records which enemy was seen spending which weapon (`ultSeenTick` / `ultIsSpent`, H22) —
+   **built but not consumed**: no other module reads it, and neither does anything read the
+   `maneuver` field carried on `BotCarView`. The bot does not yet push because an enemy's ultimate
+   is down. The seam is kept for a future pass; do not read the code as evidence of the behaviour.
 2. **Assess** (`stance.ts`) — picks a target by weighted score, then scores and holds a stance.
    Runs on `recomputeTicks`.
 3. **Move** (`movement.ts`) — blends steering desires (hold range, orbit, dodge, avoid a wall) into
@@ -149,7 +153,7 @@ Named, scored, held for `stanceCommitTicks` unless a pre-emption fires (hp cross
 | `kite` | target is closer than 60% of preferred range | hold range, back off, keep facing |
 | `disengage` | hp below `retreatHpFraction` | break contact, keep the target in arc where possible |
 | `reposition` | pinned against a wall or corner | move to open floor, hold fire |
-| `hunt` | no target is currently known | sweep toward last-known or arena centre |
+| `hunt` | no target is currently known | drive toward the arena centre |
 | `recover` | dead or phased — no control worth spending | coast |
 
 **Three of those cells differ from an earlier draft of the design spec, which this page originally
@@ -183,28 +187,39 @@ fit to the current distance — and returns the single best one. If a future cha
 OR-ing a mask together instead of returning one slot, this defect is exactly what comes back.
 
 **A probability roll that gates a repeated opportunity is rolled ONCE per opportunity, not once per
-tick.** Three examples, all in `controller.ts`/`firing.ts`:
+tick.** Four examples:
 
 - The **dodge roll** — `dodgeChance` — is rolled once per newly-noticed threat, in `perception.ts`.
-- The **ram roll** — `ramIntentChance` — is rolled once per target, in `controller.ts`'s `plan()`.
+- The **ram roll** — `ramIntentChance` — is rolled once per engagement with a target, in
+  `controller.ts`'s `plan()`. Losing the target ENDS that engagement and re-arms the roll, so the
+  same opponent reacquired after a death or a `phased` respawn earns a fresh one — without that, a
+  1v1 (practice, or the harness's duel shape) keeps one session id from the first tick to the last
+  and deliberate ramming switched itself off permanently at the first death.
 - The **ult-discipline roll** — `ultDisciplineChance` — is rolled once per (target, ready) episode
   in `firing.ts`'s `chooseSlot`, and the held decision is memoized until the episode ends (the slot
   fires, goes not-ready, or the target changes).
+- The **blunder roll** — `blunderChance` — is rolled once per decision window (the tier's
+  `recomputeTicks`), in `humanize.ts`. The humanize layer itself runs every tick, and its three
+  draws happen every tick regardless; only what the first draw is allowed to DO is gated. Rolled
+  per tick instead, the chance compounds by the cadence: easy spent 57.9% of its ticks inside a
+  blunder against the ~9% the number describes.
 
 A per-tick re-roll of any of these decays geometrically: at `recomputeTicks` 2 and a 90% discipline
 chance, "hold this ult" surviving 140 independent evaluations across a 30-second fight is
 0.9^140 ≈ 0 — which turns "saves its ult for a good moment" into "delays its ult by a few ticks and
 fires anyway." This was found and fixed once already during implementation (Task 9's ult-discipline
 bug), and it is the single easiest mistake to reintroduce if a future change touches any of these
-three rolls.
+four rolls.
 
 ## A tier is data; a behaviour is code
 
 No module under `bot/` branches on `profileId` or the difficulty name — `grep -rn "profileId ==="
 packages/server/src/bot/brain/` should return nothing, always. Only the parameter table
-(`BOT_PROFILES`) and the humanize layer's *use* of those parameters know which tier is running; every
-other layer reads numbers out of whichever `BotProfile` it was handed and has no idea whether that
-profile is `easy`, `medium`, or `hard`. That is the whole mechanism that stops the three tiers
+(`BOT_PROFILES`) and `personality.ts` — which reads `BOT_PROFILES[tier]` to work out the band a
+personality may shift a parameter inside, and the easier neighbour it may never reach past — know
+which tier is running. Every layer downstream of that, `humanize.ts` included, reads numbers out of
+whichever `BotProfile` it was handed and has no idea whether that profile is `easy`, `medium`, or
+`hard`. That is the whole mechanism that stops the three tiers
 collapsing back into "the same bot at different speeds" as the brain grows — a rule worth preserving
 in any future edit here, not just observing.
 
@@ -267,8 +282,11 @@ the pause menu only shows while the sim is paused, and pausing is exactly what s
 deciding and the room broadcasting, so a "live" read-out gated behind pause would never update. It
 sits in a small fixed box, always on screen, independent of the pause overlay.
 
-The line reads `<personality> | <stance> | range <preferredRange> | slot <n>` — for example
-`kiter | kite | range 312 | slot 2`. What each field tells you:
+The read-out is two lines. The first reads
+`<personality> | <stance> | range <preferredRange> | slot <n>` — for example
+`kiter | kite | range 312 | slot 2`. The second is the **stance scoreboard**: every stance the
+scorer put on the table this tick with its score, sorted best first, with the chosen one marked by a
+leading `*` — for example `*kite 6.1  engage 5.2  reposition 0`. What each field tells you:
 
 - **personality** — one of `brawler`, `kiter`, `sprayer`, `grudge`, `opportunist`, rolled once per
   bot instance (a fresh roll happens whenever the bot is reconstructed — a difficulty change, a
@@ -290,6 +308,14 @@ The line reads `<personality> | <stance> | range <preferredRange> | slot <n>` �
   while multiple weapons are ready points at `chooseSlot`'s weighting or `ultHold` discipline rather
   than at a wiring bug; a slot that fires every single recompute even at long range on a short-range
   kit points the other way.
+- **the scoreboard** — the case for and against the stance that won, which is the whole reason
+  stances are scored rather than picked by an if-ladder (H12). `*kite 6.1  engage 5.2` says the
+  decision was close; `*recover 100` says the bot was stripped of control and nothing else was
+  considered. A stance that is **absent** from the line was taken off the table entirely by
+  `scoreStances` (scored `-Infinity`) rather than merely losing — `brawl` with no ready contact
+  weapon and no ram intent, or `disengage` on a tier whose `retreatHpFraction` is 0. When the
+  stance label looks wrong, read this line before reading any code: it usually says which input was
+  wrong rather than which branch was.
 
 Since the read-out only updates while the sim is actually running, remember to **resume** (P) after
 opening it from the pause menu — otherwise the numbers are frozen at whatever the bot was doing when
