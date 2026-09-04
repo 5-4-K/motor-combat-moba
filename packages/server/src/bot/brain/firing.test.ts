@@ -44,6 +44,27 @@ describe("effectiveRangeOf", () => {
   it("returns 0 for a car with no slots", () => {
     expect(effectiveRangeOf([], [], 0)).toBe(0);
   });
+
+  it("falls back to the kit as authored when nothing is ready, rather than collapsing to 0", () => {
+    // The not-ready fallback runs constantly mid-fight — every tick between a bot spending its last
+    // loaded slot and the first one coming back — and until this test nothing exercised it with a
+    // non-empty kit, so a bot mid-recharge deciding it wanted to be nose to nose would have shipped
+    // silently. Every slot spent AND locked, which is the real shape of that moment.
+    const spent = slotsFor("bullseye").map((slot) => ({
+      ...slot, stocks: 0, refireLockUntilTick: 500,
+    }));
+    expect(effectiveRangeOf(spent, ones, 0)).toBe(effectiveRangeOf(slotsFor("bullseye"), ones, 0));
+  });
+
+  it("weights the fallback the same way as the ready path, so a slot preference still reads", () => {
+    // Not just "non-zero": the fallback re-runs the same value weighting, so a bot that prefers its
+    // long-range slot still wants a longer range while it recharges than one that prefers the short
+    // one. `predator` (1800) is slot 0 and `pepperbox` (600) is slot 1.
+    const spent = slotsFor("bullseye").map((slot) => ({ ...slot, stocks: 0 }));
+    const likesLongRange = effectiveRangeOf(spent, [3, 1, 1], 0);
+    const likesShortRange = effectiveRangeOf(spent, [1, 3, 1], 0);
+    expect(likesLongRange).toBeGreaterThan(likesShortRange);
+  });
 });
 
 describe("preferredRangeOf", () => {

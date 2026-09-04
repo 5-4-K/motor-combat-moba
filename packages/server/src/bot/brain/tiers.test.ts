@@ -90,18 +90,33 @@ describe("tier characterisation", () => {
   });
 
   it("easy burns its ult on a full-hp target and hard does not (H30)", () => {
-    // Only `lance` in hand: with a full kit both tiers rank `predator` above it at every distance,
-    // so neither would press the ult and the test would pass while measuring nothing.
+    // ONE scene, ONE distance, both tiers — which is what makes this measure discipline and nothing
+    // else. Read `chooseSlot`'s good-moment test: an ult fires freely when the target is under
+    // `ultWindowHpFraction`, stunned, OR inside half its reach, and only the third of those is
+    // geometry. So the scene has to hold the bot in the band `(reach/2, reach]` — close enough to
+    // shoot, too far to be a good moment — for BOTH tiers at once.
+    //
+    // TEST FIX (was: Bullseye's `lance` at 450 u for easy and 900 u for hard). `lance` reaches
+    // 1200, so its bad-moment band starts at 600 — past easy's 520 u awareness radius, which means
+    // no distance exists that easy can both see and treat as a bad moment. The easy half therefore
+    // ran at 450 u, INSIDE half-reach: a good moment, where `ULT_WINDOW_BONUS` fires the ult
+    // regardless of discipline. Setting easy's `ultDisciplineChance` to hard's 0.9 left the test
+    // green — the confound the hard half's own comment names, walked into on the easy half.
+    //
+    // Mirage's slot 2 (`afterburner`) is the row that fits: an ult by `ultCooldownMs` (13000 ms)
+    // with a reach of only 220, so its bad-moment band is (110, 220] — a band every tier can see
+    // into. At 200 u both tiers are in range, at full target hp, unstunned, in a bad moment.
+    // Verified by mutation, both ways: easy at medium's `ultDisciplineChance` 0.5 stops pressing,
+    // and hard at medium's 0.5 starts.
     const ultOnly = (base: BotView["self"]): BotView["self"] => ({
       ...base,
-      slots: base.slots.map((slot, i) => (i === 2 ? slot : { ...slot, stocks: 0 })),
+      carId: "mirage",
+      slots: slotsFor("mirage").map((slot, i) => (i === 2 ? slot : { ...slot, stocks: 0 })),
     });
-    // A single distance can't serve both tiers here: `lance`'s 1200 range makes anything inside
-    // 600 units a "good moment" by proximity alone regardless of hp, which would let hard fire too
-    // and prove nothing; but easy's 520-unit awareness radius can never see a target past 600. The
-    // fix is a distance chosen per tier, not one shared scene: close enough for easy to notice
-    // (450 u, inside its 520 u awareness), far enough for hard to keep it a bad moment (700 u,
-    // outside lance's 600 u half-reach, still inside hard's 900 u awareness).
+    // Seed 12, not the file's usual 17: 17 rolls the `grudge` archetype, which is fine here, but 12
+    // (`kiter`, which shifts no firing knob) is the seed under which BOTH halves are sensitive to
+    // their own tier's `ultDisciplineChance` moving one rung. Seed choice cannot make a bot press an
+    // ult it decided to hold — it only decides which side of a single 0-to-1 roll this run lands.
     //
     // MECHANISM FIX, not a test workaround: `chooseSlot` used to redraw `ultRoll` on EVERY
     // recompute tick rather than once per (target, ready) episode — so "discipline" decayed
@@ -112,22 +127,21 @@ describe("tier characterisation", () => {
     // and reuses that decision — held in `ultHold`, keyed per slot, on the controller — until the
     // moment turns good (fires), the target changes, or the slot is spent and recharges (see the
     // doc on `UltHoldEntry` in firing.ts, and firing.test.ts's own persisted-episode unit test).
-    // With that fixed, this can honestly ask the real question over a LONG engagement (600 ticks,
-    // far more evaluations than the old 40-tick workaround gave it) rather than hiding the defect
-    // behind a short window.
-    const ultPressed = (tier: "easy" | "hard", x: number, ticks: number) => {
+    // With that fixed, this can honestly ask the real question over a LONG engagement.
+    const BAD_MOMENT_X = 400; // 200 u from the bot at x=200: inside 220, outside 110.
+    const ultPressed = (tier: "easy" | "hard", ticks: number) => {
       const bot = new HumanController(tier);
-      const rng = makeRng(17);
+      const rng = makeRng(12);
       let fired = false;
       for (let tick = 0; tick < ticks; tick++) {
-        const scene = view(tick, { others: [{ ...enemy, x }], rng });
+        const scene = view(tick, { others: [{ ...enemy, x: BAD_MOMENT_X }], rng });
         const intent = bot.decide({ ...scene, self: ultOnly(scene.self) });
         if (intent.fireSlots === 1 << 2) fired = true;
       }
       return fired;
     };
-    expect(ultPressed("easy", 650, 90)).toBe(true);
-    expect(ultPressed("hard", 900, 600)).toBe(false);
+    expect(ultPressed("easy", 300)).toBe(true);
+    expect(ultPressed("hard", 600)).toBe(false);
   });
 
   it("hard disengages when badly hurt and easy fights on (H37)", () => {
@@ -148,17 +162,45 @@ describe("tier characterisation", () => {
   });
 
   it("hard focuses the wounded car and easy chases whoever shot at it (H32, H33)", () => {
-    const wounded = { ...enemy, sessionId: "hurt", x: 900, y: 360, hp: 8 };
+    // Two scenes, because the two halves are two different claims and a tier can only weigh
+    // candidates it can SEE. `awarenessRadiusUnits` is 900 for hard and 520 for easy.
+    //
+    // Hard's scene: the wounded car is the FAR one (700 u) and the shooter the near one (220 u), so
+    // proximity argues for the shooter and only `woundedBias` argues for the wounded — which is the
+    // property. Verified by mutation: at medium's `woundedBias` 0.5, hard switches to the shooter.
     const shooter = { ...enemy, sessionId: "shooter", x: 420, y: 360 };
-    const scene = {
-      others: [wounded, shooter],
-      instances: [{
-        id: "s", ownerSessionId: "shooter", weaponId: "predator" as const,
-        x: 400, y: 360, angle: Math.PI,
-      }],
-    };
-    expect(run("hard", 120, scene).bot.currentTargetSessionId).toBe("hurt");
-    expect(run("easy", 200, scene).bot.currentTargetSessionId).toBe("shooter");
+    // A shot of the shooter's, in flight NEAR US: `perceive` blames a car for a shot only when
+    // `threatHeading` says the shot is actually coming at us, so a bolt parked next to its owner
+    // out at the edge of the arena earns no grudge at all. Its owner is what matters, not where the
+    // owner now is.
+    const incoming = [{
+      id: "s", ownerSessionId: "shooter", weaponId: "predator" as const,
+      x: 400, y: 360, angle: Math.PI,
+    }];
+    expect(run("hard", 120, {
+      others: [{ ...enemy, sessionId: "hurt", x: 900, y: 360, hp: 8 }, shooter],
+      instances: incoming,
+    }).bot.currentTargetSessionId).toBe("hurt");
+
+    // TEST FIX for the easy half. It used to share hard's scene, where the wounded car sits 700 u
+    // out — outside easy's 520 u awareness, so easy had exactly ONE candidate and "picked the
+    // shooter" no matter what it valued. Mutating easy's `woundedBias` all the way to hard's 0.9
+    // left it green. Easy needs its own geometry: BOTH cars inside 520 u, with the wounded car the
+    // NEAR one (50 u) and the shooter far (490 u, still shooting at us), so proximity and the
+    // wounded bias both argue for the wounded car and only the grudge argues for the shooter.
+    // Choosing the shooter there is `vengefulness` and nothing else — verified by mutation: at
+    // hard's `vengefulness` 0.25 easy switches to the wounded car.
+    //
+    // Medium's 0.5 does NOT flip it, and no geometry inside easy's own awareness radius makes it:
+    // easy's `woundedBias` of 0.1 caps the wounded term at 0.2 on a score whose proximity and
+    // grudge terms span 1.0 and 1.6, so the 0.6-wide gap between easy's 0.8 and medium's 0.5 can
+    // only be straddled inside a margin narrower than easy's own `scoreNoiseSigma` of 0.3. A
+    // knife-edge scene would pass or fail on which seed it was handed. This is the honest limit of
+    // what this assertion covers, stated rather than papered over.
+    expect(run("easy", 200, {
+      others: [{ ...enemy, sessionId: "hurt", x: 250, y: 360, hp: 8 }, { ...enemy, sessionId: "shooter", x: 690, y: 360 }],
+      instances: incoming,
+    }).bot.currentTargetSessionId).toBe("shooter");
   });
 
   it("uses the rest of the kit when the top-value slot is unavailable (H27)", () => {
