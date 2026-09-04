@@ -103,14 +103,25 @@ describe("runMatch", () => {
     // which would fail this assertion without the clock defect having returned at all. The kills
     // assertion below states that premise outright so the two cases can never be confused: if a
     // future balance edit empties the window again, THAT line fails and names the reason.
-    const out = runMatch({ ...SETUP, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    //
+    // `seed: 2`, not `SETUP`'s seed 1: Task 4's firing layer (`chooseSlot`, `preferredRangeOf`)
+    // made this hard-tier Mirage/Bastion matchup trade almost perfectly evenly under seed 1 — same
+    // kill and death counts at every window checked from 30 s out to 180 s, a legitimate repeated
+    // tie rather than a clock regression, so `winnerSessionId` came back `""` for a reason this test
+    // isn't about. Seed 2 lands a decisive first kill (`kills: [1, 0]`) inside the 30 s window and
+    // stays decisive out to 60 s (used below), so it exercises the clock-firing property this test
+    // actually names without also asserting anything about who should win a fair fight.
+    const out = runMatch({ ...SETUP, seed: 2, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);
   });
 
   it("ranks placement by kills then fewest deaths in deathmatch", () => {
-    const out = runMatch({ ...SETUP, mode: GameMode.FFA_DEATHMATCH });
+    // `seed: 2` for the same reason as the test above: seed 1 now trades evenly under Task 4's
+    // firing layer, which is a legitimate tie (`placement` [1, 1]) and not what this test is
+    // checking. Seed 2 reliably produces a decisive kills/deaths split.
+    const out = runMatch({ ...SETUP, seed: 2, mode: GameMode.FFA_DEATHMATCH });
     expect(out.seats.map((s) => s.placement).sort()).toEqual([1, 2]);
   });
 

@@ -2,6 +2,7 @@ import { weaponDefOf, type BotDifficulty } from "@motor-combat-moba/shared";
 import { BOT_PROFILES, type BotProfile } from "../../config/bot-profiles.js";
 import type { BotCarView, BotController, BotDebug, BotIntent, BotView } from "../types.js";
 import { interceptPoint, newAimErrorState, signedDelta, stepAimError, type AimErrorState } from "./aim.js";
+import { chooseSlot, preferredRangeOf } from "./firing.js";
 import { knownCars, newPerception, perceive, type PerceptionState } from "./perception.js";
 
 const COAST: BotIntent = { steer: 0, throttle: 0, fireSlots: 0 };
@@ -29,6 +30,16 @@ export class HumanController implements BotController {
   private lastDebug: BotDebug | undefined;
   private aimError: AimErrorState = newAimErrorState();
   private perception: PerceptionState = newPerception();
+  /** Tick of the last press this bot actually made, so `chooseSlot` can enforce `burstGapTicks`. */
+  private lastPressTick = -999;
+  /**
+   * Per-slot preference, rolled per bot by a future personality task (H47). `[1, 1, 1]` is neutral
+   * — every slot weighted equally — until that task replaces it.
+   */
+  private slotWeights: readonly number[] = [1, 1, 1];
+  /** The range and slot `chase` last computed, threaded into `debug()` (H12). */
+  private lastPreferredRange = 0;
+  private lastFiredSlot: number | undefined;
 
   constructor(
     profileId: BotDifficulty,
@@ -72,9 +83,9 @@ export class HumanController implements BotController {
       stance: target ? "engage" : "hunt",
       stanceScores: {},
       targetSessionId: this.target,
-      preferredRange: 0,
+      preferredRange: this.lastPreferredRange,
       personality: "brawler",
-      firedSlot: this.held.fireSlots === 0 ? undefined : Math.log2(this.held.fireSlots),
+      firedSlot: this.lastFiredSlot,
     };
 
     // LAYER 5 — humanize (Task 7 replaces this with `applyHumanize()`)
@@ -87,13 +98,17 @@ export class HumanController implements BotController {
   }
 
   /**
-   * Placeholder behaviour, replaced layer by layer over Tasks 2-7. Steers at the target, holds a
-   * crude range, and presses at most ONE slot (H27) — `beginFire` resolves one press per tick and
-   * takes the lowest set bit, so an OR of every in-range slot fires slot 0 and nothing else.
+   * Placeholder stance/movement, replaced layer by layer over Tasks 5-7. Steers at the target,
+   * holds a range derived from the bot's own ready weapons (Task 4's `preferredRangeOf`), and
+   * presses at most ONE ranked slot (H27) via `chooseSlot` — `beginFire` resolves one press per
+   * tick and takes the lowest set bit, so an OR of every in-range slot fires slot 0 and nothing
+   * else.
    */
   private chase(view: BotView, target: BotCarView): BotIntent {
-    // Lead against the slot the bot would actually press. Slot 0 stands in until Task 4's ranking
-    // lands; a weapon's own `speed` is public knowledge, so leading with it is fair (H22).
+    // Lead against slot 0 rather than the slot `chooseSlot` will actually rank highest: which slot
+    // that is depends on distance and aim fit, both computed below from this very bearing, so there
+    // is no slot to rank yet at the point the lead is needed. A weapon's own `speed` is public
+    // knowledge, so leading with any one slot is fair (H22); slot 0 is simply the stand-in.
     const leadSpeed = view.self.slots[0] ? weaponDefOf(view.self.slots[0].weaponId).speed : 0;
     const aimPoint = interceptPoint(
       { x: view.self.x, y: view.self.y },
@@ -109,18 +124,19 @@ export class HumanController implements BotController {
     const steer: -1 | 0 | 1 =
       delta > this.effectiveProfile.aimToleranceRad ? 1 : delta < -this.effectiveProfile.aimToleranceRad ? -1 : 0;
 
-    const preferred = Math.max(70, this.effectiveProfile.standoffFraction * 400);
+    const preferred = preferredRangeOf(view.self, this.effectiveProfile, this.slotWeights, view.tick);
+    this.lastPreferredRange = preferred;
     const band = preferred * this.effectiveProfile.deadbandFraction;
     const throttle: -1 | 0 | 1 =
       Math.abs(distance - preferred) <= band ? 0 : distance > preferred ? 1 : -1;
 
-    let fireSlots = 0;
-    if (Math.abs(delta) < this.effectiveProfile.fireConeRad && view.tick % this.effectiveProfile.burstGapTicks === 0) {
-      for (let i = 0; i < view.self.slots.length; i++) {
-        const reach = view.self.slots[i]!.range > 0 ? view.self.slots[i]!.range : 150;
-        if (distance < reach) { fireSlots = 1 << i; break; }
-      }
-    }
+    const decision = chooseSlot({
+      self: view.self, target, distance, aimDelta: delta, profile: this.effectiveProfile,
+      weights: this.slotWeights, tick: view.tick, lastPressTick: this.lastPressTick, rng: view.rng,
+    });
+    if (decision.slot !== undefined) this.lastPressTick = view.tick;
+    this.lastFiredSlot = decision.slot;
+    const fireSlots = decision.slot === undefined ? 0 : 1 << decision.slot;
 
     return { steer, throttle, fireSlots };
   }
