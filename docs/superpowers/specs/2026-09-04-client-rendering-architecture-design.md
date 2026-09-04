@@ -287,6 +287,14 @@ today the block is absent and every default is silently in force.
 punch on a kill are native, cost nothing, and are driven by events with magnitudes from a small
 table (`render/feedback-table.ts`), not from local detection.
 
+**R18a — A late-revealed maneuver renders as the effect, not as a slide.** When a snapshot reveals
+that a remote car began a dash inside the extrapolation window (netcode spec N31), the correction
+is larger than any render offset should hide. Instead of decaying an offset, the car renderer plays
+the maneuver's own trail — the dash ghosts and flash — from the revealed start point to the
+current point over a few frames, and the car itself is placed at its corrected position at once.
+The player reads "that car dashed" a little late rather than "that car teleported". The same rule
+covers a revealed slam or a respawn.
+
 **R19 — Filters are camera-level and tier-gated.** At tier High the world camera carries one
 half-resolution Bloom (a `ParallelFilters` of Blur-low and Blend, which is how Phaser 4 composes
 one) whose strength the explosion and death events
@@ -383,6 +391,7 @@ netcode spec (N23a) and on `RenderFrame`.
 | R16 | A particle service with tiered global caps and priorities |
 | R17 | Device-pixel-ratio rendering, capped by tier |
 | R17a | An explicit `render` config block |
+| R18a | A late-revealed maneuver renders as its own effect, not a slide |
 | R18 | Native camera shake and zoom punch from an event table |
 | R19 | Camera-level filters at tier High only |
 | R20 | The HUD is its own parallel scene |

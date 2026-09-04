@@ -22,7 +22,8 @@ desync, glitch or lag in online play up to 80–90 ms ping. This design reads th
 | Packet loss | 1 % (as TCP stalls of one RTT) | the transport is TCP; loss is a delay, not a gap |
 | Players | 6, one server process, one arena room | invariant 10 |
 | Client machine | integrated-graphics laptop, 60 Hz display | "common personal computers" |
-| Sim rate | 30 Hz, `TICK_RATE_HZ` unchanged | invariant 1; every timing table is baked in ticks |
+| Sim rate | **60 Hz** (`TICK_RATE_HZ` 30 → 60, decided 2026-09-04, N1a) | halves the lead granularity and the per-tick displacement; every ms-authored timer migrates through `msToTicks` |
+| Snapshot rate | 60 Hz by default, 30 Hz fallback knob (N9) | the snapshot's age is the one slice of the window a rate can shrink |
 
 "No desync" is taken to mean: the client never shows a state the server will contradict by more than
 a fraction of a car length, and every contradiction is absorbed without a visible snap. It does
@@ -269,6 +270,26 @@ re-anchors and logs. Sim time and wall time no longer drift apart; a 3-minute De
 The snapshot for tick `k` is broadcast **inside** the same wake, immediately after tick `k` — N9.
 Fixes F2 (server half), F5.
 
+**N1a — The sim runs at 60 Hz.** `TICK_RATE_HZ` becomes 60 (`MS_PER_TICK` 16.67). Decided
+2026-09-04 in discussion, on three grounds: the input lead is whole ticks, so a finer tick buys
+exactly the slack the link needs instead of overshooting to the next 33 ms boundary (the user's
+note measured the safe input-buffer floor at 67 ms for 30 Hz against 50 ms for 60 Hz, with fewer
+starved ticks); per-tick displacement halves (15 u → 7.5 u for a Mirage), so contact timing and
+the ram approach speed are sampled twice as finely; and the wind-up a mobility power needs to be
+predictable (N31) drops from about 200 ms to about 150 ms. Together with 60 Hz snapshots (N9) it
+takes the design-point extrapolation window from about 178 ms to about 136 ms, a third off the
+worst-case remote error (§6.6).
+
+It is a sim behaviour change and is done as one deliberate pass in phase 1, with three hand
+retunes named here because `msToTicks` cannot do them: `DRIVE_CONFIG.reverseHoldTicks` is
+authored in ticks (2 → 4, or re-authored in ms); contact damping in `resolveWorld` runs once per
+tick per surface, so sustained pushing damps twice as often per second and `restitution` or the
+damping factor is re-tuned to the same per-second feel; and the Euler step halves, so the golden
+fixture, `docs/turn-tuning.md`, the balance fingerprint, the manual and every playtest probe
+re-pin against the new integration. Invariant 1 is unchanged: the number still lives once in
+shared. CPU and input bandwidth double from trivially small to trivially small (about 0.03 ms of
+sim per tick, 360 bytes per second of input per client).
+
 **N2 — Tick-stamped inputs.** The input message becomes `{ tick, steer, throttle, fireSlots }`. The
 client sends the input for tick `T` at its own local tick `T`, which it keeps `lead` ticks ahead of
 its estimate of the server's tick (N4). `seq` is gone; the tick is the sequence, and the
@@ -284,27 +305,28 @@ moves by more than 4 ticks (a route change, a resumed tab), which resets. Fixes 
 
 **N4 — The lead controller.** Lead is the number of ticks the client runs ahead of the server so its
 input for tick `T` arrives before the server runs `T`. Initial lead is
-`ceil((RTT/2 + jitter + MS_PER_TICK) / MS_PER_TICK)` — at 90 ms ± 20 ms that is **3 ticks**
-(45 + 20 + 33 = 98 ms). The
+`ceil((RTT/2 + jitter + MS_PER_TICK) / MS_PER_TICK)` — at 90 ms ± 20 ms and 60 Hz that is
+**5 ticks** (45 + 20 + 17 = 82 ms → 83 ms). The
 server tells the client how early each input actually arrived (`slackTicks` in every snapshot
 header, N9: the number of ticks between arrival and use, negative when the input was missing and a
-repeat was used). The controller targets `slack ∈ [1, 2]`: if the 5th percentile over the last 60
-ticks drops below 1, lead increases by 1 immediately; if the median stays above 3 for 5 s, lead
-decreases by 1. Raise fast, lower slowly. Lead is clamped to `[1, 8]` (33–267 ms).
+repeat was used). The controller targets `slack ∈ [2, 3]` — the note's measured floor of three
+ticks of buffer occupancy at 60 Hz: if the 5th percentile over the last 120 ticks drops below 2,
+lead increases by 1 immediately; if the median stays above 4 for 5 s, lead decreases by 1. Raise
+fast, lower slowly. Lead is clamped to `[2, 16]` (33–267 ms).
 
 **N5 — Client tick loop.** The client runs a fixed-step accumulator at the dilated period (N3),
 one local tick per step: sample keys, build the input for `localTick`, send it, predict (N16). Frames
-render at display rate between ticks. Catch-up after a hitch is capped at `maxCatchUpTicks` (3)
-local ticks per frame; a longer stall re-anchors and takes one correction rather than replaying 500
+render at display rate between ticks. Catch-up after a hitch is capped at `maxCatchUpTicks` (6,
+100 ms) local ticks per frame; a longer stall re-anchors and takes one correction rather than replaying 500
 ms of inputs into a burst — the server would have repeated the last input through the stall anyway
 (N6), so the burst would only diverge from it.
 
 ### 6.2 Input pipeline on the server
 
 **N6 — Per-client input ring, repeat on silence.** Each client has a ring of inputs indexed by tick,
-`ringSize` 64. `inputFor(tick)` returns the input stamped `tick` if it arrived; otherwise the most
+`ringSize` 128 (about two seconds). `inputFor(tick)` returns the input stamped `tick` if it arrived; otherwise the most
 recent earlier input (**repeat**), and the snapshot header reports the negative slack. After
-`repeatMaxTicks` (6, 200 ms) of consecutive repeats the ring falls back to the **neutral** input, so a
+`repeatMaxTicks` (12, 200 ms) of consecutive repeats the ring falls back to the **neutral** input, so a
 disconnected or alt-tabbed car brakes to a stop under drag instead of driving into a wall or sitting
 as an immovable wall carrying a shove — the general form of the `hasKnock` coast in `tick.ts`,
 which is deleted: **every on-field car is stepped every tick**, on a real, repeated or neutral
@@ -355,15 +377,20 @@ noise instead of bugs. 1/16 rather than 1/8 because quantised positions are fed 
 collision solve, not merely drawn, and contact normals amplify position error into different
 push-outs; the cost is a few bytes per snapshot. Session ids are replaced by a **car index** assigned at
 match start and published in the reliable roster message (N24); `sourceSessionId` and
-`lockTargetSessionId` become indices. Steady state for 6 cars and 20 instances is
-**≈ 620 bytes per tick, ≈ 19 KB/s, ≈ 150 kbit/s per client**, under 1 Mbit/s upstream for a home
-host serving five others. Delta-against-previous (a per-car changed-field mask) is a later
-optimisation — TCP's ordering makes it safe — and is not part of the first cut. Fixes F9.
+`lockTargetSessionId` become indices. A full snapshot for 6 cars and 20 instances is
+**≈ 620 bytes**; at 60 Hz that is ≈ 37 KB/s, ≈ 300 kbit/s per client and ≈ 1.8 Mbit/s upstream for
+a home host serving five others, which is why **delta compression is part of the first cut**: each
+car and instance carries a changed-field mask against the previous snapshot, which TCP's ordering
+makes safe with no acknowledgement bookkeeping, and which roughly halves the steady state. A
+reconnecting or joining client is sent one full snapshot first. Fixes F9.
 
-The snapshot rate is the tick rate. Invariant 5 ("sim rate ≠ patch rate") is rewritten: *the
-snapshot rate is the tick rate or an integer divisor of it, and a snapshot always describes the end
-of one whole tick.* A `snapshotEvery` knob (1) exists for a constrained host and is exercised by the
-harness at 2.
+**The snapshot rate is the tick rate by default, 60 Hz** (decided 2026-09-04). The snapshot's age is
+the one slice of the extrapolation window a rate can shrink: at 60 Hz it adds 8 ms on average and
+17 ms at worst, against 17 and 33 at 30 Hz, and a late or lost snapshot is replaced 17 ms later, so
+the jitter buffer (N18) can be zero. `snapshotEvery` (1) is a server knob; 2 is the fallback for a
+host whose measured upload cannot carry 60 Hz, and the harness reports the error delta between
+the two. Invariant 5 ("sim rate ≠ patch rate") is rewritten: *the snapshot rate is the tick rate or
+an integer divisor of it, and a snapshot always describes the end of one whole tick.*
 
 **N10 — Binary input.** `tick u32 · count u8 · inputs[count]`, each input `steer 2 bits ·
 throttle 2 bits · fire 3 bits` in one byte for ticks `tick − count + 1 … tick`. The codec carries a
@@ -433,8 +460,8 @@ schema loses every sim field (N24); the snapshot carries all of them (N9).
 snapshot decoded into a `WorldState`, and a ring of predicted worlds for every local tick from
 `baseline.tick + 1` to `localTick`. Each local tick it builds the input map — its own real input
 for the local car, `lastInput` from the baseline for every remote (N17) — and calls `stepWorld`. It
-also steps its own fire state (N20). At 6 ticks of lead plus buffer that is at most six calls of a
-six-car step per tick, well under 0.1 ms.
+also steps its own fire state (N20). At a nine-tick window that is at most nine calls of a
+six-car step per tick, well under 0.2 ms.
 
 **N17 — Reconcile by resim, never by easing.** When a snapshot for tick `S` arrives, the client
 compares it with its predicted world for `S` (which it kept). If every quantised field of the
@@ -448,9 +475,10 @@ folded in (their inputs may have changed) — the "unchanged" shortcut applies t
 because only the local car's replay is expensive to get wrong.
 
 **N18 — Jitter buffer on snapshots.** Snapshots are applied when they are `bufferTicks` old on the
-estimated server clock, `bufferTicks = ceil(2·jitter / MS_PER_TICK)` clamped to `[0, 3]`, so a late
+estimated server clock, `bufferTicks = ceil(2·jitter / MS_PER_TICK) − snapshotIntervalTicks` clamped to `[0, 4]` (zero at
+60 Hz snapshots on an ordinary link, because the next snapshot covers a late one), so a late
 packet lands in the buffer rather than in the hold-last branch. On a burst (TCP stall) the client
-keeps predicting forward from its last baseline up to `maxPredictionTicks` (15, 500 ms), then
+keeps predicting forward from its last baseline up to `maxPredictionTicks` (30, 500 ms), then
 freezes the world and shows the connection overlay; when snapshots resume it re-anchors (N3) and
 takes one correction. Fixes F4.
 
@@ -475,36 +503,48 @@ keeps spinning between snapshots.
 
 What this costs, quantified for the design point — **corrected on 2026-09-04 after reconciling with
 the user's consolidated note (§13), which showed the first draft's "about 18 u" understated this by
-computing a chord instead of integrating the turn.** The baseline is one-way latency plus the jitter
-buffer old (45–78 ms); the local present is `lead` (100 ms) ahead of the server; a remote is
-therefore extrapolated over a window `W` of **145–178 ms**. Error is exactly zero while the remote
-holds its input. When it changes input at the start of the window, the error is set by the steering
-term `v·ω`, which for a Mirage is 3,681 u/s² — three and a half times its throttle authority — and
-it grows with `W²`:
+computing a chord instead of integrating the turn, and recomputed for the 60 Hz sim and 60 Hz
+snapshots decided the same day.** The window `W` a remote is extrapolated over is one-way latency
+(45 ms) plus the snapshot's age since it was produced (8 ms on average, 17 at worst, at 60 Hz) plus
+the jitter buffer (0 at 60 Hz snapshots) plus the lead (83 ms): **about 136 ms on average, 145 ms at
+worst, at the design point.** Error is exactly zero while the remote holds its input. When it
+changes input at the start of the window, the error is set by the largest change in acceleration
+the player can command that the predictor did not know about, integrated twice — and the biggest
+such term is the steering term `v·ω`, which for a Mirage is 3,681 u/s², three and a half times its
+throttle authority. Error grows with `W²` until it saturates at the turn diameter:
 
 | Window `W` | Straight → full turn | Full steer reversal (worst) | Throttle change | Interpolated past at the same buffer (unconditional) |
 |---|---|---|---|---|
-| 112 ms (lead 2, no buffer) | 23 u | 43 u | 10 u | 35 u |
-| 145 ms (lead 3, no buffer) | 37 u | 69 u | 17 u | 35 u |
-| 178 ms (lead 3, 1-tick buffer) | 55 u | 97 u | 25 u | 50 u |
+| 120 ms (quiet link, lead 4) | 26 u | 49 u | 12 u | 31 u |
+| 136 ms (design point, average) | 33 u | 61 u | 15 u | 39 u |
+| 145 ms (design point, worst snapshot phase) | 37 u | 69 u | 17 u | 43 u |
+| 162 ms (30 Hz snapshot fallback) | 46 u | 83 u | 21 u | 50 u |
+| 178 ms (the 30 Hz sim this document first assumed) | 55 u | 97 u | 25 u | 50 u |
 
 A car is 48 u long. So the honest statement is: at the design point approach C's **typical** error is
-zero and its **worst** case — a full reversal by a top-speed Mirage inside the window — is about two
-car lengths, twice what interpolation would show unconditionally. C is chosen on the distribution
-and on contact consistency, not on the worst case, and the 2026-08-31 and 2026-09-02 turn-rate and
-speed increases made this term larger than the note measured (2,419 u/s² then, 3,681 now). Three
-levers bound it, all measured by the harness (§7):
+zero, its **expected** error at two to five input changes a second is under 10 u, and its **worst**
+case — a full reversal by a top-speed Mirage inside the window — is about a car length and a half,
+one and a half times what interpolation would show unconditionally. C is chosen on the distribution
+and on contact consistency, not on the worst case. The 2026-08-31 and 2026-09-02 turn-rate and speed
+edits made this term half again larger than the note measured (2,419 u/s² then, 3,681 now): a
+fast-turning roster is a netcode cost, and it is a balance lever the user owns. The other levers,
+all measured by the harness (§7):
 
-- **Shorten the window.** The lead controller (N4) already lowers lead to 2 on a quiet link, and the
-  jitter buffer (N18) is 0 on one; that is the 112 ms row. Every tick removed takes 20–25 % off.
+- **Shorten the window.** The lead controller (N4) lowers lead on a quiet link; 60 Hz snapshots
+  keep the buffer at zero. Every 17 ms removed takes about a fifth off.
 - **Model the remote's input, not just repeat it.** `remoteSteerHoldTicks` — how long an
   extrapolated remote keeps a held steer before it is assumed released — is a client-only knob with
   no sim meaning; the harness reports which value minimises mean error against recorded matches.
 - **Measure clustering.** The note's open item: input reversals cluster at contact, which is when
   the error matters most. The input log (N30) is what answers it.
+- **Telegraph mobility (N31).** A dash is the one input the predictor cannot absorb at all; the
+  rule that makes it predictable is a design rule, not a netcode one.
 
 That worst case is the largest visible artefact in this design. It is corrected by a resim and a
-120 ms render offset, never by a snap under 48 u.
+120 ms render offset, never by a snap under 48 u. **Checkpoint (decided 2026-09-04):** if, once
+phase 3 is measurable, contact corrections exceed the acceptance line (p95 over 12 u, any snap over
+48 u) with the window and steer-hold levers exhausted, the fallback is approach B — remotes drawn
+in the interpolated past with rewind hit testing — for which phases 0–2 are identical.
 
 **N21 — Contact is predicted.** Because `stepWorld` includes `resolveContacts`, the client predicts
 rams and slams between its local car and the extrapolated remotes: the victim's spin starts on the
@@ -515,6 +555,32 @@ any other. Damage from a dash or slam is **not** predicted (N14); the stun from 
 applied locally — it arrives as a status row a round trip later, which the shove has covered. Fixes
 F1: the local car resolves against a hull at its own tick, and the residual is the extrapolation
 error of §6.6, not four ticks of staleness.
+
+**N31 — Mobility powers telegraph or commit.** A dash is the worst input for a predictor: an
+instant, large, unknown acceleration. `thunderclap` as it ships (1,600 u/s from a standing press,
+no wind-up) is about 200 u — four car lengths — off on a victim's screen if pressed at the start
+of the window, and the correction is a cut, not a slide. Car stats cannot fix that and neither can
+the netcode, because the information does not exist on the victim's machine yet. The rule, which is
+also counterplay:
+
+1. **Telegraph for at least the window.** Every mobility power carries a wind-up of at least the
+   design-point window — about 150 ms at 60 Hz, `startUpMs ≥ 150` — during which
+   `pendingUntilTick`, `lastFiredSlot` and the maneuver's locked angle and speed are already in the
+   snapshot, so a remote client predicts the dash exactly from its first tick. `lance` already does
+   this with 700 ms. `thunderclap` needs its `startUpMs` raised from 0; that is a weapon-row balance
+   edit, recorded here as a follow-up rather than made. `wildcharge` needs nothing: it changes how a
+   car drives under ordinary input.
+2. **Commit once started.** No mid-dash steering, no cancel: a started maneuver is deterministic
+   from its locked fields, which is how `thunderclap` is already built and must stay true for every
+   future one.
+3. **Budget the instant ones.** A power that cannot be telegraphed must keep `½·Δa·W²` under a car
+   length at the design window, `Δa` under about 5,000 u/s² at 136 ms. In practice an instant
+   mobility power always breaks this and should be telegraphed instead.
+4. **Render a late reveal as the effect.** When a snapshot reveals a maneuver that began inside the
+   window (a bad link, a press just inside it), the client plays the dash's own trail from its
+   start point to its current point over a few frames instead of sliding the car (rendering spec
+   R18a). The player sees "that car dashed" slightly late, which is what interpolation would have
+   shown anyway, rather than "that car teleported".
 
 ### 6.7 Combat under latency
 
@@ -753,12 +819,12 @@ Each phase ships on its own, keeps every test green, and leaves the game playabl
 | Phase | Ships | Fixes | Acceptance |
 |---|---|---|---|
 | 0. Instrument | `NET_CONFIG.interpolationDelayMs` 50 → 67 (a one-constant fix for the shipped zero-headroom buffer, deleted again by phase 3); ping/pong, RTT and jitter estimate, netgraph overlay, the input log (N30), the netcode harness with today's client, the differ (§7) | F4 (half) | baseline numbers recorded; frozen-remote frames under 1 % at 25 ms jitter |
-| 1. Time | `TickScheduler`, tick-stamped inputs, input ring with repeat/neutral, lead controller, snapshot on tick (still schema, still floats) | F2, F3, F5, F4 (half) | repeated-input rate < 1 %; free-driving correction stays 0 |
-| 2. Wire | binary snapshot and input codec, car indices, `lastInput`, `shotSeq`, `homingTarget`, protocol hash, schema split (N24), delete `TICK_RATE_HZ` override | F9, F10 | snapshot ≤ 700 B; join refuses a mismatched build |
+| 1. Time | **60 Hz sim (N1a) with its three hand retunes and every fixture re-pinned**, `TickScheduler`, tick-stamped inputs, input ring with repeat/neutral, lead controller, snapshot on tick (still schema, still floats) | F2, F3, F5, F4 (half) | repeated-input rate < 1 %; free-driving correction stays 0; golden and turn-tuning suites green on the new rate; `npm run playtest` baseline captured before and after |
+| 2. Wire | binary snapshot and input codec with delta compression, `snapshotEvery` knob, car indices, `lastInput`, `shotSeq`, `homingTarget`, protocol hash, schema split (N24), delete `TICK_RATE_HZ` override | F9, F10 | full snapshot ≤ 700 B, delta steady state ≤ 350 B; join refuses a mismatched build |
 | 3. World | `stepWorld` in shared with `ContactMemory` in state; `MatchClient` with whole-world prediction, resim reconcile, jitter buffer, render offsets; `ArenaScene` split into renderers | F1, F7, F8, F11 | contact correction p95 < 12 u, zero snaps |
 | 4. Feel | predicted fire state, maneuvers and ghost shots; events; tick-time HUD; hp easing and flashes | F6 | ghost mismatch < 0.5 %; press-to-flash one frame |
 | 5. Lifecycle | reconnect, silence handling, late join | F12 | a pulled cable resumes within 15 s |
-| 6. Optional | delta snapshots, `snapshotEvery` 2 for constrained hosts, WebTransport transport | — | on evidence from the harness |
+| 6. Optional | volley compression (§13), Colyseus 0.18 and a WebTransport transport behind the seam, `thunderclap` wind-up (N31) as a balance change | — | on evidence from the harness |
 
 Phase 3 is the large one and is where the rewrite lives; phases 1 and 2 are each a week-scale
 change that improves the shipped game on its own, and phase 1 alone removes the two structural
@@ -776,7 +842,9 @@ sources of jitter (F2, F3).
 | N6 | Per-client input ring; repeat on silence, neutral after 200 ms; extras ignored, late dropped |
 | N7 | Press edges derived from the ring |
 | N8 | Bots write into the ring |
-| N9 | One hand-packed binary snapshot per tick, quantised, car indices |
+| N1a | The sim runs at 60 Hz; three named hand retunes in phase 1 |
+| N9 | One hand-packed, delta-compressed binary snapshot per tick at 60 Hz by default, `snapshotEvery` fallback, 1/16 u, server rounds its own state |
+| N31 | Mobility powers telegraph for at least the window or commit once started; late reveals render as the effect |
 | N10 | 5-byte binary input |
 | N11 | Protocol hash of codec + every balance table at join; tick-rate override removed |
 | N12 | WebSocket stays, behind `MatchTransport` |
@@ -808,8 +876,8 @@ sources of jitter (F2, F3).
    shooting carries the target's input-change error over the extrapolation window instead of a
    rewind. Approach B (interpolated past with rewind hit testing) is recorded in §4 as the road
    not taken; the snapshot and time work (phases 1–2) would have been the same under either.
-2. **Snapshot rate (N9).** 30 Hz at ≈ 620 bytes is the recommendation. If a home host's upstream is
-   a concern, `snapshotEvery = 2` halves it at the cost of one extra tick of extrapolation.
+2. **Snapshot rate (N9) — resolved 2026-09-04: 60 Hz by default with delta compression,
+   `snapshotEvery = 2` as the fallback for a host whose measured upload cannot carry it.**
 3. **Reconnect window (N26).** 15 s is a guess; in last-standing a reconnecting player's car brakes
    to a stop and can be killed meanwhile, which seems right.
 4. **The user's own note — resolved 2026-09-04: reconciled.** See §13. The file named in the ram
@@ -820,7 +888,9 @@ sources of jitter (F2, F3).
 
 ## 11. Stop-and-ask items this design touches
 
-- **Drive model: none.** `stepDrive` and `stepSim` are unchanged. `angle` is wrapped **on the wire**
+- **Drive model: the 60 Hz tick (N1a), authorised by the user on 2026-09-04.** `stepDrive` and
+  `stepSim` are unchanged in code, but the step halves and three tick-authored behaviours are
+  hand-retuned (N1a names them). Everything else in the drive model is untouched. `angle` is wrapped **on the wire**
   only (N9); the client's local body keeps its unbounded angle and every comparison is already
   wrapped. If the reviewer prefers normalising `angle` inside `stepDrive` for cleanliness, that is a
   drive-model edit and is called out here rather than done.
@@ -874,13 +944,13 @@ draft, and §6.6 was corrected accordingly.
 
 ### 13.2 Where they disagree, and what was chosen
 
-**Tick rate — note 60 Hz, this document 30 Hz. Chosen: 30 Hz now, 60 Hz as a gated later decision.**
-The note's first reason for 60 Hz is its impulse solver (deep hits at 38 u closing per tick); that
-solver is not adopted (next item). Its second reason stands: a finer tick lets the lead controller
-buy exactly the slack it needs, worth 17–25 ms off the window and 20–25 % of the worst-case error.
-Against that, 60 Hz is a sim behaviour change — contact damping runs per tick, `reverseHoldTicks`
-is in ticks, every probe, the golden fixture and the turn-tuning page move — and the drive-model
-fence applies. Decide it with the harness measuring the error delta, not before.
+**Tick rate — note 60 Hz, this document first said 30 Hz. Chosen, after discussion the same day:
+60 Hz, in phase 1 (N1a).** The note's first reason (its impulse solver) is not adopted, but its
+second stands and, once the user's plan for more mobility powers was on the table, decided it: a
+finer tick buys exactly the slack the link needs, halves per-tick displacement, and lowers the
+wind-up a mobility power needs to be predictable. The cost is a sim behaviour change behind the
+drive-model fence — contact damping per tick, `reverseHoldTicks` in ticks, the halved Euler step —
+which the user authorised and N1a names as one deliberate retune with every fixture re-pinned.
 
 **Physics rewrite (C8) — note adopts a velocity-vector drive and a sequential-impulse solver; this
 document leaves the sim untouched. Chosen: untouched.** C8's stated purpose was to make a ram
@@ -898,8 +968,13 @@ certificate the browser trusts, which for a player-hosted server means certifica
 a two-week rotation; and 0.18's built-in prediction helpers do not fit a hand-packed snapshot path.
 The seam is what makes deferring safe.
 
-**Snapshot rate — note 30 Hz then 60 Hz gated; this document 30 Hz. Chosen: 30 Hz.** Follows from
-the tick rate; the two agree at 30.
+**Snapshot rate — note 30 Hz then 60 Hz gated; this document first said 30 Hz. Chosen, after
+discussion the same day: 60 Hz by default with delta compression, 30 Hz as a knob (N9).** The
+snapshot's age is the one slice of the window a rate can shrink, and at 60 Hz the jitter buffer
+can be zero because the next snapshot covers a late one; together that is worth about 30 % of the
+worst-case remote error. The note gated 60 Hz on head-of-line risk over TCP; the same risk is
+accepted here because predict-through and the resim absorb a one-RTT stall, and the fallback knob
+exists for uploads that cannot carry it.
 
 **Quantisation — note 1/16 u with the server adopting its own quantised state; this document had
 1/8 u with a client-side tolerance band. Chosen: the note's rule.** Quantised positions feed a
@@ -941,7 +1016,8 @@ for a player whose Wi-Fi blinked.
 
 **Volley compression — note sends a pellet fan as one row and lets clients derive the pellets; this
 document sends every instance. Chosen: every instance now, the note's compression as a phase 6
-optimisation.** The budget is met without it and per-pellet death events add protocol surface.
+optimisation.** Delta compression (N9) was pulled into the wire phase instead when snapshots went
+to 60 Hz; per-pellet death events are the protocol surface volley compression would add.
 
 **`D` knob and input logging — note has both; this document had neither. Chosen: both, as N29 and
 N30.** Cheap, and the input log is the only way to answer the note's own open question about
