@@ -1,4 +1,5 @@
-import { hasStatus, weaponDefOf } from "@motor-combat-moba/shared";
+import { hasStatus, weaponDefOf, weaponTicksOf } from "@motor-combat-moba/shared";
+import type { WeaponDef } from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS, type BotProfile } from "../../config/bot-profiles.js";
 import type { Rng } from "../rng.js";
 import type { BotCarView, BotSelfView, BotSlotView } from "../types.js";
@@ -23,16 +24,35 @@ export function isUlt(slot: BotSlotView): boolean {
 }
 
 /**
+ * How many times one press of a TICKING beam can damage the same car, counted the way
+ * `resolveInstanceHits` does: a hit on the first tick it covers them, then one every
+ * `damageInterval` for as long as `instanceExpired` keeps the instance alive. 1 for everything else.
+ *
+ * This exists because `damage` on a ticking row is a PULSE, not a press. Reading it raw made
+ * `lance` — 43 a pulse since the 2026-09-04 retune, 170 a press before it — score 2.7/s against
+ * `predator`'s 30, which the ult window's x4 could not overcome: a Bullseye bot would have held its
+ * ult for a wounded target and then never pressed it.
+ */
+function pulsesPerPress(def: WeaponDef): number {
+  if (def.kind !== "beam") return 1;
+  const ticks = weaponTicksOf(def.id);
+  if (!Number.isFinite(ticks.damageInterval)) return 1;
+  return Math.floor((ticks.flight + ticks.lifetime - 1) / ticks.damageInterval) + 1;
+}
+
+/**
  * A slot's rough worth per second, times this bot's preference for it.
  *
- * A SHAPING HEURISTIC for standoff and slot ranking only (H35). `damage` is the raw table field, so
- * a beam's pulse and a pepperbox pellet are both under-rated; that is accepted. `sim/damage.ts` is
- * the only authority on damage and nothing here may be mistaken for it.
+ * A SHAPING HEURISTIC for standoff and slot ranking only (H35). It counts a ticking beam's pulses
+ * (above) because the difference there is a factor of four or five, not a rounding — a pepperbox
+ * pellet is still under-rated by its raw `damage`, and that stays accepted: three pellets from one
+ * fan is a per-target ceiling nobody hits every press. `sim/damage.ts` is the only authority on
+ * damage and nothing here may be mistaken for it.
  */
 export function weaponValueOf(slot: BotSlotView, weight: number): number {
   const def = weaponDefOf(slot.weaponId);
   const seconds = Math.max(def.cooldownMs, 1) / 1000;
-  return (def.damage / seconds) * Math.max(weight, 0.01);
+  return ((def.damage * pulsesPerPress(def)) / seconds) * Math.max(weight, 0.01);
 }
 
 /**
@@ -175,8 +195,8 @@ export function chooseSlot(args: {
         ultHold.delete(i);
         // And the ult has to be able to WIN the ranking, or "saves it for a stunned target" is
         // unobservable: every ult on this roster is worth less per second than the slot beside it
-        // (lance ~10.6/s against predator's 30/s), so raw value would pick the small gun forever and
-        // discipline would only ever read as "never fires the ult".
+        // (lance ~10.8/s against predator's 30/s), so raw value would pick the small gun forever
+        // and discipline would only ever read as "never fires the ult".
         windowBonus = ULT_WINDOW_BONUS;
       } else {
         // Discipline is the probability of HOLDING when the moment is not good (H30) — rolled ONCE

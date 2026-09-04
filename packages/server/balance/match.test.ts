@@ -123,6 +123,12 @@ describe("runMatch", () => {
     // assertion below states that premise outright so the two cases can never be confused: if a
     // future balance edit empties the window again, THAT line fails and names the reason.
     //
+    // `seed: 27`, not 8: the 2026-09-04 lance retune made `weaponValueOf` count a ticking beam's
+    // pulses (`bot/brain/firing.ts`), which reordered Mirage's slots and moved this matchup again —
+    // seed 8's kill no longer lands inside the 30 s window. Swept seeds 1-40 against the new brain:
+    // 27 is the one that stays decisive at both lengths. The seed history below is why this is
+    // maintenance rather than a regression; the kills assertion is what tells the two apart.
+    //
     // `seed: 8`, not 40: Task 8's host wiring turned view staleness on for real (see the comment on
     // "differs between seeds" above for the full seed history), which moved this hard-tier
     // Mirage/Bastion matchup's dynamics enough that seed 40 stopped landing a kill inside the 30 s
@@ -132,7 +138,7 @@ describe("runMatch", () => {
     // actually names without also asserting anything about who should win a fair fight. Verified by
     // actually running both scenarios across a range of seeds, not by inspection: seed 8 is decisive
     // on both.
-    const out = runMatch({ ...SETUP, seed: 8, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    const out = runMatch({ ...SETUP, seed: 27, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);
@@ -146,7 +152,10 @@ describe("runMatch", () => {
     // very review broke seed 8 in turn). The RULE — more kills places ahead; equal kills, fewer
     // deaths places ahead; equal on both places equal — is checkable on EVERY outcome, decisive or
     // drawn, so it is asserted across a spread of seeds instead of hidden behind one lucky one.
-    const outcomes = [1, 2, 3, 4, 5, 6, 7, 8].map((seed) =>
+    // Seeds 9 and 10 replace 7 and 8 for the same reason the sibling test above re-seeded: the
+    // 2026-09-04 brain change left seeds 1-8 all drawn, so the non-vacuity assertion at the bottom
+    // had nothing decisive to stand on. The RULE below is asserted on every outcome either way.
+    const outcomes = [1, 2, 3, 4, 5, 6, 9, 10].map((seed) =>
       runMatch({ ...SETUP, seed, mode: GameMode.FFA_DEATHMATCH }));
 
     for (const out of outcomes) {

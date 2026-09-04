@@ -223,11 +223,14 @@ whichever `BotProfile` it was handed and has no idea whether that profile is `ea
 collapsing back into "the same bot at different speeds" as the brain grows — a rule worth preserving
 in any future edit here, not just observing.
 
-`BOT_BRAIN_VERSION` (currently `"1.0.0"`, in `bot-profiles.ts`) exists for the case a hash of
+`BOT_BRAIN_VERSION` (currently `"1.1.0"`, in `bot-profiles.ts`) exists for the case a hash of
 `BOT_PROFILES` cannot see: a behaviour change made entirely in code, with every tier's numbers left
 untouched. It rides inside `botFingerprint` (`packages/server/balance/fingerprint.ts`) precisely so
 that case still invalidates an old balance report instead of silently comparing two different pilots.
-Bump it whenever the brain's behaviour changes without a number in the table moving.
+Bump it whenever the brain's behaviour changes without a number in the table moving. The 1.0.0 ->
+1.1.0 bump is that case exactly: `value_i` gained its `pulses_i` term (above) with every tier's
+parameters untouched, which moved slot ranking and standoff for both chassis carrying a ticking
+beam. A balance report printed before it is not comparable to one printed after.
 
 ## Personality: five archetypes, rolled within a tier's band
 
@@ -255,14 +258,20 @@ Nobody authors a standoff distance in units. It comes out of the bot's own kit
 
 ```
 effectiveRange   = Σ(range_i × value_i) / Σ(value_i)     over ready slots with range > 0
-value_i          = (damage_i / cooldownSeconds_i) × slotWeight_i
+value_i          = (damage_i × pulses_i / cooldownSeconds_i) × slotWeight_i
+pulses_i         = damage ticks one press of a ticking beam lands on one car; 1 for everything else
 preferredRange   = clamp(standoffFraction × effectiveRange, minEngageUnits, awarenessRadiusUnits)
 ```
 
-`value_i` is a shaping heuristic for standoff and slot ranking only — it reads the raw `damage`
-field, so a beam's per-pulse number and a shotgun's per-pellet number both under-rate what the
-weapon actually deals per press. That is accepted; `sim/damage.ts` remains the only authority on
-real damage, and nothing in the bot brain may be mistaken for it. Range-0 rows (`wildcharge`) are
+`value_i` is a shaping heuristic for standoff and slot ranking only, but it stopped reading `damage`
+completely raw on 2026-09-04 (`BOT_BRAIN_VERSION` 1.1.0). A ticking beam authors `damage` **per
+pulse**, so the raw field under-rated `afterburner` by 5x and `lance` — which became a ticking beam
+that day — by 4x, which was enough that a Bullseye bot holding its ult for a wounded target could
+never actually win the ranking and press it. `pulses_i` counts the damage ticks the way
+`resolveInstanceHits` does. A shotgun's per-pellet number is still read raw and still under-rates
+`pepperbox`: that stays accepted, because three pellets on one car is a ceiling a press rarely
+reaches, while a held beam's pulses are the ordinary case. `sim/damage.ts` remains the only authority
+on real damage, and nothing in the bot brain may be mistaken for it. Range-0 rows (`wildcharge`) are
 excluded from this average — they would drag it to zero — but a ready one still pulls the bot toward
 contact through the `brawl` stance (H36).
 

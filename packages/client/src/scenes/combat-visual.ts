@@ -495,7 +495,8 @@ export interface EmberStyle {
  * **This is the one thing the game draws in the world that is not a hitbox**, and the exception is
  * deliberate rather than an erosion of the rule. Every shot draws as its own hitbox (D19) so that
  * what you see is what can hurt you; an orb hurts nobody and is a *telegraph*, a second category.
- * `lance` is built around being telegraphed — a 700 ms wind-up is what pays for 170 damage — but
+ * `lance` is built around being telegraphed — a 700 ms wind-up is what pays for a full connect, 43
+ * a pulse over four pulses since the 2026-09-04 retune made it a ticking beam — but
  * until this existed an opponent saw nothing at all during it, so the tell lived in the design and
  * not on the screen. Anything drawn here must stay a warning: it may never imply a hitbox that is
  * not there, which is why it sits at the muzzle rather than out where the beam will land.

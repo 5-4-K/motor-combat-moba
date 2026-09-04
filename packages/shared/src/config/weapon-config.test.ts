@@ -5,6 +5,7 @@ import type { CarId } from "./types.js";
 import type { StatusId } from "./status-types.js";
 import { WEAPON_TABLE, instanceDefOf, isWeaponId, weaponDefOf } from "./weapon-config.js";
 import { slotsOf } from "./weapon-slots.js";
+import { WEAPON_TICKS } from "./weapon-ticks.js";
 import type { WeaponDef } from "./weapon-types.js";
 import { AIM_CONFIG } from "./aim-config.js";
 
@@ -271,9 +272,12 @@ describe("WEAPON_TABLE", () => {
     // now sweeps live under the driver's own steering while the HOLD maneuver keeps the car still.
     expect(lance.attached).toBe(true);
     expect(lance.holdsDuringFire).toBe(true);
-    expect(lance.damage).toBe(170); // T13 trimmed 180 to pay for +15% width AND the lock
+    expect(lance.damage).toBe(43); // per PULSE now, not per press — see the interval below
     expect(lance.hitbox).toEqual({ shape: "rect", width: 57.5 });
-    expect(lance.damageFrequencyMs).toBe(0); // one hit per car, not a ticking zone
+    // It ticks on contact rather than stamping 170 once, and on `afterburner`'s clock exactly, so
+    // the roster's two ticking beams share one rhythm.
+    expect(lance.damageFrequencyMs).toBe(500);
+    expect(lance.damageFrequencyMs).toBe(WEAPON_TABLE.afterburner.damageFrequencyMs);
     expect(lance.startUpMs).toBe(700);
     // O10 supersedes T13's aim-assist argument: sweeping live under manual steering while held is a
     // strictly stronger form of aim than a lock, so assist is off and the field is deleted with it.
@@ -286,6 +290,29 @@ describe("WEAPON_TABLE", () => {
       ...Object.values(WEAPON_TABLE).map((def) => def.recoveryMs),
     );
     expect(lance.recoveryMs).toBe(highest);
+  });
+
+  it("pays a full lance connect the same 170-ish it paid as a single stamp, and less at the tip", () => {
+    const lance = WEAPON_TABLE.lance;
+    if (lance.kind !== "beam") throw new Error("lance must be a beam");
+    const ticks = WEAPON_TICKS.lance;
+    // `instanceExpired` kills a beam once `tick - spawnTick >= flight + lifetime`, so this is the
+    // number of ticks it can damage on, counting its spawn tick as 0.
+    const life = ticks.flight + ticks.lifetime;
+    // `resolveInstanceHits` damages on the first tick a target is covered and only then arms that
+    // target's clock, so the pulse count depends on WHEN the beam first reaches them.
+    const pulsesFrom = (firstContact: number) =>
+      Math.floor((life - 1 - firstContact) / ticks.damageInterval) + 1;
+
+    // A car at the muzzle is inside it from the tick it spawns: four pulses, 172 base — the old
+    // single-stamp 170 within a rounding step, which is the whole point of the retune.
+    expect(pulsesFrom(0)).toBe(4);
+    expect(pulsesFrom(0) * lance.damage).toBe(172);
+    // A car at the 1200-unit tip is not touched until the beam has grown all the way out, and its
+    // fourth pulse would land one tick after expiry. Range-dependent by consequence, not by design;
+    // one more tick of `lifetimeMs` would even it out. Documented in the row's comment.
+    expect(pulsesFrom(ticks.flight)).toBe(3);
+    expect(pulsesFrom(ticks.flight) * lance.damage).toBe(129);
   });
 
   it("keeps both branches of usesAimAssist populated by carried weapons", () => {

@@ -112,7 +112,10 @@ export const BRAIN_CONSTANTS = Object.freeze({
  * change made in code with the numbers untouched. Bump this whenever the brain's behaviour changes
  * without the table moving, or the balance harness will happily compare two incomparable pilots.
  */
-export const BOT_BRAIN_VERSION = "1.0.0";
+// 1.1.0 (2026-09-04): `weaponValueOf` counts a ticking beam's pulses per press instead of reading
+// its per-pulse `damage` raw. Slot ranking and standoff distance both move for the two chassis
+// carrying a ticking beam, with `BOT_PROFILES` untouched — exactly the case this version exists for.
+export const BOT_BRAIN_VERSION = "1.1.0";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency

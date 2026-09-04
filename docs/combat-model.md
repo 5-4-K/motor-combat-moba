@@ -399,12 +399,13 @@ do not reach, exactly:
   hand-setting `pierceLeft` on a generic instance, and `instances.test.ts`'s only assertion that
   `spawnInstances` carries a weapon's `pierce` onto `pierceLeft` uses `magmablast` (`pierce: 0`). No
   test derives `pierceLeft` from `roadblock`'s real `pierce: 4` end to end.
-- **`damageFrequencyMs > 0`, the re-arming per-target clock.** Still genuinely uncovered, and now down
-  to one shipped example: `afterburner` (500 ms) ships it and re-ticks a target still standing in the
-  flame during a real match (`bulwark`, the table's other example, retired with the overhaul), but
-  `hits.test.ts` only exercises `damageFrequencyMs: 0`'s arm-at-infinity behaviour, and
-  `weapon-config.test.ts` / `weapon-ticks.test.ts` only pin the raw ms/tick values — no test drives an
-  instance through a re-arm and a second hit on the same target.
+- **`damageFrequencyMs > 0`, the re-arming per-target clock.** **Covered as of 2026-09-04**, and by
+  two carried rows rather than one: `afterburner` (500 ms) and `lance`, which the same date moved off
+  a single 170-damage stamp onto `afterburner`'s cadence exactly. `combat.test.ts`'s
+  "pulses lance for its whole life" drives a real press end to end through `runCombat` and counts the
+  hp spent, so the re-arm and the second, third and fourth hits on one target are now asserted from
+  the sim rather than from the ms/tick values `weapon-config.test.ts` and `weapon-ticks.test.ts` pin.
+  `hits.test.ts` still only exercises `damageFrequencyMs: 0`'s arm-at-infinity behaviour directly.
 - **Stocks.** No longer covered by a real row. `needler`, the table's one multi-stock weapon, was
   retired with the 2026-09-01 overhaul, so `combat.test.ts` no longer drives a stock mechanic through
   `runCombat` from a real chassis's loadout; the mechanism (`releaseShots`' recharge-on-first-shot
@@ -469,10 +470,17 @@ absorbed by it). Beams never spend a pierce budget — they are never destroyed 
 several cars on the same tick.
 
 Repeat damage is a **per-instance, per-target clock**: every live instance owns a map from
-`sessionId` to the next tick it may damage that car again. `damageFrequencyMs: 0` (every weapon
-shipped today) arms that clock at `Infinity` — one hit per target, ever, for that instance's whole
-life; a positive value re-arms on the interval, which is what would let a lingering beam re-tick a
-car still standing in it. This bookkeeping is server-only, keyed by instance id, never networked,
+`sessionId` to the next tick it may damage that car again. `damageFrequencyMs: 0` (every projectile
+and maneuver row) arms that clock at `Infinity` — one hit per target, ever, for that instance's whole
+life; a positive value re-arms on the interval, which is what lets a lingering beam re-tick a car
+still standing in it. Both carried beams do that today — `afterburner` and, since 2026-09-04,
+`lance` — on the same 500 ms cadence.
+
+**The clock is armed on first contact, not at spawn, so a ticking beam's pulse count depends on when
+it reaches you.** That is most visible on `lance`: it grows over 6 ticks, so a car at the muzzle eats
+four pulses and one at its 1200-unit tip eats three, the fourth falling one tick past the beam's
+expiry. Range-dependent damage on a ticking beam is a consequence of this rule rather than a per-row
+decision, and any future row authoring a `damageFrequencyMs` inherits it. This bookkeeping is server-only, keyed by instance id, never networked,
 and is dropped the moment its instance is.
 
 ### Who may damage whom

@@ -106,6 +106,9 @@ export function manualFacts() {
 
     // --- lance ------------------------------------------------------------------------------
     "lance.windupMs": lance.startUpMs,
+    // Same derivation as `afterburner.ticksPerSec`, and the same number: the 2026-09-04 retune put
+    // both beams on one cadence, so the two sentences quoting this stay in step by construction.
+    "lance.ticksPerSec": round(1000 / lance.damageFrequencyMs),
     "lance.lingerSec": round(lance.lifetimeMs / 1000),
     "lance.recoverySec": round(lance.recoveryMs / 1000),
     // Wind-up, then growth, then linger — everything before recovery starts.

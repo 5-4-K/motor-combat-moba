@@ -927,6 +927,48 @@ it("damages a target with a real attached beam fired from a real loadout, once i
   expect(hit.hp).toBe(hpOf("mirage") - weaponDamageOf("mirage", "afterburner"));
 });
 
+it("pulses lance for its whole life, spending a full connect over four ticks instead of one", () => {
+  // The 2026-09-04 retune made lance a ticking beam on `afterburner`'s 500 ms clock. This drives
+  // the REAL press end to end — 700 ms of wind-up, then 51 ticks of beam — against a stationary
+  // target parked inside it, and counts the hp actually spent, rather than trusting the arithmetic
+  // in `weapon-config.test.ts`.
+  //
+  // Bullseye's slot 3 is lance (bit 2). Shooter at x = 300 facing +x, target 100 units ahead: the
+  // beam is born at extent 0 and grows 200 units per tick, so it covers the target's near edge
+  // (52 units out) on its second tick and pulses there, then every 15 ticks after.
+  let world_ = world();
+  let players: CombatPlayer[] = [
+    player("aaa", {
+      x: 300,
+      y: OPEN_Y,
+      angle: 0,
+      carId: "bullseye",
+      hp: hpOf("bullseye"),
+      fireState: newFireState("bullseye", 1),
+      fireMask: 0b100,
+    }),
+    player("bbb", { x: 400, y: OPEN_Y }),
+  ];
+  let instances: readonly WeaponInstance[] = [];
+  let instanceSeq = 0;
+  let result: CombatResult | null = null;
+
+  // Wind-up (21 ticks) plus the beam's own 51, plus slack: long enough that the beam is gone.
+  for (let i = 0; i < 90; i++) {
+    result = runCombat({ world: world_, players, instances, instanceSeq });
+    players = result.players.map((p) => (p.sessionId === "aaa" ? { ...p, fireMask: 0 } : p));
+    instances = result.instances;
+    instanceSeq = result.instanceSeq;
+    world_ = { ...world_, tick: world_.tick + 1 };
+  }
+
+  expect(result!.instances).toEqual([]); // the beam has expired, so this is the whole press
+  const hit = result!.players.find((p) => p.sessionId === "bbb")!;
+  // Four pulses at point-blank range — the press total the single 170-damage stamp used to deal,
+  // now spent over 1.5 seconds a target can drive out of.
+  expect(hpOf("mirage") - hit.hp).toBe(4 * weaponDamageOf("bullseye", "lance"));
+});
+
 /**
  * `startManeuver`/`dashAngleFor` take their `ManeuverWeaponDef` as a parameter rather than reading a
  * table row, so this drives them directly against the roster's two REAL maneuver rows —

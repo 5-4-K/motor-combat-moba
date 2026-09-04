@@ -262,6 +262,20 @@ export const WEAPON_TABLE = {
    * fixed pose; now it sweeps live under the driver's own steering while the car is held, which is
    * a strictly stronger form of aim than a lock ever offered. `usesAimAssist: false`, and
    * `aimRangeUnits` is deleted with it.
+   *
+   * **It TICKS now, and the 170-in-one-touch reading above is history.** `damageFrequencyMs: 500`
+   * is `afterburner`'s cadence exactly, deliberately: the two ticking beams pulse on the same clock
+   * so a player learns one rhythm rather than two. 43 x 4 == 172 replaces the old single 170, so a
+   * target held for the whole sweep pays what it always did, while a car that clips the edge for
+   * one tick now pays 43 instead of the lot.
+   *
+   * The pulse count is RANGE-DEPENDENT, and that is a consequence of the cadence rather than an
+   * oversight. `resolveInstanceHits` arms a target's clock on the tick it is first covered, and the
+   * beam grows over 6 ticks, so a car standing at the muzzle is hit at relative tick 0 and takes
+   * 4 pulses (0/15/30/45, inside the 51-tick life), while one at the 1200-unit tip is not touched
+   * until tick 6 and its 4th pulse would land at 51 — one tick past expiry. Full connect is 172 up
+   * close and 129 at maximum reach. A single tick more of `lifetimeMs` (1500 -> 1533) would make it
+   * 4 everywhere; not taken, because 2.4 s committed is already the roster's biggest press.
    */
   lance: {
     id: "lance",
@@ -274,8 +288,8 @@ export const WEAPON_TABLE = {
     // colour the beam actually draws, so the HUD slot still names something on screen.
     color: "#F0FF00",
     unlocksAt: 1,
-    damage: 170, // 34% of an average car; 68% if it catches two
-    damageFrequencyMs: 0,
+    damage: 43, // per pulse; 4 x 43 == 172 on a full close-range connect, 3 x 43 == 129 at the tip
+    damageFrequencyMs: 500, // afterburner's cadence, so both ticking beams pulse on one clock
     speed: 6000, // crosses its full 1200 range in 200ms — a flash, not a sweep
     range: 1200,
     startUpMs: 700,

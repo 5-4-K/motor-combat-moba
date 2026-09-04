@@ -198,12 +198,14 @@ export const WEAPON_COPY = {
   },
   lance: {
     tagline: "Stand still, then sweep the line.",
-    shape: "Held beam · steer while it fires · no lock",
+    shape: "Held beam · steer while it fires · ticks · no lock",
     what:
       "{lance.windupMs} milliseconds standing still and visible, then a beam that grows to full " +
       "extent almost instantly and lingers {lance.lingerSec} seconds — all of it steerable, because the " +
       "car is held rather than stopped. The wheel still works; the beam sweeps wherever you turn " +
-      "it.",
+      "it. It burns rather than stamps: whoever is inside the line is bitten " +
+      "{lance.ticksPerSec:words} times a second, so what it costs them is however long you hold it " +
+      "on them.",
     how:
       "The old aim-assist argument no longer applies: a lock could once steer a stamped beam, but " +
       "this one sweeps live under your own hands while the car is held, which is a strictly " +
@@ -213,7 +215,8 @@ export const WEAPON_COPY = {
     tip:
       "Fire it at somebody who cannot spend the next {lance.committedSec} seconds finding cover — " +
       "cornered, mid-commitment, or lined up with a second car so the sweep catches both. A whiff " +
-      "on this hull is close to a death sentence.",
+      "on this hull is close to a death sentence — and so, nearly, is a graze, which now costs them " +
+      "a single bite instead of the whole bolt.",
   },
   thumper: {
     tagline: "It doesn't stop at the wall any more.",
