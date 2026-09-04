@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript (ESM, `.js` import specifiers), Vitest in the node environment, Phaser 4.2.1, colyseus.js 0.15, Playwright 1.62.1 for the browser smoke check.
 
-**Spec:** [`docs/superpowers/specs/2026-09-04-online-netcode-and-client-architecture-design.md`](../specs/2026-09-04-online-netcode-and-client-architecture-design.md) §10 decision 10 and N23/N23a; companion [`2026-09-04-client-rendering-architecture-design.md`](../specs/2026-09-04-client-rendering-architecture-design.md) §4 (layers) and R20 (the HUD later becomes its own scene — this plan does not do that).
+**Spec:** [`docs/superpowers/specs/2026-09-04-online-netcode-and-client-architecture-design.md`](../../specs/2026-09-04-online-netcode-and-client-architecture-design.md) §10 decision 10 and N23/N23a; companion [`2026-09-04-client-rendering-architecture-design.md`](../../specs/2026-09-04-client-rendering-architecture-design.md) §4 (layers) and R20 (the HUD later becomes its own scene — this plan does not do that).
 
 ## Global Constraints
 
