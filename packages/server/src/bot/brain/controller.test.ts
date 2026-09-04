@@ -29,8 +29,15 @@ describe("HumanController", () => {
     // docstring. Task 6 gives the no-target case a real stance (`hunt`, H9), which is the default
     // stance from `newStanceState()` and drives the bot toward the arena centre to go looking
     // rather than sitting still, while never firing (no target to aim `chooseSlot` at).
+    //
+    // Task 7's humanize layer coasts for `reactionDelayTicks` calls before a decision reaches the
+    // output (hard: 4), so this loops past that window rather than reading the very first call —
+    // the same pattern "steers toward a target that is off to one side" below already uses.
     const bot = new HumanController("hard");
-    const out = bot.decide(view());
+    let out = { steer: 0, throttle: 0, fireSlots: 0 };
+    for (let tick = 0; tick < 6; tick++) {
+      out = bot.decide(view({ tick }));
+    }
     expect(out.throttle).toBe(1);
     expect(out.steer).not.toBe(0);
     expect(out.fireSlots).toBe(0);
@@ -162,8 +169,10 @@ describe("HumanController", () => {
     let steerWhileDodging: -1 | 0 | 1 | undefined;
     // `hard`'s `dodgeReactionTicks` is 4 and `acquireTicks` is 5, so the threat is reactable and the
     // target is noticed by tick 5; `recomputeTicks` is 2, so plenty of runway below covers a
-    // recompute tick past both.
-    for (let tick = 0; tick < 20; tick++) {
+    // recompute tick past both. `stanceCommitTicks` (18) then holds the initial `hunt` stance until
+    // tick 18, and Task 7's humanize layer coasts the decision another `reactionDelayTicks` (4) ticks
+    // before it reaches the output — so the window has to reach past tick 22, not just past 9.
+    for (let tick = 0; tick < 30; tick++) {
       const out = bot.decide(view({
         tick, self: selfView, others: [target], instances: [incoming], rng: makeRng(3),
       }));

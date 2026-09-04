@@ -1,10 +1,14 @@
 import { hasStatus, weaponDefOf, type BotDifficulty } from "@motor-combat-moba/shared";
 import { BOT_PROFILES, BRAIN_CONSTANTS, type BotProfile } from "../../config/bot-profiles.js";
-import type { BotCarView, BotController, BotDebug, BotIntent, BotView, StanceId } from "../types.js";
+import type {
+  BotCarView, BotController, BotDebug, BotIntent, BotPersonality, BotView, StanceId,
+} from "../types.js";
 import { interceptPoint, newAimErrorState, signedDelta, stepAimError, type AimErrorState } from "./aim.js";
 import { chooseSlot, preferredRangeOf, slotIsReady } from "./firing.js";
+import { applyHumanize, newHumanizeState, type HumanizeState } from "./humanize.js";
 import { blendHeading, dodgeDesires, orbitDesire, reduceToIntent, wallDesire, type Desire } from "./movement.js";
 import { activeThreats, knownCars, newPerception, perceive, type PerceptionState } from "./perception.js";
+import { rollPersonality } from "./personality.js";
 import { newStanceState, pickStance, scoreStances, scoreTargets, type StanceState } from "./stance.js";
 
 const COAST: BotIntent = { steer: 0, throttle: 0, fireSlots: 0 };
@@ -27,9 +31,8 @@ export class HumanController implements BotController {
   /** The tier row as authored. Kept un-personalised so `debug()` can show what was rolled from. */
   private readonly profile: BotProfile;
   /**
-   * What the brain actually reads. Identical to `profile` until Task 7's personality roll replaces
-   * it with a shifted-and-clamped copy — declared here so every layer reads one field from the
-   * start and no later task has to rename its reads.
+   * What the brain actually reads. Identical to `profile` until the personality roll on the first
+   * `decide` call replaces it with a shifted-and-clamped copy (H20/H47).
    */
   private effectiveProfile: BotProfile;
   private fixedTarget: string | undefined;
@@ -41,8 +44,8 @@ export class HumanController implements BotController {
   /** Tick of the last press this bot actually made, so `chooseSlot` can enforce `burstGapTicks`. */
   private lastPressTick = -999;
   /**
-   * Per-slot preference, rolled per bot by a future personality task (H47). `[1, 1, 1]` is neutral
-   * — every slot weighted equally — until that task replaces it.
+   * Per-slot preference, rolled per bot from personality (H47). `[1, 1, 1]` is neutral — every slot
+   * weighted equally — until the first `decide` call replaces it.
    */
   private slotWeights: readonly number[] = [1, 1, 1];
   /**
@@ -51,7 +54,7 @@ export class HumanController implements BotController {
    * stale value left over from when the bot last had a target.
    */
   private lastPreferredRange = 0;
-  /** Which way `orbitDesire` circles. Rolled once from personality in Task 7; `1` until then. */
+  /** Which way `orbitDesire` circles. Rolled once from personality on the first `decide` call. */
   private orbitSide: 1 | -1 = 1;
   /** The stance and when it was entered (H9/H10). */
   private stance: StanceState = newStanceState();
@@ -64,6 +67,10 @@ export class HumanController implements BotController {
   // Carried out of `plan` for `debug()`, which runs after it.
   private lastStanceScores: Record<StanceId, number> | undefined;
   private lastFiredSlot: number | undefined;
+  /** Humanization state — delay line, blunder window (Task 7). Runs every tick. */
+  private humanize: HumanizeState = newHumanizeState();
+  /** Rolled lazily on the first `decide` call (H20), before any other draw that tick. */
+  private personality: BotPersonality | undefined;
 
   constructor(
     profileId: BotDifficulty,
@@ -89,6 +96,16 @@ export class HumanController implements BotController {
   }
 
   decide(view: BotView): BotIntent {
+    // LAYER 0 — personality. Rolled once, lazily, on the first tick this bot ever decides — before
+    // any other draw that tick (H20), so no host has to know personalities exist.
+    if (!this.personality) {
+      const rolled = rollPersonality(view.rng, this.profileId, this.profile);
+      this.personality = rolled.personality;
+      this.effectiveProfile = rolled.profile;
+      this.slotWeights = rolled.personality.slotWeights;
+      this.orbitSide = rolled.personality.slotWeights[0]! > 1 ? 1 : -1;
+    }
+
     // LAYER 1 — perceive. Runs every tick, not on the recompute cadence below (H21 draw order): a
     // memory that only updates every twelfth tick is not a memory.
     this.perception = perceive(this.perception, view, this.effectiveProfile);
@@ -109,12 +126,17 @@ export class HumanController implements BotController {
       stanceScores: this.lastStanceScores ?? {},
       targetSessionId: this.target,
       preferredRange: this.lastPreferredRange,
-      personality: "brawler",
+      personality: this.personality.id,
       firedSlot: this.lastFiredSlot,
     };
 
-    // LAYER 5 — humanize (Task 7 replaces this with `applyHumanize()`)
-    return this.held;
+    // LAYER 5 — humanize: reaction delay, blunders, idle fidget. Runs every tick, never on the
+    // recompute cadence — the one deliberate exception to steer/throttle staying ternary out of
+    // `reduceToIntent`.
+    const idle = this.target === undefined;
+    return applyHumanize(
+      this.humanize, this.held, view.tick, this.effectiveProfile, view.rng, idle,
+    );
   }
 
   private shouldRecompute(tick: number): boolean {
