@@ -34,7 +34,17 @@ import {
   type InputMessage,
   type LivingPlayer,
 } from "@motor-combat-moba/shared";
-import { buildBotView, deriveSeed, makeRng, HumanController, type Rng } from "../src/bot/index.js";
+import {
+  buildBotView,
+  botRingCapacity,
+  deriveSeed,
+  makeRng,
+  snapshotWorld,
+  BOT_PROFILES,
+  HumanController,
+  ViewRing,
+  type Rng,
+} from "../src/bot/index.js";
 import { newCombatMemory, type CombatMemory } from "../src/sim/combat-bridge.js";
 import { newContactMemory, type ContactMemory } from "../src/sim/ram-bridge.js";
 import { readStatuses } from "../src/sim/status-bridge.js";
@@ -135,6 +145,9 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
   const combat: CombatMemory = newCombatMemory();
   const ram: ContactMemory = newContactMemory();
   const events = newCombatEvents();
+  // One ring for the whole match, pushed once per tick below and shared across every seat's bot
+  // deciding that tick — "the world N ticks ago" does not depend on which seat is asking (B19).
+  const ring = new ViewRing(botRingCapacity());
 
   // The same call `ArenaRoom.revealCars` makes to open a real match: one shuffle of the arena's own
   // spawn points, seeded rather than `Math.random`.
@@ -240,6 +253,10 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
     // already reflect a freshly respawned car's `phased` status.
     if (deathmatch) respawnSweep(ctx());
 
+    // Once per tick, not once per seat: the world at this tick does not depend on who is asking, and
+    // every seat's bot below reads the SAME ring for THIS tick before it decides.
+    ring.push(snapshotWorld(state, combat));
+
     for (const seat of setup.seats) {
       const queue = inputQueues.get(seat.sessionId);
       const bot = bots.get(seat.sessionId);
@@ -247,7 +264,13 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
       if (!queue || !bot || !rng) continue;
 
       const view = buildBotView({
-        state, selfSessionId: seat.sessionId, combat, rng, observedFires: previousTickFires,
+        state,
+        selfSessionId: seat.sessionId,
+        combat,
+        rng,
+        observedFires: previousTickFires,
+        stalenessTicks: BOT_PROFILES[setup.difficulty].viewStalenessTicks,
+        ring,
       });
       if (!view) continue;
 

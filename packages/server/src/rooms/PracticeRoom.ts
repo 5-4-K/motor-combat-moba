@@ -26,8 +26,11 @@ import {
   getArena,
   isPracticeSetup,
   pickColor,
+  newCombatEvents,
   type BotDifficulty,
   type CarId,
+  type CombatEvents,
+  type FiredEvent,
   type InputMessage,
   type PracticeSetup,
 } from "@motor-combat-moba/shared";
@@ -36,7 +39,17 @@ import { isInputMessage } from "../net/input-message.js";
 import { withSimulatedLatency } from "../net/latency-injector.js";
 import { newCombatMemory, type CombatMemory } from "../sim/combat-bridge.js";
 import { newContactMemory, type ContactMemory } from "../sim/ram-bridge.js";
-import { buildBotView, deriveSeed, makeRng, HumanController, type BotController } from "../bot/index.js";
+import {
+  buildBotView,
+  botRingCapacity,
+  deriveSeed,
+  makeRng,
+  snapshotWorld,
+  BOT_PROFILES,
+  HumanController,
+  ViewRing,
+  type BotController,
+} from "../bot/index.js";
 import { copySpawnNumbers } from "./match-helpers.js";
 import {
   isActiveInput,
@@ -94,6 +107,19 @@ export class PracticeRoom extends Room<PracticeState> {
   private readonly phaseCaps = new Map<string, number>();
   private readonly combat: CombatMemory = newCombatMemory();
   private readonly ram: ContactMemory = newContactMemory();
+  /**
+   * Fed to the pipeline as `PipelineCtx.events` and drained every tick (below): this is what makes
+   * `BotView.observedFires` non-empty here, which is what feeds ult memory and vengefulness (B18).
+   * Draining matters as much as populating it — a `CombatEvents` bag nothing ever clears would grow
+   * for the life of the room, and a practice session has no match end to reclaim it at.
+   */
+  private readonly botEvents: CombatEvents = newCombatEvents();
+  /** One tick's world, N ticks deep (B19) — owned here because "the world N ticks ago" does not
+   * depend on which bot is asking, and this room has exactly one. */
+  private readonly botRing = new ViewRing(botRingCapacity());
+  /** This tick's view of "what the bot just saw fired" — last tick's fires, sliced off the drained
+   * bag before it was cleared. */
+  private previousTickFires: readonly FiredEvent[] = [];
 
   private humanSessionId = "";
   /**
@@ -311,9 +337,18 @@ export class PracticeRoom extends Room<PracticeState> {
     if (this.state.paused) return;
     this.state.tick += 1;
     respawnSweep(this.ctx());
+    // Before the bot decides, not after: `buildBotView` reads `this.botRing.at(tick - staleness)`
+    // for THIS tick, so this tick's world has to already be in the ring by the time the bot asks.
+    this.botRing.push(snapshotWorld(this.state, this.combat));
     this.enqueueBotInput();
     // No win check, ever (PR9) — `runPipeline`'s players are deliberately dropped.
     runPipeline(this.ctx());
+    // This tick's fires, ready for next tick's view, and the bag drained so a long practice session
+    // does not accumulate every event of the match in a sink nothing else reads.
+    this.previousTickFires = this.botEvents.fired.slice();
+    this.botEvents.fired.length = 0;
+    this.botEvents.damaged.length = 0;
+    this.botEvents.killed.length = 0;
   }
 
   /** Warns once, then closes. Returns true when the room is going away and the tick must stop. */
@@ -358,6 +393,9 @@ export class PracticeRoom extends Room<PracticeState> {
       selfSessionId: BOT_SESSION_ID,
       combat: this.combat,
       rng: this.botRng,
+      observedFires: this.previousTickFires,
+      stalenessTicks: BOT_PROFILES[this.difficulty].viewStalenessTicks,
+      ring: this.botRing,
     });
     if (!view) return;
 
@@ -383,6 +421,7 @@ export class PracticeRoom extends Room<PracticeState> {
       // The phased spawn-protection lifecycle has to end and refresh here exactly as it does in a
       // real deathmatch, and `runPipeline` will not infer that from the mode.
       runPhaseSweep: true,
+      events: this.botEvents,
     };
   }
 }

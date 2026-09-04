@@ -1,3 +1,4 @@
+import { BOT_PROFILES } from "../config/bot-profiles.js";
 import type { BotCarView, BotInstanceView } from "./types.js";
 
 /**
@@ -18,9 +19,9 @@ export interface WorldSnapshot {
  *
  * Owned by the HOST, never by a bot or `buildBotView` itself — one ring per match/room, pushed once
  * per tick and shared across every bot deciding that tick, because "the world N ticks ago" does not
- * depend on which bot is asking. A host that only ever runs profiles at `viewStalenessTicks: 0`
- * (every profile, today) never has to construct one at all: `buildBotView`'s `stalenessTicks`
- * defaults to 0, which never touches this class or the ring it would otherwise read.
+ * depend on which bot is asking. Every tier's `viewStalenessTicks` is nonzero as of the 2026-09-04
+ * human-like-bot pass, so every host that runs a bot at all constructs one now — see
+ * `botRingCapacity` below for how big.
  *
  * `capacity` only needs to cover the largest `viewStalenessTicks` in play, plus one.
  */
@@ -51,4 +52,13 @@ export class ViewRing {
     const slot = this.buf[tick % this.buf.length];
     return slot && slot.tick === tick ? slot : undefined;
   }
+}
+
+/**
+ * How deep a host's ring must be (H48): the deepest `viewStalenessTicks` on the table, plus the
+ * current tick. One function so three hosts cannot drift to three different answers, and so a tier
+ * retune that deepens staleness cannot leave a ring too shallow to serve it.
+ */
+export function botRingCapacity(): number {
+  return Math.max(...Object.values(BOT_PROFILES).map((p) => p.viewStalenessTicks)) + 1;
 }
