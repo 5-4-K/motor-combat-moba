@@ -78,7 +78,7 @@ recently and none of the v4 machinery is used yet.
 |---|---|---|
 | Render-node renderer | quads use index buffers, multi-texture batching, state fully managed | a texture-atlased sprite is the cheapest thing it can draw; thousands per batch |
 | `DynamicTexture` (`src/textures/DynamicTexture.js`) | a render target you draw Graphics, sprites or text into, then use as a texture with named frames | draw once at boot; drawing into it per frame is a render-target switch |
-| `Stamp` | camera-independent quad meant for stamping into a `DynamicTexture` | the tool for a decal layer |
+| `Stamp` | camera-independent quad meant for stamping into a `DynamicTexture` | the tool for a permanent decal layer; not used, because decals fade individually (R12a) |
 | `ParticleEmitter` (`src/gameobjects/particles/`) | batched quads with per-particle alpha/scale/tint/rotation ops, emit and death zones, `maxParticles`, `explode`, `emitting` | one batch per emitter texture; pooled `Particle` objects |
 | `SpriteGPULayer` | static GPU buffer of quads with GPU-driven tween animation, one draw call, "a million sprites" | zero CPU per frame; expensive to edit — for backgrounds and ambience only |
 | Filters (`src/filters/`, `renderNodes/filters/`) — `obj.filters.internal/external` after `enableFilters()`, `camera.filters.internal/external`; there is no `preFX`/`postFX` in 4.x | Bloom and Shine are `Phaser.Actions.AddEffectBloom/AddEffectShine`, composed from `ParallelFilters` of Blur and Blend (`src/actions/AddEffectBloom.js`); Glow, Shadow, Blur×3 quality levels, ColorMatrix, Vignette, Displacement, Pixelate, Wipe, Barrel, Bokeh, TiltShift, Mask (masks are filters now), GradientMap, Quantize… | Phaser's own comment (`components/Filters.js:20-23`): each filtered object is a new draw call plus one per active filter, "use sparingly"; `AddEffectBloom.js:36`: "best as a full-screen effect" |
@@ -157,7 +157,7 @@ Bottom to top, each a layer with one atlas and one blend mode unless noted. Worl
 | # | Layer | Contents | Draw mode |
 |---|---|---|---|
 | 0 | Floor | the arena image, baked once; optional `Gradient`/`Noise` ambience at tier High | 1 quad (+1) |
-| 1 | Decals | a `DynamicTexture` the size of the arena that skids, scorch marks and blast rings are **stamped** into; cleared at match start | 1 quad; stamps are rare, event-driven |
+| 1 | Decals | pooled ground sprites (skids, scorch marks, blast rings — none authored yet, R12a) that fade on a configured timer; cleared at match start | atlas, NORMAL; each is a transform and an alpha until it expires |
 | 2 | Ground FX | dust, tyre smoke, debris — particles under the cars | 1 emitter batch, NORMAL blend |
 | 3 | Cars | body sprites, shadow sprite, hp bar sprites, status badge sprites, dash ghosts, lock bracket arms, phased ghosting | atlas, NORMAL |
 | 4 | Shots | projectile bodies, beam strips (`Rope`/`TileSprite`), orb cores, explosion rings | atlas, NORMAL |
@@ -191,7 +191,7 @@ Every visual belongs to one class, and its class fixes what it may cost.
 | **A** animated sprite | a flipbook from the atlas, frame chosen from tick or age | a frame index |
 | **T** textured strip | `Rope`, `TileSprite` or a stretched quad whose vertices follow a short path | ≤ 40 vertices |
 | **P** particles | emitter output, capped | pool churn only |
-| **D** decal | a one-time stamp into layer 1 | zero after the stamp |
+| **D** decal | a pooled ground sprite that fades over its configured time (R12a) | a transform and an alpha until it expires |
 | **F** filter | a camera-level post pass | tier High only |
 | **G** geometry | `Graphics` | debug only |
 
@@ -226,7 +226,21 @@ Every visual belongs to one class, and its class fixes what it may cost.
 
 Everything in the "Becomes" column is on the list because a version of it already exists in
 `combat-visual.ts` as geometry, or is the standard cheap expression of a thing the game already
-signals. Nothing here adds a *mechanic*; the sim is untouched.
+signals. Nothing here adds a *mechanic*; the sim is untouched. **No decal ships in this pass**
+(decided 2026-09-04): every row above that names a scorch, skid or blast decal is a candidate for
+the mechanism in R12a, not a commitment.
+
+**R12a — The decal mechanism, with no decals.** `render/decals.ts` owns a pool of ground sprites
+on layer 1 and exposes `place(def, x, y, angle)`. A `DecalDef` names its atlas frame, size and
+optionally its own `fadeMs`; a decal that names none fades over the global
+`DECAL_CONFIG.fadeMs` (a few seconds; render-only, in `packages/client/src/config/decals.ts`
+beside the other client render knobs). A placed decal holds full alpha for `holdMs`, fades
+linearly to zero over `fadeMs`, and returns to the pool; the pool is capped at
+`DECAL_CONFIG.maxLive` per tier and the oldest is recycled first. Because each decal is its own
+sprite it fades on its own clock, which a single stamped texture cannot do; the cost is one batched
+quad per live decal instead of zero, bounded by the cap. The service ships with an empty
+`DecalDef` table and a unit test of the timing and the cap; authoring the first decal is a table
+row and an atlas frame.
 
 ## 6. Baking
 
@@ -318,7 +332,7 @@ ring updates only when its slot state changes, a `BitmapText` only when its stri
 | particles | 96 | 256 | 512 |
 | flipbook frames (flame) | 12 × 1 | 24 × 2 | 24 × 2 |
 | status flipbooks on cars | off | on | on |
-| decal layer | on | on | on |
+| decal cap (`maxLive`) | 16 | 48 | 96 |
 | bloom / vignette | off | off | on |
 | floor ambience | off | off | on |
 | bake atlas | 1024² | 2048² | 2048² |
@@ -363,7 +377,7 @@ one and deletes the old path in the same change so there is never two ways to dr
 | V1 HUD | `HudScene`, `BitmapText`, baked rings, sweep shader, retained updates | `hudGfx`, `hudSweepGfx`, `rosterGfx`, the `Text` pools, `splitCameras` and its ignore lists |
 | V2 Bake | `bake.ts`, `baked-atlas`, `pack-atlas.mjs`; projectiles, glows, orbs, hp bars, brackets, ghosts, arrows as sprites | `shotGfx` for projectiles, `hpGfx`, `lockGfx`, `arrowGfx`, `maneuverGfx` |
 | V3 Beams | flame flipbook, lance rope, tremor and aura sprites | the last per-frame `Graphics` in the world path; `beamDrawLayers` becomes bake-only |
-| V4 Events | particle service, decal layer, event-driven feedback, status flipbooks, shadows, muzzle flash | `impact-feedback.ts`'s local detection |
+| V4 Events | particle service, decal mechanism with no decals authored (R12a), event-driven feedback, status flipbooks, shadows, muzzle flash | `impact-feedback.ts`'s local detection |
 | V5 Pixels | tiers, governor, dpr, bloom and vignette at High, floor ambience | — |
 
 V1 and V2 can start before the netcode work's phase 3; V4 depends on the events channel of the
@@ -385,6 +399,7 @@ netcode spec (N23a) and on `RenderFrame`.
 | R10 | Three measured quality tiers plus a governor |
 | R11 | Two atlases: authored `art-atlas`, procedural `baked-atlas` |
 | R12 | The catalogue: what each visual becomes |
+| R12a | The decal mechanism: pooled fading ground sprites, global fade time overridable per decal, no decals authored |
 | R13 | `bake.ts` runs the existing pure builders once at boot |
 | R14 | Flipbooks are baked from the procedural authoring code |
 | R15 | One build-time packer for authored art |
@@ -410,8 +425,9 @@ netcode spec (N23a) and on `RenderFrame`.
 2. **Cooldown sweep: shader or sheet (R12).** One tiny `Shader` quad per slot is the cleanest; a
    60-frame baked sheet avoids GLSL in the codebase entirely. Either fits the budget.
 3. **Bloom at all (R19) — resolved 2026-09-04: keep, tier High only.**
-4. **Decals persist for the match (R12).** Skids and scorch marks accumulate until match end. If
-   that reads as clutter in a long Deathmatch, a slow fade of the decal layer is a one-line change.
+4. **Decal persistence (R12) — resolved 2026-09-04: decals fade after a few seconds, the time from
+   a global config overridable per decal, and none is authored now; only the mechanism ships
+   (R12a).**
 5. **Beams: flipbook and rope, or a fragment shader (R12, R14) — resolved 2026-09-04: flipbook
    for the flame and the bolt; shaders reserved for per-pixel effects.** The order of preference
    for any new visual, cheapest first: a baked sprite transformed (glows, bodies, rings, bars);
