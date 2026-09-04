@@ -73,19 +73,27 @@ describe("runMatch", () => {
   });
 
   it("differs between seeds", () => {
+    // FIXTURE ROBUSTNESS FIX (final review, finding 8). This used to assert `b.ticks !== a.ticks`,
+    // which is a much narrower claim than the one the test's name makes and one this matchup kept
+    // failing to satisfy: it held only while exactly one of the two seeds ended early, so every
+    // layer of the brain that moved this hard-tier Mirage/Bastion pair's dynamics needed a fresh
+    // seed to restore it. Six reseeds in one plan (2 -> 11 -> 9 -> 40 -> 8, plus 1 for the sibling
+    // fixture), each one a real behaviour change landing on a knife-edge assertion rather than a
+    // regression — and a future change that makes BOTH seeds run the full clock would fail this for
+    // a reason that has nothing to do with seeding.
+    //
+    // The honest property is that two seeds produce two DIFFERENT MATCHES, and the whole-outcome
+    // digest already defined above says that directly: spawn assignment, every bot's rng stream and
+    // therefore every shot, hit and death all key off the seed. Two matches that agreed in every
+    // field of every event would be the actual bug this test is for, and no reseed can paper over
+    // it — a match that runs its full clock still differs from another in who shot what, and when.
     const a = runMatch(SETUP);
-    // `seed: 8`, not 40: Task 8's host wiring turned view staleness on for real (every host now
-    // pushes a `ViewRing` and builds bot views `viewStalenessTicks` ticks stale), which changes what
-    // every bot sees on every tick and moved this hard-tier Mirage/Bastion matchup's dynamics enough
-    // that seed 40 stopped ending early — it now also runs the full `maxTicks` (1800) under
-    // `FFA_LAST_STANDING`, same as seed 1, a legitimate tie between two draws rather than proof the
-    // seeds behave identically. (Seed history before this: 40 replaced 11 for Task 7's
-    // humanize/personality layer, which replaced 2 for Task 5's movement layer.) Seed 8 reliably ends
-    // early with a decisive winner — the same seed used below for the deathmatch fixtures, for the
-    // same reason — so it is the one that actually exercises "two seeds differ".
     const b = runMatch({ ...SETUP, seed: 8 });
-    // Spawn assignment is seeded, so two seeds place the cars differently.
-    expect(b.ticks).not.toBe(a.ticks);
+    expect(digest(b)).not.toBe(digest(a));
+    // Non-vacuous: both runs really did simulate a match, so this is not two empty results differing
+    // in nothing.
+    expect(a.events.fired.length).toBeGreaterThan(0);
+    expect(b.events.fired.length).toBeGreaterThan(0);
   });
 
   it("respawns in deathmatch, so both cars can outlive their first death", () => {
@@ -131,12 +139,42 @@ describe("runMatch", () => {
   });
 
   it("ranks placement by kills then fewest deaths in deathmatch", () => {
-    // `seed: 8` for the same reason as the test above: Task 8's host wiring moved this matchup's
-    // dynamics again and seed 40 stopped being decisive here, coming back tied 0-0 (`placement`
-    // [1, 1]) rather than what this test is checking. Seed 8 reliably produces a decisive kills/
-    // deaths split.
-    const out = runMatch({ ...SETUP, seed: 8, mode: GameMode.FFA_DEATHMATCH });
-    expect(out.seats.map((s) => s.placement).sort()).toEqual([1, 2]);
+    // FIXTURE ROBUSTNESS FIX (final review, finding 8, applied to this test's sibling defect). This
+    // used to pin ONE seed and assert it came back `[1, 2]` — which is a claim about that seed
+    // being decisive, not about the ranking rule, and it needed a fresh seed after every layer of
+    // the brain that moved this matchup (2 -> 11 -> 9 -> 40 -> 8, and the ram/blunder fixes in this
+    // very review broke seed 8 in turn). The RULE — more kills places ahead; equal kills, fewer
+    // deaths places ahead; equal on both places equal — is checkable on EVERY outcome, decisive or
+    // drawn, so it is asserted across a spread of seeds instead of hidden behind one lucky one.
+    const outcomes = [1, 2, 3, 4, 5, 6, 7, 8].map((seed) =>
+      runMatch({ ...SETUP, seed, mode: GameMode.FFA_DEATHMATCH }));
+
+    for (const out of outcomes) {
+      for (const a of out.seats) {
+        for (const b of out.seats) {
+          if (a.sessionId === b.sessionId) continue;
+          const label = `seed run ${a.sessionId} (${a.kills}k/${a.deaths}d) vs ` +
+            `${b.sessionId} (${b.kills}k/${b.deaths}d)`;
+          if (a.kills !== b.kills) {
+            // More kills always places ahead, whatever the deaths say.
+            const [ahead, behind] = a.kills > b.kills ? [a, b] : [b, a];
+            expect(ahead!.placement, label).toBeLessThan(behind!.placement);
+          } else if (a.deaths !== b.deaths) {
+            const [ahead, behind] = a.deaths < b.deaths ? [a, b] : [b, a];
+            expect(ahead!.placement, label).toBeLessThan(behind!.placement);
+          } else {
+            // Tied on both counts is one result, not two adjacent ones — and in particular is never
+            // broken by seat order, which is chassis order (`competitionRank`'s own doc).
+            expect(a.placement, label).toBe(b.placement);
+          }
+        }
+      }
+    }
+
+    // Non-vacuity: at least one of those matches actually WAS decisive, so the ordering branches
+    // above ran rather than every pair falling into the tie case. This is the part a single seed
+    // used to carry on its own, now spread across eight so one behaviour change cannot kill it.
+    expect(outcomes.some((out) => new Set(out.seats.map((s) => s.placement)).size > 1)).toBe(true);
   });
 
   it("ties on kills/deaths place equally in deathmatch, regardless of seat order (fix round 3, defect 1)", () => {
