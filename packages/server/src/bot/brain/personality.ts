@@ -16,6 +16,22 @@ const ARCHETYPES: Readonly<Record<PersonalityId, Shifts>> = Object.freeze({
 
 const IDS = Object.keys(ARCHETYPES) as PersonalityId[];
 
+/**
+ * The profile fields that are probabilities or fractions, and therefore may never leave [0, 1].
+ *
+ * `bot-profiles.test.ts` asserts that invariant of the AUTHORED table; without this list it stopped
+ * being true of the profile the brain actually runs, because a shift can push a value past 1 — a
+ * hard `opportunist` reached `ultDisciplineChance` 1.125 (0.9 x 1.25, inside the +-25% band, so
+ * `clampToBand` had no reason to stop it). It saturated harmlessly, but a stated invariant that only
+ * holds of the table and not of the rolled profile is not an invariant. Kept in step with the same
+ * list in that test.
+ */
+const UNIT_INTERVAL_FIELDS: ReadonlySet<string> = new Set<keyof BotProfile>([
+  "fireDisciplineChance", "ultDisciplineChance", "ultWindowHpFraction", "woundedBias",
+  "vengefulness", "standoffFraction", "deadbandFraction", "orbitBias", "retreatHpFraction",
+  "ramIntentChance", "dodgeChance", "blunderChance", "idleFidgetChance", "leadFactor",
+]);
+
 /** The tier one rung easier, whose values a personality may never reach past (H47). */
 const EASIER: Readonly<Record<BotDifficulty, BotDifficulty | undefined>> = Object.freeze({
   easy: undefined,
@@ -60,6 +76,7 @@ export function rollPersonality(
   for (const [key, factor] of Object.entries(shifts) as [keyof BotProfile, number][]) {
     profile[key] = clampToBand(
       tierBase[key], tierBase[key] * factor, easier ? BOT_PROFILES[easier][key] : undefined,
+      UNIT_INTERVAL_FIELDS.has(key),
     );
   }
 
@@ -74,8 +91,17 @@ export function rollPersonality(
  * the easier neighbour. `neighbour` may sit either side of `base` — `vengefulness` runs backwards up
  * the ladder (H33) — so the bound is applied as "no further from `base` than `neighbour` is", not as
  * a naive min or max.
+ *
+ * `unitInterval` additionally holds the result inside [0, 1]. It is applied LAST, after the band and
+ * the neighbour bound, because it is a bound on what the number MEANS rather than on how far the
+ * personality may move it: 1.125 is not a probability at all, whatever band it landed inside.
  */
-function clampToBand(base: number, shifted: number, neighbour: number | undefined): number {
+function clampToBand(
+  base: number,
+  shifted: number,
+  neighbour: number | undefined,
+  unitInterval: boolean,
+): number {
   const jitter = BRAIN_CONSTANTS.personalityJitter;
   const low = Math.min(base * (1 - jitter), base * (1 + jitter));
   const high = Math.max(base * (1 - jitter), base * (1 + jitter));
@@ -85,5 +111,6 @@ function clampToBand(base: number, shifted: number, neighbour: number | undefine
     if (neighbour > base) out = Math.min(out, neighbour);
     else if (neighbour < base) out = Math.max(out, neighbour);
   }
+  if (unitInterval) out = Math.min(Math.max(out, 0), 1);
   return out;
 }
