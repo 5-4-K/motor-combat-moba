@@ -1,10 +1,11 @@
 # Motor Combat MOBA — Online Netcode and Client Architecture Design
 
-**Status: proposal, awaiting the user's review.** Written from a brainstorming session on 2026-09-04
-that asked for an analysis of everything the gameplay has, then a netcode and client architecture
-designed from that analysis — with no bias toward the current architecture. Nothing here is
-implemented. The decisions are numbered N1–N34 so a review can accept or overturn them one at a
-time; the open questions at the end are the ones a reviewer has to answer before a plan is written.
+**Status: reviewed and approved by the user on 2026-09-04; every open question in §10 is resolved
+in place.** Written from a brainstorming session that asked for an analysis of everything the
+gameplay has, then a netcode and client architecture designed from that analysis — with no bias
+toward the current architecture — and then reconciled against the user's own consolidated note
+(§13). Nothing here is implemented. The decisions are numbered N1–N31 (with N1a, N10a, N23a) and
+are the input to the implementation plans.
 
 The user keeps a note at `docs/ideas/online-netcode-and-client-architecture-spec.md` (it is cited by
 the 2026-08-29 ram spec). Per root `CLAUDE.md` it was **not** read for this design. If it should
@@ -919,6 +920,8 @@ sources of jitter (F2, F3).
     on it.
 12. **Browsers — resolved 2026-09-04: Chrome, Edge and Firefox.** The differ runs on Chromium and
     Firefox; the bench scene runs on both.
+13. **Tuning tables in the protocol hash (N11) — resolved 2026-09-04: strict.** No case exists where
+    server and client should run different tables; a difference is a desync by definition.
 
 ## 11. Stop-and-ask items this design touches
 

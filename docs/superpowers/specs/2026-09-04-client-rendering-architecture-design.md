@@ -1,12 +1,13 @@
 # Motor Combat MOBA — Client Rendering Architecture Design
 
-**Status: proposal, awaiting the user's review.** Companion to
+**Status: reviewed and approved by the user on 2026-09-04; every open question in §12 is resolved
+in place.** Companion to
 [`2026-09-04-online-netcode-and-client-architecture-design.md`](2026-09-04-online-netcode-and-client-architecture-design.md),
 which gives the client a headless match model (`MatchClient`) that hands the renderer a plain
 `RenderFrame` each frame and a stream of server events. That document said *what* the renderer is
 given and split it into modules; it did not say *how* anything should be drawn. This one does. The
 goal it was asked to meet: **cool visuals without eating resources or slowing the game down, on a
-common personal computer.** Decisions are numbered R1–R26 (plus R17a).
+common personal computer.** Decisions are numbered R1–R26 (with R12a, R17a, R18a).
 
 ## 1. What the frame budget is, and where it goes today
 
