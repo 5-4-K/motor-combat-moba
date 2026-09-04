@@ -507,17 +507,20 @@ preferring a different weapon is not a skill difference.
    must be pushed once per tick — once per room, not once per bot — and the ring passed to
    `buildBotView`. Capacity is `max(viewStalenessTicks) + 1`. The machinery exists and has never run
    in production.
-2. **The `fired` sink.** `PipelineCtx.events` is optional and no room passes it, so `observedFires`
-   is empty everywhere. Rooms allocate one `CombatEvents` bag, pass it through the pipeline, read the
-   current tick's `fired` into the view, and **drain the arrays after each tick** — a long deathmatch
-   would otherwise accumulate every event of the match in a bag nothing reads.
-3. **Per-bot RNG streams.** Both rooms hold a single `botRng`; that is fine while a room has one bot.
-   The balance harness runs up to six and must derive one stream per seat (`deriveSeed(matchSeed,
-   slot)`), or two bots roll the same personality and their draws interleave.
+2. **The `fired` sink — rooms only.** `PipelineCtx.events` is optional and neither room passes it, so
+   `observedFires` is empty in both. Rooms allocate one `CombatEvents` bag, pass it through the
+   pipeline, feed the previous tick's `fired` slice into the view, and **drain the bag as they go** —
+   a long deathmatch would otherwise accumulate every event of the match in a bag nothing reads.
+   `balance/match.ts` already does all of this (it keeps a `firedCursor` and passes
+   `previousTickFires`) and needs no change here.
+3. **Per-bot RNG streams — already done where it matters.** `balance/match.ts` already derives
+   `makeRng(deriveSeed(seed, "seat", slot))` per seat. Both rooms hold a single `botRng`, which is
+   correct while a room has exactly one bot, and both do. No change; recorded so the next person to
+   add a second bot to a room knows the rule.
 
 Call sites to migrate: `PracticeRoom.enqueueBotInput`, `PlaygroundRoom`'s equivalent, and
-`balance/match.ts`. All three construct `LegacyController` today, and none of them changes shape
-beyond the three items above.
+`balance/match.ts`. All three construct `LegacyController` today; beyond swapping the class, the
+rooms take items 1 and 2 and the harness takes item 1 alone.
 
 ## 10. Testing
 

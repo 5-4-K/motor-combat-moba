@@ -471,7 +471,14 @@ const COAST: BotIntent = { steer: 0, throttle: 0, fireSlots: 0 };
  */
 export class HumanController implements BotController {
   readonly profileId: BotDifficulty;
+  /** The tier row as authored. Kept un-personalised so `debug()` can show what was rolled from. */
   private readonly profile: BotProfile;
+  /**
+   * What the brain actually reads. Identical to `profile` until Task 7's personality roll replaces
+   * it with a shifted-and-clamped copy — declared here so every layer reads one field from the
+   * start and no later task has to rename its reads.
+   */
+  private effectiveProfile: BotProfile;
   private fixedTarget: string | undefined;
   private target: string | undefined;
   private held: BotIntent = COAST;
@@ -483,6 +490,7 @@ export class HumanController implements BotController {
   ) {
     this.profileId = profileId;
     this.profile = options.profile ?? BOT_PROFILES[profileId];
+    this.effectiveProfile = this.profile;
     this.fixedTarget = options.targetSessionId;
   }
 
@@ -576,6 +584,8 @@ export class HumanController implements BotController {
   }
 }
 ```
+
+**Read every profile field through `this.effectiveProfile`, never `this.profile`** — in `shouldRecompute`, in `chase`, and in every layer added by a later task. The two are the same object until Task 7 rolls a personality, and reading the right field from the start is what stops Task 7 from having to rename reads scattered across six layers.
 
 - [ ] **Step 10: Run the controller test**
 
@@ -911,6 +921,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
   - `knownCars(state: PerceptionState, tick: number): BotCarView[]` — only cars past their acquire delay and inside memory
   - `activeThreats(state: PerceptionState, tick: number): KnownThreat[]`
   - `ultIsSpent(state: PerceptionState, sessionId: string, weaponId: WeaponId, tick: number, withinTicks: number): boolean`
+  - `ticksSinceBlame(state: PerceptionState, sessionId: string, tick: number): number` — Task 6's `scoreTargets` consumes this for the grudge term
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1432,28 +1443,52 @@ describe("chooseSlot", () => {
     expect(out.slot === undefined || Number.isInteger(out.slot)).toBe(true);
   });
 
+  /**
+   * Only the ult is available. This is the honest way to ask the discipline question: every ult on
+   * this roster is worth less per second than the slot beside it, so with a full kit the ranking
+   * picks the small gun and BOTH tiers would score zero ult presses — a test that passes while
+   * measuring nothing.
+   */
+  function ultOnly(carId: "bullseye"): BotSelfView {
+    const base = self(carId);
+    return {
+      ...base,
+      slots: base.slots.map((slot, i) => (i === 2 ? slot : { ...slot, stocks: 0 })),
+    };
+  }
+
   it("a disciplined bot holds its ult against a full-hp target (H30)", () => {
     let ultPresses = 0;
     for (let seed = 0; seed < 40; seed++) {
       const out = chooseSlot({
-        ...base, self: self("bullseye"), profile: BOT_PROFILES.hard,
+        ...base, self: ultOnly("bullseye"), profile: BOT_PROFILES.hard,
         distance: 1100, rng: makeRng(seed),
       });
       if (out.slot === 2) ultPresses++;
     }
-    expect(ultPresses).toBeLessThan(8); // ~10% of the time at ultDisciplineChance 0.9
+    expect(ultPresses).toBeLessThan(16); // ~10% at ultDisciplineChance 0.9, with seed slack
   });
 
   it("an undisciplined bot burns its ult against a full-hp target (H30)", () => {
     let ultPresses = 0;
     for (let seed = 0; seed < 40; seed++) {
       const out = chooseSlot({
-        ...base, self: self("bullseye"), profile: BOT_PROFILES.easy,
+        ...base, self: ultOnly("bullseye"), profile: BOT_PROFILES.easy,
         distance: 1100, rng: makeRng(seed),
       });
       if (out.slot === 2) ultPresses++;
     }
-    expect(ultPresses).toBeGreaterThan(0);
+    expect(ultPresses).toBe(40); // ultDisciplineChance 0 never holds
+  });
+
+  it("a good window lets the ult win the ranking against a better-value slot (H30)", () => {
+    // Full kit, target nearly dead: lance is worth far less per second than predator, and must win
+    // anyway — otherwise "saves it for a wounded target" could never produce a press.
+    const out = chooseSlot({
+      ...base, self: self("bullseye"), profile: BOT_PROFILES.hard,
+      distance: 500, target: { ...target, hp: 5 }, rng: makeRng(1),
+    });
+    expect(out.slot).toBe(2);
   });
 
   it("respects the switch lock rather than throwing a press away (H27a)", () => {
@@ -1466,15 +1501,31 @@ describe("chooseSlot", () => {
   });
 
   it("will press a range-0 weapon at contact range (H28)", () => {
-    let pressed = false;
-    for (let seed = 0; seed < 40 && !pressed; seed++) {
-      const out = chooseSlot({
-        ...base, self: self("bastion"), profile: BOT_PROFILES.easy,
-        distance: 100, target: { ...target, x: 100, hp: 10 }, rng: makeRng(seed),
-      });
-      if (out.slot === 2) pressed = true;
-    }
-    expect(pressed).toBe(true);
+    // Bastion with only `wildcharge` in hand. Its two other slots out-rank it on value, so leaving
+    // them loaded would test the ranking rather than the range-0 gate this case is about.
+    const bastion = self("bastion");
+    const chargeOnly: BotSelfView = {
+      ...bastion,
+      slots: bastion.slots.map((slot, i) => (i === 2 ? slot : { ...slot, stocks: 0 })),
+    };
+    const out = chooseSlot({
+      ...base, self: chargeOnly, profile: BOT_PROFILES.easy,
+      distance: 100, target: { ...target, x: 100, hp: 10 }, rng: makeRng(1),
+    });
+    expect(out.slot).toBe(2);
+  });
+
+  it("will NOT press a range-0 weapon from well beyond contact range (H28)", () => {
+    const bastion = self("bastion");
+    const chargeOnly: BotSelfView = {
+      ...bastion,
+      slots: bastion.slots.map((slot, i) => (i === 2 ? slot : { ...slot, stocks: 0 })),
+    };
+    const out = chooseSlot({
+      ...base, self: chargeOnly, profile: BOT_PROFILES.easy,
+      distance: 600, rng: makeRng(1),
+    });
+    expect(out.slot).toBeUndefined();
   });
 });
 ```
@@ -1491,6 +1542,15 @@ import { hasStatus, weaponDefOf } from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS, type BotProfile } from "../../config/bot-profiles.js";
 import type { Rng } from "../rng.js";
 import type { BotCarView, BotSelfView, BotSlotView } from "../types.js";
+
+/**
+ * How much a good window is worth to an ult's ranking (H30).
+ *
+ * Every ult on this roster is worth less per second than the slot beside it, so without this a good
+ * window could never actually produce an ult press and "saves it for a stunned target" would be
+ * unobservable from outside.
+ */
+const ULT_WINDOW_BONUS = 3;
 
 /** A slot with a stock in hand and neither lock running. */
 export function slotIsReady(slot: BotSlotView, tick: number): boolean {
@@ -1616,6 +1676,7 @@ export function chooseSlot(args: {
     const reach = slot.range > 0 ? slot.range : BRAIN_CONSTANTS.contactTriggerUnits;
     if (distance > reach) continue;
 
+    let windowBonus = 1;
     if (isUlt(slot)) {
       const goodMoment =
         targetHpFraction <= profile.ultWindowHpFraction ||
@@ -1623,6 +1684,11 @@ export function chooseSlot(args: {
         distance <= reach / 2;
       // Discipline is the probability of HOLDING when the moment is not good (H30).
       if (!goodMoment && ultRoll < profile.ultDisciplineChance) continue;
+      // And when the moment IS good, the ult has to be able to WIN the ranking, or "saves it for a
+      // stunned target" is unobservable: every ult on this roster is worth less per second than the
+      // slot beside it (lance 10.6/s against predator's 25/s), so raw value would pick the small
+      // gun forever and discipline would only ever read as "never fires the ult".
+      if (goodMoment) windowBonus = ULT_WINDOW_BONUS;
     } else if (distance > reach * 0.9 && disciplineRoll < profile.fireDisciplineChance) {
       // A marginal shot at the very edge of reach: a disciplined bot waits, a sprayer takes it (H29).
       continue;
@@ -1630,7 +1696,7 @@ export function chooseSlot(args: {
 
     // Prefer the weapon that is worth the most and fits the current distance best.
     const fit = 1 - Math.min(distance / reach, 1) * 0.5;
-    const score = weaponValueOf(slot, weights[i] ?? 1) * fit;
+    const score = weaponValueOf(slot, weights[i] ?? 1) * fit * windowBonus;
     if (score > bestScore) {
       bestScore = score;
       best = i;
@@ -2936,7 +3002,7 @@ Expected: PASS.
     }
 ```
 
-Add `private effectiveProfile: BotProfile` initialised to `this.profile` in the constructor, and use `this.effectiveProfile` **everywhere** the brain currently reads `this.profile`. Leave `this.profile` as the un-personalised tier row so `debug()` can show both.
+`effectiveProfile` already exists (Task 1 declared it, initialised to the tier row); this step is the first thing that ever reassigns it. Confirm no layer still reads `this.profile` — `grep -n "this\.profile\b" packages/server/src/bot/brain/controller.ts` should match only the constructor and `debug()`.
 
 - Replace the `return this.held;` at the end of `decide` with:
 
@@ -2970,8 +3036,8 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ### Task 8: Host wiring — the view ring and the fired sink
 
 **Files:**
-- Modify: `packages/server/src/rooms/PracticeRoom.ts`, `packages/server/src/rooms/PlaygroundRoom.ts`, `packages/server/balance/match.ts`
-- Test: `packages/server/src/rooms/practice-room.test.ts` (extend)
+- Modify: `packages/server/src/rooms/PracticeRoom.ts`, `packages/server/src/rooms/PlaygroundRoom.ts`, `packages/server/balance/match.ts`, `packages/server/src/bot/view-ring.ts`
+- Test: `packages/server/src/bot/ring-capacity.test.ts` (new)
 
 **Interfaces:**
 - Consumes: `ViewRing`, `snapshotWorld` from `../bot/index.js`; `newCombatEvents`, `type CombatEvents` from shared.
@@ -3146,22 +3212,40 @@ function run(tier: "easy" | "medium" | "hard", ticks: number, over: Partial<BotV
 }
 
 describe("tier characterisation", () => {
-  it("hard reacts to an incoming shot and easy does not (H25)", () => {
+  /**
+   * Within-tier, not across tiers. A harder tier has a tighter `aimToleranceRad` and therefore
+   * steers more in ANY scene, so comparing steer counts between tiers would pass whether or not
+   * dodging exists. The question is whether the shot changes what THIS tier does.
+   */
+  it("hard changes course for an incoming shot and easy ignores it (H25)", () => {
     const incoming = [{
       id: "shot", ownerSessionId: "them", weaponId: "predator" as const,
       x: 600, y: 360, angle: Math.PI,
     }];
-    const scene = { others: [enemy], instances: incoming };
-    const hard = run("hard", 60, scene).out;
-    const easy = run("easy", 60, scene).out;
-    const turns = (intents: { steer: number }[]) => intents.filter((i) => i.steer !== 0).length;
-    expect(turns(hard)).toBeGreaterThan(turns(easy));
+    const steers = (tier: "easy" | "hard", instances: BotView["instances"]) =>
+      run(tier, 90, { others: [enemy], instances }).out.map((i) => i.steer).join(",");
+
+    expect(steers("hard", incoming)).not.toBe(steers("hard", []));
+    expect(steers("easy", incoming)).toBe(steers("easy", []));
   });
 
   it("easy burns its ult on a full-hp target and hard does not (H30)", () => {
-    const scene = { others: [{ ...enemy, x: 900 }] };
-    const ultPressed = (tier: "easy" | "hard") =>
-      run(tier, 200, scene).out.some((i) => i.fireSlots === 1 << 2);
+    // Only `lance` in hand: with a full kit both tiers rank `predator` above it at every distance,
+    // so neither would press the ult and the test would pass while measuring nothing.
+    const ultOnly = (base: BotView["self"]): BotView["self"] => ({
+      ...base,
+      slots: base.slots.map((slot, i) => (i === 2 ? slot : { ...slot, stocks: 0 })),
+    });
+    const ultPressed = (tier: "easy" | "hard") => {
+      const bot = new HumanController(tier);
+      let fired = false;
+      for (let tick = 0; tick < 300; tick++) {
+        const scene = view(tick, { others: [{ ...enemy, x: 900 }] });
+        const intent = bot.decide({ ...scene, self: ultOnly(scene.self) });
+        if (intent.fireSlots === 1 << 2) fired = true;
+      }
+      return fired;
+    };
     expect(ultPressed("easy")).toBe(true);
     expect(ultPressed("hard")).toBe(false);
   });
@@ -3195,28 +3279,46 @@ describe("tier characterisation", () => {
     expect(run("easy", 200, scene).bot.currentTargetSessionId).toBe("shooter");
   });
 
-  it("a full kit does not press the same slot forever (H27)", () => {
-    const scene = { others: [{ ...enemy, x: 500 }] };
-    const pressed = new Set(
-      run("hard", 400, scene).out.filter((i) => i.fireSlots !== 0).map((i) => i.fireSlots),
-    );
-    expect(pressed.size).toBeGreaterThan(1);
+  it("uses the rest of the kit when the top-value slot is unavailable (H27)", () => {
+    // The real property: one bit per press, and the kit actually gets used. The test view holds slot
+    // state constant, so with `predator` always loaded it would always out-rank the others and this
+    // would prove nothing -- hence taking it out of the bot's hands.
+    const withoutPredator = (base: BotView["self"]): BotView["self"] => ({
+      ...base,
+      slots: base.slots.map((slot, i) => (i === 0 ? { ...slot, stocks: 0 } : slot)),
+    });
+    const bot = new HumanController("hard");
+    const pressed = new Set<number>();
+    for (let tick = 0; tick < 400; tick++) {
+      const scene = view(tick, { others: [{ ...enemy, x: 500 }] });
+      const intent = bot.decide({ ...scene, self: withoutPredator(scene.self) });
+      if (intent.fireSlots !== 0) pressed.add(intent.fireSlots);
+    }
+    expect(pressed.size).toBeGreaterThan(0);
+    expect(pressed.has(1 << 0)).toBe(false);
+    // Exactly one bit per press, always (H27).
+    for (const mask of pressed) expect(mask & (mask - 1)).toBe(0);
   });
 
-  it("hard stays further off a wall than easy over the same approach (H39)", () => {
-    const nearWall = (tier: "easy" | "hard") => {
+  it("a wall changes what hard does and never reaches easy (H39)", () => {
+    // Within-tier, and the SCENE is controlled: the enemy sits 200 units directly ahead in both
+    // runs, so the relative geometry the bot is fighting is identical and the only thing that
+    // differs is how close the wall is. Comparing steer counts across tiers instead would just be
+    // measuring `aimToleranceRad`, and comparing two different self positions would just be
+    // measuring two different fights.
+    const steers = (tier: "easy" | "hard", x: number) => {
       const bot = new HumanController(tier);
-      let steersAway = 0;
+      const out: number[] = [];
       for (let tick = 0; tick < 90; tick++) {
-        const intent = bot.decide(view(tick, {
-          others: [enemy],
-          self: { ...view(tick).self, x: 1200, y: 360, angle: 0 },
-        }));
-        if (intent.steer !== 0) steersAway++;
+        const scene = view(tick, { others: [{ ...enemy, x: x + 200, y: 360 }] });
+        out.push(bot.decide({ ...scene, self: { ...scene.self, x, y: 360, angle: 0 } }).steer);
       }
-      return steersAway;
+      return out.join(",");
     };
-    expect(nearWall("hard")).toBeGreaterThan(nearWall("easy"));
+    // Driving at x=1200 puts the far wall (1280) inside hard's 150-unit look-ahead and outside
+    // easy's 40-unit one; x=640 is open floor for both.
+    expect(steers("hard", 1200)).not.toBe(steers("hard", 640));
+    expect(steers("easy", 1200)).toBe(steers("easy", 640));
   });
 });
 ```
