@@ -122,7 +122,8 @@ export class HumanController implements BotController {
     this.target = target?.sessionId;
 
     // LAYER 2/3/4 — assess, move, shoot, on the recompute cadence (Tasks 4-6)
-    if (this.shouldRecompute(view.tick)) {
+    const decisionWindow = this.shouldRecompute(view.tick);
+    if (decisionWindow) {
       this.held = this.plan(view, target);
     }
 
@@ -138,10 +139,12 @@ export class HumanController implements BotController {
 
     // LAYER 5 — humanize: reaction delay, blunders, idle fidget. Runs every tick, never on the
     // recompute cadence — the one deliberate exception to steer/throttle staying ternary out of
-    // `reduceToIntent`.
+    // `reduceToIntent`. The delay line and the fidget are genuinely per-tick; only the blunder
+    // ROLL is a per-decision-window event (H41), which is why the cadence is passed in rather than
+    // the whole layer being moved onto it.
     const idle = this.target === undefined;
     return applyHumanize(
-      this.humanize, this.held, view.tick, this.effectiveProfile, view.rng, idle,
+      this.humanize, this.held, view.tick, this.effectiveProfile, view.rng, idle, decisionWindow,
     );
   }
 
@@ -182,7 +185,17 @@ export class HumanController implements BotController {
       this.ramRolledForTargetId = target.sessionId;
       this.wantsRam = ramRoll < profile.ramIntentChance;
     }
-    if (!target) this.wantsRam = false;
+    if (!target) {
+      this.wantsRam = false;
+      // And the roll is RE-ARMED, not just the intent cleared. Losing the target ends the episode
+      // the roll belonged to, exactly as `chooseSlot` ends an ult's episode when its slot goes
+      // not-ready: the next target — even the same session id, reacquired after a death, a
+      // `phased` respawn or a walk out of awareness — is a new opportunity and earns its own roll.
+      // Leaving the id set here disabled `ramIntentChance` permanently for the rest of the match in
+      // every 1v1 (practice, and the harness's duel shape), where the id never changes: measured
+      // 22/40 seeds rammed before the first target loss and 0/40 after.
+      this.ramRolledForTargetId = undefined;
+    }
 
     const scores = scoreStances({
       self, target, distance, preferredRange: preferred, profile, tick,

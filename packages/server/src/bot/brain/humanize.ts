@@ -28,7 +28,15 @@ export function newHumanizeState(): HumanizeState {
  * Apply reaction delay, blunders and idle fidget.
  *
  * Draws exactly three random numbers, always, in this order: the blunder roll, the blunder kind, and
- * the fidget roll (H21).
+ * the fidget roll (H21). All three are drawn on EVERY tick, including the ticks that cannot start a
+ * blunder — `decisionWindow` gates what the first roll is allowed to DO, never whether it happens,
+ * so the stream stays aligned tick-for-tick regardless of the recompute cadence.
+ *
+ * `decisionWindow` is the caller's `shouldRecompute(tick)`: `blunderChance` is authored as a
+ * probability *per decision window* (H41), and rolling it every tick instead compounded it by the
+ * cadence — easy spent 57.9% of its ticks inside a blunder, medium 34.5%, hard 13.2%, against the
+ * ~9%/8%/7% the numbers describe (`blunderChance * blunderTicks / recomputeTicks`). Two of the four
+ * blunder kinds invert `steer`, so an easy bot was steering the wrong way more often than not.
  */
 export function applyHumanize(
   state: HumanizeState,
@@ -37,14 +45,18 @@ export function applyHumanize(
   profile: BotProfile,
   rng: Rng,
   idle: boolean,
+  decisionWindow: boolean,
 ): BotIntent {
   const blunderRoll = rng();
   const kindRoll = rng();
   const fidgetRoll = rng();
 
   if (tick >= state.blunderUntilTick) {
+    // The window EXPIRES on its own tick, whatever the cadence — a mistake that outlived its
+    // `blunderTicks` because the next decision window had not come round yet would be the same
+    // cadence-multiplied bug in the other direction.
     state.blunderKind = undefined;
-    if (blunderRoll < profile.blunderChance) {
+    if (decisionWindow && blunderRoll < profile.blunderChance) {
       state.blunderKind = BLUNDERS[Math.floor(kindRoll * BLUNDERS.length)] ?? "oversteer";
       state.blunderUntilTick = tick + profile.blunderTicks;
     }

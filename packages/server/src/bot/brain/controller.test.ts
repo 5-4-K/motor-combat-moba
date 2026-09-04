@@ -190,6 +190,57 @@ describe("HumanController", () => {
     expect(steerWhileDodging).not.toBe(0);
   });
 
+  it("re-arms the ram roll after the target is lost, so ramming survives the first death (H40)", () => {
+    // The ram roll is made ONCE per target — but "per target" has to mean per ENGAGEMENT, not per
+    // session id for the rest of the match. Clearing `wantsRam` on target loss without clearing the
+    // id that guards the re-roll left `ramIntentChance` permanently dead in every 1v1: practice mode
+    // and the balance harness's duel shape both keep the same opponent session id from the first
+    // tick to the last, so the first death or `phased` respawn switched deliberate ramming off for
+    // good (measured 22/40 seeds rammed before the first target loss and 0/40 after).
+    //
+    // `wantsRam` is private, so this reads it where it actually reaches the sim: `scoreStances`
+    // gives `brawl` a finite score ONLY when a contact weapon is ready or a ram is committed to, and
+    // Bullseye's kit has no `range: 0` row — so a `brawl` stance here IS `wantsRam`.
+    const slots = slotsOf("bullseye").map((weaponId) => ({
+      weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
+      range: weaponDefOf(weaponId).range,
+    }));
+    const target = {
+      sessionId: "them", carId: "mirage" as const, team: 0 as const,
+      x: 300, y: 100, angle: 0, speed: 0, hp: 70, maxHp: 70,
+      alive: true, phased: false, statuses: [], maneuver: 0,
+    };
+    // `ramIntentChance: 1` makes the roll's OUTCOME certain so the test measures whether the roll
+    // HAPPENS. Short memory and acquire windows keep the "lost, then found again" gap short.
+    // Seed 17 rolls the `grudge` archetype, which shifts none of these four fields — `brawler` and
+    // `kiter` both shift `ramIntentChance` and would silently discard the override.
+    const profile = {
+      ...BOT_PROFILES.hard,
+      ramIntentChance: 1, memoryTicks: 4, acquireTicks: 2, stanceCommitTicks: 2,
+    };
+    const bot = new HumanController("hard", { profile });
+    const rng = makeRng(17);
+    const self = { ...view().self, slots, x: 100, y: 100 };
+    const stanceAt = (tick: number, others: (typeof target)[]) => {
+      bot.decide(view({ tick, self, others, rng }));
+      return bot.debug()?.stance;
+    };
+
+    let brawledFirst = false;
+    for (let tick = 0; tick < 30; tick++) if (stanceAt(tick, [target]) === "brawl") brawledFirst = true;
+    expect(brawledFirst).toBe(true);
+
+    // Target gone for longer than `memoryTicks`: the engagement is over and the roll is spent.
+    for (let tick = 30; tick < 50; tick++) stanceAt(tick, []);
+    expect(bot.currentTargetSessionId).toBeUndefined();
+
+    // Same session id back — a respawn, or a car driving back into view. A NEW engagement, and it
+    // gets its own roll. Before the fix this loop never saw `brawl` again for the rest of the match.
+    let brawledAgain = false;
+    for (let tick = 50; tick < 90; tick++) if (stanceAt(tick, [target]) === "brawl") brawledAgain = true;
+    expect(brawledAgain).toBe(true);
+  });
+
   it("draws the same number of random numbers on a recover tick as on a comparable alive tick, and reports no firedSlot (review fix round 2, defect 1)", () => {
     // Before the fix, `plan()` early-returned COAST the instant the stance was "recover" — BEFORE
     // the `chooseSlot` call, which draws two random numbers unconditionally (its own comment says
