@@ -1,7 +1,7 @@
 import type { BotDifficulty } from "@motor-combat-moba/shared";
 
 /**
- * One difficulty's knobs (H44). Thirty-three of them, in five groups: perception, aim, fire
+ * One difficulty's knobs (H44). Thirty-four of them, in six groups: perception, aim, fire
  * economy, target politics, positioning, and consistency.
  *
  * Every field is a NUMBER, and no code outside this file branches on which tier it came from (H8).

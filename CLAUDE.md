@@ -83,6 +83,14 @@ practice room** has anyone in it. Settings ride as join options, not messages: p
 mid-session reconfiguration. See
 [`docs/superpowers/specs/2026-09-03-practice-mode-design.md`](docs/superpowers/specs/2026-09-03-practice-mode-design.md).
 
+**The bot is a five-layer brain, and a tier is data.** `packages/server/src/bot/brain/` runs
+perceive → assess → move → shoot → humanize; `easy`/`medium`/`hard` differ only in `BOT_PROFILES`,
+and no module branches on the difficulty name. Dodging is a steering desire, never a stance, so a
+bot can dodge without stopping fighting. The bot presses **one** slot per tick — `beginFire` takes
+the lowest set bit, so an OR of every in-range slot fires slot 0 and nothing else. `BOT_BRAIN_VERSION`
+rides in `botFingerprint`: bump it when behaviour changes without the table moving. See
+[`docs/bot-behavior.md`](docs/bot-behavior.md).
+
 ## Hard invariants
 
 1. `TICK_RATE_HZ` lives once in `@motor-combat-moba/shared`.
@@ -106,6 +114,7 @@ mid-session reconfiguration. See
 | Schema fields | [`docs/schema-reference.md`](docs/schema-reference.md) |
 | Env knobs / balance tables | [`docs/config-reference.md`](docs/config-reference.md) |
 | Which knob to tune for a turning/aiming complaint, and every turn stat on the roster | [`docs/turn-tuning.md`](docs/turn-tuning.md) — **hand-maintained, see below** |
+| Which knob to tune when a bot feels wrong, and every bot parameter | [`docs/bot-behavior.md`](docs/bot-behavior.md) |
 | LAN zip / `start.bat` | [`docs/deployment.md`](docs/deployment.md) |
 | Language / import rules | [`docs/conventions.md`](docs/conventions.md) |
 | Plan sequence | [`docs/roadmap.md`](docs/roadmap.md) |
