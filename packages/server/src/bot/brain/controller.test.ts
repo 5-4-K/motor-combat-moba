@@ -24,9 +24,16 @@ function view(overrides: Partial<BotView> = {}): BotView {
 }
 
 describe("HumanController", () => {
-  it("coasts when there is no target", () => {
+  it("hunts toward the arena centre rather than coasting when there is no target (Task 6)", () => {
+    // Pre-Task-6 this bot coasted with no target — a placeholder, per the removed `chase()`
+    // docstring. Task 6 gives the no-target case a real stance (`hunt`, H9), which is the default
+    // stance from `newStanceState()` and drives the bot toward the arena centre to go looking
+    // rather than sitting still, while never firing (no target to aim `chooseSlot` at).
     const bot = new HumanController("hard");
-    expect(bot.decide(view())).toEqual({ steer: 0, throttle: 0, fireSlots: 0 });
+    const out = bot.decide(view());
+    expect(out.throttle).toBe(1);
+    expect(out.steer).not.toBe(0);
+    expect(out.fireSlots).toBe(0);
   });
 
   it("is deterministic for the same seed (H21)", () => {
