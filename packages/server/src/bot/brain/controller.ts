@@ -1,4 +1,4 @@
-import { weaponDefOf, type BotDifficulty } from "@motor-combat-moba/shared";
+import { hasStatus, weaponDefOf, type BotDifficulty } from "@motor-combat-moba/shared";
 import { BOT_PROFILES, BRAIN_CONSTANTS, type BotProfile } from "../../config/bot-profiles.js";
 import type { BotCarView, BotController, BotDebug, BotIntent, BotView, StanceId } from "../types.js";
 import { interceptPoint, newAimErrorState, signedDelta, stepAimError, type AimErrorState } from "./aim.js";
@@ -171,8 +171,6 @@ export class HumanController implements BotController {
     // fix that added this test.
     this.lastPreferredRange = target ? preferred : 0;
 
-    if (this.stance.current === "recover") return COAST;
-
     // Aim stays on the TARGET even while the body leans elsewhere: a human dodging is still
     // pointing their gun at you.
     const leadSlot = self.slots[0];
@@ -195,7 +193,11 @@ export class HumanController implements BotController {
     const desires: Desire[] = [];
     let range = preferred;
     let closing = true;
-    let mayFire = target !== undefined;
+    // Recover never fires — chosen below, past `chooseSlot`, so the two draws it always makes stay
+    // in the stream even on a tick the bot cannot act (H21): losing control is common (every
+    // Deathmatch respawn is a `phased` tick), so skipping the call here would desync a seeded
+    // replay far more often than a corner case would suggest.
+    let mayFire = target !== undefined && this.stance.current !== "recover";
 
     switch (this.stance.current) {
       case "engage":
@@ -244,7 +246,8 @@ export class HumanController implements BotController {
       closing,
     });
 
-    // `chooseSlot` draws whether or not it may fire, so the stream does not depend on the stance.
+    // `chooseSlot` draws whether or not it may fire, so the stream does not depend on the stance —
+    // recover included, which is exactly why `mayFire` gates the RESULT rather than the call.
     const decision = chooseSlot({
       self, target: target ?? ABSENT_TARGET, distance, aimDelta, profile,
       weights: this.slotWeights, tick, lastPressTick: this.lastPressTick, rng: view.rng,
@@ -253,17 +256,28 @@ export class HumanController implements BotController {
     if (slot !== undefined) this.lastPressTick = tick;
     this.lastFiredSlot = slot;
 
+    // Recover's OUTPUT is COAST — the bot cannot steer or drive without control — but everything
+    // above it (the stance score, the aim math, the `chooseSlot` draws) still ran on this tick, so
+    // the seeded stream matches a comparable alive/unphased tick draw-for-draw.
+    if (this.stance.current === "recover") return COAST;
+
     return { steer, throttle, fireSlots: slot === undefined ? 0 : 1 << slot };
   }
 
   /**
    * The three cases a stance may be cut short for (H10). Dodging is NOT one of them — it is a
    * steering desire, which is what lets the bot dodge without stopping fighting (H26).
+   *
+   * `controlLost` mirrors `scoreStances`'s own definition exactly (dead OR `phased`) — the two must
+   * agree, or a bot that goes `phased`-but-alive keeps acting under a stale stance for up to
+   * `stanceCommitTicks` before `scoreStances` would have forced `recover` anyway, and symmetrically
+   * sits in a stale `recover` for up to `stanceCommitTicks` after its spawn protection actually ends.
    */
   private preemption(view: BotView, target: BotCarView | undefined): StanceId | undefined {
     const profile = this.effectiveProfile;
     const self = view.self;
-    if (!self.alive) return "recover";
+    const controlLost = !self.alive || hasStatus(self.statuses, "phased", view.tick);
+    if (controlLost) return "recover";
     const hpFraction = self.maxHp > 0 ? self.hp / self.maxHp : 1;
     if (profile.retreatHpFraction > 0 && hpFraction < profile.retreatHpFraction) return "disengage";
     if (!target && this.stance.current !== "hunt") return "hunt";

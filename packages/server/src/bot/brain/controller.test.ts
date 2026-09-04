@@ -180,4 +180,57 @@ describe("HumanController", () => {
     // threat rather than sitting at 0 the way it would if the car were simply pointed at its target.
     expect(steerWhileDodging).not.toBe(0);
   });
+
+  it("draws the same number of random numbers on a recover tick as on a comparable alive tick, and reports no firedSlot (review fix round 2, defect 1)", () => {
+    // Before the fix, `plan()` early-returned COAST the instant the stance was "recover" — BEFORE
+    // the `chooseSlot` call, which draws two random numbers unconditionally (its own comment says
+    // so, precisely so the stream stays aligned, H21). Skipping the call on a recover tick dropped
+    // those two draws, desyncing a seeded replay from that point on. This is not a corner case:
+    // `scoreStances` treats `phased` as lost control, and every FFA_DEATHMATCH respawn (which is
+    // what practice mode is pinned to) grants `phased` for `phaseSeconds` — so this fired on every
+    // respawn of every practice match. Counting actual rng invocations (not inspecting the code) is
+    // what catches a draw silently dropped anywhere in the call chain, not just in `plan()` itself.
+    const slots = slotsOf("bullseye").map((weaponId) => ({
+      weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
+      range: weaponDefOf(weaponId).range,
+    }));
+    const target = {
+      sessionId: "them", carId: "mirage" as const, team: 0 as const,
+      x: 400, y: 100, angle: 0, speed: 0, hp: 70, maxHp: 70,
+      alive: true, phased: false, statuses: [], maneuver: 0,
+    };
+    const aliveSelf = {
+      sessionId: "me", carId: "bullseye" as const, team: 0 as const,
+      x: 100, y: 100, angle: 0, speed: 0, hp: 65, maxHp: 65, alive: true,
+      statuses: [], slots, switchLockUntilTick: 0, lockTargetSessionId: "",
+      maneuver: 0, maneuverTicksLeft: 0,
+    };
+    // Same car, same tick, same target and slots — the ONLY difference is a live `phased` status,
+    // which is exactly the condition `scoreStances`'s `controlLost` (and now `preemption`'s) checks.
+    const phasedSelf = {
+      ...aliveSelf,
+      statuses: [{ statusId: "phased" as const, startTick: 0, endsTick: 999, sourceSessionId: "" }],
+    };
+
+    function countingRng(seed: number): { rng: () => number; callCount: () => number } {
+      const inner = makeRng(seed);
+      let calls = 0;
+      return { rng: () => { calls++; return inner(); }, callCount: () => calls };
+    }
+
+    const aliveCounter = countingRng(3);
+    const aliveBot = new HumanController("hard");
+    aliveBot.decide(view({ tick: 0, self: aliveSelf, others: [target], rng: aliveCounter.rng }));
+
+    const phasedCounter = countingRng(3);
+    const phasedBot = new HumanController("hard");
+    const phasedOut = phasedBot.decide(view({
+      tick: 0, self: phasedSelf, others: [target], rng: phasedCounter.rng,
+    }));
+
+    expect(phasedBot.debug()?.stance).toBe("recover");
+    expect(phasedCounter.callCount()).toBe(aliveCounter.callCount());
+    expect(phasedOut).toEqual({ steer: 0, throttle: 0, fireSlots: 0 });
+    expect(phasedBot.debug()?.firedSlot).toBeUndefined();
+  });
 });
