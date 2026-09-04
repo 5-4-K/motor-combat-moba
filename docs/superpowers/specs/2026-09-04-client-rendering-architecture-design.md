@@ -165,7 +165,7 @@ Bottom to top, each a layer with one atlas and one blend mode unless noted. Worl
 | 6 | Overlay FX | death burst, respawn shimmer, camera-space flashes | atlas, ADD or SCREEN |
 | 7 | Debug | hitboxes, netgraph, perf overlay — `Graphics`, only when a flag is set | immediate mode, opt-in |
 | H0 | HUD chrome | slot rings, badge frames, roster panel | atlas, NORMAL |
-| H1 | HUD dynamic | cooldown sweeps (one `Shader` quad per slot or a baked 60-frame sweep sheet), drain bars | atlas |
+| H1 | HUD dynamic | cooldown sweeps as a baked sweep sheet (frame from the cooldown fraction), drain bars | atlas |
 | H2 | HUD text | every number and label as `BitmapText` | font atlas |
 
 Target for a full 6-player firefight: **≤ 12 draw calls** in the world, ≤ 4 in the HUD. Phaser's
@@ -222,7 +222,7 @@ Every visual belongs to one class, and its class fixes what it may cost.
 | Skid marks | none | stamped into the decal layer when a car's lateral velocity or a knock exceeds a threshold (client-side, cosmetic, from the predicted world) | D |
 | Muzzle flash | none | 2-frame flipbook on the Glow layer at the muzzle, from the ghost shot's birth tick | A |
 | Arena floor | `Graphics` once | image; at tier High a slow `Noise` breathe on the floor lines | S, F-ish |
-| HUD slot ring, sweep, glyph, key pill, badges, roster | all `Graphics` + `Text` per frame | baked ring frames; the sweep as one small `Shader` quad per slot (angle uniform) — or a 60-frame baked sheet if a shader is judged too much; numbers and names as `BitmapText` | S, A, H2 |
+| HUD slot ring, sweep, glyph, key pill, badges, roster | all `Graphics` + `Text` per frame | baked ring frames; the sweep as a baked sweep sheet, frame chosen from the cooldown fraction; numbers and names as `BitmapText` | S, A, H2 |
 
 Everything in the "Becomes" column is on the list because a version of it already exists in
 `combat-visual.ts` as geometry, or is the standard cheap expression of a thing the game already
@@ -374,7 +374,7 @@ one and deletes the old path in the same change so there is never two ways to dr
 | Phase | Ships | Deletes |
 |---|---|---|
 | V0 Instrument | perf overlay, bench scene, `bench-visual.mjs`, baseline numbers | — |
-| V1 HUD | `HudScene`, `BitmapText`, baked rings, sweep shader, retained updates | `hudGfx`, `hudSweepGfx`, `rosterGfx`, the `Text` pools, `splitCameras` and its ignore lists |
+| V1 HUD | `HudScene`, `BitmapText`, baked rings, baked sweep sheet, retained updates | `hudGfx`, `hudSweepGfx`, `rosterGfx`, the `Text` pools, `splitCameras` and its ignore lists |
 | V2 Bake | `bake.ts`, `baked-atlas`, `pack-atlas.mjs`; projectiles, glows, orbs, hp bars, brackets, ghosts, arrows as sprites | `shotGfx` for projectiles, `hpGfx`, `lockGfx`, `arrowGfx`, `maneuverGfx` |
 | V3 Beams | flame flipbook, lance rope, tremor and aura sprites | the last per-frame `Graphics` in the world path; `beamDrawLayers` becomes bake-only |
 | V4 Events | particle service, decal mechanism with no decals authored (R12a), event-driven feedback, status flipbooks, shadows, muzzle flash | `impact-feedback.ts`'s local detection |
@@ -422,8 +422,9 @@ netcode spec (N23a) and on `RenderFrame`.
 1. **The halo allowance (R8) — resolved 2026-09-04: allowed.** The opaque core stays pinned to the
    hitbox by the existing test; an additive halo may extend to 1.5× at ≤ 25 % alpha, and the test
    is re-stated in those two terms.
-2. **Cooldown sweep: shader or sheet (R12).** One tiny `Shader` quad per slot is the cleanest; a
-   60-frame baked sheet avoids GLSL in the codebase entirely. Either fits the budget.
+2. **Cooldown sweep: shader or sheet (R12) — resolved 2026-09-04: a baked sweep sheet**, one frame
+   per 6° (90 frames at 4° if the stepping shows on a long cooldown), chosen from the cooldown
+   fraction; a batched sprite, no GLSL.
 3. **Bloom at all (R19) — resolved 2026-09-04: keep, tier High only.**
 4. **Decal persistence (R12) — resolved 2026-09-04: decals fade after a few seconds, the time from
    a global config overridable per decal, and none is authored now; only the mechanism ships
