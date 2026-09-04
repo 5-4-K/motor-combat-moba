@@ -112,4 +112,65 @@ describe("HumanController", () => {
     expect(debug?.firedSlot).toBeUndefined();
     expect(debug?.preferredRange).toBe(0);
   });
+
+  it("still fires while dodging, because chooseSlot reads the delta to the TARGET, not the blended steering delta (ordering trap)", () => {
+    // The regression this guards: `chase()` computes two different deltas — `aimDelta` (to the
+    // target's aim point, for `chooseSlot`) and `delta` (to the BLENDED steering heading, for
+    // `reduceToIntent`). Swap which one goes where and this compiles, typechecks, and every OTHER
+    // test in this file and in movement.test.ts still passes — but the bot stops shooting the
+    // instant anything (a dodge, an orbit) pulls its steering off the target, which is exactly the
+    // behaviour the movement layer exists to prevent. Nothing but a controller-level test with a
+    // real divergence between "where the gun points" and "where the wheels want to go" can catch
+    // that, because the unit tests below pin `chooseSlot`/`reduceToIntent` in isolation and never
+    // see them wired together.
+    const slots = slotsOf("bullseye").map((weaponId) => ({
+      weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
+      range: weaponDefOf(weaponId).range,
+    }));
+    const bot = new HumanController("hard");
+    const selfView = {
+      sessionId: "me", carId: "bullseye" as const, team: 0 as const,
+      x: 100, y: 100, angle: 0, speed: 0, hp: 65, maxHp: 65, alive: true,
+      statuses: [], slots, switchLockUntilTick: 0, lockTargetSessionId: "",
+      maneuver: 0, maneuverTicksLeft: 0,
+    };
+    // Straight ahead of the car (bearing/aim delta ~0), so `aimDelta` stays comfortably inside
+    // `hard`'s `fireConeRad` (0.2) for the whole run.
+    const target = {
+      sessionId: "them", carId: "mirage" as const, team: 0 as const,
+      x: 400, y: 100, angle: 0, speed: 0, hp: 70, maxHp: 70,
+      alive: true, phased: false, statuses: [], maneuver: 0,
+    };
+    // A shot bearing down the +y axis, passing 10 units to the right of the car — well inside
+    // `THREAT_LATERAL_UNITS` (~45), so `perceive()` registers it as a threat, and its
+    // `awayHeadingRad` comes out pointing almost directly opposite the target (back along -x) — the
+    // sharpest possible divergence from `aimHeading`, so `delta` (the BLENDED heading `reduceToIntent`
+    // reads) swings hard away from 0 while `aimDelta` (what `chooseSlot` reads) does not move at all.
+    const incoming = {
+      id: "shot-1", ownerSessionId: "them", weaponId: "predator" as const,
+      x: 110, y: -500, angle: Math.PI / 2,
+    };
+
+    let firedWhileDodging = false;
+    let steerWhileDodging: -1 | 0 | 1 | undefined;
+    // `hard`'s `dodgeReactionTicks` is 4 and `acquireTicks` is 5, so the threat is reactable and the
+    // target is noticed by tick 5; `recomputeTicks` is 2, so plenty of runway below covers a
+    // recompute tick past both.
+    for (let tick = 0; tick < 20; tick++) {
+      const out = bot.decide(view({
+        tick, self: selfView, others: [target], instances: [incoming], rng: makeRng(3),
+      }));
+      if (out.fireSlots !== 0) {
+        firedWhileDodging = true;
+        steerWhileDodging = out.steer;
+        break;
+      }
+    }
+
+    expect(firedWhileDodging).toBe(true);
+    // The dodge desire outweighs the aim desire (`DODGE_WEIGHT` 2.5 vs the aim desire's weight 1),
+    // so the blended heading is pulled well off the target — steering visibly responds to the
+    // threat rather than sitting at 0 the way it would if the car were simply pointed at its target.
+    expect(steerWhileDodging).not.toBe(0);
+  });
 });

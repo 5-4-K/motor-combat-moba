@@ -58,6 +58,16 @@ describe("orbitDesire", () => {
     expect(desire).toBeDefined();
     expect(Math.abs(desire!.headingRad)).toBeCloseTo(Math.PI / 2, 2);
   });
+
+  it("circles the other way when side is -1", () => {
+    // Same bearing and bias as the test above, opposite `side` — the two must land on opposite
+    // sides of the target bearing, not merely both be +-pi/2 off it (which the `toBeCloseTo` above
+    // alone would not catch, since it takes the absolute value).
+    const left = orbitDesire(0, 0.75, 1);
+    const right = orbitDesire(0, 0.75, -1);
+    expect(left!.headingRad).toBeCloseTo(Math.PI / 2, 6);
+    expect(right!.headingRad).toBeCloseTo(-Math.PI / 2, 6);
+  });
 });
 
 describe("dodgeDesires", () => {
@@ -69,6 +79,20 @@ describe("dodgeDesires", () => {
     expect(out).toHaveLength(1);
     expect(out[0]!.headingRad).toBe(1);
     expect(out[0]!.weight).toBeGreaterThan(0);
+  });
+
+  it("carries one desire per threat when there is more than one", () => {
+    // A single shot must never collapse two threats into one vote, or `blendHeading` would under-
+    // weight dodging exactly when it matters most — two incoming shots at once.
+    const out = dodgeDesires([
+      { id: "a", ownerSessionId: "x", weaponId: "predator", noticedAtTick: 0,
+        reactAtTick: 0, reacting: true, awayHeadingRad: 1 },
+      { id: "b", ownerSessionId: "y", weaponId: "thumper", noticedAtTick: 0,
+        reactAtTick: 0, reacting: true, awayHeadingRad: -2 },
+    ]);
+    expect(out).toHaveLength(2);
+    expect(out.map((d) => d.headingRad)).toEqual([1, -2]);
+    expect(out.every((d) => d.weight > 0)).toBe(true);
   });
 });
 
@@ -121,5 +145,23 @@ describe("reduceToIntent", () => {
       aimToleranceRad: 0.1, closing: false,
     });
     expect(out.throttle).toBe(1);
+  });
+
+  it("still steers toward a heading error on the break-away path", () => {
+    // `closing: false` only frees the THROTTLE from range — it must not also silence `steer`, or a
+    // break-away would drive blindly straight ahead regardless of which way the chosen heading
+    // actually points.
+    const left = reduceToIntent({
+      headingError: 0.8, distance: 100, preferredRange: 300, deadband: 40,
+      aimToleranceRad: 0.1, closing: false,
+    });
+    const right = reduceToIntent({
+      headingError: -0.8, distance: 100, preferredRange: 300, deadband: 40,
+      aimToleranceRad: 0.1, closing: false,
+    });
+    expect(left.steer).toBe(1);
+    expect(left.throttle).toBe(1);
+    expect(right.steer).toBe(-1);
+    expect(right.throttle).toBe(1);
   });
 });
