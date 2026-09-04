@@ -10,9 +10,36 @@ import { defaultPlaygroundSetup, isPlaygroundSetup, sanitizeStoredTuning } from 
 
 export const PLAYGROUND_STORAGE_KEY = "motor-combat.playground.v1";
 
+/**
+ * Client-only view options the playground remembers. Kept in its own section rather than folded
+ * into `setup`, because `setup` goes to the server and these never do — see `config/view-options`.
+ */
+export interface StoredView {
+  showHitbox: boolean;
+}
+
 export interface StoredPlayground {
   setup: PlaygroundSetup;
   overrides: TuningOverrides;
+  view: StoredView;
+}
+
+/** Everything off. What a browser with nothing saved, or a saved blob from before this existed, gets. */
+export function defaultStoredView(): StoredView {
+  return { showHitbox: false };
+}
+
+/**
+ * Read the view section back, field by field, falling back per field rather than whole.
+ *
+ * Every blob saved before this section existed lacks it entirely, and there will be more sections
+ * later — so a missing or malformed `view` has to cost nothing but its own defaults. It must never
+ * be able to invalidate the setup and overrides saved beside it, which is the same rule
+ * `decodeStored` already follows between those two.
+ */
+function decodeView(value: unknown): StoredView {
+  const rec = isPlainRecord(value) ? value : {};
+  return { showHitbox: rec.showHitbox === true };
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -72,6 +99,7 @@ export function decodeStored(raw: string | null): StoredPlayground {
       return isPlaygroundSetup(upgraded) ? upgraded : defaultPlaygroundSetup();
     })(),
     overrides: sanitizeStoredTuning(rec.overrides),
+    view: decodeView(rec.view),
   };
 }
 

@@ -3,6 +3,7 @@ import { defaultPlaygroundSetup } from "@motor-combat-moba/shared";
 import {
   PLAYGROUND_STORAGE_KEY,
   decodeStored,
+  defaultStoredView,
   encodeStored,
   loadStored,
   saveStored,
@@ -69,17 +70,55 @@ describe("decodeStored", () => {
   });
 });
 
+describe("the view section", () => {
+  it("defaults to off when a saved blob predates it, without touching what is saved beside it", () => {
+    // Every blob written before this section existed lacks it. Losing a developer's cars, loadout
+    // and tuning because a later version added a checkbox would be the worst possible trade, so a
+    // missing `view` has to cost nothing but its own default.
+    const raw = JSON.stringify({
+      setup: defaultPlaygroundSetup(),
+      overrides: { "car.mirage.speed": 10 },
+    });
+    const result = decodeStored(raw);
+    expect(result.view).toEqual({ showHitbox: false });
+    expect(result.setup).toEqual(defaultPlaygroundSetup());
+    expect(result.overrides).toEqual({ "car.mirage.speed": 10 });
+  });
+
+  it("falls back per field rather than whole, and only `true` means on", () => {
+    // A malformed section, and a truthy-but-not-true value, both land on the default rather than
+    // throwing or coercing — the same shape of guard `decodeStored` already applies between the
+    // setup and the overrides.
+    expect(decodeStored('{"view":"yes"}').view).toEqual({ showHitbox: false });
+    expect(decodeStored('{"view":[]}').view).toEqual({ showHitbox: false });
+    expect(decodeStored('{"view":{"showHitbox":"true"}}').view).toEqual({ showHitbox: false });
+    expect(decodeStored('{"view":{"showHitbox":1}}').view).toEqual({ showHitbox: false });
+    expect(decodeStored('{"view":{"showHitbox":true}}').view).toEqual({ showHitbox: true });
+  });
+
+  it("keeps a good view section when the setup beside it is unreadable", () => {
+    const result = decodeStored('{"setup":"nonsense","view":{"showHitbox":true}}');
+    expect(result.setup).toEqual(defaultPlaygroundSetup());
+    expect(result.view).toEqual({ showHitbox: true });
+  });
+});
+
 describe("encodeStored / decodeStored", () => {
   it("round-trips a setup + overrides blob", () => {
     const stored: StoredPlayground = {
       setup: defaultPlaygroundSetup(),
       overrides: { "car.mirage.speed": 42, "ram.massPerRating": 5 },
+      view: { showHitbox: true },
     };
     expect(decodeStored(encodeStored(stored))).toEqual(stored);
   });
 
   it("round-trips the empty-overrides case (a valid, deliberate reset)", () => {
-    const stored: StoredPlayground = { setup: defaultPlaygroundSetup(), overrides: {} };
+    const stored: StoredPlayground = {
+      setup: defaultPlaygroundSetup(),
+      overrides: {},
+      view: defaultStoredView(),
+    };
     expect(decodeStored(encodeStored(stored))).toEqual(stored);
   });
 });
@@ -90,6 +129,7 @@ describe("loadStored / saveStored with an injected storage", () => {
     const stored: StoredPlayground = {
       setup: defaultPlaygroundSetup(),
       overrides: { "ram.massPerRating": 5 },
+      view: defaultStoredView(),
     };
     saveStored(stored, storage);
     expect(storage.getItem(PLAYGROUND_STORAGE_KEY)).toBe(encodeStored(stored));
@@ -98,15 +138,25 @@ describe("loadStored / saveStored with an injected storage", () => {
 
   it("loadStored against empty injected storage returns defaults + {}", () => {
     const storage = fakeStorage();
-    expect(loadStored(storage)).toEqual({ setup: defaultPlaygroundSetup(), overrides: {} });
+    expect(loadStored(storage)).toEqual({
+      setup: defaultPlaygroundSetup(),
+      overrides: {},
+      view: defaultStoredView(),
+    });
   });
 
   it("saveStored with no injected storage and no window is a harmless no-op", () => {
-    expect(() => saveStored({ setup: defaultPlaygroundSetup(), overrides: {} })).not.toThrow();
+    expect(() =>
+      saveStored({ setup: defaultPlaygroundSetup(), overrides: {}, view: defaultStoredView() }),
+    ).not.toThrow();
   });
 
   it("loadStored with no injected storage and no window returns defaults + {}", () => {
-    expect(loadStored()).toEqual({ setup: defaultPlaygroundSetup(), overrides: {} });
+    expect(loadStored()).toEqual({
+      setup: defaultPlaygroundSetup(),
+      overrides: {},
+      view: defaultStoredView(),
+    });
   });
 });
 
