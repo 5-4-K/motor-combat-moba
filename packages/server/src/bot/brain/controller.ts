@@ -1,6 +1,7 @@
-import type { BotDifficulty } from "@motor-combat-moba/shared";
+import { weaponDefOf, type BotDifficulty } from "@motor-combat-moba/shared";
 import { BOT_PROFILES, type BotProfile } from "../../config/bot-profiles.js";
 import type { BotCarView, BotController, BotDebug, BotIntent, BotView } from "../types.js";
+import { interceptPoint, newAimErrorState, signedDelta, stepAimError, type AimErrorState } from "./aim.js";
 
 const COAST: BotIntent = { steer: 0, throttle: 0, fireSlots: 0 };
 
@@ -25,6 +26,7 @@ export class HumanController implements BotController {
   private target: string | undefined;
   private held: BotIntent = COAST;
   private lastDebug: BotDebug | undefined;
+  private aimError: AimErrorState = newAimErrorState();
 
   constructor(
     profileId: BotDifficulty,
@@ -53,6 +55,9 @@ export class HumanController implements BotController {
     // LAYER 1 — perceive (Task 3 replaces this with `perceive()`)
     const target = this.pickTarget(view);
     this.target = target?.sessionId;
+
+    // Perception-layer work: runs every tick, not on the recompute cadence below (H21 draw order).
+    this.aimError = stepAimError(this.aimError, view.tick, this.effectiveProfile, view.rng);
 
     // LAYER 2/3/4 — assess, move, shoot, on the recompute cadence (Tasks 4-6)
     if (this.shouldRecompute(view.tick)) {
@@ -84,11 +89,19 @@ export class HumanController implements BotController {
    * takes the lowest set bit, so an OR of every in-range slot fires slot 0 and nothing else.
    */
   private chase(view: BotView, target: BotCarView): BotIntent {
-    const dx = target.x - view.self.x;
-    const dy = target.y - view.self.y;
-    const bearing = Math.atan2(dy, dx);
-    const delta = Math.atan2(Math.sin(bearing - view.self.angle), Math.cos(bearing - view.self.angle));
-    const distance = Math.hypot(dx, dy);
+    // Lead against the slot the bot would actually press. Slot 0 stands in until Task 4's ranking
+    // lands; a weapon's own `speed` is public knowledge, so leading with it is fair (H22).
+    const leadSpeed = view.self.slots[0] ? weaponDefOf(view.self.slots[0].weaponId).speed : 0;
+    const aimPoint = interceptPoint(
+      { x: view.self.x, y: view.self.y },
+      { x: target.x, y: target.y, speed: target.speed, angle: target.angle },
+      leadSpeed,
+      this.effectiveProfile.leadFactor,
+    );
+    const bearing = Math.atan2(aimPoint.y - view.self.y, aimPoint.x - view.self.x)
+      + this.aimError.offsetRad;
+    const delta = signedDelta(view.self.angle, bearing);
+    const distance = Math.hypot(target.x - view.self.x, target.y - view.self.y);
 
     const steer: -1 | 0 | 1 =
       delta > this.effectiveProfile.aimToleranceRad ? 1 : delta < -this.effectiveProfile.aimToleranceRad ? -1 : 0;
