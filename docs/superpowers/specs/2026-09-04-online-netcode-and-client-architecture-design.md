@@ -724,11 +724,11 @@ sources of jitter (F2, F3).
 
 ## 10. Open questions for the reviewer
 
-1. **Remote timebase (N20).** This design draws remotes at the predicted present, accepting
-   input-change error, to make contact consistent. The alternative — remotes interpolated in the
-   past with rewind hit testing (approach B) — is exact for shooting and wrong for contact. If
-   ramming is judged less central than this analysis assumes, B is the better model and the
-   snapshot and time work (phases 1–2) carry over unchanged.
+1. **Remote timebase (N20) — resolved 2026-09-04: approach C.** The user chose the predicted
+   present: contact (ramming, `thunderclap`, `wildcharge`) reads as precise on every screen, and
+   shooting carries the target's input-change error over the extrapolation window instead of a
+   rewind. Approach B (interpolated past with rewind hit testing) is recorded in §4 as the road
+   not taken; the snapshot and time work (phases 1–2) would have been the same under either.
 2. **Snapshot rate (N9).** 30 Hz at ≈ 620 bytes is the recommendation. If a home host's upstream is
    a concern, `snapshotEvery = 2` halves it at the cost of one extra tick of extrapolation.
 3. **Reconnect window (N26).** 15 s is a guess; in last-standing a reconnecting player's car brakes
