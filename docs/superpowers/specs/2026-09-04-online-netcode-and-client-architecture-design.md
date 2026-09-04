@@ -899,6 +899,10 @@ sources of jitter (F2, F3).
 8. **Transport (N12) — resolved 2026-09-04: WebSocket stays, behind the seam.** WebTransport is
    evaluated in phase 6 alongside the move to a central server, whose real certificate removes the
    pinning problem; WebRTC data channels are not pursued.
+9. **Wire break (N24) — resolved 2026-09-04: accepted, as one protocol version bump.** Sim fields
+   leave the schema and every match message changes; the protocol hash (N11) refuses a mismatched
+   join with a readable message, which is the guarantee the never-renumber rule existed to give.
+   The rule stands for every field that remains.
 
 ## 11. Stop-and-ask items this design touches
 
