@@ -28,6 +28,17 @@ const STANCES = [
 export interface BotDebugPayload {
   tick: number;
   stance: string;
+  /**
+   * Every stance's score on the tick this was taken, rounded (H12).
+   *
+   * The whole point of scoring stances rather than running an if-ladder is that "why did it do
+   * that?" is answered by reading the scoreboard — which only works if the scoreboard is on screen.
+   * A stance may legitimately be absent (`scoreStances` early-returns with only `recover`, or only
+   * `hunt`, set) and a score may legitimately be `-Infinity`, which JSON cannot carry — the sender
+   * drops those keys rather than shipping `null`, so a missing entry reads as "not on the table
+   * this tick".
+   */
+  stanceScores: Record<string, number>;
   targetSessionId: string;
   preferredRange: number;
   personality: string;
@@ -42,11 +53,22 @@ export function isBotDebugPayload(value: unknown): value is BotDebugPayload {
     typeof rec.tick === "number" &&
     typeof rec.stance === "string" &&
     (STANCES as readonly string[]).includes(rec.stance) &&
+    isStanceScores(rec.stanceScores) &&
     typeof rec.targetSessionId === "string" &&
     typeof rec.preferredRange === "number" &&
     typeof rec.personality === "string" &&
     typeof rec.firedSlot === "number"
   );
+}
+
+/** A plain object whose keys are all real stance ids and whose values are all finite numbers. */
+function isStanceScores(value: unknown): value is Record<string, number> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  for (const [key, score] of Object.entries(value as Record<string, unknown>)) {
+    if (!(STANCES as readonly string[]).includes(key)) return false;
+    if (typeof score !== "number" || !Number.isFinite(score)) return false;
+  }
+  return true;
 }
 
 /** How hard the playground's bot plays (PG27). Wire value is the literal string, not an index. */

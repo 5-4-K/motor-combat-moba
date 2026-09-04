@@ -352,6 +352,16 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
       this.broadcast(MSG_PLAYGROUND_BOT_DEBUG, {
         tick: debug.tick,
         stance: debug.stance,
+        // Rounded to one decimal, and `-Infinity` entries dropped rather than sent: `scoreStances`
+        // uses `-Infinity` for "this stance is not even on the table" (no contact weapon and no ram
+        // intent, or healthy enough that disengage cannot win), and `JSON.stringify` turns that into
+        // `null`, which the guard would reject and the read-out could not render. An absent key IS
+        // the meaning (H12).
+        stanceScores: Object.fromEntries(
+          Object.entries(debug.stanceScores)
+            .filter(([, score]) => Number.isFinite(score))
+            .map(([stance, score]) => [stance, Math.round(score! * 10) / 10]),
+        ),
         targetSessionId: debug.targetSessionId ?? "",
         preferredRange: Math.round(debug.preferredRange),
         personality: debug.personality,

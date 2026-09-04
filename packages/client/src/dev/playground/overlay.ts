@@ -172,6 +172,9 @@ const CSS = `
   border: 1px solid #444;
   border-radius: 4px;
   padding: 4px 8px;
+  text-align: right;
+  white-space: pre;
+  line-height: 1.4;
 }
 .pg-row {
   margin: 10px 0;
@@ -398,9 +401,20 @@ export function mountPlaygroundOverlay(
   document.body.appendChild(debugEl);
   const unbindDebug = room.onMessage(MSG_PLAYGROUND_BOT_DEBUG, (payload: unknown) => {
     if (!isBotDebugPayload(payload)) return;
+    // Second line: the stance scoreboard (H12). The whole reason stances are SCORED rather than
+    // picked by an if-ladder is that the losing options stay visible — "it kited because kite beat
+    // engage 6.1 to 5.2" is a different kind of answer from "it kited". Sorted best-first with the
+    // chosen stance marked, so the top-left of the line is the decision and the rest is the case
+    // against it; stances the scorer took off the table (`-Infinity`) never arrive and are simply
+    // absent. `textContent` on a `white-space: pre` element, so no markup and no escaping question.
+    const scores = Object.entries(payload.stanceScores)
+      .sort((a, b) => b[1] - a[1])
+      .map(([stance, score]) => `${stance === payload.stance ? "*" : ""}${stance} ${score}`)
+      .join("  ");
     debugEl.textContent =
       `${payload.personality} | ${payload.stance} | range ${payload.preferredRange}` +
-      ` | slot ${payload.firedSlot < 0 ? "-" : payload.firedSlot + 1}`;
+      ` | slot ${payload.firedSlot < 0 ? "-" : payload.firedSlot + 1}` +
+      (scores === "" ? "" : `\n${scores}`);
   });
 
   let subView: "menu" | "settings" = "menu";

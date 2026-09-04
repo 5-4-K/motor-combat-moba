@@ -181,18 +181,47 @@ describe("isPlaygroundSetup (PG24 — the three new fields)", () => {
 });
 
 describe("isBotDebugPayload", () => {
+  const payload = {
+    tick: 10, stance: "engage", stanceScores: { engage: 5.2, kite: 1.1 },
+    targetSessionId: "them", preferredRange: 300, personality: "kiter", firedSlot: 1,
+  };
+
   it("accepts a well-formed payload", () => {
-    expect(isBotDebugPayload({
-      tick: 10, stance: "engage", targetSessionId: "them",
-      preferredRange: 300, personality: "kiter", firedSlot: 1,
-    })).toBe(true);
+    expect(isBotDebugPayload(payload)).toBe(true);
+  });
+
+  it("accepts an empty scoreboard — a tick where every stance was off the table", () => {
+    expect(isBotDebugPayload({ ...payload, stanceScores: {} })).toBe(true);
   });
 
   it("rejects a payload with an unknown stance", () => {
-    expect(isBotDebugPayload({
-      tick: 10, stance: "vibing", targetSessionId: "them",
-      preferredRange: 300, personality: "kiter", firedSlot: 1,
-    })).toBe(false);
+    expect(isBotDebugPayload({ ...payload, stance: "vibing" })).toBe(false);
+  });
+
+  it("rejects a scoreboard keyed by something that is not a stance", () => {
+    expect(isBotDebugPayload({ ...payload, stanceScores: { vibing: 1 } })).toBe(false);
+  });
+
+  it("rejects a scoreboard whose scores are not finite numbers", () => {
+    // `-Infinity` cannot survive JSON (it arrives as `null`), so the sender drops those keys rather
+    // than shipping them; a payload that carries one anyway is malformed, not merely unusual.
+    expect(isBotDebugPayload({ ...payload, stanceScores: { engage: null } })).toBe(false);
+    expect(isBotDebugPayload({ ...payload, stanceScores: { engage: "5.2" } })).toBe(false);
+  });
+
+  it("rejects a missing scoreboard, and an array in its place", () => {
+    const { stanceScores, ...withoutScores } = payload;
+    void stanceScores;
+    expect(isBotDebugPayload(withoutScores)).toBe(false);
+    expect(isBotDebugPayload({ ...payload, stanceScores: [] })).toBe(false);
+  });
+
+  it("rejects a payload missing any other field", () => {
+    for (const key of Object.keys(payload)) {
+      const partial: Record<string, unknown> = { ...payload };
+      delete partial[key];
+      expect(isBotDebugPayload(partial), `missing ${key}`).toBe(false);
+    }
   });
 
   it("rejects non-objects", () => {
