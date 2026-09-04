@@ -30,6 +30,7 @@ import {
 } from "@motor-combat-moba/shared";
 import { button, h } from "../../ui/dom.js";
 import { loadStored, saveStored } from "./storage.js";
+import { setShowHitboxes, showHitboxes } from "../../config/view-options.js";
 import {
   arenaOptions,
   canStep,
@@ -508,6 +509,25 @@ export function mountPlaygroundOverlay(
       el.addEventListener("change", syncDifficultyEnabled);
     }
 
+    /**
+     * Outline what the sim actually collides with: each car's OBB, and every live weapon
+     * instance's own hitbox.
+     *
+     * Applied on the spot rather than on leaving settings, unlike every control above it. Those
+     * send a setup or a tuning override to the server, which is why they batch until `leaveSettings`
+     * — this one changes nothing but what this browser paints, so making it wait would be a delay
+     * with no reason behind it. It reads back from `showHitboxes()` rather than from storage so the
+     * checkbox always shows what the arena is actually doing.
+     */
+    const hitboxToggle = h("input", {
+      type: "checkbox",
+      checked: showHitboxes(),
+    }) as HTMLInputElement;
+    hitboxToggle.addEventListener("change", () => {
+      setShowHitboxes(hitboxToggle.checked);
+      persist();
+    });
+
     const weapons = weaponOptions();
     const meWeaponSelects = initial.me.weapons.map((w) => selectFor(weapons, w));
     const oppWeaponSelects = initial.opponent.weapons.map((w) => selectFor(weapons, w));
@@ -547,7 +567,11 @@ export function mountPlaygroundOverlay(
     /** Every change -- setup or overrides alike -- saves to localStorage (spec PG19), keyed off
      * whatever the controls currently show plus the current overrides map. */
     function persist(): void {
-      saveStored({ setup: readSetup(), overrides: { ...overrides } });
+      saveStored({
+        setup: readSetup(),
+        overrides: { ...overrides },
+        view: { showHitbox: hitboxToggle.checked },
+      });
     }
 
     /** Re-evaluates legality (always) — toggling both loadout rows' `pg-illegal` class and
@@ -842,6 +866,9 @@ export function mountPlaygroundOverlay(
       row("My loadout", meLoadoutRow),
       carRow("Opponent car", oppCarSelect, oppColorSelect, oppRestoreBtn),
       row("Opponent loadout", oppLoadoutRow),
+      h("div", { class: "pg-row pg-view" }, [
+        h("label", {}, [hitboxToggle, " Show hitboxes"]),
+      ]),
       h("div", { class: "pg-stats-toolbar" }, [resetAllBtn, copyBtn]),
       tabBar,
       statsContainer,

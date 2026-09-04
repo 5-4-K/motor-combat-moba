@@ -39,6 +39,7 @@ import {
 } from "@motor-combat-moba/shared";
 import { applyCarSprite, phaserTextures, resolveCarSprite } from "../assets/car-sprite.js";
 import { isDebugEnabled } from "../config/client-mode.js";
+import { showHitboxes } from "../config/view-options.js";
 import { ARENA_VIEW_WIDTH, HUD_GUTTER_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from "../config/display.js";
 import { SLOT_KEYS, slotMaskFrom } from "../config/slot-keys.js";
 import { InterpolationBuffer } from "../net/interpolation.js";
@@ -147,6 +148,8 @@ const ARENA_BORDER_PX = 4;
 const HUD_TEXT = "#1d1f21";
 const HITBOX_STROKE = 0x1d1f21;
 const HITBOX_PX = 1;
+/** How the OBB outline inside a car's container is found again to toggle it. See `drawCar`. */
+const HITBOX_NAME = "hitbox";
 
 // --- the world layer stack ---------------------------------------------------------------------
 /**
@@ -1607,6 +1610,19 @@ export class ArenaScene extends Phaser.Scene {
     }
     gfx.setPosition(pose.x, pose.y);
     gfx.setRotation(pose.angle);
+    // Re-checked every frame rather than at build time, because the playground's checkbox can flip
+    // while cars are already on the field — see `drawCar`.
+    const box = gfx.getByName(HITBOX_NAME);
+    if (box instanceof Phaser.GameObjects.Graphics) box.setVisible(this.hitboxesVisible());
+  }
+
+  /**
+   * Whether hitbox outlines are drawn: the load-time `?debug=1` flag, or the playground's live
+   * "Show hitboxes" toggle. Either alone is enough, so turning the checkbox off does not override
+   * someone who asked for debug in the URL.
+   */
+  private hitboxesVisible(): boolean {
+    return this.debug || showHitboxes();
   }
 
   /**
@@ -1645,13 +1661,19 @@ export class ArenaScene extends Phaser.Scene {
     container.add(body);
 
     // The hitbox is the OBB the sim actually collides with, which is not the drawn silhouette for
-    // bullseye or bastion. Only shown behind `?debug=1` so ordinary play sees the shape, not the box.
-    if (this.debug) {
-      const box = this.add.graphics();
-      box.lineStyle(HITBOX_PX, HITBOX_STROKE, 1);
-      box.strokeRect(-w / 2, -h / 2, w, h);
-      container.add(box);
-    }
+    // bullseye or bastion. Hidden in ordinary play so a player sees the shape, not the box.
+    //
+    // Always BUILT and toggled by visibility, never built conditionally: the playground can turn
+    // this on mid-session, and a car container is only rebuilt when its `visualKeyOf` changes — so
+    // a conditional build would leave every car already on the field boxless until it happened to
+    // change colour or chassis. One always-hidden `Graphics` per car is nothing; a stale one is a
+    // bug report.
+    const box = this.add.graphics();
+    box.setName(HITBOX_NAME);
+    box.lineStyle(HITBOX_PX, HITBOX_STROKE, 1);
+    box.strokeRect(-w / 2, -h / 2, w, h);
+    box.setVisible(this.hitboxesVisible());
+    container.add(box);
     // A wreck keeps its silhouette and its collision box — it is still solid to everyone — and just
     // fades out, so the field still reads as "someone died here" rather than "someone left".
     // Alpha is set per frame by the render loop (`deathFadeAlpha`), never baked in here: a car
@@ -1899,6 +1921,28 @@ export class ArenaScene extends Phaser.Scene {
       }
     });
 
+    // A SECOND pass, on purpose. Outlining inside the loop above would bury each shot's hitbox
+    // under the next shot's fill, and the branches there all return early, so there is nowhere
+    // inside it that runs for every instance anyway. `instanceDrawShape` is cheap (`beamShapeAt`,
+    // not `beamDrawLayers`), and this whole block is dead in ordinary play.
+    //
+    // What is outlined is exactly what the sim tests against — the same `WorldShape` the fills were
+    // derived from — so this is the ground truth for D19, not a second opinion about it. The gap it
+    // exposes on `afterburner` (a flame that deliberately fills about two thirds of its cone) is
+    // real and is the reason the toggle exists.
+    if (this.hitboxesVisible()) {
+      gfx.lineStyle(HITBOX_PX, HITBOX_STROKE, 1);
+      room.state.weapons.forEach((instance) => {
+        if (!instance.alive) return;
+        const shape = instanceDrawShape(instance, elapsedMs);
+        if (shape.kind === "circle") gfx.strokeCircle(shape.x, shape.y, shape.radius);
+        else if (shape.points.length > 0) gfx.strokePoints(pts(shape.points), true);
+      });
+    }
+
+    // Deliberately NOT outlined: a charge orb is the one thing the game draws where there is no
+    // hitbox at all (D19's single exception — it is a telegraph on the shooter's own car). Drawing
+    // a hitbox around it would assert the exact opposite of the truth this overlay exists to show.
     this.renderChargeOrbs(room, gfx);
   }
 

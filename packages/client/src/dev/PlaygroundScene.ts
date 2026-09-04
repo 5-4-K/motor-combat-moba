@@ -6,6 +6,7 @@ import { joinPlayground } from "../net/connection.js";
 import { DEV_TOOL_MARKER } from "./registry.js";
 import { mountPlaygroundOverlay } from "./playground/overlay.js";
 import { loadStored } from "./playground/storage.js";
+import { setShowHitboxes } from "../config/view-options.js";
 
 /**
  * `?dev=playground` (spec PG2). Thin on purpose: this scene's whole job is joining the dev-only
@@ -59,8 +60,11 @@ export class PlaygroundScene extends Phaser.Scene {
     this.unmountOverlay = undefined;
     // Never leave a dev override active for whatever runs next in this process (the arena this scene
     // itself just launched, or a retried join) — the same rule `PlaygroundRoom.onLeave` enforces
-    // server-side, mirrored here for the client-side tuning store.
+    // server-side, mirrored here for the client-side tuning store. The view options are process-wide
+    // for the same reason and get the same treatment: an ordinary match must never inherit a dev
+    // overlay from a playground session earlier in the same tab.
     setTuning(null);
+    setShowHitboxes(false);
     this.room = undefined;
     this.lastTuningJson = undefined;
   }
@@ -115,6 +119,10 @@ export class PlaygroundScene extends Phaser.Scene {
     const stored = loadStored();
     room.send(MSG_PLAYGROUND_TUNING, stored.overrides);
     room.send(MSG_PLAYGROUND_SETUP, stored.setup);
+    // Client-only, so it is applied here rather than sent: the server has no opinion about whether
+    // this browser outlines a hitbox. Restored on join for the same reason the setup is — a reload
+    // should drop you back into the playground you left.
+    setShowHitboxes(stored.view.showHitbox);
 
     const onState = (): void => this.syncTuning();
     room.onStateChange(onState);

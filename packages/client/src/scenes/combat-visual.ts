@@ -326,6 +326,56 @@ export interface BeamLayer {
   /** `#RRGGBB` this layer fills in. */
   color: string;
   /**
+   * CONE beams only. How deeply the travelling roughness cuts into the jet's half-width, as a
+   * fraction of it. 0 draws a clean-edged ribbon.
+   *
+   * **This is the silhouette.** It is three octaves of noise summed (see `JET_COARSE_RATIO`), so
+   * the edge carries big rounded billows, medium lumps and fine detail at once — which is what a
+   * flame's edge is made of, and what no single wavelength can imitate. Shrink-only, so a rougher
+   * flame is always a NARROWER one and containment is inherited rather than re-argued.
+   */
+  billow?: number;
+  /**
+   * CONE beams only. How hard the flame tears itself apart past `JET_ROD_FRACTION`, as a fraction
+   * of its half-width there. 0 keeps one connected plume all the way to the tip.
+   *
+   * A flamethrower throws a coherent rod for about three quarters of its reach and disperses over
+   * the last quarter, and that contrast — dense and smooth, then ragged and shedding — is most of
+   * what tells a flamethrower apart from a bonfire. The pinch is sharpened toward its extremes so
+   * the ribbon necks to nothing in places rather than thinning evenly, which is what sheds a mass
+   * instead of tapering to a point.
+   */
+  breakUp?: number;
+  /**
+   * CONE beams only. How fast the whole noise field is carried out of the nozzle, in FLAME LENGTHS
+   * per second — 1 sends a billow from the muzzle to the tip in a second. 0 leaves the flame
+   * writhing in place.
+   *
+   * **This is the single thing that most makes fire read as fire, and no earlier cut of this had
+   * it.** Structures in a real jet flame convect: a billow is born at the nozzle, grows, travels
+   * out and burns off the tip. A shape that only changes amplitude where it stands is a curtain in
+   * a draught, however fast it changes.
+   */
+  advect?: number;
+  /**
+   * CONE beams only. How fast this layer's flicker, sway and ripple re-roll, overriding the style's
+   * `flameHz`. Same per-layer argument as `crackleHz` below, and the same interpolation between
+   * rolls — an inner layer is smaller and cheaper to move, so it can afford to run hotter.
+   */
+  flameHz?: number;
+  /**
+   * CONE beams only. Which noise group this layer's motion is drawn from. Defaults to the layer's
+   * own position, which gives every layer an independent flame.
+   *
+   * **Two layers sharing a `phase`, a `tongues` count and the rest of their shape knobs draw the
+   * SAME flame at two sizes — which is the only way to get a rim.** The first cut of the dark
+   * outer layer gave it its own group and its own lobe count, and it did not read as an outline at
+   * all: it read as dark petals with orange petals lying on top of them, because the two shapes
+   * agreed nowhere. A contour has to follow what it outlines. Layers meant to be independent
+   * flames-within-flames leave this alone.
+   */
+  phase?: number;
+  /**
    * RECT beams only. How hard this layer's two long edges tear, as a fraction of its own
    * half-width. 0 leaves them ruled straight.
    *
@@ -338,7 +388,12 @@ export interface BeamLayer {
    * hot line and tears at its edges, so `crackle` should fall to 0 as the layers go inward.
    */
   crackle?: number;
-  /** RECT beams only. How far this layer's centreline drifts off-axis, as a fraction of half-width. */
+  /**
+   * How far this layer's centreline drifts off its own axis, as a fraction of the room the width
+   * leaves. Means the same thing for both shapes: a rect bolt's shaft wobbles, and a cone flame
+   * gets the S-swoop that hand-drawn fire is built around instead of being symmetric about its
+   * axis. On a cone it travels outward with everything else.
+   */
   wander?: number;
   /**
    * RECT beams only. This layer's own re-roll rate, overriding the style's `crackleHz`.
@@ -394,6 +449,43 @@ export interface BeamStyle {
    * reads it, and `instanceGlowBands` already animates off the same clock for the same reason.
    */
   crackleHz?: number;
+  /**
+   * CONE beams only. How many times a second a flame's `flicker`, `sway` and `ripple` re-roll, for
+   * a layer naming no `flameHz` of its own. 0 (or absent) freezes the fan, which is the static
+   * tongued cone every beam drew before flames animated.
+   *
+   * Separate from `crackleHz` above because the two shapes animate different things at different
+   * natural rates: a rect's tear is a per-station edge jag, a cone's flicker is a whole tongue
+   * rising and falling. Sharing one field would make a bolt's rate and a flame's rate look like one
+   * decision when nothing about them is comparable.
+   */
+  flameHz?: number;
+  /** CONE beams only. Flecks thrown off the flame. Absent draws none. */
+  embers?: EmberStyle;
+}
+
+/**
+ * The flecks a flame sheds — the detached bits of fire in the reference art, which is the one part
+ * of that look a single connected silhouette cannot produce however well it moves.
+ *
+ * Every fleck is placed in the beam's own polar frame and clamped to the cone, so D19 survives:
+ * an ember is inside the thing that burns for exactly the reason a tongue is.
+ */
+export interface EmberStyle {
+  /**
+   * How many flecks per beam instance. **This is a fill budget, not a taste knob**: each ember is
+   * one more `fillPoints` in `renderShots`, and `afterburner` fires TWO instances per press. At the
+   * shipped 6 a press costs `2 x (layers + 6)` fills, and a room of six players all burning tops
+   * out near 130 — inside the ~180 that `predator` already establishes as the ceiling, and the
+   * number to re-check before raising this.
+   */
+  count: number;
+  /** Fleck radius in world units at birth, shrinking to nothing as it drifts out. */
+  size: number;
+  /** How many times a second a fleck completes its outward run. */
+  hz: number;
+  /** `#RRGGBB` every fleck fills in. */
+  color: string;
 }
 
 /**
@@ -424,12 +516,95 @@ export interface ChargeOrbBand {
 }
 
 /**
- * Polygon vertices spent per tongue. Six is where a lobe stops reading as a polygon corner at the
- * ~200px a beam draws at; the cost of raising it is vertices in one existing fill, never an extra
- * fill, so this is a legibility knob rather than a performance one.
+ * Polygon vertices spent per tongue on a STATIC fan. Six is where a lobe stops reading as a polygon
+ * corner at the ~200px a beam draws at; the cost of raising it is vertices in one existing fill,
+ * never an extra fill, so this is a legibility knob rather than a performance one.
  */
 const SAMPLES_PER_TONGUE = 6;
 
+/**
+ * Axial stations down an animated flame. The jet is walked from the muzzle to its tip and back,
+ * so this is half the vertex count of one layer.
+ *
+ * 96 is one station every 2.3 units at `afterburner`'s 220 reach — fine enough that the sharpest
+ * bite the roughness takes is still a curve rather than a corner, and that the finest octave gets
+ * four stations a wave instead of aliasing into noise. It costs a five-layer flame ~194 vertices a
+ * fill, which is vertices in an existing fill and never an extra one.
+ */
+const JET_STATIONS = 96;
+
+/**
+ * Where the coherent ROD ends and the flame starts breaking up, as a fraction of its reach.
+ *
+ * From the thickened-fuel literature rather than from taste: a flamethrower firing gelled fuel
+ * throws a coherent rod for roughly the first three quarters of its throw and disperses over the
+ * last quarter (a rod of 35-40 yards inside a 40-54 yard deposit pattern). That is the single most
+ * characteristic thing about a flamethrower as opposed to a bonfire, and it is what the lobed
+ * version got most wrong — it broke up evenly along its whole length, which is what a fan does.
+ */
+const JET_ROD_FRACTION = 0.6;
+
+/**
+ * The frequency step between octaves — each is this many times faster than the one before it, and
+ * `flameHz` names the SLOWEST.
+ *
+ * The whole octave ladder comes off measured flame behaviour rather than taste. Buoyant flames puff
+ * at about `1.5 / sqrt(D)` Hz with D the flame's width in metres; at this game's scale (a 48-unit
+ * car is about 4.5 m, so ~10.7 units per metre) `afterburner`'s roughly 2 m wide plume puffs near
+ * 1 Hz. The small roll-up vortices inside the luminous flame of the same flames were measured at
+ * 10-20 Hz. Three octaves a factor of three apart span exactly that: at `flameHz` 1.3 the ladder
+ * runs 1.3 / 3.9 / 11.7 Hz.
+ *
+ * **A single rate in the middle of that range is the mistake**, and it is the one every earlier cut
+ * of this made: 4-9 Hz is too fast to billow and too slow to crackle, so the flame boils. Amplitude
+ * has to fall as the rate rises too — see `JET_OCTAVE_WEIGHTS` — or the fine detail dominates and
+ * the same boil comes back at a smaller size.
+ */
+const JET_OCTAVE_RATE = 3;
+
+/**
+ * How much of a station's roughness comes from each octave, coarsest first. Sums to 1, so `billow`
+ * stays a straight fraction of the layer's width whatever the mix.
+ */
+const JET_OCTAVE_WEIGHTS = [0.46, 0.34, 0.2];
+/** See `JET_COARSE_WAVES`. */
+const JET_OCTAVE_STEP = 2.6;
+
+/**
+ * The exponent that biases the roughness field toward 0 — see `jetFlow`. Above 1 the flame is
+ * mostly at its full width with bites taken out of it; at 1 it is a shape that has lost half its
+ * width on average to a field that happens to average one half.
+ */
+const JET_BITE = 1.9;
+
+/**
+ * How many billows fit down the flame at the coarse octave, and the step between octaves. Sets
+ * the size of the big masses: at 4.2 the largest are about a fifth of the flame's length, which is
+ * roughly what a jet flame's big vortices measure against the visible flame.
+ */
+const JET_COARSE_WAVES = 3.5;
+
+/**
+ * How wide the jet is at the nozzle and how fast it opens out, as a fraction of the cone's own
+ * half-width, and where it has fully opened.
+ *
+ * A real jet leaves the nozzle narrow and spreads. The hitbox does not: it is a 55-degree cone from
+ * the muzzle, and a flame drawn permanently narrower than that is fire nobody can see hitting them.
+ * So the taper is spent where it is free — over the first third, where the cone is only a few units
+ * wide anyway — and the flame fills its hitbox from there out.
+ */
+const JET_MOUTH = 0.34;
+/** See `JET_MOUTH`. */
+const JET_OPEN_AT = 0.3;
+
+/**
+ * How much of its opened width the plume keeps at the tip. Below 1 the flame stops widening with
+ * the cone and runs near-parallel-sided over its outer half — see `mouth` in `conePoints`.
+ */
+const JET_TIP = 0.78;
+
+/** Vertices per shed mass. Ten reads as a rounded billow rather than as a fleck or a gem. */
+const EMBER_VERTICES = 10;
 /**
  * Per-weapon beam looks. Absent means the flat hitbox polygon — see `BeamStyle`.
  *
@@ -438,7 +613,7 @@ const SAMPLES_PER_TONGUE = 6;
  * distance from the flame's axis, which is why the order is not a guess. Each layer is shorter AND
  * slightly narrower than the one outside it, so they nest as tongues rather than stacking as
  * horizontal stripes — which is what a shared apex and a varying reach alone produced, and why the
- * first cut read as a striped triangle. Tongue counts differ per layer (5 / 4 / 3) so the lobes do
+ * first cut read as a striped triangle. Tongue counts differ per layer (7 / 5 / 3) so the lobes do
  * not line up and the edges stay busy.
  *
  * Its `WEAPON_TABLE.color` is the SECOND layer, not the outer one, because a weapon's table colour
@@ -448,8 +623,53 @@ const SAMPLES_PER_TONGUE = 6;
  * layers separate by ~48 in RGB rather than ~130 — the cone reads as a smoother gradient than it
  * did. The silhouette against the light floor is unaffected; this is internal layer separation only.
  *
- * There is deliberately no flicker or glow here: the beam already grows over its first 200 ms,
- * which is motion enough, and a pulsing two-second flame reads as a strobe.
+ * **It became a jet on 2026-09-04**, after two cuts that animated a FAN and neither of which read as
+ * fire. Both are worth remembering, because they were wrong in the same way: a fan is a radius per
+ * angle, and lobes on a fan can only grow and shrink where they stand. The first made them flicker,
+ * the second made them asymmetric darts. Fire does neither. It CONVECTS — a mass is born at the
+ * nozzle, grows, travels out and burns off the tip — and no amount of shaping a stationary lobe
+ * imitates that. `conePoints` is now a ribbon walked along the axis, so a bulge can travel; see its
+ * comment for the model.
+ *
+ * What is authored on top of it, and where each number comes from:
+ *
+ * - `advect` is the one that matters most, and no earlier cut had any form of it. Structures leave
+ *   the nozzle and cross the flame in about a second.
+ * - `flameHz` names the SLOWEST octave, and the ladder is `JET_OCTAVE_RATE` apart: 1.2 Hz here runs
+ *   1.2 / 3.6 / 10.8. That spans the measured range — buoyant flames puff near `1.5 / sqrt(D)` Hz,
+ *   about 1 Hz at this flame's width, while the small roll-ups inside the luminous flame run
+ *   10-20 Hz. Both earlier cuts picked one rate in the middle of that, which is why they boiled.
+ * - `billow` falls steeply inward. The outer boundary of a turbulent flame is intermittent — torn
+ *   and mostly gaps at its fringe — while the core is a solid running body of fire. Uniform
+ *   roughness gives five equally lumpy nested blobs, which is a lava lamp.
+ * - `breakUp` is the flamethrower's own signature. Thickened fuel throws a coherent rod for about
+ *   three quarters of its reach and disperses over the last quarter, and that contrast is most of
+ *   what separates a flamethrower from a bonfire. Breaking up evenly along the length is the latter.
+ * - `wander` gives the plume the S-swoop hand-drawn fire is built around, rather than symmetry
+ *   about its own axis.
+ *
+ * **The colour ramp runs along the LENGTH, and that is the other thing the fan versions had
+ * backwards.** A jet diffusion flame is soot-free and pale at its base, becomes the yellow luminous
+ * sooting region downstream, and cools through orange to deep red at the tip where it burns out and
+ * sheds. So each layer inward is both shorter and narrower, stacking the pale core over the nozzle
+ * end and leaving crimson alone out at the tip. Every earlier cut wrapped the dark colour around
+ * the outside as a rim — including around the root, which is the hottest part of a real flame and
+ * the last place its coolest colour belongs.
+ *
+ * The three icon-sampled colours are still in the ramp in their original order, with `#A3120B` and
+ * `#FFE9A8` added at the ends, so the flame's provenance survives it getting deeper.
+ * `WEAPON_TABLE.color` sits in the middle rather than second, which is where a body colour belongs
+ * on a five-stop ramp.
+ *
+ * `embers` are the tip burning off: jet flames shed at the tip as a whole event, and thickened fuel
+ * throws lumps of burning gel past where the rod tore apart. They are the only part of this that
+ * costs fills per flame rather than per layer — see `EmberStyle.count`.
+ *
+ * **What this gives up, deliberately.** The drawn flame covers about two thirds of the cone's width
+ * rather than all of it: `JET_TIP` stops it widening with the hitbox over its outer half, which is
+ * what stops it reading as a wedge, and `breakUp` shreds the far corners. `JET_BITE` exists to keep
+ * that number from being much worse. It is a real cost — a car at the cone's rim can be burned by
+ * fire it cannot quite see — and it is the first thing to raise if that ever gets reported.
  *
  * `bulwark` (the roster's other gold-cream cone, retired outright O17) used to sit here and
  * `shockwave` used to be a disc-hitbox aura, drawn as a ring and a wash rather than nested layers —
@@ -474,10 +694,47 @@ export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
   },
   afterburner: {
     layers: [
-      { extentScale: 1, crossScale: 1, tongues: 5, tongueDepth: 0.3, color: "#FF6000" },
-      { extentScale: 0.74, crossScale: 0.82, tongues: 4, tongueDepth: 0.34, color: "#FF9000" },
-      { extentScale: 0.42, crossScale: 0.6, tongues: 3, tongueDepth: 0.38, color: "#FFC000" },
+      // `tongues` / `tongueDepth` are the frozen fan's knobs and are ignored while a layer jets;
+      // they stay authored so a layer that ever loses its rate degrades to a sane static cone
+      // rather than to a bare triangle.
+      //
+      // **The ramp runs along the LENGTH, not as concentric rings, and that is from the physics.**
+      // A jet diffusion flame is soot-free and pale at its base, becomes the yellow luminous
+      // sooting region downstream, and cools to orange and then deep red at the tip, where it
+      // burns out and sheds. So each layer inward is BOTH shorter and narrower, which stacks the
+      // pale core over the nozzle end and leaves the crimson alone out at the tip. Every earlier
+      // cut had the dark colour wrapped around the outside as a rim — including around the root,
+      // which is the hottest part of a real flame and the last place its coolest colour belongs.
+      //
+      // Width falls faster than length (1 / 0.72 / 0.5 / 0.34 / 0.2 against 1 / 0.88 / 0.72 / 0.55
+      // / 0.36), so the hot colours still run as ribbons rather than pooling into a blob at the
+      // muzzle. `extentScale` and `crossScale` are independent for a cone, and this is what that
+      // independence is for.
+      //
+      // `advect` rises inward: the middle of a jet moves faster than its edges, so the pale core
+      // runs its structures out quicker than the crimson envelope carries its own.
+      // `billow` falls steeply as the layers go in, and that is the flame's radial structure: the
+      // outer envelope of a turbulent flame is intermittent — torn, wispy, mostly gaps at its
+      // fringe — while the core is a solid running body of fire. A uniform roughness across the
+      // layers makes five equally-lumpy nested blobs, which is what a lava lamp looks like.
+      { extentScale: 1, crossScale: 1, tongues: 7, tongueDepth: 0.4, color: "#A3120B",
+        billow: 0.9, breakUp: 0.95, wander: 0.75, advect: 1.1, flameHz: 1.2, phase: 0 },
+      { extentScale: 0.95, crossScale: 0.85, tongues: 6, tongueDepth: 0.4, color: "#FF3D0D",
+        billow: 0.84, breakUp: 0.92, wander: 0.7, advect: 1.2, flameHz: 1.3, phase: 1 },
+      { extentScale: 0.85, crossScale: 0.65, tongues: 5, tongueDepth: 0.42, color: "#FF6000",
+        billow: 0.78, breakUp: 0.88, wander: 0.65, advect: 1.35, flameHz: 1.4, phase: 2 },
+      { extentScale: 0.7, crossScale: 0.45, tongues: 4, tongueDepth: 0.44, color: "#FF9000",
+        billow: 0.7, breakUp: 0.8, wander: 0.6, advect: 1.5, flameHz: 1.5, phase: 3 },
+      { extentScale: 0.5, crossScale: 0.26, tongues: 3, tongueDepth: 0.46, color: "#FFE9A8",
+        billow: 0.58, breakUp: 0.6, wander: 0.55, advect: 1.7, flameHz: 1.7, phase: 4 },
     ],
+    // Masses torn off the tip, in the envelope's own red so they read as bits of THIS flame rather
+    // than as sparks from somewhere else. `hz` is their whole outward life, not a flicker rate:
+    // 1.1 a second is about how often a jet flame's tip burns off.
+    embers: { count: 8, size: 12, hz: 1.1, color: "#FF3D0D" },
+    // The fallback for a layer naming no rate of its own. Every afterburner layer does, so this only
+    // covers a layer added later without one.
+    flameHz: 1.2,
   },
   /**
    * `lance`: a rect beam, so its layers nest by WIDTH and every `extentScale` stays 1. Narrowing
@@ -516,8 +773,15 @@ export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
   lance: {
     layers: [
       // Rates rise as the tears get shallower — see `BeamLayer.crackleHz`. Measured cost per
-      // rendered frame at these settings: 1.81, 1.64 and 0.55 units. Flattening these to one rate
+      // rendered frame at these settings: 1.72, 1.50 and 0.52 units. Flattening these to one rate
       // would price the whole beam at the outer layer's 4.96 and force a 60% cut in tear depth.
+      //
+      // Those three numbers were re-measured on 2026-09-04, after `noise` was found not to be
+      // hashing (see its comment): until then a roll only slid every station by a constant −0.0151,
+      // so the tear crept uniformly rather than re-rolling and the bolt was quietly much calmer
+      // than these settings ask for. The rates are UNCHANGED by that fix — the budget they were
+      // chosen against was computed as `crackle x rate`, not measured off the broken shape, and the
+      // real motion lands just inside it.
       { extentScale: 1, crossScale: 1, tongues: 0, tongueDepth: 0, color: "#0356DC", crackle: 0.42, wander: 0.05, crackleHz: 5 },
       { extentScale: 1, crossScale: 0.7, tongues: 0, tongueDepth: 0, color: "#0AC6FD", crackle: 0.34, wander: 0.04, crackleHz: 8 },
       { extentScale: 1, crossScale: 0.34, tongues: 0, tongueDepth: 0, color: "#F0FF00", crackle: 0.14, crackleHz: 14 },
@@ -1066,7 +1330,7 @@ export function beamDrawLayers(
   for (const [index, layer] of style.layers.entries()) {
     const points =
       def.hitbox.shape === "cone"
-        ? conePoints(def.hitbox.angleDeg, x, y, angle, grown, layer)
+        ? conePoints(def.hitbox.angleDeg, x, y, angle, grown, layer, style, nowMs, index)
         : rectPoints(def.hitbox.width, x, y, angle, grown, layer, style, nowMs, index);
     // Fewer than three vertices is a beam on its spawn tick, whose extent is still zero. Dropping
     // it here keeps `fillPoints` off a degenerate shape rather than making the render loop
@@ -1074,6 +1338,8 @@ export function beamDrawLayers(
     if (points.length < 3) continue;
     layers.push({ points, fill: hexToFill(layer.color) });
   }
+  // Last, so they draw ON TOP of every layer: an ember is in front of the fire, not inside it.
+  layers.push(...emberPolys(def.hitbox, x, y, angle, grown, style, nowMs));
   return layers;
 }
 
@@ -1116,19 +1382,49 @@ export function chargeOrbBands(
 }
 
 /**
- * A tongued flame inside a cone hitbox, in world space.
+ * A flame inside a cone hitbox, in world space.
  *
- * **Why this is built in POLAR coordinates off the muzzle, and why that is the whole containment
- * argument.** A cone hitbox is the triangle `x <= reach, |y| <= tan(half) * x`. Every vertex here
- * is placed at an angle within `+/-half` and a radius within `reach`, and any such point satisfies
- * both constraints — `|y| / x = |tan(theta)| <= tan(half)`, and `x = r * cos(theta) <= reach`. So a
- * flame of *any* silhouette is inside the hitbox as long as its angles and radii stay in range,
- * which is exactly what `crossScale`, `extentScale` and a pull-back-only `tongueDepth` guarantee.
- * Cartesian wobble would need a containment test per vertex; this needs none.
+ * **Why this is walked along the AXIS rather than swept around the muzzle.** Every earlier cut of
+ * this described the outline as a radius per ANGLE — a fan of lobes, however the lobes were shaped.
+ * That model cannot express the one thing a flamethrower actually does: its structures TRAVEL.
+ * Burning masses leave the nozzle, grow, and are carried out to the tip. Measured jet flames carry
+ * large toroidal vortices outside the luminous flame and small roll-ups inside it, both convecting
+ * downstream; a silhouette parameterised by angle can only make lobes taller and shorter in place,
+ * which is a curtain twitching, not fire.
  *
- * The tongue wave is a raised cosine over the fan, so `tongues` lobes reach the full radius and the
- * valleys between them pull back by `tongueDepth`. An odd `tongues` lands a valley on each outer
- * edge, which is what keeps the silhouette from ending on a tooth.
+ * So the flame is a RIBBON. At each of `JET_STATIONS` stations down the beam's axis it has a
+ * half-width and a centreline offset, and the polygon is one edge out and the other edge back. The
+ * noise those two read is sampled at `station - speed x time`, and that subtraction is what carries
+ * a bulge from the muzzle to the tip. Three properties fall out of the model rather than being
+ * arranged on top of it:
+ *
+ * - **It is always a simple polygon.** The near edge is never past the far edge, because both are
+ *   the centreline plus or minus a non-negative width. Nothing to self-intersect, however violent
+ *   the shape gets — which is what lets the flame tear itself almost in two safely.
+ * - **The tip lands exactly on the hitbox's far edge, every frame.** The last station IS `reach`.
+ *   The lobed version could only manage it on frames where some lobe happened to be fully out.
+ * - **Containment is one inequality per station**: `|centre| + width <= tan(half) x along`. Both are
+ *   authored as fractions of that limit, so it holds by construction, and `put` clamps anyway.
+ *
+ * What is drawn on that, all of it from how flames are observed rather than from taste:
+ *
+ * - **Three octaves of roughness**, an order of magnitude apart in rate — see `JET_COARSE_RATIO`.
+ *   Buoyant flames puff at about `1.5 / sqrt(D)` Hz, which at this game's scale puts the big
+ *   billowing near 1 Hz, while the small roll-up vortices inside the luminous flame were measured
+ *   at 10-20 Hz. A flame carries both at once. One rate in between is what makes fire look like
+ *   bunting.
+ * - **A coherent rod, then break-up.** Thickened fuel holds together for roughly the first three
+ *   quarters of its throw and disperses over the last quarter. Past `JET_ROD_FRACTION` the
+ *   half-width is pinched hard by its own noise, so the flame necks, tears and sheds — and is dense
+ *   and smooth before that. Breaking up evenly along the whole length is what a bonfire does.
+ * - **Rounded billows, not spikes.** Summed octaves give lumps at several sizes with round
+ *   shoulders, which is the shape hand-drawn fire uses too: C-shapes and hooks at varied sizes,
+ *   never uniform clumps.
+ * - **An S-swoop.** `wander` walks the centreline off the axis, advected like everything else, so
+ *   the flame is bent rather than symmetric about its own centre.
+ *
+ * A style authoring none of it, or naming no `flameHz`, gets the frozen tongued fan every cone drew
+ * before flames animated — which is what `tremor` still draws, vertex for vertex.
  */
 function conePoints(
   angleDeg: number,
@@ -1137,48 +1433,400 @@ function conePoints(
   heading: number,
   extent: number,
   layer: BeamLayer,
+  style: BeamStyle,
+  nowMs: number,
+  index: number,
 ): { x: number; y: number }[] {
   const reach = Math.max(0, extent) * clamp01(layer.extentScale);
   const half = ((angleDeg * Math.PI) / 360) * clamp01(layer.crossScale);
   if (reach <= 0 || half <= 0) return [];
 
-  const lobes = Math.max(0, Math.floor(layer.tongues));
-  const depth = clamp01(layer.tongueDepth);
-  const samples = lobes === 0 ? 2 : Math.max(2, lobes * SAMPLES_PER_TONGUE);
+  const billow = clamp01(layer.billow ?? 0);
+  const breakUp = clamp01(layer.breakUp ?? 0);
+  const wander = clamp01(layer.wander ?? 0);
+  const hz = Math.max(0, layer.flameHz ?? style.flameHz ?? 0);
+  // A rate with nothing to move, or motion with no rate, is the frozen fan either way.
+  const jet = hz > 0 && (billow > 0 || breakUp > 0 || wander > 0);
 
-  // The apex is the muzzle itself, so the flame is anchored to the car rather than floating.
-  const points: { x: number; y: number }[] = [rotateBy(x, y, heading, 0, 0)];
-  for (let i = 0; i <= samples; i++) {
-    const u = -1 + (2 * i) / samples;
-    // 1 at a tongue tip, 0 in a valley. `lobes` full cycles across the fan.
-    const wave = lobes === 0 ? 1 : 0.5 + 0.5 * Math.cos(lobes * Math.PI * u);
-    const theta = u * half;
-    // `/ cos(theta)` is what makes a tongue TIP land on the cone's flat far edge instead of on a
-    // circle through its nose. Without it the tips trace an arc of radius `reach`, which touches
-    // the hitbox only on the centreline and falls 11% short of it at the cone's rim -- a flame
-    // visibly smaller than the thing that burns. Containment survives it: a tip is then at axial
-    // `reach` exactly and lateral `reach * tan(theta)`, and `|tan(theta)| <= tan(half)` still puts
-    // it inside `|y| <= tan(half) * x`.
-    const r = (reach / Math.cos(theta)) * (1 - depth * (1 - wave));
-    points.push(rotateBy(x, y, heading, r * Math.cos(theta), r * Math.sin(theta)));
+  if (!jet) {
+    const lobes = Math.max(0, Math.floor(layer.tongues));
+    const depth = clamp01(layer.tongueDepth);
+    const samples = lobes === 0 ? 2 : Math.max(2, lobes * SAMPLES_PER_TONGUE);
+    // The apex is the muzzle itself, so the fan is anchored to the car rather than floating.
+    const fan: { x: number; y: number }[] = [rotateBy(x, y, heading, 0, 0)];
+    for (let i = 0; i <= samples; i++) {
+      const u = -1 + (2 * i) / samples;
+      // 1 at a tongue tip, 0 in a valley. `lobes` full cycles across the fan.
+      const wave = lobes === 0 ? 1 : 0.5 + 0.5 * Math.cos(lobes * Math.PI * u);
+      const theta = u * half;
+      // `/ cos(theta)` is what makes a tongue TIP land on the cone's flat far edge instead of on a
+      // circle through its nose. Without it the tips trace an arc of radius `reach`, which touches
+      // the hitbox only on the centreline and falls 11% short of it at the cone's rim.
+      const r = (reach / Math.cos(theta)) * (1 - depth * (1 - wave));
+      fan.push(rotateBy(x, y, heading, r * Math.cos(theta), r * Math.sin(theta)));
+    }
+    return fan;
   }
-  return points;
+
+  const flow = jetProfile(layer, style, nowMs, index);
+  const tan = Math.tan(half);
+
+  /**
+   * Place a station's vertex, clamped into the cone. Structural, not an argument.
+   */
+  // The heading's sine and cosine, hoisted out of the station loop. `rotateBy` takes the angle and
+  // computes both per call, which is correct for the handful of vertices every other caller places
+  // and wrong here: a jet places ~200 a layer, so leaving it in cost two trig calls a vertex and
+  // ~25,000 a frame for a full room. Same arithmetic, computed once.
+  const cos = Math.cos(heading);
+  const sin = Math.sin(heading);
+  const put = (along: number, across: number): { x: number; y: number } => {
+    const a = Math.max(0, Math.min(reach, along));
+    const lim = tan * a;
+    const c = Math.max(-lim, Math.min(lim, across));
+    return { x: x + a * cos - c * sin, y: y + a * sin + c * cos };
+  };
+
+  const near: { x: number; y: number }[] = [];
+  const far: { x: number; y: number }[] = [];
+  for (let i = 0; i <= JET_STATIONS; i++) {
+    const s = i / JET_STATIONS;
+    const along = s * reach;
+    // The cone's own half-width here. Everything below is a fraction of it, which is the whole
+    // containment argument.
+    const limit = tan * along;
+
+    // The plume's own profile, on top of the cone's linear widening: narrow at the nozzle, fully
+    // open by `JET_OPEN_AT`, then closing back toward `JET_TIP` over the outer half.
+    //
+    // The closing half is what stops the flame reading as a wedge. A cone hitbox widens linearly
+    // forever, so a shape that simply fills it has two dead-straight walls and no amount of edge
+    // noise hides them — the eye reads the taper, not the wobble. Against that, `limit` growing and
+    // `mouth` shrinking roughly cancel over the outer half, which gives the near-parallel sided
+    // plume a flamethrower actually throws before it tears apart. The width given up is at the
+    // hitbox's far corners, where `breakUp` has already shredded the flame anyway.
+    const open = Math.min(1, s / JET_OPEN_AT);
+    const opened = JET_MOUTH + (1 - JET_MOUTH) * (open * open * (3 - 2 * open));
+    const close = clamp01((s - JET_OPEN_AT) / (1 - JET_OPEN_AT));
+    const mouth = opened * (1 - (1 - JET_TIP) * (close * close * (3 - 2 * close)));
+
+    // **The two edges are roughened INDEPENDENTLY**, and that is not a detail. One width either
+    // side of a centreline makes every station mirror-symmetric, so the whole plume bulges and
+    // pinches in lockstep and reads as a lava lamp however lumpy its profile is. Real fire's two
+    // sides have nothing to do with each other. Two noise fields, one per edge, for one extra
+    // sample a station.
+    const base = limit * mouth;
+    let wNear = base * (1 - billow * flow.near[i]!);
+    let wFar = base * (1 - billow * flow.far[i]!);
+    if (s > JET_ROD_FRACTION && breakUp > 0) {
+      // Past the rod. Both edges are pinched by ONE shared term — a neck is a neck, and pinching
+      // them independently would slide the flame sideways rather than tearing it. Sharpened toward
+      // its extremes so the ribbon necks to nothing in places rather than thinning evenly, which is
+      // what sheds a mass instead of tapering to a point.
+      const past = (s - JET_ROD_FRACTION) / (1 - JET_ROD_FRACTION);
+      const n = flow.pinch[i]!;
+      const pinch = 1 - breakUp * past * (n * n * (3 - 2 * n));
+      wNear *= pinch;
+      wFar *= pinch;
+    }
+    wNear = Math.max(0, wNear);
+    wFar = Math.max(0, wFar);
+
+    // Bounded by the room the widest edge leaves, so a swooping centreline can never push either
+    // edge past the cone's wall.
+    const centre = (flow.swoop[i]! - 0.5) * 2 * wander * Math.max(0, limit - Math.max(wNear, wFar));
+    near.push(put(along, centre - wNear));
+    far.push(put(along, centre + wFar));
+  }
+  return [...near, ...far.reverse()];
 }
 
 /**
- * A rect beam's layer. Tongues are ignored: a rect's reach is its length, so cutting lobes into its
- * far edge would shorten a bar whose whole read is "a straight line of light". `lance` narrows with
- * `crossScale` instead, which nests a bright core down its full length.
+ * How far past a station the break-up pinch reads its noise. See `conePoints`.
  */
+const JET_PINCH_LOOKAHEAD = 0.37;
+
+/**
+ * Seed offsets that separate the three octaves' noise streams. Arbitrary primes, pinned in one
+ * place so the shape cannot drift — changing one changes the flame, which is a look edit, not a
+ * refactor.
+ */
+const JET_OCTAVE_SEEDS = [0, 131, 263];
+
+/**
+ * Per-station scratch for a flame's noise fields, reused across every call.
+ *
+ * **Module-level mutable state, deliberately, and safe for one specific reason**: `jetProfile` fills
+ * these and `conePoints` consumes them entirely before returning, in one synchronous stretch with
+ * no await, no callback and no re-entry. Nothing holds a reference past the call that made it. The
+ * alternative is four 97-entry `Float64Array`s allocated per layer per instance per frame — 240 a
+ * frame for a full room, which is exactly the per-frame allocation the client's perf note says to
+ * warn about before adding.
+ *
+ * Anything that ever makes the draw path re-entrant — drawing two flames in one interleaved pass,
+ * or a generator — has to give each its own buffers, and the fix is a pool rather than these.
+ */
+const JET_NEAR = new Float64Array(JET_STATIONS + 1);
+const JET_FAR = new Float64Array(JET_STATIONS + 1);
+const JET_PINCH = new Float64Array(JET_STATIONS + 1);
+const JET_SWOOP = new Float64Array(JET_STATIONS + 1);
+const JET_TMP_MID = new Float64Array(JET_STATIONS + 1);
+const JET_TMP_FINE = new Float64Array(JET_STATIONS + 1);
+
+/**
+ * The window of whole noise indices one octave spans across the stations. Sized for the finest
+ * octave the shipped constants ask for, with room to spare; `octaveInto` falls back to a fresh
+ * array rather than truncating if a future tuning outgrows it.
+ */
+const JET_WINDOW = new Float64Array(64);
+
+/**
+ * Fill `out[i]` with one octave's interpolated value at each station, shifted along by `sShift`.
+ *
+ * **This is the shape of the whole optimisation.** The octaves are deliberately low-frequency — the
+ * coarse one spans only `JET_COARSE_WAVES` whole indices across all 96 stations — so consecutive
+ * stations land on the same `floor(p)` again and again. Sampling the window ONCE and then walking
+ * the stations turns what was two hashes per endpoint per station into two hashes per window entry:
+ * about fourteen times less hashing, measured.
+ *
+ * The window slides as `carried` convects the pattern outward, but its WIDTH is fixed by the
+ * octave's own scale, so it stays a handful of entries however long the match has run.
+ */
+function octaveInto(
+  out: Float64Array,
+  gen: (i: number, offset: number) => number,
+  offset: number,
+  carried: number,
+  scale: number,
+  sShift: number,
+): void {
+  const p0 = (sShift - carried) * scale;
+  const p1 = (1 + sShift - carried) * scale;
+  const lo = Math.floor(p0);
+  const count = Math.max(2, Math.floor(p1) - lo + 2);
+  const buf = count <= JET_WINDOW.length ? JET_WINDOW : new Float64Array(count);
+  for (let k = 0; k < count; k++) buf[k] = gen(lo + k, offset);
+
+  const step = (p1 - p0) / JET_STATIONS;
+  let p = p0;
+  for (let i = 0; i <= JET_STATIONS; i++, p += step) {
+    const i0 = Math.floor(p);
+    const f = p - i0;
+    // Smoothstep, so a wave is a wave rather than a staircase and there is no velocity
+    // discontinuity where two window entries hand over.
+    const w = f * f * (3 - 2 * f);
+    // The window covers every station by construction, so this clamp never binds. It is here so a
+    // future caller reaching outside the range lands on the nearest entry rather than reading past
+    // the buffer and painting NaN.
+    const k = Math.max(0, Math.min(count - 2, i0 - lo));
+    out[i] = buf[k]! + (buf[k + 1]! - buf[k]!) * w;
+  }
+}
+
+/**
+ * Fill `out[i]` with the flame's roughness at each station for one edge: three octaves, contrasted,
+ * biased, in `[0, 1]`.
+ */
+function roughInto(
+  out: Float64Array,
+  gens: ((i: number, offset: number) => number)[],
+  carried: number,
+  edge: number,
+  sShift: number,
+): void {
+  const step2 = JET_OCTAVE_STEP * JET_OCTAVE_STEP;
+  octaveInto(out, gens[0]!, 211 + edge * 6151, carried, JET_COARSE_WAVES, sShift);
+  octaveInto(JET_TMP_MID, gens[1]!, 308 + edge * 6151, carried, JET_COARSE_WAVES * JET_OCTAVE_STEP, sShift);
+  octaveInto(JET_TMP_FINE, gens[2]!, 405 + edge * 6151, carried, JET_COARSE_WAVES * step2, sShift);
+
+  const w0 = JET_OCTAVE_WEIGHTS[0]!;
+  const w1 = JET_OCTAVE_WEIGHTS[1]!;
+  const wf = JET_OCTAVE_WEIGHTS[2]!;
+  const bodyWeight = w0 + w1;
+  for (let i = 0; i <= JET_STATIONS; i++) {
+    // The two structural octaves, contrasted, then the fine one added ON TOP of the result.
+    //
+    // Order matters and this was worth getting wrong once. Summed octaves pile up around their
+    // mean, so a raw sum is mostly mid-grey and the edge comes out as a gentle undulation — a
+    // flame's boundary is mostly-full with sharp bites out of it, not a sine wave. Two smoothsteps
+    // put the bites back. But running the FINE octave through the same curve flattens it into the
+    // shoulders it is supposed to be roughening, which is how an edge ends up smooth however many
+    // octaves you claim to have summed.
+    const a = clamp01((w0 * out[i]! + w1 * JET_TMP_MID[i]!) / bodyWeight);
+    const b = a * a * (3 - 2 * a);
+    const shaped = b * b * (3 - 2 * b);
+    // Biased toward 0, and this is a D19 fix as much as a look. `rough` SHRINKS the flame, so a
+    // field averaging 0.5 costs half the authored `billow` at every station and the drawn flame
+    // ends up permanently narrower than the cone that burns — measured at 49% of the hitbox's width
+    // before this line existed, which is a player at the cone's edge being set on fire by something
+    // they cannot see. A flame's boundary is mostly-full with bites taken out of it, so the field
+    // should be mostly-0 with excursions, not centred. The deep bites still reach.
+    out[i] = Math.pow(clamp01(shaped * (1 - wf) + JET_TMP_FINE[i]! * wf), JET_BITE);
+  }
+}
+
+/**
+ * The travelling noise fields one flame layer reads, as per-station arrays: `near` and `far` roughen
+ * the two edges independently, `pinch` tears the tip, `swoop` bends the centreline.
+ *
+ * Its own function because the field IS the flame — the octave mix, the advection and the seeding
+ * are one decision, and splitting them across the two callers is how a shed mass ends up drifting at
+ * a different speed from the fire it left and reading as a decal stuck on top of it.
+ *
+ * **Returns the shared scratch buffers, not copies.** Consume them before calling this again; see
+ * `JET_NEAR` for why that is safe here and what would break it.
+ */
+function jetProfile(
+  layer: BeamLayer,
+  style: BeamStyle,
+  nowMs: number,
+  index: number,
+): { near: Float64Array; far: Float64Array; pinch: Float64Array; swoop: Float64Array } {
+  const hz = Math.max(0, layer.flameHz ?? style.flameHz ?? 0);
+  const advect = Math.max(0, layer.advect ?? 0);
+  // `phase` is what lets two layers share one flame — see `BeamLayer.phase`.
+  const group = layer.phase ?? index;
+  // How far the pattern has been carried out of the nozzle, in flame lengths. This is the
+  // convection, and it is the difference between fire and bunting.
+  const carried = (Math.max(0, nowMs) / 1000) * advect;
+
+  const gens = JET_OCTAVE_SEEDS.map((seed, o) =>
+    flowingNoise(nowMs, hz * Math.pow(JET_OCTAVE_RATE, o), group + seed),
+  );
+
+  // Three edges, not two: the near edge, the far edge, and the break-up pinch, which reads a third
+  // independent field so a neck never lands exactly on a bite.
+  roughInto(JET_NEAR, gens, carried, 0, 0);
+  roughInto(JET_FAR, gens, carried, 1, 0);
+  roughInto(JET_PINCH, gens, carried, 2, JET_PINCH_LOOKAHEAD);
+  // The centreline reads a single slow octave — a swoop is one bend down the plume, not a texture.
+  octaveInto(JET_SWOOP, flowingNoise(nowMs, hz, group + 397), 31, carried, JET_COARSE_WAVES * 0.45, 0);
+
+  return { near: JET_NEAR, far: JET_FAR, pinch: JET_PINCH, swoop: JET_SWOOP };
+}
+
+/**
+ * The burning masses a flame sheds off its tip, `[]` for a style that asks for none.
+ *
+ * **These are not sparks.** Jet flames shed at the tip — the flame tip burns out and detaches as a
+ * whole event — and a flamethrower firing thickened fuel throws lumps of burning gel that carry on
+ * past where the rod has torn itself apart. So they are big, round, few, and they appear only PAST
+ * `JET_ROD_FRACTION`, drifting outward and burning out rather than fading.
+ *
+ * They still obey D19: each is placed and clamped inside the cone, so a mass is in the thing that
+ * burns for the same reason the ribbon is. They cost a fill each — see `EmberStyle.count`.
+ */
+function emberPolys(
+  hitbox: BeamHitbox,
+  x: number,
+  y: number,
+  heading: number,
+  extent: number,
+  style: BeamStyle,
+  nowMs: number,
+): DrawBeamLayer[] {
+  const embers = style.embers;
+  if (!embers || hitbox.shape !== "cone" || extent <= 0) return [];
+  const count = Math.max(0, Math.floor(embers.count));
+  if (count <= 0) return [];
+
+  const half = (hitbox.angleDeg * Math.PI) / 360;
+  const tan = Math.tan(half);
+  const fill = hexToFill(embers.color);
+  // Seeded clear of any layer group, so a mass's wander is its own rather than a copy of the
+  // silhouette's.
+  const wobble = flowingNoise(nowMs, Math.max(0, embers.hz), 4409);
+  const out: DrawBeamLayer[] = [];
+
+  for (let e = 0; e < count; e++) {
+    // Each mass runs its own outward life, offset so they do not all leave together.
+    const life = ((nowMs / 1000) * embers.hz + noise(e, 7717)) % 1;
+    // Born at the tear and carried to the hitbox's own edge.
+    const along = (JET_ROD_FRACTION + (1 - JET_ROD_FRACTION) * life) * extent;
+    const limit = tan * along;
+    // Off to a side rather than on the axis: a mass tears off the flame's flank, not out of its
+    // middle, and the middle is where the ribbon is still solid anyway.
+    const across = (wobble(e, 53) - 0.5) * 2 * limit * 0.8;
+    // Grows briefly as it leaves, then burns out. A lump of fuel does not simply fade.
+    const size = embers.size * Math.sin(Math.PI * Math.min(1, life * 1.15));
+    if (size <= 0.4) continue;
+
+    const points: { x: number; y: number }[] = [];
+    for (let v = 0; v < EMBER_VERTICES; v++) {
+      const a = (v / EMBER_VERTICES) * Math.PI * 2;
+      // Lumpy rather than a clean disc, off the same hash: a burning mass is not a bead.
+      const r = size * (0.72 + 0.28 * noise(e * 31 + v, 613));
+      const ca = Math.max(0, Math.min(extent, along + Math.cos(a) * r));
+      const cl = tan * ca;
+      const pc = across + Math.sin(a) * r;
+      points.push(rotateBy(x, y, heading, ca, Math.max(-cl, Math.min(cl, pc))));
+    }
+    out.push({ points, fill });
+  }
+  return out;
+}
+
 /**
  * Deterministic value noise in `[0, 1)`. A hash rather than `Math.random` so a beam's shape depends
  * only on its station index and seed — the same frame re-drawn twice is identical, which is what
  * stops the bolt fizzing between frames instead of crackling at the rate it was authored to.
  */
 function noise(i: number, seed: number): number {
-  let h = Math.imul(i * 374761393 + seed * 668265263, 1274126177);
-  h = (h ^ (h >>> 15)) >>> 0;
-  return h / 4294967296;
+  // Both inputs are mixed SEPARATELY and then finalised, and that structure is the whole point.
+  //
+  // The first cut was `imul(i * A + seed * B, C)` with a single `h ^= h >>> 15` after it, and it
+  // was not a hash: multiplication is linear, so changing `seed` by a fixed step changed the result
+  // by a fixed amount — the SAME amount for every `i`, since `i` never interacted with `seed`. One
+  // xor-shift is nowhere near enough avalanche to hide that. Consecutive rolls therefore differed
+  // by a constant −0.0151 at every station, which is a ramp rather than a re-roll: `lance`'s tear
+  // slid uniformly instead of crackling, and `afterburner`'s tongues took a full second to move
+  // what should have been one roll of the flicker. Both looked "animated but slow" rather than
+  // broken, which is why it survived being authored twice.
+  //
+  // Two multiplies with different constants, an xor between them, and a two-round xorshift-multiply
+  // finaliser: every input bit reaches every output bit, so `seed + 1` is unrelated to `seed`.
+  let h = Math.imul(i ^ 0x9e3779b9, 0x85ebca6b);
+  h = (h ^ Math.imul(seed ^ 0xc2b2ae35, 0x27d4eb2f)) | 0;
+  h ^= h >>> 15;
+  h = Math.imul(h, 0x2545f491);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0x3193f2b1);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+/**
+ * A sampler of `noise` that re-rolls `hz` times a second and FLOWS between one roll and the next.
+ * Call it as `wave(i, offset)`; `i` is the station or tongue index and `offset` separates one use
+ * from another within the same layer.
+ *
+ * The interpolation is the whole point, and stepping straight to `floor(t * hz)` was a real bug
+ * rather than a rough edge: it made the shape piecewise-constant, so at 14 Hz the envelope sat
+ * still for ~4 rendered frames and then moved 12 units in one. On a stationary beam that is a
+ * twitch; on a sweeping one it lands on every fourth frame of a smooth rotation, and the whole beam
+ * reads as snapping rather than sweeping. Blending between consecutive rolls makes every vertex's
+ * motion continuous, which is what the eye is actually reading — `combat-visual.test.ts` pins the
+ * per-frame movement that proves it. Smoothstep rather than linear, so there is no velocity
+ * discontinuity at a roll boundary either: linear blending is continuous in position but visibly
+ * kinks at each handover.
+ *
+ * `hz` of 0 freezes it on roll 0, which is the frozen frame a style authoring no rate asks for.
+ */
+function flowingNoise(
+  nowMs: number,
+  hz: number,
+  index: number,
+): (i: number, offset: number) => number {
+  const phase = (Math.max(0, nowMs) / 1000) * Math.max(0, hz);
+  const roll = Math.floor(phase);
+  const u = phase - roll;
+  const blend = u * u * (3 - 2 * u);
+  const seedA = index * 7919 + roll * 104729;
+  const seedB = index * 7919 + (roll + 1) * 104729;
+  return (i, offset) => {
+    const a = noise(i, seedA + offset);
+    return a + (noise(i, seedB + offset) - a) * blend;
+  };
 }
 
 /** Stations down a crackling rect beam. 200 is one station every 6 units at `lance`'s 1200 reach. */
@@ -1238,29 +1886,10 @@ function rectPoints(
     return [put(0, -half), put(reach, -half), put(reach, half), put(0, half)];
   }
 
-  // Re-rolls `crackleHz` times a second, INTERPOLATED between one roll and the next.
-  //
-  // Stepping straight to `floor(t * hz)` was a real bug, not a rough edge: it made the shape
-  // piecewise-constant, so at 14 Hz the envelope sat still for ~4 rendered frames and then moved 12
-  // units in one. On a stationary beam that is a twitch; on a sweeping one it lands on every fourth
-  // frame of a smooth rotation, and the whole beam reads as snapping rather than sweeping. Blending
-  // between consecutive rolls makes every vertex's motion continuous, which is what the eye is
-  // actually reading — `combat-visual.test.ts` pins the per-frame movement that proves it.
-  // The layer's own rate when it sets one, else the style's. See `BeamLayer.crackleHz` for why a
-  // single rate across layers cannot work: the cost of a rate is set by how wide the layer tears.
-  const phase = (Math.max(0, nowMs) / 1000) * Math.max(0, layer.crackleHz ?? style.crackleHz ?? 0);
-  const roll = Math.floor(phase);
-  // Smoothstep rather than linear, so the crackle also has no velocity discontinuity at a roll
-  // boundary — linear blending is continuous in position but visibly kinks at each handover.
-  const u = phase - roll;
-  const blend = u * u * (3 - 2 * u);
-  const seedA = index * 7919 + roll * 104729;
-  const seedB = index * 7919 + (roll + 1) * 104729;
-  /** One noise sample, flowing from this roll to the next. */
-  const wave = (i: number, offset: number): number => {
-    const a = noise(i, seedA + offset);
-    return a + (noise(i, seedB + offset) - a) * blend;
-  };
+  // Re-rolls `crackleHz` times a second, interpolated between one roll and the next — the layer's
+  // own rate when it sets one, else the style's. See `BeamLayer.crackleHz` for why a single rate
+  // across layers cannot work: the cost of a rate is set by how wide the layer tears.
+  const wave = flowingNoise(nowMs, layer.crackleHz ?? style.crackleHz ?? 0, index);
 
   const near: { x: number; y: number }[] = [];
   const far: { x: number; y: number }[] = [];
