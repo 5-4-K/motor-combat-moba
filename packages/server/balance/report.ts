@@ -94,7 +94,7 @@ function mdTable(headers: readonly string[], rows: readonly (readonly string[])[
   return lines.join("\n");
 }
 
-/** The `BotProfile` row's six fields, printed verbatim (field name = value) so an old report stays
+/** The `BotProfile` row's 34 fields, printed verbatim (field name = value) so an old report stays
  * interpretable without cross-referencing `bot-profiles.ts` for what a number even was (B39). */
 function formatBotProfile(profile: BotProfile): string {
   const entries = Object.entries(profile) as [keyof BotProfile, number][];
@@ -139,11 +139,17 @@ function renderLimitations(): string {
     "- **Bot skill is a model of skill, not skill.** Every number in this report compares chassis " +
       "under one fixed, scripted pilot. \"Amateurs find Bastion weak\" is a claim about our bot, " +
       "not about amateurs, until a human confirms it.",
-    "- **The current pilot is a fixed-standoff chaser.** It holds a fixed standoff distance " +
-      "(70u on `hard`) and closes or backs off from there, which systematically understates a " +
-      "chassis whose game is range (Bullseye: `predator` reaches 1800u, `lance` 1200u) and " +
-      "overstates one whose game is contact (Bastion). Run #1 validates the rig. Verdicts start " +
-      "when a real bot session lands.",
+    "- **The pilot is a tiered human-like bot** (see `docs/superpowers/specs/2026-09-04-human-" +
+      "like-bot-behavior-design.md` and `docs/bot-behavior.md`). It perceives with a tier-scaled " +
+      "latency and attention limit, chooses a stance, dodges, holds a range derived from its own " +
+      "kit, and presses ONE slot per tick. Which tier flew the matches is part of the bot " +
+      "fingerprint, and so is `BOT_BRAIN_VERSION` — a report from before a brain change is not " +
+      "comparable to one after, and `--baseline` refuses the comparison rather than trusting a " +
+      "reader to remember.",
+    "- **Reports produced before 2026-09-04 measured a different pilot in a way worth naming.** " +
+      "The old bot ORed every in-range slot into one fire mask, and `beginFire` takes the lowest " +
+      "usable bit — so it pressed slot 0 almost exclusively. Any historical conclusion about a " +
+      "slot-1 or slot-2 weapon being weak is suspect for that reason alone.",
     "- **The `easy`/`medium` bot profiles were retuned for a pleasant new-player experience, not " +
       "faithful skill simulation.** The two goals usually agree — a beginner who over-commits is " +
       "also easy to beat — but they can pull apart, and this report cannot tell you which case a " +

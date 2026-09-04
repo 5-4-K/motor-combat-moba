@@ -11,9 +11,12 @@
  * `LOGICAL_CANVAS` (B17, 2026-09-03): `buildBotView`'s viewport fairness limit is derived from both
  * (`LOGICAL_CANVAS` divided by `CAMERA_CONFIG.zoom`), and a bot session that can suddenly see less
  * — or more — of the arena is exactly the kind of change a baseline comparison must not silently
- * average over. `botFingerprint` covers `BOT_PROFILES` separately, because a bot retune and a
- * balance retune are different edits with different implications for whether an old report is still
- * comparable to a new one (Task 20's baseline guard refuses a comparison across either).
+ * average over. `botFingerprint` covers `BOT_PROFILES` and `BOT_BRAIN_VERSION` separately, because a
+ * bot retune and a balance retune are different edits with different implications for whether an old
+ * report is still comparable to a new one (Task 20's baseline guard refuses a comparison across
+ * either). `BOT_BRAIN_VERSION` (H46) rides alongside `BOT_PROFILES` in that same fingerprint because
+ * a hash of the table alone cannot see a behaviour change made entirely in code — the human-like
+ * brain's layers reading the numbers differently, with no number itself moving.
  *
  * **This list is not derived from anything — it is hand-maintained, and it must be kept in sync by
  * hand.** A config added later (a new `*_CONFIG` table, a new arena, a new tick-derived constant)
@@ -35,7 +38,7 @@
  * resistance for "did this file change since the last run" and needs no import from `node:crypto`,
  * keeping this module as small as what it does.
  */
-import { BOT_PROFILES } from "../src/config/bot-profiles.js";
+import { BOT_BRAIN_VERSION, BOT_PROFILES } from "../src/config/bot-profiles.js";
 import {
   AIM_CONFIG,
   ARENAS,
@@ -120,8 +123,17 @@ export function configFingerprint(): string {
   );
 }
 
-/** Fingerprint over `BOT_PROFILES`, whole and separate from `configFingerprint` — a bot retune and
- * a balance retune are different edits, and a baseline comparison needs to tell them apart. */
+/** What `botFingerprint` hashes: `BOT_PROFILES` plus `BOT_BRAIN_VERSION` (H46). A hash of the
+ * table alone cannot see a behaviour change made in code with every tier's numbers left untouched —
+ * `BOT_BRAIN_VERSION` is what makes that case invalidate a baseline comparison too. Exported so a
+ * test can assert the shape directly rather than only the hash's stability. */
+export function botFingerprintInput(): unknown {
+  return { BOT_PROFILES, BOT_BRAIN_VERSION };
+}
+
+/** Fingerprint over `BOT_PROFILES` and `BOT_BRAIN_VERSION`, whole and separate from
+ * `configFingerprint` — a bot retune and a balance retune are different edits, and a baseline
+ * comparison needs to tell them apart. */
 export function botFingerprint(): string {
-  return fnv1aHex(stableStringify({ BOT_PROFILES }));
+  return fnv1aHex(stableStringify(botFingerprintInput()));
 }

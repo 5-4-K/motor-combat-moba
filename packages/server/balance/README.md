@@ -23,19 +23,25 @@ fire logic only pressed slot `i` when `distance < slotRanges[i]`, and `WEAPON_TA
 `range: 0` (a charge dashes nowhere, so it was never meant to be range-gated) — a distance is never
 negative, so that comparison could never be true. Bastion played every balance run, every
 `PracticeRoom` and every dev playground with two thirds of its kit, so no early report's Bastion
-numbers are worth reading. `triggerRangeOf` in `packages/server/src/bot/input.ts` now gates a
-range-0 weapon on the profile's own standoff band instead (hard 70u, medium 165u, easy 270u),
-and `wildcharge`'s numbers were deliberately not touched — the table was always right. **Any report
-whose header predates that fix is not comparable to one after it**, the same way a report from before
-a bot retune is not; the bot fingerprint cannot tell you so, because it hashes `BOT_PROFILES` and
-this was a change to the bot's logic, not to its profiles.
+numbers are worth reading. The fix landed twice, same day: first as `triggerRangeOf`, gating a
+range-0 weapon on the profile's own standoff band (hard 70u, medium 165u, easy 270u) inside the
+legacy chaser bot; then that whole bot, `triggerRangeOf` included, was deleted and replaced by the
+tiered human-like brain (below), whose `firing.ts` gates a range-0 weapon on the shared
+`BRAIN_CONSTANTS.contactTriggerUnits` (150u) instead — see
+[`docs/bot-behavior.md`](../../../docs/bot-behavior.md). Either mechanism, `wildcharge`'s numbers
+were deliberately not touched — the table was always right. **Any report whose header predates the
+first fix is not comparable to one after it**, the same way a report from before a bot retune is not;
+the bot fingerprint cannot tell you so on its own for the first fix, because that one was a change to
+the bot's logic with `BOT_PROFILES` untouched — see `BOT_BRAIN_VERSION` below, which exists precisely
+to close that gap for every change since.
 
-What the fix actually moved, measured on a paired 50-match `casual` run either side of it (seed
+What the first fix actually moved, measured on a paired 50-match `casual` run either side of it (seed
 1645463066): `wildcharge` went from 0 presses to 1179 (176 kills, 29.7% of Bastion's kit), and
 Bastion's damage dealt rose 39% with its damage ratio going 0.4 to 0.6 — **and its win rate stayed at
 0.0% (0.0–7.1).** So the unpressable ultimate was a real defect and was never the whole story: a
-third of the kit came back and Bastion still won nothing. Whether that is the fixed-standoff pilot
-(the next limitation below) or Bastion itself is not yet answered.
+third of the kit came back and Bastion still won nothing. Whether that was the old fixed-standoff
+pilot or Bastion itself was not yet answered when that run was made — the brain rewrite below is a
+new pilot entirely, and a fresh comparison is needed to say anything about Bastion under it.
 
 **`corroded` contributes damage without ever dealing any.** Its row is a pure amplifier —
 `modifiers: { damageTaken: 1.3 }` — so it does not hit anyone itself; it makes whatever hits the
@@ -194,8 +200,8 @@ experiment, which is a weaker claim.
   registered arena — changed between the two runs, i.e. this genuinely is not the isolated
   one-number edit it needs to be; `fingerprint.ts`'s header comment is the source of truth for the
   exact list), or
-- the **bot fingerprint** differs (`BOT_PROFILES` changed — the delta could be a bot retune, not a
-  balance change), or
+- the **bot fingerprint** differs (`BOT_PROFILES` or `BOT_BRAIN_VERSION` changed — the delta could
+  be a bot retune or a brain behaviour change, not a balance change), or
 - `--shape` or `--mode` differs (a duel win rate and an FFA win rate are not the same quantity).
 
 A differing `--seed` is not fatal — it just prints a warning that the comparison is a different
@@ -253,10 +259,17 @@ here so it is discoverable without having run anything yet:
 - **Bot skill is a model of skill, not skill.** Every number in a report compares chassis under one
   fixed, scripted pilot. "Amateurs find Bastion weak" is a claim about our bot, not about amateurs,
   until a human confirms it.
-- **The current pilot is a fixed-standoff chaser.** It holds a fixed standoff distance (70u on
-  `hard`) and closes or backs off from there, which systematically understates a chassis whose game
-  is range (Bullseye: `predator` reaches 1800u, `lance` 1200u) and overstates one whose game is
-  contact (Bastion). Run #1 validates the rig. Verdicts start when a real bot session lands.
+- **The pilot is a tiered human-like bot** (see
+  [`docs/superpowers/specs/2026-09-04-human-like-bot-behavior-design.md`](../../../docs/superpowers/specs/2026-09-04-human-like-bot-behavior-design.md)
+  and [`docs/bot-behavior.md`](../../../docs/bot-behavior.md)). It perceives with a tier-scaled
+  latency and attention limit, chooses a stance, dodges, holds a range derived from its own kit, and
+  presses ONE slot per tick. Which tier flew the matches is part of the bot fingerprint, and so is
+  `BOT_BRAIN_VERSION` — a report from before a brain change is not comparable to one after, and
+  `--baseline` refuses the comparison rather than trusting a reader to remember.
+- **Reports produced before 2026-09-04 measured a different pilot in a way worth naming.** The old
+  bot ORed every in-range slot into one fire mask, and `beginFire` takes the lowest usable bit — so
+  it pressed slot 0 almost exclusively. Any historical conclusion about a slot-1 or slot-2 weapon
+  being weak is suspect for that reason alone.
 - **The `easy`/`medium` bot profiles were retuned for a pleasant new-player experience, not faithful
   skill simulation.** The two goals usually agree — a beginner who over-commits is also easy to beat
   — but they can pull apart, and this report cannot tell you which case a given number is in.
@@ -273,10 +286,11 @@ for any report predating 2026-09-04, `wildcharge`'s unreachable range) — speci
 same rule: this harness reports what the bot and the sim actually did, not what a human pilot or a
 perfect attribution scheme would show.
 
-Every report also carries a **bot fingerprint** (a hash of `BOT_PROFILES`, whole) precisely because
-every number above is conditioned on which bot tier ran it — a report from before a bot retune is not
-comparable to one after, and `--baseline` enforces that mechanically rather than trusting a reader to
-remember.
+Every report also carries a **bot fingerprint** (a hash of `BOT_PROFILES` and `BOT_BRAIN_VERSION`,
+whole) precisely because every number above is conditioned on which bot tier ran it, and on which
+version of the brain's behaviour ran it — a report from before a bot retune, or a brain behaviour
+change with no table value moved, is not comparable to one after, and `--baseline` enforces that
+mechanically rather than trusting a reader to remember.
 
 ---
 

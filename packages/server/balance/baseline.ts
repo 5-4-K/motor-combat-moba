@@ -53,8 +53,9 @@ export function checkComparable(current: RunRecord, baseline: RunRecord): Compar
     fatal = true;
     reasons.push(
       `bot fingerprint differs (this run: ${current.fingerprints.bot}, baseline: ` +
-        `${baseline.fingerprints.bot}) — the two runs used different pilots (BOT_PROFILES changed ` +
-        `between them), so any delta could be a bot change, not a balance change`,
+        `${baseline.fingerprints.bot}) — the two runs used different pilots (BOT_PROFILES or ` +
+        `BOT_BRAIN_VERSION changed between them), so any delta could be a bot change, not a ` +
+        `balance change`,
     );
   }
   if (current.config.shape !== baseline.config.shape) {

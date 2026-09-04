@@ -106,9 +106,11 @@ describe("runMatch", () => {
     // exactly the fast-iteration runs the harness exists to support. This is the short-run case
     // that would have caught it: `matchSeconds` well under the game's 180 s default.
     //
-    // 30 s, not the 10 s this originally used: since `triggerRangeOf` (2026-09-04) let a bot press
-    // `wildcharge` at all, Bastion wears `fortified` for most of a ten-second window and Mirage's
-    // first kill lands at ~15 s instead of inside 10 s — a killless window is a legitimate 0-0 draw,
+    // 30 s, not the 10 s this originally used: since a range-0 weapon like `wildcharge` became
+    // pressable at all (2026-09-04 — first the legacy bot's since-deleted `triggerRangeOf`, now the
+    // human-like brain's `BRAIN_CONSTANTS.contactTriggerUnits` gate in `bot/brain/firing.ts`),
+    // Bastion wears `fortified` for most of a ten-second window and Mirage's first kill lands at
+    // ~15 s instead of inside 10 s — a killless window is a legitimate 0-0 draw,
     // which would fail this assertion without the clock defect having returned at all. The kills
     // assertion below states that premise outright so the two cases can never be confused: if a
     // future balance edit empties the window again, THAT line fails and names the reason.

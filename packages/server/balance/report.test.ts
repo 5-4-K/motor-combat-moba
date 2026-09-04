@@ -210,7 +210,7 @@ describe("writeReport (B38, B39, B40)", () => {
 
   it("prints the bot profile values verbatim, so an old report stays interpretable", () => {
     // `standoffUnits` named a field on the pre-Task-1 profile shape; `BOT_PROFILES` was rewritten to
-    // its 33-knob shape (see `config/bot-profiles.ts`) and that field no longer exists on any tier.
+    // its 34-knob shape (see `config/bot-profiles.ts`) and that field no longer exists on any tier.
     // The property this test actually cares about is that the report names every field on the row
     // it ran with, not any one field's name — asserting against the live table keeps that true
     // through the next profile reshape too.
@@ -221,7 +221,7 @@ describe("writeReport (B38, B39, B40)", () => {
   it("states its limitations in its own body (B40)", () => {
     const md = readSummary().toLowerCase();
     expect(md).toContain("model of skill");
-    expect(md).toContain("run #1 validates the rig");
+    expect(md).toContain("tiered human-like bot");
   });
 
   it("states the corroded-amplifier caveat in the report body, not only the README (B5)", () => {
