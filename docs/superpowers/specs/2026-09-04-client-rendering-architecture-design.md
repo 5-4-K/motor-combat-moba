@@ -413,12 +413,15 @@ netcode spec (N23a) and on `RenderFrame`.
    without touching anything else.
 4. **Decals persist for the match (R12).** Skids and scorch marks accumulate until match end. If
    that reads as clutter in a long Deathmatch, a slow fade of the decal layer is a one-line change.
-5. **Beams: flipbook and rope, or a fragment shader (R12, R14).** The flame's noise is already a
-   deterministic hash, so it ports to GLSL directly and a `Shader` quad would replace the flipbook
-   with four vertices and no atlas space. The flipbook is proposed because it keeps GLSL out of the
-   codebase and reuses the existing authoring code verbatim; the shader is the better answer if
-   flipbook memory at tier High (24 frames × 2 lengths per beam) turns out to matter, and either
-   fits the budget.
+5. **Beams: flipbook and rope, or a fragment shader (R12, R14) — resolved 2026-09-04: flipbook
+   for the flame and the bolt; shaders reserved for per-pixel effects.** The order of preference
+   for any new visual, cheapest first: a baked sprite transformed (glows, bodies, rings, bars);
+   a flipbook when the shape itself animates (muzzle flash, flame, bolt, status badges); particles
+   for anything transient and numerous (sparks, embers, smoke, trails, debris); a shader only when
+   the look cannot be a picture (heat shimmer, distortion, dissolve). The reason is batching: the
+   first three ride the atlas batch and cost the same to submit however many there are, while a
+   `Shader` object is its own draw call each time it appears. Authored sprite sheets drop into the
+   authored atlas through the importer pattern, so polish work needs no code for most effects.
 
 ## 13. What this touches that needs stop-and-ask
 
