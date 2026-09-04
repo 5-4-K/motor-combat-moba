@@ -2,6 +2,7 @@ import { weaponDefOf, type BotDifficulty } from "@motor-combat-moba/shared";
 import { BOT_PROFILES, type BotProfile } from "../../config/bot-profiles.js";
 import type { BotCarView, BotController, BotDebug, BotIntent, BotView } from "../types.js";
 import { interceptPoint, newAimErrorState, signedDelta, stepAimError, type AimErrorState } from "./aim.js";
+import { knownCars, newPerception, perceive, type PerceptionState } from "./perception.js";
 
 const COAST: BotIntent = { steer: 0, throttle: 0, fireSlots: 0 };
 
@@ -27,6 +28,7 @@ export class HumanController implements BotController {
   private held: BotIntent = COAST;
   private lastDebug: BotDebug | undefined;
   private aimError: AimErrorState = newAimErrorState();
+  private perception: PerceptionState = newPerception();
 
   constructor(
     profileId: BotDifficulty,
@@ -52,12 +54,13 @@ export class HumanController implements BotController {
   }
 
   decide(view: BotView): BotIntent {
-    // LAYER 1 — perceive (Task 3 replaces this with `perceive()`)
+    // LAYER 1 — perceive. Runs every tick, not on the recompute cadence below (H21 draw order): a
+    // memory that only updates every twelfth tick is not a memory.
+    this.perception = perceive(this.perception, view, this.effectiveProfile);
+    this.aimError = stepAimError(this.aimError, view.tick, this.effectiveProfile, view.rng);
+
     const target = this.pickTarget(view);
     this.target = target?.sessionId;
-
-    // Perception-layer work: runs every tick, not on the recompute cadence below (H21 draw order).
-    this.aimError = stepAimError(this.aimError, view.tick, this.effectiveProfile, view.rng);
 
     // LAYER 2/3/4 — assess, move, shoot, on the recompute cadence (Tasks 4-6)
     if (this.shouldRecompute(view.tick)) {
@@ -123,15 +126,19 @@ export class HumanController implements BotController {
   }
 
   private pickTarget(view: BotView): BotCarView | undefined {
+    // What the bot has actually noticed, not everything `buildBotView` handed it (Task 3). A fixed
+    // target that has not cleared its acquire delay yet is simply not here, and `decide` coasts —
+    // that is the acquire delay doing its job rather than a bug to special-case around.
+    const known = knownCars(this.perception, view.tick);
     if (this.fixedTarget !== undefined) {
-      const fixed = view.others.find((o) => o.sessionId === this.fixedTarget);
+      const fixed = known.find((o) => o.sessionId === this.fixedTarget);
       return fixed?.alive ? fixed : undefined;
     }
     let best: BotCarView | undefined;
     let bestDistance = Infinity;
-    for (const other of view.others) {
+    for (const other of known) {
       if (!other.alive || other.phased) continue;
-      if (other.team === view.self.team && view.others.some((o) => o.team !== view.self.team)) continue;
+      if (other.team === view.self.team && known.some((o) => o.team !== view.self.team)) continue;
       const distance = Math.hypot(other.x - view.self.x, other.y - view.self.y);
       if (distance < bestDistance) { bestDistance = distance; best = other; }
     }
