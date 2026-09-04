@@ -74,7 +74,12 @@ describe("runMatch", () => {
 
   it("differs between seeds", () => {
     const a = runMatch(SETUP);
-    const b = runMatch({ ...SETUP, seed: 2 });
+    // `seed: 11`, not 2: Task 5's movement layer (context-steering blend, orbit, wall push, dodge)
+    // changed this hard-tier Mirage/Bastion matchup's dynamics enough that seed 2 now also runs the
+    // full `maxTicks` (1800) under `FFA_LAST_STANDING`, same as seed 1 — a legitimate tie between two
+    // draws, not proof the seeds behave identically. Seed 11 reliably ends early with a decisive
+    // winner (657 ticks, `a`), so it is the one that actually exercises "two seeds differ".
+    const b = runMatch({ ...SETUP, seed: 11 });
     // Spawn assignment is seeded, so two seeds place the cars differently.
     expect(b.ticks).not.toBe(a.ticks);
   });
@@ -104,24 +109,29 @@ describe("runMatch", () => {
     // assertion below states that premise outright so the two cases can never be confused: if a
     // future balance edit empties the window again, THAT line fails and names the reason.
     //
-    // `seed: 2`, not `SETUP`'s seed 1: Task 4's firing layer (`chooseSlot`, `preferredRangeOf`)
+    // `seed: 11`, not `SETUP`'s seed 1: Task 4's firing layer (`chooseSlot`, `preferredRangeOf`)
     // made this hard-tier Mirage/Bastion matchup trade almost perfectly evenly under seed 1 — same
     // kill and death counts at every window checked from 30 s out to 180 s, a legitimate repeated
     // tie rather than a clock regression, so `winnerSessionId` came back `""` for a reason this test
-    // isn't about. Seed 2 lands a decisive first kill (`kills: [1, 0]`) inside the 30 s window and
-    // stays decisive out to 60 s (used below), so it exercises the clock-firing property this test
-    // actually names without also asserting anything about who should win a fair fight.
-    const out = runMatch({ ...SETUP, seed: 2, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    // isn't about. Seed 2 used to be the fix for that, but Task 5's movement layer (context-steering:
+    // orbit, wall push, dodge-as-a-desire) moved this matchup's dynamics again and seed 2 now also
+    // ties under this mode. Seed 11 lands a decisive first kill (`kills: [1, 0]`) inside the 30 s
+    // window and stays decisive at full length (used below), so it exercises the clock-firing
+    // property this test actually names without also asserting anything about who should win a fair
+    // fight.
+    const out = runMatch({ ...SETUP, seed: 11, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);
   });
 
   it("ranks placement by kills then fewest deaths in deathmatch", () => {
-    // `seed: 2` for the same reason as the test above: seed 1 now trades evenly under Task 4's
-    // firing layer, which is a legitimate tie (`placement` [1, 1]) and not what this test is
-    // checking. Seed 2 reliably produces a decisive kills/deaths split.
-    const out = runMatch({ ...SETUP, seed: 2, mode: GameMode.FFA_DEATHMATCH });
+    // `seed: 11` for the same reason as the test above: seed 1 trades evenly under Task 4's firing
+    // layer, and seed 2 — the prior fix — stopped being decisive once Task 5's movement layer
+    // (context-steering: orbit, wall push, dodge) moved this matchup's dynamics again, both a
+    // legitimate tie (`placement` [1, 1]) rather than what this test is checking. Seed 11 reliably
+    // produces a decisive kills/deaths split.
+    const out = runMatch({ ...SETUP, seed: 11, mode: GameMode.FFA_DEATHMATCH });
     expect(out.seats.map((s) => s.placement).sort()).toEqual([1, 2]);
   });
 

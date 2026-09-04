@@ -3,7 +3,8 @@ import { BOT_PROFILES, type BotProfile } from "../../config/bot-profiles.js";
 import type { BotCarView, BotController, BotDebug, BotIntent, BotView } from "../types.js";
 import { interceptPoint, newAimErrorState, signedDelta, stepAimError, type AimErrorState } from "./aim.js";
 import { chooseSlot, preferredRangeOf } from "./firing.js";
-import { knownCars, newPerception, perceive, type PerceptionState } from "./perception.js";
+import { blendHeading, dodgeDesires, orbitDesire, reduceToIntent, wallDesire, type Desire } from "./movement.js";
+import { activeThreats, knownCars, newPerception, perceive, type PerceptionState } from "./perception.js";
 
 const COAST: BotIntent = { steer: 0, throttle: 0, fireSlots: 0 };
 
@@ -43,6 +44,8 @@ export class HumanController implements BotController {
    * stale value left over from when the bot last had a target.
    */
   private lastPreferredRange = 0;
+  /** Which way `orbitDesire` circles. Rolled once from personality in Task 7; `1` until then. */
+  private orbitSide: 1 | -1 = 1;
 
   constructor(
     profileId: BotDifficulty,
@@ -129,22 +132,44 @@ export class HumanController implements BotController {
       leadSpeed,
       this.effectiveProfile.leadFactor,
     );
-    const bearing = Math.atan2(aimPoint.y - view.self.y, aimPoint.x - view.self.x)
+    const aimHeading = Math.atan2(aimPoint.y - view.self.y, aimPoint.x - view.self.x)
       + this.aimError.offsetRad;
-    const delta = signedDelta(view.self.angle, bearing);
     const distance = Math.hypot(target.x - view.self.x, target.y - view.self.y);
 
-    const steer: -1 | 0 | 1 =
-      delta > this.effectiveProfile.aimToleranceRad ? 1 : delta < -this.effectiveProfile.aimToleranceRad ? -1 : 0;
+    // `chooseSlot` needs the delta to the TARGET's aim point, never the blended steering heading
+    // computed below — a bot leaning off an incoming shot is still pointing its gun at its target.
+    // Swapping these two makes the bot stop shooting whenever it dodges, which defeats the entire
+    // point of composing dodge in as a desire rather than a stance.
+    const aimDelta = signedDelta(view.self.angle, aimHeading);
+
+    // Context steering (H13): every desire votes on a heading, weighted by how much it matters, and
+    // `blendHeading` collapses the vote. Aim always votes; orbit, the wall push and one desire per
+    // incoming shot vote when they have something to say.
+    const bearingToTarget = Math.atan2(target.y - view.self.y, target.x - view.self.x);
+    const desires: Desire[] = [{ headingRad: aimHeading, weight: 1 }];
+    const orbit = orbitDesire(bearingToTarget, this.effectiveProfile.orbitBias, this.orbitSide);
+    if (orbit) desires.push(orbit);
+    const wall = wallDesire(view.self, view.arena, this.effectiveProfile.wallLookaheadUnits);
+    if (wall) desires.push(wall);
+    desires.push(...dodgeDesires(activeThreats(this.perception, view.tick)));
+
+    const heading = blendHeading(desires, view.self.angle);
+    const delta = signedDelta(view.self.angle, heading);
 
     const preferred = preferredRangeOf(view.self, this.effectiveProfile, this.slotWeights, view.tick);
     this.lastPreferredRange = preferred;
-    const band = preferred * this.effectiveProfile.deadbandFraction;
-    const throttle: -1 | 0 | 1 =
-      Math.abs(distance - preferred) <= band ? 0 : distance > preferred ? 1 : -1;
+
+    const { steer, throttle } = reduceToIntent({
+      headingError: delta,
+      distance,
+      preferredRange: preferred,
+      deadband: preferred * this.effectiveProfile.deadbandFraction,
+      aimToleranceRad: this.effectiveProfile.aimToleranceRad,
+      closing: true,
+    });
 
     const decision = chooseSlot({
-      self: view.self, target, distance, aimDelta: delta, profile: this.effectiveProfile,
+      self: view.self, target, distance, aimDelta, profile: this.effectiveProfile,
       weights: this.slotWeights, tick: view.tick, lastPressTick: this.lastPressTick, rng: view.rng,
     });
     if (decision.slot !== undefined) this.lastPressTick = view.tick;
