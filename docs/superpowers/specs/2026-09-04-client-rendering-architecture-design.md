@@ -6,7 +6,7 @@ which gives the client a headless match model (`MatchClient`) that hands the ren
 `RenderFrame` each frame and a stream of server events. That document said *what* the renderer is
 given and split it into modules; it did not say *how* anything should be drawn. This one does. The
 goal it was asked to meet: **cool visuals without eating resources or slowing the game down, on a
-common personal computer.** Decisions are numbered R1–R26.
+common personal computer.** Decisions are numbered R1–R26 (plus R17a).
 
 ## 1. What the frame budget is, and where it goes today
 
@@ -30,8 +30,28 @@ So one weapon's cosmetics cost **6.5 ms of CPU per frame** here — the whole Ja
 the earlier optimisation that took the flame from 3.8 ms to 1.1 ms only ever measured the first row.
 The second row was invisible because it happens inside Phaser: `Graphics.fillPoints` records a
 command, and every frame the WebGL `FillPath` render node transforms every point and runs earcut on
-it again (`FillPath.js:63-91`). Nothing is cached between frames. That is not a Phaser defect; it is
-what an immediate-mode vector API is for. The client uses it for almost everything:
+it again (`FillPath.js:63-91`). Nothing is cached between frames: `Graphics.clear()` is
+`commandBuffer.length = 0` and the renderer re-walks the buffer per frame **per camera**, boxing every
+vertex into a fresh `Point` object (`GraphicsWebGLRenderer.js:15-34, 388-406`). That is not a
+Phaser defect; it is what an immediate-mode vector API is for.
+
+Three consequences that the client's own cost notes did not know:
+
+- **`fillCircle` is a 101-point path whatever its radius** (`arc` steps at 0.01 of a turn,
+  `GraphicsWebGLRenderer.js:225-278`), and `fillRoundedRect` is four of those, ~408 points. A
+  "one `fillCircle` per band" glow is 101 allocations and an earcut run per band per frame; the
+  three HUD slot rings with their key pills are ~1,830 points per frame for three static 64 px
+  circles; the countdown's movement hint is 14 rounded rects, ~5,700 points per frame, drawing a
+  picture that never changes.
+- **Allocation is the GC story.** At the ceiling the client allocates roughly 20,000 short-lived
+  objects of its own per frame (`{x, y}` vertices, `[...near, ...far.reverse()]` joins, per-layer
+  closures, `[...entries()].filter().map()` in `renderCars`, `Array.from` layouts in the HUD) and
+  Phaser re-boxes another ~20,000 `Point`s on top: about 2.4 million allocations per second at
+  60 Hz.
+- **Every `Text` owns its own canvas-backed GL texture**: 54 of them in the arena, against 12 art
+  PNGs. `setText` with a changed string re-rasterises and re-uploads; any style touch does too.
+
+The client uses `Graphics` for almost everything:
 
 - `shotGfx`, `hpGfx`, `lockGfx`, `arrowGfx`, `maneuverGfx`, `hudGfx`, `hudSweepGfx`, `rosterGfx`
   are `clear()`ed and refilled every frame (`ArenaScene.ts`). Only the arena floor and the movement
@@ -43,8 +63,10 @@ what an immediate-mode vector API is for. The client uses it for almost everythi
 - The only sprites are car bodies and weapon icons. There is no atlas, no particle emitter, no
   filter, no baked texture, no sprite-sheet animation.
 
-The result is a client whose per-frame CPU cost scales with *how detailed the art is*, which is the
-opposite of what "cool visuals" needs. The rest of this document inverts that: **detail is paid once
+Draw calls are **not** the bottleneck: the depth stack flushes about three times in the world camera
+and four in the HUD, some seven to ten GL draw calls per frame. What scales is CPU geometry and
+allocation. The result is a client whose per-frame CPU cost scales with *how detailed the art is*,
+which is the opposite of what "cool visuals" needs. The rest of this document inverts that: **detail is paid once
 at boot, frames pay only for position.**
 
 ## 2. What Phaser 4.2.1 gives us
@@ -59,7 +81,9 @@ recently and none of the v4 machinery is used yet.
 | `Stamp` | camera-independent quad meant for stamping into a `DynamicTexture` | the tool for a decal layer |
 | `ParticleEmitter` (`src/gameobjects/particles/`) | batched quads with per-particle alpha/scale/tint/rotation ops, emit and death zones, `maxParticles`, `explode`, `emitting` | one batch per emitter texture; pooled `Particle` objects |
 | `SpriteGPULayer` | static GPU buffer of quads with GPU-driven tween animation, one draw call, "a million sprites" | zero CPU per frame; expensive to edit — for backgrounds and ambience only |
-| Filters (`src/filters/`, `renderNodes/filters/`) | Bloom (composed as a `ParallelFilters` of Blur and Blend — `src/filters/ParallelFilters.js:45`), Glow, Shadow, Blur×3 quality levels, ColorMatrix, Vignette, Displacement, Pixelate, Wipe, Barrel, Bokeh, Mask, GradientMap, Quantize… applicable to any object or camera | each filter is at least one extra full-object or full-camera render pass; per-object filters multiply render targets |
+| Filters (`src/filters/`, `renderNodes/filters/`) — `obj.filters.internal/external` after `enableFilters()`, `camera.filters.internal/external`; there is no `preFX`/`postFX` in 4.x | Bloom and Shine are `Phaser.Actions.AddEffectBloom/AddEffectShine`, composed from `ParallelFilters` of Blur and Blend (`src/actions/AddEffectBloom.js`); Glow, Shadow, Blur×3 quality levels, ColorMatrix, Vignette, Displacement, Pixelate, Wipe, Barrel, Bokeh, TiltShift, Mask (masks are filters now), GradientMap, Quantize… | Phaser's own comment (`components/Filters.js:20-23`): each filtered object is a new draw call plus one per active filter, "use sparingly"; `AddEffectBloom.js:36`: "best as a full-screen effect" |
+| `Shape` objects (`Rectangle`, `Arc`, `Polygon`…) | a `Graphics` whose `pathData` is computed once and re-tessellated only when the geometry changes (`shape/Shape.js:88-93`) | the cheap middle step for static-in-local-space geometry with a moving transform; still on the untextured batch, so it does not merge with sprites |
+| `render` config (`core/typedefs/RenderConfig.js`) | `powerPreference`, `mipmapFilter` (default off, power-of-two textures only), `pathDetailThreshold` (a Graphics LOD, default 1 px), `autoMobileTextures` (one texture per batch on mobile), `batchSize`, `stencil`, `roundPixels` (textured objects only) | the client sets none of these today |
 | `Gradient`, `Noise`, `NoiseSimplex` game objects | GPU-generated gradients and noise, animatable | per-pixel shader; cheap at small sizes, fill-rate bound at full screen |
 | `BitmapText` | glyph quads from a pre-rendered font | batched with sprites; `setText` is a quad rebuild, no rasterisation |
 | Tint modes (`MULTIPLY`, `FILL`, `ADD`, `SCREEN`, `OVERLAY`, `HARD_LIGHT`) | per-object GPU tint | free; replaces CPU recolouring |
@@ -112,11 +136,14 @@ drawn shot never exceeds its hitbox. This design adds the allowance a glow needs
 halo may extend to 1.5× the hitbox at ≤ 25 % alpha, because a halo does not read as a hittable
 surface. `combat-visual.test.ts`'s invariant is re-stated in those terms.
 
-**R9 — Visuals that carry information are deterministic.** An effect a player reads — a lightning
-bolt's path, a flame's flicker phase, the death burst's direction — is seeded from `(instance id,
-tick)` or comes from a server event, so two clients see the same thing. Pure ambience may use a
-free-running clock. (Today two `lance` beams crackle in step and different clients see different
-frames; both go away.)
+**R9 — Visuals that carry information are deterministic, and every animation is time-based.** An
+effect a player reads — a lightning bolt's path, a flame's flicker phase, the death burst's
+direction — is seeded from `(instance id, tick)` or comes from a server event, so two clients see
+the same thing. Pure ambience may use a free-running clock. Every rate is per second and every
+flipbook advances by elapsed time, never per rendered frame: today's lance crackle is budgeted at
+"2 units of vertex movement per frame", which is an implicit 60 Hz assumption that reads as
+snapping on a 30 fps laptop. (Today two `lance` beams crackle in step and different clients see
+different frames; both go away.)
 
 **R10 — Quality is a tier, and the tier is measured.** Three tiers, auto-selected from measured
 frame time and persisted, plus a per-frame governor that sheds cosmetic load before the frame
@@ -203,7 +230,10 @@ signals. Nothing here adds a *mechanic*; the sim is untouched.
 
 ## 6. Baking
 
-**R13 — `render/bake.ts` runs once in `BootScene`.** It creates the `baked-atlas` `DynamicTexture`
+**R13 — `render/bake.ts` runs once in `BootScene`, through `DynamicTexture`, not
+`generateTexture`.** `Graphics.generateTexture` renders through the Canvas 2D path
+(`Graphics.js:1583`), so it cannot bake gradients or blend modes; `DynamicTexture.draw` goes through
+the WebGL renderer and can (`textures/DynamicTexture.js:785-793`). It creates the `baked-atlas` `DynamicTexture`
 (2048 × 2048 at tier High, 1024 at Low), walks a manifest of bake jobs, draws each with a scratch
 `Graphics` at supersample 2 through the *same* pure builders the client uses today, and registers a
 frame per job. Jobs are pure functions `(gfx, frame) => void` beside the style tables, so an
@@ -237,9 +267,21 @@ constructed on an event.
 
 **R17 — Device-pixel-ratio rendering, tiered.** The deferred roadmap item lands here: the game
 renders at `min(devicePixelRatio, tierCap)` (Low 1, Medium 1.5, High 2) and `FIT`s to the same CSS
-size, so a 150 %-scaled laptop screen is sharp. Textures are baked at supersample 2 already
-(`SUPERSAMPLE`), so a dpr of 2 draws them 1:1. Fill rate scales with dpr², which is why it is a tier
-knob and why Low pins it at 1.
+size, so a 150 %-scaled laptop screen is sharp. Phaser 4 has no `resolution` option, so this is the
+by-hand version the roadmap describes — game size × dpr, camera zoom × dpr — with two of its five
+bullet points gone: there are no `Text` objects left to `setResolution`, and there is one scene per
+camera (R20) instead of two cameras to keep in step. Textures are baked at supersample 2 already
+(`SUPERSAMPLE`), so a dpr of 2 draws them 1:1; the baked atlas is power-of-two, so `mipmapFilter`
+can be enabled for it and a dpr of 1.5 minifies cleanly, which non-power-of-two loose PNGs cannot.
+Fill rate scales with dpr² — dpr 2 at 1424 × 720 is four times the pixels — which is why it is a
+tier knob and why Low pins it at 1.
+
+**R17a — The `render` config block.** `powerPreference: "high-performance"` (an integrated GPU still
+benefits from the browser not picking its low-power path), `mipmapFilter: "LINEAR_MIPMAP_LINEAR"`
+for the atlases, `autoMobileTextures: false` (this is a desktop game and the default forces one
+texture per batch on anything that reports as mobile), `pathDetailThreshold` left alone (no
+`Graphics` remains to apply it to). Every value is set explicitly with a one-line reason, because
+today the block is absent and every default is silently in force.
 
 **R18 — Camera shake and zoom punches are the camera's own.** `cameras.main.shake` and a 60 ms zoom
 punch on a kill are native, cost nothing, and are driven by events with magnitudes from a small
@@ -340,6 +382,7 @@ netcode spec (N23a) and on `RenderFrame`.
 | R15 | One build-time packer for authored art |
 | R16 | A particle service with tiered global caps and priorities |
 | R17 | Device-pixel-ratio rendering, capped by tier |
+| R17a | An explicit `render` config block |
 | R18 | Native camera shake and zoom punch from an event table |
 | R19 | Camera-level filters at tier High only |
 | R20 | The HUD is its own parallel scene |
@@ -361,6 +404,12 @@ netcode spec (N23a) and on `RenderFrame`.
    without touching anything else.
 4. **Decals persist for the match (R12).** Skids and scorch marks accumulate until match end. If
    that reads as clutter in a long Deathmatch, a slow fade of the decal layer is a one-line change.
+5. **Beams: flipbook and rope, or a fragment shader (R12, R14).** The flame's noise is already a
+   deterministic hash, so it ports to GLSL directly and a `Shader` quad would replace the flipbook
+   with four vertices and no atlas space. The flipbook is proposed because it keeps GLSL out of the
+   codebase and reuses the existing authoring code verbatim; the shader is the better answer if
+   flipbook memory at tier High (24 frames × 2 lengths per beam) turns out to matter, and either
+   fits the budget.
 
 ## 13. What this touches that needs stop-and-ask
 
