@@ -561,6 +561,11 @@ registered in one place. Fixes F11; `resetMatchState`'s 84 lines become "new Mat
 `RenderFrame` is a plain object rebuilt per frame; scenes read it, never the schema. The
 `ArenaPlayer`, `ContextPlayer`, `StatusRowSource` and `DrawableInstance` duck types disappear.
 
+How the renderers *draw* — baked atlases, retained sprites, particles, layers, quality tiers, the
+HUD as its own scene — is the subject of the companion
+[`2026-09-04-client-rendering-architecture-design.md`](2026-09-04-client-rendering-architecture-design.md);
+this document only fixes what they are given (`RenderFrame` and events) and where the seam is.
+
 **N24 — What stays on the Colyseus schema.** `ArenaState`: `phase`, `mode`, `arenaId`, the flow
 deadlines, winner fields, and `players` with the lobby half of `PlayerState` (`sessionId`, `name`,
 `colorId`, `team`, `status`, `carId`, `selectLocked`, `joinedAtTick`, `kills`, `deaths`,
@@ -618,7 +623,7 @@ model "what a remote sees" and is re-expressed in snapshot ticks.
 | Server upstream | ≤ 1 Mbit/s for 6 clients | N9 estimate |
 | Client sim per frame (predict + resim worst case) | ≤ 0.5 ms | ≤ 6 `stepWorld` calls of 6 cars |
 | Client `RenderFrame` build | ≤ 1 ms | pose math and offsets only |
-| Client draw | ≤ 6 ms at the afterburner ceiling | the existing 1.1 ms flame plus the rest; measured, not assumed |
+| Client draw | see the rendering spec's R25 | measured for this pass: the afterburner ceiling alone costs 6.5 ms of CPU on the immediate-mode path (2.65 ms geometry + 3.88 ms earcut), which is why drawing is designed separately in [`2026-09-04-client-rendering-architecture-design.md`](2026-09-04-client-rendering-architecture-design.md) |
 | Client memory growth per match | zero | rings are fixed size; instance ids are recycled per owner |
 
 The server-side per-tick allocations found in the survey (an O(N²) hull rebuild, two `damageClock`
@@ -753,3 +758,5 @@ sources of jitter (F2, F3).
   work" — the rewind plan there is replaced by §6.7 of this document; D20 stands.
 - `docs/schema-reference.md` — the `PlayerState` table shrinks to the lobby half (N24); a new
   snapshot reference is written beside it.
+- `docs/asset-pipeline.md` "How much detail a shot can afford" and `packages/client/CLAUDE.md`'s
+  cost notes — superseded by the rendering spec's §1 measurement and R1–R8.
