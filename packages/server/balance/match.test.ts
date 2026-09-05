@@ -123,6 +123,12 @@ describe("runMatch", () => {
     // assertion below states that premise outright so the two cases can never be confused: if a
     // future balance edit empties the window again, THAT line fails and names the reason.
     //
+    // `seed: 59`, not 10: Task 7 (2026-09-05) replaced the angular fire gate with the solver's
+    // expected-value threshold (`minShotValue`) and re-keyed `compensateForLag`'s steering deadzone
+    // cap onto `aimToleranceRad` now that `fireConeRad` is gone (`BRAIN_CONSTANTS.deadzoneCapMultiplier`)
+    // — both change WHEN a hard bot presses a slot, which is exactly this matchup's clock. Swept
+    // 1-150 against the new brain: 59, 76, 87, and 112 land a kill inside the window.
+    //
     // `seed: 10`, not 28: Task 2's fix round 3 (R15, 2026-09-05) floors the steering deadzone at
     // half a DECISION window's rotation (not just half a tick's) whenever that is the larger
     // quantity — medium's `recomputeTicks` (6) made this bind, fixing an off-axis inversion where
@@ -179,7 +185,7 @@ describe("runMatch", () => {
     // Mirage/Bastion matchup's dynamics enough that seed 40 stopped landing a kill inside the 30 s
     // window — a legitimate killless window under the new views, not a clock regression, so this
     // test isn't about that case.
-    const out = runMatch({ ...SETUP, seed: 10, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    const out = runMatch({ ...SETUP, seed: 59, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);

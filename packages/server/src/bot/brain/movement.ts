@@ -106,18 +106,21 @@ export function nearBound(
  * inside its own deadzone; stacking `reactionDelayTicks`(4) + `recomputeTicks`(2) = 6 ticks of lag
  * on top adds ~0.71 rad of rotation that lands AFTER a correction is decided, which is what actually
  * drove the observed oscillation amplitude (measured: 62 fires/300 unfixed by orbit removal alone,
- * only 80/300 after it — orbit was real but partial; mean offset 0.459 rad, worse than fireConeRad
- * 0.2). Forcing lag to zero collapsed mean offset to 0 and fires to 99/300, isolating this as the
- * dominant mechanism.
+ * only 80/300 after it — orbit was real but partial; mean offset 0.459 rad, worse than hard's
+ * `fireConeRad` of 0.2 at the time). Forcing lag to zero collapsed mean offset to 0 and fires to
+ * 99/300, isolating this as the dominant mechanism. (`fireConeRad` itself was retired 2026-09-05 by
+ * Task 7's EV firing gate — the historical figures above are unchanged by that, since they predate
+ * it, but nothing in this file compares against it anymore; see `BRAIN_CONSTANTS.deadzoneCapMultiplier`.)
  *
  * This is TWO different quantities, and conflating them is what review round 1 caught:
  *
  * - `effectiveDeadzone` is about ACTUATOR RESOLUTION, not lag: do not chase a precision finer than
  *   the smallest step the car can take in a single tick (`rotationPerTick = floorTurnRate /
  *   TICK_RATE_HZ`). It floors at half a tick's rotation (`deadzoneFloorFraction`), and is hard-
- *   capped below `fireConeRad` (`deadzoneCapFraction`) so a future chassis's turn rate can never
- *   push it past the point where the bot settles somewhere it cannot shoot from. `lagSeconds` (the
- *   full `reactionDelayTicks + recomputeTicks` window) has NO business here — an earlier version of
+ *   capped at a multiple of `aimToleranceRad` (`deadzoneCapMultiplier` — a multiple of `fireConeRad`
+ *   before Task 7 retired that field) so a future chassis's turn rate can never push it past the
+ *   point where the bot settles too far off the target for the EV solver to find a shot. `lagSeconds`
+ *   (the full `reactionDelayTicks + recomputeTicks` window) has NO business here — an earlier version of
  *   this function floored on `turnRate * lagSeconds * deadzoneFloorFraction` (several ticks' worth
  *   of rotation, not one), producing a 0.711 rad deadzone on hard — 41 degrees, 3.5x `fireConeRad`
  *   — that made steering nearly inert the moment the target was off-axis. The on-axis duel in
@@ -149,9 +152,9 @@ export function nearBound(
  *   "half the rotation the bot cannot correct during one decision window, but never less than half
  *   a tick's rotation" means arithmetically: `deadzoneFloorFraction` must be applied exactly once,
  *   to the larger of the two raw rotations, not to each separately and not doubled. The existing
- *   `deadzoneCapFraction` clamp is what keeps this safe: taking the larger candidate can only raise
+ *   `deadzoneCapMultiplier` clamp is what keeps this safe: taking the larger candidate can only raise
  *   the floor, and the cap is what stops a high-`recomputeTicks` tier's floor from swallowing its
- *   own `fireConeRad`.
+ *   own `aimToleranceRad` many times over.
  * - `projectedError` IS about lag: it subtracts the rotation already committed to (the steer this
  *   controller most recently emitted, held for the full `lagSeconds` window) from the raw heading
  *   error before the bang-bang test runs — a person with a real reaction delay does not oscillate,
@@ -190,7 +193,6 @@ export function compensateForLag(args: {
   /** The car's moving turn rate, always — feeds the actuator-resolution floor only (R12). */
   floorTurnRate: number;
   aimToleranceRad: number;
-  fireConeRad: number;
   reactionDelayTicks: number;
   recomputeTicks: number;
 }): { projectedError: number; effectiveDeadzone: number } {
@@ -206,9 +208,15 @@ export function compensateForLag(args: {
   const rotationPerTick = args.floorTurnRate / TICK_RATE_HZ;
   const rotationPerDecision = rotationPerTick * args.recomputeTicks;
   const floor = Math.max(rotationPerTick, rotationPerDecision) * BRAIN_CONSTANTS.deadzoneFloorFraction;
+  // The cap used to be a fraction of `fireConeRad` (R12) — retired 2026-09-05 when Task 7 deleted
+  // that field along with the angular fire gate it served. `aimToleranceRad` is the one per-tier
+  // angular knob left, and it is the right one to key off: a tier with a loose tolerance had a loose
+  // fire cone too, so the cap still loosens and tightens in step with the tier. See
+  // `BRAIN_CONSTANTS.deadzoneCapMultiplier`'s doc comment for why a multiplier of it rather than a
+  // fixed radian value.
   const effectiveDeadzone = Math.min(
     Math.max(args.aimToleranceRad, floor),
-    args.fireConeRad * BRAIN_CONSTANTS.deadzoneCapFraction,
+    args.aimToleranceRad * BRAIN_CONSTANTS.deadzoneCapMultiplier,
   );
 
   // Lag projection: cancel the rotation already committed to (R10), but never project past the

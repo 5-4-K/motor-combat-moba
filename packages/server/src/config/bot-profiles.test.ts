@@ -47,11 +47,9 @@ const LADDER: Readonly<Record<keyof BotProfile, Direction>> = {
   aimErrorSigmaRad: "falls",
   aimErrorDriftTicks: "falls",
   aimToleranceRad: "falls",
-  fireConeRad: "falls",
-  leadFactor: "rises",
   // Fire economy
   burstGapTicks: "falls",
-  fireDisciplineChance: "rises",
+  minShotValue: "rises",
   ultDisciplineChance: "rises",
   ultWindowHpFraction: "equal",
   // Target politics
@@ -61,7 +59,6 @@ const LADDER: Readonly<Record<keyof BotProfile, Direction>> = {
   // Positioning and survival
   standoffFraction: "rises",
   deadbandFraction: "falls",
-  orbitBias: "rises",
   wallLookaheadUnits: "rises",
   retreatHpFraction: "rises",
   ramIntentChance: "rises",
@@ -83,22 +80,15 @@ const LADDER: Readonly<Record<keyof BotProfile, Direction>> = {
 };
 
 const PROBABILITY_FIELDS = [
-  "fireDisciplineChance", "ultDisciplineChance", "ultWindowHpFraction", "woundedBias",
-  "vengefulness", "standoffFraction", "deadbandFraction", "orbitBias", "retreatHpFraction",
-  "ramIntentChance", "dodgeChance", "blunderChance", "idleFidgetChance", "leadFactor",
+  "ultDisciplineChance", "ultWindowHpFraction", "woundedBias",
+  "vengefulness", "standoffFraction", "deadbandFraction", "retreatHpFraction",
+  "ramIntentChance", "dodgeChance", "blunderChance", "idleFidgetChance",
   "hearChance", "deadRespect", "opponentRangeRespect", "cornerRespect", "incomingCarChance",
 ] as const;
 
 describe("BOT_PROFILES", () => {
   it("carries every tier", () => {
     for (const tier of TIERS) expect(BOT_PROFILES[tier]).toBeDefined();
-  });
-
-  it("keeps aimToleranceRad below fireConeRad on every row", () => {
-    for (const tier of TIERS) {
-      const p = BOT_PROFILES[tier];
-      expect(p.aimToleranceRad).toBeLessThan(p.fireConeRad);
-    }
   });
 
   it("orders perceived latency easy > medium > hard", () => {

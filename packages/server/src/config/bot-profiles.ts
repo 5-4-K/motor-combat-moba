@@ -1,7 +1,7 @@
 import type { BotDifficulty } from "@motor-combat-moba/shared";
 
 /**
- * One difficulty's knobs (H44). Forty of them, grouped: perception, aim, fire
+ * One difficulty's knobs (H44). Thirty-seven of them, grouped: perception, aim, fire
  * economy, target politics, positioning, and judgment plus consistency.
  *
  * Every field is a NUMBER, and no code outside this file branches on which tier it came from (H8).
@@ -33,18 +33,25 @@ export interface BotProfile {
   readonly aimErrorSigmaRad: number;
   /** How often the aim error is resampled. Long enough that error DRIFTS rather than jitters. */
   readonly aimErrorDriftTicks: number;
-  /** Steering deadzone. MUST stay below `fireConeRad`. */
+  /**
+   * Steering deadzone. `compensateForLag` may widen the EFFECTIVE deadzone well past this at
+   * runtime (R12) — up to `BRAIN_CONSTANTS.deadzoneCapMultiplier` times this value — to respect the
+   * car's actuator resolution; this is the floor a bot with a perfectly responsive body would settle
+   * to.
+   */
   readonly aimToleranceRad: number;
-  /** How well aimed the bot must be to fire. */
-  readonly fireConeRad: number;
-  /** Fraction of the correct intercept lead actually applied. 0 shoots at where the target is. */
-  readonly leadFactor: number;
 
   // --- Fire economy -------------------------------------------------------------------------
   /** Minimum ticks between presses. The sim accepts one press per tick regardless. */
   readonly burstGapTicks: number;
-  /** Probability of HOLDING a shot that is outside the good window. */
-  readonly fireDisciplineChance: number;
+  /**
+   * Expected damage per second of gun time a shot must be worth before this bot takes it (P14).
+   *
+   * The EV threshold IS discipline — it replaced `fireDisciplineChance`, which gated on distance
+   * rather than on whether the shot would land. Low means an amateur who sprays; high means a
+   * skilled player who only spends gun time on shots that pay.
+   */
+  readonly minShotValue: number;
   /** Probability of saving a long-cooldown weapon for a good moment (TF2's airblast gate). */
   readonly ultDisciplineChance: number;
   /** Target hp fraction under which an ult is considered worth spending. */
@@ -63,8 +70,6 @@ export interface BotProfile {
   readonly standoffFraction: number;
   /** Half-width of the coast band around the preferred range, as a fraction of it. */
   readonly deadbandFraction: number;
-  /** How strongly the bot circles rather than closing head-on. */
-  readonly orbitBias: number;
   /** How far ahead the bot looks for a wall or obstacle. */
   readonly wallLookaheadUnits: number;
   /** Hp fraction below which the bot disengages. 0 means it fights to zero. */
@@ -123,8 +128,10 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * forever. The smallest step is ONE TICK of rotation, not a whole decision interval's worth:
    * `rotationPerTick = turnRate / TICK_RATE_HZ`. Measured on hard/bullseye while moving
    * (turnRateOf("bullseye") = 7.11 rad/s): `rotationPerTick` = 7.11 / 30 = 0.237 rad/tick, and
-   * `floor` = 0.237 * 0.5 = 0.1185 rad — comfortably between `aimToleranceRad` (0.07, so the floor
-   * binds) and `fireConeRad` (0.2, so it does not disable firing). Halving one tick's rotation is
+   * `floor` = 0.237 * 0.5 = 0.1185 rad — above `aimToleranceRad` (0.07, so the floor binds) and,
+   * at the time, below `fireConeRad` (0.2, so it did not disable firing). `fireConeRad` no longer
+   * exists (Task 7, 2026-09-05, retired it along with the angular fire gate); see
+   * `deadzoneCapMultiplier` below for what the ceiling is keyed to now. Halving one tick's rotation is
    * the standard "deadzone >= half a step" rule for a discretized bang-bang controller: tight
    * enough to still track, loose enough to stop chasing a precision the car cannot deliver in one
    * tick.
@@ -156,22 +163,41 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * aimed WORSE off-axis than easy despite outranking it everywhere else. The floor is now the
    * LARGER of "half one tick's rotation" and "half one decision window's rotation" — the same
    * fraction, applied once, to whichever raw rotation (one tick's, or `recomputeTicks` ticks') is
-   * bigger. Taking the larger candidate is only safe because of `deadzoneCapFraction` below, which
-   * still stops the floor from swallowing `fireConeRad` on a tier with a very long
-   * `recomputeTicks`. See `movement.ts`'s `compensateForLag`.
+   * bigger. Taking the larger candidate is only safe because of `deadzoneCapMultiplier` below, which
+   * still stops the floor from swallowing `aimToleranceRad` many times over on a tier with a very
+   * long `recomputeTicks`. See `movement.ts`'s `compensateForLag`.
    */
   deadzoneFloorFraction: 0.5,
   /**
-   * Hard ceiling on the effective steering deadzone, as a fraction of `fireConeRad` (R12, review
-   * round 1). `deadzoneFloorFraction` is derived from `turnRate`, which varies by chassis — a
-   * future chassis with a much higher turn rate could push the floor past `fireConeRad` and
-   * reproduce this task's defect again, in a form no test happens to cover. Settling somewhere the
-   * bot cannot shoot from is never acceptable, whatever the floor computes to, so the effective
-   * deadzone is always clamped below the fire cone. At today's numbers (hard: floor 0.1185 rad,
-   * cap 0.2 * 0.8 = 0.16 rad) the cap does not bind — this exists for a chassis this repo does not
-   * have yet, not because it fires today.
+   * Hard ceiling on the effective steering deadzone, as a MULTIPLE of `aimToleranceRad` (R12,
+   * review round 1; re-keyed here 2026-09-05 when Task 7's EV firing gate retired `fireConeRad`,
+   * which this cap used to be a fraction of — `0.8 * fireConeRad`). `deadzoneFloorFraction` is
+   * derived from `turnRate`, which varies by chassis — a future chassis with a much higher turn
+   * rate could push the floor arbitrarily high, and settling far enough off the target starves the
+   * EV solver of hit chance just as surely as missing the old literal fire cone did. `aimToleranceRad`
+   * is the one per-tier angular knob left standing after the gate moved onto the solver's `value`.
+   *
+   * THE VALUE IS SENSITIVE, not a free constant (Task 7 finding, 2026-09-05): for hard/bullseye,
+   * `deadzoneFloorFraction`'s floor computes to 0.237 rad, well above `aimToleranceRad` (0.07), so
+   * the cap binds every tick, not just for a hypothetical future chassis — R12/R15's comments above
+   * claiming otherwise were already stale before this task. Because the cap BINDS, its exact value
+   * is what the bang-bang controller's resting offset actually converges to, and that convergence is
+   * NOT monotonic in the cap: measured on the off-axis duel in `controller.test.ts`, cap 0.14 rad
+   * (multiplier 2) left the controller oscillating (mean offset 0.222 rad, never settling); cap
+   * 0.16 rad (multiplier ~2.29, `fireConeRad`'s exact old numeric value for hard) settled cleanly
+   * (mean offset 0.018 rad); cap 0.21 rad (multiplier 3) ALSO settled cleanly, to a different
+   * resting offset (0.086 rad) — three nearby values, three qualitatively different outcomes. 2.3
+   * is chosen to land inside hard's known-good band (recovering hard/bullseye's pre-Task-7
+   * convergence almost exactly) rather than at a value picked for a clean-looking multiplier.
+   *
+   * There is NO single multiplier that reproduces every tier's old numeric cap: `fireConeRad` was
+   * authored independently per tier (easy 0.55, medium 0.35, hard 0.2), not as a fixed ratio of
+   * `aimToleranceRad` (the implied ratios are 1.47 / 1.75 / 2.29) — so this constant recovers hard's
+   * operating point, the one tier a committed test pins, at the cost of shifting medium's and easy's
+   * off-axis resting offset from what `fireConeRad` used to produce. See the Task 7 report for the
+   * measured before/after across all three tiers.
    */
-  deadzoneCapFraction: 0.8,
+  deadzoneCapMultiplier: 2.3,
 });
 
 /**
@@ -181,8 +207,8 @@ export const BRAIN_CONSTANTS = Object.freeze({
  * change made in code with the numbers untouched. Bump this whenever the brain's behaviour changes
  * without the table moving, or the balance harness will happily compare two incomparable pilots.
  */
-// 3.0.0 (2026-09-05): situation → one play replaces the scored goal catalog.
-export const BOT_BRAIN_VERSION = "3.0.0";
+// 4.0.0 (2026-09-05): firing solutions replace the angular fire gate (spec phase B).
+export const BOT_BRAIN_VERSION = "4.0.0";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency
@@ -195,11 +221,10 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
   easy: Object.freeze({
     viewStalenessTicks: 4, reactionDelayTicks: 9, recomputeTicks: 12, acquireTicks: 15,
     awarenessRadiusUnits: 520, rearBlindHalfAngleRad: 1.05, trackedThreatLimit: 1, memoryTicks: 15,
-    aimErrorSigmaRad: 0.18, aimErrorDriftTicks: 20, aimToleranceRad: 0.3, fireConeRad: 0.55,
-    leadFactor: 0,
-    burstGapTicks: 14, fireDisciplineChance: 0.05, ultDisciplineChance: 0, ultWindowHpFraction: 0.4,
+    aimErrorSigmaRad: 0.18, aimErrorDriftTicks: 20, aimToleranceRad: 0.3,
+    burstGapTicks: 14, minShotValue: 2, ultDisciplineChance: 0, ultWindowHpFraction: 0.4,
     targetCommitTicks: 150, woundedBias: 0.1, vengefulness: 0.8,
-    standoffFraction: 0.45, deadbandFraction: 0.25, orbitBias: 0, wallLookaheadUnits: 40,
+    standoffFraction: 0.45, deadbandFraction: 0.25, wallLookaheadUnits: 40,
     retreatHpFraction: 0, ramIntentChance: 0.15,
     dodgeChance: 0.05, dodgeReactionTicks: 12, dodgeHorizonTicks: 12,
     blunderChance: 0.12, blunderTicks: 10, idleFidgetChance: 0.1, scoreNoiseSigma: 0.3,
@@ -210,11 +235,10 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
   medium: Object.freeze({
     viewStalenessTicks: 3, reactionDelayTicks: 6, recomputeTicks: 6, acquireTicks: 9,
     awarenessRadiusUnits: 700, rearBlindHalfAngleRad: 0.6, trackedThreatLimit: 2, memoryTicks: 45,
-    aimErrorSigmaRad: 0.09, aimErrorDriftTicks: 14, aimToleranceRad: 0.16, fireConeRad: 0.35,
-    leadFactor: 0.55,
-    burstGapTicks: 7, fireDisciplineChance: 0.45, ultDisciplineChance: 0.5, ultWindowHpFraction: 0.4,
+    aimErrorSigmaRad: 0.09, aimErrorDriftTicks: 14, aimToleranceRad: 0.16,
+    burstGapTicks: 7, minShotValue: 12, ultDisciplineChance: 0.5, ultWindowHpFraction: 0.4,
     targetCommitTicks: 60, woundedBias: 0.5, vengefulness: 0.5,
-    standoffFraction: 0.55, deadbandFraction: 0.15, orbitBias: 0.2, wallLookaheadUnits: 90,
+    standoffFraction: 0.55, deadbandFraction: 0.15, wallLookaheadUnits: 90,
     retreatHpFraction: 0.3, ramIntentChance: 0.3,
     dodgeChance: 0.55, dodgeReactionTicks: 8, dodgeHorizonTicks: 18,
     blunderChance: 0.05, blunderTicks: 10, idleFidgetChance: 0.05, scoreNoiseSigma: 0.15,
@@ -225,11 +249,10 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
   hard: Object.freeze({
     viewStalenessTicks: 2, reactionDelayTicks: 4, recomputeTicks: 2, acquireTicks: 5,
     awarenessRadiusUnits: 900, rearBlindHalfAngleRad: 0, trackedThreatLimit: 4, memoryTicks: 90,
-    aimErrorSigmaRad: 0.035, aimErrorDriftTicks: 9, aimToleranceRad: 0.07, fireConeRad: 0.2,
-    leadFactor: 0.95,
-    burstGapTicks: 3, fireDisciplineChance: 0.55, ultDisciplineChance: 0.9, ultWindowHpFraction: 0.4,
+    aimErrorSigmaRad: 0.035, aimErrorDriftTicks: 9, aimToleranceRad: 0.07,
+    burstGapTicks: 3, minShotValue: 26, ultDisciplineChance: 0.9, ultWindowHpFraction: 0.4,
     targetCommitTicks: 25, woundedBias: 0.9, vengefulness: 0.25,
-    standoffFraction: 0.7, deadbandFraction: 0.08, orbitBias: 0.35, wallLookaheadUnits: 150,
+    standoffFraction: 0.7, deadbandFraction: 0.08, wallLookaheadUnits: 150,
     retreatHpFraction: 0.35, ramIntentChance: 0.5,
     dodgeChance: 0.95, dodgeReactionTicks: 4, dodgeHorizonTicks: 24,
     blunderChance: 0.015, blunderTicks: 10, idleFidgetChance: 0.02, scoreNoiseSigma: 0.05,

@@ -5,6 +5,7 @@ import type { Rng } from "../rng.js";
 import type { BotCarView, BotSelfView, BotSlotView, SituationId } from "../types.js";
 import type { KitRoles } from "./roles.js";
 import { weaponReachOf } from "./reach.js";
+import type { FiringSolution } from "./solution.js";
 
 /**
  * How much a good window is worth to an ult's ranking (H30).
@@ -145,7 +146,6 @@ export function chooseSlot(args: {
   self: BotSelfView;
   target: BotCarView;
   distance: number;
-  aimDelta: number;
   profile: BotProfile;
   weights: readonly number[];
   tick: number;
@@ -158,15 +158,20 @@ export function chooseSlot(args: {
   roles?: KitRoles;
   /** Slot to keep pressing while stickiness lasts (S15). */
   stuckSlot?: number;
+  /** This tick's per-slot firing solutions (P14), keyed by slot index. Absent means not ready/no
+   * target — `solve`'s job, computed once per tick by the caller and handed in read-only. */
+  solutions: ReadonlyMap<number, FiringSolution>;
 }): FireDecision {
-  const { self, target, distance, aimDelta, profile, weights, tick, rng, ultHold } = args;
+  const { self, target, profile, weights, tick, rng, ultHold, solutions } = args;
 
   // Both drawn unconditionally, before any early return, so the stream stays aligned (H21).
   const disciplineRoll = rng();
   const ultRoll = rng();
+  // Still drawn, still discarded: the count per call must not change (H21). The value's old
+  // consumer was `fireDisciplineChance`, which the EV threshold replaces.
+  void disciplineRoll;
 
   const hold: FireDecision = { slot: undefined };
-  if (Math.abs(aimDelta) >= profile.fireConeRad) return hold;
   if (tick - args.lastPressTick < profile.burstGapTicks) return hold;
   // A press the sim would refuse is a press thrown away. Reading our OWN switch lock is fair —
   // it is on our own HUD (H27a).
@@ -186,9 +191,6 @@ export function chooseSlot(args: {
       ultHold.delete(i);
       continue;
     }
-
-    const reach = weaponReachOf(slot.weaponId);
-    if (distance > reach) continue;
 
     const def = weaponDefOf(slot.weaponId);
 
@@ -219,15 +221,14 @@ export function chooseSlot(args: {
         }
         if (holding) continue;
       }
-    } else if (distance > reach * 0.9 && disciplineRoll < profile.fireDisciplineChance) {
-      // A marginal shot at the very edge of reach: a disciplined bot waits, a sprayer takes it (H29).
-      continue;
     }
 
-    // Prefer the weapon that is worth the most and fits the current distance best, then apply
-    // the held situation's preference (S15).
-    const fit = 1 - Math.min(distance / reach, 1) * 0.5;
-    let score = weaponValueOf(slot, weights[i] ?? 1) * fit * windowBonus;
+    // Rank on the solver's expected-value-per-second, gated on `minShotValue` (P14): a shot not
+    // worth taking never enters the ranking at all, ult window bonus included or not (H29's old
+    // marginal-range discipline check is gone — a marginal shot is just a shot the solver scores low).
+    const solution = solutions.get(i);
+    if (!solution || solution.value < profile.minShotValue) continue;
+    let score = solution.value * Math.max(weights[i] ?? 1, 0.01) * windowBonus;
     const situation = args.situation;
     const roles = args.roles;
     if (situation === "punish" && roles?.setupCcSlot === i && targetStunned) score -= 500;

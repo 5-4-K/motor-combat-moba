@@ -6,6 +6,21 @@ import type { BotCarView, BotSelfView, BotSlotView } from "../types.js";
 import {
   chooseSlot, effectiveRangeOf, isUlt, preferredRangeOf, slotIsReady, type UltHoldEntry,
 } from "./firing.js";
+import type { FiringSolution } from "./solution.js";
+
+/**
+ * Build a mocked solutions map for `chooseSlot`, keyed by slot index -> raw solver `value`. Every
+ * unit test in this file mocks the solver rather than calling `solve` for real — `chooseSlot`'s job
+ * is the ranking and the gate, not the physics march, and `solution.test.ts` is what pins `solve`
+ * itself against the real sim. `hitChance`/`expectedDamage` are filled in only so the shape is a
+ * valid `FiringSolution`; nothing in `chooseSlot` reads them.
+ */
+function solutionsFor(entries: [number, number][]): Map<number, FiringSolution> {
+  return new Map(entries.map(([slot, value]) => [slot, {
+    hitChance: value > 0 ? 0.8 : 0, expectedDamage: value, value,
+    aimHeadingRad: 0, readyInTicks: 0,
+  }]));
+}
 
 function slotsFor(carId: "bullseye" | "mirage" | "bastion"): BotSlotView[] {
   return slotsOf(carId).map((weaponId) => ({
@@ -104,21 +119,14 @@ describe("slotIsReady", () => {
 
 describe("chooseSlot", () => {
   const base = {
-    target, distance: 300, aimDelta: 0, weights: ones, tick: 0, lastPressTick: -999,
+    target, distance: 300, weights: ones, tick: 0, lastPressTick: -999,
   };
-
-  it("presses nothing while the aim is outside the fire cone", () => {
-    const out = chooseSlot({
-      ...base, self: self("bullseye"), profile: BOT_PROFILES.hard,
-      aimDelta: 1.2, rng: makeRng(1), ultHold: new Map(),
-    });
-    expect(out.slot).toBeUndefined();
-  });
 
   it("presses nothing before burstGapTicks has elapsed", () => {
     const out = chooseSlot({
       ...base, self: self("bullseye"), profile: BOT_PROFILES.hard,
       tick: 1, lastPressTick: 0, rng: makeRng(1), ultHold: new Map(),
+      solutions: solutionsFor([[0, 40], [1, 35], [2, 30]]),
     });
     expect(out.slot).toBeUndefined();
   });
@@ -126,7 +134,7 @@ describe("chooseSlot", () => {
   it("returns exactly one slot, never a mask (H27)", () => {
     const out = chooseSlot({
       ...base, self: self("bullseye"), profile: BOT_PROFILES.hard, rng: makeRng(1),
-      ultHold: new Map(),
+      ultHold: new Map(), solutions: solutionsFor([[0, 40], [1, 35]]),
     });
     expect(out.slot === undefined || Number.isInteger(out.slot)).toBe(true);
   });
@@ -149,11 +157,14 @@ describe("chooseSlot", () => {
     // A fresh `ultHold` per seed, deliberately: each iteration is its OWN single-shot episode (a
     // bot seeing this exact bad moment for the first time), not 40 recomputes of one continuous
     // engagement — that continuous-engagement question belongs to the persisted-episode test below.
+    // Solution value (30) clears hard's `minShotValue` (26) on its own, so a press here can only be
+    // explained by discipline, not by the EV gate rejecting the shot outright.
     let ultPresses = 0;
     for (let seed = 0; seed < 40; seed++) {
       const out = chooseSlot({
         ...base, self: ultOnly("bullseye"), profile: BOT_PROFILES.hard,
         distance: 1100, rng: makeRng(seed), ultHold: new Map(),
+        solutions: solutionsFor([[2, 30]]),
       });
       if (out.slot === 2) ultPresses++;
     }
@@ -161,11 +172,14 @@ describe("chooseSlot", () => {
   });
 
   it("an undisciplined bot burns its ult against a full-hp target (H30)", () => {
+    // Solution value (10) clears easy's `minShotValue` (2), so nothing but the discipline roll can
+    // hold this back.
     let ultPresses = 0;
     for (let seed = 0; seed < 40; seed++) {
       const out = chooseSlot({
         ...base, self: ultOnly("bullseye"), profile: BOT_PROFILES.easy,
         distance: 1100, rng: makeRng(seed), ultHold: new Map(),
+        solutions: solutionsFor([[2, 10]]),
       });
       if (out.slot === 2) ultPresses++;
     }
@@ -186,11 +200,12 @@ describe("chooseSlot", () => {
     // same position every tick, which is a different bug this file does not want to reintroduce.
     const ultHold = new Map<number, UltHoldEntry>();
     const persistentRng = makeRng(7);
+    const solutions = solutionsFor([[2, 30]]);
     let ultPresses = 0;
     for (let tick = 0; tick < 500; tick++) {
       const out = chooseSlot({
         ...base, self: ultOnly("bullseye"), profile: BOT_PROFILES.hard,
-        distance: 1100, tick, lastPressTick: -999, rng: persistentRng, ultHold,
+        distance: 1100, tick, lastPressTick: -999, rng: persistentRng, ultHold, solutions,
       });
       if (out.slot === 2) ultPresses++;
     }
@@ -202,7 +217,7 @@ describe("chooseSlot", () => {
     for (let tick = 0; tick < 500; tick++) {
       const out = chooseSlot({
         ...base, self: ultOnly("bullseye"), profile: BOT_PROFILES.hard,
-        distance: 1100, tick, lastPressTick: -999, rng: rerolledRng, ultHold: new Map(),
+        distance: 1100, tick, lastPressTick: -999, rng: rerolledRng, ultHold: new Map(), solutions,
       });
       if (out.slot === 2) rerolledPresses++;
     }
@@ -210,11 +225,16 @@ describe("chooseSlot", () => {
   });
 
   it("a good window lets the ult win the ranking against a better-value slot (H30)", () => {
-    // Full kit, target nearly dead: lance is worth far less per second than predator, and must win
-    // anyway — otherwise "saves it for a wounded target" could never produce a press.
+    // Full kit, target nearly dead: predator's raw value (35) outranks lance's (30) outright, and
+    // the ult must STILL win once the good-window bonus applies (30 * ULT_WINDOW_BONUS(4) = 120 >
+    // 35) — otherwise "saves it for a wounded target" could never produce a press. Both values clear
+    // hard's `minShotValue` (26) unboosted, so the gate itself is not what decides this case; only
+    // the ranking is under test. Pepperbox (20) sits below the threshold on purpose, to confirm a
+    // gated-out slot cannot still win by default.
     const out = chooseSlot({
       ...base, self: self("bullseye"), profile: BOT_PROFILES.hard,
       distance: 500, target: { ...target, hp: 5 }, rng: makeRng(1), ultHold: new Map(),
+      solutions: solutionsFor([[0, 35], [1, 20], [2, 30]]),
     });
     expect(out.slot).toBe(2);
   });
@@ -223,7 +243,7 @@ describe("chooseSlot", () => {
     const locked = { ...self("bullseye"), switchLockUntilTick: 50 };
     const out = chooseSlot({
       ...base, self: locked, profile: BOT_PROFILES.hard, tick: 10, rng: makeRng(1),
-      ultHold: new Map(),
+      ultHold: new Map(), solutions: solutionsFor([[0, 40]]),
     });
     // Slot 0 is what a fresh `lastFiredSlot` of -1 would refuse; nothing may be pressed under lock.
     expect(out.slot).toBeUndefined();
@@ -240,11 +260,14 @@ describe("chooseSlot", () => {
     const out = chooseSlot({
       ...base, self: chargeOnly, profile: BOT_PROFILES.easy,
       distance: 100, target: { ...target, x: 100, hp: 10 }, rng: makeRng(1), ultHold: new Map(),
+      solutions: solutionsFor([[2, 20]]),
     });
     expect(out.slot).toBe(2);
   });
 
   it("will NOT press a range-0 weapon from well beyond contact range (H28)", () => {
+    // Mirrors what `solve` itself returns beyond a slot's reach: a present entry with `value: 0`,
+    // which the EV gate refuses exactly like a missing solution would.
     const bastion = self("bastion");
     const chargeOnly: BotSelfView = {
       ...bastion,
@@ -253,6 +276,7 @@ describe("chooseSlot", () => {
     const out = chooseSlot({
       ...base, self: chargeOnly, profile: BOT_PROFILES.easy,
       distance: 600, rng: makeRng(1), ultHold: new Map(),
+      solutions: solutionsFor([[2, 0]]),
     });
     expect(out.slot).toBeUndefined();
   });
@@ -265,7 +289,7 @@ describe("chooseSlot", () => {
     };
     const out = chooseSlot({
       ...base, self: predatorOnly, profile: BOT_PROFILES.hard, rng: makeRng(1),
-      ultHold: new Map(),
+      ultHold: new Map(), solutions: solutionsFor([[0, 40]]),
     });
     expect(out.slot).toBe(0);
   });
@@ -280,10 +304,46 @@ describe("chooseSlot", () => {
     for (let seed = 0; seed < 40; seed++) {
       const out = chooseSlot({
         ...base, self: predatorOnly, profile: BOT_PROFILES.easy, rng: makeRng(seed),
-        ultHold: new Map(),
+        ultHold: new Map(), solutions: solutionsFor([[0, 10]]),
       });
       if (out.slot === 0) presses++;
     }
     expect(presses).toBeGreaterThan(20);
+  });
+});
+
+describe("chooseSlot — expected value gate (P14)", () => {
+  it("holds fire when nothing clears minShotValue", () => {
+    const decision = chooseSlot({
+      self: self("bullseye"), target, distance: 300,
+      profile: { ...BOT_PROFILES.hard, minShotValue: 26 },
+      weights: ones, tick: 100, lastPressTick: 0, rng: makeRng(1),
+      ultHold: new Map<number, UltHoldEntry>(),
+      solutions: solutionsFor([[0, 5], [1, 3], [2, 1]]),
+    });
+    expect(decision.slot).toBeUndefined();
+  });
+
+  it("presses the highest-value slot that clears it", () => {
+    const decision = chooseSlot({
+      self: self("bullseye"), target, distance: 300,
+      profile: { ...BOT_PROFILES.hard, minShotValue: 26 },
+      weights: ones, tick: 100, lastPressTick: 0, rng: makeRng(1),
+      ultHold: new Map<number, UltHoldEntry>(),
+      solutions: solutionsFor([[0, 30], [1, 45], [2, 1]]),
+    });
+    expect(decision.slot).toBe(1);
+  });
+
+  it("an amateur threshold takes a shot a skilled one declines (P37)", () => {
+    const solutions = solutionsFor([[0, 6], [1, 0], [2, 0]]);
+    const at = (minShotValue: number) => chooseSlot({
+      self: self("bullseye"), target, distance: 300,
+      profile: { ...BOT_PROFILES.easy, minShotValue },
+      weights: ones, tick: 100, lastPressTick: 0, rng: makeRng(1),
+      ultHold: new Map<number, UltHoldEntry>(), solutions,
+    }).slot;
+    expect(at(2)).toBe(0);
+    expect(at(26)).toBeUndefined();
   });
 });

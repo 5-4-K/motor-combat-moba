@@ -22,6 +22,7 @@ import { rollPersonality } from "./personality.js";
 import { kitReachOf, weaponReachOf } from "./reach.js";
 import { rolesOf } from "./roles.js";
 import { classifySituation, newSituationState, pickSituation, type SituationState } from "./situation.js";
+import { constantVelocityPredictor, solve, type FiringSolution } from "./solution.js";
 
 const COAST: BotIntent = { steer: 0, throttle: 0, fireSlots: 0 };
 
@@ -249,19 +250,19 @@ export class HumanController implements BotController {
           self,
           { x: target.x, y: target.y, speed: target.speed, angle: target.angle },
           leadSlot ? weaponDefOf(leadSlot.weaponId).speed : 0,
-          profile.leadFactor,
+          // plan 3 replaces this whole block; `leadFactor` left the profile in Task 7 (P36).
+          1,
         )
       : undefined;
     const aimHeading = aimPoint
       ? Math.atan2(aimPoint.y - self.y, aimPoint.x - self.x) + this.aimError.offsetRad
       : self.angle;
-    const aimDelta = signedDelta(self.angle, aimHeading);
     const bodyIntercept = target
       ? interceptPoint(
           self,
           { x: target.x, y: target.y, speed: target.speed, angle: target.angle },
           Math.max(self.speed, 1),
-          profile.leadFactor,
+          1,
         )
       : undefined;
     const interceptHeading = bodyIntercept
@@ -347,7 +348,6 @@ export class HumanController implements BotController {
       // See `compensateForLag`'s doc comment and `BRAIN_CONSTANTS.deadzoneFloorFraction`'s.
       floorTurnRate: turnRateOf(self.carId),
       aimToleranceRad: profile.aimToleranceRad,
-      fireConeRad: profile.fireConeRad,
       reactionDelayTicks: profile.reactionDelayTicks,
       recomputeTicks: profile.recomputeTicks,
     });
@@ -361,13 +361,35 @@ export class HumanController implements BotController {
       reverseBlocked: sit === "fight" || sit === "reset" ? reverseBlocked : false,
     });
 
+    // One firing solution per ready slot (P7), fed to `chooseSlot` below. Built from the shooter's
+    // ACTUAL current pose, not the heading it is steering toward — `solve` mirrors the real sim,
+    // which fires along `self.angle` (or the aim-assist bearing), never along a desired heading.
+    const predictor = target ? constantVelocityPredictor(target) : undefined;
+    const solutions = new Map<number, FiringSolution>();
+    if (target && predictor) {
+      for (let i = 0; i < self.slots.length; i++) {
+        const candidate = self.slots[i]!;
+        if (!slotIsReady(candidate, tick)) continue;
+        solutions.set(i, solve({
+          shooter: {
+            sessionId: self.sessionId, carId: self.carId, team: self.team,
+            x: self.x, y: self.y, angle: self.angle, speed: self.speed,
+            lockTargetSessionId: self.lockTargetSessionId,
+          },
+          slot: candidate, slotIndex: i, target, targetAt: predictor,
+          aimSigmaRad: profile.aimErrorSigmaRad, tick, arena: view.arena,
+        }));
+      }
+    }
+
     const stuckOk = this.stuckSlot !== undefined
       && tick - this.stuckSinceTick < profile.slotStickTicks;
     const decision = chooseSlot({
-      self, target: target ?? ABSENT_TARGET, distance, aimDelta, profile,
+      self, target: target ?? ABSENT_TARGET, distance, profile,
       weights: this.slotWeights, tick, lastPressTick: this.lastPressTick, rng: view.rng,
       ultHold: this.ultHold, situation: sit, roles,
       stuckSlot: stuckOk ? this.stuckSlot : undefined,
+      solutions,
     });
     const slot = mayFire ? decision.slot : undefined;
     if (slot !== undefined) {

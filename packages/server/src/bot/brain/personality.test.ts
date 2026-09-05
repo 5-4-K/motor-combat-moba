@@ -20,7 +20,7 @@ describe("rollPersonality", () => {
     for (let seed = 0; seed < 100; seed++) {
       const { profile } = rollPersonality(makeRng(seed), "hard");
       const base = BOT_PROFILES.hard;
-      for (const key of ["standoffFraction", "orbitBias", "ramIntentChance", "vengefulness"] as const) {
+      for (const key of ["standoffFraction", "minShotValue", "ramIntentChance", "vengefulness"] as const) {
         const low = base[key] * (1 - jitter);
         const high = base[key] * (1 + jitter);
         expect(profile[key]).toBeGreaterThanOrEqual(Math.min(low, high) - 1e-9);
