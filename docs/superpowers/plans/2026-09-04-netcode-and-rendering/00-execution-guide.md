@@ -116,7 +116,7 @@ the three ground-truth commands are green. The numbers are the specs' migration 
 | V3 | no per-frame `Graphics` on the world path except debug; client JavaScript at the ceiling p95 < 5 ms on the reference machine |
 | N4 | ghost-shot mismatch < 0.5 % of presses; press-to-flash within one frame; HUD readouts in tick time |
 | V4 | particles capped per tier; every event kind drives an effect on synthetic events; decal service empty and tested |
-| N5 | a pulled cable resumes within 60 s; silence and flood detectors unit-tested; late join works |
+| N5 | a pulled cable resumes within 15 s of being plugged back in (the seat itself is held for `reconnectSeconds` = 60 s — two different quantities, spec §8 phase 5 and N26); silence and flood detectors unit-tested; late join works |
 | V5 | tiers auto-select and persist; dpr 1.5 sharp on a 150 % display; frame time at the ceiling p95 < 12 ms at High and < 8 ms at Low on the reference machine |
 | N6 | each task's own gate, stated in its first step; skipped tasks are recorded as skipped with the measured value |
 
