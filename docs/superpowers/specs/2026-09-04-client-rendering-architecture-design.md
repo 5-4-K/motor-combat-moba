@@ -9,6 +9,17 @@ given and split it into modules; it did not say *how* anything should be drawn. 
 goal it was asked to meet: **cool visuals without eating resources or slowing the game down, on a
 common personal computer.** Decisions are numbered R1–R26 (with R12a, R17a, R18a).
 
+**Implementation plans:**
+[`../plans/2026-09-04-netcode-and-rendering/`](../plans/2026-09-04-netcode-and-rendering/) holds the
+fourteen phase plans that land this design, plus the shared interface ledger
+([`interfaces.md`](../plans/2026-09-04-netcode-and-rendering/interfaces.md)) and the guide for
+executing them ([`00-execution-guide.md`](../plans/2026-09-04-netcode-and-rendering/00-execution-guide.md)).
+**Plan-writing is still in progress** — nine of the fourteen are written. To continue it from a new
+session, start at
+[`PROGRESS.md`](../plans/2026-09-04-netcode-and-rendering/PROGRESS.md), which records what is
+written, the verbatim assignment for each remaining plan, every ledger defect found and how it was
+resolved, and the one open question this design left for the user.
+
 ## 1. What the frame budget is, and where it goes today
 
 A 60 Hz frame is 16.7 ms. On an integrated-graphics laptop the main thread has to fit the sim, the

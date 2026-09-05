@@ -7,6 +7,17 @@ toward the current architecture — and then reconciled against the user's own c
 (§13). Nothing here is implemented. The decisions are numbered N1–N31 (with N1a, N10a, N23a) and
 are the input to the implementation plans.
 
+**Implementation plans:**
+[`../plans/2026-09-04-netcode-and-rendering/`](../plans/2026-09-04-netcode-and-rendering/) holds the
+fourteen phase plans that land this design, plus the shared interface ledger
+([`interfaces.md`](../plans/2026-09-04-netcode-and-rendering/interfaces.md)) and the guide for
+executing them ([`00-execution-guide.md`](../plans/2026-09-04-netcode-and-rendering/00-execution-guide.md)).
+**Plan-writing is still in progress** — nine of the fourteen are written. To continue it from a new
+session, start at
+[`PROGRESS.md`](../plans/2026-09-04-netcode-and-rendering/PROGRESS.md), which records what is
+written, the verbatim assignment for each remaining plan, every ledger defect found and how it was
+resolved, and the one open question this design left for the user.
+
 The user keeps a note at `docs/ideas/online-netcode-and-client-architecture-spec.md` (it is cited by
 the 2026-08-29 ram spec). Per root `CLAUDE.md` it was **not** read for this design. If it should
 inform or constrain this one, name it and this document will be reconciled against it.
