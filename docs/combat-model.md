@@ -30,17 +30,19 @@ own local contact check against remote hulls to fire a camera shake and impact s
 but that is render-only and feeds nothing back into `stepSim`, the schema, or the server.
 
 **A ram deals zero hp.** `applyRams` never calls `applyDamage`. The whole feature is contact turned
-into control loss — a spin, a sideways shove, and a degraded steering multiplier — never damage.
-Weapons stay the only damage source, so the `attack` rating keeps meaning exactly what its name
-says: ramming sets up the kill, weapons land it.
+into control loss — a spin and a shove added into the victim's velocity (the degraded-steering half
+of that is currently a no-op in stage 1 of the car-physics rework; see the temporary-shim note
+further down this section) — never damage. Weapons stay the only damage source, so the `attack`
+rating keeps meaning exactly what its name says: ramming sets up the kill, weapons land it.
 
 Contact is **edge-triggered**: a knock fires only on the tick a pair of car hulls *enters* contact.
 A pair still touching on the following tick is skipped, and a pair no longer touching is dropped
 from the tracked set. Holding the throttle into a victim therefore lands one knock, not a
 stun-lock — to ram the same car again you must separate and re-approach.
 
-Severity is graded from the **attacker's** forward speed (`SimBody.speed`, which is already
-`dot(vel, fwd)` in this drive model) and the **attacker's** `mass` rating, scaled against
+Severity is graded from the **attacker's** forward speed (`forwardOf(vx, vy, angle)`, the
+`dot(vel, fwd)` component of the car's world velocity as of the 2026-09-06 vector-drive rework) and
+the **attacker's** `mass` rating, scaled against
 `RAM_REFERENCE` (an average-mass chassis at the roster's fastest top speed). A car shunted
 backwards, or one whose nose points away from the contact, deals nothing — its approach term is
 non-positive — which is what keeps "get behind them" a strategy rather than "be moving fastest".
@@ -59,20 +61,38 @@ clamped back into range:
 so an identical approach dealt to the rear is worth more than four times the same hit to the front —
 head-on ramming is deliberately weak, and positioning is the whole feature.
 
-The knock itself is four fields on `PlayerState`: `authority` dips toward
-`RAM_CONFIG.authorityFloor` and scales **steering only**, never throttle or brake, so a knocked
-player can always drive out of it; `shoveX`/`shoveY` push the victim sideways; and `angVel` spins
-it, from a lever arm recovered from the actual contact point rather than a guessed direction — a
-dead-centre nose hit produces exactly zero spin. All four decay back toward neutral on their own
-half-life, and steering against an injected spin bleeds it off faster than coasting does. See
-[`schema-reference.md`](schema-reference.md#playerstate) for the fields and
-[`config-reference.md`](config-reference.md#ram_config) for the tuning. None of the attacker's own
-state is touched by a ram — the existing collision rebound already costs the aggressor its speed.
+**As of the 2026-09-06 vector-drive rework, the knock is a TEMPORARY SHIM, not the stage's final
+design.** The pure sim step (`sim/ram.ts`'s `resolveRam`) still produces a `RamKnock` shaped like the
+pre-rework model — `angVel`, `shoveX`/`shoveY`, and `authority` — but `PlayerState` no longer has
+separate fields for any of the last two. `packages/server/src/sim/ram-bridge.ts` is where the knock
+actually lands: it writes `angVel` as before, and adds `shoveX`/`shoveY` **straight into `vx`/`vy`**,
+additively. `authority` is dropped on the floor entirely — it has no successor until stage 3 adds the
+`reeling` status, so a rammed car keeps full steering for the whole of stage 1. Two consequences
+worth knowing before "fixing" either:
+
+- **The "no rescue" precedence rule is gone with `authority`.** The old model let a fresh knock
+  overwrite rather than stack, so a victim being juggled by two attackers never accumulated shove
+  past what the strongest single hit imposed. Additive `vx`/`vy` has no such ceiling: two rams
+  landing on one victim across different ticks now simply stack.
+- **Forward-aligned knock (a head-on or rear-end ram) is nearly inert.** `accelerateForward` in
+  `sim/drive.ts` clamps the car's forward component to its top speed the moment the victim is next
+  under throttle, so a knock that pushes mostly along the victim's own nose gets discarded on the
+  very next `stepDrive` call. Only a knock with a real lateral component — a flank hit, or a
+  glancing one — reliably survives to be felt. Combined with `hasKnock`'s own documented head-on
+  gap in `sim/ram.ts`, this means head-on and rear-end rams are close to inert in stage 1 while
+  flank rams still work as designed. Whether the clamp should treat externally imposed motion
+  differently from driver-requested acceleration is stage 2's question (`applyImpulse`), not
+  answered here.
+
+All of this is stage 1 only. See [`schema-reference.md`](schema-reference.md#playerstate) for the
+fields and [`config-reference.md`](config-reference.md#ram_config) for the tuning — five of that
+config's knobs (`authorityFloor`, the two authority half-lives, `shoveHalfLifeSeconds`,
+`shoveEpsilon`) are now inert for the same reason, see that page.
 
 **Teammates are fully immune.** `resolveRam` is gated by the same `canDamage` predicate used below
 for shots, so contact and weapons can never disagree about who is on your side. Teammates still
-collide and shove each other through ordinary resolution; a friendly hit simply produces no spin, no
-shove, and no authority loss.
+collide and shove each other through ordinary resolution; a friendly hit simply produces no spin and
+no added velocity.
 
 See [`superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md`](superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md)
 for the full decision record (R1–R20), including the deviations recorded there.
@@ -610,8 +630,9 @@ derived DPS per weapon, so every one of those numbers moves with the row.
 ## Damage
 
 Weapons are the only damage source. Collision costs nobody hp: cars shove each other through
-ordinary resolution, and — between non-teammates on fresh contact — also ram each other for spin,
-shove, and steering loss (see [Ramming](#ramming) above). Neither ever costs hp.
+ordinary resolution, and — between non-teammates on fresh contact — also ram each other for a spin
+and an added shove (see [Ramming](#ramming) above; the steering-loss half of that is a stage-1
+no-op, restored as the `reeling` status in stage 3). Neither ever costs hp.
 
 One hit costs `damageFor(attack, weapon.damage)`:
 
@@ -822,11 +843,12 @@ it), so a cleanse is the closest thing to a repair a car has, and even it never 
 3. **`STATUS_LIMITS`** clamps every channel after aggregation.
 
 `stunned` is the one row that takes the car away rather than degrading it, and it pays for that with
-the shortest duration in the table plus `ignore`, so it cannot be chained. Its speed IS zeroed, every
-tick, for as long as the status runs (`fullStop`, O6) — the total-stop identity the row carries since
-the 2026-09-01 overhaul, replacing the coast-down design this section used to describe. Shove and
-injected ram spin are untouched, so a car stunned mid-slam still slides into the wall; only the
-engine, steering and trigger go dead.
+the shortest duration in the table plus `ignore`, so it cannot be chained. Its forward component IS
+zeroed, every tick, for as long as the status runs (`fullStop`, O6) — the total-stop identity the row
+carries since the 2026-09-01 overhaul, replacing the coast-down design this section used to describe.
+As of the 2026-09-06 vector-drive rework the lateral component (`bleedLateral` in `sim/drive.ts`) and
+injected ram spin (`angVel`) are untouched by `fullStop`, so a car stunned mid-slam still slides into
+the wall; only the engine, steering and trigger go dead.
 
 `disarmed` blocks a **new** press only; one already committed still finishes. `beginFire` spends the
 stock at press time because a wind-up cannot be cancelled, so a stun landing mid-wind-up would
@@ -979,8 +1001,8 @@ there is no tick on which a freshly respawned car reads as solid. Respawn:
 
 - picks the arena's `ffaSpawns` entry that maximises distance to the nearest living enemy
   (`farthestSpawn`, pure and unit-tested);
-- resets the car exactly as `revealCars` already does: pose to the chosen spawn, `speed = 0`, ram
-  knock cleared, `hp = hpOf(carId)`, `alive = true`, `diedAtTick = 0`, `killedBySessionId = ""`,
+- resets the car exactly as `revealCars` already does: pose to the chosen spawn, `vx = vy = 0` (ram
+  knock cleared via `clearKnock`), `hp = hpOf(carId)`, `alive = true`, `diedAtTick = 0`, `killedBySessionId = ""`,
   `lastDamagerSessionId = ""`, statuses cleared, fire state fresh — nothing survives a death, no
   stock, no switch lock, no lingering debuff, no knock; and
 - grants `phased`.

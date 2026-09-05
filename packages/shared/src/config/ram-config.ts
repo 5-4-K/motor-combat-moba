@@ -44,7 +44,15 @@ export const RAM_CONFIG = {
   bonusFlank: 1.0,
   bonusRear: 1.3,
 
-  /** Steering multiplier at maximum severity. The feel dial: too low and the victim is a passenger. */
+  /**
+   * INERT — reads nothing since the 2026-09-06 vector-drive rework; stage 3 deletes it.
+   *
+   * Was the steering multiplier at maximum severity, the feel dial for how helpless a rammed victim
+   * felt. `PlayerState.authority` no longer exists, and `ram-bridge.ts` drops `knock.authority` on
+   * the floor entirely rather than writing it anywhere, so this value is computed by nobody and read
+   * by nobody. Ram control-loss returns as the `reeling` status in stage 3, which replaces this knob
+   * (and the two authority half-lives below) outright rather than reviving them.
+   */
   authorityFloor: 0.35,
   /** Peak knock impulse (expressed as a speed) at severity 1.0, before the victim mass factor. */
   knockMaxSpeed: 260,
@@ -68,9 +76,22 @@ export const RAM_CONFIG = {
 
   /** Injected spin halves this often while the player is not fighting it. */
   spinHalfLifeSeconds: 0.35,
-  /** Lateral knock halves this often. */
+  /**
+   * INERT — reads nothing since the 2026-09-06 vector-drive rework; stage 3 deletes it.
+   *
+   * Was "lateral knock halves this often" against the old separate `shoveX`/`shoveY` fields.
+   * `RamDecay.shove` (below) is still computed from this value, but nothing in `sim/drive.ts` reads
+   * `ramDecay().shove` any more — the knock lands straight in `vx`/`vy` and bleeds off through the
+   * flat-rate `DRIVE_CONFIG.impactGripDecel` instead. Replaced by that knob for the shim's lifetime;
+   * stage 3 deletes this one rather than reviving it.
+   */
   shoveHalfLifeSeconds: 0.25,
-  /** The gap between current authority and full control halves this often. */
+  /**
+   * INERT — reads nothing since the 2026-09-06 vector-drive rework; stage 3 deletes it.
+   *
+   * Was "the gap between current authority and full control halves this often." `PlayerState`
+   * carries no `authority` field to decay. See `authorityFloor` above.
+   */
   authorityHalfLifeSeconds: 0.3,
   /**
    * Spin half-life while the player steers AGAINST it. Shorter than `spinHalfLifeSeconds` on
@@ -80,9 +101,20 @@ export const RAM_CONFIG = {
    */
   counterSteerHalfLifeSeconds: 0.15,
 
-  /** Below these magnitudes a knock snaps to exact rest, as `stopEpsilon` does for `speed`. */
+  /** Below this magnitude a knock snaps to exact rest, as `stopEpsilon` does for the drive model. */
   spinEpsilon: 0.01,
+  /**
+   * INERT — reads nothing since the 2026-09-06 vector-drive rework; stage 3 deletes it.
+   *
+   * Paired with the now-unread `shoveHalfLifeSeconds` above; nothing computes a shove decay to snap.
+   */
   shoveEpsilon: 1,
+  /**
+   * INERT — reads nothing since the 2026-09-06 vector-drive rework; stage 3 deletes it.
+   *
+   * Paired with the now-unread `authorityHalfLifeSeconds` above; nothing computes an authority decay
+   * to snap.
+   */
   authorityEpsilon: 0.01,
 } as const;
 
@@ -96,7 +128,13 @@ export function halfLifeToPerTick(halfLifeSeconds: number): number {
   return 0.5 ** (1 / (halfLifeSeconds * TICK_RATE_HZ));
 }
 
-/** The four decays `stepDrive` applies, as per-tick multipliers. */
+/**
+ * Four per-tick multipliers, but `stepDrive` only reads two of them (`spin`, `counterSteer`) since
+ * the 2026-09-06 vector-drive rework. `shove` and `authority` are still computed here — deleting the
+ * shape would ripple further than this stage's scope — but nothing in the sim reads either; they are
+ * inert alongside `RAM_CONFIG.shoveHalfLifeSeconds`/`authorityHalfLifeSeconds`, which produce them.
+ * Stage 3 deletes both fields rather than reviving them.
+ */
 export interface RamDecay {
   spin: number;
   shove: number;
@@ -123,9 +161,10 @@ export const RAM_DECAY: Readonly<RamDecay> = resolveRamDecay();
 let ACTIVE_DECAY: Readonly<RamDecay> = RAM_DECAY;
 
 /**
- * What the sim actually decays by. `stepDrive` reads this rather than `RAM_DECAY` so the four
- * half-life knobs are reachable by tuning at all — they are authored in seconds and nothing in the
- * sim reads them directly.
+ * What the sim actually decays by. `stepDrive` reads this rather than `RAM_DECAY` so the half-life
+ * knobs it actually uses (`spinHalfLifeSeconds`, `counterSteerHalfLifeSeconds`) are reachable by
+ * playground tuning at all — they are authored in seconds and nothing in the sim reads them
+ * directly. `shove`/`authority` ride along in the same struct but reach nothing (see `RamDecay`).
  */
 export function ramDecay(): Readonly<RamDecay> {
   return ACTIVE_DECAY;

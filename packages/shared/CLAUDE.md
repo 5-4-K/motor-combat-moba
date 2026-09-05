@@ -23,9 +23,10 @@ makes adding a status free and adding a channel a one-call-site change, and why 
 reproduces the pre-status sim exactly (`golden.test.ts` pins it).
 
 Two rows carry flags rather than modifiers. `stunned` is `fullStop` on top of the older
-`immobilised`/`steeringLocked`/`disarmed` trio — engine, steering and trigger dead, and speed forced
-to 0 every tick, though shove and injected ram spin still resolve, so a slammed-then-stunned car still
-slides into the wall. `armored` is `invulnerable` alone: 0 damage from every source, weapon hits,
+`immobilised`/`steeringLocked`/`disarmed` trio — engine, steering and trigger dead, and the forward
+component forced to 0 every tick, though (as of the 2026-09-06 vector-drive rework) `bleedLateral`
+on the lateral component and injected ram spin (`angVel`) still resolve, so a slammed-then-stunned
+car still slides into the wall. `armored` is `invulnerable` alone: 0 damage from every source, weapon hits,
 contact hits and pulses alike — status riders still land, only hp loss stops. A flag is boolean and
 has no counterplay gradient, so every flag-carrying DEBUFF is required to be `reapply: "ignore"`,
 and a flag-carrying buff may be `refresh` only by declaring `chainable: true` on its own row
@@ -56,7 +57,11 @@ extends `applyRams`'s pair loop with a dash (reports a `ContactHit`, no knock) a
 slam — a fixed impulse, replacing the graded ram) ahead of the ordinary ram fallback, and runs where
 `applyRams` used to. `config/slam-config.ts`'s `SLAM_CONFIG`/`SLAM_TICKS` tune the slam alone — knock
 speed, victim authority, wall-stun window, re-slam immunity — kept separate from `RAM_CONFIG` because
-a slam is deliberately not graded like a ram. **No longer dormant as of the 2026-09-01 weapon-status
+a slam is deliberately not graded like a ram. **`SLAM_CONFIG.victimAuthority` is inert as of the
+2026-09-06 vector-drive rework** for the same reason `RAM_CONFIG.authorityFloor` is (see that config's
+own file): `contact.ts` still writes it into the knock it hands back, but `ram-bridge.ts` drops
+`knock.authority` on the floor entirely rather than translating it onto `PlayerState`, which no longer
+has an `authority` field. **No longer dormant as of the 2026-09-01 weapon-status
 overhaul (Plan 3):** `thunderclap` (Mirage) is a `kind: "maneuver"` dash and `wildcharge` (Bastion) is
 a `kind: "maneuver"` charge, both real rows in `WEAPON_TABLE`, so `resolveContacts` and
 `SLAM_CONFIG`/`SLAM_TICKS` now run from a real match, not only from tests. `wildcharge` is also the
@@ -76,13 +81,17 @@ from it, so a real aura instance spawns on every detonation. `corroded`'s only s
 this explosion. What is still dormant is narrower now: only the multi-wave `VolleyDef` machinery
 below, since no row — this one included — authors more than one volley.
 
-**`stepDrive` does not read the roster.** It takes a resolved `ChassisDrive` — `maxSpeed`,
-`reverseMaxSpeed`, `accel`, `reverseAccel`, `turnRate`, `turnRateAtStop` — from `driveOf(carId)`
-(`config/car-config.ts`, frozen per car at module load in `CHASSIS_DRIVE`), and `stepSim` resolves it
-at the single production call site. Every other caller of `stepDrive` here is a test, and that is the
-point: `golden.test.ts` and `drive.test.ts` pin the drive *equation* against a frozen fixture, so a
-per-car `accel` or `handling` retune can never look like a change to the integration. Balance still
-lives in shared config; the sim receives it rather than reaching into `CAR_TABLE` for it.
+**`stepDrive` does not read the roster.** It takes a resolved `ChassisDrive` — eight fields:
+`maxSpeed`, `reverseMaxSpeed`, `accel`, `reverseAccel`, `turnRate`, `turnRateAtStop`, and, since the
+2026-09-06 vector-drive rework, `coastPerTick` (per-tick multiplier on forward speed while coasting,
+resolved from `CarDef.coastHalfLifeSeconds`) and `brakeDecel` (flat deceleration while braking,
+resolved from `CarDef.brakeDecel`, replacing the old shared `DRIVE_CONFIG.brakeDecel`) — from
+`driveOf(carId)` (`config/car-config.ts`, frozen per car at module load in `CHASSIS_DRIVE`), and
+`stepSim` resolves it at the single production call site. Every other caller of `stepDrive` here is
+a test, and that is the point: `golden.test.ts` and `drive.test.ts` pin the drive *equation* against
+a frozen fixture, so a per-car `accel` or `handling` retune can never look like a change to the
+integration. Balance still lives in shared config; the sim receives it rather than reaching into
+`CAR_TABLE` for it.
 
 **Volleys are on `WeaponBase`, pellets are on the projectile.** `VolleyDef` (`volleys`,
 `volleyIntervalMs`) applies to both kinds, so a beam can be a wave sequence in principle — the old

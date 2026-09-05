@@ -470,9 +470,17 @@ per-car `speed` rating matters, so moving only one re-balances the roster. `base
 ## RAM_CONFIG
 
 Ram control-and-knockback tuning — the values `packages/shared/src/sim/ram.ts` and `stepDrive` read
-to turn a car-vs-car contact into a spin, a shove, and a steering penalty. Networked balance, not
+to turn a car-vs-car contact into a spin and a shove. Networked balance, not
 render preference: server tick and client prediction both depend on the two computing the same
 numbers. See [`combat-model.md`](combat-model.md#ramming) for the mechanic.
+
+**Five of the rows below are INERT as of the 2026-09-06 vector-drive rework** — `authorityFloor`,
+`shoveHalfLifeSeconds`, `authorityHalfLifeSeconds`, `shoveEpsilon`, and `authorityEpsilon`. They are
+marked in the table. `PlayerState` no longer has an `authority` field, and `ram-bridge.ts` drops
+`knock.authority` on the floor rather than writing it anywhere, so the "steering penalty" this
+section used to describe does not currently happen — see the temporary-shim note in
+[`combat-model.md`](combat-model.md#ramming). `spinHalfLifeSeconds` and
+`counterSteerHalfLifeSeconds` are still live; do not confuse them with the inert pair above.
 
 | Knob | Value | Notes |
 |---|---|---|
@@ -480,17 +488,18 @@ numbers. See [`combat-model.md`](combat-model.md#ramming) for the mechanic.
 | `minApproachSpeed` | 60 | Below this closing speed, contact is a nudge and no ram is written. Against Mirage's 449.5 u/s (pre-2026-09-06) this was ~13% of top speed; the 2026-09-06 heavy-car pass cut top speed to 267 without touching this constant, so it now reads as ~22% of Mirage's top speed — a materially tighter ram gate than before, not a deliberate re-tune. Stage 3 is planned to re-derive this constant against relative closing velocity instead of a fixed fraction of top speed (spec P25a), which is expected to replace this reading rather than restore it |
 | `massPerRating` | 10 | Mirrors `COMBAT_CONFIG.hpPerRating`; scales the 0-100 `mass` rating |
 | `bonusFront` / `bonusFlank` / `bonusRear` | 0.3 / 1.0 / 1.3 | Multiplies severity by impact side; the most important balance lever in the feature |
-| `authorityFloor` | 0.35 | Steering multiplier at maximum severity — the feel dial |
+| `authorityFloor` **[INERT]** | 0.35 | Was the steering multiplier at maximum severity — the feel dial. Reads nothing since the 2026-09-06 vector-drive rework; stage 3 deletes it and replaces the mechanic with the `reeling` status |
 | `knockMaxSpeed` | 260 | Peak shove impulse (expressed as a speed) at severity 1.0, before the victim mass factor |
 | `massFactorMin` / `massFactorMax` | 0.6 / 1.6 | Bounds on `RAM_REFERENCE_MASS / victimMass`, so neither the heaviest nor the lightest chassis degenerates |
 | `spinScale` | 100 | Calibration multiplier on the torque-derived spin rate |
 | `spinMaxRate` | 6.0 | rad/s ceiling on injected spin |
 | `inertiaCoefficient` | 277.33 **[D]** | `(DRIVE_CONFIG.carWidth² + carHeight²) / 12` — derived from the hull, never typed, so it cannot drift out of step with `carHullOf` |
 | `spinHalfLifeSeconds` | 0.35 | |
-| `shoveHalfLifeSeconds` | 0.25 | |
-| `authorityHalfLifeSeconds` | 0.30 | The gap to 1.0 halves this often |
+| `shoveHalfLifeSeconds` **[INERT]** | 0.25 | Was "lateral knock halves this often" against the old separate `shoveX`/`shoveY` fields. The knock now lands straight in `vx`/`vy` and bleeds off through the flat-rate `DRIVE_CONFIG.impactGripDecel` instead; this value is still computed into `RAM_DECAY.shove` but nothing reads it |
+| `authorityHalfLifeSeconds` **[INERT]** | 0.30 | Was "the gap to 1.0 halves this often"; see `authorityFloor` above |
 | `counterSteerHalfLifeSeconds` | 0.15 | Spin decay while the player steers against it — shorter than `spinHalfLifeSeconds` on purpose, so countersteering shortens recovery instead of only offsetting it |
-| `spinEpsilon` / `shoveEpsilon` / `authorityEpsilon` | 0.01 / 1 / 0.01 | Below these magnitudes a knock snaps to exact rest, as `stopEpsilon` does for `speed` |
+| `spinEpsilon` | 0.01 | Below this magnitude a knock snaps to exact rest, as `stopEpsilon` does for the drive model |
+| `shoveEpsilon` **[INERT]** / `authorityEpsilon` **[INERT]** | 1 / 0.01 | Paired with the two inert half-lives above; nothing computes a decay for either to snap |
 
 **`spinScale` is 100 in the shipped code, not the `1.0` an earlier draft of the design spec's Numbers
 table carried.** At `1.0` the spin channel was structurally inert — the hardest possible ram produced
@@ -498,11 +507,14 @@ about 0.077 rad/s against the 6.0 `spinMaxRate` ceiling and the 0.01 rad/s rest 
 degrees of total rotation. 100 is what makes a solid flank ram land near 2.1 rad/s.
 
 **Decays are authored as half-lives in seconds, not as per-tick multipliers.** `halfLifeToPerTick`
-converts each once, at module load, into the per-tick multiplier `stepDrive` actually reads
-(`RAM_DECAY`): `perTick = 0.5 ** (1 / (halfLifeSeconds * TICK_RATE_HZ))`. Authoring in seconds keeps
-the table tick-rate independent — a per-tick value copied unchanged from a design written against
-60 Hz would silently halve every recovery time at this project's 30 Hz. Same principle as
-`weapon-ticks.ts` converting authored milliseconds to ticks exactly once.
+converts each once, at module load, into the per-tick multiplier stored on `RAM_DECAY`:
+`perTick = 0.5 ** (1 / (halfLifeSeconds * TICK_RATE_HZ))`. Authoring in seconds keeps the table
+tick-rate independent — a per-tick value copied unchanged from a design written against 60 Hz would
+silently halve every recovery time at this project's 30 Hz. Same principle as `weapon-ticks.ts`
+converting authored milliseconds to ticks exactly once. `RAM_DECAY` computes all four fields
+(`spin`, `shove`, `authority`, `counterSteer`), but `stepDrive` only reads `spin` and
+`counterSteer` since the 2026-09-06 vector-drive rework — `shove` and `authority` are the inert pair
+above, carried along in the same struct rather than deleted outright.
 
 `massOf(id)` = `CAR_TABLE[id].mass * massPerRating` — see [`CAR_TABLE`](#car_table). `RAM_REFERENCE_MASS`
 (`car-config.ts`) is `50 * massPerRating`, an average-rated chassis and the "1.0 severity" anchor.
@@ -722,8 +734,12 @@ gap 2.4x faster at 144 Hz than at 60 Hz, settling into a trailing offset of `spe
 — 75 world units of lag at 60 Hz against 31 at 144, so the slower display would see meaningfully less
 road ahead. `smoothFollow` compounds it per elapsed millisecond instead, matching `panFreeCam`.
 
-At `zoom` 1 the visible world is the full 1280x720 units, so the fastest car crosses it in 2.4
-seconds and the camera's trailing offset is 12% of the half-view.
+At `zoom` 1 the visible world is the full 1280x720 units, so the fastest car (mirage, 267 u/s as of
+the 2026-09-06 heavy-car pass — this read 2.4 seconds at the pre-rework 449.5 u/s) crosses it in 4.8
+seconds. The camera's trailing offset from `smoothFollow`'s steady-state formula
+(`speed / (fps × camLerp)`) is about 3.9% of the half-view at that speed, and was about 6.5% even at
+the old 449.5 — the "12%" this line previously claimed predates this branch and was already wrong
+before the heavy-car pass touched it, not a figure this rework moved.
 
 ## FLOW_CONFIG
 

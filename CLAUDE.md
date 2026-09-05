@@ -80,8 +80,9 @@ that used to cap `speed`+`attack`+`hp` was deleted on 2026-08-29 so `mass` could
 rating, and no replacement guard was adopted — see
 [`docs/config-reference.md`](docs/config-reference.md#car_table).
 
-**`stepDrive` no longer reads the roster.** It takes a resolved `ChassisDrive` (six numbers) from
-`driveOf(carId)`; `stepSim` resolves it at the single production call site. That is what lets
+**`stepDrive` no longer reads the roster.** It takes a resolved `ChassisDrive` (eight numbers as of
+the 2026-09-06 vector-drive rework, which added `coastPerTick` and `brakeDecel` to the original six)
+from `driveOf(carId)`; `stepSim` resolves it at the single production call site. That is what lets
 `golden.test.ts` pin the drive integration against a frozen fixture through every future balance
 edit — see [`docs/config-reference.md`](docs/config-reference.md#drive_config).
 
@@ -156,6 +157,7 @@ the table moving. Feel complaints ("medium is too hard to hit") go through the
 | Package local rules | `packages/shared/CLAUDE.md`, `packages/server/CLAUDE.md`, `packages/client/CLAUDE.md` |
 | Spec + tracker | [`docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md`](docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md), [`docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md`](docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md) |
 | **Online netcode and client rendering — the fourteen-phase rewrite in progress** | **start at [`docs/superpowers/plans/2026-09-04-netcode-and-rendering/EXECUTION.md`](docs/superpowers/plans/2026-09-04-netcode-and-rendering/EXECUTION.md)** — see below |
+| **Car physics rework — five stages, stage 1 (vector drive) landed** | **start at [`docs/superpowers/plans/2026-09-06-car-physics/README.md`](docs/superpowers/plans/2026-09-06-car-physics/README.md)** — see below |
 | Weapon system decisions (D1–D22), aim assist and target lock (A1–A14), online-play review, future work | [`docs/superpowers/specs/2026-08-27-weapon-system-design.md`](docs/superpowers/specs/2026-08-27-weapon-system-design.md), [`docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md`](docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md), [`docs/superpowers/plans/2026-08-27-weapon-system.md`](docs/superpowers/plans/2026-08-27-weapon-system.md) |
 | The nine-weapon roster, per-chassis kits (L1–L7) | [`docs/superpowers/specs/2026-08-29-weapon-roster-design.md`](docs/superpowers/specs/2026-08-29-weapon-roster-design.md) |
 | The three chassis types and their triangle, the `accel`/`handling` ratings, the weapon redistribution (T1–T22) — **supersedes L1–L7's assignments** | [`docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md`](docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md) |
@@ -202,6 +204,46 @@ What it changes, when it runs, and why it matters to work that touches the sim m
 
 A change to `sim/`, the tables or `ArenaScene.ts` made before this work starts is not wasted, but it
 will be moved by it — check the phase that owns the file before a large refactor there.
+
+## The car-physics rework: five stages, stage 1 landed
+
+**Stage 1 of a five-stage rework replaced `SimBody.speed` and `PlayerState.speed` — a scalar
+magnitude along the car's heading, with a separate `shoveX`/`shoveY` knockback vector and an
+`authority` steering multiplier bolted alongside — with a true 2D world velocity, `vx`/`vy`.** Four
+fields out, two in, on both types. `packages/shared/src/sim/velocity.ts` (`forwardOf`, `lateralOf`,
+`speedOf`, `toWorld`) is the **only** place the world-frame/car-frame conversion may be written —
+five open-coded copies of `cos(angle) * speed` existed before this, one of them silently wrong for
+sideways motion. Coasting became per-car and speed-proportional (`CarDef.coastHalfLifeSeconds`);
+braking became per-car and flat (`CarDef.brakeDecel`); the roster's speed and acceleration were both
+cut hard so cars carry momentum. See [`docs/turn-tuning.md`](docs/turn-tuning.md#current-values) for
+the numbers and the intro paragraphs above for the balance history.
+
+**Ramming is deliberately, temporarily degraded, and that is a stage-1 fact, not a bug.** A ram's
+knock is added straight into `vx`/`vy` by `ram-bridge.ts` as a shim, additively, with no "no rescue"
+precedence — two rams on one victim across ticks now stack rather than the weaker one being
+discarded. `authority` has **no successor** in stage 1: steering is never degraded by a ram until
+stage 3 reintroduces control loss as a `reeling` status. And because `accelerateForward`'s top-speed
+clamp now catches any forward-aligned velocity (knock included) the moment the victim is next under
+throttle, a head-on or rear-end ram is close to inert — only a flank hit, which lands mostly as
+*lateral* velocity, reliably survives to be felt. Five `RAM_CONFIG` knobs
+(`authorityFloor`, both authority half-lives, `shoveHalfLifeSeconds`, `shoveEpsilon`) and
+`SLAM_CONFIG.victimAuthority` are inert leftovers of this — see that config file for which ones.
+
+**Four more stages are planned, not yet started.** Stage 2 restores whole-vector reflection in
+`applyContact` (walls currently damp but never deflect) and adds mass-weighted separation. Stage 3
+rebuilds ram control-loss as the `reeling` status and rewrites severity against relative closing
+velocity rather than one car's absolute speed. Stage 4 adds an `ImpulseDef` weapon seam so any
+weapon can push a car, and dissolves `SLAM_CONFIG` into it. Stage 5 re-tunes and reconciles — it is
+what re-derives every playtest threshold this rework left stale (see the Playtest section below) and
+rebuilds the docs this stage's own review pass could only patch by hand.
+
+Start at
+[`docs/superpowers/plans/2026-09-06-car-physics/README.md`](docs/superpowers/plans/2026-09-06-car-physics/README.md)
+for the stage sequence, and
+[`docs/superpowers/specs/2026-09-06-car-physics-rework-design.md`](docs/superpowers/specs/2026-09-06-car-physics-rework-design.md)
+for the design it implements.
+[`interfaces.md`](docs/superpowers/plans/2026-09-06-car-physics/interfaces.md) beside the plans is
+the ledger of every name they share, and outranks any one plan.
 
 ## `docs/ideas/` and `docs/invariants/` are the user's, not the agent's
 

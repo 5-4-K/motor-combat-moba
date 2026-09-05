@@ -210,7 +210,12 @@ describe("docs/turn-tuning.md", () => {
     );
     const columns = carColumns(header, "derived values");
 
-    const floor = RAM_CONFIG.authorityFloor;
+    // The "Rate at ram authority floor" row that used to close this list was removed from the page
+    // (not merely marked inert): `RAM_CONFIG.authorityFloor` has read nothing since the 2026-09-06
+    // vector-drive rework — `PlayerState` has no `authority` field, and `ram-bridge.ts` drops
+    // `knock.authority` on the floor — so the row was printing an arithmetically correct number for
+    // a steering cap that does not currently apply to anyone. See docs/turn-tuning.md's note where
+    // the row used to sit.
     const spec = [
       ["Turn rate", (d) => d.turnRate],
       ["— in degrees", (d) => deg(d.turnRate)],
@@ -225,7 +230,6 @@ describe("docs/turn-tuning.md", () => {
       ["180° while moving", (d) => Math.PI / d.turnRate],
       ["360° while moving", (d) => (2 * Math.PI) / d.turnRate],
       ["180° from standstill", (d) => Math.PI / d.turnRateAtStop],
-      ["Rate at ram authority floor", (d) => d.turnRate * floor],
     ];
     assert.deepEqual(
       rows.map(labelOf),
@@ -241,24 +245,4 @@ describe("docs/turn-tuning.md", () => {
     });
   });
 
-  /**
-   * The last derived row restates a multiplier in its formula column. Nothing typed ties that text
-   * to the config it quotes, so it is the cell most able to contradict the row it labels — the page
-   * would go on printing "x 0.3" beside values correctly recomputed at 0.35.
-   */
-  it("quotes the turn multiplier at its configured value", () => {
-    const { rows } = tableWhere(
-      tables,
-      (h) => labelOf(h) === "Stat" && h.some((c) => labelOf([c]) === "Formula"),
-      "derived values",
-    );
-    const formulaOf = (label) => rows.find((cells) => labelOf(cells) === label)?.[1];
-    for (const [label, expected] of [
-      ["Rate at ram authority floor", RAM_CONFIG.authorityFloor],
-    ]) {
-      const formula = formulaOf(label);
-      assert.ok(formula, `the derived table has no "${label}" row. ${REBUILD}`);
-      assertCell(formula, expected, `derived "${label}" formula`);
-    }
-  });
 });

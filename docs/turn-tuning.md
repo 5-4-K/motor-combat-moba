@@ -78,7 +78,7 @@ this page is about, and because changing either now obliges an edit to this page
 | `baseTurnRate` | `DRIVE_CONFIG` | 3.6 | Flat part of every car's turn rate |
 | `turnRatePerRating` | `DRIVE_CONFIG` | 0.054 | What one point of `handling` buys |
 | `stopTurnRatio` | `DRIVE_CONFIG` | 0.5 | Steering at rest, as a fraction of the moving rate |
-| `authorityFloor` | `RAM_CONFIG` | 0.35 | Most steering a ram can strip |
+| `authorityFloor` | `RAM_CONFIG` | 0.35 | **INERT.** Was "most steering a ram can strip." `PlayerState` no longer has an `authority` field to cap, so this currently caps nothing — a rammed car keeps full steering in stage 1 of the vector-drive rework. Ram control-loss returns as the `reeling` status in stage 3 |
 | `spinMaxRate` | `RAM_CONFIG` | 6 rad/s | Cap on ram-imposed rotation |
 | `baseMaxSpeed` | `DRIVE_CONFIG` | 80 | Radius only — no effect on turn rate |
 | `speedPerRating` | `DRIVE_CONFIG` | 2.2 | Radius only — what one point of `speed` buys |
@@ -135,7 +135,15 @@ in a turn-rate or radius formula.
 | 180° while moving | `π / turnRate` | 0.44 s | 0.38 s | 0.5 s |
 | 360° while moving | `2π / turnRate` | 0.88 s | 0.77 s | 1 s |
 | 180° from standstill | `π / turnRateAtStop` | 0.88 s | 0.77 s | 1 s |
-| Rate at ram authority floor | `× 0.35` | 2.488 rad/s | 2.866 rad/s | 2.205 rad/s |
+
+**A "Rate at ram authority floor" row used to sit here, removed rather than kept and marked inert.**
+`RAM_CONFIG.authorityFloor` has read nothing since the 2026-09-06 vector-drive rework —
+`PlayerState` no longer has an `authority` field, and `ram-bridge.ts` drops `knock.authority` on the
+floor rather than writing it anywhere — so the row was printing an arithmetically correct number for
+a steering cap that does not currently apply to anyone. A reader tuning "getting rammed feels too
+punishing" from that row would have been solving a problem the game does not currently have. Ram
+control-loss returns as the `reeling` status in stage 3; re-add the row's equivalent then. (The
+config knob itself is still listed, marked inert, in [Current values](#current-values) above.)
 
 **The 2026-09-02 rewrite removed the split.** `speed` and `handling` now move together per car (65/65,
 85/85, 50/50), so turn rate and turn radius order the roster the *same* way: Mirage highest/widest,
@@ -163,10 +171,10 @@ a turning one, so it is not tabulated on this page.
 | One chassis more agile than the others | that car's `handling` rating | Moves it within the triangle, roster scale untouched |
 | `handling` to *matter more* between chassis | raise `turnRatePerRating`, lower `baseTurnRate` to hold the pivot | Widens the spread without moving the average car |
 | Tighter corners without faster aim | lower `speed` (rating, or `baseMaxSpeed`/`speedPerRating`) | Radius is `speed / rate`; this is the other half |
-| Snappier pivots when stopped or crawling | `stopTurnRatio` (0.5) | Only touches at-rest steering — a scale change does not reach it |
+| Snappier pivots once fully stopped | `stopTurnRatio` (0.5) | Only touches at-rest steering — a scale change does not reach it. As of the 2026-09-06 vector-drive rework's proportional coast, "crawling" no longer reaches this branch: a car that lifts off stays above `stopEpsilon` for roughly 20 seconds at a 1.0-1.5s coast half-life, so `isMoving(forward)` keeps reading the moving turn rate until the car brakes to a dead stop |
 | Braking into a corner to feel rewarding | that car's `brakeDecel` against its `coastHalfLifeSeconds` | Slower entry is a smaller radius; the *situational* radius lever, and per-car since the 2026-09-06 vector-drive rework |
 | Aiming easier without changing driving at all | `AIM_CONFIG.coneDeg`, `lockRange` | Assist and lock, entirely outside the drive model |
-| Getting rammed to feel less helpless | `RAM_CONFIG.authorityFloor` (0.35) | Caps how much steering a ram can strip |
+| Getting rammed to feel less helpless | Nothing currently — `RAM_CONFIG.authorityFloor` is inert since the 2026-09-06 vector-drive rework | Ram control-loss returns as the `reeling` status in stage 3; there is no knob for this today |
 
 ## What is *not* a knob
 
@@ -185,8 +193,8 @@ so read it against speed.
 |---|---|
 | "Aiming is heavy", "I can't track anyone" | Rate — or `AIM_CONFIG`, if you would rather not touch driving |
 | "Fine slow, wide at speed" | Radius. Lower that car's `speed`; raising rate again over-serves the slow chassis |
-| "Sluggish in tight spaces" | `stopTurnRatio` — the slowest the game ever feels |
-| "I lose control when hit" | `RAM_CONFIG` authority, not turn rate |
+| "Sluggish in tight spaces" | `stopTurnRatio` — but check the car is actually at a dead stop first. Since the 2026-09-06 vector-drive rework's proportional coast, a car off the throttle stays in the *moving* turn-rate branch for roughly 20 seconds before decaying below `stopEpsilon`, so this knob almost never fires from a mere crawl |
+| "I lose control when hit" | Nothing today — `RAM_CONFIG.authorityFloor` is inert since the 2026-09-06 vector-drive rework; ram control-loss returns as the `reeling` status in stage 3 |
 | "This one car feels wrong" | Its `handling` rating, never the scale |
 
 ## Keeping this page honest
@@ -196,7 +204,7 @@ this file and recomputes every cell from built shared.** Change any value in the
 editing the tables and `npm test` fails, naming the row and the chassis:
 
 ```
-derived "Turn rate" / mirage: page says 6.3, config gives 6.84
+derived "Turn rate" / mirage: page says 8.19, config gives 8.5
 ```
 
 It checks values rather than a fingerprint. The players' guide can hash its inputs because it is

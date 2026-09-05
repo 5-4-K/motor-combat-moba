@@ -26,7 +26,7 @@ Per tick, per player, in sorted `sessionId` order:
 1. drops pending inputs by the **predicate** `seq <= lastProcessedSeq` — never by position or a remembered cursor. The ack can legitimately walk *backwards* between ticks (a high-seq input can land in tick N's batch while a lower-seq one lands in tick N+1's), and under the predicate a stale lower ack is a harmless no-op;
 2. replays the remaining tail from the authoritative pose to get the target;
 3. if `hypot(dx, dy) > NET_CONFIG.reconcileSnapPos`, or the **wrapped** angle error exceeds `reconcileSnapAngle`, returns the target outright;
-4. otherwise eases `x`, `y` and `angle` by `reconcileEaseRate` — angle along the wrapped delta, so it takes the short way — and **snaps** `speed` and `reverseHold` to the target. Those are derived sim fields that feed the next integration; a half-eased value would poison every following step, not merely look wrong.
+4. otherwise eases `x`, `y` and `angle` by `reconcileEaseRate` — angle along the wrapped delta, so it takes the short way — and **snaps** `vx`, `vy`, `angVel` and `reverseHold` to the target. Those are derived sim fields that feed the next integration; a half-eased value would poison every following step, not merely look wrong.
 
 Angle comparisons are wrapped (`atan2(sin d, cos d)`) because `stepDrive` never normalises `angle`: after minutes of turning it is thousands of radians, and a raw subtraction would measure accumulated winding rather than error.
 

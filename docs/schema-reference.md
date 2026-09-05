@@ -61,11 +61,9 @@ field at all, so the check is always false there. See root `CLAUDE.md` and
 | `team` | uint8 | `0` | 0 = A, 1 = B (FFA unused) |
 | `joinedAtTick` | uint32 | `0` | Host-succession order |
 | `carId` | string | `""` | `""` until reveal |
-| `speed` | number | `0` | Signed along heading |
+| `vx`, `vy` | number | `0` | World velocity, u/s. Replaces the old scalar `speed` — a magnitude along the heading with a separate `shoveX`/`shoveY` knock vector bolted alongside. There is no successor to `shove`: steering grip keeps a driven car's own motion aligned with its nose, so any *lateral* component of `vx`/`vy` is by definition externally imposed, and a knocked car's motion is just a decomposition of the one velocity rather than a second field |
 | `reverseHold` | uint16 | `0` | Ticks held in reverse |
 | `angVel` | number | `0` | Ram-injected spin, rad/s. Decays toward `0` |
-| `shoveX`, `shoveY` | number | `0` | Ram-injected lateral knock, u/s. Decays toward `0` |
-| `authority` | number | `1` | Steering multiplier; `1` = full control. A ram dips it toward `RAM_CONFIG.authorityFloor`, then it decays back toward `1`. Defaults to `1`, not `0` — a `0` default would mean "no steering" for every player never touched, presenting as an undriveable car on first spawn |
 | `maneuver` | uint8 `ManeuverKind` | `0` | NONE=0, DASH=1, HOLD=2, CHARGE=3 |
 | `maneuverTicksLeft` | uint16 | `0` | Ticks left in the current maneuver; `0` whenever `maneuver` is NONE |
 | `maneuverAngle` | number | `0` | The locked heading a DASH translates along (radians); `0` and unread for HOLD/CHARGE |
@@ -88,12 +86,17 @@ field at all, so the check is always false there. See root `CLAUDE.md` and
 `weaponCooldown` (a single counter for the one pre-weapon-system shot) is gone — replaced by
 `weapons` above, one row per slot.
 
-`angVel`, `shoveX`, `shoveY`, and `authority` are the ram knock state (see
-[`combat-model.md`](combat-model.md#ramming)). They join `speed` and `reverseHold` in
-`PredictionBuffer.reconcile`'s always-**snap** set rather than the ease path — all four feed the
+`vx`, `vy`, and `angVel` are the ram knock state as of the 2026-09-06 vector-drive rework (see
+[`combat-model.md`](combat-model.md#ramming)). A ram now adds its knock directly into `vx`/`vy` as a
+temporary shim rather than writing a separate field. They join `reverseHold` in
+`PredictionBuffer.reconcile`'s always-**snap** set rather than the ease path — both feed the
 next `stepSim` integration directly, so a half-eased value would poison every subsequent step rather
-than merely look wrong. See [`config-reference.md`](config-reference.md#ram_config) for the tuning
-that produces them.
+than merely look wrong. Net effect on the wire, against the pre-rework schema: **four fields removed**
+(`speed`, `shoveX`, `shoveY`, `authority`) and **two added** (`vx`, `vy`). `authority` has no successor
+in stage 1 — ram control-loss returns as the `reeling` status in stage 3 — and with it goes the "no
+rescue" precedence rule it used to implement: two rams landing on one victim across different ticks
+now simply stack additively into `vx`/`vy`. See [`config-reference.md`](config-reference.md#ram_config)
+for the tuning that produces the knock.
 
 `maneuver`, `maneuverTicksLeft`, `maneuverAngle`, and `maneuverSpeed` are the maneuver state behind
 dash/hold/charge (see [`combat-model.md`](combat-model.md#maneuvers-and-the-contact-pass)) —
@@ -127,7 +130,7 @@ derived from these rows (invariant 8), so the client must hold the same list to 
 `sourceSessionId` is the one field the sim does not read, and it is networked anyway so the schema
 stays the whole truth about a car's statuses rather than half of it beside a server-only map.
 
-Reconciliation does **not** snap or ease these. `angVel`/`shoveX`/`shoveY`/`authority` are values
+Reconciliation does **not** snap or ease these. `vx`/`vy`/`angVel` are values
 being integrated, so a half-eased one poisons the next step; a status list is the *rules* the
 integration runs under, and both halves of the lockstep derive it from the same tick through the same
 shared `modifiersFromRows`. See [`combat-model.md`](combat-model.md#statuses) for the model and
