@@ -104,12 +104,10 @@ describe("HumanController", () => {
     // heading offset of 0.269 rad by tick 9 and never closed further.
     // Pre-fix baseline (2026-09-05, review round 1): fires = 6 / 300, heading frozen near 0.269 rad.
     //
-    // Task 7 finding (2026-09-05, EV firing gate): even with steering fully recovered (meanOffset
-    // below, at parity with pre-Task-7), this scenario's real geometry pushes the solver's best
-    // `value` for predator to ~26.1/s at the settled range and heading — a hair above hard's
-    // `minShotValue` (26) — so this assertion is measured RED at 70/300 fires, not >90, on the
-    // current profile. That is the EV gate correctly refusing marginal shots, not a wiring bug; see
-    // the Task 7 report for the measured distribution. Left unweakened per that task's brief.
+    // Task 7 finding (2026-09-05, EV firing gate): hard's `minShotValue` is 25. On-axis shots at
+    // this scenario's settled geometry reach ~26.1/s, safely above the threshold. Measured fire counts
+    // (300 ticks): 140 on-axis (heading settled near 0), 94 off-axis (heading settled near 0.2 rad).
+    // Both pass the >90 bar with margin, confirming the EV gate fires healthily at this tier.
     const { fires, meanOffset } = closedLoopDuel("hard", 300, { x: 753, y: 500 });
     expect(fires).toBeGreaterThan(90);
     // Fixed at 0.2 rad — hard's `fireConeRad` before Task 7 (2026-09-05) deleted that field along

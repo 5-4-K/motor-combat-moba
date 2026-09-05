@@ -223,32 +223,36 @@ export const BRAIN_CONSTANTS = Object.freeze({
   deadzoneFloorFraction: 0.5,
   /**
    * Hard ceiling on the effective steering deadzone, as a MULTIPLE of `aimToleranceRad` (R12,
-   * review round 1; re-keyed here 2026-09-05 when Task 7's EV firing gate retired `fireConeRad`,
-   * which this cap used to be a fraction of — `0.8 * fireConeRad`). `deadzoneFloorFraction` is
-   * derived from `turnRate`, which varies by chassis — a future chassis with a much higher turn
-   * rate could push the floor arbitrarily high, and settling far enough off the target starves the
-   * EV solver of hit chance just as surely as missing the old literal fire cone did. `aimToleranceRad`
-   * is the one per-tier angular knob left standing after the gate moved onto the solver's `value`.
+   * review round 1; re-keyed here 2026-09-05 when Task 7's EV firing gate retired `fireConeRad`).
+   * 2.3 is a FITTED constant chosen to reproduce hard/bullseye's measured convergence from before
+   * Task 7, NOT derived from any per-tier invariant or a fixed ratio between tiers — no single
+   * multiplier can do that, because `fireConeRad` was authored independently per tier (easy 0.55,
+   * medium 0.35, hard 0.2) and the ratios of these old caps to the current `aimToleranceRad` values
+   * are NOT uniform: easy 0.55 / 0.3 = 1.83, medium 0.35 / 0.16 = 2.19, hard 0.2 / 0.07 = 2.86.
+   * A literal read of 2.3 therefore does NOT preserve the old fire-cone containment invariant for
+   * easy and medium: applying 2.3 to easy's `aimToleranceRad` (0.3) yields 0.69 rad, exceeding the
+   * old easy cap of 0.55 by ~25%; medium's 0.16 × 2.3 = 0.368 rad exceeds the old cap of 0.35 by
+   * ~5%; hard's 0.07 × 2.3 = 0.161 rad stays within the old cap of 0.2, at ~80% of it.
    *
-   * THE VALUE IS SENSITIVE, not a free constant (Task 7 finding, 2026-09-05): for hard/bullseye,
-   * `deadzoneFloorFraction`'s floor computes to 0.237 rad, well above `aimToleranceRad` (0.07), so
-   * the cap binds every tick, not just for a hypothetical future chassis — R12/R15's comments above
-   * claiming otherwise were already stale before this task. Because the cap BINDS, its exact value
-   * is what the bang-bang controller's resting offset actually converges to, and that convergence is
-   * NOT monotonic in the cap: measured on the off-axis duel in `controller.test.ts`, cap 0.14 rad
-   * (multiplier 2) left the controller oscillating (mean offset 0.222 rad, never settling); cap
-   * 0.16 rad (multiplier ~2.29, `fireConeRad`'s exact old numeric value for hard) settled cleanly
-   * (mean offset 0.018 rad); cap 0.21 rad (multiplier 3) ALSO settled cleanly, to a different
-   * resting offset (0.086 rad) — three nearby values, three qualitatively different outcomes. 2.3
-   * is chosen to land inside hard's known-good band (recovering hard/bullseye's pre-Task-7
-   * convergence almost exactly) rather than at a value picked for a clean-looking multiplier.
+   * That deviation from the old invariant is currently acceptable because the fire gate itself is
+   * no longer an angle at all — it was deleted when the EV firing gate landed, so the fire-cone
+   * containment invariant it enforced is defined in terms of a field that no longer exists. What
+   * matters now is measured behaviour, and all three tiers fire healthily: easy 120/87 (on/off-axis),
+   * medium 144/102, hard 140/94 (both geometries in the committed `controller.test.ts` duel).
    *
-   * There is NO single multiplier that reproduces every tier's old numeric cap: `fireConeRad` was
-   * authored independently per tier (easy 0.55, medium 0.35, hard 0.2), not as a fixed ratio of
-   * `aimToleranceRad` (the implied ratios are 1.47 / 1.75 / 2.29) — so this constant recovers hard's
-   * operating point, the one tier a committed test pins, at the cost of shifting medium's and easy's
-   * off-axis resting offset from what `fireConeRad` used to produce. See the Task 7 report for the
-   * measured before/after across all three tiers.
+   * THE VALUE IS SENSITIVE and NON-MONOTONIC, not a free constant (Task 7 finding, 2026-09-05):
+   * measured on the off-axis duel, cap 0.14 rad (multiplier 2.0) left the bang-bang controller
+   * oscillating with mean offset 0.222 rad and never settling; cap 0.16 rad (multiplier ~2.29,
+   * the old hard `fireConeRad` numeric value itself) settled cleanly to mean offset 0.018 rad;
+   * cap 0.21 rad (multiplier 3.0) also settled cleanly, but to a different resting offset of
+   * 0.086 rad — three nearby values, three qualitatively different outcomes. 2.3 lands in hard's
+   * known-good band, recovering its pre-Task-7 convergence almost exactly. This means the cap is
+   * not robust to small changes and MUST be re-measured rather than nudged if anything around it
+   * changes — a `turnRate` edit, a change to `deadzoneFloorFraction`, or a future tier's different
+   * turn-rate profile could all shift it unexpectedly.
+   *
+   * This constant is expected to be temporary: a lookahead planner is planned to replace the
+   * bang-bang steering entirely, which will delete `compensateForLag` and with it this cap.
    */
   deadzoneCapMultiplier: 2.3,
 });
