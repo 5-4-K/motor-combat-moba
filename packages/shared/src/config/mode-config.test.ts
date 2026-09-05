@@ -29,12 +29,8 @@ describe("isGameMode", () => {
 });
 
 describe("isActive", () => {
-  it("ships every current mode active, and at least one mode is always active", () => {
-    expect(activeGameModes()).toEqual([
-      GameMode.FFA_LAST_STANDING,
-      GameMode.TEAM,
-      GameMode.FFA_DEATHMATCH,
-    ]);
+  it("publishes the two FFA modes; Team brawl is unpublished", () => {
+    expect(activeGameModes()).toEqual([GameMode.FFA_LAST_STANDING, GameMode.FFA_DEATHMATCH]);
   });
 
   it("keeps DEFAULT_GAME_MODE active, so a new lobby always opens on a selectable mode", () => {
@@ -43,6 +39,7 @@ describe("isActive", () => {
 
   it("isActiveGameMode refuses unknown values and inactive rows", () => {
     expect(isActiveGameMode(GameMode.FFA_LAST_STANDING)).toBe(true);
+    expect(isActiveGameMode(GameMode.TEAM)).toBe(false);
     expect(isActiveGameMode(3)).toBe(false);
     expect(isActiveGameMode("0")).toBe(false);
     expect(isActiveGameMode(undefined)).toBe(false);

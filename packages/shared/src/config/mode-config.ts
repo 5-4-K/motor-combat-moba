@@ -2,7 +2,9 @@ import { GameMode } from "../constants.js";
 import type { ModeDef } from "./types.js";
 
 /**
- * The three match kinds a host can pick, plus the publish flag that hides a row from a real lobby.
+ * Every match kind the sim knows, plus the publish flag that hides a row from a real lobby. `TEAM`
+ * is unpublished today, so a host picks between Brawl and Deathmatch; the row stays here because the
+ * playground, the balance harness and the team win rule still drive it.
  *
  * Display names live here so the lobby cards, the mode tag, and `modeLabel` cannot drift. The
  * longer card copy (kicker, body, player-count chips) stays in the client — it is not a sim input.
@@ -20,7 +22,7 @@ export const MODE_TABLE = {
   [GameMode.TEAM]: {
     id: GameMode.TEAM,
     name: "Team brawl",
-    isActive: true,
+    isActive: false,
   },
   [GameMode.FFA_DEATHMATCH]: {
     id: GameMode.FFA_DEATHMATCH,
