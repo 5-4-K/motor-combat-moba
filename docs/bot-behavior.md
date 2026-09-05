@@ -14,7 +14,7 @@ Design: [`docs/superpowers/specs/2026-09-05-bot-situation-play-design.md`](super
 (S1–S28). Fairness / hands / personalities: H1–H8 and H16–H48 of
 [`docs/superpowers/specs/2026-09-04-human-like-bot-behavior-design.md`](superpowers/specs/2026-09-04-human-like-bot-behavior-design.md).
 
-Copied from `bot-profiles.ts` on 2026-09-05. `BOT_BRAIN_VERSION` is `4.0.0`.
+Copied from `bot-profiles.ts` on 2026-09-05. `BOT_BRAIN_VERSION` is `4.1.0`.
 
 ## Reading a complaint
 
@@ -30,6 +30,8 @@ Copied from `bot-profiles.ts` on 2026-09-05. `BOT_BRAIN_VERSION` is `4.0.0`.
 | "It weaves instead of fighting" | Orbiting no longer exists — the orbit desire was deleted along with the angular fire gate; a later phase reintroduces circling as emergent planner behaviour. Weaving today means either the steering lag compensation is mis-tuned (`BRAIN_CONSTANTS.deadzoneFloorFraction` / `deadzoneCapMultiplier`) or it is a real bug — say so rather than reaching for a knob |
 | "It fights at the wrong distance" | `standoffFraction`, `opponentRangeRespect`, `awarenessRadiusUnits` |
 | "It charges in / never closes" | `standoffFraction` down, `opponentRangeRespect` down |
+| "It runs away from nothing" | anticipatory `evade` (below) overreacting: `opponentRangeRespect` down is the tier dial; `BRAIN_CONSTANTS.dangerEvadeFraction` up or `dangerEvadeCooldownTicks` up narrow it further. Read the overlay's `danger` reading first — if it is genuinely nonzero this is a threshold/frequency tune, not a bug |
+| "It walks into obvious fire" | `opponentRangeRespect` up. If the overlay's `danger` reads 0 while you are aimed at it from inside your weapon's reach, that is a solver bug (`dangerEvAgainst` in `bot/brain/solution.ts`), not a knob to tune |
 | "It lost me and drove around" | `memoryTicks`, `hearChance` — hunt is last-known / shots / quadrants, never the arena centre |
 | "It wastes its ult" | `ultDisciplineChance` up, `ultWindowHpFraction` (the HP that counts as a dump window) |
 | "It never punishes a stun" | Overlay should flip to `punish`; if it stays `fight`, `situationCommitTicks` is not the issue (punish preempts) |
@@ -188,6 +190,12 @@ reintroduces circling as emergent behaviour from a planner; there is no orbiting
 | `incomingCarChance` | 0.1 | 0.55 | 0.95 |
 | `situationCommitTicks` | 20 | 12 | 6 |
 | `slotStickTicks` | 4 | 8 | 12 |
+
+`opponentRangeRespect` does double duty as of phase C (P38): it was already the keep-out-of-their-gun
+weight (S11) read by range selection, and is now also the weight on danger in the anticipatory
+`evade` term below — how hard the bot works to stay out of a loaded gun's firing solution before any
+shot exists. At 0 (easy) the anticipatory evade can never fire, the same way easy already ignores
+keep-out range generally. No new field was added for phase C; this one was repurposed.
 
 ### Threat reaction and consistency
 

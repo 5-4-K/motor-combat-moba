@@ -26,11 +26,15 @@ facts, and worse hands.
 2. **Read the EV picture before naming a factor.** Firing is gated by `minShotValue` now, not an
    angle — before guessing from the symptom, check what `solve()` (`bot/brain/solution.ts`) is
    actually computing for the best available slot that tick. The playground overlay shows
-   `personality | situation | range N | slot K` (`slot -` means it held fire) but does **not** yet
-   print the solver's `value`, so "is it declining a real shot, or is nothing worth taking" has to be
-   answered by instrumenting `solve()` or `chooseSlot`, not by eyeballing the overlay alone. If the
-   best value clears `minShotValue` and the bot still holds fire, that is a bug, not a tuning
-   question — stop and say so.
+   `personality | situation | range N | slot K | danger N` (`slot -` means it held fire) but does
+   **not** yet print the solver's `value`, so "is it declining a real shot, or is nothing worth
+   taking" has to be answered by instrumenting `solve()` or `chooseSlot`, not by eyeballing the
+   overlay alone. If the best value clears `minShotValue` and the bot still holds fire, that is a
+   bug, not a tuning question — stop and say so.
+
+   The overlay also prints `danger` — damage per second the bot believes it is standing in. If it
+   reads 0 while you are pointed straight at it from inside your weapon's reach, stop: that is a
+   solver bug, not a tuning problem.
 3. Name the **factor**: judgment (dead, ranges, corner, ult save, dodge notice) vs hands (aim,
    steer, blunder) vs the solver itself (hit chance, value — not a knob).
 4. Name the **tier** they complained about. Do not "fix Hard" by changing Easy unless they asked.
@@ -58,6 +62,8 @@ say so.
 | "shots are all over the place" | **not a knob** | The solver (`bot/brain/solution.ts`) decides hit chance and value. If it is firing shots that miss, that is a solver bug to investigate, not a value to tune — say so rather than reaching for `aimErrorSigmaRad` |
 | "it weaves instead of fighting" | steering, or a bug | `orbitBias` no longer exists — the orbit desire was deleted with the angular fire gate; a later phase reintroduces circling as emergent planner behaviour. Weaving today is either the steering lag compensation mis-tuned (`BRAIN_CONSTANTS.deadzoneFloorFraction` / `deadzoneCapMultiplier` in `bot-profiles.ts`) or a real bug — say so |
 | "too close / too far" | range | `standoffFraction` (own band), `opponentRangeRespect` (their shortest gun). Predator uses aim reach (~800), not 1800 |
+| "it runs away from nothing" | judgment (anticipatory `evade`) | `opponentRangeRespect` down on the complained-about tier is the first dial; `BRAIN_CONSTANTS.dangerEvadeFraction` up or `dangerEvadeCooldownTicks` up narrow the anticipatory term further. Read the overlay's `danger` reading first (Path step 2) — if it is genuinely nonzero this is a threshold/frequency tune, not a bug |
+| "it walks into obvious fire" | judgment (anticipatory `evade`) | `opponentRangeRespect` up. If the overlay's `danger` reads 0 while you are aimed at it from inside your weapon's reach, that is a solver bug in `dangerEvAgainst` (`bot/brain/solution.ts`) — stop tuning and say so |
 | "easy and hard feel the same" | not a single knob | Read `packages/server/src/bot/brain/tiers.test.ts`. If green, the values are too close — move several judgment+hands knobs apart, still no `if (hard)` |
 
 ## After they confirm

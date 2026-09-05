@@ -419,7 +419,8 @@ export const BRAIN_CONSTANTS = Object.freeze({
  * without the table moving, or the balance harness will happily compare two incomparable pilots.
  */
 // 4.0.0 (2026-09-05): firing solutions replace the angular fire gate (spec phase B).
-export const BOT_BRAIN_VERSION = "4.0.0";
+// 4.1.0 (2026-09-06): danger evaluation and cooldown readiness (spec phase C).
+export const BOT_BRAIN_VERSION = "4.1.0";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency
