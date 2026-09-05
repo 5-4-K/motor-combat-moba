@@ -201,9 +201,8 @@ export function respawnPlayer(ctx: PipelineCtx, player: PlayerState): void {
   player.x = spawn.x;
   player.y = spawn.y;
   player.angle = spawn.angle;
-  player.vx = 0;
-  player.vy = 0;
   // Or the car returns already spinning, its steering still degraded by the ram that killed it.
+  // `clearKnock` zeroes the whole velocity, not merely knock state, so it alone is enough here.
   clearKnock(player);
 
   const carId = carIdOf(player);

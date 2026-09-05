@@ -66,8 +66,9 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
       NO_MANEUVER_WEAPONS, 10,
     );
     // The knock is added straight into the victim's velocity (stage 1 shim — see `contactTick`'s
-    // comment on `RamKnock` application), so a car starting at rest picks up a nonzero shove.
-    expect(victim.vx).not.toBe(0);
+    // comment on `RamKnock` application). The victim starts at rest and is rammed along +x by an
+    // attacker approaching from -x, so the shove has a known sign, not merely a nonzero magnitude.
+    expect(victim.vx).toBeGreaterThan(0);
   });
 
   it("leaves the attacker untouched", () => {
@@ -199,8 +200,11 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     );
 
     // The first knock's x component survives untouched, and the second knock adds a fresh y
-    // component on top of it — neither is discarded in favour of the other.
-    expect(victim.vx).toBe(afterFirstRam);
+    // component on top of it — neither is discarded in favour of the other. `toBeCloseTo` rather
+    // than `toBe`: the second attacker's shove is nominally along y alone, but its x contribution is
+    // only float-zero (`Math.cos(-Math.PI / 2)` is ~6e-17, not exactly 0), so exact equality would
+    // fail for the wrong reason on any geometry change that perturbs that residual.
+    expect(victim.vx).toBeCloseTo(afterFirstRam);
     expect(victim.vy).not.toBe(0);
   });
 
@@ -226,7 +230,9 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
       NO_MANEUVER_WEAPONS, 11,
     );
 
-    expect(victim.vx).toBe(afterMediumRam);
+    // Same float-zero caveat as the test above: the second attacker's shove is nominally along y
+    // alone, but its x contribution is only float-zero, not exactly 0.
+    expect(victim.vx).toBeCloseTo(afterMediumRam);
     expect(victim.vy).not.toBe(0);
   });
 });

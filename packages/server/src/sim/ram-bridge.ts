@@ -63,7 +63,11 @@ export interface ContactTickResult {
 }
 
 /**
- * Reset a player's knock state to neutral: no spin, no velocity.
+ * Reset a player to a neutral rest state: no spin, and — since the vector-drive rework merged
+ * ordinary driving velocity and ram shove onto the same two fields — the car's ENTIRE velocity, not
+ * merely a "knock" component distinct from it. Correct for the two call sites that use it (a fresh
+ * match, a respawn), where the car needs to arrive fully at rest either way; the name and this doc
+ * now say more than "knock state" to reflect that.
  *
  * Also clears the four maneuver fields, the same "nothing survives into a fresh match" rule this
  * already applies to ram state: a car must not spawn into the countdown still mid-dash or mid-charge
@@ -84,6 +88,13 @@ export function clearKnock(player: PlayerState): void {
  * current heading (no lateral component). The one place a dash, a wall-blocked dash, or a slammed
  * charge stops — the bridge writing motion fields is the established ram pattern; combat still
  * never moves a car.
+ *
+ * This DISCARDS whatever lateral component the car's velocity carried into the call, where the old
+ * `player.speed = exitSpeed` scalar assignment left `shoveX`/`shoveY` alone. A wall-blocked dasher
+ * (the `endDash(player, 0)` call below) loses any shove it was still carrying, and a slammed charger
+ * (the third call, at `restored` below) gets re-pointed straight along its nose. Consistent with this
+ * stage's other forward-only choices and revisited in stage 2 when `RamKnock` becomes `Impulse`; not
+ * silently swallowed today, just not fixed here.
  */
 function endDash(player: PlayerState, exitSpeed: number): void {
   player.maneuver = 0;

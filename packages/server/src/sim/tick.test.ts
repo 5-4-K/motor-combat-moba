@@ -544,14 +544,15 @@ describe("serverTick fire mask reporting", () => {
  */
 describe("serverTick coasts a knocked player who has stopped sending input", () => {
   /**
-   * `angVel` is always given a nonzero starting value alongside the shove. Before this rework,
-   * `hasKnock` gated the coast on `angVel`/`shoveX`/`shoveY`/`authority` — four independent fields —
-   * so a fixture could isolate "pure shove, no spin" and still exercise the rescue. Post-rework,
-   * shove and ordinary driving velocity are the SAME two fields (`vx`/`vy`), and `hasKnock` cannot
-   * tell "a ram shoved this car" from "this car is just driving" by looking at them alone — see
-   * `hasKnock`'s own comment in `tick.ts`. A real ram's `spinOf` is a continuous function of contact
-   * geometry that is essentially never exactly 0, so this fixture giving every knock a companion
-   * `angVel` reflects production reality rather than working around a gap in the port.
+   * `angVel` is always given a nonzero starting value alongside the shove. `hasKnock` gates the
+   * coast on `lateralOf(vx, vy, angle)` rather than raw `vx`/`vy` (see `hasKnock`'s own comment in
+   * `tick.ts`), and this fixture's shove (`vx = 300` at `angle = 0`) is aligned with the car's own
+   * heading — exactly the "dead-on rear-end" case `lateralOf` cannot see, by design (a car's own
+   * steering grip means only a LATERAL component is unambiguously external). The `angVel` companion
+   * is not decorative here: it is what keeps `hasKnock` true for this fixture at all. A real ram's
+   * `spinOf` is a continuous function of contact geometry that is essentially never exactly 0, so
+   * pairing a shove with spin reflects production reality — but it also means this fixture alone does
+   * not exercise `lateralOf`'s own detection path, which no test here isolates directly.
    */
   function knocked(over: Partial<PlayerState> = {}): PlayerState {
     const p = makePlayer("v", 500, 400, 0);
@@ -592,21 +593,39 @@ describe("serverTick coasts a knocked player who has stopped sending input", () 
     expect(player.angle).not.toBe(0);
   });
 
-  it("settles to exact neutral and then stops moving the car", () => {
+  it("settles angVel to exact neutral, then freezes the residual forward-aligned velocity", () => {
+    // This fixture's shove (`vx = 300` at `angle = 0`) is aligned with the car's own heading, so
+    // `lateralOf` reads exactly 0 for it from the very first tick (`DRIVE_CONFIG.steeringGrip` is
+    // 1.0, so the rebuilt velocity always re-decomposes with zero lateral component too) — only the
+    // paired `angVel` keeps `hasKnock` true at all, and it rotates the heading out from under the
+    // velocity as it spins down. Once `angVel` snaps to exactly 0 (its own epsilon), `hasKnock` goes
+    // false and the coast stops for good — this is `hasKnock`'s documented, accepted gap (a knock
+    // landing purely along the victim's own heading is invisible to `lateralOf`), not a bug: it
+    // reduces to the pre-rework `speed` behaviour of freezing rather than decaying to true rest.
+    // What must still hold is that it settles ONCE and stays settled, rather than oscillating or
+    // running forever — that is the "stops moving the car" half of this test's name.
     const player = knocked({ angVel: 3 });
     const state = stateWith(player);
     for (let i = 0; i < 300; i++) serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
-    expect(player.vx).toBe(0);
-    expect(player.vy).toBe(0);
     expect(player.angVel).toBe(0);
+    // Residual velocity is real (the known gap), not exact rest — but it is small, a fraction of the
+    // original 300 u/s shove, because plenty of ticks of coasting ran before angVel expired.
+    const residualSpeed = Math.hypot(player.vx, player.vy);
+    expect(residualSpeed).toBeGreaterThan(0);
+    expect(residualSpeed).toBeLessThan(10);
     const restingX = player.x;
+    const restingVx = player.vx;
+    const restingVy = player.vy;
     serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
+    // Frozen, not merely slow: one more silent tick moves nothing, because `hasKnock` is now false.
     expect(player.x).toBe(restingX);
+    expect(player.vx).toBe(restingVx);
+    expect(player.vy).toBe(restingVy);
   });
 
   it("leaves a truly resting, unknocked player exactly where it is", () => {
     // Zero velocity, zero spin, no maneuver: `hasKnock` is false and the player is never stepped at
-    // all while silent, so this is also a check that a resting car costs nothing extra.
+    // all while silent.
     const player = makePlayer("v", 500, 400, 0);
     const state = stateWith(player);
     serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
@@ -615,23 +634,21 @@ describe("serverTick coasts a knocked player who has stopped sending input", () 
   });
 
   it(
-    "also coasts a merely-driving (unrammed) silent player toward rest, unlike before this rework",
+    "leaves a merely-driving (unrammed) silent player frozen, exactly as before this rework",
     () => {
-      // Accepted behaviour change, not a bug: `speed` and `shove` used to be different fields, so a
-      // driving-only player with a momentarily empty queue (routine jitter, not a sign of
-      // disconnection) stayed completely frozen — `hasKnock` never looked at `speed`. They are now
-      // the same field (`vx`/`vy`), and `hasKnock` has to look at them too or a shove-heavy,
-      // spin-light ram knock can freeze holding residual velocity forever once its `angVel` alone
-      // decays to zero (see `hasKnock`'s comment in `tick.ts` for the numeric case). The accepted
-      // cost is this: a car that was merely driving, then went silent for one tick, now also gets a
-      // single uncommanded coast step instead of none.
+      // This is the property client prediction depends on. `hasKnock` reads `lateralOf`, not raw
+      // `vx`/`vy`: a car's own steering grip aligns its motion with its nose (see `SimBody`'s doc),
+      // so a car driving straight ahead has zero lateral component and is by definition NOT
+      // externally imposed motion. On an empty-queue tick both the server (this function) and the
+      // client's `PredictionBuffer` must take exactly zero extra steps, or the reconciled pose
+      // diverges from what the client already predicted purely from ordinary packet jitter — see
+      // `hasKnock`'s own comment in `tick.ts`.
       const player = makePlayer("v", 500, 400, 0);
       player.vx = 200;
       const state = stateWith(player);
       serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
-      expect(player.x).toBeGreaterThan(500);
-      expect(player.vx).toBeLessThan(200);
-      expect(player.vx).toBeGreaterThan(0);
+      expect(player.x).toBe(500);
+      expect(player.vx).toBe(200);
     },
   );
 

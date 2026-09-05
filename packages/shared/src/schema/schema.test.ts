@@ -24,6 +24,7 @@ describe("PlayerState", () => {
     expect(p.carId).toBe("");
     expect(p.vx).toBe(0);
     expect(p.vy).toBe(0);
+    expect(p.angVel).toBe(0);
     expect(p.reverseHold).toBe(0);
     expect(p.hp).toBe(0);
     expect(p.alive).toBe(true);
@@ -61,13 +62,6 @@ describe("PlayerState", () => {
     expect(p.hp).toBe(50);
     expect(p.alive).toBe(false);
     expect(p.selectLocked).toBe(true);
-  });
-
-  it("defaults velocity and injected spin to rest", () => {
-    const p = new PlayerState();
-    expect(p.vx).toBe(0);
-    expect(p.vy).toBe(0);
-    expect(p.angVel).toBe(0);
   });
 });
 

@@ -78,7 +78,9 @@ export interface LeadTarget {
  * `thumper` at 450, so a bot that does not lead cannot hit a moving Mirage with either.
  *
  * Falls back to the target's own position when no intercept exists — a shot slower than its target,
- * or a `speed: 0` maneuver row — rather than returning a point behind the shooter.
+ * or a `speed: 0` maneuver row — rather than returning a point behind the shooter. A stationary
+ * target (`vx === 0 && vy === 0`) is its own, separate early return just below: no intercept maths
+ * needed when there is nothing to lead.
  */
 export function interceptPoint(
   from: { x: number; y: number },

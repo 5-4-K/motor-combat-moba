@@ -495,10 +495,9 @@ export class ArenaRoom extends Room<ArenaState> {
         player.carId = carId;
         player.hp = hpOf(carId);
       }
-      player.vx = 0;
-      player.vy = 0;
       // Nothing from the previous match survives into this one — a knock included, or a car would
-      // spawn already spinning with its steering degraded.
+      // spawn already spinning with its steering degraded. `clearKnock` zeroes the whole velocity,
+      // not merely knock state, so it alone is enough here.
       clearKnock(player);
       // The score is match-scoped, and this is the only match boundary that owns it. `PlayerState`
       // lives as long as the connection, not as long as the match, and the only other writers are

@@ -9,6 +9,7 @@ import {
   forwardOf,
   getArena,
   isOnField,
+  lateralOf,
   otherCarHulls,
   stepSim,
   type ArenaDef,
@@ -224,27 +225,29 @@ const COAST_INPUT: InputMessage = { seq: 0, steer: 0, throttle: 0, fireSlots: 0 
  * Before this rework this checked `angVel`/`shoveX`/`shoveY`/`authority` — the knock quartet — and
  * deliberately left ordinary driving velocity (`speed`) out of the check, so a player whose queue
  * merely went empty for one jittery tick (routine at the latencies this project simulates, not a
- * sign of disconnection) stayed frozen rather than getting an extra, uncommanded coast tick.
+ * sign of disconnection) stayed frozen rather than getting an extra, uncommanded coast tick. That
+ * omission is what makes client prediction converge: on an empty-queue tick both sides must take
+ * exactly zero extra steps, or a server-only coast desyncs the reconciled pose from what the client
+ * already predicted.
  *
- * `speed` and `shove` are now the same two fields (`vx`/`vy`), so that distinction can no longer be
- * drawn from the schema alone. This checks `vx`/`vy` too rather than narrowing to `angVel` alone,
- * because the two decay at different rates (`coastPerTick` vs. `RAM_CONFIG.spinHalfLifeSeconds`) and
- * a large shove paired with a small or zero spin (a near-centred hit) would otherwise see `angVel`
- * snap to zero first, silently freezing a chunk of residual velocity on the player forever — the
- * exact "immovable wall, and it never decays" bug this mechanism exists to prevent. The accepted
- * cost is that a merely-driving silent player now also gets one coast tick before freezing, instead
- * of none; `stepDrive`'s coast is a small proportional loss, not a snap, and the player has by
- * definition just stopped talking to us on this exact tick regardless. See the ported test fixtures
- * in `tick.test.ts` for the numeric case that motivated this.
+ * `speed` and `shove` are now carried on the same two fields (`vx`/`vy`), so the old check (any
+ * nonzero `vx`/`vy`) would be true for essentially every moving car, forcing a coast step on the
+ * server that the client never predicts — the exact desync above, on ordinary play rather than only
+ * on a stalled tab. The fix keeps the same distinction the old fields drew, expressed in the new
+ * ones: `stepDrive`'s own steering grip aligns a car's own motion with its nose (see the doc on
+ * `SimBody`), so any LATERAL component of velocity is by definition externally imposed — a car never
+ * drives itself sideways. `lateralOf` is that signature, and it is this rework's successor to
+ * `shoveX`/`shoveY`.
  *
- * Neutral is `angVel 0, vx 0, vy 0`, and `stepDrive`'s decay snaps to exactly those values inside
- * its epsilons rather than approaching them asymptotically. So this goes false on its own after a
- * bounded number of ticks and the coast stops — a silent player is stepped only while residual
- * motion is actually resolving, never indefinitely.
+ * Known, accepted gap: a knock landing purely along the victim's own heading (a dead-on rear-end) is
+ * invisible to `lateralOf` and so behaves like the pre-rework `speed` case — a silent victim freezes
+ * holding it rather than coasting it off. Not a regression (that is exactly what `speed` did before
+ * this rework), and stage 2 closes it properly once `RamKnock` becomes `Impulse` and control loss has
+ * a real signal again.
  */
 function hasKnock(player: PlayerState): boolean {
   return (
-    player.vx !== 0 || player.vy !== 0 || player.angVel !== 0 ||
+    lateralOf(player.vx, player.vy, player.angle) !== 0 || player.angVel !== 0 ||
     // A maneuver is also motion applied from outside the player's own inputs: a dashing or held
     // car must keep integrating when its owner goes silent, or it freezes mid-dash holding the
     // whole state. Ends on its own when the ticks run out, exactly as the knock decays do.
