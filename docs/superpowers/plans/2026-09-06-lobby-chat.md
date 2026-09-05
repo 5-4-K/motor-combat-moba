@@ -282,7 +282,7 @@ describe("chat schema (LC11)", () => {
     m.text = "gl hf";
     state.chat.push(m);
     expect(state.chat.length).toBe(1);
-    expect(state.chat[0].text).toBe("gl hf");
+    expect(state.chat.at(0).text).toBe("gl hf");
   });
 });
 ```
@@ -597,25 +597,25 @@ describe("pushChatMessage (LC4, LC12)", () => {
     const chat = new ArraySchema<ChatMessageState>();
     for (let i = 0; i < CHAT_CONFIG.maxMessages; i += 1) push(chat, `m${i}`);
     expect(chat.length).toBe(CHAT_CONFIG.maxMessages);
-    expect(chat[0].text).toBe("m0");
+    expect(chat.at(0).text).toBe("m0");
   });
 
   it("drops the oldest message on the one past the cap", () => {
     const chat = new ArraySchema<ChatMessageState>();
     for (let i = 0; i < CHAT_CONFIG.maxMessages + 1; i += 1) push(chat, `m${i}`);
     expect(chat.length).toBe(CHAT_CONFIG.maxMessages);
-    expect(chat[0].text).toBe("m1");
-    expect(chat[chat.length - 1].text).toBe(`m${CHAT_CONFIG.maxMessages}`);
+    expect(chat.at(0).text).toBe("m1");
+    expect(chat.at(chat.length - 1).text).toBe(`m${CHAT_CONFIG.maxMessages}`);
   });
 
   it("keeps seq monotonic across a shift, which is why length cannot be the change signal (LC12)", () => {
     const chat = new ArraySchema<ChatMessageState>();
     for (let i = 0; i < CHAT_CONFIG.maxMessages; i += 1) push(chat, `m${i}`);
     const lengthBefore = chat.length;
-    const seqBefore = chat[chat.length - 1].seq;
+    const seqBefore = chat.at(chat.length - 1).seq;
     push(chat, "one more");
     expect(chat.length).toBe(lengthBefore);
-    expect(chat[chat.length - 1].seq).toBe(seqBefore + 1);
+    expect(chat.at(chat.length - 1).seq).toBe(seqBefore + 1);
   });
 });
 
@@ -688,7 +688,7 @@ export function pushChatMessage(
   chat: ArraySchema<ChatMessageState>,
   row: { sender: ChatSender; text: string; at: string },
 ): ChatMessageState {
-  const previous = chat.length > 0 ? chat[chat.length - 1] : undefined;
+  const previous = chat.length > 0 ? chat.at(chat.length - 1) : undefined;
   const message = new ChatMessageState();
   message.seq = (previous?.seq ?? 0) + 1;
   message.sessionId = row.sender.sessionId;
