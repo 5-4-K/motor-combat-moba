@@ -13,7 +13,7 @@ The two approved specs this folder implements:
 
 ## 1. Status
 
-Fourteen plans, two streams. **Ten written, four to go.**
+Fourteen plans, two streams. **Eight written, six to go** — N4, N5, N6, V3, V4, V5. (Count the table, not this line: earlier revisions of it said nine and then ten, both wrong.)
 
 | # | File | Lines | State |
 |---|---|---|---|
@@ -56,9 +56,9 @@ Each plan is written by one worker in its own context. Hand that worker:
 2. The plan's own assignment from section 5 below, verbatim.
 
 **Order matters.** Within a stream each plan reads the previous plan's `## Handoff`, so they are
-written in order: N4 → N5 → N6, and V2 → V3 → V4 → V5. Across streams they are independent, so one
-netcode plan and one rendering plan can be written at the same time. Two per round, four rounds
-left.
+written in order: N4 → N5 → N6, and V3 → V4 → V5 (V2 is done). Across streams they are independent, so one
+netcode plan and one rendering plan can be written at the same time. Two per round, so **three
+rounds**: N4 with V3, then N5 with V4, then N6 with V5.
 
 **After each plan comes back:**
 
