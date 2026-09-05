@@ -123,6 +123,16 @@ describe("runMatch", () => {
     // assertion below states that premise outright so the two cases can never be confused: if a
     // future balance edit empties the window again, THAT line fails and names the reason.
     //
+    // `seed: 28`, not 13: Task 2's fix round 2 (R14, 2026-09-05) clamps the lag-compensation
+    // projection to the magnitude of the heading error — without the cap, a long lag window (as
+    // easy's 21 ticks) projected a rotation many times larger than any real heading error, flipping
+    // the sign of every steering decision and freezing the bot on the spot. Hard's own lag (6
+    // ticks) was never large enough to invert, but the clamp still changes hard's steady-state
+    // duty cycle slightly (it can no longer coast past the exact zero-crossing an unclamped
+    // projection produced), which moved this matchup's timing enough that seed 13's kill now lands
+    // outside the 30 s window. Swept 1-150 against the fixed brain: 28, 29, 39, 45, 65, 69, 87,
+    // 105, 110, 138, 141, 144, and 147 land a kill inside the window.
+    //
     // `seed: 13`, not 33: Task 2's review round 1 (R12, 2026-09-05) fixed a Critical defect in the
     // lag-compensated steering above — the deadzone floor had been derived from the WHOLE lag
     // window's rotation instead of one tick's, and the floor is now also pinned to the car's
@@ -160,7 +170,7 @@ describe("runMatch", () => {
     // Mirage/Bastion matchup's dynamics enough that seed 40 stopped landing a kill inside the 30 s
     // window — a legitimate killless window under the new views, not a clock regression, so this
     // test isn't about that case.
-    const out = runMatch({ ...SETUP, seed: 13, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    const out = runMatch({ ...SETUP, seed: 28, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);

@@ -136,16 +136,35 @@ export function nearBound(
  *   also driving the floor, the off-axis duel plateaued at 68/300 fires (never settling into a
  *   steer-0 rest state); with `floorTurnRate` fixed to the moving rate, it reaches the same 146/300,
  *   0-mean-offset ceiling the on-axis duel does.
- * - `projectedError` IS about lag, and is unchanged: it subtracts the rotation already committed to
- *   (the steer this controller most recently emitted, held for the full `lagSeconds` window) from
- *   the raw heading error before the bang-bang test runs — a person with a real reaction delay does
- *   not oscillate, because they anticipate it. This still uses the speed-dependent `turnRate` (R10)
- *   because it predicts REAL future rotation, which genuinely does depend on whether the car is
- *   currently rolling or stopped.
+ * - `projectedError` IS about lag: it subtracts the rotation already committed to (the steer this
+ *   controller most recently emitted, held for the full `lagSeconds` window) from the raw heading
+ *   error before the bang-bang test runs — a person with a real reaction delay does not oscillate,
+ *   because they anticipate it. This still uses the speed-dependent `turnRate` (R10) because it
+ *   predicts REAL future rotation, which genuinely does depend on whether the car is currently
+ *   rolling or stopped.
  *
- * Deleting this without also giving `reduceToIntent` a proportional term reintroduces the limit
- * cycle — see `.superpowers/sdd/2026-09-05-bot-brain-1-firing-solutions/task-2-report.md`, Round 2
- * and "Fix round 1". DO NOT DELETE THIS.
+ *   The in-flight rotation is CLAMPED to the magnitude of `headingError` (R14, fix round 2,
+ *   2026-09-05). Easy's lag window is 9 + 12 = 21 ticks = 0.7 s; against bullseye's 7.11 rad/s turn
+ *   rate that projects `lastSteer * turnRate * lagSeconds` = 4.98 rad of in-flight rotation — a
+ *   285-degree turn, dwarfing any real heading error (which cannot exceed pi). An unclamped
+ *   projection subtracts that whole 4.98 rad from `headingError` regardless of sign, which flips
+ *   `projectedError` to the OPPOSITE sign of `lastSteer` on every single decision: the bot steers
+ *   +1, then -1, then +1 forever, net rotation ~0, and it never turns to face anything. Measured:
+ *   easy went from 108 on-axis fires (before lag compensation existed at all) to 0 once the
+ *   unclamped projection landed. The physical fix is that you stop steering once you arrive — the
+ *   rotation that actually lands from holding a steer input can never exceed the error that called
+ *   for it in the first place, so projecting past the target projects a turn the car would never
+ *   make. Capping `inFlight` at `[-|headingError|, |headingError|]` before subtracting enforces
+ *   that: the projection can zero out the error (full correction, if the lag window is long enough)
+ *   but never invert its sign. Behaviourally this duty-cycles the bang-bang actuator — steer, coast,
+ *   steer — which is how a controller with no proportional term approximates one; duty cycling
+ *   converges, sign alternation does not. Hard's lag (0.2 s, 1.42 rad) was always small enough not
+ *   to invert, which is why this defect was invisible until easy was measured.
+ *
+ * Deleting either the deadzone floor or the projection clamp without also giving `reduceToIntent` a
+ * proportional term reintroduces a limit cycle — see
+ * `.superpowers/sdd/2026-09-05-bot-brain-1-firing-solutions/task-2-report.md`, Round 2, "Fix round 1",
+ * and "Fix round 2". DO NOT DELETE THIS.
  */
 export function compensateForLag(args: {
   headingError: number;
@@ -169,8 +188,15 @@ export function compensateForLag(args: {
     args.fireConeRad * BRAIN_CONSTANTS.deadzoneCapFraction,
   );
 
-  // Lag projection: unchanged from R10 — cancel the rotation already committed to.
-  const projectedError = args.headingError - args.lastSteer * args.turnRate * lagSeconds;
+  // Lag projection: cancel the rotation already committed to (R10), but never project past the
+  // target — the car stops turning once it arrives, so the rotation that lands can never exceed the
+  // heading error that called for it (R14, fix round 2).
+  const inFlight = args.lastSteer * args.turnRate * lagSeconds;
+  const cappedInFlight = Math.max(
+    -Math.abs(args.headingError),
+    Math.min(Math.abs(args.headingError), inFlight),
+  );
+  const projectedError = args.headingError - cappedInFlight;
 
   return { projectedError, effectiveDeadzone };
 }
