@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TICK_RATE_HZ } from "../constants.js";
-import { DRIVE_CONFIG } from "./drive-config.js";
+import { activeCarIds, driveOf, forwardMaxSpeedOf } from "./car-config.js";
 import {
   STATUS_CONFIG,
   STATUS_IDS,
@@ -214,10 +214,16 @@ describe("STATUS_LIMITS", () => {
   });
 
   it("keeps the brake pedal better than lifting off, however faded it gets", () => {
-    // The floor is not a free choice: a brake weaker than drag would mean pressing it slows you LESS
-    // than releasing the throttle, which reads as broken rather than degraded. Checked against the
-    // live drive numbers so a `drag` re-tune cannot silently invalidate it.
-    expect(DRIVE_CONFIG.brakeDecel * STATUS_LIMITS.brakeDecel.min).toBeGreaterThan(DRIVE_CONFIG.drag);
+    // The floor is not a free choice: a brake weaker than coasting would mean pressing it slows you
+    // LESS than releasing the throttle, which reads as broken rather than degraded. Checked against
+    // the WORST case across the roster — the chassis that coasts slowest at its own top speed,
+    // scaled down by the SLOWEST brake on the roster — so a per-car retune cannot silently invalidate
+    // it either.
+    const worstCoastDecel = Math.max(
+      ...activeCarIds().map((id) => (1 - driveOf(id).coastPerTick) * forwardMaxSpeedOf(id) * TICK_RATE_HZ),
+    );
+    const slowestBrake = Math.min(...activeCarIds().map((id) => driveOf(id).brakeDecel));
+    expect(slowestBrake * STATUS_LIMITS.brakeDecel.min).toBeGreaterThan(worstCoastDecel);
   });
 
   it("covers every channel a row can name", () => {

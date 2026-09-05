@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { TICK_RATE_HZ } from "../constants.js";
 import {
   CAR_TABLE,
   DEFAULT_CAR_ID,
@@ -194,12 +195,6 @@ describe("weapon / combat / drive / flow knobs exist", () => {
     expect(DRIVE_CONFIG.reverseSpeedRatio).toBeLessThan(1);
   });
 
-  it("brakes harder than it coasts, or the brake button would mean nothing", () => {
-    // Ranged, not pinned: the ordering is what matters. A drag above brakeDecel would make holding
-    // Down *slower* to stop than releasing the throttle entirely.
-    expect(DRIVE_CONFIG.brakeDecel).toBeGreaterThan(DRIVE_CONFIG.drag);
-  });
-
   it("gives reverse its own acceleration rate, at least as quick as forward pickup", () => {
     // Ranged, not pinned: reverseAccel exists to be tuned by feel, so an exact value here would go
     // red on every good change as readily as a bad one. What must hold is that it is a real rate
@@ -317,5 +312,39 @@ describe("the three types (T5/T6)", () => {
     expect(hpOf("mirage")).toBeGreaterThan(hpOf("bullseye"));
     expect(massOf("bastion")).toBeGreaterThan(massOf("mirage"));
     expect(massOf("mirage")).toBeGreaterThan(massOf("bullseye"));
+  });
+});
+
+describe("per-car coast and brake", () => {
+  it("resolves a coast multiplier for every active chassis", () => {
+    for (const id of activeCarIds()) {
+      const coast = driveOf(id).coastPerTick;
+      expect(coast).toBeGreaterThan(0);
+      expect(coast).toBeLessThan(1);
+    }
+  });
+
+  it("keeps the brake ahead of coasting on every chassis, measured where drag is strongest", () => {
+    // Proportional drag is fiercest at top speed. The instantaneous coast deceleration there is
+    // (1 - coastPerTick) * maxSpeed * TICK_RATE_HZ. The brake pedal must beat lifting off, or the
+    // control reads as broken rather than degraded.
+    for (const id of activeCarIds()) {
+      const drive = driveOf(id);
+      const coastDecelAtTop = (1 - drive.coastPerTick) * forwardMaxSpeedOf(id) * TICK_RATE_HZ;
+      expect(drive.brakeDecel).toBeGreaterThan(coastDecelAtTop);
+    }
+  });
+
+  it("defaults steering grip to fully on rails", () => {
+    expect(DRIVE_CONFIG.steeringGrip).toBe(1);
+  });
+
+  it("bounds steering grip to 0..1", () => {
+    expect(DRIVE_CONFIG.steeringGrip).toBeGreaterThanOrEqual(0);
+    expect(DRIVE_CONFIG.steeringGrip).toBeLessThanOrEqual(1);
+  });
+
+  it("has a positive impact grip deceleration", () => {
+    expect(DRIVE_CONFIG.impactGripDecel).toBeGreaterThan(0);
   });
 });

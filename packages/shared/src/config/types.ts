@@ -24,6 +24,16 @@ export interface CarDef {
    * radius is `speed / turnRate`, so a slow car with middling handling still corners tightly.
    */
   handling: number;
+  /**
+   * How long this chassis takes to shed half its speed while coasting, in seconds.
+   *
+   * A DIRECT VALUE, NOT A 0-100 RATING. This and `brakeDecel` are the first two fields on this
+   * table that are not ratings — do not scale them by anything, and do not derive them from `mass`
+   * (spec P7: mass stays out of the drive model).
+   */
+  coastHalfLifeSeconds: number;
+  /** Flat deceleration while the brake is held, u/s². Also a direct value, not a rating. */
+  brakeDecel: number;
   /** Ordered loadout: index 0 is slot 1. Order IS the slot mapping. */
   weapons: readonly WeaponId[];
   /** Selectable in real matches. The playground ignores this — that is how a car is tested before release (spec PG18). */

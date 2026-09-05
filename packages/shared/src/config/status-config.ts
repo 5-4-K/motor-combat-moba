@@ -47,9 +47,11 @@ export const STATUS_CONFIG = {
  * steering makes a raised `turnRate` a gain rather than a penalty, which is why it never shipped
  * on the floor side either). The channel stays defined for whatever picks it up next.
  *
- * `brakeDecel`'s floor is not a free choice. Scaled braking must stay above `DRIVE_CONFIG.drag` or
- * the brake pedal becomes worse than lifting off, which reads as the control being broken rather
- * than degraded; `status-config.test.ts` asserts that against the live drive numbers.
+ * `brakeDecel`'s floor is not a free choice. Scaled braking must stay above coasting, measured at
+ * the point proportional drag is strongest — a chassis's own top speed — or the brake pedal becomes
+ * worse than lifting off, which reads as the control being broken rather than degraded;
+ * `status-config.test.ts` asserts that against the live per-car drive numbers, worst case across
+ * the roster.
  */
 export const STATUS_LIMITS: Readonly<Record<StatusChannel, { min: number; max: number }>> =
   Object.freeze({

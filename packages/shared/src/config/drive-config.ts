@@ -11,8 +11,9 @@
  * - *Time to top speed* is `forwardMaxSpeedOf(id) / accelOf(id)`, also per-car now. Raising a
  *   chassis's speed rating alone stretches this, and that car feels sluggish off the line despite
  *   the higher ceiling.
- * - `brakeDecel` **must** exceed `drag`, or holding Down stops you slower than releasing the
- *   throttle and the brake button stops meaning anything. `config.test.ts` enforces the ordering.
+ * - Each chassis's `CarDef.brakeDecel` **must** beat its own coasting, measured where proportional
+ *   drag is strongest — at that chassis's top speed — or holding Down stops it slower than lifting
+ *   off and the brake button stops meaning anything. `config.test.ts` enforces the ordering per car.
  * - `CAMERA_CONFIG.freeRoamSpeed` **must** exceed `forwardMaxSpeedOf` of the fastest car, or a
  *   spectator can never get ahead of the fight. `config.test.ts` enforces this against `CAR_TABLE`,
  *   so raising `baseMaxSpeed` or `speedPerRating` past it fails the suite rather than shipping.
@@ -48,10 +49,25 @@ export const DRIVE_CONFIG = {
    * before the 2026-09-01 cut, not merely 1.5x more.
    */
   speedPerRating: 3.7,
-  /** Holding Down against forward motion. Also brakes reverse when Up is held. 0.18s to rest. */
-  brakeDecel: 1600,
-  /** Throttle released. 0.32s to rest — kept below `brakeDecel` so braking stays the faster option. */
-  drag: 900,
+  /**
+   * How completely the velocity vector rotates with the heading, 0-1.
+   *
+   * At 1 the car is on rails: velocity tracks the nose exactly, so turning at any speed puts you
+   * where you aim and you never fight your own momentum while steering. Below 1 the velocity lags
+   * and the car washes wide.
+   *
+   * This is deliberately NOT one half of a friction circle. Holding Mirage's turn at top speed
+   * demands roughly fifteen times the lateral force that bleeding a ram's knockback needs, so a
+   * single honest grip cap high enough to corner on rails would annihilate knockback in about 70ms.
+   * Steering is therefore exempt from the grip budget by construction, and `impactGripDecel` below
+   * governs imposed motion alone. See spec "Why one friction circle does not work here".
+   */
+  steeringGrip: 1.0,
+  /**
+   * The rate externally imposed sideways velocity bleeds off, u/s². Ram recovery and nothing else.
+   * Flat rather than proportional: a saturated tyre delivers a roughly constant force.
+   */
+  impactGripDecel: 250,
   /**
    * Turn rate is `baseTurnRate + handling * turnRatePerRating`, resolved per car by `turnRateOf`.
    *

@@ -46,12 +46,14 @@ export type StatusChannel =
   /** Steering rate, alongside — never instead of — the ram's `authority`. Above 1 corners tighter. */
   | "turnRate"
   /**
-   * `DRIVE_CONFIG.brakeDecel`. The one "make the car harder to control" channel that is not about
-   * pace: brake fade makes a driver misjudge a corner rather than merely arrive at it later.
+   * `CarDef.brakeDecel` (per-car as of the vector-drive rework). The one "make the car harder to
+   * control" channel that is not about pace: brake fade makes a driver misjudge a corner rather
+   * than merely arrive at it later.
    *
-   * Floored by `STATUS_LIMITS` at a value that keeps scaled braking above `DRIVE_CONFIG.drag`, so
-   * the brake is always at least as good as lifting off. `status-config.test.ts` asserts that
-   * against the live drive numbers rather than trusting the constant.
+   * Floored by `STATUS_LIMITS` at a value that keeps scaled braking above coasting, measured where
+   * proportional drag is strongest — a chassis's own top speed — so the brake is always at least as
+   * good as lifting off. `status-config.test.ts` asserts that against the live per-car drive
+   * numbers rather than trusting the constant.
    */
   | "brakeDecel"
   /** Outgoing weapon damage, applied once and frozen into the instance at spawn. */

@@ -1,6 +1,6 @@
 import { COMBAT_CONFIG } from "./combat-config.js";
 import { DRIVE_CONFIG } from "./drive-config.js";
-import { RAM_CONFIG } from "./ram-config.js";
+import { RAM_CONFIG, halfLifeToPerTick } from "./ram-config.js";
 import type { CarDef, CarId } from "./types.js";
 
 /**
@@ -49,9 +49,9 @@ import type { CarDef, CarId } from "./types.js";
  * swapping a pair, never copying one.
  */
 export const CAR_TABLE = {
-  mirage: { id: "mirage", name: "Mirage", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, mass: 48, weapons: ["magmablast", "thunderclap", "afterburner"], isActive: true },
-  bullseye: { id: "bullseye", name: "Bullseye", speed: 65, accel: 45, handling: 65, attack: 55, hp: 65, mass: 30, weapons: ["predator", "pepperbox", "lance"], isActive: true },
-  bastion: { id: "bastion", name: "Bastion", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, mass: 90, weapons: ["thumper", "roadblock", "wildcharge"], isActive: true },
+  mirage: { id: "mirage", name: "Mirage", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, mass: 48, coastHalfLifeSeconds: 0.35, brakeDecel: 1600, weapons: ["magmablast", "thunderclap", "afterburner"], isActive: true },
+  bullseye: { id: "bullseye", name: "Bullseye", speed: 65, accel: 45, handling: 65, attack: 55, hp: 65, mass: 30, coastHalfLifeSeconds: 0.35, brakeDecel: 1600, weapons: ["predator", "pepperbox", "lance"], isActive: true },
+  bastion: { id: "bastion", name: "Bastion", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, mass: 90, coastHalfLifeSeconds: 0.35, brakeDecel: 1600, weapons: ["thumper", "roadblock", "wildcharge"], isActive: true },
 } as const satisfies Record<CarId, CarDef>;
 
 /**
@@ -107,6 +107,14 @@ export function reverseAccelOf(id: CarId): number {
   return accelOf(id) * DRIVE_CONFIG.reverseAccelFactor;
 }
 
+export function coastHalfLifeSecondsOf(id: CarId): number {
+  return CAR_TABLE[id].coastHalfLifeSeconds;
+}
+
+export function brakeDecelOf(id: CarId): number {
+  return CAR_TABLE[id].brakeDecel;
+}
+
 export function massOf(id: CarId): number {
   return CAR_TABLE[id].mass * RAM_CONFIG.massPerRating;
 }
@@ -155,6 +163,10 @@ export interface ChassisDrive {
   reverseAccel: number;
   turnRate: number;
   turnRateAtStop: number;
+  /** Per-tick multiplier on forward speed while coasting. Resolved from `coastHalfLifeSeconds`. */
+  coastPerTick: number;
+  /** Flat deceleration while the brake is held, u/s². */
+  brakeDecel: number;
 }
 
 function resolveChassisDrive(): Readonly<Record<CarId, ChassisDrive>> {
@@ -169,6 +181,8 @@ function resolveChassisDrive(): Readonly<Record<CarId, ChassisDrive>> {
           reverseAccel: reverseAccelOf(id),
           turnRate: turnRateOf(id),
           turnRateAtStop: turnRateAtStopOf(id),
+          coastPerTick: halfLifeToPerTick(coastHalfLifeSecondsOf(id)),
+          brakeDecel: brakeDecelOf(id),
         }),
       ]),
     ) as Record<CarId, ChassisDrive>,
