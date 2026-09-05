@@ -65,6 +65,7 @@ export { PlayerState } from "./schema/PlayerState.js";
 export { WeaponInstanceState } from "./schema/WeaponInstanceState.js";
 export { WeaponSlotState } from "./schema/WeaponSlotState.js";
 export { ArenaState } from "./schema/ArenaState.js";
+export { ChatMessageState } from "./schema/ChatMessageState.js";
 export { PlaygroundState } from "./schema/PlaygroundState.js";
 export { PracticeState } from "./schema/PracticeState.js";
 

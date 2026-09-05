@@ -7,6 +7,7 @@ import { StatusState } from "./StatusState.js";
 import { PlayerState } from "./PlayerState.js";
 import { WeaponInstanceState } from "./WeaponInstanceState.js";
 import { WeaponSlotState } from "./WeaponSlotState.js";
+import { ChatMessageState } from "./ChatMessageState.js";
 
 describe("PlayerState", () => {
   it("constructs with P0 fields and v1 defaults", () => {
@@ -208,5 +209,40 @@ describe("status schema", () => {
     row.startTick = 100;
     row.endsTick = 190;
     expect(row.endsTick - row.startTick).toBe(90);
+  });
+});
+
+describe("chat schema (LC11)", () => {
+  it("constructs a message row with empty defaults", () => {
+    const m = new ChatMessageState();
+    expect(m.seq).toBe(0);
+    expect(m.sessionId).toBe("");
+    expect(m.name).toBe("");
+    expect(m.colorId).toBe(0);
+    expect(m.text).toBe("");
+    expect(m.at).toBe("");
+  });
+
+  it("snapshots the sender rather than referencing them (LC1)", () => {
+    // The row carries name and colour by value, so a message outlives its sender's PlayerState.
+    const m = new ChatMessageState();
+    m.name = "Redline";
+    m.colorId = 3;
+    expect(m).not.toHaveProperty("player");
+    expect(m).not.toHaveProperty("sender");
+  });
+
+  it("ArenaState opens with an empty chat buffer", () => {
+    const state = new ArenaState();
+    expect(state.chat.length).toBe(0);
+  });
+
+  it("ArenaState.chat accepts message rows", () => {
+    const state = new ArenaState();
+    const m = new ChatMessageState();
+    m.text = "gl hf";
+    state.chat.push(m);
+    expect(state.chat.length).toBe(1);
+    expect(state.chat[0].text).toBe("gl hf");
   });
 });

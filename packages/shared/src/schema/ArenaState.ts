@@ -1,9 +1,10 @@
-import { Schema, MapSchema, type } from "@colyseus/schema";
+import { Schema, MapSchema, ArraySchema, type } from "@colyseus/schema";
 import { RoomPhase, GameMode } from "../constants.js";
 import { ACTIVE_ARENA_ID } from "../config/arena-config.js";
 import { DEFAULT_GAME_MODE } from "../config/mode-config.js";
 import { PlayerState } from "./PlayerState.js";
 import { WeaponInstanceState } from "./WeaponInstanceState.js";
+import { ChatMessageState } from "./ChatMessageState.js";
 
 export class ArenaState extends Schema {
   @type("uint8") phase: RoomPhase = RoomPhase.LOBBY;
@@ -31,4 +32,10 @@ export class ArenaState extends Schema {
   @type("string") winnerSessionId = "";
   @type({ map: PlayerState }) players = new MapSchema<PlayerState>();
   @type({ map: WeaponInstanceState }) weapons = new MapSchema<WeaponInstanceState>();
+  /**
+   * The lobby chat buffer, capped at `CHAT_CONFIG.maxMessages` by the server (LC4). Oldest first.
+   * Display-only — `stepSim` never reads it. Never cleared by any phase transition (LC5): a message
+   * leaves only by being the oldest of twenty-one, and the whole buffer dies with the room.
+   */
+  @type([ChatMessageState]) chat = new ArraySchema<ChatMessageState>();
 }
