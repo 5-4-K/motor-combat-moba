@@ -9,7 +9,17 @@ export interface SimBody {
   x: number;
   y: number;
   angle: number;
-  speed: number;
+  /**
+   * World velocity, units per second. REPLACES the old scalar `speed`, which was a magnitude along
+   * the heading with a separate `shoveX/shoveY` vector bolted alongside for knockback.
+   *
+   * There is no successor to `shove`. Steering grip keeps the car's own motion aligned with its
+   * nose, so any LATERAL component of this vector is by definition externally imposed — the thing
+   * `shove` existed to represent is now just a decomposition of the one velocity, which is why a
+   * knocked car's motion and a driven car's motion finally obey the same integrator.
+   */
+  vx: number;
+  vy: number;
   reverseHold: number;
   /**
    * Injected rotation, radians per second, decaying toward 0. Set only by a ram; steering is a
@@ -17,14 +27,6 @@ export interface SimBody {
    * `angVel: 0` reproduces the pre-ram drive model exactly.
    */
   angVel: number;
-  /** Injected lateral knock, world units per second, decaying toward 0. Added to the drive velocity. */
-  shoveX: number;
-  shoveY: number;
-  /**
-   * Steering effectiveness, 1 = full control, decaying back UP toward 1. Scales the steer input only
-   * — never throttle, so a knocked player can always drive their way out. Neutral is 1, not 0.
-   */
-  authority: number;
   /**
    * The maneuver this car is in — dash, hold or charge (spec S3). Server-written and
    * `stepDrive`-integrated, exactly the ram-knock pattern above (invariant 8, arch O13): that is
@@ -91,10 +93,10 @@ export function stepSim(body: SimBody, input: InputMessage, dt: number, ctx: Ste
  * Three things this deliberately does:
  *
  * - **Re-walks from the ORIGINAL position, carrying the tick's bookkeeping.** `driven` already
- *   holds the once-per-tick state — the duration countdown, the exit-speed handoff, the shove and
- *   authority decay — and `stepDrive` applied the full-`dt` translation on top of it. Winding the
- *   position back to `body.x/y` and walking it forward in N pieces re-does only the translation
- *   (C6). In free air the N pieces sum to the same distance, so an uncontested dash is unchanged.
+ *   holds the once-per-tick state — the duration countdown, the exit-speed handoff — and
+ *   `stepDrive` applied the full-`dt` translation on top of it. Winding the position back to
+ *   `body.x/y` and walking it forward in N pieces re-does only the translation (C6). In free air
+ *   the N pieces sum to the same distance, so an uncontested dash is unchanged.
  * - **Holds the world frozen across substeps.** `ctx.others`, `ctx.obstacles` and `ctx.bounds` are
  *   the start-of-tick snapshot every car is already stepped against; re-reading mid-tick would
  *   make the outcome depend on iteration order (C7).
@@ -104,10 +106,10 @@ export function stepSim(body: SimBody, input: InputMessage, dt: number, ctx: Ste
  *
  * Gated on DASH by the caller even though the derived count would independently be 1 for every
  * other body in the game — the roster's fastest car covers ~10.5u per tick. `applyContact` damps
- * `speed` and reflects the shove on every call, and `resolveWorld`'s contract is that each distinct
- * surface damps exactly once, never r^2 or r^3. Repeating it is harmless for a dash, whose motion
- * comes from `maneuverSpeed` and whose `speed` is overwritten by `endDash` on the tick the hit
- * lands; it would not be harmless for ordinary driving (C9). The gate documents that intent.
+ * `vx/vy` on every call, and `resolveWorld`'s contract is that each distinct surface damps exactly
+ * once, never r^2 or r^3. Repeating it is harmless for a dash, whose motion comes from
+ * `maneuverSpeed` and whose `vx/vy` is overwritten by `endDash` on the tick the hit lands; it would
+ * not be harmless for ordinary driving (C9). The gate documents that intent.
  */
 function resolveDash(body: SimBody, driven: SimBody, dt: number, ctx: StepContext): SimBody {
   const substeps = dashSubstepCount(body, dt);

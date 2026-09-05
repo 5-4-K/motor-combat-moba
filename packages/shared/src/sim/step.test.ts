@@ -6,6 +6,7 @@ import { obbsInContact, obbsOverlap, type Obb } from "./collide.js";
 import { ManeuverKind } from "./maneuver.js";
 import { NEUTRAL_MODIFIERS } from "./status/modifiers.js";
 import { stepSim, type SimBody, type StepContext } from "./step.js";
+import { forwardOf } from "./velocity.js";
 import type { InputMessage } from "../net/input.js";
 
 const DT = MS_PER_TICK / 1000;
@@ -33,30 +34,26 @@ describe("stepSim", () => {
       x: 100,
       y: 300,
       angle: 0,
-      speed: 0,
+      vx: 0,
+      vy: 0,
       reverseHold: 0,
       angVel: 0,
-      shoveX: 0,
-      shoveY: 0,
-      authority: 1,
     };
 
     const out = stepSim(body, UP, DT, EMPTY_ARENA);
 
     expect(out.x).toBeGreaterThan(body.x);
     expect(out.y).toBe(body.y);
-    expect(out.speed).toBeGreaterThan(0);
+    expect(forwardOf(out.vx, out.vy, out.angle)).toBeGreaterThan(0);
     // Pure: the caller's body is untouched.
     expect(body).toEqual({
       x: 100,
       y: 300,
       angle: 0,
-      speed: 0,
+      vx: 0,
+      vy: 0,
       reverseHold: 0,
       angVel: 0,
-      shoveX: 0,
-      shoveY: 0,
-      authority: 1,
     });
   });
 
@@ -66,12 +63,10 @@ describe("stepSim", () => {
       x: 100,
       y: 300,
       angle: 0,
-      speed: 0,
+      vx: 0,
+      vy: 0,
       reverseHold: 0,
       angVel: 0,
-      shoveX: 0,
-      shoveY: 0,
-      authority: 1,
     };
 
     const unobstructed = drive(start, EMPTY_ARENA, 60);
@@ -88,12 +83,10 @@ describe("stepSim", () => {
       x: 700,
       y: 300,
       angle: 0,
-      speed: 0,
+      vx: 0,
+      vy: 0,
       reverseHold: 0,
       angVel: 0,
-      shoveX: 0,
-      shoveY: 0,
-      authority: 1,
     };
 
     const out = drive(start, EMPTY_ARENA, 60);
@@ -134,12 +127,10 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
       x,
       y,
       angle,
-      speed: 0,
+      vx: 0,
+      vy: 0,
       reverseHold: 0,
       angVel: 0,
-      shoveX: 0,
-      shoveY: 0,
-      authority: 1,
       maneuver: ManeuverKind.DASH,
       maneuverTicksLeft: DASH_TICKS,
       maneuverAngle: angle,
@@ -250,12 +241,10 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
       x: 200,
       y: 300,
       angle: 0,
-      speed: 300,
+      vx: 300,
+      vy: 0,
       reverseHold: 0,
       angVel: 0,
-      shoveX: 0,
-      shoveY: 0,
-      authority: 1,
       maneuver: ManeuverKind.NONE,
       maneuverTicksLeft: 0,
       maneuverAngle: 0,
@@ -266,6 +255,6 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
     // One bounce off one surface: speed is damped by `restitution` once, never r^2 or r^3, so a
     // car that hit the wall is still rolling rather than stopped dead by repeated damping.
     expect(body.x).toBeLessThan(300);
-    expect(Math.abs(body.speed)).toBeGreaterThan(0);
+    expect(Math.abs(forwardOf(body.vx, body.vy, body.angle))).toBeGreaterThan(0);
   });
 });

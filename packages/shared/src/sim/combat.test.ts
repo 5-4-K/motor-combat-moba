@@ -702,23 +702,19 @@ describe("collision deals no damage", () => {
       x: 800,
       y: 800,
       angle: 0,
-      speed: 300,
+      vx: 300,
+      vy: 0,
       reverseHold: 0,
       angVel: 0,
-      shoveX: 0,
-      shoveY: 0,
-      authority: 1,
     };
     const b: SimBody = {
       x: 900,
       y: 800,
       angle: bAngle,
-      speed: 0,
+      vx: 0,
+      vy: 0,
       reverseHold: 0,
       angVel: 0,
-      shoveX: 0,
-      shoveY: 0,
-      authority: 1,
     };
     return {
       a,

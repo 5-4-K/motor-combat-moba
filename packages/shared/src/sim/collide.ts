@@ -1,5 +1,6 @@
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { SimBody } from "./step.js";
+import { toWorld } from "./velocity.js";
 
 /**
  * Axis-aligned box. `x, y` is the TOP-LEFT corner, matching how `Obstacle` is authored in the arena
@@ -111,21 +112,7 @@ export function resolveWorld(
     // actually struck: each distinct surface damps the speed exactly once, never r^2 or r^3.
     next = clampIntoBounds(next, bounds);
   }
-  return {
-    x: next.x,
-    y: next.y,
-    angle: next.angle,
-    speed: next.speed,
-    reverseHold: next.reverseHold,
-    angVel: next.angVel,
-    shoveX: next.shoveX,
-    shoveY: next.shoveY,
-    authority: next.authority,
-    maneuver: next.maneuver,
-    maneuverTicksLeft: next.maneuverTicksLeft,
-    maneuverAngle: next.maneuverAngle,
-    maneuverSpeed: next.maneuverSpeed,
-  };
+  return { ...next };
 }
 
 /**
@@ -166,27 +153,13 @@ function resolveBounds(body: SimBody, bounds: Bounds): SimBody {
 }
 
 /**
- * Positional guard: put the hull back inside the arena and leave `speed` alone. Used as the final
+ * Positional guard: put the hull back inside the arena and leave `vx/vy` alone. Used as the final
  * word on position, after restitution has already been applied by the surfaces the car struck.
  */
 function clampIntoBounds(body: SimBody, bounds: Bounds): SimBody {
   const push = boundsPush(body, bounds);
   if (push.x === 0 && push.y === 0) return body;
-  return {
-    x: body.x + push.x,
-    y: body.y + push.y,
-    angle: body.angle,
-    speed: body.speed,
-    reverseHold: body.reverseHold,
-    angVel: body.angVel,
-    shoveX: body.shoveX,
-    shoveY: body.shoveY,
-    authority: body.authority,
-    maneuver: body.maneuver,
-    maneuverTicksLeft: body.maneuverTicksLeft,
-    maneuverAngle: body.maneuverAngle,
-    maneuverSpeed: body.maneuverSpeed,
-  };
+  return { ...body, x: body.x + push.x, y: body.y + push.y };
 }
 
 /** Resolve the body's car OBB against one static or moving box. Only the body moves. */
@@ -197,16 +170,17 @@ function resolveAgainst(body: SimBody, box: Obb): SimBody {
 
 /**
  * Positional correction along `push`, then the bounce. With `n` the unit push direction (pointing
- * out of the surface, toward the car) and `v = forward * speed`:
+ * out of the surface, toward the car) and `v = (body.vx, body.vy)`:
  *
  *   if dot(v, n) < 0:  v' = v - (1 + restitution) * dot(v, n) * n
- *   speed = |v'|, negated when dot(v', forward) < 0 so reverse stays negative along the facing.
  *
- * `angle` never changes during resolution, so `speed` stays a scalar along the car's facing.
+ * `v'` is then discarded and rebuilt as a scalar along the UNCHANGED facing — `angle` never changes
+ * during resolution — via `|v'|`, negated when `dot(v', forward) < 0` so reverse stays negative
+ * along the nose. STAGE 2 removes that discard and lets the reflected direction stand.
  *
- * That last step — re-projecting the reflected velocity back onto an unchanged `forward` — is the
- * rule as specified, and it has two consequences worth knowing about before anyone "fixes" them.
- * Both are pinned by tests; changing either means changing the spec, not this function.
+ * That discard-and-rebuild is the rule as specified, and it has two consequences worth knowing
+ * about before anyone "fixes" them. Both are pinned by tests; changing either means changing the
+ * spec, not this function.
  *
  *  1. Walls damp but never redirect. The reflected direction is discarded and only its magnitude
  *     survives, so a car angled into a wall does not slide off it: it grinds along, pinned to the
@@ -216,19 +190,17 @@ function resolveAgainst(body: SimBody, box: Obb): SimBody {
  *  2. The sign flips discontinuously at |dot(n, forward)| = 1/sqrt(1 + restitution) — about 30.6
  *     degrees off the surface normal. Just inside that, the reflected velocity still opposes the
  *     facing and the car is reported as reversing; just outside, it agrees and the car is reported
- *     as driving forward. The magnitude is continuous across the boundary, but the reported `speed`
- *     jumps by roughly twice it. Head-on impacts are nowhere near this angle; glancing ones sit
- *     right on it.
+ *     as driving forward. The magnitude is continuous across the boundary, but the reported forward
+ *     speed jumps by roughly twice it. Head-on impacts are nowhere near this angle; glancing ones
+ *     sit right on it.
  */
 function applyContact(body: SimBody, push: Vec2): SimBody {
   const length = Math.hypot(push.x, push.y);
   if (length <= MIN_OVERLAP) return body;
   const n: Vec2 = { x: push.x / length, y: push.y / length };
 
-  const forward: Vec2 = { x: Math.cos(body.angle), y: Math.sin(body.angle) };
-  let vx = forward.x * body.speed;
-  let vy = forward.y * body.speed;
-
+  let vx = body.vx;
+  let vy = body.vy;
   const intoSurface = vx * n.x + vy * n.y;
   if (intoSurface < 0) {
     const scale = (1 + DRIVE_CONFIG.restitution) * intoSurface;
@@ -236,38 +208,14 @@ function applyContact(body: SimBody, push: Vec2): SimBody {
     vy -= scale * n.y;
   }
 
+  // STAGE 2 REMOVES THE NEXT THREE LINES. Today the reflected direction is discarded and only the
+  // magnitude survives along the unchanged facing, which is why walls damp but never redirect.
+  // Preserved here so this task is a pure representation change with no behavioural surprise.
+  const forward: Vec2 = { x: Math.cos(body.angle), y: Math.sin(body.angle) };
   const magnitude = Math.hypot(vx, vy);
-  const speed = vx * forward.x + vy * forward.y < 0 ? -magnitude : magnitude;
+  const signed = vx * forward.x + vy * forward.y < 0 ? -magnitude : magnitude;
 
-  // Ram shove is a second velocity the drive model does not know about, so it needs its own
-  // reflection or a knocked car would be driven into the surface every tick and held there by the
-  // clamp until the shove decayed. Same normal, same restitution, and gated on actually moving INTO
-  // the surface so a shove already leaving it is never amplified. A zero shove is a no-op, which is
-  // why the pre-ram collide tests are unaffected.
-  let shoveX = body.shoveX;
-  let shoveY = body.shoveY;
-  const shoveIntoSurface = shoveX * n.x + shoveY * n.y;
-  if (shoveIntoSurface < 0) {
-    const shoveScale = (1 + DRIVE_CONFIG.restitution) * shoveIntoSurface;
-    shoveX -= shoveScale * n.x;
-    shoveY -= shoveScale * n.y;
-  }
-
-  return {
-    x: body.x + push.x,
-    y: body.y + push.y,
-    angle: body.angle,
-    speed,
-    reverseHold: body.reverseHold,
-    angVel: body.angVel,
-    shoveX,
-    shoveY,
-    authority: body.authority,
-    maneuver: body.maneuver,
-    maneuverTicksLeft: body.maneuverTicksLeft,
-    maneuverAngle: body.maneuverAngle,
-    maneuverSpeed: body.maneuverSpeed,
-  };
+  return { ...body, x: body.x + push.x, y: body.y + push.y, ...toWorld(body.angle, signed, 0) };
 }
 
 /**
