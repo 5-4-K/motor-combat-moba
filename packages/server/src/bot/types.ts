@@ -157,4 +157,6 @@ export interface BotDebug {
   personality: PersonalityId;
   /** The slot pressed this tick, or `undefined` when the bot held fire. */
   firedSlot: number | undefined;
+  /** Damage per second the bot believes it is standing in front of (P16). Overlay only. */
+  dangerEv: number;
 }

@@ -184,6 +184,7 @@ describe("isBotDebugPayload", () => {
   const payload = {
     tick: 10, situation: "fight",
     targetSessionId: "them", preferredRange: 300, personality: "kiter", firedSlot: 1,
+    dangerEv: 12,
   };
 
   it("accepts a well-formed payload", () => {

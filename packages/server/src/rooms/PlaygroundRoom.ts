@@ -367,6 +367,7 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
         preferredRange: Math.round(debug.preferredRange),
         personality: debug.personality,
         firedSlot: debug.firedSlot ?? -1,
+        dangerEv: Math.round(debug.dangerEv),
       });
     }
 

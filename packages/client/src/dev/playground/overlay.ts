@@ -404,7 +404,8 @@ export function mountPlaygroundOverlay(
     if (!isBotDebugPayload(payload)) return;
     debugEl.textContent =
       `${payload.personality} | ${payload.situation} | range ${payload.preferredRange}` +
-      ` | slot ${payload.firedSlot < 0 ? "-" : payload.firedSlot + 1}`;
+      ` | slot ${payload.firedSlot < 0 ? "-" : payload.firedSlot + 1}` +
+      ` | danger ${payload.dangerEv}`;
   });
 
   let subView: "menu" | "settings" = "menu";

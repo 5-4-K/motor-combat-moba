@@ -542,4 +542,45 @@ describe("HumanController", () => {
     }
     expect(fired).toBe(true);
   });
+
+  it("breaks the line when it is in a loaded gun's solution, before the shot exists (P16)", () => {
+    // Threat is stationary, pointed straight at the bot, well inside predator's reach, and has
+    // fired nothing -- so every gun reads as loaded and there is no instance in flight to dodge.
+    const bot = new HumanController("hard");
+    const rng = makeRng(17);
+    let evaded = false;
+    for (let tick = 0; tick < 120; tick++) {
+      bot.decide(inThreatLineView(tick, rng));
+      if (bot.debug()?.situation === "evade") evaded = true;
+    }
+    expect(evaded).toBe(true);
+  });
+
+  it("reports the danger it is standing in, for the overlay", () => {
+    const bot = new HumanController("hard");
+    const rng = makeRng(17);
+    for (let tick = 0; tick < 30; tick++) bot.decide(inThreatLineView(tick, rng));
+    expect(bot.debug()!.dangerEv).toBeGreaterThan(0);
+  });
 });
+
+function inThreatLineView(tick: number, rng: ReturnType<typeof makeRng>): BotView {
+  return {
+    tick,
+    self: {
+      sessionId: "me", carId: "bullseye", team: 0, x: 400, y: 360, angle: 0, speed: 300,
+      hp: 65, maxHp: 65, alive: true, statuses: [],
+      slots: slotsOf("bullseye").map((weaponId) => ({
+        weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
+        range: weaponDefOf(weaponId).range,
+      })),
+      switchLockUntilTick: 0, lockTargetSessionId: "", maneuver: 0, maneuverTicksLeft: 0,
+    },
+    others: [{
+      sessionId: "them", carId: "bullseye", team: 1, x: 100, y: 360, angle: 0, speed: 0,
+      hp: 65, maxHp: 65, alive: true, phased: false, statuses: [], maneuver: 0,
+    }],
+    instances: [], arena: { width: 1280, height: 720, obstacles: [] },
+    observedFires: [], rng,
+  };
+}

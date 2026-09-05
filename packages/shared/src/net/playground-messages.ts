@@ -33,6 +33,8 @@ export interface BotDebugPayload {
   personality: string;
   /** -1 when the bot held fire; a slot index otherwise. */
   firedSlot: number;
+  /** Damage per second the bot believes it is standing in front of (P16). */
+  dangerEv: number;
 }
 
 export function isBotDebugPayload(value: unknown): value is BotDebugPayload {
@@ -45,7 +47,8 @@ export function isBotDebugPayload(value: unknown): value is BotDebugPayload {
     typeof rec.targetSessionId === "string" &&
     typeof rec.preferredRange === "number" &&
     typeof rec.personality === "string" &&
-    typeof rec.firedSlot === "number"
+    typeof rec.firedSlot === "number" &&
+    typeof rec.dangerEv === "number"
   );
 }
 

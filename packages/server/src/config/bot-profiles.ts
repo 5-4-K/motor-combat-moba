@@ -277,6 +277,34 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * its own hands onto them.
    */
   assumedOpponentAimSigmaRad: 0.06,
+  /**
+   * Danger-per-second, after `opponentRangeRespect`, at which a bot leaves the line (P16).
+   *
+   * The brief's own starting value (12) goes mute the instant it is measured against a real fight:
+   * `dangerEvAgainst` sums EVERY kit weapon the bot believes is loaded, at the shooter's own best
+   * achievable geometry, so a hard bot standing at its OWN normal fighting range against a fully
+   * loaded kit reads well above 12 as a matter of course — the exact failure R-C5 warned about,
+   * parking the bot in `evade` permanently and starving `punish`/`reset`/`fight`/`close`.
+   *
+   * MEASURED (`HumanController.debug().dangerEv`, hard tier, `assumedOpponentAimSigmaRad` 0.06,
+   * `opponentRangeRespect` 0.9 applied): this task's own guard scene (`inThreatLineView` in
+   * `controller.test.ts` — a stationary bullseye at 300u, dead ahead, full kit loaded) reads 50.08
+   * raw / 45.07 after respect. `tiers.test.ts`'s pre-existing wall scene (`"a wall changes what hard
+   * does..."`, a stationary mirage at 200u, dead ahead, full kit loaded) reads 65.33 raw / 58.80
+   * after respect — HIGHER than the guard scene, because a closer range and Mirage's kit (magmablast
+   * ceiling ~45 alone) beats Bullseye's own kit at 300u even though the wall scene's target sits
+   * technically past the arena's east bound (1400 vs `width` 1280), which if anything under-counts
+   * its true danger via `stepInstance`'s bounds clipping.
+   *
+   * No single scalar threshold satisfies both scenes: the wall scene's own reading exceeds the guard
+   * scene's, so a value high enough to keep the wall scene out of `evade` (>58.80) leaves the guard
+   * scene's own reading (45.07) below it too, and this task's directive ("the threshold must stay low
+   * enough that the guard test still passes") is explicit about which one wins. Chosen: 40 — below
+   * the guard scene's 45.07 with margin, comfortably above ordinary `punish`/`fight` scenes measured
+   * in the same suite (all read well under 40, per `npm test`), and the wall test's assertion is the
+   * one documented casualty (see task-3-report.md).
+   */
+  dangerEvadeThreshold: 40,
 });
 
 /**

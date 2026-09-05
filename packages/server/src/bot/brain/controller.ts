@@ -16,13 +16,13 @@ import {
 } from "./movement.js";
 import {
   acquiringUnnoticed, activeThreats, knownCars, lastKnownAnchor, nearestHeardShot, newPerception,
-  perceive, searchWaypoint, ultIsSpent, type PerceptionState,
+  perceive, readinessOf, searchWaypoint, ultIsSpent, type PerceptionState,
 } from "./perception.js";
 import { rollPersonality } from "./personality.js";
 import { kitReachOf, weaponReachOf } from "./reach.js";
 import { rolesOf } from "./roles.js";
 import { classifySituation, newSituationState, pickSituation, type SituationState } from "./situation.js";
-import { constantVelocityPredictor, solve, type FiringSolution } from "./solution.js";
+import { constantVelocityPredictor, dangerEvAgainst, solve, type FiringSolution } from "./solution.js";
 
 const COAST: BotIntent = { steer: 0, throttle: 0, fireSlots: 0 };
 
@@ -50,6 +50,8 @@ export class HumanController implements BotController {
   private ultHold = new Map<number, UltHoldEntry>();
   private slotWeights: readonly number[] = [1, 1, 1];
   private lastPreferredRange = 0;
+  /** Damage per second the bot believes it is standing in front of (P16). Overlay only. */
+  private lastDangerEv = 0;
   private situation: SituationState = newSituationState();
   private heldSinceTick = 0;
   private wantsRam = false;
@@ -119,6 +121,7 @@ export class HumanController implements BotController {
       preferredRange: this.lastPreferredRange,
       personality: this.personality.id,
       firedSlot: this.lastFiredSlot,
+      dangerEv: this.lastDangerEv,
     };
 
     const idle = this.situation.current === "recover";
@@ -210,6 +213,28 @@ export class HumanController implements BotController {
     }
 
     const shotThreats = activeThreats(this.perception, tick);
+    const danger = target
+      ? dangerEvAgainst({
+          threat: target,
+          me: {
+            sessionId: self.sessionId, carId: self.carId, team: self.team,
+            x: self.x, y: self.y, angle: self.angle, speed: self.speed,
+            hp: self.hp, maxHp: self.maxHp, alive: true, phased: false,
+            statuses: self.statuses, maneuver: self.maneuver,
+          },
+          meAt: (ahead) => ({
+            x: self.x + Math.cos(self.angle) * self.speed * (ahead / TICK_RATE_HZ),
+            y: self.y + Math.sin(self.angle) * self.speed * (ahead / TICK_RATE_HZ),
+            angle: self.angle,
+          }),
+          readiness: (weaponId) =>
+            readinessOf(this.perception, target.sessionId, weaponId, tick, profile),
+          assumedAimSigmaRad: BRAIN_CONSTANTS.assumedOpponentAimSigmaRad,
+          tick,
+          arena: view.arena,
+        })
+      : 0;
+    this.lastDangerEv = danger;
     const carIncoming = target ? isIncomingCar(self, target, profile) : false;
     if (carIncoming && target) {
       if (this.carApproachId !== target.sessionId) {
@@ -235,7 +260,12 @@ export class HumanController implements BotController {
     const classified = classifySituation({
       selfControlLost: !self.alive || hasStatus(self.statuses, "phased", tick),
       hittable: trulyHittable,
-      evade: shotThreats.length > 0 || (carIncoming && this.willEvadeCar),
+      evade: shotThreats.length > 0
+        || (carIncoming && this.willEvadeCar)
+        // Anticipatory: standing in a loaded gun's solution is a reason to move BEFORE the shot
+        // exists. Scaled by opponentRangeRespect (P38) so respecting danger stays the tier axis it
+        // has always been — at 0 this term can never fire, which is exactly easy's intent.
+        || danger * profile.opponentRangeRespect >= BRAIN_CONSTANTS.dangerEvadeThreshold,
       unpin: pinned && trulyHittable && this.willUnpin,
       punish: trulyHittable && (targetStunned || ultSpent
         || targetHpFraction <= profile.ultWindowHpFraction),
