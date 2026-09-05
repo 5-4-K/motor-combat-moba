@@ -485,11 +485,14 @@ describe("beamDrawLayers", () => {
    * than the thing that burns.
    *
    * The lateral half is a floor rather than an equality, and it is the flame's real cost. The plume
-   * stops widening with the cone over its outer half (`JET_TIP`) and `breakUp` shreds the far
-   * corners, so the drawn flame covers about two thirds of the cone's width instead of all of it.
-   * That is a deliberate trade — filling a 55-degree cone edge to edge is what made every earlier
-   * cut read as a wedge — and this is the number to argue with if a player ever reports being burned
-   * by fire they could not see.
+   * still closes over its outer half (`JET_TIP`) and `breakUp` still shreds the far corners, so the
+   * drawn flame does not fill the cone edge to edge — filling a 55-degree cone outright is what made
+   * every earlier cut read as a wedge.
+   *
+   * **The floor was 0.35 until 2026-09-05**, when a player reported exactly what it was there to
+   * catch: fire that burned wider than it drew, worst at the far end of the cone. `JET_TIP`,
+   * `JET_ROD_FRACTION` and `JET_BITE` moved together, and the floor moved with them so the width
+   * cannot quietly be given back.
    */
   it("reaches the hitbox's far edge every frame, and most of its width", () => {
     const tanHalf = Math.tan(coneHalfAngle());
@@ -508,18 +511,42 @@ describe("beamDrawLayers", () => {
     }
     // Every frame, not the best of them: the tip station is the beam's own reach by construction.
     expect(worstAxial).toBeCloseTo(EXTENT, 2);
-    // Measured at 66% mean and 42% at its narrowest moment when this was written.
-    expect(worstWidth).toBeGreaterThan(0.35);
+    // Measured at 81% mean and 50% at its narrowest moment after the 2026-09-05 widening; it read
+    // 66% and 42% before it.
+    expect(worstWidth).toBeGreaterThan(0.45);
   });
 
+  /**
+   * Reach nests every frame; WIDTH nests on average, and the difference is the noise, not a weaker
+   * claim. A layer's reach is its `extentScale` times the beam's extent exactly — the last station
+   * IS the tip — so it is structural. Its widest VERTEX is one sample of a torn edge, and the outer
+   * layer is the most torn of the five by design (`billow` 0.9, the intermittent fringe), so on a
+   * frame where its widest station happens to be bitten deep the layer inside it can measure wider
+   * while nesting perfectly everywhere else.
+   *
+   * This asserted both on ONE frozen frame until 2026-09-05 and passed, which was luck rather than
+   * a property: sweeping the same assertion across five seconds shows the second layer measuring up
+   * to 1.39x the outer one BEFORE the widening as well as after it. The mean is what the eye reads
+   * and what actually nests — 94 / 74 / 50 / 28 / 12 units — so that is what is pinned.
+   */
   it("nests each layer inside the one outside it", () => {
     // The flame's own layers, not the shed masses after them: a mass is deliberately out past the
     // rod rather than nested anywhere, so including them here would measure the wrong thing.
-    const reaches = flame().map((l) => Math.max(...l.points.map((p) => p.x)));
-    const spans = flame().map((l) => Math.max(...l.points.map((p) => Math.abs(p.y))));
-    for (let i = 1; i < reaches.length; i++) {
-      expect(reaches[i]!).toBeLessThan(reaches[i - 1]!);
-      expect(spans[i]!).toBeLessThan(spans[i - 1]!);
+    const means = new Array(LAYER_COUNT).fill(0);
+    for (const nowMs of FRAMES) {
+      const layers = flame(nowMs);
+      // Reach is exact and unconditional, so it is checked on every frame rather than averaged.
+      for (const [i, layer] of layers.entries()) {
+        const reach = Math.max(...layer.points.map((p) => p.x));
+        if (i > 0) {
+          const outer = Math.max(...layers[i - 1]!.points.map((p) => p.x));
+          expect(reach, `t=${nowMs} layer ${i} reach`).toBeLessThan(outer);
+        }
+        means[i] += Math.max(...layer.points.map((p) => Math.abs(p.y))) / FRAMES.length;
+      }
+    }
+    for (let i = 1; i < LAYER_COUNT; i++) {
+      expect(means[i], `layer ${i} mean width`).toBeLessThan(means[i - 1]!);
     }
   });
 
@@ -674,11 +701,20 @@ describe("beamDrawLayers", () => {
    * bigger. Two things legitimately move a vertex here: the noise re-rolling, and the whole field
    * being carried outward at over a flame-length a second. What this pins is that the travel is
    * spread across frames rather than delivered in one — a quantised version of the same numbers
-   * jumps a whole roll at once. Measured at 15 units mean and 38 worst when written.
+   * jumps a whole roll at once.
+   *
+   * **The worst-vertex budget scales with the flame's width, so it moved with the 2026-09-05
+   * widening**: 38 units worst before it, 53 after, against a per-vertex MEAN that barely moved
+   * (1.22 -> 1.27). That is the shape being bigger, not the motion being chunkier — the extreme is
+   * one vertex on a neck that pinches to nothing and reopens. The mean is the honest guard against
+   * quantisation and is now asserted alongside the extreme, which is what this test wanted all
+   * along: a re-rolling shape would move EVERY vertex a long way, not one of them.
    */
   it("moves every layer continuously between frames, never in jumps", () => {
     const FRAME_MS = 1000 / 60;
     let worst = 0;
+    let mean = 0;
+    let samples = 0;
     let previous: { x: number; y: number }[][] | null = null;
     for (let f = 0; f < 240; f++) {
       // The flame's layers only. An ember that has shrunk away is dropped from the list, so the
@@ -689,14 +725,19 @@ describe("beamDrawLayers", () => {
         for (const [L, layer] of points.entries()) {
           expect(layer).toHaveLength(previous[L]!.length);
           for (const [i, p] of layer.entries()) {
-            worst = Math.max(worst, Math.hypot(p.x - previous[L]![i]!.x, p.y - previous[L]![i]!.y));
+            const moved = Math.hypot(p.x - previous[L]![i]!.x, p.y - previous[L]![i]!.y);
+            worst = Math.max(worst, moved);
+            mean += moved;
+            samples++;
           }
         }
       }
       previous = points;
     }
-    expect(worst).toBeLessThan(50);
+    expect(worst).toBeLessThan(60);
     expect(worst).toBeGreaterThan(0);
+    // 1.27 units when measured. A shape that re-rolled in steps would put this near the extreme.
+    expect(mean / samples).toBeLessThan(3);
   });
 
   it("still draws the frozen fan for a cone style that authors no flame", () => {

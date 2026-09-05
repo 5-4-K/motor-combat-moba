@@ -542,8 +542,13 @@ const JET_STATIONS = 96;
  * last quarter (a rod of 35-40 yards inside a 40-54 yard deposit pattern). That is the single most
  * characteristic thing about a flamethrower as opposed to a bonfire, and it is what the lobed
  * version got most wrong — it broke up evenly along its whole length, which is what a fan does.
+ *
+ * 0.6 until 2026-09-05, which shredded the outer 40% — MORE than the quarter the source describes,
+ * and the second reason after `JET_TIP` that the far end of the cone read as empty. 0.7 is both
+ * closer to the literature and fuller where the hitbox is widest. The rod still tears; it tears
+ * where a flamethrower's does.
  */
-const JET_ROD_FRACTION = 0.6;
+const JET_ROD_FRACTION = 0.7;
 
 /**
  * The frequency step between octaves — each is this many times faster than the one before it, and
@@ -575,8 +580,14 @@ const JET_OCTAVE_STEP = 2.6;
  * The exponent that biases the roughness field toward 0 — see `jetFlow`. Above 1 the flame is
  * mostly at its full width with bites taken out of it; at 1 it is a shape that has lost half its
  * width on average to a field that happens to average one half.
+ *
+ * 1.9 until 2026-09-05. It is the third of the three widening knobs and the only one that works
+ * along the WHOLE length rather than out at the tip, which is why it moved last: at 2.6 the flame
+ * sits at its authored width more of the time, while the deep bites still reach exactly as deep —
+ * 0 and 1 are fixed points of the exponent, so only the middle of the field moves. Fuller without
+ * being smoother.
  */
-const JET_BITE = 1.9;
+const JET_BITE = 2.6;
 
 /**
  * How many billows fit down the flame at the coarse octave, and the step between octaves. Sets
@@ -601,8 +612,16 @@ const JET_OPEN_AT = 0.3;
 /**
  * How much of its opened width the plume keeps at the tip. Below 1 the flame stops widening with
  * the cone and runs near-parallel-sided over its outer half — see `mouth` in `conePoints`.
+ *
+ * **0.78 until 2026-09-05, when the thing its own comment predicted was reported**: the flame
+ * visibly did not fill the far half of the cone that burns. This is the knob that trade was parked
+ * on, so it is the one that paid. At 0.95 the plume still closes over its outer half — enough that
+ * the silhouette is not two dead-straight walls — but the closing is a hint rather than a 22%
+ * give-up, and the tip's mean coverage went from 40% of the hitbox's width to 60%. The anti-wedge
+ * job is carried by `billow` and `breakUp` tearing the edges instead, which is where it belonged:
+ * the eye reads a straight taper, it does not read a torn edge.
  */
-const JET_TIP = 0.78;
+const JET_TIP = 0.95;
 
 /** Vertices per shed mass. Ten reads as a rounded billow rather than as a fleck or a gem. */
 const EMBER_VERTICES = 10;
@@ -666,11 +685,19 @@ const EMBER_VERTICES = 10;
  * throws lumps of burning gel past where the rod tore apart. They are the only part of this that
  * costs fills per flame rather than per layer — see `EmberStyle.count`.
  *
- * **What this gives up, deliberately.** The drawn flame covers about two thirds of the cone's width
- * rather than all of it: `JET_TIP` stops it widening with the hitbox over its outer half, which is
- * what stops it reading as a wedge, and `breakUp` shreds the far corners. `JET_BITE` exists to keep
- * that number from being much worse. It is a real cost — a car at the cone's rim can be burned by
- * fire it cannot quite see — and it is the first thing to raise if that ever gets reported.
+ * **What this gives up, and how much of it was bought back on 2026-09-05.** The drawn flame never
+ * fills the cone edge to edge: `JET_TIP` closes it over the outer half, `breakUp` shreds the far
+ * corners, and `JET_BITE` bounds how much `billow` takes off a station on average. That was
+ * two thirds of the hitbox's width, with the far END down at 40% of it — which is a car at the tip
+ * of the cone being burned by fire it cannot quite see, exactly what this comment used to warn
+ * would get reported. It was, and the three knobs moved together: `JET_TIP` 0.78 -> 0.95,
+ * `JET_ROD_FRACTION` 0.6 -> 0.7, `JET_BITE` 1.9 -> 2.6. The envelope now spans about 81% of the
+ * cone's width on an average frame (50% at its narrowest moment) and the tip covers 60%.
+ *
+ * **What was NOT done, and must not be**: widening a layer past its `crossScale`, or filling the
+ * cone outright. The outer layer is already `crossScale: 1` — it has the whole 55 degrees — and
+ * D19 caps every vertex at the hitbox wall, so the only width left to win is the noise's, not the
+ * cone's. A flame drawn at a flat 100% is the wedge all three earlier cuts died of.
  *
  * `bulwark` (the roster's other gold-cream cone, retired outright O17) used to sit here and
  * `shockwave` used to be a disc-hitbox aura, drawn as a ring and a wash rather than nested layers —
