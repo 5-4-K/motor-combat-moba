@@ -53,6 +53,7 @@ import { renderPause } from "../ui/screens/pause.js";
 import type { PracticeSummaryPlayer } from "../ui/screens/practice-summary.js";
 import { arenaMismatchMessage } from "./arena-mismatch.js";
 import { axisOf, drainTicks } from "./arena-input.js";
+import { releaseKeyboardCaptures } from "./keyboard-captures.js";
 import { controlledCarOf, isPracticeRoom, isSimPaused } from "./controlled-car.js";
 import { arenaBorderRect, arenaColorsOf } from "./arena-visual.js";
 import { fitsViewport } from "./arena-camera.js";
@@ -1142,6 +1143,12 @@ export class ArenaScene extends Phaser.Scene {
     // Phaser tears the camera itself down with the scene; this just stops `syncCar` handing a
     // destroyed camera an ignore during the shutdown frame.
     this.hudCamera = undefined;
+    // Dropping the references below is not enough. Every `addKey` above also installed a *global*
+    // capture that Phaser's own plugin shutdown leaves behind, and a leftover capture calls
+    // `preventDefault` on that key anywhere on the page — which is what left the join screen's name
+    // field unable to accept W / A / S / D / P / V / J / K / L / Space / brackets / arrows once
+    // anyone had been in the arena. See `releaseKeyboardCaptures`.
+    releaseKeyboardCaptures(this.input.keyboard);
     this.cursors = undefined;
     this.driveKeys = undefined;
     this.keys = undefined;
