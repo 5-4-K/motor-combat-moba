@@ -196,7 +196,7 @@ consumed `contactHits` and `statusRequests`.
 | Change | Phase |
 |---|---|
 | `PlayerState.lastProcessedInputSeq` → **removed**; `ackTick: uint32` and `slackTicks: int8` added | N1 |
-| Every sim field leaves `PlayerState` (`x, y, angle, speed, reverseHold, angVel, shoveX, shoveY, authority, maneuver*, hp, alive, diedAtTick, weapons, switchLockUntilTick, pendingUntilTick, lastFiredSlot, lockTargetSessionId, statuses, level, ackTick, slackTicks`); `carIndex: uint8` added. `ArenaState.weapons` removed. Lobby fields stay: `sessionId, name, colorId, team, status, carId, selectLocked, joinedAtTick, kills, deaths, killedBySessionId` | N2 |
+| Every sim field leaves `PlayerState` (`x, y, angle, speed, reverseHold, angVel, shoveX, shoveY, authority, maneuver*, hp, alive, diedAtTick, weapons, switchLockUntilTick, pendingUntilTick, lastFiredSlot, lockTargetSessionId, statuses, ackTick, slackTicks`); `carIndex: uint8` added. `ArenaState.weapons` removed. Lobby fields stay: `sessionId, name, colorId, team, status, carId, selectLocked, joinedAtTick, kills, deaths, killedBySessionId, level` — `level` stays on the schema per spec §6.9 N24's enumeration: `applyCombatResult` writes it back every tick but it only *changes* on a level-up, and `stepWorld` never reads it (combat is server-only, N14), so invariant 8 does not claim it | N2 |
 | `ArenaState.tick` stays (flow deadlines read it) | — |
 
 ---
