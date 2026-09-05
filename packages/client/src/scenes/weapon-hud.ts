@@ -1,13 +1,26 @@
-import { TICK_RATE_HZ, WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
+import { WEAPON_SLOT_CONFIG } from "@motor-combat-moba/shared";
 import { weaponIconKey } from "../assets/asset-keys.js";
 import type { TextureLookup } from "../assets/car-sprite.js";
 import type { AssetManifest, SpriteEntry } from "../assets/manifest-schema.js";
 import { fitSprite, type SpriteFit } from "../assets/sprite-fit.js";
 
-export type SlotVisual = "ready" | "recharging" | "locked" | "car-locked";
+/**
+ * Which of the three looks a slot wears. Deliberately NOT a list of every reason a slot might be
+ * unpressable: "you cannot fire this instant" left this union and became `isSlotBlocked`, drawn as
+ * a prohibition sign rather than an alpha. What survives are the two facts about the slot itself —
+ * its own cooldown, and whether the player owns it yet.
+ */
+export type SlotVisual = "ready" | "recharging" | "locked";
 
-/** Icon alpha per state. The locked dim is heavier AND static, so it cannot read as a cooldown. */
-export const HUD_DIM = { ready: 1, recharging: 0.4, locked: 0.25, carLocked: 0.7 } as const;
+/**
+ * Icon alpha per state. The locked dim is heavier AND static, so it cannot read as a cooldown.
+ *
+ * There is deliberately no entry for a blocked slot. Dimming used to carry two unrelated meanings —
+ * "not yours yet" at 0.25 and "not this instant" at 0.7 — and a reader had to know which was which.
+ * Blocked is its own channel now (`isSlotBlocked` -> the sign), so every value left in this table
+ * means exactly one thing and a blocked slot keeps full icon brightness.
+ */
+export const HUD_DIM = { ready: 1, recharging: 0.4, locked: 0.25 } as const;
 
 /**
  * The slot's diameter. Still square in the arithmetic — a circle's bounding box is its diameter.
@@ -26,6 +39,32 @@ export const SLOT_BOX_PX = 64;
  * Lives here rather than in `ArenaScene` so the tuning tool fits icons exactly as the HUD does.
  */
 export const HUD_ICON_FIT_SCALE = 0.8;
+
+/**
+ * The prohibition sign's stroke, and its clearance from the cooldown ring.
+ *
+ * Geometry rather than palette, which is why it lives here beside the other slot measurements and
+ * not with the HUD colours in `ArenaScene`: `SLOT_RING_BOX_PX` is derived from it, and
+ * `AssetTuningScene` needs that number to preview an icon against the box the HUD really uses.
+ */
+export const SLOT_BLOCKED_RING_WIDTH_PX = 3;
+export const SLOT_BLOCKED_RING_GAP_PX = 2;
+
+/**
+ * The diameter the COOLDOWN ring is drawn at, inset inside `SLOT_BOX_PX` to leave an annulus the
+ * prohibition sign can occupy without touching it.
+ *
+ * The sign has to sit OUTSIDE the ring rather than over it, and there is no free space around a slot
+ * to grow into: `slotBarLayout` puts the key pill `SLOT_KEY_GAP_PX` (8) to the right and the name
+ * band `SLOT_NAME_GAP_PX` (6) below. Reserving the band on the inside is what keeps the sign clear
+ * of the ring while leaving every other anchor in the layout exactly where it was — the alternative,
+ * growing the box, would have moved the pill, the name and the slot spacing for a decoration that is
+ * absent most of the time.
+ *
+ * Reserved on EVERY slot in every state, not only while blocked, so the ring never changes size
+ * under the player.
+ */
+export const SLOT_RING_BOX_PX = SLOT_BOX_PX - 2 * (SLOT_BLOCKED_RING_WIDTH_PX + SLOT_BLOCKED_RING_GAP_PX);
 
 /**
  * The key label, drawn to the RIGHT of the slot and vertically centred on it. D18 wants the key
@@ -54,69 +93,104 @@ export const SLOT_NAME_FONT_PX = 12;
 
 /** The name band, plus enough air that the column reads as separate slots rather than one strip. */
 const GAP_PX = SLOT_NAME_GAP_PX + SLOT_NAME_FONT_PX + 10;
-/** Below this, a number is more clutter than information — the sweep already says "nearly ready". */
-const COUNTDOWN_FLOOR_TICKS = TICK_RATE_HZ;
 
-/** How much of the cooldown wedge is still drawn: 1 the tick it starts, 0 the tick it ends. */
-export function sweepFraction(rechargeEndsTick: number, cooldownTicks: number, tick: number): number {
+/**
+ * How much of the ring the cooldown has REFILLED: 0 the tick it starts, 1 the tick it ends.
+ *
+ * The ring fills rather than drains. The draining version this replaced shrank a bright arc to
+ * nothing and then snapped to a full bright ready ring in one frame — the timer never stopped, but
+ * the slot popped. Filling arrives at a complete circle ON the last tick, so the handover to the
+ * ready state is continuous and there is nothing to animate.
+ *
+ * Note what this is NOT: an "is anything running" flag. It reads 0 both for an idle slot and on the
+ * first tick of a cooldown, so callers must gate the arc on `isRechargeDisplayed` and never on
+ * `fraction > 0` — an overload the old draining fraction quietly allowed.
+ */
+export function cooldownFillFraction(rechargeEndsTick: number, cooldownTicks: number, tick: number): number {
   if (rechargeEndsTick === 0 || cooldownTicks <= 0) return 0;
   const remaining = rechargeEndsTick - tick;
-  return Math.min(1, Math.max(0, remaining / cooldownTicks));
-}
-
-/** Seconds left, or `null` when the wait is short enough that the sweep alone reads better. */
-export function countdownSeconds(endsTick: number, tick: number): number | null {
-  if (endsTick === 0) return null;
-  const remaining = endsTick - tick;
-  if (remaining < COUNTDOWN_FLOOR_TICKS) return null;
-  return remaining / TICK_RATE_HZ;
+  return Math.min(1, Math.max(0, 1 - remaining / cooldownTicks));
 }
 
 /**
- * Which of the four looks this slot wears. Precedence matters: a locked weapon reads as locked even
- * mid-recovery, because "you do not have this yet" outranks "you cannot act this instant".
+ * Which of the three looks this slot wears — a question about the SLOT, not about the car.
  *
- * `pending` is the car's live wind-up/volley, derived by the caller from `PlayerState`'s
- * `pendingUntilTick` (`tick < pendingUntilTick`); `isLastFired` is `index === lastFiredSlot`. Both
- * are car-wide facts no slot row carries, which is why they arrive as arguments. Only whether
- * `pending` is present is read here — every slot is locked during a press, not just the firing one
- * (D3) — but it carries the slot so a future look can single that one out.
+ * Precedence still matters between the two that remain: a locked weapon reads as locked even while
+ * a timer runs underneath it, because "you do not have this yet" outranks "this is cooling down".
+ *
+ * The car-wide half of the old answer — wind-up, volley, another slot's recovery — left this
+ * function entirely and became `isSlotBlocked`. That is what shrank the signature from seven
+ * arguments to three: none of `switchLockUntilTick`, `pending`, `isLastFired` or `tick` says
+ * anything about this slot's own condition, and they were only ever there to pick a dim level.
+ *
+ * One consequence to keep in view: a mid-volley slot (`beginFire` zeroes `stocks` at press time,
+ * `releaseShots` does not write `rechargeEndsTick` until the volley's last shot) now falls through
+ * to "ready" rather than being masked as car-locked. That is correct and deliberate — it is not
+ * cooling down and the player does own it — but it means the SIGN is the only thing telling the
+ * player they cannot press it, so `drawHudSlot` must pass a real `pending` to `isSlotBlocked`.
  */
 export function slotVisualState(
   slot: { stocks: number; rechargeEndsTick: number },
   weapon: { unlocksAt: number },
   level: number,
-  switchLockUntilTick: number,
-  pending: { slot: number } | null,
-  tick: number,
-  isLastFired = false,
 ): SlotVisual {
   if (weapon.unlocksAt > level) return "locked";
-  // A wind-up or volley locks every slot; recovery locks only the OTHER slots (D3).
-  if (pending !== null) return "car-locked";
-  if (!isLastFired && tick < switchLockUntilTick) return "car-locked";
   if (slot.stocks === 0 && slot.rechargeEndsTick !== 0) return "recharging";
-  // Falls through to "ready" for `stocks === 0 && rechargeEndsTick === 0` as well, which is now
-  // covered rather than merely rare: mid-volley `beginFire` (fire.ts) zeroes `stocks` immediately
-  // while `rechargeEndsTick` stays 0 until the volley's last shot, so a `volleys > 1` weapon sits in
-  // that combination for the whole burst — and every one of those ticks has a live `pending`, which
-  // the "car-locked" branch above returns on first. The pending check must therefore keep
-  // outranking the stock checks, and the caller must pass a REAL pending (`PlayerState`'s
-  // `pendingUntilTick`), not `null`, or a slot with nothing left to fire draws full brightness.
   return "ready";
 }
 
 /**
- * Whether a slot's cooldown display (the sweep arc plus the countdown number) should show, given the
- * slot's own `SlotVisual` and its raw `rechargeEndsTick`.
+ * Whether the player is barred from pressing this slot RIGHT NOW — the channel that used to be two
+ * rungs of the dim ladder and is now a prohibition sign drawn outside the ring.
  *
- * Deliberately NOT gated to `state === "recharging" || state === "ready"`: a slot can be genuinely
- * recharging while ALSO `car-locked` for a window it did not cause (another slot's wind-up or
- * recovery — D3 locks every slot during a press, not just the firing one). Gating on the narrower
- * state used to hide the sweep for that whole window, which read as "the cooldown just finished" for
- * a frame or two and then un-finished itself the moment the lock lifted — the timer never stopped,
- * only the display blinked. `locked` is the one state that still suppresses it outright: a weapon you
- * have not unlocked has no cooldown worth showing regardless of what `rechargeEndsTick` holds.
+ * Three sources, all car-wide rather than slot-owned:
+ *  - `pending` — a live wind-up or volley (`tick < PlayerState.pendingUntilTick`). Blocks EVERY slot,
+ *    not just the firing one (D3); the slot it carries is kept for a future look that singles it out.
+ *  - `switchLockUntilTick` — the recovery after a press, which blocks only the OTHER slots, so the
+ *    one that fired (`isLastFired`) is exempt.
+ *  - `disarmed` — `stunned`'s flag, read off the car's own status rows. New information on screen:
+ *    before the split the HUD showed nothing at all for a stunned car and every slot looked pressable
+ *    while `combat.ts` was silently refusing the press.
+ *
+ * `locked` short-circuits to false on purpose. A weapon the player has not unlocked is not "blocked
+ * this instant" — it is not theirs yet, which is what its heavier static dim already says, and a
+ * sign hanging on it for whole stretches of a match would say something different and wrong.
+ */
+export function isSlotBlocked(
+  state: SlotVisual,
+  pending: { slot: number } | null,
+  switchLockUntilTick: number,
+  isLastFired: boolean,
+  disarmed: boolean,
+  tick: number,
+): boolean {
+  if (state === "locked") return false;
+  if (disarmed) return true;
+  if (pending !== null) return true;
+  return !isLastFired && tick < switchLockUntilTick;
+}
+
+/**
+ * Whether this slot has a live cooldown to draw at all — the gate for the ring's track-and-arc look.
+ *
+ * This is the boolean the arc must be driven from, NOT `cooldownFillFraction(...) > 0`. Now that the
+ * ring fills instead of draining, a fraction of 0 means "the cooldown just started", so the old
+ * `fraction > 0` test would read a fresh cooldown as no cooldown and a finished one as still running
+ * — precisely inverted. One expression used to answer three questions (is the ring a track, draw the
+ * arc, may the slot glow); this answers the first two and `state === "ready" && !recharging` the third.
+ *
+ * Deliberately NOT gated to `state === "recharging"`: a stock weapon banking another charge while one
+ * is still in hand reads "ready" (you can fire) with a timer genuinely running underneath, and that
+ * timer is exactly the in-progress recharge D18 asks a stock weapon to show.
+ *
+ * `locked` is the one state that suppresses it outright: a weapon the player has not unlocked has no
+ * cooldown worth showing, whatever `rechargeEndsTick` holds.
+ *
+ * Blocking no longer reaches this decision at all. It used to have to be reasoned about here — a slot
+ * could be genuinely recharging while ALSO car-locked by a window it did not cause, and gating on the
+ * narrower state hid the cooldown for that whole window, reading as "just finished" and then
+ * un-finishing itself when the lock lifted. With blocking split onto its own channel that class of
+ * bug cannot recur: the two never share a variable.
  */
 export function isRechargeDisplayed(state: SlotVisual, rechargeEndsTick: number): boolean {
   return state !== "locked" && rechargeEndsTick !== 0;
