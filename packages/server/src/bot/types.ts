@@ -103,8 +103,10 @@ export interface BotView {
    * Presses observed this tick — who fired what (B18). The observable half of enemy resource
    * tracking: a human sees the shot, and remembers.
    *
-   * Empty when the host does not collect combat events, which is every room today. A bot that needs
-   * these is what turns the `fired` sink on in that room.
+   * Every host that runs a bot already collects these and passes them: `PlaygroundRoom`,
+   * `PracticeRoom` and the balance harness. `ArenaRoom` passes nothing and correctly so — it hosts
+   * no bots. An earlier version of this comment claimed no room collected them, which was wrong and
+   * hid the fact that cooldown tracking was already possible.
    */
   observedFires: readonly FiredEvent[];
   /** This bot's own seeded stream (B20). Never `Math.random()`. */

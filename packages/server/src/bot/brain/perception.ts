@@ -1,4 +1,10 @@
-import { DRIVE_CONFIG, TICK_RATE_HZ, weaponDefOf, type WeaponId } from "@motor-combat-moba/shared";
+import {
+  DRIVE_CONFIG,
+  TICK_RATE_HZ,
+  weaponDefOf,
+  weaponTicksOf,
+  type WeaponId,
+} from "@motor-combat-moba/shared";
 import type { BotProfile } from "../../config/bot-profiles.js";
 import type { BotCarView, BotView } from "../types.js";
 import { signedDelta } from "./aim.js";
@@ -36,14 +42,19 @@ export interface KnownThreat {
 export interface PerceptionState {
   cars: Map<string, KnownCar>;
   threats: Map<string, KnownThreat>;
-  /** `${sessionId}:${weaponId}` -> the tick that press was watched (H22). */
-  ultSeenTick: Map<string, number>;
+  /**
+   * `${sessionId}:${weaponId}` -> the tick that press was watched (H22, P21).
+   *
+   * EVERY weapon, not only ults — the old name `ultSeenTick` said otherwise and was wrong about its
+   * own contents. `ultIsSpent` is the ult-shaped query over it; `readinessOf` is the general one.
+   */
+  firedSeenTick: Map<string, number>;
   /** sessionId -> the last tick a shot of theirs was seen coming at us. Drives vengefulness (H23). */
   blameTick: Map<string, number>;
 }
 
 export function newPerception(): PerceptionState {
-  return { cars: new Map(), threats: new Map(), ultSeenTick: new Map(), blameTick: new Map() };
+  return { cars: new Map(), threats: new Map(), firedSeenTick: new Map(), blameTick: new Map() };
 }
 
 /**
@@ -83,7 +94,7 @@ export function perceive(
 
   for (const fire of view.observedFires) {
     if (fire.shooterSessionId === self.sessionId) continue;
-    state.ultSeenTick.set(`${fire.shooterSessionId}:${fire.weaponId}`, fire.tick);
+    state.firedSeenTick.set(`${fire.shooterSessionId}:${fire.weaponId}`, fire.tick);
   }
 
   const live = new Set<string>();
@@ -211,7 +222,7 @@ export function activeThreats(state: PerceptionState, tick: number): KnownThreat
 /**
  * Was this car seen spending this weapon inside the last `withinTicks`? (H22, consumed by G22)
  *
- * `perceive` fills `ultSeenTick` from `observedFires`. Assess reads this as a punish fact.
+ * `perceive` fills `firedSeenTick` from `observedFires`. Assess reads this as a punish fact.
  */
 export function ultIsSpent(
   state: PerceptionState,
@@ -220,7 +231,7 @@ export function ultIsSpent(
   tick: number,
   withinTicks: number,
 ): boolean {
-  const seen = state.ultSeenTick.get(`${sessionId}:${weaponId}`);
+  const seen = state.firedSeenTick.get(`${sessionId}:${weaponId}`);
   return seen !== undefined && tick - seen <= withinTicks;
 }
 
@@ -281,4 +292,30 @@ function threatHeading(
   const perp = Math.atan2(vy, vx) + Math.PI / 2;
   const cross = vx * ry - vy * rx;
   return cross >= 0 ? perp : perp + Math.PI;
+}
+
+/**
+ * How loaded this bot BELIEVES an opponent's weapon is (P21), 0..1.
+ *
+ * Built only from presses it actually watched — a human tracks availability approximately, which the
+ * user's fairness ruling calls fair, and `BotCarView` deliberately carries no slot state so there is
+ * nothing else to read. Three ways this is honestly wrong, all of them the point:
+ * a press seen through a shorter `memoryTicks` is forgotten and the gun is assumed loaded; a press
+ * never seen at all is assumed loaded; and a weapon fired outside the bot's awareness never lands
+ * here in the first place.
+ */
+export function readinessOf(
+  state: PerceptionState,
+  sessionId: string,
+  weaponId: WeaponId,
+  tick: number,
+  profile: BotProfile,
+): number {
+  const seen = state.firedSeenTick.get(`${sessionId}:${weaponId}`);
+  if (seen === undefined) return 1;
+  const since = tick - seen;
+  if (since > profile.memoryTicks) return 1;
+  const cooldown = weaponTicksOf(weaponId).cooldown;
+  if (cooldown <= 0) return 1;
+  return Math.min(1, since / cooldown);
 }

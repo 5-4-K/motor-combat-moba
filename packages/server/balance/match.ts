@@ -231,10 +231,8 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
   let winnerSessionId = "";
   let winnerTeam = -1;
 
-  // B18: the harness is the ONLY host that turns `observedFires` on — `ArenaRoom` and `PracticeRoom`
-  // pass nothing, correctly (B3, `BotView.observedFires`'s own doc comment), because neither
-  // collects combat events at all. This harness already holds `events` (`CombatEvents`), so it is
-  // the one place populating this is free.
+  // B18: every bot-hosting surface turns `observedFires` on — this harness, `PlaygroundRoom` and
+  // `PracticeRoom`. `ArenaRoom` does not, correctly, because it hosts no bots.
   //
   // `firedCursor` is the length of `events.fired` as of the end of the PREVIOUS tick's
   // `runPipeline`. Every bot's view this tick is built BEFORE `runPipeline` runs (its input is

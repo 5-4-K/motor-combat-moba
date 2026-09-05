@@ -447,7 +447,7 @@ function seenWeapons(perception: PerceptionState, sessionId: string | undefined)
   if (!sessionId) return [];
   const prefix = `${sessionId}:`;
   const out: WeaponId[] = [];
-  for (const key of perception.ultSeenTick.keys()) {
+  for (const key of perception.firedSeenTick.keys()) {
     if (key.startsWith(prefix)) out.push(key.slice(prefix.length) as WeaponId);
   }
   return out;

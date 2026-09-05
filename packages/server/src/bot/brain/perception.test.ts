@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { BOT_PROFILES } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import type { BotCarView, BotView } from "../types.js";
-import { activeThreats, acquiringUnnoticed, knownCars, lastKnownAnchor, nearestHeardShot, newPerception, perceive, predictedPose, searchWaypoint, ultIsSpent } from "./perception.js";
+import { activeThreats, acquiringUnnoticed, knownCars, lastKnownAnchor, nearestHeardShot, newPerception, perceive, predictedPose, readinessOf, searchWaypoint, ultIsSpent } from "./perception.js";
 
 function car(overrides: Partial<BotCarView> = {}): BotCarView {
   return {
@@ -202,5 +202,35 @@ describe("hunt cues (G12, G13)", () => {
     expect(knownCars(state, 0)[0]?.alive).toBe(true);
     state = perceive(state, view({ tick: 1, others: [car({ alive: false })] }), profile);
     expect(state.cars.get("them")?.car.alive).toBe(false);
+  });
+});
+
+describe("readinessOf", () => {
+  it("assumes a weapon never seen fired is loaded", () => {
+    const state = newPerception();
+    expect(readinessOf(state, "them", "predator", 100, BOT_PROFILES.hard)).toBe(1);
+  });
+
+  it("treats a weapon seen fired one tick ago as spent", () => {
+    const state = newPerception();
+    state.firedSeenTick.set("them:lance", 100);
+    expect(readinessOf(state, "them", "lance", 101, BOT_PROFILES.hard)).toBeLessThan(0.1);
+  });
+
+  it("recovers to loaded once the cooldown has elapsed", () => {
+    const state = newPerception();
+    state.firedSeenTick.set("them:predator", 100);
+    // predator: 1000 ms == 30 ticks at 30 Hz.
+    expect(readinessOf(state, "them", "predator", 131, BOT_PROFILES.hard)).toBe(1);
+  });
+
+  it("forgets a sighting older than memoryTicks, so a casual loses track", () => {
+    const state = newPerception();
+    state.firedSeenTick.set("them:lance", 0);
+    const easy = readinessOf(state, "them", "lance", 60, BOT_PROFILES.easy);
+    // lance is a 16 s gun: 60 ticks in it is genuinely still recharging, but easy's 15-tick memory
+    // has dropped the sighting, so easy believes it is loaded. That gap IS the tier difference.
+    expect(easy).toBe(1);
+    expect(readinessOf(state, "them", "lance", 60, BOT_PROFILES.hard)).toBeLessThan(1);
   });
 });
