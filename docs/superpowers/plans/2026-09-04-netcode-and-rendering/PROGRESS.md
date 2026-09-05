@@ -5,7 +5,7 @@
 > writing the finished ones. Nothing here is needed to *execute* a plan — for that, read
 > [`00-execution-guide.md`](00-execution-guide.md).
 
-**Last updated:** 2026-09-05 (N4 written). **Branch:** `claude/gameplay-netcode-architecture-bgp8f6`.
+**Last updated:** 2026-09-05 (N4 and V3 written). **Branch:** `claude/gameplay-netcode-architecture-bgp8f6`.
 
 The two approved specs this folder implements:
 [netcode](../../specs/2026-09-04-online-netcode-and-client-architecture-design.md) and
@@ -13,7 +13,7 @@ The two approved specs this folder implements:
 
 ## 1. Status
 
-Fourteen plans, two streams. **Nine written, five to go** — N5, N6, V3, V4, V5. (Count the table, not this line: earlier revisions of it said nine and then ten while eight were written, both wrong.)
+Fourteen plans, two streams. **Ten written, four to go** — N5, N6, V4, V5. (Count the table, not this line: earlier revisions of it said nine and then ten while eight were written, both wrong.)
 
 | # | File | Lines | State |
 |---|---|---|---|
@@ -28,7 +28,7 @@ Fourteen plans, two streams. **Nine written, five to go** — N5, N6, V3, V4, V5
 | V0 | `20-render-0-instrumentation.md` | 1853 | written |
 | V1 | `21-render-1-hud.md` | 2704 | written |
 | V2 | `22-render-2-bake.md` | 4170 | written |
-| V3 | `23-render-3-beams.md` | — | **to write** |
+| V3 | `23-render-3-beams.md` | 1609 | written |
 | V4 | `24-render-4-events.md` | — | **to write** |
 | V5 | `25-render-5-pixels.md` | — | **to write** |
 
@@ -50,6 +50,16 @@ exactly. The two limits that remain — a hull-centre midpoint instead of the co
 and dash/slam pairs excluded rather than re-classified — are what section 4's open question is now
 about, and it is narrower than it was.
 
+**`23-render-3-beams.md` was written on 2026-09-05**, in the same session as N4. It found no ledger
+defect — the `render/beams.ts` row fitted as written — but it **deviates from the rendering spec in
+two places, both arithmetic**, and both are recorded in its own `## Handoff` under "Where this plan
+departed from the spec": one flipbook length instead of R14's two (a cone's apex is at the muzzle,
+so a uniform scale of one frame is exactly the shorter flame's silhouette, and the second length
+would double the sheet's largest item), and twenty rope points instead of §5's "24 segments"
+(a `Rope` emits two vertices per point, so 24 segments is 50 vertices against R2's ceiling of 40).
+Neither needs the user's word: R2 is a numbered principle and §5's catalogue is descriptive, so the
+more specific statement wins, which is the same rule that settled `PlayerState.level`.
+
 A general rule for any future interruption: a half-written plan must never be left under its final
 name, because the next plan in that stream builds on its `## Handoff`. That rule is what made the V2
 draft finishable rather than a rewrite.
@@ -62,9 +72,9 @@ Each plan is written by one worker in its own context. Hand that worker:
 2. The plan's own assignment from section 5 below, verbatim.
 
 **Order matters.** Within a stream each plan reads the previous plan's `## Handoff`, so they are
-written in order: N5 → N6, and V3 → V4 → V5 (N4 and V2 are done). Across streams they are
-independent, so one netcode plan and one rendering plan can be written at the same time. **Three
-rounds remain**: V3 alone (the netcode stream is one plan ahead), then N5 with V4, then N6 with V5.
+written in order: N5 → N6, and V4 → V5 (N4 and V3 are done). Across streams they are independent,
+so one netcode plan and one rendering plan can be written at the same time. **Two rounds remain**:
+N5 with V4, then N6 with V5.
 
 **After each plan comes back:**
 
