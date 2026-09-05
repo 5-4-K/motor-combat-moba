@@ -129,7 +129,10 @@ export interface Snapshot {
   cars: SnapshotCar[];
   instances: SnapshotInstance[];
   events: MatchEvent[];          // encoded with car indices, decoded back to session ids via the roster
+  contactPairs: number;          // N3: bitset of touching index pairs, so a client's edge trigger survives a snapshot
+  slams: SnapshotSlam[];         // N3: per-car slam clocks
 }
+export interface SnapshotSlam { index: number; stunWindowUntilTick: number; immuneUntilTick: number }  // N3
 export function instanceId(ownerIndex: number, shotSeq: number): string;      // `${ownerIndex}-${shotSeq}`
 export function quantizeBody(body: SimBody): SimBody;                          // the server adopts this
 export function encodeSnapshot(snapshot: Snapshot, previous: Snapshot | undefined, roster: Roster): Uint8Array;
@@ -169,20 +172,26 @@ export interface CarState extends SimBody {
   index: number;
   sessionId: string;
   carId: CarId;
+  team: number;                  // N3: `resolveContacts` requires it
+  maneuverWeaponId: string;      // N3: "" when no maneuver is active
   onField: boolean;
   phased: boolean;
   statuses: readonly StatusRow[];
 }
-export interface SlamClocks { stunWindowUntilTick: number; immuneUntilTick: number }
+export interface SlamClocks { stunWindowUntilTick: number; immuneUntilTick: number; bySessionId: string }  // N3: the wall-stun StatusRequest's source
 export interface ContactMemoryState {
   touching: ReadonlySet<string>;                 // "a|b" with a < b by session id
   slammed: ReadonlyMap<string, SlamClocks>;      // by session id
 }
-export interface WorldState { tick: number; cars: readonly CarState[]; contact: ContactMemoryState }  // cars sorted by index
+export interface WorldState { tick: number; mode: GameMode; cars: readonly CarState[]; contact: ContactMemoryState }  // N3 adds `mode`; cars sorted by index
 export interface ContactEvent {
   kind: "ram" | "slam" | "dashHit";
   attacker: string; victim: string; x: number; y: number; severity: number; tick: number;
 }
+// N3 caveat: the `"ram"` kind is declared but NOT emitted. `resolveContacts` returns only the knock —
+// no attacker, no impact point, no severity — and filling those in is an additive change to its
+// return value that spec §11 does not authorise. N3 pins the absence with a test; N4 drives ram
+// feedback off the `contact.touching` transition instead. Needs the user's authorisation to change.
 export interface WorldStepResult { world: WorldState; contactEvents: ContactEvent[]; approachSpeeds: ReadonlyMap<string, number> }
 export function stepWorld(world: WorldState, inputs: ReadonlyMap<string, InputFrame>, arena: ArenaDef): WorldStepResult;
 ```
@@ -280,6 +289,7 @@ Same public surface, renamed:
 ```ts
 export class MatchClient {
   constructor(arena: ArenaDef, sessionId: string, transport: MatchTransport, clock: ClockSync, stats: NetStats);
+  attachLobby(state: ArenaState): void;                               // N3: names, flow, and the two fixed per-match facts
   seed(roster: RosterMessage, first: Snapshot): void;
   pumpInput(deltaMs: number, sample: () => RawInput): PumpResult;     // sends through the transport
   onSnapshot(bytes: Uint8Array, nowMs: number): void;
@@ -363,7 +373,9 @@ export class LoopbackTransport implements MatchTransport { /* for tests and the 
 ```ts
 export class WorldPredictor {
   constructor(arena: ArenaDef, cfg: Pick<typeof NET_CONFIG, "maxPredictionTicks" | "maxExtrapolationTicks" | "remoteSteerHoldTicks">);
+  setLocal(sessionId: string): void;                                   // N3: which car the local input drives
   setBaseline(world: WorldState, inputsEcho: ReadonlyMap<string, InputFrame>): void;
+  adopt(world: WorldState): void;                                      // N3: N17's no-drift shortcut, keeps the predicted ring
   predictTick(localTick: number, localInput: InputFrame): WorldState;
   worldAt(tick: number): WorldState | undefined;
   /** Re-simulate from a new baseline; returns per-car deltas for the render offsets. */

@@ -779,53 +779,100 @@ export { solidHulls, type SolidCar } from "./sim/context.js";
 Run: `cd packages/shared && npx vitest run src/sim/world.test.ts src/sim/context.test.ts`
 Expected: PASS (20 tests). Then `npx vitest run` in `packages/shared` — everything else green, `golden.test.ts` included: it pins `stepDrive` and `resolveWorld` on a single frozen body and this task edited neither.
 
-- [ ] **Step 7: `maneuverWeaponId` on the wire, and the protocol bump**
+- [ ] **Step 7: The two things `stepWorld` reads that the wire does not carry yet**
 
-`stepWorld` reads `CarState.maneuverWeaponId`, so invariant 8 (as this phase restates it) makes it a snapshot field. It is the **only** field this phase adds to the wire: `carId` and `team` stay on the lobby half of the schema because they are fixed for a car's whole match, and `mode` likewise.
+`stepWorld` reads `CarState.maneuverWeaponId` and it reads `WorldState.contact`. Invariant 8, as this
+phase restates it, makes both snapshot fields, and N13 says so in as many words: *"`ContactMemory` …
+rides in the snapshot as a bitset of touching pairs (15 bits for 6 cars) plus per-car slam ticks."*
+Without the pair set a client's edge trigger restarts on every snapshot and a pair grinding together
+would take a fresh knock every tick; without the weapon id a client cannot tell a dash from a charge.
+
+These are the **only** fields this phase adds to the wire. `carId`, `team` and the match `mode` stay
+on the lobby half of the schema: all three are fixed for a car's whole match, and the roster message
+and the protocol hash are what pin them.
 
 In `packages/shared/src/net/codec.ts`:
 
 | Where | Before | After |
 |---|---|---|
-| `PROTOCOL_VERSION` | `1` | `2` — the snapshot layout changed; `protocolHash()` already folds it in, so a mismatched build is refused at join with the message Task 3 of phase 2 wrote |
-| `SnapshotCar` | (no maneuver-weapon field) | add `maneuverWeaponId: WeaponId \| "";` directly under `lastFiredSlot`, with the comment "The weapon behind the running maneuver, `\"\"` when none. On the wire because `stepWorld` reads it (N15): the contact pass needs it to tell a dash from a charge." |
-| the group-3 writer | `u8 kind · u16 ticksLeft · u16 angle · u16 speed` (7 B) | append `· u8 weaponIndexOf(car.maneuverWeaponId) + 1` (0 = none), making the group **8 B** |
-| the group-3 reader | reads four fields | reads a fifth: `const w = view.getUint8(o); car.maneuverWeaponId = w === 0 ? "" : weaponIdAt(w - 1);` |
-| the group-3 delta mask predicate | compares the four maneuver fields with `!==` | compares five |
+| `PROTOCOL_VERSION` | `1` | `2` — the layout changed; `protocolHash()` already folds it in, so a mismatched build is refused at join by the message phase 2's Task 3 wrote |
+| header | `u8 flags · u32 tick · u32 ackTick · i8 slackTicks` (10 B) | append `u16 contactPairs` → **12 B**. Bit `k` of the word is set when the k-th index pair is touching, `k` walking `(0,1), (0,2) … (0,5), (1,2) …` — 15 pairs for `MAX_PLAYERS` of 6, which is exactly a `u16` |
+| `SnapshotCar` | (no maneuver-weapon field) | add `maneuverWeaponId: WeaponId \| "";` under `lastFiredSlot`, commented "the weapon behind the running maneuver, `\"\"` when none — on the wire because `stepWorld` reads it (N15)" |
+| car group 3 `maneuver` | `u8 kind · u16 ticksLeft · u16 angle · u16 speed` (7 B) | append `· u8 weaponIndexOf(maneuverWeaponId) + 1` (0 = none) → **8 B**; the group's delta predicate compares five fields, not four |
+| `Snapshot` | `{ tick, full, lateInput, ackTick, slackTicks, cars, instances, events }` | add `contactPairs: number` and `slams: SnapshotSlam[]` |
+| after the instances section | (events section next) | a **slam section**: `u8 count`, then per entry `u8 victimIndex · u8 byIndex + 1 · i16 stunWindowUntilTick · i16 immuneUntilTick` (6 B each, ticks relative to the header tick like every other clock). One byte when nothing is slammed, which is almost always |
 
-`weaponIndexOf`/`weaponIdAt` are the pair the codec already uses for a slot's `weaponId` and an instance's `weapon` byte; the `+ 1` sentinel is the convention already used for `lockTargetIndex` and `sourceIndex`. Nothing else in the layout moves.
+```ts
+/** One live slam record, straight off `WorldState.contact.slammed`. */
+export interface SnapshotSlam {
+  victimIndex: number;
+  byIndex: number;          // -1 when the roster no longer knows the attacker
+  stunWindowUntilTick: number;
+  immuneUntilTick: number;
+}
+export function pairBitOf(a: number, b: number): number;   // index pair -> bit position, a < b
+export function contactPairsOf(touching: ReadonlySet<string>, roster: Roster): number;
+export function touchingFrom(bits: number, roster: Roster): Set<string>;
+```
 
-The three byte figures the phase-2 codec test pins move by exactly one byte per car, in the full-snapshot cases only — a delta car that is merely driving does not carry the maneuver group at all, so the steady-state delta is unchanged. Update `codec.test.ts`'s expectations:
+`weaponIndexOf`/`weaponIdAt` are the pair the codec already uses for a slot's `weaponId` and an
+instance's `weapon` byte; the `+ 1` sentinel is the convention already used for `lockTargetIndex` and
+`sourceIndex`. `contactPairsOf`/`touchingFrom` are the only two functions that know a pair is a bit,
+and they round-trip through `pairKey` so the set the client rebuilds is spelled exactly the way
+`resolveContacts` spells it (`"a|b"`, session ids, `a < b`).
+
+The byte figures the phase-2 codec test pins move by the header's two bytes, the slam section's
+count byte, and one byte per car per **full** snapshot. Update `codec.test.ts`:
 
 | Case | Before | After | Arithmetic |
 |---|---|---|---|
-| Full, 6 cars (3 slots, 1 status), 20 instances | 677 | **683** | `10 + 1 + 6 × 65 + 1 + 20 × 14 + 1` |
-| Full, 6 cars (3 slots, no statuses), 20 instances | 641 | **647** | `10 + 1 + 6 × 59 + 1 + 20 × 14 + 1` |
-| Full, a live 6-car match (1 status, 8 instances) | 509 | **515** | `10 + 1 + 384 + 6 + 1 + 112 + 1` |
-| Delta, steady state (6 cars driving, 4 instances) | 125 | **125** | unchanged — no maneuver group in the mask |
-| Delta, contact + volley | 330 | **330** | unchanged — the listed groups do not include maneuver |
-| Delta, idle lobby | 31 | **31** | unchanged |
+| Full, 6 cars (3 slots, 1 status), 20 instances | 677 | **686** | `12 + 1 + 6 × 65 + 1 + 20 × 14 + 1 + 1` |
+| Full, 6 cars (3 slots, no statuses), 20 instances | 641 | **650** | `12 + 1 + 6 × 59 + 1 + 20 × 14 + 1 + 1` |
+| Full, a live 6-car match (1 status, 8 instances) | 509 | **518** | `12 + 1 + 390 + 1 + 112 + 1 + 1` |
+| Delta, steady state (6 cars driving, 4 instances) | 125 | **128** | `12 + 1 + 6 × 12 + 1 + 4 × 10 + 1 + 1` |
+| Delta, contact + volley, one live slam | 330 | **339** | `12 + 1 + 6 × 31 + 1 + 12 × 10 + 1 + 6 + 1 + 11` |
+| Delta, an idle lobby | 31 | **34** | `12 + 1 + 6 × 3 + 1 + 1 + 1` |
 
-683 B still clears the §8 acceptance line of 700 B, and the steady-state delta is untouched at 125 B against a line of 350 B. Update the layout table's group-3 row and the "full car, 3 slots, 0 statuses: 58 B" line to 59 B in the codec's own header comment, and add one round-trip assertion:
+686 B clears §8's full-snapshot line of 700 B and 128 B clears its steady-state delta line of 350 B,
+both by construction; the two bolded figures are pinned exactly by the tests below so a later layout
+change cannot drift past them unnoticed. Update the layout table in the codec's own header comment
+(the header row, group 3, the new slam section, and "full car, 3 slots, 0 statuses: 58 B" → 59 B),
+then add three assertions to `codec.test.ts`:
 
 ```ts
 it("round-trips the weapon behind a running maneuver, and `\"\"` when there is none", () => {
   const dashing = { ...car(0, 300), maneuverWeaponId: "thunderclap" as const };
   const idle = { ...car(1, 900), maneuverWeaponId: "" as const };
-  const snap: Snapshot = { ...full(), cars: [dashing, idle] };
-  const out = decodeSnapshot(encodeSnapshot(snap, undefined, ROSTER), undefined, ROSTER);
+  const out = decodeSnapshot(encodeSnapshot({ ...full(), cars: [dashing, idle] }, undefined, ROSTER), undefined, ROSTER);
   expect(out.cars[0]!.maneuverWeaponId).toBe("thunderclap");
   expect(out.cars[1]!.maneuverWeaponId).toBe("");
 });
+
+it("round-trips the touching pair set as a bitset, spelled the way resolveContacts spells it", () => {
+  const snap = { ...full(), contactPairs: contactPairsOf(new Set(["aaa|bbb"]), ROSTER) };
+  const out = decodeSnapshot(encodeSnapshot(snap, undefined, ROSTER), undefined, ROSTER);
+  expect(out.contactPairs).toBe(snap.contactPairs);
+  expect([...touchingFrom(out.contactPairs, ROSTER)]).toEqual(["aaa|bbb"]);
+  expect(pairBitOf(0, 1)).toBe(0);
+});
+
+it("round-trips a live slam record and costs one byte when there is none", () => {
+  const slams = [{ victimIndex: 1, byIndex: 0, stunWindowUntilTick: 1030, immuneUntilTick: 1060 }];
+  const out = decodeSnapshot(encodeSnapshot({ ...full(), slams }, undefined, ROSTER), undefined, ROSTER);
+  expect(out.slams).toEqual(slams);
+  expect(encodeSnapshot({ ...full(), slams: [] }, undefined, ROSTER).length).toBe(650);
+});
 ```
+
+The last expectation reuses the "no statuses" fixture; if `full()` carries a status per car, use 686.
 
 - [ ] **Step 8: Edit the ledger in this commit**
 
 `docs/superpowers/plans/2026-09-04-netcode-and-rendering/interfaces.md`, three additions (execution guide §4: a plan that needs a ledger change edits the ledger in the same commit):
 
-1. In the `net/codec.ts` block, add `maneuverWeaponId: WeaponId | "";` to `SnapshotCar` under `lastFiredSlot`, and change `PROTOCOL_VERSION = 1` to `2` with the note "bumped by N3 for the maneuver-weapon byte".
+1. In the `net/codec.ts` block: add `maneuverWeaponId: WeaponId | "";` to `SnapshotCar` under `lastFiredSlot`; add `contactPairs: number;` and `slams: SnapshotSlam[];` to `Snapshot`; add the `SnapshotSlam` interface and the three helpers `pairBitOf`, `contactPairsOf`, `touchingFrom`; and change `PROTOCOL_VERSION = 1` to `2` with the note "bumped by N3 for the maneuver-weapon byte and the contact memory (N13)".
 2. In the `sim/world.ts` block, add `team: 0 | 1;` and `maneuverWeaponId: WeaponId | "";` to `CarState`; add `bySessionId: string;` to `SlamClocks`; add `mode: "ffa" | "team";` to `WorldState`; and append below the block: "`emptyContactMemory(): ContactMemoryState` is the constructor; `carId`, `team` and `mode` are read from the lobby half of the schema on both sides — they are fixed for a match, which is what invariant 8's restatement allows."
-3. In the client block, under `match/prediction.ts`, add `setLocal(sessionId: string): void` and `readonly lastContacts: readonly ContactEvent[]` to `WorldPredictor`; under `match/arena-net.ts` → `match/match-client.ts`, add `attachLobby(state: ArenaState): void`, `drivenSid(): string`, `canDrive(): boolean`, `forgetRemote(sessionId: string): void`, `sinceLastSnapshotMs(nowMs: number): number` and `readonly stalled: boolean`.
+3. In the client block, under `match/prediction.ts`, add `setLocal(sessionId: string): void`, `adopt(world, inputsEcho): void`, `readonly baselineTick: number` and `readonly lastContacts: readonly ContactEvent[]` to `WorldPredictor`; under `match/arena-net.ts` → `match/match-client.ts`, add `attachLobby(state: ArenaState): void`, `drivenSid(): string`, `canDrive(): boolean`, `forgetRemote(sessionId: string): void`, `sinceLastSnapshotMs(nowMs: number): number` and `readonly stalled: boolean`.
 
 - [ ] **Step 9: Commit**
 
@@ -868,6 +915,7 @@ import {
 } from "@motor-combat-moba/shared";
 import { InputRing } from "../net/input-ring.js";
 import { newContactMemory } from "./ram-bridge.js";
+import { writeStatuses } from "./status-bridge.js";
 import { worldTick } from "./world-bridge.js";
 
 const ARENA = getArena("arena-01");
@@ -994,8 +1042,7 @@ describe("worldTick", () => {
     c.sessionId = "c";
     c.carIndex = 2;
     c.status = PlayerStatus.LOBBY;
-    c.statuses.push(Object.assign(new (s.players.get("a")!.statuses.constructor as never)(), {}));
-    // Written through the bridge's own helper so the fixture cannot drift from the schema shape:
+    // Written through the bridge's own helper so the fixture cannot drift from the schema's row shape.
     writeStatuses(c, [{ statusId: "spiked", startTick: 10, endsTick: 100, sourceSessionId: "" }]);
     s.players.set("c", c);
     rings.set("c", new InputRing());
@@ -1003,17 +1050,6 @@ describe("worldTick", () => {
     expect(c.statuses).toHaveLength(0);
   });
 });
-```
-
-The last test imports `writeStatuses` from `./status-bridge.js`; drop the stray `statuses.push` line above it — it is there only to show that the row shape is never hand-built. Write the test with the `writeStatuses` call alone:
-
-```ts
-    const c = new PlayerState();
-    c.sessionId = "c";
-    c.carIndex = 2;
-    c.status = PlayerStatus.LOBBY;
-    writeStatuses(c, [{ statusId: "spiked", startTick: 10, endsTick: 100, sourceSessionId: "" }]);
-    s.players.set("c", c);
 ```
 
 - [ ] **Step 2: Run it to verify it fails**
@@ -1109,7 +1145,7 @@ export function worldTick(args: WorldTickArgs): WorldTickResult {
 
   const stepping = phase === RoomPhase.MATCH && roster.size > 0;
   if (!stepping) {
-    for (const sessionId of ids) sweepStatuses(state.players.get(sessionId));
+    for (const sessionId of ids) sweepStatuses(state.players.get(sessionId), tick);
     return { masks, reads, contactEvents: [], approachSpeeds: new Map() };
   }
 
@@ -1119,7 +1155,7 @@ export function worldTick(args: WorldTickArgs): WorldTickResult {
     if (!player) continue;
     if (!roster.has(sessionId)) {
       // Not a participant: still swept, never stepped, never a contact.
-      sweepStatuses(player);
+      sweepStatuses(player, tick);
       continue;
     }
     cars.push(carStateOf(sessionId, player, maneuverWeapons.get(sessionId) ?? ""));
@@ -1159,10 +1195,10 @@ function cleanMask(raw: number): number {
  * returns the same array reference when nothing lapsed, which is what keeps this free for the cars
  * that are in no status at all — most cars, most ticks.
  */
-function sweepStatuses(player: PlayerState | undefined): void {
+function sweepStatuses(player: PlayerState | undefined, tick: number): void {
   if (!player || player.statuses.length === 0) return;
   const before = readStatuses(player);
-  const after = expireStatuses(before, player.ackTick);
+  const after = expireStatuses(before, tick);
   if (after !== before) writeStatuses(player, after);
 }
 
@@ -1419,7 +1455,40 @@ function contactHitsOf(
 
 `status-bridge.ts`: delete `statusTick` (`63-86`) and the now-unused `expireStatuses`/`modifiersOf` imports if they become so; keep `readStatuses`, `writeStatuses`, `clearPlayerStatuses` and `modifiersFor`. Update the file's header comment line 27 — "`statusTick` runs FIRST in the room tick" — to "The expiry sweep runs first inside shared `stepWorld`; this file is the schema adapter around it." Delete the `statusTick` describe from `status-bridge.test.ts`; every other describe stays.
 
-`net/snapshot-source.ts`: `SnapshotSourceCtx` gains `maneuverWeapons: ReadonlyMap<string, WeaponId | "">`, and `buildSnapshot`'s per-car object gains `maneuverWeaponId: ctx.maneuverWeapons.get(sessionId) ?? ""` beside `lastFiredSlot`. Every call site is a room's `snapshotFor(sessionId)`, which already has `this.combat.maneuverWeapons` in hand — pass it. Add one assertion to `snapshot-source.test.ts`'s "lists cars by index…" test: `expect(snap.cars[0]!.maneuverWeaponId).toBe("thunderclap");` for a fixture whose `maneuverWeapons` names it.
+`net/snapshot-source.ts` fills the three new wire fields:
+
+| Where | Add |
+|---|---|
+| `SnapshotSourceCtx` | `maneuverWeapons: ReadonlyMap<string, WeaponId \| "">;` and `contact: ContactMemoryState;` |
+| the per-car object in `buildSnapshot` | `maneuverWeaponId: ctx.maneuverWeapons.get(sessionId) ?? "",` beside `lastFiredSlot` |
+| the returned `Snapshot` | `contactPairs: contactPairsOf(ctx.contact.touching, roster),` and the slam section below |
+
+```ts
+  const slams: SnapshotSlam[] = [];
+  for (const [victimId, clocks] of ctx.contact.slammed) {
+    const victimIndex = roster.indexOf(victimId);
+    if (victimIndex < 0) continue;
+    slams.push({
+      victimIndex,
+      byIndex: roster.indexOf(clocks.bySessionId),
+      stunWindowUntilTick: clocks.stunWindowUntilTick,
+      immuneUntilTick: clocks.immuneUntilTick,
+    });
+  }
+  slams.sort((a, b) => a.victimIndex - b.victimIndex);
+```
+
+Sorted by victim index so the delta comparison is stable and two snapshots describing the same state
+are byte-identical. Every call site is a room's `snapshotFor(sessionId)`, which already holds
+`this.combat.maneuverWeapons` and `this.ram.state` — pass both. Add two assertions to
+`snapshot-source.test.ts`'s "lists cars by index…" test:
+
+```ts
+expect(snap.cars[0]!.maneuverWeaponId).toBe("thunderclap");
+expect(touchingFrom(snap.contactPairs, roster)).toEqual(new Set(["a|b"]));
+```
+
+for a fixture whose `maneuverWeapons` names the weapon and whose `ram.state.touching` holds the pair.
 
 - [ ] **Step 7: The two harnesses that mirror the pipeline (compile breaks)**
 
@@ -1534,6 +1603,8 @@ export class WorldPredictor {
   constructor(arena: ArenaDef, cfg: Pick<typeof NET_CONFIG, "maxPredictionTicks" | "maxExtrapolationTicks" | "remoteSteerHoldTicks">);
   setLocal(sessionId: string): void;
   setBaseline(world: WorldState, inputsEcho: ReadonlyMap<string, InputFrame>): void;
+  /** A baseline whose prediction was already exact: keeps the predicted ring instead of clearing it. */
+  adopt(world: WorldState, inputsEcho: ReadonlyMap<string, InputFrame>): void;
   predictTick(localTick: number, localInput: InputFrame): WorldState;
   worldAt(tick: number): WorldState | undefined;
   resim(localTick: number, localInputs: (tick: number) => InputFrame): ReadonlyMap<string, CarDelta>;
@@ -1682,6 +1753,14 @@ describe("WorldPredictor", () => {
     expect(deltas.has("them")).toBe(false);
   });
 
+  it("keeps the predicted ring when a baseline is adopted rather than replayed", () => {
+    predictor.setBaseline(baseline(), new Map([["them", NEUTRAL_INPUT]]));
+    for (let tick = 1001; tick <= 1003; tick++) predictor.predictTick(tick, FORWARD);
+    const predicted = xOf(predictor.worldAt(1003), "me");
+    predictor.adopt(predictor.worldAt(1000)!, new Map([["them", NEUTRAL_INPUT]]));
+    expect(xOf(predictor.worldAt(1003), "me")).toBe(predicted);
+  });
+
   it("reports nothing when the resim reproduces what was already predicted", () => {
     predictor.setBaseline(baseline(), new Map([["them", NEUTRAL_INPUT]]));
     for (let tick = 1001; tick <= 1003; tick++) predictor.predictTick(tick, FORWARD);
@@ -1723,11 +1802,6 @@ import { describe, expect, it } from "vitest";
 import { NET_CONFIG } from "@motor-combat-moba/shared";
 import { NetStats } from "./netgraph.js";
 import { RenderOffsets, wrapAngle } from "./render-offset.js";
-
-function offsets(): { offsets: RenderOffsets; stats: NetStats } {
-  const stats = new NetStats();
-  return { offsets: new RenderOffsets(NET_CONFIG, stats), offsets2: undefined, stats } as never;
-}
 
 describe("RenderOffsets", () => {
   it("returns the whole correction on the frame it lands", () => {
@@ -1793,8 +1867,6 @@ describe("RenderOffsets", () => {
   });
 });
 ```
-
-Delete the stray `offsets()` helper at the top of that file — every test builds its own pair; it is listed here only to show the two constructor arguments and must not be pasted.
 
 - [ ] **Step 2: Run them to verify they fail**
 
@@ -2032,6 +2104,21 @@ export class WorldPredictor {
     this.put(world);
   }
 
+  /**
+   * Accept a baseline the prediction already matched, **keeping** everything predicted above it.
+   *
+   * This is N17's shortcut: when every quantised field of every car in the snapshot equals what was
+   * predicted for that tick, replaying `S + 1 … localTick` provably reproduces the worlds already in
+   * the ring, so the cheapest correct thing is to keep them. The caller is what decides "already
+   * matched" — see `MatchClient.applySnapshot` — and it compares every car, not only the local one,
+   * so a remote whose input changed always takes the full `setBaseline` + `resim` path.
+   */
+  adopt(world: WorldState, inputsEcho: ReadonlyMap<string, InputFrame>): void {
+    this.base = world;
+    this.echo = inputsEcho;
+    this.put(world);
+  }
+
   worldAt(tick: number): WorldState | undefined {
     const world = this.ring[this.slotOf(tick)];
     return world?.tick === tick ? world : undefined;
@@ -2161,3 +2248,1548 @@ git commit -m "feat(client): whole-world prediction, remote extrapolation and re
 No probe number moves in this commit — nothing calls the new classes yet.
 
 ---
+
+### Task 4: `MatchClient` — the headless match state machine (N16, N17, N18, N23)
+
+**Files:**
+- Create: `packages/client/src/match/match-client.ts`, `packages/client/src/match/match-client.test.ts`
+- Delete: `packages/client/src/match/arena-net.ts`, `packages/client/src/match/arena-net.test.ts`, `packages/client/src/net/prediction.ts`, `packages/client/src/net/prediction.test.ts`, `packages/client/src/net/step-context.ts`, `packages/client/src/net/step-context.test.ts`
+- Modify: `packages/client/src/net/interpolation.ts` (delete `InterpolationBuffer`, keep `blendPose`), `packages/client/src/net/interpolation.test.ts` (drop the buffer describes), `packages/client/src/match/render-frame.ts` (`lastProcessedInputSeq` → `ackTick`), `packages/client/src/match/frame-builder.ts` (the same one field)
+
+**Interfaces:**
+- Consumes: Task 3's `WorldPredictor`, `RenderOffsets`, `LocalInputs`; N2's `decodeSnapshot`/`encodeInput`/`Roster`/`RosterMessage`/`Snapshot`/`MatchTransport`/`SnapshotView`/`buildRenderFrame`; N1's `TickLoop`/`LeadController`; N0's `ClockSync`/`NetStats`; `blendPose`; `controlledCarOf`/`isSimPaused`.
+- Produces:
+
+```ts
+export interface RawInput { steer: -1 | 0 | 1; throttle: -1 | 0 | 1; fireSlots: number }
+export interface PumpResult { ticks: number; activeInput: boolean }
+export class MatchClient {
+  constructor(arena: ArenaDef, sessionId: string, transport: MatchTransport, clock: ClockSync, stats: NetStats);
+  attachLobby(state: ArenaState): void;
+  seed(roster: RosterMessage, first: Snapshot): void;
+  pumpInput(deltaMs: number, sample: () => RawInput, nowMs?: number): PumpResult;
+  onSnapshot(bytes: Uint8Array, nowMs: number): void;
+  frame(nowMs: number): RenderFrame;
+  drivenSid(): string;
+  canDrive(): boolean;
+  forgetRemote(sessionId: string): void;
+  sinceLastSnapshotMs(nowMs: number): number;
+  readonly localTick: number;
+  readonly lead: number;
+  readonly predictedPose: SimBody | undefined;
+  readonly predictedContacts: readonly ContactEvent[];
+  readonly latestSnapshot: Snapshot | undefined;
+  readonly serverProtocolHash: string;
+  /** True while the world is frozen past `maxPredictionTicks` — the connection overlay's gate. */
+  readonly stalled: boolean;
+}
+```
+
+#### Which of `ArenaNet`'s members survive, and how
+
+| `ArenaNet` (P, N0, N1, N2) | `MatchClient` |
+|---|---|
+| `seed(roster, first)`, `onSnapshot(bytes, nowMs)` | same names, same arguments (N2's handoff kept them for exactly this) |
+| `pumpInput(state, deltaMs, sample, send, nowMs?)` | `pumpInput(deltaMs, sample, nowMs?)` — the lobby state is attached once, and the send goes through the transport |
+| `frame(state, nowMs, sampleNowMs)` | `frame(nowMs)` — one clock, because there is no longer an interpolation sample time distinct from the render time |
+| `drivenSid(state)`, `canDrive(state)` | `drivenSid()`, `canDrive()` |
+| `syncDrivenCar(state)` | gone: the driven seat is re-checked every pump, and a change re-points the predictor and clears the offsets |
+| `poseFor(...)`, `forgetRemote(sid)` | `poseFor` is private (`renderPoseOf`); `forgetRemote` survives and now drops a render offset rather than an interpolation history |
+| `attachStats`, `attachClock` | constructor arguments |
+| `predictedPose`, `localTick`, `lead`, `latestSnapshot`, `serverProtocolHash` | unchanged |
+| `sinceLastPatchMs(nowMs)` | `sinceLastSnapshotMs(nowMs)` |
+| `PredictionBuffer` (`net/prediction.ts`) | **deleted.** Absorbed by `WorldPredictor`: predicting one body from a pending list is exactly what whole-world prediction generalises, and nothing else called it |
+| `InterpolationBuffer` (`net/interpolation.ts`) | **deleted** with `NET_CONFIG.interpolationDelayMs`. Remotes are no longer drawn in the past at all (N20); `blendPose` stays, because drawing between sim ticks is still needed |
+| `buildStepContext`, `localModifiers` (`net/step-context.ts`) | **deleted.** `stepWorld` builds every car's `StepContext` and derives every car's modifiers itself, which is the point of N13 |
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+// packages/client/src/match/match-client.test.ts
+import { beforeEach, describe, expect, it } from "vitest";
+import {
+  ArenaState, MS_PER_TICK, NET_CONFIG, PlayerState, PlayerStatus, Roster, RoomPhase,
+  encodeSnapshot, getArena, quantizeBody,
+  type RosterMessage, type Snapshot, type SnapshotCar,
+} from "@motor-combat-moba/shared";
+import { ClockSync } from "./clock.js";
+import { MatchClient, type RawInput } from "./match-client.js";
+import { NetStats } from "./netgraph.js";
+import { LoopbackTransport } from "./transport.js";
+
+const ARENA = getArena("arena-01");
+const ROSTER_MSG: RosterMessage = {
+  protocolHash: "test",
+  snapshotEvery: 1,
+  cars: [{ index: 0, sessionId: "me" }, { index: 1, sessionId: "them" }],
+};
+const ROSTER = new Roster(ROSTER_MSG.cars);
+const FORWARD: RawInput = { steer: 0, throttle: 1, fireSlots: 0 };
+const IDLE: RawInput = { steer: 0, throttle: 0, fireSlots: 0 };
+
+function lobby(): ArenaState {
+  const s = new ArenaState();
+  s.phase = RoomPhase.MATCH;
+  s.arenaId = "arena-01";
+  s.tick = 1000;
+  for (const [i, id] of ["me", "them"].entries()) {
+    const p = new PlayerState();
+    p.sessionId = id;
+    p.carIndex = i;
+    p.name = id.toUpperCase();
+    p.carId = "mirage";
+    p.status = PlayerStatus.IN_MATCH;
+    s.players.set(id, p);
+  }
+  return s;
+}
+
+function snapCar(index: number, x: number): SnapshotCar {
+  return {
+    index,
+    body: quantizeBody({
+      x, y: 360, angle: index === 0 ? 0 : Math.PI, speed: 0, reverseHold: 0, angVel: 0,
+      shoveX: 0, shoveY: 0, authority: 1, maneuver: 0, maneuverTicksLeft: 0,
+      maneuverAngle: 0, maneuverSpeed: 0,
+    }),
+    hp: 700, alive: true, onField: true, phased: false, diedAtTick: 0,
+    lastInput: { steer: 0, throttle: 0, fireSlots: 0 },
+    lockTargetIndex: -1, shotSeq: 0, pendingUntilTick: 0, switchLockUntilTick: 0,
+    lastFiredSlot: -1, maneuverWeaponId: "", slots: [], statuses: [],
+  };
+}
+
+function snapshot(tick: number, meX = 300, themX = 900): Snapshot {
+  return {
+    tick, full: true, lateInput: false, ackTick: tick - 1, slackTicks: 2,
+    contactPairs: 0, slams: [],
+    cars: [snapCar(0, meX), snapCar(1, themX)],
+    instances: [], events: [],
+  };
+}
+
+describe("MatchClient", () => {
+  let state: ArenaState;
+  let transport: LoopbackTransport;
+  let clock: ClockSync;
+  let stats: NetStats;
+  let client: MatchClient;
+  let now: number;
+  let sent: Uint8Array[];
+
+  const pump = (ms: number, sample: RawInput = FORWARD): { ticks: number; activeInput: boolean } => {
+    now += ms;
+    return client.pumpInput(ms, () => sample, now);
+  };
+  const deliver = (snap: Snapshot, previous?: Snapshot): void => {
+    client.onSnapshot(encodeSnapshot(snap, previous, ROSTER), now);
+  };
+
+  beforeEach(() => {
+    now = 0;
+    state = lobby();
+    sent = [];
+    transport = new LoopbackTransport();
+    // The transport's server half: what the client puts on the wire.
+    transport.onClientInput((bytes) => sent.push(bytes));
+    clock = new ClockSync();
+    clock.onPong({ clientMs: 0, serverTick: 1000, msIntoTick: 0 }, 0);
+    stats = new NetStats();
+    client = new MatchClient(ARENA, "me", transport, clock, stats);
+    client.attachLobby(state);
+    client.seed(ROSTER_MSG, snapshot(1000));
+  });
+
+  it("drives the connection's own seat", () => {
+    expect(client.drivenSid()).toBe("me");
+    expect(client.canDrive()).toBe(true);
+  });
+
+  it("sends one tick-stamped input per local tick, through the transport", () => {
+    const result = pump(MS_PER_TICK * 2);
+    expect(result.ticks).toBe(2);
+    expect(result.activeInput).toBe(true);
+    expect(sent).toHaveLength(2);
+  });
+
+  it("reports a neutral sample as inactive and still sends it", () => {
+    const result = pump(MS_PER_TICK, IDLE);
+    expect(result.activeInput).toBe(false);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("predicts the local car forward from the newest snapshot", () => {
+    const before = client.predictedPose!.x;
+    pump(MS_PER_TICK * 3);
+    expect(client.predictedPose!.x).toBeGreaterThan(before);
+    expect(client.localTick).toBeGreaterThan(1000);
+  });
+
+  it("predicts remotes too — a remote under throttle moves between snapshots", () => {
+    const moving = snapshot(1000);
+    moving.cars[1] = { ...moving.cars[1]!, lastInput: { steer: 0, throttle: 1, fireSlots: 0 } };
+    client.seed(ROSTER_MSG, moving);
+    const before = client.frame(now).cars.find((c) => c.sessionId === "them")!.pose.x;
+    pump(MS_PER_TICK * 4);
+    expect(client.frame(now).cars.find((c) => c.sessionId === "them")!.pose.x).toBeLessThan(before);
+  });
+
+  it("takes no correction at all when the snapshot matches the prediction", () => {
+    pump(MS_PER_TICK);                       // localTick is now 1001
+    const predicted = client.predictedPose!;
+    const confirmed = snapshot(1001);
+    confirmed.cars[0] = { ...confirmed.cars[0]!, body: quantizeBody(predicted) };
+    deliver(confirmed, snapshot(1000));
+    expect(stats.corrections).toBe(0);
+    expect(client.predictedPose!.x).toBeCloseTo(predicted.x, 6);
+  });
+
+  it("resimulates and hands the difference to the render offsets when it does not", () => {
+    pump(MS_PER_TICK * 3);
+    const drawnBefore = client.frame(now).cars[0]!.pose.x;
+    deliver(snapshot(1001, 260), snapshot(1000));
+    expect(stats.corrections).toBe(1);
+    expect(stats.snaps).toBe(0);
+    // Sim state took the whole correction; the picture did not move this frame.
+    expect(client.predictedPose!.x).toBeLessThan(drawnBefore);
+    expect(client.frame(now).cars[0]!.pose.x).toBeCloseTo(drawnBefore, 3);
+  });
+
+  it("counts a snap and draws the truth when the correction is past a car length", () => {
+    pump(MS_PER_TICK * 3);
+    deliver(snapshot(1001, 300 - NET_CONFIG.snapUnits - 20), snapshot(1000));
+    expect(stats.snaps).toBe(1);
+    expect(client.frame(now).cars[0]!.pose.x).toBeCloseTo(client.predictedPose!.x, 3);
+  });
+
+  it("holds a snapshot in the jitter buffer while the link is jittery, and applies it when it is due", () => {
+    for (let i = 0; i < NET_CONFIG.clockSamples; i++) {
+      clock.onPong({ clientMs: i * 100, serverTick: 1000 + i * 6, msIntoTick: 0 }, i * 100 + 60 + (i % 2) * 40);
+    }
+    expect(clock.jitterMs).toBeGreaterThan(0);
+    pump(MS_PER_TICK * 4);
+    const applied = client.latestSnapshot!.tick;
+    deliver(snapshot(client.localTick), snapshot(1000));
+    expect(client.latestSnapshot!.tick).toBe(applied); // too new: still in the buffer
+    pump(MS_PER_TICK * NET_CONFIG.bufferTicksMax);
+    expect(client.latestSnapshot!.tick).toBeGreaterThan(applied);
+  });
+
+  it("freezes the world past maxPredictionTicks and thaws on the next snapshot", () => {
+    pump(MS_PER_TICK * (NET_CONFIG.maxPredictionTicks + 4));
+    expect(client.stalled).toBe(true);
+    const frozen = client.predictedPose!.x;
+    pump(MS_PER_TICK * 2);
+    expect(client.predictedPose!.x).toBe(frozen);
+    deliver(snapshot(client.localTick - 2, 700), snapshot(1000));
+    expect(client.stalled).toBe(false);
+  });
+
+  it("builds a frame with the driven car flagged, the roster joined and the snapshot age filled in", () => {
+    now = 2000;
+    deliver(snapshot(1001), snapshot(1000));
+    const frame = client.frame(2030);
+    expect(frame.localSessionId).toBe("me");
+    expect(frame.cars.map((c) => c.sessionId)).toEqual(["me", "them"]);
+    expect(frame.cars[0]!.isLocal).toBe(true);
+    expect(frame.cars[0]!.name).toBe("ME");
+    expect(frame.sinceSnapshotMs).toBe(30);
+    expect(frame.tick).toBe(client.localTick);
+  });
+
+  it("keeps the contact events its own prediction produced", () => {
+    const close = snapshot(1000, 300, 340);
+    client.seed(ROSTER_MSG, close);
+    pump(MS_PER_TICK);
+    expect(Array.isArray(client.predictedContacts)).toBe(true);
+  });
+
+  it("stops driving and stops predicting once the driven car is a wreck", () => {
+    const dead = snapshot(1001);
+    dead.cars[0] = { ...dead.cars[0]!, alive: false, onField: false };
+    deliver(dead, snapshot(1000));
+    expect(client.canDrive()).toBe(false);
+    expect(pump(MS_PER_TICK).ticks).toBe(0);
+  });
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `cd packages/client && npx vitest run src/match/match-client.test.ts`
+Expected: FAIL — cannot resolve `./match-client.js`.
+
+- [ ] **Step 3: Write `MatchClient`**
+
+```ts
+// packages/client/src/match/match-client.ts
+import {
+  MS_PER_TICK,
+  NET_CONFIG,
+  RoomPhase,
+  Roster,
+  carIdOf,
+  decodeSnapshot,
+  encodeInput,
+  quantizeBody,
+  sidesOf,
+  touchingFrom,
+  type ArenaDef,
+  type ArenaState,
+  type CarState,
+  type ContactEvent,
+  type ContactMemoryState,
+  type InputFrame,
+  type RosterMessage,
+  type SimBody,
+  type SlamClocks,
+  type Snapshot,
+  type SnapshotCar,
+  type StatusRow,
+  type WorldState,
+} from "@motor-combat-moba/shared";
+import { blendPose } from "../net/interpolation.js";
+import { controlledCarOf, isSimPaused } from "../scenes/controlled-car.js";
+import type { ClockSync } from "./clock.js";
+import { buildRenderFrame, type FrameInstance } from "./frame-builder.js";
+import { LeadController } from "./lead.js";
+import { LocalInputs } from "./local-inputs.js";
+import type { NetStats } from "./netgraph.js";
+import { WorldPredictor } from "./prediction.js";
+import { RenderOffsets } from "./render-offset.js";
+import { emptyRenderFrame, type RenderFrame } from "./render-frame.js";
+import { SnapshotView } from "./snapshot-view.js";
+import { TickLoop } from "./tick-loop.js";
+import type { MatchTransport } from "./transport.js";
+
+/** Raw key state for one input tick, sampled by the scene from Phaser keys. */
+export interface RawInput {
+  steer: -1 | 0 | 1;
+  throttle: -1 | 0 | 1;
+  fireSlots: number;
+}
+
+export interface PumpResult {
+  /** Inputs sent this pump. */
+  ticks: number;
+  /** Whether any carried a real steer, throttle or fire — what clears the idle warning. */
+  activeInput: boolean;
+}
+
+const NOTHING: PumpResult = { ticks: 0, activeInput: false };
+
+/**
+ * The client's whole match, with no Phaser in it (netcode spec N23).
+ *
+ * It owns the newest snapshot, the predicted world ring, the local input history, the render
+ * offsets, the clock and the lead; it hands out one `RenderFrame` per frame and nothing else. Every
+ * one of its parts is unit-testable in the node environment, and the netcode harness drives this
+ * exact class against the real server pipeline over a link model.
+ *
+ * The shape of a frame's life:
+ *
+ * 1. `pumpInput` advances the local clock, samples the keys once per local tick, sends the input and
+ *    predicts that tick of the **whole** world (N16) — the driver's car on the real input, every
+ *    remote on its echoed `lastInput` (N20).
+ * 2. `onSnapshot` decodes and buffers; `drain` applies a snapshot once it is `bufferTicks` old on the
+ *    estimated server clock (N18), which is zero on an ordinary 60 Hz link.
+ * 3. Applying a snapshot either **adopts** it — when every quantised field of every car equals what
+ *    was predicted, the common case in free driving, and then nothing at all happens — or replaces
+ *    the world at that tick and re-simulates every tick since from the stored inputs (N17). The
+ *    difference between the pose that was on screen and the corrected one becomes a render offset
+ *    (N19). Sim state is never eased.
+ * 4. `frame` decays the offsets, blends between the last two predicted ticks, and adds the offset.
+ *
+ * The lobby half of the room — names, colours, chassis, teams, kills, the flow deadlines — is
+ * attached once and read straight off the schema. `stepWorld` reads exactly three things from it:
+ * each car's `carId`, each car's `team`, and the match `mode`, all three fixed for the life of a
+ * match and all three inside the protocol hash. Everything that changes per tick is in the snapshot.
+ */
+export class MatchClient {
+  private lobby: ArenaState | undefined;
+  private roster = new Roster([]);
+  private snapshotEvery = NET_CONFIG.snapshotEvery;
+  private protocolHash = "";
+  private baseline: Snapshot | undefined;
+  /** The delta chain follows ARRIVAL order, which is not the order snapshots are applied in. */
+  private decoded: Snapshot | undefined;
+  private readonly pending: Snapshot[] = [];
+  private readonly view = new SnapshotView();
+  private readonly inputs = new LocalInputs();
+  private readonly predictor: WorldPredictor;
+  private readonly offsets: RenderOffsets;
+  private readonly loop = new TickLoop(NET_CONFIG);
+  private readonly leadCtl = new LeadController(NET_CONFIG);
+  private leadSeeded = false;
+  private frozen = false;
+  private lastSnapshotAtMs = 0;
+  private lastFrameMs = 0;
+  private viewTick = -1;
+  private driven = "";
+
+  constructor(
+    private readonly arena: ArenaDef,
+    private readonly sessionId: string,
+    private readonly transport: MatchTransport,
+    private readonly clock: ClockSync,
+    private readonly stats: NetStats,
+  ) {
+    this.predictor = new WorldPredictor(arena, NET_CONFIG);
+    this.offsets = new RenderOffsets(NET_CONFIG, stats);
+  }
+
+  /** The lobby half of the room. Attached once, before the first snapshot. */
+  attachLobby(state: ArenaState): void {
+    this.lobby = state;
+  }
+
+  seed(roster: RosterMessage, first: Snapshot): void {
+    this.roster = new Roster(roster.cars);
+    this.snapshotEvery = roster.snapshotEvery;
+    this.protocolHash = roster.protocolHash;
+    this.view.reset();
+    this.offsets.clear();
+    this.pending.length = 0;
+    this.decoded = first;
+    this.baseline = first;
+    this.viewTick = -1;
+    this.frozen = false;
+    this.leadSeeded = false;
+    this.driven = this.drivenSid();
+    this.predictor.setLocal(this.driven);
+    this.predictor.setBaseline(this.worldFrom(first), this.echoFrom(first));
+    this.loop.reanchor(first.tick);
+  }
+
+  onSnapshot(bytes: Uint8Array, nowMs: number): void {
+    const snap = decodeSnapshot(bytes, this.decoded, this.roster);
+    this.decoded = snap;
+    this.stats.bytesIn += bytes.length;
+    if (snap.lateInput) this.stats.lateInputs += 1;
+    this.lastSnapshotAtMs = nowMs;
+    this.pending.push(snap);
+    this.drain(nowMs);
+  }
+
+  pumpInput(deltaMs: number, sample: () => RawInput, nowMs: number = performance.now()): PumpResult {
+    this.drain(nowMs);
+    if (!this.lobby || !this.baseline) return NOTHING;
+    this.followDrivenSeat();
+    if (!this.canDrive() || isSimPaused(this.lobby)) {
+      // A pause must not bank time; the loop restarts from wherever the clock is when it resumes.
+      this.loop.reanchor(this.loop.localTick);
+      return NOTHING;
+    }
+    if (!this.clock.ready) return NOTHING;
+
+    const serverTick = this.clock.serverTickAt(nowMs);
+    if (!this.leadSeeded) {
+      this.leadSeeded = true;
+      this.leadCtl.initial(this.clock.rttMs, this.clock.jitterMs);
+      this.loop.reanchor(serverTick + this.leadCtl.lead);
+    }
+    const ticks = this.loop.advance(deltaMs, serverTick + this.leadCtl.lead);
+    let activeInput = false;
+
+    for (let tick = this.loop.localTick - ticks + 1; tick <= this.loop.localTick; tick++) {
+      const raw = sample();
+      const input: InputFrame = { steer: raw.steer, throttle: raw.throttle, fireSlots: raw.fireSlots };
+      if (input.steer !== 0 || input.throttle !== 0 || input.fireSlots !== 0) activeInput = true;
+      this.inputs.set(tick, input);
+      const bytes = encodeInput(tick, [input]);
+      this.transport.sendInput(bytes);
+      this.stats.bytesOut += bytes.length;
+      // Predict-through, then freeze (N18). The inputs keep flowing while frozen: they are what the
+      // server drives on when it hears us again, and the resim on the next snapshot replays them.
+      if (tick - this.predictor.baselineTick <= NET_CONFIG.maxPredictionTicks) {
+        this.predictor.predictTick(tick, input);
+        this.frozen = false;
+      } else {
+        this.frozen = true;
+      }
+    }
+
+    return { ticks, activeInput };
+  }
+
+  frame(nowMs: number): RenderFrame {
+    const lobby = this.lobby;
+    if (!lobby || !this.baseline) return emptyRenderFrame(nowMs);
+    this.drain(nowMs);
+    this.offsets.decay(Math.max(0, nowMs - this.lastFrameMs));
+    this.lastFrameMs = nowMs;
+
+    if (this.viewTick !== this.baseline.tick) {
+      this.view.apply(this.baseline, this.roster, lobby);
+      this.viewTick = this.baseline.tick;
+    }
+
+    const instances = this.view.instances;
+    return buildRenderFrame(
+      {
+        // The LOCAL tick, not the snapshot's: everything the frame is measured against — a status
+        // bar, a countdown, a recharge ring — is a tick clock, and the world on screen is at the
+        // local tick. N4 finishes the tick-time HUD; this is the half of it the frame owes.
+        tick: this.loop.localTick,
+        phase: lobby.phase,
+        mode: lobby.mode,
+        arenaId: lobby.arenaId,
+        countdownEndsTick: lobby.countdownEndsTick,
+        matchStartedAtTick: lobby.matchStartedAtTick,
+        matchEndsTick: lobby.matchEndsTick,
+        winnerTeam: lobby.winnerTeam,
+        winnerSessionId: lobby.winnerSessionId,
+        players: this.view.players,
+        weapons: {
+          forEach: (cb: (instance: FrameInstance, id: string) => void) => {
+            for (const instance of instances) cb(instance, instance.id);
+          },
+        },
+      },
+      {
+        localSessionId: this.drivenSid(),
+        poseOf: (sessionId, _player, serverPose) => this.renderPoseOf(sessionId, serverPose),
+        nowMs,
+        sinceSnapshotMs: this.sinceLastSnapshotMs(nowMs),
+        tickFraction: this.loop.fraction,
+      },
+    );
+  }
+
+  drivenSid(): string {
+    return this.lobby ? controlledCarOf(this.lobby, this.sessionId) : this.sessionId;
+  }
+
+  /**
+   * The MOVER gate, read off the newest snapshot rather than off the view: `SnapshotCar.onField` is
+   * `isOnField(player)` as the server evaluated it, which is exactly the predicate `stepWorld` steps
+   * on. Reading it here rather than re-deriving it from the schema is what keeps the client from
+   * driving a car the server has stopped stepping.
+   */
+  canDrive(): boolean {
+    const lobby = this.lobby;
+    if (!lobby || lobby.phase !== RoomPhase.MATCH) return false;
+    const car = this.baselineCarOf(this.drivenSid());
+    return car !== undefined && car.onField && car.alive;
+  }
+
+  /** A car that left the room, so a recycled session id cannot inherit a stranger's slide. */
+  forgetRemote(sessionId: string): void {
+    this.offsets.forget(sessionId);
+  }
+
+  sinceLastSnapshotMs(nowMs: number): number {
+    return Math.max(0, nowMs - this.lastSnapshotAtMs);
+  }
+
+  get localTick(): number {
+    return this.loop.localTick;
+  }
+
+  get lead(): number {
+    return this.leadCtl.lead;
+  }
+
+  get predictedPose(): SimBody | undefined {
+    const world = this.predictor.worldAt(this.loop.localTick) ?? this.predictor.worldAt(this.predictor.baselineTick);
+    return world?.cars.find((car) => car.sessionId === this.drivenSid());
+  }
+
+  get predictedContacts(): readonly ContactEvent[] {
+    return this.predictor.lastContacts;
+  }
+
+  get latestSnapshot(): Snapshot | undefined {
+    return this.baseline;
+  }
+
+  get serverProtocolHash(): string {
+    return this.protocolHash;
+  }
+
+  get stalled(): boolean {
+    return this.frozen;
+  }
+
+  /* ---------------------------------------------------------------- snapshots */
+
+  /**
+   * Apply every buffered snapshot that is due.
+   *
+   * `bufferTicks = ceil(2·jitter / MS_PER_TICK) − snapshotEvery`, clamped to `[0, bufferTicksMax]`
+   * (N18). On an ordinary link at 60 Hz snapshots that is **zero** — the next snapshot covers a late
+   * one, so buying headroom would only add latency. It rises when the link's own jitter says a
+   * snapshot is likely to arrive after the tick it would have been applied on, which is exactly the
+   * case the buffer exists for. The second loop is the safety valve: a buffer that shrank must not
+   * strand a snapshot behind it.
+   */
+  private drain(nowMs: number): void {
+    if (this.pending.length === 0) return;
+    const buffer = this.bufferTicks();
+    const serverTick = this.clock.ready ? this.clock.serverTickAt(nowMs) : Number.POSITIVE_INFINITY;
+    while (this.pending.length > 0 && serverTick - this.pending[0]!.tick >= buffer) {
+      this.applySnapshot(this.pending.shift()!, nowMs);
+    }
+    while (this.pending.length > NET_CONFIG.bufferTicksMax) {
+      this.applySnapshot(this.pending.shift()!, nowMs);
+    }
+  }
+
+  private bufferTicks(): number {
+    const raw = Math.ceil((2 * this.clock.jitterMs) / MS_PER_TICK) - this.snapshotEvery;
+    return Math.max(0, Math.min(NET_CONFIG.bufferTicksMax, raw));
+  }
+
+  private applySnapshot(snap: Snapshot, nowMs: number): void {
+    this.baseline = snap;
+    this.frozen = false;
+    this.leadCtl.observe(snap.slackTicks, nowMs);
+    this.stats.slack.push(snap.slackTicks);
+    if (this.stats.slack.length > NET_CONFIG.slackWindowTicks) this.stats.slack.shift();
+    if (snap.slackTicks < 0) this.stats.repeatedInputs += 1;
+    this.stats.lead = this.leadCtl.lead;
+
+    // A stall longer than the predict-through cap: re-anchor the local clock onto the snapshot that
+    // ended it, so the replay below is `lead` ticks rather than the whole silence (N18, N5).
+    if (this.loop.localTick - snap.tick > NET_CONFIG.maxPredictionTicks) {
+      this.loop.reanchor(snap.tick + this.leadCtl.lead);
+    }
+
+    const world = this.worldFrom(snap);
+    const echo = this.echoFrom(snap);
+    const predicted = this.predictor.worldAt(snap.tick);
+
+    // N17's shortcut, read strictly: the replay is skipped only when EVERY car in the snapshot
+    // already equals what was predicted for that tick, quantum for quantum. That is the common case
+    // in free driving — nobody changed input, so nobody moved anywhere unexpected — and it is also
+    // what "snapshots for remotes are always folded in" means in practice: a remote whose input
+    // changed fails this comparison and takes the full resim, along with everyone else.
+    if (predicted && matchesPrediction(predicted, world)) {
+      this.predictor.adopt(world, echo);
+      return;
+    }
+
+    this.predictor.setBaseline(world, echo);
+    const deltas = this.predictor.resim(this.loop.localTick, (tick) => this.inputs.at(tick));
+    for (const [sessionId, delta] of deltas) {
+      this.offsets.add(sessionId, delta.dx, delta.dy, delta.dAngle);
+    }
+  }
+
+  /* ---------------------------------------------------------------- adapters */
+
+  private worldFrom(snap: Snapshot): WorldState {
+    const lobby = this.lobby;
+    const cars: CarState[] = snap.cars.map((car) => {
+      const sessionId = this.roster.sessionIdOf(car.index);
+      const seat = lobby?.players.get(sessionId);
+      const statuses: StatusRow[] = car.statuses.map((row) => ({
+        statusId: row.statusId,
+        startTick: row.startTick,
+        endsTick: row.endsTick,
+        sourceSessionId: row.sourceIndex < 0 ? "" : this.roster.sessionIdOf(row.sourceIndex),
+      }));
+      return {
+        ...car.body,
+        index: car.index,
+        sessionId,
+        // The two lobby facts fixed for a car's whole match. Everything else here is off the wire.
+        carId: carIdOf(seat ?? { carId: "" }),
+        team: seat?.team === 1 ? 1 : 0,
+        onField: car.onField,
+        phased: car.phased,
+        maneuverWeaponId: car.maneuverWeaponId,
+        statuses,
+      };
+    });
+    cars.sort((a, b) => a.index - b.index);
+    return {
+      tick: snap.tick,
+      mode: sidesOf(lobby?.mode ?? 0),
+      cars,
+      contact: this.contactFrom(snap),
+    };
+  }
+
+  /**
+   * The contact memory off the wire (N13). Without it the client's edge trigger would restart at
+   * every snapshot and two cars grinding together would take a fresh knock every tick.
+   */
+  private contactFrom(snap: Snapshot): ContactMemoryState {
+    const slammed = new Map<string, SlamClocks>();
+    for (const slam of snap.slams) {
+      const victimId = this.roster.sessionIdOf(slam.victimIndex);
+      if (!victimId) continue;
+      slammed.set(victimId, {
+        bySessionId: slam.byIndex < 0 ? "" : this.roster.sessionIdOf(slam.byIndex),
+        stunWindowUntilTick: slam.stunWindowUntilTick,
+        immuneUntilTick: slam.immuneUntilTick,
+      });
+    }
+    return { touching: touchingFrom(snap.contactPairs, this.roster), slammed };
+  }
+
+  /** Each car's last input as the server used it — what a remote is extrapolated on (N20). */
+  private echoFrom(snap: Snapshot): ReadonlyMap<string, InputFrame> {
+    const echo = new Map<string, InputFrame>();
+    for (const car of snap.cars) echo.set(this.roster.sessionIdOf(car.index), car.lastInput);
+    return echo;
+  }
+
+  private baselineCarOf(sessionId: string): SnapshotCar | undefined {
+    const index = this.roster.indexOf(sessionId);
+    return this.baseline?.cars.find((car) => car.index === index);
+  }
+
+  /** The playground can hand the driver a different car mid-session (PG9). */
+  private followDrivenSeat(): void {
+    const driven = this.drivenSid();
+    if (driven === this.driven) return;
+    this.driven = driven;
+    this.predictor.setLocal(driven);
+    this.offsets.clear();
+  }
+
+  /**
+   * `blend(previousTick, currentTick, fraction) + offset` — the one render rule (N19).
+   *
+   * The blend is what stops the car holding and jumping between sim ticks; the offset is the
+   * correction, decaying, and it is added **here**, on the way out, so nothing that feeds another
+   * step ever sees it. A car with no predicted world (a joiner mid-decode, a wreck) draws its
+   * server pose untouched.
+   */
+  private renderPoseOf(sessionId: string, serverPose: SimBody): SimBody {
+    const current = this.predictor.worldAt(this.loop.localTick);
+    const to = current?.cars.find((car) => car.sessionId === sessionId);
+    if (!to) return serverPose;
+    const previous = this.predictor.worldAt(this.loop.localTick - 1);
+    const from = previous?.cars.find((car) => car.sessionId === sessionId) ?? to;
+    const blended = blendPose(from, to, this.loop.fraction);
+    const offset = this.offsets.offsetOf(sessionId);
+    return {
+      ...blended,
+      x: blended.x + offset.dx,
+      y: blended.y + offset.dy,
+      angle: blended.angle + offset.dAngle,
+    };
+  }
+}
+
+/**
+ * Did the prediction for this tick already equal the snapshot, field for field on the wire's grid?
+ *
+ * The snapshot's bodies are already quantised (the server adopts its own quantised state every
+ * tick, N9), so the comparison is exact rather than epsilon-based once the prediction is put on the
+ * same grid. Statuses, `onField` and the maneuver weapon are compared too: they are what a resim
+ * would otherwise be the only way to learn, and a status that combat applied must reach prediction
+ * on the tick it lands, not the next time somebody happens to move unexpectedly.
+ */
+function matchesPrediction(predicted: WorldState, snapshot: WorldState): boolean {
+  if (predicted.cars.length !== snapshot.cars.length) return false;
+  for (const [i, car] of snapshot.cars.entries()) {
+    const mine = predicted.cars[i];
+    if (!mine || mine.sessionId !== car.sessionId) return false;
+    if (mine.onField !== car.onField || mine.maneuverWeaponId !== car.maneuverWeaponId) return false;
+    if (mine.statuses.length !== car.statuses.length) return false;
+    for (const [j, row] of car.statuses.entries()) {
+      const own = mine.statuses[j];
+      if (!own || own.statusId !== row.statusId || own.endsTick !== row.endsTick) return false;
+    }
+    const q = quantizeBody(mine);
+    if (
+      q.x !== car.x || q.y !== car.y || q.angle !== car.angle ||
+      q.speed !== car.speed || q.reverseHold !== car.reverseHold ||
+      q.angVel !== car.angVel || q.shoveX !== car.shoveX || q.shoveY !== car.shoveY ||
+      q.authority !== car.authority || q.maneuver !== car.maneuver ||
+      q.maneuverTicksLeft !== car.maneuverTicksLeft || q.maneuverAngle !== car.maneuverAngle ||
+      q.maneuverSpeed !== car.maneuverSpeed
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+```
+
+- [ ] **Step 4: Delete the old prediction path**
+
+| File | Action |
+|---|---|
+| `packages/client/src/match/arena-net.ts`, `arena-net.test.ts` | delete. Every scenario the test held is reproduced in `match-client.test.ts` above: driven seat, one input per tick, remainder carried across pumps, neutral is inactive, nothing sent outside the match, nothing sent for a wreck, reconcile against a snapshot, prediction stops on death, remotes move, wreck draws at its server pose, the frame's shape |
+| `packages/client/src/net/prediction.ts`, `prediction.test.ts` | delete. `PredictionBuffer` has no callers left: `MatchClient` uses `WorldPredictor`, and `playtest/prediction.ts` is repointed in Task 6 |
+| `packages/client/src/net/step-context.ts`, `step-context.test.ts` | delete. `buildStepContext` and `localModifiers` were the client's private half of the step; `stepWorld` is now the whole of it |
+| `packages/client/src/net/interpolation.ts` | delete `InterpolationBuffer` and the `Snapshot` interface it used; keep `blendPose`, `lerp` and `lerpAngle`. Update `blendPose`'s comment: "prediction advances on the 30 Hz sim clock" → "prediction advances one tick at a time on the 60 Hz sim clock while frames come at the display rate" |
+| `packages/client/src/net/interpolation.test.ts` | drop every `InterpolationBuffer` describe; keep the `blendPose` ones |
+| `packages/client/src/match/render-frame.ts` | `RenderCar.lastProcessedInputSeq: number` → `ackTick: number`, commented "the last input tick the server drove this car on — `Snapshot.ackTick`, and only meaningful for the local car" |
+| `packages/client/src/match/frame-builder.ts` | the one line `lastProcessedInputSeq: player.lastProcessedInputSeq` → `ackTick: player.ackTick`; `FramePlayer.ackTick` already exists from phase 2 |
+
+Then `grep -rn "lastProcessedInputSeq\|InterpolationBuffer\|PredictionBuffer\|buildStepContext\|localModifiers\|interpolationDelayMs\|reconcileSnapPos\|reconcileEaseRate\|reconcileSnapAngle" packages/ scripts/` — every remaining hit must be in `packages/server/playtest/prediction.ts`, which Task 6 owns. Fix any other hit before moving on.
+
+- [ ] **Step 5: Run the client suite**
+
+Run: `npm run build -w @motor-combat-moba/shared && cd packages/client && npx vitest run && npm run typecheck`
+Expected: PASS, and `grep -rin "phaser" src/match/` prints nothing.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add packages/client/src/match packages/client/src/net
+git commit -m "feat(client): MatchClient — whole-world prediction, resim reconcile, jitter buffer, render offsets (N16-N19, N23)"
+```
+
+**The one deliberately red window in this plan, stated plainly.** Tasks 4, 5 and 6 are one refactor
+landed in three commits, and between them the tree does not fully build:
+
+| After | `npm test` | root `npm run typecheck` | root `npm run build` | Why |
+|---|---|---|---|---|
+| Task 4 | green | **red** | **red** | `ArenaScene` still imports the deleted `ArenaNet`; the two harnesses still import the deleted `PredictionBuffer`. `npm run typecheck` covers `playtest/tsconfig.json`, so it sees both |
+| Task 5 | green | **red** | green | `ArenaScene` is rewired; the harnesses are not |
+| Task 6 | green | green | green | the harnesses are repointed — the compile break root `CLAUDE.md` says to fix on the spot, fixed in the task that owns those files |
+
+`npm test` stays green throughout, because vitest compiles only what the suites import and no suite
+imports `playtest/`. Do not "fix" the red by re-adding a deleted module; run the three tasks in order
+and let Task 6 close it. If the branch has to be handed over mid-refactor, hand it over after Task 6.
+
+---
+
+### Task 5: `ArenaScene` composes `MatchClient` (N23, §6.12)
+
+**Files:**
+- Modify: `packages/client/src/scenes/ArenaScene.ts` (the field, `create`, `bindRoom`, `update`, `syncBanners`, `resetMatchState`, the netgraph's `D` expression), `packages/client/src/scenes/arena/match-banners.ts` (one banner)
+- Test: none new — the scene is Phaser-bound and is covered by `npm run smoke:arena` (preparation plan, Task 10) plus the manual check below
+
+**Interfaces:**
+- Consumes: Task 4's `MatchClient`, `RawInput`, `PumpResult`.
+- Produces: an `ArenaScene` whose private field is still named `net` (`MatchClient | undefined`) so `scripts/smoke-arena.mjs` keeps working unchanged, and a `MatchBanners.setConnectionWarning(visible)`.
+
+- [ ] **Step 1: The field and the constructor call**
+
+| Before (P, N0, N1, N2) | After |
+|---|---|
+| `import { ArenaNet, type RawInput } from "../match/arena-net.js";` | `import { MatchClient, type RawInput } from "../match/match-client.js";` |
+| `private net: ArenaNet \| undefined;` | `private net: MatchClient \| undefined;` — the name stays so the smoke script's `scene.net` probe is untouched |
+| `this.net = new ArenaNet(this.arena, this.room.sessionId);` then `this.net.attachStats(this.stats); this.net.attachClock(this.clock);` | `this.net = new MatchClient(this.arena, this.room.sessionId, this.transport, this.clock, this.stats);` followed by `this.net.attachLobby(this.room.state);` |
+
+`this.transport`, `this.clock` and `this.stats` already exist from phases 0 and 2 and are constructed
+before this line; move the `new ColyseusTransport(this.room)` assignment above it if it is not
+already there.
+
+- [ ] **Step 2: The two transport handlers**
+
+Phase 2 left these in `create`. Only the call inside each changes:
+
+```ts
+this.offRoster = this.transport.onRoster((roster) => {
+  this.serverProtocolHash = roster.protocolHash;
+  if (roster.protocolHash !== protocolHash()) {
+    this.showMismatch();
+    return;
+  }
+  this.pendingRoster = roster;
+});
+this.offSnapshot = this.transport.onSnapshot((bytes) => {
+  const nowMs = performance.now();
+  if (this.pendingRoster) {
+    // The first snapshot after a roster is always a full one (the server calls `sendFull` at join).
+    this.net?.seed(
+      this.pendingRoster,
+      decodeSnapshot(bytes, undefined, new Roster(this.pendingRoster.cars)),
+    );
+    this.pendingRoster = undefined;
+    return;
+  }
+  this.net?.onSnapshot(bytes, nowMs);
+});
+```
+
+`bindRoom`'s `onState` loses its `net` call entirely — after N24 the schema patch carries lobby and
+flow only, and `MatchClient` reads the lobby state it was attached to:
+
+```ts
+const onState = (): void => {
+  this.syncBanners(this.lastFrame);
+  this.syncPauseOverlay(room);
+};
+```
+
+- [ ] **Step 3: `update`**
+
+```ts
+update(_time: number, delta: number): void {
+  const room = this.room;
+  const net = this.net;
+  if (!room || !this.arena || !net) return;
+
+  const nowMs = performance.now();
+  this.pumpPauseKey(room);
+  const pumped = net.pumpInput(delta, () => this.sampleInput(), nowMs);
+  if (pumped.activeInput) this.banners?.hideIdleWarning();
+
+  const frame = net.frame(nowMs);
+  this.lastFrame = frame;
+  this.syncBanners(frame);
+  // §6.12: past `maxPredictionTicks` the world is frozen rather than guessed at, and the player is
+  // told so. It clears itself on the snapshot that ends the stall.
+  this.banners?.setConnectionWarning(net.stalled);
+
+  this.spectate?.update(frame, delta);
+  const cameraTarget = this.spectate?.cameraTarget(frame) ?? frame.localSessionId;
+  const departed = this.carRenderer?.render(frame, cameraTarget) ?? [];
+  for (const sid of departed) net.forgetRemote(sid);
+  const target = carOf(frame, cameraTarget);
+  if (target) this.spectate?.follow(target.pose, delta);
+  this.shotRenderer?.render(frame);
+  this.hudRenderer?.render(frame, this.spectate?.hudTarget(frame) ?? frame.localSessionId);
+}
+
+private syncBanners(frame: RenderFrame): void {
+  if (!this.banners || !this.spectate) return;
+  this.banners.sync(frame, this.spectate.view(frame));
+}
+```
+
+Two changes beyond the substitution: `syncBanners` takes the frame instead of rebuilding one (the
+preparation plan built a second frame per call, which is now a wasted whole-world walk), and the
+banner sync moved after the pump so the banners read the frame the renderers are about to draw.
+`sampleInput()` is unchanged. `create`'s final `this.syncBanners(this.room)` becomes
+`this.syncBanners(this.lastFrame)`, `this.lastFrame` having been initialised to `emptyRenderFrame()`.
+
+- [ ] **Step 4: Teardown and the netgraph**
+
+`resetMatchState`: `this.net = undefined;` is already there and is now the whole of the netcode
+teardown — `resetMatchState`'s job of tearing down prediction, interpolation and per-car buffers went
+with `ArenaNet` in the preparation plan and does not come back. Add nothing.
+
+The netgraph overlay's `D` expression (N29, written in phase 1) reads `net.lead`; the member survives
+on `MatchClient` with the same name and needs no edit. Confirm with
+`grep -n "net.lead" packages/client/src/scenes/ArenaScene.ts`.
+
+- [ ] **Step 5: The connection banner**
+
+In `scenes/arena/match-banners.ts`, beside the existing idle-warning text and created, registered and
+destroyed exactly the way it is:
+
+```ts
+/** §6.12: the world is frozen past `maxPredictionTicks`, and saying so is better than a still frame. */
+setConnectionWarning(visible: boolean): void {
+  this.connectionText?.setVisible(visible);
+}
+```
+
+with `private connectionText: Phaser.GameObjects.Text | undefined;` built in the constructor from the
+same style the idle warning uses, registered through `layers.hud(...)`, carrying the string
+`"Connection interrupted — reconnecting"`, positioned under the idle warning, starting hidden, and
+destroyed in `destroy()`.
+
+- [ ] **Step 6: Build, typecheck, smoke**
+
+Run:
+
+```bash
+npm run build -w @motor-combat-moba/shared && npm test
+cd packages/client && npm run typecheck && cd ../..
+npm run build && npm run smoke:arena
+```
+
+Expected: all green (root `npm run typecheck` is still red on the two harnesses — see Task 4's table;
+that is Task 6). The smoke check drives a car with the whole match hot path on the new client.
+
+- [ ] **Step 7: Play it**
+
+`npm run dev`, then `http://localhost:5173/?debug=net`, Practice → Start. Confirm, in this order:
+
+1. the car answers the key on the frame it is pressed, and the bot **glides** rather than stepping;
+2. ram the bot head-on: both cars spin on **your** screen on the tick it happens, not a round trip later;
+3. `corrections` climbs on contact and `snaps` stays at 0;
+4. `bytes in` climbs at roughly 60 snapshots a second and `repeated` stays at 0;
+5. shots, the HUD ring, statuses, the roster panel, the kill banner and `?debug=1` hitboxes all still draw;
+6. alt-tab for three seconds: the car brakes to a stop for the bot and resumes with one correction and no snap;
+7. `SIM_LATENCY_MS=45 SIM_JITTER_MS=10 npm run dev:server` in a second terminal: everything above still holds, `lead` settles at 4–5, and ramming still reads as contact rather than as a shove from nowhere.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add packages/client/src/scenes/ArenaScene.ts packages/client/src/scenes/arena/match-banners.ts
+git commit -m "refactor(client): ArenaScene composes MatchClient and shows the stalled-connection banner (N23)"
+```
+
+---
+
+### Task 6: Measurement, and the approach-B checkpoint (§7, §8, execution guide §6)
+
+**Files:**
+- Modify: `packages/server/playtest/netcode.ts` (the client half, three columns, the N2 verdict, the checkpoint note), `packages/server/playtest/prediction.ts` (repointed at `MatchClient`; P1's verdict and P2's premise re-pinned), `packages/server/playtest/README.md` (the two paragraphs that describe them)
+- Test: none — probes report, they do not assert
+
+**Interfaces:**
+- Consumes: `MatchClient`, `LoopbackTransport`, `ClockSync`, `NetStats`, `PlaytestWorld`, `buildSnapshot`, `encodeSnapshot`, `Roster`.
+- Produces: `playtest/reports/<date-NN>/netcode.md` rows carrying the three numbers the N3 gate names.
+
+**These are the two probes this phase invalidates, and the only two it touches.** `netcode.ts` is the
+harness spec §7 created for exactly this measurement, and its client half no longer exists in the
+shape it was written against. `prediction.ts` measures "the client predicts only itself", which is
+the thing this phase deletes: root `CLAUDE.md` says a probe whose finding a change makes obsolete has
+its **expectation** updated so the fix reads as `OK`, and is never deleted. That is what happens here.
+
+- [ ] **Step 1: Repoint the harness's client half**
+
+In `playtest/netcode.ts`, the `trial()` function's client is rebuilt around `MatchClient` and a
+`LoopbackTransport`. The link model, the scenario set, the sub-tick phase sweep, the reporter calls
+and the weapon-exposure row are **unchanged**. Substitutions:
+
+| Before (N0, N1, N2) | After |
+|---|---|
+| `import { ArenaNet, type RawInput } from "../../client/src/match/arena-net.js";` | `import { MatchClient, type RawInput } from "../../client/src/match/match-client.js";` and `import { LoopbackTransport } from "../../client/src/match/transport.js";` |
+| `const net = new ArenaNet(ARENA, "me"); net.attachStats(stats); net.attachClock(clock); net.seed(view);` | the block below |
+| `net.pumpInput(view, MS_PER_TICK, () => FORWARD, (msg) => { up.send(msg, nowMs); … })` | `net.pumpInput(MS_PER_TICK, () => FORWARD, nowMs)` — the transport is what queues onto `up` |
+| the server's `down.send({ tick, players, bytes })` patch object | `down.send(encodeSnapshot(buildSnapshot({ … }), previous, roster), nowMs)` — bytes, the same as a real room |
+| `net.onPatch(view, nowMs)` and the hand-written `writeBody` back-fill | `net.onSnapshot(bytes, nowMs)` |
+| `net.frame(view, f, f)` | `net.frame(f)` |
+| `predictedAfterSeq` keyed by `msg.tick` | unchanged in purpose; the divergence lookup now reads `snap.ackTick` off the decoded snapshot |
+| `PATCH_EVERY` | already `NET_CONFIG.snapshotEvery` from phase 1 |
+
+```ts
+  const transport = new LoopbackTransport();
+  const stats = new NetStats();
+  const clock = new ClockSync();
+  const net = new MatchClient(ARENA, "me", transport, clock, stats);
+  net.attachLobby(view);
+  const seats = [{ index: 0, sessionId: "me" }, { index: 1, sessionId: "them" }];
+  const roster = new Roster(seats);
+  net.seed(
+    { protocolHash: "harness", snapshotEvery: NET_CONFIG.snapshotEvery, cars: seats },
+    firstSnapshotOf(world, roster),
+  );
+  // The client's outbound bytes go onto the same modelled link the old `send` callback used.
+  transport.onClientInput((bytes) => up.send(bytes, nowMsRef.value));
+  transport.onClientPing((ping) => up.send(ping, nowMsRef.value));
+```
+
+`transport.onClientInput` / `onClientPing` are `LoopbackTransport`'s server half, which phase 2's
+handoff lists by name. `nowMsRef` is a one-field object the loop updates each tick, because the
+transport callbacks fire inside `pumpInput` and need the current modelled time; declare it above the
+loop as `const nowMsRef = { value: 0 };` and set `nowMsRef.value = nowMs;` at the top of each tick.
+`firstSnapshotOf` is three lines beside `trial`: build a `Roster`, call the server's `buildSnapshot`
+against `world.state` with an empty contact memory, and return it.
+
+- [ ] **Step 2: The three columns the N3 gate needs**
+
+`TrialResult` gains three fields and the reporting gains three numbers. The `remoteErrors` array
+already exists and already measures the right thing — the drawn remote pose against the server's
+truth — so the remote row is a percentile of what is already collected:
+
+```ts
+interface TrialResult {
+  // …existing fields…
+  /** Correction magnitudes recorded while the two cars were within CONTACT_GAP_U. */
+  contactCorrections: number[];
+  /** Corrections applied WITHOUT an offset — `NetStats.snaps`, sampled per snapshot. */
+  snaps: number;
+  /** |drawn remote pose − server pose| every frame. Already collected; now reported at p95. */
+  remoteErrors: number[];
+}
+```
+
+The N2 report (the head-on sweep) becomes the phase-3 acceptance row. Its note and verdict:
+
+```ts
+  reporter.report(
+    "N2. Head-on collision: correction in contact, swept over the sub-tick phase",
+    worstP95 >= 12 || worstMax > NET_CONFIG.snapUnits || worstSnaps > 0 ? VERDICT.FINDING : VERDICT.OK,
+    `Two mirages closing at ${closingPerTick.toFixed(1)} u/tick; startGap swept across one tick of closing travel in ${phases} steps.\n` +
+      `Phase 3's acceptance line (spec §8, execution guide §5): in-contact correction p95 < 12 u, no snap over ${NET_CONFIG.snapUnits} u,\n` +
+      `zero snaps, at 90 ms RTT ± 20 ms. A correction past a car length is a cut rather than a slide, and is counted as a snap.\n` +
+      `${rows.join("\n")}`,
+  );
+```
+
+with each row printing `p95 over phases`, `max`, `min-of-max`, `snaps` and `remote err p95`, and the
+sweep run at `latencyMs` 45 with `jitterMs` 10 added to the existing latency list so the design point
+(90 ms RTT ± 20 ms) is one of the cells by name:
+
+```ts
+  for (const { latencyMs, jitterMs } of [
+    { latencyMs: 0, jitterMs: 0 },
+    { latencyMs: 30, jitterMs: 0 },
+    { latencyMs: 45, jitterMs: 0 },
+    { latencyMs: 45, jitterMs: 10 },   // <- the design point: 90 ms RTT +/- 20 ms
+    { latencyMs: 60, jitterMs: 0 },
+  ]) {
+```
+
+The N1 row (free driving) keeps its columns and gains `remote err p95` in the acceptance sense — it
+already prints it; add `snaps` beside `correction p95`, and add to its note: `"phase 3 acceptance:
+remote extrapolation error p95 < 20 u; free-driving correction stays 0"`. Its verdict becomes
+`worstP95 > 1 || worstRepeatRate >= 0.01 || worstRemoteP95 >= 20 ? FINDING : OK`.
+
+The N3 row (jitter and loss) keeps its frozen-frame column — which should now read **0.00 %** at every
+cell, because remotes are predicted rather than held — and its note gains one sentence: `"Frozen
+frames were the interpolation hold-last branch (F4). Phase 3 deleted the interpolation buffer, so
+this column is now a regression alarm rather than a measurement: anything above zero means a remote
+stopped being predicted when it should not have."` Its verdict becomes `frozenAt25 > 0 ? FINDING : OK`.
+
+- [ ] **Step 3: Record the checkpoint**
+
+Add one row to the report, which is what execution guide §6 is read against. It computes nothing new;
+it restates the design point's three numbers side by side with the acceptance line and names the two
+levers, so the decision is made from one block of text rather than by cross-reading three rows:
+
+```ts
+/* N5. The approach-B checkpoint (spec §6.6, execution guide §6) */
+{
+  const r = trial({ latencyMs: 45, jitterMs: 10, lossRate: 0.01, ticks: 900, seed: 11, headOn: { startGap: 0 } });
+  const contactP95 = pct(r.contactCorrections, 0.95);
+  const remoteP95 = pct(r.remoteErrors, 0.95);
+  const pass = contactP95 < 12 && r.snaps === 0 && remoteP95 < 20;
+  reporter.report(
+    "N5. Approach-B checkpoint: is predicting the present good enough at the design point?",
+    pass ? VERDICT.OK : VERDICT.FINDING,
+    `Design point: 90 ms RTT +/- 20 ms, 1 % loss, head-on contact, ${(900 * MS_PER_TICK / 1000).toFixed(0)} s.\n` +
+      `  contact correction p95 ${f2(contactP95)} u  (line: < 12 u)\n` +
+      `  snaps                 ${String(r.snaps).padStart(7)}     (line: 0)\n` +
+      `  remote error p95      ${f2(remoteP95)} u  (line: < 20 u)\n` +
+      `  lead ${r.lead}, remoteSteerHoldTicks ${NET_CONFIG.remoteSteerHoldTicks}, maxExtrapolationTicks ${NET_CONFIG.maxExtrapolationTicks}\n` +
+      `The two levers before the checkpoint fails (spec §6.6): lower the lead for the link, and tune\n` +
+      `remoteSteerHoldTicks against recorded input logs. If both are exhausted and this row still\n` +
+      `reads FINDING, the fallback is approach B — remotes drawn in the interpolated past with rewind\n` +
+      `hit testing — and the procedure is execution guide §6: record these numbers under N3's\n` +
+      `Acceptance, stop the netcode stream, and write a new N3 plan against the same ledger for the\n` +
+      `user to approve. Phases 0-2 are identical under both approaches.`,
+  );
+}
+```
+
+`TrialResult` gains `lead: number`, filled from `net.lead` at the end of the trial (phase 1 already
+prints it on the N1 row).
+
+- [ ] **Step 4: Re-pin `prediction.ts`**
+
+The probe's premise is gone, so its premise is what is rewritten — not its scenarios. `trial()` is
+repointed at `MatchClient` exactly as Step 1 repoints the harness (same imports, same transport, same
+snapshot bytes), and:
+
+| Row | Before | After |
+|---|---|---|
+| the file header | "the client predicts only ITSELF and enters remotes at their last-known *server* pose … a stale remote pose is not a small error, it is a push-out computed against the wrong box" | "the client predicts the WHOLE world (netcode spec N16) and resolves against remotes at its own tick. What is left is the remote's **input-change** error over the extrapolation window (§6.6), which is zero while a remote holds its course. This probe is what shows that the correction on contact collapsed when phase 3 landed." |
+| `P1`'s verdict | `worstCollision > DRIVE_CONFIG.carWidth \|\| worstFree > 1 ? "FINDING" : "OK"` | `worstCollision >= 12 \|\| worstFree > 1 ? "FINDING" : "OK"` — the phase-3 acceptance line, tighter than the car-length line it replaces, so the fix is what reads `OK` |
+| `P1`'s note | "sim 30 Hz, patches 20 Hz" | "sim 60 Hz, snapshots every tick. Phase 3's line is p95 < 12 u in contact and 0 u free-driving." |
+| `P2` title | "P2. Why: how stale is the remote car the client resolves against?" | "P2. What is left: how far a remote is extrapolated, and what that costs" |
+| `P2` body | the staleness table (`latencyTicks + patchEvery` ticks of travel) | the window table below |
+| `P2` verdict | `"KNOWN-BY-DESIGN"` | unchanged — it is a property of the design, quantified, not a defect |
+
+```ts
+  const rows: string[] = [];
+  const mirageTopSpeed = forwardMaxSpeedOf("mirage");
+  for (const latencyMs of [0, 15, 30, 45, 60]) {
+    // The window a remote is extrapolated over (spec §6.6): one-way latency + the snapshot's age +
+    // the jitter buffer (0 at 60 Hz snapshots) + the lead.
+    const windowTicks =
+      Math.round((latencyMs / 1000) * TICK_RATE_HZ) + NET_CONFIG.snapshotEvery + leadFor(latencyMs);
+    const windowMs = windowTicks * MS_PER_TICK;
+    rows.push(
+      `${String(latencyMs).padStart(4)} ms one-way: window ${windowTicks} ticks (${windowMs.toFixed(0)} ms); ` +
+        `a remote holding its input is exact; one that reverses full steer inside it is off by up to ` +
+        `${(0.5 * STEER_ACCEL_U_PER_S2 * (windowMs / 1000) ** 2).toFixed(0)} u ` +
+        `(a car is ${DRIVE_CONFIG.carWidth} u long, top speed ${mirageTopSpeed.toFixed(0)} u/s)`,
+    );
+  }
+```
+
+`STEER_ACCEL_U_PER_S2` is `forwardMaxSpeedOf("mirage") * turnRateOf("mirage")` — the `v·ω` term §6.6
+names as the largest acceleration a player can command — computed at the top of the probe from the
+live tables, never typed as a number. `leadFor(latencyMs)` is
+`Math.max(NET_CONFIG.leadMin, Math.ceil((2 * latencyMs) / MS_PER_TICK / 2) + NET_CONFIG.slackTargetMax)`,
+the same expression `LeadController.initial` uses; import it rather than restate it if phase 1
+exported it, and otherwise inline it with that comment. The printed figures must reproduce §6.6's
+error table at the matching windows (26 u at 120 ms, 33 u at 136 ms, 37 u at 145 ms) — if they do not,
+the roster's turn rate has moved since the spec was written, and that is the finding, not a bug.
+
+- [ ] **Step 5: Update the README's two paragraphs**
+
+`playtest/README.md`: the `netcode.ts` paragraph gains "in-contact correction p95, snaps and remote
+extrapolation error p95 at the design point, and the approach-B checkpoint row (N5)" where it lists
+what the probe reports; the `prediction.ts` paragraph's sentence about the client predicting only
+itself becomes "the client predicts the whole world and resolves against remotes at its own tick; P2
+quantifies the extrapolation window that is left". Neither file's scenario list changes.
+
+- [ ] **Step 6: Run everything, for real**
+
+Run:
+
+```bash
+npm run build -w @motor-combat-moba/shared && npm test && npm run typecheck && npm run build && npm run smoke:arena
+cd packages/server && npx tsx playtest/netcode.ts && npx tsx playtest/prediction.ts && cd ../..
+npm run playtest
+npm run balance -- --shape=duel --matches=20 --seed=7
+```
+
+Expected: root typecheck is green again (Task 4's red window closes here). `netcode.md`'s N2 row and
+N5 row both read `OK`, with contact correction p95 under 12 u, zero snaps and remote error p95 under
+20 u at the design point; N3's frozen-frame column reads 0.00 % everywhere; `prediction.md`'s P1 reads
+`OK`. Keep both report folders — they are this phase's acceptance evidence.
+
+Execution guide §7 requires the `playtest` and `balance` runs at the end of this phase and requires
+handing both reports to the user before the next phase starts. Do that.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add packages/server/playtest/netcode.ts packages/server/playtest/prediction.ts packages/server/playtest/README.md
+git commit -m "test(playtest): re-point the netcode and prediction harnesses at MatchClient; phase 3 acceptance rows and the approach-B checkpoint"
+```
+
+**Say it loudly, in the summary and in the merge commit — this is the phase's biggest probe note.**
+
+- **`playtest/netcode.ts`** — repointed at `MatchClient` (a compile break: its client half was deleted in Task 4). N1 gains a `snaps` column and a remote-error acceptance clause; N2's verdict moves from "max under a car length" to phase 3's "p95 < 12 u, zero snaps" and gains the 45 ms ± 10 ms design-point cell; N3's frozen-frame column is now a regression alarm and its verdict flips to "anything above zero is a finding"; a new N5 row states the approach-B checkpoint. Its N2 number is expected to fall by roughly an order of magnitude — that is the phase working, and it is what the gate reads.
+- **`playtest/prediction.ts`** — repointed for the same compile break, and re-pinned: P1's threshold tightens to 12 u because the thing it measured is fixed, and P2 is rewritten from "how stale is the remote" (a property that no longer exists) to "how wide is the extrapolation window" (the property that replaced it). Its numbers move for a real reason and the probe is not deleted.
+- **`collision.ts`, `ram.ts`, `geometry.ts`** — untouched files, but Task 2 changed the order cars are driven in and moved the whole loop into shared. Expected unchanged; **verified by the run above, not assumed**. Quote the before/after report folders in the summary.
+- **`weapons.ts`, `weapons2.ts`** — `runCombat` is untouched (N14) and these read it through `PlaytestWorld`, whose `tick()` was rewritten around the same call. Expected unchanged.
+- **`lan.ts`** — still not repointed at the binary wire; it has been stale since phase 1 and this plan does not touch it. Flag it again for the user rather than fixing it.
+
+---
+
+### Task 7: Invariants 4 and 8, and the pages spec §12 lists
+
+**Files:**
+- Modify: root `CLAUDE.md:38-41, 69-72, 99, 103`, `packages/shared/CLAUDE.md:3, 7, 82`, `packages/server/CLAUDE.md:3, 7`, `packages/client/CLAUDE.md:7, 11`, `docs/networking.md` (rewritten), `docs/architecture.md` (the tick and client paragraphs), `docs/config-reference.md` (the `NET_CONFIG` table), `docs/project-structure.md`, `docs/glossary.md`
+- Test: `npm test` (the manual-page and turn-tuning suites must stay green — neither page's inputs moved)
+
+- [ ] **Step 1: The two invariants**
+
+Root `CLAUDE.md`, the hard-invariants list:
+
+| # | Before | After |
+|---|---|---|
+| 4 | `` `stepSim` is the lockstep; server and client import the same function. `` | `` `stepWorld` is the lockstep; server and client import the same function, and `stepSim` is unchanged inside it. `` |
+| 8 | `If the shared step reads it, it is a **snapshot** field — the Colyseus schema carries lobby and flow only (netcode spec N15/N24).` (N2's wording) | `` If `stepWorld` reads it, it is a **snapshot** field. The Colyseus schema carries lobby and match flow only (netcode spec N15/N24). The only things `stepWorld` reads from outside the snapshot are the arena definition, the match `mode`, and the two lobby facts fixed for a car's whole match — its `carId` and its `team` — every one of them inside the protocol hash. `` |
+
+Then the two paragraphs in the same file that name the code this phase moved:
+
+| Line | Before | After |
+|---|---|---|
+| 38–41 | "It now covers only the **mover** gate — may this car be simulated at all — in `sim/tick.ts`." | "It now covers only the **mover** gate — may this car be simulated at all — read by `stepWorld` in `packages/shared/src/sim/world.ts`. Whether it is **solid** … is `isSolid` (`isOnField && !phased`), which `solidHulls` states over the two booleans `CarState` carries and which the ram pair list reads." |
+| 69–72 | "`stepSim` resolves it at the single production call site." | "`stepSim` resolves it at the single production call site, inside `stepWorld`." |
+
+Add one paragraph after the `isOnField` one, because a reader arriving cold now needs to know where a
+tick lives:
+
+```markdown
+**One tick of the world is one shared function.** `stepWorld(world, inputs, arena)`
+(`packages/shared/src/sim/world.ts`) sweeps statuses, drives every on-field car through the unchanged
+`stepSim` in car-index order, and resolves contact through the unchanged `resolveContacts` — and it
+is pure, so the client runs it too. The **contact memory** (which pairs were touching last tick, and
+the slam clocks) lives in `WorldState` rather than in the room, which is what lets a client resim
+start from the same edge triggers the server had. The server's `runPipeline` calls it once per tick
+through `sim/world-bridge.ts` and then runs `runCombat`, which is untouched and stays server-only;
+the client's `MatchClient` calls it once per predicted tick and again for every tick of every resim.
+Two things stayed on the server on purpose: `runCombat`, and the wall-stun sweep in `sim/ram-bridge.ts`
+— it applies a status to a third car, and statuses on other people are never predicted.
+```
+
+- [ ] **Step 2: The package rules**
+
+| File | Before | After |
+|---|---|---|
+| `packages/shared/CLAUDE.md:3` | "…input types, and `stepSim`." | "…input types, the binary codec, and the world step: `stepWorld` is the lockstep and `stepSim` is unchanged inside it." |
+| `packages/shared/CLAUDE.md:7` (the P0 list) | "…identity `stepSim`." | "…identity `stepSim`, and `sim/world.ts`'s `stepWorld` / `WorldState` / `ContactMemoryState`." |
+| `packages/shared/CLAUDE.md:82` | "at the single production call site" | "at the single production call site, inside `stepWorld`" |
+| `packages/server/CLAUDE.md:3` | "…a 60 Hz `TickScheduler` whose `serverTick` reads each client's `InputRing` into shared `stepSim`…" (N1's wording) | "…a 60 Hz `TickScheduler` whose `worldTick` reads each client's `InputRing` into shared `stepWorld` and broadcasts one binary snapshot per client per tick…" |
+| `packages/server/CLAUDE.md:7` | "…is statuses-then-drive-then-contact-then-combat: `statusTick` …, `serverTick` …, `contactTick`, then `combatTick`." | "…is world-then-sweep-then-combat: `worldTick` (`sim/world-bridge.ts`, the schema half of shared `stepWorld` — statuses, driving and contact in one pure call, returning the fire masks, the ring reads and the contact events), `wallStunSweep` (`sim/ram-bridge.ts`, the one piece of contact that stays server-side because it lands a status on a third car), then `combatTick`." Keep the rest of the paragraph — the `combat-bridge` and `CombatMemory` sentences are unchanged |
+| `packages/client/CLAUDE.md:7` | the `PredictionBuffer` / `InterpolationBuffer` sentence (N1's wording) | "`MatchClient` (`src/match/`, and nothing in there imports Phaser) emits one tick-stamped input per local tick `lead` ticks ahead of the server, predicts the **whole** world — its own car on the real input, every remote on its echoed `lastInput` — through shared `stepWorld`, reconciles each binary snapshot by re-simulating rather than easing, and hides the correction in a render offset that decays over `NET_CONFIG.correctionMs`. See [`docs/networking.md`](../../docs/networking.md)." |
+| `packages/client/CLAUDE.md:11` | "`buildStepContext` must keep agreeing with `serverTick`…" | "There is no client copy of the step to keep in agreement any more: `stepWorld` **is** both halves. What the client still owns is the two lobby facts it feeds in (`carId`, `team`) and the render offsets, neither of which the sim reads." |
+| `packages/client/CLAUDE.md:9` | the list of pure logic beside the scene | replace `net/step-context.ts` with `match/` in the parenthetical |
+
+- [ ] **Step 3: Rewrite `docs/networking.md`**
+
+Spec §12: "`docs/networking.md` — rewritten by phase 3." Phase 1 and phase 2 amended it in place;
+this replaces the whole file. Everything below the title:
+
+```markdown
+# Networking
+
+Clients send inputs and nothing else (invariant 3). One input per tick, exactly: never zero — the
+server repeats the last one, then goes neutral after `NET_CONFIG.repeatMaxTicks` — and never five,
+because an input names the tick it is for and a second one for the same tick is a duplicate.
+
+The match hot path does not use the Colyseus schema. Inputs go up as 5-byte binary frames and
+snapshots come down as one hand-packed, delta-compressed binary frame per tick (`net/codec.ts`),
+across the `MatchTransport` seam. The schema carries the lobby and the match flow only, and is what
+ties the two channels together through the roster message (`net/roster.ts`), which also carries the
+protocol hash a mismatched build is refused on.
+
+## The one shared function
+
+`stepWorld(world, inputs, arena)` in `@motor-combat-moba/shared`'s `sim/world.ts` is the lockstep
+(invariant 4). One call is one tick of the world:
+
+1. sweep every car's expired statuses at the tick being simulated, and re-derive `phased` from what
+   is left;
+2. record every car's approach speed — the speed it carried *into* the tick, before contact could
+   reflect it;
+3. drive every on-field car through the unchanged `stepSim`, in **car-index order**, each against the
+   current poses of the others (`solidHulls`); resolution is sequential, so the order is part of the
+   answer and both halves reproduce it from the wire's own indices;
+4. resolve contact through the unchanged `resolveContacts`: the edge-triggered pair set, the
+   best-knock-per-victim rule, dash hits, hard slams, wall-blocked dashes;
+5. return the new world, the contact events, and the approach speeds.
+
+It is pure. The **contact memory** — the touching pair set and the per-victim slam clocks — is part of
+`WorldState`, not of the room, which is what lets a client's re-simulation start from the same edge
+triggers the server had, and it rides in the snapshot as a 16-bit pair bitset plus a slam section.
+
+Two things are deliberately **not** in it. `runCombat` is server-only and unchanged: damage, hp,
+death, kills, stocks and statuses landing on other people are never predicted. And the wall-stun
+sweep (`server/src/sim/ram-bridge.ts`) stays on the server for the same reason — it lands a status on
+a third car, and the client learns about it a round trip later, by which time the slam's shove has
+already covered for it.
+
+## Server
+
+Per tick, through `sim/world-bridge.ts`:
+
+- **every** player's `InputRing` is read, in every phase, and `ackTick`/`slackTicks` are stamped —
+  fresh, repeated or neutral;
+- the match roster is handed to `stepWorld` during `MATCH`; players outside it are swept and left
+  alone;
+- the fire mask carries **presses**, `clean(now) & ~clean(previous)`, where `previous` is what the
+  ring served last tick, so a held trigger fires once and silence never fires at all;
+- the server then adopts its own quantised state, so what it holds is bit-identical to what it sent;
+- `wallStunSweep` runs, then `runCombat`, then one snapshot per client is encoded and sent inside the
+  same tick.
+
+## Client
+
+`MatchClient` (`packages/client/src/match/`) is the whole of it, and imports nothing from Phaser.
+
+**Time.** `ClockSync` estimates the server's tick from ping/pong; `LeadController` decides how many
+ticks ahead of that estimate to stamp inputs, from the slack the server reports; `TickLoop` runs the
+local tick clock, dilating by at most `NET_CONFIG.dilationMax` toward the target and jumping when it
+is more than `reanchorTicks` away.
+
+**Prediction.** Each local tick the client builds one input map — its own real input for the driven
+car, each remote's `lastInput` off the newest snapshot — and calls the same `stepWorld`. So the local
+car and every remote it can touch exist at the **same tick on the same screen**, which is why a ram
+resolves against a hull that is there rather than one that is several ticks stale. A remote's held
+steer is believed for `remoteSteerHoldTicks`, then dropped; past `maxExtrapolationTicks` the car holds
+where it is — still solid, just not guessed at any further.
+
+**Reconciliation is a re-simulation, never an ease.** When a snapshot is applied, the client compares
+it with what it predicted for that tick, on the wire's own quantisation grid. If every car matches —
+the common case in free driving, because nobody changed input — the snapshot is adopted as the new
+baseline and *nothing else happens*. Otherwise the world at that tick is replaced and every tick since
+is re-simulated from the stored local inputs and the new remote inputs. Sim state is always exact
+afterwards. The bound on that replay is `NET_CONFIG.maxPredictionTicks`; at the design point it is
+eight or nine ticks.
+
+**Corrections are a render offset.** The difference between the pose that was on screen and the
+corrected one becomes a per-car `(dx, dy, dθ)` that the renderer *adds* to the sim pose and that
+decays to zero over `NET_CONFIG.correctionMs` on a critically damped curve. A correction past
+`snapUnits` (a car length) or `snapRadians` is applied with no offset at all — a slow slide over a
+whole car length reads worse than a cut — and is counted in the netgraph as a **snap**. The
+acceptance line for the design point is that the snap counter stays at zero.
+
+**Jitter buffer.** A snapshot is applied once it is `ceil(2·jitter / MS_PER_TICK) − snapshotEvery`
+ticks old on the estimated server clock, clamped to `[0, NET_CONFIG.bufferTicksMax]`. On an ordinary
+link at 60 Hz snapshots that is zero, because the next snapshot covers a late one. Past
+`maxPredictionTicks` (500 ms) with no snapshot the world freezes and the connection banner appears;
+the snapshot that ends the stall re-anchors the clock and costs one correction.
+
+**Drawing.** `blend(previousTick, currentTick, tickFraction) + offset`, and that is the only render
+rule. The blend is why the car does not hold and jump between sim ticks at display rates above 60 Hz;
+the offset is the correction, decaying. Neither ever flows back into a step.
+
+**Angles** are compared wrapped (`atan2(sin d, cos d)`) everywhere, because `stepDrive` does not
+normalise `angle`. The wire wraps it to `[0, 2π)` and the server adopts that value every tick, so
+the number never grows on either side.
+
+`CAMERA_CONFIG` is a render knob only — nothing in `stepWorld` reads it.
+
+## Combat under latency
+
+Combat is not predicted in this phase: the client draws the instances, hp and statuses the snapshot
+gives it. Contact **is** predicted, because `stepWorld` includes it — a ram, a dash hit or a hard slam
+starts on the victim's screen on the tick it happens rather than a round trip later — but the damage
+and the wall-slam stun that follow are the server's and arrive late, which the shove covers for.
+
+Hit detection is current-tick: the server tests hits at the tick it is on, with no rewind. Under
+whole-world prediction the error a shooter carries is not their round trip, it is the target's
+*input change* over the extrapolation window — zero for a target holding course — and every projectile
+on the roster flies 13–27 ticks at engagement range. See [`combat-model.md`](combat-model.md).
+```
+
+- [ ] **Step 4: The other pages**
+
+`docs/architecture.md`: the `serverTick` line (rewritten in phase 1) becomes
+"`worldTick(state, rings, roster, memory, phase, mode, arena, maneuverWeapons)` — reads each session's
+`InputRing` for this tick, hands the match roster to shared `stepWorld` (statuses, driving, contact in
+one pure call), writes the poses back, and returns the fire masks, the ring reads and the contact
+events."; the client paragraph's "predicted through shared `stepSim`" becomes "predicted through
+shared `stepWorld` for every car, reconciled by re-simulation, corrected by a decaying render offset".
+
+`docs/config-reference.md`, the `NET_CONFIG` table: delete the `interpolationDelayMs`,
+`reconcileSnapPos`, `reconcileSnapAngle` and `reconcileEaseRate` rows; add the seven keys from Task 1
+Step 1 with their comments as the notes column, and a sentence under the table: "`snapUnits` is one
+car length by construction (`DRIVE_CONFIG.carWidth`), and it is the netgraph's snap threshold as well
+as the phase-3 acceptance line; a correction past it is drawn as a cut, not a slide."
+
+`docs/project-structure.md`: add `sim/world.ts` under shared `sim/`; `net/world-bridge.ts` under
+server `sim/`; `match/match-client.ts`, `match/prediction.ts`, `match/render-offset.ts`,
+`match/local-inputs.ts` under client `match/`; remove `sim/tick.ts` from server `sim/` and
+`net/prediction.ts` / `net/step-context.ts` from client `net/`.
+
+`docs/glossary.md`: add **World step** — "one call of shared `stepWorld`: statuses, driving and
+contact for every car, at one tick. The lockstep (invariant 4)."; **Render offset** — "a per-car
+`(dx, dy, dθ)` the renderer adds to a sim pose so a correction is hidden rather than eased into the
+sim; decays to zero over `NET_CONFIG.correctionMs`."; **Snap** — "a correction past
+`NET_CONFIG.snapUnits` or `snapRadians`, applied with no offset and counted."; and amend **Lockstep**
+if it names `stepSim`.
+
+- [ ] **Step 5: The acceptance run**
+
+Run:
+
+```bash
+npm run build -w @motor-combat-moba/shared && npm test && npm run typecheck && npm run build && npm run smoke:arena
+node --test scripts/turn-tuning-doc.test.mjs
+cd packages/server && npx tsx playtest/netcode.ts && cd ../..
+```
+
+Expected: all green. `scripts/turn-tuning-doc.test.mjs` and `scripts/manual-page.test.mjs` pass
+untouched — no drive constant, weapon row, chassis row or status row moved in this phase, so neither
+page is owed a rebuild and `npm run build:manual` is **not** run.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add CLAUDE.md packages/shared/CLAUDE.md packages/server/CLAUDE.md packages/client/CLAUDE.md docs/networking.md docs/architecture.md docs/config-reference.md docs/project-structure.md docs/glossary.md
+git commit -m "docs: stepWorld is the lockstep (invariant 4) and a snapshot field is what it reads (invariant 8)"
+git push -u origin claude/gameplay-netcode-architecture-bgp8f6
+```
+
+---
+
+## Acceptance
+
+Spec §8, phase 3 row: **Ships** — "`stepWorld` in shared with `ContactMemory` in state; `MatchClient`
+with whole-world prediction, resim reconcile, jitter buffer, render offsets; `ArenaScene` split into
+renderers". **Fixes** — "F1, F7, F8, F11". **Acceptance** — "contact correction p95 < 12 u, zero
+snaps". Execution guide §5 states the gate in full: *"contact correction p95 < 12 u and no snap over
+48 u at 90 ms ± 20 ms in the harness; remote extrapolation error p95 < 20 u; checkpoint (section 6)
+evaluated"*.
+
+| Requirement | Demonstrated by |
+|---|---|
+| Contact correction p95 < 12 u at 90 ms ± 20 ms | `cd packages/server && npx tsx playtest/netcode.ts` — the **N2** row's `p95 over phases` column at the `45 ms / ±10 ms` cell, and the **N5** checkpoint row's first line. N2 reads `OK` |
+| No snap over 48 u, and zero snaps | the same two rows' `snaps` columns; and `?debug=net` in a live practice match showing `snaps 0` after ramming the bot (Task 5 Step 7) |
+| Remote extrapolation error p95 < 20 u | the N1 and N2 rows' `remote err p95` column, and N5's third line |
+| The approach-B checkpoint evaluated | the **N5** row, which prints the three numbers against their lines and names the two levers and the §6 procedure. If it reads `FINDING`, follow execution guide §6 — record the numbers here, stop the netcode stream, and bring a new N3 plan for approach B to the user |
+| `stepWorld` in shared, `ContactMemory` in state | `cd packages/shared && npx vitest run src/sim/world.test.ts src/sim/context.test.ts` (20 tests); `grep -n "contact" packages/shared/src/sim/world.ts` shows the memory on `WorldState` |
+| `stepSim` unchanged inside it | `git diff --stat development/main -- packages/shared/src/sim/step.ts packages/shared/src/sim/drive.ts packages/shared/src/sim/collide.ts packages/shared/src/sim/contact.ts packages/shared/src/sim/ram.ts` prints **no changes**; `cd packages/shared && npx vitest run src/sim/golden.test.ts` |
+| `MatchClient` with whole-world prediction, resim reconcile, jitter buffer, render offsets | `cd packages/client && npx vitest run src/match/` — `match-client.test.ts`, `prediction.test.ts`, `render-offset.test.ts`, `local-inputs.test.ts` |
+| Nothing under `match/` imports Phaser, and no test does | `grep -rin "phaser" packages/client/src/match/` prints nothing; `npx vitest run` in `packages/client` runs in the node environment |
+| `ArenaScene` split into renderers | landed in the preparation plan and consumed here: `wc -l packages/client/src/scenes/ArenaScene.ts` stays under 700, and `npm run smoke:arena` drives a car with the new client |
+| F8 — sim state is never eased | `grep -rn "reconcileEaseRate\|reconcileSnapPos\|reconcileSnapAngle" packages/ docs/` prints nothing; the only easing in the client is `RenderOffsets`, which the renderer adds on the way out |
+| F7 — one timebase per screen | `grep -rn "interpolationDelayMs\|InterpolationBuffer" packages/ docs/` prints nothing; the harness's N3 row reads 0.00 % frozen remote frames at every jitter cell |
+| F1 — contact resolves against a hull at the local tick | `playtest/prediction.ts`'s **P1** row reads `OK` against the 12 u line it did not previously meet, and **P2** now reports the extrapolation window instead of the staleness that caused F1 |
+| F11 — the client is testable without a browser | the four `match/` suites above, and the harness driving the real `MatchClient` |
+| Everything else still green | `npm run build -w @motor-combat-moba/shared && npm test && npm run typecheck && npm run build && npm run smoke:arena` |
+| The probes, read rather than assumed | `npm run playtest` and `npm run balance -- --shape=duel --matches=20 --seed=7` (execution guide §7), both reports handed to the user before the next phase starts |
+
+Record the measured N5 numbers here, with the date, when the phase is run — the checkpoint's outcome
+is part of this file, not only of a report folder.
+
+## Handoff
+
+Exports and behaviour this plan produces **beyond** the ledger, for N4 and later to consume:
+
+- **Shared, `sim/world.ts`.** `emptyContactMemory(): ContactMemoryState`; `SlamClocks.bySessionId`;
+  `CarState.team` and `CarState.maneuverWeaponId`; `WorldState.mode`. `stepWorld` derives `dt` from
+  `MS_PER_TICK` rather than taking it, and re-derives `phased` from the swept rows rather than
+  trusting the caller. It emits **no** `ContactEvent` of kind `"ram"` — the union member is reserved,
+  and filling it needs an additive change to `resolveContacts`' return value that this plan did not
+  make because §11 authorises moving it unchanged. **N4's ram spark and screen shake should come from
+  the `contact.touching` transition**, which both machines have, or from a `MatchEvent.ram` the server
+  produces in `runCombat`'s own output — not from `stepWorld`.
+- **Shared, `sim/context.ts`.** `solidHulls(cars: readonly SolidCar[], selfSessionId): Obb[]` and the
+  `SolidCar` shape; `otherCarHulls` survives, delegates to it, and is behaviour-identical.
+- **Shared, `net/codec.ts`.** `PROTOCOL_VERSION` is `2`. `SnapshotCar.maneuverWeaponId`,
+  `Snapshot.contactPairs`, `Snapshot.slams`, `SnapshotSlam`, and the three pair helpers `pairBitOf`,
+  `contactPairsOf`, `touchingFrom`. Full snapshot 686 B, steady-state delta 128 B.
+- **Server.** `sim/world-bridge.ts`: `worldTick(args: WorldTickArgs): WorldTickResult` with
+  `WorldTickArgs` and `WorldTickResult`. `sim/ram-bridge.ts`: `ContactMemory` is now
+  `{ state: ContactMemoryState }` and `newContactMemory()` builds it — both names and all three room
+  call sites unchanged; `wallStunSweep(state, memory, arena, tick): StatusRequest[]` is new.
+  `SnapshotSourceCtx` gains `maneuverWeapons` and `contact`. **Deleted:** `sim/tick.ts` (`serverTick`,
+  `TickResult`), `statusTick`, `contactTick`, `ContactTickResult`.
+- **Client.** `match/match-client.ts`: `MatchClient` with `attachLobby`, `drivenSid`, `canDrive`,
+  `forgetRemote`, `sinceLastSnapshotMs`, `lead`, `predictedContacts`, `latestSnapshot`,
+  `serverProtocolHash`, `stalled`; `RawInput` and `PumpResult` keep the preparation plan's shapes and
+  now live here. `match/prediction.ts`: `WorldPredictor` with `setLocal`, `adopt`, `baselineTick`,
+  `lastContacts`, and `CarDelta`. `match/render-offset.ts`: `RenderOffsets` with `forget`/`clear`, and
+  `wrapAngle`. `match/local-inputs.ts`: `LocalInputs`. `RenderCar.lastProcessedInputSeq` is now
+  `RenderCar.ackTick`. **Deleted:** `match/arena-net.ts`, `net/prediction.ts` (`PredictionBuffer`),
+  `net/step-context.ts` (`buildStepContext`, `localModifiers`), `InterpolationBuffer`;
+  `blendPose` stays.
+- **Config.** `NET_CONFIG` gains `bufferTicksMax`, `maxPredictionTicks`, `maxExtrapolationTicks`,
+  `remoteSteerHoldTicks`, `correctionMs`, `snapUnits`, `snapRadians`, and loses
+  `interpolationDelayMs`, `reconcileSnapPos`, `reconcileSnapAngle`, `reconcileEaseRate`.
+- **For N4 specifically.** `MatchClient.predictedContacts` is the predicted dash/slam list for the
+  newest tick and is what the local feedback layer should read before `Snapshot.events` exists.
+  `WorldPredictor.worldAt(tick)` gives the ghost-shot code the extrapolated target pose at the tick a
+  press happened, which is what `FirePrediction` needs to aim a ghost. `MatchClient.frame`'s
+  `RenderFrame.tick` is already the **local** tick, which is half of N25; the remaining half is the
+  renderers reading it instead of the snapshot's.
+- **Known, bounded, and deliberately left.** A client does not run the wall-stun sweep, so a slam
+  clock can survive a few predicted ticks longer on the client than on the server; the next snapshot
+  carries the server's answer and the only observable effect is re-slam immunity being honoured
+  slightly longer in prediction. A remote frozen past `maxExtrapolationTicks` takes no knock while
+  frozen. Both are corrected by the next snapshot through the ordinary resim-and-offset path.
+- **Not done here, on purpose.** `playtest/lan.ts` still speaks the pre-phase-1 message shapes and is
+  an existing probe this plan does not edit; flag it for the user. `Snapshot.events` is still always
+  empty — phase 4 fills it. Nothing about firing, ghosts, hp easing or the tick-time HUD is in this
+  phase.
+
+## Self-review
+
+**Spec coverage.** N13: Task 1 (`stepWorld`, `stepSim` unchanged inside it, `ContactMemory` in
+`WorldState` and on the wire) and Task 2 (the server's single call site). N14: Task 2 (`runCombat`
+untouched, consuming `contactEvents` where it consumed `contactHits`/`statusRequests`; the D20
+`PoseSnapshot` seam in `hits.ts` is not touched at all) and the wall-stun sweep staying server-side.
+N15: Task 7 Step 1 (invariant 8 rewritten, with the three fixed-for-the-match exceptions named) and
+Task 1 Step 7 (the two fields the invariant forced onto the wire). N16: Task 3 `WorldPredictor` and
+Task 4 `MatchClient.pumpInput`. N17: Task 4 `applySnapshot` — adopt on an exact match, otherwise
+`setBaseline` + `resim`, never an ease; Task 3's `resim` and its cost bound. N18: Task 4 `drain`,
+`bufferTicks`, the `maxPredictionTicks` freeze and the re-anchor on resume; Task 1 Step 1 deletes
+`interpolationDelayMs`, which spec §8's phase 0 row says is "deleted again by phase 3". N19: Task 3
+`RenderOffsets` and Task 4 `renderPoseOf`. N20: Task 3 `stepOne` (echoed `lastInput`,
+`remoteSteerHoldTicks`, the `maxExtrapolationTicks` hold) with §6.6's error table quoted in Task 6's
+re-pinned P2 and its design point (136 ms average / 33 u) named. N21: Task 1 (contact inside
+`stepWorld`, so the client predicts rams, dash hits and slams) with damage and the wall-slam stun
+explicitly left to the server. N23: Task 4 (`MatchClient`, no Phaser under `match/`) and Task 5 (the
+scene as composer). §6.12: the freeze-and-banner path (Tasks 4 and 5) and the decode-error path, which
+still throws out of `decodeSnapshot` and drops the connection as phase 2 left it. §6.13: the resim
+bound stated in `WorldPredictor.resim`'s comment and pinned by a test; fixed-size rings in
+`LocalInputs` and `WorldPredictor`, so memory does not grow with match length. §7: Task 6 (the three
+columns, the checkpoint row, the divergence histogram kept). §8 phase 3 and execution guide §5: the
+Acceptance table. §11: Task 1's "what moves, and what is authorised to move" table, and the one
+un-authorised change named and not made.
+
+**Placeholder scan.** Every new module is printed in full. Every edit to an existing file is either a
+line-cited substitution table or a printed replacement block. Every test file is real code with real
+expected values, and the byte figures (686, 650, 518, 128, 339, 34) are computed from the layout table
+in Task 1 Step 7, which is stated as their authority. The two places a test fixture would have been
+noise — the stray `offsets()` helper and the stray `statuses.push` line — are called out and replaced
+inline rather than left to be pasted.
+
+**Type consistency.** `WorldState`/`CarState`/`ContactMemoryState`/`ContactEvent`/`WorldStepResult`
+(Task 1) are what `worldTick` builds and reads (Task 2), what `WorldPredictor` steps (Task 3), and
+what `MatchClient.worldFrom` produces (Task 4). `ContactMemory` (the holder) is the type of
+`PipelineCtx.ram` and the second argument of both `worldTick` and `wallStunSweep`. `CarDelta` is what
+`WorldPredictor.resim` returns and what `RenderOffsets.add` consumes, field for field.
+`RingRead` (N1) is the value type of `WorldTickResult.reads` and the source of both the press edge and
+`slackTicks`. `Snapshot`/`SnapshotCar`/`SnapshotSlam` (N2 plus Task 1 Step 7) are what `buildSnapshot`
+produces, what `SnapshotBroadcaster` encodes, and what `MatchClient.worldFrom`/`contactFrom`/`echoFrom`
+read. `FramePlayer`/`FrameInstance` (N2) are what `SnapshotView` fills and what `buildRenderFrame`
+consumes; `MatchClient.frame` passes `poseOf` in the `FrameInputs` shape the preparation plan defined.
+`MatchClient`'s members are exactly the ones `ArenaScene` calls in Task 5 and the harness calls in
+Task 6.
