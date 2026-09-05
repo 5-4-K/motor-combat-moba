@@ -23,14 +23,15 @@ facts, and worse hands.
 ## Path
 
 1. Read the live `BOT_PROFILES` object (not this skill's memory of the numbers).
-2. **Read the EV picture before naming a factor.** Firing is gated by `minShotValue` now, not an
-   angle — before guessing from the symptom, check what `solve()` (`bot/brain/solution.ts`) is
-   actually computing for the best available slot that tick. The playground overlay shows
+2. **Read the EV picture before naming a factor.** Firing is gated by `minShotValueFraction` now,
+   not an angle — before guessing from the symptom, check what `solve()` (`bot/brain/solution.ts`)
+   is actually computing for the best available slot that tick. The playground overlay shows
    `personality | situation | range N | slot K | danger N` (`slot -` means it held fire) but does
    **not** yet print the solver's `value`, so "is it declining a real shot, or is nothing worth
    taking" has to be answered by instrumenting `solve()` or `chooseSlot`, not by eyeballing the
-   overlay alone. If the best value clears `minShotValue` and the bot still holds fire, that is a
-   bug, not a tuning question — stop and say so.
+   overlay alone. If the best value clears `minShotValueFraction * bestAchievableValueOf(carId,
+   sigma)` (the shooter's own kit ceiling, not a shared absolute number) and the bot still holds
+   fire, that is a bug, not a tuning question — stop and say so.
 
    The overlay also prints `danger` — damage per second the bot believes it is standing in. If it
    reads 0 while you are pointed straight at it from inside your weapon's reach, stop: that is a
@@ -52,9 +53,9 @@ say so.
 
 | They say | Factor | First knobs (direction relative to "too much of this feel") |
 |---|---|---|
-| "medium is too hard to hit" | hands | Raise `aimErrorSigmaRad` on **medium**. `minShotValue` is not a straightforward easier/harder dial: lowering it widens what the bot will attempt (more, worse shots); raising it makes the bot *pickier and therefore MORE deadly per shot* — it is not the knob to reach for "easier to hit" |
+| "medium is too hard to hit" | hands | Raise `aimErrorSigmaRad` on **medium**. `minShotValueFraction` is not a straightforward easier/harder dial: lowering it widens what the bot will attempt (more, worse shots); raising it makes the bot *pickier and therefore MORE deadly per shot* — it is not the knob to reach for "easier to hit" |
 | "hard tracks me perfectly" | hands | Same on **hard** |
-| "hard isn't attacking / holds fire" | fire threshold | Lower `minShotValue` on **hard** — but check the EV picture first (Path step 2): a bot in `fight` correctly declining shots it cannot make is not the same bug as one that should be firing |
+| "hard isn't attacking / holds fire" | fire threshold | Lower `minShotValueFraction` on **hard** — but check the EV picture first (Path step 2): a bot in `fight` correctly declining shots below `minShotValueFraction * bestAchievableValueOf(carId, sigma)` is not the same bug as one that should be firing |
 | "isn't attacking even when I don't have ult" | their ult is irrelevant | They mean the bot's own guns. Same as holds-fire. Do **not** drop `ultDisciplineChance` unless they also waste / never use the 5s gun |
 | "wastes ult" / "ults my corpse" | judgment | Raise `deadRespect` (corpse); raise `ultDisciplineChance` (live full-HP dump) |
 | "sits in a corner" | judgment | Raise `cornerRespect`; confirm overlay `unpin`. Do not send them to the map centre |
@@ -65,6 +66,12 @@ say so.
 | "it runs away from nothing" | judgment (anticipatory `evade`) | `opponentRangeRespect` down on the complained-about tier is the first dial; `BRAIN_CONSTANTS.dangerEvadeFraction` up or `dangerEvadeCooldownTicks` up narrow the anticipatory term further. Read the overlay's `danger` reading first (Path step 2) — if it is genuinely nonzero this is a threshold/frequency tune, not a bug |
 | "it walks into obvious fire" | judgment (anticipatory `evade`) | `opponentRangeRespect` up. If the overlay's `danger` reads 0 while you are aimed at it from inside your weapon's reach, that is a solver bug in `dangerEvAgainst` (`bot/brain/solution.ts`) — stop tuning and say so |
 | "easy and hard feel the same" | not a single knob | Read `packages/server/src/bot/brain/tiers.test.ts`. If green, the values are too close — move several judgment+hands knobs apart, still no `if (hard)` |
+
+The two `evade`-overreacting rows above mix one per-tier dial (`opponentRangeRespect`) with two
+knobs that are **not** per-tier: `BRAIN_CONSTANTS.dangerEvadeFraction` and `dangerEvadeCooldownTicks`
+are shared across all three tiers, so touching either retunes medium and hard together even if only
+one tier was complained about. Easy is structurally immune either way — its `opponentRangeRespect` is
+0, so the anticipatory term is permanently false there regardless of the shared constants.
 
 ## After they confirm
 

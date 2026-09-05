@@ -39,6 +39,12 @@ Copied from `bot-profiles.ts` on 2026-09-05. `BOT_BRAIN_VERSION` is `4.1.0`.
 | "It never uses its second weapon" | personality `slotWeights`, `slotStickTicks` (too high = glued to one gun) |
 | "All three tiers feel the same" | Read [`tiers.test.ts`](../packages/server/src/bot/brain/tiers.test.ts). If that passes, the complaint is a parameter *value*. |
 
+The "runs away from nothing" / "walks into obvious fire" rows above mix a per-tier dial
+(`opponentRangeRespect`) with two knobs that are **not** per-tier: `BRAIN_CONSTANTS.dangerEvadeFraction`
+and `dangerEvadeCooldownTicks` are shared, so retuning either moves medium and hard together, not just
+the complained-about tier. Easy is structurally immune regardless — its `opponentRangeRespect` is 0,
+so the anticipatory term stays permanently false no matter what the shared constants say.
+
 ## Pipeline
 
 ```
@@ -212,7 +218,10 @@ keep-out range generally. No new field was added for phase C; this one was repur
 
 ## Overlay
 
-Playground prints `personality | situation | range N | slot K`. There is no scoreboard.
+Playground prints `personality | situation | range N | slot K | danger N`. `danger` is the damage
+per second the bot believes it is standing in — the firing solver run against the opponent's own
+kit (`dangerEvAgainst`, `bot/brain/solution.ts`), weighted by believed readiness. There is no
+scoreboard.
 
 ## Personality
 
