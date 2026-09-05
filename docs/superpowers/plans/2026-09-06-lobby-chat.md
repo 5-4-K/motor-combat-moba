@@ -81,8 +81,10 @@ describe("normalizeChatText", () => {
   });
 
   it("replaces control and format characters", () => {
-    expect(normalizeChatText("glhf")).toBe("gl hf");
-    expect(normalizeChatText("gl‮hf")).toBe("gl hf");
+    // Written as escapes on purpose. A literal BEL or a literal U+202E bidi override in a source
+    // file is the trojan-source pattern: editors strip them silently and reviewers cannot see them.
+    expect(normalizeChatText("gl\u0007hf")).toBe("gl hf");
+    expect(normalizeChatText("gl\u202Ehf")).toBe("gl hf");
   });
 
   it("collapses runs of whitespace", () => {
@@ -200,7 +202,7 @@ export function validateChatText(raw: string): ValidateChatResult {
 - [ ] **Step 6: Run the test to verify it passes**
 
 Run: `npx vitest run packages/shared/src/lobby/chat.test.ts`
-Expected: PASS, 16 tests.
+Expected: PASS, 14 tests.
 
 - [ ] **Step 7: Export from the shared barrel**
 
@@ -1241,44 +1243,72 @@ Append to `packages/client/src/scenes/lobby-signature.test.ts`:
 
 ```ts
 describe("lobbyRenderSignature and chat (LC12)", () => {
-  const base = {
-    mode: 0,
-    hostSessionId: "a",
-    players: { forEach: () => {} },
-  };
-
   it("is stable when nothing changes", () => {
-    const state = { ...base, chat: [{ seq: 3 }] };
-    expect(lobbyRenderSignature(state)).toBe(lobbyRenderSignature(state));
+    const a = lobbyRenderSignature(state({ players: { s1: ada }, chat: [{ seq: 3 }] }));
+    const b = lobbyRenderSignature(state({ players: { s1: ada }, chat: [{ seq: 3 }] }));
+    expect(a).toBe(b);
   });
 
   it("changes when a message arrives", () => {
-    const before = lobbyRenderSignature({ ...base, chat: [{ seq: 3 }] });
-    const after = lobbyRenderSignature({ ...base, chat: [{ seq: 3 }, { seq: 4 }] });
+    const before = lobbyRenderSignature(state({ players: { s1: ada }, chat: [{ seq: 3 }] }));
+    const after = lobbyRenderSignature(
+      state({ players: { s1: ada }, chat: [{ seq: 3 }, { seq: 4 }] }),
+    );
     expect(after).not.toBe(before);
   });
 
   it("changes on a message that arrives at the cap, where length does not move", () => {
     // The buffer is full: one in, one out, length unchanged. This is the case seq exists for.
-    const before = lobbyRenderSignature({ ...base, chat: [{ seq: 20 }, { seq: 21 }] });
-    const after = lobbyRenderSignature({ ...base, chat: [{ seq: 21 }, { seq: 22 }] });
+    const before = lobbyRenderSignature(
+      state({ players: { s1: ada }, chat: [{ seq: 20 }, { seq: 21 }] }),
+    );
+    const after = lobbyRenderSignature(
+      state({ players: { s1: ada }, chat: [{ seq: 21 }, { seq: 22 }] }),
+    );
     expect(after).not.toBe(before);
   });
 
   it("changes on two identical messages a minute apart", () => {
     // Text and time would compare equal here; seq is what tells them apart.
-    const before = lobbyRenderSignature({ ...base, chat: [{ seq: 7 }] });
-    const after = lobbyRenderSignature({ ...base, chat: [{ seq: 7 }, { seq: 8 }] });
+    const before = lobbyRenderSignature(state({ players: { s1: ada }, chat: [{ seq: 7 }] }));
+    const after = lobbyRenderSignature(
+      state({ players: { s1: ada }, chat: [{ seq: 7 }, { seq: 8 }] }),
+    );
     expect(after).not.toBe(before);
   });
 
-  it("handles an empty buffer", () => {
-    expect(() => lobbyRenderSignature({ ...base, chat: [] })).not.toThrow();
+  it("defaults to an empty buffer, so the existing cases still pass", () => {
+    expect(() => lobbyRenderSignature(state({ players: { s1: ada } }))).not.toThrow();
   });
 });
 ```
 
-Then fix the file's **existing** tests: every state object they build now needs a `chat` field. Add `chat: []` to each one.
+The existing tests build their state through the file's single `state()` factory (near the top of
+the file), so they need **no** edits — extend the factory instead. Add `chat` to its options type and
+default it, which is the one change that keeps every existing case compiling and passing:
+
+```ts
+function state(opts: {
+  mode?: number;
+  hostSessionId?: string;
+  tick?: number;
+  players: Record<string, Player>;
+  chat?: { seq: number }[];
+}) {
+  const players = {
+    forEach(cb: (player: Player, sessionId: string) => void) {
+      for (const [sessionId, player] of Object.entries(opts.players)) cb(player, sessionId);
+    },
+  };
+  return {
+    mode: opts.mode ?? 0,
+    hostSessionId: opts.hostSessionId ?? "host",
+    tick: opts.tick ?? 0,
+    players,
+    chat: opts.chat ?? [],
+  };
+}
+```
 
 - [ ] **Step 2: Run the test to verify it fails**
 
