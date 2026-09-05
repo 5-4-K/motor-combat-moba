@@ -1095,7 +1095,7 @@ A camera-fixed slot column down the HUD gutter — the strip of canvas to the ri
 the world camera's viewport does not cover — shows the local player's weapons, or, while spectating,
 the watched car's. (Deathmatch never spectates, so there it is always your own kit, dead or alive.) One round slot each: icon inside, fire key beside it, weapon name beneath, dimmed
 into one of
-four states: full brightness when ready, a dimmed icon with a clockwise cooldown wedge while
+four states: full brightness when ready, a dimmed icon with an anticlockwise cooldown wedge while
 recharging, a heavier *static* dim when the slot is not unlocked yet, and a lighter dim across every
 slot during a wind-up or volley (or across the other slots during recovery). Locked and recharging
 use different, deliberately distinguishable dims so "you don't have this yet" can never be mistaken

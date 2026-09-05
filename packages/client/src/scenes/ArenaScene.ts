@@ -483,7 +483,7 @@ const HUD_STOCK_FONT_PX = 13;
  * tall and the 18px countdown 20px, so 20 put the number 1px INSIDE the pill above it. 24 clears
  * the pill by 3px and still stops 4px short of the name band at `SLOT_NAME_GAP_PX` below.
  */
-/** Straight up, so the arc drains clockwise from 12 o'clock like a standard ability cooldown. */
+/** Straight up, so the arc sweeps anticlockwise from 12 o'clock. */
 const HUD_SWEEP_START_ANGLE = -Math.PI / 2;
 
 /**
@@ -2577,7 +2577,7 @@ export class ArenaScene extends Phaser.Scene {
 
   /**
    * The cooldown, as the ring FILLING: nothing at `fraction` 0 (the tick the recharge starts),
-   * growing clockwise from 12 o’clock to a complete circle as `fraction` reaches 1.
+   * growing anticlockwise from 12 o’clock to a complete circle as `fraction` reaches 1.
    *
    * It used to run the other way — a full bright ring draining to nothing — which meant the last
    * frame of a cooldown was a bare track that snapped to a full bright ready ring in one step.
@@ -2595,10 +2595,10 @@ export class ArenaScene extends Phaser.Scene {
     fraction: number,
   ): void {
     if (fraction <= 0) return;
-    const endAngle = HUD_SWEEP_START_ANGLE + fraction * Math.PI * 2;
+    const endAngle = HUD_SWEEP_START_ANGLE - fraction * Math.PI * 2;
     gfx.lineStyle(HUD_RING_WIDTH_PX, HUD_RING_COLOR, 1);
     gfx.beginPath();
-    gfx.arc(cx, cy, this.slotRingRadius(), HUD_SWEEP_START_ANGLE, endAngle, false);
+    gfx.arc(cx, cy, this.slotRingRadius(), HUD_SWEEP_START_ANGLE, endAngle, true);
     gfx.strokePath();
   }
 
