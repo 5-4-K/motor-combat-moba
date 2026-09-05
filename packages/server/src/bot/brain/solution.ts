@@ -1,6 +1,6 @@
 import {
-  TICK_RATE_HZ, beamShapeAt, carHullOf, instanceExpired, projectileShapeAt, shapeHitsObb, smear,
-  spawnInstances, stepInstance, weaponDefOf, weaponTicksOf,
+  TICK_RATE_HZ, beamShapeAt, carHullOf, forwardMaxSpeedOf, instanceExpired, projectileShapeAt,
+  shapeHitsObb, smear, spawnInstances, stepInstance, weaponDamageOf, weaponDefOf, weaponTicksOf,
   type CarId, type WeaponInstance, type WorldShape,
 } from "@motor-combat-moba/shared";
 import type { BotArenaView, BotCarView, BotSlotView } from "../types.js";
@@ -98,11 +98,14 @@ export function readyInTicksOf(slot: BotSlotView, tick: number): number {
  * chance" — because that is what a later phase's planner wants to steer toward. The two headings
  * therefore diverge on purpose: `nominal` drives the physics, `aimHeadingRad` reports the target.
  *
- * SEAM FOR TASK 6 (not implemented here): when a live aim-assist lock is in range, `nominal` should
- * be overridden back to the bearing and `sigma` forced to 0 — the assist corrects the shot onto the
- * lock, so the quadrature's spread collapses to a single certain point. That override belongs right
- * here, before the quadrature loop, keyed off `shooter.lockTargetSessionId` and the weapon's own
- * `usesAimAssist`/`aimRangeUnits`. Nothing below this comment should need to change to add it.
+ * AIM ASSIST (Task 6, P13): when a live, in-range lock is held on THIS target and the weapon uses
+ * assist, the real sim's `aimAngleFor` (`sim/combat.ts`) points the shot at the target regardless of
+ * where the nose is aimed — so `nominal` is overridden back to the bearing and `sigma` forced to 0,
+ * collapsing the quadrature's spread to a single certain point. The gate mirrors `aimAngleFor`'s own
+ * conditions (`usesAimAssist`, a lock on this exact target, centre-to-centre distance within
+ * `aimRangeUnits`) with two simplifications noted in the Task 5/6 report: it does not check the
+ * target is still fighting or not phased (the caller is not expected to solve against a target that
+ * is neither), and it aims from the shooter's centre rather than `muzzleOf`'s offset.
  */
 export function solve(args: SolveArgs): FiringSolution {
   const { shooter, slot, target, aimSigmaRad, tick } = args;
@@ -111,11 +114,15 @@ export function solve(args: SolveArgs): FiringSolution {
   const distance = Math.hypot(target.x - shooter.x, target.y - shooter.y);
   if (distance > reach) return NO_SOLUTION;
 
-  // The shot leaves along the car's nose (`aimAngleFor`), so that is what the solver must
-  // evaluate — not the bearing, which would answer "if I were aimed right" and gate nothing.
-  const nominal = shooter.angle;
-  const sigma = aimSigmaRad;
   const bearing = Math.atan2(target.y - shooter.y, target.x - shooter.x);
+  const assisted = def.usesAimAssist
+    && shooter.lockTargetSessionId === target.sessionId
+    && distance <= (def.aimRangeUnits ?? 0);
+  // The shot leaves along the car's nose (`aimAngleFor`) UNLESS an assist lock overrides it onto the
+  // bearing — evaluating the bearing unconditionally would answer "if I were aimed right" and gate
+  // nothing for an unassisted weapon.
+  const nominal = assisted ? bearing : shooter.angle;
+  const sigma = assisted ? 0 : aimSigmaRad;
   const cooldownSeconds = Math.max(def.cooldownMs, 1) / 1000;
 
   let hitChance = 0;
@@ -145,7 +152,7 @@ function marchPress(
   // spawns, and hands the whole `args` to `marchOne`, which is what actually walks the shot.
   const { shooter, slot, slotIndex, tick } = args;
   const def = weaponDefOf(slot.weaponId);
-  if (def.kind === "maneuver") return { hits: 0, damage: 0 }; // Task 5 fills this in.
+  if (def.kind === "maneuver") return marchManeuver(args, heading, def);
 
   const spawned = spawnInstances(
     { weaponId: slot.weaponId, slot: slotIndex, finalVolley: true, pressId: "solve" },
@@ -170,11 +177,83 @@ function marchPress(
 }
 
 /**
+ * A maneuver's "shot" is the car itself (P10, P11): a dash/charge spawns no instance, so there is
+ * nothing for `marchOne` to step. Instead this sweeps the shooter's own hull along the maneuver's
+ * travel line, tick by tick, and reports a hit when the swept sweep overlaps the target's predicted
+ * hull — the same swept-hull idea `marchOne` uses for a projectile, just driven by the car instead
+ * of a spawned instance.
+ *
+ * `wildcharge` authors `range: 0` and `speed: 0` (it is a charge, not a dash — the sim resolves it
+ * as a hard slam on first contact, not a travelled distance), so its reach comes from
+ * `weaponReachOf`, which falls through to `BRAIN_CONSTANTS.contactTriggerUnits` for a `range: 0`
+ * weapon, and the sweep runs that distance at the chassis's own top speed (`forwardMaxSpeedOf`)
+ * since the weapon itself declares no travel speed. `thunderclap` authors both `speed` and `range`
+ * (the dash distance) directly, so it needs neither fallback.
+ *
+ * Without this branch `marchPress` returned `{ hits: 0, damage: 0 }` unconditionally for every
+ * maneuver weapon, which is what the balance harness documents as "the bot cannot press wildcharge".
+ */
+function marchManeuver(
+  args: SolveArgs,
+  heading: number,
+  def: ReturnType<typeof weaponDefOf>,
+): { hits: number; damage: number } {
+  const { shooter, slot, target, targetAt } = args;
+  const reach = weaponReachOf(slot.weaponId);
+  const speed = def.speed > 0 ? def.speed : forwardMaxSpeedOf(shooter.carId);
+  const ticks = Math.max(1, Math.ceil((reach / Math.max(speed, 1)) * TICK_RATE_HZ));
+
+  let previous = carHullOf(shooter.x, shooter.y, heading);
+  for (let ahead = 1; ahead <= ticks; ahead++) {
+    const travelled = Math.min(reach, (speed * ahead) / TICK_RATE_HZ);
+    const hull = carHullOf(
+      shooter.x + Math.cos(heading) * travelled,
+      shooter.y + Math.sin(heading) * travelled,
+      heading,
+    );
+    const pose = targetAt(ahead);
+    const swept = smear(obbShape(previous), obbShape(hull));
+    if (shapeHitsObb(swept, carHullOf(pose.x, pose.y, pose.angle))) {
+      return { hits: 1, damage: weaponDamageOf(shooter.carId, slot.weaponId) };
+    }
+    previous = hull;
+  }
+  return { hits: 0, damage: 0 };
+}
+
+/** An OBB as a polygon, so `smear` (which only hulls `WorldShape`s) can hull two car hulls together. */
+function obbShape(hull: ReturnType<typeof carHullOf>): WorldShape {
+  const cos = Math.cos(hull.angle);
+  const sin = Math.sin(hull.angle);
+  const hw = hull.w / 2;
+  const hh = hull.h / 2;
+  const corner = (dx: number, dy: number) => ({
+    x: hull.x + dx * cos - dy * sin,
+    y: hull.y + dx * sin + dy * cos,
+  });
+  return {
+    kind: "polygon",
+    points: [corner(hw, hh), corner(-hw, hh), corner(-hw, -hh), corner(hw, -hh)],
+  };
+}
+
+/**
  * March one instance to expiry, returning the damage it deals to the target.
  *
  * A projectile stops at its first contact. A ticking beam damages on the first tick it covers the
  * target, then once per `weaponTicksOf(id).damageInterval` — the same cadence `resolveInstanceHits`
  * applies in the real sim, so lance and afterburner are not under-counted to a single pulse.
+ *
+ * SPLASH (Task 6, P12, CONTROLLER RULING R3): a projectile carrying `def.explosion` (only
+ * `magmablast` today) detonates on death for any reason — the real sim spawns the burst as a
+ * detached beam wherever the shell stops (`instanceDefOf`, `sim/weapons/instances.ts`). Two cases:
+ *   (a) DIRECT HIT — the target is standing inside its own blast (`def.explosion.radius`, 60u for
+ *       magmablast), so the explosion damage always lands alongside the shell's own.
+ *   (b) NATURAL EXPIRY without a hit — the shell keeps flying to `def.range` (900u for magmablast;
+ *       `instanceExpired`'s `distance >= def.range`) before it detonates, so a lateral near-miss at
+ *       the target does NOT trigger the blast next to the target — it detonates 900 units away. The
+ *       explosion is credited here only if the target's hull is actually within the blast radius of
+ *       the point where the shell stopped, per `splashAt`.
  */
 function marchOne(start: WeaponInstance, args: SolveArgs, heading: number): number {
   const { shooter, target, targetAt, tick, arena } = args;
@@ -199,20 +278,43 @@ function marchOne(start: WeaponInstance, args: SolveArgs, heading: number): numb
     const pose = targetAt(ahead);
     const connects = shapeHitsObb(smear(previous, current), carHullOf(pose.x, pose.y, pose.angle));
     if (connects) {
-      if (!Number.isFinite(interval)) return damage + instance.damage;
+      if (!Number.isFinite(interval)) {
+        // (a) Direct hit: the target is inside the blast by construction, no position check needed.
+        const explosionOnHit = def.kind === "projectile" && def.explosion ? def.explosion.damage : 0;
+        return damage + instance.damage + explosionOnHit;
+      }
       if (now - lastHitTick >= interval) {
         damage += instance.damage;
         lastHitTick = now;
       }
     }
     previous = current;
-    if (instanceExpired(instance, now)) break;
+    if (instanceExpired(instance, now)) {
+      damage += splashAt(instance, pose, def); // (b) natural expiry, position-gated.
+      break;
+    }
   }
   return damage;
 }
 
 /** No shot on this roster stays alive longer than this; the loop must terminate regardless. */
 const MAX_MARCH_TICKS = 120;
+
+/**
+ * A shell's detonation credited on natural expiry without a direct hit — see the R3(b) note on
+ * `marchOne` above for why this is position-gated rather than "any near miss counts". `magmablast`
+ * is the only row with an `explosion` today; its blast is a detached centre-origin disc, so the
+ * honest test is "is the target's hull inside the blast radius of where the shell actually died".
+ */
+function splashAt(
+  instance: WeaponInstance,
+  pose: { x: number; y: number; angle: number },
+  def: ReturnType<typeof weaponDefOf>,
+): number {
+  if (def.kind !== "projectile" || !def.explosion) return 0;
+  const blast: WorldShape = { kind: "circle", x: instance.x, y: instance.y, radius: def.explosion.radius };
+  return shapeHitsObb(blast, carHullOf(pose.x, pose.y, pose.angle)) ? def.explosion.damage : 0;
+}
 
 function shapeOf(instance: WeaponInstance): WorldShape {
   const def = weaponDefOf(instance.weaponId);
