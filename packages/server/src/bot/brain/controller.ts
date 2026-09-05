@@ -235,6 +235,42 @@ export class HumanController implements BotController {
         })
       : 0;
     this.lastDangerEv = danger;
+
+    // One firing solution per ready slot (P7), fed to `chooseSlot` below AND to the anticipatory
+    // evade gate just below (R-C7). Built from the shooter's ACTUAL current pose, not the heading
+    // it is steering toward — `solve` mirrors the real sim, which fires along `self.angle` (or the
+    // aim-assist bearing), never along a desired heading. Moved above `classifySituation` (was
+    // originally computed just before `chooseSlot`, far below): it depends on nothing the situation
+    // decides, only `target`, `self.slots`, `slotIsReady`, `profile.aimErrorSigmaRad`, `tick` and
+    // `view.arena` — all already known at this point — and `solve()` draws no `rng()` (H21), so
+    // moving it earlier changes no draw's position in the stream.
+    const predictor = target ? constantVelocityPredictor(target) : undefined;
+    const solutions = new Map<number, FiringSolution>();
+    if (target && predictor) {
+      for (let i = 0; i < self.slots.length; i++) {
+        const candidate = self.slots[i]!;
+        if (!slotIsReady(candidate, tick)) continue;
+        solutions.set(i, solve({
+          shooter: {
+            sessionId: self.sessionId, carId: self.carId, team: self.team,
+            x: self.x, y: self.y, angle: self.angle, speed: self.speed,
+            lockTargetSessionId: self.lockTargetSessionId,
+          },
+          slot: candidate, slotIndex: i, target, targetAt: predictor,
+          aimSigmaRad: profile.aimErrorSigmaRad, tick, arena: view.arena,
+        }));
+      }
+    }
+    // The best EV/s this bot could itself deal from its CURRENT pose (R-C7) — 0 when no slot is
+    // ready or nothing is aimed at the target. This is what "am I losing this exchange" is measured
+    // against: an absolute danger threshold reads "someone could shoot me", which is true for most
+    // of an ordinary duel; comparing it to the bot's own best available shot asks the question a
+    // skilled player actually asks instead.
+    let bestValue = 0;
+    for (const solution of solutions.values()) {
+      if (solution.value > bestValue) bestValue = solution.value;
+    }
+
     const carIncoming = target ? isIncomingCar(self, target, profile) : false;
     if (carIncoming && target) {
       if (this.carApproachId !== target.sessionId) {
@@ -272,7 +308,18 @@ export class HumanController implements BotController {
         // loses little by solving the more urgent problem first. The reactive dodge above and the
         // incoming-car trigger stay ungated: a shot already in flight (or a car bearing down) should
         // still beat a wall.
-        || (!pinned && danger * profile.opponentRangeRespect >= BRAIN_CONSTANTS.dangerEvadeThreshold),
+        //
+        // R-C7: danger is measured RELATIVE to the bot's own best available shot (`bestValue`, from
+        // the `solutions` computed above), not against an absolute number — "someone could shoot me"
+        // is true for most of an ordinary duel at fighting range, but "am I LOSING this exchange
+        // from here" is the question a skilled player actually asks (P16). `danger > 0` guards a real
+        // defect this comparison would otherwise have: `0 >= 0 * fraction` is vacuously true whenever
+        // NEITHER side has a value (no target, or one genuinely out of every weapon's reach), which
+        // tripped `evade` on zero signal at all — a false "I'm losing" reading is worse than a missed
+        // one, and `danger > 0` costs nothing (a real threat with 0 danger cannot exist). See
+        // `BRAIN_CONSTANTS.dangerEvadeFraction`'s doc comment for the measurement.
+        || (!pinned && danger > 0 && danger * profile.opponentRangeRespect
+          >= bestValue * BRAIN_CONSTANTS.dangerEvadeFraction),
       unpin: pinned && trulyHittable && this.willUnpin,
       punish: trulyHittable && (targetStunned || ultSpent
         || targetHpFraction <= profile.ultWindowHpFraction),
@@ -398,27 +445,6 @@ export class HumanController implements BotController {
       closing,
       reverseBlocked: sit === "fight" || sit === "reset" ? reverseBlocked : false,
     });
-
-    // One firing solution per ready slot (P7), fed to `chooseSlot` below. Built from the shooter's
-    // ACTUAL current pose, not the heading it is steering toward — `solve` mirrors the real sim,
-    // which fires along `self.angle` (or the aim-assist bearing), never along a desired heading.
-    const predictor = target ? constantVelocityPredictor(target) : undefined;
-    const solutions = new Map<number, FiringSolution>();
-    if (target && predictor) {
-      for (let i = 0; i < self.slots.length; i++) {
-        const candidate = self.slots[i]!;
-        if (!slotIsReady(candidate, tick)) continue;
-        solutions.set(i, solve({
-          shooter: {
-            sessionId: self.sessionId, carId: self.carId, team: self.team,
-            x: self.x, y: self.y, angle: self.angle, speed: self.speed,
-            lockTargetSessionId: self.lockTargetSessionId,
-          },
-          slot: candidate, slotIndex: i, target, targetAt: predictor,
-          aimSigmaRad: profile.aimErrorSigmaRad, tick, arena: view.arena,
-        }));
-      }
-    }
 
     const stuckOk = this.stuckSlot !== undefined
       && tick - this.stuckSinceTick < profile.slotStickTicks;

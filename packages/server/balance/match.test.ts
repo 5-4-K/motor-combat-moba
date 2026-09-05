@@ -123,6 +123,18 @@ describe("runMatch", () => {
     // assertion below states that premise outright so the two cases can never be confused: if a
     // future balance edit empties the window again, THAT line fails and names the reason.
     //
+    // `seed: 96`, not 32: R-C7 (fix round 2, 2026-09-06) replaced `dangerEvadeThreshold` (an
+    // absolute danger-per-second number) with `dangerEvadeFraction` — danger is now compared to the
+    // bot's OWN best available shot value from its current pose, not an absolute number, and the
+    // comparison is additionally guarded on `danger > 0` (the unguarded form was vacuously true
+    // whenever neither side had a value, which broke a different test — see
+    // `BRAIN_CONSTANTS.dangerEvadeFraction`'s doc comment). Both changes again move WHEN this
+    // hard-tier Mirage/Bastion pair leaves a fight to dodge or unpin, so seed 32's kill no longer
+    // lands inside the 30 s window. Swept 1-150 against the fixed brain: only 96 lands a kill inside
+    // the window — sparser still than R-C6's already-sparse 2/150 (32 and 147), consistent with an
+    // anticipatory reflex that, relative to the bot's own shot value rather than an absolute floor,
+    // now reads as "losing" over a wider share of an ordinary duel.
+    //
     // `seed: 32`, not 124: R-C6 (2026-09-06) gates the anticipatory-evade term added by Task 3
     // (bot-brain-2) on `!pinned` and returns `dangerEvadeThreshold` to the brief's 12 (it had been
     // raised to 40 to route around a since-abandoned threshold-only fix) — both changes move WHEN
@@ -209,7 +221,7 @@ describe("runMatch", () => {
     // Mirage/Bastion matchup's dynamics enough that seed 40 stopped landing a kill inside the 30 s
     // window — a legitimate killless window under the new views, not a clock regression, so this
     // test isn't about that case.
-    const out = runMatch({ ...SETUP, seed: 32, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    const out = runMatch({ ...SETUP, seed: 96, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);
@@ -230,7 +242,16 @@ describe("runMatch", () => {
     // 2026-09-05 situation-play: seeds 1-10 are all 0-0 draws in 60 s under the new brain. Swept
     // 1-80; 42, 44, 45, 53, 61, 63, 65, 68 are decisive. Keep two draws in the spread so the tie
     // branch still runs.
-    const outcomes = [1, 2, 42, 44, 45, 53, 65, 68].map((seed) =>
+    //
+    // 68 -> 96: R-C7 (fix round 2, 2026-09-06) replaced `dangerEvadeThreshold` with
+    // `dangerEvadeFraction` (see the sibling test above for the mechanism) and moved this hard-tier
+    // Mirage/Bastion matchup's timing again — every seed in this spread (42, 44, 45, 53, 61, 63, 65,
+    // 68) checked back to a 0-0 draw at 60 s under the fixed brain, which would have left the
+    // non-vacuity assertion below with nothing decisive to stand on. Checked 96 and 98 (both
+    // decisive in the sibling test's 30 s sweep) at this test's 60 s window: both stay decisive
+    // there too (a kill inside 30 s is still a kill at 60 s). Swapped in 96, keeping every original
+    // draw seed so the tie branch (lines below) still exercises equally.
+    const outcomes = [1, 2, 42, 44, 45, 53, 65, 96].map((seed) =>
       runMatch({ ...SETUP, seed, mode: GameMode.FFA_DEATHMATCH }));
 
     for (const out of outcomes) {

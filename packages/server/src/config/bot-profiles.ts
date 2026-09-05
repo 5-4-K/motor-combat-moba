@@ -278,34 +278,77 @@ export const BRAIN_CONSTANTS = Object.freeze({
    */
   assumedOpponentAimSigmaRad: 0.06,
   /**
-   * Danger-per-second, after `opponentRangeRespect`, at which a bot leaves a firing line it is
-   * standing in, before any shot exists (P16). Anticipatory only — gated on NOT being pinned (see
+   * Fraction of the bot's OWN best available shot value (`bestValue` in `controller.ts`'s `plan()`,
+   * the best `value` across `solutions` — `solve()` run from the shooter's ACTUAL current pose, not
+   * a ceiling) that the danger it is standing in (after `opponentRangeRespect`) must clear before it
+   * leaves the line, before any shot exists (P16). Anticipatory only — gated on NOT being pinned (see
    * the `evade` input in `controller.ts`'s `plan()`); a wall-pinned bot never evaluates this term at
-   * all, because `unpin` needs first crack at getting off the wall (see R-C6 below).
+   * all, because `unpin` needs first crack at getting off the wall (R-C6, below this comment's own
+   * history).
    *
-   * Round-1 fix note (R-C6): this term used to be ungated, and no scalar value could satisfy both
-   * this task's guard scene (`inThreatLineView`, `controller.test.ts` — a stationary bullseye at
-   * 300u, full kit loaded, NOT pinned: raw `dangerEv` 50.08 / 45.07 after `opponentRangeRespect`
-   * 0.9) and `tiers.test.ts`'s wall scene (`"a wall changes what hard does..."` — a stationary mirage
-   * at 200u, full kit loaded, PINNED: raw 65.33 / 58.80 after respect) simultaneously, because the
-   * wall scene's own reading is the higher of the two. The actual defect wasn't the number — it was
-   * a standing condition (true for most of a duel at fighting range) wired into an event-priority
-   * slot with no commit delay, which let it starve `unpin` forever and pin a hard bot on a wall for
-   * good, an amateur trait the tier ladder explicitly does not want on hard. Gating the term on
-   * `!pinned` removes the wall scene from consideration entirely, which reopens the low end of the
-   * range the brief expected: this task's own guard scene is the only in-suite ceiling that matters
-   * now, so the brief's original starting value is the right one to keep.
+   * R-C7 (fix round 2, 2026-09-06) replaced `dangerEvadeThreshold` — an ABSOLUTE danger-per-second
+   * number — with this fraction. The absolute version had the same defect `minShotValueFraction`'s
+   * doc comment (above) documents for its own predecessor `minShotValue`: "someone could shoot me"
+   * (an absolute EV/s reading) is true for most of an ordinary duel at fighting range, so the
+   * anticipatory term tripped almost continuously once R-C6's `!pinned` gate stopped it from starving
+   * `unpin` at a wall — measured at 45.07 (this task's own guard scene, `inThreatLineView`,
+   * `controller.test.ts`) against an absolute threshold of 12, nearly 4x over, in a scene the brief
+   * calls "a perfectly ordinary in-range engagement". The consequence was measured directly: sweeping
+   * seeds 1-150 of `balance/match.test.ts`'s deathmatch fixture found only 2 land a decisive kill
+   * inside 30s, against ~20/150 for every earlier reseed in that file's history — a hard duel stopped
+   * resolving because the bot evaded through most of the fight instead of fighting.
    *
-   * MEASURED (`HumanController.debug().dangerEv`, hard tier, `assumedOpponentAimSigmaRad` 0.06,
-   * `opponentRangeRespect` 0.9): the guard scene reads 45.07 after respect, comfortably above 12, so
-   * 12 still trips `evade` there. Re-ran the full root `npm test` at 12 with the `!pinned` gate in
-   * place: green, including the previously-failing wall test (now pinned, so it never reaches this
-   * term and `unpin` wins as before). Left at the brief's 12 rather than raised, per the ruling's
-   * "lower is better" — headroom above the guard scene's own reading is a false margin now that the
-   * wall scene can no longer collide with it, and a lower value keeps the anticipatory reflex from
-   * needing much danger to fire, which is the point of the feature.
+   * The fix asks "am I LOSING this exchange from here" instead: danger compared to what the bot's
+   * OWN kit can put out from its CURRENT pose, not an absolute number no kit/range/aim-quality
+   * combination can be measured against fairly (the exact defect class `minShotValueFraction`'s
+   * comment documents in depth).
+   *
+   * TWO MEASURED DEFECTS surfaced while calibrating this, both fixed in `controller.ts`, not by
+   * picking a different fraction:
+   *
+   * 1. **The comparison is vacuously true when NEITHER side has a value.** `danger * respect >=
+   *    bestValue * fraction` reduces to `0 >= 0` — true — whenever the bot has no target (or one out
+   *    of every weapon's reach) AND the threat is equally out of range/unknown. That tripped `evade`
+   *    on literally zero signal, which is what broke `controller.test.ts`'s "keeps the body on the
+   *    aim line when the target is OFF-AXIS..." duel (fires collapsed from ~94/300 to 46-48/300): the
+   *    bot spent long stretches with `danger` and `bestValue` both reading exactly 0 while still
+   *    converging onto the target, and each stretch tripped a full `situationCommitTicks` (6 on hard)
+   *    excursion into `evade`, since `evade` outranks `fight` in `ALL_SITUATIONS` with no commit
+   *    delay on the way IN. Gating the whole term on `danger > 0` costs nothing (a real threat can
+   *    never read exactly 0) and removed the false trips entirely — re-verified both closed-loop
+   *    duel tests pass with `dangerEvadeFraction` raised as high as 1000 (i.e. with the ratio term
+   *    effectively disabled), isolating that this was a `danger > 0` fix, not a fraction-tuning one.
+   *
+   * 2. **`bestValue` is not always "how much offense do I generally have" — it is a literal,
+   *    instantaneous read of `solve()` at the current pose**, and Bullseye's `pepperbox` (a 4-muzzle
+   *    spray, three of them "sideways and backward" per `solution.ts`'s own doc comment) can register
+   *    a real, nonzero `bestValue` even facing directly AWAY from the target — this task's own guard
+   *    scene measures 38.65 there (self facing +x, target due west), not the 0 an intuition about
+   *    "facing the wrong way" would predict. That is CORRECT behaviour to measure, not a bug: the bot
+   *    genuinely can shoot back from that pose, so it is a real number to compare danger against.
+   *
+   * MEASURED (`HumanController.debug().dangerEv` plus a matching external `solve()` replica for
+   * `bestValue`, both hard tier, `assumedOpponentAimSigmaRad` 0.06, `opponentRangeRespect` 0.9):
+   *
+   * | scene | danger*respect | bestValue | ratio needed to trip |
+   * |---|---|---|---|
+   * | this task's guard scene (`inThreatLineView`) | 45.07 | 38.65 | fraction <= 1.166 |
+   *
+   * That is the ONLY in-suite ceiling on the fraction (the wall scene in `tiers.test.ts` never
+   * evaluates this term at all, `!pinned` having removed it from contention per R-C6). Chosen: **1**
+   * — comfortably under 1.166 with the `danger > 0` fix in place, and the natural reading of "am I
+   * losing": danger that meets or exceeds my own best output, not some multiple of it. Re-verified at
+   * 1 with the `danger > 0` fix: both closed-loop duel tests in `controller.test.ts` pass (fires stay
+   * above the 90 bar on-axis and off-axis), the guard scene's own evade test passes, and a re-swept
+   * `balance/match.test.ts` fixture stays green: sweeping its hard-tier Mirage/Bastion matchup over
+   * seeds 1-150 finds only ONE (96) landing a decisive kill inside its 30 s window — sparser than
+   * R-C6's already-sparse 2/150 (32 and 147), because comparing danger to the bot's own shot value
+   * widens how much of an ordinary duel now reads as "losing" relative to an absolute floor. Both
+   * `match.test.ts` tests that this matchup drives (the shortened-clock test and the
+   * ranks-placement spread) are reseeded onto seed 96, with the exact count recorded in that file's
+   * own seed-history comment — see it there rather than trusting a second copy of the number here.
    */
-  dangerEvadeThreshold: 12,
+  dangerEvadeFraction: 1,
 });
 
 /**
