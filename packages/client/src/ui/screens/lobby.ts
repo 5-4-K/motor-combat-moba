@@ -1,5 +1,5 @@
 import { GameMode } from "@motor-combat-moba/shared";
-import { button, h, svg } from "../dom.js";
+import { button, h, icon } from "../dom.js";
 import { modeCards, type LobbySlot, type LobbyView } from "../lobby-view.js";
 
 /**
@@ -53,23 +53,6 @@ export interface LobbyHandlers {
   onRequestExit(): void;
   onCancelExit(): void;
   onConfirmExit(): void;
-}
-
-function icon(markup: string, size: number, filled: boolean): SVGElement {
-  const el = svg(markup);
-  el.setAttribute("width", String(size));
-  el.setAttribute("height", String(size));
-  el.setAttribute("viewBox", "0 0 24 24");
-  if (filled) {
-    el.setAttribute("fill", "currentColor");
-  } else {
-    el.setAttribute("fill", "none");
-    el.setAttribute("stroke", "currentColor");
-    el.setAttribute("stroke-width", "2.75");
-    el.setAttribute("stroke-linecap", "round");
-    el.setAttribute("stroke-linejoin", "round");
-  }
-  return el;
 }
 
 function slotRow(slot: LobbySlot, handlers: LobbyHandlers): HTMLElement {
