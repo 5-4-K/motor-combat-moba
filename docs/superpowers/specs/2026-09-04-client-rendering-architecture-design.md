@@ -14,11 +14,16 @@ common personal computer.** Decisions are numbered R1–R26 (with R12a, R17a, R1
 fourteen phase plans that land this design, plus the shared interface ledger
 ([`interfaces.md`](../plans/2026-09-04-netcode-and-rendering/interfaces.md)) and the guide for
 executing them ([`00-execution-guide.md`](../plans/2026-09-04-netcode-and-rendering/00-execution-guide.md)).
-**Plan-writing is still in progress** — twelve of the fourteen are written; N6 and V5 remain. To continue it from a new
-session, start at
-[`PROGRESS.md`](../plans/2026-09-04-netcode-and-rendering/PROGRESS.md), which records what is
-written, the verbatim assignment for each remaining plan, every ledger defect found and how it was
-resolved, and the one open question this design left for the user.
+**Plan-writing is complete** — all fourteen are written, as of 2026-09-05; execution has not started.
+Start at [`PROGRESS.md`](../plans/2026-09-04-netcode-and-rendering/PROGRESS.md), which records the
+assignment each plan was written against, every ledger defect found and how it was resolved, and the
+one open question this design left for the user; then
+[`00-execution-guide.md`](../plans/2026-09-04-netcode-and-rendering/00-execution-guide.md) for the
+order and the per-phase gates. Two places where a plan departed from this document, both argued in
+its own `## Handoff`: V3 bakes **one** flame flipbook length rather than R14's two and lays the lance
+along **20** rope points rather than §5's 24 segments (R2's 40-vertex ceiling), and V5 delivers
+R19's "half-resolution Bloom" as Phaser 4.2.1's low-quality blur, that engine having no
+render-target scale on a filter.
 
 ## 1. What the frame budget is, and where it goes today
 

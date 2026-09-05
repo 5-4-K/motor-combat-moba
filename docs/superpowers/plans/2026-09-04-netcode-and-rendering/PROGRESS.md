@@ -5,7 +5,7 @@
 > writing the finished ones. Nothing here is needed to *execute* a plan — for that, read
 > [`00-execution-guide.md`](00-execution-guide.md).
 
-**Last updated:** 2026-09-05 (N4, V3, N5 and V4 written). **Branch:** `claude/gameplay-netcode-architecture-bgp8f6`.
+**Last updated:** 2026-09-05 (N6 and V5 written — **the folder is complete**). **Branch:** `claude/gameplay-netcode-architecture-bgp8f6`.
 
 The two approved specs this folder implements:
 [netcode](../../specs/2026-09-04-online-netcode-and-client-architecture-design.md) and
@@ -13,7 +13,7 @@ The two approved specs this folder implements:
 
 ## 1. Status
 
-Fourteen plans, two streams. **Twelve written, two to go** — N6 and V5. (Count the table, not this line: earlier revisions of it said nine and then ten while eight were written, both wrong.)
+Fourteen plans, two streams. **All fourteen are written. Nothing is left to write.** (Count the table, not this line: earlier revisions of it said nine and then ten while eight were written, both wrong.)
 
 | # | File | Lines | State |
 |---|---|---|---|
@@ -24,13 +24,13 @@ Fourteen plans, two streams. **Twelve written, two to go** — N6 and V5. (Count
 | N3 | `13-netcode-3-world.md` | 3795 | written |
 | N4 | `14-netcode-4-feel.md` | 3177 | written |
 | N5 | `15-netcode-5-lifecycle.md` | 1781 | written |
-| N6 | `16-netcode-6-optional.md` | — | **to write** |
+| N6 | `16-netcode-6-optional.md` | 1749 | written |
 | V0 | `20-render-0-instrumentation.md` | 1853 | written |
 | V1 | `21-render-1-hud.md` | 2704 | written |
 | V2 | `22-render-2-bake.md` | 4170 | written |
 | V3 | `23-render-3-beams.md` | 1609 | written |
 | V4 | `24-render-4-events.md` | 2165 | written |
-| V5 | `25-render-5-pixels.md` | — | **to write** |
+| V5 | `25-render-5-pixels.md` | 2009 | written |
 
 Supporting files, all written: [`interfaces.md`](interfaces.md) (the ledger),
 [`00-execution-guide.md`](00-execution-guide.md), [`plan-authoring-brief.md`](plan-authoring-brief.md).
@@ -77,61 +77,75 @@ decal is live**: `DECAL_DEFS` is empty by decision (R12a), not by omission, so t
 decision rather than a bug, and the day somebody authors the first decal that line is what makes them
 say so out loud.
 
-**Three plans in a row have now found no ledger defect.** That is a signal the ledger has converged,
-not that the check was skipped — V3's, N5's and V4's reports all say so explicitly. Keep running
-step 2; stop expecting it to bite.
+**`16-netcode-6-optional.md` and `25-render-5-pixels.md` were written on 2026-09-05**, in one session,
+and they finish the folder. Neither found a ledger defect either, so **five plans in a row have now
+found none** — V3, N5, V4, N6 and V5. That is a signal the ledger converged, not that the check was
+skipped; each report says so explicitly. Their ledger edits are all additive: `net/volley.ts`,
+`net/input-log-read.ts`, `match/webtransport.ts` + `match/transport-select.ts` (N6, all three
+evidence-gated and possibly never built), and `render/tier-storage.ts`, `render/render-scale.ts`,
+`render/filters.ts`, `bakedTier()` and two `EffectRouter` options (V5), plus the fifth and final
+widening of `SceneCensus`.
+
+**N6 is unlike every other plan in the folder and its header says so.** Its five tasks are gated on
+evidence, not scheduled: each opens with the number that must be observed, where to read it, and what
+it is expected to say — and four of the five are expected to read *false* on a LAN, which is the
+phase working rather than failing. It carries a **gate ledger** table at the top that is filled in
+when a gate is read, whatever the answer, plus a "Recording a skip" procedure, because the execution
+guide's N6 row requires a skipped task to be recorded with its measured value. The one gate already
+known to be true is `telegraphAudit()`'s, which N4 shipped non-empty on purpose.
+
+**V5's most load-bearing decision is what a tier change may and may not do.** The atlas is baked once
+at boot (R13) and the canvas size is fixed at module load, so a live tier change moves the particle
+and decal caps, the camera filters and the floor ambience — and nothing else. Five of the seven tier
+call sites read a new `bakedTier()` rather than the live tier, and the player is told to restart
+through `MatchBanners.setTierNotice`. The alternative, re-baking mid-match, is a multi-hundred-
+millisecond stall on the machine least able to afford one.
 
 ## 1a. Where this stopped, 2026-09-05 — read this before starting
 
-**Four plans landed this session, in this order: N4, V3, N5, V4** — one commit each, each carrying
-its own ledger edits, all pushed on `claude/netcode-rendering-plans-003970` (a worktree branch off
-`claude/gameplay-netcode-architecture-bgp8f6`).
+**Six plans landed on 2026-09-05, in this order: N4, V3, N5, V4, then N6 and V5** — one commit each,
+each carrying its own ledger edits, on worktree branches off
+`claude/gameplay-netcode-architecture-bgp8f6`.
 
-**Two plans remain, and they are the last round: N6 and V5.** They are in different streams, so they
-are independent and can be written at the same time. Both assignments are in section 5 below,
-verbatim and unchanged.
+**Plan-writing is finished.** There is no next plan to write and section 5's assignments are now
+history rather than instructions — they are kept because they record what each plan was asked for,
+which is the only way to tell later whether it delivered.
 
-What each of them needs that is new since the assignments were written:
+**What happens next is execution, not writing.** Read
+[`00-execution-guide.md`](00-execution-guide.md), start with the preparation plan
+(`01-prep-arena-scene-split-and-render-frame.md`), and merge each phase into `development/main`
+before the next one starts. The guide's §1 table gives the order and the three cross-stream
+couplings; its §5 gives the gate each phase is done against.
 
-- **N6** reads **N5's `## Handoff`**, whose "For N6 specifically" bullet is the one that matters:
-  `MatchTransport` is now proven swappable at runtime (`ColyseusTransport.rebind` changes the room
-  under a live `MatchClient` without disturbing a subscriber), which is exactly the property N12's
-  WebTransport task needs and which nothing had exercised before; and the harness gained a
-  **blackout** knob that an N6 task tuning `remoteSteerHoldTicks` over a lossy link should extend
-  rather than re-invent. N6's `thunderclap` task also now has its numbers already computed: **N4's
-  Task 5 shipped `config/telegraph.ts`, an audit that names `thunderclap` failing N31 rules 1 and 3**
-  (`startUpMs` 0 against a 150 ms window, 96,000 u/s² against a 4,267 u/s² budget, 240 u of error on
-  a victim's screen against a 48 u car) and deliberately does **not** edit the row. N6's task is the
-  edit, and the audit's own test is what will flip to green when it lands.
-- **V5** reads **V4's `## Handoff`**, whose "Deferred by V4" list is V5's work list and whose service
-  table names `setCap` on both `ParticleService` and `DecalService` as the tier hook. One thing V5
-  must not do: `TIER_TABLE` must **read** `PARTICLE_CONFIG.caps` and `DECAL_CONFIG.maxLive` rather
-  than restate their numbers, and `tiers.test.ts` should assert the two agree. V5 also inherits three
-  more tier call sites than V2's Handoff listed — V3 added `BeamRenderer`'s constructor default and
-  `bakeJobs`' own default, and V4 added the two service constructors.
+Two things a first executor should know that are easy to miss:
+
+- **N6 is not scheduled and must not be run in sequence with N5.** Its tasks wait for evidence and
+  for the user to say go. Reading its gates costs a morning and is worth doing early — two of them
+  (`telegraphAudit()`, and the harness's bytes-under-volley row) can be read before the phase they
+  belong to has even started.
+- **V5 is the last rendering phase but not the last measurement.** Its Task 6 is where
+  `docs/render-bench.md` gets the whole V0→V5 arc filled in, on the reference machine as well as
+  under software GL, and an unfilled `(record)` cell there means a phase that was not measured.
 
 Nothing is half-written and no file is under a provisional name. The open question in section 4 is
 unchanged in kind and narrower in scope than it was; it blocks nothing.
 
 ## 1b. Continuing from a different machine
 
-**Everything needed to finish the plan-writing is in git and nothing else is.** No scratch file, no
-local note and no machine-local memory carries anything the repository does not.
+**Everything the plan-writing produced is in git and nothing else is.** No scratch file, no local
+note and no machine-local memory carries anything the repository does not.
 
-```bash
-git fetch origin
-git checkout claude/netcode-rendering-plans-003970
-```
+The six plans written on 2026-09-05 landed on worktree branches off
+`claude/gameplay-netcode-architecture-bgp8f6` — N4, V3, N5 and V4 on
+`claude/netcode-rendering-plans-003970`, N6 and V5 on `claude/netcode-rendering-plans-1b2533`, each
+cut from `development/main`. Both touch only `docs/`, so neither can conflict with code work in
+flight; merge them whenever you like.
 
-That branch is cut from `development/main` at `bd7b36a` and holds the four plans written on
-2026-09-05 plus their ledger edits. Merge it into `development/main` whenever you like — it touches
-only `docs/`, so it cannot conflict with code work in flight.
-
-**To write N6 and V5, that checkout is the whole prerequisite.** Plan-writing reads markdown and
-source and writes markdown; it needs no install, no build and no browser. Hand the writer
-[`plan-authoring-brief.md`](plan-authoring-brief.md) and its assignment from section 5 — **the
-brief's paths are repo-relative as of 2026-09-05**, having previously hardcoded the first session's
-checkout (`/home/user/…`) and plugin cache, which were wrong on every other machine.
+**Plan-writing needed nothing per-machine**: it reads markdown and source and writes markdown, with
+no install, no build and no browser. If a plan is ever added to this folder, hand its writer
+[`plan-authoring-brief.md`](plan-authoring-brief.md) — **the brief's paths are repo-relative as of
+2026-09-05**, having previously hardcoded the first session's checkout (`/home/user/…`) and plugin
+cache, which were wrong on every other machine.
 
 **To *execute* a plan, three things are per-machine and none of them is in git** — all three are in
 the root `CLAUDE.md` and are repeated here because a fresh machine is exactly when they bite:
@@ -154,17 +168,19 @@ A general rule for any future interruption: a half-written plan must never be le
 name, because the next plan in that stream builds on its `## Handoff`. That rule is what made the V2
 draft finishable rather than a rewrite.
 
-## 2. How to write the remaining plans
+## 2. How these plans were written (kept for any that are added later)
 
 Each plan is written by one worker in its own context. Hand that worker:
 
 1. [`plan-authoring-brief.md`](plan-authoring-brief.md) — the shared rules, read first and in full.
 2. The plan's own assignment from section 5 below, verbatim.
 
-**Order matters.** Within a stream each plan reads the previous plan's `## Handoff`, so they are
-written in order: N6 is last in the netcode stream and V5 is last in the rendering one (N4, N5, V3
-and V4 are all done). The two are in different streams and therefore independent. **One round
-remains**: N6 and V5, together or in either order.
+**Nothing remains to be written**, so this section is now a record of how the fourteen were produced
+rather than a procedure to follow. It is kept because the same method applies to any plan added to
+this folder later — a second N3 under approach B (section 6's fallback), say.
+
+**Order mattered.** Within a stream each plan reads the previous plan's `## Handoff`, so they were
+written in order; across streams they are independent and were written in pairs.
 
 **After each plan comes back:**
 
@@ -259,10 +275,13 @@ filled and ram feedback works. Two things are still not available and still need
 Both would be fixed by the same additive change to `resolveContacts`' return value. Ask the user
 before making it.
 
-## 5. The remaining assignments, verbatim
+## 5. The assignments, verbatim — a record of what each plan was asked for
 
-Hand each of these to a worker together with [`plan-authoring-brief.md`](plan-authoring-brief.md).
-Every one ends with the same closing rule: *no model or AI product names anywhere in the plan;
+**Every one of these has been written**, so nothing here is an instruction any more. They are kept
+because an assignment is the only record of what a plan was *asked* for, which is how a later reader
+tells whether it delivered — N6 and V5's assignments in particular, since those two plans depart from
+their sketch in ways their own Handoffs argue for. Each was handed to a worker together with
+[`plan-authoring-brief.md`](plan-authoring-brief.md), and every one ends with the same closing rule: *no model or AI product names anywhere in the plan;
 nothing under `packages/client/src/match/` imports Phaser and no test imports Phaser; end with
 `## Acceptance` and `## Handoff`; the 500–1,400 line target is a guide, not a cap — siblings run
 1,400–3,800 lines and the No-Placeholders rule wins; do not elide code to hit a number.*

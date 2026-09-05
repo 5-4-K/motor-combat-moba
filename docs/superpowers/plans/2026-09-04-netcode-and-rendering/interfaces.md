@@ -97,7 +97,7 @@ Car fields are **session ids** at this level; the codec maps them to car indices
 ### `net/codec.ts` — produced N2, consumed N3, N4, N5, N6
 
 ```ts
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 1;   // N6's volley-compression task raises it to 2 — see below
 export const QUANT = { posPerUnit: 16, angleSteps: 65536, speedPerUnit: 16 } as const;
 
 export interface SnapshotSlot { weaponId: string; stocks: number; rechargeEndsTick: number; refireLockUntilTick: number }
@@ -146,6 +146,29 @@ export function decodePong(bytes: Uint8Array): PongMessage;
 ```
 
 `Roster` is `net/roster.ts` below. `SimBody.angle` is wrapped to `[0, 2π)` by `quantizeBody`.
+
+### `net/volley.ts` — produced N6 (evidence-gated; may never be run)
+
+```ts
+export const FAN_MAX_PELLETS = 8;
+export const FAN_TOLERANCE_UNITS: number;          // 2 / QUANT.posPerUnit
+export interface FanSpec {
+  ownerIndex: number; firstShotSeq: number; weaponId: string; memberMask: number;
+  x: number; y: number; angle: number; distance: number;
+}
+export function isFanEligible(weaponId: string): boolean;
+export function fanReferenceIndex(memberMask: number): number;
+export function fanPelletPose(fan: FanSpec, index: number, pellets: number, spreadRad: number): { x: number; y: number; angle: number };
+export function expandFan(fan: FanSpec): SnapshotInstance[];
+export function fansFrom(instances: readonly SnapshotInstance[]): { fans: FanSpec[]; rest: SnapshotInstance[] };
+```
+
+**`FanSpec` never leaves the codec.** `encodeSnapshot` folds eligible pellets into fans and
+`decodeSnapshot` expands them back, so `Snapshot.instances` keeps its shape, order and identity rule
+and nothing above `net/` changes. `PROTOCOL_VERSION` becomes **2** when this lands, which refuses
+every older client at join — the mechanism N11 already provides. `pepperbox` is the only eligible row
+on the shipped table. See [`16-netcode-6-optional.md`](16-netcode-6-optional.md) Task 1, whose gate is
+the harness's N8 row and is expected to read false.
 
 ### `net/roster.ts` — produced N2, consumed N3+
 
@@ -244,7 +267,23 @@ export function telegraphAudit(): TelegraphViolation[];   // reports; never enfo
 ```
 
 N31 read against the live `WEAPON_TABLE`. Today it names exactly `thunderclap`. Changing that row is
-a balance edit and belongs to N6.
+a balance edit and belongs to N6 — [`16-netcode-6-optional.md`](16-netcode-6-optional.md) **Task 4**,
+which raises `startUpMs` 0 → 150, inverts this module's first test to expect an empty audit, and
+carries the `npm run build:manual`, `protocolHash` and `configFingerprint` consequences in full. Until
+that task runs the audit is non-empty by design and its test pins the violating SET, not its absence.
+
+### `net/input-log-read.ts` (server) — produced N6
+
+```ts
+export interface InputLogEntry { tick: number; sessionId: string; input: InputFrame }
+export interface ParsedInputLog { header: InputLogHeader | undefined; entries: InputLogEntry[] }
+export function parseInputLog(text: string): ParsedInputLog;
+export function inputsByTick(log: ParsedInputLog): Map<number, Map<string, InputFrame>>;
+export function steerRunLengths(log: ParsedInputLog): number[];
+```
+
+Reads N0's `InputLog` back. `steerRunLengths` is the measurement `NET_CONFIG.remoteSteerHoldTicks`
+was guessing at (spec §13's open question), and N6 Task 5's harness sweep is what consumes it.
 
 ### Schema (`schema/PlayerState.ts`, `schema/ArenaState.ts`)
 
@@ -509,6 +548,31 @@ export class ColyseusTransport implements MatchTransport {
 export class LoopbackTransport implements MatchTransport { /* for tests and the harness; pairs with a server-side peer */ }
 ```
 
+### `match/webtransport.ts` and `match/transport-select.ts` — produced N6 (evidence-gated; may never be run)
+
+```ts
+export interface DatagramSocket {
+  readonly datagrams: { readable: ReadableStream<Uint8Array>; writable: WritableStream<Uint8Array> };
+  readonly closed: Promise<unknown>;
+  close(): void;
+}
+export class WebTransportTransport implements MatchTransport {
+  constructor(socket: DatagramSocket, fallback: MatchTransport);
+  start(): void; stop(): void;
+  readonly datagramsIn: number; readonly datagramsOut: number; readonly degraded: boolean;
+}
+export type TransportKind = "colyseus" | "webtransport";
+export function transportKind(search?: string, capable?: boolean): TransportKind;
+export function openTransport(room: Room<ArenaState>, endpoint: string): Promise<MatchTransport>;
+```
+
+The third implementation of the same five-member interface, and it **composes** rather than replaces:
+it takes the Colyseus transport as its `fallback`, forwards `onRoster` to it verbatim — a lost roster
+is unrecoverable, a lost snapshot is replaced 16.7 ms later — and hands everything back on
+`degraded`. `?transport=colyseus` forces the reliable path on and is the field diagnostic. Gated on
+the Colyseus 0.18 upgrade and on a certificate the browser trusts; see
+[`16-netcode-6-optional.md`](16-netcode-6-optional.md) Tasks 2 and 3.
+
 ### `match/prediction.ts` — N3
 
 ```ts
@@ -587,9 +651,14 @@ export interface PredictedManeuver {                           // N4
 | `render/particles.ts` | `class ParticleService { constructor(make, tier?); burst(kind, x, y, count, priority): number; stream(kind, follow, rate); setCap(n); update(deltaMs); clear(); destroy(); readonly live/cap/refused }`, `ParticleEmitterLike`, `makePhaserEmitter`. The emitter factory is **injected**, which is what makes the whole budget unit-testable in node. Caps come from `config/particles.ts`'s `PARTICLE_CONFIG.caps` (96/256/512, R21), keyed by `BakeTier`, and `setCap` is V5's hook | V4 | V5 |
 | `render/decals.ts` | `class DecalService { constructor(make, tier?); place(def: DecalDef, x, y, angle): boolean; update(deltaMs); setCap(n); clear(); destroy(); readonly live/cap }`, `DecalSprite`, `makeDecalSprite`; `DECAL_CONFIG` and `DecalDef` in `config/decals.ts`, and **`DECAL_DEFS = []`** — empty is the decision (R12a), asserted by `decals.test.ts` and by a `bench-arena.mjs` failure that fires if a decal is ever live | V4 | V5 |
 | `render/effects.ts` | `class EffectRouter { constructor(particles, decals, camera, opts?); onEvents(events: readonly MatchEvent[]); drainSeen() }`, `EffectCamera`, `makeEffectCamera`; the table it reads is `render/feedback-table.ts`'s `FEEDBACK_TABLE` and `eventMagnitude` (R18). **The only consumer of `RenderFrame.events`**, and it places no decal | V4 | V5 |
-| `dev/BenchScene.ts` — the census | `SceneCensus` and `BenchProbe.census()`, on `window.__bench`. **A surface four phases widen**: V1 creates it, V2 adds `worldGraphicsNames` and `worldClears`, V3 adds `worldRopeVertices`, V4 adds `particlesLive`, `particlesRefused`, `decalsLive` and `effectsByKind`. Each phase appends fields and never renames one; `scripts/bench-arena.mjs` reads it and its `benchFailures` is the single pure list of hard failures. **V3 makes `WORLD_CLEARS_ALLOWED` empty** — the world clears no `Graphics` at all unless `?debug=1` is set, and the debug object is not created until it is. **V4 adds a failure that fires when `decalsLive` is non-zero**, which is a guard against R12a's decision drifting rather than against a bug | V0/V1 | V1, V2, V3, V4, V5 |
-| `render/tiers.ts` | `TIER_TABLE`, `class TierManager`, and `export type Tier = BakeTier` re-exported from `render/bake.ts` — `bake.ts` owns the union because V1 needs it and V5 must not be a dependency of V1 | V5 | — |
-| `render/governor.ts` | `class FrameGovernor { observe(frameMs); allowCosmetic(): boolean }` | V5 | — |
+| `dev/BenchScene.ts` — the census | `SceneCensus` and `BenchProbe.census()`, on `window.__bench`. **A surface five phases widen**: V1 creates it, V2 adds `worldGraphicsNames` and `worldClears`, V3 adds `worldRopeVertices`, V4 adds `particlesLive`, `particlesRefused`, `decalsLive` and `effectsByKind`, **V5 adds `tier`, `dpr` and `governorShedding`** and is the last. Each phase appends fields and never renames one; `scripts/bench-arena.mjs` reads it and its `benchFailures` is the single pure list of hard failures. **V3 makes `WORLD_CLEARS_ALLOWED` empty** — the world clears no `Graphics` at all unless `?debug=1` is set, and the debug object is not created until it is. **V4 adds a failure that fires when `decalsLive` is non-zero**, which is a guard against R12a's decision drifting rather than against a bug. **V5 adds one that fires when the reported `tier` is not the `?tier=` the runner asked for**, because a pin that does not reach the bake makes every number in that row a number from the wrong tier; it deliberately does *not* assert R25's frame-time lines, which are read by a person on the reference machine | V0/V1 | V1, V2, V3, V4, V5 |
+| `render/tiers.ts` | `TIER_TABLE`, `class TierManager`, and `export type Tier = BakeTier` re-exported from `render/bake.ts` — `bake.ts` owns the union because V1 needs it and V5 must not be a dependency of V1. Beside them, additive: `TIERS` (worst first — the order *is* the meaning of up and down), `TierSpec`, `TIER_CONFIG` (R22's five numbers), `tierFromSearch` (`?tier=`, which is what lets `bench-arena.mjs` measure a tier it could not otherwise reach). **`TIER_TABLE` READS `PARTICLE_CONFIG.caps`, `DECAL_CONFIG.maxLive`, `FLAME_FRAMES`, `BAKE_SUPERSAMPLE` and `BAKE_SHEET_PX` and restates none of them**; only `dprCap`, `statusFlipbooks`, `filters` and `floorAmbience` are literals here, and `tiers.test.ts` asserts the other five agree | V5 | — |
+| `render/governor.ts` | `class FrameGovernor { constructor(cfg?); observe(frameMs); allowCosmetic(): boolean; readonly shedding }` and `GOVERNOR_CONFIG` (`overrunMs` 12, `recoverFrames` 6). **`overrunMs` must stay below `TIER_CONFIG.downMs`** — the governor is the per-frame reflex and the tier is the five-second decision, and `governor.test.ts` pins the ordering | V5 | — |
+| `render/tier-storage.ts` | `TIER_STORAGE_KEY` (`"motor-combat.render.v1"`), `TierChoice`, `loadTierChoice`, `saveTierChoice` — a `Storage` seam in the shape of `practice/storage.ts`. **Two values, not one**: `choice` is the player's pin (or `"auto"`) and `measured` is where the auto-tier last settled, so unpinning does not discard a measurement | V5 | — |
+| `render/render-scale.ts` | `ScreenCamera`, `renderDpr`, `deviceSize`, `worldZoom`, `applyScreenCamera`, `bindRenderScale`, `installRenderScale`, `RENDER_SCALE_DPR`, `WORLD_SCENE_KEYS` (R17). `RENDER_SCALE_DPR` is computed **once at module load** and never changes: the canvas cannot be resized under a running game. A screen-space camera takes origin `(0, 0)`, scroll `(0, 0)` and zoom `dpr`, which collapses Phaser's view matrix to `screen = dpr × logical`; the world camera keeps its centred origin and takes its viewport and zoom scaled together, so **the world window is identical at every dpr** — the fairness invariant the server's `buildBotView` shares. `scripts/render-scale.test.mjs` fails until a new scene is classified | V5 | — |
+| `render/filters.ts` | `FILTER_CONFIG`, `FilterHost`, `ParallelLike`, `class CameraFilters { setEnabled(on); boost(); update(deltaMs); destroy(); readonly enabled/bloomAmount }` (R19). Camera-level only, tier High only; `blend.amount` is the bloom's strength and the explosion/death boost's handle. **Phaser 4.2.1 has no half-resolution knob for a filter**, so R19's "half-resolution Bloom" ships as `blurQuality: 0` with 4 steps — recorded in V5's Handoff | V5 | — |
+| `render/bake.ts` (fifth extension) | `bakedTier()` — **the tier the atlas on the GPU was actually baked at**, fixed for the session. Five of the seven tier call sites read it rather than the live tier, because a mid-match re-bake is a stall on the machine least able to afford one; only `ParticleService.setCap` and `DecalService.setCap` follow a live change, and the player is told to restart through `MatchBanners.setTierNotice` | V5 | — |
+| `render/effects.ts` (V5's two options) | `EffectRouterOptions` gains `filters?: { boost(): void }` (R19's event bloom boost — the fourth constructor argument V4's Handoff offered) and `allowCosmetic?: () => boolean` (the governor). `FeedbackSpec` gains `bloom?: boolean`, set on two rows. **An informative effect never asks the governor** (R9) | V5 | — |
 
 ---
 
