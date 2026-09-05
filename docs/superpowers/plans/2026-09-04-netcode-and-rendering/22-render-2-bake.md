@@ -1,32 +1,3 @@
-> # ⚠ UNFINISHED DRAFT — DO NOT EXECUTE
->
-> Plan-writing was interrupted on 2026-09-05, at a **clean task boundary**: Tasks 1-6 below are
-> complete, each ending with its verification and commit step. Roughly 85 % of the plan is here.
->
-> **What is missing:**
->
-> 1. **The measurement-and-guard task** (the assignment's item 6): draw calls ≤ 16 at the ceiling
->    measured in the bench scene; `sceneCensus` and `scripts/bench-arena.mjs` extended so a
->    per-frame world `Graphics` outside the floor and the beam layer **fails** rather than being
->    spotted by eye; `scripts/world-retained.test.mjs` as the source guard; V2's numbers recorded
->    beside V0's and V1's in `docs/render-bench.md`. This task was planned, not forgotten — its
->    files are already listed in the File Structure table below.
-> 2. `## Acceptance`, `## Handoff` and `## Self-review`.
->
-> **The missing `## Handoff` is the real blocker.** V3 is written by reading it; without it, V3's
-> author has to reverse-engineer V2's exports out of 3,131 lines of task bodies.
->
-> **Recommended: finish it, do not restart.** Hand a worker
-> [`plan-authoring-brief.md`](plan-authoring-brief.md), the V2 assignment in
-> [`PROGRESS.md`](PROGRESS.md) §5, and this draft; ask for the missing task and the three sections,
-> then rename to `22-render-2-bake.md`. One caution: **the ledger moved after this draft began** —
-> see PROGRESS §3 — so the worker must re-check Tasks 1-6 against the current
-> [`interfaces.md`](interfaces.md) rather than trusting them.
->
-> Everything below this line is the interrupted draft, unreviewed.
-
----
-
 # Rendering Phase V2: Bake Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -3158,3 +3129,1042 @@ every non-drawing read uses."
 ```
 
 ---
+
+### Task 7: Measure it, guard it, write it down
+
+**Files:**
+- Create: `scripts/world-retained.test.mjs`
+- Modify: `packages/client/src/dev/BenchScene.ts` (the census on `window.__bench`)
+- Modify: `scripts/bench-arena.mjs`, `scripts/bench-arena.test.mjs`
+- Modify: `docs/render-bench.md`, `CLAUDE.md`, `packages/client/CLAUDE.md`, `docs/project-structure.md`
+
+**Interfaces:**
+- Consumes: V0's `BenchProbe`, `window.__bench`, `formatBenchRows`, `BENCH_ARENA_DEFAULTS`, `PerfReport.drawCalls`; V1's `sceneCensus`, `SceneCensus`, `BenchProbe.census()`, `formatCensusRow`, `HUD_SCENE_KEY`; Task 5's `WORLD_GFX_BEAMS`; Task 6's `WORLD_GFX_FLOOR`.
+- Produces: `SceneCensus.worldGraphicsNames`, `SceneCensus.worldClears`, `UNNAMED_GRAPHICS` (`dev/BenchScene.ts`); `DRAW_CALL_CEILING`, `WORLD_GRAPHICS_ALLOWED`, `WORLD_CLEARS_ALLOWED`, `DRAW_CALLS_UNAVAILABLE`, `benchFailures` and a widened `formatCensusRow` (`scripts/bench-arena.mjs`); `scripts/world-retained.test.mjs`. V3 tightens all three lists.
+
+**How the two acceptance facts are checked without eyes.** The V2 gate is two sentences — "no
+per-frame `Graphics` on the world path except beams and debug" and "draw calls ≤ 16 at the ceiling"
+— and neither is a p95, so neither is read off a chart. Each is checked twice, the same way V1
+checked its two:
+
+1. **A source guard in `npm test`** (`scripts/world-retained.test.mjs`) — the world's own files may
+   not name a `Graphics`, a `Text`, an immediate-mode fill, a blend mode or a bare depth. It catches
+   the regression at the moment it is typed, in the suite everyone runs, and it is the only one of
+   the two that runs without a browser.
+2. **A live census in `npm run bench:arena`** — the bench walks every active scene's display list,
+   counts objects by type, **names** every world `Graphics` it finds, and counts how many times each
+   one `clear()`ed per rendered frame. Three of those become hard failures that exit 1. This is the
+   one that cannot be fooled by a re-export or a dynamic `add`: it counts what the renderer actually
+   holds while it is being measured.
+
+**Why the guard counts CLEARS, not `Graphics` objects.** V2 deliberately leaves two `Graphics` in
+the world and they are not the same kind of thing. The arena floor is drawn **once** at match start
+and never touched again — retained, by R3's own definition, and costing one draw call for the life of
+the match. The beam layer is cleared and refilled every frame, which is exactly what R3 forbids and
+exactly what V3 deletes. A guard that counted objects would have to allow both and could then not
+tell a third one apart from the floor; a guard that counts clears allows the floor to exist while
+failing anything else that refills itself, **including a repaint of the floor**. That is why the
+census carries `worldClears` keyed by object name and not a single number.
+
+**The draw-call arithmetic this is checking.** Bottom to top at the bench ceiling, with the batch
+breaking wherever the texture changes:
+
+| Band | What is in it | Texture | Draw calls |
+|---|---|---|---|
+| `Floor` | `arena.floor`, drawn once | none (`Graphics`) | 1 |
+| `Shots` | every projectile body and charge orb | `baked-atlas` | 1 |
+| `Shots` +1 | `shots.beams` — 12 flames and 2 bolts | none (`Graphics`) | 1–3, depending on how often the flame's triangle count overruns Phaser's batch |
+| `Cars` | six car bodies, each in its own container | `art-atlas` | 1 — or up to 6 if some chassis have art and some fall back to the baked silhouette, because the texture then alternates per car |
+| `Cars` band offsets | hp bars, bracket, ghosts, arrow | `baked-atlas` | 1 |
+| H0–H2 | the HUD's chrome and its text | `baked-atlas`, `hud-font` | 2–4 (V1's number) |
+
+**7–13 at the ceiling, against a limit of 16.** The two places it can go wrong are both visible in
+the row above: a mixed car roster costs up to five extra calls, and a `setBlendMode` anywhere in the
+world flushes the batch on every object that carries it — which is the concrete reason R4 forbids
+per-object blends and `world-retained.test.mjs` greps for them. If the printed number is over 16,
+read the census row first: the object count says which band grew.
+
+- [ ] **Step 1: Write the source guard**
+
+```js
+// scripts/world-retained.test.mjs
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, it } from "node:test";
+
+const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const clientSrc = path.join(rootDir, "packages", "client", "src");
+const arenaDir = path.join(clientSrc, "scenes", "arena");
+
+/**
+ * The world's retained sources: after V2 every shape they put on screen is a frame out of
+ * `baked-atlas` or `art-atlas`, placed, rotated, scaled and tinted, and nothing they own is
+ * cleared and refilled. This is `scripts/hud-retained.test.mjs` one scene over.
+ */
+const WORLD_RETAINED = [
+  "scenes/ArenaScene.ts",
+  "scenes/arena/car-renderer.ts",
+  "scenes/arena/car-sprites.ts",
+  "scenes/arena/shot-sprites.ts",
+  "scenes/arena/hitbox-toggle.ts",
+  "scenes/arena/spectate-camera.ts",
+  "scenes/arena/world-style.ts",
+];
+
+/**
+ * The two files allowed to hold a world `Graphics`, and the `name` each one's object carries.
+ *
+ * The names are the contract between this guard and the live census in `scripts/bench-arena.mjs`:
+ * the runner allow-lists exactly these two strings, so a `Graphics` that reaches the screen under
+ * any other name fails there even though this file cannot see it. Both halves are needed, which is
+ * why the constant's VALUE is asserted below and not just its presence.
+ */
+const WORLD_GRAPHICS_ALLOWED = {
+  "scenes/arena/arena-floor.ts": "arena.floor",
+  "scenes/arena/shot-renderer.ts": "shots.beams",
+};
+
+/**
+ * Debug overlays, which are allowed everything: spec section 4's layer 7 is `Graphics` by design
+ * and R3's rule ends "except behind a debug flag". Nothing here is on a match's frame path — the
+ * netgraph exists only under `?debug=net` — so the census never sees one either.
+ *
+ * Listed rather than pattern-matched so a new overlay has to be added on purpose. A file named here
+ * that does not exist yet is skipped: `netgraph-overlay.ts` arrives with the netcode stream's phase
+ * 0, and the two streams merge independently.
+ */
+const WORLD_DEBUG_ALLOWED = ["scenes/arena/netgraph-overlay.ts"];
+
+/**
+ * Immediate-mode drawing, canvas text, per-object blends and bare depths — the four things the
+ * world may no longer do.
+ *
+ * A `Graphics` is re-transformed and re-triangulated every frame per camera whether or not it was
+ * refilled, and `FillPath` runs earcut per fill with nothing cached (rendering spec section 1). A
+ * per-object `setBlendMode` flushes the batch, which is R4's whole point: the band owns the blend
+ * and `render/layers.ts` applies it once at creation. A bare `setDepth` is a layer whose position
+ * is an accident of insertion order, which is what `depthOf` exists to stop.
+ */
+const FORBIDDEN = [
+  [/\badd\.graphics\b/, "add.graphics — bake the shape in render/bake.ts and place a worldSprite"],
+  [/\bGameObjects\.Graphics\b/, "a Graphics field — the world is retained sprites"],
+  [/\badd\.text\b/, "add.text — the world draws no strings; HudScene owns text"],
+  [/\bGameObjects\.Text\b/, "a Text field — the world draws no strings"],
+  [/\.fill(Circle|Rect|Ellipse|RoundedRect|Points|Triangle)\(/, "an immediate-mode fill"],
+  [/\.stroke(Circle|Rect|Points|Path)\(/, "an immediate-mode stroke"],
+];
+
+/** Forbidden everywhere in the world, including the two files that may hold a `Graphics`. */
+const FORBIDDEN_EVERYWHERE = [
+  [/\.setBlendMode\(/, "setBlendMode — the band owns the blend (R4); use a Layer, not a mode"],
+  [/\.setDepth\((?!depthOf\()/, "a bare setDepth — every world depth comes from depthOf(Layer…)"],
+];
+
+/** `null` for a file this tree does not have yet; see `WORLD_DEBUG_ALLOWED`. */
+function readIfPresent(relative) {
+  const abs = path.join(clientSrc, relative);
+  return fs.existsSync(abs) ? fs.readFileSync(abs, "utf8") : null;
+}
+
+function hits(source, rules) {
+  return rules.filter(([pattern]) => pattern.test(source)).map(([, why]) => why);
+}
+
+describe("the world is retained", () => {
+  for (const relative of WORLD_RETAINED) {
+    it(`${relative} draws no Graphics and no Text`, () => {
+      const source = readIfPresent(relative);
+      assert.notEqual(source, null, `${relative} is missing`);
+      assert.deepEqual(hits(source, FORBIDDEN), []);
+    });
+  }
+
+  for (const relative of [...WORLD_RETAINED, ...Object.keys(WORLD_GRAPHICS_ALLOWED)]) {
+    it(`${relative} sets no blend mode and no bare depth`, () => {
+      const source = readIfPresent(relative);
+      assert.notEqual(source, null, `${relative} is missing`);
+      assert.deepEqual(hits(source, FORBIDDEN_EVERYWHERE), []);
+    });
+  }
+});
+
+describe("the two world Graphics V2 leaves behind", () => {
+  for (const [relative, name] of Object.entries(WORLD_GRAPHICS_ALLOWED)) {
+    it(`${relative} creates exactly one Graphics and names it "${name}"`, () => {
+      const source = readIfPresent(relative);
+      assert.notEqual(source, null, `${relative} is missing`);
+      assert.equal((source.match(/\badd\.graphics\b/g) ?? []).length, 1);
+      assert.match(source, /\.setName\(WORLD_GFX_[A-Z]+\)/);
+      // The name the census allow-lists, pinned at its definition rather than at its use.
+      assert.match(source, new RegExp(`WORLD_GFX_[A-Z]+ = "${name.replace(/\./g, "\\.")}"`));
+    });
+  }
+});
+
+describe("the guard covers the whole world", () => {
+  it("names every arena source that exists, so a new file cannot sidestep it", () => {
+    const known = new Set([
+      ...WORLD_RETAINED,
+      ...Object.keys(WORLD_GRAPHICS_ALLOWED),
+      ...WORLD_DEBUG_ALLOWED,
+    ]);
+    const onDisk = fs
+      .readdirSync(arenaDir)
+      .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
+      .map((f) => `scenes/arena/${f}`);
+    assert.deepEqual(
+      onDisk.filter((f) => !known.has(f)),
+      [],
+    );
+  });
+
+  it("keeps setBlendMode to the one file that owns it", () => {
+    const layers = fs.readFileSync(path.join(clientSrc, "render", "layers.ts"), "utf8");
+    assert.match(layers, /\.setBlendMode\(LAYER_BLEND\[layer\]\)/);
+  });
+});
+```
+
+- [ ] **Step 2: Run it**
+
+Run: `node --test scripts/world-retained.test.mjs`
+Expected: PASS after Tasks 5 and 6. If a case fails, the named file still holds a `Graphics`, a
+blend mode or a bare depth and the task that was meant to remove it is not finished — fix the
+source, never the list.
+
+- [ ] **Step 3: Extend the census in `dev/BenchScene.ts`**
+
+V1's `SceneCensus` gains two fields and the module gains a clear counter. Everything V1 wrote stays;
+the substitutions are additive.
+
+Widen the interface:
+
+```ts
+/** What the renderer is actually holding, counted off the live display lists. */
+export interface SceneCensus {
+  /** Every `Text` in every active scene. V1's acceptance number: 0. */
+  text: number;
+  /** `Graphics` in the HUD scene. V1's other acceptance number: 0. */
+  hudGraphics: number;
+  /** `Graphics` outside the HUD scene. V2 leaves two; V3 leaves one. */
+  worldGraphics: number;
+  /**
+   * The `name` of each of them, sorted — `"(unnamed)"` for one that carries none.
+   *
+   * The count alone cannot say whether the two that survived are the two that were meant to, and a
+   * regression usually ADDS an object rather than replacing one. The names are what let the runner
+   * fail with "world Graphics cars.hp" instead of "3 (expected 2)".
+   */
+  worldGraphicsNames: string[];
+  /**
+   * `Graphics.clear()` calls per rendered frame, by object name, since the previous census.
+   *
+   * This is the number the V2 gate is actually about. A `Graphics` that never clears was drawn once
+   * and is retained (the arena floor); one that clears every frame is immediate-mode drawing. Only
+   * `shots.beams` may appear here, and V3 empties the list.
+   */
+  worldClears: Record<string, number>;
+  bitmapText: number;
+  images: number;
+  total: number;
+}
+
+/** A `Graphics` with no `name`, so an offender is reported rather than counted as blank. */
+export const UNNAMED_GRAPHICS = "(unnamed)";
+```
+
+Add the counter above `sceneCensus`:
+
+```ts
+/** Clears since the previous census, by object name, and the frames they were spread over. */
+const graphicsClears = new Map<string, number>();
+let framesSinceCensus = 0;
+let clearCounterInstalled = false;
+
+/**
+ * Count every `Graphics.clear()` in the game, by the object's `name`.
+ *
+ * A prototype patch rather than a wrapper per object, because the point is to catch a `Graphics`
+ * nobody wrote down — one added by a future renderer, or by a library — and a wrapper can only
+ * count the ones somebody remembered to wrap. It lives in `dev/BenchScene.ts`, which
+ * `scripts/build-release.mjs` asserts is absent from a release, so no shipped build carries it.
+ *
+ * It counts the HUD's clears too. That is harmless: `hudGraphics` is already 0 and failing, so a
+ * HUD `Graphics` is reported by the check above before this one can be confused by it. Only the
+ * bench and the HUD scene are running while the census is read.
+ */
+function installClearCounter(): void {
+  if (clearCounterInstalled) return;
+  clearCounterInstalled = true;
+  const proto = Phaser.GameObjects.Graphics.prototype;
+  const original = proto.clear;
+  proto.clear = function countedClear(this: Phaser.GameObjects.Graphics) {
+    const key = this.name || UNNAMED_GRAPHICS;
+    graphicsClears.set(key, (graphicsClears.get(key) ?? 0) + 1);
+    return original.call(this);
+  };
+}
+```
+
+and read the counter in `sceneCensus`, whose signature is unchanged so `window.__bench.census()` and
+`formatCensusRow` need no edit at their ends:
+
+```ts
+export function sceneCensus(game: Phaser.Game): SceneCensus {
+  const out: SceneCensus = {
+    text: 0,
+    hudGraphics: 0,
+    worldGraphics: 0,
+    worldGraphicsNames: [],
+    worldClears: {},
+    bitmapText: 0,
+    images: 0,
+    total: 0,
+  };
+  for (const scene of game.scene.getScenes(true)) {
+    const hud = scene.scene.key === HUD_SCENE_KEY;
+    for (const obj of scene.children.list) {
+      out.total += 1;
+      if (obj.type === "Text") out.text += 1;
+      else if (obj.type === "Graphics") {
+        if (hud) out.hudGraphics += 1;
+        else {
+          out.worldGraphics += 1;
+          out.worldGraphicsNames.push(obj.name || UNNAMED_GRAPHICS);
+        }
+      } else if (obj.type === "BitmapText") out.bitmapText += 1;
+      else if (obj.type === "Image" || obj.type === "NineSlice") out.images += 1;
+    }
+  }
+  out.worldGraphicsNames.sort();
+  // A rate, so one census over ten seconds and one over one second answer the same thing. The
+  // window is "since the previous census", which for the runner's single call is the whole run.
+  const frames = Math.max(1, framesSinceCensus);
+  for (const [name, count] of graphicsClears) out.worldClears[name] = count / frames;
+  graphicsClears.clear();
+  framesSinceCensus = 0;
+  return out;
+}
+```
+
+Two calls in the scene itself: `installClearCounter();` as the first statement of
+`BenchScene.create`, and `framesSinceCensus += 1;` as the last statement of `BenchScene.update`,
+after `perf.frameEnd()` — a frame the renderers did not finish is not a frame the clears belong to.
+Since `framesSinceCensus` is module-scoped, add the one-line helper beside the counter rather than
+reaching into it from the class:
+
+```ts
+/** One rendered frame, for the clear RATE. Called at the end of `BenchScene.update`. */
+function noteRenderedFrame(): void {
+  framesSinceCensus += 1;
+}
+```
+
+> The census walks each scene's **top-level** display list, so a `Graphics` hidden inside a
+> `Container` would not be counted. Nothing puts one there — after Task 6 a car's container holds
+> two `Image`s — and `world-retained.test.mjs` is what keeps it that way, which is the division of
+> labour between the two checks: the source guard sees what the census cannot reach, and the census
+> sees what the source guard cannot prove.
+
+- [ ] **Step 4: Write the failing test for the runner's new failures**
+
+Append to `scripts/bench-arena.test.mjs`, extending its import from `./bench-arena.mjs` with
+`DRAW_CALLS_UNAVAILABLE`, `DRAW_CALL_CEILING`, `benchFailures`, `formatCensusRow`,
+`WORLD_CLEARS_ALLOWED` and `WORLD_GRAPHICS_ALLOWED`:
+
+```js
+/** The shape V2 is supposed to leave behind, as the census reports it. */
+const CLEAN_CENSUS = {
+  text: 0,
+  hudGraphics: 0,
+  worldGraphics: 2,
+  worldGraphicsNames: ["arena.floor", "shots.beams"],
+  worldClears: { "shots.beams": 1 },
+  bitmapText: 41,
+  images: 96,
+  total: 139,
+};
+const CLEAN_REPORT = { drawCalls: { p50: 9, max: 11 } };
+
+describe("benchFailures", () => {
+  it("passes the shape V2 leaves behind", () => {
+    assert.deepEqual(benchFailures("chromium", CLEAN_CENSUS, CLEAN_REPORT), []);
+    assert.deepEqual(WORLD_GRAPHICS_ALLOWED, ["arena.floor", "shots.beams"]);
+    assert.deepEqual(WORLD_CLEARS_ALLOWED, ["shots.beams"]);
+    assert.equal(DRAW_CALL_CEILING, 16);
+  });
+
+  it("fails a world Graphics nobody allowed, and names it", () => {
+    const census = {
+      ...CLEAN_CENSUS,
+      worldGraphics: 3,
+      worldGraphicsNames: ["arena.floor", "cars.hp", "shots.beams"],
+    };
+    assert.deepEqual(benchFailures("chromium", census, CLEAN_REPORT), [
+      "chromium: world Graphics cars.hp (allowed: arena.floor, shots.beams)",
+    ]);
+  });
+
+  it("fails a Graphics that refills itself even when the object itself is allowed", () => {
+    const census = { ...CLEAN_CENSUS, worldClears: { "arena.floor": 1, "shots.beams": 1 } };
+    assert.deepEqual(benchFailures("chromium", census, CLEAN_REPORT), [
+      'chromium: "arena.floor" cleared 1.00 times per frame (only shots.beams may clear)',
+    ]);
+  });
+
+  it("fails the draw-call ceiling on p50, and reports the number that failed", () => {
+    assert.deepEqual(benchFailures("firefox", CLEAN_CENSUS, { drawCalls: { p50: 17, max: 22 } }), [
+      "firefox: 17 draw calls at the ceiling (must be <= 16)",
+    ]);
+    // Exactly at the line passes, and a single spiking frame is reported but not fatal.
+    assert.deepEqual(benchFailures("firefox", CLEAN_CENSUS, { drawCalls: { p50: 16, max: 40 } }), []);
+  });
+
+  it("does not fail a Canvas run, which counts no draw calls at all", () => {
+    const canvas = { drawCalls: { p50: DRAW_CALLS_UNAVAILABLE, max: DRAW_CALLS_UNAVAILABLE } };
+    assert.deepEqual(benchFailures("firefox", CLEAN_CENSUS, canvas), []);
+  });
+
+  it("still catches V1's two", () => {
+    assert.deepEqual(benchFailures("chromium", { ...CLEAN_CENSUS, text: 2 }, CLEAN_REPORT), [
+      "chromium: 2 Text objects in the arena (must be 0)",
+    ]);
+    assert.deepEqual(benchFailures("chromium", { ...CLEAN_CENSUS, hudGraphics: 1 }, CLEAN_REPORT), [
+      "chromium: 1 Graphics in the HUD scene (must be 0)",
+    ]);
+  });
+});
+
+describe("formatCensusRow", () => {
+  it("names the world's Graphics and their clear rates, so a failure says which object", () => {
+    const line = formatCensusRow("chromium", CLEAN_CENSUS);
+    assert.match(line, /worldGraphics\s+2/);
+    assert.match(line, /world \[arena\.floor, shots\.beams\]/);
+    assert.match(line, /clears \[shots\.beams 1\.00\/f\]/);
+  });
+
+  it("says so when nothing cleared at all — which is what V3 looks like", () => {
+    assert.match(formatCensusRow("firefox", { ...CLEAN_CENSUS, worldClears: {} }), /clears \[none\]/);
+  });
+});
+```
+
+- [ ] **Step 5: Run it to verify it fails**
+
+Run: `node --test scripts/bench-arena.test.mjs`
+Expected: FAIL — `benchFailures` is not exported.
+
+- [ ] **Step 6: Extend `scripts/bench-arena.mjs`**
+
+Beside `BENCH_ARENA_DEFAULTS`:
+
+```js
+/**
+ * The acceptance ceiling on draw calls at the ceiling scene, world plus HUD (rendering spec R25).
+ *
+ * Asserted on p50, not on max: the first frames after the warm-up can bind a texture the steady
+ * state does not, and one such frame is not a regression. `max` is printed beside it so a spike is
+ * still visible to a person, which is the same division V0 drew between reported and asserted.
+ */
+export const DRAW_CALL_CEILING = 16;
+
+/**
+ * The world `Graphics` V2 leaves alive, by the `name` each carries: the arena floor, drawn once at
+ * match start and never cleared, and the beam layer, which is V3's to delete. Any other name on the
+ * display list is a `Graphics` somebody added without writing it down.
+ */
+export const WORLD_GRAPHICS_ALLOWED = ["arena.floor", "shots.beams"];
+
+/**
+ * The only world `Graphics` allowed to clear itself on the frame path. V3 empties this list, which
+ * is the whole of its gate: "no per-frame `Graphics` on the world path except debug".
+ */
+export const WORLD_CLEARS_ALLOWED = ["shots.beams"];
+
+/** `PERF_OVERLAY_CONFIG.drawCallsUnavailable`, restated: the Canvas renderer counts none. */
+export const DRAW_CALLS_UNAVAILABLE = -1;
+
+/**
+ * Every hard failure the census and the report can produce, as messages.
+ *
+ * Pure and exported so `node --test` covers the decisions rather than the plumbing — the runner
+ * below only collects what this returns. V1's two checks moved in here unchanged; V2 adds three.
+ * Every one of them is exact on any machine, which is why they may exit 1 while a frame time,
+ * which is not, is only ever printed.
+ */
+export function benchFailures(browser, census, report) {
+  const out = [];
+  if (census.text !== 0) {
+    out.push(`${browser}: ${census.text} Text objects in the arena (must be 0)`);
+  }
+  if (census.hudGraphics !== 0) {
+    out.push(`${browser}: ${census.hudGraphics} Graphics in the HUD scene (must be 0)`);
+  }
+  const strays = (census.worldGraphicsNames ?? []).filter(
+    (name) => !WORLD_GRAPHICS_ALLOWED.includes(name),
+  );
+  if (strays.length > 0) {
+    out.push(
+      `${browser}: world Graphics ${strays.join(", ")} (allowed: ${WORLD_GRAPHICS_ALLOWED.join(", ")})`,
+    );
+  }
+  for (const [name, perFrame] of Object.entries(census.worldClears ?? {})) {
+    if (perFrame > 0 && !WORLD_CLEARS_ALLOWED.includes(name)) {
+      out.push(
+        `${browser}: "${name}" cleared ${perFrame.toFixed(2)} times per frame ` +
+          `(only ${WORLD_CLEARS_ALLOWED.join(", ")} may clear)`,
+      );
+    }
+  }
+  const draws = report.drawCalls.p50;
+  if (draws !== DRAW_CALLS_UNAVAILABLE && draws > DRAW_CALL_CEILING) {
+    out.push(`${browser}: ${draws} draw calls at the ceiling (must be <= ${DRAW_CALL_CEILING})`);
+  }
+  return out;
+}
+```
+
+Widen V1's `formatCensusRow` with a second line — the counts say how much, the names say what:
+
+```js
+/** Two lines per browser: what the renderer held while it was measured, and what refilled itself. */
+export function formatCensusRow(browser, census) {
+  const clears = Object.entries(census.worldClears ?? {})
+    .map(([name, perFrame]) => `${name} ${perFrame.toFixed(2)}/f`)
+    .sort();
+  return (
+    `${browser.padEnd(9)} text ${String(census.text).padStart(3)}  hudGraphics ${String(census.hudGraphics).padStart(3)}` +
+    `  worldGraphics ${String(census.worldGraphics).padStart(3)}  bitmapText ${String(census.bitmapText).padStart(4)}` +
+    `  images ${String(census.images).padStart(4)}\n` +
+    `${" ".repeat(9)} world [${(census.worldGraphicsNames ?? []).join(", ")}]  ` +
+    `clears [${clears.join(", ") || "none"}]`
+  );
+}
+```
+
+and in the runner, replace V1's two inline `if` statements with the one call — the `census` and
+`report` are already read there:
+
+| Was | Becomes |
+|---|---|
+| `if (census.text !== 0) failures.push(…)` and `if (census.hudGraphics !== 0) failures.push(…)` | `failures.push(...benchFailures(browser, census, report));` |
+
+The `if (failures.length > 0) { … process.exitCode = 1; }` block at the end of `main` is V1's and is
+unchanged.
+
+- [ ] **Step 7: Run the whole thing and record the numbers**
+
+Run:
+
+```bash
+npm run build -w @motor-combat-moba/shared && npm test
+npm run bench:visual
+npm run bench:arena
+node -p "os.cpus()[0].model + ', ' + os.cpus().length + ' cores'"
+git rev-parse --short HEAD
+```
+
+Expected: `bench:arena` prints its per-browser rows, then two two-line census blocks reading
+`text 0`, `hudGraphics 0`, `worldGraphics 2`, `world [arena.floor, shots.beams]` and
+`clears [shots.beams 1.00/f]`, with `draws p50` at or under 16 — and exits 0.
+
+`npm run bench:visual` is expected to be **unchanged** by this phase in the sense that matters and
+changed in the sense that does not: it times the pure builders, which V2 did not make slower or
+faster, but three of them are now called through a thinner at-rest half (Task 2). Run it and record
+it, so V3 — which does move those numbers, because `beamDrawLayers` is its whole subject — has a
+figure taken after the split rather than before it.
+
+If `draws p50` is over 16, do not raise `DRAW_CALL_CEILING`. Read the census's object counts against
+the table at the head of this task: an `images` count that jumped says a pool grew, and a
+`worldGraphics` over 2 says the guard should already have failed.
+
+- [ ] **Step 8: Write the V2 section of `docs/render-bench.md`**
+
+Append after the `## V1 — HUD` section, replacing each `(paste …)` with the real output —
+`grep -c "(paste" docs/render-bench.md` must print `0` before the commit:
+
+````markdown
+## V2 — Bake
+
+Every static world shape became a sprite. `render/bake.ts` runs `projectileDrawLayers`,
+`glowBandsAtRest`, `chargeOrbBandsAtRest`, `hexagonPoints`, `hullOutlinePoints`, `lockBracketArms`
+and `countdownArrowPoints` **once at boot** into `baked-atlas`; `scripts/pack-atlas.mjs` packs the
+twelve authored PNGs into `art-atlas` at build time; `render/layers.ts` replaced the six scattered
+depth constants with one banded plan. Deleted: `hpGfx`, `lockGfx`, `arrowGfx`, `maneuverGfx`, the
+per-car silhouette and hitbox `Graphics`, and the projectile half of `shotGfx`. The world holds two
+`Graphics` objects now — the floor, drawn once, and the beam layer, which is V3's.
+
+`js` and `draw` are the buckets this phase moves; `sim` is 0 in the bench and always has been.
+
+| Metric (`npm run bench:arena`) | V0 baseline | V1 | V2 |
+|---|---|---|---|
+| frame p50 / p95, Chromium | (paste) | (paste) | (paste) |
+| js p50 / p95, Chromium | (paste) | (paste) | (paste) |
+| draws p50 / max, Chromium | (paste) | (paste) | (paste) |
+| frame p50 / p95, Firefox | (paste) | (paste) | (paste) |
+| js p50 / p95, Firefox | (paste) | (paste) | (paste) |
+| textures | (paste) | (paste) | (paste) |
+
+Full output, and `npm run bench:visual` — which times the builders V2 moved off the frame path and
+onto the boot path, so its numbers are now a **bake** cost rather than a frame cost:
+
+```text
+(paste both outputs)
+```
+
+### The census
+
+`npm run bench:arena` now has five hard failures, and exits 1 on any of them: a `Text` anywhere, a
+`Graphics` in the HUD scene, a world `Graphics` whose name is not `arena.floor` or `shots.beams`, a
+world `Graphics` other than `shots.beams` that clears itself on the frame path, and a draw-call p50
+over 16.
+
+```text
+(paste the two census blocks)
+```
+
+`scripts/world-retained.test.mjs` is the same guarantee at the source level and runs in `npm test`:
+no world source may name a `Graphics`, a `Text`, an immediate-mode fill, a `setBlendMode` or a
+`setDepth` that does not come from `depthOf`, and the two files that may hold a `Graphics` must
+create exactly one each and name it.
+
+### Boot cost
+
+The atlas is bigger by sixteen world frames and the client now loads a packed art sheet before the
+loose PNGs. Both are once-per-boot:
+
+```text
+(paste: the browser console's bake timing, and `performance.getEntriesByName` for art-atlas.png)
+```
+
+Machine: (paste). Commit: (paste).
+````
+
+- [ ] **Step 9: Update the prose that names the old code**
+
+| File | Edit |
+|---|---|
+| `CLAUDE.md` (root) | In the Commands block, after the `npm run check:art` line, add the `pack:atlas` line below. In the **Art is the exception** section, after the paragraph that begins "`npm run check:art` is the guardrail for art that did **not** come through an importer", add the paragraph below. |
+| `packages/client/CLAUDE.md` | Replace the paragraph that begins "**Adding detail to shots is cheap; four specific things are not.**" with the version below, and append the world-retained paragraph after it. |
+| `docs/project-structure.md` | Five edits, listed below. |
+
+For root `CLAUDE.md`'s Commands block:
+
+```text
+npm run pack:atlas     # repacks public/art/art-atlas.{png,json} from the loose PNGs (committed artefacts)
+```
+
+For root `CLAUDE.md`'s art section:
+
+```markdown
+**Repainting a PNG in place now owes one more command: `npm run pack:atlas`.** Every manifest sprite
+is packed into `public/art/art-atlas.{png,json}` at build time and the client draws the packed frame,
+falling back to the loose PNG only for a key the sheet has no row for. The atlas carries a
+fingerprint of the source bytes; `npm run check:art` reports a mismatch as a **blocker** and
+`scripts/check-art.test.mjs` runs the blockers inside `npm test`, so a stale sheet fails the suite
+with the command to run rather than quietly shipping last week's icon. The importers still write the
+loose PNG and the manifest row and do **not** repack — run `npm run pack:atlas` after an import too,
+and commit both generated files.
+```
+
+For `packages/client/CLAUDE.md`, replacing the shot-detail paragraph:
+
+```markdown
+**Adding detail to shots is nearly free, and three specific things are not.** Shots are **baked
+sprites**: `render/bake.ts` runs `projectileDrawLayers`, `glowBandsAtRest` and
+`chargeOrbBandsAtRest` once at boot, draws each weapon's body into one frame of `baked-atlas`, and
+`scenes/arena/shot-sprites.ts` draws a live shot as a quad — a position, a rotation, and, for a
+weapon with a flicker or a wind-up, a scale. A band therefore costs atlas area once instead of one
+`fillCircle` per shot per frame, and the fill count that used to be the budget is not a budget any
+more. **Stop and warn before** a per-object `setBlendMode` (forbidden outright in the world:
+`render/layers.ts` owns one blend per band, and a per-object mode flushes the batch — one draw call
+becomes one per shot), a shape whose geometry genuinely changes per frame (that is a beam, and beams
+are the one thing still allowed to build geometry), or a bake job whose tile does not fit the sheet
+at tier Low, which `render/bake.test.ts` fails on. See
+[How much detail a shot can afford](../../docs/asset-pipeline.md#how-much-detail-a-shot-can-afford).
+`afterburner` is still the high-water mark and still the one to measure: a flame is 12 fills and
+~1,040 vertices per instance, fires TWO instances per press, and a room of six Mirages all burning
+is ~144 fills and 12,500 vertices a frame — all of it per frame, because a beam's shape changes.
+**Fills were never the problem — the CPU geometry was.** The first cut of the jet cost 3.8 ms a
+frame to build at that load, 23% of a 60fps budget for one weapon's cosmetics, and none of it was
+where it looked: not the trig, not `Math.pow`, not the allocation. It was re-hashing the same handful
+of noise values ~14 times each and calling through a closure per octave per station. Pre-sampling
+each octave into a per-station array took it to 1.1 ms, bit-identical output. **So the number to
+check a new authored beam against is `ms` to build one frame's worth at the realistic ceiling**, and
+the way to check it is `npm run bench:visual`, not a guess. `carFillOf(colorId)` paints a car,
+`weaponFillOf(weaponId)` paints every instance of a weapon — the same grey for every car's
+`predator`, and only where a weapon has no entry in the three style tables. Drawing a shot needs no
+owner lookup at all (the client never reads `ownerSessionId`), so do not reach for the shooter's
+`PlayerState`; that route was deleted on purpose. `WEAPON_TABLE.color` is render-only and stays off
+the wire.
+
+**The world is retained too, and it holds exactly two `Graphics`.** `arena.floor` is drawn once at
+match start and never cleared; `shots.beams` carries the beam polygons and the `?debug=1` hitbox
+outlines, and is the last per-frame `Graphics` in the world. Everything else — projectile bodies,
+glow bands, charge orbs, hp bars, lock brackets, dash ghosts, charge outlines, countdown arrows, car
+silhouettes and hitbox boxes — is a sprite off `baked-atlas` or `art-atlas`, placed by
+`render/layers.ts`'s `worldSprite`, which is the only thing in the world that assigns a depth or a
+blend mode. Depths are bands (`Layer`, `LAYER_DEPTH`, `CAR_BAND`), never bare numbers, and a look
+that needs additive goes on the Glow band rather than setting a mode.
+`scripts/world-retained.test.mjs` fails the suite if a world source names a `Graphics`, a `Text`, an
+immediate-mode fill, a `setBlendMode` or a `setDepth` that is not `depthOf(...)`, and
+`npm run bench:arena` counts the live display lists, names every world `Graphics` and counts how
+often each one clears, exiting non-zero on a stray or on a draw-call p50 over 16.
+```
+
+For `docs/project-structure.md`:
+
+| Where | Edit |
+|---|---|
+| the `public/art/` block | add `art-atlas.png` and `art-atlas.json` under `manifest.json`, both commented `# generated by npm run pack:atlas, committed` |
+| the top-level `scripts/` lines | add `scripts/pack-atlas.mjs` and `scripts/world-retained.test.mjs` beside V1's `scripts/build-bitmap-font.mjs` and `scripts/hud-retained.test.mjs` |
+| the `render/` block (V1 added it) | add `layers.ts   # Layer/LAYER_DEPTH/CAR_BAND/depthOf/worldSprite: the world's bands` and `sprite-pool.ts # grow-once, order-based pool; zero allocation per frame` |
+| the `scenes/arena/` block | add `world-style.ts  # every world paint constant, plus the hp bar's steps and ease (Phaser-free)`, `car-sprites.ts   # CarDecor: hp bars, bracket, ghosts, arrow as retained sprites` and `shot-sprites.ts  # ShotSprites: the projectile and orb pools` |
+| the closing paragraph "Client tests run in the **node** environment and never import Phaser — `dev/registry.ts` and `assets/car-sprite.ts` reference it as `import type` only" | extend the list with `render/layers.ts`, `render/bake.ts` and `scenes/arena/world-style.ts`, and add `world-style` to the list of plain modules `ArenaScene`'s logic lives in |
+
+- [ ] **Step 10: Full verification and commit**
+
+Run:
+
+```bash
+npm run build -w @motor-combat-moba/shared && npm test
+npm run typecheck
+npm run build
+npm run smoke:arena
+npm run check:art
+npm run build:release
+grep -c "(paste" docs/render-bench.md
+```
+
+Expected: every suite green, including `scripts/world-retained.test.mjs`, `scripts/pack-atlas.test.mjs`,
+`scripts/check-art.test.mjs` and `scripts/bench-arena.test.mjs`; typecheck clean; the build, the
+smoke check and the release all succeed; `check:art` prints its `PACKED ATLAS` block as `current`;
+`grep -c` prints `0`.
+
+```bash
+git add scripts/world-retained.test.mjs scripts/bench-arena.mjs scripts/bench-arena.test.mjs \
+  packages/client/src/dev/BenchScene.ts \
+  docs/render-bench.md CLAUDE.md packages/client/CLAUDE.md docs/project-structure.md
+git commit -m "test(client): guard the retained world and record the V2 render numbers
+
+Five hard failures in bench:arena now: a Text anywhere, a Graphics in the HUD scene, a world
+Graphics that is not arena.floor or shots.beams, a world Graphics other than shots.beams that
+clears itself per frame, and a draw-call p50 over 16.
+
+Moves no playtest probe number: instrumentation, guards and docs only. No probe imports a client
+scene, and nothing in this phase touches sim/, a balance table, the tick order, prediction or
+step-context assembly."
+git push -u origin claude/gameplay-netcode-architecture-bgp8f6
+```
+
+---
+
+## Acceptance
+
+The spec's migration row (§10):
+
+> | V2 Bake | `bake.ts`, `baked-atlas`, `pack-atlas.mjs`; projectiles, glows, orbs, hp bars, brackets, ghosts, arrows as sprites | `shotGfx` for projectiles, `hpGfx`, `lockGfx`, `arrowGfx`, `maneuverGfx` |
+
+and the execution guide's gate row:
+
+> | V2 | no per-frame `Graphics` on the world path except beams and debug; draw calls ≤ 16 at the ceiling |
+
+| Number | How it is demonstrated |
+|---|---|
+| No per-frame `Graphics` on the world path except beams and debug | `npm run bench:arena` → the census block's `world [arena.floor, shots.beams]` and `clears [shots.beams 1.00/f]`, both checked in `benchFailures` and exiting 1 otherwise; and `npm test` → `scripts/world-retained.test.mjs`, which fails if a world source so much as names a `Graphics`, and which pins the two allowed files to one `add.graphics` each. Live: `game.scene.getScene("arena").children.list.filter(o => o.type === "Graphics").map(o => o.name)` is `["arena.floor", "shots.beams"]`. The floor is on the list but not on the *frame* path: it is drawn once at match start and never cleared, which is what `clears` measures and `arena.floor`'s absence from it proves. |
+| Draw calls ≤ 16 at the ceiling | `npm run bench:arena` → the `draws p50 / max` column, with p50 asserted against `DRAW_CALL_CEILING` in `benchFailures` and the run exiting 1 above it. Skipped, not failed, on a Canvas run, which counts no draw calls (`DRAW_CALLS_UNAVAILABLE`); the `renderer` column says which happened. The expected breakdown is the table at the head of Task 7: 5–9 world plus V1's 2–4 HUD. |
+| The deletions actually happened | `grep -rn "hpGfx\|lockGfx\|arrowGfx\|maneuverGfx\|shotGfx\|SHOT_DEPTH\|HP_BAR_DEPTH\|LOCK_DEPTH\|ARROW_DEPTH\|CAR_DEPTH\|MANEUVER_DEPTH\|ARENA_DEPTH" packages/client/src` prints nothing. `git log --stat` shows `shot-sprites.ts`, `car-sprites.ts`, `world-style.ts`, `layers.ts` and `sprite-pool.ts` added. |
+| The picture did not change | `npm test` → `combat-visual.test.ts`'s existing assertions, unchanged, plus Task 2's identity tests (`glowBandsAtRest × glowFlickerScale === instanceGlowBands`, `chargeOrbBandsAtRest × radius/max === chargeOrbBands`, `instanceDrawCentre` is the mean of `instanceDrawShape`'s capsule); and `render/bake.test.ts`, which draws every world job into a recorder and asserts the calls against the same builders. Then by eye, per Tasks 5 and 6: `?dev=bench` for the five projectile bodies, a Practice match for the bar drain, the gold charge outline, the three dash ghosts, the bracket and the countdown arrow, and `?debug=1` for the outlines landing **on** the sprites rather than near them. |
+| D19 still holds — a drawn shot never exceeds its hitbox | `render/bake.test.ts`'s "sizes every shot tile to its own hitbox plus the pad" case: a body frame is baked at the hitbox's own extents, and the only live scale on it is the flicker, which R8's `flickerDepth` rule makes shrink-only. `combat-visual.test.ts` keeps enforcing the builder side. |
+| The atlas is current and ships | `npm test` → `check-art.test.mjs`'s "ships a packed atlas built from exactly this art"; `npm run check:art` → the `PACKED ATLAS` block reading `current`; `npm run build:release` → `assertAtlasShipped`, and `unzip -l motor-combat-moba-release.zip \| grep art-atlas` lists both files. |
+| Boot bake still inside spec R25's < 150 ms | read off the browser console at `?dev=bench` and recorded in `docs/render-bench.md`'s "Boot cost" block. Not asserted: it is a one-off measured on the reference machine, exactly as R25 says. |
+| bench p95 no worse than V1 | `npm run bench:arena` on the same machine, read against the V0 and V1 rows now printed beside V2's in `docs/render-bench.md`. Deliberately not asserted by the runner, for V1's reason: a frame-time threshold on shared hardware fails for reasons that are not the renderer's, and the numbers that *are* exact are asserted instead. |
+| Nothing else changed | root `npm test`, `npm run typecheck`, `npm run build`, `npm run smoke:arena`, `npm run build:release` all pass. `npm run build:manual` is **not** run and is not owed: no balance table, weapon row, chassis row, `COMBAT_CONFIG`, `DRIVE_CONFIG`, `STATUS_TABLE`, `AIM_CONFIG.lockRange`, `TICK_RATE_HZ` or `ARENA_WIDTH` moved, and the guide still links the loose PNGs, which are untouched. |
+
+Spec R25's acceptance table is still read off the instruments by a person on the reference machine.
+V2 moves the world's share of the draw-call row and the client-JavaScript row, and is judged as a
+delta from `docs/render-bench.md`'s V0 and V1 rows — with the one exception that the draw-call
+number, unlike the times, is exact and is therefore asserted rather than read.
+
+## Handoff
+
+Everything below is beyond the ledger. V3 is written against this section; V4 and V5 consume the
+layer plan and the pool.
+
+### `render/layers.ts` (new)
+
+| Export | Shape | For |
+|---|---|---|
+| `enum Layer` | `Floor, Decals, GroundFx, Cars, Shots, Glow, OverlayFx, Debug` — the ledger's member order | every later phase names its band from here and never a number |
+| `LAYER_DEPTH` | `Readonly<Record<Layer, number>>`, bands 100 apart from `-400` | the authority on what draws over what. **`Shots` is `-100` and `Cars` is `0`** — shots draw UNDER cars (D7), which is where the enum's declaration order and the drawn order disagree, on purpose, pinned by `layers.test.ts` |
+| `LAYER_BLEND` | `Readonly<Record<Layer, number>>` | one blend per band. `Glow` and `OverlayFx` are `BLEND_ADD`; everything else is `BLEND_NORMAL` |
+| `BLEND_NORMAL`, `BLEND_ADD` | `0`, `1` | Phaser's `BlendModes` values restated so the module needs no runtime Phaser import; `layers.test.ts` pins both, so a Phaser upgrade that renumbers them fails there |
+| `CAR_BAND` | `{ body: 0, ghost: 2, arrow: 52, bracket: 55, hpBar: 60 }` | offsets inside the `Cars` band. `layers.test.ts` asserts the widest is under the gap to `Glow`, so a new offset cannot climb into the band above |
+| `depthOf(layer, offset = 0)` | `number` | the only arithmetic anyone does on a depth |
+| `worldSprite(scene, layer, offset, texture, frame?)` | `Phaser.GameObjects.Image`, created **invisible** | the single entry point for a world image. It sets depth and blend once and never again. `scripts/world-retained.test.mjs` greps for `setBlendMode` and for a `setDepth` that is not `depthOf(` in every world source, which is what makes R4 checkable rather than aspirational |
+| `worldContainer(scene, layer, offset)` | `Phaser.GameObjects.Container` | the one legitimate exception: children inherit the container's depth and blend, so a car's body and hitbox are added to it rather than going through `worldSprite` |
+
+**Bands that have no inhabitant after V2**, and whose first tenant is named:
+
+- `Decals` — V4's `DecalService` (R12a). Empty table, nothing placed.
+- `GroundFx` — V4's under-car particles.
+- **`Glow`** — **nothing is on it yet, and V3 puts the first thing there.** V2 bakes a projectile's
+  glow bands *into its body frame* rather than as a separate additive sprite, because the shipped
+  picture draws them opaque under the body and moving them to ADD would change the art, not the
+  cost. §5's "one baked radial-gradient disc per weapon on the Glow layer" is therefore only half
+  delivered: the disc is baked, the layer is empty. V3's flame heat halo is the first genuine Glow
+  sprite, and R8's halo allowance (1.5× the hitbox at ≤ 25 % alpha) is entirely unclaimed.
+- `OverlayFx` — V4's death burst and respawn shimmer.
+- `Debug` — nothing uses it: the `?debug=1` outlines ride `shots.beams` at the Shots band so they
+  draw over the sprites they outline, and the netgraph and perf overlays are HUD-scene `BitmapText`.
+
+### `render/sprite-pool.ts` (new)
+
+```ts
+export interface PoolSprite { setVisible(value: boolean): unknown; destroy(): void }
+export class SpritePool<T extends PoolSprite = PoolSprite> {
+  constructor(make: () => T);
+  get size(): number;      // the high-water mark: how many it has ever needed at once
+  begin(): void;
+  next(): T;               // makes one if the pool has never been this busy; sets it visible
+  end(): void;             // hides the tail, never destroys it
+  destroy(): void;
+}
+```
+
+**The contract V3 must honour.** The pool is **order-based, not keyed**: the Nth sprite of this
+frame may belong to a different object than the Nth of the last frame. So every property a caller
+ever sets must be set on **every** call, not only when it changes — frame, position, rotation,
+scale, **alpha and tint included**. `CarDecor.maneuver` is the example that does it right: it sets
+alpha and tint on both branches because a ghost and a charge outline share the `ghosts` pool.
+`ShotSprites.body` sets neither, which is safe only because nothing ever tints a body sprite; the
+first thing that does must also reset it. The guarded-setter trick V1 used on the HUD does **not**
+apply here for the same reason.
+
+### `scenes/arena/world-style.ts` (new, Phaser-free, node-tested)
+
+Moved out of `car-renderer.ts` and `shot-renderer.ts` unchanged: `HITBOX_STROKE`, `HITBOX_PX`,
+`HITBOX_NAME`, `HP_BAR_GEOMETRY`, `HP_BAR_BACK`, `LOCK_COLOR`, `LOCK_WIDTH`, `ARROW_COLOR`,
+`ARROW_ALPHA`, `DASH_GHOST_WIDTH`, `PHASED_ALPHA`. New here: `BAKE_WORLD_PAD_PX` (4 supersampled
+pixels, sized against `wildcharge`'s 3-unit charge outline), `HP_BAR_STEPS` (128),
+`HP_BAR_EASE_PER_SECOND` (2.5), `hpBarStepIndex(fraction)`, `easeHpFraction(drawn, target, deltaMs)`.
+Depths are **not** here — `render/layers.ts` owns the stack. A new world paint constant goes in this
+file so the bake and the frame path read the same number.
+
+### `scenes/combat-visual.ts` (extended)
+
+`UNKNOWN_WEAPON_COLOR`, `UNKNOWN_WEAPON_RADIUS` (newly exported), `glowFlickerScale`,
+`glowBandsAtRest`, `chargeOrbMaxRadius`, `chargeOrbRadius`, `chargeOrbBandsAtRest`,
+`instanceDrawCentre`, `hpBarAnchor`.
+
+The pattern V3 repeats for beams: a builder that folds a time-varying scale into its shape is split
+into an **at-rest half the bake calls** and a **scale the frame path applies to the sprite**, with
+the original rebuilt out of the two so every existing caller and test keeps its exact answer.
+`instanceDrawCentre` is shared by the sprite path and by `instanceDrawShape`, which is what
+guarantees the `?debug=1` outline sits on the sprite rather than near it — V3's beam path must keep
+outlining through `instanceDrawShape` for the same reason.
+
+### `render/bake.ts` (extended; V1 produced it)
+
+| Export | For |
+|---|---|
+| `hudBakeJobs(ss, pill)` | V1's list, renamed. Unchanged body |
+| `worldBakeJobs(ss)` | the sixteen world jobs. **V3 appends its flame flipbook and lance strip as a third list**, and `bakeJobs` becomes a three-way concatenation the same way |
+| `bakeJobs(ss, pill)` | `[...hudBakeJobs(ss, pill), ...worldBakeJobs(ss)]`. Signature unchanged, so `bakeAtlas` needed no edit |
+| `bakedShotWeaponIds()`, `bakedOrbWeaponIds()` | derived from `WEAPON_TABLE`, so a new weapon gets a frame with no edit here |
+| `bakedShotFrame(weaponId)`, `bakedOrbFrame(weaponId)`, `bakedCarFrame(carId)` | name → frame; `bakedShotFrame` falls to `BAKED_SHOT_UNKNOWN` for anything unrecognised |
+| `BAKED_SHOT_UNKNOWN`, `BAKED_CAR_HITBOX`, `BAKED_CAR_OUTLINE_CHARGE`, `BAKED_CAR_OUTLINE_GHOST`, `BAKED_HP_BAR`, `BAKED_LOCK`, `BAKED_ARROW` | the fixed frame names |
+| `worldFrameScale(ss)` | `1 / ss`. **Read at exactly three sites** — `ShotRenderer.unit`, `CarDecor.unit`, `CarRenderer.unit`, each as `worldFrameScale(BAKE_SUPERSAMPLE[BAKE_DEFAULT_TIER])`. V5 replaces the literal default tier at those three and nowhere else |
+| `BakeJob.pad?: number` | the transparent margin baked around a job's content; the registered atlas frame is the tile inset by it, so no origin has to know it exists. HUD jobs leave it 0 |
+| `BakeGraphics.fillEllipse`, `.moveTo`, `.lineTo` | added for the ellipse silhouette and the bracket's eight arms; `bake.test.ts`'s recorder implements all three |
+
+**The world frame-name convention is `baked.world.<class>.<id>`** — `shot`, `orb`, `car`, plus the
+three flat names `hpbar`, `lock`, `arrow`. V3's flipbook frames should follow it
+(`baked.world.flame.<nn>`), with the names built once at module load exactly as V1's
+`SWEEP_FRAME_NAMES` are, never per frame.
+
+**Two conventions every job follows**, and V3's should too: a shape drawn in **one** colour is baked
+white and tinted at draw time (which is what lets one hp-bar frame serve the plate and both
+allegiances, and one outline frame serve six player colours plus `wildcharge`'s gold); a shape drawn
+in **several** carries its own colours (`predator`'s missile, `magmablast`'s three-band ramp).
+
+**Sheet headroom.** `bake.test.ts`'s "packs the whole atlas into every tier's sheet" case is the
+authority and the place V3 will find out: it asserts `packShelf(bakeJobs(2, PILL), 2048)` and
+`packShelf(bakeJobs(1, PILL), 1024)` both fit. V1's HUD jobs take roughly six shelves of the
+2048 sheet and V2's sixteen world tiles take two more; the flame flipbook is the largest thing left
+to land, and if it does not fit, that test fails rather than the sheet silently truncating.
+
+**`import type Phaser`.** Task 3 Step 1 removed the last runtime Phaser reference from this module
+(`flameScratch` became `PointLike[]`), so `bake.test.ts` no longer pulls Phaser in transitively.
+Keep it that way: a new job that wants a Phaser value wants a plain number instead.
+
+### `render/atlas.ts` (extended; V1 produced it)
+
+`ART_ATLAS` (`"art-atlas"`), `ART_ATLAS_PNG` (`"art/art-atlas.png"`), `ART_ATLAS_JSON`,
+`ArtTextureLookup` (the two-method narrowing of Phaser's `TextureManager`), `atlasHasFrame`,
+`artFrame`, `artFrameExists`, `artFrameSize`, `artImage`, `loadArtAtlas`.
+
+**The rule: never name an authored-art texture directly again.** `artFrame(textures, key)` returns
+the `[texture, frame]` pair to spread into `add.image`, resolving the packed sheet first and the
+loose PNG second, so a tree whose packer never ran draws exactly what it drew before. `artFrameSize`
+exists because this is the one thing an atlas breaks silently: `getSourceImage()` on an atlased key
+answers the whole 512-pixel sheet, and `fitSprite` would then draw every chassis at a fortieth of its
+size. The four consumers wired in Task 4 are `assets/car-sprite.ts`'s `phaserTextures`,
+`scenes/hud/slot-bar.ts`'s `SlotView.applyWeapon`, and the two `add.image` calls in
+`dev/AssetTuningScene.ts`.
+
+**Loading order in `BootScene.loadArt`, which V3 and V4 must not reshuffle:** manifest → **pass one,
+the packed atlas alone** (`loadArtAtlas`, awaited; a missing sheet warns and continues) → **pass two,
+only the manifest keys the atlas did not carry** as loose PNGs → the missing-texture sweep. Loading
+both would upload the same picture twice and hand the GPU a second texture to bind for nothing.
+`BootScene.runLoader(queue)` is the extracted one-batch helper the two passes share.
+
+### `scripts/pack-atlas.mjs` (new) and the checks around it
+
+`ATLAS_PAD_PX` (2), `ATLAS_MAX_PX` (4096), `PACKER_VERSION` (1), `ATLAS_PNG`, `ATLAS_JSON`,
+`packRects`, `chooseSheet`, `atlasJson`, `sourceFingerprint`, `readSources`, `main`; the command
+`npm run pack:atlas`; the committed artefacts `packages/client/public/art/art-atlas.png` and
+`.json`. In `scripts/check-art.mjs`: `NON_SPRITE_FILES`, `checkAtlasCoverage`, `atlasSourceSizes`.
+In `scripts/build-release.mjs`: `assertAtlasShipped`.
+
+Everything above `main` is pure and unit-tested; only `main` touches the filesystem or `sharp`. The
+manifest is **not** rewritten to atlas form (R15), the loose PNGs still ship and are still what the
+importers, `?dev=assets` and `manual.html` read, and `docs/asset-pipeline.md`'s "Deferred" bullet
+now records this as landed with its three original objections beside their answers.
+
+### `scenes/arena/` (the renderers)
+
+| Export | Where | For |
+|---|---|---|
+| `class ShotSprites` | `shot-sprites.ts` | `begin()`, `body(frame, x, y, angle, scale)`, `orb(frame, x, y, scale)`, `end()`, `destroy()`. Two pools, both on `Layer.Shots`, both born on a `baked-atlas` frame so they join that texture's batch from their first draw |
+| `WORLD_GFX_BEAMS = "shots.beams"` | `shot-renderer.ts` | **the last per-frame world `Graphics`, and V3's to delete.** It sits at `depthOf(Layer.Shots, 1)` — one above the sprite bodies — and carries two things: `drawBeam` (the beam polygon branch and the aura's ring-and-wash) and the `?debug=1` hitbox outline pass. V3 removes the first; the second must survive, so V3 either keeps this object renamed for debug alone or gives the outlines their own named `Graphics`. **Whichever it picks, `WORLD_GRAPHICS_ALLOWED` and `WORLD_CLEARS_ALLOWED` in `scripts/bench-arena.mjs` and `WORLD_GRAPHICS_ALLOWED` in `scripts/world-retained.test.mjs` are the three places that decision is recorded**, and V3's gate is `WORLD_CLEARS_ALLOWED` becoming `[]` |
+| `class CarDecor`, `HULL` | `car-sprites.ts` | `begin()`, `hpBar(pose, fraction, allegiance)`, `maneuver(pose, colorId)`, `lockBracket(x, y)`, `countdownArrow(x, y)`, `end()`, `destroy()`. Three pools plus two singletons (there is at most one bracket and one arrow on screen) |
+| `WORLD_GFX_FLOOR = "arena.floor"` | `arena-floor.ts` | the floor's `name`. `ARENA_DEPTH` is **deleted**; the floor takes `depthOf(Layer.Floor)` |
+
+`CarRenderer(scene, debug)` and `ShotRenderer(scene, debug)` keep their constructors,
+`render(frame, cameraTargetSid): string[]` / `render(frame)`, `invalidateVisuals()` and `destroy()`,
+so `ArenaScene` and `BenchScene` were not edited by Tasks 5 or 6.
+
+`CarRenderer` gains two private fields V3 should leave alone: `hpDrawn: Map<string, number>` (the
+eased bar length per car, pruned wherever `visualKeys` is pruned) and `lastNowMs` (the frame-clock
+delta, clamped to 100 ms so a backgrounded tab does not drain every bar in one step). The ease is
+purely visual; `RenderCar.hp` is unchanged and is still what every non-drawing read uses.
+
+### `dev/BenchScene.ts` and the two guards
+
+`SceneCensus` gains `worldGraphicsNames: string[]` and `worldClears: Record<string, number>`;
+`UNNAMED_GRAPHICS` is exported. `sceneCensus(game)`'s signature is unchanged. `scripts/bench-arena.mjs`
+gains `DRAW_CALL_CEILING`, `WORLD_GRAPHICS_ALLOWED`, `WORLD_CLEARS_ALLOWED`,
+`DRAW_CALLS_UNAVAILABLE` and `benchFailures(browser, census, report)`, and `formatCensusRow` now
+prints a second line naming the world's `Graphics` and their clear rates.
+`scripts/world-retained.test.mjs` carries three lists — retained, `Graphics`-allowed, debug-allowed —
+whose union must cover every non-test `.ts` in `scenes/arena/`, so a new file fails the suite until
+somebody decides which it is.
+
+### Deliberately deferred by V2
+
+- **Beams.** `beamDrawLayers`, the aura's ring-and-wash, the flame, the lance bolt and the tremor
+  cone are untouched and still build geometry every frame. V3.
+- **The arena floor stays a `Graphics`.** V1's Handoff guessed V2 would bake it; it does not, and the
+  reasoning is in Task 6 Step 4 — it is drawn once and never cleared, so it is not on the frame path
+  at all, and a `DynamicTexture` big enough for it would be ~14 MB of VRAM to save re-walking about
+  forty points once. It is V5's "floor ambience" row.
+- **Dash ghosts stay outlines on the `Cars` band**, not solid body copies on ADD as §5's row says.
+  V2's mandate is cost, not art; and `ARENA_COLOR_DEFAULTS.floor` is `0xEBEBEB`, so an additive draw
+  over near-white would erase them rather than dim them. R4 is satisfied either way: they take their
+  band's blend rather than choosing one.
+- **The lock bracket is one frame, not §5's four arm sprites.** It is unrotated, fixed-size, and
+  there is at most one on screen, so one quad beats four — and this way the frame is drawn by
+  `lockBracketArms` itself, vertex for vertex.
+- **The car shadow, the phased outline pulse, the status flipbooks on the car, the hp bar's white
+  flash on `hit`, `predator`'s exhaust and 2-frame flicker** — every §5 row that needs particles or
+  `RenderFrame.events`. V4.
+- **Tiers.** `BAKE_DEFAULT_TIER` is passed everywhere and never varied; `render/tiers.ts` does not
+  exist. V5, at the three `worldFrameScale` sites named above.
+- **`mipmapFilter` on the two power-of-two sheets** (R17a). The packer emits a power-of-two sheet
+  precisely so V5 can turn it on; V2 does not.
+- **The multi-wave `VolleyDef` machinery** stays dormant: no weapon row authors more than one volley,
+  and nothing here changes that.
+
+## Self-review
+
+**Spec coverage.**
+
+- **R1 (bake, don't build).** Task 3 bakes sixteen world frames: five projectile bodies, the unknown
+  dot, the charge orb, three silhouettes, the hitbox box, two hull outlines, the hp bar, the bracket
+  and the arrow. Task 2 is what makes three of them bakeable at all — the glow flicker, the orb's
+  wind-up and the projectile's extrapolation were folded into the shapes, and R1's "up to position,
+  rotation, scale, alpha and tint" only holds once they are split out.
+- **R2 (geometry only when the shape changes).** The fork is one line, `instance.kind`, and the table
+  in Task 5 states it: `PROJECTILE` becomes a sprite, `BEAM` keeps its `Graphics` because
+  `beamDrawLayers` genuinely rebuilds the polygon. Nothing else in the world builds geometry.
+- **R3 (retained, not immediate).** Four `Graphics` deleted in Task 6, the projectile half of a fifth
+  in Task 5, plus the per-car silhouette and hitbox `Graphics`. What survives is one object drawn
+  once (the floor) and one on the frame path (beams, plus the debug outlines R3 explicitly exempts).
+  Task 7's clear counter is what tells those two apart mechanically.
+- **R4 (planned batches).** Task 1's banded plan: one depth range and one blend per band, applied
+  once at creation by `worldSprite` and `worldContainer`, with `layers.test.ts` asserting band
+  headroom and that exactly `Glow` and `OverlayFx` are additive. `world-retained.test.mjs` greps
+  `setBlendMode` and non-`depthOf` `setDepth` out of every world source, which is what makes the
+  principle enforceable rather than aspirational. The one disagreement with §4's table — `Shots`
+  below `Cars` — is D7, is deliberate, and is pinned by a test so nobody "fixes" it.
+- **R6 (zero allocation on the frame path).** `SpritePool` grows once and then allocates nothing;
+  `end()` hides rather than destroys. `CarDecor`'s bracket and arrow are singletons. The hp bar's
+  `HP_BAR_STEPS` quantisation exists so a guarded setter writes at most 128 times over an ease
+  instead of once per frame per car. `placed()` and `tile()` allocate, and only at boot.
+- **R11 (two atlases).** `baked-atlas` gains the world jobs (Task 3); `art-atlas` is new (Task 4),
+  named exactly as the ledger has it, with `render/atlas.ts` holding both keys.
+- **R13 (`bake.ts` runs the existing pure builders).** Every job calls a function the client already
+  runs: `projectileDrawLayers`, `glowBandsAtRest`, `chargeOrbBandsAtRest`, `projectileShapeAt`,
+  `hexagonPoints`, `hullOutlinePoints`, `maneuverOutline`, `lockBracketArms`,
+  `countdownArrowPoints`, `weaponFillOf`. No new art code was written, and `bake.test.ts` asserts the
+  calls against a stub recorder, which is R13's own stated device.
+- **R15 (one build-time packer).** `scripts/pack-atlas.mjs`, sharp-based, a shelf packer, emitting
+  `public/art/art-atlas.{png,json}` from the manifest; `check-art.mjs` gains the coverage check R15
+  asks for; the importers, `?dev=assets` and `manual.html` are untouched, exactly as R15 requires.
+- **§5's catalogue, row by row.** Car body → Task 6's `artImage` plus the baked silhouette fallback;
+  player colour → a `MULTIPLY` tint over a white-baked frame, which is the same picture §5's
+  "`FILL` for silhouettes" describes through one code path instead of two; hp bar → Task 6's two
+  sprites with the visual ease §5 names (the white flash on `hit` needs events, V4); dash ghosts,
+  charge outline, lock bracket, countdown arrow → Task 6, with the two documented deviations above;
+  projectile bodies and glow bands → Tasks 3 and 5 (the exhaust emitter and the 2-frame flicker are
+  V4's); phased → `PHASED_ALPHA` kept as-is, the pulsing outline is V4's. Every other row is V3's,
+  V4's or V5's and is named as such in the Handoff's deferral list, so no row is silently skipped.
+- **§9/R25.** The draw-call row (≤ 16) is asserted by Task 7. The client-JavaScript row and the
+  frame-time rows are recorded beside V0's and V1's and read by a person, per R25's own framing. The
+  boot-bake row (< 150 ms) gains a recorded number in the same section.
+- **§10's V2 row.** Ships all seven named things; deletes all five named `Graphics`, plus two the row
+  does not name (the per-car silhouette and hitbox `Graphics`), which the Acceptance table's `grep`
+  proves.
+
+**Placeholder scan.** The `(paste …)` markers in Task 7 Step 8 are the only deferred content in the
+plan; they are measurements that cannot exist before the code does, the step names the command that
+produces each, and Step 10's `grep -c "(paste" docs/render-bench.md` must print `0` before the
+commit — the same device V0's Task 8 and V1's Task 5 used. No "TBD", no "handle the edge cases", no
+"as in Task N". Every new module is printed in full; every moved body has a file:line range and a
+substitution table. Task 2 Step 8 is the one step that deliberately leaves the tree in a state where
+`npm run typecheck` reports errors, and it says so, says why, and gives the alternative.
+
+**Type consistency.** `Layer` is produced by `layers.ts` and indexed by `LAYER_DEPTH`, `LAYER_BLEND`,
+`depthOf`, `worldSprite` and `worldContainer` — every consumer takes the enum, never a number.
+`SpritePool<Phaser.GameObjects.Image>` is instantiated in `ShotSprites` and `CarDecor`; `PoolSprite`
+is the two-method structural type the node-environment test stubs, which is why neither file needs
+Phaser at test time. `BakeJob` gained `pad?` and every world job sets it to `BAKE_WORLD_PAD_PX`,
+which `bakeAtlas` subtracts once when it registers the frame — so `job.width` is the tile and the
+registered frame is the content, and `bake.test.ts` asserts both ends of that arithmetic.
+`BakeGraphics` remains the interface the recorder implements and `Phaser.GameObjects.Graphics`
+structurally satisfies at the single call site in `bakeAtlas`; the three added methods are on both
+sides. `bakedFrame(name)` returns the `[texture, frame]` pair every `add.image` spreads, and
+`bakedShotFrame`/`bakedOrbFrame`/`bakedCarFrame` return the *name* that goes into it — one indirection,
+consistently. `artFrame(textures, key)` returns the same pair shape for the authored sheet, and
+`ArtTextureLookup` is the narrowing both it and `artFrameSize` take, satisfied structurally by
+Phaser's `TextureManager` at the four call sites. `DrawBand` and `ChargeOrbBand` are unchanged and
+are what `glowBandsAtRest` and `chargeOrbBandsAtRest` return to both the bake and the frame path.
+`HpBarGeometry` is what `hpBarPoints` and `hpBarAnchor` both take, so the sprite's anchor and the
+quad's corners cannot drift. `SceneCensus` is produced by `sceneCensus`, exposed by
+`BenchProbe.census()`, and read by `formatCensusRow` and `benchFailures` — the two new fields are
+added at all four points. `PerfReport.drawCalls` is V0's shape and `benchFailures` reads only its
+`p50`, with `DRAW_CALLS_UNAVAILABLE` mirroring `PERF_OVERLAY_CONFIG.drawCallsUnavailable` because a
+`.mjs` script cannot import the client's TypeScript constant.

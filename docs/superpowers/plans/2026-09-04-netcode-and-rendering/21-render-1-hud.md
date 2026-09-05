@@ -2699,6 +2699,6 @@ Exports beyond the ledger, for V2–V5 and the netcode stream:
 | `sceneCensus`, `SceneCensus`, `BenchProbe.census()` | `dev/BenchScene.ts` | V2 and V3 tighten `worldGraphics` to 0 the same way this phase tightened `hudGraphics`; the runner's failure list is where those checks go |
 | `formatCensusRow` | `scripts/bench-arena.mjs` | CI wiring, alongside V0's `formatBenchRows` |
 | `NON_SPRITE_DIRS` | `scripts/check-art.mjs` | V2's `art-atlas.png` is manifest-adjacent and will need its own decision here — it is *packed from* manifest rows rather than being one |
-| `drawArenaFloor(scene, arena)` — the `layers` parameter is gone | `scenes/arena/arena-floor.ts` | V2 replaces the `Graphics` floor with the baked image behind this one signature |
+| `drawArenaFloor(scene, arena)` — the `layers` parameter is gone | `scenes/arena/arena-floor.ts` | **Corrected after V2 was written:** V2 does *not* bake the floor. It is drawn once and never cleared, so it is not on the frame path, and baking it would cost roughly 14 MB of VRAM to save re-walking forty points a single time. It stays a `Graphics` (named `arena.floor`, one of the two the V2 gate allows) and is left to V5's floor-ambience row |
 | `CarRenderer(scene, debug)`, `ShotRenderer(scene, debug)` — the `layers` parameter is gone | `scenes/arena/` | V2 and V3 construct them unchanged |
 | `npm run build:font` | root `package.json` | regenerating the committed font pages |

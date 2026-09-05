@@ -13,7 +13,7 @@ The two approved specs this folder implements:
 
 ## 1. Status
 
-Fourteen plans, two streams. **Nine written, five to go.**
+Fourteen plans, two streams. **Ten written, four to go.**
 
 | # | File | Lines | State |
 |---|---|---|---|
@@ -27,7 +27,7 @@ Fourteen plans, two streams. **Nine written, five to go.**
 | N6 | `16-netcode-6-optional.md` | — | **to write** |
 | V0 | `20-render-0-instrumentation.md` | 1853 | written |
 | V1 | `21-render-1-hud.md` | 2704 | written |
-| V2 | `22-render-2-bake.PARTIAL.md` | 3131 | **unfinished draft** — see below |
+| V2 | `22-render-2-bake.md` | 4170 | written |
 | V3 | `23-render-3-beams.md` | — | **to write** |
 | V4 | `24-render-4-events.md` | — | **to write** |
 | V5 | `25-render-5-pixels.md` | — | **to write** |
@@ -35,27 +35,18 @@ Fourteen plans, two streams. **Nine written, five to go.**
 Supporting files, all written: [`interfaces.md`](interfaces.md) (the ledger),
 [`00-execution-guide.md`](00-execution-guide.md), [`plan-authoring-brief.md`](plan-authoring-brief.md).
 
-**`22-render-2-bake.PARTIAL.md` is an unfinished draft, about 85 % written.** It stops at a **clean
-task boundary**, not mid-task: Tasks 1-6 are complete (the layer plan; the builder factoring; the
-world bake jobs; `pack-atlas.mjs` and its `check:art` enforcement; projectiles/glows/orbs as
-sprites; hp bars/brackets/ghosts/arrows/silhouettes as sprites), each ending with its verification
-and commit step. Missing: **the measurement-and-guard task** (draw calls ≤ 16 at the ceiling,
-`sceneCensus` and `bench-arena.mjs` extended to *fail* on a stray world `Graphics`,
-`world-retained.test.mjs`, the `docs/render-bench.md` row) — planned rather than forgotten, since
-its files are already in the draft's File Structure table — plus `## Acceptance`, `## Handoff` and
-`## Self-review`.
-
-**The missing `## Handoff` is the real blocker**, not the line count: V3 is written by reading it.
-
-**Finish it; do not restart.** Hand a worker the brief, the V2 assignment in §5, and the draft, and
-ask for the missing task and the three closing sections, then rename to `22-render-2-bake.md`. The
-worker must re-check Tasks 1-6 against the current ledger, which moved after the draft began (§3).
-The file repeats all of this in a banner at its top.
+**`22-render-2-bake.md` was finished on 2026-09-05 from an 85 %-written draft**, not restarted. The
+draft had stopped at a clean task boundary with Tasks 1-6 complete; the finishing pass added Task 7
+(the measurement-and-guard task: draw calls ≤ 16 at the ceiling, `sceneCensus` and `bench-arena.mjs`
+extended to *fail* on a stray world `Graphics` or one that clears itself, `world-retained.test.mjs`,
+the `docs/render-bench.md` V2 row and the remaining doc edits) plus `## Acceptance`, `## Handoff` and
+`## Self-review`. Tasks 1-6 were re-checked against the current ledger and needed no change.
 
 An `14-netcode-4-feel.md` was **not** started; if one appears on disk it is stale and should go.
 
 A general rule for any future interruption: a half-written plan must never be left under its final
-name, because the next plan in that stream builds on its `## Handoff`.
+name, because the next plan in that stream builds on its `## Handoff`. That rule is what made the V2
+draft finishable rather than a rewrite.
 
 ## 2. How to write the remaining plans
 
