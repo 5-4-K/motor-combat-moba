@@ -1,6 +1,7 @@
 import { Schema, MapSchema, type } from "@colyseus/schema";
 import { RoomPhase, GameMode } from "../constants.js";
 import { ACTIVE_ARENA_ID } from "../config/arena-config.js";
+import { DEFAULT_GAME_MODE } from "../config/mode-config.js";
 import { PlayerState } from "./PlayerState.js";
 import { WeaponInstanceState } from "./WeaponInstanceState.js";
 
@@ -8,7 +9,7 @@ export class ArenaState extends Schema {
   @type("uint8") phase: RoomPhase = RoomPhase.LOBBY;
   @type("uint32") tick = 0;
   @type("string") hostSessionId = "";
-  @type("uint8") mode: GameMode = GameMode.FFA_LAST_STANDING;
+  @type("uint8") mode: GameMode = DEFAULT_GAME_MODE;
   @type("string") arenaId = ACTIVE_ARENA_ID;
   @type("uint32") carSelectDeadlineTick = 0;
   /** When the reveal grid gives way to the countdown. Server-authoritative so all clients leave together. */

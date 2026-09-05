@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { GameMode, MAX_TEAM_SIZE, PlayerStatus } from "@motor-combat-moba/shared";
-import { lobbyView, modeLabel, TEAM_SLOTS } from "./lobby-view.js";
+import { activeGameModes, GameMode, MAX_TEAM_SIZE, MODE_TABLE, PlayerStatus } from "@motor-combat-moba/shared";
+import { lobbyView, modeCards, modeLabel, TEAM_SLOTS } from "./lobby-view.js";
 
 const player = (over: Partial<LobbyTestPlayer> = {}): LobbyTestPlayer => ({
   sessionId: "p1",
@@ -183,5 +183,22 @@ describe("modeLabel", () => {
     expect(modeLabel(GameMode.FFA_LAST_STANDING)).toBe("Brawl");
     expect(modeLabel(GameMode.TEAM)).toBe("Team brawl");
     expect(modeLabel(GameMode.FFA_DEATHMATCH)).toBe("Deathmatch");
+  });
+
+  it("reads names from MODE_TABLE, so a rename cannot leave the tag behind", () => {
+    expect(modeLabel(GameMode.FFA_LAST_STANDING)).toBe(MODE_TABLE[GameMode.FFA_LAST_STANDING].name);
+    expect(modeLabel(GameMode.TEAM)).toBe(MODE_TABLE[GameMode.TEAM].name);
+    expect(modeLabel(GameMode.FFA_DEATHMATCH)).toBe(MODE_TABLE[GameMode.FFA_DEATHMATCH].name);
+  });
+});
+
+describe("mode picker", () => {
+  it("offers only active modes, in activeGameModes order", () => {
+    expect(modeCards().map((c) => c.id)).toEqual(activeGameModes());
+  });
+
+  it("shows the Game modes menu only when there is a second mode to pick", () => {
+    const view = lobbyView(state([player()]), "p1", "");
+    expect(view.canChangeMode).toBe(activeGameModes().length >= 2);
   });
 });

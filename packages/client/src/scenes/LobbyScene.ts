@@ -2,7 +2,7 @@ import Phaser from "phaser";
 import type { Room } from "colyseus.js";
 import {
   ArenaState,
-  GameMode,
+  DEFAULT_GAME_MODE,
   MSG_KICK,
   MSG_SET_MODE,
   MSG_START_ERROR,
@@ -26,7 +26,7 @@ export class LobbyScene extends Phaser.Scene {
   private menus: LobbyMenus = {
     menuOpen: false,
     modesOpen: false,
-    pendingMode: GameMode.FFA_LAST_STANDING,
+    pendingMode: DEFAULT_GAME_MODE,
     kickTarget: null,
   };
 
@@ -37,7 +37,7 @@ export class LobbyScene extends Phaser.Scene {
   create(): void {
     this.startError = "";
     this.lastSignature = "";
-    this.menus = { menuOpen: false, modesOpen: false, pendingMode: GameMode.FFA_LAST_STANDING, kickTarget: null };
+    this.menus = { menuOpen: false, modesOpen: false, pendingMode: DEFAULT_GAME_MODE, kickTarget: null };
     this.unbindAll();
     this.overlay = new ScreenOverlay(this);
     this.room = this.registry.get("room") as Room<ArenaState> | undefined;

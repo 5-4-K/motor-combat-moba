@@ -699,6 +699,26 @@ seconds and the camera's trailing offset is 12% of the half-view.
 | `nameMin` | 1 |
 | `nameMax` | 16 |
 
+## MODE_TABLE
+
+`packages/shared/src/config/mode-config.ts`. One row per `GameMode` wire value. Display names live
+here so the lobby cards and the mode tag cannot drift; the longer card copy stays in the client.
+
+| id | name | isActive |
+|---|---|---|
+| `FFA_LAST_STANDING` (`0`) | Brawl | `true` |
+| `TEAM` (`1`) | Team brawl | `true` |
+| `FFA_DEATHMATCH` (`2`) | Deathmatch | `true` |
+
+`isActive` is the same publish gate as `CarDef.isActive`. Flip a row to `false` and it disappears
+from the host's Game modes picker (`modeCards()` / `activeGameModes()`), and `ArenaRoom`'s
+`MSG_SET_MODE` refuses it. If fewer than two modes are active, the Settings → Game modes entry is
+hidden too. New rooms open on `DEFAULT_GAME_MODE` (`FFA_LAST_STANDING` today);
+`mode-config.test.ts` requires that default to stay among the active rows.
+
+Playground, practice, and `npm run balance` do **not** read this flag. They pin or pass a mode
+directly, which is how an unpublished mode is driven before it is shown to players.
+
 ## DEATHMATCH_CONFIG
 
 `packages/shared/src/config/deathmatch-config.ts`. Networked balance, not render preference — the

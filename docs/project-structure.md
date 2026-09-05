@@ -20,8 +20,9 @@ motor-combat-MOBA/
 ├── packages/shared/src/
 │   ├── index.ts                  # the package's whole public surface
 │   ├── constants.ts              # TICK_RATE_HZ, enums, MAX_PLAYERS
-│   ├── config/                   # car, color, weapon, combat, drive/camera, flow, net tables
+│   ├── config/                   # car, mode, color, weapon, combat, drive/camera, flow, net tables
 │   │   ├── car-config.ts         # CAR_TABLE, DEFAULT_CAR_ID, the derived stats, ChassisDrive/driveOf
+│   │   ├── mode-config.ts        # MODE_TABLE, DEFAULT_GAME_MODE, isActiveGameMode / activeGameModes
 │   │   ├── drive-config.ts       # DRIVE_CONFIG (base + per-rating scales), CAMERA_CONFIG
 │   │   ├── weapon-types.ts       # WeaponDef union, StockDef, VolleyDef (base) / PelletDef (projectile), Hitbox, StatusApplication.onWave
 │   │   ├── weapon-config.ts      # WEAPON_TABLE

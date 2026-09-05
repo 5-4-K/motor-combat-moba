@@ -1,10 +1,15 @@
 import {
   COLOR_TABLE,
+  DEATHMATCH_CONFIG,
+  DEFAULT_GAME_MODE,
   GameMode,
   MAX_PLAYERS,
   MAX_TEAM_SIZE,
+  MODE_TABLE,
   PlayerStatus,
+  activeGameModes,
   canSwitchTeam,
+  isActiveGameMode,
 } from "@motor-combat-moba/shared";
 
 /**
@@ -66,6 +71,8 @@ export interface LobbyView {
   teamBCount: string;
   isHost: boolean;
   canSwitchTeam: boolean;
+  /** Host Settings → Game modes. Hidden when only one mode is published — nothing to pick. */
+  canChangeMode: boolean;
   startError: string;
   teamA: LobbySlot[];
   teamB: LobbySlot[];
@@ -86,9 +93,46 @@ export interface LobbyViewState {
 }
 
 export function modeLabel(mode: GameMode): string {
-  if (mode === GameMode.TEAM) return "Team brawl";
-  if (mode === GameMode.FFA_DEATHMATCH) return "Deathmatch";
-  return "Brawl";
+  return MODE_TABLE[mode]?.name ?? MODE_TABLE[DEFAULT_GAME_MODE].name;
+}
+
+/**
+ * The host's Game modes catalog. Copy stays here (it is render-only); the id list is `activeGameModes`
+ * so flipping `MODE_TABLE.isActive` drops a card without a second edit.
+ */
+const MODE_CARDS = [
+  {
+    id: GameMode.FFA_LAST_STANDING,
+    kicker: "Free-for-all",
+    body: "Everyone fights everyone. Last car driving takes the round.",
+    metaA: "2-6 players",
+    metaB: "Last one standing",
+  },
+  {
+    id: GameMode.TEAM,
+    kicker: "Team",
+    body: "Two teams, shared victory. Last team with a car standing wins.",
+    metaA: "2v2 – 3v3",
+    metaB: "Last team standing",
+  },
+  {
+    id: GameMode.FFA_DEATHMATCH,
+    kicker: "Free-for-all",
+    // Kept close in length to the two cards beside it: all three sit in one grid row, so the longest
+    // body sets the height of the row and this one is the only card that can make it tall. The
+    // respawn delay is read rather than spelled out, so retuning `respawnDelaySeconds` cannot leave
+    // the host reading a number the room no longer plays by.
+    body: `Everyone fights everyone. Dying costs ${DEATHMATCH_CONFIG.respawnDelaySeconds} seconds, not the round. Most kills on the clock wins.`,
+    metaA: "2-6 players",
+    metaB: `${DEATHMATCH_CONFIG.matchSeconds / 60} minutes`,
+  },
+] as const;
+
+export function modeCards(): Array<(typeof MODE_CARDS)[number] & { name: string }> {
+  return MODE_CARDS.filter((card) => isActiveGameMode(card.id)).map((card) => ({
+    ...card,
+    name: MODE_TABLE[card.id].name,
+  }));
 }
 
 export function lobbyView(
@@ -118,6 +162,7 @@ export function lobbyView(
           state.players.map((p) => p.team),
         )
       : false,
+    canChangeMode: activeGameModes().length >= 2,
     startError,
     teamA: column(teamA, state.hostSessionId, localSessionId, isHost),
     teamB: column(teamB, state.hostSessionId, localSessionId, isHost),

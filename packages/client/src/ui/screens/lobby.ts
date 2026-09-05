@@ -1,6 +1,6 @@
-import { DEATHMATCH_CONFIG, GameMode } from "@motor-combat-moba/shared";
+import { GameMode } from "@motor-combat-moba/shared";
 import { button, h, svg } from "../dom.js";
-import type { LobbySlot, LobbyView } from "../lobby-view.js";
+import { modeCards, type LobbySlot, type LobbyView } from "../lobby-view.js";
 
 /**
  * The lobby screen. Two team panels of pill rows over the cream ground, a host-only settings menu,
@@ -19,37 +19,6 @@ const HAMBURGER =
 
 const SWAP_ARROWS =
   '<path d="m16 3 4 4-4 4"></path><path d="M20 7H4"></path><path d="m8 21-4-4 4-4"></path><path d="M4 17h16"></path>';
-
-const MODE_CARDS = [
-  {
-    id: GameMode.FFA_LAST_STANDING,
-    name: "Brawl",
-    kicker: "Free-for-all",
-    body: "Everyone fights everyone. Last car driving takes the round.",
-    metaA: "2-6 players",
-    metaB: "Last one standing",
-  },
-  {
-    id: GameMode.TEAM,
-    name: "Team brawl",
-    kicker: "Team",
-    body: "Two teams, shared victory. Last team with a car standing wins.",
-    metaA: "2v2 – 3v3",
-    metaB: "Last team standing",
-  },
-  {
-    id: GameMode.FFA_DEATHMATCH,
-    name: "Deathmatch",
-    kicker: "Free-for-all",
-    // Kept close in length to the two cards beside it: all three sit in one grid row, so the longest
-    // body sets the height of the row and this one is the only card that can make it tall. The
-    // respawn delay is read rather than spelled out, so retuning `respawnDelaySeconds` cannot leave
-    // the host reading a number the room no longer plays by.
-    body: `Everyone fights everyone. Dying costs ${DEATHMATCH_CONFIG.respawnDelaySeconds} seconds, not the round. Most kills on the clock wins.`,
-    metaA: "2-6 players",
-    metaB: `${DEATHMATCH_CONFIG.matchSeconds / 60} minutes`,
-  },
-];
 
 export interface LobbyMenus {
   menuOpen: boolean;
@@ -165,8 +134,9 @@ function teamPanel(
   ]);
 }
 
-function modesModal(view: LobbyView, menus: LobbyMenus, handlers: LobbyHandlers): HTMLElement {
-  const selected = MODE_CARDS.find((m) => m.id === menus.pendingMode);
+function modesModal(_view: LobbyView, menus: LobbyMenus, handlers: LobbyHandlers): HTMLElement {
+  const cards = modeCards();
+  const selected = cards.find((m) => m.id === menus.pendingMode);
   return backdrop(10, [
     h("div", { style: "width: 760px; padding: 30px 32px 26px; border-radius: 34px; background: var(--color-surface); box-shadow: var(--shadow-lg);" }, [
       h("div", { style: "display: flex; align-items: baseline; gap: 12px;" }, [
@@ -178,12 +148,11 @@ function modesModal(view: LobbyView, menus: LobbyMenus, handlers: LobbyHandlers)
       ]),
       h(
         "div",
-        // One column per mode. Was `1fr 1fr` from when there were two modes, which dropped
-        // Deathmatch alone onto a second row at half width — on the one screen where the host
-        // decides whether to try it. Three columns in a 760px modal, less 32px padding either side
-        // and two 18px gaps, is ~230px a card.
-        { style: "display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px; margin-top: 22px;" },
-        MODE_CARDS.map((mode) => {
+        // One column per published mode. Was a hard `1fr 1fr 1fr` when all three shipped visible,
+        // which left an empty third column (or a lone half-width card) the moment a row flipped
+        // `isActive`. The count is `modeCards()`, so hiding a mode also reflows the grid.
+        { style: `display: grid; grid-template-columns: repeat(${cards.length}, 1fr); gap: 18px; margin-top: 22px;` },
+        cards.map((mode) => {
           const active = mode.id === menus.pendingMode;
           const card = h(
             "div",
@@ -286,7 +255,7 @@ export function renderLobby(
         h("span", { class: "tag tag-accent" }, [view.modeLabel]),
         h("span", { class: "tag tag-neutral" }, [view.countLabel]),
         view.isHost ? h("span", { class: "tag tag-outline" }, ["You are host"]) : null,
-        view.isHost ? settings : h("div", { style: "margin-left: auto;" }),
+        view.isHost && view.canChangeMode ? settings : h("div", { style: "margin-left: auto;" }),
       ]),
       h("div", { style: "display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 24px;" }, [
         teamPanel("Team A", view.teamACount, view.teamA, handlers, view.showTeamHeadings),
@@ -304,7 +273,7 @@ export function renderLobby(
         ]),
       ]),
     ]),
-    menus.modesOpen ? modesModal(view, menus, handlers) : null,
+    menus.modesOpen && view.canChangeMode ? modesModal(view, menus, handlers) : null,
     menus.kickTarget ? kickModal(menus, handlers) : null,
   ]);
 }

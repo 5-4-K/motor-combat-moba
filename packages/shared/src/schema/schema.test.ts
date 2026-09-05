@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ACTIVE_ARENA_ID } from "../config/arena-config.js";
+import { DEFAULT_GAME_MODE } from "../config/mode-config.js";
 import { WeaponKind } from "../constants.js";
 import { ArenaState } from "./ArenaState.js";
 import { StatusState } from "./StatusState.js";
@@ -89,6 +90,7 @@ describe("ArenaState", () => {
   it("constructs with v1 defaults", () => {
     const s = new ArenaState();
     expect(s.arenaId).toBe(ACTIVE_ARENA_ID);
+    expect(s.mode).toBe(DEFAULT_GAME_MODE);
     expect(s.carSelectDeadlineTick).toBe(0);
     expect(s.countdownEndsTick).toBe(0);
     expect(s.winnerTeam).toBe(-1);

@@ -33,6 +33,7 @@ import {
   getArena,
   hpOf,
   isActiveCarId,
+  isActiveGameMode,
   DEATHMATCH_TICKS,
   deathmatchEnded,
   deathmatchOutcome,
@@ -556,12 +557,7 @@ export class ArenaRoom extends Room<ArenaState> {
 
 function isSetModePayload(msg: unknown): msg is { mode: GameMode } {
   if (msg === null || typeof msg !== "object") return false;
-  const mode = (msg as { mode?: unknown }).mode;
-  return (
-    mode === GameMode.FFA_LAST_STANDING ||
-    mode === GameMode.TEAM ||
-    mode === GameMode.FFA_DEATHMATCH
-  );
+  return isActiveGameMode((msg as { mode?: unknown }).mode);
 }
 
 function isKickPayload(msg: unknown): msg is { sessionId: string } {

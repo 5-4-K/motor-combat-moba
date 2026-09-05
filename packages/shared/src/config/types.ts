@@ -1,3 +1,4 @@
+import type { GameMode } from "../constants.js";
 import type { WeaponId } from "./weapon-types.js";
 
 export type CarId = "bullseye" | "mirage" | "bastion";
@@ -26,6 +27,16 @@ export interface CarDef {
   /** Ordered loadout: index 0 is slot 1. Order IS the slot mapping. */
   weapons: readonly WeaponId[];
   /** Selectable in real matches. The playground ignores this — that is how a car is tested before release (spec PG18). */
+  isActive: boolean;
+}
+
+export interface ModeDef {
+  id: GameMode;
+  name: string;
+  /**
+   * Selectable in a real lobby. Playground, practice, and the balance harness ignore this — that is
+   * how an unpublished mode is tested before it appears to players.
+   */
   isActive: boolean;
 }
 export interface ColorDef {
