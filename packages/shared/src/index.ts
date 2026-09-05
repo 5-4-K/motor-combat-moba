@@ -23,6 +23,8 @@ export {
   MSG_SELECT_CAR,
   MSG_PREVIEW_CAR,
   MSG_RETURN_TO_LOBBY,
+  MSG_CHAT,
+  isChatPayload,
 } from "./net/lobby-messages.js";
 export {
   BOT_SESSION_ID,
