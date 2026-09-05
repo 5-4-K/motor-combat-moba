@@ -52,17 +52,30 @@ Until **2026-09-02**, `speed` and `handling` traded off per car — Bastion carr
 chassis (20 u) even though Bullseye's low-rate-but-tight-radius arc (40 u, beating Mirage's 42 u
 despite a lower turn RATE) was the more subtle version of the same trick. **That inversion is gone.**
 `speed` and `handling` now carry the *same* rating per car (Mirage 85/85, Bullseye 65/65, Bastion
-50/50), alongside a roster-wide top-speed increase (`DRIVE_CONFIG.baseMaxSpeed` 90 -> 135,
-`speedPerRating` 2.25 -> 3.7 — deliberately more than a uniform 1.5x). Turn radius now orders with
-top speed rather than against it: Mirage widest (55 u), Bullseye next (53 u), Bastion tightest
-(51 u) — Bastion still wins, but by a few units instead of tens, and its tank identity now rests on
-hp and mass alone, not a handling edge. See
+50/50). The 2026-09-02 rebalance also raised top speed roster-wide (`DRIVE_CONFIG.baseMaxSpeed`
+90 -> 135, `speedPerRating` 2.25 -> 3.7 — deliberately more than a uniform 1.5x), which at the time
+landed turn radius at Mirage widest (55 u), Bullseye next (53 u), Bastion tightest (51 u): ordered
+with top speed rather than against it, Bastion still winning but by a few units instead of tens, its
+tank identity resting on hp and mass alone rather than a handling edge.
+
+**The 2026-09-06 heavy-car pass (stage 1 of the vector-drive rework) cut top speed and acceleration
+again, hard, so cars carry momentum and feel heavy.** `DRIVE_CONFIG.baseMaxSpeed`/`speedPerRating`
+dropped 135/3.7 -> 80/2.2 — roughly a 40% roster-wide top-speed cut (Mirage 449.5 -> 267 u/s, Bullseye
+375.5 -> 223, Bastion 320 -> 190) — and `baseAccel`/`accelPerRating` dropped much further, 420/7.2 ->
+60/1.4, stretching time to top speed by roughly 3-4x (Mirage 0.44 -> 1.49 s, Bullseye 0.50 -> 1.81 s,
+Bastion 0.57 -> 2.16 s). Turn rate was **deliberately left untouched**: since radius is
+`speed / turnRate`, the speed cut alone drops every chassis's turn radius under one car length (48 u)
+— Mirage 32.6 u, Bullseye 31.4 u, Bastion 30.2 u, the same ordering and proportional spacing as
+2026-09-02, just scaled down. Per-car `coastHalfLifeSeconds` and `brakeDecel` also joined `CarDef` in
+this pass, replacing the old global `DRIVE_CONFIG.drag`/`brakeDecel` pair, so coasting and braking are
+now per-chassis feel rather than a roster-wide constant. See
 [`docs/turn-tuning.md`](docs/turn-tuning.md#current-values) for the full numbers.
 
 Turn rates themselves were last touched on **2026-08-31, when the whole roster's turn rate was raised
 1.5x** — `DRIVE_CONFIG.baseTurnRate` and `turnRatePerRating` scaled together, speeds untouched at the
-time — because driving and aiming read as too heavy; the 2026-09-02 edit above did not rescale that
-pair again, only the per-car ratings and the speed knobs. The 150-point budget
+time — because driving and aiming read as too heavy; neither the 2026-09-02 rebalance nor the
+2026-09-06 heavy-car pass above rescaled that pair again — only the per-car ratings, the speed knobs,
+and (2026-09-06 only) the accel knobs and the new per-car coast/brake values. The 150-point budget
 that used to cap `speed`+`attack`+`hp` was deleted on 2026-08-29 so `mass` could be a free-floating
 rating, and no replacement guard was adopted — see
 [`docs/config-reference.md`](docs/config-reference.md#car_table).
@@ -300,11 +313,12 @@ built shared**, so a config edit that skips the page fails `npm test` naming the
 It checks values, not a `balanceStamp`-style fingerprint: nothing generates this page, so a stamp
 would only prove someone typed a new stamp.
 
-**Update it in the same commit whenever you change** a car's `handling` or `speed` in `CAR_TABLE`;
-`baseTurnRate`, `turnRatePerRating`, `stopTurnRatio`, `baseMaxSpeed`, `speedPerRating` or
-`reverseSpeedRatio` in `DRIVE_CONFIG`; `overheated`'s `turnRate` in `STATUS_TABLE`;
+**Update it in the same commit whenever you change** a car's `handling`, `speed`,
+`coastHalfLifeSeconds` or `brakeDecel` in `CAR_TABLE`; `baseTurnRate`, `turnRatePerRating`,
+`stopTurnRatio`, `baseMaxSpeed`, `speedPerRating`, `reverseSpeedRatio`, `steeringGrip` or
+`impactGripDecel` in `DRIVE_CONFIG`; `overheated`'s `turnRate` in `STATUS_TABLE`;
 `authorityFloor` or `spinMaxRate` in `RAM_CONFIG`; or `TICK_RATE_HZ`. Adding a chassis needs a new
-column in two tables, and the test fails until it has one. The page's "Keeping this page honest"
+column in three tables, and the test fails until it has one. The page's "Keeping this page honest"
 section holds that list and a snippet that prints the derived values — do not retype them by hand.
 
 **The test cannot see numbers in prose**, and that page argues from figures inside sentences. Re-read

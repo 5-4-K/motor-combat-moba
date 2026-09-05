@@ -35,9 +35,9 @@ The first one is also the aiming model. Shots fire along `player.angle` and ther
 turret, so **turn rate literally is aim speed** — which is why "aiming feels heavy" is a drive-model
 complaint before it is a combat one.
 
-The two orderings disagree on the live roster, and that disagreement is the design: Bullseye has the
-lowest turn rate of the three and *still* corners tighter than Mirage, because Mirage's speed carries
-it wide. Reading a radius complaint as a rate complaint is the easiest mistake to make here.
+The two orderings disagree on the live roster, and that disagreement is the design: Bullseye has a
+lower turn rate than Mirage and *still* corners tighter than it, because Mirage's speed carries it
+wide. Reading a radius complaint as a rate complaint is the easiest mistake to make here.
 
 ## Current values
 
@@ -151,8 +151,9 @@ the same factor — turn rate untouched — so Mirage-to-Bastion narrowed from 4
 after 2026-09-02) to 2.4 u (32.6 vs 30.2) rather than closing outright: the *ordering* and *relative*
 spacing the 2026-09-02 rewrite established are exactly what this pass preserved, on top of pulling
 every absolute radius down to comfortably under one car length (48 u). The same pass also cut `accel`
-(`baseAccel`/`accelPerRating`), which roughly triples time-to-top-speed roster-wide — that is a
-straight-line number, not a turning one, so it is not tabulated on this page.
+(`baseAccel`/`accelPerRating`), which lengthens time-to-top-speed roster-wide by roughly 3-4x (mirage
+0.44 -> 1.49 s, bullseye 0.50 -> 1.81 s, bastion 0.57 -> 2.16 s) — that is a straight-line number, not
+a turning one, so it is not tabulated on this page.
 
 ## What to reach for, by outcome
 
@@ -205,10 +206,9 @@ check — it catches a hand-edit that updated four cells and missed the fifth.
 
 Precision comes from each cell, so the page stays free to print 6.84 in one row and 0.1704 in
 another. The chassis columns are matched against `CAR_TABLE` by name, so **a fourth chassis fails the
-suite until it has a column in the per-car ratings table and the derived table** — the two the test
-reads — and the ordered row list means an inserted or reordered row fails rather than going silently
-unchecked. The per-car direct-values table isn't test-checked, but a fourth chassis owes it a column
-too; nothing catches that one going stale except this page's own honesty.
+suite until it has a column in all three per-car tables** — ratings, direct values, and derived —
+and the ordered row list means an inserted or reordered row fails rather than going silently
+unchecked.
 
 **Update the tables in [Current values](#current-values) whenever you change:**
 
@@ -221,7 +221,7 @@ too; nothing catches that one going stale except this page's own honesty.
 | shared | `TICK_RATE_HZ` (the per-tick rows only) |
 
 Adding a fourth chassis means a new column in all three per-car tables (ratings, direct values, and
-derived) — only the first and third are test-checked; see above.
+derived) — all three are test-checked; see above.
 
 Do not retype the derived numbers by hand — build shared and print them:
 
