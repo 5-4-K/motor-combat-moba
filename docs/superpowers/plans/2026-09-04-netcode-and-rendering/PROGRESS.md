@@ -1,9 +1,10 @@
 # Plan-writing progress
 
-> **Read this first if you are continuing the plan-writing work from a new session.** It says what
-> is written, what is left, exactly how to write each remaining plan, and every decision made while
-> writing the finished ones. Nothing here is needed to *execute* a plan — for that, read
-> [`00-execution-guide.md`](00-execution-guide.md).
+> **This file is about WRITING the plans, which finished on 2026-09-05. It says nothing about
+> executing them.** If you are here to run a plan, you want [`EXECUTION.md`](EXECUTION.md) (where the
+> work got to) and then [`00-execution-guide.md`](00-execution-guide.md) (how to run a phase) — this
+> one records what each plan was asked for and every decision made while writing it, which is useful
+> when a plan surprises you and not before.
 
 **Last updated:** 2026-09-05 (N6 and V5 written — **the folder is complete**). **Branch:** `claude/gameplay-netcode-architecture-bgp8f6`.
 
@@ -467,8 +468,10 @@ floor ambience; and the final measurement pass recording every tier's numbers in
 
 - The ledger: [`interfaces.md`](interfaces.md) — every name the plans share. **It outranks any
   plan; the specs outrank it.**
-- Executing the plans once written: [`00-execution-guide.md`](00-execution-guide.md), including the
-  per-phase gates and the approach-B checkpoint.
+- **Where execution got to: [`EXECUTION.md`](EXECUTION.md)** — the state file, updated in the same
+  commit as the work it describes, so any session can pick up where the last one stopped.
+- How to run a phase: [`00-execution-guide.md`](00-execution-guide.md), including the per-phase gates
+  and the approach-B checkpoint.
 - The repo rules every plan must obey: root `CLAUDE.md` and the three package `CLAUDE.md` files.
 - `docs/ideas/` and `docs/invariants/` are the user's private notes and are **out of scope** for
   plan-writing unless the user names a file in them in the request at hand.

@@ -2,8 +2,12 @@
 
 > **For agentic workers:** this is the plan for running the other plans in this folder. Each phase
 > plan is executed with superpowers:subagent-driven-development (recommended) or
-> superpowers:executing-plans, in the order and with the gates below. Read this file first in every
-> session that touches this work.
+> superpowers:executing-plans, in the order and with the gates below.
+>
+> **Read [`EXECUTION.md`](EXECUTION.md) before this file.** It is the state: which phase is in
+> flight, on which branch, at which task, and what every finished phase measured. This file says how
+> to run a phase; that one says where you are. **It is updated in the same commit as the work it
+> describes**, so a session that stops anywhere leaves a correct resume point.
 
 **Goal:** Land the two approved architecture specs — online netcode and client rendering — as
 fourteen shippable phases in two parallel streams, with every phase merged into
