@@ -3,6 +3,8 @@
 **Date:** 2026-09-06
 **Status:** Approved, not yet implemented
 **Branch:** `feature/car-physics-rework`
+**Plans:** [`docs/superpowers/plans/2026-09-06-car-physics/`](../plans/2026-09-06-car-physics/README.md)
+— five sequential stages, plus an `interfaces.md` ledger of every shared name.
 
 ## The problem
 
