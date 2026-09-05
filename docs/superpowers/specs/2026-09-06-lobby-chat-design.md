@@ -195,7 +195,11 @@ this.onMessage(MSG_CHAT, (client, msg: unknown) => {
   const result = validateChatText(msg.text);
   if (!result.ok) return;
   this.chatLastSentAt.set(client.sessionId, now);
-  pushChatMessage(this.state.chat, { player, text: result.text, at: formatClockTime(new Date()) });
+  pushChatMessage(this.state.chat, {
+    sender: { sessionId: player.sessionId, name: player.name, colorId: player.colorId },
+    text: result.text,
+    at: formatClockTime(new Date()),
+  });
 });
 ```
 
