@@ -1,5 +1,6 @@
 import {
   ArenaState,
+  DRIVE_CONFIG,
   ManeuverKind,
   NET_CONFIG,
   PlayerState,
@@ -244,10 +245,24 @@ const COAST_INPUT: InputMessage = { seq: 0, steer: 0, throttle: 0, fireSlots: 0 
  * holding it rather than coasting it off. Not a regression (that is exactly what `speed` did before
  * this rework), and stage 2 closes it properly once `RamKnock` becomes `Impulse` and control loss has
  * a real signal again.
+ *
+ * The `lateralOf` comparison below is against `DRIVE_CONFIG.stopEpsilon`, not exact zero, and that is
+ * load-bearing, not tidiness: `stepDrive` rebuilds vx/vy at the car's NEW heading every tick
+ * (`steeringGrip` is 1.0, "on rails"), and that round-trip through `Math.sin`/`Math.cos` does not
+ * return a bit-exact zero lateral component for a car that has turned. A car that steers and then
+ * drives straight is left carrying a stable, nonzero residue on the order of 1e-14 — nowhere near a
+ * real knock, but enough that the exact `!== 0` this replaced called ordinary post-turn driving an
+ * externally-imposed knock and coasted a silent player's queue that client prediction never runs
+ * (measured at ~30% of ticks for a car that has recently turned). `stopEpsilon` is the codebase's
+ * existing "this much velocity is indistinguishable from rest" constant (see `coast` in
+ * `sim/drive.ts`), sitting eleven orders of magnitude above the measured residue and far below any
+ * real knock. If you are tempted to simplify this back to `!== 0`, don't — that reinstates the bug,
+ * and `tick.test.ts`'s "recently-turned silent player" case is what will fail.
  */
 function hasKnock(player: PlayerState): boolean {
   return (
-    lateralOf(player.vx, player.vy, player.angle) !== 0 || player.angVel !== 0 ||
+    Math.abs(lateralOf(player.vx, player.vy, player.angle)) > DRIVE_CONFIG.stopEpsilon ||
+    player.angVel !== 0 ||
     // A maneuver is also motion applied from outside the player's own inputs: a dashing or held
     // car must keep integrating when its owner goes silent, or it freezes mid-dash holding the
     // whole state. Ends on its own when the ticks run out, exactly as the knock decays do.

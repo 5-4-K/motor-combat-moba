@@ -205,7 +205,12 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     // only float-zero (`Math.cos(-Math.PI / 2)` is ~6e-17, not exactly 0), so exact equality would
     // fail for the wrong reason on any geometry change that perturbs that residual.
     expect(victim.vx).toBeCloseTo(afterFirstRam);
-    expect(victim.vy).not.toBe(0);
+    // The knock's SIGN is purely geometric (`ram.ts`'s `shoveX = away.x * impulse * massFactor`,
+    // with `impulse` and `massFactor` both always >= 0), independent of severity/mass/side-bonus —
+    // so a directional assertion is exact, not an approximation. "second" sits at y=431 approaching
+    // along -y toward the victim at y=400, so `away.y < 0` and the knock must push the victim's vy
+    // negative.
+    expect(victim.vy).toBeLessThan(0);
   });
 
   it("adds a second ram's knock on top rather than replacing the standing one (no precedence)", () => {
@@ -233,7 +238,10 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     // Same float-zero caveat as the test above: the second attacker's shove is nominally along y
     // alone, but its x contribution is only float-zero, not exactly 0.
     expect(victim.vx).toBeCloseTo(afterMediumRam);
-    expect(victim.vy).not.toBe(0);
+    // Same geometric-sign reasoning as the test above: "hexy" sits at y=431 approaching along -y
+    // toward the victim at y=400, so `away.y < 0` and the knock must push the victim's vy negative,
+    // independent of the attacker's mass or severity.
+    expect(victim.vy).toBeLessThan(0);
   });
 });
 

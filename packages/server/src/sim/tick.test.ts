@@ -10,6 +10,7 @@ import {
   RoomPhase,
   driveOf,
   forwardOf,
+  lateralOf,
   toWorld,
   type InputMessage,
   type Modifiers,
@@ -649,6 +650,46 @@ describe("serverTick coasts a knocked player who has stopped sending input", () 
       serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
       expect(player.x).toBe(500);
       expect(player.vx).toBe(200);
+    },
+  );
+
+  it(
+    "leaves a merely-driving, recently-turned silent player frozen despite sin/cos residue in lateralOf",
+    () => {
+      // Regression for the Critical finding on `hasKnock`: `stepDrive` rebuilds vx/vy at the car's
+      // NEW heading every tick (`DRIVE_CONFIG.steeringGrip` is 1.0 — "on rails"). That round-trip
+      // through `Math.sin`/`Math.cos` does not return a bit-exact zero lateral component for a car
+      // that has turned, even though nothing ever shoved it. A car that steers, then drives straight,
+      // is left carrying a stable, nonzero `lateralOf` residue on the order of 1e-14 — far below any
+      // real knock, but enough to make the OLD `!== 0` comparison call this ordinary driving an
+      // externally-imposed knock forever, coasting a silent player's queue that client prediction
+      // never runs. `hasKnock` must compare against `DRIVE_CONFIG.stopEpsilon`, not exact zero.
+      const player = makePlayer("v", 300, CORRIDOR_Y, 0);
+      const state = stateWith(player);
+      let seq = 1;
+      const turning = (steer: number): InputMessage[] => [
+        { seq: seq++, steer, throttle: 1, fireSlots: 0 },
+      ];
+      // Turning circle at cruise speed is ~55u for this chassis — well clear of arena-01's walls and
+      // its obstacles (all at y >= 350) from this corridor spot, so nothing here ever collides.
+      for (let i = 0; i < 200; i++) {
+        serverTick(state, new Map([["v", turning(1)]]), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
+      }
+
+      const residue = lateralOf(player.vx, player.vy, player.angle);
+      // The whole point: nonzero, but nowhere near a real knock.
+      expect(residue).not.toBe(0);
+      expect(Math.abs(residue)).toBeLessThan(DRIVE_CONFIG.stopEpsilon);
+
+      const restingX = player.x;
+      const restingY = player.y;
+      const restingVx = player.vx;
+      const restingVy = player.vy;
+      serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
+      expect(player.x).toBe(restingX);
+      expect(player.y).toBe(restingY);
+      expect(player.vx).toBe(restingVx);
+      expect(player.vy).toBe(restingVy);
     },
   );
 
