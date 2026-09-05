@@ -1,5 +1,6 @@
 import {
-  hasStatus, TICK_RATE_HZ, WEAPON_TABLE, weaponDefOf, type BotDifficulty, type WeaponId,
+  DRIVE_CONFIG, hasStatus, TICK_RATE_HZ, turnRateAtStopOf, turnRateOf, WEAPON_TABLE, weaponDefOf,
+  type BotDifficulty, type WeaponId,
 } from "@motor-combat-moba/shared";
 import { BOT_PROFILES, BRAIN_CONSTANTS, type BotProfile } from "../../config/bot-profiles.js";
 import type {
@@ -10,8 +11,8 @@ import { chooseSlot, preferredRangeOf, slotIsReady, type UltHoldEntry } from "./
 import { scoreTargets } from "./goals.js";
 import { applyHumanize, newHumanizeState, type HumanizeState } from "./humanize.js";
 import {
-  blendHeading, goalDesire, openFloorHeading, orbitDesire, reduceToIntent, reverseWouldHitBound,
-  wallDesire, type Desire,
+  blendHeading, compensateForLag, goalDesire, openFloorHeading, reduceToIntent,
+  reverseWouldHitBound, wallDesire, type Desire,
 } from "./movement.js";
 import {
   acquiringUnnoticed, activeThreats, knownCars, lastKnownAnchor, nearestHeardShot, newPerception,
@@ -48,7 +49,6 @@ export class HumanController implements BotController {
   private ultHold = new Map<number, UltHoldEntry>();
   private slotWeights: readonly number[] = [1, 1, 1];
   private lastPreferredRange = 0;
-  private orbitSide: 1 | -1 = 1;
   private situation: SituationState = newSituationState();
   private heldSinceTick = 0;
   private wantsRam = false;
@@ -66,6 +66,8 @@ export class HumanController implements BotController {
   private willEvadeCar = false;
   private humanize: HumanizeState = newHumanizeState();
   private personality: BotPersonality | undefined;
+  /** The steer this controller most recently emitted from `decide` — R10's lag-compensation input. */
+  private lastSteer: -1 | 0 | 1 = 0;
 
   constructor(
     profileId: BotDifficulty,
@@ -95,7 +97,6 @@ export class HumanController implements BotController {
       this.personality = rolled.personality;
       this.effectiveProfile = rolled.profile;
       this.slotWeights = rolled.personality.slotWeights;
-      this.orbitSide = rolled.personality.slotWeights[0]! > 1 ? 1 : -1;
     }
 
     this.perception = perceive(this.perception, view, this.effectiveProfile);
@@ -120,9 +121,11 @@ export class HumanController implements BotController {
     };
 
     const idle = this.situation.current === "recover";
-    return applyHumanize(
+    const out = applyHumanize(
       this.humanize, this.held, view.tick, this.effectiveProfile, view.rng, idle, decisionWindow,
     );
+    this.lastSteer = out.steer;
+    return out;
   }
 
   private shouldRecompute(tick: number): boolean {
@@ -326,19 +329,29 @@ export class HumanController implements BotController {
     const inDeadband = sit === "fight"
       && Math.abs((Number.isFinite(distance) ? distance : range) - range)
         <= range * profile.deadbandFraction;
-    if (inDeadband) {
-      const orbit = orbitDesire(bearing, profile.orbitBias, this.orbitSide);
-      if (orbit) desires.push(orbit);
-    }
     const heading = blendHeading(desires, self.angle);
 
     const reverseBlocked = reverseWouldHitBound(self, view.arena, profile.wallLookaheadUnits);
-    const { steer, throttle } = reduceToIntent({
+    // R10: the sim only uses the stopped turn rate while not moving (`stepDrive`'s `isMoving`
+    // gate), so pick the rate that matches the bot's actual current speed rather than always the
+    // stopped one — otherwise the compensation below is tuned for a car that isn't rolling.
+    const turnRate = Math.abs(self.speed) > DRIVE_CONFIG.stopEpsilon
+      ? turnRateOf(self.carId)
+      : turnRateAtStopOf(self.carId);
+    const { projectedError, effectiveDeadzone } = compensateForLag({
       headingError: signedDelta(self.angle, heading),
+      lastSteer: this.lastSteer,
+      turnRate,
+      aimToleranceRad: profile.aimToleranceRad,
+      reactionDelayTicks: profile.reactionDelayTicks,
+      recomputeTicks: profile.recomputeTicks,
+    });
+    const { steer, throttle } = reduceToIntent({
+      headingError: projectedError,
       distance: Number.isFinite(distance) ? distance : range,
       preferredRange: range,
       deadband: sit === "fight" ? range * profile.deadbandFraction : 0,
-      aimToleranceRad: profile.aimToleranceRad,
+      aimToleranceRad: effectiveDeadzone,
       closing,
       reverseBlocked: sit === "fight" || sit === "reset" ? reverseBlocked : false,
     });

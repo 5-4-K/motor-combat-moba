@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { slotsOf, weaponDefOf } from "@motor-combat-moba/shared";
+import {
+  driveOf, NEUTRAL_MODIFIERS, slotsOf, stepDrive, TICK_RATE_HZ, weaponDefOf,
+} from "@motor-combat-moba/shared";
 import { BOT_PROFILES } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import type { BotView } from "../types.js";
@@ -23,7 +25,72 @@ function view(overrides: Partial<BotView> = {}): BotView {
   };
 }
 
+function closedLoopDuel(
+  tier: "easy" | "medium" | "hard",
+  ticks: number,
+): { fires: number; meanOffset: number } {
+  const bot = new HumanController(tier);
+  const rng = makeRng(17);
+  const slots = slotsOf("bullseye").map((weaponId) => ({
+    weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
+    range: weaponDefOf(weaponId).range,
+  }));
+  // Real physics, so the bot's own steering rotates its own body — without this the bug is
+  // invisible (Task 1, round 1).
+  let body = {
+    x: 200, y: 360, angle: 0, speed: 300, reverseHold: 0, angVel: 0,
+    shoveX: 0, shoveY: 0, authority: 1, maneuver: 0, maneuverTicksLeft: 0, maneuverSpeed: 0,
+  };
+  const target = {
+    sessionId: "them", carId: "mirage" as const, team: 1 as const, x: 753, y: 360,
+    angle: Math.PI, speed: 0, hp: 70, maxHp: 70, alive: true, phased: false,
+    statuses: [], maneuver: 0,
+  };
+  let fires = 0;
+  const offsets: number[] = [];
+
+  for (let tick = 0; tick < ticks; tick++) {
+    const intent = bot.decide(view({
+      tick,
+      self: {
+        ...view().self,
+        x: body.x, y: body.y, angle: body.angle, speed: body.speed, slots,
+      },
+      others: [target],
+      rng,
+    }));
+    if (intent.fireSlots !== 0) fires += 1;
+    const bearing = Math.atan2(target.y - body.y, target.x - body.x);
+    offsets.push(Math.abs(
+      Math.atan2(Math.sin(bearing - body.angle), Math.cos(bearing - body.angle)),
+    ));
+    body = stepDrive(
+      body,
+      { seq: tick, steer: intent.steer, throttle: intent.throttle, fireSlots: 0 },
+      1 / TICK_RATE_HZ,
+      driveOf("bullseye"),
+      NEUTRAL_MODIFIERS,
+    );
+  }
+
+  const tail = offsets.slice(-100);
+  return { fires, meanOffset: tail.reduce((a, b) => a + b, 0) / tail.length };
+}
+
 describe("HumanController", () => {
+  it("keeps the body on the aim line at its preferred range, so it can fire (spec 1.1)", () => {
+    const { fires, meanOffset } = closedLoopDuel("hard", 300);
+    // Measured 2026-09-05 (R9-R11): 62 fires unfixed; 80 after removing the orbit desire alone
+    // (a real but partial fix — orbit was not the dominant mechanism); 99 at zero decision lag
+    // (the ceiling reachable without inhumanly fast reactions — the open-loop 146 "control" the
+    // brief originally derived from never fed steering back into pose, so it is not a legitimate
+    // target). Lead compensation for the bot's own reaction lag (R10) is what actually closes the
+    // gap toward that 99 ceiling.
+    expect(fires).toBeGreaterThan(90);
+    // The mechanism, not just the symptom: the body must stay near the aim line.
+    expect(meanOffset).toBeLessThan(BOT_PROFILES.hard.fireConeRad);
+  });
+
   it("hunts a quadrant waypoint when it has never seen anyone, never the arena centre (G12)", () => {
     // Sit ON the centre facing +x. Centre-seeking would keep heading 0 (steer 0). Quadrant search
     // from (640, 360) toward (320, 180) is a rear-left heading, so steer is visibly non-zero.

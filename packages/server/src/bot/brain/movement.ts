@@ -1,4 +1,5 @@
-import { DRIVE_CONFIG } from "@motor-combat-moba/shared";
+import { DRIVE_CONFIG, TICK_RATE_HZ } from "@motor-combat-moba/shared";
+import { BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import type { BotArenaView } from "../types.js";
 import type { KnownThreat } from "./perception.js";
 
@@ -69,16 +70,6 @@ export function wallDesire(
   return { headingRad: Math.atan2(pushY, pushX), weight: WALL_WEIGHT };
 }
 
-/** Circle the target instead of closing head-on (H13). `side` keeps the bot circling one way. */
-export function orbitDesire(
-  bearingToTarget: number,
-  orbitBias: number,
-  side: 1 | -1,
-): Desire | undefined {
-  if (orbitBias <= 0) return undefined;
-  return { headingRad: bearingToTarget + (side * Math.PI) / 2, weight: orbitBias };
-}
-
 /** One desire per shot worth leaning off (G16) — never a goal, so it composes with fighting. */
 export function dodgeDesires(threats: readonly KnownThreat[], weight: number): Desire[] {
   if (weight <= 0) return [];
@@ -102,6 +93,47 @@ export function nearBound(
     x > arena.width - lookaheadUnits ||
     y > arena.height - lookaheadUnits
   );
+}
+
+/**
+ * Anticipate the bot's own reaction lag so its bang-bang steering settles instead of oscillating
+ * (R9/R10, 2026-09-05).
+ *
+ * `reduceToIntent`'s `steer` is only ever -1/0/1 — there is no proportional term — and a bang-bang
+ * controller with decision lag is a textbook limit cycle: hard/bullseye's stopped turn rate alone
+ * (turnRateOf("bullseye") * DRIVE_CONFIG.stopTurnRatio = 3.555 rad/s = 0.1185 rad/tick) already
+ * exceeds hard's `aimToleranceRad` (0.07 rad) in a single tick, so the controller could never settle
+ * inside its own deadzone; stacking `reactionDelayTicks`(4) + `recomputeTicks`(2) = 6 ticks of lag
+ * on top adds ~0.71 rad of rotation that lands AFTER a correction is decided, which is what actually
+ * drove the observed oscillation amplitude (measured: 62 fires/300 unfixed by orbit removal alone,
+ * only 80/300 after it — orbit was real but partial; mean offset 0.459 rad, worse than fireConeRad
+ * 0.2). Forcing lag to zero collapsed mean offset to 0 and fires to 99/300, isolating this as the
+ * dominant mechanism.
+ *
+ * A person with a real reaction delay does not oscillate, because they anticipate it. This
+ * reproduces that in two parts: `effectiveDeadzone` floors the tolerance at half a decision
+ * interval's worth of rotation, so the controller stops chasing a precision the actuator cannot
+ * deliver; `projectedError` subtracts the rotation already committed to (the steer this controller
+ * most recently emitted, held for one lag window) before the bang-bang test runs. Deleting this
+ * without also giving `reduceToIntent` a proportional term reintroduces the limit cycle — see
+ * `.superpowers/sdd/2026-09-05-bot-brain-1-firing-solutions/task-2-report.md`, Round 2.
+ */
+export function compensateForLag(args: {
+  headingError: number;
+  lastSteer: -1 | 0 | 1;
+  turnRate: number;
+  aimToleranceRad: number;
+  reactionDelayTicks: number;
+  recomputeTicks: number;
+}): { projectedError: number; effectiveDeadzone: number } {
+  const lagSeconds = (args.reactionDelayTicks + args.recomputeTicks) / TICK_RATE_HZ;
+  const rotationPerDecisionInterval = args.turnRate * lagSeconds;
+  const effectiveDeadzone = Math.max(
+    args.aimToleranceRad,
+    rotationPerDecisionInterval * BRAIN_CONSTANTS.deadzoneFloorFraction,
+  );
+  const projectedError = args.headingError - args.lastSteer * args.turnRate * lagSeconds;
+  return { projectedError, effectiveDeadzone };
 }
 
 /**

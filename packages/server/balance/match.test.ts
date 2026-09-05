@@ -123,6 +123,14 @@ describe("runMatch", () => {
     // assertion below states that premise outright so the two cases can never be confused: if a
     // future balance edit empties the window again, THAT line fails and names the reason.
     //
+    // `seed: 33`, not 65: Task 2's lag-compensated steering (R9/R10, 2026-09-05) gave `hard`'s
+    // bang-bang `reduceToIntent` a deadzone floor and a projected-error lead term so it stops
+    // limit-cycling around its aim line instead of oscillating past its own tolerance band every
+    // decision — that closes the aim line MUCH faster for this matchup, so seed 65's kill now
+    // lands outside the 30 s window (it was landing late in the window before, on the strength of
+    // the oscillation eventually drifting through the fire cone). Swept 1-100 against the fixed
+    // brain: 33, 41, 45, 63, 78, and 92 land a kill inside the window.
+    //
     // `seed: 65`, not 21: the 2026-09-05 situation-play brain (waitOut on corpses, S10 aim-reach,
     // evade as a situation rather than a blend) moved this matchup again — seed 21 is now a
     // legitimate 0-0 in 30 s. Swept 1-80: 23, 27, and 65 still land a kill inside the window.
@@ -143,7 +151,7 @@ describe("runMatch", () => {
     // Mirage/Bastion matchup's dynamics enough that seed 40 stopped landing a kill inside the 30 s
     // window — a legitimate killless window under the new views, not a clock regression, so this
     // test isn't about that case.
-    const out = runMatch({ ...SETUP, seed: 65, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    const out = runMatch({ ...SETUP, seed: 33, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);

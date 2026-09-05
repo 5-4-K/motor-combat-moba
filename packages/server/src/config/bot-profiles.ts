@@ -115,6 +115,20 @@ export const BRAIN_CONSTANTS = Object.freeze({
   ultCooldownMs: 5000,
   /** How far a personality may move a parameter from its tier value, as a fraction. */
   personalityJitter: 0.25,
+  /**
+   * Fraction of one decision interval's worth of rotation that floors the effective steering
+   * deadzone (R10, 2026-09-05). A bang-bang steer law — `reduceToIntent`'s `steer` is only ever
+   * -1/0/1, never proportional — cannot settle inside a tolerance band smaller than the smallest
+   * step the actuator can take in one decision interval, or it overshoots every correction and
+   * limit-cycles forever. Measured on hard/bullseye: one tick of stopped-turn rotation
+   * (turnRateOf("bullseye") * DRIVE_CONFIG.stopTurnRatio = 3.555 rad/s = 0.1185 rad/tick) already
+   * exceeds `aimToleranceRad` (0.07 rad) on its own, before `reactionDelayTicks`+`recomputeTicks`
+   * lag (6 ticks = 0.71 rad in flight) is even counted. Halving the interval's rotation is the
+   * standard "deadzone >= half a step" rule for a discretized bang-bang controller: tight enough to
+   * still track, loose enough to stop chasing a precision the car cannot deliver. See
+   * `movement.ts`'s `compensateForLag`.
+   */
+  deadzoneFloorFraction: 0.5,
 });
 
 /**
