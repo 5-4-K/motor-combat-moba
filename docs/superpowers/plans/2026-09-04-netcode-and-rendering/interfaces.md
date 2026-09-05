@@ -51,6 +51,8 @@ specifier; shared is imported as `@motor-combat-moba/shared` and consumed as bui
 | `snapUnits`, `snapRadians` | `48`, `Math.PI / 2` | N3 | a correction past these is applied without an offset and counted |
 | `remoteSteerHoldTicks` | `6` | N3 | how long an extrapolated remote keeps a held steer |
 | `ghostGraceTicks` | `2` | N4 | ghost expiry is `lead + rttTicks + ghostGraceTicks` |
+| `eventsPerSnapshotMax` | `16` | N4 | ceiling on `Snapshot.events`; overflow drops `hit` events only |
+| `telegraphWindowMs` | `150` | N4 | N31's wind-up floor; read by `config/telegraph.ts`'s audit, never by the sim |
 | `reconnectSeconds` | `60` | N5 | |
 | `silenceWarnMs` | `2000` | N5 | |
 | `floodRateMultiple`, `floodDisconnectMs` | `3`, `10000` | N5 | |
@@ -172,7 +174,7 @@ export interface CarState extends SimBody {
   index: number;
   sessionId: string;
   carId: CarId;
-  team: number;                  // N3: `resolveContacts` requires it
+  team: 0 | 1;                   // N3: `resolveContacts` requires it; `RamCar.team` is `0 | 1`, so this is too (corrected in N4)
   maneuverWeaponId: string;      // N3: "" when no maneuver is active
   onField: boolean;
   phased: boolean;
@@ -183,7 +185,10 @@ export interface ContactMemoryState {
   touching: ReadonlySet<string>;                 // "a|b" with a < b by session id
   slammed: ReadonlyMap<string, SlamClocks>;      // by session id
 }
-export interface WorldState { tick: number; mode: GameMode; cars: readonly CarState[]; contact: ContactMemoryState }  // N3 adds `mode`; cars sorted by index
+// `mode` is the SIDES string, not the `GameMode` enum: it is what `resolveContacts` and `canDamage`
+// take, and it is what N3's own `MatchClient.worldFrom` builds with `sidesOf(lobby.mode)`. An earlier
+// revision of this row said `GameMode`; corrected in N4.
+export interface WorldState { tick: number; mode: "ffa" | "team"; cars: readonly CarState[]; contact: ContactMemoryState }  // N3 adds `mode`; cars sorted by index
 export interface ContactEvent {
   kind: "ram" | "slam" | "dashHit";
   attacker: string; victim: string; x: number; y: number; severity: number; tick: number;
@@ -192,6 +197,17 @@ export interface ContactEvent {
 // no attacker, no impact point, no severity — and filling those in is an additive change to its
 // return value that spec §11 does not authorise. N3 pins the absence with a test; N4 drives ram
 // feedback off the `contact.touching` transition instead. Needs the user's authorisation to change.
+//
+// N4's answer, which does NOT change this row: shared `sim/ram-events.ts` exposes
+// `ramContactsFrom(before, after, approachSpeeds, claimedPairs): RamContact[]`, which finds the pairs
+// that entered contact and re-runs the exported, pure `resolveRam` on the same inputs the sim used.
+// That recovers the attacker, the victim, the side and the graded severity EXACTLY — it is a second
+// evaluation of the sim's rule, not a fork of it — and it is what fills `MatchEvent.ram` on the
+// server and drives the local ram spark on the client. Two limits remain, and only the user's
+// authorisation removes them: `x, y` is the midpoint of the two hull centres rather than the contact
+// manifold point (which `resolveRam` computes privately and does not return), and a pair the contact
+// pass classified as a dash hit or a slam is excluded through `claimedPairs` rather than
+// re-classified, because those branches are not exported.
 export interface WorldStepResult { world: WorldState; contactEvents: ContactEvent[]; approachSpeeds: ReadonlyMap<string, number> }
 export function stepWorld(world: WorldState, inputs: ReadonlyMap<string, InputFrame>, arena: ArenaDef): WorldStepResult;
 ```
@@ -199,6 +215,36 @@ export function stepWorld(world: WorldState, inputs: ReadonlyMap<string, InputFr
 `stepSim` is unchanged inside it. The server's `runPipeline` calls `stepWorld` in place of
 `serverTick` + `contactTick`; `runCombat` is untouched and consumes `contactEvents` where it
 consumed `contactHits` and `statusRequests`.
+
+### `sim/ram-events.ts` — produced N4, consumed by the server's `world-bridge.ts` and the client's `prediction.ts`
+
+```ts
+export interface RamContact {
+  attacker: string; victim: string; x: number; y: number;
+  severity: number; side: ImpactSide; tick: number;
+}
+export function ramContactsFrom(
+  before: WorldState, after: WorldState,
+  approachSpeeds: ReadonlyMap<string, number>,
+  claimedPairs: ReadonlySet<string>,          // `pairKey(attacker, victim)` of every ContactEvent this tick
+): RamContact[];
+```
+
+See the `ContactEvent` caveat above for what this is and what it costs. `sim/combat.ts` also gains
+one export in N4 — `maneuverSlotMask` — with no change to `runCombat`.
+
+### `config/telegraph.ts` — produced N4
+
+```ts
+export interface TelegraphViolation {
+  weaponId: WeaponId; rules: readonly (1 | 3)[]; startUpMs: number;
+  instantAccelUnitsPerS2: number; budgetUnitsPerS2: number; positionErrorUnits: number;
+}
+export function telegraphAudit(): TelegraphViolation[];   // reports; never enforces
+```
+
+N31 read against the live `WEAPON_TABLE`. Today it names exactly `thunderclap`. Changing that row is
+a balance edit and belongs to N6.
 
 ### Schema (`schema/PlayerState.ts`, `schema/ArenaState.ts`)
 
@@ -280,7 +326,42 @@ export const HASH_QUANT: { posPerUnit: 16; angleSteps: 65536; speedPerUnit: 16 }
 
 ### `match/render-frame.ts` — P; N2 re-exports `MatchEvent` from shared instead of defining it
 
-Unchanged from the preparation plan. `RenderFrame.events` is empty until N4.
+Unchanged from the preparation plan through N3. `RenderFrame.events` is empty until N4, which fills
+it and adds four fields:
+
+```ts
+// N4
+export interface ManeuverReveal { weaponId: string; fromX: number; fromY: number; fromAngle: number; tick: number }
+// RenderCar gains: hpDisplay: number; hpFlashUntilTick: number; revealedManeuver: ManeuverReveal | null
+// RenderInstance gains: ghost?: boolean
+```
+
+`hp` keeps its meaning — authoritative and un-eased. `hpDisplay` is the eased value the BAR draws.
+`revealedManeuver` is the sim-side half of rendering R18a and is present on exactly one frame.
+
+### `match/event-feed.ts` and `match/hp-ease.ts` — produced N4, consumed by V4
+
+```ts
+export function eventKey(event: MatchEvent): string;   // N23a's `(tick, kind, cars)`, payload-independent
+export class EventFeed {
+  constructor(opts?: { keepTicks?: number });
+  pushPredicted(events: readonly MatchEvent[]): void;
+  pushAuthoritative(events: readonly MatchEvent[]): void;
+  drain(): MatchEvent[];
+  clear(): void;
+}
+export class HpEase {
+  constructor(cfg: Pick<typeof HUD_FEEL, "hpEaseMs" | "hpFlashMs">);
+  observe(sessionId: string, hp: number): void;
+  flash(sessionId: string, tick: number): void;
+  decay(deltaMs: number): void;
+  readOf(sessionId: string, hp: number): { display: number; flashUntilTick: number };
+  forget(sessionId: string): void;
+  clear(): void;
+}
+// client config/hud-feel.ts — render-only, not networked
+export const HUD_FEEL: { readonly hpEaseMs: number; readonly hpFlashMs: number };   // 100, 120
+```
 
 ### `match/arena-net.ts` — P; **replaced** by `match/match-client.ts` in N3
 
@@ -387,7 +468,9 @@ export class WorldPredictor {
 
 ```ts
 export class RenderOffsets {
-  constructor(cfg: Pick<typeof NET_CONFIG, "correctionMs" | "snapUnits" | "snapRadians">, stats: NetStats);
+  // N4 adds the third argument. `countSnaps: false` keeps a ghost-shot handover — which uses the
+  // same machinery on an instance id — out of `NetStats.snaps`, the counter phase 3 is graded on.
+  constructor(cfg: Pick<typeof NET_CONFIG, "correctionMs" | "snapUnits" | "snapRadians">, stats: NetStats, opts?: { countSnaps?: boolean });
   add(sessionId: string, dx: number, dy: number, dAngle: number): void;   // counts a snap when past the thresholds and applies none
   decay(deltaMs: number): void;
   offsetOf(sessionId: string): { dx: number; dy: number; dAngle: number };
@@ -399,14 +482,32 @@ export class RenderOffsets {
 ```ts
 export class FirePrediction {
   constructor(cfg: Pick<typeof NET_CONFIG, "ghostGraceTicks">);
+  // N4: the constructor above cannot reach an arena or the predicted world, so those arrive here,
+  // once, from `MatchClient` (and again when the driven seat changes). Every member below keeps the
+  // signature this ledger declared.
+  attach(ctx: FireContext): void;
   rebase(car: SnapshotCar, tick: number): void;
   press(localTick: number, fireSlots: number, prevFireSlots: number): GhostSpawn[];   // runs beginFire/releaseShots
+  advance(localTick: number): void;                            // N4: one tick of ghost flight
   confirm(instances: readonly SnapshotInstance[], tick: number): void;
   expired(localTick: number, leadPlusRtt: number): string[];   // ghost ids removed
+  clear(): void;                                               // N4: called by `MatchClient.seed`
   readonly ghosts: readonly GhostInstance[];
+  readonly stats: FireStats;                                   // N4: presses, ghosts, confirmed, mismatched, orphans
 }
 export interface GhostInstance extends RenderInstance { ghost: true }
 export interface GhostSpawn { id: string; weaponId: string; slot: number }
+export interface FireContext {                                 // N4
+  arena: ArenaDef; ownerIndex: number;
+  worldAt: (tick: number) => WorldState | undefined;
+  sessionIdOf: (index: number) => string;
+  startManeuver: (tick: number, maneuver: PredictedManeuver) => void;
+  handover: (id: string, dx: number, dy: number, dAngle: number) => void;
+}
+export interface PredictedManeuver {                           // N4
+  weaponId: string;
+  maneuver: number; maneuverTicksLeft: number; maneuverAngle: number; maneuverSpeed: number;
+}
 ```
 
 ### Rendering (V-plans)

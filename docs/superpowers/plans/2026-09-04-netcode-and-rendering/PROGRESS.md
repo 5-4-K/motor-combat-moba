@@ -5,7 +5,7 @@
 > writing the finished ones. Nothing here is needed to *execute* a plan — for that, read
 > [`00-execution-guide.md`](00-execution-guide.md).
 
-**Last updated:** 2026-09-05. **Branch:** `claude/gameplay-netcode-architecture-bgp8f6`.
+**Last updated:** 2026-09-05 (N4 written). **Branch:** `claude/gameplay-netcode-architecture-bgp8f6`.
 
 The two approved specs this folder implements:
 [netcode](../../specs/2026-09-04-online-netcode-and-client-architecture-design.md) and
@@ -13,7 +13,7 @@ The two approved specs this folder implements:
 
 ## 1. Status
 
-Fourteen plans, two streams. **Eight written, six to go** — N4, N5, N6, V3, V4, V5. (Count the table, not this line: earlier revisions of it said nine and then ten, both wrong.)
+Fourteen plans, two streams. **Nine written, five to go** — N5, N6, V3, V4, V5. (Count the table, not this line: earlier revisions of it said nine and then ten while eight were written, both wrong.)
 
 | # | File | Lines | State |
 |---|---|---|---|
@@ -22,7 +22,7 @@ Fourteen plans, two streams. **Eight written, six to go** — N4, N5, N6, V3, V4
 | N1 | `11-netcode-1-time.md` | 1415 | written |
 | N2 | `12-netcode-2-wire.md` | 2825 | written |
 | N3 | `13-netcode-3-world.md` | 3795 | written |
-| N4 | `14-netcode-4-feel.md` | — | **to write** |
+| N4 | `14-netcode-4-feel.md` | 3177 | written |
 | N5 | `15-netcode-5-lifecycle.md` | — | **to write** |
 | N6 | `16-netcode-6-optional.md` | — | **to write** |
 | V0 | `20-render-0-instrumentation.md` | 1853 | written |
@@ -42,7 +42,13 @@ extended to *fail* on a stray world `Graphics` or one that clears itself, `world
 the `docs/render-bench.md` V2 row and the remaining doc edits) plus `## Acceptance`, `## Handoff` and
 `## Self-review`. Tasks 1-6 were re-checked against the current ledger and needed no change.
 
-An `14-netcode-4-feel.md` was **not** started; if one appears on disk it is stale and should go.
+**`14-netcode-4-feel.md` was written on 2026-09-05**, in this session, along with its five ledger
+edits (section 3's table). It resolved the ram question of section 4 **without** touching
+`resolveContacts`: shared `sim/ram-events.ts` re-runs the exported, pure `resolveRam` on the pairs
+that entered contact, which recovers the attacker, the victim, the side and the graded severity
+exactly. The two limits that remain — a hull-centre midpoint instead of the contact manifold point,
+and dash/slam pairs excluded rather than re-classified — are what section 4's open question is now
+about, and it is narrower than it was.
 
 A general rule for any future interruption: a half-written plan must never be left under its final
 name, because the next plan in that stream builds on its `## Handoff`. That rule is what made the V2
@@ -56,9 +62,9 @@ Each plan is written by one worker in its own context. Hand that worker:
 2. The plan's own assignment from section 5 below, verbatim.
 
 **Order matters.** Within a stream each plan reads the previous plan's `## Handoff`, so they are
-written in order: N4 → N5 → N6, and V3 → V4 → V5 (V2 is done). Across streams they are independent, so one
-netcode plan and one rendering plan can be written at the same time. Two per round, so **three
-rounds**: N4 with V3, then N5 with V4, then N6 with V5.
+written in order: N5 → N6, and V3 → V4 → V5 (N4 and V2 are done). Across streams they are
+independent, so one netcode plan and one rendering plan can be written at the same time. **Three
+rounds remain**: V3 alone (the netcode stream is one plan ahead), then N5 with V4, then N6 with V5.
 
 **After each plan comes back:**
 
@@ -98,7 +104,7 @@ waits.
 
 ## 3. Decisions already made while writing these plans
 
-Four ledger defects have been found and fixed. They are recorded here because each was a judgement
+Nine ledger defects have been found and fixed. They are recorded here because each was a judgement
 call, not a typo, and a later reader will otherwise re-open them.
 
 | Found by | Defect | Resolution |
@@ -107,6 +113,11 @@ call, not a typo, and a later reader will otherwise re-open them.
 | V1 | `render/bake.ts` and `render/atlas.ts` were assigned to V2, but V1's baked cooldown rings need them a phase earlier | **Moved to V1**, HUD jobs only, with the ledger's exact names and signatures; V2 extends the same two files with the world jobs, `ART_ATLAS` and `pack-atlas.mjs` |
 | V1 | `BakeTier` and V5's `Tier` are the same union with no stated owner | **`render/bake.ts` owns it**; V5's `render/tiers.ts` re-exports `export type Tier = BakeTier`, so V5 never becomes a dependency of V1 |
 | N3 | `CarState` as typed cannot run `resolveContacts`, and the snapshot carried no contact memory | Added `CarState.team`, `CarState.maneuverWeaponId`, `WorldState.mode`, `SlamClocks.bySessionId`, `Snapshot.contactPairs` and `Snapshot.slams` — all additive. Full snapshot 677 → 686 B, steady-state delta 125 → 128 B, both still inside spec §8's lines |
+| N4 | `WorldState.mode` was typed `GameMode`, but `resolveContacts` takes the SIDES string and N3's own `MatchClient.worldFrom` builds it with `sidesOf(lobby.mode)` | **`"ffa" \| "team"`.** The more specific statement — the function signature the field is passed to, and the code that fills it — beats the enum name in the summary row |
+| N4 | `CarState.team: number`, but `RamCar.team` is `0 \| 1` and N3's `worldFrom` already narrows it | **`0 \| 1`.** Same rule; a widening nobody wanted |
+| N4 | `FirePrediction`'s ledger constructor is `(cfg)`, which cannot reach an arena or the predicted world | **`attach(ctx: FireContext)` added**, plus `advance`, `clear` and `stats`. Every ledger-listed member keeps its declared signature; purely additive |
+| N4 | `RenderOffsets` had no way to apply an offset without counting a snap, so a ghost-shot handover would pollute the `snaps` counter phase 3 is graded on | **An optional third constructor argument**, `{ countSnaps?: boolean }`, defaulting to the current behaviour. Purely additive |
+| N4 | `ContactEvent`'s ram caveat had no answer | Still true, and now points at shared `sim/ram-events.ts` for what N4 actually did instead. Two narrower limits recorded in its place |
 
 Two conventions settled the same way:
 
@@ -132,6 +143,21 @@ contact point or scaled to the hit.
 Nothing is blocked. If the user wants contact-point-accurate ram feedback, they authorise the
 `resolveContacts` return-value change and N4 (or a later pass) fills the event in. The caveat is
 recorded inline in [`interfaces.md`](interfaces.md) beside `ContactEvent`.
+
+**Narrowed by N4 (2026-09-05), and still open.** N4 recovered the attacker, victim, side and graded
+severity **exactly**, without touching `resolveContacts`, by re-running the exported pure
+`resolveRam` on the pairs that entered contact (shared `sim/ram-events.ts`). So `MatchEvent.ram` is
+filled and ram feedback works. Two things are still not available and still need the user's word:
+
+1. **The impact point.** `x, y` is the midpoint of the two hull centres. The true contact manifold
+   point is computed inside `resolveRam`'s private `spinOf` and is not returned, so a spark lands
+   within half a car of where the hulls actually met rather than on it.
+2. **Dash and slam pairs are excluded, not re-classified.** `resolveContacts`' dash and slam
+   branches are not exported, so a pair one of them claimed is dropped from the ram derivation
+   through a `claimedPairs` set rather than being told apart by the same logic the sim used.
+
+Both would be fixed by the same additive change to `resolveContacts`' return value. Ask the user
+before making it.
 
 ## 5. The remaining assignments, verbatim
 
