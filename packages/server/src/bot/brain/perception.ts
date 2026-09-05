@@ -142,8 +142,8 @@ export function acquiringUnnoticed(state: PerceptionState, tick: number): boolea
 export function predictedPose(known: KnownCar, tick: number): { x: number; y: number } {
   const dt = (tick - known.lastSeenTick) / TICK_RATE_HZ;
   return {
-    x: known.car.x + Math.cos(known.car.angle) * known.car.speed * dt,
-    y: known.car.y + Math.sin(known.car.angle) * known.car.speed * dt,
+    x: known.car.x + known.car.vx * dt,
+    y: known.car.y + known.car.vy * dt,
   };
 }
 

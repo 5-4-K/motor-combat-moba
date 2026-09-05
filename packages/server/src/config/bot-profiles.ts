@@ -125,7 +125,10 @@ export const BRAIN_CONSTANTS = Object.freeze({
  * without the table moving, or the balance harness will happily compare two incomparable pilots.
  */
 // 3.0.0 (2026-09-05): situation → one play replaces the scored goal catalog.
-export const BOT_BRAIN_VERSION = "3.0.0";
+// 3.1.0 (2026-09-06): aim.ts/perception.ts read the target's real vx/vy instead of reconstructing
+// velocity from angle+speed — the bot's lead and dead-reckoning are now correct for a car that is
+// sliding or being shoved, which they silently were not before (car-physics rework, stage 1 Task 5).
+export const BOT_BRAIN_VERSION = "3.1.0";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency

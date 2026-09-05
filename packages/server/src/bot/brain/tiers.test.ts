@@ -16,7 +16,7 @@ function view(tick: number, over: Partial<BotView> = {}): BotView {
   return {
     tick,
     self: {
-      sessionId: "me", carId: "bullseye", team: 0, x: 200, y: 360, angle: 0, speed: 200,
+      sessionId: "me", carId: "bullseye", team: 0, x: 200, y: 360, angle: 0, vx: 200, vy: 0,
       hp: 65, maxHp: 65, alive: true, statuses: [], slots: slotsFor("bullseye"),
       switchLockUntilTick: 0, lockTargetSessionId: "", maneuver: 0, maneuverTicksLeft: 0,
     },
@@ -27,7 +27,7 @@ function view(tick: number, over: Partial<BotView> = {}): BotView {
 }
 
 const enemy: BotCarView = {
-  sessionId: "them", carId: "mirage", team: 0, x: 700, y: 360, angle: Math.PI, speed: 400,
+  sessionId: "them", carId: "mirage", team: 0, x: 700, y: 360, angle: Math.PI, vx: -400, vy: 0,
   hp: 70, maxHp: 70, alive: true, phased: false, statuses: [], maneuver: 0,
 };
 
@@ -82,7 +82,7 @@ describe("tier characterisation", () => {
       const bot = new HumanController(tier, { profile });
       const rng = makeRng(17);
       const out: number[] = [];
-      const still = { ...enemy, speed: 0 };
+      const still = { ...enemy, vx: 0, vy: 0 };
       for (let tick = 0; tick < 90; tick++) {
         out.push(bot.decide(view(tick, { others: [still], instances: incoming, rng })).steer);
       }
@@ -249,7 +249,7 @@ describe("tier characterisation", () => {
       const steer: number[] = [];
       let tailGoal: string | undefined;
       for (let tick = 0; tick < 90; tick++) {
-        const scene = view(tick, { others: [{ ...enemy, x: x + 200, y: 360, speed: 0 }], rng });
+        const scene = view(tick, { others: [{ ...enemy, x: x + 200, y: 360, vx: 0, vy: 0 }], rng });
         steer.push(bot.decide({ ...scene, self: { ...scene.self, x, y: 360, angle: 0 } }).steer);
         if (tick >= 60) tailGoal = bot.debug()?.situation;
       }
@@ -314,7 +314,7 @@ describe("tier characterisation", () => {
       const bot = new HumanController("hard", { profile });
       const rng = makeRng(17);
       const steer: number[] = [];
-      const still = { ...enemy, speed: 0 };
+      const still = { ...enemy, vx: 0, vy: 0 };
       for (let tick = 0; tick < 90; tick++) {
         const out = bot.decide(view(tick, { others: [still], instances: incoming, rng }));
         steer.push(out.steer);
@@ -353,7 +353,7 @@ describe("ladder monotonicity", () => {
     // occupies 2 output ticks, Medium's is 6, and comparing occupancy would credit Medium for
     // holding the button down longer rather than for shooting more often. Stationary target,
     // HUD lock already on — burst gap is the limiter, not a lock-wait veto (S20).
-    const sitting = { ...enemy, speed: 0 };
+    const sitting = { ...enemy, vx: 0, vy: 0 };
     const presses = (tier: "easy" | "medium" | "hard") => {
       const bot = new HumanController(tier);
       const rng = makeRng(17);

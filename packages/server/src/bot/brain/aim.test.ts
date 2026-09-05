@@ -39,12 +39,12 @@ describe("stepAimError", () => {
 
 describe("interceptPoint", () => {
   it("returns the target's own position at leadFactor 0", () => {
-    const point = interceptPoint({ x: 0, y: 0 }, { x: 300, y: 0, speed: 400, angle: Math.PI / 2 }, 900, 0);
+    const point = interceptPoint({ x: 0, y: 0 }, { x: 300, y: 0, vx: 0, vy: 400 }, 900, 0);
     expect(point).toEqual({ x: 300, y: 0 });
   });
 
   it("leads a crossing target ahead of its own position", () => {
-    const point = interceptPoint({ x: 0, y: 0 }, { x: 300, y: 0, speed: 400, angle: Math.PI / 2 }, 900, 1);
+    const point = interceptPoint({ x: 0, y: 0 }, { x: 300, y: 0, vx: 0, vy: 400 }, 900, 1);
     expect(point.y).toBeGreaterThan(0);
     // Time to close 300 units at 900 u/s is ~0.333 s; the target covers ~133 units in that time.
     expect(point.y).toBeGreaterThan(100);
@@ -52,12 +52,17 @@ describe("interceptPoint", () => {
   });
 
   it("falls back to the target's position when the shot cannot catch it", () => {
-    const point = interceptPoint({ x: 0, y: 0 }, { x: 300, y: 0, speed: 900, angle: 0 }, 100, 1);
+    const point = interceptPoint({ x: 0, y: 0 }, { x: 300, y: 0, vx: 900, vy: 0 }, 100, 1);
     expect(point).toEqual({ x: 300, y: 0 });
   });
 
   it("falls back for a zero-speed weapon (a range-0 maneuver row)", () => {
-    const point = interceptPoint({ x: 0, y: 0 }, { x: 50, y: 0, speed: 400, angle: 0 }, 0, 1);
+    const point = interceptPoint({ x: 0, y: 0 }, { x: 50, y: 0, vx: 400, vy: 0 }, 0, 1);
+    expect(point).toEqual({ x: 50, y: 0 });
+  });
+
+  it("falls back when the target is not moving (vx and vy both zero)", () => {
+    const point = interceptPoint({ x: 0, y: 0 }, { x: 50, y: 0, vx: 0, vy: 0 }, 900, 1);
     expect(point).toEqual({ x: 50, y: 0 });
   });
 });

@@ -1,5 +1,5 @@
 import {
-  hasStatus, TICK_RATE_HZ, WEAPON_TABLE, weaponDefOf, type BotDifficulty, type WeaponId,
+  hasStatus, speedOf, TICK_RATE_HZ, WEAPON_TABLE, weaponDefOf, type BotDifficulty, type WeaponId,
 } from "@motor-combat-moba/shared";
 import { BOT_PROFILES, BRAIN_CONSTANTS, type BotProfile } from "../../config/bot-profiles.js";
 import type {
@@ -25,7 +25,7 @@ import { classifySituation, newSituationState, pickSituation, type SituationStat
 const COAST: BotIntent = { steer: 0, throttle: 0, fireSlots: 0 };
 
 const ABSENT_TARGET: BotCarView = {
-  sessionId: "", carId: "bullseye", team: 0, x: 0, y: 0, angle: 0, speed: 0,
+  sessionId: "", carId: "bullseye", team: 0, x: 0, y: 0, angle: 0, vx: 0, vy: 0,
   hp: 1, maxHp: 1, alive: false, phased: true, statuses: [], maneuver: 0,
 };
 
@@ -244,7 +244,7 @@ export class HumanController implements BotController {
     const aimPoint = target
       ? interceptPoint(
           self,
-          { x: target.x, y: target.y, speed: target.speed, angle: target.angle },
+          { x: target.x, y: target.y, vx: target.vx, vy: target.vy },
           leadSlot ? weaponDefOf(leadSlot.weaponId).speed : 0,
           profile.leadFactor,
         )
@@ -256,8 +256,8 @@ export class HumanController implements BotController {
     const bodyIntercept = target
       ? interceptPoint(
           self,
-          { x: target.x, y: target.y, speed: target.speed, angle: target.angle },
-          Math.max(self.speed, 1),
+          { x: target.x, y: target.y, vx: target.vx, vy: target.vy },
+          Math.max(speedOf(self.vx, self.vy), 1),
           profile.leadFactor,
         )
       : undefined;
@@ -428,9 +428,7 @@ function isIncomingCar(
   const dy = self.y - target.y;
   const dist = Math.hypot(dx, dy);
   if (dist < 1) return true;
-  const vx = Math.cos(target.angle) * target.speed;
-  const vy = Math.sin(target.angle) * target.speed;
-  const closing = (vx * dx + vy * dy) / dist;
+  const closing = (target.vx * dx + target.vy * dy) / dist;
   if (closing <= 0) return false;
   const eta = (dist - BRAIN_CONSTANTS.contactTriggerUnits) / closing;
   const horizon = profile.dodgeHorizonTicks / TICK_RATE_HZ;

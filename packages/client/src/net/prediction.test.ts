@@ -28,12 +28,10 @@ const START: SimBody = {
   x: 200,
   y: 200,
   angle: 0,
-  speed: 0,
+  vx: 0,
+  vy: 0,
   reverseHold: 0,
   angVel: 0,
-  shoveX: 0,
-  shoveY: 0,
-  authority: 1,
   maneuver: 0,
   maneuverTicksLeft: 0,
   maneuverAngle: 0,
@@ -65,7 +63,7 @@ describe("PredictionBuffer.predict", () => {
     const out = buf.predict(START, { seq: 1, input: up(1) }, ctx);
     expect(out).toEqual(stepSim(START, up(1), DT, ctx));
     expect(out.x).toBeGreaterThan(START.x);
-    expect(out.speed).toBeGreaterThan(0);
+    expect(out.vx).toBeGreaterThan(0);
   });
 
   it("caps the pending buffer at NET_CONFIG.pendingInputCap, dropping the oldest", () => {
@@ -150,12 +148,10 @@ describe("PredictionBuffer.reconcile", () => {
       x: 400,
       y: 400,
       angle: 0.2,
-      speed: 30,
+      vx: 30,
+      vy: 6,
       reverseHold: 0,
       angVel: 0,
-      shoveX: 0,
-      shoveY: 0,
-      authority: 1,
       maneuver: 0,
       maneuverTicksLeft: 0,
       maneuverAngle: 0,
@@ -175,12 +171,10 @@ describe("PredictionBuffer.reconcile", () => {
       x: 400,
       y: 400,
       angle: 0,
-      speed: 0,
+      vx: 0,
+      vy: 0,
       reverseHold: 0,
       angVel: 0,
-      shoveX: 0,
-      shoveY: 0,
-      authority: 1,
       maneuver: 0,
       maneuverTicksLeft: 0,
       maneuverAngle: 0,
@@ -197,12 +191,10 @@ describe("PredictionBuffer.reconcile", () => {
       x: 400,
       y: 400,
       angle: 0,
-      speed: 0,
+      vx: 0,
+      vy: 0,
       reverseHold: 0,
       angVel: 0,
-      shoveX: 0,
-      shoveY: 0,
-      authority: 1,
       maneuver: 0,
       maneuverTicksLeft: 0,
       maneuverAngle: 0,
@@ -216,20 +208,18 @@ describe("PredictionBuffer.reconcile", () => {
     expect(out.y).toBeCloseTo(406 + rate * (400 - 406), 10);
   });
 
-  it("snaps speed and reverseHold to the replayed target instead of easing them", () => {
-    // Derived sim fields are inputs to the next step, so a half-eased speed would feed a wrong
+  it("snaps vx/vy and reverseHold to the replayed target instead of easing them", () => {
+    // Derived sim fields are inputs to the next step, so a half-eased velocity would feed a wrong
     // integration next tick and never converge.
     const buf = new PredictionBuffer();
     const authoritative: SimBody = {
       x: 400,
       y: 400,
       angle: 0,
-      speed: 50,
+      vx: 50,
+      vy: -20,
       reverseHold: 6,
       angVel: 0,
-      shoveX: 0,
-      shoveY: 0,
-      authority: 1,
       maneuver: 0,
       maneuverTicksLeft: 0,
       maneuverAngle: 0,
@@ -239,12 +229,10 @@ describe("PredictionBuffer.reconcile", () => {
       x: 410,
       y: 400,
       angle: 0,
-      speed: 0,
+      vx: 0,
+      vy: 0,
       reverseHold: 0,
       angVel: 0,
-      shoveX: 0,
-      shoveY: 0,
-      authority: 1,
       maneuver: 0,
       maneuverTicksLeft: 0,
       maneuverAngle: 0,
@@ -252,7 +240,8 @@ describe("PredictionBuffer.reconcile", () => {
     };
 
     const out = buf.reconcile(authoritative, 0, nearby, ctx);
-    expect(out.speed).toBe(50);
+    expect(out.vx).toBe(50);
+    expect(out.vy).toBe(-20);
     expect(out.reverseHold).toBe(6);
     expect(out.x).not.toBe(400);
   });
@@ -265,12 +254,10 @@ describe("PredictionBuffer.reconcile", () => {
       x: 400,
       y: 400,
       angle: 0.1,
-      speed: 0,
+      vx: 0,
+      vy: 0,
       reverseHold: 0,
       angVel: 0,
-      shoveX: 0,
-      shoveY: 0,
-      authority: 1,
       maneuver: 0,
       maneuverTicksLeft: 0,
       maneuverAngle: 0,
@@ -284,24 +271,22 @@ describe("PredictionBuffer.reconcile", () => {
     expect(out.angle).not.toBeCloseTo(authoritative.angle, 6);
   });
 
-  it("snaps all four knock fields to the authoritative value on the EASE path, never eases them", () => {
-    // The dangerous mistake here is changing `angVel`/`shoveX`/`shoveY`/`authority` in `reconcile`
-    // from a snap to a `lerp` — per R16 that would break the "unpredicted ram" feature outright, and
-    // every OTHER test in this suite uses neutral knock values (0, 0, 0, 1) on both sides, so such a
-    // change would pass the whole file undetected. Exercising it specifically on the EASE branch
-    // (small positional error, so x/y visibly lerp) is what makes this test able to catch a `lerp`
-    // slipped in beside the position/angle easing, rather than only a wholesale drop of the fields.
+  it("snaps angVel and vx/vy to the authoritative value on the EASE path, never eases them", () => {
+    // The dangerous mistake here is changing `angVel`/`vx`/`vy` in `reconcile` from a snap to a
+    // `lerp` — per R16 that would break the "unpredicted ram" feature outright, and every OTHER test
+    // in this suite uses neutral knock values (0, 0, 0) on both sides, so such a change would pass
+    // the whole file undetected. Exercising it specifically on the EASE branch (small positional
+    // error, so x/y visibly lerp) is what makes this test able to catch a `lerp` slipped in beside
+    // the position/angle easing, rather than only a wholesale drop of the fields.
     const buf = new PredictionBuffer();
     const authoritative: SimBody = {
       x: 400,
       y: 400,
       angle: 0,
-      speed: 0,
+      vx: 120,
+      vy: -60,
       reverseHold: 0,
       angVel: 2.5,
-      shoveX: 120,
-      shoveY: -60,
-      authority: 0.4,
       maneuver: 0,
       maneuverTicksLeft: 0,
       maneuverAngle: 0,
@@ -311,12 +296,10 @@ describe("PredictionBuffer.reconcile", () => {
       x: 405,
       y: 402,
       angle: 0,
-      speed: 0,
+      vx: 0,
+      vy: 0,
       reverseHold: 0,
       angVel: 0,
-      shoveX: 0,
-      shoveY: 0,
-      authority: 1,
       maneuver: 0,
       maneuverTicksLeft: 0,
       maneuverAngle: 0,
@@ -330,9 +313,8 @@ describe("PredictionBuffer.reconcile", () => {
     expect(out.y).not.toBe(authoritative.y);
 
     expect(out.angVel).toBe(2.5);
-    expect(out.shoveX).toBe(120);
-    expect(out.shoveY).toBe(-60);
-    expect(out.authority).toBe(0.4);
+    expect(out.vx).toBe(120);
+    expect(out.vy).toBe(-60);
   });
 
   it("snaps maneuver state on reconcile — it is rules for the next integration, not a pose", () => {
@@ -346,12 +328,10 @@ describe("PredictionBuffer.reconcile", () => {
       x: 400,
       y: 400,
       angle: 0,
-      speed: 0,
+      vx: 0,
+      vy: 0,
       reverseHold: 0,
       angVel: 0,
-      shoveX: 0,
-      shoveY: 0,
-      authority: 1,
       maneuver: ManeuverKind.DASH,
       maneuverTicksLeft: 5,
       maneuverAngle: 2,
@@ -361,12 +341,10 @@ describe("PredictionBuffer.reconcile", () => {
       x: 405,
       y: 402,
       angle: 0,
-      speed: 0,
+      vx: 0,
+      vy: 0,
       reverseHold: 0,
       angVel: 0,
-      shoveX: 0,
-      shoveY: 0,
-      authority: 1,
       maneuver: ManeuverKind.NONE,
       maneuverTicksLeft: 0,
       maneuverAngle: 0,
@@ -393,12 +371,10 @@ describe("PredictionBuffer.reconcile", () => {
       x: 400,
       y: 400,
       angle: -3,
-      speed: 0,
+      vx: 0,
+      vy: 0,
       reverseHold: 0,
       angVel: 0,
-      shoveX: 0,
-      shoveY: 0,
-      authority: 1,
       maneuver: 0,
       maneuverTicksLeft: 0,
       maneuverAngle: 0,

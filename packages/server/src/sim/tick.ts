@@ -6,6 +6,7 @@ import {
   RoomPhase,
   WEAPON_SLOT_CONFIG,
   carIdOf,
+  forwardOf,
   getArena,
   isOnField,
   otherCarHulls,
@@ -29,22 +30,24 @@ export interface TickResult {
   /** Per session id, the validated slot bitmask that player fired with on a simulated input. */
   masks: Map<string, number>;
   /**
-   * Per session id, the scalar speed the car carried INTO this tick — read before `stepSim` ran,
-   * and therefore before `resolveWorld` could reflect it off anything.
+   * Per session id, the FORWARD component of the car's velocity carried INTO this tick — read
+   * before `stepSim` ran, and therefore before `resolveWorld` could reflect it off anything.
    *
    * **This is the whole fix for the ram trigger bug.** `resolveWorld` runs INSIDE `stepSim`, and
    * `applyContact` rebounds a car to about -35% of its impact speed on the tick a contact resolves.
    * `ramTick` runs after `serverTick` — that ordering is a rule, because ram must measure the poses
-   * cars actually ended up at — so the `speed` left on `PlayerState` is the post-bounce one. Feeding
+   * cars actually ended up at — so the velocity left on `PlayerState` is the post-bounce one. Feeding
    * that to `resolveRam` made its approach term negative on every tick a hull actually overlapped,
    * and a ram only fired on the rare tick where a pair landed inside `RAM_CONFIG.contactPad`
    * WITHOUT overlapping: a ~1.5 unit window against a 10.5-18 unit per-tick step, so 8-20% of
    * contacts. Measured in `playtest/ram.ts`, which is what found it.
    *
-   * The speed carried into the tick is the right number on its own terms, not merely a workaround:
-   * it is the speed at which the car covered the ground that brought it into contact. Reading it
-   * here also keeps `stepSim` untouched — it stays the single lockstep both halves import, which a
-   * richer return value from it would not.
+   * The forward speed carried into the tick is the right number on its own terms, not merely a
+   * workaround: it is the speed at which the car covered the ground that brought it into contact.
+   * FORWARD rather than total speed because `RamCar.speed` (stage 1) is still a scalar approach
+   * term — a car sliding sideways into someone should not count that slide as ram approach. Reading
+   * it here also keeps `stepSim` untouched — it stays the single lockstep both halves import, which
+   * a richer return value from it would not.
    *
    * Recorded for every player in the room, including ones that are not stepped this tick: a parked
    * or silent car is still a `resolveRam` participant, and its approach term decides whether it is
@@ -140,7 +143,7 @@ export function serverTick(
     const queue = queues.get(sessionId);
     // BEFORE any stepping, so this is the pre-collision speed `ramTick` needs. Unconditional —
     // a player who is not stepped this tick is still a ram participant. See `TickResult`.
-    approachSpeeds.set(sessionId, player.speed);
+    approachSpeeds.set(sessionId, forwardOf(player.vx, player.vy, player.angle));
 
     // Only `carId` and `others` vary per player; `world` is fixed for the whole tick.
     // A `null` context means "nothing about this player moves right now": drain only.
@@ -218,14 +221,30 @@ const COAST_INPUT: InputMessage = { seq: 0, steer: 0, throttle: 0, fireSlots: 0 
 /**
  * Does this player still carry knock state that needs integrating?
  *
- * Neutral is `angVel 0, shove 0/0, authority 1`, and `stepDrive`'s decay snaps to exactly those
- * values inside its epsilons rather than approaching them asymptotically. So this goes false on its
- * own after a bounded number of ticks and the coast stops — a silent player is stepped only while a
- * knock is actually resolving, never indefinitely.
+ * Before this rework this checked `angVel`/`shoveX`/`shoveY`/`authority` — the knock quartet — and
+ * deliberately left ordinary driving velocity (`speed`) out of the check, so a player whose queue
+ * merely went empty for one jittery tick (routine at the latencies this project simulates, not a
+ * sign of disconnection) stayed frozen rather than getting an extra, uncommanded coast tick.
+ *
+ * `speed` and `shove` are now the same two fields (`vx`/`vy`), so that distinction can no longer be
+ * drawn from the schema alone. This checks `vx`/`vy` too rather than narrowing to `angVel` alone,
+ * because the two decay at different rates (`coastPerTick` vs. `RAM_CONFIG.spinHalfLifeSeconds`) and
+ * a large shove paired with a small or zero spin (a near-centred hit) would otherwise see `angVel`
+ * snap to zero first, silently freezing a chunk of residual velocity on the player forever — the
+ * exact "immovable wall, and it never decays" bug this mechanism exists to prevent. The accepted
+ * cost is that a merely-driving silent player now also gets one coast tick before freezing, instead
+ * of none; `stepDrive`'s coast is a small proportional loss, not a snap, and the player has by
+ * definition just stopped talking to us on this exact tick regardless. See the ported test fixtures
+ * in `tick.test.ts` for the numeric case that motivated this.
+ *
+ * Neutral is `angVel 0, vx 0, vy 0`, and `stepDrive`'s decay snaps to exactly those values inside
+ * its epsilons rather than approaching them asymptotically. So this goes false on its own after a
+ * bounded number of ticks and the coast stops — a silent player is stepped only while residual
+ * motion is actually resolving, never indefinitely.
  */
 function hasKnock(player: PlayerState): boolean {
   return (
-    player.angVel !== 0 || player.shoveX !== 0 || player.shoveY !== 0 || player.authority !== 1 ||
+    player.vx !== 0 || player.vy !== 0 || player.angVel !== 0 ||
     // A maneuver is also motion applied from outside the player's own inputs: a dashing or held
     // car must keep integrating when its owner goes silent, or it freezes mid-dash holding the
     // whole state. Ends on its own when the ticks run out, exactly as the knock decays do.
@@ -257,13 +276,11 @@ function bodyOf(player: PlayerState): SimBody {
     x: player.x,
     y: player.y,
     angle: player.angle,
-    speed: player.speed,
+    vx: player.vx,
+    vy: player.vy,
     reverseHold: player.reverseHold,
     angVel: player.angVel,
-    shoveX: player.shoveX,
-    shoveY: player.shoveY,
-    authority: player.authority,
-    // Reading/writing the four fields here is what makes stepDrive's DASH/HOLD/CHARGE integration
+    // Reading/writing these fields here is what makes stepDrive's DASH/HOLD/CHARGE integration
     // and fullStop take hold once something upstream sets them (a weapon or status effect, not yet
     // wired), without this bridge needing to change again. `hasKnock` below also treats a live
     // maneuver as motion that must keep integrating even when the player goes silent.
@@ -278,12 +295,10 @@ function writeBody(player: PlayerState, body: SimBody): void {
   player.x = body.x;
   player.y = body.y;
   player.angle = body.angle;
-  player.speed = body.speed;
+  player.vx = body.vx;
+  player.vy = body.vy;
   player.reverseHold = body.reverseHold;
   player.angVel = body.angVel;
-  player.shoveX = body.shoveX;
-  player.shoveY = body.shoveY;
-  player.authority = body.authority;
   player.maneuver = body.maneuver;
   player.maneuverTicksLeft = body.maneuverTicksLeft;
   player.maneuverAngle = body.maneuverAngle;

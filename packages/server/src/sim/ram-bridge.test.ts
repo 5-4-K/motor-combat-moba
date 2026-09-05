@@ -10,6 +10,7 @@ import {
   SLAM_TICKS,
   applyStatus,
   forwardMaxSpeedOf,
+  forwardOf,
   type Modifiers,
   type WeaponId,
 } from "@motor-combat-moba/shared";
@@ -43,47 +44,50 @@ function arena(): ArenaState {
 }
 
 /**
- * The approach speeds `serverTick` would have reported for this state: each car's speed as it
- * entered the tick. These tests set `speed` on `PlayerState` directly and never run `serverTick`,
- * so the two are the same number here — which is the point. `contactTick` requires the map because
- * in the live tick collision resolution has already reflected `player.speed` by the time contact
- * runs.
+ * The approach speeds `serverTick` would have reported for this state: each car's FORWARD velocity
+ * as it entered the tick. These tests set `vx`/`vy` on `PlayerState` directly and never run
+ * `serverTick`, so the two are the same number here — which is the point. `contactTick` requires
+ * the map because in the live tick collision resolution has already reflected `player.vx`/`vy` by
+ * the time contact runs.
  */
 function approachSpeeds(state: ArenaState): Map<string, number> {
   const speeds = new Map<string, number>();
-  state.players.forEach((p, id) => speeds.set(id, p.speed));
+  state.players.forEach((p, id) => speeds.set(id, forwardOf(p.vx, p.vy, p.angle)));
   return speeds;
 }
 
 describe("contactTick (ordinary ram, unchanged behaviour)", () => {
   it("knocks a victim that was just rammed", () => {
     const state = arena();
-    addPlayer(state, "a", { x: 0, y: 400, angle: 0, speed: 540 });
+    addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
     const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
     contactTick(
       state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachSpeeds(state),
       NO_MANEUVER_WEAPONS, 10,
     );
-    expect(victim.authority).toBeLessThan(1);
-    expect(victim.shoveX).toBeGreaterThan(0);
+    // The knock is added straight into the victim's velocity (stage 1 shim — see `contactTick`'s
+    // comment on `RamKnock` application), so a car starting at rest picks up a nonzero shove.
+    expect(victim.vx).not.toBe(0);
   });
 
   it("leaves the attacker untouched", () => {
     const state = arena();
-    const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, speed: 540 });
+    const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
     addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
     contactTick(
       state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachSpeeds(state),
       NO_MANEUVER_WEAPONS, 10,
     );
-    expect(attacker.authority).toBe(1);
-    expect(attacker.shoveX).toBe(0);
+    // The attacker's own velocity (their approach speed, set on the fixture above) is neither
+    // overwritten nor added to — only the victim receives a knock.
+    expect(attacker.vx).toBe(540);
+    expect(attacker.vy).toBe(0);
     expect(attacker.angVel).toBe(0);
   });
 
   it("never changes hp", () => {
     const state = arena();
-    addPlayer(state, "a", { x: 0, y: 400, angle: 0, speed: 540, hp: 400 });
+    addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540, hp: 400 });
     const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0, hp: 400 });
     contactTick(
       state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachSpeeds(state),
@@ -94,127 +98,143 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
 
   it("fires once per contact episode, not once per tick", () => {
     const state = arena();
-    addPlayer(state, "a", { x: 0, y: 400, angle: 0, speed: 540 });
+    addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
     const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
     const memory = newContactMemory();
     contactTick(
       state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS, approachSpeeds(state),
       NO_MANEUVER_WEAPONS, 10,
     );
-    const afterFirst = victim.authority;
-    victim.authority = 1;
+    const afterFirst = victim.vx;
+    expect(afterFirst).not.toBe(0);
+    // Reset to a sentinel so a second (undesired) knock on the still-touching pair would be visible.
+    victim.vx = 0;
+    victim.vy = 0;
     contactTick(
       state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS, approachSpeeds(state),
       NO_MANEUVER_WEAPONS, 11,
     );
-    expect(afterFirst).toBeLessThan(1);
-    expect(victim.authority).toBe(1);
+    // Edge-triggered: the pair is still touching on tick 11, so no fresh knock fires.
+    expect(victim.vx).toBe(0);
+    expect(victim.vy).toBe(0);
   });
 
   it("ignores players who are not in the roster", () => {
     const state = arena();
-    addPlayer(state, "a", { x: 0, y: 400, angle: 0, speed: 540 });
+    addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
     const bystander = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
     contactTick(
       state, new Set(["a"]), newContactMemory(), "ffa", NO_EFFECTS, approachSpeeds(state),
       NO_MANEUVER_WEAPONS, 10,
     );
-    expect(bystander.authority).toBe(1);
+    expect(bystander.vx).toBe(0);
+    expect(bystander.vy).toBe(0);
   });
 
   it("ignores players who are not on the field", () => {
     const state = arena();
-    addPlayer(state, "a", { x: 0, y: 400, angle: 0, speed: 540 });
+    addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
     const lobbying = addPlayer(state, "b", { x: 47, y: 400, angle: 0, status: PlayerStatus.READY });
     contactTick(
       state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachSpeeds(state),
       NO_MANEUVER_WEAPONS, 10,
     );
-    expect(lobbying.authority).toBe(1);
+    expect(lobbying.vx).toBe(0);
+    expect(lobbying.vy).toBe(0);
   });
 
   it("ignores wrecks", () => {
     const state = arena();
-    addPlayer(state, "a", { x: 0, y: 400, angle: 0, speed: 540 });
+    addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
     const wreck = addPlayer(state, "b", { x: 47, y: 400, angle: 0, alive: false });
     contactTick(
       state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachSpeeds(state),
       NO_MANEUVER_WEAPONS, 10,
     );
-    expect(wreck.authority).toBe(1);
+    expect(wreck.vx).toBe(0);
+    expect(wreck.vy).toBe(0);
   });
 
   it("spares teammates in team mode", () => {
     const state = arena();
-    addPlayer(state, "a", { x: 0, y: 400, angle: 0, speed: 540, team: 0 });
+    addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540, team: 0 });
     const mate = addPlayer(state, "b", { x: 47, y: 400, angle: 0, team: 0 });
     contactTick(
       state, new Set(["a", "b"]), newContactMemory(), "team", NO_EFFECTS, approachSpeeds(state),
       NO_MANEUVER_WEAPONS, 10,
     );
-    expect(mate.authority).toBe(1);
+    expect(mate.vx).toBe(0);
+    expect(mate.vy).toBe(0);
   });
 
-  it("does not let a later, weaker ram overwrite a standing stronger knock (no rescue)", () => {
+  // TEMPORARY SHIM (car-physics rework, stage 1): `authority` and its "no rescue" precedence rule
+  // (a weaker knock could never overwrite a stronger standing one) are gone entirely, dropped on
+  // the floor per `contactTick`'s comment on `RamKnock` application. Stage 3 reinstates control
+  // loss as the `reeling` status, at which point precedence-style rules belong there again. Until
+  // then, `contactTick` just adds every knock straight into the victim's velocity — two rams landing
+  // on the same victim across different ticks stack rather than one being discarded, and there is
+  // no "standing knock" to protect. These two tests used to prove no-rescue; they now prove the
+  // additive replacement.
+  it("stacks a later ram's knock onto a victim's still-decaying velocity from an earlier one", () => {
     const state = arena();
-    // A full-severity rear ram: a mirage well past top speed into the back of "b". Lands well below
-    // the authority floor's midpoint.
-    addPlayer(state, "strong", { x: 0, y: 400, angle: 0, speed: 540 });
+    addPlayer(state, "strong", { x: 0, y: 400, angle: 0, vx: 540 });
     const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
     const memory = newContactMemory();
     contactTick(
       state, new Set(["strong", "b"]), memory, "ffa", NO_EFFECTS, approachSpeeds(state),
       NO_MANEUVER_WEAPONS, 10,
     );
-    const afterHardRam = victim.authority;
-    expect(afterHardRam).toBeLessThan(0.5);
+    const afterFirstRam = victim.vx;
+    expect(afterFirstRam).not.toBe(0);
+    expect(victim.vy).toBe(0);
 
-    // A separate attacker taps the same victim on a later tick, from the exact same geometry but
-    // barely above minApproachSpeed — the weakest contact that still counts as a ram at all. Its own
-    // knock would land authority near 1.0 (almost no control loss), which must NOT overwrite the
-    // still-standing hard knock above.
-    addPlayer(state, "weak", { x: 0, y: 400, angle: 0, speed: RAM_CONFIG.minApproachSpeed + 5 });
+    // A second attacker rams the victim from a DIFFERENT axis (approaching along y, the same
+    // touching margin the dash test above uses: 31 = 16+16-1) on a later tick, so its knock is
+    // geometrically independent of the first one and there is no directional ambiguity about which
+    // car is the attacker. Its knock is simply added on top of whatever the victim still carries.
+    addPlayer(state, "second", { x: 47, y: 431, angle: -Math.PI / 2, vy: -(RAM_CONFIG.minApproachSpeed + 200) });
     contactTick(
-      state, new Set(["strong", "b", "weak"]), memory, "ffa", NO_EFFECTS, approachSpeeds(state),
+      state, new Set(["strong", "b", "second"]), memory, "ffa", NO_EFFECTS, approachSpeeds(state),
       NO_MANEUVER_WEAPONS, 11,
     );
 
-    expect(victim.authority).toBe(afterHardRam);
+    // The first knock's x component survives untouched, and the second knock adds a fresh y
+    // component on top of it — neither is discarded in favour of the other.
+    expect(victim.vx).toBe(afterFirstRam);
+    expect(victim.vy).not.toBe(0);
   });
 
-  it("lets a later, STRONGER ram overwrite a standing knock", () => {
+  it("adds a second ram's knock on top rather than replacing the standing one (no precedence)", () => {
     const state = arena();
-    // A sub-top-speed mirage: at mirage's own top speed the rear ram saturates severity same as
-    // bastion's does below, leaving no gap for a "stronger" ram to widen. 150 u/s keeps this a
-    // genuine partial-severity ram against the 2026-09-02 RAM_REFERENCE (224750, up from 144000
-    // now that mirage's top speed is 449.5 u/s rather than 288).
-    addPlayer(state, "medium", { x: 0, y: 400, angle: 0, speed: 150 });
+    addPlayer(state, "medium", { x: 0, y: 400, angle: 0, vx: 150 });
     const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
     const memory = newContactMemory();
     contactTick(
       state, new Set(["medium", "b"]), memory, "ffa", NO_EFFECTS, approachSpeeds(state),
       NO_MANEUVER_WEAPONS, 10,
     );
-    const afterMediumRam = victim.authority;
+    const afterMediumRam = victim.vx;
+    expect(afterMediumRam).toBeGreaterThan(0);
 
-    // A heavier attacker (bastion) rear-ends the same victim at its own top speed (320 u/s since the
-    // 2026-09-02 speed rewrite, up from 157.5) on a later tick — strictly harder than the first ram,
-    // so its lower authority must win.
-    addPlayer(state, "hexy", { x: 0, y: 400, angle: 0, speed: 320, carId: "bastion" });
+    // A heavier attacker (bastion) rams the same victim from a different axis, at its own top speed,
+    // on a later tick. Under the old `authority`-based precedence a stronger ram could overwrite a
+    // standing one; that mechanism is gone (temporary shim, stage 1), so this just adds a fresh
+    // knock component rather than overwriting or being blocked.
+    addPlayer(state, "hexy", { x: 47, y: 431, angle: -Math.PI / 2, vy: -320, carId: "bastion" });
     contactTick(
       state, new Set(["medium", "b", "hexy"]), memory, "ffa", NO_EFFECTS, approachSpeeds(state),
       NO_MANEUVER_WEAPONS, 11,
     );
 
-    expect(victim.authority).toBeLessThan(afterMediumRam);
-    expect(victim.authority).toBeCloseTo(RAM_CONFIG.authorityFloor, 2);
+    expect(victim.vx).toBe(afterMediumRam);
+    expect(victim.vy).not.toBe(0);
   });
 });
 
 describe("contactTick (dash, O12)", () => {
   it("caps a dasher at one ContactHit even when its hull freshly touches two enemies in the same tick", () => {
     const state = arena();
-    const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, speed: 0 });
+    const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 0 });
     attacker.maneuver = ManeuverKind.DASH;
     // "b" touches via the x-axis gap (47 = 24+24-1, the same margin `contactPad` gives every other
     // touching test in this file); "c" touches via the y-axis gap (31 = 16+16-1, the mirror of that
@@ -240,7 +260,7 @@ describe("contactTick (dash, O12)", () => {
 
   it("exits a dash hit at the drive cap SCALED by a live topSpeed modifier, not the unmodified cap", () => {
     const state = arena();
-    const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, speed: 0 });
+    const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 0 });
     attacker.maneuver = ManeuverKind.DASH;
     addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
     const debuffed = new Map([["a", { ...NEUTRAL_MODIFIERS, topSpeed: 0.6 }]]);
@@ -255,15 +275,16 @@ describe("contactTick (dash, O12)", () => {
       10,
     );
     const unmodifiedCap = forwardMaxSpeedOf("mirage"); // "a"'s default carId, per addPlayer
-    expect(attacker.speed).toBeCloseTo(unmodifiedCap * 0.6, 6);
-    expect(attacker.speed).not.toBeCloseTo(unmodifiedCap, 6);
+    const attackerSpeed = forwardOf(attacker.vx, attacker.vy, attacker.angle);
+    expect(attackerSpeed).toBeCloseTo(unmodifiedCap * 0.6, 6);
+    expect(attackerSpeed).not.toBeCloseTo(unmodifiedCap, 6);
   });
 });
 
 describe("contactTick (hard slam, O2/O3/O18)", () => {
   it("ends a charge on its first slam: fields cleared, self statuses expired, speed partly restored", () => {
     const state = arena();
-    const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, speed: 300 });
+    const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 300 });
     addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
     attacker.maneuver = ManeuverKind.CHARGE;
     attacker.maneuverTicksLeft = 200;
@@ -282,7 +303,8 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
     expect(result.contactHits).toEqual([{ attackerSessionId: "a", targetSessionId: "b", weaponId: "wildcharge" }]);
     expect(attacker.maneuver).toBe(0);
     expect(readStatuses(attacker)).toHaveLength(0); // fortified expired with the charge (O2)
-    expect(attacker.speed).toBeCloseTo(300 * SLAM_CONFIG.selfKeepFactor);
+    expect(forwardOf(attacker.vx, attacker.vy, attacker.angle))
+      .toBeCloseTo(300 * SLAM_CONFIG.selfKeepFactor);
     expect(memory.slammed.get("b")).toBeDefined();
   });
 
@@ -308,14 +330,12 @@ describe("clearKnock", () => {
   it("restores a knocked player to neutral", () => {
     const p = new PlayerState();
     p.angVel = 3;
-    p.shoveX = 100;
-    p.shoveY = -50;
-    p.authority = 0.35;
+    p.vx = 100;
+    p.vy = -50;
     clearKnock(p);
     expect(p.angVel).toBe(0);
-    expect(p.shoveX).toBe(0);
-    expect(p.shoveY).toBe(0);
-    expect(p.authority).toBe(1);
+    expect(p.vx).toBe(0);
+    expect(p.vy).toBe(0);
   });
 
   it("zeroes a running maneuver too, so a fresh match never inherits a dash or charge", () => {

@@ -9,6 +9,8 @@ import {
   PlayerStatus,
   RoomPhase,
   driveOf,
+  forwardOf,
+  toWorld,
   type InputMessage,
   type Modifiers,
   type SimBody,
@@ -57,12 +59,10 @@ function poseOf(player: PlayerState): SimBody {
     x: player.x,
     y: player.y,
     angle: player.angle,
-    speed: player.speed,
+    vx: player.vx,
+    vy: player.vy,
     reverseHold: player.reverseHold,
     angVel: player.angVel,
-    shoveX: player.shoveX,
-    shoveY: player.shoveY,
-    authority: player.authority,
   };
 }
 
@@ -85,7 +85,7 @@ describe("serverTick", () => {
 
     expect(player.x).toBeGreaterThan(300);
     expect(player.y).toBe(CORRIDOR_Y);
-    expect(player.speed).toBeCloseTo(driveOf("mirage").accel * DT, 6);
+    expect(forwardOf(player.vx, player.vy, player.angle)).toBeCloseTo(driveOf("mirage").accel * DT, 6);
     expect(player.lastProcessedInputSeq).toBe(7);
     expect(queues.get("p1")).toEqual([]);
   });
@@ -97,8 +97,9 @@ describe("serverTick", () => {
 
     serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
 
-    // Would be a single `accel * DT` if `speed` were only written back after the last input.
-    expect(player.speed).toBeCloseTo(3 * driveOf("mirage").accel * DT, 6);
+    // Would be a single `accel * DT` if `vx`/`vy` were only written back after the last input.
+    expect(forwardOf(player.vx, player.vy, player.angle))
+      .toBeCloseTo(3 * driveOf("mirage").accel * DT, 6);
   });
 
   it("leaves a player with an empty or missing queue unchanged", () => {
@@ -116,24 +117,20 @@ describe("serverTick", () => {
       x: 1,
       y: 2,
       angle: 0.1,
-      speed: 0,
+      vx: 0,
+      vy: 0,
       reverseHold: 0,
       angVel: 0,
-      shoveX: 0,
-      shoveY: 0,
-      authority: 1,
     });
     expect(emptyQ.lastProcessedInputSeq).toBe(3);
     expect(poseOf(missingQ)).toEqual({
       x: 4,
       y: 5,
       angle: 0.2,
-      speed: 0,
+      vx: 0,
+      vy: 0,
       reverseHold: 0,
       angVel: 0,
-      shoveX: 0,
-      shoveY: 0,
-      authority: 1,
     });
     expect(missingQ.lastProcessedInputSeq).toBe(4);
   });
@@ -165,7 +162,8 @@ describe("serverTick", () => {
     serverTick(stateWith(slow), new Map([["p1", ups(1)]]), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
     serverTick(stateWith(fast), new Map([["p1", ups(1)]]), DT * 2, RoomPhase.MATCH, NO_EFFECTS, new Map());
 
-    expect(fast.speed).toBeCloseTo(slow.speed * 2, 6);
+    expect(forwardOf(fast.vx, fast.vy, fast.angle))
+      .toBeCloseTo(forwardOf(slow.vx, slow.vy, slow.angle) * 2, 6);
     expect(fast.x - 300).toBeGreaterThan(slow.x - 300);
   });
 
@@ -239,7 +237,7 @@ describe("serverTick", () => {
 
         serverTick(state, queues, DT, phase, NO_EFFECTS, new Map());
 
-        expect(poseOf(player)).toEqual({ x: 300, y: CORRIDOR_Y, angle: 0, speed: 0, reverseHold: 0, angVel: 0, shoveX: 0, shoveY: 0, authority: 1 });
+        expect(poseOf(player)).toEqual({ x: 300, y: CORRIDOR_Y, angle: 0, vx: 0, vy: 0, reverseHold: 0, angVel: 0 });
         expect(player.lastProcessedInputSeq).toBe(9);
         expect(queues.get("p1")).toEqual([]);
       });
@@ -256,7 +254,7 @@ describe("serverTick", () => {
 
       serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
 
-      expect(poseOf(offField)).toEqual({ x: 300, y: CORRIDOR_Y, angle: 0, speed: 0, reverseHold: 0, angVel: 0, shoveX: 0, shoveY: 0, authority: 1 });
+      expect(poseOf(offField)).toEqual({ x: 300, y: CORRIDOR_Y, angle: 0, vx: 0, vy: 0, reverseHold: 0, angVel: 0 });
       expect(offField.lastProcessedInputSeq).toBe(9);
       expect(queues.get("p1")).toEqual([]);
     });
@@ -316,7 +314,7 @@ describe("serverTick", () => {
     const CLEARING_SPEED = 300; // enough to open a gap in a single tick
 
     const leader = makePlayer("aaa", LEADER_X, CORRIDOR_Y, Math.PI);
-    leader.speed = CLEARING_SPEED;
+    Object.assign(leader, toWorld(Math.PI, CLEARING_SPEED, 0));
     const follower = makePlayer("bbb", FOLLOWER_X, CORRIDOR_Y, 0);
     const state = stateWith(leader, follower);
     const queues = new Map<string, InputMessage[]>([
@@ -337,14 +335,13 @@ describe("serverTick", () => {
   describe("ram knock state round-trip", () => {
     // `ram-bridge.test.ts` proves `ramTick` WRITES a knock onto `PlayerState`. Nothing proves the
     // NEXT `serverTick` actually READS it back: `bodyOf`/`writeBody` are the only bridge between the
-    // two, and dropping a field from either (e.g. forgetting `shoveY` in `writeBody`) would be
-    // invisible to every other test in this file, all of which use neutral knock state.
-    it("carries angVel/shove/authority through bodyOf -> stepDrive -> writeBody: it moves the pose, and the fields round-trip decayed rather than dropped", () => {
+    // two, and dropping a field from either (e.g. forgetting `vy` in `writeBody`) would be invisible
+    // to every other test in this file, all of which use neutral knock state.
+    it("carries angVel/vx/vy through bodyOf -> stepDrive -> writeBody: it moves the pose, and the fields round-trip decayed rather than dropped", () => {
       const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
       player.angVel = 2;
-      player.shoveX = 120;
-      player.shoveY = -60;
-      player.authority = 0.5;
+      player.vx = 120;
+      player.vy = -60;
       const state = stateWith(player);
       // No steer, no throttle: any rotation or translation below comes solely from the knock state,
       // not from ordinary driving.
@@ -357,16 +354,14 @@ describe("serverTick", () => {
       expect(player.x).toBeGreaterThan(300);
       expect(player.y).toBeLessThan(CORRIDOR_Y);
 
-      // Round-tripped through decay, not silently dropped to neutral (angVel/shove 0, authority 1) —
-      // that is exactly what a missing field in `bodyOf` or `writeBody` would produce.
+      // Round-tripped through decay, not silently dropped to neutral (angVel/vx/vy all 0) — that is
+      // exactly what a missing field in `bodyOf` or `writeBody` would produce.
       expect(player.angVel).toBeGreaterThan(0);
       expect(player.angVel).toBeLessThan(2);
-      expect(player.shoveX).toBeGreaterThan(0);
-      expect(player.shoveX).toBeLessThan(120);
-      expect(player.shoveY).toBeLessThan(0);
-      expect(player.shoveY).toBeGreaterThan(-60);
-      expect(player.authority).toBeGreaterThan(0.5);
-      expect(player.authority).toBeLessThan(1);
+      expect(player.vx).toBeGreaterThan(0);
+      expect(player.vx).toBeLessThan(120);
+      expect(player.vy).toBeLessThan(0);
+      expect(player.vy).toBeGreaterThan(-60);
     });
   });
 
@@ -548,9 +543,20 @@ describe("serverTick fire mask reporting", () => {
  * hidden), so the victim was skipped entirely and sat frozen with a full-strength shove on it.
  */
 describe("serverTick coasts a knocked player who has stopped sending input", () => {
+  /**
+   * `angVel` is always given a nonzero starting value alongside the shove. Before this rework,
+   * `hasKnock` gated the coast on `angVel`/`shoveX`/`shoveY`/`authority` — four independent fields —
+   * so a fixture could isolate "pure shove, no spin" and still exercise the rescue. Post-rework,
+   * shove and ordinary driving velocity are the SAME two fields (`vx`/`vy`), and `hasKnock` cannot
+   * tell "a ram shoved this car" from "this car is just driving" by looking at them alone — see
+   * `hasKnock`'s own comment in `tick.ts`. A real ram's `spinOf` is a continuous function of contact
+   * geometry that is essentially never exactly 0, so this fixture giving every knock a companion
+   * `angVel` reflects production reality rather than working around a gap in the port.
+   */
   function knocked(over: Partial<PlayerState> = {}): PlayerState {
     const p = makePlayer("v", 500, 400, 0);
-    p.shoveX = 300;
+    p.vx = 300;
+    p.angVel = 2;
     Object.assign(p, over);
     return p;
   }
@@ -573,39 +579,61 @@ describe("serverTick coasts a knocked player who has stopped sending input", () 
     const player = knocked();
     const state = stateWith(player);
     serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
-    expect(player.shoveX).toBeLessThan(300);
-    expect(player.shoveX).toBeGreaterThan(0);
+    expect(player.vx).toBeLessThan(300);
+    expect(player.vx).toBeGreaterThan(0);
   });
 
   it("carries every knock component, not just shove", () => {
-    const player = knocked({ shoveX: 0, angVel: 3, authority: 0.35 });
+    const player = knocked({ vx: 0, vy: 0, angVel: 3 });
     const state = stateWith(player);
     serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
     expect(player.angVel).toBeLessThan(3);
-    expect(player.authority).toBeGreaterThan(0.35);
+    expect(player.angVel).toBeGreaterThan(0);
     expect(player.angle).not.toBe(0);
   });
 
   it("settles to exact neutral and then stops moving the car", () => {
-    const player = knocked({ angVel: 3, authority: 0.35 });
+    const player = knocked({ angVel: 3 });
     const state = stateWith(player);
     for (let i = 0; i < 300; i++) serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
-    expect(player.shoveX).toBe(0);
+    expect(player.vx).toBe(0);
+    expect(player.vy).toBe(0);
     expect(player.angVel).toBe(0);
-    expect(player.authority).toBe(1);
     const restingX = player.x;
     serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
     expect(player.x).toBe(restingX);
   });
 
-  it("leaves an unknocked idle player exactly where it is", () => {
+  it("leaves a truly resting, unknocked player exactly where it is", () => {
+    // Zero velocity, zero spin, no maneuver: `hasKnock` is false and the player is never stepped at
+    // all while silent, so this is also a check that a resting car costs nothing extra.
     const player = makePlayer("v", 500, 400, 0);
-    player.speed = 200;
     const state = stateWith(player);
     serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
     expect(player.x).toBe(500);
-    expect(player.speed).toBe(200);
+    expect(player.vx).toBe(0);
   });
+
+  it(
+    "also coasts a merely-driving (unrammed) silent player toward rest, unlike before this rework",
+    () => {
+      // Accepted behaviour change, not a bug: `speed` and `shove` used to be different fields, so a
+      // driving-only player with a momentarily empty queue (routine jitter, not a sign of
+      // disconnection) stayed completely frozen — `hasKnock` never looked at `speed`. They are now
+      // the same field (`vx`/`vy`), and `hasKnock` has to look at them too or a shove-heavy,
+      // spin-light ram knock can freeze holding residual velocity forever once its `angVel` alone
+      // decays to zero (see `hasKnock`'s comment in `tick.ts` for the numeric case). The accepted
+      // cost is this: a car that was merely driving, then went silent for one tick, now also gets a
+      // single uncommanded coast step instead of none.
+      const player = makePlayer("v", 500, 400, 0);
+      player.vx = 200;
+      const state = stateWith(player);
+      serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
+      expect(player.x).toBeGreaterThan(500);
+      expect(player.vx).toBeLessThan(200);
+      expect(player.vx).toBeGreaterThan(0);
+    },
+  );
 
   it("does not advance the input ack — a coast step acknowledges nothing", () => {
     const player = knocked({ lastProcessedInputSeq: 7 });
@@ -635,7 +663,7 @@ describe("serverTick coasts a knocked player who has stopped sending input", () 
 
   it("still resolves the coasting car against other cars", () => {
     // Shoved straight into a stationary neighbour: it must be pushed clear, not driven through.
-    const victim = knocked({ shoveX: 600 });
+    const victim = knocked({ vx: 600 });
     const wall = makePlayer("w", 560, 400, 0);
     const state = stateWith(victim, wall);
     for (let i = 0; i < 5; i++) serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());

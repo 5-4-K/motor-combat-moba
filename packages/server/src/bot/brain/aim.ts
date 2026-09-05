@@ -65,8 +65,8 @@ function gaussian(rng: Rng): number {
 export interface LeadTarget {
   x: number;
   y: number;
-  speed: number;
-  angle: number;
+  vx: number;
+  vy: number;
 }
 
 /**
@@ -87,10 +87,10 @@ export function interceptPoint(
   leadFactor: number,
 ): { x: number; y: number } {
   const here = { x: target.x, y: target.y };
-  if (leadFactor <= 0 || projectileSpeed <= 0 || target.speed === 0) return here;
+  if (leadFactor <= 0 || projectileSpeed <= 0) return here;
+  const { vx, vy } = target;
+  if (vx === 0 && vy === 0) return here;
 
-  const vx = Math.cos(target.angle) * target.speed;
-  const vy = Math.sin(target.angle) * target.speed;
   const rx = target.x - from.x;
   const ry = target.y - from.y;
 

@@ -67,9 +67,9 @@ export class PredictionBuffer {
    *
    * The remaining tail replays from the authoritative pose to give the *target*. Small errors ease
    * toward that target so corrections are not visible as a jerk; large ones snap, because easing a
-   * big error is just a slow visible slide to the same place. `speed` and `reverseHold` always snap:
-   * they are derived sim fields that feed the next integration, so a half-eased value would poison
-   * every subsequent step rather than merely look wrong.
+   * big error is just a slow visible slide to the same place. `vx`/`vy` and `reverseHold` always
+   * snap: they are derived sim fields that feed the next integration, so a half-eased value would
+   * poison every subsequent step rather than merely look wrong.
    */
   reconcile(
     authoritative: SimBody,
@@ -83,12 +83,10 @@ export class PredictionBuffer {
       x: authoritative.x,
       y: authoritative.y,
       angle: authoritative.angle,
-      speed: authoritative.speed,
+      vx: authoritative.vx,
+      vy: authoritative.vy,
       reverseHold: authoritative.reverseHold,
       angVel: authoritative.angVel,
-      shoveX: authoritative.shoveX,
-      shoveY: authoritative.shoveY,
-      authority: authoritative.authority,
       // Same reasoning as the knock fields below: a maneuver is rules for the next integration, not
       // a drawn pose, so it snaps to the authoritative value rather than easing. No maneuver-specific
       // reconcile rule beyond the snap is needed — see the "snaps maneuver state" test.
@@ -119,15 +117,13 @@ export class PredictionBuffer {
       y: lerp(currentPredicted.y, target.y, NET_CONFIG.reconcileEaseRate),
       // Ease along the wrapped delta so the correction takes the short way round the seam.
       angle: currentPredicted.angle + dAngle * NET_CONFIG.reconcileEaseRate,
-      speed: target.speed,
+      vx: target.vx,
+      vy: target.vy,
       reverseHold: target.reverseHold,
-      // Knock state snaps for the same reason `speed` does: these feed the next integration. This is
-      // also what makes an unpredicted ram viable — the knock lands as one velocity snap and the
+      // Knock state snaps for the same reason `vx`/`vy` does: these feed the next integration. This
+      // is also what makes an unpredicted ram viable — the knock lands as one velocity snap and the
       // client then plays the whole spin-and-slide out locally through its own stepSim.
       angVel: target.angVel,
-      shoveX: target.shoveX,
-      shoveY: target.shoveY,
-      authority: target.authority,
       maneuver: target.maneuver,
       maneuverTicksLeft: target.maneuverTicksLeft,
       maneuverAngle: target.maneuverAngle,

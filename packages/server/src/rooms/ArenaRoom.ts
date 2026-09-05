@@ -495,7 +495,8 @@ export class ArenaRoom extends Room<ArenaState> {
         player.carId = carId;
         player.hp = hpOf(carId);
       }
-      player.speed = 0;
+      player.vx = 0;
+      player.vy = 0;
       // Nothing from the previous match survives into this one — a knock included, or a car would
       // spawn already spinning with its steering degraded.
       clearKnock(player);

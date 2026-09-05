@@ -6,14 +6,14 @@ import { newPerception, type PerceptionState } from "./perception.js";
 import { scoreTargets } from "./goals.js";
 
 const self: BotSelfView = {
-  sessionId: "me", carId: "bullseye", team: 0, x: 0, y: 0, angle: 0, speed: 0,
+  sessionId: "me", carId: "bullseye", team: 0, x: 0, y: 0, angle: 0, vx: 0, vy: 0,
   hp: 65, maxHp: 65, alive: true, statuses: [], slots: [],
   switchLockUntilTick: 0, lockTargetSessionId: "", maneuver: 0, maneuverTicksLeft: 0,
 };
 
 function car(sessionId: string, over: Partial<BotCarView> = {}): BotCarView {
   return {
-    sessionId, carId: "mirage", team: 0, x: 300, y: 0, angle: 0, speed: 0,
+    sessionId, carId: "mirage", team: 0, x: 300, y: 0, angle: 0, vx: 0, vy: 0,
     hp: 70, maxHp: 70, alive: true, phased: false, statuses: [], maneuver: 0,
     ...over,
   };

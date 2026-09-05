@@ -5,12 +5,14 @@ import {
   carIdOf,
   expireStatusesFromSource,
   forwardMaxSpeedOf,
+  forwardOf,
   getArena,
   hasStatus,
   hullTouchesWorld,
   isSolid,
   isWeaponId,
   resolveContacts,
+  toWorld,
   weaponDefOf,
   type ArenaState,
   type ContactCar,
@@ -61,7 +63,7 @@ export interface ContactTickResult {
 }
 
 /**
- * Reset a player's knock state to neutral. `authority` is 1 at rest, not 0.
+ * Reset a player's knock state to neutral: no spin, no velocity.
  *
  * Also clears the four maneuver fields, the same "nothing survives into a fresh match" rule this
  * already applies to ram state: a car must not spawn into the countdown still mid-dash or mid-charge
@@ -69,9 +71,8 @@ export interface ContactTickResult {
  */
 export function clearKnock(player: PlayerState): void {
   player.angVel = 0;
-  player.shoveX = 0;
-  player.shoveY = 0;
-  player.authority = 1;
+  player.vx = 0;
+  player.vy = 0;
   player.maneuver = 0;
   player.maneuverTicksLeft = 0;
   player.maneuverAngle = 0;
@@ -79,16 +80,19 @@ export function clearKnock(player: PlayerState): void {
 }
 
 /**
- * Zero the four maneuver fields and set `player.speed` to the given exit speed. The one place a
- * dash, a wall-blocked dash, or a slammed charge stops — the bridge writing motion fields is the
- * established ram pattern; combat still never moves a car.
+ * Zero the four maneuver fields and set the car's velocity to `exitSpeed` purely forward along its
+ * current heading (no lateral component). The one place a dash, a wall-blocked dash, or a slammed
+ * charge stops — the bridge writing motion fields is the established ram pattern; combat still
+ * never moves a car.
  */
 function endDash(player: PlayerState, exitSpeed: number): void {
   player.maneuver = 0;
   player.maneuverTicksLeft = 0;
   player.maneuverAngle = 0;
   player.maneuverSpeed = 0;
-  player.speed = exitSpeed;
+  const v = toWorld(player.angle, exitSpeed, 0);
+  player.vx = v.vx;
+  player.vy = v.vy;
 }
 
 /** May this weapon's hard slam land on an already-stunned victim (O3)? `false` off any non-charge id. */
@@ -130,9 +134,9 @@ function contactCarsOf(
       x: player.x,
       y: player.y,
       angle: player.angle,
-      // The speed carried INTO this tick, not the one left on `PlayerState` — see `RamCar.speed`'s
-      // own comment for why a post-collision read makes the approach term negative.
-      speed: approachSpeeds.get(sessionId) ?? player.speed,
+      // The FORWARD speed carried INTO this tick, not the one left on `PlayerState` — see
+      // `RamCar.speed`'s own comment for why a post-collision read makes the approach term negative.
+      speed: approachSpeeds.get(sessionId) ?? forwardOf(player.vx, player.vy, player.angle),
       carId: carIdOf(player),
       massMult: modifiersFor(statusMods, sessionId).ramMass,
       maneuver: player.maneuver,
@@ -145,11 +149,11 @@ function contactCarsOf(
 }
 
 /**
- * `approachSpeeds` comes from `serverTick`'s `TickResult`: each car's speed as it entered the tick,
- * before `resolveWorld` could reflect it. It is a required parameter rather than an optional one
- * with a `player.speed` default, deliberately — a default here would silently reinstate the trigger
- * bug for any caller that forgot it, and the failure mode is a ram that fires on 8-20% of contacts
- * rather than an error anyone would notice.
+ * `approachSpeeds` comes from `serverTick`'s `TickResult`: each car's FORWARD speed as it entered
+ * the tick, before `resolveWorld` could reflect it. It is a required parameter rather than an
+ * optional one with a `forwardOf(player.vx, player.vy, player.angle)` default, deliberately — a
+ * default here would silently reinstate the trigger bug for any caller that forgot it, and the
+ * failure mode is a ram that fires on 8-20% of contacts rather than an error anyone would notice.
  */
 export function contactTick(
   state: ArenaState,
@@ -179,13 +183,17 @@ export function contactTick(
   for (const knock of knocks) {
     const player = state.players.get(knock.sessionId);
     if (!player) continue;
-    // Only a harder knock may overwrite a standing one — see `RamMemory`'s (now `ContactMemory`'s)
-    // predecessor comment in git history for the full "no rescue" rationale; unchanged here.
-    if (knock.authority >= player.authority) continue;
+    // TEMPORARY SHIM (stage 1 of the car-physics rework): `RamKnock` still carries `shoveX`/`shoveY`
+    // and `authority`, but `PlayerState` no longer has separate fields for them — velocity is just
+    // `vx`/`vy` now. Until stage 2 replaces `RamKnock` with a proper `Impulse`, the knock is added
+    // straight into the victim's velocity, additively, with no "no rescue" precedence: two knocks
+    // landing on the same victim across different ticks now simply stack rather than the weaker one
+    // being discarded. `knock.authority` is dropped on the floor entirely — ram control-loss returns
+    // as the `reeling` status in stage 3, and until then a rammed car keeps full steering. This is
+    // the documented "ramming temporarily degraded" state of this stage; do not invent a stand-in.
     player.angVel = knock.angVel;
-    player.shoveX = knock.shoveX;
-    player.shoveY = knock.shoveY;
-    player.authority = knock.authority;
+    player.vx += knock.shoveX;
+    player.vy += knock.shoveY;
   }
 
   // A dash into a wall exits stopped, not at cap.
@@ -226,7 +234,8 @@ export function contactTick(
       // O2: the charge ends on its first slam, taking its own self-applied statuses with it — a
       // power whose window closes early cannot leave a buff running past the thing that ended it.
       const restored =
-        (approachSpeeds.get(hit.attackerSessionId) ?? attacker.speed) * SLAM_CONFIG.selfKeepFactor;
+        (approachSpeeds.get(hit.attackerSessionId)
+          ?? forwardOf(attacker.vx, attacker.vy, attacker.angle)) * SLAM_CONFIG.selfKeepFactor;
       endDash(attacker, restored);
       writeStatuses(
         attacker,
