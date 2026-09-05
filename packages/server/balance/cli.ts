@@ -32,12 +32,12 @@ export const SKILL_TO_DIFFICULTY: Readonly<Record<PlayerSkill, BotDifficulty>> =
 
 /**
  * A `last-standing` match ends by elimination, not by a clock — Task 15's probes measured roughly
- * 7s per match, so 120s is not a target duration, it is a SAFETY CAP against a rig that never
- * converges. A last-standing match that actually reaches this cap is a stalemate: a real finding
- * (a matchup, or a bot pairing, that cannot resolve) rather than a normal ending, and `run.ts`'s
- * `hitClock` reporting is what surfaces that.
+ * 7s per match, so 300s (5 minutes) is not a target duration, it is a SAFETY CAP against a rig that
+ * never converges. A last-standing match that actually reaches this cap is a stalemate: a real
+ * finding (a matchup, or a bot pairing, that cannot resolve) rather than a normal ending, and
+ * `run.ts`'s `hitClock` reporting is what surfaces that.
  */
-const LAST_STANDING_SAFETY_CAP_SECONDS = 120;
+const LAST_STANDING_SAFETY_CAP_SECONDS = 300;
 
 /**
  * `--match-seconds` doubles as `DEATHMATCH_CONFIG.matchSeconds` when nothing overrides it (Task 17

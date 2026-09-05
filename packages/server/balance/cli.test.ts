@@ -43,7 +43,7 @@ describe("parseArgs (B41, B42)", () => {
   });
 
   it("defaults --match-seconds to a generous safety cap for last-standing, not a target", () => {
-    expect(parseArgs(["--shape=duel"]).matchSeconds).toBe(120);
+    expect(parseArgs(["--shape=duel"]).matchSeconds).toBe(300);
   });
 
   it("lets --match-seconds override either default", () => {
