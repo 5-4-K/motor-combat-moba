@@ -5,7 +5,7 @@
 > writing the finished ones. Nothing here is needed to *execute* a plan — for that, read
 > [`00-execution-guide.md`](00-execution-guide.md).
 
-**Last updated:** 2026-09-05 (N4 and V3 written). **Branch:** `claude/gameplay-netcode-architecture-bgp8f6`.
+**Last updated:** 2026-09-05 (N4, V3 and N5 written). **Branch:** `claude/gameplay-netcode-architecture-bgp8f6`.
 
 The two approved specs this folder implements:
 [netcode](../../specs/2026-09-04-online-netcode-and-client-architecture-design.md) and
@@ -13,7 +13,7 @@ The two approved specs this folder implements:
 
 ## 1. Status
 
-Fourteen plans, two streams. **Ten written, four to go** — N5, N6, V4, V5. (Count the table, not this line: earlier revisions of it said nine and then ten while eight were written, both wrong.)
+Fourteen plans, two streams. **Eleven written, three to go** — N6, V4, V5. (Count the table, not this line: earlier revisions of it said nine and then ten while eight were written, both wrong.)
 
 | # | File | Lines | State |
 |---|---|---|---|
@@ -23,7 +23,7 @@ Fourteen plans, two streams. **Ten written, four to go** — N5, N6, V4, V5. (Co
 | N2 | `12-netcode-2-wire.md` | 2825 | written |
 | N3 | `13-netcode-3-world.md` | 3795 | written |
 | N4 | `14-netcode-4-feel.md` | 3177 | written |
-| N5 | `15-netcode-5-lifecycle.md` | — | **to write** |
+| N5 | `15-netcode-5-lifecycle.md` | 1781 | written |
 | N6 | `16-netcode-6-optional.md` | — | **to write** |
 | V0 | `20-render-0-instrumentation.md` | 1853 | written |
 | V1 | `21-render-1-hud.md` | 2704 | written |
@@ -60,6 +60,17 @@ would double the sheet's largest item), and twenty rope points instead of §5's 
 Neither needs the user's word: R2 is a numbered principle and §5's catalogue is descriptive, so the
 more specific statement wins, which is the same rule that settled `PlayerState.level`.
 
+**`15-netcode-5-lifecycle.md` was written on 2026-09-05**, same session. It found no ledger defect
+either; its ledger edits are all additive (`PlayerState.connected` appended to the schema,
+`ColyseusTransport.rebind`, `InputRing.reset`, `ClockSync.reset`, and a new block for
+`net/reconnect.ts` / `match/link-health.ts` / `net/flood-detector.ts`). It takes the guide's warning
+about the two reconnect numbers seriously: 15 s and 60 s are separated in six places, and the one
+test that mentions both pins the *relationship* rather than either value.
+
+**Two plans in a row have now found no ledger defect.** That is a signal the ledger has converged,
+not that the check was skipped — V3's and N5's reports both say so explicitly. Keep running step 2;
+stop expecting it to bite.
+
 A general rule for any future interruption: a half-written plan must never be left under its final
 name, because the next plan in that stream builds on its `## Handoff`. That rule is what made the V2
 draft finishable rather than a rewrite.
@@ -72,9 +83,9 @@ Each plan is written by one worker in its own context. Hand that worker:
 2. The plan's own assignment from section 5 below, verbatim.
 
 **Order matters.** Within a stream each plan reads the previous plan's `## Handoff`, so they are
-written in order: N5 → N6, and V4 → V5 (N4 and V3 are done). Across streams they are independent,
-so one netcode plan and one rendering plan can be written at the same time. **Two rounds remain**:
-N5 with V4, then N6 with V5.
+written in order: N6 last in its stream, and V4 → V5 (N4, N5 and V3 are done). Across streams they
+are independent, so one netcode plan and one rendering plan can be written at the same time. **Two
+rounds remain**: V4 alone (the netcode stream is one plan ahead again), then N6 with V5.
 
 **After each plan comes back:**
 

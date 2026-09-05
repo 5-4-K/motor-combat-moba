@@ -253,6 +253,7 @@ a balance edit and belongs to N6.
 | `PlayerState.lastProcessedInputSeq` → **removed**; `ackTick: uint32` and `slackTicks: int8` added | N1 |
 | Every sim field leaves `PlayerState` (`x, y, angle, speed, reverseHold, angVel, shoveX, shoveY, authority, maneuver*, hp, alive, diedAtTick, weapons, switchLockUntilTick, pendingUntilTick, lastFiredSlot, lockTargetSessionId, statuses, ackTick, slackTicks`); `carIndex: uint8` added. `ArenaState.weapons` removed. Lobby fields stay: `sessionId, name, colorId, team, status, carId, selectLocked, joinedAtTick, kills, deaths, killedBySessionId, level` — `level` stays on the schema per spec §6.9 N24's enumeration: `applyCombatResult` writes it back every tick but it only *changes* on a level-up, and `stepWorld` never reads it (combat is server-only, N14), so invariant 8 does not claim it | N2 |
 | `ArenaState.tick` stays (flow deadlines read it) | — |
+| `PlayerState.connected: boolean` **appended** (nothing renumbered). `false` while the server holds the seat through `allowReconnection`; the car is still in the world, solid and killable — this only says nobody is driving it. `stepWorld` never reads it, so invariant 8 does not claim it and N24's split puts it on the schema side | N5 |
 
 ---
 
@@ -280,6 +281,8 @@ export class InputRing {
   constructor(opts?: { size?: number; repeatMaxTicks?: number });
   accept(msg: InputMessage, arrivalTick: number): AcceptResult;
   inputFor(tick: number): RingRead;
+  /** N5: forget the slots, the repeat source and the stats. Called when a held seat resumes. */
+  reset(): void;
   readonly stats: { late: number; duplicate: number; future: number; repeated: number; neutral: number };
 }
 ```
@@ -339,6 +342,52 @@ export interface ManeuverReveal { weaponId: string; fromX: number; fromY: number
 `hp` keeps its meaning — authoritative and un-eased. `hpDisplay` is the eased value the BAR draws.
 `revealedManeuver` is the sim-side half of rendering R18a and is present on exactly one frame.
 
+### `net/reconnect.ts` and `match/link-health.ts` — produced N5
+
+```ts
+// client, net/reconnect.ts
+export interface ReconnectPolicy { readonly attempts: number; readonly firstDelayMs: number; readonly maxDelayMs: number }
+export const RECONNECT_POLICY: ReconnectPolicy;                  // 16, 500, 4000
+export function reconnectDelayMs(attempt: number, policy?: ReconnectPolicy): number;
+export type ReconnectState = "idle" | "retrying" | "resumed" | "gave-up";
+export class Reconnector {
+  constructor(reconnect: (token: string) => Promise<Room<ArenaState>>, opts?: { policy?; setTimeout?; clearTimeout? });
+  start(token: string, onRoom: (room: Room<ArenaState>) => void): void;
+  stop(): void;
+  readonly state: ReconnectState;
+  readonly attempt: number;
+}
+// client, net/connection.ts
+export function reconnectArena(token: string): Promise<Room<ArenaState>>;
+
+// client, match/link-health.ts
+export type LinkState = "ok" | "silent" | "stalled" | "reconnecting" | "lost";
+export class LinkHealth {
+  constructor(cfg: Pick<typeof NET_CONFIG, "silenceWarnMs">);
+  observeSnapshot(slackTicks: number, nowMs: number): void;
+  observeFrame(stalled: boolean, nowMs: number): void;
+  setReconnecting(on: boolean): void;
+  setLost(): void;
+  reset(): void;
+  readonly state: LinkState;
+  readonly message: string;
+}
+
+// server, net/flood-detector.ts
+export class FloodDetector {
+  constructor(cfg: Pick<typeof NET_CONFIG, "floodRateMultiple" | "floodDisconnectMs">, limitPerSecond?: number);
+  admit(nowMs: number): boolean;          // false = ignore this message (N6)
+  shouldDisconnect(nowMs: number): boolean;
+  reset(): void;
+  readonly rate: number;
+  readonly limit: number;                 // TICK_RATE_HZ * floodRateMultiple
+}
+```
+
+**`RECONNECT_POLICY.maxDelayMs` is spec §8's "resumes within 15 s" number**, and
+`NET_CONFIG.reconnectSeconds` is how long the server holds the seat. They are different quantities
+and the plan's own tests pin the relationship between them rather than either one alone.
+
 ### `match/event-feed.ts` and `match/hp-ease.ts` — produced N4, consumed by V4
 
 ```ts
@@ -392,6 +441,8 @@ export class ClockSync {
   readonly jitterMs: number;       // standard deviation of RTT over the window
   readonly ready: boolean;         // at least one sample
   serverTickAt(nowMs: number): number;   // fractional
+  /** N5: forget every sample. A sample from before a reconnect places the server's clock anywhere. */
+  reset(): void;
 }
 ```
 
@@ -445,7 +496,16 @@ export interface MatchTransport {
   onPong(cb: (pong: PongMessage) => void): () => void;
   onRoster(cb: (roster: RosterMessage) => void): () => void;
 }
-export class ColyseusTransport implements MatchTransport { constructor(room: Room<ArenaState>) }
+export class ColyseusTransport implements MatchTransport {
+  constructor(room: Room<ArenaState>);
+  /**
+   * N5: point this transport at a new room, keeping every registered callback. `MatchClient`
+   * subscribes once at construction, so a reconnect rebinds rather than rebuilding — which is what
+   * makes a resume indistinguishable from a quiet link on the `MatchClient` side, and is the
+   * property N6's transport-swap task needs.
+   */
+  rebind(room: Room<ArenaState>): void;
+}
 export class LoopbackTransport implements MatchTransport { /* for tests and the harness; pairs with a server-side peer */ }
 ```
 
