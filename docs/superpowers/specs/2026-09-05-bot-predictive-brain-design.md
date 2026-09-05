@@ -470,12 +470,12 @@ A (physics prediction)    ─────> D (shares rollout code)
    independent, wasted without B
 ```
 
-| Phase | Contents | Notes |
-|---|---|---|
-| **B** | `solution.ts` (P7–P15), EV fire gate, `minShotValue`, **and the §1.1 orbit fix** | The orbit fix must ride here: B is meaningless while the body sits 19.3° off. Uses the existing `interceptPoint` predictor. |
-| **C** | Direction-C threat evaluation (P16), cooldown tracking + `fired` sink (P21) | Nearly free once B's geometry exists. |
-| **A** | `predict.ts` (P17–P22), replacing `interceptPoint` behind the same interface | Clean swap; solver quality rises without the gate changing shape. |
-| **D** | `planner.ts` (P23–P33), `movement.ts` deletion (P6), situation-as-weights (P27), overlay (P45), perf gate (P33) | The largest and riskiest phase. |
+| Phase | Contents | Docs + skill owed in the same commit (P58b) | Notes |
+|---|---|---|---|
+| **B** | `solution.ts` (P7–P15), EV fire gate, `minShotValue`, **and the §1.1 orbit fix** | `bot-tuner`: drop `fireConeRad`, `fireDisciplineChance`, `aimToleranceRad`, `orbitBias`, `standoffFraction`; add `minShotValue` + the EV-ratio diagnostic (P58a.3, P58a.4); delete the dead closing invariant. `bot-behavior.md`: hands + fire-economy tables, P42 warning. `balance/README.md`: P57. | The orbit fix must ride here: B is meaningless while the body sits 19.3° off. Uses the existing `interceptPoint` predictor. |
+| **C** | Direction-C threat evaluation (P16), cooldown tracking + `fired` sink (P21) | `bot-tuner`: `opponentRangeRespect` re-documented as the `theirEV` multiplier (P38). `bot-behavior.md`: judgment table. | Nearly free once B's geometry exists. Adds no profile field. |
+| **A** | `predict.ts` (P17–P22), replacing `interceptPoint` behind the same interface | `bot-tuner`: drop `leadFactor`, add `stateEstimationSigma`. `bot-behavior.md`: aim table. | Clean swap; solver quality rises without the gate changing shape. |
+| **D** | `planner.ts` (P23–P33), `movement.ts` deletion (P6), situation-as-weights (P27), overlay (P45), perf gate (P33) | `bot-tuner`: the third factor (P58a.1), the inverted weave row (P58a.2), planner knobs. `bot-behavior.md`: pipeline diagram, positioning table. | The largest and riskiest phase. |
 
 **P55.** Each phase bumps `BOT_BRAIN_VERSION` and invalidates prior balance baselines. Four phases is
 four invalidations; that is the accepted price of stepping.
@@ -492,9 +492,37 @@ known distortion. Phase B's maneuver solver (P10, P11) makes that statement **fa
 corrected in the same commit.
 
 **P58.** `docs/bot-behavior.md` is rewritten — the parameter tables, the pipeline diagram, the
-"Reading a complaint" map, and P42's warning. `.claude/skills/bot-tuner/SKILL.md`'s complaint→knob
-map is rewritten to match; several complaints ("shots all over the place", "fights at the wrong
-distance") stop being knob problems and become solver outputs.
+"Reading a complaint" map, and P42's warning.
+
+### P58a. `bot-tuner` needs surgery, not a find-and-replace
+
+`.claude/skills/bot-tuner/SKILL.md` names **six fields this spec deletes** (`fireConeRad`,
+`fireDisciplineChance`, `aimToleranceRad`, `leadFactor`, `standoffFraction`, `orbitBias`), which
+breaks **6 of its 10 complaint rows** and its closing invariant (*"`aimToleranceRad` must stay below
+`fireConeRad`"* — both fields gone). The rewrite must also make four changes that a mechanical
+substitution would miss:
+
+1. **A third factor.** The skill sorts complaints into *judgment* vs *hands*. Planning is a new axis
+   — `planHorizonTicks`, `planDepth`, `targetBranches`. "It doesn't set up its shots" belongs to
+   none of the existing two.
+2. **"Weaves / moonwalks" inverts.** Today the answer is `orbitBias`. After P32 weaving is either
+   emergent and correct (leave it alone) or planner chatter (P30 — raise `commitPenalty`). Same
+   complaint, different mechanism, opposite fix.
+3. **A wider escape hatch.** The skill currently says stop tuning when the overlay shows the wrong
+   *situation*. The common post-rework case is the right situation with a low EV ratio — the bot
+   correctly declining shots it cannot make. The skill must distinguish *"`minShotValue` is too
+   high"* (tune) from *"the solver is wrong about this weapon"* (bug, stop).
+4. **A new primary diagnostic.** P46's overlay carries `ev 24/26` and the per-term plan score, which
+   answers most complaints directly. The skill's method changes from "name the factor from the
+   symptom" to "read the EV ratio and the score breakdown first". That is an upgrade to how the
+   skill works, not a patch to its table.
+
+**P58b. The docs and the skill are updated in the phase that breaks them, never at the end.**
+`bot-tuner` is a skill: it fires automatically on any "the bot feels wrong" phrasing. Left stale
+after phase B, it would confidently propose edits to `fireConeRad` — a field that no longer exists —
+for the entire duration of phases C and A. Each phase therefore carries its own doc-and-skill edit
+in the same commit as its code, matching P36's phase column. This is a correctness obligation, not
+tidiness.
 
 **P59. Playtest probes must be flagged loudly, per `CLAUDE.md`.** This change alters driving, firing
 cadence and engagement range, and makes the bot press `wildcharge` for the first time — reaching ram
@@ -516,3 +544,4 @@ checks. No drive-config, weapon-table or car-table value moves in this spec.
 | 3 | The nine-weapon hit predicate is the fiddliest part and the main schedule risk | P10 collapses nine weapons to four shapes; P48 proves each against the real sim |
 | 4 | Planner chatter | P43 (smooth scores) plus P30 (`commitPenalty`) — two independent defences |
 | 5 | Phase B alone makes the bot feel passive | P14/P15: the gate is EV, not raw probability, so cheap fast guns keep firing |
+| 6 | A stale `bot-tuner` proposes edits to deleted fields between phases — it fires automatically, so this misleads without being asked | P58b: docs and skill are edited in the phase that breaks them, in the same commit as the code |
