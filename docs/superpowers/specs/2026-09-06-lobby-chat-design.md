@@ -170,6 +170,14 @@ Normalize trims and strips control characters and newlines — a lobby message i
 has no room for a pasted wall of them, and a stray `\n` breaks row alignment. Validation rejects
 empty-after-trim and anything over `CHAT_CONFIG.maxLength`.
 
+**It strips the bidi controls specifically, not the whole `\p{Cf}` category.** An earlier draft of
+this decision said `\p{Cf}`, which is wrong: that category contains ZERO WIDTH JOINER and ZERO WIDTH
+NON-JOINER, so it silently rewrites ordinary player input — `👨‍👩‍👧‍👦` becomes four separate people,
+and Persian `می‌روم` becomes two words, which is a spelling change rather than a formatting one. The
+class to remove is `\p{Cc}` plus the bidi set (`U+200E`, `U+200F`, `U+061C`, `U+202A`–`U+202E`,
+`U+2066`–`U+2069`), which is all the original rationale — one message reordering the whole list —
+ever asked for.
+
 **LC14. Both halves call the same validator.** The client calls it to decide whether Send does
 anything; the server calls it to actually decide. The client's copy is a courtesy, never an
 authority (invariant 3).

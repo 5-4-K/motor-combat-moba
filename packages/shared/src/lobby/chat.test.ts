@@ -34,6 +34,21 @@ describe("normalizeChatText", () => {
   it("leaves an ordinary message alone", () => {
     expect(normalizeChatText("bastion again i guess")).toBe("bastion again i guess");
   });
+
+  it("leaves a zero-width joiner intact", () => {
+    // ZWJ (U+200D) fuses multi-part emoji into one glyph and is not a formatting hazard --
+    // stripping it is what breaks family emoji apart. See the function's doc comment.
+    expect(normalizeChatText("a\u200Db")).toBe("a\u200Db");
+  });
+
+  it("leaves a zero-width non-joiner intact", () => {
+    // ZWNJ (U+200C) is load-bearing in Persian/Hindi spelling; stripping it changes the word.
+    expect(normalizeChatText("a\u200Cb")).toBe("a\u200Cb");
+  });
+
+  it("replaces a right-to-left mark", () => {
+    expect(normalizeChatText("gl\u200Ehf")).toBe("gl hf");
+  });
 });
 
 describe("validateChatText", () => {

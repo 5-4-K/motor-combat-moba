@@ -5,14 +5,24 @@ export type ValidateChatResult =
   | { ok: false; error: string };
 
 /**
- * A lobby message is one line. Control and format characters become spaces rather than vanishing —
- * "gl\nhf" is two words, not "glhf" — and runs then collapse, so a pasted block cannot smuggle in a
- * wide gap that breaks the panel's row alignment. \p{Cf} is in there for the bidi overrides, which
- * would otherwise let one message scramble the reading order of the whole list.
+ * A lobby message is one line. Control characters (`\p{Cc}`) become spaces rather than vanishing --
+ * "gl\nhf" is two words, not "glhf" -- and runs then collapse, so a pasted block cannot smuggle in a
+ * wide gap that breaks the panel's row alignment. The explicit bidi-control characters alongside
+ * `\p{Cc}` (LRM/RLM, ALM, the LRE/RLE/PDF/LRO/RLO embedding controls, and the LRI/RLI/FSI/PDI
+ * isolates) exist for the same reason as the control characters: an unpaired one of these would let
+ * a single message scramble the reading order of the whole panel.
+ *
+ * This is deliberately narrower than `\p{Cf}`, which also contains ZERO WIDTH JOINER (U+200D) and
+ * ZERO WIDTH NON-JOINER (U+200C). Those two are never stripped here: a joiner is not a formatting
+ * hazard, it is load-bearing text -- it is what fuses a multi-part emoji sequence into one glyph
+ * (a family emoji is four person glyphs plus three ZWJs) and what splits or joins letters in
+ * Persian and Hindi spelling. Widening this back to `\p{Cf}` breaks multi-part emoji into their
+ * separate parts and silently changes the spelling of real words in those languages. Do not
+ * "simplify" it back.
  */
 export function normalizeChatText(raw: string): string {
   return raw
-    .replace(/[\p{Cc}\p{Cf}]/gu, " ")
+    .replace(/[\p{Cc}\u200E\u200F\u061C\u202A-\u202E\u2066-\u2069]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
