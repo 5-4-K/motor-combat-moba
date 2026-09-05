@@ -136,6 +136,22 @@ export function nearBound(
  *   also driving the floor, the off-axis duel plateaued at 68/300 fires (never settling into a
  *   steer-0 rest state); with `floorTurnRate` fixed to the moving rate, it reaches the same 146/300,
  *   0-mean-offset ceiling the on-axis duel does.
+ *
+ *   One more wrinkle review round 2 found (R15, fix round 3, 2026-09-05): actuator resolution is
+ *   not the only thing the floor has to respect. The bot also cannot correct itself within its own
+ *   `recomputeTicks` window — it re-decides only that often, holding the previous steer the whole
+ *   time — and for a tier whose `recomputeTicks` is large (medium: 6 ticks = 1.42 rad of
+ *   uncorrectable rotation) that window's rotation dwarfs one tick's, so a floor keyed to one tick
+ *   alone left medium's off-axis deadzone (0.16) far too small to let it settle, and it aimed
+ *   *worse* off-axis than easy despite outranking it on every other axis. `rotationPerDecision =
+ *   rotationPerTick * recomputeTicks` is now floored alongside `rotationPerTick`, and the floor
+ *   takes whichever rotation is larger before applying `deadzoneFloorFraction` once — this is what
+ *   "half the rotation the bot cannot correct during one decision window, but never less than half
+ *   a tick's rotation" means arithmetically: `deadzoneFloorFraction` must be applied exactly once,
+ *   to the larger of the two raw rotations, not to each separately and not doubled. The existing
+ *   `deadzoneCapFraction` clamp is what keeps this safe: taking the larger candidate can only raise
+ *   the floor, and the cap is what stops a high-`recomputeTicks` tier's floor from swallowing its
+ *   own `fireConeRad`.
  * - `projectedError` IS about lag: it subtracts the rotation already committed to (the steer this
  *   controller most recently emitted, held for the full `lagSeconds` window) from the raw heading
  *   error before the bang-bang test runs — a person with a real reaction delay does not oscillate,
@@ -180,9 +196,16 @@ export function compensateForLag(args: {
 }): { projectedError: number; effectiveDeadzone: number } {
   const lagSeconds = (args.reactionDelayTicks + args.recomputeTicks) / TICK_RATE_HZ;
 
-  // Actuator resolution: floor on one tick's rotation, not the whole lag window (R12).
+  // Actuator resolution: floor at half the rotation the bot cannot correct within one DECISION
+  // window — it re-decides only every `recomputeTicks`, holding the previous steer the whole time
+  // — but never less than half a single TICK's rotation, the actuator's finest possible step
+  // (R15, fix round 3). The two are different constraints (correction latency vs. actuator
+  // resolution) and the floor is whichever rotation is larger, so a low-`recomputeTicks` tier
+  // still floors on one tick (R12's original reasoning) while a high-`recomputeTicks` tier floors
+  // on the longer window it is actually stuck coasting through.
   const rotationPerTick = args.floorTurnRate / TICK_RATE_HZ;
-  const floor = rotationPerTick * BRAIN_CONSTANTS.deadzoneFloorFraction;
+  const rotationPerDecision = rotationPerTick * args.recomputeTicks;
+  const floor = Math.max(rotationPerTick, rotationPerDecision) * BRAIN_CONSTANTS.deadzoneFloorFraction;
   const effectiveDeadzone = Math.min(
     Math.max(args.aimToleranceRad, floor),
     args.fireConeRad * BRAIN_CONSTANTS.deadzoneCapFraction,

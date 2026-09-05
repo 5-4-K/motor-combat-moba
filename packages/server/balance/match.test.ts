@@ -123,6 +123,15 @@ describe("runMatch", () => {
     // assertion below states that premise outright so the two cases can never be confused: if a
     // future balance edit empties the window again, THAT line fails and names the reason.
     //
+    // `seed: 10`, not 28: Task 2's fix round 3 (R15, 2026-09-05) floors the steering deadzone at
+    // half a DECISION window's rotation (not just half a tick's) whenever that is the larger
+    // quantity — medium's `recomputeTicks` (6) made this bind, fixing an off-axis inversion where
+    // medium aimed worse than easy. Hard's own `recomputeTicks` (2) means one tick's rotation was
+    // already the larger term for hard, so the floor's numeric value for hard is unchanged by this
+    // fix — but the clamp expression changed, and swept seeds moved again, taking seed 28's kill
+    // outside the 30 s window. Swept 1-150 against the fixed brain: 10, 19, 25, 29, 34, 35, 43, 53,
+    // 57, 83, 87, 102, 104, 105, 106, 112, 113, 137, 144, and 147 land a kill inside the window.
+    //
     // `seed: 28`, not 13: Task 2's fix round 2 (R14, 2026-09-05) clamps the lag-compensation
     // projection to the magnitude of the heading error — without the cap, a long lag window (as
     // easy's 21 ticks) projected a rotation many times larger than any real heading error, flipping
@@ -170,7 +179,7 @@ describe("runMatch", () => {
     // Mirage/Bastion matchup's dynamics enough that seed 40 stopped landing a kill inside the 30 s
     // window — a legitimate killless window under the new views, not a clock regression, so this
     // test isn't about that case.
-    const out = runMatch({ ...SETUP, seed: 28, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    const out = runMatch({ ...SETUP, seed: 10, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);

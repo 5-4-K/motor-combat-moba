@@ -147,6 +147,18 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * instant the car comes to rest at its standoff range, silently undoing the fix at exactly the
    * moment `fight` needs it most (parked, facing the target). The floor is the finest correction the
    * car can EVER make, not the one it happens to be capable of on a given tick.
+   *
+   * A THIRD wrinkle (R15, fix round 3, 2026-09-05): one tick's rotation is not the only thing the
+   * bot cannot correct within. It also cannot correct within its own `recomputeTicks` window — it
+   * re-decides only that often, holding the previous steer the whole time — and for a tier with a
+   * large `recomputeTicks` (medium: 6 ticks) that window's rotation is several times one tick's, so
+   * a floor keyed only to one tick left medium's off-axis deadzone too tight to settle, and it
+   * aimed WORSE off-axis than easy despite outranking it everywhere else. The floor is now the
+   * LARGER of "half one tick's rotation" and "half one decision window's rotation" — the same
+   * fraction, applied once, to whichever raw rotation (one tick's, or `recomputeTicks` ticks') is
+   * bigger. Taking the larger candidate is only safe because of `deadzoneCapFraction` below, which
+   * still stops the floor from swallowing `fireConeRad` on a tier with a very long
+   * `recomputeTicks`. See `movement.ts`'s `compensateForLag`.
    */
   deadzoneFloorFraction: 0.5,
   /**
