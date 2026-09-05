@@ -95,10 +95,8 @@ export function isDashing(body: SimBody): boolean {
  * walk and a single full-`dt` step can never disagree about direction or speed.
  */
 export function dashTranslation(body: SimBody, dt: number): { x: number; y: number } {
-  return {
-    x: Math.cos(body.maneuverAngle) * body.maneuverSpeed * dt,
-    y: Math.sin(body.maneuverAngle) * body.maneuverSpeed * dt,
-  };
+  const v = toWorld(body.maneuverAngle, body.maneuverSpeed, 0);
+  return { x: v.vx * dt, y: v.vy * dt };
 }
 
 /**

@@ -1,6 +1,6 @@
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { SimBody } from "./step.js";
-import { toWorld } from "./velocity.js";
+import { forwardOf, speedOf, toWorld } from "./velocity.js";
 
 /**
  * Axis-aligned box. `x, y` is the TOP-LEFT corner, matching how `Obstacle` is authored in the arena
@@ -178,21 +178,31 @@ function resolveAgainst(body: SimBody, box: Obb): SimBody {
  * during resolution — via `|v'|`, negated when `dot(v', forward) < 0` so reverse stays negative
  * along the nose. STAGE 2 removes that discard and lets the reflected direction stand.
  *
- * That discard-and-rebuild is the rule as specified, and it has two consequences worth knowing
- * about before anyone "fixes" them. Both are pinned by tests; changing either means changing the
- * spec, not this function.
+ * That discard-and-rebuild is the rule as specified, and it has three consequences worth knowing
+ * about before anyone "fixes" them. All three are pinned by tests; changing any of them means
+ * changing the spec, not this function.
  *
- *  1. Walls damp but never redirect. The reflected direction is discarded and only its magnitude
+ *  1. Every contact destroys `v'`'s lateral component, not just the reflection's. This is NOT a
+ *     side effect confined to driven forward speed: a car whose entire velocity is an externally
+ *     imposed lateral knock (no throttle at all) reflects off a wall and then has that reflection
+ *     thrown away and rebuilt as a pure forward/reverse scalar along the unchanged nose. A car
+ *     sliding sideways into a wall at 300 u/s can leave it doing 105 u/s straight out its own nose
+ *     instead of back along the axis it actually struck. Until stage 2 restores whole-vector
+ *     reflection, lateral motion does not survive a contact — ever — regardless of where it came
+ *     from.
+ *
+ *  2. Walls damp but never redirect. The reflected direction is discarded and only its magnitude
  *     survives, so a car angled into a wall does not slide off it: it grinds along, pinned to the
  *     boundary, shedding a few percent of speed per tick while still facing into the wall. Real
  *     deflection would need `angle` to change, which collision resolution deliberately does not do.
  *
- *  2. The sign flips discontinuously at |dot(n, forward)| = 1/sqrt(1 + restitution) — about 30.6
+ *  3. The sign flips discontinuously at |dot(n, forward)| = 1/sqrt(1 + restitution) — about 30.6
  *     degrees off the surface normal. Just inside that, the reflected velocity still opposes the
  *     facing and the car is reported as reversing; just outside, it agrees and the car is reported
  *     as driving forward. The magnitude is continuous across the boundary, but the reported forward
  *     speed jumps by roughly twice it. Head-on impacts are nowhere near this angle; glancing ones
- *     sit right on it.
+ *     sit right on it. The exact tie (`dot(v', forward) === 0`) is not a real third case — it just
+ *     falls through to the `magnitude` branch below, i.e. "forward" wins arbitrarily.
  */
 function applyContact(body: SimBody, push: Vec2): SimBody {
   const length = Math.hypot(push.x, push.y);
@@ -208,12 +218,15 @@ function applyContact(body: SimBody, push: Vec2): SimBody {
     vy -= scale * n.y;
   }
 
-  // STAGE 2 REMOVES THE NEXT THREE LINES. Today the reflected direction is discarded and only the
-  // magnitude survives along the unchanged facing, which is why walls damp but never redirect.
-  // Preserved here so this task is a pure representation change with no behavioural surprise.
-  const forward: Vec2 = { x: Math.cos(body.angle), y: Math.sin(body.angle) };
-  const magnitude = Math.hypot(vx, vy);
-  const signed = vx * forward.x + vy * forward.y < 0 ? -magnitude : magnitude;
+  // STAGE 2 REMOVES THE NEXT TWO LINES. Today the reflected direction is discarded and only the
+  // magnitude survives along the unchanged facing, which is why walls damp but never redirect, and
+  // why the lateral component of a contact never survives (see point 1 above) — this is a real
+  // behavioural change from the pre-vector code, not a pure representation swap: the old
+  // `applyContact` reflected `shoveX/shoveY` in their own independent pass precisely so knock
+  // motion kept bouncing in its own direction. Kept here because making walls genuinely deflect is
+  // stage 2's task, not this one's.
+  const magnitude = speedOf(vx, vy);
+  const signed = forwardOf(vx, vy, body.angle) < 0 ? -magnitude : magnitude;
 
   return { ...body, x: body.x + push.x, y: body.y + push.y, ...toWorld(body.angle, signed, 0) };
 }

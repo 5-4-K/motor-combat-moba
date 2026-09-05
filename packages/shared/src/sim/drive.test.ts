@@ -247,7 +247,7 @@ describe("stepDrive: ram knock state", () => {
     // pure lateral component (angle 0, so lateral = vy) with no throttle still displaces the car.
     const out = stepDrive({ ...rest(), vx: 0, vy: -60 }, input(0, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
     expect(out.x).toBeCloseTo(0, 9);
-    expect(out.y).toBeLessThan(0);
+    expect(out.y).toBeCloseTo(-(60 - DRIVE_CONFIG.impactGripDecel * DT) * DT, 9);
   });
 
   it("decays an imposed lateral velocity toward zero and snaps to exact rest", () => {
@@ -262,7 +262,7 @@ describe("stepDrive: ram knock state", () => {
     const out = stepDrive({ ...rest(), vx: 300, vy: 150 }, input(0, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
     // angle 0, so drive motion is +x and the imposed lateral motion is +y. Both must survive.
     expect(out.x).toBeGreaterThan(0);
-    expect(out.y).toBeGreaterThan(0);
+    expect(out.y).toBeCloseTo((150 - DRIVE_CONFIG.impactGripDecel * DT) * DT, 9);
   });
 
   it("bleeds spin faster when steering against it than when coasting", () => {
@@ -370,7 +370,9 @@ describe("maneuvers (spec S3 / O13)", () => {
     const stunned: SimBody = { ...movingBody, vx: 250, vy: 100 };
     const out = stepDrive(stunned, input(0, 1), DT, GOLDEN_CHASSIS, { ...NEUTRAL_MODIFIERS, fullStop: true });
     expect(fwd(out)).toBe(0);
-    expect(out.y).toBeGreaterThan(0); // the slam can still push you into a wall
+    // The slam can still push you into a wall: angle 0, so the imposed lateral component (vy: 100)
+    // is what survives fullStop, bled at the flat impactGripDecel rate.
+    expect(out.y).toBeCloseTo((100 - DRIVE_CONFIG.impactGripDecel * DT) * DT, 9);
   });
 });
 

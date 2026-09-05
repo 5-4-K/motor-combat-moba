@@ -788,8 +788,17 @@ describe("applyContact reflects the whole velocity, not just driven speed", () =
   // There is no successor to `shove`: a car with no drive velocity but an externally imposed one
   // (a ram knock, pre-vector) is now just a car with `vx/vy` set and no throttle. This block used to
   // exercise a second, `shoveX/shoveY`-specific reflection inside `applyContact`; that code is gone,
-  // because there is only one velocity to reflect now. What survives is the underlying behaviour —
-  // imposed motion still bounces off a wall, and motion already leaving a surface is never amplified.
+  // because there is only one velocity to reflect now.
+  //
+  // That collapse is NOT behaviour-neutral on the lateral axis, and the tests below say so plainly
+  // rather than leaving it implicit: every contact destroys the lateral component of the reflected
+  // velocity, full stop, until stage 2 restores whole-vector reflection. The old code's second,
+  // shove-specific reflection pass existed precisely so knock motion kept bouncing in its own
+  // direction; today that direction is thrown away and only the magnitude survives, re-signed along
+  // the car's UNCHANGED facing (`forwardOf(v', angle) < 0 ? -magnitude : magnitude` — the exact tie
+  // at `dot === 0` is not a meaningful third case, it just falls into the "forward" branch
+  // arbitrarily). A car sliding sideways into a wall does not slide back the way it came; it leaves
+  // along its own nose. See `applyContact`'s doc comment in `collide.ts` for the full account.
   it("rebounds a car whose only velocity is externally imposed (no throttle) off a wall", () => {
     const out = resolveWorld(body({ x: 10, y: 400, vx: -300, vy: 0 }), [], [], BOUNDS);
     expect(fwd(out)).toBeGreaterThan(0);
@@ -798,5 +807,13 @@ describe("applyContact reflects the whole velocity, not just driven speed", () =
   it("does not amplify velocity that is already moving away from the surface", () => {
     const out = resolveWorld(body({ x: 10, y: 400, vx: 300, vy: 0 }), [], [], BOUNDS);
     expect(out.vx).toBeCloseTo(300, 9);
+  });
+
+  it("leaves a car with zero lateral velocity after any wall contact, by design until stage 2", () => {
+    // Pure lateral motion (angle 0, so lateral = vy) sliding into the top wall: the reflected
+    // direction is discarded entirely, so the surviving velocity has no lateral component left —
+    // it is rebuilt purely along the car's nose (angle 0), whichever sign the discard picked.
+    const out = resolveWorld(body({ x: 500, y: 5, angle: 0, vx: 0, vy: -300 }), [], [], BOUNDS);
+    expect(out.vy).toBeCloseTo(0, 9);
   });
 });
