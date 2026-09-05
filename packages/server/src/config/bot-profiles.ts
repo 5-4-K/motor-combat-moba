@@ -50,6 +50,59 @@ export interface BotProfile {
    * The EV threshold IS discipline — it replaced `fireDisciplineChance`, which gated on distance
    * rather than on whether the shot would land. Low means an amateur who sprays; high means a
    * skilled player who only spends gun time on shots that pay.
+   *
+   * CALIBRATED FROM MEASUREMENT (R16, fix round 1, 2026-09-05), not guessed. The original guesses
+   * (easy 2 / medium 12 / hard 26) were wrong in KIND: `value` scales with the shooter's OWN
+   * `aimErrorSigmaRad` (hard 0.035, medium 0.09, easy 0.18), so one absolute number cannot express
+   * "takes only good shots" across three tiers with wildly different achievable `value` ceilings —
+   * hard's 26 landed 0.4% below its own achievable ~26.1 by pure accident, dropping its off-axis
+   * fire count 100 -> 70 against a committed `>90` test, and medium's fell 102 -> 0.
+   *
+   * Measured instead: a temporary harness (modelled on `controller.test.ts`'s `closedLoopDuel`) ran
+   * 300 ticks of a closed-loop duel per tier, in both committed geometries (on-axis target at
+   * x753/y360, off-axis at x753/y500), recording the solver's best-available-slot `value` each tick
+   * a target and a ready slot existed. Percentiles of the pooled (both geometries) distribution:
+   *
+   * | tier   | p5   | p25   | p35   | p50   | p60   | p75   | p90   |
+   * |--------|------|-------|-------|-------|-------|-------|-------|
+   * | easy   | 0.00 | 0.82  | 0.98  | 0.98  | 6.27  | 13.34 | 18.21 |
+   * | medium | 0.03 | 7.09  | 7.09  | 24.48 | 24.48 | 24.48 | 24.48 |
+   * | hard   | 0.00 | 25.29 | 26.10 | 26.10 | 30.00 | 30.00 | 30.00 |
+   *
+   * The ruling calls for easy ~p5, medium ~p35, hard ~p60 of each tier's OWN pooled distribution —
+   * but a literal read of those cells reproduces the exact defect this fix exists to correct: both
+   * medium's p35 (7.09) and hard's p60 (30.00) sit EXACTLY ON the top edge of a converged-value
+   * plateau, because the on-axis geometry converges to a near-constant `value` every tick (a
+   * degenerate distribution) and the off-axis geometry converges to its own, lower, near-constant
+   * plateau — so pooling two near-point-masses makes most "percentiles" land exactly at one
+   * plateau's edge. Sweeping candidate thresholds against the real closed-loop harness confirmed
+   * this empirically: medium's off-axis fires are 102/300 for any threshold <= 7, then fall OFF A
+   * CLIFF to 0/300 at 7.09 (the literal p35) and above. Hard's off-axis fires are a stable 94/300
+   * for any threshold in roughly [0, 25], then fall to 70/300 at 26 (the OLD guessed value,
+   * reproducing the original defect exactly) and 0/300 at 27. Both chosen values below are picked
+   * from the flat, safe side of their tier's cliff — reading "~p35" / "~p60" as "the top of the
+   * shot-quality band this tier should clear," not as the literal interpolated percentile number,
+   * which in both cases is a knife-edge artifact of pooling two near-degenerate distributions.
+   * Easy has no such cliff near its p5 (stable 87-99/300 off-axis across [0, 0.8], only dropping at
+   * ~1.0), so 0.5 is simply a readable point on that stable plateau, comfortably above literal 0
+   * (which would accept even a guaranteed-miss/out-of-reach `value` of exactly 0 and make the gate
+   * a no-op) and comfortably below the ~1.0 cliff.
+   *
+   * Chosen: easy 0.5, medium 7, hard 25 (all measured stable, not edge values; strictly increasing
+   * per `bot-profiles.test.ts`'s `LADDER`). Resulting closed-loop fire counts (300 ticks each):
+   * easy 120/87 (on/off-axis), medium 144/102, hard 140/94 — both HARD committed tests
+   * (`controller.test.ts`, `fires > 90` in both geometries) now pass with margin.
+   *
+   * FINDING, reported rather than tuned around per this task's brief: the expected
+   * easy-fires-most/hard-fires-least ordering does NOT hold on fire count alone — actual ordering
+   * is medium (144/102) > hard (140/94) > easy (120/87) in both geometries. This is NOT an artifact
+   * of the threshold choice: re-running easy with the EV gate effectively disabled (threshold -1,
+   * a no-op) still only reaches 123/99, still below medium's and hard's numbers. The shortfall is
+   * structural, driven by profile fields this task may not touch (`aimToleranceRad` 0.3 vs hard's
+   * 0.07, `blunderChance` 0.12, `awarenessRadiusUnits` 520, situation/movement gating) — not by
+   * `minShotValue`. Easy still hits far less than it fires (`aimErrorSigmaRad` 0.18 vs hard's
+   * 0.035), which is the intended "sprays and mostly misses" archetype even though its raw fire
+   * COUNT does not lead the ladder in this scenario.
    */
   readonly minShotValue: number;
   /** Probability of saving a long-cooldown weapon for a good moment (TF2's airblast gate). */
@@ -222,7 +275,7 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
     viewStalenessTicks: 4, reactionDelayTicks: 9, recomputeTicks: 12, acquireTicks: 15,
     awarenessRadiusUnits: 520, rearBlindHalfAngleRad: 1.05, trackedThreatLimit: 1, memoryTicks: 15,
     aimErrorSigmaRad: 0.18, aimErrorDriftTicks: 20, aimToleranceRad: 0.3,
-    burstGapTicks: 14, minShotValue: 2, ultDisciplineChance: 0, ultWindowHpFraction: 0.4,
+    burstGapTicks: 14, minShotValue: 0.5, ultDisciplineChance: 0, ultWindowHpFraction: 0.4,
     targetCommitTicks: 150, woundedBias: 0.1, vengefulness: 0.8,
     standoffFraction: 0.45, deadbandFraction: 0.25, wallLookaheadUnits: 40,
     retreatHpFraction: 0, ramIntentChance: 0.15,
@@ -236,7 +289,7 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
     viewStalenessTicks: 3, reactionDelayTicks: 6, recomputeTicks: 6, acquireTicks: 9,
     awarenessRadiusUnits: 700, rearBlindHalfAngleRad: 0.6, trackedThreatLimit: 2, memoryTicks: 45,
     aimErrorSigmaRad: 0.09, aimErrorDriftTicks: 14, aimToleranceRad: 0.16,
-    burstGapTicks: 7, minShotValue: 12, ultDisciplineChance: 0.5, ultWindowHpFraction: 0.4,
+    burstGapTicks: 7, minShotValue: 7, ultDisciplineChance: 0.5, ultWindowHpFraction: 0.4,
     targetCommitTicks: 60, woundedBias: 0.5, vengefulness: 0.5,
     standoffFraction: 0.55, deadbandFraction: 0.15, wallLookaheadUnits: 90,
     retreatHpFraction: 0.3, ramIntentChance: 0.3,
@@ -250,7 +303,7 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
     viewStalenessTicks: 2, reactionDelayTicks: 4, recomputeTicks: 2, acquireTicks: 5,
     awarenessRadiusUnits: 900, rearBlindHalfAngleRad: 0, trackedThreatLimit: 4, memoryTicks: 90,
     aimErrorSigmaRad: 0.035, aimErrorDriftTicks: 9, aimToleranceRad: 0.07,
-    burstGapTicks: 3, minShotValue: 26, ultDisciplineChance: 0.9, ultWindowHpFraction: 0.4,
+    burstGapTicks: 3, minShotValue: 25, ultDisciplineChance: 0.9, ultWindowHpFraction: 0.4,
     targetCommitTicks: 25, woundedBias: 0.9, vengefulness: 0.25,
     standoffFraction: 0.7, deadbandFraction: 0.08, wallLookaheadUnits: 150,
     retreatHpFraction: 0.35, ramIntentChance: 0.5,
