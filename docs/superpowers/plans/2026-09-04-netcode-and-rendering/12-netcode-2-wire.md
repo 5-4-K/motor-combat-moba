@@ -65,7 +65,7 @@
 
 **Interfaces:**
 - Consumes: `SimBody` (`sim/step.ts`), `InputFrame` (`net/input.ts`), `PongMessage` (`net/ping.ts`), `WEAPON_TABLE`, `STATUS_TABLE`.
-- Produces: everything the ledger lists for `net/codec.ts`, `net/roster.ts` and `net/events.ts`, plus `MSG_SNAPSHOT`, `ANG_VEL_SCALE`, `AUTHORITY_STEPS`, `isRosterMessage`, `Snapshot.lateInput`, `SnapshotCar.level`, `SnapshotCar.diedAtTick`. Tasks 2–6 consume all of it.
+- Produces: everything the ledger lists for `net/codec.ts`, `net/roster.ts` and `net/events.ts`, plus `MSG_SNAPSHOT`, `ANG_VEL_SCALE`, `AUTHORITY_STEPS`, `isRosterMessage`, `Snapshot.lateInput`, `SnapshotCar.diedAtTick`. Tasks 2–6 consume all of it.
 
 #### The byte layout
 
@@ -92,7 +92,7 @@ Cars
     group 2  knock     i16 angVel · i16 shoveX · i16 shoveY · u8 authority          7 B
     group 3  maneuver  u8 kind · u16 ticksLeft · u16 angle · u16 speed              7 B
     group 4  vitals    u16 hp · u8 flags (bit0 alive, bit1 onField, bit2 phased)
-                       · i16 diedAt · u8 level                                      6 B
+                       · i16 diedAt                                                 5 B
     group 5  lastInput u8 (steer 2 bits · throttle 2 bits · fire 3 bits)            1 B
     group 6  lock      u8 lockTargetIndex + 1 (0 = none)                            1 B
     group 7  shot      u16 shotSeq                                                  2 B
@@ -101,7 +101,7 @@ Cars
                        · i16 rechargeEnds · i16 refireLock              1 + 6n (19 B at n=3)
     group 10 statuses  u8 count, per status: u8 id · i16 startTick
                        · i16 endsTick · u8 sourceIndex + 1              1 + 6n (1 B at n=0)
-                                                             full car, 3 slots, 0 statuses: 59 B
+                                                             full car, 3 slots, 0 statuses: 58 B
 
 Instances
   u8   count
@@ -143,15 +143,15 @@ one byte at 1/255 is 0.004 of steering effectiveness.
 
 | Case | Arithmetic | Bytes |
 |---|---|---|
-| **Full**, 6 cars (3 slots, 1 status each), 20 instances | `10 + 1 + 6 × 65 + 1 + 20 × 14 + 1` | **683** |
-| Full, 6 cars (3 slots, no statuses), 20 instances | `10 + 1 + 6 × 59 + 1 + 20 × 14 + 1` | 647 |
-| Full, a live 6-car match (1 status each, 8 instances) | `10 + 1 + 390 + 1 + 112 + 1` | 515 |
+| **Full**, 6 cars (3 slots, 1 status each), 20 instances | `10 + 1 + 6 × 64 + 1 + 20 × 14 + 1` | **677** |
+| Full, 6 cars (3 slots, no statuses), 20 instances | `10 + 1 + 6 × 58 + 1 + 20 × 14 + 1` | 641 |
+| Full, a live 6-car match (1 status each, 8 instances) | `10 + 1 + 384 + 1 + 112 + 1` | 509 |
 | **Delta, steady state** — 6 cars moving, 4 instances in flight | `10 + 1 + 6 × 12 + 1 + 4 × 10 + 1` | **125** |
-| Delta, contact + volley — 6 cars with knock, vitals, fire and shot changing, 12 instances, one hit event | `10 + 1 + 6 × 32 + 1 + 12 × 10 + 1 + 11` | 336 |
+| Delta, contact + volley — 6 cars with knock, vitals, fire and shot changing, 12 instances, one hit event | `10 + 1 + 6 × 31 + 1 + 12 × 10 + 1 + 11` | 330 |
 | Delta, an idle lobby — nothing changed on any car | `10 + 1 + 6 × 3 + 1 + 1` | 31 |
 
 A delta car that is merely driving carries `1 index + 2 mask + 6 pose + 3 motion` = 12 B; a delta car
-in contact adds `7 knock + 6 vitals + 2 shot + 5 fire` = 32 B. A delta instance carries
+in contact adds `7 knock + 5 vitals + 2 shot + 5 fire` = 31 B. A delta instance carries
 `1 + 2 + 1 mask + 6 pose` = 10 B, because a projectile's extent is 0 for its whole life and its
 identity and flags never change. Both acceptance lines — full ≤ 700 B, delta steady state ≤ 350 B —
 hold by construction, and Step 4's tests pin the three bolded numbers exactly so a layout change
@@ -187,7 +187,7 @@ const car = (index: number, x: number, statuses = 1): SnapshotCar => ({
   index, body: quantizeBody(body(x)), hp: 900, alive: true, onField: true, phased: false,
   lastInput: { steer: -1, throttle: 1, fireSlots: 5 }, lockTargetIndex: index === 0 ? 1 : -1,
   shotSeq: 40000, pendingUntilTick: 1010, switchLockUntilTick: 0, lastFiredSlot: 2,
-  level: 3, diedAtTick: 0,
+  diedAtTick: 0,
   slots: [
     { weaponId: "predator", stocks: 2, rechargeEndsTick: 1100, refireLockUntilTick: 0 },
     { weaponId: "pepperbox", stocks: 0, rechargeEndsTick: 0, refireLockUntilTick: 1002 },
@@ -300,9 +300,9 @@ describe("byte budget (spec section 8, phase 2 acceptance)", () => {
   const sixCars = Array.from({ length: 6 }, (_, i) => car(i, 200 + i * 100));
   const twentyShots = Array.from({ length: 20 }, (_, i) => instance(i % 6, i));
 
-  it("encodes a full 6-car, 20-instance snapshot in 683 bytes (limit 700)", () => {
+  it("encodes a full 6-car, 20-instance snapshot in 677 bytes (limit 700)", () => {
     const bytes = encodeSnapshot(snapshot({ cars: sixCars, instances: twentyShots }), undefined, ROSTER);
-    expect(bytes.length).toBe(683);
+    expect(bytes.length).toBe(677);
     expect(bytes.length).toBeLessThanOrEqual(700);
   });
 
@@ -313,7 +313,7 @@ describe("byte budget (spec section 8, phase 2 acceptance)", () => {
     expect(encodeSnapshot({ ...first, tick: 1001, full: false, cars, instances }, first, ROSTER).length).toBe(125);
   });
 
-  it("encodes a contact-and-volley delta in 336 bytes (limit 350)", () => {
+  it("encodes a contact-and-volley delta in 330 bytes (limit 350)", () => {
     const first = snapshot({ cars: sixCars, instances: twentyShots.slice(0, 12) });
     const cars = sixCars.map((c) => ({
       ...c,
@@ -324,7 +324,7 @@ describe("byte budget (spec section 8, phase 2 acceptance)", () => {
     const events: MatchEvent[] = [
       { kind: "hit", tick: 1001, attacker: "aaa", victim: "bbb", weaponId: "predator", x: 1, y: 2, damage: 62 },
     ];
-    expect(encodeSnapshot({ ...first, tick: 1001, full: false, cars, instances, events }, first, ROSTER).length).toBe(336);
+    expect(encodeSnapshot({ ...first, tick: 1001, full: false, cars, instances, events }, first, ROSTER).length).toBe(330);
   });
 
   it("encodes an idle 6-car snapshot in 31 bytes", () => {
@@ -573,8 +573,6 @@ export interface SnapshotCar {
   pendingUntilTick: number;
   switchLockUntilTick: number;
   lastFiredSlot: number;
-  /** Weapon level. Beyond the ledger's field list — the HUD reads it and nothing derives it. */
-  level: number;
   /** The tick hp reached 0, or 0. Beyond the ledger's field list — the death fade reads it. */
   diedAtTick: number;
   slots: SnapshotSlot[];
@@ -762,7 +760,7 @@ function carMask(car: SnapshotCar, prev: SnapshotCar | undefined): number {
   if (a.maneuver !== p.maneuver || a.maneuverTicksLeft !== p.maneuverTicksLeft ||
       a.maneuverAngle !== p.maneuverAngle || a.maneuverSpeed !== p.maneuverSpeed) mask |= CAR_MANEUVER;
   if (car.hp !== prev.hp || car.alive !== prev.alive || car.onField !== prev.onField ||
-      car.phased !== prev.phased || car.diedAtTick !== prev.diedAtTick || car.level !== prev.level) mask |= CAR_VITALS;
+      car.phased !== prev.phased || car.diedAtTick !== prev.diedAtTick) mask |= CAR_VITALS;
   if (packInput(car.lastInput) !== packInput(prev.lastInput)) mask |= CAR_LAST_INPUT;
   if (car.lockTargetIndex !== prev.lockTargetIndex) mask |= CAR_LOCK;
   if (car.shotSeq !== prev.shotSeq) mask |= CAR_SHOT;
@@ -783,7 +781,6 @@ function writeCar(w: Writer, car: SnapshotCar, mask: number, tick: number): void
     w.u16(clamp(Math.round(car.hp), 0, 65535));
     w.u8((car.alive ? CAR_FLAG_ALIVE : 0) | (car.onField ? CAR_FLAG_ON_FIELD : 0) | (car.phased ? CAR_FLAG_PHASED : 0));
     w.i16(relOptional(car.diedAtTick, tick));
-    w.u8(car.level);
   }
   if (mask & CAR_LAST_INPUT) w.u8(packInput(car.lastInput));
   if (mask & CAR_LOCK) w.u8(car.lockTargetIndex + 1);
@@ -822,7 +819,7 @@ const EMPTY_CAR = (index: number): SnapshotCar => ({
   hp: 0, alive: false, onField: false, phased: false,
   lastInput: { steer: 0, throttle: 0, fireSlots: 0 },
   lockTargetIndex: -1, shotSeq: 0, pendingUntilTick: 0, switchLockUntilTick: 0,
-  lastFiredSlot: -1, level: 1, diedAtTick: 0, slots: [], statuses: [],
+  lastFiredSlot: -1, diedAtTick: 0, slots: [], statuses: [],
 });
 
 function readCar(r: Reader, index: number, mask: number, tick: number, prev: SnapshotCar | undefined): SnapshotCar {
@@ -840,7 +837,6 @@ function readCar(r: Reader, index: number, mask: number, tick: number, prev: Sna
     car.onField = (flags & CAR_FLAG_ON_FIELD) !== 0;
     car.phased = (flags & CAR_FLAG_PHASED) !== 0;
     car.diedAtTick = absOptional(r.i16(), tick);
-    car.level = r.u8();
   }
   if (mask & CAR_LAST_INPUT) car.lastInput = unpackInput(r.u8());
   if (mask & CAR_LOCK) car.lockTargetIndex = r.u8() - 1;
@@ -1814,7 +1810,7 @@ function snap(tick: number, x: number): Snapshot {
       body: { x, y: 0, angle: 0, speed: 0, reverseHold: 0, angVel: 0, shoveX: 0, shoveY: 0, authority: 1, maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0, maneuverSpeed: 0 },
       hp: 700, alive: true, onField: true, phased: false,
       lastInput: { steer: 0, throttle: 0, fireSlots: 0 }, lockTargetIndex: -1, shotSeq: 0,
-      pendingUntilTick: 0, switchLockUntilTick: 0, lastFiredSlot: -1, level: 1, diedAtTick: 0,
+      pendingUntilTick: 0, switchLockUntilTick: 0, lastFiredSlot: -1, diedAtTick: 0,
       slots: [], statuses: [],
     }],
     instances: [], events: [],
@@ -2003,7 +1999,6 @@ export function buildSnapshot(ctx: SnapshotSourceCtx): Snapshot {
       pendingUntilTick: player.pendingUntilTick,
       switchLockUntilTick: player.switchLockUntilTick,
       lastFiredSlot: player.lastFiredSlot,
-      level: player.level,
       diedAtTick: player.diedAtTick,
       slots,
       statuses: statuses.map((row) => ({
@@ -2110,7 +2105,8 @@ state itself, into `WorldState`.
 | 41-42 | `@type("uint16") hp`, `@type("boolean") alive` | plain |
 | 50 | `@type("uint32") diedAtTick` | plain |
 | 68 | `@type([WeaponSlotState]) weapons` | `weapons = new ArraySchema<WeaponSlotState>();` (kept as an `ArraySchema` so `writeSlots` is unchanged; it is simply no longer patched) |
-| 69-70 | `@type("uint32") switchLockUntilTick`, `@type("uint8") level` | plain |
+| 69 | `@type("uint32") switchLockUntilTick` | plain |
+| 70 | `@type("uint8") level` | **unchanged — it stays on the wire.** `applyCombatResult` writes it back every tick but it only *moves* on a level-up, and the shared step never reads it (combat is server-only, N14), so invariant 8 does not claim it and it belongs with the lobby half |
 | 76, 82, 90 | `@type` on `pendingUntilTick`, `lastFiredSlot`, `lockTargetSessionId` | plain |
 | 104 | `@type([StatusState]) statuses` | `statuses = new ArraySchema<StatusState>();` |
 | (N1's two) | `@type("uint32") ackTick`, `@type("int8") slackTicks` | plain — the snapshot header carries both per client now, which is where they stop being room-wide |
@@ -2204,7 +2200,7 @@ The `wake()` N1 left becomes:
 
 - [ ] **Step 7: `docs/schema-reference.md`**
 
-Rewrite the header line to: "Colyseus `@type` fields — **lobby and match flow only** since the phase 2 codec (netcode spec N24). Everything the shared step or combat writes per tick rides the binary snapshot; see [`docs/networking.md`](networking.md) for the wire. Enums are explicit uint8; never renumber." Delete the `weapons` row from the `ArenaState` table. In the `PlayerState` table keep only `sessionId`, `status`, `name`, `colorId`, `team`, `joinedAtTick`, `carId`, `kills`, `deaths`, `killedBySessionId`, `selectLocked`, and add `carIndex | uint8 | 0 | 0..5, assigned at join and published in the roster message; the wire's name for this car`. Replace the removed rows with one paragraph naming them and pointing at `SnapshotCar`. Retitle the `StatusState` and `WeaponSlotState` sections "(no longer networked)" with one sentence each: the class survives as the server's working row and as the shape `writeStatuses`/`writeSlots` fill; the wire equivalents are `SnapshotStatus` and `SnapshotSlot`. Do the same for `WeaponInstanceState`.
+Rewrite the header line to: "Colyseus `@type` fields — **lobby and match flow only** since the phase 2 codec (netcode spec N24). Everything the shared step or combat writes per tick rides the binary snapshot; see [`docs/networking.md`](networking.md) for the wire. Enums are explicit uint8; never renumber." Delete the `weapons` row from the `ArenaState` table. In the `PlayerState` table keep only `sessionId`, `status`, `name`, `colorId`, `team`, `joinedAtTick`, `carId`, `kills`, `deaths`, `killedBySessionId`, `selectLocked`, `level`, and add `carIndex | uint8 | 0 | 0..5, assigned at join and published in the roster message; the wire's name for this car`. Replace the removed rows with one paragraph naming them and pointing at `SnapshotCar`. Retitle the `StatusState` and `WeaponSlotState` sections "(no longer networked)" with one sentence each: the class survives as the server's working row and as the shape `writeStatuses`/`writeSlots` fill; the wire equivalents are `SnapshotStatus` and `SnapshotSlot`. Do the same for `WeaponInstanceState`.
 
 - [ ] **Step 8: Run everything**
 
@@ -2284,7 +2280,7 @@ function snapshot(): Snapshot {
     hp: 700, alive: true, onField: true, phased: false,
     lastInput: { steer: 0 as const, throttle: 1 as const, fireSlots: 0 },
     lockTargetIndex: index === 0 ? 1 : -1, shotSeq: 0, pendingUntilTick: 0, switchLockUntilTick: 0,
-    lastFiredSlot: -1, level: 2, diedAtTick: 0,
+    lastFiredSlot: -1, diedAtTick: 0,
     slots: [{ weaponId: "magmablast", stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0 }],
     statuses: [{ statusId: "spiked", startTick: 880, endsTick: 950, sourceIndex: 1 }],
   });
@@ -2417,7 +2413,7 @@ export class SnapshotView {
         phased: car.phased,
         hp: car.hp,
         diedAtTick: car.diedAtTick,
-        level: car.level,
+        level: lobbyPlayer.level,
         switchLockUntilTick: car.switchLockUntilTick,
         pendingUntilTick: car.pendingUntilTick,
         lastFiredSlot: car.lastFiredSlot,
@@ -2664,7 +2660,7 @@ the ring decides late, duplicate and future (N6).
 delta-compressed against the previous snapshot that client was sent. Positions are 1/16 unit, angles
 2pi/65536, speeds and knocks 1/16 u/s, ticks relative to the header tick. Every live car and
 instance is listed on every snapshot; only unchanged *fields* are omitted, so a car or instance
-absent from the list is gone. A full snapshot of six cars and twenty instances is 683 bytes; a
+absent from the list is gone. A full snapshot of six cars and twenty instances is 677 bytes; a
 steady-state delta is about 125. `NET_CONFIG.snapshotEvery` is the divisor knob (1 by default, 2 for
 a host whose upload cannot carry 60 Hz).
 
@@ -2707,7 +2703,7 @@ under client `match/`.
 - [ ] **Step 4: The acceptance run**
 
 Run: `npm run build -w @motor-combat-moba/shared && npm test && npm run typecheck && npm run build && npm run smoke:arena && npm run differ && cd packages/server && npx tsx playtest/netcode.ts`
-Expected: all green; `netcode.md`'s N1 row reports `full snapshot 683 B` (or lower, with fewer
+Expected: all green; `netcode.md`'s N1 row reports `full snapshot 677 B` (or lower, with fewer
 statuses live) and a steady-state `snap p95` in the low hundreds, and reads `OK`.
 
 Then the join refusal, by hand: `npm run dev`, join a practice match, and confirm it starts. Stop the
@@ -2741,8 +2737,8 @@ split (N24), delete `TICK_RATE_HZ` override". **Fixes** — "F9, F10". **Accepta
 
 | Requirement | Demonstrated by |
 |---|---|
-| Full snapshot ≤ 700 B | `cd packages/shared && npx vitest run src/net/codec.test.ts` — "encodes a full 6-car, 20-instance snapshot in 683 bytes"; and the live figure in `playtest/netcode.ts`'s N1 note (Task 6 Step 4) |
-| Delta steady state ≤ 350 B | the same suite — 125 B steady state, 336 B for the contact-and-volley worst case, 31 B for an idle room; and the N1 row's `snap p95` column |
+| Full snapshot ≤ 700 B | `cd packages/shared && npx vitest run src/net/codec.test.ts` — "encodes a full 6-car, 20-instance snapshot in 677 bytes"; and the live figure in `playtest/netcode.ts`'s N1 note (Task 6 Step 4) |
+| Delta steady state ≤ 350 B | the same suite — 125 B steady state, 330 B for the contact-and-volley worst case, 31 B for an idle room; and the N1 row's `snap p95` column |
 | Join refuses a mismatched build | `cd packages/shared && npx vitest run src/net/protocol-hash.test.ts`; the by-hand rebuild-one-side check in Task 6 Step 4; `ServerError(4004, PROTOCOL_MISMATCH_ERROR)` in all three rooms |
 | Binary snapshot and input codec with delta compression | Task 1's round-trip, delta, removal and new-row tests; Task 2's transport tests |
 | `snapshotEvery` knob | `cd packages/server && npx vitest run src/net/snapshot-broadcaster.test.ts` — "sends nothing on the ticks `snapshotEvery` skips" |
@@ -2758,8 +2754,8 @@ Exports and behaviour this plan produces **beyond** the ledger, for N3 and later
 
 - **Shared.** `net/codec.ts`: `MSG_SNAPSHOT` (`"s"`), `ANG_VEL_SCALE`, `AUTHORITY_STEPS`;
   `Snapshot.lateInput: boolean` (the header flag that feeds `NetStats.lateInputs`);
-  `SnapshotCar.level` and `SnapshotCar.diedAtTick` (the ledger's field list omits both, and the HUD's
-  weapon level and the death fade have no other source now that the schema does not carry them).
+  `SnapshotCar.diedAtTick` (the ledger's field list omits it, and the death fade has no other source
+  now that the schema does not carry it; `level` stays on the schema and is read from there).
   `quantizePos` and `quantizeAngle` (the scalar pair the server needs for a weapon instance, which has
   no `SimBody`). `net/roster.ts`: `isRosterMessage`, `PROTOCOL_MISMATCH_ERROR`. `net/protocol-hash.ts`:
   `protocolHashInput()`. `sim/world-hash.ts`: `HASH_QUANT` **is** `QUANT` — identity, pinned by a
@@ -2804,7 +2800,8 @@ tick inside the tick). N10: Task 1 (`encodeInput`/`decodeInput`, the run) and Ta
 intake). N10a: **not this phase** — key-event sampling is a client input change phase 4 owns; nothing
 here depends on it. N11: Task 3 (the hash, the join refusal, the playground re-send, the override
 guard). N12: Task 2 (`MatchTransport`, `ColyseusTransport`, `LoopbackTransport`). N15/N24: Task 4
-(the schema split and `docs/schema-reference.md`) and Task 5 (the client half). §6.12: a decode error
+(the schema split and `docs/schema-reference.md`) and Task 5 (the client half); `level` is the one
+field combat writes per tick that STAYS on the schema, because the shared step never reads it. §6.12: a decode error
 throws out of `decodeSnapshot` (a delta with no baseline, a delta naming an unknown car or instance,
 a truncated payload) so the room drops the connection rather than rendering garbage; a build mismatch
 is refused at join with a message naming it. §6.13: the snapshot is built once per tick and spread
@@ -2814,7 +2811,7 @@ byte-budget tests plus the harness's snapshot-bytes column; the differ keeps run
 apart. §8 phase 2: the acceptance table above.
 
 **Placeholder scan.** Every new module is printed in full; every edit to an existing file is a
-line-cited substitution table; every test file is real code with real expected values (683, 336, 125
+line-cited substitution table; every test file is real code with real expected values (677, 330, 125
 and 31 bytes are computed from the layout table in Task 1 and stated there as the authority).
 
 **Type consistency.** `Snapshot`, `SnapshotCar`, `SnapshotInstance`, `SnapshotSlot` and
