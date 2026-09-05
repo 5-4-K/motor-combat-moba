@@ -14,7 +14,6 @@ import {
   PlayerStatus,
   PlaygroundState,
   ROOM_NAME,
-  RoomPhase,
   TICK_RATE_HZ,
   defaultPlaygroundSetup,
   isBotDifficulty,
@@ -45,6 +44,7 @@ import {
   type BotController,
 } from "../bot/index.js";
 import { shouldRejectSecondArena } from "./singleton-arena.js";
+import { beginCountdown, countdownSweep } from "./countdown.js";
 import {
   respawnPlayer,
   respawnSweep,
@@ -125,8 +125,9 @@ export function loadoutOrChassisChanged(
  * never defines it and no shipped client can reach it.
  *
  * It reuses `ArenaRoom`'s pipeline verbatim through `tick-pipeline.ts` and shares none of its flow:
- * the phase is pinned to `MATCH` at creation, `reduceFlow` is never called, and there is no win
- * check of any kind (PG6). Death runs the deathmatch respawn machinery forever.
+ * `reduceFlow` is never called, and there is no win check of any kind (PG6). Death runs the
+ * deathmatch respawn machinery forever. The phase is written by `countdown.ts` alone — an opening
+ * `COUNTDOWN` that `countdownSweep` turns into the `MATCH` the room then stays in for its life.
  */
 export class PlaygroundRoom extends Room<PlaygroundState> {
   maxClients = 1;
@@ -186,9 +187,11 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
     }
 
     this.setState(new PlaygroundState());
-    // Pinned here and never written again (PG6). Nothing in this room reduces a flow, so this is the
-    // only thing that ever opens the gate `serverTick` and `runPipeline` both check.
-    this.state.phase = RoomPhase.MATCH;
+    // Nothing in this room reduces a flow, so `countdown.ts` is the only thing that ever writes the
+    // gate `serverTick` and `runPipeline` both check (PG6). Opening on COUNTDOWN rather than MATCH
+    // is what keeps the room from running live ticks between creation and the player's arrival —
+    // `onJoin` re-stamps it once the cars are placed, and `countdownSweep` opens the match.
+    beginCountdown(this.state);
     this.setPatchRate(1000 / DEFAULT_PATCH_RATE_HZ);
     this.setSimulationInterval(() => this.tick(), 1000 / getTickRateHz(TICK_RATE_HZ));
 
@@ -247,6 +250,11 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
     // car/loadout/arena change goes through the one apply path, first one included. The client
     // replays its own stored setup right after joining (PG20), which simply overwrites this.
     this.applySetup(defaultPlaygroundSetup());
+    // After the cars are spawned, so the 3-2-1 counts the player's own three seconds rather than
+    // ticks the room burned before they connected. Deliberately NOT re-stamped by `applySetup`
+    // itself: this is a MATCH-start countdown, and re-running it every time a weapon is swapped in
+    // the settings panel would put a three-second freeze between the tester and every edit.
+    beginCountdown(this.state);
   }
 
   onLeave(): void {
@@ -339,6 +347,9 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
     // timers and shot lifetimes all key off this counter, and none of them may advance alone.
     if (this.state.paused) return;
     this.state.tick += 1;
+    // Top of the tick, before anything reads the phase, and below the pause return so that pausing
+    // during the 3-2-1 freezes the 3-2-1 too.
+    countdownSweep(this.state);
     respawnSweep(this.ctx());
     // Before the bot decides, not after: `buildBotView` reads `this.botRing.at(tick - staleness)`
     // for THIS tick, so this tick's world has to already be in the ring by the time the bot asks.

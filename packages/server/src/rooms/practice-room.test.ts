@@ -20,6 +20,7 @@ import {
 import { BOT_PROFILES } from "../config/bot-profiles.js";
 import { HumanController, ViewRing, type BotView } from "../bot/index.js";
 import { PracticeRoom, newPracticeState } from "./PracticeRoom.js";
+import { COUNTDOWN_TICKS } from "./countdown.js";
 import { isIdleWarningDue, isPracticeIdle } from "./practice-rules.js";
 
 const ROOM_SOURCE = readFileSync(
@@ -31,8 +32,16 @@ const ROOM_SOURCE = readFileSync(
 const ROOM_CODE = ROOM_SOURCE.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
 
 describe("newPracticeState (PR9)", () => {
-  it("opens in MATCH — nothing in this room reduces a flow to get there", () => {
-    expect(newPracticeState().phase).toBe(RoomPhase.MATCH);
+  // Was MATCH from the first tick. The room now opens on the same 3-2-1 a real match does, and
+  // `countdown.ts` is the only thing that writes the phase — nothing here reduces a flow.
+  it("opens in COUNTDOWN, so a session starts with the 3-2-1 rather than mid-fight", () => {
+    expect(newPracticeState().phase).toBe(RoomPhase.COUNTDOWN);
+  });
+
+  // The room ticks from creation, before anyone has joined. Opening on MATCH and starting a
+  // countdown afterwards would run live ticks nobody was there to see.
+  it("has a countdown already stamped, so there is no MATCH window before it", () => {
+    expect(newPracticeState().countdownEndsTick).toBe(COUNTDOWN_TICKS);
   });
 
   it("runs deathmatch rules, so death respawns instead of eliminating", () => {
@@ -142,6 +151,12 @@ describe("Task 8: the view ring and the fired sink actually run outside the harn
   function readyPracticeRoom(difficulty: BotDifficulty): PracticeRoomHarness {
     const room = new PracticeRoom() as unknown as PracticeRoomHarness;
     room.setState(newPracticeState());
+    // Past the opening 3-2-1, because every scenario below is about a LIVE match's tick wiring —
+    // the ring, the fired sink, the drain. `combatTick` skips combat outside `MATCH`, so a harness
+    // left in `COUNTDOWN` would measure a room in which nothing can fire, and the `observedFires`
+    // test would pass an empty bag off as a wiring failure. `countdownSweep` is inert once the phase
+    // is MATCH, so this survives every tick below.
+    room.state.phase = RoomPhase.MATCH;
     room.difficulty = difficulty;
     room.humanSessionId = "human";
 

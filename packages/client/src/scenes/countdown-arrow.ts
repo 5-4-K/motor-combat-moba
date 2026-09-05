@@ -10,6 +10,12 @@
  * tick on the car that answers your keys is the answer and an arrow still hanging over it teaches
  * the player to rely on clutter (D4).
  *
+ * Deathmatch reopens that window every time you respawn — your car reappears somewhere you were not
+ * looking, with the fight already running — so the same triangle is drawn again for the length of
+ * spawn protection, blinking rather than bobbing ({@link arrowBlinkOn}). Same shape, same colour,
+ * same sentence: "this one". It is drawn only for the local player, on their own client, so nobody
+ * else is told where you came back.
+ *
  * **It takes no car angle, on purpose.** A marker that turned with the chassis would be saying
  * something about heading, and heading is the car's own job — the arrow's only sentence is "this
  * one" (D4). That signature rests on one property of this game's camera: `splitCameras` never
@@ -86,4 +92,28 @@ export function countdownArrowPoints(
     { x: x + half, y: baseY },
     { x, y: apexY },
   ];
+}
+
+/**
+ * One on-off cycle of the RESPAWN arrow, in milliseconds.
+ *
+ * The same triangle serves a second job in Deathmatch: after a respawn it marks where you came back,
+ * for as long as spawn protection lasts. That arrow blinks where the countdown's only bobs, and the
+ * difference is the whole point of having two. The countdown arrow is a label on a car that is
+ * standing still and has your full attention — breathing suits it. The respawn arrow appears mid-
+ * fight, on a car that has just teleported across the map, competing with everything else on screen;
+ * it has to be *found*, and a hard on-off edge is what the eye catches. Fast enough to read as
+ * urgent, slow enough not to strobe.
+ */
+export const ARROW_BLINK_PERIOD_MS = 360;
+
+/**
+ * Is the blinking arrow drawn this frame? A square wave — half the cycle on, half off.
+ *
+ * Driven by the caller's wall clock for the same reason {@link arrowBobOffset} is: the rhythm has to
+ * be identical at 30 and at 144 fps, and there is nothing to cancel when spawn protection lapses
+ * early because the player fired. The frame after simply does not ask.
+ */
+export function arrowBlinkOn(nowMs: number): boolean {
+  return nowMs % ARROW_BLINK_PERIOD_MS < ARROW_BLINK_PERIOD_MS / 2;
 }

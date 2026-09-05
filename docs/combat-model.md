@@ -1093,7 +1093,7 @@ colours (a table test enforces it) so a shot can never be mistaken for somebody'
 
 A camera-fixed slot column down the HUD gutter — the strip of canvas to the right of the arena that
 the world camera's viewport does not cover — shows the local player's weapons, or, while spectating,
-the watched car's. One round slot each: icon inside, fire key beside it, weapon name beneath, dimmed
+the watched car's. (Deathmatch never spectates, so there it is always your own kit, dead or alive.) One round slot each: icon inside, fire key beside it, weapon name beneath, dimmed
 into one of
 four states: full brightness when ready, a dimmed icon with a clockwise cooldown wedge while
 recharging, a heavier *static* dim when the slot is not unlocked yet, and a lighter dim across every
@@ -1148,10 +1148,35 @@ There is no wreck alpha. A dead car is intangible and frozen from the tick it di
 over `DEATH_FADE_MS` (`deathFadeAlpha`, driven by the networked `diedAtTick`), and is then not drawn
 at all — it also stops being predicted or interpolated.
 
-A wrecked player becomes a spectator: `[` / `]` — or Left / Right — cycle the living cars, `V`
-toggles free roam, and WASD or the arrows pan in free roam. All of it is local; the server has no
-notion of who anyone is watching.
+A wrecked player becomes a spectator **in Last Standing**: `[` / `]` — or Left / Right — cycle the
+living cars, `V` toggles free roam, and WASD or the arrows pan in free roam. All of it is local; the
+server has no notion of who anyone is watching.
 
-Spectating is gated on `isSpectating` (dead, in the match, during `MATCH`) and deliberately **not** on
-"cannot drive right now" — the drive gate is also false during the countdown, and keying the camera
-off it made the 3-2-1 follow whichever car sorted first by session id instead of your own.
+Spectating is gated on `isSpectating` (dead, in the match, during `MATCH`, in a mode that will not
+give the car back) and deliberately **not** on "cannot drive right now" — the drive gate is also
+false during the countdown, and keying the camera off it made the 3-2-1 follow whichever car sorted
+first by session id instead of your own.
+
+**Deathmatch is never spectated.** Spectating is what the game offers a player it has removed from
+the match for good; a Deathmatch death lasts `respawnDelaySeconds` and hands the car straight back,
+so the camera going to find a stranger costs the player the two things they actually want — the fight
+they were just in, and their own kit in the gutter. A Deathmatch wreck therefore keeps its own seat:
+`cameraTarget` and `hudTargetPlayer` both fall through to the local session, the camera **holds on
+the spot it died** (there is no pose to follow once the wreck has faded), and the slot column keeps
+showing the player's own weapons. The "[name] killed you" banner and the respawn countdown are
+unchanged. On the way back the camera **cuts** rather than eases: `farthestSpawn` is by construction
+the far side of the arena, and `smoothFollow` would otherwise spend a second sailing across it with
+the player already driving a car they cannot see (`syncRespawnCamera` drops `camFocus` on the
+dead → alive edge, so `followCamera` re-seeds outright).
+
+The rule is keyed on `winRuleOf(mode)`, not on "does this room respawn". The dev-only playground
+respawns forever while running `FFA_LAST_STANDING`, and is the one place those two questions come
+apart — it keeps the spectate camera.
+
+The respawn itself is marked by the **countdown arrow drawn a second time**: the same green triangle
+that says "this one" before the gun, over your own car, for exactly as long as spawn protection lasts
+(`isPhasedAt` — the same derivation that dims the car to a ghost, so the marker and the ghost end
+together, including the early drop the player buys by firing). It **blinks** where the countdown's
+bobs: that arrow labels a car standing still with the player's full attention, while this one has to
+be found mid-fight on a car that just teleported. It is drawn off `drivenSid` on the local client
+alone, so where you came back is never shown to anybody else.

@@ -120,7 +120,7 @@ import {
   statusBadges,
   statusStripLayout,
 } from "./status-hud.js";
-import { arrowBobOffset, countdownArrowPoints } from "./countdown-arrow.js";
+import { arrowBlinkOn, arrowBobOffset, countdownArrowPoints } from "./countdown-arrow.js";
 import {
   ACTION_ALTS,
   ACTION_KEYS,
@@ -183,9 +183,9 @@ const HP_BAR_DEPTH = 60;
 /** Under the hp bar, over the cars: the bracket frames a car, it never occludes its own hp. */
 const LOCK_DEPTH = 55;
 /**
- * The countdown arrow that marks your own car (`drawCountdownArrow`). Above the cars so the marker
- * is never hidden by the car it is marking, and below `LOCK_DEPTH` / `HP_BAR_DEPTH` so it can never
- * occlude a bracket or a bar.
+ * The arrow that marks your own car — the countdown's bob and the respawn blink alike
+ * (`drawSelfArrow`). Above the cars so the marker is never hidden by the car it is marking, and
+ * below `LOCK_DEPTH` / `HP_BAR_DEPTH` so it can never occlude a bracket or a bar.
  */
 const ARROW_DEPTH = 52;
 /**
@@ -680,6 +680,9 @@ export class ArenaScene extends Phaser.Scene {
   /** Session id of the car the spectate camera is watching. `""` means "nobody left to watch". */
   private spectateTarget = "";
   private freeRoam = false;
+  /** Last frame's `alive` for the driven car, so `syncRespawnCamera` can see the edge. Starts true:
+   *  a match opens with everyone alive, and a false start would cut the camera on the first frame. */
+  private localAlive = true;
   /**
    * True when the arena is small enough to be on screen in its entirety, which is what `ARENA_01`
    * is authored for. The camera is then parked on the arena centre for the whole match: following a
@@ -1192,6 +1195,7 @@ export class ArenaScene extends Phaser.Scene {
     this.inputAccumulatorMs = 0;
     this.spectateTarget = "";
     this.freeRoam = false;
+    this.localAlive = true;
     this.lastPatchMs = 0;
     this.mismatchOverlay?.destroy();
     this.mismatchOverlay = undefined;
@@ -1217,6 +1221,10 @@ export class ArenaScene extends Phaser.Scene {
     this.pumpPauseKey(room);
     this.pumpInput(room, delta);
     this.updateSpectate(room, delta);
+    // Before `renderCars`, which is where `followCamera` actually runs: the frame your car comes
+    // back has to find `camFocus` already cleared, or it eases from the wreck site for one frame
+    // before the cut lands.
+    this.syncRespawnCamera(room);
     this.renderCars(room, delta);
     this.renderShots(room);
     // The panel's height is the slots' top inset, so the roster draws first and hands that one
@@ -1558,7 +1566,7 @@ export class ArenaScene extends Phaser.Scene {
 
     // The same render pose the spark pass above tested against — predicted and blended for the local
     // car — so the marker sits on the car that is on screen instead of trailing it by a tick.
-    if (arrow && selfPose) this.drawCountdownArrow(arrow, room, selfPose);
+    if (arrow && selfPose) this.drawSelfArrow(arrow, room, selfPose);
 
     // The bracket follows the CAMERA's subject -- the local car while driving, the watched car while
     // spectating -- which is the same rule the weapon slot bar already uses. Read straight off the
@@ -1760,31 +1768,54 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * The arrow over your own car during the countdown, and only then.
+   * The arrow over your own car — during the countdown, and again for the length of spawn protection
+   * after a respawn. Nothing else ever draws it.
    *
-   * Two conditions, not one (D14): the phase, and a local player who is actually `IN_MATCH`.
-   * Someone who joined mid-countdown watches the same phase from the same room but has no car on the
-   * field for the arrow to point at, so the phase alone would hang a triangle over somebody else's.
+   * Two conditions before either case (D14): the phase, and a local player who is actually
+   * `IN_MATCH`. Someone who joined mid-countdown watches the same phase from the same room but has no
+   * car on the field for the arrow to point at, so the phase alone would hang a triangle over
+   * somebody else's.
    *
-   * The shape itself is `countdown-arrow.ts`; this only fills it. The bob is read from
-   * `performance.now()` rather than driven by a tween, so it is frame-rate independent and there is
-   * nothing to cancel when the phase flips — the next frame simply does not reach this line and the
-   * arrow is gone, with no fade (D4).
+   * The two cases are the two moments the player cannot find their own car by wiggling: before the
+   * gun, and immediately after being put back on the field somewhere they were not looking. They are
+   * told apart by motion rather than by shape or colour — the countdown's bobs, the respawn's blinks
+   * — so the marker reads as one idea with two urgencies. See `countdown-arrow.ts`.
+   *
+   * `isPhasedAt` and not a scan for the status id, for exactly the reason `renderCars` gives when it
+   * dims the same car to a ghost: one derivation, so what the arrow claims and what the sim believes
+   * about solidity cannot drift apart. That also means the arrow ends when protection does, however
+   * it ends — including the early drop the player buys by firing.
+   *
+   * **Local player only, and only on their own client.** The respawn marker is information about
+   * where you came back, which is precisely the thing an opponent must not be handed; drawing it off
+   * `drivenSid` rather than per-car is what keeps that true by construction.
+   *
+   * The shape itself is `countdown-arrow.ts`; this only fills it. Both rhythms are read from
+   * `performance.now()` rather than driven by a tween, so they are frame-rate independent and there
+   * is nothing to cancel when either window closes — the next frame simply does not reach the fill
+   * and the arrow is gone, with no fade (D4).
    */
-  private drawCountdownArrow(
+  private drawSelfArrow(
     gfx: Phaser.GameObjects.Graphics,
     room: Room<ArenaState>,
     pose: SimBody,
   ): void {
-    if (room.state.phase !== RoomPhase.COUNTDOWN) return;
     const local = room.state.players.get(this.drivenSid(room));
     if (!local || local.status !== PlayerStatus.IN_MATCH) return;
 
+    const nowMs = performance.now();
+    const counting = room.state.phase === RoomPhase.COUNTDOWN;
+    const respawned =
+      room.state.phase === RoomPhase.MATCH &&
+      local.alive &&
+      isPhasedAt(local.statuses, room.state.tick);
+    if (!counting && !respawned) return;
+    // The blink is the only thing the respawn case does differently, and an "off" half-cycle is the
+    // absence of a fill rather than a transparent one — same discipline as the window itself.
+    if (respawned && !arrowBlinkOn(nowMs)) return;
+
     gfx.fillStyle(ARROW_COLOR, ARROW_ALPHA);
-    gfx.fillPoints(
-      pts(countdownArrowPoints(pose.x, pose.y, arrowBobOffset(performance.now()))),
-      true,
-    );
+    gfx.fillPoints(pts(countdownArrowPoints(pose.x, pose.y, arrowBobOffset(nowMs))), true);
   }
 
   /**
@@ -2569,7 +2600,31 @@ export class ArenaScene extends Phaser.Scene {
   private isSpectating(room: Room<ArenaState>): boolean {
     const local = room.state.players.get(this.drivenSid(room));
     if (!local) return false;
-    return isSpectating(room.state.phase, local.status, local.alive);
+    return isSpectating(room.state.phase, room.state.mode, local.status, local.alive);
+  }
+
+  /**
+   * The camera CUTS to your car when you respawn instead of flying to it.
+   *
+   * With spectating switched off in Deathmatch the camera has nowhere to go while you are wrecked,
+   * so it holds on the spot you died — which is the point, that fight is what you want to watch.
+   * But a respawn puts your car at `farthestSpawn`, which is by construction the far side of the
+   * arena, and `followCamera`'s `smoothFollow` would spend a second sailing across the map with the
+   * player already driving a car they cannot see. Dropping `camFocus` makes `followCamera` seed
+   * itself outright on its next frame, exactly as it does on the match's first frame.
+   *
+   * Keyed on the dead → alive edge rather than on `phased`: spawn protection can be dropped early by
+   * firing, and the camera has to be right on the frame the car appears regardless.
+   *
+   * A player the state does not have yet is not a dead one. The scene runs for a frame or two before
+   * the first patch lands, and reading a missing row as `alive: false` would latch a false edge that
+   * fires a pointless cut the moment the row arrives.
+   */
+  private syncRespawnCamera(room: Room<ArenaState>): void {
+    const local = room.state.players.get(this.drivenSid(room));
+    if (!local) return;
+    if (local.alive && !this.localAlive) this.camFocus = undefined;
+    this.localAlive = local.alive;
   }
 
   /**
