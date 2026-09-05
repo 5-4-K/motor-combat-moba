@@ -12,7 +12,7 @@ are the input to the implementation plans.
 fourteen phase plans that land this design, plus the shared interface ledger
 ([`interfaces.md`](../plans/2026-09-04-netcode-and-rendering/interfaces.md)) and the guide for
 executing them ([`00-execution-guide.md`](../plans/2026-09-04-netcode-and-rendering/00-execution-guide.md)).
-**Plan-writing is still in progress** — nine of the fourteen are written. To continue it from a new
+**Plan-writing is still in progress** — twelve of the fourteen are written; N6 and V5 remain. To continue it from a new
 session, start at
 [`PROGRESS.md`](../plans/2026-09-04-netcode-and-rendering/PROGRESS.md), which records what is
 written, the verbatim assignment for each remaining plan, every ledger defect found and how it was
