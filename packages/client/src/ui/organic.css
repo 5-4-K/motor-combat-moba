@@ -2,14 +2,28 @@
 
 /* The upstream sheet opened with an @import from fonts.googleapis.com. This game ships as a LAN zip
    and is played on networks with no route to the internet, where that import silently fails and
-   every heading falls back to system-ui. The four faces are vendored under public/fonts instead and
+   every heading falls back to system-ui. The faces are vendored under public/fonts instead and
    `scripts/build-release.mjs` asserts they reached the release. `font-display: block` is deliberate:
-   Caprasimo is the display voice, and a flash of system-ui on the join screen is worse than a beat
+   Oswald is the display voice, and a flash of system-ui on the join screen is worse than a beat
    of nothing. */
 @font-face {
-  font-family: "Caprasimo";
-  src: url("/fonts/caprasimo-v6-latin-regular.woff2") format("woff2");
-  font-weight: 400;
+  font-family: "Oswald";
+  src: url("/fonts/oswald-v57-latin-500.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "Oswald";
+  src: url("/fonts/oswald-v57-latin-600.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "Oswald";
+  src: url("/fonts/oswald-v57-latin-700.woff2") format("woff2");
+  font-weight: 700;
   font-style: normal;
   font-display: block;
 }
@@ -36,47 +50,53 @@
 }
 
 :root {
-  --color-bg: #f5ead8;
-  --color-surface: #ebddc5;
-  --color-text: #201e1d;
-  --color-accent: #c67139;
-  --color-accent-2: #7a8a5e;
-  --color-divider: color-mix(in srgb, #201e1d 16%, transparent);
+  /* Dark industrial — palette pulled from the title banner: near-black charcoal ground, hazard-orange
+     primary accent, cool steel-grey secondary. Ramps run 100 (darkest, closest to the ground) to 900
+     (lightest, closest to full text) — the opposite direction of a light theme's ramp, because a chip's
+     "light tint + dark ink" pattern (`.tag-accent`: bg 100 / text 800) needs to become "dark tint +
+     bright ink" here, and every direct neutral-NNN text/border usage in the screens wants the same
+     "higher step reads more prominent against the dark ground" sense. See `.btn-primary:hover/:active`
+     below for the one place that direction flip would have broken (hover-darkening a filled button) —
+     handled with `color-mix` instead of the ramp there. */
+  --color-bg: #15120f;
+  --color-surface: #1b1613;
+  --color-text: #f3ede3;
+  --color-accent: #e2571a;
+  --color-accent-2: #7c8a93;
+  --color-divider: color-mix(in srgb, #f3ede3 10%, transparent);
 
-  /* Tonal ramps — generated in OKLCH on one shared lightness scale, so the
-     same step of any role matches the others in visual value. */
-  --color-neutral-100: #f9f4ed;
-  --color-neutral-200: #eee7db;
-  --color-neutral-300: #dcd3c4;
-  --color-neutral-400: #c0b6a5;
-  --color-neutral-500: #a19786;
-  --color-neutral-600: #82796a;
-  --color-neutral-700: #645c50;
-  --color-neutral-800: #474238;
-  --color-neutral-900: #2e2b25;
+  --color-neutral-100: #1b1613;
+  --color-neutral-200: #241e19;
+  --color-neutral-300: #332b23;
+  --color-neutral-400: #4a4038;
+  --color-neutral-500: #6b5f52;
+  --color-neutral-600: #8a7d6d;
+  --color-neutral-700: #a89a8a;
+  --color-neutral-800: #cfc4b6;
+  --color-neutral-900: #ece3d6;
 
-  --color-accent-100: #fff2eb;
-  --color-accent-200: #ffe1d0;
-  --color-accent-300: #ffc6a5;
-  --color-accent-400: #f6a06b;
-  --color-accent-500: #d67f48;
-  --color-accent-600: #b2622d;
-  --color-accent-700: #8c491a;
-  --color-accent-800: #643312;
-  --color-accent-900: #402310;
+  --color-accent-100: #241108;
+  --color-accent-200: #35190c;
+  --color-accent-300: #4a2210;
+  --color-accent-400: #6b3315;
+  --color-accent-500: #8f451c;
+  --color-accent-600: #c15423;
+  --color-accent-700: #f2965a;
+  --color-accent-800: #f8b98c;
+  --color-accent-900: #fde4d2;
 
-  --color-accent-2-100: #f0fae1;
-  --color-accent-2-200: #e1eecc;
-  --color-accent-2-300: #ccdbb2;
-  --color-accent-2-400: #aebf92;
-  --color-accent-2-500: #8fa073;
-  --color-accent-2-600: #728157;
-  --color-accent-2-700: #56633f;
-  --color-accent-2-800: #3d472b;
-  --color-accent-2-900: #272e1b;
+  --color-accent-2-100: #12181c;
+  --color-accent-2-200: #1a2226;
+  --color-accent-2-300: #253038;
+  --color-accent-2-400: #37444c;
+  --color-accent-2-500: #4f5e67;
+  --color-accent-2-600: #6c7b84;
+  --color-accent-2-700: #9fb0ba;
+  --color-accent-2-800: #bcc9d0;
+  --color-accent-2-900: #dbe3e7;
 
-  --font-heading: "Caprasimo", system-ui, sans-serif;
-  --font-heading-weight: 400;
+  --font-heading: "Oswald", system-ui, sans-serif;
+  --font-heading-weight: 600;
   --font-body: "Figtree", system-ui, sans-serif;
 
   --space-1: 4.4px;
@@ -86,15 +106,15 @@
   --space-6: 26.4px;
   --space-8: 35.2px;
 
-  --radius-sm: 8px;
-  --radius-md: 16px;
-  --radius-lg: 28px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 4px;
 
-  /* Elevation — derived from the ground: soft ink-tinted shadows on a
-     light theme, a hairline edge + ambient darkness on a dark one. */
-  --shadow-sm: 0 1px 2px color-mix(in srgb, #2e2b25 14%, transparent);
-  --shadow-md: 0 3px 10px color-mix(in srgb, #2e2b25 16%, transparent);
-  --shadow-lg: 0 12px 32px color-mix(in srgb, #2e2b25 22%, transparent);
+  /* Elevation — pure-black shadows rather than ink-tinted ones: a surface only a shade or two off the
+     ground needs real darkening under it to read as raised at all. */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55);
 }
 
 .mc-ui {
@@ -116,15 +136,16 @@ h1, h2, h3, h4 { font-family: var(--font-heading); font-weight: var(--font-headi
 .mc-ui { font-size: 15px; line-height: 1.55; font-weight: 400; }
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-heading); font-weight: var(--font-heading-weight);
-  line-height: 1.12; letter-spacing: -0.015em; margin: 0 0 var(--space-2);
+  line-height: 1.08; letter-spacing: 0.01em; margin: 0 0 var(--space-2);
+  text-transform: uppercase;
 }
-h1 { font-size: 42px; }
+h1 { font-size: 42px; font-weight: 700; }
 h2 { font-size: 32px; }
 h3 { font-size: 25px; }
 h4 { font-size: 20px; }
 h5 { font-size: 16px; }
 h6 { font-size: 13px; }
-h6 { letter-spacing: 0.08em; text-transform: uppercase; }
+h6 { letter-spacing: 0.12em; }
 p { margin: 0 0 var(--space-3); }
 a { color: var(--color-accent); text-underline-offset: 3px; }
 img { display: block; max-width: 100%; }
@@ -157,9 +178,16 @@ figcaption {
 }
 .btn svg { display: block; }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.btn-primary { background: var(--color-accent); color: var(--color-bg); }
-.btn-primary:hover { background: var(--color-accent-600); }
-.btn-primary:active { background: var(--color-accent-700); }
+.btn-primary {
+  background: var(--color-accent); color: var(--color-bg);
+  /* cut-corner notch: the signature primary-action shape across every screen */
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+}
+/* Darkening a filled button on hover/active reads as "receding" regardless of theme, but the ramp
+   above runs light-on-dark (higher step = brighter) for every other consumer — so this one spot
+   mixes toward black directly instead of reaching for a ramp step. */
+.btn-primary:hover { background: color-mix(in srgb, var(--color-accent) 85%, black); }
+.btn-primary:active { background: color-mix(in srgb, var(--color-accent) 70%, black); }
 .btn-secondary { border-color: var(--color-divider); }
 .btn-secondary:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
 .btn-secondary:active { background: color-mix(in srgb, var(--color-text) 14%, transparent); }
@@ -218,7 +246,7 @@ textarea.input { min-height: 90px; resize: vertical; }
 .card-kicker { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-accent); }
 .card-title {
   font-family: var(--font-heading); font-weight: var(--font-heading-weight);
-  font-size: 17px; line-height: 1.2;
+  font-size: 17px; line-height: 1.2; text-transform: uppercase;
 }
 .card-body { margin: 0; font-size: 13px; opacity: 0.8; flex: 1; }
 .card-meta {
@@ -248,7 +276,7 @@ textarea.input { min-height: 90px; resize: vertical; }
 }
 .nav-brand {
   font-family: var(--font-heading); font-weight: var(--font-heading-weight);
-  font-size: 18px; margin-right: auto;
+  font-size: 18px; margin-right: auto; text-transform: uppercase;
 }
 .nav a { color: inherit; text-decoration: none; font-size: 14px; }
 .nav a:hover, .nav a[aria-current='page'] { color: var(--color-accent); }
@@ -270,7 +298,7 @@ textarea.input { min-height: 90px; resize: vertical; }
 .dialog-backdrop {
   position: fixed; inset: 0; display: grid; place-items: center;
   padding: var(--space-4);
-  background: color-mix(in srgb, var(--color-neutral-900) 50%, transparent);
+  background: color-mix(in srgb, var(--color-bg) 72%, transparent);
 }
 .dialog {
   width: min(440px, 100%); display: flex; flex-direction: column; gap: var(--space-3);
@@ -279,13 +307,27 @@ textarea.input { min-height: 90px; resize: vertical; }
 }
 .dialog-title {
   font-family: var(--font-heading); font-weight: var(--font-heading-weight);
-  font-size: 20px;
+  font-size: 20px; text-transform: uppercase;
 }
 .dialog-body { font-size: 14px; opacity: 0.85; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2); }
 
-/* — rounded frame: everything softens, small controls go pill — */
-.card, .dialog { border-radius: calc(var(--radius-lg) * 1.15); }
-.btn, .tag, .seg, .input { border-radius: 999px; }
+/* Panels stay at their own --radius-sm/md/lg (small, sharp-edged); buttons/tags/inputs already sit on
+   --radius-md too, which is modest rather than a full pill — the shape language is "sharper panels,
+   softer controls", not the old "everything is a rounded pill". */
 .input { padding-inline: 14px; }
+
+/* — host-pulse: a soft pulsing border/glow on the lobby's "You are host" pill, so the one player who
+   can start the match and change its mode notices that role at a glance. */
+@keyframes host-pulse {
+  0%, 100% {
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 45%, transparent);
+  }
+  50% {
+    border-color: var(--color-accent-700);
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-accent) 0%, transparent);
+  }
+}
+.host-pulse { animation: host-pulse 1.6s ease-in-out infinite; }
 

@@ -47,9 +47,9 @@ export function renderCarSelect(view: CarSelectView, handlers: CarSelectHandlers
       "div",
       {
         style:
-          `cursor: pointer; padding: 18px 20px 20px; border-radius: 28px; background: var(--color-surface); ` +
+          `cursor: pointer; padding: 18px 20px 20px; border-radius: 4px; background: var(--color-surface); ` +
           `display: flex; flex-direction: column; gap: 14px; ` +
-          `border: 2px solid ${car.selected ? "var(--color-accent)" : "transparent"}; ` +
+          `border: 1px solid ${car.selected ? "var(--color-accent)" : "var(--color-divider)"}; ` +
           `box-shadow: ${car.selected ? "var(--shadow-md)" : "none"};`,
       },
       [
@@ -57,7 +57,7 @@ export function renderCarSelect(view: CarSelectView, handlers: CarSelectHandlers
           role: "img",
           "aria-label": car.name,
           style:
-            `height: 104px; border-radius: 20px; background: var(--color-bg) ${car.image} center / 148px 92px no-repeat;`,
+            `height: 104px; border-radius: 4px; background: var(--color-bg) ${car.image} center / 148px 92px no-repeat;`,
         }),
         h("div", { style: "font-family: var(--font-heading); font-size: 24px;" }, [car.name]),
         h(
@@ -84,8 +84,8 @@ export function renderCarSelect(view: CarSelectView, handlers: CarSelectHandlers
     "div",
     {
       style:
-        "padding: 20px 22px 22px; border-radius: 28px; background: var(--color-surface); " +
-        "display: flex; flex-direction: column; min-height: 0;",
+        "padding: 20px 22px 22px; border-radius: 4px; background: var(--color-surface); " +
+        "border: 1px solid var(--color-divider); display: flex; flex-direction: column; min-height: 0;",
     },
     [
       h("div", { style: "font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-accent-700);" }, [

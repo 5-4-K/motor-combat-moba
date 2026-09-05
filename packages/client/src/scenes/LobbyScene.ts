@@ -28,6 +28,7 @@ export class LobbyScene extends Phaser.Scene {
     modesOpen: false,
     pendingMode: DEFAULT_GAME_MODE,
     kickTarget: null,
+    confirmStartOpen: false,
   };
 
   constructor() {
@@ -37,7 +38,13 @@ export class LobbyScene extends Phaser.Scene {
   create(): void {
     this.startError = "";
     this.lastSignature = "";
-    this.menus = { menuOpen: false, modesOpen: false, pendingMode: DEFAULT_GAME_MODE, kickTarget: null };
+    this.menus = {
+      menuOpen: false,
+      modesOpen: false,
+      pendingMode: DEFAULT_GAME_MODE,
+      kickTarget: null,
+      confirmStartOpen: false,
+    };
     this.unbindAll();
     this.overlay = new ScreenOverlay(this);
     this.room = this.registry.get("room") as Room<ArenaState> | undefined;
@@ -139,6 +146,13 @@ export class LobbyScene extends Phaser.Scene {
           this.startError = "";
           room.send(MSG_START_MATCH);
           this.render();
+        },
+        onRequestStartConfirm: () => this.setMenus({ confirmStartOpen: true }),
+        onCancelStartConfirm: () => this.setMenus({ confirmStartOpen: false }),
+        onConfirmStart: () => {
+          this.startError = "";
+          room.send(MSG_START_MATCH);
+          this.setMenus({ confirmStartOpen: false });
         },
         onRequestKick: (sessionId, name) => this.setMenus({ kickTarget: { sessionId, name } }),
         onCancelKick: () => this.setMenus({ kickTarget: null }),

@@ -22,7 +22,7 @@ function hostBadge(): SVGElement {
 }
 
 function panel(data: RevealPanel, showHeading: boolean): HTMLElement {
-  return h("div", { style: "background: var(--color-surface); border-radius: 32px; padding: 20px 22px 24px;" }, [
+  return h("div", { style: "background: var(--color-surface); border: 1px solid var(--color-divider); border-radius: 4px; padding: 20px 22px 24px;" }, [
     showHeading
       ? h("div", { style: "display: flex; align-items: center; gap: 10px; margin-bottom: 14px;" }, [
           h("h4", { style: "margin: 0; font-size: 22px;" }, [data.title]),
@@ -37,10 +37,10 @@ function panel(data: RevealPanel, showHeading: boolean): HTMLElement {
           "div",
           {
             style:
-              `display: flex; align-items: center; gap: 18px; min-height: 96px; padding: 10px 20px; border-radius: 48px; ` +
+              `display: flex; align-items: center; gap: 18px; min-height: 96px; padding: 10px 20px; border-radius: 4px; ` +
               (row.filled
-                ? `background: var(--color-bg); border: 2px solid ${row.isYou ? "var(--color-accent)" : "transparent"};`
-                : "background: transparent; border: 2px dashed var(--color-neutral-400);"),
+                ? `background: var(--color-bg); border: 1px solid ${row.isYou ? "var(--color-accent)" : "transparent"};`
+                : "background: transparent; border: 1px dashed var(--color-neutral-400);"),
           },
           [
             h(
@@ -61,7 +61,7 @@ function panel(data: RevealPanel, showHeading: boolean): HTMLElement {
               ? h("div", {
                   role: "img",
                   "aria-label": "Car",
-                  style: `width: 116px; height: 76px; flex: none; border-radius: 20px; background: var(--color-bg) ${row.carImage} center / 104px 68px no-repeat;`,
+                  style: `width: 116px; height: 76px; flex: none; border-radius: 4px; background: var(--color-bg) ${row.carImage} center / 104px 68px no-repeat;`,
                 })
               : null,
           ],

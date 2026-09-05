@@ -21,10 +21,13 @@ const game = new Phaser.Game({
   width: VIEW_WIDTH,
   height: VIEW_HEIGHT,
   parent: "game",
-  // The warm neutral the design system sits its screens on. Only ever visible as the letterbox bars
-  // FIT leaves on a non-16:9 window: every scene paints its own ground over it, menus in cream and
-  // the arena in its light floor, so a dark bar would frame both against nothing.
-  backgroundColor: "#eee7db",
+  // The dark ground the menu design system now sits its screens on. Only ever visible as the
+  // letterbox bars FIT leaves on a non-16:9 window: every scene paints its own ground over it, and
+  // the menus (the redesign's scope) are dark now, so a dark bar frames them correctly. The arena's
+  // own floor is unchanged and still light — that's a live-gameplay visual, out of this redesign's
+  // scope — so a non-16:9 window's letterbox will read as a dark bezel around a bright arena, which
+  // is the one place this pick is a trade-off rather than a clean match.
+  backgroundColor: "#15120f",
   // FIT keeps the logical 1280x720 and scales it uniformly into the window with letterbox bars:
   // every player sees the same world window, so no monitor shape sees more arena than another.
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },

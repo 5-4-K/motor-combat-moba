@@ -88,6 +88,37 @@ describe("lobbyView", () => {
     expect(view.teamB[0]?.canKick).toBe(true);
   });
 
+  it("is allReady when every seated player is PlayerStatus.READY", () => {
+    const view = lobbyView(
+      state([player({ sessionId: "p1" }), player({ sessionId: "p2", name: "Nyx", team: 1 })]),
+      "p1",
+      "",
+    );
+    expect(view.allReady).toBe(true);
+  });
+
+  it("is not allReady when a seated player is mid-match or post-match", () => {
+    const inMatch = lobbyView(
+      state([
+        player({ sessionId: "p1" }),
+        player({ sessionId: "p2", name: "Nyx", team: 1, status: PlayerStatus.IN_MATCH }),
+      ]),
+      "p1",
+      "",
+    );
+    expect(inMatch.allReady).toBe(false);
+
+    const postMatch = lobbyView(
+      state([
+        player({ sessionId: "p1" }),
+        player({ sessionId: "p2", name: "Nyx", team: 1, status: PlayerStatus.POST_MATCH }),
+      ]),
+      "p1",
+      "",
+    );
+    expect(postMatch.allReady).toBe(false);
+  });
+
   it("never offers kick to a guest", () => {
     const view = lobbyView(
       state([player({ sessionId: "p1" }), player({ sessionId: "p2", name: "Nyx", team: 1 })]),

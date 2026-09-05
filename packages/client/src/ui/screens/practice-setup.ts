@@ -115,7 +115,10 @@ export function renderPracticeSetup(
         "padding: 88px 80px; justify-content: center; gap: 26px;",
     },
     [
-      h("h1", { style: "font-size: 64px; line-height: 0.95; margin: 0;" }, ["Practice"]),
+      h("div", { style: "font-family: var(--font-heading); font-size: 12px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--color-accent);" }, [
+        "Offline match",
+      ]),
+      h("h1", { style: "font-size: 60px; line-height: 0.95; margin: 4px 0 0;" }, ["Practice"]),
       h(
         "p",
         {

@@ -73,6 +73,8 @@ export interface LobbyView {
   canSwitchTeam: boolean;
   /** Host Settings → Game modes. Hidden when only one mode is published — nothing to pick. */
   canChangeMode: boolean;
+  /** Whether every seated player is `PlayerStatus.READY`. Gates the Start Match confirmation. */
+  allReady: boolean;
   startError: string;
   teamA: LobbySlot[];
   teamB: LobbySlot[];
@@ -163,6 +165,7 @@ export function lobbyView(
         )
       : false,
     canChangeMode: activeGameModes().length >= 2,
+    allReady: state.players.every((p) => p.status === PlayerStatus.READY),
     startError,
     teamA: column(teamA, state.hostSessionId, localSessionId, isHost),
     teamB: column(teamB, state.hostSessionId, localSessionId, isHost),

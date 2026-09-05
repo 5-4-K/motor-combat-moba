@@ -114,7 +114,9 @@ export function assertNoDevOnlyCode(clientDistDir) {
  * remote font does not fail loudly — it falls back to system-ui and quietly wrecks the type.
  */
 export const REQUIRED_FONTS = [
-  "caprasimo-v6-latin-regular.woff2",
+  "oswald-v57-latin-500.woff2",
+  "oswald-v57-latin-600.woff2",
+  "oswald-v57-latin-700.woff2",
   "figtree-v9-latin-regular.woff2",
   "figtree-v9-latin-600.woff2",
   "figtree-v9-latin-700.woff2",

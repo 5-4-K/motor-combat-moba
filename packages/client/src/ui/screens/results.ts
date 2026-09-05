@@ -11,7 +11,7 @@ export interface ResultsHandlers {
 }
 
 function statTable(rows: StatRow[]): HTMLElement {
-  return h("div", { style: "background: var(--color-surface); border-radius: 32px; padding: 20px 24px 12px;" }, [
+  return h("div", { style: "background: var(--color-surface); border: 1px solid var(--color-divider); border-radius: 4px; padding: 20px 24px 12px;" }, [
     h("table", { class: "table" }, [
       h("thead", {}, [
         h("tr", {}, [
@@ -29,7 +29,7 @@ function statTable(rows: StatRow[]): HTMLElement {
             h("td", { style: "padding-block: 14px;" }, [
               h("div", { style: "display: flex; align-items: center; gap: 14px;" }, [
                 h("div", { style: `width: 20px; height: 20px; flex: none; border-radius: 50%; background: ${row.hex};` }),
-                h("div", { style: "width: 62px; height: 44px; flex: none; border-radius: 14px; background: var(--color-bg); display: grid; place-items: center; overflow: hidden;" }, [
+                h("div", { style: "width: 62px; height: 44px; flex: none; border-radius: 4px; background: var(--color-bg); display: grid; place-items: center; overflow: hidden;" }, [
                   h("div", {
                     role: "img",
                     "aria-label": "Car",
