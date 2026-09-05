@@ -4,42 +4,49 @@ import type { TextureLookup } from "../assets/car-sprite.js";
 import type { AssetManifest, SpriteEntry } from "../assets/manifest-schema.js";
 import { ARENA_VIEW_WIDTH, HUD_GUTTER_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from "../config/display.js";
 import {
+  cooldownFillFraction,
   HUD_DIM,
-  countdownSeconds,
   isRechargeDisplayed,
+  isSlotBlocked,
   resolveWeaponIcon,
+  SLOT_BLOCKED_RING_GAP_PX,
+  SLOT_BLOCKED_RING_WIDTH_PX,
+  SLOT_BOX_PX,
   SLOT_KEY_COLUMN_PX,
   SLOT_NAME_FONT_PX,
   SLOT_NAME_GAP_PX,
+  SLOT_RING_BOX_PX,
   slotBarLayout,
   slotVisualState,
-  sweepFraction,
+  type SlotVisual,
 } from "./weapon-hud.js";
 import { rosterPanelLayout } from "./roster-panel.js";
 import { statusStripLayout } from "./status-hud.js";
 
-describe("sweep", () => {
-  it("is full the tick a recharge starts and empty when it ends", () => {
-    expect(sweepFraction(115, 15, 100)).toBeCloseTo(1);
-    expect(sweepFraction(115, 15, 115)).toBeCloseTo(0);
-    expect(sweepFraction(115, 15, 107.5)).toBeCloseTo(0.5);
+describe("cooldown fill", () => {
+  it("is empty the tick a recharge starts and full when it ends - the ring FILLS, it does not drain", () => {
+    expect(cooldownFillFraction(115, 15, 100)).toBeCloseTo(0);
+    expect(cooldownFillFraction(115, 15, 115)).toBeCloseTo(1);
+    expect(cooldownFillFraction(115, 15, 107.5)).toBeCloseTo(0.5);
   });
 
-  it("is zero when nothing is recharging", () => {
-    expect(sweepFraction(0, 15, 100)).toBe(0);
+  it("is zero when nothing is recharging, so a ready slot draws no arc", () => {
+    expect(cooldownFillFraction(0, 15, 100)).toBe(0);
   });
 
   it("never reports outside [0,1], however stale the tick", () => {
-    expect(sweepFraction(115, 15, 900)).toBe(0);
-    expect(sweepFraction(115, 15, 0)).toBe(1);
+    expect(cooldownFillFraction(115, 15, 900)).toBe(1);
+    expect(cooldownFillFraction(115, 15, 0)).toBe(0);
   });
-});
 
-describe("countdown", () => {
-  it("shows seconds only above a second, so short cooldowns stay uncluttered", () => {
-    expect(countdownSeconds(160, 100)).toBeCloseTo(2); // 60 ticks == 2s
-    expect(countdownSeconds(115, 100)).toBeNull(); // 0.5s: no number
-    expect(countdownSeconds(0, 100)).toBeNull();
+  it("arrives at a COMPLETE circle on the last tick, so the handover to the ready ring never pops", () => {
+    // The old draining sweep shrank to nothing and then snapped to a full bright ring.
+    for (let tick = 100; tick <= 115; tick++) {
+      const f = cooldownFillFraction(115, 15, tick);
+      expect(f).toBeGreaterThanOrEqual(0);
+      expect(f).toBeLessThanOrEqual(1);
+    }
+    expect(cooldownFillFraction(115, 15, 115)).toBe(1);
   });
 });
 
@@ -47,66 +54,91 @@ describe("slot state", () => {
   const fireball = { unlocksAt: 1 };
   const slot = { stocks: 1, rechargeEndsTick: 0 };
 
-  it("reads ready when stocked, unlocked and unblocked", () => {
-    expect(slotVisualState(slot, fireball, 1, 0, null, 100)).toBe("ready");
+  it("reads ready when stocked and unlocked", () => {
+    expect(slotVisualState(slot, fireball, 1)).toBe("ready");
   });
 
-  it("reads locked when the weapon is above the player's level", () => {
-    expect(slotVisualState(slot, { unlocksAt: 2 }, 1, 0, null, 100)).toBe("locked");
+  it("reads locked when the weapon is above the player level", () => {
+    expect(slotVisualState(slot, { unlocksAt: 2 }, 1)).toBe("locked");
   });
 
   it("reads recharging while its own timer runs", () => {
-    expect(slotVisualState({ stocks: 0, rechargeEndsTick: 115 }, fireball, 1, 0, null, 100)).toBe("recharging");
+    expect(slotVisualState({ stocks: 0, rechargeEndsTick: 115 }, fireball, 1)).toBe("recharging");
   });
 
-  it("reads car-locked for every slot during a wind-up or volley", () => {
-    const pending = { slot: 0 };
-    expect(slotVisualState(slot, fireball, 1, 0, pending, 100)).toBe("car-locked");
-  });
-
-  it("reads car-locked during recovery only for OTHER slots", () => {
-    // switch lock to tick 150; this slot is not the one that fired
-    expect(slotVisualState(slot, fireball, 1, 150, null, 100, false)).toBe("car-locked");
-    expect(slotVisualState(slot, fireball, 1, 150, null, 100, true)).toBe("ready");
-  });
-
-  it("reads car-locked, not ready, for a mid-volley slot with no stock and no timer yet", () => {
-    // `beginFire` spends the stock at press time and `releaseShots` does not write
-    // `rechargeEndsTick` until the volley's LAST shot, so a burst sits at `stocks: 0` with no timer
-    // for its whole duration. The pending — `PlayerState.pendingUntilTick` on the wire — is the only
-    // thing separating that from a genuinely ready slot.
-    expect(slotVisualState({ stocks: 0, rechargeEndsTick: 0 }, fireball, 1, 0, { slot: 0 }, 100)).toBe("car-locked");
+  it("knows nothing about car-wide lockout - that is isSlotBlocked", () => {
+    // The whole point of the split: a wind-up no longer changes what STATE a slot is in, only
+    // whether the prohibition sign is drawn over it. A mid-volley slot (stock spent, timer not yet
+    // written) therefore reads "ready" here and is blocked by the sign, at full brightness.
+    expect(slotVisualState({ stocks: 0, rechargeEndsTick: 0 }, fireball, 1)).toBe("ready");
   });
 
   it("dims a locked slot harder than a recharging one", () => {
     expect(HUD_DIM.locked).toBeLessThan(HUD_DIM.recharging);
   });
+
+  it("has no dim level for a blocked slot - blocked is a sign, not an alpha", () => {
+    expect(Object.keys(HUD_DIM).sort()).toEqual(["locked", "ready", "recharging"]);
+  });
 });
 
-describe("isRechargeDisplayed", () => {
-  it("shows while genuinely recharging", () => {
-    expect(isRechargeDisplayed("recharging", 115)).toBe(true);
+describe("isSlotBlocked", () => {
+  const unblocked: {
+    state: SlotVisual;
+    pending: { slot: number } | null;
+    switchLock: number;
+    isLastFired: boolean;
+    disarmed: boolean;
+    tick: number;
+  } = { state: "ready", pending: null, switchLock: 0, isLastFired: false, disarmed: false, tick: 100 };
+  const call = (o: Partial<typeof unblocked> = {}) => {
+    const a = { ...unblocked, ...o };
+    return isSlotBlocked(a.state, a.pending, a.switchLock, a.isLastFired, a.disarmed, a.tick);
+  };
+
+  it("is false for an ordinary ready slot", () => {
+    expect(call()).toBe(false);
   });
 
-  it("shows for a ready stock weapon banking a charge in the background", () => {
-    expect(isRechargeDisplayed("ready", 115)).toBe(true);
+  it("blocks EVERY slot during a wind-up or volley (D3), not just the firing one", () => {
+    expect(call({ pending: { slot: 0 } })).toBe(true);
+    expect(call({ pending: { slot: 0 }, isLastFired: true })).toBe(true);
   });
 
-  it("keeps showing when a DIFFERENT slot's press makes this one car-locked too — the regression: a recharging slot used to read as finished for the whole window another slot held the car locked, then un-finish itself the moment the lock lifted", () => {
-    expect(isRechargeDisplayed("car-locked", 115)).toBe(true);
+  it("blocks during recovery only for the OTHER slots", () => {
+    expect(call({ switchLock: 150, isLastFired: false })).toBe(true);
+    expect(call({ switchLock: 150, isLastFired: true })).toBe(false);
   });
 
-  it("shows nothing for a car-locked slot with no timer of its own", () => {
-    expect(isRechargeDisplayed("car-locked", 0)).toBe(false);
+  it("blocks a disarmed car - the stun signal the HUD never used to show at all", () => {
+    expect(call({ disarmed: true })).toBe(true);
+    expect(call({ disarmed: true, state: "recharging" })).toBe(true);
   });
 
-  it("never shows for a weapon the player has not unlocked", () => {
-    expect(isRechargeDisplayed("locked", 115)).toBe(false);
-    expect(isRechargeDisplayed("locked", 0)).toBe(false);
+  it("never blocks a level-locked slot: not owned yet is not blocked right now", () => {
+    expect(call({ state: "locked", pending: { slot: 0 } })).toBe(false);
+    expect(call({ state: "locked", disarmed: true })).toBe(false);
+    expect(call({ state: "locked", switchLock: 150 })).toBe(false);
   });
 
-  it("shows nothing for a fully ready slot with no timer running", () => {
-    expect(isRechargeDisplayed("ready", 0)).toBe(false);
+  it("stacks with recharging: a cooling slot inside another slot press wears both channels", () => {
+    expect(call({ state: "recharging", pending: { slot: 1 } })).toBe(true);
+  });
+
+  it("lets a lapsed switch lock go", () => {
+    expect(call({ switchLock: 100, tick: 100 })).toBe(false);
+    expect(call({ switchLock: 99, tick: 100 })).toBe(false);
+  });
+});
+
+describe("slot ring box", () => {
+  it("reserves an annulus inside the layout box for the prohibition sign", () => {
+    expect(SLOT_RING_BOX_PX).toBeLessThan(SLOT_BOX_PX);
+    expect(SLOT_RING_BOX_PX).toBe(SLOT_BOX_PX - 2 * (SLOT_BLOCKED_RING_WIDTH_PX + SLOT_BLOCKED_RING_GAP_PX));
+  });
+
+  it("leaves the ring big enough to still read as the slot", () => {
+    expect(SLOT_RING_BOX_PX).toBeGreaterThan(SLOT_BOX_PX * 0.75);
   });
 });
 

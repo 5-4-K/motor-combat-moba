@@ -16,7 +16,7 @@ import {
   resolveCarSprite,
 } from "../assets/car-sprite.js";
 import { assetManifest } from "../scenes/BootScene.js";
-import { HUD_ICON_FIT_SCALE, resolveWeaponIcon, SLOT_BOX_PX } from "../scenes/weapon-hud.js";
+import { HUD_ICON_FIT_SCALE, resolveWeaponIcon, SLOT_RING_BOX_PX } from "../scenes/weapon-hud.js";
 import { shotPaletteOf } from "../scenes/combat-visual.js";
 import {
   NO_TINT,
@@ -173,7 +173,7 @@ export class AssetTuningScene extends Phaser.Scene {
     return (
       `${carCount} car entr${carCount === 1 ? "y" : "ies"} - ${chassis} chassis - ` +
       `${iconCount}/${weapons} weapon icons${orphanNote} - white box is the OBB hitbox, ` +
-      `circle is the ${SLOT_BOX_PX}px HUD slot - reload after editing art`
+      `circle is the ${SLOT_RING_BOX_PX}px HUD slot ring - reload after editing art`
     );
   }
 
@@ -370,7 +370,7 @@ export class AssetTuningScene extends Phaser.Scene {
 
     const gfx = this.add.graphics();
     gfx.lineStyle(1, HULL_STROKE, 0.55);
-    gfx.strokeCircle(iconX, cy, SLOT_BOX_PX / 2);
+    gfx.strokeCircle(iconX, cy, SLOT_RING_BOX_PX / 2);
 
     // Fitted through the HUD's own resolver at the HUD's own box, so an icon that reads badly here
     // reads badly in a match — and one that is missing falls through exactly where the HUD falls
@@ -379,7 +379,7 @@ export class AssetTuningScene extends Phaser.Scene {
       assetManifest(),
       phaserTextures(this.textures),
       weaponId,
-      SLOT_BOX_PX * HUD_ICON_FIT_SCALE,
+      SLOT_RING_BOX_PX * HUD_ICON_FIT_SCALE,
     );
     if (icon) {
       this.add

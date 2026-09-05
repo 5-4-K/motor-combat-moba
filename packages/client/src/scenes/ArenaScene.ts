@@ -10,6 +10,7 @@ import type {
   WeaponSlotState,
 } from "@motor-combat-moba/shared";
 import {
+  modifiersFromRows,
   ARENA_IDS,
   CAMERA_CONFIG,
   DRIVE_CONFIG,
@@ -100,16 +101,19 @@ import {
 } from "./spectate.js";
 import {
   HUD_DIM,
-  countdownSeconds,
+  cooldownFillFraction,
   HUD_ICON_FIT_SCALE,
   isRechargeDisplayed,
+  isSlotBlocked,
   resolveWeaponIcon,
   SLOT_KEY_FONT_PX,
   SLOT_NAME_FONT_PX,
   type SlotBox,
   slotBarLayout,
+  SLOT_BLOCKED_RING_GAP_PX,
+  SLOT_BLOCKED_RING_WIDTH_PX,
+  SLOT_RING_BOX_PX,
   slotVisualState,
-  sweepFraction,
   type ResolvedWeaponIcon,
   type SlotVisual,
 } from "./weapon-hud.js";
@@ -283,16 +287,19 @@ const HUD_TEXT_DEPTH = HUD_DEPTH + 3;
  * through. Everything in this block is a knob rather than a derived value: the look was settled
  * against mockups, so the numbers most likely to want another pass are named and gathered here.
  */
-const HUD_RING_COLOR = 0xc67139;
+const HUD_RING_COLOR = 0xe68343;
 const HUD_RING_WIDTH_PX = 3;
 /** Fill inside the ring, as an alpha on `HUD_RING_COLOR`. 0 leaves the slot fully transparent. */
 const HUD_RING_WASH_ALPHA = 0.12;
 /**
- * The unspent part of the ring while a cooldown drains it. Deliberately low: the bright remaining
- * arc is the "how much is left" channel now that no wedge darkens the middle, and a track drawn at
- * full strength would compete with it.
+ * The part of the ring the cooldown has not refilled yet.
+ *
+ * Raised from 0.22 when the arc inverted. It used to be a remnant hiding under a mostly-complete
+ * bright arc, so a low value kept it from competing; now it is the WHOLE ring on the tick you fire
+ * and only gives way as the cooldown fills, so too dim reads as the slot briefly vanishing at the
+ * exact moment you want feedback that the shot registered.
  */
-const HUD_RING_TRACK_ALPHA = 0.22;
+const HUD_RING_TRACK_ALPHA = 0.3;
 /**
  * The ready-slot glow: a brighter wash plus a couple of soft strokes nested just inside the ring
  * (`drawSlotRing`), so a slot reads differently the instant its cooldown ends rather than looking
@@ -314,6 +321,20 @@ const HUD_RING_GLOW_LAYERS: ReadonlyArray<{ inset: number; alpha: number }> = [
  * slot to read. Flip to false to have the whole slot, ring included, dim as one.
  */
 const HUD_SWEEP_HOLDS_FULL = true;
+
+/**
+ * The prohibition sign: a red ring in the annulus `SLOT_RING_BOX_PX` reserves, plus a bar across
+ * the full diameter — the universal "no" sign, so the bar does cross the icon. That is why it is
+ * drawn into the sweep layer (`HUD_SWEEP_DEPTH`, above `HUD_ICON_DEPTH`) and not the ring layer:
+ * from underneath, the icon would cut it in half.
+ *
+ * Hue ~3deg, deliberately cooler and more purely red than the copper ring beside it (~24deg). The
+ * two sit within a few pixels of each other and the copper got brighter in the same pass, so a red
+ * chosen any warmer would have read as another shade of the ring rather than as a warning.
+ */
+const HUD_BLOCKED_COLOR = 0xf03a2f;
+/** Bar angle. 45deg down-right is how the sign is drawn everywhere it appears in the world. */
+const HUD_BLOCKED_BAR_ANGLE = Math.PI / 4;
 
 /**
  * The procedural glyph's colours. A manifest icon PNG never reaches these — it keeps whatever
@@ -451,7 +472,6 @@ const ACTION_HINT_Y = MOVEMENT_HINT_Y + 34;
  * the edge, but against a ring it collided with the stroke itself.
  */
 const HUD_STOCK_RADIUS_SCALE = 0.45;
-const HUD_COUNTDOWN_FONT_PX = 18;
 const HUD_STOCK_FONT_PX = 13;
 /**
  * The countdown hangs under the key label rather than in the middle of the slot. The middle used to
@@ -463,7 +483,6 @@ const HUD_STOCK_FONT_PX = 13;
  * tall and the 18px countdown 20px, so 20 put the number 1px INSIDE the pill above it. 24 clears
  * the pill by 3px and still stops 4px short of the name band at `SLOT_NAME_GAP_PX` below.
  */
-const HUD_COUNTDOWN_KEY_OFFSET_PX = 24;
 /** Straight up, so the arc drains clockwise from 12 o'clock like a standard ability cooldown. */
 const HUD_SWEEP_START_ANGLE = -Math.PI / 2;
 
@@ -720,9 +739,7 @@ export class ArenaScene extends Phaser.Scene {
   private hudGfx: Phaser.GameObjects.Graphics | undefined;
   private hudSweepGfx: Phaser.GameObjects.Graphics | undefined;
   private hudKeyTexts: Phaser.GameObjects.Text[] = [];
-  private hudNameTexts: Phaser.GameObjects.Text[] = [];
-  private hudCountdownTexts: Phaser.GameObjects.Text[] = [];
-  private hudStockTexts: Phaser.GameObjects.Text[] = [];
+  private hudNameTexts: Phaser.GameObjects.Text[] = [];  private hudStockTexts: Phaser.GameObjects.Text[] = [];
   /**
    * One pooled Image per possible slot, for the manifest icon. Hidden and left textureless until a
    * slot resolves one; a slot with no manifest icon never touches this pool and keeps drawing
@@ -1023,9 +1040,7 @@ export class ArenaScene extends Phaser.Scene {
       ...(this.movementHintGfx ? [this.movementHintGfx] : []),
       ...this.movementHintTexts,
       ...this.hudKeyTexts,
-      ...this.hudNameTexts,
-      ...this.hudCountdownTexts,
-      ...this.hudStockTexts,
+      ...this.hudNameTexts,      ...this.hudStockTexts,
       ...this.hudIconImages,
       ...this.hudStatusTexts,
       ...this.rosterNameTexts,
@@ -1155,17 +1170,13 @@ export class ArenaScene extends Phaser.Scene {
     this.rosterGfx?.destroy();
     this.rosterGfx = undefined;
     for (const text of this.hudKeyTexts) text.destroy();
-    for (const text of this.hudNameTexts) text.destroy();
-    for (const text of this.hudCountdownTexts) text.destroy();
-    for (const text of this.hudStockTexts) text.destroy();
+    for (const text of this.hudNameTexts) text.destroy();    for (const text of this.hudStockTexts) text.destroy();
     for (const image of this.hudIconImages) image.destroy();
     for (const text of this.hudStatusTexts) text.destroy();
     for (const text of this.rosterNameTexts) text.destroy();
     for (const text of this.rosterKillTexts) text.destroy();
     this.hudKeyTexts = [];
-    this.hudNameTexts = [];
-    this.hudCountdownTexts = [];
-    this.hudStockTexts = [];
+    this.hudNameTexts = [];    this.hudStockTexts = [];
     this.hudIconImages = [];
     this.hudStatusTexts = [];
     this.rosterNameTexts = [];
@@ -2059,9 +2070,7 @@ export class ArenaScene extends Phaser.Scene {
           .setFontStyle(HUD_NAME_FONT_STYLE),
       );
       // Left-centre, matching the key above it: the countdown shares the key's column, so both
-      // hang off the same `keyX` edge rather than one being centred and the other not.
-      this.hudCountdownTexts.push(this.makeHudText(HUD_COUNTDOWN_FONT_PX).setOrigin(0, 0.5));
-      this.hudStockTexts.push(this.makeHudText(HUD_STOCK_FONT_PX));
+      // hang off the same `keyX` edge rather than one being centred and the other not.      this.hudStockTexts.push(this.makeHudText(HUD_STOCK_FONT_PX));
       this.hudIconImages.push(
         this.add
           .image(0, 0, "__DEFAULT")
@@ -2185,9 +2194,7 @@ export class ArenaScene extends Phaser.Scene {
       const slot = player && box ? player.weapons.at(i) : undefined;
       if (!player || !box || !slot) {
         this.hudKeyTexts[i]!.setVisible(false);
-        this.hudNameTexts[i]!.setVisible(false);
-        this.hudCountdownTexts[i]!.setVisible(false);
-        this.hudStockTexts[i]!.setVisible(false);
+        this.hudNameTexts[i]!.setVisible(false);        this.hudStockTexts[i]!.setVisible(false);
         this.hudIconImages[i]!.setVisible(false);
         continue;
       }
@@ -2286,40 +2293,51 @@ export class ArenaScene extends Phaser.Scene {
     tick: number,
   ): void {
     const def = isWeaponId(slot.weaponId) ? weaponDefOf(slot.weaponId) : undefined;
+
+    // Two independent questions now, deliberately kept apart. `slotVisualState` answers what this
+    // SLOT is (its own cooldown, whether the player owns it) and picks the alpha; `isSlotBlocked`
+    // answers whether the CAR can press anything this instant and picks whether a sign is drawn.
+    // Neither reads the other, which is the whole point of the split: a slot can be recharging and
+    // blocked at once and each channel says its own thing without a precedence rule between them.
     const state = slotVisualState(
       { stocks: slot.stocks, rechargeEndsTick: slot.rechargeEndsTick },
       { unlocksAt: def?.unlocksAt ?? 1 },
       player.level,
-      player.switchLockUntilTick,
-      tick < player.pendingUntilTick ? { slot: player.lastFiredSlot } : null,
-      tick,
-      index === player.lastFiredSlot,
     );
-    const dim = this.hudDimFor(state);
+    // `disarmed` comes off the car’s own status rows through the same helper the prediction path
+    // uses, so the HUD and the sim judge a status by one rule (`tick < endsTick`) rather than two.
+    const blocked = isSlotBlocked(
+      state,
+      tick < player.pendingUntilTick ? { slot: player.lastFiredSlot } : null,
+      player.switchLockUntilTick,
+      index === player.lastFiredSlot,
+      modifiersFromRows(player.statuses, tick).disarmed,
+      tick,
+    );
+    const dim = HUD_DIM[state];
     const cx = box.x + box.size / 2;
     const cy = box.y + box.size / 2;
 
     // Ready-but-recharging happens only for a `stock` weapon banking another charge while one is
     // still in hand: `slotVisualState` correctly keeps the icon at full brightness (you can still
     // fire), but the timer running underneath is exactly the "in-progress recharge" D18 asks a
-    // stock weapon's sweep to show. See `isRechargeDisplayed` for why this is driven off the raw
-    // timer rather than gated to a narrower `SlotVisual`.
+    // stock weapon to show. See `isRechargeDisplayed` for why this is driven off the raw timer
+    // rather than gated to a narrower `SlotVisual`.
     //
-    // Resolved before anything is drawn, because the ring IS the cooldown now: a draining slot's
-    // ring is a dim track waiting for its arc, not the solid frame every other state wears.
+    // `recharging` is the gate, and `fraction` is only an amount. They cannot be collapsed into one
+    // `fraction > 0` test any more: the ring FILLS now, so 0 means “just started”, not “nothing
+    // running”. See `cooldownFillFraction`.
     const recharging = isRechargeDisplayed(state, slot.rechargeEndsTick);
     const fraction =
       recharging && def
-        ? sweepFraction(slot.rechargeEndsTick, weaponTicksOf(def.id).cooldown, tick)
+        ? cooldownFillFraction(slot.rechargeEndsTick, weaponTicksOf(def.id).cooldown, tick)
         : 0;
 
-    // Fully ready with nothing draining underneath it — as opposed to a stock weapon's ready-but-
-    // banking case above, where the sweep is still doing the "not quite done yet" job. The glow is a
-    // static property of THIS state, held for as long as the slot sits in it: the moment a cooldown
-    // ends is exactly the moment the ring switches from a dim track to this, which is what a
-    // peripheral glance actually catches — no flash-then-fade timer to animate.
-    const readyGlow = state === "ready" && fraction === 0;
-    this.drawSlotRing(gfx, cx, cy, box.size, dim, fraction > 0, readyGlow);
+    // Fully ready with nothing running underneath it — as opposed to a stock weapon’s ready-but-
+    // banking case above, where the ring is still doing the “not quite done yet” job. Suppressed
+    // while blocked as well: a glow says “go” and would be arguing with the sign drawn over it.
+    const readyGlow = state === "ready" && !recharging && !blocked;
+    this.drawSlotRing(gfx, cx, cy, dim, recharging, readyGlow);
 
     // A slot with a manifest icon draws the sprite; a slot without one keeps the procedural glyph.
     // That fallback is permanent, not a placeholder for art that has not shipped yet — a missing or
@@ -2329,32 +2347,29 @@ export class ArenaScene extends Phaser.Scene {
           assetManifest(),
           phaserTextures(this.textures),
           def.id,
-          box.size * HUD_ICON_FIT_SCALE,
+          SLOT_RING_BOX_PX * HUD_ICON_FIT_SCALE,
         )
       : undefined;
     if (icon) {
       this.applyWeaponIcon(this.hudIconImages[index]!, icon, cx, cy, dim);
     } else {
       this.hudIconImages[index]!.setVisible(false);
-      this.drawWeaponGlyph(gfx, def, cx, cy, box.size, dim);
+      this.drawWeaponGlyph(gfx, def, cx, cy, SLOT_RING_BOX_PX, dim);
     }
 
     // Own Graphics object at `HUD_SWEEP_DEPTH`, deliberately not `gfx` (the ring/glyph layer at
     // `HUD_BOX_DEPTH`): the arc must render above the icon pool (`HUD_ICON_DEPTH`) sitting between
     // them, or a resolved icon overlapping the ring would cut it. See the depth block's comment
     // near `HUD_BOX_DEPTH` for the full layering rationale.
-    if (fraction > 0) this.drawSweepArc(sweepGfx, cx, cy, box.size, fraction, dim);
+    // Own Graphics at `HUD_SWEEP_DEPTH`, deliberately not `gfx` (the ring/glyph layer at
+    // `HUD_BOX_DEPTH`): both the arc and the sign must render above the icon pool
+    // (`HUD_ICON_DEPTH`) sitting between them, or a resolved icon would cut them. Gated on
+    // `recharging`, never on `fraction > 0` — a cooldown starts AT 0 now.
+    if (recharging) this.drawCooldownFillArc(sweepGfx, cx, cy, fraction);
 
-    const countdownText = this.hudCountdownTexts[index]!;
-    const seconds = recharging ? countdownSeconds(slot.rechargeEndsTick, tick) : null;
-    if (seconds !== null) {
-      countdownText
-        .setText(String(Math.ceil(seconds)))
-        .setPosition(box.keyX, cy + HUD_COUNTDOWN_KEY_OFFSET_PX)
-        .setVisible(true);
-    } else {
-      countdownText.setVisible(false);
-    }
+    // Outside the ring, in the annulus `SLOT_RING_BOX_PX` reserves for it — the one thing telling
+    // the player this slot cannot be pressed, now that blocking costs no dimming.
+    if (blocked) this.drawProhibitionSign(sweepGfx, cx, cy, box.size);
 
     // Beside the slot, outside the frame — never over the icon — and dimmed with it, so a locked
     // slot's key reads as unavailable too. The band under the slot belongs to the name now.
@@ -2400,11 +2415,6 @@ export class ArenaScene extends Phaser.Scene {
     } else {
       stockText.setVisible(false);
     }
-  }
-
-  /** `SlotVisual` to `HUD_DIM`; only the "car-locked" name differs from its dim key. */
-  private hudDimFor(state: SlotVisual): number {
-    return state === "car-locked" ? HUD_DIM.carLocked : HUD_DIM[state];
   }
 
   /**
@@ -2490,39 +2500,40 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * The slot's wash and its ring.
+   * The slot’s wash and its ring.
    *
-   * While a cooldown runs the ring is drawn here as a dim TRACK and the bright remaining arc goes
-   * on top in `drawSweepArc` — same centre, same radius, same width, so the two read as one stroke
-   * partly spent rather than two concentric rings.
+   * While a cooldown runs the ring is drawn here as a dim TRACK and the bright filled arc goes on
+   * top in `drawCooldownFillArc` — same centre, same radius, same width, so the two read as one
+   * stroke partly filled rather than two concentric rings.
+   *
+   * Drawn at `SLOT_RING_BOX_PX`, not the layout box: the difference is the annulus the prohibition
+   * sign lives in. No `boxSize` parameter any more, because there is exactly one right answer and a
+   * caller passing `box.size` would silently put the ring back under the sign.
    *
    * The wash always dims with the slot. The ring only dims when it is not a cooldown track:
-   * `HUD_SWEEP_HOLDS_FULL` is what keeps a recharging slot's timer readable at `HUD_DIM.recharging`.
+   * `HUD_SWEEP_HOLDS_FULL` is what keeps a recharging slot’s ring readable at `HUD_DIM.recharging`.
    */
   private drawSlotRing(
     gfx: Phaser.GameObjects.Graphics,
     cx: number,
     cy: number,
-    boxSize: number,
     dim: number,
-    draining: boolean,
+    recharging: boolean,
     glow: boolean,
   ): void {
-    const radius = this.slotRingRadius(boxSize);
-    // A ready slot's wash reads brighter than every other state's — the glow itself, not a decoration
+    const radius = this.slotRingRadius();
+    // A ready slot’s wash reads brighter than every other state’s — the glow itself, not a decoration
     // on top of it — so it must win over the plain wash rather than layer with it.
     const washAlpha = glow ? HUD_RING_GLOW_WASH_ALPHA : HUD_RING_WASH_ALPHA;
     if (washAlpha > 0) {
       gfx.fillStyle(HUD_RING_COLOR, washAlpha * dim);
       gfx.fillCircle(cx, cy, radius);
     }
-    const ringDim = draining && HUD_SWEEP_HOLDS_FULL ? 1 : dim;
-    gfx.lineStyle(HUD_RING_WIDTH_PX, HUD_RING_COLOR, draining ? HUD_RING_TRACK_ALPHA * ringDim : ringDim);
+    const ringDim = recharging && HUD_SWEEP_HOLDS_FULL ? 1 : dim;
+    gfx.lineStyle(HUD_RING_WIDTH_PX, HUD_RING_COLOR, recharging ? HUD_RING_TRACK_ALPHA * ringDim : ringDim);
     gfx.strokeCircle(cx, cy, radius);
 
-    // The glow itself: a couple of soft strokes drawn INWARD from the ring rather than past it —
-    // `slotRingRadius` already sits at the edge of the box `slotBarLayout` reserved, and stepping
-    // outward would spill into the key pill or the name band beside/under it. Static per frame
+    // The glow itself: a couple of soft strokes drawn INWARD from the ring. Static per frame
     // (nothing here reads a clock), so it costs two more `strokeCircle` calls only on a slot that is
     // actually ready, never an animation loop.
     if (glow) {
@@ -2534,33 +2545,68 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * The cooldown, as the ring itself draining: a full circle at `fraction` 1 (recharge just
-   * started), shrinking clockwise from 12 o'clock to nothing as `fraction` reaches 0, so it reads
-   * the same way a MOBA ability cooldown does. This replaced a dark wedge over the icon, which had
-   * nothing to darken once the slot's black fill became a transparent ring.
+   * The cooldown, as the ring FILLING: nothing at `fraction` 0 (the tick the recharge starts),
+   * growing clockwise from 12 o’clock to a complete circle as `fraction` reaches 1.
+   *
+   * It used to run the other way — a full bright ring draining to nothing — which meant the last
+   * frame of a cooldown was a bare track that snapped to a full bright ready ring in one step.
+   * Filling arrives at that same complete circle on its own, so the handover is continuous.
+   *
+   * `Math.PI * 2` is written out rather than taken from `Phaser.Math.TAU` on purpose. Phaser 3 and
+   * Phaser 4 disagree about what `TAU` means — a quarter turn there, a full turn here — so a stale
+   * install silently drew every cooldown as a quarter ring with nothing failing. The constant is not
+   * worth a dependency that can change meaning underneath it.
    */
-  private drawSweepArc(
+  private drawCooldownFillArc(
     gfx: Phaser.GameObjects.Graphics,
     cx: number,
     cy: number,
-    boxSize: number,
     fraction: number,
-    dim: number,
   ): void {
-    const endAngle = HUD_SWEEP_START_ANGLE + fraction * Phaser.Math.TAU;
-    gfx.lineStyle(HUD_RING_WIDTH_PX, HUD_RING_COLOR, HUD_SWEEP_HOLDS_FULL ? 1 : dim);
+    if (fraction <= 0) return;
+    const endAngle = HUD_SWEEP_START_ANGLE + fraction * Math.PI * 2;
+    gfx.lineStyle(HUD_RING_WIDTH_PX, HUD_RING_COLOR, 1);
     gfx.beginPath();
-    gfx.arc(cx, cy, this.slotRingRadius(boxSize), HUD_SWEEP_START_ANGLE, endAngle, false);
+    gfx.arc(cx, cy, this.slotRingRadius(), HUD_SWEEP_START_ANGLE, endAngle, false);
     gfx.strokePath();
   }
 
   /**
-   * The ring's centreline radius. Inset by half the stroke so the ring's OUTER edge lands on the
-   * box `slotBarLayout` reserved — a stroke straddles its path, and without this a 3px ring would
-   * spill 1.5px past the layout on every side.
+   * The prohibition sign: a red ring in the annulus outside the cooldown ring, plus a bar across its
+   * full diameter. The universal “no” sign, so the bar deliberately crosses the icon — that is what
+   * makes it read as a refusal rather than as decoration around the slot.
+   *
+   * Sized from the LAYOUT box (`boxSize`), not `SLOT_RING_BOX_PX`: its outer edge lands exactly where
+   * `slotBarLayout` stopped reserving, which is the whole reason the cooldown ring was inset. Nothing
+   * moves for it and nothing else in the gutter is touched.
    */
-  private slotRingRadius(boxSize: number): number {
-    return boxSize / 2 - HUD_RING_WIDTH_PX / 2;
+  private drawProhibitionSign(
+    gfx: Phaser.GameObjects.Graphics,
+    cx: number,
+    cy: number,
+    boxSize: number,
+  ): void {
+    const radius = boxSize / 2 - SLOT_BLOCKED_RING_WIDTH_PX / 2;
+    gfx.lineStyle(SLOT_BLOCKED_RING_WIDTH_PX, HUD_BLOCKED_COLOR, 1);
+    gfx.strokeCircle(cx, cy, radius);
+
+    // Endpoints on the ring itself, so the bar meets the circle rather than stopping short of it or
+    // poking past into the key pill.
+    const dx = Math.cos(HUD_BLOCKED_BAR_ANGLE) * radius;
+    const dy = Math.sin(HUD_BLOCKED_BAR_ANGLE) * radius;
+    gfx.beginPath();
+    gfx.moveTo(cx - dx, cy - dy);
+    gfx.lineTo(cx + dx, cy + dy);
+    gfx.strokePath();
+  }
+
+  /**
+   * The cooldown ring’s centreline radius. Inset by half the stroke so the ring’s OUTER edge lands on
+   * `SLOT_RING_BOX_PX` — a stroke straddles its path, and without this a 3px ring would spill 1.5px
+   * past it on every side and eat into the sign’s clearance.
+   */
+  private slotRingRadius(): number {
+    return SLOT_RING_BOX_PX / 2 - HUD_RING_WIDTH_PX / 2;
   }
 
   // --- spectating --------------------------------------------------------------------------
