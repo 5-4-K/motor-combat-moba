@@ -20,7 +20,6 @@ import {
   PlayerState,
   PlayerStatus,
   PracticeState,
-  RoomPhase,
   TICK_RATE_HZ,
   assignSpawns,
   getArena,
@@ -59,6 +58,7 @@ import {
   shouldRefusePractice,
   shouldRefusePracticeForPlayground,
 } from "./practice-rules.js";
+import { beginCountdown, countdownSweep } from "./countdown.js";
 import {
   respawnPlayer,
   respawnSweep,
@@ -70,8 +70,12 @@ import {
  * The room's opening state, exported so the two decisions in it are pinned by a test rather than by
  * this comment (spec PR9).
  *
- * `phase` is written once, here, and never again: nothing in this room reduces a flow, so this is
- * the only thing that opens the gate `serverTick` and `runPipeline` both check.
+ * `phase` opens on `COUNTDOWN`, not `MATCH`. Nothing in this room reduces a flow, so `countdown.ts`
+ * is the only thing that ever writes the gate `serverTick` and `runPipeline` both check: it opens
+ * here, is re-stamped from the join tick once the cars exist, and is flipped to `MATCH` by
+ * `countdownSweep` at the top of the tick. Opening on `COUNTDOWN` rather than pinning `MATCH` and
+ * counting down afterwards matters — the room ticks from creation, so the other order would run a
+ * few ticks of live match before the player had even arrived to see the 3.
  *
  * `mode` is Deathmatch, and `matchEndsTick` is deliberately left at 0. `matchClockLabel` returns ""
  * for a non-positive value, so the HUD drops the clock with no client conditional, while
@@ -80,7 +84,7 @@ import {
  */
 export function newPracticeState(): PracticeState {
   const state = new PracticeState();
-  state.phase = RoomPhase.MATCH;
+  beginCountdown(state);
   state.mode = GameMode.FFA_DEATHMATCH;
   return state;
 }
@@ -280,6 +284,12 @@ export class PracticeRoom extends Room<PracticeState> {
       player.y = pose.y;
       player.angle = pose.angle;
     }
+
+    // LAST, after both cars exist and are standing on their spawns. The room has been ticking since
+    // `onCreate`, so re-anchoring here is what makes the player's 3 start when they arrive rather
+    // than counting down ticks they were not present for. `serverTick` holds both cars still for the
+    // duration and `combatTick` skips combat, so this is a real countdown and not a caption.
+    beginCountdown(this.state);
   }
 
   /**
@@ -336,6 +346,10 @@ export class PracticeRoom extends Room<PracticeState> {
     // timers and shot lifetimes all key off this counter, and none of them may advance alone.
     if (this.state.paused) return;
     this.state.tick += 1;
+    // Top of the tick, before anything reads the phase. Below the pause return on purpose: pausing
+    // during the 3-2-1 has to freeze the 3-2-1 too, and the countdown keys off `state.tick` like
+    // every other timer in the room.
+    countdownSweep(this.state);
     respawnSweep(this.ctx());
     // Before the bot decides, not after: `buildBotView` reads `this.botRing.at(tick - staleness)`
     // for THIS tick, so this tick's world has to already be in the ring by the time the bot asks.

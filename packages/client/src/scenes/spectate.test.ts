@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PlayerStatus, RoomPhase } from "@motor-combat-moba/shared";
+import { GameMode, PlayerStatus, RoomPhase } from "@motor-combat-moba/shared";
 import {
   cycleSpectate,
   isSpectating,
@@ -120,29 +120,55 @@ describe("panFreeCam", () => {
 });
 
 describe("isSpectating", () => {
-  it("is true for a wreck in a live match", () => {
-    expect(isSpectating(RoomPhase.MATCH, PlayerStatus.IN_MATCH, false)).toBe(true);
+  const LAST_STANDING = GameMode.FFA_LAST_STANDING;
+
+  it("is true for a wreck in a live match it cannot come back from", () => {
+    expect(isSpectating(RoomPhase.MATCH, LAST_STANDING, PlayerStatus.IN_MATCH, false)).toBe(true);
   });
 
   it("is false while still alive", () => {
-    expect(isSpectating(RoomPhase.MATCH, PlayerStatus.IN_MATCH, true)).toBe(false);
+    expect(isSpectating(RoomPhase.MATCH, LAST_STANDING, PlayerStatus.IN_MATCH, true)).toBe(false);
   });
 
   it("is false during the countdown, even though the car cannot move yet", () => {
     // The bug this pins: gating the camera on "cannot drive" instead of "is dead" made the 3-2-1
     // follow whichever car sorted first by session id rather than the player's own.
-    expect(isSpectating(RoomPhase.COUNTDOWN, PlayerStatus.IN_MATCH, true)).toBe(false);
-    expect(isSpectating(RoomPhase.COUNTDOWN, PlayerStatus.IN_MATCH, false)).toBe(false);
+    expect(isSpectating(RoomPhase.COUNTDOWN, LAST_STANDING, PlayerStatus.IN_MATCH, true)).toBe(
+      false,
+    );
+    expect(isSpectating(RoomPhase.COUNTDOWN, LAST_STANDING, PlayerStatus.IN_MATCH, false)).toBe(
+      false,
+    );
   });
 
   it("is false in the lobby and car select", () => {
-    expect(isSpectating(RoomPhase.LOBBY, PlayerStatus.IN_MATCH, false)).toBe(false);
-    expect(isSpectating(RoomPhase.CAR_SELECT, PlayerStatus.IN_MATCH, false)).toBe(false);
+    expect(isSpectating(RoomPhase.LOBBY, LAST_STANDING, PlayerStatus.IN_MATCH, false)).toBe(false);
+    expect(isSpectating(RoomPhase.CAR_SELECT, LAST_STANDING, PlayerStatus.IN_MATCH, false)).toBe(
+      false,
+    );
   });
 
   it("is false for someone who is not in the match at all", () => {
-    expect(isSpectating(RoomPhase.MATCH, PlayerStatus.READY, false)).toBe(false);
-    expect(isSpectating(RoomPhase.MATCH, PlayerStatus.POST_MATCH, false)).toBe(false);
+    expect(isSpectating(RoomPhase.MATCH, LAST_STANDING, PlayerStatus.READY, false)).toBe(false);
+    expect(isSpectating(RoomPhase.MATCH, LAST_STANDING, PlayerStatus.POST_MATCH, false)).toBe(
+      false,
+    );
+  });
+
+  // The whole of the change: a deathmatch death is five seconds long, so the camera stays on the
+  // player's own seat and the weapon bar keeps showing their own kit. Every other input to this
+  // function is the exact one that answers `true` above.
+  it("is false for a deathmatch wreck — the mode gives the car back", () => {
+    expect(
+      isSpectating(RoomPhase.MATCH, GameMode.FFA_DEATHMATCH, PlayerStatus.IN_MATCH, false),
+    ).toBe(false);
+  });
+
+  // The playground respawns forever while running Last Standing, which is the one place "is this
+  // deathmatch" and "do I come back" disagree. Keyed on the mode, so the sandbox keeps its camera.
+  it("still spectates in Last Standing, which is what the rule is keyed on", () => {
+    expect(isSpectating(RoomPhase.MATCH, GameMode.FFA_LAST_STANDING, PlayerStatus.IN_MATCH, false))
+      .toBe(true);
   });
 });
 

@@ -74,13 +74,24 @@ edit — see [`docs/config-reference.md`](docs/config-reference.md#drive_config)
 
 **Practice mode ships; the playground does not.** `PracticeRoom` is a third room type registered on
 every server with no `DEV_TOOLS` gate — a player-facing 1v1 against a bot, reached from the join
-screen's Practice button. It runs `runPipeline` and the deathmatch respawn helpers verbatim, pins
-`phase` to `MATCH` with `mode = FFA_DEATHMATCH` and `matchEndsTick` at 0 (which is what hides the
+screen's Practice button. It runs `runPipeline` and the deathmatch respawn helpers verbatim, runs
+`mode = FFA_DEATHMATCH` with `matchEndsTick` at 0 (which is what hides the
 clock and keeps the kills panel), and **never calls `setTuning`** — the store is process-wide, so a
 practice room that touched it would re-balance every other room in the process. The mirror image of
 that rule is `shouldRefusePlayground`, which refuses to open a playground while an arena **or a
 practice room** has anyone in it. Settings ride as join options, not messages: practice has no
-mid-session reconfiguration. See
+mid-session reconfiguration.
+
+**Neither of those two rooms reduces a flow, so `rooms/countdown.ts` is the only thing that writes
+their `phase`.** Both now open on the same 3-2-1 an arena match does: `beginCountdown` at creation
+(so the room cannot run live ticks before anyone arrives) and again on join once the cars are placed,
+then `countdownSweep` at the top of each tick flips `COUNTDOWN` to the `MATCH` they stay in for life.
+It is not a second countdown *mechanism* — the freeze is the one already shared, `serverTick`'s
+`moving = phase === RoomPhase.MATCH` and `combatTick`'s matching skip — and the client needed no
+change at all, since `viewFor(IN_MATCH, COUNTDOWN)` already routes to the arena scene and
+`syncMatchHud` already draws the numeral. It is stamped on **match start only**: `applySetup`
+deliberately does not re-run it, or every weapon swap in the playground's settings panel would cost
+the tester a three-second freeze. See
 [`docs/superpowers/specs/2026-09-03-practice-mode-design.md`](docs/superpowers/specs/2026-09-03-practice-mode-design.md).
 
 **The bot is a five-layer brain, and a tier is data.** `packages/server/src/bot/brain/` runs

@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  ARROW_BLINK_PERIOD_MS,
   ARROW_BOB_AMPLITUDE_PX,
   ARROW_BOB_PERIOD_MS,
   ARROW_GAP_PX,
   ARROW_HEIGHT_PX,
   ARROW_WIDTH_PX,
+  arrowBlinkOn,
   arrowBobOffset,
   countdownArrowPoints,
 } from "./countdown-arrow.js";
@@ -88,5 +90,37 @@ describe("countdownArrowPoints", () => {
     const [, , apex] = countdownArrowPoints(7, 9, 0);
     expect(apex.x).toBeCloseTo(7, 6);
     expect(apex.y).toBeCloseTo(9 - ARROW_GAP_PX, 6);
+  });
+});
+
+describe("arrowBlinkOn", () => {
+  it("is on at the top of a cycle and off at the halfway mark", () => {
+    expect(arrowBlinkOn(0)).toBe(true);
+    expect(arrowBlinkOn(ARROW_BLINK_PERIOD_MS / 2)).toBe(false);
+  });
+
+  it("spends exactly half of each cycle on", () => {
+    const samples = 1000;
+    let on = 0;
+    for (let i = 0; i < samples; i++) {
+      if (arrowBlinkOn((i * ARROW_BLINK_PERIOD_MS) / samples)) on++;
+    }
+    expect(on).toBe(samples / 2);
+  });
+
+  // Same contract as the bob: driven by a wall clock that has been running all day, so the phase has
+  // to repeat rather than drift or fall out of range.
+  it("repeats every period, at any point in a long-running clock", () => {
+    for (const t of [0, 37, 179.5, 359.9, 12_345.6]) {
+      expect(arrowBlinkOn(t + ARROW_BLINK_PERIOD_MS * 9_999)).toBe(arrowBlinkOn(t));
+    }
+  });
+
+  // The respawn marker has to be catchable mid-fight, which is what separates it from the bob. A
+  // period anywhere near the bob's would read as the same slow breathing rather than as an alert.
+  it("blinks several times over the shortest spawn protection window", () => {
+    const shortestProtectionMs = 1500;
+    expect(shortestProtectionMs / ARROW_BLINK_PERIOD_MS).toBeGreaterThan(3);
+    expect(ARROW_BLINK_PERIOD_MS).toBeLessThan(ARROW_BOB_PERIOD_MS);
   });
 });

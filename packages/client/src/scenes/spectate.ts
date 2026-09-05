@@ -1,15 +1,35 @@
-import { PlayerStatus, RoomPhase } from "@motor-combat-moba/shared";
+import { PlayerStatus, RoomPhase, winRuleOf, type GameMode } from "@motor-combat-moba/shared";
 
 /**
- * Is this player watching rather than playing? True only for a wreck in a live match.
+ * Is this player watching rather than playing? True only for a wreck in a live match that is not
+ * going to give them their car back.
  *
  * Deliberately not "cannot drive right now". The drive gate is also false during the countdown, and
  * keying the camera off it meant the 3-2-1 was spent watching whichever car happened to sort first
  * by session id instead of your own. Being dead is what makes you a spectator; not being able to
  * move yet is not.
+ *
+ * **Deathmatch is never spectated.** Spectating is what a game offers a player it has taken out of
+ * the match for good — Last Standing's death is final, so the camera going to find someone still
+ * fighting is the only thing left to show. A deathmatch death lasts five seconds and hands the car
+ * straight back, and pointing the camera at a stranger for those five seconds costs the player the
+ * one thing they actually want to look at: the fight they were just in, and their own kit in the
+ * gutter. So the wreck keeps its own seat — the camera holds where it died and the HUD keeps
+ * showing the player's own loadout, because `cameraTarget` and `hudTargetPlayer` both fall back to
+ * the local session the moment this answers false.
+ *
+ * Keyed on `winRuleOf(mode)` rather than on "does this room respawn", which is not a thing the
+ * schema says. The dev-only playground respawns forever while running `FFA_LAST_STANDING`, so it
+ * keeps the spectate camera; it is the one room where these two questions come apart.
  */
-export function isSpectating(phase: number, status: number, alive: boolean): boolean {
+export function isSpectating(
+  phase: number,
+  mode: GameMode,
+  status: number,
+  alive: boolean,
+): boolean {
   if (phase !== RoomPhase.MATCH) return false;
+  if (winRuleOf(mode) === "deathmatch") return false;
   return status === PlayerStatus.IN_MATCH && !alive;
 }
 
