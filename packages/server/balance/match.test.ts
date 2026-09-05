@@ -132,11 +132,14 @@ describe("runMatch", () => {
     // `seed: 10`, not 28: Task 2's fix round 3 (R15, 2026-09-05) floors the steering deadzone at
     // half a DECISION window's rotation (not just half a tick's) whenever that is the larger
     // quantity — medium's `recomputeTicks` (6) made this bind, fixing an off-axis inversion where
-    // medium aimed worse than easy. Hard's own `recomputeTicks` (2) means one tick's rotation was
-    // already the larger term for hard, so the floor's numeric value for hard is unchanged by this
-    // fix — but the clamp expression changed, and swept seeds moved again, taking seed 28's kill
-    // outside the 30 s window. Swept 1-150 against the fixed brain: 10, 19, 25, 29, 34, 35, 43, 53,
-    // 57, 83, 87, 102, 104, 105, 106, 112, 113, 137, 144, and 147 land a kill inside the window.
+    // medium aimed worse than easy. Hard's own `recomputeTicks` (2) means the DECISION window's
+    // rotation (twice one tick's) is the larger term for hard too, so this fix doubles hard's raw
+    // floor (0.1185 -> 0.237 rad, on the hard/bullseye worked example in `BRAIN_CONSTANTS.deadzoneFloorFraction`'s
+    // doc comment) — but `aimToleranceRad`'s cap (0.07 * 2.3 ~= 0.16 rad) now binds first, so the
+    // effective deadzone actually used lands at ~0.16 rad either way. The clamp expression changed,
+    // and swept seeds moved again, taking seed 28's kill outside the 30 s window. Swept 1-150
+    // against the fixed brain: 10, 19, 25, 29, 34, 35, 43, 53, 57, 83, 87, 102, 104, 105, 106, 112,
+    // 113, 137, 144, and 147 land a kill inside the window.
     //
     // `seed: 28`, not 13: Task 2's fix round 2 (R14, 2026-09-05) clamps the lag-compensation
     // projection to the magnitude of the heading error — without the cap, a long lag window (as
