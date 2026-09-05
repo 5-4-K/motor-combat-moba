@@ -145,7 +145,22 @@ import {
 } from "./deathmatch-hud.js";
 
 const ARENA_BORDER_PX = 4;
+/**
+ * Dark ink for text drawn OVER THE FLOOR: the match countdown, spectate/killed-by/respawn/idle
+ * banners, the match clock, and the movement hint's plain (non-pill) glyphs. All of those sit at
+ * `ARENA_VIEW_WIDTH / 2`, centred on the arena camera's own light floor — see the "Centred on the
+ * arena, not on the canvas" comment where `countdownText` is built. Never use this for anything drawn
+ * in the gutter (`HUD_GUTTER_TEXT`, below): the gutter is the one strip of canvas the arena camera
+ * never covers, so its ground is whatever `main.ts`'s `Phaser.Game.backgroundColor` is, not the
+ * floor's — dark ink on that dark ground is invisible, which is exactly what shipped once already.
+ */
 const HUD_TEXT = "#1d1f21";
+/**
+ * Bright text for the gutter: the roster names/kills and the weapon slots' countdown and stock
+ * numbers. Matches the pill/status text (`HUD_KEY_PILL_TEXT`, `HUD_STATUS_TEXT`) already white down
+ * here, rather than introducing a third near-white shade into one small column.
+ */
+const HUD_GUTTER_TEXT = "#ffffff";
 const HITBOX_STROKE = 0x1d1f21;
 const HITBOX_PX = 1;
 /** How the OBB outline inside a car's container is found again to toggle it. See `drawCar`. */
@@ -277,6 +292,20 @@ const HUD_RING_WASH_ALPHA = 0.12;
  */
 const HUD_RING_TRACK_ALPHA = 0.22;
 /**
+ * The ready-slot glow: a brighter wash plus a couple of soft strokes nested just inside the ring
+ * (`drawSlotRing`), so a slot reads differently the instant its cooldown ends rather than looking
+ * identical to a slot that has been ready the whole match — the peripheral-vision cue the countdown
+ * number and the sweep arc do not give once both have gone quiet. Layers step inward, never outward:
+ * `slotRingRadius` already sits at the box's own edge, and stepping past it would spill into the key
+ * pill or the name band beside/under it (see `drawSlotRing`).
+ */
+const HUD_RING_GLOW_WASH_ALPHA = 0.3;
+const HUD_RING_GLOW_WIDTH_PX = 2;
+const HUD_RING_GLOW_LAYERS: ReadonlyArray<{ inset: number; alpha: number }> = [
+  { inset: 4, alpha: 0.45 },
+  { inset: 8, alpha: 0.22 },
+];
+/**
  * Whether the draining ring keeps full brightness while the rest of the slot dims to
  * `HUD_DIM.recharging`. True is the shipped look: the arc is the one live thing in a recharging
  * slot, and dimming it to 0.4 alongside the wash and glyph left the timer the hardest part of the
@@ -319,14 +348,14 @@ const HUD_STATUS_LABEL_PAD_X = 6;
  * constants rather than a scattering of literals in the draw loop. The row stays listed either way
  * (D3) — the grey is the whole difference between alive and out.
  *
- * The colour is `HUD_TEXT` lifted toward the cream gutter until the name reads as present but not
- * current; the alpha is on the swatch's own player colour, which must stay recognisable as that
- * player's colour rather than becoming a neutral grey chip.
+ * The colour is `HUD_GUTTER_TEXT` pulled toward the gutter's own dark ground until the name reads as
+ * present but not current; the alpha is on the swatch's own player colour, which must stay
+ * recognisable as that player's colour rather than becoming a neutral grey chip.
  */
 const ROSTER_DEAD_TEXT = "#8d9096";
 const ROSTER_DEAD_SWATCH_ALPHA = 0.3;
 /** A living row's name, matching the rest of the gutter's text. */
-const ROSTER_LIVE_TEXT = HUD_TEXT;
+const ROSTER_LIVE_TEXT = HUD_GUTTER_TEXT;
 // --- the deathmatch HUD ------------------------------------------------------------------------
 /**
  * Ghost alpha for a car the sim is treating as intangible, multiplied INTO whatever
@@ -2009,10 +2038,15 @@ export class ArenaScene extends Phaser.Scene {
       // re-asserting a colour that never changes would repaint every label every frame. Only alpha
       // varies with slot state, and that is a cheap tint rather than a re-render.
       this.hudKeyTexts.push(this.makeHudText(HUD_KEY_FONT_PX).setOrigin(0, 0.5).setColor(HUD_KEY_PILL_TEXT));
-      // Top-centre: `nameY` is the top of the name's band under the slot.
+      // Top-left: `nameY` is the top of the name's band under the slot, and `box.x` is the icon's own
+      // left edge (same anchor `keyX` is measured from). Centring here used to grow a long name in
+      // BOTH directions from the icon's middle — and the icon sits only ~38px off the arena camera's
+      // clip edge, the closer of its two margins, so a name past about two words touched the arena's
+      // border on the left long before it ever neared the canvas edge on the right. Left-aligned, a
+      // name only ever grows rightward, into the gutter's own ~100px of headroom.
       this.hudNameTexts.push(
         this.makeHudText(HUD_NAME_FONT_PX)
-          .setOrigin(0.5, 0)
+          .setOrigin(0, 0)
           .setColor(HUD_RING_CSS)
           .setFontStyle(HUD_NAME_FONT_STYLE),
       );
@@ -2032,7 +2066,7 @@ export class ArenaScene extends Phaser.Scene {
 
   private makeHudText(fontSizePx: number): Phaser.GameObjects.Text {
     return this.add
-      .text(0, 0, "", { fontSize: `${fontSizePx}px`, color: HUD_TEXT })
+      .text(0, 0, "", { fontSize: `${fontSizePx}px`, color: HUD_GUTTER_TEXT })
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(HUD_TEXT_DEPTH)
@@ -2271,7 +2305,13 @@ export class ArenaScene extends Phaser.Scene {
         ? sweepFraction(slot.rechargeEndsTick, weaponTicksOf(def.id).cooldown, tick)
         : 0;
 
-    this.drawSlotRing(gfx, cx, cy, box.size, dim, fraction > 0);
+    // Fully ready with nothing draining underneath it — as opposed to a stock weapon's ready-but-
+    // banking case above, where the sweep is still doing the "not quite done yet" job. The glow is a
+    // static property of THIS state, held for as long as the slot sits in it: the moment a cooldown
+    // ends is exactly the moment the ring switches from a dim track to this, which is what a
+    // peripheral glance actually catches — no flash-then-fade timer to animate.
+    const readyGlow = state === "ready" && fraction === 0;
+    this.drawSlotRing(gfx, cx, cy, box.size, dim, fraction > 0, readyGlow);
 
     // A slot with a manifest icon draws the sprite; a slot without one keeps the procedural glyph.
     // That fallback is permanent, not a placeholder for art that has not shipped yet — a missing or
@@ -2330,11 +2370,12 @@ export class ArenaScene extends Phaser.Scene {
       pillHeight / 2,
     );
 
-    // Centred under the slot. A slot whose weapon id is unknown has no name to print, which is the
-    // same fall-through `def` already drives for the icon and the sweep.
+    // Left-aligned off the icon's own left edge (`box.x`), not centred under it — see the pool
+    // comment in `buildHudTextPool` for why. A slot whose weapon id is unknown has no name to print,
+    // which is the same fall-through `def` already drives for the icon and the sweep.
     const nameText = this.hudNameTexts[index]!;
     if (def) {
-      nameText.setText(def.name).setPosition(cx, box.nameY).setAlpha(dim).setVisible(true);
+      nameText.setText(def.name).setPosition(box.x, box.nameY).setAlpha(dim).setVisible(true);
     } else {
       nameText.setVisible(false);
     }
@@ -2457,15 +2498,31 @@ export class ArenaScene extends Phaser.Scene {
     boxSize: number,
     dim: number,
     draining: boolean,
+    glow: boolean,
   ): void {
     const radius = this.slotRingRadius(boxSize);
-    if (HUD_RING_WASH_ALPHA > 0) {
-      gfx.fillStyle(HUD_RING_COLOR, HUD_RING_WASH_ALPHA * dim);
+    // A ready slot's wash reads brighter than every other state's — the glow itself, not a decoration
+    // on top of it — so it must win over the plain wash rather than layer with it.
+    const washAlpha = glow ? HUD_RING_GLOW_WASH_ALPHA : HUD_RING_WASH_ALPHA;
+    if (washAlpha > 0) {
+      gfx.fillStyle(HUD_RING_COLOR, washAlpha * dim);
       gfx.fillCircle(cx, cy, radius);
     }
     const ringDim = draining && HUD_SWEEP_HOLDS_FULL ? 1 : dim;
     gfx.lineStyle(HUD_RING_WIDTH_PX, HUD_RING_COLOR, draining ? HUD_RING_TRACK_ALPHA * ringDim : ringDim);
     gfx.strokeCircle(cx, cy, radius);
+
+    // The glow itself: a couple of soft strokes drawn INWARD from the ring rather than past it —
+    // `slotRingRadius` already sits at the edge of the box `slotBarLayout` reserved, and stepping
+    // outward would spill into the key pill or the name band beside/under it. Static per frame
+    // (nothing here reads a clock), so it costs two more `strokeCircle` calls only on a slot that is
+    // actually ready, never an animation loop.
+    if (glow) {
+      for (const layer of HUD_RING_GLOW_LAYERS) {
+        gfx.lineStyle(HUD_RING_GLOW_WIDTH_PX, HUD_RING_COLOR, layer.alpha * dim);
+        gfx.strokeCircle(cx, cy, radius - layer.inset);
+      }
+    }
   }
 
   /**

@@ -46,7 +46,9 @@ export const SLOT_KEY_GAP_PX = 8;
 export const SLOT_KEY_FONT_PX = 14;
 export const SLOT_KEY_COLUMN_PX = 60;
 
-/** The weapon's name, centred under the slot and dimmed with it. */
+/** The weapon's name, left-aligned under the slot's own left edge and dimmed with it — centring it
+ * used to let a long name grow toward the arena camera's clip edge, which sits closer to the icon
+ * than the canvas edge does. */
 export const SLOT_NAME_GAP_PX = 6;
 export const SLOT_NAME_FONT_PX = 12;
 
