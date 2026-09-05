@@ -40,71 +40,81 @@ export interface BotProfile {
    * to.
    */
   readonly aimToleranceRad: number;
+  /**
+   * Fraction of the correct intercept lead actually applied to `interceptPoint` — 0 shoots/drives at
+   * where the target IS, 1 at the full ballistic lead point (R21).
+   *
+   * Restored here (fix round 2, 2026-09-06) after P35 removed it in phase B as "superseded by real
+   * forward prediction" — but that predictor is a PHASE A deliverable (`predict.ts`, P17-P22) that
+   * has not landed. `controller.ts` had been calling `interceptPoint` with a hardcoded lead of `1`
+   * for every tier in the meantime, which silently gave easy (was 0, no lead at all) and medium (was
+   * 0.55) a hands upgrade in exactly the axis meant to separate the tiers. It will be removed again,
+   * for real this time, in the phase that actually replaces it — see P35's table in
+   * `docs/superpowers/specs/2026-09-05-bot-predictive-brain-design.md`.
+   */
+  readonly leadFactor: number;
 
   // --- Fire economy -------------------------------------------------------------------------
   /** Minimum ticks between presses. The sim accepts one press per tick regardless. */
   readonly burstGapTicks: number;
   /**
-   * Expected damage per second of gun time a shot must be worth before this bot takes it (P14).
+   * The FRACTION of this shooter's own kit's best-achievable `value` (`bestAchievableValueOf`,
+   * solution.ts) a shot must clear before this bot takes it (P14, R20).
    *
-   * The EV threshold IS discipline — it replaced `fireDisciplineChance`, which gated on distance
-   * rather than on whether the shot would land. Low means an amateur who sprays; high means a
-   * skilled player who only spends gun time on shots that pay.
+   * R16 (fix round 1, 2026-09-05) calibrated this field as an ABSOLUTE expected-damage-per-second
+   * number (easy 0.5 / medium 7 / hard 25) and that was WRONG IN KIND, not just in value: a kit's
+   * achievable `value` ceiling varies by roughly a factor of four across the roster's three chassis
+   * (measured at each tier's own `aimErrorSigmaRad`, nose-on-target, best range per slot via
+   * `bestAchievableValueOf`):
    *
-   * CALIBRATED FROM MEASUREMENT (R16, fix round 1, 2026-09-05), not guessed. The original guesses
-   * (easy 2 / medium 12 / hard 26) were wrong in KIND: `value` scales with the shooter's OWN
-   * `aimErrorSigmaRad` (hard 0.035, medium 0.09, easy 0.18), so one absolute number cannot express
-   * "takes only good shots" across three tiers with wildly different achievable `value` ceilings —
-   * hard's 26 landed 0.4% below its own achievable ~26.1 by pure accident, dropping its off-axis
-   * fire count 100 -> 70 against a committed `>90` test, and medium's fell 102 -> 0.
+   * | chassis  | slot 0        | slot 1         | slot 2         |
+   * |----------|---------------|----------------|----------------|
+   * | bullseye | predator 32.0 | pepperbox 78.3 | lance 11.3     |
+   * | mirage   | magmablast 45.0 | thunderclap 20.4 | afterburner 21.2 |
+   * | bastion  | thumper 18.3  | roadblock 15.3 | wildcharge 11.5 |
    *
-   * Measured instead: a temporary harness (modelled on `controller.test.ts`'s `closedLoopDuel`) ran
-   * 300 ticks of a closed-loop duel per tier, in both committed geometries (on-axis target at
-   * x753/y360, off-axis at x753/y500), recording the solver's best-available-slot `value` each tick
-   * a target and a ready slot existed. Percentiles of the pooled (both geometries) distribution:
+   * Bastion's best possible shot ANYWHERE (18.3) sat below hard's absolute threshold of 25, so a
+   * hard Bastion pressed nothing — 0 fires in 600 ticks of a closed-loop duel, while hard Bullseye
+   * and hard Mirage fired hundreds of times each with the same profile. Every ult on the roster also
+   * values below 25, so `ULT_WINDOW_BONUS`, `ultDisciplineChance` and the ult-hold machinery were
+   * dead code at hard regardless of chassis. No single absolute number can separate "amateur" from
+   * "only takes shots that pay" across kits with a 4x spread in what "paying" can even mean.
    *
-   * | tier   | p5   | p25   | p35   | p50   | p60   | p75   | p90   |
-   * |--------|------|-------|-------|-------|-------|-------|-------|
-   * | easy   | 0.00 | 0.82  | 0.98  | 0.98  | 6.27  | 13.34 | 18.21 |
-   * | medium | 0.03 | 7.09  | 7.09  | 24.48 | 24.48 | 24.48 | 24.48 |
-   * | hard   | 0.00 | 25.29 | 26.10 | 26.10 | 30.00 | 30.00 | 30.00 |
+   * R20 (fix round 2, 2026-09-06) replaced the absolute number with THIS fraction, compared against
+   * `bestAchievableValueOf(self.carId, profile.aimErrorSigmaRad)` — the ceiling the shooter's OWN
+   * kit can reach at the shooter's OWN aim quality, computed once per (carId, sigma) pair and
+   * memoised (a kit is fixed for a match, so this must never be recomputed per tick). A shot is
+   * "worth taking" relative to what this car could ever do, not relative to a number borrowed from
+   * whichever chassis happened to calibrate it.
    *
-   * The ruling calls for easy ~p5, medium ~p35, hard ~p60 of each tier's OWN pooled distribution —
-   * but a literal read of those cells reproduces the exact defect this fix exists to correct: both
-   * medium's p35 (7.09) and hard's p60 (30.00) sit EXACTLY ON the top edge of a converged-value
-   * plateau, because the on-axis geometry converges to a near-constant `value` every tick (a
-   * degenerate distribution) and the off-axis geometry converges to its own, lower, near-constant
-   * plateau — so pooling two near-point-masses makes most "percentiles" land exactly at one
-   * plateau's edge. Sweeping candidate thresholds against the real closed-loop harness confirmed
-   * this empirically: medium's off-axis fires are 102/300 for any threshold <= 7, then fall OFF A
-   * CLIFF to 0/300 at 7.09 (the literal p35) and above. Hard's off-axis fires are a stable 94/300
-   * for any threshold in roughly [0, 25], then fall to 70/300 at 26 (the OLD guessed value,
-   * reproducing the original defect exactly) and 0/300 at 27. Both chosen values below are picked
-   * from the flat, safe side of their tier's cliff — reading "~p35" / "~p60" as "the top of the
-   * shot-quality band this tier should clear," not as the literal interpolated percentile number,
-   * which in both cases is a knife-edge artifact of pooling two near-degenerate distributions.
-   * Easy has no such cliff near its p5 (stable 87-99/300 off-axis across [0, 0.8], only dropping at
-   * ~1.0), so 0.5 is simply a readable point on that stable plateau, comfortably above literal 0
-   * (which would accept even a guaranteed-miss/out-of-reach `value` of exactly 0 and make the gate
-   * a no-op) and comfortably below the ~1.0 cliff.
+   * MEASURED (not assumed), starting from the ruling's own suggested 0.05 / 0.35 / 0.6 and swept
+   * DOWN from there once measurement showed those values go mute — with a closed-loop duel
+   * generalised to all three chassis (`controller.test.ts`'s `closedLoopDuel`, now parameterised on
+   * the shooter's carId), 600 ticks per (tier, chassis) cell against a stationary target, counting
+   * ticks with a non-zero `fireSlots`.
    *
-   * Chosen: easy 0.5, medium 7, hard 25 (all measured stable, not edge values; strictly increasing
-   * per `bot-profiles.test.ts`'s `LADDER`). Resulting closed-loop fire counts (300 ticks each):
-   * easy 120/87 (on/off-axis), medium 144/102, hard 140/94 — both HARD committed tests
-   * (`controller.test.ts`, `fires > 90` in both geometries) now pass with margin.
+   * The starting point does NOT survive contact with Bullseye. Bullseye is the one chassis on the
+   * roster whose kit ceiling (pepperbox, 78.3 — driven by a converged multi-pellet value only
+   * reachable very close in) sits far above what its OTHER good weapon (predator, 32.0, aim-assisted,
+   * usable out to 800u) or even pepperbox itself at a realistic mid-fight standoff (~26, measured at
+   * 300u) can produce. A fraction picked to look "picky" against the 78.3 ceiling is, in practice,
+   * pickier than EVERY shot Bullseye's kit actually offers at its own chosen standoff range — sweeping
+   * candidate fractions against the real closed-loop duel finds a hard cliff for Bullseye alone
+   * (mirage and bastion stay flat across the whole 0.02-0.6 range swept, because their kit's
+   * ceiling-defining weapon is also the one they mostly fire in a real fight): hard's off-axis fires
+   * hold at 94/300 up to fraction 0.32, then fall to 0/300 at 0.34; medium's off-axis fires hold at
+   * 102/300 up to 0.08, then fall to 0/300 at 0.1; easy's off-axis fires hold at 87/300 only at
+   * 0.01, falling to 27/300 at 0.02. Each tier's chosen value sits on the flat, safe side of ITS
+   * cliff, with margin, and reproduces the ORIGINAL R16 calibration's own committed fire counts
+   * almost exactly (120/87 easy, 144/102 medium, 140/94 hard, on/off-axis) — evidence that R16's
+   * absolute numbers were themselves reasonable fractions of Bullseye's realistic (not ceiling) value
+   * band; R16's actual defect was applying that Bullseye-shaped number to every other chassis.
    *
-   * FINDING, reported rather than tuned around per this task's brief: the expected
-   * easy-fires-most/hard-fires-least ordering does NOT hold on fire count alone — actual ordering
-   * is medium (144/102) > hard (140/94) > easy (120/87) in both geometries. This is NOT an artifact
-   * of the threshold choice: re-running easy with the EV gate effectively disabled (threshold -1,
-   * a no-op) still only reaches 123/99, still below medium's and hard's numbers. The shortfall is
-   * structural, driven by profile fields this task may not touch (`aimToleranceRad` 0.3 vs hard's
-   * 0.07, `blunderChance` 0.12, `awarenessRadiusUnits` 520, situation/movement gating) — not by
-   * `minShotValue`. Easy still hits far less than it fires (`aimErrorSigmaRad` 0.18 vs hard's
-   * 0.035), which is the intended "sprays and mostly misses" archetype even though its raw fire
-   * COUNT does not lead the ladder in this scenario.
+   * Chosen: easy 0.01, medium 0.05, hard 0.3 (strictly increasing, per `bot-profiles.test.ts`'s
+   * `LADDER`). Verified non-zero on every one of the 9 (tier, chassis) cells in a 600-tick
+   * closed-loop duel — see `final-fix-report.md` for the full table.
    */
-  readonly minShotValue: number;
+  readonly minShotValueFraction: number;
   /** Probability of saving a long-cooldown weapon for a good moment (TF2's airblast gate). */
   readonly ultDisciplineChance: number;
   /** Target hp fraction under which an ult is considered worth spending. */
@@ -180,10 +190,16 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * the smallest step the actuator can take, or it overshoots every correction and limit-cycles
    * forever. The smallest step is ONE TICK of rotation, not a whole decision interval's worth:
    * `rotationPerTick = turnRate / TICK_RATE_HZ`. Measured on hard/bullseye while moving
-   * (turnRateOf("bullseye") = 7.11 rad/s): `rotationPerTick` = 7.11 / 30 = 0.237 rad/tick, and
-   * `floor` = 0.237 * 0.5 = 0.1185 rad — above `aimToleranceRad` (0.07, so the floor binds) and,
-   * at the time, below `fireConeRad` (0.2, so it did not disable firing). `fireConeRad` no longer
-   * exists (Task 7, 2026-09-05, retired it along with the angular fire gate); see
+   * (turnRateOf("bullseye") = 7.11 rad/s): `rotationPerTick` = 7.11 / 30 = 0.237 rad/tick. At
+   * INTRODUCTION (R10) the floor was `rotationPerTick * 0.5` = 0.1185 rad — above `aimToleranceRad`
+   * (0.07, so the floor binds) and, at the time, below `fireConeRad` (0.2, so it did not disable
+   * firing). **That headline number is stale**: R15 below (fix round 3) redefines the floor as the
+   * LARGER of one tick's rotation and one `recomputeTicks` window's, and hard's `recomputeTicks` is
+   * 2, so hard's actual floor today is `rotationPerTick * recomputeTicks * 0.5` = 0.237 * 2 * 0.5 =
+   * 0.237 rad — capped to `aimToleranceRad * deadzoneCapMultiplier` = 0.07 * 2.3 = 0.161 rad by the
+   * ceiling below. See R15's own paragraph for the mechanism; this is its number for hard.
+   *
+   * `fireConeRad` no longer exists (Task 7, 2026-09-05, retired it along with the angular fire gate); see
    * `deadzoneCapMultiplier` below for what the ceiling is keyed to now. Halving one tick's rotation is
    * the standard "deadzone >= half a step" rule for a discretized bang-bang controller: tight
    * enough to still track, loose enough to stop chasing a precision the car cannot deliver in one
@@ -278,8 +294,8 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
   easy: Object.freeze({
     viewStalenessTicks: 4, reactionDelayTicks: 9, recomputeTicks: 12, acquireTicks: 15,
     awarenessRadiusUnits: 520, rearBlindHalfAngleRad: 1.05, trackedThreatLimit: 1, memoryTicks: 15,
-    aimErrorSigmaRad: 0.18, aimErrorDriftTicks: 20, aimToleranceRad: 0.3,
-    burstGapTicks: 14, minShotValue: 0.5, ultDisciplineChance: 0, ultWindowHpFraction: 0.4,
+    aimErrorSigmaRad: 0.18, aimErrorDriftTicks: 20, aimToleranceRad: 0.3, leadFactor: 0,
+    burstGapTicks: 14, minShotValueFraction: 0.01, ultDisciplineChance: 0, ultWindowHpFraction: 0.4,
     targetCommitTicks: 150, woundedBias: 0.1, vengefulness: 0.8,
     standoffFraction: 0.45, deadbandFraction: 0.25, wallLookaheadUnits: 40,
     retreatHpFraction: 0, ramIntentChance: 0.15,
@@ -292,8 +308,8 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
   medium: Object.freeze({
     viewStalenessTicks: 3, reactionDelayTicks: 6, recomputeTicks: 6, acquireTicks: 9,
     awarenessRadiusUnits: 700, rearBlindHalfAngleRad: 0.6, trackedThreatLimit: 2, memoryTicks: 45,
-    aimErrorSigmaRad: 0.09, aimErrorDriftTicks: 14, aimToleranceRad: 0.16,
-    burstGapTicks: 7, minShotValue: 7, ultDisciplineChance: 0.5, ultWindowHpFraction: 0.4,
+    aimErrorSigmaRad: 0.09, aimErrorDriftTicks: 14, aimToleranceRad: 0.16, leadFactor: 0.55,
+    burstGapTicks: 7, minShotValueFraction: 0.05, ultDisciplineChance: 0.5, ultWindowHpFraction: 0.4,
     targetCommitTicks: 60, woundedBias: 0.5, vengefulness: 0.5,
     standoffFraction: 0.55, deadbandFraction: 0.15, wallLookaheadUnits: 90,
     retreatHpFraction: 0.3, ramIntentChance: 0.3,
@@ -306,8 +322,8 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
   hard: Object.freeze({
     viewStalenessTicks: 2, reactionDelayTicks: 4, recomputeTicks: 2, acquireTicks: 5,
     awarenessRadiusUnits: 900, rearBlindHalfAngleRad: 0, trackedThreatLimit: 4, memoryTicks: 90,
-    aimErrorSigmaRad: 0.035, aimErrorDriftTicks: 9, aimToleranceRad: 0.07,
-    burstGapTicks: 3, minShotValue: 25, ultDisciplineChance: 0.9, ultWindowHpFraction: 0.4,
+    aimErrorSigmaRad: 0.035, aimErrorDriftTicks: 9, aimToleranceRad: 0.07, leadFactor: 0.95,
+    burstGapTicks: 3, minShotValueFraction: 0.3, ultDisciplineChance: 0.9, ultWindowHpFraction: 0.4,
     targetCommitTicks: 25, woundedBias: 0.9, vengefulness: 0.25,
     standoffFraction: 0.7, deadbandFraction: 0.08, wallLookaheadUnits: 150,
     retreatHpFraction: 0.35, ramIntentChance: 0.5,

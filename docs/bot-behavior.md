@@ -20,9 +20,9 @@ Copied from `bot-profiles.ts` on 2026-09-05. `BOT_BRAIN_VERSION` is `4.0.0`.
 
 | Symptom | Knob(s) |
 |---|---|
-| "Medium is too hard to hit" | `aimErrorSigmaRad` up. `minShotValue` is not a straightforward easier/harder dial: lowering it widens what the bot will attempt (more shots, more misses); raising it makes the bot *pickier and therefore MORE deadly per shot*, not less |
+| "Medium is too hard to hit" | `aimErrorSigmaRad` up. `minShotValueFraction` is not a straightforward easier/harder dial: lowering it widens what the bot will attempt (more shots, more misses); raising it makes the bot *pickier and therefore MORE deadly per shot*, not less |
 | "Hard is a laser" | Same knobs the other way on `hard` |
-| "Hard isn't attacking / holds fire" | `minShotValue` down. Check the overlay first: `fight` with `slot -` (holding fire) while a gun is in range can still be the bot *correctly* declining a shot below `minShotValue` — the overlay does not print the solver's `value` yet, so confirm by reading `solve()`'s output for that slot before assuming it is a bug |
+| "Hard isn't attacking / holds fire" | `minShotValueFraction` down. Check the overlay first: `fight` with `slot -` (holding fire) while a gun is in range can still be the bot *correctly* declining a shot below `minShotValueFraction * bestAchievableValueOf(carId, sigma)` — the overlay does not print the solver's `value` yet, so confirm by reading `solve()`'s output for that slot before assuming it is a bug |
 | "Shots are all over the place" | **Not a knob any more.** The solver decides hit chance and value; if it is firing shots that miss, that is a solver bug to investigate (`bot/brain/solution.ts`), not a value to tune |
 | "It ults my corpse / spawn shield" | `deadRespect` up (Hard should already be 1) |
 | "It sits in a corner while I approach" | `cornerRespect` up; overlay should read `unpin` |
@@ -50,9 +50,17 @@ perceive (every tick)
 Practice, playground, and the balance harness all call `HumanController.decide(BotView)`.
 
 **Expect a skilled bot to fire noticeably LESS often than before 4.0.0, and hit far more.** The
-trigger used to be an angle (`fireConeRad`); it is now expected damage per second of gun time
-(`minShotValue`), so a shot that will not land is not taken at all. Fewer, deadlier shots is the
-intended shape of this version, not a regression.
+trigger used to be an angle (`fireConeRad`); it is now a FRACTION of the shooter's own kit's
+best-achievable expected damage per second (`minShotValueFraction`, gated against
+`bestAchievableValueOf(carId, aimErrorSigmaRad)`), so a shot that will not land — or is not worth the
+gun time relative to what this car could do at its best — is not taken at all. Fewer, deadlier shots
+is the intended shape of this version, not a regression.
+
+**The threshold is RELATIVE to the shooter's own chassis, not an absolute number** (fix round 2,
+2026-09-06, R20). A kit's best-achievable `value` varies roughly 4x across the roster (Bullseye's
+pepperbox ~78, Bastion's thumper ~18), so comparing every chassis's shot quality against one shared
+absolute number made a hard Bastion — whose best possible shot anywhere sat below the old absolute
+threshold — never fire at all. `minShotValueFraction` divides by each shooter's OWN ceiling instead.
 
 ## Situations (highest priority wins)
 
@@ -94,10 +102,13 @@ Opponent keep-out is their **shortest** gun × `opponentRangeRespect`.
 | `aimErrorSigmaRad` | 0.18 | 0.09 | 0.035 |
 | `aimErrorDriftTicks` | 20 | 14 | 9 |
 | `aimToleranceRad` | 0.3 | 0.16 | 0.07 |
+| `leadFactor` | 0 | 0.55 | 0.95 |
 
-`fireConeRad` and `leadFactor` are gone as of `BOT_BRAIN_VERSION` 4.0.0 — the angular fire gate and
-its hand-authored lead were both replaced by the solver's own aim quadrature and its `value` (EV)
-threshold, `minShotValue` (below).
+`fireConeRad` is gone as of `BOT_BRAIN_VERSION` 4.0.0 — the angular fire gate was replaced by the
+solver's own aim quadrature and its `value` (EV) threshold, `minShotValueFraction` (below).
+`leadFactor` was removed alongside it in the same pass, but that was premature (fix round 2,
+2026-09-06, R21): the real forward-prediction replacement is a later, not-yet-landed phase, so
+`leadFactor` is back and still read by `interceptPoint` for both aim and body-intercept heading.
 
 ### Steering (shared constants, not per-tier)
 
@@ -113,15 +124,19 @@ threshold, `minShotValue` (below).
 | Field | easy | medium | hard |
 |---|---|---|---|
 | `burstGapTicks` | 14 | 7 | 3 |
-| `minShotValue` | 0.5 | 7 | 25 |
+| `minShotValueFraction` | 0.01 | 0.05 | 0.3 |
 | `ultDisciplineChance` | 0 | 0.5 | 0.9 |
 | `ultWindowHpFraction` | 0.4 | 0.4 | 0.4 |
 
-`minShotValue` is the expected damage per second of gun time a shot must be worth before this bot
-takes it — it replaced `fireDisciplineChance`, which gated on distance rather than whether the shot
-would land. These three values were **measured, not guessed**: see the long comment on
-`BotProfile.minShotValue` in `bot-profiles.ts` for the closed-loop percentile sweep that picked them
-and the cliff-edge behaviour that makes a naive percentile read misleading.
+`minShotValueFraction` is the FRACTION of `bestAchievableValueOf(self.carId, aimErrorSigmaRad)` —
+this shooter's own kit's best-achievable expected damage per second, at this shooter's own aim
+quality — a shot must clear before this bot takes it. It replaced `fireDisciplineChance`, which
+gated on distance rather than whether the shot would land, and then replaced its own first
+(absolute-number) calibration a second time (fix round 2, 2026-09-06, R20) once measurement showed
+an absolute EV number cannot compare across chassis whose kit ceilings differ ~4x. These three values
+were **measured, not guessed**: see the long comment on `BotProfile.minShotValueFraction` in
+`bot-profiles.ts` for the closed-loop sweep (now run across all three chassis, not just Bullseye)
+that picked them and the cliff-edge behaviour that makes a naive percentile read misleading.
 
 ### Target politics
 

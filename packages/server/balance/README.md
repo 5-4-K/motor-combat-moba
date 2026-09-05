@@ -41,18 +41,21 @@ third of the kit came back and Bastion still won nothing. Whether that was the o
 pilot or Bastion itself was not yet answered when that run was made — the brain rewrite below is a
 new pilot entirely, and a fresh comparison is needed to say anything about Bastion under it.
 
-**~~The bot cannot press `wildcharge`.~~ Fixed a second time in `BOT_BRAIN_VERSION` 4.0.0 — the
-solver itself now knows maneuvers.** The paragraphs above describe the *firing-decision* gate
-(distance, then `BRAIN_CONSTANTS.contactTriggerUnits`); they do not describe the solver's own EV
-pipeline, which is what actually decides a press once `chooseSlot` reasons in expected value
-(`minShotValue`) rather than an angle or a distance. Before 4.0.0, `solve()` returned
-`{ hits: 0, damage: 0 }` unconditionally for every maneuver weapon — a charge or a dash spawns no
-instance, so there was nothing for the projectile marcher to step — which meant `wildcharge` and
-`thunderclap` could never clear a nonzero `minShotValue` threshold no matter how close the target
-stood. `solution.ts`'s `marchManeuver` now sweeps the shooter's own hull along the maneuver's travel
-line instead, so both weapons are pressed on real expected value. **Reports from before
-`BOT_BRAIN_VERSION` 4.0.0 measured a Bastion that effectively never used its third slot under the
-EV-gated firing model, and are not comparable to one after.**
+**`BOT_BRAIN_VERSION` 4.0.0 replaces the firing-decision gate above with a real EV solver, and gives
+maneuvers a genuine hit-probability solution from the start — there is no "before" to discard.**
+`solve()` and `chooseSlot`'s expected-value gate (`minShotValue`) are both new IN 4.0.0; no earlier
+`BOT_BRAIN_VERSION` ever reasoned about a press in expected value at all, so there is no prior
+EV-gated report for a maneuver-less solver to have contaminated. (A transient version of `solve()`
+that returned `{ hits: 0, damage: 0 }` for every maneuver weapon existed only between two commits
+during this feature's own development and was never released as a `BOT_BRAIN_VERSION` — it is not
+part of this project's history.) `solution.ts`'s `marchManeuver` sweeps the shooter's own hull along
+the maneuver's travel line, tick by tick, against the target's predicted hull — the same swept-hull
+idea `marchOne` uses for a projectile — so `wildcharge` and `thunderclap` are pressed on a solved hit
+chance rather than the plain range comparison the pre-4.0.0 bot used. **Reports from before
+`BOT_BRAIN_VERSION` 4.0.0 are not invalid for this reason** — that older bot already pressed
+`wildcharge` (1179 times, measured above) via the ordinary distance-gated firing logic; they are only
+subject to the general rule that a `BOT_BRAIN_VERSION` bump invalidates comparison across it, the
+same as any other behaviour change with `BOT_PROFILES` untouched.
 
 **`corroded` contributes damage without ever dealing any.** Its row is a pure amplifier —
 `modifiers: { damageTaken: 1.3 }` — so it does not hit anyone itself; it makes whatever hits the

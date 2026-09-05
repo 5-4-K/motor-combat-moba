@@ -250,8 +250,12 @@ export class HumanController implements BotController {
           self,
           { x: target.x, y: target.y, speed: target.speed, angle: target.angle },
           leadSlot ? weaponDefOf(leadSlot.weaponId).speed : 0,
-          // plan 3 replaces this whole block; `leadFactor` left the profile in Task 7 (P36).
-          1,
+          // R21: restored. P35 removed `leadFactor` in phase B as "superseded by real forward
+          // prediction", but that predictor is a PHASE A deliverable that has not landed yet —
+          // hardcoding lead 1 here silently gave easy (was 0) and medium (was 0.55) a hands upgrade
+          // in exactly the axis that separates the tiers. See docs/superpowers/specs/
+          // 2026-09-05-bot-predictive-brain-design.md's P35 table.
+          profile.leadFactor,
         )
       : undefined;
     const aimHeading = aimPoint
@@ -262,7 +266,7 @@ export class HumanController implements BotController {
           self,
           { x: target.x, y: target.y, speed: target.speed, angle: target.angle },
           Math.max(self.speed, 1),
-          1,
+          profile.leadFactor,
         )
       : undefined;
     const interceptHeading = bodyIntercept
@@ -327,9 +331,6 @@ export class HumanController implements BotController {
     if (sit !== "waitOut" && sit !== "recover") this.lastPreferredRange = range;
 
     if (wall) desires.push(wall);
-    const inDeadband = sit === "fight"
-      && Math.abs((Number.isFinite(distance) ? distance : range) - range)
-        <= range * profile.deadbandFraction;
     const heading = blendHeading(desires, self.angle);
 
     const reverseBlocked = reverseWouldHitBound(self, view.arena, profile.wallLookaheadUnits);
@@ -385,7 +386,7 @@ export class HumanController implements BotController {
     const stuckOk = this.stuckSlot !== undefined
       && tick - this.stuckSinceTick < profile.slotStickTicks;
     const decision = chooseSlot({
-      self, target: target ?? ABSENT_TARGET, distance, profile,
+      self, target: target ?? ABSENT_TARGET, profile,
       weights: this.slotWeights, tick, lastPressTick: this.lastPressTick, rng: view.rng,
       ultHold: this.ultHold, situation: sit, roles,
       stuckSlot: stuckOk ? this.stuckSlot : undefined,

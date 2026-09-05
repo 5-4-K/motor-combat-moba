@@ -5,7 +5,7 @@ import type { Rng } from "../rng.js";
 import type { BotCarView, BotSelfView, BotSlotView, SituationId } from "../types.js";
 import type { KitRoles } from "./roles.js";
 import { weaponReachOf } from "./reach.js";
-import type { FiringSolution } from "./solution.js";
+import { bestAchievableValueOf, type FiringSolution } from "./solution.js";
 
 /**
  * How much a good window is worth to an ult's ranking (H30).
@@ -145,7 +145,6 @@ export interface UltHoldEntry {
 export function chooseSlot(args: {
   self: BotSelfView;
   target: BotCarView;
-  distance: number;
   profile: BotProfile;
   weights: readonly number[];
   tick: number;
@@ -179,6 +178,14 @@ export function chooseSlot(args: {
 
   const targetHpFraction = target.maxHp > 0 ? target.hp / target.maxHp : 1;
   const targetStunned = hasStatus(target.statuses, "stunned", tick);
+
+  // R20: the gate is a FRACTION of what this shooter's own kit can best achieve at its own aim
+  // quality, never an absolute EV number — an absolute threshold cannot compare across kits whose
+  // ceilings differ by a factor of four (see `minShotValueFraction`'s doc comment for the measured
+  // per-chassis numbers this replaced). `bestAchievableValueOf` is memoised, so this costs nothing
+  // beyond the first call for this (carId, sigma) pair.
+  const minValue = profile.minShotValueFraction
+    * bestAchievableValueOf(self.carId, profile.aimErrorSigmaRad);
 
   let best: number | undefined;
   let bestScore = -Infinity;
@@ -223,11 +230,11 @@ export function chooseSlot(args: {
       }
     }
 
-    // Rank on the solver's expected-value-per-second, gated on `minShotValue` (P14): a shot not
+    // Rank on the solver's expected-value-per-second, gated on `minValue` (P14, R20): a shot not
     // worth taking never enters the ranking at all, ult window bonus included or not (H29's old
     // marginal-range discipline check is gone — a marginal shot is just a shot the solver scores low).
     const solution = solutions.get(i);
-    if (!solution || solution.value < profile.minShotValue) continue;
+    if (!solution || solution.value < minValue) continue;
     let score = solution.value * Math.max(weights[i] ?? 1, 0.01) * windowBonus;
     const situation = args.situation;
     const roles = args.roles;

@@ -47,9 +47,10 @@ const LADDER: Readonly<Record<keyof BotProfile, Direction>> = {
   aimErrorSigmaRad: "falls",
   aimErrorDriftTicks: "falls",
   aimToleranceRad: "falls",
+  leadFactor: "rises",
   // Fire economy
   burstGapTicks: "falls",
-  minShotValue: "rises",
+  minShotValueFraction: "rises",
   ultDisciplineChance: "rises",
   ultWindowHpFraction: "equal",
   // Target politics
@@ -82,7 +83,7 @@ const LADDER: Readonly<Record<keyof BotProfile, Direction>> = {
 const PROBABILITY_FIELDS = [
   "ultDisciplineChance", "ultWindowHpFraction", "woundedBias",
   "vengefulness", "standoffFraction", "deadbandFraction", "retreatHpFraction",
-  "ramIntentChance", "dodgeChance", "blunderChance", "idleFidgetChance",
+  "ramIntentChance", "dodgeChance", "blunderChance", "idleFidgetChance", "leadFactor",
   "hearChance", "deadRespect", "opponentRangeRespect", "cornerRespect", "incomingCarChance",
 ] as const;
 

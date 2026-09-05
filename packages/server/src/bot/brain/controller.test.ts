@@ -25,14 +25,22 @@ function view(overrides: Partial<BotView> = {}): BotView {
   };
 }
 
+/**
+ * Generalised to take the SHOOTER's chassis (Finding 1, R20 fix round 2, 2026-09-06) — it used to be
+ * hardcoded to `bullseye`, which is exactly why the calibration in `bot-profiles.ts` missed that a
+ * hard Bastion never clears an absolute `minShotValue`: the harness that measured it only ever flew
+ * the roster's strongest kit. See the "fires a shot on every chassis" test below, which sweeps all
+ * three chassis at all three tiers.
+ */
 function closedLoopDuel(
   tier: "easy" | "medium" | "hard",
   ticks: number,
   targetPos: { x: number; y: number } = { x: 753, y: 360 },
+  chassis: "bullseye" | "mirage" | "bastion" = "bullseye",
 ): { fires: number; meanOffset: number } {
   const bot = new HumanController(tier);
   const rng = makeRng(17);
-  const slots = slotsOf("bullseye").map((weaponId) => ({
+  const slots = slotsOf(chassis).map((weaponId) => ({
     weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
     range: weaponDefOf(weaponId).range,
   }));
@@ -54,7 +62,7 @@ function closedLoopDuel(
     const intent = bot.decide(view({
       tick,
       self: {
-        ...view().self,
+        ...view().self, carId: chassis,
         x: body.x, y: body.y, angle: body.angle, speed: body.speed, slots,
       },
       others: [target],
@@ -69,7 +77,7 @@ function closedLoopDuel(
       body,
       { seq: tick, steer: intent.steer, throttle: intent.throttle, fireSlots: 0 },
       1 / TICK_RATE_HZ,
-      driveOf("bullseye"),
+      driveOf(chassis),
       NEUTRAL_MODIFIERS,
     );
   }
@@ -104,16 +112,34 @@ describe("HumanController", () => {
     // heading offset of 0.269 rad by tick 9 and never closed further.
     // Pre-fix baseline (2026-09-05, review round 1): fires = 6 / 300, heading frozen near 0.269 rad.
     //
-    // Task 7 finding (2026-09-05, EV firing gate): hard's `minShotValue` is 25. On-axis shots at
-    // this scenario's settled geometry reach ~26.1/s, safely above the threshold. Measured fire counts
-    // (300 ticks): 140 on-axis (heading settled near 0), 94 off-axis (heading settled near 0.2 rad).
-    // Both pass the >90 bar with margin, confirming the EV gate fires healthily at this tier.
+    // Task 7 finding (2026-09-05, EV firing gate): hard's `minShotValueFraction` (R20, fix round 2)
+    // clears comfortably at this scenario's settled geometry. Measured fire counts (300 ticks): 140
+    // on-axis (heading settled near 0), 94 off-axis (heading settled near 0.2 rad). Both pass the
+    // >90 bar with margin, confirming the EV gate fires healthily at this tier.
     const { fires, meanOffset } = closedLoopDuel("hard", 300, { x: 753, y: 500 });
     expect(fires).toBeGreaterThan(90);
     // Fixed at 0.2 rad — hard's `fireConeRad` before Task 7 (2026-09-05) deleted that field along
     // with the angular fire gate it served. The mechanism this asserts (the body must stay near the
     // aim line) does not depend on the deleted field's value, only on a fixed bound to hold it to.
     expect(meanOffset).toBeLessThan(0.2);
+  });
+
+  it("fires a non-zero number of shots on EVERY chassis at EVERY tier (Finding 1, R20)", () => {
+    // Before R20, `minShotValue` was an ABSOLUTE EV-per-second number, but a kit's achievable value
+    // varies by roughly 4x across the roster (Bastion's best possible shot anywhere, ~18.3, sat
+    // below hard's old threshold of 25) — so a hard Bastion pressed nothing, ever, in 600 ticks of
+    // this same duel. The calibration that picked 25 missed this because `closedLoopDuel` was
+    // hardcoded to `bullseye`, the roster's strongest kit, so nothing exercised a weaker chassis.
+    // `minShotValueFraction` compares against `bestAchievableValueOf(self.carId, sigma)` instead,
+    // so this must hold for every (chassis, tier) cell, not just Bullseye's.
+    const chassis = ["bullseye", "mirage", "bastion"] as const;
+    const tiers = ["easy", "medium", "hard"] as const;
+    for (const c of chassis) {
+      for (const t of tiers) {
+        const { fires } = closedLoopDuel(t, 600, undefined, c);
+        expect(fires, `${t}/${c} fired ${fires}/600 shots`).toBeGreaterThan(0);
+      }
+    }
   });
 
   it("hunts a quadrant waypoint when it has never seen anyone, never the arena centre (G12)", () => {

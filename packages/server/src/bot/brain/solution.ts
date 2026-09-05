@@ -1,8 +1,9 @@
 import {
   TICK_RATE_HZ, beamShapeAt, carHullOf, forwardMaxSpeedOf, instanceExpired, projectileShapeAt,
-  shapeHitsObb, smear, spawnInstances, stepInstance, weaponDamageOf, weaponDefOf, weaponTicksOf,
-  type CarId, type WeaponInstance, type WorldShape,
+  shapeHitsObb, slotsOf, smear, spawnInstances, stepInstance, weaponDamageOf, weaponDefOf,
+  weaponTicksOf, type CarId, type WeaponInstance, type WorldShape,
 } from "@motor-combat-moba/shared";
+import { BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import type { BotArenaView, BotCarView, BotSlotView } from "../types.js";
 import { weaponReachOf } from "./reach.js";
 
@@ -143,6 +144,88 @@ export function solve(args: SolveArgs): FiringSolution {
   };
 }
 
+/** `bestAchievableValueOf` keys its cache on carId and sigma together — a kit is fixed per match,
+ * so this only needs computing once per (chassis, tier) combination the whole process ever sees. */
+const bestAchievableValueCache = new Map<string, number>();
+
+/**
+ * Fractions of a slot's `weaponReachOf` tried when hunting for its best-case `value` (R20). A grid
+ * rather than a closed form because "best range" is not the same shape for every weapon: a pellet
+ * spread and a beam both want to stand close (a target subtends a wider angle, so aim noise is less
+ * likely to miss it), an aim-assisted gun's ceiling is flat across most of its lock envelope, and a
+ * maneuver's hull-sweep can connect anywhere along its own travel line. Sampling densely near 0 and
+ * coarsely out to the full reach covers all three shapes without hand-deriving one per weapon kind.
+ *
+ * Each sampled distance is still floored at `BRAIN_CONSTANTS.minEngageUnits` (below) — without that
+ * floor, a short-range weapon's small fractions (e.g. 2% of `pepperbox`'s 600u range, 12 units) put
+ * the target's hull CENTRE closer than the two cars' own half-lengths, so the synthetic geometry has
+ * shooter and target overlapping and every one of `pepperbox`'s four muzzles (three pointed sideways
+ * and backward, per `WEAPON_TABLE`) lands on a target that is, physically, inside the shooter. That
+ * measured a 235 ceiling for Bullseye — a number no real engagement can ever produce, since no two
+ * cars stand inside each other — instead of the roughly-78 pepperbox actually achieves at a distance
+ * where only its forward muzzle's fan can connect.
+ */
+const CEILING_RANGE_FRACTIONS: readonly number[] = Object.freeze([
+  0.02, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.98,
+]);
+
+/**
+ * The best `value` (expected damage per second) this chassis's kit can produce anywhere, at this
+ * aim sigma, with perfect aim GEOMETRY — nose pointed exactly at a stationary target (R20).
+ *
+ * This is the denominator `minShotValueFraction` (bot-profiles.ts) divides against: an absolute EV
+ * threshold cannot compare across kits whose ceilings differ by a factor of four (see that field's
+ * doc comment for the measured per-chassis numbers this fixes), so the gate instead asks "is this
+ * shot worth taking, relative to the best this kit can ever do at this shooter's own aim quality".
+ *
+ * Built the same way `solve` itself works — a synthetic stationary target, straight ahead, at a grid
+ * of candidate ranges per slot (`CEILING_RANGE_FRACTIONS`) — and taking the best `value` any slot
+ * reaches at any sampled range. A lock is assumed held on the synthetic target (matching distance
+ * within `aimRangeUnits`) so an aim-assisted weapon's real ceiling — a forced sigma of 0 — is not
+ * silently discarded, the same condition `solve` itself checks.
+ *
+ * MEMOISED (`bestAchievableValueCache`): a kit is fixed for the whole match, so this must never be
+ * recomputed per tick — only look it up once per (carId, aimSigma) pair.
+ */
+export function bestAchievableValueOf(carId: CarId, aimSigmaRad: number): number {
+  const key = `${carId}|${aimSigmaRad}`;
+  const cached = bestAchievableValueCache.get(key);
+  if (cached !== undefined) return cached;
+
+  const arena: BotArenaView = { width: 1_000_000, height: 1_000_000, obstacles: [] };
+  const shooter: SolverShooter = {
+    sessionId: "ceiling-shooter", carId, team: 0,
+    x: 0, y: 0, angle: 0, speed: 0, lockTargetSessionId: "ceiling-target",
+  };
+
+  let best = 0;
+  const weaponIds = slotsOf(carId);
+  for (let i = 0; i < weaponIds.length; i++) {
+    const weaponId = weaponIds[i]!;
+    const reach = weaponReachOf(weaponId);
+    const slot: BotSlotView = {
+      weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
+      range: weaponDefOf(weaponId).range,
+    };
+    for (const fraction of CEILING_RANGE_FRACTIONS) {
+      const distance = Math.max(BRAIN_CONSTANTS.minEngageUnits, reach * fraction);
+      const target: BotCarView = {
+        sessionId: "ceiling-target", carId, team: 1, x: distance, y: 0, angle: 0,
+        speed: 0, hp: Number.POSITIVE_INFINITY, maxHp: Number.POSITIVE_INFINITY,
+        alive: true, phased: false, statuses: [], maneuver: 0,
+      };
+      const solution = solve({
+        shooter, slot, slotIndex: i, target, targetAt: constantVelocityPredictor(target),
+        aimSigmaRad, tick: 0, arena,
+      });
+      if (solution.value > best) best = solution.value;
+    }
+  }
+
+  bestAchievableValueCache.set(key, best);
+  return best;
+}
+
 /** One press fired along `heading`: how many instances connect, and for how much. */
 function marchPress(
   args: SolveArgs,
@@ -190,8 +273,17 @@ function marchPress(
  * since the weapon itself declares no travel speed. `thunderclap` authors both `speed` and `range`
  * (the dash distance) directly, so it needs neither fallback.
  *
- * Without this branch `marchPress` returned `{ hits: 0, damage: 0 }` unconditionally for every
- * maneuver weapon, which is what the balance harness documents as "the bot cannot press wildcharge".
+ * `solve()` and `minShotValue` are both new on THIS branch — there was no EV-gated firing model
+ * before it for a maneuver-less `marchPress` to have ever shipped without this branch (a fix-round
+ * commit on this same branch briefly had `marchPress` return `{ hits: 0, damage: 0 }` for every
+ * maneuver weapon; that version never merged). This function is what makes the EV solver's maneuver
+ * handling real from the start, not a fix to a shipped regression. The bot COULD already press
+ * `wildcharge` before this branch, on the old range-heuristic firing logic
+ * (`weaponReachOf`'s `contactTriggerUnits` fallback, gating on distance rather than a solved hit
+ * chance) — see `balance/README.md`'s "Before you trust a number" section for that separate,
+ * already-fixed history (1179 presses measured once it landed). What this branch changes is HOW a
+ * maneuver gets pressed: a genuine swept-hull hit-probability solution instead of a bare
+ * distance check.
  */
 function marchManeuver(
   args: SolveArgs,

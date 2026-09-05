@@ -123,6 +123,18 @@ describe("runMatch", () => {
     // assertion below states that premise outright so the two cases can never be confused: if a
     // future balance edit empties the window again, THAT line fails and names the reason.
     //
+    // `seed: 124`, not 59: the final whole-branch review's fix wave (2026-09-06) made two changes
+    // that both move WHEN a hard bot presses a slot, which is exactly this matchup's clock. R20
+    // replaced `minShotValue` (an absolute EV-per-second number) with `minShotValueFraction` (a
+    // fraction of `bestAchievableValueOf`, the shooter's own kit ceiling) after measurement showed
+    // the absolute version made a hard Bastion never fire at all; the new values (easy 0.01, medium
+    // 0.05, hard 0.3) are calibrated against a genuinely different quantity than the old ones (0.5,
+    // 7, 25) ever were, so a hard bot's fire timing shifts. R21 separately restored `leadFactor`
+    // (0.95 on hard), which had been silently hardcoded to 1 — a hands upgrade in exactly the axis
+    // that separates the tiers — so `interceptPoint`'s aim point moves too. Swept 1-150 against the
+    // fixed brain: 10, 15, 26, 30, 32, 39, 40, 65, 70, 71, 75, 77, 85, 87, 95, 106, 124, 127, 135,
+    // 136, 138, 142, and 147 land a kill inside the window.
+    //
     // `seed: 59`, not 10: Task 7 (2026-09-05) replaced the angular fire gate with the solver's
     // expected-value threshold (`minShotValue`) and re-keyed `compensateForLag`'s steering deadzone
     // cap onto `aimToleranceRad` now that `fireConeRad` is gone (`BRAIN_CONSTANTS.deadzoneCapMultiplier`)
@@ -188,7 +200,7 @@ describe("runMatch", () => {
     // Mirage/Bastion matchup's dynamics enough that seed 40 stopped landing a kill inside the 30 s
     // window — a legitimate killless window under the new views, not a clock regression, so this
     // test isn't about that case.
-    const out = runMatch({ ...SETUP, seed: 59, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    const out = runMatch({ ...SETUP, seed: 124, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);

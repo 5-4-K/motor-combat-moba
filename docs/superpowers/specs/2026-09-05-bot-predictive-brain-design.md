@@ -368,11 +368,11 @@ all at once.
 | `fireConeRad` | B | The gate is EV now, not an angle (§1.3) |
 | `fireDisciplineChance` | B | The EV threshold *is* discipline |
 | `orbitBias` | B | Deleted outright (P32) — its last reader goes with the §1.1 fix |
-| `leadFactor` | B | Superseded by real forward prediction; unused once the solver owns the aim point |
+| `leadFactor` | A | Superseded by real forward prediction (`predict.ts`, P17-P22) — but that predictor is what phase A *builds*, not phase B. Phase B has no replacement for `leadFactor`, so removing it there (as originally written here) left `interceptPoint` with no lead knob at all for one phase's worth of tiers; restored to `BotProfile` in the final review's fix wave (R21) and moved to phase A, the phase that actually gives it a replacement. |
 | `aimToleranceRad` | D | Still read by `reduceToIntent` until the planner emits `steer` directly |
 | `standoffFraction`, `deadbandFraction` | D | Still read by `preferredRangeOf` and the deadband until P31 and P6 land |
 
-Four leave in phase B and three in phase D, which is what P56's "two migrations" counts.
+Three leave in phase B, one in phase A, and three in phase D.
 
 **P36. Added** — first-pass values, expected to move under playtesting. The **Phase** column is
 normative: a field does not exist in `BotProfile` until its phase lands, which is what makes P56's
