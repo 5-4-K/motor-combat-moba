@@ -233,11 +233,29 @@ therefore mispredict knocked cars. That is a very human error, obtained for free
 and `angVel` per observed target per recompute. Reading exact `speed` off the wire each tick is the
 one grey area under P1 — a human eyeballs it — and this knob is the answer.
 
-**P21. Cooldown tracking.** `observedFires` is documented as *"Empty when the host does not collect
-combat events, which is every room today"*, so the bot cannot currently track cooldowns at all
-despite P2 permitting it. The `fired` sink must be enabled for bot-hosting rooms; perception records
-`(sessionId, weaponId, tick)` and estimates readiness against the weapon table, decaying with
-`memoryTicks`. Approximate and forgettable — the skilled player's version, not the wallhack's.
+**P21. Cooldown tracking is mostly already built.** *(Corrected 2026-09-05 during plan-writing; the
+first draft of this decision was wrong.)*
+
+The draft claimed the `fired` sink was off in every room and had to be enabled. It is not. **All
+three bot hosts already wire it end to end** — `PlaygroundRoom.ts:424`, `PracticeRoom.ts:409`,
+`balance/match.ts:271` all pass `observedFires` into `buildBotView`. Furthermore
+`perception.ts:84–87` already records **every** weapon it sees fired, not only ults;
+`ultSeenTick` is a misleading name for a general "last seen firing" map, and `ultIsSpent` is
+already a generic *"was this weapon seen fired within N ticks"* query.
+
+What is actually missing is only the **readiness estimate on top of it**: a
+`readinessOf(state, sessionId, weaponId, tick)` helper comparing `tick - seen` against the weapon's
+cooldown in ticks. That is a small addition, not a plumbing job.
+
+Two stale comments assert the opposite and must be corrected in the same change, or the next reader
+repeats this mistake:
+
+- `bot/types.ts` on `observedFires`: *"Empty when the host does not collect combat events, which is
+  every room today."*
+- `balance/match.ts:234–236`: *"the harness is the ONLY host that turns `observedFires` on —
+  `ArenaRoom` and `PracticeRoom` pass nothing."*
+
+`ArenaRoom` genuinely passes nothing, and correctly so — it hosts no bots.
 
 **P22.** Prediction horizon for the target is the planner's K, so a `K = 0` tier predicts nothing and
 falls back to `interceptPoint`'s constant-velocity solve.
@@ -322,16 +340,20 @@ roughly a minute. **Phase D must measure this against a stated budget.** If it m
   deliberately. Tracks cooldowns and attacks the window. Breaks firing lines by arithmetic rather
   than by dodge roll.
 
-**P35. Removed from `BotProfile`** — replaced by mechanism, not by another number:
+**P35. Removed from `BotProfile`** — replaced by mechanism, not by another number. The **Phase**
+column is normative, and matches P36's: a field leaves in the phase that removes its last reader, not
+all at once.
 
-| Gone | Because |
-|---|---|
-| `fireConeRad` | The gate is EV now, not an angle (§1.3) |
-| `fireDisciplineChance` | The EV threshold *is* discipline |
-| `aimToleranceRad` | The planner emits `steer` directly; no heading-error deadzone remains |
-| `leadFactor` | Superseded by real forward prediction |
-| `standoffFraction`, `deadbandFraction` | Preferred range is solver-derived (P31); hysteresis moves to `commitPenalty` |
-| `orbitBias` | Deleted outright (P32) |
+| Gone | Phase | Because |
+|---|---|---|
+| `fireConeRad` | B | The gate is EV now, not an angle (§1.3) |
+| `fireDisciplineChance` | B | The EV threshold *is* discipline |
+| `orbitBias` | B | Deleted outright (P32) — its last reader goes with the §1.1 fix |
+| `leadFactor` | B | Superseded by real forward prediction; unused once the solver owns the aim point |
+| `aimToleranceRad` | D | Still read by `reduceToIntent` until the planner emits `steer` directly |
+| `standoffFraction`, `deadbandFraction` | D | Still read by `preferredRangeOf` and the deadband until P31 and P6 land |
+
+Four leave in phase B and three in phase D, which is what P56's "two migrations" counts.
 
 **P36. Added** — first-pass values, expected to move under playtesting. The **Phase** column is
 normative: a field does not exist in `BotProfile` until its phase lands, which is what makes P56's
@@ -473,7 +495,7 @@ A (physics prediction)    ─────> D (shares rollout code)
 | Phase | Contents | Docs + skill owed in the same commit (P58b) | Notes |
 |---|---|---|---|
 | **B** | `solution.ts` (P7–P15), EV fire gate, `minShotValue`, **and the §1.1 orbit fix** | `bot-tuner`: drop `fireConeRad`, `fireDisciplineChance`, `aimToleranceRad`, `orbitBias`, `standoffFraction`; add `minShotValue` + the EV-ratio diagnostic (P58a.3, P58a.4); delete the dead closing invariant. `bot-behavior.md`: hands + fire-economy tables, P42 warning. `balance/README.md`: P57. | The orbit fix must ride here: B is meaningless while the body sits 19.3° off. Uses the existing `interceptPoint` predictor. |
-| **C** | Direction-C threat evaluation (P16), cooldown tracking + `fired` sink (P21) | `bot-tuner`: `opponentRangeRespect` re-documented as the `theirEV` multiplier (P38). `bot-behavior.md`: judgment table. | Nearly free once B's geometry exists. Adds no profile field. |
+| **C** | Direction-C threat evaluation (P16), the `readinessOf` estimate + two stale-comment fixes (P21) | `bot-tuner`: `opponentRangeRespect` re-documented as the `theirEV` multiplier (P38). `bot-behavior.md`: judgment table. | Nearly free once B's geometry exists. Adds no profile field. Smaller than first drafted — the `fired` sink is already wired in all three hosts. |
 | **A** | `predict.ts` (P17–P22), replacing `interceptPoint` behind the same interface | `bot-tuner`: drop `leadFactor`, add `stateEstimationSigma`. `bot-behavior.md`: aim table. | Clean swap; solver quality rises without the gate changing shape. |
 | **D** | `planner.ts` (P23–P33), `movement.ts` deletion (P6), situation-as-weights (P27), overlay (P45), perf gate (P33) | `bot-tuner`: the third factor (P58a.1), the inverted weave row (P58a.2), planner knobs. `bot-behavior.md`: pipeline diagram, positioning table. | The largest and riskiest phase. |
 
