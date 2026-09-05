@@ -21,25 +21,13 @@ export const MSG_PLAYGROUND_SETUP = "pg_setup"; // payload: PlaygroundSetup
 /** Dev-only: what the bot was thinking, for the playground overlay (H12). Never sent by a client. */
 export const MSG_PLAYGROUND_BOT_DEBUG = "playground-bot-debug";
 
-const GOALS = [
-  "recover", "huntLastKnown", "rush", "holdRange", "intercept",
-  "setupCc", "dump", "contact", "reset", "pinWall", "unpin",
+const SITUATIONS = [
+  "recover", "waitOut", "evade", "unpin", "punish", "reset", "fight", "close",
 ] as const;
 
 export interface BotDebugPayload {
   tick: number;
-  goal: string;
-  /**
-   * Every goal's score on the tick this was taken, rounded (H12 / G9).
-   *
-   * The whole point of scoring goals rather than running an if-ladder is that "why did it do
-   * that?" is answered by reading the scoreboard — which only works if the scoreboard is on screen.
-   * A goal may legitimately be absent (`scoreGoals` early-returns with only `recover`, or only
-   * `huntLastKnown`, set) and a score may legitimately be `-Infinity`, which JSON cannot carry — the
-   * sender drops those keys rather than shipping `null`, so a missing entry reads as "not on the
-   * table this tick".
-   */
-  goalScores: Record<string, number>;
+  situation: string;
   targetSessionId: string;
   preferredRange: number;
   personality: string;
@@ -52,24 +40,13 @@ export function isBotDebugPayload(value: unknown): value is BotDebugPayload {
   const rec = value as Record<string, unknown>;
   return (
     typeof rec.tick === "number" &&
-    typeof rec.goal === "string" &&
-    (GOALS as readonly string[]).includes(rec.goal) &&
-    isGoalScores(rec.goalScores) &&
+    typeof rec.situation === "string" &&
+    (SITUATIONS as readonly string[]).includes(rec.situation) &&
     typeof rec.targetSessionId === "string" &&
     typeof rec.preferredRange === "number" &&
     typeof rec.personality === "string" &&
     typeof rec.firedSlot === "number"
   );
-}
-
-/** A plain object whose keys are all real goal ids and whose values are all finite numbers. */
-function isGoalScores(value: unknown): value is Record<string, number> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-  for (const [key, score] of Object.entries(value as Record<string, unknown>)) {
-    if (!(GOALS as readonly string[]).includes(key)) return false;
-    if (typeof score !== "number" || !Number.isFinite(score)) return false;
-  }
-  return true;
 }
 
 /** How hard the playground's bot plays (PG27). Wire value is the literal string, not an index. */

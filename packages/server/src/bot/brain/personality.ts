@@ -9,15 +9,14 @@ type Shifts = Partial<Record<keyof BotProfile, number>>;
 const ARCHETYPES: Readonly<Record<PersonalityId, Shifts>> = Object.freeze({
   brawler: {
     standoffFraction: 0.8, ramIntentChance: 1.25, retreatHpFraction: 0.8, orbitBias: 0.8,
-    rushWeight: 1.25, setupWeight: 0.8,
   },
   kiter: {
     standoffFraction: 1.25, orbitBias: 1.25, retreatHpFraction: 1.25, ramIntentChance: 0.8,
-    rushWeight: 0.8, interceptWeight: 1.25,
+    opponentRangeRespect: 1.15,
   },
   sprayer: { fireDisciplineChance: 0.8, burstGapTicks: 0.8, ultDisciplineChance: 0.8 },
   grudge: { vengefulness: 1.25, targetCommitTicks: 1.25, woundedBias: 0.8 },
-  opportunist: { woundedBias: 1.25, ultDisciplineChance: 1.25, standoffFraction: 1, dumpWeight: 1.25 },
+  opportunist: { woundedBias: 1.25, ultDisciplineChance: 1.25, standoffFraction: 1 },
 });
 
 const IDS = Object.keys(ARCHETYPES) as PersonalityId[];
@@ -36,7 +35,7 @@ const UNIT_INTERVAL_FIELDS: ReadonlySet<string> = new Set<keyof BotProfile>([
   "fireDisciplineChance", "ultDisciplineChance", "ultWindowHpFraction", "woundedBias",
   "vengefulness", "standoffFraction", "deadbandFraction", "orbitBias", "retreatHpFraction",
   "ramIntentChance", "dodgeChance", "blunderChance", "idleFidgetChance", "leadFactor",
-  "hearChance",
+  "hearChance", "deadRespect", "opponentRangeRespect", "cornerRespect", "incomingCarChance",
 ]);
 
 /** The tier one rung easier, whose values a personality may never reach past (H47). */

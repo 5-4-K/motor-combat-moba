@@ -85,12 +85,15 @@ mid-session reconfiguration. See
 
 **The bot is a five-layer brain, and a tier is data.** `packages/server/src/bot/brain/` runs
 perceive → assess → move → shoot → humanize; `easy`/`medium`/`hard` differ only in `BOT_PROFILES`,
-and no module branches on the difficulty name. Assess holds a **goal** (rush, hold range, setup a
-stun, dump, hunt last-known — never drive to the arena centre), not a mood. Dodging is a steering
-deflection, never a goal, so a bot can dodge without stopping fighting. The bot presses **one** slot
-per tick — `beginFire` takes the lowest set bit, so an OR of every in-range slot fires slot 0 and
-nothing else. `BOT_BRAIN_VERSION` rides in `botFingerprint`: bump it when behaviour changes without
-the table moving. See [`docs/bot-behavior.md`](docs/bot-behavior.md).
+and no module branches on the difficulty name. Assess names **one situation** (`recover`, `waitOut`,
+`evade`, `unpin`, `punish`, `reset`, `fight`, `close`) and commits to that play — not a scored catalog.
+HUD facts (pose, HP, dead/phased, own and opponent gun reach, seen big-gun fires) are always present;
+tiers differ in how much they listen and how well the hands execute. The bot presses **one** slot
+per tick. `BOT_BRAIN_VERSION` rides in `botFingerprint`: bump it when behaviour changes without
+the table moving. Feel complaints ("medium is too hard to hit") go through the
+[`bot-tuner`](.claude/skills/bot-tuner/SKILL.md) skill onto knobs, not a Hard-only branch. See
+[`docs/bot-behavior.md`](docs/bot-behavior.md) and
+[`docs/superpowers/specs/2026-09-05-bot-situation-play-design.md`](docs/superpowers/specs/2026-09-05-bot-situation-play-design.md).
 
 ## Hard invariants
 

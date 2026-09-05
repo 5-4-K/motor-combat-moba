@@ -123,6 +123,10 @@ describe("runMatch", () => {
     // assertion below states that premise outright so the two cases can never be confused: if a
     // future balance edit empties the window again, THAT line fails and names the reason.
     //
+    // `seed: 65`, not 21: the 2026-09-05 situation-play brain (waitOut on corpses, S10 aim-reach,
+    // evade as a situation rather than a blend) moved this matchup again — seed 21 is now a
+    // legitimate 0-0 in 30 s. Swept 1-80: 23, 27, and 65 still land a kill inside the window.
+    //
     // `seed: 21`, not 27: the 2026-09-04 tactical-intelligence pass replaced stances with goals
     // (hunt is last-known, dodge is a deflection, kit roles drive setupCc/dump), which moved this
     // hard-tier Mirage/Bastion matchup again — seed 27's kill no longer lands inside the 30 s
@@ -139,7 +143,7 @@ describe("runMatch", () => {
     // Mirage/Bastion matchup's dynamics enough that seed 40 stopped landing a kill inside the 30 s
     // window — a legitimate killless window under the new views, not a clock regression, so this
     // test isn't about that case.
-    const out = runMatch({ ...SETUP, seed: 21, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    const out = runMatch({ ...SETUP, seed: 65, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);
@@ -156,7 +160,11 @@ describe("runMatch", () => {
     // Seeds 9 and 10 replace 7 and 8 for the same reason the sibling test above re-seeded: the
     // 2026-09-04 brain change left seeds 1-8 all drawn, so the non-vacuity assertion at the bottom
     // had nothing decisive to stand on. The RULE below is asserted on every outcome either way.
-    const outcomes = [1, 2, 3, 4, 5, 6, 9, 10].map((seed) =>
+    //
+    // 2026-09-05 situation-play: seeds 1-10 are all 0-0 draws in 60 s under the new brain. Swept
+    // 1-80; 42, 44, 45, 53, 61, 63, 65, 68 are decisive. Keep two draws in the spread so the tie
+    // branch still runs.
+    const outcomes = [1, 2, 42, 44, 45, 53, 65, 68].map((seed) =>
       runMatch({ ...SETUP, seed, mode: GameMode.FFA_DEATHMATCH }));
 
     for (const out of outcomes) {

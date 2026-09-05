@@ -6,7 +6,7 @@ import type { BotSlotView } from "../types.js";
  *
  * No new weapon-table fields: a new weapon inherits behaviour from `applies`, `kind`,
  * `usesAimAssist`, `homing`, `explosion`, pellets, and `holdsDuringFire`. Slot indices are what
- * `chooseSlot` has to press; the arrays are what scoring/lock-wait consults.
+ * `chooseSlot` has to press; the arrays are what slot ranking consults.
  */
 export interface KitRoles {
   setupCcSlot: number | undefined;

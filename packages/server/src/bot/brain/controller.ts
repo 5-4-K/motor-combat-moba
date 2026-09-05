@@ -1,26 +1,29 @@
-import { hasStatus, WEAPON_TABLE, weaponDefOf, type BotDifficulty, type WeaponId } from "@motor-combat-moba/shared";
+import {
+  hasStatus, TICK_RATE_HZ, WEAPON_TABLE, weaponDefOf, type BotDifficulty, type WeaponId,
+} from "@motor-combat-moba/shared";
 import { BOT_PROFILES, BRAIN_CONSTANTS, type BotProfile } from "../../config/bot-profiles.js";
 import type {
-  BotCarView, BotController, BotDebug, BotIntent, BotPersonality, BotView, GoalId,
+  BotCarView, BotController, BotDebug, BotIntent, BotPersonality, BotView, SituationId,
 } from "../types.js";
 import { interceptPoint, newAimErrorState, signedDelta, stepAimError, type AimErrorState } from "./aim.js";
 import { chooseSlot, preferredRangeOf, slotIsReady, type UltHoldEntry } from "./firing.js";
-import { newGoalState, pickGoal, scoreGoals, scoreTargets, type GoalState } from "./goals.js";
+import { scoreTargets } from "./goals.js";
 import { applyHumanize, newHumanizeState, type HumanizeState } from "./humanize.js";
 import {
-  blendHeading, dodgeDesires, goalDesire, nearBound, orbitDesire, reduceToIntent, wallDesire,
-  type Desire,
+  blendHeading, goalDesire, openFloorHeading, orbitDesire, reduceToIntent, reverseWouldHitBound,
+  wallDesire, type Desire,
 } from "./movement.js";
 import {
   acquiringUnnoticed, activeThreats, knownCars, lastKnownAnchor, nearestHeardShot, newPerception,
   perceive, searchWaypoint, ultIsSpent, type PerceptionState,
 } from "./perception.js";
 import { rollPersonality } from "./personality.js";
+import { kitReachOf, weaponReachOf } from "./reach.js";
 import { rolesOf } from "./roles.js";
+import { classifySituation, newSituationState, pickSituation, type SituationState } from "./situation.js";
 
 const COAST: BotIntent = { steer: 0, throttle: 0, fireSlots: 0 };
 
-/** A target-shaped nothing, so `chooseSlot` can draw on a targetless tick without firing (H21). */
 const ABSENT_TARGET: BotCarView = {
   sessionId: "", carId: "bullseye", team: 0, x: 0, y: 0, angle: 0, speed: 0,
   hp: 1, maxHp: 1, alive: false, phased: true, statuses: [], maneuver: 0,
@@ -29,18 +32,11 @@ const ABSENT_TARGET: BotCarView = {
 /**
  * The bot (H5). Five layers, one `decide` call: perceive, assess, move, shoot, humanize.
  *
- * Perception and humanization run EVERY tick; assess/move/shoot run on `recomputeTicks` (H6). A
- * memory that only updates every twelfth tick is not a memory, and a delay line that only shifts
- * every twelfth tick delays by a multiple of the cadence rather than by its own value.
+ * Perception and humanization run EVERY tick; assess/move/shoot run on `recomputeTicks` (H6).
  */
 export class HumanController implements BotController {
   readonly profileId: BotDifficulty;
-  /** The tier row as authored. Kept un-personalised so `debug()` can show what was rolled from. */
   private readonly profile: BotProfile;
-  /**
-   * What the brain actually reads. Identical to `profile` until the personality roll on the first
-   * `decide` call replaces it with a shifted-and-clamped copy (H20/H47).
-   */
   private effectiveProfile: BotProfile;
   private fixedTarget: string | undefined;
   private target: string | undefined;
@@ -48,44 +44,27 @@ export class HumanController implements BotController {
   private lastDebug: BotDebug | undefined;
   private aimError: AimErrorState = newAimErrorState();
   private perception: PerceptionState = newPerception();
-  /** Tick of the last press this bot actually made, so `chooseSlot` can enforce `burstGapTicks`. */
   private lastPressTick = -999;
-  /**
-   * Per-slot ult discipline memo, owned here and mutated in place by `chooseSlot` (H30). Rolled once
-   * per (target, ready) episode rather than every recompute — see `UltHoldEntry`'s doc for why a
-   * per-tick reroll would make even a disciplined tier's "hold" decay to a certainty of firing.
-   */
   private ultHold = new Map<number, UltHoldEntry>();
-  /**
-   * Per-slot preference, rolled per bot from personality (H47). `[1, 1, 1]` is neutral — every slot
-   * weighted equally — until the first `decide` call replaces it.
-   */
   private slotWeights: readonly number[] = [1, 1, 1];
-  /**
-   * The range `plan` last computed, threaded into `debug()` (H12). Hunt / recover set this to 0
-   * because there is no live target to stand off from.
-   */
   private lastPreferredRange = 0;
-  /** Which way `orbitDesire` circles. Rolled once from personality on the first `decide` call. */
   private orbitSide: 1 | -1 = 1;
-  /** The goal and when it was entered (G4/G7). */
-  private goal: GoalState = newGoalState();
-  /** Tick the current target started being held, for `scoreTargets`'s stickiness bonus. */
+  private situation: SituationState = newSituationState();
   private heldSinceTick = 0;
-  /** Whether this bot has committed to ramming its current target (H40). */
   private wantsRam = false;
-  /** Which target the ram roll above was already made for — so it happens once per target. */
   private ramRolledForTargetId: string | undefined;
-  /** Hear-toward-shot, rolled once per hunt episode (G12). */
   private huntHear: boolean | undefined;
-  /** Which quadrant search waypoint the current hunt is committed to. */
   private searchIndex = 0;
-  // Carried out of `plan` for `debug()`, which runs after it.
-  private lastGoalScores: Record<GoalId, number> | undefined;
   private lastFiredSlot: number | undefined;
-  /** Humanization state — delay line, blunder window (Task 7). Runs every tick. */
+  private stuckSlot: number | undefined;
+  private stuckSinceTick = 0;
+  private pinEpisode = false;
+  private willUnpin = false;
+  private deadEpisodeId: string | undefined;
+  private respectDead = true;
+  private carApproachId: string | undefined;
+  private willEvadeCar = false;
   private humanize: HumanizeState = newHumanizeState();
-  /** Rolled lazily on the first `decide` call (H20), before any other draw that tick. */
   private personality: BotPersonality | undefined;
 
   constructor(
@@ -102,7 +81,6 @@ export class HumanController implements BotController {
     return this.target;
   }
 
-  /** Point the bot at one car, or `undefined` to choose for itself. */
   setTarget(sessionId: string | undefined): void {
     this.fixedTarget = sessionId;
   }
@@ -112,8 +90,6 @@ export class HumanController implements BotController {
   }
 
   decide(view: BotView): BotIntent {
-    // LAYER 0 — personality. Rolled once, lazily, on the first tick this bot ever decides — before
-    // any other draw that tick (H20), so no host has to know personalities exist.
     if (!this.personality) {
       const rolled = rollPersonality(view.rng, this.profileId, this.profile);
       this.personality = rolled.personality;
@@ -122,8 +98,6 @@ export class HumanController implements BotController {
       this.orbitSide = rolled.personality.slotWeights[0]! > 1 ? 1 : -1;
     }
 
-    // LAYER 1 — perceive. Runs every tick, not on the recompute cadence below (H21 draw order): a
-    // memory that only updates every twelfth tick is not a memory.
     this.perception = perceive(this.perception, view, this.effectiveProfile);
     this.aimError = stepAimError(this.aimError, view.tick, this.effectiveProfile, view.rng);
 
@@ -131,7 +105,6 @@ export class HumanController implements BotController {
     if (target?.sessionId !== this.target) this.heldSinceTick = view.tick;
     this.target = target?.sessionId;
 
-    // LAYER 2/3/4 — assess, move, shoot, on the recompute cadence (Tasks 4-6)
     const decisionWindow = this.shouldRecompute(view.tick);
     if (decisionWindow) {
       this.held = this.plan(view, target);
@@ -139,15 +112,14 @@ export class HumanController implements BotController {
 
     this.lastDebug = {
       tick: view.tick,
-      goal: this.goal.current,
-      goalScores: this.lastGoalScores ?? {},
+      situation: this.situation.current,
       targetSessionId: this.target,
       preferredRange: this.lastPreferredRange,
       personality: this.personality.id,
       firedSlot: this.lastFiredSlot,
     };
 
-    const idle = this.goal.current === "recover";
+    const idle = this.situation.current === "recover";
     return applyHumanize(
       this.humanize, this.held, view.tick, this.effectiveProfile, view.rng, idle, decisionWindow,
     );
@@ -159,18 +131,40 @@ export class HumanController implements BotController {
   }
 
   private pickTarget(view: BotView): BotCarView | undefined {
-    const candidates = knownCars(this.perception, view.tick);
+    const noticed = knownCars(this.perception, view.tick);
+    const hittable = noticed.filter((o) => o.alive && !o.phased);
     if (this.fixedTarget !== undefined) {
-      // Both rooms name the bot's opponent. A fixed target the bot has NOT noticed yet is absent
-      // here on purpose: that is the acquire delay doing its job, not a lookup failure.
-      const fixed = candidates.find((o) => o.sessionId === this.fixedTarget);
-      return fixed?.alive && !fixed.phased ? fixed : undefined;
+      const fixed = noticed.find((o) => o.sessionId === this.fixedTarget)
+        ?? view.others.find((o) => o.sessionId === this.fixedTarget);
+      if (!fixed) return undefined;
+      if (fixed.alive && !fixed.phased) {
+        this.deadEpisodeId = undefined;
+        return hittable.find((o) => o.sessionId === fixed.sessionId) ?? (
+          noticed.some((o) => o.sessionId === fixed.sessionId) ? fixed : undefined
+        );
+      }
+      return this.ghostIfUnrespected(fixed, view);
     }
     const chosen = scoreTargets({
-      self: view.self, candidates, perception: this.perception, profile: this.effectiveProfile,
-      tick: view.tick, heldTargetId: this.target, heldSinceTick: this.heldSinceTick, rng: view.rng,
+      self: view.self, candidates: hittable, perception: this.perception,
+      profile: this.effectiveProfile, tick: view.tick, heldTargetId: this.target,
+      heldSinceTick: this.heldSinceTick, rng: view.rng,
     });
-    return candidates.find((c) => c.sessionId === chosen.targetSessionId);
+    const live = hittable.find((c) => c.sessionId === chosen.targetSessionId);
+    if (live) {
+      this.deadEpisodeId = undefined;
+      return live;
+    }
+    const ghost = noticed.find((o) => !o.alive || o.phased);
+    return ghost ? this.ghostIfUnrespected(ghost, view) : undefined;
+  }
+
+  private ghostIfUnrespected(car: BotCarView, view: BotView): BotCarView | undefined {
+    if (this.deadEpisodeId !== car.sessionId) {
+      this.deadEpisodeId = car.sessionId;
+      this.respectDead = view.rng() < this.effectiveProfile.deadRespect;
+    }
+    return this.respectDead ? undefined : { ...car, alive: true, phased: false };
   }
 
   private plan(view: BotView, target: BotCarView | undefined): BotIntent {
@@ -178,17 +172,19 @@ export class HumanController implements BotController {
     const self = view.self;
     const tick = view.tick;
     const roles = rolesOf(self.slots);
-
-    const preferred = preferredRangeOf(self, profile, this.slotWeights, tick);
+    const ownComfort = preferredRangeOf(self, profile, this.slotWeights, tick);
+    const extraIds = seenWeapons(this.perception, target?.sessionId);
+    const theirKeepOut = target
+      ? kitReachOf(target.carId, extraIds).shortest * profile.opponentRangeRespect
+      : 0;
+    const fightRange = Math.max(ownComfort, theirKeepOut);
     const distance = target ? Math.hypot(target.x - self.x, target.y - self.y) : Infinity;
     const wall = wallDesire(self, view.arena, profile.wallLookaheadUnits);
-    const hasReadyContactWeapon = roles.contactSlot !== undefined
-      && slotIsReady(self.slots[roles.contactSlot]!, tick);
+    const pinned = wall !== undefined || inCorner(self, view.arena);
 
-    const ramRoll = view.rng();
     if (target && this.ramRolledForTargetId !== target.sessionId) {
       this.ramRolledForTargetId = target.sessionId;
-      this.wantsRam = ramRoll < profile.ramIntentChance;
+      this.wantsRam = view.rng() < profile.ramIntentChance;
     }
     if (!target) {
       this.wantsRam = false;
@@ -196,28 +192,53 @@ export class HumanController implements BotController {
     }
 
     const hearRoll = view.rng();
-    if (target) {
-      this.huntHear = undefined;
-    } else if (this.huntHear === undefined) {
-      this.huntHear = hearRoll < profile.hearChance;
+    if (target) this.huntHear = undefined;
+    else if (this.huntHear === undefined) this.huntHear = hearRoll < profile.hearChance;
+
+    if (pinned) {
+      if (!this.pinEpisode) {
+        this.pinEpisode = true;
+        this.willUnpin = view.rng() < profile.cornerRespect;
+      }
+    } else {
+      this.pinEpisode = false;
+      this.willUnpin = false;
+    }
+
+    const shotThreats = activeThreats(this.perception, tick);
+    const carIncoming = target ? isIncomingCar(self, target, profile) : false;
+    if (carIncoming && target) {
+      if (this.carApproachId !== target.sessionId) {
+        this.carApproachId = target.sessionId;
+        this.willEvadeCar = view.rng() < profile.incomingCarChance;
+      }
+    } else {
+      this.carApproachId = undefined;
+      this.willEvadeCar = false;
     }
 
     const ultSpent = target
       ? enemyUltSpent(this.perception, target.sessionId, tick, profile.memoryTicks)
       : false;
+    const hpFraction = self.maxHp > 0 ? self.hp / self.maxHp : 1;
+    const targetHpFraction = target && target.maxHp > 0 ? target.hp / target.maxHp : 1;
+    const targetStunned = target ? hasStatus(target.statuses, "stunned", tick) : false;
+    const inOwnReach = target
+      ? self.slots.some((s) => slotIsReady(s, tick) && distance <= weaponReachOf(s.weaponId))
+      : false;
+    const trulyHittable = target !== undefined && target.alive && !target.phased;
 
-    const scores = scoreGoals({
-      self, target, distance, preferredRange: preferred, profile, tick, roles,
-      hasReadyContactWeapon, wantsRam: this.wantsRam,
-      pinnedOnWall: wall !== undefined,
-      targetNearWall: target
-        ? nearBound(target.x, target.y, view.arena, profile.wallLookaheadUnits)
-        : false,
-      ultSpent, rng: view.rng,
+    const classified = classifySituation({
+      selfControlLost: !self.alive || hasStatus(self.statuses, "phased", tick),
+      hittable: trulyHittable,
+      evade: shotThreats.length > 0 || (carIncoming && this.willEvadeCar),
+      unpin: pinned && trulyHittable && this.willUnpin,
+      punish: trulyHittable && (targetStunned || ultSpent
+        || targetHpFraction <= profile.ultWindowHpFraction),
+      reset: profile.retreatHpFraction > 0 && hpFraction < profile.retreatHpFraction,
+      inOwnReach,
     });
-    this.goal = pickGoal(this.goal, scores, tick, profile, this.preemption(view, target));
-    this.lastGoalScores = scores;
-    this.lastPreferredRange = target ? preferred : 0;
+    this.situation = pickSituation(this.situation, classified, tick, profile);
 
     const leadSlot = self.slots[0];
     const aimPoint = target
@@ -246,106 +267,103 @@ export class HumanController implements BotController {
     const bearing = target ? Math.atan2(target.y - self.y, target.x - self.x) : self.angle;
 
     const desires: Desire[] = [];
-    let range = preferred;
+    let range = fightRange;
     let closing = true;
-    let mayFire = target !== undefined && this.goal.current !== "recover"
-      && this.goal.current !== "huntLastKnown";
+    let mayFire = false;
+    const sit: SituationId = this.situation.current;
 
-    switch (this.goal.current) {
+    switch (sit) {
       case "recover":
         break;
-      case "huntLastKnown": {
+      case "waitOut": {
         const hunt = this.huntHeading(view, self.angle);
         desires.push(goalDesire(hunt.headingRad));
         range = hunt.range;
         closing = hunt.closing;
-        mayFire = false;
+        this.lastPreferredRange = 0;
         break;
       }
-      case "rush":
-        desires.push(goalDesire(bearing));
-        range = BRAIN_CONSTANTS.minEngageUnits;
+      case "evade": {
+        const away = shotThreats[0]?.awayHeadingRad ?? bearing + Math.PI / 2;
+        desires.push(goalDesire(away));
         closing = false;
-        break;
-      case "holdRange":
-        desires.push(goalDesire(aimHeading));
-        {
-          const orbit = orbitDesire(bearing, profile.orbitBias, this.orbitSide);
-          if (orbit) desires.push(orbit);
-        }
-        break;
-      case "intercept":
-        desires.push(goalDesire(interceptHeading));
-        closing = false;
-        break;
-      case "setupCc": {
-        const slot = roles.setupCcSlot !== undefined ? self.slots[roles.setupCcSlot] : undefined;
-        const isManeuver = slot !== undefined && weaponDefOf(slot.weaponId).kind === "maneuver";
-        desires.push(goalDesire(isManeuver ? bearing : aimHeading));
-        range = slot && slot.range > 0 ? slot.range * 0.8 : preferred;
-        closing = !isManeuver;
+        mayFire = trulyHittable;
         break;
       }
-      case "dump":
-        desires.push(goalDesire(bearing));
-        range = Math.max(BRAIN_CONSTANTS.minEngageUnits, preferred * 0.5);
+      case "unpin":
+        desires.push(goalDesire(openFloorHeading(self, view.arena)));
         closing = false;
+        mayFire = trulyHittable;
         break;
-      case "contact":
+      case "punish":
         desires.push(goalDesire(bearing));
-        range = BRAIN_CONSTANTS.contactTriggerUnits;
+        range = Math.max(BRAIN_CONSTANTS.minEngageUnits, ownComfort * 0.5);
         closing = false;
+        mayFire = trulyHittable;
         break;
       case "reset":
         desires.push(goalDesire(aimHeading));
-        range = Math.max(preferred * 1.3, BRAIN_CONSTANTS.minEngageUnits);
+        range = Math.max(fightRange * 1.15, BRAIN_CONSTANTS.minEngageUnits);
+        closing = true;
+        mayFire = trulyHittable;
         break;
-      case "pinWall":
-        desires.push(goalDesire(bearing));
+      case "fight":
+        desires.push(goalDesire(aimHeading));
+        range = fightRange;
+        closing = true;
+        mayFire = trulyHittable;
+        break;
+      case "close":
+        desires.push(goalDesire(interceptHeading));
         range = BRAIN_CONSTANTS.minEngageUnits;
-        closing = false;
-        break;
-      case "unpin":
-        desires.push(goalDesire(
-          Math.atan2(view.arena.height / 2 - self.y, view.arena.width / 2 - self.x),
-        ));
         closing = false;
         break;
     }
 
-    if (wall) desires.push(wall);
-    desires.push(...dodgeDesires(activeThreats(this.perception, tick), profile.dodgeWeight));
+    if (sit !== "waitOut" && sit !== "recover") this.lastPreferredRange = range;
 
+    if (wall) desires.push(wall);
+    const inDeadband = sit === "fight"
+      && Math.abs((Number.isFinite(distance) ? distance : range) - range)
+        <= range * profile.deadbandFraction;
+    if (inDeadband) {
+      const orbit = orbitDesire(bearing, profile.orbitBias, this.orbitSide);
+      if (orbit) desires.push(orbit);
+    }
     const heading = blendHeading(desires, self.angle);
+
+    const reverseBlocked = reverseWouldHitBound(self, view.arena, profile.wallLookaheadUnits);
     const { steer, throttle } = reduceToIntent({
       headingError: signedDelta(self.angle, heading),
       distance: Number.isFinite(distance) ? distance : range,
       preferredRange: range,
-      deadband: this.goal.current === "holdRange" ? range * profile.deadbandFraction : 0,
+      deadband: sit === "fight" ? range * profile.deadbandFraction : 0,
       aimToleranceRad: profile.aimToleranceRad,
       closing,
+      reverseBlocked: sit === "fight" || sit === "reset" ? reverseBlocked : false,
     });
 
+    const stuckOk = this.stuckSlot !== undefined
+      && tick - this.stuckSinceTick < profile.slotStickTicks;
     const decision = chooseSlot({
       self, target: target ?? ABSENT_TARGET, distance, aimDelta, profile,
       weights: this.slotWeights, tick, lastPressTick: this.lastPressTick, rng: view.rng,
-      ultHold: this.ultHold, goal: this.goal.current, roles,
+      ultHold: this.ultHold, situation: sit, roles,
+      stuckSlot: stuckOk ? this.stuckSlot : undefined,
     });
     const slot = mayFire ? decision.slot : undefined;
-    if (slot !== undefined) this.lastPressTick = tick;
+    if (slot !== undefined) {
+      this.lastPressTick = tick;
+      this.stuckSlot = slot;
+      this.stuckSinceTick = tick;
+    }
     this.lastFiredSlot = slot;
+    void this.wantsRam;
 
-    if (this.goal.current === "recover") return COAST;
+    if (sit === "recover") return COAST;
     return { steer, throttle, fireSlots: slot === undefined ? 0 : 1 << slot };
   }
 
-  /**
-   * Hunt heading (G12/G13). Never the arena centre.
-   *
-   * Acquire delay continues the previous heading. Last-known (noticed memory) wins over heard
-   * shots. Heard shots are gated on the once-per-episode `huntHear` roll. Otherwise a quadrant
-   * waypoint, advanced when the bot arrives.
-   */
   private huntHeading(
     view: BotView,
     fallbackHeading: number,
@@ -382,22 +400,41 @@ export class HumanController implements BotController {
       closing: false,
     };
   }
+}
 
-  /**
-   * The three cases a goal may be cut short for (G7). Dodging is NOT one of them.
-   *
-   * `controlLost` mirrors `scoreGoals` (dead OR `phased`).
-   */
-  private preemption(view: BotView, target: BotCarView | undefined): GoalId | undefined {
-    const profile = this.effectiveProfile;
-    const self = view.self;
-    const controlLost = !self.alive || hasStatus(self.statuses, "phased", view.tick);
-    if (controlLost) return "recover";
-    const hpFraction = self.maxHp > 0 ? self.hp / self.maxHp : 1;
-    if (profile.retreatHpFraction > 0 && hpFraction < profile.retreatHpFraction) return "reset";
-    if (!target && this.goal.current !== "huntLastKnown") return "huntLastKnown";
-    return undefined;
+function seenWeapons(perception: PerceptionState, sessionId: string | undefined): WeaponId[] {
+  if (!sessionId) return [];
+  const prefix = `${sessionId}:`;
+  const out: WeaponId[] = [];
+  for (const key of perception.ultSeenTick.keys()) {
+    if (key.startsWith(prefix)) out.push(key.slice(prefix.length) as WeaponId);
   }
+  return out;
+}
+
+function inCorner(self: { x: number; y: number }, arena: BotView["arena"]): boolean {
+  const m = BRAIN_CONSTANTS.minEngageUnits;
+  const onX = self.x < m || self.x > arena.width - m;
+  const onY = self.y < m || self.y > arena.height - m;
+  return onX && onY;
+}
+
+function isIncomingCar(
+  self: { x: number; y: number },
+  target: BotCarView,
+  profile: BotProfile,
+): boolean {
+  const dx = self.x - target.x;
+  const dy = self.y - target.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 1) return true;
+  const vx = Math.cos(target.angle) * target.speed;
+  const vy = Math.sin(target.angle) * target.speed;
+  const closing = (vx * dx + vy * dy) / dist;
+  if (closing <= 0) return false;
+  const eta = (dist - BRAIN_CONSTANTS.contactTriggerUnits) / closing;
+  const horizon = profile.dodgeHorizonTicks / TICK_RATE_HZ;
+  return eta >= 0 && eta <= horizon;
 }
 
 function enemyUltSpent(

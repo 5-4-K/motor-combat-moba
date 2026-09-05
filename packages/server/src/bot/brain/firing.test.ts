@@ -257,29 +257,20 @@ describe("chooseSlot", () => {
     expect(out.slot).toBeUndefined();
   });
 
-  it("a disciplined bot holds a lock-aim slot until the HUD lock is on the target (G21)", () => {
+  it("fires an aim-assisted gun without a HUD lock (S20)", () => {
     const predatorOnly: BotSelfView = {
       ...self("bullseye"),
       lockTargetSessionId: "",
       slots: slotsFor("bullseye").map((slot, i) => (i === 0 ? slot : { ...slot, stocks: 0 })),
     };
-    let presses = 0;
-    for (let seed = 0; seed < 40; seed++) {
-      const out = chooseSlot({
-        ...base, self: predatorOnly, profile: BOT_PROFILES.hard, rng: makeRng(seed),
-        ultHold: new Map(),
-      });
-      if (out.slot === 0) presses++;
-    }
-    expect(presses).toBeLessThan(16);
-    const locked = chooseSlot({
-      ...base, self: { ...predatorOnly, lockTargetSessionId: "them" },
-      profile: BOT_PROFILES.hard, rng: makeRng(1), ultHold: new Map(),
+    const out = chooseSlot({
+      ...base, self: predatorOnly, profile: BOT_PROFILES.hard, rng: makeRng(1),
+      ultHold: new Map(),
     });
-    expect(locked.slot).toBe(0);
+    expect(out.slot).toBe(0);
   });
 
-  it("an undisciplined bot mashes a lock-aim slot without a lock (G21)", () => {
+  it("an undisciplined bot still mashes an aim-assisted gun without a lock", () => {
     const predatorOnly: BotSelfView = {
       ...self("bullseye"),
       lockTargetSessionId: "",

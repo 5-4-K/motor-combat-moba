@@ -128,10 +128,9 @@ export interface BotController {
   debug?(): BotDebug | undefined;
 }
 
-/** Tactical tasks the assess layer scores and holds (G4, G11). */
-export type GoalId =
-  | "recover" | "huntLastKnown" | "rush" | "holdRange" | "intercept"
-  | "setupCc" | "dump" | "contact" | "reset" | "pinWall" | "unpin";
+/** Tactical tasks the assess layer names (S13). */
+export type SituationId =
+  | "recover" | "waitOut" | "evade" | "unpin" | "punish" | "reset" | "fight" | "close";
 
 /** The five personality archetypes (H47). */
 export type PersonalityId = "brawler" | "kiter" | "sprayer" | "grudge" | "opportunist";
@@ -150,8 +149,7 @@ export interface BotPersonality {
  */
 export interface BotDebug {
   tick: number;
-  goal: GoalId;
-  goalScores: Readonly<Partial<Record<GoalId, number>>>;
+  situation: SituationId;
   targetSessionId: string | undefined;
   preferredRange: number;
   personality: PersonalityId;

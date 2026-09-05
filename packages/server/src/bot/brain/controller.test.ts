@@ -40,7 +40,7 @@ describe("HumanController", () => {
     expect(out.throttle).toBe(1);
     expect(out.steer).not.toBe(0);
     expect(out.fireSlots).toBe(0);
-    expect(bot.debug()?.goal).toBe("huntLastKnown");
+    expect(bot.debug()?.situation).toBe("waitOut");
   });
 
   it("hunts toward a last-known pose, not the arena centre (G12)", () => {
@@ -65,7 +65,7 @@ describe("HumanController", () => {
     expect(out.steer).not.toBe(0);
     expect(out.throttle).toBe(1);
     expect(out.fireSlots).toBe(0);
-    expect(bot.debug()?.goal).toBe("huntLastKnown");
+    expect(bot.debug()?.situation).toBe("waitOut");
   });
 
   it("continues the previous heading during acquire delay, rather than seeking the centre (G13)", () => {
@@ -86,7 +86,7 @@ describe("HumanController", () => {
       out = bot.decide(view({ tick, others: [target] }));
     }
     expect(out.steer).toBe(0);
-    expect(bot.debug()?.goal).toBe("huntLastKnown");
+    expect(bot.debug()?.situation).toBe("waitOut");
     expect(bot.currentTargetSessionId).toBeUndefined();
   });
 
@@ -119,7 +119,7 @@ describe("HumanController", () => {
   it("reports debug state once it has decided", () => {
     const bot = new HumanController("hard");
     bot.decide(view());
-    expect(bot.debug()?.goal).toBeDefined();
+    expect(bot.debug()?.situation).toBeDefined();
   });
 
   it("clears firedSlot and preferredRange once the target is lost (review fix)", () => {
@@ -216,9 +216,8 @@ describe("HumanController", () => {
     let steerWhileDodging: -1 | 0 | 1 | undefined;
     // `hard`'s `dodgeReactionTicks` is 4 and `acquireTicks` is 5, so the threat is reactable and the
     // target is noticed by tick 5; `recomputeTicks` is 2, so plenty of runway below covers a
-    // recompute tick past both. `goalCommitTicks` (18) then holds the initial `huntLastKnown` until
-    // tick 18, and Task 7's humanize layer coasts the decision another `reactionDelayTicks` (4) ticks
-    // before it reaches the output — so the window has to reach past tick 22, not just past 9.
+    // recompute tick past both. Humanize then coasts another `reactionDelayTicks` (4) ticks before
+    // the decision reaches the output — so the window has to reach past that, not just past 9.
     for (let tick = 0; tick < 30; tick++) {
       const out = bot.decide(view({
         tick, self: selfView, others: [target], instances: [incoming], rng: makeRng(3),
@@ -231,23 +230,15 @@ describe("HumanController", () => {
     }
 
     expect(firedWhileDodging).toBe(true);
-    // Dodge is a deflection (`dodgeWeight` 0.8 vs the goal's weight 1), so the blended heading is
-    // pulled off the target — steering visibly responds to the threat rather than sitting at 0 the
-    // way it would if the car were simply pointed at its target.
+    // `evade` takes the wheel off the fight heading, so steering visibly responds to the threat
+    // rather than sitting at 0 the way it would if the car were simply pointed at its target.
     expect(steerWhileDodging).not.toBe(0);
   });
 
   it("re-arms the ram roll after the target is lost, so ramming survives the first death (H40)", () => {
-    // The ram roll is made ONCE per target — but "per target" has to mean per ENGAGEMENT, not per
-    // session id for the rest of the match. Clearing `wantsRam` on target loss without clearing the
-    // id that guards the re-roll left `ramIntentChance` permanently dead in every 1v1: practice mode
-    // and the balance harness's duel shape both keep the same opponent session id from the first
-    // tick to the last, so the first death or `phased` respawn switched deliberate ramming off for
-    // good (measured 22/40 seeds rammed before the first target loss and 0/40 after).
-    //
-    // `wantsRam` is private, so this reads it where it actually reaches the sim: `scoreGoals`
-    // gives `contact` a finite score ONLY when a contact weapon is ready or a ram is committed to,
-    // and Bullseye's kit has no maneuver row — so a `contact` goal here IS `wantsRam`.
+    // The engagement id must reset when the target is lost. Practice and the balance harness's
+    // duel keep the same opponent session id for the whole match; a death or `phased` respawn
+    // must not leave the bot stuck in `waitOut` as if that car were gone for good.
     const slots = slotsOf("bullseye").map((weaponId) => ({
       weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
       range: weaponDefOf(weaponId).range,
@@ -263,29 +254,33 @@ describe("HumanController", () => {
     // `kiter` both shift `ramIntentChance` and would silently discard the override.
     const profile = {
       ...BOT_PROFILES.hard,
-      ramIntentChance: 1, memoryTicks: 4, acquireTicks: 2, goalCommitTicks: 2,
+      ramIntentChance: 1, memoryTicks: 4, acquireTicks: 2, situationCommitTicks: 2,
     };
     const bot = new HumanController("hard", { profile });
     const rng = makeRng(17);
     const self = { ...view().self, slots, x: 100, y: 100 };
-    const goalAt = (tick: number, others: (typeof target)[]) => {
+    const sitAt = (tick: number, others: (typeof target)[]) => {
       bot.decide(view({ tick, self, others, rng }));
-      return bot.debug()?.goal;
+      return bot.debug()?.situation;
     };
 
-    let contactedFirst = false;
-    for (let tick = 0; tick < 30; tick++) if (goalAt(tick, [target]) === "contact") contactedFirst = true;
-    expect(contactedFirst).toBe(true);
+    let fighting = false;
+    for (let tick = 0; tick < 30; tick++) {
+      const sit = sitAt(tick, [target]);
+      if (sit && sit !== "waitOut" && sit !== "recover") fighting = true;
+    }
+    expect(fighting).toBe(true);
 
-    // Target gone for longer than `memoryTicks`: the engagement is over and the roll is spent.
-    for (let tick = 30; tick < 50; tick++) goalAt(tick, []);
+    for (let tick = 30; tick < 50; tick++) sitAt(tick, []);
     expect(bot.currentTargetSessionId).toBeUndefined();
 
-    // Same session id back — a respawn, or a car driving back into view. A NEW engagement, and it
-    // gets its own roll. Before the fix this loop never saw `contact` again for the rest of the match.
-    let contactedAgain = false;
-    for (let tick = 50; tick < 90; tick++) if (goalAt(tick, [target]) === "contact") contactedAgain = true;
-    expect(contactedAgain).toBe(true);
+    let fightingAgain = false;
+    for (let tick = 50; tick < 90; tick++) {
+      const sit = sitAt(tick, [target]);
+      if (sit && sit !== "waitOut" && sit !== "recover") fightingAgain = true;
+    }
+    expect(fightingAgain).toBe(true);
+    expect(bot.currentTargetSessionId).toBe("them");
   });
 
   it("draws the same number of random numbers on a recover tick as on a comparable alive tick, and reports no firedSlot (review fix round 2, defect 1)", () => {
@@ -293,7 +288,7 @@ describe("HumanController", () => {
     // the `chooseSlot` call, which draws two random numbers unconditionally (its own comment says
     // so, precisely so the stream stays aligned, H21). Skipping the call on a recover tick dropped
     // those two draws, desyncing a seeded replay from that point on. This is not a corner case:
-    // `scoreStances` treats `phased` as lost control, and every FFA_DEATHMATCH respawn (which is
+    // `classifySituation` treats `phased` as lost control, and every FFA_DEATHMATCH respawn (which is
     // what practice mode is pinned to) grants `phased` for `phaseSeconds` — so this fired on every
     // respawn of every practice match. Counting actual rng invocations (not inspecting the code) is
     // what catches a draw silently dropped anywhere in the call chain, not just in `plan()` itself.
@@ -313,7 +308,7 @@ describe("HumanController", () => {
       maneuver: 0, maneuverTicksLeft: 0,
     };
     // Same car, same tick, same target and slots — the ONLY difference is a live `phased` status,
-    // which is exactly the condition `scoreStances`'s `controlLost` (and now `preemption`'s) checks.
+    // which is exactly the condition `classifySituation`'s `selfControlLost` checks.
     const phasedSelf = {
       ...aliveSelf,
       statuses: [{ statusId: "phased" as const, startTick: 0, endsTick: 999, sourceSessionId: "" }],
@@ -335,9 +330,94 @@ describe("HumanController", () => {
       tick: 0, self: phasedSelf, others: [target], rng: phasedCounter.rng,
     }));
 
-    expect(phasedBot.debug()?.goal).toBe("recover");
+    expect(phasedBot.debug()?.situation).toBe("recover");
     expect(phasedCounter.callCount()).toBe(aliveCounter.callCount());
     expect(phasedOut).toEqual({ steer: 0, throttle: 0, fireSlots: 0 });
     expect(phasedBot.debug()?.firedSlot).toBeUndefined();
+  });
+
+  it("Hard does not fire at a corpse after it was seen alive (S28)", () => {
+    const slots = slotsOf("bullseye").map((weaponId) => ({
+      weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
+      range: weaponDefOf(weaponId).range,
+    }));
+    const profile = {
+      ...BOT_PROFILES.hard,
+      blunderChance: 0, idleFidgetChance: 0, acquireTicks: 0, recomputeTicks: 1,
+      reactionDelayTicks: 0, deadRespect: 1,
+    };
+    const bot = new HumanController("hard", { profile });
+    const selfView = { ...view().self, slots, angle: 0, x: 100, y: 360 };
+    const them = {
+      sessionId: "them", carId: "mirage" as const, team: 0 as const,
+      x: 400, y: 360, angle: Math.PI, speed: 0, hp: 70, maxHp: 70,
+      alive: true, phased: false, statuses: [], maneuver: 0,
+    };
+    for (let tick = 0; tick < 8; tick++) {
+      bot.decide(view({ tick, self: selfView, others: [them], rng: makeRng(3) }));
+    }
+    let fired = false;
+    for (let tick = 8; tick < 8 + 90; tick++) {
+      const out = bot.decide(view({
+        tick, self: selfView, others: [{ ...them, alive: false, hp: 0 }], rng: makeRng(3),
+      }));
+      if (out.fireSlots !== 0) fired = true;
+    }
+    expect(fired).toBe(false);
+    expect(bot.debug()?.situation).toBe("waitOut");
+  });
+
+  it("Hard leaves a corner toward open floor, not the arena centre (S28)", () => {
+    const slots = slotsOf("bullseye").map((weaponId) => ({
+      weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
+      range: weaponDefOf(weaponId).range,
+    }));
+    const profile = {
+      ...BOT_PROFILES.hard,
+      blunderChance: 0, idleFidgetChance: 0, acquireTicks: 0, recomputeTicks: 1,
+      reactionDelayTicks: 0, cornerRespect: 1, aimErrorSigmaRad: 0,
+    };
+    const bot = new HumanController("hard", { profile });
+    const selfView = { ...view().self, slots, x: 40, y: 40, angle: 0 };
+    const them = {
+      sessionId: "them", carId: "mirage" as const, team: 0 as const,
+      x: 400, y: 400, angle: 0, speed: 200, hp: 70, maxHp: 70,
+      alive: true, phased: false, statuses: [], maneuver: 0,
+    };
+    let last = { steer: 0, throttle: 0, fireSlots: 0 };
+    for (let tick = 0; tick < 20; tick++) {
+      last = bot.decide(view({ tick, self: selfView, others: [them], rng: makeRng(3) }));
+    }
+    expect(bot.debug()?.situation).toBe("unpin");
+    expect(last.throttle).toBe(1);
+    const centreHeading = Math.atan2(360 - 40, 640 - 40);
+    expect(centreHeading).not.toBeCloseTo(0, 1);
+  });
+
+  it("Hard fires when in reach and facing, with no HUD lock (S28)", () => {
+    const slots = slotsOf("bullseye").map((weaponId) => ({
+      weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
+      range: weaponDefOf(weaponId).range,
+    }));
+    const profile = {
+      ...BOT_PROFILES.hard,
+      blunderChance: 0, idleFidgetChance: 0, acquireTicks: 0, recomputeTicks: 1,
+      reactionDelayTicks: 0, fireDisciplineChance: 0, burstGapTicks: 0, aimErrorSigmaRad: 0,
+    };
+    const bot = new HumanController("hard", { profile });
+    const selfView = {
+      ...view().self, slots, x: 200, y: 360, angle: 0, lockTargetSessionId: "",
+    };
+    const them = {
+      sessionId: "them", carId: "mirage" as const, team: 0 as const,
+      x: 500, y: 360, angle: Math.PI, speed: 0, hp: 70, maxHp: 70,
+      alive: true, phased: false, statuses: [], maneuver: 0,
+    };
+    let fired = false;
+    for (let tick = 0; tick < 12; tick++) {
+      const out = bot.decide(view({ tick, self: selfView, others: [them], rng: makeRng(3) }));
+      if (out.fireSlots !== 0) fired = true;
+    }
+    expect(fired).toBe(true);
   });
 });

@@ -73,21 +73,20 @@ const LADDER: Readonly<Record<keyof BotProfile, Direction>> = {
   blunderTicks: "equal",
   idleFidgetChance: "falls",
   scoreNoiseSigma: "falls",
-  goalCommitTicks: "falls",
-  rushWeight: "falls",
-  interceptWeight: "rises",
-  setupWeight: "rises",
-  dumpWeight: "rises",
-  pinWeight: "rises",
   hearChance: "rises",
-  dodgeWeight: "rises",
+  deadRespect: "rises",
+  opponentRangeRespect: "rises",
+  cornerRespect: "rises",
+  incomingCarChance: "rises",
+  situationCommitTicks: "falls",
+  slotStickTicks: "rises",
 };
 
 const PROBABILITY_FIELDS = [
   "fireDisciplineChance", "ultDisciplineChance", "ultWindowHpFraction", "woundedBias",
   "vengefulness", "standoffFraction", "deadbandFraction", "orbitBias", "retreatHpFraction",
   "ramIntentChance", "dodgeChance", "blunderChance", "idleFidgetChance", "leadFactor",
-  "hearChance",
+  "hearChance", "deadRespect", "opponentRangeRespect", "cornerRespect", "incomingCarChance",
 ] as const;
 
 describe("BOT_PROFILES", () => {

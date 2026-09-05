@@ -402,20 +402,9 @@ export function mountPlaygroundOverlay(
   document.body.appendChild(debugEl);
   const unbindDebug = room.onMessage(MSG_PLAYGROUND_BOT_DEBUG, (payload: unknown) => {
     if (!isBotDebugPayload(payload)) return;
-    // Second line: the goal scoreboard (H12 / G9). The whole reason goals are SCORED rather than
-    // picked by an if-ladder is that the losing options stay visible — "it dumped because dump beat
-    // setupCc 12 to 9" is a different kind of answer from "it dumped". Sorted best-first with the
-    // chosen goal marked, so the top-left of the line is the decision and the rest is the case
-    // against it; goals the scorer took off the table (`-Infinity`) never arrive and are simply
-    // absent. `textContent` on a `white-space: pre` element, so no markup and no escaping question.
-    const scores = Object.entries(payload.goalScores)
-      .sort((a, b) => b[1] - a[1])
-      .map(([goal, score]) => `${goal === payload.goal ? "*" : ""}${goal} ${score}`)
-      .join("  ");
     debugEl.textContent =
-      `${payload.personality} | ${payload.goal} | range ${payload.preferredRange}` +
-      ` | slot ${payload.firedSlot < 0 ? "-" : payload.firedSlot + 1}` +
-      (scores === "" ? "" : `\n${scores}`);
+      `${payload.personality} | ${payload.situation} | range ${payload.preferredRange}` +
+      ` | slot ${payload.firedSlot < 0 ? "-" : payload.firedSlot + 1}`;
   });
 
   let subView: "menu" | "settings" = "menu";

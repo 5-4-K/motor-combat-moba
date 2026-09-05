@@ -117,6 +117,8 @@ export function reduceToIntent(args: {
   deadband: number;
   aimToleranceRad: number;
   closing: boolean;
+  /** When set, a reverse that would drive into a bound becomes a coast (S13 fight). */
+  reverseBlocked?: boolean;
 }): { steer: -1 | 0 | 1; throttle: -1 | 0 | 1 } {
   const { headingError, distance, preferredRange, deadband, aimToleranceRad, closing } = args;
 
@@ -125,8 +127,42 @@ export function reduceToIntent(args: {
 
   if (!closing) return { steer, throttle: 1 };
 
-  const throttle: -1 | 0 | 1 =
+  let throttle: -1 | 0 | 1 =
     Math.abs(distance - preferredRange) <= deadband ? 0 : distance > preferredRange ? 1 : -1;
+  if (throttle === -1 && args.reverseBlocked) throttle = 0;
 
   return { steer, throttle };
+}
+
+/** Heading into open floor from the nearest bound. Never the arena centre (S13 unpin). */
+export function openFloorHeading(
+  self: { x: number; y: number },
+  arena: BotArenaView,
+): number {
+  const distLeft = self.x;
+  const distRight = arena.width - self.x;
+  const distTop = self.y;
+  const distBottom = arena.height - self.y;
+  const nearest = Math.min(distLeft, distRight, distTop, distBottom);
+  if (nearest === distLeft) return 0;
+  if (nearest === distRight) return Math.PI;
+  if (nearest === distTop) return Math.PI / 2;
+  return -Math.PI / 2;
+}
+
+/** True when reversing along the current heading would close on a bound. */
+export function reverseWouldHitBound(
+  self: { x: number; y: number; angle: number },
+  arena: BotArenaView,
+  lookaheadUnits: number,
+): boolean {
+  const backX = self.x - Math.cos(self.angle) * lookaheadUnits;
+  const backY = self.y - Math.sin(self.angle) * lookaheadUnits;
+  const margin = Math.max(DRIVE_CONFIG.carWidth, DRIVE_CONFIG.carHeight) / 2;
+  return (
+    backX < margin ||
+    backY < margin ||
+    backX > arena.width - margin ||
+    backY > arena.height - margin
+  );
 }

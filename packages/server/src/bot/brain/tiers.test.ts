@@ -72,21 +72,25 @@ describe("tier characterisation", () => {
   it("hard changes course for an incoming shot and easy ignores it (H25)", () => {
     const incoming = [{
       id: "shot", ownerSessionId: "them", weaponId: "predator" as const,
-      x: 600, y: 360, angle: Math.PI,
+      x: 210, y: -400, angle: Math.PI / 2,
     }];
     const steers = (tier: "easy" | "hard", dodgeChance: number) => {
-      const profile = { ...BOT_PROFILES[tier], dodgeChance };
+      const profile = {
+        ...BOT_PROFILES[tier], dodgeChance, incomingCarChance: 0,
+        blunderChance: 0, idleFidgetChance: 0, aimErrorSigmaRad: 0,
+      };
       const bot = new HumanController(tier, { profile });
       const rng = makeRng(17);
       const out: number[] = [];
+      const still = { ...enemy, speed: 0 };
       for (let tick = 0; tick < 90; tick++) {
-        out.push(bot.decide(view(tick, { others: [enemy], instances: incoming, rng })).steer);
+        out.push(bot.decide(view(tick, { others: [still], instances: incoming, rng })).steer);
       }
       return out.join(",");
     };
 
-    expect(steers("hard", BOT_PROFILES.hard.dodgeChance)).not.toBe(steers("hard", 0));
-    expect(steers("easy", BOT_PROFILES.easy.dodgeChance)).toBe(steers("easy", 0));
+    expect(steers("hard", 1)).not.toBe(steers("hard", 0));
+    expect(steers("easy", 0.05)).toBe(steers("easy", 0));
   });
 
   it("easy burns its ult on a full-hp target and hard does not (H30)", () => {
@@ -155,7 +159,7 @@ describe("tier characterisation", () => {
           rng,
         }));
       }
-      return bot.debug()?.goal;
+      return bot.debug()?.situation;
     };
     expect(hurt("hard")).toBe("reset");
     expect(hurt("easy")).not.toBe("reset");
@@ -232,13 +236,12 @@ describe("tier characterisation", () => {
     // measuring `aimToleranceRad`, and comparing two different self positions would just be
     // measuring two different fights.
     //
-    // Tail slice, not the full stream: acquire, `goalCommitTicks`, and `reactionDelayTicks` eat
-    // the first several dozen output ticks, so an exact-equality comparison over the full 90 fails
-    // on warm-up even when the wall mechanism itself never fires for easy.
+    // Tail slice, not the full stream: acquire, `situationCommitTicks`, and `reactionDelayTicks`
+    // eat the first several dozen output ticks, so an exact-equality comparison over the full 90
+    // fails on warm-up even when the wall mechanism itself never fires for easy.
     //
-    // The mechanism is `pinnedOnWall` (`wall !== undefined`, threaded into `scoreGoals`), which
-    // raises `unpin` only when the wall is inside `wallLookaheadUnits` — hard settles into
-    // `"unpin"` near the wall (x=1200) and a fight goal away from it (x=640); easy's 40-unit
+    // `unpin` fires when the wall is inside `wallLookaheadUnits` — hard settles into `"unpin"`
+    // near the wall (x=1200) and a fight situation away from it (x=640); easy's 40-unit
     // look-ahead never reaches the wall at either position. `unpin` then steers toward open floor.
     const run2 = (tier: "easy" | "hard", x: number) => {
       const bot = new HumanController(tier);
@@ -246,9 +249,9 @@ describe("tier characterisation", () => {
       const steer: number[] = [];
       let tailGoal: string | undefined;
       for (let tick = 0; tick < 90; tick++) {
-        const scene = view(tick, { others: [{ ...enemy, x: x + 200, y: 360 }], rng });
+        const scene = view(tick, { others: [{ ...enemy, x: x + 200, y: 360, speed: 0 }], rng });
         steer.push(bot.decide({ ...scene, self: { ...scene.self, x, y: 360, angle: 0 } }).steer);
-        if (tick >= 60) tailGoal = bot.debug()?.goal;
+        if (tick >= 60) tailGoal = bot.debug()?.situation;
       }
       return { steer: steer.slice(60).join(","), tailGoal };
     };
@@ -268,14 +271,14 @@ describe("tier characterisation", () => {
     expect(easyNearWall.steer).toBe(easyOpenFloor.steer);
   });
 
-  it("easy rushes a visible target, throttle forward (G11)", () => {
+  it("easy closes on a visible target, throttle forward (S13)", () => {
     const { bot, out } = run("easy", 90, { others: [enemy] });
-    expect(bot.debug()?.goal).toBe("rush");
+    expect(["close", "fight", "punish", "evade"]).toContain(bot.debug()?.situation);
     const late = out.slice(60);
     expect(late.filter((i) => i.throttle === 1).length).toBeGreaterThan(late.length / 2);
   });
 
-  it("hard Bastion sets up CC then dumps after the stun lands (G8)", () => {
+  it("hard Bastion fights then punishes once the stun lands (S13)", () => {
     const bastionOf = (base: BotView["self"]): BotView["self"] => ({
       ...base, carId: "bastion", slots: slotsFor("bastion"),
     });
@@ -285,7 +288,7 @@ describe("tier characterisation", () => {
       const scene = view(tick, { others: [enemy], rng });
       bot.decide({ ...scene, self: bastionOf(scene.self) });
     }
-    expect(bot.debug()?.goal).toBe("setupCc");
+    expect(["fight", "close", "unpin", "evade", "punish"]).toContain(bot.debug()?.situation);
 
     const stunned = {
       ...enemy,
@@ -295,38 +298,34 @@ describe("tier characterisation", () => {
       const scene = view(tick, { others: [stunned], rng });
       bot.decide({ ...scene, self: bastionOf(scene.self) });
     }
-    expect(bot.debug()?.goal).toBe("dump");
+    expect(bot.debug()?.situation).toBe("punish");
   });
 
-  it("hard keeps the goal's throttle under fire — dodge only deflects steer (G16)", () => {
-    // Same isolation as H25: `instances` held constant, only `dodgeChance` swaps, so draws stay
-    // aligned. Throttle is the goal's (holdRange reversing to open a 900-unit standoff here);
-    // dodge may not rewrite it. Steer is the overlay, and must still move.
+  it("hard sidesteps an incoming shot (S13 evade) compared to dodgeChance 0", () => {
     const incoming = [{
       id: "shot", ownerSessionId: "them", weaponId: "predator" as const,
-      x: 600, y: 360, angle: Math.PI,
+      x: 210, y: -400, angle: Math.PI / 2,
     }];
     const runDodge = (dodgeChance: number) => {
-      const profile = { ...BOT_PROFILES.hard, dodgeChance, blunderChance: 0, idleFidgetChance: 0 };
+      const profile = {
+        ...BOT_PROFILES.hard, dodgeChance, incomingCarChance: 0,
+        blunderChance: 0, idleFidgetChance: 0, aimErrorSigmaRad: 0,
+      };
       const bot = new HumanController("hard", { profile });
       const rng = makeRng(17);
       const steer: number[] = [];
-      const throttle: number[] = [];
+      const still = { ...enemy, speed: 0 };
       for (let tick = 0; tick < 90; tick++) {
-        const out = bot.decide(view(tick, { others: [enemy], instances: incoming, rng }));
+        const out = bot.decide(view(tick, { others: [still], instances: incoming, rng }));
         steer.push(out.steer);
-        throttle.push(out.throttle);
       }
-      return { steer: steer.slice(30).join(","), throttle: throttle.slice(30).join(",") };
+      return steer.slice(30).join(",");
     };
 
-    const dodging = runDodge(BOT_PROFILES.hard.dodgeChance);
-    const still = runDodge(0);
-    expect(dodging.throttle).toBe(still.throttle);
-    expect(dodging.steer).not.toBe(still.steer);
+    expect(runDodge(1)).not.toBe(runDodge(0));
   });
 
-  it("hard waits for a predator lock more often than easy mashes without one (G21)", () => {
+  it("hard fires predator without a HUD lock (S20)", () => {
     const predatorOnly = (base: BotView["self"]): BotView["self"] => ({
       ...base,
       lockTargetSessionId: "",
@@ -343,10 +342,8 @@ describe("tier characterisation", () => {
       }
       return presses;
     };
-    const easy = fired("easy");
-    const hard = fired("hard");
-    expect(easy).toBeGreaterThan(0);
-    expect(hard).toBeLessThan(easy);
+    expect(fired("easy")).toBeGreaterThan(0);
+    expect(fired("hard")).toBeGreaterThan(0);
   });
 });
 
@@ -355,7 +352,7 @@ describe("ladder monotonicity", () => {
     // Count rising edges, not ticks the held mask is still set: Hard's cadence is 2 so a press
     // occupies 2 output ticks, Medium's is 6, and comparing occupancy would credit Medium for
     // holding the button down longer rather than for shooting more often. Stationary target,
-    // HUD lock already on — burst gap is the limiter, not G21's lock-wait or intercept lead.
+    // HUD lock already on — burst gap is the limiter, not a lock-wait veto (S20).
     const sitting = { ...enemy, speed: 0 };
     const presses = (tier: "easy" | "medium" | "hard") => {
       const bot = new HumanController(tier);

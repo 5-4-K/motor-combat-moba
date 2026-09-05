@@ -194,4 +194,13 @@ describe("hunt cues (G12, G13)", () => {
     expect(points[0]).toEqual({ x: 320, y: 180 });
     expect(searchWaypoint(4, arena)).toEqual(points[0]);
   });
+
+  it("refreshes a known car when it dies so memory cannot stay alive (S12)", () => {
+    const profile = { ...BOT_PROFILES.hard, acquireTicks: 0 };
+    let state = newPerception();
+    state = perceive(state, view({ tick: 0, others: [car({ alive: true })] }), profile);
+    expect(knownCars(state, 0)[0]?.alive).toBe(true);
+    state = perceive(state, view({ tick: 1, others: [car({ alive: false })] }), profile);
+    expect(state.cars.get("them")?.car.alive).toBe(false);
+  });
 });

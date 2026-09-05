@@ -211,8 +211,7 @@ export function activeThreats(state: PerceptionState, tick: number): KnownThreat
 /**
  * Was this car seen spending this weapon inside the last `withinTicks`? (H22, consumed by G22)
  *
- * `perceive` fills `ultSeenTick` from `observedFires`. `scoreGoals` reads this as a dump bonus so
- * a hard bot presses more boldly when it watched an enemy burn an ultimate.
+ * `perceive` fills `ultSeenTick` from `observedFires`. Assess reads this as a punish fact.
  */
 export function ultIsSpent(
   state: PerceptionState,
@@ -238,7 +237,6 @@ export function ticksSinceBlame(state: PerceptionState, sessionId: string, tick:
  * expressed as the arc BEHIND the car that goes unwatched, so 0 means full awareness.
  */
 function visible(self: BotView["self"], car: BotCarView, profile: BotProfile): boolean {
-  if (!car.alive) return false;
   const dx = car.x - self.x;
   const dy = car.y - self.y;
   if (Math.hypot(dx, dy) > profile.awarenessRadiusUnits) return false;

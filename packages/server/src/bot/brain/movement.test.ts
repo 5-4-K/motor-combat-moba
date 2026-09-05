@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { blendHeading, dodgeDesires, goalDesire, orbitDesire, reduceToIntent, wallDesire } from "./movement.js";
+import {
+  blendHeading, dodgeDesires, goalDesire, openFloorHeading, orbitDesire, reduceToIntent, wallDesire,
+} from "./movement.js";
 
 const arena = { width: 1280, height: 720, obstacles: [] };
 
@@ -170,5 +172,22 @@ describe("reduceToIntent", () => {
     expect(left.throttle).toBe(1);
     expect(right.steer).toBe(-1);
     expect(right.throttle).toBe(1);
+  });
+
+  it("coasts instead of reversing when reverse is blocked by a bound", () => {
+    const out = reduceToIntent({
+      headingError: 0, distance: 100, preferredRange: 300, deadband: 40,
+      aimToleranceRad: 0.1, closing: true, reverseBlocked: true,
+    });
+    expect(out.throttle).toBe(0);
+  });
+});
+
+describe("openFloorHeading", () => {
+  it("points off the nearest bound, never at the arena centre", () => {
+    expect(openFloorHeading({ x: 40, y: 40 }, arena)).toBe(0);
+    expect(openFloorHeading({ x: 1240, y: 360 }, arena)).toBe(Math.PI);
+    const centre = Math.atan2(arena.height / 2 - 40, arena.width / 2 - 40);
+    expect(openFloorHeading({ x: 40, y: 40 }, arena)).not.toBeCloseTo(centre, 2);
   });
 });
