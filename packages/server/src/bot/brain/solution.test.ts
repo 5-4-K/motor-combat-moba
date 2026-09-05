@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  TICK_RATE_HZ, carHullOf, instanceExpired, projectileShapeAt, shapeHitsObb, smear,
-  spawnInstances, stepInstance, weaponDefOf,
+  TICK_RATE_HZ, carHullOf, instanceExpired, resolveInstanceHits, spawnInstances, stepInstance,
+  weaponDefOf, type PoseSnapshot,
 } from "@motor-combat-moba/shared";
 import type { BotArenaView, BotCarView, BotSlotView } from "../types.js";
 import {
-  AIM_QUADRATURE, constantVelocityPredictor, solve, type SolverShooter,
+  AIM_QUADRATURE, constantVelocityPredictor, solve, type PosePredictor, type SolverShooter,
 } from "./solution.js";
 
 const arena: BotArenaView = { width: 1280, height: 720, obstacles: [] };
@@ -24,9 +24,9 @@ function shooterAt(x: number, y: number, angle: number): SolverShooter {
   };
 }
 
-function targetAt(x: number, y: number): BotCarView {
+function targetAt(x: number, y: number, angle = Math.PI, speed = 0): BotCarView {
   return {
-    sessionId: "them", carId: "mirage", team: 1, x, y, angle: Math.PI, speed: 0,
+    sessionId: "them", carId: "mirage", team: 1, x, y, angle, speed,
     hp: 70, maxHp: 70, alive: true, phased: false, statuses: [], maneuver: 0,
   };
 }
@@ -246,26 +246,80 @@ describe("solver ground truth (P48)", () => {
     // hands, then fire the real shot through the sim and see whether it connects. The two must
     // agree on every offset -- this is what makes the solver honest about the game rather than
     // merely self-consistent.
-    for (let offset = 0; offset <= 60; offset += 10) {
-      const target = targetAt(400, offset);
+    //
+    // Off the origin corner deliberately (unlike the "solve — projectile" block above, which keeps
+    // y=0 -- see that section for why it's harmless there): this test's own fixture used to sit at
+    // y=0 too, which works out fine for a non-bouncing projectile (`pointOutsideBounds` never gets
+    // consulted), but it deviated from the y=300 convention the rest of the suite uses for no
+    // reason worth re-deriving. y=300 keeps the geometry identical and drops that footnote.
+    //
+    // The offsets below mix the original coarse sweep (0, 10, ... 60 -- clearly-hits or
+    // clearly-misses) with a fine pass across the actual hull boundary: the target's hull is 48x32
+    // (half-height 16) and predator's hitbox adds another 6 units of `radiusAcross`, so a shot stops
+    // connecting somewhere around offset 22. Sampling every 2 units through that band is what makes
+    // a wrong hull, wrong hitbox, or wrong smear direction show up as a flipped verdict instead of
+    // being swallowed by two samples that were never close enough to disagree.
+    const offsets = [0, 10, 12, 14, 16, 18, 20, 22, 30, 40, 50, 60];
+    for (const offset of offsets) {
+      const target = targetAt(400, 300 + offset);
       const claimed = solve({
-        shooter: shooterAt(0, 0, 0),
+        shooter: shooterAt(0, 300, 0),
         slot: slotFor("predator"), slotIndex: 0,
         target, targetAt: constantVelocityPredictor(target),
         aimSigmaRad: 0, tick: 0, arena,
       }).hitChance > 0.5;
 
-      const actual = firesAndConnects("predator", shooterAt(0, 0, 0), target);
+      const actual = firesAndConnects("predator", shooterAt(0, 300, 0), target);
       expect(actual, `lateral offset ${offset}`).toBe(claimed);
     }
   });
+
+  // MUTATION NOTE: the offset sweep above cannot, by construction, catch a `smear()` regression in
+  // `marchOne`. Predator's capsule is 2*19 = 38 units long and the shot advances 30 units/tick, so
+  // consecutive un-smeared frames already overlap by 8 units -- more than the 6-unit tapered nose
+  // where a single frame's reach is narrower than its flat midsection. That 8 > 6 margin means the
+  // NEXT frame always covers whatever the current one's taper missed, for every offset and every
+  // shooter angle, against a stationary target -- verified empirically by sweeping ~80,000
+  // (distance, offset) pairs with `smear()` deleted from `marchOne` and finding zero disagreements
+  // against `resolveInstanceHits`. A stationary target genuinely cannot expose this weapon's smear.
+  //
+  // A MOVING target can: the target's own pose isn't smeared (only the projectile's swept path is),
+  // so a target crossing the shot's corridor between two ticks can sit exactly in the gap a
+  // straight per-tick check would miss while the swept quadrilateral between those two ticks still
+  // clips it. This case (speed 125, closing on the shot's line from 45 units out) sits in the
+  // middle of a 4-unit-wide band (offset 43-46) where deleting `smear()` flips the verdict from hit
+  // to miss -- found by sweeping target speed/heading/offset/distance and picking a comfortably
+  // interior point rather than an edge value.
+  it("still agrees when the target is moving fast enough to cross the shot's corridor between ticks", () => {
+    const shooter = shooterAt(0, 300, 0);
+    // Target starts 45 units above the shot's line, driving straight down into it at 125 u/s --
+    // angle -90deg is both its facing and its heading, matching `constantVelocityPredictor`'s
+    // straight-line assumption.
+    const target = targetAt(100, 300 + 45, -Math.PI / 2, 125);
+    const claimed = solve({
+      shooter,
+      slot: slotFor("predator"), slotIndex: 0,
+      target, targetAt: constantVelocityPredictor(target),
+      aimSigmaRad: 0, tick: 0, arena,
+    }).hitChance > 0.5;
+
+    const actual = firesAndConnects("predator", shooter, target, constantVelocityPredictor(target));
+    expect(actual).toBe(claimed);
+    expect(actual).toBe(true); // this configuration is a genuine hit; smear is what makes it one
+  });
 });
 
-/** Fire one real press through the sim and report whether it touches the target's hull. */
+/**
+ * Fire one real press through the sim (`resolveInstanceHits`, the same function `runCombat` calls
+ * every tick) and report whether it touches the target's hull. `targetAt` defaults to the target's
+ * own constant-velocity line, mirroring what `solve` is handed in every call site above, so a
+ * moving target is marched with the identical predicted pose on both sides of the comparison.
+ */
 function firesAndConnects(
   weaponId: Parameters<typeof weaponDefOf>[0],
   shooter: SolverShooter,
   target: BotCarView,
+  targetAt: PosePredictor = constantVelocityPredictor(target),
 ): boolean {
   const { instances } = spawnInstances(
     { weaponId, slot: 0, finalVolley: true, pressId: "truth" },
@@ -275,24 +329,32 @@ function firesAndConnects(
     },
     0, 0,
   );
-  const hull = carHullOf(target.x, target.y, target.angle);
   const def = weaponDefOf(weaponId);
   if (def.kind !== "projectile") throw new Error("helper handles projectiles only");
 
   for (const start of instances) {
     let instance = start;
-    let previous = projectileShapeAt(def.hitbox, instance.x, instance.y, instance.angle);
     for (let tick = 1; tick <= 120; tick++) {
-      instance = stepInstance(instance, {
+      const stepped = stepInstance(instance, {
         dt: 1 / TICK_RATE_HZ, tick,
         obstacles: arena.obstacles,
         bounds: { width: arena.width, height: arena.height },
         ownerPose: { x: shooter.x, y: shooter.y, angle: shooter.angle },
         homingTarget: { x: target.x, y: target.y },
       });
-      const current = projectileShapeAt(def.hitbox, instance.x, instance.y, instance.angle);
-      if (shapeHitsObb(smear(previous, current), hull)) return true;
-      previous = current;
+      const pose = targetAt(tick);
+      // A snapshot of one car, sorted trivially (a single entry needs no real sort) -- the same
+      // shape `runCombat` builds from every living fighter each tick (`sim/combat.ts`).
+      const snapshot: PoseSnapshot = [
+        { sessionId: target.sessionId, team: target.team, hull: carHullOf(pose.x, pose.y, pose.angle) },
+      ];
+      // `mode: "ffa"` matches this file's fixtures (`shooter.team` 0, `target.team` 1, and
+      // `canDamage` treats any two different ids as damageable in ffa regardless of team) --
+      // `tick` starts the damage clock empty, and `pierceLeft`/`isExplosion` bookkeeping this
+      // function does more than a boolean hit test needs is simply along for the ride.
+      const outcome = resolveInstanceHits(stepped, instance, snapshot, "ffa", tick);
+      if (outcome.damaged.length > 0) return true;
+      instance = outcome.instance;
       if (instanceExpired(instance, tick)) break;
     }
   }
