@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { slotsOf, weaponDefOf } from "@motor-combat-moba/shared";
+import {
+  driveOf, NEUTRAL_MODIFIERS, slotsOf, stepDrive, TICK_RATE_HZ, weaponDefOf,
+} from "@motor-combat-moba/shared";
 import { BOT_PROFILES } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import type { BotView } from "../types.js";
@@ -23,7 +25,123 @@ function view(overrides: Partial<BotView> = {}): BotView {
   };
 }
 
+/**
+ * Generalised to take the SHOOTER's chassis (Finding 1, R20 fix round 2, 2026-09-06) — it used to be
+ * hardcoded to `bullseye`, which is exactly why the calibration in `bot-profiles.ts` missed that a
+ * hard Bastion never clears an absolute `minShotValue`: the harness that measured it only ever flew
+ * the roster's strongest kit. See the "fires a shot on every chassis" test below, which sweeps all
+ * three chassis at all three tiers.
+ */
+function closedLoopDuel(
+  tier: "easy" | "medium" | "hard",
+  ticks: number,
+  targetPos: { x: number; y: number } = { x: 753, y: 360 },
+  chassis: "bullseye" | "mirage" | "bastion" = "bullseye",
+): { fires: number; meanOffset: number } {
+  const bot = new HumanController(tier);
+  const rng = makeRng(17);
+  const slots = slotsOf(chassis).map((weaponId) => ({
+    weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
+    range: weaponDefOf(weaponId).range,
+  }));
+  // Real physics, so the bot's own steering rotates its own body — without this the bug is
+  // invisible (Task 1, round 1).
+  let body = {
+    x: 200, y: 360, angle: 0, speed: 300, reverseHold: 0, angVel: 0,
+    shoveX: 0, shoveY: 0, authority: 1, maneuver: 0, maneuverTicksLeft: 0, maneuverSpeed: 0,
+  };
+  const target = {
+    sessionId: "them", carId: "mirage" as const, team: 1 as const, x: targetPos.x, y: targetPos.y,
+    angle: Math.PI, speed: 0, hp: 70, maxHp: 70, alive: true, phased: false,
+    statuses: [], maneuver: 0,
+  };
+  let fires = 0;
+  const offsets: number[] = [];
+
+  for (let tick = 0; tick < ticks; tick++) {
+    const intent = bot.decide(view({
+      tick,
+      self: {
+        ...view().self, carId: chassis,
+        x: body.x, y: body.y, angle: body.angle, speed: body.speed, slots,
+      },
+      others: [target],
+      rng,
+    }));
+    if (intent.fireSlots !== 0) fires += 1;
+    const bearing = Math.atan2(target.y - body.y, target.x - body.x);
+    offsets.push(Math.abs(
+      Math.atan2(Math.sin(bearing - body.angle), Math.cos(bearing - body.angle)),
+    ));
+    body = stepDrive(
+      body,
+      { seq: tick, steer: intent.steer, throttle: intent.throttle, fireSlots: 0 },
+      1 / TICK_RATE_HZ,
+      driveOf(chassis),
+      NEUTRAL_MODIFIERS,
+    );
+  }
+
+  const tail = offsets.slice(-100);
+  return { fires, meanOffset: tail.reduce((a, b) => a + b, 0) / tail.length };
+}
+
 describe("HumanController", () => {
+  it("keeps the body on the aim line at its preferred range, so it can fire (spec 1.1)", () => {
+    const { fires, meanOffset } = closedLoopDuel("hard", 300);
+    // Measured 2026-09-05 (R9-R11): 62 fires unfixed; 80 after removing the orbit desire alone
+    // (a real but partial fix — orbit was not the dominant mechanism); 99 at zero decision lag
+    // (the ceiling reachable without inhumanly fast reactions — the open-loop 146 "control" the
+    // brief originally derived from never fed steering back into pose, so it is not a legitimate
+    // target). Lead compensation for the bot's own reaction lag (R10) is what actually closes the
+    // gap toward that 99 ceiling.
+    expect(fires).toBeGreaterThan(90);
+    // The mechanism, not just the symptom: the body must stay near the aim line.
+    // Fixed at 0.2 rad — hard's `fireConeRad` before Task 7 (2026-09-05) deleted that field along
+    // with the angular fire gate it served. The mechanism this asserts (the body must stay near the
+    // aim line) does not depend on the deleted field's value, only on a fixed bound to hold it to.
+    expect(meanOffset).toBeLessThan(0.2);
+  });
+
+  it("keeps the body on the aim line when the target is OFF-AXIS, not just dead ahead (review fix round 1, critical defect)", () => {
+    // The on-axis duel above (target at the bot's own y=360) has zero heading error from tick 0,
+    // so it cannot distinguish a working compensation from a disabled one — steer settles to 0
+    // either way. This target sits at y=500 (bot spawns at y=360), so the bot must actually turn
+    // to line up, which is exactly what `compensateForLag`'s buggy deadzone floor (0.711 rad, 41
+    // degrees — computed as `turnRate * lagSeconds * 0.5`) prevented: steering froze near a
+    // heading offset of 0.269 rad by tick 9 and never closed further.
+    // Pre-fix baseline (2026-09-05, review round 1): fires = 6 / 300, heading frozen near 0.269 rad.
+    //
+    // Task 7 finding (2026-09-05, EV firing gate): hard's `minShotValueFraction` (R20, fix round 2)
+    // clears comfortably at this scenario's settled geometry. Measured fire counts (300 ticks): 140
+    // on-axis (heading settled near 0), 94 off-axis (heading settled near 0.2 rad). Both pass the
+    // >90 bar with margin, confirming the EV gate fires healthily at this tier.
+    const { fires, meanOffset } = closedLoopDuel("hard", 300, { x: 753, y: 500 });
+    expect(fires).toBeGreaterThan(90);
+    // Fixed at 0.2 rad — hard's `fireConeRad` before Task 7 (2026-09-05) deleted that field along
+    // with the angular fire gate it served. The mechanism this asserts (the body must stay near the
+    // aim line) does not depend on the deleted field's value, only on a fixed bound to hold it to.
+    expect(meanOffset).toBeLessThan(0.2);
+  });
+
+  it("fires a non-zero number of shots on EVERY chassis at EVERY tier (Finding 1, R20)", () => {
+    // Before R20, `minShotValue` was an ABSOLUTE EV-per-second number, but a kit's achievable value
+    // varies by roughly 4x across the roster (Bastion's best possible shot anywhere, ~18.3, sat
+    // below hard's old threshold of 25) — so a hard Bastion pressed nothing, ever, in 600 ticks of
+    // this same duel. The calibration that picked 25 missed this because `closedLoopDuel` was
+    // hardcoded to `bullseye`, the roster's strongest kit, so nothing exercised a weaker chassis.
+    // `minShotValueFraction` compares against `bestAchievableValueOf(self.carId, sigma)` instead,
+    // so this must hold for every (chassis, tier) cell, not just Bullseye's.
+    const chassis = ["bullseye", "mirage", "bastion"] as const;
+    const tiers = ["easy", "medium", "hard"] as const;
+    for (const c of chassis) {
+      for (const t of tiers) {
+        const { fires } = closedLoopDuel(t, 600, undefined, c);
+        expect(fires, `${t}/${c} fired ${fires}/600 shots`).toBeGreaterThan(0);
+      }
+    }
+  });
+
   it("hunts a quadrant waypoint when it has never seen anyone, never the arena centre (G12)", () => {
     // Sit ON the centre facing +x. Centre-seeking would keep heading 0 (steer 0). Quadrant search
     // from (640, 360) toward (320, 180) is a rear-left heading, so steer is visibly non-zero.
@@ -174,16 +292,18 @@ describe("HumanController", () => {
     expect(debug?.preferredRange).toBe(0);
   });
 
-  it("still fires while dodging, because chooseSlot reads the delta to the TARGET, not the blended steering delta (ordering trap)", () => {
-    // The regression this guards: `chase()` computes two different deltas — `aimDelta` (to the
-    // target's aim point, for `chooseSlot`) and `delta` (to the BLENDED steering heading, for
-    // `reduceToIntent`). Swap which one goes where and this compiles, typechecks, and every OTHER
-    // test in this file and in movement.test.ts still passes — but the bot stops shooting the
-    // instant anything (a dodge, an orbit) pulls its steering off the target, which is exactly the
-    // behaviour the movement layer exists to prevent. Nothing but a controller-level test with a
-    // real divergence between "where the gun points" and "where the wheels want to go" can catch
-    // that, because the unit tests below pin `chooseSlot`/`reduceToIntent` in isolation and never
-    // see them wired together.
+  it("still fires while dodging, because the solver reads the shooter's ACTUAL pose, not the blended steering heading (ordering trap)", () => {
+    // The regression this guards, updated for Task 7's EV firing gate: `chooseSlot` no longer takes
+    // an aim delta at all — the per-slot solutions it ranks are built (in `plan`) from `self.x/y/
+    // angle`, the car's real current pose, while `reduceToIntent`'s steering is driven by `heading`,
+    // the BLENDED desire (fight + evade + wall, etc.). Those two are independent inputs computed from
+    // the same tick's `self`, so a dodge that swings the blended heading away from the target must
+    // not silently move the shooter's pose the solver solves against — a bug that fed the blended
+    // heading into `solve` instead of `self.angle` would compile, typecheck, and pass every unit test
+    // that pins `solve`/`chooseSlot` in isolation, but the bot would stop shooting the instant
+    // anything (a dodge, an orbit) pulled its steering off the target. Only a controller-level test
+    // with a real divergence between "where the gun points" and "where the wheels want to go" catches
+    // that.
     const slots = slotsOf("bullseye").map((weaponId) => ({
       weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
       range: weaponDefOf(weaponId).range,
@@ -195,8 +315,9 @@ describe("HumanController", () => {
       statuses: [], slots, switchLockUntilTick: 0, lockTargetSessionId: "",
       maneuver: 0, maneuverTicksLeft: 0,
     };
-    // Straight ahead of the car (bearing/aim delta ~0), so `aimDelta` stays comfortably inside
-    // `hard`'s `fireConeRad` (0.2) for the whole run.
+    // Straight ahead of the car (bearing ~= self.angle, which stays fixed here — this test never
+    // steps real drive physics), so the solver sees a well-aimed shot for the whole run regardless
+    // of what the dodge does to the blended steering heading.
     const target = {
       sessionId: "them", carId: "mirage" as const, team: 0 as const,
       x: 400, y: 100, angle: 0, speed: 0, hp: 70, maxHp: 70,
@@ -205,8 +326,9 @@ describe("HumanController", () => {
     // A shot bearing down the +y axis, passing 10 units to the right of the car — well inside
     // `THREAT_LATERAL_UNITS` (~45), so `perceive()` registers it as a threat, and its
     // `awayHeadingRad` comes out pointing almost directly opposite the target (back along -x) — the
-    // sharpest possible divergence from `aimHeading`, so `delta` (the BLENDED heading `reduceToIntent`
-    // reads) swings hard away from 0 while `aimDelta` (what `chooseSlot` reads) does not move at all.
+    // sharpest possible divergence from `aimHeading`, so `heading` (the BLENDED steering desire
+    // `reduceToIntent` reads) swings hard away from 0 while `self.angle` (what the solver solves
+    // against) does not move at all — this test's `selfView` is fixed, not stepped through physics.
     const incoming = {
       id: "shot-1", ownerSessionId: "them", weaponId: "predator" as const,
       x: 110, y: -500, angle: Math.PI / 2,
@@ -402,7 +524,7 @@ describe("HumanController", () => {
     const profile = {
       ...BOT_PROFILES.hard,
       blunderChance: 0, idleFidgetChance: 0, acquireTicks: 0, recomputeTicks: 1,
-      reactionDelayTicks: 0, fireDisciplineChance: 0, burstGapTicks: 0, aimErrorSigmaRad: 0,
+      reactionDelayTicks: 0, burstGapTicks: 0, aimErrorSigmaRad: 0,
     };
     const bot = new HumanController("hard", { profile });
     const selfView = {

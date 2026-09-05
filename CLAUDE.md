@@ -368,9 +368,10 @@ fingerprint** (a hash of `BOT_PROFILES`) alongside a config fingerprint — a re
 retune is not comparable to one after, and the harness's own `--baseline` flag refuses that
 comparison rather than trusting a reader to remember. See
 [`packages/server/balance/README.md`](packages/server/balance/README.md) for flags, the paired-run
-workflow, how to read a win-rate interval, and the harness's known distortions (the bot cannot press
-`wildcharge`; `corroded`'s amplified damage is credited to whatever weapon lands the hit, not to
-`corroded`), and
+workflow, how to read a win-rate interval, and the harness's known distortions (maneuver weapons like
+`wildcharge` now get a genuine hit-probability solution rather than a range heuristic, so reports
+across a `BOT_BRAIN_VERSION` bump are not comparable; `corroded`'s amplified damage is credited to
+whatever weapon lands the hit, not to `corroded`), and
 [`docs/superpowers/specs/2026-09-03-game-balance-harness-design.md`](docs/superpowers/specs/2026-09-03-game-balance-harness-design.md)
 for the design.
 

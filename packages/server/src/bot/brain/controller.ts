@@ -1,5 +1,6 @@
 import {
-  hasStatus, TICK_RATE_HZ, WEAPON_TABLE, weaponDefOf, type BotDifficulty, type WeaponId,
+  DRIVE_CONFIG, hasStatus, TICK_RATE_HZ, turnRateAtStopOf, turnRateOf, WEAPON_TABLE, weaponDefOf,
+  type BotDifficulty, type WeaponId,
 } from "@motor-combat-moba/shared";
 import { BOT_PROFILES, BRAIN_CONSTANTS, type BotProfile } from "../../config/bot-profiles.js";
 import type {
@@ -10,8 +11,8 @@ import { chooseSlot, preferredRangeOf, slotIsReady, type UltHoldEntry } from "./
 import { scoreTargets } from "./goals.js";
 import { applyHumanize, newHumanizeState, type HumanizeState } from "./humanize.js";
 import {
-  blendHeading, goalDesire, openFloorHeading, orbitDesire, reduceToIntent, reverseWouldHitBound,
-  wallDesire, type Desire,
+  blendHeading, compensateForLag, goalDesire, openFloorHeading, reduceToIntent,
+  reverseWouldHitBound, wallDesire, type Desire,
 } from "./movement.js";
 import {
   acquiringUnnoticed, activeThreats, knownCars, lastKnownAnchor, nearestHeardShot, newPerception,
@@ -21,6 +22,7 @@ import { rollPersonality } from "./personality.js";
 import { kitReachOf, weaponReachOf } from "./reach.js";
 import { rolesOf } from "./roles.js";
 import { classifySituation, newSituationState, pickSituation, type SituationState } from "./situation.js";
+import { constantVelocityPredictor, solve, type FiringSolution } from "./solution.js";
 
 const COAST: BotIntent = { steer: 0, throttle: 0, fireSlots: 0 };
 
@@ -48,7 +50,6 @@ export class HumanController implements BotController {
   private ultHold = new Map<number, UltHoldEntry>();
   private slotWeights: readonly number[] = [1, 1, 1];
   private lastPreferredRange = 0;
-  private orbitSide: 1 | -1 = 1;
   private situation: SituationState = newSituationState();
   private heldSinceTick = 0;
   private wantsRam = false;
@@ -66,6 +67,8 @@ export class HumanController implements BotController {
   private willEvadeCar = false;
   private humanize: HumanizeState = newHumanizeState();
   private personality: BotPersonality | undefined;
+  /** The steer this controller most recently emitted from `decide` — R10's lag-compensation input. */
+  private lastSteer: -1 | 0 | 1 = 0;
 
   constructor(
     profileId: BotDifficulty,
@@ -95,7 +98,6 @@ export class HumanController implements BotController {
       this.personality = rolled.personality;
       this.effectiveProfile = rolled.profile;
       this.slotWeights = rolled.personality.slotWeights;
-      this.orbitSide = rolled.personality.slotWeights[0]! > 1 ? 1 : -1;
     }
 
     this.perception = perceive(this.perception, view, this.effectiveProfile);
@@ -120,9 +122,11 @@ export class HumanController implements BotController {
     };
 
     const idle = this.situation.current === "recover";
-    return applyHumanize(
+    const out = applyHumanize(
       this.humanize, this.held, view.tick, this.effectiveProfile, view.rng, idle, decisionWindow,
     );
+    this.lastSteer = out.steer;
+    return out;
   }
 
   private shouldRecompute(tick: number): boolean {
@@ -246,13 +250,17 @@ export class HumanController implements BotController {
           self,
           { x: target.x, y: target.y, speed: target.speed, angle: target.angle },
           leadSlot ? weaponDefOf(leadSlot.weaponId).speed : 0,
+          // R21: restored. P35 removed `leadFactor` in phase B as "superseded by real forward
+          // prediction", but that predictor is a PHASE A deliverable that has not landed yet —
+          // hardcoding lead 1 here silently gave easy (was 0) and medium (was 0.55) a hands upgrade
+          // in exactly the axis that separates the tiers. See docs/superpowers/specs/
+          // 2026-09-05-bot-predictive-brain-design.md's P35 table.
           profile.leadFactor,
         )
       : undefined;
     const aimHeading = aimPoint
       ? Math.atan2(aimPoint.y - self.y, aimPoint.x - self.x) + this.aimError.offsetRad
       : self.angle;
-    const aimDelta = signedDelta(self.angle, aimHeading);
     const bodyIntercept = target
       ? interceptPoint(
           self,
@@ -323,33 +331,66 @@ export class HumanController implements BotController {
     if (sit !== "waitOut" && sit !== "recover") this.lastPreferredRange = range;
 
     if (wall) desires.push(wall);
-    const inDeadband = sit === "fight"
-      && Math.abs((Number.isFinite(distance) ? distance : range) - range)
-        <= range * profile.deadbandFraction;
-    if (inDeadband) {
-      const orbit = orbitDesire(bearing, profile.orbitBias, this.orbitSide);
-      if (orbit) desires.push(orbit);
-    }
     const heading = blendHeading(desires, self.angle);
 
     const reverseBlocked = reverseWouldHitBound(self, view.arena, profile.wallLookaheadUnits);
-    const { steer, throttle } = reduceToIntent({
+    // R10: the sim only uses the stopped turn rate while not moving (`stepDrive`'s `isMoving`
+    // gate), so pick the rate that matches the bot's actual current speed rather than always the
+    // stopped one — otherwise the lag PROJECTION below is tuned for a car that isn't rolling.
+    const turnRate = Math.abs(self.speed) > DRIVE_CONFIG.stopEpsilon
+      ? turnRateOf(self.carId)
+      : turnRateAtStopOf(self.carId);
+    const { projectedError, effectiveDeadzone } = compensateForLag({
       headingError: signedDelta(self.angle, heading),
+      lastSteer: this.lastSteer,
+      turnRate,
+      // R12: the deadzone FLOOR always uses the moving rate, never the speed-dependent one above —
+      // it is the finest correction the car can ever make, not the one it can make on this tick.
+      // See `compensateForLag`'s doc comment and `BRAIN_CONSTANTS.deadzoneFloorFraction`'s.
+      floorTurnRate: turnRateOf(self.carId),
+      aimToleranceRad: profile.aimToleranceRad,
+      reactionDelayTicks: profile.reactionDelayTicks,
+      recomputeTicks: profile.recomputeTicks,
+    });
+    const { steer, throttle } = reduceToIntent({
+      headingError: projectedError,
       distance: Number.isFinite(distance) ? distance : range,
       preferredRange: range,
       deadband: sit === "fight" ? range * profile.deadbandFraction : 0,
-      aimToleranceRad: profile.aimToleranceRad,
+      aimToleranceRad: effectiveDeadzone,
       closing,
       reverseBlocked: sit === "fight" || sit === "reset" ? reverseBlocked : false,
     });
 
+    // One firing solution per ready slot (P7), fed to `chooseSlot` below. Built from the shooter's
+    // ACTUAL current pose, not the heading it is steering toward — `solve` mirrors the real sim,
+    // which fires along `self.angle` (or the aim-assist bearing), never along a desired heading.
+    const predictor = target ? constantVelocityPredictor(target) : undefined;
+    const solutions = new Map<number, FiringSolution>();
+    if (target && predictor) {
+      for (let i = 0; i < self.slots.length; i++) {
+        const candidate = self.slots[i]!;
+        if (!slotIsReady(candidate, tick)) continue;
+        solutions.set(i, solve({
+          shooter: {
+            sessionId: self.sessionId, carId: self.carId, team: self.team,
+            x: self.x, y: self.y, angle: self.angle, speed: self.speed,
+            lockTargetSessionId: self.lockTargetSessionId,
+          },
+          slot: candidate, slotIndex: i, target, targetAt: predictor,
+          aimSigmaRad: profile.aimErrorSigmaRad, tick, arena: view.arena,
+        }));
+      }
+    }
+
     const stuckOk = this.stuckSlot !== undefined
       && tick - this.stuckSinceTick < profile.slotStickTicks;
     const decision = chooseSlot({
-      self, target: target ?? ABSENT_TARGET, distance, aimDelta, profile,
+      self, target: target ?? ABSENT_TARGET, profile,
       weights: this.slotWeights, tick, lastPressTick: this.lastPressTick, rng: view.rng,
       ultHold: this.ultHold, situation: sit, roles,
       stuckSlot: stuckOk ? this.stuckSlot : undefined,
+      solutions,
     });
     const slot = mayFire ? decision.slot : undefined;
     if (slot !== undefined) {

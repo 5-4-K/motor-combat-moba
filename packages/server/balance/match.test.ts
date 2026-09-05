@@ -123,6 +123,63 @@ describe("runMatch", () => {
     // assertion below states that premise outright so the two cases can never be confused: if a
     // future balance edit empties the window again, THAT line fails and names the reason.
     //
+    // `seed: 124`, not 59: the final whole-branch review's fix wave (2026-09-06) made two changes
+    // that both move WHEN a hard bot presses a slot, which is exactly this matchup's clock. R20
+    // replaced `minShotValue` (an absolute EV-per-second number) with `minShotValueFraction` (a
+    // fraction of `bestAchievableValueOf`, the shooter's own kit ceiling) after measurement showed
+    // the absolute version made a hard Bastion never fire at all; the new values (easy 0.01, medium
+    // 0.05, hard 0.3) are calibrated against a genuinely different quantity than the old ones (0.5,
+    // 7, 25) ever were, so a hard bot's fire timing shifts. R21 separately restored `leadFactor`
+    // (0.95 on hard), which had been silently hardcoded to 1 — a hands upgrade in exactly the axis
+    // that separates the tiers — so `interceptPoint`'s aim point moves too. Swept 1-150 against the
+    // fixed brain: 10, 15, 26, 30, 32, 39, 40, 65, 70, 71, 75, 77, 85, 87, 95, 106, 124, 127, 135,
+    // 136, 138, 142, and 147 land a kill inside the window.
+    //
+    // `seed: 59`, not 10: Task 7 (2026-09-05) replaced the angular fire gate with the solver's
+    // expected-value threshold (`minShotValue`) and re-keyed `compensateForLag`'s steering deadzone
+    // cap onto `aimToleranceRad` now that `fireConeRad` is gone (`BRAIN_CONSTANTS.deadzoneCapMultiplier`)
+    // — both change WHEN a hard bot presses a slot, which is exactly this matchup's clock. Swept
+    // 1-150 against the new brain: 59, 76, 87, and 112 land a kill inside the window.
+    //
+    // `seed: 10`, not 28: Task 2's fix round 3 (R15, 2026-09-05) floors the steering deadzone at
+    // half a DECISION window's rotation (not just half a tick's) whenever that is the larger
+    // quantity — medium's `recomputeTicks` (6) made this bind, fixing an off-axis inversion where
+    // medium aimed worse than easy. Hard's own `recomputeTicks` (2) means the DECISION window's
+    // rotation (twice one tick's) is the larger term for hard too, so this fix doubles hard's raw
+    // floor (0.1185 -> 0.237 rad, on the hard/bullseye worked example in `BRAIN_CONSTANTS.deadzoneFloorFraction`'s
+    // doc comment) — but `aimToleranceRad`'s cap (0.07 * 2.3 ~= 0.16 rad) now binds first, so the
+    // effective deadzone actually used lands at ~0.16 rad either way. The clamp expression changed,
+    // and swept seeds moved again, taking seed 28's kill outside the 30 s window. Swept 1-150
+    // against the fixed brain: 10, 19, 25, 29, 34, 35, 43, 53, 57, 83, 87, 102, 104, 105, 106, 112,
+    // 113, 137, 144, and 147 land a kill inside the window.
+    //
+    // `seed: 28`, not 13: Task 2's fix round 2 (R14, 2026-09-05) clamps the lag-compensation
+    // projection to the magnitude of the heading error — without the cap, a long lag window (as
+    // easy's 21 ticks) projected a rotation many times larger than any real heading error, flipping
+    // the sign of every steering decision and freezing the bot on the spot. Hard's own lag (6
+    // ticks) was never large enough to invert, but the clamp still changes hard's steady-state
+    // duty cycle slightly (it can no longer coast past the exact zero-crossing an unclamped
+    // projection produced), which moved this matchup's timing enough that seed 13's kill now lands
+    // outside the 30 s window. Swept 1-150 against the fixed brain: 28, 29, 39, 45, 65, 69, 87,
+    // 105, 110, 138, 141, 144, and 147 land a kill inside the window.
+    //
+    // `seed: 13`, not 33: Task 2's review round 1 (R12, 2026-09-05) fixed a Critical defect in the
+    // lag-compensated steering above — the deadzone floor had been derived from the WHOLE lag
+    // window's rotation instead of one tick's, and the floor is now also pinned to the car's
+    // moving turn rate rather than a rate that could collapse toward the stopped rate at rest, so
+    // it no longer disables steering the instant the target is off-axis or the car settles at
+    // range. That closes the aim line faster still for this matchup, so seed 33's kill now lands
+    // outside the 30 s window. Swept 1-100 against the fixed brain: 13, 31, 71, and 87 land a kill
+    // inside the window.
+    //
+    // `seed: 33`, not 65: Task 2's lag-compensated steering (R9/R10, 2026-09-05) gave `hard`'s
+    // bang-bang `reduceToIntent` a deadzone floor and a projected-error lead term so it stops
+    // limit-cycling around its aim line instead of oscillating past its own tolerance band every
+    // decision — that closes the aim line MUCH faster for this matchup, so seed 65's kill now
+    // lands outside the 30 s window (it was landing late in the window before, on the strength of
+    // the oscillation eventually drifting through the fire cone). Swept 1-100 against the fixed
+    // brain: 33, 41, 45, 63, 78, and 92 land a kill inside the window.
+    //
     // `seed: 65`, not 21: the 2026-09-05 situation-play brain (waitOut on corpses, S10 aim-reach,
     // evade as a situation rather than a blend) moved this matchup again — seed 21 is now a
     // legitimate 0-0 in 30 s. Swept 1-80: 23, 27, and 65 still land a kill inside the window.
@@ -143,7 +200,7 @@ describe("runMatch", () => {
     // Mirage/Bastion matchup's dynamics enough that seed 40 stopped landing a kill inside the 30 s
     // window — a legitimate killless window under the new views, not a clock regression, so this
     // test isn't about that case.
-    const out = runMatch({ ...SETUP, seed: 65, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    const out = runMatch({ ...SETUP, seed: 124, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);

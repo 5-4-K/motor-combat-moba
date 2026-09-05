@@ -14,19 +14,20 @@ Design: [`docs/superpowers/specs/2026-09-05-bot-situation-play-design.md`](super
 (S1–S28). Fairness / hands / personalities: H1–H8 and H16–H48 of
 [`docs/superpowers/specs/2026-09-04-human-like-bot-behavior-design.md`](superpowers/specs/2026-09-04-human-like-bot-behavior-design.md).
 
-Copied from `bot-profiles.ts` on 2026-09-05. `BOT_BRAIN_VERSION` is `3.0.0`.
+Copied from `bot-profiles.ts` on 2026-09-05. `BOT_BRAIN_VERSION` is `4.0.0`.
 
 ## Reading a complaint
 
 | Symptom | Knob(s) |
 |---|---|
-| "Medium is too hard to hit" | Hands: `aimErrorSigmaRad` up, `fireConeRad` up, `aimToleranceRad` up, `leadFactor` down |
+| "Medium is too hard to hit" | `aimErrorSigmaRad` up. `minShotValueFraction` is not a straightforward easier/harder dial: lowering it widens what the bot will attempt (more shots, more misses); raising it makes the bot *pickier and therefore MORE deadly per shot*, not less |
 | "Hard is a laser" | Same knobs the other way on `hard` |
-| "Hard isn't attacking even when I don't have ult" | Not their ult — `fireDisciplineChance` down, `fireConeRad` up slightly, confirm overlay says `fight` not `waitOut` |
+| "Hard isn't attacking / holds fire" | `minShotValueFraction` down. Check the overlay first: `fight` with `slot -` (holding fire) while a gun is in range can still be the bot *correctly* declining a shot below `minShotValueFraction * bestAchievableValueOf(carId, sigma)` — the overlay does not print the solver's `value` yet, so confirm by reading `solve()`'s output for that slot before assuming it is a bug |
+| "Shots are all over the place" | **Not a knob any more.** The solver decides hit chance and value; if it is firing shots that miss, that is a solver bug to investigate (`bot/brain/solution.ts`), not a value to tune |
 | "It ults my corpse / spawn shield" | `deadRespect` up (Hard should already be 1) |
 | "It sits in a corner while I approach" | `cornerRespect` up; overlay should read `unpin` |
 | "It never dodges" | `dodgeChance`, `dodgeReactionTicks`, `dodgeHorizonTicks`, `incomingCarChance` |
-| "It weaves instead of fighting" | `orbitBias` down; orbit only applies while coasting in `fight` |
+| "It weaves instead of fighting" | Orbiting no longer exists — the orbit desire was deleted along with the angular fire gate; a later phase reintroduces circling as emergent planner behaviour. Weaving today means either the steering lag compensation is mis-tuned (`BRAIN_CONSTANTS.deadzoneFloorFraction` / `deadzoneCapMultiplier`) or it is a real bug — say so rather than reaching for a knob |
 | "It fights at the wrong distance" | `standoffFraction`, `opponentRangeRespect`, `awarenessRadiusUnits` |
 | "It charges in / never closes" | `standoffFraction` down, `opponentRangeRespect` down |
 | "It lost me and drove around" | `memoryTicks`, `hearChance` — hunt is last-known / shots / quadrants, never the arena centre |
@@ -47,6 +48,19 @@ perceive (every tick)
 ```
 
 Practice, playground, and the balance harness all call `HumanController.decide(BotView)`.
+
+**Expect a skilled bot to fire noticeably LESS often than before 4.0.0, and hit far more.** The
+trigger used to be an angle (`fireConeRad`); it is now a FRACTION of the shooter's own kit's
+best-achievable expected damage per second (`minShotValueFraction`, gated against
+`bestAchievableValueOf(carId, aimErrorSigmaRad)`), so a shot that will not land — or is not worth the
+gun time relative to what this car could do at its best — is not taken at all. Fewer, deadlier shots
+is the intended shape of this version, not a regression.
+
+**The threshold is RELATIVE to the shooter's own chassis, not an absolute number** (fix round 2,
+2026-09-06, R20). A kit's best-achievable `value` varies roughly 4x across the roster (Bullseye's
+pepperbox ~78, Bastion's thumper ~18), so comparing every chassis's shot quality against one shared
+absolute number made a hard Bastion — whose best possible shot anywhere sat below the old absolute
+threshold — never fire at all. `minShotValueFraction` divides by each shooter's OWN ceiling instead.
 
 ## Situations (highest priority wins)
 
@@ -88,17 +102,41 @@ Opponent keep-out is their **shortest** gun × `opponentRangeRespect`.
 | `aimErrorSigmaRad` | 0.18 | 0.09 | 0.035 |
 | `aimErrorDriftTicks` | 20 | 14 | 9 |
 | `aimToleranceRad` | 0.3 | 0.16 | 0.07 |
-| `fireConeRad` | 0.55 | 0.35 | 0.2 |
 | `leadFactor` | 0 | 0.55 | 0.95 |
+
+`fireConeRad` is gone as of `BOT_BRAIN_VERSION` 4.0.0 — the angular fire gate was replaced by the
+solver's own aim quadrature and its `value` (EV) threshold, `minShotValueFraction` (below).
+`leadFactor` was removed alongside it in the same pass, but that was premature (fix round 2,
+2026-09-06, R21): the real forward-prediction replacement is a later, not-yet-landed phase, so
+`leadFactor` is back and still read by `interceptPoint` for both aim and body-intercept heading.
+
+### Steering (shared constants, not per-tier)
+
+`BRAIN_CONSTANTS` in `bot-profiles.ts` — feeds `compensateForLag` in `bot/brain/movement.ts`.
+
+| Field | Value | What it does |
+|---|---|---|
+| `deadzoneFloorFraction` | 0.5 | Floors the effective steering deadzone at half of whichever rotation the bot cannot correct within — one tick's, or one `recomputeTicks` decision window's, whichever is larger. Without it the bang-bang steer law (`steer` is only ever -1/0/1) limit-cycles around its own aim line forever, because it never anticipates its own reaction lag. |
+| `deadzoneCapMultiplier` | 2.3 | Hard ceiling on that deadzone, as a multiple of `aimToleranceRad`. **A FITTED constant, not a derived one** — the doc comment on it in `bot-profiles.ts` shows nearby values (2.0, 2.3, 3.0) settling to qualitatively different, non-monotonic outcomes. Do not nudge it casually; re-measure if `turnRate`, `deadzoneFloorFraction`, or a tier's turn-rate profile changes. |
 
 ### Fire economy
 
 | Field | easy | medium | hard |
 |---|---|---|---|
 | `burstGapTicks` | 14 | 7 | 3 |
-| `fireDisciplineChance` | 0.05 | 0.45 | 0.55 |
+| `minShotValueFraction` | 0.01 | 0.05 | 0.3 |
 | `ultDisciplineChance` | 0 | 0.5 | 0.9 |
 | `ultWindowHpFraction` | 0.4 | 0.4 | 0.4 |
+
+`minShotValueFraction` is the FRACTION of `bestAchievableValueOf(self.carId, aimErrorSigmaRad)` —
+this shooter's own kit's best-achievable expected damage per second, at this shooter's own aim
+quality — a shot must clear before this bot takes it. It replaced `fireDisciplineChance`, which
+gated on distance rather than whether the shot would land, and then replaced its own first
+(absolute-number) calibration a second time (fix round 2, 2026-09-06, R20) once measurement showed
+an absolute EV number cannot compare across chassis whose kit ceilings differ ~4x. These three values
+were **measured, not guessed**: see the long comment on `BotProfile.minShotValueFraction` in
+`bot-profiles.ts` for the closed-loop sweep (now run across all three chassis, not just Bullseye)
+that picked them and the cliff-edge behaviour that makes a naive percentile read misleading.
 
 ### Target politics
 
@@ -116,10 +154,12 @@ Opponent keep-out is their **shortest** gun × `opponentRangeRespect`.
 |---|---|---|---|
 | `standoffFraction` | 0.45 | 0.55 | 0.7 |
 | `deadbandFraction` | 0.25 | 0.15 | 0.08 |
-| `orbitBias` | 0 | 0.2 | 0.35 |
 | `wallLookaheadUnits` | 40 | 90 | 150 |
 | `retreatHpFraction` | 0 | 0.3 | 0.35 |
 | `ramIntentChance` | 0.15 | 0.3 | 0.5 |
+
+`orbitBias` is gone — the orbit desire was deleted along with the angular fire gate. A later phase
+reintroduces circling as emergent behaviour from a planner; there is no orbiting today.
 
 ### Judgment (same factors, different use)
 

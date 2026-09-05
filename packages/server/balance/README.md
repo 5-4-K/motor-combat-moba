@@ -15,25 +15,23 @@ for the design this implements.
 
 ## Before you trust a number
 
-One thing distorts every run today, and one distorted every run before 2026-09-04. Read both before
-you read a report.
+One thing distorts every run today, and two distorted runs before fixes that have since landed. Read
+all three before you read a report.
 
-**`wildcharge` was unpressable until 2026-09-04, so older reports understate Bastion.** The bot's
-fire logic only pressed slot `i` when `distance < slotRanges[i]`, and `WEAPON_TABLE.wildcharge` has
-`range: 0` (a charge dashes nowhere, so it was never meant to be range-gated) — a distance is never
-negative, so that comparison could never be true. Bastion played every balance run, every
-`PracticeRoom` and every dev playground with two thirds of its kit, so no early report's Bastion
-numbers are worth reading. The fix landed twice, same day: first as `triggerRangeOf`, gating a
+**`wildcharge` was unpressable until 2026-09-04, so reports from before then understate Bastion.**
+The bot's fire logic only pressed slot `i` when `distance < slotRanges[i]`, and `WEAPON_TABLE.wildcharge`
+has `range: 0` (a charge dashes nowhere, so it was never meant to be range-gated) — a distance is
+never negative, so that comparison could never be true. Bastion played every balance run, every
+`PracticeRoom` and every dev playground with two thirds of its kit, so no report from before this fix
+has usable Bastion numbers. The fix landed twice, same day: first as `triggerRangeOf`, gating a
 range-0 weapon on the profile's own standoff band (hard 70u, medium 165u, easy 270u) inside the
 legacy chaser bot; then that whole bot, `triggerRangeOf` included, was deleted and replaced by the
-tiered human-like brain (below), whose `firing.ts` gates a range-0 weapon on the shared
-`BRAIN_CONSTANTS.contactTriggerUnits` (150u) instead — see
-[`docs/bot-behavior.md`](../../../docs/bot-behavior.md). Either mechanism, `wildcharge`'s numbers
-were deliberately not touched — the table was always right. **Any report whose header predates the
-first fix is not comparable to one after it**, the same way a report from before a bot retune is not;
-the bot fingerprint cannot tell you so on its own for the first fix, because that one was a change to
-the bot's logic with `BOT_PROFILES` untouched — see `BOT_BRAIN_VERSION` below, which exists precisely
-to close that gap for every change since.
+tiered human-like brain (below) — see [`docs/bot-behavior.md`](../../../docs/bot-behavior.md). Either
+mechanism, `wildcharge`'s numbers were deliberately not touched — the table was always right. **Any
+report whose header predates the first fix is not comparable to one after it**, the same way a report
+from before a bot retune is not; the bot fingerprint cannot tell you so on its own for the first fix,
+because that one was a change to the bot's logic with `BOT_PROFILES` untouched — see `BOT_BRAIN_VERSION`
+below, which exists precisely to close that gap for every change since.
 
 What the first fix actually moved, measured on a paired 50-match `casual` run either side of it (seed
 1645463066): `wildcharge` went from 0 presses to 1179 (176 kills, 29.7% of Bastion's kit), and
@@ -42,6 +40,22 @@ Bastion's damage dealt rose 39% with its damage ratio going 0.4 to 0.6 — **and
 third of the kit came back and Bastion still won nothing. Whether that was the old fixed-standoff
 pilot or Bastion itself was not yet answered when that run was made — the brain rewrite below is a
 new pilot entirely, and a fresh comparison is needed to say anything about Bastion under it.
+
+**`BOT_BRAIN_VERSION` 4.0.0 replaces the firing-decision gate above with a real EV solver, and gives
+maneuvers a genuine hit-probability solution from the start — there is no "before" to discard.**
+`solve()` and `chooseSlot`'s expected-value gate (`minShotValue`) are both new IN 4.0.0; no earlier
+`BOT_BRAIN_VERSION` ever reasoned about a press in expected value at all, so there is no prior
+EV-gated report for a maneuver-less solver to have contaminated. (A transient version of `solve()`
+that returned `{ hits: 0, damage: 0 }` for every maneuver weapon existed only between two commits
+during this feature's own development and was never released as a `BOT_BRAIN_VERSION` — it is not
+part of this project's history.) `solution.ts`'s `marchManeuver` sweeps the shooter's own hull along
+the maneuver's travel line, tick by tick, against the target's predicted hull — the same swept-hull
+idea `marchOne` uses for a projectile — so `wildcharge` and `thunderclap` are pressed on a solved hit
+chance rather than the plain range comparison the pre-4.0.0 bot used. **Reports from before
+`BOT_BRAIN_VERSION` 4.0.0 are not invalid for this reason** — that older bot already pressed
+`wildcharge` (1179 times, measured above) via the ordinary distance-gated firing logic; they are only
+subject to the general rule that a `BOT_BRAIN_VERSION` bump invalidates comparison across it, the
+same as any other behaviour change with `BOT_PROFILES` untouched.
 
 **`corroded` contributes damage without ever dealing any.** Its row is a pure amplifier —
 `modifiers: { damageTaken: 1.3 }` — so it does not hit anyone itself; it makes whatever hits the

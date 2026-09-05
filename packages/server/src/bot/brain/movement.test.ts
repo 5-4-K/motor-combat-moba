@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  blendHeading, dodgeDesires, goalDesire, openFloorHeading, orbitDesire, reduceToIntent, wallDesire,
+  blendHeading, dodgeDesires, goalDesire, openFloorHeading, reduceToIntent, wallDesire,
 } from "./movement.js";
 
 const arena = { width: 1280, height: 720, obstacles: [] };
@@ -47,28 +47,6 @@ describe("wallDesire", () => {
   it("sees less of the wall with a shorter look-ahead", () => {
     expect(wallDesire({ x: 1180, y: 360, angle: 0 }, arena, 40)).toBeUndefined();
     expect(wallDesire({ x: 1180, y: 360, angle: 0 }, arena, 150)).toBeDefined();
-  });
-});
-
-describe("orbitDesire", () => {
-  it("is silent at orbitBias 0", () => {
-    expect(orbitDesire(0, 0, 1)).toBeUndefined();
-  });
-
-  it("aims across the target rather than at it", () => {
-    const desire = orbitDesire(0, 0.75, 1);
-    expect(desire).toBeDefined();
-    expect(Math.abs(desire!.headingRad)).toBeCloseTo(Math.PI / 2, 2);
-  });
-
-  it("circles the other way when side is -1", () => {
-    // Same bearing and bias as the test above, opposite `side` — the two must land on opposite
-    // sides of the target bearing, not merely both be +-pi/2 off it (which the `toBeCloseTo` above
-    // alone would not catch, since it takes the absolute value).
-    const left = orbitDesire(0, 0.75, 1);
-    const right = orbitDesire(0, 0.75, -1);
-    expect(left!.headingRad).toBeCloseTo(Math.PI / 2, 6);
-    expect(right!.headingRad).toBeCloseTo(-Math.PI / 2, 6);
   });
 });
 
