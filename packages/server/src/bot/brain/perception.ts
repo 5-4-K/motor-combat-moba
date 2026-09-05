@@ -168,7 +168,7 @@ export function lastKnownAnchor(
 /** Nearest live instance not our own — a shot a human can see even without identifying the car. */
 export function nearestHeardShot(
   self: { sessionId: string; x: number; y: number },
-  instances: readonly BotView["instances"],
+  instances: BotView["instances"],
 ): { x: number; y: number } | undefined {
   let best: { x: number; y: number } | undefined;
   let bestDist = Infinity;

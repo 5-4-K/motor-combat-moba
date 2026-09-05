@@ -18,6 +18,8 @@ import {
   TICK_RATE_HZ,
   getArena,
   hpOf,
+  speedOf,
+  toWorld,
   type CarId,
   type InputMessage,
 } from "@motor-combat-moba/shared";
@@ -91,8 +93,15 @@ export class PlaytestWorld {
     p.x = spec.x;
     p.y = spec.y;
     p.angle = spec.angle;
-    p.speed = spec.speed ?? 0;
-    p.authority = 1;
+    // `SpawnSpec.speed` has always meant "forward speed along the spawned heading" — every probe
+    // calls it with `forwardMaxSpeedOf(carId)` or a plain forward magnitude, never a lateral one —
+    // so it becomes a `toWorld` at zero lateral rather than a bare `vx`/`vy` split.
+    const v = toWorld(spec.angle, spec.speed ?? 0, 0);
+    p.vx = v.vx;
+    p.vy = v.vy;
+    // `authority` has no successor in stage 1 (ram control-loss returns as a `reeling` status in
+    // stage 3); the schema default of vx = vy = 0 already covers the "no motion" reset this used to
+    // pair with, so nothing here replaces it.
     this.state.players.set(spec.id, p);
     this.queues.set(spec.id, []);
     this.roster.add(spec.id);
@@ -176,7 +185,10 @@ export class PlaytestWorld {
   poses(): Record<string, { x: number; y: number; angle: number; speed: number; hp: number }> {
     const out: Record<string, { x: number; y: number; angle: number; speed: number; hp: number }> = {};
     this.state.players.forEach((p, id) => {
-      out[id] = { x: p.x, y: p.y, angle: p.angle, speed: p.speed, hp: p.hp };
+      // Unsigned magnitude: this is a generic snapshot with no fixed frame of reference, unlike the
+      // scenario-specific reads elsewhere in these probes that pick `forwardOf`/`lateralOf` for a
+      // reason.
+      out[id] = { x: p.x, y: p.y, angle: p.angle, speed: speedOf(p.vx, p.vy), hp: p.hp };
     });
     return out;
   }

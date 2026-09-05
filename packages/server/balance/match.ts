@@ -179,8 +179,6 @@ export function runMatch(setup: MatchSetup): MatchOutcome {
     player.x = spawn.x;
     player.y = spawn.y;
     player.angle = spawn.angle;
-    player.speed = 0;
-    player.authority = 1;
     state.players.set(seat.sessionId, player);
 
     inputQueues.set(seat.sessionId, []);
