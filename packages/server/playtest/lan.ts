@@ -7,6 +7,7 @@
  * scheduling. Run it against a server started with SIM_LATENCY_MS to model a real LAN.
  */
 import { Client, type Room } from "colyseus.js";
+import { speedOf } from "@motor-combat-moba/shared";
 
 const ENDPOINT = process.env.PLAYTEST_ENDPOINT ?? "ws://127.0.0.1:2567";
 const TICK_MS = 1000 / 30;
@@ -75,15 +76,19 @@ async function main(): Promise<void> {
   );
 
   /* ---------------------------------------------------- observation 1: ram over the wire */
-  // Alice drives straight at Bob and rams him repeatedly; Bob holds still. Count how many
-  // contacts produce a visible knock (shove/spin/authority) on Bob's networked state.
+  // Alice drives straight at Bob and rams him repeatedly; Bob holds still (steer 0, throttle 0
+  // every tick), so any vx/vy Bob's networked state carries is entirely the knock — the direct
+  // successor of the old separate `shove` field, same reasoning the resting-victim probes in
+  // ram.ts use. `authority` has no successor in stage 1 (ram control-loss returns as the
+  // `reeling` status in stage 3), so it is dropped here rather than replaced with a lookalike
+  // number.
   console.log("\n--- ram trial: Alice charges Bob, Bob parked ---");
   let contacts = 0;
   let knocks = 0;
   let wasTouching = false;
-  // Seeded from the first sample rather than assumed to be 1: this loop starts mid-match and the
-  // car may already be carrying a knock.
-  let lastAuthority: number | null = null;
+  // Seeded from the first sample rather than assumed to be 0: this loop starts mid-match and the
+  // car may already be carrying a knock decaying from an earlier hit.
+  let lastShove: number | null = null;
   const ramStart = Date.now();
   while (Date.now() - ramStart < 20000) {
     const a = me(alice);
@@ -104,15 +109,13 @@ async function main(): Promise<void> {
     const touching = gap < 56;
     if (touching && !wasTouching) contacts++;
     wasTouching = touching;
-    // A knock is counted on a DROP in authority, not on a transition away from exactly 1.
-    //
-    // `authority` decays monotonically back UP toward 1 and a fresh knock is the only thing that can
-    // lower it, so a drop is an unambiguous knock event. The transition test this replaced required
-    // authority to have returned to exactly 1 first — which made it undercount precisely when rams
-    // land reliably, since a car under repeated attack never gets back to 1 between hits. It read
-    // 12% against an offline trigger rate of 100%, which is a broken counter, not a broken sim.
-    if (lastAuthority !== null && b.authority < lastAuthority - 0.001) knocks++;
-    lastAuthority = b.authority;
+    // A knock is counted on a RISE in shove, not on a transition away from exactly 0. Knock only
+    // decays between impacts, so any rise is a fresh ram landing — same rise-detection this probe
+    // used on `authority` before the rework, now read off the velocity Bob carries instead, since
+    // Bob never drives and so never contributes velocity of his own.
+    const shove = speedOf(b.vx, b.vy);
+    if (lastShove !== null && shove > lastShove + 5) knocks++;
+    lastShove = shove;
     await sleep(TICK_MS);
   }
   // Sampled at ~30 Hz against a 20 Hz patch rate, so both counts are approximate — a contact that

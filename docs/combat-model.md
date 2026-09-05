@@ -86,8 +86,8 @@ worth knowing before "fixing" either:
 
 All of this is stage 1 only. See [`schema-reference.md`](schema-reference.md#playerstate) for the
 fields and [`config-reference.md`](config-reference.md#ram_config) for the tuning — five of that
-config's knobs (`authorityFloor`, the two authority half-lives, `shoveHalfLifeSeconds`,
-`shoveEpsilon`) are now inert for the same reason, see that page.
+config's knobs (`authorityFloor`, `authorityHalfLifeSeconds`, `authorityEpsilon`,
+`shoveHalfLifeSeconds`, `shoveEpsilon`) are now inert for the same reason, see that page.
 
 **Teammates are fully immune.** `resolveRam` is gated by the same `canDamage` predicate used below
 for shots, so contact and weapons can never disagree about who is on your side. Teammates still

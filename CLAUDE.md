@@ -226,8 +226,9 @@ stage 3 reintroduces control loss as a `reeling` status. And because `accelerate
 clamp now catches any forward-aligned velocity (knock included) the moment the victim is next under
 throttle, a head-on or rear-end ram is close to inert — only a flank hit, which lands mostly as
 *lateral* velocity, reliably survives to be felt. Five `RAM_CONFIG` knobs
-(`authorityFloor`, both authority half-lives, `shoveHalfLifeSeconds`, `shoveEpsilon`) and
-`SLAM_CONFIG.victimAuthority` are inert leftovers of this — see that config file for which ones.
+(`authorityFloor`, `authorityHalfLifeSeconds`, `authorityEpsilon`, `shoveHalfLifeSeconds`,
+`shoveEpsilon`) and `SLAM_CONFIG.victimAuthority` are inert leftovers of this — see that config file
+for which ones.
 
 **Four more stages are planned, not yet started.** Stage 2 restores whole-vector reflection in
 `applyContact` (walls currently damp but never deflect) and adds mass-weighted separation. Stage 3

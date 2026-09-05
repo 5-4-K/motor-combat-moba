@@ -20,7 +20,8 @@ import { Reporter } from "./reporter.js";
 // STALE POST-VECTOR-DRIVE-REWORK: every threshold and descriptive u/tick number in this file
 // (trigger-rate floors, "10.5 u/tick", the authority-floor references) was tuned against the
 // pre-2026-09-06 roster, whose top speeds were up to 40% higher. Left unchanged per the review's
-// instruction that stage 5 owns re-deriving them — see final-fix-report.md.
+// instruction that stage 5 owns re-deriving them; see
+// `docs/superpowers/plans/2026-09-06-car-physics/05-tune-and-reconcile.md`.
 function ramOf(
   startGap: number,
   atkCar: CarId,

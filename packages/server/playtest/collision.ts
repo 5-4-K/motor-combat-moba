@@ -37,8 +37,9 @@ const report = reporter.report.bind(reporter);
  * against the current roster. Separately, "Ram shove ... is not capped by top speed" is no longer
  * true when the victim is also under throttle: `accelerateForward`'s clamp now catches an injected
  * forward-aligned velocity on the very next `stepDrive` call (see the comment on that clamp in
- * `drive.ts`, and finding B5 in final-fix-report.md) — this probe's injected shove may now be
- * discarded before it can contribute to closing speed. Also left for stage 5 to re-derive.
+ * `drive.ts`) — this probe's injected shove may now be discarded before it can contribute to
+ * closing speed. Also left for stage 5 to re-derive; see
+ * `docs/superpowers/plans/2026-09-06-car-physics/05-tune-and-reconcile.md`.
  */
 function tunneling(): void {
   const rows: string[] = [];

@@ -172,8 +172,10 @@ describe("docs/turn-tuning.md", () => {
 
   /**
    * The global table is where a knob that moves the whole roster is written down, so every row is
-   * pinned to its own config field. `spinMaxRate` and `authorityFloor` are here rather than in a ram
-   * doc because a reader tuning turning needs to know a ram can overrule them.
+   * pinned to its own config field. `spinMaxRate` is here rather than in a ram doc because a reader
+   * tuning turning needs to know a ram can overrule it. `authorityFloor` sits beside it for the same
+   * historical reason, but is INERT since the 2026-09-06 vector-drive rework — a ram no longer
+   * touches steering at all until stage 3 reintroduces control loss as the `reeling` status.
    */
   it("prints the global knobs at their configured values", () => {
     const { rows } = tableWhere(

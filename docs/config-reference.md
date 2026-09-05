@@ -731,8 +731,10 @@ Render knobs only — nothing in `stepSim` reads them.
 
 `camLerp` is per *reference* frame, not per rendered frame. Applied flat per frame it would close the
 gap 2.4x faster at 144 Hz than at 60 Hz, settling into a trailing offset of `speed / (fps × camLerp)`
-— 75 world units of lag at 60 Hz against 31 at 144, so the slower display would see meaningfully less
-road ahead. `smoothFollow` compounds it per elapsed millisecond instead, matching `panFreeCam`.
+— about 24.7 world units of lag at 60 Hz against 10.3 at 144 at the current top speed, so the slower
+display would see meaningfully less road ahead (the "75... against 31" this line previously claimed
+corresponds to a speed near 810 u/s and was already wrong before this branch touched it). `smoothFollow`
+compounds it per elapsed millisecond instead, matching `panFreeCam`.
 
 At `zoom` 1 the visible world is the full 1280x720 units, so the fastest car (mirage, 267 u/s as of
 the 2026-09-06 heavy-car pass — this read 2.4 seconds at the pre-rework 449.5 u/s) crosses it in 4.8

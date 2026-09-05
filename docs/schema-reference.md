@@ -89,7 +89,7 @@ field at all, so the check is always false there. See root `CLAUDE.md` and
 `vx`, `vy`, and `angVel` are the ram knock state as of the 2026-09-06 vector-drive rework (see
 [`combat-model.md`](combat-model.md#ramming)). A ram now adds its knock directly into `vx`/`vy` as a
 temporary shim rather than writing a separate field. They join `reverseHold` in
-`PredictionBuffer.reconcile`'s always-**snap** set rather than the ease path — both feed the
+`PredictionBuffer.reconcile`'s always-**snap** set rather than the ease path — all four feed the
 next `stepSim` integration directly, so a half-eased value would poison every subsequent step rather
 than merely look wrong. Net effect on the wire, against the pre-rework schema: **four fields removed**
 (`speed`, `shoveX`, `shoveY`, `authority`) and **two added** (`vx`, `vy`). `authority` has no successor
