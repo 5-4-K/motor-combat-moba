@@ -32,6 +32,8 @@ export interface LobbyMenus {
   kickTarget: { sessionId: string; name: string } | null;
   /** Start Match was pressed while not everyone is Ready — confirm before actually starting. */
   confirmStartOpen: boolean;
+  /** Settings → Exit was pressed — confirm before leaving the lobby. */
+  confirmExitOpen: boolean;
 }
 
 export interface LobbyHandlers {
@@ -48,6 +50,9 @@ export interface LobbyHandlers {
   onRequestKick(sessionId: string, name: string): void;
   onCancelKick(): void;
   onConfirmKick(): void;
+  onRequestExit(): void;
+  onCancelExit(): void;
+  onConfirmExit(): void;
 }
 
 function icon(markup: string, size: number, filled: boolean): SVGElement {
@@ -243,6 +248,26 @@ function startConfirmModal(handlers: LobbyHandlers): HTMLElement {
   ]);
 }
 
+/**
+ * Settings → Exit. Same shape as `startConfirmModal`, and deliberately so: leaving a lobby is the
+ * one action here nobody else can undo for you, and it should read like the other point of no
+ * return rather than inventing a second confirmation language.
+ */
+function exitConfirmModal(handlers: LobbyHandlers): HTMLElement {
+  return backdrop(12, [
+    h("div", { style: "width: 460px; padding: 28px 30px 26px; background: var(--color-surface); border: 1px solid var(--color-divider); border-radius: 4px; box-shadow: var(--shadow-lg);" }, [
+      h("h3", { style: "margin: 0; font-size: 24px;" }, ["Exit lobby"]),
+      h("p", { style: "font-size: 15px; line-height: 1.5; margin: 14px 0 0; color: var(--color-neutral-800);" }, [
+        "Do you want to exit this lobby?",
+      ]),
+      h("div", { style: "display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px;" }, [
+        button({ class: "btn btn-secondary", style: "min-height: 42px;" }, ["No"], handlers.onCancelExit),
+        button({ class: "btn btn-primary", style: "min-height: 42px; padding-inline: 26px;" }, ["Yes"], handlers.onConfirmExit),
+      ]),
+    ]),
+  ]);
+}
+
 function backdrop(z: number, children: HTMLElement[]): HTMLElement {
   return h(
     "div",
@@ -260,11 +285,20 @@ export function renderLobby(
   menus: LobbyMenus,
   handlers: LobbyHandlers,
 ): HTMLElement {
+  const menuItem = (label: string, onClick: () => void): HTMLElement =>
+    button({ class: "btn", style: "width: 100%; justify-content: flex-start; font-size: 14px; padding: 10px 14px;" }, [label], onClick);
+
+  /**
+   * Everyone's menu, not just the host's. It was host-only while Game modes was its only entry, and
+   * that left a guest with no way out of a lobby at all — Exit is why it now renders for every
+   * player, with `view.canOpenModes` deciding the host-only entry inside it.
+   */
   const settings = h("div", { style: "margin-left: auto; display: flex; align-items: center; gap: 10px; position: relative;" }, [
     button({ class: "btn btn-secondary btn-icon", style: "width: 44px; height: 44px;", "aria-label": "Settings" }, [icon(HAMBURGER, 20, false)], handlers.onToggleMenu),
     menus.menuOpen
-      ? h("div", { style: "position: absolute; top: 52px; right: 0; z-index: 5; width: 214px; padding: 8px; background: var(--color-surface); border: 1px solid var(--color-divider); border-radius: 6px; box-shadow: var(--shadow-lg);" }, [
-          button({ class: "btn", style: "width: 100%; justify-content: flex-start; font-size: 14px; padding: 10px 14px;" }, ["Game modes"], handlers.onOpenModes),
+      ? h("div", { style: "position: absolute; top: 52px; right: 0; z-index: 5; width: 214px; padding: 8px; display: flex; flex-direction: column; gap: 2px; background: var(--color-surface); border: 1px solid var(--color-divider); border-radius: 6px; box-shadow: var(--shadow-lg);" }, [
+          view.canOpenModes ? menuItem("Game modes", handlers.onOpenModes) : null,
+          menuItem("Exit", handlers.onRequestExit),
         ])
       : null,
   ]);
@@ -296,7 +330,7 @@ export function renderLobby(
             view.isHost ? h("span", { class: "tag tag-outline host-pulse" }, ["You are host"]) : null,
           ]),
         ]),
-        view.isHost && view.canChangeMode ? settings : null,
+        settings,
       ]),
       h("div", { style: "display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 26px;" }, [
         teamPanel("Team A", view.teamACount, view.teamA, handlers, view.showTeamHeadings, CUT_TOP_RIGHT),
@@ -318,5 +352,6 @@ export function renderLobby(
     menus.modesOpen && view.canChangeMode ? modesModal(view, menus, handlers) : null,
     menus.kickTarget ? kickModal(menus, handlers) : null,
     menus.confirmStartOpen ? startConfirmModal(handlers) : null,
+    menus.confirmExitOpen ? exitConfirmModal(handlers) : null,
   ]);
 }

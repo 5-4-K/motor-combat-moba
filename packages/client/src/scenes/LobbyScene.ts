@@ -17,19 +17,29 @@ import { renderLobby, type LobbyMenus } from "../ui/screens/lobby.js";
 
 type StartErrorPayload = { error: string };
 
+/**
+ * Every menu shut and nothing pending. The field initialiser and `create` both need this, and they
+ * have to agree: a flag reset in only one of them leaves a modal standing over a lobby the player
+ * has just re-entered.
+ */
+function freshMenus(): LobbyMenus {
+  return {
+    menuOpen: false,
+    modesOpen: false,
+    pendingMode: DEFAULT_GAME_MODE,
+    kickTarget: null,
+    confirmStartOpen: false,
+    confirmExitOpen: false,
+  };
+}
+
 export class LobbyScene extends Phaser.Scene {
   private room: Room<ArenaState> | undefined;
   private overlay: ScreenOverlay | undefined;
   private startError = "";
   private lastSignature = "";
   private unbind: Array<() => void> = [];
-  private menus: LobbyMenus = {
-    menuOpen: false,
-    modesOpen: false,
-    pendingMode: DEFAULT_GAME_MODE,
-    kickTarget: null,
-    confirmStartOpen: false,
-  };
+  private menus: LobbyMenus = freshMenus();
 
   constructor() {
     super({ key: "lobby" });
@@ -38,13 +48,7 @@ export class LobbyScene extends Phaser.Scene {
   create(): void {
     this.startError = "";
     this.lastSignature = "";
-    this.menus = {
-      menuOpen: false,
-      modesOpen: false,
-      pendingMode: DEFAULT_GAME_MODE,
-      kickTarget: null,
-      confirmStartOpen: false,
-    };
+    this.menus = freshMenus();
     this.unbindAll();
     this.overlay = new ScreenOverlay(this);
     this.room = this.registry.get("room") as Room<ArenaState> | undefined;
@@ -154,6 +158,12 @@ export class LobbyScene extends Phaser.Scene {
           room.send(MSG_START_MATCH);
           this.setMenus({ confirmStartOpen: false });
         },
+        onRequestExit: () => this.setMenus({ menuOpen: false, confirmExitOpen: true }),
+        onCancelExit: () => this.setMenus({ confirmExitOpen: false }),
+        // Leaving is all this does. `bindRoom`'s `onLeave` is what sends the player home, so Exit
+        // and a kick take the identical route out and there is only one `scene.start("join")` to
+        // keep honest.
+        onConfirmExit: () => void room.leave(),
         onRequestKick: (sessionId, name) => this.setMenus({ kickTarget: { sessionId, name } }),
         onCancelKick: () => this.setMenus({ kickTarget: null }),
         onConfirmKick: () => {

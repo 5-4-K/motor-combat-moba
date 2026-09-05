@@ -73,6 +73,12 @@ export interface LobbyView {
   canSwitchTeam: boolean;
   /** Host Settings → Game modes. Hidden when only one mode is published — nothing to pick. */
   canChangeMode: boolean;
+  /**
+   * Whether the settings menu carries its Game modes entry. The menu itself is always shown — it is
+   * where Exit lives, and every player needs a way out of a lobby — so this is what keeps re-moding
+   * the room to the host, rather than the presence of the button.
+   */
+  canOpenModes: boolean;
   /** Whether every seated player is `PlayerStatus.READY`. Gates the Start Match confirmation. */
   allReady: boolean;
   startError: string;
@@ -165,6 +171,7 @@ export function lobbyView(
         )
       : false,
     canChangeMode: activeGameModes().length >= 2,
+    canOpenModes: isHost && activeGameModes().length >= 2,
     allReady: state.players.every((p) => p.status === PlayerStatus.READY),
     startError,
     teamA: column(teamA, state.hostSessionId, localSessionId, isHost),

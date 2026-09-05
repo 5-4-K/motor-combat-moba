@@ -232,4 +232,16 @@ describe("mode picker", () => {
     const view = lobbyView(state([player()]), "p1", "");
     expect(view.canChangeMode).toBe(activeGameModes().length >= 2);
   });
+
+  it("offers the Game modes entry to the host, when a second mode exists", () => {
+    const view = lobbyView(state([player()]), "p1", "");
+    expect(view.canOpenModes).toBe(activeGameModes().length >= 2);
+  });
+
+  it("never offers the Game modes entry to a guest", () => {
+    // The settings menu itself is everyone's — it is the one way out of a lobby (Exit lives there
+    // too) — but only the host may re-mode the room, so this entry stays host-only.
+    const players = [player(), player({ sessionId: "p2", name: "Juno" })];
+    expect(lobbyView(state(players), "p2", "").canOpenModes).toBe(false);
+  });
 });
