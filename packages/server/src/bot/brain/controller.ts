@@ -334,7 +334,7 @@ export class HumanController implements BotController {
     const reverseBlocked = reverseWouldHitBound(self, view.arena, profile.wallLookaheadUnits);
     // R10: the sim only uses the stopped turn rate while not moving (`stepDrive`'s `isMoving`
     // gate), so pick the rate that matches the bot's actual current speed rather than always the
-    // stopped one — otherwise the compensation below is tuned for a car that isn't rolling.
+    // stopped one — otherwise the lag PROJECTION below is tuned for a car that isn't rolling.
     const turnRate = Math.abs(self.speed) > DRIVE_CONFIG.stopEpsilon
       ? turnRateOf(self.carId)
       : turnRateAtStopOf(self.carId);
@@ -342,7 +342,12 @@ export class HumanController implements BotController {
       headingError: signedDelta(self.angle, heading),
       lastSteer: this.lastSteer,
       turnRate,
+      // R12: the deadzone FLOOR always uses the moving rate, never the speed-dependent one above —
+      // it is the finest correction the car can ever make, not the one it can make on this tick.
+      // See `compensateForLag`'s doc comment and `BRAIN_CONSTANTS.deadzoneFloorFraction`'s.
+      floorTurnRate: turnRateOf(self.carId),
       aimToleranceRad: profile.aimToleranceRad,
+      fireConeRad: profile.fireConeRad,
       reactionDelayTicks: profile.reactionDelayTicks,
       recomputeTicks: profile.recomputeTicks,
     });

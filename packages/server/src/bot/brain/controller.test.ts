@@ -28,6 +28,7 @@ function view(overrides: Partial<BotView> = {}): BotView {
 function closedLoopDuel(
   tier: "easy" | "medium" | "hard",
   ticks: number,
+  targetPos: { x: number; y: number } = { x: 753, y: 360 },
 ): { fires: number; meanOffset: number } {
   const bot = new HumanController(tier);
   const rng = makeRng(17);
@@ -42,7 +43,7 @@ function closedLoopDuel(
     shoveX: 0, shoveY: 0, authority: 1, maneuver: 0, maneuverTicksLeft: 0, maneuverSpeed: 0,
   };
   const target = {
-    sessionId: "them", carId: "mirage" as const, team: 1 as const, x: 753, y: 360,
+    sessionId: "them", carId: "mirage" as const, team: 1 as const, x: targetPos.x, y: targetPos.y,
     angle: Math.PI, speed: 0, hp: 70, maxHp: 70, alive: true, phased: false,
     statuses: [], maneuver: 0,
   };
@@ -88,6 +89,19 @@ describe("HumanController", () => {
     // gap toward that 99 ceiling.
     expect(fires).toBeGreaterThan(90);
     // The mechanism, not just the symptom: the body must stay near the aim line.
+    expect(meanOffset).toBeLessThan(BOT_PROFILES.hard.fireConeRad);
+  });
+
+  it("keeps the body on the aim line when the target is OFF-AXIS, not just dead ahead (review fix round 1, critical defect)", () => {
+    // The on-axis duel above (target at the bot's own y=360) has zero heading error from tick 0,
+    // so it cannot distinguish a working compensation from a disabled one — steer settles to 0
+    // either way. This target sits at y=500 (bot spawns at y=360), so the bot must actually turn
+    // to line up, which is exactly what `compensateForLag`'s buggy deadzone floor (0.711 rad, 41
+    // degrees — computed as `turnRate * lagSeconds * 0.5`) prevented: steering froze near a
+    // heading offset of 0.269 rad by tick 9 and never closed further.
+    // Pre-fix baseline (2026-09-05, review round 1): fires = 6 / 300, heading frozen near 0.269 rad.
+    const { fires, meanOffset } = closedLoopDuel("hard", 300, { x: 753, y: 500 });
+    expect(fires).toBeGreaterThan(90);
     expect(meanOffset).toBeLessThan(BOT_PROFILES.hard.fireConeRad);
   });
 

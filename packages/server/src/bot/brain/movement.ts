@@ -97,7 +97,7 @@ export function nearBound(
 
 /**
  * Anticipate the bot's own reaction lag so its bang-bang steering settles instead of oscillating
- * (R9/R10, 2026-09-05).
+ * (R9/R10, 2026-09-05; deadzone floor corrected R12, review round 1, 2026-09-05).
  *
  * `reduceToIntent`'s `steer` is only ever -1/0/1 — there is no proportional term — and a bang-bang
  * controller with decision lag is a textbook limit cycle: hard/bullseye's stopped turn rate alone
@@ -110,29 +110,68 @@ export function nearBound(
  * 0.2). Forcing lag to zero collapsed mean offset to 0 and fires to 99/300, isolating this as the
  * dominant mechanism.
  *
- * A person with a real reaction delay does not oscillate, because they anticipate it. This
- * reproduces that in two parts: `effectiveDeadzone` floors the tolerance at half a decision
- * interval's worth of rotation, so the controller stops chasing a precision the actuator cannot
- * deliver; `projectedError` subtracts the rotation already committed to (the steer this controller
- * most recently emitted, held for one lag window) before the bang-bang test runs. Deleting this
- * without also giving `reduceToIntent` a proportional term reintroduces the limit cycle — see
- * `.superpowers/sdd/2026-09-05-bot-brain-1-firing-solutions/task-2-report.md`, Round 2.
+ * This is TWO different quantities, and conflating them is what review round 1 caught:
+ *
+ * - `effectiveDeadzone` is about ACTUATOR RESOLUTION, not lag: do not chase a precision finer than
+ *   the smallest step the car can take in a single tick (`rotationPerTick = floorTurnRate /
+ *   TICK_RATE_HZ`). It floors at half a tick's rotation (`deadzoneFloorFraction`), and is hard-
+ *   capped below `fireConeRad` (`deadzoneCapFraction`) so a future chassis's turn rate can never
+ *   push it past the point where the bot settles somewhere it cannot shoot from. `lagSeconds` (the
+ *   full `reactionDelayTicks + recomputeTicks` window) has NO business here — an earlier version of
+ *   this function floored on `turnRate * lagSeconds * deadzoneFloorFraction` (several ticks' worth
+ *   of rotation, not one), producing a 0.711 rad deadzone on hard — 41 degrees, 3.5x `fireConeRad`
+ *   — that made steering nearly inert the moment the target was off-axis. The on-axis duel in
+ *   `controller.test.ts` (heading error 0 from tick 0) could not catch that; the off-axis one added
+ *   in review round 1 can.
+ *
+ *   `floorTurnRate` is deliberately a SEPARATE argument from `turnRate`, always the car's moving
+ *   rate (`turnRateOf`, never `turnRateAtStopOf`) regardless of whether it is currently rolling.
+ *   The floor represents the finest correction step the car can EVER take, not the step it happens
+ *   to be capable of on this particular tick — using the speed-dependent `turnRate` here (as an
+ *   earlier draft of this fix did) let the floor collapse to ~0.059 rad the instant the car came to
+ *   rest at its standoff range (its stopped rate is roughly half its moving one), which is BELOW
+ *   `aimToleranceRad` (0.07) and so the `Math.max` silently discarded it — reproducing the original
+ *   defect's symptom (an oscillation that never settles) at the exact moment `fight` most needs it
+ *   to hold still: parked at range, facing the target. Confirmed by measurement: with `turnRate`
+ *   also driving the floor, the off-axis duel plateaued at 68/300 fires (never settling into a
+ *   steer-0 rest state); with `floorTurnRate` fixed to the moving rate, it reaches the same 146/300,
+ *   0-mean-offset ceiling the on-axis duel does.
+ * - `projectedError` IS about lag, and is unchanged: it subtracts the rotation already committed to
+ *   (the steer this controller most recently emitted, held for the full `lagSeconds` window) from
+ *   the raw heading error before the bang-bang test runs — a person with a real reaction delay does
+ *   not oscillate, because they anticipate it. This still uses the speed-dependent `turnRate` (R10)
+ *   because it predicts REAL future rotation, which genuinely does depend on whether the car is
+ *   currently rolling or stopped.
+ *
+ * Deleting this without also giving `reduceToIntent` a proportional term reintroduces the limit
+ * cycle — see `.superpowers/sdd/2026-09-05-bot-brain-1-firing-solutions/task-2-report.md`, Round 2
+ * and "Fix round 1". DO NOT DELETE THIS.
  */
 export function compensateForLag(args: {
   headingError: number;
   lastSteer: -1 | 0 | 1;
+  /** The car's turn rate matching its CURRENT speed state (R10) — feeds the lag projection only. */
   turnRate: number;
+  /** The car's moving turn rate, always — feeds the actuator-resolution floor only (R12). */
+  floorTurnRate: number;
   aimToleranceRad: number;
+  fireConeRad: number;
   reactionDelayTicks: number;
   recomputeTicks: number;
 }): { projectedError: number; effectiveDeadzone: number } {
   const lagSeconds = (args.reactionDelayTicks + args.recomputeTicks) / TICK_RATE_HZ;
-  const rotationPerDecisionInterval = args.turnRate * lagSeconds;
-  const effectiveDeadzone = Math.max(
-    args.aimToleranceRad,
-    rotationPerDecisionInterval * BRAIN_CONSTANTS.deadzoneFloorFraction,
+
+  // Actuator resolution: floor on one tick's rotation, not the whole lag window (R12).
+  const rotationPerTick = args.floorTurnRate / TICK_RATE_HZ;
+  const floor = rotationPerTick * BRAIN_CONSTANTS.deadzoneFloorFraction;
+  const effectiveDeadzone = Math.min(
+    Math.max(args.aimToleranceRad, floor),
+    args.fireConeRad * BRAIN_CONSTANTS.deadzoneCapFraction,
   );
+
+  // Lag projection: unchanged from R10 — cancel the rotation already committed to.
   const projectedError = args.headingError - args.lastSteer * args.turnRate * lagSeconds;
+
   return { projectedError, effectiveDeadzone };
 }
 

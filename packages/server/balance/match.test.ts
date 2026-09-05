@@ -123,6 +123,15 @@ describe("runMatch", () => {
     // assertion below states that premise outright so the two cases can never be confused: if a
     // future balance edit empties the window again, THAT line fails and names the reason.
     //
+    // `seed: 13`, not 33: Task 2's review round 1 (R12, 2026-09-05) fixed a Critical defect in the
+    // lag-compensated steering above — the deadzone floor had been derived from the WHOLE lag
+    // window's rotation instead of one tick's, and the floor is now also pinned to the car's
+    // moving turn rate rather than a rate that could collapse toward the stopped rate at rest, so
+    // it no longer disables steering the instant the target is off-axis or the car settles at
+    // range. That closes the aim line faster still for this matchup, so seed 33's kill now lands
+    // outside the 30 s window. Swept 1-100 against the fixed brain: 13, 31, 71, and 87 land a kill
+    // inside the window.
+    //
     // `seed: 33`, not 65: Task 2's lag-compensated steering (R9/R10, 2026-09-05) gave `hard`'s
     // bang-bang `reduceToIntent` a deadzone floor and a projected-error lead term so it stops
     // limit-cycling around its aim line instead of oscillating past its own tolerance band every
@@ -151,7 +160,7 @@ describe("runMatch", () => {
     // Mirage/Bastion matchup's dynamics enough that seed 40 stopped landing a kill inside the 30 s
     // window — a legitimate killless window under the new views, not a clock regression, so this
     // test isn't about that case.
-    const out = runMatch({ ...SETUP, seed: 33, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    const out = runMatch({ ...SETUP, seed: 13, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);

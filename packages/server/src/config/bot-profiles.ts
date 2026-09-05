@@ -116,19 +116,50 @@ export const BRAIN_CONSTANTS = Object.freeze({
   /** How far a personality may move a parameter from its tier value, as a fraction. */
   personalityJitter: 0.25,
   /**
-   * Fraction of one decision interval's worth of rotation that floors the effective steering
-   * deadzone (R10, 2026-09-05). A bang-bang steer law — `reduceToIntent`'s `steer` is only ever
-   * -1/0/1, never proportional — cannot settle inside a tolerance band smaller than the smallest
-   * step the actuator can take in one decision interval, or it overshoots every correction and
-   * limit-cycles forever. Measured on hard/bullseye: one tick of stopped-turn rotation
-   * (turnRateOf("bullseye") * DRIVE_CONFIG.stopTurnRatio = 3.555 rad/s = 0.1185 rad/tick) already
-   * exceeds `aimToleranceRad` (0.07 rad) on its own, before `reactionDelayTicks`+`recomputeTicks`
-   * lag (6 ticks = 0.71 rad in flight) is even counted. Halving the interval's rotation is the
-   * standard "deadzone >= half a step" rule for a discretized bang-bang controller: tight enough to
-   * still track, loose enough to stop chasing a precision the car cannot deliver. See
-   * `movement.ts`'s `compensateForLag`.
+   * Fraction of ONE TICK's worth of rotation that floors the effective steering deadzone (R10,
+   * 2026-09-05; corrected R12, review round 1). A bang-bang steer law — `reduceToIntent`'s `steer`
+   * is only ever -1/0/1, never proportional — cannot settle inside a tolerance band smaller than
+   * the smallest step the actuator can take, or it overshoots every correction and limit-cycles
+   * forever. The smallest step is ONE TICK of rotation, not a whole decision interval's worth:
+   * `rotationPerTick = turnRate / TICK_RATE_HZ`. Measured on hard/bullseye while moving
+   * (turnRateOf("bullseye") = 7.11 rad/s): `rotationPerTick` = 7.11 / 30 = 0.237 rad/tick, and
+   * `floor` = 0.237 * 0.5 = 0.1185 rad — comfortably between `aimToleranceRad` (0.07, so the floor
+   * binds) and `fireConeRad` (0.2, so it does not disable firing). Halving one tick's rotation is
+   * the standard "deadzone >= half a step" rule for a discretized bang-bang controller: tight
+   * enough to still track, loose enough to stop chasing a precision the car cannot deliver in one
+   * tick.
+   *
+   * The review round 1 defect: an earlier version of this constant floored against a whole
+   * DECISION INTERVAL's rotation (`turnRate * lagSeconds`, where `lagSeconds` covers
+   * `reactionDelayTicks + recomputeTicks` — 6 ticks on hard, so `turnRate * lagSeconds` = 7.11 *
+   * 0.2 = 1.422 rad) rather than one tick's. That produced an effective deadzone of 1.422 * 0.5 =
+   * 0.711 rad (41 degrees, 3.5x `fireConeRad`), which does not just fail to help — it disables
+   * steering almost entirely once the bot is off-axis, because the bang-bang test never fires
+   * until the heading error clears a band wider than any real duel geometry produces. `lagSeconds`
+   * still belongs in the PROJECTION term (`compensateForLag`'s `projectedError`) — that part was
+   * always correct and is unchanged; it just does not belong in the floor. See `movement.ts`'s
+   * `compensateForLag`.
+   *
+   * One more wrinkle the off-axis test surfaced: `rotationPerTick` must use the car's MOVING turn
+   * rate (`floorTurnRate` in `compensateForLag`), never the speed-dependent one R10 already threads
+   * through for the projection. The stopped rate is roughly half the moving one (`stopTurnRatio`
+   * 0.5), so floor-from-current-speed collapses to ~0.059 rad — below `aimToleranceRad` — the
+   * instant the car comes to rest at its standoff range, silently undoing the fix at exactly the
+   * moment `fight` needs it most (parked, facing the target). The floor is the finest correction the
+   * car can EVER make, not the one it happens to be capable of on a given tick.
    */
   deadzoneFloorFraction: 0.5,
+  /**
+   * Hard ceiling on the effective steering deadzone, as a fraction of `fireConeRad` (R12, review
+   * round 1). `deadzoneFloorFraction` is derived from `turnRate`, which varies by chassis — a
+   * future chassis with a much higher turn rate could push the floor past `fireConeRad` and
+   * reproduce this task's defect again, in a form no test happens to cover. Settling somewhere the
+   * bot cannot shoot from is never acceptable, whatever the floor computes to, so the effective
+   * deadzone is always clamped below the fire cone. At today's numbers (hard: floor 0.1185 rad,
+   * cap 0.2 * 0.8 = 0.16 rad) the cap does not bind — this exists for a chassis this repo does not
+   * have yet, not because it fires today.
+   */
+  deadzoneCapFraction: 0.8,
 });
 
 /**
