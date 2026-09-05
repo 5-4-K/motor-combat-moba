@@ -5,7 +5,7 @@
 > writing the finished ones. Nothing here is needed to *execute* a plan — for that, read
 > [`00-execution-guide.md`](00-execution-guide.md).
 
-**Last updated:** 2026-09-05 (N4, V3 and N5 written). **Branch:** `claude/gameplay-netcode-architecture-bgp8f6`.
+**Last updated:** 2026-09-05 (N4, V3, N5 and V4 written). **Branch:** `claude/gameplay-netcode-architecture-bgp8f6`.
 
 The two approved specs this folder implements:
 [netcode](../../specs/2026-09-04-online-netcode-and-client-architecture-design.md) and
@@ -13,7 +13,7 @@ The two approved specs this folder implements:
 
 ## 1. Status
 
-Fourteen plans, two streams. **Eleven written, three to go** — N6, V4, V5. (Count the table, not this line: earlier revisions of it said nine and then ten while eight were written, both wrong.)
+Fourteen plans, two streams. **Twelve written, two to go** — N6 and V5. (Count the table, not this line: earlier revisions of it said nine and then ten while eight were written, both wrong.)
 
 | # | File | Lines | State |
 |---|---|---|---|
@@ -29,7 +29,7 @@ Fourteen plans, two streams. **Eleven written, three to go** — N6, V4, V5. (Co
 | V1 | `21-render-1-hud.md` | 2704 | written |
 | V2 | `22-render-2-bake.md` | 4170 | written |
 | V3 | `23-render-3-beams.md` | 1609 | written |
-| V4 | `24-render-4-events.md` | — | **to write** |
+| V4 | `24-render-4-events.md` | 2165 | written |
 | V5 | `25-render-5-pixels.md` | — | **to write** |
 
 Supporting files, all written: [`interfaces.md`](interfaces.md) (the ledger),
@@ -67,9 +67,51 @@ either; its ledger edits are all additive (`PlayerState.connected` appended to t
 about the two reconnect numbers seriously: 15 s and 60 s are separated in six places, and the one
 test that mentions both pins the *relationship* rather than either value.
 
-**Two plans in a row have now found no ledger defect.** That is a signal the ledger has converged,
-not that the check was skipped — V3's and N5's reports both say so explicitly. Keep running step 2;
-stop expecting it to bite.
+**`24-render-4-events.md` was written on 2026-09-05**, same session, and it **discharges the
+execution guide's coupling 2 by construction rather than leaving a switch to throw**: `ArenaScene`
+passes `frame.events` and `BenchScene` passes `benchEvents(tick)` to the same
+`EffectRouter.onEvents`, so nothing has to change when N4 merges — the arena simply starts receiving
+a non-empty list. Its ledger edits are additive (the three service rows expanded, the census's fourth
+group, `bakeJobs`' fourth job list). Its most unusual decision is a **bench failure that fires when a
+decal is live**: `DECAL_DEFS` is empty by decision (R12a), not by omission, so the guard protects the
+decision rather than a bug, and the day somebody authors the first decal that line is what makes them
+say so out loud.
+
+**Three plans in a row have now found no ledger defect.** That is a signal the ledger has converged,
+not that the check was skipped — V3's, N5's and V4's reports all say so explicitly. Keep running
+step 2; stop expecting it to bite.
+
+## 1a. Where this stopped, 2026-09-05 — read this before starting
+
+**Four plans landed this session, in this order: N4, V3, N5, V4** — one commit each, each carrying
+its own ledger edits, all pushed on `claude/netcode-rendering-plans-003970` (a worktree branch off
+`claude/gameplay-netcode-architecture-bgp8f6`).
+
+**Two plans remain, and they are the last round: N6 and V5.** They are in different streams, so they
+are independent and can be written at the same time. Both assignments are in section 5 below,
+verbatim and unchanged.
+
+What each of them needs that is new since the assignments were written:
+
+- **N6** reads **N5's `## Handoff`**, whose "For N6 specifically" bullet is the one that matters:
+  `MatchTransport` is now proven swappable at runtime (`ColyseusTransport.rebind` changes the room
+  under a live `MatchClient` without disturbing a subscriber), which is exactly the property N12's
+  WebTransport task needs and which nothing had exercised before; and the harness gained a
+  **blackout** knob that an N6 task tuning `remoteSteerHoldTicks` over a lossy link should extend
+  rather than re-invent. N6's `thunderclap` task also now has its numbers already computed: **N4's
+  Task 5 shipped `config/telegraph.ts`, an audit that names `thunderclap` failing N31 rules 1 and 3**
+  (`startUpMs` 0 against a 150 ms window, 96,000 u/s² against a 4,267 u/s² budget, 240 u of error on
+  a victim's screen against a 48 u car) and deliberately does **not** edit the row. N6's task is the
+  edit, and the audit's own test is what will flip to green when it lands.
+- **V5** reads **V4's `## Handoff`**, whose "Deferred by V4" list is V5's work list and whose service
+  table names `setCap` on both `ParticleService` and `DecalService` as the tier hook. One thing V5
+  must not do: `TIER_TABLE` must **read** `PARTICLE_CONFIG.caps` and `DECAL_CONFIG.maxLive` rather
+  than restate their numbers, and `tiers.test.ts` should assert the two agree. V5 also inherits three
+  more tier call sites than V2's Handoff listed — V3 added `BeamRenderer`'s constructor default and
+  `bakeJobs`' own default, and V4 added the two service constructors.
+
+Nothing is half-written and no file is under a provisional name. The open question in section 4 is
+unchanged in kind and narrower in scope than it was; it blocks nothing.
 
 A general rule for any future interruption: a half-written plan must never be left under its final
 name, because the next plan in that stream builds on its `## Handoff`. That rule is what made the V2
@@ -83,9 +125,9 @@ Each plan is written by one worker in its own context. Hand that worker:
 2. The plan's own assignment from section 5 below, verbatim.
 
 **Order matters.** Within a stream each plan reads the previous plan's `## Handoff`, so they are
-written in order: N6 last in its stream, and V4 → V5 (N4, N5 and V3 are done). Across streams they
-are independent, so one netcode plan and one rendering plan can be written at the same time. **Two
-rounds remain**: V4 alone (the netcode stream is one plan ahead again), then N6 with V5.
+written in order: N6 is last in the netcode stream and V5 is last in the rendering one (N4, N5, V3
+and V4 are all done). The two are in different streams and therefore independent. **One round
+remains**: N6 and V5, together or in either order.
 
 **After each plan comes back:**
 
