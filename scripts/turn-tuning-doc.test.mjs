@@ -144,6 +144,33 @@ describe("docs/turn-tuning.md", () => {
   });
 
   /**
+   * The per-car direct-values table (coast half-life, brake deceleration) joined `CAR_TABLE` on
+   * 2026-09-06 alongside the heavy-car pass, and it's the one per-car table stages 2-5 will keep
+   * touching. It doesn't feed a turn-rate or radius formula, so it can't share the ratings table's
+   * row list (`turn-tuning-doc.test.mjs`'s own `deepEqual` on that list is why the prior implementer
+   * put it in its own table rather than as a row there) — but nothing else exempts it from being
+   * read back the same way every other table on this page is.
+   */
+  it("prints the per-car direct values CAR_TABLE actually holds", () => {
+    const { header, rows } = tableWhere(tables, (h) => labelOf(h) === "Value", "per-car direct values");
+    const columns = carColumns(header, "per-car direct values");
+    const expected = {
+      "coastHalfLifeSeconds — coast half-life (s)": (id) => CAR_TABLE[id].coastHalfLifeSeconds,
+      "brakeDecel — brake deceleration (u/s²)": (id) => CAR_TABLE[id].brakeDecel,
+    };
+    assert.deepEqual(
+      rows.map(labelOf),
+      Object.keys(expected),
+      `unexpected rows in the per-car direct-values table. ${REBUILD}`,
+    );
+    for (const cells of rows) {
+      for (const [id, column] of columns) {
+        assertCell(cells[column], expected[labelOf(cells)](id), `direct value "${labelOf(cells)}" / ${id}`);
+      }
+    }
+  });
+
+  /**
    * The global table is where a knob that moves the whole roster is written down, so every row is
    * pinned to its own config field. `spinMaxRate` and `authorityFloor` are here rather than in a ram
    * doc because a reader tuning turning needs to know a ram can overrule them.

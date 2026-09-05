@@ -143,6 +143,12 @@ describe("runMatch", () => {
     // Mirage/Bastion matchup's dynamics enough that seed 40 stopped landing a kill inside the 30 s
     // window — a legitimate killless window under the new views, not a clock regression, so this
     // test isn't about that case.
+    //
+    // Checked, not reseeded, on 2026-09-06: stage 1 of the vector-drive rework (the heavy-car pass —
+    // `baseMaxSpeed`/`speedPerRating`/`baseAccel`/`accelPerRating` all cut, per-car `coastHalfLifeSeconds`
+    // and `brakeDecel` added) was swept against seed 65 both ways: red against the pre-pass drive
+    // numbers (no kill lands in the 30 s window), green after landing them, unchanged. Recorded here
+    // so the next reader knows this was verified rather than merely untouched by the pass.
     const out = runMatch({ ...SETUP, seed: 65, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");

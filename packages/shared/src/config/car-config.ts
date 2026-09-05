@@ -39,10 +39,11 @@ import type { CarDef, CarId } from "./types.js";
  * `mass` is not durability. It scales how hard this chassis rams and how easily it is rammed, and it
  * touches nothing else — see `RAM_CONFIG.massPerRating`.
  *
- * **Changing a car's `handling` or `speed` also owes `docs/turn-tuning.md` an edit**, and a fourth
- * chassis owes it a new column in two tables. That page tabulates every turn rate and radius on the
- * roster by hand, and `scripts/turn-tuning-doc.test.mjs` recomputes every cell from this table — it
- * fails until the page agrees. See its "Keeping this page honest" section.
+ * **Changing a car's `handling`, `speed`, `coastHalfLifeSeconds` or `brakeDecel` also owes
+ * `docs/turn-tuning.md` an edit**, and a fourth chassis owes it a new column in three tables. That
+ * page tabulates every turn rate and radius on the roster by hand, and
+ * `scripts/turn-tuning-doc.test.mjs` recomputes every cell from this table — it fails until the page
+ * agrees. See its "Keeping this page honest" section.
  *
  * `weapons` is the chassis's kit in slot order, and the kits are EXCLUSIVE: no weapon id appears on
  * two chassis (L1). `weapon-slots.test.ts` enforces that, so moving a weapon between chassis means

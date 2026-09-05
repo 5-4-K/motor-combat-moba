@@ -98,9 +98,13 @@ export const DRIVE_CONFIG = {
   accelPerRating: 1.4,
   reverseSpeedRatio: 0.65,
   /**
-   * Reverse push as a fraction of forward. At rating 50 this gives 1099.8 against the 1100 that
-   * shipped — a deliberate 0.02% rounding, below anything a driver can feel, taken because the exact
-   * ratio (1100/780) is not a number anyone should have to read in a config file.
+   * Reverse push as a fraction of forward. The value is historical, not a live derivation: when
+   * rating 50 yielded exactly 780 forward (until 2026-09-06, see `baseAccel` above), 1.41 gave 1099.8
+   * against the 1100 that shipped — a deliberate 0.02% rounding, below anything a driver can feel,
+   * taken because the exact ratio (1100/780) was not a number anyone should have to read in a config
+   * file. The 2026-09-06 heavy-car pass cut `baseAccel`/`accelPerRating` without touching this factor,
+   * so that pivot is gone — rating 50 now yields 130 forward and 183.3 reverse — and nothing today
+   * anchors 1.41 to a specific reverse-accel target; it simply was not part of that pass's scope.
    */
   reverseAccelFactor: 1.41,
   /**
