@@ -407,14 +407,14 @@ export interface GhostSpawn { id: string; weaponId: string; slot: number }
 | `scripts/bench-arena.mjs` | Playwright runner for the bench scene on Chromium and Firefox; prints p50/p95 | V0 | CI |
 | `scenes/HudScene.ts` | Phaser scene key `"hud"`, launched in parallel by `ArenaScene`; reads the same `RenderFrame` through `registry.get("frame")` | V1 | V2–V5 |
 | `render/fonts.ts` | `HUD_FONT = "hud-font"`; `scripts/build-bitmap-font.mjs` writes `public/art/fonts/hud-font.png` + `.xml` | V1 | V4, V5 |
-| `render/bake.ts` | `bakeAtlas(scene, tier): Promise<void>`; frame names `baked.<name>` | V2 | V3, V4 |
-| `render/atlas.ts` | `ART_ATLAS = "art-atlas"`, `BAKED_ATLAS = "baked-atlas"`; `scripts/pack-atlas.mjs` writes `public/art/art-atlas.{png,json}` | V2 | V3, V4 |
+| `render/bake.ts` | `bakeAtlas(scene, tier): Promise<void>`; frame names `baked.<name>`; `type BakeTier = "low" \| "medium" \| "high"` | **V1** (HUD jobs only: ring, wash, glyphs, capsules, sweep sheet); V2 adds the world jobs | V2, V3, V4, V5 |
+| `render/atlas.ts` | `BAKED_ATLAS = "baked-atlas"` in **V1**; `ART_ATLAS = "art-atlas"` and `scripts/pack-atlas.mjs` writing `public/art/art-atlas.{png,json}` in V2 | V1, V2 | V2, V3, V4 |
 | `render/layers.ts` | `enum Layer { Floor, Decals, GroundFx, Cars, Shots, Glow, OverlayFx, Debug }` with depths; replaces the per-renderer depth constants | V2 | V3–V5 |
 | `render/beams.ts` | `class BeamRenderer` (flipbook flame, rope bolt, sprite zones) | V3 | V4 |
 | `render/particles.ts` | `class ParticleService { burst(kind, x, y, count, priority); stream(kind, follow, rate); setCap(n) }` | V4 | V5 |
 | `render/decals.ts` | `class DecalService { place(def: DecalDef, x, y, angle) }`, `DECAL_CONFIG` in `config/decals.ts`, empty `DECAL_DEFS` table | V4 | — |
 | `render/effects.ts` | `class EffectRouter { onEvents(events: readonly MatchEvent[]) }` — events → sparks, flashes, shake | V4 | — |
-| `render/tiers.ts` | `type Tier = "low" \| "medium" \| "high"`, `TIER_TABLE`, `class TierManager` | V5 | — |
+| `render/tiers.ts` | `TIER_TABLE`, `class TierManager`, and `export type Tier = BakeTier` re-exported from `render/bake.ts` — `bake.ts` owns the union because V1 needs it and V5 must not be a dependency of V1 | V5 | — |
 | `render/governor.ts` | `class FrameGovernor { observe(frameMs); allowCosmetic(): boolean }` | V5 | — |
 
 ---
