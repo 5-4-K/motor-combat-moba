@@ -278,33 +278,34 @@ export const BRAIN_CONSTANTS = Object.freeze({
    */
   assumedOpponentAimSigmaRad: 0.06,
   /**
-   * Danger-per-second, after `opponentRangeRespect`, at which a bot leaves the line (P16).
+   * Danger-per-second, after `opponentRangeRespect`, at which a bot leaves a firing line it is
+   * standing in, before any shot exists (P16). Anticipatory only — gated on NOT being pinned (see
+   * the `evade` input in `controller.ts`'s `plan()`); a wall-pinned bot never evaluates this term at
+   * all, because `unpin` needs first crack at getting off the wall (see R-C6 below).
    *
-   * The brief's own starting value (12) goes mute the instant it is measured against a real fight:
-   * `dangerEvAgainst` sums EVERY kit weapon the bot believes is loaded, at the shooter's own best
-   * achievable geometry, so a hard bot standing at its OWN normal fighting range against a fully
-   * loaded kit reads well above 12 as a matter of course — the exact failure R-C5 warned about,
-   * parking the bot in `evade` permanently and starving `punish`/`reset`/`fight`/`close`.
+   * Round-1 fix note (R-C6): this term used to be ungated, and no scalar value could satisfy both
+   * this task's guard scene (`inThreatLineView`, `controller.test.ts` — a stationary bullseye at
+   * 300u, full kit loaded, NOT pinned: raw `dangerEv` 50.08 / 45.07 after `opponentRangeRespect`
+   * 0.9) and `tiers.test.ts`'s wall scene (`"a wall changes what hard does..."` — a stationary mirage
+   * at 200u, full kit loaded, PINNED: raw 65.33 / 58.80 after respect) simultaneously, because the
+   * wall scene's own reading is the higher of the two. The actual defect wasn't the number — it was
+   * a standing condition (true for most of a duel at fighting range) wired into an event-priority
+   * slot with no commit delay, which let it starve `unpin` forever and pin a hard bot on a wall for
+   * good, an amateur trait the tier ladder explicitly does not want on hard. Gating the term on
+   * `!pinned` removes the wall scene from consideration entirely, which reopens the low end of the
+   * range the brief expected: this task's own guard scene is the only in-suite ceiling that matters
+   * now, so the brief's original starting value is the right one to keep.
    *
    * MEASURED (`HumanController.debug().dangerEv`, hard tier, `assumedOpponentAimSigmaRad` 0.06,
-   * `opponentRangeRespect` 0.9 applied): this task's own guard scene (`inThreatLineView` in
-   * `controller.test.ts` — a stationary bullseye at 300u, dead ahead, full kit loaded) reads 50.08
-   * raw / 45.07 after respect. `tiers.test.ts`'s pre-existing wall scene (`"a wall changes what hard
-   * does..."`, a stationary mirage at 200u, dead ahead, full kit loaded) reads 65.33 raw / 58.80
-   * after respect — HIGHER than the guard scene, because a closer range and Mirage's kit (magmablast
-   * ceiling ~45 alone) beats Bullseye's own kit at 300u even though the wall scene's target sits
-   * technically past the arena's east bound (1400 vs `width` 1280), which if anything under-counts
-   * its true danger via `stepInstance`'s bounds clipping.
-   *
-   * No single scalar threshold satisfies both scenes: the wall scene's own reading exceeds the guard
-   * scene's, so a value high enough to keep the wall scene out of `evade` (>58.80) leaves the guard
-   * scene's own reading (45.07) below it too, and this task's directive ("the threshold must stay low
-   * enough that the guard test still passes") is explicit about which one wins. Chosen: 40 — below
-   * the guard scene's 45.07 with margin, comfortably above ordinary `punish`/`fight` scenes measured
-   * in the same suite (all read well under 40, per `npm test`), and the wall test's assertion is the
-   * one documented casualty (see task-3-report.md).
+   * `opponentRangeRespect` 0.9): the guard scene reads 45.07 after respect, comfortably above 12, so
+   * 12 still trips `evade` there. Re-ran the full root `npm test` at 12 with the `!pinned` gate in
+   * place: green, including the previously-failing wall test (now pinned, so it never reaches this
+   * term and `unpin` wins as before). Left at the brief's 12 rather than raised, per the ruling's
+   * "lower is better" — headroom above the guard scene's own reading is a false margin now that the
+   * wall scene can no longer collide with it, and a lower value keeps the anticipatory reflex from
+   * needing much danger to fire, which is the point of the feature.
    */
-  dangerEvadeThreshold: 40,
+  dangerEvadeThreshold: 12,
 });
 
 /**

@@ -264,8 +264,15 @@ export class HumanController implements BotController {
         || (carIncoming && this.willEvadeCar)
         // Anticipatory: standing in a loaded gun's solution is a reason to move BEFORE the shot
         // exists. Scaled by opponentRangeRespect (P38) so respecting danger stays the tier axis it
-        // has always been — at 0 this term can never fire, which is exactly easy's intent.
-        || danger * profile.opponentRangeRespect >= BRAIN_CONSTANTS.dangerEvadeThreshold,
+        // has always been — at 0 this term can never fire, which is exactly easy's intent. Gated on
+        // NOT pinned: this condition is true for most of a duel at fighting range, so at `evade`'s
+        // priority (index 2, no commit delay) an ungated version starves `unpin` forever and a hard
+        // bot pins itself on a wall for good. A pinned bot yields the anticipatory term to `unpin`
+        // instead — `unpin` steers toward open floor, which usually breaks the line anyway, so it
+        // loses little by solving the more urgent problem first. The reactive dodge above and the
+        // incoming-car trigger stay ungated: a shot already in flight (or a car bearing down) should
+        // still beat a wall.
+        || (!pinned && danger * profile.opponentRangeRespect >= BRAIN_CONSTANTS.dangerEvadeThreshold),
       unpin: pinned && trulyHittable && this.willUnpin,
       punish: trulyHittable && (targetStunned || ultSpent
         || targetHpFraction <= profile.ultWindowHpFraction),

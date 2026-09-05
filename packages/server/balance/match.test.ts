@@ -123,6 +123,15 @@ describe("runMatch", () => {
     // assertion below states that premise outright so the two cases can never be confused: if a
     // future balance edit empties the window again, THAT line fails and names the reason.
     //
+    // `seed: 32`, not 124: R-C6 (2026-09-06) gates the anticipatory-evade term added by Task 3
+    // (bot-brain-2) on `!pinned` and returns `dangerEvadeThreshold` to the brief's 12 (it had been
+    // raised to 40 to route around a since-abandoned threshold-only fix) — both changes move WHEN
+    // this hard-tier Mirage/Bastion pair leaves a fight to dodge or unpin, which is exactly this
+    // matchup's clock, so seed 124's kill no longer lands inside the 30 s window. Swept 1-150
+    // against the fixed brain: only 32 and 147 land a kill inside the window — a much sparser hit
+    // rate than earlier reseeds in this history, consistent with an anticipatory reflex that now
+    // fires through most of a fight rather than only near a wall.
+    //
     // `seed: 124`, not 59: the final whole-branch review's fix wave (2026-09-06) made two changes
     // that both move WHEN a hard bot presses a slot, which is exactly this matchup's clock. R20
     // replaced `minShotValue` (an absolute EV-per-second number) with `minShotValueFraction` (a
@@ -200,7 +209,7 @@ describe("runMatch", () => {
     // Mirage/Bastion matchup's dynamics enough that seed 40 stopped landing a kill inside the 30 s
     // window — a legitimate killless window under the new views, not a clock regression, so this
     // test isn't about that case.
-    const out = runMatch({ ...SETUP, seed: 124, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    const out = runMatch({ ...SETUP, seed: 32, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);
