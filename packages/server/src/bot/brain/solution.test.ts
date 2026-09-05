@@ -5,7 +5,8 @@ import {
 } from "@motor-combat-moba/shared";
 import type { BotArenaView, BotCarView, BotSlotView } from "../types.js";
 import {
-  AIM_QUADRATURE, constantVelocityPredictor, solve, type PosePredictor, type SolverShooter,
+  AIM_QUADRATURE, constantVelocityPredictor, dangerEvAgainst, solve,
+  type PosePredictor, type SolverShooter,
 } from "./solution.js";
 
 const arena: BotArenaView = { width: 1280, height: 720, obstacles: [] };
@@ -360,6 +361,49 @@ function firesAndConnects(
   }
   return false;
 }
+
+describe("dangerEvAgainst (P16)", () => {
+  const loaded = () => 1;
+
+  // CONTROLLER RULING: the brief's own draft hands BOTH `me` and the threat the sessionId "them",
+  // because `targetAt()` hardcodes it. Harmless here (the threat's `lockTargetSessionId` is "", so
+  // no aim-assist lock can match either name) but a latent trap for anyone extending these cases --
+  // `me` gets its own distinct sessionId below instead. Every assertion and numeric value is kept
+  // exactly as the brief wrote it.
+
+  it("is higher when the threat is pointed at us than when it is pointed away", () => {
+    const me: BotCarView = { ...targetAt(300, 0), sessionId: "me" };
+    const facing: BotCarView = { ...targetAt(0, 0), sessionId: "them", carId: "bullseye", angle: 0 };
+    const away: BotCarView = { ...facing, angle: Math.PI };
+    const at = (threat: BotCarView) => dangerEvAgainst({
+      threat, me, meAt: constantVelocityPredictor(me), readiness: loaded,
+      assumedAimSigmaRad: 0.05, tick: 0, arena,
+    });
+    expect(at(facing)).toBeGreaterThan(at(away));
+  });
+
+  it("is zero when the threat is out of every weapon's reach", () => {
+    const me: BotCarView = { ...targetAt(5000, 0), sessionId: "me" };
+    const threat: BotCarView = { ...targetAt(0, 0), sessionId: "them", carId: "bullseye", angle: 0 };
+    expect(dangerEvAgainst({
+      threat, me, meAt: constantVelocityPredictor(me), readiness: loaded,
+      assumedAimSigmaRad: 0.05, tick: 0, arena,
+    })).toBe(0);
+  });
+
+  it("discounts a weapon this bot believes is still recharging (P21)", () => {
+    const me: BotCarView = { ...targetAt(300, 0), sessionId: "me" };
+    const threat: BotCarView = { ...targetAt(0, 0), sessionId: "them", carId: "bullseye", angle: 0 };
+    const common = {
+      threat, me, meAt: constantVelocityPredictor(me),
+      assumedAimSigmaRad: 0.05, tick: 0, arena,
+    };
+    const all = dangerEvAgainst({ ...common, readiness: loaded });
+    const spent = dangerEvAgainst({ ...common, readiness: () => 0 });
+    expect(spent).toBeLessThan(all);
+    expect(spent).toBe(0);
+  });
+});
 
 describe("solver determinism (P43)", () => {
   it("draws no random numbers at all", () => {

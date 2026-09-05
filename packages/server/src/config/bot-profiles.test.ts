@@ -170,6 +170,7 @@ describe("BOT_PROFILES", () => {
     expect(BRAIN_CONSTANTS.contactTriggerUnits).toBe(150);
     expect(BRAIN_CONSTANTS.ultCooldownMs).toBe(5000);
     expect(BRAIN_CONSTANTS.personalityJitter).toBe(0.25);
+    expect(BRAIN_CONSTANTS.assumedOpponentAimSigmaRad).toBe(0.06);
     expect(BOT_BRAIN_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
   });
 });

@@ -1,11 +1,11 @@
 import {
   TICK_RATE_HZ, beamShapeAt, carHullOf, forwardMaxSpeedOf, instanceExpired, projectileShapeAt,
   shapeHitsObb, slotsOf, smear, spawnInstances, stepInstance, weaponDamageOf, weaponDefOf,
-  weaponTicksOf, type CarId, type WeaponInstance, type WorldShape,
+  weaponTicksOf, type CarId, type WeaponId, type WeaponInstance, type WorldShape,
 } from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import type { BotArenaView, BotCarView, BotSlotView } from "../types.js";
-import { weaponReachOf } from "./reach.js";
+import { kitWeaponIds, weaponReachOf } from "./reach.js";
 
 /**
  * Where the aim error is sampled, and how much each sample counts (P43).
@@ -417,4 +417,59 @@ function shapeOf(instance: WeaponInstance): WorldShape {
     return beamShapeAt(def.hitbox, instance.x, instance.y, instance.angle, instance.extent);
   }
   throw new Error(`shapeOf: ${instance.weaponId} spawns no instance`);
+}
+
+export interface DangerArgs {
+  /** The car that might shoot us, as observed. */
+  threat: BotCarView;
+  /** Us, in the shape the solver takes a target in. */
+  me: BotCarView;
+  meAt: PosePredictor;
+  /** How loaded this bot believes each of their weapons is, 0..1 (P21). */
+  readiness: (weaponId: WeaponId) => number;
+  /** What competence to assume of them — their real hands are unknowable. */
+  assumedAimSigmaRad: number;
+  tick: number;
+  arena: BotArenaView;
+}
+
+/**
+ * How much damage per second we are currently standing in front of (P16).
+ *
+ * `solve()` with the arguments swapped, summed across their kit and weighted by what we believe is
+ * off cooldown. Two things on their side are unknowable and are therefore assumed rather than read:
+ * their aim error (a fixed nominal — the bot assumes competence, never incompetence) and their slot
+ * state (`readiness`, from watched presses only).
+ *
+ * The kit is the chassis default (`kitWeaponIds(threat.carId)`, no extras) — a weapon they carry
+ * but have not used still counts, exactly as a human would assume from the car.
+ */
+export function dangerEvAgainst(args: DangerArgs): number {
+  const { threat, me, meAt, readiness, assumedAimSigmaRad, tick, arena } = args;
+  let total = 0;
+  for (const weaponId of kitWeaponIds(threat.carId)) {
+    const ready = readiness(weaponId);
+    if (ready <= 0) continue;
+    const solution = solve({
+      shooter: {
+        sessionId: threat.sessionId, carId: threat.carId, team: threat.team,
+        x: threat.x, y: threat.y, angle: threat.angle, speed: threat.speed,
+        // A lock we cannot see. Assuming none is the conservative read: it makes danger LOWER, so
+        // the bot never flinches from a lock the opponent does not actually hold.
+        lockTargetSessionId: "",
+      },
+      slot: {
+        weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
+        range: weaponDefOf(weaponId).range,
+      },
+      slotIndex: 0,
+      target: me,
+      targetAt: meAt,
+      aimSigmaRad: assumedAimSigmaRad,
+      tick,
+      arena,
+    });
+    total += solution.value * ready;
+  }
+  return total;
 }

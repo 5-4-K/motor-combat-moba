@@ -271,6 +271,12 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * bang-bang steering entirely, which will delete `compensateForLag` and with it this cap.
    */
   deadzoneCapMultiplier: 2.3,
+  /**
+   * The aim error a bot assumes of an OPPONENT when evaluating danger (P16). Not per-tier: this is
+   * what the bot assumes of someone else, and every tier assumes competence rather than projecting
+   * its own hands onto them.
+   */
+  assumedOpponentAimSigmaRad: 0.06,
 });
 
 /**
