@@ -70,6 +70,32 @@ rounds**: N4 with V3, then N5 with V4, then N6 with V5.
    worker reads the ledger, not the report.
 3. Commit with the ledger edit in the same commit, saying which row moved and why. Push.
 
+**When to decide alone, and when to stop and ask the user.** Step 2 is yours to run — the user does
+not adjudicate routine ledger defects. Resolve it yourself when *any* of these holds:
+
+- **The spec answers it.** Including when a spec's own summary sentence and its explicit enumeration
+  disagree: the more specific statement wins (this is exactly how `PlayerState.level` was settled).
+- **It is purely additive** — a new field, parameter or export that nothing already written
+  constrains, and that changes no behaviour.
+- **It is a question of ordering or ownership between phases** — which phase creates a module, which
+  module owns a type. Both of V1's concerns were this.
+
+Stop and put it to the user when *any* of these holds:
+
+- **It crosses a root `CLAUDE.md` "Stop and ask" fence** — the drive model, the hitbox/OBB model,
+  collision-damage rules, friendly fire, cloud hosting, a physics engine. This is what kept the
+  `resolveContacts` question in §4 rather than being decided in N3.
+- **It would edit a balance table** (`WEAPON_TABLE`, `CAR_TABLE`, `DRIVE_CONFIG`, `STATUS_TABLE`,
+  `COMBAT_CONFIG`, `TICK_RATE_HZ`, …). Those carry the `npm run build:manual` and
+  `docs/turn-tuning.md` obligations and change what players feel. N4's assignment already says to
+  name a violating weapon row rather than edit it.
+- **It changes a number a player experiences** — a rate, a range, a duration, a time-to-kill.
+- **Two approved specs genuinely conflict** with no more-specific statement to break the tie.
+
+When you do escalate: keep writing every other plan that does not depend on the answer, record the
+question in §4 with the same shape as the one already there, and carry on. Only the affected task
+waits.
+
 ## 3. Decisions already made while writing these plans
 
 Four ledger defects have been found and fixed. They are recorded here because each was a judgement
