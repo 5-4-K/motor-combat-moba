@@ -102,6 +102,7 @@ import {
   HUD_DIM,
   countdownSeconds,
   HUD_ICON_FIT_SCALE,
+  isRechargeDisplayed,
   resolveWeaponIcon,
   SLOT_KEY_FONT_PX,
   SLOT_NAME_FONT_PX,
@@ -2301,12 +2302,12 @@ export class ArenaScene extends Phaser.Scene {
     // Ready-but-recharging happens only for a `stock` weapon banking another charge while one is
     // still in hand: `slotVisualState` correctly keeps the icon at full brightness (you can still
     // fire), but the timer running underneath is exactly the "in-progress recharge" D18 asks a
-    // stock weapon's sweep to show. `locked` and `car-locked` never show it — the heavier/static
-    // locked dim and the car-wide lockout must each stay visually unambiguous.
+    // stock weapon's sweep to show. See `isRechargeDisplayed` for why this is driven off the raw
+    // timer rather than gated to a narrower `SlotVisual`.
     //
     // Resolved before anything is drawn, because the ring IS the cooldown now: a draining slot's
     // ring is a dim track waiting for its arc, not the solid frame every other state wears.
-    const recharging = slot.rechargeEndsTick !== 0 && (state === "recharging" || state === "ready");
+    const recharging = isRechargeDisplayed(state, slot.rechargeEndsTick);
     const fraction =
       recharging && def
         ? sweepFraction(slot.rechargeEndsTick, weaponTicksOf(def.id).cooldown, tick)

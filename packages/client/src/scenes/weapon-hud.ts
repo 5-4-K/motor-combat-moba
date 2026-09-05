@@ -106,6 +106,22 @@ export function slotVisualState(
   return "ready";
 }
 
+/**
+ * Whether a slot's cooldown display (the sweep arc plus the countdown number) should show, given the
+ * slot's own `SlotVisual` and its raw `rechargeEndsTick`.
+ *
+ * Deliberately NOT gated to `state === "recharging" || state === "ready"`: a slot can be genuinely
+ * recharging while ALSO `car-locked` for a window it did not cause (another slot's wind-up or
+ * recovery — D3 locks every slot during a press, not just the firing one). Gating on the narrower
+ * state used to hide the sweep for that whole window, which read as "the cooldown just finished" for
+ * a frame or two and then un-finished itself the moment the lock lifted — the timer never stopped,
+ * only the display blinked. `locked` is the one state that still suppresses it outright: a weapon you
+ * have not unlocked has no cooldown worth showing regardless of what `rechargeEndsTick` holds.
+ */
+export function isRechargeDisplayed(state: SlotVisual, rechargeEndsTick: number): boolean {
+  return state !== "locked" && rechargeEndsTick !== 0;
+}
+
 /** A slot's manifest icon, resolved and ready to draw. */
 export interface ResolvedWeaponIcon {
   readonly key: string;
