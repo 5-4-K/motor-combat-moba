@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { weaponDefOf } from "@motor-combat-moba/shared";
+import {
+  TICK_RATE_HZ, carHullOf, instanceExpired, projectileShapeAt, shapeHitsObb, smear,
+  spawnInstances, stepInstance, weaponDefOf,
+} from "@motor-combat-moba/shared";
 import type { BotArenaView, BotCarView, BotSlotView } from "../types.js";
 import {
   AIM_QUADRATURE, constantVelocityPredictor, solve, type SolverShooter,
@@ -203,15 +206,129 @@ describe("solve — aim assist", () => {
     expect(locked.hitChance).toBeGreaterThan(0.9);
   });
 
-  it("declines the assist beyond the weapon's aimRangeUnits, per the sim's own gate", () => {
-    // magmablast: aimRangeUnits 400. At 600 the lock exists but the weapon fires straight.
-    const target = targetAt(600, 300);
-    const solution = solve({
-      shooter: { ...shooterAt(0, 300, 0.4), carId: "mirage", lockTargetSessionId: "them" },
+  // The brief's original version placed the target at 600 to be "beyond aimRangeUnits (400) but
+  // within reach" -- but `weaponReachOf` returns `aimRangeUnits` itself for any assisted weapon
+  // (reach.ts), and `weapon-config.test.ts` requires `range >= aimRangeUnits` for every such row, so
+  // "inside weaponReachOf but outside aimRangeUnits" is unreachable for a real weapon on the roster:
+  // `solve`'s outer reach gate (`distance > reach`) fires first and returns NO_SOLUTION before the
+  // assist branch is ever reached, which is exactly why the original test was vacuous. The other
+  // reachable way to decline the assist is the lock check itself: hold distance well inside both
+  // `weaponReachOf` and `aimRangeUnits`, but name a session the lock is not actually on.
+  it("declines the assist when the held lock names a different target, even inside aimRangeUnits", () => {
+    // magmablast: aimRangeUnits 400, range 900. 300 sits inside both, so distance alone would pass
+    // the assist gate -- only the lock mismatch (`shooter.lockTargetSessionId !== target.sessionId`)
+    // should make it decline, exactly mirroring `aimAngleFor`'s own lock check in sim/combat.ts.
+    const target = targetAt(300, 300);
+    const common = {
       slot: slotFor("magmablast"), slotIndex: 0,
       target, targetAt: constantVelocityPredictor(target),
       aimSigmaRad: 0, tick: 0, arena,
+    };
+    const staleLock = solve({
+      shooter: { ...shooterAt(0, 300, 0.4), carId: "mirage", lockTargetSessionId: "someone-else" },
+      ...common,
     });
-    expect(solution.hitChance).toBeLessThan(0.5);
+    const liveLock = solve({
+      shooter: { ...shooterAt(0, 300, 0.4), carId: "mirage", lockTargetSessionId: "them" },
+      ...common,
+    });
+    // Same distance, same off-nose angle, same everything except which session the lock names: a
+    // stale lock fires along the nose (0.4 rad off the bearing) and misses, a live lock is steered
+    // onto the target and lands -- proof the decline is the lock check, not the distance.
+    expect(staleLock.hitChance).toBeLessThan(0.5);
+    expect(liveLock.hitChance).toBeGreaterThan(0.9);
+  });
+});
+
+describe("solver ground truth (P48)", () => {
+  it("agrees with resolveInstanceHits about whether a predator shot lands", () => {
+    // Walk the target across a range of lateral offsets. For each, ask the solver with perfect
+    // hands, then fire the real shot through the sim and see whether it connects. The two must
+    // agree on every offset -- this is what makes the solver honest about the game rather than
+    // merely self-consistent.
+    for (let offset = 0; offset <= 60; offset += 10) {
+      const target = targetAt(400, offset);
+      const claimed = solve({
+        shooter: shooterAt(0, 0, 0),
+        slot: slotFor("predator"), slotIndex: 0,
+        target, targetAt: constantVelocityPredictor(target),
+        aimSigmaRad: 0, tick: 0, arena,
+      }).hitChance > 0.5;
+
+      const actual = firesAndConnects("predator", shooterAt(0, 0, 0), target);
+      expect(actual, `lateral offset ${offset}`).toBe(claimed);
+    }
+  });
+});
+
+/** Fire one real press through the sim and report whether it touches the target's hull. */
+function firesAndConnects(
+  weaponId: Parameters<typeof weaponDefOf>[0],
+  shooter: SolverShooter,
+  target: BotCarView,
+): boolean {
+  const { instances } = spawnInstances(
+    { weaponId, slot: 0, finalVolley: true, pressId: "truth" },
+    {
+      sessionId: shooter.sessionId, team: shooter.team, carId: shooter.carId,
+      x: shooter.x, y: shooter.y, angle: shooter.angle,
+    },
+    0, 0,
+  );
+  const hull = carHullOf(target.x, target.y, target.angle);
+  const def = weaponDefOf(weaponId);
+  if (def.kind !== "projectile") throw new Error("helper handles projectiles only");
+
+  for (const start of instances) {
+    let instance = start;
+    let previous = projectileShapeAt(def.hitbox, instance.x, instance.y, instance.angle);
+    for (let tick = 1; tick <= 120; tick++) {
+      instance = stepInstance(instance, {
+        dt: 1 / TICK_RATE_HZ, tick,
+        obstacles: arena.obstacles,
+        bounds: { width: arena.width, height: arena.height },
+        ownerPose: { x: shooter.x, y: shooter.y, angle: shooter.angle },
+        homingTarget: { x: target.x, y: target.y },
+      });
+      const current = projectileShapeAt(def.hitbox, instance.x, instance.y, instance.angle);
+      if (shapeHitsObb(smear(previous, current), hull)) return true;
+      previous = current;
+      if (instanceExpired(instance, tick)) break;
+    }
+  }
+  return false;
+}
+
+describe("solver determinism (P43)", () => {
+  it("draws no random numbers at all", () => {
+    const target = targetAt(400, 0);
+    const throwing = () => {
+      throw new Error("the solver must not draw rng (P43)");
+    };
+    // The solver takes no rng parameter by design; this guards against one being threaded in
+    // later, and against a helper reaching for Math.random.
+    const original = Math.random;
+    Math.random = throwing as unknown as typeof Math.random;
+    try {
+      expect(() => solve({
+        shooter: shooterAt(0, 0, 0),
+        slot: slotFor("predator"), slotIndex: 0,
+        target, targetAt: constantVelocityPredictor(target),
+        aimSigmaRad: 0.05, tick: 0, arena,
+      })).not.toThrow();
+    } finally {
+      Math.random = original;
+    }
+  });
+
+  it("returns identical results for identical inputs", () => {
+    const target = targetAt(400, 25);
+    const once = () => solve({
+      shooter: shooterAt(0, 0, 0.1),
+      slot: slotFor("predator"), slotIndex: 0,
+      target, targetAt: constantVelocityPredictor(target),
+      aimSigmaRad: 0.05, tick: 0, arena,
+    });
+    expect(once()).toEqual(once());
   });
 });
