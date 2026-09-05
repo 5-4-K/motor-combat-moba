@@ -119,10 +119,25 @@ this up fresh should:
 
 | # | Plan | Status | Date | Notes |
 |---|---|---|---|---|
-| 1 | `bot-brain-1-firing-solutions` (B) | Not started | — | Allowed |
-| 2 | `bot-brain-2-threat-and-cooldowns` (C) | Not started | — | Blocked on 1 |
-| 3 | `bot-brain-3-physics-prediction` (A) | Not started | — | Blocked on 1 |
-| 4 | `bot-brain-4-planner` (D) | Not started | — | Blocked on 1, 2, 3 |
+| 1 | `bot-brain-1-firing-solutions` (B) | **Done** | 2026-09-06 | Validation run; whole-branch review clean after one fix wave. `BOT_BRAIN_VERSION` 4.0.0. See below. |
+| 2 | `bot-brain-2-threat-and-cooldowns` (C) | Not started | — | Allowed |
+| 3 | `bot-brain-3-physics-prediction` (A) | Not started | — | Blocked on 1 (done) — allowed after 2 |
+| 4 | `bot-brain-4-planner` (D) | Not started | — | Blocked on 2, 3 |
+
+### What plan 1 changed, and what later plans inherit
+
+- The fire gate is `solution.ts`'s expected value, not an angle. `fireConeRad`,
+  `fireDisciplineChance` and `orbitBias` are gone from `BotProfile`.
+- **`minShotValueFraction` is RELATIVE to the shooter's own kit ceiling**, not an absolute EV. An
+  absolute threshold made a hard Bastion mute — its best possible shot (18.3) sat below the
+  threshold (25) while Bullseye's ceiling is 78.3. Values easy 0.01 / medium 0.05 / hard 0.3.
+- **`leadFactor` was NOT removed** — it belongs to plan 3, which actually replaces it. Removing it
+  in plan 1 silently gave easy and medium a lead upgrade.
+- A steering limit cycle was found and fixed mid-plan: `compensateForLag` in `movement.ts`, with
+  `BRAIN_CONSTANTS.deadzoneFloorFraction` and `deadzoneCapMultiplier`. **Plan 4 deletes all of it**
+  when the planner replaces bang-bang steering.
+- Spec corrections made during execution: §1.1's severity, P35's phase column, P36's threshold
+  semantics, P50's fire-volume claim. Read the spec, not this summary, before starting plan 2.
 
 ---
 
