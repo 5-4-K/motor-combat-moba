@@ -35,12 +35,22 @@ Fourteen plans, two streams. **Nine written, five to go.**
 Supporting files, all written: [`interfaces.md`](interfaces.md) (the ledger),
 [`00-execution-guide.md`](00-execution-guide.md), [`plan-authoring-brief.md`](plan-authoring-brief.md).
 
-**`22-render-2-bake.PARTIAL.md` is an unfinished draft.** Writing was interrupted partway through on
-2026-09-05: 3,131 lines, stopping mid-task, with no `## Acceptance` and no `## Handoff`. Nothing may
-be built on it and V3 has nothing to consume from it. Either hand a worker the brief, the V2
-assignment in §5 and the draft and ask it to finish and rename to `22-render-2-bake.md` — verifying
-the drafted tasks against the ledger, which moved after the draft began (§3) — or delete it and
-write V2 from scratch. The file carries the same instruction in a banner at its top.
+**`22-render-2-bake.PARTIAL.md` is an unfinished draft, about 85 % written.** It stops at a **clean
+task boundary**, not mid-task: Tasks 1-6 are complete (the layer plan; the builder factoring; the
+world bake jobs; `pack-atlas.mjs` and its `check:art` enforcement; projectiles/glows/orbs as
+sprites; hp bars/brackets/ghosts/arrows/silhouettes as sprites), each ending with its verification
+and commit step. Missing: **the measurement-and-guard task** (draw calls ≤ 16 at the ceiling,
+`sceneCensus` and `bench-arena.mjs` extended to *fail* on a stray world `Graphics`,
+`world-retained.test.mjs`, the `docs/render-bench.md` row) — planned rather than forgotten, since
+its files are already in the draft's File Structure table — plus `## Acceptance`, `## Handoff` and
+`## Self-review`.
+
+**The missing `## Handoff` is the real blocker**, not the line count: V3 is written by reading it.
+
+**Finish it; do not restart.** Hand a worker the brief, the V2 assignment in §5, and the draft, and
+ask for the missing task and the three closing sections, then rename to `22-render-2-bake.md`. The
+worker must re-check Tasks 1-6 against the current ledger, which moved after the draft began (§3).
+The file repeats all of this in a banner at its top.
 
 An `14-netcode-4-feel.md` was **not** started; if one appears on disk it is stale and should go.
 

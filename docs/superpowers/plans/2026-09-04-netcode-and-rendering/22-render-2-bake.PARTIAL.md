@@ -1,16 +1,27 @@
 > # ⚠ UNFINISHED DRAFT — DO NOT EXECUTE
 >
-> Plan-writing was interrupted partway through this file on 2026-09-05. It stops mid-task and has
-> **no `## Acceptance` and no `## Handoff` section**, so nothing may be built on it and V3 has
-> nothing to consume from it.
+> Plan-writing was interrupted on 2026-09-05, at a **clean task boundary**: Tasks 1-6 below are
+> complete, each ending with its verification and commit step. Roughly 85 % of the plan is here.
 >
-> Two ways to continue, both fine — see [`PROGRESS.md`](PROGRESS.md) §5 for the V2 assignment:
+> **What is missing:**
 >
-> 1. Hand a worker [`plan-authoring-brief.md`](plan-authoring-brief.md), the V2 assignment, and this
->    draft, asking it to finish and rename to `22-render-2-bake.md`. Cheaper, and the drafted tasks
->    below look sound as far as they go — but the worker must verify them against the ledger itself,
->    since the ledger moved after this draft began (see PROGRESS §3).
-> 2. Delete this file and write V2 from scratch against the assignment.
+> 1. **The measurement-and-guard task** (the assignment's item 6): draw calls ≤ 16 at the ceiling
+>    measured in the bench scene; `sceneCensus` and `scripts/bench-arena.mjs` extended so a
+>    per-frame world `Graphics` outside the floor and the beam layer **fails** rather than being
+>    spotted by eye; `scripts/world-retained.test.mjs` as the source guard; V2's numbers recorded
+>    beside V0's and V1's in `docs/render-bench.md`. This task was planned, not forgotten — its
+>    files are already listed in the File Structure table below.
+> 2. `## Acceptance`, `## Handoff` and `## Self-review`.
+>
+> **The missing `## Handoff` is the real blocker.** V3 is written by reading it; without it, V3's
+> author has to reverse-engineer V2's exports out of 3,131 lines of task bodies.
+>
+> **Recommended: finish it, do not restart.** Hand a worker
+> [`plan-authoring-brief.md`](plan-authoring-brief.md), the V2 assignment in
+> [`PROGRESS.md`](PROGRESS.md) §5, and this draft; ask for the missing task and the three sections,
+> then rename to `22-render-2-bake.md`. One caution: **the ledger moved after this draft began** —
+> see PROGRESS §3 — so the worker must re-check Tasks 1-6 against the current
+> [`interfaces.md`](interfaces.md) rather than trusting them.
 >
 > Everything below this line is the interrupted draft, unreviewed.
 
