@@ -112,7 +112,7 @@ function expectPose(actual: SimBody, x: number, y: number, angle: number, forwar
   expect(lateralOf(actual.vx, actual.vy, actual.angle)).toBeCloseTo(0, 9);
 }
 
-describe("golden: stepDrive is unchanged by the ram work", () => {
+describe("golden: stepDrive against the vector-drive rework", () => {
   it("accelerates straight for 10 ticks", () => {
     expectPose(drive(body(), input(0, 1), 10), 47.6666666667, 0, 0, 260);
   });
@@ -148,7 +148,7 @@ describe("golden: stepDrive is unchanged by the ram work", () => {
   });
 });
 
-describe("golden: resolveWorld is unchanged by the ram work", () => {
+describe("golden: resolveWorld against the vector-drive rework", () => {
   const bounds = { width: 1000, height: 800 };
 
   // Every case in this block records the SAME numbers the pre-rework fixture pinned. That is not a

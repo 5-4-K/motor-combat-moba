@@ -262,8 +262,14 @@ describe("serverTick", () => {
   }
 
   describe("other cars as colliders", () => {
-    /** Far enough for the driver to reach the blocker, not far enough to be near a wall. */
-    const TICKS = 40;
+    /**
+     * Far enough for the driver to reach the blocker, not far enough to be near a wall. 60, not 40:
+     * the 2026-09-06 vector-drive rework's heavy-car pass cut mirage's accel/top speed (420/7.2 base
+     * pair -> 60/1.4, 135/3.7 -> 80/2.2), so 40 ticks (1.33 s) no longer covers the 200 u to the
+     * blocker at x=500 — mirage needs ~1.5 s just to reach its new 267 u/s top speed. 60 ticks (2 s)
+     * clears 500 with room to spare while still resolving well short of the arena wall.
+     */
+    const TICKS = 60;
 
     function driveIntoBlocker(blockerStatus: PlayerStatus): PlayerState {
       const driver = makePlayer("a-driver", 300, CORRIDOR_Y, 0);
@@ -359,8 +365,16 @@ describe("serverTick", () => {
       // exactly what a missing field in `bodyOf` or `writeBody` would produce.
       expect(player.angVel).toBeGreaterThan(0);
       expect(player.angVel).toBeLessThan(2);
-      expect(player.vx).toBeGreaterThan(0);
-      expect(player.vx).toBeLessThan(120);
+      // `steeringGrip` (1.0) rebuilds vx/vy from the forward/lateral split in the tick's NEW heading
+      // every tick (see `stepDrive`), so a one-tick decay of that split does not mean vx itself must
+      // fall: with `vy` negative here, angVel's small rotation of the nose folds a sliver of the
+      // decaying lateral component onto +x. Under mirage's pre-2026-09-06 fast coast that sliver was
+      // smaller than the forward decay it partly offset, so vx net decreased; mirage's much slower
+      // `coastHalfLifeSeconds` (0.35 -> 1.2 s in the vector-drive rework's heavy-car pass) decays the
+      // forward component far less in one tick, so the rotation now nets vx slightly ABOVE 120. Pinned
+      // rather than bounded below 120, so a genuine mechanism regression (steeringGrip or the decay
+      // rates) still fails this instead of the bound quietly widening to fit whatever comes out.
+      expect(player.vx).toBeCloseTo(120.892, 3);
       expect(player.vy).toBeLessThan(0);
       expect(player.vy).toBeGreaterThan(-60);
     });
@@ -609,11 +623,16 @@ describe("serverTick coasts a knocked player who has stopped sending input", () 
     const state = stateWith(player);
     for (let i = 0; i < 300; i++) serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
     expect(player.angVel).toBe(0);
-    // Residual velocity is real (the known gap), not exact rest — but it is small, a fraction of the
-    // original 300 u/s shove, because plenty of ticks of coasting ran before angVel expired.
+    // Residual velocity is real (the known gap), not exact rest — but it is small relative to the
+    // original 300 u/s shove, because plenty of ticks of coasting ran before angVel expired. "Small"
+    // moved from <10 to <20 (pinned at the actual ~19.72) in the vector-drive rework's heavy-car pass:
+    // mirage's `coastHalfLifeSeconds` went 0.35 -> 1.2 s, so the SAME number of ticks (angVel's decay
+    // is unrelated to coasting) now bleeds off much less of the forward component before it expires.
+    // Still under 7% of the original 300 u/s, so "small" holds — it is a slower decay curve, not a
+    // stuck one.
     const residualSpeed = Math.hypot(player.vx, player.vy);
     expect(residualSpeed).toBeGreaterThan(0);
-    expect(residualSpeed).toBeLessThan(10);
+    expect(residualSpeed).toBeCloseTo(19.72, 1);
     const restingX = player.x;
     const restingVx = player.vx;
     const restingVy = player.vy;
