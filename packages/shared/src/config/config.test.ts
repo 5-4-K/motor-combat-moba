@@ -136,14 +136,17 @@ describe("per-car drive ratings", () => {
     // like a single global constant would, which is what keeps "rating 50 is average" a reading aid
     // rather than a slogan. A scale edit that moves a pivot fails here, so raising the whole roster
     // is a deliberate two-line change plus this number, never a drift.
-    // The accel pivot is still the pre-2026-08-30 global 780. The turn pivot was that era's 4.2
-    // until 2026-08-31, when both halves of the turn scale were multiplied by 1.5 — driving, and so
-    // aiming, read as too heavy — putting every chassis at 1.5x its old rate and the pivot at 6.3.
+    // The turn pivot was the pre-2026-08-30 global 4.2 until 2026-08-31, when both halves of the
+    // turn scale were multiplied by 1.5 — driving, and so aiming, read as too heavy — putting every
+    // chassis at 1.5x its old rate and the pivot at 6.3. The accel pivot was 780 from
+    // pre-2026-08-30 until 2026-09-06, when the vector-drive rework's heavy-car pass cut
+    // `baseAccel`/`accelPerRating` (420/7.2 -> 60/1.4) alongside the speed cut, moving the pivot to
+    // 130 — `accelOf` no longer anchored to the old global at all, on purpose.
     // `toBeCloseTo`, not `toBe`: 3.6 + 50 * 0.054 is 6.300000000000001 in IEEE-754. The anchor is
     // the design intent, not a bit pattern, and no decimal scale reproduces 6.3 exactly.
     const { baseTurnRate, turnRatePerRating, baseAccel, accelPerRating } = DRIVE_CONFIG;
     expect(baseTurnRate + 50 * turnRatePerRating).toBeCloseTo(6.3, 9);
-    expect(baseAccel + 50 * accelPerRating).toBeCloseTo(780, 9);
+    expect(baseAccel + 50 * accelPerRating).toBeCloseTo(130, 9);
   });
 
   it("keeps the stopped turn rate at half the moving one, as it shipped", () => {
@@ -266,16 +269,17 @@ describe("weapon / combat / drive / flow knobs exist", () => {
 
 describe("the three types (T5/T6)", () => {
   it("derives the roster's drive profile from its ratings", () => {
-    // 1.5x the pre-2026-09-02 values (207 / 288 / 157.5) on `baseMaxSpeed` alone would have held the
-    // roster's spacing; `speedPerRating` was deliberately pushed past the pair-preserving 3.375 to
-    // 3.7, so these are more than a uniform 1.5x — see `DRIVE_CONFIG.speedPerRating`.
-    expect(forwardMaxSpeedOf("bullseye")).toBe(375.5);
-    expect(forwardMaxSpeedOf("mirage")).toBe(449.5);
-    expect(forwardMaxSpeedOf("bastion")).toBe(320);
+    // The 2026-09-06 vector-drive rework's heavy-car pass cut `baseMaxSpeed`/`speedPerRating`
+    // (135/3.7 -> 80/2.2) for a roughly 40% roster-wide top-speed cut, and `baseAccel`/
+    // `accelPerRating` (420/7.2 -> 60/1.4) alongside it, roughly tripling time-to-top-speed. See
+    // `DRIVE_CONFIG.speedPerRating` and `DRIVE_CONFIG.accelPerRating`.
+    expect(forwardMaxSpeedOf("bullseye")).toBe(223);
+    expect(forwardMaxSpeedOf("mirage")).toBe(267);
+    expect(forwardMaxSpeedOf("bastion")).toBe(190);
 
-    expect(accelOf("bullseye")).toBeCloseTo(744, 9);
-    expect(accelOf("mirage")).toBeCloseTo(1032, 9);
-    expect(accelOf("bastion")).toBeCloseTo(564, 9);
+    expect(accelOf("bullseye")).toBeCloseTo(123, 9);
+    expect(accelOf("mirage")).toBeCloseTo(179, 9);
+    expect(accelOf("bastion")).toBeCloseTo(88, 9);
 
     // The 2026-09-02 rewrite set `speed` and `handling` to the same rating per car (65/65, 85/85,
     // 50/50), so turn rate now orders the roster the same way top speed does — Mirage highest,
@@ -294,10 +298,12 @@ describe("the three types (T5/T6)", () => {
     // Bastion no longer wins radius via a handling edge — it wins by a few units because its lower
     // speed outweighs its lower rate, not because a slow chassis was deliberately made the sharpest
     // turner. The ordering survives; the ~20+ u gap that made it a headline design point does not.
+    // The 2026-09-06 heavy-car speed cut then scaled every radius down by the same ~41% (turn rate
+    // untouched), so the remaining gap shrank again — from ~4 u to ~2 u — without reordering anything.
     const radius = (id: CarId) => forwardMaxSpeedOf(id) / turnRateOf(id);
     expect(radius("bastion")).toBeLessThan(radius("bullseye"));
     expect(radius("bullseye")).toBeLessThan(radius("mirage"));
-    expect(radius("bastion")).toBeCloseTo(50.8, 1);
+    expect(radius("bastion")).toBeCloseTo(30.2, 1);
   });
 
   it("orders the three types on every axis the design names", () => {

@@ -38,17 +38,21 @@ export const DRIVE_CONFIG = {
    * top-speed cut, scaled as a pair so the per-car `speed` rating kept its relative weight. Raised
    * 1.5x again on 2026-09-02, to 135, alongside a same-day rating rewrite (see `CAR_TABLE`) — this
    * half of the pair alone would have kept every car's top speed at exactly 1.5x its prior value.
+   * Cut again on 2026-09-06 (stage 1 of the vector-drive rework), to 80, alongside `speedPerRating`
+   * dropping to 2.2 — together a roughly 40% roster-wide top-speed cut so cars read as heavy, and
+   * (with turn rate untouched) a turn radius cut to comfortably under one car length per chassis.
    */
-  baseMaxSpeed: 135,
+  baseMaxSpeed: 80,
   /**
    * Ratings are 0-100 (see `CAR_TABLE`), so this is a tenth of what it would be on a 0-10 scale.
    * It was 45 against 0-10 ratings and became 4.5 when they widened, precisely so that every car's
    * top speed stayed where it was. 2.25 since the 2026-09-01 half-speed cut — see `baseMaxSpeed`.
    * Raised again on 2026-09-02, but not to the pair-preserving 3.375 (2.25 x 1.5) — 3.7 was a
    * deliberate extra push on top of the uniform 1.5x, so a point of `speed` now buys more than it did
-   * before the 2026-09-01 cut, not merely 1.5x more.
+   * before the 2026-09-01 cut, not merely 1.5x more. Cut to 2.2 on 2026-09-06 alongside
+   * `baseMaxSpeed`'s drop to 80, for the heavy-car top-speed cut described there.
    */
-  speedPerRating: 3.7,
+  speedPerRating: 2.2,
   /**
    * How completely the velocity vector rotates with the heading, 0-1.
    *
@@ -84,10 +88,14 @@ export const DRIVE_CONFIG = {
   stopTurnRatio: 0.5,
   /**
    * Engine push is `baseAccel + accel * accelPerRating`, resolved per car by `accelOf`. Anchored the
-   * same way `baseTurnRate` is: rating 50 yields exactly 780.
+   * same way `baseTurnRate` is: rating 50 yielded exactly 780 until 2026-09-06. Cut that day, alongside
+   * `accelPerRating` (7.2 -> 1.4), from 420 to 60 — rating 50 now yields 130 — as part of stage 1 of
+   * the vector-drive rework's heavy-car pass: with the flat `baseAccel` term shrunk relative to the
+   * per-rating term, a car's `accel` rating now does most of the work of deciding its time-to-top-speed,
+   * which runs 3-4x longer roster-wide and spreads noticeably further between chassis than before.
    */
-  baseAccel: 420,
-  accelPerRating: 7.2,
+  baseAccel: 60,
+  accelPerRating: 1.4,
   reverseSpeedRatio: 0.65,
   /**
    * Reverse push as a fraction of forward. At rating 50 this gives 1099.8 against the 1100 that
@@ -154,7 +162,13 @@ export const DRIVE_CONFIG = {
 export const CAMERA_CONFIG = {
   camLerp: 0.18,
   zoom: 1,
-  freeRoamSpeed: 1050,
+  /**
+   * Cut from 1050 to 340 on 2026-09-06 alongside the vector-drive rework's heavy-car speed cut
+   * (`DRIVE_CONFIG.baseMaxSpeed`/`speedPerRating`), which dropped the fastest car from 449.5 to
+   * 267 u/s. Left at 1050 a free-look pan would run four times quicker than any car and read as
+   * unmoored; 340 keeps it a little above the new fastest car, per the coupling note above.
+   */
+  freeRoamSpeed: 340,
 } as const;
 
 /**
