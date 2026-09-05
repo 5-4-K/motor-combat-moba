@@ -380,7 +380,7 @@ normative: a field does not exist in `BotProfile` until its phase lands, which i
 
 | New field | Phase | easy | medium | hard |
 |---|---|---|---|---|
-| `minShotValue` — EV needed to pull the trigger | B | 2 | 12 | 26 |
+| `minShotValue` — EV needed to pull the trigger | B | **0.5** | **7** | **25** |
 | `stateEstimationSigma` | A | 0.25 | 0.10 | 0.03 |
 | `planHorizonTicks` (K) | D | 0 | 8 | 22 |
 | `planDepth` | D | 1 | 1 | 2 |
@@ -389,6 +389,20 @@ normative: a field does not exist in `BotProfile` until its phase lands, which i
 
 Phase C adds no profile field: cooldown tracking reuses `memoryTicks`, and the `theirEV` weight is
 `opponentRangeRespect`, which already exists (P38).
+
+**`minShotValue`'s values are measured, not chosen — corrected 2026-09-05 during phase B.** The
+first draft (2 / 12 / 26) was wrong *in kind*. `value` depends on the shooter's own
+`aimErrorSigmaRad` (0.18 / 0.09 / 0.035), so the same car in the same position yields a different
+`value` per tier and **no single absolute scale can express "takes only good shots" across three
+tiers**. Hard's 26 landed within 0.4% of predator's real achievable 26.1 at the range the bot
+settles at — a knife edge by accident, which dropped hard's off-axis fire count to 70 and medium's
+to 0.
+
+Each tier's threshold is now taken from a percentile of **its own** measured best-slot `value`
+distribution over a closed-loop duel (easy ~p5, medium ~p35, hard ~p60), then nudged off the cliff
+edge onto the stable plateau below it — the literal percentiles were themselves knife-edges. The
+measured tables live in a comment on the field. Re-measure rather than re-guess whenever a weapon,
+a sigma, or `preferredRangeOf` moves.
 
 **P37. `aimErrorSigmaRad` gains a principled meaning.** It is now the σ the solver integrates over, so
 **a bot with shaky hands correctly declines long shots** — it knows its own hands are shaky. Easy
@@ -481,7 +495,23 @@ measured baseline beside it rather than a guessed constant.
 
 **P50. Tier characterisation, rewritten.** `tiers.test.ts` today can only compare *within* a tier,
 because a harder tier steers more in any scene. With EV there is finally a cross-tier metric:
-**easy fires most and hits least; hard fires least and hits most.** That is the ladder, testable.
+**hit rate rises with the tier — hard > medium > easy.** That is the ladder, testable.
+
+**Corrected 2026-09-05 during phase B.** The first draft of this decision also claimed *"easy fires
+most"*. That is false and always was: `burstGapTicks` is easy 14 / medium 7 / hard 3, so an easy bot
+**physically cannot press more often than a hard one** — the existing cadence ladder already says
+so. Volume is not what makes an amateur; **accuracy** is. Only the hit-rate half of the ladder is
+real, and only that half may be asserted.
+
+Two measurement traps this correction exposes, both of which a ladder test must avoid:
+
+1. **Counting ticks that carry a fire bit is not counting presses.** `this.held` is reused between
+   recomputes, so one press decision re-emits its fire bit for up to `recomputeTicks` ticks —
+   inflating easy's apparent count ~12x against hard's ~2x. Any cross-tier fire comparison must
+   count *presses*, as `tiers.test.ts` already does.
+2. **Absolute EV thresholds are not comparable across tiers** — see P36's corrected note.
+
+`docs/bot-behavior.md` inherits both cautions.
 
 **P51. Determinism.** Same seed → same intent stream, all three tiers, with and without threats
 present. Plus a test that stubs `rng` to throw, proving solver and planner never touch it (P43).
