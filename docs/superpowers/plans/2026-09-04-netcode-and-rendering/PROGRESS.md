@@ -113,6 +113,43 @@ What each of them needs that is new since the assignments were written:
 Nothing is half-written and no file is under a provisional name. The open question in section 4 is
 unchanged in kind and narrower in scope than it was; it blocks nothing.
 
+## 1b. Continuing from a different machine
+
+**Everything needed to finish the plan-writing is in git and nothing else is.** No scratch file, no
+local note and no machine-local memory carries anything the repository does not.
+
+```bash
+git fetch origin
+git checkout claude/netcode-rendering-plans-003970
+```
+
+That branch is cut from `development/main` at `bd7b36a` and holds the four plans written on
+2026-09-05 plus their ledger edits. Merge it into `development/main` whenever you like — it touches
+only `docs/`, so it cannot conflict with code work in flight.
+
+**To write N6 and V5, that checkout is the whole prerequisite.** Plan-writing reads markdown and
+source and writes markdown; it needs no install, no build and no browser. Hand the writer
+[`plan-authoring-brief.md`](plan-authoring-brief.md) and its assignment from section 5 — **the
+brief's paths are repo-relative as of 2026-09-05**, having previously hardcoded the first session's
+checkout (`/home/user/…`) and plugin cache, which were wrong on every other machine.
+
+**To *execute* a plan, three things are per-machine and none of them is in git** — all three are in
+the root `CLAUDE.md` and are repeated here because a fresh machine is exactly when they bite:
+
+1. **`npm install` in the worktree before the first build.** Without it the build inlines the *main
+   checkout's* shared `dist` and the server silently runs the wrong sim while all three suites pass.
+   Tell the two apart by the inlined path in `packages/server/dist/index.js`: `// ../shared/dist/…`
+   is right, `// ../../../../../packages/shared/dist/…` has escaped the worktree.
+2. **`uv`**, for the `code-review-graph` MCP server, and a graph built per worktree
+   (`uvx code-review-graph@2.3.8 build`, or the `code-graph-install` skill). Optional — nothing in
+   these plans depends on it.
+3. **A Playwright browser**, for `npm run smoke:arena`, `npm run smoke:reconnect` (N5) and
+   `scripts/bench-arena.mjs` (V0–V5): `npx playwright install chromium`, plus `firefox` for the
+   bench's second row. **The preparation plan, N0 and V0 mention `/opt/pw-browsers` and "this
+   container" — that is a description of the machine those plans were authored on, not a
+   requirement.** Each of those sentences already names the portable command beside it; read them
+   that way rather than as setup you are missing.
+
 A general rule for any future interruption: a half-written plan must never be left under its final
 name, because the next plan in that stream builds on its `## Handoff`. That rule is what made the V2
 draft finishable rather than a rewrite.
