@@ -6,6 +6,7 @@ import { ARENA_VIEW_WIDTH, HUD_GUTTER_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from "../
 import {
   HUD_DIM,
   countdownSeconds,
+  isRechargeDisplayed,
   resolveWeaponIcon,
   SLOT_KEY_COLUMN_PX,
   SLOT_NAME_FONT_PX,
@@ -79,6 +80,33 @@ describe("slot state", () => {
 
   it("dims a locked slot harder than a recharging one", () => {
     expect(HUD_DIM.locked).toBeLessThan(HUD_DIM.recharging);
+  });
+});
+
+describe("isRechargeDisplayed", () => {
+  it("shows while genuinely recharging", () => {
+    expect(isRechargeDisplayed("recharging", 115)).toBe(true);
+  });
+
+  it("shows for a ready stock weapon banking a charge in the background", () => {
+    expect(isRechargeDisplayed("ready", 115)).toBe(true);
+  });
+
+  it("keeps showing when a DIFFERENT slot's press makes this one car-locked too — the regression: a recharging slot used to read as finished for the whole window another slot held the car locked, then un-finish itself the moment the lock lifted", () => {
+    expect(isRechargeDisplayed("car-locked", 115)).toBe(true);
+  });
+
+  it("shows nothing for a car-locked slot with no timer of its own", () => {
+    expect(isRechargeDisplayed("car-locked", 0)).toBe(false);
+  });
+
+  it("never shows for a weapon the player has not unlocked", () => {
+    expect(isRechargeDisplayed("locked", 115)).toBe(false);
+    expect(isRechargeDisplayed("locked", 0)).toBe(false);
+  });
+
+  it("shows nothing for a fully ready slot with no timer running", () => {
+    expect(isRechargeDisplayed("ready", 0)).toBe(false);
   });
 });
 
