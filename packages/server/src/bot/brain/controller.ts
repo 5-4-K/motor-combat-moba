@@ -52,6 +52,11 @@ export class HumanController implements BotController {
   private lastPreferredRange = 0;
   /** Damage per second the bot believes it is standing in front of (P16). Overlay only. */
   private lastDangerEv = 0;
+  /**
+   * Tick the anticipatory half of `evade` last fired (R-C9). The sentinel is far enough below any
+   * real tick that the term is available on the first decision, the same trick `lastPressTick` uses.
+   */
+  private lastAnticipatoryEvadeTick = -9999;
   private situation: SituationState = newSituationState();
   private heldSinceTick = 0;
   private wantsRam = false;
@@ -271,6 +276,32 @@ export class HumanController implements BotController {
       if (solution.value > bestValue) bestValue = solution.value;
     }
 
+    // The anticipatory half of `evade` (P16), computed here rather than inline in the
+    // `classifySituation` call below because firing it has to be REMEMBERED — see R-C9 on
+    // `BRAIN_CONSTANTS.dangerEvadeCooldownTicks`. Every gate on it, in order:
+    //
+    //  - `!pinned` (R-C6): the reactive dodge and the incoming-car trigger below stay ungated, but a
+    //    wall-pinned bot yields this term to `unpin`, which needs first crack at getting off the
+    //    wall — `unpin` steers toward open floor, which usually breaks the line anyway.
+    //  - the cooldown (R-C9): once fired, it may not fire again for
+    //    `dangerEvadeCooldownTicks`, which is what stops a STANDING condition from occupying an
+    //    EVENT's priority slot for most of a fight.
+    //  - `danger > 0` (R-C7): `0 >= 0 * fraction` is vacuously true whenever NEITHER side has a
+    //    value (no target, or one genuinely out of every weapon's reach), which tripped `evade` on
+    //    zero signal at all. A real threat with 0 danger cannot exist, so this costs nothing.
+    //  - `opponentRangeRespect` (P38) scales the danger, keeping "how much does this bot respect
+    //    danger" the tier axis it has always been — at easy's 0 this term can never fire.
+    //  - the comparison is RELATIVE to the bot's own best available shot (`bestValue`, R-C7): "am I
+    //    LOSING this exchange from here", not "could someone shoot me" (true for most of a duel).
+    //
+    // Draws no `rng()`, and neither does anything it gates: the cooldown must never make the number
+    // of draws depend on a branch, or a seeded replay desynchronises (H21).
+    const anticipatoryEvade = !pinned
+      && tick - this.lastAnticipatoryEvadeTick >= BRAIN_CONSTANTS.dangerEvadeCooldownTicks
+      && danger > 0
+      && danger * profile.opponentRangeRespect >= bestValue * BRAIN_CONSTANTS.dangerEvadeFraction;
+    if (anticipatoryEvade) this.lastAnticipatoryEvadeTick = tick;
+
     const carIncoming = target ? isIncomingCar(self, target, profile) : false;
     if (carIncoming && target) {
       if (this.carApproachId !== target.sessionId) {
@@ -296,30 +327,9 @@ export class HumanController implements BotController {
     const classified = classifySituation({
       selfControlLost: !self.alive || hasStatus(self.statuses, "phased", tick),
       hittable: trulyHittable,
-      evade: shotThreats.length > 0
-        || (carIncoming && this.willEvadeCar)
-        // Anticipatory: standing in a loaded gun's solution is a reason to move BEFORE the shot
-        // exists. Scaled by opponentRangeRespect (P38) so respecting danger stays the tier axis it
-        // has always been — at 0 this term can never fire, which is exactly easy's intent. Gated on
-        // NOT pinned: this condition is true for most of a duel at fighting range, so at `evade`'s
-        // priority (index 2, no commit delay) an ungated version starves `unpin` forever and a hard
-        // bot pins itself on a wall for good. A pinned bot yields the anticipatory term to `unpin`
-        // instead — `unpin` steers toward open floor, which usually breaks the line anyway, so it
-        // loses little by solving the more urgent problem first. The reactive dodge above and the
-        // incoming-car trigger stay ungated: a shot already in flight (or a car bearing down) should
-        // still beat a wall.
-        //
-        // R-C7: danger is measured RELATIVE to the bot's own best available shot (`bestValue`, from
-        // the `solutions` computed above), not against an absolute number — "someone could shoot me"
-        // is true for most of an ordinary duel at fighting range, but "am I LOSING this exchange
-        // from here" is the question a skilled player actually asks (P16). `danger > 0` guards a real
-        // defect this comparison would otherwise have: `0 >= 0 * fraction` is vacuously true whenever
-        // NEITHER side has a value (no target, or one genuinely out of every weapon's reach), which
-        // tripped `evade` on zero signal at all — a false "I'm losing" reading is worse than a missed
-        // one, and `danger > 0` costs nothing (a real threat with 0 danger cannot exist). See
-        // `BRAIN_CONSTANTS.dangerEvadeFraction`'s doc comment for the measurement.
-        || (!pinned && danger > 0 && danger * profile.opponentRangeRespect
-          >= bestValue * BRAIN_CONSTANTS.dangerEvadeFraction),
+      // A shot already in flight, a car bearing down, or — computed above, with its own gates and
+      // its own refractory period — a firing solution the bot is standing in before the shot exists.
+      evade: shotThreats.length > 0 || (carIncoming && this.willEvadeCar) || anticipatoryEvade,
       unpin: pinned && trulyHittable && this.willUnpin,
       punish: trulyHittable && (targetStunned || ultSpent
         || targetHpFraction <= profile.ultWindowHpFraction),

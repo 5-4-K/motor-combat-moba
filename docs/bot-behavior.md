@@ -68,7 +68,7 @@ threshold — never fire at all. `minShotValueFraction` divides by each shooter'
 |---|---|---|---|
 | `recover` | self dead or phased | coast | off |
 | `waitOut` | nobody hittable | last-known / heard shot / quadrant | **off** |
-| `evade` | incoming shot (rolled `dodgeChance`) or incoming car (`incomingCarChance`) | off the line | still fire if in cone |
+| `evade` | incoming shot (rolled `dodgeChance`), incoming car (`incomingCarChance`), or — anticipatory, before any shot exists — standing in a loaded gun's firing solution (see below) | off the line | still fire if in cone |
 | `unpin` | on a bound/corner with a target, `cornerRespect` | open floor, never map centre | fight rules |
 | `punish` | stunned, low HP, or they just spent a 5s+ gun | close | dump, including ult |
 | `reset` | own HP < `retreatHpFraction` (0 = Easy fights to zero) | open range, no reverse into a wall | fight rules |
@@ -79,6 +79,23 @@ HUD lock is never a veto. A big gun is `cooldownMs >= 5000` (not predator).
 
 Own reach uses `aimRangeUnits` when the gun has aim assist (predator fights around 800, not 1800).
 Opponent keep-out is their **shortest** gun × `opponentRangeRespect`.
+
+### `evade`'s anticipatory half — and why it has a refractory period
+
+Beside the reactive dodge, `evade` also fires when the danger the bot is standing in
+(`dangerEvAgainst`, scaled by `opponentRangeRespect`) meets or beats the best shot the bot could
+itself take from its current pose — "am I losing this exchange from here", asked before any shot
+exists. Easy's `opponentRangeRespect` of 0 makes it impossible to trip, which is the intent.
+
+**Reach for `BRAIN_CONSTANTS.dangerEvadeCooldownTicks` (120) before `dangerEvadeFraction` (1) if this
+behaviour feels wrong.** A shot in flight is a rare, brief EVENT, which is what `evade`'s
+no-commit-delay priority slot is calibrated for; "I am in someone's firing solution" is a STANDING
+condition, true for much of an ordinary duel. Without a refractory period the bot disengages for most
+of the fight no matter what arithmetic decides the condition — three differently-shaped triggers were
+measured collapsing the same duel fixture before the cooldown was added. The cooldown says how often
+an excursion may START and `situationCommitTicks` says how long one LASTS, so between them evade's
+share of a fight is about `situationCommitTicks / dangerEvadeCooldownTicks` — 5% on hard, 10% on
+medium. Retuning `situationCommitTicks` moves that share without touching the cooldown.
 
 ## Parameter table
 

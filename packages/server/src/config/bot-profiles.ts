@@ -349,6 +349,66 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * own seed-history comment — see it there rather than trusting a second copy of the number here.
    */
   dangerEvadeFraction: 1,
+  /**
+   * Ticks that must pass after the anticipatory evade term fires before it may fire again (R-C9,
+   * fix round 3, 2026-09-06). Read this before touching `dangerEvadeFraction` again: the fraction
+   * was never the dial that was broken.
+   *
+   * THE STRUCTURAL DEFECT this fixes. `evade` sits at priority index 2 in `ALL_SITUATIONS`, above
+   * `punish`, `reset`, `fight` and `close`. `pickSituation` lets a higher-priority situation cut in
+   * with NO commit delay on the way IN, and `plan()`'s `evade` branch sets `closing = false` and
+   * steers off the line. That immediacy is calibrated for an EVENT — a shot is in the air right
+   * now, which is rare and brief. "I am standing in someone's firing solution" is a STANDING
+   * condition, true for a large share of any ordinary duel at fighting range, and a standing
+   * condition wired into an event's priority slot converts the bot from fighting into disengaging
+   * for most of the fight NO MATTER WHAT ARITHMETIC decides the condition. Three differently-shaped
+   * triggers were measured on `balance/match.test.ts`'s hard-tier Mirage/Bastion deathmatch fixture,
+   * swept over seeds 1-150 and counting how many land a decisive kill inside the 30 s window
+   * (historically, before this task, roughly 20 of 150):
+   *
+   * | trigger | decisive / 150 |
+   * |---|---|
+   * | absolute `dangerEvadeThreshold` 12 (R-C6) | 2 |
+   * | absolute `dangerEvadeThreshold` 40 (round 1) | 2 |
+   * | kit-relative `dangerEvadeFraction` 1 (R-C7) | 1 |
+   *
+   * Three shapes, one collapse, and the most carefully-reasoned of them the worst — the signature of
+   * a structural defect, not a mistuned number.
+   *
+   * THE ARITHMETIC that picks this value. Two knobs bound the term's share of a fight between them:
+   * `situationCommitTicks` sets how long each excursion LASTS (once the term stops firing, the bot
+   * is held in `evade` until the commit window expires, because every situation below it has a lower
+   * priority and must wait), and this cooldown sets how often one may START. So
+   *
+   *     evade's share of a fight  ~=  situationCommitTicks / dangerEvadeCooldownTicks
+   *
+   * Target: the anticipatory term may occupy at most ~5% of a fight on the top tier, which is what
+   * "an excursion, not a mode" means. Hard's `situationCommitTicks` is 6, so 6 / 0.05 = 120 ticks —
+   * four seconds at 30 Hz, and a natural re-engage cadence: you break a line, then come back. You do
+   * not cower for the whole fight. The same 120 gives medium (commit 12) a 10% share, and easy
+   * cannot trip the term at all at `opponentRangeRespect` 0, so no tier is left living in `evade`.
+   *
+   * CONFIRMED BY MEASUREMENT on the same fixture and the same sweep (seeds 1-150, decisive kills
+   * inside the 30 s window). The trade-off is continuous and monotone in the cooldown, which is
+   * itself the evidence that share — not the arithmetic deciding the condition — was always the
+   * defect:
+   *
+   * | cooldown | hard share | decisive / 150 |
+   * |---|---|---|
+   * | 0 (= R-C7, no refractory) | ~100% | 1 |
+   * | 60 | 10% | 14 |
+   * | 90 | 6.7% | 14 |
+   * | **120 (chosen)** | **5%** | **17** |
+   * | 180 | 3.3% | 23 |
+   * | term disabled entirely | 0% | 20 |
+   *
+   * 180 scores marginally higher than the disabled baseline, i.e. at a 3.3% share this metric can no
+   * longer tell the reflex from its own absence — which is an argument for a SMALLER cooldown, not a
+   * larger one. 120 keeps the reflex measurable in the fixture and still lands the decisive-kill rate
+   * in the historical band. Note the coupling: a future retune of `situationCommitTicks` moves this
+   * term's share without touching this constant, so re-run that sweep if that field moves.
+   */
+  dangerEvadeCooldownTicks: 120,
 });
 
 /**

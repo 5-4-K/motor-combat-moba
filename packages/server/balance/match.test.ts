@@ -123,6 +123,13 @@ describe("runMatch", () => {
     // assertion below states that premise outright so the two cases can never be confused: if a
     // future balance edit empties the window again, THAT line fails and names the reason.
     //
+    // NOT RESEEDED by R-C9 (fix round 3, 2026-09-06), and that is the point: the refractory period
+    // R-C9 gives the anticipatory evade term (`BRAIN_CONSTANTS.dangerEvadeCooldownTicks`) restores
+    // this matchup's decisive-kill rate from 1 seed in 150 to 17 in 150 — the historical band —
+    // WITHOUT moving this fixture again. Seed 96 still lands its kill inside the 30 s window. The
+    // pre-task seed 124 does NOT come back (it reads 0-0 at 30 s), so the R-C6/R-C7 entries below
+    // stay; the sibling test's spread, which R-C7 also reseeded, WAS reverted to its original seeds.
+    //
     // `seed: 96`, not 32: R-C7 (fix round 2, 2026-09-06) replaced `dangerEvadeThreshold` (an
     // absolute danger-per-second number) with `dangerEvadeFraction` — danger is now compared to the
     // bot's OWN best available shot value from its current pose, not an absolute number, and the
@@ -243,15 +250,16 @@ describe("runMatch", () => {
     // 1-80; 42, 44, 45, 53, 61, 63, 65, 68 are decisive. Keep two draws in the spread so the tie
     // branch still runs.
     //
-    // 68 -> 96: R-C7 (fix round 2, 2026-09-06) replaced `dangerEvadeThreshold` with
-    // `dangerEvadeFraction` (see the sibling test above for the mechanism) and moved this hard-tier
-    // Mirage/Bastion matchup's timing again — every seed in this spread (42, 44, 45, 53, 61, 63, 65,
-    // 68) checked back to a 0-0 draw at 60 s under the fixed brain, which would have left the
-    // non-vacuity assertion below with nothing decisive to stand on. Checked 96 and 98 (both
-    // decisive in the sibling test's 30 s sweep) at this test's 60 s window: both stay decisive
-    // there too (a kill inside 30 s is still a kill at 60 s). Swapped in 96, keeping every original
-    // draw seed so the tie branch (lines below) still exercises equally.
-    const outcomes = [1, 2, 42, 44, 45, 53, 65, 96].map((seed) =>
+    // R-C9 (fix round 3, 2026-09-06) REVERTED this spread to the seeds above. R-C7 had swapped
+    // 68 -> 96 because every seed here (42, 44, 45, 53, 61, 63, 65, 68) checked back to a 0-0 draw
+    // at 60 s under that round's brain, leaving the non-vacuity assertion below with nothing
+    // decisive to stand on. That was the symptom of the structural defect R-C9 fixes — an
+    // anticipatory `evade` term with no refractory period occupying an event-priority slot for most
+    // of a fight, so the bots stopped resolving duels at all (see
+    // `BRAIN_CONSTANTS.dangerEvadeCooldownTicks`). With the refractory in place, 42, 44, 45 and 53
+    // are decisive again at 60 s and 1, 2, 65 and 68 still draw, so the original spread exercises
+    // both branches exactly as it was written to. Re-checked seed by seed, not assumed.
+    const outcomes = [1, 2, 42, 44, 45, 53, 65, 68].map((seed) =>
       runMatch({ ...SETUP, seed, mode: GameMode.FFA_DEATHMATCH }));
 
     for (const out of outcomes) {
