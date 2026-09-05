@@ -5,21 +5,30 @@ import { resolveWorld } from "./collide.js";
 import { stepDrive } from "./drive.js";
 import { NEUTRAL_MODIFIERS } from "./status/modifiers.js";
 import type { SimBody } from "./step.js";
+import { forwardOf, lateralOf, toWorld } from "./velocity.js";
 
 /**
- * Behaviour frozen from the implementation as it stood on 2026-08-29, before ram CC was added.
+ * Behaviour frozen against `stepDrive`'s vector-velocity integration (stage 1 of the car-physics
+ * rework, 2026-09-06). This suite originally pinned the pre-ram-CC drive on 2026-08-29 against a
+ * scalar `SimBody.speed` (a magnitude along the heading, with a separate `shoveX`/`shoveY` knockback
+ * vector and an `authority` scalar bolted alongside it). Stage 1 deleted all of that in favour of a
+ * true 2D `vx`/`vy`, so this fixture is refixtured here BY DESIGN — see the brief for why that is a
+ * cost worth naming rather than a free rebase.
  *
- * The ram work adds `angVel`, `shoveX`, `shoveY`, and `authority` to `SimBody` as terms that are
- * ADDED to the existing integration, never substituted into it. At neutral state those terms
- * contribute exactly zero, so every number below must survive the change untouched. If one of these
- * moves, the additive property has been broken and the change is wrong — do not re-record them.
+ * The shape being pinned has not changed: full throttle, turning, braking, reverse, and wall/obstacle
+ * contact still integrate exactly the way they did before, and every case below that does not touch
+ * coasting is numerically IDENTICAL to the pre-rework fixture (hand-verified, not assumed — see the
+ * task report). Only the "coasts from 300" case moved, because stage 1 deliberately changed coasting
+ * from a flat per-tick deceleration to a proportional per-tick decay; see the comment on that case.
  *
- * Only the `body()` fixture below may gain the new fields (at neutral values). No expectation here
- * may be edited.
+ * `angVel` is a real additive term from the ram work, unrelated to this rework: at 0 it contributes
+ * nothing, so it stays neutral in `body()` below and every number here is unaffected by it, the same
+ * contract this suite has held since the ram work landed.
  *
  * These numbers are pinned against `GOLDEN_CHASSIS`, a frozen fixture, not against a car in
  * `CAR_TABLE`. Retuning the roster therefore cannot move them, and a future balance edit has no
- * excuse to. If one of these moves, the integration changed — do not re-record them.
+ * excuse to. If one of these moves without a deliberate, understood change to the integration itself,
+ * the integration broke — do not re-record them.
  */
 const DT = 1 / 30;
 
@@ -30,6 +39,11 @@ const DT = 1 / 30;
  * Frozen here rather than read from `CAR_TABLE` deliberately: these expectations pin the SHAPE of
  * the integration, not the roster's balance. A car's ratings must be free to move without any
  * number below moving with them.
+ *
+ * The six original values are untouched. `coastPerTick` and `brakeDecel` are the two fields
+ * `ChassisDrive` gained for the vector rework; both are frozen to the PRE-rework globals rather than
+ * read from today's `DRIVE_CONFIG`/`CAR_TABLE`, for the same reason the original six are frozen: a
+ * future retune of coasting or braking must not silently move this suite.
  */
 const GOLDEN_CHASSIS: ChassisDrive = Object.freeze({
   maxSpeed: 540,
@@ -38,6 +52,8 @@ const GOLDEN_CHASSIS: ChassisDrive = Object.freeze({
   reverseAccel: 1100,
   turnRate: 4.2,
   turnRateAtStop: 2.1,
+  coastPerTick: 0.5 ** (1 / (0.35 * 30)), // the pre-rework 0.35s half-life, frozen
+  brakeDecel: 1600, // the pre-rework global, frozen
 });
 
 function input(steer: -1 | 0 | 1, throttle: -1 | 0 | 1): InputMessage {
@@ -49,18 +65,26 @@ function body(over: Partial<SimBody> = {}): SimBody {
     x: 0,
     y: 0,
     angle: 0,
-    speed: 0,
+    vx: 0,
+    vy: 0,
     reverseHold: 0,
     angVel: 0,
-    shoveX: 0,
-    shoveY: 0,
-    authority: 1,
     maneuver: 0,
     maneuverTicksLeft: 0,
     maneuverAngle: 0,
     maneuverSpeed: 0,
     ...over,
   };
+}
+
+/**
+ * A body whose entire velocity is a signed magnitude along its own heading, zero lateral — exactly
+ * the shape the pre-rework scalar `speed` field could represent and nothing else. Every fixture below
+ * that used to write `{ speed, angle }` now goes through this, so the historical intent ("this car is
+ * doing X along its nose") survives the switch to a raw `vx`/`vy` pair unchanged.
+ */
+function bodyAt(x: number, y: number, angle: number, forward: number): SimBody {
+  return body({ x, y, angle, ...toWorld(angle, forward, 0) });
 }
 
 function drive(start: SimBody, msg: InputMessage, ticks: number): SimBody {
@@ -73,11 +97,19 @@ function drive(start: SimBody, msg: InputMessage, ticks: number): SimBody {
   return next;
 }
 
-function expectPose(actual: SimBody, x: number, y: number, angle: number, speed: number): void {
+/**
+ * `forward` is the signed component along the heading — the direct successor to the old scalar
+ * `speed` (negative meant reversing there too). Every case below also pins lateral at exactly 0: the
+ * old scalar model had no way to represent a lateral component at all, so asserting it here is not a
+ * new requirement, just the first time it can be stated explicitly now that `vx`/`vy` could in
+ * principle carry one.
+ */
+function expectPose(actual: SimBody, x: number, y: number, angle: number, forward: number): void {
   expect(actual.x).toBeCloseTo(x, 9);
   expect(actual.y).toBeCloseTo(y, 9);
   expect(actual.angle).toBeCloseTo(angle, 9);
-  expect(actual.speed).toBeCloseTo(speed, 9);
+  expect(forwardOf(actual.vx, actual.vy, actual.angle)).toBeCloseTo(forward, 9);
+  expect(lateralOf(actual.vx, actual.vy, actual.angle)).toBeCloseTo(0, 9);
 }
 
 describe("golden: stepDrive is unchanged by the ram work", () => {
@@ -94,11 +126,15 @@ describe("golden: stepDrive is unchanged by the ram work", () => {
   });
 
   it("coasts from 300 for 8 ticks", () => {
-    expectPose(drive(body({ speed: 300 }), input(0, 0), 8), 44, 0, 0, 60);
+    // CHANGED from the pre-rework fixture (44, 60): coasting is now a proportional per-tick decay
+    // (`forward * coastPerTick`) rather than a flat per-tick deceleration, and a proportional decay
+    // sheds much less of a fast car's speed than a flat one did — hand-verified against
+    // `300 * coastPerTick^8` before being recorded here, see the task report.
+    expectPose(drive(bodyAt(0, 0, 0, 300), input(0, 0), 8), 60.1220120215, 0, 0, 176.9151673346);
   });
 
   it("brakes from 300 to rest in 6 ticks", () => {
-    expectPose(drive(body({ speed: 300 }), input(0, -1), 6), 23.3333333333, 0, 0, 0);
+    expectPose(drive(bodyAt(0, 0, 0, 300), input(0, -1), 6), 23.3333333333, 0, 0, 0);
   });
 
   it("engages reverse from rest after the hold delay", () => {
@@ -115,30 +151,41 @@ describe("golden: stepDrive is unchanged by the ram work", () => {
 describe("golden: resolveWorld is unchanged by the ram work", () => {
   const bounds = { width: 1000, height: 800 };
 
+  // Every case in this block records the SAME numbers the pre-rework fixture pinned. That is not a
+  // paste — it is what the code actually produces, verified against the pre-rework values digit for
+  // digit (see the task report) — and it is expected: `applyContact` reflects the full `vx`/`vy` and
+  // then discards everything but the magnitude, re-projecting onto the UNCHANGED heading (stage 2
+  // restores whole-vector reflection). Every body below starts with velocity already aligned to its
+  // heading (via `bodyAt`, the only shape the old scalar model could ever produce), so the discard
+  // throws away nothing this suite can see: reflecting a heading-aligned vector and then collapsing it
+  // to a signed scalar along that same heading is bit-for-bit what the old scalar-model arithmetic
+  // already did. A car carrying genuine externally-imposed lateral velocity (a ram shove) WOULD see
+  // this contact resolution move under stage 1 — `drive-vector.test.ts` and the ram suites cover that
+  // shape, not this one — and WILL move again once stage 2 lands whole-vector reflection.
   it("bounces off the left wall", () => {
-    const out = resolveWorld(body({ x: 10, y: 400, speed: 200, angle: Math.PI }), [], [], bounds);
+    const out = resolveWorld(bodyAt(10, 400, Math.PI, 200), [], [], bounds);
     expectPose(out, 24, 400, Math.PI, -70);
   });
 
   it("reflects off both walls at a corner", () => {
-    const out = resolveWorld(body({ x: 5, y: 4, speed: 150, angle: Math.PI * 1.25 }), [], [], bounds);
+    const out = resolveWorld(bodyAt(5, 4, Math.PI * 1.25, 150), [], [], bounds);
     expectPose(out, 28.2842712475, 28.2842712475, 3.926990817, 84.1875);
   });
 
   it("separates from another car", () => {
     const other = { x: 530, y: 400, angle: 0, w: 48, h: 32 };
-    const out = resolveWorld(body({ x: 500, y: 400, speed: 250, angle: 0 }), [other], [], bounds);
+    const out = resolveWorld(bodyAt(500, 400, 0, 250), [other], [], bounds);
     expectPose(out, 482, 400, 0, -87.5);
   });
 
   it("separates from an obstacle", () => {
     const obstacle = { x: 320, y: 290, w: 60, h: 60 };
-    const out = resolveWorld(body({ x: 300, y: 300, speed: 180, angle: 0.4 }), [], [obstacle], bounds);
+    const out = resolveWorld(bodyAt(300, 300, 0.4, 180), [], [obstacle], bounds);
     expectPose(out, 291.663842667, 300, 0.4, -90.997064641);
   });
 
   it("leaves a free body untouched", () => {
-    const out = resolveWorld(body({ x: 500, y: 400, speed: 100, angle: 1.1 }), [], [], bounds);
+    const out = resolveWorld(bodyAt(500, 400, 1.1, 100), [], [], bounds);
     expectPose(out, 500, 400, 1.1, 100);
   });
 });
