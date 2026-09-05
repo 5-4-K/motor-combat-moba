@@ -51,6 +51,8 @@ specifier; shared is imported as `@motor-combat-moba/shared` and consumed as bui
 | `snapUnits`, `snapRadians` | `48`, `Math.PI / 2` | N3 | a correction past these is applied without an offset and counted |
 | `remoteSteerHoldTicks` | `6` | N3 | how long an extrapolated remote keeps a held steer |
 | `ghostGraceTicks` | `2` | N4 | ghost expiry is `lead + rttTicks + ghostGraceTicks` |
+| `eventsPerSnapshotMax` | `16` | N4 | ceiling on `Snapshot.events`; overflow drops `hit` events only |
+| `telegraphWindowMs` | `150` | N4 | N31's wind-up floor; read by `config/telegraph.ts`'s audit, never by the sim |
 | `reconnectSeconds` | `60` | N5 | |
 | `silenceWarnMs` | `2000` | N5 | |
 | `floodRateMultiple`, `floodDisconnectMs` | `3`, `10000` | N5 | |
@@ -172,7 +174,7 @@ export interface CarState extends SimBody {
   index: number;
   sessionId: string;
   carId: CarId;
-  team: number;                  // N3: `resolveContacts` requires it
+  team: 0 | 1;                   // N3: `resolveContacts` requires it; `RamCar.team` is `0 | 1`, so this is too (corrected in N4)
   maneuverWeaponId: string;      // N3: "" when no maneuver is active
   onField: boolean;
   phased: boolean;
@@ -183,7 +185,10 @@ export interface ContactMemoryState {
   touching: ReadonlySet<string>;                 // "a|b" with a < b by session id
   slammed: ReadonlyMap<string, SlamClocks>;      // by session id
 }
-export interface WorldState { tick: number; mode: GameMode; cars: readonly CarState[]; contact: ContactMemoryState }  // N3 adds `mode`; cars sorted by index
+// `mode` is the SIDES string, not the `GameMode` enum: it is what `resolveContacts` and `canDamage`
+// take, and it is what N3's own `MatchClient.worldFrom` builds with `sidesOf(lobby.mode)`. An earlier
+// revision of this row said `GameMode`; corrected in N4.
+export interface WorldState { tick: number; mode: "ffa" | "team"; cars: readonly CarState[]; contact: ContactMemoryState }  // N3 adds `mode`; cars sorted by index
 export interface ContactEvent {
   kind: "ram" | "slam" | "dashHit";
   attacker: string; victim: string; x: number; y: number; severity: number; tick: number;
@@ -192,6 +197,17 @@ export interface ContactEvent {
 // no attacker, no impact point, no severity — and filling those in is an additive change to its
 // return value that spec §11 does not authorise. N3 pins the absence with a test; N4 drives ram
 // feedback off the `contact.touching` transition instead. Needs the user's authorisation to change.
+//
+// N4's answer, which does NOT change this row: shared `sim/ram-events.ts` exposes
+// `ramContactsFrom(before, after, approachSpeeds, claimedPairs): RamContact[]`, which finds the pairs
+// that entered contact and re-runs the exported, pure `resolveRam` on the same inputs the sim used.
+// That recovers the attacker, the victim, the side and the graded severity EXACTLY — it is a second
+// evaluation of the sim's rule, not a fork of it — and it is what fills `MatchEvent.ram` on the
+// server and drives the local ram spark on the client. Two limits remain, and only the user's
+// authorisation removes them: `x, y` is the midpoint of the two hull centres rather than the contact
+// manifold point (which `resolveRam` computes privately and does not return), and a pair the contact
+// pass classified as a dash hit or a slam is excluded through `claimedPairs` rather than
+// re-classified, because those branches are not exported.
 export interface WorldStepResult { world: WorldState; contactEvents: ContactEvent[]; approachSpeeds: ReadonlyMap<string, number> }
 export function stepWorld(world: WorldState, inputs: ReadonlyMap<string, InputFrame>, arena: ArenaDef): WorldStepResult;
 ```
@@ -200,6 +216,36 @@ export function stepWorld(world: WorldState, inputs: ReadonlyMap<string, InputFr
 `serverTick` + `contactTick`; `runCombat` is untouched and consumes `contactEvents` where it
 consumed `contactHits` and `statusRequests`.
 
+### `sim/ram-events.ts` — produced N4, consumed by the server's `world-bridge.ts` and the client's `prediction.ts`
+
+```ts
+export interface RamContact {
+  attacker: string; victim: string; x: number; y: number;
+  severity: number; side: ImpactSide; tick: number;
+}
+export function ramContactsFrom(
+  before: WorldState, after: WorldState,
+  approachSpeeds: ReadonlyMap<string, number>,
+  claimedPairs: ReadonlySet<string>,          // `pairKey(attacker, victim)` of every ContactEvent this tick
+): RamContact[];
+```
+
+See the `ContactEvent` caveat above for what this is and what it costs. `sim/combat.ts` also gains
+one export in N4 — `maneuverSlotMask` — with no change to `runCombat`.
+
+### `config/telegraph.ts` — produced N4
+
+```ts
+export interface TelegraphViolation {
+  weaponId: WeaponId; rules: readonly (1 | 3)[]; startUpMs: number;
+  instantAccelUnitsPerS2: number; budgetUnitsPerS2: number; positionErrorUnits: number;
+}
+export function telegraphAudit(): TelegraphViolation[];   // reports; never enforces
+```
+
+N31 read against the live `WEAPON_TABLE`. Today it names exactly `thunderclap`. Changing that row is
+a balance edit and belongs to N6.
+
 ### Schema (`schema/PlayerState.ts`, `schema/ArenaState.ts`)
 
 | Change | Phase |
@@ -207,6 +253,7 @@ consumed `contactHits` and `statusRequests`.
 | `PlayerState.lastProcessedInputSeq` → **removed**; `ackTick: uint32` and `slackTicks: int8` added | N1 |
 | Every sim field leaves `PlayerState` (`x, y, angle, speed, reverseHold, angVel, shoveX, shoveY, authority, maneuver*, hp, alive, diedAtTick, weapons, switchLockUntilTick, pendingUntilTick, lastFiredSlot, lockTargetSessionId, statuses, ackTick, slackTicks`); `carIndex: uint8` added. `ArenaState.weapons` removed. Lobby fields stay: `sessionId, name, colorId, team, status, carId, selectLocked, joinedAtTick, kills, deaths, killedBySessionId, level` — `level` stays on the schema per spec §6.9 N24's enumeration: `applyCombatResult` writes it back every tick but it only *changes* on a level-up, and `stepWorld` never reads it (combat is server-only, N14), so invariant 8 does not claim it | N2 |
 | `ArenaState.tick` stays (flow deadlines read it) | — |
+| `PlayerState.connected: boolean` **appended** (nothing renumbered). `false` while the server holds the seat through `allowReconnection`; the car is still in the world, solid and killable — this only says nobody is driving it. `stepWorld` never reads it, so invariant 8 does not claim it and N24's split puts it on the schema side | N5 |
 
 ---
 
@@ -234,6 +281,8 @@ export class InputRing {
   constructor(opts?: { size?: number; repeatMaxTicks?: number });
   accept(msg: InputMessage, arrivalTick: number): AcceptResult;
   inputFor(tick: number): RingRead;
+  /** N5: forget the slots, the repeat source and the stats. Called when a held seat resumes. */
+  reset(): void;
   readonly stats: { late: number; duplicate: number; future: number; repeated: number; neutral: number };
 }
 ```
@@ -280,7 +329,88 @@ export const HASH_QUANT: { posPerUnit: 16; angleSteps: 65536; speedPerUnit: 16 }
 
 ### `match/render-frame.ts` — P; N2 re-exports `MatchEvent` from shared instead of defining it
 
-Unchanged from the preparation plan. `RenderFrame.events` is empty until N4.
+Unchanged from the preparation plan through N3. `RenderFrame.events` is empty until N4, which fills
+it and adds four fields:
+
+```ts
+// N4
+export interface ManeuverReveal { weaponId: string; fromX: number; fromY: number; fromAngle: number; tick: number }
+// RenderCar gains: hpDisplay: number; hpFlashUntilTick: number; revealedManeuver: ManeuverReveal | null
+// RenderInstance gains: ghost?: boolean
+```
+
+`hp` keeps its meaning — authoritative and un-eased. `hpDisplay` is the eased value the BAR draws.
+`revealedManeuver` is the sim-side half of rendering R18a and is present on exactly one frame.
+
+### `net/reconnect.ts` and `match/link-health.ts` — produced N5
+
+```ts
+// client, net/reconnect.ts
+export interface ReconnectPolicy { readonly attempts: number; readonly firstDelayMs: number; readonly maxDelayMs: number }
+export const RECONNECT_POLICY: ReconnectPolicy;                  // 16, 500, 4000
+export function reconnectDelayMs(attempt: number, policy?: ReconnectPolicy): number;
+export type ReconnectState = "idle" | "retrying" | "resumed" | "gave-up";
+export class Reconnector {
+  constructor(reconnect: (token: string) => Promise<Room<ArenaState>>, opts?: { policy?; setTimeout?; clearTimeout? });
+  start(token: string, onRoom: (room: Room<ArenaState>) => void): void;
+  stop(): void;
+  readonly state: ReconnectState;
+  readonly attempt: number;
+}
+// client, net/connection.ts
+export function reconnectArena(token: string): Promise<Room<ArenaState>>;
+
+// client, match/link-health.ts
+export type LinkState = "ok" | "silent" | "stalled" | "reconnecting" | "lost";
+export class LinkHealth {
+  constructor(cfg: Pick<typeof NET_CONFIG, "silenceWarnMs">);
+  observeSnapshot(slackTicks: number, nowMs: number): void;
+  observeFrame(stalled: boolean, nowMs: number): void;
+  setReconnecting(on: boolean): void;
+  setLost(): void;
+  reset(): void;
+  readonly state: LinkState;
+  readonly message: string;
+}
+
+// server, net/flood-detector.ts
+export class FloodDetector {
+  constructor(cfg: Pick<typeof NET_CONFIG, "floodRateMultiple" | "floodDisconnectMs">, limitPerSecond?: number);
+  admit(nowMs: number): boolean;          // false = ignore this message (N6)
+  shouldDisconnect(nowMs: number): boolean;
+  reset(): void;
+  readonly rate: number;
+  readonly limit: number;                 // TICK_RATE_HZ * floodRateMultiple
+}
+```
+
+**`RECONNECT_POLICY.maxDelayMs` is spec §8's "resumes within 15 s" number**, and
+`NET_CONFIG.reconnectSeconds` is how long the server holds the seat. They are different quantities
+and the plan's own tests pin the relationship between them rather than either one alone.
+
+### `match/event-feed.ts` and `match/hp-ease.ts` — produced N4, consumed by V4
+
+```ts
+export function eventKey(event: MatchEvent): string;   // N23a's `(tick, kind, cars)`, payload-independent
+export class EventFeed {
+  constructor(opts?: { keepTicks?: number });
+  pushPredicted(events: readonly MatchEvent[]): void;
+  pushAuthoritative(events: readonly MatchEvent[]): void;
+  drain(): MatchEvent[];
+  clear(): void;
+}
+export class HpEase {
+  constructor(cfg: Pick<typeof HUD_FEEL, "hpEaseMs" | "hpFlashMs">);
+  observe(sessionId: string, hp: number): void;
+  flash(sessionId: string, tick: number): void;
+  decay(deltaMs: number): void;
+  readOf(sessionId: string, hp: number): { display: number; flashUntilTick: number };
+  forget(sessionId: string): void;
+  clear(): void;
+}
+// client config/hud-feel.ts — render-only, not networked
+export const HUD_FEEL: { readonly hpEaseMs: number; readonly hpFlashMs: number };   // 100, 120
+```
 
 ### `match/arena-net.ts` — P; **replaced** by `match/match-client.ts` in N3
 
@@ -311,6 +441,8 @@ export class ClockSync {
   readonly jitterMs: number;       // standard deviation of RTT over the window
   readonly ready: boolean;         // at least one sample
   serverTickAt(nowMs: number): number;   // fractional
+  /** N5: forget every sample. A sample from before a reconnect places the server's clock anywhere. */
+  reset(): void;
 }
 ```
 
@@ -364,7 +496,16 @@ export interface MatchTransport {
   onPong(cb: (pong: PongMessage) => void): () => void;
   onRoster(cb: (roster: RosterMessage) => void): () => void;
 }
-export class ColyseusTransport implements MatchTransport { constructor(room: Room<ArenaState>) }
+export class ColyseusTransport implements MatchTransport {
+  constructor(room: Room<ArenaState>);
+  /**
+   * N5: point this transport at a new room, keeping every registered callback. `MatchClient`
+   * subscribes once at construction, so a reconnect rebinds rather than rebuilding — which is what
+   * makes a resume indistinguishable from a quiet link on the `MatchClient` side, and is the
+   * property N6's transport-swap task needs.
+   */
+  rebind(room: Room<ArenaState>): void;
+}
 export class LoopbackTransport implements MatchTransport { /* for tests and the harness; pairs with a server-side peer */ }
 ```
 
@@ -387,7 +528,9 @@ export class WorldPredictor {
 
 ```ts
 export class RenderOffsets {
-  constructor(cfg: Pick<typeof NET_CONFIG, "correctionMs" | "snapUnits" | "snapRadians">, stats: NetStats);
+  // N4 adds the third argument. `countSnaps: false` keeps a ghost-shot handover — which uses the
+  // same machinery on an instance id — out of `NetStats.snaps`, the counter phase 3 is graded on.
+  constructor(cfg: Pick<typeof NET_CONFIG, "correctionMs" | "snapUnits" | "snapRadians">, stats: NetStats, opts?: { countSnaps?: boolean });
   add(sessionId: string, dx: number, dy: number, dAngle: number): void;   // counts a snap when past the thresholds and applies none
   decay(deltaMs: number): void;
   offsetOf(sessionId: string): { dx: number; dy: number; dAngle: number };
@@ -399,14 +542,32 @@ export class RenderOffsets {
 ```ts
 export class FirePrediction {
   constructor(cfg: Pick<typeof NET_CONFIG, "ghostGraceTicks">);
+  // N4: the constructor above cannot reach an arena or the predicted world, so those arrive here,
+  // once, from `MatchClient` (and again when the driven seat changes). Every member below keeps the
+  // signature this ledger declared.
+  attach(ctx: FireContext): void;
   rebase(car: SnapshotCar, tick: number): void;
   press(localTick: number, fireSlots: number, prevFireSlots: number): GhostSpawn[];   // runs beginFire/releaseShots
+  advance(localTick: number): void;                            // N4: one tick of ghost flight
   confirm(instances: readonly SnapshotInstance[], tick: number): void;
   expired(localTick: number, leadPlusRtt: number): string[];   // ghost ids removed
+  clear(): void;                                               // N4: called by `MatchClient.seed`
   readonly ghosts: readonly GhostInstance[];
+  readonly stats: FireStats;                                   // N4: presses, ghosts, confirmed, mismatched, orphans
 }
 export interface GhostInstance extends RenderInstance { ghost: true }
 export interface GhostSpawn { id: string; weaponId: string; slot: number }
+export interface FireContext {                                 // N4
+  arena: ArenaDef; ownerIndex: number;
+  worldAt: (tick: number) => WorldState | undefined;
+  sessionIdOf: (index: number) => string;
+  startManeuver: (tick: number, maneuver: PredictedManeuver) => void;
+  handover: (id: string, dx: number, dy: number, dAngle: number) => void;
+}
+export interface PredictedManeuver {                           // N4
+  weaponId: string;
+  maneuver: number; maneuverTicksLeft: number; maneuverAngle: number; maneuverSpeed: number;
+}
 ```
 
 ### Rendering (V-plans)
@@ -419,14 +580,14 @@ export interface GhostSpawn { id: string; weaponId: string; slot: number }
 | `scripts/bench-arena.mjs` | Playwright runner for the bench scene on Chromium and Firefox; prints p50/p95 | V0 | CI |
 | `scenes/HudScene.ts` | Phaser scene key `"hud"`, launched in parallel by `ArenaScene`; reads the same `RenderFrame` through `registry.get("frame")` | V1 | V2–V5 |
 | `render/fonts.ts` | `HUD_FONT = "hud-font"`; `scripts/build-bitmap-font.mjs` writes `public/art/fonts/hud-font.png` + `.xml` | V1 | V4, V5 |
-| `render/bake.ts` | `bakeAtlas(scene, tier): Promise<void>`; frame names `baked.<name>`; `type BakeTier = "low" \| "medium" \| "high"` | **V1** (HUD jobs only: ring, wash, glyphs, capsules, sweep sheet); V2 adds the world jobs | V2, V3, V4, V5 |
+| `render/bake.ts` | `bakeAtlas(scene, tier): Promise<void>`; frame names `baked.<name>`; `type BakeTier = "low" \| "medium" \| "high"`. **`bakeJobs(ss, pill, tier)` is a four-way concatenation** of `hudBakeJobs`, `worldBakeJobs`, `beamBakeJobs` and `fxBakeJobs` after V4, and the tier parameter is V3's | **V1** (HUD jobs only: ring, wash, glyphs, capsules, sweep sheet); V2 adds the world jobs; V3 adds the beam jobs (flame flipbook, bolt strips and nose, tremor cone, aura ring); V4 adds the fx jobs (six particle frames, the car shadow, two muzzle frames, four flipbook frames per status — **none at tier Low**) | V2, V3, V4, V5 |
 | `render/atlas.ts` | `BAKED_ATLAS = "baked-atlas"` in **V1**; `ART_ATLAS = "art-atlas"` and `scripts/pack-atlas.mjs` writing `public/art/art-atlas.{png,json}` in V2 | V1, V2 | V2, V3, V4, V5 (R17a's `mipmapFilter` needs the power-of-two art sheet) |
 | `render/layers.ts` | `enum Layer { Floor, Decals, GroundFx, Cars, Shots, Glow, OverlayFx, Debug }` with depths; replaces the per-renderer depth constants | V2 | V3–V5 |
-| `render/beams.ts` | `class BeamRenderer` (flipbook flame, rope bolt, sprite zones) | V3 | V4 |
-| `render/particles.ts` | `class ParticleService { burst(kind, x, y, count, priority); stream(kind, follow, rate); setCap(n) }` | V4 | V5 |
-| `render/decals.ts` | `class DecalService { place(def: DecalDef, x, y, angle) }`, `DECAL_CONFIG` in `config/decals.ts`, empty `DECAL_DEFS` table | V4 | — |
-| `render/effects.ts` | `class EffectRouter { onEvents(events: readonly MatchEvent[]) }` — events → sparks, flashes, shake | V4 | — |
-| `dev/BenchScene.ts` — the census | `SceneCensus` and `BenchProbe.census()`, on `window.__bench`. **A surface three phases widen**: V1 creates it, V2 adds `worldGraphicsNames` and `worldClears`, V3 widens it again. Each phase appends fields and never renames one; `scripts/bench-arena.mjs` reads it and its `benchFailures` is the single pure list of hard failures | V0/V1 | V1, V2, V3, V5 |
+| `render/beams.ts` | `class BeamRenderer { constructor(scene, tier?); begin(); flame(weaponId, x, y, angle, extent, spawnTick, tick, alpha); bolt(weaponId, x, y, angle, extent, nowMs, alpha); zone(kind, weaponId, x, y, angle, extent, alpha); end(); destroy(); readonly ropeVertices }` — flipbook flame, rope bolt, sprite zones. Beside it, pure: `beamPathOf(weaponId, isExplosion): "flame" \| "bolt" \| "aura" \| "cone" \| "none"` (routes from the hitbox and the style, never from a list of ids), `boltRopeCount`, `flameSpriteScale` | V3 | V4 |
+| `render/particles.ts` | `class ParticleService { constructor(make, tier?); burst(kind, x, y, count, priority): number; stream(kind, follow, rate); setCap(n); update(deltaMs); clear(); destroy(); readonly live/cap/refused }`, `ParticleEmitterLike`, `makePhaserEmitter`. The emitter factory is **injected**, which is what makes the whole budget unit-testable in node. Caps come from `config/particles.ts`'s `PARTICLE_CONFIG.caps` (96/256/512, R21), keyed by `BakeTier`, and `setCap` is V5's hook | V4 | V5 |
+| `render/decals.ts` | `class DecalService { constructor(make, tier?); place(def: DecalDef, x, y, angle): boolean; update(deltaMs); setCap(n); clear(); destroy(); readonly live/cap }`, `DecalSprite`, `makeDecalSprite`; `DECAL_CONFIG` and `DecalDef` in `config/decals.ts`, and **`DECAL_DEFS = []`** — empty is the decision (R12a), asserted by `decals.test.ts` and by a `bench-arena.mjs` failure that fires if a decal is ever live | V4 | V5 |
+| `render/effects.ts` | `class EffectRouter { constructor(particles, decals, camera, opts?); onEvents(events: readonly MatchEvent[]); drainSeen() }`, `EffectCamera`, `makeEffectCamera`; the table it reads is `render/feedback-table.ts`'s `FEEDBACK_TABLE` and `eventMagnitude` (R18). **The only consumer of `RenderFrame.events`**, and it places no decal | V4 | V5 |
+| `dev/BenchScene.ts` — the census | `SceneCensus` and `BenchProbe.census()`, on `window.__bench`. **A surface four phases widen**: V1 creates it, V2 adds `worldGraphicsNames` and `worldClears`, V3 adds `worldRopeVertices`, V4 adds `particlesLive`, `particlesRefused`, `decalsLive` and `effectsByKind`. Each phase appends fields and never renames one; `scripts/bench-arena.mjs` reads it and its `benchFailures` is the single pure list of hard failures. **V3 makes `WORLD_CLEARS_ALLOWED` empty** — the world clears no `Graphics` at all unless `?debug=1` is set, and the debug object is not created until it is. **V4 adds a failure that fires when `decalsLive` is non-zero**, which is a guard against R12a's decision drifting rather than against a bug | V0/V1 | V1, V2, V3, V4, V5 |
 | `render/tiers.ts` | `TIER_TABLE`, `class TierManager`, and `export type Tier = BakeTier` re-exported from `render/bake.ts` — `bake.ts` owns the union because V1 needs it and V5 must not be a dependency of V1 | V5 | — |
 | `render/governor.ts` | `class FrameGovernor { observe(frameMs); allowCosmetic(): boolean }` | V5 | — |
 

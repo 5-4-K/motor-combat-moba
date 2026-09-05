@@ -5,7 +5,7 @@
 > writing the finished ones. Nothing here is needed to *execute* a plan — for that, read
 > [`00-execution-guide.md`](00-execution-guide.md).
 
-**Last updated:** 2026-09-05. **Branch:** `claude/gameplay-netcode-architecture-bgp8f6`.
+**Last updated:** 2026-09-05 (N4, V3, N5 and V4 written). **Branch:** `claude/gameplay-netcode-architecture-bgp8f6`.
 
 The two approved specs this folder implements:
 [netcode](../../specs/2026-09-04-online-netcode-and-client-architecture-design.md) and
@@ -13,7 +13,7 @@ The two approved specs this folder implements:
 
 ## 1. Status
 
-Fourteen plans, two streams. **Eight written, six to go** — N4, N5, N6, V3, V4, V5. (Count the table, not this line: earlier revisions of it said nine and then ten, both wrong.)
+Fourteen plans, two streams. **Twelve written, two to go** — N6 and V5. (Count the table, not this line: earlier revisions of it said nine and then ten while eight were written, both wrong.)
 
 | # | File | Lines | State |
 |---|---|---|---|
@@ -22,14 +22,14 @@ Fourteen plans, two streams. **Eight written, six to go** — N4, N5, N6, V3, V4
 | N1 | `11-netcode-1-time.md` | 1415 | written |
 | N2 | `12-netcode-2-wire.md` | 2825 | written |
 | N3 | `13-netcode-3-world.md` | 3795 | written |
-| N4 | `14-netcode-4-feel.md` | — | **to write** |
-| N5 | `15-netcode-5-lifecycle.md` | — | **to write** |
+| N4 | `14-netcode-4-feel.md` | 3177 | written |
+| N5 | `15-netcode-5-lifecycle.md` | 1781 | written |
 | N6 | `16-netcode-6-optional.md` | — | **to write** |
 | V0 | `20-render-0-instrumentation.md` | 1853 | written |
 | V1 | `21-render-1-hud.md` | 2704 | written |
 | V2 | `22-render-2-bake.md` | 4170 | written |
-| V3 | `23-render-3-beams.md` | — | **to write** |
-| V4 | `24-render-4-events.md` | — | **to write** |
+| V3 | `23-render-3-beams.md` | 1609 | written |
+| V4 | `24-render-4-events.md` | 2165 | written |
 | V5 | `25-render-5-pixels.md` | — | **to write** |
 
 Supporting files, all written: [`interfaces.md`](interfaces.md) (the ledger),
@@ -42,7 +42,113 @@ extended to *fail* on a stray world `Graphics` or one that clears itself, `world
 the `docs/render-bench.md` V2 row and the remaining doc edits) plus `## Acceptance`, `## Handoff` and
 `## Self-review`. Tasks 1-6 were re-checked against the current ledger and needed no change.
 
-An `14-netcode-4-feel.md` was **not** started; if one appears on disk it is stale and should go.
+**`14-netcode-4-feel.md` was written on 2026-09-05**, in this session, along with its five ledger
+edits (section 3's table). It resolved the ram question of section 4 **without** touching
+`resolveContacts`: shared `sim/ram-events.ts` re-runs the exported, pure `resolveRam` on the pairs
+that entered contact, which recovers the attacker, the victim, the side and the graded severity
+exactly. The two limits that remain — a hull-centre midpoint instead of the contact manifold point,
+and dash/slam pairs excluded rather than re-classified — are what section 4's open question is now
+about, and it is narrower than it was.
+
+**`23-render-3-beams.md` was written on 2026-09-05**, in the same session as N4. It found no ledger
+defect — the `render/beams.ts` row fitted as written — but it **deviates from the rendering spec in
+two places, both arithmetic**, and both are recorded in its own `## Handoff` under "Where this plan
+departed from the spec": one flipbook length instead of R14's two (a cone's apex is at the muzzle,
+so a uniform scale of one frame is exactly the shorter flame's silhouette, and the second length
+would double the sheet's largest item), and twenty rope points instead of §5's "24 segments"
+(a `Rope` emits two vertices per point, so 24 segments is 50 vertices against R2's ceiling of 40).
+Neither needs the user's word: R2 is a numbered principle and §5's catalogue is descriptive, so the
+more specific statement wins, which is the same rule that settled `PlayerState.level`.
+
+**`15-netcode-5-lifecycle.md` was written on 2026-09-05**, same session. It found no ledger defect
+either; its ledger edits are all additive (`PlayerState.connected` appended to the schema,
+`ColyseusTransport.rebind`, `InputRing.reset`, `ClockSync.reset`, and a new block for
+`net/reconnect.ts` / `match/link-health.ts` / `net/flood-detector.ts`). It takes the guide's warning
+about the two reconnect numbers seriously: 15 s and 60 s are separated in six places, and the one
+test that mentions both pins the *relationship* rather than either value.
+
+**`24-render-4-events.md` was written on 2026-09-05**, same session, and it **discharges the
+execution guide's coupling 2 by construction rather than leaving a switch to throw**: `ArenaScene`
+passes `frame.events` and `BenchScene` passes `benchEvents(tick)` to the same
+`EffectRouter.onEvents`, so nothing has to change when N4 merges — the arena simply starts receiving
+a non-empty list. Its ledger edits are additive (the three service rows expanded, the census's fourth
+group, `bakeJobs`' fourth job list). Its most unusual decision is a **bench failure that fires when a
+decal is live**: `DECAL_DEFS` is empty by decision (R12a), not by omission, so the guard protects the
+decision rather than a bug, and the day somebody authors the first decal that line is what makes them
+say so out loud.
+
+**Three plans in a row have now found no ledger defect.** That is a signal the ledger has converged,
+not that the check was skipped — V3's, N5's and V4's reports all say so explicitly. Keep running
+step 2; stop expecting it to bite.
+
+## 1a. Where this stopped, 2026-09-05 — read this before starting
+
+**Four plans landed this session, in this order: N4, V3, N5, V4** — one commit each, each carrying
+its own ledger edits, all pushed on `claude/netcode-rendering-plans-003970` (a worktree branch off
+`claude/gameplay-netcode-architecture-bgp8f6`).
+
+**Two plans remain, and they are the last round: N6 and V5.** They are in different streams, so they
+are independent and can be written at the same time. Both assignments are in section 5 below,
+verbatim and unchanged.
+
+What each of them needs that is new since the assignments were written:
+
+- **N6** reads **N5's `## Handoff`**, whose "For N6 specifically" bullet is the one that matters:
+  `MatchTransport` is now proven swappable at runtime (`ColyseusTransport.rebind` changes the room
+  under a live `MatchClient` without disturbing a subscriber), which is exactly the property N12's
+  WebTransport task needs and which nothing had exercised before; and the harness gained a
+  **blackout** knob that an N6 task tuning `remoteSteerHoldTicks` over a lossy link should extend
+  rather than re-invent. N6's `thunderclap` task also now has its numbers already computed: **N4's
+  Task 5 shipped `config/telegraph.ts`, an audit that names `thunderclap` failing N31 rules 1 and 3**
+  (`startUpMs` 0 against a 150 ms window, 96,000 u/s² against a 4,267 u/s² budget, 240 u of error on
+  a victim's screen against a 48 u car) and deliberately does **not** edit the row. N6's task is the
+  edit, and the audit's own test is what will flip to green when it lands.
+- **V5** reads **V4's `## Handoff`**, whose "Deferred by V4" list is V5's work list and whose service
+  table names `setCap` on both `ParticleService` and `DecalService` as the tier hook. One thing V5
+  must not do: `TIER_TABLE` must **read** `PARTICLE_CONFIG.caps` and `DECAL_CONFIG.maxLive` rather
+  than restate their numbers, and `tiers.test.ts` should assert the two agree. V5 also inherits three
+  more tier call sites than V2's Handoff listed — V3 added `BeamRenderer`'s constructor default and
+  `bakeJobs`' own default, and V4 added the two service constructors.
+
+Nothing is half-written and no file is under a provisional name. The open question in section 4 is
+unchanged in kind and narrower in scope than it was; it blocks nothing.
+
+## 1b. Continuing from a different machine
+
+**Everything needed to finish the plan-writing is in git and nothing else is.** No scratch file, no
+local note and no machine-local memory carries anything the repository does not.
+
+```bash
+git fetch origin
+git checkout claude/netcode-rendering-plans-003970
+```
+
+That branch is cut from `development/main` at `bd7b36a` and holds the four plans written on
+2026-09-05 plus their ledger edits. Merge it into `development/main` whenever you like — it touches
+only `docs/`, so it cannot conflict with code work in flight.
+
+**To write N6 and V5, that checkout is the whole prerequisite.** Plan-writing reads markdown and
+source and writes markdown; it needs no install, no build and no browser. Hand the writer
+[`plan-authoring-brief.md`](plan-authoring-brief.md) and its assignment from section 5 — **the
+brief's paths are repo-relative as of 2026-09-05**, having previously hardcoded the first session's
+checkout (`/home/user/…`) and plugin cache, which were wrong on every other machine.
+
+**To *execute* a plan, three things are per-machine and none of them is in git** — all three are in
+the root `CLAUDE.md` and are repeated here because a fresh machine is exactly when they bite:
+
+1. **`npm install` in the worktree before the first build.** Without it the build inlines the *main
+   checkout's* shared `dist` and the server silently runs the wrong sim while all three suites pass.
+   Tell the two apart by the inlined path in `packages/server/dist/index.js`: `// ../shared/dist/…`
+   is right, `// ../../../../../packages/shared/dist/…` has escaped the worktree.
+2. **`uv`**, for the `code-review-graph` MCP server, and a graph built per worktree
+   (`uvx code-review-graph@2.3.8 build`, or the `code-graph-install` skill). Optional — nothing in
+   these plans depends on it.
+3. **A Playwright browser**, for `npm run smoke:arena`, `npm run smoke:reconnect` (N5) and
+   `scripts/bench-arena.mjs` (V0–V5): `npx playwright install chromium`, plus `firefox` for the
+   bench's second row. **The preparation plan, N0 and V0 mention `/opt/pw-browsers` and "this
+   container" — that is a description of the machine those plans were authored on, not a
+   requirement.** Each of those sentences already names the portable command beside it; read them
+   that way rather than as setup you are missing.
 
 A general rule for any future interruption: a half-written plan must never be left under its final
 name, because the next plan in that stream builds on its `## Handoff`. That rule is what made the V2
@@ -56,9 +162,9 @@ Each plan is written by one worker in its own context. Hand that worker:
 2. The plan's own assignment from section 5 below, verbatim.
 
 **Order matters.** Within a stream each plan reads the previous plan's `## Handoff`, so they are
-written in order: N4 → N5 → N6, and V3 → V4 → V5 (V2 is done). Across streams they are independent, so one
-netcode plan and one rendering plan can be written at the same time. Two per round, so **three
-rounds**: N4 with V3, then N5 with V4, then N6 with V5.
+written in order: N6 is last in the netcode stream and V5 is last in the rendering one (N4, N5, V3
+and V4 are all done). The two are in different streams and therefore independent. **One round
+remains**: N6 and V5, together or in either order.
 
 **After each plan comes back:**
 
@@ -98,7 +204,7 @@ waits.
 
 ## 3. Decisions already made while writing these plans
 
-Four ledger defects have been found and fixed. They are recorded here because each was a judgement
+Nine ledger defects have been found and fixed. They are recorded here because each was a judgement
 call, not a typo, and a later reader will otherwise re-open them.
 
 | Found by | Defect | Resolution |
@@ -107,6 +213,11 @@ call, not a typo, and a later reader will otherwise re-open them.
 | V1 | `render/bake.ts` and `render/atlas.ts` were assigned to V2, but V1's baked cooldown rings need them a phase earlier | **Moved to V1**, HUD jobs only, with the ledger's exact names and signatures; V2 extends the same two files with the world jobs, `ART_ATLAS` and `pack-atlas.mjs` |
 | V1 | `BakeTier` and V5's `Tier` are the same union with no stated owner | **`render/bake.ts` owns it**; V5's `render/tiers.ts` re-exports `export type Tier = BakeTier`, so V5 never becomes a dependency of V1 |
 | N3 | `CarState` as typed cannot run `resolveContacts`, and the snapshot carried no contact memory | Added `CarState.team`, `CarState.maneuverWeaponId`, `WorldState.mode`, `SlamClocks.bySessionId`, `Snapshot.contactPairs` and `Snapshot.slams` — all additive. Full snapshot 677 → 686 B, steady-state delta 125 → 128 B, both still inside spec §8's lines |
+| N4 | `WorldState.mode` was typed `GameMode`, but `resolveContacts` takes the SIDES string and N3's own `MatchClient.worldFrom` builds it with `sidesOf(lobby.mode)` | **`"ffa" \| "team"`.** The more specific statement — the function signature the field is passed to, and the code that fills it — beats the enum name in the summary row |
+| N4 | `CarState.team: number`, but `RamCar.team` is `0 \| 1` and N3's `worldFrom` already narrows it | **`0 \| 1`.** Same rule; a widening nobody wanted |
+| N4 | `FirePrediction`'s ledger constructor is `(cfg)`, which cannot reach an arena or the predicted world | **`attach(ctx: FireContext)` added**, plus `advance`, `clear` and `stats`. Every ledger-listed member keeps its declared signature; purely additive |
+| N4 | `RenderOffsets` had no way to apply an offset without counting a snap, so a ghost-shot handover would pollute the `snaps` counter phase 3 is graded on | **An optional third constructor argument**, `{ countSnaps?: boolean }`, defaulting to the current behaviour. Purely additive |
+| N4 | `ContactEvent`'s ram caveat had no answer | Still true, and now points at shared `sim/ram-events.ts` for what N4 actually did instead. Two narrower limits recorded in its place |
 
 Two conventions settled the same way:
 
@@ -132,6 +243,21 @@ contact point or scaled to the hit.
 Nothing is blocked. If the user wants contact-point-accurate ram feedback, they authorise the
 `resolveContacts` return-value change and N4 (or a later pass) fills the event in. The caveat is
 recorded inline in [`interfaces.md`](interfaces.md) beside `ContactEvent`.
+
+**Narrowed by N4 (2026-09-05), and still open.** N4 recovered the attacker, victim, side and graded
+severity **exactly**, without touching `resolveContacts`, by re-running the exported pure
+`resolveRam` on the pairs that entered contact (shared `sim/ram-events.ts`). So `MatchEvent.ram` is
+filled and ram feedback works. Two things are still not available and still need the user's word:
+
+1. **The impact point.** `x, y` is the midpoint of the two hull centres. The true contact manifold
+   point is computed inside `resolveRam`'s private `spinOf` and is not returned, so a spark lands
+   within half a car of where the hulls actually met rather than on it.
+2. **Dash and slam pairs are excluded, not re-classified.** `resolveContacts`' dash and slam
+   branches are not exported, so a pair one of them claimed is dropped from the ram derivation
+   through a `claimedPairs` set rather than being told apart by the same logic the sim used.
+
+Both would be fixed by the same additive change to `resolveContacts`' return value. Ask the user
+before making it.
 
 ## 5. The remaining assignments, verbatim
 
