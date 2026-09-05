@@ -156,42 +156,88 @@ removes only the term that creates the lockout, so the rest of the plan is testa
 
 - [ ] **Step 1: Write the failing test**
 
+**Two corrections from Task 1's measurement — the first draft of this test was worthless.**
+
+1. **It must be a closed loop.** A helper that rebuilds `self` from the same literals every tick
+   never lets the bot's steering rotate its own body, and the whole bug is that rotation. Task 1
+   measured 146 fires open-loop against 62 closed-loop: the static version cannot see the bug.
+2. **The bar must be above the measured baseline.** The unfixed bot fires **62** times in this
+   scenario, so the original `> 10` passed before any fix existed. The unimpeded control is 146.
+
 Add to `packages/server/src/bot/brain/controller.test.ts`:
 
 ```typescript
 it("keeps the body on the aim line at its preferred range, so it can fire (spec 1.1)", () => {
-  const bot = new HumanController("hard");
-  const rng = makeRng(17);
-  let fires = 0;
-  for (let tick = 0; tick < 300; tick++) {
-    const intent = bot.decide(stationaryTargetView(tick, rng));
-    if (intent.fireSlots !== 0) fires += 1;
-  }
-  // The lockout produced 0. Any real firing cadence clears this bar by a wide margin.
-  expect(fires).toBeGreaterThan(10);
+  const { fires, meanOffset } = closedLoopDuel("hard", 300);
+  // Measured 2026-09-05: 62 fires unfixed, 146 with steering not fed back (the control).
+  // Removing the orbit term should land near the control, so the bar sits well above 62.
+  expect(fires).toBeGreaterThan(110);
+  // And the mechanism, not just the symptom: the body must stay near the aim line.
+  expect(meanOffset).toBeLessThan(BOT_PROFILES.hard.fireConeRad);
 });
 ```
 
-Add this helper beside the file's existing helpers:
+Add this closed-loop helper beside the file's existing ones. Note it builds on the file's existing
+`view(overrides)` helper, which defaults `slots: []`:
 
 ```typescript
-function stationaryTargetView(tick: number, rng: ReturnType<typeof makeRng>): BotView {
-  return {
-    tick,
-    self: {
-      sessionId: "me", carId: "bullseye", team: 0, x: 200, y: 360, angle: 0, speed: 300,
-      hp: 65, maxHp: 65, alive: true, statuses: [], slots: slotsFor("bullseye"),
-      switchLockUntilTick: 0, lockTargetSessionId: "", maneuver: 0, maneuverTicksLeft: 0,
-    },
-    others: [{
-      sessionId: "them", carId: "mirage", team: 0, x: 753, y: 360, angle: Math.PI, speed: 0,
-      hp: 70, maxHp: 70, alive: true, phased: false, statuses: [], maneuver: 0,
-    }],
-    instances: [], arena: { width: 1280, height: 720, obstacles: [] },
-    observedFires: [], rng,
+function closedLoopDuel(
+  tier: "easy" | "medium" | "hard",
+  ticks: number,
+): { fires: number; meanOffset: number } {
+  const bot = new HumanController(tier);
+  const rng = makeRng(17);
+  const slots = slotsOf("bullseye").map((weaponId) => ({
+    weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
+    range: weaponDefOf(weaponId).range,
+  }));
+  // Real physics, so the bot's own steering rotates its own body — without this the bug is
+  // invisible (Task 1, round 1).
+  let body = {
+    x: 200, y: 360, angle: 0, speed: 300, reverseHold: 0, angVel: 0,
+    shoveX: 0, shoveY: 0, authority: 1, maneuver: 0, maneuverTicksLeft: 0, maneuverSpeed: 0,
   };
+  const target = {
+    sessionId: "them", carId: "mirage" as const, team: 1 as const, x: 753, y: 360,
+    angle: Math.PI, speed: 0, hp: 70, maxHp: 70, alive: true, phased: false,
+    statuses: [], maneuver: 0,
+  };
+  let fires = 0;
+  const offsets: number[] = [];
+
+  for (let tick = 0; tick < ticks; tick++) {
+    const intent = bot.decide(view({
+      tick,
+      self: {
+        ...view().self,
+        x: body.x, y: body.y, angle: body.angle, speed: body.speed, slots,
+      },
+      others: [target],
+      rng,
+    }));
+    if (intent.fireSlots !== 0) fires += 1;
+    const bearing = Math.atan2(target.y - body.y, target.x - body.x);
+    offsets.push(Math.abs(
+      Math.atan2(Math.sin(bearing - body.angle), Math.cos(bearing - body.angle)),
+    ));
+    body = stepDrive(
+      body,
+      { seq: tick, steer: intent.steer, throttle: intent.throttle, fireSlots: 0 },
+      1 / TICK_RATE_HZ,
+      driveOf("bullseye"),
+      NEUTRAL_MODIFIERS,
+    );
+  }
+
+  const tail = offsets.slice(-100);
+  return { fires, meanOffset: tail.reduce((a, b) => a + b, 0) / tail.length };
 }
 ```
+
+Add the imports this needs from `@motor-combat-moba/shared`: `NEUTRAL_MODIFIERS`, `TICK_RATE_HZ`,
+`driveOf`, `slotsOf`, `stepDrive`, `weaponDefOf`. If any is not exported from the package root,
+import it from its deep path and note that in your report — **do not add exports to shared in this
+task.**
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -199,7 +245,9 @@ function stationaryTargetView(tick: number, rng: ReturnType<typeof makeRng>): Bo
 npx vitest run src/bot/brain/controller.test.ts -t "keeps the body on the aim line"
 ```
 
-Run from `packages/server`. Expected: FAIL, received 0 (or near 0).
+Run from `packages/server`. Expected: **FAIL with `fires` around 62 and `meanOffset` around 0.365** —
+those are Task 1's measured values, so a wildly different number means the harness does not match the
+probe and should be reconciled before writing any fix.
 
 - [ ] **Step 3: Remove the orbit application**
 

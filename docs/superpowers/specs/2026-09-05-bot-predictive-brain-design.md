@@ -27,11 +27,30 @@ averages it with the aim heading. At hard's `orbitBias: 0.35` against `GOAL_WEIG
 heading sits `atan2(0.35, 1) = 0.337 rad` (19.3°) off the target. `chooseSlot` refuses any shot with
 `|aimDelta| >= fireConeRad`, and hard's cone is `0.2 rad` (11.5°).
 
-**19.3° > 11.5°, permanently.** Throttle is 0 in the deadband, so the bot parks at its preferred
-range, weaves, and holds fire — indefinitely, against a stationary target.
+**19.3° > 11.5°.** The bot parks at its preferred range, weaves, and holds fire for most of the time
+it spends there.
+
+**Measured 2026-09-05** (P54's probe, closed-loop against a stationary target, 300 ticks, hard
+Bullseye). The first draft of this section claimed the lockout was *permanent*. It is not — the
+correction matters, because a permanent lockout and a severe intermittent one need the same fix but
+justify different test bars:
+
+| Measure | Value |
+|---|---|
+| Fires, closed loop (the real bot) | **62 / 300 ticks** |
+| Fires, open loop (steering not fed back — the control) | **146 / 300 ticks** |
+| Mean abs. body-to-bearing offset, last 100 ticks | **0.365 rad (20.9°)** against a 0.2 rad cone |
+| Settled distance to target | **549.9 u** (predicted 553) |
+| Offset behaviour | Oscillates roughly −0.24 to +0.73 rad, **crossing zero** |
+
+So the body does not hold one fixed 19.3° offset; it swings about the aim line as the orbit desire
+continually re-blends, and the bot fires in the brief windows where it sweeps back through the cone.
+Fire opportunity drops **58%**. That is a severe suppression, not a total stop — and it matches the
+report exactly: *"it doesn't even attack me most of the time."*
 
 The bug is tier-shaped, which is why hard does not feel harder than medium: medium
-(`orbitBias 0.2` → 11.3°, cone 20°) fires normally; easy (`orbitBias 0`) fires normally.
+(`orbitBias 0.2` → 11.3°, cone 20°) fires normally; easy (`orbitBias 0`) fires normally. **That half
+is still deduced, not measured** — the probe covered hard only.
 
 ### 1.2 The same offset breaks hard's aim assist
 
