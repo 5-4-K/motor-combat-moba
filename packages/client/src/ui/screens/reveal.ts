@@ -21,6 +21,31 @@ function hostBadge(): SVGElement {
   return el;
 }
 
+/**
+ * How the art sits in its 116x76 well. One constant because the tint layer masks itself with the
+ * same image, and the two must agree on size and position pixel for pixel.
+ */
+const ART_LAYOUT = "center / 104px 68px no-repeat";
+
+/**
+ * The player-colour layer laid over a car thumbnail.
+ *
+ * A multiply masked by the car's own alpha is exactly what the arena does: `applyCarSprite` calls
+ * Phaser's `setTint`, which multiplies the texture by the colour, and the sprites ship desaturated
+ * so that reads as paint rather than mud. The mask is what keeps the multiply on the car instead of
+ * on the well behind it; `isolation: isolate` on the well keeps it off the row.
+ *
+ * Car select stays untinted on purpose — there the art answers "which chassis", not "which player" —
+ * so this grid is the first place a driver sees their colour on their car.
+ */
+export function carTintStyle(carImage: string, hex: string): string {
+  const mask = `${carImage} ${ART_LAYOUT}`;
+  return (
+    `position: absolute; inset: 0; background: ${hex}; mix-blend-mode: multiply; ` +
+    `-webkit-mask: ${mask}; mask: ${mask};`
+  );
+}
+
 function panel(data: RevealPanel, showHeading: boolean): HTMLElement {
   return h("div", { style: "background: var(--color-surface); border: 1px solid var(--color-divider); border-radius: 4px; padding: 20px 22px 24px;" }, [
     showHeading
@@ -58,11 +83,17 @@ function panel(data: RevealPanel, showHeading: boolean): HTMLElement {
             // Driverless rows get no thumbnail well at all — the design leaves the space empty
             // rather than showing an empty frame.
             row.carImage
-              ? h("div", {
-                  role: "img",
-                  "aria-label": "Car",
-                  style: `width: 116px; height: 76px; flex: none; border-radius: 4px; background: var(--color-bg) ${row.carImage} center / 104px 68px no-repeat;`,
-                })
+              ? h(
+                  "div",
+                  {
+                    role: "img",
+                    "aria-label": "Car",
+                    style:
+                      `position: relative; isolation: isolate; width: 116px; height: 76px; flex: none; ` +
+                      `border-radius: 4px; background: var(--color-bg) ${row.carImage} ${ART_LAYOUT};`,
+                  },
+                  [h("div", { "aria-hidden": "true", style: carTintStyle(row.carImage, row.hex) })],
+                )
               : null,
           ],
         ),
