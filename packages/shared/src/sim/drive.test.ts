@@ -18,6 +18,11 @@ const DT = 1 / 30;
  * the integration, not the roster's balance. A car's ratings must be free to move without any
  * number below moving with them.
  */
+// NOTE: `golden.test.ts` also declares a `GOLDEN_CHASSIS` with these same first six values but a
+// DIFFERENT `coastPerTick` (a 0.35s half-life there, frozen to the pre-rework global, against the
+// 1.0s used here). That is deliberate, not a copy-paste drift between the two fixtures — this file's
+// suite predates the coast field and was never meant to pin a specific half-life, so 1.0s was picked
+// as a convenient round number for this suite's own scenarios. Do not "fix" one to match the other.
 const GOLDEN_CHASSIS: ChassisDrive = Object.freeze({
   maxSpeed: 540,
   reverseMaxSpeed: 351,
@@ -25,7 +30,9 @@ const GOLDEN_CHASSIS: ChassisDrive = Object.freeze({
   reverseAccel: 1100,
   turnRate: 4.2,
   turnRateAtStop: 2.1,
-  coastPerTick: 0.5 ** (1 / (1.0 * 30)), // a 1.0s half-life at 30Hz
+  coastPerTick: 0.5 ** (1 / (1.0 * 30)), // a 1.0s half-life at 30Hz — tick-count-frozen, not
+  // seconds-frozen: this stays correct if a future netcode phase moves TICK_RATE_HZ, because DT
+  // above is hardcoded to 1/30 in lockstep with it, not read from config.
   brakeDecel: 1600,
 });
 

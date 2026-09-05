@@ -41,8 +41,10 @@ export interface TickResult {
    * cars actually ended up at — so the velocity left on `PlayerState` is the post-bounce one. Feeding
    * that to `resolveRam` made its approach term negative on every tick a hull actually overlapped,
    * and a ram only fired on the rare tick where a pair landed inside `RAM_CONFIG.contactPad`
-   * WITHOUT overlapping: a ~1.5 unit window against a 10.5-18 unit per-tick step, so 8-20% of
-   * contacts. Measured in `playtest/ram.ts`, which is what found it.
+   * WITHOUT overlapping: a ~1.5 unit window against a per-tick step that was 10.5-18 units at the
+   * time this bug was found, so 8-20% of contacts. (The 2026-09-06 heavy-car pass has since cut
+   * that step to 6.3-8.9 units; the fix and the window it measures are unaffected either way.)
+   * Measured in `playtest/ram.ts`, which is what found it.
    *
    * The forward speed carried into the tick is the right number on its own terms, not merely a
    * workaround: it is the speed at which the car covered the ground that brought it into contact.

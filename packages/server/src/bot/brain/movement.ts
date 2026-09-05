@@ -36,8 +36,8 @@ export function blendHeading(desires: readonly Desire[], fallbackHeading: number
  * Push off a wall or obstacle the car would reach within `lookaheadUnits` (H39).
  *
  * `arena-01` has no obstacles, so on the shipped arena this is entirely about bounds and corners. A
- * short look-ahead is not a bug: an easy bot at 40 units and 320-450 u/s pins itself on walls, which
- * is free human-likeness.
+ * short look-ahead is not a bug: an easy bot at 40 units and 190-267 u/s (as of the 2026-09-06
+ * heavy-car pass) pins itself on walls, which is free human-likeness.
  */
 export function wallDesire(
   self: { x: number; y: number; angle: number },

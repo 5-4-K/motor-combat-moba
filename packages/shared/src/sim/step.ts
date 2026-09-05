@@ -70,6 +70,15 @@ export interface StepContext {
 /**
  * The lockstep: drive, then resolve against the world. Server and client call this same function, so
  * neither half may be reordered or skipped on one side only. Pure — `body` and `ctx` are never mutated.
+ *
+ * `cos`/`sin` are not guaranteed bit-identical across JS engines (server V8 vs. client browser
+ * engine), so replayed positions can drift by an ULP or two. That's fine here: client prediction is
+ * reconciled against authoritative server state rather than trusting bit-exact replay, so this is
+ * not a desync-checksum-safe function. The 2026-09-06 vector-drive rework made trig more pervasive
+ * than the old scalar-`speed` model ever was: even a car driving dead straight now round-trips its
+ * velocity through `toWorld` every tick, where the old `cos(angle) * speed` touched trig once per
+ * tick and a stationary car touched it not at all. The reconciliation-not-replay answer above still
+ * holds; it is simply exercised more often now.
  */
 export function stepSim(body: SimBody, input: InputMessage, dt: number, ctx: StepContext): SimBody {
   const driven = stepDrive(body, input, dt, driveOf(ctx.carId), ctx.modifiers);
@@ -105,7 +114,8 @@ export function stepSim(body: SimBody, input: InputMessage, dt: number, ctx: Ste
  *   "made no progress" needs a float epsilon for no behavioural gain (C8).
  *
  * Gated on DASH by the caller even though the derived count would independently be 1 for every
- * other body in the game — the roster's fastest car covers ~10.5u per tick. `applyContact` damps
+ * other body in the game — the roster's fastest car covers ~8.9u per tick (Mirage, 267 u/s at 30 Hz,
+ * as of the 2026-09-06 heavy-car pass). `applyContact` damps
  * `vx/vy` on every call, and `resolveWorld`'s contract is that each distinct surface damps exactly
  * once, never r^2 or r^3. Repeating it is harmless for a dash, whose motion comes from
  * `maneuverSpeed` and whose `vx/vy` is overwritten by `endDash` on the tick the hit lands; it would

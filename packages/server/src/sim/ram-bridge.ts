@@ -244,6 +244,9 @@ export function contactTick(
     if (attacker) {
       // O2: the charge ends on its first slam, taking its own self-applied statuses with it — a
       // power whose window closes early cannot leave a buff running past the thing that ended it.
+      // STAGE 4: `SLAM_CONFIG.selfKeepFactor` is deleted along with the rest of `SLAM_CONFIG` once
+      // the `ImpulseDef` seam lands — the attacker's cost falls out of equal-and-opposite impulses
+      // instead of this hand-tuned fraction.
       const restored =
         (approachSpeeds.get(hit.attackerSessionId)
           ?? forwardOf(attacker.vx, attacker.vy, attacker.angle)) * SLAM_CONFIG.selfKeepFactor;

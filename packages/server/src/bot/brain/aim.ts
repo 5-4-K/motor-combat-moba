@@ -74,8 +74,9 @@ export interface LeadTarget {
  *
  * `leadFactor` is the FRACTION of the correct lead the bot actually applies: 0 shoots at where the
  * target is now (a beginner), 1 solves the intercept (UT's "Adept" gate). It is the largest single
- * skill gap on this roster — cars top out at 320-450 u/s while `magmablast` flies at 600 and
- * `thumper` at 450, so a bot that does not lead cannot hit a moving Mirage with either.
+ * skill gap on this roster — cars top out at 190-267 u/s (as of the 2026-09-06 heavy-car pass) while
+ * `magmablast` flies at 600 and `thumper` at 450, so a bot that does not lead cannot hit a moving
+ * Mirage with either.
  *
  * Falls back to the target's own position when no intercept exists — a shot slower than its target,
  * or a `speed: 0` maneuver row — rather than returning a point behind the shooter. A stationary

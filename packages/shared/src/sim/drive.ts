@@ -44,6 +44,8 @@ export function stepDrive(
 
   const baseTurnRate = isMoving(forward) ? chassis.turnRate : chassis.turnRateAtStop;
   const turnRate = baseTurnRate * mods.turnRate;
+  // `steeringLocked` kills the driver's input, never the injected spin below: a stunned car that is
+  // rammed still tumbles, which is the whole reason the two terms are added rather than multiplied.
   const steer = mods.steeringLocked ? 0 : input.steer;
   // Steering and injected spin are ADDED into one rotation, which is what makes countersteering
   // free: the integrator does not know why angVel is high, so steering the other way subtracts
@@ -51,6 +53,9 @@ export function stepDrive(
   // `mods.turnRate` instead as of stage 3.
   const angle = body.angle + (steer * turnRate + body.angVel) * dt;
 
+  // `immobilised` zeroes the THROTTLE, not the car: braking, coast and any standing knock all still
+  // resolve, and the forward component bleeds off through coast rather than snapping to 0 — an
+  // instant stop at speed reads as hitting an invisible wall, not as being stunned.
   const throttle = mods.immobilised ? 0 : input.throttle;
   const stepped = nextForward(forward, body.reverseHold, throttle, dt, chassis, mods);
   const heldForward = mods.fullStop ? 0 : stepped.forward;
@@ -113,13 +118,22 @@ export function dashSubstepCount(body: SimBody, dt: number): number {
 }
 
 /**
- * DASH: scripted translation. Inputs are ignored; knock decay still runs; the face is welded.
+ * DASH: scripted translation. Inputs are ignored; injected spin decay still runs; the face is
+ * welded.
  *
  * Everything here except the two position lines is PER-TICK and must run exactly once —
  * `maneuverTicksLeft - 1`, the `done` exit-speed handoff, `nextAngVel`. That is why `stepSim`
  * re-walks the position itself rather than calling this N times: four substeps of this function
  * would burn the dash's duration four times as fast. This still applies the FULL `dt` translation,
  * so `stepDrive` on its own is arithmetically what it always was.
+ *
+ * `vx`/`vy` are neither bled nor driven for the dash's whole duration — frozen mid-dash, since
+ * `dashTranslation` supplies the motion directly from `maneuverAngle`/`maneuverSpeed` rather than
+ * from the velocity — and then overwritten wholesale on the exit tick (see the `done` branch
+ * below). Before the vector-drive rework a knock's `shoveX`/`shoveY` kept decaying on its own
+ * half-life the whole time a dash ran; there is no analogous in-dash decay to preserve now that
+ * velocity is one field, so this is a real behavioural change, not a pure rename. `endDash` in
+ * `ram-bridge.ts` documents its own bridge-side discard the same way.
  */
 function stepDash(body: SimBody, dt: number, chassis: ChassisDrive, mods: Readonly<Modifiers>): SimBody {
   const ticksLeft = body.maneuverTicksLeft - 1;
@@ -227,6 +241,16 @@ function nextForward(
  * reach — means a slow does nothing at all to whoever was already at top speed, which is precisely
  * the car it was aimed at. Off the throttle, coasting brings the same car down smoothly; the snap
  * only happens while the driver is actively asking for more.
+ *
+ * **Since the 2026-09-06 vector-drive rework, this clamp also caps externally imposed forward
+ * motion, not only the driver's own acceleration** — the pre-rework model never did this, because
+ * `shove` was a field this function never touched. A rear-end or head-on ram now adds its knock
+ * straight into `vx`/`vy` (`ram-bridge.ts`), and if that pushes the forward component above this
+ * cap, the very next throttled tick snaps it back down here — the same abruptness described above,
+ * but now applied to a knock the victim did not ask for rather than only to a driver's own
+ * over-throttling. Whether a ram's forward push should be exempt from this clamp is stage 2's
+ * design question (`applyImpulse`), not answered by this function. See `combat-model.md`'s
+ * Ramming section for the resulting near-inertness of head-on/rear-end rams.
  */
 function accelerateForward(
   forward: number,

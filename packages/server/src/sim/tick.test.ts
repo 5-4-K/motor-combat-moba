@@ -689,8 +689,9 @@ describe("serverTick coasts a knocked player who has stopped sending input", () 
       const turning = (steer: number): InputMessage[] => [
         { seq: seq++, steer, throttle: 1, fireSlots: 0 },
       ];
-      // Turning circle at cruise speed is ~55u for this chassis — well clear of arena-01's walls and
-      // its obstacles (all at y >= 350) from this corridor spot, so nothing here ever collides.
+      // Turning circle at cruise speed is ~32.6u for this chassis (mirage, as of the 2026-09-06
+      // heavy-car pass) — well clear of arena-01's walls and its obstacles (all at y >= 350) from
+      // this corridor spot, so nothing here ever collides.
       for (let i = 0; i < 200; i++) {
         serverTick(state, new Map([["v", turning(1)]]), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
       }

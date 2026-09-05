@@ -45,6 +45,11 @@ const DT = 1 / 30;
  * read from today's `DRIVE_CONFIG`/`CAR_TABLE`, for the same reason the original six are frozen: a
  * future retune of coasting or braking must not silently move this suite.
  */
+// NOTE: `drive.test.ts` also declares a `GOLDEN_CHASSIS` with these same first six values but a
+// DIFFERENT `coastPerTick` (a 1.0s half-life there, picked as a round number for that suite's own
+// scenarios, against the pre-rework 0.35s frozen here). Both are deliberately independent fixtures
+// that happen to share a name — not a copy-paste drift, and not a bug in either file. Do not "fix"
+// one to match the other.
 const GOLDEN_CHASSIS: ChassisDrive = Object.freeze({
   maxSpeed: 540,
   reverseMaxSpeed: 351,
@@ -52,7 +57,9 @@ const GOLDEN_CHASSIS: ChassisDrive = Object.freeze({
   reverseAccel: 1100,
   turnRate: 4.2,
   turnRateAtStop: 2.1,
-  coastPerTick: 0.5 ** (1 / (0.35 * 30)), // the pre-rework 0.35s half-life, frozen
+  coastPerTick: 0.5 ** (1 / (0.35 * 30)), // the pre-rework 0.35s half-life, frozen — tick-count-
+  // frozen, not seconds-frozen: stays correct if a future netcode phase moves TICK_RATE_HZ, since
+  // DT above is hardcoded to 1/30 in lockstep with it, not read from config.
   brakeDecel: 1600, // the pre-rework global, frozen
 });
 

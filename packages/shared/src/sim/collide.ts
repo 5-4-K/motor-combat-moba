@@ -69,8 +69,8 @@ const RELAXATION_PASSES = 1;
  * Contacts resolve in a fixed order — bounds, `others` in array order, `obstacles` in array order,
  * then a final bounds clamp. Fixed order means server and client agree on *which* contacts are
  * applied and in what sequence; it does not promise bit-identical coordinates, since `cos`/`sin`
- * may differ by an ULP between engines (see the note in `drive.ts`). Prediction reconciles against
- * authoritative state rather than assuming bit-exact replay.
+ * may differ by an ULP between engines (see the note beside `stepSim` in `step.ts`). Prediction
+ * reconciles against authoritative state rather than assuming bit-exact replay.
  *
  * Ordering is a priority ranking, because the last contact resolved is the one guaranteed to end
  * separated (see `RELAXATION_PASSES`). From least to most inviolable:
@@ -218,7 +218,11 @@ function applyContact(body: SimBody, push: Vec2): SimBody {
     vy -= scale * n.y;
   }
 
-  // STAGE 2 REMOVES THE NEXT TWO LINES. Today the reflected direction is discarded and only the
+  // STAGE 2 REMOVES THE NEXT TWO LINES — AND the `...toWorld(body.angle, signed, 0)` spread in the
+  // return below, which is the other half of the same discard: `signed` only exists because the
+  // real reflected `vx`/`vy` was thrown away above, so once stage 2 stops discarding it, the return
+  // statement must hand back the reflected `vx`/`vy` directly instead of rebuilding a fake one along
+  // the unchanged facing. Today the reflected direction is discarded and only the
   // magnitude survives along the unchanged facing, which is why walls damp but never redirect, and
   // why the lateral component of a contact never survives (see point 1 above) — this is a real
   // behavioural change from the pre-vector code, not a pure representation swap: the old

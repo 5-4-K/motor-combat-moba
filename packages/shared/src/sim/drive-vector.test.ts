@@ -21,7 +21,9 @@ const CHASSIS: ChassisDrive = Object.freeze({
   reverseAccel: 282,
   turnRate: 6.3,
   turnRateAtStop: 3.15,
-  coastPerTick: 0.5 ** (1 / (1.0 * 30)), // a 1.0s half-life at 30Hz
+  coastPerTick: 0.5 ** (1 / (1.0 * 30)), // a 1.0s half-life at 30Hz — tick-count-frozen, not
+  // seconds-frozen: this stays correct if a future netcode phase moves TICK_RATE_HZ, because DT
+  // above is hardcoded to 1/30 in lockstep with it, not read from config.
   brakeDecel: 500,
 });
 

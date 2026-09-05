@@ -257,6 +257,11 @@ export class HumanController implements BotController {
       ? interceptPoint(
           self,
           { x: target.x, y: target.y, vx: target.vx, vy: target.vy },
+          // `self.speed` was signed before the vector-drive rework, so a reversing bot fed the
+          // floor value here (1). `speedOf` is unsigned, so a reversing bot now feeds its actual
+          // (positive) reverse speed instead — probably a better intercept estimate, and covered by
+          // the `BOT_BRAIN_VERSION` bump for this rework, but worth flagging as a behaviour change
+          // nobody explicitly asked for.
           Math.max(speedOf(self.vx, self.vy), 1),
           profile.leadFactor,
         )

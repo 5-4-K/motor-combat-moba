@@ -216,9 +216,9 @@ describe("STATUS_LIMITS", () => {
   it("keeps the brake pedal better than lifting off, however faded it gets", () => {
     // The floor is not a free choice: a brake weaker than coasting would mean pressing it slows you
     // LESS than releasing the throttle, which reads as broken rather than degraded. Checked against
-    // the WORST case across the roster — the chassis that coasts slowest at its own top speed,
-    // scaled down by the SLOWEST brake on the roster — so a per-car retune cannot silently invalidate
-    // it either.
+    // the WORST case across the roster — the chassis that coasts FASTEST (sheds the most speed per
+    // second) at its own top speed, scaled down by the SLOWEST brake on the roster — so a per-car
+    // retune cannot silently invalidate it either.
     const worstCoastDecel = Math.max(
       ...activeCarIds().map((id) => (1 - driveOf(id).coastPerTick) * forwardMaxSpeedOf(id) * TICK_RATE_HZ),
     );
