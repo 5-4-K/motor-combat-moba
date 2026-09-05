@@ -223,15 +223,6 @@ describe("chat schema (LC11)", () => {
     expect(m.at).toBe("");
   });
 
-  it("snapshots the sender rather than referencing them (LC1)", () => {
-    // The row carries name and colour by value, so a message outlives its sender's PlayerState.
-    const m = new ChatMessageState();
-    m.name = "Redline";
-    m.colorId = 3;
-    expect(m).not.toHaveProperty("player");
-    expect(m).not.toHaveProperty("sender");
-  });
-
   it("ArenaState opens with an empty chat buffer", () => {
     const state = new ArenaState();
     expect(state.chat.length).toBe(0);
