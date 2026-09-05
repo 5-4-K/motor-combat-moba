@@ -248,7 +248,7 @@ const LOCK_WIDTH = 2;
  *
  * It replaced an off-white that sat too close to the arena floor to read. The ground it has to
  * clear is whichever floor the arena declares, and the two shipped arenas sit on opposite sides of
- * mid: `ARENA_01`'s slate `#606f72` and `ARENA_02`'s cream `#d8cfc4`, with
+ * mid: `ARENA_01`'s dark slate `#3b4747` and `ARENA_02`'s cream `#d8cfc4`, with
  * `ARENA_COLOR_DEFAULTS.floor` (`arena-visual.ts`, 0xEBEBEB) behind any arena that declares none.
  * A colour re-picked against only one of those is not safe.
  *

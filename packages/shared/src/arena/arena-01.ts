@@ -21,7 +21,7 @@ export const ARENA_01 = {
    * `ARENA_COLOR_DEFAULTS` gave this arena before it declared a palette; it has no obstacles, so of
    * the two only `border` is ever drawn.
    */
-  palette: { floor: "#606f72", obstacle: "#4a5568", border: "#2d3436" },
+  palette: { floor: "#3b4747", obstacle: "#4a5568", border: "#2d3436" },
   obstacles: [],
   /**
    * The four corners and the midpoint of each long wall, all one margin off the wall. Corner cars
