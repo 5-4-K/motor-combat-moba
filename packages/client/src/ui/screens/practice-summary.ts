@@ -1,4 +1,5 @@
 import { COLOR_TABLE } from "@motor-combat-moba/shared";
+import { scoreboardCarThumb } from "../car-tint.js";
 import { button, h } from "../dom.js";
 
 /**
@@ -9,9 +10,10 @@ import { button, h } from "../dom.js";
  * mistake as reusing `ResultsScene` itself — which would run `bindViewRouter`, route on a `phase`
  * this room pins to MATCH forever, and bounce straight back into the arena.
  *
- * The ROW rendering is shared with `ui/screens/results.ts` in spirit — same swatch-plus-car-thumbnail
- * markup and the same `.table`/`.tag`/`.btn` classes — so the two screens read as one design, but
- * built fresh here rather than by importing `results.ts`'s unexported `statTable`.
+ * The ROW rendering shares `scoreboardCarThumb` with `ui/screens/results.ts` — same swatch-plus-
+ * tinted-car markup and the same `.table`/`.tag`/`.btn` classes — so the two screens read as one
+ * design, but the table itself is built fresh here rather than by importing `results.ts`'s unexported
+ * `statTable`.
  */
 
 const FALLBACK_HEX = "#888888";
@@ -69,20 +71,13 @@ function summaryTable(rows: readonly PracticeSummaryRow[]): HTMLElement {
       h(
         "tbody",
         {},
-        rows.map((row) =>
-          h("tr", {}, [
+        rows.map((row) => {
+          const hex = COLOR_TABLE[row.colorId]?.hex ?? FALLBACK_HEX;
+          return h("tr", {}, [
             h("td", { style: "padding-block: 14px;" }, [
               h("div", { style: "display: flex; align-items: center; gap: 14px;" }, [
-                h("div", {
-                  style: `width: 20px; height: 20px; flex: none; border-radius: 50%; background: ${COLOR_TABLE[row.colorId]?.hex ?? FALLBACK_HEX};`,
-                }),
-                h("div", { style: "width: 62px; height: 44px; flex: none; border-radius: 4px; background: var(--color-bg); display: grid; place-items: center; overflow: hidden;" }, [
-                  h("div", {
-                    role: "img",
-                    "aria-label": "Car",
-                    style: `width: 54px; height: 38px; background-image: url("art/cars/${row.carId || FALLBACK_CAR}.png"); background-size: contain; background-position: center; background-repeat: no-repeat;`,
-                  }),
-                ]),
+                h("div", { style: `width: 20px; height: 20px; flex: none; border-radius: 50%; background: ${hex};` }),
+                scoreboardCarThumb(`url("art/cars/${row.carId || FALLBACK_CAR}.png")`, hex),
                 h("span", {
                   style: `font-weight: 700; font-size: 16px; color: ${row.isYou ? "var(--color-accent-700)" : "var(--color-text)"}; display: inline-flex; align-items: center; gap: 8px;`,
                 }, [row.name, row.isYou ? h("span", { class: "tag tag-accent" }, ["You"]) : null]),
@@ -90,8 +85,8 @@ function summaryTable(rows: readonly PracticeSummaryRow[]): HTMLElement {
             ]),
             h("td", { style: "padding-block: 14px; font-size: 16px;" }, [String(row.kills)]),
             h("td", { style: "padding-block: 14px; font-size: 16px;" }, [String(row.deaths)]),
-          ]),
-        ),
+          ]);
+        }),
       ),
     ]),
   ]);
