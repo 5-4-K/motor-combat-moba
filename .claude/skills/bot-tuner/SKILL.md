@@ -77,6 +77,13 @@ invalid one. It is deliberately outside `personality.ts`'s `UNIT_INTERVAL_FIELDS
 `bot-profiles.test.ts`'s `PROBABILITY_FIELDS`, exactly as `aimErrorSigmaRad` is. Do not add it to
 either list to "fix" a value you pushed past 1.
 
+Against a target holding full lock, the turn half's misjudge-whether-it-is-steering failure is
+effectively easy-only: it needs a noise draw beyond roughly `-0.5 / stateEstimationSigma` standard
+deviations, which is about 2.3% of constructions at easy's 0.25 but roughly 5 sigma at medium's 0.1
+and roughly 16.7 sigma (never) at hard's 0.03. On hard, "lower `stateEstimationSigma` so it leads a
+turn better" moves the *magnitude* of an already-correctly-read curve, not the *decision* that the
+car is curving at all — do not promise that fix against a full-lock target on hard.
+
 The two `evade`-overreacting rows above mix one per-tier dial (`opponentRangeRespect`) with two
 knobs that are **not** per-tier: `BRAIN_CONSTANTS.dangerEvadeFraction` and `dangerEvadeCooldownTicks`
 are shared across all three tiers, so touching either retunes medium and hard together even if only

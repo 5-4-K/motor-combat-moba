@@ -171,7 +171,11 @@ The turn half is the one that reads a **corner**, and it works by moving the obs
 car is steering at all, and near the threshold *which way*. Above the threshold the read is quantised
 to a -1/0/1 steer, so a small error there changes nothing; below it the residual is a ram's spin and
 the error scales it continuously. That reconstruction lives inside `physicsPredictor`, after the
-draws, precisely so the noise reaches it.
+draws, precisely so the noise reaches it. For a target at full lock, misjudging *whether* it is
+steering needs a draw beyond roughly `-0.5 / stateEstimationSigma` standard deviations — about 2.3%
+of constructions at easy's 0.25, but roughly 5 sigma (~3e-7) at medium's 0.10 and roughly 16.7 sigma
+(never, in practice) at hard's 0.03 — so on medium and hard this half is moving the *magnitude* of an
+already-correctly-classified curve, not the decision that it is curving at all.
 
 It is **not confined to [0, 1]** (a fraction
 above 1 is a wild misread, not an invalid value), so it is deliberately absent from

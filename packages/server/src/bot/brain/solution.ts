@@ -32,7 +32,8 @@ export type PosePredictor = (ticksAhead: number) => { x: number; y: number; angl
  * (2026-09-06) put `predict.ts`'s `physicsPredictor` behind this same `PosePredictor` seam there —
  * but still the right answer for a target that provably is not moving: `bestAchievableValueOf`
  * below solves against a stationary synthetic target, where a physics rollout would buy nothing and
- * cost two rng draws. Also the fixture `solution.test.ts` pins the solver with.
+ * cost four rng draws (two gaussians, and `gaussian` is Box-Muller — a pair each). Also the fixture
+ * `solution.test.ts` pins the solver with.
  */
 export function constantVelocityPredictor(target: BotCarView): PosePredictor {
   const vx = Math.cos(target.angle) * target.speed;
