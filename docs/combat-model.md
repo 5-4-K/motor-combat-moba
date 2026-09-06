@@ -131,11 +131,16 @@ head-on ramming is deliberately weak, and positioning is the whole feature.
 Task 2 — whether `applyImpulse` divides `speed` by the receiving car's `ramDefence` a second time;
 `false` for both of an ordinary ram's impulses, since `impactOn` (`sim/ram.ts`) already divided by
 each side's `ramDefence` inside the contest, and `false` for a hard slam's fixed magnitude too, which
-is meant to punt every chassis identically), `uncontrolTicks` (authored `0` throughout stage 3 — no
-control-loss duration exists to write yet), and a world-space `contactX`/`contactY` for the lever arm.
-`applyImpulse` (`sim/impulse.ts`) is the single place anything outside the drive model changes a car's
-velocity — ram and weapons both derive an `Impulse` differently, but both LAND through this one
-function.
+is meant to punt every chassis identically), `uncontrolTicks` (authored `0` by `resolveRam`/
+`sim/contact.ts`'s slam branch themselves — the contest has no `ramDefence`-scaled duration of its own
+to write; as of stage 3b, `ram-bridge.ts`'s `contactTick` is what fills it in for a ram, from
+`RAM_TICKS.uncontrol`, before the impulse lands — see [Ram control-loss](#ramming) below), and a
+world-space `contactX`/`contactY` for the lever arm. `applyImpulse` (`sim/impulse.ts`) is the single
+place anything outside the drive model changes a car's velocity — ram and weapons both derive an
+`Impulse` differently, but both LAND through this one function. `applyImpulse` deliberately does NOT
+apply `reeling` itself: it is pure sim maths shared by both halves of the lockstep, and a status is not
+`SimBody` state, so the caller (`contactTick`, server-only) reads `imp.uncontrolTicks` back off the
+already-scaled impulse and applies the status itself.
 
 **Each side's outcome is computed independently, not derived from the other's (spec R7).** There is
 no `reactionOf` any more — it was deleted in stage 3 Task 3 along with `mass` itself. `resolveRam`
@@ -162,10 +167,20 @@ that is the restitution reflection, not the contest — see `RAM_CONFIG.globalSc
 `ram-config.ts` for the full measured table. See
 [`config-reference.md`](config-reference.md#ram_config) for the tuning.
 
-**Ram control-loss (steering degraded by a hit) has no successor yet.** `authority` had no field to
-migrate onto — `PlayerState` carries none — so `ram-bridge.ts` drops it on the floor entirely, and a
-rammed car keeps full steering until stage 3b adds the `reeling` status in its place. That is the one
-piece of the pre-rework model genuinely still missing, not a shim standing in for it.
+**Ram control-loss (steering degraded by a hit) is back, as of stage 3b, in the form of the `reeling`
+status rather than a revived `authority` field.** `authority` had no field to migrate onto —
+`PlayerState` carries none — so `ram-bridge.ts` dropped it on the floor entirely through stage 3, and a
+rammed car kept full steering. `contactTick`'s impulses loop now applies `reeling` to a ram's victim
+(never its attacker, and never a slam's victim — see [Statuses](#statuses) below) for
+`RAM_TICKS.uncontrol`, scaled down on a re-ram by the same per-victim diminishing-returns stack
+(spec P24) that already scales the impulse's own `speed`: `nextFalloff` is read and recorded once per
+ram, and both the impulse magnitude and the `reeling` duration it hands to `applyStatus` are derived
+from that one call's `impulseScale`/`durationScale` pair, floored at `RAM_TICKS.durationFloor` so a
+long enough chain never rounds the status away to nothing. Falloff scales only the victim's half — the
+attacker's `attackerImpulse` is charged in full on every ram, so chaining rams into an already-worn-down
+victim never gets safer for the aggressor. A hard slam's own control-loss duration is untouched by any
+of this: its `Impulse.uncontrolTicks` is still authored `0` by `sim/contact.ts`'s slam branch, and
+`wildcharge`'s own duration is stage 4's decision to author, not a byproduct of the ram falloff stack.
 
 See [`schema-reference.md`](schema-reference.md#playerstate) for the networked fields and
 [`config-reference.md`](config-reference.md#ram_config) for the tuning — five of that config's knobs
@@ -721,8 +736,9 @@ derived DPS per weapon, so every one of those numbers moves with the row.
 Weapons are the only damage source. Collision costs nobody hp: cars shove each other through
 ordinary resolution, and — between non-teammates on fresh contact — also ram each other for a
 contested `Impulse`, each side's outcome computed independently rather than one derived from the
-other's (see [Ramming](#ramming) above; the steering-loss half of that is still a no-op as of stage
-3, restored as the `reeling` status in stage 3b). Neither ever costs hp.
+other's (see [Ramming](#ramming) above; the steering-loss half of that landed in stage 3b as the
+`reeling` status, applied to the victim only and scaled by the same falloff stack as the impulse).
+Neither ever costs hp.
 
 One hit costs `damageFor(attack, weapon.damage)`:
 
@@ -792,10 +808,12 @@ Re-tabled by the 2026-09-01 weapon-status overhaul (Plan 3) against the current 
 *effect* is `STATUS_TABLE`'s, above — see [`config-reference.md`](config-reference.md#status_table)
 for the numbers.
 
-Five of the seven rows are reachable from a weapon; two — `overhauled` and `armored` — are waiting on
-pickups. Three statuses now have more than one source (`stunned`'s third arriving outside `applies`
-entirely), and `tremor`'s two rows are presence effects — short durations a live zone keeps topping
-back up, held exactly while a car stands in it:
+Five of the eight rows here are reachable from a weapon; two — `overhauled` and `armored` — are
+waiting on pickups; `reeling` is the one row granted directly by the ram contact pass rather than by
+any weapon's `applies` (same non-`applies` treatment as `stunned`'s wall-impact source below). Three
+statuses now have more than one source (`stunned`'s third arriving outside `applies` entirely), and
+`tremor`'s two rows are presence effects — short durations a live zone keeps topping back up, held
+exactly while a car stands in it:
 
 | Status | Applied by | Chassis | For |
 |---|---|---|---|
@@ -808,6 +826,7 @@ back up, held exactly while a car stands in it:
 | `spiked` | `tremor` | — (uncarried) | 0.6 s per damage tick — held while the target stands in the zone |
 | `fortified` | `wildcharge`, **self** | Bastion | 10 s, ended early with the charge |
 | `fortified` | `tremor`, **`ownerInside`** | — (uncarried) | 0.3 s per covered tick — held while the OWNER stands in their own zone |
+| `reeling` | any landed ram (`ram-bridge.ts`'s `contactTick`, not `applies`) | — (any chassis, victim only) | `RAM_TICKS.uncontrol`, shorter on a re-ram — see [Ramming](#ramming) |
 | `overhauled` | nothing — the pickup row | — | — |
 | `armored` | nothing — the pickup row beside `overhauled` | — | — |
 

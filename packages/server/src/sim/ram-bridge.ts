@@ -4,6 +4,7 @@ import {
   SLAM_CONFIG,
   SLAM_TICKS,
   applyImpulse,
+  applyStatus,
   carHullOf,
   carIdOf,
   expireStatusesFromSource,
@@ -20,6 +21,7 @@ import {
   type ArenaState,
   type ContactCar,
   type ContactHit,
+  type Impulse,
   type Modifiers,
   type PlayerState,
   type StatusRequest,
@@ -308,16 +310,65 @@ export function contactTick(
   // so "the attacker takes nothing from its own slam" falls out of applying it rather than being a
   // separate rule in the `events.slams` loop below (see `endManeuverOnly`'s own comment).
   //
-  // `knock.authority` had no successor and none is invented here (this task's scope note): ram
-  // control-loss returns as the `reeling` status in stage 3b, and until then a rammed car keeps full
-  // steering, exactly as the stage-1 shim already left it.
+  // `knock.authority` had no successor for one release; stage 3b is what reinstates ram control-loss,
+  // as the `reeling` status below, scaled by the victim's own diminishing-returns stack.
+  //
+  // `impulses` holds BOTH ram entries and slam entries (`resolvePair` resolves each pair as exactly
+  // one of dash/slam/ram — spec P24 is explicit that falloff and `reeling` are ram-only, so the two
+  // must be told apart here. `events.slams` already names every victim slammed this tick, and because
+  // a pair resolves to at most one outcome, "this victim is in `events.slams`" is equivalent to "this
+  // victim's impulse entry came from the slam branch" — there is no third case to worry about.
+  const slammedVictims = new Set(events.slams.map((s) => s.targetSessionId));
+
   for (const [victimId, entry] of impulses) {
+    const isRam = !slammedVictims.has(victimId);
+
+    // Falloff and the RAM_TICKS-derived uncontrol duration are ram-only (spec P24's final bullet:
+    // "Weapon impulses do not participate and do not share the stack"). A slam's own impulse already
+    // carries whatever `uncontrolTicks` its own weapon authored (0 until stage 4 wires wildcharge's
+    // ImpulseDef) and must pass through untouched, or this stage would invent a stand-in for a
+    // control-loss duration that is stage 4's decision to make, not this one's.
+    const scaledImpulse: Impulse = isRam
+      ? (() => {
+          const scales = nextFalloff(memory.falloff, victimId, tick);
+          return {
+            ...entry.impulse,
+            speed: entry.impulse.speed * scales.impulseScale,
+            uncontrolTicks: Math.max(
+              RAM_TICKS.durationFloor,
+              Math.round(RAM_TICKS.uncontrol * scales.durationScale),
+            ),
+          };
+        })()
+      : entry.impulse;
+
     const victim = state.players.get(victimId);
     if (victim) {
-      const next = applyImpulse(victim, ramDefenceFor(state, statusMods, victimId), entry.impulse);
+      const next = applyImpulse(victim, ramDefenceFor(state, statusMods, victimId), scaledImpulse);
       victim.vx = next.vx;
       victim.vy = next.vy;
       victim.angVel = next.angVel;
+      // Falloff scales only the victim's half, above, and `reeling` only ever lands on the victim,
+      // here — never on `entry.attackerImpulse`. Falloff exists to stop a *victim* being ram-locked,
+      // chained into a stunlock by repeated hits that each land at full strength. The attacker's own
+      // impulse is the cost of throwing the punch: it is charged in full every time, regardless of
+      // how many rams the victim has recently absorbed. Discounting it too would mean spamming rams
+      // into an already-worn-down victim gets progressively *safer* for the attacker, which is the
+      // opposite of what a diminishing-returns mechanic should do to the aggressor. Nothing in the
+      // victim's falloff stack is even visible from the attacker's side of the contest —
+      // `nextFalloff` is keyed by victim id and never consulted when building `entry.attackerImpulse`
+      // — so this is not a flag to remember to check; there is no path by which the attacker's
+      // impulse could be scaled by it.
+      //
+      // `applyStatus` refuses a duration of zero or less outright (see its own doc comment), so a
+      // slam's `uncontrolTicks: 0` passing through the non-ram branch never risks writing a
+      // zero-length `reeling`; this stage simply never calls `applyStatus` for a slam victim at all.
+      if (isRam) {
+        writeStatuses(
+          victim,
+          applyStatus(readStatuses(victim), "reeling", tick, scaledImpulse.uncontrolTicks, entry.attackerId),
+        );
+      }
     }
 
     const attacker = state.players.get(entry.attackerId);

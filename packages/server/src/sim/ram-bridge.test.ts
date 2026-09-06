@@ -386,6 +386,97 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
   });
 });
 
+describe("contactTick applies reeling to a ram victim, scaled by falloff", () => {
+  it("gives a freshly rammed victim the full RAM_TICKS.uncontrol duration", () => {
+    const state = arena();
+    addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
+    const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
+    contactTick(
+      state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS,
+      approachVelocities(state), NO_MANEUVER_WEAPONS, 10,
+    );
+    const reeling = readStatuses(victim).find((s) => s.statusId === "reeling");
+    expect(reeling).toBeDefined();
+    expect(reeling!.endsTick - 10).toBe(RAM_TICKS.uncontrol);
+  });
+
+  it("gives a re-rammed victim a shorter reeling duration than the first ram", () => {
+    const state = arena();
+    const memory = newContactMemory();
+    addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
+    const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
+    contactTick(
+      state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS,
+      approachVelocities(state), NO_MANEUVER_WEAPONS, 10,
+    );
+    const first = readStatuses(victim).find((s) => s.statusId === "reeling")!.endsTick - 10;
+
+    // Force a fresh contact episode on the SAME memory (and so the same falloff stack) without
+    // re-deriving the geometry a real separate-and-return would need: `resolveContacts` keys the
+    // "fresh touch" edge-trigger off `memory.contacts`, so clearing it is the direct way to
+    // simulate re-approach.
+    memory.contacts = new Set();
+    contactTick(
+      state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS,
+      approachVelocities(state), NO_MANEUVER_WEAPONS, 11,
+    );
+    const second = readStatuses(victim).find((s) => s.statusId === "reeling")!.endsTick - 11;
+
+    expect(second).toBeLessThan(first);
+  });
+
+  it("also shrinks the impulse on a re-ram, not only the duration", () => {
+    const state = arena();
+    const memory = newContactMemory();
+    const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
+    const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
+    contactTick(
+      state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS,
+      approachVelocities(state), NO_MANEUVER_WEAPONS, 10,
+    );
+    const first = Math.abs(victim.vx);
+
+    victim.x = 47; victim.y = 400; victim.vx = 0; victim.vy = 0;
+    attacker.vx = 540;
+    memory.contacts = new Set();
+    contactTick(
+      state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS,
+      approachVelocities(state), NO_MANEUVER_WEAPONS, 11,
+    );
+    const second = Math.abs(victim.vx);
+
+    expect(second).toBeLessThan(first);
+  });
+
+  it("does not apply reeling to the attacker", () => {
+    const state = arena();
+    const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
+    addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
+    contactTick(
+      state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS,
+      approachVelocities(state), NO_MANEUVER_WEAPONS, 10,
+    );
+    expect(readStatuses(attacker).find((s) => s.statusId === "reeling")).toBeUndefined();
+  });
+
+  it("does not run a slam through the ram falloff stack or scale its uncontrol", () => {
+    const state = arena();
+    const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 300 });
+    const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
+    attacker.maneuver = ManeuverKind.CHARGE;
+    attacker.maneuverTicksLeft = 200;
+    contactTick(
+      state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS,
+      new Map([["a", { vx: 300, vy: 0 }], ["b", { vx: 0, vy: 0 }]]),
+      new Map<string, WeaponId | "">([["a", "wildcharge"]]), 10,
+    );
+    // A slam's own control-loss is authored on wildcharge's own row in stage 4 (currently 0, per
+    // `contact.ts`'s slam branch). Falloff and this stage's ram-only `reeling` scaling must not
+    // invent a stand-in for it — see the note under Step 3.
+    expect(readStatuses(victim).find((s) => s.statusId === "reeling")).toBeUndefined();
+  });
+});
+
 describe("clearKnock", () => {
   it("restores a knocked player to neutral", () => {
     const p = new PlayerState();
