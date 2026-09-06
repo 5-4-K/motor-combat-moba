@@ -19,6 +19,25 @@ dead for 80 ms". Prediction covers the local car's motion and nothing else.
 
 ## Ramming
 
+> **SUPERSEDED as of 2026-09-06.** The equal-and-opposite reaction model this section describes —
+> `reactionOf` negating and mass-scaling a copy of the victim's `Impulse` back onto the attacker — is
+> being replaced by a contest model: each car brings a push into the collision (its `attack` rating
+> times the speed it is driving into the impact, plus a scaled contribution from its `defence`
+> rating), and each car's received impact is the *other* car's push, scaled by its share of the
+> contest and the face bonus, divided by its own `defence`. There is no `reactionOf` and no negation
+> in the revised model — each side's outcome is computed directly, not derived from the other's.
+>
+> **`mass` is being removed from the game entirely**, replaced by per-car `attack` and `defence`
+> stats — so every "mass" reference below, including the mass-weighted separation subsection's
+> `selfMass`/`otherMass`/`CarObstacle.mass`, names a rating that is going away. The plumbing that
+> carries it — `resolveWorld`'s fifth parameter, `CarObstacle`, edge-triggered contact, wall
+> deflection and `restitution: 0.15`, the `Impulse` struct and its single-applier seam — is
+> unaffected; only the stat that value carries changes name and source.
+>
+> This section stays accurate about the code as it stands today and is kept for anyone debugging
+> current behaviour. The authority for where this is going is
+> [`superpowers/specs/2026-09-06-car-physics-rework-design.md`](superpowers/specs/2026-09-06-car-physics-rework-design.md).
+
 Ram is a separate pass, not part of `combatTick`: `rooms/tick-pipeline.ts`'s `runPipeline` runs
 `statusTick` → `serverTick` (drive + collision resolution) → `contactTick`
 (`packages/server/src/sim/ram-bridge.ts`) → `combatTick`. `contactTick` maps `ArenaState` onto plain

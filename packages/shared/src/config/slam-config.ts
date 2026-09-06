@@ -7,6 +7,18 @@ import { msToTicks } from "./weapon-ticks.js";
  */
 export const SLAM_CONFIG = {
   /**
+   * **SUPERSEDED as of 2026-09-06.** The equal-and-opposite reaction this comment measures —
+   * `reactionOf` negating and mass-scaling a copy of the victim's `Impulse` back onto the attacker —
+   * is being replaced by a contest model: each car brings a push into the collision from its
+   * `attack` rating times the speed it is driving into the impact, plus a scaled contribution from
+   * its `defence` rating, and each car's received impact is computed directly from the *other*
+   * car's push — never derived by negating its own. `mass` is being removed from the game entirely,
+   * replaced by per-car `attack` and `defence` stats, so the mass figures below
+   * (`RAM_REFERENCE_MASS`, `RAM_CONFIG.massFactorMin`/`massFactorMax`) measure a rating that is
+   * going away. `docs/superpowers/specs/2026-09-06-car-physics-rework-design.md` is the authority
+   * for where this is headed; the measurement below stays accurate about the code as it stands
+   * today and is kept for anyone debugging current behaviour.
+   *
    * Fixed knock impulse (a speed), 2x RAM_CONFIG.knockMaxSpeed. No mass factor, no side bonus — the
    * victim's push is `massScaled: false` (see `sim/contact.ts`'s slam branch).
    *

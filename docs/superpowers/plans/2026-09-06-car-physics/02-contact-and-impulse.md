@@ -1,5 +1,18 @@
 # Stage 2: Contact and Impulse — Implementation Plan
 
+> **SUPERSEDED NOTE (2026-09-06).** This plan executed as written — the tasks below are history, not
+> being rewritten. But the design has since moved on: **Task 4** (routing ram and slam through the
+> equal-and-opposite `reactionOf` reaction) and **the mass-weighted parts of Task 2** (splitting
+> car-vs-car separation by `mass`) are superseded by a revised design. `mass` is being removed from
+> the game entirely, replaced by per-car `attack` and `defence` stats, and the equal-and-opposite
+> reaction is being replaced by a contest between the two cars' pushes — each side's outcome computed
+> directly from the other car's push, not derived by negating its own. See
+> [`docs/superpowers/specs/2026-09-06-car-physics-rework-design.md`](../../specs/2026-09-06-car-physics-rework-design.md)
+> for the authority. Everything else this plan built stands: walls deflecting and
+> `restitution: 0.15` (Task 1), the `Impulse` struct and its single-applier seam (Task 3),
+> edge-triggered contact, and `resolveWorld`'s fifth parameter plus the `CarObstacle` plumbing (the
+> plumbing stays — only `mass` becoming `defence` changes what value it carries).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development`
 > (recommended) or `superpowers:executing-plans`. Steps use checkbox (`- [ ]`) syntax.
 
