@@ -78,6 +78,14 @@ export function applyImpulse(body: SimBody, mass: number, imp: Impulse): SimBody
  * the cross product is zero and there is no spin.
  */
 function nextSpin(body: SimBody, mass: number, imp: Impulse, dv: number): number {
+  // A zero-spin impulse PRESERVES the victim's existing rotation rather than cancelling it — this is
+  // an early return, not an assignment to 0. That is a deliberate change from the pre-`Impulse` slam
+  // path, which did `player.angVel = knock.angVel` with `knock.angVel === 0` for a slam: an
+  // assignment, so a slam used to zero out a spinning victim outright. Ordinary-ram spin likewise
+  // changed from replace to accumulate below (`clamp(body.angVel + spin, ...)`), so a car already
+  // spinning from an earlier hit keeps that spin on top of whatever a fresh impulse adds. Both follow
+  // from routing every push through one shared applier; see `impulse.test.ts`'s
+  // `"preserves the victim's existing spin when the impulse asks for none"`.
   if (imp.spin === 0) return body.angVel;
 
   const cos = Math.cos(-body.angle);

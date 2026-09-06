@@ -67,6 +67,10 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
     // un-mass-scaled magnitude, and it must be identical for a bastion and a bullseye victim.
     expect(heavy.impulses.get("b")!.impulse.speed).toBeCloseTo(SLAM_CONFIG.knockSpeed);
     expect(light.impulses.get("b")!.impulse.speed).toBeCloseTo(SLAM_CONFIG.knockSpeed); // no mass factor
+    // The magnitude-only check above dropped the sign the old `shoveX` assertion also pinned. The
+    // charger sits at x=0 facing +x and the victim at x=47 (`victimAt`'s fixture), so the slam must
+    // push the victim further along +x.
+    expect(heavy.impulses.get("b")!.impulse.dirX).toBeCloseTo(1);
   });
 
   it("a slam ignores mass, unlike a ram", () => {

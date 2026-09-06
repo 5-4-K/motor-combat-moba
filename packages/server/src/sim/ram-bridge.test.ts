@@ -86,7 +86,18 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
       state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachSpeeds(state),
       NO_MANEUVER_WEAPONS, 10,
     );
-    expect(attacker.vx).toBeLessThan(540);
+    // Both cars are the default "mirage" chassis and the geometry is dead-straight along +x, so the
+    // closed form is exact, not merely a sign check. Severity saturates at 1 here (540 u/s closing
+    // at mirage mass comfortably clears `ramReference()`), so the victim's un-mass-scaled impulse is
+    // the full `knockMaxSpeed`; the attacker's reaction is that same magnitude scaled by the
+    // ATTACKER's own mass factor (`reactionOf` always forces `massScaled: true`). Derived from the
+    // config constants, not pasted, so a retune of `knockMaxSpeed`/`massFactorMin/Max`/`massPerRating`
+    // moves this expectation with it — the same pattern the slam case below uses.
+    const clamp = (v: number, min: number, max: number): number => (v < min ? min : v > max ? max : v);
+    const massFactor = clamp(RAM_REFERENCE_MASS / massOf("mirage"), RAM_CONFIG.massFactorMin, RAM_CONFIG.massFactorMax);
+    expect(attacker.vx).toBeCloseTo(540 - RAM_CONFIG.knockMaxSpeed * massFactor, 6);
+    // The geometry is dead-straight along +x: nothing should give the recoil a lateral component.
+    expect(attacker.vy).toBe(0);
     // The reaction always carries `spin: 0` (`reactionOf`'s own contract) — the attacker never
     // spins from its own hit, unlike the victim.
     expect(attacker.angVel).toBe(0);

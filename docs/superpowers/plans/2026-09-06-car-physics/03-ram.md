@@ -636,6 +636,18 @@ git commit -m "feat(balance): re-pitch ram constants against momentum-derived im
 
 ---
 
+> **Carried in from the stage 2 review (Tasks 3–4), not a new task.** The equal-and-opposite reaction
+> that stage 2 shipped (`applyImpulse` + `reactionOf`) makes `RAM_CONFIG.knockMaxSpeed` and
+> `SLAM_CONFIG.knockSpeed` cost the ATTACKER as well as the victim, and both constants were tuned
+> before that existed — see the doc comments on those two config values for the measured numbers
+> (a full-severity Bastion ram now costs 82% of its own top speed; a Bastion Wild Charge now sends
+> the attacker backwards). Task 5's mass-clamp widening above already answers the `massFactorMin/Max`
+> half of that ("Bastion computed 0.56, Bullseye 1.67"); `knockMaxSpeed` itself is not named in Task 5
+> as written, and should be checked (and probably re-pitched) alongside `spinScale` in that task
+> before this stage is called done. `SLAM_CONFIG.knockSpeed` is a separate number, moved onto
+> `wildcharge.impulse.speed` in stage 4 — see `04-impulse-def.md` and spec P31, which already flags it
+> as "the number most likely to be wrong and least likely to be noticed."
+
 ## Stage 3 exit criteria
 
 - [ ] `npm test` passes from the repo root.

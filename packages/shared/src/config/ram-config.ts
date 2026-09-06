@@ -54,7 +54,32 @@ export const RAM_CONFIG = {
    * (and the two authority half-lives below) outright rather than reviving them.
    */
   authorityFloor: 0.35,
-  /** Peak knock impulse (expressed as a speed) at severity 1.0, before the victim mass factor. */
+  /**
+   * Peak knock impulse (expressed as a speed) at severity 1.0, before the victim mass factor.
+   *
+   * **Charged to the attacker as well as the victim since the 2026-09-06 equal-and-opposite change**
+   * (stage 2 Task 4): `ram-bridge.ts` now applies `reactionOf` of the victim's own impulse back onto
+   * the attacker, scaled by the ATTACKER's own mass factor. This value was tuned one-way, against a
+   * model where the attacker paid nothing, and it has not been re-pitched for the new cost. Measured
+   * against stage 1's cut top speeds (`RAM_REFERENCE_MASS` 500, `massFactorMin/Max` 0.6/1.6):
+   *
+   * | attacker | scenario | recoil Δv | speed after |
+   * |---|---|---|---|
+   * | Bastion (mass 900, top 190) | lands a full-severity ram | `260 * clamp(500/900, 0.6, 1.6) = 260 * 0.6 = 156` | 190 → 34 u/s |
+   * | Bullseye (mass 300, top 223) | ramming at speed, severity 0.447 | `116.2 * clamp(500/300, 0.6, 1.6) = 116.2 * 1.6 = 186` | 223 → 37 u/s |
+   *
+   * Both numbers only get bigger once stage 3 grades severity from RELATIVE closing velocity rather
+   * than the attacker's speed alone (a fleeing victim currently softens the hit; an oncoming one will
+   * harden it past what these two rows show). Stage 2's own exit criterion — "Ram a Bullseye as
+   * Bastion, then the reverse. The Bastion barely slows" — is currently CONTRADICTED by the first row
+   * above: a full-severity ram now costs a Bastion 82% of its top speed. A hand playtest before the
+   * re-pitch below will read as wrong; that is expected, not a regression to chase.
+   *
+   * Stage 3 owns re-pitching this value against the new momentum-derived scale — see
+   * `docs/superpowers/plans/2026-09-06-car-physics/03-ram.md`, Task 5 ("Re-pitch the constants the
+   * new impulse scale invalidated"). Do not raise or lower this number outside that task without
+   * also updating the table above.
+   */
   knockMaxSpeed: 260,
   /** Bounds on `referenceMass / victimMass`, so neither the heaviest nor the lightest car degenerates. */
   massFactorMin: 0.6,

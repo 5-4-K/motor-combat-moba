@@ -55,6 +55,16 @@ describe("applyImpulse", () => {
     expect(next.angVel).toBeCloseTo(0);
   });
 
+  it("preserves the victim's existing spin when the impulse asks for none, rather than cancelling it", () => {
+    // A zero-spin impulse is an early return in `nextSpin`, not an assignment of 0 — a deliberate
+    // change from the pre-`Impulse` slam path, which did `player.angVel = knock.angVel` and so zeroed
+    // a spinning victim outright. A victim already spinning from an earlier hit must keep that spin
+    // when hit by a `spin: 0` push (e.g. a hard slam's clean straight punt).
+    const spinning = body({ angVel: 2 });
+    const next = applyImpulse(spinning, 500, impulse({ contactX: 20, contactY: 0, spin: 0 }));
+    expect(next.angVel).toBe(2);
+  });
+
   it("clamps spin to the configured ceiling", () => {
     const next = applyImpulse(body(), 1, impulse({ contactX: 24, speed: 100000, spin: 10 }));
     expect(Math.abs(next.angVel)).toBeLessThanOrEqual(RAM_CONFIG.spinMaxRate);
