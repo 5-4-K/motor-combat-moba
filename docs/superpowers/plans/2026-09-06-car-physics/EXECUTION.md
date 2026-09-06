@@ -99,6 +99,25 @@ Task 4 no longer needs to re-pitch `spinScale`/`spinMaxRate` — stage 3 Task 4 
 above and the doc's own updated note) — so start from its Task 1 (`reeling`) and treat Task 4 as
 "delete the five dead fields and pin the face bonuses" only.
 
+## Two questions the user answered on 2026-09-07 — both binding
+
+Both were escalated by the previous session (see the two sections below) and both now have an
+answer. They are the user's decisions, not an agent's rulings: do not re-open either without asking.
+
+- **The restitution fix IS approved — but as its own stage, AFTER 3b.** Scaling a car-car contact's
+  restitution response by `shareOf(selfRamDefence, otherRamDefence)` (walls and obstacles untouched)
+  is the agreed fix for the unmet exit criterion below. **Stage 3b must not touch `applyContact`.**
+  When the fix is taken it needs its own spec clause first — nothing in R1-R11 authorizes it — and
+  it obliges a re-measurement of `RAM_CONFIG.globalScale` AND a re-check of `spinScale` through the
+  composed `serverTick` -> `contactTick` order, because both were measured through a pipeline whose
+  attacker-side outcome that term dominates. Sequencing it after 3b is deliberate: `reeling` and the
+  victim-only falloff do not move the first-ram magnitudes those two constants were measured
+  against, so the re-measurement happens once, against a settled pipeline, rather than twice.
+- **`npm run playtest` was NOT run, by decision.** The user declined for now: ramming moves again in
+  3b, so anything measured beforehand goes stale immediately. **Do not run the probes and do not
+  change a threshold** — that is still stage 5's job and the user's call. The two drifted bounds
+  named under "What has never been verified" stay flagged in place, unchanged.
+
 ## What survives revision 2, and what does not
 
 Do not re-litigate these; they are settled and recorded in the spec.
