@@ -363,14 +363,25 @@ export function plan(args: PlanArgs): PlanResult {
    * switch" — scale-free, and the same idiom `minShotValueFraction` already established for the
    * firing gate. A dead-flat field of candidates (spread 0) gives a bonus of 0, which is correct:
    * there is nothing to be tempted away by, so there is nothing to resist.
+   *
+   * R-P16: the spread is `max - median`, NOT `max - min`. `min` is not robust — a single outlier
+   * candidate sets it, and near a wall or the arena edge that candidate is one whose rollout leaves
+   * the field entirely, scoring far below every candidate a driver would actually weigh against each
+   * other. Measured: a `wallPenalty`-crushed out-of-arena candidate pulled `min` down enough to
+   * produce a commit bonus of 2382 against a spread of 16 among the eight sane candidates — at that
+   * ratio `commitPenalty` stops being hysteresis and becomes a latch that repeats last tick's action
+   * regardless of what the other eight candidates say, because nothing but an equally catastrophic
+   * option could ever clear the bonus. The median cannot be moved by one outlier the way the min or
+   * max can — it takes a majority of the field going bad to move it — which is exactly the property
+   * "the whole range of options in front of me" was supposed to have and did not.
    */
-  let minScore = Infinity;
+  const scores = scored.map((entry) => entry.score);
   let maxScore = -Infinity;
-  for (const entry of scored) {
-    if (entry.score < minScore) minScore = entry.score;
-    if (entry.score > maxScore) maxScore = entry.score;
+  for (const score of scores) {
+    if (score > maxScore) maxScore = score;
   }
-  const bonus = scored.length === 0 ? 0 : args.commitPenalty * (maxScore - minScore);
+  const medianScore = medianOf(scores);
+  const bonus = scored.length === 0 ? 0 : args.commitPenalty * (maxScore - medianScore);
 
   const adjust = (entry: { first: DriveAction; score: number }): number =>
     entry.score + (sameAction(entry.first, args.lastAction) ? bonus : 0);
@@ -412,6 +423,22 @@ export function plan(args: PlanArgs): PlanResult {
 
 function sameAction(a: DriveAction, b: DriveAction | undefined): boolean {
   return b !== undefined && a.steer === b.steer && a.throttle === b.throttle;
+}
+
+/**
+ * The median of a candidate score list (R-P16). Sorts a COPY — `scored`'s own order is the tie-break
+ * of record (see `ALL_ACTIONS`) and must not be disturbed by this lookup.
+ *
+ * Even-length lists (every real call: 9 or 81 candidates is always odd, but `plan` already handles
+ * `scored.length === 0` before this is called, and a defensive even case costs nothing) average the
+ * two middle entries rather than picking either arbitrarily.
+ */
+function medianOf(values: readonly number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[mid - 1]! + sorted[mid]!) / 2
+    : sorted[mid]!;
 }
 
 /**

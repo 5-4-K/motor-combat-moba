@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { slotsOf, weaponDefOf } from "@motor-combat-moba/shared";
+import { BOT_PROFILES } from "../../config/bot-profiles.js";
 import type { BotArenaView, BotCarView, BotSelfView, BotSlotView } from "../types.js";
 import type { PosePredictor } from "./solution.js";
 import { ALL_ACTIONS, plan, type PlanArgs, type PlanWeights } from "./planner.js";
@@ -325,6 +326,41 @@ describe("plan", () => {
       expect(scaled.action).toEqual(rival);
       expect(scaled.score).toBeCloseTo(asShipped.score * 100, 6);
     });
+  });
+
+  // --- R-P16: the commit bonus is a fraction of a ROBUST spread ------------------------------
+  it("does not let one out-of-arena candidate turn commitPenalty into a latch (R-P16)", () => {
+    // Nose planted at the very edge of the left wall, facing straight into it, with a horizon long
+    // enough (40 ticks) that the naive "drive straight on" candidate (`steer: 0, throttle: 1`)
+    // covers hundreds of units past the wall with nothing in the rollout to stop it — exactly the
+    // out-of-arena outlier R-P16 is about. `wallPenalty` squares the overshoot, so that candidate's
+    // score comes in far below every candidate a driver would actually weigh against each other,
+    // while the other eight stay within a normal few-dozen-point band.
+    const waypoint: PosePredictor = () => ({ x: 700, y: 360, angle: 0 });
+    const scene: Omit<PlanArgs, "self"> = {
+      ...base, target: undefined, targetAt: waypoint, preferredRange: 0, horizonTicks: 40,
+    };
+    const self = selfAt(5, 360, Math.PI);
+
+    const neutral = plan({ ...scene, self, commitPenalty: 0, lastAction: undefined });
+    // The genuine best play here is to brake rather than drive further into the wall.
+    expect(neutral.action).toEqual({ steer: 0, throttle: -1 });
+
+    // A SANE candidate that is nonetheless clearly worse than the winner — reversed hard while
+    // steering, not the wall-crashing outlier. Under the old `max - min` normalisation the outlier
+    // inflates the spread so far that even hard's real shipped `commitPenalty` (0.1) produces a
+    // bonus bigger than this candidate's genuine deficit, and the planner repeats it regardless of
+    // how bad it is: exactly the latch behaviour R-P16 fixes. `max - median` keeps the bonus scaled
+    // to the spread among the eight candidates that never left the arena, which is far too small to
+    // cover this gap.
+    const clearlyWorse = { steer: 1, throttle: -1 } as const;
+    expect(clearlyWorse).not.toEqual(neutral.action);
+
+    const sticky = plan({
+      ...scene, self, commitPenalty: BOT_PROFILES.hard.commitPenalty, lastAction: clearlyWorse,
+    });
+    expect(sticky.action).not.toEqual(clearlyWorse);
+    expect(sticky.action).toEqual(neutral.action);
   });
 
   // --- P43 / H21: no randomness anywhere in the planner --------------------------------------
