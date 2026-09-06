@@ -1,5 +1,5 @@
 import {
-  NEUTRAL_MODIFIERS, TICK_RATE_HZ, driveOf, stepDrive,
+  NEUTRAL_MODIFIERS, TICK_RATE_HZ, driveOf, stepDrive, turnRateOf,
   type CarId, type SimBody,
 } from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
@@ -68,6 +68,32 @@ export function bodyFromSelf(self: BotSelfView): SimBody {
     maneuverAngle: self.angle,
     maneuverSpeed: 0,
   };
+}
+
+/**
+ * Which way a car observed turning at `angVel` rad/s must be HOLDING its wheel (P18).
+ *
+ * There is nothing to solve for here but a sign and a threshold, because the sim has no partial
+ * steer: `stepDrive` reads `-1 | 0 | 1` and nothing else, so a car that is turning under its own
+ * input is at FULL lock, and its observed turn rate lands on `turnRateOf(carId)` almost exactly
+ * (measured for Mirage: `observedAngVelOf` reads 8.19 against a `turnRateOf` of 8.19). The
+ * threshold is `BRAIN_CONSTANTS.fullLockAngVelFraction` of that chassis's own full-lock rate — a
+ * half, which sits clear of both cases with room to spare and scales per chassis instead of pinning
+ * one absolute rate across a roster whose rates differ by 30%.
+ *
+ * This is what makes a rollout track a turning car at all. The rate itself cannot be fed into the
+ * rollout as a free-running `angVel` and left there: `stepDrive` decays an uncommanded `angVel`
+ * toward zero, so an observed turn reproduced that way straightens out over a horizon, while a car
+ * that is genuinely steering keeps turning for as long as it holds the wheel. Reconstructing the
+ * INPUT is what sustains the arc.
+ *
+ * Below the threshold the residual is NOT steering — it is the spin a ram injected — and the caller
+ * is expected to feed it back as `angVel` instead, where `stepDrive`'s decay is the correct model.
+ */
+export function steerFromObservedTurn(angVel: number, carId: CarId): -1 | 0 | 1 {
+  const threshold = turnRateOf(carId) * BRAIN_CONSTANTS.fullLockAngVelFraction;
+  if (Math.abs(angVel) < threshold) return 0;
+  return angVel > 0 ? 1 : -1;
 }
 
 /**

@@ -1,7 +1,7 @@
 import type { BotDifficulty } from "@motor-combat-moba/shared";
 
 /**
- * One difficulty's knobs (H44). Thirty-seven of them, grouped: perception, aim, fire
+ * One difficulty's knobs (H44). Thirty-eight of them, grouped: perception, aim, fire
  * economy, target politics, positioning, and judgment plus consistency.
  *
  * Every field is a NUMBER, and no code outside this file branches on which tier it came from (H8).
@@ -48,19 +48,6 @@ export interface BotProfile {
    * to.
    */
   readonly aimToleranceRad: number;
-  /**
-   * Fraction of the correct intercept lead actually applied to `interceptPoint` — 0 shoots/drives at
-   * where the target IS, 1 at the full ballistic lead point (R21).
-   *
-   * Restored here (fix round 2, 2026-09-06) after P35 removed it in phase B as "superseded by real
-   * forward prediction" — but that predictor is a PHASE A deliverable (`predict.ts`, P17-P22) that
-   * has not landed. `controller.ts` had been calling `interceptPoint` with a hardcoded lead of `1`
-   * for every tier in the meantime, which silently gave easy (was 0, no lead at all) and medium (was
-   * 0.55) a hands upgrade in exactly the axis meant to separate the tiers. It will be removed again,
-   * for real this time, in the phase that actually replaces it — see P35's table in
-   * `docs/superpowers/specs/2026-09-05-bot-predictive-brain-design.md`.
-   */
-  readonly leadFactor: number;
 
   // --- Fire economy -------------------------------------------------------------------------
   /** Minimum ticks between presses. The sim accepts one press per tick regardless. */
@@ -200,6 +187,34 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * bounded, predictable work every tick (H21).
    */
   interceptFixedPointRounds: 3,
+  /**
+   * How far ahead a firing solution rolls a target (`predict.ts`'s `physicsPredictor` and
+   * `selfPredictor`, both built in `controller.ts`'s `plan()`). Not per-tier: this is how far a SHOT
+   * flies, not how far a bot thinks — that is plan 4's `planHorizonTicks`.
+   *
+   * VERIFIED against `WEAPON_TABLE` and `weaponTicksOf` (2026-09-06, task 4): the longest flight on
+   * the roster is `thumper`'s — 1305 u of range at 450 u/s is 2.9 s, and `weaponTicksOf("thumper")`
+   * reports `flight: 87` ticks at 30 Hz, the largest of any row (`predator` is next at 60, `magmablast`
+   * 45). 90 covers it with a little margin, and no firing solution needs to see past its own shot
+   * landing.
+   *
+   * A `TICK_RATE_HZ` change does NOT rescale this: it is a tick count, and thumper's 87 becomes 174
+   * at 60 Hz. Re-derive it if the netcode rewrite's phase 1 lands.
+   */
+  predictionHorizonTicks: 90,
+  /**
+   * Fraction of a chassis's own `turnRateOf` that an observed turn rate must reach before it reads
+   * as DELIBERATE STEERING rather than a residual spin (P18/P19). See `steerFromObservedTurn`
+   * (`bot/brain/predict.ts`) for the full-lock reasoning this rests on.
+   *
+   * A half, because the sim has no partial steer: `stepDrive`'s steer is only ever -1, 0 or 1, so a
+   * car that is genuinely turning is at FULL lock and its observed rate lands on `turnRateOf(carId)`
+   * almost exactly. There is nothing between "full lock" and "not steering" to discriminate, so the
+   * threshold only has to sit clear of both — halfway is the natural place, and it also keeps the
+   * threshold per-chassis (Bastion's 6.30 rad/s gives a lower bar than Mirage's 8.19) rather than
+   * one absolute rate that would read a slow chassis's full lock as noise.
+   */
+  fullLockAngVelFraction: 0.5,
   /**
    * Fraction of ONE TICK's worth of rotation that floors the effective steering deadzone (R10,
    * 2026-09-05; corrected R12, review round 1). A bang-bang steer law — `reduceToIntent`'s `steer`
@@ -462,7 +477,7 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
     viewStalenessTicks: 4, reactionDelayTicks: 9, recomputeTicks: 12, acquireTicks: 15,
     awarenessRadiusUnits: 520, rearBlindHalfAngleRad: 1.05, trackedThreatLimit: 1, memoryTicks: 15,
     stateEstimationSigma: 0.25,
-    aimErrorSigmaRad: 0.18, aimErrorDriftTicks: 20, aimToleranceRad: 0.3, leadFactor: 0,
+    aimErrorSigmaRad: 0.18, aimErrorDriftTicks: 20, aimToleranceRad: 0.3,
     burstGapTicks: 14, minShotValueFraction: 0.01, ultDisciplineChance: 0, ultWindowHpFraction: 0.4,
     targetCommitTicks: 150, woundedBias: 0.1, vengefulness: 0.8,
     standoffFraction: 0.45, deadbandFraction: 0.25, wallLookaheadUnits: 40,
@@ -477,7 +492,7 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
     viewStalenessTicks: 3, reactionDelayTicks: 6, recomputeTicks: 6, acquireTicks: 9,
     awarenessRadiusUnits: 700, rearBlindHalfAngleRad: 0.6, trackedThreatLimit: 2, memoryTicks: 45,
     stateEstimationSigma: 0.1,
-    aimErrorSigmaRad: 0.09, aimErrorDriftTicks: 14, aimToleranceRad: 0.16, leadFactor: 0.55,
+    aimErrorSigmaRad: 0.09, aimErrorDriftTicks: 14, aimToleranceRad: 0.16,
     burstGapTicks: 7, minShotValueFraction: 0.05, ultDisciplineChance: 0.5, ultWindowHpFraction: 0.4,
     targetCommitTicks: 60, woundedBias: 0.5, vengefulness: 0.5,
     standoffFraction: 0.55, deadbandFraction: 0.15, wallLookaheadUnits: 90,
@@ -492,7 +507,7 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
     viewStalenessTicks: 2, reactionDelayTicks: 4, recomputeTicks: 2, acquireTicks: 5,
     awarenessRadiusUnits: 900, rearBlindHalfAngleRad: 0, trackedThreatLimit: 4, memoryTicks: 90,
     stateEstimationSigma: 0.03,
-    aimErrorSigmaRad: 0.035, aimErrorDriftTicks: 9, aimToleranceRad: 0.07, leadFactor: 0.95,
+    aimErrorSigmaRad: 0.035, aimErrorDriftTicks: 9, aimToleranceRad: 0.07,
     burstGapTicks: 3, minShotValueFraction: 0.3, ultDisciplineChance: 0.9, ultWindowHpFraction: 0.4,
     targetCommitTicks: 25, woundedBias: 0.9, vengefulness: 0.25,
     standoffFraction: 0.7, deadbandFraction: 0.08, wallLookaheadUnits: 150,

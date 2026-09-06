@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { TICK_RATE_HZ } from "@motor-combat-moba/shared";
+import { TICK_RATE_HZ, turnRateOf } from "@motor-combat-moba/shared";
+import { BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import type { BotCarView, BotSelfView } from "../types.js";
 import {
   bodyFromObservation, bodyFromSelf, interceptTicks, physicsPredictor, rollForward,
-  selfPredictor,
+  selfPredictor, steerFromObservedTurn,
 } from "./predict.js";
+import { constantVelocityPredictor } from "./solution.js";
 
 function carAt(over: Partial<BotCarView> = {}): BotCarView {
   return {
@@ -48,6 +50,59 @@ describe("rollForward", () => {
   it("returns one pose per tick", () => {
     const poses = rollForward(bodyFromObservation(carAt(), 0), "mirage", { steer: 0, throttle: 0 }, 12);
     expect(poses).toHaveLength(12);
+  });
+});
+
+describe("steerFromObservedTurn", () => {
+  const fullLock = (carId: "mirage" | "bastion") => turnRateOf(carId);
+  const threshold = (carId: "mirage" | "bastion") =>
+    turnRateOf(carId) * BRAIN_CONSTANTS.fullLockAngVelFraction;
+
+  it("reads a car at full lock as steering, in both directions", () => {
+    expect(steerFromObservedTurn(fullLock("mirage"), "mirage")).toBe(1);
+    expect(steerFromObservedTurn(-fullLock("mirage"), "mirage")).toBe(-1);
+  });
+
+  it("reads a slow residual turn as NOT steering", () => {
+    // A ram's injected spin decaying away, well under half a full lock: this is the case the
+    // controller must attribute to `angVel` and let `stepDrive` decay, not to a held wheel.
+    expect(steerFromObservedTurn(threshold("mirage") * 0.5, "mirage")).toBe(0);
+    expect(steerFromObservedTurn(-threshold("mirage") * 0.5, "mirage")).toBe(0);
+    expect(steerFromObservedTurn(0, "mirage")).toBe(0);
+  });
+
+  it("counts a rate EXACTLY on the threshold as steering", () => {
+    // "At least half" -- the boundary belongs to the steering side, so a car whose observed rate
+    // lands precisely on it is not silently dropped to 0.
+    expect(steerFromObservedTurn(threshold("mirage"), "mirage")).toBe(1);
+    expect(steerFromObservedTurn(-threshold("mirage"), "mirage")).toBe(-1);
+  });
+
+  it("keys the threshold to the chassis, so a slower-turning car clears it sooner", () => {
+    // Bastion's full lock (6.30 rad/s) is below Mirage's (8.19), so its threshold is lower too --
+    // one absolute rate would read a slow chassis's genuine full lock as noise.
+    expect(threshold("bastion")).toBeLessThan(threshold("mirage"));
+    const between = (threshold("bastion") + threshold("mirage")) / 2;
+    expect(steerFromObservedTurn(between, "bastion")).toBe(1);
+    expect(steerFromObservedTurn(between, "mirage")).toBe(0);
+  });
+
+  it("reconstructing the input sustains a turn that a free-running angVel lets decay", () => {
+    // The whole reason this function exists. `stepDrive` adds a held steer's rotation to `angle`
+    // every tick (`steer * turnRate * authority`) but DECAYS an uncommanded `angVel` toward zero,
+    // so an observed full-lock turn reproduced as `angVel` alone straightens out over a horizon,
+    // while the same turn fed back as a held wheel keeps arcing for as long as it is held.
+    const car = carAt({ speed: 400 });
+    const observed = turnRateOf("mirage");
+    const turned = (poses: { angle: number }[]) => Math.abs(poses.at(-1)!.angle - car.angle);
+    const asSpin = rollForward(
+      bodyFromObservation(car, observed), "mirage", { steer: 0, throttle: 1 }, 45,
+    );
+    const asSteer = rollForward(
+      bodyFromObservation(car, 0), "mirage",
+      { steer: steerFromObservedTurn(observed, "mirage"), throttle: 1 }, 45,
+    );
+    expect(turned(asSteer)).toBeGreaterThan(turned(asSpin) * 2);
   });
 });
 
@@ -94,6 +149,70 @@ describe("selfPredictor", () => {
     const straightPredictor = selfPredictor(selfAt(), { steer: 0, throttle: 0 }, 15);
     const turningPredictor = selfPredictor(selfAt(), { steer: 1, throttle: 1 }, 15);
     expect(Math.abs(turningPredictor(15).y)).toBeGreaterThan(Math.abs(straightPredictor(15).y));
+  });
+});
+
+describe("predicting a car at full lock, against ground truth", () => {
+  // The measurement behind the controller's choice of held input (task 4, ruling 2). GROUND TRUTH is
+  // the same drive model the sim runs: a Mirage at 400 u/s holding full right lock and the throttle
+  // down. Three candidate models are scored against it in world units at 10 / 20 / 30 / 45 ticks:
+  //
+  //   | model                                             | error at 10/20/30/45 |
+  //   |---------------------------------------------------|----------------------|
+  //   | `constantVelocityPredictor` (what phase A replaces)| 178 / 342 / 416 / 690|
+  //   | `{steer: 0, throttle: 0}`, observed turn as angVel | 48 / 99 / 10 / 91    |
+  //   | reconstructed steer, `throttle: 1`, `angVel: 0`    | 0 / 0 / 0 / 0        |
+  //
+  // The middle row is what the task brief originally specified and is why it was overruled: rolling
+  // a target with the throttle CLOSED is not "coasting straight", it is braking. `DRIVE_CONFIG.drag`
+  // is 900 u/s^2 (0.32 s to rest), so that model has the car stopped inside 20 ticks having covered
+  // ~82 units, against ~400 for even the straight line it was meant to improve on.
+  const HORIZONS = [10, 20, 30, 45] as const;
+  const car = carAt({ speed: 400 });
+  const observed = turnRateOf("mirage");
+  const truth = rollForward(
+    bodyFromObservation(car, 0), "mirage", { steer: 1, throttle: 1 }, Math.max(...HORIZONS),
+  );
+  const errorAt = (
+    predictor: ReturnType<typeof physicsPredictor>,
+    ticksAhead: number,
+  ): number => {
+    const actual = truth[ticksAhead - 1]!;
+    const guess = predictor(ticksAhead);
+    return Math.hypot(guess.x - actual.x, guess.y - actual.y);
+  };
+
+  it("reproduces the true path almost exactly once the steer is reconstructed", () => {
+    const reconstructed = physicsPredictor(
+      car, 0, { steer: steerFromObservedTurn(observed, "mirage"), throttle: 1 }, 45, 0, makeRng(11),
+    );
+    for (const ticks of HORIZONS) expect(errorAt(reconstructed, ticks)).toBeLessThan(1);
+  });
+
+  it("beats both the straight line and a throttle-closed rollout at every horizon", () => {
+    const reconstructed = physicsPredictor(
+      car, 0, { steer: steerFromObservedTurn(observed, "mirage"), throttle: 1 }, 45, 0, makeRng(11),
+    );
+    const coasting = physicsPredictor(car, observed, { steer: 0, throttle: 0 }, 45, 0, makeRng(11));
+    const straight = constantVelocityPredictor(car);
+    for (const ticks of HORIZONS) {
+      const actual = truth[ticks - 1]!;
+      const straightGuess = straight(ticks);
+      const straightError = Math.hypot(straightGuess.x - actual.x, straightGuess.y - actual.y);
+      expect(errorAt(reconstructed, ticks)).toBeLessThan(errorAt(coasting, ticks));
+      expect(errorAt(reconstructed, ticks)).toBeLessThan(straightError);
+    }
+  });
+
+  it("brings a throttle-closed rollout to a dead stop, which is why it is not the held input", () => {
+    const braking = rollForward(bodyFromObservation(car, 0), "mirage", { steer: 0, throttle: 0 }, 20);
+    expect(braking.at(-1)!.speed).toBe(0);
+    expect(Math.hypot(braking.at(-1)!.x - car.x, braking.at(-1)!.y - car.y)).toBeLessThan(100);
+    // The same 20 ticks with the throttle DOWN cover several times as far. Measured against a
+    // straight run rather than the full-lock `truth` above, whose 55 u turn radius brings it back
+    // past its own start inside this window and makes displacement meaningless.
+    const driving = rollForward(bodyFromObservation(car, 0), "mirage", { steer: 0, throttle: 1 }, 20);
+    expect(Math.hypot(driving.at(-1)!.x - car.x, driving.at(-1)!.y - car.y)).toBeGreaterThan(250);
   });
 });
 

@@ -6,7 +6,7 @@ import { BOT_PROFILES, BRAIN_CONSTANTS, type BotProfile } from "../../config/bot
 import type {
   BotCarView, BotController, BotDebug, BotIntent, BotPersonality, BotView, SituationId,
 } from "../types.js";
-import { interceptPoint, newAimErrorState, signedDelta, stepAimError, type AimErrorState } from "./aim.js";
+import { newAimErrorState, signedDelta, stepAimError, type AimErrorState } from "./aim.js";
 import { chooseSlot, preferredRangeOf, slotIsReady, type UltHoldEntry } from "./firing.js";
 import { scoreTargets } from "./goals.js";
 import { applyHumanize, newHumanizeState, type HumanizeState } from "./humanize.js";
@@ -16,13 +16,16 @@ import {
 } from "./movement.js";
 import {
   acquiringUnnoticed, activeThreats, knownCars, lastKnownAnchor, nearestHeardShot, newPerception,
-  perceive, readinessOf, searchWaypoint, ultIsSpent, type PerceptionState,
+  observedAngVelOf, perceive, readinessOf, searchWaypoint, ultIsSpent, type PerceptionState,
 } from "./perception.js";
 import { rollPersonality } from "./personality.js";
+import {
+  interceptTicks, physicsPredictor, selfPredictor, steerFromObservedTurn,
+} from "./predict.js";
 import { kitReachOf, weaponReachOf } from "./reach.js";
 import { rolesOf } from "./roles.js";
 import { classifySituation, newSituationState, pickSituation, type SituationState } from "./situation.js";
-import { constantVelocityPredictor, dangerEvAgainst, solve, type FiringSolution } from "./solution.js";
+import { dangerEvAgainst, solve, type FiringSolution } from "./solution.js";
 
 const COAST: BotIntent = { steer: 0, throttle: 0, fireSlots: 0 };
 
@@ -222,9 +225,9 @@ export class HumanController implements BotController {
     // same expression `classifySituation` receives as `selfControlLost` further down — computed
     // once, used twice. Draws no `rng()`.
     const selfControlLost = !self.alive || hasStatus(self.statuses, "phased", tick);
-    // The bot's own pose as a `BotCarView`, so the danger solve can reuse the shared
-    // `constantVelocityPredictor` instead of re-deriving constant-velocity dead reckoning inline
-    // (R-C-M1). `alive: true, phased: false` are deliberate literals: this is the OPPONENT'S view of
+    // The bot's own pose as a `BotCarView`, so the danger solve takes us in the shape `solve()`
+    // takes a target in, instead of re-deriving dead reckoning inline (R-C-M1).
+    // `alive: true, phased: false` are deliberate literals: this is the OPPONENT'S view of
     // this bot for the purpose of "how much would that hurt me", which is asked of a live, solid
     // body — `selfControlLost` above is what stops the bot acting on the answer while it is neither.
     const me: BotCarView = {
@@ -237,7 +240,16 @@ export class HumanController implements BotController {
       ? dangerEvAgainst({
           threat: target,
           me,
-          meAt: constantVelocityPredictor(me),
+          // Where WE will be while their shot is in the air, rolled through the real drive model
+          // rather than a straight line (P17). `selfPredictor`, not `physicsPredictor`: every field
+          // it reads is on this bot's own HUD, so it draws no `rng()` at all and is safe inside this
+          // ternary — a conditional draw here would make the stream depend on having a target (H21).
+          // `throttle: 1` because the bot is driving, not braking: `DRIVE_CONFIG.drag` brings a
+          // coasting car to rest in ~0.32 s, so a `throttle: 0` rollout would put us 80 units along
+          // a line we will actually be 400 units down, and read the danger of a pose we never hold.
+          meAt: selfPredictor(
+            self, { steer: 0, throttle: 1 }, BRAIN_CONSTANTS.predictionHorizonTicks,
+          ),
           readiness: (weaponId) =>
             readinessOf(this.perception, target.sessionId, weaponId, tick, profile),
           assumedAimSigmaRad: BRAIN_CONSTANTS.assumedOpponentAimSigmaRad,
@@ -247,15 +259,46 @@ export class HumanController implements BotController {
       : 0;
     this.lastDangerEv = danger;
 
+    // Where the target will be, rolled through the REAL drive model (P22). Two decisions here:
+    //
+    // THE HELD INPUT. `throttle: 1`, never 0: `DRIVE_CONFIG.drag` is 900 u/s^2, so a coasting car
+    // is at rest inside 0.32 s — a Mirage observed at 400 u/s and rolled with `throttle: 0` has
+    // covered 82 units after 20 ticks against the ~400 it really travels, which is a WORSE lead than
+    // the straight line this replaces. A car being aimed at is a car that is driving.
+    //
+    // THE OBSERVED TURN, attributed to exactly ONE cause. Above `steerFromObservedTurn`'s threshold
+    // the car reads as STEERING, and the rollout sustains that turn for as long as the input is
+    // held (`stepDrive` adds a held steer's rotation every tick). Below it, the residual stays a
+    // ram's injected spin and decays on the ram half-life. A car spinning from a ram therefore reads
+    // as one that meant to turn, and is mispredicted — that is the design's sanctioned human error
+    // (spec P19), kept, not corrected.
+    //
+    // Constructed UNCONDITIONALLY: `physicsPredictor` draws two rng() calls, and a draw that
+    // happened only when this bot had a target would make the stream depend on the scene (H21). The
+    // predictor built on the absent-target sentinel is discarded; its draws are not. Same discard
+    // `hearRoll` above already performs.
+    const predictTarget = target ?? ABSENT_TARGET;
+    const observedTurn = observedAngVelOf(this.perception, predictTarget.sessionId);
+    const targetSteer = steerFromObservedTurn(observedTurn, predictTarget.carId);
+    const targetSpin = targetSteer === 0 ? observedTurn : 0;
+    const targetPredictor = physicsPredictor(
+      predictTarget,
+      targetSpin,
+      { steer: targetSteer, throttle: 1 },
+      BRAIN_CONSTANTS.predictionHorizonTicks,
+      profile.stateEstimationSigma,
+      view.rng,
+    );
+    const predictor = target ? targetPredictor : undefined;
+
     // One firing solution per ready slot (P7), fed to `chooseSlot` below AND to the anticipatory
     // evade gate just below (R-C7). Built from the shooter's ACTUAL current pose, not the heading
     // it is steering toward — `solve` mirrors the real sim, which fires along `self.angle` (or the
     // aim-assist bearing), never along a desired heading. Moved above `classifySituation` (was
     // originally computed just before `chooseSlot`, far below): it depends on nothing the situation
-    // decides, only `target`, `self.slots`, `slotIsReady`, `profile.aimErrorSigmaRad`, `tick` and
-    // `view.arena` — all already known at this point — and `solve()` draws no `rng()` (H21), so
-    // moving it earlier changes no draw's position in the stream.
-    const predictor = target ? constantVelocityPredictor(target) : undefined;
+    // decides, only `target`, `self.slots`, `slotIsReady`, `profile.aimErrorSigmaRad`, `tick`,
+    // `view.arena` and the predictor above — all already known at this point — and `solve()` draws
+    // no `rng()` (H21), so moving it earlier changes no draw's position in the stream.
     const solutions = new Map<number, FiringSolution>();
     if (target && predictor) {
       for (let i = 0; i < self.slots.length; i++) {
@@ -365,33 +408,24 @@ export class HumanController implements BotController {
     });
     this.situation = pickSituation(this.situation, classified, tick, profile);
 
+    // Where to point the gun (P22). `interceptTicks` is the physics analogue of `aim.ts`'s
+    // closed-form `interceptPoint`: the same "how far ahead does this shot land" question, solved by
+    // fixed-point iteration against a curving path instead of a quadratic against a straight one.
+    // `interceptPoint` itself stays in `aim.ts` as the cheap zero-horizon path — it is what the old
+    // per-tier `leadFactor` scaled, and that knob is gone: how well a bot leads is now the product of
+    // `stateEstimationSigma` (how accurately it reads the target) and `aimErrorSigmaRad` (its hands),
+    // not a fraction of a solution it declines to apply.
     const leadSlot = self.slots[0];
-    const aimPoint = target
-      ? interceptPoint(
+    const aimPoint = predictor
+      ? predictor(interceptTicks(
           self,
-          { x: target.x, y: target.y, speed: target.speed, angle: target.angle },
+          predictor,
           leadSlot ? weaponDefOf(leadSlot.weaponId).speed : 0,
-          // R21: restored. P35 removed `leadFactor` in phase B as "superseded by real forward
-          // prediction", but that predictor is a PHASE A deliverable that has not landed yet —
-          // hardcoding lead 1 here silently gave easy (was 0) and medium (was 0.55) a hands upgrade
-          // in exactly the axis that separates the tiers. See docs/superpowers/specs/
-          // 2026-09-05-bot-predictive-brain-design.md's P35 table.
-          profile.leadFactor,
-        )
+          BRAIN_CONSTANTS.predictionHorizonTicks,
+        ))
       : undefined;
     const aimHeading = aimPoint
       ? Math.atan2(aimPoint.y - self.y, aimPoint.x - self.x) + this.aimError.offsetRad
-      : self.angle;
-    const bodyIntercept = target
-      ? interceptPoint(
-          self,
-          { x: target.x, y: target.y, speed: target.speed, angle: target.angle },
-          Math.max(self.speed, 1),
-          profile.leadFactor,
-        )
-      : undefined;
-    const interceptHeading = bodyIntercept
-      ? Math.atan2(bodyIntercept.y - self.y, bodyIntercept.x - self.x)
       : self.angle;
     const bearing = target ? Math.atan2(target.y - self.y, target.x - self.x) : self.angle;
 
@@ -442,11 +476,19 @@ export class HumanController implements BotController {
         closing = true;
         mayFire = trulyHittable;
         break;
-      case "close":
-        desires.push(goalDesire(interceptHeading));
+      case "close": {
+        // Drive at where the target WILL be, not where it is — the body's own intercept, and the
+        // last consumer of the `leadFactor`-scaled `interceptPoint` this phase replaces. A third of
+        // the shot horizon rather than all of it: a car closes far slower than a bullet flies, so
+        // the full horizon would aim the body at a point most of a lap around a turning target.
+        const closePoint = predictor?.(BRAIN_CONSTANTS.predictionHorizonTicks / 3) ?? target;
+        desires.push(goalDesire(
+          closePoint ? Math.atan2(closePoint.y - self.y, closePoint.x - self.x) : self.angle,
+        ));
         range = BRAIN_CONSTANTS.minEngageUnits;
         closing = false;
         break;
+      }
     }
 
     if (sit !== "waitOut" && sit !== "recover") this.lastPreferredRange = range;

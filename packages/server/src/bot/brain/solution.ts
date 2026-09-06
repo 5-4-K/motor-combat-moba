@@ -27,7 +27,13 @@ export const AIM_QUADRATURE: readonly { z: number; weight: number }[] = Object.f
 /** Where a car will be `ticksAhead` from now. Plan 3 swaps the implementation behind this type. */
 export type PosePredictor = (ticksAhead: number) => { x: number; y: number; angle: number };
 
-/** Straight-line extrapolation — what a bot assumes before it can roll real physics forward. */
+/**
+ * Straight-line extrapolation. No longer what the controller solves against — phase A's task 4
+ * (2026-09-06) put `predict.ts`'s `physicsPredictor` behind this same `PosePredictor` seam there —
+ * but still the right answer for a target that provably is not moving: `bestAchievableValueOf`
+ * below solves against a stationary synthetic target, where a physics rollout would buy nothing and
+ * cost two rng draws. Also the fixture `solution.test.ts` pins the solver with.
+ */
 export function constantVelocityPredictor(target: BotCarView): PosePredictor {
   const vx = Math.cos(target.angle) * target.speed;
   const vy = Math.sin(target.angle) * target.speed;
