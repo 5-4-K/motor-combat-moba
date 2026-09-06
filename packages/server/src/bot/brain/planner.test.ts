@@ -35,10 +35,11 @@ const stationary: PosePredictor = () => ({ x: target.x, y: target.y, angle: targ
 const base: Omit<PlanArgs, "self"> = {
   target, targetAt: stationary,
   readiness: () => 1, aimSigmaRad: 0.03, preferredRange: 400,
-  // `commitTicks` is hard's shipped `recomputeTicks` (R-P10): a candidate is two ticks of the
-  // action under test followed by a neutral coast to the end of the horizon.
+  // The commitment window is derived from the horizon (R-P12,
+  // `BRAIN_CONSTANTS.commitWindowFraction`): a candidate is the first half of the horizon under
+  // the action being tested, then a neutral coast to a stop over the second half.
   weights: fightWeights, horizonTicks: 20, depth: 1, shotThreats: [], actuationDelayTicks: 0,
-  commitTicks: 2, pending: [],
+  pending: [],
   targetBranches: 1, commitPenalty: 0, lastAction: undefined,
   tick: 0, arena,
 };

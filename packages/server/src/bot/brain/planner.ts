@@ -97,30 +97,6 @@ export interface PlanArgs {
    */
   horizonTicks: number;
   /**
-   * THE COMMITMENT WINDOW: how many ticks the emitted action is genuinely held before this bot
-   * decides again — the profile's `recomputeTicks` (12 / 6 / 2 for easy / medium / hard), floored
-   * at 1 and capped by the horizon (R-P10, fix round 4, 2026-09-07).
-   *
-   * This is the parameterization of a candidate, and getting it wrong is what cost three rounds.
-   * A candidate USED TO BE one input held for the WHOLE horizon; at hard's K of 22 that made the
-   * steering menu "0 / +150 / -150 degrees of rotation" and the throttle menu "floor it for 0.73 s
-   * / stop / reverse for 0.73 s". A 13-degree aim correction and a 56-unit range close are not on
-   * that menu, and no scoring aggregation can select an action that does not exist — rounds 1-3
-   * measured four readings of `rangeError` (terminus, min, mean, first sample) and each fixed one
-   * closed-loop duel by breaking the other. See `plan`'s doc for the tables.
-   *
-   * Spec P24's literal text is "held for K ticks", but its stated PURPOSE is a receding horizon —
-   * "plan a long arc, execute its first step" — and a bot that re-plans every `recomputeTicks`
-   * NEVER holds one input for 22 ticks. Modelling a hold it does not perform is precisely what put
-   * both corrections out of reach. Committing for the window the input is actually held and then
-   * continuing neutrally is a strictly better model of the same bot, and it is the standard MPC
-   * terminal-policy shape.
-   *
-   * It comes off the profile, so it stays a number: the planner never learns which tier it is,
-   * only how long its own hands are committed (H8).
-   */
-  commitTicks: number;
-  /**
    * How many committed windows a candidate contains (P25). 1 is "commit, then coast"; 2 is
    * "commit, commit again, then coast", 81 sequences sharing nine first windows.
    */
@@ -267,8 +243,16 @@ interface Candidate {
  * takes, or one seed stops replaying and the balance harness's paired runs stop being comparable.
  */
 export function plan(args: PlanArgs): PlanResult {
-  // R-P10 (fix round 4, 2026-09-07): a candidate is the action held for the COMMITMENT WINDOW and
-  // then a neutral continuation for the rest of the horizon. See `PlanArgs.commitTicks`.
+  // THE COMMITMENT WINDOW: how much of the horizon a candidate genuinely commits to, before the
+  // terminal policy coasts it to a stop. `BRAIN_CONSTANTS.commitWindowFraction` of K — just over
+  // half, so hard commits 12 of its 22 ticks and coasts the other 10 (R-P12, round 5, 2026-09-07).
+  //
+  // It is a fraction of the HORIZON, not the profile's `recomputeTicks`, and the grid in that
+  // constant's doc comment is why: swept across five windows and three continuations over seven
+  // seeds per duel, both ends of the axis fail. A whole-horizon hold (round 3) cannot aim; a
+  // `recomputeTicks` hold with a braking tail (round 4) has four units of positional reach and
+  // cannot dodge, turn around or leave a wall. Half is the only cell that does both, and it is a
+  // plateau at 11-12 ticks with cliffs on either side rather than a lucky point.
   //
   // R-P6 (fix round 1, 2026-09-06) survives inside the floor: at ONE tick, never zero. Spec P29
   // promises a K=0 "reflex agent" still avoids a wall it is about to hit; a window of 0 rolls
@@ -278,8 +262,9 @@ export function plan(args: PlanArgs): PlanResult {
   // "one tick out", the amateur tier P29 actually describes. The horizon is also the cap: a bot
   // cannot commit for longer than it plans, which is what keeps easy (K=0, `recomputeTicks` 12) a
   // reflex rather than a twelve-tick lunge.
+  const K = Math.max(1, Math.floor(args.horizonTicks));
   const commit = Math.max(
-    1, Math.min(Math.floor(args.commitTicks), Math.max(1, Math.floor(args.horizonTicks))),
+    1, Math.min(Math.ceil(K * BRAIN_CONSTANTS.commitWindowFraction), K),
   );
   // Whatever the horizon has left after the committed windows, spent under the continuation. Zero
   // is a normal case (easy plans one tick and commits it), not a degenerate one.

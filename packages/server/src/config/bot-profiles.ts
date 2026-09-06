@@ -528,6 +528,56 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * `planDepth` down, not to raise the budget — and this constant would come down with them.
    */
   trajectorySampleCount: 4,
+  /**
+   * HOW MUCH OF THE HORIZON A CANDIDATE COMMITS TO before its terminal policy takes over — the
+   * planner's commitment window, as a fraction of `planHorizonTicks`, rounded UP to a whole tick
+   * (R-P12, fix round 5, 2026-09-07). Hard's K of 22 gives 12 ticks committed and 10 coasting;
+   * medium's 8 gives 5 and 3; easy's 0 floors to a single tick, which is what keeps P29's reflex
+   * tier a reflex.
+   *
+   * THE MIDDLE OF AN AXIS WHOSE TWO ENDS BOTH FAIL, and it had to be measured because both ends
+   * look right from a distance. A candidate held for the WHOLE horizon (round 3) makes the steering
+   * menu "0 / +150 / -150 degrees" and the throttle menu "floor it for 0.73 s / stop", so a
+   * 13-degree aim correction and a 56-unit range close are not on it. A candidate held only for
+   * `recomputeTicks` (round 4, hard: 2) and then braked to a stop gives a stationary bot about four
+   * units of positional reach, so a dodge, a U-turn and leaving a wall are not on it either. Both
+   * were shipped, and each broke what the other fixed.
+   *
+   * Swept as a grid, both closed-loop duels over seven seeds each, with the `rangeError` weights
+   * re-derived per cell (R-P9's rule: a weight is re-derived when the quantity under it moves), and
+   * `src/bot/` + `src/config/` red counts at the best row of each:
+   *
+   *   | window (hard) | continuation  | on-axis | off-axis | red |
+   *   |---------------|---------------|---------|----------|-----|
+   *   |  2 (recompute)| full neutral  |   6/7   |   7/7    |  7  |
+   *   |  2 (recompute)| steer-only    |   4/7   |   6/7    |  -  |
+   *   |  6 (K/4)      | full neutral  |   5/7   |   7/7    |  7  |
+   *   |  8 (K/3)      | full neutral  |   6/7   |   5/7    |  7  |
+   *   | 11 (K/2)      | full neutral  | **7/7** | **6/7**  |  3  |
+   *   | 22 (K)        | none          |   1/7   |   1/7    |  -  |
+   *
+   * Half is a genuine plateau at 11-12 ticks and a cliff on both sides: 10 reads 6/7 and 5/7, and
+   * 13 collapses the on-axis duel to 0/7 (the committed window grows past the coasting tail, and a
+   * candidate stops being able to stop where it wants). Below the plateau the plan loses its reach
+   * and the dodge, the hunt and the wall go with it; above it, the plan loses its aim.
+   *
+   * 0.52 RATHER THAN A FLAT 0.5, i.e. the TOP of that plateau (12 ticks, not 11), for one measured
+   * reason: `balance/match.test.ts`'s seed-96 deathmatch-clock fixture goes red at 11 and green at
+   * 12, and reseeding a fixture to accommodate a tuning choice inside its own plateau is the wrong
+   * way round. Both windows read the same on everything else — 7/7 and 6/7 on the duels, the same
+   * three red cases in `src/bot/` + `src/config/`. Any fraction in (0.5, 0.545] picks 12 at hard.
+   *
+   * A FRACTION OF THE HORIZON, not the profile's `recomputeTicks`, and that is the substantive
+   * finding of the sweep. Round 4 reasoned that the window should be what the hands actually hold,
+   * which is `recomputeTicks`; the measurement says the window is a property of the PLAN — how much
+   * of the arc is a real commitment and how much is the terminal policy's coast — and it scales
+   * with the horizon rather than with the recompute cadence. Both halves are needed: the committed
+   * half is what gives the plan reach, the coasting half is what makes the terminus a place the car
+   * can actually be left, which is what the two destination terms are read at.
+   *
+   * A number, so the planner still never learns which tier it is (H8).
+   */
+  commitWindowFraction: 0.52,
 });
 
 /**

@@ -469,11 +469,12 @@ export class HumanController implements BotController {
       shotThreats,
       weights: weightsFor(sit, profile),
       horizonTicks: profile.planHorizonTicks,
-      // R-P10 (fix round 4): the commitment window is the window this controller actually holds
-      // an emitted action for, which is the same `recomputeTicks` the cadence gate above reads.
-      // One number, one meaning — a candidate models the commitment the bot really makes rather
-      // than a 22-tick hold it never performs. The planner still never learns the tier (H8).
-      commitTicks: profile.recomputeTicks,
+      // R-P12 (fix round 5): the commitment window is NOT passed. It used to be
+      // `profile.recomputeTicks`, on the reasoning that a candidate should model the window the
+      // hands really hold — but the sweep says the window is a property of the PLAN, not of the
+      // recompute cadence, so `plan` derives it from its own horizon and
+      // `BRAIN_CONSTANTS.commitWindowFraction`. That also makes it unbreakable: a caller cannot
+      // hand the planner a window its horizon cannot contain.
       depth: profile.planDepth,
       targetBranches: profile.targetBranches,
       commitPenalty: profile.commitPenalty,

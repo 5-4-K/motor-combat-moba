@@ -68,16 +68,39 @@ import type { PlanWeights } from "./planner.js";
  * SCALE fix, not a priority change: the ratios between the eight situations are untouched, every
  * row is multiplied by the same 10, and the two rows that were 0 (`evade`, `unpin` — plays whose
  * content is "get off this line" and "leave", not "stand at a range") are still 0.
+ *
+ * `rangeError` RE-DERIVED A THIRD TIME, BACK DOWN TO 2.5x, WHEN R-P12 CHANGED ITS SCALE AGAIN
+ * (fix round 5, 2026-09-07). Same rule, same event, the other direction: the commitment window is
+ * now half the horizon rather than `recomputeTicks` (`BRAIN_CONSTANTS.commitWindowFraction`), so
+ * hard commits 11 ticks instead of 2 and the nine terminal poses are spread ~120 units again
+ * instead of ~40. 10x on that spread is a term that shouts down `myEv`'s heading cliff and steers
+ * the bot by range alone. Swept as a global gain at the shipped window, seven seeds, both duels,
+ * with `src/bot/` + `src/config/` red counts at the interesting rows:
+ *
+ * | gain (x the 10x above) | 0.15 | 0.2 | **0.25** | 0.3 | 0.4 | 0.5 | 1.0 | 2.0 |
+ * |---|---|---|---|---|---|---|---|---|
+ * | on-axis passes  | 5/7 | 6/7 | **7/7** | 6/7 | 6/7 | 5/7 | 4/7 | 2/7 |
+ * | off-axis passes | 6/7 | 6/7 | **6/7** | 6/7 | 6/7 | 6/7 | 5/7 | 2/7 |
+ * | red             |  -  |  -  |  **3**  |  3  |  -  |  -  |  6  |  -  |
+ *
+ * 0.2-0.4 is the plateau and 0.25 is its peak, so the rows below are the 10x values multiplied by
+ * 0.25 — the same uniform scale fix, the same untouched ratios, the same two zero rows.
  */
 const BASE: Readonly<Record<SituationId, PlanWeights>> = Object.freeze({
   recover: { myEv: 0, theirEv: 0, rangeError: 0, wallPenalty: 60, lockKeep: 0, threatAvoid: 0 },
-  waitOut: { myEv: 0, theirEv: 0.5, rangeError: 1.5, wallPenalty: 240, lockKeep: 0, threatAvoid: 0 },
+  waitOut: {
+    myEv: 0, theirEv: 0.5, rangeError: 0.375, wallPenalty: 240, lockKeep: 0, threatAvoid: 0,
+  },
   evade: { myEv: 0.3, theirEv: 4, rangeError: 0, wallPenalty: 360, lockKeep: 0, threatAvoid: 0.6 },
   unpin: { myEv: 0.2, theirEv: 1, rangeError: 0, wallPenalty: 2400, lockKeep: 0, threatAvoid: 0 },
-  punish: { myEv: 3, theirEv: 0.25, rangeError: 2, wallPenalty: 240, lockKeep: 12, threatAvoid: 0 },
-  reset: { myEv: 0.4, theirEv: 3, rangeError: 2.5, wallPenalty: 360, lockKeep: 2, threatAvoid: 0 },
-  fight: { myEv: 2, theirEv: 0.6, rangeError: 1.2, wallPenalty: 300, lockKeep: 8, threatAvoid: 0 },
-  close: { myEv: 1, theirEv: 0.75, rangeError: 3.5, wallPenalty: 300, lockKeep: 4, threatAvoid: 0 },
+  punish: { myEv: 3, theirEv: 0.25, rangeError: 0.5, wallPenalty: 240, lockKeep: 12, threatAvoid: 0 },
+  reset: {
+    myEv: 0.4, theirEv: 3, rangeError: 0.625, wallPenalty: 360, lockKeep: 2, threatAvoid: 0,
+  },
+  fight: { myEv: 2, theirEv: 0.6, rangeError: 0.3, wallPenalty: 300, lockKeep: 8, threatAvoid: 0 },
+  close: {
+    myEv: 1, theirEv: 0.75, rangeError: 0.875, wallPenalty: 300, lockKeep: 4, threatAvoid: 0,
+  },
 });
 
 /**
