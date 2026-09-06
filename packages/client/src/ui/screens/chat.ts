@@ -103,21 +103,19 @@ export function chatPanel(
       : [h("div", { style: "font-size: 13px; color: var(--color-neutral-600);" }, ["No messages yet."])],
   );
 
+  // No visible "Chat" heading: the panel is short enough that the label and its gap were ~27px the
+  // messages needed more, and the composer's placeholder already says what the panel is. The name
+  // moves to `aria-label` rather than being dropped, so the region stays labelled for a screen
+  // reader that cannot see the placeholder.
   return h(
     "div",
     {
+      role: "region",
+      "aria-label": "Chat",
       style:
         "display: flex; flex-direction: column; width: 100%; max-width: 652px; height: 100%; min-height: 0; gap: 12px; " +
         "padding: 16px 18px; background: var(--color-surface); border: 1px solid var(--color-divider);",
     },
-    [
-      h(
-        "div",
-        { style: "font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-accent);" },
-        ["Chat"],
-      ),
-      list,
-      h("div", { style: "display: flex; gap: 10px; align-items: stretch;" }, [field, sendButton]),
-    ],
+    [list, h("div", { style: "display: flex; gap: 10px; align-items: stretch;" }, [field, sendButton])],
   );
 }
