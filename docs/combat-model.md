@@ -185,7 +185,11 @@ of this: its `Impulse.uncontrolTicks` is still authored `0` by `sim/contact.ts`'
 See [`schema-reference.md`](schema-reference.md#playerstate) for the networked fields and
 [`config-reference.md`](config-reference.md#ram_config) for the tuning. Five of that config's knobs
 carried the old steering-authority and shove decays and had been inert since the vector-drive rework;
-stage 3b deleted all five outright now that `reeling` supplies the mechanic they described.
+stage 3b deleted all five outright. Their mechanics have two different successors, not one: the three
+`authority` knobs (`authorityFloor`, `authorityHalfLifeSeconds`, `authorityEpsilon`) describe the
+steering penalty `reeling` supplies now, while the two `shove` ones (`shoveHalfLifeSeconds`,
+`shoveEpsilon`) described a decay on knock velocity, which bleeds off through the flat-rate
+`DRIVE_CONFIG.impactGripDecel` instead.
 `SLAM_CONFIG.victimAuthority`/`selfKeepFactor` are still there and still inert on the slam side — see
 that page.
 

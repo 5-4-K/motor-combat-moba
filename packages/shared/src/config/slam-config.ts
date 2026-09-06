@@ -35,9 +35,10 @@ export const SLAM_CONFIG = {
   /**
    * INERT — reads nothing since the 2026-09-06 car-physics rework's stage 2 (Impulse). Was the
    * victim's post-slam steering authority, and it mirrored the equivalent steering floor in
-   * `RAM_CONFIG` — a knob stage 3b has since deleted outright. `Impulse` has no authority field at all — `sim/contact.ts`'s slam
-   * branch never wrote one even before this stage, since `ram-bridge.ts` dropped `knock.authority`
-   * on the floor entirely (stage 1's shim). Ram control-loss came back as the `reeling` status in
+   * `RAM_CONFIG` — a knob stage 3b has since deleted outright. `Impulse` has no authority field at
+   * all — `sim/contact.ts`'s slam branch never wrote one even before this stage, since
+   * `ram-bridge.ts` dropped `knock.authority` on the floor entirely (stage 1's shim). Ram
+   * control-loss came back as the `reeling` status in
    * stage 3b, which replaces this knob outright rather than reviving it: a ram's control-loss
    * duration is `RAM_CONFIG.ramUncontrolMs`, and stage 4 gives `wildcharge` its own on its
    * `ImpulseDef` rather than reading anything here.

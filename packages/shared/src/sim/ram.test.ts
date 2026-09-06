@@ -488,8 +488,9 @@ describe("the ram contest", () => {
     // its flank (bonusFlank 1.0); the attacker presents its nose (bonusFront 0.3).
     //
     // The two fixtures sit at DIFFERENT separations on purpose, and it does not skew the comparison:
-    // a broadside victim is only 16 u wide along x (`carHeight`/2) against the head-on victim's 24
-    // (`carWidth`/2), so 47 u — the head-on's contact distance — leaves the T-bone pair 7 u apart and
+    // a broadside victim reaches only 16 u along x from its centre — its HALF-width on that axis,
+    // `carHeight`/2 — against the head-on victim's 24 (`carWidth`/2), so 47 u (the head-on's contact
+    // distance, the two half-extents plus the pad) leaves the T-bone pair 7 u apart and
     // firing no ram at all. Separation feeds nothing in `pushOf`/`impactOn` beyond the contact test
     // and the contact normal, both identical here, so only the faces and the drive-ins differ.
     const tBone = resolveRam(

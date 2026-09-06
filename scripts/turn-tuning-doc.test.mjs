@@ -7,9 +7,9 @@ import {
   CAR_TABLE,
   DRIVE_CONFIG,
   RAM_CONFIG,
-  STATUS_TABLE,
   TICK_RATE_HZ,
   driveOf,
+  modifiersOf,
 } from "@motor-combat-moba/shared";
 
 /**
@@ -128,6 +128,14 @@ const doc = fs.readFileSync(DOC, "utf8");
 const tables = tablesIn(doc);
 const deg = (radians) => (radians * 180) / Math.PI;
 
+/**
+ * The `turnRate` multiplier a reeling car ACTUALLY drives with — the authored `STATUS_TABLE.reeling`
+ * value put through the same `modifiersOf` clamp `stepDrive` reads it through, rather than lifted
+ * raw off the row. See the note on the derived table's spec list for why the difference matters.
+ */
+const reelingTurnRate = () =>
+  modifiersOf([{ statusId: "reeling", startTick: 0, endsTick: 1, sourceSessionId: "" }], 0).turnRate;
+
 describe("docs/turn-tuning.md", () => {
   it("prints the per-car ratings CAR_TABLE actually holds", () => {
     const { header, rows } = tableWhere(tables, (h) => labelOf(h) === "Rating", "per-car ratings");
@@ -217,6 +225,12 @@ describe("docs/turn-tuning.md", () => {
     // vector-drive rework and is deleted outright as of stage 3b; ram control loss is the `reeling`
     // status now, and its `turnRate` is a real multiplier on the moving rate rather than a floor. Read
     // out of `STATUS_TABLE` rather than typed, so a retune of that row fails the page too.
+    //
+    // Read through `modifiersOf`, NOT off `STATUS_TABLE.reeling.modifiers.turnRate` directly: that
+    // raw number is what the row AUTHORS, and `modifiersOf` clamps it against `STATUS_LIMITS` before
+    // `stepDrive` ever multiplies by it. The two agree today only because 0.4 IS the floor. Author a
+    // harsher value and the raw read would put a number on the page that the sim never applies — the
+    // exact staleness this row exists to catch, arriving through the guard itself.
     const spec = [
       ["Turn rate", (d) => d.turnRate],
       ["— in degrees", (d) => deg(d.turnRate)],
@@ -231,7 +245,7 @@ describe("docs/turn-tuning.md", () => {
       ["180° while moving", (d) => Math.PI / d.turnRate],
       ["360° while moving", (d) => (2 * Math.PI) / d.turnRate],
       ["180° from standstill", (d) => Math.PI / d.turnRateAtStop],
-      ["Rate while reeling", (d) => d.turnRate * STATUS_TABLE.reeling.modifiers.turnRate],
+      ["Rate while reeling", (d) => d.turnRate * reelingTurnRate()],
     ];
     assert.deepEqual(
       rows.map(labelOf),

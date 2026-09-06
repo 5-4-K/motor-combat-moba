@@ -49,9 +49,10 @@ export function stepDrive(
   const steer = mods.steeringLocked ? 0 : input.steer;
   // Steering and injected spin are ADDED into one rotation, which is what makes countersteering
   // free: the integrator does not know why angVel is high, so steering the other way subtracts
-  // from the same sum. `authority` used to scale the steer term; it has no successor yet, so a
-  // rammed car keeps full steering. Stage 3b's `reeling` status is meant to scale `mods.turnRate`
-  // in its place, but that status does not exist yet.
+  // from the same sum. `authority` used to scale the steer term; its successor is the `reeling`
+  // status (car-physics stage 3b), which a ram applies to its victim and which lands on `turnRate`
+  // above — so a rammed car's steering is degraded through the ordinary modifier channel every
+  // other debuff uses, not through a bespoke field on the body.
   const angle = body.angle + (steer * turnRate + body.angVel) * dt;
 
   // `immobilised` zeroes the THROTTLE, not the car: braking, coast and any standing knock all still

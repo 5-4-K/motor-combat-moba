@@ -7,6 +7,7 @@ import {
   PlayerStatus,
   RAM_CONFIG,
   RAM_TICKS,
+  SLAM_CONFIG,
   SLAM_TICKS,
   applyStatus,
   forwardMaxSpeedOf,
@@ -411,6 +412,17 @@ describe("contactTick applies reeling to a ram victim, scaled by falloff", () =>
     );
     const first = readStatuses(victim).find((s) => s.statusId === "reeling")!.endsTick - 10;
 
+    // The second ram lands at tick 45: AFTER the first `reeling` has lapsed (it ends at tick 40)
+    // but well inside the falloff window (`RAM_TICKS.drWindow` runs to tick 70), which is the
+    // window duration falloff is actually observable in. That is not incidental to the setup — a
+    // re-ram while the first `reeling` is still running cannot shorten anything, because
+    // `applyStatus`'s `refresh` rule takes `Math.max(existing.endsTick, endsTick)` and a scaled
+    // duration is by construction the smaller of the two. Falloff still bites on that path, on the
+    // impulse (the next test) and on the status the ram AFTER it writes; it simply cannot claw back
+    // a window already granted. An earlier version of this test re-rammed at tick 11 and asserted
+    // only `second < first`, which the one-tick offset satisfied on its own — it would have passed
+    // with falloff switched off entirely.
+    //
     // Force a fresh contact episode on the SAME memory (and so the same falloff stack) without
     // re-deriving the geometry a real separate-and-return would need: `resolveContacts` keys the
     // "fresh touch" edge-trigger off `memory.contacts`, so clearing it is the direct way to
@@ -418,10 +430,17 @@ describe("contactTick applies reeling to a ram victim, scaled by falloff", () =>
     memory.contacts = new Set();
     contactTick(
       state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS,
-      approachVelocities(state), NO_MANEUVER_WEAPONS, 11,
+      approachVelocities(state), NO_MANEUVER_WEAPONS, 45,
     );
-    const second = readStatuses(victim).find((s) => s.statusId === "reeling")!.endsTick - 11;
+    const second = readStatuses(victim).find((s) => s.statusId === "reeling")!.endsTick - 45;
 
+    expect(first).toBe(RAM_TICKS.uncontrol);
+    // Pin the SCALED duration itself, not merely `second < first`. This is the number
+    // `nextFalloff`'s second read owes — one application of `durationDrScale`, floored — so a change
+    // to either knob has to be typed here too.
+    expect(second).toBe(
+      Math.max(RAM_TICKS.durationFloor, Math.round(RAM_TICKS.uncontrol * RAM_CONFIG.durationDrScale)),
+    );
     expect(second).toBeLessThan(first);
   });
 
@@ -461,12 +480,13 @@ describe("contactTick applies reeling to a ram victim, scaled by falloff", () =>
 
   it("does not run a slam through the ram falloff stack or scale its uncontrol", () => {
     const state = arena();
+    const memory = newContactMemory();
     const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 300 });
     const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
     attacker.maneuver = ManeuverKind.CHARGE;
     attacker.maneuverTicksLeft = 200;
     contactTick(
-      state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS,
+      state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS,
       new Map([["a", { vx: 300, vy: 0 }], ["b", { vx: 0, vy: 0 }]]),
       new Map<string, WeaponId | "">([["a", "wildcharge"]]), 10,
     );
@@ -474,6 +494,13 @@ describe("contactTick applies reeling to a ram victim, scaled by falloff", () =>
     // `contact.ts`'s slam branch). Falloff and this stage's ram-only `reeling` scaling must not
     // invent a stand-in for it — see the note under Step 3.
     expect(readStatuses(victim).find((s) => s.statusId === "reeling")).toBeUndefined();
+    // The magnitude half of the same rule, which the status assertion above cannot see. A slam's
+    // impulse is `defenceScaled: false` and fixed at `SLAM_CONFIG.knockSpeed`, so the victim leaves
+    // this tick at exactly that speed — any falloff leaking onto the non-ram branch would show up
+    // here as a fraction of it. The empty stack is the other half: a slam must not be COUNTED
+    // either, or it would silently discount the next real ram.
+    expect(Math.hypot(victim.vx, victim.vy)).toBeCloseTo(SLAM_CONFIG.knockSpeed, 6);
+    expect(memory.falloff.size).toBe(0);
   });
 });
 

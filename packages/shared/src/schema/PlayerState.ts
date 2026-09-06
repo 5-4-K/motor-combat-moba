@@ -21,8 +21,9 @@ export class PlayerState extends Schema {
    * value would poison every subsequent step rather than merely look wrong.
    *
    * Replaces four fields with two: the old `speed` + `shoveX`/`shoveY` + `authority` quartet.
-   * `authority` is gone entirely, with no successor yet — a rammed car keeps full steering. Ram
-   * control-loss returns as the `reeling` status in stage 3b, not this stage.
+   * `authority` is gone entirely and has no field here by design: ram control-loss came back in
+   * car-physics stage 3b as the `reeling` status, which rides `statuses` (already networked) and
+   * reaches `stepDrive` through `Modifiers.turnRate`/`accel` like every other debuff.
    */
   @type("number") vx = 0;
   @type("number") vy = 0;

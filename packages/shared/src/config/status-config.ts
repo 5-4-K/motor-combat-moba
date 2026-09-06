@@ -213,8 +213,15 @@ export const STATUS_TABLE = {
    *
    * **`flags: []` is load-bearing, not incidental.** `StatusDef` forces flag-carrying rows to
    * `reapply: "ignore"` so hard CC can never be chained. Because this row carries none, it escapes
-   * that rule and a second ram may write a new (already-reduced) duration — which is exactly what
+   * that rule and a second ram may write a new (already-reduced) duration at all — which is what
    * the falloff stack (Task 2) needs. Adding a flag here would silently break diminishing returns.
+   *
+   * Note what `refresh` does and does not do: `applyStatus` takes `Math.max(existing.endsTick,
+   * endsTick)`, so a re-ram landing while `reeling` is STILL RUNNING can only extend the window,
+   * never shorten it — a falloff-scaled duration is by construction the smaller of the two and is
+   * discarded on that path. The scaled duration is what a ram lands once the previous instance has
+   * lapsed but the falloff window has not (between `ramUncontrolMs` and `drWindowMs` since the last
+   * hit). Falloff's impulse half has no such caveat: it scales every re-ram.
    *
    * Both multipliers sit AT the `STATUS_LIMITS` floors, deliberately (spec P22). Do not lower those
    * floors to make this harsher: they are documented guarantees, and widening one for a single row
