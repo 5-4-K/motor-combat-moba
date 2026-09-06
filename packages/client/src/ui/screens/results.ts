@@ -1,9 +1,10 @@
+import { scoreboardCarThumb } from "../car-tint.js";
 import { button, h } from "../dom.js";
 import type { ResultsView, StatRow } from "../results-view.js";
 
 /**
  * The post-match screen: the winner banner over two K/D/A tables, one per team, each row carrying the
- * player's colour swatch and the car they drove.
+ * player's colour swatch and the car they drove, painted in that player's colour.
  */
 
 export interface ResultsHandlers {
@@ -29,13 +30,7 @@ function statTable(rows: StatRow[]): HTMLElement {
             h("td", { style: "padding-block: 14px;" }, [
               h("div", { style: "display: flex; align-items: center; gap: 14px;" }, [
                 h("div", { style: `width: 20px; height: 20px; flex: none; border-radius: 50%; background: ${row.hex};` }),
-                h("div", { style: "width: 62px; height: 44px; flex: none; border-radius: 4px; background: var(--color-bg); display: grid; place-items: center; overflow: hidden;" }, [
-                  h("div", {
-                    role: "img",
-                    "aria-label": "Car",
-                    style: `width: 54px; height: 38px; background-image: ${row.carImage}; background-size: contain; background-position: center; background-repeat: no-repeat;`,
-                  }),
-                ]),
+                scoreboardCarThumb(row.carImage, row.hex),
                 h("span", {
                   style: `font-weight: 700; font-size: 16px; color: ${row.isYou ? "var(--color-accent-700)" : "var(--color-text)"};`,
                 }, [row.name]),
