@@ -378,7 +378,7 @@ different knob entirely: `usesAimAssist` per weapon in `WEAPON_TABLE`.
 | `stopEpsilon` | 1e-3 (below this \|speed\| the car counts as stopped) |
 | `carWidth` | 48 |
 | `carHeight` | 32 |
-| `restitution` | 0.35 |
+| `restitution` | 0.15 (was 0.35 — cut on 2026-09-06, stage 2 of the car-physics rework, so walls and other cars deflect rather than nearly stopping the car dead. See [`combat-model.md`](combat-model.md#ramming)) |
 
 **The four flat constants `accel`, `reverseAccel`, `turnRate` and `turnRateAtStop` are gone**, split
 on 2026-08-30 into the six base/per-rating knobs above so `accel` and `handling` could be per-chassis
@@ -489,7 +489,7 @@ section used to describe does not currently happen — see the temporary-shim no
 | `massPerRating` | 10 | Mirrors `COMBAT_CONFIG.hpPerRating`; scales the 0-100 `mass` rating |
 | `bonusFront` / `bonusFlank` / `bonusRear` | 0.3 / 1.0 / 1.3 | Multiplies severity by impact side; the most important balance lever in the feature |
 | `authorityFloor` **[INERT]** | 0.35 | Was the steering multiplier at maximum severity — the feel dial. Reads nothing since the 2026-09-06 vector-drive rework; stage 3 deletes it and replaces the mechanic with the `reeling` status |
-| `knockMaxSpeed` | 260 | Peak shove impulse (expressed as a speed) at severity 1.0, before the victim mass factor |
+| `knockMaxSpeed` | 260 | Peak shove impulse (expressed as a speed) at severity 1.0, before the victim mass factor. Since the 2026-09-06 equal-and-opposite change this also costs the ATTACKER, via `reactionOf`, on top of whatever `restitution` already reflected off it that same tick — see the doc comment on this value in `ram-config.ts` for the measured composed numbers, and [`combat-model.md`](combat-model.md#ramming) |
 | `massFactorMin` / `massFactorMax` | 0.6 / 1.6 | Bounds on `RAM_REFERENCE_MASS / victimMass`, so neither the heaviest nor the lightest chassis degenerates |
 | `spinScale` | 100 | Calibration multiplier on the torque-derived spin rate |
 | `spinMaxRate` | 6.0 | rad/s ceiling on injected spin |
@@ -527,6 +527,30 @@ The hull half-extents the spin lever arm is clamped into are `DRIVE_CONFIG.carWi
 same reason `inertiaCoefficient` is derived above: both must move with `carHullOf` in lockstep, or
 the torque lever and the inertia it divides by could silently disagree about the hull a ram actually
 collided against.
+
+## SLAM_CONFIG
+
+Hard-slam tuning (spec S3): `packages/shared/src/config/slam-config.ts`. A slam REPLACES a graded
+ram with a fixed exchange — same knock for every attacker and victim, by design. Networked balance,
+same standing as `RAM_CONFIG`. See [`combat-model.md`](combat-model.md#maneuvers-and-the-contact-pass).
+
+**Two of the rows below are INERT as of the 2026-09-06 vector-drive rework's stage 2 (Impulse)** —
+`victimAuthority` and `selfKeepFactor`. `victimAuthority` mirrors `RAM_CONFIG.authorityFloor`: there
+is no `authority` field left on `PlayerState` for it to feed. `selfKeepFactor` used to hand-restore a
+fraction of the attacker's pre-impact speed after a slam; `ram-bridge.ts` no longer computes a
+"restored" speed at all — the attacker's post-slam velocity now falls out of `reactionOf`'s
+equal-and-opposite reaction to the same `Impulse` the victim received, applied through the shared
+`impulses` map alongside every ordinary ram. Both fields are read by nobody; stage 4 deletes them
+along with the rest of `SLAM_CONFIG`.
+
+| Knob | Value | Notes |
+|---|---|---|
+| `knockSpeed` | 520 | Fixed knock impulse (a speed), 2x `RAM_CONFIG.knockMaxSpeed`. No mass factor, no side bonus — the victim's push is `massScaled: false`. Since the 2026-09-06 equal-and-opposite change this also costs the ATTACKER, via `reactionOf` (which always forces `massScaled: true`, even for a slam), on top of whatever `restitution` already reflected off it that same tick — see the doc comment on this value in `slam-config.ts` for the measured composed number |
+| `victimAuthority` **[INERT]** | 0.35 | Was the victim's post-slam steering authority, mirroring `RAM_CONFIG.authorityFloor` |
+| `selfKeepFactor` **[INERT]** | 0.7 | Was the fraction of the attacker's pre-impact speed hand-restored after a slam |
+| `wallStunWindowMs` / `wallStunDurationMs` | 500 / 500 | A slammed car that touches level geometry within the window is stunned for the duration |
+| `reslamImmunityMs` | 600 | A just-slammed car cannot be slammed again within this window |
+| `wallContactPad` | 1 | Hull inflation for "touching level geometry", mirroring `RAM_CONFIG.contactPad` |
 
 ## STATUS_TABLE
 

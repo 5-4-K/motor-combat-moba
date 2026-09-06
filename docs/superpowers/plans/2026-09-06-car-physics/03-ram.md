@@ -639,14 +639,32 @@ git commit -m "feat(balance): re-pitch ram constants against momentum-derived im
 > **Carried in from the stage 2 review (Tasks 3–4), not a new task.** The equal-and-opposite reaction
 > that stage 2 shipped (`applyImpulse` + `reactionOf`) makes `RAM_CONFIG.knockMaxSpeed` and
 > `SLAM_CONFIG.knockSpeed` cost the ATTACKER as well as the victim, and both constants were tuned
-> before that existed — see the doc comments on those two config values for the measured numbers
-> (a full-severity Bastion ram now costs 82% of its own top speed; a Bastion Wild Charge now sends
-> the attacker backwards). Task 5's mass-clamp widening above already answers the `massFactorMin/Max`
-> half of that ("Bastion computed 0.56, Bullseye 1.67"); `knockMaxSpeed` itself is not named in Task 5
-> as written, and should be checked (and probably re-pitched) alongside `spinScale` in that task
-> before this stage is called done. `SLAM_CONFIG.knockSpeed` is a separate number, moved onto
-> `wildcharge.impulse.speed` in stage 4 — see `04-impulse-def.md` and spec P31, which already flags it
-> as "the number most likely to be wrong and least likely to be noticed."
+> before that existed — see the doc comments on those two config values for the measured numbers.
+>
+> **The final stage-2 re-review found the first pass of those numbers itself wrong, in a way that
+> matters to whoever re-pitches these constants.** They were computed against `contactTick` run in
+> isolation — the way `ram-bridge.test.ts` exercises it — which charges the reaction straight onto the
+> attacker's PRE-collision speed. That is not the shipped order: `runPipeline`
+> (`tick-pipeline.ts:80`) runs `serverTick` (drive + `resolveWorld`) BEFORE `contactTick`, and
+> `resolveWorld` has already reflected the attacker's velocity by `DRIVE_CONFIG.restitution` (0.15) by
+> the time the ram's reaction lands — measured to fire on 40/40 sampled sub-tick phases at every
+> speed on this roster, not merely most of them. The two charges compose (reflect, then recoil on
+> top), so the TRUE cost is roughly 5x worse for a ram and 2.8x worse for a slam than the
+> isolated-`contactTick` numbers suggested:
+>
+> | case | isolated-`contactTick` figure (wrong) | actual, through the real order |
+> |---|---|---|
+> | Bastion full-severity ram | `190 → 34` (82% of top speed) | `190 → -184.5` — backwards at 97% of top speed |
+> | Bastion Wild Charge slam | `190 → -122` (64% of top speed) | `190 → -340.5` — backwards at 1.8x top speed |
+>
+> `packages/server/src/sim/pipeline-order.test.ts` now pins the composed order for a ram, so this
+> class of error fails a test rather than requiring a re-review to catch a second time. Task 5's
+> mass-clamp widening above already answers the `massFactorMin/Max` half of the finding ("Bastion
+> computed 0.56, Bullseye 1.67"); `knockMaxSpeed` itself is not named in Task 5 as written, and should
+> be checked (and probably re-pitched) alongside `spinScale` in that task before this stage is called
+> done — against the REAL composed numbers above, not the isolated ones. `SLAM_CONFIG.knockSpeed` is a
+> separate number, moved onto `wildcharge.impulse.speed` in stage 4 — see `04-impulse-def.md` and spec
+> P31, which already flags it as "the number most likely to be wrong and least likely to be noticed."
 
 ## Stage 3 exit criteria
 
