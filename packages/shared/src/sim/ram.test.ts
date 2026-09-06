@@ -324,15 +324,25 @@ describe("applyRams", () => {
   });
 
   it("keeps only the hardest impulse when one car is hit by two others in a tick", () => {
-    const soft = car({ sessionId: "a", x: -47, angle: 0, speed: 200 });
-    const hard = car({ sessionId: "c", x: 47, angle: Math.PI, speed: 540, carId: "bastion" as CarId });
-    const middle = car({ sessionId: "b", x: 0, angle: 0 });
+    // Both attackers hit the SAME side (flank, bonus 1.0 either way) so which one is "hardest" is
+    // decided by speed and mass alone, not by the front/rear bonus table — a head-on-vs-rear fixture
+    // (the review found this one originally was) makes "hardest" ambiguous: a fast, heavy REAR hit
+    // and a faster, heavier FRONT hit can trade places once the 0.3/1.3 bonus is folded in, which is
+    // exactly what silently happened here before (attacker "a", the "soft" one, actually won on the
+    // old rear/front fixture — the size/has assertions below never noticed).
+    const soft = car({ sessionId: "a", x: 12, y: -30, angle: Math.PI / 2, speed: 200 });
+    const hard = car({ sessionId: "c", x: 12, y: 30, angle: -Math.PI / 2, speed: 540, carId: "bastion" as CarId });
+    const middle = car({ sessionId: "b", x: 0, y: 0, angle: 0 });
     const out = applyRams([soft, middle, hard], new Set(), "ffa");
     // Exactly one entry survives for "b" — a Map keyed by victim id makes "at most one per victim"
     // structural rather than something to filter for, which is the whole reason contact.ts's
     // `ImpulseEntry` map replaced the old `RamKnock[]` array.
     expect(out.impulses.size).toBe(1);
     expect(out.impulses.has("b")).toBe(true);
+    // And the survivor must actually BE the hardest one — "c" (bastion, 540 u/s, severity saturates
+    // to 1) against "a" (mirage, 200 u/s, severity ~0.72) — not merely "some" impulse. The name of
+    // this test was previously true only by coincidence: nothing checked which attacker won.
+    expect(out.impulses.get("b")!.attackerId).toBe("c");
   });
 
   it("is deterministic regardless of the order cars are supplied in", () => {

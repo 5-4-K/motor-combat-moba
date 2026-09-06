@@ -118,4 +118,13 @@ describe("reactionOf", () => {
   it("carries no spin — the attacker's own lever arm is a separate question", () => {
     expect(reactionOf(impulse({ spin: 1 })).spin).toBe(0);
   });
+
+  it("forces massScaled: true even when the source impulse was unscaled", () => {
+    // The one field of the four `reactionOf` overrides unconditionally, and the surprising one: a
+    // hard slam's victim push is `massScaled: false` (every chassis takes the same knock), but the
+    // reaction charged back onto the attacker is ALWAYS divided by the attacker's own mass. This is
+    // the single line that makes a heavy attacker's own slam recoil smaller than the fixed knock it
+    // just dealt — see `SLAM_CONFIG.knockSpeed`'s doc comment for the measured Bastion case.
+    expect(reactionOf(impulse({ massScaled: false })).massScaled).toBe(true);
+  });
 });

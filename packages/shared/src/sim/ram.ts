@@ -50,12 +50,20 @@ export interface RamCar {
   /**
    * The car's `ramMass` status multiplier, 1 for a car in no status.
    *
-   * Read through `effectiveMassOf` at all three sites mass enters the maths, so a mass buff works
+   * Read through `effectiveMassOf` at the two ram sites mass enters the maths — this module's own
+   * severity grade, and `ram-bridge.ts`'s `massFor` (which `applyImpulse` reads for both the victim's
+   * push and, since stage 2 Task 4, the attacker's equal-and-opposite reaction) — so a mass buff works
    * both ways round: it makes this car hit harder AND makes it harder to shift. That symmetry is
    * the whole reason `ramMass` is one channel rather than two — mass in this game is a single
    * physical fact about a chassis (`CAR_TABLE.mass`, and nothing else reads it), and an effect that
    * could raise a car's ramming power without also anchoring it would not be scaling mass, it would
    * be a damage buff wearing mass's name.
+   *
+   * **A fourth site, `resolveWorld`'s ordinary car-vs-car separation (`StepContext.selfMass` and
+   * `CarObstacle.mass`, stage 2 Task 2), deliberately does NOT read this multiplier** — it is resolved
+   * straight from `massOf(carIdOf(player))` in `sim/context.ts`'s `otherCarHulls`/`sim/tick.ts`, with
+   * no `ramMass` scaling applied. See `otherCarHulls`'s own doc comment for why that is latent rather
+   * than a live bug today.
    */
   massMult: number;
 }

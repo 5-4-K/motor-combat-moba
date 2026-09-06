@@ -20,14 +20,17 @@ const BOUNDS = { width: 1000, height: 1000 };
 
 /** Mirage's real mass (`massOf("mirage")`) — the brief's own filler for a case that resolves only
  * against bounds or obstacles, where mass is never consulted so any positive number would do. NOT
- * the roster average: 480/300/900 averages to 560, which is what `ramReferenceMass()` (a different,
- * ram-severity concern) actually returns — easy to confuse with this constant because both are named
- * around "the mass of an average car," but this one is just Mirage's own mass reused as filler. */
+ * the roster average, even though 480/300/900 does average to 560: `ramReferenceMass()` (a
+ * different, ram-severity concern) is not a roster average at all — it returns 500
+ * (`REFERENCE_MASS_RATING` 50 * `massPerRating` 10, an "average-RATED" chassis, not the mean of the
+ * three actual masses) — easy to confuse with this constant because both are named around "the mass
+ * of an average car," but this one is just Mirage's own mass reused as filler. */
 const AVG_MASS = 480;
 
-/** Bare `Obb` -> `resolveWorld`'s hull, at `AVG_MASS` (Mirage's mass, not a roster average — see
- * above) — used only where a specific ratio does not matter (the dedicated "mass-weighted
- * separation" block below picks real numbers). */
+/** Bare `Obb` — NOT a `CarObstacle`, and sets no mass at all, despite call sites often pairing it
+ * with `AVG_MASS` — used only where a specific ratio does not matter (the dedicated "mass-weighted
+ * separation" block below picks real numbers). `pinned` below is what actually pairs a hull with a
+ * mass, for the cases that need a `CarObstacle`. */
 function hullAt(x: number, y: number, angle = 0): Obb {
   return { x, y, angle, w: CAR_W, h: CAR_H };
 }

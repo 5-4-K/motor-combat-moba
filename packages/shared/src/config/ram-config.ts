@@ -60,20 +60,39 @@ export const RAM_CONFIG = {
    * **Charged to the attacker as well as the victim since the 2026-09-06 equal-and-opposite change**
    * (stage 2 Task 4): `ram-bridge.ts` now applies `reactionOf` of the victim's own impulse back onto
    * the attacker, scaled by the ATTACKER's own mass factor. This value was tuned one-way, against a
-   * model where the attacker paid nothing, and it has not been re-pitched for the new cost. Measured
-   * against stage 1's cut top speeds (`RAM_REFERENCE_MASS` 500, `massFactorMin/Max` 0.6/1.6):
+   * model where the attacker paid nothing, and it has not been re-pitched for the new cost.
    *
-   * | attacker | scenario | recoil Δv | speed after |
-   * |---|---|---|---|
-   * | Bastion (mass 900, top 190) | lands a full-severity ram | `260 * clamp(500/900, 0.6, 1.6) = 260 * 0.6 = 156` | 190 → 34 u/s |
-   * | Bullseye (mass 300, top 223) | ramming at speed, severity 0.447 | `116.2 * clamp(500/300, 0.6, 1.6) = 116.2 * 1.6 = 186` | 223 → 37 u/s |
+   * **The attacker is charged in TWO layers, not one — an error in an earlier pass of this same
+   * comment measured the reaction alone.** `runPipeline` (`tick-pipeline.ts:80`) runs `serverTick`
+   * (drive + `resolveWorld`) BEFORE `contactTick`, so by the time this recoil lands, `resolveWorld`
+   * has ALREADY reflected the attacker's whole pre-collision velocity by `DRIVE_CONFIG.restitution`
+   * (0.15) — a car covers more per tick than `RAM_CONFIG.contactPad`'s touching band at every speed
+   * on this roster, so that reflection fires on 40/40 sampled sub-tick phases, not merely most of
+   * them. The reaction below is then applied ON TOP OF the already-reflected speed, not onto the
+   * pre-collision speed a caller that only exercises `contactTick` in isolation would assume (exactly
+   * what `ram-bridge.test.ts` alone shows, and exactly what misled the previous pass of this table).
+   * `packages/server/src/sim/pipeline-order.test.ts` is what pins the composed order now.
    *
-   * Both numbers only get bigger once stage 3 grades severity from RELATIVE closing velocity rather
-   * than the attacker's speed alone (a fleeing victim currently softens the hit; an oncoming one will
-   * harden it past what these two rows show). Stage 2's own exit criterion — "Ram a Bullseye as
-   * Bastion, then the reverse. The Bastion barely slows" — is currently CONTRADICTED by the first row
-   * above: a full-severity ram now costs a Bastion 82% of its top speed. A hand playtest before the
-   * re-pitch below will read as wrong; that is expected, not a regression to chase.
+   * Measured through the real order — `stepSim`, then `resolveRam`, then
+   * `applyImpulse(reactionOf(...))` — against stage 1's cut top speeds (`RAM_REFERENCE_MASS` 500,
+   * `massFactorMin/Max` 0.6/1.6), a dead-on rear hit, swept across 40 sub-tick phases (identical
+   * result on every one, since the reflection is a velocity-space operation, not depth-dependent):
+   *
+   * | attacker | scenario | after `resolveWorld` reflection | reaction Δv | speed after |
+   * |---|---|---|---|---|
+   * | Bastion (mass 900, top 190) | full-severity (severity 1) rear hit | `190 * -0.15 = -28.5` | `260 * clamp(500/900, 0.6, 1.6) = 260 * 0.6 = 156` | 190 → **-184.5 u/s** |
+   * | Bullseye (mass 300, top 223) | rear hit, severity 0.651 | `223 * -0.15 = -33.45` | `(0.651 * 260) * clamp(500/300, 0.6, 1.6) = 169.4 * 1.6 = 271.0` | 223 → **-304.5 u/s** |
+   * | Mirage (mass 480, top 267) | full-severity (severity 1) rear hit | `267 * -0.15 = -40.05` | `260 * clamp(500/480, 0.6, 1.6) = 260 * 1.0417 = 270.8` | 267 → **-310.9 u/s** |
+   *
+   * All three end up travelling BACKWARDS, past their own top speed in two of three cases — not
+   * merely "barely slowed." Both numbers only get bigger once stage 3 grades severity from RELATIVE
+   * closing velocity rather than the attacker's speed alone (a fleeing victim currently softens the
+   * hit; an oncoming one will harden it past what these rows show). Stage 2's own exit criterion —
+   * "Ram a Bullseye as Bastion, then the reverse. The Bastion barely slows" — is CONTRADICTED more
+   * severely than an isolated-`contactTick` measurement would suggest: the Bastion above does not
+   * merely slow to 18% of its top speed, it reverses past its OWN top speed backwards (97%). A hand
+   * playtest before the re-pitch below will read as badly wrong; that is expected, not a regression
+   * to chase.
    *
    * Stage 3 owns re-pitching this value against the new momentum-derived scale — see
    * `docs/superpowers/plans/2026-09-06-car-physics/03-ram.md`, Task 5 ("Re-pitch the constants the
