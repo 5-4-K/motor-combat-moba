@@ -297,12 +297,18 @@ function threatHeading(
 /**
  * How loaded this bot BELIEVES an opponent's weapon is (P21), 0..1.
  *
- * Built only from presses it actually watched — a human tracks availability approximately, which the
- * user's fairness ruling calls fair, and `BotCarView` deliberately carries no slot state so there is
- * nothing else to read. Three ways this is honestly wrong, all of them the point:
- * a press seen through a shorter `memoryTicks` is forgotten and the gun is assumed loaded; a press
- * never seen at all is assumed loaded; and a weapon fired outside the bot's awareness never lands
- * here in the first place.
+ * Built only from the press log — a human tracks availability approximately, which the user's
+ * fairness ruling calls fair, and `BotCarView` deliberately carries no slot state so there is
+ * nothing else to read. Two ways this is honestly wrong, both of them the point: a press seen
+ * through a shorter `memoryTicks` is forgotten and the gun is assumed loaded, and a press never
+ * logged at all is assumed loaded.
+ *
+ * What it is NOT is viewport-filtered. `buildBotView` applies the fairness filter to `others` and
+ * `instances` only; `observedFires` passes through verbatim, and `perceive` records every non-self
+ * fire unconditionally — so a press made across the map, out of sight, still reaches this function.
+ * That leak predates this work: `ultIsSpent` reads the same unfiltered log. It is moot on
+ * `arena-01`, which fits inside the viewport, and real on `arena-02` (2000x2000). Closing it means
+ * filtering at the seam, which is a behaviour change, not a comment fix.
  */
 export function readinessOf(
   state: PerceptionState,
@@ -316,6 +322,8 @@ export function readinessOf(
   const since = tick - seen;
   if (since > profile.memoryTicks) return 1;
   const cooldown = weaponTicksOf(weaponId).cooldown;
+  // Unreachable on today's roster — the shortest `cooldownMs` is 1000 (30 ticks) — and kept only so
+  // a future zero-cooldown row cannot turn the division below into `0 / 0` -> NaN (R-C-M2).
   if (cooldown <= 0) return 1;
   return Math.min(1, since / cooldown);
 }

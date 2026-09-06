@@ -427,6 +427,27 @@ describe("solver determinism (P43)", () => {
     }
   });
 
+  it("draws no random numbers from the danger entry point either (P43)", () => {
+    // `dangerEvAgainst` is `solve` with the arguments swapped, and it is read by the anticipatory
+    // `evade` gate in `controller.ts` — a gate that must never make the number of `rng()` draws
+    // depend on a branch, or a seeded replay desynchronises (H21).
+    const me: BotCarView = { ...targetAt(300, 0), sessionId: "me" };
+    const threat: BotCarView = { ...targetAt(0, 0), sessionId: "them", carId: "bullseye", angle: 0 };
+    const throwing = () => {
+      throw new Error("the solver must not draw rng (P43)");
+    };
+    const original = Math.random;
+    Math.random = throwing as unknown as typeof Math.random;
+    try {
+      expect(() => dangerEvAgainst({
+        threat, me, meAt: constantVelocityPredictor(me),
+        readiness: () => 1, assumedAimSigmaRad: 0.05, tick: 0, arena,
+      })).not.toThrow();
+    } finally {
+      Math.random = original;
+    }
+  });
+
   it("returns identical results for identical inputs", () => {
     const target = targetAt(400, 25);
     const once = () => solve({

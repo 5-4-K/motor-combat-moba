@@ -218,20 +218,26 @@ export class HumanController implements BotController {
     }
 
     const shotThreats = activeThreats(this.perception, tick);
+    // Hoisted above the danger term (R-C-I1) so the anticipatory gate below can read it. It is the
+    // same expression `classifySituation` receives as `selfControlLost` further down — computed
+    // once, used twice. Draws no `rng()`.
+    const selfControlLost = !self.alive || hasStatus(self.statuses, "phased", tick);
+    // The bot's own pose as a `BotCarView`, so the danger solve can reuse the shared
+    // `constantVelocityPredictor` instead of re-deriving constant-velocity dead reckoning inline
+    // (R-C-M1). `alive: true, phased: false` are deliberate literals: this is the OPPONENT'S view of
+    // this bot for the purpose of "how much would that hurt me", which is asked of a live, solid
+    // body — `selfControlLost` above is what stops the bot acting on the answer while it is neither.
+    const me: BotCarView = {
+      sessionId: self.sessionId, carId: self.carId, team: self.team,
+      x: self.x, y: self.y, angle: self.angle, speed: self.speed,
+      hp: self.hp, maxHp: self.maxHp, alive: true, phased: false,
+      statuses: self.statuses, maneuver: self.maneuver,
+    };
     const danger = target
       ? dangerEvAgainst({
           threat: target,
-          me: {
-            sessionId: self.sessionId, carId: self.carId, team: self.team,
-            x: self.x, y: self.y, angle: self.angle, speed: self.speed,
-            hp: self.hp, maxHp: self.maxHp, alive: true, phased: false,
-            statuses: self.statuses, maneuver: self.maneuver,
-          },
-          meAt: (ahead) => ({
-            x: self.x + Math.cos(self.angle) * self.speed * (ahead / TICK_RATE_HZ),
-            y: self.y + Math.sin(self.angle) * self.speed * (ahead / TICK_RATE_HZ),
-            angle: self.angle,
-          }),
+          me,
+          meAt: constantVelocityPredictor(me),
           readiness: (weaponId) =>
             readinessOf(this.perception, target.sessionId, weaponId, tick, profile),
           assumedAimSigmaRad: BRAIN_CONSTANTS.assumedOpponentAimSigmaRad,
@@ -289,14 +295,35 @@ export class HumanController implements BotController {
     //  - `danger > 0` (R-C7): `0 >= 0 * fraction` is vacuously true whenever NEITHER side has a
     //    value (no target, or one genuinely out of every weapon's reach), which tripped `evade` on
     //    zero signal at all. A real threat with 0 danger cannot exist, so this costs nothing.
-    //  - `opponentRangeRespect` (P38) scales the danger, keeping "how much does this bot respect
-    //    danger" the tier axis it has always been — at easy's 0 this term can never fire.
-    //  - the comparison is RELATIVE to the bot's own best available shot (`bestValue`, R-C7): "am I
-    //    LOSING this exchange from here", not "could someone shoot me" (true for most of a duel).
+    //  - `!selfControlLost` (R-C-I1): while the bot is dead or spawn-protected, `classifySituation`
+    //    returns `recover` before it ever looks at `evade`, so the term could not have been selected
+    //    — but the stamp below would still consume the refractory. `danger` is nonzero there because
+    //    `me` above is deliberately built alive and solid, and in `FFA_DEATHMATCH` (which Practice
+    //    mode is pinned to) that is every respawn of every match: the bot would burn its cooldown
+    //    behind the spawn shield and be unable to break a line for seconds after the shield dropped.
+    //  - `opponentRangeRespect > 0` (R-C-C1): the SCALED comparison below cannot express "this tier
+    //    ignores danger", because at a respect of 0 it degenerates to `0 >= bestValue * fraction`,
+    //    which is TRUE whenever the bot itself has no shot — no slot ready, every ready slot out of
+    //    reach, or the nose pointed away. `danger > 0` closes the both-zero case but not that one,
+    //    so easy — the tier documented as structurally immune — was getting the LARGEST share of
+    //    anticipatory disengagement of the three (share is `situationCommitTicks` /
+    //    `dangerEvadeCooldownTicks`, and easy commits longest). This reads a NUMBER off the profile,
+    //    which is how this codebase expresses every tier difference; it is not a branch on the tier
+    //    NAME (H-no-tier-branch). Medium (0.45) and hard (0.9) pass it unchanged, so this clause
+    //    cannot move their behaviour by a tick. The narrow form is deliberate: `bestValue > 0` would
+    //    also fix easy, but would additionally delete "I have no shot at all and I am standing in
+    //    his line, leave" from medium and hard — a real behaviour change.
+    //  - the comparison itself: `opponentRangeRespect` (P38) still SCALES the danger, keeping "how
+    //    much does this bot respect danger" the tier axis it has always been, and the comparison is
+    //    RELATIVE to the bot's own best available shot (`bestValue`, R-C7): "am I LOSING this
+    //    exchange from here", not "could someone shoot me" (true for most of a duel).
     //
     // Draws no `rng()`, and neither does anything it gates: the cooldown must never make the number
-    // of draws depend on a branch, or a seeded replay desynchronises (H21).
+    // of draws depend on a branch, or a seeded replay desynchronises (H21). Every conjunct above is
+    // pure arithmetic over already-computed values, so adding them moved no draw in the stream.
     const anticipatoryEvade = !pinned
+      && !selfControlLost
+      && profile.opponentRangeRespect > 0
       && tick - this.lastAnticipatoryEvadeTick >= BRAIN_CONSTANTS.dangerEvadeCooldownTicks
       && danger > 0
       && danger * profile.opponentRangeRespect >= bestValue * BRAIN_CONSTANTS.dangerEvadeFraction;
@@ -325,7 +352,7 @@ export class HumanController implements BotController {
     const trulyHittable = target !== undefined && target.alive && !target.phased;
 
     const classified = classifySituation({
-      selfControlLost: !self.alive || hasStatus(self.statuses, "phased", tick),
+      selfControlLost,
       hittable: trulyHittable,
       // A shot already in flight, a car bearing down, or — computed above, with its own gates and
       // its own refractory period — a firing solution the bot is standing in before the shot exists.

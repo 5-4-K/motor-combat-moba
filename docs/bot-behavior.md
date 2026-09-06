@@ -14,7 +14,7 @@ Design: [`docs/superpowers/specs/2026-09-05-bot-situation-play-design.md`](super
 (S1–S28). Fairness / hands / personalities: H1–H8 and H16–H48 of
 [`docs/superpowers/specs/2026-09-04-human-like-bot-behavior-design.md`](superpowers/specs/2026-09-04-human-like-bot-behavior-design.md).
 
-Copied from `bot-profiles.ts` on 2026-09-05. `BOT_BRAIN_VERSION` is `4.1.0`.
+Copied from `bot-profiles.ts` on 2026-09-06. `BOT_BRAIN_VERSION` is `4.1.0`.
 
 ## Reading a complaint
 
@@ -42,8 +42,11 @@ Copied from `bot-profiles.ts` on 2026-09-05. `BOT_BRAIN_VERSION` is `4.1.0`.
 The "runs away from nothing" / "walks into obvious fire" rows above mix a per-tier dial
 (`opponentRangeRespect`) with two knobs that are **not** per-tier: `BRAIN_CONSTANTS.dangerEvadeFraction`
 and `dangerEvadeCooldownTicks` are shared, so retuning either moves medium and hard together, not just
-the complained-about tier. Easy is structurally immune regardless — its `opponentRangeRespect` is 0,
-so the anticipatory term stays permanently false no matter what the shared constants say.
+the complained-about tier. Easy is structurally immune regardless: the anticipatory term is gated on
+`opponentRangeRespect > 0` in `controller.ts`, and easy's is 0, so it stays permanently false there no
+matter what the shared constants say. (That gate is explicit for a reason — the scaling by
+`opponentRangeRespect` alone did not deliver the immunity, because `0 >= bestValue * fraction` is
+true whenever the bot has no shot of its own.)
 
 ## Pipeline
 
@@ -76,7 +79,7 @@ threshold — never fire at all. `minShotValueFraction` divides by each shooter'
 |---|---|---|---|
 | `recover` | self dead or phased | coast | off |
 | `waitOut` | nobody hittable | last-known / heard shot / quadrant | **off** |
-| `evade` | incoming shot (rolled `dodgeChance`), incoming car (`incomingCarChance`), or — anticipatory, before any shot exists — standing in a loaded gun's firing solution (see below) | off the line | still fire if in cone |
+| `evade` | incoming shot (rolled `dodgeChance`), incoming car (`incomingCarChance`), or — anticipatory, before any shot exists and **only while not wall-pinned**, alive and not phased — standing in a loaded gun's firing solution (see below) | off the line | still fire if in cone |
 | `unpin` | on a bound/corner with a target, `cornerRespect` | open floor, never map centre | fight rules |
 | `punish` | stunned, low HP, or they just spent a 5s+ gun | close | dump, including ult |
 | `reset` | own HP < `retreatHpFraction` (0 = Easy fights to zero) | open range, no reverse into a wall | fight rules |
@@ -93,7 +96,16 @@ Opponent keep-out is their **shortest** gun × `opponentRangeRespect`.
 Beside the reactive dodge, `evade` also fires when the danger the bot is standing in
 (`dangerEvAgainst`, scaled by `opponentRangeRespect`) meets or beats the best shot the bot could
 itself take from its current pose — "am I losing this exchange from here", asked before any shot
-exists. Easy's `opponentRangeRespect` of 0 makes it impossible to trip, which is the intent.
+exists. Easy's `opponentRangeRespect` of 0 makes it impossible to trip, which is the intent — the
+gate tests `opponentRangeRespect > 0` explicitly rather than relying on the scaling to deliver that.
+
+**It is also gated on the bot NOT being wall-pinned, and on it being alive and not spawn-protected.**
+So "it will not break the line when backed against a wall" is by design, not a tuning failure: a
+pinned bot yields this term to `unpin`, which gets first crack at getting off the wall and usually
+breaks the line on its way to open floor. The reactive dodge and the incoming-car trigger are *not*
+gated that way — they still fire while pinned. The alive/not-phased gate is there so a dead or
+spawn-protected bot cannot silently consume the refractory below at a moment when `recover` outranks
+`evade` anyway — which in `FFA_DEATHMATCH`, and therefore in Practice, is every respawn.
 
 **Reach for `BRAIN_CONSTANTS.dangerEvadeCooldownTicks` (120) before `dangerEvadeFraction` (1) if this
 behaviour feels wrong.** A shot in flight is a rare, brief EVENT, which is what `evade`'s
@@ -135,14 +147,28 @@ solver's own aim quadrature and its `value` (EV) threshold, `minShotValueFractio
 2026-09-06, R21): the real forward-prediction replacement is a later, not-yet-landed phase, so
 `leadFactor` is back and still read by `interceptPoint` for both aim and body-intercept heading.
 
-### Steering (shared constants, not per-tier)
+### Shared constants (`BRAIN_CONSTANTS`, not per-tier)
 
-`BRAIN_CONSTANTS` in `bot-profiles.ts` — feeds `compensateForLag` in `bot/brain/movement.ts`.
+In `bot-profiles.ts`. Editing any of these retunes **every** tier at once — and note that
+`botFingerprintInput()` (`packages/server/balance/fingerprint.ts`) hashes only `BOT_PROFILES` and
+`BOT_BRAIN_VERSION`, so a `BRAIN_CONSTANTS` edit does not move `botFingerprint`: bump
+`BOT_BRAIN_VERSION` yourself, or two balance reports will compare as if the same pilot played both.
+
+Steering — feeds `compensateForLag` in `bot/brain/movement.ts`:
 
 | Field | Value | What it does |
 |---|---|---|
 | `deadzoneFloorFraction` | 0.5 | Floors the effective steering deadzone at half of whichever rotation the bot cannot correct within — one tick's, or one `recomputeTicks` decision window's, whichever is larger. Without it the bang-bang steer law (`steer` is only ever -1/0/1) limit-cycles around its own aim line forever, because it never anticipates its own reaction lag. |
 | `deadzoneCapMultiplier` | 2.3 | Hard ceiling on that deadzone, as a multiple of `aimToleranceRad`. **A FITTED constant, not a derived one** — the doc comment on it in `bot-profiles.ts` shows nearby values (2.0, 2.3, 3.0) settling to qualitatively different, non-monotonic outcomes. Do not nudge it casually; re-measure if `turnRate`, `deadzoneFloorFraction`, or a tier's turn-rate profile changes. |
+
+Danger and the anticipatory `evade` — feeds `dangerEvAgainst` in `bot/brain/solution.ts` and the
+gate in `bot/brain/controller.ts`:
+
+| Field | Value | What it does |
+|---|---|---|
+| `assumedOpponentAimSigmaRad` | 0.06 | The aim error a bot assumes of an OPPONENT when reading danger, instead of projecting its own hands. One shared number because the bot cannot know who it is facing — so it sits between medium's `aimErrorSigmaRad` (0.09) and hard's (0.035), over-reading an easy or medium opponent's threat and under-reading a hard one's by ~1.7x. Accepted asymmetry, not "assume competence". |
+| `dangerEvadeFraction` | 1 | Fraction of the bot's OWN best available shot (`bestValue`) that the scaled danger must clear before it leaves the line. Relative, not absolute: "am I losing this exchange from here". |
+| `dangerEvadeCooldownTicks` | 120 | Refractory period — how often an anticipatory excursion may START. With `situationCommitTicks` saying how long one LASTS, this sets `evade`'s share of a fight (5% hard, 10% medium). Reach for this before `dangerEvadeFraction`; see the section above. |
 
 ### Fire economy
 

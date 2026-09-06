@@ -273,8 +273,14 @@ export const BRAIN_CONSTANTS = Object.freeze({
   deadzoneCapMultiplier: 2.3,
   /**
    * The aim error a bot assumes of an OPPONENT when evaluating danger (P16). Not per-tier: this is
-   * what the bot assumes of someone else, and every tier assumes competence rather than projecting
-   * its own hands onto them.
+   * what the bot assumes of someone else, rather than projecting its own hands onto them.
+   *
+   * It is NOT "assume competence" — 0.06 sits between medium's `aimErrorSigmaRad` (0.09) and hard's
+   * (0.035), so it over-reads a shakier opponent's threat and UNDER-reads a hard one's. Against easy
+   * (0.18) and medium it is the pessimistic assumption the phrase implies; against hard it is
+   * optimistic by ~1.7x. That asymmetry is accepted, not designed around: it is one shared number
+   * because the bot cannot know who it is facing, and a `min` against its own sigma would make a
+   * hard bot's danger reading depend on its OWN hands, which is the projection this avoids.
    */
   assumedOpponentAimSigmaRad: 0.06,
   /**
@@ -386,12 +392,15 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * "an excursion, not a mode" means. Hard's `situationCommitTicks` is 6, so 6 / 0.05 = 120 ticks —
    * four seconds at 30 Hz, and a natural re-engage cadence: you break a line, then come back. You do
    * not cower for the whole fight. The same 120 gives medium (commit 12) a 10% share, and easy
-   * cannot trip the term at all at `opponentRangeRespect` 0, so no tier is left living in `evade`.
+   * cannot trip the term at all — `controller.ts` gates it on `opponentRangeRespect > 0` explicitly,
+   * because the scaling alone did NOT give easy immunity (R-C-C1) — so no tier lives in `evade`.
    *
-   * CONFIRMED BY MEASUREMENT on the same fixture and the same sweep (seeds 1-150, decisive kills
-   * inside the 30 s window). The trade-off is continuous and monotone in the cooldown, which is
-   * itself the evidence that share — not the arithmetic deciding the condition — was always the
-   * defect:
+   * The arithmetic above is the whole reason for 120; it does not need a measurement to agree with
+   * it. What the sweep below (same fixture, seeds 1-150, decisive kills inside the 30 s window) adds
+   * is a SANITY CHECK on the shape: a cliff between 0-60 and everything at or above 90, then noise.
+   * At n=150 both 23-vs-20 and 17-vs-20 sit inside binomial noise, so this metric cannot separate
+   * 120 from 180 in either direction — read the table as "the reflex stops costing decisive kills
+   * once the share drops under ~7%", and not as evidence for any particular value above that knee:
    *
    * | cooldown | hard share | decisive / 150 |
    * |---|---|---|
@@ -402,11 +411,12 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * | 180 | 3.3% | 23 |
    * | term disabled entirely | 0% | 20 |
    *
-   * 180 scores marginally higher than the disabled baseline, i.e. at a 3.3% share this metric can no
-   * longer tell the reflex from its own absence — which is an argument for a SMALLER cooldown, not a
-   * larger one. 120 keeps the reflex measurable in the fixture and still lands the decisive-kill rate
-   * in the historical band. Note the coupling: a future retune of `situationCommitTicks` moves this
-   * term's share without touching this constant, so re-run that sweep if that field moves.
+   * The last three rows (17, 23, 20) are one noise band, not a trend: nothing here distinguishes a
+   * 5% share from a 3.3% one or from the term being absent altogether. 120 is chosen by the
+   * arithmetic — it is the cooldown that puts hard's share at the 5% target — and the table's job is
+   * only to confirm that a share that low does not cost decisive kills the way 0-60 does. Note the
+   * coupling: a future retune of `situationCommitTicks` moves this term's share without touching
+   * this constant, so re-run that sweep if that field moves.
    */
   dangerEvadeCooldownTicks: 120,
 });

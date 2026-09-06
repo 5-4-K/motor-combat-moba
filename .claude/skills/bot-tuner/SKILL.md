@@ -83,3 +83,11 @@ npx vitest run src/config/bot-profiles.test.ts src/bot/brain/tiers.test.ts
 
 from `packages/server`. Recommend they try it in Practice or `?dev=playground`. Recommend
 `npm run balance` only if they want a new win-rate baseline — the table hash will have moved.
+
+**Exception, and it bites exactly the two knobs above.** `botFingerprintInput()` in
+`packages/server/balance/fingerprint.ts` hashes only `BOT_PROFILES` and `BOT_BRAIN_VERSION` —
+`BRAIN_CONSTANTS` has never been part of it. So an edit to `dangerEvadeFraction`,
+`dangerEvadeCooldownTicks`, or any other `BRAIN_CONSTANTS` field does **not** move `botFingerprint`,
+and two balance reports taken either side of it will compare as if the same pilot played both. If
+you touch `BRAIN_CONSTANTS`, bump `BOT_BRAIN_VERSION` in the same edit — that is what makes the
+harness refuse the stale comparison.

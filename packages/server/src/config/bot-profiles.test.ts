@@ -171,6 +171,8 @@ describe("BOT_PROFILES", () => {
     expect(BRAIN_CONSTANTS.ultCooldownMs).toBe(5000);
     expect(BRAIN_CONSTANTS.personalityJitter).toBe(0.25);
     expect(BRAIN_CONSTANTS.assumedOpponentAimSigmaRad).toBe(0.06);
+    expect(BRAIN_CONSTANTS.dangerEvadeFraction).toBe(1);
+    expect(BRAIN_CONSTANTS.dangerEvadeCooldownTicks).toBe(120);
     expect(BOT_BRAIN_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
   });
 });
