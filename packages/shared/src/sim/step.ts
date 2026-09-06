@@ -1,7 +1,7 @@
 import { driveOf } from "../config/car-config.js";
 import type { CarId } from "../config/types.js";
 import type { InputMessage } from "../net/input.js";
-import { resolveWorld, type Aabb, type Bounds, type Obb } from "./collide.js";
+import { resolveWorld, type Aabb, type Bounds, type CarObstacle } from "./collide.js";
 import { dashSubstepCount, dashTranslation, isDashing, stepDrive } from "./drive.js";
 import type { Modifiers } from "./status/modifiers.js";
 
@@ -43,12 +43,14 @@ export interface SimBody {
 
 /**
  * Everything outside the body that one tick of simulation needs: which car is being driven, and the
- * world it is driving through. `others` are the *other* cars' hulls (centre-based `Obb`), `obstacles`
- * come straight from `getArena(...).obstacles` (top-left `Aabb`), and `bounds` is the arena extent.
+ * world it is driving through. `others` are the *other* cars, each a hull (centre-based `Obb`) paired
+ * with its mass (`CarObstacle`, stage 2 Task 2) so `resolveWorld` can split a car-car correction by
+ * weight; `obstacles` come straight from `getArena(...).obstacles` (top-left `Aabb`); `bounds` is the
+ * arena extent.
  */
 export interface StepContext {
   carId: CarId;
-  others: readonly Obb[];
+  others: readonly CarObstacle[];
   obstacles: readonly Aabb[];
   bounds: Bounds;
   /**
@@ -65,6 +67,17 @@ export interface StepContext {
    * the two halves of the lockstep honest; a default would take that away.
    */
   modifiers: Readonly<Modifiers>;
+  /**
+   * This car's own mass (`massOf(carId)`), stage 2 Task 2. `resolveWorld` needs it on the SAME
+   * footing as `modifiers` above: it is a fact about the body being resolved, not integrated state,
+   * so it lives here rather than on `SimBody`. Deliberately **required**, not optional with a
+   * default — `serverTick` and the client's `buildStepContext` are the only two builders of a
+   * `StepContext`, and a default here would let one of them silently forget to resolve it from the
+   * driven car's `carId` while the other did not, leaving the two halves of the lockstep splitting
+   * car-car separation by two different masses for the same car. The compiler is what keeps them
+   * honest; a default would take that away.
+   */
+  selfMass: number;
 }
 
 /**
@@ -83,7 +96,7 @@ export interface StepContext {
 export function stepSim(body: SimBody, input: InputMessage, dt: number, ctx: StepContext): SimBody {
   const driven = stepDrive(body, input, dt, driveOf(ctx.carId), ctx.modifiers);
   if (!isDashing(body)) {
-    return resolveWorld(driven, ctx.others, ctx.obstacles, ctx.bounds);
+    return resolveWorld(driven, ctx.others, ctx.obstacles, ctx.bounds, ctx.selfMass);
   }
   return resolveDash(body, driven, dt, ctx);
 }
@@ -131,6 +144,7 @@ function resolveDash(body: SimBody, driven: SimBody, dt: number, ctx: StepContex
       ctx.others,
       ctx.obstacles,
       ctx.bounds,
+      ctx.selfMass,
     );
   }
   return next;

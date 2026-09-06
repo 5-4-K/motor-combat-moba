@@ -21,6 +21,9 @@ const ctx: StepContext = {
   bounds: { width: arena.width, height: arena.height },
   // Unbuffed: every expectation here is the plain drive model.
   modifiers: NEUTRAL_MODIFIERS,
+  // Mirage's real mass. `others` is empty in every case here, so nothing actually reads this — it
+  // stands in for `massOf("mirage")` without importing config just to spell out 480.
+  selfMass: 480,
 };
 
 const DT = MS_PER_TICK / 1000;

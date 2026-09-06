@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MS_PER_TICK } from "../constants.js";
+import { massOf } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import { RAM_CONFIG } from "../config/ram-config.js";
 import { obbsInContact, obbsOverlap, type Obb } from "./collide.js";
@@ -18,6 +19,7 @@ const EMPTY_ARENA: StepContext = {
   obstacles: [],
   bounds: { width: 800, height: 600 },
   modifiers: NEUTRAL_MODIFIERS,
+  selfMass: massOf("mirage"),
 };
 
 function drive(body: SimBody, ctx: StepContext, ticks: number): SimBody {
@@ -150,10 +152,16 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
         const targetHull = hullOf(TARGET.x, TARGET.y, targetAngle);
         const ctx: StepContext = {
           carId: "mirage",
-          others: [targetHull],
+          // selfMass: 0 makes shareOf(0, mass) = 1 exactly for any positive `mass` -- this test is
+          // about dash tunnelling geometry (C1/C2), not the mass split, so the dasher takes the WHOLE
+          // correction every contact, exactly as it did before the mass split existed. A real (say
+          // 0.5/0.5) split would under-correct each substep and could let the fast-moving dasher
+          // drift past or into the target across the sweep, which is not what this test measures.
+          others: [{ hull: targetHull, mass: massOf("mirage") }],
           obstacles: [],
           bounds: { width: 1280, height: 720 },
           modifiers: NEUTRAL_MODIFIERS,
+          selfMass: 0,
         };
 
         // Sweep the full sub-tick phase: shifting the start by one tick's travel walks the contact
@@ -200,6 +208,7 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
       obstacles: [],
       bounds: { width: 4000, height: 4000 },
       modifiers: NEUTRAL_MODIFIERS,
+      selfMass: massOf("mirage"),
     };
     let body = dasherAt(200, 2000, 0);
     for (let tick = 0; tick < DASH_TICKS; tick++) {
@@ -220,6 +229,7 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
       obstacles: [],
       bounds: { width: 4000, height: 4000 },
       modifiers: NEUTRAL_MODIFIERS,
+      selfMass: massOf("mirage"),
     };
     const out = stepSim(dasherAt(200, 2000, 0), NO_INPUT, DT, empty);
     expect(out.maneuverTicksLeft).toBe(DASH_TICKS - 1);
@@ -236,6 +246,7 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
       obstacles: [{ x: 300, y: 200, w: 200, h: 200 }],
       bounds: { width: 1280, height: 720 },
       modifiers: NEUTRAL_MODIFIERS,
+      selfMass: massOf("mirage"),
     };
     const driving: SimBody = {
       x: 200,

@@ -21,6 +21,12 @@ export interface Obb {
   h: number;
 }
 
+/** One other car as the resolver sees it: where it is, and how hard it is to shove. */
+export interface CarObstacle {
+  hull: Obb;
+  mass: number;
+}
+
 /** Arena extent. The world is `[0, width] x [0, height]`, top-left origin. */
 export interface Bounds {
   width: number;
@@ -83,16 +89,22 @@ const RELAXATION_PASSES = 1;
  * dimension — 48px measured on the flush-obstacle fixture in the tests — and hold it *stably*,
  * because the ranking re-applies identically every tick. Nothing here bounds the depth.
  *
- * The car-car case is the mildest only because the server resolves every player against the current
- * state each tick, so the *other* car is being pushed off this one at the same time and the pair
- * works itself apart. That relief comes from the caller's loop, not from anything in this function:
- * `resolveWorld` on its own will happily hold two cars overlapped forever.
+ * The car-car case used to be the mildest only because the server resolves every player against the
+ * current state each tick, so the *other* car is being pushed off this one at the same time and the
+ * pair works itself apart — each side conceding the FULL correction and letting two independent
+ * full pushes over-correct back toward separation over a tick or two. Since the mass split below
+ * (stage 2 Task 2), each side concedes only its `shareOf` the correction, so the two full-tick
+ * pushes sum to exactly one separation instead of two: a Bastion pushes a Bullseye further than the
+ * Bullseye pushes back, and the pair still fully separates in the same tick, not slowly over several.
+ * That relief still comes from the caller's loop, not from anything in this function: `resolveWorld`
+ * on its own will happily hold two cars overlapped forever if the caller never re-resolves the pair.
  */
 export function resolveWorld(
   body: SimBody,
-  others: readonly Obb[],
+  others: readonly CarObstacle[],
   obstacles: readonly Aabb[],
   bounds: Bounds,
+  selfMass: number,
 ): SimBody {
   let next = body;
   for (let pass = 0; pass < RELAXATION_PASSES; pass++) {
@@ -101,10 +113,10 @@ export function resolveWorld(
     // occupy. Skipping this measurably changes the outcome for over half of ordinary wall contacts.
     next = resolveBounds(next, bounds);
     for (const other of others) {
-      next = resolveAgainst(next, other);
+      next = resolveAgainst(next, other.hull, shareOf(selfMass, other.mass));
     }
     for (const obstacle of obstacles) {
-      next = resolveAgainst(next, aabbToObb(obstacle));
+      next = resolveAgainst(next, aabbToObb(obstacle), OBSTACLE_SHARE);
     }
     // Trailing bounds pass — position only, no bounce. The boundary still gets the last word on
     // where the car may be, but restitution was already applied to whichever surfaces the car
@@ -113,6 +125,24 @@ export function resolveWorld(
   }
   return { ...next };
 }
+
+/**
+ * The fraction of a car-car correction THIS body absorbs.
+ *
+ * A heavier car takes less of the push, so a Bastion is something you cannot shoulder aside and a
+ * Bullseye gets moved constantly. Static geometry has no mass and does not yield: obstacles and
+ * bounds still hand the body the whole correction, which is what `OBSTACLE_SHARE` names.
+ *
+ * Note this is a POSITIONAL split, not an impulse — velocity exchange is `applyImpulse`'s job. The
+ * two are separate on purpose: separation runs every tick a pair overlaps, and routing it through
+ * impulses would re-apply a knock on each of them.
+ */
+function shareOf(selfMass: number, otherMass: number): number {
+  const total = selfMass + otherMass;
+  return total <= 0 ? OBSTACLE_SHARE : otherMass / total;
+}
+
+const OBSTACLE_SHARE = 1;
 
 /**
  * The correction that brings the car's hull back inside the arena, per axis. Zero on an axis that
@@ -161,10 +191,15 @@ function clampIntoBounds(body: SimBody, bounds: Bounds): SimBody {
   return { ...body, x: body.x + push.x, y: body.y + push.y };
 }
 
-/** Resolve the body's car OBB against one static or moving box. Only the body moves. */
-function resolveAgainst(body: SimBody, box: Obb): SimBody {
+/**
+ * Resolve the body's car OBB against one static or moving box, conceding only `share` of the push.
+ * `share` is always `OBSTACLE_SHARE` (1) for static geometry and `shareOf(selfMass, other.mass)` for
+ * another car — see `resolveWorld`. Only the body moves; the box itself is never touched here.
+ */
+function resolveAgainst(body: SimBody, box: Obb, share: number): SimBody {
   const mtv = mtvBetween(carObbOf(body), box);
-  return mtv === null ? body : applyContact(body, mtv);
+  if (mtv === null) return body;
+  return applyContact(body, { x: mtv.x * share, y: mtv.y * share });
 }
 
 /**

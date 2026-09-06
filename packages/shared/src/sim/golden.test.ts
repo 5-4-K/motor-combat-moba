@@ -172,6 +172,12 @@ describe("golden: stepDrive against the vector-drive rework", () => {
 
 describe("golden: resolveWorld against the vector-drive rework", () => {
   const bounds = { width: 1000, height: 800 };
+  // Filler for every case below that resolves against bounds/obstacles only, or where the mass
+  // split is not what the case is pinning: those code paths never consult `selfMass` (obstacles and
+  // bounds always take `OBSTACLE_SHARE`, 1), so any positive number reproduces the same numbers the
+  // pre-mass-split fixture pinned. Real roster masses appear ONLY in "separates from another car"
+  // below, which is the one case this block exists to pin the mass split against.
+  const FILLER_MASS = 480;
 
   // REFIXTURED for stage 2 Task 1 (2026-09-06): `applyContact` no longer discards the reflected
   // direction and rebuilds a scalar along the unchanged heading — it now hands back the whole
@@ -188,9 +194,11 @@ describe("golden: resolveWorld against the vector-drive rework", () => {
   // it) — so the reflected vector stays collinear with the original heading and the whole thing
   // collapses to the familiar scalar bounce `forward' = -restitution * forward`:
   //   - "bounces off the left wall": forward 200 -> -(200 * 0.15) = -30.
-  //   - "separates from another car": push resolves along x only (n = (-1, 0), matching the
-  //     unchanged x position 482 = 500 - 18), and the car's velocity is already pure +x, so
-  //     forward 250 -> -(250 * 0.15) = -37.5.
+  //   - "separates from another car": push resolves along x only (n = (-1, 0)), and the car's
+  //     velocity is already pure +x, so forward 250 -> -(250 * 0.15) = -37.5. This one is
+  //     UNAFFECTED by the mass split below: `applyContact`'s normal `n` is `push / |push|`, and
+  //     scaling `push` by `share` before that division cancels out of the unit vector, so the
+  //     reflection math never sees `share` at all — only the POSITION half of this case moves.
   //
   // The corner case is a second axis-aligned double contact (x then y, `resolveBounds` applies one
   // `applyContact` per violated axis) that ALSO happens to stay collinear with the heading, by the
@@ -214,30 +222,44 @@ describe("golden: resolveWorld against the vector-drive rework", () => {
   //     lateral = -vx'*sin(0.4) + vy'*cos(0.4) = 74.24635540810061 — a large, genuinely nonzero
   //     lateral component, which is the whole point of this task: the car's forward-moving y-ish
   //     motion rides straight through a contact whose normal never touched it.
+  //
+  // REFIXTURED AGAIN for stage 2 Task 2 (2026-09-06): `others` widened to `CarObstacle[]` and
+  // `resolveWorld` gained `selfMass`. "separates from another car" now runs mirage (480, real
+  // `massOf("mirage")`) against bastion (900, real `massOf("bastion")`) instead of an implicit,
+  // pre-split full push, and its POSITION — forward is untouched, per the note above — moves with
+  // it: `shareOf(480, 900) = 900 / (480 + 900) = 900 / 1380 = 0.6521739130434783`. The MTV depth is
+  // unchanged from the pre-split fixture (18 units: the cars' half-widths sum to 48, their centres
+  // sit 30 apart, `48 - 30 = 18`), so mirage now takes `18 * 0.6521739130434783 = 11.73913043...`
+  // of it instead of the whole 18: `x' = 500 - 11.739130434782608 = 488.2608695652174` (exact
+  // value `500 - 270/23`). Every other case below resolves against bounds or an obstacle, neither
+  // of which yields — `OBSTACLE_SHARE` is 1 unconditionally — so their positions and the mass
+  // passed in are unrelated; `FILLER_MASS` above documents that.
   it("bounces off the left wall", () => {
-    const out = resolveWorld(bodyAt(10, 400, Math.PI, 200), [], [], bounds);
+    const out = resolveWorld(bodyAt(10, 400, Math.PI, 200), [], [], bounds, FILLER_MASS);
     expectPose(out, 24, 400, Math.PI, -30);
   });
 
   it("reflects off both walls at a corner", () => {
-    const out = resolveWorld(bodyAt(5, 4, Math.PI * 1.25, 150), [], [], bounds);
+    const out = resolveWorld(bodyAt(5, 4, Math.PI * 1.25, 150), [], [], bounds, FILLER_MASS);
     expectPose(out, 28.2842712475, 28.2842712475, 3.926990817, -22.5);
   });
 
   it("separates from another car", () => {
-    const other = { x: 530, y: 400, angle: 0, w: 48, h: 32 };
-    const out = resolveWorld(bodyAt(500, 400, 0, 250), [other], [], bounds);
-    expectPose(out, 482, 400, 0, -37.5);
+    // mirage (480) driving into a stationary bastion (900) — real roster masses, not filler, since
+    // this is the one case in this block pinning the mass split rather than merely surviving it.
+    const other = { hull: { x: 530, y: 400, angle: 0, w: 48, h: 32 }, mass: 900 };
+    const out = resolveWorld(bodyAt(500, 400, 0, 250), [other], [], bounds, 480);
+    expectPose(out, 488.2608695652174, 400, 0, -37.5);
   });
 
   it("separates from an obstacle", () => {
     const obstacle = { x: 320, y: 290, w: 60, h: 60 };
-    const out = resolveWorld(bodyAt(300, 300, 0.4, 180), [], [obstacle], bounds);
+    const out = resolveWorld(bodyAt(300, 300, 0.4, 180), [], [obstacle], bounds, FILLER_MASS);
     expectPose(out, 291.663842667, 300, 0.4, 4.390855582568385, 74.24635540810061);
   });
 
   it("leaves a free body untouched", () => {
-    const out = resolveWorld(bodyAt(500, 400, 1.1, 100), [], [], bounds);
+    const out = resolveWorld(bodyAt(500, 400, 1.1, 100), [], [], bounds, FILLER_MASS);
     expectPose(out, 500, 400, 1.1, 100);
   });
 });

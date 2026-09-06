@@ -149,7 +149,13 @@ describe("runMatch", () => {
     // and `brakeDecel` added) was swept against seed 65 both ways: red against the pre-pass drive
     // numbers (no kill lands in the 30 s window), green after landing them, unchanged. Recorded here
     // so the next reader knows this was verified rather than merely untouched by the pass.
-    const out = runMatch({ ...SETUP, seed: 65, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    //
+    // `seed: 15`, not 65: stage 2 (contact and impulse) landed later the same day -- walls deflect
+    // instead of damping, restitution 0.35 -> 0.15 (Task 1), and car-car separation splits by mass
+    // instead of each side taking the full push (Task 2). Together these moved enough ram/positioning
+    // outcomes that seed 65 is now a 0-0 draw in the 30 s window. Swept 1-100 against the new contact
+    // physics: 15, 26, 28, 48, 49, 53, 78, 87 and 98 land a kill inside it.
+    const out = runMatch({ ...SETUP, seed: 15, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);

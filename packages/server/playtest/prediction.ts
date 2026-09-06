@@ -20,6 +20,7 @@ import {
   forwardMaxSpeedOf,
   getArena,
   carHullOf,
+  massOf,
   otherCarHulls,
   stepSim,
   type ContextEntry,
@@ -169,6 +170,15 @@ function clientContext(snap: Snapshot | null, self: SimBody): StepContext {
     obstacles: ARENA.obstacles,
     bounds: { width: ARENA.width, height: ARENA.height },
     modifiers: NEUTRAL_MODIFIERS,
+    // Both "me" and "them" are mirage (see `trial` above), so this is `massOf("them")` too --
+    // stage 2 Task 2's car-car mass split is a wash here (share 0.5/0.5) and does not itself change
+    // which car this probe favours. It still changes the ABSOLUTE size of the push either side eats
+    // per contact (each now takes half the MTV instead of the whole thing), which is exactly the
+    // quantity P1 below measures and thresholds against `DRIVE_CONFIG.carWidth` -- see the "STALE
+    // POST-VECTOR-DRIVE-REWORK" comment above that report: it already flags the threshold as owed a
+    // re-derivation, and this mass split is a second, independent reason that re-derivation is owed,
+    // not a new problem of its own.
+    selfMass: massOf("mirage"),
   };
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CAR_TABLE, DEFAULT_CAR_ID } from "../config/car-config.js";
+import { CAR_TABLE, DEFAULT_CAR_ID, massOf } from "../config/car-config.js";
 import type { CarId } from "../config/types.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import { PlayerStatus } from "../constants.js";
@@ -68,18 +68,18 @@ describe("hull fairness", () => {
       0,
     );
     expect(hulls).toHaveLength(ids.length);
-    for (const hull of hulls) {
-      expect(hull.w).toBe(DRIVE_CONFIG.carWidth);
-      expect(hull.h).toBe(DRIVE_CONFIG.carHeight);
+    for (const o of hulls) {
+      expect(o.hull.w).toBe(DRIVE_CONFIG.carWidth);
+      expect(o.hull.h).toBe(DRIVE_CONFIG.carHeight);
     }
-    expect(new Set(hulls.map((hull) => `${hull.w}x${hull.h}`)).size).toBe(1);
+    expect(new Set(hulls.map((o) => `${o.hull.w}x${o.hull.h}`)).size).toBe(1);
   });
 });
 
 describe("otherCarHulls", () => {
   it("excludes the caller", () => {
     const hulls = otherCarHulls([entry("a", { x: 1 }), entry("b", { x: 2 })], "a", 0);
-    expect(hulls.map((hull) => hull.x)).toEqual([2]);
+    expect(hulls.map((o) => o.hull.x)).toEqual([2]);
   });
 
   it("excludes players who are not on the field", () => {
@@ -93,18 +93,23 @@ describe("otherCarHulls", () => {
       "a",
       0,
     );
-    expect(hulls.map((hull) => hull.x)).toEqual([4]);
+    expect(hulls.map((o) => o.hull.x)).toEqual([4]);
   });
 
   it("preserves the caller's entry order, which decides sequential contact resolution", () => {
     const entries = [entry("a"), entry("z", { x: 1 }), entry("m", { x: 2 })];
-    expect(otherCarHulls(entries, "a", 0).map((hull) => hull.x)).toEqual([1, 2]);
+    expect(otherCarHulls(entries, "a", 0).map((o) => o.hull.x)).toEqual([1, 2]);
   });
 
   it("sizes every hull from DRIVE_CONFIG and carries the player's angle", () => {
     expect(otherCarHulls([entry("a"), entry("b", { x: 5, y: 6, angle: 1.25 })], "a", 0)).toEqual([
-      { x: 5, y: 6, angle: 1.25, w: DRIVE_CONFIG.carWidth, h: DRIVE_CONFIG.carHeight },
+      { hull: { x: 5, y: 6, angle: 1.25, w: DRIVE_CONFIG.carWidth, h: DRIVE_CONFIG.carHeight }, mass: massOf("mirage") },
     ]);
+  });
+
+  it("carries each other car's mass, not just its hull (stage 2 Task 2)", () => {
+    const hulls = otherCarHulls([entry("a"), entry("b", { carId: "bastion" })], "a", 0);
+    expect(hulls[0]!.mass).toBe(massOf("bastion"));
   });
 });
 
@@ -121,7 +126,7 @@ describe("carHullOf", () => {
 
   it("is the same hull otherCarHulls builds, so shots and driving collide with one box", () => {
     expect(otherCarHulls([entry("a"), entry("b", { x: 7, y: 8, angle: 0.5 })], "a", 0)).toEqual([
-      carHullOf(7, 8, 0.5),
+      { hull: carHullOf(7, 8, 0.5), mass: massOf("mirage") },
     ]);
   });
 });
@@ -204,6 +209,6 @@ describe("otherCarHulls with a phasing car", () => {
     // From a solid car's point of view: the ghost is filtered out, another solid car is not, and
     // what comes back is a car hull at a car's pose.
     const hulls = otherCarHulls(entries, "a", 5);
-    expect(hulls).toEqual([carHullOf(solidB.x, solidB.y, solidB.angle)]);
+    expect(hulls).toEqual([{ hull: carHullOf(solidB.x, solidB.y, solidB.angle), mass: massOf("mirage") }]);
   });
 });

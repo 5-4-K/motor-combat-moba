@@ -1,8 +1,8 @@
-import { DEFAULT_CAR_ID, isCarId } from "../config/car-config.js";
+import { DEFAULT_CAR_ID, isCarId, massOf } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { CarId } from "../config/types.js";
 import { PlayerStatus } from "../constants.js";
-import type { Obb } from "./collide.js";
+import type { CarObstacle, Obb } from "./collide.js";
 import { isPhasedAt, type StatusRow } from "./status/statuses.js";
 
 /**
@@ -81,6 +81,11 @@ export function carIdOf(player: Pick<ContextPlayer, "carId">): CarId {
  * caller itself is not solid, in which case this returns `[]` regardless of who else is on the
  * field. See the caller-side guard below for why that second half is required.
  *
+ * Each entry carries `mass` (`massOf(carIdOf(player))`) alongside its hull, since stage 2 Task 2:
+ * `resolveWorld` splits a car-car correction by mass, and needs to know how hard each OTHER car is
+ * to shove. This car's OWN mass is a separate fact — `StepContext.selfMass` — because it describes
+ * the body being resolved, not one of the obstacles it is resolved against.
+ *
  * **`entries` must be sorted by `sessionId`, and the resulting order is load-bearing rather than
  * cosmetic:** `resolveWorld` applies contacts sequentially over `others`, and the last contact
  * resolved is the one guaranteed to end separated. Two hulls swapped here can settle a squeezed car
@@ -95,7 +100,7 @@ export function otherCarHulls(
   entries: readonly ContextEntry[],
   selfSessionId: string,
   tick: number,
-): Obb[] {
+): CarObstacle[] {
   const self = entries.find((entry) => entry.sessionId === selfSessionId);
   // `resolveWorld` separates a SINGLE body against a list — each car pushes itself out of what it
   // sees. Mutual passage is emergent from both sides running their own step with an empty view of
@@ -111,12 +116,12 @@ export function otherCarHulls(
   // against, not an empty world for a car nobody has actually put into spawn protection.
   if (self && !isSolid(self.player, tick)) return [];
 
-  const hulls: Obb[] = [];
+  const hulls: CarObstacle[] = [];
   for (const { sessionId, player } of entries) {
     if (sessionId === selfSessionId) continue;
     // Filtered on the ENTRY as well — a solid caller must still not see anyone ELSE who is phasing.
     if (!isSolid(player, tick)) continue;
-    hulls.push(carHullOf(player.x, player.y, player.angle));
+    hulls.push({ hull: carHullOf(player.x, player.y, player.angle), mass: massOf(carIdOf(player)) });
   }
   return hulls;
 }

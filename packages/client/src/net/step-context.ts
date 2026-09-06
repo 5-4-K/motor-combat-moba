@@ -1,6 +1,7 @@
 import {
   NEUTRAL_MODIFIERS,
   carIdOf,
+  massOf,
   modifiersFromRows,
   otherCarHulls,
   type ArenaDef,
@@ -57,14 +58,16 @@ export function buildStepContext(
   entries.sort((a, b) => (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0));
 
   const self = entries.find((entry) => entry.sessionId === selfSessionId);
+  // Same fallback as `carId` below: a missing local player still yields a usable context.
+  const carId = carIdOf(self?.player ?? { carId: "" });
 
   return {
-    // A missing local player still yields a usable context; `carIdOf` supplies the default chassis.
-    carId: carIdOf(self?.player ?? { carId: "" }),
+    carId,
     others: otherCarHulls(entries, selfSessionId, tick),
     obstacles: arena.obstacles,
     bounds: { width: arena.width, height: arena.height },
     modifiers,
+    selfMass: massOf(carId),
   };
 }
 

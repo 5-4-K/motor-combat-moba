@@ -11,6 +11,7 @@ import {
   getArena,
   isOnField,
   lateralOf,
+  massOf,
   otherCarHulls,
   stepSim,
   type ArenaDef,
@@ -149,7 +150,7 @@ export function serverTick(
     // a player who is not stepped this tick is still a ram participant. See `TickResult`.
     approachSpeeds.set(sessionId, forwardOf(player.vx, player.vy, player.angle));
 
-    // Only `carId` and `others` vary per player; `world` is fixed for the whole tick.
+    // Only `carId`, `others` and `selfMass` vary per player; `world` is fixed for the whole tick.
     // A `null` context means "nothing about this player moves right now": drain only.
     const ctx: StepContext | null =
       moving && isOnField(player)
@@ -161,6 +162,7 @@ export function serverTick(
             // second derivation is a second chance for the two halves of the lockstep to disagree,
             // and the client builds its own from the same list through the same shared function.
             modifiers: modifiersFor(statusMods, sessionId),
+            selfMass: massOf(carIdOf(player)),
           }
         : null;
 

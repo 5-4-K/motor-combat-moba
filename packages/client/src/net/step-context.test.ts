@@ -6,6 +6,7 @@ import {
   NEUTRAL_MODIFIERS,
   PlayerStatus,
   getArena,
+  massOf,
   modifiersFromRows,
 } from "@motor-combat-moba/shared";
 import {
@@ -55,7 +56,7 @@ describe("buildStepContext", () => {
       0,
       NEUTRAL_MODIFIERS,
     );
-    expect(ctx.others.map((hull) => hull.x)).toEqual([20]);
+    expect(ctx.others.map((o) => o.hull.x)).toEqual([20]);
   });
 
   it("omits players who are not in the match, matching the server's wall gate (isSolid)", () => {
@@ -71,7 +72,7 @@ describe("buildStepContext", () => {
       0,
       NEUTRAL_MODIFIERS,
     );
-    expect(ctx.others.map((hull) => hull.x)).toEqual([50]);
+    expect(ctx.others.map((o) => o.hull.x)).toEqual([50]);
   });
 
   it("orders others by sorted sessionId, exactly like serverTick", () => {
@@ -89,7 +90,7 @@ describe("buildStepContext", () => {
       0,
       NEUTRAL_MODIFIERS,
     );
-    expect(ctx.others.map((hull) => hull.x)).toEqual([2, 3, 1]);
+    expect(ctx.others.map((o) => o.hull.x)).toEqual([2, 3, 1]);
   });
 
   it("sizes hulls from DRIVE_CONFIG and carries the other car's angle", () => {
@@ -101,12 +102,38 @@ describe("buildStepContext", () => {
       NEUTRAL_MODIFIERS,
     );
     expect(ctx.others[0]).toEqual({
-      x: 0,
-      y: 0,
-      angle: 1.25,
-      w: DRIVE_CONFIG.carWidth,
-      h: DRIVE_CONFIG.carHeight,
+      hull: {
+        x: 0,
+        y: 0,
+        angle: 1.25,
+        w: DRIVE_CONFIG.carWidth,
+        h: DRIVE_CONFIG.carHeight,
+      },
+      mass: massOf("mirage"),
     });
+  });
+
+  it("carries each other car's mass, not just its hull (stage 2 Task 2)", () => {
+    const ctx = buildStepContext(
+      ARENA,
+      state({ me: player(), them: player({ carId: "bastion" }) }),
+      "me",
+      0,
+      NEUTRAL_MODIFIERS,
+    );
+    expect(ctx.others[0]!.mass).toBe(massOf("bastion"));
+  });
+
+  it("sets selfMass from the local player's own car, distinct from any other car's mass", () => {
+    const ctx = buildStepContext(
+      ARENA,
+      state({ me: player({ carId: "bastion" }), them: player({ carId: "mirage" }) }),
+      "me",
+      0,
+      NEUTRAL_MODIFIERS,
+    );
+    expect(ctx.selfMass).toBe(massOf("bastion"));
+    expect(ctx.others[0]!.mass).toBe(massOf("mirage"));
   });
 
   it("uses the local player's chosen car", () => {
