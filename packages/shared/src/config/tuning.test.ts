@@ -102,7 +102,11 @@ describe("tuning store", () => {
     const shipped = RAM_DECAY.spin;
     setTuning({ "ram.spinHalfLifeSeconds": 2 });
     expect(ramDecay().spin).toBeGreaterThan(shipped);
-    expect(ramDecay().shove).toBe(RAM_DECAY.shove);
+    // The untouched channel must come back value-for-value: an override of one half-life re-resolves
+    // the WHOLE struct, so this is what catches a rebuild that quietly moves a knob nobody overrode.
+    // It read `shove` until stage 3b deleted that channel; `counterSteer` is the surviving sibling
+    // and asks the identical question.
+    expect(ramDecay().counterSteer).toBe(RAM_DECAY.counterSteer);
 
     setTuning(null);
     expect(ramDecay()).toBe(RAM_DECAY);

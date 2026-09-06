@@ -477,6 +477,46 @@ describe("the ram contest", () => {
     expect(hit.attackerImpulse.speed).toBeCloseTo(1.225, 6);
   });
 
+  it("makes a head-on meaningfully gentler than a T-bone at the same closing speed (R6)", () => {
+    // R6's headline claim, pinned end to end against the MEASURED `globalScale` rather than argued
+    // from the table: because both cars score their own presented face, a head-on scores
+    // `bonusFront` (0.3) on the victim where a T-bone scores `bonusFlank` (1.0), so the same closing
+    // speed lands far softer nose-to-nose than side-on. Nothing else in the suite compares the two
+    // geometries directly — the front/flank/rear ordering test compares bonuses, not outcomes.
+    //
+    // T-bone: attacker drives +x into a victim sitting broadside (angle pi/2). The victim presents
+    // its flank (bonusFlank 1.0); the attacker presents its nose (bonusFront 0.3).
+    //
+    // The two fixtures sit at DIFFERENT separations on purpose, and it does not skew the comparison:
+    // a broadside victim is only 16 u wide along x (`carHeight`/2) against the head-on victim's 24
+    // (`carWidth`/2), so 47 u — the head-on's contact distance — leaves the T-bone pair 7 u apart and
+    // firing no ram at all. Separation feeds nothing in `pushOf`/`impactOn` beyond the contact test
+    // and the contact normal, both identical here, so only the faces and the drive-ins differ.
+    const tBone = resolveRam(
+      car({ sessionId: "a", x: 0, y: 0, angle: 0, vx: 200, vy: 0 }),
+      car({ sessionId: "b", x: 39, y: 0, angle: Math.PI / 2 }),
+      "ffa",
+    );
+    // Head-on: the same 200 u/s of closing speed, split 100/100 so both cars face each other along
+    // the same line and BOTH score `bonusFront` — the credit R6 gives that revision 1 never did.
+    const headOn = resolveRam(
+      car({ sessionId: "a", x: 0, y: 0, angle: 0, vx: 100, vy: 0 }),
+      car({ sessionId: "b", x: 47, y: 0, angle: Math.PI, vx: -100, vy: 0 }),
+      "ffa",
+    );
+
+    expect(tBone).not.toBeNull();
+    expect(headOn).not.toBeNull();
+    expect(tBone!.side).toBe("flank");
+    expect(headOn!.side).toBe("front");
+    // Pinned as a RATIO, which is invariant to `globalScale`, `defencePushScale` and any future
+    // ramAttack/ramDefence retune — not as absolute figures, which move with all three. The spec's
+    // own worked table puts a head-on at roughly 12% of a T-bone at equal closing speed; the shipped
+    // roster lands well under that, which `globalScale`'s comment already records and flags as a feel
+    // question rather than a defect. The bound is the claim ("meaningfully gentler"), not the value.
+    expect(headOn!.impulse.speed).toBeLessThan(tBone!.impulse.speed * 0.3);
+  });
+
   it("never fires on a pair that is not closing at all", () => {
     const apart = resolveRam(
       { ...attackerAt(600, 300), vx: 0, vy: 0 },

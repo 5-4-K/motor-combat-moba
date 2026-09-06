@@ -40,7 +40,6 @@ describe("RAM_CONFIG", () => {
     expect(RAM_CONFIG.bonusFront).toBe(0.3);
     expect(RAM_CONFIG.bonusFlank).toBe(1.0);
     expect(RAM_CONFIG.bonusRear).toBe(1.3);
-    expect(RAM_CONFIG.authorityFloor).toBe(0.35);
     expect(RAM_CONFIG.knockMaxSpeed).toBe(260);
     // The stage's three MEASURED constants (`globalScale`'s own comment: "MEASURED, NOT DERIVED"),
     // pinned alongside the authored ones above. Nothing else in the suite catches a silent retune of
@@ -54,11 +53,6 @@ describe("RAM_CONFIG", () => {
   it("orders the side bonuses front < flank < rear, which is the whole positional read", () => {
     expect(RAM_CONFIG.bonusFront).toBeLessThan(RAM_CONFIG.bonusFlank);
     expect(RAM_CONFIG.bonusFlank).toBeLessThan(RAM_CONFIG.bonusRear);
-  });
-
-  it("keeps the authority floor a real floor", () => {
-    expect(RAM_CONFIG.authorityFloor).toBeGreaterThan(0);
-    expect(RAM_CONFIG.authorityFloor).toBeLessThan(1);
   });
 
   it("derives inertiaCoefficient from the hull, never typed", () => {
