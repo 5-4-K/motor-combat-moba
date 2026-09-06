@@ -226,6 +226,28 @@ export const BRAIN_CONSTANTS = Object.freeze({
    */
   fullLockAngVelFraction: 0.5,
   /**
+   * Multiplier `OBSERVATION_MODIFIERS` (`bot/brain/predict.ts`) puts on the `topSpeed` channel, so
+   * the speed CAP inside `accelerateForward` cannot clip an observation.
+   *
+   * A prediction rolls a car at the speed it was SEEN at, perturbed by `stateEstimationSigma`. Left
+   * at a neutral 1, `Math.min(chassis.maxSpeed * mods.topSpeed, ...)` threw away every POSITIVE
+   * estimation error on a car already at its cap — which is where a car flooring it lives, and most
+   * of `fight` and `close`. Measured for Mirage at 449.5 u/s over 45 ticks: `+25%` moved the
+   * prediction 0.00 units, `+50%` moved it 0.00, while the equal `-25%` moved it 168.56. Half the
+   * knob's range vanished at the most common speed in the game, biasing every tier toward
+   * under-leading.
+   *
+   * Four, and the exact value does not matter as long as it is comfortably out of reach: under
+   * `accel: 0` this channel can only ever LOWER a speed (it is a ceiling, never a source), so raising
+   * it cannot make a rollout faster than the observation it started from — it can only stop the
+   * ceiling from biting. Four times the chassis maximum is past a `+300%` misread, twelve sigma at
+   * easy's 0.25. The other read of `mods.topSpeed` under a held throttle is `stepDash`'s exit-speed
+   * handoff, which no predictor body can reach: both `bodyFromObservation` and `bodyFromSelf` pin
+   * `maneuverTicksLeft` to 0, so `isDashing` is never true. (`reverseFurther` reads it too, but only
+   * `throttle: -1` reaches that, and no predictor passes it.)
+   */
+  observationTopSpeedHeadroom: 4,
+  /**
    * Fraction of ONE TICK's worth of rotation that floors the effective steering deadzone (R10,
    * 2026-09-05; corrected R12, review round 1). A bang-bang steer law — `reduceToIntent`'s `steer`
    * is only ever -1/0/1, never proportional — cannot settle inside a tolerance band smaller than
@@ -472,7 +494,7 @@ export const BRAIN_CONSTANTS = Object.freeze({
  */
 // 4.0.0 (2026-09-05): firing solutions replace the angular fire gate (spec phase B).
 // 4.1.0 (2026-09-06): danger evaluation and cooldown readiness (spec phase C).
-// 4.2.0 (2026-09-05): physics-based prediction replaces the constant-velocity solve (spec phase A).
+// 4.2.0 (2026-09-06): physics-based prediction replaces the constant-velocity solve (spec phase A).
 export const BOT_BRAIN_VERSION = "4.2.0";
 
 /**

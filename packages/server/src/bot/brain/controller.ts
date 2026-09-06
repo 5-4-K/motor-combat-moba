@@ -19,9 +19,7 @@ import {
   observedAngVelOf, perceive, readinessOf, searchWaypoint, ultIsSpent, type PerceptionState,
 } from "./perception.js";
 import { rollPersonality } from "./personality.js";
-import {
-  interceptTicks, physicsPredictor, selfPredictor, steerFromObservedTurn,
-} from "./predict.js";
+import { interceptTicks, physicsPredictor, selfPredictor } from "./predict.js";
 import { kitReachOf, weaponReachOf } from "./reach.js";
 import { rolesOf } from "./roles.js";
 import { classifySituation, newSituationState, pickSituation, type SituationState } from "./situation.js";
@@ -262,40 +260,28 @@ export class HumanController implements BotController {
       : 0;
     this.lastDangerEv = danger;
 
-    // Where the target will be, rolled through the REAL drive model (P22). Two decisions here:
+    // Where the target will be, rolled through the REAL drive model (P22). The held input and the
+    // steer reconstruction both live INSIDE `physicsPredictor` now (final review, finding 1): the
+    // steer has to be derived from the NOISED turn rate, after `stateEstimationSigma`'s draws, or the
+    // turn half of that knob reaches nothing — reconstructed out here from the raw observation, every
+    // tier read a curve perfectly and the noise only ever scaled a residual spin a steering car does
+    // not have. See that function for the attribution rule (one cause: a held wheel or a ram's spin,
+    // never both) and for why the rollout holds `throttle: 1`.
     //
-    // THE HELD INPUT: the observed SPEED, held. `throttle: 1` against `physicsPredictor`'s
-    // `OBSERVATION_MODIFIERS` (`accel: 0`) is how that is spelled — the throttle keeps `stepDrive`
-    // out of `coast`, and the zeroed accel channel keeps it from adding engine. Both halves matter.
-    // `throttle: 0` would BRAKE: `DRIVE_CONFIG.drag` is 900 u/s^2, so a Mirage observed at 400 u/s
-    // covers 82 units in 20 ticks against the ~400 it really travels — a worse lead than the
-    // straight line this replaces. A live `accel` channel would do the opposite and assume every
-    // observed car is flooring it to its chassis maximum, which over-leads worst exactly where it
-    // hurts most: a `stunned` target carries `fullStop` and cannot move at all, and that is the
-    // condition `classifySituation` gates `punish` on. See `OBSERVATION_MODIFIERS` for the measured
-    // error table. A bot cannot see a throttle; it can see a speed.
+    // What is left here is the raw observation and the horizon. `observedAngVelOf` is inferred from
+    // two observed poses; everything downstream of it is `physicsPredictor`'s business.
     //
-    // THE OBSERVED TURN, attributed to exactly ONE cause. Above `steerFromObservedTurn`'s threshold
-    // the car reads as STEERING, and the rollout sustains that turn for as long as the input is
-    // held (`stepDrive` adds a held steer's rotation every tick). Below it, the residual stays a
-    // ram's injected spin and decays on the ram half-life. A car spinning from a ram therefore reads
-    // as one that meant to turn, and is mispredicted — that is the design's sanctioned human error
-    // (spec P19), kept, not corrected.
-    //
-    // Constructed UNCONDITIONALLY: `physicsPredictor` draws two rng() calls, and a draw that
-    // happened only when this bot had a target would make the stream depend on the scene (H21). The
-    // predictor built on the absent-target sentinel is discarded; its draws are not. Same discard
-    // `hearRoll` above already performs. Only the DRAWS have to be unconditional, though — they are
-    // taken before the rollout — so the sentinel's horizon is 0 and a searching bot does not run 90
-    // discarded `stepDrive` steps against a car that is not there on every decision tick.
+    // Constructed UNCONDITIONALLY: `physicsPredictor` draws four rng() calls — two gaussians, and
+    // `gaussian` is Box-Muller, which draws a PAIR — and a draw that happened only when this bot had
+    // a target would make the stream depend on the scene (H21). The predictor built on the
+    // absent-target sentinel is discarded; its draws are not. Same discard `hearRoll` above already
+    // performs. Only the DRAWS have to be unconditional, though — they are taken before the rollout —
+    // so the sentinel's horizon is 0 and a searching bot does not run 90 discarded `stepDrive` steps
+    // against a car that is not there on every decision tick.
     const predictTarget = target ?? ABSENT_TARGET;
-    const observedTurn = observedAngVelOf(this.perception, predictTarget.sessionId);
-    const targetSteer = steerFromObservedTurn(observedTurn, predictTarget.carId);
-    const targetSpin = targetSteer === 0 ? observedTurn : 0;
     const targetPredictor = physicsPredictor(
       predictTarget,
-      targetSpin,
-      { steer: targetSteer, throttle: 1 },
+      observedAngVelOf(this.perception, predictTarget.sessionId),
       target ? BRAIN_CONSTANTS.predictionHorizonTicks : 0,
       profile.stateEstimationSigma,
       view.rng,
@@ -495,7 +481,7 @@ export class HumanController implements BotController {
         // That third is `BRAIN_CONSTANTS.closeLeadHorizonFraction`, not a divisor written here.
         const closePoint = predictor?.(
           BRAIN_CONSTANTS.predictionHorizonTicks * BRAIN_CONSTANTS.closeLeadHorizonFraction,
-        ) ?? target;
+        );
         desires.push(goalDesire(
           closePoint ? Math.atan2(closePoint.y - self.y, closePoint.x - self.x) : self.angle,
         ));

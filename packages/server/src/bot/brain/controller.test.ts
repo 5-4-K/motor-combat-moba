@@ -579,9 +579,11 @@ describe("HumanController", () => {
   });
 
   it("draws the predictor's rng calls whether or not it has a target (H21)", () => {
-    // `physicsPredictor` draws two rng() calls, so building it only when a target exists would make
-    // the stream depend on the scene and one seed would stop replaying. `plan()` therefore builds it
-    // against `ABSENT_TARGET` and discards the result, exactly as `hearRoll` is discarded.
+    // `physicsPredictor` draws FOUR rng() calls — two gaussians, and `gaussian` is Box-Muller, which
+    // draws a PAIR per call (`aim.ts` records having miscounted this exact thing once already) — so
+    // building it only when a target exists would make the stream depend on the scene and one seed
+    // would stop replaying. `plan()` therefore builds it against `ABSENT_TARGET` and discards the
+    // result, exactly as `hearRoll` is discarded.
     //
     // Two otherwise-identical first ticks, differing only in whether an opponent is on screen. The
     // scene WITH a target legitimately draws two more than the scene without: `scoreTargets` adds
@@ -589,7 +591,7 @@ describe("HumanController", () => {
     // Nothing else diverges here — no weapon instances (so `perceive` draws nothing), no wall or
     // corner (so no `cornerRespect` roll), and a stationary target is never `isIncomingCar` (so no
     // `incomingCarChance` roll). If the predictor were built inside the `target ? ... : undefined`
-    // ternary, this difference would read 4.
+    // ternary, this difference would read 6 — the two legitimate draws plus the predictor's four.
     const slots = slotsOf("bullseye").map((weaponId) => ({
       weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
       range: weaponDefOf(weaponId).range,

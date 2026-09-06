@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DRIVE_CONFIG, NEUTRAL_MODIFIERS, TICK_RATE_HZ, driveOf, turnRateAtStopOf, turnRateOf,
+  DRIVE_CONFIG, ManeuverKind, NEUTRAL_MODIFIERS, TICK_RATE_HZ, driveOf, turnRateAtStopOf, turnRateOf,
 } from "@motor-combat-moba/shared";
 import { BOT_PROFILES, BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
@@ -27,10 +27,26 @@ function selfAt(over: Partial<BotSelfView> = {}): BotSelfView {
   };
 }
 
+/**
+ * An `Rng` that makes `predict.ts`'s `gaussian` return exactly `draw`, twice.
+ *
+ * `gaussian` is Box-Muller — `sqrt(-2 ln u1) * cos(2*PI*u2)`, two `rng()` calls per gaussian and
+ * therefore FOUR per `physicsPredictor` (H21). Feeding it `u1 = exp(-draw^2 / 2)` makes the
+ * magnitude `|draw|`, and a `u2` of 0 or 0.5 makes `cos` exactly +1 or -1 — so the estimation error
+ * is a chosen number rather than whatever a seed happened to produce. Both gaussians receive the
+ * same value, which is why the tests below drive one axis at a time: `angVel: 0` to isolate the
+ * speed read, a scene whose speed error does not matter to isolate the turn read.
+ */
+function rngGiving(draw: number): () => number {
+  const seq = [Math.exp(-(draw * draw) / 2), draw >= 0 ? 0 : 0.5];
+  let i = 0;
+  return () => seq[i++ % seq.length]!;
+}
+
 describe("rollForward", () => {
   it("carries a straight-line car forward, brought to rest by drag", () => {
     const body = bodyFromObservation(carAt(), 0);
-    const poses = rollForward(body, "mirage", { steer: 0, throttle: 0 }, TICK_RATE_HZ);
+    const poses = rollForward(body, "mirage", { steer: 0, throttle: 0 }, TICK_RATE_HZ, NEUTRAL_MODIFIERS);
     // DRIVE_CONFIG.drag (900 u/s^2) is steep enough that a coasting 300 u/s car is fully stopped
     // well inside one second (~10 ticks), so a full second of rollout lands on a small, fixed
     // distance rather than "most of 300 units" -- it still moves forward, and stays there once
@@ -42,16 +58,18 @@ describe("rollForward", () => {
 
   it("curves a car that was observed turning, without any input", () => {
     const straight = rollForward(
-      bodyFromObservation(carAt(), 0), "mirage", { steer: 0, throttle: 0 }, 15,
+      bodyFromObservation(carAt(), 0), "mirage", { steer: 0, throttle: 0 }, 15, NEUTRAL_MODIFIERS,
     );
     const turning = rollForward(
-      bodyFromObservation(carAt(), 3), "mirage", { steer: 0, throttle: 0 }, 15,
+      bodyFromObservation(carAt(), 3), "mirage", { steer: 0, throttle: 0 }, 15, NEUTRAL_MODIFIERS,
     );
     expect(Math.abs(turning.at(-1)!.y)).toBeGreaterThan(Math.abs(straight.at(-1)!.y));
   });
 
   it("returns one pose per tick", () => {
-    const poses = rollForward(bodyFromObservation(carAt(), 0), "mirage", { steer: 0, throttle: 0 }, 12);
+    const poses = rollForward(
+      bodyFromObservation(carAt(), 0), "mirage", { steer: 0, throttle: 0 }, 12, NEUTRAL_MODIFIERS,
+    );
     expect(poses).toHaveLength(12);
   });
 });
@@ -99,11 +117,11 @@ describe("steerFromObservedTurn", () => {
     const observed = turnRateOf("mirage");
     const turned = (poses: { angle: number }[]) => Math.abs(poses.at(-1)!.angle - car.angle);
     const asSpin = rollForward(
-      bodyFromObservation(car, observed), "mirage", { steer: 0, throttle: 1 }, 45,
+      bodyFromObservation(car, observed), "mirage", { steer: 0, throttle: 1 }, 45, NEUTRAL_MODIFIERS,
     );
     const asSteer = rollForward(
       bodyFromObservation(car, 0), "mirage",
-      { steer: steerFromObservedTurn(observed, "mirage"), throttle: 1 }, 45,
+      { steer: steerFromObservedTurn(observed, "mirage"), throttle: 1 }, 45, NEUTRAL_MODIFIERS,
     );
     expect(turned(asSteer)).toBeGreaterThan(turned(asSpin) * 2);
   });
@@ -112,7 +130,7 @@ describe("steerFromObservedTurn", () => {
 describe("physicsPredictor", () => {
   it("beats a straight line for a turning car", () => {
     const turning = carAt({ speed: 400 });
-    const predictor = physicsPredictor(turning, 4, { steer: 0, throttle: 1 }, 20, 0, makeRng(1));
+    const predictor = physicsPredictor(turning, 4, 20, 0, makeRng(1));
     const predicted = predictor(20);
     const straight = {
       x: turning.x + Math.cos(turning.angle) * turning.speed * (20 / TICK_RATE_HZ),
@@ -123,7 +141,7 @@ describe("physicsPredictor", () => {
   });
 
   it("clamps past its horizon rather than extrapolating off the end", () => {
-    const predictor = physicsPredictor(carAt(), 0, { steer: 0, throttle: 0 }, 10, 0, makeRng(2));
+    const predictor = physicsPredictor(carAt(), 0, 10, 0, makeRng(2));
     expect(predictor(50)).toEqual(predictor(10));
   });
 
@@ -131,7 +149,7 @@ describe("physicsPredictor", () => {
     // Math.round(0.3) is 0, so a naive `poses[Math.round(ticksAhead) - 1]` reads poses[-1]
     // (undefined) and throws on `.x`. Any ticksAhead in (0, 1) must clamp UP to one tick ahead,
     // the same way past-the-horizon clamps DOWN to the last pose.
-    const predictor = physicsPredictor(carAt(), 0, { steer: 0, throttle: 1 }, 10, 0, makeRng(3));
+    const predictor = physicsPredictor(carAt(), 0, 10, 0, makeRng(3));
     expect(predictor(0.3)).toEqual(predictor(1));
   });
 });
@@ -143,15 +161,37 @@ describe("selfPredictor", () => {
   });
 
   it("curves a self observed mid-turn, same as physicsPredictor does for others", () => {
-    // bodyFromSelf reads angVel off nothing (self has no angVel field) -- but a self mid-dash still
-    // has maneuver state to roll forward under input, so drive steer/throttle to get a curve instead.
-    const straight = rollForward(bodyFromSelf(selfAt()), "mirage", { steer: 0, throttle: 0 }, 15);
-    const turning = rollForward(bodyFromSelf(selfAt()), "mirage", { steer: 1, throttle: 1 }, 15);
+    // bodyFromSelf reads angVel off nothing (self has no angVel field), and it deliberately drops
+    // the maneuver state too (finding 3), so there is nothing on a self body that curves on its own:
+    // drive steer/throttle to get a curve instead.
+    const straight = rollForward(
+      bodyFromSelf(selfAt()), "mirage", { steer: 0, throttle: 0 }, 15, NEUTRAL_MODIFIERS,
+    );
+    const turning = rollForward(
+      bodyFromSelf(selfAt()), "mirage", { steer: 1, throttle: 1 }, 15, NEUTRAL_MODIFIERS,
+    );
     expect(Math.abs(turning.at(-1)!.y)).toBeGreaterThan(Math.abs(straight.at(-1)!.y));
 
     const straightPredictor = selfPredictor(selfAt(), { steer: 0, throttle: 0 }, 15);
     const turningPredictor = selfPredictor(selfAt(), { steer: 1, throttle: 1 }, 15);
     expect(Math.abs(turningPredictor(15).y)).toBeGreaterThan(Math.abs(straightPredictor(15).y));
+  });
+});
+
+describe("bodyFromSelf mid-dash", () => {
+  it("discards a live dash instead of predicting the bot parked (final review, finding 3)", () => {
+    // `bodyFromSelf` used to copy a genuine `self.maneuverTicksLeft` while fabricating
+    // `maneuverSpeed: 0`, so `stepDrive` took its `stepDash` branch and `dashTranslation` returned
+    // `{0, 0}`: the bot predicted ITSELF standing still for the rest of the dash (thunderclap:
+    // 8 ticks, ~400 units of real travel) and then had `stepDash`'s `done` branch write
+    // `chassis.maxSpeed * mods.topSpeed` straight into its speed — both halves contradicting
+    // `selfPredictor`'s own doc comment. Zeroing the field is also what keeps `isDashing` false on
+    // every predictor body, which is what makes `OBSERVATION_MODIFIERS`'s raised `topSpeed` safe.
+    const dashing = selfAt({ maneuver: ManeuverKind.DASH, maneuverTicksLeft: 8, speed: 400 });
+    expect(bodyFromSelf(dashing).maneuverTicksLeft).toBe(0);
+    // 8 ticks of a held 400 u/s is 106.67 units, which is what it now predicts. It was 0.00.
+    expect(selfPredictor(dashing, { steer: 0, throttle: 1 }, 8)(8).x)
+      .toBeCloseTo((400 * 8) / TICK_RATE_HZ, 6);
   });
 });
 
@@ -241,8 +281,14 @@ describe("predicting an observed car, against an independent ground truth", () =
     { speed: MIRAGE.maxSpeed, steer: 1, label: "top speed, full lock" },
   ];
 
+  // The steer is no longer handed in: `physicsPredictor` DERIVES it from the observed turn rate
+  // (final review, finding 1), so a scene that wants a car at full lock has to be described the way
+  // a bot actually meets one — as an observed `angVel`. Full lock is exactly what
+  // `steerFromObservedTurn` reconstructs from `turnRateOf(carId)`, and at sigma 0 there is no noise
+  // to move it, so every row below rolls the steer its label names. Verified by the assertions
+  // themselves: the turning rows score against a `truthPath` integrated at that same steer.
   const shipped = (speed: number, steer: -1 | 0 | 1) => physicsPredictor(
-    carAt({ speed }), 0, { steer, throttle: 1 }, LONGEST, 0, makeRng(11),
+    carAt({ speed }), steer * turnRateOf("mirage"), LONGEST, 0, makeRng(11),
   );
 
   it("holds the observed speed, landing on the true path at every horizon and every speed", () => {
@@ -283,7 +329,7 @@ describe("predicting an observed car, against an independent ground truth", () =
       const truth = truthPath(scene.speed, scene.steer, "mirage", LONGEST);
       const engineOn = rollForward(
         bodyFromObservation(carAt({ speed: scene.speed }), 0), "mirage",
-        { steer: scene.steer, throttle: 1 }, LONGEST,
+        { steer: scene.steer, throttle: 1 }, LONGEST, NEUTRAL_MODIFIERS,
       );
       const held = shipped(scene.speed, scene.steer);
       for (const ticks of HORIZONS) {
@@ -371,7 +417,9 @@ describe("predicting an observed car, against an independent ground truth", () =
     // target with the throttle CLOSED is not "coasting straight", it is braking: `DRIVE_CONFIG.drag`
     // is 900 u/s^2, 0.32 s to rest.
     const car = carAt({ speed: 400 });
-    const braking = rollForward(bodyFromObservation(car, 0), "mirage", { steer: 0, throttle: 0 }, 20);
+    const braking = rollForward(
+      bodyFromObservation(car, 0), "mirage", { steer: 0, throttle: 0 }, 20, NEUTRAL_MODIFIERS,
+    );
     expect(braking.at(-1)!.speed).toBe(0);
     expect(Math.hypot(braking.at(-1)!.x - car.x, braking.at(-1)!.y - car.y)).toBeLessThan(100);
     // 20 ticks of a held 400 u/s is 266 units; the braking rollout covers 82. Measured error 184.
@@ -389,7 +437,7 @@ describe("reading a turn off two observed poses, end to end", () => {
   function observedTurnOf(steer: -1 | 0 | 1): number {
     const path = rollForward(
       bodyFromObservation(carAt({ x: 400, y: 0, speed: 400 }), 0), "mirage",
-      { steer, throttle: 1 }, 4,
+      { steer, throttle: 1 }, 4, NEUTRAL_MODIFIERS,
     );
     const state = newPerception();
     const viewAt = (tick: number, pose: { x: number; y: number; angle: number }): BotView => ({
@@ -422,7 +470,7 @@ describe("reading a turn off two observed poses, end to end", () => {
 
 describe("interceptTicks", () => {
   it("returns ~0 for a co-located target", () => {
-    const predictor = physicsPredictor(carAt(), 0, { steer: 0, throttle: 0 }, 30, 0, makeRng(4));
+    const predictor = physicsPredictor(carAt(), 0, 30, 0, makeRng(4));
     expect(interceptTicks({ x: 0, y: 0 }, predictor, 600, 30)).toBe(0);
   });
 
@@ -433,7 +481,7 @@ describe("interceptTicks", () => {
   });
 
   it("returns 0 for a non-positive projectile speed", () => {
-    const predictor = physicsPredictor(carAt(), 0, { steer: 0, throttle: 0 }, 30, 0, makeRng(5));
+    const predictor = physicsPredictor(carAt(), 0, 30, 0, makeRng(5));
     expect(interceptTicks({ x: 0, y: 0 }, predictor, 0, 30)).toBe(0);
   });
 
@@ -460,25 +508,118 @@ describe("interceptTicks", () => {
 });
 
 describe("state estimation noise (P20)", () => {
-  it("perturbs the prediction, and a tighter sigma perturbs it less", () => {
+  it("perturbs the SPEED read, and a tighter sigma perturbs it less", () => {
+    // `angVel: 0`, so this is the speed half of the knob alone; the two tests below are the turn
+    // half, which had no coverage here at all until the final review's finding 1.
     const car = carAt({ speed: 400 });
-    const at = (sigma: number) => physicsPredictor(
-      car, 0, { steer: 0, throttle: 1 }, 20, sigma, makeRng(9),
-    )(20);
-    const truth = physicsPredictor(car, 0, { steer: 0, throttle: 1 }, 20, 0, makeRng(9))(20);
+    const at = (sigma: number) => physicsPredictor(car, 0, 20, sigma, makeRng(9))(20);
+    const truth = physicsPredictor(car, 0, 20, 0, makeRng(9))(20);
     const sloppy = at(0.25);
     const sharp = at(0.03);
     const err = (p: { x: number; y: number }) => Math.hypot(p.x - truth.x, p.y - truth.y);
     expect(err(sloppy)).toBeGreaterThan(err(sharp));
   });
 
+  it("perturbs a residual SPIN too, and a tighter sigma perturbs it less", () => {
+    // The TURNING counterpart the speed-only test above was missing (final review, finding 1): with
+    // `angVel: 0` there is no turn to get wrong, so that test only ever exercised half the knob.
+    //
+    // BELOW `steerFromObservedTurn`'s threshold is where the turn read scales CONTINUOUSLY: the
+    // residual is a ram's injected spin and the noised rate is fed straight back as `angVel`. Above
+    // the threshold the read is quantised to a -1/0/1 steer, so moderate noise there changes nothing
+    // at all and the noise acts only by moving the read ACROSS the threshold — the test below.
+    const car = carAt({ speed: 400 });
+    const spin = 3; // rad/s, under Mirage's 4.095 threshold: a ram's residual, not a held wheel
+    const truth = physicsPredictor(car, spin, 20, 0, rngGiving(-1))(20);
+    const err = (sigma: number) => {
+      const guess = physicsPredictor(car, spin, 20, sigma, rngGiving(-1))(20);
+      return Math.hypot(guess.x - truth.x, guess.y - truth.y);
+    };
+    // Measured: 8.80 world units at hard's sigma, 71.70 at easy's.
+    expect(err(0.03)).toBeGreaterThan(0);
+    expect(err(0.25)).toBeGreaterThan(err(0.03) * 2);
+  });
+
+  it("lets a sloppy read miss a curve entirely, and even read it backwards", () => {
+    // THE POINT of finding 1. The steer is reconstructed from the NOISED turn rate, inside
+    // `physicsPredictor`, after the draws — not from the raw observation out in `controller.ts`,
+    // where every tier read a curve perfectly and `turnNoise` only ever multiplied a residual spin
+    // that a steering car does not have. A car at full lock, read by a bot whose estimate falls far
+    // enough short, must stop reading as a car that is steering at all; read short enough to change
+    // sign, it must arc the OTHER way.
+    const full = turnRateOf("mirage");
+    const car = carAt({ speed: 400 });
+    // `rngGiving(-1)` makes the turn estimate `full * (1 - sigma)`, so sigma is exactly how far the
+    // read falls short. The steering threshold is half of full lock.
+    const turnedBy = (sigma: number) =>
+      physicsPredictor(car, full, 20, sigma, rngGiving(-1))(20).angle - car.angle;
+
+    // A sharp read holds the wheel over for the whole horizon: 5.46 rad in 20 ticks.
+    expect(turnedBy(0.03)).toBeCloseTo(full * (20 / TICK_RATE_HZ), 6);
+    // A read 60% low lands at 0.4 of full lock, under the threshold, so the arc collapses to a
+    // decaying spin — measured 1.25 rad against the sharp read's 5.46.
+    expect(turnedBy(0.6)).toBeGreaterThan(0);
+    expect(turnedBy(0.6)).toBeLessThan(turnedBy(0.03) / 4);
+    // A read 160% low is a SIGN flip: -0.6 of full lock, back over the threshold the other way, so
+    // the bot leads the corner the target is NOT taking. A steer reconstructed from the raw
+    // observation could not produce this at any sigma, which is the whole defect.
+    expect(turnedBy(1.6)).toBeCloseTo(-turnedBy(0.03), 6);
+  });
+
+  it("reads either side of the steering threshold, by how far the estimate falls short", () => {
+    // The threshold case. `steerFromObservedTurn` splits at `fullLockAngVelFraction` (a half), so a
+    // read of full lock that falls exactly half short sits ON the boundary; these two sigmas bracket
+    // it by a hundredth each way rather than betting on floating-point equality.
+    const full = turnRateOf("mirage");
+    const car = carAt({ speed: 400 });
+    const turnedBy = (sigma: number) =>
+      physicsPredictor(car, full, 20, sigma, rngGiving(-1))(20).angle - car.angle;
+    // 0.51 of full lock — just OVER the bar, so it reads as a held wheel and arcs the full amount.
+    expect(turnedBy(0.49)).toBeCloseTo(full * (20 / TICK_RATE_HZ), 6);
+    // 0.49 of full lock — just UNDER, so it reads as a spin and decays instead. Measured 1.53 rad.
+    expect(turnedBy(0.51)).toBeGreaterThan(0);
+    expect(turnedBy(0.51)).toBeLessThan(turnedBy(0.49) / 3);
+  });
+
+  it("moves the prediction as far for a positive speed error as for the equal negative one, AT THE CAP", () => {
+    // Final review, finding 2. `OBSERVATION_MODIFIERS` used to leave `topSpeed: 1`, so
+    // `accelerateForward`'s `Math.min(chassis.maxSpeed * mods.topSpeed, ...)` clipped every
+    // observed-plus-noise speed above the chassis cap on the rollout's FIRST tick. A car flooring it
+    // sits exactly at that cap — which is most of `fight` and `close` — so at the most common speed
+    // in the game the knob lost half its range and every tier was biased toward UNDER-leading.
+    //
+    // Measured for Mirage at its 449.5 u/s cap over 45 ticks, dx against the sigma-0 rollout:
+    //   BEFORE: +25% 0.00, +50% 0.00, -25% -168.56
+    //   AFTER:  +25% +168.56, +50% +337.13, -25% -168.56
+    // At 250 u/s the pair was already symmetric at +-93.75 either way, which is what said the defect
+    // was the CLAMP and not the noise.
+    const car = carAt({ speed: driveOf("mirage").maxSpeed });
+    const dx = (sigma: number, draw: number) =>
+      physicsPredictor(car, 0, 45, sigma, rngGiving(draw))(45).x
+        - physicsPredictor(car, 0, 45, 0, rngGiving(draw))(45).x;
+    const over = dx(0.25, 1);
+    const under = dx(0.25, -1);
+    expect(over).toBeGreaterThan(100); // it was 0.00
+    expect(over).toBeCloseTo(-under, 6);
+    // And it keeps scaling past the cap rather than saturating at it.
+    expect(dx(0.5, 1)).toBeCloseTo(over * 2, 6);
+  });
+
   it("draws the same number of rng calls whether sigma is zero or not (H21)", () => {
     let calls = 0;
     const counting = () => { calls += 1; return 0.5; };
-    physicsPredictor(carAt(), 0, { steer: 0, throttle: 0 }, 5, 0, counting);
+    physicsPredictor(carAt(), 0, 5, 0, counting);
     const withZero = calls;
+    // FOUR, not two: `gaussian` is Box-Muller and draws a PAIR, and there are two gaussians. Pinned
+    // outright because the count had drifted into three comments as "two" (final review, finding 4).
+    expect(withZero).toBe(4);
     calls = 0;
-    physicsPredictor(carAt(), 0, { steer: 0, throttle: 0 }, 5, 0.2, counting);
+    physicsPredictor(carAt(), 0, 5, 0.2, counting);
+    expect(calls).toBe(withZero);
+    // And the steer reconstruction moved INSIDE the predictor by finding 1 draws nothing of its own:
+    // a turning observation, which takes a different branch, still draws exactly four.
+    calls = 0;
+    physicsPredictor(carAt(), turnRateOf("mirage"), 5, 0.2, counting);
     expect(calls).toBe(withZero);
   });
 });

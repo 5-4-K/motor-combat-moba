@@ -50,11 +50,18 @@ export function bodyFromObservation(car: BotCarView, angVel: number): SimBody {
  * all, so they are assumed neutral here exactly as they are for an observed car in
  * `bodyFromObservation` — this function does not read them off anything.
  *
- * `maneuverSpeed: 0` mirrors `bodyFromObservation`: even though `self.maneuverTicksLeft` can be
- * genuinely positive (this bot mid-dash), nothing in the bot brain reads a dash's actual travel
- * speed today, so the rollout does not model one. `maneuverAngle` is `self.angle` for the same
- * reason as above — inert whenever `maneuverTicksLeft` is 0, and not a claim of precision when it
- * is not.
+ * `maneuverTicksLeft: 0` mirrors `bodyFromObservation`, and is a DELIBERATE discard of a field the
+ * bot really does know. Copying a genuine `self.maneuverTicksLeft` while fabricating
+ * `maneuverSpeed: 0` sent `stepDrive` down its `stepDash` branch with a zero travel speed, so
+ * `dashTranslation` returned `{0, 0}` and the bot predicted itself PARKED for the rest of the dash
+ * — 8 ticks and roughly 400 units of real travel for `thunderclap` — and then had `stepDash`'s
+ * `done` branch write `chassis.maxSpeed * mods.topSpeed` straight into its speed. "I keep driving at
+ * the speed I am going" is less wrong than "I stop dead and then teleport to top speed", and it is
+ * the same claim `selfPredictor`'s doc makes. Zeroing it also makes `isDashing(body)` false on every
+ * predictor body, which is what lets `OBSERVATION_MODIFIERS` raise `topSpeed` safely — see there.
+ *
+ * `maneuverAngle` is `self.angle` for the same reason as above: inert whenever `maneuverTicksLeft`
+ * is 0, which is now always, and filled in only to satisfy `SimBody`'s shape.
  */
 export function bodyFromSelf(self: BotSelfView): SimBody {
   return {
@@ -64,7 +71,7 @@ export function bodyFromSelf(self: BotSelfView): SimBody {
     shoveX: 0, shoveY: 0,
     authority: 1,
     maneuver: self.maneuver,
-    maneuverTicksLeft: self.maneuverTicksLeft,
+    maneuverTicksLeft: 0,
     maneuverAngle: self.angle,
     maneuverSpeed: 0,
   };
@@ -97,8 +104,8 @@ export function steerFromObservedTurn(angVel: number, carId: CarId): -1 | 0 | 1 
 }
 
 /**
- * The modifier set an OBSERVATION is rolled under: neutral except that both of the channels that
- * would CHANGE a car's speed under a held throttle are switched off.
+ * The modifier set an OBSERVATION is rolled under: neutral except for the THREE channels that would
+ * change a car's speed under a held throttle — two switched off, one lifted out of the way.
  *
  * This is what turns "hold the throttle down" into "hold the SPEED you were seen at". Both
  * production call sites (`physicsPredictor` and `selfPredictor`, built in `controller.ts`'s `plan()`)
@@ -115,8 +122,21 @@ export function steerFromObservedTurn(angVel: number, carId: CarId): -1 | 0 | 1 
  *   seen at. This channel is unreachable here for anything but a car already rolling backward: the
  *   sim reads `mods.brakeDecel` in exactly two places (`sim/drive.ts`), and the other one is inside
  *   `brakeOrReverse`, which only `throttle: -1` can enter — no production predictor passes that.
+ * - **`topSpeed: BRAIN_CONSTANTS.observationTopSpeedHeadroom`** covers the CLAMP the rolling-forward
+ *   branch applies alongside its (now zeroed) engine term: `Math.min(chassis.maxSpeed *
+ *   mods.topSpeed, ...)`. Left at 1 it clipped any observed-plus-noise speed above the chassis cap
+ *   on the rollout's very first tick — and a car flooring it sits EXACTLY at that cap, which is most
+ *   of `fight` and `close`. Measured for Mirage at its 449.5 u/s cap over 45 ticks, a `+25%`
+ *   estimation error moved the prediction by 0.00 units and a `+50%` by 0.00, against 168.56 for the
+ *   equal `-25%`: at the most common speed in the game `stateEstimationSigma` lost half its range
+ *   and every tier was biased toward UNDER-leading. With `accel: 0` this channel can never RAISE a
+ *   speed — it is only ever a ceiling, and `reverseFurther`'s use of it needs `throttle: -1` — so
+ *   lifting the ceiling out of reach is the only thing it can do, and it restores the symmetry the
+ *   set claims. The one other read of `mods.topSpeed` in `sim/drive.ts` is `stepDash`'s exit-speed
+ *   handoff, which needs `isDashing(body)`; both `bodyFromObservation` and `bodyFromSelf` pin
+ *   `maneuverTicksLeft: 0` and `stepDrive` never re-enters a DASH, so no predictor body can reach it.
  *
- * Both are the sim's OWN multiplier channels (`sim/status/modifiers.ts`), so this is a use of
+ * All three are the sim's OWN multiplier channels (`sim/status/modifiers.ts`), so this is a use of
  * `stepDrive`, not a hack around it. Rotation and translation still integrate through the real drive
  * model in both directions.
  *
@@ -159,6 +179,7 @@ export const OBSERVATION_MODIFIERS: Readonly<Modifiers> = Object.freeze({
   ...NEUTRAL_MODIFIERS,
   accel: 0,
   brakeDecel: 0,
+  topSpeed: BRAIN_CONSTANTS.observationTopSpeedHeadroom,
 });
 
 /**
@@ -169,17 +190,19 @@ export const OBSERVATION_MODIFIERS: Readonly<Modifiers> = Object.freeze({
  * Statuses are not modelled: the bot sees that a car is slowed but has no principled way to know the
  * multiplier, and assuming neutral is the conservative direction.
  *
- * `mods` defaults to `NEUTRAL_MODIFIERS` — a genuine car, engine and all — because a later phase's
- * planner rolls the bot's OWN candidate inputs, where acceleration is exactly the thing being
- * planned. The two OBSERVATION-based predictors below pass `OBSERVATION_MODIFIERS` instead; see its
- * doc comment for why.
+ * `mods` is REQUIRED and deliberately has no default. `NEUTRAL_MODIFIERS` — a genuine car, engine and
+ * all — is the right set for a later phase's planner rolling the bot's OWN candidate inputs, where
+ * acceleration is exactly the thing being planned, and it is the WRONG set for an observation: two
+ * review rounds were spent proving that (see `OBSERVATION_MODIFIERS`, which both production
+ * predictors below pass). A default that is correct only for a caller that does not exist yet is a
+ * trap, so the compiler asks every call site to choose instead.
  */
 export function rollForward(
   body: SimBody,
   carId: CarId,
   input: DriveAction,
   ticks: number,
-  mods: Readonly<Modifiers> = NEUTRAL_MODIFIERS,
+  mods: Readonly<Modifiers>,
 ): SimBody[] {
   const dt = 1 / TICK_RATE_HZ;
   const chassis = driveOf(carId);
@@ -220,25 +243,47 @@ function clampedPredictor(
  * with `selfPredictor` via `clampedPredictor`, so the noise applies only to the rollout's INPUT, never
  * to how a caller's `ticksAhead` is resolved against it.
  *
- * Rolled under `OBSERVATION_MODIFIERS`, so the observed speed is HELD rather than accelerated toward
- * the chassis maximum — see that constant for the measurement.
+ * The steer is DERIVED here, from the noised turn rate, rather than supplied by the caller — which is
+ * what makes the turn half of `estimationSigma` reach anything at all. Reconstructing the steer from
+ * the raw observation (as `controller.ts` did until the final review's finding 1) let every tier read
+ * a curve perfectly and then applied `turnNoise` only to the residual spin, which a steering car has
+ * none of: an easy bot read a corner exactly as well as a hard one, and the knob delivered only its
+ * speed half. Derived from the noised rate, a sloppy read can misjudge WHETHER a car is steering at
+ * all and, near `steerFromObservedTurn`'s threshold, WHICH WAY.
+ *
+ * THE OBSERVED TURN IS ATTRIBUTED TO EXACTLY ONE CAUSE. Above the threshold the car reads as
+ * STEERING, and the rollout sustains that turn for as long as the input is held (`stepDrive` adds a
+ * held steer's rotation every tick). Below it, the residual stays a ram's injected spin and decays on
+ * the ram half-life. A car spinning from a ram therefore reads as one that meant to turn, and is
+ * mispredicted — the design's sanctioned human error (spec P19), kept, not corrected.
+ *
+ * `throttle: 1` is fixed rather than a parameter: every observation rollout holds it, which is the
+ * whole premise `OBSERVATION_MODIFIERS` is built around — the throttle keeps `stepDrive` out of
+ * `coast` (drag, which BRAKES: 900 u/s^2, a Mirage seen at 400 u/s covers 82 units in 20 ticks
+ * against the ~400 it really travels) while the zeroed `accel` channel keeps it from adding engine.
+ * Rolled under that set, so the observed speed is HELD rather than accelerated toward the chassis
+ * maximum — see that constant for the measurement.
  */
 export function physicsPredictor(
   car: BotCarView,
   angVel: number,
-  input: DriveAction,
   horizonTicks: number,
   estimationSigma: number,
   rng: Rng,
 ): PosePredictor {
-  // Drawn unconditionally, and the SAME count regardless of sigma (H21): a draw that happened only
-  // when sigma was non-zero would make the stream depend on the tier, and one seed would stop
-  // replaying across a profile edit.
+  // Drawn unconditionally, FIRST, and the SAME count regardless of sigma or of anything derived
+  // below (H21): a draw that happened only when sigma was non-zero, or that moved because the steer
+  // reconstruction took a different branch, would make the stream depend on the tier or the scene
+  // and one seed would stop replaying. Four `rng()` calls — `gaussian` is Box-Muller and draws a
+  // PAIR each time. Everything after this line is pure arithmetic over already-drawn values.
   const speedNoise = gaussian(rng) * estimationSigma;
   const turnNoise = gaussian(rng) * estimationSigma;
+  const noisyTurn = angVel * (1 + turnNoise);
+  const steer = steerFromObservedTurn(noisyTurn, car.carId);
+  const spin = steer === 0 ? noisyTurn : 0;
   const observed: BotCarView = { ...car, speed: car.speed * (1 + speedNoise) };
   const poses = rollForward(
-    bodyFromObservation(observed, angVel * (1 + turnNoise)), car.carId, input, horizonTicks,
+    bodyFromObservation(observed, spin), car.carId, { steer, throttle: 1 }, horizonTicks,
     OBSERVATION_MODIFIERS,
   );
   return clampedPredictor(poses, { x: car.x, y: car.y, angle: car.angle });
@@ -260,7 +305,12 @@ function gaussian(rng: Rng): number {
  * Also rolled under `OBSERVATION_MODIFIERS`, and for the same reason: a bot reads its own speed off
  * its HUD, not its own future throttle. Predicting itself accelerating to top speed would mis-read
  * its own exposure — it would place itself somewhere it has not decided to go and score the danger
- * of a pose it never holds.
+ * of a pose it never holds. `bodyFromSelf` discards `self.maneuverTicksLeft` to keep that claim true
+ * mid-dash: carried through, `stepDash` would have predicted the bot parked for the dash's remaining
+ * ticks and then handed it back at exactly the top speed this paragraph says it must not assume.
+ *
+ * `input` stays a parameter here, unlike on `physicsPredictor`: this is the bot's OWN car, so there
+ * is no steer to infer — the caller knows what it is asking about.
  */
 export function selfPredictor(
   self: BotSelfView,

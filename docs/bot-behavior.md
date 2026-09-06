@@ -161,9 +161,19 @@ parameter and has **no production caller today** — kept deliberately as the ch
 straight-line path for a later phase, not as a live knob.
 
 `stateEstimationSigma` is how wrong a bot's read of an opponent is, **as a fraction** — two gaussian
-draws per predictor construction scale the observed `speed` and the observed turn rate before the
-rollout runs. Reading exact `speed` off another car every tick is the one place a bot sees more
-precisely than a person, and this is the answer to that. It is **not confined to [0, 1]** (a fraction
+draws per predictor construction (four `rng()` calls: Box-Muller draws a pair each) scale the observed
+`speed` and the observed turn rate before the rollout runs. Reading exact `speed` off another car
+every tick is the one place a bot sees more precisely than a person, and this is the answer to that.
+
+The turn half is the one that reads a **corner**, and it works by moving the observation across
+`BRAIN_CONSTANTS.fullLockAngVelFraction`: the noised rate — not the raw one — is what
+`steerFromObservedTurn` reconstructs a held wheel from, so a bad enough read misjudges *whether* the
+car is steering at all, and near the threshold *which way*. Above the threshold the read is quantised
+to a -1/0/1 steer, so a small error there changes nothing; below it the residual is a ram's spin and
+the error scales it continuously. That reconstruction lives inside `physicsPredictor`, after the
+draws, precisely so the noise reaches it.
+
+It is **not confined to [0, 1]** (a fraction
 above 1 is a wild misread, not an invalid value), so it is deliberately absent from
 `personality.ts`'s `UNIT_INTERVAL_FIELDS` and from `bot-profiles.test.ts`'s `PROBABILITY_FIELDS` —
 exactly as `aimErrorSigmaRad` is, and for the same reason.
