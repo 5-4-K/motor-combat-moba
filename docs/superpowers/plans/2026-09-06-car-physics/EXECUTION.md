@@ -31,7 +31,7 @@ regardless; stage 3's own section below assumes you have.
 
 | | state |
 |---|---|
-| Branch | `claude/car-physics-stage-3-e06290` — fast-forwarded from `claude/car-physics-implementation-283ddf` at `925b788` (itself branched from `feature/car-physics-rework` at `02f5a89`) |
+| Branch | Stage 3 was executed on `claude/car-physics-stage-3-e06290`, fast-forwarded from `claude/car-physics-implementation-283ddf` at `925b788` (itself branched from `feature/car-physics-rework` at `02f5a89`). **It was handed off to be merged elsewhere afterwards, so that branch name may no longer be where this work lives.** The durable anchor is the tip commit **`1ee4b53`** — if it is an ancestor of your HEAD, you have this state. If it is not (a squash-merge would do that), verify against this file's content rather than its SHAs, and treat every SHA below as historical. |
 | Commits | 48 ahead of `development/main`; stage 3 alone is 11 commits from `925b788` onwards (git range notation — exclusive of `925b788`, which only adds the original state file). These counts include the documentation-only follow-up commit. |
 | Root `npm test` | GREEN |
 | Root `npm run typecheck` | GREEN |
@@ -43,7 +43,7 @@ regardless; stage 3's own section below assumes you have.
 |---|---|---|
 | 1 | `01-vector-drive.md` | **Executed** (18 commits), against revision 1. Fully survives revision 2. |
 | 2 | `02-contact-and-impulse.md` | **Executed** (9 commits), against revision 1. Plumbing survives; the mass-derived and equal-and-opposite parts are superseded. |
-| 3 | `03-ram.md` | **Executed** (10 commits, `d29234b`..`ff9a720`), against revision 2, including three post-landing fix rounds (`12b400d`, `737a9d5`, then the whole-branch review's fix commit `ff9a720`) on top of the original 7 (`d29234b`..`7e5e1b4`). `mass` is gone from `packages/`; the ram contest (R1–R11) is what ships today. One exit criterion is NOT met — see "Stage 3's exit criterion... is NOT met" below, escalated to the user rather than fixed here. |
+| 3 | `03-ram.md` | **Executed** (11 commits, `d29234b`..`1ee4b53`), against revision 2, including four post-landing fix rounds (`12b400d`, `737a9d5`, the whole-branch review's fix commit `ff9a720`, and the documentation follow-up `1ee4b53`) on top of the original 7 (`d29234b`..`7e5e1b4`). `mass` is gone from `packages/`; the ram contest (R1–R11) is what ships today. One exit criterion is NOT met — see "Stage 3's exit criterion... is NOT met" below, escalated to the user rather than fixed here. |
 | 3b | `03b-ram-feel.md` | Written. Not started. ← next |
 | 4 | `04-impulse-def.md` | Revised for revision 2. Not started. |
 | 5 | `05-tune-and-reconcile.md` | Revised for revision 2. Not started. |
@@ -54,7 +54,7 @@ until the contest lands, `ac1fc5d`/`befc009` resolve rams as the contest and fix
 `625e38d`/`843e5bb` scale impulses by `ramDefence` and delete `reactionOf` and fix ITS review
 findings, `7e5e1b4` remove `mass` and wire the bridge) plus THREE fix-round commits on top of that:
 `12b400d` and `737a9d5` fixed Task 4's own review findings (the second correcting an error the first
-introduced — see `.superpowers/sdd/03-ram/task-4-report.md`'s "Fix round 2"), and `ff9a720` is a
+introduced — its own commit message records what was wrong and why), and `ff9a720` is a
 whole-branch review pass across all nine — comments, a dead import, and one test file, plus the one
 real code fix named below.
 
@@ -241,5 +241,8 @@ Real, non-blocking, each found once by a reviewer already. Fix opportunistically
 ## Housekeeping
 
 - The branch has **not been pushed**. Push before switching machines — it is also the only backup.
-- `.superpowers/sdd/` holds the working ledgers and is **gitignored**, so it does not travel. Everything
+- `.superpowers/sdd/` held the working ledgers for stages 1-3. It is gitignored, it did not travel, and
+  **it was deleted when stage 3 finished** — do not go looking for it, and treat any surviving pointer
+  to a file under it as dead. The measurements and hand-derivations it recorded were written into the
+  constants' own doc comments and into this file before it went. Everything
   from it that matters is in this file, the spec, the plan documents, or code comments.
