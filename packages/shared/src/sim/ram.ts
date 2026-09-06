@@ -81,15 +81,18 @@ export function pairKey(a: string, b: string): string {
 }
 
 /**
- * Which face of the victim was struck, measured in the victim's own frame.
+ * Which face of this car was struck, measured in this car's own frame.
  *
- * `n` points from the victim toward the attacker (see `contactNormalBetween`), so a positive local x
- * means the attacker is off the victim's nose. The hull is 48 long by 32 wide, so front and rear are
+ * `n` points from this car toward the other car (see `contactNormalBetween`), so a positive local x
+ * means the other car is off this car's nose. The hull is 48 long by 32 wide, so front and rear are
  * the narrow faces and the flanks are the long ones — which is the geometry the bonus table assumes.
+ *
+ * Called once per car in a ram contest — for the victim to determine its struck face bonus and for
+ * the attacker to determine its presented-face bonus (spec R6).
  */
-export function impactSideOf(n: Vec2, victimAngle: number): ImpactSide {
-  const cos = Math.cos(-victimAngle);
-  const sin = Math.sin(-victimAngle);
+export function impactSideOf(n: Vec2, carAngle: number): ImpactSide {
+  const cos = Math.cos(-carAngle);
+  const sin = Math.sin(-carAngle);
   const localX = n.x * cos - n.y * sin;
   const localY = n.x * sin + n.y * cos;
   if (Math.abs(localX) <= Math.abs(localY)) return "flank";
