@@ -39,6 +39,7 @@ const UNIT_INTERVAL_FIELDS: ReadonlySet<string> = new Set<keyof BotProfile>([
   "vengefulness", "standoffFraction", "deadbandFraction", "retreatHpFraction",
   "ramIntentChance", "dodgeChance", "blunderChance", "idleFidgetChance",
   "hearChance", "deadRespect", "opponentRangeRespect", "cornerRespect", "incomingCarChance",
+  "commitPenalty",
 ]);
 
 /** The tier one rung easier, whose values a personality may never reach past (H47). */

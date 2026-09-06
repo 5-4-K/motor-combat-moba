@@ -6,7 +6,7 @@ import { BOT_PROFILES, BRAIN_CONSTANTS, BOT_BRAIN_VERSION, type BotProfile } fro
 const TIERS = ["easy", "medium", "hard"] as const;
 
 /** What a field is supposed to do as the ladder is climbed, easy -> medium -> hard. */
-type Direction = "rises" | "falls" | "equal";
+type Direction = "rises" | "falls" | "equal" | "rises-or-equal";
 
 /**
  * Every knob's intended direction up the ladder, named one by one.
@@ -32,6 +32,14 @@ type Direction = "rises" | "falls" | "equal";
  *
  * And one runs BACKWARDS on purpose: `vengefulness` (H33) — a casual chases whoever hurt them, a
  * pro is not distracted — which is why this is a direction table and not a "harder is bigger" loop.
+ *
+ * A fourth direction, `"rises-or-equal"`, exists for fields that may hold flat on ONE rung rather
+ * than strictly rise on both: `planDepth` (1, 1, 2) and `targetBranches` (1, 1, 3) are both flat
+ * easy -> medium and only rise medium -> hard. Medium genuinely does not need a second plan segment
+ * or a second target branch to play its role on the ladder — inventing a value that rises on both
+ * rungs just to keep the table monotone-strict would be tuning the field for this test, not for the
+ * bot. The direction still asserts SOMEWHERE, on the ends (`hard > easy`), so a field that never
+ * moves at all still fails.
  */
 const LADDER: Readonly<Record<keyof BotProfile, Direction>> = {
   // Perception
@@ -78,6 +86,11 @@ const LADDER: Readonly<Record<keyof BotProfile, Direction>> = {
   incomingCarChance: "rises",
   situationCommitTicks: "falls",
   slotStickTicks: "rises",
+  // Planning
+  planHorizonTicks: "rises",
+  planDepth: "rises-or-equal",
+  targetBranches: "rises-or-equal",
+  commitPenalty: "rises",
 };
 
 const PROBABILITY_FIELDS = [
@@ -85,6 +98,7 @@ const PROBABILITY_FIELDS = [
   "vengefulness", "standoffFraction", "deadbandFraction", "retreatHpFraction",
   "ramIntentChance", "dodgeChance", "blunderChance", "idleFidgetChance",
   "hearChance", "deadRespect", "opponentRangeRespect", "cornerRespect", "incomingCarChance",
+  "commitPenalty",
 ] as const;
 
 describe("BOT_PROFILES", () => {
@@ -160,6 +174,12 @@ describe("BOT_PROFILES", () => {
         case "equal":
           expect(medium, label("easy", "medium")).toBe(easy);
           expect(hard, label("medium", "hard")).toBe(medium);
+          break;
+        case "rises-or-equal":
+          expect(medium, label("easy", "medium")).toBeGreaterThanOrEqual(easy);
+          expect(hard, label("medium", "hard")).toBeGreaterThanOrEqual(medium);
+          // Must still rise SOMEWHERE, or the direction is meaningless and the field is not a ladder.
+          expect(hard, label("easy", "hard")).toBeGreaterThan(easy);
           break;
       }
     }

@@ -1,8 +1,8 @@
 import type { BotDifficulty } from "@motor-combat-moba/shared";
 
 /**
- * One difficulty's knobs (H44). Thirty-eight of them, grouped: perception, aim, fire
- * economy, target politics, positioning, and judgment plus consistency.
+ * One difficulty's knobs (H44). Forty-two of them, grouped: perception, aim, fire
+ * economy, target politics, positioning, judgment plus consistency, and planning.
  *
  * Every field is a NUMBER, and no code outside this file branches on which tier it came from (H8).
  * That is the whole mechanism by which the tiers stay distinct as the brain grows: a behaviour is
@@ -164,6 +164,22 @@ export interface BotProfile {
   readonly situationCommitTicks: number;
   /** How long `chooseSlot` keeps the same slot unless the situation or reach changes (S15). */
   readonly slotStickTicks: number;
+
+  // --- Planning ------------------------------------------------------------------------------
+  /**
+   * How many ticks ahead the planner rolls a candidate (P24, P29).
+   *
+   * 0 is a reflex agent: it still avoids a wall it is about to hit, but cannot plan an arc. This is
+   * the single number that makes the tiers differ in KIND rather than degree, and it is a number
+   * precisely so that no module has to branch on the difficulty name (H8).
+   */
+  readonly planHorizonTicks: number;
+  /** 1 holds one action for the whole horizon; 2 splits it into two segments, 81 branches (P25). */
+  readonly planDepth: 1 | 2;
+  /** How many of the target's plausible inputs to take the worst case over (P28). */
+  readonly targetBranches: 1 | 3;
+  /** Score bonus for repeating last tick's action. Anti-chatter (P30). */
+  readonly commitPenalty: number;
 }
 
 /**
@@ -495,7 +511,8 @@ export const BRAIN_CONSTANTS = Object.freeze({
 // 4.0.0 (2026-09-05): firing solutions replace the angular fire gate (spec phase B).
 // 4.1.0 (2026-09-06): danger evaluation and cooldown readiness (spec phase C).
 // 4.2.0 (2026-09-06): physics-based prediction replaces the constant-velocity solve (spec phase A).
-export const BOT_BRAIN_VERSION = "4.2.0";
+// 4.3.0 (2026-09-05): the receding-horizon planner replaces desire blending (spec phase D).
+export const BOT_BRAIN_VERSION = "4.3.0";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency
@@ -519,6 +536,7 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
     hearChance: 0.15,
     deadRespect: 0.25, opponentRangeRespect: 0, cornerRespect: 0.35, incomingCarChance: 0.1,
     situationCommitTicks: 20, slotStickTicks: 4,
+    planHorizonTicks: 0, planDepth: 1, targetBranches: 1, commitPenalty: 0.1,
   }),
   medium: Object.freeze({
     viewStalenessTicks: 3, reactionDelayTicks: 6, recomputeTicks: 6, acquireTicks: 9,
@@ -534,6 +552,7 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
     hearChance: 0.55,
     deadRespect: 0.75, opponentRangeRespect: 0.45, cornerRespect: 0.75, incomingCarChance: 0.55,
     situationCommitTicks: 12, slotStickTicks: 8,
+    planHorizonTicks: 8, planDepth: 1, targetBranches: 1, commitPenalty: 0.4,
   }),
   hard: Object.freeze({
     viewStalenessTicks: 2, reactionDelayTicks: 4, recomputeTicks: 2, acquireTicks: 5,
@@ -549,5 +568,6 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
     hearChance: 1,
     deadRespect: 1, opponentRangeRespect: 0.9, cornerRespect: 1, incomingCarChance: 0.95,
     situationCommitTicks: 6, slotStickTicks: 12,
+    planHorizonTicks: 22, planDepth: 2, targetBranches: 3, commitPenalty: 0.8,
   }),
 });
