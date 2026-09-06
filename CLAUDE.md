@@ -157,7 +157,7 @@ the table moving. Feel complaints ("medium is too hard to hit") go through the
 | Package local rules | `packages/shared/CLAUDE.md`, `packages/server/CLAUDE.md`, `packages/client/CLAUDE.md` |
 | Spec + tracker | [`docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md`](docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md), [`docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md`](docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md) |
 | **Online netcode and client rendering — the fourteen-phase rewrite in progress** | **start at [`docs/superpowers/plans/2026-09-04-netcode-and-rendering/EXECUTION.md`](docs/superpowers/plans/2026-09-04-netcode-and-rendering/EXECUTION.md)** — see below |
-| **Car physics rework — five stages, stage 1 (vector drive) landed** | **start at [`docs/superpowers/plans/2026-09-06-car-physics/README.md`](docs/superpowers/plans/2026-09-06-car-physics/README.md)** — see below |
+| **Car physics rework — stages 1-2 landed, spec now on revision 2** | **start at [`docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md`](docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md)** — see below |
 | Weapon system decisions (D1–D22), aim assist and target lock (A1–A14), online-play review, future work | [`docs/superpowers/specs/2026-08-27-weapon-system-design.md`](docs/superpowers/specs/2026-08-27-weapon-system-design.md), [`docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md`](docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md), [`docs/superpowers/plans/2026-08-27-weapon-system.md`](docs/superpowers/plans/2026-08-27-weapon-system.md) |
 | The nine-weapon roster, per-chassis kits (L1–L7) | [`docs/superpowers/specs/2026-08-29-weapon-roster-design.md`](docs/superpowers/specs/2026-08-29-weapon-roster-design.md) |
 | The three chassis types and their triangle, the `accel`/`handling` ratings, the weapon redistribution (T1–T22) — **supersedes L1–L7's assignments** | [`docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md`](docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md) |
@@ -205,7 +205,7 @@ What it changes, when it runs, and why it matters to work that touches the sim m
 A change to `sim/`, the tables or `ArenaScene.ts` made before this work starts is not wasted, but it
 will be moved by it — check the phase that owns the file before a large refactor there.
 
-## The car-physics rework: five stages, stage 1 landed
+## The car-physics rework: stages 1-2 landed, spec on revision 2
 
 **Stage 1 of a five-stage rework replaced `SimBody.speed` and `PlayerState.speed` — a scalar
 magnitude along the car's heading, with a separate `shoveX`/`shoveY` knockback vector and an
@@ -230,21 +230,33 @@ throttle, a head-on or rear-end ram is close to inert — only a flank hit, whic
 `shoveEpsilon`) and `SLAM_CONFIG.victimAuthority` are inert leftovers of this — see that config file
 for which ones.
 
-**Four more stages are planned, not yet started.** Stage 2 restores whole-vector reflection in
-`applyContact` (walls currently damp but never deflect) and adds mass-weighted separation. Stage 3
-rebuilds ram control-loss as the `reeling` status and rewrites severity against relative closing
-velocity rather than one car's absolute speed. Stage 4 adds an `ImpulseDef` weapon seam so any
-weapon can push a car, and dissolves `SLAM_CONFIG` into it. Stage 5 re-tunes and reconciles — it is
-what re-derives every playtest threshold this rework left stale (see the Playtest section below) and
-rebuilds the docs this stage's own review pass could only patch by hand.
+**Stage 2 also landed**, restoring whole-vector reflection in `applyContact` (walls deflect instead
+of damping), dropping `restitution` 0.35 → 0.15, splitting car-car separation by mass, and adding the
+`Impulse` struct with equal-and-opposite reactions.
 
-Start at
-[`docs/superpowers/plans/2026-09-06-car-physics/README.md`](docs/superpowers/plans/2026-09-06-car-physics/README.md)
-for the stage sequence, and
-[`docs/superpowers/specs/2026-09-06-car-physics-rework-design.md`](docs/superpowers/specs/2026-09-06-car-physics-rework-design.md)
-for the design it implements.
-[`interfaces.md`](docs/superpowers/plans/2026-09-06-car-physics/interfaces.md) beside the plans is
-the ledger of every name they share, and outranks any one plan.
+**The spec then changed models mid-rework, and this is the thing to know before reading any ram
+code.** Measuring stage 2's equal-and-opposite impulses showed every chassis is thrown backwards
+*faster than its own top speed* for landing a ram — Bastion 190 → −184.5 u/s, Wild Charge −340.5,
+which is 1.8× its user's top speed, backwards. Two structural causes: `applyContact`'s restitution
+reflection is mass-blind, so an attacker rebounds off a car it outweighs three to one exactly as it
+would off a wall; and `knockMaxSpeed` was authored as the *victim's* Δv under a one-way model.
+
+**Spec revision 2 therefore removes `mass` from the game entirely**, replaces it with per-car
+`ramAttack`/`ramDefence` (never `attack`/`defence` — `CarDef.attack` already scales weapon damage),
+and replaces equal-and-opposite impulses with a **contest** between the two cars' pushes. So the ram
+code currently in the branch implements a model the spec marks superseded; that is expected, marked
+in place rather than reverted, and stage 3 is what replaces it.
+
+Stages 3, 3b, 4 and 5 are planned against revision 2 and **not started**.
+
+**Start at
+[`EXECUTION.md`](docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md)** — the state file. It
+names what is done, what is next, what survives revision 2 and what does not, the decisions that
+still bind, and the deferred findings. It is updated in the same commit as the work it describes.
+Then the spec's **Changelog** in
+[`2026-09-06-car-physics-rework-design.md`](docs/superpowers/specs/2026-09-06-car-physics-rework-design.md),
+and [`interfaces.md`](docs/superpowers/plans/2026-09-06-car-physics/interfaces.md), the ledger of
+every name the plans share, which outranks any one plan.
 
 ## `docs/ideas/` and `docs/invariants/` are the user's, not the agent's
 
