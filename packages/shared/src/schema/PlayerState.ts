@@ -21,7 +21,8 @@ export class PlayerState extends Schema {
    * value would poison every subsequent step rather than merely look wrong.
    *
    * Replaces four fields with two: the old `speed` + `shoveX`/`shoveY` + `authority` quartet.
-   * `authority` is gone entirely; ram control-loss is the `reeling` status as of stage 3.
+   * `authority` is gone entirely, with no successor yet — a rammed car keeps full steering. Ram
+   * control-loss returns as the `reeling` status in stage 3b, not this stage.
    */
   @type("number") vx = 0;
   @type("number") vy = 0;

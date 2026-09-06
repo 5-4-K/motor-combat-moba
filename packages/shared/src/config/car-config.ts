@@ -1,6 +1,6 @@
 import { COMBAT_CONFIG } from "./combat-config.js";
 import { DRIVE_CONFIG } from "./drive-config.js";
-import { RAM_CONFIG, halfLifeToPerTick } from "./ram-config.js";
+import { halfLifeToPerTick } from "./ram-config.js";
 import type { CarDef, CarId } from "./types.js";
 
 /**

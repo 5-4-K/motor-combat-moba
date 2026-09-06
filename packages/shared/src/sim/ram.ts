@@ -13,7 +13,7 @@ import { canDamage } from "./weapons/targets.js";
  * **A ram deals no damage.** It spins the victim and knocks it sideways, and that is all —
  * `applyDamage` is never called from here. Weapons remain the only damage source, so the `attack`
  * rating keeps meaning exactly what its name says. Ramming sets up the kill; weapons land it.
- * Ram control-loss (what used to be a steering-authority degrade) is gone until stage 3's `reeling`
+ * Ram control-loss (what used to be a steering-authority degrade) is gone until stage 3b's `reeling`
  * status; this module carries no stand-in for it (`Impulse.uncontrolTicks` is authored `0` here).
  *
  * **`resolveRam` resolves a CONTEST between both cars, not a one-way push derived from the
@@ -187,13 +187,22 @@ export function resolveRam(a: RamCar, b: RamCar, mode: "ffa" | "team"): RamHit |
   const victimPush = pushOf(victim, victimDriveIn);
 
   const side = impactSideOf(towardAttacker, victim.angle);
-  // The victim presents the face the attacker struck; the attacker presents its own struck face,
-  // which for a car driving forward into something is its front (spec R6).
+  // The attacker's own struck face is read the same way as the victim's: from the normal pointing
+  // at the OTHER car, in ITS OWN frame (spec R6 — the bonus applies to the face each car presents,
+  // not only the victim's). It is tempting to assume the attacker is always nose-first — `bonusFront`
+  // hardcoded here used to make exactly that assumption — but `driveInOf` dots a car's WHOLE velocity
+  // against the contact normal, and since the vector-drive rework that velocity is not always aligned
+  // with the car's heading: a car spun or slid sideways by an earlier hit, or one genuinely reversing,
+  // can win the drive-in contest (becoming `resolveRam`'s "attacker") while presenting its flank or
+  // its rear to the car it is colliding with. Computing it, rather than assuming it, is also what
+  // keeps R7's symmetry: two cars sliding sideways into each other must not have their face bonus
+  // decided by the arbitrary `approachA >= approachB` tiebreak that only picks who counts as attacker.
+  const attackerSide = impactSideOf(towardVictim, attacker.angle);
   const victimImpact = impactOn(
     attackerPush, victimPush, bonusFor(side), ramDefenceOf(victim.carId) * victim.defenceMult,
   );
   const attackerImpact = impactOn(
-    victimPush, attackerPush, RAM_CONFIG.bonusFront, ramDefenceOf(attacker.carId) * attacker.defenceMult,
+    victimPush, attackerPush, bonusFor(attackerSide), ramDefenceOf(attacker.carId) * attacker.defenceMult,
   );
 
   // Both impulses recover the SAME contact point exactly as before — `contactPointOn` is unchanged.

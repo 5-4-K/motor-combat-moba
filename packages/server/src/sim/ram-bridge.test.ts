@@ -100,7 +100,10 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     const defence = ramDefenceOf("mirage");
     const attackerPush = attack * 540 + defence * RAM_CONFIG.defencePushScale; // victim brings 0 drive-in
     const victimPush = defence * RAM_CONFIG.defencePushScale; // the victim's own drive-in is 0
-    // The attacker presents its own front regardless of geometry (spec R6), and its impulse is
+    // The attacker's own presented face is computed the same way the victim's is (spec R6 — the
+    // bonus applies to each car's OWN struck face, not only the victim's): both cars are dead-straight
+    // along +x here, so the attacker is genuinely nose-first into the contact and `bonusFront` is what
+    // its own geometry produces, not an assumption. Its impulse is
     // `defenceScaled: false` (the contest already divided by its OWN ramDefence) — no separate defence
     // factor to apply on top.
     const attackerImpact =
@@ -199,7 +202,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
 
   // `authority` and its "no rescue" precedence rule (a weaker knock could never overwrite a
   // stronger standing one) are gone entirely — there never was, and still is not, an authority
-  // field on `Impulse` (see `contactTick`'s own comment on `Impulse` application). Stage 3
+  // field on `Impulse` (see `contactTick`'s own comment on `Impulse` application). Stage 3b
   // reinstates control loss as the `reeling` status, at which point precedence-style rules belong
   // there again. Until then, `applyImpulse` just adds every impulse straight into the victim's
   // velocity — two rams landing on the same victim across different ticks stack rather than one

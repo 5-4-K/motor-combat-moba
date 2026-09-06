@@ -402,13 +402,34 @@ describe("the ram contest", () => {
     expect(fleeing!.impulse.speed).toBe(stopped!.impulse.speed);
   });
 
-  it("scales linearly with closing speed", () => {
+  it("is SUPERlinear in closing speed — doubling drive-in more than doubles the victim's impact", () => {
+    // Was named "scales linearly with closing speed" and asserted only `fast > slow * 1.5`, which is
+    // wrong on both counts: the contest is not linear in `driveIn` (`share` — the attacker's OWN
+    // fraction of the total push — rises with `driveIn` too, so `victimImpact`'s two `attackerPush`
+    // factors both grow), and the real ratio the old fixture produced was ~1.92, comfortably clearing
+    // a `1.5` floor that would also pass a genuinely linear (exactly 2x) or even a mildly sublinear
+    // curve. A band around the actual ratio is what would fail if the curve's shape changed.
+    //
+    // Hand-derived from the contest formula (mirage attacker, victim's own ratings never enter here
+    // since its drive-in is 0 — only its `ramDefence`, 50, does; `defencePushScale` 35, `bonusFlank`
+    // 1.0, `globalScale` 0.4):
+    //   attackerPush(v) = ramAttack(55)*v + ramDefence(50)*defencePushScale(35) = 55v + 1750
+    //   victimPush       = ramDefence(50)*defencePushScale(35) = 1750  (constant, independent of v)
+    //   victimImpact(v)  = attackerPush(v)^2 * bonusFlank * globalScale / ((attackerPush(v)+victimPush) * ramDefence(50))
+    //
+    //   v=100: attackerPush = 5500+1750 = 7250;  victimImpact = 7250^2*0.4 / (9000*50)  ~= 46.7222
+    //   v=200: attackerPush = 11000+1750 = 12750; victimImpact = 12750^2*0.4 / (14500*50) ~= 89.6897
+    //   ratio = 89.6897 / 46.7222 = (51/29)^2 * (18/29) = 46818/24389 ~= 1.9196
+    //
+    // A materially different curve would miss this band: exactly linear lands at 2.0, and the old
+    // "just monotonic" assumption (`> 1.5`) covers almost anything in between.
     const slow = resolveRam({ ...attackerAt(600, 300), vx: 100, vy: 0 }, victimAt(640, 300), "ffa");
     const fast = resolveRam({ ...attackerAt(600, 300), vx: 200, vy: 0 }, victimAt(640, 300), "ffa");
     expect(slow!.attackerId).toBe("a");
     expect(fast!.attackerId).toBe("a");
-    // Not exactly 2x — the defence push term does not scale with speed — but close, and monotonic.
-    expect(fast!.impulse.speed).toBeGreaterThan(slow!.impulse.speed * 1.5);
+    const ratio = fast!.impulse.speed / slow!.impulse.speed;
+    expect(ratio).toBeGreaterThan(1.9);
+    expect(ratio).toBeLessThan(1.94);
   });
 
   it("costs the attacker more for hitting a solid car than a flimsy one", () => {
@@ -417,6 +438,43 @@ describe("the ram contest", () => {
     expect(vsFlimsy!.attackerId).toBe("a");
     expect(vsSolid!.attackerId).toBe("a");
     expect(vsSolid!.attackerImpulse.speed).toBeGreaterThan(vsFlimsy!.attackerImpulse.speed);
+  });
+
+  it("scores the ATTACKER's own presented face too, not a hardcoded front (spec R6)", () => {
+    // A car spun sideways by an earlier hit (or one genuinely reversing) can still win the drive-in
+    // contest and be named `resolveRam`'s attacker while presenting its FLANK to the car it hits —
+    // `driveInOf` dots the car's WHOLE velocity against the contact normal, so alignment between
+    // velocity and heading is not assumed anywhere else in the contest. This is the regression test
+    // for the bug where the attacker's face bonus was hardcoded to `bonusFront` regardless of the
+    // geometry: mirage attacking mirage, both defaults, so `ramAttackOf`/`ramDefenceOf` are 55/50 for
+    // both cars.
+    //
+    // Geometry: the attacker sits at x=-35, y=0, facing +y (angle pi/2 — perpendicular to its own
+    // velocity), and drives along +x at 300 u/s into a stationary victim at the origin facing +x
+    // (angle 0). The attacker's x-half-width (`carHeight`/2 = 16, since its long axis is rotated onto
+    // world y) and the victim's x-half-length (`carWidth`/2 = 24) overlap by 5 u — a real contact —
+    // while the attacker's y-half-length (24) fully contains the victim's y-half-width (16), so x is
+    // the separating axis and the contact normal is world-axis-aligned: `towardVictim` = (1,0).
+    // `impactSideOf((1,0), pi/2)` rotates that normal into the attacker's own frame and finds it
+    // perpendicular to the attacker's heading (+y) — a FLANK, not a front, even though the attacker is
+    // the one driving in.
+    //
+    // Hand-derived from the contest formula (`pushOf`/`impactOn` in `sim/ram.ts`), not pasted:
+    //   attackerDriveIn = 300 (all of vx=300 is along the +x contact normal), victimDriveIn = 0.
+    //   attackerPush = ramAttack(55)*300 + ramDefence(50)*defencePushScale(35) = 16500 + 1750 = 18250
+    //   victimPush   = ramAttack(55)*0   + ramDefence(50)*defencePushScale(35) = 0     + 1750 = 1750
+    //   attacker's share of the total = victimPush / (attackerPush + victimPush) = 1750 / 20000 = 0.0875
+    //   attackerImpact = victimPush * share * bonusFlank(1.0) * globalScale(0.4) / ramDefence(50)
+    //                  = 1750 * 0.0875 * 1.0 * 0.4 / 50 = 1.225 u/s
+    // Had the attacker's face been (wrongly) hardcoded to `bonusFront` (0.3) instead of the flank it
+    // actually presents, the same arithmetic would give 1750 * 0.0875 * 0.3 * 0.4 / 50 = 0.3675 u/s —
+    // over 3x too cheap, which is exactly the shape of bug this test exists to catch.
+    const attacker = car({ sessionId: "a", x: -35, y: 0, angle: Math.PI / 2, vx: 300, vy: 0 });
+    const victim = car({ sessionId: "b", x: 0, y: 0, angle: 0 });
+    const hit = resolveRam(attacker, victim, "ffa")!;
+    expect(hit).not.toBeNull();
+    expect(hit.attackerId).toBe("a");
+    expect(hit.attackerImpulse.speed).toBeCloseTo(1.225, 6);
   });
 
   it("never fires on a pair that is not closing at all", () => {

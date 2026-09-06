@@ -411,12 +411,12 @@ function ramChain(): void {
   // control-loss returns as the `reeling` status in stage 3b. Rather than substitute a lookalike
   // number (e.g. counting ticks under some invented "reeling" proxy), the measurement is dropped
   // here; the tick loop above is left in place so the scenario still exercises the ram-chain path,
-  // but there is nothing left to report a verdict on until stage 3 lands.
+  // but there is nothing left to report a verdict on until stage 3b lands.
   report(
     "9. Two attackers chain-ramming one victim (300 ticks)",
     "KNOWN-BY-DESIGN",
     `Not measurable in stage 1 — this probe read \`victim.authority\` to gauge anti-stun-lock ` +
-      `pressure from a coordinated 2v1, and \`authority\` has no successor until stage 3's ` +
+      `pressure from a coordinated 2v1, and \`authority\` has no successor until stage 3b's ` +
       `\`reeling\` status lands. Re-derive this probe then.`,
   );
 }

@@ -4,7 +4,8 @@
 same commit as the work it describes, so a session can stop anywhere and the next one resumes
 exactly. Same convention as the netcode rewrite's `EXECUTION.md`.
 
-**Last updated:** 2026-09-07, after stage 3 (the ram contest) executed and its Task 4 review fixed.
+**Last updated:** 2026-09-07, after stage 3 (the ram contest) executed, its Task 4 review fixed, and a
+whole-branch review of stage 3 fixed (`6fa9cf4`).
 
 ---
 
@@ -31,7 +32,7 @@ regardless; stage 3's own section below assumes you have.
 | | state |
 |---|---|
 | Branch | `claude/car-physics-stage-3-e06290` — fast-forwarded from `claude/car-physics-implementation-283ddf` at `925b788` (itself branched from `feature/car-physics-rework` at `02f5a89`) |
-| Commits | 44 ahead of `development/main`; stage 3 alone is 7 (`925b788`..`7e5e1b4`) |
+| Commits | 47 ahead of `development/main` as of this commit (`6fa9cf4`); stage 3 alone is 10 (`925b788`..`6fa9cf4`, git range notation — exclusive of `925b788`, which only adds this state file) |
 | Root `npm test` | GREEN |
 | Root `npm run typecheck` | GREEN |
 | Root `npm run build` | GREEN |
@@ -42,7 +43,7 @@ regardless; stage 3's own section below assumes you have.
 |---|---|---|
 | 1 | `01-vector-drive.md` | **Executed** (18 commits), against revision 1. Fully survives revision 2. |
 | 2 | `02-contact-and-impulse.md` | **Executed** (9 commits), against revision 1. Plumbing survives; the mass-derived and equal-and-opposite parts are superseded. |
-| 3 | `03-ram.md` | **Executed** (7 commits, `d29234b`..`7e5e1b4`), against revision 2. `mass` is gone from `packages/`; the ram contest (R1–R11) is what ships today. One exit criterion is NOT met — see "Stage 3's exit criterion... is NOT met" below, escalated to the user rather than fixed here. |
+| 3 | `03-ram.md` | **Executed** (10 commits, `d29234b`..`6fa9cf4`), against revision 2, including three post-landing fix rounds (`12b400d`, `737a9d5`, then this whole-branch review's fix commit `6fa9cf4`) on top of the original 7 (`d29234b`..`7e5e1b4`). `mass` is gone from `packages/`; the ram contest (R1–R11) is what ships today. One exit criterion is NOT met — see "Stage 3's exit criterion... is NOT met" below, escalated to the user rather than fixed here. |
 | 3b | `03b-ram-feel.md` | Written. Not started. ← next |
 | 4 | `04-impulse-def.md` | Revised for revision 2. Not started. |
 | 5 | `05-tune-and-reconcile.md` | Revised for revision 2. Not started. |
@@ -51,8 +52,11 @@ The 5 commits before `925b788` (`febd7b8`..`2c7f235`) are the redesign and repla
 in them. Stage 3 ran as four tasks (`d29234b` add the ratings, `49c9ec4` freeze `minApproachSpeed`
 until the contest lands, `ac1fc5d`/`befc009` resolve rams as the contest and fix its review findings,
 `625e38d`/`843e5bb` scale impulses by `ramDefence` and delete `reactionOf` and fix ITS review
-findings, `7e5e1b4` remove `mass` and wire the bridge) plus this doc's own fix-round commit for
-Task 4's review.
+findings, `7e5e1b4` remove `mass` and wire the bridge) plus THREE fix-round commits on top of that:
+`12b400d` and `737a9d5` fixed Task 4's own review findings (the second correcting an error the first
+introduced — see `.superpowers/sdd/03-ram/task-4-report.md`'s "Fix round 2"), and `6fa9cf4` (this
+commit) is a whole-branch review pass across all nine — comments, a dead import, and one test file,
+plus the one real code fix named below.
 
 ## What stage 3 actually changed
 

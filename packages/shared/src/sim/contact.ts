@@ -113,7 +113,8 @@ function isCharger(c: ContactCar): boolean {
  * contest replaces a single 0-1 severity grade. A slam's fixed `SLAM_CONFIG.knockSpeed` comfortably
  * beats an ordinary ram at today's tuning, but nothing enforces that structurally the way the old
  * severity clamp did (spec R9 forbids re-adding a ceiling) — Task 4's `RAM_CONFIG.globalScale`
- * measurement is what re-establishes the ordering, if it needs re-establishing at all.
+ * measurement is what established the ordering: the roster's hardest ram tops out at 268 u/s against
+ * a slam's fixed 520, so the slam-beats-ram guarantee holds, at today's tuning.
  *
  * Classification per fresh touching pair, checked from each car's own side:
  *

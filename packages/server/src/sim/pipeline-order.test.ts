@@ -73,8 +73,9 @@ describe("the real serverTick -> contactTick order (stage 2 whole-stage review, 
     const state = arena();
     // Bastion rear-ends a stationary Bullseye at Bastion's own top speed, dead straight along +x —
     // both cars facing +x, attacker behind, so this is a REAR hit for the victim (RAM_CONFIG.bonusRear)
-    // and a "front" hit for the attacker (RAM_CONFIG.bonusFront, fixed regardless of geometry, spec
-    // R6). Stage 3 Task 2 replaced the severity grade this test used to saturate with the ram
+    // and a FRONT hit for the attacker too (RAM_CONFIG.bonusFront) — the attacker's own face is
+    // computed from its own geometry (spec R6), and it genuinely is nose-first here, not an assumed
+    // constant. Stage 3 Task 2 replaced the severity grade this test used to saturate with the ram
     // contest — the attacker's own impulse is now hand-derived from that contest below rather than
     // read off a single saturated constant.
     const topSpeed = forwardMaxSpeedOf("bastion");

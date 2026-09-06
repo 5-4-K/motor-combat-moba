@@ -100,7 +100,7 @@ export class PlaytestWorld {
     p.vx = v.vx;
     p.vy = v.vy;
     // `authority` has no successor in stage 1 (ram control-loss returns as a `reeling` status in
-    // stage 3); the schema default of vx = vy = 0 already covers the "no motion" reset this used to
+    // stage 3b); the schema default of vx = vy = 0 already covers the "no motion" reset this used to
     // pair with, so nothing here replaces it.
     this.state.players.set(spec.id, p);
     this.queues.set(spec.id, []);

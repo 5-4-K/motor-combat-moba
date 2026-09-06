@@ -55,7 +55,7 @@ function ramOf(
   ]);
 
   // `authority` has no successor in stage 1 — ram control-loss returns as the `reeling` status in
-  // stage 3 — so it is dropped here rather than replaced with a lookalike number.
+  // stage 3b — so it is dropped here rather than replaced with a lookalike number.
   let best = { shove: 0, angVel: 0, approachAtContact: 0 };
   for (let i = 0; i < ticks; i++) {
     const atk = w.get("atk");
@@ -250,7 +250,7 @@ function chaseRamLock(): void {
   let worstEscape = { escaped: true, gap: 0, phase: "", rams: 0 };
   let maxRams = 0;
   // `authority` has no successor in stage 1 — ram control-loss returns as the `reeling` status in
-  // stage 3 — so the "deepest authority dip" measurement this probe used to report is dropped
+  // stage 3b — so the "deepest authority dip" measurement this probe used to report is dropped
   // rather than replaced with a lookalike number.
   for (const offset of [0, 6, 12]) {
     let escapes = 0;

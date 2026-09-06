@@ -259,7 +259,7 @@ const COAST_INPUT: InputMessage = { seq: 0, steer: 0, throttle: 0, fireSlots: 0 
  * holding it rather than coasting it off. Not a regression (that is exactly what `speed` did before
  * this rework). Stage 2 Task 4 replaced `RamKnock` with `Impulse`, but that alone does not close this
  * gap — `Impulse.uncontrolTicks` is authored `0` throughout stage 2, so there is still no real
- * control-loss signal to detect here. Stage 3's `reeling` status is what actually closes it.
+ * control-loss signal to detect here. Stage 3b's `reeling` status is what actually closes it.
  *
  * The `lateralOf` comparison below is against `DRIVE_CONFIG.stopEpsilon`, not exact zero, and that is
  * load-bearing, not tidiness: `stepDrive` rebuilds vx/vy at the car's NEW heading every tick

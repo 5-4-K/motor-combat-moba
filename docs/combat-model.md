@@ -110,8 +110,9 @@ zero — which is what keeps "get behind them" a strategy rather than "be moving
 car is driving in harder is the attacker; if their combined drive-in falls below
 `RAM_CONFIG.minApproachSpeed` (which ships at 0, deliberately inactive) there is no ram at all.
 
-The impact side is read in the **victim's** local frame and multiplies severity before it is
-clamped back into range:
+Each car's impact side is read in its OWN local frame (spec R6 — the bonus applies to the face each
+car presents, not only the victim's) and scales that car's own contest result (`impactOn`) directly —
+there is no severity grade to multiply and no clamp to bring the result back into range (spec R9):
 
 | Side | Bonus |
 |---|---|
@@ -163,7 +164,7 @@ that is the restitution reflection, not the contest — see `RAM_CONFIG.globalSc
 
 **Ram control-loss (steering degraded by a hit) has no successor yet.** `authority` had no field to
 migrate onto — `PlayerState` carries none — so `ram-bridge.ts` drops it on the floor entirely, and a
-rammed car keeps full steering until stage 3 adds the `reeling` status in its place. That is the one
+rammed car keeps full steering until stage 3b adds the `reeling` status in its place. That is the one
 piece of the pre-rework model genuinely still missing, not a shim standing in for it.
 
 See [`schema-reference.md`](schema-reference.md#playerstate) for the networked fields and

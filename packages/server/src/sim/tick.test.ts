@@ -315,7 +315,7 @@ describe("serverTick", () => {
       // FINDING 2 (stage 2 review): the test above only ever drives mirage into mirage. The residual
       // this idle-blocker steady state settles at is NOT a constant -- the idle blocker never runs
       // its own `resolveWorld` (see the comment above), so only the driver ever concedes its
-      // `shareOf(driverMass, blockerMass)`; the smaller that share, the deeper the driver ends up
+      // `shareOf(selfRamDefence, otherRamDefence)`; the smaller that share, the deeper the driver ends up
       // past the exact boundary. Swept here across all 9 ordered chassis pairings so the real worst
       // case is measured, not assumed -- a bastion (900) driving into an idle bullseye (300) takes
       // only `shareOf(900, 300) = 0.25` of the correction each tick and sits roughly 14x deeper than

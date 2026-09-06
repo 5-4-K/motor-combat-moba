@@ -137,9 +137,10 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
     // Three cars: a rammer and a charger touch the SAME victim from opposite sides in one tick, so
     // both pairs land in `resolveContacts`' shared per-victim `best` map. The ram's own approach
     // speed is moderate, not extreme: revision 2's contest has no ceiling (spec R9), so an
-    // aggressive-enough ram CAN out-scale a slam's fixed magnitude at today's still-unmeasured
-    // `RAM_CONFIG.globalScale` — this proves the ordinary case a slam is meant to beat, not an
-    // impossible-to-lose guarantee (Task 4 owns whether that guarantee should exist at all).
+    // aggressive-enough ram CAN out-scale a slam's fixed magnitude in principle — but Task 4 measured
+    // `RAM_CONFIG.globalScale` and confirmed it does not happen at today's tuning: the roster's
+    // hardest possible ram tops out at 268 u/s, well under the slam's fixed 520. This proves the
+    // ordinary case a slam is meant to beat, not that a ram can never out-scale one.
     //
     // Session ids are chosen so the RAM pair is enumerated (and its impulse recorded) BEFORE the
     // SLAM pair: `resolveContacts` sorts by session id ("aRam" < "victim" < "zCharge"), so the nested
