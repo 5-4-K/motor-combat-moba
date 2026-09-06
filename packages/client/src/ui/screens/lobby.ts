@@ -298,7 +298,9 @@ export function renderLobby(
   const switchButton = button(
     {
       class: "btn btn-secondary btn-icon",
-      style: "width: 44px; height: 44px; background: var(--color-surface); border-color: var(--color-divider);",
+      // Sits over the two panels rather than beside them, so it takes the page ground rather than
+      // the surface it now overlaps — on a panel, a surface-coloured button would have no edge.
+      style: "width: 44px; height: 44px; background: var(--color-bg); border-color: var(--color-divider);",
       "aria-label": "Switch team",
       title: view.canSwitchTeam ? "Switch team" : "The other team is full",
       disabled: !view.canSwitchTeam,
@@ -324,25 +326,33 @@ export function renderLobby(
         ]),
         settings,
       ]),
-      h("div", { style: "display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 26px;" }, [
+      // The switch button is drawn ON the two panels, centred over the seam between them, instead of
+      // in a row of its own underneath. That row spent ~58px of column height on one 44px control
+      // and the chat panel below is what paid for it. The 44px button straddles the 24px gap by 10px
+      // either side, which stays inside each panel's own 22px padding — it covers no seat row.
+      h("div", { style: "position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 26px;" }, [
         teamPanel("Team A", view.teamACount, view.teamA, handlers, view.showTeamHeadings, CUT_TOP_RIGHT),
         teamPanel("Team B", view.teamBCount, view.teamB, handlers, view.showTeamHeadings, CUT_BOTTOM_LEFT),
+        h("div", { style: "position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 3;" }, [
+          switchButton,
+        ]),
       ]),
-      h("div", { style: "display: flex; justify-content: center; margin-top: 14px;" }, [switchButton]),
-      // The chat panel occupies the space the spacer used to hold, left-aligned at about one team
-      // panel's width. No chamfer: `teamPanel`'s own comment calls the cut corner a flourish for
-      // those panels specifically, and the design reference shows this one square.
-      h("div", { style: "flex: 1; min-height: 0; display: flex; align-items: stretch; margin-top: 22px; padding-bottom: 18px;" }, [
-        chatPanel(view.chat, menus.chatDraft, {
-          onChatInput: handlers.onChatInput,
-          onChatSend: handlers.onChatSend,
-        }),
-      ]),
-      h("div", { style: "display: flex; align-items: center; gap: 12px;" }, [
-        view.startError
-          ? h("div", { style: "font-size: 14px; color: var(--color-accent);" }, [view.startError])
-          : null,
-        h("div", { style: "margin-left: auto; display: flex; align-items: center; gap: 12px;" }, [
+      // Chat and the start control share one band, so the panel's bottom edge lines up with the
+      // bottom of Start Match rather than stopping a row short of it, and `flex: 1` hands the panel
+      // every pixel left under the seats — the height a readable message actually needs. Chat is
+      // left-aligned at about one team panel's width; no chamfer, since `teamPanel`'s own comment
+      // calls the cut corner a flourish for those panels specifically.
+      h("div", { style: "flex: 1; min-height: 0; display: flex; align-items: flex-end; gap: 24px; margin-top: 22px;" }, [
+        h("div", { style: "flex: 1; min-width: 0; align-self: stretch; display: flex;" }, [
+          chatPanel(view.chat, menus.chatDraft, {
+            onChatInput: handlers.onChatInput,
+            onChatSend: handlers.onChatSend,
+          }),
+        ]),
+        h("div", { style: "flex: none; display: flex; align-items: center; gap: 12px;" }, [
+          view.startError
+            ? h("div", { style: "font-size: 14px; color: var(--color-accent);" }, [view.startError])
+            : null,
           view.isHost
             ? button({ class: "btn btn-primary", style: "min-height: 52px; font-size: 16px; padding-inline: 34px;" }, ["Start Match"], startClick)
             : h("div", { style: "min-height: 52px; display: flex; align-items: center; padding: 0 26px; border-radius: 6px; background: var(--color-accent-2-200); color: var(--color-accent-2-800); font-size: 14px;" }, ["Waiting for host to start"]),
