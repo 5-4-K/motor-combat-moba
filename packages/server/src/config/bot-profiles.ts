@@ -174,7 +174,29 @@ export interface BotProfile {
    * precisely so that no module has to branch on the difficulty name (H8).
    */
   readonly planHorizonTicks: number;
-  /** 1 holds one action for the whole horizon; 2 splits it into two segments, 81 branches (P25). */
+  /**
+   * 1 holds one action for the whole horizon; 2 splits it into two segments, 81 branches (P25).
+   *
+   * NO TIER SHIPS 2 TODAY (R-PF1, fix round 1, 2026-09-06). Measured on this machine, 3000
+   * iterations after 300 warm-up: hard's shipped configuration (`planHorizonTicks` 22,
+   * `targetBranches` 3) at depth 2 cost **0.995 ms per plan** against a stated budget of **0.33
+   * ms** (six bots replanning at 15 Hz inside ~30 ms of CPU per simulated second) — 3.0x over.
+   * The SAME `planHorizonTicks` and `targetBranches` at depth 1 cost **0.166 ms** — 2x under
+   * budget, leaving margin for a slower machine.
+   *
+   * Depth 2's overrun cannot be closed by lowering K instead: at 81 sequences the SCORING alone
+   * (`myEv`, `theirEv`, `lockKeep`, `rangeError`, `wallPenalty` across every candidate) measured
+   * roughly **0.475 ms**, already above the whole 0.33 ms budget before a single `stepDrive` runs.
+   * Spec P33 and the plan both say the same thing in the same words for exactly this situation —
+   * "do not raise the budget", "K and `planDepth` come down and nothing else changes" — so hard's
+   * `planDepth` is 1, same as medium and easy.
+   *
+   * THE DIAL STAYS. This field keeps its `1 | 2` type, and the depth-2 machinery (`twoSegment`'s
+   * first-segment sharing in `planner.ts`, and its own tests) stays live and covered: it is the
+   * exact knob P33 names for whoever earns the budget to raise it back — a faster machine, a lower
+   * K, fewer simultaneous bots, or a cheaper scoring pass. Re-run the measurement above rather than
+   * re-derive it from scratch.
+   */
   readonly planDepth: 1 | 2;
   /** How many of the target's plausible inputs to take the worst case over (P28). */
   readonly targetBranches: 1 | 3;
@@ -589,6 +611,6 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
     hearChance: 1,
     deadRespect: 1, opponentRangeRespect: 0.9, cornerRespect: 1, incomingCarChance: 0.95,
     situationCommitTicks: 6, slotStickTicks: 12,
-    planHorizonTicks: 22, planDepth: 2, targetBranches: 3, commitPenalty: 0.8,
+    planHorizonTicks: 22, planDepth: 1, targetBranches: 3, commitPenalty: 0.8,
   }),
 });

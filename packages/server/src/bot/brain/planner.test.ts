@@ -82,9 +82,22 @@ describe("plan", () => {
     );
   });
 
-  it("with horizon 0 still returns an action, but does not plan an arc (P29)", () => {
-    const reflex = plan({ ...base, self: selfAt(30, 360, Math.PI), horizonTicks: 0 });
-    expect(reflex.action).toBeDefined();
+  it("with horizon 0, the candidates are not all tied -- moving the scene changes the answer (P29, R-P6)", () => {
+    // A degenerate K=0 that rolled nothing would score every one of the nine candidates at the
+    // identical CURRENT pose, so the ALL_ACTIONS tie-break would decide the same action regardless
+    // of the scene -- an open field and a car jammed against a wall would come out identical. R-P6
+    // floors the roll at one tick even at K=0, so these two must differ.
+    const openField = plan({ ...base, self: selfAt(300, 360, Math.PI), horizonTicks: 0 });
+    const nearWall = plan({ ...base, self: selfAt(30, 360, Math.PI), horizonTicks: 0 });
+    expect(nearWall.action).not.toEqual(openField.action);
+  });
+
+  it("does not steer into a wall it is about to hit, even at horizon 0 (P29, R-P6)", () => {
+    // The same assertion as "does not steer into a wall it is about to hit" above, at K=0: a
+    // degenerate zero-tick roll cannot tell a candidate that drives into the wall apart from one
+    // that turns away, since neither one actually moves before it is scored.
+    const result = plan({ ...base, self: selfAt(30, 360, Math.PI), horizonTicks: 0 });
+    expect(result.action.throttle === 1 && result.action.steer === 0).toBe(false);
   });
 
   it("names a runner-up that is a genuinely different action", () => {

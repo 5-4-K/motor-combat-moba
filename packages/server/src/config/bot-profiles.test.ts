@@ -34,12 +34,17 @@ type Direction = "rises" | "falls" | "equal" | "rises-or-equal";
  * pro is not distracted — which is why this is a direction table and not a "harder is bigger" loop.
  *
  * A fourth direction, `"rises-or-equal"`, exists for fields that may hold flat on ONE rung rather
- * than strictly rise on both: `planDepth` (1, 1, 2) and `targetBranches` (1, 1, 3) are both flat
- * easy -> medium and only rise medium -> hard. Medium genuinely does not need a second plan segment
- * or a second target branch to play its role on the ladder — inventing a value that rises on both
- * rungs just to keep the table monotone-strict would be tuning the field for this test, not for the
- * bot. The direction still asserts SOMEWHERE, on the ends (`hard > easy`), so a field that never
- * moves at all still fails.
+ * than strictly rise on both: `targetBranches` (1, 1, 3) is flat easy -> medium and only rises
+ * medium -> hard. Medium genuinely does not need a second target branch to play its role on the
+ * ladder — inventing a value that rises on both rungs just to keep the table monotone-strict would
+ * be tuning the field for this test, not for the bot. The direction still asserts SOMEWHERE, on the
+ * ends (`hard > easy`), so a field that never moves at all still fails.
+ *
+ * `planDepth` used to share this direction too (1, 1, 2), until R-PF1 (fix round 1, 2026-09-06)
+ * dropped hard back to 1 because the measured planning cost missed its budget by 3x — see
+ * `planDepth`'s own doc comment in `bot-profiles.ts` for the numbers. It is `"equal"` now: all
+ * three tiers ship depth 1, and the field keeps its `1 | 2` type and its depth-2 machinery for
+ * whichever tier next earns the budget to raise it.
  */
 const LADDER: Readonly<Record<keyof BotProfile, Direction>> = {
   // Perception
@@ -88,7 +93,7 @@ const LADDER: Readonly<Record<keyof BotProfile, Direction>> = {
   slotStickTicks: "rises",
   // Planning
   planHorizonTicks: "rises",
-  planDepth: "rises-or-equal",
+  planDepth: "equal",
   targetBranches: "rises-or-equal",
   commitPenalty: "rises",
 };

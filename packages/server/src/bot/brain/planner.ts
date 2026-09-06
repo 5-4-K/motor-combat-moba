@@ -18,10 +18,14 @@ const DEG_PER_RAD = 180 / Math.PI;
  * declined to consider, and no interpolation between two of these that the sim could execute.
  *
  * THE ORDER IS THE TIE-BREAK OF RECORD. `plan` keeps the first candidate of an exact tie (it
- * improves on strictly greater), and exact ties are reachable: a horizon of 0 rolls nothing, so
- * every candidate scores the identical pose. Straight-and-forward leads, so that degenerate case
- * resolves to "drive on" rather than to whichever corner of the grid an arbitrary enumeration
- * happened to start in.
+ * improves on strictly greater). Exact ties are reachable whenever nothing in the weights or the
+ * scene distinguishes two candidates — e.g. every weight zeroed — and USED TO BE guaranteed at
+ * `horizonTicks: 0`, when the rollout moved nothing at all and every candidate scored the
+ * identical current pose. R-P6 (fix round 1, 2026-09-06) closed that: `plan` now floors the
+ * per-segment roll at one tick even when K is 0, so a K=0 plan still moves before it scores and
+ * the nine candidates are no longer forced to tie. Straight-and-forward leads, so a genuine tie
+ * still resolves to "drive on" rather than to whichever corner of the grid an arbitrary
+ * enumeration happened to start in.
  */
 export const ALL_ACTIONS: readonly DriveAction[] = Object.freeze(
   ([1, 0, -1] as const).flatMap((throttle) =>
@@ -67,7 +71,12 @@ export interface PlanArgs {
   aimSigmaRad: number;
   preferredRange: number;
   weights: PlanWeights;
-  /** K. 0 means score the current pose — a reflex agent (P29). */
+  /**
+   * K. 0 is a reflex agent (P29): even then, `plan` floors the per-segment roll at ONE tick
+   * (R-P6, fix round 1, 2026-09-06) rather than zero, so a K=0 plan still moves before it scores
+   * and can still avoid a wall it is driving straight at. It cannot plan an arc — that is what
+   * "reflex" means — but it is not degenerate.
+   */
   horizonTicks: number;
   /** 1 holds one action for K ticks; 2 splits into two K/2 segments (P25). */
   depth: 1 | 2;
@@ -99,7 +108,13 @@ interface Candidate {
  * takes, or one seed stops replaying and the balance harness's paired runs stop being comparable.
  */
 export function plan(args: PlanArgs): PlanResult {
-  const segment = Math.max(0, Math.floor(args.horizonTicks / args.depth));
+  // R-P6 (fix round 1, 2026-09-06): floor at ONE tick, never zero. Spec P29 promises a K=0 "reflex
+  // agent" still avoids a wall it is about to hit; a segment of 0 rolls nothing at all, so every
+  // one of the nine candidates would end at the identical current pose, score identically, and
+  // let the ALL_ACTIONS tie-break silently decide easy's action on every tick regardless of the
+  // world -- which cannot avoid anything. Rolling exactly one tick out is "one tick out", the
+  // amateur tier P29 actually describes.
+  const segment = Math.max(1, Math.floor(args.horizonTicks / args.depth));
   const candidates = rollCandidates(args, segment);
   const elapsed = segment * args.depth;
 
@@ -215,13 +230,14 @@ function sameAction(a: DriveAction, b: DriveAction | undefined): boolean {
  * entire content of the decision: rolled under that set every candidate would coast at its current
  * speed and the throttle axis would do nothing at all. `rollForward`'s `mods` parameter has no
  * default precisely so this choice is made explicitly at every call site — do not add one back.
+ *
+ * `segment` is always at least 1 here (R-P6: `plan` floors it before calling in), so every
+ * candidate genuinely rolls — there is no zero-tick "stand still" case to special-case.
  */
 function rollCandidates(args: PlanArgs, segment: number): Candidate[] {
   const start = bodyFromSelf(args.self);
   const roll = (from: SimBody, action: DriveAction): SimBody =>
-    segment === 0
-      ? from
-      : rollForward(from, args.self.carId, action, segment, NEUTRAL_MODIFIERS).at(-1) ?? from;
+    rollForward(from, args.self.carId, action, segment, NEUTRAL_MODIFIERS).at(-1) ?? from;
 
   const firstEnds = ALL_ACTIONS.map((action) => roll(start, action));
   if (args.depth === 1) {
