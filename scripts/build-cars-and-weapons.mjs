@@ -138,7 +138,7 @@ const CHANNEL_WORDS = {
   damageDealt: "damage out",
   damageTaken: "damage taken",
   weaponCooldown: "recharge",
-  ramMass: "ram weight",
+  ramDefence: "ram resistance",
 };
 
 /**
@@ -534,7 +534,8 @@ function chassisPage(carId) {
     ["Handling", car.handling, `${round(turnRateOf(carId), 2)} rad/s · ${round(forwardMaxSpeedOf(carId) / turnRateOf(carId))}u turn radius`],
     ["Attack", car.attack, `${round(1 + (car.attack - COMBAT_CONFIG.attackBaseline) * COMBAT_CONFIG.damagePerAttack, 2)}× damage`],
     ["Hull", car.hp, `${hpOf(carId)} HP`],
-    ["Mass", car.mass, "ram authority"],
+    ["Ram power", car.ramAttack, "how hard it hits"],
+    ["Ram resistance", car.ramDefence, "how hard it is to shift"],
   ];
   const bars_ = ratings
     .map(

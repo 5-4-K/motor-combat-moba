@@ -131,7 +131,7 @@ export class PlaytestWorld {
   tick(): void {
     this.state.tick += 1;
     const statusMods = statusTick(this.state, this.state.tick);
-    const { masks, approachSpeeds } = serverTick(
+    const { masks, approachVelocities } = serverTick(
       this.state,
       this.queues,
       DT,
@@ -147,7 +147,7 @@ export class PlaytestWorld {
         this.ram,
         this.mode,
         statusMods,
-        approachSpeeds,
+        approachVelocities,
         this.combat.maneuverWeapons,
         this.state.tick,
       );

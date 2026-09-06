@@ -145,7 +145,7 @@ function contactCarsOf(
   state: ArenaState,
   roster: ReadonlySet<string>,
   statusMods: ReadonlyMap<string, Modifiers>,
-  approachSpeeds: ReadonlyMap<string, number>,
+  approachVelocities: ReadonlyMap<string, { vx: number; vy: number }>,
   maneuverWeapons: ReadonlyMap<string, WeaponId | "">,
   tick: number,
 ): ContactCar[] {
@@ -160,12 +160,15 @@ function contactCarsOf(
       x: player.x,
       y: player.y,
       angle: player.angle,
-      // Stage 3 Task 2 shim: `approachSpeeds` still carries only the PRE-COLLISION forward
-      // component. Task 4 widens `TickResult` to `approachVelocities` and this reconstruction goes
-      // away; until then a purely-forward rebuild is exactly what the old scalar meant.
-      ...toWorld(player.angle, approachSpeeds.get(sessionId) ?? forwardOf(player.vx, player.vy, player.angle), 0),
+      // The PRE-COLLISION world velocity, straight through — no reconstruction. Stage 3 Task 2's
+      // shim rebuilt a purely-forward `vx`/`vy` from a forward scalar with `toWorld`; Task 4 widened
+      // `TickResult.approachVelocities` to the real vector and deleted it, so a car carrying lateral
+      // velocity into a contact (a knock, a slide out of a turn, a wall graze) now brings that
+      // component to the contest instead of having it silently dropped. The `??` fallback only
+      // covers a session the cache has never seen, which `serverTick` records unconditionally.
+      ...(approachVelocities.get(sessionId) ?? { vx: player.vx, vy: player.vy }),
       carId: carIdOf(player),
-      defenceMult: modifiersFor(statusMods, sessionId).ramMass,
+      defenceMult: modifiersFor(statusMods, sessionId).ramDefence,
       maneuver: player.maneuver,
       maneuverWeaponId,
       stunned: hasStatus(readStatuses(player), "stunned", tick),
@@ -176,7 +179,7 @@ function contactCarsOf(
 }
 
 /**
- * This player's `ramDefence` as `applyImpulse` sees it: chassis rating scaled by whatever `ramMass`
+ * This player's `ramDefence` as `applyImpulse` sees it: chassis rating scaled by whatever `ramDefence`
  * effect it carries. Renamed from `massFor` in stage 3 Task 3 — reads `ramDefenceOf` instead of
  * `massOf` now, which is what actually delivers the ~10x inertia-denominator drop `nextSpin`'s doc
  * comment (`sim/impulse.ts`) describes: this is production's only caller of `applyImpulse` for a ram
@@ -189,15 +192,17 @@ function contactCarsOf(
 function ramDefenceFor(state: ArenaState, statusMods: ReadonlyMap<string, Modifiers>, sessionId: string): number {
   const player = state.players.get(sessionId);
   if (!player) return 0;
-  return ramDefenceOf(carIdOf(player)) * modifiersFor(statusMods, sessionId).ramMass;
+  return ramDefenceOf(carIdOf(player)) * modifiersFor(statusMods, sessionId).ramDefence;
 }
 
 /**
- * `approachSpeeds` comes from `serverTick`'s `TickResult`: each car's FORWARD speed as it entered
- * the tick, before `resolveWorld` could reflect it. It is a required parameter rather than an
- * optional one with a `forwardOf(player.vx, player.vy, player.angle)` default, deliberately — a
- * default here would silently reinstate the trigger bug for any caller that forgot it, and the
- * failure mode is a ram that fires on 8-20% of contacts rather than an error anyone would notice.
+ * `approachVelocities` comes from `serverTick`'s `TickResult`: each car's whole world velocity as it
+ * entered the tick, before `resolveWorld` could reflect it. It is a required parameter rather than
+ * an optional one defaulting to the player's current `vx`/`vy`, deliberately — a default here would
+ * silently reinstate the trigger bug for any caller that forgot it, and the failure mode is a ram
+ * that fires on 8-20% of contacts rather than an error anyone would notice. That reasoning is
+ * unchanged by Task 4's widening from a forward scalar to a vector: the parameter's shape moved, the
+ * reason it cannot be defaulted did not.
  */
 export function contactTick(
   state: ArenaState,
@@ -205,14 +210,14 @@ export function contactTick(
   memory: ContactMemory,
   mode: "ffa" | "team",
   statusMods: ReadonlyMap<string, Modifiers>,
-  approachSpeeds: ReadonlyMap<string, number>,
+  approachVelocities: ReadonlyMap<string, { vx: number; vy: number }>,
   maneuverWeapons: ReadonlyMap<string, WeaponId | "">,
   tick: number,
 ): ContactTickResult {
   const arena = getArena(state.arenaId);
   const bounds = { width: arena.width, height: arena.height };
 
-  const cars = contactCarsOf(state, roster, statusMods, approachSpeeds, maneuverWeapons, tick);
+  const cars = contactCarsOf(state, roster, statusMods, approachVelocities, maneuverWeapons, tick);
   const { impulses, contacts, events } = resolveContacts(
     cars,
     memory.contacts,

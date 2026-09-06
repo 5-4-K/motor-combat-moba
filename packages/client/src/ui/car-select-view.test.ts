@@ -7,6 +7,8 @@ import {
   activeCarIds,
   forwardMaxSpeedOf,
   hpOf,
+  ramAttackOf,
+  ramDefenceOf,
   reverseMaxSpeedOf,
   turnRateOf,
   weaponDamageOf,
@@ -81,7 +83,8 @@ describe("fullStatsFor", () => {
       "Turn rate",
       "Turn radius",
       "Hull HP",
-      "Mass",
+      "Ram power",
+      "Ram resistance",
       "Hull size",
       "Thumper damage",
       "Roadblock damage",
@@ -134,15 +137,23 @@ describe("fullStatsFor", () => {
     expect(fullStatsFor("bastion").find((r) => r.label === "Hull HP")!.value).toBe("900");
   });
 
-  it("shows mass among the full stats", () => {
+  // Two rows since stage 3 of the car-physics rework (spec R11), where a single "Mass" row used to
+  // be. Both are read straight off `CAR_TABLE` through the accessors the sim itself uses, so a
+  // rating retune moves the panel and the contest together — the same property the "Top speed" row
+  // above is written for.
+  it("shows both ram ratings among the full stats, as the sim reads them", () => {
     const rows = fullStatsFor("bastion");
-    const mass = rows.find((r) => r.label === "Mass");
-    expect(mass?.value).toBe("900");
+    expect(rows.find((r) => r.label === "Ram power")?.value).toBe(String(ramAttackOf("bastion")));
+    expect(rows.find((r) => r.label === "Ram resistance")?.value).toBe(String(ramDefenceOf("bastion")));
   });
 
-  it("shows a heavier mass for the tank than the speedster", () => {
-    const of = (id: CarId) => fullStatsFor(id).find((r) => r.label === "Mass")!.value;
-    expect(Number(of("bastion"))).toBeGreaterThan(Number(of("mirage")));
+  // The tank out-rams and out-resists the speedster on BOTH axes today, and the point of splitting
+  // one rating into two is that it need not stay that way: a future chassis may hit hard and shove
+  // easily. So this pins the shipped roster's ordering, not a rule the panel enforces.
+  it("shows the tank ahead of the speedster on both ram ratings", () => {
+    const of = (id: CarId, label: string) => Number(fullStatsFor(id).find((r) => r.label === label)!.value);
+    expect(of("bastion", "Ram power")).toBeGreaterThan(of("mirage", "Ram power"));
+    expect(of("bastion", "Ram resistance")).toBeGreaterThan(of("mirage", "Ram resistance"));
   });
 });
 

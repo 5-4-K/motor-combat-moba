@@ -109,13 +109,13 @@ function nextSpin(body: SimBody, ramDefence: number, imp: Impulse, dv: number): 
   const fy = (imp.dirX * sin + imp.dirY * cos) * dv;
 
   const torque = rx * fy - ry * fx;
-  // `ramDefence` is 30-90 across the roster, where `mass` (the pre-Task-3 divisor) was 300-900 — a
-  // ~10x smaller denominator here, so injected spin from a real ram grows roughly 10x and likely
-  // saturates `RAM_CONFIG.spinMaxRate` (6.0) on anything but a near-dead-centre hit. **This is
-  // expected, not a regression to compensate for.** Spec P25b makes re-pitching `spinScale` and
-  // `spinMaxRate` for the new denominator a MEASUREMENT job, and the controller assigned that
-  // measurement to stage 3 Task 4 alongside `RAM_CONFIG.globalScale` — both constants below are left
-  // at their pre-Task-3 values on purpose. Do not add a compensating factor here.
+  // The divisor is `ramDefence` (30-90) rather than the `mass` (300-900) it was until stage 3 Task 3
+  // — a ~10x smaller denominator, which briefly left an ordinary flank ram saturating
+  // `RAM_CONFIG.spinMaxRate` outright. That is fixed in the CONFIG, not here: stage 3 Task 4
+  // re-pitched `spinScale` 100 -> 10 by measurement (spec P25b), and the hardest ram the roster can
+  // produce now measures 5.95 rad/s against the 6.0 ceiling. No compensating factor belongs in this
+  // function — the equation is the physics and the constants are the balance, and blending the two
+  // is what makes a "spin feels wrong" report unanswerable.
   const inertia = Math.max(1, ramDefence * RAM_CONFIG.inertiaCoefficient);
   const spin = (torque / inertia) * RAM_CONFIG.spinScale * imp.spin;
   return clamp(body.angVel + spin, -RAM_CONFIG.spinMaxRate, RAM_CONFIG.spinMaxRate);

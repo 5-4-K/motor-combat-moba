@@ -146,8 +146,6 @@ export type { CarDef, CarId, ColorDef, ModeDef } from "./config/types.js";
 export {
   CAR_TABLE,
   DEFAULT_CAR_ID,
-  RAM_REFERENCE,
-  RAM_REFERENCE_MASS,
   accelOf,
   activeCarIds,
   driveOf,
@@ -155,7 +153,6 @@ export {
   hpOf,
   isActiveCarId,
   isCarId,
-  massOf,
   ramAttackOf,
   ramDefenceOf,
   reverseAccelOf,

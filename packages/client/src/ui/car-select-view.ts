@@ -6,7 +6,8 @@ import {
   activeCarIds,
   forwardMaxSpeedOf,
   hpOf,
-  massOf,
+  ramAttackOf,
+  ramDefenceOf,
   reverseMaxSpeedOf,
   turnRateOf,
   weaponDamageOf,
@@ -85,7 +86,17 @@ export function fullStatsFor(id: CarId): StatRow[] {
     { label: "Turn rate", value: `${trim(turnRateOf(id))} rad/s` },
     { label: "Turn radius", value: `${trim(forwardMaxSpeedOf(id) / turnRateOf(id))} u` },
     { label: "Hull HP", value: String(hpOf(id)) },
-    { label: "Mass", value: String(massOf(id)) },
+    // Two rows, not one, since stage 3 of the car-physics rework replaced the single `mass` rating
+    // with a `ramAttack`/`ramDefence` pair (spec R11). One number could not tell a player that a
+    // chassis hits hard AND is easy to shove, and those are now independently tunable — so showing
+    // one figure would hide exactly the choice the split exists to offer.
+    //
+    // Named for what they DO in a collision rather than after the config fields, which is the rule
+    // every row on this card follows ("Hull HP", not `hp * hpPerRating`). Raw 0-100 ratings, unscaled:
+    // the contest reads them unscaled too, so there is no derived unit to show and a rating compares
+    // straight across the three cards.
+    { label: "Ram power", value: String(ramAttackOf(id)) },
+    { label: "Ram resistance", value: String(ramDefenceOf(id)) },
     { label: "Hull size", value: `${DRIVE_CONFIG.carWidth} x ${DRIVE_CONFIG.carHeight}` },
     // One row per equipped weapon, derived through the same `weaponDamageOf` the sim fires with.
     // The chassis `attack` rating is invisible on its own — this is where it becomes a number the

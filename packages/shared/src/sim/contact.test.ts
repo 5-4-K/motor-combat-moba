@@ -44,7 +44,7 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
   const victimAt = (x: number, over = {}) =>
     car({ sessionId: "b", x, y: 0, angle: 0, vx: 0, vy: 0, carId: "mirage" as CarId, ...over });
 
-  it("replaces the ram with a FIXED impulse, independent of mass and speed", () => {
+  it("replaces the ram with a FIXED impulse, independent of ramDefence and speed", () => {
     const heavy = resolveContacts(
       [charger(), victimAt(47, { carId: "bastion" as CarId })],
       new Set(),
@@ -64,21 +64,21 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
       bounds,
     );
     expect(heavy.events.slams).toHaveLength(1);
-    // `resolveContacts` no longer divides victim mass out at all (Task 4: that is `applyImpulse`'s
+    // `resolveContacts` no longer divides the victim's ramDefence out at all (Task 4: that is `applyImpulse`'s
     // job, and a slam opts out of it anyway via `defenceScaled: false`) — `impulse.speed` is the
-    // un-mass-scaled magnitude, and it must be identical for a bastion and a bullseye victim.
+    // un-defence-scaled magnitude, and it must be identical for a bastion and a bullseye victim.
     expect(heavy.impulses.get("b")!.impulse.speed).toBeCloseTo(SLAM_CONFIG.knockSpeed);
-    expect(light.impulses.get("b")!.impulse.speed).toBeCloseTo(SLAM_CONFIG.knockSpeed); // no mass factor
+    expect(light.impulses.get("b")!.impulse.speed).toBeCloseTo(SLAM_CONFIG.knockSpeed); // no ramDefence divisor
     // The magnitude-only check above dropped the sign the old `shoveX` assertion also pinned. The
     // charger sits at x=0 facing +x and the victim at x=47 (`victimAt`'s fixture), so the slam must
     // push the victim further along +x.
     expect(heavy.impulses.get("b")!.impulse.dirX).toBeCloseTo(1);
   });
 
-  it("a slam ignores mass, unlike a ram's spin", () => {
+  it("a slam ignores ramDefence for its shove, unlike a ram's spin", () => {
     // Ruling C (stage-2 review): the concrete fixture the brief's placeholder pointed at, built
     // from the charger/victimAt fixtures above. The two assertions are the real requirement (spec
-    // P28/P31): a slam's impulse is not mass-scaled, and carries no spin at all — "a clean straight
+    // P28/P31): a slam's impulse is not defence-scaled, and carries no spin at all — "a clean straight
     // punt is the ult's signature."
     const slam = resolveContacts([charger(), victimAt(47)], new Set(), "ffa", 10, new Map(), [], bounds);
     const imp = slam.impulses.get("b")!.impulse;

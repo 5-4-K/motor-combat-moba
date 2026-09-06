@@ -46,13 +46,14 @@ export interface RamCar {
    * hypothetical: it shipped, and it cost 80-90% of all rams until `playtest/ram.ts` measured the
    * trigger rate.
    *
-   * `TickResult.approachVelocities` does not exist yet — controller decision C2 (stage 3 Task 2)
-   * deferred that widening to Task 4. Today `TickResult.approachSpeeds` still carries only each
-   * car's PRE-COLLISION FORWARD component, and `ram-bridge.ts`'s `contactCarsOf` rebuilds a full
-   * `vx`/`vy` from it with `toWorld(player.angle, approachSpeeds.get(sessionId) ?? ..., 0)` — a shim
-   * that is exactly right while nothing can drive sideways into a ram, and wrong the moment a lateral
-   * pre-collision component matters. Task 4 widens `TickResult` to a real `approachVelocities` and
-   * this shim goes away.
+   * These are the WHOLE velocity, lateral component included, as of stage 3 Task 4. Through Task 2
+   * and 3 the cache was a forward scalar (`TickResult.approachSpeeds`) and `contactCarsOf` rebuilt a
+   * purely-forward `vx`/`vy` from it — a shim that was exactly right while nothing could drive
+   * sideways into a ram, and wrong the moment a lateral pre-collision component mattered. Since the
+   * vector-drive rework a car genuinely carries one, so the shim is gone and `driveInOf` dots the
+   * real vector against the contact normal: a car sliding sideways PAST someone still contributes
+   * nothing (the dot is zero or negative), while one sliding sideways INTO them now contributes what
+   * it is actually closing at.
    */
   vx: number;
   vy: number;

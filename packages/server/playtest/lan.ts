@@ -80,7 +80,7 @@ async function main(): Promise<void> {
   // every tick), so any vx/vy Bob's networked state carries is entirely the knock — the direct
   // successor of the old separate `shove` field, same reasoning the resting-victim probes in
   // ram.ts use. `authority` has no successor in stage 1 (ram control-loss returns as the
-  // `reeling` status in stage 3), so it is dropped here rather than replaced with a lookalike
+  // `reeling` status in stage 3b), so it is dropped here rather than replaced with a lookalike
   // number.
   console.log("\n--- ram trial: Alice charges Bob, Bob parked ---");
   let contacts = 0;

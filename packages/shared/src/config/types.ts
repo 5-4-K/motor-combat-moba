@@ -9,14 +9,9 @@ export interface CarDef {
   attack: number;
   hp: number;
   /**
-   * Ram weight, 0-100. Affects ramming and NOTHING else — never acceleration, never top speed.
-   * Scaled to real mass by `RAM_CONFIG.massPerRating`.
-   */
-  mass: number;
-  /**
    * How hard this chassis hits in a ram contest, 0-100. Affects **only** what it does to others —
    * never what happens to it (spec R1). This is what lets a chassis be made to hit harder without
-   * also becoming immovable, which one `mass` rating could not express.
+   * also becoming immovable, which the single `mass` rating this pair replaced could not express.
    *
    * NOT `attack`: that field already exists on this table and scales WEAPON damage. Reusing it
    * would couple ramming power to gun damage, which is the class of hidden coupling revision 2
@@ -47,8 +42,10 @@ export interface CarDef {
    * How long this chassis takes to shed half its speed while coasting, in seconds.
    *
    * A DIRECT VALUE, NOT A 0-100 RATING. This and `brakeDecel` are the first two fields on this
-   * table that are not ratings — do not scale them by anything, and do not derive them from `mass`
-   * (spec P7: mass stays out of the drive model).
+   * table that are not ratings — do not scale them by anything, and above all do not derive them
+   * from `ramDefence` (spec P7: the ram ratings stay out of the drive model entirely, exactly as the
+   * `mass` rating they replaced was required to. A force-based drive would make solid imply
+   * sluggish and collapse the roster back onto one axis).
    */
   coastHalfLifeSeconds: number;
   /** Flat deceleration while the brake is held, u/s². Also a direct value, not a rating. */

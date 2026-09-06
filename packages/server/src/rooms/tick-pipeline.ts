@@ -94,7 +94,7 @@ export function runPipeline(ctx: PipelineCtx): {
   // effect whose last tick was the previous one. New effects are only ever added at the far end of
   // the tick, by combat, and take hold on the next one.
   const statusMods = statusTick(state, state.tick);
-  const { masks, approachSpeeds } = serverTick(
+  const { masks, approachVelocities } = serverTick(
     state,
     ctx.inputQueues,
     dt,
@@ -106,9 +106,9 @@ export function runPipeline(ctx: PipelineCtx): {
   // the poses driving actually produced, and the knock written here is read by stepDrive next tick.
   // Dash hits and hard slams it finds this tick are priced by combat below, in phase 0d.
   //
-  // `approachSpeeds` is the one thing contact must NOT read from the poses driving produced.
-  // Contact resolution reflected `speed` on its way through `serverTick`, so the post-drive value
-  // is the rebound, not the impact — see `TickResult.approachSpeeds`.
+  // `approachVelocities` is the one thing contact must NOT read from the poses driving produced.
+  // Contact resolution reflected the velocity on its way through `serverTick`, so the post-drive
+  // value is the rebound, not the impact — see `TickResult.approachVelocities`.
   let contact: ContactTickResult = { contactHits: [], statusRequests: [] };
   if (state.phase === RoomPhase.MATCH && ctx.matchRoster.size > 0) {
     contact = contactTick(
@@ -117,7 +117,7 @@ export function runPipeline(ctx: PipelineCtx): {
       ctx.ram,
       sidesOf(state.mode),
       statusMods,
-      approachSpeeds,
+      approachVelocities,
       ctx.combat.maneuverWeapons,
       state.tick,
     );

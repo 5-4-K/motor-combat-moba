@@ -62,7 +62,7 @@ export const STATUS_LIMITS: Readonly<Record<StatusChannel, { min: number; max: n
     damageDealt: Object.freeze({ min: 0.5, max: 2 }),
     damageTaken: Object.freeze({ min: 0.4, max: 2.5 }),
     weaponCooldown: Object.freeze({ min: 0.4, max: 3 }),
-    ramMass: Object.freeze({ min: 0.5, max: 2 }),
+    ramDefence: Object.freeze({ min: 0.5, max: 2 }),
   });
 
 /**
@@ -136,7 +136,7 @@ export const STATUS_TABLE = {
     reapply: "refresh",
     modifiers: { topSpeed: 0.6 },
   },
-  /** Pure damage reduction (O5): 0.7x incoming. The heal and ramMass left with the overhaul. */
+  /** Pure damage reduction (O5): 0.7x incoming. The heal and ramDefence left with the overhaul. */
   fortified: {
     id: "fortified",
     name: "Fortified",

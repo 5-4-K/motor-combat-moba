@@ -10,7 +10,6 @@ import {
   hpOf,
   isActiveCarId,
   isCarId,
-  massOf,
   ramAttackOf,
   ramDefenceOf,
   reverseAccelOf,
@@ -36,19 +35,21 @@ describe("CAR_TABLE", () => {
     // 2026-09-02: `speed` and `handling` were rewritten to move together per car (85/85, 65/65,
     // 50/50) instead of trading off — Bastion's `handling` used to be the roster's highest (82)
     // despite its lowest `speed` (30); now it is the roster's lowest on both.
-    expect(CAR_TABLE.mirage).toMatchObject({ speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, mass: 48 });
-    expect(CAR_TABLE.bullseye).toMatchObject({ speed: 65, accel: 45, handling: 65, attack: 55, hp: 65, mass: 30 });
-    expect(CAR_TABLE.bastion).toMatchObject({ speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, mass: 90 });
+    expect(CAR_TABLE.mirage).toMatchObject({ speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50 });
+    expect(CAR_TABLE.bullseye).toMatchObject({ speed: 65, accel: 45, handling: 65, attack: 55, hp: 65, ramAttack: 45, ramDefence: 30 });
+    expect(CAR_TABLE.bastion).toMatchObject({ speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90 });
   });
 
-  it("gives every chassis whole 0-100 ratings on all six axes", () => {
-    // The 150-point budget that used to be asserted here was removed on 2026-08-29 so that `mass`
-    // could be a free-floating fourth rating. Nothing enforces roster fairness now; see CAR_TABLE.
-    // `accel` and `handling` joined the sweep once they became real per-chassis ratings rather than
-    // global drive constants: every one of the six feeds a derivation that NaNs on a non-number.
+  it("gives every chassis whole 0-100 ratings on all seven axes", () => {
+    // The 150-point budget that used to be asserted here was removed on 2026-08-29 so a free-floating
+    // ram rating could exist. Nothing enforces roster fairness now; see CAR_TABLE. `accel` and
+    // `handling` joined the sweep once they became real per-chassis ratings rather than global drive
+    // constants, and stage 3 of the car-physics rework made the single ram rating two (`ramAttack`
+    // and `ramDefence`, replacing `mass`) — seven now, not six. Every one of them feeds a derivation
+    // that NaNs on a non-number, which is what this sweep is for.
     for (const id of Object.keys(CAR_TABLE) as CarId[]) {
       const def = CAR_TABLE[id];
-      for (const rating of [def.speed, def.accel, def.handling, def.attack, def.hp, def.mass]) {
+      for (const rating of [def.speed, def.accel, def.handling, def.attack, def.hp, def.ramAttack, def.ramDefence]) {
         expect(Number.isInteger(rating)).toBe(true);
         expect(rating).toBeGreaterThanOrEqual(0);
         expect(rating).toBeLessThanOrEqual(100);
@@ -319,8 +320,10 @@ describe("the three types (T5/T6)", () => {
     expect(turnRateOf("bullseye")).toBeGreaterThan(turnRateOf("bastion"));
     expect(hpOf("bastion")).toBeGreaterThan(hpOf("mirage"));
     expect(hpOf("mirage")).toBeGreaterThan(hpOf("bullseye"));
-    expect(massOf("bastion")).toBeGreaterThan(massOf("mirage"));
-    expect(massOf("mirage")).toBeGreaterThan(massOf("bullseye"));
+    // The ram axis, which `mass` used to carry alone. Both halves order the same way here — see the
+    // dedicated `ramAttack`/`ramDefence` block below for what the split actually buys.
+    expect(ramDefenceOf("bastion")).toBeGreaterThan(ramDefenceOf("mirage"));
+    expect(ramDefenceOf("mirage")).toBeGreaterThan(ramDefenceOf("bullseye"));
   });
 });
 

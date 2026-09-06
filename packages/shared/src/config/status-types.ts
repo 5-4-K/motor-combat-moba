@@ -66,8 +66,16 @@ export type StatusChannel =
    * the shape of one press, not the rate of pressing.
    */
   | "weaponCooldown"
-  /** Effective ram mass, both as an attacker and as a victim (`massOf`). */
-  | "ramMass";
+  /**
+   * Effective `ramDefence` (`ramDefenceOf`), which reaches the contest on BOTH sides: it scales the
+   * speed-independent term this car brings to `pushOf`, and it is the divisor `impactOn` softens
+   * what this car takes by. So one multiplier makes a car both harder to shift and more solid to hit
+   * — the two halves of "solidity" the rating names.
+   *
+   * There is deliberately no offence channel (spec R11): a status may make a car harder to move, but
+   * never make its rams hit harder.
+   */
+  | "ramDefence";
 
 /**
  * Rule switches a status may flip. Booleans, OR-ed across every source: one jam is a jam, and a

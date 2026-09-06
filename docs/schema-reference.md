@@ -93,7 +93,7 @@ temporary shim rather than writing a separate field. They join `reverseHold` in
 next `stepSim` integration directly, so a half-eased value would poison every subsequent step rather
 than merely look wrong. Net effect on the wire, against the pre-rework schema: **four fields removed**
 (`speed`, `shoveX`, `shoveY`, `authority`) and **two added** (`vx`, `vy`). `authority` has no successor
-in stage 1 — ram control-loss returns as the `reeling` status in stage 3 — and with it goes the "no
+in stage 1 — ram control-loss returns as the `reeling` status in stage 3b — and with it goes the "no
 rescue" precedence rule it used to implement: two rams landing on one victim across different ticks
 now simply stack additively into `vx`/`vy`. See [`config-reference.md`](config-reference.md#ram_config)
 for the tuning that produces the knock.

@@ -33,8 +33,8 @@ export interface TickResult {
   /** Per session id, the validated slot bitmask that player fired with on a simulated input. */
   masks: Map<string, number>;
   /**
-   * Per session id, the FORWARD component of the car's velocity carried INTO this tick — read
-   * before `stepSim` ran, and therefore before `resolveWorld` could reflect it off anything.
+   * Per session id, the car's WHOLE WORLD VELOCITY carried INTO this tick — read before `stepSim`
+   * ran, and therefore before `resolveWorld` could reflect it off anything.
    *
    * **This is the whole fix for the ram trigger bug.** `resolveWorld` runs INSIDE `stepSim`, and
    * `applyContact` rebounds a car to about -35% of its impact speed on the tick a contact resolves.
@@ -47,20 +47,24 @@ export interface TickResult {
    * that step to 6.3-8.9 units; the fix and the window it measures are unaffected either way.)
    * Measured in `playtest/ram.ts`, which is what found it.
    *
-   * The forward speed carried into the tick is the right number on its own terms, not merely a
-   * workaround: it is the speed at which the car covered the ground that brought it into contact.
-   * FORWARD rather than total speed because a car sliding sideways into someone should not count
-   * that slide as ram approach — `contactCarsOf`'s stage 3 Task 2 shim rebuilds a purely-forward
-   * `RamCar` velocity from this value for exactly that reason, until Task 4 widens this field to a
-   * real `approachVelocities` and the reconstruction goes away. Reading it here also keeps `stepSim`
-   * untouched — it stays the single lockstep both halves import, which a richer return value from it
-   * would not.
+   * **A VECTOR, not the forward scalar it was through stage 3 Task 2.** The old field carried only
+   * `forwardOf(vx, vy, angle)`, and `contactCarsOf` rebuilt a purely-forward `vx`/`vy` from it — a
+   * shim that was exactly right while nothing could drive sideways into a contest, and wrong the
+   * moment a lateral pre-collision component mattered. Since the vector-drive rework a car genuinely
+   * carries lateral velocity (a knock, a slide out of a turn, a wall graze), and `resolveRam`'s
+   * `driveInOf` dots the velocity against the contact normal itself — so it already asks the only
+   * question the old "forward, not total" reasoning was protecting: a car sliding sideways PAST
+   * someone dots to nothing, while one sliding sideways INTO them genuinely is closing. Widening the
+   * cache is therefore what lets the contest read the approach it was always specified to read.
+   *
+   * Reading it here also keeps `stepSim` untouched — it stays the single lockstep both halves
+   * import, which a richer return value from it would not.
    *
    * Recorded for every player in the room, including ones that are not stepped this tick: a parked
    * or silent car is still a `resolveRam` participant, and its approach term decides whether it is
    * the attacker or the victim.
    */
-  approachSpeeds: Map<string, number>;
+  approachVelocities: Map<string, { vx: number; vy: number }>;
 }
 
 /**
@@ -115,9 +119,10 @@ export interface TickResult {
  * OR-ed together. The weapon cooldown in `runCombat`, not this map, is what limits the rate —
  * several fire inputs in one tick still yield at most one shot.
  *
- * Also returns each player's `approachSpeed`: the speed they carried INTO this tick, before
- * `resolveWorld` had a chance to reflect it. `ramTick` reads it as its approach term — see
- * `TickResult.approachSpeeds` for why it cannot use the speed left on `PlayerState`.
+ * Also returns each player's `approachVelocity`: the whole world velocity they carried INTO this
+ * tick, before `resolveWorld` had a chance to reflect it. `contactTick` reads it as its drive-in
+ * term — see `TickResult.approachVelocities` for why it cannot use the velocity left on
+ * `PlayerState`.
  */
 /**
  * **The fire mask carries PRESSES, not held keys.** `fireSlots` on the wire is raw key state, so a
@@ -144,13 +149,17 @@ export function serverTick(
   // of the hulls built from it, so it is threaded through rather than recomputed.
   const entries = sortedEntries(state);
   const masks = new Map<string, number>();
-  const approachSpeeds = new Map<string, number>();
+  const approachVelocities = new Map<string, { vx: number; vy: number }>();
 
   for (const { sessionId, player } of entries) {
     const queue = queues.get(sessionId);
-    // BEFORE any stepping, so this is the pre-collision speed `ramTick` needs. Unconditional —
-    // a player who is not stepped this tick is still a ram participant. See `TickResult`.
-    approachSpeeds.set(sessionId, forwardOf(player.vx, player.vy, player.angle));
+    // BEFORE any stepping, so this is the pre-collision velocity `contactTick` needs. Unconditional
+    // — a player who is not stepped this tick is still a ram participant. See `TickResult`.
+    //
+    // A COPY, never the live schema object: `player` is mutated by `stepSim`'s write-back a few
+    // lines below, so storing a reference would hand contact the POST-collision velocity — the exact
+    // bug this cache exists to prevent, reintroduced through aliasing rather than through ordering.
+    approachVelocities.set(sessionId, { vx: player.vx, vy: player.vy });
 
     // Only `carId`, `others` and `selfRamDefence` vary per player; `world` is fixed for the whole tick.
     // A `null` context means "nothing about this player moves right now": drain only.
@@ -213,7 +222,7 @@ export function serverTick(
     }
   }
 
-  return { masks, approachSpeeds };
+  return { masks, approachVelocities };
 }
 
 function bySeq(a: InputMessage, b: InputMessage): number {

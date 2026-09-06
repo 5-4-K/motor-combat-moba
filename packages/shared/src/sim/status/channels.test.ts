@@ -305,20 +305,20 @@ describe("weaponCooldown reaches the three refire clocks and no others", () => {
   });
 });
 
-describe("ramMass reaches the ram, both as the victim's defence AND (via the attacker's own ramDefence term) its push", () => {
+describe("the ramDefence channel reaches the ram, both as the victim's solidity AND as its own push term", () => {
   // Both cases below stay end-to-end through `resolveRam` + `applyImpulse` on purpose, even though
   // only the first case's claim actually needs the composition: see that test's own comment for why
-  // `defenceMult` reaching `pushOf`'s attacker term is the whole story there, and mass contributes
-  // nothing to it.
+  // `defenceMult` reaching `pushOf`'s attacker term is the whole story there, and `applyImpulse`
+  // contributes nothing to it.
   function car(over: Partial<RamCar> = {}): RamCar {
     return { sessionId: "a", team: 0, x: 0, y: 0, angle: 0, vx: 0, vy: 0, carId: CAR, defenceMult: 1, ...over };
   }
 
   it("makes a buffed attacker hit harder", () => {
-    // The `ramMass` status channel still feeds `RamCar.defenceMult`, which now scales the DEFENCE
-    // term of `pushOf` (spec R2) rather than an old `effectiveMassOf`. A buffed attacker brings more
-    // push into the contest purely through that term, driving in at the same speed, so the victim's
-    // impulse must come out larger.
+    // The `ramDefence` status channel (named `ramMass` until stage 3 Task 4 renamed it to match the
+    // rating it actually scales) feeds `RamCar.defenceMult`, which scales the DEFENCE term of
+    // `pushOf` (spec R2). A buffed attacker brings more push into the contest purely through that
+    // term, driving in at the same speed, so the victim's impulse must come out larger.
     const victim = car({ sessionId: "b", x: 47 });
     const buffed = resolveRam(car({ vx: 100, vy: 0, defenceMult: 1.5 }), victim, "ffa")!;
     const plain = resolveRam(car({ vx: 100, vy: 0 }), victim, "ffa")!;
@@ -326,8 +326,8 @@ describe("ramMass reaches the ram, both as the victim's defence AND (via the att
   });
 
   it("makes a buffed victim harder to shove", () => {
-    // `resolveRam` never divides victim MASS out at all — mass has never been part of the contest
-    // (`ramAttack`/`ramDefence` replaced it entirely). The impulse is `defenceScaled: false` (the
+    // `resolveRam` divides by the victim's `ramDefence` itself, inside `impactOn`. The impulse is
+    // therefore authored `defenceScaled: false` (the
     // contest already divided by `ramDefence`), so `applyImpulse`'s `defenceFactorOf` returns 1
     // regardless of what `ramDefence` it is handed — the `* defenceMult` on the argument below is
     // inert, NOT a second application of the buff via `applyImpulse`. The whole effect measured here
@@ -349,7 +349,10 @@ describe("ramMass reaches the ram, both as the victim's defence AND (via the att
     expect(Math.hypot(heavyNext.vx, heavyNext.vy)).toBeLessThan(Math.hypot(plainNext.vx, plainNext.vy));
   });
 
-  // `ramMass` left `fortified`'s row in the 2026-09-01 overhaul (O5: pure damage reduction now) and
-  // no other row has picked it up, so "one channel doing both" has no live row to demonstrate today
-  // — the mechanism above still proves the channel itself cuts both ways for whoever authors one.
+  // The channel left `fortified`'s row in the 2026-09-01 overhaul (O5: pure damage reduction now)
+  // and no other row has picked it up, so "one channel doing both" has no live row to demonstrate
+  // today — the mechanism above still proves the channel itself cuts both ways for whoever authors
+  // one. That empty-table fact is also what makes stage 3 Task 4's `ramMass` → `ramDefence` rename
+  // purely a rename: with no row authoring the channel, `modifiersFor` returns the neutral 1 for
+  // every car in the game either way, so nothing the sim reads could move.
 });

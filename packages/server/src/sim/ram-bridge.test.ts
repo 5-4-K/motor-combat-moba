@@ -45,16 +45,21 @@ function arena(): ArenaState {
 }
 
 /**
- * The approach speeds `serverTick` would have reported for this state: each car's FORWARD velocity
- * as it entered the tick. These tests set `vx`/`vy` on `PlayerState` directly and never run
- * `serverTick`, so the two are the same number here — which is the point. `contactTick` requires
+ * The approach velocities `serverTick` would have reported for this state: each car's whole world
+ * velocity as it entered the tick. These tests set `vx`/`vy` on `PlayerState` directly and never run
+ * `serverTick`, so the two are the same numbers here — which is the point. `contactTick` requires
  * the map because in the live tick collision resolution has already reflected `player.vx`/`vy` by
  * the time contact runs.
+ *
+ * Copies each pair rather than handing back the live `PlayerState`. That matters more than it looks:
+ * `contactTick` WRITES `player.vx`/`vy` as it applies impulses, so aliasing here would let a victim's
+ * post-impulse velocity leak back into a later `contactTick` call's drive-in term — and several tests
+ * below deliberately reuse one map across two calls (`approach` in the wall-stun case).
  */
-function approachSpeeds(state: ArenaState): Map<string, number> {
-  const speeds = new Map<string, number>();
-  state.players.forEach((p, id) => speeds.set(id, forwardOf(p.vx, p.vy, p.angle)));
-  return speeds;
+function approachVelocities(state: ArenaState): Map<string, { vx: number; vy: number }> {
+  const out = new Map<string, { vx: number; vy: number }>();
+  state.players.forEach((p, id) => out.set(id, { vx: p.vx, vy: p.vy }));
+  return out;
 }
 
 describe("contactTick (ordinary ram, unchanged behaviour)", () => {
@@ -63,7 +68,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
     const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
     contactTick(
-      state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachSpeeds(state),
+      state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachVelocities(state),
       NO_MANEUVER_WEAPONS, 10,
     );
     // The impulse is added straight into the victim's velocity (Task 4 — see `contactTick`'s own
@@ -83,7 +88,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
     addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
     contactTick(
-      state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachSpeeds(state),
+      state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachVelocities(state),
       NO_MANEUVER_WEAPONS, 10,
     );
     // Both cars are the default "mirage" chassis, dead-straight along +x, victim stationary — a REAR
@@ -96,7 +101,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     const attackerPush = attack * 540 + defence * RAM_CONFIG.defencePushScale; // victim brings 0 drive-in
     const victimPush = defence * RAM_CONFIG.defencePushScale; // the victim's own drive-in is 0
     // The attacker presents its own front regardless of geometry (spec R6), and its impulse is
-    // `defenceScaled: false` (the contest already divided by its OWN ramDefence) — no separate mass
+    // `defenceScaled: false` (the contest already divided by its OWN ramDefence) — no separate defence
     // factor to apply on top.
     const attackerImpact =
       (victimPush * (victimPush / (attackerPush + victimPush)) * RAM_CONFIG.bonusFront * RAM_CONFIG.globalScale) /
@@ -115,7 +120,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540, hp: 400 });
     const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0, hp: 400 });
     contactTick(
-      state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachSpeeds(state),
+      state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachVelocities(state),
       NO_MANEUVER_WEAPONS, 10,
     );
     expect(victim.hp).toBe(400);
@@ -127,7 +132,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
     const memory = newContactMemory();
     contactTick(
-      state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS, approachSpeeds(state),
+      state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS, approachVelocities(state),
       NO_MANEUVER_WEAPONS, 10,
     );
     const afterFirst = victim.vx;
@@ -136,7 +141,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     victim.vx = 0;
     victim.vy = 0;
     contactTick(
-      state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS, approachSpeeds(state),
+      state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS, approachVelocities(state),
       NO_MANEUVER_WEAPONS, 11,
     );
     // Edge-triggered: the pair is still touching on tick 11, so no fresh knock fires.
@@ -149,7 +154,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
     const bystander = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
     contactTick(
-      state, new Set(["a"]), newContactMemory(), "ffa", NO_EFFECTS, approachSpeeds(state),
+      state, new Set(["a"]), newContactMemory(), "ffa", NO_EFFECTS, approachVelocities(state),
       NO_MANEUVER_WEAPONS, 10,
     );
     expect(bystander.vx).toBe(0);
@@ -161,7 +166,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
     const lobbying = addPlayer(state, "b", { x: 47, y: 400, angle: 0, status: PlayerStatus.READY });
     contactTick(
-      state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachSpeeds(state),
+      state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachVelocities(state),
       NO_MANEUVER_WEAPONS, 10,
     );
     expect(lobbying.vx).toBe(0);
@@ -173,7 +178,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
     const wreck = addPlayer(state, "b", { x: 47, y: 400, angle: 0, alive: false });
     contactTick(
-      state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachSpeeds(state),
+      state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachVelocities(state),
       NO_MANEUVER_WEAPONS, 10,
     );
     expect(wreck.vx).toBe(0);
@@ -185,7 +190,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540, team: 0 });
     const mate = addPlayer(state, "b", { x: 47, y: 400, angle: 0, team: 0 });
     contactTick(
-      state, new Set(["a", "b"]), newContactMemory(), "team", NO_EFFECTS, approachSpeeds(state),
+      state, new Set(["a", "b"]), newContactMemory(), "team", NO_EFFECTS, approachVelocities(state),
       NO_MANEUVER_WEAPONS, 10,
     );
     expect(mate.vx).toBe(0);
@@ -207,7 +212,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
     const memory = newContactMemory();
     contactTick(
-      state, new Set(["strong", "b"]), memory, "ffa", NO_EFFECTS, approachSpeeds(state),
+      state, new Set(["strong", "b"]), memory, "ffa", NO_EFFECTS, approachVelocities(state),
       NO_MANEUVER_WEAPONS, 10,
     );
     const afterFirstRam = victim.vx;
@@ -220,7 +225,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     // car is the attacker. Its knock is simply added on top of whatever the victim still carries.
     addPlayer(state, "second", { x: 47, y: 431, angle: -Math.PI / 2, vy: -(RAM_CONFIG.minApproachSpeed + 200) });
     contactTick(
-      state, new Set(["strong", "b", "second"]), memory, "ffa", NO_EFFECTS, approachSpeeds(state),
+      state, new Set(["strong", "b", "second"]), memory, "ffa", NO_EFFECTS, approachVelocities(state),
       NO_MANEUVER_WEAPONS, 11,
     );
 
@@ -230,8 +235,8 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     // only float-zero (`Math.cos(-Math.PI / 2)` is ~6e-17, not exactly 0), so exact equality would
     // fail for the wrong reason on any geometry change that perturbs that residual.
     expect(victim.vx).toBeCloseTo(afterFirstRam);
-    // The knock's SIGN is purely geometric (`ram.ts`'s `shoveX = away.x * impulse * massFactor`,
-    // with `impulse` and `massFactor` both always >= 0), independent of severity/mass/side-bonus —
+    // The knock's SIGN is purely geometric (`resolveRam` authors `dirX`/`dirY` as the unit normal
+    // pointing away from the attacker, and `impactOn` can never return a negative magnitude),
     // so a directional assertion is exact, not an approximation. "second" sits at y=431 approaching
     // along -y toward the victim at y=400, so `away.y < 0` and the knock must push the victim's vy
     // negative.
@@ -244,7 +249,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
     const memory = newContactMemory();
     contactTick(
-      state, new Set(["medium", "b"]), memory, "ffa", NO_EFFECTS, approachSpeeds(state),
+      state, new Set(["medium", "b"]), memory, "ffa", NO_EFFECTS, approachVelocities(state),
       NO_MANEUVER_WEAPONS, 10,
     );
     const afterMediumRam = victim.vx;
@@ -256,7 +261,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     // knock component rather than overwriting or being blocked.
     addPlayer(state, "hexy", { x: 47, y: 431, angle: -Math.PI / 2, vy: -320, carId: "bastion" });
     contactTick(
-      state, new Set(["medium", "b", "hexy"]), memory, "ffa", NO_EFFECTS, approachSpeeds(state),
+      state, new Set(["medium", "b", "hexy"]), memory, "ffa", NO_EFFECTS, approachVelocities(state),
       NO_MANEUVER_WEAPONS, 11,
     );
 
@@ -265,7 +270,7 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     expect(victim.vx).toBeCloseTo(afterMediumRam);
     // Same geometric-sign reasoning as the test above: "hexy" sits at y=431 approaching along -y
     // toward the victim at y=400, so `away.y < 0` and the knock must push the victim's vy negative,
-    // independent of the attacker's mass or severity.
+    // independent of the attacker's ramDefence or drive-in.
     expect(victim.vy).toBeLessThan(0);
   });
 });
@@ -287,7 +292,7 @@ describe("contactTick (dash, O12)", () => {
       newContactMemory(),
       "ffa",
       NO_EFFECTS,
-      approachSpeeds(state),
+      approachVelocities(state),
       new Map<string, WeaponId | "">([["a", "thunderclap"]]),
       10,
     );
@@ -309,7 +314,7 @@ describe("contactTick (dash, O12)", () => {
       newContactMemory(),
       "ffa",
       debuffed,
-      approachSpeeds(state),
+      approachVelocities(state),
       new Map<string, WeaponId | "">([["a", "thunderclap"]]),
       10,
     );
@@ -358,13 +363,13 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
     const roster = new Set(["b"]);
     const memory = newContactMemory();
     memory.slammed.set("b", { bySessionId: "a", wallStunUntilTick: 25, immuneUntilTick: 28 });
-    const speeds = approachSpeeds(state);
+    const approach = approachVelocities(state);
 
-    const first = contactTick(state, roster, memory, "ffa", NO_EFFECTS, speeds, NO_MANEUVER_WEAPONS, 12);
+    const first = contactTick(state, roster, memory, "ffa", NO_EFFECTS, approach, NO_MANEUVER_WEAPONS, 12);
     expect(first.statusRequests).toEqual([
       { targetSessionId: "b", statusId: "stunned", durationTicks: SLAM_TICKS.wallStunDuration, sourceSessionId: "a" },
     ]);
-    const second = contactTick(state, roster, memory, "ffa", NO_EFFECTS, speeds, NO_MANEUVER_WEAPONS, 13);
+    const second = contactTick(state, roster, memory, "ffa", NO_EFFECTS, approach, NO_MANEUVER_WEAPONS, 13);
     expect(second.statusRequests).toHaveLength(0); // one stun per slam
     expect(victim.x).toBe(24);
   });

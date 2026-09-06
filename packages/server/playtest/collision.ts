@@ -72,12 +72,21 @@ function tunneling(): void {
         `${passedThrough ? "TUNNELED" : "blocked"}`,
     );
   }
-  // 260 * 1.6 was knockMaxSpeed * massFactorMax — the hardest shove the OLD severity-graded ram
-  // could write. As of stage 3 Task 2 (the ram contest, spec R9), the ram magnitude is the
-  // open-ended contest output (`pushOf`/`impactOn` in `sim/ram.ts`), not
-  // `severity * knockMaxSpeed * massFactor` — `knockMaxSpeed` and `massFactorMax` no longer reach
-  // the ram path at all, so this bound no longer describes what the shipped ram can write. Left
-  // as-is (not this task's number to move); stage 5 re-derives it.
+  // STALE THRESHOLD — left as-is deliberately; stage 5 owns re-deriving it.
+  //
+  // 260 * 1.6 = 416 was `knockMaxSpeed * massFactorMax`, the hardest shove the OLD severity-graded
+  // ram could write. As of stage 3 Task 2 (the ram contest, spec R9) the ram magnitude is the
+  // open-ended contest output (`pushOf`/`impactOn` in `sim/ram.ts`), and `knockMaxSpeed` is inert
+  // while `massFactorMax` no longer exists at all — so this bound describes a model the game does
+  // not run.
+  //
+  // **Stage 3 Task 4 measured what the shipped ram can actually write: 268.0 u/s**, the roster
+  // maximum, from a Bastion at top speed rear-ending a parked Bullseye — swept over every chassis
+  // pairing, all three struck faces, victim parked/fleeing/reversing, and 8 sub-tick phases each.
+  // The real ceiling is therefore about 64% of the 416 this line still uses, so the verdict below is
+  // more conservative than it needs to be (it calls a tunnel a FINDING for shoves the ram can no
+  // longer produce) rather than wrong in the dangerous direction. Changing it is a threshold move,
+  // which this task is not allowed to make.
   const maxRamShove = 260 * 1.6;
   report(
     "1. Car-car tunneling at extreme closing speed",
@@ -204,7 +213,8 @@ function ramIntoWall(): void {
   const rows: string[] = [];
   let escaped = false;
   for (const victim of ["mirage", "bullseye", "bastion"] as CarId[]) {
-    // Bastion (mass 90) at top speed rear-ending a victim parked against the right wall.
+    // Bastion (the roster's highest ramAttack/ramDefence, 70/90) at top speed rear-ending a victim
+    // parked against the right wall.
     const wallX = ARENA.width - W / 2;
     const w = new PlaytestWorld([
       { id: "attacker", carId: "bastion", x: wallX - W - 4, y: 360, angle: 0, speed: forwardMaxSpeedOf("bastion") },
@@ -259,7 +269,7 @@ function silentWall(): void {
     w.tick();
     const p = w.get("parked");
     // "parked" never receives an input, so any vx/vy at all is a knock, not driving. `authority` has
-    // no successor in stage 1 (ram control-loss returns as the `reeling` status in stage 3), so that
+    // no successor in stage 1 (ram control-loss returns as the `reeling` status in stage 3b), so that
     // check is dropped rather than replaced with a lookalike.
     if (p.vx !== 0 || p.vy !== 0 || p.angVel !== 0) knockWritten = true;
     maxDepth = Math.max(maxDepth, overlapDepth(w.get("mover"), p));
@@ -398,7 +408,7 @@ function ramChain(): void {
   }
   // This probe's entire measurement was `victim.authority` — how much of a coordinated 2v1's
   // pressure showed up as degraded steering. `authority` has no successor in stage 1: ram
-  // control-loss returns as the `reeling` status in stage 3. Rather than substitute a lookalike
+  // control-loss returns as the `reeling` status in stage 3b. Rather than substitute a lookalike
   // number (e.g. counting ticks under some invented "reeling" proxy), the measurement is dropped
   // here; the tick loop above is left in place so the scenario still exercises the ram-chain path,
   // but there is nothing left to report a verdict on until stage 3 lands.
@@ -491,7 +501,8 @@ function wallPin(): void {
   report(
     "10. Wall pin: heaviest car holds the lightest against the wall — can it get out?",
     nosePinCaged || broadsideCaged ? "FINDING" : "OK",
-    `bastion (mass 90) holds full throttle into a bullseye (mass 30) on the right wall for 300 ` +
+    `bastion (ramAttack 70, ramDefence 90) holds full throttle into a bullseye (45/30) on the ` +
+      `right wall for 300 ` +
       `ticks; the victim drives each escape a player would try. Escape = centre moved 80u.\n` +
       rows.join("\n") +
       (nosePinCaged || broadsideCaged

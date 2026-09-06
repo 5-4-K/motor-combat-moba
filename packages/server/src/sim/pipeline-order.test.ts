@@ -19,7 +19,7 @@ import { contactTick, newContactMemory } from "./ram-bridge.js";
  * The one thing NOTHING in the suite covered before this fix: `serverTick` and `contactTick` driven
  * in the REAL order for a ram, on the SAME tick.
  *
- * `ram-bridge.test.ts` calls `contactTick` alone, feeding it a hand-built `approachSpeeds` map that
+ * `ram-bridge.test.ts` calls `contactTick` alone, feeding it a hand-built `approachVelocities` map that
  * equals `player.vx/vy` because nothing ever moved the player first. `tick.test.ts` calls `serverTick`
  * alone and never looks at a ram. Neither exercises the fact that `tick-pipeline.ts`'s `runPipeline`
  * runs `serverTick` (drive + `resolveWorld`) BEFORE `contactTick` on the very same tick — so by the
@@ -32,8 +32,13 @@ import { contactTick, newContactMemory } from "./ram-bridge.js";
  * adding the recoil straight onto the PRE-collision speed, which is what `ram-bridge.test.ts` alone
  * would lead you to believe happens. It is not what ships: `runPipeline`'s own comment at
  * `tick-pipeline.ts:110` says the order is the rule. This test pins the REAL composed number, so a
- * future retune of `knockMaxSpeed` (stage 3's re-pitch) is checked against what the attacker actually
- * ends up doing, not against a number that skips a step.
+ * retune is checked against what the attacker actually ends up doing, not against a number that
+ * skips a step.
+ *
+ * **Stage 3 Task 4 measured `RAM_CONFIG.globalScale` and `spinScale` through exactly this sequence**
+ * (spec R5/P25b), sweeping the sub-tick phase, and both constants' doc comments carry the resulting
+ * tables. Re-measure here, never through `contactTick` alone, if either is retuned — measuring in
+ * isolation is precisely the mistake that shipped revision 1's 5x error.
  *
  * Placed beside `tick.test.ts` and `ram-bridge.test.ts` — the two "half" tests this fixes the gap
  * between — rather than inventing a `rooms/tick-pipeline.test.ts`: nothing already exercises
@@ -86,7 +91,7 @@ describe("the real serverTick -> contactTick order (stage 2 whole-stage review, 
     ]);
 
     // Step 1: the REAL `serverTick` — drive, then `resolveWorld`'s restitution reflection.
-    const { approachSpeeds } = serverTick(state, queues, 1 / 30, RoomPhase.MATCH, NO_EFFECTS, new Map());
+    const { approachVelocities } = serverTick(state, queues, 1 / 30, RoomPhase.MATCH, NO_EFFECTS, new Map());
 
     const afterResolveWorld = attacker.vx;
     // The reflection alone: `resolveWorld` reflects the WHOLE pre-collision velocity by
@@ -96,15 +101,15 @@ describe("the real serverTick -> contactTick order (stage 2 whole-stage review, 
     // ram-bridge-only test could never see, because it never ran `serverTick` at all.
     expect(afterResolveWorld).toBeLessThan(0);
 
-    // Step 2: the REAL `contactTick`, fed the carried-in (pre-collision) approach speed exactly as
-    // `runPipeline` feeds it — this is the trigger fix `TickResult.approachSpeeds` exists for.
+    // Step 2: the REAL `contactTick`, fed the carried-in (pre-collision) approach VELOCITY exactly as
+    // `runPipeline` feeds it — this is the trigger fix `TickResult.approachVelocities` exists for.
     contactTick(
       state,
       new Set(["a", "b"]),
       newContactMemory(),
       "ffa",
       NO_EFFECTS,
-      approachSpeeds,
+      approachVelocities,
       NO_MANEUVER_WEAPONS,
       10,
     );

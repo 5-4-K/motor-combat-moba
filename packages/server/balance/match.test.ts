@@ -172,7 +172,20 @@ describe("runMatch", () => {
     // against the new contest: 22, 24, 48, 53, 64, 76, 79, 87 and 98 land a decisive kill inside it
     // (65 also lands a kill for both sides and draws, so it is excluded here); 87 carries forward
     // from the previous known-good set.
-    const out = runMatch({ ...SETUP, seed: 87, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    //
+    // `seed: 98`, not 87: stage 3 Task 4 (the same rework) set the two constants the contest had
+    // been running with placeholders for -- `RAM_CONFIG.globalScale` 1 -> 0.4 and `spinScale`
+    // 100 -> 10, both measured through the composed `serverTick` -> `contactTick` order -- and
+    // widened the pre-collision cache to a full velocity vector (`TickResult.approachVelocities`),
+    // so a car carrying lateral velocity into a contact now brings it to the contest instead of
+    // having it dropped. Every ram in a match therefore lands with a different magnitude and a
+    // different injected spin, and seed 87's kill no longer lands inside the 30 s window. Re-swept
+    // 1-120 against the measured constants: 15, 22, 28, 29, 39, 48, 49, 53, 64, 65, 67, 79, 98, 101,
+    // 105, 106 and 110 land a decisive kill inside it. **98 is the one seed present in every
+    // known-good set this test has ever had**, which is why it is the pick over any of the fresh
+    // ones -- a seed that has survived four different ram models is the least likely to need
+    // replacing again next stage.
+    const out = runMatch({ ...SETUP, seed: 98, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);

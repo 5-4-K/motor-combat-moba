@@ -9,7 +9,7 @@ export type TuningValue = number | boolean | string;
 
 /**
  * Flat dot-paths into the five balance tables: `"car.mirage.speed"`, `"drive.baseTurnRate"`,
- * `"ram.massPerRating"`, `"combat.hpPerRating"`, `"weapon.predator.damage"`,
+ * `"ram.defencePushScale"`, `"combat.hpPerRating"`, `"weapon.predator.damage"`,
  * `"weapon.pepperbox.hitbox.radiusAlong"`. Numeric segments index arrays
  * (`"weapon.predator.applies.0.durationMs"`).
  */

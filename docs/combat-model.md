@@ -27,16 +27,19 @@ dead for 80 ms". Prediction covers the local car's motion and nothing else.
 > contest and the face bonus, divided by its own `defence`. There is no `reactionOf` and no negation
 > in the revised model — each side's outcome is computed directly, not derived from the other's.
 >
-> **`mass` is being removed from the game entirely**, replaced by per-car `attack` and `defence`
-> stats — so every "mass" reference below, including the mass-weighted separation subsection's
-> `selfMass`/`otherMass`/`CarObstacle.mass`, names a rating that is going away. The plumbing that
-> carries it — `resolveWorld`'s fifth parameter, `CarObstacle`, edge-triggered contact, wall
-> deflection and `restitution: 0.15`, the `Impulse` struct and its single-applier seam — is
-> unaffected; only the stat that value carries changes name and source.
+> **`mass` is now gone from the game entirely** (stage 3, 2026-09-06), replaced by the per-car
+> `ramAttack`/`ramDefence` pair. `massOf`, `RAM_CONFIG.massPerRating`, `RAM_REFERENCE`,
+> `RAM_REFERENCE_MASS` and the `ramMass` status channel no longer exist; the channel is `ramDefence`,
+> `StepContext.selfMass` is `selfRamDefence`, and `CarObstacle.mass` is `CarObstacle.ramDefence`. The
+> plumbing that carries the value is unchanged — `resolveWorld`'s fifth parameter, `CarObstacle`,
+> edge-triggered contact, wall deflection and `restitution: 0.15`, the `Impulse` struct and its
+> single-applier seam all survive; only the stat those values carry changed name and source.
 >
-> This section stays accurate about the code as it stands today and is kept for anyone debugging
-> current behaviour. The authority for where this is going is
-> [`superpowers/specs/2026-09-06-car-physics-rework-design.md`](superpowers/specs/2026-09-06-car-physics-rework-design.md).
+> **Everything below that describes a graded 0-1 SEVERITY is superseded**, not merely renamed: there
+> is no severity, no `RAM_REFERENCE` to normalise against, and no ceiling for a ram to be a fraction
+> of. Sections still written that way are stale and stage 5 rewrites them; the authority meanwhile is
+> [`superpowers/specs/2026-09-06-car-physics-rework-design.md`](superpowers/specs/2026-09-06-car-physics-rework-design.md)
+> and `sim/ram.ts`'s own `pushOf`/`impactOn`.
 
 Ram is a separate pass, not part of `combatTick`: `rooms/tick-pipeline.ts`'s `runPipeline` runs
 `statusTick` → `serverTick` (drive + collision resolution) → `contactTick`
@@ -73,13 +76,15 @@ sense below, but both change what a contact feels like before a ram is ever grad
   wall at an angle comes away travelling ALONG the wall with real lateral motion, not stopped facing
   into it; a dead-on hit still barely rebounds (15% of impact speed, not 35%), because cars are not
   billiard balls. See `collide.test.ts`'s "contact reflection preserves direction" block.
-- **Car-vs-car separation now splits by mass instead of always giving the whole correction to the
-  body being resolved.** `StepContext.selfMass` (`massOf(carId)`) and `CarObstacle.mass` (carried
-  alongside every other car's hull in `StepContext.others`) let `resolveWorld` compute
-  `shareOf(selfMass, otherMass) = otherMass / (selfMass + otherMass)` per contact: the lighter car
-  moves further out of an overlap than the heavier one, converging over several ticks of mutual
-  resolution rather than in one. A wall or obstacle still takes the whole correction — mass has no
-  meaning for something that cannot move. See `collide.test.ts`'s "mass-weighted separation" block.
+- **Car-vs-car separation splits by `ramDefence` instead of always giving the whole correction to the
+  body being resolved.** `StepContext.selfRamDefence` (`ramDefenceOf(carId)`) and
+  `CarObstacle.ramDefence` (carried alongside every other car's hull in `StepContext.others`) let
+  `resolveWorld` compute `shareOf(selfRamDefence, otherRamDefence) = otherRamDefence /
+  (selfRamDefence + otherRamDefence)` per contact: the less solid car moves further out of an overlap
+  than the more solid one, converging over several ticks of mutual resolution rather than in one.
+  A wall or obstacle still takes the whole correction — solidity has no meaning for something that
+  cannot move. (Both fields were named after `mass` until stage 3; the split itself is unchanged,
+  only the rating it reads.)
 
 Both apply to every contact, not only a ram — they run inside ordinary driving, before `contactTick`
 ever asks whether the contact was hard enough to be a ram at all.
@@ -89,14 +94,21 @@ A pair still touching on the following tick is skipped, and a pair no longer tou
 from the tracked set. Holding the throttle into a victim therefore lands one knock, not a
 stun-lock — to ram the same car again you must separate and re-approach.
 
-Severity is graded from the **attacker's** forward speed (`forwardOf(vx, vy, angle)`, the
-`dot(vel, fwd)` component of the car's world velocity as of the 2026-09-06 vector-drive rework) and
-the **attacker's** `mass` rating, scaled against
-`RAM_REFERENCE` (an average-mass chassis at the roster's fastest top speed). A car shunted
-backwards, or one whose nose points away from the contact, deals nothing — its approach term is
-non-positive — which is what keeps "get behind them" a strategy rather than "be moving fastest".
-Whichever car has the higher approach score is the attacker; if both fall below
-`RAM_CONFIG.minApproachSpeed` there is no ram at all.
+**There is no severity grade.** Stage 3 replaced it with a CONTEST (spec R2-R7). Each car brings a
+push — its `ramAttack` times how hard it is driving into the contact, plus a speed-independent term
+from its `ramDefence` scaled by `RAM_CONFIG.defencePushScale` (`pushOf`) — and what each car takes is
+the OTHER car's push, reduced by how much it is winning the contest, multiplied by the bonus for its
+OWN struck face, divided by its own `ramDefence`, and converted to a Δv by `RAM_CONFIG.globalScale`
+(`impactOn`). Both outcomes are computed independently: the attacker's impulse is never a negated
+copy of the victim's. The result is open-ended and linear — no ceiling, nothing normalised against a
+roster maximum.
+
+Drive-in is measured from each car's whole PRE-COLLISION world velocity, dotted against the contact
+normal (`TickResult.approachVelocities`, cached before `resolveWorld` can reflect it). A car shunted
+backwards, or one whose nose points away from the contact, brings nothing — its drive-in clamps at
+zero — which is what keeps "get behind them" a strategy rather than "be moving fastest". Whichever
+car is driving in harder is the attacker; if their combined drive-in falls below
+`RAM_CONFIG.minApproachSpeed` (which ships at 0, deliberately inactive) there is no ram at all.
 
 The impact side is read in the **victim's** local frame and multiplies severity before it is
 clamped back into range:
@@ -699,7 +711,7 @@ derived DPS per weapon, so every one of those numbers moves with the row.
 Weapons are the only damage source. Collision costs nobody hp: cars shove each other through
 ordinary resolution, and — between non-teammates on fresh contact — also ram each other for an
 equal-and-opposite `Impulse` (see [Ramming](#ramming) above; the steering-loss half of that is still
-a no-op as of stage 2, restored as the `reeling` status in stage 3). Neither ever costs hp.
+a no-op as of stage 2, restored as the `reeling` status in stage 3b). Neither ever costs hp.
 
 One hit costs `damageFor(attack, weapon.damage)`:
 

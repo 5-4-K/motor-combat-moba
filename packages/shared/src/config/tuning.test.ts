@@ -2,10 +2,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   CAR_TABLE,
   CHASSIS_DRIVE,
-  RAM_REFERENCE,
   driveOf,
   hpOf,
-  ramReference,
 } from "./car-config.js";
 import { COMBAT_CONFIG } from "./combat-config.js";
 import { DRIVE_CONFIG } from "./drive-config.js";
@@ -114,16 +112,22 @@ describe("tuning store", () => {
     const shippedSpeed: number = CAR_TABLE.bastion.speed;
     setTuning({ "car.bastion.speed": shippedSpeed });
     expect(driveOf("bastion")).toEqual(CHASSIS_DRIVE.bastion);
-    expect(ramReference()).toBe(RAM_REFERENCE);
     expect(ramDecay()).toEqual(RAM_DECAY);
   });
 
-  it("a mass-scale override moves the ram reference", () => {
-    const before = ramReference();
-    setTuning({ "ram.massPerRating": 1 });
-    expect(ramReference()).not.toBe(before);
+  // There is deliberately no "an override moves the ram reference" test any more. The two ram
+  // reference values (`RAM_REFERENCE`, `RAM_REFERENCE_MASS`) and their `ramReference()`/
+  // `ramReferenceMass()` accessors were deleted with `mass` in stage 3 Task 4 — the contest has no
+  // global maximum to anchor against (spec R9), so there is nothing left for `rebuildResolvedDrive`
+  // to re-derive on that side. This is a deletion, not a weakening: a test for a function that does
+  // not exist proves nothing. The two ram ratings themselves ARE reachable through tuning and are
+  // covered as ordinary `CAR_TABLE` leaves by `tuning-walker.test.ts`'s round-trip.
+  it("a ramDefence override reaches CAR_TABLE live, with no resolved snapshot to rebuild", () => {
+    const before: number = CAR_TABLE.bastion.ramDefence;
+    setTuning({ "car.bastion.ramDefence": 12 });
+    expect(CAR_TABLE.bastion.ramDefence as number).toBe(12);
     setTuning(null);
-    expect(ramReference()).toBe(before);
+    expect(CAR_TABLE.bastion.ramDefence as number).toBe(before);
   });
 
   it("throws on a path that does not exist, leaving tables untouched", () => {

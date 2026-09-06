@@ -7,7 +7,7 @@ import { applyRams, impactSideOf, pairKey, resolveRam, type RamCar } from "./ram
 import type { SimBody } from "./step.js";
 
 function car(over: Partial<RamCar> = {}): RamCar {
-  // `defenceMult: 1` is the neutral value of the `ramMass` status channel: every expectation in
+  // `defenceMult: 1` is the neutral value of the `ramDefence` status channel: every expectation in
   // this file is the unbuffed maths, and must stay so.
   return {
     sessionId: "a",
@@ -232,19 +232,25 @@ describe("resolveRam", () => {
     //
     // FIX ROUND 1 (stage 3 Task 3 review): the previous fixture kept the pre-Task-3 500 u/s speed
     // (already above any real chassis's top speed) and asserted `toBe(spinMaxRate)`, byte-identical
-    // to the neighbouring "clamps spin at spinMaxRate" test above. `nextSpin`'s inertia term now
-    // divides by `ramDefence` (30-90) instead of `mass` (300-900) — a ~10x smaller denominator — so
-    // 500 u/s saturates the ceiling outright, and that assertion would still pass after an ~8x
-    // reduction in `spinScale`. It was not testing a band, only the clamp path a second time.
+    // to the neighbouring "clamps spin at spinMaxRate" test above. It was not testing a band, only
+    // the clamp path a second time.
     //
-    // Dropped to 40 u/s so the unclamped spin lands well inside the 6.0 ceiling. 60 u/s (the naive
-    // "scale down by the same ~10x the inertia shrank" guess) still saturates — `pushOf`'s
-    // speed-independent `ramDefence * defencePushScale` term does not shrink with speed the way the
-    // drive-in term does, so the relationship isn't a clean ratio; checked by hand-deriving the
-    // actual value below rather than assumed.
+    // FIX ROUND 2 (stage 3 Task 4, spec P25b): re-derived at the MEASURED constants — `globalScale`
+    // 1 -> 0.4 and `spinScale` 100 -> 10. The round-1 fixture's 40 u/s approach was picked to keep
+    // the old constants under the ceiling; at the new ones the same fixture lands on 0.19 rad/s,
+    // which is not a band worth pinning. The approach speed is now a realistic **267 u/s — Mirage's
+    // own shipped top speed** — so this measures what a full-speed ordinary flank ram actually does,
+    // and the value that falls out is the same 1.028 rad/s the composed-pipeline sweep behind
+    // `RAM_CONFIG.spinScale`'s table measured independently for a 12 u lever arm. Two derivations,
+    // one by hand and one through `serverTick` -> `contactTick`, agreeing to three decimals is what
+    // makes this a re-derivation rather than a paste of whatever the code now emits.
+    //
+    // A LITERAL 267, not `forwardMaxSpeedOf("mirage")`: the whole derivation below is arithmetic on
+    // fixed inputs, and reading a live table would make the expected value move under a speed retune
+    // while the hand-derivation kept claiming the old answer. Frozen fixture, deliberately.
     //
     // Hand-derivation (both cars are mirage: ramAttack 55, ramDefence 50; from `RAM_CONFIG`,
-    // defencePushScale 35, globalScale 1, bonusFlank 1.0, spinScale 100; inertiaCoefficient =
+    // defencePushScale 35, globalScale 0.4, bonusFlank 1.0, spinScale 10; inertiaCoefficient =
     // (carWidth^2 + carHeight^2)/12 = (48^2+32^2)/12 = 3328/12):
     //
     //   Geometry: attacker at (12,-30) facing +y (angle pi/2) closes on the stationary victim at
@@ -254,37 +260,34 @@ describe("resolveRam", () => {
     //   along (0,1). `impactSideOf` puts that push on the victim's flank (perpendicular to its
     //   own +x nose), so bonusFlank applies.
     //
-    //   attackerDriveIn = 40 (all of the attacker's velocity is along the closing normal),
+    //   attackerDriveIn = 267 (all of the attacker's velocity is along the closing normal),
     //   victimDriveIn = 0 (victim stationary).
-    //   attackerPush = ramAttack*driveIn + ramDefence*defencePushScale = 55*40 + 50*35 = 3950
+    //   attackerPush = ramAttack*driveIn + ramDefence*defencePushScale = 55*267 + 50*35 = 16435
     //   victimPush   = 55*0 + 50*35 = 1750
-    //   victim's share of the contest = attackerPush / (attackerPush + victimPush) = 3950/5700 = 79/114
-    //   impulse.speed = attackerPush * share * bonusFlank / victimRamDefence
-    //                 = 3950 * (79/114) * 1.0 / 50 = 6241/114 (~=54.7456)
+    //   victim's share of the contest = attackerPush / (attackerPush + victimPush) = 16435/18185
+    //   impulse.speed = attackerPush * share * bonusFlank * globalScale / victimRamDefence
+    //                 = 16435 * (16435/18185) * 1.0 * 0.4 / 50 ~= 118.8272 u/s
     //
     //   The recovered contact point clamps the attacker's offset into the victim's hull half-extents
     //   (24 long, 16 wide): local (12, -30) clamps to (12, -16) — the y lever arm is capped at the
     //   hull's half-width. The push is (0, impulse.speed) in the victim's own (unrotated, angle 0)
     //   frame, so:
-    //     torque = rx*fy - ry*fx = 12 * impulse.speed - (-16) * 0 = 12 * 6241/114
-    //     inertia = ramDefence * inertiaCoefficient = 50 * 3328/12 = 41600/3
+    //     torque = rx*fy - ry*fx = 12 * impulse.speed - (-16) * 0 = 12 * 118.8272 ~= 1425.926
+    //     inertia = ramDefence * inertiaCoefficient = 50 * 3328/12 = 41600/3 ~= 13866.667
     //     spin (unclamped) = torque / inertia * spinScale
-    //                      = (12 * 6241/114) / (41600/3) * 100 = (9/104) * (6241/114) = 18723/3952
-    //                      ~= 4.7376 rad/s
+    //                      = (1425.926 / 13866.667) * 10 ~= 1.0283 rad/s
     //
-    //   Comfortably inside spinMaxRate (6.0) with headroom on both sides: an 8x-weaker spinScale
-    //   (Task 4 reverting toward the old ~10x-larger-inertia regime) drops this under 0.6, and a
-    //   doubled spinScale pushes it back up against the 6.0 ceiling — both fail the band below.
-    //
-    // This band WILL move when Task 4 re-pitches `spinScale` per spec P25b — re-deriving it then,
-    // the same way, is expected and is not this test rotting.
-    const attacker = car({ sessionId: "a", x: 12, y: -30, angle: Math.PI / 2, ...velocityAt(40, Math.PI / 2) });
+    //   Well inside spinMaxRate (6.0), with headroom on both sides that the band below converts into
+    //   a real guard: reverting `spinScale` toward 100 pushes this past 10 and into the clamp, and
+    //   halving `globalScale` drops it to 0.51 — both fail. Note it is sensitive to BOTH re-pitched
+    //   constants, which is the property the round-1 version lost by sitting on the clamp.
+    const attacker = car({ sessionId: "a", x: 12, y: -30, angle: Math.PI / 2, ...velocityAt(267, Math.PI / 2) });
     const victim = car({ sessionId: "b", x: 0, y: 0, angle: 0 });
     const hit = resolveRam(attacker, victim, "ffa")!;
     expect(hit.side).toBe("flank");
     const next = applyImpulse(bodyAt(victim.x, victim.y, victim.angle), ramDefenceOf(victim.carId), hit.impulse);
-    expect(Math.abs(next.angVel)).toBeGreaterThan(4);
-    expect(Math.abs(next.angVel)).toBeLessThan(5.5);
+    expect(Math.abs(next.angVel)).toBeGreaterThan(0.9);
+    expect(Math.abs(next.angVel)).toBeLessThan(1.2);
   });
 
   it("shoves a lower-ramDefence victim further than a higher-ramDefence one", () => {
@@ -338,7 +341,7 @@ describe("resolveRam", () => {
  * The contest (spec R2-R7, revision 2): each car brings its own push into the collision — its
  * `ramAttack` rating times its drive-in, plus a scaled `ramDefence` term — and what each one takes
  * is derived from the OTHER car's push, independently. This block proves the shape of that contest;
- * `resolveRam`'s own describe block above still covers side bonuses, spin and the mass-scaled
+ * `resolveRam`'s own describe block above still covers side bonuses, spin and the ramDefence-divided
  * displacement end-to-end.
  */
 describe("the ram contest", () => {
@@ -433,11 +436,11 @@ describe("the ram contest", () => {
  * same hit" are covered above in the `resolveRam` block ("shoves the victim away from the
  * attacker", "shoves a lower-ramDefence victim further than a higher-ramDefence one"); this block
  * adds the two properties those don't already exercise: the contest itself opts BOTH impulses out of
- * `applyImpulse`'s own mass scaling (it already divided by `ramDefence`), and the contact point is a
+ * `applyImpulse`'s own ramDefence scaling (it already divided by `ramDefence`), and the contact point is a
  * real, geometry-derived lever arm.
  */
 describe("resolveRam produces an Impulse", () => {
-  it("never mass-scales either impulse — the contest already divided by ramDefence", () => {
+  it("never defence-scales either impulse — the contest already divided by ramDefence", () => {
     const { attacker, victim } = headOn(540);
     const hit = resolveRam(attacker, victim, "ffa")!;
     expect(hit.impulse.defenceScaled).toBe(false);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TICK_RATE_HZ } from "../constants.js";
-import { CAR_TABLE, RAM_REFERENCE, RAM_REFERENCE_MASS, forwardMaxSpeedOf, massOf } from "./car-config.js";
+import { CAR_TABLE, ramAttackOf, ramDefenceOf } from "./car-config.js";
 import { RAM_CONFIG, RAM_DECAY, halfLifeToPerTick } from "./ram-config.js";
 import type { CarId } from "./types.js";
 
@@ -39,7 +39,6 @@ describe("RAM_CONFIG", () => {
     expect(RAM_CONFIG.bonusRear).toBe(1.3);
     expect(RAM_CONFIG.authorityFloor).toBe(0.35);
     expect(RAM_CONFIG.knockMaxSpeed).toBe(260);
-    expect(RAM_CONFIG.massPerRating).toBe(10);
   });
 
   it("orders the side bonuses front < flank < rear, which is the whole positional read", () => {
@@ -61,36 +60,35 @@ describe("RAM_CONFIG", () => {
   });
 });
 
-describe("mass rating", () => {
-  it("gives every chassis an integer 0-100 mass", () => {
+// Replaces the old "mass rating" block outright. `mass` and `massOf` are deleted (stage 3 Task 4,
+// spec R1), so the questions that block asked — is every chassis's rating a whole 0-100 number, and
+// does the roster order the way the design says — are asked here of the pair that replaced it. The
+// third question it asked ("does `massOf` scale the rating by `massPerRating`") has no successor on
+// purpose: the contest reads the ratings unscaled, so there is no derived quantity to pin.
+describe("the ram ratings", () => {
+  it("gives every chassis whole 0-100 ratings on both ram axes", () => {
     for (const id of Object.keys(CAR_TABLE) as CarId[]) {
-      const { mass } = CAR_TABLE[id];
-      expect(Number.isInteger(mass)).toBe(true);
-      expect(mass).toBeGreaterThanOrEqual(0);
-      expect(mass).toBeLessThanOrEqual(100);
+      for (const rating of [ramAttackOf(id), ramDefenceOf(id)]) {
+        expect(Number.isInteger(rating)).toBe(true);
+        expect(rating).toBeGreaterThanOrEqual(0);
+        expect(rating).toBeLessThanOrEqual(100);
+      }
     }
   });
 
-  it("scales ratings to real mass via massPerRating", () => {
-    expect(massOf("bullseye")).toBe(300);
-    expect(massOf("mirage")).toBe(480);
-    expect(massOf("bastion")).toBe(900);
+  it("orders both axes tank > speedster > skirmisher, as the old single mass rating did", () => {
+    expect(ramAttackOf("bastion")).toBeGreaterThan(ramAttackOf("mirage"));
+    expect(ramAttackOf("mirage")).toBeGreaterThan(ramAttackOf("bullseye"));
+    expect(ramDefenceOf("bastion")).toBeGreaterThan(ramDefenceOf("mirage"));
+    expect(ramDefenceOf("mirage")).toBeGreaterThan(ramDefenceOf("bullseye"));
   });
 
-  it("makes the tank the heaviest and the skirmisher the lightest", () => {
-    // Reverses the old oval/rectangle pairing: the chassis that was `oval` (now `bullseye`) drops
-    // from mass 45 to the roster's lowest, 30, so mirage now sits between bullseye and bastion.
-    expect(massOf("bastion")).toBeGreaterThan(massOf("mirage"));
-    expect(massOf("mirage")).toBeGreaterThan(massOf("bullseye"));
-  });
-
-  it("derives the ram reference from an average chassis at the roster's top speed", () => {
-    // RAM_REFERENCE moves with the roster's fastest car: mirage's top speed rose to 449.5 u/s in the
-    // 2026-09-02 speed rewrite (500 * 449.5 = 224750, replacing the old 144000), then fell to 267 u/s
-    // in the 2026-09-06 vector-drive rework's heavy-car speed cut, so 500 * 267 = 133500 replaces
-    // that — ram severity stays anchored to what a car can actually achieve.
-    expect(RAM_REFERENCE_MASS).toBe(500);
-    expect(RAM_REFERENCE).toBe(RAM_REFERENCE_MASS * forwardMaxSpeedOf("mirage"));
-    expect(RAM_REFERENCE).toBe(133500);
+  // The whole reason there are two ratings and not one (spec R1): a chassis's offence and its
+  // solidity must be settable apart. Bastion's spread (70/90) is the roster's widest and Bullseye's
+  // (45/30) leans the other way, so the pair is doing work no single rating could — if every car
+  // ever carried the same number on both, the split would have bought nothing.
+  it("does not carry the same number on both axes for every car", () => {
+    const ids = Object.keys(CAR_TABLE) as CarId[];
+    expect(ids.some((id) => ramAttackOf(id) !== ramDefenceOf(id))).toBe(true);
   });
 });

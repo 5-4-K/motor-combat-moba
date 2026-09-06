@@ -11,10 +11,12 @@ import { DRIVE_CONFIG } from "./drive-config.js";
  * once, here, makes the table tick-rate independent. Same principle as `weapon-ticks.ts` converting
  * authored milliseconds to ticks exactly once at module load.
  *
- * `massPerRating` lives here rather than in `COMBAT_CONFIG` because mass affects ramming and nothing
- * else — never acceleration, never top speed. That is deliberate: a force-based drive would make
- * heavy imply sluggish and collapse the roster to one axis, so mass stays out of the drive model
- * entirely and exists only as combat identity.
+ * **There is no rating-to-anything scale here any more.** `massPerRating` used to convert a car's
+ * `mass` rating into a physical mass; stage 3 removed `mass` from the game and the contest reads
+ * `CarDef.ramAttack`/`ramDefence` as raw 0-100 ratings, unscaled, with `defencePushScale` and
+ * `globalScale` below doing the only converting. Keeping the ram ratings out of the drive model
+ * remains the rule they inherited (spec P7): a force-based drive would make solid imply sluggish and
+ * collapse the roster to one axis, so they exist only as combat identity.
  */
 export const RAM_CONFIG = {
   /**
@@ -36,8 +38,6 @@ export const RAM_CONFIG = {
    * it cannot be carried across even when it is re-enabled.
    */
   minApproachSpeed: 0,
-  /** Rating-to-mass scale, mirroring `COMBAT_CONFIG.hpPerRating`. Ratings are 0-100. */
-  massPerRating: 10,
 
   /**
    * How much a STATIONARY car resists, as a multiplier on its `ramDefence` when building its push
@@ -50,13 +50,45 @@ export const RAM_CONFIG = {
    */
   defencePushScale: 35,
   /**
-   * Converts a contest result into a Δv (spec R5).
+   * Converts a contest result into a Δv (spec R5). The one global constant the contest has, and it
+   * CONVERTS rather than normalises — there is no ceiling here for a ram to be a fraction of (R9).
    *
-   * **MEASURE THIS, DO NOT DERIVE IT.** Revision 1's equivalent was derived from arithmetic and was
-   * wrong by 5x — it threw every chassis backwards faster than its own top speed. Task 4 measures it
-   * against the shipped pipeline order and records what it measured.
+   * **MEASURED, NOT DERIVED.** Revision 1's equivalent was derived from arithmetic and was wrong by
+   * 5x — it threw every chassis backwards faster than its own top speed for landing a ram. This
+   * value was measured instead: `serverTick` (drive + `resolveWorld`) then `contactTick`, the real
+   * shipped order from `runPipeline`, swept across 24 sub-tick phases per scenario. Every scenario
+   * below returned the IDENTICAL number on all 24 phases, which is a property of the model rather
+   * than luck: the contest reads the pre-collision velocity `TickResult.approachVelocities` carried
+   * in, and the lever arm comes from hull geometry clamped by `contactPointOn`, so nothing in it is
+   * overlap-depth dependent.
+   *
+   * At 0.4, an attacker at its own top speed against a parked victim:
+   *
+   * | scenario | victim Δv | as % of victim's top speed | attacker's contest cost |
+   * |---|---|---|---|
+   * | Bastion flanks Bullseye | 206.2 u/s | 92% (top 223) | **0.1 u/s** |
+   * | Bullseye flanks Bastion | 38.4 u/s | 20% (top 190) | 2.8 u/s |
+   * | Bastion flanks Bastion | 61.4 u/s | 32% | 0.7 u/s |
+   * | Bastion rear-ends Bullseye (roster max) | 268.0 u/s | 120% | 0.1 u/s |
+   * | Bastion head-on into a full-speed Bullseye (413 u/s closing) | 39.3 u/s | 18% | 6.0 u/s |
+   *
+   * Read the last two rows together: a head-on at 2.2x the closing speed of the flank hit still
+   * moves the victim 5x LESS, which is `bonusFront` (0.3) doing the job it exists for. And read the
+   * right-hand column as the whole point of revision 2 — a car winning its contest decisively takes
+   * almost nothing (R4/R5, P20), so the roster maximum any attacker ever pays the CONTEST is 39.3
+   * u/s, against revision 1's 156-271. That is the 5x.
+   *
+   * **What this constant does NOT control, and a reader will otherwise blame it for.** An attacker
+   * still ends a dead-on ram travelling backwards — Bastion 190 -> -28.6 u/s above. All but 0.1 of
+   * that is `resolveWorld`'s restitution reflection (`DRIVE_CONFIG.restitution`, 0.15), which lands
+   * BEFORE contact runs and which no value here can reach. Stage 3 could only remove the contest's
+   * share of the cost, and did: raising or lowering `globalScale` moves the victim's throw and the
+   * head-on column, and leaves that -28.5 exactly where it is.
+   *
+   * Re-measure through the composed order, never through `contactTick` alone, if this is retuned:
+   * `packages/server/src/sim/pipeline-order.test.ts` drives the sequence these numbers came from.
    */
-  globalScale: 1,
+  globalScale: 0.4,
 
   /**
    * The positional read, and the single most important balance lever in the feature. Front is cheap
@@ -67,123 +99,109 @@ export const RAM_CONFIG = {
   bonusRear: 1.3,
 
   /**
-   * INERT — reads nothing since the 2026-09-06 vector-drive rework; stage 3 deletes it.
+   * INERT — reads nothing since the 2026-09-06 vector-drive rework. Stage 3 did NOT delete it: the
+   * `reeling` status that replaces this whole group moved to stage 3b, so the group outlives stage 3.
    *
    * Was the steering multiplier at maximum severity, the feel dial for how helpless a rammed victim
    * felt. `PlayerState.authority` no longer exists, and `ram-bridge.ts` drops `knock.authority` on
    * the floor entirely rather than writing it anywhere, so this value is computed by nobody and read
-   * by nobody. Ram control-loss returns as the `reeling` status in stage 3, which replaces this knob
-   * (and the two authority half-lives below) outright rather than reviving them.
+   * by nobody. Ram control-loss returns as the `reeling` status in stage 3b, which replaces this
+   * knob (and the two authority half-lives below) outright rather than reviving them.
    */
   authorityFloor: 0.35,
   /**
-   * INERT — reads nothing since stage 3 Task 2 (the ram contest, spec R2-R7/R9) landed. The
-   * severity-graded model this value belonged to (`severity * knockMaxSpeed * massFactor`) is gone:
-   * `resolveRam` now resolves an open-ended contest between both cars' `ramAttack`/`ramDefence`
-   * pushes (`pushOf`/`impactOn` in `sim/ram.ts`), and neither `knockMaxSpeed` nor `massFactorMax`
-   * reaches the ram path at all any more. `mass` itself is gone from ramming — replaced outright by
-   * the per-car `ramAttack`/`ramDefence` ratings — so every mass figure below
-   * (`massFactorMin`/`massFactorMax`, `RAM_REFERENCE_MASS`, the table's mass column) measures a
-   * rating the contest no longer reads. `docs/superpowers/specs/2026-09-06-car-physics-rework-design.md`
-   * is the authority for where this went; the measurements below are HISTORICAL — accurate about the
-   * pre-Task-2 code, not the code as it stands today — and are kept for anyone debugging the old
-   * behaviour or diffing against it. `ram-config.test.ts` still pins this constant's value, and it is
-   * not on the interfaces ledger's deletion list, so it is not deleted here. A future task may retire
-   * it outright once nothing needs the historical comparison any more.
+   * INERT — reads nothing since stage 3 Task 2 (the ram contest, spec R2-R7/R9) landed.
    *
-   * Peak knock impulse (expressed as a speed) at severity 1.0, before the victim mass factor.
+   * Was the peak knock impulse (expressed as a speed) at severity 1.0, before a victim mass factor.
+   * The severity-graded model it belonged to — `severity * knockMaxSpeed * massFactor`, everything
+   * normalised against one global maximum — is gone outright. `resolveRam` resolves an open-ended
+   * contest between both cars' `ramAttack`/`ramDefence` pushes (`pushOf`/`impactOn` in `sim/ram.ts`),
+   * and neither this value nor anything shaped like it reaches the ram path.
    *
-   * **Charged to the attacker as well as the victim since the 2026-09-06 equal-and-opposite change**
-   * (stage 2 Task 4): `ram-bridge.ts` applied `reactionOf` of the victim's own impulse back onto the
-   * attacker, scaled by the ATTACKER's own mass factor, until stage 3 Task 3 deleted `reactionOf`
-   * outright — each car's outcome now comes from the contest directly, as its own independently
-   * computed `attackerImpulse` (spec R7), never a negated copy of the other side's. This value was
-   * tuned one-way, against a model where the attacker paid nothing, and it has not been re-pitched
-   * for the new cost.
+   * `ram-config.test.ts` still pins it and it is not on the interfaces ledger's deletion list, so it
+   * is not deleted here. A future task may retire it once nothing needs the historical comparison.
    *
-   * **The attacker is charged in TWO layers, not one — an error in an earlier pass of this same
-   * comment measured the reaction alone.** `runPipeline` (`tick-pipeline.ts:80`) runs `serverTick`
-   * (drive + `resolveWorld`) BEFORE `contactTick`, so by the time this recoil lands, `resolveWorld`
-   * has ALREADY reflected the attacker's whole pre-collision velocity by `DRIVE_CONFIG.restitution`
-   * (0.15) — a car covers more per tick than `RAM_CONFIG.contactPad`'s touching band at every speed
-   * on this roster, so that reflection fires on 40/40 sampled sub-tick phases, not merely most of
-   * them. The reaction below is then applied ON TOP OF the already-reflected speed, not onto the
-   * pre-collision speed a caller that only exercises `contactTick` in isolation would assume (exactly
-   * what `ram-bridge.test.ts` alone shows, and exactly what misled the previous pass of this table).
-   * `packages/server/src/sim/pipeline-order.test.ts` is what pins the composed order now.
-   *
-   * Measured through the real order — `stepSim`, then `resolveRam`, then
-   * `applyImpulse(reactionOf(...))` — against stage 1's cut top speeds (`RAM_REFERENCE_MASS` 500,
-   * `massFactorMin/Max` 0.6/1.6), a dead-on rear hit, swept across 40 sub-tick phases (identical
-   * result on every one, since the reflection is a velocity-space operation, not depth-dependent):
-   *
-   * | attacker | scenario | after `resolveWorld` reflection | reaction Δv | speed after |
-   * |---|---|---|---|---|
-   * | Bastion (mass 900, top 190) | full-severity (severity 1) rear hit | `190 * -0.15 = -28.5` | `260 * clamp(500/900, 0.6, 1.6) = 260 * 0.6 = 156` | 190 → **-184.5 u/s** |
-   * | Bullseye (mass 300, top 223) | rear hit, severity 0.651 | `223 * -0.15 = -33.45` | `(0.651 * 260) * clamp(500/300, 0.6, 1.6) = 169.4 * 1.6 = 271.0` | 223 → **-304.5 u/s** |
-   * | Mirage (mass 480, top 267) | full-severity (severity 1) rear hit | `267 * -0.15 = -40.05` | `260 * clamp(500/480, 0.6, 1.6) = 260 * 1.0417 = 270.8` | 267 → **-310.9 u/s** |
-   *
-   * All three end up travelling BACKWARDS, past their own top speed in two of three cases — not
-   * merely "barely slowed." Both numbers only get bigger once stage 3 grades severity from RELATIVE
-   * closing velocity rather than the attacker's speed alone (a fleeing victim currently softens the
-   * hit; an oncoming one will harden it past what these rows show). Stage 2's own exit criterion —
-   * "Ram a Bullseye as Bastion, then the reverse. The Bastion barely slows" — is CONTRADICTED more
-   * severely than an isolated-`contactTick` measurement would suggest: the Bastion above does not
-   * merely slow to 18% of its top speed, it reverses past its OWN top speed backwards (97%). A hand
-   * playtest before the re-pitch below will read as badly wrong; that is expected, not a regression
-   * to chase.
-   *
-   * Stage 3 owns re-pitching this value against the new momentum-derived scale — see
-   * `docs/superpowers/plans/2026-09-06-car-physics/03-ram.md`, Task 5 ("Re-pitch the constants the
-   * new impulse scale invalidated"). Do not raise or lower this number outside that task without
-   * also updating the table above.
+   * **Why the historical comparison is worth keeping at all.** Revision 1 of this rework charged the
+   * attacker a `reactionOf` recoil derived by ARITHMETIC rather than measured, and it was wrong by
+   * 5x. Measured through the composed pipeline order (`serverTick` then `contactTick`, so the
+   * `DRIVE_CONFIG.restitution` reflection lands FIRST and the recoil goes on top of it) against
+   * stage 1's cut top speeds, a dead-on rear hit left every chassis travelling BACKWARDS — Bastion
+   * 190 -> -184.5 u/s, Bullseye 223 -> -304.5, Mirage 267 -> -310.9 — two of the three past their own
+   * top speed in reverse, for the crime of landing a ram. That is the defect this whole stage exists
+   * to fix, and it is why `globalScale` below carries numbers measured through that same composed
+   * order rather than a derivation. `packages/server/src/sim/pipeline-order.test.ts` is what pins the
+   * order both sets of measurements were taken through.
    */
   knockMaxSpeed: 260,
   /**
-   * Calibration multiplier on the torque-derived spin rate. Tuned by feel, not derived: it converts
-   * a speed-magnitude impulse into a plausible angular rate, and 100 was chosen so a solid flank ram
-   * (moderate severity, a lever arm off centre but short of the hull edge) lands near 2 rad/s while
-   * the hardest possible ram saturates `spinMaxRate`.
+   * Calibration multiplier on the torque-derived spin rate: it converts a speed-magnitude impulse
+   * into a plausible angular rate.
    *
-   * **STALE as of stage 3 Task 3.** `nextSpin` (`sim/impulse.ts`) divides torque by
-   * `ramDefence * inertiaCoefficient` now, and `ramDefence` (30-90) is roughly a tenth of the `mass`
-   * (300-900) this value was tuned against, so the "near 2 rad/s" claim above is no longer accurate —
-   * spin now saturates `spinMaxRate` far more readily. Left untouched here on purpose: spec P25b
-   * makes re-pitching this value a MEASUREMENT job, assigned to stage 3 Task 4 alongside
-   * `RAM_CONFIG.globalScale`. See `nextSpin`'s own doc comment for the full account.
+   * **Re-pitched 100 -> 10 by measurement in stage 3 Task 4 (spec P25b), and 10x is a coincidence,
+   * not a ratio anyone applied.** Two things moved underneath this value at once and pulled opposite
+   * ways: `nextSpin` (`sim/impulse.ts`) started dividing torque by `ramDefence` (30-90) instead of
+   * `mass` (300-900), a ~10x SMALLER denominator, while `globalScale` above made the impulse feeding
+   * the torque several times smaller. Neither ratio predicts the answer on its own, which is why it
+   * was measured on the same composed `serverTick` -> `contactTick` sweep `globalScale` was.
+   *
+   * The calibration this value has always been written to, restored: an ordinary solid flank ram
+   * lands around 1-2 rad/s, and the hardest ram in the game APPROACHES `spinMaxRate` without pinning
+   * it. Measured, victim spin at an attacker's own top speed, by lever arm (the offset of the hit
+   * from the victim's centre, which `contactPointOn` clamps at the 24 u hull half-length):
+   *
+   * | lever | Mirage flanks Mirage (ordinary) | Bastion flanks Bullseye (hardest) | Bullseye flanks Bastion (weakest) |
+   * |---|---|---|---|
+   * | 4 u | 0.34 rad/s | 0.99 | 0.06 |
+   * | 12 u | 1.03 | 2.97 | 0.18 |
+   * | 24 u (clamped max) | 2.06 | **5.95** | 0.37 |
+   *
+   * 5.95 against a 6.0 ceiling is the calibration working, not a near miss: the hardest ram the
+   * roster can produce reaches 99% of the ceiling on its own and never clips. What still makes the
+   * ceiling load-bearing is that `nextSpin` ACCUMULATES (`clamp(body.angVel + spin, ...)`), so a car
+   * rammed twice does hit it.
    */
-  spinScale: 100,
+  spinScale: 10,
   /**
    * Ceiling on injected spin, so a corner contact cannot produce an absurd rotation.
    *
-   * Left at its pre-Task-3 value on purpose, same as `spinScale` just above: `nextSpin`'s
-   * ~10x-smaller inertia denominator (`ramDefence` 30-90 vs the old `mass` 300-900) means an
-   * ordinary flank ram now saturates this ceiling far more readily than it used to (see
-   * `spinScale`'s own doc comment and `nextSpin`'s in `sim/impulse.ts` for the full account).
-   * Re-pitching this value alongside `spinScale` is a MEASUREMENT job, assigned to stage 3 Task 4
-   * (spec P25b). Do not change it outside that task.
+   * **Deliberately UNCHANGED by stage 3 Task 4's measurement (spec P25b), which is a decision, not
+   * an omission.** `spinScale` was the free variable and this is the target it was pitched against:
+   * at 10, the single hardest ram the roster can produce measures 5.95 rad/s across a 24-sub-tick-
+   * phase sweep (see `spinScale`'s table) — 99% of this ceiling, approaching saturation without
+   * clipping, which is exactly the relationship this pair is supposed to have. Moving this value
+   * would have moved the target the other number was just solved for.
+   *
+   * It still binds, and is not decoration: `nextSpin` adds to the victim's EXISTING `angVel` rather
+   * than replacing it, so a car rammed twice before its spin decays goes over.
+   *
+   * `docs/turn-tuning.md` tabulates this value — an edit here owes that page one.
    */
   spinMaxRate: 6.0,
   /**
-   * Rotational inertia per unit mass for the car hull, `(len^2 + wid^2) / 12`. Derived from the hull
-   * so it cannot drift out of step with `carHullOf`.
+   * The car hull's rotational-inertia shape factor, `(len^2 + wid^2) / 12` — the standard rectangular
+   * plate formula, per unit of whatever `nextSpin` multiplies it by. That multiplier is the victim's
+   * `ramDefence` since stage 3 Task 3 (it was the car's mass before), so a solid car resists being
+   * spun for exactly the same reason it resists being shoved. Derived from the hull so it cannot
+   * drift out of step with `carHullOf`.
    */
   inertiaCoefficient: (DRIVE_CONFIG.carWidth ** 2 + DRIVE_CONFIG.carHeight ** 2) / 12,
 
   /** Injected spin halves this often while the player is not fighting it. */
   spinHalfLifeSeconds: 0.35,
   /**
-   * INERT — reads nothing since the 2026-09-06 vector-drive rework; stage 3 deletes it.
+   * INERT — reads nothing since the 2026-09-06 vector-drive rework. Stage 3 did NOT delete it: the
+   * `reeling` status that replaces this whole group moved to stage 3b, so the group outlives stage 3.
    *
    * Was "lateral knock halves this often" against the old separate `shoveX`/`shoveY` fields.
    * `RamDecay.shove` (below) is still computed from this value, but nothing in `sim/drive.ts` reads
    * `ramDecay().shove` any more — the knock lands straight in `vx`/`vy` and bleeds off through the
    * flat-rate `DRIVE_CONFIG.impactGripDecel` instead. Replaced by that knob for the shim's lifetime;
-   * stage 3 deletes this one rather than reviving it.
+   * stage 3b deletes this one rather than reviving it.
    */
   shoveHalfLifeSeconds: 0.25,
   /**
-   * INERT — reads nothing since the 2026-09-06 vector-drive rework; stage 3 deletes it.
+   * INERT — reads nothing since the 2026-09-06 vector-drive rework. Stage 3 did NOT delete it: the
+   * `reeling` status that replaces this whole group moved to stage 3b, so the group outlives stage 3.
    *
    * Was "the gap between current authority and full control halves this often." `PlayerState`
    * carries no `authority` field to decay. See `authorityFloor` above.
@@ -200,13 +218,15 @@ export const RAM_CONFIG = {
   /** Below this magnitude a knock snaps to exact rest, as `stopEpsilon` does for the drive model. */
   spinEpsilon: 0.01,
   /**
-   * INERT — reads nothing since the 2026-09-06 vector-drive rework; stage 3 deletes it.
+   * INERT — reads nothing since the 2026-09-06 vector-drive rework. Stage 3 did NOT delete it: the
+   * `reeling` status that replaces this whole group moved to stage 3b, so the group outlives stage 3.
    *
    * Paired with the now-unread `shoveHalfLifeSeconds` above; nothing computes a shove decay to snap.
    */
   shoveEpsilon: 1,
   /**
-   * INERT — reads nothing since the 2026-09-06 vector-drive rework; stage 3 deletes it.
+   * INERT — reads nothing since the 2026-09-06 vector-drive rework. Stage 3 did NOT delete it: the
+   * `reeling` status that replaces this whole group moved to stage 3b, so the group outlives stage 3.
    *
    * Paired with the now-unread `authorityHalfLifeSeconds` above; nothing computes an authority decay
    * to snap.
@@ -229,7 +249,8 @@ export function halfLifeToPerTick(halfLifeSeconds: number): number {
  * the 2026-09-06 vector-drive rework. `shove` and `authority` are still computed here — deleting the
  * shape would ripple further than this stage's scope — but nothing in the sim reads either; they are
  * inert alongside `RAM_CONFIG.shoveHalfLifeSeconds`/`authorityHalfLifeSeconds`, which produce them.
- * Stage 3 deletes both fields rather than reviving them.
+ * Stage 3b deletes both fields rather than reviving them — stage 3 left them, since the `reeling`
+ * status that supersedes the authority half of the pair moved there.
  */
 export interface RamDecay {
   spin: number;

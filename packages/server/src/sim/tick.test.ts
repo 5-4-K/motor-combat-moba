@@ -290,9 +290,9 @@ describe("serverTick", () => {
     it("stops a driver short of another player who is in the match", () => {
       const driver = driveIntoBlocker(PlayerStatus.IN_MATCH);
       expect(driver.x).toBeGreaterThan(300);
-      // REPINNED for stage 2 Task 2 (mass-weighted separation): a lone `IN_MATCH` blocker with an
+      // REPINNED for stage 2 Task 2 (ramDefence-weighted separation): a lone `IN_MATCH` blocker with an
       // empty queue and no knock is never itself stepped (`serverTick` drains only queued or
-      // knocked players), so its own `resolveWorld` call -- and its own half of the mass split --
+      // knocked players), so its own `resolveWorld` call -- and its own half of the ramDefence split --
       // never runs. Only the driver's side concedes its `shareOf` the overlap each tick, so the
       // pair's damped steady state (throttle re-driving it in, restitution pushing it back out,
       // exactly the wall equilibrium `step.test.ts`'s "single-step path" case documents) settles a
@@ -311,7 +311,7 @@ describe("serverTick", () => {
       expect(driver.x + DRIVE_CONFIG.carWidth).toBeLessThanOrEqual(500.1);
     });
 
-    it("converges to a residual overlap that stays bounded across every roster mass pairing, not just mirage/mirage", () => {
+    it("converges to a residual overlap that stays bounded across every roster ramDefence pairing, not just mirage/mirage", () => {
       // FINDING 2 (stage 2 review): the test above only ever drives mirage into mirage. The residual
       // this idle-blocker steady state settles at is NOT a constant -- the idle blocker never runs
       // its own `resolveWorld` (see the comment above), so only the driver ever concedes its
@@ -323,7 +323,7 @@ describe("serverTick", () => {
       //
       // TASK 4 NOTE: under the pre-split full push, a resting/pinned pair ended flush and
       // `mtvBetween` returned `null` on the next tick (touching is not overlap) -- an edge-triggered
-      // contact. Under this mass split, a pinned pair like this one holds a NON-NULL MTV every tick
+      // contact. Under this ramDefence split, a pinned pair like this one holds a NON-NULL MTV every tick
       // while a throttle is held, for as long as the residual below persists (tens of ticks, or
       // indefinitely against a truly idle blocker). Any Task-4 contact detector keyed on "is there
       // currently an overlap" will now fire continuously against a pair that used to report contact

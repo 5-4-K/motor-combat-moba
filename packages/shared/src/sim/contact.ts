@@ -225,7 +225,7 @@ function resolvePair(
         targetSessionId: other.sessionId,
         weaponId: attacker.maneuverWeaponId as WeaponId,
       });
-      // A slam REPLACES the graded ram with a fixed exchange (spec S3): no mass factor
+      // A slam REPLACES the contested ram with a fixed exchange (spec S3): no ramDefence divisor
       // (`defenceScaled: false` — a designer's escape hatch from physics, spec principle C) and no
       // spin (`spin: 0` — "a clean straight punt is the ult's signature", spec P28/P31).
       // `uncontrolTicks` is authored `0` here, same as `resolveRam`; stage 4 moves it onto

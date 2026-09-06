@@ -22,6 +22,16 @@ import { Reporter } from "./reporter.js";
 // pre-2026-09-06 roster, whose top speeds were up to 40% higher. Left unchanged per the review's
 // instruction that stage 5 owns re-deriving them; see
 // `docs/superpowers/plans/2026-09-06-car-physics/05-tune-and-reconcile.md`.
+//
+// **Stage 3 Task 4 added a second, independent reason those thresholds are owed a re-derivation,
+// and it is bigger than the speed cut.** `RAM_CONFIG.globalScale` and `spinScale` were placeholders
+// until that task measured them (1 -> 0.4 and 100 -> 10), so every knock magnitude and every
+// injected spin this file observes moved — the roster's hardest ram now writes 268.0 u/s and 5.95
+// rad/s, measured through the composed `serverTick` -> `contactTick` order. The trigger-RATE floors
+// (R1/R2) are the exception and should be unaffected: a ram fires on contact and drive-in sign,
+// neither of which any of those constants touches. Ram-lock (R5) and anything reading how far a
+// victim travels are not exempt. Still nothing this task may retune — named here so stage 5 knows
+// what moved under it, and so a run in the meantime is read with this in hand.
 function ramOf(
   startGap: number,
   atkCar: CarId,
@@ -89,7 +99,8 @@ function triggerPhaseSweep(): void {
   report(
     "R1. Does a ram fire at all, as a function of where the tick grid lands?",
     worstRate < 0.9 ? "FINDING" : "OK",
-    "A bastion (mass 90, the designated rammer) at top speed hits a stationary bullseye.\n" +
+    "A bastion (ramAttack 70, ramDefence 90 — the designated rammer) at top speed hits a\n" +
+      "stationary bullseye (45/30).\n" +
       "`startGap` is the clearance at t=0; the car covers 10.5 u/tick, so sweeping the gap sweeps\n" +
       "the sub-tick phase of the impact — the only thing that differs between these runs.\n" +
       rows.join("\n"),
@@ -223,7 +234,8 @@ function drivenRam(): void {
 /* ------------------------------------------------------- R5. ram-lock: chase in open space */
 /**
  * Can the roster's heaviest rammer hold the roster's lightest car in a knock loop, or does one
- * clean escape window always exist? Bastion (mass 90) rear-ends a bullseye (mass 30) that starts
+ * clean escape window always exist? Bastion (ramAttack 70, ramDefence 90) rear-ends a bullseye
+ * (45/30) that starts
  * at rest with the whole arena open in front of it; from the impact on, both hold full throttle
  * and the victim steers to straighten out — the best escape a player could drive. Bullseye's top
  * speed rating (52) beats Bastion's (30), so the design intent is that control returns and the
@@ -309,7 +321,8 @@ function chaseRamLock(): void {
   report(
     "R5. Ram-lock: heaviest rammer chasing the lightest car up an open lane",
     worstEscape.escaped ? "OK" : "FINDING",
-    `bastion (mass 90, top speed rating 30) rear-ends a resting bullseye (mass 30, rating 52) and ` +
+    `bastion (ramAttack 70, ramDefence 90; speed rating 50) rear-ends a resting bullseye (45/30; ` +
+      `speed rating 65) and ` +
       `keeps chasing; the victim floors it and straightens out. 63 runs: approach gap 0-20 x ` +
       `lateral offset {0, 6, 12}.\n` +
       rows.join("\n") +
