@@ -154,46 +154,60 @@ interface Candidate {
  * reached by a new road. Sampled along the path, the +1 candidate's nose passes straight through the
  * target at tick 2, `myEv` peaks there, and the arc wins on the sweep it actually contains.
  *
- * NOTHING IS READ AT THE TERMINUS (R-P7 revised, fix round 2, 2026-09-06). Round 1 kept
- * `rangeError` and `threatAvoid` at the end pose, on the reasoning that "that is where the arc
- * leaves you standing". Measurement falsified it, and the defect it left standing was the SAME one
- * trajectory scoring had just cured on the steer axis, only on the throttle axis: full throttle held
- * for 22 ticks TERMINATES ~190 units along, far past a 56-unit range correction, so closing scored
- * worse than coasting and the bot never closed the gap — exactly as full lock held for 22 ticks
- * overshot a 13-degree correction so the bot never turned. The terminus is simply the wrong question
- * for a RECEDING horizon: hard re-plans every 2 ticks and has re-planned eleven times before it
- * would reach a pose 22 ticks out, so it never stands there. The question the controller actually
- * executes on is "does this arc carry me through what I want".
- *
- * Each term aggregates the way its own direction demands, which is the whole content of the fix:
+ * FIVE OF THE SIX TERMS ARE MOMENTS; `rangeError` IS A DESTINATION, AND IT ALONE IS READ AT THE
+ * TERMINUS (R-P7, third revision, fix round 3, 2026-09-07):
  *
  * - `myEv` — the BEST found anywhere along the path. That is the sweep.
  * - `lockKeep` — the BEST along the path, for the same reason.
- * - `rangeError` — the BEST (smallest) along the path. "Does this arc carry me through my preferred
- *   range", not "does it park me there".
  * - `threatAvoid` — the BEST (largest) displacement reached anywhere along the path. Getting off the
  *   line for the moment the bolt passes is the whole point; where the excursion ends is not.
  * - `theirEv` — the WORST (maximum danger). An arc that carries you through someone's line is
  *   dangerous even if it ends somewhere safe.
  * - `wallPenalty` — the WORST. Clipping a wall mid-arc is a real cost, not an artifact.
+ * - `rangeError` — AT THE TERMINUS. It is not a moment. It is the only term that says GO SOMEWHERE,
+ *   and in a targetless plan it is the ENTIRE objective: `waitOut` hands the planner a synthetic
+ *   hunt waypoint and a `preferredRange` of 0, and every other term is identically zero there. A
+ *   navigation objective must be able to say "turn around and drive 500 units", and that is a claim
+ *   about where an arc ENDS which cannot be made about any moment along it.
  *
- * WHAT THAT COST, MEASURED, because the honest version of this comment is not one-sided. Moving
- * `rangeError` off the terminus is what fixes the on-axis duel (`controller.test.ts` spec 1.1: 24
- * fires per 300 ticks -> 140, mean heading offset 0.000 rad, settling at exactly the preferred 530
- * instead of parking at 586 where only `predator` reaches). It also costs the off-axis duel (98 ->
- * 44, mean heading offset 0.031 -> 0.414 rad), `tiers.test.ts`'s H39 wall test, and the seed-96
- * deathmatch-clock fixture in `balance/match.test.ts` — five red tests where round 1 had three. The
- * mechanism of the loss is that a MINIMISED term aggregated over an arc goes inert wherever the bot
- * is already near its preferred range: every candidate's arc passes within a few units of the
- * current pose at the first sample, so every candidate's minimum is that same small error and the
- * term stops separating them. Near the settle point `myEv` and `theirEv` are then alone, they score
- * a left sweep and a right sweep almost identically, and the wheel saws. Swept and rejected as
- * remedies: `commitPenalty` over 0.3-0.9 (no value clears both duels), `fight`'s `rangeError` weight
- * over 0-0.8 (best is 88 fires at 0.390 rad, which fails the heading half), `trajectorySampleCount`
- * 3/5/6/8 (3 is the best duel pair at 146/86 but takes the whole suite to SIX failures by breaking
- * both dodge tests and G12), and starting the sample schedule later than tick 1 (much worse: the
- * on-axis duel collapses to 2 fires). The remaining candidate parameterization finding from round 1
- * — that `planDepth: 1` cannot express "throttle for five ticks" — is untouched by any of this.
+ * THREE READINGS HAVE NOW BEEN TRIED AND THE OTHER TWO ARE RECORDED HERE, because each will look
+ * tempting again. Round 2 moved `rangeError` to the SMALLEST error along the path; round 3 was asked
+ * to move it to the FIRST sample — the servo window a throttle decision is really committed over —
+ * with a path MEAN as the sanctioned fallback. All four readings were measured on the two
+ * closed-loop duels in `controller.test.ts` over SEVEN seeds (a duel passes only if it clears BOTH
+ * `fires > 90` and `meanOffset < 0.2`), and on the whole `src/bot/` + `src/config/` suite:
+ *
+ * | `rangeError` read at | on-axis duel | off-axis duel | suite failures |
+ * |---|---|---|---|
+ * | terminus (SHIPPED)  | 4 / 7 seeds | 6 / 7 seeds | 3 |
+ * | min along the path  | 6 / 7 seeds | 0 / 7 seeds | 4, plus a balance fixture |
+ * | mean along the path | 4 / 7 seeds | 1 / 7 seeds | 6 |
+ * | first sample        | 4 / 7 seeds | 1 / 7 seeds | 8 |
+ *
+ * The first-sample reading is myopic in exactly the way the hunt punishes. Over the two ticks a
+ * throttle is actually committed for, REVERSING at a waypoint that sits behind the bot closes the
+ * gap faster than turning around does, so both of `controller.test.ts`'s G12 hunt tests flip to
+ * `throttle: -1`. The long horizon is what makes a bot turn around instead of reversing, and the
+ * range term is the only term that can ask for it. Raising the weight does not rescue it (swept
+ * 1x-24x: the duels plateau but the dodge tests go red as the term swamps `threatAvoid`), and
+ * neither does mixing the two readings (swept at 10-60% terminus: strictly worse than either
+ * endpoint at every seed, because two competing minima make the term oscillate).
+ *
+ * WHAT THE TERMINUS COSTS, and it is a LIVE REGRESSION rather than a settled trade. The on-axis duel
+ * (`controller.test.ts`, spec section 1.1) fires 24 times per 300 ticks against a bar of 90. The bot
+ * aims perfectly — mean heading offset 0.000 rad — but once a `panic-reverse` blunder has shoved it
+ * from 508 units out to 586 against a preferred 530, no candidate closes the gap: an input held for
+ * 22 ticks TERMINATES ~190 units along, so the closing arc's terminal error (130) reads worse than
+ * standing still's (56). The min-along-path reading fixes precisely that and settles the bot at
+ * 530-530 — and costs the off-axis duel at every one of seven seeds, because a MINIMISED term
+ * aggregated over an arc goes inert near its target value: every candidate shares the near end of
+ * its own arc, so every candidate's minimum is the same small error, the candidate score spread
+ * collapses, `commitPenalty`'s spread-scaled bonus collapses with it, and the wheel saws at 0.414
+ * rad. A bot that visibly saws its wheel is the symptom this phase exists to delete, which is why
+ * the terminus is what ships. NEITHER READING PASSES BOTH DUELS; no weight vector closes the
+ * 56-unit gap (swept); and the cause is the one rounds 1 and 2 each named independently — at
+ * `planDepth: 1` a candidate is ONE input held for the whole horizon, so "throttle for five ticks"
+ * is not on the menu at all.
  *
  * Draws no randomness (P43, H21) — every term is a deterministic function of the observation, which
  * is also what keeps the score smooth enough not to chatter. There is no `rng` parameter here on
@@ -385,10 +399,9 @@ function rollCandidates(args: PlanArgs, segment: number, start: SimBody): Candid
 /**
  * Which ticks along a `pathTicks`-long rollout the score is read at (R-P7).
  *
- * Ticks, one-based, ascending, and the LAST ENTRY IS ALWAYS `pathTicks` — no term is read at the
- * terminus any more (R-P7 revised, round 2), but the far end of the arc is where a candidate commits
- * the bot, so dropping it would let an arc that sweeps beautifully and then buries itself in a wall
- * score as clean.
+ * Ticks, one-based, ascending, and the LAST ENTRY IS ALWAYS `pathTicks`. That entry is load-bearing
+ * twice over: it is where `rangeError` is read outright (R-P7 third revision, round 3), and it is
+ * where the five moment-terms catch an arc that sweeps beautifully and then buries itself in a wall.
  *
  * GEOMETRICALLY SPACED, not evenly, and that is load-bearing rather than a refinement. Measured: an
  * evenly-spaced schedule at hard's K=22 reads ticks 6, 11, 17, 22, and the sweep it exists to catch
@@ -519,10 +532,11 @@ function scoreCandidate(
   let theirEv = 0;
   let wallPenalty = 0;
   let lockKeep = 0;
-  // Minimised and maximised respectively, so both start at the neutral end of their own scale and
-  // are floored back to 0 below if the loop somehow runs zero times. `plan` guarantees at least one
-  // sample (`segment` is floored at 1), so that floor is belt-and-braces, not a live case.
-  let rangeError = Infinity;
+  // `threatAvoid` is maximised, so it starts at the neutral end of its own scale and is floored
+  // back to 0 below if the loop somehow runs zero times. `plan` guarantees at least one sample
+  // (`segment` is floored at 1), so that floor is belt-and-braces, not a live case. `rangeError`
+  // needs no such seed: it is assigned outright at the terminal sample (see below).
+  let rangeError = 0;
   let threatAvoid = -Infinity;
 
   for (let i = 0; i <= last; i++) {
@@ -533,16 +547,16 @@ function scoreCandidate(
     const wall = boundsPenalty(body.x, body.y, args.arena);
     if (wall > wallPenalty) wallPenalty = wall;
 
-    // BEST ANYWHERE ALONG THE ARC, not at the terminus (R-P7 revised, fix round 2, 2026-09-06).
-    // "Does this arc carry me through my preferred range" is the question a receding horizon
-    // actually executes on; "does it park me there" is not, because the plan is redone every
-    // `recomputeTicks` and the terminal pose is never reached. Read at the end alone, full throttle
-    // for 22 ticks overshoots a 56-unit correction by ~130 units and scores worse than coasting, so
-    // the bot parks — the same defect trajectory scoring had already cured on the steer axis.
-    const error = Math.abs(
-      Math.hypot(future.x - body.x, future.y - body.y) - args.preferredRange,
-    );
-    if (error < rangeError) rangeError = error;
+    // AT THE TERMINUS, and it is the ONE term that is (R-P7, third revision, fix round 3,
+    // 2026-09-07). Every other term asks about a MOMENT and takes its best or its worst anywhere
+    // along the arc; this one asks where the arc LEAVES the bot. See `plan`'s doc for the
+    // measurement that put it back here after round 2 moved it to the smallest error along the
+    // path, and for the on-axis duel that reading buys and this one does not.
+    if (i === last) {
+      rangeError = Math.abs(
+        Math.hypot(future.x - body.x, future.y - body.y) - args.preferredRange,
+      );
+    }
 
     // Likewise the best moment, not the last one: getting off the line for the instant the bolt
     // passes is the whole content of a dodge, and where the excursion finishes is not.
@@ -603,7 +617,7 @@ function scoreCandidate(
   return {
     myEv,
     theirEv,
-    rangeError: Number.isFinite(rangeError) ? rangeError : 0,
+    rangeError,
     wallPenalty,
     lockKeep,
     threatAvoid: Number.isFinite(threatAvoid) ? threatAvoid : 0,
