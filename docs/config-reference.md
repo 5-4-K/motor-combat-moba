@@ -649,7 +649,7 @@ and stacking diminishes on its own (a 5% and a 10% slow are 14.5% together, not 
 |---|---|---|
 | `topSpeed` | `forwardMaxSpeedOf` and `reverseMaxSpeedOf` | `stepDrive` |
 | `accel` | the chassis's resolved `accel` and `reverseAccel` (`accelOf` / `reverseAccelOf`, via `ChassisDrive`) | `stepDrive` |
-| `turnRate` | the chassis's resolved steering rate (`turnRateOf` / `turnRateAtStopOf`), alongside (not instead of) the ram's `authority`. **Above 1 corners tighter**; steering is binary (`-1 \| 0 \| 1`), so a raise is a straight gain | `stepDrive` |
+| `turnRate` | the chassis's resolved steering rate (`turnRateOf` / `turnRateAtStopOf`). This IS the ram's control loss post-3b — `reeling` scales it directly, there is no separate `authority` mechanic alongside it. **Above 1 corners tighter**; steering is binary (`-1 \| 0 \| 1`), so a raise is a straight gain | `stepDrive` |
 | `brakeDecel` | `CarDef.brakeDecel` — brake fade. Per-car since the 2026-09-06 vector-drive rework, replacing the old global `DRIVE_CONFIG.brakeDecel` | `stepDrive` |
 | `damageDealt` | outgoing damage, frozen into the instance at spawn | `spawnInstances` |
 | `damageTaken` | incoming damage, applied at impact | `runCombat` |
