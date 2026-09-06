@@ -68,7 +68,7 @@ export { ArenaState } from "./schema/ArenaState.js";
 export { PlaygroundState } from "./schema/PlaygroundState.js";
 export { PracticeState } from "./schema/PracticeState.js";
 
-export { RAM_CONFIG, RAM_DECAY, halfLifeToPerTick } from "./config/ram-config.js";
+export { RAM_CONFIG, RAM_DECAY, RAM_TICKS, halfLifeToPerTick } from "./config/ram-config.js";
 export { applyDamage, applyHeal, damageFor, scaleDamage, weaponDamageOf } from "./sim/damage.js";
 export { stepSim } from "./sim/step.js";
 export type { SimBody, StepContext } from "./sim/step.js";

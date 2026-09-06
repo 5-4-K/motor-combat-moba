@@ -1,4 +1,6 @@
 import {
+  RAM_CONFIG,
+  RAM_TICKS,
   SLAM_CONFIG,
   SLAM_TICKS,
   applyImpulse,
@@ -46,16 +48,78 @@ interface SlamRecord {
   immuneUntilTick: number;
 }
 
+/**
+ * Per-victim diminishing returns on ramming (spec P24).
+ *
+ * **Server-side only, and deliberately NOT a schema field.** This looks like an invariant 8
+ * violation and is not: `stepSim` never reads the stack. It is consumed once, here, at the moment a
+ * ram resolves, to scale the impulse and the duration BEFORE they are applied. What reaches the
+ * client is the already-scaled result — a velocity change and a `reeling` status with a concrete
+ * duration — both of which are networked already. It lives beside `SlamRecord`/`slammed` above,
+ * which is the same shape of per-victim server map for the same reason.
+ *
+ * Keyed by victim and by nothing else. Who did the ramming is not recorded, because three cars
+ * taking turns is the exact case this exists to defuse.
+ */
+export interface FalloffEntry {
+  /** How many rams have landed inside the current rolling window. */
+  count: number;
+  /** Tick the window lapses. Each fresh ram pushes this out from itself. */
+  expiresAtTick: number;
+}
+
+export type FalloffStack = Map<string, FalloffEntry>;
+
+export interface FalloffScales {
+  durationScale: number;
+  impulseScale: number;
+}
+
+export function newFalloffStack(): FalloffStack {
+  return new Map();
+}
+
+/**
+ * Read the victim's current falloff and record this ram against it.
+ *
+ * MUTATES `stack` — it is both the read and the write, so a caller cannot accidentally scale a ram
+ * without also counting it.
+ */
+export function nextFalloff(stack: FalloffStack, victimId: string, tick: number): FalloffScales {
+  const standing = stack.get(victimId);
+  const live = standing !== undefined && tick < standing.expiresAtTick;
+  const count = live ? standing.count : 0;
+
+  stack.set(victimId, { count: count + 1, expiresAtTick: tick + RAM_TICKS.drWindow });
+
+  return {
+    durationScale: Math.max(
+      RAM_TICKS.durationFloor / RAM_TICKS.uncontrol,
+      RAM_CONFIG.durationDrScale ** count,
+    ),
+    impulseScale: Math.max(RAM_CONFIG.impulseDrFloor, RAM_CONFIG.impulseDrScale ** count),
+  };
+}
+
+/** Drop lapsed entries so the map cannot grow unbounded across a long match. */
+export function sweepFalloff(stack: FalloffStack, tick: number): void {
+  for (const [id, entry] of stack) {
+    if (tick >= entry.expiresAtTick) stack.delete(id);
+  }
+}
+
 /** Room-owned state that lives across ticks and is deliberately never networked. */
 export interface ContactMemory {
   /** Pairs that were in contact last tick, so contact fires on entry rather than every tick. */
   contacts: Set<string>;
   /** Every car slammed recently enough that either clock below is still running. */
   slammed: Map<string, SlamRecord>;
+  /** Per-victim ram falloff (spec P24/P24a). Same lifetime and reasoning as `slammed`. */
+  falloff: FalloffStack;
 }
 
 export function newContactMemory(): ContactMemory {
-  return { contacts: new Set(), slammed: new Map() };
+  return { contacts: new Set(), slammed: new Map(), falloff: newFalloffStack() };
 }
 
 export interface ContactTickResult {
@@ -227,6 +291,7 @@ export function contactTick(
     bounds,
   );
   memory.contacts = contacts;
+  sweepFalloff(memory.falloff, tick);
 
   // Stage 3 Task 2 (car-physics rework): both halves of the pair land through `Impulse` now, EACH
   // computed independently by the contest (spec R7) rather than one being a negated, mass-scaled

@@ -6,6 +6,7 @@ import {
   PlayerState,
   PlayerStatus,
   RAM_CONFIG,
+  RAM_TICKS,
   SLAM_TICKS,
   applyStatus,
   forwardMaxSpeedOf,
@@ -15,7 +16,14 @@ import {
   type Modifiers,
   type WeaponId,
 } from "@motor-combat-moba/shared";
-import { clearKnock, newContactMemory, contactTick } from "./ram-bridge.js";
+import {
+  clearKnock,
+  newContactMemory,
+  newFalloffStack,
+  nextFalloff,
+  sweepFalloff,
+  contactTick,
+} from "./ram-bridge.js";
 import { readStatuses, writeStatuses } from "./status-bridge.js";
 
 /**
@@ -401,5 +409,73 @@ describe("clearKnock", () => {
     expect(p.maneuverTicksLeft).toBe(0);
     expect(p.maneuverAngle).toBe(0);
     expect(p.maneuverSpeed).toBe(0);
+  });
+});
+
+const VICTIM = "v1";
+
+describe("ram falloff", () => {
+  it("leaves the first ram at full strength", () => {
+    const stack = newFalloffStack();
+    const out = nextFalloff(stack, VICTIM, 0);
+    expect(out.durationScale).toBe(1);
+    expect(out.impulseScale).toBe(1);
+  });
+
+  it("halves the second ram inside the window", () => {
+    const stack = newFalloffStack();
+    nextFalloff(stack, VICTIM, 0);
+    const out = nextFalloff(stack, VICTIM, 10);
+    expect(out.durationScale).toBeCloseTo(RAM_CONFIG.durationDrScale);
+    expect(out.impulseScale).toBeCloseTo(RAM_CONFIG.impulseDrScale);
+  });
+
+  it("compounds across a chain", () => {
+    const stack = newFalloffStack();
+    nextFalloff(stack, VICTIM, 0);
+    nextFalloff(stack, VICTIM, 5);
+    const third = nextFalloff(stack, VICTIM, 10);
+    expect(third.impulseScale).toBeCloseTo(RAM_CONFIG.impulseDrScale ** 2);
+  });
+
+  it("never falls below the impulse floor", () => {
+    const stack = newFalloffStack();
+    for (let i = 0; i < 20; i++) nextFalloff(stack, VICTIM, i);
+    expect(nextFalloff(stack, VICTIM, 20).impulseScale).toBeCloseTo(RAM_CONFIG.impulseDrFloor);
+  });
+
+  it("resets to full strength once the window lapses", () => {
+    const stack = newFalloffStack();
+    nextFalloff(stack, VICTIM, 0);
+    const later = nextFalloff(stack, VICTIM, 10_000);
+    expect(later.durationScale).toBe(1);
+  });
+
+  it("rolls the window forward from each ram, not from the first", () => {
+    const stack = newFalloffStack();
+    const window = RAM_TICKS.drWindow; // never recompute from ms and a literal tick rate
+    nextFalloff(stack, VICTIM, 0);
+    nextFalloff(stack, VICTIM, window - 1);        // just inside
+    const third = nextFalloff(stack, VICTIM, window + 1); // past the FIRST window, inside the second
+    expect(third.durationScale).toBeLessThan(1);
+  });
+
+  it("is per-victim: one car's chain does not protect another", () => {
+    const stack = newFalloffStack();
+    nextFalloff(stack, VICTIM, 0);
+    expect(nextFalloff(stack, "someone-else", 1).durationScale).toBe(1);
+  });
+
+  it("is global across attackers: who did the ramming is not recorded at all", () => {
+    const stack = newFalloffStack();
+    nextFalloff(stack, VICTIM, 0);
+    expect(nextFalloff(stack, VICTIM, 1).durationScale).toBeLessThan(1);
+  });
+
+  it("sweeps lapsed entries so the map cannot grow unbounded", () => {
+    const stack = newFalloffStack();
+    nextFalloff(stack, VICTIM, 0);
+    sweepFalloff(stack, 10_000);
+    expect(stack.size).toBe(0);
   });
 });

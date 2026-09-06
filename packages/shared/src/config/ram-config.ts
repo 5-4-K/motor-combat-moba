@@ -1,5 +1,6 @@
 import { TICK_RATE_HZ } from "../constants.js";
 import { DRIVE_CONFIG } from "./drive-config.js";
+import { msToTicks } from "./weapon-ticks.js";
 
 /**
  * Ram control-and-knockback tuning. Every value here is read by the sim, so server tick and client
@@ -260,6 +261,24 @@ export const RAM_CONFIG = {
    * to snap.
    */
   authorityEpsilon: 0.01,
+
+  /** Full-strength `reeling` duration from a ram, before falloff. Weapons author their own (stage 4). */
+  ramUncontrolMs: 1000,
+  /**
+   * How long "recently rammed" lasts. ROLLING: each ram pushes the window out from itself, so
+   * protection never lapses under sustained pressure. A window measured from the FIRST ram would
+   * let an attacker who counts to one second land full-strength rams forever, which is the exact
+   * lock this exists to prevent.
+   */
+  drWindowMs: 2000,
+  /** Each successive ram's duration, as a fraction of the last. 1.0 disables duration falloff. */
+  durationDrScale: 0.5,
+  /** Duration never falls below this, so a late ram in a chain never reads as a whiff. */
+  durationDrFloorMs: 150,
+  /** Each successive ram's impulse, as a fraction of the last. 1.0 disables impulse falloff. */
+  impulseDrScale: 0.5,
+  /** Impulse never falls below this fraction of full. */
+  impulseDrFloor: 0.25,
 } as const;
 
 /**
@@ -322,3 +341,14 @@ export function ramDecay(): Readonly<RamDecay> {
 export function rebuildRamDecay(hasOverrides: boolean): void {
   ACTIVE_DECAY = hasOverrides ? resolveRamDecay() : RAM_DECAY;
 }
+
+/**
+ * Ram control-loss durations, in the integer ticks the sim actually counts — authored milliseconds
+ * converted exactly once, at module load, the same shape as `SLAM_TICKS`/`WEAPON_TICKS`.
+ */
+export const RAM_TICKS: Readonly<{ uncontrol: number; drWindow: number; durationFloor: number }> =
+  Object.freeze({
+    uncontrol: msToTicks(RAM_CONFIG.ramUncontrolMs),
+    drWindow: msToTicks(RAM_CONFIG.drWindowMs),
+    durationFloor: msToTicks(RAM_CONFIG.durationDrFloorMs),
+  });
