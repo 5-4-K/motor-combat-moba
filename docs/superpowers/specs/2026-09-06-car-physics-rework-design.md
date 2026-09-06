@@ -348,9 +348,18 @@ reeling: {
 
 **`flags: []` is what makes `reapply: "refresh"` legal.** `StatusDef` forces flag-carrying rows to
 `"ignore"` so hard CC can never be chained, with `chainable` as an escape hatch restricted to buffs.
-Because `reeling` carries no flags it is not subject to that rule, so a second ram *can* write a new
-(already-reduced) duration — which is exactly what falloff needs. P21's choice to keep `reeling`
-flagless is therefore load-bearing for P24, not merely a feel decision.
+Because `reeling` carries no flags it is not subject to that rule, so a second ram *can* write a
+duration at all — under `"ignore"` a re-ram does nothing whatsoever, not even move the clock. P21's
+choice to keep `reeling` flagless is therefore load-bearing for P24, not merely a feel decision.
+
+**Amended 2026-09-07, after stage 3b was implemented and measured.** This paragraph originally said a
+second ram writes "a new (already-reduced) duration". It does not, and cannot: `refresh` is defined
+by the status-mechanism spec's **D4** (2026-08-29) as `endsTick = max(existing, now + duration)` —
+"the clock is extended, never shortened" — precisely so a weak short source cannot cut a long one
+down. So a re-ram landing while `reeling` is still running takes the LONGER of the two windows and
+discards falloff's shorter one; the scaled duration only takes effect once the previous instance has
+lapsed, which is the window between `ramUncontrolMs` and `drWindowMs`. See P24's amendment note for
+why this was accepted rather than fixed, and what it costs.
 
 **P22. The modifier values sit at the existing `STATUS_LIMITS` floors (0.4 / 0.4), deliberately.** An
 earlier draft of this spec proposed 0.15 / 0.25; both are below the current floors and would have been
@@ -383,9 +392,34 @@ a victim.
 - **Multiplicative with a floor.** Every ram always does something visible, so a late hit in a chain
   never reads as a whiff, and no immunity state is needed.
 - **Duration and impulse fall off separately**, each with its own scale and floor. Setting either
-  scale to `1.0` disables that half — no boolean required.
+  scale to `1.0` disables that half — no boolean required. **The two halves do not bite equally
+  often; see the amendment note below.**
 - **Ram only.** Weapon impulses do not participate and do not share the stack. A victim who is
   stunned, then rammed, then slammed is unfortunate; that is an accepted outcome of coordination.
+
+**Amended 2026-09-07, after stage 3b was implemented and measured. The duration half of this clause
+is only partly delivered, deliberately, and this is what ships.**
+
+The **impulse** half is delivered exactly as written: every re-ram inside the window lands at a
+reduced magnitude, unconditionally, with no caveat.
+
+The **duration** half collides with the status-mechanism spec's **D4** (2026-08-29), which defines
+`refresh` as `endsTick = max(existing, now + duration)` specifically so a weak short source cannot cut
+a long one down. Falloff's duration half wants exactly what D4 forbids — a short application cutting
+down a long one — so the two cannot both hold. What ships is D4: a re-ram landing while `reeling` is
+still running keeps the longer window, and the scaled duration only takes effect once the previous
+instance has lapsed (between `ramUncontrolMs` and `drWindowMs` after the last hit).
+
+**Why this was accepted rather than fixed.** Measured at 30 Hz with the shipped knobs, three rams on
+one victim at ticks 0, 10 and 20 end `reeling` at tick 30 under D4 versus tick 28 under this clause's
+literal reading — a two-tick (~67 ms) difference, and the shipped model is *harsher* on the victim,
+never lockier. P24's actual goal is met by a different mechanism than the one this clause named:
+**no ram after the first can ever re-arm a full `ramUncontrolMs` window**, because each later ram can
+only push `endsTick` out by its own already-reduced duration, converging on `durationDrFloorMs`.
+`max()` is what enforces that rather than what weakens it. Making the code match the original wording
+would require a third `StatusReapply` mode — reopening for every status row the exact interaction D4
+was written to close off — for 67 ms. If a ram chain is ever found to feel like a lock in play, the
+levers are `impulseDrScale` and `ramUncontrolMs`, not this mechanism.
 
 **P24a. The falloff stack is server-side only and is NOT a schema field.** This looks like an invariant
 8 violation and is not: `stepSim` never reads the stack. The stack is consumed once, on the server, at

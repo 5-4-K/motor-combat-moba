@@ -226,7 +226,26 @@ export const RAM_CONFIG = {
    * lock this exists to prevent.
    */
   drWindowMs: 2000,
-  /** Each successive ram's duration, as a fraction of the last. 1.0 disables duration falloff. */
+  /**
+   * Each successive ram's duration, as a fraction of the last. 1.0 disables duration falloff.
+   *
+   * **This knob does LESS than it reads, and the reason is structural.** `reeling` is
+   * `reapply: "refresh"`, which `applyStatus` implements as `endsTick = max(existing, now + duration)`
+   * — the status system's D4 rule, "the clock is extended, never shortened", written so a weak short
+   * source cannot cut a long one down. A scaled duration is by definition the shorter value, so a
+   * re-ram landing while `reeling` is STILL RUNNING has its scaled duration discarded outright.
+   *
+   * What this value actually governs is the window between `ramUncontrolMs` and `drWindowMs`: a ram
+   * landing after the previous `reeling` has lapsed but while the falloff stack is still counting.
+   * There, and only there, does it shorten anything.
+   *
+   * Turning it down further will therefore do much less than the arithmetic suggests. **If a ram
+   * chain feels like a lock, reach for `impulseDrScale` or `ramUncontrolMs` instead** — the impulse
+   * half of falloff has no such caveat and bites on every re-ram. The spec records this as an
+   * accepted partial delivery of P24 with the measurement behind it (a two-tick difference at the
+   * shipped knobs); closing the gap properly needs a third `StatusReapply` mode, which is a status-
+   * system change, not a ram one.
+   */
   durationDrScale: 0.5,
   /** Duration never falls below this, so a late ram in a chain never reads as a whiff. */
   durationDrFloorMs: 150,

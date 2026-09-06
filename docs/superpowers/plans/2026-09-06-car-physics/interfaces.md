@@ -320,8 +320,9 @@ that lands after the previous instance has lapsed but while the falloff window i
 (between `ramUncontrolMs` and `drWindowMs` since the last hit). Falloff's impulse half has no such
 caveat: it scales every re-ram. `status-config.ts`'s own doc comment on the row carries the same
 note, and `ram-bridge.test.ts`'s re-ram duration test is set up at tick 45 for exactly this reason.
-Spec P21 states the pairing without this caveat; amending the spec is the user's call, and the
-discrepancy is recorded in `EXECUTION.md`.
+**Spec P21 and P24 were amended on 2026-09-07 to say this too**, by the user's decision — the code is
+what stands, and the spec now records the collision with the status-mechanism spec's D4 rule and the
+measurement behind accepting it. There is no longer a discrepancy to carry.
 
 Both modifier values sit **at** the existing `STATUS_LIMITS` floors (`turnRate` 0.4, `accel` 0.4).
 Do not lower those floors to make `reeling` harsher; see spec P22 for why.
