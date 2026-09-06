@@ -3,6 +3,7 @@ import {
   type CarId, type SimBody,
 } from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
+import type { Rng } from "../rng.js";
 import type { BotCarView, BotSelfView } from "../types.js";
 import type { PosePredictor } from "./solution.js";
 
@@ -115,15 +116,38 @@ function clampedPredictor(
 /**
  * A `PosePredictor` backed by real physics — the phase-A replacement for
  * `constantVelocityPredictor` behind the same seam.
+ *
+ * `estimationSigma` perturbs the OBSERVED speed and turn rate before the rollout runs (P20): reading
+ * exact `speed` off another car every tick is the one place a bot sees more precisely than a person,
+ * who eyeballs it, and this is the tier knob that answers that. The clamp past the horizon is shared
+ * with `selfPredictor` via `clampedPredictor`, so the noise applies only to the rollout's INPUT, never
+ * to how a caller's `ticksAhead` is resolved against it.
  */
 export function physicsPredictor(
   car: BotCarView,
   angVel: number,
   input: DriveAction,
   horizonTicks: number,
+  estimationSigma: number,
+  rng: Rng,
 ): PosePredictor {
-  const poses = rollForward(bodyFromObservation(car, angVel), car.carId, input, horizonTicks);
+  // Drawn unconditionally, and the SAME count regardless of sigma (H21): a draw that happened only
+  // when sigma was non-zero would make the stream depend on the tier, and one seed would stop
+  // replaying across a profile edit.
+  const speedNoise = gaussian(rng) * estimationSigma;
+  const turnNoise = gaussian(rng) * estimationSigma;
+  const observed: BotCarView = { ...car, speed: car.speed * (1 + speedNoise) };
+  const poses = rollForward(
+    bodyFromObservation(observed, angVel * (1 + turnNoise)), car.carId, input, horizonTicks,
+  );
   return clampedPredictor(poses, { x: car.x, y: car.y, angle: car.angle });
+}
+
+/** Box-Muller, one half used. Two draws every call, always — same contract as `aim.ts`'s. */
+function gaussian(rng: Rng): number {
+  const u1 = Math.max(rng(), Number.EPSILON);
+  const u2 = rng();
+  return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
 }
 
 /**

@@ -27,6 +27,14 @@ export interface BotProfile {
   readonly trackedThreatLimit: number;
   /** How long something out of sight is remembered before it is forgotten. */
   readonly memoryTicks: number;
+  /**
+   * How wrong this bot's read of an opponent's speed and turn rate is, as a fraction (P20).
+   *
+   * Reading exact `speed` off a car every tick is the one place a bot sees more precisely than a
+   * person, who eyeballs it. This is the answer to that, and it is a knob rather than a fixed
+   * penalty because how well you read a car IS a skill.
+   */
+  readonly stateEstimationSigma: number;
 
   // --- Aim ----------------------------------------------------------------------------------
   /** Standard deviation of the aim error, in radians. */
@@ -439,7 +447,8 @@ export const BRAIN_CONSTANTS = Object.freeze({
  */
 // 4.0.0 (2026-09-05): firing solutions replace the angular fire gate (spec phase B).
 // 4.1.0 (2026-09-06): danger evaluation and cooldown readiness (spec phase C).
-export const BOT_BRAIN_VERSION = "4.1.0";
+// 4.2.0 (2026-09-05): physics-based prediction replaces the constant-velocity solve (spec phase A).
+export const BOT_BRAIN_VERSION = "4.2.0";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency
@@ -452,6 +461,7 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
   easy: Object.freeze({
     viewStalenessTicks: 4, reactionDelayTicks: 9, recomputeTicks: 12, acquireTicks: 15,
     awarenessRadiusUnits: 520, rearBlindHalfAngleRad: 1.05, trackedThreatLimit: 1, memoryTicks: 15,
+    stateEstimationSigma: 0.25,
     aimErrorSigmaRad: 0.18, aimErrorDriftTicks: 20, aimToleranceRad: 0.3, leadFactor: 0,
     burstGapTicks: 14, minShotValueFraction: 0.01, ultDisciplineChance: 0, ultWindowHpFraction: 0.4,
     targetCommitTicks: 150, woundedBias: 0.1, vengefulness: 0.8,
@@ -466,6 +476,7 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
   medium: Object.freeze({
     viewStalenessTicks: 3, reactionDelayTicks: 6, recomputeTicks: 6, acquireTicks: 9,
     awarenessRadiusUnits: 700, rearBlindHalfAngleRad: 0.6, trackedThreatLimit: 2, memoryTicks: 45,
+    stateEstimationSigma: 0.1,
     aimErrorSigmaRad: 0.09, aimErrorDriftTicks: 14, aimToleranceRad: 0.16, leadFactor: 0.55,
     burstGapTicks: 7, minShotValueFraction: 0.05, ultDisciplineChance: 0.5, ultWindowHpFraction: 0.4,
     targetCommitTicks: 60, woundedBias: 0.5, vengefulness: 0.5,
@@ -480,6 +491,7 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
   hard: Object.freeze({
     viewStalenessTicks: 2, reactionDelayTicks: 4, recomputeTicks: 2, acquireTicks: 5,
     awarenessRadiusUnits: 900, rearBlindHalfAngleRad: 0, trackedThreatLimit: 4, memoryTicks: 90,
+    stateEstimationSigma: 0.03,
     aimErrorSigmaRad: 0.035, aimErrorDriftTicks: 9, aimToleranceRad: 0.07, leadFactor: 0.95,
     burstGapTicks: 3, minShotValueFraction: 0.3, ultDisciplineChance: 0.9, ultWindowHpFraction: 0.4,
     targetCommitTicks: 25, woundedBias: 0.9, vengefulness: 0.25,

@@ -43,6 +43,7 @@ const LADDER: Readonly<Record<keyof BotProfile, Direction>> = {
   rearBlindHalfAngleRad: "falls",
   trackedThreatLimit: "rises",
   memoryTicks: "rises",
+  stateEstimationSigma: "falls",
   // Aim
   aimErrorSigmaRad: "falls",
   aimErrorDriftTicks: "falls",

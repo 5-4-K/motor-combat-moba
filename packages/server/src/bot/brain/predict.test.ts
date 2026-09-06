@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TICK_RATE_HZ } from "@motor-combat-moba/shared";
+import { makeRng } from "../rng.js";
 import type { BotCarView, BotSelfView } from "../types.js";
 import {
   bodyFromObservation, bodyFromSelf, interceptTicks, physicsPredictor, rollForward,
@@ -53,7 +54,7 @@ describe("rollForward", () => {
 describe("physicsPredictor", () => {
   it("beats a straight line for a turning car", () => {
     const turning = carAt({ speed: 400 });
-    const predictor = physicsPredictor(turning, 4, { steer: 0, throttle: 1 }, 20);
+    const predictor = physicsPredictor(turning, 4, { steer: 0, throttle: 1 }, 20, 0, makeRng(1));
     const predicted = predictor(20);
     const straight = {
       x: turning.x + Math.cos(turning.angle) * turning.speed * (20 / TICK_RATE_HZ),
@@ -64,7 +65,7 @@ describe("physicsPredictor", () => {
   });
 
   it("clamps past its horizon rather than extrapolating off the end", () => {
-    const predictor = physicsPredictor(carAt(), 0, { steer: 0, throttle: 0 }, 10);
+    const predictor = physicsPredictor(carAt(), 0, { steer: 0, throttle: 0 }, 10, 0, makeRng(2));
     expect(predictor(50)).toEqual(predictor(10));
   });
 
@@ -72,7 +73,7 @@ describe("physicsPredictor", () => {
     // Math.round(0.3) is 0, so a naive `poses[Math.round(ticksAhead) - 1]` reads poses[-1]
     // (undefined) and throws on `.x`. Any ticksAhead in (0, 1) must clamp UP to one tick ahead,
     // the same way past-the-horizon clamps DOWN to the last pose.
-    const predictor = physicsPredictor(carAt(), 0, { steer: 0, throttle: 1 }, 10);
+    const predictor = physicsPredictor(carAt(), 0, { steer: 0, throttle: 1 }, 10, 0, makeRng(3));
     expect(predictor(0.3)).toEqual(predictor(1));
   });
 });
@@ -98,7 +99,7 @@ describe("selfPredictor", () => {
 
 describe("interceptTicks", () => {
   it("returns ~0 for a co-located target", () => {
-    const predictor = physicsPredictor(carAt(), 0, { steer: 0, throttle: 0 }, 30);
+    const predictor = physicsPredictor(carAt(), 0, { steer: 0, throttle: 0 }, 30, 0, makeRng(4));
     expect(interceptTicks({ x: 0, y: 0 }, predictor, 600, 30)).toBe(0);
   });
 
@@ -109,7 +110,7 @@ describe("interceptTicks", () => {
   });
 
   it("returns 0 for a non-positive projectile speed", () => {
-    const predictor = physicsPredictor(carAt(), 0, { steer: 0, throttle: 0 }, 30);
+    const predictor = physicsPredictor(carAt(), 0, { steer: 0, throttle: 0 }, 30, 0, makeRng(5));
     expect(interceptTicks({ x: 0, y: 0 }, predictor, 0, 30)).toBe(0);
   });
 
@@ -132,5 +133,29 @@ describe("interceptTicks", () => {
     const converged = interceptTicks({ x: 0, y: 0 }, receding, projectileSpeed, maxTicks);
     expect(converged).toBeGreaterThan(naiveTicks);
     expect(converged).toBeLessThan(maxTicks);
+  });
+});
+
+describe("state estimation noise (P20)", () => {
+  it("perturbs the prediction, and a tighter sigma perturbs it less", () => {
+    const car = carAt({ speed: 400 });
+    const at = (sigma: number) => physicsPredictor(
+      car, 0, { steer: 0, throttle: 1 }, 20, sigma, makeRng(9),
+    )(20);
+    const truth = physicsPredictor(car, 0, { steer: 0, throttle: 1 }, 20, 0, makeRng(9))(20);
+    const sloppy = at(0.25);
+    const sharp = at(0.03);
+    const err = (p: { x: number; y: number }) => Math.hypot(p.x - truth.x, p.y - truth.y);
+    expect(err(sloppy)).toBeGreaterThan(err(sharp));
+  });
+
+  it("draws the same number of rng calls whether sigma is zero or not (H21)", () => {
+    let calls = 0;
+    const counting = () => { calls += 1; return 0.5; };
+    physicsPredictor(carAt(), 0, { steer: 0, throttle: 0 }, 5, 0, counting);
+    const withZero = calls;
+    calls = 0;
+    physicsPredictor(carAt(), 0, { steer: 0, throttle: 0 }, 5, 0.2, counting);
+    expect(calls).toBe(withZero);
   });
 });
