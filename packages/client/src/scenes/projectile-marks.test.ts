@@ -32,6 +32,9 @@ function insideHitbox(id: WeaponId, along: number, across: number): boolean {
   if (def.hitbox.shape === "ellipse") {
     return (along / radiusAlong) ** 2 + (across / radiusAcross) ** 2 <= 1 + SLACK;
   }
+  if (def.hitbox.shape === "bar") {
+    return Math.abs(along) <= radiusAlong + SLACK && Math.abs(across) <= radiusAcross + SLACK;
+  }
   // A capsule is a slug: rounded at the NOSE, cut flat across the tail. Written out here rather than
   // reusing the renderer's own helper on purpose -- a test that shares the geometry it is checking
   // cannot catch the geometry being wrong, which is how the flat tail was missed.
@@ -53,21 +56,19 @@ function instanceAt(weaponId: WeaponId, angle: number): DrawableInstance {
 
 describe("projectile markings", () => {
   it("covers every non-circular projectile in the roster or leaves it deliberately flat", () => {
-    // "bar" is excluded here, not just unstyled: `projectileDrawLayers` refuses it at source (same
-    // early return as "circle") because the hull/tip/band/disc/spikes vocabulary below assumes an
-    // along/across ellipse-ish geometry a bar does not have. It is architecturally never a candidate
-    // for this table, so it does not belong in the universe this list is checking.
     const shaped = (Object.keys(WEAPON_TABLE) as WeaponId[]).filter((id) => {
       const def = weaponDefOf(id);
-      return def.kind === "projectile" && def.hitbox.shape !== "circle" && def.hitbox.shape !== "bar";
+      return def.kind === "projectile" && def.hitbox.shape !== "circle";
     });
     // Not an assertion that every one of these is styled forever -- it is the list that keeps this
     // file honest about what it is covering, so removing a style shows up here rather than silently.
     // `pepperbox` (ellipse) is the one shaped projectile still deliberately flat: its hitbox moved
     // to an ellipse in the 2026-09-01 roster cutover specifically because a round-glow table cannot
     // own it, and nothing has authored it a marking since. `predator` gained one on 2026-09-02.
-    expect(shaped.sort()).toEqual(["pepperbox", "predator", "thumper"]);
-    expect(styled.sort()).toEqual(["predator", "thumper"]);
+    // `roadblock` (bar) gained a spiked-roller style on 2026-09-07; bars use `poly` layers clamped
+    // to the rectangle, not the ellipse/capsule hull/tip/band/disc/spikes vocabulary.
+    expect(shaped.sort()).toEqual(["pepperbox", "predator", "roadblock", "thumper"]);
+    expect(styled.sort()).toEqual(["predator", "roadblock", "thumper"]);
   });
 
   it("keeps every authored vertex inside its own hitbox, at every heading", () => {
@@ -154,6 +155,29 @@ describe("projectile markings", () => {
     expect(layers[0]?.color).toBe("#171717");
     const colors = new Set(layers.map((l) => l.color));
     for (const flame of ["#C02000", "#FF6000", "#FFC000"]) expect(colors.has(flame)).toBe(true);
+  });
+
+  it("draws roadblock as an outlined spiked roller inside its bar", () => {
+    const layers = WEAPON_PROJECTILE_STYLES.roadblock?.layers ?? [];
+    expect(layers.length).toBeGreaterThan(0);
+    expect(layers.every((l) => l.shape === "poly")).toBe(true);
+    expect(layers[0]?.color).toBe("#171717");
+    const colors = new Set(layers.map((l) => l.color));
+    expect(colors.has("#D89000")).toBe(true);
+    expect(colors.has("#F0D090")).toBe(true);
+  });
+
+  it("draws roadblock's spikes to both long edges of its bar", () => {
+    const def = weaponDefOf("roadblock");
+    if (def.kind !== "projectile" || def.hitbox.shape !== "bar") throw new Error("shape moved");
+    const layers = projectileDrawLayers(instanceAt("roadblock", 0), 0);
+    const xs = layers.flatMap((l) => l.points.map((p) => p.x));
+    const ys = layers.flatMap((l) => l.points.map((p) => p.y));
+    // Heading 0, so `along` is +x (thickness) and `across` is +y (width).
+    expect(Math.max(...xs)).toBeCloseTo(500 + def.hitbox.radiusAlong, 6);
+    expect(Math.min(...xs)).toBeCloseTo(500 - def.hitbox.radiusAlong, 6);
+    expect(Math.max(...ys)).toBeCloseTo(300 + def.hitbox.radiusAcross, 6);
+    expect(Math.min(...ys)).toBeCloseTo(300 - def.hitbox.radiusAcross, 6);
   });
 
   it("draws predator's plume back to the tail of its lengthened hitbox", () => {
