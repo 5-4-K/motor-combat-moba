@@ -238,7 +238,7 @@ function drivenRam(): void {
  * (45/30) that starts
  * at rest with the whole arena open in front of it; from the impact on, both hold full throttle
  * and the victim steers to straighten out — the best escape a player could drive. Bullseye's top
- * speed rating (52) beats Bastion's (30), so the design intent is that control returns and the
+ * speed rating (65) beats Bastion's (50), so the design intent is that control returns and the
  * gap opens; a phase where it never does is a lock the ram's edge-triggering was built to forbid.
  *
  * Swept two ways: the approach gap (the sub-tick phase of the first impact, as R1) and a small

@@ -39,11 +39,11 @@ Build with `npm run build:release -- --port <n>` to bake in a different one. See
 
 ## CAR_TABLE
 
-| id | name | speed | accel | handling | attack | hp | mass | weapons |
-|---|---|---|---|---|---|---|---|---|
-| `mirage` | Mirage | 85 | 85 | 85 | 63 | 70 | 48 | `["magmablast", "thunderclap", "afterburner"]` |
-| `bullseye` | Bullseye | 65 | 45 | 65 | 55 | 65 | 30 | `["predator", "pepperbox", "lance"]` |
-| `bastion` | Bastion | 50 | 20 | 50 | 42 | 90 | 90 | `["thumper", "roadblock", "wildcharge"]` |
+| id | name | speed | accel | handling | attack | hp | ramAttack | ramDefence | weapons |
+|---|---|---|---|---|---|---|---|---|---|
+| `mirage` | Mirage | 85 | 85 | 85 | 63 | 70 | 55 | 50 | `["magmablast", "thunderclap", "afterburner"]` |
+| `bullseye` | Bullseye | 65 | 45 | 65 | 55 | 65 | 45 | 30 | `["predator", "pepperbox", "lance"]` |
+| `bastion` | Bastion | 50 | 20 | 50 | 42 | 90 | 70 | 90 | `["thumper", "roadblock", "wildcharge"]` |
 
 `isActive` is a seventh field on `CarDef`, not a rating. All three shipped cars are `true` today.
 `CarSelectScene`'s grid and `ArenaRoom`'s `MSG_SELECT_CAR`/`MSG_PREVIEW_CAR` guard both filter to
@@ -87,8 +87,9 @@ is unchanged. What changed on 2026-09-02 is that `speed` and `handling` now move
 turn radius orders the same way top speed does: at the time that landed Mirage widest (55 u), Bullseye
 next (53 u), Bastion tightest (51 u). Bastion still finishes tightest — its lower speed outweighs its
 lower rate — but by a few units rather than the 20+ u gap the old inverse ratings produced, and it is
-no longer "the best tracker in the game" by design; its tank identity now rests on hp and mass, not
-handling. The 2026-09-06 heavy-car pass then cut every radius by roughly 41% without moving a single
+no longer "the best tracker in the game" by design; its tank identity now rests on hp and its two ram
+ratings (`ramAttack` 70, `ramDefence` 90, both the roster's highest — see [`CAR_TABLE`](#car_table)),
+not handling. The 2026-09-06 heavy-car pass then cut every radius by roughly 41% without moving a single
 `handling` rating (turn rate untouched): Mirage 32.6 u, Bullseye 31.4 u, Bastion 30.2 u — the same
 ordering and proportional spacing, now comfortably under one car length (48 u). See
 [`turn-tuning.md`](turn-tuning.md#current-values) for the full derivation and history.
@@ -494,7 +495,7 @@ section used to describe does not currently happen — see the temporary-shim no
 |---|---|---|
 | `contactPad` | 1 | World units each hull is inflated by for the contact test — `resolveWorld` leaves cars exactly touching, and a strict overlap test would never fire on a real ram |
 | `minApproachSpeed` | 0 | Combined drive-in below which no ram fires. **Ships INACTIVE** (spec R9): at 0, a gentle bump is simply a ram with a low drive-in and the linear contest makes it come out small on its own. The old 60 was authored against a 449.5 u/s roster and means something different against 267, so stage 3 zeroed it rather than carrying it across |
-| `defencePushScale` | 35 | How much a STATIONARY car resists, as a multiplier on its `ramDefence` when building its push (spec R2). **The first knob to reach for when contact feels wrong**: low and parked cars are nearly free hits, high and everything feels like hitting a wall. It is also what makes T-boning a Bastion cost ~7× what T-boning a Bullseye does — nobody authored that ratio, it falls out of the contest |
+| `defencePushScale` | 35 | How much a STATIONARY car resists, as a multiplier on its `ramDefence` when building its push (spec R2). **The first knob to reach for when contact feels wrong**: low and parked cars are nearly free hits, high and everything feels like hitting a wall. It is also what makes T-boning a parked Bastion cost the attacker ~8× what T-boning a parked Bullseye does (0.675 vs 0.084 u/s) — nobody authored that ratio, it falls out of the contest |
 | `globalScale` | 0.4 | Converts a contest result into a Δv (spec R5). **Measured, not derived**, through the composed `serverTick` → `contactTick` order across 24 sub-tick phases — see the doc comment in `ram-config.ts` for the full table. At 0.4 a full-speed Bastion flank ram throws a parked Bullseye 206.2 u/s (92% of its own top speed) and costs the Bastion 0.1 u/s; the roster maximum any ram writes is 268.0 u/s |
 | `bonusFront` / `bonusFlank` / `bonusRear` | 0.3 / 1.0 / 1.3 | Multiplies the impact by the struck face — **your own** face, not the other car's (spec R6), which is what makes a head-on far gentler than a T-bone at the same closing speed. The most important balance lever in the feature |
 | `authorityFloor` **[INERT]** | 0.35 | Was the steering multiplier at maximum severity — the feel dial. Reads nothing since the 2026-09-06 vector-drive rework; stage 3b deletes it and replaces the mechanic with the `reeling` status |
@@ -552,15 +553,18 @@ same standing as `RAM_CONFIG`. See [`combat-model.md`](combat-model.md#maneuvers
 **Two of the rows below are INERT as of the 2026-09-06 vector-drive rework's stage 2 (Impulse)** —
 `victimAuthority` and `selfKeepFactor`. `victimAuthority` mirrors `RAM_CONFIG.authorityFloor`: there
 is no `authority` field left on `PlayerState` for it to feed. `selfKeepFactor` used to hand-restore a
-fraction of the attacker's pre-impact speed after a slam; `ram-bridge.ts` no longer computes a
-"restored" speed at all — the attacker's post-slam velocity now falls out of `reactionOf`'s
-equal-and-opposite reaction to the same `Impulse` the victim received, applied through the shared
-`impulses` map alongside every ordinary ram. Both fields are read by nobody; stage 4 deletes them
-along with the rest of `SLAM_CONFIG`.
+fraction of the attacker's pre-impact speed after a slam; `reactionOf` (what used to compute the
+attacker's "restored" speed instead) was deleted in stage 3 Task 3. A slam does not derive the
+attacker's outcome from the victim's at all any more: `sim/contact.ts`'s slam branch hands the
+attacker a deliberately zero-magnitude `attackerImpulse` (spec R7 — every car's outcome is computed
+independently, and a slam has no "other side" to derive from), so the attacker's post-slam velocity
+is whatever `resolveWorld`'s restitution already reflected off it that same tick, nothing more. Both
+`victimAuthority` and `selfKeepFactor` are read by nobody; stage 4 deletes them along with the rest of
+`SLAM_CONFIG`.
 
 | Knob | Value | Notes |
 |---|---|---|
-| `knockSpeed` | 520 | Fixed knock impulse (a speed), 2x `RAM_CONFIG.knockMaxSpeed`. No mass factor, no side bonus — the victim's push is `massScaled: false`. Since the 2026-09-06 equal-and-opposite change this also costs the ATTACKER, via `reactionOf` (which always forces `massScaled: true`, even for a slam), on top of whatever `restitution` already reflected off it that same tick — see the doc comment on this value in `slam-config.ts` for the measured composed number |
+| `knockSpeed` | 520 | Fixed knock impulse (a speed), 2x `RAM_CONFIG.knockMaxSpeed`. No side bonus and no divisor on the victim's end — the victim's push is `defenceScaled: false`. The attacker takes a deliberately zero-magnitude `attackerImpulse` (R7); its own post-slam velocity is entirely whatever `restitution` already reflected off it that same tick — see the doc comment on this value in `slam-config.ts` for the measured historical (pre-stage-3) composed number |
 | `victimAuthority` **[INERT]** | 0.35 | Was the victim's post-slam steering authority, mirroring `RAM_CONFIG.authorityFloor` |
 | `selfKeepFactor` **[INERT]** | 0.7 | Was the fraction of the attacker's pre-impact speed hand-restored after a slam |
 | `wallStunWindowMs` / `wallStunDurationMs` | 500 / 500 | A slammed car that touches level geometry within the window is stunned for the duration |

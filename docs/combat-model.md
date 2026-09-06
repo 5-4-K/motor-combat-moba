@@ -20,12 +20,12 @@ dead for 80 ms". Prediction covers the local car's motion and nothing else.
 ## Ramming
 
 > **SUPERSEDED as of 2026-09-06.** The equal-and-opposite reaction model this section describes —
-> `reactionOf` negating and mass-scaling a copy of the victim's `Impulse` back onto the attacker — is
-> being replaced by a contest model: each car brings a push into the collision (its `attack` rating
-> times the speed it is driving into the impact, plus a scaled contribution from its `defence`
-> rating), and each car's received impact is the *other* car's push, scaled by its share of the
-> contest and the face bonus, divided by its own `defence`. There is no `reactionOf` and no negation
-> in the revised model — each side's outcome is computed directly, not derived from the other's.
+> `reactionOf` negating and mass-scaling a copy of the victim's `Impulse` back onto the attacker — was
+> replaced by a contest model: each car brings a push into the collision (its `ramAttack` rating times
+> the speed it is driving into the impact, plus a scaled contribution from its `ramDefence` rating),
+> and each car's received impact is the *other* car's push, scaled by its share of the contest and the
+> face bonus, divided by its own `ramDefence`. There is no `reactionOf` and no negation in the shipped
+> model — each side's outcome is computed directly, not derived from the other's.
 >
 > **`mass` is now gone from the game entirely** (stage 3, 2026-09-06), replaced by the per-car
 > `ramAttack`/`ramDefence` pair. `massOf`, `RAM_CONFIG.massPerRating`, `RAM_REFERENCE`,
@@ -125,33 +125,40 @@ head-on ramming is deliberately weak, and positioning is the whole feature.
 **As of stage 2 (Task 4) of the 2026-09-06 car-physics rework, `resolveRam` produces a real `Impulse`
 (`packages/shared/src/sim/impulse.ts`), not a stand-in for the pre-rework `RamKnock` shape.**
 `RamKnock` — `angVel`, `shoveX`/`shoveY`, `authority` — no longer exists anywhere in the codebase.
-`Impulse` carries `dirX`/`dirY` (a unit vector: the direction the victim is pushed), `speed` (the
-Δv, before the victim's mass divides it back down), `spin` (a torque scale — 0 for a clean punt),
-`massScaled` (whether the victim's mass reduces the displacement at all — `false` for a hard slam,
-"impulse strength is fixed unlike ram"), `uncontrolTicks` (authored `0` throughout stage 2 — no
-control-loss duration exists to write yet), and a world-space `contactX`/`contactY` for the lever
-arm. `applyImpulse` (`sim/impulse.ts`) is the single place anything outside the drive model changes a
-car's velocity — ram and weapons both derive an `Impulse` differently, but both LAND through this one
-function, and its only reader of victim mass is here (`massFactorOf`, clamped by
-`RAM_CONFIG.massFactorMin`/`massFactorMax`).
+`Impulse` carries `dirX`/`dirY` (a unit vector: the direction the victim is pushed), `speed` (a Δv),
+`spin` (a torque scale — 0 for a clean punt), `defenceScaled` (renamed from `massScaled` in stage 3
+Task 2 — whether `applyImpulse` divides `speed` by the receiving car's `ramDefence` a second time;
+`false` for both of an ordinary ram's impulses, since `impactOn` (`sim/ram.ts`) already divided by
+each side's `ramDefence` inside the contest, and `false` for a hard slam's fixed magnitude too, which
+is meant to punt every chassis identically), `uncontrolTicks` (authored `0` throughout stage 3 — no
+control-loss duration exists to write yet), and a world-space `contactX`/`contactY` for the lever arm.
+`applyImpulse` (`sim/impulse.ts`) is the single place anything outside the drive model changes a car's
+velocity — ram and weapons both derive an `Impulse` differently, but both LAND through this one
+function.
 
-**The exchange is equal and opposite, not one-sided.** `reactionOf(imp)` (same file) flips `dirX`/
-`dirY`, zeroes `spin` and `uncontrolTicks` (being the attacker is not being rammed), and forces
-`massScaled: true` even for a slam whose victim push was unscaled. `ram-bridge.ts`'s `contactTick`
-applies the resolved `Impulse` to the victim and `reactionOf` of that same `Impulse` to the attacker —
-Newton's third law, so a heavy Bastion ramming a light Bullseye barely slows while the reverse bounces
-the Bastion's target hard, and — since `reactionOf` always mass-scales — the attacker's OWN mass now
-divides its own recoil back down, on both a graded ram and a fixed-strength slam. This is what
-replaced `SLAM_CONFIG.selfKeepFactor`'s old hand-tuned "restore a fraction of pre-impact speed"
-approximation outright: the attacker's post-slam velocity is simply the real reaction to the same
-`Impulse` the victim received, applied through the same `impulses` map as every ordinary ram.
+**Each side's outcome is computed independently, not derived from the other's (spec R7).** There is
+no `reactionOf` any more — it was deleted in stage 3 Task 3 along with `mass` itself. `resolveRam`
+(`sim/ram.ts`) returns TWO impulses from one contest: `impulse` for the victim and `attackerImpulse`
+for the attacker, each built by the same `pushOf`/`impactOn` pair reading its OWN car's `ramAttack`/
+`ramDefence`, so a car that hits hard but folds easily and one that hits soft but shrugs off contact
+are not forced to be mirror images of each other the way an equal-and-opposite reaction did.
+`ram-bridge.ts`'s `contactTick` applies `impulse` to the victim and `attackerImpulse` to the attacker
+as two ordinary entries of the same `impulses` map — no negation, no shared magnitude. A hard slam is
+the extreme case of this independence: `sim/contact.ts`'s slam branch builds the victim's
+fixed-magnitude `impulse` and, deliberately, a ZERO-magnitude `attackerImpulse` (`speed: 0`) — R7's
+independence has no "other side" for a slam to derive a cost from, so the attacker is simply authored
+to take nothing from its own charge. This is also what replaced `SLAM_CONFIG.selfKeepFactor`'s old
+hand-tuned "restore a fraction of pre-impact speed" approximation: there is no restoring left to do,
+because the contest never took anything from the attacker's slam in the first place.
 
-**The attacker pays in two layers, not one — see "Wall and car deflection" above.** `serverTick`'s
-own collision pass reflects the attacker's velocity by `DRIVE_CONFIG.restitution` before
-`contactTick` ever runs, so the reaction above lands on top of an already-bounced velocity, not the
-pre-collision one. `RAM_CONFIG.knockMaxSpeed`'s and `SLAM_CONFIG.knockSpeed`'s own doc comments carry
-the measured composed numbers (a full-severity Bastion ram, for example, ends up travelling
-*backwards* at 97% of its own top speed, not merely "slowed") — see
+**The attacker still pays something on an ordinary ram, and it lands in two layers — see "Wall and car
+deflection" above.** `serverTick`'s own collision pass reflects the attacker's velocity by
+`DRIVE_CONFIG.restitution` before `contactTick` ever runs, so `attackerImpulse` lands on top of an
+already-bounced velocity, never the pre-collision one — and for most of the roster's rams that
+restitution bounce dwarfs the contest's own contribution. A full-speed Bastion flanking a parked
+Bullseye, for example, ends the ram at -28.6 u/s off its own 190 u/s top speed; all but 0.1 u/s of
+that is the restitution reflection, not the contest — see `RAM_CONFIG.globalScale`'s doc comment in
+`ram-config.ts` for the full measured table. See
 [`config-reference.md`](config-reference.md#ram_config) for the tuning.
 
 **Ram control-loss (steering degraded by a hit) has no successor yet.** `authority` had no field to
@@ -193,17 +200,19 @@ four networked `PlayerState` fields (`maneuver`, `maneuverTicksLeft`, `maneuverA
   intended mechanism for `lance`-style weapons that root the car while they fire.
 - **Charge** — drives normally and only counts down, ending early on its first slam (or its own
   `durationMs`). While charging, contact with an opponent it may damage is a **hard slam** instead of
-  a graded ram: a fixed impulse from `SLAM_CONFIG` (same knock for every attacker and victim, no mass
-  factor, no side bonus), gated off if the victim is already `stunned` and the charger's weapon
-  doesn't set `slamsStunned` (O3/O18), or if the victim is still inside `SLAM_CONFIG.reslamImmunityMs`
-  of a previous slam. A landed slam ends the attacker's charge and expires the attacker's own
-  self-applied statuses (`expireStatusesFromSource`) — a window that closed early cannot leave its
-  buff running past it. The attacker's own post-slam velocity is **not** a hand-restored fraction of
-  its pre-impact speed (`SLAM_CONFIG.selfKeepFactor` is inert — see "Ramming" above): it is whatever
-  `reactionOf` the slam's own `Impulse` computes, the same equal-and-opposite reaction an ordinary ram
-  applies, which for the roster's only charger (Bastion) currently means travelling backwards past its
-  own top speed, not "keeping" any fraction of it. A victim shoved into a wall within
-  `SLAM_CONFIG.wallStunWindowMs` of the slam is stunned once for `wallStunDurationMs` (O2).
+  a graded ram: a fixed impulse from `SLAM_CONFIG` (same knock for every attacker and victim, no
+  `ramDefence` divisor, no side bonus), gated off if the victim is already `stunned` and the charger's
+  weapon doesn't set `slamsStunned` (O3/O18), or if the victim is still inside
+  `SLAM_CONFIG.reslamImmunityMs` of a previous slam. A landed slam ends the attacker's charge and
+  expires the attacker's own self-applied statuses (`expireStatusesFromSource`) — a window that closed
+  early cannot leave its buff running past it. The attacker's own post-slam velocity is **not** a
+  hand-restored fraction of its pre-impact speed (`SLAM_CONFIG.selfKeepFactor` is inert — see "Ramming"
+  above): the slam's contest gives the attacker a deliberately ZERO-magnitude `attackerImpulse` (R7 —
+  every car's outcome is computed independently, and a slam has no "other side" to derive a cost
+  from), so the attacker's post-slam velocity is entirely whatever `resolveWorld`'s restitution already
+  reflected off it that same tick, not a fraction "kept" or restored by anything in `SLAM_CONFIG`. A
+  victim shoved into a wall within `SLAM_CONFIG.wallStunWindowMs` of the slam is stunned once for
+  `wallStunDurationMs` (O2).
 
 `sim/contact.ts`'s `resolveContacts` is where this lives: it extends `applyRams`'s pair loop —
 checking each car for a dash, then a charge/slam, and only falling through to an ordinary ram when
@@ -709,9 +718,10 @@ derived DPS per weapon, so every one of those numbers moves with the row.
 ## Damage
 
 Weapons are the only damage source. Collision costs nobody hp: cars shove each other through
-ordinary resolution, and — between non-teammates on fresh contact — also ram each other for an
-equal-and-opposite `Impulse` (see [Ramming](#ramming) above; the steering-loss half of that is still
-a no-op as of stage 2, restored as the `reeling` status in stage 3b). Neither ever costs hp.
+ordinary resolution, and — between non-teammates on fresh contact — also ram each other for a
+contested `Impulse`, each side's outcome computed independently rather than one derived from the
+other's (see [Ramming](#ramming) above; the steering-loss half of that is still a no-op as of stage
+3, restored as the `reeling` status in stage 3b). Neither ever costs hp.
 
 One hit costs `damageFor(attack, weapon.damage)`:
 

@@ -45,8 +45,10 @@ export const RAM_CONFIG = {
    * free hits, high and everything feels like hitting a wall.
    *
    * At 35 a stationary mid-tier car brings roughly 12% of what a full-speed car brings. It is also
-   * what makes T-boning a Bastion cost more than T-boning a Bullseye — about seven times more at the
-   * starting ratings, and nobody authored that number; it falls out of the contest.
+   * what makes T-boning a parked Bastion cost the attacker more than T-boning a parked Bullseye —
+   * 0.675 vs 0.084 u/s, about 8x (the "~7x" an earlier draft of this comment quoted came from
+   * rounding both figures to one decimal place, 0.7 vs 0.1, before dividing). Nobody authored that
+   * ratio; it falls out of the contest.
    */
   defencePushScale: 35,
   /**
@@ -57,26 +59,38 @@ export const RAM_CONFIG = {
    * 5x — it threw every chassis backwards faster than its own top speed for landing a ram. This
    * value was measured instead: `serverTick` (drive + `resolveWorld`) then `contactTick`, the real
    * shipped order from `runPipeline`, swept across 24 sub-tick phases per scenario. Every scenario
-   * below returned the IDENTICAL number on all 24 phases, which is a property of the model rather
-   * than luck: the contest reads the pre-collision velocity `TickResult.approachVelocities` carried
-   * in, and the lever arm comes from hull geometry clamped by `contactPointOn`, so nothing in it is
-   * overlap-depth dependent.
+   * below returned the IDENTICAL number on all 24 phases in every one of the five scenarios measured:
+   * the contest reads the pre-collision velocity `TickResult.approachVelocities` carried in, and the
+   * lever arm comes from hull geometry clamped by `contactPointOn` — clamped, in all five cases, on
+   * the axis that actually carried the hit, which is WHY the result held constant across phase. On
+   * the unclamped axis the recovered lever arm genuinely is penetration-dependent; it simply never
+   * came up here. Re-check this if a future scenario lands on that axis instead.
    *
-   * At 0.4, an attacker at its own top speed against a parked victim:
+   * At 0.4, an attacker at its own top speed against a parked victim. Each row names who
+   * `resolveRam` calls the attacker — the car with the higher drive-in — since that is not always
+   * the car a plain-English description would call the one "doing the ramming":
    *
-   * | scenario | victim Δv | as % of victim's top speed | attacker's contest cost |
-   * |---|---|---|---|
-   * | Bastion flanks Bullseye | 206.2 u/s | 92% (top 223) | **0.1 u/s** |
-   * | Bullseye flanks Bastion | 38.4 u/s | 20% (top 190) | 2.8 u/s |
-   * | Bastion flanks Bastion | 61.4 u/s | 32% | 0.7 u/s |
-   * | Bastion rear-ends Bullseye (roster max) | 268.0 u/s | 120% | 0.1 u/s |
-   * | Bastion head-on into a full-speed Bullseye (413 u/s closing) | 39.3 u/s | 18% | 6.0 u/s |
+   * | scenario | attacker | victim | victim's Δv | as % of victim's top speed | attacker's contest cost |
+   * |---|---|---|---|---|---|
+   * | Bastion flanks a parked Bullseye | Bastion | Bullseye | 206.2 u/s | 92% (top 223) | **0.1 u/s** |
+   * | Bullseye flanks a parked Bastion | Bullseye | Bastion | 38.4 u/s | 20% (top 190) | 2.8 u/s |
+   * | Bastion flanks a parked Bastion | Bastion | Bastion | 61.4 u/s | 32% | 0.7 u/s |
+   * | Bastion rear-ends a parked Bullseye (roster max) | Bastion | Bullseye | 268.0 u/s | 120% | 0.1 u/s |
+   * | Bastion and Bullseye collide head-on, both at top speed (413 u/s closing) | Bullseye † | Bastion | 39.3 u/s | 18% (top 190) | 6.0 u/s |
    *
-   * Read the last two rows together: a head-on at 2.2x the closing speed of the flank hit still
-   * moves the victim 5x LESS, which is `bonusFront` (0.3) doing the job it exists for. And read the
-   * right-hand column as the whole point of revision 2 — a car winning its contest decisively takes
-   * almost nothing (R4/R5, P20), so the roster maximum any attacker ever pays the CONTEST is 39.3
-   * u/s, against revision 1's 156-271. That is the 5x.
+   * † Bullseye, not Bastion, is `resolveRam`'s attacker in the head-on row: its own top speed (223)
+   * beats Bastion's (190), and the rule is whichever car drives in harder, regardless of which one
+   * the scenario's description names first. So the victim's-Δv column there (39.3 u/s) is BASTION's
+   * Δv, and the attacker's-contest-cost column (6.0 u/s) is what BULLSEYE pays for hitting a much
+   * tankier car nose-first at full combined speed — the LARGEST attacker cost in this table, not the
+   * smallest.
+   *
+   * Read the flank row and the head-on row together: a head-on at 2.2x the closing speed of the
+   * Bastion-flanks-Bullseye row still moves its victim 5.2x LESS (206.2 vs 39.3), which is
+   * `bonusFront` (0.3) doing the job it exists for. And read the right-hand column as the whole point
+   * of revision 2 — a car winning its contest decisively takes almost nothing (R4/R5, P20): the
+   * largest cost any attacker pays across these five scenarios is 6.0 u/s (Bullseye, above), nowhere
+   * near revision 1's 156-271 for the same kind of hit.
    *
    * **What this constant does NOT control, and a reader will otherwise blame it for.** An attacker
    * still ends a dead-on ram travelling backwards — Bastion 190 -> -28.6 u/s above. All but 0.1 of

@@ -7,7 +7,6 @@ import {
   RoomPhase,
   WEAPON_SLOT_CONFIG,
   carIdOf,
-  forwardOf,
   getArena,
   isOnField,
   lateralOf,

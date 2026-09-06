@@ -6,7 +6,6 @@ import {
   carIdOf,
   expireStatusesFromSource,
   forwardMaxSpeedOf,
-  forwardOf,
   getArena,
   hasStatus,
   hullTouchesWorld,

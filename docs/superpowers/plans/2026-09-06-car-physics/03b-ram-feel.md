@@ -65,10 +65,10 @@ hardest in this stage too:
 |---|---|---|
 | `packages/shared/src/config/status-types.ts` | `StatusId` gains `"reeling"`. | Modify |
 | `packages/shared/src/config/status-config.ts` | The `reeling` row. | Modify |
-| `packages/shared/src/config/ram-config.ts` | Falloff knobs; `RAM_TICKS`; dead `authority`/`shove` fields deleted; `spinScale`/`spinMaxRate` re-pitched. | Modify |
+| `packages/shared/src/config/ram-config.ts` | Falloff knobs; `RAM_TICKS`; dead `authority`/`shove` fields deleted. `spinScale`/`spinMaxRate` re-pitch is **already done** — stage 3 Task 4 performed it under spec P25b (`spinScale` 100 → 10, `spinMaxRate` left at 6.0) — see Task 4 below. | Modify |
 | `packages/server/src/sim/ram-bridge.ts` | `FalloffEntry`/`FalloffStack`/`nextFalloff`/`sweepFalloff`; `ContactMemory.falloff`; applies `reeling`, scaled by falloff, to ram victims only. | Modify |
-| `packages/shared/src/sim/ram.test.ts` | Spin-ceiling and face-bonus pinning tests against the contest's real magnitudes. | Modify |
-| `packages/shared/src/config/ram-config.test.ts` | Drop assertions on deleted fields; pin the re-pitched ones. | Modify |
+| `packages/shared/src/sim/ram.test.ts` | Face-bonus pinning tests against the contest's real magnitudes. (A spin band was already re-derived and pinned by stage 3 Task 4 — see Task 4 below — so this file's spin coverage may only need extending, not authoring from scratch.) | Modify |
+| `packages/shared/src/config/ram-config.test.ts` | Drop assertions on the five deleted `authority`/`shove` fields. (`spinScale`/`spinMaxRate` are already pinned as of stage 3 Task 4.) | Modify |
 
 ---
 
@@ -645,17 +645,27 @@ git commit -m "feat(sim): apply reeling from rams, scaled by falloff"
 
 ---
 
-## Task 4: Re-pitch spin, pin the face bonuses, delete the dead `RAM_CONFIG` fields
+## Task 4: Pin the face bonuses, delete the dead `RAM_CONFIG` fields
 
 **The old plan's Task 5, not carried across — adapted, per the assignment.** Its widening of the mass
 clamps and its re-derivation of `minApproachSpeed` are both moot: `massFactorMin`/`massFactorMax` are
 deleted outright by stage 3 (R1), never widened, and `minApproachSpeed` ships at `0` and inactive by
-stage 3 (R9). What survives from that old task, genuinely still open, is the spin re-pitch (P25b) —
-now against `ramDefence`-scale numbers (0–100) and contest-derived impulses instead of a
-mass-scale (300–900) impulse capped at 260 — plus the five dead `authority`/`shove` fields stage 3
-left standing (`03-ram.md`'s own Task 4 deletes only the mass-family names, not these). This task
-also adds something the old draft did not need: a pinning test for R6's headline claim, now that a
-real `globalScale` exists to measure it against.
+stage 3 (R9). What survives from that old task, genuinely still open, is the five dead
+`authority`/`shove` fields stage 3 left standing (`03-ram.md`'s own Task 4 deletes only the
+mass-family names, not these). This task also adds something the old draft did not need: a pinning
+test for R6's headline claim, now that a real `globalScale` exists to measure it against.
+
+**The spin re-pitch this task originally planned (Step 3 below) is DONE — stage 3 Task 4 performed
+it under spec P25b, not this stage.** `spinScale` moved 100 → 10; `spinMaxRate` was deliberately left
+at 6.0 (it is the target `spinScale` was solved against). Measured, victim spin at 10, by lever arm
+(clamped at the 24 u hull half-length): an ordinary Mirage-on-Mirage flank ram spans 0.34 rad/s at 4 u
+to 2.06 at the clamp; the hardest ram in the roster — Bastion flanking a Bullseye at the clamp —
+reaches 5.95 rad/s, 99% of the 6.0 ceiling without pinning it. `ram.test.ts` already carries a
+re-derived spin band from this measurement (a 267 u/s Mirage-on-Mirage flank fixture, asserted
+0.9–1.2 rad/s) and a separate test pinning the genuine `spinMaxRate` clamp. Step 3 below is kept as a
+record of the reasoning, not a to-do: **do not lower `spinScale` again** without first checking
+whether the goal is a real re-tune (a config value change, out of this task's scope) rather than
+finishing something already finished.
 
 **Files:**
 - Modify: `packages/shared/src/config/ram-config.ts`
@@ -702,7 +712,9 @@ stage 3 has already rewritten this file's mass-related assertions; remove whatev
 Run: `npx vitest run packages/shared/src/config/`
 Expected: PASS, with no reference to the five deleted names anywhere in `packages/`.
 
-- [ ] **Step 3: Re-pitch `spinScale`/`spinMaxRate` against the contest's real magnitudes**
+- [x] **Step 3: Re-pitch `spinScale`/`spinMaxRate` against the contest's real magnitudes — DONE by
+      stage 3 Task 4 (spec P25b), landed at `spinScale: 10`, `spinMaxRate: 6.0` (unchanged). Kept
+      below for the reasoning record only.**
 
 `spinScale` (100) and `spinMaxRate` (6.0) were calibrated by feel against an impulse capped at a
 `knockMaxSpeed` of 260 and divided by a *mass* in the 300–900 range. Both halves of that calibration
