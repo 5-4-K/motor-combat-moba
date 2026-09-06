@@ -5,10 +5,10 @@ import {
   PlayerState,
   PlayerStatus,
   RAM_CONFIG,
-  RAM_REFERENCE_MASS,
   RoomPhase,
   forwardMaxSpeedOf,
-  massOf,
+  ramAttackOf,
+  ramDefenceOf,
   type Modifiers,
   type WeaponId,
 } from "@motor-combat-moba/shared";
@@ -63,19 +63,15 @@ function addPlayer(state: ArenaState, id: string, over: Partial<PlayerState> = {
   return p;
 }
 
-function clamp(value: number, min: number, max: number): number {
-  return value < min ? min : value > max ? max : value;
-}
-
 describe("the real serverTick -> contactTick order (stage 2 whole-stage review, Fix 2)", () => {
-  it("charges the attacker with restitution AND ram recoil, not recoil alone", () => {
+  it("charges the attacker with restitution AND its own contest impulse, not the reflection alone", () => {
     const state = arena();
-    // Bastion (mass 900) rear-ends a stationary Bullseye at Bastion's own top speed, dead straight
-    // along +x — both cars facing +x, attacker behind, so this is a REAR hit (RAM_CONFIG.bonusRear),
-    // and Bastion's mass alone saturates severity to 1 at this approach speed (confirmed by direct
-    // measurement sweeping 40 sub-tick phases: identical result on every one). That saturation is
-    // what lets this test derive its expected value from config constants without re-deriving
-    // `resolveRam`'s severity formula: `RAM_CONFIG.knockMaxSpeed` is applied at full strength.
+    // Bastion rear-ends a stationary Bullseye at Bastion's own top speed, dead straight along +x —
+    // both cars facing +x, attacker behind, so this is a REAR hit for the victim (RAM_CONFIG.bonusRear)
+    // and a "front" hit for the attacker (RAM_CONFIG.bonusFront, fixed regardless of geometry, spec
+    // R6). Stage 3 Task 2 replaced the severity grade this test used to saturate with the ram
+    // contest — the attacker's own impulse is now hand-derived from that contest below rather than
+    // read off a single saturated constant.
     const topSpeed = forwardMaxSpeedOf("bastion");
     // Positioned edge-to-edge (0 clearance) so this tick's drive translation drives the hulls into a
     // real overlap — `resolveWorld`'s bounce is a velocity-space reflection, not depth-dependent, so
@@ -113,20 +109,26 @@ describe("the real serverTick -> contactTick order (stage 2 whole-stage review, 
       10,
     );
 
-    const massFactor = clamp(
-      RAM_REFERENCE_MASS / massOf("bastion"),
-      RAM_CONFIG.massFactorMin,
-      RAM_CONFIG.massFactorMax,
-    );
-    // The composed result: the reflection from step 1, with the ram's equal-and-opposite reaction
-    // charged ON TOP of it — not on top of the pre-collision `topSpeed`. This is the number Fix 1's
-    // doc comments now record, and the number stage 3's re-pitch of `knockMaxSpeed` must be checked
-    // against.
-    const expected = afterResolveWorld - RAM_CONFIG.knockMaxSpeed * massFactor;
+    // Hand-derived from the contest formula in `sim/ram.ts` (`pushOf`/`impactOn`), not pasted, so a
+    // retune of `ramAttack`/`ramDefence`/`defencePushScale`/`globalScale`/`bonusFront` moves this
+    // expectation with it. The victim (bullseye) brings 0 drive-in (it never moved), so its own
+    // `ramAttack` never enters either push term.
+    const attack = ramAttackOf("bastion");
+    const defence = ramDefenceOf("bastion");
+    const victimPush = ramDefenceOf("bullseye") * RAM_CONFIG.defencePushScale;
+    const attackerPush = attack * topSpeed + defence * RAM_CONFIG.defencePushScale;
+    const attackerImpact =
+      (victimPush * (victimPush / (attackerPush + victimPush)) * RAM_CONFIG.bonusFront * RAM_CONFIG.globalScale) /
+      defence;
+    // The composed result: the reflection from step 1, with the contest's own (independently
+    // computed) attackerImpulse charged ON TOP of it — not on top of the pre-collision `topSpeed`.
+    const expected = afterResolveWorld - attackerImpact;
     expect(attacker.vx).toBeCloseTo(expected, 6);
-    // Sanity floor: the attacker ends up travelling BACKWARDS, not merely slowed — the whole finding
-    // this fix exists to keep visible. If this regresses to `> 0`, either the pipeline order broke or
-    // someone changed `contactTick` to charge the recoil against the pre-collision speed again.
+    // Sanity floor: the attacker ends up travelling BACKWARDS, not merely slowed — driven almost
+    // entirely by the reflection now that the attacker's own contest impulse
+    // (`attackerImpact`, tiny here: the victim brings almost no push of its own) barely moves it
+    // further. If this regresses to `> 0`, either the pipeline order broke or someone changed
+    // `contactTick` to charge the attacker's impulse against the pre-collision speed again.
     expect(attacker.vx).toBeLessThan(0);
   });
 });

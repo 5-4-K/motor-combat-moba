@@ -163,7 +163,16 @@ describe("runMatch", () => {
     // lands inside the 30 s window under the new reaction physics. Re-swept the already-known-good
     // candidates from the sweep above against the new build: 26, 78, 87 and 98 still land a kill
     // inside it; 15, 28, 48, 49 and 53 do not.
-    const out = runMatch({ ...SETUP, seed: 26, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    //
+    // `seed: 87`, not 26: stage 3 Task 2 (car-physics rework) replaced the ram model outright — a
+    // contest between both cars' `ramAttack`/`ramDefence` push, computed independently for each side
+    // (spec R7), rather than the severity-graded one-way push plus `reactionOf`'s equal-and-opposite
+    // reaction. That is a different function shape, not a retune of the same one, so it moved this
+    // matchup's dynamics again: seed 26's kill no longer lands inside the 30 s window. Swept 1-120
+    // against the new contest: 22, 24, 48, 53, 64, 76, 79, 87 and 98 land a decisive kill inside it
+    // (65 also lands a kill for both sides and draws, so it is excluded here); 87 carries forward
+    // from the previous known-good set.
+    const out = runMatch({ ...SETUP, seed: 87, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);

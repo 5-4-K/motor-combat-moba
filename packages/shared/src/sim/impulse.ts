@@ -21,7 +21,7 @@ export interface Impulse {
   /** Torque scale from the lever arm. 0 = a clean punt with no rotation. */
   spin: number;
   /** Does the victim's mass reduce the displacement? */
-  massScaled: boolean;
+  defenceScaled: boolean;
   /** How long the victim is left reeling, in TICKS (already converted). */
   uncontrolTicks: number;
   /** World-space contact point, for the lever arm. */
@@ -40,11 +40,11 @@ function clamp(value: number, min: number, max: number): number {
  * the lightest chassis degenerates — and read through `ramReferenceMass()` rather than recomputed,
  * so playground tuning of `massPerRating` moves it too.
  *
- * `massScaled: false` opts out entirely: the hard slam punts every chassis identically, which is
+ * `defenceScaled: false` opts out entirely: the hard slam punts every chassis identically, which is
  * the designer's escape hatch from physics that spec principle C exists to grant.
  */
-function massFactorOf(mass: number, massScaled: boolean): number {
-  if (!massScaled || mass <= 0) return 1;
+function massFactorOf(mass: number, defenceScaled: boolean): number {
+  if (!defenceScaled || mass <= 0) return 1;
   return clamp(ramReferenceMass() / mass, RAM_CONFIG.massFactorMin, RAM_CONFIG.massFactorMax);
 }
 
@@ -61,7 +61,7 @@ function massFactorOf(mass: number, massScaled: boolean): number {
  * untouched, which is correct.
  */
 export function applyImpulse(body: SimBody, mass: number, imp: Impulse): SimBody {
-  const dv = imp.speed * massFactorOf(mass, imp.massScaled);
+  const dv = imp.speed * massFactorOf(mass, imp.defenceScaled);
 
   const vx = body.vx + imp.dirX * dv;
   const vy = body.vy + imp.dirY * dv;
@@ -116,5 +116,5 @@ function nextSpin(body: SimBody, mass: number, imp: Impulse, dv: number): number
  * lever arm is a separate question this design does not answer (spec P16).
  */
 export function reactionOf(imp: Impulse): Impulse {
-  return { ...imp, dirX: -imp.dirX, dirY: -imp.dirY, spin: 0, uncontrolTicks: 0, massScaled: true };
+  return { ...imp, dirX: -imp.dirX, dirY: -imp.dirY, spin: 0, uncontrolTicks: 0, defenceScaled: true };
 }

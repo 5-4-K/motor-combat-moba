@@ -14,7 +14,7 @@ function body(over: Partial<SimBody> = {}): SimBody {
 
 function impulse(over: Partial<Impulse> = {}): Impulse {
   return {
-    dirX: 0, dirY: 1, speed: 200, spin: 1, massScaled: true,
+    dirX: 0, dirY: 1, speed: 200, spin: 1, defenceScaled: true,
     uncontrolTicks: 30, contactX: 0, contactY: 0,
     ...over,
   };
@@ -22,7 +22,7 @@ function impulse(over: Partial<Impulse> = {}): Impulse {
 
 describe("applyImpulse", () => {
   it("adds the push to the victim's velocity rather than replacing it", () => {
-    const next = applyImpulse(body({ vx: 100, vy: 0 }), 500, impulse({ massScaled: false }));
+    const next = applyImpulse(body({ vx: 100, vy: 0 }), 500, impulse({ defenceScaled: false }));
     expect(next.vx).toBeCloseTo(100); // the car keeps driving
     expect(next.vy).toBeCloseTo(200); // and is also thrown
   });
@@ -33,9 +33,9 @@ describe("applyImpulse", () => {
     expect(Math.abs(light.vy)).toBeGreaterThan(Math.abs(heavy.vy));
   });
 
-  it("ignores mass entirely when massScaled is false", () => {
-    const light = applyImpulse(body(), 300, impulse({ massScaled: false }));
-    const heavy = applyImpulse(body(), 900, impulse({ massScaled: false }));
+  it("ignores mass entirely when defenceScaled is false", () => {
+    const light = applyImpulse(body(), 300, impulse({ defenceScaled: false }));
+    const heavy = applyImpulse(body(), 900, impulse({ defenceScaled: false }));
     expect(light.vy).toBeCloseTo(heavy.vy);
   });
 
@@ -81,7 +81,7 @@ describe("applyImpulse", () => {
     // Spec P15: this falls out of vector addition rather than being special-cased. A car doing 200
     // forward, hit from in front, is slowed — no code anywhere reaches in and sets its speed down.
     const driving = body({ vx: 200, vy: 0 }); // facing +x, driving +x
-    const headOn = impulse({ dirX: -1, dirY: 0, massScaled: false, speed: 150 });
+    const headOn = impulse({ dirX: -1, dirY: 0, defenceScaled: false, speed: 150 });
     const next = applyImpulse(driving, 500, headOn);
     expect(forwardOf(next.vx, next.vy, next.angle)).toBeCloseTo(50);
   });
@@ -89,7 +89,7 @@ describe("applyImpulse", () => {
   it("leaves forward momentum untouched for a perfectly perpendicular hit", () => {
     // The one case where it should NOT be robbed, and it also falls out for free.
     const driving = body({ vx: 200, vy: 0 });
-    const perpendicular = impulse({ dirX: 0, dirY: 1, massScaled: false, speed: 150 });
+    const perpendicular = impulse({ dirX: 0, dirY: 1, defenceScaled: false, speed: 150 });
     const next = applyImpulse(driving, 500, perpendicular);
     expect(forwardOf(next.vx, next.vy, next.angle)).toBeCloseTo(200);
   });
@@ -119,12 +119,12 @@ describe("reactionOf", () => {
     expect(reactionOf(impulse({ spin: 1 })).spin).toBe(0);
   });
 
-  it("forces massScaled: true even when the source impulse was unscaled", () => {
+  it("forces defenceScaled: true even when the source impulse was unscaled", () => {
     // The one field of the four `reactionOf` overrides unconditionally, and the surprising one: a
-    // hard slam's victim push is `massScaled: false` (every chassis takes the same knock), but the
+    // hard slam's victim push is `defenceScaled: false` (every chassis takes the same knock), but the
     // reaction charged back onto the attacker is ALWAYS divided by the attacker's own mass. This is
     // the single line that makes a heavy attacker's own slam recoil smaller than the fixed knock it
     // just dealt — see `SLAM_CONFIG.knockSpeed`'s doc comment for the measured Bastion case.
-    expect(reactionOf(impulse({ massScaled: false })).massScaled).toBe(true);
+    expect(reactionOf(impulse({ defenceScaled: false })).defenceScaled).toBe(true);
   });
 });

@@ -6,13 +6,12 @@ import {
   PlayerState,
   PlayerStatus,
   RAM_CONFIG,
-  RAM_REFERENCE_MASS,
-  SLAM_CONFIG,
   SLAM_TICKS,
   applyStatus,
   forwardMaxSpeedOf,
   forwardOf,
-  massOf,
+  ramAttackOf,
+  ramDefenceOf,
   type Modifiers,
   type WeaponId,
 } from "@motor-combat-moba/shared";
@@ -73,12 +72,11 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     expect(victim.vx).toBeGreaterThan(0);
   });
 
-  it("recoils the attacker via Newton's third law rather than leaving it untouched", () => {
-    // Renamed from "leaves the attacker untouched" (Task 4): that was the stage-1 shim's behaviour,
-    // which dropped `knock.authority` and never touched the attacker at all. `ram-bridge.ts` now
-    // applies `reactionOf` of the victim's own impulse to the attacker — the whole point of routing
-    // ram through `Impulse` (equal-and-opposite reactions) — so the attacker recoils along the same
-    // axis it rammed on, opposite the victim's push.
+  it("charges the attacker by the contest's own independently-computed attackerImpulse", () => {
+    // Renamed from "recoils the attacker via Newton's third law" (stage 3 Task 2): the contest
+    // computes both outcomes independently (spec R7) rather than negating the victim's own impulse
+    // back onto the attacker, so `reactionOf` is dead code on this path (Task 3 deletes it) and the
+    // attacker's cost is no longer symmetric with what the victim took.
     const state = arena();
     const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
     addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
@@ -86,20 +84,27 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
       state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachSpeeds(state),
       NO_MANEUVER_WEAPONS, 10,
     );
-    // Both cars are the default "mirage" chassis and the geometry is dead-straight along +x, so the
-    // closed form is exact, not merely a sign check. Severity saturates at 1 here (540 u/s closing
-    // at mirage mass comfortably clears `ramReference()`), so the victim's un-mass-scaled impulse is
-    // the full `knockMaxSpeed`; the attacker's reaction is that same magnitude scaled by the
-    // ATTACKER's own mass factor (`reactionOf` always forces `massScaled: true`). Derived from the
-    // config constants, not pasted, so a retune of `knockMaxSpeed`/`massFactorMin/Max`/`massPerRating`
-    // moves this expectation with it — the same pattern the slam case below uses.
-    const clamp = (v: number, min: number, max: number): number => (v < min ? min : v > max ? max : v);
-    const massFactor = clamp(RAM_REFERENCE_MASS / massOf("mirage"), RAM_CONFIG.massFactorMin, RAM_CONFIG.massFactorMax);
-    expect(attacker.vx).toBeCloseTo(540 - RAM_CONFIG.knockMaxSpeed * massFactor, 6);
-    // The geometry is dead-straight along +x: nothing should give the recoil a lateral component.
+    // Both cars are the default "mirage" chassis, dead-straight along +x, victim stationary — a REAR
+    // hit (the attacker approaches from behind the victim's own heading). Hand-derived from the
+    // contest formula in `sim/ram.ts` (`pushOf`/`impactOn`), not pasted, so a retune of
+    // `ramAttack`/`ramDefence`/`defencePushScale`/`globalScale`/`bonusFront` moves this expectation
+    // with it:
+    const attack = ramAttackOf("mirage");
+    const defence = ramDefenceOf("mirage");
+    const attackerPush = attack * 540 + defence * RAM_CONFIG.defencePushScale; // victim brings 0 drive-in
+    const victimPush = defence * RAM_CONFIG.defencePushScale; // the victim's own drive-in is 0
+    // The attacker presents its own front regardless of geometry (spec R6), and its impulse is
+    // `defenceScaled: false` (the contest already divided by its OWN ramDefence) — no separate mass
+    // factor to apply on top.
+    const attackerImpact =
+      (victimPush * (victimPush / (attackerPush + victimPush)) * RAM_CONFIG.bonusFront * RAM_CONFIG.globalScale) /
+      defence;
+    expect(attacker.vx).toBeCloseTo(540 - attackerImpact, 6);
+    // The geometry is dead-straight along +x: nothing should give the push a lateral component.
     expect(attacker.vy).toBe(0);
-    // The reaction always carries `spin: 0` (`reactionOf`'s own contract) — the attacker never
-    // spins from its own hit, unlike the victim.
+    // A dead-on hit puts the recovered contact point and the push direction on the same line, so the
+    // torque `applyImpulse` derives from them is genuinely zero even though `resolveRam` authors
+    // `spin: 1` on both impulses.
     expect(attacker.angVel).toBe(0);
   });
 
@@ -314,7 +319,13 @@ describe("contactTick (dash, O12)", () => {
 });
 
 describe("contactTick (hard slam, O2/O3/O18)", () => {
-  it("ends a charge on its first slam: fields cleared, self statuses expired, and the attacker recoils under equal-and-opposite reaction", () => {
+  it("ends a charge on its first slam: fields cleared, self statuses expired, and the attacker keeps its velocity", () => {
+    // Renamed from "...the attacker recoils under equal-and-opposite reaction" (stage 3 Task 2): a
+    // slam is authored, not contested, so `sim/contact.ts`'s slam branch builds the attacker's half
+    // of the contact (`ImpulseEntry.attackerImpulse`) as a deliberate zero-magnitude `Impulse` —
+    // applying it changes nothing. `SLAM_CONFIG.selfKeepFactor`'s hand-tuned forward-only restore and
+    // the old `reactionOf`-based equal-and-opposite reaction are both gone; the attacker simply keeps
+    // whatever velocity it already had.
     const state = arena();
     const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 300 });
     addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
@@ -335,15 +346,7 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
     expect(result.contactHits).toEqual([{ attackerSessionId: "a", targetSessionId: "b", weaponId: "wildcharge" }]);
     expect(attacker.maneuver).toBe(0);
     expect(readStatuses(attacker)).toHaveLength(0); // fortified expired with the charge (O2)
-    // Task 4: `SLAM_CONFIG.selfKeepFactor`'s hand-tuned forward-only restore is gone. The
-    // attacker's cost now falls out of Newton's third law — `reactionOf` of the SAME impulse the
-    // victim received (a fixed 520 u/s, unlike a graded ram), negated and scaled by the ATTACKER's
-    // own mass (`reactionOf` always forces `massScaled: true`, even though the slam's own push on
-    // the victim is not). "a" is the default `mirage` chassis here (480 mass), and the geometry is
-    // dead straight along +x, so the closed form is exact rather than merely a sign check.
-    const clamp = (v: number, min: number, max: number): number => (v < min ? min : v > max ? max : v);
-    const dv = SLAM_CONFIG.knockSpeed * clamp(RAM_REFERENCE_MASS / massOf("mirage"), RAM_CONFIG.massFactorMin, RAM_CONFIG.massFactorMax);
-    expect(forwardOf(attacker.vx, attacker.vy, attacker.angle)).toBeCloseTo(300 - dv, 6);
+    expect(forwardOf(attacker.vx, attacker.vy, attacker.angle)).toBeCloseTo(300, 6);
     expect(memory.slammed.get("b")).toBeDefined();
   });
 

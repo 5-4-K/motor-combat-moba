@@ -16,16 +16,23 @@ export const SLAM_CONFIG = {
    * replaced by per-car `attack` and `defence` stats, so the mass figures below
    * (`RAM_REFERENCE_MASS`, `RAM_CONFIG.massFactorMin`/`massFactorMax`) measure a rating that is
    * going away. `docs/superpowers/specs/2026-09-06-car-physics-rework-design.md` is the authority
-   * for where this is headed; the measurement below stays accurate about the code as it stands
-   * today and is kept for anyone debugging current behaviour.
+   * for where this is headed.
+   *
+   * **Stage 3 Task 2 landed the contest.** The measurement below (the reflection-plus-reaction
+   * figures) is now purely HISTORICAL — a record of pre-Task-2 behaviour, not the code as it stands
+   * today: `sim/contact.ts`'s slam branch now builds the attacker's own half of the contact
+   * (`ImpulseEntry.attackerImpulse`) as a deliberate zero-magnitude `Impulse`, so a slam's attacker
+   * takes NOTHING from its own hit, not the equal-and-opposite reaction this measurement describes.
+   * Kept for anyone debugging what shipped before this task.
    *
    * Fixed knock impulse (a speed), 2x RAM_CONFIG.knockMaxSpeed. No mass factor, no side bonus — the
-   * victim's push is `massScaled: false` (see `sim/contact.ts`'s slam branch).
+   * victim's push is `defenceScaled: false` (see `sim/contact.ts`'s slam branch).
    *
-   * **The attacker's reaction is NOT unscaled**, and that asymmetry is the sharpest edge of the
-   * 2026-09-06 equal-and-opposite change (stage 2 Task 4): `reactionOf` always forces
-   * `massScaled: true`, even for a slam, so the attacker's own mass divides its recoil back down
-   * while the victim's push ignores mass entirely.
+   * **The attacker's reaction was NOT unscaled**, and that asymmetry was the sharpest edge of the
+   * 2026-09-06 equal-and-opposite change (stage 2 Task 4): `reactionOf` always forced
+   * `defenceScaled: true`, even for a slam, so the attacker's own mass divided its recoil back down
+   * while the victim's push ignored mass entirely. `reactionOf` is dead code on this path as of
+   * stage 3 Task 2 (Task 3 deletes it outright).
    *
    * **The attacker is charged in TWO layers here too, exactly as `RAM_CONFIG.knockMaxSpeed`'s own
    * comment now explains — an earlier pass of this comment measured the reaction alone and was

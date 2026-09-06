@@ -305,33 +305,38 @@ describe("weaponCooldown reaches the three refire clocks and no others", () => {
   });
 });
 
-describe("ramMass reaches the ram, both as attacker and as victim", () => {
+describe("ramMass reaches the ram, both as the victim's defence AND (via the attacker's own ramDefence term) its push", () => {
   function car(over: Partial<RamCar> = {}): RamCar {
-    return { sessionId: "a", team: 0, x: 0, y: 0, angle: 0, speed: 0, carId: CAR, massMult: 1, ...over };
+    return { sessionId: "a", team: 0, x: 0, y: 0, angle: 0, vx: 0, vy: 0, carId: CAR, defenceMult: 1, ...over };
   }
 
   it("makes a buffed attacker hit harder", () => {
-    // 100, not the 400 this test used before the 2026-09-01 half-speed cut: RAM_REFERENCE halved
-    // with the roster's top speed, and at 400 both rams saturate the severity clamp and tie.
+    // The `ramMass` status channel still feeds `RamCar.defenceMult`, which now scales the DEFENCE
+    // term of `pushOf` (spec R2) rather than an old `effectiveMassOf`. A buffed attacker brings more
+    // push into the contest purely through that term, driving in at the same speed, so the victim's
+    // impulse must come out larger.
     const victim = car({ sessionId: "b", x: 47 });
-    expect(resolveRam(car({ speed: 100, massMult: 1.5 }), victim, "ffa")!.severity).toBeGreaterThan(
-      resolveRam(car({ speed: 100 }), victim, "ffa")!.severity,
-    );
+    const buffed = resolveRam(car({ vx: 100, vy: 0, defenceMult: 1.5 }), victim, "ffa")!;
+    const plain = resolveRam(car({ vx: 100, vy: 0 }), victim, "ffa")!;
+    expect(buffed.impulse.speed).toBeGreaterThan(plain.impulse.speed);
   });
 
   it("makes a buffed victim harder to shove", () => {
-    // `resolveRam` no longer divides victim mass out at all (car-physics rework stage 2, Task 4) —
-    // `applyImpulse` is the single place a mass number enters, so this is an end-to-end check:
-    // `ramMass` must still reach the ram by way of the EFFECTIVE mass (`massOf(carId) * massMult`)
-    // the caller (`ram-bridge.ts`'s `massFor`) feeds into it.
-    const attacker = car({ speed: 400 });
+    // `resolveRam` never divides victim MASS out at all — mass has never been part of the contest
+    // (`ramAttack`/`ramDefence` replaced it entirely). `applyImpulse` is the single place a chassis's
+    // `mass` rating enters, so this is an end-to-end check: `ramMass` reaches the ram TWICE — once
+    // through `RamCar.defenceMult` (raising the victim's own `ramDefence` term, which lowers the
+    // impulse it takes per `impactOn`'s division), and again through `ram-bridge.ts`'s `massFor`
+    // feeding `applyImpulse` the same buffed mass. Both effects push the same direction (a buffed
+    // victim moves less), so this proves the composed behaviour rather than isolating either half.
+    const attacker = car({ vx: 400, vy: 0 });
     const plainVictim = car({ sessionId: "b", x: 47 });
-    const heavyVictim = car({ sessionId: "b", x: 47, massMult: 1.5 });
+    const heavyVictim = car({ sessionId: "b", x: 47, defenceMult: 1.5 });
     const plain = resolveRam(attacker, plainVictim, "ffa")!;
     const heavy = resolveRam(attacker, heavyVictim, "ffa")!;
     const restBody = body({ x: 47, y: 0, angle: 0 });
-    const plainNext = applyImpulse(restBody, massOf(plainVictim.carId) * plainVictim.massMult, plain.impulse);
-    const heavyNext = applyImpulse(restBody, massOf(heavyVictim.carId) * heavyVictim.massMult, heavy.impulse);
+    const plainNext = applyImpulse(restBody, massOf(plainVictim.carId) * plainVictim.defenceMult, plain.impulse);
+    const heavyNext = applyImpulse(restBody, massOf(heavyVictim.carId) * heavyVictim.defenceMult, heavy.impulse);
     expect(Math.hypot(heavyNext.vx, heavyNext.vy)).toBeLessThan(Math.hypot(plainNext.vx, plainNext.vy));
   });
 

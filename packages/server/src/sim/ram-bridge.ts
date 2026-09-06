@@ -13,7 +13,6 @@ import {
   isSolid,
   isWeaponId,
   massOf,
-  reactionOf,
   resolveContacts,
   toWorld,
   weaponDefOf,
@@ -158,11 +157,12 @@ function contactCarsOf(
       x: player.x,
       y: player.y,
       angle: player.angle,
-      // The FORWARD speed carried INTO this tick, not the one left on `PlayerState` — see
-      // `RamCar.speed`'s own comment for why a post-collision read makes the approach term negative.
-      speed: approachSpeeds.get(sessionId) ?? forwardOf(player.vx, player.vy, player.angle),
+      // Stage 3 Task 2 shim: `approachSpeeds` still carries only the PRE-COLLISION forward
+      // component. Task 4 widens `TickResult` to `approachVelocities` and this reconstruction goes
+      // away; until then a purely-forward rebuild is exactly what the old scalar meant.
+      ...toWorld(player.angle, approachSpeeds.get(sessionId) ?? forwardOf(player.vx, player.vy, player.angle), 0),
       carId: carIdOf(player),
-      massMult: modifiersFor(statusMods, sessionId).ramMass,
+      defenceMult: modifiersFor(statusMods, sessionId).ramMass,
       maneuver: player.maneuver,
       maneuverWeaponId,
       stunned: hasStatus(readStatuses(player), "stunned", tick),
@@ -174,11 +174,11 @@ function contactCarsOf(
 
 /**
  * This player's mass as `applyImpulse` sees it: chassis rating scaled by whatever `ramMass` effect
- * it carries — mirrors `RamCar`'s own `effectiveMassOf` in `sim/ram.ts` (`contactCarsOf` above
- * already resolves the identical value per car for severity grading; this is the same fact, read
- * again here because `applyImpulse` runs after `resolveContacts` returns and takes a raw mass
- * number rather than a `RamCar`). `0` for a session with no player, which `massFactorOf`
- * (`sim/impulse.ts`) treats as "unscaled" rather than dividing by it.
+ * it carries. Both ram impulses are `defenceScaled: false` (the contest already divided by
+ * `ramDefence`), so this value only reaches `applyImpulse`'s `nextSpin` inertia term today — Task 3/4
+ * rename this function and its `mass` role once `mass` itself leaves the game. `0` for a session
+ * with no player, which `massFactorOf` (`sim/impulse.ts`) treats as "unscaled" rather than dividing
+ * by it.
  */
 function massFor(state: ArenaState, statusMods: ReadonlyMap<string, Modifiers>, sessionId: string): number {
   const player = state.players.get(sessionId);
@@ -218,19 +218,23 @@ export function contactTick(
   );
   memory.contacts = contacts;
 
-  // Task 4 (car-physics rework, stage 2): both halves of the pair land through `Impulse` now,
-  // replacing the stage-1 shim's additive shoveX/shoveY write. `impulses` is keyed by VICTIM id and
-  // carries `attackerId` alongside the resolved push (`ImpulseEntry`) — no separate lookup is
-  // needed to find who threw it, since only `resolveContacts`'s own pair loop is in a position to
-  // say. The victim receives the impulse as resolved; the attacker receives `reactionOf` of the
-  // SAME impulse — Newton's third law, so a heavy Bastion ramming a light Bullseye barely slows
-  // while the reverse bounces the Bastion's target hard. This also replaces
-  // `SLAM_CONFIG.selfKeepFactor`'s hand-tuned forward-only restore for a slam's attacker outright: a
-  // slam's `Impulse` rides through this exact same map, so its attacker's reaction is applied here
-  // too, not in the `events.slams` loop below (see `endManeuverOnly`'s own comment).
+  // Stage 3 Task 2 (car-physics rework): both halves of the pair land through `Impulse` now, EACH
+  // computed independently by the contest (spec R7) rather than one being a negated, mass-scaled
+  // copy of the other. `impulses` is keyed by VICTIM id and carries `attackerId` alongside both
+  // resolved pushes (`ImpulseEntry.impulse`/`attackerImpulse`) — no separate lookup is needed to
+  // find who threw it, since only `resolveContacts`'s own pair loop is in a position to say. The
+  // victim receives `entry.impulse`; the attacker receives `entry.attackerImpulse` directly —
+  // `reactionOf` (still defined in `sim/impulse.ts`) is dead code on this path as of this task,
+  // because handing the attacker a negated copy of a contest-derived impulse would be incoherent
+  // (the contest already decided what the attacker takes, independently of what the victim took).
+  // Task 3 deletes `reactionOf` outright. This also replaces `SLAM_CONFIG.selfKeepFactor`'s
+  // hand-tuned forward-only restore for a slam's attacker outright: a slam's `attackerImpulse` is a
+  // zero-magnitude `Impulse` built by `contact.ts`'s slam branch, riding through this exact same map,
+  // so "the attacker takes nothing from its own slam" falls out of applying it rather than being a
+  // separate rule in the `events.slams` loop below (see `endManeuverOnly`'s own comment).
   //
-  // `knock.authority` had no successor and none is invented here (Task 4's scope note): ram
-  // control-loss returns as the `reeling` status in stage 3, and until then a rammed car keeps full
+  // `knock.authority` had no successor and none is invented here (this task's scope note): ram
+  // control-loss returns as the `reeling` status in stage 3b, and until then a rammed car keeps full
   // steering, exactly as the stage-1 shim already left it.
   for (const [victimId, entry] of impulses) {
     const victim = state.players.get(victimId);
@@ -243,8 +247,7 @@ export function contactTick(
 
     const attacker = state.players.get(entry.attackerId);
     if (attacker) {
-      const reaction = reactionOf(entry.impulse);
-      const next = applyImpulse(attacker, massFor(state, statusMods, entry.attackerId), reaction);
+      const next = applyImpulse(attacker, massFor(state, statusMods, entry.attackerId), entry.attackerImpulse);
       attacker.vx = next.vx;
       attacker.vy = next.vy;
       attacker.angVel = next.angVel;

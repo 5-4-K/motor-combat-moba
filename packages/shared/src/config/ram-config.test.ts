@@ -33,7 +33,7 @@ describe("halfLifeToPerTick", () => {
 describe("RAM_CONFIG", () => {
   it("pins the authored knobs", () => {
     expect(RAM_CONFIG.contactPad).toBe(1);
-    expect(RAM_CONFIG.minApproachSpeed).toBe(60);
+    expect(RAM_CONFIG.minApproachSpeed).toBe(0);
     expect(RAM_CONFIG.bonusFront).toBe(0.3);
     expect(RAM_CONFIG.bonusFlank).toBe(1.0);
     expect(RAM_CONFIG.bonusRear).toBe(1.3);

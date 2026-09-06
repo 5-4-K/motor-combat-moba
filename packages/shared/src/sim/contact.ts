@@ -46,16 +46,18 @@ export interface ContactHit {
 }
 
 /**
- * One resolved push and who threw it. Keyed by VICTIM id in `resolveContacts`'s returned map.
+ * One resolved contact and who threw it. Keyed by VICTIM id in the returned map.
  *
- * `attackerId` rides in the entry rather than being reconstructed downstream — the caller (stage 2
- * Task 5, `ram-bridge.ts`) needs it to apply the attacker's own equal-and-opposite reaction, and
- * only `resolveRam`/`resolvePair` are in a position to say which of a pair was the attacker.
+ * `attackerId` rides in the entry rather than being reconstructed downstream — the caller
+ * (`ram-bridge.ts`) needs it to know which player each impulse belongs to, and only
+ * `resolveRam`/`resolvePair` are in a position to say which of a pair was the attacker.
  */
 export interface ImpulseEntry {
   attackerId: string;
-  severity: number;
+  /** What the victim takes. */
   impulse: Impulse;
+  /** What the attacker takes. Computed independently by the contest, not a negated copy (R7). */
+  attackerImpulse: Impulse;
 }
 
 export interface ContactEvents {
@@ -107,8 +109,11 @@ function isCharger(c: ContactCar): boolean {
 
 /**
  * One tick of contact resolution over every pair, mirroring `applyRams`: sorted session ids,
- * edge-triggered contact set, best-impulse-per-victim (a slam counts as severity 1, which always
- * wins over a graded ram).
+ * edge-triggered contact set, best-impulse-per-victim — ranked by `impulse.speed` now that the
+ * contest replaces a single 0-1 severity grade. A slam's fixed `SLAM_CONFIG.knockSpeed` comfortably
+ * beats an ordinary ram at today's tuning, but nothing enforces that structurally the way the old
+ * severity clamp did (spec R9 forbids re-adding a ceiling) — Task 4's `RAM_CONFIG.globalScale`
+ * measurement is what re-establishes the ordering, if it needs re-establishing at all.
  *
  * Classification per fresh touching pair, checked from each car's own side:
  *
@@ -219,26 +224,41 @@ function resolvePair(
         targetSessionId: other.sessionId,
         weaponId: attacker.maneuverWeaponId as WeaponId,
       });
-      // A slam REPLACES the graded ram with a fixed exchange (spec S3): no mass factor (`massScaled:
-      // false` — a designer's escape hatch from physics, spec principle C) and no spin (`spin: 0` —
-      // "a clean straight punt is the ult's signature", spec P28/P31). `uncontrolTicks` is authored
-      // `0` here, same as `resolveRam`; stage 4 moves it onto `wildcharge`'s own weapon row.
+      // A slam REPLACES the graded ram with a fixed exchange (spec S3): no mass factor
+      // (`defenceScaled: false` — a designer's escape hatch from physics, spec principle C) and no
+      // spin (`spin: 0` — "a clean straight punt is the ult's signature", spec P28/P31).
+      // `uncontrolTicks` is authored `0` here, same as `resolveRam`; stage 4 moves it onto
+      // `wildcharge`'s own weapon row.
       const imp: Impulse = {
         dirX: away.x,
         dirY: away.y,
         speed: SLAM_CONFIG.knockSpeed,
         spin: 0,
-        massScaled: false,
+        defenceScaled: false,
         uncontrolTicks: 0,
         contactX: other.x,
         contactY: other.y,
       };
+      // A slam is authored, not contested (spec R7's independence has no "other side" here): the
+      // attacker takes NOTHING from its own slam. Zero-magnitude rather than omitted, so the bridge
+      // (`ram-bridge.ts`) has a single code path for applying every `ImpulseEntry`'s two halves.
+      const attackerImp: Impulse = {
+        dirX: -away.x,
+        dirY: -away.y,
+        speed: 0,
+        spin: 0,
+        defenceScaled: false,
+        uncontrolTicks: 0,
+        contactX: attacker.x,
+        contactY: attacker.y,
+      };
       const standing = best.get(other.sessionId);
-      // A slam is severity 1 — the maximum a graded ram can ever reach — so it always wins the
-      // best-impulse-per-victim contest, including a tie against an EARLIER slam on the same victim
-      // this tick (two chargers landing on one car): `>=`, not `>`, is what makes "always" literal.
-      if (standing === undefined || 1 >= standing.severity) {
-        best.set(other.sessionId, { attackerId: attacker.sessionId, severity: 1, impulse: imp });
+      // A slam's fixed magnitude wins the best-impulse-per-victim comparison against a typical ram
+      // at today's tuning, including a tie against an EARLIER slam on the same victim this tick (two
+      // chargers landing on one car): `>=`, not `>`, is what makes a tie resolve to the newer one
+      // rather than silently keeping the first.
+      if (standing === undefined || imp.speed >= standing.impulse.speed) {
+        best.set(other.sessionId, { attackerId: attacker.sessionId, impulse: imp, attackerImpulse: attackerImp });
       }
       anyEvent = true;
     }
@@ -250,7 +270,7 @@ function resolvePair(
   const hit = resolveRam(a, b, mode);
   if (hit === null) return;
   const standing = best.get(hit.victimId);
-  if (standing === undefined || hit.severity > standing.severity) {
-    best.set(hit.victimId, { attackerId: hit.attackerId, severity: hit.severity, impulse: hit.impulse });
+  if (standing === undefined || hit.impulse.speed > standing.impulse.speed) {
+    best.set(hit.victimId, { attackerId: hit.attackerId, impulse: hit.impulse, attackerImpulse: hit.attackerImpulse });
   }
 }

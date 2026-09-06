@@ -49,10 +49,12 @@ export interface TickResult {
    *
    * The forward speed carried into the tick is the right number on its own terms, not merely a
    * workaround: it is the speed at which the car covered the ground that brought it into contact.
-   * FORWARD rather than total speed because `RamCar.speed` (stage 1) is still a scalar approach
-   * term — a car sliding sideways into someone should not count that slide as ram approach. Reading
-   * it here also keeps `stepSim` untouched — it stays the single lockstep both halves import, which
-   * a richer return value from it would not.
+   * FORWARD rather than total speed because a car sliding sideways into someone should not count
+   * that slide as ram approach — `contactCarsOf`'s stage 3 Task 2 shim rebuilds a purely-forward
+   * `RamCar` velocity from this value for exactly that reason, until Task 4 widens this field to a
+   * real `approachVelocities` and the reconstruction goes away. Reading it here also keeps `stepSim`
+   * untouched — it stays the single lockstep both halves import, which a richer return value from it
+   * would not.
    *
    * Recorded for every player in the room, including ones that are not stepped this tick: a parked
    * or silent car is still a `resolveRam` participant, and its approach term decides whether it is

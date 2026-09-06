@@ -13,9 +13,10 @@ function car(over: Partial<ContactCar> = {}): ContactCar {
     x: 0,
     y: 0,
     angle: 0,
-    speed: 0,
+    vx: 0,
+    vy: 0,
     carId: "mirage" as CarId,
-    massMult: 1,
+    defenceMult: 1,
     maneuver: ManeuverKind.NONE,
     slamsStunned: false,
     stunned: false,
@@ -32,7 +33,8 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
       x: 0,
       y: 0,
       angle: 0,
-      speed: 300,
+      vx: 300,
+      vy: 0,
       carId: "bastion" as CarId,
       maneuver: ManeuverKind.CHARGE,
       maneuverWeaponId: "wildcharge",
@@ -40,7 +42,7 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
       ...over,
     });
   const victimAt = (x: number, over = {}) =>
-    car({ sessionId: "b", x, y: 0, angle: 0, speed: 0, carId: "mirage" as CarId, ...over });
+    car({ sessionId: "b", x, y: 0, angle: 0, vx: 0, vy: 0, carId: "mirage" as CarId, ...over });
 
   it("replaces the ram with a FIXED impulse, independent of mass and speed", () => {
     const heavy = resolveContacts(
@@ -73,23 +75,25 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
     expect(heavy.impulses.get("b")!.impulse.dirX).toBeCloseTo(1);
   });
 
-  it("a slam ignores mass, unlike a ram", () => {
+  it("a slam ignores mass, unlike a ram's spin", () => {
     // Ruling C (stage-2 review): the concrete fixture the brief's placeholder pointed at, built
     // from the charger/victimAt fixtures above. The two assertions are the real requirement (spec
     // P28/P31): a slam's impulse is not mass-scaled, and carries no spin at all — "a clean straight
     // punt is the ult's signature."
     const slam = resolveContacts([charger(), victimAt(47)], new Set(), "ffa", 10, new Map(), [], bounds);
     const imp = slam.impulses.get("b")!.impulse;
-    expect(imp.massScaled).toBe(false);
+    expect(imp.defenceScaled).toBe(false);
     expect(imp.spin).toBe(0);
 
     // "unlike a ram": the same geometry without a charge running produces an ORDINARY ram instead,
-    // whose `Impulse` always authors `massScaled: true` and `spin: 1` (`resolveRam`'s own
-    // hard-coded contract, not a computed-torque check) — a slam's opt-out is a real, structural
-    // difference, not a coincidence of this one geometry.
-    const ram = resolveContacts([car({ sessionId: "a", x: 0, y: 0, angle: 0, speed: 300, carId: "bastion" as CarId }), victimAt(47)], new Set(), "ffa", 10, new Map(), [], bounds);
+    // whose `Impulse` always authors `spin: 1` (`resolveRam`'s own hard-coded contract, not a
+    // computed-torque check) — a slam's `spin: 0` opt-out is a real, structural difference, not a
+    // coincidence of this one geometry. Both a slam's and an ordinary ram's victim impulse are
+    // `defenceScaled: false` now (the contest already divides by `ramDefence`), so spin is the one
+    // field left that actually distinguishes them.
+    const ram = resolveContacts([car({ sessionId: "a", x: 0, y: 0, angle: 0, vx: 300, vy: 0, carId: "bastion" as CarId }), victimAt(47)], new Set(), "ffa", 10, new Map(), [], bounds);
     const ramImp = ram.impulses.get("b")!.impulse;
-    expect(ramImp.massScaled).toBe(true);
+    expect(ramImp.defenceScaled).toBe(false);
     expect(ramImp.spin).toBe(1);
   });
 
@@ -129,32 +133,24 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
     expect(r.impulses.size).toBe(0);
   });
 
-  it("wins a tie against an ordinary ram already at severity 1 (best-knock-per-victim, >=)", () => {
+  it("beats a concurrent ordinary ram on the same victim", () => {
     // Three cars: a rammer and a charger touch the SAME victim from opposite sides in one tick, so
-    // both pairs land in `resolveContacts`' shared per-victim `best` map. The rammer is placed at an
-    // extreme approach speed specifically so its severity clamps to EXACTLY 1 — the one value where
-    // `>` and `>=` disagree on the slam's own overwrite check (`1 >= standing.severity`). A weaker
-    // ram (severity < 1) would pass even a buggy strict `>`, since 1 > anything-less-than-1 is also
-    // true; only the tie actually exercises the `>=`.
+    // both pairs land in `resolveContacts`' shared per-victim `best` map. The ram's own approach
+    // speed is moderate, not extreme: revision 2's contest has no ceiling (spec R9), so an
+    // aggressive-enough ram CAN out-scale a slam's fixed magnitude at today's still-unmeasured
+    // `RAM_CONFIG.globalScale` — this proves the ordinary case a slam is meant to beat, not an
+    // impossible-to-lose guarantee (Task 4 owns whether that guarantee should exist at all).
     //
-    // Session ids are chosen so the RAM pair is enumerated (and its knock recorded) BEFORE the SLAM
-    // pair: `resolveContacts` sorts by session id ("aRam" < "victim" < "zCharge"), so the nested pair
-    // loop visits (aRam, victim) — the ram — ahead of (victim, zCharge) — the slam.
-    const rammer = car({
-      sessionId: "aRam",
-      x: -47,
-      y: 0,
-      angle: 0,
-      speed: 100000, // saturates `clamp01` to exactly severity 1, same idiom as ram.test.ts
-      carId: "bastion" as CarId,
-    });
+    // Session ids are chosen so the RAM pair is enumerated (and its impulse recorded) BEFORE the
+    // SLAM pair: `resolveContacts` sorts by session id ("aRam" < "victim" < "zCharge"), so the nested
+    // pair loop visits (aRam, victim) — the ram — ahead of (victim, zCharge) — the slam.
+    const rammer = car({ sessionId: "aRam", x: -47, y: 0, angle: 0, vx: 100, vy: 0, carId: "bastion" as CarId });
     const victim = car({ sessionId: "victim", x: 0, y: 0, angle: 0, carId: "mirage" as CarId });
     const charger2 = car({
       sessionId: "zCharge",
       x: 47,
       y: 0,
       angle: Math.PI,
-      speed: 300,
       carId: "bastion" as CarId,
       maneuver: ManeuverKind.CHARGE,
       maneuverWeaponId: "wildcharge",
@@ -168,14 +164,33 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
     expect(r.impulses.size).toBe(1);
     const entry = r.impulses.get("victim")!;
     expect(entry.attackerId).toBe("zCharge");
-    // The decisive evidence: a slam's impulse is `massScaled: false` with a FIXED 520 speed
-    // (SLAM_CONFIG.knockSpeed, exactly 2x RAM_CONFIG.knockMaxSpeed) and `spin: 0`; an ordinary ram
-    // is always `massScaled: true` and `spin: 1`, structurally, regardless of geometry — those
-    // fields are what actually prove the slam overwrote the ram rather than losing to its own `>`
-    // sibling, independent of the un-mass-scaled magnitude a fully-saturated ram could coincidentally
-    // approach.
-    expect(entry.impulse.massScaled).toBe(false);
+    // The decisive evidence: a slam's impulse is `defenceScaled: false` with a FIXED 520 speed
+    // (SLAM_CONFIG.knockSpeed) and `spin: 0`; an ordinary ram always authors `spin: 1`, structurally,
+    // regardless of geometry — that field is what actually proves the slam overwrote the ram rather
+    // than losing to its own comparison, independent of the ram's own (now open-ended) magnitude.
+    expect(entry.impulse.defenceScaled).toBe(false);
     expect(entry.impulse.spin).toBe(0);
+    expect(entry.impulse.speed).toBeCloseTo(SLAM_CONFIG.knockSpeed, 6);
+  });
+
+  it("wins a tie against an earlier slam on the same victim (best-impulse-per-victim, >=)", () => {
+    // Two chargers hit the SAME victim from opposite sides in one tick. Both slams carry the
+    // IDENTICAL fixed magnitude (`SLAM_CONFIG.knockSpeed`) — a genuine tie in the
+    // best-impulse-per-victim map, the one case where `>` and `>=` disagree. Session ids are chosen
+    // so the pair ("aCharge", "victim") is enumerated before ("victim", "zCharge"): only `>=` lets
+    // the SECOND slam overwrite the first rather than the first silently surviving.
+    const charger1 = charger({ sessionId: "aCharge", x: -47, y: 0, angle: 0 });
+    const victim = car({ sessionId: "victim", x: 0, y: 0, angle: 0, carId: "mirage" as CarId });
+    const charger2 = charger({ sessionId: "zCharge", x: 47, y: 0, angle: Math.PI });
+    const r = resolveContacts([charger1, victim, charger2], new Set(), "ffa", 10, new Map(), [], bounds);
+
+    expect(r.events.slams).toEqual([
+      { attackerSessionId: "aCharge", targetSessionId: "victim", weaponId: "wildcharge" },
+      { attackerSessionId: "zCharge", targetSessionId: "victim", weaponId: "wildcharge" },
+    ]);
+    expect(r.impulses.size).toBe(1);
+    const entry = r.impulses.get("victim")!;
+    expect(entry.attackerId).toBe("zCharge"); // the later slam wins the tie via `>=`
     expect(entry.impulse.speed).toBeCloseTo(SLAM_CONFIG.knockSpeed, 6);
   });
 });
@@ -187,13 +202,14 @@ describe("dash contact", () => {
       x: 0,
       y: 0,
       angle: 0,
-      speed: 1600,
+      vx: 1600,
+      vy: 0,
       carId: "mirage" as CarId,
       maneuver: ManeuverKind.DASH,
       maneuverWeaponId: "thunderclap",
     });
     const r = resolveContacts(
-      [dasher, car({ sessionId: "b", x: 47, y: 0, angle: 0, speed: 0, carId: "bastion" as CarId })],
+      [dasher, car({ sessionId: "b", x: 47, y: 0, angle: 0, vx: 0, vy: 0, carId: "bastion" as CarId })],
       new Set(),
       "ffa",
       10,
@@ -211,7 +227,8 @@ describe("dash contact", () => {
       x: 25,
       y: 500,
       angle: Math.PI,
-      speed: 1600,
+      vx: -1600,
+      vy: 0,
       carId: "mirage" as CarId,
       maneuver: ManeuverKind.DASH,
       maneuverWeaponId: "thunderclap",

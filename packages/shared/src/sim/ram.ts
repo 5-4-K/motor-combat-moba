@@ -1,5 +1,5 @@
 import { RAM_CONFIG } from "../config/ram-config.js";
-import { massOf, ramReference } from "../config/car-config.js";
+import { ramAttackOf, ramDefenceOf } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { CarId } from "../config/types.js";
 import { contactNormalBetween, type Vec2 } from "./collide.js";
@@ -16,11 +16,14 @@ import { canDamage } from "./weapons/targets.js";
  * Ram control-loss (what used to be a steering-authority degrade) is gone until stage 3's `reeling`
  * status; this module carries no stand-in for it (`Impulse.uncontrolTicks` is authored `0` here).
  *
- * **`resolveRam` produces a one-way `Impulse` derived from the attacker's forward momentum**,
- * graded by closing speed, a side bonus and attacker mass, then handed to `applyImpulse`
- * (`sim/impulse.ts`) — the single place victim mass divides the push back down. The caller
- * (`ram-bridge.ts`) is what makes the exchange two-way: it also applies `reactionOf` of the same
- * impulse to the attacker, Newton's third law. Neither half of that exchange happens in this file.
+ * **`resolveRam` resolves a CONTEST between both cars, not a one-way push derived from the
+ * attacker's momentum (spec R2-R7, revision 2).** Each car brings a push into the collision — its
+ * `ramAttack` rating times how hard it is driving in, plus a speed-independent term scaled from its
+ * `ramDefence` rating (`pushOf`) — and what each car actually takes is the OTHER car's push, shared
+ * out by the contest, adjusted for the struck face, and divided by its own `ramDefence`
+ * (`impactOn`). Both outcomes are computed independently: the attacker's `Impulse` is never a
+ * negated copy of the victim's (spec R7). The caller (`ram-bridge.ts`) applies both impulses
+ * directly, with no equal-and-opposite step of its own.
  *
  * Runs AFTER driving has resolved for the tick, so every measurement reads the poses cars actually
  * ended up at, and BEFORE combat. The impulse it produces is applied by the caller that same tick.
@@ -36,53 +39,31 @@ export interface RamCar {
   y: number;
   angle: number;
   /**
-   * Scalar velocity along the car's own heading — exactly the `dot(vel, fwd)` the severity needs.
-   *
-   * **This must be the PRE-COLLISION speed**, and on the server that means the value the car carried
-   * into the tick, supplied by `serverTick`'s `TickResult.approachSpeeds`. Collision resolution runs
-   * before ram does and rebounds a car to about -35% of its impact speed, so a caller that passes
-   * the post-resolution `speed` makes `approachOf` negative on every tick a hull actually overlapped
-   * and this module returns `null` for almost every real ram. That is not a hypothetical: it shipped,
-   * and it cost 80-90% of all rams until `playtest/ram.ts` measured the trigger rate.
+   * World velocity. **These must be the PRE-COLLISION values** — the ones the car carried into the
+   * tick, supplied by `serverTick`'s `TickResult.approachVelocities`. Collision resolution runs
+   * before ram does and reflects a car off what it hit, so a caller that passes post-resolution
+   * velocity makes every drive-in term wrong on exactly the ticks a hull overlapped. That is not
+   * hypothetical: it shipped, and it cost 80-90% of all rams until `playtest/ram.ts` measured the
+   * trigger rate.
    */
-  speed: number;
+  vx: number;
+  vy: number;
   carId: CarId;
   /**
-   * The car's `ramMass` status multiplier, 1 for a car in no status.
-   *
-   * Read through `effectiveMassOf` at the two ram sites mass enters the maths — this module's own
-   * severity grade, and `ram-bridge.ts`'s `massFor` (which `applyImpulse` reads for both the victim's
-   * push and, since stage 2 Task 4, the attacker's equal-and-opposite reaction) — so a mass buff works
-   * both ways round: it makes this car hit harder AND makes it harder to shift. That symmetry is
-   * the whole reason `ramMass` is one channel rather than two — mass in this game is a single
-   * physical fact about a chassis (`CAR_TABLE.mass`, and nothing else reads it), and an effect that
-   * could raise a car's ramming power without also anchoring it would not be scaling mass, it would
-   * be a damage buff wearing mass's name.
-   *
-   * **A fourth site, `resolveWorld`'s ordinary car-vs-car separation (`StepContext.selfMass` and
-   * `CarObstacle.mass`, stage 2 Task 2), deliberately does NOT read this multiplier** — it is resolved
-   * straight from `massOf(carIdOf(player))` in `sim/context.ts`'s `otherCarHulls`/`sim/tick.ts`, with
-   * no `ramMass` scaling applied. See `otherCarHulls`'s own doc comment for why that is latent rather
-   * than a live bug today.
+   * The car's `ramDefence` status multiplier, 1 for a car in no status. There is deliberately no
+   * `ramAttack` multiplier — spec R11 gives statuses no offence channel.
    */
-  massMult: number;
+  defenceMult: number;
 }
 
 export interface RamHit {
   attackerId: string;
   victimId: string;
   side: ImpactSide;
-  severity: number;
+  /** What the victim takes. */
   impulse: Impulse;
-}
-
-/**
- * This car's mass as the ram maths sees it: its chassis rating, scaled by whatever `ramMass` effect
- * it carries. The single reading of "how heavy is this car right now" — `massOf` is never called
- * directly from this module.
- */
-function effectiveMassOf(car: RamCar): number {
-  return massOf(car.carId) * car.massMult;
+  /** What the attacker takes. Computed independently, NOT a negated copy (spec R7). */
+  attackerImpulse: Impulse;
 }
 
 /** Unordered pair identity, so contact tracking cannot depend on iteration order. */
@@ -112,36 +93,53 @@ function bonusFor(side: ImpactSide): number {
   return RAM_CONFIG.bonusFlank;
 }
 
-function clamp01(value: number): number {
-  return value < 0 ? 0 : value > 1 ? 1 : value;
-}
-
 function clamp(value: number, min: number, max: number): number {
   return value < min ? min : value > max ? max : value;
 }
 
 /**
- * How fast this car is closing on the other along its own nose.
+ * How fast this car is driving INTO the contact, along the normal pointing at the other car.
+ * Clamped at zero: a car moving away brings nothing to the contest rather than a negative push.
  *
- * `car.speed` IS `dot(vel, fwd)` in this drive model, so no vector state is needed. Multiplying by
- * how squarely the nose points down the contact normal grades what used to be a yes/no facing test:
- * a glancing approach scores proportionally less rather than falling off a threshold.
- *
- * A car shunted backwards has negative `speed` and so scores negative — it deals nothing, which is
- * what keeps "get behind them" a strategy rather than "be moving fastest".
+ * This is NOT closing speed. Closing speed is the SUM of the two cars' drive-ins; the contest needs
+ * them separately, because who is losing decides who absorbs the hit (spec R3, R4).
  */
-function approachOf(car: RamCar, towardOther: Vec2): number {
-  const fwdX = Math.cos(car.angle);
-  const fwdY = Math.sin(car.angle);
-  return car.speed * (fwdX * towardOther.x + fwdY * towardOther.y);
+function driveInOf(car: RamCar, towardOther: Vec2): number {
+  return Math.max(0, car.vx * towardOther.x + car.vy * towardOther.y);
 }
 
 /**
- * The impulse one ram writes, or `null` when this contact is not a ram.
+ * What this car brings to the contest (spec R2): what it is driving in with, plus what it is
+ * standing there being. The defence term is speed-independent on purpose — solidity does not depend
+ * on motion, and it is what stops a stationary car being a completely free hit.
+ */
+function pushOf(car: RamCar, driveIn: number): number {
+  return (
+    ramAttackOf(car.carId) * driveIn +
+    ramDefenceOf(car.carId) * car.defenceMult * RAM_CONFIG.defencePushScale
+  );
+}
+
+/**
+ * What one car takes (spec R5): the other car's push, reduced by how much you are winning the
+ * contest, adjusted for which of YOUR faces got hit, and softened by your own solidity.
+ *
+ * The face bonus is yours, not the other car's (spec R6) — your own nose is braced too, which is
+ * what makes a head-on far gentler than a T-bone at the same closing speed.
+ */
+function impactOn(theirPush: number, myPush: number, myFaceBonus: number, myRamDefence: number): number {
+  const total = myPush + theirPush;
+  if (total <= 0 || myRamDefence <= 0) return 0;
+  const myShare = theirPush / total;
+  return (theirPush * myShare * myFaceBonus * RAM_CONFIG.globalScale) / myRamDefence;
+}
+
+/**
+ * The impulses one ram writes, or `null` when this contact is not a ram.
  *
  * `null` covers four distinct cases deliberately kept indistinguishable to the caller: the pair is
- * not in contact, they are teammates, neither is driving into the other, or the closing speed is
- * below `minApproachSpeed`.
+ * not in contact, they are teammates, neither is driving into the other, or their combined drive-in
+ * is below `minApproachSpeed`.
  */
 export function resolveRam(a: RamCar, b: RamCar, mode: "ffa" | "team"): RamHit | null {
   // Friendly fire is off for contact exactly as it is for shots, decided by the same predicate, so
@@ -157,43 +155,58 @@ export function resolveRam(a: RamCar, b: RamCar, mode: "ffa" | "team"): RamHit |
   if (n === null) return null;
 
   // `n` points from b toward a, so a drives along -n to reach b and b drives along +n to reach a.
-  const approachA = approachOf(a, { x: -n.x, y: -n.y });
-  const approachB = approachOf(b, n);
+  const approachA = driveInOf(a, { x: -n.x, y: -n.y });
+  const approachB = driveInOf(b, n);
 
   const aAttacks = approachA >= approachB;
   const attacker = aAttacks ? a : b;
   const victim = aAttacks ? b : a;
-  const approach = aAttacks ? approachA : approachB;
-  if (approach < RAM_CONFIG.minApproachSpeed) return null;
 
-  // Points from the attacker toward the victim: the direction the victim is pushed.
-  const away: Vec2 = aAttacks ? { x: -n.x, y: -n.y } : n;
+  // Points from the attacker toward the victim.
+  const towardVictim: Vec2 = aAttacks ? { x: -n.x, y: -n.y } : n;
   // Points from the victim toward the attacker: what the side classification reads.
-  const incoming: Vec2 = aAttacks ? n : { x: -n.x, y: -n.y };
+  const towardAttacker: Vec2 = { x: -towardVictim.x, y: -towardVictim.y };
 
-  const side = impactSideOf(incoming, victim.angle);
-  // Attacker mass enters HERE and nowhere else — this is the severity grade, not the victim's
-  // displacement. Clamped before the side bonus and again after, so a rear hit on an
-  // already-saturated ram cannot push severity past 1.
-  const raw = clamp01((approach * effectiveMassOf(attacker)) / ramReference());
-  const severity = clamp01(raw * bonusFor(side));
+  const attackerDriveIn = driveInOf(attacker, towardVictim);
+  const victimDriveIn = driveInOf(victim, towardAttacker);
+  if (attackerDriveIn + victimDriveIn <= RAM_CONFIG.minApproachSpeed) return null;
 
-  // Victim mass no longer enters here at all — `applyImpulse` (`sim/impulse.ts`) is the single
-  // place a victim's mass divides out a push, read through `ramReferenceMass()` there. This
-  // `Impulse` carries only the un-mass-scaled speed and lets the applier decide.
+  const attackerPush = pushOf(attacker, attackerDriveIn);
+  const victimPush = pushOf(victim, victimDriveIn);
+
+  const side = impactSideOf(towardAttacker, victim.angle);
+  // The victim presents the face the attacker struck; the attacker presents its own struck face,
+  // which for a car driving forward into something is its front (spec R6).
+  const victimImpact = impactOn(
+    attackerPush, victimPush, bonusFor(side), ramDefenceOf(victim.carId) * victim.defenceMult,
+  );
+  const attackerImpact = impactOn(
+    victimPush, attackerPush, RAM_CONFIG.bonusFront, ramDefenceOf(attacker.carId) * attacker.defenceMult,
+  );
+
+  // Both impulses recover the SAME contact point exactly as before — `contactPointOn` is unchanged.
   const contact = contactPointOn(victim, attacker);
   return {
     attackerId: attacker.sessionId,
     victimId: victim.sessionId,
     side,
-    severity,
     impulse: {
-      dirX: away.x,
-      dirY: away.y,
-      speed: severity * RAM_CONFIG.knockMaxSpeed,
+      dirX: towardVictim.x,
+      dirY: towardVictim.y,
+      speed: victimImpact,
       spin: 1,
-      massScaled: true,
-      uncontrolTicks: 0, // stage 3 fills this in
+      defenceScaled: false, // the contest already divided by ramDefence; see the note in impulse.ts
+      uncontrolTicks: 0, // stage 3b fills this in
+      contactX: contact.x,
+      contactY: contact.y,
+    },
+    attackerImpulse: {
+      dirX: towardAttacker.x,
+      dirY: towardAttacker.y,
+      speed: attackerImpact,
+      spin: 1,
+      defenceScaled: false,
+      uncontrolTicks: 0,
       contactX: contact.x,
       contactY: contact.y,
     },
@@ -242,8 +255,10 @@ function contactPointOn(victim: RamCar, attacker: RamCar): Vec2 {
  */
 export interface RamImpulseEntry {
   attackerId: string;
-  severity: number;
+  /** What the victim takes. */
   impulse: Impulse;
+  /** What the attacker takes. Computed independently by the contest, not a negated copy (R7). */
+  attackerImpulse: Impulse;
 }
 
 /**
@@ -257,10 +272,11 @@ export interface RamImpulseEntry {
  * Contact is tracked even for pairs that produce no ram, so a slow touch still occupies the pair and
  * cannot be converted into a fresh trigger by accelerating while already touching.
  *
- * Iteration is over sorted session ids and each victim keeps only its hardest impulse, so the result
- * does not depend on the order `cars` arrives in. An impulse REPLACES rather than accumulates: two
- * rams landing on one car in one tick is rare, and summing them would let a sandwich stack past what
- * the severity clamp exists to guarantee.
+ * Iteration is over sorted session ids and each victim keeps only its hardest impulse, ranked by
+ * `impulse.speed` now that the contest replaces a single 0-1 severity grade, so the result does not
+ * depend on the order `cars` arrives in. An impulse REPLACES rather than accumulates: two rams
+ * landing on one car in one tick is rare, and summing them would let a sandwich stack past what a
+ * single contest is meant to produce.
  */
 export function applyRams(
   cars: readonly RamCar[],
@@ -291,8 +307,8 @@ export function applyRams(
       if (hit === null) continue;
 
       const standing = best.get(hit.victimId);
-      if (standing === undefined || hit.severity > standing.severity) {
-        best.set(hit.victimId, { attackerId: hit.attackerId, severity: hit.severity, impulse: hit.impulse });
+      if (standing === undefined || hit.impulse.speed > standing.impulse.speed) {
+        best.set(hit.victimId, { attackerId: hit.attackerId, impulse: hit.impulse, attackerImpulse: hit.attackerImpulse });
       }
     }
   }

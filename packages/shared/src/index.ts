@@ -156,6 +156,8 @@ export {
   isActiveCarId,
   isCarId,
   massOf,
+  ramAttackOf,
+  ramDefenceOf,
   reverseAccelOf,
   reverseMaxSpeedOf,
   turnRateAtStopOf,
