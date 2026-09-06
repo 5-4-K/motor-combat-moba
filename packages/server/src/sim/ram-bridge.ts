@@ -328,11 +328,18 @@ export function contactTick(
     // by B on the SAME tick has both competing for one slot. The slam wins — and this predicate is
     // therefore right — only because `SLAM_CONFIG.knockSpeed` (520) exceeds the roster's hardest
     // measured ram (268 u/s). `resolveContacts`'s own doc comment says outright that nothing enforces
-    // that ordering structurally (spec R9 forbids re-adding a ceiling that would). If a retune ever
-    // closes that gap, this line silently starts treating a slam victim as a ram victim: it would
-    // count the slam into the falloff stack and apply `reeling` off a slam's authored
-    // `uncontrolTicks`. The fix is a `kind` discriminator on `ImpulseEntry` so the branch reads the
-    // classification instead of inferring it — stage 4's call to make, not this stage's.
+    // that ordering structurally (spec R9 forbids re-adding a ceiling that would).
+    //
+    // Note which direction that actually fails. `contact.ts`'s slam branch pushes to `events.slams`
+    // UNCONDITIONALLY, before the `best` magnitude comparison it then runs, so a slam victim is in
+    // `slammedVictims` no matter which impulse wins the slot — this line can never mistake a slam
+    // for a ram. The failure is the mirror image: if a retune ever lets a ram's `impulse.speed` beat
+    // a slam's, B's RAM impulse takes the slot while the victim is still in `slammedVictims` from
+    // A's slam, so it is classified `isRam === false` and applied at FULL strength — not counted
+    // into the falloff stack, and granting no `reeling`. A ram that should have been diminished
+    // lands undiminished, and its victim keeps full steering. The fix is a `kind` discriminator on
+    // `ImpulseEntry` so the branch reads the classification instead of inferring it — stage 4's call
+    // to make, not this stage's.
     const isRam = !slammedVictims.has(victimId);
 
     // Falloff and the RAM_TICKS-derived uncontrol duration are ram-only (spec P24's final bullet:

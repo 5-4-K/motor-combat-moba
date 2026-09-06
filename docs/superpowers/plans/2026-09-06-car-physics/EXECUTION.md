@@ -344,12 +344,20 @@ the **same tick** has both competing for one slot. The slam wins — and the pre
 still right — only because `SLAM_CONFIG.knockSpeed` (520) exceeds the roster's hardest measured ram
 (268 u/s). That ordering is an observed fact about today's tuning, not a structural guarantee:
 `resolveContacts`'s own doc comment says outright that nothing enforces it (spec R9 forbids re-adding
-the severity ceiling that once did). Close that gap with a retune and `isRam` starts silently
-treating a slam victim as a ram victim — counting the slam into the falloff stack and applying
-`reeling` off a slam's authored `uncontrolTicks`. **The fix is a `kind` discriminator on
-`ImpulseEntry`** so the branch reads the classification instead of inferring it. Stage 4 is its
-natural home: it is already the stage that touches `ImpulseDef` and authors `wildcharge`'s own
-`uncontrolTicks`. The dependency is commented in place at `ram-bridge.ts`'s `isRam` line.
+the severity ceiling that once did).
+
+**Which direction it fails, corrected.** An earlier version of this note (and of the code comment,
+and of the stage-close report) said a retune would make `isRam` treat a slam victim as a ram victim.
+That failure is impossible: `contact.ts`'s slam branch pushes to `events.slams` **unconditionally**,
+before the `best` magnitude comparison it then runs, so a slam victim is in `slammedVictims` whichever
+impulse wins the slot. The real failure is the mirror image — **a victim slammed by A *and* rammed by
+B on the same tick, where the ram's `impulse.speed` wins the slot, gets a RAM impulse applied at full
+strength with no falloff and no `reeling`**, because that victim is in `slammedVictims` from A's slam
+and so is classified `isRam === false`. A ram that should have been diminished lands undiminished and
+its victim keeps full steering. **The fix is a `kind` discriminator on `ImpulseEntry`** so the branch
+reads the classification instead of inferring it. Stage 4 is its natural home: it is already the stage
+that touches `ImpulseDef` and authors `wildcharge`'s own `uncontrolTicks`. The dependency is commented
+in place at `ram-bridge.ts`'s `isRam` line. **Test for the corrected direction, not the old one.**
 
 ## Deferred findings
 
@@ -365,6 +373,8 @@ Real, non-blocking, each found once by a reviewer already. Fix opportunistically
 | 6 | `docs/config-reference.md` claims the camera's trailing offset is "12% of the half-view"; the `smoothFollow` steady-state formula gives ~3.9% at 267 u/s. Predates this branch. |
 | 7 | `docs/schema-reference.md` still calls the ram bridge a "temporary shim". That is stage-1 wording which stage 2 superseded — the bridge routes every push through `Impulse` now. Left alone in 3b's closing pass as out of its scope. |
 | 8 | The `ImpulseEntry` `kind` discriminator described under "Open question" above. Stage 4's natural home. |
+| 9 | **`hasKnock` (`packages/server/src/sim/tick.ts`) still does not see a dead-on rear-end knock.** It tests `lateralOf`, `angVel` and `maneuver` only, so a silent or disconnected player rammed straight up the back freezes holding the knock instead of coasting it off. Stage 3b did NOT close this, contrary to what that function's comment used to claim — it only supplied the signal that could: `reeling` now marks every ram victim. Widening the predicate to read it is a **behaviour change** (it grows the set of silent-player ticks the server steps, which must stay in lockstep with what the client predicts), and `hasKnock` carries a recorded decision — two earlier versions of it were netcode bugs — so it is the user's call, not a fix-wave one. Candidate only. |
+| 10 | **Spec P21 states `reeling`'s `flags: []` / `reapply: "refresh"` pairing without the `Math.max` caveat.** `applyStatus` implements `refresh` as `Math.max(existing.endsTick, endsTick)`, so a re-ram landing while `reeling` is still running can only EXTEND the window — the falloff-scaled shorter duration is discarded on that path, and only bites once the previous instance has lapsed inside a still-open falloff window. `status-config.ts`'s row comment and (as of this fix wave) `interfaces.md` both carry the caveat; the **spec does not**, and amending a binding spec is the user's call. Recorded here so it is visible rather than fixed. |
 
 The eleven minor findings deferred out of stage 3b's four task reviews are **not** on this list: they
 were all swept in the stage-closing pass (`8608bd0`) rather than carried. Two of them turned out to be

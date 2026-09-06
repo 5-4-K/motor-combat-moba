@@ -308,8 +308,20 @@ reeling: {
 
 **`flags: []` is load-bearing.** `StatusDef` forces flag-carrying rows to `reapply: "ignore"` so hard
 CC cannot be chained. Because `reeling` carries no flags it escapes that rule, which is what lets a
-second ram write a new (already-reduced) duration — the thing falloff needs. Do not add a flag here
-without re-reading spec P21/P22.
+second ram write a duration at all — the thing falloff needs. Do not add a flag here without
+re-reading spec P21/P22.
+
+**Caveat on what `refresh` actually does with a reduced duration.** `applyStatus` implements
+`refresh` as `endsTick = Math.max(existing.endsTick, endsTick)`
+(`packages/shared/src/sim/status/statuses.ts`), so a re-ram landing while `reeling` is **still
+running** can only EXTEND the window — the falloff-scaled, shorter duration is by construction the
+smaller of the two and is discarded on that path. The scaled duration only takes effect on a re-ram
+that lands after the previous instance has lapsed but while the falloff window is still open
+(between `ramUncontrolMs` and `drWindowMs` since the last hit). Falloff's impulse half has no such
+caveat: it scales every re-ram. `status-config.ts`'s own doc comment on the row carries the same
+note, and `ram-bridge.test.ts`'s re-ram duration test is set up at tick 45 for exactly this reason.
+Spec P21 states the pairing without this caveat; amending the spec is the user's call, and the
+discrepancy is recorded in `EXECUTION.md`.
 
 Both modifier values sit **at** the existing `STATUS_LIMITS` floors (`turnRate` 0.4, `accel` 0.4).
 Do not lower those floors to make `reeling` harsher; see spec P22 for why.

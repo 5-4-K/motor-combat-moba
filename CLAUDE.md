@@ -45,9 +45,13 @@ everywhere else in the game; a phased car is the one case where they must disagr
 may let them.
 
 **The three chassis are `bullseye`, `mirage` and `bastion`** — a type triangle, not three shapes.
-Their ratings (`speed`, `accel`, `handling`, `attack`, `hp`, `mass`) are **six** independent 0-100
-values; `accel` and `handling` landed on 2026-08-30 so cars could differ in how they launch and how
-they corner. **`handling` is turn RATE, not turn radius.** Radius is `speed / turnRate`.
+Their ratings (`speed`, `accel`, `handling`, `attack`, `hp`, `ramAttack`, `ramDefence`) are **seven**
+independent 0-100 values; `accel` and `handling` landed on 2026-08-30 so cars could differ in how they
+launch and how they corner, and `ramAttack`/`ramDefence` replaced the single `mass` rating in stage 3
+of the 2026-09-06 car-physics rework (see below) — **there is no `mass` on `CarDef` any more.**
+(`CAR_TABLE` rows also carry `coastHalfLifeSeconds` and `brakeDecel`, but those are seconds and
+units/s², not 0-100 ratings.) **`handling` is turn RATE, not turn radius.** Radius is
+`speed / turnRate`.
 
 Until **2026-09-02**, `speed` and `handling` traded off per car — Bastion carried the roster's
 *highest* `handling` (82) despite the *lowest* `speed` (30), which let it turn inside every other
@@ -58,7 +62,9 @@ despite a lower turn RATE) was the more subtle version of the same trick. **That
 90 -> 135, `speedPerRating` 2.25 -> 3.7 — deliberately more than a uniform 1.5x), which at the time
 landed turn radius at Mirage widest (55 u), Bullseye next (53 u), Bastion tightest (51 u): ordered
 with top speed rather than against it, Bastion still winning but by a few units instead of tens, its
-tank identity resting on hp and mass alone rather than a handling edge.
+tank identity resting on hp and `mass` alone rather than a handling edge. (That was the 2026-09-02
+state of play: `mass` was deleted by the car-physics rework's stage 3, and the same identity now rests
+on hp plus `ramAttack` 70 / `ramDefence` 90 — both the roster's highest.)
 
 **The 2026-09-06 heavy-car pass (stage 1 of the vector-drive rework) cut top speed and acceleration
 again, hard, so cars carry momentum and feel heavy.** `DRIVE_CONFIG.baseMaxSpeed`/`speedPerRating`

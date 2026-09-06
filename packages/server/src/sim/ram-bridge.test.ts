@@ -212,12 +212,13 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
   // `authority` and its "no rescue" precedence rule (a weaker knock could never overwrite a
   // stronger standing one) are gone entirely — there never was, and still is not, an authority
   // field on `Impulse` (see `contactTick`'s own comment on `Impulse` application). Stage 3b
-  // reinstates control loss as the `reeling` status, at which point precedence-style rules belong
-  // there again. Until then, `applyImpulse` just adds every impulse straight into the victim's
-  // velocity — two rams landing on the same victim across different ticks stack rather than one
-  // being discarded, and there is no "standing knock" to protect. These two tests used to prove
-  // no-rescue; they now prove the additive replacement, which Task 4 leaves unchanged for the
-  // victim's own half of the exchange (only the attacker's side gained a reaction).
+  // reinstated control loss as the `reeling` status, but it did NOT reinstate precedence:
+  // `applyImpulse` still adds every impulse straight into the victim's velocity — two rams landing
+  // on the same victim across different ticks stack rather than one being discarded, and there is
+  // no "standing knock" to protect. What limits a chained ram now is the per-victim falloff stack,
+  // not a precedence rule. These two tests used to prove no-rescue; they now prove the additive
+  // replacement, which stayed unchanged for the victim's own half of the exchange (only the
+  // attacker's side gained a reaction).
   it("stacks a later ram's knock onto a victim's still-decaying velocity from an earlier one", () => {
     const state = arena();
     addPlayer(state, "strong", { x: 0, y: 400, angle: 0, vx: 540 });
@@ -465,6 +466,42 @@ describe("contactTick applies reeling to a ram victim, scaled by falloff", () =>
     const second = Math.abs(victim.vx);
 
     expect(second).toBeLessThan(first);
+  });
+
+  // The spec-load-bearing counterpart to the test above, and the reason it is worth a test at all
+  // even though it is structurally unreachable today (`nextFalloff`'s `scales` binding is scoped
+  // inside the IIFE that builds the VICTIM's `scaledImpulse`; `entry.attackerImpulse` is applied
+  // untouched). Falloff exists to stop a victim being ram-locked. If it ever discounted the
+  // attacker's own half too, spamming rams into an already-worn-down victim would get progressively
+  // SAFER for the aggressor — the exact inverse of what a diminishing-returns mechanic should do to
+  // the one throwing the punches. Pinning it here means a future refactor that hoists `scales` out
+  // of that IIFE cannot quietly acquire the inversion.
+  it("does NOT shrink the attacker's own impulse on a re-ram", () => {
+    const state = arena();
+    const memory = newContactMemory();
+    const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
+    const victim = addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
+    contactTick(
+      state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS,
+      approachVelocities(state), NO_MANEUVER_WEAPONS, 10,
+    );
+    const firstAttackerDelta = Math.hypot(attacker.vx - 540, attacker.vy);
+    const firstVictimKnock = Math.hypot(victim.vx, victim.vy);
+
+    // Restore the exact opening geometry and both approach velocities, so the ONLY thing that
+    // differs between the two rams is the falloff stack `memory` is now carrying.
+    attacker.x = 0; attacker.y = 400; attacker.vx = 540; attacker.vy = 0;
+    victim.x = 47; victim.y = 400; victim.vx = 0; victim.vy = 0;
+    memory.contacts = new Set();
+    contactTick(
+      state, new Set(["a", "b"]), memory, "ffa", NO_EFFECTS,
+      approachVelocities(state), NO_MANEUVER_WEAPONS, 11,
+    );
+
+    // Falloff DID engage across these two ticks — without this the equality below could pass
+    // trivially on a run where the stack never counted the first ram at all.
+    expect(Math.hypot(victim.vx, victim.vy)).toBeLessThan(firstVictimKnock);
+    expect(Math.hypot(attacker.vx - 540, attacker.vy)).toBeCloseTo(firstAttackerDelta, 9);
   });
 
   it("does not apply reeling to the attacker", () => {

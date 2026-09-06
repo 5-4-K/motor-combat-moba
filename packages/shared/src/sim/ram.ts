@@ -13,8 +13,10 @@ import { canDamage } from "./weapons/targets.js";
  * **A ram deals no damage.** It spins the victim and knocks it sideways, and that is all —
  * `applyDamage` is never called from here. Weapons remain the only damage source, so the `attack`
  * rating keeps meaning exactly what its name says. Ramming sets up the kill; weapons land it.
- * Ram control-loss (what used to be a steering-authority degrade) is gone until stage 3b's `reeling`
- * status; this module carries no stand-in for it (`Impulse.uncontrolTicks` is authored `0` here).
+ * Ram control-loss (what used to be a steering-authority degrade) came back in stage 3b as the
+ * `reeling` status — but it is not authored here. This module leaves `Impulse.uncontrolTicks` at
+ * `0`; `ram-bridge.ts`'s `contactTick` is what fills in the duration, already scaled by the victim's
+ * own diminishing-returns stack, and applies the status.
  *
  * **`resolveRam` resolves a CONTEST between both cars, not a one-way push derived from the
  * attacker's momentum (spec R2-R7, revision 2).** Each car brings a push into the collision — its
@@ -224,7 +226,7 @@ export function resolveRam(a: RamCar, b: RamCar, mode: "ffa" | "team"): RamHit |
       // magnitude was NOT built from a contest — a weapon reading fixed numbers off its own row
       // (stage 4) — which DO need the applier to divide.
       defenceScaled: false,
-      uncontrolTicks: 0, // stage 3b fills this in
+      uncontrolTicks: 0, // `ram-bridge.ts`'s `contactTick` fills this in, falloff-scaled
       contactX: contact.x,
       contactY: contact.y,
     },

@@ -605,6 +605,8 @@ per duration.
 | `fortified` | buff | refresh | `damageTaken` 0.7 | — | — | — |
 | `overhauled` | buff | **ignore** | — | — | — | cleanse `debuff` |
 | `armored` | buff | **refresh** (documented exemption) | — | `invulnerable` | — | — |
+| `phased` | buff | **refresh** (documented exemption) | — | `phased` | — | — |
+| `reeling` | debuff | refresh | `turnRate` 0.4, `accel` 0.4 | — | — | — |
 
 Per-row fields: `id`, `name`, `kind`, `color` (`#rrggbb`, render-only like `WeaponDef.color`),
 `reapply`, `modifiers`, optional `flags`, optional `pulse`, optional `onApply`.

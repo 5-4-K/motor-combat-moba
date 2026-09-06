@@ -143,10 +143,18 @@ the floor — so it was printing an arithmetically correct number for a steering
 nobody, and it was removed rather than kept and marked inert. Stage 3b of the car-physics rework
 brought the mechanic back on a different footing and the field is now deleted outright: a rammed car
 gets the **`reeling`** status, whose `STATUS_TABLE` row carries `turnRate: 0.4` and `accel: 0.4`. It
-is a multiplier on the moving rate, not a floor under it, so unlike the old row this one is a real
-derived value — and it is where "getting rammed feels too punishing" is actually tuned. The duration
-side lives in `RAM_CONFIG` (`ramUncontrolMs`, plus the falloff knobs that shrink a repeat ram's
-duration), not on this page.
+is a multiplier, not a floor under the rate, so unlike the old row this one is a real derived value —
+and it is where "getting rammed feels too punishing" is actually tuned. The duration side lives in
+`RAM_CONFIG` (`ramUncontrolMs`, plus the falloff knobs that shrink a repeat ram's duration), not on
+this page.
+
+**"Rate while reeling" tabulates only the MOVING rate, but `reeling` scales both rates.** `stepDrive`
+picks `chassis.turnRate` or `chassis.turnRateAtStop` first, then multiplies the winner by
+`mods.turnRate` (`packages/shared/src/sim/drive.ts`), so a reeling car turns at `0.4 ×` whichever of
+the two applies to it. The "Turn rate at rest" row has no reeling counterpart in the table; read it
+as ×0.4 as well — Bullseye 1.422, Mirage 1.638, Bastion 1.26 rad/s while reeling at rest. Left as
+prose deliberately: the doc test asserts this table's ordered row labels, so adding a row silently
+means editing that test too.
 
 **The 2026-09-02 rewrite removed the split.** `speed` and `handling` now move together per car (65/65,
 85/85, 50/50), so turn rate and turn radius order the roster the *same* way: Mirage highest/widest,
