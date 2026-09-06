@@ -6,6 +6,7 @@ import {
   NEUTRAL_MODIFIERS,
   NET_CONFIG,
   getArena,
+  massOf,
   stepSim,
   type InputMessage,
   type SimBody,
@@ -21,9 +22,10 @@ const ctx: StepContext = {
   bounds: { width: arena.width, height: arena.height },
   // Unbuffed: every expectation here is the plain drive model.
   modifiers: NEUTRAL_MODIFIERS,
-  // Mirage's real mass. `others` is empty in every case here, so nothing actually reads this — it
-  // stands in for `massOf("mirage")` without importing config just to spell out 480.
-  selfMass: 480,
+  // `others` is empty in every case here, so nothing actually reads this — `massOf` rather than a
+  // hardcoded number so this stays true (not a silently stale copy) if Mirage's mass rating ever
+  // changes.
+  selfMass: massOf("mirage"),
 };
 
 const DT = MS_PER_TICK / 1000;

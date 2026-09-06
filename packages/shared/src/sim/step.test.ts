@@ -3,7 +3,7 @@ import { MS_PER_TICK } from "../constants.js";
 import { massOf } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import { RAM_CONFIG } from "../config/ram-config.js";
-import { obbsInContact, obbsOverlap, type Obb } from "./collide.js";
+import { obbCorners, obbsInContact, type Obb } from "./collide.js";
 import { ManeuverKind } from "./maneuver.js";
 import { NEUTRAL_MODIFIERS } from "./status/modifiers.js";
 import { stepSim, type SimBody, type StepContext } from "./step.js";
@@ -140,61 +140,137 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
     };
   }
 
-  it("never leaves the dasher inside or past the car it dashed into, from any phase or angle", () => {
-    const failures: string[] = [];
+  /**
+   * SAT penetration depth between two hulls, for measurement only (not exported from `collide.ts` —
+   * this file has no need to change production code to observe how deep a contact still is). Mirrors
+   * `mtvBetween`'s own depth computation exactly, minus the direction: the smallest axis-projected
+   * overlap over both boxes' face normals, or 0 once any axis fully separates them.
+   */
+  function penetrationDepthOf(a: Obb, b: Obb): number {
+    function axesOf(o: Obb) {
+      const c = Math.cos(o.angle);
+      const s = Math.sin(o.angle);
+      return [
+        { x: c, y: s },
+        { x: -s, y: c },
+      ];
+    }
+    function spanOf(corners: { x: number; y: number }[], axis: { x: number; y: number }) {
+      let min = Infinity;
+      let max = -Infinity;
+      for (const p of corners) {
+        const proj = p.x * axis.x + p.y * axis.y;
+        if (proj < min) min = proj;
+        if (proj > max) max = proj;
+      }
+      return { min, max };
+    }
+    const cornersA = obbCorners(a);
+    const cornersB = obbCorners(b);
+    let depth = Infinity;
+    for (const axis of [...axesOf(a), ...axesOf(b)]) {
+      const spanA = spanOf(cornersA, axis);
+      const spanB = spanOf(cornersB, axis);
+      const pushBack = spanA.max - spanB.min;
+      const pushForward = spanB.max - spanA.min;
+      if (pushBack <= 1e-6 || pushForward <= 1e-6) return 0;
+      depth = Math.min(depth, pushBack, pushForward);
+    }
+    return depth;
+  }
 
-    for (let deg = 0; deg < 360; deg += 30) {
-      const a = (deg * Math.PI) / 180;
-      const dir = { x: Math.cos(a), y: Math.sin(a) };
+  it("never ends the dasher past the car it dashed into, and bounds how far in it can end, at every real roster mass pairing", () => {
+    // Production can never hand `resolveWorld` `selfMass: 0` (share 1, the pre-mass-split
+    // always-full-push rule) -- that mass does not exist on the roster. Sweep the masses a real dash
+    // can actually produce instead: all 9 ordered pairings of the three chassis masses, dasher and
+    // target independently, since the resolver does not care which side is doing the dashing.
+    const ROSTER_MASSES = [massOf("mirage"), massOf("bullseye"), massOf("bastion")];
 
-      for (const targetDeg of [0, 22.5, 45, 67.5]) {
-        const targetAngle = (targetDeg * Math.PI) / 180;
-        const targetHull = hullOf(TARGET.x, TARGET.y, targetAngle);
-        const ctx: StepContext = {
-          carId: "mirage",
-          // selfMass: 0 makes shareOf(0, mass) = 1 exactly for any positive `mass` -- this test is
-          // about dash tunnelling geometry (C1/C2), not the mass split, so the dasher takes the WHOLE
-          // correction every contact, exactly as it did before the mass split existed. A real (say
-          // 0.5/0.5) split would under-correct each substep and could let the fast-moving dasher
-          // drift past or into the target across the sweep, which is not what this test measures.
-          others: [{ hull: targetHull, mass: massOf("mirage") }],
-          obstacles: [],
-          bounds: { width: 1280, height: 720 },
-          modifiers: NEUTRAL_MODIFIERS,
-          selfMass: 0,
-        };
+    const pastFailures: string[] = [];
+    let worstDepth = 0;
+    let worstDepthLabel = "";
 
-        // Sweep the full sub-tick phase: shifting the start by one tick's travel walks the contact
-        // through every position it can occupy on the tick grid.
-        for (let p = 0; p < PHASE_SAMPLES; p++) {
-          const back = START_BACK + (p * TICK_TRAVEL) / PHASE_SAMPLES;
-          let body = dasherAt(TARGET.x - dir.x * back, TARGET.y - dir.y * back, a);
+    for (const selfMass of ROSTER_MASSES) {
+      for (const otherMass of ROSTER_MASSES) {
+        for (let deg = 0; deg < 360; deg += 30) {
+          const a = (deg * Math.PI) / 180;
+          const dir = { x: Math.cos(a), y: Math.sin(a) };
 
-          for (let tick = 0; tick < DASH_TICKS; tick++) {
-            body = stepSim(body, NO_INPUT, DT, ctx);
-            const hull = hullOf(body.x, body.y, body.angle);
-            const along = (body.x - TARGET.x) * dir.x + (body.y - TARGET.y) * dir.y;
-            const label = `approach ${deg}deg, target ${targetDeg}deg, phase ${p}, tick ${tick}`;
+          for (const targetDeg of [0, 22.5, 45, 67.5]) {
+            const targetAngle = (targetDeg * Math.PI) / 180;
+            const targetHull = hullOf(TARGET.x, TARGET.y, targetAngle);
+            const ctx: StepContext = {
+              carId: "mirage",
+              others: [{ hull: targetHull, mass: otherMass }],
+              obstacles: [],
+              bounds: { width: 1280, height: 720 },
+              modifiers: NEUTRAL_MODIFIERS,
+              selfMass,
+            };
 
-            // Started behind the target, so the projection onto the dash axis must stay negative:
-            // the dasher plants itself in front of what it hit and never comes out the far side.
-            if (along >= 0) failures.push(`${label}: ended ${along.toFixed(1)}u PAST the target centre`);
-            if (obbsOverlap(hull, targetHull)) failures.push(`${label}: ended INSIDE the target hull`);
+            // Sweep the full sub-tick phase: shifting the start by one tick's travel walks the
+            // contact through every position it can occupy on the tick grid.
+            for (let p = 0; p < PHASE_SAMPLES; p++) {
+              const back = START_BACK + (p * TICK_TRAVEL) / PHASE_SAMPLES;
+              let body = dasherAt(TARGET.x - dir.x * back, TARGET.y - dir.y * back, a);
 
-            // Stop where the real lifecycle stops. `endDash` lives in the server's `ram-bridge`,
-            // not in `stepSim`, so nothing here would otherwise end the dash — and a car held
-            // against an ANGLED face for the remaining ticks slides along it and eventually rounds
-            // it, which is ordinary resolution behaviour and not the tunnelling this pins. This is
-            // the same predicate `resolveContacts` fires its `dashHit` on, so breaking here ends
-            // the sweep on exactly the tick a match would.
-            if (obbsInContact(hull, targetHull, RAM_CONFIG.contactPad)) break;
+              for (let tick = 0; tick < DASH_TICKS; tick++) {
+                body = stepSim(body, NO_INPUT, DT, ctx);
+                const hull = hullOf(body.x, body.y, body.angle);
+                const along = (body.x - TARGET.x) * dir.x + (body.y - TARGET.y) * dir.y;
+                const label = `self ${selfMass} other ${otherMass}, approach ${deg}deg, target ${targetDeg}deg, phase ${p}, tick ${tick}`;
+
+                // Started behind the target, so the projection onto the dash axis must stay
+                // negative: the dasher plants itself in front of what it hit and never comes out
+                // the far side. This is the anti-tunnelling safety property dash substepping exists
+                // for (C1/C2); it is unaffected by the mass split (see the derivation on
+                // `shareOf` — `share` scales the push, not the contact normal) and holds exactly, in
+                // every one of the 9 mass pairings below.
+                if (along >= 0) {
+                  pastFailures.push(`${label}: ended ${along.toFixed(1)}u PAST the target centre`);
+                }
+
+                const depth = penetrationDepthOf(hull, targetHull);
+                if (depth > worstDepth) {
+                  worstDepth = depth;
+                  worstDepthLabel = label;
+                }
+
+                // Stop where the real lifecycle stops. `endDash` lives in the server's `ram-bridge`,
+                // not in `stepSim`, so nothing here would otherwise end the dash — and a car held
+                // against an ANGLED face for the remaining ticks slides along it and eventually
+                // rounds it, which is ordinary resolution behaviour and not the tunnelling this
+                // pins. This is the same predicate `resolveContacts` fires its `dashHit` on, so
+                // breaking here ends the sweep on exactly the tick a match would.
+                if (obbsInContact(hull, targetHull, RAM_CONFIG.contactPad)) break;
+              }
+            }
           }
         }
       }
     }
 
-    expect(failures.slice(0, 10)).toEqual([]);
-    expect(failures).toHaveLength(0);
+    // Half 1 (anti-tunnelling): no tolerance. A dasher ending past its target is the failure this
+    // whole sweep exists to catch.
+    expect(pastFailures.slice(0, 10)).toEqual([]);
+    expect(pastFailures).toHaveLength(0);
+
+    // Half 2 (penetration): no longer zero once `selfMass` is a real chassis mass instead of the
+    // impossible 0. With the mass split (stage 2 Task 2), the dasher takes only `shareOf(selfMass,
+    // otherMass)` of the correction on the contact tick and relies on the OTHER car conceding the
+    // rest via its own `resolveWorld` call — which this sweep never runs, since it drives only the
+    // dasher, matching a real target that has not yet reacted on this same tick. Momentary
+    // penetration is therefore expected here and is not a bug: it decays over the following ticks
+    // once the target starts conceding its own share (see `shareOf`'s doc comment), it just is not
+    // reproducible in a sweep that only steps one side.
+    //
+    // Bound derived from this exact sweep: the worst of the 9 ordered mass pairings is bastion (900)
+    // dashing into bullseye (300) — the heaviest-into-lightest pairing, share = 300/(900+300) =
+    // 0.25, so the dasher corrects only a quarter of the overlap on the contact tick — measured at
+    // ~26.64u against the 48x32 hull (see `worstDepthLabel` below if this ever needs re-deriving).
+    // 34 leaves noticeable headroom above that without being loose enough to hide a doubled residual.
+    const MAX_PENETRATION = 34;
+    expect(worstDepth, `worst penetration at [${worstDepthLabel}]`).toBeLessThan(MAX_PENETRATION);
   });
 
   it("leaves an uncontested dash covering exactly the ground it always did", () => {

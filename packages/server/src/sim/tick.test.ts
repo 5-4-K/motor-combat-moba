@@ -12,6 +12,7 @@ import {
   forwardOf,
   lateralOf,
   toWorld,
+  type CarId,
   type InputMessage,
   type Modifiers,
   type SimBody,
@@ -36,6 +37,7 @@ function makePlayer(
   y: number,
   angle: number,
   status: PlayerStatus = PlayerStatus.IN_MATCH,
+  carId: CarId = "mirage",
 ): PlayerState {
   const p = new PlayerState();
   p.sessionId = sessionId;
@@ -43,7 +45,7 @@ function makePlayer(
   p.y = y;
   p.angle = angle;
   p.status = status;
-  p.carId = "mirage";
+  p.carId = carId;
   p.lastProcessedInputSeq = 0;
   return p;
 }
@@ -271,9 +273,13 @@ describe("serverTick", () => {
      */
     const TICKS = 60;
 
-    function driveIntoBlocker(blockerStatus: PlayerStatus): PlayerState {
-      const driver = makePlayer("a-driver", 300, CORRIDOR_Y, 0);
-      const blocker = makePlayer("b-blocker", 500, CORRIDOR_Y, 0, blockerStatus);
+    function driveIntoBlocker(
+      blockerStatus: PlayerStatus,
+      driverCar: CarId = "mirage",
+      blockerCar: CarId = "mirage",
+    ): PlayerState {
+      const driver = makePlayer("a-driver", 300, CORRIDOR_Y, 0, PlayerStatus.IN_MATCH, driverCar);
+      const blocker = makePlayer("b-blocker", 500, CORRIDOR_Y, 0, blockerStatus, blockerCar);
       const state = stateWith(driver, blocker);
       for (let i = 0; i < TICKS; i++) {
         serverTick(state, new Map([["a-driver", ups(i + 1)]]), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
@@ -291,10 +297,50 @@ describe("serverTick", () => {
       // pair's damped steady state (throttle re-driving it in, restitution pushing it back out,
       // exactly the wall equilibrium `step.test.ts`'s "single-step path" case documents) settles a
       // fraction of a unit inside the exact boundary rather than pinned flush to it -- traced at
-      // ~452.07-452.13 here, oscillating tick to tick, against the exact-separation value of 452.
-      // The 1-unit margin matches the slack `combat.test.ts`'s "collision deals no damage" fixture
-      // already carries for the identical shape of steady state.
-      expect(driver.x + DRIVE_CONFIG.carWidth).toBeLessThanOrEqual(501);
+      // ~452.0663 here, oscillating tick to tick, against the exact-separation value of 452.
+      //
+      // FINDING 2 fix (stage 2 review): this margin used to be a flat 1 unit, borrowed from
+      // `combat.test.ts`'s identically-shaped steady state without re-deriving it for THIS pairing
+      // (both cars default to mirage/mirage here) -- 1 unit is ~15x the traced ~0.0663u residual, so
+      // it would not have caught a regression that doubled or even quintupled the residual. Pinned
+      // here to 0.1 (~1.5x headroom above the traced value): still comfortably clear of floating
+      // point noise, but a doubled residual (~0.1326u) now fails.
+      //
+      // This is the mirage/mirage case only -- see "converges to a residual overlap ..." below for
+      // how much worse other roster pairings get, and why that matters for Task 4.
+      expect(driver.x + DRIVE_CONFIG.carWidth).toBeLessThanOrEqual(500.1);
+    });
+
+    it("converges to a residual overlap that stays bounded across every roster mass pairing, not just mirage/mirage", () => {
+      // FINDING 2 (stage 2 review): the test above only ever drives mirage into mirage. The residual
+      // this idle-blocker steady state settles at is NOT a constant -- the idle blocker never runs
+      // its own `resolveWorld` (see the comment above), so only the driver ever concedes its
+      // `shareOf(driverMass, blockerMass)`; the smaller that share, the deeper the driver ends up
+      // past the exact boundary. Swept here across all 9 ordered chassis pairings so the real worst
+      // case is measured, not assumed -- a bastion (900) driving into an idle bullseye (300) takes
+      // only `shareOf(900, 300) = 0.25` of the correction each tick and sits roughly 14x deeper than
+      // the symmetric mirage/mirage case above.
+      //
+      // TASK 4 NOTE: under the pre-split full push, a resting/pinned pair ended flush and
+      // `mtvBetween` returned `null` on the next tick (touching is not overlap) -- an edge-triggered
+      // contact. Under this mass split, a pinned pair like this one holds a NON-NULL MTV every tick
+      // while a throttle is held, for as long as the residual below persists (tens of ticks, or
+      // indefinitely against a truly idle blocker). Any Task-4 contact detector keyed on "is there
+      // currently an overlap" will now fire continuously against a pair that used to report contact
+      // once -- this is not a bug in this test, it is a real, documented behaviour change.
+      const CARS: readonly CarId[] = ["mirage", "bullseye", "bastion"];
+      // Measured worst case (this exact sweep): bastion into bullseye at ~0.9082u. 1.2 leaves
+      // headroom without being loose enough to hide a doubled residual (~1.82u).
+      const MAX_RESIDUAL = 1.2;
+
+      for (const driverCar of CARS) {
+        for (const blockerCar of CARS) {
+          const driver = driveIntoBlocker(PlayerStatus.IN_MATCH, driverCar, blockerCar);
+          const overlap = driver.x + DRIVE_CONFIG.carWidth - 500;
+          expect(overlap, `driver=${driverCar} blocker=${blockerCar}`).toBeGreaterThanOrEqual(0);
+          expect(overlap, `driver=${driverCar} blocker=${blockerCar}`).toBeLessThan(MAX_RESIDUAL);
+        }
+      }
     });
 
     it("does not treat a player who is not in the match as a solid wall", () => {

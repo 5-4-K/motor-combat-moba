@@ -216,8 +216,8 @@ describe("golden: resolveWorld against the vector-drive rework", () => {
   //   - "separates from an obstacle": the MTV here is a single contact along world -x (n = (-1, 0),
   //     matching the unchanged push that put x at 291.663842667), while the car's heading is 0.4
   //     rad — off-axis from the wall normal. vx = 180cos(0.4) = 165.7909789205193,
-  //     vy = 180sin(0.4) = 70.09530161555718. Only vx reflects (n has no y component):
-  //     vx' = -0.15 * vx = -24.86863680807793, vy' = vy UNCHANGED. Re-projected onto the car's
+  //     vy = 180sin(0.4) = 70.09530161555709. Only vx reflects (n has no y component):
+  //     vx' = -0.15 * vx = -24.868646838077897, vy' = vy UNCHANGED. Re-projected onto the car's
   //     frame: forward = vx'*cos(0.4) + vy'*sin(0.4) = 4.390855582568385, and
   //     lateral = -vx'*sin(0.4) + vy'*cos(0.4) = 74.24635540810061 — a large, genuinely nonzero
   //     lateral component, which is the whole point of this task: the car's forward-moving y-ish

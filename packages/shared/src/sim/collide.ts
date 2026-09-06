@@ -90,14 +90,25 @@ const RELAXATION_PASSES = 1;
  * because the ranking re-applies identically every tick. Nothing here bounds the depth.
  *
  * The car-car case used to be the mildest only because the server resolves every player against the
- * current state each tick, so the *other* car is being pushed off this one at the same time and the
- * pair works itself apart — each side conceding the FULL correction and letting two independent
- * full pushes over-correct back toward separation over a tick or two. Since the mass split below
- * (stage 2 Task 2), each side concedes only its `shareOf` the correction, so the two full-tick
- * pushes sum to exactly one separation instead of two: a Bastion pushes a Bullseye further than the
- * Bullseye pushes back, and the pair still fully separates in the same tick, not slowly over several.
- * That relief still comes from the caller's loop, not from anything in this function: `resolveWorld`
- * on its own will happily hold two cars overlapped forever if the caller never re-resolves the pair.
+ * current state each tick, so the *other* car is being pushed off this one at the same time — but
+ * "at the same time" is sequential, not simultaneous: the caller mutates each player in place and
+ * rebuilds `others` from whichever pose is current, so the SECOND car in resolution order resolves
+ * against the FIRST car's already-corrected position, not its pre-tick one. Before the mass split,
+ * each side conceded the FULL correction, so the first car removed the whole depth and the second
+ * found nothing left to concede — one tick, fully separated. Since the mass split below (stage 2
+ * Task 2), each side concedes only its own `shareOf`, and `shareA + shareB` (the two cars' shares of
+ * each other's mass fraction) always sums to exactly 1. One full tick — both cars resolved once —
+ * removes `shareA + shareB - shareA * shareB` of the original depth and leaves a residual of
+ * `shareA * shareB * depth`: a quarter of the original overlap at equal mass (0.5 * 0.5), less as the
+ * masses diverge. That residual is not the end of it — it shrinks by the same `shareA * shareB`
+ * factor every subsequent tick both cars keep resolving, so the pair converges toward separation
+ * geometrically over several ticks, not in the one tick that first detects the overlap. If only ONE
+ * side of the pair is ever re-resolved (an idle or unqueued opponent, say), that geometric decay
+ * never starts for the side that never runs, and the moving car's own single-sided concession sets a
+ * standing residual instead of converging further — see `packages/server/src/sim/tick.test.ts`'s
+ * "stops a driver short of another player" for a measured example. Either way, the relief comes from
+ * the caller's loop, not from anything in this function: `resolveWorld` on its own will happily hold
+ * two cars overlapped forever if the caller never re-resolves the pair.
  */
 export function resolveWorld(
   body: SimBody,

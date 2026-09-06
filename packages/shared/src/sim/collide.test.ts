@@ -18,12 +18,16 @@ const CAR_W = DRIVE_CONFIG.carWidth;
 const CAR_H = DRIVE_CONFIG.carHeight;
 const BOUNDS = { width: 1000, height: 1000 };
 
-/** roster average (`massOf` across mirage/bullseye/bastion) — the brief's own filler for a case
- * that resolves only against bounds or obstacles, where mass is never consulted. */
+/** Mirage's real mass (`massOf("mirage")`) — the brief's own filler for a case that resolves only
+ * against bounds or obstacles, where mass is never consulted so any positive number would do. NOT
+ * the roster average: 480/300/900 averages to 560, which is what `ramReferenceMass()` (a different,
+ * ram-severity concern) actually returns — easy to confuse with this constant because both are named
+ * around "the mass of an average car," but this one is just Mirage's own mass reused as filler. */
 const AVG_MASS = 480;
 
-/** Bare `Obb` -> `resolveWorld`'s hull, at the roster average mass — used only where a specific
- * ratio does not matter (the dedicated "mass-weighted separation" block below picks real numbers). */
+/** Bare `Obb` -> `resolveWorld`'s hull, at `AVG_MASS` (Mirage's mass, not a roster average — see
+ * above) — used only where a specific ratio does not matter (the dedicated "mass-weighted
+ * separation" block below picks real numbers). */
 function hullAt(x: number, y: number, angle = 0): Obb {
   return { x, y, angle, w: CAR_W, h: CAR_H };
 }
@@ -304,6 +308,55 @@ describe("mass-weighted separation", () => {
     const out = resolveWorld(start, [], [{ x: 610, y: 290, w: 60, h: 60 }], BOUNDS, 480);
     // A wall does not yield. The car takes the whole correction, exactly as before this task.
     expect(out.x).toBeLessThan(600);
+  });
+
+  it("converges a real-mass pair to non-overlap within a few ticks of mutual resolution", () => {
+    // FINDING 4 (stage 2 review): every other case in this file either uses `pinned()` (share 1,
+    // the mass irrelevant) or checks a single call's position split -- nothing asserted that a REAL
+    // mass pair, each resolving every tick as `serverTick` actually drives them, ever reaches
+    // non-overlap at all. It does, but only over several ticks: per the corrected `resolveWorld` doc
+    // comment above, one full tick (both cars resolved once, second against the first's
+    // already-updated pose) removes `shareA + shareB - shareA * shareB` of the depth and leaves a
+    // residual of `shareA * shareB * depth` -- not zero -- which itself shrinks by the same factor
+    // every following tick. Mirage (480) into Bastion (900): shareOf(480, 900) = 900/1380 ≈ 0.6522,
+    // shareOf(900, 480) = 480/1380 ≈ 0.3478, so each tick should leave roughly 0.6522 * 0.3478 ≈
+    // 22.7% of the remaining depth -- converging fast, but genuinely over more than one tick, which
+    // is the property this test exists to pin.
+    const MIRAGE_MASS = 480;
+    const BASTION_MASS = 900;
+    let mirage = { ...body({}), x: 600, y: 300 };
+    let bastion = { ...body({}), x: 630, y: 300 };
+    const startDepth = penetrationDepth(carObb(mirage), carObb(bastion));
+    expect(startDepth).toBeGreaterThan(0); // sanity: this fixture must actually start overlapping
+
+    const depths: number[] = [startDepth];
+    const MAX_TICKS = 20;
+    for (let tick = 0; tick < MAX_TICKS; tick++) {
+      const nextMirage = resolveWorld(
+        mirage,
+        [{ hull: carObb(bastion), mass: BASTION_MASS }],
+        [],
+        BOUNDS,
+        MIRAGE_MASS,
+      );
+      const nextBastion = resolveWorld(
+        bastion,
+        [{ hull: carObb(nextMirage), mass: MIRAGE_MASS }],
+        [],
+        BOUNDS,
+        BASTION_MASS,
+      );
+      mirage = nextMirage;
+      bastion = nextBastion;
+      depths.push(penetrationDepth(carObb(mirage), carObb(bastion)));
+    }
+
+    // Converges: depth reaches (effectively) zero well within the tick budget above.
+    expect(depths[depths.length - 1]).toBeLessThan(TOUCH_SLACK);
+    // And it is a genuine convergence, not a one-tick full separation: this is exactly the "not
+    // slowly over several" claim FINDING 3 struck from `resolveWorld`'s doc comment, still real
+    // enough to pin here -- more than one tick was needed to reach it.
+    expect(depths[1]).toBeGreaterThan(TOUCH_SLACK);
   });
 });
 
