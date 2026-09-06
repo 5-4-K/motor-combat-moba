@@ -39,6 +39,15 @@ export interface PlanWeights {
   rangeError: number;
   wallPenalty: number;
   lockKeep: number;
+  /**
+   * How much this play wants to get OFF the line of a shot already in the air (P40, R-P8).
+   *
+   * Maximised, and deliberately separate from `theirEv`: that term is about firing solutions the
+   * opponent COULD take from where they are standing, and reads their loaded guns. This one is
+   * about the bolt that is already flying, which no reading of the shooter's cooldowns can see.
+   * The design keeps both reflexes because they are different reflexes.
+   */
+  threatAvoid: number;
 }
 
 export interface PlanResult {
@@ -72,6 +81,15 @@ export interface PlanArgs {
   preferredRange: number;
   weights: PlanWeights;
   /**
+   * Shots already in the air that this bot has noticed and decided to react to (P40, R-P8) —
+   * `perception.ts`'s `activeThreats`, straight through. Only `awayHeadingRad` is read: the
+   * direction perception already computed as "perpendicular to that shot's path, away from it".
+   *
+   * Empty is the normal case and costs nothing. The planner never decides WHETHER a threat is
+   * reacted to — `dodgeChance` and `dodgeReactionTicks` did that before the list got here.
+   */
+  shotThreats: readonly { awayHeadingRad: number }[];
+  /**
    * K. 0 is a reflex agent (P29): even then, `plan` floors the per-segment roll at ONE tick
    * (R-P6, fix round 1, 2026-09-06) rather than zero, so a K=0 plan still moves before it scores
    * and can still avoid a wall it is driving straight at. It cannot plan an arc — that is what
@@ -85,14 +103,36 @@ export interface PlanArgs {
   /** Anti-chatter (P30). A FRACTION of the candidate score spread, not a raw addend — see below. */
   commitPenalty: number;
   lastAction: DriveAction | undefined;
+  /**
+   * Ticks between this decision and the hands moving — `humanize.ts`'s delay line, i.e. the
+   * profile's `reactionDelayTicks` (R-P7c, fix round 1, 2026-09-06).
+   *
+   * The planner rolls its candidates from the pose the bot will be in WHEN THE INPUT LANDS, not
+   * from the pose it is in while deciding. Dead time is not a detail here: hard's 4 ticks is 0.48
+   * rad of Bullseye rotation at rest, so a bot correcting a 0.27 rad error commits four more ticks
+   * of full lock after it is already on target, overshoots to -0.44, corrects back, and limit-cycles
+   * forever — measured, 0 fires in 300 ticks, with the wheel visibly sawing. The deleted
+   * `compensateForLag` was the desire model's answer to the same dead time; this is the planner's,
+   * and it is the textbook one (roll the plant forward through the delay, then plan from there).
+   *
+   * 0 disables it. `lastAction` is what the delay line is still paying out, so it is what the roll
+   * holds; with no `lastAction` there is nothing in flight and the current pose is already correct.
+   */
+  actuationDelayTicks: number;
   tick: number;
   arena: BotArenaView;
 }
 
-/** One rolled-out candidate: the input that would be emitted, and the pose it ends in. */
+/**
+ * One rolled-out candidate: the input that would be emitted, and the WHOLE PATH it traces.
+ *
+ * R-P7 (fix round 1, 2026-09-06): this used to be the end pose alone, and that is what made a
+ * 13-degree aim correction unrepresentable. See `plan`'s doc for the argument; `path[i]` is the
+ * pose after `i + 1` ticks, so `path.at(-1)` is the terminus.
+ */
 interface Candidate {
   first: DriveAction;
-  end: SimBody;
+  path: readonly SimBody[];
 }
 
 /**
@@ -101,6 +141,29 @@ interface Candidate {
  * Receding horizon: every candidate is rolled K ticks, but only the winner's FIRST action is
  * emitted, and the whole thing is redone on the next recompute. That is what lets a bot plan a
  * second-long arc while still reacting inside two ticks.
+ *
+ * THE WHOLE ARC IS SCORED, NOT ITS TERMINUS (R-P7, fix round 1, 2026-09-06). Spec section 2 says
+ * what this game is: "Skilled play is finding arcs where those coincide, and timing the trigger for
+ * the instant the nose sweeps across." A score read only at the end pose cannot express "the nose
+ * sweeps across" — it can only ask where the nose ENDS — and that is not a stylistic complaint, it
+ * is what broke the bot. At `planDepth: 1` a candidate is ONE input held for the whole horizon, so
+ * at hard's K of 22 the three steer choices end at 0, +2.607 and -2.607 rad off the current heading
+ * and NOTHING ELSE IS ON THE MENU. A 0.234 rad correction — the actual manoeuvre, measured in a
+ * parked off-axis duel — is unreachable, `steer: 0` wins every tick, the heading freezes 13 degrees
+ * off target and the bot fires 0 shots in 300 ticks. That is spec section 1.1's exact symptom
+ * reached by a new road. Sampled along the path, the +1 candidate's nose passes straight through the
+ * target at tick 2, `myEv` peaks there, and the arc wins on the sweep it actually contains.
+ *
+ * Each term aggregates the way its own direction demands, which is the whole content of the fix:
+ *
+ * - `myEv` — the BEST found anywhere along the path. That is the sweep.
+ * - `lockKeep` — the BEST along the path, for the same reason.
+ * - `theirEv` — the WORST (maximum danger). An arc that carries you through someone's line is
+ *   dangerous even if it ends somewhere safe.
+ * - `wallPenalty` — the WORST. Clipping a wall mid-arc is a real cost, not an artifact.
+ * - `rangeError` — the END POSE alone. That is where the arc leaves you standing.
+ * - `threatAvoid` — the END POSE alone. Displacement is a property of the whole excursion, and
+ *   summing it along the way would just count the same metres several times.
  *
  * Draws no randomness (P43, H21) — every term is a deterministic function of the observation, which
  * is also what keeps the score smooth enough not to chatter. There is no `rng` parameter here on
@@ -115,28 +178,34 @@ export function plan(args: PlanArgs): PlanResult {
   // world -- which cannot avoid anything. Rolling exactly one tick out is "one tick out", the
   // amateur tier P29 actually describes.
   const segment = Math.max(1, Math.floor(args.horizonTicks / args.depth));
-  const candidates = rollCandidates(args, segment);
-  const elapsed = segment * args.depth;
+  // R-P7c: plan from where the bot will be when this input LANDS. `actuationDelayTicks` of the
+  // action already in the delay line, rolled through the same drive model, then every candidate
+  // branches off THAT pose. See `PlanArgs.actuationDelayTicks` for why dead time is not optional.
+  // CAPPED BY THE HORIZON, and that cap is a tier statement, not a guard. A bot cannot compensate
+  // for more dead time than it plans through: P29's reflex agent (K=0) acts on what it sees, and
+  // projecting its own hands nine ticks into the future would make it the opposite of a reflex.
+  // Measured: uncapped, easy stopped closing on a visible target entirely (tiers.test.ts's S13,
+  // 0 throttle-forward ticks in the late window against a bar of 15) because a nine-tick shared
+  // roll swamped the one tick its candidates actually differ over. Capped, the ladder reads the way
+  // the tiers already read — hard plans 22 and compensates all 4 of its ticks, medium plans 8 and
+  // compensates all 6, easy plans one tick and compensates none.
+  const lag = Math.max(0, Math.min(Math.floor(args.actuationDelayTicks), args.horizonTicks));
+  const now = bodyFromSelf(args.self);
+  const start = lag > 0 && args.lastAction
+    ? rollForward(now, args.self.carId, args.lastAction, lag, NEUTRAL_MODIFIERS).at(-1) ?? now
+    : now;
+  const candidates = rollCandidates(args, segment, start);
+  const pathTicks = segment * args.depth;
 
-  // Everything below this line that does not depend on WHERE THE BOT ENDS UP is hoisted out of the
-  // per-candidate loop: the target's pose at `elapsed`, the shifted predictor a lead is solved
-  // against, the hedged threat views, and the list of slots that could fire. All 81 candidates
-  // share them, so computing them once is most of what keeps a depth-2 plan inside its budget.
-  const future = args.targetAt(elapsed);
   /**
-   * `targetAt` re-based on the END of the rollout, for `interceptTicks` (R-P5). That solver takes
-   * its `at` as ticks-from-NOW, and the shot leaves when the bot arrives, so every query has to be
-   * shifted by the horizon already spent getting there.
+   * Everything that does not depend on WHERE THE BOT ENDS UP is hoisted out of the per-candidate
+   * loop — once per SAMPLE POINT rather than once per plan now, because the target's pose, the
+   * hedged threat headings and the set of loaded slots all move as the horizon runs. Every
+   * candidate shares the same sample ticks, so this is still `samples x 1` work against
+   * `samples x candidates` scoring, and it is most of what keeps a plan inside its budget.
    */
-  const fromArrival: PosePredictor = (ticksAhead) => args.targetAt(elapsed + ticksAhead);
-  const threats = hedgedThreats(args, future, elapsed);
-  const shared: SharedTerms = {
-    future,
-    fromArrival,
-    threats,
-    ready: args.self.slots
-      .filter((slot) => slotIsReady(slot, args.tick))
-      .map((slot) => ({ slot, def: weaponDefOf(slot.weaponId) })),
+  const sampleTicks = sampleTicksFor(pathTicks);
+  const constants: SharedConstants = {
     /**
      * `lockKeep` is scored across EVERY assisted slot, ready or not. A lock is a property of the
      * car and survives the weapon that uses it going on cooldown; counting it only while `predator`
@@ -150,16 +219,46 @@ export function plan(args: PlanArgs): PlanResult {
     holdsLock: args.target !== undefined
       && args.self.lockTargetSessionId === args.target.sessionId,
   };
+  const samples: SampleTerms[] = sampleTicks.map((pathTick) => {
+    // Ticks from NOW, which is the path tick plus the dead time spent getting to the plan's start.
+    const elapsed = pathTick + lag;
+    const future = args.targetAt(elapsed);
+    return {
+      elapsed,
+      future,
+      /**
+       * `targetAt` re-based on the END of the rollout, for `interceptTicks` (R-P5). That solver
+       * takes its `at` as ticks-from-NOW, and the shot leaves when the bot arrives, so every query
+       * has to be shifted by the horizon already spent getting there.
+       */
+      fromArrival: (ticksAhead) => args.targetAt(elapsed + ticksAhead),
+      threats: hedgedThreats(args, future, elapsed),
+      /**
+       * Loaded AT ARRIVAL, not loaded now (R-P7b, fix round 1). `slotIsReady(slot, args.tick)`
+       * asked whether a gun is loaded at the instant the plan is made while `myEv` scores a pose
+       * reached up to 22 ticks later, so a weapon that comes off cooldown two ticks into the arc
+       * contributed exactly nothing to the arc's value. Sampling the trajectory makes that worse,
+       * not better — the late samples are precisely the ones a recharging gun belongs in.
+       */
+      ready: args.self.slots
+        .filter((slot) => slotIsReady(slot, args.tick + elapsed))
+        .map((slot) => ({ slot, def: weaponDefOf(slot.weaponId) })),
+    };
+  });
 
+  const away = threatAvoidDirections(args.shotThreats);
+  // Displacement is measured from the plan's OWN start pose, so the term scores what this decision
+  // buys rather than crediting a candidate with metres the last one already covered.
+  const origin = { x: start.x, y: start.y };
   const scored = candidates.map((candidate) => {
-    const terms = scoreCandidate(args, candidate.end, shared);
+    const terms = scoreCandidate(args, candidate.path, sampleTicks, samples, constants, away, origin);
     return { first: candidate.first, terms, score: rawScore(terms, args.weights) };
   });
 
   /**
    * R-P4: `commitPenalty` is a fraction of the candidate score SPREAD, not a raw addend.
    *
-   * The shipped values are 0.1 / 0.4 / 0.8 while `myEv` alone runs into the tens, so added raw the
+   * The shipped values are 0.1 / 0.25 / 0.4 while `myEv` alone runs into the tens, so added raw the
    * knob would be inert at every tier the game actually plays and only an absurd test value would
    * ever move a decision. Scaled by the spread it reads as what it is meant to be: "how much better
    * must a new option be, as a fraction of the whole range of options in front of me, before I
@@ -193,7 +292,7 @@ export function plan(args: PlanArgs): PlanResult {
     return {
       action: ALL_ACTIONS[0]!,
       score: 0,
-      terms: { myEv: 0, theirEv: 0, rangeError: 0, wallPenalty: 0, lockKeep: 0 },
+      terms: { myEv: 0, theirEv: 0, rangeError: 0, wallPenalty: 0, lockKeep: 0, threatAvoid: 0 },
       runnerUp: undefined,
     };
   }
@@ -234,22 +333,76 @@ function sameAction(a: DriveAction, b: DriveAction | undefined): boolean {
  * `segment` is always at least 1 here (R-P6: `plan` floors it before calling in), so every
  * candidate genuinely rolls — there is no zero-tick "stand still" case to special-case.
  */
-function rollCandidates(args: PlanArgs, segment: number): Candidate[] {
-  const start = bodyFromSelf(args.self);
-  const roll = (from: SimBody, action: DriveAction): SimBody =>
-    rollForward(from, args.self.carId, action, segment, NEUTRAL_MODIFIERS).at(-1) ?? from;
+function rollCandidates(args: PlanArgs, segment: number, start: SimBody): Candidate[] {
+  const roll = (from: SimBody, action: DriveAction): SimBody[] =>
+    rollForward(from, args.self.carId, action, segment, NEUTRAL_MODIFIERS);
 
-  const firstEnds = ALL_ACTIONS.map((action) => roll(start, action));
+  const firstPaths = ALL_ACTIONS.map((action) => roll(start, action));
   if (args.depth === 1) {
-    return ALL_ACTIONS.map((first, i) => ({ first, end: firstEnds[i]! }));
+    return ALL_ACTIONS.map((first, i) => ({ first, path: firstPaths[i]! }));
   }
 
   const out: Candidate[] = [];
   for (let i = 0; i < ALL_ACTIONS.length; i++) {
     const first = ALL_ACTIONS[i]!;
-    for (const second of ALL_ACTIONS) out.push({ first, end: roll(firstEnds[i]!, second) });
+    const head = firstPaths[i]!;
+    const from = head.at(-1) ?? start;
+    for (const second of ALL_ACTIONS) out.push({ first, path: [...head, ...roll(from, second)] });
   }
   return out;
+}
+
+/**
+ * Which ticks along a `pathTicks`-long rollout the score is read at (R-P7).
+ *
+ * Ticks, one-based, ascending, and the LAST ENTRY IS ALWAYS `pathTicks` — `rangeError` and
+ * `threatAvoid` are defined at the terminus and would be reading a different pose otherwise.
+ *
+ * GEOMETRICALLY SPACED, not evenly, and that is load-bearing rather than a refinement. Measured: an
+ * evenly-spaced schedule at hard's K=22 reads ticks 6, 11, 17, 22, and the sweep it exists to catch
+ * is OVER by tick 6 — a Bullseye at rest turns ~0.9 rad in six ticks against the 0.25 rad
+ * correction the duel actually wanted, so all four samples see the nose already past and the bot
+ * fires 0 shots in 300 ticks exactly as it did reading the terminus alone. Even spacing needs about
+ * eleven samples to catch it, which is three times the whole CPU budget. Geometric spacing reads
+ * ticks 2, 5, 10, 22 for the same money and lands inside the sweep.
+ *
+ * The reason it is the right shape, rather than a lucky one: this is a RECEDING horizon. Only the
+ * first action is emitted and the whole plan is redone `recomputeTicks` later (2 ticks at hard), so
+ * the near end of an arc is what the bot actually executes and the far end is a guide to where that
+ * commits it. Resolving the near end finely and the far end coarsely is what that asymmetry asks
+ * for, and it is the standard non-uniform discretization of a receding-horizon control problem.
+ *
+ * A path shorter than the sample count is sampled at EVERY tick — there is nothing to skip, and
+ * asking for four samples of a two-tick roll must not produce duplicates that pay for the same
+ * pose twice.
+ */
+function sampleTicksFor(pathTicks: number): number[] {
+  const count = BRAIN_CONSTANTS.trajectorySampleCount;
+  if (pathTicks <= count) {
+    return Array.from({ length: pathTicks }, (_, i) => i + 1);
+  }
+  const out: number[] = [];
+  for (let i = 1; i <= count; i++) {
+    const tick = i === count
+      ? pathTicks
+      : Math.max(1, Math.round(pathTicks ** (i / count)));
+    if (out.length === 0 || tick > out[out.length - 1]!) out.push(tick);
+  }
+  return out;
+}
+
+/**
+ * The unit vectors a shot in the air wants this bot pushed along (P40, R-P8).
+ *
+ * Resolved once per plan, not per candidate: only the DISPLACEMENT varies across candidates.
+ */
+function threatAvoidDirections(
+  shotThreats: readonly { awayHeadingRad: number }[],
+): readonly { x: number; y: number }[] {
+  return shotThreats.map((threat) => ({
+    x: Math.cos(threat.awayHeadingRad),
+    y: Math.sin(threat.awayHeadingRad),
+  }));
 }
 
 /**
@@ -284,16 +437,23 @@ function hedgedThreats(
 }
 
 /**
- * Everything that is the same for all 81 candidates, resolved once. Not an optimization detail so
- * much as a statement of what the search actually varies: only where the bot ends up.
+ * Everything that is the same for all candidates AT ONE SAMPLE POINT, resolved once per sample.
+ * Not an optimization detail so much as a statement of what the search actually varies: only where
+ * the bot is, at each moment along its arc.
  */
-interface SharedTerms {
+interface SampleTerms {
+  /** Ticks from now, one-based — the index into a candidate path is `elapsed - 1`. */
+  elapsed: number;
   future: { x: number; y: number; angle: number };
   fromArrival: PosePredictor;
   threats: readonly BotCarView[];
-  /** Slots that could be pressed on arrival, with their rows already resolved. */
+  /** Slots that would be loaded at THIS moment, with their rows already resolved. */
   ready: readonly { slot: BotSlotView; def: WeaponDef }[];
-  /** Every aim-assisted row this car carries, ready or not — see `lockKeep` below. */
+}
+
+/** The parts that do not move with the horizon either: a property of the car, not of a moment. */
+interface SharedConstants {
+  /** Every aim-assisted row this car carries, ready or not — see `lockKeep`. */
   assisted: readonly WeaponDef[];
   /** The CAR's acquisition range: `carAimRangeOf`, exactly as `updateLock` reads it. */
   lockRange: number;
@@ -301,79 +461,138 @@ interface SharedTerms {
 }
 
 /**
- * Every term, measured at the pose one candidate ends in.
+ * Every term, aggregated over the sample points of one candidate's ARC (R-P7).
+ *
+ * See `plan`'s doc for why the terminus alone is not enough and for which direction each term
+ * aggregates in. The short version: what the bot is looking for is a moment, not a destination.
  *
  * R-P3: there is NO early return for a missing target. `wallPenalty` and `rangeError` are always
- * computed — `rangeError` against `targetAt(elapsed)`, which the caller points at a hunt waypoint
- * when there is nobody to fight — and only the three genuinely target-shaped terms are zeroed. A
- * shortcut here is what would force the hunt behaviours into a second, parallel mover.
+ * computed — `rangeError` against `targetAt(pathTicks)`, which the caller points at a hunt waypoint
+ * when there is nobody to fight — and only the genuinely target-shaped terms are zeroed. A shortcut
+ * here is what would force the hunt behaviours into a second, parallel mover.
  */
 function scoreCandidate(
   args: PlanArgs,
-  body: SimBody,
-  shared: SharedTerms,
+  path: readonly SimBody[],
+  sampleTicks: readonly number[],
+  samples: readonly SampleTerms[],
+  constants: SharedConstants,
+  away: readonly { x: number; y: number }[],
+  origin: { x: number; y: number },
 ): Record<keyof PlanWeights, number> {
-  const { future } = shared;
-  const wallPenalty = boundsPenalty(body.x, body.y, args.arena);
-  const distance = Math.hypot(future.x - body.x, future.y - body.y);
-  const rangeError = Math.abs(distance - args.preferredRange);
-
-  if (!args.target) {
-    return { myEv: 0, theirEv: 0, rangeError, wallPenalty, lockKeep: 0 };
-  }
-
-  const { lockRange, holdsLock } = shared;
+  const { lockRange, holdsLock } = constants;
+  const last = sampleTicks.length - 1;
 
   let myEv = 0;
-  for (const { slot, def } of shared.ready) {
-    const assisted = withinLockEnvelope(body, future, def, lockRange, holdsLock);
-    /**
-     * R-P5: aim at where the target will be when the SHOT lands, not when the BOT arrives.
-     *
-     * `future` is the target's pose at the end of the rollout — the moment the bot gets there and
-     * could pull the trigger. It carries no flight lead whatsoever, so scoring the proxy against it
-     * would point the nose systematically short of a moving target and undo phase A's whole point.
-     * `interceptTicks` solves the flight time from THIS candidate's end pose, per slot because a
-     * 600 u/s shell and a 450 u/s one need visibly different leads, against the arrival-shifted
-     * predictor and bounded by the same horizon a firing solution rolls.
-     *
-     * An ASSISTED slot is deliberately scored at the UNLED pose: the sim's `aimAngleFor` points the
-     * shot at where the target IS, with no lead at all (`AIM_CONFIG.lockRange`'s doc comment), so
-     * leading it here would score a shot the game will not fire.
-     */
-    let aimX = future.x;
-    let aimY = future.y;
-    if (!assisted) {
-      const lead = interceptTicks(
-        body, shared.fromArrival, projectileSpeedOf(def), BRAIN_CONSTANTS.predictionHorizonTicks,
-      );
-      const led = shared.fromArrival(lead);
-      aimX = led.x;
-      aimY = led.y;
-    }
-    const value = proxyValue({
-      shooter: { x: body.x, y: body.y, angle: body.angle },
-      slot, targetX: aimX, targetY: aimY,
-      aimSigmaRad: args.aimSigmaRad, assisted,
-    });
-    if (value > myEv) myEv = value;
-  }
-
+  let theirEv = 0;
+  let wallPenalty = 0;
   let lockKeep = 0;
-  for (const def of shared.assisted) {
-    if (withinLockEnvelope(body, future, def, lockRange, holdsLock)) {
-      lockKeep = 1;
-      break;
+  let rangeError = 0;
+
+  for (let i = 0; i <= last; i++) {
+    const body = path[sampleTicks[i]! - 1]!;
+    const sample = samples[i]!;
+    const { future } = sample;
+
+    const wall = boundsPenalty(body.x, body.y, args.arena);
+    if (wall > wallPenalty) wallPenalty = wall;
+
+    // The terminus, and only the terminus: this is where the arc leaves the bot standing (R-P7).
+    // Measured against the alternatives on the whole `controller.test.ts` + `tiers.test.ts` pair:
+    // the closest approach along the path (3 failures -> 4, and a range that oscillates 264-595
+    // units because every arc that grazes the preferred range scores a perfect 0, leaving no
+    // restoring force at the settle point) and the path mean (3 -> 6). The terminus is both what
+    // was ruled and what measures best.
+    if (i === last) {
+      rangeError = Math.abs(
+        Math.hypot(future.x - body.x, future.y - body.y) - args.preferredRange,
+      );
     }
+
+    if (!args.target) continue;
+
+    let sampleEv = 0;
+    for (const { slot, def } of sample.ready) {
+      const assisted = withinLockEnvelope(body, future, def, lockRange, holdsLock);
+      /**
+       * R-P5: aim at where the target will be when the SHOT lands, not when the BOT arrives.
+       *
+       * `future` is the target's pose at THIS sample — the moment the bot is here and could pull
+       * the trigger. It carries no flight lead whatsoever, so scoring the proxy against it would
+       * point the nose systematically short of a moving target and undo phase A's whole point.
+       * `interceptTicks` solves the flight time from this pose, per slot because a 600 u/s shell
+       * and a 450 u/s one need visibly different leads, against the arrival-shifted predictor and
+       * bounded by the same horizon a firing solution rolls.
+       *
+       * An ASSISTED slot is deliberately scored at the UNLED pose: the sim's `aimAngleFor` points
+       * the shot at where the target IS, with no lead at all (`AIM_CONFIG.lockRange`'s doc
+       * comment), so leading it here would score a shot the game will not fire.
+       */
+      let aimX = future.x;
+      let aimY = future.y;
+      if (!assisted) {
+        const lead = interceptTicks(
+          body, sample.fromArrival, projectileSpeedOf(def), BRAIN_CONSTANTS.predictionHorizonTicks,
+        );
+        const led = sample.fromArrival(lead);
+        aimX = led.x;
+        aimY = led.y;
+      }
+      const value = proxyValue({
+        shooter: { x: body.x, y: body.y, angle: body.angle },
+        slot, targetX: aimX, targetY: aimY,
+        aimSigmaRad: args.aimSigmaRad, assisted,
+      });
+      if (value > sampleEv) sampleEv = value;
+    }
+    if (sampleEv > myEv) myEv = sampleEv;
+
+    if (lockKeep === 0) {
+      for (const def of constants.assisted) {
+        if (withinLockEnvelope(body, future, def, lockRange, holdsLock)) {
+          lockKeep = 1;
+          break;
+        }
+      }
+    }
+
+    const danger = worstCaseDanger(args, body, sample.threats);
+    if (danger > theirEv) theirEv = danger;
   }
 
   return {
     myEv,
-    theirEv: worstCaseDanger(args, body, shared.threats),
+    theirEv,
     rangeError,
     wallPenalty,
     lockKeep,
+    threatAvoid: threatAvoidOf(origin, path.at(-1)!, away),
   };
+}
+
+/**
+ * How far this arc's terminus has moved along the "get out of the way" directions of every shot
+ * currently in the air, in world units (P40, R-P8).
+ *
+ * SUMMED across threats, deliberately, which is a vector sum of the away directions applied to one
+ * displacement: two shots crossing from opposite sides cancel to roughly zero, and that is right —
+ * there is nowhere to go, so the term stops arguing and lets the other five decide. Reading only
+ * the nearest threat (which the deleted desire model did) would instead sidestep confidently into
+ * the second one.
+ *
+ * A couple of flops per threat per candidate, and exactly zero when nothing is in the air.
+ */
+function threatAvoidOf(
+  origin: { x: number; y: number },
+  end: SimBody,
+  away: readonly { x: number; y: number }[],
+): number {
+  if (away.length === 0) return 0;
+  const dx = end.x - origin.x;
+  const dy = end.y - origin.y;
+  let total = 0;
+  for (const dir of away) total += dx * dir.x + dy * dir.y;
+  return total;
 }
 
 function rawScore(terms: Record<keyof PlanWeights, number>, weights: PlanWeights): number {
@@ -381,7 +600,8 @@ function rawScore(terms: Record<keyof PlanWeights, number>, weights: PlanWeights
     - terms.theirEv * weights.theirEv
     - terms.rangeError * weights.rangeError
     - terms.wallPenalty * weights.wallPenalty
-    + terms.lockKeep * weights.lockKeep;
+    + terms.lockKeep * weights.lockKeep
+    + terms.threatAvoid * weights.threatAvoid;
 }
 
 /** How fast this weapon's shot travels. A maneuver authors no shot, so it leads by nothing. */

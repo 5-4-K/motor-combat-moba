@@ -27,7 +27,7 @@ const target: BotCarView = {
 };
 
 const fightWeights: PlanWeights = {
-  myEv: 1, theirEv: 0, rangeError: 0.01, wallPenalty: 5, lockKeep: 0.5,
+  myEv: 1, theirEv: 0, rangeError: 0.01, wallPenalty: 5, lockKeep: 0.5, threatAvoid: 0,
 };
 
 const stationary: PosePredictor = () => ({ x: target.x, y: target.y, angle: target.angle });
@@ -35,7 +35,7 @@ const stationary: PosePredictor = () => ({ x: target.x, y: target.y, angle: targ
 const base: Omit<PlanArgs, "self"> = {
   target, targetAt: stationary,
   readiness: () => 1, aimSigmaRad: 0.03, preferredRange: 400,
-  weights: fightWeights, horizonTicks: 20, depth: 1,
+  weights: fightWeights, horizonTicks: 20, depth: 1, shotThreats: [], actuationDelayTicks: 0,
   targetBranches: 1, commitPenalty: 0, lastAction: undefined,
   tick: 0, arena,
 };
@@ -78,8 +78,61 @@ describe("plan", () => {
   it("reports a score breakdown for the overlay (P45)", () => {
     const result = plan({ ...base, self: selfAt(300, 360, 0) });
     expect(Object.keys(result.terms).sort()).toEqual(
-      ["lockKeep", "myEv", "rangeError", "theirEv", "wallPenalty"],
+      ["lockKeep", "myEv", "rangeError", "theirEv", "threatAvoid", "wallPenalty"],
     );
+  });
+
+  // --- R-P7: the whole arc is scored, not its terminus ----------------------------------------
+  it("finds a shot the arc SWEEPS through, not only the one it ends on (R-P7, spec 2)", () => {
+    // A 22-tick full-lock roll rotates a Bullseye ~2.6 rad, so the only headings a K=22 candidate
+    // can END on are 0 and +-150 degrees; a small correction is not on the menu and, scored at the
+    // terminus alone, `steer: 0` wins from any pose that is merely a little off. Here the target
+    // sits 0.25 rad off the nose — the exact geometry that froze the duel — and the bot is at rest.
+    const self = { ...selfAt(200, 360, 0), speed: 0 };
+    const offAxis = { ...target, x: 753, y: 500, carId: "mirage" as const };
+    const result = plan({
+      ...base, self, target: offAxis,
+      targetAt: () => ({ x: offAxis.x, y: offAxis.y, angle: offAxis.angle }),
+      preferredRange: 530, horizonTicks: 22, commitPenalty: 0,
+    });
+    // Turning toward it must beat holding, and it can only do so on a value found MID-ARC: at the
+    // end of a 22-tick full-lock roll the nose is 2.36 rad the wrong way.
+    expect(result.action.steer).toBe(1);
+    expect(result.terms.myEv).toBeGreaterThan(20);
+  });
+
+  // --- R-P8 / P40: the reactive dodge ----------------------------------------------------------
+  it("scores displacement along an in-flight shot's away heading (P40, R-P8)", () => {
+    const dodging: PlanWeights = {
+      myEv: 0, theirEv: 0, rangeError: 0, wallPenalty: 0, lockKeep: 0, threatAvoid: 1,
+    };
+    // Away is +y. The bot faces +x, so only a turn can carry it there.
+    const north = plan({
+      ...base, self: selfAt(400, 360, 0), weights: dodging, horizonTicks: SHORT_HORIZON,
+      shotThreats: [{ awayHeadingRad: Math.PI / 2 }],
+    });
+    const south = plan({
+      ...base, self: selfAt(400, 360, 0), weights: dodging, horizonTicks: SHORT_HORIZON,
+      shotThreats: [{ awayHeadingRad: -Math.PI / 2 }],
+    });
+    expect(north.terms.threatAvoid).toBeGreaterThan(0);
+    expect(south.terms.threatAvoid).toBeGreaterThan(0);
+    // Flipping which way the shot came from must flip which way the bot leans.
+    expect(north.action.steer).toBe(1);
+    expect(south.action.steer).toBe(-1);
+  });
+
+  it("is inert when nothing is in the air, and costs nothing to ask", () => {
+    const result = plan({ ...base, self: selfAt(300, 360, 0), shotThreats: [] });
+    expect(result.terms.threatAvoid).toBe(0);
+  });
+
+  it("lets two shots from opposite sides cancel rather than sidestepping into one (R-P8)", () => {
+    const result = plan({
+      ...base, self: selfAt(400, 360, 0), horizonTicks: SHORT_HORIZON,
+      shotThreats: [{ awayHeadingRad: Math.PI / 2 }, { awayHeadingRad: -Math.PI / 2 }],
+    });
+    expect(Math.abs(result.terms.threatAvoid)).toBeLessThan(1e-9);
   });
 
   it("with horizon 0, the candidates are not all tied -- moving the scene changes the answer (P29, R-P6)", () => {
@@ -246,16 +299,23 @@ describe("plan", () => {
       const fight: Omit<PlanArgs, "self"> = { ...base, horizonTicks: SHORT_HORIZON };
       const nose = selfAt(300, 360, -Math.PI / 2);
       const hundredfold: PlanWeights = {
-        myEv: 100, theirEv: 0, rangeError: 1, wallPenalty: 500, lockKeep: 50,
+        myEv: 100, theirEv: 0, rangeError: 1, wallPenalty: 500, lockKeep: 50, threatAvoid: 0,
       };
 
       const neutral = plan({ ...fight, self: nose, commitPenalty: 0 });
       const rival = neutral.runnerUp;
       expect(rival).not.toEqual(neutral.action);
 
-      const asShipped = plan({ ...fight, self: nose, commitPenalty: 0.8, lastAction: rival });
+      // 0.95, not the 0.8 this shipped at when the test was written: since R-P7 began scoring the
+      // whole arc, `myEv` reads the best moment along each candidate rather than its terminus, and
+      // the winner's margin over the runner-up in THIS scene grew as a fraction of the spread. The
+      // property under test is unchanged and is not that number — it is that ONE value makes the
+      // SAME call at both weight scales, which is what a fraction-of-the-spread bonus buys and what
+      // a raw addend could not. (0.4 is now the largest shipped value; see `commitPenalty`.)
+      const bonus = 0.95;
+      const asShipped = plan({ ...fight, self: nose, commitPenalty: bonus, lastAction: rival });
       const scaled = plan({
-        ...fight, self: nose, weights: hundredfold, commitPenalty: 0.8, lastAction: rival,
+        ...fight, self: nose, weights: hundredfold, commitPenalty: bonus, lastAction: rival,
       });
       expect(asShipped.action).toEqual(rival);
       expect(scaled.action).toEqual(rival);

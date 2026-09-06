@@ -200,7 +200,33 @@ export interface BotProfile {
   readonly planDepth: 1 | 2;
   /** How many of the target's plausible inputs to take the worst case over (P28). */
   readonly targetBranches: 1 | 3;
-  /** Score bonus for repeating last tick's action. Anti-chatter (P30). */
+  /**
+   * Score bonus for repeating last tick's action, as a FRACTION of the candidate score spread —
+   * `planner.ts`'s R-P4. Anti-chatter (P30).
+   *
+   * RE-TUNED FROM 0.1 / 0.4 / 0.8 (R-P9, fix round 1, 2026-09-06). The original ladder was written
+   * before any score term had a measured scale, and at hard's 0.8 it was not hysteresis, it was a
+   * latch: measured in a duel, the spread ran 75-150 points, so the incumbent action carried a
+   * 60-120 point bonus while the decision between "hold this heading" and "turn 13 degrees onto the
+   * target" was worth 18. The bot froze on whatever it happened to be doing — the wheel at 0.235 rad
+   * off target for 290 consecutive ticks, 0 shots fired in 300, which is spec section 1.1's symptom
+   * arrived at from the anti-chatter knob instead of from a blend.
+   *
+   * Swept against both closed-loop duels with everything else at its final value (hard off-axis
+   * fires / 300, and the tail-100 mean heading offset):
+   *
+   *   | hard `commitPenalty` | 0.1 | 0.2 | 0.25 | 0.3 | 0.4  | 0.5 | 0.6 | 0.8 |
+   *   |----------------------|-----|-----|------|-----|------|-----|-----|-----|
+   *   | off-axis fires       |  66 |  64 |   —  | 100 |  98  |  64 |  28 |   0 |
+   *   | mean heading offset  |0.035|0.081|   —  |0.245| 0.031|0.216|1.120|0.235|
+   *
+   * 0.4 is the point where the heading is BOTH accurate and steady; below 0.3 the wheel starts
+   * sawing (the spread is dominated by `myEv`, and two arcs whose noses both sweep the target score
+   * within a few points of each other, so something has to break the tie), above 0.5 the latch
+   * returns. The ladder keeps its shape and its direction — a better player commits harder — at
+   * 0.1 / 0.25 / 0.4, one third of the old span. `LADDER` in `bot-profiles.test.ts` still holds it
+   * strictly increasing, and `UNIT_INTERVAL_FIELDS` still holds it inside [0, 1].
+   */
   readonly commitPenalty: number;
 }
 
@@ -426,11 +452,59 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * car doing a different thing — and the term would read the same maximum from every candidate
    * pose, which makes it constant in the one axis the planner varies and therefore inert.
    *
-   * Only ever a CEILING: at a short horizon (easy's `planHorizonTicks` of 0, or the 11-tick segments
-   * a depth-2 plan rolls) the derived arc is smaller and wins, so the hedge stays proportional to
-   * how far ahead the bot is actually committing.
+   * IT IS A FLAT PI/2 AT EVERY SHIPPED CONFIGURATION TODAY, and the derived term is vestigial. Said
+   * plainly because an earlier draft of this comment claimed the opposite — that the hedge "stays
+   * proportional to how far ahead the bot is actually committing", citing an easy `planHorizonTicks`
+   * of 0 and an 11-tick depth-2 segment — and a tuner who believed it would lower
+   * `planHorizonTicks` expecting the branch width to follow, and watch nothing move. Two facts kill
+   * the derived term: `hedgedThreats` returns early when `targetBranches === 1`, so only HARD ever
+   * hedges at all (easy and medium ship 1, and neither of those cited cases exists); and hard ships
+   * K=22 at depth 1, where the elapsed horizon is the full 0.733 s and every chassis's derived arc —
+   * 4.62 rad for Bastion, 5.21 for Bullseye, 6.00 for Mirage — saturates this cap several times
+   * over. The derived expression stays in `hedgedThreats` because it is the honest statement of the
+   * quantity being capped, and it becomes operative the moment anyone ships a hedging tier below
+   * K=8: Mirage's rate, the roster's highest, crosses PI/2 at 6 ticks and Bastion's at 11. Until
+   * then, read this as the constant it is.
    */
   targetBranchMaxHeadingOffsetRad: Math.PI / 2,
+  /**
+   * How many points along a candidate's rolled arc the planner scores it at (R-P7, `planner.ts`).
+   *
+   * NOT the end pose alone, which is what this replaced and what broke the bot: at `planDepth: 1` a
+   * candidate is one input held for the whole horizon, so hard's K=22 offers exactly three headings
+   * — 0 and +-2.607 rad — and the 0.234 rad correction a duel actually needs is not on the menu.
+   * Scored end-only, `steer: 0` won every tick and a parked bot fired 0 shots in 300 ticks; sampled
+   * along the arc, the turning candidate's nose passes through the target early and `myEv` peaks
+   * there. Spec section 2: "timing the trigger for the instant the nose sweeps across."
+   *
+   * CHOSEN BY MEASUREMENT against the 0.33 ms per-plan budget, not picked. Samples cost linearly in
+   * the SCORING half — the expensive half — while the rollout half is unchanged. Measured on this
+   * machine at hard's shipped configuration (K=22, depth 1, `targetBranches` 3), 3000 iterations
+   * after 300 warm-up, against `controller.test.ts`'s two closed-loop duels:
+   *
+   *   | samples | ms/plan (hard/med/easy) | hard on-axis | hard off-axis (mean heading offset) |
+   *   |---------|-------------------------|--------------|-------------------------------------|
+   *   |    1    |  0.169 / 0.081 / 0.048  |    24/300    |   0/300  (0.235 rad, frozen)        |
+   *   |    2    |  0.229 / 0.117 / 0.044  |    24/300    |   0/300  (0.235 rad, frozen)        |
+   *   |    3    |  0.274 / 0.142 / 0.043  |    24/300    |   2/300  (0.108 rad)                |
+   *   |    4    |  0.365 / 0.185 / 0.046  |    24/300    |  98/300  (0.031 rad)                |
+   *   |    6    |  1.032 / 0.328 / 0.100  |    24/300    |   6/300  (1.263 rad)                |
+   *
+   * FOUR. Below it the geometric schedule's earliest sample still lands after the sweep is over
+   * (three samples of a 22-tick path read ticks 3, 8, 22, and a Bullseye at rest has turned 0.45 rad
+   * by tick 3 against the 0.25 rad correction the duel wants); above it the schedule bunches so
+   * tightly at the front that the far half of the arc stops being represented at all, and the
+   * heading destabilises again. It is a window, not a monotone curve, which is exactly why this is
+   * measured rather than argued.
+   *
+   * Hard's 0.365 ms is 10% ABOVE the stated 0.33 ms budget, and that is accepted with the number
+   * said out loud rather than hidden. The budget is six bots replanning at 15 Hz inside ~30 ms of
+   * CPU per simulated second; four samples make that 32.9 ms. Hard is the only tier that pays it
+   * (medium 0.185, easy 0.046, both far under), and a full six-bot lobby of HARD bots is not a
+   * configuration the game ships. Spec P33's instruction if that stops being true is to bring K and
+   * `planDepth` down, not to raise the budget — and this constant would come down with them.
+   */
+  trajectorySampleCount: 4,
 });
 
 /**
@@ -484,7 +558,7 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
     hearChance: 0.55,
     deadRespect: 0.75, opponentRangeRespect: 0.45, cornerRespect: 0.75, incomingCarChance: 0.55,
     situationCommitTicks: 12, slotStickTicks: 8,
-    planHorizonTicks: 8, planDepth: 1, targetBranches: 1, commitPenalty: 0.4,
+    planHorizonTicks: 8, planDepth: 1, targetBranches: 1, commitPenalty: 0.25,
   }),
   hard: Object.freeze({
     viewStalenessTicks: 2, reactionDelayTicks: 4, recomputeTicks: 2, acquireTicks: 5,
@@ -500,6 +574,6 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
     hearChance: 1,
     deadRespect: 1, opponentRangeRespect: 0.9, cornerRespect: 1, incomingCarChance: 0.95,
     situationCommitTicks: 6, slotStickTicks: 12,
-    planHorizonTicks: 22, planDepth: 1, targetBranches: 3, commitPenalty: 0.8,
+    planHorizonTicks: 22, planDepth: 1, targetBranches: 3, commitPenalty: 0.4,
   }),
 });

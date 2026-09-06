@@ -56,6 +56,30 @@ describe("weightsFor", () => {
     }
   });
 
+  it("wants off an in-flight shot's line ONLY when evading (P40, R-P8)", () => {
+    // The reactive dodge is a different reflex from `theirEv`'s avoidance of a firing solution the
+    // opponent could take (P40 keeps both), and it belongs to exactly one play: `evade` is the
+    // situation a shot in the air PUTS the bot in. Any other play weighting it would have the bot
+    // abandoning a fight, a corner or a hunt to sidestep something it has already decided not to
+    // treat as an emergency.
+    const evade = weightsFor("evade", BOT_PROFILES.hard);
+    expect(evade.threatAvoid).toBeGreaterThan(0);
+    for (const id of ALL_SITUATIONS) {
+      if (id === "evade") continue;
+      expect(weightsFor(id, BOT_PROFILES.hard).threatAvoid, id).toBe(0);
+    }
+  });
+
+  it("weights the dodge heavily enough to actually move the car (R-P8)", () => {
+    // `threatAvoid` is a DISPLACEMENT in world units — roughly +-200 over hard's 22-tick horizon —
+    // so its weight has to be read against that scale, not against the 0-1 terms. The statement
+    // that matters: while a shot is in the air, a 100-unit sidestep must be worth more than the
+    // best shot the bot could take instead (`myEv` tops out near 75 EV/s). A dodge that loses that
+    // comparison is a mechanism the three dodge knobs describe and the car never performs.
+    const evade = weightsFor("evade", BOT_PROFILES.hard);
+    expect(evade.threatAvoid * 100).toBeGreaterThan(evade.myEv * 75);
+  });
+
   it("hands back a fresh object, so a caller cannot poison the shared table", () => {
     const a = weightsFor("fight", BOT_PROFILES.hard);
     a.myEv = -999;

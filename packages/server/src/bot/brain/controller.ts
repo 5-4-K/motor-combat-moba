@@ -460,12 +460,24 @@ export class HumanController implements BotController {
         : 1),
       aimSigmaRad: profile.aimErrorSigmaRad,
       preferredRange,
+      // R-P8, P40: the reactive dodge, restored as a score term. `shotThreats` was computed above
+      // for `classifySituation`'s `evade` clause and is passed straight through — the same list,
+      // already filtered by `dodgeChance` and `dodgeReactionTicks` inside `perceive`/`activeThreats`,
+      // so those three knobs still decide WHETHER the bot reacts and this only decides HOW. Passing
+      // it moves no `rng()` draw: `activeThreats` is a filter over already-drawn state and this call
+      // site takes the same argument on every branch, empty list included (H21).
+      shotThreats,
       weights: weightsFor(sit, profile),
       horizonTicks: profile.planHorizonTicks,
       depth: profile.planDepth,
       targetBranches: profile.targetBranches,
       commitPenalty: profile.commitPenalty,
       lastAction: this.lastAction,
+      // R-P7c: `applyHumanize`'s delay line holds this decision for `reactionDelayTicks` before it
+      // reaches the wheels, so the planner rolls from the pose the bot will be in by then. The
+      // profile field is the single source of that number — the planner never learns which tier it
+      // is, only how much dead time it has (H8).
+      actuationDelayTicks: profile.reactionDelayTicks,
       tick,
       arena: view.arena,
     });
