@@ -37,7 +37,11 @@ facts, and worse hands.
    reads 0 while you are pointed straight at it from inside your weapon's reach, stop: that is a
    solver bug, not a tuning problem.
 3. Name the **factor**: judgment (dead, ranges, corner, ult save, dodge notice) vs hands (aim,
-   steer, blunder) vs the solver itself (hit chance, value — not a knob).
+   steer, blunder) vs **prediction** (how well it reads your speed and turn rate —
+   `stateEstimationSigma`, `bot/brain/predict.ts`) vs the solver itself (hit chance, value — not a
+   knob). Prediction and hands are different faculties and have different knobs: a bot that leads a
+   TURNING car wrongly is reading the curve wrong; a bot that sprays at one driving STRAIGHT has bad
+   hands. `aimErrorSigmaRad` will not fix the first.
 4. Name the **tier** they complained about. Do not "fix Hard" by changing Easy unless they asked.
 5. Propose **one knob, one direction, the current value → the new value**, with a one-line why.
    Wait for them to confirm before editing — same as weapon-forger.
@@ -55,6 +59,7 @@ say so.
 |---|---|---|
 | "medium is too hard to hit" | hands | Raise `aimErrorSigmaRad` on **medium**. `minShotValueFraction` is not a straightforward easier/harder dial: lowering it widens what the bot will attempt (more, worse shots); raising it makes the bot *pickier and therefore MORE deadly per shot* — it is not the knob to reach for "easier to hit" |
 | "hard tracks me perfectly" | hands | Same on **hard** |
+| "it misses me when I turn" | hands (prediction) | `stateEstimationSigma` down on that tier. Not `aimErrorSigmaRad` — that is steady-state hands, this is reading a curve. Lead is solved from the real drive model now (`bot/brain/predict.ts`), so the only tier dial on it is how wrong the bot's read of your speed and turn rate is (easy 0.25, medium 0.1, hard 0.03) — down to lead a turn better, up to lead it worse. `leadFactor` no longer exists; do not propose it |
 | "hard isn't attacking / holds fire" | fire threshold | Lower `minShotValueFraction` on **hard** — but check the EV picture first (Path step 2): a bot in `fight` correctly declining shots below `minShotValueFraction * bestAchievableValueOf(carId, sigma)` is not the same bug as one that should be firing |
 | "isn't attacking even when I don't have ult" | their ult is irrelevant | They mean the bot's own guns. Same as holds-fire. Do **not** drop `ultDisciplineChance` unless they also waste / never use the 5s gun |
 | "wastes ult" / "ults my corpse" | judgment | Raise `deadRespect` (corpse); raise `ultDisciplineChance` (live full-HP dump) |
@@ -66,6 +71,11 @@ say so.
 | "it runs away from nothing" | judgment (anticipatory `evade`) | `opponentRangeRespect` down on the complained-about tier is the first dial; `BRAIN_CONSTANTS.dangerEvadeFraction` up or `dangerEvadeCooldownTicks` up narrow the anticipatory term further. Read the overlay's `danger` reading first (Path step 2) — if it is genuinely nonzero this is a threshold/frequency tune, not a bug |
 | "it walks into obvious fire" | judgment (anticipatory `evade`) | `opponentRangeRespect` up. If the overlay's `danger` reads 0 while you are aimed at it from inside your weapon's reach, that is a solver bug in `dangerEvAgainst` (`bot/brain/solution.ts`) — stop tuning and say so |
 | "easy and hard feel the same" | not a single knob | Read `packages/server/src/bot/brain/tiers.test.ts`. If green, the values are too close — move several judgment+hands knobs apart, still no `if (hard)` |
+
+`stateEstimationSigma` is a FRACTION, not a probability — a value above 1 is a wild misread, not an
+invalid one. It is deliberately outside `personality.ts`'s `UNIT_INTERVAL_FIELDS` and
+`bot-profiles.test.ts`'s `PROBABILITY_FIELDS`, exactly as `aimErrorSigmaRad` is. Do not add it to
+either list to "fix" a value you pushed past 1.
 
 The two `evade`-overreacting rows above mix one per-tier dial (`opponentRangeRespect`) with two
 knobs that are **not** per-tier: `BRAIN_CONSTANTS.dangerEvadeFraction` and `dangerEvadeCooldownTicks`
