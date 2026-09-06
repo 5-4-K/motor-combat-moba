@@ -864,7 +864,7 @@ keep hand-in-sync as more arenas land.
 
 | id | width × height | obstacles | palette |
 |---|---|---|---|
-| `arena-01` | 1280 × 720 | 0 | none — uses the client's default palette |
+| `arena-01` | 1280 × 720 | 0 | `#3b4747` floor / `#4a5568` obstacle / `#2d3436` border |
 | `arena-02` | 2000 × 2000 | 6 | `#d8cfc4` floor / `#6b5b4b` obstacle / `#2f2a26` border |
 
 `arena-01` is one open rectangle with nothing in it, sized to the client's logical canvas so that at

@@ -246,10 +246,11 @@ const LOCK_WIDTH = 2;
  * same three seconds, on the bar directly under the arrow, so the marker and the bar say "you" in
  * one voice.
  *
- * It replaced an off-white that sat too close to the arena floor to read. Anything painted on this
- * floor has to clear a light, low-contrast ground; that is the constraint to test against if this is
- * ever re-picked, and `ARENA_COLOR_DEFAULTS.floor` (`arena-visual.ts`, 0xEBEBEB) is the ground in
- * question — an arena may override it, so a colour that only just clears the default is not safe.
+ * It replaced an off-white that sat too close to the arena floor to read. The ground it has to
+ * clear is whichever floor the arena declares, and the two shipped arenas sit on opposite sides of
+ * mid: `ARENA_01`'s dark slate `#3b4747` and `ARENA_02`'s cream `#d8cfc4`, with
+ * `ARENA_COLOR_DEFAULTS.floor` (`arena-visual.ts`, 0xEBEBEB) behind any arena that declares none.
+ * A colour re-picked against only one of those is not safe.
  *
  * Near-opaque — it is only ever on screen while nothing is moving.
  */
