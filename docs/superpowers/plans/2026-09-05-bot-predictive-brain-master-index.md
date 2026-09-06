@@ -120,8 +120,8 @@ this up fresh should:
 | # | Plan | Status | Date | Notes |
 |---|---|---|---|---|
 | 1 | `bot-brain-1-firing-solutions` (B) | **Done** | 2026-09-06 | Validation run; whole-branch review clean after one fix wave. `BOT_BRAIN_VERSION` 4.0.0. See below. |
-| 2 | `bot-brain-2-threat-and-cooldowns` (C) | Not started | — | Allowed |
-| 3 | `bot-brain-3-physics-prediction` (A) | Not started | — | Blocked on 1 (done) — allowed after 2 |
+| 2 | `bot-brain-2-threat-and-cooldowns` (C) | **Done** | 2026-09-06 | Validation 1-2 run (root `npm test` green; build inlines `// ../shared/dist/`); 3-5 are hands-on playground checks left to the user. Whole-branch review clean after one fix wave. `BOT_BRAIN_VERSION` 4.1.0. See below. |
+| 3 | `bot-brain-3-physics-prediction` (A) | Not started | — | Allowed |
 | 4 | `bot-brain-4-planner` (D) | Not started | — | Blocked on 2, 3 |
 
 ### What plan 1 changed, and what later plans inherit
@@ -138,6 +138,57 @@ this up fresh should:
   when the planner replaces bang-bang steering.
 - Spec corrections made during execution: §1.1's severity, P35's phase column, P36's threshold
   semantics, P50's fire-volume claim. Read the spec, not this summary, before starting plan 2.
+
+### What plan 2 changed, and what later plans inherit
+
+- `readinessOf(state, sessionId, weaponId, tick, profile)` in `perception.ts` estimates how loaded a
+  bot BELIEVES an enemy weapon is, 0..1. Its backing map was renamed `ultSeenTick` → `firedSeenTick`:
+  the old name lied about its contents, which always held every weapon seen fired, not only ults.
+- **`readinessOf` reaches back only `memoryTicks`** (15/45/90), while the roster's four big guns
+  recharge over 390–600 ticks. A hard bot therefore discounts a watched `lance` for 3 s of its 16 s
+  downtime and then believes it is loaded again. P16's *"break his lance line"* is **not delivered by
+  this phase.** The direction is conservative (danger is over-read, never under-read); giving
+  press-memory its own horizon is the fix if a later phase wants that behaviour.
+- `dangerEvAgainst` in `solution.ts` is `solve()` with its arguments swapped, summed over the
+  opponent's chassis kit and weighted by believed readiness. Two unknowables are ASSUMED, both in the
+  conservative direction: their lock is assumed absent (which lowers danger, so the bot never
+  flinches from a lock the opponent does not hold), and their aim error is
+  `BRAIN_CONSTANTS.assumedOpponentAimSigmaRad`, 0.06. Note 0.06 sits *above* hard's own 0.035, so a
+  hard bot under-reads danger from another hard bot.
+- **The anticipatory evade is four gates, and phase D deletes all of it.** It fires only when the bot
+  is not pinned, is alive and not phased, has `opponentRangeRespect > 0`, has `danger > 0`, clears a
+  120-tick refractory, and `danger * opponentRangeRespect >= bestValue * dangerEvadeFraction` — where
+  `bestValue` is the best `value` among its OWN ready solutions at its CURRENT pose. Read that as
+  *"am I losing this exchange from here"*, not *"could anyone shoot me"*. Phase C adds **no**
+  `BotProfile` field: `opponentRangeRespect` was repurposed as the danger weight (P38), and the other
+  two knobs are shared `BRAIN_CONSTANTS`.
+- **Why four gates, and why it is temporary.** `evade` is priority index 2 in `ALL_SITUATIONS` and
+  cuts in with no commit delay — an immediacy calibrated for the EVENT *"a shot is in the air"*.
+  Danger is a STANDING condition, true through most of a duel, so every simpler binding starved the
+  lower situations. Measured on `balance/match.test.ts`'s hard deathmatch fixture across seeds 1–150:
+  an absolute threshold gave 1–2 decisive kills, the refractory recovers 17, and disabling the term
+  entirely gives 20 — at n=150 the last two are one noise band. **The spec always put this quantity
+  in the phase-D PLANNER as a continuously-weighted score term (P16, P26, P27, P38), and P27 deletes
+  every gate, constant and controller field listed above.** Treat it as an interim binding, not a
+  design to build on.
+- One trap worth carrying forward: the gate's comparison is **vacuously true when both sides read
+  zero**, and separately when only `bestValue` is zero. Those are what the `danger > 0` and
+  `opponentRangeRespect > 0` clauses close. The second was a shipped bug caught by the final review —
+  easy's `opponentRangeRespect` of 0 made `0 >= bestValue` true whenever no slot was ready, so easy
+  evaded *more* than hard (16.7% of a fight against 5%), inverting the ladder while five documents
+  claimed easy was structurally immune.
+- `BotDebug.dangerEv` reaches the playground overlay for real — `BotDebugPayload`, its guard,
+  `PlaygroundRoom`'s broadcast and `overlay.ts`, which now prints
+  `personality | situation | range N | slot K | danger N`. That reading is the phase's durable
+  deliverable and survives P27.
+- Known gaps left standing, all pre-existing or deliberately deferred: `BRAIN_CONSTANTS` is **not**
+  hashed by `botFingerprint` (`balance/fingerprint.ts` covers only `BOT_PROFILES` and
+  `BOT_BRAIN_VERSION`), so a `BRAIN_CONSTANTS`-only retune leaves two balance reports comparable when
+  they are not; `observedFires` is not viewport-filtered, so on `arena-02` a bot records presses it
+  could not see; and `balance/match.test.ts`'s first deathmatch test still pins ONE seed, reseeded
+  five times across five brain changes, where its sibling long ago moved to a spread.
+- `docs/superpowers/plans/2026-09-05-bot-brain-4-planner.md` still names
+  `this.effectiveProfile.minShotValue`, a field renamed in plan 1. Fix it before executing plan 4.
 
 ---
 
