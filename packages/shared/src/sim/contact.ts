@@ -126,8 +126,9 @@ function isCharger(c: ContactCar): boolean {
  * After the pair loop, every DASH car is swept against level geometry for `wallBlockedDashers`.
  *
  * `impulses` is keyed by VICTIM id, each entry carrying the `attackerId` alongside the resolved
- * push (`ImpulseEntry`) — the caller needs to know who threw it to apply the equal-and-opposite
- * reaction, and only this pass is in a position to say which side of a pair was the attacker.
+ * push (`ImpulseEntry`) — the caller needs to know who threw it to apply the matching
+ * `attackerImpulse` to the right player, and only this pass is in a position to say which side of a
+ * pair was the attacker.
  */
 export function resolveContacts(
   cars: readonly ContactCar[],

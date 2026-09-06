@@ -45,6 +45,14 @@ export interface RamCar {
    * velocity makes every drive-in term wrong on exactly the ticks a hull overlapped. That is not
    * hypothetical: it shipped, and it cost 80-90% of all rams until `playtest/ram.ts` measured the
    * trigger rate.
+   *
+   * `TickResult.approachVelocities` does not exist yet — controller decision C2 (stage 3 Task 2)
+   * deferred that widening to Task 4. Today `TickResult.approachSpeeds` still carries only each
+   * car's PRE-COLLISION FORWARD component, and `ram-bridge.ts`'s `contactCarsOf` rebuilds a full
+   * `vx`/`vy` from it with `toWorld(player.angle, approachSpeeds.get(sessionId) ?? ..., 0)` — a shim
+   * that is exactly right while nothing can drive sideways into a ram, and wrong the moment a lateral
+   * pre-collision component matters. Task 4 widens `TickResult` to a real `approachVelocities` and
+   * this shim goes away.
    */
   vx: number;
   vy: number;
@@ -167,8 +175,11 @@ export function resolveRam(a: RamCar, b: RamCar, mode: "ffa" | "team"): RamHit |
   // Points from the victim toward the attacker: what the side classification reads.
   const towardAttacker: Vec2 = { x: -towardVictim.x, y: -towardVictim.y };
 
-  const attackerDriveIn = driveInOf(attacker, towardVictim);
-  const victimDriveIn = driveInOf(victim, towardAttacker);
+  // `driveInOf(attacker, towardVictim)`/`driveInOf(victim, towardAttacker)` would recompute exactly
+  // `approachA`/`approachB` above — same cars, same directions, just relabelled by which one won
+  // `aAttacks` — so reuse them instead of dotting the same vectors twice.
+  const attackerDriveIn = aAttacks ? approachA : approachB;
+  const victimDriveIn = aAttacks ? approachB : approachA;
   if (attackerDriveIn + victimDriveIn <= RAM_CONFIG.minApproachSpeed) return null;
 
   const attackerPush = pushOf(attacker, attackerDriveIn);
@@ -195,7 +206,11 @@ export function resolveRam(a: RamCar, b: RamCar, mode: "ffa" | "team"): RamHit |
       dirY: towardVictim.y,
       speed: victimImpact,
       spin: 1,
-      defenceScaled: false, // the contest already divided by ramDefence; see the note in impulse.ts
+      // `impactOn` already divided by the victim's own `ramDefence` above, so `false` here stops
+      // `applyImpulse` (`sim/impulse.ts`) dividing a second time. The flag exists for impulses whose
+      // magnitude was NOT built from a contest — a weapon reading fixed numbers off its own row
+      // (stage 4) — which DO need the applier to divide.
+      defenceScaled: false,
       uncontrolTicks: 0, // stage 3b fills this in
       contactX: contact.x,
       contactY: contact.y,

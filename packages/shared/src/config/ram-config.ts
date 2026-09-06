@@ -77,18 +77,19 @@ export const RAM_CONFIG = {
    */
   authorityFloor: 0.35,
   /**
-   * **SUPERSEDED as of 2026-09-06.** The equal-and-opposite reaction this comment measures —
-   * `reactionOf` negating and mass-scaling a copy of the victim's `Impulse` back onto the attacker —
-   * is being replaced by a contest model: each car brings a push into the collision from its
-   * `attack` rating times the speed it is driving into the impact, plus a scaled contribution from
-   * its `defence` rating, and each car's received impact is computed directly from the *other*
-   * car's push (scaled by its share of the contest, the face bonus, and divided by its own
-   * `defence`) — never derived by negating its own. `mass` is being removed from the game entirely,
-   * replaced by per-car `attack` and `defence` stats, so every mass figure below
+   * INERT — reads nothing since stage 3 Task 2 (the ram contest, spec R2-R7/R9) landed. The
+   * severity-graded model this value belonged to (`severity * knockMaxSpeed * massFactor`) is gone:
+   * `resolveRam` now resolves an open-ended contest between both cars' `ramAttack`/`ramDefence`
+   * pushes (`pushOf`/`impactOn` in `sim/ram.ts`), and neither `knockMaxSpeed` nor `massFactorMax`
+   * reaches the ram path at all any more. `mass` itself is gone from ramming — replaced outright by
+   * the per-car `ramAttack`/`ramDefence` ratings — so every mass figure below
    * (`massFactorMin`/`massFactorMax`, `RAM_REFERENCE_MASS`, the table's mass column) measures a
-   * rating that is going away. `docs/superpowers/specs/2026-09-06-car-physics-rework-design.md` is
-   * the authority for where this is headed; the measurements below stay accurate about the code as
-   * it stands today and are kept for anyone debugging current behaviour.
+   * rating the contest no longer reads. `docs/superpowers/specs/2026-09-06-car-physics-rework-design.md`
+   * is the authority for where this went; the measurements below are HISTORICAL — accurate about the
+   * pre-Task-2 code, not the code as it stands today — and are kept for anyone debugging the old
+   * behaviour or diffing against it. `ram-config.test.ts` still pins this constant's value, and it is
+   * not on the interfaces ledger's deletion list, so it is not deleted here. A future task may retire
+   * it outright once nothing needs the historical comparison any more.
    *
    * Peak knock impulse (expressed as a speed) at severity 1.0, before the victim mass factor.
    *

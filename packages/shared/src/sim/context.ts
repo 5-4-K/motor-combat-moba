@@ -86,14 +86,16 @@ export function carIdOf(player: Pick<ContextPlayer, "carId">): CarId {
  * to shove. This car's OWN mass is a separate fact — `StepContext.selfMass` — because it describes
  * the body being resolved, not one of the obstacles it is resolved against.
  *
- * **Deliberately chassis-mass-only, unlike the other two mass sites in ram maths.** This is bare
- * `massOf(carIdOf(player))`, not `ram.ts`'s `effectiveMassOf` / `ram-bridge.ts`'s `massFor` — neither
- * of which this function has access to, since ordinary driving has no `Modifiers` map in scope the
- * way `serverTick`'s ram-adjacent code does. So a `ramMass` status buff changes how hard a car rams
- * and how easily it is rammed, but NOT how much ground it gives up in the ordinary, non-ram
- * car-vs-car separation `resolveWorld` runs on every touching pair. Latent rather than a live bug
- * today — no shipped `STATUS_TABLE` row carries a `ramMass` channel — but the two lockstep halves
- * (server and client prediction) both read this same function, so they still agree with each other.
+ * **Deliberately chassis-mass-only, unlike the other two places a `ramMass` status buff reaches ram
+ * maths.** This is bare `massOf(carIdOf(player))`, not `ram.ts`'s `RamCar.defenceMult` (the same
+ * `ramMass` channel, folded into the contest's push and divisor by `pushOf`/`impactOn`) or
+ * `ram-bridge.ts`'s `massFor` (feeding `applyImpulse`'s inertia term) — this function has access to
+ * neither, since ordinary driving has no `Modifiers` map in scope the way `serverTick`'s ram-adjacent
+ * code does. So a `ramMass` status buff changes how hard a car rams and how easily it is rammed, but
+ * NOT how much ground it gives up in the ordinary, non-ram car-vs-car separation `resolveWorld` runs
+ * on every touching pair. Latent rather than a live bug today — no shipped `STATUS_TABLE` row carries
+ * a `ramMass` channel — but the two lockstep halves (server and client prediction) both read this
+ * same function, so they still agree with each other.
  *
  * **`entries` must be sorted by `sessionId`, and the resulting order is load-bearing rather than
  * cosmetic:** `resolveWorld` applies contacts sequentially over `others`, and the last contact

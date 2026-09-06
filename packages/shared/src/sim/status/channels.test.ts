@@ -306,6 +306,10 @@ describe("weaponCooldown reaches the three refire clocks and no others", () => {
 });
 
 describe("ramMass reaches the ram, both as the victim's defence AND (via the attacker's own ramDefence term) its push", () => {
+  // Both cases below stay end-to-end through `resolveRam` + `applyImpulse` on purpose, even though
+  // only the first case's claim actually needs the composition: see that test's own comment for why
+  // `defenceMult` reaching `pushOf`'s attacker term is the whole story there, and mass contributes
+  // nothing to it.
   function car(over: Partial<RamCar> = {}): RamCar {
     return { sessionId: "a", team: 0, x: 0, y: 0, angle: 0, vx: 0, vy: 0, carId: CAR, defenceMult: 1, ...over };
   }
@@ -323,12 +327,16 @@ describe("ramMass reaches the ram, both as the victim's defence AND (via the att
 
   it("makes a buffed victim harder to shove", () => {
     // `resolveRam` never divides victim MASS out at all — mass has never been part of the contest
-    // (`ramAttack`/`ramDefence` replaced it entirely). `applyImpulse` is the single place a chassis's
-    // `mass` rating enters, so this is an end-to-end check: `ramMass` reaches the ram TWICE — once
-    // through `RamCar.defenceMult` (raising the victim's own `ramDefence` term, which lowers the
-    // impulse it takes per `impactOn`'s division), and again through `ram-bridge.ts`'s `massFor`
-    // feeding `applyImpulse` the same buffed mass. Both effects push the same direction (a buffed
-    // victim moves less), so this proves the composed behaviour rather than isolating either half.
+    // (`ramAttack`/`ramDefence` replaced it entirely). The impulse is `defenceScaled: false` (the
+    // contest already divided by `ramDefence`), so `applyImpulse`'s `massFactorOf` returns 1
+    // regardless of what `mass` it is handed — the `* defenceMult` on the mass argument below is
+    // inert, NOT a second application of the buff via `applyImpulse`. The whole effect measured here
+    // comes from `resolveRam` alone: raising the victim's `defenceMult` raises its own `pushOf` term
+    // (more of the total contest is now "its" push, shrinking the SHARE of the attacker's push
+    // `impactOn` charges it) and separately raises the divisor `impactOn` scales by
+    // (`ramDefenceOf(victim) * victim.defenceMult`). Both effects point the same direction (a buffed
+    // victim moves less), so this proves `pushOf`+`impactOn`'s composed behaviour, still run
+    // end-to-end through `applyImpulse` to match how `ram-bridge.ts` actually applies a ram.
     const attacker = car({ vx: 400, vy: 0 });
     const plainVictim = car({ sessionId: "b", x: 47 });
     const heavyVictim = car({ sessionId: "b", x: 47, defenceMult: 1.5 });

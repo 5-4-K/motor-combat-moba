@@ -65,7 +65,7 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
     );
     expect(heavy.events.slams).toHaveLength(1);
     // `resolveContacts` no longer divides victim mass out at all (Task 4: that is `applyImpulse`'s
-    // job, and a slam opts out of it anyway via `massScaled: false`) — `impulse.speed` is the
+    // job, and a slam opts out of it anyway via `defenceScaled: false`) — `impulse.speed` is the
     // un-mass-scaled magnitude, and it must be identical for a bastion and a bullseye victim.
     expect(heavy.impulses.get("b")!.impulse.speed).toBeCloseTo(SLAM_CONFIG.knockSpeed);
     expect(light.impulses.get("b")!.impulse.speed).toBeCloseTo(SLAM_CONFIG.knockSpeed); // no mass factor

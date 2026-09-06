@@ -72,7 +72,12 @@ function tunneling(): void {
         `${passedThrough ? "TUNNELED" : "blocked"}`,
     );
   }
-  // 260 * 1.6 is knockMaxSpeed * massFactorMax: the hardest shove the shipped ram can write.
+  // 260 * 1.6 was knockMaxSpeed * massFactorMax — the hardest shove the OLD severity-graded ram
+  // could write. As of stage 3 Task 2 (the ram contest, spec R9), the ram magnitude is the
+  // open-ended contest output (`pushOf`/`impactOn` in `sim/ram.ts`), not
+  // `severity * knockMaxSpeed * massFactor` — `knockMaxSpeed` and `massFactorMax` no longer reach
+  // the ram path at all, so this bound no longer describes what the shipped ram can write. Left
+  // as-is (not this task's number to move); stage 5 re-derives it.
   const maxRamShove = 260 * 1.6;
   report(
     "1. Car-car tunneling at extreme closing speed",
@@ -230,9 +235,16 @@ function ramIntoWall(): void {
  * `RAM_CONFIG.minApproachSpeed` writes no knock at all — so a silent car that is nudged slowly is
  * never stepped, never resolved, and cannot be pushed out of an overlap. Does that let a driver
  * bury themselves in a parked car?
+ *
+ * As of stage 3 Task 2 (spec R9), `minApproachSpeed` ships at 0 — deliberately inactive — so this
+ * gate no longer exercises the path it was written for: any drive-in at all now clears it, and this
+ * scenario's own feathered-throttle setup (staying near 40 u/s) no longer stays "under the ram
+ * threshold" in any meaningful sense. Left running rather than reworked; stage 5 owns it.
  */
 function silentWall(): void {
-  // Approach slowly enough to stay under minApproachSpeed (60 u/s) at the moment of contact.
+  // Originally: approach slowly enough to stay under minApproachSpeed (60 u/s) at the moment of
+  // contact. That threshold ships at 0 now (spec R9, see the doc comment above), so this no longer
+  // stays under any live gate — it just happens to be a gentle approach. Left as-is; stage 5 owns it.
   const w = new PlaytestWorld([
     { id: "mover", carId: "mirage", x: 640 - W - 30, y: 360, angle: 0 },
     { id: "parked", carId: "mirage", x: 640, y: 360, angle: 0 },
@@ -240,7 +252,9 @@ function silentWall(): void {
   let maxDepth = 0;
   let knockWritten = false;
   for (let i = 0; i < 200; i++) {
-    // Feather the throttle: pulse on/off so speed hovers around 40 u/s, below the ram threshold.
+    // Feather the throttle: pulse on/off so speed hovers around 40 u/s. This used to stay below the
+    // ram threshold (60 u/s); with minApproachSpeed at 0 (spec R9) there is no threshold to stay
+    // below any more.
     w.input("mover", { throttle: i % 6 === 0 ? 1 : 0 });
     w.tick();
     const p = w.get("parked");

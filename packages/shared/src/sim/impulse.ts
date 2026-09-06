@@ -6,11 +6,13 @@ import type { SimBody } from "./step.js";
  * One push, fully resolved — and the ONLY way anything outside the drive model changes a car's
  * velocity.
  *
- * Ram and weapons derive their impulses completely differently: ram grades one from relative
- * closing speed, a side bonus, mass and a falloff stack, while a weapon reads fixed numbers off its
- * own row. Neither of those derivations lives here. What lives here is how an impulse LANDS, which
- * is the only part they share — so ram feel and weapon feel stay independently tunable while a fix
- * to the physics benefits both. See spec principle D.
+ * Ram and weapons derive their impulses completely differently: since stage 3 Task 2 (the ram
+ * contest, spec R2-R7), ram grades one from a contest between both cars' `ramAttack`/`ramDefence` —
+ * each car's own drive-in plus a defence term, shared out and adjusted for the struck face
+ * (`sim/ram.ts`'s `pushOf`/`impactOn`) — while a weapon reads fixed numbers off its own row. Neither
+ * of those derivations lives here. What lives here is how an impulse LANDS, which is the only part
+ * they share — so ram feel and weapon feel stay independently tunable while a fix to the physics
+ * benefits both. See spec principle D.
  */
 export interface Impulse {
   /** Unit vector: the direction the victim is pushed. */
@@ -20,7 +22,14 @@ export interface Impulse {
   speed: number;
   /** Torque scale from the lever arm. 0 = a clean punt with no rotation. */
   spin: number;
-  /** Does the victim's mass reduce the displacement? */
+  /**
+   * Does the victim's mass reduce the displacement? Named for where this field is going, not where
+   * it is: `massFactorOf` (below) still literally divides by MASS today, unchanged by the C1 rename
+   * (name-only — see `ram.ts`'s and `ram-config.ts`'s doc comments) — Task 3 is what makes the
+   * divisor `ramDefence` and this field's name accurate. The contest's own ram/slam impulses always
+   * author this `false` regardless (they already divided by `ramDefence` themselves); `true` is
+   * currently reachable only through the dead-code `reactionOf` below and this file's own tests.
+   */
   defenceScaled: boolean;
   /** How long the victim is left reeling, in TICKS (already converted). */
   uncontrolTicks: number;

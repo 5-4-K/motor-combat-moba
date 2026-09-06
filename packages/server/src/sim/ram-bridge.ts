@@ -87,10 +87,13 @@ export function clearKnock(player: PlayerState): void {
 
 /**
  * Zero the four maneuver fields alone, touching no velocity. Split out of `endDash` (below) for the
- * slam-attacker case (Task 4): that car's post-slam velocity is now written by the equal-and-opposite
- * `Impulse` reaction, in the same pass that resolves every other impulse this tick, and a maneuver
- * end must not stomp it back to a forced-forward speed the way `endDash` deliberately does for a
- * dash. Order between the two writes does not matter — they touch disjoint fields.
+ * slam-attacker case (Task 4): that car's post-slam velocity is written by the impulses loop's
+ * `entry.attackerImpulse`, in the same pass that resolves every other impulse this tick — as of
+ * stage 3 Task 2 (the ram contest) a slam's `attackerImpulse` is a deliberate zero-magnitude
+ * `Impulse` (a slam is authored, not contested, so the attacker takes nothing from its own hit), not
+ * an equal-and-opposite reaction to the victim's push. A maneuver end must not stomp that outcome
+ * back to a forced-forward speed the way `endDash` deliberately does for a dash. Order between the
+ * two writes does not matter — they touch disjoint fields.
  */
 function endManeuverOnly(player: PlayerState): void {
   player.maneuver = 0;
@@ -291,10 +294,12 @@ export function contactTick(
     if (attacker) {
       // O2: the charge ends on its first slam, taking its own self-applied statuses with it — a
       // power whose window closes early cannot leave a buff running past the thing that ended it.
-      // Velocity is NOT touched here (Task 4): the impulses loop above already applied this
-      // attacker's Newton's-third-law reaction to this exact slam — `SLAM_CONFIG.selfKeepFactor`'s
-      // hand-tuned forward-only restore is gone, replaced outright rather than reproduced. Only the
-      // maneuver fields need clearing, so `endManeuverOnly` rather than `endDash`.
+      // Velocity is NOT touched here (Task 4, and unchanged by stage 3 Task 2): the impulses loop
+      // above already applied this attacker's `attackerImpulse` for this exact slam — a
+      // zero-magnitude `Impulse`, not a Newton's-third-law reaction to the victim's push, so it
+      // changes nothing. `SLAM_CONFIG.selfKeepFactor`'s hand-tuned forward-only restore is gone,
+      // replaced outright rather than reproduced. Only the maneuver fields need clearing, so
+      // `endManeuverOnly` rather than `endDash`.
       endManeuverOnly(attacker);
       writeStatuses(
         attacker,

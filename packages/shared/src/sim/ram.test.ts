@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RAM_CONFIG } from "../config/ram-config.js";
-import { massOf, ramAttackOf } from "../config/car-config.js";
+import { massOf, ramAttackOf, ramDefenceOf } from "../config/car-config.js";
 import type { CarId } from "../config/types.js";
 import { applyImpulse } from "./impulse.js";
 import { applyRams, impactSideOf, pairKey, resolveRam, type RamCar } from "./ram.js";
@@ -238,10 +238,17 @@ describe("resolveRam", () => {
     expect(Math.abs(next.angVel)).toBeLessThan(RAM_CONFIG.spinMaxRate);
   });
 
-  it("shoves a light victim further than a heavy one for the identical ram", () => {
-    // `resolveRam` never divides victim mass out at all — this is an end-to-end check through
-    // `applyImpulse`, the single place mass enters (see that function's own tests in
-        // `impulse.test.ts` for the isolated version of this claim).
+  it("shoves a lower-ramDefence victim further than a higher-ramDefence one", () => {
+    // The two rams below are NOT "identical" — swapping the victim's chassis changes `ramDefence`
+    // (bastion carries the roster's highest), which changes what `impactOn` divides by, so
+    // `resolveRam` itself already returns a smaller `impulse.speed` for the bastion victim before
+    // `applyImpulse` ever runs. `resolveRam` never divides victim MASS out at all (`ramDefence`
+    // replaced it in the contest), and both impulses here are `defenceScaled: false` (the contest
+    // already divided by `ramDefence`), so `applyImpulse`'s own `massFactorOf` returns 1 for both and
+    // contributes nothing on top — the entire gap this test measures is `ramDefence`, not `mass`.
+    // Still run end-to-end through `applyImpulse`, to match how `ram-bridge.ts` actually applies a
+    // ram, rather than asserting on `impulse.speed` directly (`impulse.test.ts` covers
+    // `applyImpulse`'s own mass scaling in isolation, on impulses where it actually applies).
     const attacker = car({ sessionId: "a", carId: "bastion" as CarId, ...velocityAt(540, 0) });
     const light = car({ sessionId: "b", x: 47, carId: "mirage" as CarId });
     const heavy = car({ sessionId: "b", x: 47, carId: "bastion" as CarId });
@@ -287,11 +294,26 @@ describe("resolveRam", () => {
  */
 describe("the ram contest", () => {
   it("gives the whole impact to a car that brings no drive-in", () => {
-    // Attacker drives +x into a stationary victim's flank.
+    // Attacker drives +x into a stationary victim's flank. Hand-derived from the contest formula
+    // (`pushOf`/`impactOn` in ram.ts) against the live mirage ratings and RAM_CONFIG constants, so
+    // this pins the actual claim rather than merely `> 0`:
+    //   attackerPush = ramAttack(mirage) * attackerDriveIn(300) + ramDefence(mirage) * defencePushScale
+    //   victimPush   = ramAttack(mirage) * 0                    + ramDefence(mirage) * defencePushScale
+    //   victimImpact = attackerPush * (attackerPush / (attackerPush + victimPush)) * bonusFlank
+    //                  * globalScale / ramDefence(mirage)
+    // The victim brings no drive-in, but its standing `ramDefence` term still counts toward the
+    // total the contest splits, so the attacker's share of that total (and hence of the impact) is
+    // large but not exactly 1 — pinning the derived number, not asserting "share ≈ 1", is what
+    // actually proves the maths rather than assuming it.
+    const attackerPush = ramAttackOf("mirage") * 300 + ramDefenceOf("mirage") * RAM_CONFIG.defencePushScale;
+    const victimPush = ramDefenceOf("mirage") * RAM_CONFIG.defencePushScale;
+    const expectedImpact =
+      (attackerPush * (attackerPush / (attackerPush + victimPush)) * RAM_CONFIG.bonusFlank * RAM_CONFIG.globalScale) /
+      ramDefenceOf("mirage");
     const hit = resolveRam(attackerAt(600, 300), victimAt(640, 300), "ffa");
     expect(hit).not.toBeNull();
     expect(hit!.attackerId).toBe("a");
-    expect(hit!.impulse.speed).toBeGreaterThan(0);
+    expect(hit!.impulse.speed).toBeCloseTo(expectedImpact, 6);
   });
 
   it("takes less impact when you drive into the hit than when you are stopped", () => {
@@ -310,16 +332,22 @@ describe("the ram contest", () => {
   });
 
   it("ignores a victim fleeing along the normal rather than crediting it negative push", () => {
+    const stopped = resolveRam(attackerAt(600, 300), victimAt(640, 300), "ffa");
     const fleeing = resolveRam(
       attackerAt(600, 300),
       { ...victimAt(640, 300), vx: 400, vy: 0 },
       "ffa",
     );
-    // driveIn clamps at 0, so a fleeing car brings only its standing defence push, and the attacker's
-    // own drive-in (unaffected by the victim's velocity) is still what names it the attacker.
+    // driveIn clamps at 0, so a fleeing car brings only its standing defence push — identical to a
+    // stationary one — and the attacker's own drive-in (unaffected by the victim's velocity) is
+    // still what names it the attacker. Asserting EQUALITY with the stationary case, rather than
+    // merely `> 0`, is what actually proves the clamp: if driveIn went negative instead of clamping,
+    // the fleeing victim's own push would be smaller, changing the split and the resulting impulse.
+    expect(stopped).not.toBeNull();
     expect(fleeing).not.toBeNull();
+    expect(stopped!.attackerId).toBe("a");
     expect(fleeing!.attackerId).toBe("a");
-    expect(fleeing!.impulse.speed).toBeGreaterThan(0);
+    expect(fleeing!.impulse.speed).toBe(stopped!.impulse.speed);
   });
 
   it("scales linearly with closing speed", () => {
@@ -352,11 +380,12 @@ describe("the ram contest", () => {
 
 /**
  * `resolveRam` hands back an `Impulse` rather than a knock struct with its own landed velocity.
- * "pushes the victim away from the attacker" and "scales the victim's displacement by mass" are
- * covered above in the `resolveRam` block ("shoves the victim away from the attacker",
- * "shoves a light victim further than a heavy one"); this block adds the two properties those don't
- * already exercise: the contest itself opts BOTH impulses out of `applyImpulse`'s own mass scaling
- * (it already divided by `ramDefence`), and the contact point is a real, geometry-derived lever arm.
+ * "pushes the victim away from the attacker" and "a lower `ramDefence` victim takes more of the
+ * same hit" are covered above in the `resolveRam` block ("shoves the victim away from the
+ * attacker", "shoves a lower-ramDefence victim further than a higher-ramDefence one"); this block
+ * adds the two properties those don't already exercise: the contest itself opts BOTH impulses out of
+ * `applyImpulse`'s own mass scaling (it already divided by `ramDefence`), and the contact point is a
+ * real, geometry-derived lever arm.
  */
 describe("resolveRam produces an Impulse", () => {
   it("never mass-scales either impulse — the contest already divided by ramDefence", () => {
