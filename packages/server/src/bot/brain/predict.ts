@@ -97,46 +97,68 @@ export function steerFromObservedTurn(angVel: number, carId: CarId): -1 | 0 | 1 
 }
 
 /**
- * The modifier set an OBSERVATION is rolled under: neutral except that the engine is switched off.
+ * The modifier set an OBSERVATION is rolled under: neutral except that both of the channels that
+ * would CHANGE a car's speed under a held throttle are switched off.
  *
- * This is what turns "hold the throttle down" into "hold the SPEED you were seen at". With
- * `accel: 0` and `throttle: 1`, `stepDrive`'s `accelerateForward` adds `chassis.accel * 0 * dt` and
- * `nextSpeed` never reaches `coast`, so neither the engine nor drag fires and the car keeps exactly
- * the speed that was observed — while rotation and translation still integrate through the real
- * drive model. `Modifiers.accel` is the sim's OWN multiplier channel (`sim/status/modifiers.ts`),
- * so this is a use of `stepDrive`, not a hack around it.
+ * This is what turns "hold the throttle down" into "hold the SPEED you were seen at". Both
+ * production call sites (`physicsPredictor` and `selfPredictor`, built in `controller.ts`'s `plan()`)
+ * pass `throttle: 1`, which sends `stepDrive` through `nextSpeed` into `accelerateForward` and
+ * nowhere else — never `coast` (drag), never `brakeOrReverse`. `accelerateForward` has exactly two
+ * branches, and this set zeroes the one term each one would move the speed by:
+ *
+ * - **`accel: 0`** covers the ROLLING-FORWARD branch (`speed >= -stopEpsilon`), which adds
+ *   `chassis.accel * mods.accel * dt`. Zeroed, the engine contributes nothing and the observed speed
+ *   is held.
+ * - **`brakeDecel: 0`** covers the ROLLING-BACKWARD branch (`speed < -stopEpsilon`), which is
+ *   `Math.min(0, speed + DRIVE_CONFIG.brakeDecel * mods.brakeDecel * dt)` — a held throttle brakes a
+ *   reversing car toward a dead stop. Zeroed, a reversing car keeps reversing at the speed it was
+ *   seen at. This channel is unreachable here for anything but a car already rolling backward: the
+ *   sim reads `mods.brakeDecel` in exactly two places (`sim/drive.ts`), and the other one is inside
+ *   `brakeOrReverse`, which only `throttle: -1` can enter — no production predictor passes that.
+ *
+ * Both are the sim's OWN multiplier channels (`sim/status/modifiers.ts`), so this is a use of
+ * `stepDrive`, not a hack around it. Rotation and translation still integrate through the real drive
+ * model in both directions.
  *
  * It exists because a bot cannot see another car's throttle. Rolling every observed target with the
  * engine ON assumes each one is flooring it toward its chassis maximum, which systematically
- * OVER-leads: measured for a Mirage against an independently integrated ground truth, at 20 / 45
- * ticks, the error in world units is
+ * OVER-leads; leaving `brakeDecel` live assumes every reversing car is about to stop dead, which
+ * systematically UNDER-leads by even more. Measured for a Mirage against an independently integrated
+ * ground truth, the error in world units at 20 / 45 / 90 ticks is
  *
- *   | observed speed | steer | `accel: 1` (engine on) | this set (speed held) | constant velocity |
- *   |----------------|-------|------------------------|-----------------------|-------------------|
- *   | 0 (stunned)    | 0     | 209 / 584              | 0 / 0                 | 0 / 0             |
- *   | 0 (stunned)    | 1     |  81 /  72              | 0 / 0                 | 0 / 0             |
- *   | 150            | 1     |  53 /  41              | 0 / 0                 | 114 / 230         |
- *   | 250            | 1     |  31 /  21              | 0 / 0                 | 190 / 384         |
- *   | 449.5 (top)    | 1     |   0 /   0              | 0 / 0                 | 342 / 690         |
+ *   | observed speed   | steer | engine on    | `accel: 0` alone | this set | constant velocity |
+ *   |------------------|-------|--------------|------------------|----------|-------------------|
+ *   | -292.2 (rev cap) | 0     | 292/910/2023 |   173/416/854    |  0/0/0   |     0/  0/   0    |
+ *   | -292.2 (rev cap) | 1     | 108/102/ 106 |    45/ 30/ 38    |  0/0/0   |   222/448/ 896    |
+ *   | -150             | 0     | 260/759/1658 |    95/220/445    |  0/0/0   |     0/  0/   0    |
+ *   | -150             | 1     |  97/ 89/  94 |    19/ 10/ 14    |  0/0/0   |   114/230/ 460    |
+ *   | 0 (stunned)      | 0     | 209/584/1258 |     0/  0/  0    |  0/0/0   |     0/  0/   0    |
+ *   | 0 (stunned)      | 1     |  81/ 71/  77 |     0/  0/  0    |  0/0/0   |     0/  0/   0    |
+ *   | 150              | 1     |  53/ 41/  48 |     0/  0/  0    |  0/0/0   |   114/230/ 460    |
+ *   | 250              | 1     |  31/ 21/  27 |     0/  0/  0    |  0/0/0   |   190/384/ 767    |
+ *   | 449.5 (top)      | 1     |   0/  0/   0 |     0/  0/  0    |  0/0/0   |   342/690/1379    |
  *
- * The stationary row is the one that mattered: a target `stunned` by `roadblock`, `thunderclap` or
- * the hard slam carries `fullStop` + `immobilised` and CANNOT move — which is the exact condition
- * `classifySituation` gates `punish` on. An engine-on rollout put the aim point hundreds of units
- * past it, every slot's `value` read ~0 against `targetAt(ahead)`, and `minShotValueFraction` made
- * the bot decline a free shot on a helpless car. This set holds it still, which is what a person
- * sees.
+ * The stationary row is the one that motivated `accel: 0`: a target `stunned` by `roadblock`,
+ * `thunderclap` or the hard slam carries `fullStop` + `immobilised` and CANNOT move — which is the
+ * exact condition `classifySituation` gates `punish` on. An engine-on rollout put the aim point
+ * hundreds of units past it, every slot's `value` read ~0 against `targetAt(ahead)`, and
+ * `minShotValueFraction` made the bot decline a free shot on a helpless car. This set holds it
+ * still, which is what a person sees.
+ *
+ * The reverse-cap row is the same failure with the sign flipped, and it is LARGER: 416 units short
+ * at 45 ticks against the 584 that motivated `accel: 0`, and 854 over the full 90-tick horizon
+ * `BRAIN_CONSTANTS.predictionHorizonTicks` actually rolls. It is not an exotic scene —
+ * `movement.ts` makes `throttle: -1` routine `fight` behaviour inside the bot's preferred range and
+ * `humanize.ts` has a panic-reverse, and `selfPredictor` runs under this same set, so a bot backing
+ * off would otherwise predict its OWN `meAt` as nearly stationary and mis-read `danger`.
  *
  * It is also the honest statement of what a human reads off the screen — a speed and a turn, held —
  * and it dominates constant velocity everywhere a car is turning while tying it where one is not.
- *
- * One residual: a target observed REVERSING (`speed < 0`) still brakes toward 0 here, because
- * `accelerateForward`'s rolling-backward branch is `brakeDecel`, not `accel`. Reverse caps are a
- * fraction of forward speed and a bot rarely aims at a reversing car for long, so this is left as a
- * known small error rather than zeroed with a second channel.
  */
 export const OBSERVATION_MODIFIERS: Readonly<Modifiers> = Object.freeze({
   ...NEUTRAL_MODIFIERS,
   accel: 0,
+  brakeDecel: 0,
 });
 
 /**

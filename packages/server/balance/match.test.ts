@@ -123,22 +123,25 @@ describe("runMatch", () => {
     // assertion below states that premise outright so the two cases can never be confused: if a
     // future balance edit empties the window again, THAT line fails and names the reason.
     //
-    // `seed: 5`, not 96: phase A task 4 (2026-09-06, including its fix round) swapped the firing
-    // solver's target model from `constantVelocityPredictor` to `predict.ts`'s `physicsPredictor` —
-    // the target is now rolled through the real drive model, holding a reconstructed steer at the
-    // speed it was OBSERVED at (`OBSERVATION_MODIFIERS`, `accel: 0`), and the bot's own pose in
-    // `dangerEvAgainst` is rolled the same way with `selfPredictor`. The same commit deletes the
-    // per-tier `leadFactor`, which is what used to scale `interceptPoint`'s answer. That moves both
-    // halves of this matchup's clock at once: WHEN a hard bot presses a slot (every per-slot
-    // `solve()` now marches against a curving path, and no longer against a car assumed to be
-    // flooring it — a stunned target is predicted where it actually is) and WHEN it decides it is
-    // losing an exchange (`danger` is measured against a self-pose that keeps driving at its
-    // current speed instead of one that coasts to a stop in 0.32 s). Seed 96's kill no longer lands
-    // inside the 30 s window. Swept 1-150 against the new brain: 5, 15, 16, 18, 31, 32, 46, 67, 76,
-    // 87, 97, 99, 104, 109, 117, 118, 149 and 150 land a kill inside it — 18 of 150, against R-C9's
-    // 17 and the ~20 historical band, so squarely inside it and nowhere near the 1-2/150 collapse
-    // that `BRAIN_CONSTANTS.dangerEvadeCooldownTicks`'s own table records for a brain that had
-    // stopped resolving duels. Reseeded onto 5, the first decisive seed in the sweep.
+    // `seed: 4`, not 96: phase A task 4 (2026-09-06, including both of its fix rounds) swapped the
+    // firing solver's target model from `constantVelocityPredictor` to `predict.ts`'s
+    // `physicsPredictor` — the target is now rolled through the real drive model, holding a
+    // reconstructed steer at the speed it was OBSERVED at (`OBSERVATION_MODIFIERS`, which zeroes
+    // BOTH `accel` and `brakeDecel`, so a car seen driving forward is not predicted flooring it to
+    // the chassis maximum and a car seen REVERSING is not predicted braking to a dead stop), and the
+    // bot's own pose in `dangerEvAgainst` is rolled the same way with `selfPredictor`. The same task
+    // deletes the per-tier `leadFactor`, which is what used to scale `interceptPoint`'s answer. That
+    // moves both halves of this matchup's clock at once: WHEN a hard bot presses a slot (every
+    // per-slot `solve()` now marches against a curving path held at the observed speed — a stunned
+    // target is predicted where it actually is, and a backing-off one where it actually will be) and
+    // WHEN it decides it is losing an exchange (`danger` is measured against a self-pose that keeps
+    // driving at its current speed AND in its current direction, instead of one that coasts to a
+    // stop in 0.32 s). Seed 96's kill no longer lands inside the 30 s window. Swept 1-150 against
+    // the shipped brain: 4, 23, 25, 32, 46, 48, 55, 69, 76, 83, 87, 90, 104, 110, 114, 117, 118,
+    // 140, 141, 144 and 150 land a kill inside it — 21 of 150, against R-C9's 17 and the ~20
+    // historical band, so squarely inside it and nowhere near the 1-2/150 collapse that
+    // `BRAIN_CONSTANTS.dangerEvadeCooldownTicks`'s own table records for a brain that had stopped
+    // resolving duels. Reseeded onto 4, the first decisive seed in the sweep.
     //
     // NOT RESEEDED by R-C9 (fix round 3, 2026-09-06), and that is the point: the refractory period
     // R-C9 gives the anticipatory evade term (`BRAIN_CONSTANTS.dangerEvadeCooldownTicks`) restores
@@ -245,7 +248,7 @@ describe("runMatch", () => {
     // Mirage/Bastion matchup's dynamics enough that seed 40 stopped landing a kill inside the 30 s
     // window — a legitimate killless window under the new views, not a clock regression, so this
     // test isn't about that case.
-    const out = runMatch({ ...SETUP, seed: 5, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    const out = runMatch({ ...SETUP, seed: 4, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);

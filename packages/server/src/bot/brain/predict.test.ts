@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DRIVE_CONFIG, TICK_RATE_HZ, turnRateAtStopOf, turnRateOf,
+  DRIVE_CONFIG, NEUTRAL_MODIFIERS, TICK_RATE_HZ, driveOf, turnRateAtStopOf, turnRateOf,
 } from "@motor-combat-moba/shared";
 import { BOT_PROFILES, BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
@@ -173,6 +173,11 @@ describe("predicting an observed car, against an independent ground truth", () =
    * One tick: `angle += steer * rate / TICK_RATE_HZ`, then `x/y += cos/sin(angle) * speed / HZ`.
    * `rate` is the chassis's STOPPED turn rate below `DRIVE_CONFIG.stopEpsilon`, because that is the
    * branch `stepDrive`'s `isMoving` takes -- a stationary car still turns, it just does not travel.
+   *
+   * A NEGATIVE `speed` needs no special case and gets none: `stepDrive`'s translation is the same
+   * `cos/sin(angle) * speed` line, so a reversing car walks backward along its heading while its
+   * nose still rotates the way the wheel is turned, and `Math.abs` on the `isMoving` test above
+   * matches the sim's own. That is what makes this a usable truth for the reversing scenes.
    */
   function truthPath(speed: number, steer: -1 | 0 | 1, carId: "mirage", ticks: number) {
     const rate = Math.abs(speed) > DRIVE_CONFIG.stopEpsilon
@@ -200,19 +205,40 @@ describe("predicting an observed car, against an independent ground truth", () =
     return Math.hypot(guess.x - actual.x, guess.y - actual.y);
   };
 
+  // Mirage's resolved drive numbers, so the two extreme rows below are the chassis's REAL caps
+  // rather than round numbers near them. `maxSpeed` is 449.5 and `reverseMaxSpeed` is 292.175 at
+  // today's `DRIVE_CONFIG`; derived rather than typed so a speed retune moves the scene with it.
+  const MIRAGE = driveOf("mirage");
+
   // Every scene a bot actually faces, not just the one the model reproduces by construction -- the
   // old suite was full lock AND full speed in every case, which is why the over-lead walked
   // through it. The stationary rows are the important ones: a target `stunned` by `roadblock`,
   // `thunderclap` or the hard slam carries `fullStop` + `immobilised` and cannot move at all, and
   // that is the exact condition `classifySituation` gates `punish` on.
+  //
+  // The REVERSING rows are the same question with the sign flipped (fix round 2, finding A), and
+  // they are not a corner case: `movement.ts` makes `throttle: -1` routine `fight` behaviour inside
+  // the bot's preferred range and `humanize.ts` has a panic-reverse, so both the target predictor
+  // and `selfPredictor` meet a car rolling backward constantly. `accelerateForward`'s
+  // rolling-backward branch is `brakeDecel`, not `accel`, which is why zeroing one channel was not
+  // enough -- see `OBSERVATION_MODIFIERS`.
   const SCENES: readonly { speed: number; steer: -1 | 0 | 1; label: string }[] = [
+    { speed: -MIRAGE.reverseMaxSpeed, steer: 0, label: "reversing at the cap, straight" },
+    { speed: -MIRAGE.reverseMaxSpeed, steer: 1, label: "reversing at the cap, wheel over" },
+    { speed: -150, steer: 0, label: "reversing, straight" },
+    { speed: -150, steer: 1, label: "reversing, wheel over" },
     { speed: 0, steer: 0, label: "stunned, wheel straight" },
     { speed: 0, steer: 1, label: "stunned, wheel over" },
     { speed: 150, steer: 0, label: "crawling, straight" },
     { speed: 150, steer: 1, label: "crawling, full lock" },
     { speed: 250, steer: 0, label: "mid speed, straight" },
     { speed: 250, steer: 1, label: "mid speed, full lock" },
-    { speed: 400, steer: 1, label: "near top speed, full lock" },
+    // The chassis MAXIMUM, not a round number below it (fix round 2, finding B). This row exists to
+    // pin the one case an engine-on rollout gets right by accident, and that is only true AT the
+    // cap: at 400 an engine-on rollout is still 32 units out at 20 ticks. It was 400 while
+    // `OBSERVATION_MODIFIERS`'s table quoted 449.5 for the same row, and the two now agree.
+    { speed: MIRAGE.maxSpeed, steer: 0, label: "top speed, straight" },
+    { speed: MIRAGE.maxSpeed, steer: 1, label: "top speed, full lock" },
   ];
 
   const shipped = (speed: number, steer: -1 | 0 | 1) => physicsPredictor(
@@ -250,9 +276,9 @@ describe("predicting an observed car, against an independent ground truth", () =
     // `accel: 1` is what `rollForward`'s DEFAULT modifiers give -- a genuine car flooring it. Right
     // for planning the bot's OWN inputs, wrong for an observation, because a bot cannot see a
     // throttle. Measured error in world units at 20 / 45 ticks: 209 / 584 for the stunned car going
-    // straight, 81 / 72 for the stunned car with the wheel over, 53 / 41 at 150 u/s, 31 / 21 at
-    // 250 u/s -- shrinking to nothing only as the observed speed approaches the chassis maximum,
-    // the one case an engine-on rollout gets right by accident.
+    // straight, 81 / 71 for the stunned car with the wheel over, 53 / 41 at 150 u/s, 31 / 21 at
+    // 250 u/s, and 292 / 910 at the reverse cap going straight -- shrinking to nothing only AT the
+    // chassis maximum, the one row an engine-on rollout gets right by accident.
     for (const scene of SCENES) {
       const truth = truthPath(scene.speed, scene.steer, "mirage", LONGEST);
       const engineOn = rollForward(
@@ -271,12 +297,58 @@ describe("predicting an observed car, against an independent ground truth", () =
     }
   });
 
+  it("holds a REVERSING car's speed, which zeroing the engine alone does not", () => {
+    // Fix round 2, finding A -- the residual the previous round documented instead of fixing.
+    // `accel: 0` alone does nothing for a car already rolling backward, because
+    // `accelerateForward`'s `speed < -stopEpsilon` branch brakes at `brakeDecel`, not `accel`: a
+    // Mirage at its 292.175 u/s reverse cap is zeroed in ~5.5 ticks and the rest of the horizon is
+    // spent parked. `OBSERVATION_MODIFIERS` zeroes BOTH channels, so the observed reverse is held.
+    //
+    // Measured error against `truthPath`, in world units at 20 / 45 / 90 ticks:
+    //   reverse cap, straight   -- `accel: 0` alone 173 / 416 / 854, this set 0 / 0 / 0
+    //   reverse cap, wheel over -- `accel: 0` alone  45 /  30 /  38, this set 0 / 0 / 0
+    //   -150, straight          -- `accel: 0` alone  95 / 220 / 445, this set 0 / 0 / 0
+    //   -150, wheel over        -- `accel: 0` alone  19 /  10 /  14, this set 0 / 0 / 0
+    // The straight rows are the damaging ones: 854 units short at the horizon the controller
+    // actually rolls, against the 584 the stationary over-lead was worth at 45 ticks.
+    const ENGINE_OFF_ONLY = Object.freeze({ ...NEUTRAL_MODIFIERS, accel: 0 });
+    const reversing = SCENES.filter((scene) => scene.speed < 0);
+    expect(reversing).toHaveLength(4);
+    for (const scene of reversing) {
+      const truth = truthPath(scene.speed, scene.steer, "mirage", LONGEST);
+      const engineOffOnly = rollForward(
+        bodyFromObservation(carAt({ speed: scene.speed }), 0), "mirage",
+        { steer: scene.steer, throttle: 1 }, LONGEST, ENGINE_OFF_ONLY,
+      );
+      const held = shipped(scene.speed, scene.steer);
+      for (const ticks of HORIZONS) {
+        expect(errorAt(truth, held(ticks), ticks), `${scene.label} @${ticks}`).toBeLessThan(1);
+        expect(errorAt(truth, engineOffOnly[ticks - 1]!, ticks), `${scene.label} @${ticks}`)
+          .toBeGreaterThan(errorAt(truth, held(ticks), ticks));
+      }
+      // And it decays to a dead stop, which is the whole shape of the error -- not a small offset.
+      expect(engineOffOnly.at(-1)!.speed, scene.label).toBe(0);
+      expect(held(LONGEST), scene.label).not.toEqual(
+        { x: engineOffOnly.at(-1)!.x, y: engineOffOnly.at(-1)!.y, angle: engineOffOnly.at(-1)!.angle },
+      );
+    }
+    // Worst case, spelled out: the straight run at the reverse cap lands car lengths short over the
+    // horizon the controller rolls (`BRAIN_CONSTANTS.predictionHorizonTicks`).
+    const capStraight = SCENES.find((s) => s.speed < 0 && s.steer === 0)!;
+    const stopped = rollForward(
+      bodyFromObservation(carAt({ speed: capStraight.speed }), 0), "mirage",
+      { steer: 0, throttle: 1 }, LONGEST, ENGINE_OFF_ONLY,
+    );
+    expect(errorAt(truthPath(capStraight.speed, 0, "mirage", LONGEST), stopped[LONGEST - 1]!, LONGEST))
+      .toBeGreaterThan(800);
+  });
+
   it("beats a straight line wherever the target turns, and never loses where it does not", () => {
     // `constantVelocityPredictor` is exactly right for a car going straight (it IS the same
-    // integration) and diverges without bound once one turns: 114 / 230 units at 150 u/s and
-    // 190 / 384 at 250 u/s, at 20 / 45 ticks. It also handles the stunned car correctly, which the
-    // engine-on rollout does not -- the honest reading is that phase A's win is the TURNING case
-    // plus never being worse elsewhere, not a win everywhere.
+    // integration) and diverges without bound once one turns: 114 / 230 units at 150 u/s, 190 / 384
+    // at 250 u/s and 222 / 448 at the reverse cap, at 20 / 45 ticks. It also handles the stunned car
+    // correctly, which the engine-on rollout does not -- the honest reading is that phase A's win is
+    // the TURNING case plus never being worse elsewhere, not a win everywhere.
     for (const scene of SCENES) {
       const truth = truthPath(scene.speed, scene.steer, "mirage", LONGEST);
       const straight = constantVelocityPredictor(carAt({ speed: scene.speed }));
@@ -285,7 +357,9 @@ describe("predicting an observed car, against an independent ground truth", () =
         const straightError = errorAt(truth, straight(ticks), ticks);
         expect(errorAt(truth, held(ticks), ticks), `${scene.label} @${ticks}`)
           .toBeLessThanOrEqual(straightError + 1);
-        if (scene.steer !== 0 && scene.speed > 0) {
+        // `!== 0`, not `> 0`: a car reversing round a corner leaves a straight line just as fast as
+        // one driving round it, and the reversing rows would otherwise assert nothing here.
+        if (scene.steer !== 0 && scene.speed !== 0) {
           expect(straightError, `${scene.label} @${ticks}`).toBeGreaterThan(10);
         }
       }
