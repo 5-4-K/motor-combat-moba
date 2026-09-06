@@ -932,10 +932,10 @@ const MARK_SEGMENTS = 12;
  * the 2026-09-01 roster cutover (O17); their comment history lives in git. One non-circular
  * projectile ships without a style today: `pepperbox` (an ellipse, carrying `needler`'s old dart
  * silhouette per O9), which draws the flat hitbox-colour fill until an owner arts it.
- * `roadblock`'s bar hitbox is a third, architecturally
- * distinct case: `projectileDrawLayers` refuses a bar at source regardless of this table, because
- * the hull/tip/band/disc/spikes vocabulary below assumes an along/across ellipse-ish geometry a bar
- * does not have — it always draws its raw hitbox polygon, the same as `beamDrawLayers`'s fallback.
+ * `roadblock`'s bar is styled as a spiked roller via `poly` layers — see `roadblockRollerLayers`.
+ * The hull/tip/band/disc/spikes vocabulary still assumes ellipse-ish geometry, so a bar only
+ * accepts `poly`; `projectileDrawLayers` clamps those vertices to the rectangle rather than to
+ * `hullHalfAcross`.
  */
 /**
  * `predator`'s colours, measured off its own HUD icon rather than guessed — then DARKENED.
@@ -1093,6 +1093,147 @@ function predatorMissileLayers(): ProjectileLayer[] {
   }));
 }
 
+/**
+ * `roadblock`'s colours, measured off its HUD icon then darkened for the `#EBEBEB` floor — the same
+ * move `PREDATOR_PAINT` made. The icon's cream stripe washes out on the arena; `#F0D090` keeps the
+ * chevron readable. `outline` is full-strength near-black, because a 12-unit-thick bar has no other
+ * edge against that floor.
+ */
+const ROADBLOCK_PAINT = {
+  outline: "#171717",
+  gold: "#D89000",
+  goldLit: "#E8B020",
+  goldShade: "#A86800",
+  cream: "#F0D090",
+  spike: "#5A3C08",
+  spikeLit: "#8A5A10",
+  hub: "#2A1C08",
+} as const;
+
+/**
+ * `roadblock` as a spiked roller: hazard-striped cylinder, teeth on both long edges, dark hubs.
+ *
+ * Authored against the bar the weapon ships with — `radiusAlong` 6, `radiusAcross` 60 — and emitted
+ * as SCALES, so a re-tune carries the whole roller with it. The teeth reach `+/-radiusAlong` and
+ * the hubs reach `+/-radiusAcross`, which is what keeps the silhouette as thick and as wide as the
+ * hitbox. `projectile-marks.test.ts` pins both.
+ *
+ * The hull/tip/band/disc/spikes primitives cannot describe a toothed bar, so every layer is a
+ * `poly`. Cost: one `fillPoints` per layer per live roadblock; at 6 s cooldown a room has at most
+ * one per player.
+ */
+function roadblockRollerLayers(): ProjectileLayer[] {
+  const RA = 6;
+  const RC = 60;
+  const BODY = 2.55;
+  const HUB = 5;
+  const SPIKES = 8;
+  const SPAN = 2 * (RC - HUB);
+  const TW = SPAN / SPIKES;
+  const toothHalf = TW * 0.42;
+
+  type P = [number, number];
+  const clamp = ([a, c]: P): P => [
+    Math.max(-RA, Math.min(RA, a)),
+    Math.max(-RC, Math.min(RC, c)),
+  ];
+
+  const centers = Array.from({ length: SPIKES }, (_, i) => -RC + HUB + (i + 0.5) * TW);
+
+  const spikeTri = (alongTip: number, alongRoot: number, center: number): P[] => [
+    [alongRoot, center - toothHalf],
+    [alongTip, center],
+    [alongRoot, center + toothHalf],
+  ];
+  const spikeBevel = (alongTip: number, alongRoot: number, center: number): P[] => [
+    [alongRoot, center - toothHalf],
+    [alongTip, center],
+    [(alongRoot + alongTip) / 2, center],
+  ];
+
+  const silhouette: P[] = [[BODY, -RC]];
+  for (const mid of centers) silhouette.push([RA, mid]);
+  silhouette.push([BODY, RC], [-BODY, RC]);
+  for (const mid of [...centers].reverse()) silhouette.push([-RA, mid]);
+  silhouette.push([-BODY, -RC]);
+
+  const outline = (pts: P[]): P[] => {
+    const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length;
+    const cy = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+    return pts.map(([a, c]) => {
+      const dx = a - cx;
+      const dy = c - cy;
+      const len = Math.hypot(dx, dy) || 1;
+      return clamp([a + (dx / len) * 0.55, c + (dy / len) * 0.55]);
+    });
+  };
+
+  const body: P[] = [
+    [BODY, -RC + HUB * 0.2],
+    [BODY, RC - HUB * 0.2],
+    [-BODY, RC - HUB * 0.2],
+    [-BODY, -RC + HUB * 0.2],
+  ];
+  const shade: P[] = [
+    [0, -RC + HUB],
+    [0, RC - HUB],
+    [-BODY, RC - HUB],
+    [-BODY, -RC + HUB],
+  ];
+  const lit: P[] = [
+    [BODY, -RC + HUB],
+    [BODY, RC - HUB],
+    [0, RC - HUB],
+    [0, -RC + HUB],
+  ];
+
+  const SLANT = 7;
+  const STRIPE_W = 7;
+  const STRIPE_PITCH = 18;
+  const stripes: P[][] = [];
+  for (let c = -RC + HUB + 2; c < RC - HUB - STRIPE_W; c += STRIPE_PITCH) {
+    stripes.push([
+      [-BODY * 0.82, c],
+      [BODY * 0.82, c + SLANT],
+      [BODY * 0.82, c + SLANT + STRIPE_W],
+      [-BODY * 0.82, c + STRIPE_W],
+    ]);
+  }
+
+  const hubBox = (acrossSign: number): P[] => {
+    const inner = (RC - HUB) * acrossSign;
+    const outer = RC * acrossSign;
+    return [
+      [BODY * 0.95, inner],
+      [BODY * 0.95, outer],
+      [-BODY * 0.95, outer],
+      [-BODY * 0.95, inner],
+    ];
+  };
+
+  const layers: { pts: P[]; color: string }[] = [
+    { pts: outline(silhouette), color: ROADBLOCK_PAINT.outline },
+    { pts: body, color: ROADBLOCK_PAINT.gold },
+    { pts: shade, color: ROADBLOCK_PAINT.goldShade },
+    { pts: lit, color: ROADBLOCK_PAINT.goldLit },
+    ...stripes.map((pts) => ({ pts, color: ROADBLOCK_PAINT.cream })),
+    ...centers.flatMap((mid) => [
+      { pts: spikeTri(RA, BODY, mid), color: ROADBLOCK_PAINT.spike },
+      { pts: spikeTri(-RA, -BODY, mid), color: ROADBLOCK_PAINT.spike },
+      { pts: spikeBevel(RA, BODY, mid), color: ROADBLOCK_PAINT.spikeLit },
+      { pts: spikeBevel(-RA, -BODY, mid), color: ROADBLOCK_PAINT.spikeLit },
+    ]),
+    { pts: hubBox(-1), color: ROADBLOCK_PAINT.hub },
+    { pts: hubBox(1), color: ROADBLOCK_PAINT.hub },
+  ];
+
+  return layers.map(({ pts, color }) => ({
+    shape: "poly",
+    points: pts.map(clamp).map(([a, c]) => [a / RA, c / RC] as const),
+    color,
+  }));
+}
+
 export const WEAPON_PROJECTILE_STYLES: Partial<Record<WeaponId, ProjectileStyle>> = {
   thumper: {
     layers: [
@@ -1101,6 +1242,7 @@ export const WEAPON_PROJECTILE_STYLES: Partial<Record<WeaponId, ProjectileStyle>
     ],
   },
   predator: { layers: predatorMissileLayers() },
+  roadblock: { layers: roadblockRollerLayers() },
 };
 
 /**
@@ -1237,12 +1379,38 @@ export function projectileDrawLayers(
   if (!style) return [];
   // A circle has no heading to arrange markings along, and `GlowStyle` is where a round projectile
   // says what it looks like. Reaching here with one would mean two tables owning the same weapon.
-  // A bar is drawn by the generic fallback: the raw hitbox polygon from `projectileShapeAt`.
-  if (def.hitbox.shape === "circle" || def.hitbox.shape === "bar") return [];
-  const hitbox = def.hitbox;
+  if (def.hitbox.shape === "circle") return [];
 
   const { x, y } = extrapolateShot(instance.x, instance.y, instance.angle, def.speed, elapsedMs);
   const a = instance.angle;
+
+  // A bar has no ellipse-ish half-width, so hull/tip/band/disc/spikes cannot describe it. `poly`
+  // vertices are clamped to the rectangle instead. Anything else on a bar style is skipped rather
+  // than interpreted as the wrong shape.
+  if (def.hitbox.shape === "bar") {
+    const hitbox = def.hitbox;
+    const out: DrawBeamLayer[] = [];
+    for (const layer of style.layers) {
+      if (layer.shape !== "poly" || layer.points.length < 3) continue;
+      out.push({
+        points: layer.points.map(([alongScale, acrossScale]) => {
+          const along = Math.max(
+            -hitbox.radiusAlong,
+            Math.min(hitbox.radiusAlong, alongScale * hitbox.radiusAlong),
+          );
+          const across = Math.max(
+            -hitbox.radiusAcross,
+            Math.min(hitbox.radiusAcross, acrossScale * hitbox.radiusAcross),
+          );
+          return rotateBy(x, y, a, along, across);
+        }),
+        fill: hexToFill(layer.color),
+      });
+    }
+    return out;
+  }
+
+  const hitbox = def.hitbox;
   const out: DrawBeamLayer[] = [];
   for (const layer of style.layers) {
     const fill = hexToFill(layer.color);
