@@ -1,10 +1,11 @@
 import {
-  TICK_RATE_HZ, beamShapeAt, carHullOf, forwardMaxSpeedOf, instanceExpired, projectileShapeAt,
-  shapeHitsObb, slotsOf, smear, spawnInstances, stepInstance, weaponDamageOf, weaponDefOf,
-  weaponTicksOf, type CarId, type WeaponId, type WeaponInstance, type WorldShape,
+  DRIVE_CONFIG, TICK_RATE_HZ, beamShapeAt, carHullOf, forwardMaxSpeedOf, instanceExpired,
+  projectileShapeAt, shapeHitsObb, slotsOf, smear, spawnInstances, stepInstance, weaponDamageOf,
+  weaponDefOf, weaponTicksOf, type CarId, type WeaponId, type WeaponInstance, type WorldShape,
 } from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import type { BotArenaView, BotCarView, BotSlotView } from "../types.js";
+import { signedDelta } from "./aim.js";
 import { kitWeaponIds, weaponReachOf } from "./reach.js";
 
 /**
@@ -477,6 +478,92 @@ export function dangerEvAgainst(args: DangerArgs): number {
       arena,
     });
     total += solution.value * ready;
+  }
+  return total;
+}
+
+export interface ProxyArgs {
+  shooter: { x: number; y: number; angle: number };
+  slot: BotSlotView;
+  targetX: number;
+  targetY: number;
+  aimSigmaRad: number;
+  /** True when a live lock will point this shot regardless of the nose (P13). */
+  assisted: boolean;
+}
+
+/**
+ * A cheap stand-in for `solve().value`, for scoring a planner candidate (P9).
+ *
+ * ~20 flops against the exact solver's ~90 shape tests. It answers "is this a better place to be
+ * standing", never "should I pull the trigger" — the trigger keeps the exact solver. That split is
+ * deliberate and mirrors how people play: move on intuition, shoot on confirmation.
+ *
+ * The model is: how wide does the target look from here, against how badly do my hands wander. An
+ * assisted shot skips the angle term entirely, because `aimAngleFor` points it for me.
+ */
+export function proxyValue(args: ProxyArgs): number {
+  const { shooter, slot, targetX, targetY, aimSigmaRad, assisted } = args;
+  const def = weaponDefOf(slot.weaponId);
+  const reach = weaponReachOf(slot.weaponId);
+  const dx = targetX - shooter.x;
+  const dy = targetY - shooter.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance > reach || distance < 1) return 0;
+
+  // Half the target's angular width from here — how much room the shot has to be wrong by.
+  const subtense = Math.atan2(DRIVE_CONFIG.carHeight / 2, distance);
+  const offBy = assisted ? 0 : Math.abs(signedDelta(shooter.angle, Math.atan2(dy, dx)));
+  // Total angular budget: how far off I am now, plus how far my hands wander.
+  const spread = Math.hypot(offBy, aimSigmaRad);
+  const chance = spread <= 0 ? 1 : Math.min(1, subtense / spread);
+
+  const damage = def.damage * (def.kind === "projectile" ? def.pellets.pelletsPerVolley : 1);
+  const cooldownSeconds = Math.max(def.cooldownMs, 1) / 1000;
+  return (chance * damage) / cooldownSeconds;
+}
+
+export interface ProxyDangerArgs {
+  /** The opponent, at the pose being considered. */
+  threat: BotCarView;
+  /** Where I would be. */
+  meX: number;
+  meY: number;
+  /** How loaded this bot believes each of their weapons is, 0..1 (P21). */
+  readiness: (weaponId: WeaponId) => number;
+  /** What competence to assume of them — their real hands are unknowable. */
+  assumedAimSigmaRad: number;
+}
+
+/**
+ * `proxyDangerAgainst` is `dangerEvAgainst`'s cheap sibling: `proxyValue` with the arguments
+ * swapped, for the planner to weigh how exposed a CANDIDATE pose would be (P9, P26) without paying
+ * `dangerEvAgainst`'s exact-solver cost across nine candidates times K ticks.
+ *
+ * Mirrors `dangerEvAgainst` exactly in shape — same kit (`kitWeaponIds`, chassis default, no
+ * extras), same synthetic slot (`stocks: 1`, off cooldown, `range` from `weaponDefOf`), same
+ * `readiness`-weighted sum — except the per-weapon number comes from `proxyValue` rather than
+ * `solve`. Their lock is unknowable too, so this assumes none (`assisted: false`), the same
+ * conservative direction `dangerEvAgainst` documents on its own `lockTargetSessionId: ""`.
+ */
+export function proxyDangerAgainst(args: ProxyDangerArgs): number {
+  const { threat, meX, meY, readiness, assumedAimSigmaRad } = args;
+  let total = 0;
+  for (const weaponId of kitWeaponIds(threat.carId)) {
+    const ready = readiness(weaponId);
+    if (ready <= 0) continue;
+    const value = proxyValue({
+      shooter: { x: threat.x, y: threat.y, angle: threat.angle },
+      slot: {
+        weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
+        range: weaponDefOf(weaponId).range,
+      },
+      targetX: meX,
+      targetY: meY,
+      aimSigmaRad: assumedAimSigmaRad,
+      assisted: false,
+    });
+    total += value * ready;
   }
   return total;
 }

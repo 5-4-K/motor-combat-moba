@@ -5,7 +5,7 @@ import {
 } from "@motor-combat-moba/shared";
 import type { BotArenaView, BotCarView, BotSlotView } from "../types.js";
 import {
-  AIM_QUADRATURE, constantVelocityPredictor, dangerEvAgainst, solve,
+  AIM_QUADRATURE, constantVelocityPredictor, dangerEvAgainst, proxyDangerAgainst, proxyValue, solve,
   type PosePredictor, type SolverShooter,
 } from "./solution.js";
 
@@ -405,6 +405,68 @@ describe("dangerEvAgainst (P16)", () => {
   });
 });
 
+describe("proxyValue (P9)", () => {
+  const slot = () => slotFor("predator");
+
+  it("agrees with the exact solver about which of two positions is better", () => {
+    const near = { shooter: { x: 0, y: 0, angle: 0 }, slot: slot(), targetX: 250, targetY: 0, aimSigmaRad: 0.05, assisted: false };
+    const off = { ...near, shooter: { x: 0, y: 0, angle: 0.6 } };
+    expect(proxyValue(near)).toBeGreaterThan(proxyValue(off));
+  });
+
+  it("falls with distance", () => {
+    const at = (targetX: number) => proxyValue({
+      shooter: { x: 0, y: 0, angle: 0 }, slot: slot(), targetX, targetY: 0,
+      aimSigmaRad: 0.05, assisted: false,
+    });
+    expect(at(200)).toBeGreaterThan(at(700));
+  });
+
+  it("is 0 beyond reach", () => {
+    expect(proxyValue({
+      shooter: { x: 0, y: 0, angle: 0 }, slot: slot(), targetX: 5000, targetY: 0,
+      aimSigmaRad: 0.05, assisted: false,
+    })).toBe(0);
+  });
+
+  it("ignores the nose when the shot is assisted, because aimAngleFor does (P13)", () => {
+    const common = { slot: slot(), targetX: 250, targetY: 0, aimSigmaRad: 0.05 };
+    const straight = { ...common, shooter: { x: 0, y: 0, angle: 0 }, assisted: true };
+    const turned = { ...common, shooter: { x: 0, y: 0, angle: 0.6 }, assisted: true };
+    expect(proxyValue(turned)).toBeCloseTo(proxyValue(straight), 6);
+  });
+});
+
+describe("proxyDangerAgainst (P9, P26, CONTROLLER RULING R-P1)", () => {
+  // Mirrors the `dangerEvAgainst` tests above exactly in shape, but against the cheap proxy: the
+  // planner's "how exposed would I be there" needs to stay affordable across nine candidates times
+  // K ticks, same reason `proxyValue` exists at all.
+  const loaded = () => 1;
+
+  it("rises as the threat gets closer", () => {
+    const threat: BotCarView = { ...targetAt(0, 0), sessionId: "them", carId: "bullseye", angle: 0 };
+    const at = (meX: number) => proxyDangerAgainst({
+      threat, meX, meY: 0, readiness: loaded, assumedAimSigmaRad: 0.05,
+    });
+    expect(at(200)).toBeGreaterThan(at(700));
+  });
+
+  it("is 0 when every weapon's readiness is 0", () => {
+    const threat: BotCarView = { ...targetAt(0, 0), sessionId: "them", carId: "bullseye", angle: 0 };
+    expect(proxyDangerAgainst({
+      threat, meX: 300, meY: 0, readiness: () => 0, assumedAimSigmaRad: 0.05,
+    })).toBe(0);
+  });
+
+  it("a weapon at readiness 0.5 contributes half what it does at 1", () => {
+    const threat: BotCarView = { ...targetAt(0, 0), sessionId: "them", carId: "bullseye", angle: 0 };
+    const common = { threat, meX: 300, meY: 0, assumedAimSigmaRad: 0.05 };
+    const full = proxyDangerAgainst({ ...common, readiness: loaded });
+    const half = proxyDangerAgainst({ ...common, readiness: () => 0.5 });
+    expect(half).toBeCloseTo(full / 2, 6);
+  });
+});
+
 describe("solver determinism (P43)", () => {
   it("draws no random numbers at all", () => {
     const target = targetAt(400, 0);
@@ -457,5 +519,28 @@ describe("solver determinism (P43)", () => {
       aimSigmaRad: 0.05, tick: 0, arena,
     });
     expect(once()).toEqual(once());
+  });
+
+  it("draws no random numbers from the planner's cheap proxies either (P43)", () => {
+    // `proxyValue`/`proxyDangerAgainst` are read by the planner across nine candidates times K
+    // ticks — the same desync risk `dangerEvAgainst` documents above, just paid more often.
+    const throwing = () => {
+      throw new Error("the solver must not draw rng (P43)");
+    };
+    const original = Math.random;
+    Math.random = throwing as unknown as typeof Math.random;
+    try {
+      expect(() => proxyValue({
+        shooter: { x: 0, y: 0, angle: 0 }, slot: slotFor("predator"),
+        targetX: 250, targetY: 0, aimSigmaRad: 0.05, assisted: false,
+      })).not.toThrow();
+
+      const threat: BotCarView = { ...targetAt(0, 0), sessionId: "them", carId: "bullseye", angle: 0 };
+      expect(() => proxyDangerAgainst({
+        threat, meX: 300, meY: 0, readiness: () => 1, assumedAimSigmaRad: 0.05,
+      })).not.toThrow();
+    } finally {
+      Math.random = original;
+    }
   });
 });
