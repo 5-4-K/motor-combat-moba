@@ -4,8 +4,9 @@
 same commit as the work it describes, so a session can stop anywhere and the next one resumes
 exactly. Same convention as the netcode rewrite's `EXECUTION.md`.
 
-**Last updated:** 2026-09-07, after stage 3 (the ram contest) executed, its Task 4 review fixed, and a
-whole-branch review of stage 3 fixed (`ff9a720`).
+**Last updated:** 2026-09-07, after stage 3b (`reeling` plus per-victim ram falloff) executed, its
+four task reviews fixed, and its stage-closing pass landed — the two `CLAUDE.md` files reconciled and
+eleven deferred minor review findings swept.
 
 ---
 
@@ -25,14 +26,18 @@ still explains why that code looks like it contradicts the current spec — it d
 history stages 1 and 2 were executed against. Read the spec's **Changelog** and **R1–R11** first
 regardless; stage 3's own section below assumes you have.
 
+**Stage 3b has landed on top of it**, giving ramming back the control loss stage 1 deleted, as the
+`reeling` status plus a per-victim falloff stack — see "What stage 3b actually changed". The stage
+after it is the approved restitution fix, which has no plan document yet.
+
 ---
 
 ## Where things stand
 
 | | state |
 |---|---|
-| Branch | Stage 3 was executed on `claude/car-physics-stage-3-e06290`, fast-forwarded from `claude/car-physics-implementation-283ddf` at `925b788` (itself branched from `feature/car-physics-rework` at `02f5a89`). **It was handed off to be merged elsewhere afterwards, so that branch name may no longer be where this work lives.** The durable anchor is the tip commit **`1ee4b53`** — if it is an ancestor of your HEAD, you have this state. If it is not (a squash-merge would do that), verify against this file's content rather than its SHAs, and treat every SHA below as historical. |
-| Commits | 48 ahead of `development/main`; stage 3 alone is 11 commits from `925b788` onwards (git range notation — exclusive of `925b788`, which only adds the original state file). These counts include the documentation-only follow-up commit. |
+| Branch | Stage 3b was executed on `claude/car-physics-rework-continue-1e0282`, which already carried stage 3 (executed on `claude/car-physics-stage-3-e06290`, fast-forwarded from `claude/car-physics-implementation-283ddf` at `925b788`, itself branched from `feature/car-physics-rework` at `02f5a89`). **Work on this line has been handed between branches before, so a branch name may no longer be where it lives.** The durable anchor is the tip commit **`8608bd0`** — if it is an ancestor of your HEAD, you have this state. If it is not (a squash-merge would do that), verify against this file's content rather than its SHAs, and treat every SHA below as historical. |
+| Commits | 59 ahead of `development/main`; stage 3b alone is 9 commits from `1d6342e` onwards (git range notation — exclusive of `1d6342e`, which only records the user's two scoping decisions in this file). |
 | Root `npm test` | GREEN |
 | Root `npm run typecheck` | GREEN |
 | Root `npm run build` | GREEN |
@@ -43,8 +48,9 @@ regardless; stage 3's own section below assumes you have.
 |---|---|---|
 | 1 | `01-vector-drive.md` | **Executed** (18 commits), against revision 1. Fully survives revision 2. |
 | 2 | `02-contact-and-impulse.md` | **Executed** (9 commits), against revision 1. Plumbing survives; the mass-derived and equal-and-opposite parts are superseded. |
-| 3 | `03-ram.md` | **Executed** (11 commits, `d29234b`..`1ee4b53`), against revision 2, including four post-landing fix rounds (`12b400d`, `737a9d5`, the whole-branch review's fix commit `ff9a720`, and the documentation follow-up `1ee4b53`) on top of the original 7 (`d29234b`..`7e5e1b4`). `mass` is gone from `packages/`; the ram contest (R1–R11) is what ships today. One exit criterion is NOT met — see "Stage 3's exit criterion... is NOT met" below, escalated to the user rather than fixed here. |
-| 3b | `03b-ram-feel.md` | Written. Not started. ← next |
+| 3 | `03-ram.md` | **Executed** (11 commits, `d29234b`..`1ee4b53`), against revision 2, including four post-landing fix rounds (`12b400d`, `737a9d5`, the whole-branch review's fix commit `ff9a720`, and the documentation follow-up `1ee4b53`) on top of the original 7 (`d29234b`..`7e5e1b4`). `mass` is gone from `packages/`; the ram contest (R1–R11) is what ships today. One exit criterion is NOT met — see "Stage 3's exit criterion... is NOT met" below; it was escalated rather than fixed here, and the fix is now approved as the stage two rows down. |
+| 3b | `03b-ram-feel.md` | **Executed** (9 commits, `3468716`..`8608bd0`), against revision 2. Four implementation commits (`3468716` add `reeling`, `376433d` the falloff stack, `223ad37` apply `reeling` scaled by falloff, `9fc030b` delete the five dead knobs and pin R6's ratio), one incidental fixture reseed (`c8cbc7d`), two documentation reconciliations (`a10e71c`, `6335ed0`), and the stage-closing pass (`8608bd0` the deferred-findings sweep, plus this file and the two `CLAUDE.md`s). |
+| — | *the restitution stage* | **Approved by the user on 2026-09-07 and sequenced HERE, between 3b and 4.** No plan document exists yet and it needs a spec clause first. See "Two questions the user answered on 2026-09-07" and "Stage 3's exit criterion... is NOT met" below. ← next |
 | 4 | `04-impulse-def.md` | Revised for revision 2. Not started. |
 | 5 | `05-tune-and-reconcile.md` | Revised for revision 2. Not started. |
 
@@ -92,12 +98,63 @@ real code fix named below.
     feeding the torque at the same time, in the opposite direction, so neither ratio alone predicts
     the answer.
 
+## What stage 3b actually changed
+
+- **`reeling` is a new `STATUS_TABLE` row** (`packages/shared/src/config/status-config.ts`): a debuff
+  carrying `modifiers: { turnRate: 0.4, accel: 0.4 }` and, deliberately, `flags: []`. It is the
+  successor to the `authority` mechanic stage 1 deleted — between the vector-drive rework and this
+  stage, a rammed car kept full steering, and now it does not.
+  - **`flags: []` is load-bearing.** `StatusDef` forces flag-carrying rows to `reapply: "ignore"` so
+    hard CC can never be chained; carrying none is what lets this row be `"refresh"` and accept a
+    second, already-reduced duration at all.
+  - **Both multipliers sit exactly AT the `STATUS_LIMITS` floors, on purpose** (spec P22). Do not
+    lower the floors to make it harsher: `modifiersOf` clamps, so an authored value below the floor
+    is silently discarded, and the floors are documented guarantees. Severity is capped; duration and
+    the physics are the levers.
+  - What `refresh` does NOT do, learned in the closing pass: `applyStatus` takes
+    `Math.max(existing.endsTick, endsTick)`, so a re-ram landing while `reeling` is still running can
+    only EXTEND the window. A falloff-scaled duration is by construction the smaller value and is
+    discarded on that path. The scaled duration is what lands once the previous instance has lapsed
+    but the falloff window has not. The impulse half of falloff has no such caveat.
+- **Per-victim ram falloff** — `FalloffEntry`/`FalloffStack`/`newFalloffStack`/`nextFalloff`/
+  `sweepFalloff` in `packages/server/src/sim/ram-bridge.ts`, plus `ContactMemory.falloff`. Per victim
+  and **global across attackers** (three cars taking turns is the exact case it defuses), a rolling
+  window (each ram pushes the window out from itself, so protection cannot lapse under sustained
+  pressure), multiplicative with a floor on each of its two channels, and **ram-only** — a slam does
+  not participate and is not even counted into the stack.
+  - **Server-side only, and deliberately NOT a schema field.** This is not an invariant-8 violation:
+    `stepSim` never reads the stack. It is consumed once, at the moment a ram resolves, and what
+    reaches the client is the already-scaled result — a velocity change and a `reeling` status with a
+    concrete duration, both networked already. Same shape and same reasoning as `SlamRecord`.
+- **`contactTick` applies `reeling` to ram victims**, with both the impulse magnitude and the status
+  duration scaled by that victim's falloff, floored at `RAM_TICKS.durationFloor`.
+  **Falloff scales the VICTIM's half only, never `entry.attackerImpulse`** — the attacker pays full
+  cost for every punch, or chaining rams into a worn-down victim would get progressively safer for
+  the aggressor. This is the decision already recorded under "Decisions taken, that still bind".
+- **New `RAM_CONFIG` knobs**: `ramUncontrolMs` (1000), `drWindowMs` (2000), `durationDrScale` (0.5),
+  `durationDrFloorMs` (150), `impulseDrScale` (0.5), `impulseDrFloor` (0.25). **`RAM_TICKS`** converts
+  three of them to integer ticks once at module load, mirroring `SLAM_TICKS`/`WEAPON_TICKS`.
+- **Five dead config fields deleted outright**: `RAM_CONFIG.authorityFloor`,
+  `authorityHalfLifeSeconds`, `authorityEpsilon`, `shoveHalfLifeSeconds`, `shoveEpsilon`, along with
+  `RamDecay.shove` and `RamDecay.authority`. They had TWO successors, not one — the three `authority`
+  ones are `reeling`; the two `shove` ones are `DRIVE_CONFIG.impactGripDecel`. `SLAM_CONFIG`'s
+  `victimAuthority` and `selfKeepFactor` survive, still inert, waiting on stage 4.
+- **No re-tuning.** `globalScale`, `spinScale`, `spinMaxRate`, `defencePushScale` and the face bonuses
+  are untouched by this stage; falloff and `reeling` do not move the first-ram magnitudes stage 3
+  measured them against, which is exactly why the restitution stage was sequenced after this one.
+
 ## Resume here
 
-**Stage 3b.** Execute `03b-ram-feel.md` with `superpowers:subagent-driven-development`. Its own
-Task 4 no longer needs to re-pitch `spinScale`/`spinMaxRate` — stage 3 Task 4 already did that (see
-above and the doc's own updated note) — so start from its Task 1 (`reeling`) and treat Task 4 as
-"delete the five dead fields and pin the face bonuses" only.
+**The restitution stage**, then stage 4. The restitution fix is approved and sits between 3b and 4 —
+see "Two questions the user answered on 2026-09-07" immediately below for the ruling and its
+conditions, and "Stage 3's exit criterion... is NOT met" further down for the measured diagnosis it
+answers. It has **no plan document and no spec clause yet**; writing the clause is the first task,
+because nothing in R1–R11 authorizes touching `applyContact` and this project's own "stop and ask
+before changing the collision model" rule applies.
+
+Then **stage 4** (`04-impulse-def.md`), which inherits two things from 3b: `wildcharge`'s own
+`uncontrolTicks` (a slam's control-loss duration is stage 4's to author — `contact.ts`'s slam branch
+still writes `0`), and the `ImpulseEntry` `kind` discriminator named under "Open question" below.
 
 ## Two questions the user answered on 2026-09-07 — both binding
 
@@ -151,7 +208,13 @@ The code-review-graph needs its own build per checkout (`uvx code-review-graph@2
 `balance/`, which `npm test` and `npm run build` do not. Stage 1 repaired it after finding 37 errors
 hidden behind a pre-existing failure that aborted the chain; do not let it rot.
 
-## Stage 3's exit criterion "the Bastion keeps moving forwards" is NOT met — escalated, not fixed
+## Stage 3's exit criterion "the Bastion keeps moving forwards" is NOT met — diagnosed here, fix now APPROVED as its own stage
+
+**Status, as of 2026-09-07: the fix named at the bottom of this section is approved by the user and
+scheduled as its own stage between 3b and 4** — see "Two questions the user answered on 2026-09-07"
+above for the ruling itself and the conditions attached to it. Everything below is the diagnosis that
+earned it, kept verbatim as the record of WHY; it is not a live escalation any more, and nothing in
+it should be re-derived. The criterion is still unmet in the code today.
 
 **This is the point of the whole stage, and `globalScale` cannot deliver it.** Measured, a Bastion
 ends a full-speed dead-on flank ram at **-28.6 u/s** — still moving, but backwards, not forwards.
@@ -169,27 +232,41 @@ remove the CONTEST's share of the attacker's cost — and it did, hard: revision
 a roster maximum of 39.3 u/s (see "What stage 3 actually changed" above) — but that share was never
 where most of the backwards travel came from.
 
-**Candidate fix, NOT taken here.** Scale a car-car contact's restitution response by the same
+**The fix — written here as a candidate, APPROVED on 2026-09-07 as its own stage.** Scale a car-car
+contact's restitution response by the same
 `shareOf(selfRamDefence, otherRamDefence)` that already weights the positional correction (R8) —
 walls and obstacles untouched, since solidity has no meaning for something that cannot move. This
 needs a new spec clause (nothing in R1-R11 authorizes touching `applyContact`) and falls under this
-project's "stop and ask before changing the collision model" rule. **It is escalated to the user, not
-implemented.** If it is taken later, note that `globalScale` was measured against a pipeline whose
-attacker-side outcome is dominated by a term that fix would move — re-measure `globalScale` (and
-re-check `spinScale`) against the new composed order rather than assuming either still holds.
+project's "stop and ask before changing the collision model" rule. **It was escalated to the user
+rather than implemented, and the answer came back yes** — the ruling, including the re-measurement
+obligation and why it is sequenced after 3b rather than before, is recorded once under "Two questions
+the user answered on 2026-09-07" above and is not restated here. `globalScale` was measured against a
+pipeline whose attacker-side outcome is dominated by the term that fix moves.
 
 ## What has never been verified
 
-**Nobody has driven any of this.** All 44 commits are gated by tests and arithmetic only.
+**Nobody has driven any of this.** Every commit on the branch is gated by tests and arithmetic only.
 
 - Stage 1's exit criteria 3 and 4, and all of stage 2's, are hands-on checks that remain unticked.
   Stage 3's own hands-on checks are unticked too, and one of them — see above — is now known to fail
-  even once someone does drive it.
-- `npm run playtest` has **not** been run since stage 1 began. Every probe measuring ramming,
-  collision depth or prediction error reads code that has been rewritten three times now (revision 1's
-  stage 2, then stage 3's contest). Compile breaks were fixed on the spot; **no threshold or
-  expectation was changed** — those are the user's call and stage 5 owns them. Two probes carry the
-  largest known drift, each flagged in place at the source:
+  even once someone does drive it. **Stage 3b's are unticked as well, and they are the ones a suite
+  can least stand in for**: whether a 1000 ms `reeling` at 0.4/0.4 reads as "flung and fighting for
+  grip" rather than as a stun, and whether the falloff curve actually stops a ram chain feeling like
+  a lock, are feel questions no test in this repo can answer.
+- `npm run playtest` has **not** been run since stage 1 began, and was **not** run for stage 3b
+  either — by the user's explicit decision this session (recorded under "Two questions the user
+  answered on 2026-09-07"), not by omission. Every probe measuring ramming, collision depth or
+  prediction error reads code that has now been rewritten four times (revision 1's stage 2, stage 3's
+  contest, then 3b). Compile breaks were fixed on the spot; **no threshold or expectation was
+  changed** — those are the user's call and stage 5 owns them.
+- **Stage 3b moved what the ram probes measure, in a way stage 3 did not.** Stage 3 changed the
+  magnitude of a knock; 3b changed what a landed ram *does* — every ram now opens a control-loss
+  window on its victim (`reeling`, up to 1000 ms), and a victim's second and later rams inside a
+  2000 ms window land at a reduced impulse and a reduced duration. Anything in `playtest/ram.ts` that
+  drives repeated contact and reads back a knock is now reading a *discounted* one, and nothing in
+  the probes knows the falloff stack exists. Trigger rates should still be unaffected (a ram fires on
+  contact and drive-in sign, which neither `reeling` nor falloff touches).
+- Two probes carry the largest known drift from stage 3, each flagged in place at the source:
   - `playtest/collision.ts`'s probe 1 ("Car-car tunneling") bounds a shove at `maxRamShove = 416 u/s`
     (`260 * 1.6`). The real roster maximum a ram can now write is **268.0 u/s** (measured, stage 3) —
     the bound is ~64% too high, so the probe reads MORE conservatively than the game actually behaves,
@@ -197,10 +274,14 @@ re-check `spinScale`) against the new composed order rather than assuming either
   - `playtest/ram.ts`'s trigger-rate floors (R1/R2) should be unaffected — a ram fires on contact and
     drive-in sign, which neither `globalScale` nor `spinScale` touches — but every KNOCK MAGNITUDE and
     every INJECTED SPIN this file observes moved with those two constants, R5 (ram-lock) included.
+    R5 in particular is now measuring a mechanic that has an actual countermeasure: stage 3b's
+    falloff exists precisely to make repeated ramming stop reading as a lock, so whatever that probe
+    reports next is a report on the new mechanic, not a re-run of the old measurement. Its
+    expectation is stage 5's to reconsider, with the user, not an agent's to quietly retune.
 - Balance baselines from before this branch are not comparable: the config fingerprint moved, and
   `BOT_BRAIN_VERSION` went 3.0.0 → 3.1.0.
 
-Driving stage 1 (and now stage 3) is the cheapest thing that de-risks the most: every number in the
+Driving stage 1 (and now stages 3 and 3b) is the cheapest thing that de-risks the most: every number in the
 ram model gets tuned against how the cars actually feel, so if the heavy-car speeds are wrong, the ram
 numbers move with them — and the unmet exit criterion above is exactly the kind of thing that only
 shows up by driving it.
@@ -235,14 +316,40 @@ Recorded here because they were made across sessions and are easy to accidentall
   measured trade table.
 - **Falloff (stage 3b) applies to the victim's impulse only**, not the attacker's — it exists to stop
   a victim being ram-locked, and discounting the attacker would make repeated ramming progressively
-  safer for the aggressor.
+  safer for the aggressor. **Shipped that way**, and commented at the write site in `ram-bridge.ts`.
+- **`reeling` sits AT the `STATUS_LIMITS` floors and stays there** (stage 3b, spec P22). Do not widen
+  a floor to make it harsher — `modifiersOf` clamps, so an authored value below the floor is silently
+  discarded, and the floors are documented guarantees that stop guaranteeing the moment one row gets
+  an exception. `status-config.ts` says so on the row; `docs/turn-tuning.md`'s tuning table says so to
+  whoever reaches for the knob.
+- **`reeling` must keep `flags: []`.** `StatusDef` forces a flag-carrying row to `reapply: "ignore"`,
+  which would stop a second ram writing a duration at all and silently kill duration falloff. The
+  helplessness is meant to come from the physics, not from a flag.
 
-## Open question, flagged not answered
+## Open question, ANSWERED in stage 3b — with one residual risk that is stage 4's to close
 
 **Telling a ram from a slam inside `contactTick`'s impulses loop.** Spec P24 makes falloff ram-only,
-but `ImpulseEntry`'s map mixes both. `03b-ram-feel.md` infers the disambiguation from
-`events.slams`. That inference is reasonable but it is the plan's, not the spec's — check it when
-implementing rather than trusting it.
+but `ImpulseEntry`'s map mixes both. `03b-ram-feel.md` inferred the disambiguation from
+`events.slams` — the plan's inference, not the spec's, so it was flagged for checking rather than
+trusting.
+
+**It was checked against `contact.ts`, ruled sound, and implemented**; a reviewer then independently
+re-derived it from the same source. `resolvePair` resolves each PAIR as exactly one of dash/slam/ram,
+so "this victim is in `events.slams`" is equivalent to "this victim's impulse entry came from the slam
+branch". There is no third case.
+
+**The residual risk, recorded rather than fixed.** `resolveContacts` keys its impulse map by VICTIM
+across ALL pairs and keeps only the largest `impulse.speed`, so a car slammed by A and rammed by B on
+the **same tick** has both competing for one slot. The slam wins — and the predicate is therefore
+still right — only because `SLAM_CONFIG.knockSpeed` (520) exceeds the roster's hardest measured ram
+(268 u/s). That ordering is an observed fact about today's tuning, not a structural guarantee:
+`resolveContacts`'s own doc comment says outright that nothing enforces it (spec R9 forbids re-adding
+the severity ceiling that once did). Close that gap with a retune and `isRam` starts silently
+treating a slam victim as a ram victim — counting the slam into the falloff stack and applying
+`reeling` off a slam's authored `uncontrolTicks`. **The fix is a `kind` discriminator on
+`ImpulseEntry`** so the branch reads the classification instead of inferring it. Stage 4 is its
+natural home: it is already the stage that touches `ImpulseDef` and authors `wildcharge`'s own
+`uncontrolTicks`. The dependency is commented in place at `ram-bridge.ts`'s `isRam` line.
 
 ## Deferred findings
 
@@ -256,12 +363,21 @@ Real, non-blocking, each found once by a reviewer already. Fix opportunistically
 | 4 | Two pre-existing TypeScript errors were fixed in stage 1 (`perception.ts`, `movement-hint.test.ts`) — noted because the *first* of them was aborting the typecheck chain and hiding 37 real errors. Watch for the pattern recurring. |
 | 5 | Two `ram-bridge.test.ts` "no precedence" tests assert direction and non-zero-ness rather than the second knock's actual magnitude. |
 | 6 | `docs/config-reference.md` claims the camera's trailing offset is "12% of the half-view"; the `smoothFollow` steady-state formula gives ~3.9% at 267 u/s. Predates this branch. |
+| 7 | `docs/schema-reference.md` still calls the ram bridge a "temporary shim". That is stage-1 wording which stage 2 superseded — the bridge routes every push through `Impulse` now. Left alone in 3b's closing pass as out of its scope. |
+| 8 | The `ImpulseEntry` `kind` discriminator described under "Open question" above. Stage 4's natural home. |
+
+The eleven minor findings deferred out of stage 3b's four task reviews are **not** on this list: they
+were all swept in the stage-closing pass (`8608bd0`) rather than carried. Two of them turned out to be
+worth more than "minor" and are recorded above instead — the `refresh`/`Math.max` interaction under
+"What stage 3b actually changed", and the slam-outranks-ram ordering under "Open question".
 
 ## Housekeeping
 
 - The branch has **not been pushed**. Push before switching machines — it is also the only backup.
-- `.superpowers/sdd/` held the working ledgers for stages 1-3. It is gitignored, it did not travel, and
-  **it was deleted when stage 3 finished** — do not go looking for it, and treat any surviving pointer
-  to a file under it as dead. The measurements and hand-derivations it recorded were written into the
+- `.superpowers/sdd/` held the working ledgers for stages 1-3, and holds stage 3b's under
+  `03b-ram-feel/`. It is gitignored and does not travel between checkouts, so **assume it is absent**
+  — the stages 1-3 ledgers were deleted when stage 3 finished, and 3b's will go the same way. Treat
+  any pointer to a file under it as dead rather than as something to chase. The measurements and
+  hand-derivations it recorded were written into the
   constants' own doc comments and into this file before it went. Everything
   from it that matters is in this file, the spec, the plan documents, or code comments.

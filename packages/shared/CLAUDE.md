@@ -36,9 +36,11 @@ whatever future applier grants it, the same way a stun's duty cycle is owned by 
 cooldown rather than by this rule, and `phased` (spawn protection) must be extendable by the room
 while a respawned car still overlaps someone.
 
-**A status does not own its duration** — the applier does (`WeaponDef.applies`, or the room's
-`statusRequests`), so `applyStatus` takes an explicit `durationTicks`. A status never stacks with
-itself; different statuses on one channel stack by multiplication.
+**A status does not own its duration** — the applier does (`WeaponDef.applies`, the room's
+`statusRequests`, or — since the car-physics rework's stage 3b — `contactTick` applying `reeling` to
+a ram victim off `RAM_CONFIG.ramUncontrolMs`, already scaled by that victim's falloff), so
+`applyStatus` takes an explicit `durationTicks`. A status never stacks with itself; different
+statuses on one channel stack by multiplication.
 
 `applyDamage` is no longer the only HP writer — **`sim/damage.ts` is.** `applyHeal` sits beside it for
 repair pulses, clamped to `hpOf` and refusing to lift a dead car off 0. Keeping the pair in one file is
@@ -58,10 +60,13 @@ slam — a fixed impulse, replacing the graded ram) ahead of the ordinary ram fa
 `applyRams` used to. `config/slam-config.ts`'s `SLAM_CONFIG`/`SLAM_TICKS` tune the slam alone — knock
 speed, victim authority, wall-stun window, re-slam immunity — kept separate from `RAM_CONFIG` because
 a slam is deliberately not graded like a ram. **`SLAM_CONFIG.victimAuthority` is inert as of the
-2026-09-06 vector-drive rework** for the same reason `RAM_CONFIG.authorityFloor` is (see that config's
-own file): `contact.ts` still writes it into the knock it hands back, but `ram-bridge.ts` drops
-`knock.authority` on the floor entirely rather than translating it onto `PlayerState`, which no longer
-has an `authority` field. **No longer dormant as of the 2026-09-01 weapon-status
+2026-09-06 vector-drive rework**: nothing writes an `authority` onto `PlayerState`, which no longer
+has such a field. `RAM_CONFIG`'s five equivalents (`authorityFloor`, the two `authority` decay knobs,
+and the two `shove` ones) went inert on the same date and were **deleted outright by that rework's
+stage 3b**; this one survives only because stage 4 is where a slam's own control loss gets authored,
+on `wildcharge`'s `ImpulseDef`. An ordinary ram's control loss is not pending: it **came back in
+stage 3b as the `reeling` status**, applied by `contactTick` and scaled by a per-victim
+diminishing-returns stack. **No longer dormant as of the 2026-09-01 weapon-status
 overhaul (Plan 3):** `thunderclap` (Mirage) is a `kind: "maneuver"` dash and `wildcharge` (Bastion) is
 a `kind: "maneuver"` charge, both real rows in `WEAPON_TABLE`, so `resolveContacts` and
 `SLAM_CONFIG`/`SLAM_TICKS` now run from a real match, not only from tests. `wildcharge` is also the

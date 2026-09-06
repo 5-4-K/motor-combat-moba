@@ -12,7 +12,9 @@ pickups) — and never stacks with itself. Hard CC no longer belongs to one chas
 `spiked` now, a slow rather than a stop. `applyDamage` is no longer the only HP writer;
 **`sim/damage.ts` is**, now that repair pulses exist. **`corroded`'s only source in the game is now
 an explosion** — `magmablast`'s detonation, and nothing else applies it (grep `applies:.*corroded`
-if a second source ever needs checking). See
+if a second source ever needs checking). **`reeling` is the one row no weapon applies at all**: an
+ordinary ram writes it, from `contactTick`, which is why its duration comes from `RAM_CONFIG` rather
+than a `WeaponDef.applies` — see the car-physics section below. See
 [`docs/combat-model.md`](docs/combat-model.md#statuses).
 
 An **aura** is a beam with a `disc` hitbox at `origin: "center"` — a field around a car rather than a
@@ -157,7 +159,7 @@ the table moving. Feel complaints ("medium is too hard to hit") go through the
 | Package local rules | `packages/shared/CLAUDE.md`, `packages/server/CLAUDE.md`, `packages/client/CLAUDE.md` |
 | Spec + tracker | [`docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md`](docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md), [`docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md`](docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md) |
 | **Online netcode and client rendering — the fourteen-phase rewrite in progress** | **start at [`docs/superpowers/plans/2026-09-04-netcode-and-rendering/EXECUTION.md`](docs/superpowers/plans/2026-09-04-netcode-and-rendering/EXECUTION.md)** — see below |
-| **Car physics rework — stages 1-2 landed, spec now on revision 2** | **start at [`docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md`](docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md)** — see below |
+| **Car physics rework — stages 1, 2, 3 and 3b landed, spec now on revision 2** | **start at [`docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md`](docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md)** — see below |
 | Weapon system decisions (D1–D22), aim assist and target lock (A1–A14), online-play review, future work | [`docs/superpowers/specs/2026-08-27-weapon-system-design.md`](docs/superpowers/specs/2026-08-27-weapon-system-design.md), [`docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md`](docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md), [`docs/superpowers/plans/2026-08-27-weapon-system.md`](docs/superpowers/plans/2026-08-27-weapon-system.md) |
 | The nine-weapon roster, per-chassis kits (L1–L7) | [`docs/superpowers/specs/2026-08-29-weapon-roster-design.md`](docs/superpowers/specs/2026-08-29-weapon-roster-design.md) |
 | The three chassis types and their triangle, the `accel`/`handling` ratings, the weapon redistribution (T1–T22) — **supersedes L1–L7's assignments** | [`docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md`](docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md) |
@@ -205,7 +207,7 @@ What it changes, when it runs, and why it matters to work that touches the sim m
 A change to `sim/`, the tables or `ArenaScene.ts` made before this work starts is not wasted, but it
 will be moved by it — check the phase that owns the file before a large refactor there.
 
-## The car-physics rework: stages 1-2 landed, spec on revision 2
+## The car-physics rework: stages 1, 2, 3 and 3b landed, spec on revision 2
 
 **Stage 1 of a five-stage rework replaced `SimBody.speed` and `PlayerState.speed` — a scalar
 magnitude along the car's heading, with a separate `shoveX`/`shoveY` knockback vector and an
@@ -218,21 +220,19 @@ braking became per-car and flat (`CarDef.brakeDecel`); the roster's speed and ac
 cut hard so cars carry momentum. See [`docs/turn-tuning.md`](docs/turn-tuning.md#current-values) for
 the numbers and the intro paragraphs above for the balance history.
 
-**Ramming is deliberately, temporarily degraded, and that is a stage-1 fact, not a bug.** A ram's
-knock is added straight into `vx`/`vy` by `ram-bridge.ts` as a shim, additively, with no "no rescue"
-precedence — two rams on one victim across ticks now stack rather than the weaker one being
-discarded. `authority` has **no successor** in stage 1: steering is never degraded by a ram until
-stage 3 reintroduces control loss as a `reeling` status. And because `accelerateForward`'s top-speed
-clamp now catches any forward-aligned velocity (knock included) the moment the victim is next under
-throttle, a head-on or rear-end ram is close to inert — only a flank hit, which lands mostly as
-*lateral* velocity, reliably survives to be felt. Five `RAM_CONFIG` knobs
-(`authorityFloor`, `authorityHalfLifeSeconds`, `authorityEpsilon`, `shoveHalfLifeSeconds`,
-`shoveEpsilon`) and `SLAM_CONFIG.victimAuthority` are inert leftovers of this — see that config file
-for which ones.
+Stage 1 left ramming deliberately degraded — a shim that added the knock straight into `vx`/`vy`,
+and `authority` with no successor at all, so a rammed car kept full steering. **That is history now:
+stages 2, 3 and 3b have each replaced a piece of it, and the paragraphs below are the current
+state.** Five `RAM_CONFIG` knobs (`authorityFloor`, `authorityHalfLifeSeconds`, `authorityEpsilon`,
+`shoveHalfLifeSeconds`, `shoveEpsilon`) sat inert through all of that and were **deleted outright in
+stage 3b**, along with `RamDecay.shove`/`.authority`; do not go looking for them. They had two
+different successors, not one — the three `authority` ones are the `reeling` status below, the two
+`shove` ones are `DRIVE_CONFIG.impactGripDecel`. `SLAM_CONFIG.victimAuthority` and `selfKeepFactor`
+are still there and still inert on the slam side, waiting on stage 4.
 
-**Stage 2 also landed**, restoring whole-vector reflection in `applyContact` (walls deflect instead
-of damping), dropping `restitution` 0.35 → 0.15, splitting car-car separation by mass, and adding the
-`Impulse` struct with equal-and-opposite reactions.
+**Stage 2 restored whole-vector reflection** in `applyContact` (walls deflect instead of damping),
+dropped `restitution` 0.35 → 0.15, split car-car separation by mass, and added the `Impulse` struct
+with equal-and-opposite reactions.
 
 **The spec then changed models mid-rework, and this is the thing to know before reading any ram
 code.** Measuring stage 2's equal-and-opposite impulses showed every chassis is thrown backwards
@@ -243,11 +243,33 @@ would off a wall; and `knockMaxSpeed` was authored as the *victim's* Δv under a
 
 **Spec revision 2 therefore removes `mass` from the game entirely**, replaces it with per-car
 `ramAttack`/`ramDefence` (never `attack`/`defence` — `CarDef.attack` already scales weapon damage),
-and replaces equal-and-opposite impulses with a **contest** between the two cars' pushes. So the ram
-code currently in the branch implements a model the spec marks superseded; that is expected, marked
-in place rather than reverted, and stage 3 is what replaces it.
+and replaces equal-and-opposite impulses with a **contest** between the two cars' pushes.
 
-Stages 3, 3b, 4 and 5 are planned against revision 2 and **not started**.
+**Stage 3 executed that.** `mass` does not appear anywhere in `packages/`; `sim/ram.ts`'s
+`pushOf`/`impactOn` resolve each side of a ram independently (there is no `reactionOf` and no
+negation), and `RAM_CONFIG.globalScale` and `spinScale` were **measured** through the composed
+`serverTick` → `contactTick` order rather than derived — do not re-derive them on a retune. It also
+left one exit criterion unmet, deliberately: an attacker still ends a dead-on ram travelling
+backwards, and all but 0.1 u/s of that comes from `applyContact`'s mass-blind restitution reflection,
+which no clause in R1–R11 authorizes touching. **The user has since approved that fix as its own
+stage, sequenced between 3b and 4**, and it needs a spec clause of its own plus a re-measurement of
+both constants.
+
+**Stage 3b gave ramming its control-loss back.** A ram now applies **`reeling`** — a `STATUS_TABLE`
+debuff (`turnRate: 0.4`, `accel: 0.4`, both sitting exactly at the `STATUS_LIMITS` floors),
+`reapply: "refresh"` and `flags: []` on purpose, since a flag-carrying row would be forced to
+`"ignore"` — so a rammed car's steering degrades through the same `Modifiers` channel every other
+debuff uses rather than a bespoke field on the body. Alongside it, **per-victim diminishing returns**
+(`FalloffStack`/`nextFalloff` in `packages/server/src/sim/ram-bridge.ts`, riding on `ContactMemory`):
+per victim and global across attackers, a rolling window, multiplicative with a floor, scaling both
+the impulse and the `reeling` duration. It is **ram-only** — a slam does not participate — and
+**server-side only, deliberately not a schema field**, which is not an invariant-8 violation because
+`stepSim` never reads the stack; what crosses the wire is the already-scaled result. Falloff scales
+the **victim's** half alone: an attacker pays full cost for every punch, or chain-ramming a
+worn-down victim would get progressively safer.
+
+Stages 4 and 5 (plus the approved restitution stage before them) are planned against revision 2 and
+**not started**.
 
 **Start at
 [`EXECUTION.md`](docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md)** — the state file. It
@@ -371,8 +393,13 @@ would only prove someone typed a new stamp.
 **Update it in the same commit whenever you change** a car's `handling`, `speed`,
 `coastHalfLifeSeconds` or `brakeDecel` in `CAR_TABLE`; `baseTurnRate`, `turnRatePerRating`,
 `stopTurnRatio`, `baseMaxSpeed`, `speedPerRating`, `reverseSpeedRatio`, `steeringGrip` or
-`impactGripDecel` in `DRIVE_CONFIG`; `overheated`'s `turnRate` in `STATUS_TABLE`;
-`authorityFloor` or `spinMaxRate` in `RAM_CONFIG`; or `TICK_RATE_HZ`. Adding a chassis needs a new
+`impactGripDecel` in `DRIVE_CONFIG`; **any `STATUS_TABLE` row's `turnRate` — `reeling`'s (0.4) is the
+one shipped today, and it has its own "Rate while reeling" row in the derived table**;
+`spinMaxRate` in `RAM_CONFIG`; or `TICK_RATE_HZ`. (`authorityFloor` used to head that `RAM_CONFIG`
+entry and `overheated` used to be the `STATUS_TABLE` example; the first was deleted by the
+car-physics rework's stage 3b and the second lost its `turnRate` in the 2026-09-01 status overhaul.
+`steeringGrip` and `impactGripDecel` appear only in that page's prose, so the test cannot catch them
+— they are on this list because a reader must, not because a suite will.) Adding a chassis needs a new
 column in three tables, and the test fails until it has one. The page's "Keeping this page honest"
 section holds that list and a snippet that prints the derived values — do not retype them by hand.
 
