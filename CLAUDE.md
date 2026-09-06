@@ -82,6 +82,19 @@ that rule is `shouldRefusePlayground`, which refuses to open a playground while 
 practice room** has anyone in it. Settings ride as join options, not messages: practice has no
 mid-session reconfiguration.
 
+**Lobby chat is lobby-screen only, and its gate cannot drift from the UI.** `MSG_CHAT` is refused
+server-side unless the sender's `status === PlayerStatus.READY` — exactly the status `viewFor` maps
+to the lobby screen, so "may speak" and "is looking at the chat panel" are the same predicate. The
+buffer lives on `ArenaState.chat`, capped at `CHAT_CONFIG.maxMessages` (20, oldest dropped first);
+nothing ever clears it — not a phase transition, not a kick — so a player back from a match or a late
+joiner reads the backlog, and it dies with the room since `ArenaRoom` sets no `autoDispose` override.
+Each row snapshots its sender's `name` and `colorId` at send time rather than resolving them through
+`state.players` at render time, so a leaver's or a kicked player's messages keep reading correctly
+instead of going nameless and grey. `seq` is derived from the previous row rather than held in a
+counter, because `chat.length` cannot detect a new message once the buffer is at its cap — an append
+plus a shift leaves the length unchanged. See
+[`docs/superpowers/specs/2026-09-06-lobby-chat-design.md`](docs/superpowers/specs/2026-09-06-lobby-chat-design.md).
+
 **Neither of those two rooms reduces a flow, so `rooms/countdown.ts` is the only thing that writes
 their `phase`.** Both now open on the same 3-2-1 an arena match does: `beginCountdown` at creation
 (so the room cannot run live ticks before anyone arrives) and again on join once the cars are placed,

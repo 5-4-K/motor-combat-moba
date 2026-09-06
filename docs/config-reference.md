@@ -786,6 +786,22 @@ Both timeouts are read against wall-clock time, deliberately not sim ticks: `pau
 `ArenaState.tick`, so a tick-based idle counter would never advance for a paused room — exactly the
 session most worth reaping.
 
+## CHAT_CONFIG
+
+`packages/shared/src/config/chat-config.ts`. Every chat number in the codebase comes from here
+(invariant 2).
+
+| Knob | Value | Notes |
+|---|---|---|
+| `maxLength` | 100 | Longest message `validateChatText` accepts, measured on the normalized text |
+| `maxMessages` | 20 | Rows kept in `ArenaState.chat`; the 21st push drops the oldest |
+| `sendCooldownMs` | 500 | Minimum gap between one sender's messages |
+
+`sendCooldownMs` is wall-clock, not ticks, deliberately: it is an anti-spam guard with no
+relationship to the sim, and a tick-based cooldown would silently halve when the planned netcode work
+takes `TICK_RATE_HZ` from 30 to 60 (see root `CLAUDE.md`). At 500 ms no real player notices it; a
+held Enter key or a scripted client cannot flush the visible history in a second.
+
 ## Tuning store (dev-only)
 
 `packages/shared/src/config/tuning.ts` (`setTuning`, PG12) and `config/tuning-walker.ts`

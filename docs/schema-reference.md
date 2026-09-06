@@ -19,6 +19,30 @@ Colyseus `@type` fields. Enums are explicit uint8; never renumber. `pendingCarId
 | `winnerSessionId` | string | `""` | FFA winner; else empty |
 | `players` | map `PlayerState` | empty | Keyed by sessionId |
 | `weapons` | map `WeaponInstanceState` | empty | Live projectile and beam instances, keyed by instance id |
+| `chat` | array `ChatMessageState` | empty | Last `CHAT_CONFIG.maxMessages` (20) lobby messages, oldest first. Nothing ever clears it — not a phase transition, not a kick — so a returning or late-joining player reads the backlog; dies with the room, since `ArenaRoom` sets no `autoDispose` override |
+
+## ChatMessageState
+
+One lobby chat message, held on `ArenaState.chat`.
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `seq` | uint32 | `0` | Monotonic, derived from the previous row's `seq` plus one — not a stored counter. `chat.length` cannot detect a new message once the buffer is at its cap (an append plus a shift leaves it unchanged), and comparing text fails on two identical messages sent in the same minute |
+| `sessionId` | string | `""` | Sender's session id, snapshotted at send time |
+| `name` | string | `""` | Sender's display name, snapshotted at send time |
+| `colorId` | uint8 | `0` | Sender's lobby colour, snapshotted at send time |
+| `text` | string | `""` | Normalized, validated message text |
+| `at` | string | `""` | Server-formatted `HH:MM`, 24-hour, zero-padded — not an epoch, so every viewer reads the same clock instead of their own timezone |
+
+`name` and `colorId` are copied from the sender's `PlayerState` at send time rather than resolved
+through `state.players` at render time: a row is a record of something that was said, not a live
+projection of who is in the room, so a leaver's or a kicked player's messages keep reading correctly
+instead of going nameless and grey the instant their `PlayerState` is deleted.
+
+Display-only — `stepSim` never reads `chat`, so invariant 8's one-way rule (if `stepSim` reads it, it
+must be a networked schema field) is not strained by a field it never touches. It is networked for
+the same reason `winnerSessionId` is: a client that never observed the message still has to be able
+to draw it.
 
 ## PracticeState
 
@@ -219,6 +243,7 @@ Client → server (intents only; never sim state):
 | `set_mode` | `MSG_SET_MODE` | `{ mode }` (`GameMode` FFA=0 / TEAM=1) | Host, and only when nobody is In match |
 | `start_match` | `MSG_START_MATCH` | none | Host. Server runs `canStart`; on failure replies `start_error` |
 | `kick` | `MSG_KICK` | `{ sessionId }` | Host. Target must be Ready or Post-match, not self (`4002`, `"Kicked"`) |
+| `chat` | `MSG_CHAT` | `{ text }` | Ready player. Passes three server-side gates — `status === READY`, a `CHAT_CONFIG.sendCooldownMs` cooldown, `validateChatText` — and drops silently on any of them |
 
 Server → client:
 
