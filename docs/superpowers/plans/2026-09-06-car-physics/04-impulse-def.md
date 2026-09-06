@@ -97,9 +97,10 @@ In `weapon-types.ts`, beside `StatusApplication`:
  *
  * Ram and weapons derive their impulses completely differently and share only how one LANDS
  * (`applyImpulse`). This type is the *authored* half — fixed numbers a designer writes on a row —
- * while ram builds its `Impulse` from relative closing speed, a side bonus, mass and a falloff
- * stack. Neither derivation constrains the other, which is what keeps ram feel and weapon feel
- * independently tunable. See spec principle D.
+ * while ram builds its `Impulse` from a contest between both cars' `ramAttack`/`ramDefence` (stage
+ * 3, spec R1–R9), a side bonus, and a falloff stack (stage 3b, spec P24). Neither derivation
+ * constrains the other, which is what keeps ram feel and weapon feel independently tunable. See
+ * spec principle D.
  */
 export interface ImpulseDef {
   /** Magnitude as a Δv in u/s. Negative pulls the victim toward the source. */
@@ -116,13 +117,22 @@ export interface ImpulseDef {
   /** Torque scale from the contact-point lever arm. 0 = a clean straight punt, no rotation. */
   spin: number;
   /**
-   * Does the victim's mass reduce the displacement?
+   * Does the target's `ramDefence` reduce this push? **Renamed from `massScaled` (spec R10) — `mass`
+   * no longer exists.** Ram: yes, conceptually — a defensive chassis is meant to be harder to shove.
+   * A hard slam: no, it punts every chassis identically.
    *
    * The designer's escape hatch, and the place where "weapons get to break physics" becomes a
-   * checkbox instead of a special case. Ram is always mass-scaled; the hard slam deliberately is
-   * not, so it punts every chassis identically.
+   * checkbox instead of a special case.
+   *
+   * **Do not confuse this with the runtime `Impulse.defenceScaled` field ram itself produces.** Ram's
+   * own `Impulse`s (`sim/ram.ts`) are always built with `defenceScaled: false`, even though the
+   * *concept* above says "ram: yes" — the contest already divides by the victim's own `ramDefence`
+   * while computing the impulse's magnitude (spec R5), so letting `applyImpulse` divide a second time
+   * would apply it twice. This `ImpulseDef` field is the authored escape hatch for a WEAPON's own
+   * fixed push (wildcharge's slam, and any future explosion or shell); it has no reader in `ram.ts`
+   * at all. See `03-ram.md`'s Task 2, Step 5 note ("Why `defenceScaled: false` on a ram").
    */
-  massScaled: boolean;
+  defenceScaled: boolean;
   /** How long the victim is left `reeling`. Converted to ticks once, in `WEAPON_TICKS`. */
   uncontrolMs: number;
   /** Being driven into level geometry by this push stuns. Omit for an impulse that cannot. */
@@ -190,10 +200,14 @@ In `weapon-config.ts`, add to `wildcharge`:
     impulse: {
       /**
        * Was `SLAM_CONFIG.knockSpeed`, authored as "2x RAM_CONFIG.knockMaxSpeed" — a by-hand
-       * relationship, not a derived one. Ram impulses are now momentum-derived rather than capped
-       * at 260, so that relationship broke silently when they changed and NOTHING FAILS if this is
-       * left alone: a 20-second ult can quietly end up weaker than an ordinary flank ram. Stage 5
-       * re-pitches it against the measured new ram maximum. Until then, treat this number as
+       * relationship, not a derived one, and now doubly stale. `RAM_CONFIG.knockMaxSpeed` itself is
+       * gone (deleted with `mass`, spec R1): ram impulses no longer come from a capped speed at all,
+       * they come from the `ramAttack`/`ramDefence` contest (R2–R5), whose whole point is to be
+       * open-ended rather than saturating (R9). "2x the ram maximum" is not merely a stale number now
+       * — it names a quantity ("the ram maximum") that the contest does not produce, since nothing in
+       * it saturates. NOTHING FAILS if this is left alone: a 20-second ult can quietly end up weaker
+       * than an ordinary flank ram. Stage 5 re-pitches it — against a measured typical/strong contest
+       * outcome, not against a maximum that no longer exists. Until then, treat this number as
        * provisional.
        */
       speed: 520,
@@ -204,9 +218,12 @@ In `weapon-config.ts`, add to `wildcharge`:
        * unless it is understood as the ult's signature: predictable, readable, and yours to aim.
        */
       spin: 0,
-      /** A slam punts every chassis identically. Was "No mass factor, no side bonus". */
-      massScaled: false,
-      /** Longer than a full-strength ram's 1000ms. This is an ult on a 20s cooldown. */
+      /**
+       * A slam punts every chassis identically — unaffected by the target's `ramDefence`. Was
+       * `massScaled: false` ("No mass factor, no side bonus"); renamed by spec R10, same meaning.
+       */
+      defenceScaled: false,
+      /** Longer than a full-strength ram's 1000ms (`RAM_CONFIG.ramUncontrolMs`, stage 3b). This is an ult on a 20s cooldown. */
       uncontrolMs: 1400,
       wallStun: { windowMs: 500, durationMs: 500 },
       retriggerImmunityMs: 600,
@@ -266,7 +283,8 @@ git commit -m "refactor(weapons)!: move the hard slam onto wildcharge's ImpulseD
 - Test: `packages/shared/src/sim/combat.test.ts`
 
 **Interfaces:**
-- Consumes: `WEAPON_TICKS[id].impulse`, `applyImpulse`, `reactionOf`.
+- Consumes: `WEAPON_TICKS[id].impulse`, `applyImpulse`. **Not `reactionOf`** — stage 3 deleted it
+  outright (spec R7); there is no equal-and-opposite reaction left anywhere in the sim.
 - Produces: nothing new exported. `contact.ts` no longer builds any `Impulse` itself.
 
 - [ ] **Step 1: Write the failing test**
@@ -321,7 +339,7 @@ function impulseFrom(def: ImpulseDef, source: Vec2, target: Vec2, aimAngle: numb
 
   return {
     dirX: dir.x, dirY: dir.y,
-    speed: def.speed, spin: def.spin, massScaled: def.massScaled,
+    speed: def.speed, spin: def.spin, defenceScaled: def.defenceScaled,
     uncontrolTicks: ticksFor(def).uncontrol,
     contactX: target.x, contactY: target.y,
   };
@@ -331,11 +349,21 @@ function impulseFrom(def: ImpulseDef, source: Vec2, target: Vec2, aimAngle: numb
 Emit it on `CombatOutput` alongside the existing status requests so the bridge applies it — combat is
 pure and does not write bodies.
 
-- [ ] **Step 4: Apply reactions only for contact impulses**
+- [ ] **Step 4: A weapon's attacker takes nothing — there is no reaction to apply**
 
-In the bridge, a weapon impulse gets a `reactionOf` **only when its source is the attacker's own
-hull** — a slam, not a detached explosion, which has nothing to react against (spec P16). Gate on the
-maneuver kind, not on the weapon id.
+**Stale as of revision 2: `reactionOf` does not exist.** An earlier draft of this task gated a
+`reactionOf` call on whether the impulse's source was the attacker's own hull versus a detached
+explosion (spec P16). R7 deletes that mechanism outright, for rams and for everything else — there is
+no equal-and-opposite reaction anywhere in the sim any more, contact or otherwise.
+
+Stage 3's own slam branch (`03-ram.md`, Task 2 Step 6) already establishes the pattern to follow: *"A
+slam is authored, not contested, so the attacker takes nothing from it: build a zero-magnitude
+impulse rather than skipping the field, so the bridge has one code path."* Apply the same rule here —
+a weapon impulse's `attackerImpulse` (wherever this bridge's `ImpulseEntry`-shaped result carries one)
+is a zero-magnitude `Impulse`, always, regardless of whether the source was a maneuver's own hull or a
+detached explosion. An attacker paying a cost for firing its own weapon is a decision for that
+weapon's own author to make explicitly (a separate, future mechanism — e.g. an authored recoil field),
+never an automatic physical consequence the way it was under revision 1's equal-and-opposite model.
 
 - [ ] **Step 5: Delete the slam's inline knock-building from `contact.ts`**
 

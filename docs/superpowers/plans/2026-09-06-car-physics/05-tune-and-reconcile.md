@@ -32,8 +32,9 @@ Identical to stage 1 — see [`01-vector-drive.md`](01-vector-drive.md#global-co
 
 **Files:** none committed until Step 4.
 
-**Interfaces:** consumes everything; produces the final values for `DRIVE_CONFIG`, `CAR_TABLE`,
-`RAM_CONFIG` and `wildcharge.impulse.speed`.
+**Interfaces:** consumes everything; produces the final values for `DRIVE_CONFIG`, `CAR_TABLE`
+(including the revision-2 `ramAttack`/`ramDefence` ratings), `RAM_CONFIG` (including
+`defencePushScale` and `globalScale`) and `wildcharge.impulse.speed`.
 
 - [ ] **Step 1: Open the playground**
 
@@ -67,6 +68,27 @@ Tune one axis at a time; they interact and a simultaneous change tells you nothi
 5. As Bastion, wildcharge a bot. **Compare it directly against your best ordinary ram.** If the ult
    is not clearly harder, `wildcharge.impulse.speed` is the number to raise — this is the re-pitch
    stage 4 deferred, and it is the single most likely thing in this whole rework to ship wrong.
+6. **`defencePushScale`** (spec R2) — dial this while parked. A stationary Bastion should absorb a
+   meaningfully bigger hit than a stationary Bullseye, but neither should feel like a free pass or an
+   immovable wall. The config's own comment calls this "the first knob to reach for when contact
+   feels wrong" — start here if anything about ramming reads off.
+7. **`globalScale`** (spec R5) — this was **measured**, not guessed, in stage 3's Task 4. Re-check it
+   here: if this pass changes the roster's `ramAttack`/`ramDefence` spread, the whole contest's output
+   moves with it, and a spread change can quietly re-open the "attacker thrown backwards" failure
+   revision 2 exists to close. Re-run the same measurement stage 3 used if the spread moved
+   meaningfully.
+8. **`ramAttack`/`ramDefence` per car** (spec R1, "Starting values") — the roster's starting spread
+   (flatter attack, defence inheriting the old `mass` ordering) is an explicit placeholder, not a
+   balance pass. Feel whether the flatter attack spread reads as intended, and whether defence's
+   double duty — it both adds to a car's own push *and* divides its received impact (spec R5) — makes
+   a maxed-out car read as genuinely hard to kill rather than merely tanky. If a chassis proves
+   unkillable, the spec's own recorded view is that the fix is pricing the roster, not weakening the
+   compounding itself.
+9. **The two gates that ship inactive** (spec R9) — confirm `minApproachSpeed` (0) and the (absent)
+   impact ceiling are still not binding after this pass's retune. **Neither may ever be re-clamped to
+   a normalised 0–1 fraction** — that is the exact defect revision 1 shipped. If a ceiling starts
+   feeling necessary, that is a `globalScale` or roster problem to fix at the source, not a reason to
+   reintroduce the old saturating model.
 
 - [ ] **Step 4: Write the settled values into the tables and commit**
 
@@ -93,7 +115,19 @@ npm run build:manual
 ```
 
 `CAR_TABLE` gained two fields and `WEAPON_TABLE` gained `impulse`, so `balanceStamp` has moved and
-`scripts/manual-page.test.mjs` has been failing since stage 1 unless someone rebuilt early.
+`scripts/manual-page.test.mjs` has been failing since stage 1 unless someone rebuilt early. Stage 3
+moved it again on its own: `mass` left `CAR_TABLE` and `ramAttack`/`ramDefence` arrived (spec R1,
+R11) — every field of a row counts toward `balanceStamp`, so this is a second, independent reason the
+guide is stale even if it was rebuilt right after stage 1.
+
+**`docs/turn-tuning.md` owes a pass too, for a related but different reason.** It carries no
+`balanceStamp` of its own — `scripts/turn-tuning-doc.test.mjs` recomputes its tables directly from
+built shared rather than hashing anything — and its tables never carried a `mass` column, so removing
+`mass` does not fail that test. But the page's *prose* argues from figures inside sentences the test
+cannot see (the same limitation the manual's copy has), and at least one sentence names `mass` by
+name — the spec's own changelog quotes Bastion's "tank identity now rests on hp and mass alone" as the
+pre-revision-2 framing. Reread `docs/turn-tuning.md` for any prose that still credits `mass` with
+something `ramAttack`/`ramDefence` now does, even though the suite stays green regardless.
 
 - [ ] **Step 2: Read the prose for rotted figures**
 
@@ -200,8 +234,18 @@ The project file describes a drive model that no longer exists. Sections that ar
 - [ ] **Step 1: The statuses paragraph** — add `reeling` and say plainly that it is not a stun.
 - [ ] **Step 2: Hard invariant 6** — "`{x, y, angle}` is canonical world state" now understates it;
       velocity is `{vx, vy}` and is canonical too.
-- [ ] **Step 3: The `mass` paragraph** — mass now also drives the attacker's reaction and
-      mass-weighted separation. It is still out of the drive model; say both.
+- [ ] **Step 3: The chassis-ratings paragraph — `mass` is gone, not merely reworded.** `CLAUDE.md`
+      currently lists "six independent 0-100 values: speed, accel, handling, attack, hp, mass."
+      `mass` no longer exists (spec R1); replace it with `ramAttack` and `ramDefence` — **seven**
+      ratings now, not six — and say why two replaced one: `mass` used to drive ram severity, impulse
+      scaling, positional separation, the status channel and a displayed stat all at once, so no
+      aspect of ramming could be tuned without moving the others. Also drop any description of an
+      equal-and-opposite reaction: there is no `reactionOf` any more (spec R7). What replaces it —
+      each car brings a push into a contest (`ramAttack` × its own drive-in, plus a standing
+      `ramDefence` contribution), and each car's outcome is computed directly from that contest, not
+      derived by negating the other's. Positional separation is `ramDefence`-weighted (spec R8,
+      unchanged in mechanism from the old mass-weighted version). `ramAttack`/`ramDefence` are still
+      out of the drive model, exactly as `mass` was — say that part too.
 - [ ] **Step 4: The turn-tuning field list** — it names `DRIVE_CONFIG.drag` and
       `DRIVE_CONFIG.brakeDecel`, neither of which exists. Replace with the per-car fields plus
       `steeringGrip` and `impactGripDecel`.
@@ -232,7 +276,8 @@ git commit -m "docs: update CLAUDE.md for the car physics rework"
 - [ ] Cars take over a second to reach speed and roll a long way off the throttle.
 - [ ] Turning is precise at any speed — no wash, no fighting your own momentum.
 - [ ] A side-on ram at speed throws the victim, spins it, and takes its control for about a second.
-- [ ] The attacker pays too, and how much depends on its mass.
+- [ ] The attacker pays too, and how much depends on the contest — its own `ramAttack`/`ramDefence`
+      against the victim's, not on a `mass` figure (spec R1, R4/R5).
 - [ ] Chained rams fall off; three seconds later they do not.
 - [ ] A Bastion cannot be shouldered aside; a Bullseye can.
 - [ ] `thunderclap` is untouched.
