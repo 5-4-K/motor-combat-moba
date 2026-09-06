@@ -1,0 +1,282 @@
+import { describe, expect, it } from "vitest";
+import { slotsOf, weaponDefOf } from "@motor-combat-moba/shared";
+import type { BotArenaView, BotCarView, BotSelfView, BotSlotView } from "../types.js";
+import type { PosePredictor } from "./solution.js";
+import { ALL_ACTIONS, plan, type PlanArgs, type PlanWeights } from "./planner.js";
+
+const arena: BotArenaView = { width: 1280, height: 720, obstacles: [] };
+
+function slotsFor(carId: "bullseye"): BotSlotView[] {
+  return slotsOf(carId).map((weaponId) => ({
+    weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
+    range: weaponDefOf(weaponId).range,
+  }));
+}
+
+function selfAt(x: number, y: number, angle: number): BotSelfView {
+  return {
+    sessionId: "me", carId: "bullseye", team: 0, x, y, angle, speed: 200,
+    hp: 65, maxHp: 65, alive: true, statuses: [], slots: slotsFor("bullseye"),
+    switchLockUntilTick: 0, lockTargetSessionId: "", maneuver: 0, maneuverTicksLeft: 0,
+  };
+}
+
+const target: BotCarView = {
+  sessionId: "them", carId: "mirage", team: 1, x: 700, y: 360, angle: Math.PI, speed: 0,
+  hp: 70, maxHp: 70, alive: true, phased: false, statuses: [], maneuver: 0,
+};
+
+const fightWeights: PlanWeights = {
+  myEv: 1, theirEv: 0, rangeError: 0.01, wallPenalty: 5, lockKeep: 0.5,
+};
+
+const stationary: PosePredictor = () => ({ x: target.x, y: target.y, angle: target.angle });
+
+const base: Omit<PlanArgs, "self"> = {
+  target, targetAt: stationary,
+  readiness: () => 1, aimSigmaRad: 0.03, preferredRange: 400,
+  weights: fightWeights, horizonTicks: 20, depth: 1,
+  targetBranches: 1, commitPenalty: 0, lastAction: undefined,
+  tick: 0, arena,
+};
+
+/**
+ * Bullseye turns at ~7.11 rad/s, so a 20-tick horizon is 4.7 radians — three quarters of a full
+ * revolution, and enough for a hard-over steer to loop past the target and come back pointing at
+ * it. Six ticks (1.42 rad) is the horizon at which "turned toward it" and "turned away from it"
+ * are still two different answers, which is what the steering assertions below are about.
+ */
+const SHORT_HORIZON = 6;
+
+describe("ALL_ACTIONS", () => {
+  it("is the complete input space, not a sample (P23)", () => {
+    expect(ALL_ACTIONS).toHaveLength(9);
+    const seen = new Set(ALL_ACTIONS.map((a) => `${a.steer}:${a.throttle}`));
+    expect(seen.size).toBe(9);
+  });
+
+  it("leads with drive-straight-on, the tie-break of record", () => {
+    expect(ALL_ACTIONS[0]).toEqual({ steer: 0, throttle: 1 });
+  });
+});
+
+describe("plan", () => {
+  it("turns toward a target that is off to one side", () => {
+    // Target is at bearing 0; the bot faces 90 degrees away from it.
+    const result = plan({
+      ...base, self: selfAt(300, 360, -Math.PI / 2), horizonTicks: SHORT_HORIZON,
+    });
+    expect(result.action.steer).toBe(1);
+  });
+
+  it("does not steer into a wall it is about to hit", () => {
+    // Nose into the left wall, target behind. Turning away must beat driving on.
+    const result = plan({ ...base, self: selfAt(30, 360, Math.PI) });
+    expect(result.action.throttle === 1 && result.action.steer === 0).toBe(false);
+  });
+
+  it("reports a score breakdown for the overlay (P45)", () => {
+    const result = plan({ ...base, self: selfAt(300, 360, 0) });
+    expect(Object.keys(result.terms).sort()).toEqual(
+      ["lockKeep", "myEv", "rangeError", "theirEv", "wallPenalty"],
+    );
+  });
+
+  it("with horizon 0 still returns an action, but does not plan an arc (P29)", () => {
+    const reflex = plan({ ...base, self: selfAt(30, 360, Math.PI), horizonTicks: 0 });
+    expect(reflex.action).toBeDefined();
+  });
+
+  it("names a runner-up that is a genuinely different action", () => {
+    const result = plan({ ...base, self: selfAt(300, 360, 0) });
+    expect(result.runnerUp).toBeDefined();
+    expect(result.runnerUp).not.toEqual(result.action);
+  });
+
+  it("scores an aim-assisted slot's lock envelope, not its bare reach (P13)", () => {
+    // Nose exactly on the target at 400u: inside predator's cone, lateral cap and aim range.
+    const onLine = plan({ ...base, self: selfAt(300, 360, 0), horizonTicks: 0 });
+    expect(onLine.terms.lockKeep).toBe(1);
+    // Nose 90 degrees off, at the same distance — inside predator's 800u REACH, but far outside
+    // the 20-degree acquisition cone, so no lock is held or acquirable from there.
+    const offLine = plan({ ...base, self: selfAt(300, 360, -Math.PI / 2), horizonTicks: 0 });
+    expect(offLine.terms.lockKeep).toBe(0);
+  });
+
+  it("only lets the assist zero the aim error inside the lock envelope (P13)", () => {
+    // Same distance, same kit, same everything but the nose. An assist that were gated on the
+    // weapon's RANGE alone would call both of these assisted, hand both a certain shot, and score
+    // a car pointed 90 degrees away from its target exactly as highly as one aimed at it.
+    // Predator alone, so `myEv` is the assisted slot's own number and not pepperbox's.
+    const predatorOnly: BotSelfView = {
+      ...selfAt(300, 360, 0), slots: [slotsFor("bullseye")[0]!],
+    };
+    const onLine = plan({ ...base, self: predatorOnly, horizonTicks: 0 });
+    const offLine = plan({
+      ...base, self: { ...predatorOnly, angle: -Math.PI / 2 }, horizonTicks: 0,
+    });
+    expect(onLine.terms.myEv).toBeGreaterThan(0);
+    expect(offLine.terms.myEv).toBeLessThan(onLine.terms.myEv);
+  });
+
+  it("scores the aim point the SHOT reaches, not the one the bot arrives at (R-P5)", () => {
+    // A target crossing at 400 u/s, 400 units away, against pepperbox's 800 u/s pellets: the shot
+    // is roughly 17 ticks in the air, so the target is ~227 units further down the screen by the
+    // time it lands and the heading worth holding is ~0.5 rad, not 0.
+    const crossingTarget: BotCarView = { ...target, angle: Math.PI / 2, speed: 400 };
+    const crossing: PosePredictor = (ticksAhead) => ({
+      x: 700, y: 360 + (400 * ticksAhead) / 30, angle: Math.PI / 2,
+    });
+    const pepperboxOnly: BotSelfView = {
+      ...selfAt(300, 360, 0), slots: [slotsFor("bullseye")[1]!],
+    };
+    const scene = {
+      ...base, target: crossingTarget, targetAt: crossing, horizonTicks: 0,
+    };
+    const atTargetNow = plan({ ...scene, self: pepperboxOnly });
+    const ledAhead = plan({ ...scene, self: { ...pepperboxOnly, angle: 0.5 } });
+    expect(ledAhead.terms.myEv).toBeGreaterThan(atTargetNow.terms.myEv);
+  });
+
+  it("reads the danger it is standing in from the opponent's kit (P16, P26)", () => {
+    const result = plan({
+      ...base, self: selfAt(300, 360, 0), horizonTicks: 0,
+      weights: { ...fightWeights, theirEv: 1 },
+    });
+    expect(result.terms.theirEv).toBeGreaterThan(0);
+  });
+
+  it("takes the worst case over the target's plausible inputs (P28)", () => {
+    // Their nose is turned away from us, so a hedged branch that turns it back reads WORSE.
+    const turnedAway: BotCarView = { ...target, angle: Math.PI * 0.6 };
+    const scene = {
+      ...base, self: selfAt(300, 360, 0), target: turnedAway,
+      targetAt: (() => ({
+        x: turnedAway.x, y: turnedAway.y, angle: turnedAway.angle,
+      })) as PosePredictor,
+      weights: { ...fightWeights, theirEv: 1 },
+      horizonTicks: SHORT_HORIZON,
+    };
+    const nominal = plan({ ...scene, targetBranches: 1 });
+    const hedged = plan({ ...scene, targetBranches: 3 });
+    expect(hedged.terms.theirEv).toBeGreaterThan(nominal.terms.theirEv);
+  });
+
+  // --- R-P3: no target is not a separate code path ------------------------------------------
+  describe("with no target", () => {
+    const waypoint: PosePredictor = () => ({ x: 700, y: 360, angle: 0 });
+    const hunt: Omit<PlanArgs, "self"> = {
+      ...base, target: undefined, targetAt: waypoint, preferredRange: 0,
+      horizonTicks: SHORT_HORIZON,
+    };
+
+    it("still drives toward the synthetic waypoint", () => {
+      const result = plan({ ...hunt, self: selfAt(300, 360, -Math.PI / 2) });
+      expect(result.action.steer).toBe(1);
+    });
+
+    it("rolls its own car with the engine ON (R-D3)", () => {
+      // From a dead stop. `predict.ts`'s OBSERVATION_MODIFIERS zero `accel` so that rolling a car
+      // the bot can only look at HOLDS the speed it was seen at — under that set this candidate
+      // could not move at all and every rangeError would still read the full 400 units. The
+      // planner rolls its OWN car under a throttle it is choosing, so it must use NEUTRAL.
+      const stopped: BotSelfView = { ...selfAt(300, 360, 0), speed: 0 };
+      const result = plan({ ...hunt, self: stopped, horizonTicks: 10 });
+      expect(result.terms.rangeError).toBeLessThan(399);
+    });
+
+    it("still scores the wall and the range, and zeroes only the target terms", () => {
+      const result = plan({ ...hunt, self: selfAt(30, 360, Math.PI), horizonTicks: 0 });
+      expect(result.terms.wallPenalty).toBeGreaterThan(0);
+      expect(result.terms.rangeError).toBeGreaterThan(0);
+      expect(result.terms.myEv).toBe(0);
+      expect(result.terms.theirEv).toBe(0);
+      expect(result.terms.lockKeep).toBe(0);
+    });
+  });
+
+  // --- R-P4: commitPenalty is a fraction of the candidate score SPREAD ----------------------
+  describe("commitPenalty (P30)", () => {
+    const waypoint: PosePredictor = () => ({ x: 700, y: 360, angle: 0 });
+    const scene: Omit<PlanArgs, "self"> = {
+      ...base, target: undefined, targetAt: waypoint, preferredRange: 0,
+      horizonTicks: SHORT_HORIZON,
+    };
+    const self = selfAt(300, 360, -Math.PI / 2);
+
+    it("prefers its last action when the bonus is large, all else equal", () => {
+      const sticky = plan({
+        ...scene, self, commitPenalty: 1000, lastAction: { steer: -1, throttle: -1 },
+      });
+      expect(sticky.action).toEqual({ steer: -1, throttle: -1 });
+    });
+
+    it("flips a near-tie at a value the profiles actually ship, and not at 0", () => {
+      const neutral = plan({ ...scene, self, commitPenalty: 0, lastAction: undefined });
+      const rival = neutral.runnerUp;
+      expect(rival).toBeDefined();
+      expect(rival).not.toEqual(neutral.action);
+
+      const sticky = plan({ ...scene, self, commitPenalty: 0.8, lastAction: rival });
+      expect(sticky.action).toEqual(rival);
+
+      const unchanged = plan({ ...scene, self, commitPenalty: 0, lastAction: rival });
+      expect(unchanged.action).toEqual(neutral.action);
+    });
+
+    it("is scale-free: one value makes the same call at a hundred times the weights", () => {
+      // The whole of R-P4. Scores are linear in the weights, so scaling every weight by 100 scales
+      // every candidate score and the spread by exactly 100 and changes no ordering. A bonus that
+      // is a FRACTION OF THE SPREAD therefore makes the identical decision at both scales; the
+      // raw addend this replaced would flip the small scene and go inert on the large one, which
+      // is how a knob shipped at 0.1 / 0.4 / 0.8 stays honest against a `myEv` in the tens.
+      const fight: Omit<PlanArgs, "self"> = { ...base, horizonTicks: SHORT_HORIZON };
+      const nose = selfAt(300, 360, -Math.PI / 2);
+      const hundredfold: PlanWeights = {
+        myEv: 100, theirEv: 0, rangeError: 1, wallPenalty: 500, lockKeep: 50,
+      };
+
+      const neutral = plan({ ...fight, self: nose, commitPenalty: 0 });
+      const rival = neutral.runnerUp;
+      expect(rival).not.toEqual(neutral.action);
+
+      const asShipped = plan({ ...fight, self: nose, commitPenalty: 0.8, lastAction: rival });
+      const scaled = plan({
+        ...fight, self: nose, weights: hundredfold, commitPenalty: 0.8, lastAction: rival,
+      });
+      expect(asShipped.action).toEqual(rival);
+      expect(scaled.action).toEqual(rival);
+      expect(scaled.score).toBeCloseTo(asShipped.score * 100, 6);
+    });
+  });
+
+  // --- P43 / H21: no randomness anywhere in the planner --------------------------------------
+  it("draws no random numbers (P43)", () => {
+    const original = Math.random;
+    Math.random = (() => { throw new Error("planner must not draw rng"); }) as typeof Math.random;
+    try {
+      expect(() => plan({ ...base, self: selfAt(300, 360, 0) })).not.toThrow();
+    } finally {
+      Math.random = original;
+    }
+  });
+
+  it("is deterministic: the same observation plans the same way twice", () => {
+    const args: PlanArgs = {
+      ...base, self: selfAt(300, 360, -Math.PI / 2), depth: 2, targetBranches: 3,
+      horizonTicks: 22, commitPenalty: 0.8, lastAction: { steer: 1, throttle: 1 },
+    };
+    const first = plan(args);
+    const second = plan(args);
+    expect(second).toEqual(first);
+  });
+
+  it("plans at the heaviest shipped configuration", () => {
+    const result = plan({
+      ...base, self: selfAt(300, 360, -Math.PI / 2), depth: 2, targetBranches: 3,
+      horizonTicks: 22,
+    });
+    expect(ALL_ACTIONS).toContainEqual(result.action);
+    expect(Number.isFinite(result.score)).toBe(true);
+  });
+});

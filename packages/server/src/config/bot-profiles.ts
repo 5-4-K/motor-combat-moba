@@ -499,6 +499,27 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * this constant, so re-run that sweep if that field moves.
    */
   dangerEvadeCooldownTicks: 120,
+  /**
+   * Hard cap on how far the planner's hedged branches turn the TARGET's heading before re-reading
+   * the danger it would put out (P28, `planner.ts`'s `worstCaseDanger`).
+   *
+   * The raw offset is DERIVED, not authored: a car at full lock turns `turnRateOf(carId)` radians a
+   * second, so over the planner's own elapsed horizon the honest "they could be pointing anywhere in
+   * here by then" arc is `turnRateOf * elapsedSeconds`. That number outgrows its own meaning fast —
+   * Mirage's 8.19 rad/s covers 6 radians over a 22-tick horizon, nearly a full revolution, at which
+   * point "the worst heading they could hold" is simply "pointed straight at me" and the hedge has
+   * stopped being a hedge and become an assumption of the worst case unconditionally.
+   *
+   * A quarter turn is where that stops. Past 90 degrees off the observed heading, a branch is no
+   * longer a plausible continuation of what the bot can see the target doing — it is a different
+   * car doing a different thing — and the term would read the same maximum from every candidate
+   * pose, which makes it constant in the one axis the planner varies and therefore inert.
+   *
+   * Only ever a CEILING: at a short horizon (easy's `planHorizonTicks` of 0, or the 11-tick segments
+   * a depth-2 plan rolls) the derived arc is smaller and wins, so the hedge stays proportional to
+   * how far ahead the bot is actually committing.
+   */
+  targetBranchMaxHeadingOffsetRad: Math.PI / 2,
 });
 
 /**
