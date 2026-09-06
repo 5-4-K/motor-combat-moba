@@ -203,6 +203,16 @@ export const BRAIN_CONSTANTS = Object.freeze({
    */
   predictionHorizonTicks: 90,
   /**
+   * Fraction of `predictionHorizonTicks` that the `close` situation drives at — the lead used to
+   * point the BODY at a target rather than the gun (`controller.ts`'s `close` case).
+   *
+   * A third, because a car closes far slower than a bullet flies: the full shot horizon would aim
+   * the body at a point most of a lap around a turning target. Expressed as a fraction rather than
+   * its own tick count so it cannot drift away from the horizon it is a fraction OF — a
+   * `TICK_RATE_HZ` change or a horizon re-derivation carries it automatically.
+   */
+  closeLeadHorizonFraction: 1 / 3,
+  /**
    * Fraction of a chassis's own `turnRateOf` that an observed turn rate must reach before it reads
    * as DELIBERATE STEERING rather than a residual spin (P18/P19). See `steerFromObservedTurn`
    * (`bot/brain/predict.ts`) for the full-lock reasoning this rests on.

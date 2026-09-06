@@ -244,9 +244,12 @@ export class HumanController implements BotController {
           // rather than a straight line (P17). `selfPredictor`, not `physicsPredictor`: every field
           // it reads is on this bot's own HUD, so it draws no `rng()` at all and is safe inside this
           // ternary — a conditional draw here would make the stream depend on having a target (H21).
-          // `throttle: 1` because the bot is driving, not braking: `DRIVE_CONFIG.drag` brings a
-          // coasting car to rest in ~0.32 s, so a `throttle: 0` rollout would put us 80 units along
-          // a line we will actually be 400 units down, and read the danger of a pose we never hold.
+          // `throttle: 1`, under `selfPredictor`'s `OBSERVATION_MODIFIERS`, is what HOLDS the
+          // current speed: `throttle: 0` would brake, since `DRIVE_CONFIG.drag` brings a coasting
+          // car to rest in ~0.32 s and would put us 80 units along a line we will actually be 400
+          // units down; `accel: 0` in those modifiers stops the other error, a rollout that assumes
+          // we floor it to the chassis maximum. Either way the answer is the danger of a pose we
+          // never hold. The bot is driving, at the speed it is driving at.
           meAt: selfPredictor(
             self, { steer: 0, throttle: 1 }, BRAIN_CONSTANTS.predictionHorizonTicks,
           ),
@@ -261,10 +264,16 @@ export class HumanController implements BotController {
 
     // Where the target will be, rolled through the REAL drive model (P22). Two decisions here:
     //
-    // THE HELD INPUT. `throttle: 1`, never 0: `DRIVE_CONFIG.drag` is 900 u/s^2, so a coasting car
-    // is at rest inside 0.32 s — a Mirage observed at 400 u/s and rolled with `throttle: 0` has
-    // covered 82 units after 20 ticks against the ~400 it really travels, which is a WORSE lead than
-    // the straight line this replaces. A car being aimed at is a car that is driving.
+    // THE HELD INPUT: the observed SPEED, held. `throttle: 1` against `physicsPredictor`'s
+    // `OBSERVATION_MODIFIERS` (`accel: 0`) is how that is spelled — the throttle keeps `stepDrive`
+    // out of `coast`, and the zeroed accel channel keeps it from adding engine. Both halves matter.
+    // `throttle: 0` would BRAKE: `DRIVE_CONFIG.drag` is 900 u/s^2, so a Mirage observed at 400 u/s
+    // covers 82 units in 20 ticks against the ~400 it really travels — a worse lead than the
+    // straight line this replaces. A live `accel` channel would do the opposite and assume every
+    // observed car is flooring it to its chassis maximum, which over-leads worst exactly where it
+    // hurts most: a `stunned` target carries `fullStop` and cannot move at all, and that is the
+    // condition `classifySituation` gates `punish` on. See `OBSERVATION_MODIFIERS` for the measured
+    // error table. A bot cannot see a throttle; it can see a speed.
     //
     // THE OBSERVED TURN, attributed to exactly ONE cause. Above `steerFromObservedTurn`'s threshold
     // the car reads as STEERING, and the rollout sustains that turn for as long as the input is
@@ -276,7 +285,9 @@ export class HumanController implements BotController {
     // Constructed UNCONDITIONALLY: `physicsPredictor` draws two rng() calls, and a draw that
     // happened only when this bot had a target would make the stream depend on the scene (H21). The
     // predictor built on the absent-target sentinel is discarded; its draws are not. Same discard
-    // `hearRoll` above already performs.
+    // `hearRoll` above already performs. Only the DRAWS have to be unconditional, though — they are
+    // taken before the rollout — so the sentinel's horizon is 0 and a searching bot does not run 90
+    // discarded `stepDrive` steps against a car that is not there on every decision tick.
     const predictTarget = target ?? ABSENT_TARGET;
     const observedTurn = observedAngVelOf(this.perception, predictTarget.sessionId);
     const targetSteer = steerFromObservedTurn(observedTurn, predictTarget.carId);
@@ -285,7 +296,7 @@ export class HumanController implements BotController {
       predictTarget,
       targetSpin,
       { steer: targetSteer, throttle: 1 },
-      BRAIN_CONSTANTS.predictionHorizonTicks,
+      target ? BRAIN_CONSTANTS.predictionHorizonTicks : 0,
       profile.stateEstimationSigma,
       view.rng,
     );
@@ -481,7 +492,10 @@ export class HumanController implements BotController {
         // last consumer of the `leadFactor`-scaled `interceptPoint` this phase replaces. A third of
         // the shot horizon rather than all of it: a car closes far slower than a bullet flies, so
         // the full horizon would aim the body at a point most of a lap around a turning target.
-        const closePoint = predictor?.(BRAIN_CONSTANTS.predictionHorizonTicks / 3) ?? target;
+        // That third is `BRAIN_CONSTANTS.closeLeadHorizonFraction`, not a divisor written here.
+        const closePoint = predictor?.(
+          BRAIN_CONSTANTS.predictionHorizonTicks * BRAIN_CONSTANTS.closeLeadHorizonFraction,
+        ) ?? target;
         desires.push(goalDesire(
           closePoint ? Math.atan2(closePoint.y - self.y, closePoint.x - self.x) : self.angle,
         ));

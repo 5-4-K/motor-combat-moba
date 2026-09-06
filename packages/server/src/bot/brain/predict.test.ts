@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { TICK_RATE_HZ, turnRateOf } from "@motor-combat-moba/shared";
-import { BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
+import {
+  DRIVE_CONFIG, TICK_RATE_HZ, turnRateAtStopOf, turnRateOf,
+} from "@motor-combat-moba/shared";
+import { BOT_PROFILES, BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
-import type { BotCarView, BotSelfView } from "../types.js";
+import type { BotCarView, BotSelfView, BotView } from "../types.js";
+import { newPerception, observedAngVelOf, perceive } from "./perception.js";
 import {
   bodyFromObservation, bodyFromSelf, interceptTicks, physicsPredictor, rollForward,
   selfPredictor, steerFromObservedTurn,
@@ -152,67 +155,194 @@ describe("selfPredictor", () => {
   });
 });
 
-describe("predicting a car at full lock, against ground truth", () => {
-  // The measurement behind the controller's choice of held input (task 4, ruling 2). GROUND TRUTH is
-  // the same drive model the sim runs: a Mirage at 400 u/s holding full right lock and the throttle
-  // down. Three candidate models are scored against it in world units at 10 / 20 / 30 / 45 ticks:
+describe("predicting an observed car, against an independent ground truth", () => {
+  // The measurement behind the controller's choice of held input (task 4, ruling 2; fix round 1,
+  // finding 1). GROUND TRUTH here is `truthPath` below -- a local integrator that calls NEITHER
+  // `stepDrive` NOR `rollForward` NOR any predictor. An earlier version of this suite scored the
+  // shipped model against `rollForward` run with the same inputs, which is an identity: it could
+  // not fail for any implementation, so a systematic over-lead shipped straight past it.
   //
-  //   | model                                             | error at 10/20/30/45 |
-  //   |---------------------------------------------------|----------------------|
-  //   | `constantVelocityPredictor` (what phase A replaces)| 178 / 342 / 416 / 690|
-  //   | `{steer: 0, throttle: 0}`, observed turn as angVel | 48 / 99 / 10 / 91    |
-  //   | reconstructed steer, `throttle: 1`, `angVel: 0`    | 0 / 0 / 0 / 0        |
-  //
-  // The middle row is what the task brief originally specified and is why it was overruled: rolling
-  // a target with the throttle CLOSED is not "coasting straight", it is braking. `DRIVE_CONFIG.drag`
-  // is 900 u/s^2 (0.32 s to rest), so that model has the car stopped inside 20 ticks having covered
-  // ~82 units, against ~400 for even the straight line it was meant to improve on.
-  const HORIZONS = [10, 20, 30, 45] as const;
-  const car = carAt({ speed: 400 });
-  const observed = turnRateOf("mirage");
-  const truth = rollForward(
-    bodyFromObservation(car, 0), "mirage", { steer: 1, throttle: 1 }, Math.max(...HORIZONS),
-  );
+  // `truthPath` is the behaviour of a car that HOLDS the speed and the steer it was seen at,
+  // integrated in `stepDrive`'s own order (rotate, then translate). That is exactly what a person
+  // reads off the screen, and it is the claim the shipped model makes.
+  const HORIZONS = [10, 20, 45, 90] as const;
+  const LONGEST = Math.max(...HORIZONS);
+  const dt = 1 / TICK_RATE_HZ;
+
+  /**
+   * One tick: `angle += steer * rate / TICK_RATE_HZ`, then `x/y += cos/sin(angle) * speed / HZ`.
+   * `rate` is the chassis's STOPPED turn rate below `DRIVE_CONFIG.stopEpsilon`, because that is the
+   * branch `stepDrive`'s `isMoving` takes -- a stationary car still turns, it just does not travel.
+   */
+  function truthPath(speed: number, steer: -1 | 0 | 1, carId: "mirage", ticks: number) {
+    const rate = Math.abs(speed) > DRIVE_CONFIG.stopEpsilon
+      ? turnRateOf(carId)
+      : turnRateAtStopOf(carId);
+    let x = 0;
+    let y = 0;
+    let angle = 0;
+    const out: { x: number; y: number; angle: number }[] = [];
+    for (let i = 0; i < ticks; i++) {
+      angle += steer * rate * dt;
+      x += Math.cos(angle) * speed * dt;
+      y += Math.sin(angle) * speed * dt;
+      out.push({ x, y, angle });
+    }
+    return out;
+  }
+
   const errorAt = (
-    predictor: ReturnType<typeof physicsPredictor>,
+    truth: readonly { x: number; y: number }[],
+    guess: { x: number; y: number },
     ticksAhead: number,
   ): number => {
     const actual = truth[ticksAhead - 1]!;
-    const guess = predictor(ticksAhead);
     return Math.hypot(guess.x - actual.x, guess.y - actual.y);
   };
 
-  it("reproduces the true path almost exactly once the steer is reconstructed", () => {
-    const reconstructed = physicsPredictor(
-      car, 0, { steer: steerFromObservedTurn(observed, "mirage"), throttle: 1 }, 45, 0, makeRng(11),
-    );
-    for (const ticks of HORIZONS) expect(errorAt(reconstructed, ticks)).toBeLessThan(1);
+  // Every scene a bot actually faces, not just the one the model reproduces by construction -- the
+  // old suite was full lock AND full speed in every case, which is why the over-lead walked
+  // through it. The stationary rows are the important ones: a target `stunned` by `roadblock`,
+  // `thunderclap` or the hard slam carries `fullStop` + `immobilised` and cannot move at all, and
+  // that is the exact condition `classifySituation` gates `punish` on.
+  const SCENES: readonly { speed: number; steer: -1 | 0 | 1; label: string }[] = [
+    { speed: 0, steer: 0, label: "stunned, wheel straight" },
+    { speed: 0, steer: 1, label: "stunned, wheel over" },
+    { speed: 150, steer: 0, label: "crawling, straight" },
+    { speed: 150, steer: 1, label: "crawling, full lock" },
+    { speed: 250, steer: 0, label: "mid speed, straight" },
+    { speed: 250, steer: 1, label: "mid speed, full lock" },
+    { speed: 400, steer: 1, label: "near top speed, full lock" },
+  ];
+
+  const shipped = (speed: number, steer: -1 | 0 | 1) => physicsPredictor(
+    carAt({ speed }), 0, { steer, throttle: 1 }, LONGEST, 0, makeRng(11),
+  );
+
+  it("holds the observed speed, landing on the true path at every horizon and every speed", () => {
+    for (const scene of SCENES) {
+      const truth = truthPath(scene.speed, scene.steer, "mirage", LONGEST);
+      const predictor = shipped(scene.speed, scene.steer);
+      for (const ticks of HORIZONS) {
+        // Deliberately generous: the claim is "on the path", not a digit-for-digit pin. Measured at
+        // 0.00 world units for every row of this table, out to 90 ticks.
+        expect(errorAt(truth, predictor(ticks), ticks), `${scene.label} @${ticks}`).toBeLessThan(1);
+      }
+    }
   });
 
-  it("beats both the straight line and a throttle-closed rollout at every horizon", () => {
-    const reconstructed = physicsPredictor(
-      car, 0, { steer: steerFromObservedTurn(observed, "mirage"), throttle: 1 }, 45, 0, makeRng(11),
-    );
-    const coasting = physicsPredictor(car, observed, { steer: 0, throttle: 0 }, 45, 0, makeRng(11));
-    const straight = constantVelocityPredictor(car);
-    for (const ticks of HORIZONS) {
-      const actual = truth[ticks - 1]!;
-      const straightGuess = straight(ticks);
-      const straightError = Math.hypot(straightGuess.x - actual.x, straightGuess.y - actual.y);
-      expect(errorAt(reconstructed, ticks)).toBeLessThan(errorAt(coasting, ticks));
-      expect(errorAt(reconstructed, ticks)).toBeLessThan(straightError);
+  it("keeps a STATIONARY target inside its own hull, at every horizon", () => {
+    // The regression this suite exists for. With the engine modelled on, a stunned car was
+    // predicted hundreds of units downrange: `marchOne` scored every slot against empty floor,
+    // `minShotValueFraction` declined the free shot, and `fight` steered the nose off the real car.
+    // A hull is the honest bar -- a shot aimed anywhere inside it hits.
+    const hullRadius = Math.hypot(DRIVE_CONFIG.carWidth, DRIVE_CONFIG.carHeight) / 2;
+    for (const steer of [0, 1] as const) {
+      const predictor = shipped(0, steer);
+      for (const ticks of HORIZONS) {
+        const guess = predictor(ticks);
+        expect(Math.hypot(guess.x, guess.y), `steer ${steer} @${ticks}`).toBeLessThan(hullRadius);
+      }
+    }
+  });
+
+  it("beats an engine-on rollout, worst of all where the target cannot move", () => {
+    // `accel: 1` is what `rollForward`'s DEFAULT modifiers give -- a genuine car flooring it. Right
+    // for planning the bot's OWN inputs, wrong for an observation, because a bot cannot see a
+    // throttle. Measured error in world units at 20 / 45 ticks: 209 / 584 for the stunned car going
+    // straight, 81 / 72 for the stunned car with the wheel over, 53 / 41 at 150 u/s, 31 / 21 at
+    // 250 u/s -- shrinking to nothing only as the observed speed approaches the chassis maximum,
+    // the one case an engine-on rollout gets right by accident.
+    for (const scene of SCENES) {
+      const truth = truthPath(scene.speed, scene.steer, "mirage", LONGEST);
+      const engineOn = rollForward(
+        bodyFromObservation(carAt({ speed: scene.speed }), 0), "mirage",
+        { steer: scene.steer, throttle: 1 }, LONGEST,
+      );
+      const held = shipped(scene.speed, scene.steer);
+      for (const ticks of HORIZONS) {
+        expect(errorAt(truth, held(ticks), ticks), `${scene.label} @${ticks}`)
+          .toBeLessThanOrEqual(errorAt(truth, engineOn[ticks - 1]!, ticks));
+      }
+      // And where it is wrong, it is wrong by car lengths, not by rounding.
+      if (scene.speed < 300) {
+        expect(errorAt(truth, engineOn[44]!, 45), `${scene.label} @45`).toBeGreaterThan(10);
+      }
+    }
+  });
+
+  it("beats a straight line wherever the target turns, and never loses where it does not", () => {
+    // `constantVelocityPredictor` is exactly right for a car going straight (it IS the same
+    // integration) and diverges without bound once one turns: 114 / 230 units at 150 u/s and
+    // 190 / 384 at 250 u/s, at 20 / 45 ticks. It also handles the stunned car correctly, which the
+    // engine-on rollout does not -- the honest reading is that phase A's win is the TURNING case
+    // plus never being worse elsewhere, not a win everywhere.
+    for (const scene of SCENES) {
+      const truth = truthPath(scene.speed, scene.steer, "mirage", LONGEST);
+      const straight = constantVelocityPredictor(carAt({ speed: scene.speed }));
+      const held = shipped(scene.speed, scene.steer);
+      for (const ticks of HORIZONS) {
+        const straightError = errorAt(truth, straight(ticks), ticks);
+        expect(errorAt(truth, held(ticks), ticks), `${scene.label} @${ticks}`)
+          .toBeLessThanOrEqual(straightError + 1);
+        if (scene.steer !== 0 && scene.speed > 0) {
+          expect(straightError, `${scene.label} @${ticks}`).toBeGreaterThan(10);
+        }
+      }
     }
   });
 
   it("brings a throttle-closed rollout to a dead stop, which is why it is not the held input", () => {
+    // The OTHER way to get this wrong, and the one the task brief originally specified. Rolling a
+    // target with the throttle CLOSED is not "coasting straight", it is braking: `DRIVE_CONFIG.drag`
+    // is 900 u/s^2, 0.32 s to rest.
+    const car = carAt({ speed: 400 });
     const braking = rollForward(bodyFromObservation(car, 0), "mirage", { steer: 0, throttle: 0 }, 20);
     expect(braking.at(-1)!.speed).toBe(0);
     expect(Math.hypot(braking.at(-1)!.x - car.x, braking.at(-1)!.y - car.y)).toBeLessThan(100);
-    // The same 20 ticks with the throttle DOWN cover several times as far. Measured against a
-    // straight run rather than the full-lock `truth` above, whose 55 u turn radius brings it back
-    // past its own start inside this window and makes displacement meaningless.
-    const driving = rollForward(bodyFromObservation(car, 0), "mirage", { steer: 0, throttle: 1 }, 20);
-    expect(Math.hypot(driving.at(-1)!.x - car.x, driving.at(-1)!.y - car.y)).toBeGreaterThan(250);
+    // 20 ticks of a held 400 u/s is 266 units; the braking rollout covers 82. Measured error 184.
+    expect(errorAt(truthPath(400, 0, "mirage", 20), braking[19]!, 20)).toBeGreaterThan(150);
+  });
+});
+
+describe("reading a turn off two observed poses, end to end", () => {
+  // The observation step this phase actually adds, exercised through the REAL
+  // `perceive` -> `observedAngVelOf` -> `steerFromObservedTurn` chain rather than by handing
+  // `turnRateOf("mirage")` in as a given. Two consecutive poses off a rolled path are all a bot
+  // ever gets, and this is the only place that claim is tested end to end.
+  const profile = BOT_PROFILES.hard;
+
+  function observedTurnOf(steer: -1 | 0 | 1): number {
+    const path = rollForward(
+      bodyFromObservation(carAt({ x: 400, y: 0, speed: 400 }), 0), "mirage",
+      { steer, throttle: 1 }, 4,
+    );
+    const state = newPerception();
+    const viewAt = (tick: number, pose: { x: number; y: number; angle: number }): BotView => ({
+      tick,
+      self: selfAt({ speed: 0 }),
+      others: [carAt({ x: pose.x, y: pose.y, angle: pose.angle, speed: 400 })],
+      instances: [],
+      arena: { width: 4000, height: 3000, obstacles: [] },
+      observedFires: [],
+      rng: makeRng(1),
+    });
+    perceive(state, viewAt(0, path[0]!), profile);
+    perceive(state, viewAt(1, path[1]!), profile);
+    return observedAngVelOf(state, "them");
+  }
+
+  it("recovers full lock from two poses of a real rolled path", () => {
+    const observed = observedTurnOf(1);
+    expect(observed).toBeCloseTo(turnRateOf("mirage"), 3);
+    expect(steerFromObservedTurn(observed, "mirage")).toBe(1);
+  });
+
+  it("recovers the other direction, and reads a coasting car as not steering", () => {
+    expect(observedTurnOf(-1)).toBeCloseTo(-turnRateOf("mirage"), 3);
+    expect(steerFromObservedTurn(observedTurnOf(-1), "mirage")).toBe(-1);
+    expect(observedTurnOf(0)).toBeCloseTo(0, 6);
+    expect(steerFromObservedTurn(observedTurnOf(0), "mirage")).toBe(0);
   });
 });
 

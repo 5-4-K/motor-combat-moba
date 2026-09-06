@@ -559,8 +559,9 @@ describe("HumanController", () => {
   it("keeps firing at a target that TURNS, now that the solver rolls real physics (P22)", () => {
     // A WIRING guard, and deliberately not a claim about lead quality — the task brief proposed
     // this as "a straight-line solve holds fire here", and measurement says otherwise: over 200
-    // ticks of this scene the physics predictor fires 30 times and `constantVelocityPredictor`
-    // fires 34. Fire COUNT is not a lead metric. It is dominated by `chooseSlot`'s cooldowns and
+    // ticks of this scene the physics predictor fires 32 times (30 before fix round 1 switched the
+    // rollout onto a held speed) and `constantVelocityPredictor` fires 34.
+    // Fire COUNT is not a lead metric. It is dominated by `chooseSlot`'s cooldowns and
     // `minShotValueFraction`, and a solver aiming at the wrong point still clears the EV gate
     // whenever the wrong point happens to sit on a hull.
     //
@@ -570,8 +571,9 @@ describe("HumanController", () => {
     // converges all show up here as a bot that stops shooting a curving target it can see.
     //
     // Lead ACCURACY is pinned where it can be measured against ground truth instead of inferred:
-    // `predict.test.ts`'s "predicting a car at full lock, against ground truth", which scores this
-    // predictor, the throttle-closed rollout and the straight line in world units.
+    // `predict.test.ts`'s "predicting an observed car, against an independent ground truth", which
+    // scores this predictor, an engine-on rollout, the throttle-closed rollout and the straight line
+    // in world units against an integrator that calls none of them.
     const { fires } = turningCrosserDuel(200);
     expect(fires).toBeGreaterThan(5);
   });

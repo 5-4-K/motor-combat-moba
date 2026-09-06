@@ -1,6 +1,6 @@
 import {
   NEUTRAL_MODIFIERS, TICK_RATE_HZ, driveOf, stepDrive, turnRateOf,
-  type CarId, type SimBody,
+  type CarId, type Modifiers, type SimBody,
 } from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import type { Rng } from "../rng.js";
@@ -97,25 +97,74 @@ export function steerFromObservedTurn(angVel: number, carId: CarId): -1 | 0 | 1 
 }
 
 /**
+ * The modifier set an OBSERVATION is rolled under: neutral except that the engine is switched off.
+ *
+ * This is what turns "hold the throttle down" into "hold the SPEED you were seen at". With
+ * `accel: 0` and `throttle: 1`, `stepDrive`'s `accelerateForward` adds `chassis.accel * 0 * dt` and
+ * `nextSpeed` never reaches `coast`, so neither the engine nor drag fires and the car keeps exactly
+ * the speed that was observed — while rotation and translation still integrate through the real
+ * drive model. `Modifiers.accel` is the sim's OWN multiplier channel (`sim/status/modifiers.ts`),
+ * so this is a use of `stepDrive`, not a hack around it.
+ *
+ * It exists because a bot cannot see another car's throttle. Rolling every observed target with the
+ * engine ON assumes each one is flooring it toward its chassis maximum, which systematically
+ * OVER-leads: measured for a Mirage against an independently integrated ground truth, at 20 / 45
+ * ticks, the error in world units is
+ *
+ *   | observed speed | steer | `accel: 1` (engine on) | this set (speed held) | constant velocity |
+ *   |----------------|-------|------------------------|-----------------------|-------------------|
+ *   | 0 (stunned)    | 0     | 209 / 584              | 0 / 0                 | 0 / 0             |
+ *   | 0 (stunned)    | 1     |  81 /  72              | 0 / 0                 | 0 / 0             |
+ *   | 150            | 1     |  53 /  41              | 0 / 0                 | 114 / 230         |
+ *   | 250            | 1     |  31 /  21              | 0 / 0                 | 190 / 384         |
+ *   | 449.5 (top)    | 1     |   0 /   0              | 0 / 0                 | 342 / 690         |
+ *
+ * The stationary row is the one that mattered: a target `stunned` by `roadblock`, `thunderclap` or
+ * the hard slam carries `fullStop` + `immobilised` and CANNOT move — which is the exact condition
+ * `classifySituation` gates `punish` on. An engine-on rollout put the aim point hundreds of units
+ * past it, every slot's `value` read ~0 against `targetAt(ahead)`, and `minShotValueFraction` made
+ * the bot decline a free shot on a helpless car. This set holds it still, which is what a person
+ * sees.
+ *
+ * It is also the honest statement of what a human reads off the screen — a speed and a turn, held —
+ * and it dominates constant velocity everywhere a car is turning while tying it where one is not.
+ *
+ * One residual: a target observed REVERSING (`speed < 0`) still brakes toward 0 here, because
+ * `accelerateForward`'s rolling-backward branch is `brakeDecel`, not `accel`. Reverse caps are a
+ * fraction of forward speed and a bot rarely aims at a reversing car for long, so this is left as a
+ * known small error rather than zeroed with a second channel.
+ */
+export const OBSERVATION_MODIFIERS: Readonly<Modifiers> = Object.freeze({
+  ...NEUTRAL_MODIFIERS,
+  accel: 0,
+});
+
+/**
  * Step a body `ticks` times through the REAL drive model, holding one input (P3).
  *
  * `stepDrive` plus `driveOf` — the same pair the sim itself resolves at its single production call
  * site — so a prediction and the thing predicted cannot drift apart through a balance edit.
  * Statuses are not modelled: the bot sees that a car is slowed but has no principled way to know the
  * multiplier, and assuming neutral is the conservative direction.
+ *
+ * `mods` defaults to `NEUTRAL_MODIFIERS` — a genuine car, engine and all — because a later phase's
+ * planner rolls the bot's OWN candidate inputs, where acceleration is exactly the thing being
+ * planned. The two OBSERVATION-based predictors below pass `OBSERVATION_MODIFIERS` instead; see its
+ * doc comment for why.
  */
 export function rollForward(
   body: SimBody,
   carId: CarId,
   input: DriveAction,
   ticks: number,
+  mods: Readonly<Modifiers> = NEUTRAL_MODIFIERS,
 ): SimBody[] {
   const dt = 1 / TICK_RATE_HZ;
   const chassis = driveOf(carId);
   const out: SimBody[] = [];
   let current = body;
   for (let i = 0; i < ticks; i++) {
-    current = stepDrive(current, { seq: 0, ...input, fireSlots: 0 }, dt, chassis, NEUTRAL_MODIFIERS);
+    current = stepDrive(current, { seq: 0, ...input, fireSlots: 0 }, dt, chassis, mods);
     out.push(current);
   }
   return out;
@@ -148,6 +197,9 @@ function clampedPredictor(
  * who eyeballs it, and this is the tier knob that answers that. The clamp past the horizon is shared
  * with `selfPredictor` via `clampedPredictor`, so the noise applies only to the rollout's INPUT, never
  * to how a caller's `ticksAhead` is resolved against it.
+ *
+ * Rolled under `OBSERVATION_MODIFIERS`, so the observed speed is HELD rather than accelerated toward
+ * the chassis maximum — see that constant for the measurement.
  */
 export function physicsPredictor(
   car: BotCarView,
@@ -165,6 +217,7 @@ export function physicsPredictor(
   const observed: BotCarView = { ...car, speed: car.speed * (1 + speedNoise) };
   const poses = rollForward(
     bodyFromObservation(observed, angVel * (1 + turnNoise)), car.carId, input, horizonTicks,
+    OBSERVATION_MODIFIERS,
   );
   return clampedPredictor(poses, { x: car.x, y: car.y, angle: car.angle });
 }
@@ -179,15 +232,22 @@ function gaussian(rng: Rng): number {
 /**
  * `physicsPredictor`'s sibling for the bot's OWN car (P17): same rollout, same past-the-horizon
  * clamp, but no estimation noise and no `rng` parameter at all — every field of `self` is on the
- * bot's own HUD, so a bot reads itself exactly. A later task passes this as the `meAt` argument of
+ * bot's own HUD, so a bot reads itself exactly. `controller.ts` passes this as the `meAt` argument of
  * `dangerEvAgainst` (`solution.ts`).
+ *
+ * Also rolled under `OBSERVATION_MODIFIERS`, and for the same reason: a bot reads its own speed off
+ * its HUD, not its own future throttle. Predicting itself accelerating to top speed would mis-read
+ * its own exposure — it would place itself somewhere it has not decided to go and score the danger
+ * of a pose it never holds.
  */
 export function selfPredictor(
   self: BotSelfView,
   input: DriveAction,
   horizonTicks: number,
 ): PosePredictor {
-  const poses = rollForward(bodyFromSelf(self), self.carId, input, horizonTicks);
+  const poses = rollForward(
+    bodyFromSelf(self), self.carId, input, horizonTicks, OBSERVATION_MODIFIERS,
+  );
   return clampedPredictor(poses, { x: self.x, y: self.y, angle: self.angle });
 }
 
