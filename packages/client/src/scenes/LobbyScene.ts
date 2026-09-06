@@ -3,17 +3,21 @@ import type { Room } from "colyseus.js";
 import {
   ArenaState,
   DEFAULT_GAME_MODE,
+  MSG_CHAT,
   MSG_KICK,
   MSG_SET_MODE,
   MSG_START_ERROR,
   MSG_START_MATCH,
   MSG_SWITCH_TEAM,
+  validateChatText,
 } from "@motor-combat-moba/shared";
 import { bindViewRouter } from "../net/view.js";
 import { lobbyRenderSignature } from "./lobby-signature.js";
 import { lobbyView, type LobbyViewPlayer } from "../ui/lobby-view.js";
 import { ScreenOverlay } from "../ui/overlay.js";
 import { renderLobby, type LobbyMenus } from "../ui/screens/lobby.js";
+import { shouldPinToBottom } from "../ui/screens/chat.js";
+import type { ChatViewRow } from "../ui/chat-view.js";
 
 type StartErrorPayload = { error: string };
 
@@ -30,8 +34,18 @@ function freshMenus(): LobbyMenus {
     kickTarget: null,
     confirmStartOpen: false,
     confirmExitOpen: false,
+    chatDraft: "",
   };
 }
+
+/** What has to survive the lobby's wholesale re-render (LC21, LC22). */
+type ChatUiSnapshot = {
+  focused: boolean;
+  selectionStart: number;
+  selectionEnd: number;
+  scrollTop: number;
+  pinToBottom: boolean;
+};
 
 export class LobbyScene extends Phaser.Scene {
   private room: Room<ArenaState> | undefined;
@@ -128,12 +142,25 @@ export class LobbyScene extends Phaser.Scene {
       });
     });
 
+    const chat: ChatViewRow[] = [];
+    room.state.chat.forEach((message) => {
+      chat.push({
+        seq: message.seq,
+        sessionId: message.sessionId,
+        name: message.name,
+        colorId: message.colorId,
+        text: message.text,
+        at: message.at,
+      });
+    });
+
     const view = lobbyView(
-      { mode: room.state.mode, hostSessionId: room.state.hostSessionId, players },
+      { mode: room.state.mode, hostSessionId: room.state.hostSessionId, players, chat },
       room.sessionId,
       this.startError,
     );
 
+    const chatUi = this.captureChatUi();
     this.overlay.render(
       renderLobby(view, this.menus, {
         onToggleMenu: () => this.setMenus({ menuOpen: !this.menus.menuOpen }),
@@ -171,7 +198,57 @@ export class LobbyScene extends Phaser.Scene {
           if (target) room.send(MSG_KICK, { sessionId: target.sessionId });
           this.setMenus({ kickTarget: null });
         },
+        // Deliberately does not re-render: the character is already on screen, and rebuilding the
+        // whole lobby on every keystroke would be absurd.
+        onChatInput: (text) => {
+          this.menus = { ...this.menus, chatDraft: text };
+        },
+        onChatSend: () => this.sendChat(),
       }),
     );
+    this.restoreChatUi(chatUi);
+  }
+
+  /**
+   * Send if the draft is sendable, then clear it. The server re-validates (invariant 3); this call
+   * only avoids sending something we already know it will refuse.
+   */
+  private sendChat(): void {
+    const room = this.room;
+    if (!room) return;
+    const result = validateChatText(this.menus.chatDraft);
+    if (!result.ok) return;
+    room.send(MSG_CHAT, { text: result.text });
+    this.menus = { ...this.menus, chatDraft: "" };
+    this.render();
+  }
+
+  private captureChatUi(): ChatUiSnapshot | null {
+    const input = document.querySelector<HTMLInputElement>("[data-chat-input]");
+    const list = document.querySelector<HTMLElement>("[data-chat-list]");
+    if (!input || !list) return null;
+    return {
+      focused: document.activeElement === input,
+      selectionStart: input.selectionStart ?? input.value.length,
+      selectionEnd: input.selectionEnd ?? input.value.length,
+      scrollTop: list.scrollTop,
+      pinToBottom: shouldPinToBottom(list.scrollTop, list.scrollHeight, list.clientHeight),
+    };
+  }
+
+  /**
+   * A null snapshot means this is the first render of the panel, which should open at the newest
+   * message — so it pins. Selection is restored as a range, not a caret at the end: being teleported
+   * out of the middle of a half-typed sentence is the same bug in a milder form.
+   */
+  private restoreChatUi(snapshot: ChatUiSnapshot | null): void {
+    const input = document.querySelector<HTMLInputElement>("[data-chat-input]");
+    const list = document.querySelector<HTMLElement>("[data-chat-list]");
+    if (list) {
+      list.scrollTop = snapshot === null || snapshot.pinToBottom ? list.scrollHeight : snapshot.scrollTop;
+    }
+    if (!input || snapshot === null || !snapshot.focused) return;
+    input.focus();
+    input.setSelectionRange(snapshot.selectionStart, snapshot.selectionEnd);
   }
 }

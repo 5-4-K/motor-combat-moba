@@ -23,6 +23,7 @@ const state = (players: LobbyTestPlayer[], over: Partial<{ mode: GameMode; hostS
   mode: GameMode.TEAM,
   hostSessionId: "p1",
   players,
+  chat: [],
   ...over,
 });
 
