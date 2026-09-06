@@ -72,10 +72,22 @@ export interface LeadTarget {
 /**
  * Where to aim so a shot of `projectileSpeed` meets a target moving at its current velocity (H44).
  *
- * `leadFactor` is the FRACTION of the correct lead the bot actually applies: 0 shoots at where the
- * target is now (a beginner), 1 solves the intercept (UT's "Adept" gate). It is the largest single
- * skill gap on this roster — cars top out at 320-450 u/s while `magmablast` flies at 600 and
- * `thumper` at 450, so a bot that does not lead cannot hit a moving Mirage with either.
+ * `leadFactor` is the FRACTION of the correct lead the caller applies: 0 shoots at where the
+ * target is now (a beginner), 1 solves the intercept (UT's "Adept" gate).
+ *
+ * NO TIER READS IT ANY MORE, AND THIS FUNCTION HAS NO PRODUCTION CALLER. It was a `BotProfile`
+ * field until phase A's task 4 (2026-09-06), when `controller.ts` — the only caller there was —
+ * moved its aim point onto `predict.ts`'s `physicsPredictor` + `interceptTicks`, the physics
+ * analogue of this function, which solves the same problem against a curving path instead of a
+ * straight one. How well a bot leads is now the product of `stateEstimationSigma` (how accurately it
+ * reads the target) and `aimErrorSigmaRad` (its hands), not a fraction of a solution it declines to
+ * apply.
+ *
+ * It is KEPT DELIBERATELY, not stranded: it is the cheap zero-horizon straight-line path — no
+ * rollout, no `rng()` draws, no horizon to clamp against — for a later phase that needs an intercept
+ * without paying for a rollout. `aim.test.ts` is its only reference today. (`solution.ts`'s
+ * `bestAchievableValueOf` is NOT a caller; it reaches for `constantVelocityPredictor`, a different
+ * function on a different seam.)
  *
  * Falls back to the target's own position when no intercept exists — a shot slower than its target,
  * or a `speed: 0` maneuver row — rather than returning a point behind the shooter.

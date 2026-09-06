@@ -556,6 +556,67 @@ describe("HumanController", () => {
     expect(evaded).toBe(true);
   });
 
+  it("keeps firing at a target that TURNS, now that the solver rolls real physics (P22)", () => {
+    // A WIRING guard, and deliberately not a claim about lead quality — the task brief proposed
+    // this as "a straight-line solve holds fire here", and measurement says otherwise: over 200
+    // ticks of this scene the physics predictor fires 32 times (30 before fix round 1 switched the
+    // rollout onto a held speed) and `constantVelocityPredictor` fires 34.
+    // Fire COUNT is not a lead metric. It is dominated by `chooseSlot`'s cooldowns and
+    // `minShotValueFraction`, and a solver aiming at the wrong point still clears the EV gate
+    // whenever the wrong point happens to sit on a hull.
+    //
+    // What this DOES catch is the whole path going dark: `physicsPredictor` -> `interceptTicks` ->
+    // `aimPoint` -> `aimHeading`, plus the same predictor threaded into every per-slot `solve()`.
+    // A horizon that returns garbage, a predictor built on a stale pose, or an intercept that never
+    // converges all show up here as a bot that stops shooting a curving target it can see.
+    //
+    // Lead ACCURACY is pinned where it can be measured against ground truth instead of inferred:
+    // `predict.test.ts`'s "predicting an observed car, against an independent ground truth", which
+    // scores this predictor, an engine-on rollout, the throttle-closed rollout and the straight line
+    // in world units against an integrator that calls none of them.
+    const { fires } = turningCrosserDuel(200);
+    expect(fires).toBeGreaterThan(5);
+  });
+
+  it("draws the predictor's rng calls whether or not it has a target (H21)", () => {
+    // `physicsPredictor` draws FOUR rng() calls — two gaussians, and `gaussian` is Box-Muller, which
+    // draws a PAIR per call (`aim.ts` records having miscounted this exact thing once already) — so
+    // building it only when a target exists would make the stream depend on the scene and one seed
+    // would stop replaying. `plan()` therefore builds it against `ABSENT_TARGET` and discards the
+    // result, exactly as `hearRoll` is discarded.
+    //
+    // Two otherwise-identical first ticks, differing only in whether an opponent is on screen. The
+    // scene WITH a target legitimately draws two more than the scene without: `scoreTargets` adds
+    // one score-noise draw per candidate, and `plan` rolls ram intent once for a new engagement.
+    // Nothing else diverges here — no weapon instances (so `perceive` draws nothing), no wall or
+    // corner (so no `cornerRespect` roll), and a stationary target is never `isIncomingCar` (so no
+    // `incomingCarChance` roll). If the predictor were built inside the `target ? ... : undefined`
+    // ternary, this difference would read 6 — the two legitimate draws plus the predictor's four.
+    const slots = slotsOf("bullseye").map((weaponId) => ({
+      weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
+      range: weaponDefOf(weaponId).range,
+    }));
+    const profile = { ...BOT_PROFILES.hard, acquireTicks: 0 };
+    const selfView = { ...view().self, slots, x: 200, y: 360, angle: 0 };
+    const target = {
+      sessionId: "them", carId: "mirage" as const, team: 1 as const,
+      x: 500, y: 360, angle: Math.PI, speed: 0, hp: 70, maxHp: 70,
+      alive: true, phased: false, statuses: [], maneuver: 0,
+    };
+
+    const countDraws = (others: (typeof target)[]): number => {
+      const inner = makeRng(5);
+      let calls = 0;
+      const bot = new HumanController("hard", { profile });
+      bot.decide(view({
+        tick: 0, self: selfView, others, rng: () => { calls += 1; return inner(); },
+      }));
+      return calls;
+    };
+
+    expect(countDraws([target]) - countDraws([])).toBe(2);
+  });
+
   it("reports the danger it is standing in, for the overlay", () => {
     const bot = new HumanController("hard");
     const rng = makeRng(17);
@@ -563,6 +624,60 @@ describe("HumanController", () => {
     expect(bot.debug()!.dangerEv).toBeGreaterThan(0);
   });
 });
+
+/**
+ * A hard Bullseye against a Mirage riding a circular arc — the scene a constant-velocity solve gets
+ * wrong by construction. The target orbits the bot's own spawn at radius 400 while carrying the
+ * matching tangent `angle` every tick, so `observedAngVelOf` has two real poses to difference; the
+ * bot's body is stepped through `stepDrive` from its own intent, so its nose has to converge.
+ */
+function turningCrosserDuel(ticks: number): { fires: number } {
+  const bot = new HumanController("hard");
+  const rng = makeRng(17);
+  const slots = slotsOf("bullseye").map((weaponId) => ({
+    weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
+    range: weaponDefOf(weaponId).range,
+  }));
+  const centre = { x: 640, y: 360 };
+  const radius = 400;
+  const targetSpeed = 400;
+  const omega = targetSpeed / radius; // rad/s, the arc's own turn rate
+  let body = {
+    x: centre.x, y: centre.y, angle: 0, speed: 300, reverseHold: 0, angVel: 0,
+    shoveX: 0, shoveY: 0, authority: 1, maneuver: 0, maneuverTicksLeft: 0, maneuverSpeed: 0,
+  };
+  let fires = 0;
+
+  for (let tick = 0; tick < ticks; tick++) {
+    const phase = (omega * tick) / TICK_RATE_HZ;
+    const target = {
+      sessionId: "them", carId: "mirage" as const, team: 1 as const,
+      x: centre.x + Math.cos(phase) * radius,
+      y: centre.y + Math.sin(phase) * radius,
+      angle: phase + Math.PI / 2, // tangent to the arc, so heading and motion agree
+      speed: targetSpeed, hp: 70, maxHp: 70, alive: true, phased: false,
+      statuses: [], maneuver: 0,
+    };
+    const intent = bot.decide(view({
+      tick,
+      self: {
+        ...view().self, carId: "bullseye",
+        x: body.x, y: body.y, angle: body.angle, speed: body.speed, slots,
+      },
+      others: [target],
+      rng,
+    }));
+    if (intent.fireSlots !== 0) fires += 1;
+    body = stepDrive(
+      body,
+      { seq: tick, steer: intent.steer, throttle: intent.throttle, fireSlots: 0 },
+      1 / TICK_RATE_HZ,
+      driveOf("bullseye"),
+      NEUTRAL_MODIFIERS,
+    );
+  }
+  return { fires };
+}
 
 function inThreatLineView(tick: number, rng: ReturnType<typeof makeRng>): BotView {
   return {

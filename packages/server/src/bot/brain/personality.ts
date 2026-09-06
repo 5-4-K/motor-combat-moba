@@ -37,7 +37,7 @@ const IDS = Object.keys(ARCHETYPES) as PersonalityId[];
 const UNIT_INTERVAL_FIELDS: ReadonlySet<string> = new Set<keyof BotProfile>([
   "ultDisciplineChance", "ultWindowHpFraction", "woundedBias",
   "vengefulness", "standoffFraction", "deadbandFraction", "retreatHpFraction",
-  "ramIntentChance", "dodgeChance", "blunderChance", "idleFidgetChance", "leadFactor",
+  "ramIntentChance", "dodgeChance", "blunderChance", "idleFidgetChance",
   "hearChance", "deadRespect", "opponentRangeRespect", "cornerRespect", "incomingCarChance",
 ]);
 

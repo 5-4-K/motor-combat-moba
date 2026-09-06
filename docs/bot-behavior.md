@@ -14,7 +14,7 @@ Design: [`docs/superpowers/specs/2026-09-05-bot-situation-play-design.md`](super
 (S1–S28). Fairness / hands / personalities: H1–H8 and H16–H48 of
 [`docs/superpowers/specs/2026-09-04-human-like-bot-behavior-design.md`](superpowers/specs/2026-09-04-human-like-bot-behavior-design.md).
 
-Copied from `bot-profiles.ts` on 2026-09-06. `BOT_BRAIN_VERSION` is `4.1.0`.
+Copied from `bot-profiles.ts` on 2026-09-06. `BOT_BRAIN_VERSION` is `4.2.0`.
 
 ## Reading a complaint
 
@@ -24,6 +24,7 @@ Copied from `bot-profiles.ts` on 2026-09-06. `BOT_BRAIN_VERSION` is `4.1.0`.
 | "Hard is a laser" | Same knobs the other way on `hard` |
 | "Hard isn't attacking / holds fire" | `minShotValueFraction` down. Check the overlay first: `fight` with `slot -` (holding fire) while a gun is in range can still be the bot *correctly* declining a shot below `minShotValueFraction * bestAchievableValueOf(carId, sigma)` — the overlay does not print the solver's `value` yet, so confirm by reading `solve()`'s output for that slot before assuming it is a bug |
 | "Shots are all over the place" | **Not a knob any more.** The solver decides hit chance and value; if it is firing shots that miss, that is a solver bug to investigate (`bot/brain/solution.ts`), not a value to tune |
+| "It misses me when I turn" / "it shoots where I was" | `stateEstimationSigma` down on that tier — **not** `aimErrorSigmaRad`. Leading a car through a curve is PREDICTION (how well it reads your speed and turn rate, `bot/brain/predict.ts`); `aimErrorSigmaRad` is steady-state hands and will not fix a lead that is aimed at the wrong place to begin with. If it misses you equally badly while you drive STRAIGHT, that is the hands after all |
 | "It ults my corpse / spawn shield" | `deadRespect` up (Hard should already be 1) |
 | "It sits in a corner while I approach" | `cornerRespect` up; overlay should read `unpin` |
 | "It never dodges" | `dodgeChance`, `dodgeReactionTicks`, `dodgeHorizonTicks`, `incomingCarChance` |
@@ -139,13 +140,65 @@ medium. Retuning `situationCommitTicks` moves that share without touching the co
 | `aimErrorSigmaRad` | 0.18 | 0.09 | 0.035 |
 | `aimErrorDriftTicks` | 20 | 14 | 9 |
 | `aimToleranceRad` | 0.3 | 0.16 | 0.07 |
-| `leadFactor` | 0 | 0.55 | 0.95 |
+| `stateEstimationSigma` | 0.25 | 0.1 | 0.03 |
+
+`stateEstimationSigma` is filed under **Perception** in `bot-profiles.ts`, not Aim — it is a
+reading-the-world knob whose effect lands on the gun. It sits here because the knob it is constantly
+confused with, `aimErrorSigmaRad`, is one row up, and telling them apart is the whole diagnostic
+(see the complaint table above).
 
 `fireConeRad` is gone as of `BOT_BRAIN_VERSION` 4.0.0 — the angular fire gate was replaced by the
 solver's own aim quadrature and its `value` (EV) threshold, `minShotValueFraction` (below).
-`leadFactor` was removed alongside it in the same pass, but that was premature (fix round 2,
-2026-09-06, R21): the real forward-prediction replacement is a later, not-yet-landed phase, so
-`leadFactor` is back and still read by `interceptPoint` for both aim and body-intercept heading.
+
+**`leadFactor` is gone as of 4.2.0.** It was first removed alongside `fireConeRad` in 4.0.0, which
+was premature (R21) — the replacement was a phase that had not landed, so it was restored and the
+tiers kept a lead knob in the meantime. That phase is this one: the fraction-of-the-correct-lead dial
+is replaced by rolling the target through the **real drive model** (`bot/brain/predict.ts` —
+`physicsPredictor`, `interceptTicks`, `rollForward` over `stepDrive` + `driveOf`), so lead is now
+solved rather than dialled, and there is no "how much of the correct answer does this tier apply"
+number left to turn. The `interceptPoint` FUNCTION survives in `aim.ts` with its `leadFactor`
+parameter and has **no production caller today** — kept deliberately as the cheap zero-horizon
+straight-line path for a later phase, not as a live knob.
+
+`stateEstimationSigma` is how wrong a bot's read of an opponent is, **as a fraction** — two gaussian
+draws per predictor construction (four `rng()` calls: Box-Muller draws a pair each) scale the observed
+`speed` and the observed turn rate before the rollout runs. Reading exact `speed` off another car
+every tick is the one place a bot sees more precisely than a person, and this is the answer to that.
+
+The turn half is the one that reads a **corner**, and it works by moving the observation across
+`BRAIN_CONSTANTS.fullLockAngVelFraction`: the noised rate — not the raw one — is what
+`steerFromObservedTurn` reconstructs a held wheel from, so a bad enough read misjudges *whether* the
+car is steering at all, and near the threshold *which way*. Above the threshold the read is quantised
+to a -1/0/1 steer, so a small error there changes nothing; below it the residual is a ram's spin and
+the error scales it continuously. That reconstruction lives inside `physicsPredictor`, after the
+draws, precisely so the noise reaches it. For a target at full lock, misjudging *whether* it is
+steering needs a draw beyond roughly `-0.5 / stateEstimationSigma` standard deviations — about 2.3%
+of constructions at easy's 0.25, but roughly 5 sigma (~3e-7) at medium's 0.10 and roughly 16.7 sigma
+(never, in practice) at hard's 0.03 — so on medium and hard this half is moving the *magnitude* of an
+already-correctly-classified curve, not the decision that it is curving at all.
+
+It is **not confined to [0, 1]** (a fraction
+above 1 is a wild misread, not an invalid value), so it is deliberately absent from
+`personality.ts`'s `UNIT_INTERVAL_FIELDS` and from `bot-profiles.test.ts`'s `PROBABILITY_FIELDS` —
+exactly as `aimErrorSigmaRad` is, and for the same reason.
+
+**Easy now leads, badly — and the easy portrait in
+[`2026-09-05-bot-predictive-brain-design.md`](superpowers/specs/2026-09-05-bot-predictive-brain-design.md)
+("Does not lead", P34) is out of date.**
+With `leadFactor` 0 gone, no tier aims at where you are standing any more: every tier gets the same
+physics solve, and the tiers separate on how badly they read the inputs to it (`stateEstimationSigma`
+0.25 on easy against hard's 0.03) and on the hands that then execute it (`aimErrorSigmaRad` 0.18
+against 0.035). The spec's normative field tables are what this phase followed; its prose portrait
+was written when `leadFactor` still existed. An easy bot visibly trying — and failing — to lead you
+is the intended shape of 4.2.0, not a regression, in the same spirit as "expect a skilled bot to fire
+less and hit far more" above.
+
+**A car spinning from a ram is read as a car that MEANT to turn, and is mispredicted.** The bot infers
+turn rate from two observed poses (`observedAngVelOf`), assumes `authority` and shove neutral because
+those are not numbers a person reads off a screen, and above
+`BRAIN_CONSTANTS.fullLockAngVelFraction` of the chassis's own turn rate treats the result as a held
+wheel. Just after a ram all of that is wrong at once, and the next shot misses. That is P19 and it is
+**kept on purpose** — it is a very human error obtained for free. Do not file it as a prediction bug.
 
 ### Shared constants (`BRAIN_CONSTANTS`, not per-tier)
 
@@ -169,6 +222,16 @@ gate in `bot/brain/controller.ts`:
 | `assumedOpponentAimSigmaRad` | 0.06 | The aim error a bot assumes of an OPPONENT when reading danger, instead of projecting its own hands. One shared number because the bot cannot know who it is facing — so it sits between medium's `aimErrorSigmaRad` (0.09) and hard's (0.035), over-reading an easy or medium opponent's threat and under-reading a hard one's by ~1.7x. Accepted asymmetry, not "assume competence". |
 | `dangerEvadeFraction` | 1 | Fraction of the bot's OWN best available shot (`bestValue`) that the scaled danger must clear before it leaves the line. Relative, not absolute: "am I losing this exchange from here". |
 | `dangerEvadeCooldownTicks` | 120 | Refractory period — how often an anticipatory excursion may START. With `situationCommitTicks` saying how long one LASTS, this sets `evade`'s share of a fight (5% hard, 10% medium). Reach for this before `dangerEvadeFraction`; see the section above. |
+
+Prediction — feeds `physicsPredictor` / `selfPredictor` / `interceptTicks` in `bot/brain/predict.ts`,
+all built in `controller.ts`'s `plan()`:
+
+| Field | Value | What it does |
+|---|---|---|
+| `predictionHorizonTicks` | 90 | How far ahead a firing solution rolls a target. How far a SHOT flies, not how far a bot thinks. Verified against `WEAPON_TABLE`: the longest flight on the roster is `thumper`'s 87 ticks (1305 u at 450 u/s = 2.9 s), `predator` next at 60 — 90 covers the roster with a little margin. **A tick count, so a `TICK_RATE_HZ` change does not rescale it**: thumper becomes 174 ticks at 60 Hz and this would silently truncate every long solve. Re-derive it if the netcode rewrite's phase 1 lands. |
+| `closeLeadHorizonFraction` | 1 / 3 | Fraction of that horizon the `close` situation aims the BODY at — a car closes far slower than a bullet flies, so the full shot horizon would point the nose most of a lap around a turning target. A fraction rather than its own tick count so it cannot drift away from the horizon it is a fraction OF. |
+| `fullLockAngVelFraction` | 0.5 | Fraction of a chassis's own turn rate an observed turn must reach before it reads as deliberate STEERING rather than a ram's residual spin. A half, because the sim has no partial steer — `stepDrive`'s steer is only ever -1/0/1, so a car genuinely turning is at FULL lock and there is nothing between the two cases to discriminate. Per-chassis by construction: Bastion's bar is lower than Mirage's. |
+| `interceptFixedPointRounds` | 3 | Rounds of fixed-point iteration behind "how many ticks ahead do I aim". A curving path has no closed form, so this converges what `aim.ts`'s `interceptPoint` solves in one shot against a straight line. Fixed rather than looped to a tolerance because the solver must do bounded work every tick (H21). |
 
 ### Fire economy
 

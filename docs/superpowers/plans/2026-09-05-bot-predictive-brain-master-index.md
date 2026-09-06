@@ -121,8 +121,8 @@ this up fresh should:
 |---|---|---|---|---|
 | 1 | `bot-brain-1-firing-solutions` (B) | **Done** | 2026-09-06 | Validation run; whole-branch review clean after one fix wave. `BOT_BRAIN_VERSION` 4.0.0. See below. |
 | 2 | `bot-brain-2-threat-and-cooldowns` (C) | **Done** | 2026-09-06 | Validation 1-2 run (root `npm test` green; build inlines `// ../shared/dist/`); 3-5 are hands-on playground checks left to the user. Whole-branch review clean after one fix wave. `BOT_BRAIN_VERSION` 4.1.0. See below. |
-| 3 | `bot-brain-3-physics-prediction` (A) | Not started | — | Allowed |
-| 4 | `bot-brain-4-planner` (D) | Not started | — | Blocked on 2, 3 |
+| 3 | `bot-brain-3-physics-prediction` (A) | **Done** | 2026-09-06 | Validation 1-2 run (root `npm test` green, 44 server test files; build inlines `// ../shared/dist/`); 3-4 are hands-on playground feel checks left to the user. Whole-branch review APPROVE after one fix wave plus two residuals. `BOT_BRAIN_VERSION` 4.2.0. See below. |
+| 4 | `bot-brain-4-planner` (D) | Not started | — | **Allowed** |
 
 ### What plan 1 changed, and what later plans inherit
 
@@ -191,6 +191,82 @@ this up fresh should:
   `this.effectiveProfile.minShotValue`, a field renamed in plan 1. Fix it before executing plan 4.
 
 ---
+
+### What plan 3 changed, and what later plans inherit
+
+- **`leadFactor` is gone**, and P35's five-site warning was accurate: beyond the `BotProfile` field and its three
+  tier values, it was read at TWO `controller.ts` call sites (the `aimPoint` and `bodyIntercept` `interceptPoint`
+  calls, easy to mistake for one) and named as a plain STRING in `personality.ts`'s `UNIT_INTERVAL_FIELDS` and in
+  that list's hand-maintained MIRROR, `bot-profiles.test.ts`'s `PROBABILITY_FIELDS`. The compiler catches the
+  field, the values and the call sites; it catches neither string list. Both lists are 16 entries and
+  byte-identical to each other today — check that pair by reading whenever a `BotProfile` field is added or
+  removed.
+- **`interceptPoint` survives in `aim.ts` with no production caller**, deliberately, as spec section 4's "Kept"
+  zero-horizon path. `aim.test.ts` is its only reference. Plan 4's `K = 0` tier is what is meant to use it; if
+  plan 4 does not, it becomes dead and should be deleted then rather than left to rot.
+- **`stateEstimationSigma` (0.25 / 0.10 / 0.03) is NOT in the unit-interval lists**, and must not be added: it is
+  a standard deviation, not a probability, and `aimErrorSigmaRad` set that precedent. It IS in `LADDER`, as
+  `"falls"`.
+- **The plan's `{ steer: 0, throttle: 0 }` target rollout was wrong and was replaced.** `DRIVE_CONFIG.drag` is
+  900 u/s^2 — 0.32 s to rest — so "coasting" in this sim means braking hard, and the plan's own model
+  rolled a 400 u/s Mirage to a dead stop within 20 ticks having covered 82 units, against ~400 for the straight
+  line it was replacing. `throttle: 1` fixed that and introduced the mirror-image bug: it accelerates EVERY target
+  toward its chassis maximum, worst against a `stunned` one (speed 0, and `punish`'s exact trigger), where the aim
+  point lands hundreds of units past a car that cannot move and `minShotValueFraction` then declines the free
+  shot. **What shipped is `OBSERVATION_MODIFIERS`** — the sim's own `Modifiers` channels with `accel: 0`,
+  `brakeDecel: 0` and a raised `topSpeed`, so a rollout holds exactly the speed that was OBSERVED while rotation
+  and position still integrate through the real `stepDrive`. Error against an independent ground truth is 0.00 at
+  every speed, both steers, out to 90 ticks. **A predictor that models a throttle is the trap here; plan 4's
+  planner rolls the bot's OWN car with genuine throttle and must keep using `rollForward` with real modifiers,
+  which is why that parameter is required rather than defaulted.**
+- **The turn is reconstructed as a STEER, not carried as spin.** The sim's steer is `-1 | 0 | 1`, so a car
+  genuinely turning is at full lock and `observedAngVelOf` on one reads exactly `turnRateOf(carId)` (measured:
+  8.19 vs 8.19 for Mirage). `steerFromObservedTurn` returns the sign above
+  `BRAIN_CONSTANTS.fullLockAngVelFraction` of the chassis rate and 0 below, and an observed turn is attributed to
+  exactly ONE cause: steering above the threshold, a decaying ram spin below it. **A car spinning from a ram
+  therefore reads as one that meant to turn, and is mispredicted — that is P19's sanctioned human error, kept
+  on purpose.**
+- **The steer reconstruction lives INSIDE `physicsPredictor`, after the noise draws, and that placement is
+  load-bearing.** It was originally in `controller.ts`, reading the RAW observed turn — which made
+  `stateEstimationSigma`'s turn half completely inert (the noise multiplied a spin value that is zero whenever the
+  car is judged to be steering, i.e. in the only case a physics rollout beats a straight line) while four
+  documents claimed otherwise. The final whole-branch review caught it. Do not move it back out.
+- **The turn half is a step function, not a gradient, and effectively easy-only.** Against a full-lock target,
+  misjudging *whether* a car is steering needs a draw beyond about `-0.5 / stateEstimationSigma` sigma: ~2.3% of
+  constructions at easy's 0.25, ~5 sigma at medium's 0.10, ~16.7 sigma (never) at hard's 0.03. On medium and hard
+  the knob moves the MAGNITUDE of an already-correctly-classified curve. `docs/bot-behavior.md` and `bot-tuner`
+  both say so; a continuous per-tier lead error, if plan 4 wants one, is still unbuilt.
+- **`physicsPredictor` draws FOUR `rng()` calls, not two** — two gaussians, and `gaussian` is Box-Muller, a
+  pair each. That number was written as "two" in three separate comments across this phase and corrected three
+  times. The draws are taken UNCONDITIONALLY, before any rollout, and `controller.ts` builds the predictor against
+  `ABSENT_TARGET` (with horizon 0) when there is no target rather than skipping it, because H21 is what lets one
+  seed replay. `selfPredictor`, `rollForward`, `interceptTicks` and `steerFromObservedTurn` draw zero.
+- **`dangerEvAgainst`'s `meAt` is now `selfPredictor`, not `constantVelocityPredictor`**, so phase C's
+  anticipatory evade reads a physics rollout of the bot's own car. P27 still deletes that whole gate; this only
+  changes what it reads until then.
+- **P34's easy portrait ("does not lead") is now out of date.** With `leadFactor` gone, easy leads — badly,
+  via `stateEstimationSigma` 0.25 and `aimErrorSigmaRad` 0.18. P35/P36's field tables are normative and were
+  followed; the prose portrait was not edited. `docs/bot-behavior.md` records the contradiction so it is not filed
+  as a regression. Rewriting the spec's portrait is the user's call.
+- **`BRAIN_CONSTANTS` gained several behaviour-moving knobs this phase** — `predictionHorizonTicks` (90),
+  `fullLockAngVelFraction`, `closeLeadHorizonFraction`, `observationTopSpeedHeadroom` and
+  `interceptFixedPointRounds`. `botFingerprint` (`balance/fingerprint.ts`) still hashes only `BOT_PROFILES` and
+  `BOT_BRAIN_VERSION`, so an edit to any of them moves the bot invisibly to the balance harness. That gap was
+  already recorded after plan 2 and is now materially wider.
+- **`predictionHorizonTicks` is a TICK count and does not survive netcode phase 1's `TICK_RATE_HZ` 60.** It is
+  documented in the constant and guarded by nothing.
+- The deathmatch clock fixture in `balance/match.test.ts` was reseeded four times on this branch as behaviour
+  changed (96 -> 34 -> 5 -> 4 -> 3), assertions untouched each time and the top paragraph rewritten rather than
+  stacked. Decisive-kill sweep over seeds 1-150: 17 before this phase, then 12, 18, 21, **22** — the
+  23 -> 17 -> 12 drift recorded after plan 2 reverses, which is the direction expected of a bot that stops aiming
+  past slow and stunned targets.
+- Known gaps left standing, all pre-existing or deliberately deferred: `readinessOf` still reaches back only
+  `memoryTicks`; `observedFires` is still not viewport-filtered; `BRAIN_CONSTANTS` is still outside
+  `botFingerprint`; `docs/bot-behavior.md` has no test holding it to the config the way
+  `scripts/turn-tuning-doc.test.mjs` holds `turn-tuning.md`; and `npm run typecheck` fails on
+  `perception.ts:205` (`TS1354`), which was verified present at this branch's merge base and is not this phase's.
+- **`docs/superpowers/plans/2026-09-05-bot-brain-4-planner.md` still names `this.effectiveProfile.minShotValue`, a
+  field renamed in plan 1. Fix it before executing plan 4.** That was recorded after plan 2 and is still true.
 
 ## Things discovered while planning that the spec now records
 
