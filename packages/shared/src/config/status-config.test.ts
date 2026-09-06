@@ -317,3 +317,31 @@ describe("phased", () => {
     }
   });
 });
+
+describe("reeling", () => {
+  it("is not a stun: it never freezes or disarms the victim", () => {
+    const row = STATUS_TABLE.reeling;
+    expect(row.flags ?? []).toEqual([]);
+  });
+
+  it("refreshes rather than ignoring, so falloff can shorten a chained ram", () => {
+    expect(STATUS_TABLE.reeling.reapply).toBe("refresh");
+  });
+
+  it("degrades steering and the engine without breaching the global clamps", () => {
+    const mods = STATUS_TABLE.reeling.modifiers;
+    expect(mods.turnRate).toBeGreaterThanOrEqual(STATUS_LIMITS.turnRate.min);
+    expect(mods.accel).toBeGreaterThanOrEqual(STATUS_LIMITS.accel.min);
+    expect(mods.turnRate).toBeLessThan(1);
+    expect(mods.accel).toBeLessThan(1);
+  });
+
+  it("sits exactly at the STATUS_LIMITS floors, not below them (spec P22)", () => {
+    expect(STATUS_TABLE.reeling.modifiers.turnRate).toBe(STATUS_LIMITS.turnRate.min);
+    expect(STATUS_TABLE.reeling.modifiers.accel).toBe(STATUS_LIMITS.accel.min);
+  });
+
+  it("leaves top speed alone, so a reeling car is slowed by physics not by a debuff", () => {
+    expect(STATUS_TABLE.reeling.modifiers.topSpeed ?? 1).toBe(1);
+  });
+});

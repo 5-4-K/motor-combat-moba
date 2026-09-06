@@ -202,6 +202,37 @@ export const STATUS_TABLE = {
     modifiers: {},
     flags: ["phased"],
   },
+  /**
+   * Rammed: flung, sliding and fighting for grip. **Not a stun, and close to its opposite.**
+   *
+   * `stunned` is `immobilised + steeringLocked + disarmed + fullStop` — you stop dead and sit there,
+   * which is the bumper-car-that-stops behaviour this rework exists to reject. `reeling` carries no
+   * flags at all: you are moving fast in the wrong direction with your tyres saturated, you can
+   * still shoot, and you can still fight the spin. That is what keeps ramming a setup rather than a
+   * delete.
+   *
+   * **`flags: []` is load-bearing, not incidental.** `StatusDef` forces flag-carrying rows to
+   * `reapply: "ignore"` so hard CC can never be chained. Because this row carries none, it escapes
+   * that rule and a second ram may write a new (already-reduced) duration — which is exactly what
+   * the falloff stack (Task 2) needs. Adding a flag here would silently break diminishing returns.
+   *
+   * Both multipliers sit AT the `STATUS_LIMITS` floors, deliberately (spec P22). Do not lower those
+   * floors to make this harsher: they are documented guarantees, and widening one for a single row
+   * is how a guarantee stops guaranteeing. The helplessness here comes from the physics rather than
+   * the debuff — a car sliding sideways with saturated tyres is already a passenger, courtesy of
+   * `DRIVE_CONFIG.impactGripDecel` (P11) doing the real work. `accel: 0.4` is the friction-circle
+   * stagger on top: while the tyres fight the slide there is little grip left for the engine, so a
+   * big hit visibly bogs you.
+   */
+  reeling: {
+    id: "reeling",
+    name: "Reeling",
+    kind: "debuff",
+    color: "#e8590c",
+    reapply: "refresh",
+    modifiers: { turnRate: 0.4, accel: 0.4 },
+    flags: [],
+  },
 } as const satisfies Record<StatusId, StatusDef>;
 
 /**

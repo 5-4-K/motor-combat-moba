@@ -19,7 +19,8 @@ export type StatusId =
   | "fortified"
   | "overhauled"
   | "armored"
-  | "phased";
+  | "phased"
+  | "reeling";
 
 /**
  * Every number in the sim a status may scale. One channel per thing the sim already reads, and a
