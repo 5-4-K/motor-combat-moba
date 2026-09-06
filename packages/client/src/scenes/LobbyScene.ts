@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import type { Room } from "colyseus.js";
 import {
   ArenaState,
+  CHAT_CONFIG,
   DEFAULT_GAME_MODE,
   MSG_CHAT,
   MSG_KICK,
@@ -54,6 +55,14 @@ export class LobbyScene extends Phaser.Scene {
   private lastSignature = "";
   private unbind: Array<() => void> = [];
   private menus: LobbyMenus = freshMenus();
+  /**
+   * Wall-clock time of the last chat send this scene made, mirroring the server's own
+   * `chatLastSentAt` (LC20) so a cooldown refusal can keep the player's draft instead of silently
+   * eating it. This is advisory only: it is a local echo of the server's clock, not the gate itself
+   * — network jitter can still land two sends inside the server's window, in which case the server
+   * remains the authority and drops the second one silently, same as always.
+   */
+  private chatLastSentAt = 0;
 
   constructor() {
     super({ key: "lobby" });
@@ -63,6 +72,7 @@ export class LobbyScene extends Phaser.Scene {
     this.startError = "";
     this.lastSignature = "";
     this.menus = freshMenus();
+    this.chatLastSentAt = 0;
     this.unbindAll();
     this.overlay = new ScreenOverlay(this);
     this.room = this.registry.get("room") as Room<ArenaState> | undefined;
@@ -83,6 +93,7 @@ export class LobbyScene extends Phaser.Scene {
     this.overlay = undefined;
     this.startError = "";
     this.lastSignature = "";
+    this.chatLastSentAt = 0;
     this.room = undefined;
   }
 
@@ -212,13 +223,26 @@ export class LobbyScene extends Phaser.Scene {
   /**
    * Send if the draft is sendable, then clear it. The server re-validates (invariant 3); this call
    * only avoids sending something we already know it will refuse.
+   *
+   * The cooldown check below is different from the text validation above: `validateChatText` runs
+   * the identical rule on both ends, so a server-side refusal on that gate can only mean a stale or
+   * hostile client and the message is fine to discard silently. The cooldown is not that — an honest
+   * player can easily hit it (send "gg", immediately send "wp") — and the client has no way to learn
+   * the server refused, since a cooldown drop earns no reply. So this mirrors the server's own
+   * `chatLastSentAt` gate locally and, when it would trip, bails out **before** sending and **without
+   * clearing the draft**, so the player keeps their text and can just press Enter again. This is
+   * advisory only: it is a local echo of the server's clock, not the gate itself, so network jitter
+   * can still let two sends land inside the server's real window — in which case the server remains
+   * the authority and drops the second one the same way it always has.
    */
   private sendChat(): void {
     const room = this.room;
     if (!room) return;
     const result = validateChatText(this.menus.chatDraft);
     if (!result.ok) return;
+    if (Date.now() - this.chatLastSentAt < CHAT_CONFIG.sendCooldownMs) return;
     room.send(MSG_CHAT, { text: result.text });
+    this.chatLastSentAt = Date.now();
     this.menus = { ...this.menus, chatDraft: "" };
     this.render();
   }
@@ -248,7 +272,12 @@ export class LobbyScene extends Phaser.Scene {
       list.scrollTop = snapshot === null || snapshot.pinToBottom ? list.scrollHeight : snapshot.scrollTop;
     }
     if (!input || snapshot === null || !snapshot.focused) return;
-    input.focus();
+    // Inside a Phaser DOM container under a scale transform, a bare `focus()` can nudge the
+    // container's own scroll position; `preventScroll` keeps this to just the input.
+    input.focus({ preventScroll: true });
+    // After a send, the captured offsets were measured against the pre-clear draft and are now
+    // applied to a freshly emptied input. `setSelectionRange` is specified to clamp out-of-range
+    // offsets to the value's length, so this lands the caret at 0 rather than throwing.
     input.setSelectionRange(snapshot.selectionStart, snapshot.selectionEnd);
   }
 }

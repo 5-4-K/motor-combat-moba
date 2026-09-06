@@ -18,8 +18,9 @@ export interface ChatSendGate {
 /**
  * Both send gates in one predicate (LC17, LC20).
  *
- * `READY` is exactly the status `viewFor` maps to the lobby screen, so "may speak" and "is looking
- * at the chat panel" are the same question and cannot drift apart.
+ * `READY` is the status `viewFor` maps to the lobby screen for any player the room's state machine
+ * can actually produce, so "may speak" and "is looking at the chat panel" are the same question and
+ * cannot drift apart.
  */
 export function canSendChat(gate: ChatSendGate): boolean {
   if (gate.status !== PlayerStatus.READY) return false;

@@ -38,7 +38,7 @@ export interface ChatHandlers {
 }
 
 function messageRow(message: ChatViewMessage): HTMLElement {
-  return h("div", { style: "margin-bottom: 10px;" }, [
+  return h("div", { "data-seq": message.key, style: "margin-bottom: 10px;" }, [
     h("div", { style: "display: flex; align-items: baseline; gap: 8px;" }, [
       h("span", { style: `font-size: 13px; font-weight: 600; color: ${message.hex};` }, [message.label]),
       h("span", { style: "font-size: 11px; color: var(--color-neutral-600);" }, [message.at]),
@@ -65,8 +65,25 @@ export function chatPanel(
       "border-radius: 4px; outline: none;",
   });
 
+  const sendButton = button(
+    {
+      class: "btn btn-primary btn-icon",
+      style: "width: 40px; height: 40px; min-height: 40px; flex: none;",
+      "aria-label": "Send message",
+    },
+    [icon(PAPER_PLANE, 17, false)],
+    handlers.onChatSend,
+  );
+  // Without this, mousedown on the button moves document.activeElement to it before the click
+  // fires, so captureChatUi sees focused: false and the input never gets refocused after the
+  // re-render. Preventing the default keeps focus in the input through the click.
+  sendButton.addEventListener("mousedown", (event) => event.preventDefault());
+
   field.addEventListener("input", () => handlers.onChatInput(field.value));
   field.addEventListener("keydown", (event: KeyboardEvent) => {
+    // The Enter that confirms an IME composition (CJK, etc.) also reports key === "Enter". Bailing
+    // out while a composition is still in progress stops the half-typed text from being sent.
+    if (event.isComposing) return;
     if (event.key !== "Enter") return;
     // Stop here rather than letting it bubble: nothing else on this screen should treat Enter as a
     // press, and the scene is about to re-render underneath us.
@@ -100,18 +117,7 @@ export function chatPanel(
         ["Chat"],
       ),
       list,
-      h("div", { style: "display: flex; gap: 10px; align-items: stretch;" }, [
-        field,
-        button(
-          {
-            class: "btn btn-primary btn-icon",
-            style: "width: 40px; min-height: 40px; flex: none;",
-            "aria-label": "Send message",
-          },
-          [icon(PAPER_PLANE, 17, false)],
-          handlers.onChatSend,
-        ),
-      ]),
+      h("div", { style: "display: flex; gap: 10px; align-items: stretch;" }, [field, sendButton]),
     ],
   );
 }

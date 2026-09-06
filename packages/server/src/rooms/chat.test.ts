@@ -15,8 +15,9 @@ describe("canSendChat (LC17, LC20)", () => {
   });
 
   it("refuses a player who is in a match", () => {
-    // READY is exactly the status viewFor maps to the lobby screen, so this gate and the UI that
-    // shows the panel are the same predicate and cannot drift apart.
+    // READY is the status viewFor maps to the lobby screen for any player the room's state machine
+    // can actually produce, so this gate and the UI that shows the panel are the same predicate and
+    // cannot drift apart.
     expect(canSendChat({ status: PlayerStatus.IN_MATCH, lastSentAt: undefined, now: 1000 })).toBe(false);
   });
 

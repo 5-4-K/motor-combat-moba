@@ -18,6 +18,7 @@ export interface ChatViewRow {
 }
 
 export interface ChatViewMessage {
+  /** Stable render key (the row's `seq`), stamped onto the row element as `data-seq` for debugging. */
   key: string;
   label: string;
   hex: string;

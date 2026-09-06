@@ -149,7 +149,7 @@ motor-combat-MOBA/
         │   ├── deathmatch-hud.ts # pure Deathmatch derivations: match clock, respawn countdown, killed-by banner
         │   ├── spectate.ts       # spectate cycle, free-roam pan
         │   └── lobby-signature.ts
-        ├── ui/
+        ├── ui/                      # also dom.ts, lobby-view.ts, car-select-view.ts, results-view.ts, reveal-view.ts, overlay.ts, organic.css — only chat-view.ts is called out below
         │   └── chat-view.ts         # chatView: a chat row -> {key, label, hex, text, at}; "You" for the local sessionId, colour from COLOR_TABLE (LC24)
         └── ui/screens/
             ├── arena-mismatch.ts    # renders that message as DOM

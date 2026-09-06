@@ -218,8 +218,12 @@ extracted helpers (`practice-rules.ts`, `select-next-host.ts`), never a live `on
 Colyseus room, and chat follows suit.
 
 **LC17. `status === PlayerStatus.READY` is the "is on the lobby screen" gate, and it is not a new
-rule.** `viewFor` returns `"lobby"` for exactly `READY`, so the server-side gate and the UI that
-shows the panel are the same predicate and cannot drift apart.
+rule.** `viewFor` is the status the server-side gate and the UI agree on for any player the room's
+state machine can actually produce: `READY` is the only status it maps to `"lobby"` in every reachable
+case (its catch-all also answers `"lobby"` for a non-`READY` status when `phase` is `LOBBY`, but the
+reducer never leaves a player in that combination — an in-match player is flipped to `POST_MATCH` in
+the same transition that sets `phase` back to lobby). So in practice "may speak" and "is looking at
+the chat panel" are the same predicate and cannot drift apart.
 
 **LC18. Every guard drops silently.** This matches the file: `MSG_SWITCH_TEAM`, `MSG_KICK` and
 `MSG_SELECT_CAR` all bail without a reply. `MSG_START_ERROR` is the sole exception and earns it
@@ -334,8 +338,9 @@ new client test targets a pure function — the pattern `join.test.ts` already f
   silent, per the repo's standing rule.
 - **The balance harness, `balanceStamp`, `npm run build:manual` and the turn-tuning doc test are all
   unaffected** — no hashed table moves, so no generated page owes players a rebuild.
-- **`PracticeRoom` and `PlaygroundRoom` get no chat.** They carry their own `PracticeState` and
-  `PlaygroundState`, so `ArenaState.chat` does not reach them.
+- **`PracticeRoom` and `PlaygroundRoom` get no chat.** `PracticeState` and `PlaygroundState` both
+  extend `ArenaState`, so the `chat` field is there on their schema too — but neither room registers
+  an `MSG_CHAT` handler, so nothing ever appends to it and the inherited buffer just stays empty.
 - **Invariants hold.** `MSG_CHAT` is an intent the server adjudicates (3); no enum is renumbered (7);
   invariant 8 is one-way and `stepSim` never reads chat (LC9); the player cap is untouched (10).
 - **Build order matters.** Shared changes, so it must be rebuilt with the root `npm run build`; and

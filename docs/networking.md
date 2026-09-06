@@ -69,8 +69,9 @@ v1 hit detection is **current-tick**: no rewind, no lag compensation, so a shoot
 
 `MSG_CHAT` (`{ text }`) is a lobby intent, not state (invariant 3): the client sends raw text and the
 server decides everything else. It passes three server-side gates before a row is appended to
-`ArenaState.chat` — the sender is `PlayerStatus.READY` (exactly the status `viewFor` maps to the
-lobby screen), a `CHAT_CONFIG.sendCooldownMs` cooldown since that sender's last message, and
+`ArenaState.chat` — the sender is `PlayerStatus.READY` (the status `viewFor` maps to the lobby
+screen for any player the room's state machine can actually produce), a `CHAT_CONFIG.sendCooldownMs`
+cooldown since that sender's last message, and
 `validateChatText`. All three drop the message silently, matching every other lobby handler in the
 file except `MSG_START_ERROR`, which replies because a host needs to know why a start was refused —
 a refused chat message needs no reply, since the client ran the same validator first and anything the

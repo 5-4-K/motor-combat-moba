@@ -20,6 +20,7 @@ import {
   MSG_PREVIEW_CAR,
   MSG_RETURN_TO_LOBBY,
   MSG_CHAT,
+  CHAT_CONFIG,
   isChatPayload,
   validateChatText,
   validateName,
@@ -229,10 +230,19 @@ export class ArenaRoom extends Room<ArenaState> {
      * Lobby chat (LC16). Every guard drops silently, matching MSG_SWITCH_TEAM, MSG_KICK and
      * MSG_SELECT_CAR above — MSG_START_ERROR is the file's one exception and earns it because a
      * host needs to know why a start was refused. A refused chat message does not: the client ran
-     * `validateChatText` before sending, so anything rejected here is a stale or hostile client.
+     * `validateChatText` before sending, so anything rejected on that gate is a stale or hostile
+     * client. The cooldown is different — it bounds every *attempt*, not just successful sends (see
+     * below), so it also does not warrant a reply.
      */
     this.onMessage(MSG_CHAT, (client, msg: unknown) => {
       if (!isChatPayload(msg)) return;
+      // A raw-payload ceiling ahead of normalization, not a second content limit: normalization
+      // only ever shrinks text (control/bidi runs collapse to single spaces), so anything that
+      // would still validate can never approach this. The ×4 is headroom for that shrinkage, not a
+      // tuned number of its own. Without it, a client could hand `normalizeChatText` an arbitrarily
+      // huge string and pay for two Unicode-property regex passes over it before validation ever
+      // gets a chance to reject on length.
+      if (msg.text.length > CHAT_CONFIG.maxLength * 4) return;
       const player = this.state.players.get(client.sessionId);
       if (!player) return;
       const now = Date.now();
@@ -242,13 +252,17 @@ export class ArenaRoom extends Room<ArenaState> {
         now,
       };
       if (!canSendChat(gate)) return;
+      // Consumed by the attempt, not the success: recording this before `validateChatText` runs
+      // means a client spamming invalid text still pays the cooldown between attempts, instead of
+      // getting a free retry loop that runs the validator's regex passes as fast as the socket
+      // allows on this single-threaded room.
+      this.chatLastSentAt.set(client.sessionId, now);
       const result = validateChatText(msg.text);
       if (!result.ok) return;
-      this.chatLastSentAt.set(client.sessionId, now);
       pushChatMessage(this.state.chat, {
         sender: { sessionId: player.sessionId, name: player.name, colorId: player.colorId },
         text: result.text,
-        at: formatClockTime(new Date()),
+        at: formatClockTime(new Date(now)),
       });
     });
   }

@@ -83,8 +83,9 @@ practice room** has anyone in it. Settings ride as join options, not messages: p
 mid-session reconfiguration.
 
 **Lobby chat is lobby-screen only, and its gate cannot drift from the UI.** `MSG_CHAT` is refused
-server-side unless the sender's `status === PlayerStatus.READY` — exactly the status `viewFor` maps
-to the lobby screen, so "may speak" and "is looking at the chat panel" are the same predicate. The
+server-side unless the sender's `status === PlayerStatus.READY` — the status `viewFor` maps to the
+lobby screen for any player the room's state machine can actually produce, so "may speak" and "is
+looking at the chat panel" are the same predicate. The
 buffer lives on `ArenaState.chat`, capped at `CHAT_CONFIG.maxMessages` (20, oldest dropped first);
 nothing ever clears it — not a phase transition, not a kick — so a player back from a match or a late
 joiner reads the backlog, and it dies with the room since `ArenaRoom` sets no `autoDispose` override.
