@@ -242,18 +242,45 @@ describe("tier characterisation", () => {
     //
     // `unpin` fires when the wall is inside `wallLookaheadUnits` — hard settles into `"unpin"`
     // near the wall (x=1200) and a fight situation away from it (x=640); easy's 40-unit
-    // look-ahead never reaches the wall at either position. `unpin` then steers toward open floor.
+    // look-ahead never reaches the wall at either position.
+    //
+    // THE COMPARED STREAM IS THE WHOLE EMITTED INPUT, NOT THE STEER ALONE (residuals round,
+    // 2026-09-07). It used to be `.steer`, on the desire model's assumption that leaving a wall is
+    // something a bot does with the wheel. The planner answers a wall on whichever axis is cheapest,
+    // and in this scene that is the THROTTLE. Measured over the whole tail, at every tick of it:
+    //
+    //   near wall (x=1200)  situation `unpin`  steer 0  throttle  0   <- brakes short of the wall
+    //   open floor (x=640)  situation `fight`  steer 0  throttle -1   <- backs off to `fightRange`
+    //
+    // Both answers are correct. Near the wall the candidate dump shows every braking candidate
+    // scoring `wallPenalty` exactly 0 — from 80 units out at 200 u/s the car stops with 58 to spare,
+    // so it does not need to turn — while driving on scores 9.93 and is eliminated; `myEv` then
+    // keeps the nose on the target, which is what a bot that has already solved the wall should do.
+    // On open floor the enemy is 200 units away against a preferred ~530, so straight reverse is the
+    // whole of the play. Neither pose has any reason to turn the wheel, so the steer stream is 0 in
+    // both and comparing it alone can no longer see the wall.
+    //
+    // It used to see it only by accident: before the hunt's synthetic waypoint was moved off
+    // `minEngageUnits` (R-P13, same round), the OPEN-FLOOR run spent its `waitOut` warm-up circling
+    // a point 70 units off its own nose, entered `fight` with that steering incumbent, and sawed
+    // `1,1,-1,-1,0,0` in a six-tick limit cycle for the whole tail. The near-wall run's steer was 0
+    // across all 90 ticks then too — so this assertion has never actually observed `unpin` steering;
+    // it observed the open-floor bot chattering, which is the defect this phase exists to delete.
+    // Comparing the full input asks the test's own question ("does a wall change what hard does")
+    // of the whole decision instead of one axis of it, and it makes the easy-side assertion below
+    // STRICTLY STRONGER: two streams must now agree on both axes to count as unchanged.
     const run2 = (tier: "easy" | "hard", x: number) => {
       const bot = new HumanController(tier);
       const rng = makeRng(17);
-      const steer: number[] = [];
+      const intents: string[] = [];
       let tailGoal: string | undefined;
       for (let tick = 0; tick < 90; tick++) {
         const scene = view(tick, { others: [{ ...enemy, x: x + 200, y: 360, speed: 0 }], rng });
-        steer.push(bot.decide({ ...scene, self: { ...scene.self, x, y: 360, angle: 0 } }).steer);
+        const out = bot.decide({ ...scene, self: { ...scene.self, x, y: 360, angle: 0 } });
+        intents.push(`${out.steer}/${out.throttle}`);
         if (tick >= 60) tailGoal = bot.debug()?.situation;
       }
-      return { steer: steer.slice(60).join(","), tailGoal };
+      return { steer: intents.slice(60).join(","), tailGoal };
     };
     // Driving at x=1200 puts the far wall (1280) inside hard's 150-unit look-ahead and outside
     // easy's 40-unit one; x=640 is open floor for both.
