@@ -490,7 +490,6 @@ section used to describe does not currently happen — see the temporary-shim no
 | `bonusFront` / `bonusFlank` / `bonusRear` | 0.3 / 1.0 / 1.3 | Multiplies severity by impact side; the most important balance lever in the feature |
 | `authorityFloor` **[INERT]** | 0.35 | Was the steering multiplier at maximum severity — the feel dial. Reads nothing since the 2026-09-06 vector-drive rework; stage 3 deletes it and replaces the mechanic with the `reeling` status |
 | `knockMaxSpeed` | 260 | Peak shove impulse (expressed as a speed) at severity 1.0, before the victim mass factor. Since the 2026-09-06 equal-and-opposite change this also costs the ATTACKER, via `reactionOf`, on top of whatever `restitution` already reflected off it that same tick — see the doc comment on this value in `ram-config.ts` for the measured composed numbers, and [`combat-model.md`](combat-model.md#ramming) |
-| `massFactorMin` / `massFactorMax` | 0.6 / 1.6 | Bounds on `RAM_REFERENCE_MASS / victimMass`, so neither the heaviest nor the lightest chassis degenerates |
 | `spinScale` | 100 | Calibration multiplier on the torque-derived spin rate |
 | `spinMaxRate` | 6.0 | rad/s ceiling on injected spin |
 | `inertiaCoefficient` | 277.33 **[D]** | `(DRIVE_CONFIG.carWidth² + carHeight²) / 12` — derived from the hull, never typed, so it cannot drift out of step with `carHullOf` |

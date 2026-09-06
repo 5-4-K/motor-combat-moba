@@ -94,9 +94,12 @@ export const RAM_CONFIG = {
    * Peak knock impulse (expressed as a speed) at severity 1.0, before the victim mass factor.
    *
    * **Charged to the attacker as well as the victim since the 2026-09-06 equal-and-opposite change**
-   * (stage 2 Task 4): `ram-bridge.ts` now applies `reactionOf` of the victim's own impulse back onto
-   * the attacker, scaled by the ATTACKER's own mass factor. This value was tuned one-way, against a
-   * model where the attacker paid nothing, and it has not been re-pitched for the new cost.
+   * (stage 2 Task 4): `ram-bridge.ts` applied `reactionOf` of the victim's own impulse back onto the
+   * attacker, scaled by the ATTACKER's own mass factor, until stage 3 Task 3 deleted `reactionOf`
+   * outright — each car's outcome now comes from the contest directly, as its own independently
+   * computed `attackerImpulse` (spec R7), never a negated copy of the other side's. This value was
+   * tuned one-way, against a model where the attacker paid nothing, and it has not been re-pitched
+   * for the new cost.
    *
    * **The attacker is charged in TWO layers, not one — an error in an earlier pass of this same
    * comment measured the reaction alone.** `runPipeline` (`tick-pipeline.ts:80`) runs `serverTick`
@@ -150,7 +153,16 @@ export const RAM_CONFIG = {
    * `RAM_CONFIG.globalScale`. See `nextSpin`'s own doc comment for the full account.
    */
   spinScale: 100,
-  /** Ceiling on injected spin, so a corner contact cannot produce an absurd rotation. */
+  /**
+   * Ceiling on injected spin, so a corner contact cannot produce an absurd rotation.
+   *
+   * Left at its pre-Task-3 value on purpose, same as `spinScale` just above: `nextSpin`'s
+   * ~10x-smaller inertia denominator (`ramDefence` 30-90 vs the old `mass` 300-900) means an
+   * ordinary flank ram now saturates this ceiling far more readily than it used to (see
+   * `spinScale`'s own doc comment and `nextSpin`'s in `sim/impulse.ts` for the full account).
+   * Re-pitching this value alongside `spinScale` is a MEASUREMENT job, assigned to stage 3 Task 4
+   * (spec P25b). Do not change it outside that task.
+   */
   spinMaxRate: 6.0,
   /**
    * Rotational inertia per unit mass for the car hull, `(len^2 + wid^2) / 12`. Derived from the hull

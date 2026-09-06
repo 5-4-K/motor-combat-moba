@@ -21,25 +21,34 @@ function impulse(over: Partial<Impulse> = {}): Impulse {
 }
 
 describe("applyImpulse", () => {
+  // FIX ROUND 1 (stage 3 Task 3 review): every `ramDefence` argument in this describe block used to
+  // be 500 — the old `RAM_REFERENCE_MASS` neutral point, carried over unchanged when the parameter
+  // was renamed from `mass`. As a `ramDefence` it is 5.5x the roster maximum (30-90), so a
+  // `defenceScaled: true` case (the default from `impulse()`) divided by a value nothing in the game
+  // can produce. None of the assertions below actually pin a magnitude that depends on which
+  // in-domain value is used — they check sign, closeness to a `defenceScaled: false` pass-through,
+  // or position/facing being untouched — so swapping in a real roster rating (50, mirage's) changes
+  // no expected value and keeps every assertion exactly as strong. `applyImpulse scales by
+  // ramDefence` below is the block that actually exercises the 30-vs-90 comparison.
   it("adds the push to the victim's velocity rather than replacing it", () => {
-    const next = applyImpulse(body({ vx: 100, vy: 0 }), 500, impulse({ defenceScaled: false }));
+    const next = applyImpulse(body({ vx: 100, vy: 0 }), 50, impulse({ defenceScaled: false }));
     expect(next.vx).toBeCloseTo(100); // the car keeps driving
     expect(next.vy).toBeCloseTo(200); // and is also thrown
   });
 
   it("imparts no spin for a dead-centre hit, where the lever arm is zero", () => {
     // Contact at the victim's own centre: force and lever are colinear, torque is zero.
-    const next = applyImpulse(body(), 500, impulse({ contactX: 0, contactY: 0 }));
+    const next = applyImpulse(body(), 50, impulse({ contactX: 0, contactY: 0 }));
     expect(next.angVel).toBeCloseTo(0);
   });
 
   it("imparts spin for an off-centre hit", () => {
-    const next = applyImpulse(body(), 500, impulse({ contactX: 20, contactY: 0 }));
+    const next = applyImpulse(body(), 50, impulse({ contactX: 20, contactY: 0 }));
     expect(Math.abs(next.angVel)).toBeGreaterThan(0);
   });
 
   it("imparts no spin at all when the def asks for none", () => {
-    const next = applyImpulse(body(), 500, impulse({ contactX: 20, contactY: 0, spin: 0 }));
+    const next = applyImpulse(body(), 50, impulse({ contactX: 20, contactY: 0, spin: 0 }));
     expect(next.angVel).toBeCloseTo(0);
   });
 
@@ -49,7 +58,7 @@ describe("applyImpulse", () => {
     // a spinning victim outright. A victim already spinning from an earlier hit must keep that spin
     // when hit by a `spin: 0` push (e.g. a hard slam's clean straight punt).
     const spinning = body({ angVel: 2 });
-    const next = applyImpulse(spinning, 500, impulse({ contactX: 20, contactY: 0, spin: 0 }));
+    const next = applyImpulse(spinning, 50, impulse({ contactX: 20, contactY: 0, spin: 0 }));
     expect(next.angVel).toBe(2);
   });
 
@@ -59,7 +68,7 @@ describe("applyImpulse", () => {
   });
 
   it("leaves position and facing alone", () => {
-    const next = applyImpulse(body({ x: 5, y: 7, angle: 1.1 }), 500, impulse());
+    const next = applyImpulse(body({ x: 5, y: 7, angle: 1.1 }), 50, impulse());
     expect(next.x).toBe(5);
     expect(next.y).toBe(7);
     expect(next.angle).toBe(1.1);
@@ -70,7 +79,7 @@ describe("applyImpulse", () => {
     // forward, hit from in front, is slowed — no code anywhere reaches in and sets its speed down.
     const driving = body({ vx: 200, vy: 0 }); // facing +x, driving +x
     const headOn = impulse({ dirX: -1, dirY: 0, defenceScaled: false, speed: 150 });
-    const next = applyImpulse(driving, 500, headOn);
+    const next = applyImpulse(driving, 50, headOn);
     expect(forwardOf(next.vx, next.vy, next.angle)).toBeCloseTo(50);
   });
 
@@ -78,7 +87,7 @@ describe("applyImpulse", () => {
     // The one case where it should NOT be robbed, and it also falls out for free.
     const driving = body({ vx: 200, vy: 0 });
     const perpendicular = impulse({ dirX: 0, dirY: 1, defenceScaled: false, speed: 150 });
-    const next = applyImpulse(driving, 500, perpendicular);
+    const next = applyImpulse(driving, 50, perpendicular);
     expect(forwardOf(next.vx, next.vy, next.angle)).toBeCloseTo(200);
   });
 });

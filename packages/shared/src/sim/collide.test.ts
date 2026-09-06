@@ -18,13 +18,18 @@ const CAR_W = DRIVE_CONFIG.carWidth;
 const CAR_H = DRIVE_CONFIG.carHeight;
 const BOUNDS = { width: 1000, height: 1000 };
 
-/** An arbitrary filler `ramDefence` (an old Mirage `mass` figure, kept as the number for continuity
- * with the pre-Task-3 fixture rather than for any significance of its own) for a case that resolves
- * only against bounds or obstacles, where `ramDefence` is never consulted so any positive number
- * would do. Renamed from `AVG_MASS` in stage 3 Task 3 (`CarObstacle.mass` -> `ramDefence`,
- * `resolveWorld`'s `selfMass` -> `selfRamDefence`); the value itself is unchanged, since nothing
- * here reads it as a real chassis rating. */
-const FILLER_RAM_DEFENCE = 480;
+/** An arbitrary filler `ramDefence` for a case that resolves only against bounds or obstacles, where
+ * `ramDefence` is never consulted so any positive number would do. Renamed from `AVG_MASS` in stage 3
+ * Task 3 (`CarObstacle.mass` -> `ramDefence`, `resolveWorld`'s `selfMass` -> `selfRamDefence`).
+ *
+ * FIX ROUND 1 (stage 3 Task 3 review): the value itself changed from 480 to 50 (mirage's real
+ * `ramDefence` rating). 480 was the old Mirage `mass` figure — a magnitude 5.5x the roster's actual
+ * `ramDefence` domain (30-90) — kept unchanged across the rename even though nothing here reads it as
+ * a real chassis rating. No expectation in this file moves: every call site pairs this constant
+ * either with `selfRamDefence: 0` (via `pinned`, see below — `shareOf(0, x) = x/(0+x) = 1` for any
+ * positive `x`) or with generic determinism/purity checks that assert no specific position (see
+ * "resolveWorld - purity and determinism" below) — verified by re-running the suite after the change. */
+const FILLER_RAM_DEFENCE = 50;
 
 /** Bare `Obb` — NOT a `CarObstacle`, and sets no `ramDefence` at all, despite call sites often
  * pairing it with `FILLER_RAM_DEFENCE` — used only where a specific ratio does not matter (the

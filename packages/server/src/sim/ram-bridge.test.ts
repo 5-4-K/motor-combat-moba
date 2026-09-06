@@ -75,8 +75,10 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
   it("charges the attacker by the contest's own independently-computed attackerImpulse", () => {
     // Renamed from "recoils the attacker via Newton's third law" (stage 3 Task 2): the contest
     // computes both outcomes independently (spec R7) rather than negating the victim's own impulse
-    // back onto the attacker, so `reactionOf` is dead code on this path (Task 3 deletes it) and the
-    // attacker's cost is no longer symmetric with what the victim took.
+    // back onto the attacker — `reactionOf` was dead code on this path as of stage 3 Task 2, and
+    // stage 3 Task 3 deleted it outright, replacing it with each car's own independently computed
+    // `attackerImpulse` from the contest — so the attacker's cost is no longer symmetric with what
+    // the victim took.
     const state = arena();
     const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
     addPlayer(state, "b", { x: 47, y: 400, angle: 0 });

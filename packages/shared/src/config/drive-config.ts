@@ -147,20 +147,31 @@ export const DRIVE_CONFIG = {
    * `type: "charge"` and never substeps this way — so Mirage is the only chassis that can produce
    * this. Measured worst case (sweeping approach angle, target orientation and the sub-tick phase
    * against a 48x32 hull): Mirage dashing into a Bullseye, T-boning its side at 90° approach against
-   * 0° target orientation, penetrates **17.96u**. It clears in about three ticks (~100ms) once both
-   * cars are resolving their own share (`17.96 → 4.25 → 1.01 → 0.24 → 0.06 → gone`); a silent or
-   * backgrounded victim that never runs its own `resolveWorld` call clears more slowly but still
-   * monotonically (`17.96 → 11.05 → 6.80 → 4.19 → 2.58 → 1.59 → 0.98 …`).
+   * 0° target orientation, penetrates **18.49u** (exact: `18.492296006944457`, `step.test.ts`'s
+   * `MEASURED_WORST_REACHABLE`). This moved from 17.96u under stage 3 Task 3: the separation split
+   * above went from `mass`-weighted (Mirage 480, Bullseye 300 at the time — a 0.3846 share for
+   * Mirage) to `ramDefence`-weighted (Mirage 50, Bullseye 30 — a 0.375 share), and the two ratings
+   * are not quite proportional (Mirage's `mass` rating, 48, and `ramDefence` rating, 50, differ,
+   * unlike Bullseye's and Bastion's, where the two coincide), so the worst-case geometry re-measures
+   * slightly larger. It clears in about three ticks (~100ms) once both cars are resolving their own
+   * share — the decay factor per tick is `shareOf(mirage,bullseye) * shareOf(bullseye,mirage) =
+   * 0.375 * 0.625 = 0.234375` (was `0.3846 * 0.6154 ≈ 0.2367`), applied to the 18.49u base:
+   * `18.49 → 4.33 → 1.02 → 0.24 → 0.06 → gone`; a silent or backgrounded victim that never runs its
+   * own `resolveWorld` call decays by `1 - shareOf(mirage,bullseye) = 0.625` per tick instead (was
+   * `0.6154`) and clears more slowly but still monotonically:
+   * `18.49 → 11.56 → 7.22 → 4.51 → 2.82 → 1.76 → 1.10 …`.
    *
-   * Tightening this knob trades substep count for granularity (measured, Mirage-into-Bullseye):
+   * Tightening this knob trades substep count for granularity (measured, Mirage-into-Bullseye; all
+   * five rows re-measured under stage 3 Task 3's `ramDefence`-weighted split, same method as the
+   * headline figure above — this table is not a simple rescale of the pre-Task-3 numbers):
    *
    * | `dashSubstepMaxUnits` | substeps/tick | worst penetration |
    * |---|---|---|
-   * | 16 (current) | 4 (13.3u each) | 17.96u |
-   * | 12 | 5 (10.7u each) | 15.36u |
-   * | 8 | 7 (7.6u each) | 11.71u |
-   * | 6 | 9 (5.9u each) | 9.33u |
-   * | 4 | 14 (3.8u each) | 6.09u |
+   * | 16 (current) | 4 (13.3u each) | 18.49u |
+   * | 12 | 5 (10.7u each) | 15.87u |
+   * | 8 | 7 (7.6u each) | 12.14u |
+   * | 6 | 9 (5.9u each) | 9.70u |
+   * | 4 | 14 (3.8u each) | 6.34u |
    *
    * Lowering it to 8 is the deferred fix: it roughly halves the visible penetration for a doubled
    * substep count, and stage 5 (tune-and-reconcile) owns deciding whether that trade is worth the

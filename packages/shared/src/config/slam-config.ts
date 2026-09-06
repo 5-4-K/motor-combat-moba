@@ -31,8 +31,9 @@ export const SLAM_CONFIG = {
    * **The attacker's reaction was NOT unscaled**, and that asymmetry was the sharpest edge of the
    * 2026-09-06 equal-and-opposite change (stage 2 Task 4): `reactionOf` always forced
    * `defenceScaled: true`, even for a slam, so the attacker's own mass divided its recoil back down
-   * while the victim's push ignored mass entirely. `reactionOf` is dead code on this path as of
-   * stage 3 Task 2 (Task 3 deletes it outright).
+   * while the victim's push ignored mass entirely. `reactionOf` was dead code on this path as of
+   * stage 3 Task 2, and stage 3 Task 3 deleted it outright — replaced by each car's own
+   * independently computed `attackerImpulse` from the contest (spec R7).
    *
    * **The attacker is charged in TWO layers here too, exactly as `RAM_CONFIG.knockMaxSpeed`'s own
    * comment now explains — an earlier pass of this comment measured the reaction alone and was

@@ -178,7 +178,13 @@ describe("golden: resolveWorld against the vector-drive rework", () => {
   // reproduces the same numbers the pre-split fixture pinned. Real roster ratings appear ONLY in
   // "separates from another car" below, which is the one case this block exists to pin the split
   // against.
-  const FILLER_RAM_DEFENCE = 480;
+  //
+  // FIX ROUND 1 (stage 3 Task 3 review): changed from 480 (an old Mirage `mass` figure, 5.5x the
+  // roster's real `ramDefence` domain of 30-90) to 50 (mirage's real `ramDefence` rating). Nothing
+  // below moves: every case pairing with this constant resolves only against bounds or an obstacle
+  // (`OBSTACLE_SHARE` is 1 unconditionally, so `selfRamDefence` is never read), confirmed by
+  // re-running the suite after the change.
+  const FILLER_RAM_DEFENCE = 50;
 
   // REFIXTURED for stage 2 Task 1 (2026-09-06): `applyContact` no longer discards the reflected
   // direction and rebuilds a scalar along the unchanged heading — it now hands back the whole
