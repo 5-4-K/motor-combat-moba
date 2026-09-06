@@ -603,7 +603,30 @@ export const BOT_BRAIN_VERSION = "4.3.0";
 export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.freeze({
   easy: Object.freeze({
     viewStalenessTicks: 4, reactionDelayTicks: 9, recomputeTicks: 12, acquireTicks: 15,
-    awarenessRadiusUnits: 520, rearBlindHalfAngleRad: 1.05, trackedThreatLimit: 1, memoryTicks: 15,
+    // R-P14 (residuals round, 2026-09-07): 520 -> 600. AN EASY BOT MUST BE ABLE TO SEE THE RANGE
+    // THE GAME IS FOUGHT AT. At 520 it could not: the closed-loop duel opens with 553 units between
+    // the cars, and hard's duels settle in a 464-597 band (R-P12's seven-seed measurement), so an
+    // easy bot began every engagement BLIND. It then never recovered, because at
+    // `planHorizonTicks: 0` the planner rolls a single tick and no candidate expresses a manoeuvre
+    // — it cannot turn around or drive to a hunt waypoint, only drift. Traced: `target` was
+    // `undefined` on 49 of the 50 recompute ticks in a 600-tick easy/Bastion duel.
+    //
+    // Measured, 7 seeds x 3 chassis = 21 closed-loop duels of 600 ticks each, easy only. The cliff
+    // is between 540 and 560 — exactly where the radius crosses the 553-unit opening distance —
+    // and 560-690 is one flat plateau, so this is not a tuned point:
+    //
+    // | radius | 520 | 540 | 560 | 580 | 600 | 620 | 660 | 690 |
+    // |--------|-----|-----|-----|-----|-----|-----|-----|-----|
+    // | cells firing 0 shots | 11 | 11 | 0 | 0 | 0 | 0 | 0 | 0 |
+    // | fewest presses in any cell | 0 | 0 | 48 | 36 | 36 | 48 | 48 | 36 |
+    // | mean presses per cell | 27 | 15 | 154 | 143 | 151 | 154 | 154 | 145 |
+    //
+    // 600 rather than 560 because 560 sits seven units off the cliff, so any spawn or arena change
+    // re-breaks it; 600 is mid-plateau and still 100 short of medium's 700, which keeps the ladder
+    // and the tier's short-sightedness both visible. Raising `planHorizonTicks` was measured as the
+    // alternative and rejected: it is a real second link (K=6 takes 11 mute cells to 2) but no value
+    // below medium's 8 clears them all, and 8 would flatten the ladder.
+    awarenessRadiusUnits: 600, rearBlindHalfAngleRad: 1.05, trackedThreatLimit: 1, memoryTicks: 15,
     stateEstimationSigma: 0.25,
     aimErrorSigmaRad: 0.18, aimErrorDriftTicks: 20, aimToleranceRad: 0.3,
     burstGapTicks: 14, minShotValueFraction: 0.01, ultDisciplineChance: 0, ultWindowHpFraction: 0.4,
