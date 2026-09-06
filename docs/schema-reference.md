@@ -92,10 +92,12 @@ temporary shim rather than writing a separate field. They join `reverseHold` in
 `PredictionBuffer.reconcile`'s always-**snap** set rather than the ease path — all four feed the
 next `stepSim` integration directly, so a half-eased value would poison every subsequent step rather
 than merely look wrong. Net effect on the wire, against the pre-rework schema: **four fields removed**
-(`speed`, `shoveX`, `shoveY`, `authority`) and **two added** (`vx`, `vy`). `authority` has no successor
-in stage 1 — ram control-loss returns as the `reeling` status in stage 3b — and with it goes the "no
-rescue" precedence rule it used to implement: two rams landing on one victim across different ticks
-now simply stack additively into `vx`/`vy`. See [`config-reference.md`](config-reference.md#ram_config)
+(`speed`, `shoveX`, `shoveY`, `authority`) and **two added** (`vx`, `vy`). `authority` has no schema
+successor and never will: ram control-loss came back in stage 3b as the **`reeling`** status, which
+rides in the existing `statuses` list rather than as a field of its own. What did not come back is the
+"no rescue" precedence rule `authority` used to implement — two rams landing on one victim across
+different ticks still stack additively into `vx`/`vy`; what keeps that from compounding without limit
+is the per-victim falloff stack, not a precedence rule. See [`config-reference.md`](config-reference.md#ram_config)
 for the tuning that produces the knock.
 
 `maneuver`, `maneuverTicksLeft`, `maneuverAngle`, and `maneuverSpeed` are the maneuver state behind

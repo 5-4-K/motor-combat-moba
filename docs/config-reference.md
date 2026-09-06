@@ -483,13 +483,16 @@ to turn a car-vs-car contact into a spin and a shove. Networked balance, not
 render preference: server tick and client prediction both depend on the two computing the same
 numbers. See [`combat-model.md`](combat-model.md#ramming) for the mechanic.
 
-**Five of the rows below are INERT as of the 2026-09-06 vector-drive rework** — `authorityFloor`,
-`shoveHalfLifeSeconds`, `authorityHalfLifeSeconds`, `shoveEpsilon`, and `authorityEpsilon`. They are
-marked in the table. `PlayerState` no longer has an `authority` field, and `ram-bridge.ts` drops
-`knock.authority` on the floor rather than writing it anywhere, so the "steering penalty" this
-section used to describe does not currently happen — see the temporary-shim note in
-[`combat-model.md`](combat-model.md#ramming). `spinHalfLifeSeconds` and
-`counterSteerHalfLifeSeconds` are still live; do not confuse them with the inert pair above.
+**The five `authority`/`shove` knobs this section used to list as INERT are gone.**
+`authorityFloor`, `shoveHalfLifeSeconds`, `authorityHalfLifeSeconds`, `shoveEpsilon` and
+`authorityEpsilon` stopped reading anything at the 2026-09-06 vector-drive rework — `PlayerState`
+lost its `authority` field and `ram-bridge.ts` dropped `knock.authority` on the floor — and stage 3b
+of the car-physics rework deleted all five, along with `RamDecay`'s `shove` and `authority` channels.
+The steering penalty they described is back as the **`reeling`** status: severity is
+[`STATUS_TABLE.reeling`](#status_table)'s `turnRate`/`accel` multipliers, duration is
+`ramUncontrolMs` below. Lateral knock now bleeds off through the flat-rate
+`DRIVE_CONFIG.impactGripDecel` rather than a half-life of its own. `spinHalfLifeSeconds` and
+`counterSteerHalfLifeSeconds` were never part of that group and are still live.
 
 | Knob | Value | Notes |
 |---|---|---|
@@ -498,17 +501,19 @@ section used to describe does not currently happen — see the temporary-shim no
 | `defencePushScale` | 35 | How much a STATIONARY car resists, as a multiplier on its `ramDefence` when building its push (spec R2). **The first knob to reach for when contact feels wrong**: low and parked cars are nearly free hits, high and everything feels like hitting a wall. It is also what makes T-boning a parked Bastion cost the attacker ~8× what T-boning a parked Bullseye does (0.675 vs 0.084 u/s) — nobody authored that ratio, it falls out of the contest |
 | `globalScale` | 0.4 | Converts a contest result into a Δv (spec R5). **Measured, not derived**, through the composed `serverTick` → `contactTick` order across 24 sub-tick phases — see the doc comment in `ram-config.ts` for the full table. At 0.4 a full-speed Bastion flank ram throws a parked Bullseye 206.2 u/s (92% of its own top speed) and costs the Bastion 0.1 u/s; the roster maximum any ram writes is 268.0 u/s |
 | `bonusFront` / `bonusFlank` / `bonusRear` | 0.3 / 1.0 / 1.3 | Multiplies the impact by the struck face — **your own** face, not the other car's (spec R6), which is what makes a head-on far gentler than a T-bone at the same closing speed. The most important balance lever in the feature |
-| `authorityFloor` **[INERT]** | 0.35 | Was the steering multiplier at maximum severity — the feel dial. Reads nothing since the 2026-09-06 vector-drive rework; stage 3b deletes it and replaces the mechanic with the `reeling` status |
 | `knockMaxSpeed` **[INERT]** | 260 | Was the peak shove at severity 1.0, before a victim mass factor. Reads nothing since stage 3 replaced the severity grade with the contest. Kept only because `ram-config.test.ts` pins it and it is not on the interfaces ledger's deletion list; its doc comment carries the historical measurement of the 5× recoil error stage 3 exists to fix |
 | `spinScale` | 10 | Calibration multiplier on the torque-derived spin rate. **Re-pitched 100 → 10 by measurement in stage 3** (spec P25b), because `nextSpin`'s inertia denominator became `ramDefence` (30-90) instead of `mass` (300-900) while the impulse feeding the torque shrank — two changes pulling opposite ways, so neither ratio predicts the answer |
 | `spinMaxRate` | 6.0 | rad/s ceiling on injected spin. Deliberately unchanged by that re-pitch: it is the target `spinScale` was solved against. The hardest ram the roster can produce measures 5.95 rad/s — 99% of the ceiling without clipping. It still binds because `nextSpin` ACCUMULATES onto existing `angVel`, so a car rammed twice goes over |
 | `inertiaCoefficient` | 277.33 **[D]** | `(DRIVE_CONFIG.carWidth² + carHeight²) / 12` — derived from the hull, never typed, so it cannot drift out of step with `carHullOf` |
 | `spinHalfLifeSeconds` | 0.35 | |
-| `shoveHalfLifeSeconds` **[INERT]** | 0.25 | Was "lateral knock halves this often" against the old separate `shoveX`/`shoveY` fields. The knock now lands straight in `vx`/`vy` and bleeds off through the flat-rate `DRIVE_CONFIG.impactGripDecel` instead; this value is still computed into `RAM_DECAY.shove` but nothing reads it |
-| `authorityHalfLifeSeconds` **[INERT]** | 0.30 | Was "the gap to 1.0 halves this often"; see `authorityFloor` above |
 | `counterSteerHalfLifeSeconds` | 0.15 | Spin decay while the player steers against it — shorter than `spinHalfLifeSeconds` on purpose, so countersteering shortens recovery instead of only offsetting it |
 | `spinEpsilon` | 0.01 | Below this magnitude a knock snaps to exact rest, as `stopEpsilon` does for the drive model |
-| `shoveEpsilon` **[INERT]** / `authorityEpsilon` **[INERT]** | 1 / 0.01 | Paired with the two inert half-lives above; nothing computes a decay for either to snap |
+| `ramUncontrolMs` | 1000 | Full-strength `reeling` duration from a ram, before falloff — the "how long am I helpless" half of ram control loss, with `STATUS_TABLE.reeling`'s `turnRate`/`accel` (0.4/0.4) as the "how helpless" half. Weapons do not read it: stage 4 gives `wildcharge` its own duration on its `ImpulseDef` |
+| `drWindowMs` | 2000 | How long "recently rammed" lasts, per victim. **Rolling**: each ram pushes the window out from itself, so protection never lapses under sustained pressure. Measured from the FIRST ram instead, an attacker who counts to one second could land full-strength rams forever — the exact lock the falloff exists to prevent |
+| `durationDrScale` | 0.5 | Each successive ram's `reeling` duration, as a fraction of the last. 1.0 disables duration falloff |
+| `durationDrFloorMs` | 150 | Duration never falls below this, so a late ram in a chain still reads as a hit rather than a whiff |
+| `impulseDrScale` | 0.5 | Each successive ram's impulse, as a fraction of the last. 1.0 disables impulse falloff |
+| `impulseDrFloor` | 0.25 | Impulse never falls below this fraction of full |
 
 **`spinScale` is a calibration multiplier and has never been 1.0**, whatever an early draft of the
 design spec's Numbers table said: at 1.0 the spin channel is structurally inert against the 6.0
@@ -523,10 +528,16 @@ converts each once, at module load, into the per-tick multiplier stored on `RAM_
 `perTick = 0.5 ** (1 / (halfLifeSeconds * TICK_RATE_HZ))`. Authoring in seconds keeps the table
 tick-rate independent — a per-tick value copied unchanged from a design written against 60 Hz would
 silently halve every recovery time at this project's 30 Hz. Same principle as `weapon-ticks.ts`
-converting authored milliseconds to ticks exactly once. `RAM_DECAY` computes all four fields
-(`spin`, `shove`, `authority`, `counterSteer`), but `stepDrive` only reads `spin` and
-`counterSteer` since the 2026-09-06 vector-drive rework — `shove` and `authority` are the inert pair
-above, carried along in the same struct rather than deleted outright.
+converting authored milliseconds to ticks exactly once. `RAM_DECAY` carries exactly the two fields
+`stepDrive` reads — `spin` and `counterSteer`. It had two more (`shove`, `authority`) until stage 3b
+deleted them with the half-lives that produced them; the struct is no longer a superset of what the
+sim uses.
+
+**The ram's `ms` knobs convert to ticks the same way, and exactly once.** `RAM_TICKS`
+(`ram-config.ts`) freezes `ramUncontrolMs`, `drWindowMs` and `durationDrFloorMs` into the integer
+ticks the sim actually counts, through the same `msToTicks` as `WEAPON_TICKS` and `SLAM_TICKS`. As
+with the half-lives, the point is that nothing downstream re-derives a tick count from milliseconds
+and a literal rate.
 
 **There is no ram REFERENCE constant any more, and reintroducing one would be a bug.** `RAM_REFERENCE`
 (an average chassis's mass at the roster's highest top speed) and `RAM_REFERENCE_MASS` were the
@@ -551,8 +562,10 @@ ram with a fixed exchange — same knock for every attacker and victim, by desig
 same standing as `RAM_CONFIG`. See [`combat-model.md`](combat-model.md#maneuvers-and-the-contact-pass).
 
 **Two of the rows below are INERT as of the 2026-09-06 vector-drive rework's stage 2 (Impulse)** —
-`victimAuthority` and `selfKeepFactor`. `victimAuthority` mirrors `RAM_CONFIG.authorityFloor`: there
-is no `authority` field left on `PlayerState` for it to feed. `selfKeepFactor` used to hand-restore a
+`victimAuthority` and `selfKeepFactor`. `victimAuthority` mirrored a `RAM_CONFIG` steering floor that
+stage 3b has since deleted outright: there is no `authority` field left on `PlayerState` for either to
+feed, and a slam's control loss will ride on its own `ImpulseDef` in stage 4 rather than on anything
+here. `selfKeepFactor` used to hand-restore a
 fraction of the attacker's pre-impact speed after a slam; `reactionOf` (what used to compute the
 attacker's "restored" speed instead) was deleted in stage 3 Task 3. A slam does not derive the
 attacker's outcome from the victim's at all any more: `sim/contact.ts`'s slam branch hands the
@@ -565,7 +578,7 @@ is whatever `resolveWorld`'s restitution already reflected off it that same tick
 | Knob | Value | Notes |
 |---|---|---|
 | `knockSpeed` | 520 | Fixed knock impulse (a speed), 2x `RAM_CONFIG.knockMaxSpeed`. No side bonus and no divisor on the victim's end — the victim's push is `defenceScaled: false`. The attacker takes a deliberately zero-magnitude `attackerImpulse` (R7); its own post-slam velocity is entirely whatever `restitution` already reflected off it that same tick — see the doc comment on this value in `slam-config.ts` for the measured historical (pre-stage-3) composed number |
-| `victimAuthority` **[INERT]** | 0.35 | Was the victim's post-slam steering authority, mirroring `RAM_CONFIG.authorityFloor` |
+| `victimAuthority` **[INERT]** | 0.35 | Was the victim's post-slam steering authority, mirroring a `RAM_CONFIG` steering floor that stage 3b deleted. An ordinary ram's control loss is the `reeling` status now; a slam's is stage 4's `ImpulseDef` |
 | `selfKeepFactor` **[INERT]** | 0.7 | Was the fraction of the attacker's pre-impact speed hand-restored after a slam |
 | `wallStunWindowMs` / `wallStunDurationMs` | 500 / 500 | A slammed car that touches level geometry within the window is stunned for the duration |
 | `reslamImmunityMs` | 600 | A just-slammed car cannot be slammed again within this window |

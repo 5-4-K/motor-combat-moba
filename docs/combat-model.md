@@ -183,10 +183,11 @@ of this: its `Impulse.uncontrolTicks` is still authored `0` by `sim/contact.ts`'
 `wildcharge`'s own duration is stage 4's decision to author, not a byproduct of the ram falloff stack.
 
 See [`schema-reference.md`](schema-reference.md#playerstate) for the networked fields and
-[`config-reference.md`](config-reference.md#ram_config) for the tuning — five of that config's knobs
-(`authorityFloor`, `authorityHalfLifeSeconds`, `authorityEpsilon`, `shoveHalfLifeSeconds`,
-`shoveEpsilon`) are inert for the reason above, and `SLAM_CONFIG.victimAuthority`/`selfKeepFactor` are
-inert for the same reason on the slam side — see that page.
+[`config-reference.md`](config-reference.md#ram_config) for the tuning. Five of that config's knobs
+carried the old steering-authority and shove decays and had been inert since the vector-drive rework;
+stage 3b deleted all five outright now that `reeling` supplies the mechanic they described.
+`SLAM_CONFIG.victimAuthority`/`selfKeepFactor` are still there and still inert on the slam side — see
+that page.
 
 **Teammates are fully immune.** `resolveRam` is gated by the same `canDamage` predicate used below
 for shots, so contact and weapons can never disagree about who is on your side. Teammates still

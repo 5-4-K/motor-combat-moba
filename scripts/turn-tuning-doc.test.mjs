@@ -7,6 +7,7 @@ import {
   CAR_TABLE,
   DRIVE_CONFIG,
   RAM_CONFIG,
+  STATUS_TABLE,
   TICK_RATE_HZ,
   driveOf,
 } from "@motor-combat-moba/shared";
@@ -173,9 +174,9 @@ describe("docs/turn-tuning.md", () => {
   /**
    * The global table is where a knob that moves the whole roster is written down, so every row is
    * pinned to its own config field. `spinMaxRate` is here rather than in a ram doc because a reader
-   * tuning turning needs to know a ram can overrule it. `authorityFloor` sits beside it for the same
-   * historical reason, but is INERT since the 2026-09-06 vector-drive rework — a ram no longer
-   * touches steering at all until stage 3 reintroduces control loss as the `reeling` status.
+   * tuning turning needs to know a ram can overrule it. An `authorityFloor` row sat beside it until
+   * stage 3b of the 2026-09-06 car-physics rework deleted that field: ram control loss is the
+   * `reeling` status now, and its steering multiplier lives in `STATUS_TABLE`, not here.
    */
   it("prints the global knobs at their configured values", () => {
     const { rows } = tableWhere(
@@ -187,7 +188,6 @@ describe("docs/turn-tuning.md", () => {
       baseTurnRate: DRIVE_CONFIG.baseTurnRate,
       turnRatePerRating: DRIVE_CONFIG.turnRatePerRating,
       stopTurnRatio: DRIVE_CONFIG.stopTurnRatio,
-      authorityFloor: RAM_CONFIG.authorityFloor,
       spinMaxRate: RAM_CONFIG.spinMaxRate,
       baseMaxSpeed: DRIVE_CONFIG.baseMaxSpeed,
       speedPerRating: DRIVE_CONFIG.speedPerRating,
@@ -212,12 +212,11 @@ describe("docs/turn-tuning.md", () => {
     );
     const columns = carColumns(header, "derived values");
 
-    // The "Rate at ram authority floor" row that used to close this list was removed from the page
-    // (not merely marked inert): `RAM_CONFIG.authorityFloor` has read nothing since the 2026-09-06
-    // vector-drive rework — `PlayerState` has no `authority` field, and `ram-bridge.ts` drops
-    // `knock.authority` on the floor — so the row was printing an arithmetically correct number for
-    // a steering cap that does not currently apply to anyone. See docs/turn-tuning.md's note where
-    // the row used to sit.
+    // "Rate while reeling" replaces the "Rate at ram authority floor" row this list used to close on.
+    // That one read `RAM_CONFIG.authorityFloor`, which had meant nothing since the 2026-09-06
+    // vector-drive rework and is deleted outright as of stage 3b; ram control loss is the `reeling`
+    // status now, and its `turnRate` is a real multiplier on the moving rate rather than a floor. Read
+    // out of `STATUS_TABLE` rather than typed, so a retune of that row fails the page too.
     const spec = [
       ["Turn rate", (d) => d.turnRate],
       ["— in degrees", (d) => deg(d.turnRate)],
@@ -232,6 +231,7 @@ describe("docs/turn-tuning.md", () => {
       ["180° while moving", (d) => Math.PI / d.turnRate],
       ["360° while moving", (d) => (2 * Math.PI) / d.turnRate],
       ["180° from standstill", (d) => Math.PI / d.turnRateAtStop],
+      ["Rate while reeling", (d) => d.turnRate * STATUS_TABLE.reeling.modifiers.turnRate],
     ];
     assert.deepEqual(
       rows.map(labelOf),
