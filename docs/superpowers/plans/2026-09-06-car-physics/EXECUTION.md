@@ -76,10 +76,11 @@ Task 4's review.
     against a parked victim): a Bastion flanking a parked Bullseye throws it 206.2 u/s (92% of its own
     top speed) and costs the Bastion 0.1 u/s; the roster maximum any ram writes is 268.0 u/s (Bastion
     rear-ending a parked Bullseye); the roster maximum any attacker pays the contest, across the five
-    scenarios measured, is 6.0 u/s (Bullseye, hitting a much tankier Bastion nose-first at full
-    closing speed — see `RAM_CONFIG.globalScale`'s doc comment in `ram-config.ts` for the full table
-    and for which car `resolveRam` calls the attacker in each row, which is not always the one a
-    plain-English description would name first).
+    scenarios measured, is 39.3 u/s (Bullseye, hitting a much tankier Bastion nose-first at full
+    closing speed — the head-on victim, Bastion, only takes 5.95 u/s there, since Bastion's larger
+    push wins that contest despite being the car driven into. See `RAM_CONFIG.globalScale`'s doc
+    comment in `ram-config.ts` for the full table and for which car `resolveRam` calls the attacker in
+    each row, which is not always the one a plain-English description would name first).
   - `RAM_CONFIG.spinScale`: **100 → 10** (`spinMaxRate` left at **6.0**, unchanged — it is the target
     `spinScale` was solved against). The hardest ram the roster can produce (Bastion flanking a
     Bullseye at the 24 u lever-arm clamp) reaches 5.95 rad/s, 99% of the ceiling without pinning it.
@@ -142,7 +143,7 @@ construction, so an attacker rebounds off a car it outweighs exactly as it would
 *positional* correction was reweighted by `ramDefence`, not the *velocity* reflection), and the
 Changelog lists `restitution: 0.15` among what survives revision 2 unchanged. Stage 3 could only ever
 remove the CONTEST's share of the attacker's cost — and it did, hard: revision 1's 156-271 u/s down to
-a roster maximum of 6.0 u/s (see "What stage 3 actually changed" above) — but that share was never
+a roster maximum of 39.3 u/s (see "What stage 3 actually changed" above) — but that share was never
 where most of the backwards travel came from.
 
 **Candidate fix, NOT taken here.** Scale a car-car contact's restitution response by the same

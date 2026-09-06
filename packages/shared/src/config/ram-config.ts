@@ -76,21 +76,35 @@ export const RAM_CONFIG = {
    * | Bullseye flanks a parked Bastion | Bullseye | Bastion | 38.4 u/s | 20% (top 190) | 2.8 u/s |
    * | Bastion flanks a parked Bastion | Bastion | Bastion | 61.4 u/s | 32% | 0.7 u/s |
    * | Bastion rear-ends a parked Bullseye (roster max) | Bastion | Bullseye | 268.0 u/s | 120% | 0.1 u/s |
-   * | Bastion and Bullseye collide head-on, both at top speed (413 u/s closing) | Bullseye † | Bastion | 39.3 u/s | 18% (top 190) | 6.0 u/s |
+   * | Bastion and Bullseye collide head-on, both at top speed (413 u/s closing) | Bullseye † | Bastion | 5.95 u/s | 3% (top 190) | **39.3 u/s** (18% of its own top 223) |
    *
    * † Bullseye, not Bastion, is `resolveRam`'s attacker in the head-on row: its own top speed (223)
    * beats Bastion's (190), and the rule is whichever car drives in harder, regardless of which one
-   * the scenario's description names first. So the victim's-Δv column there (39.3 u/s) is BASTION's
-   * Δv, and the attacker's-contest-cost column (6.0 u/s) is what BULLSEYE pays for hitting a much
-   * tankier car nose-first at full combined speed — the LARGEST attacker cost in this table, not the
-   * smallest.
+   * the scenario's description names first. So the victim's-Δv column there (5.95 u/s, 3% of
+   * BASTION's own top 190) is BASTION's Δv, and the attacker's-contest-cost column (39.3 u/s, 18% of
+   * BULLSEYE's own top 223) is what BULLSEYE pays for hitting a much tankier car nose-first at full
+   * combined speed — the LARGEST attacker cost in this table, not the smallest.
+   *
+   * That the nominal attacker comes off worse is the model working as designed, not a bug: Bastion's
+   * push (70·190 + 90·35 = 16450) beats Bullseye's (45·223 + 30·35 = 11085) — Bastion is *winning*
+   * the contest despite being the car driven into — and Bullseye's low `ramDefence` (30, against
+   * Bastion's 90) divides its received impact far less. The row reads wrong at a glance until you see
+   * that.
    *
    * Read the flank row and the head-on row together: a head-on at 2.2x the closing speed of the
-   * Bastion-flanks-Bullseye row still moves its victim 5.2x LESS (206.2 vs 39.3), which is
-   * `bonusFront` (0.3) doing the job it exists for. And read the right-hand column as the whole point
-   * of revision 2 — a car winning its contest decisively takes almost nothing (R4/R5, P20): the
-   * largest cost any attacker pays across these five scenarios is 6.0 u/s (Bullseye, above), nowhere
-   * near revision 1's 156-271 for the same kind of hit.
+   * Bastion-flanks-Bullseye row still moves its victim ~34.7x LESS (206.2 vs 5.95 u/s, the two rows'
+   * VICTIM Δv figures — not the attacker's-cost column), which is `bonusFront` (0.3) doing the job it
+   * exists for. That is gentler than revision 2's own illustrative worked example expected: the
+   * spec's worked-outcomes table (R6) puts a head-on at roughly 12% of a T-bone (~8x gentler), and the
+   * shipped roster instead lands at ~2.9% (a flank ram is the roster's T-bone-equivalent broadside
+   * hit). That gap is a playground-pass observation, not a defect to correct here — the spec's own
+   * "Flagged for confirmation" section already lists head-on violence as a feel question with
+   * `bonusFront` as its lever, and nothing here recommends moving it.
+   *
+   * Read the right-hand column as the whole point of revision 2 — a car winning its contest
+   * decisively takes almost nothing (R4/R5, P20): the largest cost any attacker pays across these
+   * five scenarios is 39.3 u/s (Bullseye, above), nowhere near revision 1's 156-271 for the same kind
+   * of hit.
    *
    * **What this constant does NOT control, and a reader will otherwise blame it for.** An attacker
    * still ends a dead-on ram travelling backwards — Bastion 190 -> -28.6 u/s above. All but 0.1 of
