@@ -184,6 +184,15 @@ export const BRAIN_CONSTANTS = Object.freeze({
   /** How far a personality may move a parameter from its tier value, as a fraction. */
   personalityJitter: 0.25,
   /**
+   * Rounds of fixed-point iteration `interceptTicks` (`predict.ts`) runs to converge "how many ticks
+   * ahead should I aim" against a curving `PosePredictor`. Three rounds is the physics analogue of
+   * `aim.ts`'s closed-form `interceptPoint`, which solves the same problem in one shot against a
+   * straight line — a curving path has no closed form, so this converges it instead. Fixed rather
+   * than looped to a tolerance because the solver may draw no `rng()` calls and must terminate in
+   * bounded, predictable work every tick (H21).
+   */
+  interceptFixedPointRounds: 3,
+  /**
    * Fraction of ONE TICK's worth of rotation that floors the effective steering deadzone (R10,
    * 2026-09-05; corrected R12, review round 1). A bang-bang steer law — `reduceToIntent`'s `steer`
    * is only ever -1/0/1, never proportional — cannot settle inside a tolerance band smaller than
