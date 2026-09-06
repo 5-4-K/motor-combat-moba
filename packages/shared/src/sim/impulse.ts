@@ -1,4 +1,3 @@
-import { ramReferenceMass } from "../config/car-config.js";
 import { RAM_CONFIG } from "../config/ram-config.js";
 import type { SimBody } from "./step.js";
 
@@ -18,17 +17,18 @@ export interface Impulse {
   /** Unit vector: the direction the victim is pushed. */
   dirX: number;
   dirY: number;
-  /** Magnitude as a Δv in u/s, BEFORE the victim's mass is divided out. */
+  /** Magnitude as a Δv in u/s, BEFORE the victim's `ramDefence` is divided out. */
   speed: number;
   /** Torque scale from the lever arm. 0 = a clean punt with no rotation. */
   spin: number;
   /**
-   * Does the victim's mass reduce the displacement? Named for where this field is going, not where
-   * it is: `massFactorOf` (below) still literally divides by MASS today, unchanged by the C1 rename
-   * (name-only — see `ram.ts`'s and `ram-config.ts`'s doc comments) — Task 3 is what makes the
-   * divisor `ramDefence` and this field's name accurate. The contest's own ram/slam impulses always
-   * author this `false` regardless (they already divided by `ramDefence` themselves); `true` is
-   * currently reachable only through the dead-code `reactionOf` below and this file's own tests.
+   * Does the victim's `ramDefence` reduce the displacement? Renamed from `massScaled` in Task 2
+   * (name-only then — the divisor was still literally MASS at that point); Task 3 is what makes the
+   * divisor `ramDefence` (`defenceFactorOf`, below) so the name finally matches the maths. The
+   * contest's own ram/slam impulses always author this `false` regardless (`impactOn` in `ram.ts`
+   * already divided by the victim's `ramDefence` itself, so a second division here would double-charge
+   * it); `true` is reachable only through this file's own tests today, now that Task 3 deletes
+   * `reactionOf` — the one production path that used to force it.
    */
   defenceScaled: boolean;
   /** How long the victim is left reeling, in TICKS (already converted). */
@@ -43,18 +43,19 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /**
- * How far this impulse displaces a car of this mass, relative to an average chassis.
+ * How far this impulse displaces a car of this solidity.
  *
- * The single place victim mass enters the maths. Clamped at both ends so neither the heaviest nor
- * the lightest chassis degenerates — and read through `ramReferenceMass()` rather than recomputed,
- * so playground tuning of `massPerRating` moves it too.
+ * The single place `ramDefence` divides a push out. `defenceScaled: false` opts out entirely: a hard
+ * slam punts every chassis identically, which is the designer's escape hatch spec principle C grants
+ * (R10).
  *
- * `defenceScaled: false` opts out entirely: the hard slam punts every chassis identically, which is
- * the designer's escape hatch from physics that spec principle C exists to grant.
+ * There are no clamps here. `massFactorMin`/`massFactorMax` are deleted (spec P19): they existed to
+ * stop a mass ratio degenerating, and both roster extremes clipped against them anyway, so part of
+ * what the stat did was being discarded.
  */
-function massFactorOf(mass: number, defenceScaled: boolean): number {
-  if (!defenceScaled || mass <= 0) return 1;
-  return clamp(ramReferenceMass() / mass, RAM_CONFIG.massFactorMin, RAM_CONFIG.massFactorMax);
+function defenceFactorOf(ramDefence: number, defenceScaled: boolean): number {
+  if (!defenceScaled || ramDefence <= 0) return 1;
+  return 1 / ramDefence;
 }
 
 /**
@@ -69,13 +70,13 @@ function massFactorOf(mass: number, defenceScaled: boolean): number {
  * perpendicular becomes the slide. Only a perfectly perpendicular hit leaves forward speed
  * untouched, which is correct.
  */
-export function applyImpulse(body: SimBody, mass: number, imp: Impulse): SimBody {
-  const dv = imp.speed * massFactorOf(mass, imp.defenceScaled);
+export function applyImpulse(body: SimBody, ramDefence: number, imp: Impulse): SimBody {
+  const dv = imp.speed * defenceFactorOf(ramDefence, imp.defenceScaled);
 
   const vx = body.vx + imp.dirX * dv;
   const vy = body.vy + imp.dirY * dv;
 
-  return { ...body, vx, vy, angVel: nextSpin(body, mass, imp, dv) };
+  return { ...body, vx, vy, angVel: nextSpin(body, ramDefence, imp, dv) };
 }
 
 /**
@@ -86,7 +87,7 @@ export function applyImpulse(body: SimBody, mass: number, imp: Impulse): SimBody
  * construction rather than by tuning: a dead-centre hit puts lever and force on the same line, so
  * the cross product is zero and there is no spin.
  */
-function nextSpin(body: SimBody, mass: number, imp: Impulse, dv: number): number {
+function nextSpin(body: SimBody, ramDefence: number, imp: Impulse, dv: number): number {
   // A zero-spin impulse PRESERVES the victim's existing rotation rather than cancelling it — this is
   // an early return, not an assignment to 0. That is a deliberate change from the pre-`Impulse` slam
   // path, which did `player.angVel = knock.angVel` with `knock.angVel === 0` for a slam: an
@@ -108,22 +109,14 @@ function nextSpin(body: SimBody, mass: number, imp: Impulse, dv: number): number
   const fy = (imp.dirX * sin + imp.dirY * cos) * dv;
 
   const torque = rx * fy - ry * fx;
-  const inertia = Math.max(1, mass * RAM_CONFIG.inertiaCoefficient);
+  // `ramDefence` is 30-90 across the roster, where `mass` (the pre-Task-3 divisor) was 300-900 — a
+  // ~10x smaller denominator here, so injected spin from a real ram grows roughly 10x and likely
+  // saturates `RAM_CONFIG.spinMaxRate` (6.0) on anything but a near-dead-centre hit. **This is
+  // expected, not a regression to compensate for.** Spec P25b makes re-pitching `spinScale` and
+  // `spinMaxRate` for the new denominator a MEASUREMENT job, and the controller assigned that
+  // measurement to stage 3 Task 4 alongside `RAM_CONFIG.globalScale` — both constants below are left
+  // at their pre-Task-3 values on purpose. Do not add a compensating factor here.
+  const inertia = Math.max(1, ramDefence * RAM_CONFIG.inertiaCoefficient);
   const spin = (torque / inertia) * RAM_CONFIG.spinScale * imp.spin;
   return clamp(body.angVel + spin, -RAM_CONFIG.spinMaxRate, RAM_CONFIG.spinMaxRate);
-}
-
-/**
- * The reaction the ATTACKER takes — Newton's third law, and the reason mass finally matters on
- * offence.
- *
- * The impulse is shared but Δv is `J/m`, so a heavy Bastion ramming a light Bullseye barely slows
- * while the reverse bounces the Bullseye off hard. That asymmetry is the whole of it; nothing here
- * is tuned. `SLAM_CONFIG.selfKeepFactor` used to hand-approximate this for slams alone.
- *
- * Carries no uncontrol and no spin: being the attacker is not being rammed, and the attacker's own
- * lever arm is a separate question this design does not answer (spec P16).
- */
-export function reactionOf(imp: Impulse): Impulse {
-  return { ...imp, dirX: -imp.dirX, dirY: -imp.dirY, spin: 0, uncontrolTicks: 0, defenceScaled: true };
 }

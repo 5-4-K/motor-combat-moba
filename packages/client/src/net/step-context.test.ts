@@ -6,8 +6,8 @@ import {
   NEUTRAL_MODIFIERS,
   PlayerStatus,
   getArena,
-  massOf,
   modifiersFromRows,
+  ramDefenceOf,
 } from "@motor-combat-moba/shared";
 import {
   buildStepContext,
@@ -109,11 +109,11 @@ describe("buildStepContext", () => {
         w: DRIVE_CONFIG.carWidth,
         h: DRIVE_CONFIG.carHeight,
       },
-      mass: massOf("mirage"),
+      ramDefence: ramDefenceOf("mirage"),
     });
   });
 
-  it("carries each other car's mass, not just its hull (stage 2 Task 2)", () => {
+  it("carries each other car's ramDefence, not just its hull (stage 2 Task 2)", () => {
     const ctx = buildStepContext(
       ARENA,
       state({ me: player(), them: player({ carId: "bastion" }) }),
@@ -121,10 +121,10 @@ describe("buildStepContext", () => {
       0,
       NEUTRAL_MODIFIERS,
     );
-    expect(ctx.others[0]!.mass).toBe(massOf("bastion"));
+    expect(ctx.others[0]!.ramDefence).toBe(ramDefenceOf("bastion"));
   });
 
-  it("sets selfMass from the local player's own car, distinct from any other car's mass", () => {
+  it("sets selfRamDefence from the local player's own car, distinct from any other car's ramDefence", () => {
     const ctx = buildStepContext(
       ARENA,
       state({ me: player({ carId: "bastion" }), them: player({ carId: "mirage" }) }),
@@ -132,8 +132,8 @@ describe("buildStepContext", () => {
       0,
       NEUTRAL_MODIFIERS,
     );
-    expect(ctx.selfMass).toBe(massOf("bastion"));
-    expect(ctx.others[0]!.mass).toBe(massOf("mirage"));
+    expect(ctx.selfRamDefence).toBe(ramDefenceOf("bastion"));
+    expect(ctx.others[0]!.ramDefence).toBe(ramDefenceOf("mirage"));
   });
 
   it("uses the local player's chosen car", () => {

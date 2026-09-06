@@ -172,12 +172,13 @@ describe("golden: stepDrive against the vector-drive rework", () => {
 
 describe("golden: resolveWorld against the vector-drive rework", () => {
   const bounds = { width: 1000, height: 800 };
-  // Filler for every case below that resolves against bounds/obstacles only, or where the mass
-  // split is not what the case is pinning: those code paths never consult `selfMass` (obstacles and
-  // bounds always take `OBSTACLE_SHARE`, 1), so any positive number reproduces the same numbers the
-  // pre-mass-split fixture pinned. Real roster masses appear ONLY in "separates from another car"
-  // below, which is the one case this block exists to pin the mass split against.
-  const FILLER_MASS = 480;
+  // Filler for every case below that resolves against bounds/obstacles only, or where the
+  // positional split is not what the case is pinning: those code paths never consult
+  // `selfRamDefence` (obstacles and bounds always take `OBSTACLE_SHARE`, 1), so any positive number
+  // reproduces the same numbers the pre-split fixture pinned. Real roster ratings appear ONLY in
+  // "separates from another car" below, which is the one case this block exists to pin the split
+  // against.
+  const FILLER_RAM_DEFENCE = 480;
 
   // REFIXTURED for stage 2 Task 1 (2026-09-06): `applyContact` no longer discards the reflected
   // direction and rebuilds a scalar along the unchanged heading — it now hands back the whole
@@ -223,43 +224,53 @@ describe("golden: resolveWorld against the vector-drive rework", () => {
   //     lateral component, which is the whole point of this task: the car's forward-moving y-ish
   //     motion rides straight through a contact whose normal never touched it.
   //
-  // REFIXTURED AGAIN for stage 2 Task 2 (2026-09-06): `others` widened to `CarObstacle[]` and
-  // `resolveWorld` gained `selfMass`. "separates from another car" now runs mirage (480, real
+  // REFIXTURED for stage 2 Task 2 (2026-09-06): `others` widened to `CarObstacle[]` and
+  // `resolveWorld` gained a fifth parameter. "separates from another car" ran mirage (480, real
   // `massOf("mirage")`) against bastion (900, real `massOf("bastion")`) instead of an implicit,
-  // pre-split full push, and its POSITION — forward is untouched, per the note above — moves with
-  // it: `shareOf(480, 900) = 900 / (480 + 900) = 900 / 1380 = 0.6521739130434783`. The MTV depth is
-  // unchanged from the pre-split fixture (18 units: the cars' half-widths sum to 48, their centres
-  // sit 30 apart, `48 - 30 = 18`), so mirage now takes `18 * 0.6521739130434783 = 11.73913043...`
-  // of it instead of the whole 18: `x' = 500 - 11.739130434782608 = 488.2608695652174` (exact
-  // value `500 - 270/23`). Every other case below resolves against bounds or an obstacle, neither
-  // of which yields — `OBSTACLE_SHARE` is 1 unconditionally — so their positions and the mass
-  // passed in are unrelated; `FILLER_MASS` above documents that.
+  // pre-split full push, moving the POSITION half of the fixture (forward stayed untouched, per the
+  // note above): `shareOf(480, 900) = 900 / 1380 = 0.6521739130434783`, `x' = 500 -
+  // 18 * 0.6521739130434783 = 488.2608695652174` (exact value `500 - 270/23`).
+  //
+  // REFIXTURED AGAIN for stage 3 Task 3 (2026-09-06): the fifth parameter is `selfRamDefence` now,
+  // and `CarObstacle.mass` is `ramDefence`, so "separates from another car" reads real
+  // `ramDefenceOf` ratings instead of `massOf` ones — mirage 50, bastion 90 (NOT the roster's `mass`
+  // rating of 48/90; mirage's `mass` and `ramDefence` ratings differ, bastion's happen to coincide).
+  // The MTV depth is geometry, untouched by which stat divides the push (still 18 units: the cars'
+  // half-widths sum to 48, their centres sit 30 apart, `48 - 30 = 18`), so only the share changes:
+  // `shareOf(50, 90) = 90 / (50 + 90) = 90 / 140 = 0.6428571428571429`, `18 *
+  // 0.6428571428571429 = 11.571428571428571...` of the depth instead of the pre-Task-3
+  // `11.739130434782608`, so `x' = 500 - 11.571428571428571... = 488.4285714285714` (exact value
+  // `500 - 81/7 = 3419/7`, repeating decimal `.428571`, rounded to the same 13-digit precision the
+  // pre-Task-3 fixture used). Every other case below resolves against bounds or an obstacle, neither
+  // of which yields — `OBSTACLE_SHARE` is 1 unconditionally — so their positions and the
+  // `selfRamDefence` passed in are unrelated; `FILLER_RAM_DEFENCE` above documents that.
   it("bounces off the left wall", () => {
-    const out = resolveWorld(bodyAt(10, 400, Math.PI, 200), [], [], bounds, FILLER_MASS);
+    const out = resolveWorld(bodyAt(10, 400, Math.PI, 200), [], [], bounds, FILLER_RAM_DEFENCE);
     expectPose(out, 24, 400, Math.PI, -30);
   });
 
   it("reflects off both walls at a corner", () => {
-    const out = resolveWorld(bodyAt(5, 4, Math.PI * 1.25, 150), [], [], bounds, FILLER_MASS);
+    const out = resolveWorld(bodyAt(5, 4, Math.PI * 1.25, 150), [], [], bounds, FILLER_RAM_DEFENCE);
     expectPose(out, 28.2842712475, 28.2842712475, 3.926990817, -22.5);
   });
 
   it("separates from another car", () => {
-    // mirage (480) driving into a stationary bastion (900) — real roster masses, not filler, since
-    // this is the one case in this block pinning the mass split rather than merely surviving it.
-    const other = { hull: { x: 530, y: 400, angle: 0, w: 48, h: 32 }, mass: 900 };
-    const out = resolveWorld(bodyAt(500, 400, 0, 250), [other], [], bounds, 480);
-    expectPose(out, 488.2608695652174, 400, 0, -37.5);
+    // mirage (ramDefence 50) driving into a stationary bastion (ramDefence 90) — real roster
+    // ratings, not filler, since this is the one case in this block pinning the positional split
+    // rather than merely surviving it.
+    const other = { hull: { x: 530, y: 400, angle: 0, w: 48, h: 32 }, ramDefence: 90 };
+    const out = resolveWorld(bodyAt(500, 400, 0, 250), [other], [], bounds, 50);
+    expectPose(out, 488.4285714285714, 400, 0, -37.5);
   });
 
   it("separates from an obstacle", () => {
     const obstacle = { x: 320, y: 290, w: 60, h: 60 };
-    const out = resolveWorld(bodyAt(300, 300, 0.4, 180), [], [obstacle], bounds, FILLER_MASS);
+    const out = resolveWorld(bodyAt(300, 300, 0.4, 180), [], [obstacle], bounds, FILLER_RAM_DEFENCE);
     expectPose(out, 291.663842667, 300, 0.4, 4.390855582568385, 74.24635540810061);
   });
 
   it("leaves a free body untouched", () => {
-    const out = resolveWorld(bodyAt(500, 400, 1.1, 100), [], [], bounds, FILLER_MASS);
+    const out = resolveWorld(bodyAt(500, 400, 1.1, 100), [], [], bounds, FILLER_RAM_DEFENCE);
     expectPose(out, 500, 400, 1.1, 100);
   });
 });

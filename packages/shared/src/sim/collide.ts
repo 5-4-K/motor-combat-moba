@@ -24,7 +24,7 @@ export interface Obb {
 /** One other car as the resolver sees it: where it is, and how hard it is to shove. */
 export interface CarObstacle {
   hull: Obb;
-  mass: number;
+  ramDefence: number;
 }
 
 /** Arena extent. The world is `[0, width] x [0, height]`, top-left origin. */
@@ -93,14 +93,15 @@ const RELAXATION_PASSES = 1;
  * current state each tick, so the *other* car is being pushed off this one at the same time — but
  * "at the same time" is sequential, not simultaneous: the caller mutates each player in place and
  * rebuilds `others` from whichever pose is current, so the SECOND car in resolution order resolves
- * against the FIRST car's already-corrected position, not its pre-tick one. Before the mass split,
- * each side conceded the FULL correction, so the first car removed the whole depth and the second
- * found nothing left to concede — one tick, fully separated. Since the mass split below (stage 2
- * Task 2), each side concedes only its own `shareOf`, and `shareA + shareB` (the two cars' shares of
- * each other's mass fraction) always sums to exactly 1. One full tick — both cars resolved once —
+ * against the FIRST car's already-corrected position, not its pre-tick one. Before the positional
+ * split (stage 2 Task 2), each side conceded the FULL correction, so the first car removed the whole
+ * depth and the second found nothing left to concede — one tick, fully separated. Since that split
+ * below, each side concedes only its own `shareOf` — weighted by `ramDefence` as of stage 3 Task 3,
+ * `mass` before it, the split itself unchanged — and `shareA + shareB` (the two cars' shares of each
+ * other's `ramDefence` fraction) always sums to exactly 1. One full tick — both cars resolved once —
  * removes `shareA + shareB - shareA * shareB` of the original depth and leaves a residual of
- * `shareA * shareB * depth`: a quarter of the original overlap at equal mass (0.5 * 0.5), less as the
- * masses diverge. That residual is not the end of it — it shrinks by the same `shareA * shareB`
+ * `shareA * shareB * depth`: a quarter of the original overlap at equal `ramDefence` (0.5 * 0.5),
+ * less as the ratings diverge. That residual is not the end of it — it shrinks by the same `shareA * shareB`
  * factor every subsequent tick both cars keep resolving, so the pair converges toward separation
  * geometrically over several ticks, not in the one tick that first detects the overlap. If only ONE
  * side of the pair is ever re-resolved (an idle or unqueued opponent, say), that geometric decay
@@ -115,7 +116,7 @@ export function resolveWorld(
   others: readonly CarObstacle[],
   obstacles: readonly Aabb[],
   bounds: Bounds,
-  selfMass: number,
+  selfRamDefence: number,
 ): SimBody {
   let next = body;
   for (let pass = 0; pass < RELAXATION_PASSES; pass++) {
@@ -124,7 +125,7 @@ export function resolveWorld(
     // occupy. Skipping this measurably changes the outcome for over half of ordinary wall contacts.
     next = resolveBounds(next, bounds);
     for (const other of others) {
-      next = resolveAgainst(next, other.hull, shareOf(selfMass, other.mass));
+      next = resolveAgainst(next, other.hull, shareOf(selfRamDefence, other.ramDefence));
     }
     for (const obstacle of obstacles) {
       next = resolveAgainst(next, aabbToObb(obstacle), OBSTACLE_SHARE);
@@ -140,17 +141,19 @@ export function resolveWorld(
 /**
  * The fraction of a car-car correction THIS body absorbs.
  *
- * A heavier car takes less of the push, so a Bastion is something you cannot shoulder aside and a
- * Bullseye gets moved constantly. Static geometry has no mass and does not yield: obstacles and
- * bounds still hand the body the whole correction, which is what `OBSTACLE_SHARE` names.
+ * A more solid car (higher `ramDefence`) takes less of the push, so a Bastion is something you
+ * cannot shoulder aside and a Bullseye gets moved constantly. Renamed from a `mass`-weighted split
+ * in stage 3 Task 3 — the split itself (a plain ratio of the two sides) is unchanged, only which
+ * rating it reads. Static geometry has no `ramDefence` and does not yield: obstacles and bounds
+ * still hand the body the whole correction, which is what `OBSTACLE_SHARE` names.
  *
  * Note this is a POSITIONAL split, not an impulse — velocity exchange is `applyImpulse`'s job. The
  * two are separate on purpose: separation runs every tick a pair overlaps, and routing it through
  * impulses would re-apply a knock on each of them.
  */
-function shareOf(selfMass: number, otherMass: number): number {
-  const total = selfMass + otherMass;
-  return total <= 0 ? OBSTACLE_SHARE : otherMass / total;
+function shareOf(selfRamDefence: number, otherRamDefence: number): number {
+  const total = selfRamDefence + otherRamDefence;
+  return total <= 0 ? OBSTACLE_SHARE : otherRamDefence / total;
 }
 
 const OBSTACLE_SHARE = 1;
@@ -204,8 +207,9 @@ function clampIntoBounds(body: SimBody, bounds: Bounds): SimBody {
 
 /**
  * Resolve the body's car OBB against one static or moving box, conceding only `share` of the push.
- * `share` is always `OBSTACLE_SHARE` (1) for static geometry and `shareOf(selfMass, other.mass)` for
- * another car — see `resolveWorld`. Only the body moves; the box itself is never touched here.
+ * `share` is always `OBSTACLE_SHARE` (1) for static geometry and `shareOf(selfRamDefence,
+ * other.ramDefence)` for another car — see `resolveWorld`. Only the body moves; the box itself is
+ * never touched here.
  */
 function resolveAgainst(body: SimBody, box: Obb, share: number): SimBody {
   const mtv = mtvBetween(carObbOf(body), box);

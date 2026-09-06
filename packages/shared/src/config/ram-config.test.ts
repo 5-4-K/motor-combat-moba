@@ -52,11 +52,6 @@ describe("RAM_CONFIG", () => {
     expect(RAM_CONFIG.authorityFloor).toBeLessThan(1);
   });
 
-  it("clamps victim mass factor around 1", () => {
-    expect(RAM_CONFIG.massFactorMin).toBeLessThan(1);
-    expect(RAM_CONFIG.massFactorMax).toBeGreaterThan(1);
-  });
-
   it("derives inertiaCoefficient from the hull, never typed", () => {
     expect(RAM_CONFIG.inertiaCoefficient).toBeCloseTo((48 ** 2 + 32 ** 2) / 12, 9);
   });

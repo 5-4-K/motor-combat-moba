@@ -136,14 +136,18 @@ export const RAM_CONFIG = {
    * also updating the table above.
    */
   knockMaxSpeed: 260,
-  /** Bounds on `referenceMass / victimMass`, so neither the heaviest nor the lightest car degenerates. */
-  massFactorMin: 0.6,
-  massFactorMax: 1.6,
   /**
    * Calibration multiplier on the torque-derived spin rate. Tuned by feel, not derived: it converts
    * a speed-magnitude impulse into a plausible angular rate, and 100 was chosen so a solid flank ram
    * (moderate severity, a lever arm off centre but short of the hull edge) lands near 2 rad/s while
    * the hardest possible ram saturates `spinMaxRate`.
+   *
+   * **STALE as of stage 3 Task 3.** `nextSpin` (`sim/impulse.ts`) divides torque by
+   * `ramDefence * inertiaCoefficient` now, and `ramDefence` (30-90) is roughly a tenth of the `mass`
+   * (300-900) this value was tuned against, so the "near 2 rad/s" claim above is no longer accurate —
+   * spin now saturates `spinMaxRate` far more readily. Left untouched here on purpose: spec P25b
+   * makes re-pitching this value a MEASUREMENT job, assigned to stage 3 Task 4 alongside
+   * `RAM_CONFIG.globalScale`. See `nextSpin`'s own doc comment for the full account.
    */
   spinScale: 100,
   /** Ceiling on injected spin, so a corner contact cannot produce an absurd rotation. */

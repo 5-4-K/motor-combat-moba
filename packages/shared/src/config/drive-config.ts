@@ -137,9 +137,10 @@ export const DRIVE_CONFIG = {
    * reopening the tunnelling bug.
    *
    * At 16 the dasher still advances 13.3u between collision checks (four substeps of `thunderclap`'s
-   * 53.3u/tick) — that gap always existed, but before the 2026-09-06 mass-weighted separation change
-   * (car-car `resolveWorld` taking a `selfMass` and each side conceding only `shareOf(selfMass,
-   * otherMass)`, see `collide.ts`) the pre-rework always-full-push rule ejected the dasher back out
+   * 53.3u/tick) — that gap always existed, but before the 2026-09-06 weighted-separation change
+   * (car-car `resolveWorld` taking a `selfRamDefence` and each side conceding only
+   * `shareOf(selfRamDefence, otherRamDefence)`, see `collide.ts` — `mass`-weighted at the time, now
+   * `ramDefence`-weighted since stage 3 Task 3) the pre-rework always-full-push rule ejected the dasher back out
    * in the same tick it landed, so nobody saw it. Now the dasher only claims its own share on the
    * contact tick and the arrival gap surfaces as momentary penetration instead. `thunderclap`
    * (Mirage's slot 2, `maneuver: { type: "dash" }`) is the only dash in the game — `wildcharge` is a

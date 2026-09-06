@@ -12,7 +12,7 @@ import {
   hullTouchesWorld,
   isSolid,
   isWeaponId,
-  massOf,
+  ramDefenceOf,
   resolveContacts,
   toWorld,
   weaponDefOf,
@@ -176,17 +176,20 @@ function contactCarsOf(
 }
 
 /**
- * This player's mass as `applyImpulse` sees it: chassis rating scaled by whatever `ramMass` effect
- * it carries. Both ram impulses are `defenceScaled: false` (the contest already divided by
- * `ramDefence`), so this value only reaches `applyImpulse`'s `nextSpin` inertia term today — Task 3/4
- * rename this function and its `mass` role once `mass` itself leaves the game. `0` for a session
- * with no player, which `massFactorOf` (`sim/impulse.ts`) treats as "unscaled" rather than dividing
- * by it.
+ * This player's `ramDefence` as `applyImpulse` sees it: chassis rating scaled by whatever `ramMass`
+ * effect it carries. Renamed from `massFor` in stage 3 Task 3 — reads `ramDefenceOf` instead of
+ * `massOf` now, which is what actually delivers the ~10x inertia-denominator drop `nextSpin`'s doc
+ * comment (`sim/impulse.ts`) describes: this is production's only caller of `applyImpulse` for a ram
+ * or slam, so until this function changed, the real game was still feeding it `mass`-shaped numbers
+ * regardless of what the parameter was named. Both ram impulses are `defenceScaled: false` (the
+ * contest already divided by `ramDefence`), so this value only reaches `applyImpulse`'s `nextSpin`
+ * inertia term today. `0` for a session with no player, which `defenceFactorOf` (`sim/impulse.ts`)
+ * treats as "unscaled" rather than dividing by it.
  */
-function massFor(state: ArenaState, statusMods: ReadonlyMap<string, Modifiers>, sessionId: string): number {
+function ramDefenceFor(state: ArenaState, statusMods: ReadonlyMap<string, Modifiers>, sessionId: string): number {
   const player = state.players.get(sessionId);
   if (!player) return 0;
-  return massOf(carIdOf(player)) * modifiersFor(statusMods, sessionId).ramMass;
+  return ramDefenceOf(carIdOf(player)) * modifiersFor(statusMods, sessionId).ramMass;
 }
 
 /**
@@ -227,10 +230,10 @@ export function contactTick(
   // resolved pushes (`ImpulseEntry.impulse`/`attackerImpulse`) — no separate lookup is needed to
   // find who threw it, since only `resolveContacts`'s own pair loop is in a position to say. The
   // victim receives `entry.impulse`; the attacker receives `entry.attackerImpulse` directly —
-  // `reactionOf` (still defined in `sim/impulse.ts`) is dead code on this path as of this task,
-  // because handing the attacker a negated copy of a contest-derived impulse would be incoherent
-  // (the contest already decided what the attacker takes, independently of what the victim took).
-  // Task 3 deletes `reactionOf` outright. This also replaces `SLAM_CONFIG.selfKeepFactor`'s
+  // `reactionOf` would have been dead code on this path (handing the attacker a negated copy of a
+  // contest-derived impulse is incoherent: the contest already decided what the attacker takes,
+  // independently of what the victim took), which is why stage 3 Task 3 deletes it outright rather
+  // than leaving it unreachable. This also replaces `SLAM_CONFIG.selfKeepFactor`'s
   // hand-tuned forward-only restore for a slam's attacker outright: a slam's `attackerImpulse` is a
   // zero-magnitude `Impulse` built by `contact.ts`'s slam branch, riding through this exact same map,
   // so "the attacker takes nothing from its own slam" falls out of applying it rather than being a
@@ -242,7 +245,7 @@ export function contactTick(
   for (const [victimId, entry] of impulses) {
     const victim = state.players.get(victimId);
     if (victim) {
-      const next = applyImpulse(victim, massFor(state, statusMods, victimId), entry.impulse);
+      const next = applyImpulse(victim, ramDefenceFor(state, statusMods, victimId), entry.impulse);
       victim.vx = next.vx;
       victim.vy = next.vy;
       victim.angVel = next.angVel;
@@ -250,7 +253,7 @@ export function contactTick(
 
     const attacker = state.players.get(entry.attackerId);
     if (attacker) {
-      const next = applyImpulse(attacker, massFor(state, statusMods, entry.attackerId), entry.attackerImpulse);
+      const next = applyImpulse(attacker, ramDefenceFor(state, statusMods, entry.attackerId), entry.attackerImpulse);
       attacker.vx = next.vx;
       attacker.vy = next.vy;
       attacker.angVel = next.angVel;

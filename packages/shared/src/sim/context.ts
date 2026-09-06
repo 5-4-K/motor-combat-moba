@@ -1,4 +1,4 @@
-import { DEFAULT_CAR_ID, isCarId, massOf } from "../config/car-config.js";
+import { DEFAULT_CAR_ID, isCarId, ramDefenceOf } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { CarId } from "../config/types.js";
 import { PlayerStatus } from "../constants.js";
@@ -81,21 +81,22 @@ export function carIdOf(player: Pick<ContextPlayer, "carId">): CarId {
  * caller itself is not solid, in which case this returns `[]` regardless of who else is on the
  * field. See the caller-side guard below for why that second half is required.
  *
- * Each entry carries `mass` (`massOf(carIdOf(player))`) alongside its hull, since stage 2 Task 2:
- * `resolveWorld` splits a car-car correction by mass, and needs to know how hard each OTHER car is
- * to shove. This car's OWN mass is a separate fact — `StepContext.selfMass` — because it describes
- * the body being resolved, not one of the obstacles it is resolved against.
+ * Each entry carries `ramDefence` (`ramDefenceOf(carIdOf(player))`) alongside its hull, since stage 2
+ * Task 2 (renamed from `mass` in stage 3 Task 3): `resolveWorld` splits a car-car correction by
+ * `ramDefence`, and needs to know how hard each OTHER car is to shove. This car's OWN `ramDefence` is
+ * a separate fact — `StepContext.selfRamDefence` — because it describes the body being resolved, not
+ * one of the obstacles it is resolved against.
  *
- * **Deliberately chassis-mass-only, unlike the other two places a `ramMass` status buff reaches ram
- * maths.** This is bare `massOf(carIdOf(player))`, not `ram.ts`'s `RamCar.defenceMult` (the same
- * `ramMass` channel, folded into the contest's push and divisor by `pushOf`/`impactOn`) or
- * `ram-bridge.ts`'s `massFor` (feeding `applyImpulse`'s inertia term) — this function has access to
- * neither, since ordinary driving has no `Modifiers` map in scope the way `serverTick`'s ram-adjacent
- * code does. So a `ramMass` status buff changes how hard a car rams and how easily it is rammed, but
- * NOT how much ground it gives up in the ordinary, non-ram car-vs-car separation `resolveWorld` runs
- * on every touching pair. Latent rather than a live bug today — no shipped `STATUS_TABLE` row carries
- * a `ramMass` channel — but the two lockstep halves (server and client prediction) both read this
- * same function, so they still agree with each other.
+ * **Deliberately chassis-`ramDefence`-only, unlike the other two places a `ramMass` status buff
+ * reaches ram maths.** This is bare `ramDefenceOf(carIdOf(player))`, not `ram.ts`'s
+ * `RamCar.defenceMult` (the same `ramMass` channel, folded into the contest's push and divisor by
+ * `pushOf`/`impactOn`) or `ram-bridge.ts`'s `ramDefenceFor` (feeding `applyImpulse`'s inertia term) —
+ * this function has access to neither, since ordinary driving has no `Modifiers` map in scope the way
+ * `serverTick`'s ram-adjacent code does. So a `ramMass` status buff changes how hard a car rams and
+ * how easily it is rammed, but NOT how much ground it gives up in the ordinary, non-ram car-vs-car
+ * separation `resolveWorld` runs on every touching pair. Latent rather than a live bug today — no
+ * shipped `STATUS_TABLE` row carries a `ramMass` channel — but the two lockstep halves (server and
+ * client prediction) both read this same function, so they still agree with each other.
  *
  * **`entries` must be sorted by `sessionId`, and the resulting order is load-bearing rather than
  * cosmetic:** `resolveWorld` applies contacts sequentially over `others`, and the last contact
@@ -132,7 +133,7 @@ export function otherCarHulls(
     if (sessionId === selfSessionId) continue;
     // Filtered on the ENTRY as well — a solid caller must still not see anyone ELSE who is phasing.
     if (!isSolid(player, tick)) continue;
-    hulls.push({ hull: carHullOf(player.x, player.y, player.angle), mass: massOf(carIdOf(player)) });
+    hulls.push({ hull: carHullOf(player.x, player.y, player.angle), ramDefence: ramDefenceOf(carIdOf(player)) });
   }
   return hulls;
 }

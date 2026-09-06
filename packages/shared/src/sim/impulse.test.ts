@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RAM_CONFIG } from "../config/ram-config.js";
-import { applyImpulse, reactionOf, type Impulse } from "./impulse.js";
+import { applyImpulse, type Impulse } from "./impulse.js";
 import type { SimBody } from "./step.js";
 import { forwardOf } from "./velocity.js";
 
@@ -25,18 +25,6 @@ describe("applyImpulse", () => {
     const next = applyImpulse(body({ vx: 100, vy: 0 }), 500, impulse({ defenceScaled: false }));
     expect(next.vx).toBeCloseTo(100); // the car keeps driving
     expect(next.vy).toBeCloseTo(200); // and is also thrown
-  });
-
-  it("moves a light car further than a heavy one under the same impulse", () => {
-    const light = applyImpulse(body(), 300, impulse());
-    const heavy = applyImpulse(body(), 900, impulse());
-    expect(Math.abs(light.vy)).toBeGreaterThan(Math.abs(heavy.vy));
-  });
-
-  it("ignores mass entirely when defenceScaled is false", () => {
-    const light = applyImpulse(body(), 300, impulse({ defenceScaled: false }));
-    const heavy = applyImpulse(body(), 900, impulse({ defenceScaled: false }));
-    expect(light.vy).toBeCloseTo(heavy.vy);
   });
 
   it("imparts no spin for a dead-centre hit, where the lever arm is zero", () => {
@@ -93,38 +81,18 @@ describe("applyImpulse", () => {
     const next = applyImpulse(driving, 500, perpendicular);
     expect(forwardOf(next.vx, next.vy, next.angle)).toBeCloseTo(200);
   });
-
-  it("clamps the mass factor so no chassis degenerates at either extreme", () => {
-    const featherweight = applyImpulse(body(), 1, impulse());
-    expect(Math.abs(featherweight.vy)).toBeLessThanOrEqual(
-      impulse().speed * RAM_CONFIG.massFactorMax + 1e-6,
-    );
-  });
 });
 
-describe("reactionOf", () => {
-  it("points the opposite way with the same magnitude", () => {
-    const imp = impulse({ dirX: 0, dirY: 1, speed: 200 });
-    const back = reactionOf(imp);
-    expect(back.dirX).toBeCloseTo(0);
-    expect(back.dirY).toBeCloseTo(-1);
-    expect(back.speed).toBeCloseTo(200);
+describe("applyImpulse scales by ramDefence", () => {
+  it("moves a flimsy car further than a solid one under the same impulse", () => {
+    const flimsy = applyImpulse(body(), 30, impulse());
+    const solid = applyImpulse(body(), 90, impulse());
+    expect(Math.abs(flimsy.vy)).toBeGreaterThan(Math.abs(solid.vy));
   });
 
-  it("carries no uncontrol — being the attacker is not being rammed", () => {
-    expect(reactionOf(impulse({ uncontrolTicks: 30 })).uncontrolTicks).toBe(0);
-  });
-
-  it("carries no spin — the attacker's own lever arm is a separate question", () => {
-    expect(reactionOf(impulse({ spin: 1 })).spin).toBe(0);
-  });
-
-  it("forces defenceScaled: true even when the source impulse was unscaled", () => {
-    // The one field of the four `reactionOf` overrides unconditionally, and the surprising one: a
-    // hard slam's victim push is `defenceScaled: false` (every chassis takes the same knock), but the
-    // reaction charged back onto the attacker is ALWAYS divided by the attacker's own mass. This is
-    // the single line that makes a heavy attacker's own slam recoil smaller than the fixed knock it
-    // just dealt — see `SLAM_CONFIG.knockSpeed`'s doc comment for the measured Bastion case.
-    expect(reactionOf(impulse({ defenceScaled: false })).defenceScaled).toBe(true);
+  it("ignores ramDefence entirely when defenceScaled is false", () => {
+    const flimsy = applyImpulse(body(), 30, impulse({ defenceScaled: false }));
+    const solid = applyImpulse(body(), 90, impulse({ defenceScaled: false }));
+    expect(flimsy.vy).toBeCloseTo(solid.vy);
   });
 });

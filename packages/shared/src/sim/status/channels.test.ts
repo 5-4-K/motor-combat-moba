@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChassisDrive } from "../../config/car-config.js";
-import { massOf } from "../../config/car-config.js";
+import { ramDefenceOf } from "../../config/car-config.js";
 import { DRIVE_CONFIG } from "../../config/drive-config.js";
 import { STATUS_TABLE } from "../../config/status-config.js";
 import type { CarId } from "../../config/types.js";
@@ -328,23 +328,24 @@ describe("ramMass reaches the ram, both as the victim's defence AND (via the att
   it("makes a buffed victim harder to shove", () => {
     // `resolveRam` never divides victim MASS out at all — mass has never been part of the contest
     // (`ramAttack`/`ramDefence` replaced it entirely). The impulse is `defenceScaled: false` (the
-    // contest already divided by `ramDefence`), so `applyImpulse`'s `massFactorOf` returns 1
-    // regardless of what `mass` it is handed — the `* defenceMult` on the mass argument below is
+    // contest already divided by `ramDefence`), so `applyImpulse`'s `defenceFactorOf` returns 1
+    // regardless of what `ramDefence` it is handed — the `* defenceMult` on the argument below is
     // inert, NOT a second application of the buff via `applyImpulse`. The whole effect measured here
     // comes from `resolveRam` alone: raising the victim's `defenceMult` raises its own `pushOf` term
     // (more of the total contest is now "its" push, shrinking the SHARE of the attacker's push
     // `impactOn` charges it) and separately raises the divisor `impactOn` scales by
     // (`ramDefenceOf(victim) * victim.defenceMult`). Both effects point the same direction (a buffed
     // victim moves less), so this proves `pushOf`+`impactOn`'s composed behaviour, still run
-    // end-to-end through `applyImpulse` to match how `ram-bridge.ts` actually applies a ram.
+    // end-to-end through `applyImpulse`, passing each victim's real `ramDefenceOf`, to match how
+    // `ram-bridge.ts`'s `ramDefenceFor` actually applies a ram.
     const attacker = car({ vx: 400, vy: 0 });
     const plainVictim = car({ sessionId: "b", x: 47 });
     const heavyVictim = car({ sessionId: "b", x: 47, defenceMult: 1.5 });
     const plain = resolveRam(attacker, plainVictim, "ffa")!;
     const heavy = resolveRam(attacker, heavyVictim, "ffa")!;
     const restBody = body({ x: 47, y: 0, angle: 0 });
-    const plainNext = applyImpulse(restBody, massOf(plainVictim.carId) * plainVictim.defenceMult, plain.impulse);
-    const heavyNext = applyImpulse(restBody, massOf(heavyVictim.carId) * heavyVictim.defenceMult, heavy.impulse);
+    const plainNext = applyImpulse(restBody, ramDefenceOf(plainVictim.carId) * plainVictim.defenceMult, plain.impulse);
+    const heavyNext = applyImpulse(restBody, ramDefenceOf(heavyVictim.carId) * heavyVictim.defenceMult, heavy.impulse);
     expect(Math.hypot(heavyNext.vx, heavyNext.vy)).toBeLessThan(Math.hypot(plainNext.vx, plainNext.vy));
   });
 

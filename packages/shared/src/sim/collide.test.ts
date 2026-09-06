@@ -18,33 +18,33 @@ const CAR_W = DRIVE_CONFIG.carWidth;
 const CAR_H = DRIVE_CONFIG.carHeight;
 const BOUNDS = { width: 1000, height: 1000 };
 
-/** Mirage's real mass (`massOf("mirage")`) — the brief's own filler for a case that resolves only
- * against bounds or obstacles, where mass is never consulted so any positive number would do. NOT
- * the roster average, even though 480/300/900 does average to 560: `ramReferenceMass()` (a
- * different, ram-severity concern) is not a roster average at all — it returns 500
- * (`REFERENCE_MASS_RATING` 50 * `massPerRating` 10, an "average-RATED" chassis, not the mean of the
- * three actual masses) — easy to confuse with this constant because both are named around "the mass
- * of an average car," but this one is just Mirage's own mass reused as filler. */
-const AVG_MASS = 480;
+/** An arbitrary filler `ramDefence` (an old Mirage `mass` figure, kept as the number for continuity
+ * with the pre-Task-3 fixture rather than for any significance of its own) for a case that resolves
+ * only against bounds or obstacles, where `ramDefence` is never consulted so any positive number
+ * would do. Renamed from `AVG_MASS` in stage 3 Task 3 (`CarObstacle.mass` -> `ramDefence`,
+ * `resolveWorld`'s `selfMass` -> `selfRamDefence`); the value itself is unchanged, since nothing
+ * here reads it as a real chassis rating. */
+const FILLER_RAM_DEFENCE = 480;
 
-/** Bare `Obb` — NOT a `CarObstacle`, and sets no mass at all, despite call sites often pairing it
- * with `AVG_MASS` — used only where a specific ratio does not matter (the dedicated "mass-weighted
- * separation" block below picks real numbers). `pinned` below is what actually pairs a hull with a
- * mass, for the cases that need a `CarObstacle`. */
+/** Bare `Obb` — NOT a `CarObstacle`, and sets no `ramDefence` at all, despite call sites often
+ * pairing it with `FILLER_RAM_DEFENCE` — used only where a specific ratio does not matter (the
+ * dedicated "ramDefence-weighted separation" block below picks real numbers). `pinned` below is
+ * what actually pairs a hull with a `ramDefence`, for the cases that need a `CarObstacle`. */
 function hullAt(x: number, y: number, angle = 0): Obb {
   return { x, y, angle, w: CAR_W, h: CAR_H };
 }
 
 /**
- * Wraps a legacy `Obb` fixture (written before the mass split existed) as a `CarObstacle`, paired
- * with `selfMass: 0` at every call site below. `shareOf(0, mass) = mass / (0 + mass) = 1` exactly,
- * whatever `mass` is — so the resolved body always takes the WHOLE correction, reproducing this
- * file's pre-Task-2 full-push assertions bit-for-bit. These tests are about generic SAT/geometry
- * correctness (ordering, deep penetration, purity, bounds priority), not about mass ratios; the
- * mass split itself gets its own dedicated block, "mass-weighted separation", with real numbers.
+ * Wraps a legacy `Obb` fixture (written before the positional split existed) as a `CarObstacle`,
+ * paired with `selfRamDefence: 0` at every call site below. `shareOf(0, ramDefence) = ramDefence /
+ * (0 + ramDefence) = 1` exactly, whatever `ramDefence` is — so the resolved body always takes the
+ * WHOLE correction, reproducing this file's pre-Task-2 full-push assertions bit-for-bit. These tests
+ * are about generic SAT/geometry correctness (ordering, deep penetration, purity, bounds priority),
+ * not about ramDefence ratios; the positional split itself gets its own dedicated block,
+ * "ramDefence-weighted separation", with real numbers.
  */
 function pinned(hull: Obb): CarObstacle {
-  return { hull, mass: AVG_MASS };
+  return { hull, ramDefence: FILLER_RAM_DEFENCE };
 }
 
 /** A contact this shallow counts as touching, not overlapping. */
@@ -148,7 +148,7 @@ function hullHalfExtents(angle: number): { hx: number; hy: number } {
 describe("resolveWorld - world bounds", () => {
   it("a body driving +x through the right wall ends up in bounds and does not gain outward speed", () => {
     const start = body({ x: BOUNDS.width - 5, y: 500, angle: 0, ...alongHeading(0, 100) });
-    const out = resolveWorld(start, [], [], BOUNDS, AVG_MASS);
+    const out = resolveWorld(start, [], [], BOUNDS, FILLER_RAM_DEFENCE);
 
     const { hx } = hullHalfExtents(out.angle);
     expect(out.x + hx).toBeLessThanOrEqual(BOUNDS.width + TOUCH_SLACK);
@@ -164,7 +164,7 @@ describe("resolveWorld - world bounds", () => {
   });
 
   it("clamps both axes when a body is out of bounds past a corner", () => {
-    const out = resolveWorld(body({ x: -30, y: -20, angle: 0 }), [], [], BOUNDS, AVG_MASS);
+    const out = resolveWorld(body({ x: -30, y: -20, angle: 0 }), [], [], BOUNDS, FILLER_RAM_DEFENCE);
     const { hx, hy } = hullHalfExtents(out.angle);
     expect(out.x).toBeGreaterThanOrEqual(hx - TOUCH_SLACK);
     expect(out.y).toBeGreaterThanOrEqual(hy - TOUCH_SLACK);
@@ -172,7 +172,7 @@ describe("resolveWorld - world bounds", () => {
 
   it("carries angle and reverseHold through unchanged", () => {
     const start = body({ x: BOUNDS.width + 40, y: 500, angle: 1.23, ...alongHeading(1.23, 40), reverseHold: 4 });
-    const out = resolveWorld(start, [], [], BOUNDS, AVG_MASS);
+    const out = resolveWorld(start, [], [], BOUNDS, FILLER_RAM_DEFENCE);
     expect(out.angle).toBe(start.angle);
     expect(out.reverseHold).toBe(start.reverseHold);
   });
@@ -185,7 +185,7 @@ describe("resolveWorld - obstacles", () => {
     const start = body({ x: 100, y: 100, angle: 0, ...alongHeading(0, 60) });
     expect(overlaps(carObb(start), boxObb(obstacle))).toBe(true);
 
-    const out = resolveWorld(start, [], [obstacle], BOUNDS, AVG_MASS);
+    const out = resolveWorld(start, [], [obstacle], BOUNDS, FILLER_RAM_DEFENCE);
     expect(overlaps(carObb(out), boxObb(obstacle))).toBe(false);
     // Sign check: the push must move the car away from the obstacle centre, never into it.
     expect(out.x).toBeLessThan(start.x);
@@ -193,7 +193,7 @@ describe("resolveWorld - obstacles", () => {
 
   it("pushes a stationary, already-overlapping body out without inventing speed", () => {
     const start = body({ x: 120, y: 130, angle: 0.4 });
-    const out = resolveWorld(start, [], [obstacle], BOUNDS, AVG_MASS);
+    const out = resolveWorld(start, [], [obstacle], BOUNDS, FILLER_RAM_DEFENCE);
     expect(overlaps(carObb(out), boxObb(obstacle))).toBe(false);
     expect(fwd(out)).toBe(0);
   });
@@ -202,7 +202,7 @@ describe("resolveWorld - obstacles", () => {
     // Car spans [76,124] on x at angle 0; this obstacle starts exactly at x = 124.
     const touching: Aabb = { x: 124, y: 90, w: 100, h: 100 };
     const start = body({ x: 100, y: 100, angle: 0, ...alongHeading(0, 60) });
-    const out = resolveWorld(start, [], [touching], BOUNDS, AVG_MASS);
+    const out = resolveWorld(start, [], [touching], BOUNDS, FILLER_RAM_DEFENCE);
     expect(out.x).toBe(start.x);
     expect(out.y).toBe(start.y);
     expect(fwd(out)).toBe(fwd(start));
@@ -211,7 +211,7 @@ describe("resolveWorld - obstacles", () => {
   it("keeps speed when the body is moving away from the surface it is against", () => {
     // Facing -x at the right wall: overlapping it, but travelling out of it.
     const start = body({ x: BOUNDS.width - 5, y: 500, angle: Math.PI, ...alongHeading(Math.PI, 100) });
-    const out = resolveWorld(start, [], [], BOUNDS, AVG_MASS);
+    const out = resolveWorld(start, [], [], BOUNDS, FILLER_RAM_DEFENCE);
     expect(out.x).toBeLessThan(start.x);
     expect(fwd(out)).toBeCloseTo(100);
   });
@@ -236,26 +236,26 @@ describe("resolveWorld - the car is a real OBB, not its axis-aligned hull", () =
 
   it("a 45deg car hits a box that the unrotated car misses", () => {
     const flat = body({ ...start, angle: 0 });
-    const outFlat = resolveWorld(flat, [], [clearsAxisAligned], BOUNDS, AVG_MASS);
+    const outFlat = resolveWorld(flat, [], [clearsAxisAligned], BOUNDS, FILLER_RAM_DEFENCE);
     expect(outFlat.x).toBe(flat.x);
     expect(outFlat.y).toBe(flat.y);
 
     const tilted = body({ ...start, angle: Math.PI / 4 });
     expect(overlaps(carObb(tilted), boxObb(clearsAxisAligned))).toBe(true);
-    const outTilted = resolveWorld(tilted, [], [clearsAxisAligned], BOUNDS, AVG_MASS);
+    const outTilted = resolveWorld(tilted, [], [clearsAxisAligned], BOUNDS, FILLER_RAM_DEFENCE);
     expect(outTilted.x === tilted.x && outTilted.y === tilted.y).toBe(false);
     expect(overlaps(carObb(outTilted), boxObb(clearsAxisAligned))).toBe(false);
   });
 
   it("a 45deg car clears a corner box that the unrotated car overlaps", () => {
     const tilted = body({ ...start, angle: Math.PI / 4 });
-    const outTilted = resolveWorld(tilted, [], [clearsRotated], BOUNDS, AVG_MASS);
+    const outTilted = resolveWorld(tilted, [], [clearsRotated], BOUNDS, FILLER_RAM_DEFENCE);
     expect(outTilted.x).toBe(tilted.x);
     expect(outTilted.y).toBe(tilted.y);
 
     const flat = body({ ...start, angle: 0 });
     expect(overlaps(carObb(flat), boxObb(clearsRotated))).toBe(true);
-    const outFlat = resolveWorld(flat, [], [clearsRotated], BOUNDS, AVG_MASS);
+    const outFlat = resolveWorld(flat, [], [clearsRotated], BOUNDS, FILLER_RAM_DEFENCE);
     expect(overlaps(carObb(outFlat), boxObb(clearsRotated))).toBe(false);
   });
 });
@@ -280,53 +280,61 @@ describe("resolveWorld - car vs car", () => {
   });
 });
 
-describe("mass-weighted separation", () => {
+describe("ramDefence-weighted separation", () => {
   const BOUNDS = { width: 1280, height: 720 };
 
-  it("moves the light car further than the heavy one out of the same overlap", () => {
-    // Same overlap geometry, resolved from each car's point of view.
-    const light = { ...body({}), x: 600, y: 300 };
-    const heavy = { ...body({}), x: 630, y: 300 };
+  it("moves the flimsy car further than the solid one out of the same overlap", () => {
+    // Same overlap geometry, resolved from each car's point of view. Renamed from a `mass`-weighted
+    // fixture in stage 3 Task 3: 30/90 are bullseye's and bastion's real `ramDefenceOf` ratings, the
+    // same 1:3 ratio the old 300/900 `massOf` figures happened to carry, so the assertion below is
+    // unchanged in substance, only in which stat it reads.
+    const flimsy = { ...body({}), x: 600, y: 300 };
+    const solid = { ...body({}), x: 630, y: 300 };
 
-    const lightOut = resolveWorld(light, [{ hull: hullAt(630, 300), mass: 900 }], [], BOUNDS, 300);
-    const heavyOut = resolveWorld(heavy, [{ hull: hullAt(600, 300), mass: 300 }], [], BOUNDS, 900);
+    const flimsyOut = resolveWorld(flimsy, [{ hull: hullAt(630, 300), ramDefence: 90 }], [], BOUNDS, 30);
+    const solidOut = resolveWorld(solid, [{ hull: hullAt(600, 300), ramDefence: 30 }], [], BOUNDS, 90);
 
-    const lightMoved = Math.abs(lightOut.x - 600);
-    const heavyMoved = Math.abs(heavyOut.x - 630);
-    expect(lightMoved).toBeGreaterThan(heavyMoved * 2);
+    const flimsyMoved = Math.abs(flimsyOut.x - 600);
+    const solidMoved = Math.abs(solidOut.x - 630);
+    expect(flimsyMoved).toBeGreaterThan(solidMoved * 2);
   });
 
-  it("splits evenly between two cars of equal mass", () => {
+  it("splits evenly between two cars of equal ramDefence", () => {
     const a = { ...body({}), x: 600, y: 300 };
     const b = { ...body({}), x: 630, y: 300 };
 
-    const aOut = resolveWorld(a, [{ hull: hullAt(630, 300), mass: 480 }], [], BOUNDS, 480);
-    const bOut = resolveWorld(b, [{ hull: hullAt(600, 300), mass: 480 }], [], BOUNDS, 480);
+    const aOut = resolveWorld(a, [{ hull: hullAt(630, 300), ramDefence: 50 }], [], BOUNDS, 50);
+    const bOut = resolveWorld(b, [{ hull: hullAt(600, 300), ramDefence: 50 }], [], BOUNDS, 50);
 
     expect(Math.abs(aOut.x - 600)).toBeCloseTo(Math.abs(bOut.x - 630), 1);
   });
 
-  it("moves the car fully out of a static obstacle, which has infinite mass", () => {
+  it("moves the car fully out of a static obstacle, which has infinite ramDefence", () => {
     const start = { ...body({}), x: 600, y: 300 };
-    const out = resolveWorld(start, [], [{ x: 610, y: 290, w: 60, h: 60 }], BOUNDS, 480);
+    const out = resolveWorld(start, [], [{ x: 610, y: 290, w: 60, h: 60 }], BOUNDS, 50);
     // A wall does not yield. The car takes the whole correction, exactly as before this task.
     expect(out.x).toBeLessThan(600);
   });
 
-  it("converges a real-mass pair to non-overlap within a few ticks of mutual resolution", () => {
+  it("converges a real-ramDefence pair to non-overlap within a few ticks of mutual resolution", () => {
     // FINDING 4 (stage 2 review): every other case in this file either uses `pinned()` (share 1,
-    // the mass irrelevant) or checks a single call's position split -- nothing asserted that a REAL
-    // mass pair, each resolving every tick as `serverTick` actually drives them, ever reaches
-    // non-overlap at all. It does, but only over several ticks: per the corrected `resolveWorld` doc
-    // comment above, one full tick (both cars resolved once, second against the first's
-    // already-updated pose) removes `shareA + shareB - shareA * shareB` of the depth and leaves a
-    // residual of `shareA * shareB * depth` -- not zero -- which itself shrinks by the same factor
-    // every following tick. Mirage (480) into Bastion (900): shareOf(480, 900) = 900/1380 ≈ 0.6522,
-    // shareOf(900, 480) = 480/1380 ≈ 0.3478, so each tick should leave roughly 0.6522 * 0.3478 ≈
-    // 22.7% of the remaining depth -- converging fast, but genuinely over more than one tick, which
-    // is the property this test exists to pin.
-    const MIRAGE_MASS = 480;
-    const BASTION_MASS = 900;
+    // the ramDefence irrelevant) or checks a single call's position split -- nothing asserted that a
+    // REAL ramDefence pair, each resolving every tick as `serverTick` actually drives them, ever
+    // reaches non-overlap at all. It does, but only over several ticks: per the corrected
+    // `resolveWorld` doc comment above, one full tick (both cars resolved once, second against the
+    // first's already-updated pose) removes `shareA + shareB - shareA * shareB` of the depth and
+    // leaves a residual of `shareA * shareB * depth` -- not zero -- which itself shrinks by the same
+    // factor every following tick.
+    //
+    // Renamed from a `mass`-weighted fixture (Mirage 480, Bastion 900) in stage 3 Task 3: mirage and
+    // bastion's real `ramDefenceOf` ratings are 50 and 90, a slightly different ratio than their old
+    // `massOf` figures (48:90 vs 50:90 in rating terms), so this is re-derived, not relabelled.
+    // Mirage (50) into Bastion (90): shareOf(50, 90) = 90/140 ≈ 0.642857, shareOf(90, 50) = 50/140 ≈
+    // 0.357143, so each tick should leave roughly 0.642857 * 0.357143 ≈ 22.96% of the remaining
+    // depth -- converging fast, but genuinely over more than one tick, which is the property this
+    // test exists to pin.
+    const MIRAGE_RAM_DEFENCE = 50;
+    const BASTION_RAM_DEFENCE = 90;
     let mirage = { ...body({}), x: 600, y: 300 };
     let bastion = { ...body({}), x: 630, y: 300 };
     const startDepth = penetrationDepth(carObb(mirage), carObb(bastion));
@@ -337,17 +345,17 @@ describe("mass-weighted separation", () => {
     for (let tick = 0; tick < MAX_TICKS; tick++) {
       const nextMirage = resolveWorld(
         mirage,
-        [{ hull: carObb(bastion), mass: BASTION_MASS }],
+        [{ hull: carObb(bastion), ramDefence: BASTION_RAM_DEFENCE }],
         [],
         BOUNDS,
-        MIRAGE_MASS,
+        MIRAGE_RAM_DEFENCE,
       );
       const nextBastion = resolveWorld(
         bastion,
-        [{ hull: carObb(nextMirage), mass: MIRAGE_MASS }],
+        [{ hull: carObb(nextMirage), ramDefence: MIRAGE_RAM_DEFENCE }],
         [],
         BOUNDS,
-        BASTION_MASS,
+        BASTION_RAM_DEFENCE,
       );
       mirage = nextMirage;
       bastion = nextBastion;
@@ -382,7 +390,7 @@ describe("resolveWorld - degenerate geometry", () => {
       { x: 500, y: 400, w: 90, h: 200 },
     ];
     const start = body({ x: 495, y: 500, angle: 0, ...alongHeading(0, 90) });
-    const out = resolveWorld(start, [], gap, BOUNDS, AVG_MASS);
+    const out = resolveWorld(start, [], gap, BOUNDS, FILLER_RAM_DEFENCE);
 
     expect(Number.isFinite(out.x)).toBe(true);
     expect(Number.isFinite(out.y)).toBe(true);
@@ -396,17 +404,17 @@ describe("resolveWorld - purity and determinism", () => {
     { x: 110, y: 90, w: 100, h: 100 },
     { x: 60, y: 60, w: 40, h: 40 },
   ];
-  // Determinism and purity hold for any mass split, so the exact numbers here are arbitrary --
+  // Determinism and purity hold for any ramDefence split, so the exact numbers here are arbitrary --
   // unlike the legacy `pinned` fixtures elsewhere, nothing below asserts a specific position.
   const others: CarObstacle[] = [
-    { hull: { x: 118, y: 108, angle: 0.7, w: CAR_W, h: CAR_H }, mass: AVG_MASS },
-    { hull: { x: 80, y: 120, angle: -0.3, w: CAR_W, h: CAR_H }, mass: AVG_MASS },
+    { hull: { x: 118, y: 108, angle: 0.7, w: CAR_W, h: CAR_H }, ramDefence: FILLER_RAM_DEFENCE },
+    { hull: { x: 80, y: 120, angle: -0.3, w: CAR_W, h: CAR_H }, ramDefence: FILLER_RAM_DEFENCE },
   ];
   const start = body({ x: 100, y: 100, angle: 0.2, ...alongHeading(0.2, 55), reverseHold: 3 });
 
   it("is deterministic for identical inputs", () => {
-    const a = resolveWorld(start, others, obstacles, BOUNDS, AVG_MASS);
-    const b = resolveWorld(start, others, obstacles, BOUNDS, AVG_MASS);
+    const a = resolveWorld(start, others, obstacles, BOUNDS, FILLER_RAM_DEFENCE);
+    const b = resolveWorld(start, others, obstacles, BOUNDS, FILLER_RAM_DEFENCE);
     expect(a).toEqual(b);
   });
 
@@ -415,7 +423,7 @@ describe("resolveWorld - purity and determinism", () => {
     const obstaclesBefore = JSON.stringify(obstacles);
     const othersBefore = JSON.stringify(others);
 
-    resolveWorld(start, others, obstacles, BOUNDS, AVG_MASS);
+    resolveWorld(start, others, obstacles, BOUNDS, FILLER_RAM_DEFENCE);
 
     expect(JSON.stringify(start)).toBe(bodyBefore);
     expect(JSON.stringify(obstacles)).toBe(obstaclesBefore);
@@ -423,7 +431,7 @@ describe("resolveWorld - purity and determinism", () => {
   });
 
   it("returns a fresh body object", () => {
-    const out = resolveWorld(start, [], [], BOUNDS, AVG_MASS);
+    const out = resolveWorld(start, [], [], BOUNDS, FILLER_RAM_DEFENCE);
     expect(out).not.toBe(start);
   });
 });
@@ -445,7 +453,7 @@ describe("resolveWorld - deep penetration (containment on a separating axis)", (
       const start = body({ x: centreAtDepth(depth), y: 800, angle: 0, ...alongHeading(0, 100) });
       expect(overlaps(carObb(start), boxObb(block))).toBe(true);
 
-      const out = resolveWorld(start, [], [block], ARENA, AVG_MASS);
+      const out = resolveWorld(start, [], [block], ARENA, FILLER_RAM_DEFENCE);
 
       expect(overlaps(carObb(out), boxObb(block))).toBe(false);
       // Push must be along the face normal (-x), not sideways along the face.
@@ -459,7 +467,7 @@ describe("resolveWorld - deep penetration (containment on a separating axis)", (
   it("ejects a car sitting fully inside the block, taking the nearest face out", () => {
     // Off-centre: nearest exit is the top face (y = 620), 210 away vs 240/270/150+ elsewhere.
     const start = body({ x: 1200, y: 700, angle: 0 });
-    const out = resolveWorld(start, [], [block], ARENA, AVG_MASS);
+    const out = resolveWorld(start, [], [block], ARENA, FILLER_RAM_DEFENCE);
 
     expect(overlaps(carObb(out), boxObb(block))).toBe(false);
     expect(out.y).toBeLessThan(start.y);
@@ -468,7 +476,7 @@ describe("resolveWorld - deep penetration (containment on a separating axis)", (
 
   it("ejects a car at the block's exact centre", () => {
     const start = body({ x: 1200, y: 800, angle: 0 });
-    const out = resolveWorld(start, [], [block], ARENA, AVG_MASS);
+    const out = resolveWorld(start, [], [block], ARENA, FILLER_RAM_DEFENCE);
     expect(overlaps(carObb(out), boxObb(block))).toBe(false);
   });
 
@@ -492,16 +500,16 @@ describe("resolveWorld - deep penetration (containment on a separating axis)", (
         [],
         [block],
         ARENA,
-        AVG_MASS,
+        FILLER_RAM_DEFENCE,
       );
-      const twice = resolveWorld(once, [], [block], ARENA, AVG_MASS);
+      const twice = resolveWorld(once, [], [block], ARENA, FILLER_RAM_DEFENCE);
       expect(twice).toEqual(once);
     }
   });
 
   it("clamps a body shoved far past a world bound", () => {
     const start = body({ x: BOUNDS.width + 500, y: 500, angle: 0, ...alongHeading(0, 100) });
-    const out = resolveWorld(start, [], [], BOUNDS, AVG_MASS);
+    const out = resolveWorld(start, [], [], BOUNDS, FILLER_RAM_DEFENCE);
     const { hx } = hullHalfExtents(out.angle);
     expect(out.x + hx).toBeLessThanOrEqual(BOUNDS.width + TOUCH_SLACK);
   });
@@ -543,7 +551,7 @@ describe("resolveWorld - the arena boundary is inviolable", () => {
     const hugging: Aabb = { x: 0, y: 400, w: 60, h: 200 };
     const start = body({ x: 50, y: 500, angle: 0 });
 
-    const out = resolveWorld(start, [], [hugging], BOUNDS, AVG_MASS);
+    const out = resolveWorld(start, [], [hugging], BOUNDS, FILLER_RAM_DEFENCE);
     expect(inBounds(out, BOUNDS)).toBe(true);
   });
 });
@@ -638,7 +646,7 @@ describe("resolveWorld - one restitution per distinct surface", () => {
   const wedged = () => body({ x: 990, y: 500, angle: 0, ...alongHeading(0, 100) });
 
   it("damps once per contact: wall then obstacle is r^2, never r^3", () => {
-    const out = resolveWorld(wedged(), [], [hugging], BOUNDS, AVG_MASS);
+    const out = resolveWorld(wedged(), [], [hugging], BOUNDS, FILLER_RAM_DEFENCE);
 
     expect(fwd(out)).toBeCloseTo(100 * r ** 2, 6);
     // The trailing clamp must not take a third bite: that is the r^3 bug.
@@ -649,7 +657,7 @@ describe("resolveWorld - one restitution per distinct surface", () => {
     // Spelled out because the restitution assertion above hides it: there is nowhere legal for this
     // car to go. The obstacle fills the arena right up to the wall, so the boundary clamp (which
     // outranks obstacles) drags it back into geometry every tick.
-    const out = resolveWorld(wedged(), [], [hugging], BOUNDS, AVG_MASS);
+    const out = resolveWorld(wedged(), [], [hugging], BOUNDS, FILLER_RAM_DEFENCE);
 
     expect(out.x).toBe(976);
     // 48px deep: the car's entire width, not a graze.
@@ -659,27 +667,27 @@ describe("resolveWorld - one restitution per distinct surface", () => {
     // because resolution applies no drag; only stepDrive does. Re-resolving cannot dig it out.
     let settled = out;
     for (let tick = 0; tick < 5; tick++) {
-      settled = resolveWorld(settled, [], [hugging], BOUNDS, AVG_MASS);
+      settled = resolveWorld(settled, [], [hugging], BOUNDS, FILLER_RAM_DEFENCE);
       expect(settled.x).toBe(976);
       expect(fwd(settled)).toBeCloseTo(fwd(out), 6);
     }
   });
 
   it("applies exactly one restitution for a lone wall contact", () => {
-    const out = resolveWorld(body({ x: BOUNDS.width - 5, y: 500, angle: 0, ...alongHeading(0, 100) }), [], [], BOUNDS, AVG_MASS);
+    const out = resolveWorld(body({ x: BOUNDS.width - 5, y: 500, angle: 0, ...alongHeading(0, 100) }), [], [], BOUNDS, FILLER_RAM_DEFENCE);
     expect(fwd(out)).toBeCloseTo(-100 * r, 6);
   });
 
   it("applies exactly one restitution for a lone obstacle contact", () => {
     const clear: Aabb = { x: 600, y: 400, w: 100, h: 200 };
-    const out = resolveWorld(body({ x: 580, y: 500, angle: 0, ...alongHeading(0, 100) }), [], [clear], BOUNDS, AVG_MASS);
+    const out = resolveWorld(body({ x: 580, y: 500, angle: 0, ...alongHeading(0, 100) }), [], [clear], BOUNDS, FILLER_RAM_DEFENCE);
     expect(fwd(out)).toBeCloseTo(-100 * r, 6);
   });
 
   it("never lets the trailing clamp change speed on its own", () => {
     // Driven far out of bounds with no other contact: the leading pass bounces once and the
     // trailing clamp, reached with the body already inside, must be inert.
-    const out = resolveWorld(body({ x: BOUNDS.width + 300, y: 500, angle: 0, ...alongHeading(0, 100) }), [], [], BOUNDS, AVG_MASS);
+    const out = resolveWorld(body({ x: BOUNDS.width + 300, y: 500, angle: 0, ...alongHeading(0, 100) }), [], [], BOUNDS, FILLER_RAM_DEFENCE);
     expect(fwd(out)).toBeCloseTo(-100 * r, 6);
   });
 });
@@ -860,12 +868,12 @@ describe("applyContact reflects the whole velocity, not just driven speed", () =
   // way the old code's second, shove-specific reflection pass used to. See `applyContact`'s doc
   // comment in `collide.ts` for the full account.
   it("rebounds a car whose only velocity is externally imposed (no throttle) off a wall", () => {
-    const out = resolveWorld(body({ x: 10, y: 400, vx: -300, vy: 0 }), [], [], BOUNDS, AVG_MASS);
+    const out = resolveWorld(body({ x: 10, y: 400, vx: -300, vy: 0 }), [], [], BOUNDS, FILLER_RAM_DEFENCE);
     expect(fwd(out)).toBeGreaterThan(0);
   });
 
   it("does not amplify velocity that is already moving away from the surface", () => {
-    const out = resolveWorld(body({ x: 10, y: 400, vx: 300, vy: 0 }), [], [], BOUNDS, AVG_MASS);
+    const out = resolveWorld(body({ x: 10, y: 400, vx: 300, vy: 0 }), [], [], BOUNDS, FILLER_RAM_DEFENCE);
     expect(out.vx).toBeCloseTo(300, 9);
   });
 
@@ -875,7 +883,7 @@ describe("applyContact reflects the whole velocity, not just driven speed", () =
     // the surviving velocity stays entirely lateral, damped by exactly one restitution factor:
     // vy' = -(-300) * restitution = 300 * 0.15 = 45. Under the old discard this came back as pure
     // forward speed (`out.vy` close to 0); it no longer does.
-    const out = resolveWorld(body({ x: 500, y: 5, angle: 0, vx: 0, vy: -300 }), [], [], BOUNDS, AVG_MASS);
+    const out = resolveWorld(body({ x: 500, y: 5, angle: 0, vx: 0, vy: -300 }), [], [], BOUNDS, FILLER_RAM_DEFENCE);
     expect(out.vx).toBeCloseTo(0, 9);
     expect(out.vy).toBeCloseTo(300 * DRIVE_CONFIG.restitution, 9);
   });
@@ -888,7 +896,7 @@ describe("contact reflection preserves direction", () => {
     const v = toWorld(angle, 200, 0);
     const b = { ...body({ x: 10, y: 300, angle }), vx: v.vx, vy: v.vy };
 
-    const next = resolveWorld(b, [], [], { width: 1280, height: 720 }, AVG_MASS);
+    const next = resolveWorld(b, [], [], { width: 1280, height: 720 }, FILLER_RAM_DEFENCE);
 
     // It must now be travelling ALONG the wall (mostly +y), not stopped facing into it.
     expect(Math.abs(next.vy)).toBeGreaterThan(Math.abs(next.vx) * 2);
@@ -901,7 +909,7 @@ describe("contact reflection preserves direction", () => {
     const v = toWorld(angle, 200, 0);
     const b = { ...body({ x: 10, y: 300, angle }), vx: v.vx, vy: v.vy };
 
-    const next = resolveWorld(b, [], [], { width: 1280, height: 720 }, AVG_MASS);
+    const next = resolveWorld(b, [], [], { width: 1280, height: 720 }, FILLER_RAM_DEFENCE);
     expect(speedOf(next.vx, next.vy)).toBeGreaterThan(120);
   });
 
@@ -911,13 +919,13 @@ describe("contact reflection preserves direction", () => {
     const v = toWorld(angle, 200, 0);
     const b = { ...body({ x: 10, y: 300, angle }), vx: v.vx, vy: v.vy };
 
-    const next = resolveWorld(b, [], [], { width: 1280, height: 720 }, AVG_MASS);
+    const next = resolveWorld(b, [], [], { width: 1280, height: 720 }, FILLER_RAM_DEFENCE);
     expect(Math.abs(lateralOf(next.vx, next.vy, next.angle))).toBeGreaterThan(50);
   });
 
   it("still barely rebounds head-on, because cars are not billiard balls", () => {
     const b = body({ x: 10, y: 300, angle: Math.PI, vx: -200, vy: 0 });
-    const next = resolveWorld(b, [], [], { width: 1280, height: 720 }, AVG_MASS);
+    const next = resolveWorld(b, [], [], { width: 1280, height: 720 }, FILLER_RAM_DEFENCE);
     // restitution 0.15: it comes back at about 15% of what it arrived with, not 35%.
     expect(next.vx).toBeGreaterThan(0);
     expect(next.vx).toBeLessThan(200 * 0.25);

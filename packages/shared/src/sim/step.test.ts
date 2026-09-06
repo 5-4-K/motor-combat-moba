@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MS_PER_TICK } from "../constants.js";
-import { massOf } from "../config/car-config.js";
+import { ramDefenceOf } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import { RAM_CONFIG } from "../config/ram-config.js";
 import { obbCorners, obbsInContact, type Obb } from "./collide.js";
@@ -19,7 +19,7 @@ const EMPTY_ARENA: StepContext = {
   obstacles: [],
   bounds: { width: 800, height: 600 },
   modifiers: NEUTRAL_MODIFIERS,
-  selfMass: massOf("mirage"),
+  selfRamDefence: ramDefenceOf("mirage"),
 };
 
 function drive(body: SimBody, ctx: StepContext, ticks: number): SimBody {
@@ -179,25 +179,30 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
     return depth;
   }
 
-  it("never ends the dasher past the car it dashed into, and bounds how far in it can end, at every real roster mass pairing", () => {
-    // Production can never hand `resolveWorld` `selfMass: 0` (share 1, the pre-mass-split
-    // always-full-push rule) -- that mass does not exist on the roster. Sweep the masses a real dash
-    // can actually produce instead: all 9 ordered pairings of the three chassis masses, dasher and
-    // target independently, since the resolver does not care which side is doing the dashing.
-    const ROSTER_MASSES = [massOf("mirage"), massOf("bullseye"), massOf("bastion")];
+  it("never ends the dasher past the car it dashed into, and bounds how far in it can end, at every real roster ramDefence pairing", () => {
+    // Production can never hand `resolveWorld` `selfRamDefence: 0` (share 1, the pre-split
+    // always-full-push rule) -- that rating does not exist on the roster. Sweep the ramDefence
+    // ratings a real dash can actually produce instead: all 9 ordered pairings of the three
+    // chassis' ratings, dasher and target independently, since the resolver does not care which
+    // side is doing the dashing. Renamed from a `mass` sweep in stage 3 Task 3; the roster's
+    // relative ordering (bullseye < mirage < bastion) is unchanged, but mirage's ratio to the other
+    // two shifted slightly (mass 480:300:900 vs ramDefence 50:30:90), so the worst-case figures
+    // below are re-measured, not merely relabelled.
+    const ROSTER_RAM_DEFENCES = [ramDefenceOf("mirage"), ramDefenceOf("bullseye"), ramDefenceOf("bastion")];
 
     const pastFailures: string[] = [];
     let worstDepth = 0;
     let worstDepthLabel = "";
     // `thunderclap` is the only dash in the game and it is Mirage-only (`wildcharge` is a `charge`,
-    // not a `dash`), so of the 9 pairings below only the 3 where `selfMass` is Mirage's are ones a
-    // player can ever produce. Track those separately for a tighter bound than the full sweep needs.
-    const MIRAGE_MASS = massOf("mirage");
+    // not a `dash`), so of the 9 pairings below only the 3 where `selfRamDefence` is Mirage's are
+    // ones a player can ever produce. Track those separately for a tighter bound than the full
+    // sweep needs.
+    const MIRAGE_RAM_DEFENCE = ramDefenceOf("mirage");
     let worstReachableDepth = 0;
     let worstReachableDepthLabel = "";
 
-    for (const selfMass of ROSTER_MASSES) {
-      for (const otherMass of ROSTER_MASSES) {
+    for (const selfRamDefence of ROSTER_RAM_DEFENCES) {
+      for (const otherRamDefence of ROSTER_RAM_DEFENCES) {
         for (let deg = 0; deg < 360; deg += 30) {
           const a = (deg * Math.PI) / 180;
           const dir = { x: Math.cos(a), y: Math.sin(a) };
@@ -207,11 +212,11 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
             const targetHull = hullOf(TARGET.x, TARGET.y, targetAngle);
             const ctx: StepContext = {
               carId: "mirage",
-              others: [{ hull: targetHull, mass: otherMass }],
+              others: [{ hull: targetHull, ramDefence: otherRamDefence }],
               obstacles: [],
               bounds: { width: 1280, height: 720 },
               modifiers: NEUTRAL_MODIFIERS,
-              selfMass,
+              selfRamDefence,
             };
 
             // Sweep the full sub-tick phase: shifting the start by one tick's travel walks the
@@ -224,14 +229,14 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
                 body = stepSim(body, NO_INPUT, DT, ctx);
                 const hull = hullOf(body.x, body.y, body.angle);
                 const along = (body.x - TARGET.x) * dir.x + (body.y - TARGET.y) * dir.y;
-                const label = `self ${selfMass} other ${otherMass}, approach ${deg}deg, target ${targetDeg}deg, phase ${p}, tick ${tick}`;
+                const label = `self ${selfRamDefence} other ${otherRamDefence}, approach ${deg}deg, target ${targetDeg}deg, phase ${p}, tick ${tick}`;
 
                 // Started behind the target, so the projection onto the dash axis must stay
                 // negative: the dasher plants itself in front of what it hit and never comes out
                 // the far side. This is the anti-tunnelling safety property dash substepping exists
-                // for (C1/C2); it is unaffected by the mass split (see the derivation on
+                // for (C1/C2); it is unaffected by the split (see the derivation on
                 // `shareOf` — `share` scales the push, not the contact normal) and holds exactly, in
-                // every one of the 9 mass pairings below.
+                // every one of the 9 ramDefence pairings below.
                 if (along >= 0) {
                   pastFailures.push(`${label}: ended ${along.toFixed(1)}u PAST the target centre`);
                 }
@@ -241,7 +246,7 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
                   worstDepth = depth;
                   worstDepthLabel = label;
                 }
-                if (selfMass === MIRAGE_MASS && depth > worstReachableDepth) {
+                if (selfRamDefence === MIRAGE_RAM_DEFENCE && depth > worstReachableDepth) {
                   worstReachableDepth = depth;
                   worstReachableDepthLabel = label;
                 }
@@ -265,20 +270,23 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
     expect(pastFailures.slice(0, 10)).toEqual([]);
     expect(pastFailures).toHaveLength(0);
 
-    // Half 2 (penetration): no longer zero once `selfMass` is a real chassis mass instead of the
-    // impossible 0. With the mass split (stage 2 Task 2), the dasher takes only `shareOf(selfMass,
-    // otherMass)` of the correction on the contact tick and relies on the OTHER car conceding the
-    // rest via its own `resolveWorld` call — which this sweep never runs, since it drives only the
-    // dasher, matching a real target that has not yet reacted on this same tick. Momentary
-    // penetration is therefore expected here and is not a bug: it decays over the following ticks
-    // once the target starts conceding its own share (see `shareOf`'s doc comment), it just is not
-    // reproducible in a sweep that only steps one side.
+    // Half 2 (penetration): no longer zero once `selfRamDefence` is a real chassis rating instead of
+    // the impossible 0. With the positional split (stage 2 Task 2), the dasher takes only
+    // `shareOf(selfRamDefence, otherRamDefence)` of the correction on the contact tick and relies on
+    // the OTHER car conceding the rest via its own `resolveWorld` call — which this sweep never runs,
+    // since it drives only the dasher, matching a real target that has not yet reacted on this same
+    // tick. Momentary penetration is therefore expected here and is not a bug: it decays over the
+    // following ticks once the target starts conceding its own share (see `shareOf`'s doc comment),
+    // it just is not reproducible in a sweep that only steps one side.
     //
-    // Bound derived from this exact sweep: the worst of the 9 ordered mass pairings is bastion (900)
-    // dashing into bullseye (300) — the heaviest-into-lightest pairing, share = 300/(900+300) =
-    // 0.25, so the dasher corrects only a quarter of the overlap on the contact tick — measured at
-    // ~26.64u against the 48x32 hull (see `worstDepthLabel` below if this ever needs re-deriving).
-    // 34 leaves noticeable headroom above that without being loose enough to hide a doubled residual.
+    // Bound derived from this exact sweep: the worst of the 9 ordered pairings is bastion (ramDefence
+    // 90) dashing into bullseye (ramDefence 30) — the most-solid-into-least-solid pairing, share =
+    // 30/(90+30) = 0.25, so the dasher corrects only a quarter of the overlap on the contact tick.
+    // That share is UNCHANGED from the pre-Task-3 `mass` sweep (bastion 900 into bullseye 300 was also
+    // share 300/1200 = 0.25 — same ratio, just scaled 10x), so the measured worst depth is unchanged
+    // too: ~26.64u against the 48x32 hull (see `worstDepthLabel` below if this ever needs
+    // re-deriving). 34 leaves noticeable headroom above that without being loose enough to hide a
+    // doubled residual.
     const MAX_PENETRATION = 34;
     expect(worstDepth, `worst penetration at [${worstDepthLabel}]`).toBeLessThan(MAX_PENETRATION);
 
@@ -286,13 +294,24 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
     // behaviour, including pairings (bastion dashing) that cannot happen in a real match — nothing
     // in `WEAPON_TABLE` gives Bastion or Bullseye a `type: "dash"` maneuver, only Mirage's
     // `thunderclap`. That headroom is real resolver coverage and stays, but it is nearly 2x looser
-    // than what a player can ever see, so a regression that took Mirage's actual worst case from
-    // 17.96u to 30u would still pass it silently. Pin the Mirage-as-dasher subset separately, with
-    // headroom picked the same way `MAX_PENETRATION` was: enough to absorb measurement noise across
-    // the phase/angle sweep, not enough to hide a doubled residual. Applying the full bound's own
-    // headroom ratio (34 / 26.64, its worst case) to the reachable worst case (17.96u) gives ~22.9u;
-    // a doubled residual (~35.9u) would still fail it comfortably, so it discriminates.
-    const MAX_REACHABLE_PENETRATION = 17.96 * (MAX_PENETRATION / 26.64);
+    // than what a player can ever see, so a regression that doubled Mirage's actual worst case would
+    // still pass it silently. Pin the Mirage-as-dasher subset separately, with headroom picked the
+    // same way `MAX_PENETRATION` was: enough to absorb measurement noise across the phase/angle
+    // sweep, not enough to hide a doubled residual.
+    //
+    // UNLIKE the bastion/bullseye pairing above, this figure DOES move under stage 3 Task 3: mirage's
+    // ramDefence-to-others ratio (50:30 and 50:90) is not quite the same as its old mass-to-others
+    // ratio (480:300 and 480:900, since 48 — mirage's `mass` rating — and 50 — its `ramDefence`
+    // rating — differ), so mirage's own worst-case share shifts slightly. Re-measured directly from
+    // this exact sweep (not hand-derived from the pre-Task-3 17.96u figure, and not pasted from a
+    // one-off run either — re-run this test with the bound removed, or read
+    // `worstReachableDepthLabel`, if this ever needs re-deriving again): mirage (ramDefence 50)
+    // dashing into bullseye (ramDefence 30), 90deg approach, 0deg target, phase 7 tick 4 —
+    // 18.492296006944457u. Applying the full bound's own headroom ratio (34 / 26.640625, its worst
+    // case) to that gives ~23.6u; a doubled residual (~37.0u) would still fail it comfortably, so it
+    // still discriminates.
+    const MEASURED_WORST_REACHABLE = 18.492296006944457;
+    const MAX_REACHABLE_PENETRATION = MEASURED_WORST_REACHABLE * (MAX_PENETRATION / 26.640625);
     expect(
       worstReachableDepth,
       `worst reachable (Mirage-as-dasher) penetration at [${worstReachableDepthLabel}]`,
@@ -310,7 +329,7 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
       obstacles: [],
       bounds: { width: 4000, height: 4000 },
       modifiers: NEUTRAL_MODIFIERS,
-      selfMass: massOf("mirage"),
+      selfRamDefence: ramDefenceOf("mirage"),
     };
     let body = dasherAt(200, 2000, 0);
     for (let tick = 0; tick < DASH_TICKS; tick++) {
@@ -331,7 +350,7 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
       obstacles: [],
       bounds: { width: 4000, height: 4000 },
       modifiers: NEUTRAL_MODIFIERS,
-      selfMass: massOf("mirage"),
+      selfRamDefence: ramDefenceOf("mirage"),
     };
     const out = stepSim(dasherAt(200, 2000, 0), NO_INPUT, DT, empty);
     expect(out.maneuverTicksLeft).toBe(DASH_TICKS - 1);
@@ -348,7 +367,7 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
       obstacles: [{ x: 300, y: 200, w: 200, h: 200 }],
       bounds: { width: 1280, height: 720 },
       modifiers: NEUTRAL_MODIFIERS,
-      selfMass: massOf("mirage"),
+      selfRamDefence: ramDefenceOf("mirage"),
     };
     const driving: SimBody = {
       x: 200,

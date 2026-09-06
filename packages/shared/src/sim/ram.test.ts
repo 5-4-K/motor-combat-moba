@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RAM_CONFIG } from "../config/ram-config.js";
-import { massOf, ramAttackOf, ramDefenceOf } from "../config/car-config.js";
+import { ramAttackOf, ramDefenceOf } from "../config/car-config.js";
 import type { CarId } from "../config/types.js";
 import { applyImpulse } from "./impulse.js";
 import { applyRams, impactSideOf, pairKey, resolveRam, type RamCar } from "./ram.js";
@@ -196,7 +196,7 @@ describe("resolveRam", () => {
     // `applyImpulse` derives from them is genuinely zero, not merely untested.
     const { attacker, victim } = headOn(540);
     const hit = resolveRam(attacker, victim, "ffa")!;
-    const next = applyImpulse(bodyAt(victim.x, victim.y, victim.angle), massOf(victim.carId), hit.impulse);
+    const next = applyImpulse(bodyAt(victim.x, victim.y, victim.angle), ramDefenceOf(victim.carId), hit.impulse);
     expect(next.angVel).toBeCloseTo(0, 9);
   });
 
@@ -208,8 +208,8 @@ describe("resolveRam", () => {
     const aft = resolveRam(attackerAft, victim, "ffa")!;
     expect(fwd.side).toBe("flank");
     expect(aft.side).toBe("flank");
-    const fwdSpin = applyImpulse(bodyAt(victim.x, victim.y, victim.angle), massOf(victim.carId), fwd.impulse).angVel;
-    const aftSpin = applyImpulse(bodyAt(victim.x, victim.y, victim.angle), massOf(victim.carId), aft.impulse).angVel;
+    const fwdSpin = applyImpulse(bodyAt(victim.x, victim.y, victim.angle), ramDefenceOf(victim.carId), fwd.impulse).angVel;
+    const aftSpin = applyImpulse(bodyAt(victim.x, victim.y, victim.angle), ramDefenceOf(victim.carId), aft.impulse).angVel;
     expect(Math.sign(fwdSpin)).toBe(-Math.sign(aftSpin));
     expect(fwdSpin).not.toBe(0);
   });
@@ -222,40 +222,49 @@ describe("resolveRam", () => {
     const attacker = car({ sessionId: "a", x: 22.5, y: 8.5, angle: 3.25, carId: "bastion" as CarId, ...velocityAt(100000, 3.25) });
     const victim = car({ sessionId: "b", x: 0, y: 0, angle: 0, carId: "bullseye" as CarId });
     const hit = resolveRam(attacker, victim, "ffa")!;
-    const next = applyImpulse(bodyAt(victim.x, victim.y, victim.angle), massOf(victim.carId), hit.impulse);
+    const next = applyImpulse(bodyAt(victim.x, victim.y, victim.angle), ramDefenceOf(victim.carId), hit.impulse);
     expect(Math.abs(next.angVel)).toBe(RAM_CONFIG.spinMaxRate);
   });
 
   it("produces an ordinary flank ram spin in a sane, non-trivial band", () => {
     // Pins the magnitude, not just the sign, so a future scale regression (e.g. spinScale silently
     // reverting toward 1) fails loudly instead of only showing up as a "feels weak" bug report.
+    //
+    // UPDATED for stage 3 Task 3: this fixture's speed (500) was already above any real chassis's
+    // top speed even before this task, chosen only to produce "a solid flank ram" under the old
+    // mass-divided inertia. `nextSpin`'s inertia term (`sim/impulse.ts`) now divides by `ramDefence`
+    // (30-90) instead of `mass` (300-900) — a ~10x smaller denominator, documented there as an
+    // expected consequence of this task, not a regression to compensate for (spec P25b assigns
+    // re-pitching `spinScale`/`spinMaxRate` for it to stage 3 Task 4). At this fixture's speed the
+    // torque-derived spin now saturates `spinMaxRate` outright, so "non-trivial band" collapses to
+    // the ceiling itself; asserting the saturation directly still catches a real regression (a
+    // spinScale reverted toward 1 would drop this below the ceiling again).
     const attacker = car({ sessionId: "a", x: 12, y: -30, angle: Math.PI / 2, ...velocityAt(500, Math.PI / 2) });
     const victim = car({ sessionId: "b", x: 0, y: 0, angle: 0 });
     const hit = resolveRam(attacker, victim, "ffa")!;
     expect(hit.side).toBe("flank");
-    const next = applyImpulse(bodyAt(victim.x, victim.y, victim.angle), massOf(victim.carId), hit.impulse);
-    expect(Math.abs(next.angVel)).toBeGreaterThan(1);
-    expect(Math.abs(next.angVel)).toBeLessThan(RAM_CONFIG.spinMaxRate);
+    const next = applyImpulse(bodyAt(victim.x, victim.y, victim.angle), ramDefenceOf(victim.carId), hit.impulse);
+    expect(Math.abs(next.angVel)).toBe(RAM_CONFIG.spinMaxRate);
   });
 
   it("shoves a lower-ramDefence victim further than a higher-ramDefence one", () => {
     // The two rams below are NOT "identical" — swapping the victim's chassis changes `ramDefence`
     // (bastion carries the roster's highest), which changes what `impactOn` divides by, so
     // `resolveRam` itself already returns a smaller `impulse.speed` for the bastion victim before
-    // `applyImpulse` ever runs. `resolveRam` never divides victim MASS out at all (`ramDefence`
-    // replaced it in the contest), and both impulses here are `defenceScaled: false` (the contest
-    // already divided by `ramDefence`), so `applyImpulse`'s own `massFactorOf` returns 1 for both and
-    // contributes nothing on top — the entire gap this test measures is `ramDefence`, not `mass`.
-    // Still run end-to-end through `applyImpulse`, to match how `ram-bridge.ts` actually applies a
-    // ram, rather than asserting on `impulse.speed` directly (`impulse.test.ts` covers
-    // `applyImpulse`'s own mass scaling in isolation, on impulses where it actually applies).
+    // `applyImpulse` ever runs. Both impulses here are `defenceScaled: false` (the contest already
+    // divided by `ramDefence`), so `applyImpulse`'s own `defenceFactorOf` returns 1 for both and
+    // contributes nothing on top — the entire gap this test measures came from `resolveRam`, not
+    // from `applyImpulse`'s divisor. Still run end-to-end through `applyImpulse`, passing each
+    // victim's real `ramDefenceOf`, to match how `ram-bridge.ts`'s `ramDefenceFor` actually applies
+    // a ram, rather than asserting on `impulse.speed` directly (`impulse.test.ts` covers
+    // `applyImpulse`'s own `ramDefence` scaling in isolation, on impulses where it actually applies).
     const attacker = car({ sessionId: "a", carId: "bastion" as CarId, ...velocityAt(540, 0) });
     const light = car({ sessionId: "b", x: 47, carId: "mirage" as CarId });
     const heavy = car({ sessionId: "b", x: 47, carId: "bastion" as CarId });
     const lightHit = resolveRam(attacker, light, "ffa")!;
     const heavyHit = resolveRam(attacker, heavy, "ffa")!;
-    const lightNext = applyImpulse(bodyAt(light.x, light.y, light.angle), massOf(light.carId), lightHit.impulse);
-    const heavyNext = applyImpulse(bodyAt(heavy.x, heavy.y, heavy.angle), massOf(heavy.carId), heavyHit.impulse);
+    const lightNext = applyImpulse(bodyAt(light.x, light.y, light.angle), ramDefenceOf(light.carId), lightHit.impulse);
+    const heavyNext = applyImpulse(bodyAt(heavy.x, heavy.y, heavy.angle), ramDefenceOf(heavy.carId), heavyHit.impulse);
     expect(Math.hypot(lightNext.vx, lightNext.vy)).toBeGreaterThan(Math.hypot(heavyNext.vx, heavyNext.vy));
   });
 

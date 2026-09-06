@@ -1,9 +1,9 @@
 import {
   NEUTRAL_MODIFIERS,
   carIdOf,
-  massOf,
   modifiersFromRows,
   otherCarHulls,
+  ramDefenceOf,
   type ArenaDef,
   type ContextEntry,
   type ContextPlayer,
@@ -67,7 +67,7 @@ export function buildStepContext(
     obstacles: arena.obstacles,
     bounds: { width: arena.width, height: arena.height },
     modifiers,
-    selfMass: massOf(carId),
+    selfRamDefence: ramDefenceOf(carId),
   };
 }
 
