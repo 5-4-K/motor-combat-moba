@@ -106,17 +106,32 @@ function drive(start: SimBody, msg: InputMessage, ticks: number): SimBody {
 
 /**
  * `forward` is the signed component along the heading — the direct successor to the old scalar
- * `speed` (negative meant reversing there too). Every case below also pins lateral at exactly 0: the
- * old scalar model had no way to represent a lateral component at all, so asserting it here is not a
- * new requirement, just the first time it can be stated explicitly now that `vx`/`vy` could in
- * principle carry one.
+ * `speed` (negative meant reversing there too). `lateral` defaults to 0, which is exact for every
+ * `stepDrive` case below: `steeringGrip` is 1.0 ("on rails"), so driven velocity always stays
+ * aligned with the nose and the old scalar model's inability to represent a lateral component was
+ * never a limitation there.
+ *
+ * `resolveWorld` is different since stage 2 Task 1: `applyContact` now hands back the WHOLE
+ * reflected vector instead of discarding it and rebuilding a scalar along the unchanged heading, so
+ * a contact whose push normal is not collinear with the car's velocity leaves real lateral motion
+ * behind. Two of the four `resolveWorld` cases below are dead-on (normal exactly anti-parallel to
+ * velocity) and still land on lateral 0 for that reason, not because the field is unconditionally
+ * zero; the other two pass their hand-derived lateral value explicitly. See the comment on that
+ * describe block for the derivations.
  */
-function expectPose(actual: SimBody, x: number, y: number, angle: number, forward: number): void {
+function expectPose(
+  actual: SimBody,
+  x: number,
+  y: number,
+  angle: number,
+  forward: number,
+  lateral = 0,
+): void {
   expect(actual.x).toBeCloseTo(x, 9);
   expect(actual.y).toBeCloseTo(y, 9);
   expect(actual.angle).toBeCloseTo(angle, 9);
   expect(forwardOf(actual.vx, actual.vy, actual.angle)).toBeCloseTo(forward, 9);
-  expect(lateralOf(actual.vx, actual.vy, actual.angle)).toBeCloseTo(0, 9);
+  expect(lateralOf(actual.vx, actual.vy, actual.angle)).toBeCloseTo(lateral, 9);
 }
 
 describe("golden: stepDrive against the vector-drive rework", () => {
@@ -158,37 +173,67 @@ describe("golden: stepDrive against the vector-drive rework", () => {
 describe("golden: resolveWorld against the vector-drive rework", () => {
   const bounds = { width: 1000, height: 800 };
 
-  // Every case in this block records the SAME numbers the pre-rework fixture pinned. That is not a
-  // paste — it is what the code actually produces, verified against the pre-rework values digit for
-  // digit (see the task report) — and it is expected: `applyContact` reflects the full `vx`/`vy` and
-  // then discards everything but the magnitude, re-projecting onto the UNCHANGED heading (stage 2
-  // restores whole-vector reflection). Every body below starts with velocity already aligned to its
-  // heading (via `bodyAt`, the only shape the old scalar model could ever produce), so the discard
-  // throws away nothing this suite can see: reflecting a heading-aligned vector and then collapsing it
-  // to a signed scalar along that same heading is bit-for-bit what the old scalar-model arithmetic
-  // already did. A car carrying genuine externally-imposed lateral velocity (a ram shove) WOULD see
-  // this contact resolution move under stage 1 — `drive-vector.test.ts` and the ram suites cover that
-  // shape, not this one — and WILL move again once stage 2 lands whole-vector reflection.
+  // REFIXTURED for stage 2 Task 1 (2026-09-06): `applyContact` no longer discards the reflected
+  // direction and rebuilds a scalar along the unchanged heading — it now hands back the whole
+  // reflected `vx`/`vy` — and `DRIVE_CONFIG.restitution` dropped 0.35 -> 0.15. Positions are
+  // untouched (the push/MTV math never looked at velocity, only geometry), but every `forward`
+  // value below is a fresh hand-derivation, not a copy of the previous fixture.
+  //
+  // The rule, from `applyContact`'s own doc comment, with `n` the unit push direction:
+  //
+  //   if dot(v, n) < 0:  v' = v - (1 + restitution) * dot(v, n) * n
+  //
+  // Two of the four contact cases below hit dead-on — the push normal is exactly anti-parallel to
+  // the car's heading (a car driving straight into a wall or straight into another car ahead of
+  // it) — so the reflected vector stays collinear with the original heading and the whole thing
+  // collapses to the familiar scalar bounce `forward' = -restitution * forward`:
+  //   - "bounces off the left wall": forward 200 -> -(200 * 0.15) = -30.
+  //   - "separates from another car": push resolves along x only (n = (-1, 0), matching the
+  //     unchanged x position 482 = 500 - 18), and the car's velocity is already pure +x, so
+  //     forward 250 -> -(250 * 0.15) = -37.5.
+  //
+  // The corner case is a second axis-aligned double contact (x then y, `resolveBounds` applies one
+  // `applyContact` per violated axis) that ALSO happens to stay collinear with the heading, by the
+  // fixture's own symmetry rather than because the hit is dead-on:
+  //   - "reflects off both walls at a corner": at 1.25π, vx = vy = 150*cos(1.25π) = -75√2. The
+  //     x-contact (n=(1,0)) leaves vx' = -restitution*vx = 11.25√2 and vy untouched; the y-contact
+  //     (n=(0,1)) then leaves vy' = -restitution*vy = 11.25√2 too (same algebra, vy was still -75√2
+  //     going in). Final v = (11.25√2, 11.25√2) points exactly opposite the original heading
+  //     (cos, sin)(1.25π) = (-√2/2, -√2/2) — same line, flipped sign — because the fixture starts
+  //     the car's velocity already at 45°, matching the corner's own symmetry, so lateral is still
+  //     0 here: forward = v . (cos, sin)(1.25π) = 11.25√2 * (-√2/2) * 2 = -22.5.
+  //
+  // The obstacle case is genuinely off-axis, and this is the one case in the block that needs its
+  // `lateral` argument spelled out rather than defaulting to 0:
+  //   - "separates from an obstacle": the MTV here is a single contact along world -x (n = (-1, 0),
+  //     matching the unchanged push that put x at 291.663842667), while the car's heading is 0.4
+  //     rad — off-axis from the wall normal. vx = 180cos(0.4) = 165.7909789205193,
+  //     vy = 180sin(0.4) = 70.09530161555718. Only vx reflects (n has no y component):
+  //     vx' = -0.15 * vx = -24.86863680807793, vy' = vy UNCHANGED. Re-projected onto the car's
+  //     frame: forward = vx'*cos(0.4) + vy'*sin(0.4) = 4.390855582568385, and
+  //     lateral = -vx'*sin(0.4) + vy'*cos(0.4) = 74.24635540810061 — a large, genuinely nonzero
+  //     lateral component, which is the whole point of this task: the car's forward-moving y-ish
+  //     motion rides straight through a contact whose normal never touched it.
   it("bounces off the left wall", () => {
     const out = resolveWorld(bodyAt(10, 400, Math.PI, 200), [], [], bounds);
-    expectPose(out, 24, 400, Math.PI, -70);
+    expectPose(out, 24, 400, Math.PI, -30);
   });
 
   it("reflects off both walls at a corner", () => {
     const out = resolveWorld(bodyAt(5, 4, Math.PI * 1.25, 150), [], [], bounds);
-    expectPose(out, 28.2842712475, 28.2842712475, 3.926990817, 84.1875);
+    expectPose(out, 28.2842712475, 28.2842712475, 3.926990817, -22.5);
   });
 
   it("separates from another car", () => {
     const other = { x: 530, y: 400, angle: 0, w: 48, h: 32 };
     const out = resolveWorld(bodyAt(500, 400, 0, 250), [other], [], bounds);
-    expectPose(out, 482, 400, 0, -87.5);
+    expectPose(out, 482, 400, 0, -37.5);
   });
 
   it("separates from an obstacle", () => {
     const obstacle = { x: 320, y: 290, w: 60, h: 60 };
     const out = resolveWorld(bodyAt(300, 300, 0.4, 180), [], [obstacle], bounds);
-    expectPose(out, 291.663842667, 300, 0.4, -90.997064641);
+    expectPose(out, 291.663842667, 300, 0.4, 4.390855582568385, 74.24635540810061);
   });
 
   it("leaves a free body untouched", () => {

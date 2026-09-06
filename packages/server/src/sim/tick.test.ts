@@ -625,14 +625,24 @@ describe("serverTick coasts a knocked player who has stopped sending input", () 
     expect(player.angVel).toBe(0);
     // Residual velocity is real (the known gap), not exact rest — but it is small relative to the
     // original 300 u/s shove, because plenty of ticks of coasting ran before angVel expired. "Small"
-    // moved from <10 to <20 (pinned at the actual ~19.72) in the vector-drive rework's heavy-car pass:
-    // mirage's `coastHalfLifeSeconds` went 0.35 -> 1.2 s, so the SAME number of ticks (angVel's decay
-    // is unrelated to coasting) now bleeds off much less of the forward component before it expires.
-    // Still under 7% of the original 300 u/s, so "small" holds — it is a slower decay curve, not a
-    // stuck one.
+    // moved from <10 to <20 (pinned at ~19.72) in the vector-drive rework's heavy-car pass: mirage's
+    // `coastHalfLifeSeconds` went 0.35 -> 1.2 s, so the SAME number of ticks (angVel's decay is
+    // unrelated to coasting) now bleeds off much less of the forward component before it expires.
+    //
+    // REPINNED for stage 2 Task 1 (2026-09-06): this fixture's spin (`angVel: 3`) drags the heading
+    // through more than a quarter turn while `vx/vy` stays fixed in world space (steeringGrip snaps
+    // driven velocity onto the CURRENT heading each tick, but this car has no throttle, so nothing
+    // re-aligns it), so it genuinely curves and, around tick 80, clips the arena's bottom wall — a
+    // real contact this test's comment never previously named, because the OLD physics (restitution
+    // 0.35, reflected direction discarded and rebuilt along the unchanged heading) happened to land
+    // on the same ~19.72 this test had already pinned, masking that a bounce was even in the
+    // trajectory. Whole-vector reflection at the lower 0.15 restitution (Task 1) genuinely damps that
+    // one contact differently, so the number this test pins moved along with it — not a second
+    // bounce, not a new code path, the same single wall contact under the new rule. Still comfortably
+    // under 7% of the original 300 u/s, so "small" still holds.
     const residualSpeed = Math.hypot(player.vx, player.vy);
     expect(residualSpeed).toBeGreaterThan(0);
-    expect(residualSpeed).toBeCloseTo(19.72, 1);
+    expect(residualSpeed).toBeCloseTo(8.376, 2);
     const restingX = player.x;
     const restingVx = player.vx;
     const restingVy = player.vy;

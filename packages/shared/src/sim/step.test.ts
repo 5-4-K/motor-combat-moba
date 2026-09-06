@@ -251,10 +251,36 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
       maneuverSpeed: 0,
     };
     let body = driving;
-    for (let tick = 0; tick < 20; tick++) body = stepSim(body, UP, DT, wall);
-    // One bounce off one surface: speed is damped by `restitution` once, never r^2 or r^3, so a
-    // car that hit the wall is still rolling rather than stopped dead by repeated damping.
+    // Measured on the BOUNCE TICK itself, not on the equilibrium state 20 ticks later: a car driven
+    // head-on into a wall with the throttle held is *supposed* to settle pinned at rest against it
+    // (that is what a single, correct restitution damping converges to over many repeated contacts)
+    // — asserting nonzero forward speed at tick 20 stopped discriminating anything once whole-vector
+    // reflection replaced the old discard-and-rebuild-along-heading code (stage 2 task 1). What this
+    // test is actually pinning, per its own name and the C9 comment above, is that ONE tick's contact
+    // applies `restitution` exactly once, never r^2 or r^3 from an accidental substep loop. So watch
+    // for the first tick where the sign of the forward speed flips from driving-in to bouncing-back
+    // — the wall's one bounce event in this run — and check that tick's damping ratio directly.
+    let prevForward = forwardOf(body.vx, body.vy, body.angle);
+    let bounceForward: number | null = null;
+    let preBounceForward = 0;
+    for (let tick = 0; tick < 20; tick++) {
+      body = stepSim(body, UP, DT, wall);
+      const forward = forwardOf(body.vx, body.vy, body.angle);
+      if (bounceForward === null && prevForward > 0 && forward < 0) {
+        preBounceForward = prevForward;
+        bounceForward = forward;
+      }
+      prevForward = forward;
+    }
+
+    expect(bounceForward).not.toBeNull();
+    // One restitution factor off the pre-bounce forward speed: forward' = -restitution * forward.
+    // A double-damped bug (the dash substep loop escaping its DASH gate and running `applyContact`
+    // twice in that one tick) would instead land on forward' = +restitution^2 * forward — POSITIVE,
+    // not negative, and roughly 1/13th the magnitude here (0.15^2 / 0.15 = 0.15) — so this
+    // assertion's sign alone already tells the two apart; the magnitude check is belt and braces.
+    expect(bounceForward).toBeCloseTo(-DRIVE_CONFIG.restitution * preBounceForward, 6);
+    // Still rolling near the wall, not ejected back out past where it started.
     expect(body.x).toBeLessThan(300);
-    expect(Math.abs(forwardOf(body.vx, body.vy, body.angle))).toBeGreaterThan(0);
   });
 });

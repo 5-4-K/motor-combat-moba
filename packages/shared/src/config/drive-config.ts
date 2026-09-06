@@ -137,7 +137,15 @@ export const DRIVE_CONFIG = {
    * reopening the tunnelling bug.
    */
   dashSubstepMaxUnits: 16,
-  restitution: 0.35,
+  /**
+   * Coefficient of restitution for every contact — walls, obstacles and cars alike.
+   *
+   * 0.15, down from 0.35 on 2026-09-06. Real cars are built to crush, not bounce, and sit around
+   * 0.1-0.15; a T-bone is a shunt, not a billiard shot. The knockback this game wants comes from
+   * momentum transfer through `applyImpulse`, not from springiness here — raising this to get
+   * bigger knocks is reaching for the wrong knob and makes every wall graze feel rubbery.
+   */
+  restitution: 0.15,
 } as const;
 
 /**

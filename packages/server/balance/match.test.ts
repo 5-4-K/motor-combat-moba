@@ -170,7 +170,13 @@ describe("runMatch", () => {
     // 2026-09-05 situation-play: seeds 1-10 are all 0-0 draws in 60 s under the new brain. Swept
     // 1-80; 42, 44, 45, 53, 61, 63, 65, 68 are decisive. Keep two draws in the spread so the tie
     // branch still runs.
-    const outcomes = [1, 2, 42, 44, 45, 53, 65, 68].map((seed) =>
+    //
+    // REPINNED for stage 2 Task 1 (2026-09-06): walls deflecting instead of damping, plus the lower
+    // restitution, changed enough ram/positioning outcomes that seeds 42, 44, 45, 53, 65 and 68 (all
+    // decisive above) are now 0-0 draws too. Swept 1-80 again under the new contact physics: 15, 16,
+    // 26, 39, 48 and 79 are decisive. The RULE itself is untouched — only which seeds happen to
+    // produce a kill moved, exactly as it did in the 2026-09-04 and 2026-09-05 re-seeds above.
+    const outcomes = [1, 2, 15, 16, 26, 39, 48, 79].map((seed) =>
       runMatch({ ...SETUP, seed, mode: GameMode.FFA_DEATHMATCH }));
 
     for (const out of outcomes) {

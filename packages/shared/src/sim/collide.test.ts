@@ -12,7 +12,7 @@ import {
   resolveWorld,
 } from "./collide.js";
 import type { SimBody } from "./step.js";
-import { forwardOf, toWorld } from "./velocity.js";
+import { forwardOf, lateralOf, speedOf, toWorld } from "./velocity.js";
 
 const CAR_W = DRIVE_CONFIG.carWidth;
 const CAR_H = DRIVE_CONFIG.carHeight;
@@ -127,7 +127,11 @@ describe("resolveWorld - world bounds", () => {
     // angle 0 means +speed points at the wall, so the surviving speed must not be outward.
     expect(fwd(out)).toBeLessThanOrEqual(0);
     expect(Math.abs(fwd(out))).toBeLessThan(Math.abs(fwd(start)));
-    expect(Math.abs(fwd(out))).toBeCloseTo(Math.abs(fwd(start)) * DRIVE_CONFIG.restitution);
+    // Measured against the WHOLE reflected velocity, not `fwd()`: this hit is dead-on (the wall
+    // normal and the car's heading are the same axis), so the two happen to coincide here, but the
+    // reflection itself is a property of the full vector — see `applyContact` — and asserting it
+    // that way is what keeps this test honest if the fixture ever stops being dead-on.
+    expect(speedOf(out.vx, out.vy)).toBeCloseTo(speedOf(start.vx, start.vy) * DRIVE_CONFIG.restitution);
   });
 
   it("clamps both axes when a body is out of bounds past a corner", () => {
@@ -565,61 +569,6 @@ describe("resolveWorld - one restitution per distinct surface", () => {
   });
 });
 
-describe("resolveWorld - documented consequences of the locked velocity rule", () => {
-  // These pin spec-mandated behaviour, not desirable behaviour. Changing them means changing the
-  // plan's velocity rule; they exist so the next reader sees the edges rather than discovering them.
-
-  it("flips the reported speed sign discontinuously at ~30.6 degrees off the surface normal", () => {
-    const glance = (degrees: number): number => {
-      const angle = (degrees * Math.PI) / 180;
-      const start = body({ x: BOUNDS.width - 5, y: 500, angle, ...alongHeading(angle, 100) });
-      return fwd(resolveWorld(start, [], [], BOUNDS));
-    };
-
-    // The threshold is |dot(n, forward)| = 1 / sqrt(1 + restitution), i.e. ~30.609 degrees. Asserted
-    // against where the sign actually flips rather than against acos of itself, so this pins the
-    // formula to the behaviour: straddle the predicted angle and the reported speed must invert.
-    const thresholdDegrees = (Math.acos(1 / Math.sqrt(1 + DRIVE_CONFIG.restitution)) * 180) / Math.PI;
-    expect(glance(thresholdDegrees - 0.01)).toBeLessThan(0);
-    expect(glance(thresholdDegrees + 0.01)).toBeGreaterThan(0);
-
-    // Straddling it: the magnitude barely moves, but the sign inverts.
-    expect(glance(30)).toBeCloseTo(-58.47, 2);
-    expect(glance(32)).toBeCloseTo(60.74, 2);
-    expect(Math.abs(Math.abs(glance(30)) - Math.abs(glance(32)))).toBeLessThan(3);
-    expect(Math.sign(glance(30))).not.toBe(Math.sign(glance(32)));
-  });
-
-  it("grinds along a wall without ever redirecting, because angle is never changed", () => {
-    const dt = 1 / 30;
-    const angle = (70 * Math.PI) / 180;
-    let car = body({ x: 990, y: 100, angle, ...alongHeading(angle, 100) });
-
-    const wallX = BOUNDS.width - hullHalfExtents(angle).hx;
-    const speeds: number[] = [];
-    const xs: number[] = [];
-
-    for (let tick = 0; tick < 8; tick++) {
-      // Integrate the drive step inline rather than importing stepDrive: this test is about
-      // resolution, and the motion it needs is one line. `car.vx/vy` stay aligned with the fixed
-      // `angle` throughout (resolution never redirects), so translating by them is the same thing
-      // the old `cos(angle) * speed` line did.
-      car = body({ ...car, x: car.x + car.vx * dt, y: car.y + car.vy * dt });
-      car = resolveWorld(car, [], [], BOUNDS);
-      speeds.push(fwd(car));
-      xs.push(car.x);
-    }
-
-    // Pinned to the wall, never deflected off it.
-    for (const x of xs) expect(x).toBeCloseTo(wallX, 6);
-    // Still nosing into the wall: speed stays forward, it is only bled down.
-    for (const s of speeds) expect(s).toBeGreaterThan(0);
-    for (let i = 1; i < speeds.length; i++) expect(speeds[i]!).toBeLessThan(speeds[i - 1]!);
-    // It does slide along the wall in +y; it just never gets away from it.
-    expect(car.y).toBeGreaterThan(100);
-  });
-});
-
 describe("obbsOverlap", () => {
   const hull = (x: number, y: number, angle = 0): Obb => ({ x, y, angle, w: CAR_W, h: CAR_H });
 
@@ -790,15 +739,11 @@ describe("applyContact reflects the whole velocity, not just driven speed", () =
   // exercise a second, `shoveX/shoveY`-specific reflection inside `applyContact`; that code is gone,
   // because there is only one velocity to reflect now.
   //
-  // That collapse is NOT behaviour-neutral on the lateral axis, and the tests below say so plainly
-  // rather than leaving it implicit: every contact destroys the lateral component of the reflected
-  // velocity, full stop, until stage 2 restores whole-vector reflection. The old code's second,
-  // shove-specific reflection pass existed precisely so knock motion kept bouncing in its own
-  // direction; today that direction is thrown away and only the magnitude survives, re-signed along
-  // the car's UNCHANGED facing (`forwardOf(v', angle) < 0 ? -magnitude : magnitude` — the exact tie
-  // at `dot === 0` is not a meaningful third case, it just falls into the "forward" branch
-  // arbitrarily). A car sliding sideways into a wall does not slide back the way it came; it leaves
-  // along its own nose. See `applyContact`'s doc comment in `collide.ts` for the full account.
+  // As of this task that collapse is fully behaviour-neutral: `applyContact` reflects the WHOLE
+  // vector and hands it back untouched (no discard, no rebuild along the unchanged facing), so a
+  // car sliding sideways into a wall bounces back along the axis it actually struck, exactly the
+  // way the old code's second, shove-specific reflection pass used to. See `applyContact`'s doc
+  // comment in `collide.ts` for the full account.
   it("rebounds a car whose only velocity is externally imposed (no throttle) off a wall", () => {
     const out = resolveWorld(body({ x: 10, y: 400, vx: -300, vy: 0 }), [], [], BOUNDS);
     expect(fwd(out)).toBeGreaterThan(0);
@@ -809,11 +754,57 @@ describe("applyContact reflects the whole velocity, not just driven speed", () =
     expect(out.vx).toBeCloseTo(300, 9);
   });
 
-  it("leaves a car with zero lateral velocity after any wall contact, by design until stage 2", () => {
-    // Pure lateral motion (angle 0, so lateral = vy) sliding into the top wall: the reflected
-    // direction is discarded entirely, so the surviving velocity has no lateral component left —
-    // it is rebuilt purely along the car's nose (angle 0), whichever sign the discard picked.
+  it("preserves lateral velocity through a wall contact, now that the discard is gone", () => {
+    // Pure lateral motion (angle 0, so lateral = vy) sliding into the top wall: the push normal is
+    // axis-aligned with the velocity itself (n = (0, 1)), so the reflection is a plain 1-D bounce —
+    // the surviving velocity stays entirely lateral, damped by exactly one restitution factor:
+    // vy' = -(-300) * restitution = 300 * 0.15 = 45. Under the old discard this came back as pure
+    // forward speed (`out.vy` close to 0); it no longer does.
     const out = resolveWorld(body({ x: 500, y: 5, angle: 0, vx: 0, vy: -300 }), [], [], BOUNDS);
-    expect(out.vy).toBeCloseTo(0, 9);
+    expect(out.vx).toBeCloseTo(0, 9);
+    expect(out.vy).toBeCloseTo(300 * DRIVE_CONFIG.restitution, 9);
+  });
+});
+
+describe("contact reflection preserves direction", () => {
+  it("deflects a car that glances a wall instead of pinning it", () => {
+    // Facing 45 degrees into the left wall, moving along the facing at 200.
+    const angle = Math.PI * 0.75; // up and to the left
+    const v = toWorld(angle, 200, 0);
+    const b = { ...body({ x: 10, y: 300, angle }), vx: v.vx, vy: v.vy };
+
+    const next = resolveWorld(b, [], [], { width: 1280, height: 720 });
+
+    // It must now be travelling ALONG the wall (mostly +y), not stopped facing into it.
+    expect(Math.abs(next.vy)).toBeGreaterThan(Math.abs(next.vx) * 2);
+    // And the facing is untouched — collision resolution never rotates a car.
+    expect(next.angle).toBeCloseTo(angle);
+  });
+
+  it("keeps most of its speed through a glancing blow", () => {
+    const angle = Math.PI * 0.75;
+    const v = toWorld(angle, 200, 0);
+    const b = { ...body({ x: 10, y: 300, angle }), vx: v.vx, vy: v.vy };
+
+    const next = resolveWorld(b, [], [], { width: 1280, height: 720 });
+    expect(speedOf(next.vx, next.vy)).toBeGreaterThan(120);
+  });
+
+  it("a glancing blow leaves the car with real lateral motion", () => {
+    // The whole point: the reflected direction no longer collapses onto the heading.
+    const angle = Math.PI * 0.75;
+    const v = toWorld(angle, 200, 0);
+    const b = { ...body({ x: 10, y: 300, angle }), vx: v.vx, vy: v.vy };
+
+    const next = resolveWorld(b, [], [], { width: 1280, height: 720 });
+    expect(Math.abs(lateralOf(next.vx, next.vy, next.angle))).toBeGreaterThan(50);
+  });
+
+  it("still barely rebounds head-on, because cars are not billiard balls", () => {
+    const b = body({ x: 10, y: 300, angle: Math.PI, vx: -200, vy: 0 });
+    const next = resolveWorld(b, [], [], { width: 1280, height: 720 });
+    // restitution 0.15: it comes back at about 15% of what it arrived with, not 35%.
+    expect(next.vx).toBeGreaterThan(0);
+    expect(next.vx).toBeLessThan(200 * 0.25);
   });
 });
