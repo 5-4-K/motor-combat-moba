@@ -96,7 +96,34 @@ export interface PlanArgs {
    * "reflex" means — but it is not degenerate.
    */
   horizonTicks: number;
-  /** 1 holds one action for K ticks; 2 splits into two K/2 segments (P25). */
+  /**
+   * THE COMMITMENT WINDOW: how many ticks the emitted action is genuinely held before this bot
+   * decides again — the profile's `recomputeTicks` (12 / 6 / 2 for easy / medium / hard), floored
+   * at 1 and capped by the horizon (R-P10, fix round 4, 2026-09-07).
+   *
+   * This is the parameterization of a candidate, and getting it wrong is what cost three rounds.
+   * A candidate USED TO BE one input held for the WHOLE horizon; at hard's K of 22 that made the
+   * steering menu "0 / +150 / -150 degrees of rotation" and the throttle menu "floor it for 0.73 s
+   * / stop / reverse for 0.73 s". A 13-degree aim correction and a 56-unit range close are not on
+   * that menu, and no scoring aggregation can select an action that does not exist — rounds 1-3
+   * measured four readings of `rangeError` (terminus, min, mean, first sample) and each fixed one
+   * closed-loop duel by breaking the other. See `plan`'s doc for the tables.
+   *
+   * Spec P24's literal text is "held for K ticks", but its stated PURPOSE is a receding horizon —
+   * "plan a long arc, execute its first step" — and a bot that re-plans every `recomputeTicks`
+   * NEVER holds one input for 22 ticks. Modelling a hold it does not perform is precisely what put
+   * both corrections out of reach. Committing for the window the input is actually held and then
+   * continuing neutrally is a strictly better model of the same bot, and it is the standard MPC
+   * terminal-policy shape.
+   *
+   * It comes off the profile, so it stays a number: the planner never learns which tier it is,
+   * only how long its own hands are committed (H8).
+   */
+  commitTicks: number;
+  /**
+   * How many committed windows a candidate contains (P25). 1 is "commit, then coast"; 2 is
+   * "commit, commit again, then coast", 81 sequences sharing nine first windows.
+   */
   depth: 1 | 2;
   /** How many of the target's possible inputs to hedge against (P28). 1 or 3. */
   targetBranches: 1 | 3;
@@ -119,6 +146,26 @@ export interface PlanArgs {
    * holds; with no `lastAction` there is nothing in flight and the current pose is already correct.
    */
   actuationDelayTicks: number;
+  /**
+   * THE INPUTS ALREADY IN FLIGHT — `humanize.ts`'s delay line, oldest first, exactly the actions
+   * the wheels will see over the next `actuationDelayTicks` ticks (R-P10b, fix round 4,
+   * 2026-09-07). Empty when nothing has been decided yet, which is a real case on the first ticks
+   * of a match.
+   *
+   * This replaces "roll `lastAction` for the whole dead time", and it is not a refinement: it is
+   * the defect R-P10 exposed. A hard bot re-decides every 2 ticks and its delay line is 4 ticks
+   * long, so the queue holds TWO different decisions. Rolling the newest one across all four ticks
+   * DOUBLES the correction the planner believes is already committed, so a bot sitting 0.05 rad off
+   * its target plans as though it were about to be 0.47 rad past it and commands the opposite lock.
+   * Next window it does the same thing in the other direction: a period-4 limit cycle, measured in
+   * the off-axis duel as a steer stream of `-1 -1 +1 +1` forever with the heading swinging ±0.28
+   * rad and the bot only on-line for a third of its ticks. Under the old 22-tick candidates the
+   * cycle was invisible because there was no small correction to overshoot with — `steer: 0` won
+   * every tick — so this became load-bearing on the same day the action space got fine enough to
+   * use. Rolling the real queue removes the cycle outright: measured, the same duel holds -0.02 rad
+   * with `steer: 0` and fires on half its ticks.
+   */
+  pending: readonly DriveAction[];
   tick: number;
   arena: BotArenaView;
 }
@@ -138,9 +185,16 @@ interface Candidate {
 /**
  * Choose this tick's input by looking ahead (P24).
  *
- * Receding horizon: every candidate is rolled K ticks, but only the winner's FIRST action is
- * emitted, and the whole thing is redone on the next recompute. That is what lets a bot plan a
- * second-long arc while still reacting inside two ticks.
+ * Receding horizon: every candidate is rolled out to the end of the K-tick horizon, but only the
+ * winner's FIRST action is emitted, and the whole thing is redone on the next recompute. That is
+ * what lets a bot plan a second-long arc while still reacting inside two ticks.
+ *
+ * A CANDIDATE IS THE COMMITMENT THE BOT ACTUALLY MAKES, NOT A 22-TICK HOLD IT NEVER PERFORMS
+ * (R-P10, fix round 4, 2026-09-07). Three rounds of scoring experiments established that the
+ * missing quantity was never in the score: the action held for the commitment window and then a
+ * neutral continuation is what `rollCandidates` builds now, and `PlanArgs.commitTicks` and
+ * `CONTINUATION` carry the argument and the measurements. Everything below about which term is
+ * read where is unchanged from round 3 and still holds; what changed is what a candidate IS.
  *
  * THE WHOLE ARC IS SCORED, NOT ITS TERMINUS (R-P7, fix round 1, 2026-09-06). Spec section 2 says
  * what this game is: "Skilled play is finding arcs where those coincide, and timing the trigger for
@@ -154,13 +208,17 @@ interface Candidate {
  * reached by a new road. Sampled along the path, the +1 candidate's nose passes straight through the
  * target at tick 2, `myEv` peaks there, and the arc wins on the sweep it actually contains.
  *
- * FIVE OF THE SIX TERMS ARE MOMENTS; `rangeError` IS A DESTINATION, AND IT ALONE IS READ AT THE
- * TERMINUS (R-P7, third revision, fix round 3, 2026-09-07):
+ * FOUR OF THE SIX TERMS ARE MOMENTS; `rangeError` AND `threatAvoid` ARE DESTINATIONS AND ARE READ
+ * AT THE TERMINUS (R-P7 third revision, fix round 3; `threatAvoid` joined them under R-P11, fix
+ * round 4, 2026-09-07):
  *
  * - `myEv` — the BEST found anywhere along the path. That is the sweep.
  * - `lockKeep` — the BEST along the path, for the same reason.
- * - `threatAvoid` — the BEST (largest) displacement reached anywhere along the path. Getting off the
- *   line for the moment the bolt passes is the whole point; where the excursion ends is not.
+ * - `threatAvoid` — AT THE TERMINUS (R-P11). Displacement along a threat's `awayHeadingRad` asks
+ *   "am I out of the line", which is a destination: a maximum over the arc rewards an arc that
+ *   steps aside and then drifts straight back, because the moment it was clear is banked and the
+ *   return costs nothing. Round 3's ablation also attributed `balance/match.test.ts`'s seed-96
+ *   failure to the arc reading and measured that file 11 / 11 green with this term at the terminus.
  * - `theirEv` — the WORST (maximum danger). An arc that carries you through someone's line is
  *   dangerous even if it ends somewhere safe.
  * - `wallPenalty` — the WORST. Clipping a wall mid-arc is a real cost, not an artifact.
@@ -193,21 +251,15 @@ interface Candidate {
  * neither does mixing the two readings (swept at 10-60% terminus: strictly worse than either
  * endpoint at every seed, because two competing minima make the term oscillate).
  *
- * WHAT THE TERMINUS COSTS, and it is a LIVE REGRESSION rather than a settled trade. The on-axis duel
- * (`controller.test.ts`, spec section 1.1) fires 24 times per 300 ticks against a bar of 90. The bot
- * aims perfectly — mean heading offset 0.000 rad — but once a `panic-reverse` blunder has shoved it
- * from 508 units out to 586 against a preferred 530, no candidate closes the gap: an input held for
- * 22 ticks TERMINATES ~190 units along, so the closing arc's terminal error (130) reads worse than
- * standing still's (56). The min-along-path reading fixes precisely that and settles the bot at
- * 530-530 — and costs the off-axis duel at every one of seven seeds, because a MINIMISED term
- * aggregated over an arc goes inert near its target value: every candidate shares the near end of
- * its own arc, so every candidate's minimum is the same small error, the candidate score spread
- * collapses, `commitPenalty`'s spread-scaled bonus collapses with it, and the wheel saws at 0.414
- * rad. A bot that visibly saws its wheel is the symptom this phase exists to delete, which is why
- * the terminus is what ships. NEITHER READING PASSES BOTH DUELS; no weight vector closes the
- * 56-unit gap (swept); and the cause is the one rounds 1 and 2 each named independently — at
- * `planDepth: 1` a candidate is ONE input held for the whole horizon, so "throttle for five ticks"
- * is not on the menu at all.
+ * WHAT THE TERMINUS USED TO COST, AND WHY THAT IS SETTLED NOW. Under round 3's candidate set — one
+ * input held for the whole horizon — the terminus reading left the on-axis duel firing 24 times per
+ * 300 ticks against a bar of 90: the bot aimed perfectly (0.000 rad) but, once a `panic-reverse`
+ * blunder had shoved it from 508 units out to 586 against a preferred 530, no candidate closed the
+ * gap, because an input held for 22 ticks TERMINATES ~190 units along and the closing arc's
+ * terminal error (130) read worse than standing still's (56). Every alternative reading fixed one
+ * duel by breaking the other, which is what identified the candidate set rather than the score as
+ * the fault. R-P10 puts a 56-unit move on the menu and the terminus reading becomes honest: the
+ * same duel now fires 134 times and settles at 530-530, without touching a single aggregation.
  *
  * Draws no randomness (P43, H21) — every term is a deterministic function of the observation, which
  * is also what keeps the score smooth enough not to chatter. There is no `rng` parameter here on
@@ -215,13 +267,23 @@ interface Candidate {
  * takes, or one seed stops replaying and the balance harness's paired runs stop being comparable.
  */
 export function plan(args: PlanArgs): PlanResult {
-  // R-P6 (fix round 1, 2026-09-06): floor at ONE tick, never zero. Spec P29 promises a K=0 "reflex
-  // agent" still avoids a wall it is about to hit; a segment of 0 rolls nothing at all, so every
-  // one of the nine candidates would end at the identical current pose, score identically, and
-  // let the ALL_ACTIONS tie-break silently decide easy's action on every tick regardless of the
-  // world -- which cannot avoid anything. Rolling exactly one tick out is "one tick out", the
-  // amateur tier P29 actually describes.
-  const segment = Math.max(1, Math.floor(args.horizonTicks / args.depth));
+  // R-P10 (fix round 4, 2026-09-07): a candidate is the action held for the COMMITMENT WINDOW and
+  // then a neutral continuation for the rest of the horizon. See `PlanArgs.commitTicks`.
+  //
+  // R-P6 (fix round 1, 2026-09-06) survives inside the floor: at ONE tick, never zero. Spec P29
+  // promises a K=0 "reflex agent" still avoids a wall it is about to hit; a window of 0 rolls
+  // nothing at all, so every one of the nine candidates would end at the identical current pose,
+  // score identically, and let the ALL_ACTIONS tie-break silently decide easy's action on every
+  // tick regardless of the world -- which cannot avoid anything. Rolling exactly one tick out is
+  // "one tick out", the amateur tier P29 actually describes. The horizon is also the cap: a bot
+  // cannot commit for longer than it plans, which is what keeps easy (K=0, `recomputeTicks` 12) a
+  // reflex rather than a twelve-tick lunge.
+  const commit = Math.max(
+    1, Math.min(Math.floor(args.commitTicks), Math.max(1, Math.floor(args.horizonTicks))),
+  );
+  // Whatever the horizon has left after the committed windows, spent under the continuation. Zero
+  // is a normal case (easy plans one tick and commits it), not a degenerate one.
+  const tail = Math.max(0, Math.floor(args.horizonTicks) - commit * args.depth);
   // R-P7c: plan from where the bot will be when this input LANDS. `actuationDelayTicks` of the
   // action already in the delay line, rolled through the same drive model, then every candidate
   // branches off THAT pose. See `PlanArgs.actuationDelayTicks` for why dead time is not optional.
@@ -235,11 +297,18 @@ export function plan(args: PlanArgs): PlanResult {
   // compensates all 6, easy plans one tick and compensates none.
   const lag = Math.max(0, Math.min(Math.floor(args.actuationDelayTicks), args.horizonTicks));
   const now = bodyFromSelf(args.self);
-  const start = lag > 0 && args.lastAction
-    ? rollForward(now, args.self.carId, args.lastAction, lag, NEUTRAL_MODIFIERS).at(-1) ?? now
-    : now;
-  const candidates = rollCandidates(args, segment, start);
-  const pathTicks = segment * args.depth;
+  let start = now;
+  // One tick at a time, because the queue is not one action: entry `i` is what the wheels see `i`
+  // ticks from now. A queue shorter than the dead time falls back to `lastAction` for the ticks it
+  // does not cover, and to standing still if there is no last action either — both only happen in
+  // the first few ticks of a match, before the line has filled.
+  for (let i = 0; i < lag; i++) {
+    const act = args.pending[i] ?? args.lastAction;
+    if (!act) break;
+    start = rollForward(start, args.self.carId, act, 1, NEUTRAL_MODIFIERS).at(-1) ?? start;
+  }
+  const candidates = rollCandidates(args, commit, tail, start);
+  const pathTicks = commit * args.depth + tail;
 
   /**
    * Everything that does not depend on WHERE THE BOT ENDS UP is hoisted out of the per-candidate
@@ -361,29 +430,89 @@ function sameAction(a: DriveAction, b: DriveAction | undefined): boolean {
 }
 
 /**
- * Roll every candidate action sequence through the REAL drive model and keep the pose it ends in.
+ * THE TERMINAL POLICY: what a candidate does once its committed window is over (R-P10, fix round
+ * 4, 2026-09-07).
  *
- * FIRST-SEGMENT SHARING: at depth 2 the 81 sequences share only nine distinct first segments, so
- * each is rolled once and reused by the nine sequences that begin with it — 90 segment rollouts
- * instead of 162, which is 44% of the drive integration deleted for free.
+ * FULL NEUTRAL — hands off both controls. Under `NEUTRAL_MODIFIERS` a `throttle: 0` continuation
+ * genuinely BRAKES: `DRIVE_CONFIG.drag` is 900 u/s², about 0.32 s from top speed to rest, so this
+ * models "commit this input, then coast to a stop" and the terminal pose is a place the car can
+ * really be left. That is what makes the terminus an honest reading for `rangeError` and
+ * `threatAvoid`: it is a destination the bot could actually stop at, not an extrapolation of a
+ * 22-tick hold it never performs.
+ *
+ * THE ALTERNATIVE WAS MEASURED, not assumed. Steer-only neutral — `{steer: 0, throttle: <the
+ * candidate's own throttle>}`, i.e. "commit the turn, keep the pedal where it is" — was
+ * implemented and run at the otherwise identical final configuration, over seven seeds, on both
+ * closed-loop duels (a duel counts as passed only when it clears BOTH `fires > 90` and
+ * `meanOffset < 0.2` over the tail 100 ticks):
+ *
+ * | continuation | on-axis duel | off-axis duel | on-axis at the tests' own seed 17 |
+ * |---|---|---|---|
+ * | full neutral (SHIPPED) | **6 / 7 seeds** | **7 / 7 seeds** | 134 fires, 0.000 rad, settles 530 |
+ * | steer-only neutral     | 4 / 7 seeds     | 6 / 7 seeds     | **24 fires**, 0.000 rad, settles 586 |
+ *
+ * Steer-only fixes the STEER axis and leaves the THROTTLE axis exactly as broken as it was before
+ * R-P10, reproducing round 3's defect verbatim: a candidate that keeps its pedal down still
+ * terminates ~190 units along at hard's K=22, so "close the last 56 units" is not on the menu, and
+ * the on-axis duel parks at 586 units against a preferred 530 and fires 24 shots per 300 ticks
+ * where the bar is 90. Full neutral puts a short move on the menu, and the bot settles at exactly
+ * its preferred range.
+ *
+ * WHAT FULL NEUTRAL COSTS, and it is a LIVE REGRESSION rather than a settled trade. A braking
+ * continuation makes the plan's positional REACH tiny: from rest, two ticks of throttle reaches
+ * ~25 u/s and coasting from there covers about 1.4 units, so a stationary bot's whole menu spans
+ * ~4 units of travel. That is exactly right for "stop at the range I want" and myopic for anything
+ * that needs to GO somewhere, and four tests that need it are red as a result — both `G12` hunt
+ * cases (the synthetic hunt waypoint sits 70 units away, and reversing 4 units at it beats turning
+ * around), `tiers.test.ts`'s two dodge characterisations and `controller.test.ts`'s "still fires
+ * while dodging" (a `threatAvoid` displacement of ~4 units cannot outweigh `theirEv`; measured
+ * unchanged at threatAvoid weights of 3, 6 and 12, so it is reach and not weight), and H39's wall
+ * steer stream. Measured and rejected as fixes: reading `threatAvoid` over the arc instead of at
+ * the terminus (identical failures), and giving every action BOTH continuations so the menu spans
+ * both reaches — 18 candidates, which took the suite from 7 failures to 8 and lost the off-axis
+ * duel as well. The next ruling belongs on the terminal policy's reach, not on the score.
+ */
+const CONTINUATION: DriveAction = Object.freeze({ steer: 0, throttle: 0 });
+
+/**
+ * Roll every candidate through the REAL drive model and keep the WHOLE path it traces.
+ *
+ * A candidate is `commit` ticks of one action followed by `tail` ticks of `continuationOf` it
+ * (R-P10) — the commitment the bot actually makes, then the terminal policy. At depth 2 it is two
+ * committed windows and then the tail.
+ *
+ * FIRST-WINDOW SHARING: at depth 2 the 81 sequences share only nine distinct first windows, so
+ * each is rolled once and reused by the nine sequences that begin with it. The tail cannot be
+ * shared — it starts from wherever its own candidate left off — but it is rolled under a single
+ * action rather than branched, so it costs one `rollForward` per candidate and the search is still
+ * exactly nine (or 81) sequences wide. R-P10 is a re-parameterization, not an expansion.
  *
  * `NEUTRAL_MODIFIERS`, NEVER `OBSERVATION_MODIFIERS` (R-D3). `predict.ts`'s observation set zeroes
  * `accel` and `brakeDecel` so that rolling a car the bot can only LOOK at holds the speed it was
  * seen at. This is the bot's own car under a throttle it is choosing, where acceleration is the
  * entire content of the decision: rolled under that set every candidate would coast at its current
- * speed and the throttle axis would do nothing at all. `rollForward`'s `mods` parameter has no
- * default precisely so this choice is made explicitly at every call site — do not add one back.
+ * speed and the throttle axis would do nothing at all — and the continuation's braking, which is
+ * what makes the terminal pose a real destination, would not happen either. `rollForward`'s `mods`
+ * parameter has no default precisely so this choice is made explicitly at every call site — do not
+ * add one back.
  *
- * `segment` is always at least 1 here (R-P6: `plan` floors it before calling in), so every
- * candidate genuinely rolls — there is no zero-tick "stand still" case to special-case.
+ * `commit` is always at least 1 here (R-P6: `plan` floors it before calling in), so every candidate
+ * genuinely rolls — there is no zero-tick "stand still" case to special-case.
  */
-function rollCandidates(args: PlanArgs, segment: number, start: SimBody): Candidate[] {
-  const roll = (from: SimBody, action: DriveAction): SimBody[] =>
-    rollForward(from, args.self.carId, action, segment, NEUTRAL_MODIFIERS);
+function rollCandidates(
+  args: PlanArgs, commit: number, tail: number, start: SimBody,
+): Candidate[] {
+  const roll = (from: SimBody, action: DriveAction, ticks: number): SimBody[] =>
+    rollForward(from, args.self.carId, action, ticks, NEUTRAL_MODIFIERS);
+  const coast = (head: SimBody[]): SimBody[] => {
+    if (tail === 0) return head;
+    const from = head.at(-1) ?? start;
+    return [...head, ...roll(from, CONTINUATION, tail)];
+  };
 
-  const firstPaths = ALL_ACTIONS.map((action) => roll(start, action));
+  const firstPaths = ALL_ACTIONS.map((action) => roll(start, action, commit));
   if (args.depth === 1) {
-    return ALL_ACTIONS.map((first, i) => ({ first, path: firstPaths[i]! }));
+    return ALL_ACTIONS.map((first, i) => ({ first, path: coast(firstPaths[i]!) }));
   }
 
   const out: Candidate[] = [];
@@ -391,7 +520,9 @@ function rollCandidates(args: PlanArgs, segment: number, start: SimBody): Candid
     const first = ALL_ACTIONS[i]!;
     const head = firstPaths[i]!;
     const from = head.at(-1) ?? start;
-    for (const second of ALL_ACTIONS) out.push({ first, path: [...head, ...roll(from, second)] });
+    for (const second of ALL_ACTIONS) {
+      out.push({ first, path: coast([...head, ...roll(from, second, commit)]) });
+    }
   }
   return out;
 }
@@ -400,8 +531,9 @@ function rollCandidates(args: PlanArgs, segment: number, start: SimBody): Candid
  * Which ticks along a `pathTicks`-long rollout the score is read at (R-P7).
  *
  * Ticks, one-based, ascending, and the LAST ENTRY IS ALWAYS `pathTicks`. That entry is load-bearing
- * twice over: it is where `rangeError` is read outright (R-P7 third revision, round 3), and it is
- * where the five moment-terms catch an arc that sweeps beautifully and then buries itself in a wall.
+ * twice over: it is where the two destination terms are read outright (`rangeError`, R-P7 third
+ * revision, round 3; `threatAvoid`, R-P11, round 4), and it is where the four moment-terms catch an
+ * arc that sweeps beautifully and then buries itself in a wall.
  *
  * GEOMETRICALLY SPACED, not evenly, and that is load-bearing rather than a refinement. Measured: an
  * evenly-spaced schedule at hard's K=22 reads ticks 6, 11, 17, 22, and the sweep it exists to catch
@@ -532,12 +664,11 @@ function scoreCandidate(
   let theirEv = 0;
   let wallPenalty = 0;
   let lockKeep = 0;
-  // `threatAvoid` is maximised, so it starts at the neutral end of its own scale and is floored
-  // back to 0 below if the loop somehow runs zero times. `plan` guarantees at least one sample
-  // (`segment` is floored at 1), so that floor is belt-and-braces, not a live case. `rangeError`
-  // needs no such seed: it is assigned outright at the terminal sample (see below).
+  // Both destination terms are assigned outright at the terminal sample (see below), so neither
+  // needs a maximising or minimising seed. `plan` guarantees at least one sample (`commit` is
+  // floored at 1), so the terminal branch always runs and 0 is never returned by accident.
   let rangeError = 0;
-  let threatAvoid = -Infinity;
+  let threatAvoid = 0;
 
   for (let i = 0; i <= last; i++) {
     const body = path[sampleTicks[i]! - 1]!;
@@ -547,21 +678,24 @@ function scoreCandidate(
     const wall = boundsPenalty(body.x, body.y, args.arena);
     if (wall > wallPenalty) wallPenalty = wall;
 
-    // AT THE TERMINUS, and it is the ONE term that is (R-P7, third revision, fix round 3,
-    // 2026-09-07). Every other term asks about a MOMENT and takes its best or its worst anywhere
-    // along the arc; this one asks where the arc LEAVES the bot. See `plan`'s doc for the
-    // measurement that put it back here after round 2 moved it to the smallest error along the
-    // path, and for the on-axis duel that reading buys and this one does not.
+    // THE TWO DESTINATION TERMS, both read AT THE TERMINUS. Every other term asks about a MOMENT
+    // and takes its best or its worst anywhere along the arc; these two ask where the arc LEAVES
+    // the bot, and under R-P10 the terminal pose is a real destination — where committing this
+    // input and then coasting to a stop actually puts the car.
     if (i === last) {
+      // `rangeError`: the only NAVIGATION term the planner has, and in a targetless plan the
+      // entire objective (see `plan`'s doc). R-P7's third revision, kept.
       rangeError = Math.abs(
         Math.hypot(future.x - body.x, future.y - body.y) - args.preferredRange,
       );
+      // `threatAvoid` AT THE TERMINUS (R-P11, fix round 4, 2026-09-07). Displacement along a
+      // threat's `awayHeadingRad` asks "am I out of the line", which is a destination: a maximum
+      // over the arc rewards an arc that steps aside and then drifts straight back, because the
+      // moment it was clear is banked and the return costs nothing. Round 3's ablation also
+      // attributed `balance/match.test.ts`'s seed-96 failure to the arc reading, and measured that
+      // file 11 / 11 green with this term at the terminus.
+      threatAvoid = threatAvoidOf(origin, body, away);
     }
-
-    // Likewise the best moment, not the last one: getting off the line for the instant the bolt
-    // passes is the whole content of a dodge, and where the excursion finishes is not.
-    const avoid = threatAvoidOf(origin, body, away);
-    if (avoid > threatAvoid) threatAvoid = avoid;
 
     if (!args.target) continue;
 
@@ -614,19 +748,12 @@ function scoreCandidate(
     if (danger > theirEv) theirEv = danger;
   }
 
-  return {
-    myEv,
-    theirEv,
-    rangeError,
-    wallPenalty,
-    lockKeep,
-    threatAvoid: Number.isFinite(threatAvoid) ? threatAvoid : 0,
-  };
+  return { myEv, theirEv, rangeError, wallPenalty, lockKeep, threatAvoid };
 }
 
 /**
- * How far this pose along the arc has moved from the plan's start along the "get out of the way"
- * directions of every shot currently in the air, in world units (P40, R-P8).
+ * How far the arc's TERMINAL pose has moved from the plan's start along the "get out of the way"
+ * directions of every shot currently in the air, in world units (P40, R-P8, R-P11).
  *
  * SUMMED across threats, deliberately, which is a vector sum of the away directions applied to one
  * displacement: two shots crossing from opposite sides cancel to roughly zero, and that is right —

@@ -220,12 +220,35 @@ export interface BotProfile {
    *   | off-axis fires       |  66 |  64 |   —  | 100 |  98  |  64 |  28 |   0 |
    *   | mean heading offset  |0.035|0.081|   —  |0.245| 0.031|0.216|1.120|0.235|
    *
-   * 0.4 is the point where the heading is BOTH accurate and steady; below 0.3 the wheel starts
-   * sawing (the spread is dominated by `myEv`, and two arcs whose noses both sweep the target score
-   * within a few points of each other, so something has to break the tie), above 0.5 the latch
-   * returns. The ladder keeps its shape and its direction — a better player commits harder — at
-   * 0.1 / 0.25 / 0.4, one third of the old span. `LADDER` in `bot-profiles.test.ts` still holds it
-   * strictly increasing, and `UNIT_INTERVAL_FIELDS` still holds it inside [0, 1].
+   * 0.4 was the point where the heading was BOTH accurate and steady under that candidate set;
+   * below 0.3 the wheel started sawing, above 0.5 the latch returned.
+   *
+   * RE-TUNED AGAIN TO 0.04 / 0.07 / 0.1 (R-P10, fix round 4, 2026-09-07), because the SPREAD this
+   * is a fraction of changed composition. A candidate is now the action held for the commitment
+   * window and then a coast to rest, so the nine terminal poses sit ~40 units apart instead of
+   * ~190; what is left dominating the spread is `myEv`'s cliff between "nose on the target" (about
+   * 50 EV/s) and "nose 0.24 rad off it" (about 7), which is 86 points at a weight of 2. At 0.4 the
+   * incumbent therefore carried a ~37-point bonus over a throttle decision worth 2 points, and the
+   * bot could not change its pedal at all: measured, it held throttle 1 from range 494 straight
+   * through the target to range 13 and out the other side, because every re-plan preferred the
+   * action it was already taking. The knob had become a latch a second time, on the other axis.
+   *
+   * Swept over seven seeds on both closed-loop duels, everything else at its final value, a duel
+   * counting as passed only when it clears BOTH `fires > 90` and `meanOffset < 0.2`:
+   *
+   *   | hard `commitPenalty` | 0.1 (SHIPPED) | 0.2 | 0.3 | 0.4 | 0.5 | 0.6 |
+   *   |----------------------|---------------|-----|-----|-----|-----|-----|
+   *   | on-axis passes       | **6 / 7**     | 2/7 | 3/7 | 3/7 | 2/7 | 3/7 |
+   *   | off-axis passes      | **2 / 7**     | 0/7 | 1/7 | 2/7 | 1/7 | 0/7 |
+   *
+   * (Both columns rise again once `rangeError`'s own re-derivation lands — see `objectives.ts` —
+   * to 6/7 and 7/7 at 0.1 against 4/7 and 4/7 at 0.4. The two were measured together because they
+   * are the same event: R-P10 moved every term's scale at once.)
+   *
+   * The ladder keeps its shape and its direction — a better player commits harder — and the whole
+   * of it is scaled, not just hard's rung, so no tier's relationship to another moved. `LADDER` in
+   * `bot-profiles.test.ts` still holds it strictly increasing, and `UNIT_INTERVAL_FIELDS` still
+   * holds it inside [0, 1].
    */
   readonly commitPenalty: number;
 }
@@ -542,7 +565,7 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
     hearChance: 0.15,
     deadRespect: 0.25, opponentRangeRespect: 0, cornerRespect: 0.35, incomingCarChance: 0.1,
     situationCommitTicks: 20, slotStickTicks: 4,
-    planHorizonTicks: 0, planDepth: 1, targetBranches: 1, commitPenalty: 0.1,
+    planHorizonTicks: 0, planDepth: 1, targetBranches: 1, commitPenalty: 0.04,
   }),
   medium: Object.freeze({
     viewStalenessTicks: 3, reactionDelayTicks: 6, recomputeTicks: 6, acquireTicks: 9,
@@ -558,7 +581,7 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
     hearChance: 0.55,
     deadRespect: 0.75, opponentRangeRespect: 0.45, cornerRespect: 0.75, incomingCarChance: 0.55,
     situationCommitTicks: 12, slotStickTicks: 8,
-    planHorizonTicks: 8, planDepth: 1, targetBranches: 1, commitPenalty: 0.25,
+    planHorizonTicks: 8, planDepth: 1, targetBranches: 1, commitPenalty: 0.07,
   }),
   hard: Object.freeze({
     viewStalenessTicks: 2, reactionDelayTicks: 4, recomputeTicks: 2, acquireTicks: 5,
@@ -574,6 +597,6 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
     hearChance: 1,
     deadRespect: 1, opponentRangeRespect: 0.9, cornerRespect: 1, incomingCarChance: 0.95,
     situationCommitTicks: 6, slotStickTicks: 12,
-    planHorizonTicks: 22, planDepth: 1, targetBranches: 3, commitPenalty: 0.4,
+    planHorizonTicks: 22, planDepth: 1, targetBranches: 3, commitPenalty: 0.1,
   }),
 });

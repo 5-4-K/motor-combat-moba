@@ -469,6 +469,11 @@ export class HumanController implements BotController {
       shotThreats,
       weights: weightsFor(sit, profile),
       horizonTicks: profile.planHorizonTicks,
+      // R-P10 (fix round 4): the commitment window is the window this controller actually holds
+      // an emitted action for, which is the same `recomputeTicks` the cadence gate above reads.
+      // One number, one meaning — a candidate models the commitment the bot really makes rather
+      // than a 22-tick hold it never performs. The planner still never learns the tier (H8).
+      commitTicks: profile.recomputeTicks,
       depth: profile.planDepth,
       targetBranches: profile.targetBranches,
       commitPenalty: profile.commitPenalty,
@@ -478,6 +483,10 @@ export class HumanController implements BotController {
       // profile field is the single source of that number — the planner never learns which tier it
       // is, only how much dead time it has (H8).
       actuationDelayTicks: profile.reactionDelayTicks,
+      // R-P10b: the actions already in the delay line, oldest first — what the wheels will
+      // actually see over the dead time. Reading the queue moves no `rng()` draw: it is state
+      // `applyHumanize` already wrote, and this call site passes it on every branch (H21).
+      pending: this.humanize.delayLine.map((i) => ({ steer: i.steer, throttle: i.throttle })),
       tick,
       arena: view.arena,
     });

@@ -42,16 +42,42 @@ import type { PlanWeights } from "./planner.js";
  * play until you notice it also would not step back INTO its own gun's range after being shoved out
  * of it. At 2:0.6 it closes. Measured on the duel pair: 62 -> 98 off-axis fires at otherwise
  * identical settings.
+ *
+ * `rangeError` RE-DERIVED A SECOND TIME, 10x, WHEN R-P10 CHANGED ITS MEASURED SCALE (R-P10c, fix
+ * round 4, 2026-09-07). R-P9's own rule is that a weight is re-derived when the quantity under it
+ * moves, and R-P10 moved this one by construction. A candidate used to be one input held for the
+ * whole horizon, so at hard's K=22 the nine terminal poses were spread ~190 units apart and 0.12
+ * bought ~15 points of separation. A candidate is now the input held for the COMMITMENT WINDOW and
+ * then a coast to rest, so the terminal poses are spread ~40 units and the same weight bought ~5 —
+ * against a `myEv` cliff of 86 points between "nose on the target" and "nose 0.24 rad off it",
+ * which did not shrink at all. The term stopped being able to say where to stand: measured, the
+ * bot settled anywhere from 157 to 611 units against a preferred 530, and the closed-loop duels
+ * became a lottery on which side of Bullseye's kit reach it happened to stop.
+ *
+ * Swept as a global gain on every row, seven seeds, both closed-loop duels, a duel counting as
+ * passed only when it clears BOTH `fires > 90` and `meanOffset < 0.2`:
+ *
+ * | gain | 1x | 2x | 3x | 5x | 6x | 8x | **10x** | 12x | 16x |
+ * |---|---|---|---|---|---|---|---|---|---|
+ * | on-axis passes  | 6/7 | 6/7 | 5/7 | 4/7 | 4/7 | 5/7 | **6/7** | 5/7 | 5/7 |
+ * | off-axis passes | 2/7 | 2/7 | 4/7 | 5/7 | 7/7 | 7/7 | **7/7** | 7/7 | 7/7 |
+ *
+ * 10x is the only row that is best-in-column on both. Above 6x the settle is stable (every seed
+ * parks within 425-573 of a preferred 530 instead of 157-611) and the remaining variation is the
+ * fire count at the edge of the kit's reach, not the bot's ability to hold a station. It is a
+ * SCALE fix, not a priority change: the ratios between the eight situations are untouched, every
+ * row is multiplied by the same 10, and the two rows that were 0 (`evade`, `unpin` — plays whose
+ * content is "get off this line" and "leave", not "stand at a range") are still 0.
  */
 const BASE: Readonly<Record<SituationId, PlanWeights>> = Object.freeze({
   recover: { myEv: 0, theirEv: 0, rangeError: 0, wallPenalty: 60, lockKeep: 0, threatAvoid: 0 },
-  waitOut: { myEv: 0, theirEv: 0.5, rangeError: 0.15, wallPenalty: 240, lockKeep: 0, threatAvoid: 0 },
+  waitOut: { myEv: 0, theirEv: 0.5, rangeError: 1.5, wallPenalty: 240, lockKeep: 0, threatAvoid: 0 },
   evade: { myEv: 0.3, theirEv: 4, rangeError: 0, wallPenalty: 360, lockKeep: 0, threatAvoid: 0.6 },
   unpin: { myEv: 0.2, theirEv: 1, rangeError: 0, wallPenalty: 2400, lockKeep: 0, threatAvoid: 0 },
-  punish: { myEv: 3, theirEv: 0.25, rangeError: 0.2, wallPenalty: 240, lockKeep: 12, threatAvoid: 0 },
-  reset: { myEv: 0.4, theirEv: 3, rangeError: 0.25, wallPenalty: 360, lockKeep: 2, threatAvoid: 0 },
-  fight: { myEv: 2, theirEv: 0.6, rangeError: 0.12, wallPenalty: 300, lockKeep: 8, threatAvoid: 0 },
-  close: { myEv: 1, theirEv: 0.75, rangeError: 0.35, wallPenalty: 300, lockKeep: 4, threatAvoid: 0 },
+  punish: { myEv: 3, theirEv: 0.25, rangeError: 2, wallPenalty: 240, lockKeep: 12, threatAvoid: 0 },
+  reset: { myEv: 0.4, theirEv: 3, rangeError: 2.5, wallPenalty: 360, lockKeep: 2, threatAvoid: 0 },
+  fight: { myEv: 2, theirEv: 0.6, rangeError: 1.2, wallPenalty: 300, lockKeep: 8, threatAvoid: 0 },
+  close: { myEv: 1, theirEv: 0.75, rangeError: 3.5, wallPenalty: 300, lockKeep: 4, threatAvoid: 0 },
 });
 
 /**
