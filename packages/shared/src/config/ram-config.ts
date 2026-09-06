@@ -27,14 +27,36 @@ export const RAM_CONFIG = {
    */
   contactPad: 1,
   /**
-   * Below this closing speed along the attacker's nose, a contact is a nudge and no ram is written.
-   * About 11% of the roster's top speed. This is also what stops a pair chattering in and out of
-   * contact from re-triggering: after impact the attacker has already been rebounded to roughly
-   * -35% of its impact speed by `applyContact`, so its approach term is negative.
+   * Minimum combined drive-in below which no ram fires. **Ships at 0 — deliberately inactive**
+   * (spec R9), to be tuned later by feel.
+   *
+   * At 0, a gentle bump is simply a ram with a low drive-in, and linear scaling makes it come out
+   * small on its own — which is why revision 2 needs no separate "baseline versus ram" path. The old
+   * value of 60 was authored against a 449 u/s roster and means something different against 267, so
+   * it cannot be carried across even when it is re-enabled.
    */
-  minApproachSpeed: 60,
+  minApproachSpeed: 0,
   /** Rating-to-mass scale, mirroring `COMBAT_CONFIG.hpPerRating`. Ratings are 0-100. */
   massPerRating: 10,
+
+  /**
+   * How much a STATIONARY car resists, as a multiplier on its `ramDefence` when building its push
+   * (spec R2). The first knob to reach for when contact feels wrong: low and parked cars are nearly
+   * free hits, high and everything feels like hitting a wall.
+   *
+   * At 35 a stationary mid-tier car brings roughly 12% of what a full-speed car brings. It is also
+   * what makes T-boning a Bastion cost more than T-boning a Bullseye — about seven times more at the
+   * starting ratings, and nobody authored that number; it falls out of the contest.
+   */
+  defencePushScale: 35,
+  /**
+   * Converts a contest result into a Δv (spec R5).
+   *
+   * **MEASURE THIS, DO NOT DERIVE IT.** Revision 1's equivalent was derived from arithmetic and was
+   * wrong by 5x — it threw every chassis backwards faster than its own top speed. Task 4 measures it
+   * against the shipped pipeline order and records what it measured.
+   */
+  globalScale: 1,
 
   /**
    * The positional read, and the single most important balance lever in the feature. Front is cheap

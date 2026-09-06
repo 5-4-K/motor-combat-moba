@@ -11,6 +11,8 @@ import {
   isActiveCarId,
   isCarId,
   massOf,
+  ramAttackOf,
+  ramDefenceOf,
   reverseAccelOf,
   reverseMaxSpeedOf,
   turnRateAtStopOf,
@@ -22,6 +24,7 @@ import { COMBAT_CONFIG } from "./combat-config.js";
 import { CAMERA_CONFIG, DRIVE_CONFIG } from "./drive-config.js";
 import { FLOW_CONFIG } from "./flow-config.js";
 import { NET_CONFIG } from "./net-config.js";
+import { RAM_CONFIG } from "./ram-config.js";
 import { damageFor } from "../sim/damage.js";
 
 describe("CAR_TABLE", () => {
@@ -352,5 +355,38 @@ describe("per-car coast and brake", () => {
 
   it("has a positive impact grip deceleration", () => {
     expect(DRIVE_CONFIG.impactGripDecel).toBeGreaterThan(0);
+  });
+});
+
+describe("ram ratings", () => {
+  it("gives every active chassis a positive ramAttack and ramDefence", () => {
+    for (const id of activeCarIds()) {
+      expect(ramAttackOf(id)).toBeGreaterThan(0);
+      expect(ramDefenceOf(id)).toBeGreaterThan(0);
+    }
+  });
+
+  it("keeps them as 0-100 ratings, not direct values", () => {
+    for (const id of activeCarIds()) {
+      expect(ramAttackOf(id)).toBeLessThanOrEqual(100);
+      expect(ramDefenceOf(id)).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it("orders ramDefence tank-first, preserving the old mass ordering", () => {
+    expect(ramDefenceOf("bastion")).toBeGreaterThan(ramDefenceOf("mirage"));
+    expect(ramDefenceOf("mirage")).toBeGreaterThan(ramDefenceOf("bullseye"));
+  });
+
+  it("spreads ramAttack more narrowly than ramDefence, so offence and defence are not the same axis", () => {
+    const atk = activeCarIds().map(ramAttackOf);
+    const def = activeCarIds().map(ramDefenceOf);
+    const spread = (xs: number[]) => Math.max(...xs) - Math.min(...xs);
+    expect(spread(atk)).toBeLessThan(spread(def));
+  });
+
+  it("has a positive defence push scale and global scale", () => {
+    expect(RAM_CONFIG.defencePushScale).toBeGreaterThan(0);
+    expect(RAM_CONFIG.globalScale).toBeGreaterThan(0);
   });
 });

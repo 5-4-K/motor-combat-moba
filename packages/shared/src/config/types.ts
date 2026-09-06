@@ -14,6 +14,25 @@ export interface CarDef {
    */
   mass: number;
   /**
+   * How hard this chassis hits in a ram contest, 0-100. Affects **only** what it does to others —
+   * never what happens to it (spec R1). This is what lets a chassis be made to hit harder without
+   * also becoming immovable, which one `mass` rating could not express.
+   *
+   * NOT `attack`: that field already exists on this table and scales WEAPON damage. Reusing it
+   * would couple ramming power to gun damage, which is the class of hidden coupling revision 2
+   * exists to remove.
+   */
+  ramAttack: number;
+  /**
+   * How solid this chassis is, 0-100: what it resists in the contest, what it absorbs, and how hard
+   * it is to shoulder aside (spec R1, R5, R8).
+   *
+   * Worth more per point than `ramAttack`, deliberately: it both adds to your push and divides your
+   * received impact, so its effect compounds. That is what makes a tank read as a tank — price the
+   * roster around it rather than weakening one of the two roles (spec "Flagged for confirmation").
+   */
+  ramDefence: number;
+  /**
    * Engine push, 0-100. Scaled to units/s^2 by `accelOf`. Independent of `speed`: this roster's
    * accel ordering happens to match its speed ordering, but the axis exists so a future chassis can
    * be fast-topped and sluggish off the line, or the reverse.
