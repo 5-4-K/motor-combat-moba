@@ -189,6 +189,12 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
     const pastFailures: string[] = [];
     let worstDepth = 0;
     let worstDepthLabel = "";
+    // `thunderclap` is the only dash in the game and it is Mirage-only (`wildcharge` is a `charge`,
+    // not a `dash`), so of the 9 pairings below only the 3 where `selfMass` is Mirage's are ones a
+    // player can ever produce. Track those separately for a tighter bound than the full sweep needs.
+    const MIRAGE_MASS = massOf("mirage");
+    let worstReachableDepth = 0;
+    let worstReachableDepthLabel = "";
 
     for (const selfMass of ROSTER_MASSES) {
       for (const otherMass of ROSTER_MASSES) {
@@ -235,6 +241,10 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
                   worstDepth = depth;
                   worstDepthLabel = label;
                 }
+                if (selfMass === MIRAGE_MASS && depth > worstReachableDepth) {
+                  worstReachableDepth = depth;
+                  worstReachableDepthLabel = label;
+                }
 
                 // Stop where the real lifecycle stops. `endDash` lives in the server's `ram-bridge`,
                 // not in `stepSim`, so nothing here would otherwise end the dash — and a car held
@@ -271,6 +281,22 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
     // 34 leaves noticeable headroom above that without being loose enough to hide a doubled residual.
     const MAX_PENETRATION = 34;
     expect(worstDepth, `worst penetration at [${worstDepthLabel}]`).toBeLessThan(MAX_PENETRATION);
+
+    // Half 3 (reachable subset): the 34u bound above covers the resolver's full symmetric
+    // behaviour, including pairings (bastion dashing) that cannot happen in a real match — nothing
+    // in `WEAPON_TABLE` gives Bastion or Bullseye a `type: "dash"` maneuver, only Mirage's
+    // `thunderclap`. That headroom is real resolver coverage and stays, but it is nearly 2x looser
+    // than what a player can ever see, so a regression that took Mirage's actual worst case from
+    // 17.96u to 30u would still pass it silently. Pin the Mirage-as-dasher subset separately, with
+    // headroom picked the same way `MAX_PENETRATION` was: enough to absorb measurement noise across
+    // the phase/angle sweep, not enough to hide a doubled residual. Applying the full bound's own
+    // headroom ratio (34 / 26.64, its worst case) to the reachable worst case (17.96u) gives ~22.9u;
+    // a doubled residual (~35.9u) would still fail it comfortably, so it discriminates.
+    const MAX_REACHABLE_PENETRATION = 17.96 * (MAX_PENETRATION / 26.64);
+    expect(
+      worstReachableDepth,
+      `worst reachable (Mirage-as-dasher) penetration at [${worstReachableDepthLabel}]`,
+    ).toBeLessThan(MAX_REACHABLE_PENETRATION);
   });
 
   it("leaves an uncontested dash covering exactly the ground it always did", () => {

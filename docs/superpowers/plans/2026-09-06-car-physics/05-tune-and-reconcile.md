@@ -236,3 +236,22 @@ git commit -m "docs: update CLAUDE.md for the car physics rework"
 - [ ] Chained rams fall off; three seconds later they do not.
 - [ ] A Bastion cannot be shouldered aside; a Bullseye can.
 - [ ] `thunderclap` is untouched.
+
+---
+
+## Carried in from stage 2: deferred `dashSubstepMaxUnits` tuning
+
+Stage 2's mass-weighted car-car separation (each side now conceding only `shareOf(selfMass,
+otherMass)` instead of the pre-rework always-full-push) made `DRIVE_CONFIG.dashSubstepMaxUnits`'s
+13.3u arrival gap at the current value of 16 **visible** as momentary penetration for the first
+time — a dashing car can end up briefly embedded in what it hits. `thunderclap` is the only dash in
+the game, so this is Mirage-only; worst measured case is Mirage into a Bullseye at **17.96u**, and it
+clears in about three ticks with both cars resolving. Full measurement table and reasoning are on the
+constant's own doc comment (`packages/shared/src/config/drive-config.ts`, `dashSubstepMaxUnits`) —
+read that first if picking this up.
+
+Recommended change: `dashSubstepMaxUnits` **16 → 8**, which drops the measured worst case to
+**11.71u** for double the collision checks per dash tick. This was deliberately left undone in stage
+2 rather than folded into that stage's mass-split work, so it belongs in this stage's tuning pass
+(Task 1) alongside the other playground-dialable numbers — judge it against how a dash actually
+feels before committing to 8 over the current 16 or another point on the table.

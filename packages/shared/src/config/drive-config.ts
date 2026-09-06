@@ -135,6 +135,40 @@ export const DRIVE_CONFIG = {
    * correct band, not of any one weapon — a second dash weapon inherits it. `config.test.ts` pins
    * it to the hull rather than to 16, so shrinking a car fails the suite instead of quietly
    * reopening the tunnelling bug.
+   *
+   * At 16 the dasher still advances 13.3u between collision checks (four substeps of `thunderclap`'s
+   * 53.3u/tick) — that gap always existed, but before the 2026-09-06 mass-weighted separation change
+   * (car-car `resolveWorld` taking a `selfMass` and each side conceding only `shareOf(selfMass,
+   * otherMass)`, see `collide.ts`) the pre-rework always-full-push rule ejected the dasher back out
+   * in the same tick it landed, so nobody saw it. Now the dasher only claims its own share on the
+   * contact tick and the arrival gap surfaces as momentary penetration instead. `thunderclap`
+   * (Mirage's slot 2, `maneuver: { type: "dash" }`) is the only dash in the game — `wildcharge` is a
+   * `type: "charge"` and never substeps this way — so Mirage is the only chassis that can produce
+   * this. Measured worst case (sweeping approach angle, target orientation and the sub-tick phase
+   * against a 48x32 hull): Mirage dashing into a Bullseye, T-boning its side at 90° approach against
+   * 0° target orientation, penetrates **17.96u**. It clears in about three ticks (~100ms) once both
+   * cars are resolving their own share (`17.96 → 4.25 → 1.01 → 0.24 → 0.06 → gone`); a silent or
+   * backgrounded victim that never runs its own `resolveWorld` call clears more slowly but still
+   * monotonically (`17.96 → 11.05 → 6.80 → 4.19 → 2.58 → 1.59 → 0.98 …`).
+   *
+   * Tightening this knob trades substep count for granularity (measured, Mirage-into-Bullseye):
+   *
+   * | `dashSubstepMaxUnits` | substeps/tick | worst penetration |
+   * |---|---|---|
+   * | 16 (current) | 4 (13.3u each) | 17.96u |
+   * | 12 | 5 (10.7u each) | 15.36u |
+   * | 8 | 7 (7.6u each) | 11.71u |
+   * | 6 | 9 (5.9u each) | 9.33u |
+   * | 4 | 14 (3.8u each) | 6.09u |
+   *
+   * Lowering it to 8 is the deferred fix: it roughly halves the visible penetration for a doubled
+   * substep count, and stage 5 (tune-and-reconcile) owns deciding whether that trade is worth the
+   * extra collision checks — see
+   * `docs/superpowers/plans/2026-09-06-car-physics/05-tune-and-reconcile.md`. Left at 16 for now;
+   * this comment exists so the trade is not re-derived from scratch. A future `TICK_RATE_HZ` bump
+   * (netcode phase 1 raises it to 60) does **not** shrink the gap on its own: this knob is denominated
+   * in world units, not ticks, so `thunderclap`'s 13.3u-per-substep arrival depth is unchanged by
+   * tick rate alone.
    */
   dashSubstepMaxUnits: 16,
   /**
