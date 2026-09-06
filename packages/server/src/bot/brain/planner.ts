@@ -154,16 +154,46 @@ interface Candidate {
  * reached by a new road. Sampled along the path, the +1 candidate's nose passes straight through the
  * target at tick 2, `myEv` peaks there, and the arc wins on the sweep it actually contains.
  *
+ * NOTHING IS READ AT THE TERMINUS (R-P7 revised, fix round 2, 2026-09-06). Round 1 kept
+ * `rangeError` and `threatAvoid` at the end pose, on the reasoning that "that is where the arc
+ * leaves you standing". Measurement falsified it, and the defect it left standing was the SAME one
+ * trajectory scoring had just cured on the steer axis, only on the throttle axis: full throttle held
+ * for 22 ticks TERMINATES ~190 units along, far past a 56-unit range correction, so closing scored
+ * worse than coasting and the bot never closed the gap — exactly as full lock held for 22 ticks
+ * overshot a 13-degree correction so the bot never turned. The terminus is simply the wrong question
+ * for a RECEDING horizon: hard re-plans every 2 ticks and has re-planned eleven times before it
+ * would reach a pose 22 ticks out, so it never stands there. The question the controller actually
+ * executes on is "does this arc carry me through what I want".
+ *
  * Each term aggregates the way its own direction demands, which is the whole content of the fix:
  *
  * - `myEv` — the BEST found anywhere along the path. That is the sweep.
  * - `lockKeep` — the BEST along the path, for the same reason.
+ * - `rangeError` — the BEST (smallest) along the path. "Does this arc carry me through my preferred
+ *   range", not "does it park me there".
+ * - `threatAvoid` — the BEST (largest) displacement reached anywhere along the path. Getting off the
+ *   line for the moment the bolt passes is the whole point; where the excursion ends is not.
  * - `theirEv` — the WORST (maximum danger). An arc that carries you through someone's line is
  *   dangerous even if it ends somewhere safe.
  * - `wallPenalty` — the WORST. Clipping a wall mid-arc is a real cost, not an artifact.
- * - `rangeError` — the END POSE alone. That is where the arc leaves you standing.
- * - `threatAvoid` — the END POSE alone. Displacement is a property of the whole excursion, and
- *   summing it along the way would just count the same metres several times.
+ *
+ * WHAT THAT COST, MEASURED, because the honest version of this comment is not one-sided. Moving
+ * `rangeError` off the terminus is what fixes the on-axis duel (`controller.test.ts` spec 1.1: 24
+ * fires per 300 ticks -> 140, mean heading offset 0.000 rad, settling at exactly the preferred 530
+ * instead of parking at 586 where only `predator` reaches). It also costs the off-axis duel (98 ->
+ * 44, mean heading offset 0.031 -> 0.414 rad), `tiers.test.ts`'s H39 wall test, and the seed-96
+ * deathmatch-clock fixture in `balance/match.test.ts` — five red tests where round 1 had three. The
+ * mechanism of the loss is that a MINIMISED term aggregated over an arc goes inert wherever the bot
+ * is already near its preferred range: every candidate's arc passes within a few units of the
+ * current pose at the first sample, so every candidate's minimum is that same small error and the
+ * term stops separating them. Near the settle point `myEv` and `theirEv` are then alone, they score
+ * a left sweep and a right sweep almost identically, and the wheel saws. Swept and rejected as
+ * remedies: `commitPenalty` over 0.3-0.9 (no value clears both duels), `fight`'s `rangeError` weight
+ * over 0-0.8 (best is 88 fires at 0.390 rad, which fails the heading half), `trajectorySampleCount`
+ * 3/5/6/8 (3 is the best duel pair at 146/86 but takes the whole suite to SIX failures by breaking
+ * both dodge tests and G12), and starting the sample schedule later than tick 1 (much worse: the
+ * on-axis duel collapses to 2 fires). The remaining candidate parameterization finding from round 1
+ * — that `planDepth: 1` cannot express "throttle for five ticks" — is untouched by any of this.
  *
  * Draws no randomness (P43, H21) — every term is a deterministic function of the observation, which
  * is also what keeps the score smooth enough not to chatter. There is no `rng` parameter here on
@@ -355,8 +385,10 @@ function rollCandidates(args: PlanArgs, segment: number, start: SimBody): Candid
 /**
  * Which ticks along a `pathTicks`-long rollout the score is read at (R-P7).
  *
- * Ticks, one-based, ascending, and the LAST ENTRY IS ALWAYS `pathTicks` — `rangeError` and
- * `threatAvoid` are defined at the terminus and would be reading a different pose otherwise.
+ * Ticks, one-based, ascending, and the LAST ENTRY IS ALWAYS `pathTicks` — no term is read at the
+ * terminus any more (R-P7 revised, round 2), but the far end of the arc is where a candidate commits
+ * the bot, so dropping it would let an arc that sweeps beautifully and then buries itself in a wall
+ * score as clean.
  *
  * GEOMETRICALLY SPACED, not evenly, and that is load-bearing rather than a refinement. Measured: an
  * evenly-spaced schedule at hard's K=22 reads ticks 6, 11, 17, 22, and the sweep it exists to catch
@@ -487,7 +519,11 @@ function scoreCandidate(
   let theirEv = 0;
   let wallPenalty = 0;
   let lockKeep = 0;
-  let rangeError = 0;
+  // Minimised and maximised respectively, so both start at the neutral end of their own scale and
+  // are floored back to 0 below if the loop somehow runs zero times. `plan` guarantees at least one
+  // sample (`segment` is floored at 1), so that floor is belt-and-braces, not a live case.
+  let rangeError = Infinity;
+  let threatAvoid = -Infinity;
 
   for (let i = 0; i <= last; i++) {
     const body = path[sampleTicks[i]! - 1]!;
@@ -497,17 +533,21 @@ function scoreCandidate(
     const wall = boundsPenalty(body.x, body.y, args.arena);
     if (wall > wallPenalty) wallPenalty = wall;
 
-    // The terminus, and only the terminus: this is where the arc leaves the bot standing (R-P7).
-    // Measured against the alternatives on the whole `controller.test.ts` + `tiers.test.ts` pair:
-    // the closest approach along the path (3 failures -> 4, and a range that oscillates 264-595
-    // units because every arc that grazes the preferred range scores a perfect 0, leaving no
-    // restoring force at the settle point) and the path mean (3 -> 6). The terminus is both what
-    // was ruled and what measures best.
-    if (i === last) {
-      rangeError = Math.abs(
-        Math.hypot(future.x - body.x, future.y - body.y) - args.preferredRange,
-      );
-    }
+    // BEST ANYWHERE ALONG THE ARC, not at the terminus (R-P7 revised, fix round 2, 2026-09-06).
+    // "Does this arc carry me through my preferred range" is the question a receding horizon
+    // actually executes on; "does it park me there" is not, because the plan is redone every
+    // `recomputeTicks` and the terminal pose is never reached. Read at the end alone, full throttle
+    // for 22 ticks overshoots a 56-unit correction by ~130 units and scores worse than coasting, so
+    // the bot parks — the same defect trajectory scoring had already cured on the steer axis.
+    const error = Math.abs(
+      Math.hypot(future.x - body.x, future.y - body.y) - args.preferredRange,
+    );
+    if (error < rangeError) rangeError = error;
+
+    // Likewise the best moment, not the last one: getting off the line for the instant the bolt
+    // passes is the whole content of a dodge, and where the excursion finishes is not.
+    const avoid = threatAvoidOf(origin, body, away);
+    if (avoid > threatAvoid) threatAvoid = avoid;
 
     if (!args.target) continue;
 
@@ -563,16 +603,16 @@ function scoreCandidate(
   return {
     myEv,
     theirEv,
-    rangeError,
+    rangeError: Number.isFinite(rangeError) ? rangeError : 0,
     wallPenalty,
     lockKeep,
-    threatAvoid: threatAvoidOf(origin, path.at(-1)!, away),
+    threatAvoid: Number.isFinite(threatAvoid) ? threatAvoid : 0,
   };
 }
 
 /**
- * How far this arc's terminus has moved along the "get out of the way" directions of every shot
- * currently in the air, in world units (P40, R-P8).
+ * How far this pose along the arc has moved from the plan's start along the "get out of the way"
+ * directions of every shot currently in the air, in world units (P40, R-P8).
  *
  * SUMMED across threats, deliberately, which is a vector sum of the away directions applied to one
  * displacement: two shots crossing from opposite sides cancel to roughly zero, and that is right —
@@ -584,12 +624,12 @@ function scoreCandidate(
  */
 function threatAvoidOf(
   origin: { x: number; y: number },
-  end: SimBody,
+  at: { x: number; y: number },
   away: readonly { x: number; y: number }[],
 ): number {
   if (away.length === 0) return 0;
-  const dx = end.x - origin.x;
-  const dy = end.y - origin.y;
+  const dx = at.x - origin.x;
+  const dy = at.y - origin.y;
   let total = 0;
   for (const dir of away) total += dx * dir.x + dy * dir.y;
   return total;
