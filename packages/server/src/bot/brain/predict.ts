@@ -43,7 +43,11 @@ export function bodyFromObservation(car: BotCarView, angVel: number): SimBody {
 }
 
 /**
- * A `SimBody` for the bot's OWN car. Every field here is on its own HUD, so none is inferred.
+ * A `SimBody` for the bot's OWN car. The POSE fields — `x`, `y`, `angle`, `speed`, `maneuver` and
+ * `maneuverTicksLeft` — come straight off the bot's own HUD and are exact, not inferred. The four
+ * ram-state fields (`authority`, `shoveX`, `shoveY`, `reverseHold`) are not on `BotSelfView` at
+ * all, so they are assumed neutral here exactly as they are for an observed car in
+ * `bodyFromObservation` — this function does not read them off anything.
  *
  * `maneuverSpeed: 0` mirrors `bodyFromObservation`: even though `self.maneuverTicksLeft` can be
  * genuinely positive (this bot mid-dash), nothing in the bot brain reads a dash's actual travel
@@ -103,7 +107,7 @@ function clampedPredictor(
     if (ticksAhead <= 0 || poses.length === 0) {
       return fallback;
     }
-    const body = poses[Math.min(Math.round(ticksAhead), poses.length) - 1]!;
+    const body = poses[Math.min(Math.max(Math.round(ticksAhead), 1), poses.length) - 1]!;
     return { x: body.x, y: body.y, angle: body.angle };
   };
 }

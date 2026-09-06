@@ -67,6 +67,14 @@ describe("physicsPredictor", () => {
     const predictor = physicsPredictor(carAt(), 0, { steer: 0, throttle: 0 }, 10);
     expect(predictor(50)).toEqual(predictor(10));
   });
+
+  it("resolves a sub-one-tick ask to the FIRST rolled pose, not a negative index", () => {
+    // Math.round(0.3) is 0, so a naive `poses[Math.round(ticksAhead) - 1]` reads poses[-1]
+    // (undefined) and throws on `.x`. Any ticksAhead in (0, 1) must clamp UP to one tick ahead,
+    // the same way past-the-horizon clamps DOWN to the last pose.
+    const predictor = physicsPredictor(carAt(), 0, { steer: 0, throttle: 1 }, 10);
+    expect(predictor(0.3)).toEqual(predictor(1));
+  });
 });
 
 describe("selfPredictor", () => {
@@ -103,5 +111,26 @@ describe("interceptTicks", () => {
   it("returns 0 for a non-positive projectile speed", () => {
     const predictor = physicsPredictor(carAt(), 0, { steer: 0, throttle: 0 }, 30);
     expect(interceptTicks({ x: 0, y: 0 }, predictor, 0, 30)).toBe(0);
+  });
+
+  it("converges past the naive single-round guess for a target receding from the shooter", () => {
+    // A predictor whose position genuinely CHANGES with ticksAhead: moving straight away from the
+    // shooter at half the projectile's speed. Each fixed-point round re-measures distance against
+    // where the target will be by then, which is farther out than "now" -- so the converged answer
+    // must overshoot distance-now/projectileSpeed, the naive first-round guess. If the solver were
+    // only doing one round (or the loop were a no-op), this would fail.
+    const projectileSpeed = 600;
+    const startDistance = 300;
+    const recedingSpeed = 300; // u/s, well under projectileSpeed so the iteration converges
+    const receding = (ticksAhead: number) => ({
+      x: startDistance + (recedingSpeed * ticksAhead) / TICK_RATE_HZ,
+      y: 0,
+      angle: 0,
+    });
+    const naiveTicks = Math.round((startDistance / projectileSpeed) * TICK_RATE_HZ);
+    const maxTicks = TICK_RATE_HZ * 2;
+    const converged = interceptTicks({ x: 0, y: 0 }, receding, projectileSpeed, maxTicks);
+    expect(converged).toBeGreaterThan(naiveTicks);
+    expect(converged).toBeLessThan(maxTicks);
   });
 });
