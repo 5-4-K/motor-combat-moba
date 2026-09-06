@@ -429,12 +429,25 @@ export class HumanController implements BotController {
     /**
      * R-O6: the hunt drives THROUGH the planner, not around it.
      *
-     * `waitOut` has no target to aim at, so it supplies a synthetic one — a waypoint at
-     * `minEngageUnits` along the hunt heading — and a `preferredRange` of 0, which makes the
-     * planner's `rangeError` term read "get to that point". `planner.ts` was built for exactly
-     * this: `scoreCandidate` deliberately does NOT early-return when `target` is undefined, and
-     * still scores `rangeError` and `wallPenalty` off `targetAt`. Verified against the committed
-     * planner before relying on it. A parallel mover here is what P27 exists to prevent.
+     * `waitOut` has no target to aim at, so it supplies a synthetic one — a waypoint FAR along the
+     * hunt heading — and a `preferredRange` of 0, which makes the planner's `rangeError` term read
+     * "get to that point". `planner.ts` was built for exactly this: `scoreCandidate` deliberately
+     * does NOT early-return when `target` is undefined, and still scores `rangeError` and
+     * `wallPenalty` off `targetAt`. Verified against the committed planner before relying on it. A
+     * parallel mover here is what P27 exists to prevent.
+     *
+     * R-P13 (residuals round): the projection is `profile.awarenessRadiusUnits`, NOT
+     * `minEngageUnits`. A HUNTING BOT HEADS IN A DIRECTION; it does not drive to a point one
+     * car-length away and stop. The 70 was inherited from the old `huntHeading`, which returned a
+     * `range` alongside its heading for a mover that no longer exists, and the planner rewrite
+     * reused the number for a different job. It broke G12: with the waypoint 70 units along the
+     * hunt heading, a candidate that reverses ends up SEVEN UNITS closer to it than one that turns
+     * and drives (measured at the failing tick, `rangeError` 48.65 vs 55.70), because 70 units is
+     * well inside the ~120-unit arc a hard bot traces over its commitment window. So the bot
+     * moonwalked toward what it was hunting. Projecting at the awareness radius makes every
+     * candidate's error monotone in "did I close on the heading", which is the whole content of a
+     * hunt. Nothing depends on the waypoint being reachable: `huntHeading` is re-evaluated on every
+     * recompute, so the bot never arrives at a stale point — it only ever follows the current one.
      */
     const hunt = sit === "waitOut" ? this.huntHeading(view, self.angle) : undefined;
     const preferredRange = preferredRangeFor(sit, ownComfort, fightRange);
@@ -442,8 +455,8 @@ export class HumanController implements BotController {
 
     const targetAt: PosePredictor = hunt
       ? () => ({
-          x: self.x + Math.cos(hunt.headingRad) * BRAIN_CONSTANTS.minEngageUnits,
-          y: self.y + Math.sin(hunt.headingRad) * BRAIN_CONSTANTS.minEngageUnits,
+          x: self.x + Math.cos(hunt.headingRad) * profile.awarenessRadiusUnits,
+          y: self.y + Math.sin(hunt.headingRad) * profile.awarenessRadiusUnits,
           angle: hunt.headingRad,
         })
       : believedTargetAt ?? (() => ({ x: self.x, y: self.y, angle: self.angle }));
