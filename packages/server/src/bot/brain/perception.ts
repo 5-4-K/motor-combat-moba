@@ -18,6 +18,13 @@ export interface KnownCar {
   /** The tick this car actually registers — `firstSeenTick + acquireTicks` (TF2 recognition time). */
   noticedAtTick: number;
   lastSeenTick: number;
+  /**
+   * The pose before the current one, so turn rate is observable (P18).
+   *
+   * A person watching a car sees it rotating; they do not see its `angVel` field, and `BotCarView`
+   * deliberately does not carry one. Differencing two observed angles is the honest reconstruction.
+   */
+  previous: { angle: number; tick: number } | undefined;
 }
 
 export interface KnownThreat {
@@ -76,6 +83,7 @@ export function perceive(
     if (!visible(self, car, profile)) continue;
     const existing = state.cars.get(car.sessionId);
     if (existing) {
+      existing.previous = { angle: existing.car.angle, tick: existing.lastSeenTick };
       existing.car = car;
       existing.lastSeenTick = tick;
     } else {
@@ -84,6 +92,7 @@ export function perceive(
         firstSeenTick: tick,
         noticedAtTick: tick + profile.acquireTicks,
         lastSeenTick: tick,
+        previous: undefined,
       });
     }
   }
@@ -128,6 +137,20 @@ export function perceive(
   }
 
   return state;
+}
+
+/**
+ * How fast this car was observed to be turning, radians per second, or 0 when unknown (P18).
+ *
+ * `signedDelta` rather than a raw subtraction: a car crossing the +-pi seam differs by nearly 2*pi
+ * in raw terms, which would read as a violent spin and send every prediction built on it sideways.
+ */
+export function observedAngVelOf(state: PerceptionState, sessionId: string): number {
+  const known = state.cars.get(sessionId);
+  if (!known?.previous) return 0;
+  const ticks = known.lastSeenTick - known.previous.tick;
+  if (ticks <= 0) return 0;
+  return (signedDelta(known.previous.angle, known.car.angle) * TICK_RATE_HZ) / ticks;
 }
 
 /** Cars the bot has actually registered — past the acquire delay, still inside memory. */

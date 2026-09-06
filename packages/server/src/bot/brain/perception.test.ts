@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { BOT_PROFILES } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import type { BotCarView, BotView } from "../types.js";
-import { activeThreats, acquiringUnnoticed, knownCars, lastKnownAnchor, nearestHeardShot, newPerception, perceive, predictedPose, readinessOf, searchWaypoint, ultIsSpent } from "./perception.js";
+import { activeThreats, acquiringUnnoticed, knownCars, lastKnownAnchor, nearestHeardShot, newPerception, observedAngVelOf, perceive, predictedPose, readinessOf, searchWaypoint, ultIsSpent } from "./perception.js";
 
 function car(overrides: Partial<BotCarView> = {}): BotCarView {
   return {
@@ -202,6 +202,38 @@ describe("hunt cues (G12, G13)", () => {
     expect(knownCars(state, 0)[0]?.alive).toBe(true);
     state = perceive(state, view({ tick: 1, others: [car({ alive: false })] }), profile);
     expect(state.cars.get("them")?.car.alive).toBe(false);
+  });
+});
+
+describe("observedAngVelOf", () => {
+  it("is 0 for a car seen only once", () => {
+    let state = newPerception();
+    state = perceive(state, view({ tick: 0, others: [car({ x: 100, y: 100, angle: 0 })] }), BOT_PROFILES.hard);
+    expect(observedAngVelOf(state, "them")).toBe(0);
+  });
+
+  it("measures a turn from two observed poses", () => {
+    let state = newPerception();
+    state = perceive(state, view({ tick: 0, others: [car({ x: 100, y: 100, angle: 0 })] }), BOT_PROFILES.hard);
+    state = perceive(state, view({ tick: 1, others: [car({ x: 100, y: 100, angle: 0.2 })] }), BOT_PROFILES.hard);
+    // 0.2 rad in one tick at 30 Hz == 6 rad/s.
+    expect(observedAngVelOf(state, "them")).toBeCloseTo(6, 3);
+  });
+
+  it("takes the short way round the seam rather than reading a near-full turn", () => {
+    let state = newPerception();
+    state = perceive(
+      state,
+      view({ tick: 0, others: [car({ x: 100, y: 100, angle: Math.PI - 0.05 })] }),
+      BOT_PROFILES.hard,
+    );
+    state = perceive(
+      state,
+      view({ tick: 1, others: [car({ x: 100, y: 100, angle: -Math.PI + 0.05 })] }),
+      BOT_PROFILES.hard,
+    );
+    // 0.1 rad across the seam, not 2*pi - 0.1.
+    expect(Math.abs(observedAngVelOf(state, "them"))).toBeCloseTo(3, 3);
   });
 });
 
