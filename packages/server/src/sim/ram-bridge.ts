@@ -1,6 +1,7 @@
 import {
   SLAM_CONFIG,
   SLAM_TICKS,
+  applyImpulse,
   carHullOf,
   carIdOf,
   expireStatusesFromSource,
@@ -11,6 +12,8 @@ import {
   hullTouchesWorld,
   isSolid,
   isWeaponId,
+  massOf,
+  reactionOf,
   resolveContacts,
   toWorld,
   weaponDefOf,
@@ -84,23 +87,33 @@ export function clearKnock(player: PlayerState): void {
 }
 
 /**
- * Zero the four maneuver fields and set the car's velocity to `exitSpeed` purely forward along its
- * current heading (no lateral component). The one place a dash, a wall-blocked dash, or a slammed
- * charge stops — the bridge writing motion fields is the established ram pattern; combat still
- * never moves a car.
- *
- * This DISCARDS whatever lateral component the car's velocity carried into the call, where the old
- * `player.speed = exitSpeed` scalar assignment left `shoveX`/`shoveY` alone. A wall-blocked dasher
- * (the `endDash(player, 0)` call below) loses any shove it was still carrying, and a slammed charger
- * (the third call, at `restored` below) gets re-pointed straight along its nose. Consistent with this
- * stage's other forward-only choices and revisited in stage 2 when `RamKnock` becomes `Impulse`; not
- * silently swallowed today, just not fixed here.
+ * Zero the four maneuver fields alone, touching no velocity. Split out of `endDash` (below) for the
+ * slam-attacker case (Task 4): that car's post-slam velocity is now written by the equal-and-opposite
+ * `Impulse` reaction, in the same pass that resolves every other impulse this tick, and a maneuver
+ * end must not stomp it back to a forced-forward speed the way `endDash` deliberately does for a
+ * dash. Order between the two writes does not matter — they touch disjoint fields.
  */
-function endDash(player: PlayerState, exitSpeed: number): void {
+function endManeuverOnly(player: PlayerState): void {
   player.maneuver = 0;
   player.maneuverTicksLeft = 0;
   player.maneuverAngle = 0;
   player.maneuverSpeed = 0;
+}
+
+/**
+ * Zero the four maneuver fields and set the car's velocity to `exitSpeed` purely forward along its
+ * current heading (no lateral component). The one place a dash or a wall-blocked dash stops — the
+ * bridge writing motion fields is the established ram pattern; combat still never moves a car.
+ *
+ * This DISCARDS whatever lateral component the car's velocity carried into the call. A wall-blocked
+ * dasher (the `endDash(player, 0)` call below) loses any push it was still carrying; a dash that
+ * lands its one hit exits at the drive model's cap. Neither of those two cases is Impulse-driven —
+ * a dash carries no `Impulse` at all (spec: it reports a `ContactHit` and combat prices the damage),
+ * so there is no reaction to preserve here the way there is for a slam's attacker (`endManeuverOnly`
+ * above).
+ */
+function endDash(player: PlayerState, exitSpeed: number): void {
+  endManeuverOnly(player);
   const v = toWorld(player.angle, exitSpeed, 0);
   player.vx = v.vx;
   player.vy = v.vy;
@@ -160,6 +173,20 @@ function contactCarsOf(
 }
 
 /**
+ * This player's mass as `applyImpulse` sees it: chassis rating scaled by whatever `ramMass` effect
+ * it carries — mirrors `RamCar`'s own `effectiveMassOf` in `sim/ram.ts` (`contactCarsOf` above
+ * already resolves the identical value per car for severity grading; this is the same fact, read
+ * again here because `applyImpulse` runs after `resolveContacts` returns and takes a raw mass
+ * number rather than a `RamCar`). `0` for a session with no player, which `massFactorOf`
+ * (`sim/impulse.ts`) treats as "unscaled" rather than dividing by it.
+ */
+function massFor(state: ArenaState, statusMods: ReadonlyMap<string, Modifiers>, sessionId: string): number {
+  const player = state.players.get(sessionId);
+  if (!player) return 0;
+  return massOf(carIdOf(player)) * modifiersFor(statusMods, sessionId).ramMass;
+}
+
+/**
  * `approachSpeeds` comes from `serverTick`'s `TickResult`: each car's FORWARD speed as it entered
  * the tick, before `resolveWorld` could reflect it. It is a required parameter rather than an
  * optional one with a `forwardOf(player.vx, player.vy, player.angle)` default, deliberately — a
@@ -180,7 +207,7 @@ export function contactTick(
   const bounds = { width: arena.width, height: arena.height };
 
   const cars = contactCarsOf(state, roster, statusMods, approachSpeeds, maneuverWeapons, tick);
-  const { knocks, contacts, events } = resolveContacts(
+  const { impulses, contacts, events } = resolveContacts(
     cars,
     memory.contacts,
     mode,
@@ -191,20 +218,37 @@ export function contactTick(
   );
   memory.contacts = contacts;
 
-  for (const knock of knocks) {
-    const player = state.players.get(knock.sessionId);
-    if (!player) continue;
-    // TEMPORARY SHIM (stage 1 of the car-physics rework): `RamKnock` still carries `shoveX`/`shoveY`
-    // and `authority`, but `PlayerState` no longer has separate fields for them — velocity is just
-    // `vx`/`vy` now. Until stage 2 replaces `RamKnock` with a proper `Impulse`, the knock is added
-    // straight into the victim's velocity, additively, with no "no rescue" precedence: two knocks
-    // landing on the same victim across different ticks now simply stack rather than the weaker one
-    // being discarded. `knock.authority` is dropped on the floor entirely — ram control-loss returns
-    // as the `reeling` status in stage 3, and until then a rammed car keeps full steering. This is
-    // the documented "ramming temporarily degraded" state of this stage; do not invent a stand-in.
-    player.angVel = knock.angVel;
-    player.vx += knock.shoveX;
-    player.vy += knock.shoveY;
+  // Task 4 (car-physics rework, stage 2): both halves of the pair land through `Impulse` now,
+  // replacing the stage-1 shim's additive shoveX/shoveY write. `impulses` is keyed by VICTIM id and
+  // carries `attackerId` alongside the resolved push (`ImpulseEntry`) — no separate lookup is
+  // needed to find who threw it, since only `resolveContacts`'s own pair loop is in a position to
+  // say. The victim receives the impulse as resolved; the attacker receives `reactionOf` of the
+  // SAME impulse — Newton's third law, so a heavy Bastion ramming a light Bullseye barely slows
+  // while the reverse bounces the Bastion's target hard. This also replaces
+  // `SLAM_CONFIG.selfKeepFactor`'s hand-tuned forward-only restore for a slam's attacker outright: a
+  // slam's `Impulse` rides through this exact same map, so its attacker's reaction is applied here
+  // too, not in the `events.slams` loop below (see `endManeuverOnly`'s own comment).
+  //
+  // `knock.authority` had no successor and none is invented here (Task 4's scope note): ram
+  // control-loss returns as the `reeling` status in stage 3, and until then a rammed car keeps full
+  // steering, exactly as the stage-1 shim already left it.
+  for (const [victimId, entry] of impulses) {
+    const victim = state.players.get(victimId);
+    if (victim) {
+      const next = applyImpulse(victim, massFor(state, statusMods, victimId), entry.impulse);
+      victim.vx = next.vx;
+      victim.vy = next.vy;
+      victim.angVel = next.angVel;
+    }
+
+    const attacker = state.players.get(entry.attackerId);
+    if (attacker) {
+      const reaction = reactionOf(entry.impulse);
+      const next = applyImpulse(attacker, massFor(state, statusMods, entry.attackerId), reaction);
+      attacker.vx = next.vx;
+      attacker.vy = next.vy;
+      attacker.angVel = next.angVel;
+    }
   }
 
   // A dash into a wall exits stopped, not at cap.
@@ -244,13 +288,11 @@ export function contactTick(
     if (attacker) {
       // O2: the charge ends on its first slam, taking its own self-applied statuses with it — a
       // power whose window closes early cannot leave a buff running past the thing that ended it.
-      // STAGE 4: `SLAM_CONFIG.selfKeepFactor` is deleted along with the rest of `SLAM_CONFIG` once
-      // the `ImpulseDef` seam lands — the attacker's cost falls out of equal-and-opposite impulses
-      // instead of this hand-tuned fraction.
-      const restored =
-        (approachSpeeds.get(hit.attackerSessionId)
-          ?? forwardOf(attacker.vx, attacker.vy, attacker.angle)) * SLAM_CONFIG.selfKeepFactor;
-      endDash(attacker, restored);
+      // Velocity is NOT touched here (Task 4): the impulses loop above already applied this
+      // attacker's Newton's-third-law reaction to this exact slam — `SLAM_CONFIG.selfKeepFactor`'s
+      // hand-tuned forward-only restore is gone, replaced outright rather than reproduced. Only the
+      // maneuver fields need clearing, so `endManeuverOnly` rather than `endDash`.
+      endManeuverOnly(attacker);
       writeStatuses(
         attacker,
         expireStatusesFromSource(readStatuses(attacker), hit.attackerSessionId, tick),

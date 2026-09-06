@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { RAM_CONFIG } from "../config/ram-config.js";
 import { massOf } from "../config/car-config.js";
 import type { CarId } from "../config/types.js";
+import { applyImpulse } from "./impulse.js";
 import { applyRams, impactSideOf, pairKey, resolveRam, type RamCar } from "./ram.js";
+import type { SimBody } from "./step.js";
 
 function car(over: Partial<RamCar> = {}): RamCar {
   // `massMult: 1` is the neutral value of the `ramMass` status channel: every expectation in
@@ -17,6 +19,20 @@ function car(over: Partial<RamCar> = {}): RamCar {
     carId: "mirage" as CarId,
     massMult: 1,
     ...over,
+  };
+}
+
+/**
+ * A resting `SimBody` at the given pose, for feeding a `resolveRam` result through `applyImpulse`.
+ * `resolveRam` itself no longer computes a landed velocity or spin at all (Task 3/4 of the
+ * car-physics rework moved that entirely into `applyImpulse`) — it only produces the `Impulse`, so
+ * a handful of tests below apply it end-to-end exactly as `ram-bridge.ts` does, to keep proving the
+ * geometry (contact point, lever arm, spin sign) composes correctly with the new applier.
+ */
+function bodyAt(x: number, y: number, angle: number): SimBody {
+  return {
+    x, y, angle, vx: 0, vy: 0, reverseHold: 0, angVel: 0,
+    maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0, maneuverSpeed: 0,
   };
 }
 
@@ -100,19 +116,6 @@ describe("resolveRam", () => {
     expect(resolveRam(a, b, "ffa")).toBeNull();
   });
 
-  it("writes the knock onto the victim, never the attacker", () => {
-    const { attacker, victim } = headOn(500);
-    const hit = resolveRam(attacker, victim, "ffa")!;
-    expect(hit.knock.sessionId).toBe(victim.sessionId);
-  });
-
-  it("degrades victim authority below 1 but never below the floor", () => {
-    const { attacker, victim } = headOn(540);
-    const hit = resolveRam(attacker, victim, "ffa")!;
-    expect(hit.knock.authority).toBeLessThan(1);
-    expect(hit.knock.authority).toBeGreaterThanOrEqual(RAM_CONFIG.authorityFloor);
-  });
-
   it("grades severity by approach speed", () => {
     expect(ram(540)!.severity).toBeGreaterThan(ram(150)!.severity);
   });
@@ -135,19 +138,28 @@ describe("resolveRam", () => {
     expect(front.side).toBe("front");
     expect(rear.side).toBe("rear");
     expect(rear.severity).toBeGreaterThan(front.severity);
-    expect(rear.knock.authority).toBeLessThan(front.knock.authority);
+    // Authority is gone (Task 4: `Impulse` has no such field) — the corollary now is a bigger
+    // push, since `impulse.speed` is `severity * knockMaxSpeed` directly.
+    expect(rear.impulse.speed).toBeGreaterThan(front.impulse.speed);
   });
 
-  it("clamps severity at 1 even on a rear hit, so authority never dips below the floor", () => {
+  it("clamps severity at 1 even on a rear hit, so the impulse never exceeds knockMaxSpeed", () => {
     const attacker = car({ sessionId: "a", speed: 100000, carId: "bastion" as CarId });
     const victim = car({ sessionId: "b", x: 47, angle: REAR_ON });
     const hit = resolveRam(attacker, victim, "ffa")!;
     expect(hit.severity).toBeLessThanOrEqual(1);
-    expect(hit.knock.authority).toBeCloseTo(RAM_CONFIG.authorityFloor, 9);
+    expect(hit.impulse.speed).toBeCloseTo(RAM_CONFIG.knockMaxSpeed, 9);
   });
 
   it("produces no spin on a dead-centre hit along the victim's long axis", () => {
-    expect(ram(540)!.knock.angVel).toBeCloseTo(0, 9);
+    // `resolveRam` itself only produces the `Impulse` now; the spin from a lever arm is
+    // `applyImpulse`'s job (Task 3). This end-to-end check proves the two compose correctly: a
+    // dead-centre hit's recovered contact point and push direction are colinear, so the torque
+    // `applyImpulse` derives from them is genuinely zero, not merely untested.
+    const { attacker, victim } = headOn(540);
+    const hit = resolveRam(attacker, victim, "ffa")!;
+    const next = applyImpulse(bodyAt(victim.x, victim.y, victim.angle), massOf(victim.carId), hit.impulse);
+    expect(next.angVel).toBeCloseTo(0, 9);
   });
 
   it("spins opposite ways for flank hits forward of and aft of centre", () => {
@@ -158,8 +170,10 @@ describe("resolveRam", () => {
     const aft = resolveRam(attackerAft, victim, "ffa")!;
     expect(fwd.side).toBe("flank");
     expect(aft.side).toBe("flank");
-    expect(Math.sign(fwd.knock.angVel)).toBe(-Math.sign(aft.knock.angVel));
-    expect(fwd.knock.angVel).not.toBe(0);
+    const fwdSpin = applyImpulse(bodyAt(victim.x, victim.y, victim.angle), massOf(victim.carId), fwd.impulse).angVel;
+    const aftSpin = applyImpulse(bodyAt(victim.x, victim.y, victim.angle), massOf(victim.carId), aft.impulse).angVel;
+    expect(Math.sign(fwdSpin)).toBe(-Math.sign(aftSpin));
+    expect(fwdSpin).not.toBe(0);
   });
 
   it("clamps spin at spinMaxRate when the torque genuinely exceeds it", () => {
@@ -178,7 +192,8 @@ describe("resolveRam", () => {
     const attacker = car({ sessionId: "a", x: 22.5, y: 8.5, angle: 3.25, speed: 100000, carId: "bastion" as CarId });
     const victim = car({ sessionId: "b", x: 0, y: 0, angle: 0, carId: "bullseye" as CarId });
     const hit = resolveRam(attacker, victim, "ffa")!;
-    expect(Math.abs(hit.knock.angVel)).toBe(RAM_CONFIG.spinMaxRate);
+    const next = applyImpulse(bodyAt(victim.x, victim.y, victim.angle), massOf(victim.carId), hit.impulse);
+    expect(Math.abs(next.angVel)).toBe(RAM_CONFIG.spinMaxRate);
   });
 
   it("produces an ordinary flank ram spin in a sane, non-trivial band", () => {
@@ -188,25 +203,31 @@ describe("resolveRam", () => {
     const victim = car({ sessionId: "b", x: 0, y: 0, angle: 0 });
     const hit = resolveRam(attacker, victim, "ffa")!;
     expect(hit.side).toBe("flank");
-    expect(Math.abs(hit.knock.angVel)).toBeGreaterThan(1);
-    expect(Math.abs(hit.knock.angVel)).toBeLessThan(RAM_CONFIG.spinMaxRate);
+    const next = applyImpulse(bodyAt(victim.x, victim.y, victim.angle), massOf(victim.carId), hit.impulse);
+    expect(Math.abs(next.angVel)).toBeGreaterThan(1);
+    expect(Math.abs(next.angVel)).toBeLessThan(RAM_CONFIG.spinMaxRate);
   });
 
   it("shoves a light victim further than a heavy one for the identical ram", () => {
+    // `resolveRam` no longer divides victim mass out at all (Task 4) — this is now an end-to-end
+    // check through `applyImpulse`, the single place mass enters (see that function's own tests
+    // in `impulse.test.ts` for the isolated version of this claim).
     const attacker = car({ sessionId: "a", speed: 540, carId: "bastion" as CarId });
     const light = car({ sessionId: "b", x: 47, carId: "mirage" as CarId });
     const heavy = car({ sessionId: "b", x: 47, carId: "bastion" as CarId });
     const lightHit = resolveRam(attacker, light, "ffa")!;
     const heavyHit = resolveRam(attacker, heavy, "ffa")!;
-    expect(Math.hypot(lightHit.knock.shoveX, lightHit.knock.shoveY)).toBeGreaterThan(
-      Math.hypot(heavyHit.knock.shoveX, heavyHit.knock.shoveY),
-    );
+    const lightNext = applyImpulse(bodyAt(light.x, light.y, light.angle), massOf(light.carId), lightHit.impulse);
+    const heavyNext = applyImpulse(bodyAt(heavy.x, heavy.y, heavy.angle), massOf(heavy.carId), heavyHit.impulse);
+    expect(Math.hypot(lightNext.vx, lightNext.vy)).toBeGreaterThan(Math.hypot(heavyNext.vx, heavyNext.vy));
   });
 
   it("counts attacker mass once: equal momentum means equal impulse regardless of chassis", () => {
-    // Two attackers whose (mass x speed) products match must produce the same shove on one victim.
+    // Two attackers whose (mass x speed) products match must produce the same push on one victim.
     // Speeds chosen so severity lands well short of the clamp — at the clamp both would trivially
-    // agree at 1.0 and the test would prove nothing.
+    // agree at 1.0 and the test would prove nothing. Compared as `impulse.speed` directly rather
+    // than a shoved velocity: that field IS the un-mass-scaled magnitude `resolveRam` now hands
+    // off, so this is the precise quantity in question rather than a value one more step removed.
     const victim = car({ sessionId: "b", x: 47, carId: "bullseye" as CarId });
     const heavySlow = car({ sessionId: "a", speed: 70, carId: "bastion" as CarId });
     const scaled = (massOf("bastion") * 70) / massOf("mirage");
@@ -215,14 +236,14 @@ describe("resolveRam", () => {
     const two = resolveRam(lightFast, victim, "ffa")!;
     expect(one.severity).toBeLessThan(1);
     expect(one.severity).toBeCloseTo(two.severity, 6);
-    expect(one.knock.shoveX).toBeCloseTo(two.knock.shoveX, 6);
+    expect(one.impulse.speed).toBeCloseTo(two.impulse.speed, 6);
   });
 
   it("shoves the victim away from the attacker", () => {
     const { attacker, victim } = headOn(540);
     const hit = resolveRam(attacker, victim, "ffa")!;
     // Attacker is at -x of the victim, so the victim is pushed toward +x.
-    expect(hit.knock.shoveX).toBeGreaterThan(0);
+    expect(hit.impulse.dirX).toBeGreaterThan(0);
   });
 
   it("spares teammates in team mode entirely", () => {
@@ -244,20 +265,47 @@ describe("resolveRam", () => {
   });
 });
 
+/**
+ * Task 4 of the car-physics rework: `resolveRam` hands back an `Impulse` rather than a `RamKnock`.
+ * "pushes the victim away from the attacker" and "scales the victim's displacement by mass" are
+ * covered above in the `resolveRam` block ("shoves the victim away from the attacker",
+ * "shoves a light victim further than a heavy one") and by `massScaled` below; this block adds the
+ * one property those don't already exercise: that the contact point is a real, geometry-derived
+ * lever arm rather than a stub.
+ */
+describe("resolveRam produces an Impulse", () => {
+  it("scales the victim's displacement by mass", () => {
+    const { attacker, victim } = headOn(540);
+    expect(resolveRam(attacker, victim, "ffa")!.impulse.massScaled).toBe(true);
+  });
+
+  it("records a contact point, so the lever arm is real", () => {
+    // Off-axis on both dimensions (same fixture as the flank-spin tests above), so the recovered
+    // point must differ from the victim's centre in x AND y — a stub that always returned the
+    // victim's own position, or the attacker's unclamped position, would fail one of these two.
+    const attacker = car({ sessionId: "a", x: 12, y: -30, angle: Math.PI / 2, speed: 500 });
+    const victim = car({ sessionId: "b", x: 0, y: 0, angle: 0 });
+    const hit = resolveRam(attacker, victim, "ffa")!;
+    expect(hit.impulse.contactX).not.toBe(0);
+    expect(hit.impulse.contactY).not.toBe(0);
+  });
+});
+
 describe("applyRams", () => {
   const attacker = () => car({ sessionId: "a", x: 0, angle: 0, speed: 540 });
   const victim = () => car({ sessionId: "b", x: 47, angle: 0 });
 
   it("fires on the tick a pair enters contact", () => {
     const out = applyRams([attacker(), victim()], new Set(), "ffa");
-    expect(out.knocks).toHaveLength(1);
+    expect(out.impulses.size).toBe(1);
+    expect(out.impulses.has("b")).toBe(true);
     expect(out.contacts.has(pairKey("a", "b"))).toBe(true);
   });
 
   it("does not re-fire while the pair stays in contact", () => {
     const first = applyRams([attacker(), victim()], new Set(), "ffa");
     const second = applyRams([attacker(), victim()], first.contacts, "ffa");
-    expect(second.knocks).toHaveLength(0);
+    expect(second.impulses.size).toBe(0);
     expect(second.contacts.has(pairKey("a", "b"))).toBe(true);
   });
 
@@ -266,28 +314,31 @@ describe("applyRams", () => {
     const apart = applyRams([attacker(), car({ sessionId: "b", x: 400 })], first.contacts, "ffa");
     expect(apart.contacts.has(pairKey("a", "b"))).toBe(false);
     const again = applyRams([attacker(), victim()], apart.contacts, "ffa");
-    expect(again.knocks).toHaveLength(1);
+    expect(again.impulses.size).toBe(1);
   });
 
   it("tracks contact even for pairs that produce no ram, so a slow touch still blocks a re-trigger", () => {
     const idle = applyRams([car({ sessionId: "a" }), victim()], new Set(), "ffa");
-    expect(idle.knocks).toHaveLength(0);
+    expect(idle.impulses.size).toBe(0);
     expect(idle.contacts.has(pairKey("a", "b"))).toBe(true);
   });
 
-  it("keeps only the hardest knock when one car is hit by two others in a tick", () => {
+  it("keeps only the hardest impulse when one car is hit by two others in a tick", () => {
     const soft = car({ sessionId: "a", x: -47, angle: 0, speed: 200 });
     const hard = car({ sessionId: "c", x: 47, angle: Math.PI, speed: 540, carId: "bastion" as CarId });
     const middle = car({ sessionId: "b", x: 0, angle: 0 });
     const out = applyRams([soft, middle, hard], new Set(), "ffa");
-    const onB = out.knocks.filter((k) => k.sessionId === "b");
-    expect(onB).toHaveLength(1);
+    // Exactly one entry survives for "b" — a Map keyed by victim id makes "at most one per victim"
+    // structural rather than something to filter for, which is the whole reason contact.ts's
+    // `ImpulseEntry` map replaced the old `RamKnock[]` array.
+    expect(out.impulses.size).toBe(1);
+    expect(out.impulses.has("b")).toBe(true);
   });
 
   it("is deterministic regardless of the order cars are supplied in", () => {
     const cars = [attacker(), victim()];
     const forward = applyRams(cars, new Set(), "ffa");
     const backward = applyRams([...cars].reverse(), new Set(), "ffa");
-    expect(backward.knocks).toEqual(forward.knocks);
+    expect([...backward.impulses]).toEqual([...forward.impulses]);
   });
 });

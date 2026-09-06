@@ -8,9 +8,23 @@ import { msToTicks } from "./weapon-ticks.js";
 export const SLAM_CONFIG = {
   /** Fixed knock impulse (a speed), 2x RAM_CONFIG.knockMaxSpeed. No mass factor, no side bonus. */
   knockSpeed: 520,
-  /** Victim steering authority after a slam; RAM_CONFIG.authorityFloor's value. */
+  /**
+   * INERT — reads nothing since the 2026-09-06 car-physics rework's stage 2 (Impulse). Was the
+   * victim's post-slam steering authority, mirroring `RAM_CONFIG.authorityFloor`'s own value.
+   * `Impulse` has no authority field at all — `sim/contact.ts`'s slam branch never wrote one even
+   * before this stage, since `ram-bridge.ts` dropped `knock.authority` on the floor entirely
+   * (stage 1's shim). Ram control-loss returns as the `reeling` status in stage 3, which replaces
+   * this knob outright rather than reviving it.
+   */
   victimAuthority: 0.35,
-  /** Fraction of the attacker's pre-impact speed restored after a slam — the reduced self-cost. */
+  /**
+   * INERT — reads nothing since stage 2 Task 4 of the 2026-09-06 car-physics rework. Was the
+   * fraction of the attacker's pre-impact speed hand-restored after a slam. `ram-bridge.ts` no
+   * longer computes a `restored` speed at all: the attacker's post-slam velocity now falls out of
+   * `reactionOf`'s equal-and-opposite reaction to the exact same `Impulse` the victim received,
+   * applied through the shared `impulses` map alongside every ordinary ram. Stage 4 deletes this
+   * field along with the rest of `SLAM_CONFIG` rather than reviving it.
+   */
   selfKeepFactor: 0.7,
   /** Wall contact within this window after being slammed stuns the victim. */
   wallStunWindowMs: 500,

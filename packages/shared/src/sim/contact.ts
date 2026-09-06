@@ -12,16 +12,17 @@ import {
   type Vec2,
 } from "./collide.js";
 import { carHullOf } from "./context.js";
+import type { Impulse } from "./impulse.js";
 import { ManeuverKind } from "./maneuver.js";
-import { pairKey, resolveRam, type RamCar, type RamKnock } from "./ram.js";
+import { pairKey, resolveRam, type RamCar } from "./ram.js";
 import { canDamage } from "./weapons/targets.js";
 
 /**
  * The contact pass (spec S3). Extends `applyRams`'s pair loop with two maneuver-driven cases that
- * fire ahead of an ordinary ram: a DASH pair reports a hit and leaves the knock to combat, and a
- * CHARGE pair resolves a hard slam — a fixed impulse, unlike the graded ram it otherwise falls back
- * to. Pure: no schema, no room, no wall clock. Table-free: every def-derived fact (`slamsStunned`,
- * the maneuver weapon id) arrives already resolved on `ContactCar`.
+ * fire ahead of an ordinary ram: a DASH pair reports a hit and writes no `Impulse` at all (damage and
+ * stun ride combat), and a CHARGE pair resolves a hard slam — a fixed impulse, unlike the graded ram
+ * it otherwise falls back to. Pure: no schema, no room, no wall clock. Table-free: every def-derived
+ * fact (`slamsStunned`, the maneuver weapon id) arrives already resolved on `ContactCar`.
  *
  * Runs where `applyRams` used to run — after driving has resolved for the tick, before combat.
  */
@@ -42,6 +43,19 @@ export interface ContactHit {
   attackerSessionId: string;
   targetSessionId: string;
   weaponId: WeaponId;
+}
+
+/**
+ * One resolved push and who threw it. Keyed by VICTIM id in `resolveContacts`'s returned map.
+ *
+ * `attackerId` rides in the entry rather than being reconstructed downstream — the caller (stage 2
+ * Task 5, `ram-bridge.ts`) needs it to apply the attacker's own equal-and-opposite reaction, and
+ * only `resolveRam`/`resolvePair` are in a position to say which of a pair was the attacker.
+ */
+export interface ImpulseEntry {
+  attackerId: string;
+  severity: number;
+  impulse: Impulse;
 }
 
 export interface ContactEvents {
@@ -93,18 +107,22 @@ function isCharger(c: ContactCar): boolean {
 
 /**
  * One tick of contact resolution over every pair, mirroring `applyRams`: sorted session ids,
- * edge-triggered contact set, best-knock-per-victim (a slam counts as severity 1, which always wins
- * over a graded ram).
+ * edge-triggered contact set, best-impulse-per-victim (a slam counts as severity 1, which always
+ * wins over a graded ram).
  *
  * Classification per fresh touching pair, checked from each car's own side:
  *
- * 1. **Dash** — a DASH car whose target it may damage pushes a `dashHit` and writes no knock.
+ * 1. **Dash** — a DASH car whose target it may damage pushes a `dashHit` and writes no impulse.
  * 2. **Slam** — otherwise, a CHARGE car whose target it may damage slams, unless the victim is
  *    stunned and this charger's weapon does not slam stunned victims, or the victim is still immune
  *    from a previous slam. Blocked slams fall through to an ordinary ram.
  * 3. **Ram** — `resolveRam(a, b, mode)`, exactly as today.
  *
  * After the pair loop, every DASH car is swept against level geometry for `wallBlockedDashers`.
+ *
+ * `impulses` is keyed by VICTIM id, each entry carrying the `attackerId` alongside the resolved
+ * push (`ImpulseEntry`) — the caller needs to know who threw it to apply the equal-and-opposite
+ * reaction, and only this pass is in a position to say which side of a pair was the attacker.
  */
 export function resolveContacts(
   cars: readonly ContactCar[],
@@ -114,10 +132,10 @@ export function resolveContacts(
   slamImmuneUntil: ReadonlyMap<string, number>,
   obstacles: readonly Aabb[],
   bounds: Bounds,
-): { knocks: RamKnock[]; contacts: Set<string>; events: ContactEvents } {
+): { impulses: Map<string, ImpulseEntry>; contacts: Set<string>; events: ContactEvents } {
   const ordered = [...cars].sort((x, y) => (x.sessionId < y.sessionId ? -1 : x.sessionId > y.sessionId ? 1 : 0));
   const contacts = new Set<string>();
-  const best = new Map<string, { severity: number; knock: RamKnock }>();
+  const best = new Map<string, ImpulseEntry>();
   const dashHits: ContactHit[] = [];
   const slams: ContactHit[] = [];
 
@@ -147,7 +165,7 @@ export function resolveContacts(
   }
 
   return {
-    knocks: [...best.values()].map((entry) => entry.knock),
+    impulses: best,
     contacts,
     events: { dashHits, slams, wallBlockedDashers },
   };
@@ -167,7 +185,7 @@ function resolvePair(
   slamImmuneUntil: ReadonlyMap<string, number>,
   dashHits: ContactHit[],
   slams: ContactHit[],
-  best: Map<string, { severity: number; knock: RamKnock }>,
+  best: Map<string, ImpulseEntry>,
 ): void {
   let anyEvent = false;
 
@@ -201,19 +219,26 @@ function resolvePair(
         targetSessionId: other.sessionId,
         weaponId: attacker.maneuverWeaponId as WeaponId,
       });
-      const knock: RamKnock = {
-        sessionId: other.sessionId,
-        angVel: 0,
-        shoveX: away.x * SLAM_CONFIG.knockSpeed,
-        shoveY: away.y * SLAM_CONFIG.knockSpeed,
-        authority: SLAM_CONFIG.victimAuthority,
+      // A slam REPLACES the graded ram with a fixed exchange (spec S3): no mass factor (`massScaled:
+      // false` — a designer's escape hatch from physics, spec principle C) and no spin (`spin: 0` —
+      // "a clean straight punt is the ult's signature", spec P28/P31). `uncontrolTicks` is authored
+      // `0` here, same as `resolveRam`; stage 4 moves it onto `wildcharge`'s own weapon row.
+      const imp: Impulse = {
+        dirX: away.x,
+        dirY: away.y,
+        speed: SLAM_CONFIG.knockSpeed,
+        spin: 0,
+        massScaled: false,
+        uncontrolTicks: 0,
+        contactX: other.x,
+        contactY: other.y,
       };
       const standing = best.get(other.sessionId);
       // A slam is severity 1 — the maximum a graded ram can ever reach — so it always wins the
-      // best-knock-per-victim contest, including a tie against an EARLIER slam on the same victim
+      // best-impulse-per-victim contest, including a tie against an EARLIER slam on the same victim
       // this tick (two chargers landing on one car): `>=`, not `>`, is what makes "always" literal.
       if (standing === undefined || 1 >= standing.severity) {
-        best.set(other.sessionId, { severity: 1, knock });
+        best.set(other.sessionId, { attackerId: attacker.sessionId, severity: 1, impulse: imp });
       }
       anyEvent = true;
     }
@@ -226,6 +251,6 @@ function resolvePair(
   if (hit === null) return;
   const standing = best.get(hit.victimId);
   if (standing === undefined || hit.severity > standing.severity) {
-    best.set(hit.victimId, { severity: hit.severity, knock: hit.knock });
+    best.set(hit.victimId, { attackerId: hit.attackerId, severity: hit.severity, impulse: hit.impulse });
   }
 }

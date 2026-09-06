@@ -247,8 +247,9 @@ const COAST_INPUT: InputMessage = { seq: 0, steer: 0, throttle: 0, fireSlots: 0 
  * Known, accepted gap: a knock landing purely along the victim's own heading (a dead-on rear-end) is
  * invisible to `lateralOf` and so behaves like the pre-rework `speed` case — a silent victim freezes
  * holding it rather than coasting it off. Not a regression (that is exactly what `speed` did before
- * this rework), and stage 2 closes it properly once `RamKnock` becomes `Impulse` and control loss has
- * a real signal again.
+ * this rework). Stage 2 Task 4 replaced `RamKnock` with `Impulse`, but that alone does not close this
+ * gap — `Impulse.uncontrolTicks` is authored `0` throughout stage 2, so there is still no real
+ * control-loss signal to detect here. Stage 3's `reeling` status is what actually closes it.
  *
  * The `lateralOf` comparison below is against `DRIVE_CONFIG.stopEpsilon`, not exact zero, and that is
  * load-bearing, not tidiness: `stepDrive` rebuilds vx/vy at the car's NEW heading every tick

@@ -6,11 +6,13 @@ import {
   PlayerState,
   PlayerStatus,
   RAM_CONFIG,
+  RAM_REFERENCE_MASS,
   SLAM_CONFIG,
   SLAM_TICKS,
   applyStatus,
   forwardMaxSpeedOf,
   forwardOf,
+  massOf,
   type Modifiers,
   type WeaponId,
 } from "@motor-combat-moba/shared";
@@ -65,13 +67,18 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
       state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachSpeeds(state),
       NO_MANEUVER_WEAPONS, 10,
     );
-    // The knock is added straight into the victim's velocity (stage 1 shim — see `contactTick`'s
-    // comment on `RamKnock` application). The victim starts at rest and is rammed along +x by an
+    // The impulse is added straight into the victim's velocity (Task 4 — see `contactTick`'s own
+    // comment on `Impulse` application). The victim starts at rest and is rammed along +x by an
     // attacker approaching from -x, so the shove has a known sign, not merely a nonzero magnitude.
     expect(victim.vx).toBeGreaterThan(0);
   });
 
-  it("leaves the attacker untouched", () => {
+  it("recoils the attacker via Newton's third law rather than leaving it untouched", () => {
+    // Renamed from "leaves the attacker untouched" (Task 4): that was the stage-1 shim's behaviour,
+    // which dropped `knock.authority` and never touched the attacker at all. `ram-bridge.ts` now
+    // applies `reactionOf` of the victim's own impulse to the attacker — the whole point of routing
+    // ram through `Impulse` (equal-and-opposite reactions) — so the attacker recoils along the same
+    // axis it rammed on, opposite the victim's push.
     const state = arena();
     const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 540 });
     addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
@@ -79,10 +86,9 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
       state, new Set(["a", "b"]), newContactMemory(), "ffa", NO_EFFECTS, approachSpeeds(state),
       NO_MANEUVER_WEAPONS, 10,
     );
-    // The attacker's own velocity (their approach speed, set on the fixture above) is neither
-    // overwritten nor added to — only the victim receives a knock.
-    expect(attacker.vx).toBe(540);
-    expect(attacker.vy).toBe(0);
+    expect(attacker.vx).toBeLessThan(540);
+    // The reaction always carries `spin: 0` (`reactionOf`'s own contract) — the attacker never
+    // spins from its own hit, unlike the victim.
     expect(attacker.angVel).toBe(0);
   });
 
@@ -168,14 +174,15 @@ describe("contactTick (ordinary ram, unchanged behaviour)", () => {
     expect(mate.vy).toBe(0);
   });
 
-  // TEMPORARY SHIM (car-physics rework, stage 1): `authority` and its "no rescue" precedence rule
-  // (a weaker knock could never overwrite a stronger standing one) are gone entirely, dropped on
-  // the floor per `contactTick`'s comment on `RamKnock` application. Stage 3 reinstates control
-  // loss as the `reeling` status, at which point precedence-style rules belong there again. Until
-  // then, `contactTick` just adds every knock straight into the victim's velocity — two rams landing
-  // on the same victim across different ticks stack rather than one being discarded, and there is
-  // no "standing knock" to protect. These two tests used to prove no-rescue; they now prove the
-  // additive replacement.
+  // `authority` and its "no rescue" precedence rule (a weaker knock could never overwrite a
+  // stronger standing one) are gone entirely — there never was, and still is not, an authority
+  // field on `Impulse` (see `contactTick`'s own comment on `Impulse` application). Stage 3
+  // reinstates control loss as the `reeling` status, at which point precedence-style rules belong
+  // there again. Until then, `applyImpulse` just adds every impulse straight into the victim's
+  // velocity — two rams landing on the same victim across different ticks stack rather than one
+  // being discarded, and there is no "standing knock" to protect. These two tests used to prove
+  // no-rescue; they now prove the additive replacement, which Task 4 leaves unchanged for the
+  // victim's own half of the exchange (only the attacker's side gained a reaction).
   it("stacks a later ram's knock onto a victim's still-decaying velocity from an earlier one", () => {
     const state = arena();
     addPlayer(state, "strong", { x: 0, y: 400, angle: 0, vx: 540 });
@@ -296,7 +303,7 @@ describe("contactTick (dash, O12)", () => {
 });
 
 describe("contactTick (hard slam, O2/O3/O18)", () => {
-  it("ends a charge on its first slam: fields cleared, self statuses expired, speed partly restored", () => {
+  it("ends a charge on its first slam: fields cleared, self statuses expired, and the attacker recoils under equal-and-opposite reaction", () => {
     const state = arena();
     const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 300 });
     addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
@@ -317,8 +324,15 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
     expect(result.contactHits).toEqual([{ attackerSessionId: "a", targetSessionId: "b", weaponId: "wildcharge" }]);
     expect(attacker.maneuver).toBe(0);
     expect(readStatuses(attacker)).toHaveLength(0); // fortified expired with the charge (O2)
-    expect(forwardOf(attacker.vx, attacker.vy, attacker.angle))
-      .toBeCloseTo(300 * SLAM_CONFIG.selfKeepFactor);
+    // Task 4: `SLAM_CONFIG.selfKeepFactor`'s hand-tuned forward-only restore is gone. The
+    // attacker's cost now falls out of Newton's third law — `reactionOf` of the SAME impulse the
+    // victim received (a fixed 520 u/s, unlike a graded ram), negated and scaled by the ATTACKER's
+    // own mass (`reactionOf` always forces `massScaled: true`, even though the slam's own push on
+    // the victim is not). "a" is the default `mirage` chassis here (480 mass), and the geometry is
+    // dead straight along +x, so the closed form is exact rather than merely a sign check.
+    const clamp = (v: number, min: number, max: number): number => (v < min ? min : v > max ? max : v);
+    const dv = SLAM_CONFIG.knockSpeed * clamp(RAM_REFERENCE_MASS / massOf("mirage"), RAM_CONFIG.massFactorMin, RAM_CONFIG.massFactorMax);
+    expect(forwardOf(attacker.vx, attacker.vy, attacker.angle)).toBeCloseTo(300 - dv, 6);
     expect(memory.slammed.get("b")).toBeDefined();
   });
 

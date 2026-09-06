@@ -155,7 +155,15 @@ describe("runMatch", () => {
     // instead of each side taking the full push (Task 2). Together these moved enough ram/positioning
     // outcomes that seed 65 is now a 0-0 draw in the 30 s window. Swept 1-100 against the new contact
     // physics: 15, 26, 28, 48, 49, 53, 78, 87 and 98 land a kill inside it.
-    const out = runMatch({ ...SETUP, seed: 15, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    //
+    // `seed: 26`, not 15: stage 2 Tasks 3-4 (the same day) routed ram AND slam through the new
+    // `Impulse`/`applyImpulse` and gave the ATTACKER an equal-and-opposite `reactionOf` reaction it
+    // never had before (Newton's third law) -- a heavy chassis now recoils off what it rams instead
+    // of continuing untouched. That moved ram/positioning dynamics again: seed 15's kill no longer
+    // lands inside the 30 s window under the new reaction physics. Re-swept the already-known-good
+    // candidates from the sweep above against the new build: 26, 78, 87 and 98 still land a kill
+    // inside it; 15, 28, 48, 49 and 53 do not.
+    const out = runMatch({ ...SETUP, seed: 26, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);

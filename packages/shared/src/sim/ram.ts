@@ -1,26 +1,29 @@
 import { RAM_CONFIG } from "../config/ram-config.js";
-import { massOf, ramReference, ramReferenceMass } from "../config/car-config.js";
+import { massOf, ramReference } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { CarId } from "../config/types.js";
 import { contactNormalBetween, type Vec2 } from "./collide.js";
 import { carHullOf } from "./context.js";
+import type { Impulse } from "./impulse.js";
 import { canDamage } from "./weapons/targets.js";
 
 /**
  * Ram control-and-knockback. Pure: no schema, no room, no wall clock.
  *
- * **A ram deals no damage.** It spins the victim, knocks it sideways, and degrades its steering, and
- * that is all — `applyDamage` is never called from here. Weapons remain the only damage source, so
- * the `attack` rating keeps meaning exactly what its name says. Ramming sets up the kill; weapons
- * land it.
+ * **A ram deals no damage.** It spins the victim and knocks it sideways, and that is all —
+ * `applyDamage` is never called from here. Weapons remain the only damage source, so the `attack`
+ * rating keeps meaning exactly what its name says. Ramming sets up the kill; weapons land it.
+ * Ram control-loss (what used to be a steering-authority degrade) is gone until stage 3's `reeling`
+ * status; this module carries no stand-in for it (`Impulse.uncontrolTicks` is authored `0` here).
  *
- * **This does not conserve momentum, and is not trying to.** It is a tuned one-way knock derived
- * from the attacker's forward momentum, layered on top of a collision resolver that has already
- * separated the pair. Real exchange would need an impulse solver with a contact manifold; see the
- * design doc's future-work section.
+ * **`resolveRam` produces a one-way `Impulse` derived from the attacker's forward momentum**,
+ * graded by closing speed, a side bonus and attacker mass, then handed to `applyImpulse`
+ * (`sim/impulse.ts`) — the single place victim mass divides the push back down. The caller
+ * (`ram-bridge.ts`) is what makes the exchange two-way: it also applies `reactionOf` of the same
+ * impulse to the attacker, Newton's third law. Neither half of that exchange happens in this file.
  *
  * Runs AFTER driving has resolved for the tick, so every measurement reads the poses cars actually
- * ended up at, and BEFORE combat. The knock it writes is read by `stepDrive` on the following tick.
+ * ended up at, and BEFORE combat. The impulse it produces is applied by the caller that same tick.
  */
 
 export type ImpactSide = "front" | "flank" | "rear";
@@ -57,21 +60,12 @@ export interface RamCar {
   massMult: number;
 }
 
-/** What one ram writes onto its victim. Absolute values, not deltas: a knock replaces, never stacks. */
-export interface RamKnock {
-  sessionId: string;
-  angVel: number;
-  shoveX: number;
-  shoveY: number;
-  authority: number;
-}
-
 export interface RamHit {
   attackerId: string;
   victimId: string;
   side: ImpactSide;
   severity: number;
-  knock: RamKnock;
+  impulse: Impulse;
 }
 
 /**
@@ -135,7 +129,7 @@ function approachOf(car: RamCar, towardOther: Vec2): number {
 }
 
 /**
- * The knock one ram writes, or `null` when this contact is not a ram.
+ * The impulse one ram writes, or `null` when this contact is not a ram.
  *
  * `null` covers four distinct cases deliberately kept indistinguishable to the caller: the pair is
  * not in contact, they are teammates, neither is driving into the other, or the closing speed is
@@ -170,75 +164,78 @@ export function resolveRam(a: RamCar, b: RamCar, mode: "ffa" | "team"): RamHit |
   const incoming: Vec2 = aAttacks ? n : { x: -n.x, y: -n.y };
 
   const side = impactSideOf(incoming, victim.angle);
-  // Attacker mass enters HERE and nowhere else. Clamped before the side bonus and again after, so a
-  // rear hit on an already-saturated ram cannot drive `authority` below its own floor.
+  // Attacker mass enters HERE and nowhere else — this is the severity grade, not the victim's
+  // displacement. Clamped before the side bonus and again after, so a rear hit on an
+  // already-saturated ram cannot push severity past 1.
   const raw = clamp01((approach * effectiveMassOf(attacker)) / ramReference());
   const severity = clamp01(raw * bonusFor(side));
 
-  const impulse = severity * RAM_CONFIG.knockMaxSpeed;
-  const victimMass = effectiveMassOf(victim);
-  // Victim mass enters HERE — the same impulse displaces a light car further. Clamped at both ends so
-  // neither the heaviest nor the lightest chassis degenerates.
-  const massFactor = clamp(
-    ramReferenceMass() / victimMass,
-    RAM_CONFIG.massFactorMin,
-    RAM_CONFIG.massFactorMax,
-  );
-
-  const shoveX = away.x * impulse * massFactor;
-  const shoveY = away.y * impulse * massFactor;
-
+  // Victim mass no longer enters here at all — `applyImpulse` (`sim/impulse.ts`) is the single
+  // place a victim's mass divides out a push, read through `ramReferenceMass()` there. This
+  // `Impulse` carries only the un-mass-scaled speed and lets the applier decide.
+  const contact = contactPointOn(victim, attacker);
   return {
     attackerId: attacker.sessionId,
     victimId: victim.sessionId,
     side,
     severity,
-    knock: {
-      sessionId: victim.sessionId,
-      angVel: spinOf(attacker, victim, away, impulse),
-      shoveX,
-      shoveY,
-      authority: 1 + (RAM_CONFIG.authorityFloor - 1) * severity,
+    impulse: {
+      dirX: away.x,
+      dirY: away.y,
+      speed: severity * RAM_CONFIG.knockMaxSpeed,
+      spin: 1,
+      massScaled: true,
+      uncontrolTicks: 0, // stage 3 fills this in
+      contactX: contact.x,
+      contactY: contact.y,
     },
   };
 }
 
 /**
- * Spin from a recovered contact point rather than a guessed direction.
+ * Recovers an approximate contact point, in WORLD space, for the lever arm `applyImpulse` needs.
  *
- * Clamping the attacker's centre into the victim's hull, in the victim's local frame, gives an
- * approximate contact point — the same technique `circleOverlapsObb` uses to find a nearest point.
- * The 2D cross product of that lever arm with the knock force is the torque term a real impulse
- * solver would produce, evaluated at one point instead of over a manifold.
- *
- * It behaves correctly by construction rather than by tuning: a dead-centre nose hit puts the lever
- * arm and the force on the same line, so the cross product is zero and there is no spin. A flank hit
- * forward of centre spins the nose away; aft of centre spins the tail away.
- *
- * `spinScale` absorbs the unit mismatch that follows from `impulse` being expressed as a speed. It
- * exists to be calibrated by feel, not derived.
+ * Clamping the attacker's centre into the victim's hull, in the victim's local frame, gives the
+ * point — the same technique `circleOverlapsObb` uses to find a nearest point — and then rotates it
+ * back out of that frame. World space, rather than a lever arm pre-resolved in the victim's own
+ * frame, is what lets `Impulse.contactX/contactY` mean the same thing regardless of who built the
+ * impulse: `applyImpulse` (`sim/impulse.ts`) is the one place that turns a world contact point and a
+ * body's own pose into the local lever arm and the torque it produces, so a dead-centre hit still
+ * behaves correctly by construction rather than by tuning — this function's only job is finding the
+ * point, not judging what it does.
  */
-function spinOf(attacker: RamCar, victim: RamCar, away: Vec2, impulse: number): number {
+function contactPointOn(victim: RamCar, attacker: RamCar): Vec2 {
   const cos = Math.cos(-victim.angle);
   const sin = Math.sin(-victim.angle);
   const dx = attacker.x - victim.x;
   const dy = attacker.y - victim.y;
 
-  // Derived from `DRIVE_CONFIG` rather than typed, same as `inertiaCoefficient` two lines below —
-  // both must move with `carHullOf` in lockstep, or the torque lever and the inertia it divides by
-  // would silently disagree about the hull the ram actually collided against.
+  // Derived from `DRIVE_CONFIG` rather than typed, same as `inertiaCoefficient` — both must move
+  // with `carHullOf` in lockstep, or the recovered lever arm would silently disagree about the hull
+  // the ram actually collided against.
   const hullHalfLength = DRIVE_CONFIG.carWidth / 2;
   const hullHalfWidth = DRIVE_CONFIG.carHeight / 2;
   const rx = clamp(dx * cos - dy * sin, -hullHalfLength, hullHalfLength);
   const ry = clamp(dx * sin + dy * cos, -hullHalfWidth, hullHalfWidth);
 
-  const fx = (away.x * cos - away.y * sin) * impulse;
-  const fy = (away.x * sin + away.y * cos) * impulse;
+  // Rotate the clamped local point back out of the victim's frame into world space.
+  const cosBack = Math.cos(victim.angle);
+  const sinBack = Math.sin(victim.angle);
+  return {
+    x: victim.x + (rx * cosBack - ry * sinBack),
+    y: victim.y + (rx * sinBack + ry * cosBack),
+  };
+}
 
-  const torque = rx * fy - ry * fx;
-  const inertia = effectiveMassOf(victim) * RAM_CONFIG.inertiaCoefficient;
-  const spin = (torque / inertia) * RAM_CONFIG.spinScale;
-  return clamp(spin, -RAM_CONFIG.spinMaxRate, RAM_CONFIG.spinMaxRate);
+/**
+ * One resolved push and who threw it, keyed by victim id — `applyRams`'s own flavour of
+ * `contact.ts`'s `ImpulseEntry` (same shape, kept local rather than imported: `contact.ts` already
+ * imports FROM this module, and this module must not import back from it).
+ */
+export interface RamImpulseEntry {
+  attackerId: string;
+  severity: number;
+  impulse: Impulse;
 }
 
 /**
@@ -246,25 +243,25 @@ function spinOf(attacker: RamCar, victim: RamCar, away: Vec2, impulse: number): 
  *
  * **Edge triggered.** A ram fires only on the tick a pair *enters* contact. `previous` is the set of
  * pairs that were touching last tick; the returned `contacts` replaces it. Holding the throttle into
- * someone therefore lands one knock, not a stun-lock — to ram again you must separate and
+ * someone therefore lands one impulse, not a stun-lock — to ram again you must separate and
  * re-approach, which is the skill expression the mechanic wants.
  *
  * Contact is tracked even for pairs that produce no ram, so a slow touch still occupies the pair and
  * cannot be converted into a fresh trigger by accelerating while already touching.
  *
- * Iteration is over sorted session ids and each victim keeps only its hardest knock, so the result
- * does not depend on the order `cars` arrives in. A knock REPLACES rather than accumulates: two rams
- * landing on one car in one tick is rare, and summing them would let a sandwich stack past the
- * authority floor the severity clamp exists to guarantee.
+ * Iteration is over sorted session ids and each victim keeps only its hardest impulse, so the result
+ * does not depend on the order `cars` arrives in. An impulse REPLACES rather than accumulates: two
+ * rams landing on one car in one tick is rare, and summing them would let a sandwich stack past what
+ * the severity clamp exists to guarantee.
  */
 export function applyRams(
   cars: readonly RamCar[],
   previous: ReadonlySet<string>,
   mode: "ffa" | "team",
-): { knocks: RamKnock[]; contacts: Set<string> } {
+): { impulses: Map<string, RamImpulseEntry>; contacts: Set<string> } {
   const ordered = [...cars].sort((x, y) => (x.sessionId < y.sessionId ? -1 : x.sessionId > y.sessionId ? 1 : 0));
   const contacts = new Set<string>();
-  const best = new Map<string, { severity: number; knock: RamKnock }>();
+  const best = new Map<string, RamImpulseEntry>();
 
   for (let i = 0; i < ordered.length; i++) {
     const a = ordered[i]!;
@@ -287,10 +284,10 @@ export function applyRams(
 
       const standing = best.get(hit.victimId);
       if (standing === undefined || hit.severity > standing.severity) {
-        best.set(hit.victimId, { severity: hit.severity, knock: hit.knock });
+        best.set(hit.victimId, { attackerId: hit.attackerId, severity: hit.severity, impulse: hit.impulse });
       }
     }
   }
 
-  return { knocks: [...best.values()].map((entry) => entry.knock), contacts };
+  return { impulses: best, contacts };
 }

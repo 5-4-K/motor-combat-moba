@@ -62,10 +62,31 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
       bounds,
     );
     expect(heavy.events.slams).toHaveLength(1);
-    expect(heavy.knocks[0]!.shoveX).toBeCloseTo(SLAM_CONFIG.knockSpeed);
-    expect(light.knocks[0]!.shoveX).toBeCloseTo(SLAM_CONFIG.knockSpeed); // no mass factor
-    expect(heavy.knocks[0]!.authority).toBe(SLAM_CONFIG.victimAuthority);
-    expect(heavy.knocks[0]!.angVel).toBe(0); // a slam shoves, it does not spin
+    // `resolveContacts` no longer divides victim mass out at all (Task 4: that is `applyImpulse`'s
+    // job, and a slam opts out of it anyway via `massScaled: false`) — `impulse.speed` is the
+    // un-mass-scaled magnitude, and it must be identical for a bastion and a bullseye victim.
+    expect(heavy.impulses.get("b")!.impulse.speed).toBeCloseTo(SLAM_CONFIG.knockSpeed);
+    expect(light.impulses.get("b")!.impulse.speed).toBeCloseTo(SLAM_CONFIG.knockSpeed); // no mass factor
+  });
+
+  it("a slam ignores mass, unlike a ram", () => {
+    // Ruling C (stage-2 review): the concrete fixture the brief's placeholder pointed at, built
+    // from the charger/victimAt fixtures above. The two assertions are the real requirement (spec
+    // P28/P31): a slam's impulse is not mass-scaled, and carries no spin at all — "a clean straight
+    // punt is the ult's signature."
+    const slam = resolveContacts([charger(), victimAt(47)], new Set(), "ffa", 10, new Map(), [], bounds);
+    const imp = slam.impulses.get("b")!.impulse;
+    expect(imp.massScaled).toBe(false);
+    expect(imp.spin).toBe(0);
+
+    // "unlike a ram": the same geometry without a charge running produces an ORDINARY ram instead,
+    // whose `Impulse` always authors `massScaled: true` and `spin: 1` (`resolveRam`'s own
+    // hard-coded contract, not a computed-torque check) — a slam's opt-out is a real, structural
+    // difference, not a coincidence of this one geometry.
+    const ram = resolveContacts([car({ sessionId: "a", x: 0, y: 0, angle: 0, speed: 300, carId: "bastion" as CarId }), victimAt(47)], new Set(), "ffa", 10, new Map(), [], bounds);
+    const ramImp = ram.impulses.get("b")!.impulse;
+    expect(ramImp.massScaled).toBe(true);
+    expect(ramImp.spin).toBe(1);
   });
 
   it("slams a stunned victim only when the weapon says so (O3)", () => {
@@ -101,7 +122,7 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
     const touching = new Set([pairKey("a", "b")]);
     const r = resolveContacts([charger(), victimAt(47)], touching, "ffa", 10, new Map(), [], bounds);
     expect(r.events.slams).toHaveLength(0);
-    expect(r.knocks).toHaveLength(0);
+    expect(r.impulses.size).toBe(0);
   });
 
   it("wins a tie against an ordinary ram already at severity 1 (best-knock-per-victim, >=)", () => {
@@ -140,23 +161,23 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
     expect(r.events.slams).toEqual([
       { attackerSessionId: "zCharge", targetSessionId: "victim", weaponId: "wildcharge" },
     ]);
-    expect(r.knocks).toHaveLength(1);
-    const knock = r.knocks[0]!;
-    expect(knock.sessionId).toBe("victim");
-    // The decisive evidence: a slam's knock is a FIXED 520 with no spin (SLAM_CONFIG.knockSpeed,
-    // exactly 2x RAM_CONFIG.knockMaxSpeed); even a fully-saturated ram tops out at 260 times a mass
-    // factor clamped to [0.6, 1.6] — 156 to 416, always short of 520 — and always carries some
-    // spin. `authority` alone cannot tell the two apart (SLAM_CONFIG.victimAuthority is
-    // RAM_CONFIG.authorityFloor's own value, by design), so the knock's magnitude and lack of spin
-    // are what actually prove the slam overwrote the ram rather than losing to its own `>` sibling.
-    expect(knock.angVel).toBe(0);
-    expect(Math.abs(knock.shoveX)).toBeCloseTo(SLAM_CONFIG.knockSpeed, 6);
-    expect(knock.authority).toBe(SLAM_CONFIG.victimAuthority);
+    expect(r.impulses.size).toBe(1);
+    const entry = r.impulses.get("victim")!;
+    expect(entry.attackerId).toBe("zCharge");
+    // The decisive evidence: a slam's impulse is `massScaled: false` with a FIXED 520 speed
+    // (SLAM_CONFIG.knockSpeed, exactly 2x RAM_CONFIG.knockMaxSpeed) and `spin: 0`; an ordinary ram
+    // is always `massScaled: true` and `spin: 1`, structurally, regardless of geometry — those
+    // fields are what actually prove the slam overwrote the ram rather than losing to its own `>`
+    // sibling, independent of the un-mass-scaled magnitude a fully-saturated ram could coincidentally
+    // approach.
+    expect(entry.impulse.massScaled).toBe(false);
+    expect(entry.impulse.spin).toBe(0);
+    expect(entry.impulse.speed).toBeCloseTo(SLAM_CONFIG.knockSpeed, 6);
   });
 });
 
 describe("dash contact", () => {
-  it("reports a dash hit and writes no knock — damage and stun ride combat", () => {
+  it("reports a dash hit and writes no impulse — damage and stun ride combat", () => {
     const dasher = car({
       sessionId: "a",
       x: 0,
@@ -177,7 +198,7 @@ describe("dash contact", () => {
       { width: 4000, height: 4000 },
     );
     expect(r.events.dashHits).toEqual([{ attackerSessionId: "a", targetSessionId: "b", weaponId: "thunderclap" }]);
-    expect(r.knocks).toHaveLength(0);
+    expect(r.impulses.size).toBe(0);
   });
 
   it("reports a dasher pressed into level geometry", () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChassisDrive } from "../../config/car-config.js";
+import { massOf } from "../../config/car-config.js";
 import { DRIVE_CONFIG } from "../../config/drive-config.js";
 import { STATUS_TABLE } from "../../config/status-config.js";
 import type { CarId } from "../../config/types.js";
@@ -8,6 +9,7 @@ import { MS_PER_TICK } from "../../constants.js";
 import type { InputMessage } from "../../net/input.js";
 import { applyHeal, scaleDamage } from "../damage.js";
 import { stepDrive } from "../drive.js";
+import { applyImpulse } from "../impulse.js";
 import { resolveRam, type RamCar } from "../ram.js";
 import type { SimBody } from "../step.js";
 import { newFireState, releaseShots, tickRecharge } from "../weapons/fire.js";
@@ -318,12 +320,19 @@ describe("ramMass reaches the ram, both as attacker and as victim", () => {
   });
 
   it("makes a buffed victim harder to shove", () => {
+    // `resolveRam` no longer divides victim mass out at all (car-physics rework stage 2, Task 4) —
+    // `applyImpulse` is the single place a mass number enters, so this is an end-to-end check:
+    // `ramMass` must still reach the ram by way of the EFFECTIVE mass (`massOf(carId) * massMult`)
+    // the caller (`ram-bridge.ts`'s `massFor`) feeds into it.
     const attacker = car({ speed: 400 });
-    const plain = resolveRam(attacker, car({ sessionId: "b", x: 47 }), "ffa")!;
-    const heavy = resolveRam(attacker, car({ sessionId: "b", x: 47, massMult: 1.5 }), "ffa")!;
-    expect(Math.hypot(heavy.knock.shoveX, heavy.knock.shoveY)).toBeLessThan(
-      Math.hypot(plain.knock.shoveX, plain.knock.shoveY),
-    );
+    const plainVictim = car({ sessionId: "b", x: 47 });
+    const heavyVictim = car({ sessionId: "b", x: 47, massMult: 1.5 });
+    const plain = resolveRam(attacker, plainVictim, "ffa")!;
+    const heavy = resolveRam(attacker, heavyVictim, "ffa")!;
+    const restBody = body({ x: 47, y: 0, angle: 0 });
+    const plainNext = applyImpulse(restBody, massOf(plainVictim.carId) * plainVictim.massMult, plain.impulse);
+    const heavyNext = applyImpulse(restBody, massOf(heavyVictim.carId) * heavyVictim.massMult, heavy.impulse);
+    expect(Math.hypot(heavyNext.vx, heavyNext.vy)).toBeLessThan(Math.hypot(plainNext.vx, plainNext.vy));
   });
 
   // `ramMass` left `fortified`'s row in the 2026-09-01 overhaul (O5: pure damage reduction now) and
