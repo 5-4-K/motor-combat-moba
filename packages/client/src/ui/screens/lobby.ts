@@ -1,6 +1,7 @@
 import { GameMode } from "@motor-combat-moba/shared";
-import { button, h, svg } from "../dom.js";
+import { button, h, icon } from "../dom.js";
 import { modeCards, type LobbySlot, type LobbyView } from "../lobby-view.js";
+import { chatPanel } from "./chat.js";
 
 /**
  * The lobby screen. Two team panels of rows over the dark ground, a host-only settings menu, and the
@@ -34,6 +35,12 @@ export interface LobbyMenus {
   confirmStartOpen: boolean;
   /** Settings → Exit was pressed — confirm before leaving the lobby. */
   confirmExitOpen: boolean;
+  /**
+   * The chat composer's text. Lives here — caller-owned state passed back in, exactly like the menu
+   * flags — because the lobby re-renders wholesale and an <input>'s own value would not survive it
+   * (LC21).
+   */
+  chatDraft: string;
 }
 
 export interface LobbyHandlers {
@@ -53,23 +60,8 @@ export interface LobbyHandlers {
   onRequestExit(): void;
   onCancelExit(): void;
   onConfirmExit(): void;
-}
-
-function icon(markup: string, size: number, filled: boolean): SVGElement {
-  const el = svg(markup);
-  el.setAttribute("width", String(size));
-  el.setAttribute("height", String(size));
-  el.setAttribute("viewBox", "0 0 24 24");
-  if (filled) {
-    el.setAttribute("fill", "currentColor");
-  } else {
-    el.setAttribute("fill", "none");
-    el.setAttribute("stroke", "currentColor");
-    el.setAttribute("stroke-width", "2.75");
-    el.setAttribute("stroke-linecap", "round");
-    el.setAttribute("stroke-linejoin", "round");
-  }
-  return el;
+  onChatInput(text: string): void;
+  onChatSend(): void;
 }
 
 function slotRow(slot: LobbySlot, handlers: LobbyHandlers): HTMLElement {
@@ -337,7 +329,15 @@ export function renderLobby(
         teamPanel("Team B", view.teamBCount, view.teamB, handlers, view.showTeamHeadings, CUT_BOTTOM_LEFT),
       ]),
       h("div", { style: "display: flex; justify-content: center; margin-top: 14px;" }, [switchButton]),
-      h("div", { style: "flex: 1; min-height: 0;" }),
+      // The chat panel occupies the space the spacer used to hold, left-aligned at about one team
+      // panel's width. No chamfer: `teamPanel`'s own comment calls the cut corner a flourish for
+      // those panels specifically, and the design reference shows this one square.
+      h("div", { style: "flex: 1; min-height: 0; display: flex; align-items: stretch; margin-top: 22px; padding-bottom: 18px;" }, [
+        chatPanel(view.chat, menus.chatDraft, {
+          onChatInput: handlers.onChatInput,
+          onChatSend: handlers.onChatSend,
+        }),
+      ]),
       h("div", { style: "display: flex; align-items: center; gap: 12px;" }, [
         view.startError
           ? h("div", { style: "font-size: 14px; color: var(--color-accent);" }, [view.startError])

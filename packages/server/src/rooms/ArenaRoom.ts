@@ -19,6 +19,10 @@ import {
   MSG_SELECT_CAR,
   MSG_PREVIEW_CAR,
   MSG_RETURN_TO_LOBBY,
+  MSG_CHAT,
+  CHAT_CONFIG,
+  isChatPayload,
+  validateChatText,
   validateName,
   isNameTaken,
   pickColor,
@@ -81,6 +85,7 @@ import {
 } from "./match-helpers.js";
 import { selectNextHost } from "./select-next-host.js";
 import { ROOM_FULL_ERROR, shouldRejectSecondArena } from "./singleton-arena.js";
+import { canSendChat, formatClockTime, pushChatMessage } from "./chat.js";
 
 export class ArenaRoom extends Room<ArenaState> {
   maxClients = MAX_PLAYERS;
@@ -98,6 +103,12 @@ export class ArenaRoom extends Room<ArenaState> {
    * the status row's own `endsTick`, and this is the ceiling that row may never pass.
    */
   private phaseCaps = new Map<string, number>();
+  /**
+   * When each player last sent a chat message, in wall-clock ms (LC20). Not ticks: this is an
+   * anti-spam guard with no relationship to the sim, and a tick-based one would silently halve when
+   * netcode phase 1 takes TICK_RATE_HZ from 30 to 60.
+   */
+  private chatLastSentAt = new Map<string, number>();
   private postMatchIds = new Set<string>();
   private flow: FlowState | null = null;
   /**
@@ -214,6 +225,46 @@ export class ArenaRoom extends Room<ArenaState> {
       if (!this.postMatchIds.has(client.sessionId)) return;
       this.reduce({ type: "return_to_lobby", sessionId: client.sessionId });
     });
+
+    /**
+     * Lobby chat (LC16). Every guard drops silently, matching MSG_SWITCH_TEAM, MSG_KICK and
+     * MSG_SELECT_CAR above — MSG_START_ERROR is the file's one exception and earns it because a
+     * host needs to know why a start was refused. A refused chat message does not: the client ran
+     * `validateChatText` before sending, so anything rejected on that gate is a stale or hostile
+     * client. The cooldown is different — it bounds every *attempt*, not just successful sends (see
+     * below), so it also does not warrant a reply.
+     */
+    this.onMessage(MSG_CHAT, (client, msg: unknown) => {
+      if (!isChatPayload(msg)) return;
+      // A raw-payload ceiling ahead of normalization, not a second content limit: normalization
+      // only ever shrinks text (control/bidi runs collapse to single spaces), so anything that
+      // would still validate can never approach this. The ×4 is headroom for that shrinkage, not a
+      // tuned number of its own. Without it, a client could hand `normalizeChatText` an arbitrarily
+      // huge string and pay for two Unicode-property regex passes over it before validation ever
+      // gets a chance to reject on length.
+      if (msg.text.length > CHAT_CONFIG.maxLength * 4) return;
+      const player = this.state.players.get(client.sessionId);
+      if (!player) return;
+      const now = Date.now();
+      const gate = {
+        status: player.status,
+        lastSentAt: this.chatLastSentAt.get(client.sessionId),
+        now,
+      };
+      if (!canSendChat(gate)) return;
+      // Consumed by the attempt, not the success: recording this before `validateChatText` runs
+      // means a client spamming invalid text still pays the cooldown between attempts, instead of
+      // getting a free retry loop that runs the validator's regex passes as fast as the socket
+      // allows on this single-threaded room.
+      this.chatLastSentAt.set(client.sessionId, now);
+      const result = validateChatText(msg.text);
+      if (!result.ok) return;
+      pushChatMessage(this.state.chat, {
+        sender: { sessionId: player.sessionId, name: player.name, colorId: player.colorId },
+        text: result.text,
+        at: formatClockTime(new Date(now)),
+      });
+    });
   }
 
   onJoin(client: Client, options?: { name?: unknown }): void {
@@ -265,6 +316,7 @@ export class ArenaRoom extends Room<ArenaState> {
     this.postMatchIds.delete(client.sessionId);
     this.matchRoster.delete(client.sessionId);
     this.phaseCaps.delete(client.sessionId);
+    this.chatLastSentAt.delete(client.sessionId);
 
     if (this.state.hostSessionId === client.sessionId) {
       const remaining: { sessionId: string; joinedAtTick: number }[] = [];

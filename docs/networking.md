@@ -64,3 +64,17 @@ The one client-side liberty is cosmetic: a projectile is advanced along its **ow
 Firing rides the same gate as movement. `serverTick` reports the session ids that asked to fire on an input it actually **simulated**, so an input past `NET_CONFIG.maxInputsPerTick` cannot buy a shot the sim never ran. `canDrive` gains `alive` in P5: a wreck stops sending inputs and stops predicting, because the server has stopped stepping it.
 
 v1 hit detection is **current-tick**: no rewind, no lag compensation, so a shooter leads a moving target by roughly their own latency. LAN latency is what makes that acceptable. See [`combat-model.md`](combat-model.md).
+
+## Client — lobby
+
+`MSG_CHAT` (`{ text }`) is a lobby intent, not state (invariant 3): the client sends raw text and the
+server decides everything else. It passes three server-side gates before a row is appended to
+`ArenaState.chat` — the sender is `PlayerStatus.READY` (the status `viewFor` maps to the lobby
+screen for any player the room's state machine can actually produce), a `CHAT_CONFIG.sendCooldownMs`
+cooldown since that sender's last message, and
+`validateChatText`. All three drop the message silently, matching every other lobby handler in the
+file except `MSG_START_ERROR`, which replies because a host needs to know why a start was refused —
+a refused chat message needs no reply, since the client ran the same validator first and anything the
+server still rejects is a stale or hostile client. See
+[`schema-reference.md`](schema-reference.md#lobby-messages) for the full lobby message list and
+[`config-reference.md`](config-reference.md#chat_config) for `CHAT_CONFIG`.

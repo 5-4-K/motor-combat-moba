@@ -23,6 +23,8 @@ export {
   MSG_SELECT_CAR,
   MSG_PREVIEW_CAR,
   MSG_RETURN_TO_LOBBY,
+  MSG_CHAT,
+  isChatPayload,
 } from "./net/lobby-messages.js";
 export {
   BOT_SESSION_ID,
@@ -65,6 +67,7 @@ export { PlayerState } from "./schema/PlayerState.js";
 export { WeaponInstanceState } from "./schema/WeaponInstanceState.js";
 export { WeaponSlotState } from "./schema/WeaponSlotState.js";
 export { ArenaState } from "./schema/ArenaState.js";
+export { ChatMessageState } from "./schema/ChatMessageState.js";
 export { PlaygroundState } from "./schema/PlaygroundState.js";
 export { PracticeState } from "./schema/PracticeState.js";
 
@@ -240,6 +243,7 @@ export { FLOW_CONFIG } from "./config/flow-config.js";
 export { DEATHMATCH_CONFIG, DEATHMATCH_TICKS } from "./config/deathmatch-config.js";
 export { NET_CONFIG } from "./config/net-config.js";
 export { PRACTICE_CONFIG } from "./config/practice-config.js";
+export { CHAT_CONFIG } from "./config/chat-config.js";
 
 export type { ArenaDef, Obstacle, Spawn } from "./arena/types.js";
 export { ARENA_01 } from "./arena/arena-01.js";
@@ -257,6 +261,8 @@ export { canStart } from "./lobby/start-rules.js";
 export type { StartRuleStatus, StartRulePlayer, CanStartResult } from "./lobby/start-rules.js";
 export { badgeColor, viewFor } from "./lobby/status.js";
 export type { StatusInput, ViewId } from "./lobby/status.js";
+export { normalizeChatText, validateChatText } from "./lobby/chat.js";
+export type { ValidateChatResult } from "./lobby/chat.js";
 
 export { reduceFlow } from "./flow/match-flow.js";
 export type { FlowStatus, FlowPlayer, FlowState, FlowEvent } from "./flow/match-flow.js";

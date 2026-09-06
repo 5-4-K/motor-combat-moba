@@ -54,3 +54,25 @@ export function button(attrs: Attrs, children: Child[], onClick: () => void): HT
   el.addEventListener("click", onClick);
   return el;
 }
+
+/**
+ * A sized SVG icon from Lucide path markup. Lives here rather than in one screen because both the
+ * lobby and the chat panel draw icons; `filled` picks between a solid glyph and a stroked one at the
+ * design file's stroke-width.
+ */
+export function icon(markup: string, size: number, filled: boolean): SVGElement {
+  const el = svg(markup);
+  el.setAttribute("width", String(size));
+  el.setAttribute("height", String(size));
+  el.setAttribute("viewBox", "0 0 24 24");
+  if (filled) {
+    el.setAttribute("fill", "currentColor");
+  } else {
+    el.setAttribute("fill", "none");
+    el.setAttribute("stroke", "currentColor");
+    el.setAttribute("stroke-width", "2.75");
+    el.setAttribute("stroke-linecap", "round");
+    el.setAttribute("stroke-linejoin", "round");
+  }
+  return el;
+}

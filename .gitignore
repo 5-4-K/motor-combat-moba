@@ -38,3 +38,6 @@ packages/server/balance/reports/
 
 # install-build target folder — machine-specific, see .install-target.example
 .install-target
+
+# Subagent-driven-development scratch (ledgers, briefs, review packages)
+.superpowers/

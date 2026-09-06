@@ -11,6 +11,7 @@ import {
   canSwitchTeam,
   isActiveGameMode,
 } from "@motor-combat-moba/shared";
+import { chatView, type ChatViewMessage, type ChatViewRow } from "./chat-view.js";
 
 /**
  * Room state to everything the lobby screen draws. Pure and Phaser-free so the rules that actually
@@ -84,6 +85,7 @@ export interface LobbyView {
   startError: string;
   teamA: LobbySlot[];
   teamB: LobbySlot[];
+  chat: ChatViewMessage[];
 }
 
 export interface LobbyViewPlayer {
@@ -98,6 +100,7 @@ export interface LobbyViewState {
   mode: GameMode;
   hostSessionId: string;
   players: readonly LobbyViewPlayer[];
+  chat: readonly ChatViewRow[];
 }
 
 export function modeLabel(mode: GameMode): string {
@@ -176,6 +179,7 @@ export function lobbyView(
     startError,
     teamA: column(teamA, state.hostSessionId, localSessionId, isHost),
     teamB: column(teamB, state.hostSessionId, localSessionId, isHost),
+    chat: chatView(state.chat, localSessionId),
   };
 }
 

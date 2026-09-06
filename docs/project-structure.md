@@ -35,8 +35,9 @@ motor-combat-MOBA/
 │   │   ├── deathmatch-config.ts  # DEATHMATCH_CONFIG, DEATHMATCH_TICKS: match/respawn/phase timing
 │   │   ├── tuning.ts             # setTuning: dev-only runtime override store over 5 balance tables (PG12)
 │   │   ├── tuning-walker.ts      # tunableFields/validateTuning/sanitizeStoredTuning (PG14)
-│   │   └── practice-config.ts    # PRACTICE_CONFIG: idle timeout/warning, maxConcurrentRooms (PR26–PR29)
-│   ├── schema/                   # PlayerState, StatusState, WeaponInstanceState, WeaponSlotState, ArenaState
+│   │   ├── practice-config.ts    # PRACTICE_CONFIG: idle timeout/warning, maxConcurrentRooms (PR26–PR29)
+│   │   └── chat-config.ts        # CHAT_CONFIG: lobby chat limits — maxLength, maxMessages, sendCooldownMs (LC10)
+│   ├── schema/                   # PlayerState, StatusState, WeaponInstanceState, WeaponSlotState, ArenaState, ChatMessageState
 │   │   ├── PlaygroundState.ts    # extends ArenaState: paused, controlledSessionId, botEnabled, tuningJson (PG5)
 │   │   └── PracticeState.ts      # extends ArenaState: paused only — no controlledSessionId, no tuningJson (PR6)
 │   ├── arena/
@@ -48,7 +49,7 @@ motor-combat-MOBA/
 │   ├── net/                      # InputMessage (fireSlots bitmask), lobby message names
 │   │   ├── playground-messages.ts # MSG_PLAYGROUND_*, PlaygroundSetup + validator, defaultPlaygroundSetup (PG13)
 │   │   └── practice-messages.ts  # PRACTICE_ROOM_NAME, close codes 4006–4009, PracticeSetup + validator (PR3, PR7)
-│   ├── lobby/                    # names, teams, start rules, status → view
+│   ├── lobby/                    # names, teams, start rules, status → view, chat text validation (LC13)
 │   ├── flow/                     # match-flow reducer, spawn assignment, livingSides
 │   │   ├── modes.ts              # sidesOf (ffa|team), winRuleOf (last_standing|deathmatch)
 │   │   └── respawn.ts            # farthestSpawn, isDueToRespawn, phaseDecision (the M23 state machine)
@@ -82,6 +83,7 @@ motor-combat-MOBA/
 │   │   ├── PlaygroundRoom.ts     # dev-only room ("playground"), DEV_TOOLS=1-gated; pause/switch/tuning/setup, bot-or-alone, endless respawns
 │   │   ├── PracticeRoom.ts       # shipped room ("practice"), no DEV_TOOLS gate, maxClients=1; runs runPipeline verbatim, never calls setTuning (PR1)
 │   │   ├── practice-rules.ts     # pure predicates: room-cap refusal, playground-busy refusal, opponent roll, idle timeout/warning (PR26–PR29)
+│   │   ├── chat.ts               # canSendChat/pushChatMessage/formatClockTime: lobby chat's send gate, retention cap, clock formatting (LC19)
 │   │   ├── bot.ts                # the synthetic client's InputMessage: chase-and-fire steering, pulsed fire mask (PG10; renamed from playground-bot.ts when PracticeRoom took it too)
 │   │   ├── flow-map.ts           # schema enums ↔ flow reducer strings
 │   │   ├── match-helpers.ts
@@ -147,8 +149,11 @@ motor-combat-MOBA/
         │   ├── deathmatch-hud.ts # pure Deathmatch derivations: match clock, respawn countdown, killed-by banner
         │   ├── spectate.ts       # spectate cycle, free-roam pan
         │   └── lobby-signature.ts
+        ├── ui/                      # also dom.ts, lobby-view.ts, car-select-view.ts, results-view.ts, reveal-view.ts, overlay.ts, organic.css — only chat-view.ts is called out below
+        │   └── chat-view.ts         # chatView: a chat row -> {key, label, hex, text, at}; "You" for the local sessionId, colour from COLOR_TABLE (LC24)
         └── ui/screens/
             ├── arena-mismatch.ts    # renders that message as DOM
+            ├── chat.ts              # the lobby chat panel markup, plus shouldPinToBottom (LC22, LC24)
             ├── pause.ts             # the practice pause menu: Resume/Exit, mounted off state.paused (PR22, PR23)
             ├── practice-setup.ts    # the practice settings screen: car/opponent/difficulty, Start/Back (PR21)
             └── practice-summary.ts  # the practice session summary rows — NOT resultsView; a session has no winner or match length (PR24)

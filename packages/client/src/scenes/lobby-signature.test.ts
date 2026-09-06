@@ -8,6 +8,7 @@ function state(opts: {
   hostSessionId?: string;
   tick?: number;
   players: Record<string, Player>;
+  chat?: { seq: number }[];
 }) {
   const players = {
     forEach(cb: (player: Player, sessionId: string) => void) {
@@ -19,6 +20,7 @@ function state(opts: {
     hostSessionId: opts.hostSessionId ?? "host",
     tick: opts.tick ?? 0,
     players,
+    chat: opts.chat ?? [],
   };
 }
 
@@ -59,5 +61,45 @@ describe("lobbyRenderSignature", () => {
     expect(
       lobbyRenderSignature(state({ hostSessionId: "other", players: { s1: ada } })),
     ).not.toBe(base);
+  });
+});
+
+describe("lobbyRenderSignature and chat (LC12)", () => {
+  it("is stable when nothing changes", () => {
+    const a = lobbyRenderSignature(state({ players: { s1: ada }, chat: [{ seq: 3 }] }));
+    const b = lobbyRenderSignature(state({ players: { s1: ada }, chat: [{ seq: 3 }] }));
+    expect(a).toBe(b);
+  });
+
+  it("changes when a message arrives", () => {
+    const before = lobbyRenderSignature(state({ players: { s1: ada }, chat: [{ seq: 3 }] }));
+    const after = lobbyRenderSignature(
+      state({ players: { s1: ada }, chat: [{ seq: 3 }, { seq: 4 }] }),
+    );
+    expect(after).not.toBe(before);
+  });
+
+  it("changes on a message that arrives at the cap, where length does not move", () => {
+    // The buffer is full: one in, one out, length unchanged. This is the case seq exists for.
+    const before = lobbyRenderSignature(
+      state({ players: { s1: ada }, chat: [{ seq: 20 }, { seq: 21 }] }),
+    );
+    const after = lobbyRenderSignature(
+      state({ players: { s1: ada }, chat: [{ seq: 21 }, { seq: 22 }] }),
+    );
+    expect(after).not.toBe(before);
+  });
+
+  it("changes on two identical messages a minute apart", () => {
+    // Text and time would compare equal here; seq is what tells them apart.
+    const before = lobbyRenderSignature(state({ players: { s1: ada }, chat: [{ seq: 7 }] }));
+    const after = lobbyRenderSignature(
+      state({ players: { s1: ada }, chat: [{ seq: 7 }, { seq: 8 }] }),
+    );
+    expect(after).not.toBe(before);
+  });
+
+  it("defaults to an empty buffer, so the existing cases still pass", () => {
+    expect(() => lobbyRenderSignature(state({ players: { s1: ada } }))).not.toThrow();
   });
 });
