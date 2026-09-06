@@ -45,6 +45,40 @@ export function wallDesire(
   arena: BotArenaView,
   lookaheadUnits: number,
 ): Desire | undefined {
+  const { pushX, pushY } = wallPush(self, arena, lookaheadUnits);
+  if (pushX === 0 && pushY === 0) return undefined;
+  return { headingRad: Math.atan2(pushY, pushX), weight: WALL_WEIGHT };
+}
+
+/**
+ * Would the car reach a wall or an obstacle within `lookaheadUnits` (H39)?
+ *
+ * R-O2. `controller.ts`'s `pinned` — the input the `unpin` situation is classified from — used to
+ * be `wallDesire(...) !== undefined`, which is a PREDICATE that happened to be spelled as a
+ * heading. P27 deleted the heading half of the movement layer; the predicate is not part of that
+ * and must keep answering on exactly the same ticks, or `unpin` fires somewhere else than it used
+ * to and `tiers.test.ts`'s H39 wall test is measuring a different bot.
+ *
+ * Sharing `wallPush` rather than restating the geometry is the point: the same look-ahead point
+ * along `self.angle`, the same half-car margin, the same obstacle boxes, by construction. It is
+ * deliberately NOT `nearBound`, which tests the car's CURRENT position against a bound and ignores
+ * which way the nose is pointed — a different predicate that fires on different ticks.
+ */
+export function wallAhead(
+  self: { x: number; y: number; angle: number },
+  arena: BotArenaView,
+  lookaheadUnits: number,
+): boolean {
+  const { pushX, pushY } = wallPush(self, arena, lookaheadUnits);
+  return pushX !== 0 || pushY !== 0;
+}
+
+/** The raw push vector both of the above read. Zero means nothing is in the look-ahead. */
+function wallPush(
+  self: { x: number; y: number; angle: number },
+  arena: BotArenaView,
+  lookaheadUnits: number,
+): { pushX: number; pushY: number } {
   const aheadX = self.x + Math.cos(self.angle) * lookaheadUnits;
   const aheadY = self.y + Math.sin(self.angle) * lookaheadUnits;
   const margin = Math.max(DRIVE_CONFIG.carWidth, DRIVE_CONFIG.carHeight) / 2;
@@ -66,8 +100,7 @@ export function wallDesire(
     }
   }
 
-  if (pushX === 0 && pushY === 0) return undefined;
-  return { headingRad: Math.atan2(pushY, pushX), weight: WALL_WEIGHT };
+  return { pushX, pushY };
 }
 
 /** One desire per shot worth leaning off (G16) — never a goal, so it composes with fighting. */

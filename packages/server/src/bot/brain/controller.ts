@@ -1,31 +1,45 @@
 import {
-  DRIVE_CONFIG, hasStatus, TICK_RATE_HZ, turnRateAtStopOf, turnRateOf, WEAPON_TABLE, weaponDefOf,
+  hasStatus, TICK_RATE_HZ, WEAPON_TABLE, weaponDefOf,
   type BotDifficulty, type WeaponId,
 } from "@motor-combat-moba/shared";
 import { BOT_PROFILES, BRAIN_CONSTANTS, type BotProfile } from "../../config/bot-profiles.js";
 import type {
   BotCarView, BotController, BotDebug, BotIntent, BotPersonality, BotView, SituationId,
 } from "../types.js";
-import { newAimErrorState, signedDelta, stepAimError, type AimErrorState } from "./aim.js";
+import { newAimErrorState, stepAimError, type AimErrorState } from "./aim.js";
 import { chooseSlot, preferredRangeOf, slotIsReady, type UltHoldEntry } from "./firing.js";
 import { scoreTargets } from "./goals.js";
 import { applyHumanize, newHumanizeState, type HumanizeState } from "./humanize.js";
-import {
-  blendHeading, compensateForLag, goalDesire, openFloorHeading, reduceToIntent,
-  reverseWouldHitBound, wallDesire, type Desire,
-} from "./movement.js";
+import { wallAhead } from "./movement.js";
+import { weightsFor } from "./objectives.js";
 import {
   acquiringUnnoticed, activeThreats, knownCars, lastKnownAnchor, nearestHeardShot, newPerception,
   observedAngVelOf, perceive, readinessOf, searchWaypoint, ultIsSpent, type PerceptionState,
 } from "./perception.js";
 import { rollPersonality } from "./personality.js";
-import { interceptTicks, physicsPredictor, selfPredictor } from "./predict.js";
+// Aliased on purpose: `HumanController` already has a `private plan(view, target)` method, and
+// `this.plan` vs `plan` INSIDE that very method is the confusion this avoids. The controller's own
+// method keeps its name — it is called from `decide` and the name is accurate.
+import { plan as planMotion, type PlanResult } from "./planner.js";
+import { physicsPredictor, selfPredictor, type DriveAction } from "./predict.js";
 import { kitReachOf, weaponReachOf } from "./reach.js";
 import { rolesOf } from "./roles.js";
 import { classifySituation, newSituationState, pickSituation, type SituationState } from "./situation.js";
-import { dangerEvAgainst, solve, type FiringSolution } from "./solution.js";
+import { dangerEvAgainst, solve, type FiringSolution, type PosePredictor } from "./solution.js";
 
 const COAST: BotIntent = { steer: 0, throttle: 0, fireSlots: 0 };
+
+/**
+ * The situations in which the bot is allowed to press a trigger (R-O3).
+ *
+ * This is the `mayFire` half of the eight-case switch P27 deleted, kept verbatim: `recover`,
+ * `waitOut` and `close` held fire; the other five fired whenever the target was `trulyHittable`.
+ * P27 replaced how a situation chooses a HEADING, and nothing else — losing this set would quietly
+ * make `close` a firing situation, which is a behaviour change nobody asked for.
+ */
+const FIRING_SITUATIONS: ReadonlySet<SituationId> = new Set<SituationId>([
+  "evade", "unpin", "punish", "reset", "fight",
+]);
 
 const ABSENT_TARGET: BotCarView = {
   sessionId: "", carId: "bullseye", team: 0, x: 0, y: 0, angle: 0, speed: 0,
@@ -54,10 +68,19 @@ export class HumanController implements BotController {
   /** Damage per second the bot believes it is standing in front of (P16). Overlay only. */
   private lastDangerEv = 0;
   /**
-   * Tick the anticipatory half of `evade` last fired (R-C9). The sentinel is far enough below any
-   * real tick that the term is available on the first decision, the same trick `lastPressTick` uses.
+   * The best EV/s the bot's own kit could deal from its CURRENT pose, across every ready slot's
+   * exact `solve()` (R-P27b). Overlay only, and NOT dead: a later task renders it beside
+   * `dangerEv` as the primary tuning diagnostic — "am I winning this exchange from here" is the
+   * pair, and either number alone answers nothing.
    */
-  private lastAnticipatoryEvadeTick = -9999;
+  private lastBestEv = 0;
+  /** Last tick's emitted input — the planner's anti-chatter anchor (P30). */
+  private lastAction: DriveAction | undefined;
+  /**
+   * The plan that produced it, terms and runner-up included (P45). Overlay only, and NOT dead: a
+   * later task extends `BotDebug` to render the per-term breakdown this carries.
+   */
+  private lastPlan: PlanResult | undefined;
   private situation: SituationState = newSituationState();
   private heldSinceTick = 0;
   private wantsRam = false;
@@ -75,8 +98,6 @@ export class HumanController implements BotController {
   private willEvadeCar = false;
   private humanize: HumanizeState = newHumanizeState();
   private personality: BotPersonality | undefined;
-  /** The steer this controller most recently emitted from `decide` — R10's lag-compensation input. */
-  private lastSteer: -1 | 0 | 1 = 0;
 
   constructor(
     profileId: BotDifficulty,
@@ -131,11 +152,9 @@ export class HumanController implements BotController {
     };
 
     const idle = this.situation.current === "recover";
-    const out = applyHumanize(
+    return applyHumanize(
       this.humanize, this.held, view.tick, this.effectiveProfile, view.rng, idle, decisionWindow,
     );
-    this.lastSteer = out.steer;
-    return out;
   }
 
   private shouldRecompute(tick: number): boolean {
@@ -192,8 +211,11 @@ export class HumanController implements BotController {
       : 0;
     const fightRange = Math.max(ownComfort, theirKeepOut);
     const distance = target ? Math.hypot(target.x - self.x, target.y - self.y) : Infinity;
-    const wall = wallDesire(self, view.arena, profile.wallLookaheadUnits);
-    const pinned = wall !== undefined || inCorner(self, view.arena);
+    // R-O2: the same predicate as before, minus the heading it used to be spelled as. This was
+    // `wallDesire(...) !== undefined`; `wallAhead` shares that function's geometry outright, so
+    // `unpin` still fires on exactly the ticks it used to. NOT `nearBound`, which ignores the nose.
+    const pinned = wallAhead(self, view.arena, profile.wallLookaheadUnits)
+      || inCorner(self, view.arena);
 
     if (target && this.ramRolledForTargetId !== target.sessionId) {
       this.ramRolledForTargetId = target.sessionId;
@@ -312,62 +334,21 @@ export class HumanController implements BotController {
         }));
       }
     }
-    // The best EV/s this bot could itself deal from its CURRENT pose (R-C7) — 0 when no slot is
-    // ready or nothing is aimed at the target. This is what "am I losing this exchange" is measured
-    // against: an absolute danger threshold reads "someone could shoot me", which is true for most
-    // of an ordinary duel; comparing it to the bot's own best available shot asks the question a
-    // skilled player actually asks instead.
+    /**
+     * The best EV/s this bot could itself deal from its CURRENT pose — 0 when no slot is ready or
+     * nothing is aimed at the target.
+     *
+     * R-P27b: this survived the anticipatory evade's deletion (P27) on purpose. It no longer gates
+     * anything — danger is a continuously-weighted score term now, not a trip threshold — but it is
+     * half of the only honest reading of "am I winning this exchange from here", the other half
+     * being `lastDangerEv`. A later task renders the pair on the playground overlay as the primary
+     * tuning diagnostic. Not dead code: read it there before deleting it here.
+     */
     let bestValue = 0;
     for (const solution of solutions.values()) {
       if (solution.value > bestValue) bestValue = solution.value;
     }
-
-    // The anticipatory half of `evade` (P16), computed here rather than inline in the
-    // `classifySituation` call below because firing it has to be REMEMBERED — see R-C9 on
-    // `BRAIN_CONSTANTS.dangerEvadeCooldownTicks`. Every gate on it, in order:
-    //
-    //  - `!pinned` (R-C6): the reactive dodge and the incoming-car trigger below stay ungated, but a
-    //    wall-pinned bot yields this term to `unpin`, which needs first crack at getting off the
-    //    wall — `unpin` steers toward open floor, which usually breaks the line anyway.
-    //  - the cooldown (R-C9): once fired, it may not fire again for
-    //    `dangerEvadeCooldownTicks`, which is what stops a STANDING condition from occupying an
-    //    EVENT's priority slot for most of a fight.
-    //  - `danger > 0` (R-C7): `0 >= 0 * fraction` is vacuously true whenever NEITHER side has a
-    //    value (no target, or one genuinely out of every weapon's reach), which tripped `evade` on
-    //    zero signal at all. A real threat with 0 danger cannot exist, so this costs nothing.
-    //  - `!selfControlLost` (R-C-I1): while the bot is dead or spawn-protected, `classifySituation`
-    //    returns `recover` before it ever looks at `evade`, so the term could not have been selected
-    //    — but the stamp below would still consume the refractory. `danger` is nonzero there because
-    //    `me` above is deliberately built alive and solid, and in `FFA_DEATHMATCH` (which Practice
-    //    mode is pinned to) that is every respawn of every match: the bot would burn its cooldown
-    //    behind the spawn shield and be unable to break a line for seconds after the shield dropped.
-    //  - `opponentRangeRespect > 0` (R-C-C1): the SCALED comparison below cannot express "this tier
-    //    ignores danger", because at a respect of 0 it degenerates to `0 >= bestValue * fraction`,
-    //    which is TRUE whenever the bot itself has no shot — no slot ready, every ready slot out of
-    //    reach, or the nose pointed away. `danger > 0` closes the both-zero case but not that one,
-    //    so easy — the tier documented as structurally immune — was getting the LARGEST share of
-    //    anticipatory disengagement of the three (share is `situationCommitTicks` /
-    //    `dangerEvadeCooldownTicks`, and easy commits longest). This reads a NUMBER off the profile,
-    //    which is how this codebase expresses every tier difference; it is not a branch on the tier
-    //    NAME (H-no-tier-branch). Medium (0.45) and hard (0.9) pass it unchanged, so this clause
-    //    cannot move their behaviour by a tick. The narrow form is deliberate: `bestValue > 0` would
-    //    also fix easy, but would additionally delete "I have no shot at all and I am standing in
-    //    his line, leave" from medium and hard — a real behaviour change.
-    //  - the comparison itself: `opponentRangeRespect` (P38) still SCALES the danger, keeping "how
-    //    much does this bot respect danger" the tier axis it has always been, and the comparison is
-    //    RELATIVE to the bot's own best available shot (`bestValue`, R-C7): "am I LOSING this
-    //    exchange from here", not "could someone shoot me" (true for most of a duel).
-    //
-    // Draws no `rng()`, and neither does anything it gates: the cooldown must never make the number
-    // of draws depend on a branch, or a seeded replay desynchronises (H21). Every conjunct above is
-    // pure arithmetic over already-computed values, so adding them moved no draw in the stream.
-    const anticipatoryEvade = !pinned
-      && !selfControlLost
-      && profile.opponentRangeRespect > 0
-      && tick - this.lastAnticipatoryEvadeTick >= BRAIN_CONSTANTS.dangerEvadeCooldownTicks
-      && danger > 0
-      && danger * profile.opponentRangeRespect >= bestValue * BRAIN_CONSTANTS.dangerEvadeFraction;
-    if (anticipatoryEvade) this.lastAnticipatoryEvadeTick = tick;
+    this.lastBestEv = bestValue;
 
     const carIncoming = target ? isIncomingCar(self, target, profile) : false;
     if (carIncoming && target) {
@@ -394,9 +375,16 @@ export class HumanController implements BotController {
     const classified = classifySituation({
       selfControlLost,
       hittable: trulyHittable,
-      // A shot already in flight, a car bearing down, or — computed above, with its own gates and
-      // its own refractory period — a firing solution the bot is standing in before the shot exists.
-      evade: shotThreats.length > 0 || (carIncoming && this.willEvadeCar) || anticipatoryEvade,
+      // A shot already in flight, or a car bearing down. BOTH ARE EVENTS, which is the whole
+      // content of this input now (P27, 2026-09-06): the third clause used to be an ANTICIPATORY
+      // term — "I am standing in a loaded gun's firing solution" — with four gates and a 120-tick
+      // refractory period bolted on to stop a STANDING condition from occupying an event's priority
+      // slot. That apparatus is deleted, gates and all. Danger is scored continuously now, as
+      // `objectives.ts`'s `theirEv` weight on every candidate the planner rolls, so the bot leans
+      // off a line by degrees on every tick instead of declaring an excursion once every four
+      // seconds. Do not port the gates back: they were scaffolding for a shape that no longer
+      // exists.
+      evade: shotThreats.length > 0 || (carIncoming && this.willEvadeCar),
       unpin: pinned && trulyHittable && this.willUnpin,
       punish: trulyHittable && (targetStunned || ultSpent
         || targetHpFraction <= profile.ultWindowHpFraction),
@@ -404,126 +392,86 @@ export class HumanController implements BotController {
       inOwnReach,
     });
     this.situation = pickSituation(this.situation, classified, tick, profile);
-
-    // Where to point the gun (P22). `interceptTicks` is the physics analogue of `aim.ts`'s
-    // closed-form `interceptPoint`: the same "how far ahead does this shot land" question, solved by
-    // fixed-point iteration against a curving path instead of a quadratic against a straight one.
-    // `interceptPoint` itself stays in `aim.ts` as the cheap zero-horizon path — it is what the old
-    // per-tier `leadFactor` scaled, and that knob is gone: how well a bot leads is now the product of
-    // `stateEstimationSigma` (how accurately it reads the target) and `aimErrorSigmaRad` (its hands),
-    // not a fraction of a solution it declines to apply.
-    const leadSlot = self.slots[0];
-    const aimPoint = predictor
-      ? predictor(interceptTicks(
-          self,
-          predictor,
-          leadSlot ? weaponDefOf(leadSlot.weaponId).speed : 0,
-          BRAIN_CONSTANTS.predictionHorizonTicks,
-        ))
-      : undefined;
-    const aimHeading = aimPoint
-      ? Math.atan2(aimPoint.y - self.y, aimPoint.x - self.x) + this.aimError.offsetRad
-      : self.angle;
-    const bearing = target ? Math.atan2(target.y - self.y, target.x - self.x) : self.angle;
-
-    const desires: Desire[] = [];
-    let range = fightRange;
-    let closing = true;
-    let mayFire = false;
     const sit: SituationId = this.situation.current;
 
-    switch (sit) {
-      case "recover":
-        break;
-      case "waitOut": {
-        const hunt = this.huntHeading(view, self.angle);
-        desires.push(goalDesire(hunt.headingRad));
-        range = hunt.range;
-        closing = hunt.closing;
-        this.lastPreferredRange = 0;
-        break;
-      }
-      case "evade": {
-        const away = shotThreats[0]?.awayHeadingRad ?? bearing + Math.PI / 2;
-        desires.push(goalDesire(away));
-        closing = false;
-        mayFire = trulyHittable;
-        break;
-      }
-      case "unpin":
-        desires.push(goalDesire(openFloorHeading(self, view.arena)));
-        closing = false;
-        mayFire = trulyHittable;
-        break;
-      case "punish":
-        desires.push(goalDesire(bearing));
-        range = Math.max(BRAIN_CONSTANTS.minEngageUnits, ownComfort * 0.5);
-        closing = false;
-        mayFire = trulyHittable;
-        break;
-      case "reset":
-        desires.push(goalDesire(aimHeading));
-        range = Math.max(fightRange * 1.15, BRAIN_CONSTANTS.minEngageUnits);
-        closing = true;
-        mayFire = trulyHittable;
-        break;
-      case "fight":
-        desires.push(goalDesire(aimHeading));
-        range = fightRange;
-        closing = true;
-        mayFire = trulyHittable;
-        break;
-      case "close": {
-        // Drive at where the target WILL be, not where it is — the body's own intercept, and the
-        // last consumer of the `leadFactor`-scaled `interceptPoint` this phase replaces. A third of
-        // the shot horizon rather than all of it: a car closes far slower than a bullet flies, so
-        // the full horizon would aim the body at a point most of a lap around a turning target.
-        // That third is `BRAIN_CONSTANTS.closeLeadHorizonFraction`, not a divisor written here.
-        const closePoint = predictor?.(
-          BRAIN_CONSTANTS.predictionHorizonTicks * BRAIN_CONSTANTS.closeLeadHorizonFraction,
-        );
-        desires.push(goalDesire(
-          closePoint ? Math.atan2(closePoint.y - self.y, closePoint.x - self.x) : self.angle,
-        ));
-        range = BRAIN_CONSTANTS.minEngageUnits;
-        closing = false;
-        break;
-      }
-    }
+    /**
+     * R-O5: the realized aim error steers the BODY now.
+     *
+     * `stepAimError` still draws its `rng()` every tick in `decide` (H21 — that draw may not move),
+     * and `this.aimError.offsetRad` used to be added to `aimHeading`, the thing the deleted switch
+     * pointed the wheels at. With the heading gone, the offset had no consumer at all, and dropping
+     * it would have deleted "shaky hands wander the nose" as a steering behaviour. So the target
+     * predictor is wrapped in a RIGID ROTATION of the world about the bot's own position: the bot
+     * plans against where it believes the target is, which is off by its hands.
+     *
+     * THE RAW PREDICTOR STILL GOES TO `solve()` (below, unchanged). `solve` integrates over
+     * `aimErrorSigmaRad` STATISTICALLY — it asks "what fraction of my shots land given hands this
+     * shaky" — so feeding it the realized offset as well would count the same error twice, once as
+     * a distribution and once as a sample. The trigger sees the distribution; the wheels see the
+     * sample.
+     */
+    const offset = this.aimError.offsetRad;
+    const cosOffset = Math.cos(offset);
+    const sinOffset = Math.sin(offset);
+    const believedTargetAt: PosePredictor | undefined = predictor
+      ? (ticksAhead) => {
+          const pose = predictor(ticksAhead);
+          const dx = pose.x - self.x;
+          const dy = pose.y - self.y;
+          return {
+            x: self.x + dx * cosOffset - dy * sinOffset,
+            y: self.y + dx * sinOffset + dy * cosOffset,
+            angle: pose.angle + offset,
+          };
+        }
+      : undefined;
 
-    if (sit !== "waitOut" && sit !== "recover") this.lastPreferredRange = range;
+    /**
+     * R-O6: the hunt drives THROUGH the planner, not around it.
+     *
+     * `waitOut` has no target to aim at, so it supplies a synthetic one — a waypoint at
+     * `minEngageUnits` along the hunt heading — and a `preferredRange` of 0, which makes the
+     * planner's `rangeError` term read "get to that point". `planner.ts` was built for exactly
+     * this: `scoreCandidate` deliberately does NOT early-return when `target` is undefined, and
+     * still scores `rangeError` and `wallPenalty` off `targetAt`. Verified against the committed
+     * planner before relying on it. A parallel mover here is what P27 exists to prevent.
+     */
+    const hunt = sit === "waitOut" ? this.huntHeading(view, self.angle) : undefined;
+    const preferredRange = preferredRangeFor(sit, ownComfort, fightRange);
+    this.lastPreferredRange = preferredRange;
 
-    if (wall) desires.push(wall);
-    const heading = blendHeading(desires, self.angle);
+    const targetAt: PosePredictor = hunt
+      ? () => ({
+          x: self.x + Math.cos(hunt.headingRad) * BRAIN_CONSTANTS.minEngageUnits,
+          y: self.y + Math.sin(hunt.headingRad) * BRAIN_CONSTANTS.minEngageUnits,
+          angle: hunt.headingRad,
+        })
+      : believedTargetAt ?? (() => ({ x: self.x, y: self.y, angle: self.angle }));
 
-    const reverseBlocked = reverseWouldHitBound(self, view.arena, profile.wallLookaheadUnits);
-    // R10: the sim only uses the stopped turn rate while not moving (`stepDrive`'s `isMoving`
-    // gate), so pick the rate that matches the bot's actual current speed rather than always the
-    // stopped one — otherwise the lag PROJECTION below is tuned for a car that isn't rolling.
-    const turnRate = Math.abs(self.speed) > DRIVE_CONFIG.stopEpsilon
-      ? turnRateOf(self.carId)
-      : turnRateAtStopOf(self.carId);
-    const { projectedError, effectiveDeadzone } = compensateForLag({
-      headingError: signedDelta(self.angle, heading),
-      lastSteer: this.lastSteer,
-      turnRate,
-      // R12: the deadzone FLOOR always uses the moving rate, never the speed-dependent one above —
-      // it is the finest correction the car can ever make, not the one it can make on this tick.
-      // See `compensateForLag`'s doc comment and `BRAIN_CONSTANTS.deadzoneFloorFraction`'s.
-      floorTurnRate: turnRateOf(self.carId),
-      aimToleranceRad: profile.aimToleranceRad,
-      reactionDelayTicks: profile.reactionDelayTicks,
-      recomputeTicks: profile.recomputeTicks,
+    // P27: the ONE place an objective becomes `steer` and `throttle`. The situation supplied a
+    // weight vector; the planner rolls the real drive model and picks the input. There is nowhere
+    // left for a second heading to be averaged in — that averaging was spec section 1.1.
+    const result = planMotion({
+      self,
+      target,
+      targetAt,
+      readiness: (weaponId) => (target
+        ? readinessOf(this.perception, target.sessionId, weaponId, tick, profile)
+        : 1),
+      aimSigmaRad: profile.aimErrorSigmaRad,
+      preferredRange,
+      weights: weightsFor(sit, profile),
+      horizonTicks: profile.planHorizonTicks,
+      depth: profile.planDepth,
+      targetBranches: profile.targetBranches,
+      commitPenalty: profile.commitPenalty,
+      lastAction: this.lastAction,
+      tick,
+      arena: view.arena,
     });
-    const { steer, throttle } = reduceToIntent({
-      headingError: projectedError,
-      distance: Number.isFinite(distance) ? distance : range,
-      preferredRange: range,
-      deadband: sit === "fight" ? range * profile.deadbandFraction : 0,
-      aimToleranceRad: effectiveDeadzone,
-      closing,
-      reverseBlocked: sit === "fight" || sit === "reset" ? reverseBlocked : false,
-    });
+    this.lastAction = result.action;
+    this.lastPlan = result;
+    const { steer, throttle } = result.action;
 
     const stuckOk = this.stuckSlot !== undefined
       && tick - this.stuckSinceTick < profile.slotStickTicks;
@@ -534,6 +482,9 @@ export class HumanController implements BotController {
       stuckSlot: stuckOk ? this.stuckSlot : undefined,
       solutions,
     });
+    // R-O3: the fire gate is the deleted switch's `mayFire`, unchanged. P27 replaced heading
+    // selection; it said nothing about who may pull a trigger.
+    const mayFire = FIRING_SITUATIONS.has(sit) && trulyHittable;
     const slot = mayFire ? decision.slot : undefined;
     if (slot !== undefined) {
       this.lastPressTick = tick;
@@ -542,6 +493,10 @@ export class HumanController implements BotController {
     }
     this.lastFiredSlot = slot;
     void this.wantsRam;
+    // Written every decision, read by a later task's overlay work (R-P27b, P45). Kept alive the
+    // same way `wantsRam` is, so neither reads as dead to a compiler or to a reader.
+    void this.lastBestEv;
+    void this.lastPlan;
 
     if (sit === "recover") return COAST;
     return { steer, throttle, fireSlots: slot === undefined ? 0 : 1 << slot };
@@ -582,6 +537,45 @@ export class HumanController implements BotController {
       range: BRAIN_CONSTANTS.minEngageUnits,
       closing: false,
     };
+  }
+}
+
+/**
+ * The distance this play wants to hold, in units (R-O4).
+ *
+ * The deleted eight-case switch shaped a `range` per situation alongside its heading, and P27 only
+ * replaced the HEADING half. Collapsing every play onto `preferredRangeOf` would delete four real
+ * behaviours at once — `punish` walking into a stunned target, `reset` giving up ground, `close`
+ * driving to contact, and `fightRange`'s respect for the opponent's shortest reach — and would
+ * leave the planner's `rangeError` term scoring against a target that means nothing in five of the
+ * eight plays. These are the switch's own values, verbatim.
+ *
+ * `fightRange` is `max(ownComfort, theirKeepOut)`: stand where MY kit works, but never inside the
+ * range their shortest gun keeps me out of.
+ */
+function preferredRangeFor(sit: SituationId, ownComfort: number, fightRange: number): number {
+  switch (sit) {
+    // Coasts. The range term is scored but nothing acts on it, and the overlay reads 0.
+    case "recover":
+      return 0;
+    // Drives at a hunt waypoint through a synthetic `targetAt` (R-O6), so "hold this range from the
+    // thing I am driving at" is exactly 0: arrive.
+    case "waitOut":
+      return 0;
+    case "punish":
+      return Math.max(
+        BRAIN_CONSTANTS.minEngageUnits, ownComfort * BRAIN_CONSTANTS.punishRangeFraction,
+      );
+    case "reset":
+      return Math.max(
+        fightRange * BRAIN_CONSTANTS.resetRangeMultiplier, BRAIN_CONSTANTS.minEngageUnits,
+      );
+    case "close":
+      return BRAIN_CONSTANTS.minEngageUnits;
+    case "evade":
+    case "unpin":
+    case "fight":
+      return fightRange;
   }
 }
 

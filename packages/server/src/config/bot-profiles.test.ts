@@ -196,8 +196,12 @@ describe("BOT_PROFILES", () => {
     expect(BRAIN_CONSTANTS.ultCooldownMs).toBe(5000);
     expect(BRAIN_CONSTANTS.personalityJitter).toBe(0.25);
     expect(BRAIN_CONSTANTS.assumedOpponentAimSigmaRad).toBe(0.06);
-    expect(BRAIN_CONSTANTS.dangerEvadeFraction).toBe(1);
-    expect(BRAIN_CONSTANTS.dangerEvadeCooldownTicks).toBe(120);
+    // `dangerEvadeFraction` and `dangerEvadeCooldownTicks` were deleted with the anticipatory evade
+    // (spec P27, 2026-09-06): danger is a STANDING condition and is now a continuously-weighted
+    // score term (`objectives.ts`'s `theirEv`), so it needs neither a trip threshold nor a
+    // refractory period to keep it out of an EVENT's priority slot.
+    expect(BRAIN_CONSTANTS.punishRangeFraction).toBe(0.5);
+    expect(BRAIN_CONSTANTS.resetRangeMultiplier).toBe(1.15);
     expect(BOT_BRAIN_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
   });
 });

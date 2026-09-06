@@ -543,9 +543,24 @@ describe("HumanController", () => {
     expect(fired).toBe(true);
   });
 
-  it("breaks the line when it is in a loaded gun's solution, before the shot exists (P16)", () => {
+  it("does NOT declare an evade excursion merely for standing in a loaded gun's line (P27)", () => {
+    // REPLACES "breaks the line when it is in a loaded gun's solution, before the shot exists
+    // (P16)", deleted 2026-09-06 with the anticipatory evade itself.
+    //
+    // That test asserted the OPPOSITE of this one, and it was right to, for the mechanism it was
+    // written against: standing in a firing solution used to promote the bot into `evade`, an
+    // EVENT-priority situation, throttled by a 120-tick refractory (`dangerEvadeCooldownTicks`) so
+    // a STANDING condition could not occupy an event's slot for most of a fight. Spec P27 deletes
+    // that whole apparatus: danger is now a continuously-weighted score term (`objectives.ts`'s
+    // `theirEv`, scaled by `opponentRangeRespect` per P38), so the bot leans off a dangerous line
+    // by degrees on every plan rather than declaring an excursion once every four seconds. The
+    // property that survives is the READING, not the excursion — "reports the danger it is
+    // standing in, for the overlay", below, still pins that `dangerEv` is nonzero in this exact
+    // scene.
+    //
     // Threat is stationary, pointed straight at the bot, well inside predator's reach, and has
     // fired nothing -- so every gun reads as loaded and there is no instance in flight to dodge.
+    // With no shot in the air and no car bearing down, `evade` has no event to fire on.
     const bot = new HumanController("hard");
     const rng = makeRng(17);
     let evaded = false;
@@ -553,7 +568,7 @@ describe("HumanController", () => {
       bot.decide(inThreatLineView(tick, rng));
       if (bot.debug()?.situation === "evade") evaded = true;
     }
-    expect(evaded).toBe(true);
+    expect(evaded).toBe(false);
   });
 
   it("keeps firing at a target that TURNS, now that the solver rolls real physics (P22)", () => {

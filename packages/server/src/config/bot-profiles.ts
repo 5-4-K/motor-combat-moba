@@ -251,6 +251,31 @@ export const BRAIN_CONSTANTS = Object.freeze({
    */
   closeLeadHorizonFraction: 1 / 3,
   /**
+   * Fraction of the bot's OWN comfortable range that `punish` holds instead (R-O4,
+   * `controller.ts`'s `preferredRangeFor`), floored at `minEngageUnits`.
+   *
+   * A HALF, because punish is the one play whose premise is that the opponent cannot answer: it
+   * fires on a stun, a spent ult, or a target under `ultWindowHpFraction`, and all three are windows
+   * that close. Standing off at the range that keeps a live opponent's guns honest wastes the
+   * window on travel time, so the bot walks in to half of it and spends the window shooting.
+   * Expressed as a fraction of `preferredRangeOf` rather than its own unit count so a kit whose
+   * comfortable range moves carries this with it; the `minEngageUnits` floor is what stops a
+   * short-range kit from halving itself into the opponent's hull.
+   */
+  punishRangeFraction: 0.5,
+  /**
+   * Multiple of the fight range that `reset` backs off to (R-O4, `controller.ts`'s
+   * `preferredRangeFor`), floored at `minEngageUnits`.
+   *
+   * Deliberately SMALL — 15% past the range the bot was already fighting at, not a retreat across
+   * the arena. `reset` fires on `retreatHpFraction`, and a hurt car that turns and runs presents its
+   * back at a speed disadvantage; what a person actually does is give up a little ground while
+   * keeping the opponent in front. The disengagement in `reset` is carried by its WEIGHTS
+   * (`objectives.ts` puts `theirEv` at 3 against `myEv` 0.4), not by this number — this only stops
+   * the range term from pulling the bot back INTO the fight it decided to leave.
+   */
+  resetRangeMultiplier: 1.15,
+  /**
    * Fraction of a chassis's own `turnRateOf` that an observed turn rate must reach before it reads
    * as DELIBERATE STEERING rather than a residual spin (P18/P19). See `steerFromObservedTurn`
    * (`bot/brain/predict.ts`) for the full-lock reasoning this rests on.
@@ -385,142 +410,6 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * hard bot's danger reading depend on its OWN hands, which is the projection this avoids.
    */
   assumedOpponentAimSigmaRad: 0.06,
-  /**
-   * Fraction of the bot's OWN best available shot value (`bestValue` in `controller.ts`'s `plan()`,
-   * the best `value` across `solutions` — `solve()` run from the shooter's ACTUAL current pose, not
-   * a ceiling) that the danger it is standing in (after `opponentRangeRespect`) must clear before it
-   * leaves the line, before any shot exists (P16). Anticipatory only — gated on NOT being pinned (see
-   * the `evade` input in `controller.ts`'s `plan()`); a wall-pinned bot never evaluates this term at
-   * all, because `unpin` needs first crack at getting off the wall (R-C6, below this comment's own
-   * history).
-   *
-   * R-C7 (fix round 2, 2026-09-06) replaced `dangerEvadeThreshold` — an ABSOLUTE danger-per-second
-   * number — with this fraction. The absolute version had the same defect `minShotValueFraction`'s
-   * doc comment (above) documents for its own predecessor `minShotValue`: "someone could shoot me"
-   * (an absolute EV/s reading) is true for most of an ordinary duel at fighting range, so the
-   * anticipatory term tripped almost continuously once R-C6's `!pinned` gate stopped it from starving
-   * `unpin` at a wall — measured at 45.07 (this task's own guard scene, `inThreatLineView`,
-   * `controller.test.ts`) against an absolute threshold of 12, nearly 4x over, in a scene the brief
-   * calls "a perfectly ordinary in-range engagement". The consequence was measured directly: sweeping
-   * seeds 1-150 of `balance/match.test.ts`'s deathmatch fixture found only 2 land a decisive kill
-   * inside 30s, against ~20/150 for every earlier reseed in that file's history — a hard duel stopped
-   * resolving because the bot evaded through most of the fight instead of fighting.
-   *
-   * The fix asks "am I LOSING this exchange from here" instead: danger compared to what the bot's
-   * OWN kit can put out from its CURRENT pose, not an absolute number no kit/range/aim-quality
-   * combination can be measured against fairly (the exact defect class `minShotValueFraction`'s
-   * comment documents in depth).
-   *
-   * TWO MEASURED DEFECTS surfaced while calibrating this, both fixed in `controller.ts`, not by
-   * picking a different fraction:
-   *
-   * 1. **The comparison is vacuously true when NEITHER side has a value.** `danger * respect >=
-   *    bestValue * fraction` reduces to `0 >= 0` — true — whenever the bot has no target (or one out
-   *    of every weapon's reach) AND the threat is equally out of range/unknown. That tripped `evade`
-   *    on literally zero signal, which is what broke `controller.test.ts`'s "keeps the body on the
-   *    aim line when the target is OFF-AXIS..." duel (fires collapsed from ~94/300 to 46-48/300): the
-   *    bot spent long stretches with `danger` and `bestValue` both reading exactly 0 while still
-   *    converging onto the target, and each stretch tripped a full `situationCommitTicks` (6 on hard)
-   *    excursion into `evade`, since `evade` outranks `fight` in `ALL_SITUATIONS` with no commit
-   *    delay on the way IN. Gating the whole term on `danger > 0` costs nothing (a real threat can
-   *    never read exactly 0) and removed the false trips entirely — re-verified both closed-loop
-   *    duel tests pass with `dangerEvadeFraction` raised as high as 1000 (i.e. with the ratio term
-   *    effectively disabled), isolating that this was a `danger > 0` fix, not a fraction-tuning one.
-   *
-   * 2. **`bestValue` is not always "how much offense do I generally have" — it is a literal,
-   *    instantaneous read of `solve()` at the current pose**, and Bullseye's `pepperbox` (a 4-muzzle
-   *    spray, three of them "sideways and backward" per `solution.ts`'s own doc comment) can register
-   *    a real, nonzero `bestValue` even facing directly AWAY from the target — this task's own guard
-   *    scene measures 38.65 there (self facing +x, target due west), not the 0 an intuition about
-   *    "facing the wrong way" would predict. That is CORRECT behaviour to measure, not a bug: the bot
-   *    genuinely can shoot back from that pose, so it is a real number to compare danger against.
-   *
-   * MEASURED (`HumanController.debug().dangerEv` plus a matching external `solve()` replica for
-   * `bestValue`, both hard tier, `assumedOpponentAimSigmaRad` 0.06, `opponentRangeRespect` 0.9):
-   *
-   * | scene | danger*respect | bestValue | ratio needed to trip |
-   * |---|---|---|---|
-   * | this task's guard scene (`inThreatLineView`) | 45.07 | 38.65 | fraction <= 1.166 |
-   *
-   * That is the ONLY in-suite ceiling on the fraction (the wall scene in `tiers.test.ts` never
-   * evaluates this term at all, `!pinned` having removed it from contention per R-C6). Chosen: **1**
-   * — comfortably under 1.166 with the `danger > 0` fix in place, and the natural reading of "am I
-   * losing": danger that meets or exceeds my own best output, not some multiple of it. Re-verified at
-   * 1 with the `danger > 0` fix: both closed-loop duel tests in `controller.test.ts` pass (fires stay
-   * above the 90 bar on-axis and off-axis), the guard scene's own evade test passes, and a re-swept
-   * `balance/match.test.ts` fixture stays green: sweeping its hard-tier Mirage/Bastion matchup over
-   * seeds 1-150 finds only ONE (96) landing a decisive kill inside its 30 s window — sparser than
-   * R-C6's already-sparse 2/150 (32 and 147), because comparing danger to the bot's own shot value
-   * widens how much of an ordinary duel now reads as "losing" relative to an absolute floor. Both
-   * `match.test.ts` tests that this matchup drives (the shortened-clock test and the
-   * ranks-placement spread) are reseeded onto seed 96, with the exact count recorded in that file's
-   * own seed-history comment — see it there rather than trusting a second copy of the number here.
-   */
-  dangerEvadeFraction: 1,
-  /**
-   * Ticks that must pass after the anticipatory evade term fires before it may fire again (R-C9,
-   * fix round 3, 2026-09-06). Read this before touching `dangerEvadeFraction` again: the fraction
-   * was never the dial that was broken.
-   *
-   * THE STRUCTURAL DEFECT this fixes. `evade` sits at priority index 2 in `ALL_SITUATIONS`, above
-   * `punish`, `reset`, `fight` and `close`. `pickSituation` lets a higher-priority situation cut in
-   * with NO commit delay on the way IN, and `plan()`'s `evade` branch sets `closing = false` and
-   * steers off the line. That immediacy is calibrated for an EVENT — a shot is in the air right
-   * now, which is rare and brief. "I am standing in someone's firing solution" is a STANDING
-   * condition, true for a large share of any ordinary duel at fighting range, and a standing
-   * condition wired into an event's priority slot converts the bot from fighting into disengaging
-   * for most of the fight NO MATTER WHAT ARITHMETIC decides the condition. Three differently-shaped
-   * triggers were measured on `balance/match.test.ts`'s hard-tier Mirage/Bastion deathmatch fixture,
-   * swept over seeds 1-150 and counting how many land a decisive kill inside the 30 s window
-   * (historically, before this task, roughly 20 of 150):
-   *
-   * | trigger | decisive / 150 |
-   * |---|---|
-   * | absolute `dangerEvadeThreshold` 12 (R-C6) | 2 |
-   * | absolute `dangerEvadeThreshold` 40 (round 1) | 2 |
-   * | kit-relative `dangerEvadeFraction` 1 (R-C7) | 1 |
-   *
-   * Three shapes, one collapse, and the most carefully-reasoned of them the worst — the signature of
-   * a structural defect, not a mistuned number.
-   *
-   * THE ARITHMETIC that picks this value. Two knobs bound the term's share of a fight between them:
-   * `situationCommitTicks` sets how long each excursion LASTS (once the term stops firing, the bot
-   * is held in `evade` until the commit window expires, because every situation below it has a lower
-   * priority and must wait), and this cooldown sets how often one may START. So
-   *
-   *     evade's share of a fight  ~=  situationCommitTicks / dangerEvadeCooldownTicks
-   *
-   * Target: the anticipatory term may occupy at most ~5% of a fight on the top tier, which is what
-   * "an excursion, not a mode" means. Hard's `situationCommitTicks` is 6, so 6 / 0.05 = 120 ticks —
-   * four seconds at 30 Hz, and a natural re-engage cadence: you break a line, then come back. You do
-   * not cower for the whole fight. The same 120 gives medium (commit 12) a 10% share, and easy
-   * cannot trip the term at all — `controller.ts` gates it on `opponentRangeRespect > 0` explicitly,
-   * because the scaling alone did NOT give easy immunity (R-C-C1) — so no tier lives in `evade`.
-   *
-   * The arithmetic above is the whole reason for 120; it does not need a measurement to agree with
-   * it. What the sweep below (same fixture, seeds 1-150, decisive kills inside the 30 s window) adds
-   * is a SANITY CHECK on the shape: a cliff between 0-60 and everything at or above 90, then noise.
-   * At n=150 both 23-vs-20 and 17-vs-20 sit inside binomial noise, so this metric cannot separate
-   * 120 from 180 in either direction — read the table as "the reflex stops costing decisive kills
-   * once the share drops under ~7%", and not as evidence for any particular value above that knee:
-   *
-   * | cooldown | hard share | decisive / 150 |
-   * |---|---|---|
-   * | 0 (= R-C7, no refractory) | ~100% | 1 |
-   * | 60 | 10% | 14 |
-   * | 90 | 6.7% | 14 |
-   * | **120 (chosen)** | **5%** | **17** |
-   * | 180 | 3.3% | 23 |
-   * | term disabled entirely | 0% | 20 |
-   *
-   * The last three rows (17, 23, 20) are one noise band, not a trend: nothing here distinguishes a
-   * 5% share from a 3.3% one or from the term being absent altogether. 120 is chosen by the
-   * arithmetic — it is the cooldown that puts hard's share at the 5% target — and the table's job is
-   * only to confirm that a share that low does not cost decisive kills the way 0-60 does. Note the
-   * coupling: a future retune of `situationCommitTicks` moves this term's share without touching
-   * this constant, so re-run that sweep if that field moves.
-   */
-  dangerEvadeCooldownTicks: 120,
   /**
    * Hard cap on how far the planner's hedged branches turn the TARGET's heading before re-reading
    * the danger it would put out (P28, `planner.ts`'s `worstCaseDanger`).
