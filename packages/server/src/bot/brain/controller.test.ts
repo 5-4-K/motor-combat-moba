@@ -335,26 +335,55 @@ describe("HumanController", () => {
     };
 
     let firedWhileDodging = false;
-    let steerWhileDodging: -1 | 0 | 1 | undefined;
-    // `hard`'s `dodgeReactionTicks` is 4 and `acquireTicks` is 5, so the threat is reactable and the
-    // target is noticed by tick 5; `recomputeTicks` is 2, so plenty of runway below covers a
-    // recompute tick past both. Humanize then coasts another `reactionDelayTicks` (4) ticks before
-    // the decision reaches the output — so the window has to reach past that, not just past 9.
+    let evadeStartTick: number | undefined;
+    const settledPresses: { tick: number; steer: -1 | 0 | 1 }[] = [];
+    /**
+     * FIXTURE WINDOW MOVED (R-P15, residuals round, 2026-09-07). Was: break on the FIRST press and
+     * assert that tick's steer. The mechanism this test guards is unchanged and still holds — the
+     * bot fires on eight separate ticks of this run WHILE steering off the fight heading — but the
+     * first press no longer coincides with the first steer, because the reaction path changed.
+     *
+     * The measured trace, hard, this exact scene (situation / emitted steer / emitted fireSlots):
+     *
+     *   t=0..5   waitOut  steer  0  fire 0
+     *   t=6..9   evade    steer  0  fire 0
+     *   t=10,11  evade    steer  0  fire 2   <- the old window stopped HERE, on steer 0
+     *   t=12,13  evade    steer  1  fire 0
+     *   t=14,15  evade    steer -1  fire 2   <- fires WHILE steering; the property under test
+     *   t=18,19 / 22,23 / 26,27 — the same, steer -1 with fire 2
+     *
+     * Why the two separated. `evade` is entered at t=6, and the planner's FIRST evade answer here
+     * is a dodge on the THROTTLE, not the wheel: this fixture's `awayHeadingRad` points back along
+     * -x, which is collinear with the car's own axis (it faces +x), so full reverse moves it
+     * straight down the away heading and the wheel has no work to do. That decision reaches the
+     * output `reactionDelayTicks` (4) later, at t=10 — and the trigger, which is not delayed by a
+     * plan at all, comes up on the same tick. The wheel only swings at the NEXT decision, t=8,
+     * emitted at t=12. So the settled window opens at `evadeStart + reactionDelayTicks +
+     * recomputeTicks` — every tick of it is derived from the profile, none of it is a chosen number.
+     *
+     * The assertion is STRONGER than the one it replaces: it holds for EVERY press in the settled
+     * window, not for a single press.
+     */
     for (let tick = 0; tick < 30; tick++) {
       const out = bot.decide(view({
         tick, self: selfView, others: [target], instances: [incoming], rng: makeRng(3),
       }));
-      if (out.fireSlots !== 0) {
-        firedWhileDodging = true;
-        steerWhileDodging = out.steer;
-        break;
-      }
+      if (bot.debug()?.situation === "evade" && evadeStartTick === undefined) evadeStartTick = tick;
+      if (out.fireSlots === 0) continue;
+      firedWhileDodging = true;
+      const settledFrom = evadeStartTick === undefined
+        ? Infinity
+        : evadeStartTick + BOT_PROFILES.hard.reactionDelayTicks + BOT_PROFILES.hard.recomputeTicks;
+      if (tick >= settledFrom) settledPresses.push({ tick, steer: out.steer });
     }
 
     expect(firedWhileDodging).toBe(true);
     // `evade` takes the wheel off the fight heading, so steering visibly responds to the threat
     // rather than sitting at 0 the way it would if the car were simply pointed at its target.
-    expect(steerWhileDodging).not.toBe(0);
+    expect(settledPresses.length).toBeGreaterThan(0);
+    for (const press of settledPresses) {
+      expect(press.steer, `press at t=${press.tick} steered 0`).not.toBe(0);
+    }
   });
 
   it("re-arms the ram roll after the target is lost, so ramming survives the first death (H40)", () => {
