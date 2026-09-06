@@ -249,6 +249,75 @@ export interface BotProfile {
    * of it is scaled, not just hard's rung, so no tier's relationship to another moved. `LADDER` in
    * `bot-profiles.test.ts` still holds it strictly increasing, and `UNIT_INTERVAL_FIELDS` still
    * holds it inside [0, 1].
+   *
+   * RE-SCALED A THIRD TIME, TO 0.072 / 0.126 / 0.18 (R-P16b, task 3 fix-round, 2026-09-07), because
+   * R-P16 changed what this fraction is OF, not just what the field is called. `planner.ts` swapped
+   * the spread denominator from `maxScore - minScore` to `maxScore - medianScore` so one out-of-arena
+   * candidate could no longer blow the bonus up into a latch (measured: 2382 against a sane spread of
+   * 16). `median(list) >= min(list)` always, so `maxScore - medianScore <= maxScore - minScore` in
+   * EVERY scene the planner ever scores, not only the outlier ones — the fix is correct and stays,
+   * but it uniformly halves-ish the denominator everywhere, so a `commitPenalty` value calibrated
+   * against the old denominator is now a uniformly weaker knob than it was tuned to be. This is a
+   * units change, not a behaviour change: the ladder's SHAPE (strictly rising, same three ratios to
+   * each other) is preserved; only the common scale factor moves, exactly as R-P10's re-tuning above
+   * scaled the whole ladder rather than touching one rung.
+   *
+   * MEASURED, not assumed. Instrumented `plan()` to log `{max, median, min}` for every candidate set
+   * scored during both `controller.test.ts` closed-loop duels (hard tier, 300 ticks each) plus the
+   * nine-cell (tier x chassis) 600-tick duel in "fires a non-zero number of shots on EVERY chassis" —
+   * 1647 candidate sets in total, spanning all three tiers. The ratio `(max - median) / (max - min)`:
+   *
+   *   | sample set                          | count | mean ratio | median ratio | median of (max-min)/(max-median) |
+   *   |--------------------------------------|-------|------------|---------------|-----------------------------------|
+   *   | both hard duels                       |  298  |    0.516   |     0.447     |               2.24                |
+   *   | all three tiers, nine chassis cells   | 1349  |    0.413   |     0.398     |               2.51                |
+   *   | combined                              | 1647  |    0.432   |     0.409     |               2.44                |
+   *
+   * The mean of the inverse is not trustworthy here (it blows up past 9 on the mixed-tier set,
+   * because a handful of near-flat candidate fields put `median` almost on top of `max` and divide by
+   * almost nothing) — exactly the kind of single-sample sensitivity a MEDIAN-based normaliser is
+   * supposed to resist reading FROM, so the median of the ratio, ~2.2-2.5x, is what is trustworthy:
+   * "roughly half" was a fair first guess (an unskewed spread puts the median near the midpoint,
+   * which would give almost exactly 2x), and the real distribution is a bit more compressed than
+   * that guess, not less.
+   *
+   * That statistical ratio is what SHAPE of correction is needed, not the exact knob: the actual duel
+   * outcome is a step function of this fraction (it decides which candidate's bonus clears which
+   * other candidate's deficit), so the shipped value was chosen by sweeping hard's rung directly
+   * against both closed-loop duels (a duel passes only when it clears BOTH `fires > 90` and
+   * `meanOffset < 0.2`) and reading where the real pass/fail boundaries fall, the same method R-P9,
+   * R-P10 and R-P12 above all used:
+   *
+   *   | hard `commitPenalty` | 0.1 (pre-fix) | 0.14 | 0.16 | 0.18 (SHIPPED) | 0.2 | 0.202 | 0.204 |
+   *   |-----------------------|---------------|------|------|-----------------|-----|-------|-------|
+   *   | on-axis fires          |      138      | 138  | 138  |      138        | 138 |  138  |  24   |
+   *   | off-axis fires         |       90      |  94  |  96  |      112        | 124 |  124  |  124  |
+   *
+   * 0.1 no longer clears the off-axis bar at all (exactly 90 against a `> 90` bar — this is the
+   * regression this ruling fixes). A second, NARROWER cliff sits at 0.204: on-axis collapses from 138
+   * to 24 there and does not recover until 0.22, a knife's-edge pocket rather than a safe landing.
+   * 0.18 sits in the middle of the wide, flat, well-measured plateau between the two — off-axis
+   * clears its bar by 22 fires (112 against 90) and on-axis is nowhere near either cliff (0.024 clear
+   * of the 0.204 collapse, more than 10% of the value itself) — rather than banking margin on one
+   * side by living next to a wall on the other.
+   *
+   * 0.18 / 0.1 = 1.8, close to but a little under the measured statistical ratio (2.2-2.5x); the
+   * duel's step-function boundaries, not the continuous statistical ratio, are what a `commitPenalty`
+   * value is actually judged against, so the swept number is what shipped. Medium and easy are
+   * scaled by that SAME 1.8x — 0.126 and 0.072 — rather than independently swept, because neither
+   * tier has a closed-loop duel of its own to sweep against and the ladder's whole point (R-P10's
+   * comment above) is that one scale factor moves every rung together. `LADDER` in
+   * `bot-profiles.test.ts` still holds strictly increasing (0.072 < 0.126 < 0.18) and both
+   * `PROBABILITY_FIELDS` (that test) and `UNIT_INTERVAL_FIELDS` (`personality.ts`) still hold inside
+   * [0, 1] with room to spare — `commitPenalty` is not one of the fields any `ARCHETYPES` entry
+   * shifts, so `rollPersonality` never moves it off the tier value at all, and the 200-seed sweep in
+   * "keeps every probability in [0, 1] on a ROLLED personality too" passes on that value untouched
+   * rather than on a jittered one.
+   *
+   * WHOEVER CHANGES THE NORMALISER AGAIN: this knob travels with it. It is calibrated against
+   * `maxScore - medianScore`, not against `myEv` or any other fixed scale, so swapping the spread
+   * measure a third time (a trimmed mean, a different percentile, anything else) obliges the same
+   * re-measurement this comment records, not a reuse of these numbers.
    */
   readonly commitPenalty: number;
 }
@@ -638,7 +707,7 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
     hearChance: 0.15,
     deadRespect: 0.25, opponentRangeRespect: 0, cornerRespect: 0.35, incomingCarChance: 0.1,
     situationCommitTicks: 20, slotStickTicks: 4,
-    planHorizonTicks: 0, planDepth: 1, targetBranches: 1, commitPenalty: 0.04,
+    planHorizonTicks: 0, planDepth: 1, targetBranches: 1, commitPenalty: 0.072,
   }),
   medium: Object.freeze({
     viewStalenessTicks: 3, reactionDelayTicks: 6, recomputeTicks: 6, acquireTicks: 9,
@@ -654,7 +723,7 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
     hearChance: 0.55,
     deadRespect: 0.75, opponentRangeRespect: 0.45, cornerRespect: 0.75, incomingCarChance: 0.55,
     situationCommitTicks: 12, slotStickTicks: 8,
-    planHorizonTicks: 8, planDepth: 1, targetBranches: 1, commitPenalty: 0.07,
+    planHorizonTicks: 8, planDepth: 1, targetBranches: 1, commitPenalty: 0.126,
   }),
   hard: Object.freeze({
     viewStalenessTicks: 2, reactionDelayTicks: 4, recomputeTicks: 2, acquireTicks: 5,
@@ -670,6 +739,6 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
     hearChance: 1,
     deadRespect: 1, opponentRangeRespect: 0.9, cornerRespect: 1, incomingCarChance: 0.95,
     situationCommitTicks: 6, slotStickTicks: 12,
-    planHorizonTicks: 22, planDepth: 1, targetBranches: 3, commitPenalty: 0.1,
+    planHorizonTicks: 22, planDepth: 1, targetBranches: 3, commitPenalty: 0.18,
   }),
 });
