@@ -185,7 +185,21 @@ describe("runMatch", () => {
     // known-good set this test has ever had**, which is why it is the pick over any of the fresh
     // ones -- a seed that has survived four different ram models is the least likely to need
     // replacing again next stage.
-    const out = runMatch({ ...SETUP, seed: 98, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    //
+    // `seed: 22`, not 98: stage 3b Task 3 (this rework) gives a ram victim the new `reeling` status
+    // -- turnRate and accel both driven to `STATUS_LIMITS`'s floor for `RAM_TICKS.uncontrol`,
+    // scaled down on a re-ram by the same per-victim falloff stack that already scaled the impulse
+    // -- so a car that lands the first hit now gets a real window where its target cannot fight
+    // back cleanly. That is exactly the "ramming finally feels different" outcome this task exists
+    // to ship, and it moved this matchup's dynamics again: seed 98 is now a legitimate 0-0 draw in
+    // the 30 s window (`reeling` cuts both cars' aim enough that neither exchange lands a kill
+    // before the clock runs out). Re-swept 1-150 against the new status: 10, 22, 23, 26, 49, 53, 66,
+    // 75, 79, 80, 81, 87, 94, 101, 105, 106, 111, 118, 127, 129, 138 and 147 land a decisive kill
+    // inside it. 22 is picked over the others because it is also present in both of the two most
+    // recent known-good sets above (stage 3 Tasks 2 and 4) -- the same "survived more than one ram
+    // model" reasoning that picked 98 last time, just applied to the next-most-durable candidate now
+    // that 98 itself is gone.
+    const out = runMatch({ ...SETUP, seed: 22, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);
