@@ -107,19 +107,37 @@ import type { PlanWeights } from "./planner.js";
  * 0.25 — the same uniform scale fix, the same untouched ratios, the same two zero rows.
  */
 const BASE: Readonly<Record<SituationId, PlanWeights>> = Object.freeze({
-  recover: { myEv: 0, theirEv: 0, rangeError: 0, wallPenalty: 60, lockKeep: 0, threatAvoid: 0 },
+  recover: {
+    myEv: 0, theirEv: 0, rangeError: 0, wallPenalty: 60, lockKeep: 0, threatAvoid: 0,
+    facingError: 0,
+  },
   waitOut: {
     myEv: 0, theirEv: 0.5, rangeError: 0.375, wallPenalty: 240, lockKeep: 0, threatAvoid: 0,
+    facingError: 0,
   },
-  evade: { myEv: 0.3, theirEv: 4, rangeError: 0, wallPenalty: 360, lockKeep: 0, threatAvoid: 0.6 },
-  unpin: { myEv: 0.2, theirEv: 1, rangeError: 0, wallPenalty: 2400, lockKeep: 0, threatAvoid: 0 },
-  punish: { myEv: 3, theirEv: 0.25, rangeError: 0.5, wallPenalty: 240, lockKeep: 12, threatAvoid: 0 },
+  evade: {
+    myEv: 0.3, theirEv: 4, rangeError: 0, wallPenalty: 360, lockKeep: 0, threatAvoid: 0.6,
+    facingError: 0,
+  },
+  unpin: {
+    myEv: 0.2, theirEv: 1, rangeError: 0, wallPenalty: 2400, lockKeep: 0, threatAvoid: 0,
+    facingError: 0,
+  },
+  punish: {
+    myEv: 3, theirEv: 0.25, rangeError: 0.5, wallPenalty: 240, lockKeep: 12, threatAvoid: 0,
+    facingError: 0,
+  },
   reset: {
     myEv: 0.4, theirEv: 3, rangeError: 0.625, wallPenalty: 360, lockKeep: 2, threatAvoid: 0,
+    facingError: 0,
   },
-  fight: { myEv: 2, theirEv: 0.6, rangeError: 0.3, wallPenalty: 300, lockKeep: 8, threatAvoid: 0 },
+  fight: {
+    myEv: 2, theirEv: 0.6, rangeError: 0.3, wallPenalty: 300, lockKeep: 8, threatAvoid: 0,
+    facingError: 0,
+  },
   close: {
     myEv: 1, theirEv: 0.75, rangeError: 0.875, wallPenalty: 300, lockKeep: 4, threatAvoid: 0,
+    facingError: 0,
   },
 });
 

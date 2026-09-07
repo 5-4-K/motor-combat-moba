@@ -48,6 +48,15 @@ export interface PlanWeights {
    * The design keeps both reflexes because they are different reflexes.
    */
   threatAvoid: number;
+  /**
+   * How much this play cares that the car points where it is going (F1-F13).
+   *
+   * PER-SITUATION AND NOT A GLOBAL CONSTANT, on purpose. `fight` and `reset` are where a ranged
+   * chassis correctly backs off toward its preferred range with its guns on the target, and this
+   * term must not forbid that — a single global "reversing is bad" scalar could not express the
+   * difference between that and the hunt, where facing your travel IS the play.
+   */
+  facingError: number;
 }
 
 export interface PlanResult {
@@ -444,7 +453,10 @@ export function plan(args: PlanArgs): PlanResult {
     return {
       action: ALL_ACTIONS[0]!,
       score: 0,
-      terms: { myEv: 0, theirEv: 0, rangeError: 0, wallPenalty: 0, lockKeep: 0, threatAvoid: 0 },
+      terms: {
+        myEv: 0, theirEv: 0, rangeError: 0, wallPenalty: 0, lockKeep: 0, threatAvoid: 0,
+        facingError: 0,
+      },
       runnerUp: undefined,
     };
   }
@@ -755,6 +767,7 @@ function scoreCandidate(
   // floored at 1), so the terminal branch always runs and 0 is never returned by accident.
   let rangeError = 0;
   let threatAvoid = 0;
+  let facingError = 0;
 
   for (let i = 0; i <= last; i++) {
     const body = path[sampleTicks[i]! - 1]!;
@@ -781,6 +794,10 @@ function scoreCandidate(
       // attributed `balance/match.test.ts`'s seed-96 failure to the arc reading, and measured that
       // file 11 / 11 green with this term at the terminus.
       threatAvoid = threatAvoidOf(origin, body, away);
+      // F9: a TERMINAL reading, like the two above. A maximum or mean over the arc would punish the
+      // transient mid-turn misalignment every good turn necessarily passes through — penalising the
+      // exact behaviour this term exists to make affordable.
+      facingError = facingErrorOf(body);
     }
 
     if (!args.target) continue;
@@ -838,7 +855,7 @@ function scoreCandidate(
     if (danger > theirEv) theirEv = danger;
   }
 
-  return { myEv, theirEv, rangeError, wallPenalty, lockKeep, threatAvoid };
+  return { myEv, theirEv, rangeError, wallPenalty, lockKeep, threatAvoid, facingError };
 }
 
 /**
@@ -904,7 +921,8 @@ function rawScore(terms: Record<keyof PlanWeights, number>, weights: PlanWeights
     - terms.rangeError * weights.rangeError
     - terms.wallPenalty * weights.wallPenalty
     + terms.lockKeep * weights.lockKeep
-    + terms.threatAvoid * weights.threatAvoid;
+    + terms.threatAvoid * weights.threatAvoid
+    - terms.facingError * weights.facingError;
 }
 
 /** How fast this weapon's shot travels. A maneuver authors no shot, so it leads by nothing. */

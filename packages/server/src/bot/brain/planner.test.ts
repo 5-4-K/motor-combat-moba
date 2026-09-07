@@ -33,6 +33,7 @@ const target: BotCarView = {
 
 const fightWeights: PlanWeights = {
   myEv: 1, theirEv: 0, rangeError: 0.01, wallPenalty: 5, lockKeep: 0.5, threatAvoid: 0,
+  facingError: 0,
 };
 
 const stationary: PosePredictor = () => ({ x: target.x, y: target.y, angle: target.angle });
@@ -87,7 +88,7 @@ describe("plan", () => {
   it("reports a score breakdown for the overlay (P45)", () => {
     const result = plan({ ...base, self: selfAt(300, 360, 0) });
     expect(Object.keys(result.terms).sort()).toEqual(
-      ["lockKeep", "myEv", "rangeError", "theirEv", "threatAvoid", "wallPenalty"],
+      ["facingError", "lockKeep", "myEv", "rangeError", "theirEv", "threatAvoid", "wallPenalty"],
     );
   });
 
@@ -114,6 +115,7 @@ describe("plan", () => {
   it("scores displacement along an in-flight shot's away heading (P40, R-P8)", () => {
     const dodging: PlanWeights = {
       myEv: 0, theirEv: 0, rangeError: 0, wallPenalty: 0, lockKeep: 0, threatAvoid: 1,
+      facingError: 0,
     };
     // Away is +y. The bot faces +x, so only a turn can carry it there.
     const north = plan({
@@ -311,6 +313,7 @@ describe("plan", () => {
       const nose = selfAt(300, 360, -Math.PI / 2);
       const hundredfold: PlanWeights = {
         myEv: 100, theirEv: 0, rangeError: 1, wallPenalty: 500, lockKeep: 50, threatAvoid: 0,
+        facingError: 0,
       };
 
       const neutral = plan({ ...fight, self: nose, commitPenalty: 0 });

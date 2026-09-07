@@ -98,3 +98,19 @@ describe("weightsFor", () => {
     expect(weightsFor("fight", BOT_PROFILES.hard).myEv).toBe(2);
   });
 });
+
+describe("facingError weights", () => {
+  it("is present on every situation, so the planner never reads undefined", () => {
+    for (const id of ALL_SITUATIONS) {
+      const w = weightsFor(id, BOT_PROFILES.hard);
+      expect(typeof w.facingError, `${id} has no facingError weight`).toBe("number");
+      expect(Number.isFinite(w.facingError), `${id} facingError is not finite`).toBe(true);
+    }
+  });
+
+  it("never returns a negative facing weight — the sign lives in rawScore", () => {
+    for (const id of ALL_SITUATIONS) {
+      expect(weightsFor(id, BOT_PROFILES.hard).facingError).toBeGreaterThanOrEqual(0);
+    }
+  });
+});
