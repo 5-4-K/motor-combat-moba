@@ -75,6 +75,13 @@ function eraserKeyOf(carId: string): string {
   return `fx.eraser.${isCarId(carId) ? carId : DEFAULT_CAR_ID}`;
 }
 
+/**
+ * What `toggleChannel` can switch off: the four particle channels, plus the two passes that are not
+ * particle channels at all but are the other half of what a person judging the look has to be able
+ * to isolate.
+ */
+export type FxToggle = FxChannel | "decals" | "mask";
+
 /** One decal, alive until it fades out or is pushed out of the ring buffer. */
 interface LiveDecal {
   readonly key: string;
@@ -129,6 +136,11 @@ export class FxLayer {
   private readonly lastTyreMs = new Map<string, number>();
   /** The events this layer derived on the last `update`, for `ArenaScene`'s camera work below. */
   private frameEvents: FxEvent[] = [];
+  /**
+   * Channels switched off by `toggleChannel`. Empty in a match — nothing but `?dev=fx` writes it,
+   * and the three reads below all cost one `Set.has` on an empty set.
+   */
+  private readonly disabled = new Set<FxToggle>();
 
   constructor(scene: Phaser.Scene, seed: number, arenaWidth: number, arenaHeight: number) {
     this.scene = scene;
@@ -323,9 +335,34 @@ export class FxLayer {
     }
   }
 
+  /**
+   * Turn one channel on or off, and report whether it is now enabled. **Dev-tool only — nothing in
+   * a match calls this**, and the set it writes is empty for the whole of every match.
+   *
+   * `"decals"` and `"mask"` are here alongside the four particle channels because the question
+   * VFX33 leaves open — is a six-car fight's screen tiring to look at? — is partly a question about
+   * how much each pass is contributing, and the only way to answer that for a pass is to switch it
+   * off and compare. For the mask in particular that comparison is the *evidence* VFX18 is earning
+   * its place: with it off, a car inside a smoke column disappears.
+   */
+  toggleChannel(channel: FxToggle): boolean {
+    if (this.disabled.delete(channel)) return true;
+    this.disabled.add(channel);
+    return false;
+  }
+
+  /** Whether a channel is currently drawing. Read by `?dev=fx` to label its own toggles. */
+  isChannelEnabled(channel: FxToggle): boolean {
+    return !this.disabled.has(channel);
+  }
+
   /** Fire one frame's worth of bursts. */
   spawn(specs: readonly EmitterSpec[]): void {
     for (const spec of specs) {
+      // Prospective only: particles already in flight live out their lifespan. `maskSmoke` is where
+      // switching smoke off takes effect immediately, because it is the one channel that draws
+      // through a RenderTexture this layer redraws every frame.
+      if (this.disabled.has(spec.channel)) continue;
       const emitter = this.emitters[spec.channel];
       if (!emitter) continue;
       const { burst } = spec;
@@ -401,26 +438,38 @@ export class FxLayer {
    */
   private maskSmoke(view: FxWorldView): void {
     this.smoke.clear();
+    // `?dev=fx` only: an empty smoke texture, so switching the channel off clears the cloud already
+    // on screen instead of waiting out a 3-second lifespan. The emitter keeps ticking its live
+    // particles; they simply have nowhere to land while this is off.
+    if (this.disabled.has("smoke")) {
+      this.smoke.render();
+      return;
+    }
     // An ARRAY, which `draw` renders regardless of visibility — the emitter is invisible precisely
     // so it does not also draw straight to the scene. Passing it bare would depend on its `visible`
     // flag and render nothing.
     this.smoke.draw([this.emitters.smoke]);
 
-    for (const stamp of eraserStampsFor(view.cars)) {
-      const key = eraserKeyOf(stamp.carId);
-      if (!this.scene.textures.exists(key)) continue;
-      // One reusable image, moved and re-erased per car. Creating a Game Object per car per frame
-      // would allocate six objects a frame for the life of the match.
-      this.eraser
-        .setTexture(key)
-        // The stamp's own size, with NO multiplier: `EraserStamp.width`/`height` are the final world
-        // size of the hole and `ERASER_HALO` is the one number that decides it. A pair of fudge
-        // factors lived here and made that constant's doc comment false — untestably, since this
-        // file has no test.
-        .setDisplaySize(stamp.width, stamp.height)
-        .setRotation(stamp.angle)
-        .setPosition(stamp.x, stamp.y);
-      this.smoke.erase([this.eraser]);
+    // The mask is the one pass with its own switch (`?dev=fx` only): drawing the smoke and skipping
+    // the erase is exactly the "before" half of VFX18's before/after, and it must leave the smoke
+    // itself untouched or the comparison shows nothing.
+    if (!this.disabled.has("mask")) {
+      for (const stamp of eraserStampsFor(view.cars)) {
+        const key = eraserKeyOf(stamp.carId);
+        if (!this.scene.textures.exists(key)) continue;
+        // One reusable image, moved and re-erased per car. Creating a Game Object per car per frame
+        // would allocate six objects a frame for the life of the match.
+        this.eraser
+          .setTexture(key)
+          // The stamp's own size, with NO multiplier: `EraserStamp.width`/`height` are the final
+          // world size of the hole and `ERASER_HALO` is the one number that decides it. A pair of
+          // fudge factors lived here and made that constant's doc comment false — untestably, since
+          // this file has no test.
+          .setDisplaySize(stamp.width, stamp.height)
+          .setRotation(stamp.angle)
+          .setPosition(stamp.x, stamp.y);
+        this.smoke.erase([this.eraser]);
+      }
     }
 
     // Buffered until here, same as the decal layer.
@@ -482,6 +531,14 @@ export class FxLayer {
    */
   private redrawDecals(): void {
     this.decals.clear();
+    // `?dev=fx` only. Both buffers keep filling and keep their birth stamps, so re-enabling shows
+    // the ground as it would have been — anything that aged out while the layer was off is dropped
+    // by `stampSurvivors` on the first frame back, because `decalFadeAlpha` reads the same running
+    // clock either way.
+    if (this.disabled.has("decals")) {
+      this.decals.render();
+      return;
+    }
     // Scorch FIRST, so rubber lies over it: a car driving through a blast mark leaves tracks in it,
     // not under it. The draw order is the only thing the two buffers still share.
     this.scorchDecals = this.stampSurvivors(this.scorchDecals);

@@ -9,7 +9,7 @@ describe("dev tool registry", () => {
   });
 
   it("carries the known dev tool ids (PG2)", () => {
-    expect(Object.keys(DEV_TOOLS)).toEqual(["assets", "playground"]);
+    expect(Object.keys(DEV_TOOLS)).toEqual(["assets", "fx", "playground"]);
     expect(isDevToolId("playground")).toBe(true);
   });
 
