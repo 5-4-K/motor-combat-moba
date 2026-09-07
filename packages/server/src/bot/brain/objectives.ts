@@ -154,19 +154,31 @@ import type { PlanWeights } from "./planner.js";
  * 10 is that raised to the roster's existing floor for a situation where reversing IS the play
  * (`reset`, also 10). At 10 a full-clearance reverse still wins its comparison by 14 points,
  * while a candidate that gains nothing on the line still pays for pointing backwards — which is
- * the tie-breaker this term is for. Measured in the `controller.test.ts` dodge scene, open-loop,
- * the emitted answer flips between 10 and 15: at 10 (and below) the bot reverses straight off the
- * line to 19.4 u, monotonically; at 15 (and above, 40 included) it drives FORWARD and turns,
- * crossing the shot's line at t~19 before curving away to 17.4 u. Values in {15, 20, 24} are
- * byte-identical to 40 in that scene, so anything above the flip is a number that changes nothing.
- * NOTE: `controller.test.ts`'s dodge test was RED at 10 for a while — its original assertion
- * demanded a non-zero steer at EVERY settled press, which no good dodge satisfies (see that
- * test's "WHY `AT LEAST ONE` AND NOT `EVERY`" comment for the swept counter-evidence). It passed
- * at 40 only as a consequence of the throttle flipping forward, not because 40 was the correct
- * weight. The test was fixed (commit `f9e38c3`) to record BOTH the planner's steer and the
- * emitted steer and require at least one press to steer in either frame, matching what a real
- * dodge actually does; it is GREEN at 10 now, vindicating this weight. The weight is not to be
- * raised back to chase a stricter assertion — the derivation above stands on its own.
+ * the tie-breaker this term is for.
+ *
+ * THE EMPIRICAL LEG WAS RETIRED WITH THE SCENE IT WAS MEASURED ON (2026-09-07). This paragraph
+ * used to close with an open-loop measurement taken in `controller.test.ts`'s dodge scene — "at 10
+ * the bot reverses straight off the line to 19.4 u, at 15 and above it drives forward and turns,
+ * crossing at t~19", with {15, 20, 24} byte-identical to 40. **That scene no longer exists.**
+ * Commit `43ad3d6` replaced it one commit after those numbers were written, precisely because its
+ * escape axis ran along the car's own nose and a straight reverse was the correct dodge there; the
+ * current scene puts the escape axis PERPENDICULAR to the nose, where the throttle cannot reach it
+ * at all. Re-measured on the current scene at the shipped weight of 10, the emitted answer is
+ * `throttle +1` on every one of the 30 ticks with the wheel coming in bursts — a FORWARD arc, the
+ * exact opposite of the reverse the old figures describe. The old numbers were therefore deleted
+ * rather than reworded: they described a fixture, not a mechanism.
+ *
+ * WHAT THE WEIGHT NOW STANDS ON: the headroom derivation above, and nothing else. That derivation
+ * is untouched by the scene change — it is arithmetic over this file's own scale table
+ * (`threatAvoid` spans 0-24 achievable points in `evade`, so `facingError` at 40 dominated
+ * full-clearance dodges outright) plus the `fight` precedent of ~1/3 of the competing term, and it
+ * never depended on any scene. The `{10 vs 15}` FLIP POINT WAS AN OLD-SCENE MEASUREMENT AND HAS
+ * NOT BEEN RE-MEASURED: do not cite it as evidence that values above 15 are inert here.
+ * `controller.test.ts`'s dodge test is GREEN at 10, but it asserts the fire/steer ordering
+ * property, not this weight, so treat it as a non-contradiction rather than as support. A
+ * closed-loop `npm run playtest` run is still the instrument that would settle the dodge for real.
+ * The weight is not to be raised back to chase a stricter assertion — the derivation stands on its
+ * own.
  */
 const BASE: Readonly<Record<SituationId, PlanWeights>> = Object.freeze({
   recover: {

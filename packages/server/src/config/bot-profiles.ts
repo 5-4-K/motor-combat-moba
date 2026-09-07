@@ -752,7 +752,16 @@ export const BRAIN_CONSTANTS = Object.freeze({
 // `facingError` — nose-versus-travel misalignment, bounded [0, 1] via sim/velocity.ts, subtracted
 // like rangeError and wallPenalty, with a per-situation weight in objectives.ts's BASE. Fixes the
 // fragility where a drive retune could flip forward/reverse and the planner would not notice.
-export const BOT_BRAIN_VERSION = "4.5.0";
+// 4.5.1 (2026-09-07): `evade`'s `facingError` weight re-derived 40 -> 10 in objectives.ts's BASE
+// (commit `7c2d271`) — at 40 the term cost more than the entire 0-24 range of `threatAvoid` an
+// `evade` dodge can earn, so full-clearance dodges were dominated outright. This is EXACTLY the
+// case this constant exists for: BASE is not part of `botFingerprint`'s hash (it hashes
+// BOT_PROFILES, this string and the shared tables — see `balance/fingerprint.ts`), and
+// `BOT_PROFILES` did not move, so without this bump a `npm run balance --baseline` across the
+// change would have compared two different pilots under identical fingerprints and reported `ok`.
+// Behaviour moved measurably: the change reshuffles which duel seeds are decisive (63/150 either
+// way, but a different set), which is why `balance/match.test.ts` needed a re-seed.
+export const BOT_BRAIN_VERSION = "4.5.1";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency

@@ -397,7 +397,8 @@ describe("HumanController", () => {
      * model, the intents above carry the car 111.8 units off the shot's line by t=29, rising every
      * tick and never crossing back.
      *
-     * EVERY SETTLED PRESS RECORDS TWO STEER FRAMES, AND THE ASSERTION IS "AT LEAST ONE" (2026-09-07).
+     * EVERY SETTLED PRESS RECORDS TWO STEER FRAMES, AND EACH FRAME GETS ITS OWN "AT LEAST ONE"
+     * ASSERTION (2026-09-07).
      * `out.steer` is the EMITTED wheel: `applyHumanize` holds a decision for `reactionDelayTicks`
      * (4 on hard, `bot-profiles.ts`), so what comes out of `decide` is the planner's answer four
      * ticks downstream. `bot.debug()!.plan!.steer` is that answer at the tick it was made. The
@@ -405,9 +406,24 @@ describe("HumanController", () => {
      * PLANNED heading into `solve`, and only `plan.steer` can see it (measured non-zero at
      * t=18,19). Shape B feeds the EMITTED heading in, and only `out.steer` can see it (measured
      * non-zero at t=10,11,16,17,22,23,28,29). Record one frame alone and the test trades one blind
-     * spot for the other, so both are recorded and a turn in EITHER counts. Do not drop a frame.
+     * spot for the other, so both frames are recorded. Do not drop a frame.
      *
-     * WHY "AT LEAST ONE" AND NOT "EVERY". The two frames are DISJOINT on this scene — plan-turn
+     * WHY TWO SEPARATE ASSERTIONS AND NOT ONE OR (2026-09-07). Recording both frames is
+     * VISIBILITY; asserting them separately is what makes the test FALSIFIABLE, and the two are not
+     * the same thing. This assertion used to read `planned !== 0 || emitted !== 0` over the settled
+     * presses, and neither bug shape could turn it red, because the bug SUPPRESSES presses (a
+     * misaimed `solve` stops the fire) and each shape leaves the other frame's presses standing as
+     * an alibi. On today's settled trace — t=14,15 plan 0/emitted 0; t=18,19 plan 1/emitted 0;
+     * t=22,23 plan 0/emitted 1; t=26,27 plan 0/emitted 0 — shape A kills t=18,19 but t=22,23
+     * survive carrying `emitted 1`, so the OR still holds; shape B kills t=22,23 but t=18,19
+     * survive carrying `planned 1`, so the OR still holds again. Split into two assertions, the
+     * first goes red under shape A (nothing non-zero left in the planner frame) and the second
+     * under shape B (nothing non-zero left in the emitted frame). Both are satisfied today: the
+     * planner frame by t=18,19, the emitted frame by t=22,23. So do NOT "simplify" the two back
+     * into one OR — that restores a green-whatever-happens assertion.
+     *
+     * WHY "AT LEAST ONE" PER FRAME AND NOT "EVERY" (the reasoning below is untouched by the split
+     * above: it argues against a per-press CONJUNCTION, which two per-frame existentials are not). The two frames are DISJOINT on this scene — plan-turn
      * ticks {6,7,12,13,18,19,24,25} against emitted-turn ticks {10,11,16,17,22,23,28,29} — because
      * the planner's 6-tick lock/straight rhythm runs against a 4-tick trigger rhythm, and
      * non-dividing periods cannot coincide on every press in either frame. The header above states
@@ -450,9 +466,16 @@ describe("HumanController", () => {
     const trace = settledPresses
       .map((press) => `t=${press.tick} plan ${press.planned} emitted ${press.emitted}`)
       .join(", ");
+    // TWO ASSERTIONS, NOT ONE OR-ED PAIR (2026-09-07). Each is "at least one press" WITHIN its own
+    // frame, and both must hold. See "WHY TWO SEPARATE ASSERTIONS" above: an OR lets either bug
+    // shape alibi in the frame it does not touch, so it cannot go red for either one.
     expect(
-      settledPresses.some((press) => press.planned !== 0 || press.emitted !== 0),
-      `no settled press steered in either frame: ${trace}`,
+      settledPresses.some((press) => press.planned !== 0),
+      `no settled press steered in the PLANNER frame (shape A would be invisible): ${trace}`,
+    ).toBe(true);
+    expect(
+      settledPresses.some((press) => press.emitted !== 0),
+      `no settled press steered in the EMITTED frame (shape B would be invisible): ${trace}`,
     ).toBe(true);
   });
 

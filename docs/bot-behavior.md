@@ -16,9 +16,13 @@ Design: [`docs/superpowers/specs/2026-09-05-bot-situation-play-design.md`](super
 Fairness / hands / personalities: H1–H8 and H16–H48 of
 [`docs/superpowers/specs/2026-09-04-human-like-bot-behavior-design.md`](superpowers/specs/2026-09-04-human-like-bot-behavior-design.md).
 
-Copied from `bot-profiles.ts` on 2026-09-07. `BOT_BRAIN_VERSION` is `4.5.0`. (This line read `4.3.0`
-before this update, against a shipped `4.4.0` — that drift was pre-existing and not caused by the
-facing-term work below; it is corrected here along with the real bump.)
+Copied from `bot-profiles.ts` on 2026-09-07. `BOT_BRAIN_VERSION` is `4.5.1` — bumped from `4.5.0`
+because `evade`'s `facingError` weight changed behaviour (40 -> 10) while `BOT_PROFILES` did not
+move, and `botFingerprint` hashes the profile table, not `objectives.ts`'s `BASE`. A `balance`
+report from before that change is not comparable to one after it, and only this string says so.
+(This line read `4.3.0` before the 4.5.0 update, against a shipped `4.4.0` — that drift was
+pre-existing and not caused by the facing-term work below; it was corrected along with the real
+bump.)
 
 ## Reading a complaint
 
@@ -594,32 +598,33 @@ it was not sized away, so record it here rather than let the next tuner rediscov
   re-swept 1-150 at 10 and the count is 63/150 again, the same number on a different set of seeds
   (which is why `balance/match.test.ts`'s pin needed its tenth re-seed, 3 -> 98). The seed moved, not
   the regime.
-- **The dodge (`controller.test.ts`) got WORSE at `evade` 40, and that is what the 40 -> 10
-  re-derivation above fixed.** Measured in that test's own scene, open loop, as distance off the
-  shot's line (x = 110) after 30 ticks:
+- **The dodge measurements that used to sit here were retired with the scene they were taken on
+  (2026-09-07).** This bullet carried a three-row table of distance off the shot's line (x = 110)
+  after 30 ticks — reverse at 10, forward arc crossing the line at t≈19 at 40, flip point between
+  10 and 15 — all measured in `controller.test.ts`'s dodge scene. **Commit `43ad3d6` replaced that
+  scene** one commit after the table was written, because its escape axis ran along the car's own
+  nose (which made a straight reverse the correct dodge, and made the ordering bug invisible). The
+  current scene's escape axis is perpendicular to the nose and there is no x = 110 line in it; at the
+  shipped weight of 10 the emitted answer is `throttle +1` on all 30 ticks with the wheel in bursts —
+  a forward arc, the opposite of the retired table's answer. The figures are deleted rather than
+  reworded, and **the `{10 vs 15}` flip point has NOT been re-measured on the current scene** — do
+  not cite it.
 
-  | `evade` weight | emitted answer | geometry |
-  |---|---|---|
-  | pre-4.5.0 (term absent) | straight reverse, `steer 0 / throttle -1` | 19.4 u, monotonic, never crosses the line |
-  | 40 (as first shipped) | forward arc, `steer -1 / throttle 1` | **crosses** the line at t≈19 (x = 110.1), ends 17.4 u |
-  | **10 (shipped now)** | straight reverse, `steer 0 / throttle -1` | **19.4 u, monotonic** — the pre-4.5.0 dodge, restored |
-
-  The answer flips between 10 and 15; {15, 20, 24} are byte-identical to 40 in this scene, so any
-  value above the flip changes nothing. **The rationale first recorded here was wrong** and is
-  corrected rather than deleted: it said the 2-unit gap was "inside the noise an open-loop harness
-  carries". It is not noise — it is a mechanism. With `steeringGrip` at 1.0 the term is binary, so 40
-  was a flat toll larger than the entire 0-24 range of the `threatAvoid` the dodge earns, and reverse
-  dodges lost every comparison they entered. See the headroom paragraphs in the weight-table section
-  above.
+  **The 40 -> 10 re-derivation stands on its headroom argument alone**, which never depended on a
+  scene: with `steeringGrip` at 1.0 the term is binary, so 40 was a flat toll larger than the entire
+  0-24 range of the `threatAvoid` an `evade` dodge can earn, and full-clearance dodges lost every
+  comparison they entered. See the headroom paragraphs in the weight-table section above. A
+  closed-loop `npm run playtest` run is the instrument that would measure the dodge for real.
 - **The `controller.test.ts` dodge assertion was RED at `evade` 10 for a while, deliberately left
-  that way.** It passed at 40 only as a *consequence* of the throttle flipping forward — once
-  forward was chosen, turning was the only remaining way to leave the +x line — so the green was a
-  side effect of the defect, not evidence against it. Its original form (`steer !== 0` on every
-  settled press) pinned a single bit and could not see the geometry the table above measures. Spec
-  section 5 reserved any rewrite of the assertion for the user, so the weight was **not** bent back
-  to keep it green in the meantime: a principled weight with a red test is a decision for the user,
-  a bent weight with a green test is not. The user has since made that call (commit `f9e38c3`): the
-  test now records both the planner's steer and the emitted steer and requires at least one
-  settled press to turn in *either* frame, rather than every press to turn in one — a shape a good
-  dodge actually satisfies. **The test is GREEN at 10 now**, and the weight stands vindicated. A
-  closed-loop `npm run playtest` run remains the instrument that settles the dodge for real.
+  that way.** It passed at 40 only as a *consequence* of the throttle flipping forward on the
+  old scene — once forward was chosen, turning was the only remaining way off the shot's line — so
+  the green was a side effect of the defect, not evidence against it. Its original form
+  (`steer !== 0` on every settled press) pinned a single bit and, swept over ~2700 scenes, is not
+  satisfiable by any dodge that departs monotonically. Spec section 5 reserved any rewrite of the
+  assertion for the user, so the weight was **not** bent back to keep it green in the meantime: a
+  principled weight with a red test is a decision for the user, a bent weight with a green test is
+  not. The user has since made that call — commit `f9e38c3` recorded both the planner's steer and
+  the emitted steer, and the final review split the check into **two separate assertions**, one per
+  frame, because a single OR let each bug shape alibi in the frame it does not touch. **The test is
+  GREEN at 10 now**, but it asserts the fire/steer ordering property rather than this weight: read
+  it as a non-contradiction, not as support.
