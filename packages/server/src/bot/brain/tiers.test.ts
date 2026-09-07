@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { slotsOf, weaponDefOf } from "@motor-combat-moba/shared";
+import { TICK_RATE_HZ, hpOf, slotsOf, weaponDefOf } from "@motor-combat-moba/shared";
 import { makeRng } from "../rng.js";
 import { BOT_PROFILES } from "../../config/bot-profiles.js";
 import type { BotCarView, BotSlotView, BotView } from "../types.js";
 import { HumanController } from "./controller.js";
+import { bestSustainedDpsOf, pressCeilingOf, runDuel } from "./duel.js";
 
 function slotsFor(carId: "bullseye" | "bastion" | "mirage"): BotSlotView[] {
   return slotsOf(carId).map((weaponId) => ({
@@ -415,4 +416,125 @@ describe("ladder monotonicity", () => {
     expect(presses("hard")).toBeGreaterThan(presses("medium"));
     expect(presses("medium")).toBeGreaterThan(presses("easy"));
   });
+});
+
+/**
+ * A duel against a sitting duck: a stationary, non-firing `mirage` 400 units dead ahead, with every
+ * press marched through the REAL combat pass (`runCombat`, the same function `ArenaRoom.tick`
+ * calls). Cooldowns, switch locks, volleys, instance flight, hull tests and damage are the game's
+ * own, so `fires` counts presses combat actually committed and `hits` counts the ones that landed —
+ * `balance/stats.ts`'s definition, one count per press whatever the weapon kind (B30).
+ *
+ * The harness is `duel.ts`'s, shared with `controller.test.ts` rather than hand-rolled a second
+ * time; the difference is that this caller resolves combat and that one does not. See that module's
+ * doc for why both modes exist.
+ *
+ * `immortalTarget` restores the dummy's hp after every combat tick. The ladder needs it — a hard bot
+ * kills this target around tick 450, and a hit rate measured over 450 ticks is not comparable to one
+ * measured over 600. The time-to-kill test obviously does not.
+ */
+function duelAgainstDummy(tier: "easy" | "medium" | "hard", ticks = 600, immortalTarget = false) {
+  const { presses, hits, hitRate, ticks: elapsed, killed } = runDuel({
+    tier, ticks, resolveCombat: true, immortalTarget,
+    targetPos: { x: 600, y: 360 },
+  });
+  return { fires: presses, hits, hitRate, ticks: elapsed, killed };
+}
+
+describe("the reported symptoms stay fixed (P49)", () => {
+  it("hard kills a stationary target inside twice its kit's theoretical floor", () => {
+    // A RELATION, not an absolute: the floor is recomputed from the same tables `npm run ttk` reads,
+    // so a weapon retune moves both sides of this assertion together instead of breaking it.
+    //
+    // The floor is deliberately unreachable — best single slot, no flight time, no misses, no
+    // switching — so "inside twice it" is the bar. Measured 2026-09-07 over seven seeds (17, 3, 7,
+    // 42, 99, 2026, 5): 471, 509, 457, 464, 446, 490, 465 ticks, i.e. 14.87-16.97 s against a
+    // 8.94 s floor and a 17.87 s cap. Seed 17 (this file's own) lands mid-spread at 15.70 s and the
+    // slowest of the seven still leaves 5% of headroom, so the multiple is a real bar and not a
+    // formality — but it is a TIGHT one, and a change that slows the kill by a sixth breaks it.
+    const { ticks, killed } = duelAgainstDummy("hard");
+    expect(killed).toBe(true);
+    const floorSeconds = hpOf("mirage") / bestSustainedDpsOf("bullseye");
+    expect(ticks / TICK_RATE_HZ).toBeLessThan(floorSeconds * 2);
+  });
+
+  it("hard fires at its preferred range rather than parking and weaving (spec 1.1)", () => {
+    // THE CEILING IS THE KIT'S, NOT THE CADENCE'S (ruling R-T1b, 2026-09-07). The plan wrote this
+    // bar as `300 / burstGapTicks / 4` — 25 presses at hard's cadence of 3. That is unreachable once
+    // combat is real: Bullseye's three cooldowns (1000, 1800, 16000 ms) only come back about 16
+    // times in 300 ticks, so a cadence-derived bar asks for half again as many presses as the kit
+    // physically has. `pressCeilingOf` takes whichever of the two limiters actually binds, which is
+    // the cadence for an always-ready slot view and the cooldowns here; the plan's `/4` slack is
+    // kept unchanged. Measured (seeds 17, 3, 7): 13, 11, 13 presses against a bar of 4.05.
+    //
+    // The weak form is the regression guard — the symptom this phase was opened for was a bot that
+    // parked and wove and never pressed anything at all. The tight form is the quality bar.
+    const { fires } = duelAgainstDummy("hard", 300, true);
+    expect(fires).toBeGreaterThan(0);
+    expect(fires).toBeGreaterThan(pressCeilingOf("bullseye", 300, BOT_PROFILES.hard.burstGapTicks) / 4);
+  });
+});
+
+describe("the ladder holds (P50)", () => {
+  /**
+   * ACCURACY ONLY. VOLUME IS NOT PART OF THE LADDER, and asserting it would be false.
+   *
+   * The plan's draft also claimed "easy fires most". Spec P50 corrects that explicitly:
+   * `burstGapTicks` is easy 14 / medium 7 / hard 3, so an easy bot physically CANNOT press more
+   * often than a hard one, and `ladder monotonicity` below already pins the true direction —
+   * presses RISE with the tier. The two assertions would have contradicted each other outright.
+   * Volume is not what makes an amateur; accuracy is.
+   *
+   * Both of spec P50's measurement traps are avoided here by construction. Ticks carrying a fire bit
+   * are not counted at all (`HumanController.held` re-emits one decision's bit for up to
+   * `recomputeTicks` ticks, which would inflate easy roughly six-fold against hard) — `fires` is
+   * combat's own committed-press count. And nothing compares an absolute EV threshold across tiers:
+   * `minShotValueFraction` is a fraction of each shooter's own kit ceiling for exactly that reason.
+   *
+   * Measured 2026-09-07, five seeds (17, 3, 7, 42, 99), hit rate easy/medium/hard:
+   * 0.273/0.632/1.000, 0.143/0.722/0.950, 0.200/0.833/0.960, 0.333/0.789/1.000, 0.385/0.800/1.000.
+   * Strictly monotonic on every one of the five. The narrowest rung anywhere in the five is
+   * medium-to-hard at 0.127 (seed 3); the easy-to-hard gap is never below 0.61.
+   */
+  it("hits more often as the tier rises", () => {
+    const easy = duelAgainstDummy("easy", 600, true);
+    const medium = duelAgainstDummy("medium", 600, true);
+    const hard = duelAgainstDummy("hard", 600, true);
+    expect(hard.hitRate).toBeGreaterThan(medium.hitRate);
+    expect(medium.hitRate).toBeGreaterThan(easy.hitRate);
+  });
+});
+
+describe("whole-brain determinism (P51)", () => {
+  // The solver and the planner are proved rng-free individually. This asserts the property that
+  // actually matters to the balance harness: one seed replays the ENTIRE brain, every tier, whether
+  // or not there is a threat in the scene to change which branches run.
+  //
+  // The threat case is the one that earns its place. `perceive` draws its `dodgeChance` roll
+  // UNCONDITIONALLY for every tracked threat, every tick (H21), so merely tracking a shot consumes
+  // one extra `rng()` call per tick and shifts every other draw that tick. A branch-dependent draw
+  // introduced anywhere in this phase shows up there and nowhere else.
+  const incoming = [{
+    id: "shot", ownerSessionId: "them", weaponId: "predator" as const,
+    x: 210, y: -400, angle: Math.PI / 2,
+  }];
+  for (const tier of ["easy", "medium", "hard"] as const) {
+    for (const [label, withThreat] of [["quiet", false], ["under fire", true]] as const) {
+      it(`${tier} replays identically from one seed, ${label}`, () => {
+        const replay = () => {
+          const bot = new HumanController(tier);
+          const rng = makeRng(4242);
+          const out: string[] = [];
+          for (let tick = 0; tick < 400; tick++) {
+            const intent = bot.decide(view(tick, {
+              others: [enemy], instances: withThreat ? incoming : [], rng,
+            }));
+            out.push(`${intent.steer}:${intent.throttle}:${intent.fireSlots}`);
+          }
+          return out.join("|");
+        };
+        expect(replay()).toBe(replay());
+      });
+    }
+  }
 });

@@ -6,6 +6,7 @@ import { BOT_PROFILES } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import type { BotView } from "../types.js";
 import { HumanController } from "./controller.js";
+import { runDuel } from "./duel.js";
 
 function view(overrides: Partial<BotView> = {}): BotView {
   return {
@@ -31,6 +32,17 @@ function view(overrides: Partial<BotView> = {}): BotView {
  * hard Bastion never clears an absolute `minShotValue`: the harness that measured it only ever flew
  * the roster's strongest kit. See the "fires a shot on every chassis" test below, which sweeps all
  * three chassis at all three tiers.
+ *
+ * EXTRACTED to `duel.ts` (task 7, 2026-09-07) so `tiers.test.ts` measures the same fixture instead
+ * of hand-rolling a second one. This is the harness's OPEN mode: nothing is fired for real and every
+ * slot reads permanently ready, so a press is limited by the brain's cadence and never by a weapon
+ * cooldown — which is what makes `fires` here a count of WILLINGNESS to shoot. It is `fireTicks`,
+ * ticks whose emitted intent carried a fire bit, NOT presses (`HumanController.held` re-emits one
+ * decision's bit for up to `recomputeTicks` ticks); every comparison below is within one tier, where
+ * that occupancy is a fair measure. Verified byte-identical across the extraction: the two canary duels
+ * below measure 136 and 128 with mean offsets 0 and 0.0442 both before and after it. Note those are
+ * NOT the 140/134 the off-axis test's comment still quotes from the R-D5 round — that pair went
+ * stale somewhere between R-D5 and this task, and the > 90 bar is what either pair is held to.
  */
 function closedLoopDuel(
   tier: "easy" | "medium" | "hard",
@@ -38,52 +50,8 @@ function closedLoopDuel(
   targetPos: { x: number; y: number } = { x: 753, y: 360 },
   chassis: "bullseye" | "mirage" | "bastion" = "bullseye",
 ): { fires: number; meanOffset: number } {
-  const bot = new HumanController(tier);
-  const rng = makeRng(17);
-  const slots = slotsOf(chassis).map((weaponId) => ({
-    weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
-    range: weaponDefOf(weaponId).range,
-  }));
-  // Real physics, so the bot's own steering rotates its own body — without this the bug is
-  // invisible (Task 1, round 1).
-  let body = {
-    x: 200, y: 360, angle: 0, speed: 300, reverseHold: 0, angVel: 0,
-    shoveX: 0, shoveY: 0, authority: 1, maneuver: 0, maneuverTicksLeft: 0, maneuverSpeed: 0,
-  };
-  const target = {
-    sessionId: "them", carId: "mirage" as const, team: 1 as const, x: targetPos.x, y: targetPos.y,
-    angle: Math.PI, speed: 0, hp: 70, maxHp: 70, alive: true, phased: false,
-    statuses: [], maneuver: 0,
-  };
-  let fires = 0;
-  const offsets: number[] = [];
-
-  for (let tick = 0; tick < ticks; tick++) {
-    const intent = bot.decide(view({
-      tick,
-      self: {
-        ...view().self, carId: chassis,
-        x: body.x, y: body.y, angle: body.angle, speed: body.speed, slots,
-      },
-      others: [target],
-      rng,
-    }));
-    if (intent.fireSlots !== 0) fires += 1;
-    const bearing = Math.atan2(target.y - body.y, target.x - body.x);
-    offsets.push(Math.abs(
-      Math.atan2(Math.sin(bearing - body.angle), Math.cos(bearing - body.angle)),
-    ));
-    body = stepDrive(
-      body,
-      { seq: tick, steer: intent.steer, throttle: intent.throttle, fireSlots: 0 },
-      1 / TICK_RATE_HZ,
-      driveOf(chassis),
-      NEUTRAL_MODIFIERS,
-    );
-  }
-
-  const tail = offsets.slice(-100);
-  return { fires, meanOffset: tail.reduce((a, b) => a + b, 0) / tail.length };
+  const { fireTicks, meanOffset } = runDuel({ tier, ticks, targetPos, chassis });
+  return { fires: fireTicks, meanOffset };
 }
 
 describe("HumanController", () => {
