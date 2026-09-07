@@ -611,11 +611,15 @@ it was not sized away, so record it here rather than let the next tuner rediscov
   was a flat toll larger than the entire 0-24 range of the `threatAvoid` the dodge earns, and reverse
   dodges lost every comparison they entered. See the headroom paragraphs in the weight-table section
   above.
-- **The `controller.test.ts` dodge assertion (`steer !== 0`) is RED at `evade` 10, deliberately.**
-  It passed at 40 only as a *consequence* of the throttle flipping forward — once forward was
-  chosen, turning was the only remaining way to leave the +x line — so the green was a side effect of
-  the defect, not evidence against it. The assertion pins a single bit and cannot see the geometry
-  the table above measures. Spec section 5 reserves any rewrite of a behavioural assertion for the
-  user, so the weight was **not** bent back to keep it green: a principled weight with a red test is
-  a decision for the user, a bent weight with a green test is not. A closed-loop `npm run playtest`
-  run is the instrument that settles the dodge for real.
+- **The `controller.test.ts` dodge assertion was RED at `evade` 10 for a while, deliberately left
+  that way.** It passed at 40 only as a *consequence* of the throttle flipping forward — once
+  forward was chosen, turning was the only remaining way to leave the +x line — so the green was a
+  side effect of the defect, not evidence against it. Its original form (`steer !== 0` on every
+  settled press) pinned a single bit and could not see the geometry the table above measures. Spec
+  section 5 reserved any rewrite of the assertion for the user, so the weight was **not** bent back
+  to keep it green in the meantime: a principled weight with a red test is a decision for the user,
+  a bent weight with a green test is not. The user has since made that call (commit `f9e38c3`): the
+  test now records both the planner's steer and the emitted steer and requires at least one
+  settled press to turn in *either* frame, rather than every press to turn in one — a shape a good
+  dodge actually satisfies. **The test is GREEN at 10 now**, and the weight stands vindicated. A
+  closed-loop `npm run playtest` run remains the instrument that settles the dodge for real.

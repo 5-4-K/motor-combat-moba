@@ -159,9 +159,14 @@ import type { PlanWeights } from "./planner.js";
  * line to 19.4 u, monotonically; at 15 (and above, 40 included) it drives FORWARD and turns,
  * crossing the shot's line at t~19 before curving away to 17.4 u. Values in {15, 20, 24} are
  * byte-identical to 40 in that scene, so anything above the flip is a number that changes nothing.
- * NOTE: `controller.test.ts`'s dodge assertion (`steer != 0`) is RED at 10 — it passed at 40 only
- * as a consequence of the throttle flipping forward. Spec section 5 reserves that assertion for
- * the user; the weight is not to be raised back to keep it green.
+ * NOTE: `controller.test.ts`'s dodge test was RED at 10 for a while — its original assertion
+ * demanded a non-zero steer at EVERY settled press, which no good dodge satisfies (see that
+ * test's "WHY `AT LEAST ONE` AND NOT `EVERY`" comment for the swept counter-evidence). It passed
+ * at 40 only as a consequence of the throttle flipping forward, not because 40 was the correct
+ * weight. The test was fixed (commit `f9e38c3`) to record BOTH the planner's steer and the
+ * emitted steer and require at least one press to steer in either frame, matching what a real
+ * dodge actually does; it is GREEN at 10 now, vindicating this weight. The weight is not to be
+ * raised back to chase a stricter assertion — the derivation above stands on its own.
  */
 const BASE: Readonly<Record<SituationId, PlanWeights>> = Object.freeze({
   recover: {
