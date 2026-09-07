@@ -60,7 +60,6 @@ const LADDER: Readonly<Record<keyof BotProfile, Direction>> = {
   // Aim
   aimErrorSigmaRad: "falls",
   aimErrorDriftTicks: "falls",
-  aimToleranceRad: "falls",
   // Fire economy
   burstGapTicks: "falls",
   minShotValueFraction: "rises",
@@ -71,8 +70,6 @@ const LADDER: Readonly<Record<keyof BotProfile, Direction>> = {
   woundedBias: "rises",
   vengefulness: "falls",
   // Positioning and survival
-  standoffFraction: "rises",
-  deadbandFraction: "falls",
   wallLookaheadUnits: "rises",
   retreatHpFraction: "rises",
   ramIntentChance: "rises",
@@ -100,11 +97,14 @@ const LADDER: Readonly<Record<keyof BotProfile, Direction>> = {
 
 const PROBABILITY_FIELDS = [
   "ultDisciplineChance", "ultWindowHpFraction", "woundedBias",
-  "vengefulness", "standoffFraction", "deadbandFraction", "retreatHpFraction",
+  "vengefulness", "retreatHpFraction",
   "ramIntentChance", "dodgeChance", "blunderChance", "idleFidgetChance",
   "hearChance", "deadRespect", "opponentRangeRespect", "cornerRespect", "incomingCarChance",
   "commitPenalty",
 ] as const;
+// KEPT BYTE-IDENTICAL, BY HAND, with `UNIT_INTERVAL_FIELDS` in `bot/brain/personality.ts` (R-M2).
+// Nothing typed holds the two lists in step, so an entry added or removed here must be made there in
+// the same edit. `standoffFraction` and `deadbandFraction` came off BOTH when P35 deleted them.
 
 describe("BOT_PROFILES", () => {
   it("carries every tier", () => {
@@ -140,7 +140,7 @@ describe("BOT_PROFILES", () => {
   });
 
   it("keeps every probability in [0, 1] on a ROLLED personality too, not just the table", () => {
-    // The table is not what the brain runs — `rollPersonality` shifts up to four fields per bot and
+    // The table is not what the brain runs — `rollPersonality` shifts up to three fields per bot and
     // clamps them into the tier's band, and a band is a bound on how FAR a value may move, not on
     // what it may become: a hard `opportunist` reached `ultDisciplineChance` 1.125 (0.9 x 1.25,
     // comfortably inside +-25%). It saturated harmlessly, but "keeps every probability in [0, 1]"

@@ -6,12 +6,24 @@ import type { BotPersonality, PersonalityId } from "../types.js";
 /** Which parameters an archetype may shift, and by how much (H47). 1 leaves a value alone. */
 type Shifts = Partial<Record<keyof BotProfile, number>>;
 
+/**
+ * R-M1 (spec phase D, 2026-09-07): `brawler`, `kiter` and `opportunist` used to shift
+ * `standoffFraction`, which P35 deleted — `preferredRangeOf` derives the range from the kit now.
+ * The DANGER-DISTANCE axis those three flavours were reaching for is `opponentRangeRespect` after
+ * P38: `controller.ts`'s `fightRange` is `max(ownComfort, theirKeepOut * opponentRangeRespect)`, so
+ * a lower respect stands closer and a higher one stands off. `brawler` therefore takes 0.8 (respects
+ * the danger less, so closes) where it used to take 0.8 of the standoff; `kiter` ALREADY carried
+ * 1.15 on this field and keeps exactly that rather than stacking a second factor onto it — a kiter
+ * that shifted `opponentRangeRespect` twice would be a different, further-standing archetype than
+ * the one that shipped. `opportunist` simply drops the shift: its old `standoffFraction: 1` was a
+ * factor of one, a no-op that moved nothing, so there is nothing to re-express.
+ */
 const ARCHETYPES: Readonly<Record<PersonalityId, Shifts>> = Object.freeze({
   brawler: {
-    standoffFraction: 0.8, ramIntentChance: 1.25, retreatHpFraction: 0.8,
+    opponentRangeRespect: 0.8, ramIntentChance: 1.25, retreatHpFraction: 0.8,
   },
   kiter: {
-    standoffFraction: 1.25, retreatHpFraction: 1.25, ramIntentChance: 0.8,
+    retreatHpFraction: 1.25, ramIntentChance: 0.8,
     opponentRangeRespect: 1.15,
   },
   // `minShotValueFraction` down is the EV-era equivalent of the old `fireDisciplineChance` down: a
@@ -19,7 +31,7 @@ const ARCHETYPES: Readonly<Record<PersonalityId, Shifts>> = Object.freeze({
   // R20 made the threshold relative to the kit's own ceiling rather than absolute).
   sprayer: { minShotValueFraction: 0.8, burstGapTicks: 0.8, ultDisciplineChance: 0.8 },
   grudge: { vengefulness: 1.25, targetCommitTicks: 1.25, woundedBias: 0.8 },
-  opportunist: { woundedBias: 1.25, ultDisciplineChance: 1.25, standoffFraction: 1 },
+  opportunist: { woundedBias: 1.25, ultDisciplineChance: 1.25 },
 });
 
 const IDS = Object.keys(ARCHETYPES) as PersonalityId[];
@@ -31,12 +43,16 @@ const IDS = Object.keys(ARCHETYPES) as PersonalityId[];
  * being true of the profile the brain actually runs, because a shift can push a value past 1 — a
  * hard `opportunist` reached `ultDisciplineChance` 1.125 (0.9 x 1.25, inside the +-25% band, so
  * `clampToBand` had no reason to stop it). It saturated harmlessly, but a stated invariant that only
- * holds of the table and not of the rolled profile is not an invariant. Kept in step with the same
- * list in that test.
+ * holds of the table and not of the rolled profile is not an invariant.
+ *
+ * KEPT BYTE-IDENTICAL, BY HAND, with `PROBABILITY_FIELDS` in `bot-profiles.test.ts` (R-M2). Nothing
+ * typed holds the two lists in step — one is a `Set` here and the other a `const` tuple there — so
+ * an entry added or removed on one side must be made on the other in the same edit. `standoffFraction`
+ * and `deadbandFraction` came off BOTH when P35 deleted them (2026-09-07).
  */
 const UNIT_INTERVAL_FIELDS: ReadonlySet<string> = new Set<keyof BotProfile>([
   "ultDisciplineChance", "ultWindowHpFraction", "woundedBias",
-  "vengefulness", "standoffFraction", "deadbandFraction", "retreatHpFraction",
+  "vengefulness", "retreatHpFraction",
   "ramIntentChance", "dodgeChance", "blunderChance", "idleFidgetChance",
   "hearChance", "deadRespect", "opponentRangeRespect", "cornerRespect", "incomingCarChance",
   "commitPenalty",

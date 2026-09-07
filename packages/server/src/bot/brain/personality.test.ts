@@ -20,7 +20,10 @@ describe("rollPersonality", () => {
     for (let seed = 0; seed < 100; seed++) {
       const { profile } = rollPersonality(makeRng(seed), "hard");
       const base = BOT_PROFILES.hard;
-      for (const key of ["standoffFraction", "minShotValueFraction", "ramIntentChance", "vengefulness"] as const) {
+      // `opponentRangeRespect` replaced `standoffFraction` here when P35 deleted that field
+      // (R-M1): it is the danger-distance axis `brawler` and `kiter` shift now, so it is the one
+      // this test needs to see clamped into the band.
+      for (const key of ["opponentRangeRespect", "minShotValueFraction", "ramIntentChance", "vengefulness"] as const) {
         const low = base[key] * (1 - jitter);
         const high = base[key] * (1 + jitter);
         expect(profile[key]).toBeGreaterThanOrEqual(Math.min(low, high) - 1e-9);
