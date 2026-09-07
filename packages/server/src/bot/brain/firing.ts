@@ -35,23 +35,46 @@ export function isUlt(slot: BotSlotView): boolean {
  * a shared formula, and the per-tier spread falls out of `aimErrorSigmaRad` alone — a shakier hand
  * loses its hit chance to the target's shrinking subtense sooner, so its plateau ends nearer.
  *
- * TIES BREAK OUTWARD (`>=`, not `>`), and that is the load-bearing line in this function.
- * `proxyValue` is monotonically NON-INCREASING in distance for every row in `WEAPON_TABLE`: flat
- * while `subtense / spread` is still saturated at a hit chance of 1, then strictly falling as the
- * target's angular width shrinks, and never rising. So the maximum is a PLATEAU whose near edge is
- * always `minEngageUnits`. A strict `>` keeps the first sample that beat the running best and would
- * therefore return 70 for every chassis at every tier — P31 would buy nothing, and `rangeError`
- * would drag every bot to contact range. `>=` takes the LAST range achieving the maximum instead:
- * the far edge of the plateau, the greatest distance at which the kit gives up nothing, which is
- * where a player who knows their own hands stands.
+ * THE ANSWER IS THE FAR EDGE OF THE PLATEAU, and that is the load-bearing decision in this
+ * function. `proxyValue` is monotonically NON-INCREASING in distance for every row in
+ * `WEAPON_TABLE`: flat while `subtense / spread` is still saturated at a hit chance of 1, then
+ * strictly falling as the target's angular width shrinks, and never rising. So the maximum is a
+ * PLATEAU whose near edge is always `minEngageUnits`. Keeping the first sample that beat a running
+ * best would therefore return 70 for every chassis at every tier — P31 would buy nothing, and
+ * `rangeError` would drag every bot to contact range. Taking the FARTHEST qualifying sample instead
+ * gives the greatest distance at which the kit still pays, which is where a player who knows their
+ * own hands stands.
+ *
+ * "STILL PAYS" IS A FRACTION, NOT AN EXACT TIE (R-D5, fix wave 2, 2026-09-07). This used to be
+ * `total >= bestValue` in a single running-best pass, i.e. the farthest range whose total EXACTLY
+ * tied the maximum — and that made the `weights` argument provably inert. Every term of the sum is
+ * non-negative and non-increasing in range (the target is straight ahead here, so `offBy` is
+ * identically 0), so the sum ties its own maximum only where every term does individually, and
+ * strictly positive weights cancel out of that condition. The result was a VETO BY THE
+ * SHORTEST-REACHING SLOT applied at full strength however little the personality cared for that
+ * slot. Against `BRAIN_CONSTANTS.preferredRangePlateauFraction` a heavily-weighted long slot holds
+ * the total above the bar past a lightly-weighted short slot's cliff, so `slotWeights` reach the
+ * standoff again — see that constant for the sweep the 0.95 came out of.
+ *
+ * IT TAKES TWO PASSES, and cannot be folded back into one. The bar is a fraction of the maximum, so
+ * the maximum has to be known before any range can be tested against it; a running best has not
+ * seen the samples still ahead of it.
+ *
+ * THE LOWER CLAMP IS THE TABLE'S, NOT THIS FUNCTION'S. `bestRange` starts at `minEngageUnits` and
+ * only ever moves outward, so the sole way out below the floor is the `Math.min` against
+ * `awarenessRadiusUnits` — which is safe because every tier perceives far further than 70 units.
+ * That is stated on `minEngageUnits` and pinned by `firing.test.ts`, rather than re-clamped here,
+ * so a tier row that ever broke it fails a test naming the tier instead of being silently absorbed.
  *
  * WHEN NOTHING IS LOADED, THE WHOLE KIT IS SAMPLED ANYWAY (R-D4, fix wave 1, 2026-09-07) — the
  * authored reach, not the empty set. Readiness is the right filter while at least one gun is
  * loaded: a bot with one of three slots up should stand where THAT slot pays. But mid-recharge
- * every slot is filtered out, every sampled range totals 0, all of them tie, and the outward
- * tie-break above — which is correct and load-bearing for the real case — sends the bot to the FAR
- * end of its reach, 900 units for a Bullseye, capped only by `awarenessRadiusUnits`. That is a
- * degenerate tie deciding a position, not a decision. The `effectiveRangeOf` this function replaced
+ * every slot is filtered out, every sampled range totals 0, all of them tie — and the far-edge rule
+ * above, which is correct and load-bearing for the real case, sends the bot to the FAR end of its
+ * reach, 900 units for a Bullseye, capped only by `awarenessRadiusUnits`. (A zero peak makes the
+ * fractional bar zero too, so the fraction does not rescue this on its own; the `peak <= 0` guard
+ * below is the second line of defence, for a kit with no slots at all.) That is a degenerate tie
+ * deciding a position, not a decision. The `effectiveRangeOf` this function replaced
  * carried an explicit fallback for the mirror-image reason and said so: "so a bot mid-recharge does
  * not suddenly decide it wants to be nose to nose." Backing off while reloading may well be good
  * play; if it is ever wanted it belongs in the situation layer, which already has `reset` and
@@ -63,8 +86,6 @@ export function preferredRangeOf(
   weights: readonly number[],
   tick: number,
 ): number {
-  let bestRange = BRAIN_CONSTANTS.minEngageUnits;
-  let bestValue = -Infinity;
   const longest = Math.max(
     BRAIN_CONSTANTS.minEngageUnits,
     ...self.slots.map((slot) => weaponReachOf(slot.weaponId)),
@@ -72,8 +93,12 @@ export function preferredRangeOf(
   // R-D4: readiness only filters while it leaves something to sample. With nothing loaded it is
   // every slot, which is the kit's authored reach.
   const anyReady = self.slots.some((slot) => slotIsReady(slot, tick));
-  const step = Math.max(10, longest / 24);
-  for (let range = BRAIN_CONSTANTS.minEngageUnits; range <= longest; range += step) {
+  const step = Math.max(
+    BRAIN_CONSTANTS.preferredRangeMinStepUnits,
+    longest / BRAIN_CONSTANTS.preferredRangeSampleCount,
+  );
+
+  const totalAt = (range: number): number => {
     let total = 0;
     for (let i = 0; i < self.slots.length; i++) {
       const slot = self.slots[i]!;
@@ -84,11 +109,24 @@ export function preferredRangeOf(
         aimSigmaRad: profile.aimErrorSigmaRad, assisted: false,
       }) * Math.max(weights[i] ?? 1, 0.01);
     }
-    // See the ruling above: `>=`, so the plateau's FAR edge wins rather than its near one.
-    if (total >= bestValue) {
-      bestValue = total;
-      bestRange = range;
-    }
+    return total;
+  };
+
+  // Pass 1: the peak. The bar is a fraction OF this, so it cannot be applied until it is known.
+  let peak = 0;
+  for (let range = BRAIN_CONSTANTS.minEngageUnits; range <= longest; range += step) {
+    peak = Math.max(peak, totalAt(range));
+  }
+  // A kit that scores nothing anywhere (no slots at all) has no plateau to sit on the far edge of,
+  // and a bar of zero would let every sample tie at 0 and hand back the far end of the reach — the
+  // degenerate tie R-D4 is about. Fall to the floor instead.
+  if (peak <= 0) return Math.min(BRAIN_CONSTANTS.minEngageUnits, profile.awarenessRadiusUnits);
+
+  // Pass 2: the FARTHEST range still clearing the bar (R-D5).
+  const bar = peak * BRAIN_CONSTANTS.preferredRangePlateauFraction;
+  let bestRange = BRAIN_CONSTANTS.minEngageUnits;
+  for (let range = BRAIN_CONSTANTS.minEngageUnits; range <= longest; range += step) {
+    if (totalAt(range) >= bar) bestRange = range;
   }
   return Math.min(bestRange, profile.awarenessRadiusUnits);
 }

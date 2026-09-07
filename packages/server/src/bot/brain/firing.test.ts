@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { slotsOf, weaponDefOf } from "@motor-combat-moba/shared";
-import { BOT_PROFILES } from "../../config/bot-profiles.js";
+import { BOT_PROFILES, BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import type { BotCarView, BotSelfView, BotSlotView } from "../types.js";
 import {
@@ -60,14 +60,46 @@ describe("preferredRangeOf", () => {
       .toBeGreaterThan(preferredRangeOf(self("mirage"), BOT_PROFILES.easy, ones, 0));
   });
 
-  it("breaks a tie OUTWARD, so the plateau's far edge wins (P31, R-D2)", () => {
+  it("every tier can perceive further than the close-quarters floor", () => {
+    // `preferredRangeOf`'s only route BELOW `minEngageUnits` is its `Math.min` against
+    // `awarenessRadiusUnits` — `bestRange` starts at the floor and only moves outward. The function
+    // dropped its explicit lower clamp when R-D5 rewrote it (R-D5's minor 4), which is safe only
+    // while this holds of every tier. Pinned here rather than re-clamped there so a tier row that
+    // ever broke it fails naming the tier, instead of being silently absorbed by a `Math.max`.
+    for (const tier of ["easy", "medium", "hard"] as const) {
+      expect(BOT_PROFILES[tier].awarenessRadiusUnits, tier)
+        .toBeGreaterThan(BRAIN_CONSTANTS.minEngageUnits);
+    }
+  });
+
+  it("takes the plateau's FAR edge, not its near one (P31, R-D2)", () => {
     // The whole of what P31 buys rests on this. `proxyValue` is monotonically NON-INCREASING in
     // distance for every row in `WEAPON_TABLE` — flat while hit chance is saturated at 1, then
-    // falling — so the maximum is a plateau whose NEAR edge is always `minEngageUnits`. A strict `>`
-    // would return 70 for every chassis at every tier and the solver-derived range would be a
-    // no-op with an expensive loop in front of it. Bullseye at hard is the loudest case: 420 units,
-    // six times the floor.
+    // falling — so the maximum is a plateau whose NEAR edge is always `minEngageUnits`. Keeping the
+    // first sample to beat a running best would return 70 for every chassis at every tier and the
+    // solver-derived range would be a no-op with an expensive loop in front of it. Bullseye at hard
+    // is the loudest case: 470 units, nearly seven times the floor.
     expect(preferredRangeOf(self("bullseye"), BOT_PROFILES.hard, ones, 0)).toBeGreaterThan(300);
+  });
+
+  it("lets a slot preference read, so `slotWeights` actually reach the standoff (R-D5)", () => {
+    // THE ASSERTION WHOSE DELETION HID THE DEFECT. Task 4 removed "weights the fallback the same way
+    // as the ready path, so a slot preference still reads" in the same change that made it
+    // impossible: under an EXACT-tie plateau rule the answer is
+    // `min over ready slots of min(reach, cliff)` regardless of `weights`, because strictly positive
+    // multipliers cancel out of "every term ties its own maximum". `rollPersonality`'s `slotWeights`
+    // moved nothing at all, and nothing failed.
+    //
+    // Mirage at hard is the cell that reads it, and it reads it in the direction the mechanism
+    // predicts. Its slots are magmablast (400 u), thunderclap (400 u), afterburner (220 u).
+    // Weighting the long pair holds the total above `preferredRangePlateauFraction` past
+    // afterburner's cliff, so the bot stands off; weighting afterburner instead makes that cliff a
+    // big enough share of the peak to pull the total under the bar there, and it stands close.
+    // Both vectors are inside `rollPersonality`'s own 0.5-1.5 draw.
+    const longGunHeavy = preferredRangeOf(self("mirage"), BOT_PROFILES.hard, [1.5, 1.5, 0.5], 0);
+    const afterburnerHeavy = preferredRangeOf(self("mirage"), BOT_PROFILES.hard, [0.5, 0.5, 1.5], 0);
+    expect(longGunHeavy).not.toBe(afterburnerHeavy);
+    expect(longGunHeavy).toBeGreaterThan(afterburnerHeavy);
   });
 
   it("gives different chassis different distances, because their kits differ (P31)", () => {
@@ -86,7 +118,7 @@ describe("preferredRangeOf", () => {
     // all of them tie, and the outward tie-break — correct and load-bearing when the samples mean
     // something — carries `bestRange` to the far end of the kit's reach, capped only by
     // `awarenessRadiusUnits`. Measured before the fix (2026-09-07): a hard Bullseye stood at 900,
-    // its whole awareness radius, against the 420 it stands at when loaded. That is a degenerate
+    // its whole awareness radius, against the 470 it stands at when loaded. That is a degenerate
     // tie deciding a position rather than a decision, which is why R-D4 restores the explicit
     // fallback the deleted `effectiveRangeOf` carried for the mirror-image reason.
     //

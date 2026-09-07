@@ -119,9 +119,15 @@ describe("HumanController", () => {
     //
     // P31 re-measurement (2026-09-07, phase D task 4): deriving `preferredRangeOf` from the solver
     // moved both duels UP — on-axis 138 -> 140 (offset 0), off-axis 112 -> 128 (offset 0.054).
-    // A hard Bullseye now stands at 420 units rather than at `standoffFraction * effective reach`,
-    // which is further out and squarely inside `predator`'s aim-assisted band, so more of the run is
-    // spent at a range the kit actually scores at. The bar is unchanged at > 90.
+    // A hard Bullseye now stands at its kit's own plateau rather than at
+    // `standoffFraction * effective reach`, which is further out and squarely inside `predator`'s
+    // aim-assisted band, so more of the run is spent at a range the kit actually scores at.
+    //
+    // R-D5 (fix wave 2, 2026-09-07) moved the standoff again — the plateau's far edge is now the
+    // farthest range keeping `preferredRangePlateauFraction` of the peak rather than the farthest
+    // range EXACTLY tying it, which takes a hard Bullseye from 420 to 470. Off-axis went up with it,
+    // 128 -> 134 (offset 0.041); on-axis is unmoved at 140 (offset 0). The bar is unchanged at > 90
+    // throughout: none of these re-measurements is a threshold being chased.
     const { fires, meanOffset } = closedLoopDuel("hard", 300, { x: 753, y: 500 });
     expect(fires).toBeGreaterThan(90);
     // Fixed at 0.2 rad — hard's `fireConeRad` before Task 7 (2026-09-05) deleted that field along
@@ -299,17 +305,18 @@ describe("HumanController", () => {
   });
 
   it("still fires while dodging, because the solver reads the shooter's ACTUAL pose, not the blended steering heading (ordering trap)", () => {
-    // The regression this guards, updated for Task 7's EV firing gate: `chooseSlot` no longer takes
-    // an aim delta at all — the per-slot solutions it ranks are built (in `plan`) from `self.x/y/
-    // angle`, the car's real current pose, while `reduceToIntent`'s steering is driven by `heading`,
-    // the BLENDED desire (fight + evade + wall, etc.). Those two are independent inputs computed from
-    // the same tick's `self`, so a dodge that swings the blended heading away from the target must
-    // not silently move the shooter's pose the solver solves against — a bug that fed the blended
-    // heading into `solve` instead of `self.angle` would compile, typecheck, and pass every unit test
-    // that pins `solve`/`chooseSlot` in isolation, but the bot would stop shooting the instant
-    // anything (a dodge, an orbit) pulled its steering off the target. Only a controller-level test
-    // with a real divergence between "where the gun points" and "where the wheels want to go" catches
-    // that.
+    // The regression this guards, updated for Task 7's EV firing gate and phase D's planner:
+    // `chooseSlot` no longer takes an aim delta at all — the per-slot solutions it ranks are built
+    // (in `plan`) from `self.x/y/angle`, the car's real current pose, while the emitted `steer` comes
+    // from the PLANNER, which rolls candidate steer/throttle pairs forward and scores them against
+    // the tick's objective weights (fight, evade, wall clearance and the rest). Those two are
+    // independent consumers of the same tick's `self`, so a dodge that sends the planner's winning
+    // rollout away from the target must not silently move the shooter's pose the solver solves
+    // against — a bug that fed the planner's chosen heading into `solve` instead of `self.angle`
+    // would compile, typecheck, and pass every unit test that pins `solve`/`chooseSlot` in
+    // isolation, but the bot would stop shooting the instant anything (a dodge, an orbit) pulled its
+    // steering off the target. Only a controller-level test with a real divergence between "where
+    // the gun points" and "where the wheels want to go" catches that.
     const slots = slotsOf("bullseye").map((weaponId) => ({
       weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
       range: weaponDefOf(weaponId).range,
@@ -332,8 +339,8 @@ describe("HumanController", () => {
     // A shot bearing down the +y axis, passing 10 units to the right of the car — well inside
     // `THREAT_LATERAL_UNITS` (~45), so `perceive()` registers it as a threat, and its
     // `awayHeadingRad` comes out pointing almost directly opposite the target (back along -x) — the
-    // sharpest possible divergence from `aimHeading`, so `heading` (the BLENDED steering desire
-    // `reduceToIntent` reads) swings hard away from 0 while `self.angle` (what the solver solves
+    // sharpest possible divergence from the aim line, so the planner's winning rollout (and with it
+    // the emitted `steer`) swings hard away from 0 while `self.angle` (what the solver solves
     // against) does not move at all — this test's `selfView` is fixed, not stepped through physics.
     const incoming = {
       id: "shot-1", ownerSessionId: "them", weaponId: "predator" as const,

@@ -335,8 +335,103 @@ export interface BotProfile {
  * Constants shared by every tier — not per-tier, and therefore deliberately not in the profile.
  */
 export const BRAIN_CONSTANTS = Object.freeze({
-  /** Closest range the bot will ever choose to hold. Roughly one and a half car lengths. */
+  /**
+   * Closest range the bot will ever choose to hold. Roughly one and a half car lengths.
+   *
+   * `preferredRangeOf` (`bot/brain/firing.ts`) samples from here outward and caps the answer at
+   * `awarenessRadiusUnits`, so it relies on EVERY tier's `awarenessRadiusUnits` exceeding this —
+   * easy 600, medium 700, hard 900 against 70, three orders of margin. `firing.test.ts`'s "every
+   * tier can perceive further than the close-quarters floor" pins that rather than leaving it as a
+   * coincidence of the table, because the cap is a `Math.min` and would otherwise silently push the
+   * chosen range BELOW the floor this constant exists to enforce.
+   */
   minEngageUnits: 70,
+  /**
+   * How much of its kit's PEAK sampled value a bot is willing to keep while standing further off
+   * (R-D5, fix wave 2, 2026-09-07) — `preferredRangeOf` returns the farthest sampled range whose
+   * weighted total clears `peak * this`.
+   *
+   * THE REASON IT IS NOT 1. An exact tie (`total === peak`, which is what the outward `>=`
+   * tie-break spelled) is provably independent of `weights`: in this function the target sits
+   * straight ahead, so every slot's `proxyValue` is non-negative and non-increasing in range, and
+   * a sum of such terms ties its own maximum ONLY when every term does individually. Strictly
+   * positive weights cancel out of that condition, so the returned range was
+   * `min over ready slots of min(reach, cliff)` — a VETO BY THE SHORTEST-REACHING SLOT, at full
+   * strength even when the personality's weight on that slot was 0.5 and its weight on a
+   * twice-as-long slot was 1.5. `rollPersonality`'s `slotWeights` therefore could not move the
+   * standoff at all, which is not what P31's "where this kit's EV peaks" asks for. Under a
+   * FRACTIONAL bar a heavily-weighted long slot keeps the total above the bar past a
+   * lightly-weighted short slot's cliff, and the weights are live again.
+   *
+   * MEASURED, not guessed (40 weight vectors drawn from `rollPersonality`'s own 0.5-1.5 range,
+   * every chassis x every tier, counting how many of the nine cells resolve to more than one
+   * range):
+   *
+   * | fraction      | weight-live cells | note                                                 |
+   * |---------------|-------------------|------------------------------------------------------|
+   * | 1.00 - 0.975  | 0 / 9             | the exact tie's regime; weights provably inert       |
+   * | 0.970 - 0.88  | 1 / 9             | mirage/hard, 220 <-> 386.7 depending on the roll     |
+   * | 0.878 - 0.871 | 3 / 9             | the peak — and only 0.008 wide                       |
+   * | 0.87 - 0.82   | 2 / 9             | mirage/hard goes mute again (its bar clears the cliff unconditionally) |
+   *
+   * 0.95 IS THE MINIMUM PERTURBATION THAT SATISFIES THE RULING, which is the property worth having
+   * here: everything downstream of this function — `planner.ts`'s `rangeError`, `commitPenalty`,
+   * `trajectorySampleCount` — was settled by seven-seed sweeps against the ranges the exact-tie
+   * rule produced, so the fraction should move them as little as it can while still letting
+   * `slotWeights` reach the standoff. Weights come alive at 0.970; 0.95 clears that by 0.02 and
+   * holds the same 1/9 liveness all the way down to 0.88, so it is not perched on the boundary.
+   * Only THREE of the nine neutral-weight cells move at all.
+   *
+   * Going further down buys nothing measured and costs behaviour. 0.92 and 0.90 are still 1/9 —
+   * no extra cell comes alive — but they take mirage/hard's neutral standoff from 220 to 386.7, a
+   * 167-unit shift, and 0.90 turns `balance/match.test.ts`'s pinned hard Mirage-vs-Bastion
+   * deathmatch (seed 3) into a 1-1 draw with no winner inside its 30 s window. That fixture was
+   * left alone rather than reseeded, and it is what separated the two candidates. The 3/9 reading
+   * at 0.871-0.878 was rejected on its own terms: a 0.008-wide window between a 1/9 reading at
+   * 0.879 and a 2/9 one at 0.870 is a spike, and a knob perched that finely re-tunes itself the
+   * first time a weapon row moves.
+   *
+   * Resolved ranges at 0.95 (chassis x tier, neutral weights), against the exact-tie values it
+   * replaces: bullseye 70 / 170 / 470 (was 70 / 170 / 420), mirage 86.7 / 186.7 / 220
+   * (was 86.7 / 170 / 220), bastion 90.8 / 132.5 / 132.5 (was 70 / 132.5 / 132.5). Mirage/hard's
+   * 220 is the NEUTRAL reading of the one weight-live cell; a long-gun-heavy roll stands at 386.7.
+   */
+  preferredRangePlateauFraction: 0.95,
+  /**
+   * How many samples `preferredRangeOf` takes across its kit's reach (R-D5, fix wave 2).
+   *
+   * Was an unnamed `24` inside the loop, and it is not incidental: it is the resolution of the only
+   * grid the standoff range is ever read off, so it sets how finely a plateau edge can be located,
+   * and every cell in `preferredRangePlateauFraction`'s tables is quoted on THIS grid. MEASURED at
+   * that fraction's 0.95 with neutral weights, sweeping 12 / 16 / 24 / 32 / 48 / 96: a hard
+   * Bullseye reads 470 / 445 / 470 / 445 / 470 / 470 and a hard Mirage 203.3 / 220 / 220 / 220 /
+   * 220 / 220. The answer is stable to within about a car length across an eightfold change in
+   * resolution, and it does not converge monotonically — a coarse grid can only land ON a sample,
+   * so refining it moves the reported edge either way. 24 is where the roster's three step sizes
+   * (bullseye 50 u, bastion 20.8 u, mirage 16.7 u) are all inside a car length, which is the
+   * resolution at which a further refinement stops meaning anything to a driver.
+   *
+   * IT DOES NOT EXPLAIN BASTION'S MEDIUM/HARD TIE, which task 4's report suspected it did and named
+   * this as the lever that would break. Measured across 12 / 16 / 24 / 32 / 48 / 96 samples,
+   * Bastion's medium and hard resolve to the SAME range at every one of them (111.7 through 150.0
+   * as the grid refines, but always equal). The tie is a property of Bastion's kit — a 150 u
+   * `wildcharge` alongside a 400/500 u pair whose plateau ends before either tier's
+   * `aimErrorSigmaRad` can separate them — not of this number.
+   */
+  preferredRangeSampleCount: 24,
+  /**
+   * Floor on `preferredRangeOf`'s sample step, in world units (R-D5, fix wave 2).
+   *
+   * Was an unnamed `10`. It binds only for a kit whose longest reach is under
+   * `preferredRangeSampleCount * this` = 240 u, and NO CHASSIS ON THE ROSTER IS ONE: the smallest
+   * step today is Mirage's 16.7 u (400 / 24). Measured at `preferredRangePlateauFraction` 0.95 with
+   * neutral weights, 1 / 5 / 10 give byte-identical nine-cell results; 20 is the first value to
+   * move anything (mirage 86.7 / 186.7 / 220 -> 90 / 170 / 210) and 40 collapses Mirage's and
+   * Bastion's easy tiers back onto the 70 floor. So it is a guard against a future short-reach kit
+   * spending 24 samples inside two car lengths, kept at the widest value still provably inert on
+   * the shipped roster — and the Bastion tie above is measured with it inert, not with it binding.
+   */
+  preferredRangeMinStepUnits: 10,
   /** Range at which a `range: 0` weapon (`wildcharge`) is worth pressing. */
   contactTriggerUnits: 150,
   /** `cooldownMs` at or above which a weapon counts as an ult for discipline purposes. */
