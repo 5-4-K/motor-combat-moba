@@ -3,7 +3,9 @@ import { slotsOf, weaponDefOf } from "@motor-combat-moba/shared";
 import { BOT_PROFILES } from "../../config/bot-profiles.js";
 import type { BotArenaView, BotCarView, BotSelfView, BotSlotView } from "../types.js";
 import type { PosePredictor } from "./solution.js";
-import { ALL_ACTIONS, plan, type PlanArgs, type PlanWeights } from "./planner.js";
+import {
+  ALL_ACTIONS, commitWindowOf, plan, type PlanArgs, type PlanWeights,
+} from "./planner.js";
 
 const arena: BotArenaView = { width: 1280, height: 720, obstacles: [] };
 
@@ -316,7 +318,8 @@ describe("plan", () => {
       // the winner's margin over the runner-up in THIS scene grew as a fraction of the spread. The
       // property under test is unchanged and is not that number — it is that ONE value makes the
       // SAME call at both weight scales, which is what a fraction-of-the-spread bonus buys and what
-      // a raw addend could not. (0.4 is now the largest shipped value; see `commitPenalty`.)
+      // a raw addend could not. (0.18, hard's, is the largest shipped value; see `commitPenalty`.
+      // The test value is deliberately far above it — this is a property check, not a calibration.)
       const bonus = 0.95;
       const asShipped = plan({ ...fight, self: nose, commitPenalty: bonus, lastAction: rival });
       const scaled = plan({
@@ -384,7 +387,52 @@ describe("plan", () => {
     expect(second).toEqual(first);
   });
 
-  it("plans at the heaviest shipped configuration", () => {
+  // --- R-P17: the commitment window is PER DEPTH -------------------------------------------
+  describe("commitWindowOf", () => {
+    it("leaves a real coasting tail at depth 2 (R-P17)", () => {
+      // THE DEFECT: `commit` was `ceil(K * fraction)` computed from the WHOLE horizon and then
+      // applied `depth` times, so `commit * depth` was `2 * 0.52K > K` for every K and `tail` was
+      // identically 0 at depth 2 — hard would roll 24 committed ticks against a 22-tick horizon
+      // with no coast at all. That is the whole-horizon hold R-P10 replaced, silently reinstated,
+      // and it disables the property the two terminal-read terms depend on: with no coast, the
+      // terminus is not a place the car can be left. Under the old formula this test reads
+      // commit 12, tail 0, and fails on the first assertion.
+      const { commit, tail } = commitWindowOf(22, 2);
+      expect(commit * 2).toBeLessThanOrEqual(22);
+      expect(tail).toBeGreaterThan(0);
+      expect(commit).toBe(6);
+      expect(tail).toBe(10);
+    });
+
+    it("is arithmetically unchanged at the depth every profile ships (depth 1)", () => {
+      // The division by `depth` must be a no-op at depth 1, or the fix moves behaviour the
+      // seven-seed sweep already settled. Hard, medium, and easy's K=0 floor.
+      expect(commitWindowOf(BOT_PROFILES.hard.planHorizonTicks, 1)).toEqual({ commit: 12, tail: 10 });
+      expect(commitWindowOf(BOT_PROFILES.medium.planHorizonTicks, 1)).toEqual({ commit: 5, tail: 3 });
+      expect(commitWindowOf(BOT_PROFILES.easy.planHorizonTicks, 1)).toEqual({ commit: 1, tail: 0 });
+    });
+
+    it("never rolls a zero-tick window, at either depth (R-P6)", () => {
+      // The floor outranks the `floor(K / depth)` cap. K=1 at depth 2 is the only case where it
+      // wins and `commit * depth` exceeds K; no profile ships it, and the plan is then two ticks
+      // long rather than zero, which is the floor doing its job.
+      for (const depth of [1, 2] as const) {
+        for (const k of [0, 1, 2, 3, 8, 22, 40]) {
+          expect(commitWindowOf(k, depth).commit).toBeGreaterThanOrEqual(1);
+        }
+      }
+      expect(commitWindowOf(1, 2)).toEqual({ commit: 1, tail: 0 });
+    });
+  });
+
+  it("plans at the preserved depth-2 dial, which no profile ships today", () => {
+    // `planDepth: 2` is the upgrade path spec P33 names and `planDepth`'s own doc advertises; all
+    // three tiers ship depth 1. This exercises the dial end to end at hard's horizon, and pins that
+    // the arc it rolls is genuinely LONGER than its committed windows — i.e. a coast segment
+    // survives, which is what makes reading `rangeError` and `threatAvoid` at the terminus honest.
+    const { commit, tail } = commitWindowOf(22, 2);
+    expect(commit * 2 + tail).toBeGreaterThan(commit * 2);
+
     const result = plan({
       ...base, self: selfAt(300, 360, -Math.PI / 2), depth: 2, targetBranches: 3,
       horizonTicks: 22,

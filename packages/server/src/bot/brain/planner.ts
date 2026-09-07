@@ -118,8 +118,11 @@ export interface PlanArgs {
    * `compensateForLag` was the desire model's answer to the same dead time; this is the planner's,
    * and it is the textbook one (roll the plant forward through the delay, then plan from there).
    *
-   * 0 disables it. `lastAction` is what the delay line is still paying out, so it is what the roll
-   * holds; with no `lastAction` there is nothing in flight and the current pose is already correct.
+   * 0 disables it. What the roll actually holds is `pending` — the real queue, entry by entry (see
+   * that field, and R-P10b: holding one action across the whole dead time was the defect, not the
+   * design). `lastAction` is only the FALLBACK for ticks the queue does not cover, which happens on
+   * the first few ticks of a match before the line has filled; with neither, there is nothing in
+   * flight and the current pose is already correct.
    */
   actuationDelayTicks: number;
   /**
@@ -158,6 +161,68 @@ interface Candidate {
   path: readonly SimBody[];
 }
 
+/** How a candidate's `horizonTicks` are split: `depth` committed windows, then a coasting tail. */
+export interface CommitWindow {
+  /** Ticks in ONE committed window. A candidate holds one action for exactly this long. */
+  commit: number;
+  /** Ticks spent under `CONTINUATION` after the last committed window. May be 0. */
+  tail: number;
+}
+
+/**
+ * THE COMMITMENT WINDOW: how much of the horizon a candidate genuinely commits to, before the
+ * terminal policy coasts it to a stop. `BRAIN_CONSTANTS.commitWindowFraction` of K — just over
+ * half, so hard commits 12 of its 22 ticks and coasts the other 10 (R-P12, round 5, 2026-09-07).
+ *
+ * It is a fraction of the HORIZON, not the profile's `recomputeTicks`, and the grid in that
+ * constant's doc comment is why: swept across five windows and three continuations over seven
+ * seeds per duel, both ends of the axis fail. A whole-horizon hold (round 3) cannot aim; a
+ * `recomputeTicks` hold with a braking tail (round 4) has four units of positional reach and
+ * cannot dodge, turn around or leave a wall. Half is the only cell that does both, and it is a
+ * plateau at 11-12 ticks with cliffs on either side rather than a lucky point.
+ *
+ * PER DEPTH, NOT PER HORIZON, and that division is the whole of R-P17 (fix wave 1, 2026-09-07).
+ * The fraction says what share of the PLAN is committed; a candidate contains `depth` committed
+ * windows, so one window is that share divided by `depth`. Computed from the whole horizon instead
+ * — as it was — `commit * depth` is `2 * 0.52K > K` for every K, so `tail` was identically 0 at
+ * depth 2 and hard would have rolled 24 committed ticks against a 22-tick horizon with no coast at
+ * all. That is exactly the whole-horizon hold R-P10 replaced, silently reinstated: with no coasting
+ * tail the terminal pose stops being a place the car can really be left, which is the entire
+ * justification for reading `rangeError` and `threatAvoid` there (see `plan`'s doc). It was dormant
+ * only because all three tiers ship `planDepth: 1`, where the division changes nothing — and
+ * `planDepth`'s own doc advertises depth 2 as the upgrade path spec P33 names.
+ *
+ * The `floor(K / depth)` cap is what makes `commit * depth <= K` true rather than merely likely,
+ * so a real tail always survives. The one exception is the floor below, which outranks it.
+ *
+ * R-P6 (fix round 1, 2026-09-06) survives inside the floor: at ONE tick, never zero. Spec P29
+ * promises a K=0 "reflex agent" still avoids a wall it is about to hit; a window of 0 rolls
+ * nothing at all, so every one of the nine candidates would end at the identical current pose,
+ * score identically, and let the ALL_ACTIONS tie-break silently decide easy's action on every
+ * tick regardless of the world -- which cannot avoid anything. Rolling exactly one tick out is
+ * "one tick out", the amateur tier P29 actually describes. The horizon is also the cap: a bot
+ * cannot commit for longer than it plans, which is what keeps easy (K=0, `recomputeTicks` 12) a
+ * reflex rather than a twelve-tick lunge. A horizon shorter than `depth` (K=1 at depth 2, which no
+ * profile ships) is the only case where the floor wins and `commit * depth` exceeds K; the plan is
+ * then two ticks long with no tail, which is the floor doing its job rather than a second defect.
+ *
+ * Exported so a test can pin the split itself. The plan's arc is `commit * depth + tail` ticks
+ * long, and nothing else in `PlanResult` reports it.
+ */
+export function commitWindowOf(horizonTicks: number, depth: 1 | 2): CommitWindow {
+  const K = Math.max(1, Math.floor(horizonTicks));
+  const commit = Math.max(
+    1,
+    Math.min(
+      Math.ceil((K * BRAIN_CONSTANTS.commitWindowFraction) / depth),
+      Math.floor(K / depth),
+    ),
+  );
+  // Whatever the horizon has left after the committed windows, spent under the continuation. Zero
+  // is a normal case (easy plans one tick and commits it), not a degenerate one.
+  return { commit, tail: Math.max(0, Math.floor(horizonTicks) - commit * depth) };
+}
+
 /**
  * Choose this tick's input by looking ahead (P24).
  *
@@ -168,9 +233,11 @@ interface Candidate {
  * A CANDIDATE IS THE COMMITMENT THE BOT ACTUALLY MAKES, NOT A 22-TICK HOLD IT NEVER PERFORMS
  * (R-P10, fix round 4, 2026-09-07). Three rounds of scoring experiments established that the
  * missing quantity was never in the score: the action held for the commitment window and then a
- * neutral continuation is what `rollCandidates` builds now, and `PlanArgs.commitTicks` and
- * `CONTINUATION` carry the argument and the measurements. Everything below about which term is
- * read where is unchanged from round 3 and still holds; what changed is what a candidate IS.
+ * neutral continuation is what `rollCandidates` builds now, and `BRAIN_CONSTANTS.commitWindowFraction`
+ * (via `commitWindowOf`) and `CONTINUATION` carry the argument and the measurements — the window
+ * used to be a `PlanArgs.commitTicks` the caller passed, and is a derived quantity now. Everything
+ * below about which term is read where is unchanged from round 3 and still holds; what changed is
+ * what a candidate IS.
  *
  * THE WHOLE ARC IS SCORED, NOT ITS TERMINUS (R-P7, fix round 1, 2026-09-06). Spec section 2 says
  * what this game is: "Skilled play is finding arcs where those coincide, and timing the trigger for
@@ -243,32 +310,7 @@ interface Candidate {
  * takes, or one seed stops replaying and the balance harness's paired runs stop being comparable.
  */
 export function plan(args: PlanArgs): PlanResult {
-  // THE COMMITMENT WINDOW: how much of the horizon a candidate genuinely commits to, before the
-  // terminal policy coasts it to a stop. `BRAIN_CONSTANTS.commitWindowFraction` of K — just over
-  // half, so hard commits 12 of its 22 ticks and coasts the other 10 (R-P12, round 5, 2026-09-07).
-  //
-  // It is a fraction of the HORIZON, not the profile's `recomputeTicks`, and the grid in that
-  // constant's doc comment is why: swept across five windows and three continuations over seven
-  // seeds per duel, both ends of the axis fail. A whole-horizon hold (round 3) cannot aim; a
-  // `recomputeTicks` hold with a braking tail (round 4) has four units of positional reach and
-  // cannot dodge, turn around or leave a wall. Half is the only cell that does both, and it is a
-  // plateau at 11-12 ticks with cliffs on either side rather than a lucky point.
-  //
-  // R-P6 (fix round 1, 2026-09-06) survives inside the floor: at ONE tick, never zero. Spec P29
-  // promises a K=0 "reflex agent" still avoids a wall it is about to hit; a window of 0 rolls
-  // nothing at all, so every one of the nine candidates would end at the identical current pose,
-  // score identically, and let the ALL_ACTIONS tie-break silently decide easy's action on every
-  // tick regardless of the world -- which cannot avoid anything. Rolling exactly one tick out is
-  // "one tick out", the amateur tier P29 actually describes. The horizon is also the cap: a bot
-  // cannot commit for longer than it plans, which is what keeps easy (K=0, `recomputeTicks` 12) a
-  // reflex rather than a twelve-tick lunge.
-  const K = Math.max(1, Math.floor(args.horizonTicks));
-  const commit = Math.max(
-    1, Math.min(Math.ceil(K * BRAIN_CONSTANTS.commitWindowFraction), K),
-  );
-  // Whatever the horizon has left after the committed windows, spent under the continuation. Zero
-  // is a normal case (easy plans one tick and commits it), not a degenerate one.
-  const tail = Math.max(0, Math.floor(args.horizonTicks) - commit * args.depth);
+  const { commit, tail } = commitWindowOf(args.horizonTicks, args.depth);
   // R-P7c: plan from where the bot will be when this input LANDS. `actuationDelayTicks` of the
   // action already in the delay line, rolled through the same drive model, then every candidate
   // branches off THAT pose. See `PlanArgs.actuationDelayTicks` for why dead time is not optional.
@@ -489,9 +531,11 @@ const CONTINUATION: DriveAction = Object.freeze({ steer: 0, throttle: 0 });
 /**
  * Roll every candidate through the REAL drive model and keep the WHOLE path it traces.
  *
- * A candidate is `commit` ticks of one action followed by `tail` ticks of `continuationOf` it
- * (R-P10) — the commitment the bot actually makes, then the terminal policy. At depth 2 it is two
- * committed windows and then the tail.
+ * A candidate is `commit` ticks of one action followed by `tail` ticks of `CONTINUATION` (R-P10) —
+ * the commitment the bot actually makes, then the terminal policy. At depth 2 it is two committed
+ * windows and then the tail, and that is true rather than aspirational only because
+ * `commitWindowOf` divides the window by `depth` (R-P17): computed from the whole horizon, two
+ * windows always swallowed it and the tail was identically zero.
  *
  * FIRST-WINDOW SHARING: at depth 2 the 81 sequences share only nine distinct first windows, so
  * each is rolled once and reused by the nine sequences that begin with it. The tail cannot be
