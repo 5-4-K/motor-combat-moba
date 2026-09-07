@@ -202,14 +202,29 @@ describe("weapon / combat / drive / flow knobs exist", () => {
     expect(DRIVE_CONFIG.reverseSpeedRatio).toBeLessThan(1);
   });
 
-  it("gives reverse its own acceleration rate, at least as quick as forward pickup", () => {
+  it("gives reverse its own acceleration rate, weaker than forward pickup", () => {
     // Ranged, not pinned: reverseAccel exists to be tuned by feel, so an exact value here would go
-    // red on every good change as readily as a bad one. What must hold is that it is a real rate
-    // and that splitting it from `accel` bought something — a reverseAccel below `accel` would make
-    // backing out slower than the forward curve it was separated from.
-    expect(DRIVE_CONFIG.reverseAccelFactor).toBeGreaterThanOrEqual(1);
+    // red on every good change as readily as a bad one. What must hold is that it is a real rate and
+    // that reverse is the WEAKER gear, matching `reverseSpeedRatio` above.
+    //
+    // THIS ASSERTION USED TO RUN THE OTHER WAY (`>= 1`, 2026-09-07), on the rationale that splitting
+    // reverseAccel from `accel` had to buy something and a lower rate would make backing out slower
+    // than the forward curve it was separated from. That argument was written when `accelOf(50)` was
+    // 780 and every car reached BOTH caps in about half a second, so the factor never governed
+    // anything a driver or a planner could observe — `reverseSpeedRatio` did. The 2026-09-06
+    // heavy-car pass cut accel 420/7.2 -> 60/1.4 and stretched time-to-cap to 1.49-2.16 s, which is
+    // longer than most things that sample the drive model look ahead. Cars now spend the observed
+    // part of a manoeuvre acceleration-limited, this factor governs there, and at 1.41 every chassis
+    // covered 1.29x more ground REVERSING than driving forward over a 22-tick rollout. That is
+    // backwards as a statement about a car, and it steered the bot: `bot/brain/planner.ts` scores
+    // candidates on where they end up, so `throttle: -1` beat `throttle: 1` unconditionally.
+    //
+    // A car may still be tuned to back out briskly — that is `reverseAccelFactor` near 1, not above
+    // it. The ordering is what this pins.
+    expect(DRIVE_CONFIG.reverseAccelFactor).toBeGreaterThan(0);
+    expect(DRIVE_CONFIG.reverseAccelFactor).toBeLessThan(1);
     for (const id of Object.keys(CAR_TABLE) as CarId[]) {
-      expect(reverseAccelOf(id)).toBeGreaterThanOrEqual(accelOf(id));
+      expect(reverseAccelOf(id)).toBeLessThan(accelOf(id));
     }
   });
 

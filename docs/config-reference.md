@@ -102,7 +102,7 @@ Derived, per car (Mirage / Bullseye / Bastion):
 | `forwardMaxSpeedOf` | `baseMaxSpeed` + speed × `speedPerRating` | 267 u/s | 223 u/s | 190 u/s |
 | `reverseMaxSpeedOf` | forward × `reverseSpeedRatio` | 173.6 | 145 | 123.5 |
 | `accelOf` | `baseAccel` + accel × `accelPerRating` | 179 | 123 | 88 |
-| `reverseAccelOf` | `accelOf` × `reverseAccelFactor` | 252.4 | 173.4 | 124.1 |
+| `reverseAccelOf` | `accelOf` × `reverseAccelFactor` | 107.4 | 73.8 | 52.8 |
 | `turnRateOf` | `baseTurnRate` + handling × `turnRatePerRating` | 8.19 | 7.11 | 6.3 |
 | `turnRateAtStopOf` | `turnRateOf` × `stopTurnRatio` | 4.095 | 3.555 | 3.15 |
 | **turn radius** | `forwardMaxSpeedOf / turnRateOf` — derived, never typed | **32.6 u** | 31.4 u | 30.2 u |
@@ -380,7 +380,7 @@ different knob entirely: `usesAimAssist` per weapon in `WEAPON_TABLE`.
 | `baseAccel` | 60 (was 420 — see the 2026-09-06 heavy-car pass below) |
 | `accelPerRating` | 1.4 (was 7.2 — cut much further than `baseAccel`, alongside it) |
 | `reverseSpeedRatio` | 0.65 |
-| `reverseAccelFactor` | 1.41 (reverse push as a fraction of forward) |
+| `reverseAccelFactor` | 0.6 (reverse push as a fraction of forward; under 1, see below) |
 | `reverseHoldTicks` | 2 (66ms at `TICK_RATE_HZ` 30) |
 | `stopEpsilon` | 1e-3 (below this \|speed\| the car counts as stopped) |
 | `carWidth` | 48 |
@@ -442,12 +442,24 @@ stage 3 of the same rework deleted `RAM_REFERENCE` outright along with `mass`, s
 from the roster's top speed on the ram side any more. This pass also moved `coastHalfLifeSeconds` and
 `brakeDecel` off this table entirely, onto `CarDef` — see below.
 
-`reverseAccelFactor: 1.41` is historical, not a live derivation: it yielded 1099.8 at rating 50
-against the 1100 that shipped, back when `accelOf(50)` was 780 — a deliberate 0.02% rounding, stated
-rather than hidden, because the exact ratio (`1100/780`) was not a number anyone should have to read
-in a config file. The 2026-09-06 cut above moved `accelOf(50)` to 130 without touching this factor, so
-that pivot is gone (`accelOf(50) × 1.41` is now 183.3) and nothing today anchors 1.41 to a specific
-reverse-accel target — it simply wasn't part of that pass's scope.
+`reverseAccelFactor: 0.6` says a car pulls away harder in its forward gear than in reverse. **It was
+1.41 until 2026-09-07**, which said the opposite, and that was a surviving artefact rather than a
+choice: it yielded 1099.8 at rating 50 against the 1100 that shipped, back when `accelOf(50)` was
+780 — a 0.02% rounding of the exact `1100/780`. Under those numbers a car reached both caps well
+inside any horizon anyone cared about (forward 0.44-0.57 s roster-wide), so the reverse *cap*
+(`reverseSpeedRatio` 0.65) was what a driver felt and the accel factor exceeding 1 never surfaced.
+
+The 2026-09-06 cut above moved `accelOf(50)` to 130 without touching the factor, and that removed the
+cover: time to the forward cap went to 1.49-2.16 s, longer than most things that sample the drive
+model look ahead, so cars now spend the observed part of a manoeuvre in the **acceleration-limited**
+regime rather than the speed-limited one. In that regime this factor, not `reverseSpeedRatio`, is
+what governs — and at 1.41 every chassis covered 1.29x more ground reversing than driving forward
+over a 22-tick plan (Bullseye 44.5 u against 34.6, Mirage 64.7 against 50.3, Bastion 31.8 against
+24.7). That is backwards as a statement about a car, and it was measurably steering the bot, whose
+planner scores candidates on where they end up: `throttle: -1` beat `throttle: 1` on every chassis
+unconditionally. 0.6 is chosen against `reverseSpeedRatio` 0.65 rather than derived — reverse is the
+weaker gear in both terms now, slightly weaker in push than in top speed. Nothing anchors it to a
+measured target; the ordering is what was wrong, and any value below 1 fixes the ordering.
 
 `driveOf(id)` resolves eight of these into a frozen `ChassisDrive` (`maxSpeed`, `reverseMaxSpeed`,
 `accel`, `reverseAccel`, `turnRate`, `turnRateAtStop`, and, since the 2026-09-06 pass, `coastPerTick`

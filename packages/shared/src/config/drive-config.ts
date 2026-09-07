@@ -98,15 +98,33 @@ export const DRIVE_CONFIG = {
   accelPerRating: 1.4,
   reverseSpeedRatio: 0.65,
   /**
-   * Reverse push as a fraction of forward. The value is historical, not a live derivation: when
-   * rating 50 yielded exactly 780 forward (until 2026-09-06, see `baseAccel` above), 1.41 gave 1099.8
-   * against the 1100 that shipped — a deliberate 0.02% rounding, below anything a driver can feel,
-   * taken because the exact ratio (1100/780) was not a number anyone should have to read in a config
-   * file. The 2026-09-06 heavy-car pass cut `baseAccel`/`accelPerRating` without touching this factor,
-   * so that pivot is gone — rating 50 now yields 130 forward and 183.3 reverse — and nothing today
-   * anchors 1.41 to a specific reverse-accel target; it simply was not part of that pass's scope.
+   * Reverse push as a fraction of forward. Below 1: a car pulls away harder in its forward gear than
+   * in reverse, which is the whole content of this number.
+   *
+   * IT USED TO BE 1.41, AND THAT WAS A SURVIVING ARTEFACT RATHER THAN A CHOICE. The figure was
+   * historical: when rating 50 yielded exactly 780 forward (until 2026-09-06, see `baseAccel` above),
+   * 1.41 gave 1099.8 against the 1100 that shipped — a 0.02% rounding of the exact 1100/780. Under
+   * those numbers a car reached BOTH caps well inside any horizon anyone cared about (forward
+   * 0.44-0.57 s roster-wide), so the reverse cap — `reverseSpeedRatio` 0.65 of forward — was what a
+   * driver actually felt, and the accel factor exceeding 1 never surfaced.
+   *
+   * The 2026-09-06 heavy-car pass cut `baseAccel`/`accelPerRating` 420/7.2 -> 60/1.4 without
+   * touching this factor, and that removed the cover. Time to the forward cap went to 1.49-2.16 s,
+   * which is longer than most things that sample the drive model look ahead, so cars now spend the
+   * part of a manoeuvre anyone observes in the ACCELERATION-limited regime rather than the
+   * speed-limited one — and in that regime this factor, not `reverseSpeedRatio`, is what governs.
+   * At 1.41 every chassis covered 1.29x more ground reversing than driving forward over hard's
+   * 22-tick plan (Bullseye 44.5 u against 34.6, Mirage 64.7 against 50.3, Bastion 31.8 against
+   * 24.7), which is backwards as a statement about a car and was measurably steering the bot: the
+   * planner scores candidates on where they END UP, so `throttle: -1` beat `throttle: 1` on every
+   * chassis unconditionally and the bot moonwalked. See `bot/brain/planner.ts`.
+   *
+   * 0.6 is chosen against `reverseSpeedRatio` 0.65 rather than derived: reverse is the weaker gear
+   * in both terms now, and slightly weaker in push than in top speed. Nothing anchors it to a
+   * measured target — the honest statement is that the ordering is what was wrong, and any value
+   * below 1 fixes the ordering. Retune it freely; keep it under 1.
    */
-  reverseAccelFactor: 1.41,
+  reverseAccelFactor: 0.6,
   /**
    * Ticks Down must be held *at rest* before reverse engages, guarding against a tap of the brake
    * flinging you backward. At `TICK_RATE_HZ` 30 this is 66ms. Networked as uint16 via `reverseHold`.
