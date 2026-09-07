@@ -40,9 +40,10 @@ function view(overrides: Partial<BotView> = {}): BotView {
  * ticks whose emitted intent carried a fire bit, NOT presses (`HumanController.held` re-emits one
  * decision's bit for up to `recomputeTicks` ticks); every comparison below is within one tier, where
  * that occupancy is a fair measure. Verified byte-identical across the extraction: the two canary duels
- * below measure 136 and 128 with mean offsets 0 and 0.0442 both before and after it. Note those are
- * NOT the 140/134 the off-axis test's comment still quotes from the R-D5 round — that pair went
- * stale somewhere between R-D5 and this task, and the > 90 bar is what either pair is held to.
+ * below measure 136 and 128 with mean offsets 0 and 0.0442 both before and after it. Those are NOT
+ * the 140/134 the R-D5 round reported — that pair went stale somewhere between R-D5 and this task,
+ * and the > 90 bar is what either pair is held to. The off-axis test's own comment quoted the stale
+ * pair until task 10 corrected it; both places now name 136/128.
  */
 function closedLoopDuel(
   tier: "easy" | "medium" | "hard",
@@ -93,9 +94,11 @@ describe("HumanController", () => {
     //
     // R-D5 (fix wave 2, 2026-09-07) moved the standoff again — the plateau's far edge is now the
     // farthest range keeping `preferredRangePlateauFraction` of the peak rather than the farthest
-    // range EXACTLY tying it, which takes a hard Bullseye from 420 to 470. Off-axis went up with it,
-    // 128 -> 134 (offset 0.041); on-axis is unmoved at 140 (offset 0). The bar is unchanged at > 90
-    // throughout: none of these re-measurements is a threshold being chased.
+    // range EXACTLY tying it, which takes a hard Bullseye from 420 to 470. That round reported the
+    // pair as 140 on-axis / 134 off-axis; THE CURRENT FIGURES ARE 136 ON-AXIS AND 128 OFF-AXIS
+    // (mean offsets 0 and 0.0442), re-measured at task 7's `duel.ts` extraction and corrected here
+    // in task 10 — the 140/134 pair went stale between R-D5 and that extraction. The bar is
+    // unchanged at > 90 throughout: none of these re-measurements is a threshold being chased.
     const { fires, meanOffset } = closedLoopDuel("hard", 300, { x: 753, y: 500 });
     expect(fires).toBeGreaterThan(90);
     // Fixed at 0.2 rad — hard's `fireConeRad` before Task 7 (2026-09-05) deleted that field along
