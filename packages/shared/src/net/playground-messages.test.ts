@@ -185,6 +185,10 @@ describe("isBotDebugPayload", () => {
     tick: 10, situation: "fight",
     targetSessionId: "them", preferredRange: 300, personality: "kiter", firedSlot: 1,
     dangerEv: 12,
+    planSteer: 1, planThrottle: -1, planScore: 8.4,
+    termMyEv: 5.2, termTheirEv: -1.1, termRangeError: -0.3, termWallPenalty: 0,
+    termLockKeep: 1, termThreatAvoid: 0,
+    shotEvBest: 24, shotEvThreshold: 26,
   };
 
   it("accepts a well-formed payload", () => {
@@ -201,6 +205,11 @@ describe("isBotDebugPayload", () => {
       delete partial[key];
       expect(isBotDebugPayload(partial), `missing ${key}`).toBe(false);
     }
+  });
+
+  it("rejects a planSteer/planThrottle outside -1|0|1", () => {
+    expect(isBotDebugPayload({ ...payload, planSteer: 2 })).toBe(false);
+    expect(isBotDebugPayload({ ...payload, planThrottle: 0.5 })).toBe(false);
   });
 
   it("rejects non-objects", () => {

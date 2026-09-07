@@ -25,7 +25,9 @@ import { physicsPredictor, selfPredictor, type DriveAction } from "./predict.js"
 import { kitReachOf, weaponReachOf } from "./reach.js";
 import { rolesOf } from "./roles.js";
 import { classifySituation, newSituationState, pickSituation, type SituationState } from "./situation.js";
-import { dangerEvAgainst, solve, type FiringSolution, type PosePredictor } from "./solution.js";
+import {
+  bestAchievableValueOf, dangerEvAgainst, solve, type FiringSolution, type PosePredictor,
+} from "./solution.js";
 
 const COAST: BotIntent = { steer: 0, throttle: 0, fireSlots: 0 };
 
@@ -69,16 +71,16 @@ export class HumanController implements BotController {
   private lastDangerEv = 0;
   /**
    * The best EV/s the bot's own kit could deal from its CURRENT pose, across every ready slot's
-   * exact `solve()` (R-P27b). Overlay only, and NOT dead: a later task renders it beside
-   * `dangerEv` as the primary tuning diagnostic — "am I winning this exchange from here" is the
-   * pair, and either number alone answers nothing.
+   * exact `solve()` (R-P27b). Overlay only, and rendered beside `dangerEv` as the primary tuning
+   * diagnostic (P45) — "am I winning this exchange from here" is the pair, and either number alone
+   * answers nothing.
    */
   private lastBestEv = 0;
   /** Last tick's emitted input — the planner's anti-chatter anchor (P30). */
   private lastAction: DriveAction | undefined;
   /**
-   * The plan that produced it, terms and runner-up included (P45). Overlay only, and NOT dead: a
-   * later task extends `BotDebug` to render the per-term breakdown this carries.
+   * The plan that produced it, terms and runner-up included (P45). Overlay only; `decide` renders
+   * its action, score and per-term breakdown onto `BotDebug` every tick.
    */
   private lastPlan: PlanResult | undefined;
   private situation: SituationState = newSituationState();
@@ -149,6 +151,20 @@ export class HumanController implements BotController {
       personality: this.personality.id,
       firedSlot: this.lastFiredSlot,
       dangerEv: this.lastDangerEv,
+      plan: this.lastPlan
+        ? { ...this.lastPlan.action, score: this.lastPlan.score }
+        : undefined,
+      planTerms: this.lastPlan?.terms,
+      shotEv: {
+        best: this.lastBestEv,
+        // R-V2: `minShotValueFraction` is a FRACTION of the shooter's own kit ceiling, not an
+        // absolute EV — resolve it the same way `firing.ts`'s real gate does, so `best/threshold`
+        // on the overlay is a like-for-like ratio rather than a number divided by a fraction.
+        // `bestAchievableValueOf` is memoised per (carId, sigma), so this costs nothing beyond the
+        // first call.
+        threshold: this.effectiveProfile.minShotValueFraction
+          * bestAchievableValueOf(view.self.carId, this.effectiveProfile.aimErrorSigmaRad),
+      },
     };
 
     const idle = this.situation.current === "recover";
@@ -531,10 +547,8 @@ export class HumanController implements BotController {
     }
     this.lastFiredSlot = slot;
     void this.wantsRam;
-    // Written every decision, read by a later task's overlay work (R-P27b, P45). Kept alive the
-    // same way `wantsRam` is, so neither reads as dead to a compiler or to a reader.
-    void this.lastBestEv;
-    void this.lastPlan;
+    // `lastBestEv` and `lastPlan`, written above, are read by `decide` when it builds `lastDebug`
+    // (P45) — no `void` placeholder needed here any more; both are genuinely consumed now.
 
     if (sit === "recover") return COAST;
     return { steer, throttle, fireSlots: slot === undefined ? 0 : 1 << slot };

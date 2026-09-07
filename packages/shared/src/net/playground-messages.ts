@@ -35,6 +35,25 @@ export interface BotDebugPayload {
   firedSlot: number;
   /** Damage per second the bot believes it is standing in front of (P16). */
   dangerEv: number;
+  /** The action the planner chose, and what it scored (P45). */
+  planSteer: -1 | 0 | 1;
+  planThrottle: -1 | 0 | 1;
+  planScore: number;
+  /**
+   * Per-term contributions of the winning candidate (P45), flattened for the wire — one field per
+   * `PlanWeights` key. Kept in sync with `PlanWeights` by hand on the server side (server-only
+   * `PlanWeights` cannot be imported into shared); `isBotDebugPayload` is what actually enforces
+   * the shape at the boundary.
+   */
+  termMyEv: number;
+  termTheirEv: number;
+  termRangeError: number;
+  termWallPenalty: number;
+  termLockKeep: number;
+  termThreatAvoid: number;
+  /** Best available shot value against the tier's RESOLVED absolute threshold (P45, R-V2). */
+  shotEvBest: number;
+  shotEvThreshold: number;
 }
 
 export function isBotDebugPayload(value: unknown): value is BotDebugPayload {
@@ -48,7 +67,18 @@ export function isBotDebugPayload(value: unknown): value is BotDebugPayload {
     typeof rec.preferredRange === "number" &&
     typeof rec.personality === "string" &&
     typeof rec.firedSlot === "number" &&
-    typeof rec.dangerEv === "number"
+    typeof rec.dangerEv === "number" &&
+    (rec.planSteer === -1 || rec.planSteer === 0 || rec.planSteer === 1) &&
+    (rec.planThrottle === -1 || rec.planThrottle === 0 || rec.planThrottle === 1) &&
+    typeof rec.planScore === "number" &&
+    typeof rec.termMyEv === "number" &&
+    typeof rec.termTheirEv === "number" &&
+    typeof rec.termRangeError === "number" &&
+    typeof rec.termWallPenalty === "number" &&
+    typeof rec.termLockKeep === "number" &&
+    typeof rec.termThreatAvoid === "number" &&
+    typeof rec.shotEvBest === "number" &&
+    typeof rec.shotEvThreshold === "number"
   );
 }
 

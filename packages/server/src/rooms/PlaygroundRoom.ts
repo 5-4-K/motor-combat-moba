@@ -368,6 +368,19 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
         personality: debug.personality,
         firedSlot: debug.firedSlot ?? -1,
         dangerEv: Math.round(debug.dangerEv),
+        // `debug.plan` is `undefined` only before the bot's first recompute window; 0/0/0 reads
+        // correctly as "no plan yet" on the overlay just like `firedSlot: -1` does above.
+        planSteer: debug.plan?.steer ?? 0,
+        planThrottle: debug.plan?.throttle ?? 0,
+        planScore: Math.round((debug.plan?.score ?? 0) * 100) / 100,
+        termMyEv: Math.round((debug.planTerms?.myEv ?? 0) * 100) / 100,
+        termTheirEv: Math.round((debug.planTerms?.theirEv ?? 0) * 100) / 100,
+        termRangeError: Math.round((debug.planTerms?.rangeError ?? 0) * 100) / 100,
+        termWallPenalty: Math.round((debug.planTerms?.wallPenalty ?? 0) * 100) / 100,
+        termLockKeep: Math.round((debug.planTerms?.lockKeep ?? 0) * 100) / 100,
+        termThreatAvoid: Math.round((debug.planTerms?.threatAvoid ?? 0) * 100) / 100,
+        shotEvBest: Math.round(debug.shotEv.best),
+        shotEvThreshold: Math.round(debug.shotEv.threshold),
       });
     }
 

@@ -402,10 +402,21 @@ export function mountPlaygroundOverlay(
   document.body.appendChild(debugEl);
   const unbindDebug = room.onMessage(MSG_PLAYGROUND_BOT_DEBUG, (payload: unknown) => {
     if (!isBotDebugPayload(payload)) return;
+    // Signed so a held wheel reads at a glance: "+1"/"-1"/"0", never a bare "1" that could be
+    // mistaken for a magnitude.
+    const signed = (n: number): string => (n > 0 ? `+${n}` : `${n}`);
+    // Two lines (P45, P46): personality/situation/range/slot/danger plus the planner's chosen
+    // action, its score, and the EV ratio all fit on one readable line; the six-term score
+    // breakdown that justifies that action needs its own line or the whole thing wraps and stops
+    // being scannable at a glance, which defeats the point of an overlay.
     debugEl.textContent =
       `${payload.personality} | ${payload.situation} | range ${payload.preferredRange}` +
       ` | slot ${payload.firedSlot < 0 ? "-" : payload.firedSlot + 1}` +
-      ` | danger ${payload.dangerEv}`;
+      ` | danger ${payload.dangerEv}` +
+      ` | plan(${signed(payload.planSteer)},${signed(payload.planThrottle)}) ${payload.planScore}` +
+      ` | ev ${payload.shotEvBest}/${payload.shotEvThreshold}\n` +
+      `terms  my ${payload.termMyEv}  their ${payload.termTheirEv}  range ${payload.termRangeError}` +
+      `  wall ${payload.termWallPenalty}  lock ${payload.termLockKeep}  threat ${payload.termThreatAvoid}`;
   });
 
   let subView: "menu" | "settings" = "menu";
