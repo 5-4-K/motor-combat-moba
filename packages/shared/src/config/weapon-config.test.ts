@@ -553,7 +553,7 @@ describe("ImpulseDef", () => {
     expect(WEAPON_TABLE.thunderclap.impulse).toBeUndefined();
   });
 
-  it("keeps every declared impulse a maneuver's, and every explosion impulse-free", () => {
+  it("keeps every declared impulse on a maneuver row, and every explosion impulse-free", () => {
     // SCOPE RULING (stage 4, Task 1): this stage deliberately does not build a generic application
     // path for a projectile/beam/explosion impulse — only a `kind: "maneuver"` row's impulse is
     // ever actually applied (wildcharge's slam, Tasks 2-3). Authoring one anywhere else would
