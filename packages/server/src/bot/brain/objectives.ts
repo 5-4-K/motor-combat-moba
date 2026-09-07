@@ -105,6 +105,35 @@ import type { PlanWeights } from "./planner.js";
  *
  * 0.2-0.4 is the plateau and 0.25 is its peak, so the rows below are the 10x values multiplied by
  * 0.25 — the same uniform scale fix, the same untouched ratios, the same two zero rows.
+ *
+ * `facingError` IS THE SEVENTH COLUMN (F11, 2026-09-07). The term is bounded [0, 1] — 0 driving
+ * straight ahead, 0.5 sliding sideways, 1 reversing — so a weight IS the maximum penalty it can
+ * contribute, and each row is set against what it competes with in that situation. `waitOut` is the
+ * highest (F13): hunting is where facing your travel is the play, and 120 sits against
+ * `rangeError` 0.375 x ~857 ~= 321. `reset` and `fight` are deliberately the lowest non-zero rows
+ * (F12): a ranged chassis backing off toward its preferred range with its guns on the target is
+ * correct play, and this term must not forbid it — which is the whole reason the facing pressure is
+ * a per-situation column and not a `BRAIN_CONSTANTS` scalar. `recover` is 0 because a dead or
+ * phased car is forced to coast and has nothing to steer (F8).
+ *
+ * `fight` WAS SWEPT, and it is the only row that was. The reasoned starting value was 15; at 15 the
+ * off-axis duel canary settled at meanOffset 0.243 against a 0.2 bar — a real regression, which
+ * outranks the two targets this term was written for. Swept over {0, 5, 15, 30, 60} at
+ * `waitOut` 120, whole `src/bot/brain/` suite, 249 tests:
+ *
+ * | fight  | 0    | 5    | 15   | **30** | 60   |
+ * |--------|------|------|------|--------|------|
+ * | red    | 0    | 1    | 1    | **0**  | 0    |
+ * | which  | —    | P50 ladder | off-axis duel | **—** | — |
+ *
+ * {30, 60} is the contiguous clean plateau and 30 is its low end, so it is the smallest facing
+ * pressure that holds the aim line while leaving the ordering F12 argues for intact
+ * (reset 10 < fight 30 < punish 50 < unpin 60 < close 80 < waitOut 120). 0 also passes, but it
+ * switches the term OFF in the situation the bot spends most of its time in, which is exactly the
+ * fragility F3 exists to remove. `waitOut` was swept over {60, 90, 120, 180, 240} at `fight` 15 and
+ * is INERT for both canaries — every point was 248/249 on the same off-axis failure — so it keeps
+ * the value F13's argument gives it. No other row was swept: a value found by chasing two tests
+ * across six free parameters is overfitting, not tuning.
  */
 const BASE: Readonly<Record<SituationId, PlanWeights>> = Object.freeze({
   recover: {
@@ -113,31 +142,31 @@ const BASE: Readonly<Record<SituationId, PlanWeights>> = Object.freeze({
   },
   waitOut: {
     myEv: 0, theirEv: 0.5, rangeError: 0.375, wallPenalty: 240, lockKeep: 0, threatAvoid: 0,
-    facingError: 0,
+    facingError: 120,
   },
   evade: {
     myEv: 0.3, theirEv: 4, rangeError: 0, wallPenalty: 360, lockKeep: 0, threatAvoid: 0.6,
-    facingError: 0,
+    facingError: 40,
   },
   unpin: {
     myEv: 0.2, theirEv: 1, rangeError: 0, wallPenalty: 2400, lockKeep: 0, threatAvoid: 0,
-    facingError: 0,
+    facingError: 60,
   },
   punish: {
     myEv: 3, theirEv: 0.25, rangeError: 0.5, wallPenalty: 240, lockKeep: 12, threatAvoid: 0,
-    facingError: 0,
+    facingError: 50,
   },
   reset: {
     myEv: 0.4, theirEv: 3, rangeError: 0.625, wallPenalty: 360, lockKeep: 2, threatAvoid: 0,
-    facingError: 0,
+    facingError: 10,
   },
   fight: {
     myEv: 2, theirEv: 0.6, rangeError: 0.3, wallPenalty: 300, lockKeep: 8, threatAvoid: 0,
-    facingError: 0,
+    facingError: 30,
   },
   close: {
     myEv: 1, theirEv: 0.75, rangeError: 0.875, wallPenalty: 300, lockKeep: 4, threatAvoid: 0,
-    facingError: 0,
+    facingError: 80,
   },
 });
 

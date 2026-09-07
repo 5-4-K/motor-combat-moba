@@ -113,4 +113,37 @@ describe("facingError weights", () => {
       expect(weightsFor(id, BOT_PROFILES.hard).facingError).toBeGreaterThanOrEqual(0);
     }
   });
+
+  it("weights hunting highest, because facing your travel IS the play there (F13)", () => {
+    const waitOut = weightsFor("waitOut", BOT_PROFILES.hard).facingError;
+    for (const id of ALL_SITUATIONS) {
+      if (id === "waitOut") continue;
+      expect(
+        weightsFor(id, BOT_PROFILES.hard).facingError,
+        `${id} outweighs waitOut on facing`,
+      ).toBeLessThan(waitOut);
+    }
+  });
+
+  it("keeps the kiting plays below the committed ones, so backing off stays legal (F12)", () => {
+    const w = (id: Parameters<typeof weightsFor>[0]) =>
+      weightsFor(id, BOT_PROFILES.hard).facingError;
+    expect(w("reset")).toBeLessThan(w("fight"));
+    expect(w("fight")).toBeLessThan(w("punish"));
+    expect(w("fight")).toBeLessThan(w("close"));
+  });
+
+  it("asks nothing of a car that is dead or phased (F8)", () => {
+    expect(weightsFor("recover", BOT_PROFILES.hard).facingError).toBe(0);
+  });
+
+  it("is identical at every tier — facing is what a play is FOR, not how hard a tier feels it (P38)", () => {
+    for (const id of ALL_SITUATIONS) {
+      const easy = weightsFor(id, BOT_PROFILES.easy).facingError;
+      const medium = weightsFor(id, BOT_PROFILES.medium).facingError;
+      const hard = weightsFor(id, BOT_PROFILES.hard).facingError;
+      expect(medium, `${id} facing differs across tiers`).toBe(easy);
+      expect(hard, `${id} facing differs across tiers`).toBe(easy);
+    }
+  });
 });
