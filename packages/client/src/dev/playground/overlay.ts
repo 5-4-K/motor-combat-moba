@@ -384,6 +384,17 @@ function colorSelect(value: number): HTMLSelectElement {
   return select;
 }
 
+/**
+ * The planner's per-term breakdown as one line, or `-` when there is nothing to break down yet
+ * (R-C4). Exported so a test can hold the empty case to printing a sentinel rather than nothing —
+ * that case is the whole reason this is a named function instead of an inline `map().join()`.
+ */
+export function termLine(terms: Readonly<Record<string, number>>): string {
+  const entries = Object.entries(terms);
+  if (entries.length === 0) return "-";
+  return entries.map(([k, v]) => `${k} ${v}`).join("  ");
+}
+
 export function mountPlaygroundOverlay(
   room: Room<PlaygroundState>,
   onArenaChanged: () => void,
@@ -419,7 +430,12 @@ export function mountPlaygroundOverlay(
       // a term added to `PlanWeights` shows up here without an edit (see `BotDebugPayload.terms`).
       // The key IS the label: a per-term short name would be another hand-kept mirror of the very
       // list this stopped mirroring, and `myEv`/`rangeError` read fine at a glance.
-      `terms  ${Object.entries(payload.terms).map(([k, v]) => `${k} ${v}`).join("  ")}`;
+      //
+      // An EMPTY map prints a `-` (R-C4, fix wave 4). `terms` is `{}` until the bot's first
+      // recompute window, and a label followed by nothing is indistinguishable from a rendering
+      // bug; `-` is the same "nothing to report" sentinel `slot` uses two lines up for
+      // `firedSlot: -1`.
+      `terms  ${termLine(payload.terms)}`;
   });
 
   let subView: "menu" | "settings" = "menu";

@@ -44,7 +44,8 @@ the same facts, and worse hands.
    - **The `terms` line says what the bot thought it was doing instead.** These are RAW term values,
      not points: multiply each by that situation's weight in `objectives.ts` to see which term
      actually won. `wallPenalty` runs about 0.017 in a corner against weights in the hundreds;
-     `rangeError` is units; `myEv` / `theirEv` are EV per second.
+     `rangeError` is units; `myEv` / `theirEv` are EV per second. A bare `terms  -` means the bot
+     has not reached its first recompute window yet — not a broken overlay, and not a tuning signal.
    - **`danger`** is the damage per second the bot believes it is standing in. If it reads 0 while
      you are pointed straight at it from inside your weapon's reach, stop: solver bug
      (`dangerEvAgainst`, `bot/brain/solution.ts`), not a tuning problem.
