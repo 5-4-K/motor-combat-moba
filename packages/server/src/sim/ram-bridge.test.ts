@@ -562,6 +562,76 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
     // `memory.slammed` also runs for every slam; last write wins, same as it did under the map.
     expect(memory.slammed.get("b")?.bySessionId).toBe("c");
   });
+
+  it("lets a dasher's own endDash erase the slam that landed on it in the same tick", () => {
+    // THE THUNDERCLAP-VS-WILDCHARGE CLASH, and until this test nothing in the repo covered a
+    // dash-vs-charge pair at all.
+    //
+    // `resolvePair`'s doc comment states the pairing outright: classification is per car and dash is
+    // checked first for that car, so a dashing car never also charges — but a dash-vs-charger pair
+    // produces a dashHit FROM the dasher AND, independently, a slam ON that same dasher. The dasher
+    // is therefore both a `dashHits` attacker (which calls `endDash`) and a slam victim (which takes
+    // an impulse), on one tick.
+    //
+    // `endDash` OVERWRITES velocity — it discards whatever the car was carrying and sets a purely
+    // forward exit speed — so whichever of the two runs LAST decides what the dasher ends up doing.
+    // Through stage 3 the slam's push rode `resolveContacts`'s `best` map and was applied by the
+    // impulses loop, ahead of both `endDash` sweeps, so the dash exit won and the slam was erased.
+    // Stage 4 moved the slam's assembly into this bridge and must not change that: the ordering is
+    // restored deliberately in `contactTick`, and this test is what holds it. If the push ever moves
+    // back below `endDash`, `wildcharge` silently gains its full punt against a dashing Mirage —
+    // a balance change to the game's headline ult clash, which belongs to a human, not a refactor.
+    const state = arena();
+    // Mid-arena (arena-01 has no obstacles), so neither hull is near level geometry and the
+    // `wallBlockedDashers` sweep stays empty — otherwise `endDash(a, 0)` would fire too and the
+    // measurement below would not be about the dash-hit exit.
+    const dasher = addPlayer(state, "a", { x: 400, y: 400, angle: 0, vx: 300 });
+    dasher.maneuver = ManeuverKind.DASH;
+    dasher.maneuverTicksLeft = 200;
+    const charger = addPlayer(state, "b", { x: 447, y: 400, angle: Math.PI, vx: -300 });
+    charger.maneuver = ManeuverKind.CHARGE;
+    charger.maneuverTicksLeft = 200;
+    const memory = newContactMemory();
+    const result = contactTick(
+      state,
+      new Set(["a", "b"]),
+      memory,
+      "ffa",
+      NO_EFFECTS,
+      approachVelocities(state),
+      new Map<string, WeaponId | "">([["a", "thunderclap"], ["b", "wildcharge"]]),
+      10,
+    );
+
+    // The tick really did contain both events — otherwise the velocity assertion below would be
+    // evidence about a fixture that never produced a slam.
+    expect(result.contactHits).toHaveLength(2);
+    expect(result.contactHits.map((h) => h.weaponId)).toEqual(["thunderclap", "wildcharge"]);
+    expect(memory.slammed.get("a")?.bySessionId).toBe("b");
+
+    // The dasher ends at its `endDash` exit velocity and NOTHING else: the drive cap, purely
+    // forward along its heading. The slam's push is gone.
+    const exitSpeed = forwardMaxSpeedOf("mirage"); // "a"'s default carId, per addPlayer
+    expect(dasher.vx).toBeCloseTo(exitSpeed, 6);
+    expect(dasher.vy).toBeCloseTo(0, 6);
+    // Spelled out as the number the wrong ordering produces, so a regression reads as "the slam
+    // survived" rather than "some number moved". The charger faces -x, so its push is -x: surviving,
+    // it would leave the dasher travelling BACKWARDS at roughly the slam's own magnitude.
+    expect(dasher.vx).not.toBeCloseTo(exitSpeed - SLAM_IMPULSE.speed, 6);
+    expect(forwardOf(dasher.vx, dasher.vy, dasher.angle)).toBeGreaterThan(0);
+
+    // The CONTROL LOSS is not erased, only the push: `endDash` writes velocity and the four maneuver
+    // fields, and touches no status list. A dasher that drives into a Wild Charge still comes out
+    // reeling — it just comes out at its dash exit speed rather than punted.
+    const reeling = readStatuses(dasher).find((s) => s.statusId === "reeling");
+    expect(reeling).toBeDefined();
+    expect(reeling!.endsTick - 10).toBe(SLAM_IMPULSE_TICKS.uncontrol);
+    expect(reeling!.sourceSessionId).toBe("b");
+
+    // Both maneuvers ended: the dash on its one hit (O12), the charge on its first slam (O2).
+    expect(dasher.maneuver).toBe(0);
+    expect(charger.maneuver).toBe(0);
+  });
 });
 
 describe("contactTick applies reeling to a ram victim, scaled by falloff", () => {

@@ -177,6 +177,7 @@ export type {
   ExplosionDef,
   Hitbox,
   HomingDef,
+  ImpulseDef,
   ManeuverSpec,
   ManeuverWeaponDef,
   PelletDef,

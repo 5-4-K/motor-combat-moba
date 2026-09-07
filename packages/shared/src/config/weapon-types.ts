@@ -232,7 +232,22 @@ export interface ImpulseDef {
    * shotgun wants.
    */
   direction: "radial" | "alongAim";
-  /** Torque scale from the contact-point lever arm. 0 = a clean straight punt, no rotation. */
+  /**
+   * Torque scale from the contact-point lever arm. 0 = a clean straight punt, no rotation.
+   *
+   * **INERT on the one path implemented today, and a test enforces that no row relies on it.** The
+   * only `ImpulseDef` that is ever actually applied is a maneuver's contact impulse (wildcharge's
+   * hard slam), and the contact point `sim/contact.ts` carries on its `SlamEvent` is the VICTIM'S
+   * OWN CENTRE — so the lever arm `applyImpulse` measures is exactly zero, and any non-zero value
+   * here would produce exactly zero rotation with nothing to say so. `wildcharge` authors `0`
+   * deliberately (spec P28/P31), so no shipped behaviour depends on this, but the field would be a
+   * silent trap for the next author: `weapon-config.test.ts` asserts every authored `impulse` has
+   * `spin === 0` and names the missing lever arm when that stops being true.
+   *
+   * Authoring a spinning contact impulse means deriving a real contact point first — the way
+   * `resolveRam` already does with `contactPointOn`, which is why an ordinary ram spins its victims
+   * and a slam does not. That is a physics change, not a table edit.
+   */
   spin: number;
   /**
    * Does the target's `ramDefence` reduce this push? **Renamed from `massScaled` (spec R10) — `mass`

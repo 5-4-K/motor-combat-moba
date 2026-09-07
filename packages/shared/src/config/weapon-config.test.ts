@@ -532,10 +532,36 @@ describe("ImpulseDef", () => {
     expect(WEAPON_TICKS.pepperbox.impulse).toBeUndefined();
   });
 
-  it("rejects a non-unit direction mode", () => {
+  it("keeps every authored direction on `radial`, the only mode with a reader", () => {
+    // Tightened from "is one of the two modes" (which the type already guarantees) to the mode the
+    // one implemented path actually honours. `ram-bridge.ts` NEVER CONSULTS `direction`: a slam's
+    // push takes the OBB contact normal `contact.ts` measured between the two hulls, because that
+    // is the one vector the bridge cannot recompute from poses. `"radial"` for a CONTACT impulse
+    // (source and target touching) IS that normal, so `wildcharge` is served correctly — but an
+    // `"alongAim"` maneuver row would silently receive the contact normal instead of the shooter's
+    // aim, and nothing else in the codebase would notice. There is a comment at the read site
+    // recording the assumption; this is what makes it fail loudly.
     for (const row of Object.values(WEAPON_TABLE)) {
       if (row.impulse === undefined) continue;
-      expect(["radial", "alongAim"]).toContain(row.impulse.direction);
+      expect(row.impulse.direction, `${row.id}: "alongAim" has no reader — see ram-bridge.ts`).toBe("radial");
+    }
+  });
+
+  it("keeps every authored spin at 0, because the one implemented path has no lever arm", () => {
+    // `spin` is a public authoring field whose JSDoc promises torque from the contact-point lever
+    // arm — and on the only path that applies an `ImpulseDef` today (a maneuver's contact impulse)
+    // there is no lever arm to take it from: `contact.ts` puts the VICTIM'S OWN CENTRE on the
+    // `SlamEvent`, so `applyImpulse` measures `contactX - body.x` as exactly zero and any authored
+    // spin produces exactly zero rotation, silently. `wildcharge` authors 0 deliberately (a clean
+    // straight punt is the ult's signature, spec P28/P31), so nothing is broken today; this guard
+    // exists so the day someone authors a spinning charge it fails HERE, naming the missing contact
+    // point, instead of shipping a weapon that quietly spins nobody.
+    //
+    // The fix, if that day comes, is to derive a real contact point in `contact.ts` the way
+    // `resolveRam` already does with `contactPointOn` — not to relax this assertion.
+    for (const row of Object.values(WEAPON_TABLE)) {
+      if (row.impulse === undefined) continue;
+      expect(row.impulse.spin, `${row.id}: a maneuver impulse has a zero lever arm — see SlamEvent`).toBe(0);
     }
   });
 

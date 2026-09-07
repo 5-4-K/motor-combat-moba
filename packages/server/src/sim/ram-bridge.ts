@@ -199,6 +199,28 @@ function slamsStunnedOf(weaponId: WeaponId | ""): boolean {
   return def.kind === "maneuver" && def.maneuver.type === "charge" ? def.maneuver.slamsStunned : false;
 }
 
+/**
+ * The push a charge weapon's slam is authored to land, paired with its tick-converted durations —
+ * or `null` for a charge row that declares no `impulse` at all.
+ *
+ * The two halves are resolved together because absence has to be consistent across both: a row's
+ * `WEAPON_TICKS` `impulse` block exists exactly when its `WeaponDef` declares one
+ * (`weapon-config.test.ts` pins that in both directions), so one without the other is a config bug
+ * rather than a half-configured slam. Every consumer below goes through this one function — the cap
+ * that decides which slams can push, the push itself, and the bookkeeping half further down — which
+ * is what keeps them agreeing about exactly which slams are impulse-bearing.
+ *
+ * `null` is unreachable today: `wildcharge` is the roster's only charge row and it authors an
+ * impulse. Absent must mean absent (see `WeaponTicks.impulse`), so a missing block is a skip, never
+ * a zero-valued default that would quietly turn every charge into a nudge.
+ */
+function impulseOf(weaponId: WeaponId) {
+  const def = weaponDefOf(weaponId).impulse;
+  const ticks = weaponTicksOf(weaponId).impulse;
+  if (def === undefined || ticks === undefined) return null;
+  return { def, ticks };
+}
+
 function immuneMapFrom(slammed: ReadonlyMap<string, SlamRecord>): Map<string, number> {
   const out = new Map<string, number>();
   for (const [victimId, entry] of slammed) out.set(victimId, entry.immuneUntilTick);
@@ -366,6 +388,113 @@ export function contactTick(
     }
   }
 
+  // ---- the slams pass, FIRST HALF: the push and the `reeling` that rides with it ----
+  //
+  // The slam's impulse is assembled and applied HERE, beside the status that same slam applies
+  // (spec P30), rather than in the contact pass — from the weapon's authored `ImpulseDef` plus the
+  // contact geometry `contact.ts` carried on the event, which is the one input this file cannot
+  // recompute (an OBB contact normal needs both hulls; poses give centre-to-centre, a different
+  // vector on any hit that is not dead-on).
+  //
+  // **THE PASS IS DELIBERATELY SPLIT IN TWO, AT DIFFERENT POINTS IN THE TICK.** Everything else a
+  // slam does — `memory.slammed`, `endManeuverOnly` and the attacker's self-status expiry, and the
+  // `contactHits.push` — is in the second half, below the two `endDash` sweeps, where the whole
+  // loop used to sit. Only the push and its `reeling` are hoisted above them, and that is not
+  // tidiness:
+  //
+  //   `endDash` OVERWRITES velocity outright — it discards whatever the car was carrying and sets a
+  //   purely-forward exit speed (see its doc comment). Through stage 3 a slam's push rode
+  //   `resolveContacts`'s `best` map and was therefore applied by the impulses loop directly above,
+  //   BEFORE both `endDash` calls, so a slam landing on a car that also ended a dash this tick was
+  //   erased by that car's own dash exit. `resolvePair` explicitly supports that pairing: a dashing
+  //   car and a charging car resolve to BOTH a dashHit from the dasher and a slam on that same
+  //   dasher, which makes this the marquee thunderclap-vs-wildcharge clash rather than a corner
+  //   case. Applying the push after `endDash` instead would let the slam survive where it has
+  //   always been wiped — a real, player-visible buff to wildcharge in the one matchup it matters
+  //   most in. Stage 4 is a seam move and is not making that balance change, so the ordering is
+  //   restored rather than inherited from wherever the refactor happened to leave the loop.
+  //
+  // (Whether the erasure is the *better* game is a live question, deliberately left open for stage
+  // 5: a slam that a victim's own dash silently deletes is an artifact of loop order, not a design.
+  // But that is a balance decision about the game's headline ult clash and it belongs to a human,
+  // not to a refactor.)
+  //
+  // Falloff never touches a slam (spec P24: weapon impulses "do not participate and do not share
+  // the stack"), so `nextFalloff` is deliberately not called here and the slam is not counted into
+  // it — an ult must not be quietly discounted by how many ordinary rams its victim has just
+  // absorbed, nor discount the next real ram.
+  //
+  // ONE PUSH PER VICTIM PER TICK, LAST SLAM WINS. Two chargers landing on the same victim on the
+  // same tick apply ONE impulse and ONE `reeling`, not two. This cap is deliberate and it is a
+  // RESTORATION, not a new rule: the `best` map above held exactly one entry per victim and
+  // resolved a tie with `>=` (so the later slam displaced the earlier), and the cap fell out of that
+  // single-slot-per-victim structure for free. Stage 4 took slams off the map — which is what lets a
+  // victim slammed by A and rammed by B in one tick take BOTH pushes, the one stacking case the
+  // spec authorizes — and the slam-plus-slam cap had to become explicit or it would have been lost
+  // with the map. Uncapped, two Wild Charges land 2x the authored `speed` on one car in one tick,
+  // roughly 5.5x Bastion's top speed, plus a doubled `reeling`: an accidental juggle of exactly the
+  // kind this stage's plan warns about.
+  //
+  // `lastSlamAt` reproduces the old `>=` tie-break exactly — the last event for a victim in
+  // pair-enumeration order is the one that lands — and it is built from IMPULSE-BEARING slams only.
+  // A charge row declaring no `impulse` pushes nothing, so letting one claim the victim's single
+  // slot would suppress an earlier charger's push as well as landing none of its own, and the victim
+  // would take nothing from either. The cap has to mean "the last slam that can actually push".
+  //
+  // O18's re-slam immunity CANNOT cover any of this: `memory.slammed` is written in the second half
+  // below, after `resolveContacts` has already resolved the whole tick, so within a single tick both
+  // slams have been decided and neither can see the other's record.
+  const lastSlamAt = new Map<string, number>();
+  events.slams.forEach((hit, index) => {
+    if (impulseOf(hit.weaponId) === null) return;
+    lastSlamAt.set(hit.targetSessionId, index);
+  });
+
+  for (const [index, hit] of events.slams.entries()) {
+    // One test covers both filters: a slam that is not its victim's last impulse-bearing slam this
+    // tick lands no push at all.
+    if (lastSlamAt.get(hit.targetSessionId) !== index) continue;
+    const authored = impulseOf(hit.weaponId);
+    const victim = state.players.get(hit.targetSessionId);
+    if (authored === null || !victim) continue;
+    const imp: Impulse = {
+      // `authored.def.direction` is deliberately NOT consulted here. The slam's direction is the
+      // OBB contact normal `contact.ts` measured between the two hulls and carried on the event —
+      // the one vector this file cannot recompute. That is correct for every row on this path today
+      // because `wildcharge` declares `"radial"`, and radial for a CONTACT impulse (source and
+      // target touching) IS the contact normal: centre-to-centre and normal agree to within the hull
+      // geometry, and the normal is the more honest of the two on a glancing hit. A future charge
+      // row authoring `"alongAim"` would silently get the contact normal instead — no runtime branch
+      // is wanted (there is no second mode to implement for a contact impulse and no row that needs
+      // one), so `weapon-config.test.ts` asserts every authored `impulse` is `"radial"` and fails
+      // loudly the day that stops being true, and this comment is what the reader lands on.
+      dirX: hit.dirX,
+      dirY: hit.dirY,
+      speed: authored.def.speed,
+      // Inert on this path, and authored `0` on the only row that reaches it. `contactX`/`contactY`
+      // below are the VICTIM'S CENTRE, so `applyImpulse`'s lever arm is exactly zero and no `spin`
+      // value can rotate a slam's victim. See `SlamEvent`'s doc comment and `ImpulseDef.spin`;
+      // `weapon-config.test.ts` guards the day a row authors a non-zero one.
+      spin: authored.def.spin,
+      defenceScaled: authored.def.defenceScaled,
+      uncontrolTicks: authored.ticks.uncontrol,
+      contactX: hit.contactX,
+      contactY: hit.contactY,
+    };
+    const next = applyImpulse(victim, ramDefenceFor(state, statusMods, hit.targetSessionId), imp);
+    victim.vx = next.vx;
+    victim.vy = next.vy;
+    victim.angVel = next.angVel;
+    // The slam's own control-loss window, off its own row — NOT `RAM_TICKS.uncontrol`, and not
+    // scaled by anything. New behaviour as of stage 4: until now a slam left its victim with full
+    // steering, because `contact.ts` hardcoded `uncontrolTicks: 0`. `applyStatus` refuses a
+    // non-positive duration outright, so a row authoring `uncontrolMs: 0` writes nothing.
+    writeStatuses(
+      victim,
+      applyStatus(readStatuses(victim), "reeling", tick, imp.uncontrolTicks, hit.attackerSessionId),
+    );
+  }
+
   // A dash into a wall exits stopped, not at cap.
   for (const sessionId of events.wallBlockedDashers) {
     const player = state.players.get(sessionId);
@@ -393,92 +522,30 @@ export function contactTick(
     contactHits.push(hit);
   }
 
-  // The slam's own impulse is assembled and applied HERE, beside the statuses that same slam
-  // applies (spec P30), rather than in the contact pass — from the weapon's authored `ImpulseDef`
-  // plus the contact geometry `contact.ts` carried on the event, which is the one thing this file
-  // cannot recompute (an OBB contact normal needs both hulls; poses give centre-to-centre, a
-  // different vector on any non-dead-on hit).
+  // ---- the slams pass, SECOND HALF: everything that is not the push ----
   //
-  // Falloff never touches a slam (spec P24: weapon impulses "do not participate and do not share
-  // the stack"), so `nextFalloff` is deliberately not called and the slam is not counted into it —
-  // an ult must not be quietly discounted by how many ordinary rams its victim has just absorbed,
-  // nor discount the next real ram.
+  // The push and its `reeling` ran further up, ABOVE the two `endDash` sweeps — see the long comment
+  // there for why the pass is split and why that half specifically has to precede them. Nothing in
+  // this half touches velocity, so none of it cares where `endDash` falls; it stays here so
+  // `contactHits` keeps the order combat has always been handed — every dash hit, then every slam.
   //
-  // ONE PUSH PER VICTIM PER TICK, LAST SLAM WINS. Two chargers landing on the same victim on the
-  // same tick apply ONE impulse and ONE `reeling`, not two. This cap is deliberate and it is a
-  // RESTORATION, not a new rule: through stage 3 a slam rode `resolveContacts`'s `best` map, which
-  // held exactly one entry per victim and resolved a tie with `>=` (so the later slam displaced the
-  // earlier). The cap fell out of that map's single-slot-per-victim structure for free. Stage 4 took
-  // slams off the map — which is what lets a victim slammed by A and rammed by B in one tick take
-  // BOTH pushes, the one stacking case the spec authorizes — and the slam-plus-slam cap had to
-  // become explicit or it would have been lost with the map. Uncapped, two Wild Charges land 2x the
-  // authored `speed` on one car in one tick, roughly 5.5x Bastion's top speed, plus a doubled
-  // `reeling`: an accidental juggle of exactly the kind this stage's plan warns about.
-  //
-  // `lastSlamAt` reproduces the old `>=` tie-break exactly — the last event for a victim in
-  // pair-enumeration order is the one that lands. O18's re-slam immunity CANNOT cover this case:
-  // `memory.slammed` is written below, after `resolveContacts` has already resolved the whole tick,
-  // so within a single tick both slams have already been decided and neither can see the other's
-  // record.
-  //
-  // Only the push and the `reeling` are capped. Everything else runs for EVERY slam: `memory.slammed`
-  // (last write wins, same as before), `endManeuverOnly` and the self-status expiry on each attacker
-  // (both chargers spent their ult and both must end), and the `contactHits.push` (combat prices
-  // both hits — the cap is a physics cap, not a damage cap).
-  const lastSlamAt = new Map<string, number>();
-  events.slams.forEach((hit, index) => lastSlamAt.set(hit.targetSessionId, index));
-
-  for (const [index, hit] of events.slams.entries()) {
-    const impulseDef = weaponDefOf(hit.weaponId).impulse;
-    const impulseTicks = weaponTicksOf(hit.weaponId).impulse;
-    const pushes = lastSlamAt.get(hit.targetSessionId) === index;
-    // A charge weapon that declares no `impulse` pushes nothing, grants no `reeling`, and opens
-    // neither clock — but still ends its maneuver and expires its own statuses below, because those
-    // are maneuver rules, not impulse rules. Unreachable today: `wildcharge` is the roster's only
-    // charge row and it authors one. Absent must mean absent (see `WeaponTicks.impulse`), so this
-    // is a skip rather than a zero-valued default.
-    if (impulseDef !== undefined && impulseTicks !== undefined) {
+  // NOTHING HERE IS CAPPED. The one-push-per-victim cap above is a physics cap, not a damage cap, so
+  // all of the following runs for EVERY slam in the tick: `memory.slammed` (last write wins, exactly
+  // as it did when a slam rode the `best` map), `endManeuverOnly` plus the self-status expiry on
+  // each attacker (both chargers spent their ult and both must end), and `contactHits.push` (combat
+  // prices both hits).
+  for (const hit of events.slams) {
+    // A charge weapon that declares no `impulse` opens neither clock — but still ends its maneuver
+    // and expires its own statuses below, because those are maneuver rules, not impulse rules.
+    // Unreachable today; see `impulseOf`.
+    const authored = impulseOf(hit.weaponId);
+    if (authored !== null) {
       memory.slammed.set(hit.targetSessionId, {
         bySessionId: hit.attackerSessionId,
-        wallStunUntilTick: tick + impulseTicks.wallStunWindow,
-        immuneUntilTick: tick + impulseTicks.retriggerImmunity,
-        wallStunTicks: impulseTicks.wallStunDuration,
+        wallStunUntilTick: tick + authored.ticks.wallStunWindow,
+        immuneUntilTick: tick + authored.ticks.retriggerImmunity,
+        wallStunTicks: authored.ticks.wallStunDuration,
       });
-      const victim = state.players.get(hit.targetSessionId);
-      if (pushes && victim) {
-        const imp: Impulse = {
-          // `impulseDef.direction` is deliberately NOT consulted here. The slam's direction is the
-          // OBB contact normal `contact.ts` measured between the two hulls and carried on the event
-          // — the one vector this file cannot recompute. That is correct for every row on this path
-          // today because `wildcharge` declares `"radial"`, and radial for a CONTACT impulse (source
-          // and target touching) IS the contact normal: centre-to-centre and normal agree to within
-          // the hull geometry, and the normal is the more honest of the two on a glancing hit.
-          // A future charge row authoring `"alongAim"` would silently get the contact normal instead
-          // — no runtime branch is wanted (there is no second mode to implement for a contact
-          // impulse and no row that needs one), but that is the assumption, and it is named here so
-          // the day a row breaks it, this comment is what a reader finds.
-          dirX: hit.dirX,
-          dirY: hit.dirY,
-          speed: impulseDef.speed,
-          spin: impulseDef.spin,
-          defenceScaled: impulseDef.defenceScaled,
-          uncontrolTicks: impulseTicks.uncontrol,
-          contactX: hit.contactX,
-          contactY: hit.contactY,
-        };
-        const next = applyImpulse(victim, ramDefenceFor(state, statusMods, hit.targetSessionId), imp);
-        victim.vx = next.vx;
-        victim.vy = next.vy;
-        victim.angVel = next.angVel;
-        // The slam's own control-loss window, off its own row — NOT `RAM_TICKS.uncontrol`, and not
-        // scaled by anything. New behaviour as of stage 4: until now a slam left its victim with
-        // full steering, because `contact.ts` hardcoded `uncontrolTicks: 0`. `applyStatus` refuses
-        // a non-positive duration outright, so a row authoring `uncontrolMs: 0` writes nothing.
-        writeStatuses(
-          victim,
-          applyStatus(readStatuses(victim), "reeling", tick, imp.uncontrolTicks, hit.attackerSessionId),
-        );
-      }
     }
     const attacker = state.players.get(hit.attackerSessionId);
     if (attacker) {

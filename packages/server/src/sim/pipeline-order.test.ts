@@ -28,9 +28,12 @@ import { contactTick, newContactMemory } from "./ram-bridge.js";
  * top), and every existing test measures only one of them in isolation.
  *
  * This is the gap the stage-2 whole-stage review found: the recoil numbers written into
- * `RAM_CONFIG.knockMaxSpeed`'s and `SLAM_CONFIG.knockSpeed`'s own doc comments were computed by
+ * `RAM_CONFIG.knockMaxSpeed`'s and the hard slam's own doc comments were computed by
  * adding the recoil straight onto the PRE-collision speed, which is what `ram-bridge.test.ts` alone
- * would lead you to believe happens. It is not what ships: `runPipeline`'s own comment at
+ * would lead you to believe happens. (The slam half of that sentence was written against
+ * `SLAM_CONFIG.knockSpeed`. Stage 4 dissolved `SLAM_CONFIG` down to `wallContactPad`, so the comment
+ * carrying that measurement now lives on `WEAPON_TABLE.wildcharge.impulse.speed` — same number, same
+ * caveat, new home.) It is not what ships: `runPipeline`'s own comment at
  * `tick-pipeline.ts:110` says the order is the rule. This test pins the REAL composed number, so a
  * retune is checked against what the attacker actually ends up doing, not against a number that
  * skips a step.

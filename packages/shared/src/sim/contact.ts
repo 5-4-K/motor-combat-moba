@@ -61,7 +61,25 @@ export interface SlamEvent extends ContactHit {
   /** Unit vector pointing from the attacker's hull toward the victim's — the push direction. */
   dirX: number;
   dirY: number;
-  /** World-space contact point, for the lever arm `applyImpulse` derives spin from. */
+  /**
+   * The VICTIM'S OWN CENTRE, in world space — deliberately not a point on the contact surface.
+   *
+   * Say that plainly because it has a consequence the field name hides: `applyImpulse` derives spin
+   * from a lever arm measured as this point minus the centre of the body it is applied to, and the
+   * body a slam's impulse is applied to IS this victim. The arm is therefore exactly zero, the
+   * torque is zero, and **a maneuver impulse cannot rotate its victim at all** — a charge row
+   * authoring a non-zero `ImpulseDef.spin` would produce exactly zero rotation, silently.
+   *
+   * That is correct for the one row on this path. `wildcharge` authors `spin: 0` on purpose (a
+   * clean straight punt is the ult's signature, spec P28/P31), and the pre-stage-4 code carried the
+   * same point with `spin: 0` hardcoded here — so nothing about the physics changed when stage 4
+   * promoted `spin` to an authored field. An ordinary ram is unaffected and does spin its victims
+   * for real: `resolveRam` uses `contactPointOn`, a genuine point clamped into the hull.
+   *
+   * Giving a charge weapon a working `spin` means deriving a real contact point here first. See
+   * `ImpulseDef.spin`, and the guard in `weapon-config.test.ts` that fails the day a row authors
+   * one rather than letting the weapon quietly spin nobody.
+   */
   contactX: number;
   contactY: number;
 }
