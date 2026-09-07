@@ -471,10 +471,14 @@ worth more than "minor" and are recorded above instead — the `refresh`/`Math.m
 
 ## Housekeeping
 
-- **Nothing has been pushed. There is no remote copy of any of this, on any branch.** If you are
-  reading this on a second machine and `feature/car-physics-rework` is not there, it was never
-  pushed and the work is on the original machine only — do not start re-implementing from the plans,
-  which would produce a divergent second copy of finished work. Get the branch across first.
+- **`feature/car-physics-rework` IS pushed** to `origin`
+  (`git@github.com:5-4-K/motor-combat-moba.git`) and carries stages 1-3b, so a second machine can
+  simply clone or fetch. Verify rather than assume before starting work — `git rev-parse
+  origin/feature/car-physics-rework` against this file's own commit trail — because an earlier
+  version of this note claimed the opposite for several stages and was wrong. **`development/main`
+  and `master` on the remote have none of this.** If the branch ever is missing where you expect it,
+  the answer is to move it across, never to re-implement from the plan documents: that produces a
+  divergent second copy of finished work.
 - `.superpowers/` held the working ledgers, task briefs and review packages for stages 1-3b. It is
   gitignored as of 2026-09-07 and never travelled between checkouts, so **assume it is absent** —
   every ledger was deleted when its stage finished. Treat any pointer to a file under it as dead
