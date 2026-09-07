@@ -400,6 +400,10 @@ archetypes' entire range flavour — see [Known limitations](#known-limitations)
 list of reacted-to threats then reaches the planner as `threatAvoid`, which decides how hard. The
 `second-best` blunder is now the planner's own runner-up — the best candidate whose first action
 differs from the winner's — so a mistake is a plausible alternative rather than an inverted control.
+What is committed for the blunder window is the **kind**, not the line: the runner-up is re-read
+every tick, so a bot inside a `second-best` blunder follows whichever candidate the planner currently
+rates second. It never reverts to the winning line mid-window, and every line it can land on is a
+nearly-good one.
 
 ## Overlay
 
@@ -423,7 +427,9 @@ terms  myEv N  theirEv N  rangeError N  wallPenalty N  lockKeep N  threatAvoid N
   number alone answers nothing.
 - The `terms` line is the winning candidate's per-term contributions, in whatever order the planner
   emitted them: the wire field is an open map, so a seventh term added to `PlanWeights` appears
-  here without a client edit.
+  here without a client edit. It reads `terms  -` until the bot's first recompute window — the same
+  "nothing to report" sentinel `slot -` uses on the line above, rather than an empty line that would
+  read as a broken renderer.
 
 **The `terms` line prints RAW term values, not points.** `myEv` and `theirEv` are EV/s, `rangeError`
 is units, `wallPenalty` is that squared overlap, `threatAvoid` is a displacement. To read which term

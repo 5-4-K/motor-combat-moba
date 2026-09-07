@@ -8,13 +8,28 @@ const COAST: BotIntent = { steer: 0, throttle: 0, fireSlots: 0 };
 export type BlunderKind = "second-best" | "late-brake" | "hold-fire";
 
 /**
+ * The menu is DERIVED FROM THE UNION, not typed out beside it (R-C1, fix wave 4).
+ *
+ * `Record<BlunderKind, true>` cannot be written without a row for every member, so adding a kind to
+ * `BlunderKind` fails to compile here until it is listed, and `BLUNDERS` then carries it for free.
+ * Without this the guard was one-sided: `humanize.test.ts`'s "EVERY kind is observable" iterates
+ * `BLUNDERS`, so it catches a kind that does nothing — but a kind added to the union and to
+ * `applyBlunder`'s exhaustive switch while `BLUNDERS` was forgotten was dead code no test could see,
+ * which is the mirror of the hole that test was written to close.
+ */
+const BLUNDER_MENU: Record<BlunderKind, true> = {
+  "second-best": true, "late-brake": true, "hold-fire": true,
+};
+
+/**
  * The mistakes on the menu (P41). Exported so a test can hold EVERY entry to being observable —
  * see `applyBlunder` for why a kind that cannot change an intent is a defect rather than a nuance.
  *
  * The ORDER is what `Math.floor(kindRoll * BLUNDERS.length)` selects from, so changing it changes
- * which mistake a given seed makes. It does not change how many numbers are drawn (H21).
+ * which mistake a given seed makes — and the order is `BLUNDER_MENU`'s own key order, since string
+ * keys enumerate in insertion order. It does not change how many numbers are drawn (H21).
  */
-export const BLUNDERS: readonly BlunderKind[] = ["second-best", "late-brake", "hold-fire"];
+export const BLUNDERS: readonly BlunderKind[] = Object.keys(BLUNDER_MENU) as BlunderKind[];
 
 /**
  * The last layer (H7): everything that makes a correct decision come out human.
@@ -51,6 +66,16 @@ export function newHumanizeState(): HumanizeState {
  * `runnerUp` is the planner's own second-best first action (`PlanResult.runnerUp`), threaded through
  * from `controller.ts` for the `second-best` blunder. It is STATE, not a draw: whether one is
  * available may not move the rng stream, and does not.
+ *
+ * IT IS RE-READ EVERY TICK, NOT SNAPSHOTTED WHEN THE WINDOW OPENS (R-C3, fix wave 4) — the KIND is
+ * what this file commits to for a window, and the runner-up rides along live. `controller.ts` passes
+ * `this.lastPlan?.runnerUp`, which is rewritten on every recompute, so a `second-best` blunder can
+ * change which alternative line it is driving part-way through one window, at recompute granularity.
+ * Snapshotting it was tried and reverted: it moves no `rng()` draw, but it is a real behaviour change
+ * downstream — at seed 17 it lifted a medium bot's measured hit rate in the `tiers.test.ts` duel from
+ * 0.632 to 1.000, collapsing the P50 ladder's medium-to-hard rung to a tie — and re-pinning five
+ * seeds of a settled measurement was not what that review asked for. `applyBlunder`'s doc says what
+ * is and is not committed here; if a future phase wants the stronger reading, it owns the re-measure.
  */
 export function applyHumanize(
   state: HumanizeState,
@@ -130,6 +155,15 @@ export function applyBlunder(
        * whose first action genuinely differs from the winner's, so it is by construction a
        * nearly-good line — which is exactly what P41 asks for: a mistake, not a malfunction. The
        * trigger is left alone; a runner-up is a DRIVE action and says nothing about firing.
+       *
+       * WHAT IS COMMITTED FOR THE WINDOW IS THE KIND, NOT THE LINE (R-C3). `applyHumanize` re-reads
+       * the caller's live `runnerUp` on every tick of the window, so a bot inside a `second-best`
+       * blunder keeps taking whatever the planner currently rates second — which changes at
+       * recompute granularity. It is still a mistake held for the window (it never reverts to the
+       * winning line mid-blunder) and every candidate it can land on is by construction a
+       * nearly-good one, so it reads as a driver persisting with a worse idea rather than as a
+       * stutter — but it is a weaker reading of "commits" than `blunderKind` gets, and it is
+       * deliberate. See `applyHumanize`'s `runnerUp` paragraph for the measurement that decided it.
        *
        * WITH NO RUNNER-UP, `late-brake`'s behaviour. Reachable only before a bot's first decision
        * window has run — `controller.ts` writes `lastPlan` inside `plan()`, and after that `plan`

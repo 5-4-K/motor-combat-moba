@@ -85,6 +85,43 @@ describe("applyHumanize", () => {
     expect(count(false)).toBe(3);
   });
 
+  it("draws them in the documented ORDER, not merely three of them (H21)", () => {
+    // The count test above passes just as well if `blunderRoll`, `kindRoll` and `fidgetRoll` were
+    // permuted — three calls are three calls. H21 mandates the ORDER too, because the order is what
+    // any other seeded replay of this brain is aligned against: a permutation here silently
+    // re-authors every recorded canary, every balance report and every "deterministic for a seed"
+    // assertion elsewhere in the suite, all of which would stay green while measuring a different
+    // bot.
+    //
+    // So this pins the literal stream for one seed with BOTH probabilistic paths live. The profile
+    // is picked so every arm is exercised inside 24 ticks: `blunderChance` and `idleFidgetChance`
+    // both at 0.4 (so each roll lands on both sides of its threshold), `blunderTicks: 3` (so windows
+    // open and expire repeatedly), `reactionDelayTicks: 0` (so an emitted intent is the tick's own,
+    // not one from four ticks ago), and `idle: true` throughout. `backingUp` is the intent for the
+    // same reason the window test uses it — `late-brake` is invisible against `throttle: 1`.
+    //
+    // Read the golden below and all three kinds are there: `throttle: 1` is `late-brake`,
+    // `fireSlots: 0` is `hold-fire`, `throttle: 0` with `steer: -1` is `second-best` taking the
+    // runner-up line, and the lone `steer: -1` flips at otherwise-unchanged ticks are the fidget.
+    // Verified to go red under a permutation: swapping the `blunderRoll`/`fidgetRoll` draw order in
+    // `applyHumanize` changes this string.
+    const profile = {
+      ...BOT_PROFILES.easy,
+      blunderChance: 0.4, blunderTicks: 3, idleFidgetChance: 0.4, reactionDelayTicks: 0,
+    };
+    const state = newHumanizeState();
+    const rng = makeRng(31);
+    const out: string[] = [];
+    for (let tick = 0; tick < 24; tick++) {
+      const i = applyHumanize(state, backingUp, tick, profile, rng, true, true, runnerUp);
+      out.push(`${i.steer}:${i.throttle}:${i.fireSlots}`);
+    }
+    expect(out.join(" ")).toBe(
+      "1:-1:1 1:1:1 1:1:1 1:1:1 1:-1:1 1:-1:0 1:-1:0 1:-1:0 1:-1:1 1:0:1 1:0:1 -1:0:1 "
+      + "1:-1:1 1:1:1 -1:1:1 1:1:1 1:-1:1 -1:-1:1 1:-1:0 -1:-1:0 1:-1:0 1:-1:1 -1:-1:0 1:-1:0",
+    );
+  });
+
   it("holds the blunder duty cycle near blunderChance per DECISION WINDOW, not per tick (H41)", () => {
     // The rate, not just the 0-and-1 extremes. `blunderChance` is documented on `BotProfile` as a
     // probability *per decision window*; rolling it every tick multiplied it by the cadence and put
@@ -200,6 +237,37 @@ describe("applyHumanize", () => {
       };
       expect(count(runnerUp)).toBe(3);
       expect(count(undefined)).toBe(3);
+    });
+
+    it("commits the KIND for the window and re-reads the runner-up live (R-C3)", () => {
+      // The behaviour a review asked about, pinned as it actually is rather than as the prose read.
+      // `controller.ts` passes `this.lastPlan?.runnerUp`, which is rewritten on every recompute, and
+      // `applyHumanize` reads it every tick — so a `second-best` blunder follows whichever line the
+      // planner currently rates second. The KIND is what is committed: this never reverts to the
+      // winning line mid-window.
+      //
+      // Snapshotting it at window open was tried and REVERTED (see `applyHumanize`'s `runnerUp`
+      // paragraph): no `rng()` draw moves, but downstream it lifted a medium bot's measured hit rate
+      // in `tiers.test.ts`'s duel from 0.632 to 1.000 at seed 17 and collapsed the P50 ladder's
+      // medium-to-hard rung to a tie. This test exists so the next reader finds the decision instead
+      // of rediscovering it.
+      const profile = {
+        ...BOT_PROFILES.easy, blunderChance: 1, blunderTicks: 6,
+        idleFidgetChance: 0, reactionDelayTicks: 0,
+      };
+      const state = newHumanizeState();
+      const rng = makeRng(2); // seed chosen so the opening kind is `second-best`
+      const opened = applyHumanize(state, backingUp, 0, profile, rng, false, true, runnerUp);
+      expect(state.blunderKind).toBe("second-best");
+      expect(opened).toEqual({ ...backingUp, steer: runnerUp.steer, throttle: runnerUp.throttle });
+
+      // The plan recomputes and now names a DIFFERENT alternative; the open window follows it.
+      const later = { steer: 1, throttle: 0 } as const;
+      for (let tick = 1; tick < profile.blunderTicks; tick++) {
+        expect(state.blunderKind).toBe("second-best");
+        expect(applyHumanize(state, backingUp, tick, profile, rng, false, true, later))
+          .toEqual({ ...backingUp, steer: later.steer, throttle: later.throttle });
+      }
     });
   });
 
