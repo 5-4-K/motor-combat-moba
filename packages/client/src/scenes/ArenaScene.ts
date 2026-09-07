@@ -39,7 +39,15 @@ import {
   winRuleOf,
 } from "@motor-combat-moba/shared";
 import { applyCarSprite, phaserTextures, resolveCarSprite } from "../assets/car-sprite.js";
-import { HIT_STOP_MS, HIT_STOP_SCALE, ramShake, shakeFor } from "../fx/camera.js";
+import {
+  HIT_STOP_MS,
+  HIT_STOP_SCALE,
+  ramShake,
+  shakeFor,
+  shouldStartShake,
+  type ActiveShake,
+  type ShakeSpec,
+} from "../fx/camera.js";
 import { FX_TEXTURE_KEYS, FxLayer } from "../fx/layer.js";
 import { FLOOR_DEPTH } from "../fx/depths.js";
 import { isDebugEnabled } from "../config/client-mode.js";
@@ -804,6 +812,27 @@ export class ArenaScene extends Phaser.Scene {
    */
   private hitStopUntilMs = 0;
 
+  /**
+   * Guards `triggerHitStop`'s restore against overlap: each call captures the generation it was
+   * scheduled at, and its `delayedCall` only restores `this.tweens.timeScale` if that generation is
+   * still current. Without this, two kills within `HIT_STOP_MS` leave the *first* call's timer
+   * unconditionally resetting `timeScale = 1` at its own (earlier) deadline while `hitStopUntilMs` —
+   * extended by the second trigger — still has `followCamera` running slowed, so the two halves of
+   * the mechanism disagree until the second timer also fires.
+   */
+  private hitStopGeneration = 0;
+
+  /**
+   * What `this.cameras.main.shake` is currently doing, as far as this scene knows. Phaser's
+   * `Camera.shake` silently no-ops while a shake is already running unless passed `force`, so every
+   * shake in this scene is routed through {@link tryShake}, which consults `shouldStartShake`
+   * (`fx/camera.ts`) against this record rather than calling `shake` directly — "strongest wins"
+   * instead of "last call wins" or "first call wins unconditionally," either of which would let a
+   * `died` shake get dropped by, or cut short by, an unrelated `damaged` shake landing the same
+   * frame. Reset in `resetMatchState` alongside `hitStopUntilMs`.
+   */
+  private activeShake: ActiveShake | undefined;
+
   constructor() {
     super({ key: "arena" });
   }
@@ -1322,6 +1351,8 @@ export class ArenaScene extends Phaser.Scene {
     this.exitTarget = undefined;
     this.impacts = newImpactTracker();
     this.hitStopUntilMs = 0;
+    this.hitStopGeneration = 0;
+    this.activeShake = undefined;
     this.tweens.timeScale = 1;
   }
 
@@ -1791,6 +1822,23 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
+   * The single entry point every camera shake in this scene goes through.
+   *
+   * Phaser's `Camera.shake` silently no-ops while a shake is already running unless passed `force`
+   * — so calling it directly means a weak shake in flight can swallow a strong one that lands mid-
+   * shake (e.g. a `damaged` shake from `renderCars`, which runs before `renderFx`, eating a `died`
+   * shake that should have overridden it). This asks `shouldStartShake` (`fx/camera.ts`) whether the
+   * incoming shake beats what `activeShake` says is already playing, and only then forces the new
+   * one in and records it.
+   */
+  private tryShake(spec: ShakeSpec): void {
+    const now = performance.now();
+    if (!shouldStartShake(this.activeShake, spec, now)) return;
+    this.cameras.main.shake(spec.durationMs, spec.intensity, true);
+    this.activeShake = { intensity: spec.intensity, endsAtMs: now + spec.durationMs };
+  }
+
+  /**
    * Impact feedback: a brief shake and a spark at the contact point. Render-only — this reacts to
    * locally observed contact, not to an authoritative ram, so it must never change anything the sim
    * or the schema can see.
@@ -1800,8 +1848,7 @@ export class ArenaScene extends Phaser.Scene {
    * floor — the same fixed feel this method always had before `camera.ts` existed.
    */
   private showImpact(x: number, y: number, closingSpeed = 0): void {
-    const shake = ramShake(closingSpeed);
-    this.cameras.main.shake(shake.durationMs, shake.intensity);
+    this.tryShake(ramShake(closingSpeed));
     const spark = this.add.circle(x, y, 10, 0xffffff, 0.9);
     this.hudCamera?.ignore(spark);
     this.tweens.add({
@@ -2202,7 +2249,7 @@ export class ArenaScene extends Phaser.Scene {
     // one seam for what happened this frame, not two that could disagree.
     for (const event of fx.lastEvents()) {
       const shake = shakeFor(event);
-      if (shake) this.cameras.main.shake(shake.durationMs, shake.intensity);
+      if (shake) this.tryShake(shake);
       if (event.kind === "died") this.triggerHitStop();
     }
   }
@@ -2967,12 +3014,22 @@ export class ArenaScene extends Phaser.Scene {
    * (`hitStopScale`, read by `followCamera`'s call site), and every live and future tween in the
    * scene — today just `showImpact`'s spark — runs slow alongside it via `this.tweens.timeScale`,
    * which is its own independent scale and untouched by anything else here.
+   *
+   * The `delayedCall` captures `hitStopGeneration` at schedule time and only restores
+   * `tweens.timeScale` if it is still the latest one. Without that guard, two kills within
+   * `HIT_STOP_MS` would leave the *first* call's timer restoring `timeScale = 1` at its own
+   * (earlier) deadline while `hitStopUntilMs` — extended by the second trigger — still has
+   * `followCamera` running slowed, so the two halves of the mechanism would disagree until the
+   * second timer also fired. It is self-correcting either way (the second timer always fires and
+   * restores it), so this is about the two halves staying consistent in between, not about getting
+   * permanently stuck.
    */
   private triggerHitStop(): void {
     this.hitStopUntilMs = performance.now() + HIT_STOP_MS;
     this.tweens.timeScale = HIT_STOP_SCALE;
+    const generation = ++this.hitStopGeneration;
     this.time.delayedCall(HIT_STOP_MS, () => {
-      this.tweens.timeScale = 1;
+      if (generation === this.hitStopGeneration) this.tweens.timeScale = 1;
     });
   }
 

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { HIT_STOP_MS, HIT_STOP_SCALE, ramShake, shakeFor } from "./camera.js";
+import {
+  HIT_STOP_MS,
+  HIT_STOP_SCALE,
+  ramShake,
+  shakeFor,
+  shouldStartShake,
+  type ActiveShake,
+} from "./camera.js";
 
 describe("shakeFor", () => {
   it("shakes harder for a death than for a hit", () => {
@@ -27,6 +34,10 @@ describe("shakeFor", () => {
     expect(shakeFor({ kind: "shotEnded", weaponId: "magmablast", x: 0, y: 0, angle: 0 })).toBeDefined();
     expect(shakeFor({ kind: "shotEnded", weaponId: "lance", x: 0, y: 0, angle: 0 })).toBeUndefined();
   });
+
+  it("does not shake for predator ending — it is a homing missile, not an explosive", () => {
+    expect(shakeFor({ kind: "shotEnded", weaponId: "predator", x: 0, y: 0, angle: 0 })).toBeUndefined();
+  });
 });
 
 describe("ramShake", () => {
@@ -36,6 +47,50 @@ describe("ramShake", () => {
 
   it("still produces something for a gentle nudge, so contact is never silent", () => {
     expect(ramShake(1).intensity).toBeGreaterThan(0);
+  });
+
+  it("floors an unattributed ram at 0.006, matching the shipped feel", () => {
+    expect(ramShake(0).intensity).toBeCloseTo(0.006, 6);
+  });
+
+  it("caps below an explosion and a kill, so a ram never out-shakes either", () => {
+    const ram = ramShake(100_000).intensity;
+    expect(ram).toBeCloseTo(0.012, 6);
+    expect(ram).toBeLessThan(shakeFor({ kind: "shotEnded", weaponId: "magmablast", x: 0, y: 0, angle: 0 })!.intensity);
+    expect(ram).toBeLessThan(shakeFor({ kind: "died", sessionId: "a", x: 0, y: 0 })!.intensity);
+  });
+});
+
+describe("shouldStartShake", () => {
+  const spec = (intensity: number) => ({ durationMs: 100, intensity });
+
+  it("starts when nothing is playing", () => {
+    expect(shouldStartShake(undefined, spec(0.01), 1000)).toBe(true);
+  });
+
+  it("starts when a stronger shake arrives mid-shake", () => {
+    const active: ActiveShake = { intensity: 0.005, endsAtMs: 2000 };
+    expect(shouldStartShake(active, spec(0.01), 1000)).toBe(true);
+  });
+
+  it("refuses a weaker shake arriving mid-shake", () => {
+    const active: ActiveShake = { intensity: 0.01, endsAtMs: 2000 };
+    expect(shouldStartShake(active, spec(0.005), 1000)).toBe(false);
+  });
+
+  it("starts an equal shake — ties go to the new one", () => {
+    const active: ActiveShake = { intensity: 0.01, endsAtMs: 2000 };
+    expect(shouldStartShake(active, spec(0.01), 1000)).toBe(true);
+  });
+
+  it("starts a weaker shake exactly at the previous one's end — the boundary counts as over", () => {
+    const active: ActiveShake = { intensity: 0.01, endsAtMs: 2000 };
+    expect(shouldStartShake(active, spec(0.005), 2000)).toBe(true);
+  });
+
+  it("starts just after the previous shake's end, regardless of strength", () => {
+    const active: ActiveShake = { intensity: 0.01, endsAtMs: 2000 };
+    expect(shouldStartShake(active, spec(0.001), 2001)).toBe(true);
   });
 });
 
