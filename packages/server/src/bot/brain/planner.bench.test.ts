@@ -340,15 +340,21 @@ function medianOf(values: readonly number[]): number {
 
 describe("planner cost (P33)", () => {
   it("measures the heaviest tier the game actually ships", () => {
-    // The gate below reads `BOT_PROFILES.hard`. This is what keeps that from silently becoming the
-    // wrong row: if a retune ever makes another tier plan harder than hard does, the gate would be
-    // watching the cheap configuration and would keep passing while the expensive one overran.
+    // The gate below plans at `BOT_PROFILES[heaviestTier()]`, so it is safe BY CONSTRUCTION rather
+    // than by this guard (R-C5): a retune that made another tier plan harder moves the gate onto
+    // that tier automatically, instead of leaving it watching the cheap configuration while the
+    // expensive one overran. What this test still adds is the CLAIM that the answer is `hard` —
+    // the tier table is documented everywhere as ordered that way, and an inversion is worth
+    // failing over even when nothing downstream is fooled by it.
     expect(heaviestTier()).toBe("hard");
     expect(BOT_PROFILES.hard.planDepth).toBe(1);
   });
 
   it("costs no more than the shipped measurement allows, normalised (P33, R-PF2)", () => {
-    const args = planArgsFor(BOT_PROFILES.hard);
+    // `heaviestTier()`, not `hard` by name (R-C5, H8): the gate must watch whichever shipped tier
+    // actually plans hardest, and the helper answers that from `planDepth`/`targetBranches`/
+    // `planHorizonTicks` rather than from the difficulty string.
+    const args = planArgsFor(BOT_PROFILES[heaviestTier()]);
 
     // Both halves warmed before either is timed, so the reference is not paying JIT tiering that the
     // plan already paid — that alone would shift the ratio by more than the margin.
@@ -382,7 +388,7 @@ describe("planner cost (P33)", () => {
     // budget is met. P33 asks for a MEASUREMENT against a stated budget, and "it passed" is not one.
     // eslint-disable-next-line no-console
     console.log(
-      `[planner perf] hard K=${args.horizonTicks} depth=${args.depth} `
+      `[planner perf] ${heaviestTier()} K=${args.horizonTicks} depth=${args.depth} `
       + `branches=${args.targetBranches}: `
       + `${best.toFixed(3)} ms/plan cpu best (median ${median.toFixed(3)}, `
       + `wall ${bestWall.toFixed(3)}), budget ${BUDGET_MS.toFixed(3)} `
