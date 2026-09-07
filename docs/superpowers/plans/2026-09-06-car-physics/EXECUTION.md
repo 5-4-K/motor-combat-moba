@@ -4,11 +4,13 @@
 same commit as the work it describes, so a session can stop anywhere and the next one resumes
 exactly. Same convention as the netcode rewrite's `EXECUTION.md`.
 
-**Last updated:** 2026-09-07, after the user drove the merged build for the first time. Earlier the
+**Last updated:** 2026-09-07, after **stage 4 executed** — the `ImpulseDef` seam, `wildcharge`
+authoring the game's first `impulse` row, and `SLAM_CONFIG` dissolved down to one field. Earlier the
 same day: stage 3b (`reeling` plus per-victim ram falloff) executed, its four task reviews fixed, its
-stage-closing pass landed, and spec P21/P24 amended to the `refresh` semantics that actually ship.
-**That drive is the most important line in this file** — it parked the restitution stage and made
-stage 4 next.
+stage-closing pass landed, spec P21/P24 amended to the `refresh` semantics that actually ship, and
+the user drove the merged build for the first time. **That drive is still the most important line in
+this file** — it parked the restitution stage and made stage 4 next. Stage 4 itself has **not** been
+driven.
 
 ---
 
@@ -29,8 +31,12 @@ history stages 1 and 2 were executed against. Read the spec's **Changelog** and 
 regardless; stage 3's own section below assumes you have.
 
 **Stage 3b has landed on top of it**, giving ramming back the control loss stage 1 deleted, as the
-`reeling` status plus a per-victim falloff stack — see "What stage 3b actually changed". The stage
-after it is the approved restitution fix, which has no plan document yet.
+`reeling` status plus a per-victim falloff stack — see "What stage 3b actually changed".
+
+**Stage 4 has landed on top of THAT**, moving the hard slam off `SLAM_CONFIG` onto `wildcharge`'s own
+authored `ImpulseDef` — see "What stage 4 actually changed". The approved restitution fix, which has
+no plan document yet, was sequenced between 3b and 4 and then parked before either ran; it is still
+parked, and stage 5 is next.
 
 ---
 
@@ -38,13 +44,13 @@ after it is the approved restitution fix, which has no plan document yet.
 
 | | state |
 |---|---|
-| Branch | Stage 3b was executed on `claude/car-physics-rework-continue-1e0282`, which already carried stage 3 (executed on `claude/car-physics-stage-3-e06290`, fast-forwarded from `claude/car-physics-implementation-283ddf` at `925b788`, itself branched from `feature/car-physics-rework` at `02f5a89`). **Work on this line has been handed between branches before, so a branch name may no longer be where it lives.** The durable anchor is **`8608bd0`**, stage 3b's last code commit — if it is an ancestor of your HEAD, you have this state, plus the documentation-only commits that close the stage after it. If it is not (a squash-merge would do that), verify against this file's content rather than its SHAs, and treat every SHA below as historical. |
-| Commits | 64 ahead of `development/main`. Stage 3b and its aftermath are the 14 commits after `1d6342e` (which itself only recorded two scoping decisions in this file): 10 for the stage, then the spec amendment, the first-drive state update, the `.superpowers/` ignore rule, and the `EXECUTED` banners on the plan documents. |
+| Branch | Stage 4 was executed on `claude/car-physics-stage-4-b846e5`, branched from `feature/car-physics-rework`, which carried stages 1-3b. (Stage 3b was executed on `claude/car-physics-rework-continue-1e0282`, which already carried stage 3 — executed on `claude/car-physics-stage-3-e06290`, fast-forwarded from `claude/car-physics-implementation-283ddf` at `925b788`, itself branched from `feature/car-physics-rework` at `02f5a89`.) **Work on this line has been handed between branches before, so a branch name may no longer be where it lives.** The durable anchor is now **`1a9581b`**, stage 4's last code commit — if it is an ancestor of your HEAD, you have this state, plus the documentation-only commit that closes the stage after it. (Stage 3b's anchor was `8608bd0`, still an ancestor.) If it is not (a squash-merge would do that), verify against this file's content rather than its SHAs, and treat every SHA below as historical. |
+| Commits | 75 ahead of `development/main`. Stage 4 is the 9 commits after `d972475`: `5b6e13f` (`ImpulseDef` on `WeaponBase`/`ExplosionDef`), `888bdc9` and `e244fce` (its two review nits), `3423bef` (the slam moved onto `wildcharge`'s row — Tasks 2 and 3 as one commit, since splitting them would ship an intermediate commit where Wild Charge slams for nothing), `577eca3` (the `balance/match.test.ts` seed refresh), `8fb44e4` (the first review fix pass: the slam-plus-slam cap and three stale comments), `8c361ff` (the stage's own documentation commit), then the whole-stage review's fix wave — `1a9581b` (restoring the dash-vs-slam ordering, and guarding `ImpulseDef`'s two inert fields) and `9d0a854` (this documentation commit). Stage 3b and its aftermath are the 14 commits after `1d6342e` (which itself only recorded two scoping decisions in this file): 10 for the stage, then the spec amendment, the first-drive state update, the `.superpowers/` ignore rule, and the `EXECUTED` banners on the plan documents. |
 | Root `npm test` | GREEN |
 | Root `npm run typecheck` | GREEN |
 | Root `npm run build` | GREEN |
-| Merged anywhere | **Into `feature/car-physics-rework`, yes** — the user fast-forwarded it there on 2026-09-07, so that branch now carries stages 1-3b complete. **Nothing has gone near `development/main`.** |
-| Played by a human | **Partly, as of 2026-09-07 — and only just.** ~5 minutes on the merged `feature/car-physics-rework` build, checking **collision impact and restitution only**. Verdict: no problem with how collisions are working. **Nothing else was exercised** — not drive feel, not `reeling`, not falloff, not ram throw magnitudes. See "What has never been verified", which is still most of it. |
+| Merged anywhere | **Stages 1-3b are on `feature/car-physics-rework`** — the user fast-forwarded them there on 2026-09-07. **Stage 4 is not: it is still on `claude/car-physics-stage-4-b846e5` alone.** **Nothing has gone near `development/main`.** |
+| Played by a human | **Partly, as of 2026-09-07 — and only just, and NOT stage 4.** ~5 minutes on the merged `feature/car-physics-rework` build (stages 1-3b), checking **collision impact and restitution only**. Verdict: no problem with how collisions are working. **Nothing else was exercised** — not drive feel, not `reeling`, not falloff, not ram throw magnitudes, and nothing at all from stage 4, which did not exist yet at the time of that drive. See "What has never been verified", which is still most of it. |
 
 | stage | plan | state |
 |---|---|---|
@@ -53,8 +59,8 @@ after it is the approved restitution fix, which has no plan document yet.
 | 3 | `03-ram.md` | **Executed** (11 commits, `d29234b`..`1ee4b53`), against revision 2, including four post-landing fix rounds (`12b400d`, `737a9d5`, the whole-branch review's fix commit `ff9a720`, and the documentation follow-up `1ee4b53`) on top of the original 7 (`d29234b`..`7e5e1b4`). `mass` is gone from `packages/`; the ram contest (R1–R11) is what ships today. One exit criterion reads as NOT met on the arithmetic — see "The restitution stage, and why it is parked" below. It was escalated rather than fixed here; the fix was approved on 2026-09-07 and parked the same day, after the user drove the build and found collisions fine. |
 | 3b | `03b-ram-feel.md` | **Executed**, against revision 2, in 10 commits from `3468716` onwards. Four implementation commits (`3468716` add `reeling`, `376433d` the falloff stack, `223ad37` apply `reeling` scaled by falloff, `9fc030b` delete the five dead knobs and pin R6's ratio), one incidental fixture reseed (`c8cbc7d`), two documentation reconciliations (`a10e71c`, `6335ed0`), then the stage-closing pass: `8608bd0` sweeps eleven deferred review findings, and the documentation commits after it write this file and the two `CLAUDE.md`s. |
 | — | *the restitution stage* | **PARKED on 2026-09-07, later the same day it was approved — by play, not by argument.** It was approved that morning and sequenced here; the user then drove the merged build and reported no problem with collision impact or restitution, which is precisely what this stage would have changed. Not cancelled and not refuted — understood, cheap, and waiting for a complaint that has not arrived. See "The restitution stage, and why it is parked" below for the measurement that closed it. **Do not start it without a fresh reason from play.** |
-| 4 | `04-impulse-def.md` | Revised for revision 2. Not started. ← next |
-| 5 | `05-tune-and-reconcile.md` | Revised for revision 2. Not started. |
+| 4 | `04-impulse-def.md` | **Executed**, against revision 2, in 9 commits (`5b6e13f`..`9d0a854`) on `claude/car-physics-stage-4-b846e5`: `5b6e13f` lands the type, `888bdc9`/`e244fce` its two review nits, `3423bef` moves the slam onto `wildcharge`'s row (Tasks 2 and 3 merged into one commit — see the plan's `EXECUTED` banner), `577eca3` refreshes the balance fixture seed, `8fb44e4` fixes the task review's findings, `8c361ff` records the stage here, then the whole-stage review's fix wave: `1a9581b` restores the dash-vs-slam ordering the refactor had silently changed and guards `spin`/`direction`, and `9d0a854` documents both. **A slam now imparts `reeling`**, which it never did before. Not driven by a human. |
+| 5 | `05-tune-and-reconcile.md` | Revised for revision 2. Not started. ← next |
 
 The 5 commits before `925b788` (`febd7b8`..`2c7f235`) are the redesign and replan — no code changed
 in them. Stage 3 ran as four tasks (`d29234b` add the ratings, `49c9ec4` freeze `minApproachSpeed`
@@ -135,38 +141,136 @@ real code fix named below.
   the aggressor. This is the decision already recorded under "Decisions taken, that still bind".
 - **New `RAM_CONFIG` knobs**: `ramUncontrolMs` (1000), `drWindowMs` (2000), `durationDrScale` (0.5),
   `durationDrFloorMs` (150), `impulseDrScale` (0.5), `impulseDrFloor` (0.25). **`RAM_TICKS`** converts
-  three of them to integer ticks once at module load, mirroring `SLAM_TICKS`/`WEAPON_TICKS`.
+  three of them to integer ticks once at module load, mirroring `SLAM_TICKS`/`WEAPON_TICKS`. *(Stage
+  4 deleted `SLAM_TICKS`; the surviving sibling to compare against is `WEAPON_TICKS`, whose optional
+  `impulse` block is where the slam's own durations live now.)*
 - **Five dead config fields deleted outright**: `RAM_CONFIG.authorityFloor`,
   `authorityHalfLifeSeconds`, `authorityEpsilon`, `shoveHalfLifeSeconds`, `shoveEpsilon`, along with
   `RamDecay.shove` and `RamDecay.authority`. They had TWO successors, not one — the three `authority`
   ones are `reeling`; the two `shove` ones are `DRIVE_CONFIG.impactGripDecel`. `SLAM_CONFIG`'s
-  `victimAuthority` and `selfKeepFactor` survive, still inert, waiting on stage 4.
+  `victimAuthority` and `selfKeepFactor` survive, still inert, waiting on stage 4. *(True as of 3b —
+  stage 4 then deleted both, replacing rather than reviving them. See "What stage 4 actually
+  changed".)*
 - **No re-tuning.** `globalScale`, `spinScale`, `spinMaxRate`, `defencePushScale` and the face bonuses
   are untouched by this stage; falloff and `reeling` do not move the first-ram magnitudes stage 3
   measured them against, which is exactly why the restitution stage was sequenced after this one.
 
+## What stage 4 actually changed
+
+- **`ImpulseDef` is a new optional field on `WeaponBase` and on `ExplosionDef`** — `impulse?:
+  ImpulseDef` — mirroring the `applies?: readonly StatusApplication[]` already on both. It carries
+  `speed`, `direction` (`"radial"` | `"alongAim"`), `spin`, `defenceScaled`, `uncontrolMs`, and the
+  optional `wallStun: { windowMs, durationMs }` and `retriggerImmunityMs`. Its millisecond durations
+  are converted to ticks exactly once, at module load, into `WEAPON_TICKS[id].impulse` — **optional
+  there too, because absent must mean absent**: a zero-valued default would make every weapon a
+  nudge.
+  - **Declaring one on a non-`maneuver` row, or on an explosion, silently does nothing today**, and a
+    `weapon-config.test.ts` guard says so rather than letting that be discovered as a no-op. This
+    stage deliberately built no generic projectile/beam/explosion application path. `magmablast` gets
+    no impulse yet, for the reason the plan gives: every row that *can* push is a new way to build an
+    accidental juggle.
+- **`wildcharge` authors the game's first `impulse` row**, and it is the only one. `speed: 520`,
+  `direction: "radial"`, `spin: 0`, `defenceScaled: false`, `uncontrolMs: 1400`, `wallStun: {
+  windowMs: 500, durationMs: 500 }`, `retriggerImmunityMs: 600` — six of the seven carried across
+  from the constants below unchanged, the seventh (`uncontrolMs`) genuinely new.
+- **`SLAM_CONFIG` is reduced to `{ wallContactPad }`, and `SLAM_TICKS` is deleted outright.**
+  `knockSpeed`, `wallStunWindowMs`, `wallStunDurationMs` and `reslamImmunityMs` moved onto the row
+  above; `victimAuthority` and `selfKeepFactor` — inert since stage 2, and named in this file for
+  three stages as "waiting on stage 4" — were **replaced rather than revived**: `victimAuthority` by
+  `reeling` (the same successor `RAM_CONFIG`'s three `authority` knobs got in 3b), and
+  `selfKeepFactor`'s hand-tuned forward-only restore by nothing at all, so a slam's attacker now
+  keeps whatever velocity `resolveWorld`'s restitution already left it. `wallContactPad` survives
+  because it is not a slam property at all — it is hull inflation for "is this touching level
+  geometry", which any impulse with a `wallStun` needs. `slam-config.ts` carries a "where the other
+  six went" block for whoever arrives from an older comment.
+- **The slam's `Impulse` is assembled in `ram-bridge.ts`, not `contact.ts`.** `contact.ts`'s charge
+  branch now builds nothing and writes nothing to the `best` map: it pushes a `SlamEvent` (a
+  `ContactHit` plus `dirX`/`dirY`/`contactX`/`contactY`) and stops, exactly as its dash branch
+  already did. The bridge's `events.slams` loop assembles the push from the weapon's own
+  `ImpulseDef` + `WEAPON_TICKS` and applies it beside the statuses that same slam applies (spec P30).
+  The geometry rides on the event because it is the one thing the bridge cannot recompute — an OBB
+  contact normal needs both hulls, and poses give centre-to-centre, a different vector on any
+  non-dead-on hit. `contact.ts` lost 14 lines of code and gained documentation.
+  - `SlamRecord` gained `wallStunTicks`. The wall-stun sweep iterates `memory.slammed`, which carries
+    no weapon id, so stamping the resolved count on when the slam lands is what keeps that sweep
+    weapon-agnostic — a future second charge weapon brings its own numbers with it.
+  - **`ImpulseDef.direction` has no reader on this path**, and a comment at the site says so.
+    `"radial"` for a CONTACT impulse *is* the contact normal, so `wildcharge` is served correctly; a
+    future `"alongAim"` charge row would silently get the normal instead. No runtime branch was
+    added — there is no second mode to implement for a contact impulse — but the assumption is named
+    where it is made.
+- **A slam now imparts `reeling` for 1400 ms, where it previously imparted no control loss at all.**
+  **This is the headline player-visible change of the stage.** Before it, `contact.ts` hardcoded
+  `uncontrolTicks: 0` on the slam's impulse and `SLAM_CONFIG.victimAuthority` — the pre-`Impulse`
+  knob that was supposed to express this — had been inert since stage 2, so being hit by the game's
+  hardest single push left the victim steering perfectly. 1400 ms is deliberately longer than a
+  full-strength ram's 1000 ms (`RAM_CONFIG.ramUncontrolMs`): this is an ult on a 20 s cooldown.
+  Falloff never touches it (spec P24: weapon impulses "do not participate and do not share the
+  stack"), so `nextFalloff` is not called and the slam is not counted into a victim's stack either —
+  an ult must not be quietly discounted by how many ordinary rams its victim has just absorbed, nor
+  discount the next real ram.
+- **Two stacking changes, and only two.**
+  - **Intended, and the point of taking slams off the `best` map:** a victim slammed by A and rammed
+    by B in the same tick now takes **both** pushes. Previously the map's one-slot-per-victim
+    structure kept only the larger, which was in practice always the slam, so the ram was silently
+    discarded entirely.
+  - **Capped, explicitly:** slam-plus-slam. Two chargers landing on one victim in one tick apply
+    **one** impulse and one `reeling`, with the **last** slam winning — which reproduces the old
+    `best` map's `>=` tie-break exactly. That cap used to fall out of the map's structure for free
+    and had to be rewritten as code (`lastSlamAt` in `ram-bridge.ts`) or it would have been lost with
+    the map; uncapped it is 2 × 520 u/s on one car in one tick, ~5.5× Bastion's top speed. Only the
+    push and the status are capped: `memory.slammed`, `endManeuverOnly`, the self-status expiry and
+    the `contactHits.push` still run for every slam, so both chargers spend their ult and combat
+    prices both hits. O18's re-slam immunity cannot cover this — `memory.slammed` is written after
+    `resolveContacts` has resolved the whole tick.
+- **`speed: 520` was carried across unchanged, and still owes a re-pitch in stage 5.** It was
+  authored as "2× `RAM_CONFIG.knockMaxSpeed`", a by-hand relationship against a constant that no
+  longer exists — the contest is open-ended by design (R9), so "the ram maximum" is not a quantity it
+  produces. **Stage 5's re-pitch must now price the 1400 ms of `reeling` too, not just the Δv.** The
+  ult's total stopping power went up this stage while its number stayed still, so pitching the push
+  alone against a measured contest outcome would now under-count what the ability actually does.
+  Nothing fails if this is left alone; a 20-second ult can just quietly end up weaker than an
+  ordinary flank ram.
+- **No re-tuning otherwise.** `globalScale`, `spinScale`, `spinMaxRate`, `defencePushScale` and the
+  face bonuses are untouched, as they were in 3b.
+- **One fixture reseed**, `balance/match.test.ts`, 22 → 79 — see "Deferred findings" and the sixth
+  entry in that test's own seed-refresh comment block.
+
 ## Resume here
 
-**Stage 4** (`04-impulse-def.md`). The restitution stage that briefly sat here is parked — see the
-stage table and "The restitution stage, and why it is parked" below. Do not pick it up without a
-fresh reason from play.
+**Stage 5** (`05-tune-and-reconcile.md`). The restitution stage that briefly sat before stage 4 is
+parked — see the stage table and "The restitution stage, and why it is parked" below. Do not pick it
+up without a fresh reason from play.
 
-Stage 4 inherits two things from 3b: `wildcharge`'s own `uncontrolTicks` (a slam's control-loss
-duration is stage 4's to author — `contact.ts`'s slam branch still writes `0`), and the
-`ImpulseEntry` `kind` discriminator named under "Open question" below.
+Stage 5 inherits stage 4's `speed: 520` re-pitch, with the `reeling` obligation above attached to it.
+The other two things stage 4 itself inherited from 3b are both discharged: `wildcharge`'s own
+`uncontrolTicks` is authored (1400 ms), and the `ImpulseEntry` `kind` discriminator **dissolved
+rather than shipped** — see the section below.
 
 **One deferred obligation the user set on 2026-09-07, which stage 5 inherits.** The hands-on exit
 criteria for stage 3b — ram side-on and watch for a spin the victim can still shoot through, ram a
 fleeing car versus one closing on you, chain three rams and check the third barely registers, wait
-three seconds and check full strength returns, wildcharge and check the victim does NOT gain
-`reeling` — **are impractical to reproduce by hand against a bot.** The user tried and said so. They
-want them covered by playtest probes instead, and they want that probe-writing done **after the
-physics rework is complete**, not piecemeal alongside it. So: do not write them now, and do not treat
-3b's unticked hands-on boxes as something a session can close by driving. Existing coverage in
-`packages/server/playtest/ram.ts` is R1-R5; **R5 (ram-lock) is the only one anywhere near this list**,
-and it now measures a mechanic that has a countermeasure it does not know about. Nothing measures
-`reeling` at all, the fleeing-versus-closing contrast, falloff window recovery, or the slam
+three seconds and check full strength returns, and **wildcharge and check the victim's `reeling`
+comes from the WEAPON'S OWN duration (1400 ms, `WEAPON_TABLE.wildcharge.impulse.uncontrolMs`) and
+carries no falloff** — **are impractical to reproduce by hand against a bot.** The user tried and
+said so. They want them covered by playtest probes instead, and they want that probe-writing done
+**after the physics rework is complete**, not piecemeal alongside it. So: do not write them now, and
+do not treat 3b's unticked hands-on boxes as something a session can close by driving. Existing
+coverage in `packages/server/playtest/ram.ts` is R1-R5; **R5 (ram-lock) is the only one anywhere near
+this list**, and it now measures a mechanic that has a countermeasure it does not know about. Nothing
+measures `reeling` at all, the fleeing-versus-closing contrast, falloff window recovery, or the slam
 exclusion. That is the gap the eventual probes fill.
+
+> **STAGE 4 INVERTED THE LAST ITEM ON THAT LIST — read this before writing that probe.** As written
+> for stage 3b it said "wildcharge and check the victim does **NOT** gain `reeling`", which was true
+> then: 3b gave the ordinary ram its control loss back and a slam deliberately got none.
+> **Stage 4 made a slam impart `reeling` for 1400 ms**, off `wildcharge`'s own `ImpulseDef`, and that
+> is the headline player-visible change of the whole stage. A probe written from the original wording
+> would assert the exact opposite of what ships. What survives from the original intent is the
+> *exclusion the item was really about*: a slam still does **not** participate in the ram falloff
+> stack (spec P24) — it is neither scaled by it nor counted into it — so its `reeling` is the full
+> authored duration every time, however many rams the victim has just absorbed. That is what the
+> probe should measure, and the item above has been rewritten to say so.
 
 ## Two questions the user answered on 2026-09-07 — both binding
 
@@ -326,7 +430,16 @@ pipeline whose attacker-side outcome is dominated by the term that fix moves.
 on the merged `feature/car-physics-rework` build, scoped deliberately to **collision impact and
 restitution**, which came back clean and parked the restitution stage (see that section). Everything
 else below is still gated by tests and arithmetic only — and "everything else" is drive feel, the
-whole of 3b, and every ram magnitude.
+whole of 3b, all of stage 4, and every ram magnitude.
+
+- **Stage 4 has NOT been driven at all.** It landed after that drive, so nothing in it was in the
+  build the user played. Its own exit criteria are the hands-on ones and all three are open: that
+  Wild Charge punts every chassis identically and does not spin them (Practice, as Bastion), that
+  slamming a bot into a wall still stuns it, and that `thunderclap` behaves exactly as it did before
+  this whole rework began. The dash path was not touched and its tests are unchanged, so the third is
+  the lowest-risk of the three. **The 1400 ms of `reeling` a slam now grants is the thing most worth
+  feeling** — it is new behaviour, not a retune, and no test in this repo can say whether it reads as
+  "flung and fighting for grip" or as a stun on top of a stun.
 
 **The hands-on criteria cannot be closed by more driving, and that is now a recorded decision.** The
 user tried and found stage 3b's five checks impractical to reproduce by hand against a bot: you
@@ -366,8 +479,26 @@ then 3b's boxes stay unticked, and a session should not tick them by driving.
     falloff exists precisely to make repeated ramming stop reading as a lock, so whatever that probe
     reports next is a report on the new mechanic, not a re-run of the old measurement. Its
     expectation is stage 5's to reconsider, with the user, not an agent's to quietly retune.
+- **Stage 4 moved what the probes measure again, and again nothing was run.** Two behaviour changes
+  reach them: **a slam now imparts `reeling`** (1400 ms at the `STATUS_LIMITS` floors, where a slam
+  previously imparted no control loss at all), and **a slam plus a ram on one victim in one tick now
+  produce two impulses instead of one** — a victim that used to lose the ram entirely to the `best`
+  map's single slot now takes both. `WEAPON_TABLE` and `SLAM_CONFIG` both moved, so the config
+  fingerprint moved with them. Anything under `playtest/` that drives a charge and reads back what
+  the victim does afterwards is now reading a `reeling`-ed car. **Nothing was run and no threshold,
+  expectation or verdict logic was touched** — same standing decision as 3b: that is stage 5's job
+  and the user's call. `npm run typecheck` covers `playtest/` and `balance/` and is green, so nothing
+  is broken, only stale.
 - Balance baselines from before this branch are not comparable: the config fingerprint moved, and
   `BOT_BRAIN_VERSION` went 3.0.0 → 3.1.0.
+- `balance/match.test.ts`'s seeded match-length fixture was reseeded **22 → 79** for stage 4, the
+  sixth entry in that test's own documented seed-refresh protocol (65 → 15 → 26 → 87 → 98 → 22 → 79),
+  each one a real ram-model change landing on a knife-edge assertion. 79 was picked by that comment
+  block's own durability rule: swept 1-150 against the stage 4 build, it is the only survivor also
+  present in the stage-3-Task-2, stage-3-Task-4 **and** stage-3b known-good sets — decisive across
+  four consecutive ram models. **Only the seed and its comment paragraph changed**; no threshold,
+  expectation or verdict logic anywhere under `balance/` or `playtest/` was touched. The bot *does*
+  press `wildcharge` (it has since 2026-09-04), which is why this stage moved this matchup at all.
 
 Driving stage 1 (and now stages 3 and 3b) is the cheapest thing that de-risks the most: every number in the
 ram model gets tuned against how the cars actually feel, so if the heavy-car speeds are wrong, the ram
@@ -414,7 +545,31 @@ Recorded here because they were made across sessions and are easy to accidentall
   which would stop a second ram writing a duration at all and silently kill duration falloff. The
   helplessness is meant to come from the physics, not from a flag.
 
-## Open question, ANSWERED in stage 3b — with one residual risk that is stage 4's to close
+## Open question, ANSWERED in stage 3b — and CLOSED in stage 4, structurally
+
+> **RESOLVED 2026-09-07 by stage 4. The problem dissolved; it was not fixed with a field.** No `kind`
+> discriminator was added to `ImpulseEntry`, and none is wanted now. Stage 4 took the slam off
+> `resolveContacts`'s `best` map altogether — `contact.ts`'s charge branch emits a `SlamEvent` and
+> writes no `Impulse` at all — so **the `impulses` map holds rams and nothing else**, and there is
+> nothing left to disambiguate. The `slammedVictims` set, the `isRam` predicate and the ~20-line
+> KNOWN DEPENDENCY comment that carried this risk are all deleted from `ram-bridge.ts`; falloff and
+> `reeling` now apply unconditionally to every entry in that loop because every entry *is* a ram.
+>
+> **The unenforced ordering dependency is gone with them.** The old inference was only correct while
+> a slam's magnitude outranked every possible ram — `SLAM_CONFIG.knockSpeed` (520) against the
+> roster's hardest measured ram (268 u/s) — an observed fact about one day's tuning that
+> `resolveContacts` never enforced and that spec R9 forbids enforcing. A retune could have inverted
+> it silently. It cannot now: the classification is structural, not a magnitude comparison.
+>
+> **The failure this note describes is fixed as a side effect, and its opposite is the new
+> behaviour.** A victim slammed by A *and* rammed by B on the same tick used to lose one of the two
+> entirely to the map's single slot; it now takes both, the ram counted and diminished as a ram.
+> That is spec ruling P5, and `ram-bridge.test.ts` pins it as an exact vector sum against two
+> isolated control runs rather than as "moved on both axes". The one stacking case that did NOT come
+> free with the map's removal — slam plus slam — is capped explicitly instead; see "What stage 4
+> actually changed".
+>
+> Everything below is kept as the record of how the question was reasoned about while it was open.
 
 **Telling a ram from a slam inside `contactTick`'s impulses loop.** Spec P24 makes falloff ram-only,
 but `ImpulseEntry`'s map mixes both. `03b-ram-feel.md` inferred the disambiguation from
@@ -460,7 +615,7 @@ Real, non-blocking, each found once by a reviewer already. Fix opportunistically
 | 5 | Two `ram-bridge.test.ts` "no precedence" tests assert direction and non-zero-ness rather than the second knock's actual magnitude. |
 | 6 | `docs/config-reference.md` claims the camera's trailing offset is "12% of the half-view"; the `smoothFollow` steady-state formula gives ~3.9% at 267 u/s. Predates this branch. |
 | 7 | `docs/schema-reference.md` still calls the ram bridge a "temporary shim". That is stage-1 wording which stage 2 superseded — the bridge routes every push through `Impulse` now. Left alone in 3b's closing pass as out of its scope. |
-| 8 | The `ImpulseEntry` `kind` discriminator described under "Open question" above. Stage 4's natural home. |
+| ~~8~~ | **RESOLVED 2026-09-07 by stage 4 — structurally, with no `kind` field.** Slams no longer enter `resolveContacts`'s `best` map, so `impulses` holds rams only and there is nothing to disambiguate; `slammedVictims`, `isRam` and the KNOWN DEPENDENCY comment are deleted. The unenforced "a slam always outranks a ram in magnitude" dependency is gone with them, and the mis-classification this finding named is not merely fixed but inverted into the intended behaviour (both pushes land, the ram counted as a ram). See "Open question, ANSWERED in stage 3b — and CLOSED in stage 4". |
 | 9 | **`hasKnock` (`packages/server/src/sim/tick.ts`) still does not see a dead-on rear-end knock.** It tests `lateralOf`, `angVel` and `maneuver` only, so a silent or disconnected player rammed straight up the back freezes holding the knock instead of coasting it off. Stage 3b did NOT close this, contrary to what that function's comment used to claim — it only supplied the signal that could: `reeling` now marks every ram victim. Widening the predicate to read it is a **behaviour change** (it grows the set of silent-player ticks the server steps, which must stay in lockstep with what the client predicts), and `hasKnock` carries a recorded decision — two earlier versions of it were netcode bugs — so it is the user's call, not a fix-wave one. Candidate only. |
 | ~~10~~ | **RESOLVED 2026-09-07 by the user: the SPEC was amended, the code stands.** P21 and P24 now record that `applyStatus` implements `refresh` as `Math.max(existing.endsTick, endsTick)` — the status-mechanism spec's **D4** rule (2026-08-29), "the clock is extended, never shortened", written so a weak short source cannot cut a long one down. Falloff's duration half wants exactly what D4 forbids, so the two cannot both hold, and D4 is what ships. Accepted rather than fixed because the measured difference is two ticks (~67 ms at the shipped knobs) in the victim's favour, P24's anti-lock goal is met by a different mechanism than the clause named (no ram after the first can re-arm a full window), and closing it properly needs a third `StatusReapply` mode — a status-system change reopening the interaction D4 exists to close. `durationDrScale`'s own doc comment now warns that it does less than it reads and names `impulseDrScale`/`ramUncontrolMs` as the levers to use instead. |
 
@@ -484,10 +639,13 @@ worth more than "minor" and are recorded above instead — the `refresh`/`Math.m
   every ledger was deleted when its stage finished. Treat any pointer to a file under it as dead
   rather than as something to chase. Everything from it that matters was written into the constants'
   own doc comments, into this file, or into the plan documents before it went.
-- **The four executed plan documents carry `EXECUTED` banners as of 2026-09-07** and their unchecked
-  `- [ ]` boxes are historical. `03b-ram-feel.md`'s banner additionally lists the passages in it that
-  are known-wrong — a stale function name, a test helper that already exists, a fixture geometry that
-  does not fire, and three too-short file lists. It was deliberately not retro-edited, so read the
-  banner before following any step in it.
+- **All five executed plan documents carry `EXECUTED` banners as of 2026-09-07** and their unchecked
+  `- [ ]` boxes are historical. Two banners additionally list the passages in their plan that are
+  known-wrong, because the shipped code diverged: `03b-ram-feel.md` (a stale function name, a test
+  helper that already exists, a fixture geometry that does not fire, three too-short file lists) and
+  `04-impulse-def.md` (a test file that does not exist, a too-short file list, and two passages of
+  Task 3 that were overridden outright — its `fireAt("wildcharge", …)` sketches and its whole
+  direction of travel toward `combat.ts`). Neither was retro-edited, so read the banner before
+  following any step in either.
 - **The plan documents are not the source of truth; this file and the code are.** Where a plan and
   the shipped code disagree, the code won and the disagreement is recorded rather than erased.

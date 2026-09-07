@@ -508,7 +508,7 @@ The steering penalty they described is back as the **`reeling`** status: severit
 | `spinHalfLifeSeconds` | 0.35 | |
 | `counterSteerHalfLifeSeconds` | 0.15 | Spin decay while the player steers against it — shorter than `spinHalfLifeSeconds` on purpose, so countersteering shortens recovery instead of only offsetting it |
 | `spinEpsilon` | 0.01 | Below this magnitude a knock snaps to exact rest, as `stopEpsilon` does for the drive model |
-| `ramUncontrolMs` | 1000 | Full-strength `reeling` duration from a ram, before falloff — the "how long am I helpless" half of ram control loss, with `STATUS_TABLE.reeling`'s `turnRate`/`accel` (0.4/0.4) as the "how helpless" half. Weapons do not read it: stage 4 gives `wildcharge` its own duration on its `ImpulseDef` |
+| `ramUncontrolMs` | 1000 | Full-strength `reeling` duration from a ram, before falloff — the "how long am I helpless" half of ram control loss, with `STATUS_TABLE.reeling`'s `turnRate`/`accel` (0.4/0.4) as the "how helpless" half. Weapons do not read it: since stage 4 `wildcharge` carries its own duration on its `ImpulseDef` (1400 ms) |
 | `drWindowMs` | 2000 | How long "recently rammed" lasts, per victim. **Rolling**: each ram pushes the window out from itself, so protection never lapses under sustained pressure. Measured from the FIRST ram instead, an attacker who counts to one second could land full-strength rams forever — the exact lock the falloff exists to prevent |
 | `durationDrScale` | 0.5 | Each successive ram's `reeling` duration, as a fraction of the last. 1.0 disables duration falloff |
 | `durationDrFloorMs` | 150 | Duration never falls below this, so a late ram in a chain still reads as a hit rather than a whiff |
@@ -535,7 +535,7 @@ sim uses.
 
 **The ram's `ms` knobs convert to ticks the same way, and exactly once.** `RAM_TICKS`
 (`ram-config.ts`) freezes `ramUncontrolMs`, `drWindowMs` and `durationDrFloorMs` into the integer
-ticks the sim actually counts, through the same `msToTicks` as `WEAPON_TICKS` and `SLAM_TICKS`. As
+ticks the sim actually counts, through the same `msToTicks` as `WEAPON_TICKS`. As
 with the half-lives, the point is that nothing downstream re-derives a tick count from milliseconds
 and a literal rate.
 
@@ -557,32 +557,48 @@ collided against.
 
 ## SLAM_CONFIG
 
-Hard-slam tuning (spec S3): `packages/shared/src/config/slam-config.ts`. A slam REPLACES a graded
-ram with a fixed exchange — same knock for every attacker and victim, by design. Networked balance,
-same standing as `RAM_CONFIG`. See [`combat-model.md`](combat-model.md#maneuvers-and-the-contact-pass).
-
-**Two of the rows below are INERT as of the 2026-09-06 vector-drive rework's stage 2 (Impulse)** —
-`victimAuthority` and `selfKeepFactor`. `victimAuthority` mirrored a `RAM_CONFIG` steering floor that
-stage 3b has since deleted outright: there is no `authority` field left on `PlayerState` for either to
-feed, and a slam's control loss will ride on its own `ImpulseDef` in stage 4 rather than on anything
-here. `selfKeepFactor` used to hand-restore a
-fraction of the attacker's pre-impact speed after a slam; `reactionOf` (what used to compute the
-attacker's "restored" speed instead) was deleted in stage 3 Task 3. A slam does not derive the
-attacker's outcome from the victim's at all any more: `sim/contact.ts`'s slam branch hands the
-attacker a deliberately zero-magnitude `attackerImpulse` (spec R7 — every car's outcome is computed
-independently, and a slam has no "other side" to derive from), so the attacker's post-slam velocity
-is whatever `resolveWorld`'s restitution already reflected off it that same tick, nothing more. Both
-`victimAuthority` and `selfKeepFactor` are read by nobody; stage 4 deletes them along with the rest of
-`SLAM_CONFIG`.
+`packages/shared/src/config/slam-config.ts`. **One knob, as of the 2026-09-06 car-physics rework's
+stage 4** — every number that actually tuned the hard slam moved onto the charging weapon's own
+`ImpulseDef` (see [`WEAPON_TABLE`'s impulse rows](#weapon-impulses) below), and `SLAM_TICKS` went with
+them. What is left is not a slam property at all.
 
 | Knob | Value | Notes |
 |---|---|---|
-| `knockSpeed` | 520 | Fixed knock impulse (a speed), 2x `RAM_CONFIG.knockMaxSpeed`. No side bonus and no divisor on the victim's end — the victim's push is `defenceScaled: false`. The attacker takes a deliberately zero-magnitude `attackerImpulse` (R7); its own post-slam velocity is entirely whatever `restitution` already reflected off it that same tick — see the doc comment on this value in `slam-config.ts` for the measured historical (pre-stage-3) composed number |
-| `victimAuthority` **[INERT]** | 0.35 | Was the victim's post-slam steering authority, mirroring a `RAM_CONFIG` steering floor that stage 3b deleted. An ordinary ram's control loss is the `reeling` status now; a slam's is stage 4's `ImpulseDef` |
-| `selfKeepFactor` **[INERT]** | 0.7 | Was the fraction of the attacker's pre-impact speed hand-restored after a slam |
-| `wallStunWindowMs` / `wallStunDurationMs` | 500 / 500 | A slammed car that touches level geometry within the window is stunned for the duration |
-| `reslamImmunityMs` | 600 | A just-slammed car cannot be slammed again within this window |
-| `wallContactPad` | 1 | Hull inflation for "touching level geometry", mirroring `RAM_CONFIG.contactPad` |
+| `wallContactPad` | 1 | Hull inflation for "touching level geometry", mirroring `RAM_CONFIG.contactPad`. Read by the wall-blocked-dash sweep and the wall-stun sweep |
+
+**Where the other six went**, since a reader arriving from an older doc or comment will look here
+first:
+
+| Deleted | Successor |
+|---|---|
+| `knockSpeed` (520) | `wildcharge.impulse.speed`, carried across unchanged. Spec P31's re-pitch is still owed — stage 5 |
+| `wallStunWindowMs` / `wallStunDurationMs` (500 / 500) | `wildcharge.impulse.wallStun.windowMs` / `.durationMs` |
+| `reslamImmunityMs` (600) | `wildcharge.impulse.retriggerImmunityMs` |
+| `victimAuthority` (0.35) | `wildcharge.impulse.uncontrolMs`. Inert since stage 2 — `PlayerState` has no `authority` field — and the successor is a real `reeling` application, not another steering floor. Before stage 4 a slam imposed **no** control loss at all |
+| `selfKeepFactor` (0.7) | Nothing. Inert since stage 2. A slam's attacker is never pushed, so there is no speed left to restore; the `reactionOf` recoil that briefly stood between the two models was deleted in stage 3 (R7) |
+| `SLAM_TICKS` | `WEAPON_TICKS.wildcharge.impulse`, through the same `msToTicks` as every other weapon duration |
+
+## Weapon impulses
+
+`WeaponBase.impulse` / `ExplosionDef.impulse` (`packages/shared/src/config/weapon-types.ts`) — the
+declarative push a weapon imparts on contact, the sibling of `applies`. Absent on a row means that
+weapon pushes nothing, and absent must mean absent: `WEAPON_TICKS[id].impulse` is `undefined` rather
+than zero-filled, so no weapon can become a nudge by omission.
+
+**`wildcharge` is the only row that declares one today**, and the only application path built is the
+hard slam's (`ram-bridge.ts`'s `events.slams` loop). `weapon-config.test.ts` enforces that: an
+`impulse` may only sit on a `kind: "maneuver"` row, so authoring one on a projectile, beam or
+explosion fails the suite naming the missing path rather than silently doing nothing.
+
+| Field | `wildcharge` | Notes |
+|---|---|---|
+| `speed` | 520 | Δv in u/s. Was `SLAM_CONFIG.knockSpeed`; provisional until stage 5 re-pitches it against the ram contest (spec P31) |
+| `direction` | `"radial"` | Away from the source through the victim. For a maneuver the source is a hull, so this resolves to the OBB contact normal, carried on the `SlamEvent` from `sim/contact.ts` |
+| `spin` | 0 | A clean straight punt, no rotation — the ult's signature (P28/P31), and the one impact in the game that adds none |
+| `defenceScaled` | `false` | The target's `ramDefence` does not reduce it: a slam punts every chassis identically. The designer's escape hatch (principle C, R10) |
+| `uncontrolMs` | 1400 | `reeling` on the victim, unscaled by ram falloff (P24). Longer than a full-strength ram's `RAM_CONFIG.ramUncontrolMs` (1000) — it is a 20 s ult |
+| `wallStun.windowMs` / `.durationMs` | 500 / 500 | A victim driven into level geometry inside the window is stunned once for the duration |
+| `retriggerImmunityMs` | 600 | A car pushed by this cannot be pushed by it again within this |
 
 ## STATUS_TABLE
 
@@ -727,7 +743,7 @@ many sources piling up, and a row that needs it to be legal is a row whose autho
 | `tremor` | — (uncarried) | `fortified` | **`ownerInside`** | 0.3 s, re-applied every tick the owner's hull stands inside the live zone | all |
 
 A third `stunned` source sits outside this table entirely: a landed `wildcharge` hard slam that shoves
-its victim into a wall within `SLAM_CONFIG.wallStunWindowMs` stuns them for `wallStunDurationMs`
+its victim into a wall within `wildcharge.impulse.wallStun.windowMs` stuns them for its `durationMs`
 (500 ms) through the room's `statusRequests` queue, not through `WeaponDef.applies` — see
 [`combat-model.md`](combat-model.md#maneuvers-and-the-contact-pass). `overhauled` and `armored` have
 no applier yet; see below.

@@ -180,6 +180,11 @@ interface WeaponBase {
    * one thing that would be a bug either way: a weapon must do *something*.
    */
   applies?: readonly StatusApplication[];
+  /**
+   * The push this weapon imparts on contact, if any. Absent means this weapon pushes nothing — the
+   * default for every weapon that only damages or applies statuses. See `ImpulseDef`.
+   */
+  impulse?: ImpulseDef;
 }
 
 /**
@@ -204,6 +209,70 @@ interface WeaponBase {
  * not having it: adding a union member later is a one-line change the compiler will help with.
  */
 export type StatusTarget = "self" | "opponents" | "ownerInside";
+
+/**
+ * One push a weapon imparts, and to whom, and how hard. The declarative sibling of `applies`.
+ *
+ * Ram and weapons derive their impulses completely differently and share only how one LANDS
+ * (`applyImpulse`). This type is the *authored* half — fixed numbers a designer writes on a row —
+ * while ram builds its `Impulse` from a contest between both cars' `ramAttack`/`ramDefence` (stage
+ * 3, spec R1–R9), a side bonus, and a falloff stack (stage 3b, spec P24). Neither derivation
+ * constrains the other, which is what keeps ram feel and weapon feel independently tunable. See
+ * spec principle D.
+ */
+export interface ImpulseDef {
+  /** Magnitude as a Δv in u/s. Negative pulls the victim toward the source. */
+  speed: number;
+  /**
+   * `"radial"` pushes away from a source point through the victim — the attacker's hull for a
+   * contact impulse, the blast centre for an explosion, the impact point for a shell. That source
+   * point is DERIVED from the weapon's own geometry and never declared here.
+   *
+   * `"alongAim"` punches every target the same way instead of splaying them, which is what a
+   * shotgun wants.
+   */
+  direction: "radial" | "alongAim";
+  /**
+   * Torque scale from the contact-point lever arm. 0 = a clean straight punt, no rotation.
+   *
+   * **INERT on the one path implemented today, and a test enforces that no row relies on it.** The
+   * only `ImpulseDef` that is ever actually applied is a maneuver's contact impulse (wildcharge's
+   * hard slam), and the contact point `sim/contact.ts` carries on its `SlamEvent` is the VICTIM'S
+   * OWN CENTRE — so the lever arm `applyImpulse` measures is exactly zero, and any non-zero value
+   * here would produce exactly zero rotation with nothing to say so. `wildcharge` authors `0`
+   * deliberately (spec P28/P31), so no shipped behaviour depends on this, but the field would be a
+   * silent trap for the next author: `weapon-config.test.ts` asserts every authored `impulse` has
+   * `spin === 0` and names the missing lever arm when that stops being true.
+   *
+   * Authoring a spinning contact impulse means deriving a real contact point first — the way
+   * `resolveRam` already does with `contactPointOn`, which is why an ordinary ram spins its victims
+   * and a slam does not. That is a physics change, not a table edit.
+   */
+  spin: number;
+  /**
+   * Does the target's `ramDefence` reduce this push? **Renamed from `massScaled` (spec R10) — `mass`
+   * no longer exists.** Ram: yes, conceptually — a defensive chassis is meant to be harder to shove.
+   * A hard slam: no, it punts every chassis identically.
+   *
+   * The designer's escape hatch, and the place where "weapons get to break physics" becomes a
+   * checkbox instead of a special case.
+   *
+   * **Do not confuse this with the runtime `Impulse.defenceScaled` field ram itself produces.** Ram's
+   * own `Impulse`s (`sim/ram.ts`) are always built with `defenceScaled: false`, even though the
+   * *concept* above says "ram: yes" — the contest already divides by the victim's own `ramDefence`
+   * while computing the impulse's magnitude (spec R5), so letting `applyImpulse` divide a second time
+   * would apply it twice. This `ImpulseDef` field is the authored escape hatch for a WEAPON's own
+   * fixed push (wildcharge's slam, and any future explosion or shell); it has no reader in `ram.ts`
+   * at all. See `03-ram.md`'s Task 2, Step 5 note ("Why `defenceScaled: false` on a ram").
+   */
+  defenceScaled: boolean;
+  /** How long the victim is left `reeling`. Converted to ticks once, in `WEAPON_TICKS`. */
+  uncontrolMs: number;
+  /** Being driven into level geometry by this push stuns. Omit for an impulse that cannot. */
+  wallStun?: { windowMs: number; durationMs: number };
+  /** A car pushed by this cannot be pushed by it again within this. */
+  retriggerImmunityMs?: number;
+}
 
 /** One status a weapon applies: which, to whom, for how long. */
 export interface StatusApplication {
@@ -282,6 +351,11 @@ export interface ExplosionDef {
    * burst at a remote impact point is not. Guarded in `weapon-config.test.ts`.
    */
   applies?: readonly StatusApplication[];
+  /**
+   * The push this burst imparts on every car it catches, if any. Absent means this explosion pushes
+   * nothing. See `ImpulseDef`.
+   */
+  impulse?: ImpulseDef;
 }
 
 export interface ProjectileWeaponDef extends WeaponBase {

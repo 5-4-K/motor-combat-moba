@@ -12,9 +12,11 @@ pickups) — and never stacks with itself. Hard CC no longer belongs to one chas
 `spiked` now, a slow rather than a stop. `applyDamage` is no longer the only HP writer;
 **`sim/damage.ts` is**, now that repair pulses exist. **`corroded`'s only source in the game is now
 an explosion** — `magmablast`'s detonation, and nothing else applies it (grep `applies:.*corroded`
-if a second source ever needs checking). **`reeling` is the one row no weapon applies at all**: an
-ordinary ram writes it, from `contactTick`, which is why its duration comes from `RAM_CONFIG` rather
-than a `WeaponDef.applies` — see the car-physics section below. See
+if a second source ever needs checking). **`reeling` is the one row no `WeaponDef.applies` entry ever
+grants**: the contact pass writes it, from `contactTick` — an ordinary ram for `RAM_CONFIG`'s
+duration, and (since the car-physics rework's stage 4) a hard slam for
+`WEAPON_TABLE.wildcharge.impulse.uncontrolMs`, which is a weapon-authored duration reaching it
+through the `ImpulseDef` seam rather than through `applies`. See the car-physics section below. See
 [`docs/combat-model.md`](docs/combat-model.md#statuses).
 
 An **aura** is a beam with a `disc` hitbox at `origin: "center"` — a field around a car rather than a
@@ -165,7 +167,7 @@ the table moving. Feel complaints ("medium is too hard to hit") go through the
 | Package local rules | `packages/shared/CLAUDE.md`, `packages/server/CLAUDE.md`, `packages/client/CLAUDE.md` |
 | Spec + tracker | [`docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md`](docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md), [`docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md`](docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md) |
 | **Online netcode and client rendering — the fourteen-phase rewrite in progress** | **start at [`docs/superpowers/plans/2026-09-04-netcode-and-rendering/EXECUTION.md`](docs/superpowers/plans/2026-09-04-netcode-and-rendering/EXECUTION.md)** — see below |
-| **Car physics rework — stages 1, 2, 3 and 3b landed, spec now on revision 2** | **start at [`docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md`](docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md)** — see below |
+| **Car physics rework — stages 1-4 landed, spec now on revision 2** | **start at [`docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md`](docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md)** — see below |
 | Weapon system decisions (D1–D22), aim assist and target lock (A1–A14), online-play review, future work | [`docs/superpowers/specs/2026-08-27-weapon-system-design.md`](docs/superpowers/specs/2026-08-27-weapon-system-design.md), [`docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md`](docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md), [`docs/superpowers/plans/2026-08-27-weapon-system.md`](docs/superpowers/plans/2026-08-27-weapon-system.md) |
 | The nine-weapon roster, per-chassis kits (L1–L7) | [`docs/superpowers/specs/2026-08-29-weapon-roster-design.md`](docs/superpowers/specs/2026-08-29-weapon-roster-design.md) |
 | The three chassis types and their triangle, the `accel`/`handling` ratings, the weapon redistribution (T1–T22) — **supersedes L1–L7's assignments** | [`docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md`](docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md) |
@@ -213,7 +215,7 @@ What it changes, when it runs, and why it matters to work that touches the sim m
 A change to `sim/`, the tables or `ArenaScene.ts` made before this work starts is not wasted, but it
 will be moved by it — check the phase that owns the file before a large refactor there.
 
-## The car-physics rework: stages 1, 2, 3 and 3b landed, spec on revision 2
+## The car-physics rework: stages 1-4 landed, spec on revision 2
 
 **Stage 1 of a five-stage rework replaced `SimBody.speed` and `PlayerState.speed` — a scalar
 magnitude along the car's heading, with a separate `shoveX`/`shoveY` knockback vector and an
@@ -234,7 +236,7 @@ state.** Five `RAM_CONFIG` knobs (`authorityFloor`, `authorityHalfLifeSeconds`, 
 stage 3b**, along with `RamDecay.shove`/`.authority`; do not go looking for them. They had two
 different successors, not one — the three `authority` ones are the `reeling` status below, the two
 `shove` ones are `DRIVE_CONFIG.impactGripDecel`. `SLAM_CONFIG.victimAuthority` and `selfKeepFactor`
-are still there and still inert on the slam side, waiting on stage 4.
+were the slam side of the same story and **stage 4 deleted them too** — see below.
 
 **Stage 2 restored whole-vector reflection** in `applyContact` (walls deflect instead of damping),
 dropped `restitution` 0.35 → 0.15, split car-car separation by mass, and added the `Impulse` struct
@@ -274,7 +276,26 @@ the impulse and the `reeling` duration. It is **ram-only** — a slam does not p
 the **victim's** half alone: an attacker pays full cost for every punch, or chain-ramming a
 worn-down victim would get progressively safer.
 
-Stages 4 and 5 (plus the approved restitution stage before them) are planned against revision 2 and
+**Stage 4 gave weapons a declarative push and dissolved `SLAM_CONFIG`.** `WeaponBase`/`ExplosionDef`
+gained an optional **`ImpulseDef`** (`speed`, `direction`, `spin`, `defenceScaled`, `uncontrolMs`,
+`wallStun?`, `retriggerImmunityMs?`), converted to ticks once in `WEAPON_TICKS[id].impulse` —
+`undefined` when the row declares none, because absent must mean absent. **`wildcharge` is the only
+row that authors one**, and a config test enforces that an `impulse` may only sit on a
+`kind: "maneuver"` row, so authoring one on a projectile fails the suite naming the missing
+application path instead of silently doing nothing. `SLAM_CONFIG` is down to `wallContactPad`;
+`knockSpeed`, both wall-stun knobs, `reslamImmunityMs`, `victimAuthority`, `selfKeepFactor` and the
+whole `SLAM_TICKS` export are **gone**. Three consequences worth knowing before touching contact
+code: `sim/contact.ts`'s charge branch builds no `Impulse` at all — it emits a **`SlamEvent`**
+carrying the OBB contact normal and contact point, and `ram-bridge.ts`'s slams loop assembles the
+push there, beside the statuses that slam already applies (spec P30); **a slam now leaves its victim
+`reeling`** for 1400 ms off its own row, where before it imposed no control loss whatsoever; and
+because slams left the contact pass's per-victim impulse map, **a car slammed by A and rammed by B on
+one tick now takes both pushes** rather than only whichever won the single slot — which also deleted
+the `isRam` inference that would have misclassified that ram the day a retune inverted the magnitude
+ordering it silently depended on. `speed: 520` was carried across unchanged and is still
+**provisional**: spec P31's re-pitch against the ram contest is stage 5's.
+
+Stage 5 (plus the approved restitution stage before it) is planned against revision 2 and
 **not started**.
 
 **Start at
@@ -470,9 +491,10 @@ fingerprint** (a hash of `BOT_PROFILES`) alongside a config fingerprint — a re
 retune is not comparable to one after, and the harness's own `--baseline` flag refuses that
 comparison rather than trusting a reader to remember. See
 [`packages/server/balance/README.md`](packages/server/balance/README.md) for flags, the paired-run
-workflow, how to read a win-rate interval, and the harness's known distortions (the bot cannot press
-`wildcharge`; `corroded`'s amplified damage is credited to whatever weapon lands the hit, not to
-`corroded`), and
+workflow, how to read a win-rate interval, and the harness's known distortions (`corroded`'s
+amplified damage is credited to whatever weapon lands the hit, not to `corroded` — still current;
+and one that is now **historical**: the bot could not press `wildcharge` until 2026-09-04, so reports
+predating that date understate Bastion, and the fix took it from 0 presses to 1179 in a run), and
 [`docs/superpowers/specs/2026-09-03-game-balance-harness-design.md`](docs/superpowers/specs/2026-09-03-game-balance-harness-design.md)
 for the design.
 

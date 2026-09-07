@@ -199,7 +199,18 @@ describe("runMatch", () => {
     // recent known-good sets above (stage 3 Tasks 2 and 4) -- the same "survived more than one ram
     // model" reasoning that picked 98 last time, just applied to the next-most-durable candidate now
     // that 98 itself is gone.
-    const out = runMatch({ ...SETUP, seed: 22, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    //
+    // `seed: 79`, not 22: stage 4 (this rework) moved the hard slam off `SLAM_CONFIG` and onto
+    // `wildcharge`'s own declared `ImpulseDef` -- a slam now applies `reeling` for the def's
+    // `uncontrolMs`, where it previously applied no control loss at all, and a victim slammed and
+    // rammed on the same tick now takes both impulses instead of only the slam. The bot does press
+    // `wildcharge`, so a landed slam's new 1400 ms `reeling` window and the extra impulse both change
+    // this seeded matchup's dynamics, and seed 22 is now a legitimate 0-0 draw in the 30 s window.
+    // Swept 1-150 against the stage 4 build: 79 still lands a decisive kill inside it. 79 is picked
+    // over the other survivors because it is present in the stage-3-Task-2, stage-3-Task-4 AND
+    // stage-3b known-good sets -- decisive across four consecutive ram models, the same durability
+    // rule that picked 98 and then 22 before it.
+    const out = runMatch({ ...SETUP, seed: 79, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);

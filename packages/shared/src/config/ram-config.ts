@@ -314,7 +314,8 @@ export function rebuildRamDecay(hasOverrides: boolean): void {
 
 /**
  * Ram control-loss durations, in the integer ticks the sim actually counts — authored milliseconds
- * converted exactly once, at module load, the same shape as `SLAM_TICKS`/`WEAPON_TICKS`.
+ * converted exactly once, at module load, the same shape as `WEAPON_TICKS` (including its `impulse`
+ * block, which is where the hard slam's own durations live since stage 4 dissolved `SLAM_TICKS`).
  */
 export const RAM_TICKS: Readonly<{ uncontrol: number; drWindow: number; durationFloor: number }> =
   Object.freeze({

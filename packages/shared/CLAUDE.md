@@ -55,22 +55,30 @@ client predicts through the same modifiers (invariant 8). See
 **Maneuvers (spec S3) own three files.** `sim/maneuver.ts` declares `ManeuverKind`
 (NONE/DASH/HOLD/CHARGE, frozen uint8 values) and `NO_MANEUVER`, the four-field neutral spread used to
 reset a car. `sim/contact.ts`'s `resolveContacts` is where a maneuver actually does something: it
-extends `applyRams`'s pair loop with a dash (reports a `ContactHit`, no knock) and a charge (a hard
-slam — a fixed impulse, replacing the graded ram) ahead of the ordinary ram fallback, and runs where
-`applyRams` used to. `config/slam-config.ts`'s `SLAM_CONFIG`/`SLAM_TICKS` tune the slam alone — knock
-speed, victim authority, wall-stun window, re-slam immunity — kept separate from `RAM_CONFIG` because
-a slam is deliberately not graded like a ram. **`SLAM_CONFIG.victimAuthority` is inert as of the
-2026-09-06 vector-drive rework**: nothing writes an `authority` onto `PlayerState`, which no longer
-has such a field. `RAM_CONFIG`'s five equivalents (`authorityFloor`, the two `authority` decay knobs,
-and the two `shove` ones) went inert on the same date and were **deleted outright by that rework's
-stage 3b**; this one survives only because stage 4 is where a slam's own control loss gets authored,
-on `wildcharge`'s `ImpulseDef`. An ordinary ram's control loss is not pending: it **came back in
-stage 3b as the `reeling` status**, applied by `contactTick` and scaled by a per-victim
-diminishing-returns stack. **No longer dormant as of the 2026-09-01 weapon-status
-overhaul (Plan 3):** `thunderclap` (Mirage) is a `kind: "maneuver"` dash and `wildcharge` (Bastion) is
-a `kind: "maneuver"` charge, both real rows in `WEAPON_TABLE`, so `resolveContacts` and
-`SLAM_CONFIG`/`SLAM_TICKS` now run from a real match, not only from tests. `wildcharge` is also the
-roster's one `isUnInterruptable: true` row. See
+extends `applyRams`'s pair loop with a dash (reports a `ContactHit`) and a charge (reports a
+`SlamEvent` carrying the OBB contact normal and contact point) ahead of the ordinary ram fallback,
+and runs where `applyRams` used to. **Neither of those two builds an `Impulse` — only the ram
+fallback does.** A slam's push is assembled from the weapon's own `ImpulseDef` in
+`packages/server/src/sim/ram-bridge.ts`, beside the statuses that same slam applies (spec P30), which
+is what stage 4 of the 2026-09-06 car-physics rework moved and why `contact.ts` got smaller.
+
+**`config/slam-config.ts`'s `SLAM_CONFIG` is one knob now — `wallContactPad`, a hull inflation for
+"is this touching level geometry", not a slam property at all.** `knockSpeed`, `wallStunWindowMs`,
+`wallStunDurationMs`, `reslamImmunityMs`, `victimAuthority`, `selfKeepFactor` and the whole
+`SLAM_TICKS` export were **deleted in stage 4**: the first four moved onto
+`WEAPON_TABLE.wildcharge.impulse` (as `speed`, `wallStun.windowMs`/`.durationMs`,
+`retriggerImmunityMs`), `victimAuthority`'s successor is that row's `uncontrolMs` — which is a real
+`reeling` application, so a slam finally imposes control loss where before it imposed none — and
+`selfKeepFactor` has no successor at all, because a slam's attacker is simply never pushed.
+`RAM_CONFIG`'s five equivalents (`authorityFloor`, the two `authority` decay knobs, and the two
+`shove` ones) had already gone the same way in stage 3b; an ordinary ram's control loss **came back
+in stage 3b as the `reeling` status**, applied by `contactTick` and scaled by a per-victim
+diminishing-returns stack that a slam deliberately does not share. **No longer dormant as of the
+2026-09-01 weapon-status overhaul (Plan 3):** `thunderclap` (Mirage) is a `kind: "maneuver"` dash and
+`wildcharge` (Bastion) is a `kind: "maneuver"` charge, both real rows in `WEAPON_TABLE`, so
+`resolveContacts` and the slam path now run from a real match, not only from tests. `wildcharge` is
+also the roster's one `isUnInterruptable: true` row, and the only row in the table declaring an
+`impulse` at all. See
 [`docs/combat-model.md`](../../docs/combat-model.md#maneuvers-and-the-contact-pass).
 
 An **aura** is a beam with a `disc` hitbox at `origin: "center"`. It reuses `WorldShape`'s circle arm,

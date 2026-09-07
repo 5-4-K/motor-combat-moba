@@ -5,9 +5,10 @@ import type { CarId } from "./types.js";
 import type { StatusId } from "./status-types.js";
 import { WEAPON_TABLE, instanceDefOf, isWeaponId, weaponDefOf } from "./weapon-config.js";
 import { slotsOf } from "./weapon-slots.js";
-import { WEAPON_TICKS } from "./weapon-ticks.js";
+import { WEAPON_TICKS, msToTicks } from "./weapon-ticks.js";
 import type { WeaponDef } from "./weapon-types.js";
 import { AIM_CONFIG } from "./aim-config.js";
+import { STATUS_CONFIG } from "./status-config.js";
 
 describe("WEAPON_TABLE", () => {
   it("pins the overhaul roster's load-bearing numbers (spec 2026-09-01)", () => {
@@ -501,5 +502,96 @@ describe("WEAPON_TABLE", () => {
     it("synthesizes once, so the def is referentially stable", () => {
       expect(instanceDefOf("magmablast", true)).toBe(instanceDefOf("magmablast", true));
     });
+  });
+});
+
+describe("ImpulseDef", () => {
+  it("converts every authored duration to ticks exactly once, for any row that declares an impulse", () => {
+    // Written generically rather than hardcoded to `wildcharge` so a second row opting in is
+    // covered with no rewrite owed to this file. It ran vacuously when Task 1 landed the type and
+    // the conversion alone; since Task 2 authored `wildcharge.impulse` it asserts for real, and
+    // `wildcharge` is the one row it currently reaches.
+    for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
+      const impulse = def.impulse;
+      const ticks = WEAPON_TICKS[def.id].impulse;
+      if (impulse === undefined) {
+        expect(ticks, def.id).toBeUndefined();
+        continue;
+      }
+      expect(ticks, def.id).toBeDefined();
+      expect(ticks!.uncontrol).toBe(msToTicks(impulse.uncontrolMs));
+      expect(ticks!.wallStunWindow).toBe(msToTicks(impulse.wallStun?.windowMs ?? 0));
+      expect(ticks!.wallStunDuration).toBe(msToTicks(impulse.wallStun?.durationMs ?? 0));
+      expect(ticks!.retriggerImmunity).toBe(msToTicks(impulse.retriggerImmunityMs ?? 0));
+    }
+  });
+
+  it("leaves rows without an impulse undefined rather than defaulted", () => {
+    // Absent must mean absent. A zero-valued default would make every weapon a nudge.
+    expect(WEAPON_TABLE.pepperbox.impulse).toBeUndefined();
+    expect(WEAPON_TICKS.pepperbox.impulse).toBeUndefined();
+  });
+
+  it("keeps every authored direction on `radial`, the only mode with a reader", () => {
+    // Tightened from "is one of the two modes" (which the type already guarantees) to the mode the
+    // one implemented path actually honours. `ram-bridge.ts` NEVER CONSULTS `direction`: a slam's
+    // push takes the OBB contact normal `contact.ts` measured between the two hulls, because that
+    // is the one vector the bridge cannot recompute from poses. `"radial"` for a CONTACT impulse
+    // (source and target touching) IS that normal, so `wildcharge` is served correctly — but an
+    // `"alongAim"` maneuver row would silently receive the contact normal instead of the shooter's
+    // aim, and nothing else in the codebase would notice. There is a comment at the read site
+    // recording the assumption; this is what makes it fail loudly.
+    for (const row of Object.values(WEAPON_TABLE)) {
+      if (row.impulse === undefined) continue;
+      expect(row.impulse.direction, `${row.id}: "alongAim" has no reader — see ram-bridge.ts`).toBe("radial");
+    }
+  });
+
+  it("keeps every authored spin at 0, because the one implemented path has no lever arm", () => {
+    // `spin` is a public authoring field whose JSDoc promises torque from the contact-point lever
+    // arm — and on the only path that applies an `ImpulseDef` today (a maneuver's contact impulse)
+    // there is no lever arm to take it from: `contact.ts` puts the VICTIM'S OWN CENTRE on the
+    // `SlamEvent`, so `applyImpulse` measures `contactX - body.x` as exactly zero and any authored
+    // spin produces exactly zero rotation, silently. `wildcharge` authors 0 deliberately (a clean
+    // straight punt is the ult's signature, spec P28/P31), so nothing is broken today; this guard
+    // exists so the day someone authors a spinning charge it fails HERE, naming the missing contact
+    // point, instead of shipping a weapon that quietly spins nobody.
+    //
+    // The fix, if that day comes, is to derive a real contact point in `contact.ts` the way
+    // `resolveRam` already does with `contactPointOn` — not to relax this assertion.
+    for (const row of Object.values(WEAPON_TABLE)) {
+      if (row.impulse === undefined) continue;
+      expect(row.impulse.spin, `${row.id}: a maneuver impulse has a zero lever arm — see SlamEvent`).toBe(0);
+    }
+  });
+
+  it("requires a non-negative uncontrol duration on every impulse", () => {
+    for (const row of Object.values(WEAPON_TABLE)) {
+      if (row.impulse === undefined) continue;
+      expect(row.impulse.uncontrolMs).toBeGreaterThanOrEqual(0);
+      expect(row.impulse.uncontrolMs).toBeLessThanOrEqual(STATUS_CONFIG.maxDurationMs);
+    }
+  });
+
+  it("thunderclap declares no impulse at all", () => {
+    // Deliberate: it is a weapon whose effect is a status applied on contact, not a contact
+    // mechanic. See spec principle C. Do not "fix" this.
+    expect(WEAPON_TABLE.thunderclap.impulse).toBeUndefined();
+  });
+
+  it("keeps every declared impulse on a maneuver row, and every explosion impulse-free", () => {
+    // SCOPE RULING (stage 4, Task 1): this stage deliberately does not build a generic application
+    // path for a projectile/beam/explosion impulse — only a `kind: "maneuver"` row's impulse is
+    // ever actually applied (wildcharge's slam, Tasks 2-3). Authoring one anywhere else would
+    // silently do nothing, since the path to apply it does not exist yet; this guard names the
+    // missing path instead of letting that be discovered as a silent no-op. The first branch
+    // asserts for real against `wildcharge`, the roster's only `impulse` row and a `maneuver`; the
+    // explosion branch is still vacuous, since no `ExplosionDef` declares one.
+    for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
+      if (def.impulse !== undefined) expect(def.kind, def.id).toBe("maneuver");
+      if (def.kind === "projectile") {
+        expect(def.explosion?.impulse, `${def.id}'s explosion`).toBeUndefined();
+      }
+    }
   });
 });
