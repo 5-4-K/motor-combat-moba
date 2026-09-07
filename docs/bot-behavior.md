@@ -16,7 +16,9 @@ Design: [`docs/superpowers/specs/2026-09-05-bot-situation-play-design.md`](super
 Fairness / hands / personalities: H1–H8 and H16–H48 of
 [`docs/superpowers/specs/2026-09-04-human-like-bot-behavior-design.md`](superpowers/specs/2026-09-04-human-like-bot-behavior-design.md).
 
-Copied from `bot-profiles.ts` on 2026-09-07. `BOT_BRAIN_VERSION` is `4.3.0`.
+Copied from `bot-profiles.ts` on 2026-09-07. `BOT_BRAIN_VERSION` is `4.5.0`. (This line read `4.3.0`
+before this update, against a shipped `4.4.0` — that drift was pre-existing and not caused by the
+facing-term work below; it is corrected here along with the real bump.)
 
 ## Reading a complaint
 
@@ -35,7 +37,7 @@ much) and the winning plan's per-term breakdown (what it thought it was doing in
 | "It doesn't set up its shots" | **Planning** — a third factor as of 4.3.0. `planHorizonTicks` is how long an arc the bot can express at all; `targetBranches` is how hard it hedges against what you do next. Easy's 0 is a one-tick rollout by design (see [Known limitations](#known-limitations)) |
 | "It weaves / circles me" | Usually correct now. Circling is emergent: the planner turns because the arc that sweeps its nose across you scores better than the one that does not. A stutter — the wheel flapping rather than an arc — is planner *chatter*: raise `commitPenalty`. `orbitBias` does not exist |
 | "It ults my corpse / spawn shield" | `deadRespect` up (Hard should already be 1) |
-| "It sits in a corner while I approach" | `cornerRespect` up; the overlay should read `unpin`. **`wallPenalty` dominates the terms only in a TRUE corner**, where the pose itself is inside the margin. Merely NEAR a wall it reads 0 and that is correct, not a bug: every braking candidate stops short of the wall, so none is penalised, and `myEv` takes over (H39's near-wall scene measures exactly this). Check the pose before you chase the term |
+| "It sits in a corner while I approach" | `cornerRespect` up; the overlay should read `unpin`. **`wallPenalty` dominates the terms only in a TRUE corner**, where the pose itself is inside the margin. Merely NEAR a wall it reads 0, same as on open floor — check the pose before you chase the term. **H39's near-wall/open-floor pair (`tiers.test.ts`) no longer discriminates on `wallPenalty` at all — it reads 0 in both runs.** Since 4.5.0 it discriminates on `facingError` instead: `unpin`'s weight (60) prices a reversal near the wall higher than `fight`'s (30) prices the same reversal in the open, and that is what now keeps the near-wall car from reversing (measured tail: steer 1, throttle 0 — turns off the wall, does not back into it) while the open-floor car still backs off to `fightRange` (steer 0, throttle -1). Before the facing term carried a per-situation weight, both runs reversed identically despite the same 2400 `wallPenalty` already sitting there — the test failed then, and `wallPenalty` reading 0 was never what separated the two scenes; do not cite it as the explanation on its own |
 | "It never dodges" | `dodgeChance`, `dodgeReactionTicks`, `dodgeHorizonTicks`, `incomingCarChance`. Those decide WHETHER it reacts; `threatAvoid`'s weight in `objectives.ts` decides how hard, and is not per-tier |
 | "It fights at the wrong distance" | `opponentRangeRespect` (how much of *their* shortest gun it insists on clearing) and `awarenessRadiusUnits`. The bot's own comfortable range is **derived**, not dialled — see [`preferredRangeOf`](#preferredrangeof-the-standoff-is-derived-now) |
 | "It charges in / never closes" | `opponentRangeRespect` down to close, up to stand off. Nothing in the shipped profile can make a bot stand *closer* than its own derived comfort — see [Known limitations](#known-limitations) |
@@ -128,28 +130,51 @@ Base weights, identical across every tier. `weightsFor()` then scales exactly on
 profile — `theirEv × opponentRangeRespect` (P38). A tier may change how strongly it feels a
 pressure; it may never change what a situation is for.
 
-| Situation | `myEv` | `theirEv` | `rangeError` | `wallPenalty` | `lockKeep` | `threatAvoid` | `preferredRange` |
-|---|---|---|---|---|---|---|---|
-| `recover` | 0 | 0 | 0 | 60 | 0 | 0 | 0 |
-| `waitOut` | 0 | 0.5 | 0.375 | 240 | 0 | 0 | 0 (arrive at the waypoint) |
-| `evade` | 0.3 | 4 | 0 | 360 | 0 | 0.6 | `fightRange` |
-| `unpin` | 0.2 | 1 | 0 | 2400 | 0 | 0 | `fightRange` |
-| `punish` | 3 | 0.25 | 0.5 | 240 | 12 | 0 | `max(70, ownComfort × 0.5)` |
-| `reset` | 0.4 | 3 | 0.625 | 360 | 2 | 0 | `max(fightRange × 1.15, 70)` |
-| `fight` | 2 | 0.6 | 0.3 | 300 | 8 | 0 | `fightRange` |
-| `close` | 1 | 0.75 | 0.875 | 300 | 4 | 0 | 70 (`minEngageUnits`) |
+| Situation | `myEv` | `theirEv` | `rangeError` | `wallPenalty` | `lockKeep` | `threatAvoid` | `facingError` | `preferredRange` |
+|---|---|---|---|---|---|---|---|---|
+| `recover` | 0 | 0 | 0 | 60 | 0 | 0 | 0 | 0 |
+| `waitOut` | 0 | 0.5 | 0.375 | 240 | 0 | 0 | 120 | 0 (arrive at the waypoint) |
+| `evade` | 0.3 | 4 | 0 | 360 | 0 | 0.6 | 40 | `fightRange` |
+| `unpin` | 0.2 | 1 | 0 | 2400 | 0 | 0 | 60 | `fightRange` |
+| `punish` | 3 | 0.25 | 0.5 | 240 | 12 | 0 | 50 | `max(70, ownComfort × 0.5)` |
+| `reset` | 0.4 | 3 | 0.625 | 360 | 2 | 0 | 10 | `max(fightRange × 1.15, 70)` |
+| `fight` | 2 | 0.6 | 0.3 | 300 | 8 | 0 | 30 | `fightRange` |
+| `close` | 1 | 0.75 | 0.875 | 300 | 4 | 0 | 80 | 70 (`minEngageUnits`) |
 
 The weights are not on one scale and are not meant to be: `myEv` and `theirEv` are EV per second
 (0–75 in a duel), `rangeError` is world units, `wallPenalty` is a squared normalised overlap
-(0.017 in a corner — which is why its weight runs to the hundreds), `lockKeep` is 0 or 1, and
-`threatAvoid` is a displacement in units. Every row was derived against a MEASURED term scale, and
-`rangeError` has been re-derived three times because the quantity under it moved three times. Read
-the comment at the top of `objectives.ts` before touching a row, and re-derive rather than nudge.
+(0.017 in a corner — which is why its weight runs to the hundreds), `lockKeep` is 0 or 1,
+`threatAvoid` is a displacement in units, and `facingError` is a bounded `[0, 1]` alignment — the
+cosine-derived misalignment between terminal velocity and terminal heading (0 driving straight
+ahead, 0.5 sliding sideways, 1 reversing; see `sim/velocity.ts`'s `forwardOf`). Boundedness is why it
+did not need a fourth magnitude regime added to a table that was already three: every other term's
+weight had to be derived against that term's own measured range (`rangeError`'s alone three times,
+as the next paragraph covers), but `facingError`'s weight IS its own maximum possible contribution,
+so a row can be set directly against what it competes with in that situation rather than measured
+first. Every row was derived against a MEASURED term scale, and `rangeError` has been re-derived
+three times because the quantity under it moved three times. Read the comment at the top of
+`objectives.ts` before touching a row, and re-derive rather than nudge.
+
+**`fight`'s 30 is a value that survived the current test set, not a measured optimum** — it is the
+one row that was swept at all, over `{0, 5, 15, 30, 60}` against the whole `src/bot/brain/` suite,
+and `{30, 60}` is the only stretch with zero regressions. That plateau is thinner than it looks: the
+two failures on either side of it are on *different* canaries (5 fails the P50 statistical hit-rate
+ladder, plausibly threshold noise across a reseed; 15 fails the off-axis aim-line duel), so "clean
+from 30 to 60" is one data point on each side, not a swept curve. The number worth carrying into a
+future retune is not 30 itself but the **headroom** it sits at: in `fight`, `facingError` maxes out
+at 30 points against `rangeError`'s roughly 90 (0.3 × ~300 at a realistic pose) — the facing term is
+a tie-breaker there, never a veto, which is what keeps kiting legal (spec F12, `reset` and `fight`
+are the two situations a ranged chassis is meant to back off in with its guns still on target). A
+retune that grows `fight` past `rangeError`'s headroom would re-introduce the thing F12 forbids.
 
 Four terms are read as MOMENTS along the candidate arc — `myEv` and `lockKeep` at their best,
-`theirEv` and `wallPenalty` at their worst. `rangeError` and `threatAvoid` are DESTINATIONS, read
-at the terminus. That split is measured, not stylistic; `plan`'s doc comment in `planner.ts`
-carries the table of the three other readings that were tried and rejected.
+`theirEv` and `wallPenalty` at their worst. `rangeError`, `threatAvoid` and `facingError` are
+DESTINATIONS, read at the terminus — the same terminal `SimBody` `rangeError`/`threatAvoid` already
+read, so `facingError` cost the planner no new rollout or sample. A moment reading would have
+punished the transient mid-turn misalignment every good turn necessarily passes through, which
+would have penalised the exact behaviour the term exists to make affordable. That split is measured,
+not stylistic; `plan`'s doc comment in `planner.ts` carries the table of the three other readings
+that were tried and rejected.
 
 ### `preferredRangeOf`: the standoff is derived now
 
@@ -533,3 +558,20 @@ badly they read its inputs (`stateEstimationSigma` 0.25 against hard's 0.03) and
 execute it (`aimErrorSigmaRad` 0.18 against 0.035). An easy bot visibly trying — and failing — to
 lead you is the intended shape. P35/P36's field tables are normative and were followed; the prose
 portrait was not edited, and rewriting the spec is the user's call.
+
+**6. The 4.5.0 facing term has two measured behavioural costs, neither chased down.** A bot that
+turns spends ticks not closing, which is mechanically expected of `facingError` — but it is real and
+it was not sized away, so record it here rather than let the next tuner rediscover it from a bad
+`balance` run:
+
+- **Duel decisiveness dropped from 93/150 seeds to 63/150** — a 32% drop in how often a closed-loop
+  duel resolves to a kill inside its window rather than timing out. `npm run balance` is the
+  instrument that measures this; it has not been re-run since 4.5.0 landed (see the top-level
+  recommendation below).
+- **The dodge (`controller.test.ts`) got marginally WORSE despite the test now passing.**
+  Post-change the car crosses the shot's line (x=110) at t≈19 before curving away, finishing 17.4
+  units off; the pre-change straight reverse retreated monotonically to 19.4 units off. Spec section
+  5 predicted exactly this — reversing is the correct perpendicular escape in that scene, and pricing
+  it costs the dodge some clearance. `evade`'s weight (40) was deliberately **not** retuned to chase
+  the 2-unit gap: it is inside the noise an open-loop harness carries, and a closed-loop `npm run
+  playtest` run is the right instrument to resolve it, not a further sweep of this number.

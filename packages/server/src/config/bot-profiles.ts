@@ -748,7 +748,11 @@ export const BRAIN_CONSTANTS = Object.freeze({
 // target's real vx/vy instead of reconstructing velocity from angle+speed — the bot's lead and
 // dead-reckoning are now correct for a car that is sliding or being shoved, which they silently
 // were not before — and predict.ts rolls the vector drive model rather than the scalar one.
-export const BOT_BRAIN_VERSION = "4.4.0";
+// 4.5.0 (2026-09-07): the planner scores orientation. `rawScore` gains a seventh term,
+// `facingError` — nose-versus-travel misalignment, bounded [0, 1] via sim/velocity.ts, subtracted
+// like rangeError and wallPenalty, with a per-situation weight in objectives.ts's BASE. Fixes the
+// fragility where a drive retune could flip forward/reverse and the planner would not notice.
+export const BOT_BRAIN_VERSION = "4.5.0";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency
