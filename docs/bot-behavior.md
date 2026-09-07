@@ -134,7 +134,7 @@ pressure; it may never change what a situation is for.
 |---|---|---|---|---|---|---|---|---|
 | `recover` | 0 | 0 | 0 | 60 | 0 | 0 | 0 | 0 |
 | `waitOut` | 0 | 0.5 | 0.375 | 240 | 0 | 0 | 120 | 0 (arrive at the waypoint) |
-| `evade` | 0.3 | 4 | 0 | 360 | 0 | 0.6 | 40 | `fightRange` |
+| `evade` | 0.3 | 4 | 0 | 360 | 0 | 0.6 | 10 | `fightRange` |
 | `unpin` | 0.2 | 1 | 0 | 2400 | 0 | 0 | 60 | `fightRange` |
 | `punish` | 3 | 0.25 | 0.5 | 240 | 12 | 0 | 50 | `max(70, ownComfort × 0.5)` |
 | `reset` | 0.4 | 3 | 0.625 | 360 | 2 | 0 | 10 | `max(fightRange × 1.15, 70)` |
@@ -166,6 +166,29 @@ at 30 points against `rangeError`'s roughly 90 (0.3 × ~300 at a realistic pose)
 a tie-breaker there, never a veto, which is what keeps kiting legal (spec F12, `reset` and `fight`
 are the two situations a ranged chassis is meant to back off in with its guns still on target). A
 retune that grows `fight` past `rangeError`'s headroom would re-introduce the thing F12 forbids.
+
+**`evade` was re-derived on that same headroom rule, 40 -> 10, in the branch's final review**, and
+the rule is what to carry forward, not either number. `evade`'s only navigation term is
+`threatAvoid`, whose achievable contribution is **0-24 points** (weight 0.6 x the ~40 u terminal
+spread, per `objectives.ts`'s own scale table). At 40, `facingError` made a reverse dodge that bought
+**full** clearance earn 24 and pay 40: reverse dodges were not priced, they were **dominated
+outright** — F12's prohibition ("the term must not forbid correct play") in the one situation F12
+never examined, since its headroom argument names `fight` and `reset` only. 10 is `fight`'s
+tie-breaker ratio (about a third of the term it competes with, 30 against ~90) applied to that 24,
+raised to the roster's existing floor for a situation where reversing IS the play (`reset`, also 10).
+At 10 a full-clearance reverse still wins its comparison by 14 points, while a candidate that gains
+nothing on the line still pays for pointing backwards.
+
+**Why a weight here is a toll rather than a ceiling, and the one number that could change that.**
+`DRIVE_CONFIG.steeringGrip` is `1.0`, so `stepDrive` rebuilds the whole velocity vector in the new
+heading every tick and a driven car carries no lateral velocity. In the planner's rollout
+`facingError` is therefore **binary — exactly 0 or exactly 1**, never the 0.5 sliding-sideways band
+the formula admits, so a weight is a *flat toll* charged to every reversing candidate rather than a
+ceiling that is rarely approached. Read every row of the table above that way. If a future physics
+pass LOWERS `steeringGrip`, an ordinary turn's terminal pose starts scoring in (0, 0.5] too and the
+term begins charging for **turning itself** — re-creating "turning is pure cost", the exact defect it
+was written to delete, by a new route. Re-derive the whole column if that number moves;
+`facingErrorOf`'s doc comment in `planner.ts` carries the same warning at the code.
 
 Four terms are read as MOMENTS along the candidate arc — `myEv` and `lockKeep` at their best,
 `theirEv` and `wallPenalty` at their worst. `rangeError`, `threatAvoid` and `facingError` are
@@ -559,7 +582,7 @@ execute it (`aimErrorSigmaRad` 0.18 against 0.035). An easy bot visibly trying �
 lead you is the intended shape. P35/P36's field tables are normative and were followed; the prose
 portrait was not edited, and rewriting the spec is the user's call.
 
-**6. The 4.5.0 facing term has two measured behavioural costs, neither chased down.** A bot that
+**6. The 4.5.0 facing term had two measured behavioural costs; one is fixed, one is open.** A bot that
 turns spends ticks not closing, which is mechanically expected of `facingError` — but it is real and
 it was not sized away, so record it here rather than let the next tuner rediscover it from a bad
 `balance` run:
@@ -567,11 +590,32 @@ it was not sized away, so record it here rather than let the next tuner rediscov
 - **Duel decisiveness dropped from 93/150 seeds to 63/150** — a 32% drop in how often a closed-loop
   duel resolves to a kill inside its window rather than timing out. `npm run balance` is the
   instrument that measures this; it has not been re-run since 4.5.0 landed (see the top-level
-  recommendation below).
-- **The dodge (`controller.test.ts`) got marginally WORSE despite the test now passing.**
-  Post-change the car crosses the shot's line (x=110) at t≈19 before curving away, finishing 17.4
-  units off; the pre-change straight reverse retreated monotonically to 19.4 units off. Spec section
-  5 predicted exactly this — reversing is the correct perpendicular escape in that scene, and pricing
-  it costs the dodge some clearance. `evade`'s weight (40) was deliberately **not** retuned to chase
-  the 2-unit gap: it is inside the noise an open-loop harness carries, and a closed-loop `npm run
-  playtest` run is the right instrument to resolve it, not a further sweep of this number.
+  recommendation below). **Still open, and the `evade` 40 -> 10 re-derivation below did not move it**:
+  re-swept 1-150 at 10 and the count is 63/150 again, the same number on a different set of seeds
+  (which is why `balance/match.test.ts`'s pin needed its tenth re-seed, 3 -> 98). The seed moved, not
+  the regime.
+- **The dodge (`controller.test.ts`) got WORSE at `evade` 40, and that is what the 40 -> 10
+  re-derivation above fixed.** Measured in that test's own scene, open loop, as distance off the
+  shot's line (x = 110) after 30 ticks:
+
+  | `evade` weight | emitted answer | geometry |
+  |---|---|---|
+  | pre-4.5.0 (term absent) | straight reverse, `steer 0 / throttle -1` | 19.4 u, monotonic, never crosses the line |
+  | 40 (as first shipped) | forward arc, `steer -1 / throttle 1` | **crosses** the line at t≈19 (x = 110.1), ends 17.4 u |
+  | **10 (shipped now)** | straight reverse, `steer 0 / throttle -1` | **19.4 u, monotonic** — the pre-4.5.0 dodge, restored |
+
+  The answer flips between 10 and 15; {15, 20, 24} are byte-identical to 40 in this scene, so any
+  value above the flip changes nothing. **The rationale first recorded here was wrong** and is
+  corrected rather than deleted: it said the 2-unit gap was "inside the noise an open-loop harness
+  carries". It is not noise — it is a mechanism. With `steeringGrip` at 1.0 the term is binary, so 40
+  was a flat toll larger than the entire 0-24 range of the `threatAvoid` the dodge earns, and reverse
+  dodges lost every comparison they entered. See the headroom paragraphs in the weight-table section
+  above.
+- **The `controller.test.ts` dodge assertion (`steer !== 0`) is RED at `evade` 10, deliberately.**
+  It passed at 40 only as a *consequence* of the throttle flipping forward — once forward was
+  chosen, turning was the only remaining way to leave the +x line — so the green was a side effect of
+  the defect, not evidence against it. The assertion pins a single bit and cannot see the geometry
+  the table above measures. Spec section 5 reserves any rewrite of a behavioural assertion for the
+  user, so the weight was **not** bent back to keep it green: a principled weight with a red test is
+  a decision for the user, a bent weight with a green test is not. A closed-loop `npm run playtest`
+  run is the instrument that settles the dodge for real.

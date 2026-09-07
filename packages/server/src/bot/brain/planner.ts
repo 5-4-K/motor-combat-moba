@@ -629,8 +629,9 @@ function rollCandidates(
  * Which ticks along a `pathTicks`-long rollout the score is read at (R-P7).
  *
  * Ticks, one-based, ascending, and the LAST ENTRY IS ALWAYS `pathTicks`. That entry is load-bearing
- * twice over: it is where the two destination terms are read outright (`rangeError`, R-P7 third
- * revision, round 3; `threatAvoid`, R-P11, round 4), and it is where the four moment-terms catch an
+ * twice over: it is where the three destination terms are read outright (`rangeError`, R-P7 third
+ * revision, round 3; `threatAvoid`, R-P11, round 4; `facingError`, F9), and it is where the four
+ * moment-terms catch an
  * arc that sweeps beautifully and then buries itself in a wall.
  *
  * GEOMETRICALLY SPACED, not evenly, and that is load-bearing rather than a refinement. Measured: an
@@ -762,7 +763,7 @@ function scoreCandidate(
   let theirEv = 0;
   let wallPenalty = 0;
   let lockKeep = 0;
-  // Both destination terms are assigned outright at the terminal sample (see below), so neither
+  // All three destination terms are assigned outright at the terminal sample (see below), so none
   // needs a maximising or minimising seed. `plan` guarantees at least one sample (`commit` is
   // floored at 1), so the terminal branch always runs and 0 is never returned by accident.
   let rangeError = 0;
@@ -777,8 +778,8 @@ function scoreCandidate(
     const wall = boundsPenalty(body.x, body.y, args.arena);
     if (wall > wallPenalty) wallPenalty = wall;
 
-    // THE TWO DESTINATION TERMS, both read AT THE TERMINUS. Every other term asks about a MOMENT
-    // and takes its best or its worst anywhere along the arc; these two ask where the arc LEAVES
+    // THE THREE DESTINATION TERMS, all read AT THE TERMINUS. Every other term asks about a MOMENT
+    // and takes its best or its worst anywhere along the arc; these three ask where the arc LEAVES
     // the bot, and under R-P10 the terminal pose is a real destination — where committing this
     // input and then coasting to a stop actually puts the car.
     if (i === last) {
@@ -908,6 +909,26 @@ function threatAvoidOf(
  * nose-versus-objective term has no defined value in `recover` or a targetless `evade`, where
  * `targetAt` falls back to the car's own pose. Velocity is always defined, so no situation needs a
  * special case.
+ *
+ * ⚠ THIS TERM SILENTLY DEPENDS ON `DRIVE_CONFIG.steeringGrip`, WHICH IS 1.0 TODAY. Named neither in
+ * the spec nor in the plan; recorded here because it is the one number that decides what this
+ * function's OUTPUT DISTRIBUTION looks like, and a future physics pass is free to move it without
+ * ever opening this file.
+ *
+ * At `steeringGrip` 1.0 `stepDrive` rebuilds the whole velocity vector in the NEW heading every
+ * tick, so a driven car's lateral velocity is 0 absent a ram. `forwardOf / speed` is then +1 or −1
+ * and nothing else: in the planner's rollout this term is effectively **BINARY, exactly 0 or
+ * exactly 1**, and the 0.5 sliding-sideways band the formula admits is unreachable. A weight in
+ * `objectives.ts` is therefore a FLAT TOLL charged to every reversing candidate, not a ceiling that
+ * is rarely approached — which is how `evade`'s first weight (40) came to sit above the whole 0-24
+ * range of the `threatAvoid` it competes with, and dominate correct reverse dodges outright.
+ *
+ * IF A FUTURE PHYSICS PASS LOWERS `steeringGrip`, RE-DERIVE EVERY WEIGHT IN THAT TABLE. Below 1.0 a
+ * turning car's velocity trails its nose through the whole arc, so the terminal pose of an ordinary
+ * TURN — not a reversal — starts scoring somewhere in (0, 0.5]. This term would then charge a toll
+ * on turning itself, which re-creates "turning is pure cost" (F1-F3), the exact defect it exists to
+ * delete, by a new route and with no test naming it. The symptom to watch for is the bot collapsing
+ * back to straight-line inputs, the same one F2 describes.
  */
 export function facingErrorOf(body: SimBody): number {
   const speed = speedOf(body.vx, body.vy);

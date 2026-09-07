@@ -123,6 +123,30 @@ describe("runMatch", () => {
     // assertion below states that premise outright so the two cases can never be confused: if a
     // future balance edit empties the window again, THAT line fails and names the reason.
     //
+    // `seed: 98`, not 3: the facing term's FINAL REVIEW re-derived `evade`'s `facingError` weight
+    // 40 -> 10 (fix wave, 2026-09-07). At 40 the term out-weighed the entire 0-24 point range of the
+    // `threatAvoid` it competes with in that situation, so a reverse dodge buying full clearance was
+    // dominated outright rather than merely priced — spec F12's prohibition applied to the one
+    // situation F12 never examined. 10 restores the reverse dodge, which changes which candidate
+    // wins every tick this matchup spends in `evade`, and seed 3 is now a legitimate 1-1 RANKING
+    // TIE: `a: 1 kill / 1 death, b: 1 kill / 1 death`, `hitClock: false`. Exactly the failure mode
+    // seed 79 hit one commit earlier — the kills assertion still passes and only `winnerSessionId`
+    // is empty, because `deathmatchOutcome` ranks on kills then fewest deaths and the seats tie on
+    // both. Not the clock defect this test guards.
+    //
+    // Swept 1-150 against this build: 63 seeds land a decisive kill inside the 30 s window, the
+    // SAME COUNT as the shipped-at-40 build the previous entry measured (63/150, itself down from
+    // 93/150 pre-term). So the `evade` re-derivation moved WHICH seeds are decisive without moving
+    // HOW MANY — the seed moved, not the regime, and the 93 -> 63 drop recorded below is still the
+    // open signal for the recommended `npm run balance` run.
+    //
+    // 98 by the durability rule, and it is the strongest pedigree this pin has ever had available:
+    // 98 is the seed the stage-3-Task-4 entry below picked as "the one seed present in every
+    // known-good set this test has ever had", and it is the ONLY prior pick decisive under this
+    // build (3, 22 and 79 are all 1-1 ties now). Under this build it is `a: 1 kill / 0 deaths,
+    // b: 0 / 1` — decisive on KILLS ALONE, so it does not rest on the deaths tiebreak that killed
+    // 79 and then 3. No existing history comment was deleted, reworded or reordered.
+    //
     // `seed: 3`, not 79: the planner's facing term (2026-09-07, F1-F14) gave `rawScore` a seventh
     // term and `objectives.ts`'s `BASE` a seventh column, so the bot's STEER AND THROTTLE both
     // moved. `facingError` is nose-versus-travel misalignment at the rollout terminus — 0 driving
@@ -360,7 +384,7 @@ describe("runMatch", () => {
     // window, so the physics branch's pick carries forward. That is the same durability rule that
     // picked 98, then 22, then 79 before it: prefer a seed already present in a known-good set over
     // a fresh one, because it has survived more than one change to the thing under it.
-    const out = runMatch({ ...SETUP, seed: 3, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    const out = runMatch({ ...SETUP, seed: 98, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);

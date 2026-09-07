@@ -246,29 +246,46 @@ describe("tier characterisation", () => {
     // look-ahead never reaches the wall at either position.
     //
     // THE COMPARED STREAM IS THE WHOLE EMITTED INPUT, NOT THE STEER ALONE (residuals round,
-    // 2026-09-07). It used to be `.steer`, on the desire model's assumption that leaving a wall is
-    // something a bot does with the wheel. The planner answers a wall on whichever axis is cheapest,
-    // and in this scene that is the THROTTLE. Measured over the whole tail, at every tick of it:
+    // 2026-09-07; RE-MEASURED in the facing-term fix wave, same date, and this paragraph rewritten
+    // because the build moved under it). It used to be `.steer`, on the desire model's assumption
+    // that leaving a wall is something a bot does with the wheel. The planner answers a wall on
+    // whichever axis is cheapest — and it does not pick the same axis twice running. The residuals
+    // round measured `steer 0 / throttle 0` near the wall and wrote the justification below around
+    // that; since brain 4.5.0 gave `rawScore` its `facingError` column the same scene answers on the
+    // WHEEL. Re-measured over the whole tail, at every tick of it, on the current build:
     //
-    //   near wall (x=1200)  situation `unpin`  steer 0  throttle  0   <- brakes short of the wall
-    //   open floor (x=640)  situation `fight`  steer 0  throttle -1   <- backs off to `fightRange`
+    //   near wall (x=1200)  situation `unpin`  steer  1  throttle  0   <- turns off the wall
+    //   open floor (x=640)  situation `fight`  steer  0  throttle -1   <- backs off to `fightRange`
     //
-    // Both answers are correct. Near the wall the candidate dump shows every braking candidate
-    // scoring `wallPenalty` exactly 0 — from 80 units out at 200 u/s the car stops with 58 to spare,
-    // so it does not need to turn — while driving on scores 9.93 and is eliminated; `myEv` then
-    // keeps the nose on the target, which is what a bot that has already solved the wall should do.
-    // On open floor the enemy is 200 units away against a preferred ~530, so straight reverse is the
-    // whole of the play. Neither pose has any reason to turn the wheel, so the steer stream is 0 in
-    // both and comparing it alone can no longer see the wall.
+    // Both answers are correct, and `wallPenalty` reads exactly 0 in BOTH runs — the near-wall pose
+    // is merely NEAR a wall, not inside the margin `boundsPenalty` squares, so the term that looks
+    // like the discriminator is not one and must not be cited as the mechanism. What separates the
+    // two runs is `facingError`'s PER-SITUATION weight. A straight reverse leaves the terminal
+    // velocity opposed to the nose, so it scores `facingError` 1; `unpin` prices that at 60 and
+    // `fight` at 30. Near the wall the reverse is therefore out-scored by a forward arc, which is
+    // what the measured `steer 1` is (its terminal `facingError` reads 0); on open floor — enemy 200
+    // units away against a preferred ~530 — the reverse survives its 30-point toll and backing off is
+    // the whole of the play. A global facing constant could not have produced this divergence at
+    // all, which is exactly why spec F12 made the weight a per-situation column.
     //
-    // It used to see it only by accident: before the hunt's synthetic waypoint was moved off
-    // `minEngageUnits` (R-P13, same round), the OPEN-FLOOR run spent its `waitOut` warm-up circling
-    // a point 70 units off its own nose, entered `fight` with that steering incumbent, and sawed
-    // `1,1,-1,-1,0,0` in a six-tick limit cycle for the whole tail. The near-wall run's steer was 0
-    // across all 90 ticks then too — so this assertion has never actually observed `unpin` steering;
-    // it observed the open-floor bot chattering, which is the defect this phase exists to delete.
-    // Comparing the full input asks the test's own question ("does a wall change what hard does")
-    // of the whole decision instead of one axis of it.
+    // WHICH MEANS THE STEER STREAM IS NOT 0 IN BOTH, and a steer-only comparison would in fact see
+    // this scene today — the residuals round's stated reason for widening it ("the steer stream is 0
+    // in both and comparing it alone can no longer see the wall") is no longer true. It is not a
+    // reason to narrow the comparison back. Which axis carries the answer has already flipped once
+    // inside a single day, on a score change that had nothing to do with walls, so pinning the test
+    // to `.steer` re-bets the assertion on it never flipping again — and the next flip would read as
+    // "the wall stopped mattering" when the wall still mattered. Comparing the full input asks the
+    // test's own question ("does a wall change what hard does") of the whole decision instead of one
+    // axis of it, and gives the same answer whichever axis the planner happens to reach for.
+    //
+    // The old steer-only form also passed for the wrong reason before R-P13 moved the hunt's
+    // synthetic waypoint off `minEngageUnits` (residuals round): the OPEN-FLOOR run spent its
+    // `waitOut` warm-up circling a point 70 units off its own nose, entered `fight` with that
+    // steering incumbent, and sawed `1,1,-1,-1,0,0` in a six-tick limit cycle for the whole tail,
+    // while the near-wall run's steer sat at 0 across all 90 ticks. So the streams differed on the
+    // wheel then too, but on the open-floor bot's chattering rather than on anything the wall did —
+    // the defect that phase exists to delete. Today's `steer 1` near the wall is the first time this
+    // assertion has actually observed `unpin` steering off a wall.
     //
     // IT IS STRONGER ON ONE SIDE AND WEAKER ON THE OTHER, not strictly stronger, and an earlier
     // draft of this comment claimed the latter. The EASY side (`toBe`, "the wall reaches nothing")

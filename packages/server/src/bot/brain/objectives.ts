@@ -134,6 +134,34 @@ import type { PlanWeights } from "./planner.js";
  * is INERT for both canaries — every point was 248/249 on the same off-axis failure — so it keeps
  * the value F13's argument gives it. No other row was swept: a value found by chasing two tests
  * across six free parameters is overfitting, not tuning.
+ *
+ * `evade` RE-DERIVED, 40 -> 10, ON THE HEADROOM ARGUMENT THAT SHIPPED `fight` (final review,
+ * 2026-09-07). Same rule as every re-derivation above — a weight is set against the term it
+ * competes with — applied to the one situation nobody applied it to. In `evade` that competing
+ * term is `threatAvoid`, and this file's own scale table puts it at **0-24 points** (0.6 x the
+ * ~40 u terminal spread). `facingError` at 40 therefore made a reverse dodge buying FULL
+ * clearance earn 24 and pay 40: reverse dodges were dominated OUTRIGHT, not merely priced.
+ *
+ * That is F12's principle — the term must not FORBID correct play — in a situation F12 never
+ * examined; its headroom argument names `fight` and `reset` only, and `fight` was the only row
+ * ever swept. It matters more here than anywhere else because `DRIVE_CONFIG.steeringGrip` is
+ * 1.0, so in the planner's rollout `facingError` is effectively BINARY (0 or 1, never the 0.5
+ * band — see `facingErrorOf` in `planner.ts`): the weight is a FLAT TOLL on every reversing
+ * candidate, not a ceiling one rarely reaches.
+ *
+ * The derivation, not a sweep. `fight` ships facing at ~1/3 of the term it competes with (30
+ * against `rangeError`'s ~90) — "a tie-breaker, never a veto". One third of `evade`'s 24 is 8;
+ * 10 is that raised to the roster's existing floor for a situation where reversing IS the play
+ * (`reset`, also 10). At 10 a full-clearance reverse still wins its comparison by 14 points,
+ * while a candidate that gains nothing on the line still pays for pointing backwards — which is
+ * the tie-breaker this term is for. Measured in the `controller.test.ts` dodge scene, open-loop,
+ * the emitted answer flips between 10 and 15: at 10 (and below) the bot reverses straight off the
+ * line to 19.4 u, monotonically; at 15 (and above, 40 included) it drives FORWARD and turns,
+ * crossing the shot's line at t~19 before curving away to 17.4 u. Values in {15, 20, 24} are
+ * byte-identical to 40 in that scene, so anything above the flip is a number that changes nothing.
+ * NOTE: `controller.test.ts`'s dodge assertion (`steer != 0`) is RED at 10 — it passed at 40 only
+ * as a consequence of the throttle flipping forward. Spec section 5 reserves that assertion for
+ * the user; the weight is not to be raised back to keep it green.
  */
 const BASE: Readonly<Record<SituationId, PlanWeights>> = Object.freeze({
   recover: {
@@ -146,7 +174,11 @@ const BASE: Readonly<Record<SituationId, PlanWeights>> = Object.freeze({
   },
   evade: {
     myEv: 0.3, theirEv: 4, rangeError: 0, wallPenalty: 360, lockKeep: 0, threatAvoid: 0.6,
-    facingError: 40,
+    // 10, not 40: `threatAvoid` maxes out at 24 points here (0.6 x the ~40 u spread, per the
+    // scale table above), so 40 made a full-clearance reverse dodge earn 24 and pay 40 —
+    // dominated outright, which is F12's prohibition in a situation F12 never examined. See the
+    // "`evade` RE-DERIVED" paragraph above for the headroom derivation.
+    facingError: 10,
   },
   unpin: {
     myEv: 0.2, theirEv: 1, rangeError: 0, wallPenalty: 2400, lockKeep: 0, threatAvoid: 0,
