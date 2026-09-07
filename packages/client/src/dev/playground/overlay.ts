@@ -406,7 +406,7 @@ export function mountPlaygroundOverlay(
     // mistaken for a magnitude.
     const signed = (n: number): string => (n > 0 ? `+${n}` : `${n}`);
     // Two lines (P45, P46): personality/situation/range/slot/danger plus the planner's chosen
-    // action, its score, and the EV ratio all fit on one readable line; the six-term score
+    // action, its score, and the EV ratio all fit on one readable line; the per-term score
     // breakdown that justifies that action needs its own line or the whole thing wraps and stops
     // being scannable at a glance, which defeats the point of an overlay.
     debugEl.textContent =
@@ -415,8 +415,11 @@ export function mountPlaygroundOverlay(
       ` | danger ${payload.dangerEv}` +
       ` | plan(${signed(payload.planSteer)},${signed(payload.planThrottle)}) ${payload.planScore}` +
       ` | ev ${payload.shotEvBest}/${payload.shotEvThreshold}\n` +
-      `terms  my ${payload.termMyEv}  their ${payload.termTheirEv}  range ${payload.termRangeError}` +
-      `  wall ${payload.termWallPenalty}  lock ${payload.termLockKeep}  threat ${payload.termThreatAvoid}`;
+      // Whatever keys arrived, in the order the planner emitted them — not six hard-coded names, so
+      // a term added to `PlanWeights` shows up here without an edit (see `BotDebugPayload.terms`).
+      // The key IS the label: a per-term short name would be another hand-kept mirror of the very
+      // list this stopped mirroring, and `myEv`/`rangeError` read fine at a glance.
+      `terms  ${Object.entries(payload.terms).map(([k, v]) => `${k} ${v}`).join("  ")}`;
   });
 
   let subView: "menu" | "settings" = "menu";

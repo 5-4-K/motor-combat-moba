@@ -166,6 +166,11 @@ export interface BotDebug {
    * Per-term contributions of the winning candidate (P45). Keyed off `PlanWeights` itself — not
    * retyped by hand — so a term added to the planner's weight vector cannot silently go unreported
    * here. Overlay only.
+   *
+   * The WIRE inherits that derivation rather than re-declaring it: `BotDebugPayload.terms` is an
+   * open `Record<string, number>` and `PlaygroundRoom` copies this map's entries wholesale. It used
+   * to flatten to six named fields, which meant this comment's guarantee stopped at the room's
+   * broadcast — see that field's doc for why the mirror was deleted instead of guarded.
    */
   planTerms: Record<keyof PlanWeights, number> | undefined;
   /**
