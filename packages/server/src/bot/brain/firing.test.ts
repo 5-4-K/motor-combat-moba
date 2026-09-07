@@ -78,29 +78,46 @@ describe("preferredRangeOf", () => {
     expect(bullseye).toBeGreaterThan(bastion);
   });
 
-  it("still answers when nothing is ready, rather than collapsing to the floor by accident", () => {
+  it("falls back to the whole kit when NOTHING is ready, not to the far edge of awareness (R-D4)", () => {
     // Every slot spent AND locked — the real shape of the moment between a bot spending its last
-    // loaded slot and the first one coming back. No slot contributes, every sample scores 0, and the
-    // outward tie-break then carries `bestRange` to the far end of the kit's reach rather than
-    // leaving it at 70. That is deliberate: a bot mid-recharge should back off, not close.
+    // loaded slot and the first one coming back.
     //
-    // It backs off FURTHER than the deleted `effectiveRangeOf` fallback did, and the numbers are
-    // said out loud because they are a real behaviour change, not a wash (measured 2026-09-07):
-    // Bullseye reloads at 600/700/900 (its `awarenessRadiusUnits` binds at every tier), Mirage at
-    // 386.7 and Bastion at 486.7 at all three. This is the degenerate arm of the tie-break — every
-    // candidate ties at 0, so "the greatest distance at which the kit loses nothing" is the whole
-    // kit's reach — rather than a range the solver derived from anything. It is accepted because a
-    // reload gap is short and `rangeError` is one weighted term among several, but it is the arm to
-    // look at first if a bot is ever reported drifting away mid-fight.
+    // WITHOUT THE FALLBACK the readiness filter removes every slot, every sampled range totals 0,
+    // all of them tie, and the outward tie-break — correct and load-bearing when the samples mean
+    // something — carries `bestRange` to the far end of the kit's reach, capped only by
+    // `awarenessRadiusUnits`. Measured before the fix (2026-09-07): a hard Bullseye stood at 900,
+    // its whole awareness radius, against the 420 it stands at when loaded. That is a degenerate
+    // tie deciding a position rather than a decision, which is why R-D4 restores the explicit
+    // fallback the deleted `effectiveRangeOf` carried for the mirror-image reason.
+    //
+    // Sweeps all three chassis at all three tiers, because the defect's size varies with which
+    // cap binds: Bullseye's awareness cap bound at every tier, Mirage's and Bastion's did not.
+    for (const carId of ["bullseye", "mirage", "bastion"] as const) {
+      for (const tier of ["easy", "medium", "hard"] as const) {
+        const loaded = self(carId);
+        const spent = {
+          ...loaded,
+          slots: loaded.slots.map((slot) => ({ ...slot, stocks: 0, refireLockUntilTick: 500 })),
+        };
+        // The kit's authored reach is what a not-ready bot evaluates, so it gets the SAME plateau
+        // it would get with everything loaded — the range is a property of the kit, not of the
+        // cooldown clocks.
+        expect(
+          preferredRangeOf(spent, BOT_PROFILES[tier], ones, 0),
+          `${carId}/${tier} while reloading`,
+        ).toBe(preferredRangeOf(loaded, BOT_PROFILES[tier], ones, 0));
+      }
+    }
+
+    // And it is strictly nearer than the far edge the degenerate tie used to hand back, which is
+    // the behaviour change the ruling is about.
+    const bullseye = self("bullseye");
     const spent = {
-      ...self("bullseye"),
-      slots: self("bullseye").slots.map((slot) => ({
-        ...slot, stocks: 0, refireLockUntilTick: 500,
-      })),
+      ...bullseye,
+      slots: bullseye.slots.map((slot) => ({ ...slot, stocks: 0, refireLockUntilTick: 500 })),
     };
-    const range = preferredRangeOf(spent, BOT_PROFILES.hard, ones, 0);
-    expect(range).toBeGreaterThanOrEqual(preferredRangeOf(self("bullseye"), BOT_PROFILES.hard, ones, 0));
-    expect(range).toBeLessThanOrEqual(BOT_PROFILES.hard.awarenessRadiusUnits);
+    expect(preferredRangeOf(spent, BOT_PROFILES.hard, ones, 0))
+      .toBeLessThan(BOT_PROFILES.hard.awarenessRadiusUnits);
   });
 });
 

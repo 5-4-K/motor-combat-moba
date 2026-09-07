@@ -44,6 +44,18 @@ export function isUlt(slot: BotSlotView): boolean {
  * would drag every bot to contact range. `>=` takes the LAST range achieving the maximum instead:
  * the far edge of the plateau, the greatest distance at which the kit gives up nothing, which is
  * where a player who knows their own hands stands.
+ *
+ * WHEN NOTHING IS LOADED, THE WHOLE KIT IS SAMPLED ANYWAY (R-D4, fix wave 1, 2026-09-07) — the
+ * authored reach, not the empty set. Readiness is the right filter while at least one gun is
+ * loaded: a bot with one of three slots up should stand where THAT slot pays. But mid-recharge
+ * every slot is filtered out, every sampled range totals 0, all of them tie, and the outward
+ * tie-break above — which is correct and load-bearing for the real case — sends the bot to the FAR
+ * end of its reach, 900 units for a Bullseye, capped only by `awarenessRadiusUnits`. That is a
+ * degenerate tie deciding a position, not a decision. The `effectiveRangeOf` this function replaced
+ * carried an explicit fallback for the mirror-image reason and said so: "so a bot mid-recharge does
+ * not suddenly decide it wants to be nose to nose." Backing off while reloading may well be good
+ * play; if it is ever wanted it belongs in the situation layer, which already has `reset` and
+ * `waitOut` for exactly that, and not in an accident of this function's tie-break.
  */
 export function preferredRangeOf(
   self: BotSelfView,
@@ -57,12 +69,15 @@ export function preferredRangeOf(
     BRAIN_CONSTANTS.minEngageUnits,
     ...self.slots.map((slot) => weaponReachOf(slot.weaponId)),
   );
+  // R-D4: readiness only filters while it leaves something to sample. With nothing loaded it is
+  // every slot, which is the kit's authored reach.
+  const anyReady = self.slots.some((slot) => slotIsReady(slot, tick));
   const step = Math.max(10, longest / 24);
   for (let range = BRAIN_CONSTANTS.minEngageUnits; range <= longest; range += step) {
     let total = 0;
     for (let i = 0; i < self.slots.length; i++) {
       const slot = self.slots[i]!;
-      if (!slotIsReady(slot, tick)) continue;
+      if (anyReady && !slotIsReady(slot, tick)) continue;
       total += proxyValue({
         shooter: { x: 0, y: 0, angle: 0 }, slot,
         targetX: range, targetY: 0,
