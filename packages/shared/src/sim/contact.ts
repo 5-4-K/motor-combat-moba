@@ -19,10 +19,11 @@ import { canDamage } from "./weapons/targets.js";
 
 /**
  * The contact pass (spec S3). Extends `applyRams`'s pair loop with two maneuver-driven cases that
- * fire ahead of an ordinary ram: a DASH pair reports a hit and writes no `Impulse` at all (damage and
- * stun ride combat), and a CHARGE pair resolves a hard slam — a fixed impulse, unlike the graded ram
- * it otherwise falls back to. Pure: no schema, no room, no wall clock. Table-free: every def-derived
- * fact (`slamsStunned`, the maneuver weapon id) arrives already resolved on `ContactCar`.
+ * fire ahead of an ordinary ram: a DASH pair reports a hit, and a CHARGE pair reports a hard slam.
+ * Neither writes an `Impulse` — a dash's damage and stun ride combat, and a slam's push is assembled
+ * from its own weapon row in `ram-bridge.ts` (stage 4). Only the ram fallback still builds one here.
+ * Pure: no schema, no room, no wall clock. Table-free: every def-derived fact (`slamsStunned`, the
+ * maneuver weapon id) arrives already resolved on `ContactCar`.
  *
  * Runs where `applyRams` used to run — after driving has resolved for the tick, before combat.
  */
@@ -46,6 +47,26 @@ export interface ContactHit {
 }
 
 /**
+ * A slam event, plus the contact geometry only this pass can compute.
+ *
+ * `ram-bridge.ts` assembles the slam's `Impulse` from the weapon's own `ImpulseDef` (spec P30), but
+ * that def declares a direction MODE, not a vector: `"radial"` resolves to the OBB CONTACT NORMAL
+ * for a maneuver, which needs both hulls and `contactNormalBetween`. The bridge holds poses only,
+ * and centre-to-centre is a different vector on any non-dead-on hit — so the geometry rides here.
+ *
+ * Deliberately not on `ContactHit`: a dash hit shares that type and carries no push. `SlamEvent`
+ * stays structurally assignable to it, so `contactHits` takes one unchanged.
+ */
+export interface SlamEvent extends ContactHit {
+  /** Unit vector pointing from the attacker's hull toward the victim's — the push direction. */
+  dirX: number;
+  dirY: number;
+  /** World-space contact point, for the lever arm `applyImpulse` derives spin from. */
+  contactX: number;
+  contactY: number;
+}
+
+/**
  * One resolved contact and who threw it. Keyed by VICTIM id in the returned map.
  *
  * `attackerId` rides in the entry rather than being reconstructed downstream — the caller
@@ -62,7 +83,7 @@ export interface ImpulseEntry {
 
 export interface ContactEvents {
   dashHits: ContactHit[];
-  slams: ContactHit[];
+  slams: SlamEvent[];
   /** Session ids of every DASH car found pressed into level geometry this tick. */
   wallBlockedDashers: string[];
 }
@@ -110,11 +131,14 @@ function isCharger(c: ContactCar): boolean {
 /**
  * One tick of contact resolution over every pair, mirroring `applyRams`: sorted session ids,
  * edge-triggered contact set, best-impulse-per-victim — ranked by `impulse.speed` now that the
- * contest replaces a single 0-1 severity grade. A slam's fixed `SLAM_CONFIG.knockSpeed` comfortably
- * beats an ordinary ram at today's tuning, but nothing enforces that structurally the way the old
- * severity clamp did (spec R9 forbids re-adding a ceiling) — Task 4's `RAM_CONFIG.globalScale`
- * measurement is what established the ordering: the roster's hardest ram tops out at 268 u/s against
- * a slam's fixed 520, so the slam-beats-ram guarantee holds, at today's tuning.
+ * contest replaces a single 0-1 severity grade.
+ *
+ * **That `best` map holds RAMS ONLY** (stage 4). A slam used to write into it too and win the single
+ * per-victim slot on raw magnitude — an ordering nothing enforced structurally (R9 forbids the
+ * ceiling that once did), resting only on the measured fact that the roster's hardest ram tops out
+ * at 268 u/s against a slam's fixed 520. One consequence of dropping it is deliberate: a victim
+ * slammed by A *and* rammed by B on one tick now takes BOTH pushes rather than whichever won the
+ * slot. Within a pair nothing changed — still exactly one of dash/slam/ram.
  *
  * Classification per fresh touching pair, checked from each car's own side:
  *
@@ -144,7 +168,7 @@ export function resolveContacts(
   const contacts = new Set<string>();
   const best = new Map<string, ImpulseEntry>();
   const dashHits: ContactHit[] = [];
-  const slams: ContactHit[] = [];
+  const slams: SlamEvent[] = [];
 
   for (let i = 0; i < ordered.length; i++) {
     const a = ordered[i]!;
@@ -191,7 +215,7 @@ function resolvePair(
   tick: number,
   slamImmuneUntil: ReadonlyMap<string, number>,
   dashHits: ContactHit[],
-  slams: ContactHit[],
+  slams: SlamEvent[],
   best: Map<string, ImpulseEntry>,
 ): void {
   let anyEvent = false;
@@ -221,47 +245,22 @@ function resolvePair(
       const away = awayFrom(attacker, other);
       if (away === null) continue;
 
+      // No `Impulse` is built here (stage 4) — only the event and the geometry. Everything the old
+      // inline `Impulse` encoded is authored on the weapon row now: no ramDefence divisor
+      // (`defenceScaled: false`, principle C's escape hatch), no spin (P28/P31), and a real
+      // `uncontrolMs` where this branch hardcoded `uncontrolTicks: 0` and left a slam with no
+      // control loss at all. The attacker's half is gone rather than zeroed: it existed only so the
+      // bridge had one code path for both halves of an `ImpulseEntry`, and with the slam off that
+      // map "the attacker takes nothing from its own slam" is expressed by not pushing it.
       slams.push({
         attackerSessionId: attacker.sessionId,
         targetSessionId: other.sessionId,
         weaponId: attacker.maneuverWeaponId as WeaponId,
-      });
-      // A slam REPLACES the contested ram with a fixed exchange (spec S3): no ramDefence divisor
-      // (`defenceScaled: false` — a designer's escape hatch from physics, spec principle C) and no
-      // spin (`spin: 0` — "a clean straight punt is the ult's signature", spec P28/P31).
-      // `uncontrolTicks` is authored `0` here, same as `resolveRam`; stage 4 moves it onto
-      // `wildcharge`'s own weapon row.
-      const imp: Impulse = {
         dirX: away.x,
         dirY: away.y,
-        speed: SLAM_CONFIG.knockSpeed,
-        spin: 0,
-        defenceScaled: false,
-        uncontrolTicks: 0,
         contactX: other.x,
         contactY: other.y,
-      };
-      // A slam is authored, not contested (spec R7's independence has no "other side" here): the
-      // attacker takes NOTHING from its own slam. Zero-magnitude rather than omitted, so the bridge
-      // (`ram-bridge.ts`) has a single code path for applying every `ImpulseEntry`'s two halves.
-      const attackerImp: Impulse = {
-        dirX: -away.x,
-        dirY: -away.y,
-        speed: 0,
-        spin: 0,
-        defenceScaled: false,
-        uncontrolTicks: 0,
-        contactX: attacker.x,
-        contactY: attacker.y,
-      };
-      const standing = best.get(other.sessionId);
-      // A slam's fixed magnitude wins the best-impulse-per-victim comparison against a typical ram
-      // at today's tuning, including a tie against an EARLIER slam on the same victim this tick (two
-      // chargers landing on one car): `>=`, not `>`, is what makes a tie resolve to the newer one
-      // rather than silently keeping the first.
-      if (standing === undefined || imp.speed >= standing.impulse.speed) {
-        best.set(other.sessionId, { attackerId: attacker.sessionId, impulse: imp, attackerImpulse: attackerImp });
-      }
+      });
       anyEvent = true;
     }
   }

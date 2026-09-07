@@ -150,12 +150,13 @@ for the attacker, each built by the same `pushOf`/`impactOn` pair reading its OW
 are not forced to be mirror images of each other the way an equal-and-opposite reaction did.
 `ram-bridge.ts`'s `contactTick` applies `impulse` to the victim and `attackerImpulse` to the attacker
 as two ordinary entries of the same `impulses` map — no negation, no shared magnitude. A hard slam is
-the extreme case of this independence: `sim/contact.ts`'s slam branch builds the victim's
-fixed-magnitude `impulse` and, deliberately, a ZERO-magnitude `attackerImpulse` (`speed: 0`) — R7's
-independence has no "other side" for a slam to derive a cost from, so the attacker is simply authored
-to take nothing from its own charge. This is also what replaced `SLAM_CONFIG.selfKeepFactor`'s old
-hand-tuned "restore a fraction of pre-impact speed" approximation: there is no restoring left to do,
-because the contest never took anything from the attacker's slam in the first place.
+the extreme case of this independence: it is authored rather than contested, so R7 has no "other
+side" for it to derive a cost from and its attacker takes nothing from its own charge. Through stage
+3 that was spelled as a deliberate ZERO-magnitude `attackerImpulse` riding the same map; stage 4 took
+the slam off that map entirely (see "Maneuvers and the contact pass" below), so the attacker is now
+simply never pushed. Either way it replaced `SLAM_CONFIG.selfKeepFactor`'s old hand-tuned "restore a
+fraction of pre-impact speed" approximation: there is no restoring left to do, because nothing ever
+took anything from the attacker's slam in the first place.
 
 **The attacker still pays something on an ordinary ram, and it lands in two layers — see "Wall and car
 deflection" above.** `serverTick`'s own collision pass reflects the attacker's velocity by
@@ -171,16 +172,20 @@ that is the restitution reflection, not the contest — see `RAM_CONFIG.globalSc
 status rather than a revived `authority` field.** `authority` had no field to migrate onto —
 `PlayerState` carries none — so `ram-bridge.ts` dropped it on the floor entirely through stage 3, and a
 rammed car kept full steering. `contactTick`'s impulses loop now applies `reeling` to a ram's victim
-(never its attacker, and never a slam's victim — see [Statuses](#statuses) below) for
+(never its attacker) for
 `RAM_TICKS.uncontrol`, scaled down on a re-ram by the same per-victim diminishing-returns stack
 (spec P24) that already scales the impulse's own `speed`: `nextFalloff` is read and recorded once per
 ram, and both the impulse magnitude and the `reeling` duration it hands to `applyStatus` are derived
 from that one call's `impulseScale`/`durationScale` pair, floored at `RAM_TICKS.durationFloor` so a
 long enough chain never rounds the status away to nothing. Falloff scales only the victim's half — the
 attacker's `attackerImpulse` is charged in full on every ram, so chaining rams into an already-worn-down
-victim never gets safer for the aggressor. A hard slam's own control-loss duration is untouched by any
-of this: its `Impulse.uncontrolTicks` is still authored `0` by `sim/contact.ts`'s slam branch, and
-`wildcharge`'s own duration is stage 4's decision to author, not a byproduct of the ram falloff stack.
+victim never gets safer for the aggressor. **A hard slam has its own control loss as of stage 4, and
+it is untouched by any of this**: `wildcharge.impulse.uncontrolMs` (1400 ms, longer than a
+full-strength ram's 1000) becomes `reeling` on the slam's victim through `contactTick`'s
+`events.slams` loop, unscaled — falloff is ram-only (spec P24), so an ult is never quietly discounted
+by how many ordinary rams its victim has just absorbed, and a slam is never counted into the stack a
+later ram reads. Before stage 4 a slam imposed no control loss at all: `sim/contact.ts` authored
+`Impulse.uncontrolTicks: 0`.
 
 See [`schema-reference.md`](schema-reference.md#playerstate) for the networked fields and
 [`config-reference.md`](config-reference.md#ram_config) for the tuning. Five of that config's knobs
@@ -189,9 +194,10 @@ stage 3b deleted all five outright. Their mechanics have two different successor
 `authority` knobs (`authorityFloor`, `authorityHalfLifeSeconds`, `authorityEpsilon`) describe the
 steering penalty `reeling` supplies now, while the two `shove` ones (`shoveHalfLifeSeconds`,
 `shoveEpsilon`) described a decay on knock velocity, which bleeds off through the flat-rate
-`DRIVE_CONFIG.impactGripDecel` instead.
-`SLAM_CONFIG.victimAuthority`/`selfKeepFactor` are still there and still inert on the slam side — see
-that page.
+`DRIVE_CONFIG.impactGripDecel` instead. `SLAM_CONFIG.victimAuthority`/`selfKeepFactor` were the slam
+side of the same story and stage 4 deleted them too, along with `knockSpeed`, the two wall-stun
+knobs, `reslamImmunityMs` and the whole `SLAM_TICKS` export — every slam number now lives on
+`WEAPON_TABLE.wildcharge.impulse`, and `SLAM_CONFIG` holds only `wallContactPad`.
 
 **Teammates are fully immune.** `resolveRam` is gated by the same `canDamage` predicate used below
 for shots, so contact and weapons can never disagree about who is on your side. Teammates still
@@ -221,26 +227,34 @@ four networked `PlayerState` fields (`maneuver`, `maneuverTicksLeft`, `maneuverA
   intended mechanism for `lance`-style weapons that root the car while they fire.
 - **Charge** — drives normally and only counts down, ending early on its first slam (or its own
   `durationMs`). While charging, contact with an opponent it may damage is a **hard slam** instead of
-  a graded ram: a fixed impulse from `SLAM_CONFIG` (same knock for every attacker and victim, no
-  `ramDefence` divisor, no side bonus), gated off if the victim is already `stunned` and the charger's
-  weapon doesn't set `slamsStunned` (O3/O18), or if the victim is still inside
-  `SLAM_CONFIG.reslamImmunityMs` of a previous slam. A landed slam ends the attacker's charge and
+  a graded ram: a fixed impulse authored on the charging weapon's own row
+  (`WEAPON_TABLE.wildcharge.impulse` — same knock for every attacker and victim, no `ramDefence`
+  divisor, no side bonus, no spin), gated off if the victim is already `stunned` and the charger's
+  weapon doesn't set `slamsStunned` (O3/O18), or if the victim is still inside that row's
+  `retriggerImmunityMs` of a previous slam. A landed slam leaves its victim `reeling` for the row's
+  own `uncontrolMs`, unscaled by the ram falloff stack. It also ends the attacker's charge and
   expires the attacker's own self-applied statuses (`expireStatusesFromSource`) — a window that closed
-  early cannot leave its buff running past it. The attacker's own post-slam velocity is **not** a
-  hand-restored fraction of its pre-impact speed (`SLAM_CONFIG.selfKeepFactor` is inert — see "Ramming"
-  above): the slam's contest gives the attacker a deliberately ZERO-magnitude `attackerImpulse` (R7 —
-  every car's outcome is computed independently, and a slam has no "other side" to derive a cost
-  from), so the attacker's post-slam velocity is entirely whatever `resolveWorld`'s restitution already
-  reflected off it that same tick, not a fraction "kept" or restored by anything in `SLAM_CONFIG`. A
-  victim shoved into a wall within `SLAM_CONFIG.wallStunWindowMs` of the slam is stunned once for
-  `wallStunDurationMs` (O2).
+  early cannot leave its buff running past it. The attacker takes **nothing** from its own slam: it
+  is authored, not contested (R7 — every car's outcome is computed independently, and a slam has no
+  "other side" to derive a cost from), so its post-slam velocity is entirely whatever `resolveWorld`'s
+  restitution already reflected off it that same tick, and there is no hand-restored fraction of
+  pre-impact speed (`SLAM_CONFIG.selfKeepFactor`, deleted in stage 4). A victim shoved into a wall
+  within the row's `wallStun.windowMs` of the slam is stunned once for its `durationMs` (O2).
 
-`sim/contact.ts`'s `resolveContacts` is where this lives: it extends `applyRams`'s pair loop —
-checking each car for a dash, then a charge/slam, and only falling through to an ordinary ram when
-neither side produced one — and runs in the same slot `ramTick` used to, between drive and combat.
-The server-side half is `packages/server/src/sim/ram-bridge.ts`'s `contactTick`, which also tracks
-each slam's wall-stun window and re-slam immunity in room memory and turns a landed wall-stun into a
-`StatusRequest`.
+`sim/contact.ts`'s `resolveContacts` is where the classification lives: it extends `applyRams`'s pair
+loop — checking each car for a dash, then a charge/slam, and only falling through to an ordinary ram
+when neither side produced one — and runs in the same slot `ramTick` used to, between drive and
+combat. **It builds no impulse for a dash or a slam**, only for the ram fallback; a slam emits a
+`SlamEvent` carrying the OBB contact normal and contact point, which is the geometry only that pass
+can compute. The server-side half is `packages/server/src/sim/ram-bridge.ts`'s `contactTick`, which
+assembles the slam's `Impulse` from the weapon row and applies it beside the statuses that same slam
+applies (spec P30), tracks each slam's wall-stun window and re-slam immunity in room memory, and
+turns a landed wall-stun into a `StatusRequest`.
+
+One consequence of taking the slam off the contact pass's per-victim impulse map is deliberate: a car
+slammed by A **and** rammed by B on the same tick now takes **both** pushes. It used to take only
+whichever won the single slot, on a magnitude ordering nothing enforced. Within a pair nothing
+changed — a pair that resolves as a slam still produces no ram.
 
 **Stun interruption (O8/O14).** A `stunned` status that lands fresh this tick — not one already
 running — cancels the car's committed states at the end of that same tick: a pending wind-up (its
@@ -814,8 +828,10 @@ Re-tabled by the 2026-09-01 weapon-status overhaul (Plan 3) against the current 
 for the numbers.
 
 Five of the eight rows here are reachable from a weapon; two — `overhauled` and `armored` — are
-waiting on pickups; `reeling` is the one row granted directly by the ram contact pass rather than by
-any weapon's `applies` (same non-`applies` treatment as `stunned`'s wall-impact source below). Three
+waiting on pickups; `reeling` is the one row no weapon's `applies` ever grants — the contact pass is
+its only source, for an ordinary ram and (since stage 4) for a hard slam, which reads its duration
+off `wildcharge.impulse.uncontrolMs` rather than from `applies` (same non-`applies` treatment as
+`stunned`'s wall-impact source below). Three
 statuses now have more than one source (`stunned`'s third arriving outside `applies` entirely), and
 `tremor`'s two rows are presence effects — short durations a live zone keeps topping back up, held
 exactly while a car stands in it:
@@ -832,6 +848,7 @@ exactly while a car stands in it:
 | `fortified` | `wildcharge`, **self** | Bastion | 10 s, ended early with the charge |
 | `fortified` | `tremor`, **`ownerInside`** | — (uncarried) | 0.3 s per covered tick — held while the OWNER stands in their own zone |
 | `reeling` | any landed ram (`ram-bridge.ts`'s `contactTick`, not `applies`) | — (any chassis, victim only) | `RAM_TICKS.uncontrol`, shorter on a re-ram — see [Ramming](#ramming) |
+| `reeling` | a landed hard slam (`contactTick`'s slams loop, not `applies`) | Bastion | `wildcharge.impulse.uncontrolMs` (1.4 s), never shortened — falloff is ram-only |
 | `overhauled` | nothing — the pickup row | — | — |
 | `armored` | nothing — the pickup row beside `overhauled` | — | — |
 

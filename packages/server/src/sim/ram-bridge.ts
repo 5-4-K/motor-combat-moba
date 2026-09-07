@@ -2,7 +2,6 @@ import {
   RAM_CONFIG,
   RAM_TICKS,
   SLAM_CONFIG,
-  SLAM_TICKS,
   applyImpulse,
   applyStatus,
   carHullOf,
@@ -18,6 +17,7 @@ import {
   resolveContacts,
   toWorld,
   weaponDefOf,
+  weaponTicksOf,
   type ArenaState,
   type ContactCar,
   type ContactHit,
@@ -43,11 +43,19 @@ import { modifiersFor, readStatuses, writeStatuses } from "./status-bridge.js";
  * combat runs after, reading the `ContactHit`s and `StatusRequest`s this produces.
  */
 
-/** One slammed victim's two independent clocks: the wall-stun window and the re-slam immunity. */
+/**
+ * One slammed victim's two independent clocks — the wall-stun window and the re-slam immunity —
+ * plus the stun this slam would land, all three resolved from the slamming weapon's own
+ * `ImpulseDef` at the moment the slam landed. Carrying `wallStunTicks` rather than re-deriving it
+ * in the sweep is what lets the sweep stay weapon-agnostic: the record already knows everything the
+ * window means, and a slam thrown by a future second charge weapon brings its own numbers with it.
+ */
 interface SlamRecord {
   bySessionId: string;
   wallStunUntilTick: number;
   immuneUntilTick: number;
+  /** Stun length, in ticks, if this slam's victim reaches a wall inside the window. */
+  wallStunTicks: number;
 }
 
 /**
@@ -152,13 +160,11 @@ export function clearKnock(player: PlayerState): void {
 
 /**
  * Zero the four maneuver fields alone, touching no velocity. Split out of `endDash` (below) for the
- * slam-attacker case (Task 4): that car's post-slam velocity is written by the impulses loop's
- * `entry.attackerImpulse`, in the same pass that resolves every other impulse this tick — as of
- * stage 3 Task 2 (the ram contest) a slam's `attackerImpulse` is a deliberate zero-magnitude
- * `Impulse` (a slam is authored, not contested, so the attacker takes nothing from its own hit), not
- * an equal-and-opposite reaction to the victim's push. A maneuver end must not stomp that outcome
- * back to a forced-forward speed the way `endDash` deliberately does for a dash. Order between the
- * two writes does not matter — they touch disjoint fields.
+ * slam-attacker case: a slam is authored, not contested, so its attacker takes nothing from its own
+ * hit — nothing pushes it, and a maneuver end must not stomp that back to a forced-forward speed the
+ * way `endDash` deliberately does for a dash. (Through stage 3 the same outcome was spelled as a
+ * zero-magnitude `attackerImpulse` applied by the impulses loop; stage 4 stopped building one at
+ * all, which changes nothing here.)
  */
 function endManeuverOnly(player: PlayerState): void {
   player.maneuver = 0;
@@ -304,62 +310,29 @@ export function contactTick(
   // `reactionOf` would have been dead code on this path (handing the attacker a negated copy of a
   // contest-derived impulse is incoherent: the contest already decided what the attacker takes,
   // independently of what the victim took), which is why stage 3 Task 3 deletes it outright rather
-  // than leaving it unreachable. This also replaces `SLAM_CONFIG.selfKeepFactor`'s
-  // hand-tuned forward-only restore for a slam's attacker outright: a slam's `attackerImpulse` is a
-  // zero-magnitude `Impulse` built by `contact.ts`'s slam branch, riding through this exact same map,
-  // so "the attacker takes nothing from its own slam" falls out of applying it rather than being a
-  // separate rule in the `events.slams` loop below (see `endManeuverOnly`'s own comment).
+  // than leaving it unreachable.
   //
   // `knock.authority` had no successor for one release; stage 3b is what reinstates ram control-loss,
   // as the `reeling` status below, scaled by the victim's own diminishing-returns stack.
   //
-  // `impulses` holds BOTH ram entries and slam entries (`resolvePair` resolves each PAIR as exactly
-  // one of dash/slam/ram), and spec P24 is explicit that falloff and `reeling` are ram-only, so the
-  // two must be told apart here. `events.slams` already names every victim slammed this tick, and
-  // because a pair resolves to at most one outcome, "this victim is in `events.slams`" is equivalent
-  // to "this victim's impulse entry came from the slam branch" — there is no third case to worry
-  // about.
-  const slammedVictims = new Set(events.slams.map((s) => s.targetSessionId));
-
+  // **Every entry in this map is a RAM** (stage 4), so falloff and `reeling` — ram-only by spec P24
+  // — apply unconditionally here with nothing to disambiguate. A slam no longer writes an `Impulse`
+  // at all: `contact.ts`'s charge branch emits a `SlamEvent` and the `events.slams` loop below
+  // assembles the push from the weapon's own `ImpulseDef`. What that deletes is not just a
+  // predicate but a dependency: the old `!slammedVictims.has(victimId)` inference was only correct
+  // while a slam's magnitude outranked every possible ram, an ordering `resolveContacts` never
+  // enforced (spec R9 forbids the ceiling that would), and it would have silently misclassified a
+  // ram as a slam the day a retune inverted it.
   for (const [victimId, entry] of impulses) {
-    // KNOWN DEPENDENCY, recorded rather than fixed: this classification inherits `resolveContacts`'s
-    // unenforced "a slam always outranks a ram in magnitude" ordering. `impulses` is keyed by VICTIM
-    // across ALL pairs and keeps only the largest `impulse.speed`, so a car slammed by A and rammed
-    // by B on the SAME tick has both competing for one slot. The slam wins — and this predicate is
-    // therefore right — only because `SLAM_CONFIG.knockSpeed` (520) exceeds the roster's hardest
-    // measured ram (268 u/s). `resolveContacts`'s own doc comment says outright that nothing enforces
-    // that ordering structurally (spec R9 forbids re-adding a ceiling that would).
-    //
-    // Note which direction that actually fails. `contact.ts`'s slam branch pushes to `events.slams`
-    // UNCONDITIONALLY, before the `best` magnitude comparison it then runs, so a slam victim is in
-    // `slammedVictims` no matter which impulse wins the slot — this line can never mistake a slam
-    // for a ram. The failure is the mirror image: if a retune ever lets a ram's `impulse.speed` beat
-    // a slam's, B's RAM impulse takes the slot while the victim is still in `slammedVictims` from
-    // A's slam, so it is classified `isRam === false` and applied at FULL strength — not counted
-    // into the falloff stack, and granting no `reeling`. A ram that should have been diminished
-    // lands undiminished, and its victim keeps full steering. The fix is a `kind` discriminator on
-    // `ImpulseEntry` so the branch reads the classification instead of inferring it — stage 4's call
-    // to make, not this stage's.
-    const isRam = !slammedVictims.has(victimId);
-
-    // Falloff and the RAM_TICKS-derived uncontrol duration are ram-only (spec P24's final bullet:
-    // "Weapon impulses do not participate and do not share the stack"). A slam's own impulse already
-    // carries whatever `uncontrolTicks` its own weapon authored (0 until stage 4 wires wildcharge's
-    // ImpulseDef) and must pass through untouched, or this stage would invent a stand-in for a
-    // control-loss duration that is stage 4's decision to make, not this one's.
-    const scaledImpulse: Impulse = isRam
-      ? (() => {
-          const scales = nextFalloff(memory.falloff, victimId, tick);
-          return {
-            ...entry.impulse,
-            speed: entry.impulse.speed * scales.impulseScale,
-            uncontrolTicks: Math.max(
-              RAM_TICKS.durationFloor,
-              Math.round(RAM_TICKS.uncontrol * scales.durationScale),
-            ),
-          };
-        })()
-      : entry.impulse;
+    const scales = nextFalloff(memory.falloff, victimId, tick);
+    const scaledImpulse: Impulse = {
+      ...entry.impulse,
+      speed: entry.impulse.speed * scales.impulseScale,
+      uncontrolTicks: Math.max(
+        RAM_TICKS.durationFloor,
+        Math.round(RAM_TICKS.uncontrol * scales.durationScale),
+      ),
+    };
 
     const victim = state.players.get(victimId);
     if (victim) {
@@ -378,16 +351,10 @@ export function contactTick(
       // `nextFalloff` is keyed by victim id and never consulted when building `entry.attackerImpulse`
       // — so this is not a flag to remember to check; there is no path by which the attacker's
       // impulse could be scaled by it.
-      //
-      // `applyStatus` refuses a duration of zero or less outright (see its own doc comment), so a
-      // slam's `uncontrolTicks: 0` passing through the non-ram branch never risks writing a
-      // zero-length `reeling`; this stage simply never calls `applyStatus` for a slam victim at all.
-      if (isRam) {
-        writeStatuses(
-          victim,
-          applyStatus(readStatuses(victim), "reeling", tick, scaledImpulse.uncontrolTicks, entry.attackerId),
-        );
-      }
+      writeStatuses(
+        victim,
+        applyStatus(readStatuses(victim), "reeling", tick, scaledImpulse.uncontrolTicks, entry.attackerId),
+      );
     }
 
     const attacker = state.players.get(entry.attackerId);
@@ -426,22 +393,69 @@ export function contactTick(
     contactHits.push(hit);
   }
 
+  // The slam's own impulse is assembled and applied HERE, beside the statuses that same slam
+  // applies (spec P30), rather than in the contact pass — from the weapon's authored `ImpulseDef`
+  // plus the contact geometry `contact.ts` carried on the event, which is the one thing this file
+  // cannot recompute (an OBB contact normal needs both hulls; poses give centre-to-centre, a
+  // different vector on any non-dead-on hit).
+  //
+  // Falloff never touches a slam (spec P24: weapon impulses "do not participate and do not share
+  // the stack"), so `nextFalloff` is deliberately not called and the slam is not counted into it —
+  // an ult must not be quietly discounted by how many ordinary rams its victim has just absorbed,
+  // nor discount the next real ram.
   for (const hit of events.slams) {
-    memory.slammed.set(hit.targetSessionId, {
-      bySessionId: hit.attackerSessionId,
-      wallStunUntilTick: tick + SLAM_TICKS.wallStunWindow,
-      immuneUntilTick: tick + SLAM_TICKS.reslamImmunity,
-    });
+    const impulseDef = weaponDefOf(hit.weaponId).impulse;
+    const impulseTicks = weaponTicksOf(hit.weaponId).impulse;
+    // A charge weapon that declares no `impulse` pushes nothing, grants no `reeling`, and opens
+    // neither clock — but still ends its maneuver and expires its own statuses below, because those
+    // are maneuver rules, not impulse rules. Unreachable today: `wildcharge` is the roster's only
+    // charge row and it authors one. Absent must mean absent (see `WeaponTicks.impulse`), so this
+    // is a skip rather than a zero-valued default.
+    if (impulseDef !== undefined && impulseTicks !== undefined) {
+      memory.slammed.set(hit.targetSessionId, {
+        bySessionId: hit.attackerSessionId,
+        wallStunUntilTick: tick + impulseTicks.wallStunWindow,
+        immuneUntilTick: tick + impulseTicks.retriggerImmunity,
+        wallStunTicks: impulseTicks.wallStunDuration,
+      });
+      const victim = state.players.get(hit.targetSessionId);
+      if (victim) {
+        const imp: Impulse = {
+          dirX: hit.dirX,
+          dirY: hit.dirY,
+          speed: impulseDef.speed,
+          spin: impulseDef.spin,
+          defenceScaled: impulseDef.defenceScaled,
+          uncontrolTicks: impulseTicks.uncontrol,
+          contactX: hit.contactX,
+          contactY: hit.contactY,
+        };
+        const next = applyImpulse(victim, ramDefenceFor(state, statusMods, hit.targetSessionId), imp);
+        victim.vx = next.vx;
+        victim.vy = next.vy;
+        victim.angVel = next.angVel;
+        // The slam's own control-loss window, off its own row — NOT `RAM_TICKS.uncontrol`, and not
+        // scaled by anything. New behaviour as of stage 4: until now a slam left its victim with
+        // full steering, because `contact.ts` hardcoded `uncontrolTicks: 0`. `applyStatus` refuses
+        // a non-positive duration outright, so a row authoring `uncontrolMs: 0` writes nothing.
+        writeStatuses(
+          victim,
+          applyStatus(readStatuses(victim), "reeling", tick, imp.uncontrolTicks, hit.attackerSessionId),
+        );
+      }
+    }
     const attacker = state.players.get(hit.attackerSessionId);
     if (attacker) {
       // O2: the charge ends on its first slam, taking its own self-applied statuses with it — a
       // power whose window closes early cannot leave a buff running past the thing that ended it.
-      // Velocity is NOT touched here (Task 4, and unchanged by stage 3 Task 2): the impulses loop
-      // above already applied this attacker's `attackerImpulse` for this exact slam — a
-      // zero-magnitude `Impulse`, not a Newton's-third-law reaction to the victim's push, so it
-      // changes nothing. `SLAM_CONFIG.selfKeepFactor`'s hand-tuned forward-only restore is gone,
-      // replaced outright rather than reproduced. Only the maneuver fields need clearing, so
-      // `endManeuverOnly` rather than `endDash`.
+      // The attacker is deliberately given NO impulse of its own: a slam is authored, not contested
+      // (spec R7's independence has no "other side"), so it takes nothing from its own hit. That
+      // used to be spelled as a zero-magnitude `attackerImpulse` riding the impulses map purely so
+      // the bridge had one code path; with the slam off that map there is nothing to build, and the
+      // absence here IS the rule — it is not an omission. `SLAM_CONFIG.selfKeepFactor`'s hand-tuned
+      // forward-only restore was replaced outright rather than reproduced, so the attacker's
+      // post-slam velocity is entirely whatever `resolveWorld`'s restitution already reflected off
+      // it this tick. Only the maneuver fields need clearing, so `endManeuverOnly`, not `endDash`.
       endManeuverOnly(attacker);
       writeStatuses(
         attacker,
@@ -452,8 +466,12 @@ export function contactTick(
   }
 
   // Wall-stun sweep (O2 window): a car shoved by a slam that lands against level geometry within
-  // `SLAM_TICKS.wallStunWindow` stuns once. Immunity and the stun window are independent clocks —
-  // the stun firing closes only its own window, so re-slam immunity keeps running underneath it.
+  // the impulse's own `wallStun.windowMs` stuns once. Immunity and the stun window are independent
+  // clocks — the stun firing closes only its own window, so re-slam immunity keeps running
+  // underneath it. All three numbers were stamped onto the record from the slamming weapon's row
+  // when the slam landed, so this sweep needs no weapon lookup of its own — and a stun that fires
+  // is the length the weapon that threw it authored, even if the tuning store has been rewritten
+  // since (playground only, but the record is the honest source either way).
   const statusRequests: StatusRequest[] = [];
   for (const [victimId, entry] of [...memory.slammed]) {
     if (tick >= entry.wallStunUntilTick && tick >= entry.immuneUntilTick) {
@@ -471,7 +489,7 @@ export function contactTick(
     statusRequests.push({
       targetSessionId: victimId,
       statusId: "stunned",
-      durationTicks: SLAM_TICKS.wallStunDuration,
+      durationTicks: entry.wallStunTicks,
       sourceSessionId: entry.bySessionId,
     });
     // Closes THIS window only, so the stun fires once per slam; immunity keeps its own clock.

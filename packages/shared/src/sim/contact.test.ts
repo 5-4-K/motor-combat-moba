@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import type { CarId } from "../config/types.js";
-import { SLAM_CONFIG } from "../config/slam-config.js";
 import { carHullOf } from "./context.js";
 import { pairKey } from "./ram.js";
 import { ManeuverKind } from "./maneuver.js";
@@ -44,56 +43,46 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
   const victimAt = (x: number, over = {}) =>
     car({ sessionId: "b", x, y: 0, angle: 0, vx: 0, vy: 0, carId: "mirage" as CarId, ...over });
 
-  it("replaces the ram with a FIXED impulse, independent of ramDefence and speed", () => {
-    const heavy = resolveContacts(
-      [charger(), victimAt(47, { carId: "bastion" as CarId })],
-      new Set(),
-      "ffa",
-      10,
-      new Map(),
-      [],
-      bounds,
-    );
-    const light = resolveContacts(
-      [charger(), victimAt(47, { carId: "bullseye" as CarId })],
-      new Set(),
-      "ffa",
-      10,
-      new Map(),
-      [],
-      bounds,
-    );
-    expect(heavy.events.slams).toHaveLength(1);
-    // `resolveContacts` no longer divides the victim's ramDefence out at all (Task 4: that is `applyImpulse`'s
-    // job, and a slam opts out of it anyway via `defenceScaled: false`) — `impulse.speed` is the
-    // un-defence-scaled magnitude, and it must be identical for a bastion and a bullseye victim.
-    expect(heavy.impulses.get("b")!.impulse.speed).toBeCloseTo(SLAM_CONFIG.knockSpeed);
-    expect(light.impulses.get("b")!.impulse.speed).toBeCloseTo(SLAM_CONFIG.knockSpeed); // no ramDefence divisor
-    // The magnitude-only check above dropped the sign the old `shoveX` assertion also pinned. The
-    // charger sits at x=0 facing +x and the victim at x=47 (`victimAt`'s fixture), so the slam must
-    // push the victim further along +x.
-    expect(heavy.impulses.get("b")!.impulse.dirX).toBeCloseTo(1);
+  it("reports the contact geometry on the event and writes NO impulse (stage 4)", () => {
+    // The whole payload of the charge branch now. A slam's magnitude, spin, defence-scaling and
+    // control-loss all live on `wildcharge`'s own `ImpulseDef` and are assembled by `ram-bridge.ts`;
+    // what only this pass can produce is the OBB contact normal and the contact point, so that is
+    // what the event carries and all this file can assert about the push.
+    const r = resolveContacts([charger(), victimAt(47)], new Set(), "ffa", 10, new Map(), [], bounds);
+    expect(r.events.slams).toHaveLength(1);
+    const slam = r.events.slams[0]!;
+    expect(slam).toMatchObject({ attackerSessionId: "a", targetSessionId: "b", weaponId: "wildcharge" });
+    // The charger sits at x=0 facing +x and the victim at x=47, so the push points along +x, and it
+    // is a UNIT vector — `applyImpulse` multiplies it by the def's `speed`, so a non-unit direction
+    // would silently rescale the ult.
+    expect(slam.dirX).toBeCloseTo(1, 6);
+    expect(slam.dirY).toBeCloseTo(0, 6);
+    expect(Math.hypot(slam.dirX, slam.dirY)).toBeCloseTo(1, 6);
+    expect(slam.contactX).toBe(47);
+    expect(slam.contactY).toBe(0);
+    // Nothing at all in the impulses map: a slam does not compete with a ram for the per-victim
+    // slot any more, and the pair produced no ram of its own either (`resolvePair` short-circuits).
+    expect(r.impulses.size).toBe(0);
   });
 
-  it("a slam ignores ramDefence for its shove, unlike a ram's spin", () => {
-    // Ruling C (stage-2 review): the concrete fixture the brief's placeholder pointed at, built
-    // from the charger/victimAt fixtures above. The two assertions are the real requirement (spec
-    // P28/P31): a slam's impulse is not defence-scaled, and carries no spin at all — "a clean straight
-    // punt is the ult's signature."
-    const slam = resolveContacts([charger(), victimAt(47)], new Set(), "ffa", 10, new Map(), [], bounds);
-    const imp = slam.impulses.get("b")!.impulse;
-    expect(imp.defenceScaled).toBe(false);
-    expect(imp.spin).toBe(0);
-
-    // "unlike a ram": the same geometry without a charge running produces an ORDINARY ram instead,
-    // whose `Impulse` always authors `spin: 1` (`resolveRam`'s own hard-coded contract, not a
-    // computed-torque check) — a slam's `spin: 0` opt-out is a real, structural difference, not a
-    // coincidence of this one geometry. Both a slam's and an ordinary ram's victim impulse are
-    // `defenceScaled: false` now (the contest already divides by `ramDefence`), so spin is the one
-    // field left that actually distinguishes them.
-    const ram = resolveContacts([car({ sessionId: "a", x: 0, y: 0, angle: 0, vx: 300, vy: 0, carId: "bastion" as CarId }), victimAt(47)], new Set(), "ffa", 10, new Map(), [], bounds);
+  it("only the ram fallback still builds an Impulse here", () => {
+    // The contrast that keeps the assertion above meaningful: the SAME geometry with no charge
+    // running falls through to an ordinary ram, which does write into `impulses` — so an empty map
+    // above is evidence about the slam branch, not about the fixture failing to touch at all. A
+    // ram's impulse always authors `spin: 1` (`resolveRam`'s hard-coded contract), where a slam's
+    // `spin` is whatever its weapon row says (0 for `wildcharge`, "a clean straight punt").
+    const ram = resolveContacts(
+      [car({ sessionId: "a", x: 0, y: 0, angle: 0, vx: 300, vy: 0, carId: "bastion" as CarId }), victimAt(47)],
+      new Set(),
+      "ffa",
+      10,
+      new Map(),
+      [],
+      bounds,
+    );
+    expect(ram.events.slams).toHaveLength(0);
     const ramImp = ram.impulses.get("b")!.impulse;
-    expect(ramImp.defenceScaled).toBe(false);
+    expect(ramImp.defenceScaled).toBe(false); // the contest already divided by the victim's ramDefence
     expect(ramImp.spin).toBe(1);
   });
 
@@ -133,18 +122,16 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
     expect(r.impulses.size).toBe(0);
   });
 
-  it("beats a concurrent ordinary ram on the same victim", () => {
-    // Three cars: a rammer and a charger touch the SAME victim from opposite sides in one tick, so
-    // both pairs land in `resolveContacts`' shared per-victim `best` map. The ram's own approach
-    // speed is moderate, not extreme: revision 2's contest has no ceiling (spec R9), so an
-    // aggressive-enough ram CAN out-scale a slam's fixed magnitude in principle — but Task 4 measured
-    // `RAM_CONFIG.globalScale` and confirmed it does not happen at today's tuning: the roster's
-    // hardest possible ram tops out at 268 u/s, well under the slam's fixed 520. This proves the
-    // ordinary case a slam is meant to beat, not that a ram can never out-scale one.
+  it("no longer displaces a concurrent ordinary ram on the same victim", () => {
+    // Three cars: a rammer and a charger touch the SAME victim from opposite sides in one tick.
+    // Until stage 4 both pairs competed for the one per-victim slot in `best` and the slam won it,
+    // on an ordering nothing enforced — the ram was simply thrown away. Now the slam does not enter
+    // that map at all, so the ram survives as its own entry and both land downstream.
     //
-    // Session ids are chosen so the RAM pair is enumerated (and its impulse recorded) BEFORE the
-    // SLAM pair: `resolveContacts` sorts by session id ("aRam" < "victim" < "zCharge"), so the nested
-    // pair loop visits (aRam, victim) — the ram — ahead of (victim, zCharge) — the slam.
+    // Session ids are chosen so the RAM pair is enumerated BEFORE the SLAM pair: `resolveContacts`
+    // sorts by session id ("aRam" < "victim" < "zCharge"), so the nested pair loop visits
+    // (aRam, victim) ahead of (victim, zCharge). Under the old `best` comparison that ordering was
+    // what gave the slam something to overwrite.
     const rammer = car({ sessionId: "aRam", x: -47, y: 0, angle: 0, vx: 100, vy: 0, carId: "bastion" as CarId });
     const victim = car({ sessionId: "victim", x: 0, y: 0, angle: 0, carId: "mirage" as CarId });
     const charger2 = car({
@@ -159,40 +146,32 @@ describe("hard slam (spec S3, O2/O3/O18)", () => {
     });
     const r = resolveContacts([rammer, victim, charger2], new Set(), "ffa", 10, new Map(), [], bounds);
 
-    expect(r.events.slams).toEqual([
-      { attackerSessionId: "zCharge", targetSessionId: "victim", weaponId: "wildcharge" },
-    ]);
+    expect(r.events.slams).toHaveLength(1);
+    expect(r.events.slams[0]).toMatchObject({ attackerSessionId: "zCharge", targetSessionId: "victim" });
+    // The ram is still here, still attributed to the rammer, and still an ordinary ram (`spin: 1`,
+    // `resolveRam`'s structural contract) rather than something a slam overwrote.
     expect(r.impulses.size).toBe(1);
     const entry = r.impulses.get("victim")!;
-    expect(entry.attackerId).toBe("zCharge");
-    // The decisive evidence: a slam's impulse is `defenceScaled: false` with a FIXED 520 speed
-    // (SLAM_CONFIG.knockSpeed) and `spin: 0`; an ordinary ram always authors `spin: 1`, structurally,
-    // regardless of geometry — that field is what actually proves the slam overwrote the ram rather
-    // than losing to its own comparison, independent of the ram's own (now open-ended) magnitude.
-    expect(entry.impulse.defenceScaled).toBe(false);
-    expect(entry.impulse.spin).toBe(0);
-    expect(entry.impulse.speed).toBeCloseTo(SLAM_CONFIG.knockSpeed, 6);
+    expect(entry.attackerId).toBe("aRam");
+    expect(entry.impulse.spin).toBe(1);
   });
 
-  it("wins a tie against an earlier slam on the same victim (best-impulse-per-victim, >=)", () => {
-    // Two chargers hit the SAME victim from opposite sides in one tick. Both slams carry the
-    // IDENTICAL fixed magnitude (`SLAM_CONFIG.knockSpeed`) — a genuine tie in the
-    // best-impulse-per-victim map, the one case where `>` and `>=` disagree. Session ids are chosen
-    // so the pair ("aCharge", "victim") is enumerated before ("victim", "zCharge"): only `>=` lets
-    // the SECOND slam overwrite the first rather than the first silently surviving.
+  it("reports BOTH slams when two chargers land on one victim in a tick", () => {
+    // Two chargers hit the SAME victim from opposite sides. There is no per-victim slot for them to
+    // contest any more, so neither is dropped: both events are reported, in pair-enumeration order,
+    // and `ram-bridge.ts` applies both pushes. Under the old `best` map one of the two was silently
+    // discarded, and which one depended on a `>=` comparison between two identical magnitudes.
     const charger1 = charger({ sessionId: "aCharge", x: -47, y: 0, angle: 0 });
     const victim = car({ sessionId: "victim", x: 0, y: 0, angle: 0, carId: "mirage" as CarId });
     const charger2 = charger({ sessionId: "zCharge", x: 47, y: 0, angle: Math.PI });
     const r = resolveContacts([charger1, victim, charger2], new Set(), "ffa", 10, new Map(), [], bounds);
 
-    expect(r.events.slams).toEqual([
-      { attackerSessionId: "aCharge", targetSessionId: "victim", weaponId: "wildcharge" },
-      { attackerSessionId: "zCharge", targetSessionId: "victim", weaponId: "wildcharge" },
-    ]);
-    expect(r.impulses.size).toBe(1);
-    const entry = r.impulses.get("victim")!;
-    expect(entry.attackerId).toBe("zCharge"); // the later slam wins the tie via `>=`
-    expect(entry.impulse.speed).toBeCloseTo(SLAM_CONFIG.knockSpeed, 6);
+    expect(r.events.slams.map((s) => s.attackerSessionId)).toEqual(["aCharge", "zCharge"]);
+    // Opposite approaches produce opposite push directions, which is the geometry actually being
+    // carried rather than a constant copied onto both events.
+    expect(r.events.slams[0]!.dirX).toBeCloseTo(1, 6);
+    expect(r.events.slams[1]!.dirX).toBeCloseTo(-1, 6);
+    expect(r.impulses.size).toBe(0);
   });
 });
 
