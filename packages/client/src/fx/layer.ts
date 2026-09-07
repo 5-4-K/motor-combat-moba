@@ -8,10 +8,15 @@ import {
   TYRE_MARK_INTERVAL_MS,
   tyreMarksFor,
 } from "./decals.js";
-import { AIR_FX_DEPTH, DECAL_DEPTH, GROUND_FX_DEPTH } from "./depths.js";
+import { AIR_FX_DEPTH, DECAL_DEPTH, GROUND_FX_DEPTH, SMOKE_DEPTH } from "./depths.js";
 import { deriveFxEvents, type FxWorldView } from "./events.js";
 import { emitterSpecsForAll, type EmitterSpec } from "./emitters.js";
-import { eraserStampsFor } from "./occlusion.js";
+import {
+  ERASER_HALO,
+  ERASER_STAMP_HEIGHT,
+  ERASER_STAMP_WIDTH,
+  eraserStampsFor,
+} from "./occlusion.js";
 import type { FxChannel } from "./table.js";
 import {
   asphaltTexture,
@@ -39,8 +44,25 @@ export const FX_TEXTURE_KEYS = {
   asphalt: "fx.asphalt",
 } as const;
 
-/** Edge length of a chassis silhouette stamp, in pixels. */
+/**
+ * A chassis silhouette stamp's WIDTH in pixels. Its height follows `ERASER_STAMP_HEIGHT`.
+ *
+ * A resolution knob and nothing else: how big the hole is, is `ERASER_HALO`'s decision alone.
+ */
 const ERASER_TEXTURE_PX = 128;
+
+/**
+ * The decal budget, split by class so one can never starve the other out of the ring buffer.
+ *
+ * Rubber is produced at two marks per car per `TYRE_MARK_INTERVAL_MS` — 40/s per car, 240/s with a
+ * full room alive. Sharing one FIFO with scorch meant the buffer turned over in about two and a
+ * half seconds under load, so a `magmablast` scorch was evicted long before its 40-second half-life
+ * and `decals.ts`'s promise that "a fight leaves a readable history" was unreachable in exactly the
+ * fights worth reading. The two caps sum to `MAX_DECALS`, which is still the bound on the per-frame
+ * redraw cost — the split changes who spends the budget, never how large it is.
+ */
+const MAX_SCORCH_DECALS = 120;
+const MAX_TYRE_DECALS = MAX_DECALS - MAX_SCORCH_DECALS;
 
 /**
  * The blurred silhouette key for a chassis.
@@ -92,13 +114,16 @@ export class FxLayer {
    * pixel.
    */
   private readonly texelSize = new Map<string, number>();
-  /** Rubber and scorch, redrawn from `liveDecals` every frame. See `redrawDecals`. */
+  /** Rubber and scorch, redrawn from the two buffers below every frame. See `redrawDecals`. */
   private readonly decals: Phaser.GameObjects.RenderTexture;
   /** Every smoke particle, redrawn and re-masked every frame. See `maskSmoke`. */
   private readonly smoke: Phaser.GameObjects.RenderTexture;
   /** One reusable image, moved and re-erased per car. See `maskSmoke`. */
   private readonly eraser: Phaser.GameObjects.Image;
-  private liveDecals: LiveDecal[] = [];
+  /** Blast and death marks. Its own buffer, so 240 tyre marks a second cannot evict it. */
+  private scorchDecals: LiveDecal[] = [];
+  /** Rubber. Its own buffer, and the one that actually turns over during a fight. */
+  private tyreDecals: LiveDecal[] = [];
   private clockMs = 0;
   /** When each car last laid rubber, so marks go down on a clock rather than per frame. */
   private readonly lastTyreMs = new Map<string, number>();
@@ -136,7 +161,9 @@ export class FxLayer {
     this.smoke = scene.add
       .renderTexture(0, 0, arenaWidth, arenaHeight)
       .setOrigin(0, 0)
-      .setDepth(AIR_FX_DEPTH);
+      // Its OWN depth, one rung below the emitters. See `SMOKE_DEPTH` — tying it to AIR_FX_DEPTH
+      // leaves fire-over-smoke decided by which of these two constructor blocks runs last.
+      .setDepth(SMOKE_DEPTH);
     this.smoke.setRenderMode("render");
     // The smoke emitter draws into `this.smoke`, never straight to the scene, so `maskSmoke` has
     // something to erase from. Invisible for that reason — and `draw` is handed an ARRAY, which
@@ -151,15 +178,46 @@ export class FxLayer {
   }
 
   /**
-   * A soft, solid stamp of each chassis's silhouette, built once.
+   * Rebuild every chassis silhouette, now that the art has actually loaded.
+   *
+   * `buildEraserTextures` reads `textures.exists` at the instant it runs, and art loads
+   * asynchronously (`BootScene`, `loadArt`) — so on a cold cache or a slow client the constructor's
+   * pass sees no car sprites at all and every chassis takes the hull-rectangle fallback for the
+   * whole match, silently. `ArenaScene` already re-runs its car visuals from the `assetsReady()`
+   * handler for exactly this race; this rides beside it.
+   */
+  rebuildEraserTextures(): void {
+    this.buildEraserTextures();
+  }
+
+  /**
+   * A soft, solid stamp of each chassis's silhouette, built once per art load.
    *
    * Derived from the car sprite's own ALPHA channel, so it needs no new art and is automatically
    * right for any chassis added later — the roster itself is the loop, not a hand-written list.
    * Blurred here rather than per frame because it is static: blurring it every frame was pure waste
    * in the spike (VFX21).
+   *
+   * The texture is sized to the STAMP's aspect rather than square, and the sprite is CONTAINED
+   * inside it rather than stretched to fill. Both halves matter, and getting either wrong produces
+   * the same symptom: `maskSmoke` displays this at exactly `ERASER_STAMP_WIDTH` x
+   * `ERASER_STAMP_HEIGHT` (76 x 60), so a square texture there is a non-uniform scale, and a 96x51
+   * sprite squashed into a square is already a 1.9x distortion before that. Together they turned
+   * every chassis — bastion's hex, bullseye's ellipse — into the same oversized round blob, which
+   * is precisely the promise this whole method makes and was not keeping.
    */
   private buildEraserTextures(): void {
-    const size = ERASER_TEXTURE_PX;
+    // Pixels per world unit. Everything below is in world units scaled by this, so the texture and
+    // the display box are the same shape and the scale that lands them on screen is uniform.
+    const ppu = ERASER_TEXTURE_PX / ERASER_STAMP_WIDTH;
+    const texWidth = ERASER_TEXTURE_PX;
+    const texHeight = Math.round(ERASER_STAMP_HEIGHT * ppu);
+    // The hull box, centred, with the halo as its margin — in the same world units `ERASER_HALO` is
+    // written in, which is what makes that constant's doc comment true.
+    const inset = ERASER_HALO * ppu;
+    const hullWidth = texWidth - inset * 2;
+    const hullHeight = texHeight - inset * 2;
+
     for (const carId of Object.keys(CAR_TABLE)) {
       const key = eraserKeyOf(carId);
       if (this.scene.textures.exists(key)) this.scene.textures.remove(key);
@@ -167,26 +225,38 @@ export class FxLayer {
       const source = this.scene.textures.exists(spriteKey)
         ? this.scene.textures.get(spriteKey).getSourceImage()
         : undefined;
-      const canvasTexture = this.scene.textures.createCanvas(key, size, size);
+      const canvasTexture = this.scene.textures.createCanvas(key, texWidth, texHeight);
       if (!canvasTexture) continue;
       const ctx = canvasTexture.getContext();
-      ctx.clearRect(0, 0, size, size);
+      ctx.clearRect(0, 0, texWidth, texHeight);
       // A generous blur: the hole has to read as the car displacing the cloud, not as its outline
-      // traced in smoke.
+      // traced in smoke. It softens the edge INSIDE the halo, never past it — the margin above is
+      // several times the blur radius.
       ctx.filter = "blur(7px)";
       if (source instanceof HTMLImageElement || source instanceof HTMLCanvasElement) {
-        ctx.drawImage(source, 12, 12, size - 24, size - 24);
+        // CONTAIN, the same fit `assets/sprite-fit.ts` gives the car itself, so the silhouette is
+        // the shape of the car the player is looking at rather than a shape of its own.
+        const fit = Math.min(hullWidth / source.width, hullHeight / source.height);
+        const drawWidth = source.width * fit;
+        const drawHeight = source.height * fit;
+        ctx.drawImage(
+          source,
+          (texWidth - drawWidth) / 2,
+          (texHeight - drawHeight) / 2,
+          drawWidth,
+          drawHeight,
+        );
         // Filter off BEFORE the fill: the blur belongs to the silhouette that is already on the
         // canvas, and `source-in` only needs a flat white to take that alpha.
         ctx.filter = "none";
         ctx.globalCompositeOperation = "source-in";
         ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, size, size);
+        ctx.fillRect(0, 0, texWidth, texHeight);
       } else {
         // No sprite for this chassis: fall back to the hull rectangle, the same fallback `drawCar`
         // takes when a manifest entry is missing. Blurred, so it still reads as a soft hole.
         ctx.fillStyle = "#ffffff";
-        ctx.fillRect(20, 34, size - 40, size - 68);
+        ctx.fillRect(inset, inset, hullWidth, hullHeight);
       }
       ctx.filter = "none";
       ctx.globalCompositeOperation = "source-over";
@@ -292,7 +362,7 @@ export class FxLayer {
 
     for (const event of events) {
       for (const stamp of decalStampsFor(event)) {
-        this.pushDecal({
+        this.pushDecal(this.scorchDecals, MAX_SCORCH_DECALS, {
           key: FX_TEXTURE_KEYS.scorch,
           x: stamp.x,
           y: stamp.y,
@@ -335,7 +405,11 @@ export class FxLayer {
       // would allocate six objects a frame for the life of the match.
       this.eraser
         .setTexture(key)
-        .setDisplaySize(stamp.width * 2.2, stamp.height * 2.6)
+        // The stamp's own size, with NO multiplier: `EraserStamp.width`/`height` are the final world
+        // size of the hole and `ERASER_HALO` is the one number that decides it. A pair of fudge
+        // factors lived here and made that constant's doc comment false — untestably, since this
+        // file has no test.
+        .setDisplaySize(stamp.width, stamp.height)
         .setRotation(stamp.angle)
         .setPosition(stamp.x, stamp.y);
       this.smoke.erase([this.eraser]);
@@ -345,12 +419,15 @@ export class FxLayer {
     this.smoke.render();
   }
 
-  /** Add a decal, dropping the oldest once the buffer is full. */
-  private pushDecal(decal: LiveDecal): void {
-    this.liveDecals.push(decal);
-    if (this.liveDecals.length > MAX_DECALS) {
-      this.liveDecals.splice(0, this.liveDecals.length - MAX_DECALS);
-    }
+  /**
+   * Add a decal to ONE class's buffer, dropping that class's oldest once it is full.
+   *
+   * The buffer is a parameter rather than a field because the two classes must not share a cap —
+   * see `MAX_SCORCH_DECALS`. Oldest-first eviction within each class is unchanged.
+   */
+  private pushDecal(buffer: LiveDecal[], cap: number, decal: LiveDecal): void {
+    buffer.push(decal);
+    if (buffer.length > cap) buffer.splice(0, buffer.length - cap);
   }
 
   /** Rubber under every moving car, laid on a clock so the trail is frame-rate independent. */
@@ -370,7 +447,7 @@ export class FxLayer {
       if (marks.length === 0) continue;
       this.lastTyreMs.set(car.sessionId, this.clockMs);
       for (const mark of marks) {
-        this.pushDecal({
+        this.pushDecal(this.tyreDecals, MAX_TYRE_DECALS, {
           key,
           x: mark.x,
           y: mark.y,
@@ -397,8 +474,19 @@ export class FxLayer {
    */
   private redrawDecals(): void {
     this.decals.clear();
+    // Scorch FIRST, so rubber lies over it: a car driving through a blast mark leaves tracks in it,
+    // not under it. The draw order is the only thing the two buffers still share.
+    this.scorchDecals = this.stampSurvivors(this.scorchDecals);
+    this.tyreDecals = this.stampSurvivors(this.tyreDecals);
+    // Buffered until this call — without it nothing appears, which is the Phaser 4 change most
+    // likely to be missed when porting any Phaser 3 RenderTexture snippet.
+    this.decals.render();
+  }
+
+  /** Stamp everything in one buffer that still has alpha, and hand back what is worth keeping. */
+  private stampSurvivors(buffer: readonly LiveDecal[]): LiveDecal[] {
     const survivors: LiveDecal[] = [];
-    for (const decal of this.liveDecals) {
+    for (const decal of buffer) {
       const alpha = decal.baseAlpha * decalFadeAlpha(this.clockMs - decal.bornAtMs);
       if (alpha <= 0) continue;
       survivors.push(decal);
@@ -409,10 +497,7 @@ export class FxLayer {
         scale: decal.scale,
       });
     }
-    this.liveDecals = survivors;
-    // Buffered until this call — without it nothing appears, which is the Phaser 4 change most
-    // likely to be missed when porting any Phaser 3 RenderTexture snippet.
-    this.decals.render();
+    return survivors;
   }
 
   destroy(): void {

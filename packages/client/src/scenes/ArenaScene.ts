@@ -795,6 +795,10 @@ export class ArenaScene extends Phaser.Scene {
       .then(() => {
         this.artPending = false;
         this.visualKeys.clear();
+        // Same race, same handler: the FX layer's smoke-eraser silhouettes are cut from the car
+        // sprites' alpha, and it built them in its constructor — before any of this had loaded. Left
+        // out, every chassis punches the fallback hull rectangle for the whole match, silently.
+        this.fx?.rebuildEraserTextures();
       })
       // Nothing in `loadArt` rejects today, but an unhandled rejection here would be silent and the
       // match would simply never swap in its sprites. Warn instead.
@@ -2065,24 +2069,44 @@ export class ArenaScene extends Phaser.Scene {
    * Both views are copied out whole rather than passed as schema references: `deriveFxEvents` diffs
    * this frame against the one it kept from last frame, and a live schema object would have mutated
    * underneath it, so every diff would come back empty.
+   *
+   * The POSES are the ones the cars are actually drawn at — `localRenderPose` and `remotePose`, the
+   * same two helpers `renderCars` picks between — never the raw schema fields. A remote car is
+   * drawn `NET_CONFIG.interpolationDelayMs` behind the state it is holding, and the local car is
+   * drawn ahead of it; at Mirage's top speed that is tens of world units. Decals laid at the schema
+   * pose land beside the tyres that are supposed to have laid them, and the smoke eraser punches
+   * its hole beside the car it is supposed to keep visible. Runs after `renderCars`, so both
+   * helpers answer with this frame's pose rather than the previous one's.
    */
   private renderFx(room: Room<ArenaState>, delta: number): void {
     const fx = this.fx;
     if (!fx) return;
+    const drivenSid = this.drivenSid(room);
     const cars = [...room.state.players.entries()]
       .filter(([, player]) => player.status === PlayerStatus.IN_MATCH)
-      .map(([sessionId, player]) => ({
-        sessionId,
-        x: player.x,
-        y: player.y,
-        angle: player.angle,
-        hp: player.hp,
-        alive: player.alive,
-        carId: player.carId,
-        // From the networked world velocity, not re-derived from pose deltas — see `FxCarView`.
-        vx: player.vx,
-        vy: player.vy,
-      }));
+      .map(([sessionId, player]) => {
+        const serverPose = bodyOf(player);
+        // The same three-way choice `renderCars` makes, for the same reasons: a wreck is not moving,
+        // so there is nothing to smooth and nothing to predict.
+        const pose = !player.alive
+          ? serverPose
+          : sessionId === drivenSid
+            ? this.localRenderPose(serverPose)
+            : this.remotePose(sessionId, serverPose);
+        return {
+          sessionId,
+          x: pose.x,
+          y: pose.y,
+          angle: pose.angle,
+          hp: player.hp,
+          alive: player.alive,
+          carId: player.carId,
+          // Velocity stays AUTHORITATIVE — it is not a position, `speedOf` wants the server's
+          // answer, and a render pose carries no velocity of its own to take it from.
+          vx: player.vx,
+          vy: player.vy,
+        };
+      });
     const instances = [...room.state.weapons.entries()].map(([id, instance]) => ({
       id,
       weaponId: instance.weaponId,

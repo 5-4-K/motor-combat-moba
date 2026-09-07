@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AIR_FX_DEPTH, DECAL_DEPTH, FLOOR_DEPTH, GROUND_FX_DEPTH } from "./depths.js";
+import { AIR_FX_DEPTH, DECAL_DEPTH, FLOOR_DEPTH, GROUND_FX_DEPTH, SMOKE_DEPTH } from "./depths.js";
 
 // Mirrors the ladder in ArenaScene.ts. Duplicated as literals on purpose: if someone moves one of
 // those constants, this test is what says the FX layers moved with it or need to.
@@ -28,6 +28,14 @@ describe("fx depth constants", () => {
   it("puts air FX above the cars, because smoke is in the air", () => {
     expect(AIR_FX_DEPTH).toBeGreaterThan(CAR_DEPTH);
     expect(AIR_FX_DEPTH).toBeGreaterThan(MANEUVER_DEPTH);
+  });
+
+  it("puts smoke above the cars but below fire and sparks, so a fireball is not buried", () => {
+    // A strict ordering, not a tie: Phaser breaks equal depths by display-list insertion order, so
+    // sharing AIR_FX_DEPTH would leave which of smoke and fire wins decided by constructor line
+    // order in FxLayer — which is how the smoke layer came to draw over the fire it belongs to.
+    expect(SMOKE_DEPTH).toBeGreaterThan(MANEUVER_DEPTH);
+    expect(SMOKE_DEPTH).toBeLessThan(AIR_FX_DEPTH);
   });
 
   it("keeps air FX BELOW every HUD marker (VFX24) — the second readability guarantee", () => {

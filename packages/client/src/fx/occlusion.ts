@@ -18,20 +18,43 @@ export interface EraserStamp {
   readonly x: number;
   readonly y: number;
   readonly angle: number;
+  /** The hole's FINAL size in world units. The renderer draws it at exactly this — see `ERASER_HALO`. */
   readonly width: number;
+  /** The hole's FINAL size in world units. The renderer draws it at exactly this — see `ERASER_HALO`. */
   readonly height: number;
   /** Which chassis's silhouette to erase with. */
   readonly carId: string;
 }
 
 /**
- * How far past the hull the erased halo reaches, in world units.
+ * How far past the hull the erased halo reaches, in world units — the FULL halo, on every side.
  *
  * Bigger than the hull on purpose: a stamp exactly the car's size traces its outline in smoke and
  * reads as a sticker. The halo has to clear the car for the hole to look like the car is displacing
  * the cloud.
+ *
+ * **This is the only number that decides how big the hole is.** `EraserStamp.width`/`height` are the
+ * *final world size* of the hole, and nothing downstream may scale them again — `fx/layer.ts` hands
+ * them straight to `setDisplaySize`. The stamp is blurred once at boot, so the visible edge softens
+ * *inside* this halo rather than spilling past it; that blur is what makes the hole read as the car
+ * displacing the cloud rather than as its outline traced in smoke, and it is why the halo can be
+ * this generous without the hole reading as a hard-edged sticker.
+ *
+ * A second multiplier in the renderer would make every sentence above a lie that no test could
+ * catch — `layer.ts` has no test, by design. A pair of them lived at that call site until fix round
+ * 1 and put the hole at roughly 107 x 93 units against a 48 x 32 hull.
  */
-export const ERASER_HALO = 6;
+export const ERASER_HALO = 14;
+
+/**
+ * The final world size of one hole: the hull plus the halo on every side.
+ *
+ * Identical for every chassis — only the silhouette inside it differs. Exported because `layer.ts`
+ * sizes its silhouette textures to this box's aspect, and a second copy of the formula there is
+ * exactly how the two would drift apart.
+ */
+export const ERASER_STAMP_WIDTH = DRIVE_CONFIG.carWidth + ERASER_HALO * 2;
+export const ERASER_STAMP_HEIGHT = DRIVE_CONFIG.carHeight + ERASER_HALO * 2;
 
 /**
  * One stamp per living car.
@@ -47,8 +70,8 @@ export function eraserStampsFor(cars: readonly FxCarView[]): EraserStamp[] {
       x: car.x,
       y: car.y,
       angle: car.angle,
-      width: DRIVE_CONFIG.carWidth + ERASER_HALO * 2,
-      height: DRIVE_CONFIG.carHeight + ERASER_HALO * 2,
+      width: ERASER_STAMP_WIDTH,
+      height: ERASER_STAMP_HEIGHT,
       carId: car.carId,
     });
   }

@@ -2,7 +2,7 @@
  * Where the FX layers sit in `ArenaScene`'s depth ladder (VFX23).
  *
  * The existing rungs are `ARENA -10`, `SHOT -5`, `CAR 0`, `MANEUVER 2`, `ARROW 52`, `LOCK 55`,
- * `HP_BAR 60`, `HUD 1000`. These four slot between them, and `depths.test.ts` holds the ordering.
+ * `HP_BAR 60`, `HUD 1000`. These five slot between them, and `depths.test.ts` holds the ordering.
  */
 
 /**
@@ -18,6 +18,18 @@ export const DECAL_DEPTH = -8;
 
 /** Debris and ground sparks — on the deck rather than in the air. */
 export const GROUND_FX_DEPTH = -6;
+
+/**
+ * The smoke `RenderTexture`. Above the cars, because smoke is in the air — but BELOW `AIR_FX_DEPTH`.
+ *
+ * Fire and sparks have to read *over* the smoke they are co-located with: an additive fireball
+ * drawn under an opaque smoke layer is simply not visible, which is the whole point of it being
+ * additive. Phaser breaks a depth tie by display-list insertion order (`DisplayList.js` sorts
+ * stably), so leaving the smoke tied to `AIR_FX_DEPTH` does not mean "undefined" — it means the
+ * ordering is decided by which constructor line runs last, which nobody chose and nobody would
+ * think to check when adding the next air-layer object.
+ */
+export const SMOKE_DEPTH = 9;
 
 /**
  * Smoke and fire. Above the cars, because it is in the air.
