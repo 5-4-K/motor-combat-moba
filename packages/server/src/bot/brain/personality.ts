@@ -7,16 +7,38 @@ import type { BotPersonality, PersonalityId } from "../types.js";
 type Shifts = Partial<Record<keyof BotProfile, number>>;
 
 /**
- * R-M1 (spec phase D, 2026-09-07): `brawler`, `kiter` and `opportunist` used to shift
- * `standoffFraction`, which P35 deleted — `preferredRangeOf` derives the range from the kit now.
- * The DANGER-DISTANCE axis those three flavours were reaching for is `opponentRangeRespect` after
- * P38: `controller.ts`'s `fightRange` is `max(ownComfort, theirKeepOut * opponentRangeRespect)`, so
- * a lower respect stands closer and a higher one stands off. `brawler` therefore takes 0.8 (respects
- * the danger less, so closes) where it used to take 0.8 of the standoff; `kiter` ALREADY carried
- * 1.15 on this field and keeps exactly that rather than stacking a second factor onto it — a kiter
- * that shifted `opponentRangeRespect` twice would be a different, further-standing archetype than
- * the one that shipped. `opportunist` simply drops the shift: its old `standoffFraction: 1` was a
- * factor of one, a no-op that moved nothing, so there is nothing to re-express.
+ * R-M1 (spec phase D, 2026-09-07; comment corrected in fix wave 2 the same day):
+ * `brawler`, `kiter` and `opportunist` used to shift `standoffFraction`, which P35 deleted —
+ * `preferredRangeOf` derives the range from the kit now. The nearest surviving DANGER-DISTANCE axis
+ * is `opponentRangeRespect` after P38, so `brawler` takes 0.8 on it (respects the opponent's
+ * keep-out less) where it used to take 0.8 of the standoff; `kiter` ALREADY carried 1.15 on this
+ * field and keeps exactly that rather than stacking a second factor onto it — a kiter that shifted
+ * `opponentRangeRespect` twice would be a different, further-standing archetype than the one that
+ * shipped. `opportunist` simply drops the shift: its old `standoffFraction: 1` was a factor of one,
+ * a no-op that moved nothing, so there is nothing to re-express.
+ *
+ * WHAT THAT MAPPING ACTUALLY DELIVERS, stated exactly, because the first version of this comment
+ * claimed it was "precisely the flavour `standoffFraction` carried" and it is not. `controller.ts`
+ * computes `fightRange = max(ownComfort, kitReachOf(target).shortest * opponentRangeRespect)`.
+ * Three consequences, all of them real:
+ *
+ * 1. IT IS A NO-OP AT EASY. `opponentRangeRespect` is 0 in `BOT_PROFILES.easy`, and 0 x 0.8 and
+ *    0 x 1.15 are both 0. An easy `brawler` and an easy `kiter` therefore differ on
+ *    `ramIntentChance` alone.
+ * 2. AT HARD, KITER'S SHIFT IS SMALLER THAN IT READS. 0.9 x 1.15 = 1.035, and
+ *    `opponentRangeRespect` is in `UNIT_INTERVAL_FIELDS`, so it saturates at 1.0 — an ~11% shift,
+ *    not 15%.
+ * 3. IT CANNOT MAKE A BRAWLER STAND CLOSER THAN A NEUTRAL BOT. The `max` FLOORS the fight range at
+ *    the bot's own `preferredRangeOf` comfort, and this field only moves the other operand.
+ *    `standoffFraction` scaled that comfort itself, so it could pull the bot inside it; nothing in
+ *    the shipped profile can.
+ *
+ * So the flavour is narrower than the one that was deleted: it is "how much of the OPPONENT's
+ * threat range I insist on clearing", live only at medium and hard and only in the standing-OFF
+ * direction. Restoring the closing half would need a profile field that scales `ownComfort`, and
+ * P35/P36 enumerate exactly which fields leave and which arrive — an archetype range knob is in
+ * neither list, so it is deliberately NOT added here. It is recorded as a candidate for a future
+ * tuning pass instead.
  */
 const ARCHETYPES: Readonly<Record<PersonalityId, Shifts>> = Object.freeze({
   brawler: {
