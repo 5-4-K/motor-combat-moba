@@ -6,7 +6,7 @@ import { BOT_PROFILES } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import type { BotView } from "../types.js";
 import { HumanController } from "./controller.js";
-import { runDuel } from "./duel.js";
+import { runDuel } from "./duel.fixture.js";
 
 function view(overrides: Partial<BotView> = {}): BotView {
   return {
@@ -33,7 +33,7 @@ function view(overrides: Partial<BotView> = {}): BotView {
  * the roster's strongest kit. See the "fires a shot on every chassis" test below, which sweeps all
  * three chassis at all three tiers.
  *
- * EXTRACTED to `duel.ts` (task 7, 2026-09-07) so `tiers.test.ts` measures the same fixture instead
+ * EXTRACTED to `duel.fixture.ts` (task 7, 2026-09-07) so `tiers.test.ts` measures the same fixture instead
  * of hand-rolling a second one. This is the harness's OPEN mode: nothing is fired for real and every
  * slot reads permanently ready, so a press is limited by the brain's cadence and never by a weapon
  * cooldown — which is what makes `fires` here a count of WILLINGNESS to shoot. It is `fireTicks`,
@@ -41,9 +41,12 @@ function view(overrides: Partial<BotView> = {}): BotView {
  * decision's bit for up to `recomputeTicks` ticks); every comparison below is within one tier, where
  * that occupancy is a fair measure. Verified byte-identical across the extraction: the two canary duels
  * below measure 136 and 128 with mean offsets 0 and 0.0442 both before and after it. Those are NOT
- * the 140/134 the R-D5 round reported — that pair went stale somewhere between R-D5 and this task,
- * and the > 90 bar is what either pair is held to. The off-axis test's own comment quoted the stale
- * pair until task 10 corrected it; both places now name 136/128.
+ * the 140/134 the R-D5 round reported — the blunder reshape (tasks 9 and 8) sits downstream of the
+ * duel and moved them, 140 -> 136 on-axis and 134 -> 128 off-axis, as its own report records: hard's
+ * `blunderChance` is 0.015, so a handful of windows in 300 ticks now hold a runner-up line or a late
+ * brake instead of an inverted steer. The 140/134 figures were measured before that reshape and no
+ * longer reproduce. The > 90 bar is what either pair is held to; none of this is a threshold being
+ * chased.
  */
 function closedLoopDuel(
   tier: "easy" | "medium" | "hard",
@@ -96,9 +99,10 @@ describe("HumanController", () => {
     // farthest range keeping `preferredRangePlateauFraction` of the peak rather than the farthest
     // range EXACTLY tying it, which takes a hard Bullseye from 420 to 470. That round reported the
     // pair as 140 on-axis / 134 off-axis; THE CURRENT FIGURES ARE 136 ON-AXIS AND 128 OFF-AXIS
-    // (mean offsets 0 and 0.0442), re-measured at task 7's `duel.ts` extraction and corrected here
-    // in task 10 — the 140/134 pair went stale between R-D5 and that extraction. The bar is
-    // unchanged at > 90 throughout: none of these re-measurements is a threshold being chased.
+    // (mean offsets 0 and 0.0442). The 140/134 pair was measured before the blunder kinds were
+    // reshaped (tasks 9 and 8) and no longer reproduces — that reshape sits downstream of the duel
+    // and its report records exactly this move, 140 -> 136 and 134 -> 128. The bar is unchanged at
+    // > 90 throughout: none of these re-measurements is a threshold being chased.
     const { fires, meanOffset } = closedLoopDuel("hard", 300, { x: 753, y: 500 });
     expect(fires).toBeGreaterThan(90);
     // Fixed at 0.2 rad — hard's `fireConeRad` before Task 7 (2026-09-05) deleted that field along

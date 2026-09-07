@@ -4,7 +4,7 @@ import { makeRng } from "../rng.js";
 import { BOT_PROFILES } from "../../config/bot-profiles.js";
 import type { BotCarView, BotSlotView, BotView } from "../types.js";
 import { HumanController } from "./controller.js";
-import { bestSustainedDpsOf, pressCeilingOf, runDuel } from "./duel.js";
+import { bestSustainedDpsOf, pressCeilingOf, runDuel } from "./duel.fixture.js";
 
 function slotsFor(carId: "bullseye" | "bastion" | "mirage"): BotSlotView[] {
   return slotsOf(carId).map((weaponId) => ({
@@ -425,7 +425,7 @@ describe("ladder monotonicity", () => {
  * own, so `fires` counts presses combat actually committed and `hits` counts the ones that landed —
  * `balance/stats.ts`'s definition, one count per press whatever the weapon kind (B30).
  *
- * The harness is `duel.ts`'s, shared with `controller.test.ts` rather than hand-rolled a second
+ * The harness is `duel.fixture.ts`'s, shared with `controller.test.ts` rather than hand-rolled a second
  * time; the difference is that this caller resolves combat and that one does not. See that module's
  * doc for why both modes exist.
  *
@@ -448,10 +448,13 @@ describe("the reported symptoms stay fixed (P49)", () => {
     //
     // The floor is deliberately unreachable — best single slot, no flight time, no misses, no
     // switching — so "inside twice it" is the bar. Measured 2026-09-07 over seven seeds (17, 3, 7,
-    // 42, 99, 2026, 5): 471, 509, 457, 464, 446, 490, 465 ticks, i.e. 14.87-16.97 s against a
-    // 8.94 s floor and a 17.87 s cap. Seed 17 (this file's own) lands mid-spread at 15.70 s and the
-    // slowest of the seven still leaves 5% of headroom, so the multiple is a real bar and not a
-    // formality — but it is a TIGHT one, and a change that slows the kill by a sixth breaks it.
+    // 42, 99, 2026, 5): 471, 509, 457, 464, 446, 490, 465 ticks, i.e. 14.87-16.97 s against a floor
+    // of about 8.9 s and a cap of about 17.9 s. Those two are COMPUTED BELOW, not constants — they
+    // are quoted here approximately and as of 2026-09-07 because they move with `CAR_TABLE` and
+    // `WEAPON_TABLE`, and a figure typed into prose is exactly what no test can hold honest. Seed 17
+    // (this file's own) lands mid-spread at 15.70 s and the slowest of the seven still leaves about
+    // 5% of headroom, so the multiple is a real bar and not a formality — but it is a TIGHT one, and
+    // a change that slows the kill by a sixth breaks it.
     const { ticks, killed } = duelAgainstDummy("hard");
     expect(killed).toBe(true);
     const floorSeconds = hpOf("mirage") / bestSustainedDpsOf("bullseye");
@@ -467,8 +470,21 @@ describe("the reported symptoms stay fixed (P49)", () => {
     // the cadence for an always-ready slot view and the cooldowns here; the plan's `/4` slack is
     // kept unchanged. Measured (seeds 17, 3, 7): 13, 11, 13 presses against a bar of 4.05.
     //
-    // The weak form is the regression guard — the symptom this phase was opened for was a bot that
-    // parked and wove and never pressed anything at all. The tight form is the quality bar.
+    // BOTH FORMS ARE FLOORS, AND THE TIGHT ONE IS A FLOOR WITH A WIDE MARGIN — not a quality bar
+    // (R-D1). 4.05 against a measured 11-13 leaves a factor of nearly three, so a regression that
+    // HALVED the press rate would still pass it. What it is worth is what the `/4` was chosen for:
+    // it stays a fixed fraction of a physically binding ceiling, so a weapon retune or a cadence
+    // change moves the bar with the kit instead of stranding it. The weak form (`> 0`) is the
+    // regression guard for the symptom this phase was opened for — a bot that parked and wove and
+    // never pressed anything at all; the tight form says the bot presses at a rate that is a
+    // meaningful fraction of what its kit allows, which is a different and looser claim.
+    //
+    // `immortalTarget: true` IS A DELIBERATE CONTROL (R-D2), not a leftover, and it diverges from
+    // the brief's `duelAgainstDummy("hard", 300)` on purpose. With the dummy's hp pinned at full,
+    // `targetHpFraction` stays 1.0 for all 300 ticks, so `woundedBias` never tilts slot choice and
+    // the ult window never opens on a wounded target — the count measures BASELINE willingness to
+    // press and nothing else, which is the symptom P49 names. It is inert for the `break` path
+    // either way: the kill lands around tick 471, well past this run's 300.
     const { fires } = duelAgainstDummy("hard", 300, true);
     expect(fires).toBeGreaterThan(0);
     expect(fires).toBeGreaterThan(pressCeilingOf("bullseye", 300, BOT_PROFILES.hard.burstGapTicks) / 4);
@@ -510,10 +526,17 @@ describe("whole-brain determinism (P51)", () => {
   // actually matters to the balance harness: one seed replays the ENTIRE brain, every tier, whether
   // or not there is a threat in the scene to change which branches run.
   //
-  // The threat case is the one that earns its place. `perceive` draws its `dodgeChance` roll
-  // UNCONDITIONALLY for every tracked threat, every tick (H21), so merely tracking a shot consumes
-  // one extra `rng()` call per tick and shifts every other draw that tick. A branch-dependent draw
-  // introduced anywhere in this phase shows up there and nowhere else.
+  // WHAT THIS CAN AND CANNOT DETECT. It compares a run against ITSELF — same tier, same seed, same
+  // scene — so it cannot see a branch-dependent `rng()` draw: a conditional draw takes the identical
+  // branch at the identical tick in both replays and produces identical output. What it does catch
+  // is nondeterminism leaking OUTSIDE `(controller, rng)`: module-level mutable state carried
+  // between replays, a stray `Math.random`/`Date.now`, an unstable iteration order over a Map or a
+  // Set. The instrument for draw-count divergence is the H25 test above, which holds `instances`
+  // constant and swaps only `dodgeChance` so every draw stays aligned tick-for-tick.
+  //
+  // The threat case still earns its place: it runs the whole threat path — `perceive`'s tracking
+  // table, its unconditional per-threat `dodgeChance` roll (H21), the dodge steering it feeds — so
+  // any of the leaks above hiding in that path is exercised rather than skipped.
   const incoming = [{
     id: "shot", ownerSessionId: "them", weaponId: "predator" as const,
     x: 210, y: -400, angle: Math.PI / 2,
