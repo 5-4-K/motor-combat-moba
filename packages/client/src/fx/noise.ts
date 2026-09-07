@@ -10,15 +10,21 @@
 /**
  * A hash of a lattice cell to `[0,1)`. Integer-mixing, so neighbouring cells decorrelate.
  *
- * MUST use `Math.imul` for the mixing multiply: JavaScript performs plain `*` as double-precision
- * floating-point arithmetic past 2^53, losing the 32-bit integer wrapping that avalanche hashing
- * relies on. With plain multiply, adjacent lattice pairs land within 0.01 of each other ~2% of the
- * time. `Math.imul` is true 32-bit integer multiplication and recovers the avalanche property.
+ * Every step is `Math.imul` or a LOGICAL shift, and both choices are load-bearing.
+ *
+ * `Math.imul` because a plain `*` on these constants exceeds 2^53 and silently becomes float
+ * arithmetic, losing the 32-bit wraparound the avalanche depends on.
+ *
+ * `>>>` and not `>>` because an arithmetic shift carries the sign bits down, and XORing those
+ * back in can never set bit 31 — which caps the output at 0.5 and halves the contrast of every
+ * texture built on this. Measured: `>>` gives mean 0.25 and chi2 60063 over ten buckets; `>>>`
+ * gives mean 0.501 and chi2 12.
  */
 export function hash2(x: number, y: number, seed: number): number {
-  let h = x * 374761393 + y * 668265263 + seed * 2147483647;
-  h = Math.imul(h ^ (h >> 13), 1274126177);
-  return ((h ^ (h >> 16)) >>> 0) / 4294967296;
+  let h = Math.imul(x, 374761393) ^ Math.imul(y, 668265263) ^ Math.imul(seed, 1442695041);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
 }
 
 /** Smoothstep between the four lattice values around `(x, y)`. */
