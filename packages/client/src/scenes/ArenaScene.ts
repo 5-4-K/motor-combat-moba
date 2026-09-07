@@ -39,7 +39,8 @@ import {
   winRuleOf,
 } from "@motor-combat-moba/shared";
 import { applyCarSprite, phaserTextures, resolveCarSprite } from "../assets/car-sprite.js";
-import { FxLayer } from "../fx/layer.js";
+import { FX_TEXTURE_KEYS, FxLayer } from "../fx/layer.js";
+import { FLOOR_DEPTH } from "../fx/depths.js";
 import { isDebugEnabled } from "../config/client-mode.js";
 import { showHitboxes } from "../config/view-options.js";
 import { ARENA_VIEW_WIDTH, HUD_GUTTER_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from "../config/display.js";
@@ -625,6 +626,14 @@ export class ArenaScene extends Phaser.Scene {
   private readonly cars = new Map<string, Phaser.GameObjects.Container>();
   private readonly visualKeys = new Map<string, string>();
   private arenaGfx: Phaser.GameObjects.Graphics | undefined;
+  /**
+   * The generated asphalt, one `TileSprite` covering the whole arena at `FLOOR_DEPTH` (VFX36).
+   *
+   * A real display object rather than a camera background colour, which is the only way the floor
+   * can carry a texture at all — and so, like every other display object in this scene, it has to be
+   * listed in `splitCameras` or it draws twice.
+   */
+  private floorTile: Phaser.GameObjects.TileSprite | undefined;
   private arena: ArenaDef | undefined;
   private cursors: Phaser.Types.Input.Keyboard.CursorKeys | undefined;
   /** WASD, ORed with `cursors` in `sendInputTick`; see `DriveKeys`. */
@@ -1003,11 +1012,29 @@ export class ArenaScene extends Phaser.Scene {
 
   private drawArena(arena: ArenaDef): void {
     const colors = arenaColorsOf(arena);
+
+    // A real object rather than `cam.setBackgroundColor`, which is what makes a texture possible at
+    // all (VFX36). The background colour stays set below as the ground beneath it, so a frame drawn
+    // before this tile sprite exists is never bare canvas. The asphalt texture is uploaded by the
+    // `FxLayer` constructor, which `create` deliberately runs before this method.
+    this.floorTile = this.add
+      .tileSprite(0, 0, arena.width, arena.height, FX_TEXTURE_KEYS.asphalt)
+      .setOrigin(0, 0)
+      .setDepth(FLOOR_DEPTH);
+
     const gfx = this.add.graphics().setDepth(ARENA_DEPTH);
     gfx.fillStyle(colors.obstacle, 1);
     for (const obstacle of arena.obstacles) {
       gfx.fillRect(obstacle.x, obstacle.y, obstacle.w, obstacle.h);
     }
+    // Painted markings, drawn on the same Graphics as the obstacles so they cost no extra object.
+    gfx.lineStyle(6, 0xdccd96, 0.13);
+    for (let y = 40; y < arena.height - 40; y += 46) {
+      gfx.lineBetween(arena.width / 2, y, arena.width / 2, Math.min(y + 26, arena.height - 40));
+    }
+    gfx.lineStyle(4, 0xdccd96, 0.1);
+    gfx.strokeCircle(arena.width / 2, arena.height / 2, 130);
+
     gfx.lineStyle(ARENA_BORDER_PX, colors.border, 1);
     const border = arenaBorderRect(arena, ARENA_BORDER_PX);
     gfx.strokeRect(border.x, border.y, border.w, border.h);
@@ -1076,6 +1103,9 @@ export class ArenaScene extends Phaser.Scene {
       ...this.rosterKillTexts,
     ];
     const worldObjects: Phaser.GameObjects.GameObject[] = [
+      // World space at `FLOOR_DEPTH`, under everything. A display object like any other, so it needs
+      // its entry here or it draws a second time across the gutter (VFX36).
+      ...(this.floorTile ? [this.floorTile] : []),
       ...(this.arenaGfx ? [this.arenaGfx] : []),
       ...(this.shotGfx ? [this.shotGfx] : []),
       ...(this.hpGfx ? [this.hpGfx] : []),
@@ -1169,6 +1199,8 @@ export class ArenaScene extends Phaser.Scene {
     this.interps.clear();
     this.arenaGfx?.destroy();
     this.arenaGfx = undefined;
+    this.floorTile?.destroy();
+    this.floorTile = undefined;
     this.arena = undefined;
     this.countdownText?.destroy();
     this.countdownText = undefined;
