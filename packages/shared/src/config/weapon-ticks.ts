@@ -59,7 +59,7 @@ export interface WeaponTicks {
    * `impulse` — absent must mean absent, never a zero-valued default, or every weapon would read as
    * a nudge. `wallStunWindow`/`wallStunDuration` are 0 when the source `wallStun` is itself absent,
    * and `retriggerImmunity` is 0 when `retriggerImmunityMs` is absent — both mirror the sibling
-   * conversions elsewhere in this file (e.g. `damageInterval`'s "0 means none" convention).
+   * conversions elsewhere in this file (e.g. `refireDelay` and `lifetime`, which each become 0 when absent).
    */
   impulse?: {
     uncontrol: number;
