@@ -273,7 +273,9 @@ In `packages/server/src/bot/brain/objectives.ts`, add `facingError: 0` to each o
 npm run typecheck
 ```
 
-The compiler enumerates every `PlanWeights` literal missing the new field — there are **13 `threatAvoid:` sites** across `planner.ts`, `objectives.ts` and `planner.test.ts`. Add `facingError: 0` to each until typecheck is clean. This is the whole reason the field is required rather than optional: absent must be a compile error, not a silent `undefined` reaching `rawScore` as `NaN`.
+The compiler enumerates every `PlanWeights` literal still missing the new field. By this step most are already done — Step 3 covered the interface declaration, Step 4 the object `scoreCandidate` returns, and Step 6 all eight `BASE` rows — so **what remains is 3 literals in `packages/server/src/bot/brain/planner.test.ts`**. Add `facingError: 0` to each.
+
+Let typecheck, not this count, be the authority: run it, fix what it names, run it again until clean. This is the whole reason the field is required rather than optional — absent must be a compile error, not a silent `undefined` reaching `rawScore` and turning the score into `NaN`.
 
 - [ ] **Step 8: Run the tests**
 
