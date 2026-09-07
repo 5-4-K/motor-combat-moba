@@ -7,10 +7,17 @@
  * "re-roll" is a real operation rather than a redraw of the same image (VFX8).
  */
 
-/** A hash of a lattice cell to `[0,1)`. Integer-mixing, so neighbouring cells decorrelate. */
+/**
+ * A hash of a lattice cell to `[0,1)`. Integer-mixing, so neighbouring cells decorrelate.
+ *
+ * MUST use `Math.imul` for the mixing multiply: JavaScript performs plain `*` as double-precision
+ * floating-point arithmetic past 2^53, losing the 32-bit integer wrapping that avalanche hashing
+ * relies on. With plain multiply, adjacent lattice pairs land within 0.01 of each other ~2% of the
+ * time. `Math.imul` is true 32-bit integer multiplication and recovers the avalanche property.
+ */
 export function hash2(x: number, y: number, seed: number): number {
   let h = x * 374761393 + y * 668265263 + seed * 2147483647;
-  h = (h ^ (h >> 13)) * 1274126177;
+  h = Math.imul(h ^ (h >> 13), 1274126177);
   return ((h ^ (h >> 16)) >>> 0) / 4294967296;
 }
 

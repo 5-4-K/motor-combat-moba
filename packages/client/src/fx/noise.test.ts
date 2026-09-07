@@ -14,10 +14,14 @@ describe("hash2", () => {
     expect(hash2(12, 34, 99)).toBe(hash2(12, 34, 99));
   });
 
-  it("decorrelates neighbours — an adjacent cell is not an adjacent value", () => {
-    const a = hash2(10, 10, 5);
-    const b = hash2(11, 10, 5);
-    expect(Math.abs(a - b)).toBeGreaterThan(0.01);
+  it("decorrelates neighbours across a sweep, not just one lucky pair", () => {
+    let tooClose = 0;
+    for (let i = 0; i < 500; i++) {
+      if (Math.abs(hash2(i, i * 3, 42) - hash2(i + 1, i * 3, 42)) <= 0.01) tooClose++;
+    }
+    // A float-multiply hash lands ~2% of adjacent pairs inside this bar; a true 32-bit
+    // integer multiply lands far fewer. Allow a couple by chance, not dozens.
+    expect(tooClose).toBeLessThan(20);
   });
 });
 
