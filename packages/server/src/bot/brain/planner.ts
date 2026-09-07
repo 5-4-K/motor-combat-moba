@@ -822,6 +822,10 @@ function scoreCandidate(
       }
     }
 
+    // `proxyValue`'s `distance < 1` early return is shared by the danger side, so a candidate pose
+    // within one unit of a threat reads as ZERO danger rather than maximum. Physically unreachable —
+    // two car hulls collide long before their centres are a unit apart — so it is left alone rather
+    // than special-cased on a path that runs 9 times x K ticks per plan (M11, fix wave 3).
     const danger = worstCaseDanger(args, body, sample.threats);
     if (danger > theirEv) theirEv = danger;
   }

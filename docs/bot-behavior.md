@@ -35,7 +35,7 @@ much) and the winning plan's per-term breakdown (what it thought it was doing in
 | "It doesn't set up its shots" | **Planning** — a third factor as of 4.3.0. `planHorizonTicks` is how long an arc the bot can express at all; `targetBranches` is how hard it hedges against what you do next. Easy's 0 is a one-tick rollout by design (see [Known limitations](#known-limitations)) |
 | "It weaves / circles me" | Usually correct now. Circling is emergent: the planner turns because the arc that sweeps its nose across you scores better than the one that does not. A stutter — the wheel flapping rather than an arc — is planner *chatter*: raise `commitPenalty`. `orbitBias` does not exist |
 | "It ults my corpse / spawn shield" | `deadRespect` up (Hard should already be 1) |
-| "It sits in a corner while I approach" | `cornerRespect` up; the overlay should read `unpin`, with `wallPenalty` dominating its terms |
+| "It sits in a corner while I approach" | `cornerRespect` up; the overlay should read `unpin`. **`wallPenalty` dominates the terms only in a TRUE corner**, where the pose itself is inside the margin. Merely NEAR a wall it reads 0 and that is correct, not a bug: every braking candidate stops short of the wall, so none is penalised, and `myEv` takes over (H39's near-wall scene measures exactly this). Check the pose before you chase the term |
 | "It never dodges" | `dodgeChance`, `dodgeReactionTicks`, `dodgeHorizonTicks`, `incomingCarChance`. Those decide WHETHER it reacts; `threatAvoid`'s weight in `objectives.ts` decides how hard, and is not per-tier |
 | "It fights at the wrong distance" | `opponentRangeRespect` (how much of *their* shortest gun it insists on clearing) and `awarenessRadiusUnits`. The bot's own comfortable range is **derived**, not dialled — see [`preferredRangeOf`](#preferredrangeof-the-standoff-is-derived-now) |
 | "It charges in / never closes" | `opponentRangeRespect` down to close, up to stand off. Nothing in the shipped profile can make a bot stand *closer* than its own derived comfort — see [Known limitations](#known-limitations) |
@@ -165,9 +165,28 @@ Measured at neutral slot weights (chassis, easy / medium / hard): bullseye 70 / 
 86.7 / 186.7 / 220, bastion 90.8 / 132.5 / 132.5. Bastion's medium/hard tie is a property of its kit
 (a 150 u `wildcharge` beside a 400/500 u pair), not of the sampling grid.
 
-The personality's `slotWeights` reach this function, which is the whole reason the plateau bar is a
-fraction rather than an exact tie: under an exact tie the answer was provably a veto by the
-shortest-reaching ready slot, and the weights could not move the standoff at all.
+The personality's `slotWeights` reach this function, which is why the plateau bar is a fraction
+rather than an exact tie: under an exact tie the answer was provably a veto by the shortest-reaching
+ready slot, and the weights could not move the standoff at all.
+
+**They reach it in one chassis-by-tier cell of nine, and that is a documented limitation rather than
+a repair.** A 5x5x5 sweep of `rollPersonality`'s own 0.5-1.5 draw over all nine cells returns more
+than one standoff for exactly one of them - Mirage at hard, 386.7 with the long pair heavy against
+220 with `afterburner` heavy. Everywhere else the shortest ready slot's cliff is too large a share
+of the kit's peak for any weighting in that range to hold the total over 0.95 of it, so the answer is
+the same whatever the personality rolled. Two consequences for a tuner:
+
+- **Do not reach for `slotWeights` to change where a bot stands.** In eight of nine cells it does
+  nothing. Its live job is ranking which gun gets pressed - `chooseSlot` multiplies the solver's
+  value by it - which is where "it never uses its second weapon" is tuned.
+- **That one live cell rests on a known valuation error**, and would go away if the error were
+  fixed. `proxyValue` scores a ticking beam's `damage` as a press rather than a pulse, so
+  `afterburner` reads 3.8 EV/s instead of ~18.8; at its true value its 220 u cliff is too large for
+  any weighting to clear and the sweep reads 0 of 9. That was implemented, measured and reverted on
+  a red `balance/` fixture - see the accepted-loss note on `proxyValue` in
+  `bot/brain/solution.ts` for the numbers. Lowering `preferredRangePlateauFraction` is not the
+  alternative lever: 0.92 and 0.90 were swept and bought no extra live cell, and 0.90 broke a
+  balance fixture.
 
 ## Parameter table
 

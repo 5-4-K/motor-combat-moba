@@ -71,11 +71,23 @@ describe("weightsFor", () => {
   });
 
   it("weights the dodge heavily enough to actually move the car (R-P8)", () => {
-    // `threatAvoid` is a DISPLACEMENT in world units — roughly +-200 over hard's 22-tick horizon —
-    // so its weight has to be read against that scale, not against the 0-1 terms. The statement
-    // that matters: while a shot is in the air, a 100-unit sidestep must be worth more than the
-    // best shot the bot could take instead (`myEv` tops out near 75 EV/s). A dodge that loses that
-    // comparison is a mechanism the three dodge knobs describe and the car never performs.
+    // `threatAvoid` is a DISPLACEMENT in world units, so its weight has to be read against that
+    // scale and not against the 0-1 terms. The statement that matters: while a shot is in the air,
+    // a sidestep must be worth more than the best shot the bot could take instead (`myEv` tops out
+    // near 75 EV/s). A dodge that loses that comparison is a mechanism the three dodge knobs
+    // describe and the car never performs.
+    //
+    // THE 100 BELOW IS A UNIT OF COMPARISON, NOT A DISPLACEMENT THE MENU OFFERS (M6, fix wave 3,
+    // 2026-09-07). This comment used to justify it as "roughly +-200 over hard's 22-tick horizon",
+    // which was true before R-P10: a candidate was one input held for the whole horizon. Under the
+    // shipped commitment window plus `CONTINUATION`'s coast to rest, the nine terminal poses sit
+    // ~40 units apart and a stationary bot's whole menu spans ~4 units of travel. So the real
+    // separation this weight buys is ~24 points at the spread, not 120.
+    //
+    // The assertion is unchanged and still passes because it is arithmetic on the weight table
+    // (0.6 x 100 = 60 against 0.3 x 75 = 22.5) — it compares the two terms' PER-UNIT rates, which
+    // is the comparison that matters and is scale-free in the displacement. Do not read the 100 as
+    // a claim about how far the car can move in one plan; see `objectives.ts`'s table note.
     const evade = weightsFor("evade", BOT_PROFILES.hard);
     expect(evade.threatAvoid * 100).toBeGreaterThan(evade.myEv * 75);
   });

@@ -564,41 +564,43 @@ export class HumanController implements BotController {
     return { steer, throttle, fireSlots: slot === undefined ? 0 : 1 << slot };
   }
 
+  /**
+   * WHERE TO DRIVE WHEN NOBODY IS HITTABLE: a heading, and ONLY a heading (M5, fix wave 3,
+   * 2026-09-07).
+   *
+   * It used to return `range` and `closing` alongside it. `closing` never had a reader, and
+   * R-P13 removed the last use of `range` when it stopped projecting the hunt waypoint at
+   * `minEngageUnits` and started projecting it at `profile.awarenessRadiusUnits` — see the comment
+   * on `targetAt`'s `hunt` branch above for why the 70 was a defect. Four call sites returning
+   * `range: BRAIN_CONSTANTS.minEngageUnits` is an invitation to re-derive exactly that bug, so they
+   * are gone. The `minEngageUnits` still read below is a different use: it is how close the bot has
+   * to get before a search waypoint counts as visited.
+   *
+   * Draws no `rng()` (H21); nothing here or in its helpers touches the stream.
+   */
   private huntHeading(
     view: BotView,
     fallbackHeading: number,
-  ): { headingRad: number; range: number; closing: boolean } {
+  ): { headingRad: number } {
     const self = view.self;
     const tick = view.tick;
     if (acquiringUnnoticed(this.perception, tick) && !lastKnownAnchor(this.perception, tick)) {
-      return { headingRad: fallbackHeading, range: BRAIN_CONSTANTS.minEngageUnits, closing: true };
+      return { headingRad: fallbackHeading };
     }
     const known = lastKnownAnchor(this.perception, tick);
     if (known) {
-      return {
-        headingRad: Math.atan2(known.y - self.y, known.x - self.x),
-        range: BRAIN_CONSTANTS.minEngageUnits,
-        closing: false,
-      };
+      return { headingRad: Math.atan2(known.y - self.y, known.x - self.x) };
     }
     const heard = this.huntHear ? nearestHeardShot(self, view.instances) : undefined;
     if (heard) {
-      return {
-        headingRad: Math.atan2(heard.y - self.y, heard.x - self.x),
-        range: BRAIN_CONSTANTS.minEngageUnits,
-        closing: false,
-      };
+      return { headingRad: Math.atan2(heard.y - self.y, heard.x - self.x) };
     }
     let waypoint = searchWaypoint(this.searchIndex, view.arena);
     if (Math.hypot(waypoint.x - self.x, waypoint.y - self.y) < BRAIN_CONSTANTS.minEngageUnits) {
       this.searchIndex += 1;
       waypoint = searchWaypoint(this.searchIndex, view.arena);
     }
-    return {
-      headingRad: Math.atan2(waypoint.y - self.y, waypoint.x - self.x),
-      range: BRAIN_CONSTANTS.minEngageUnits,
-      closing: false,
-    };
+    return { headingRad: Math.atan2(waypoint.y - self.y, waypoint.x - self.x) };
   }
 }
 

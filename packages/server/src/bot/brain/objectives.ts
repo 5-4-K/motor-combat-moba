@@ -29,7 +29,23 @@ import type { PlanWeights } from "./planner.js";
  * | `rangeError`  | 0-600 units           | 0.02       | ~1 at 50 u | 0.12       | ~6 at 50 u |
  * | `wallPenalty` | 0-1 (0.017 in a corner)| 40 (unpin)| **0.66**   | 2400       | 40         |
  * | `lockKeep`    | 0 or 1                | 1          | **1**      | 8          | 8          |
- * | `threatAvoid` | +-200 units at K=22   | (absent)   | —          | 0.6 (evade)| 0-120      |
+ * | `threatAvoid` | +-40 u (see below)    | (absent)   | —          | 0.6 (evade)| 0-24       |
+ *
+ * `threatAvoid`'s ROW IS STATED AT THE SHIPPED SCALE, and it is much smaller than the scale it was
+ * derived on (M6, fix wave 3, 2026-09-07). It was "+-200 units at K=22, 0-120 points", measured
+ * when a candidate was one input held for the whole horizon. R-P10 replaced that with a commitment
+ * window followed by `CONTINUATION` — a full-neutral coast to rest — and the same re-derivation
+ * that took `rangeError` up 10x below applies here for the same reason: the nine terminal poses now
+ * sit ~40 units apart, not ~190, and a STATIONARY bot's whole menu spans about 4 units of travel
+ * (see `CONTINUATION` in `planner.ts`). So 0.6 buys ~24 points of separation at the spread, and
+ * ~2.4 from rest, against a `myEv` running to 150.
+ *
+ * THE WEIGHT IS NOT CHANGED HERE, and that is deliberate: `rangeError` was re-derived because the
+ * term had stopped being able to say where to stand, whereas the dodge still wins its comparison
+ * (`objectives.test.ts` asserts `threatAvoid` beats the best available shot, and it does at 0.6).
+ * What was wrong was the JUSTIFYING FIGURE, which is what a tuner reads to decide the dodge weight
+ * is fine. Anyone re-deriving it should measure the displacement the menu actually offers rather
+ * than trusting either number here.
  *
  * `wallPenalty` is the one that looks alarming and is not. `boundsPenalty` is a SQUARED NORMALISED
  * overlap, so a Bullseye jammed into a corner at (40, 40) scores 0.0165 and an unobstructed pose

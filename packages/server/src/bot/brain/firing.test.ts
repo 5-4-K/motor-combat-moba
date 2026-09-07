@@ -102,6 +102,32 @@ describe("preferredRangeOf", () => {
     expect(longGunHeavy).toBeGreaterThan(afterburnerHeavy);
   });
 
+  it("lets a slot preference read in exactly ONE cell of nine, and pins that (R-D5 pushback)", () => {
+    // The claim "`slotWeights` reach the standoff" is true and much narrower than it reads, and the
+    // narrowness is what a tuner needs. Sweeping `rollPersonality`'s own 0.5-1.5 draw over all
+    // three chassis at all three tiers, exactly one cell returns more than one standoff.
+    //
+    // THIS TEST IS ALLOWED TO FAIL ON AN IMPROVEMENT. If a roster change, a new chassis or a
+    // `proxyValue` correction moves the count either way, the right response is to update this
+    // number AND the two prose claims that quote it (`preferredRangeOf`'s doc comment, and
+    // `docs/bot-behavior.md`'s "one chassis-by-tier cell of nine"). Pinning it is what stops those
+    // two drifting silently, which is how the general-sounding claim got written in the first place.
+    // Known: restoring `proxyValue`'s pulse count takes this to 0 — see the accepted-loss note on
+    // `proxyValue` in `solution.ts`.
+    const grid = [0.5, 1, 1.5];
+    const live: string[] = [];
+    for (const carId of ["bullseye", "mirage", "bastion"] as const) {
+      for (const tier of ["easy", "medium", "hard"] as const) {
+        const seen = new Set<number>();
+        for (const a of grid) for (const b of grid) for (const c of grid) {
+          seen.add(preferredRangeOf(self(carId), BOT_PROFILES[tier], [a, b, c], 0));
+        }
+        if (seen.size > 1) live.push(`${carId}/${tier}`);
+      }
+    }
+    expect(live).toEqual(["mirage/hard"]);
+  });
+
   it("gives different chassis different distances, because their kits differ (P31)", () => {
     // Not a per-tier fudge factor on one shared formula any more: at the SAME tier and the same
     // slot weights, Bullseye's long kit wants a longer stand-off than Bastion's short one.

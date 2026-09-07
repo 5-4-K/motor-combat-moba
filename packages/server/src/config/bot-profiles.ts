@@ -195,8 +195,10 @@ export interface BotProfile {
    * THE THREE MS FIGURES ABOVE ARE FROM R-PF1's ROUND (2026-09-06) and predate the candidate set
    * the planner ships. R-P10's terminal policy, R-P12's commitment window and R-P17's per-depth
    * division of it all changed what a candidate IS, and depth 1's cost moved with them: the same
-   * hard configuration measures **0.432 ms** today (fix wave 1, 2026-09-07 — see
-   * `trajectorySampleCount`'s table, which was re-swept in the same wave).
+   * hard configuration measured **0.432 ms** in fix wave 1's re-sweep (2026-09-07 — see
+   * `trajectorySampleCount`'s table, re-swept in the same wave). That is this sweep's own number,
+   * not the baseline: `planner.bench.test.ts` reads hard at 0.375-0.422 ms isolated over eleven
+   * runs, and is what a future edit is compared against (M9).
    *
    * DEPTH 2 HAS NOW BEEN RE-MEASURED, and the 3x above is NOT the ratio any more. At the shipped
    * `planHorizonTicks` and `targetBranches`, depth 2 costs **3.03 ms** per plan against depth 1's
@@ -637,17 +639,33 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * anything the bot was reading. So the argument for 4 is now "cheapest on the plateau", and the
    * argument against going below it is unchanged.
    *
-   * Hard's 0.432 ms is 30% ABOVE the stated 0.33 ms budget, and that is accepted with the number
-   * said out loud rather than hidden. The budget is six bots replanning at 15 Hz inside ~30 ms of
+   * Hard's 0.432 ms in this sweep is 30% ABOVE the stated 0.33 ms budget, and that is accepted with
+   * the number said out loud rather than hidden. (The bench file's gated range is wider still —
+   * 0.375-0.593 ms, 13% to 78% over, isolated through full-suite load.) The budget is six bots replanning at 15 Hz inside ~30 ms of
    * CPU per simulated second; four samples make that 38.9 ms. Hard is the only tier that pays it
    * (medium 0.242, easy 0.067, both far under), and a full six-bot lobby of HARD bots is not a
    * configuration the game ships. Spec P33's instruction if that stops being true is to bring K and
    * `planDepth` down, not to raise the budget — and this constant would come down with them.
    *
-   * The two ms figures a reader may find elsewhere are both real and neither is this one: the
-   * ORIGINAL sweep (task 3, before the commitment window) measured hard at 0.365 ms, and phase D's
-   * final report measured ~0.34 ms on a different scene. The 0.432 above is the current number, on
-   * this machine, at the shipped configuration, and is the one to compare a future edit against.
+   * THE FIGURE TO COMPARE A FUTURE EDIT AGAINST IS `planner.bench.test.ts`'s, NOT THIS ONE (M9,
+   * fix wave 3, 2026-09-07). Several per-plan numbers are on record, each honestly labelled with
+   * its own run, and a reader picking between them was being pointed here — at a single reading
+   * that the shipped gate's own data does not reproduce. To be explicit:
+   *
+   *   | figure          | where it came from                                                    |
+   *   |-----------------|-----------------------------------------------------------------------|
+   *   | 0.365 ms        | the ORIGINAL sample-count sweep (task 3), before the commitment window |
+   *   | ~0.34 ms        | phase D's final report, on a different scene                          |
+   *   | 0.432 ms        | THIS table's own re-sweep (fix wave 1) — see the rows above            |
+   *   | 0.385 ms        | the depth-1/depth-2 run on `planDepth`, best-of-five, same wave        |
+   *   | **0.375-0.422** | **`planner.bench.test.ts`, hard, ISOLATED, over eleven runs**           |
+   *
+   * The last row is THE BASELINE. It is a range rather than a point, it comes from the gate that
+   * actually runs in CI, and the file states the loaded conditions beside it (0.453-0.500 under
+   * `src/bot/ src/config/`, 0.531-0.593 under the whole suite) so a comparison can be made under
+   * matched load. The 0.432 and 0.385 above stay because each is the internally consistent number
+   * for the sweep it belongs to — compare rows WITHIN a table to each other, and compare a future
+   * edit to the bench file.
    */
   trajectorySampleCount: 4,
   /**
@@ -718,7 +736,7 @@ export const BRAIN_CONSTANTS = Object.freeze({
 // 4.0.0 (2026-09-05): firing solutions replace the angular fire gate (spec phase B).
 // 4.1.0 (2026-09-06): danger evaluation and cooldown readiness (spec phase C).
 // 4.2.0 (2026-09-06): physics-based prediction replaces the constant-velocity solve (spec phase A).
-// 4.3.0 (2026-09-05): the receding-horizon planner replaces desire blending (spec phase D).
+// 4.3.0 (2026-09-07): the receding-horizon planner replaces desire blending (spec phase D).
 export const BOT_BRAIN_VERSION = "4.3.0";
 
 /**

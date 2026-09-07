@@ -56,9 +56,28 @@ export function isUlt(slot: BotSlotView): boolean {
  * the total above the bar past a lightly-weighted short slot's cliff, so `slotWeights` reach the
  * standoff again — see that constant for the sweep the 0.95 came out of.
  *
- * IT TAKES TWO PASSES, and cannot be folded back into one. The bar is a fraction of the maximum, so
- * the maximum has to be known before any range can be tested against it; a running best has not
- * seen the samples still ahead of it.
+ * "REACH IT" MEANS ONE CELL OF NINE, AND THAT IS THE HONEST SUMMARY (R-D5 pushback, fix wave 3,
+ * 2026-09-07). A 5x5x5 sweep of `rollPersonality`'s 0.5-1.5 draw over three chassis x three tiers
+ * returns more than one standoff for exactly one cell — Mirage at hard, 386.7 against 220.
+ * Everywhere else the shortest ready slot's cliff is too large a share of the peak for any
+ * weighting in that range to clear the bar past it. The fraction is still right — removing a
+ * STRUCTURAL veto is what it does, and it is what puts a hard Bullseye at 470 rather than the exact
+ * tie's 420 — but "the personality moves the standoff" is a documented limitation, not a shipped
+ * behaviour. That one live cell also rests on `proxyValue` under-valuing `afterburner` ~5x; see
+ * the accepted-loss note on `proxyValue` in `solution.ts`, which records that fixing it takes the
+ * sweep to 0 of 9 and why it was reverted anyway.
+ *
+ * IT TAKES TWO PASSES OVER THE SAMPLES, but only ONE evaluation of each (M7, fix wave 3,
+ * 2026-09-07). The two-pass STRUCTURE is forced: the bar is a fraction of the maximum, so the
+ * maximum has to be known before any range can be tested against it, and a running best has not
+ * seen the samples still ahead of it. Evaluating `totalAt` twice per range was not forced — this
+ * used to say the two "cannot be folded back into one", which conflated the structure with the
+ * cost. The 24 totals are computed once into an array and the second pass scans them.
+ *
+ * THAT COST IS NOT COVERED BY `planner.bench.test.ts`, which times `plan()` alone.
+ * `preferredRangeOf` is called from `HumanController`'s recompute, outside the planner, so nothing
+ * in the suite gates it. Each sample runs `proxyValue` once per slot — 24 x 3 = 72 calls of ~20
+ * flops per recompute before this change, 36 after.
  *
  * THE LOWER CLAMP IS THE TABLE'S, NOT THIS FUNCTION'S. `bestRange` starts at `minEngageUnits` and
  * only ever moves outward, so the sole way out below the floor is the `Math.min` against
@@ -112,21 +131,28 @@ export function preferredRangeOf(
     return total;
   };
 
-  // Pass 1: the peak. The bar is a fraction OF this, so it cannot be applied until it is known.
+  // Pass 1: evaluate every sample ONCE, keeping the range beside its total so pass 2 scans rather
+  // than re-evaluates. The peak is taken here because the bar is a fraction OF it, so it cannot be
+  // applied until it is known.
+  const samples: { range: number; total: number }[] = [];
   let peak = 0;
   for (let range = BRAIN_CONSTANTS.minEngageUnits; range <= longest; range += step) {
-    peak = Math.max(peak, totalAt(range));
+    const total = totalAt(range);
+    samples.push({ range, total });
+    peak = Math.max(peak, total);
   }
   // A kit that scores nothing anywhere (no slots at all) has no plateau to sit on the far edge of,
   // and a bar of zero would let every sample tie at 0 and hand back the far end of the reach — the
   // degenerate tie R-D4 is about. Fall to the floor instead.
   if (peak <= 0) return Math.min(BRAIN_CONSTANTS.minEngageUnits, profile.awarenessRadiusUnits);
 
-  // Pass 2: the FARTHEST range still clearing the bar (R-D5).
+  // Pass 2: the FARTHEST range still clearing the bar (R-D5). A scan of pass 1's totals, so the
+  // sampled ranges are bit-for-bit the ones that were evaluated — re-running the accumulation
+  // `range += step` a second time would be a second chance to drift.
   const bar = peak * BRAIN_CONSTANTS.preferredRangePlateauFraction;
   let bestRange = BRAIN_CONSTANTS.minEngageUnits;
-  for (let range = BRAIN_CONSTANTS.minEngageUnits; range <= longest; range += step) {
-    if (totalAt(range) >= bar) bestRange = range;
+  for (const sample of samples) {
+    if (sample.total >= bar) bestRange = sample.range;
   }
   return Math.min(bestRange, profile.awarenessRadiusUnits);
 }
