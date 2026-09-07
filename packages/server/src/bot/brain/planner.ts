@@ -1,6 +1,6 @@
 import {
-  DRIVE_CONFIG, TICK_RATE_HZ, NEUTRAL_MODIFIERS, carAimRangeOf, inAcquireRegion, inRetainRegion,
-  turnRateOf, weaponDefOf, type SimBody, type WeaponDef, type WeaponId,
+  DRIVE_CONFIG, TICK_RATE_HZ, NEUTRAL_MODIFIERS, carAimRangeOf, forwardOf, inAcquireRegion,
+  inRetainRegion, speedOf, turnRateOf, weaponDefOf, type SimBody, type WeaponDef, type WeaponId,
 } from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import type { BotArenaView, BotCarView, BotSelfView, BotSlotView } from "../types.js";
@@ -864,6 +864,38 @@ function threatAvoidOf(
   let total = 0;
   for (const dir of away) total += dx * dir.x + dy * dir.y;
   return total;
+}
+
+/**
+ * How badly this pose points somewhere other than where it is going (F4-F8).
+ *
+ * The planner's other six terms are about where the car IS or what it can SHOOT. None of them says
+ * that ORIENTATION IS FUTURE OPTIONS: a car pointing where it is going can keep going, and a car
+ * pointing backwards relative to its travel is committed to a slow reversal. A receding-horizon
+ * planner that scores only the terminal POSITION cannot see that cost, which is exactly what a
+ * short horizon loses.
+ *
+ * Nose-versus-TRAVEL, deliberately, not nose-versus-objective. The second reading duplicates `myEv`
+ * (per-slot solutions are already built from the car's real pose) and `lockKeep`, and it is zero at
+ * `steer: 0` in `controller.test.ts`'s dodge scene, where the nose already points at the target —
+ * so it would reinforce the input under test rather than move it.
+ *
+ * `forwardOf / speed` is the cosine of the angle between velocity and nose, so this is 0 driving
+ * ahead, 0.5 sliding sideways, 1 reversing, and bounded in [0, 1] — an angle-like quantity, never a
+ * distance. That matters: the existing terms already span three magnitude regimes (`rangeError`
+ * ~302, `threatAvoid` ~20, `wallPenalty` ~0.004) and a fourth would make the weight table harder to
+ * reason about rather than easier.
+ *
+ * At rest it is 0, not undefined, and the band is the sim's own `stopEpsilon` so the two agree on
+ * what stopped means. That is the whole answer to the reference-direction problem: a
+ * nose-versus-objective term has no defined value in `recover` or a targetless `evade`, where
+ * `targetAt` falls back to the car's own pose. Velocity is always defined, so no situation needs a
+ * special case.
+ */
+export function facingErrorOf(body: SimBody): number {
+  const speed = speedOf(body.vx, body.vy);
+  if (speed <= DRIVE_CONFIG.stopEpsilon) return 0;
+  return (1 - forwardOf(body.vx, body.vy, body.angle) / speed) / 2;
 }
 
 function rawScore(terms: Record<keyof PlanWeights, number>, weights: PlanWeights): number {

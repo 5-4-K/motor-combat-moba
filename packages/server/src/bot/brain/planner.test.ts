@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { slotsOf, weaponDefOf } from "@motor-combat-moba/shared";
+import { DRIVE_CONFIG, slotsOf, weaponDefOf, type SimBody } from "@motor-combat-moba/shared";
 import { BOT_PROFILES } from "../../config/bot-profiles.js";
 import type { BotArenaView, BotCarView, BotSelfView, BotSlotView } from "../types.js";
 import type { PosePredictor } from "./solution.js";
 import {
-  ALL_ACTIONS, commitWindowOf, plan, type PlanArgs, type PlanWeights,
+  ALL_ACTIONS, commitWindowOf, facingErrorOf, plan, type PlanArgs, type PlanWeights,
 } from "./planner.js";
 
 const arena: BotArenaView = { width: 1280, height: 720, obstacles: [] };
@@ -467,5 +467,47 @@ describe("plan", () => {
     });
     expect(ALL_ACTIONS).toContainEqual(result.action);
     expect(Number.isFinite(result.score)).toBe(true);
+  });
+});
+
+describe("facingErrorOf", () => {
+  // A body with only the fields the function reads. The planner's rollout produces full
+  // SimBodies; this pins the function, not the rollout.
+  const at = (vx: number, vy: number, angle: number) =>
+    ({ x: 0, y: 0, angle, vx, vy } as SimBody);
+
+  it("is 0 driving straight ahead, at any heading", () => {
+    expect(facingErrorOf(at(100, 0, 0))).toBeCloseTo(0, 9);
+    expect(facingErrorOf(at(0, 100, Math.PI / 2))).toBeCloseTo(0, 9);
+    expect(facingErrorOf(at(-100, 0, Math.PI))).toBeCloseTo(0, 9);
+  });
+
+  it("is 1 reversing — the case the whole term exists for", () => {
+    expect(facingErrorOf(at(-100, 0, 0))).toBeCloseTo(1, 9);
+    expect(facingErrorOf(at(0, -100, Math.PI / 2))).toBeCloseTo(1, 9);
+  });
+
+  it("is 0.5 sliding exactly sideways", () => {
+    expect(facingErrorOf(at(0, 100, 0))).toBeCloseTo(0.5, 9);
+    expect(facingErrorOf(at(0, -100, 0))).toBeCloseTo(0.5, 9);
+  });
+
+  it("is 0 at rest, not undefined — this is what removes the reference-direction problem (F8)", () => {
+    expect(facingErrorOf(at(0, 0, 0))).toBe(0);
+    // Inside the sim's own rest band, so the sim and the planner agree on what 'stopped' means.
+    expect(facingErrorOf(at(DRIVE_CONFIG.stopEpsilon / 2, 0, Math.PI))).toBe(0);
+  });
+
+  it("is scale-free: doubling the speed does not change the term", () => {
+    expect(facingErrorOf(at(50, 50, 0))).toBeCloseTo(facingErrorOf(at(500, 500, 0)), 9);
+  });
+
+  it("stays inside [0, 1] at every angle, so it can never swamp a weight table tuned against it", () => {
+    for (let i = 0; i < 64; i++) {
+      const a = (i / 64) * Math.PI * 2;
+      const e = facingErrorOf(at(Math.cos(a) * 137, Math.sin(a) * 137, 0.7));
+      expect(e).toBeGreaterThanOrEqual(0);
+      expect(e).toBeLessThanOrEqual(1);
+    }
   });
 });
