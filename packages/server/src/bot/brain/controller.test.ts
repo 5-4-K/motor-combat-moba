@@ -297,10 +297,19 @@ describe("HumanController", () => {
       range: weaponDefOf(weaponId).range,
     }));
     const bot = new HumanController("hard");
+    // MID-ARENA AND AT CRUISING SPEED, both of them load-bearing (scene fix, 2026-09-07). A parked
+    // car has no dodge to choose: from rest the planner's whole nine-candidate menu spans about four
+    // units of travel (`CONTINUATION` in `planner.ts`), so `threatAvoid` cannot separate a swerve
+    // from a stand and the emitted wheel never leaves 0 whatever the geometry says. And a car in the
+    // top-left corner, where this scene used to sit, puts `wallPenalty` — 360 in `evade`, the
+    // second-heaviest weight the situation carries — directly across a lateral escape that runs 112
+    // units, which decides the wheel for reasons that have nothing to do with the shot. Speed is read
+    // off the chassis rather than typed, so a drive retune moves the fixture with the roster instead
+    // of quietly parking the car below its own cruising speed.
     const selfView = {
       sessionId: "me", carId: "bullseye" as const, team: 0 as const,
-      x: 100, y: 100, angle: 0, vx: 0, vy: 0, hp: 65, maxHp: 65, alive: true,
-      statuses: [], slots, switchLockUntilTick: 0, lockTargetSessionId: "",
+      x: 400, y: 360, angle: 0, vx: driveOf("bullseye").maxSpeed, vy: 0, hp: 65, maxHp: 65,
+      alive: true, statuses: [], slots, switchLockUntilTick: 0, lockTargetSessionId: "",
       maneuver: 0, maneuverTicksLeft: 0,
     };
     // Straight ahead of the car (bearing ~= self.angle, which stays fixed here — this test never
@@ -308,49 +317,99 @@ describe("HumanController", () => {
     // of what the dodge does to the blended steering heading.
     const target = {
       sessionId: "them", carId: "mirage" as const, team: 0 as const,
-      x: 400, y: 100, angle: 0, vx: 0, vy: 0, hp: 70, maxHp: 70,
+      x: 700, y: 360, angle: 0, vx: 0, vy: 0, hp: 70, maxHp: 70,
       alive: true, phased: false, statuses: [], maneuver: 0,
     };
-    // A shot bearing down the +y axis, passing 10 units to the right of the car — well inside
-    // `THREAT_LATERAL_UNITS` (~45), so `perceive()` registers it as a threat, and its
-    // `awayHeadingRad` comes out pointing almost directly opposite the target (back along -x) — the
-    // sharpest possible divergence from the aim line, so the planner's winning rollout (and with it
-    // the emitted `steer`) swings hard away from 0 while `self.angle` (what the solver solves
-    // against) does not move at all — this test's `selfView` is fixed, not stepped through physics.
+    /**
+     * The target's own shell coming back down the line between the two cars — fired 50 units in
+     * front of it, travelling in -x, passing 10 units to the car's left. Ten units is well inside
+     * `THREAT_LATERAL_UNITS` (~45), so `perceive()` registers it as a threat, and it is deliberately
+     * not zero: a car sitting EXACTLY on the line makes `threatHeading`'s cross-product sign a
+     * floating-point coin flip, and `awayHeadingRad` would then name one of the two escapes
+     * arbitrarily.
+     *
+     * THE ESCAPE AXIS IS THE WHOLE POINT, AND IT HAS TO STAY PERPENDICULAR TO THE NOSE (scene fix,
+     * 2026-09-07). `threatHeading` returns the perpendicular of the shot's own heading, so a shot
+     * running along +-x has an escape axis of +-y. The car faces +x, so leaving this line is work
+     * only the WHEEL can do and the throttle cannot do at all — which is what puts a real divergence
+     * between "where the gun points" (`self.angle`, fixed at 0 for the whole run) and "where the
+     * wheels want to go" into the emitted intent. Without that divergence the assertion below is
+     * inert rather than merely lenient.
+     *
+     * WHY THE SCENE IT REPLACES STOPPED WORKING. That one put the shot on the VERTICAL line x=110
+     * falling in +y, ten units to the car's right, whose escape axis is +-x — the car's OWN NOSE
+     * AXIS. A straight reverse was therefore the geometrically correct dodge, and the planner emitted
+     * it as `throttle: -1` with the wheel at 0. At `steer: 0` the planner's heading IS `self.angle`:
+     * the ordering bug and the correct implementation produce byte-identical output, so the test
+     * silently stops testing anything. It had read as passing only because `evade`'s `facingError`
+     * weight was 40, a toll heavy enough to price the reverse out and push the same dodge into a
+     * forward turn; when that weight was re-derived to 10 (`objectives.ts`, "`evade` RE-DERIVED") the
+     * reverse became affordable again and the geometry's real shape surfaced. The weight moved, the
+     * scene's defect did not — it had been there since the shot was first placed.
+     *
+     * So: do NOT "simplify" this back to a shot that falls across the car's path. An escape axis
+     * that lines up with the nose is the failure mode, not a tidier fixture.
+     */
     const incoming = {
       id: "shot-1", ownerSessionId: "them", weaponId: "predator" as const,
-      x: 110, y: -500, angle: Math.PI / 2,
+      x: 650, y: 350, angle: Math.PI,
     };
 
     let firedWhileDodging = false;
     let evadeStartTick: number | undefined;
     const settledPresses: { tick: number; steer: -1 | 0 | 1 }[] = [];
     /**
-     * FIXTURE WINDOW MOVED (R-P15, residuals round, 2026-09-07). Was: break on the FIRST press and
-     * assert that tick's steer. The mechanism this test guards is unchanged and still holds — the
-     * bot fires on eight separate ticks of this run WHILE steering off the fight heading — but the
-     * first press no longer coincides with the first steer, because the reaction path changed.
+     * FIXTURE WINDOW MOVED (R-P15, residuals round, 2026-09-07); RE-MEASURED ON THE LATERAL SCENE
+     * (scene fix, 2026-09-07). Was: break on the FIRST press and assert that tick's steer. The
+     * mechanism this test guards is unchanged and still holds — the bot fires on ten separate ticks
+     * of this run, and on four of them it is steering off the fight heading while it does — but the
+     * first press does not coincide with the first steer, because the reaction path is delayed and
+     * the trigger is not.
      *
      * The measured trace, hard, this exact scene (situation / emitted steer / emitted fireSlots):
      *
      *   t=0..5   waitOut  steer  0  fire 0
-     *   t=6..9   evade    steer  0  fire 0
-     *   t=10,11  evade    steer  0  fire 2   <- the old window stopped HERE, on steer 0
-     *   t=12,13  evade    steer  1  fire 0
-     *   t=14,15  evade    steer -1  fire 2   <- fires WHILE steering; the property under test
-     *   t=18,19 / 22,23 / 26,27 — the same, steer -1 with fire 2
+     *   t=6..9   evade    steer  0  fire 0   <- decided at t=6, still in the delay line
+     *   t=10,11  evade    steer  1  fire 2   <- the first evade answer, and it is a WHEEL answer
+     *   t=12,13  evade    steer  0  fire 0
+     *   t=14,15  evade    steer  0  fire 2
+     *   t=16,17  evade    steer  1  fire 0
+     *   t=18,19  evade    steer  0  fire 2
+     *   t=22,23  evade    steer  1  fire 2   <- fires WHILE steering; the property under test
+     *   t=26,27  evade    steer  0  fire 2
      *
-     * Why the two separated. `evade` is entered at t=6, and the planner's FIRST evade answer here
-     * is a dodge on the THROTTLE, not the wheel: this fixture's `awayHeadingRad` points back along
-     * -x, which is collinear with the car's own axis (it faces +x), so full reverse moves it
-     * straight down the away heading and the wheel has no work to do. That decision reaches the
-     * output `reactionDelayTicks` (4) later, at t=10 — and the trigger, which is not delayed by a
-     * plan at all, comes up on the same tick. The wheel only swings at the NEXT decision, t=8,
-     * emitted at t=12. So the settled window opens at `evadeStart + reactionDelayTicks +
-     * recomputeTicks` — every tick of it is derived from the profile, none of it is a chosen number.
+     * `evade` is entered at t=6 and the planner's first evade answer is already a swerve, because on
+     * this scene the escape axis is perpendicular to the nose and the throttle cannot reach it (see
+     * `incoming` above). That answer reaches the output `reactionDelayTicks` (4) later, at t=10, and
+     * the trigger — which no plan delays — comes up on the same tick. The settled window still opens
+     * at `evadeStart + reactionDelayTicks + recomputeTicks`, one recompute past the first emitted
+     * evade answer, so a press is only counted once the wheel has had a decision to respond with;
+     * every tick of it is derived from the profile, none of it is a chosen number.
      *
-     * The assertion is STRONGER than the one it replaces: it holds for EVERY press in the settled
-     * window, not for a single press.
+     * WHAT THE EMITTED WHEEL LOOKS LIKE, AND WHY IT IS NOT CONSTANT. The planner offers full lock or
+     * nothing, and bullseye's turn radius is `maxSpeed / turnRate` ~= 31 units, so full lock held
+     * across the commit window (12 of hard's 22 planned ticks) sweeps ~163 degrees — far past the
+     * ~90 the escape asks for. The dodge the planner actually rates best is therefore a burst of lock
+     * followed by a straight run down the new heading, and it re-derives that same answer every cycle
+     * because this fixture freezes `selfView`: the pose never advances, only the delay line does. The
+     * emitted wheel comes out on a 6-tick rhythm (2 ticks of lock, 4 straight) against a 4-tick
+     * trigger rhythm, so some presses land on the straight half. Replayed through the real drive
+     * model, the intents above carry the car 111.8 units off the shot's line by t=29, rising every
+     * tick and never crossing back.
+     *
+     * THE PER-PRESS ASSERTION BELOW IS CURRENTLY RED ON THAT STRAIGHT HALF, and it is left standing
+     * rather than relaxed. R-P15 strengthened it from "the first press steers" to "EVERY press in
+     * the settled window steers", which held on the old scene by cadence coincidence — the 6-tick
+     * wheel rhythm and the 4-tick trigger rhythm happened to line up there. It is not a property
+     * this planner can supply for a lateral dodge: swept over ~2700 scenes (full 360 degrees of shot
+     * orientation, every chassis, ten speeds, five positions, target distances 180-800, shot
+     * appearance ticks 0-16, sixty seeds), the 179 that satisfy it are all cars holding full lock in
+     * a 31-unit circle that crosses back over the line, and none of them departs monotonically.
+     * Worth knowing before re-aiming it: `press.steer` is the EMITTED wheel, four ticks downstream
+     * of the plan the ordering bug would corrupt, and on this scene the plan-turn ticks
+     * ({6,7,12,13,18,19,24,25}) and the emitted-turn ticks ({10,11,16,17,22,23,28,29}) are disjoint.
+     * `bot.debug()!.plan.steer` is the quantity the bug actually moves. Deciding what to do with
+     * this line is the user's call (`objectives.ts`, "Spec section 5 reserves that assertion").
      */
     for (let tick = 0; tick < 30; tick++) {
       const out = bot.decide(view({
