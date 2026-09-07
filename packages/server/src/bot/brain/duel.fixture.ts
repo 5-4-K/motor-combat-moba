@@ -9,6 +9,14 @@
  * `controller.test.ts` (aim-line quality, press willingness) and `tiers.test.ts` (the reported
  * symptoms and the tier ladder) are its two callers.
  *
+ * THE `.fixture.ts` SUFFIX IS WHAT SAYS THAT AT THE IMPORT SITE (ruling R-K3, 2026-09-07). This is
+ * the only non-shipped module under `packages/server/src/`, and the repo's convention for
+ * non-shipped code is a sibling directory (`balance/`, `playtest/`) — but those are runnable
+ * harnesses with their own entry points, and this is a helper two test files import. Moving it out
+ * of `src/` would put the tsconfig and vitest include paths at risk and buy nothing, since `tsup`'s
+ * entry is `src/index.ts` alone and it already never bundles this. The suffix costs nothing and
+ * makes the status legible exactly where a future production import would be written.
+ *
  * It has two modes, and the difference between them is the whole reason it is one function rather
  * than two:
  *
@@ -83,8 +91,12 @@ export interface DuelResult {
   hits: number;
   /** `hits / presses`, or 0 when nothing was pressed. */
   hitRate: number;
-  /** Ticks the run took: the tick the dummy died on, plus one, or the full `ticks` if it lived. */
+  /**
+   * Ticks the run took: the tick the dummy died on, plus one, or the full `ticks` if it lived.
+   * Always the full `ticks` under `immortalTarget`, which has no death to end on.
+   */
   ticks: number;
+  /** Whether the dummy died. Always `false` under `immortalTarget` — see `runDuel`. */
   killed: boolean;
   /** Mean absolute heading error to the target over the last 100 ticks: is the body on the aim line. */
   meanOffset: number;
@@ -119,6 +131,11 @@ export function bestSustainedDpsOf(carId: CarId): number {
  * and the kit and is not a constant — at hard's cadence of 3 a Bullseye could press 100 times in
  * 300 ticks, but its three cooldowns between them only come back about 16 times, so the KIT is the
  * limiter and a bar derived from the cadence alone would be unreachable by a factor of six.
+ *
+ * FOR RESOLVED-MODE RUNS ONLY (R-D4). The cooldown limiter is unconditional here, and OPEN mode has
+ * no cooldowns at all — it pins every slot permanently ready — so in that mode this returns a
+ * ceiling below the real one whenever the kit half binds. Every caller today measures a resolved
+ * run; a future open-mode caller wants `ticks / burstGapTicks` on its own.
  */
 export function pressCeilingOf(carId: CarId, ticks: number, burstGapTicks: number): number {
   const seconds = ticks / TICK_RATE_HZ;
@@ -243,7 +260,12 @@ export function runDuel(opts: DuelOptions): DuelResult {
     instanceSeq = out.instanceSeq;
     me = out.players.find((p) => p.sessionId === "me") ?? me;
     them = out.players.find((p) => p.sessionId === "them") ?? them;
-    if (!them.alive && killedAtTick < 0) killedAtTick = tick;
+    // NOT RECORDED UNDER `immortalTarget` (R-D3). The restore below happens after `runCombat`, so a
+    // dummy that hit zero hp on some tick would otherwise leave `killed: true` and a tick count
+    // behind while the loop ran on to the full `ticks` — `DuelResult` documents both fields as
+    // describing a run that ENDED, and an immortal run never does. No caller reads them in this
+    // mode today; this is what keeps that from becoming a trap for one that does.
+    if (!opts.immortalTarget && !them.alive && killedAtTick < 0) killedAtTick = tick;
     if (opts.immortalTarget) them = { ...them, hp: hpOf("mirage"), alive: true };
     else if (!them.alive) break;
   }
