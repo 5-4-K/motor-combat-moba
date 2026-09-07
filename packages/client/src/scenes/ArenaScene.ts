@@ -850,7 +850,12 @@ export class ArenaScene extends Phaser.Scene {
     //
     // Seeded per match so two players in the same room see the same textures, and a new match
     // re-rolls them. `arenaId` alone would freeze the seed forever.
-    this.fx = new FxLayer(this, this.arena.width * 31 + this.arena.height);
+    this.fx = new FxLayer(
+      this,
+      this.arena.width * 31 + this.arena.height,
+      this.arena.width,
+      this.arena.height,
+    );
 
     this.drawArena(this.arena);
 
