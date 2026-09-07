@@ -2,9 +2,20 @@ import { describe, expect, it } from "vitest";
 import { BOT_PROFILES } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import type { BotIntent } from "../types.js";
-import { applyHumanize, newHumanizeState } from "./humanize.js";
+import { applyBlunder, applyHumanize, BLUNDERS, newHumanizeState } from "./humanize.js";
 
 const drive: BotIntent = { steer: 1, throttle: 1, fireSlots: 1 };
+
+/**
+ * An intent every blunder kind can visibly change: it is already turning, already REVERSING (so
+ * `late-brake`'s `throttle: 1` is a real change rather than a no-op) and already firing (so
+ * `hold-fire` is too). `drive` above deliberately is not — it holds `throttle: 1` — and a blunder
+ * test written against it can only ever assert two of the three kinds.
+ */
+const backingUp: BotIntent = { steer: 1, throttle: -1, fireSlots: 1 };
+
+/** A plausible alternative line, in the shape `PlanResult.runnerUp` hands over. */
+const runnerUp = { steer: -1, throttle: 0 } as const;
 
 describe("applyHumanize", () => {
   it("coasts until the delay line has filled", () => {
@@ -42,8 +53,11 @@ describe("applyHumanize", () => {
     const state = newHumanizeState();
     const rng = makeRng(7);
     const profile = { ...BOT_PROFILES.easy, blunderChance: 1, blunderTicks: 10, idleFidgetChance: 0, reactionDelayTicks: 0 };
-    const first = applyHumanize(state, drive, 0, profile, rng, false, true);
-    expect(first).not.toEqual(drive);
+    // `backingUp`, not `drive`: since P41 reshaped the kinds, `late-brake` is a no-op against an
+    // intent that already reads `throttle: 1`, so asserting on `drive` would make this test's
+    // outcome depend on which kind the seed happens to draw.
+    const first = applyHumanize(state, backingUp, 0, profile, rng, false, true, runnerUp);
+    expect(first).not.toEqual(backingUp);
     expect(state.blunderUntilTick).toBe(10);
   });
 
@@ -75,8 +89,10 @@ describe("applyHumanize", () => {
     // The rate, not just the 0-and-1 extremes. `blunderChance` is documented on `BotProfile` as a
     // probability *per decision window*; rolling it every tick multiplied it by the cadence and put
     // easy inside a blunder 57.9% of its ticks, medium 34.5% and hard 13.2% — and two of the four
-    // blunder kinds invert `steer`, so an easy bot was steering wrong or reversing more often than
-    // it was driving. The renewal-process expectation for a window committed to for `blunderTicks`
+    // blunder kinds THEN IN PLACE inverted `steer`, so an easy bot was steering wrong or reversing
+    // more often than it was driving. (P41 has since replaced those kinds outright — see
+    // `applyBlunder` — but the duty cycle this pins is a property of the ROLL, not of the kinds, and
+    // is unchanged by that.) The renewal-process expectation for a window committed to for `blunderTicks`
     // and rolled once every `recomputeTicks` is
     //     blunderTicks / (blunderTicks + recomputeTicks / blunderChance)
     // which is 9.1% / 7.7% / 7.0% for easy / medium / hard — the ~9%/8%/7% the tier table was
@@ -106,6 +122,85 @@ describe("applyHumanize", () => {
     }
     // And the ladder still reads: a casual is wrong more often than a pro.
     expect(duty("easy")).toBeGreaterThan(duty("hard"));
+  });
+
+  // --- P41 / R-B1: blunders are mistakes, not spasms -------------------------------------------
+  describe("blunders (P41)", () => {
+    it("a blundering bot commits to a plausible alternative, not an inverted steer", () => {
+      // "second-best" must actually differ from the chosen action, and must be a real action.
+      const out = applyBlunder(
+        { steer: 1, throttle: 1, fireSlots: 1 },
+        "second-best",
+        { steer: -1, throttle: 0 },
+      );
+      expect(out.steer).toBe(-1);
+      expect(out.throttle).toBe(0);
+    });
+
+    it("keeps the rest of the intent when it takes the runner-up line", () => {
+      // The runner-up is a DRIVE action — steer and throttle. It says nothing about the trigger, so
+      // taking the second-best line must not silently hold fire as well.
+      const out = applyBlunder(backingUp, "second-best", runnerUp);
+      expect(out.fireSlots).toBe(backingUp.fireSlots);
+    });
+
+    it("degrades to a real kind rather than throwing when there is no runner-up", () => {
+      // Reachable only before a bot's first decision window has run (`controller.ts` writes
+      // `lastPlan` inside `plan()`); after that `plan` always names a runner-up, because the nine
+      // entries of `ALL_ACTIONS` are distinct by construction.
+      const out = applyBlunder(backingUp, "second-best", undefined);
+      expect(out).not.toEqual(backingUp);
+      expect(out.throttle).toBe(1);
+    });
+
+    it("EVERY kind is observable in the emitted intent (R-B1)", () => {
+      // THE ASSERTION THE BRIEF'S FOURTH KIND WOULD HAVE FAILED. `marginal-shot` was specified as
+      // `return intent` — an unconditionally invisible blunder — so a quarter of every tier's
+      // blunders would have done nothing at all and `blunderChance` would have been silently
+      // weakened by a quarter with no test able to tell. Anything added to `BLUNDERS` must change
+      // an intent that is turning, reversing and firing.
+      for (const kind of BLUNDERS) {
+        expect(applyBlunder(backingUp, kind, runnerUp)).not.toEqual(backingUp);
+      }
+    });
+
+    it("emits a different intent stream than a bot that never blunders", () => {
+      // The same assertion again, end to end through `applyHumanize` rather than against
+      // `applyBlunder` directly: an invisible kind is invisible HERE, which is the only place it
+      // matters. Reaction delay off so the two streams line up tick for tick.
+      const stream = (blunderChance: number): string => {
+        const state = newHumanizeState();
+        const rng = makeRng(11);
+        const profile = {
+          ...BOT_PROFILES.easy, blunderChance, blunderTicks: 10,
+          idleFidgetChance: 0, reactionDelayTicks: 0,
+        };
+        const out: BotIntent[] = [];
+        for (let tick = 0; tick < 200; tick++) {
+          out.push(applyHumanize(
+            state, backingUp, tick, profile, rng, false,
+            tick % profile.recomputeTicks === 0, runnerUp,
+          ));
+        }
+        return JSON.stringify(out);
+      };
+      expect(stream(1)).not.toBe(stream(0));
+    });
+
+    it("still draws exactly three numbers with a runner-up in hand (H21)", () => {
+      // The runner-up is threaded state, not a draw. Whether one is available may not move the
+      // stream, or a seeded replay would stop reproducing the moment a plan named a different
+      // alternative.
+      const count = (rider: typeof runnerUp | undefined) => {
+        let calls = 0;
+        const inner = makeRng(5);
+        const rng = () => { calls++; return inner(); };
+        applyHumanize(newHumanizeState(), drive, 0, BOT_PROFILES.easy, rng, false, true, rider);
+        return calls;
+      };
+      expect(count(runnerUp)).toBe(3);
+      expect(count(undefined)).toBe(3);
+    });
   });
 
   it("is deterministic for a seed", () => {

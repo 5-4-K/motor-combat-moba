@@ -1,12 +1,20 @@
 import type { BotProfile } from "../../config/bot-profiles.js";
 import type { Rng } from "../rng.js";
 import type { BotIntent } from "../types.js";
+import type { DriveAction } from "./predict.js";
 
 const COAST: BotIntent = { steer: 0, throttle: 0, fireSlots: 0 };
 
-export type BlunderKind = "oversteer" | "wrong-way" | "hold-fire" | "panic-reverse";
+export type BlunderKind = "second-best" | "late-brake" | "hold-fire";
 
-const BLUNDERS: readonly BlunderKind[] = ["oversteer", "wrong-way", "hold-fire", "panic-reverse"];
+/**
+ * The mistakes on the menu (P41). Exported so a test can hold EVERY entry to being observable —
+ * see `applyBlunder` for why a kind that cannot change an intent is a defect rather than a nuance.
+ *
+ * The ORDER is what `Math.floor(kindRoll * BLUNDERS.length)` selects from, so changing it changes
+ * which mistake a given seed makes. It does not change how many numbers are drawn (H21).
+ */
+export const BLUNDERS: readonly BlunderKind[] = ["second-best", "late-brake", "hold-fire"];
 
 /**
  * The last layer (H7): everything that makes a correct decision come out human.
@@ -36,7 +44,13 @@ export function newHumanizeState(): HumanizeState {
  * probability *per decision window* (H41), and rolling it every tick instead compounded it by the
  * cadence — easy spent 57.9% of its ticks inside a blunder, medium 34.5%, hard 13.2%, against the
  * ~9%/8%/7% the numbers describe (`blunderChance * blunderTicks / recomputeTicks`). Two of the four
- * blunder kinds invert `steer`, so an easy bot was steering the wrong way more often than not.
+ * blunder kinds THEN IN PLACE inverted `steer`, so an easy bot was steering the wrong way more often
+ * than not; P41 has since replaced the kinds outright (see `applyBlunder`), and the rate this
+ * paragraph is about is unchanged by that.
+ *
+ * `runnerUp` is the planner's own second-best first action (`PlanResult.runnerUp`), threaded through
+ * from `controller.ts` for the `second-best` blunder. It is STATE, not a draw: whether one is
+ * available may not move the rng stream, and does not.
  */
 export function applyHumanize(
   state: HumanizeState,
@@ -46,6 +60,7 @@ export function applyHumanize(
   rng: Rng,
   idle: boolean,
   decisionWindow: boolean,
+  runnerUp?: DriveAction,
 ): BotIntent {
   const blunderRoll = rng();
   const kindRoll = rng();
@@ -57,13 +72,13 @@ export function applyHumanize(
     // cadence-multiplied bug in the other direction.
     state.blunderKind = undefined;
     if (decisionWindow && blunderRoll < profile.blunderChance) {
-      state.blunderKind = BLUNDERS[Math.floor(kindRoll * BLUNDERS.length)] ?? "oversteer";
+      state.blunderKind = BLUNDERS[Math.floor(kindRoll * BLUNDERS.length)] ?? "second-best";
       state.blunderUntilTick = tick + profile.blunderTicks;
     }
   }
 
   let out = intent;
-  if (state.blunderKind !== undefined) out = applyBlunder(out, state.blunderKind);
+  if (state.blunderKind !== undefined) out = applyBlunder(out, state.blunderKind, runnerUp);
   if (idle && fidgetRoll < profile.idleFidgetChance) {
     out = { ...out, steer: kindRoll < 0.5 ? 1 : -1 };
   }
@@ -72,22 +87,68 @@ export function applyHumanize(
 }
 
 /**
- * A mistake committed to for a window, not a per-tick coin flip (H41): a flip reads as a stutter,
- * a committed wrong action reads as a person who has misjudged something.
+ * A MISTAKE A PERSON WOULD MAKE (P41), committed to for a window rather than flipped per tick
+ * (H41): a flip reads as a stutter, a committed wrong action reads as a person who has misjudged
+ * something.
+ *
+ * The four kinds this replaced were `oversteer`, `wrong-way`, `hold-fire` and `panic-reverse`, and
+ * three of the four wrote a control to the OPPOSITE of what the brain had decided. That reads as a
+ * car spasming, not as a driver getting it wrong. Every kind here is instead an action the bot
+ * could plausibly have chosen on purpose.
+ *
+ * THREE KINDS, NOT THE FOUR THE TASK BRIEF LISTED (R-B1). The fourth, `marginal-shot` — "take a shot
+ * the solver rated marginal" — was specified as `return intent`, i.e. UNCONDITIONALLY invisible: a
+ * quarter of every tier's blunders would have done nothing at all, silently weakening
+ * `blunderChance` by a quarter, and no test could have told. `late-brake` is only CONDITIONALLY
+ * invisible — a no-op when the intent already said `throttle: 1` — which is exactly what "failed to
+ * lift off in time" means and is fine. `humanize.test.ts`'s "EVERY kind is observable" is the
+ * assertion that keeps the difference honest for whoever adds a fourth kind later.
+ *
+ * NEITHER `marginal-shot` NOR P41's OTHER SUGGESTION — "misjudge range by ~15%" — IS EXPRESSIBLE AT
+ * THIS SEAM, and that is a property of where the layer sits rather than an omission. `applyHumanize`
+ * receives a FINISHED `BotIntent`: a steer, a throttle and a fire mask. It can see neither the EV
+ * gate that decided whether a shot was worth taking nor the range model that decided where to
+ * stand. Both are blunders of the DECISION, and would have to be applied before the plan is made:
+ *
+ * - `marginal-shot` belongs in `chooseSlot` (`firing.ts`), where `minShotValueFraction` is compared
+ *   against a slot's solved value — a blundering bot would lower that bar for the window.
+ * - "misjudge range by ~15%" belongs on `preferredRangeOf` (same file), whose answer `controller.ts`
+ *   hands the planner as `PlanArgs.preferredRange` — a blundering bot would scale it.
+ *
+ * Both would need the blunder window to be visible to `controller.plan()`, which is state
+ * `HumanizeState` already holds; neither is wired up, and neither should be faked here.
  */
-function applyBlunder(intent: BotIntent, kind: BlunderKind): BotIntent {
+export function applyBlunder(
+  intent: BotIntent,
+  kind: BlunderKind,
+  runnerUp: DriveAction | undefined,
+): BotIntent {
   switch (kind) {
-    case "oversteer":
-      // Committing to a turn that wasn't there, or over-rotating past one that was: either way the
-      // output must actually differ from the input, so a straight line gets a turn and an existing
-      // turn gets swung past centre into the opposite lock rather than left untouched.
-      return { ...intent, steer: intent.steer === 0 ? 1 : ((-intent.steer) as -1 | 0 | 1) };
-    case "wrong-way":
-      return { ...intent, steer: (intent.steer * -1) as -1 | 0 | 1 };
+    case "second-best":
+      /**
+       * Commit to the line the planner rated SECOND. `PlanResult.runnerUp` is the best candidate
+       * whose first action genuinely differs from the winner's, so it is by construction a
+       * nearly-good line — which is exactly what P41 asks for: a mistake, not a malfunction. The
+       * trigger is left alone; a runner-up is a DRIVE action and says nothing about firing.
+       *
+       * WITH NO RUNNER-UP, `late-brake`'s behaviour. Reachable only before a bot's first decision
+       * window has run — `controller.ts` writes `lastPlan` inside `plan()`, and after that `plan`
+       * always names one, since `ALL_ACTIONS`' nine entries are distinct by construction. Falling
+       * back to the other purely-motor kind keeps the blunder from evaporating into a no-op on
+       * exactly the ticks a bot is least sure of itself, and costs nothing.
+       */
+      return runnerUp === undefined
+        ? { ...intent, throttle: 1 }
+        : { ...intent, steer: runnerUp.steer, throttle: runnerUp.throttle };
+    case "late-brake":
+      // Failing to lift off in time — the pedal stays down through the moment it should have come
+      // up. A no-op when the bot was flooring it anyway, which is the honest reading of the
+      // mistake: you cannot brake late if you were never going to brake.
+      return { ...intent, throttle: 1 };
     case "hold-fire":
+      // Hesitating on a shot that was there. Carried over unchanged from the old set — it was
+      // already a mistake rather than a spasm.
       return { ...intent, fireSlots: 0 };
-    case "panic-reverse":
-      return { ...intent, throttle: -1 };
   }
 }
 

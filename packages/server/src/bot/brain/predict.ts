@@ -168,9 +168,11 @@ export function steerFromObservedTurn(angVel: number, carId: CarId): -1 | 0 | 1 
  * The reverse-cap row is the same failure with the sign flipped, and it is LARGER: 416 units short
  * at 45 ticks against the 584 that motivated `accel: 0`, and 854 over the full 90-tick horizon
  * `BRAIN_CONSTANTS.predictionHorizonTicks` actually rolls. It is not an exotic scene —
- * `movement.ts` makes `throttle: -1` routine `fight` behaviour inside the bot's preferred range and
- * `humanize.ts` has a panic-reverse, and `selfPredictor` runs under this same set, so a bot backing
- * off would otherwise predict its OWN `meAt` as nearly stationary and mis-read `danger`.
+ * `throttle: -1` is a third of `planner.ts`'s `ALL_ACTIONS` and is what the range term picks
+ * whenever the bot is inside its preferred standoff (the `panic-reverse` blunder this used to cite
+ * as the second source was deleted by P41; the planner's own reverse was always the larger one), and
+ * `selfPredictor` runs under this same set, so a bot backing off would otherwise predict its OWN
+ * `meAt` as nearly stationary and mis-read `danger`.
  *
  * It is also the honest statement of what a human reads off the screen — a speed and a turn, held —
  * and it dominates constant velocity everywhere a car is turning while tying it where one is not.

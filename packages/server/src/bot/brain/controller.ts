@@ -170,6 +170,11 @@ export class HumanController implements BotController {
     const idle = this.situation.current === "recover";
     return applyHumanize(
       this.humanize, this.held, view.tick, this.effectiveProfile, view.rng, idle, decisionWindow,
+      // P41's `second-best` blunder: the line this bot rated second, so a mistake is a plausible
+      // alternative rather than an inverted control. Threaded state, never a draw — `lastPlan` is
+      // written by `plan()` above and this argument is passed on every branch, `undefined`
+      // included, so the rng stream is unmoved (H21).
+      this.lastPlan?.runnerUp,
     );
   }
 

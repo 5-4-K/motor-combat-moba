@@ -297,7 +297,8 @@ export function commitWindowOf(horizonTicks: number, depth: 1 | 2): CommitWindow
  * WHAT THE TERMINUS USED TO COST, AND WHY THAT IS SETTLED NOW. Under round 3's candidate set — one
  * input held for the whole horizon — the terminus reading left the on-axis duel firing 24 times per
  * 300 ticks against a bar of 90: the bot aimed perfectly (0.000 rad) but, once a `panic-reverse`
- * blunder had shoved it from 508 units out to 586 against a preferred 530, no candidate closed the
+ * blunder (one of the four kinds P41 later replaced — see `humanize.ts`'s `applyBlunder`) had
+ * shoved it from 508 units out to 586 against a preferred 530, no candidate closed the
  * gap, because an input held for 22 ticks TERMINATES ~190 units along and the closing arc's
  * terminal error (130) read worse than standing still's (56). Every alternative reading fixed one
  * duel by breaking the other, which is what identified the candidate set rather than the score as
