@@ -76,8 +76,8 @@ export function isUlt(slot: BotSlotView): boolean {
  *
  * THAT COST IS NOT COVERED BY `planner.bench.test.ts`, which times `plan()` alone.
  * `preferredRangeOf` is called from `HumanController`'s recompute, outside the planner, so nothing
- * in the suite gates it. Each sample runs `proxyValue` once per slot — 24 x 3 = 72 calls of ~20
- * flops per recompute before this change, 36 after.
+ * in the suite gates it. Each sample runs `proxyValue` once per slot — about 24 x 3 = 72 calls of
+ * ~20 flops per pass, ~144 per recompute before this change (two passes), 72 after (one).
  *
  * THE LOWER CLAMP IS THE TABLE'S, NOT THIS FUNCTION'S. `bestRange` starts at `minEngageUnits` and
  * only ever moves outward, so the sole way out below the floor is the `Math.min` against

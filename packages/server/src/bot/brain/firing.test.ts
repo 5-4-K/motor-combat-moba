@@ -114,7 +114,7 @@ describe("preferredRangeOf", () => {
     // two drifting silently, which is how the general-sounding claim got written in the first place.
     // Known: restoring `proxyValue`'s pulse count takes this to 0 — see the accepted-loss note on
     // `proxyValue` in `solution.ts`.
-    const grid = [0.5, 1, 1.5];
+    const grid = [0.5, 0.75, 1, 1.25, 1.5];
     const live: string[] = [];
     for (const carId of ["bullseye", "mirage", "bastion"] as const) {
       for (const tier of ["easy", "medium", "hard"] as const) {
