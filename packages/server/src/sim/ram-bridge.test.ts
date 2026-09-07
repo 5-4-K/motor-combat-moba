@@ -502,6 +502,66 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
     expect(SLAM_IMPULSE_TICKS.uncontrol).not.toBe(RAM_TICKS.uncontrol);
     expect(reeling!.sourceSessionId).toBe("a");
   });
+
+  it("caps a victim at ONE slam push per tick when two chargers land on it, last slam winning", () => {
+    // A restoration, not a new rule. Through stage 3 a slam rode `resolveContacts`'s `best` map,
+    // which held one entry per victim and resolved a tie with `>=`, so two slams on one victim in
+    // one tick silently collapsed to the later of the two. Stage 4 took slams off that map — the
+    // whole point, since it is what lets a victim slammed by A and rammed by B take both pushes —
+    // and the slam-plus-slam cap had to become explicit or it would have gone with the map.
+    // Uncapped, this fixture lands 2x the authored `speed` on one car in a single tick.
+    //
+    // Geometry: "a" charges into "b" along +x, "c" charges into it along +y. The two chargers are
+    // clear of each other (a's hull spans x [-71,-23], c's spans x [-16,16]), so the only two
+    // contacts in the tick are the two slams, and the pushes are PERPENDICULAR — which is what makes
+    // doubling observable. Uncapped the victim would end at hypot(speed, speed) ≈ 1.41x the row's
+    // number; capped it ends at exactly the row's number, along the LAST slam's axis alone.
+    const state = arena();
+    const first = addPlayer(state, "a", { x: -47, y: 0, angle: 0, vx: 300 });
+    const victim = addPlayer(state, "b", { x: 0, y: 0, angle: 0 });
+    const second = addPlayer(state, "c", { x: 0, y: -39, angle: Math.PI / 2, vy: 300 });
+    for (const charger of [first, second]) {
+      charger.maneuver = ManeuverKind.CHARGE;
+      charger.maneuverTicksLeft = 200;
+    }
+    const memory = newContactMemory();
+    const result = contactTick(
+      state,
+      new Set(["a", "b", "c"]),
+      memory,
+      "ffa",
+      NO_EFFECTS,
+      approachVelocities(state),
+      new Map<string, WeaponId | "">([["a", "wildcharge"], ["c", "wildcharge"]]),
+      10,
+    );
+
+    // ONE push, at the single authored magnitude — never the sum of two.
+    expect(Math.hypot(victim.vx, victim.vy)).toBeCloseTo(SLAM_IMPULSE.speed, 6);
+    // …and it is the LAST slam's, reproducing the old `best` map's `>=` tie-break: "c" pushes along
+    // +y, "a" along +x, and the +x component is absent entirely.
+    expect(victim.vy).toBeCloseTo(SLAM_IMPULSE.speed, 6);
+    expect(victim.vx).toBeCloseTo(0, 6);
+
+    // ONE `reeling`, for the def's own duration rather than a doubled one, credited to the slam that
+    // actually landed. (`refresh` would keep the longer of two equal durations either way, so the
+    // duration alone cannot prove the cap — the velocity above is what does. This pins that the
+    // status still lands, once, at the authored length.)
+    const reelings = readStatuses(victim).filter((s) => s.statusId === "reeling");
+    expect(reelings).toHaveLength(1);
+    expect(reelings[0]!.endsTick - 10).toBe(SLAM_IMPULSE_TICKS.uncontrol);
+    expect(reelings[0]!.sourceSessionId).toBe("c");
+
+    // Everything that is NOT the push still runs for BOTH slams: both chargers spent their ult and
+    // both maneuvers end (O2), and combat is handed both hits to price.
+    expect(first.maneuver).toBe(0);
+    expect(second.maneuver).toBe(0);
+    expect(result.contactHits).toHaveLength(2);
+    expect(result.contactHits.map((h) => h.attackerSessionId)).toEqual(["a", "c"]);
+    expect(result.contactHits.every((h) => h.targetSessionId === "b" && h.weaponId === "wildcharge")).toBe(true);
+    // `memory.slammed` also runs for every slam; last write wins, same as it did under the map.
+    expect(memory.slammed.get("b")?.bySessionId).toBe("c");
+  });
 });
 
 describe("contactTick applies reeling to a ram victim, scaled by falloff", () => {

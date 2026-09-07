@@ -403,9 +403,35 @@ export function contactTick(
   // the stack"), so `nextFalloff` is deliberately not called and the slam is not counted into it —
   // an ult must not be quietly discounted by how many ordinary rams its victim has just absorbed,
   // nor discount the next real ram.
-  for (const hit of events.slams) {
+  //
+  // ONE PUSH PER VICTIM PER TICK, LAST SLAM WINS. Two chargers landing on the same victim on the
+  // same tick apply ONE impulse and ONE `reeling`, not two. This cap is deliberate and it is a
+  // RESTORATION, not a new rule: through stage 3 a slam rode `resolveContacts`'s `best` map, which
+  // held exactly one entry per victim and resolved a tie with `>=` (so the later slam displaced the
+  // earlier). The cap fell out of that map's single-slot-per-victim structure for free. Stage 4 took
+  // slams off the map — which is what lets a victim slammed by A and rammed by B in one tick take
+  // BOTH pushes, the one stacking case the spec authorizes — and the slam-plus-slam cap had to
+  // become explicit or it would have been lost with the map. Uncapped, two Wild Charges land 2x the
+  // authored `speed` on one car in one tick, roughly 5.5x Bastion's top speed, plus a doubled
+  // `reeling`: an accidental juggle of exactly the kind this stage's plan warns about.
+  //
+  // `lastSlamAt` reproduces the old `>=` tie-break exactly — the last event for a victim in
+  // pair-enumeration order is the one that lands. O18's re-slam immunity CANNOT cover this case:
+  // `memory.slammed` is written below, after `resolveContacts` has already resolved the whole tick,
+  // so within a single tick both slams have already been decided and neither can see the other's
+  // record.
+  //
+  // Only the push and the `reeling` are capped. Everything else runs for EVERY slam: `memory.slammed`
+  // (last write wins, same as before), `endManeuverOnly` and the self-status expiry on each attacker
+  // (both chargers spent their ult and both must end), and the `contactHits.push` (combat prices
+  // both hits — the cap is a physics cap, not a damage cap).
+  const lastSlamAt = new Map<string, number>();
+  events.slams.forEach((hit, index) => lastSlamAt.set(hit.targetSessionId, index));
+
+  for (const [index, hit] of events.slams.entries()) {
     const impulseDef = weaponDefOf(hit.weaponId).impulse;
     const impulseTicks = weaponTicksOf(hit.weaponId).impulse;
+    const pushes = lastSlamAt.get(hit.targetSessionId) === index;
     // A charge weapon that declares no `impulse` pushes nothing, grants no `reeling`, and opens
     // neither clock — but still ends its maneuver and expires its own statuses below, because those
     // are maneuver rules, not impulse rules. Unreachable today: `wildcharge` is the roster's only
@@ -419,8 +445,18 @@ export function contactTick(
         wallStunTicks: impulseTicks.wallStunDuration,
       });
       const victim = state.players.get(hit.targetSessionId);
-      if (victim) {
+      if (pushes && victim) {
         const imp: Impulse = {
+          // `impulseDef.direction` is deliberately NOT consulted here. The slam's direction is the
+          // OBB contact normal `contact.ts` measured between the two hulls and carried on the event
+          // — the one vector this file cannot recompute. That is correct for every row on this path
+          // today because `wildcharge` declares `"radial"`, and radial for a CONTACT impulse (source
+          // and target touching) IS the contact normal: centre-to-centre and normal agree to within
+          // the hull geometry, and the normal is the more honest of the two on a glancing hit.
+          // A future charge row authoring `"alongAim"` would silently get the contact normal instead
+          // — no runtime branch is wanted (there is no second mode to implement for a contact
+          // impulse and no row that needs one), but that is the assumption, and it is named here so
+          // the day a row breaks it, this comment is what a reader finds.
           dirX: hit.dirX,
           dirY: hit.dirY,
           speed: impulseDef.speed,

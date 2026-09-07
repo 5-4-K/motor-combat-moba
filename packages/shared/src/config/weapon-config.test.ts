@@ -507,10 +507,10 @@ describe("WEAPON_TABLE", () => {
 
 describe("ImpulseDef", () => {
   it("converts every authored duration to ticks exactly once, for any row that declares an impulse", () => {
-    // Stage 4 Task 1 lands the type and the conversion only — no row authors `impulse` yet (that's
-    // wildcharge's slam, Task 2), so this loop runs vacuously today. Written generically rather than
-    // hardcoded to `wildcharge` so it starts asserting for real the moment a row opts in, with no
-    // rewrite owed to this file.
+    // Written generically rather than hardcoded to `wildcharge` so a second row opting in is
+    // covered with no rewrite owed to this file. It ran vacuously when Task 1 landed the type and
+    // the conversion alone; since Task 2 authored `wildcharge.impulse` it asserts for real, and
+    // `wildcharge` is the one row it currently reaches.
     for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
       const impulse = def.impulse;
       const ticks = WEAPON_TICKS[def.id].impulse;
@@ -558,8 +558,9 @@ describe("ImpulseDef", () => {
     // path for a projectile/beam/explosion impulse — only a `kind: "maneuver"` row's impulse is
     // ever actually applied (wildcharge's slam, Tasks 2-3). Authoring one anywhere else would
     // silently do nothing, since the path to apply it does not exist yet; this guard names the
-    // missing path instead of letting that be discovered as a silent no-op. Both loops pass
-    // vacuously today — the table declares no `impulse` at all yet, on a weapon or an explosion.
+    // missing path instead of letting that be discovered as a silent no-op. The first branch
+    // asserts for real against `wildcharge`, the roster's only `impulse` row and a `maneuver`; the
+    // explosion branch is still vacuous, since no `ExplosionDef` declares one.
     for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
       if (def.impulse !== undefined) expect(def.kind, def.id).toBe("maneuver");
       if (def.kind === "projectile") {
