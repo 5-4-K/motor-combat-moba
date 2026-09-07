@@ -7,6 +7,7 @@
  */
 import {
   DRIVE_CONFIG,
+  TICK_RATE_HZ,
   forwardMaxSpeedOf,
   forwardOf,
   speedOf,
@@ -30,15 +31,16 @@ const report = reporter.report.bind(reporter);
  * Can a car pass THROUGH another between two ticks? Cars are only tested at their post-step pose —
  * there is no swept test for driving (unlike projectiles, which smear).
  *
- * STALE POST-VECTOR-DRIVE-REWORK (2026-09-06): "covers 19.2 u/tick" / "closes 38.4" below predates
- * both the T8 restat this comment already carried forward from and the heavy-car speed cut that
- * followed it — mirage's per-tick step at top speed is now 267/30 = 8.9u, closing at 17.8u
- * head-on. Left as-is (not corrected) per the review: stage 5 owns re-deriving playtest numbers
- * against the current roster. Separately, "Ram shove ... is not capped by top speed" is no longer
- * true when the victim is also under throttle: `accelerateForward`'s clamp now catches an injected
+ * The head-on closing figure this used to quote by hand ("19.2 u/tick", "closes 38.4") predated
+ * both T8's restat and the 2026-09-06 heavy-car speed cut. It is now DERIVED from
+ * `forwardMaxSpeedOf` and `TICK_RATE_HZ` below rather than typed, so it cannot rot again: mirage's
+ * per-tick step at top speed is 267/30 = 8.9u, closing at 17.8u head-on.
+ *
+ * STILL STALE, and deliberately: "Ram shove ... is not capped by top speed" is no longer true when
+ * the victim is also under throttle — `accelerateForward`'s clamp now catches an injected
  * forward-aligned velocity on the very next `stepDrive` call (see the comment on that clamp in
- * `drive.ts`) — this probe's injected shove may now be discarded before it can contribute to
- * closing speed. Also left for stage 5 to re-derive; see
+ * `drive.ts`), so this probe's injected shove may be discarded before it can contribute to closing
+ * speed. That is a setup question, not a quoted number, and stage 5 owns it; see
  * `docs/superpowers/plans/2026-09-06-car-physics/05-tune-and-reconcile.md`.
  */
 function tunneling(): void {
@@ -64,7 +66,7 @@ function tunneling(): void {
       // A started left of B. If A ends up right of B, they swapped sides: a tunnel.
       if (w.get("A").x > w.get("B").x) passedThrough = true;
     }
-    const perTick = (forwardMaxSpeedOf("mirage") + shove) / 30;
+    const perTick = (forwardMaxSpeedOf("mirage") + shove) / TICK_RATE_HZ;
     // The FIRST shove that tunnels, not the largest — the threshold is the interesting number.
     if (passedThrough && worst === 0) worst = shove;
     rows.push(
@@ -91,7 +93,9 @@ function tunneling(): void {
   report(
     "1. Car-car tunneling at extreme closing speed",
     worst > 0 && worst <= maxRamShove ? "FINDING" : "OK",
-    `Hull is ${W}x${H}. Driving alone closes 38.4 u/tick head-on, well under the hull length.\n` +
+    `Hull is ${W}x${H}. Driving alone closes ` +
+      `${((forwardMaxSpeedOf("mirage") / TICK_RATE_HZ) * 2).toFixed(1)} u/tick head-on, well under ` +
+      `the hull length.\n` +
       rows.join("\n") +
       (worst > 0
         ? `\nFirst tunnel at injected shove ${worst} u/s on BOTH cars. The hardest shove the ram can ` +
@@ -321,7 +325,13 @@ function orderDependence(): void {
 }
 
 /* ----------------------------------------------------- 7. does a collision add energy? */
-/** Restitution is 0.35, so every contact must shed speed. Shove reflection is the risky path. */
+/**
+ * Restitution is `DRIVE_CONFIG.restitution` (0.15 since stage 2 of the car-physics rework, down from
+ * 0.35), so every contact must shed speed. Stage 2 also made `applyContact` reflect the WHOLE
+ * velocity vector rather than damping a scalar along the facing — that reflection is the risky path
+ * this probe watches, and it is why the check reads the velocity magnitude rather than a
+ * speed-plus-shove sum.
+ */
 function energyGain(): void {
   let worstGain = 0;
   let worstCase = "";
@@ -353,7 +363,7 @@ function energyGain(): void {
     }
   }
   report(
-    "7. Energy gain from a contact (restitution 0.35 + shove reflection)",
+    `7. Energy gain from a contact (restitution ${DRIVE_CONFIG.restitution} + whole-vector reflection)`,
     worstGain > 1 ? "FINDING" : "OK",
     worstGain > 1
       ? `velocity magnitude INCREASED across a contact: ${worstCase}`
@@ -361,16 +371,47 @@ function energyGain(): void {
   );
 }
 
-/* ------------------------------------------- 8. the documented 30.6-degree speed sign flip */
-/** `applyContact` re-projects onto an unchanged facing; the reported sign flips at ~30.6 deg. */
+/* ----------------------------------------------- 8. the glancing-wall speed sign flip */
+/**
+ * `applyContact` reflects the velocity but never rotates the car, so the FORWARD component — the
+ * velocity re-projected onto an unchanged facing — passes through zero at a predictable angle.
+ * With `v_n` the component into the wall and `v_t` along it, the post-contact forward component is
+ * `v * (sin^2(t) - restitution * cos^2(t))`, which is zero at `t = atan(sqrt(restitution))`.
+ *
+ * That angle MOVED with the rework: restitution dropped 0.35 -> 0.15 in stage 2, taking the flip
+ * from the ~30.6 deg this probe was written against down to ~21.2 deg. It is derived below rather
+ * than typed, so a future restitution edit re-aims the sweep instead of silently missing the flip.
+ *
+ * The placement also had to be repaired. The old setup drove at the wall from `x = 60` at a hard
+ * `speed: 400` and ticked ONCE. Both halves broke in the 2026-09-06 heavy-car cut: 400 u/s is now
+ * above mirage's 267 top speed and is clamped away on the first `stepDrive`, and one tick at the
+ * surviving 8.9 u/tick leaves the hull ~24u clear of the wall — so the probe made no contact at all
+ * and reported "no sign flip" as if that were a measurement. The car now starts with its hull
+ * against the wall and drives in at its real top speed.
+ */
 function glancingSignFlip(): void {
   const rows: string[] = [];
   let maxJump = 0;
   let previous: number | null = null;
-  for (let deg = 20; deg <= 45; deg += 1) {
+  const predictedFlipDeg = (Math.atan(Math.sqrt(DRIVE_CONFIG.restitution)) * 180) / Math.PI;
+  const from = 5;
+  const to = 45;
+  for (let deg = from; deg <= to; deg += 1) {
     const angle = (deg * Math.PI) / 180;
-    // Drive into the left wall at `deg` off the normal.
-    const w = new PlaytestWorld([{ id: "A", carId: "mirage", x: 60, y: 360, angle: Math.PI - angle, speed: 400 }]);
+    // Drive into the left wall at `deg` off the normal, starting with the hull already against it:
+    // a fixed start x cannot survive a roster speed change, but a hull half-extent can.
+    const facing = Math.PI - angle;
+    const halfExtentX = (Math.abs(Math.cos(facing)) * W + Math.abs(Math.sin(facing)) * H) / 2;
+    const w = new PlaytestWorld([
+      {
+        id: "A",
+        carId: "mirage",
+        x: halfExtentX + 4,
+        y: 360,
+        angle: facing,
+        speed: forwardMaxSpeedOf("mirage"),
+      },
+    ]);
     w.input("A", { throttle: 1 });
     w.tick();
     const after = w.get("A");
@@ -384,9 +425,15 @@ function glancingSignFlip(): void {
   report(
     "8. Reported speed sign flip on a glancing wall contact",
     maxJump > 100 ? "KNOWN-BY-DESIGN" : "OK",
-    `${rows.join("\n") || "no sign flip in 20-45 deg"}\nlargest one-degree jump in reported speed: ${maxJump.toFixed(0)} u/s.\n` +
-      `Documented in collide.ts applyContact note 2. Magnitude is continuous; the SIGN is not, and ` +
-      `the HUD/audio read speed.`,
+    `${rows.join("\n") || `no sign flip in ${from}-${to} deg`}\n` +
+      `predicted flip from restitution ${DRIVE_CONFIG.restitution}: ` +
+      `${predictedFlipDeg.toFixed(1)} deg.\n` +
+      `largest one-degree jump in reported speed: ${maxJump.toFixed(0)} u/s.\n` +
+      `Documented on \`applyContact\` in collide.ts. Magnitude is continuous; the SIGN is not, and ` +
+      `the HUD/audio read speed. Stage 2's whole-vector reflection shrank the discontinuity a long ` +
+      `way: the jump either side of the flip used to be the point of this probe, and the ` +
+      `KNOWN-BY-DESIGN threshold below (100 u/s) is the one it was judged against — left at that ` +
+      `value deliberately, so a regression that re-opens the jump still trips it.`,
   );
 }
 

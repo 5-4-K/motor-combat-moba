@@ -174,10 +174,18 @@ Two things to keep doing:
 scenarios. Return a verdict and the numbers behind it, and let the reader judge.
 
 **Sweep the sub-tick phase of anything involving contact.** A single placement tests one point on the
-tick grid; a car covers 10–18 units per tick, so a probe that does not sweep the approach distance
+tick grid; a car covers 6–9 units per tick at top speed (Bastion 6.3, Bullseye 7.4, Mirage 8.9 — it
+was 10–18 before the 2026-09-06 heavy-car cut), so a probe that does not sweep the approach distance
 reports whatever that one phase happened to do. The ram finding is exactly this — it looks either
 fine or completely broken depending on which starting gap you pick. `ram.ts`'s `startGap` sweep and
 `weapons2.ts`'s distance sweeps are the pattern to copy.
+
+**A fixed start position is a sweep's silent failure mode.** `collision.ts` probe 8 drove at a wall
+from a hard-coded `x = 60` at a hard-coded `speed: 400`; the speed cut put 400 above every chassis's
+top speed (so it was clamped away on the first `stepDrive`) and shortened the per-tick step enough
+that the car never reached the wall at all. The probe went on reporting "no sign flip" as though that
+were a measurement. Derive a placement from the hull and the live top speed, not from a number that
+worked once.
 
 The harness is typechecked by `npm run typecheck -w @motor-combat-moba/server`, which runs
 `playtest/tsconfig.json` as its second step, so it cannot rot silently.

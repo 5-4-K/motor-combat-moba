@@ -8,6 +8,7 @@ import {
   WEAPON_TABLE,
   CAR_TABLE,
   STATUS_CONFIG,
+  STATUS_TABLE,
   getArena,
   hpOf,
   slotsOf,
@@ -415,9 +416,18 @@ function statusChain(): void {
   );
 
   // The status cap: can a stack of cheap statuses block a meaningful one?
-  const capNote = `STATUS_CONFIG.maxActive is ${STATUS_CONFIG.maxActive} and the table has ` +
-    `${Object.keys({ overheated: 1, corroded: 1, stunned: 1, spiked: 1, fortified: 1, overhauled: 1 }).length} rows, ` +
-    `so the cap cannot currently be reached by an attacker — no eviction exploit exists yet.`;
+  // Counted off STATUS_TABLE, never a hand-written list. The literal that used to sit here read
+  // six rows and was three short by 2026-09-07 (`armored`, `phased` and `reeling` had all landed),
+  // which flipped the conclusion: the table is now LARGER than the cap, so "cannot be reached" is
+  // no longer a fact about the row count.
+  const statusRows = Object.keys(STATUS_TABLE).length;
+  const capNote =
+    `STATUS_CONFIG.maxActive is ${STATUS_CONFIG.maxActive} and the table has ${statusRows} rows` +
+    (statusRows <= STATUS_CONFIG.maxActive
+      ? `, so the cap cannot be reached by an attacker — no eviction exploit exists yet.`
+      : `, so the cap is now REACHABLE on paper. Whether an attacker can actually stack ` +
+        `${STATUS_CONFIG.maxActive} at once is a question about which sources an opponent controls, ` +
+        `not about the row count, and this probe does not answer it — see the note in the report.`);
   rows.push(capNote);
 
   report(
