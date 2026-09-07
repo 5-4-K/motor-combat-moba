@@ -1,11 +1,10 @@
-import { hasStatus, weaponDefOf, weaponTicksOf } from "@motor-combat-moba/shared";
-import type { WeaponDef } from "@motor-combat-moba/shared";
+import { hasStatus, weaponDefOf } from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS, type BotProfile } from "../../config/bot-profiles.js";
 import type { Rng } from "../rng.js";
 import type { BotCarView, BotSelfView, BotSlotView, SituationId } from "../types.js";
 import type { KitRoles } from "./roles.js";
 import { weaponReachOf } from "./reach.js";
-import { bestAchievableValueOf, type FiringSolution } from "./solution.js";
+import { bestAchievableValueOf, proxyValue, type FiringSolution } from "./solution.js";
 
 /**
  * How much a good window is worth to an ult's ranking (H30).
@@ -27,85 +26,56 @@ export function isUlt(slot: BotSlotView): boolean {
 }
 
 /**
- * How many times one press of a TICKING beam can damage the same car, counted the way
- * `resolveInstanceHits` does: a hit on the first tick it covers them, then one every
- * `damageInterval` for as long as `instanceExpired` keeps the instance alive. 1 for everything else.
+ * Where this bot wants to stand: the range at which its kit's value PEAKS (P31).
  *
- * This exists because `damage` on a ticking row is a PULSE, not a press. Reading it raw made
- * `lance` — 43 a pulse since the 2026-09-04 retune, 170 a press before it — score 2.7/s against
- * `predator`'s 30, which the ult window's x4 could not overcome: a Bullseye bot would have held its
- * ult for a wounded target and then never pressed it.
- */
-function pulsesPerPress(def: WeaponDef): number {
-  if (def.kind !== "beam") return 1;
-  const ticks = weaponTicksOf(def.id);
-  if (!Number.isFinite(ticks.damageInterval)) return 1;
-  return Math.floor((ticks.flight + ticks.lifetime - 1) / ticks.damageInterval) + 1;
-}
-
-/**
- * A slot's rough worth per second, times this bot's preference for it.
+ * Was `standoffFraction * weighted reach` — a guess with a per-tier fudge factor on top of a
+ * hand-written value heuristic. The solver can answer the question directly, so it does: sample
+ * `proxyValue` across the kit's reach and take the best. A Bastion and a Mirage now want genuinely
+ * different distances because their kits do, rather than because they carry different fractions of
+ * a shared formula, and the per-tier spread falls out of `aimErrorSigmaRad` alone — a shakier hand
+ * loses its hit chance to the target's shrinking subtense sooner, so its plateau ends nearer.
  *
- * A SHAPING HEURISTIC for standoff and slot ranking only (H35). It counts a ticking beam's pulses
- * (above) because the difference there is a factor of four or five, not a rounding — a pepperbox
- * pellet is still under-rated by its raw `damage`, and that stays accepted: three pellets from one
- * fan is a per-target ceiling nobody hits every press. `sim/damage.ts` is the only authority on
- * damage and nothing here may be mistaken for it.
+ * TIES BREAK OUTWARD (`>=`, not `>`), and that is the load-bearing line in this function.
+ * `proxyValue` is monotonically NON-INCREASING in distance for every row in `WEAPON_TABLE`: flat
+ * while `subtense / spread` is still saturated at a hit chance of 1, then strictly falling as the
+ * target's angular width shrinks, and never rising. So the maximum is a PLATEAU whose near edge is
+ * always `minEngageUnits`. A strict `>` keeps the first sample that beat the running best and would
+ * therefore return 70 for every chassis at every tier — P31 would buy nothing, and `rangeError`
+ * would drag every bot to contact range. `>=` takes the LAST range achieving the maximum instead:
+ * the far edge of the plateau, the greatest distance at which the kit gives up nothing, which is
+ * where a player who knows their own hands stands.
  */
-export function weaponValueOf(slot: BotSlotView, weight: number): number {
-  const def = weaponDefOf(slot.weaponId);
-  const seconds = Math.max(def.cooldownMs, 1) / 1000;
-  return ((def.damage * pulsesPerPress(def)) / seconds) * Math.max(weight, 0.01);
-}
-
-/**
- * The range this kit wants to fight at: every ready slot's reach, weighted by its worth (H35).
- *
- * Range-0 rows are excluded — a charge dashes nowhere and would drag the average to nothing — but
- * they still pull the bot in through S10's contact trigger when that slot is a candidate.
- */
-export function effectiveRangeOf(
-  slots: readonly BotSlotView[],
-  weights: readonly number[],
-  tick: number,
-): number {
-  let weighted = 0;
-  let total = 0;
-  for (let i = 0; i < slots.length; i++) {
-    const slot = slots[i]!;
-    if (slot.range <= 0) continue;
-    if (!slotIsReady(slot, tick)) continue;
-    const value = weaponValueOf(slot, weights[i] ?? 1);
-    weighted += weaponReachOf(slot.weaponId) * value;
-    total += value;
-  }
-  if (total === 0) {
-    // Nothing ready: fall back to the kit's reach as authored, so a bot mid-recharge does not
-    // suddenly decide it wants to be nose to nose.
-    for (let i = 0; i < slots.length; i++) {
-      const slot = slots[i]!;
-      if (slot.range <= 0) continue;
-      const value = weaponValueOf(slot, weights[i] ?? 1);
-      weighted += weaponReachOf(slot.weaponId) * value;
-      total += value;
-    }
-  }
-  return total === 0 ? 0 : weighted / total;
-}
-
-/** Where this bot wants to stand (H35): a fraction of its own reach, floored and capped. */
 export function preferredRangeOf(
   self: BotSelfView,
   profile: BotProfile,
   weights: readonly number[],
   tick: number,
 ): number {
-  const effective = effectiveRangeOf(self.slots, weights, tick);
-  const wanted = profile.standoffFraction * effective;
-  return Math.min(
-    Math.max(wanted, BRAIN_CONSTANTS.minEngageUnits),
-    profile.awarenessRadiusUnits,
+  let bestRange = BRAIN_CONSTANTS.minEngageUnits;
+  let bestValue = -Infinity;
+  const longest = Math.max(
+    BRAIN_CONSTANTS.minEngageUnits,
+    ...self.slots.map((slot) => weaponReachOf(slot.weaponId)),
   );
+  const step = Math.max(10, longest / 24);
+  for (let range = BRAIN_CONSTANTS.minEngageUnits; range <= longest; range += step) {
+    let total = 0;
+    for (let i = 0; i < self.slots.length; i++) {
+      const slot = self.slots[i]!;
+      if (!slotIsReady(slot, tick)) continue;
+      total += proxyValue({
+        shooter: { x: 0, y: 0, angle: 0 }, slot,
+        targetX: range, targetY: 0,
+        aimSigmaRad: profile.aimErrorSigmaRad, assisted: false,
+      }) * Math.max(weights[i] ?? 1, 0.01);
+    }
+    // See the ruling above: `>=`, so the plateau's FAR edge wins rather than its near one.
+    if (total >= bestValue) {
+      bestValue = total;
+      bestRange = range;
+    }
+  }
+  return Math.min(bestRange, profile.awarenessRadiusUnits);
 }
 
 export interface FireDecision {

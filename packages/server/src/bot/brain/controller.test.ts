@@ -116,6 +116,12 @@ describe("HumanController", () => {
     // clears comfortably at this scenario's settled geometry. Measured fire counts (300 ticks): 140
     // on-axis (heading settled near 0), 94 off-axis (heading settled near 0.2 rad). Both pass the
     // >90 bar with margin, confirming the EV gate fires healthily at this tier.
+    //
+    // P31 re-measurement (2026-09-07, phase D task 4): deriving `preferredRangeOf` from the solver
+    // moved both duels UP — on-axis 138 -> 140 (offset 0), off-axis 112 -> 128 (offset 0.054).
+    // A hard Bullseye now stands at 420 units rather than at `standoffFraction * effective reach`,
+    // which is further out and squarely inside `predator`'s aim-assisted band, so more of the run is
+    // spent at a range the kit actually scores at. The bar is unchanged at > 90.
     const { fires, meanOffset } = closedLoopDuel("hard", 300, { x: 753, y: 500 });
     expect(fires).toBeGreaterThan(90);
     // Fixed at 0.2 rad — hard's `fireConeRad` before Task 7 (2026-09-05) deleted that field along
