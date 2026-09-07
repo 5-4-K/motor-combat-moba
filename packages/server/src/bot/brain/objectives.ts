@@ -10,8 +10,12 @@ import type { PlanWeights } from "./planner.js";
  * 1.1. Now a situation states an objective and the planner is the only thing that turns an
  * objective into steer and throttle. There is no second place for a heading to come from.
  *
- * These are BASE weights, identical across tiers. Exactly two terms are then profile-scaled
- * (P38) — a tier may change how strongly it feels a pressure, never what a situation is for.
+ * These are BASE weights, identical across tiers. Spec P38 names two profile-scaled terms, and
+ * exactly ONE of them lives here: `weightsFor` scales `theirEv` by `opponentRangeRespect` and
+ * touches nothing else. The other, `commitPenalty`, is not a `PlanWeights` term at all — the
+ * planner applies it separately, as a fraction of the candidate score SPREAD favouring last tick's
+ * action (`plan` in `planner.ts`), so it never passes through this table. A tier may change
+ * how strongly it feels a pressure, never what a situation is for.
  *
  * RE-DERIVED AGAINST MEASURED TERM SCALES (R-P9, fix round 1, 2026-09-06). The first draft of this
  * table was written before a single term had been measured, and it was dimensionally incoherent:

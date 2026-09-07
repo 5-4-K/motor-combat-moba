@@ -49,9 +49,10 @@ const ABSENT_TARGET: BotCarView = {
 };
 
 /**
- * The bot (H5). Five layers, one `decide` call: perceive, assess, move, shoot, humanize.
+ * The bot (H5). One `decide` call: perceive -> predict -> assess -> plan -> fire -> humanize.
+ * The `move` layer this class used to run was replaced by the planner in phase D.
  *
- * Perception and humanization run EVERY tick; assess/move/shoot run on `recomputeTicks` (H6).
+ * Perception and humanization run EVERY tick; predict/assess/plan/fire run on `recomputeTicks` (H6).
  */
 export class HumanController implements BotController {
   readonly profileId: BotDifficulty;
@@ -265,9 +266,11 @@ export class HumanController implements BotController {
     }
 
     const shotThreats = activeThreats(this.perception, tick);
-    // Hoisted above the danger term (R-C-I1) so the anticipatory gate below can read it. It is the
-    // same expression `classifySituation` receives as `selfControlLost` further down — computed
-    // once, used twice. Draws no `rng()`.
+    // Hoisted above the danger term (R-C-I1). The gate it was originally hoisted for — the
+    // anticipatory evade — was deleted by P27; what still reads it up here is the `me` view built
+    // just below, whose `alive: true, phased: false` literals are only honest because this flag is
+    // what stops the bot acting on that answer. It then goes on to `classifySituation` as
+    // `selfControlLost` further down — computed once, used twice. Draws no `rng()`.
     const selfControlLost = !self.alive || hasStatus(self.statuses, "phased", tick);
     // The bot's own pose as a `BotCarView`, so the danger solve takes us in the shape `solve()`
     // takes a target in, instead of re-deriving dead reckoning inline (R-C-M1).
@@ -334,8 +337,10 @@ export class HumanController implements BotController {
     );
     const predictor = target ? targetPredictor : undefined;
 
-    // One firing solution per ready slot (P7), fed to `chooseSlot` below AND to the anticipatory
-    // evade gate just below (R-C7). Built from the shooter's ACTUAL current pose, not the heading
+    // One firing solution per ready slot (P7), fed to `chooseSlot` below AND to `bestValue` just
+    // below, which no longer gates anything but is published as `BotDebug.shotEv.best` for the playground
+    // overlay (R-C7 originally routed it to the anticipatory evade gate; P27 deleted that gate and
+    // kept the reading). Built from the shooter's ACTUAL current pose, not the heading
     // it is steering toward — `solve` mirrors the real sim, which fires along `self.angle` (or the
     // aim-assist bearing), never along a desired heading. Moved above `classifySituation` (was
     // originally computed just before `chooseSlot`, far below): it depends on nothing the situation
