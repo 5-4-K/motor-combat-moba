@@ -16,7 +16,7 @@ Design: [`docs/superpowers/specs/2026-09-05-bot-situation-play-design.md`](super
 Fairness / hands / personalities: H1–H8 and H16–H48 of
 [`docs/superpowers/specs/2026-09-04-human-like-bot-behavior-design.md`](superpowers/specs/2026-09-04-human-like-bot-behavior-design.md).
 
-Copied from `bot-profiles.ts` on 2026-09-07. `BOT_BRAIN_VERSION` is `4.5.1` — bumped from `4.5.0`
+Copied from `bot-profiles.ts` on 2026-09-08. `BOT_BRAIN_VERSION` is `4.5.1` — bumped from `4.5.0`
 because `evade`'s `facingError` weight changed behaviour (40 -> 10) while `BOT_PROFILES` did not
 move, and `botFingerprint` hashes the profile table, not `objectives.ts`'s `BASE`. A `balance`
 report from before that change is not comparable to one after it, and only this string says so.
@@ -459,7 +459,7 @@ archetypes' entire range flavour — see [Known limitations](#known-limitations)
 | Field | easy | medium | hard |
 |---|---|---|---|
 | `dodgeChance` | 0.05 | 0.55 | 0.95 |
-| `dodgeReactionTicks` | 12 | 8 | 4 |
+| `dodgeReactionTicks` | 12 | 8 | 2 |
 | `dodgeHorizonTicks` | 12 | 18 | 24 |
 | `blunderChance` | 0.12 | 0.05 | 0.015 |
 | `blunderTicks` | 10 | 10 | 10 |
@@ -468,8 +468,10 @@ archetypes' entire range flavour — see [Known limitations](#known-limitations)
 | `hearChance` | 0.15 | 0.55 | 1 |
 
 `dodgeChance` and `dodgeReactionTicks` decide WHETHER a shot in flight is reacted to at all; the
-list of reacted-to threats then reaches the planner as `threatAvoid`, which decides how hard. The
-`second-best` blunder is now the planner's own runner-up — the best candidate whose first action
+list of reacted-to threats then reaches the planner as `threatAvoid`, which decides how hard. Hard's
+`dodgeReactionTicks` was 4 until 2026-09-08; 2 matches its `recomputeTicks`, so a noticed shot is
+acted on at the next decision rather than a window later. The `second-best` blunder is now the
+planner's own runner-up — the best candidate whose first action
 differs from the winner's — so a mistake is a plausible alternative rather than an inverted control.
 What is committed for the blunder window is the **kind**, not the line: the runner-up is re-read
 every tick, so a bot inside a `second-best` blunder follows whichever candidate the planner currently

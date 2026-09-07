@@ -835,7 +835,7 @@ export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.
     targetCommitTicks: 25, woundedBias: 0.9, vengefulness: 0.25,
     wallLookaheadUnits: 150,
     retreatHpFraction: 0.35, ramIntentChance: 0.5,
-    dodgeChance: 0.95, dodgeReactionTicks: 4, dodgeHorizonTicks: 24,
+    dodgeChance: 0.95, dodgeReactionTicks: 2, dodgeHorizonTicks: 24,
     blunderChance: 0.015, blunderTicks: 10, idleFidgetChance: 0.02, scoreNoiseSigma: 0.05,
     hearChance: 1,
     deadRespect: 1, opponentRangeRespect: 0.9, cornerRespect: 1, incomingCarChance: 0.95,
