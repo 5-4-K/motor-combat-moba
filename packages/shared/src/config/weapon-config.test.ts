@@ -5,9 +5,10 @@ import type { CarId } from "./types.js";
 import type { StatusId } from "./status-types.js";
 import { WEAPON_TABLE, instanceDefOf, isWeaponId, weaponDefOf } from "./weapon-config.js";
 import { slotsOf } from "./weapon-slots.js";
-import { WEAPON_TICKS } from "./weapon-ticks.js";
+import { WEAPON_TICKS, msToTicks } from "./weapon-ticks.js";
 import type { WeaponDef } from "./weapon-types.js";
 import { AIM_CONFIG } from "./aim-config.js";
+import { STATUS_CONFIG } from "./status-config.js";
 
 describe("WEAPON_TABLE", () => {
   it("pins the overhaul roster's load-bearing numbers (spec 2026-09-01)", () => {
@@ -501,5 +502,69 @@ describe("WEAPON_TABLE", () => {
     it("synthesizes once, so the def is referentially stable", () => {
       expect(instanceDefOf("magmablast", true)).toBe(instanceDefOf("magmablast", true));
     });
+  });
+});
+
+describe("ImpulseDef", () => {
+  it("converts every authored duration to ticks exactly once, for any row that declares an impulse", () => {
+    // Stage 4 Task 1 lands the type and the conversion only — no row authors `impulse` yet (that's
+    // wildcharge's slam, Task 2), so this loop runs vacuously today. Written generically rather than
+    // hardcoded to `wildcharge` so it starts asserting for real the moment a row opts in, with no
+    // rewrite owed to this file.
+    for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
+      const impulse = def.impulse;
+      const ticks = WEAPON_TICKS[def.id].impulse;
+      if (impulse === undefined) {
+        expect(ticks, def.id).toBeUndefined();
+        continue;
+      }
+      expect(ticks, def.id).toBeDefined();
+      expect(ticks!.uncontrol).toBe(msToTicks(impulse.uncontrolMs));
+      expect(ticks!.wallStunWindow).toBe(msToTicks(impulse.wallStun?.windowMs ?? 0));
+      expect(ticks!.wallStunDuration).toBe(msToTicks(impulse.wallStun?.durationMs ?? 0));
+      expect(ticks!.retriggerImmunity).toBe(msToTicks(impulse.retriggerImmunityMs ?? 0));
+    }
+  });
+
+  it("leaves rows without an impulse undefined rather than defaulted", () => {
+    // Absent must mean absent. A zero-valued default would make every weapon a nudge.
+    expect(WEAPON_TABLE.pepperbox.impulse).toBeUndefined();
+    expect(WEAPON_TICKS.pepperbox.impulse).toBeUndefined();
+  });
+
+  it("rejects a non-unit direction mode", () => {
+    for (const row of Object.values(WEAPON_TABLE)) {
+      if (row.impulse === undefined) continue;
+      expect(["radial", "alongAim"]).toContain(row.impulse.direction);
+    }
+  });
+
+  it("requires a non-negative uncontrol duration on every impulse", () => {
+    for (const row of Object.values(WEAPON_TABLE)) {
+      if (row.impulse === undefined) continue;
+      expect(row.impulse.uncontrolMs).toBeGreaterThanOrEqual(0);
+      expect(row.impulse.uncontrolMs).toBeLessThanOrEqual(STATUS_CONFIG.maxDurationMs);
+    }
+  });
+
+  it("thunderclap declares no impulse at all", () => {
+    // Deliberate: it is a weapon whose effect is a status applied on contact, not a contact
+    // mechanic. See spec principle C. Do not "fix" this.
+    expect(WEAPON_TABLE.thunderclap.impulse).toBeUndefined();
+  });
+
+  it("keeps every declared impulse a maneuver's, and every explosion impulse-free", () => {
+    // SCOPE RULING (stage 4, Task 1): this stage deliberately does not build a generic application
+    // path for a projectile/beam/explosion impulse — only a `kind: "maneuver"` row's impulse is
+    // ever actually applied (wildcharge's slam, Tasks 2-3). Authoring one anywhere else would
+    // silently do nothing, since the path to apply it does not exist yet; this guard names the
+    // missing path instead of letting that be discovered as a silent no-op. Both loops pass
+    // vacuously today — the table declares no `impulse` at all yet, on a weapon or an explosion.
+    for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
+      if (def.impulse !== undefined) expect(def.kind, def.id).toBe("maneuver");
+      if (def.kind === "projectile") {
+        expect(def.explosion?.impulse, `${def.id}'s explosion`).toBeUndefined();
+      }
+    }
   });
 });
