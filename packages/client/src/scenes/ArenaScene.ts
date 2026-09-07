@@ -39,6 +39,7 @@ import {
   winRuleOf,
 } from "@motor-combat-moba/shared";
 import { applyCarSprite, phaserTextures, resolveCarSprite } from "../assets/car-sprite.js";
+import { FxLayer } from "../fx/layer.js";
 import { isDebugEnabled } from "../config/client-mode.js";
 import { showHitboxes } from "../config/view-options.js";
 import { ARENA_VIEW_WIDTH, HUD_GUTTER_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from "../config/display.js";
@@ -773,6 +774,14 @@ export class ArenaScene extends Phaser.Scene {
    */
   private impacts: ImpactTracker = newImpactTracker();
 
+  /**
+   * The FX system — every particle in the arena. Undefined until `create` builds it, and torn down
+   * in `resetMatchState` alongside every other per-match display object, NOT in `onShutdown`: this
+   * scene has one teardown path on purpose (see `resetMatchState`), and `create` calls it too, so a
+   * shutdown-only destroy would leak the previous layer's emitters on a scene restart.
+   */
+  private fx: FxLayer | undefined;
+
   constructor() {
     super({ key: "arena" });
   }
@@ -832,6 +841,17 @@ export class ArenaScene extends Phaser.Scene {
     // Hoisted out of the 30 Hz prediction path: `getArena` is a lookup that throws, and the arena
     // cannot change while the scene is alive.
     this.arena = getArena(arenaId);
+
+    // BEFORE `drawArena`, not after. The layer uploads the generated textures in its constructor,
+    // and the arena floor is about to be built from one of them — so the upload has to have
+    // happened by the time `drawArena` runs. Nothing here reads what `drawArena` produces, and
+    // `splitCameras` runs later still, so the emitters are on the display list in time to be
+    // registered there.
+    //
+    // Seeded per match so two players in the same room see the same textures, and a new match
+    // re-rolls them. `arenaId` alone would freeze the seed forever.
+    this.fx = new FxLayer(this, this.arena.width * 31 + this.arena.height);
+
     this.drawArena(this.arena);
 
     // One Graphics for every shot, one for every hp bar, one for every lock bracket and one for the
@@ -1059,6 +1079,10 @@ export class ArenaScene extends Phaser.Scene {
       ...(this.arrowGfx ? [this.arrowGfx] : []),
       // World space at `MANEUVER_DEPTH`, drawn over the cars — the same reason `arrowGfx` is here.
       ...(this.maneuverGfx ? [this.maneuverGfx] : []),
+      // Every FX object in one spread, because this list is the only thing standing between an
+      // emitter and drawing twice across the gutter (VFX25). `displayObjects()` exists so a later
+      // emitter cannot be added to the layer and forgotten here.
+      ...(this.fx ? this.fx.displayObjects() : []),
       ...this.cars.values(),
     ];
 
@@ -1163,6 +1187,11 @@ export class ArenaScene extends Phaser.Scene {
     this.arrowGfx = undefined;
     this.maneuverGfx?.destroy();
     this.maneuverGfx = undefined;
+    // Here rather than in `onShutdown`, per the doc comment above: `create` calls this too, so a
+    // shutdown-only destroy would leave the previous layer's four emitters (and their render
+    // textures) alive on a scene restart — the same shape of leak the `PredictionBuffer` had.
+    this.fx?.destroy();
+    this.fx = undefined;
     this.hudGfx?.destroy();
     this.hudGfx = undefined;
     this.hudSweepGfx?.destroy();
@@ -1235,6 +1264,7 @@ export class ArenaScene extends Phaser.Scene {
     this.syncRespawnCamera(room);
     this.renderCars(room, delta);
     this.renderShots(room);
+    this.renderFx(room, delta);
     // The panel's height is the slots' top inset, so the roster draws first and hands that one
     // number to the rest of the gutter. Derived here and nowhere else on purpose: the panel lists
     // every IN_MATCH player while `renderWeaponHud` lays out for `hudTargetPlayer` — the
@@ -2020,6 +2050,45 @@ export class ArenaScene extends Phaser.Scene {
     // hitbox at all (D19's single exception — it is a telegraph on the shooter's own car). Drawing
     // a hitbox around it would assert the exact opposite of the truth this overlay exists to show.
     this.renderChargeOrbs(room, gfx);
+  }
+
+  /**
+   * One FX frame. Adapts whatever the room is holding into the structural `FxWorldView` that `fx/`
+   * consumes, so nothing in `fx/` imports a schema class — which is what lets netcode phase 2 swap
+   * the schema for a binary snapshot by changing this method and nothing else (VFX11).
+   *
+   * Both views are copied out whole rather than passed as schema references: `deriveFxEvents` diffs
+   * this frame against the one it kept from last frame, and a live schema object would have mutated
+   * underneath it, so every diff would come back empty.
+   */
+  private renderFx(room: Room<ArenaState>, delta: number): void {
+    const fx = this.fx;
+    if (!fx) return;
+    const cars = [...room.state.players.entries()]
+      .filter(([, player]) => player.status === PlayerStatus.IN_MATCH)
+      .map(([sessionId, player]) => ({
+        sessionId,
+        x: player.x,
+        y: player.y,
+        angle: player.angle,
+        hp: player.hp,
+        alive: player.alive,
+        carId: player.carId,
+        // From the networked world velocity, not re-derived from pose deltas — see `FxCarView`.
+        vx: player.vx,
+        vy: player.vy,
+      }));
+    const instances = [...room.state.weapons.entries()].map(([id, instance]) => ({
+      id,
+      weaponId: instance.weaponId,
+      x: instance.x,
+      y: instance.y,
+      angle: instance.angle,
+      // Carried because `shotEnded` keys off this flip, not off the row leaving the map: the server
+      // clears `alive` a tick or more before it deletes the instance.
+      alive: instance.alive,
+    }));
+    fx.update({ cars, instances }, delta);
   }
 
   /**
