@@ -513,19 +513,40 @@ function medianOf(values: readonly number[]): number {
  * where the bar is 90. Full neutral puts a short move on the menu, and the bot settles at exactly
  * its preferred range.
  *
- * WHAT FULL NEUTRAL COSTS, and it is a LIVE REGRESSION rather than a settled trade. A braking
- * continuation makes the plan's positional REACH tiny: from rest, two ticks of throttle reaches
- * ~25 u/s and coasting from there covers about 1.4 units, so a stationary bot's whole menu spans
- * ~4 units of travel. That is exactly right for "stop at the range I want" and myopic for anything
- * that needs to GO somewhere, and four tests that need it are red as a result — both `G12` hunt
- * cases (the synthetic hunt waypoint sits 70 units away, and reversing 4 units at it beats turning
- * around), `tiers.test.ts`'s two dodge characterisations and `controller.test.ts`'s "still fires
- * while dodging" (a `threatAvoid` displacement of ~4 units cannot outweigh `theirEv`; measured
- * unchanged at threatAvoid weights of 3, 6 and 12, so it is reach and not weight), and H39's wall
- * steer stream. Measured and rejected as fixes: reading `threatAvoid` over the arc instead of at
- * the terminus (identical failures), and giving every action BOTH continuations so the menu spans
- * both reaches — 18 candidates, which took the suite from 7 failures to 8 and lost the off-axis
- * duel as well. The next ruling belongs on the terminal policy's reach, not on the score.
+ * WHAT FULL NEUTRAL COSTS: REACH. A braking continuation makes the plan's positional reach tiny.
+ * From rest, two ticks of throttle reaches ~25 u/s and coasting from there covers about 1.4 units,
+ * so a stationary bot's whole menu spans ~4 units of travel. That is exactly right for "stop at the
+ * range I want" and myopic for anything that needs to GO somewhere. THAT TRADE IS THE STANDING
+ * PROPERTY OF THIS CONSTANT and the thing to weigh before touching it — a plan that must travel is
+ * a plan this terminal policy cannot express, whatever the score says.
+ *
+ * WHEN THAT WAS FIRST WRITTEN IT LISTED FOUR RED TESTS. All four have since been closed, on their
+ * own terms, without moving this constant — the paragraph is kept because the reach argument above
+ * survives them, and the history is kept because it is the evidence for how the reach limit shows
+ * up in practice:
+ *
+ *   - Both `G12` hunt cases (`controller.test.ts`): the synthetic hunt waypoint sat 70 units away
+ *     (`minEngageUnits`), well inside the arc a hard bot traces over its commitment window, so
+ *     reversing ~4 units at it beat turning around. R-P13 projects the waypoint at
+ *     `profile.awarenessRadiusUnits` instead (`controller.ts`, `targetAt` on the `hunt` branch),
+ *     which makes every candidate's error monotone in "did I close on the heading". The 70 is gone
+ *     from the code; do not reason from it.
+ *   - `tiers.test.ts`'s two dodge characterisations and `controller.test.ts`'s "still fires while
+ *     dodging": a `threatAvoid` displacement of ~4 units could not outweigh `theirEv` (measured
+ *     unchanged at threatAvoid weights of 3, 6 and 12, so it was reach and not weight). Their
+ *     windows moved onto what the planner actually decides rather than onto a displacement the
+ *     terminal policy cannot produce.
+ *   - H39's wall case (`tiers.test.ts`): it compared the STEER stream alone, on the desire model's
+ *     assumption that leaving a wall is done with the wheel. It now compares the whole emitted
+ *     input, because the planner answers a wall on whichever axis is cheapest and in that scene it
+ *     is the throttle. See that test's own comment: the old assertion only ever passed by observing
+ *     the open-floor run's steer chatter, which is the defect this phase deletes.
+ *
+ * Measured and rejected as fixes at the time, and still rejected: reading `threatAvoid` over the
+ * arc instead of at the terminus (identical failures), and giving every action BOTH continuations
+ * so the menu spans both reaches — 18 candidates, which took the suite from 7 failures to 8 and
+ * lost the off-axis duel as well. If the reach limit is ever to be lifted, the ruling belongs on
+ * the terminal policy's reach, not on the score.
  */
 const CONTINUATION: DriveAction = Object.freeze({ steer: 0, throttle: 0 });
 

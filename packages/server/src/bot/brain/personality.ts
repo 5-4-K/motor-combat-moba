@@ -22,9 +22,23 @@ type Shifts = Partial<Record<keyof BotProfile, number>>;
  * computes `fightRange = max(ownComfort, kitReachOf(target).shortest * opponentRangeRespect)`.
  * Three consequences, all of them real:
  *
- * 1. IT IS A NO-OP AT EASY. `opponentRangeRespect` is 0 in `BOT_PROFILES.easy`, and 0 x 0.8 and
- *    0 x 1.15 are both 0. An easy `brawler` and an easy `kiter` therefore differ on
- *    `ramIntentChance` alone.
+ * 1. AT EASY, `brawler` AND `kiter` ARE INDISTINGUISHABLE — not "differ only on
+ *    `ramIntentChance`", which is what this comment used to say and which sends a tuner to move a
+ *    knob and watch nothing happen. Every field either archetype shifts is dead at easy:
+ *    `opponentRangeRespect` is 0 (0 x 0.8 and 0 x 1.15 are both 0), `retreatHpFraction` is 0 (0 x
+ *    0.8 and 0 x 1.25 are both 0), and `ramIntentChance` — the one field whose VALUE does move,
+ *    0.15 to 0.1875 for brawler and to 0.12 for kiter — REACHES NO BEHAVIOUR (see below).
+ *    `rollPersonality` also draws `slotWeights` from the same stream positions whatever the
+ *    archetype, so the two roll the same weights from the same seed. Two of five archetypes are
+ *    behaviourally null at easy.
+ *
+ *    `ramIntentChance` HAS NO CONSUMER, and that is PRE-EXISTING, not phase D's doing.
+ *    `controller.ts` draws it into `this.wantsRam` (~line 247) and the only other reference is
+ *    `void this.wantsRam;` (~line 559), landed by "Replace the bot's scored goal catalog with
+ *    situation-play" on `development/main` before this branch. The `rng()` draw behind it is real
+ *    and must stay (H21 fixes the draw count); only its RESULT is discarded. It is recorded here
+ *    rather than repaired because reconnecting a ram intent is a behaviour change, not a comment
+ *    fix. Until it is reconnected, this field tunes nothing at any tier.
  * 2. AT HARD, KITER'S SHIFT IS SMALLER THAN IT READS. 0.9 x 1.15 = 1.035, and
  *    `opponentRangeRespect` is in `UNIT_INTERVAL_FIELDS`, so it saturates at 1.0 — an ~11% shift,
  *    not 15%.

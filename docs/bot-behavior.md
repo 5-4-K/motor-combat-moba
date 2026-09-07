@@ -443,6 +443,23 @@ Five archetypes still jitter hands and favorite guns inside the tier band (H47).
 `waitOut` / `unpin` / `punish`. Their **range** flavour is now much narrower than it reads — see
 [Known limitations](#known-limitations).
 
+> **At easy there are three archetypes, not five.** `brawler` and `kiter` shift
+> `opponentRangeRespect`, `retreatHpFraction` and `ramIntentChance`. Easy pins the first two at 0,
+> so both shifts multiply zero; `ramIntentChance` does move (0.15 → 0.1875 for brawler, → 0.12 for
+> kiter) but **reaches no behaviour at all** — see below. `rollPersonality` also draws
+> `slotWeights` from the same stream positions whatever the archetype, so from one seed the two roll
+> identical weights. **An easy `brawler` and an easy `kiter` are behaviourally indistinguishable.**
+> Do not reach for `ramIntentChance` to separate them.
+
+> **`ramIntentChance` has no consumer — pre-existing, flagged, not repaired.**
+> `controller.ts` draws it into `this.wantsRam` (~line 247); the only other reference is
+> `void this.wantsRam;` (~line 559). That `void` landed on `development/main` with the
+> situation-play brain, before the 4.3.0 planner work, so it is not a 4.3.0 regression. **The field
+> tunes nothing at any tier.** The `rng()` draw behind it is real and must stay — H21 fixes the draw
+> count and order — so this is not dead code to delete; reconnecting a ram intent is a behaviour
+> change for a future pass, not a doc fix. If a "the bot never rams me" complaint arrives, this is
+> why, and no value of this knob will answer it.
+
 ## One press per tick
 
 `chooseSlot` returns one slot index. `beginFire` takes the lowest set bit of the mask, so ORing
@@ -457,16 +474,19 @@ otherwise discover by being surprised.
 range, and `standoffFraction` was their lever. It is gone, and `opponentRangeRespect` — the nearest
 surviving danger-distance axis — does not carry it. Three consequences, all real and all measured
 off the shipped table: it is a **no-op at easy**, where `opponentRangeRespect` is 0 and both shifts
-multiply zero, so an easy brawler and an easy kiter differ on `ramIntentChance` alone; at hard,
+multiply zero — and so is every other field the two shift, so **an easy `brawler` and an easy
+`kiter` are indistinguishable**, not merely close (see the callout below); at hard,
 `kiter`'s 0.9 × 1.15 = 1.035 saturates at 1.0, an ~11% shift rather than the 15% it reads as; and
 `fightRange = max(ownComfort, theirKeepOut)` FLOORS the result at the bot's own derived comfort, so
 `brawler` can never stand *closer* than a neutral bot — the shift only moves the other operand.
 Restoring the closing half needs a profile field that scales `ownComfort`, which P35/P36 do not
 list. It is a candidate for the next tuning pass, deliberately not added on the way past.
 
-**2. The perf budget is missed by 17–27%, and was not throttled away.** Hard's plan measures
-0.385–0.422 ms in isolation against P33's stated 0.33 ms (six bots replanning at 15 Hz inside ~30 ms
-of CPU per simulated second), and 0.53–0.70 ms under full-suite load. The overrun is reported rather
+**2. The perf budget is missed by 13–78%, and was not throttled away.** Hard's plan measures
+**0.375–0.593 ms** per plan against P33's stated 0.33 ms (six bots replanning at 15 Hz inside ~30 ms
+of CPU per simulated second) — the range `planner.bench.test.ts` states, spanning isolated through
+full-suite load, and the one to quote. Quoting the isolated end alone (0.385–0.422 ms, "17–27%
+over") reports the flattering half of the same data. The overrun is reported rather
 than tuned away because there is no dial left that does not cost more than it buys: `planDepth` is
 already 1, and `planHorizonTicks` is where hard's K=22 sits on a two-tick-wide plateau found by a
 seven-seed sweep, so lowering K invalidates that sweep and the five-round convergence built on it.

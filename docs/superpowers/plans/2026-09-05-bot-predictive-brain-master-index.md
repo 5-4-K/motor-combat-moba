@@ -372,8 +372,12 @@ this up fresh should:
   ratio cancels it. The gate asserts median plan-CPU / reference-CPU-per-`stepDrive` <
   790 * 1.3 = **1027 drive ticks per plan**, with the old absolute assertion demoted to a backstop
   (normalising alone is blind to `stepDrive` itself regressing). **The stated budget stays 0.33 ms**
-  (`30 / 90`) and hard **misses it by 17-27%** — 0.385-0.422 ms isolated, 0.671-0.703 ms under full
-  suite load — and it printed, not hidden.
+  (`30 / 90`) and hard **misses it by 13% to 78%** — **0.375-0.593 ms per plan**, the range
+  `planner.bench.test.ts` states in its own header, spanning isolated through full-suite load — and
+  it is printed, not hidden. (An earlier draft of this line read "misses it by 17-27%, 0.385-0.422 ms
+  isolated, 0.671-0.703 ms under full suite load", quoting the isolated end's percentage beside the
+  loaded end's milliseconds: 0.671 ms against 0.333 ms is 101% over, not 27%. Quote the bench file's
+  range.)
 - **Hard was NOT throttled to meet that budget** (R-PF3), and the reasoning is worth restating
   because the plan's own instruction was to throttle. `planDepth` is already 1, so the only dial
   left is K, and **K=22 is load-bearing**: round 5's commitment-window plateau is two ticks wide *at
@@ -426,8 +430,15 @@ this up fresh should:
 `kiter` are archetypes ABOUT range, `standoffFraction` was their only lever, and
 `opponentRangeRespect` does not carry it.** R-M1 claimed it did and was wrong in three measurable
 ways — `opponentRangeRespect` is 0 / 0.45 / 0.9, so at **easy both brawler's x0.8 and kiter's x1.15
-are exact no-ops** (easy's brawler and kiter now differ on `ramIntentChance` alone, and easy pins
-`retreatHpFraction` at 0 too); at hard kiter's 0.9 x 1.15 = 1.035 **clamps to 1.0**, an ~11% shift
+are exact no-ops** — and so is every other field the two shift, so **at easy `brawler` and `kiter`
+are behaviourally INDISTINGUISHABLE, not merely close**: easy pins `retreatHpFraction` at 0 as well,
+and `ramIntentChance` moves in value (0.15 -> 0.1875 / 0.12) but **has no consumer at all** —
+`controller.ts` draws it into `this.wantsRam`, whose only other reference is `void this.wantsRam;`,
+landed with the situation-play brain on `development/main` and so PRE-EXISTING rather than a 4.3.0
+regression. `rollPersonality` also draws `slotWeights` from the same stream positions whatever the
+archetype, so from one seed the two roll identical weights. **Two of five archetypes are
+behaviourally null at easy**, and no value of `ramIntentChance` separates them at any tier; at hard
+kiter's 0.9 x 1.15 = 1.035 **clamps to 1.0**, an ~11% shift
 rather than 15%; and `fightRange = max(ownComfort, theirKeepOut)` **floors** the result at the bot's
 own comfort range, so a lowered respect can never make brawler stand closer than a neutral bot,
 whereas `standoffFraction` scaled that comfort itself. The doc comment now states exactly that; no
