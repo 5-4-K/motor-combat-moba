@@ -368,6 +368,25 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
         personality: debug.personality,
         firedSlot: debug.firedSlot ?? -1,
         dangerEv: Math.round(debug.dangerEv),
+        // `debug.plan` is `undefined` only before the bot's first recompute window. 0/0/0 is NOT a
+        // sentinel — coast at a score of zero is a plan the planner can genuinely choose — but the
+        // `terms` line beside it does carry one (`-`, see below), and the two are written from the
+        // same `debug` in the same tick, so the overlay never shows a plan without its breakdown.
+        planSteer: debug.plan?.steer ?? 0,
+        planThrottle: debug.plan?.throttle ?? 0,
+        planScore: Math.round((debug.plan?.score ?? 0) * 100) / 100,
+        // Copied WHOLESALE, never term by term: `BotDebug.planTerms` is keyed off `PlanWeights`
+        // itself, so entry-copying is what carries that derivation across the wire. Naming the six
+        // terms here would compile cleanly against a seven-term `PlanWeights` and silently drop the
+        // new one — see `BotDebugPayload.terms`. Absent before the bot's first recompute window,
+        // where `{}` prints a `-` on the overlay (`termLine`, R-C4) — the same "nothing to report"
+        // sentinel `firedSlot: -1` gets above. Until that fix the label was followed by nothing at
+        // all, which reads as a broken renderer rather than as an empty reading.
+        terms: Object.fromEntries(
+          Object.entries(debug.planTerms ?? {}).map(([k, v]) => [k, Math.round(v * 100) / 100]),
+        ),
+        shotEvBest: Math.round(debug.shotEv.best),
+        shotEvThreshold: Math.round(debug.shotEv.threshold),
       });
     }
 

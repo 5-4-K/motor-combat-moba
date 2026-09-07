@@ -257,9 +257,10 @@ describe("predicting an observed car, against an independent ground truth", () =
   // that is the exact condition `classifySituation` gates `punish` on.
   //
   // The REVERSING rows are the same question with the sign flipped (fix round 2, finding A), and
-  // they are not a corner case: `movement.ts` makes `throttle: -1` routine `fight` behaviour inside
-  // the bot's preferred range and `humanize.ts` has a panic-reverse, so both the target predictor
-  // and `selfPredictor` meet a car rolling backward constantly. `accelerateForward`'s
+  // they are not a corner case: `throttle: -1` is a third of `planner.ts`'s `ALL_ACTIONS` and is
+  // what the range term picks inside the bot's preferred standoff (the `panic-reverse` blunder this
+  // used to cite alongside it was deleted by P41), so both the target predictor and `selfPredictor`
+  // meet a car rolling backward constantly. `accelerateForward`'s
   // rolling-backward branch is `brakeDecel`, not `accel`, which is why zeroing one channel was not
   // enough -- see `OBSERVATION_MODIFIERS`.
   const SCENES: readonly { speed: number; steer: -1 | 0 | 1; label: string }[] = [

@@ -384,6 +384,17 @@ function colorSelect(value: number): HTMLSelectElement {
   return select;
 }
 
+/**
+ * The planner's per-term breakdown as one line, or `-` when there is nothing to break down yet
+ * (R-C4). Exported so a test can hold the empty case to printing a sentinel rather than nothing —
+ * that case is the whole reason this is a named function instead of an inline `map().join()`.
+ */
+export function termLine(terms: Readonly<Record<string, number>>): string {
+  const entries = Object.entries(terms);
+  if (entries.length === 0) return "-";
+  return entries.map(([k, v]) => `${k} ${v}`).join("  ");
+}
+
 export function mountPlaygroundOverlay(
   room: Room<PlaygroundState>,
   onArenaChanged: () => void,
@@ -402,10 +413,29 @@ export function mountPlaygroundOverlay(
   document.body.appendChild(debugEl);
   const unbindDebug = room.onMessage(MSG_PLAYGROUND_BOT_DEBUG, (payload: unknown) => {
     if (!isBotDebugPayload(payload)) return;
+    // Signed so a held wheel reads at a glance: "+1"/"-1"/"0", never a bare "1" that could be
+    // mistaken for a magnitude.
+    const signed = (n: number): string => (n > 0 ? `+${n}` : `${n}`);
+    // Two lines (P45, P46): personality/situation/range/slot/danger plus the planner's chosen
+    // action, its score, and the EV ratio all fit on one readable line; the per-term score
+    // breakdown that justifies that action needs its own line or the whole thing wraps and stops
+    // being scannable at a glance, which defeats the point of an overlay.
     debugEl.textContent =
       `${payload.personality} | ${payload.situation} | range ${payload.preferredRange}` +
       ` | slot ${payload.firedSlot < 0 ? "-" : payload.firedSlot + 1}` +
-      ` | danger ${payload.dangerEv}`;
+      ` | danger ${payload.dangerEv}` +
+      ` | plan(${signed(payload.planSteer)},${signed(payload.planThrottle)}) ${payload.planScore}` +
+      ` | ev ${payload.shotEvBest}/${payload.shotEvThreshold}\n` +
+      // Whatever keys arrived, in the order the planner emitted them — not six hard-coded names, so
+      // a term added to `PlanWeights` shows up here without an edit (see `BotDebugPayload.terms`).
+      // The key IS the label: a per-term short name would be another hand-kept mirror of the very
+      // list this stopped mirroring, and `myEv`/`rangeError` read fine at a glance.
+      //
+      // An EMPTY map prints a `-` (R-C4, fix wave 4). `terms` is `{}` until the bot's first
+      // recompute window, and a label followed by nothing is indistinguishable from a rendering
+      // bug; `-` is the same "nothing to report" sentinel `slot` uses two lines up for
+      // `firedSlot: -1`.
+      `terms  ${termLine(payload.terms)}`;
   });
 
   let subView: "menu" | "settings" = "menu";

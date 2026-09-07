@@ -6,6 +6,7 @@ import { BOT_PROFILES } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import type { BotView } from "../types.js";
 import { HumanController } from "./controller.js";
+import { runDuel } from "./duel.fixture.js";
 
 function view(overrides: Partial<BotView> = {}): BotView {
   return {
@@ -31,6 +32,21 @@ function view(overrides: Partial<BotView> = {}): BotView {
  * hard Bastion never clears an absolute `minShotValue`: the harness that measured it only ever flew
  * the roster's strongest kit. See the "fires a shot on every chassis" test below, which sweeps all
  * three chassis at all three tiers.
+ *
+ * EXTRACTED to `duel.fixture.ts` (task 7, 2026-09-07) so `tiers.test.ts` measures the same fixture instead
+ * of hand-rolling a second one. This is the harness's OPEN mode: nothing is fired for real and every
+ * slot reads permanently ready, so a press is limited by the brain's cadence and never by a weapon
+ * cooldown — which is what makes `fires` here a count of WILLINGNESS to shoot. It is `fireTicks`,
+ * ticks whose emitted intent carried a fire bit, NOT presses (`HumanController.held` re-emits one
+ * decision's bit for up to `recomputeTicks` ticks); every comparison below is within one tier, where
+ * that occupancy is a fair measure. Verified byte-identical across the extraction: the two canary duels
+ * below measure 136 and 128 with mean offsets 0 and 0.0442 both before and after it. Those are NOT
+ * the 140/134 the R-D5 round reported — the blunder reshape (tasks 9 and 8) sits downstream of the
+ * duel and moved them, 140 -> 136 on-axis and 134 -> 128 off-axis, as its own report records: hard's
+ * `blunderChance` is 0.015, so a handful of windows in 300 ticks now hold a runner-up line or a late
+ * brake instead of an inverted steer. The 140/134 figures were measured before that reshape and no
+ * longer reproduce. The > 90 bar is what either pair is held to; none of this is a threshold being
+ * chased.
  */
 function closedLoopDuel(
   tier: "easy" | "medium" | "hard",
@@ -38,52 +54,8 @@ function closedLoopDuel(
   targetPos: { x: number; y: number } = { x: 753, y: 360 },
   chassis: "bullseye" | "mirage" | "bastion" = "bullseye",
 ): { fires: number; meanOffset: number } {
-  const bot = new HumanController(tier);
-  const rng = makeRng(17);
-  const slots = slotsOf(chassis).map((weaponId) => ({
-    weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
-    range: weaponDefOf(weaponId).range,
-  }));
-  // Real physics, so the bot's own steering rotates its own body — without this the bug is
-  // invisible (Task 1, round 1).
-  let body = {
-    x: 200, y: 360, angle: 0, speed: 300, reverseHold: 0, angVel: 0,
-    shoveX: 0, shoveY: 0, authority: 1, maneuver: 0, maneuverTicksLeft: 0, maneuverSpeed: 0,
-  };
-  const target = {
-    sessionId: "them", carId: "mirage" as const, team: 1 as const, x: targetPos.x, y: targetPos.y,
-    angle: Math.PI, speed: 0, hp: 70, maxHp: 70, alive: true, phased: false,
-    statuses: [], maneuver: 0,
-  };
-  let fires = 0;
-  const offsets: number[] = [];
-
-  for (let tick = 0; tick < ticks; tick++) {
-    const intent = bot.decide(view({
-      tick,
-      self: {
-        ...view().self, carId: chassis,
-        x: body.x, y: body.y, angle: body.angle, speed: body.speed, slots,
-      },
-      others: [target],
-      rng,
-    }));
-    if (intent.fireSlots !== 0) fires += 1;
-    const bearing = Math.atan2(target.y - body.y, target.x - body.x);
-    offsets.push(Math.abs(
-      Math.atan2(Math.sin(bearing - body.angle), Math.cos(bearing - body.angle)),
-    ));
-    body = stepDrive(
-      body,
-      { seq: tick, steer: intent.steer, throttle: intent.throttle, fireSlots: 0 },
-      1 / TICK_RATE_HZ,
-      driveOf(chassis),
-      NEUTRAL_MODIFIERS,
-    );
-  }
-
-  const tail = offsets.slice(-100);
-  return { fires, meanOffset: tail.reduce((a, b) => a + b, 0) / tail.length };
+  const { fireTicks, meanOffset } = runDuel({ tier, ticks, targetPos, chassis });
+  return { fires: fireTicks, meanOffset };
 }
 
 describe("HumanController", () => {
@@ -116,6 +88,21 @@ describe("HumanController", () => {
     // clears comfortably at this scenario's settled geometry. Measured fire counts (300 ticks): 140
     // on-axis (heading settled near 0), 94 off-axis (heading settled near 0.2 rad). Both pass the
     // >90 bar with margin, confirming the EV gate fires healthily at this tier.
+    //
+    // P31 re-measurement (2026-09-07, phase D task 4): deriving `preferredRangeOf` from the solver
+    // moved both duels UP — on-axis 138 -> 140 (offset 0), off-axis 112 -> 128 (offset 0.054).
+    // A hard Bullseye now stands at its kit's own plateau rather than at
+    // `standoffFraction * effective reach`, which is further out and squarely inside `predator`'s
+    // aim-assisted band, so more of the run is spent at a range the kit actually scores at.
+    //
+    // R-D5 (fix wave 2, 2026-09-07) moved the standoff again — the plateau's far edge is now the
+    // farthest range keeping `preferredRangePlateauFraction` of the peak rather than the farthest
+    // range EXACTLY tying it, which takes a hard Bullseye from 420 to 470. That round reported the
+    // pair as 140 on-axis / 134 off-axis; THE CURRENT FIGURES ARE 136 ON-AXIS AND 128 OFF-AXIS
+    // (mean offsets 0 and 0.0442). The 140/134 pair was measured before the blunder kinds were
+    // reshaped (tasks 9 and 8) and no longer reproduces — that reshape sits downstream of the duel
+    // and its report records exactly this move, 140 -> 136 and 134 -> 128. The bar is unchanged at
+    // > 90 throughout: none of these re-measurements is a threshold being chased.
     const { fires, meanOffset } = closedLoopDuel("hard", 300, { x: 753, y: 500 });
     expect(fires).toBeGreaterThan(90);
     // Fixed at 0.2 rad — hard's `fireConeRad` before Task 7 (2026-09-05) deleted that field along
@@ -293,17 +280,18 @@ describe("HumanController", () => {
   });
 
   it("still fires while dodging, because the solver reads the shooter's ACTUAL pose, not the blended steering heading (ordering trap)", () => {
-    // The regression this guards, updated for Task 7's EV firing gate: `chooseSlot` no longer takes
-    // an aim delta at all — the per-slot solutions it ranks are built (in `plan`) from `self.x/y/
-    // angle`, the car's real current pose, while `reduceToIntent`'s steering is driven by `heading`,
-    // the BLENDED desire (fight + evade + wall, etc.). Those two are independent inputs computed from
-    // the same tick's `self`, so a dodge that swings the blended heading away from the target must
-    // not silently move the shooter's pose the solver solves against — a bug that fed the blended
-    // heading into `solve` instead of `self.angle` would compile, typecheck, and pass every unit test
-    // that pins `solve`/`chooseSlot` in isolation, but the bot would stop shooting the instant
-    // anything (a dodge, an orbit) pulled its steering off the target. Only a controller-level test
-    // with a real divergence between "where the gun points" and "where the wheels want to go" catches
-    // that.
+    // The regression this guards, updated for Task 7's EV firing gate and phase D's planner:
+    // `chooseSlot` no longer takes an aim delta at all — the per-slot solutions it ranks are built
+    // (in `plan`) from `self.x/y/angle`, the car's real current pose, while the emitted `steer` comes
+    // from the PLANNER, which rolls candidate steer/throttle pairs forward and scores them against
+    // the tick's objective weights (fight, evade, wall clearance and the rest). Those two are
+    // independent consumers of the same tick's `self`, so a dodge that sends the planner's winning
+    // rollout away from the target must not silently move the shooter's pose the solver solves
+    // against — a bug that fed the planner's chosen heading into `solve` instead of `self.angle`
+    // would compile, typecheck, and pass every unit test that pins `solve`/`chooseSlot` in
+    // isolation, but the bot would stop shooting the instant anything (a dodge, an orbit) pulled its
+    // steering off the target. Only a controller-level test with a real divergence between "where
+    // the gun points" and "where the wheels want to go" catches that.
     const slots = slotsOf("bullseye").map((weaponId) => ({
       weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
       range: weaponDefOf(weaponId).range,
@@ -326,8 +314,8 @@ describe("HumanController", () => {
     // A shot bearing down the +y axis, passing 10 units to the right of the car — well inside
     // `THREAT_LATERAL_UNITS` (~45), so `perceive()` registers it as a threat, and its
     // `awayHeadingRad` comes out pointing almost directly opposite the target (back along -x) — the
-    // sharpest possible divergence from `aimHeading`, so `heading` (the BLENDED steering desire
-    // `reduceToIntent` reads) swings hard away from 0 while `self.angle` (what the solver solves
+    // sharpest possible divergence from the aim line, so the planner's winning rollout (and with it
+    // the emitted `steer`) swings hard away from 0 while `self.angle` (what the solver solves
     // against) does not move at all — this test's `selfView` is fixed, not stepped through physics.
     const incoming = {
       id: "shot-1", ownerSessionId: "them", weaponId: "predator" as const,
@@ -335,26 +323,55 @@ describe("HumanController", () => {
     };
 
     let firedWhileDodging = false;
-    let steerWhileDodging: -1 | 0 | 1 | undefined;
-    // `hard`'s `dodgeReactionTicks` is 4 and `acquireTicks` is 5, so the threat is reactable and the
-    // target is noticed by tick 5; `recomputeTicks` is 2, so plenty of runway below covers a
-    // recompute tick past both. Humanize then coasts another `reactionDelayTicks` (4) ticks before
-    // the decision reaches the output — so the window has to reach past that, not just past 9.
+    let evadeStartTick: number | undefined;
+    const settledPresses: { tick: number; steer: -1 | 0 | 1 }[] = [];
+    /**
+     * FIXTURE WINDOW MOVED (R-P15, residuals round, 2026-09-07). Was: break on the FIRST press and
+     * assert that tick's steer. The mechanism this test guards is unchanged and still holds — the
+     * bot fires on eight separate ticks of this run WHILE steering off the fight heading — but the
+     * first press no longer coincides with the first steer, because the reaction path changed.
+     *
+     * The measured trace, hard, this exact scene (situation / emitted steer / emitted fireSlots):
+     *
+     *   t=0..5   waitOut  steer  0  fire 0
+     *   t=6..9   evade    steer  0  fire 0
+     *   t=10,11  evade    steer  0  fire 2   <- the old window stopped HERE, on steer 0
+     *   t=12,13  evade    steer  1  fire 0
+     *   t=14,15  evade    steer -1  fire 2   <- fires WHILE steering; the property under test
+     *   t=18,19 / 22,23 / 26,27 — the same, steer -1 with fire 2
+     *
+     * Why the two separated. `evade` is entered at t=6, and the planner's FIRST evade answer here
+     * is a dodge on the THROTTLE, not the wheel: this fixture's `awayHeadingRad` points back along
+     * -x, which is collinear with the car's own axis (it faces +x), so full reverse moves it
+     * straight down the away heading and the wheel has no work to do. That decision reaches the
+     * output `reactionDelayTicks` (4) later, at t=10 — and the trigger, which is not delayed by a
+     * plan at all, comes up on the same tick. The wheel only swings at the NEXT decision, t=8,
+     * emitted at t=12. So the settled window opens at `evadeStart + reactionDelayTicks +
+     * recomputeTicks` — every tick of it is derived from the profile, none of it is a chosen number.
+     *
+     * The assertion is STRONGER than the one it replaces: it holds for EVERY press in the settled
+     * window, not for a single press.
+     */
     for (let tick = 0; tick < 30; tick++) {
       const out = bot.decide(view({
         tick, self: selfView, others: [target], instances: [incoming], rng: makeRng(3),
       }));
-      if (out.fireSlots !== 0) {
-        firedWhileDodging = true;
-        steerWhileDodging = out.steer;
-        break;
-      }
+      if (bot.debug()?.situation === "evade" && evadeStartTick === undefined) evadeStartTick = tick;
+      if (out.fireSlots === 0) continue;
+      firedWhileDodging = true;
+      const settledFrom = evadeStartTick === undefined
+        ? Infinity
+        : evadeStartTick + BOT_PROFILES.hard.reactionDelayTicks + BOT_PROFILES.hard.recomputeTicks;
+      if (tick >= settledFrom) settledPresses.push({ tick, steer: out.steer });
     }
 
     expect(firedWhileDodging).toBe(true);
     // `evade` takes the wheel off the fight heading, so steering visibly responds to the threat
     // rather than sitting at 0 the way it would if the car were simply pointed at its target.
-    expect(steerWhileDodging).not.toBe(0);
+    expect(settledPresses.length).toBeGreaterThan(0);
+    for (const press of settledPresses) {
+      expect(press.steer, `press at t=${press.tick} steered 0`).not.toBe(0);
+    }
   });
 
   it("re-arms the ram roll after the target is lost, so ramming survives the first death (H40)", () => {
@@ -543,9 +560,24 @@ describe("HumanController", () => {
     expect(fired).toBe(true);
   });
 
-  it("breaks the line when it is in a loaded gun's solution, before the shot exists (P16)", () => {
+  it("does NOT declare an evade excursion merely for standing in a loaded gun's line (P27)", () => {
+    // REPLACES "breaks the line when it is in a loaded gun's solution, before the shot exists
+    // (P16)", deleted 2026-09-06 with the anticipatory evade itself.
+    //
+    // That test asserted the OPPOSITE of this one, and it was right to, for the mechanism it was
+    // written against: standing in a firing solution used to promote the bot into `evade`, an
+    // EVENT-priority situation, throttled by a 120-tick refractory (`dangerEvadeCooldownTicks`) so
+    // a STANDING condition could not occupy an event's slot for most of a fight. Spec P27 deletes
+    // that whole apparatus: danger is now a continuously-weighted score term (`objectives.ts`'s
+    // `theirEv`, scaled by `opponentRangeRespect` per P38), so the bot leans off a dangerous line
+    // by degrees on every plan rather than declaring an excursion once every four seconds. The
+    // property that survives is the READING, not the excursion — "reports the danger it is
+    // standing in, for the overlay", below, still pins that `dangerEv` is nonzero in this exact
+    // scene.
+    //
     // Threat is stationary, pointed straight at the bot, well inside predator's reach, and has
     // fired nothing -- so every gun reads as loaded and there is no instance in flight to dodge.
+    // With no shot in the air and no car bearing down, `evade` has no event to fire on.
     const bot = new HumanController("hard");
     const rng = makeRng(17);
     let evaded = false;
@@ -553,7 +585,7 @@ describe("HumanController", () => {
       bot.decide(inThreatLineView(tick, rng));
       if (bot.debug()?.situation === "evade") evaded = true;
     }
-    expect(evaded).toBe(true);
+    expect(evaded).toBe(false);
   });
 
   it("keeps firing at a target that TURNS, now that the solver rolls real physics (P22)", () => {

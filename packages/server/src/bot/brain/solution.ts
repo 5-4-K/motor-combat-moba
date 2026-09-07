@@ -1,10 +1,11 @@
 import {
-  TICK_RATE_HZ, beamShapeAt, carHullOf, forwardMaxSpeedOf, instanceExpired, projectileShapeAt,
-  shapeHitsObb, slotsOf, smear, spawnInstances, stepInstance, weaponDamageOf, weaponDefOf,
-  weaponTicksOf, type CarId, type WeaponId, type WeaponInstance, type WorldShape,
+  DRIVE_CONFIG, TICK_RATE_HZ, beamShapeAt, carHullOf, forwardMaxSpeedOf, instanceExpired,
+  projectileShapeAt, shapeHitsObb, slotsOf, smear, spawnInstances, stepInstance, weaponDamageOf,
+  weaponDefOf, weaponTicksOf, type CarId, type WeaponId, type WeaponInstance, type WorldShape,
 } from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import type { BotArenaView, BotCarView, BotSlotView } from "../types.js";
+import { signedDelta } from "./aim.js";
 import { kitWeaponIds, weaponReachOf } from "./reach.js";
 
 /**
@@ -477,6 +478,124 @@ export function dangerEvAgainst(args: DangerArgs): number {
       arena,
     });
     total += solution.value * ready;
+  }
+  return total;
+}
+
+export interface ProxyArgs {
+  shooter: { x: number; y: number; angle: number };
+  slot: BotSlotView;
+  targetX: number;
+  targetY: number;
+  aimSigmaRad: number;
+  /** True when a live lock will point this shot regardless of the nose (P13). */
+  assisted: boolean;
+}
+
+/**
+ * A cheap stand-in for `solve().value`, for scoring a planner candidate (P9).
+ *
+ * ~20 flops against the exact solver's ~90 shape tests. It answers "is this a better place to be
+ * standing", never "should I pull the trigger" — the trigger keeps the exact solver. That split is
+ * deliberate and mirrors how people play: move on intuition, shoot on confirmation.
+ *
+ * The model is: how wide does the target look from here, against how badly do my hands wander. An
+ * assisted shot skips the angle term entirely, because `aimAngleFor` points it for me.
+ *
+ * A KNOWN, MEASURED, ACCEPTED LOSS: IT DOES NOT COUNT A TICKING BEAM'S PULSES (R-S1, fix wave 3,
+ * 2026-09-07). `damage` on a ticking row is a PULSE, not a press, so `lance` and `afterburner`
+ * (both `damageFrequencyMs: 500`, four and five pulses a press) are scored at roughly a quarter and
+ * a fifth of their worth here — `lance` reads 2.7 EV/s where `solve()` and `chooseSlot`'s own
+ * comment put it at ~10.8, against `predator`'s 30. Everything reading this proxy inherits that:
+ * `preferredRangeOf`'s plateau, the planner's `myEv`, and `proxyDangerAgainst`'s read of an
+ * opponent's kit. The TRIGGER is unaffected — `chooseSlot` ranks on the exact `solve().value`.
+ *
+ * This is not an oversight. A `pulsesPerPress` correction shipped in `firing.ts` beside
+ * `weaponValueOf` for exactly this defect, phase D deleted that function's only caller, and the
+ * correction went out with it while `proxyValue` kept the raw-`damage` model. Restoring it was
+ * IMPLEMENTED AND MEASURED, and reverted on the measurement:
+ *
+ *   - The nine resolved `preferredRangeOf` standoffs did not move at all (bullseye 70/170/470,
+ *     mirage 86.7/186.7/220, bastion 90.8/132.5/132.5, before and after).
+ *   - Both closed-loop duel canaries did not move (on-axis 136/300 offset 0, off-axis 128/300
+ *     offset 0.0442, before and after — the bar is > 90).
+ *   - `balance/` WENT RED: 115/116, `match.test.ts`'s "shortening matchSeconds still lets the
+ *     deathmatch clock fire" fixture returning `winnerSessionId: ""` on its pinned `seed: 3`. Its
+ *     kills assertion still passed; the match ended tied. That fixture may not be reseeded, and
+ *     absorbing the move by tuning something else is not on the table either.
+ *   - It also cost R-D5's one live cell. `slotWeights` move the standoff in 1 of 9 chassis-by-tier
+ *     cells today (Mirage at hard), and that cell exists BECAUSE `afterburner` is under-valued
+ *     here: at its true 18.8 EV/s its 220 u cliff is too large a share of Mirage's peak for any
+ *     vector in `rollPersonality`'s 0.5-1.5 draw to hold the total over the 0.95 bar past it. With
+ *     the pulse count restored a 5x5x5 sweep reads 0 of 9.
+ *
+ * So the loss is: two of nine rows are under-valued ~4x in every consumer of this proxy, and one of
+ * R-D5's stated benefits rests on that error. What is bought is a green `balance/` fixture that
+ * cannot be reseeded. Anyone revisiting this should expect the fixture to be the thing that has to
+ * move first, and should re-measure all three numbers above rather than trusting this note.
+ */
+export function proxyValue(args: ProxyArgs): number {
+  const { shooter, slot, targetX, targetY, aimSigmaRad, assisted } = args;
+  const def = weaponDefOf(slot.weaponId);
+  const reach = weaponReachOf(slot.weaponId);
+  const dx = targetX - shooter.x;
+  const dy = targetY - shooter.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance > reach || distance < 1) return 0;
+
+  // Half the target's angular width from here — how much room the shot has to be wrong by.
+  const subtense = Math.atan2(DRIVE_CONFIG.carHeight / 2, distance);
+  const offBy = assisted ? 0 : Math.abs(signedDelta(shooter.angle, Math.atan2(dy, dx)));
+  // Total angular budget: how far off I am now, plus how far my hands wander.
+  const spread = Math.hypot(offBy, aimSigmaRad);
+  const chance = spread <= 0 ? 1 : Math.min(1, subtense / spread);
+
+  const damage = def.damage * (def.kind === "projectile" ? def.pellets.pelletsPerVolley : 1);
+  const cooldownSeconds = Math.max(def.cooldownMs, 1) / 1000;
+  return (chance * damage) / cooldownSeconds;
+}
+
+export interface ProxyDangerArgs {
+  /** The opponent, at the pose being considered. */
+  threat: BotCarView;
+  /** Where I would be. */
+  meX: number;
+  meY: number;
+  /** How loaded this bot believes each of their weapons is, 0..1 (P21). */
+  readiness: (weaponId: WeaponId) => number;
+  /** What competence to assume of them — their real hands are unknowable. */
+  assumedAimSigmaRad: number;
+}
+
+/**
+ * `proxyDangerAgainst` is `dangerEvAgainst`'s cheap sibling: `proxyValue` with the arguments
+ * swapped, for the planner to weigh how exposed a CANDIDATE pose would be (P9, P26) without paying
+ * `dangerEvAgainst`'s exact-solver cost across nine candidates times K ticks.
+ *
+ * Mirrors `dangerEvAgainst` exactly in shape — same kit (`kitWeaponIds`, chassis default, no
+ * extras), same synthetic slot (`stocks: 1`, off cooldown, `range` from `weaponDefOf`), same
+ * `readiness`-weighted sum — except the per-weapon number comes from `proxyValue` rather than
+ * `solve`. Their lock is unknowable too, so this assumes none (`assisted: false`), the same
+ * conservative direction `dangerEvAgainst` documents on its own `lockTargetSessionId: ""`.
+ */
+export function proxyDangerAgainst(args: ProxyDangerArgs): number {
+  const { threat, meX, meY, readiness, assumedAimSigmaRad } = args;
+  let total = 0;
+  for (const weaponId of kitWeaponIds(threat.carId)) {
+    const ready = readiness(weaponId);
+    if (ready <= 0) continue;
+    const value = proxyValue({
+      shooter: { x: threat.x, y: threat.y, angle: threat.angle },
+      slot: {
+        weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
+        range: weaponDefOf(weaponId).range,
+      },
+      targetX: meX,
+      targetY: meY,
+      aimSigmaRad: assumedAimSigmaRad,
+      assisted: false,
+    });
+    total += value * ready;
   }
   return total;
 }

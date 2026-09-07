@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { slotsOf, weaponDefOf } from "@motor-combat-moba/shared";
-import { BOT_PROFILES } from "../../config/bot-profiles.js";
+import { BOT_PROFILES, BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import type { BotCarView, BotSelfView, BotSlotView } from "../types.js";
 import {
-  chooseSlot, effectiveRangeOf, isUlt, preferredRangeOf, slotIsReady, type UltHoldEntry,
+  chooseSlot, isUlt, preferredRangeOf, slotIsReady, type UltHoldEntry,
 } from "./firing.js";
 import type { FiringSolution } from "./solution.js";
 
@@ -44,44 +44,6 @@ const target: BotCarView = {
 
 const ones = [1, 1, 1];
 
-describe("effectiveRangeOf", () => {
-  it("puts Bullseye further out than Mirage", () => {
-    const bullseye = effectiveRangeOf(slotsFor("bullseye"), ones, 0);
-    const mirage = effectiveRangeOf(slotsFor("mirage"), ones, 0);
-    expect(bullseye).toBeGreaterThan(mirage);
-  });
-
-  it("excludes a range-0 row rather than letting it drag the average to nothing", () => {
-    const withCharge = effectiveRangeOf(slotsFor("bastion"), ones, 0);
-    expect(withCharge).toBeGreaterThan(400);
-  });
-
-  it("returns 0 for a car with no slots", () => {
-    expect(effectiveRangeOf([], [], 0)).toBe(0);
-  });
-
-  it("falls back to the kit as authored when nothing is ready, rather than collapsing to 0", () => {
-    // The not-ready fallback runs constantly mid-fight — every tick between a bot spending its last
-    // loaded slot and the first one coming back — and until this test nothing exercised it with a
-    // non-empty kit, so a bot mid-recharge deciding it wanted to be nose to nose would have shipped
-    // silently. Every slot spent AND locked, which is the real shape of that moment.
-    const spent = slotsFor("bullseye").map((slot) => ({
-      ...slot, stocks: 0, refireLockUntilTick: 500,
-    }));
-    expect(effectiveRangeOf(spent, ones, 0)).toBe(effectiveRangeOf(slotsFor("bullseye"), ones, 0));
-  });
-
-  it("weights the fallback the same way as the ready path, so a slot preference still reads", () => {
-    // Not just "non-zero": the fallback re-runs the same value weighting, so a bot that prefers its
-    // long-range slot still wants a longer range while it recharges than one that prefers the short
-    // one. `predator` (1800) is slot 0 and `pepperbox` (600) is slot 1.
-    const spent = slotsFor("bullseye").map((slot) => ({ ...slot, stocks: 0 }));
-    const likesLongRange = effectiveRangeOf(spent, [3, 1, 1], 0);
-    const likesShortRange = effectiveRangeOf(spent, [1, 3, 1], 0);
-    expect(likesLongRange).toBeGreaterThan(likesShortRange);
-  });
-});
-
 describe("preferredRangeOf", () => {
   it("never asks to fight further away than the bot can perceive", () => {
     const range = preferredRangeOf(self("bullseye"), BOT_PROFILES.hard, ones, 0);
@@ -96,6 +58,124 @@ describe("preferredRangeOf", () => {
   it("holds a longer range for a more disciplined tier", () => {
     expect(preferredRangeOf(self("mirage"), BOT_PROFILES.hard, ones, 0))
       .toBeGreaterThan(preferredRangeOf(self("mirage"), BOT_PROFILES.easy, ones, 0));
+  });
+
+  it("every tier can perceive further than the close-quarters floor", () => {
+    // `preferredRangeOf`'s only route BELOW `minEngageUnits` is its `Math.min` against
+    // `awarenessRadiusUnits` — `bestRange` starts at the floor and only moves outward. The function
+    // dropped its explicit lower clamp when R-D5 rewrote it (R-D5's minor 4), which is safe only
+    // while this holds of every tier. Pinned here rather than re-clamped there so a tier row that
+    // ever broke it fails naming the tier, instead of being silently absorbed by a `Math.max`.
+    for (const tier of ["easy", "medium", "hard"] as const) {
+      expect(BOT_PROFILES[tier].awarenessRadiusUnits, tier)
+        .toBeGreaterThan(BRAIN_CONSTANTS.minEngageUnits);
+    }
+  });
+
+  it("takes the plateau's FAR edge, not its near one (P31, R-D2)", () => {
+    // The whole of what P31 buys rests on this. `proxyValue` is monotonically NON-INCREASING in
+    // distance for every row in `WEAPON_TABLE` — flat while hit chance is saturated at 1, then
+    // falling — so the maximum is a plateau whose NEAR edge is always `minEngageUnits`. Keeping the
+    // first sample to beat a running best would return 70 for every chassis at every tier and the
+    // solver-derived range would be a no-op with an expensive loop in front of it. Bullseye at hard
+    // is the loudest case: 470 units, nearly seven times the floor.
+    expect(preferredRangeOf(self("bullseye"), BOT_PROFILES.hard, ones, 0)).toBeGreaterThan(300);
+  });
+
+  it("lets a slot preference read, so `slotWeights` actually reach the standoff (R-D5)", () => {
+    // THE ASSERTION WHOSE DELETION HID THE DEFECT. Task 4 removed "weights the fallback the same way
+    // as the ready path, so a slot preference still reads" in the same change that made it
+    // impossible: under an EXACT-tie plateau rule the answer is
+    // `min over ready slots of min(reach, cliff)` regardless of `weights`, because strictly positive
+    // multipliers cancel out of "every term ties its own maximum". `rollPersonality`'s `slotWeights`
+    // moved nothing at all, and nothing failed.
+    //
+    // Mirage at hard is the cell that reads it, and it reads it in the direction the mechanism
+    // predicts. Its slots are magmablast (400 u), thunderclap (400 u), afterburner (220 u).
+    // Weighting the long pair holds the total above `preferredRangePlateauFraction` past
+    // afterburner's cliff, so the bot stands off; weighting afterburner instead makes that cliff a
+    // big enough share of the peak to pull the total under the bar there, and it stands close.
+    // Both vectors are inside `rollPersonality`'s own 0.5-1.5 draw.
+    const longGunHeavy = preferredRangeOf(self("mirage"), BOT_PROFILES.hard, [1.5, 1.5, 0.5], 0);
+    const afterburnerHeavy = preferredRangeOf(self("mirage"), BOT_PROFILES.hard, [0.5, 0.5, 1.5], 0);
+    expect(longGunHeavy).not.toBe(afterburnerHeavy);
+    expect(longGunHeavy).toBeGreaterThan(afterburnerHeavy);
+  });
+
+  it("lets a slot preference read in exactly ONE cell of nine, and pins that (R-D5 pushback)", () => {
+    // The claim "`slotWeights` reach the standoff" is true and much narrower than it reads, and the
+    // narrowness is what a tuner needs. Sweeping `rollPersonality`'s own 0.5-1.5 draw over all
+    // three chassis at all three tiers, exactly one cell returns more than one standoff.
+    //
+    // THIS TEST IS ALLOWED TO FAIL ON AN IMPROVEMENT. If a roster change, a new chassis or a
+    // `proxyValue` correction moves the count either way, the right response is to update this
+    // number AND the two prose claims that quote it (`preferredRangeOf`'s doc comment, and
+    // `docs/bot-behavior.md`'s "one chassis-by-tier cell of nine"). Pinning it is what stops those
+    // two drifting silently, which is how the general-sounding claim got written in the first place.
+    // Known: restoring `proxyValue`'s pulse count takes this to 0 — see the accepted-loss note on
+    // `proxyValue` in `solution.ts`.
+    const grid = [0.5, 0.75, 1, 1.25, 1.5];
+    const live: string[] = [];
+    for (const carId of ["bullseye", "mirage", "bastion"] as const) {
+      for (const tier of ["easy", "medium", "hard"] as const) {
+        const seen = new Set<number>();
+        for (const a of grid) for (const b of grid) for (const c of grid) {
+          seen.add(preferredRangeOf(self(carId), BOT_PROFILES[tier], [a, b, c], 0));
+        }
+        if (seen.size > 1) live.push(`${carId}/${tier}`);
+      }
+    }
+    expect(live).toEqual(["mirage/hard"]);
+  });
+
+  it("gives different chassis different distances, because their kits differ (P31)", () => {
+    // Not a per-tier fudge factor on one shared formula any more: at the SAME tier and the same
+    // slot weights, Bullseye's long kit wants a longer stand-off than Bastion's short one.
+    const bullseye = preferredRangeOf(self("bullseye"), BOT_PROFILES.hard, ones, 0);
+    const bastion = preferredRangeOf(self("bastion"), BOT_PROFILES.hard, ones, 0);
+    expect(bullseye).toBeGreaterThan(bastion);
+  });
+
+  it("falls back to the whole kit when NOTHING is ready, not to the far edge of awareness (R-D4)", () => {
+    // Every slot spent AND locked — the real shape of the moment between a bot spending its last
+    // loaded slot and the first one coming back.
+    //
+    // WITHOUT THE FALLBACK the readiness filter removes every slot, every sampled range totals 0,
+    // all of them tie, and the outward tie-break — correct and load-bearing when the samples mean
+    // something — carries `bestRange` to the far end of the kit's reach, capped only by
+    // `awarenessRadiusUnits`. Measured before the fix (2026-09-07): a hard Bullseye stood at 900,
+    // its whole awareness radius, against the 470 it stands at when loaded. That is a degenerate
+    // tie deciding a position rather than a decision, which is why R-D4 restores the explicit
+    // fallback the deleted `effectiveRangeOf` carried for the mirror-image reason.
+    //
+    // Sweeps all three chassis at all three tiers, because the defect's size varies with which
+    // cap binds: Bullseye's awareness cap bound at every tier, Mirage's and Bastion's did not.
+    for (const carId of ["bullseye", "mirage", "bastion"] as const) {
+      for (const tier of ["easy", "medium", "hard"] as const) {
+        const loaded = self(carId);
+        const spent = {
+          ...loaded,
+          slots: loaded.slots.map((slot) => ({ ...slot, stocks: 0, refireLockUntilTick: 500 })),
+        };
+        // The kit's authored reach is what a not-ready bot evaluates, so it gets the SAME plateau
+        // it would get with everything loaded — the range is a property of the kit, not of the
+        // cooldown clocks.
+        expect(
+          preferredRangeOf(spent, BOT_PROFILES[tier], ones, 0),
+          `${carId}/${tier} while reloading`,
+        ).toBe(preferredRangeOf(loaded, BOT_PROFILES[tier], ones, 0));
+      }
+    }
+
+    // And it is strictly nearer than the far edge the degenerate tie used to hand back, which is
+    // the behaviour change the ruling is about.
+    const bullseye = self("bullseye");
+    const spent = {
+      ...bullseye,
+      slots: bullseye.slots.map((slot) => ({ ...slot, stocks: 0, refireLockUntilTick: 500 })),
+    };
+    expect(preferredRangeOf(spent, BOT_PROFILES.hard, ones, 0))
+      .toBeLessThan(BOT_PROFILES.hard.awarenessRadiusUnits);
   });
 });
 

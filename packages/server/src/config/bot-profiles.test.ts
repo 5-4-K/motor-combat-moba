@@ -6,7 +6,7 @@ import { BOT_PROFILES, BRAIN_CONSTANTS, BOT_BRAIN_VERSION, type BotProfile } fro
 const TIERS = ["easy", "medium", "hard"] as const;
 
 /** What a field is supposed to do as the ladder is climbed, easy -> medium -> hard. */
-type Direction = "rises" | "falls" | "equal";
+type Direction = "rises" | "falls" | "equal" | "rises-or-equal";
 
 /**
  * Every knob's intended direction up the ladder, named one by one.
@@ -32,6 +32,19 @@ type Direction = "rises" | "falls" | "equal";
  *
  * And one runs BACKWARDS on purpose: `vengefulness` (H33) — a casual chases whoever hurt them, a
  * pro is not distracted — which is why this is a direction table and not a "harder is bigger" loop.
+ *
+ * A fourth direction, `"rises-or-equal"`, exists for fields that may hold flat on ONE rung rather
+ * than strictly rise on both: `targetBranches` (1, 1, 3) is flat easy -> medium and only rises
+ * medium -> hard. Medium genuinely does not need a second target branch to play its role on the
+ * ladder — inventing a value that rises on both rungs just to keep the table monotone-strict would
+ * be tuning the field for this test, not for the bot. The direction still asserts SOMEWHERE, on the
+ * ends (`hard > easy`), so a field that never moves at all still fails.
+ *
+ * `planDepth` used to share this direction too (1, 1, 2), until R-PF1 (fix round 1, 2026-09-06)
+ * dropped hard back to 1 because the measured planning cost missed its budget by 3x — see
+ * `planDepth`'s own doc comment in `bot-profiles.ts` for the numbers. It is `"equal"` now: all
+ * three tiers ship depth 1, and the field keeps its `1 | 2` type and its depth-2 machinery for
+ * whichever tier next earns the budget to raise it.
  */
 const LADDER: Readonly<Record<keyof BotProfile, Direction>> = {
   // Perception
@@ -47,7 +60,6 @@ const LADDER: Readonly<Record<keyof BotProfile, Direction>> = {
   // Aim
   aimErrorSigmaRad: "falls",
   aimErrorDriftTicks: "falls",
-  aimToleranceRad: "falls",
   // Fire economy
   burstGapTicks: "falls",
   minShotValueFraction: "rises",
@@ -58,8 +70,6 @@ const LADDER: Readonly<Record<keyof BotProfile, Direction>> = {
   woundedBias: "rises",
   vengefulness: "falls",
   // Positioning and survival
-  standoffFraction: "rises",
-  deadbandFraction: "falls",
   wallLookaheadUnits: "rises",
   retreatHpFraction: "rises",
   ramIntentChance: "rises",
@@ -78,14 +88,23 @@ const LADDER: Readonly<Record<keyof BotProfile, Direction>> = {
   incomingCarChance: "rises",
   situationCommitTicks: "falls",
   slotStickTicks: "rises",
+  // Planning
+  planHorizonTicks: "rises",
+  planDepth: "equal",
+  targetBranches: "rises-or-equal",
+  commitPenalty: "rises",
 };
 
 const PROBABILITY_FIELDS = [
   "ultDisciplineChance", "ultWindowHpFraction", "woundedBias",
-  "vengefulness", "standoffFraction", "deadbandFraction", "retreatHpFraction",
+  "vengefulness", "retreatHpFraction",
   "ramIntentChance", "dodgeChance", "blunderChance", "idleFidgetChance",
   "hearChance", "deadRespect", "opponentRangeRespect", "cornerRespect", "incomingCarChance",
+  "commitPenalty",
 ] as const;
+// KEPT BYTE-IDENTICAL, BY HAND, with `UNIT_INTERVAL_FIELDS` in `bot/brain/personality.ts` (R-M2).
+// Nothing typed holds the two lists in step, so an entry added or removed here must be made there in
+// the same edit. `standoffFraction` and `deadbandFraction` came off BOTH when P35 deleted them.
 
 describe("BOT_PROFILES", () => {
   it("carries every tier", () => {
@@ -121,7 +140,7 @@ describe("BOT_PROFILES", () => {
   });
 
   it("keeps every probability in [0, 1] on a ROLLED personality too, not just the table", () => {
-    // The table is not what the brain runs — `rollPersonality` shifts up to four fields per bot and
+    // The table is not what the brain runs — `rollPersonality` shifts up to three fields per bot and
     // clamps them into the tier's band, and a band is a bound on how FAR a value may move, not on
     // what it may become: a hard `opportunist` reached `ultDisciplineChance` 1.125 (0.9 x 1.25,
     // comfortably inside +-25%). It saturated harmlessly, but "keeps every probability in [0, 1]"
@@ -161,6 +180,12 @@ describe("BOT_PROFILES", () => {
           expect(medium, label("easy", "medium")).toBe(easy);
           expect(hard, label("medium", "hard")).toBe(medium);
           break;
+        case "rises-or-equal":
+          expect(medium, label("easy", "medium")).toBeGreaterThanOrEqual(easy);
+          expect(hard, label("medium", "hard")).toBeGreaterThanOrEqual(medium);
+          // Must still rise SOMEWHERE, or the direction is meaningless and the field is not a ladder.
+          expect(hard, label("easy", "hard")).toBeGreaterThan(easy);
+          break;
       }
     }
   });
@@ -171,8 +196,12 @@ describe("BOT_PROFILES", () => {
     expect(BRAIN_CONSTANTS.ultCooldownMs).toBe(5000);
     expect(BRAIN_CONSTANTS.personalityJitter).toBe(0.25);
     expect(BRAIN_CONSTANTS.assumedOpponentAimSigmaRad).toBe(0.06);
-    expect(BRAIN_CONSTANTS.dangerEvadeFraction).toBe(1);
-    expect(BRAIN_CONSTANTS.dangerEvadeCooldownTicks).toBe(120);
+    // `dangerEvadeFraction` and `dangerEvadeCooldownTicks` were deleted with the anticipatory evade
+    // (spec P27, 2026-09-06): danger is a STANDING condition and is now a continuously-weighted
+    // score term (`objectives.ts`'s `theirEv`), so it needs neither a trip threshold nor a
+    // refractory period to keep it out of an EVENT's priority slot.
+    expect(BRAIN_CONSTANTS.punishRangeFraction).toBe(0.5);
+    expect(BRAIN_CONSTANTS.resetRangeMultiplier).toBe(1.15);
     expect(BOT_BRAIN_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
   });
 });

@@ -1,6 +1,7 @@
 import type {
   ActiveStatus, CarId, FiredEvent, Aabb, WeaponId,
 } from "@motor-combat-moba/shared";
+import type { PlanWeights } from "./brain/planner.js";
 import type { Rng } from "./rng.js";
 
 /** What the bot asks for. Deliberately NOT an `InputMessage`: `seq` is the host's business. */
@@ -159,4 +160,24 @@ export interface BotDebug {
   firedSlot: number | undefined;
   /** Damage per second the bot believes it is standing in front of (P16). Overlay only. */
   dangerEv: number;
+  /** The action the planner chose, and what it scored. Overlay only (P45). */
+  plan: { steer: -1 | 0 | 1; throttle: -1 | 0 | 1; score: number } | undefined;
+  /**
+   * Per-term contributions of the winning candidate (P45). Keyed off `PlanWeights` itself — not
+   * retyped by hand — so a term added to the planner's weight vector cannot silently go unreported
+   * here. Overlay only.
+   *
+   * The WIRE inherits that derivation rather than re-declaring it: `BotDebugPayload.terms` is an
+   * open `Record<string, number>` and `PlaygroundRoom` copies this map's entries wholesale. It used
+   * to flatten to six named fields, which meant this comment's guarantee stopped at the room's
+   * broadcast — see that field's doc for why the mirror was deleted instead of guarded.
+   */
+  planTerms: Record<keyof PlanWeights, number> | undefined;
+  /**
+   * The best EV/s this bot's own kit could deal from its current pose, against the tier's resolved
+   * absolute threshold — `profile.minShotValueFraction * bestAchievableValueOf(...)`, NOT the raw
+   * fraction, so the overlay's `best/threshold` reads as a like-for-like ratio (R-V2). The primary
+   * tuning diagnostic (P45).
+   */
+  shotEv: { best: number; threshold: number };
 }

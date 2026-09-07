@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { slotsOf, weaponDefOf } from "@motor-combat-moba/shared";
+import { TICK_RATE_HZ, hpOf, slotsOf, weaponDefOf } from "@motor-combat-moba/shared";
 import { makeRng } from "../rng.js";
 import { BOT_PROFILES } from "../../config/bot-profiles.js";
 import type { BotCarView, BotSlotView, BotView } from "../types.js";
 import { HumanController } from "./controller.js";
+import { bestSustainedDpsOf, pressCeilingOf, runDuel } from "./duel.fixture.js";
 
 function slotsFor(carId: "bullseye" | "bastion" | "mirage"): BotSlotView[] {
   return slotsOf(carId).map((weaponId) => ({
@@ -52,8 +53,8 @@ function run(tier: "easy" | "medium" | "hard", ticks: number, over: Partial<BotV
 
 describe("tier characterisation", () => {
   /**
-   * Within-tier, not across tiers. A harder tier has a tighter `aimToleranceRad` and therefore
-   * steers more in ANY scene, so comparing steer counts between tiers would pass whether or not
+   * Within-tier, not across tiers. A harder tier plans a longer horizon and a finer heading, and
+   * therefore steers more in ANY scene, so comparing steer counts between tiers would pass whether or not
    * dodging exists. The question is whether the shot changes what THIS tier does.
    *
    * TEST FIX (was: compare `instances: [shot]` against `instances: []`). `perceive` draws its
@@ -233,7 +234,7 @@ describe("tier characterisation", () => {
     // Within-tier, and the SCENE is controlled: the enemy sits 200 units directly ahead in both
     // runs, so the relative geometry the bot is fighting is identical and the only thing that
     // differs is how close the wall is. Comparing steer counts across tiers instead would just be
-    // measuring `aimToleranceRad`, and comparing two different self positions would just be
+    // measuring how finely each tier steers, and comparing two different self positions would just be
     // measuring two different fights.
     //
     // Tail slice, not the full stream: acquire, `situationCommitTicks`, and `reactionDelayTicks`
@@ -242,18 +243,60 @@ describe("tier characterisation", () => {
     //
     // `unpin` fires when the wall is inside `wallLookaheadUnits` — hard settles into `"unpin"`
     // near the wall (x=1200) and a fight situation away from it (x=640); easy's 40-unit
-    // look-ahead never reaches the wall at either position. `unpin` then steers toward open floor.
+    // look-ahead never reaches the wall at either position.
+    //
+    // THE COMPARED STREAM IS THE WHOLE EMITTED INPUT, NOT THE STEER ALONE (residuals round,
+    // 2026-09-07). It used to be `.steer`, on the desire model's assumption that leaving a wall is
+    // something a bot does with the wheel. The planner answers a wall on whichever axis is cheapest,
+    // and in this scene that is the THROTTLE. Measured over the whole tail, at every tick of it:
+    //
+    //   near wall (x=1200)  situation `unpin`  steer 0  throttle  0   <- brakes short of the wall
+    //   open floor (x=640)  situation `fight`  steer 0  throttle -1   <- backs off to `fightRange`
+    //
+    // Both answers are correct. Near the wall the candidate dump shows every braking candidate
+    // scoring `wallPenalty` exactly 0 — from 80 units out at 200 u/s the car stops with 58 to spare,
+    // so it does not need to turn — while driving on scores 9.93 and is eliminated; `myEv` then
+    // keeps the nose on the target, which is what a bot that has already solved the wall should do.
+    // On open floor the enemy is 200 units away against a preferred ~530, so straight reverse is the
+    // whole of the play. Neither pose has any reason to turn the wheel, so the steer stream is 0 in
+    // both and comparing it alone can no longer see the wall.
+    //
+    // It used to see it only by accident: before the hunt's synthetic waypoint was moved off
+    // `minEngageUnits` (R-P13, same round), the OPEN-FLOOR run spent its `waitOut` warm-up circling
+    // a point 70 units off its own nose, entered `fight` with that steering incumbent, and sawed
+    // `1,1,-1,-1,0,0` in a six-tick limit cycle for the whole tail. The near-wall run's steer was 0
+    // across all 90 ticks then too — so this assertion has never actually observed `unpin` steering;
+    // it observed the open-floor bot chattering, which is the defect this phase exists to delete.
+    // Comparing the full input asks the test's own question ("does a wall change what hard does")
+    // of the whole decision instead of one axis of it.
+    //
+    // IT IS STRONGER ON ONE SIDE AND WEAKER ON THE OTHER, not strictly stronger, and an earlier
+    // draft of this comment claimed the latter. The EASY side (`toBe`, "the wall reaches nothing")
+    // is stronger: two streams must now agree on BOTH axes to count as unchanged, so an easy bot
+    // whose throttle moved near the wall now fails where a steer-only comparison would have shrugged.
+    // The HARD side (`not.toBe`, "the wall changes something") is correspondingly WEAKER: two
+    // streams now differ if EITHER axis differs, so it is easier to satisfy than a steer-only
+    // `not.toBe` was.
+    //
+    // It still discriminates, and that is the point worth checking rather than asserting. The hard
+    // side is not vacuous: the two runs share a rng seed, a tier, a target 200 units dead ahead and
+    // an identical warm-up, so the ONLY input that differs is how close the wall is. If the wall
+    // stopped changing hard's decision — `unpin` never firing, or firing and emitting open floor's
+    // input anyway — near-wall would emit open floor's stream verbatim and this assertion fails.
+    // The `tailGoal` assertions above pin the same claim from the other end, on the situation rather
+    // than on the input, so a regression that silenced `unpin` fails twice over.
     const run2 = (tier: "easy" | "hard", x: number) => {
       const bot = new HumanController(tier);
       const rng = makeRng(17);
-      const steer: number[] = [];
+      const intents: string[] = [];
       let tailGoal: string | undefined;
       for (let tick = 0; tick < 90; tick++) {
         const scene = view(tick, { others: [{ ...enemy, x: x + 200, y: 360, speed: 0 }], rng });
-        steer.push(bot.decide({ ...scene, self: { ...scene.self, x, y: 360, angle: 0 } }).steer);
+        const out = bot.decide({ ...scene, self: { ...scene.self, x, y: 360, angle: 0 } });
+        intents.push(`${out.steer}/${out.throttle}`);
         if (tick >= 60) tailGoal = bot.debug()?.situation;
       }
-      return { steer: steer.slice(60).join(","), tailGoal };
+      return { steer: intents.slice(60).join(","), tailGoal };
     };
     // Driving at x=1200 puts the far wall (1280) inside hard's 150-unit look-ahead and outside
     // easy's 40-unit one; x=640 is open floor for both.
@@ -373,4 +416,148 @@ describe("ladder monotonicity", () => {
     expect(presses("hard")).toBeGreaterThan(presses("medium"));
     expect(presses("medium")).toBeGreaterThan(presses("easy"));
   });
+});
+
+/**
+ * A duel against a sitting duck: a stationary, non-firing `mirage` 400 units dead ahead, with every
+ * press marched through the REAL combat pass (`runCombat`, the same function `ArenaRoom.tick`
+ * calls). Cooldowns, switch locks, volleys, instance flight, hull tests and damage are the game's
+ * own, so `fires` counts presses combat actually committed and `hits` counts the ones that landed —
+ * `balance/stats.ts`'s definition, one count per press whatever the weapon kind (B30).
+ *
+ * The harness is `duel.fixture.ts`'s, shared with `controller.test.ts` rather than hand-rolled a second
+ * time; the difference is that this caller resolves combat and that one does not. See that module's
+ * doc for why both modes exist.
+ *
+ * `immortalTarget` restores the dummy's hp after every combat tick. The ladder needs it — a hard bot
+ * kills this target around tick 450, and a hit rate measured over 450 ticks is not comparable to one
+ * measured over 600. The time-to-kill test obviously does not.
+ */
+function duelAgainstDummy(tier: "easy" | "medium" | "hard", ticks = 600, immortalTarget = false) {
+  const { presses, hits, hitRate, ticks: elapsed, killed } = runDuel({
+    tier, ticks, resolveCombat: true, immortalTarget,
+    targetPos: { x: 600, y: 360 },
+  });
+  return { fires: presses, hits, hitRate, ticks: elapsed, killed };
+}
+
+describe("the reported symptoms stay fixed (P49)", () => {
+  it("hard kills a stationary target inside twice its kit's theoretical floor", () => {
+    // A RELATION, not an absolute: the floor is recomputed from the same tables `npm run ttk` reads,
+    // so a weapon retune moves both sides of this assertion together instead of breaking it.
+    //
+    // The floor is deliberately unreachable — best single slot, no flight time, no misses, no
+    // switching — so "inside twice it" is the bar. Measured 2026-09-07 over seven seeds (17, 3, 7,
+    // 42, 99, 2026, 5): 471, 509, 457, 464, 446, 490, 465 ticks, i.e. 14.87-16.97 s against a floor
+    // of about 8.9 s and a cap of about 17.9 s. Those two are COMPUTED BELOW, not constants — they
+    // are quoted here approximately and as of 2026-09-07 because they move with `CAR_TABLE` and
+    // `WEAPON_TABLE`, and a figure typed into prose is exactly what no test can hold honest. Seed 17
+    // (this file's own) lands mid-spread at 15.70 s and the slowest of the seven still leaves about
+    // 5% of headroom, so the multiple is a real bar and not a formality — but it is a TIGHT one, and
+    // a change that slows the kill by a sixth breaks it.
+    const { ticks, killed } = duelAgainstDummy("hard");
+    expect(killed).toBe(true);
+    const floorSeconds = hpOf("mirage") / bestSustainedDpsOf("bullseye");
+    expect(ticks / TICK_RATE_HZ).toBeLessThan(floorSeconds * 2);
+  });
+
+  it("hard fires at its preferred range rather than parking and weaving (spec 1.1)", () => {
+    // THE CEILING IS THE KIT'S, NOT THE CADENCE'S (ruling R-T1b, 2026-09-07). The plan wrote this
+    // bar as `300 / burstGapTicks / 4` — 25 presses at hard's cadence of 3. That is unreachable once
+    // combat is real: Bullseye's three cooldowns (1000, 1800, 16000 ms) only come back about 16
+    // times in 300 ticks, so a cadence-derived bar asks for half again as many presses as the kit
+    // physically has. `pressCeilingOf` takes whichever of the two limiters actually binds, which is
+    // the cadence for an always-ready slot view and the cooldowns here; the plan's `/4` slack is
+    // kept unchanged. Measured (seeds 17, 3, 7): 13, 11, 13 presses against a bar of 4.05.
+    //
+    // BOTH FORMS ARE FLOORS, AND THE TIGHT ONE IS A FLOOR WITH A WIDE MARGIN — not a quality bar
+    // (R-D1). 4.05 against a measured 11-13 leaves a factor of nearly three, so a regression that
+    // HALVED the press rate would still pass it. What it is worth is what the `/4` was chosen for:
+    // it stays a fixed fraction of a physically binding ceiling, so a weapon retune or a cadence
+    // change moves the bar with the kit instead of stranding it. The weak form (`> 0`) is the
+    // regression guard for the symptom this phase was opened for — a bot that parked and wove and
+    // never pressed anything at all; the tight form says the bot presses at a rate that is a
+    // meaningful fraction of what its kit allows, which is a different and looser claim.
+    //
+    // `immortalTarget: true` IS A DELIBERATE CONTROL (R-D2), not a leftover, and it diverges from
+    // the brief's `duelAgainstDummy("hard", 300)` on purpose. With the dummy's hp pinned at full,
+    // `targetHpFraction` stays 1.0 for all 300 ticks, so `woundedBias` never tilts slot choice and
+    // the ult window never opens on a wounded target — the count measures BASELINE willingness to
+    // press and nothing else, which is the symptom P49 names. It is inert for the `break` path
+    // either way: the kill lands around tick 471, well past this run's 300.
+    const { fires } = duelAgainstDummy("hard", 300, true);
+    expect(fires).toBeGreaterThan(0);
+    expect(fires).toBeGreaterThan(pressCeilingOf("bullseye", 300, BOT_PROFILES.hard.burstGapTicks) / 4);
+  });
+});
+
+describe("the ladder holds (P50)", () => {
+  /**
+   * ACCURACY ONLY. VOLUME IS NOT PART OF THE LADDER, and asserting it would be false.
+   *
+   * The plan's draft also claimed "easy fires most". Spec P50 corrects that explicitly:
+   * `burstGapTicks` is easy 14 / medium 7 / hard 3, so an easy bot physically CANNOT press more
+   * often than a hard one, and `ladder monotonicity` below already pins the true direction —
+   * presses RISE with the tier. The two assertions would have contradicted each other outright.
+   * Volume is not what makes an amateur; accuracy is.
+   *
+   * Both of spec P50's measurement traps are avoided here by construction. Ticks carrying a fire bit
+   * are not counted at all (`HumanController.held` re-emits one decision's bit for up to
+   * `recomputeTicks` ticks, which would inflate easy roughly six-fold against hard) — `fires` is
+   * combat's own committed-press count. And nothing compares an absolute EV threshold across tiers:
+   * `minShotValueFraction` is a fraction of each shooter's own kit ceiling for exactly that reason.
+   *
+   * Measured 2026-09-07, five seeds (17, 3, 7, 42, 99), hit rate easy/medium/hard:
+   * 0.273/0.632/1.000, 0.143/0.722/0.950, 0.200/0.833/0.960, 0.333/0.789/1.000, 0.385/0.800/1.000.
+   * Strictly monotonic on every one of the five. The narrowest rung anywhere in the five is
+   * medium-to-hard at 0.127 (seed 3); the easy-to-hard gap is never below 0.61.
+   */
+  it("hits more often as the tier rises", () => {
+    const easy = duelAgainstDummy("easy", 600, true);
+    const medium = duelAgainstDummy("medium", 600, true);
+    const hard = duelAgainstDummy("hard", 600, true);
+    expect(hard.hitRate).toBeGreaterThan(medium.hitRate);
+    expect(medium.hitRate).toBeGreaterThan(easy.hitRate);
+  });
+});
+
+describe("whole-brain determinism (P51)", () => {
+  // The solver and the planner are proved rng-free individually. This asserts the property that
+  // actually matters to the balance harness: one seed replays the ENTIRE brain, every tier, whether
+  // or not there is a threat in the scene to change which branches run.
+  //
+  // WHAT THIS CAN AND CANNOT DETECT. It compares a run against ITSELF — same tier, same seed, same
+  // scene — so it cannot see a branch-dependent `rng()` draw: a conditional draw takes the identical
+  // branch at the identical tick in both replays and produces identical output. What it does catch
+  // is nondeterminism leaking OUTSIDE `(controller, rng)`: module-level mutable state carried
+  // between replays, a stray `Math.random`/`Date.now`, an unstable iteration order over a Map or a
+  // Set. The instrument for draw-count divergence is the H25 test above, which holds `instances`
+  // constant and swaps only `dodgeChance` so every draw stays aligned tick-for-tick.
+  //
+  // The threat case still earns its place: it runs the whole threat path — `perceive`'s tracking
+  // table, its unconditional per-threat `dodgeChance` roll (H21), the dodge steering it feeds — so
+  // any of the leaks above hiding in that path is exercised rather than skipped.
+  const incoming = [{
+    id: "shot", ownerSessionId: "them", weaponId: "predator" as const,
+    x: 210, y: -400, angle: Math.PI / 2,
+  }];
+  for (const tier of ["easy", "medium", "hard"] as const) {
+    for (const [label, withThreat] of [["quiet", false], ["under fire", true]] as const) {
+      it(`${tier} replays identically from one seed, ${label}`, () => {
+        const replay = () => {
+          const bot = new HumanController(tier);
+          const rng = makeRng(4242);
+          const out: string[] = [];
+          for (let tick = 0; tick < 400; tick++) {
+            const intent = bot.decide(view(tick, {
+              others: [enemy], instances: withThreat ? incoming : [], rng,
+            }));
+            out.push(`${intent.steer}:${intent.throttle}:${intent.fireSlots}`);
+          }
+          return out.join("|");
+        };
+        expect(replay()).toBe(replay());
+      });
+    }
+  }
 });

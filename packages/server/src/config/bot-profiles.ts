@@ -1,8 +1,8 @@
 import type { BotDifficulty } from "@motor-combat-moba/shared";
 
 /**
- * One difficulty's knobs (H44). Thirty-eight of them, grouped: perception, aim, fire
- * economy, target politics, positioning, and judgment plus consistency.
+ * One difficulty's knobs (H44). Thirty-nine of them, grouped: perception, aim, fire
+ * economy, target politics, positioning, judgment plus consistency, and planning.
  *
  * Every field is a NUMBER, and no code outside this file branches on which tier it came from (H8).
  * That is the whole mechanism by which the tiers stay distinct as the brain grows: a behaviour is
@@ -41,13 +41,6 @@ export interface BotProfile {
   readonly aimErrorSigmaRad: number;
   /** How often the aim error is resampled. Long enough that error DRIFTS rather than jitters. */
   readonly aimErrorDriftTicks: number;
-  /**
-   * Steering deadzone. `compensateForLag` may widen the EFFECTIVE deadzone well past this at
-   * runtime (R12) — up to `BRAIN_CONSTANTS.deadzoneCapMultiplier` times this value — to respect the
-   * car's actuator resolution; this is the floor a bot with a perfectly responsive body would settle
-   * to.
-   */
-  readonly aimToleranceRad: number;
 
   // --- Fire economy -------------------------------------------------------------------------
   /** Minimum ticks between presses. The sim accepts one press per tick regardless. */
@@ -124,10 +117,13 @@ export interface BotProfile {
   readonly vengefulness: number;
 
   // --- Positioning and survival -------------------------------------------------------------
-  /** Preferred range as a fraction of the bot's own effective weapon range (H35). */
-  readonly standoffFraction: number;
-  /** Half-width of the coast band around the preferred range, as a fraction of it. */
-  readonly deadbandFraction: number;
+  // `standoffFraction` and `deadbandFraction` were deleted here in spec phase D (P35, 2026-09-07).
+  // `standoffFraction` was a per-tier fudge on a hand-written reach average; `preferredRangeOf`
+  // (`bot/brain/firing.ts`) now asks the solver where the kit's value actually peaks, and the
+  // per-tier ladder those fractions encoded falls out of `aimErrorSigmaRad` on its own (measured:
+  // bullseye 70/170/420, mirage 87/170/220, bastion 70/133/133 easy/medium/hard). `deadbandFraction`
+  // was the coast band `reduceToIntent` compared a range error against, and the planner scores a
+  // continuous `rangeError` instead of thresholding one.
   /** How far ahead the bot looks for a wall or obstacle. */
   readonly wallLookaheadUnits: number;
   /** Hp fraction below which the bot disengages. 0 means it fights to zero. */
@@ -164,14 +160,287 @@ export interface BotProfile {
   readonly situationCommitTicks: number;
   /** How long `chooseSlot` keeps the same slot unless the situation or reach changes (S15). */
   readonly slotStickTicks: number;
+
+  // --- Planning ------------------------------------------------------------------------------
+  /**
+   * How many ticks ahead the planner rolls a candidate (P24, P29).
+   *
+   * 0 is a reflex agent: it still avoids a wall it is about to hit, but cannot plan an arc. This is
+   * the single number that makes the tiers differ in KIND rather than degree, and it is a number
+   * precisely so that no module has to branch on the difficulty name (H8).
+   */
+  readonly planHorizonTicks: number;
+  /**
+   * 1 holds one action for the whole horizon; 2 splits it into two segments, 81 branches (P25).
+   *
+   * NO TIER SHIPS 2 TODAY (R-PF1, fix round 1, 2026-09-06). Measured on this machine, 3000
+   * iterations after 300 warm-up: hard's shipped configuration (`planHorizonTicks` 22,
+   * `targetBranches` 3) at depth 2 cost **0.995 ms per plan** against a stated budget of **0.33
+   * ms** (six bots replanning at 15 Hz inside ~30 ms of CPU per simulated second) — 3.0x over.
+   * The SAME `planHorizonTicks` and `targetBranches` at depth 1 cost **0.166 ms** — 2x under
+   * budget, leaving margin for a slower machine.
+   *
+   * Depth 2's overrun cannot be closed by lowering K instead: at 81 sequences the SCORING alone
+   * (`myEv`, `theirEv`, `lockKeep`, `rangeError`, `wallPenalty` across every candidate) measured
+   * roughly **0.475 ms**, already above the whole 0.33 ms budget before a single `stepDrive` runs.
+   * Spec P33 and the plan both say the same thing in the same words for exactly this situation —
+   * "do not raise the budget", "K and `planDepth` come down and nothing else changes" — so hard's
+   * `planDepth` is 1, same as medium and easy.
+   *
+   * THE DIAL STAYS. This field keeps its `1 | 2` type, and the depth-2 machinery
+   * (`rollCandidates`' first-window sharing in `planner.ts`, and its own tests) stays live and
+   * covered: it is the exact knob P33 names for whoever earns the budget to raise it back — a
+   * faster machine, a lower K, fewer simultaneous bots, or a cheaper scoring pass.
+   *
+   * THE THREE MS FIGURES ABOVE ARE FROM R-PF1's ROUND (2026-09-06) and predate the candidate set
+   * the planner ships. R-P10's terminal policy, R-P12's commitment window and R-P17's per-depth
+   * division of it all changed what a candidate IS, and depth 1's cost moved with them: the same
+   * hard configuration measured **0.432 ms** in fix wave 1's re-sweep (2026-09-07 — see
+   * `trajectorySampleCount`'s table, re-swept in the same wave). That is this sweep's own number,
+   * not the baseline: `planner.bench.test.ts` reads hard at 0.375-0.422 ms isolated over eleven
+   * runs, and is what a future edit is compared against (M9).
+   *
+   * DEPTH 2 HAS NOW BEEN RE-MEASURED, and the 3x above is NOT the ratio any more. At the shipped
+   * `planHorizonTicks` and `targetBranches`, depth 2 costs **3.03 ms** per plan against depth 1's
+   * **0.385** on the same machine in the same run — **7.95x**, not 3x, and 9x the stated budget.
+   * (Task 8's `planner.bench.test.ts`, best-of-five: 1000 iterations per repeat at depth 1, 300 at
+   * depth 2, both after 300 warm-up.) R-P10's terminal policy is why the ratio grew: the coasting
+   * tail starts from wherever its own candidate left off, so it cannot be shared the way the first
+   * window is, and 81 candidates each pay a `rollForward` for it against depth 1's 9. Depth 2 is
+   * further out of budget than this comment used to say, not closer.
+   *
+   * R-P17 (fix wave 1) is what makes depth 2 SAFE to turn on at all. The commitment window used to
+   * be computed from the whole horizon and then applied `depth` times, so at depth 2 the committed
+   * ticks swallowed the horizon whole and the coasting tail was identically 0 — the first person to
+   * take this upgrade path would have got the aim-freeze R-P10 fixed, back, with no failing test.
+   * `commitWindowOf` divides by the depth now; `planner.test.ts` pins it.
+   */
+  readonly planDepth: 1 | 2;
+  /** How many of the target's plausible inputs to take the worst case over (P28). */
+  readonly targetBranches: 1 | 3;
+  /**
+   * Score bonus for repeating last tick's action, as a FRACTION of the candidate score spread —
+   * `planner.ts`'s R-P4. Anti-chatter (P30).
+   *
+   * RE-TUNED FROM 0.1 / 0.4 / 0.8 (R-P9, fix round 1, 2026-09-06). The original ladder was written
+   * before any score term had a measured scale, and at hard's 0.8 it was not hysteresis, it was a
+   * latch: measured in a duel, the spread ran 75-150 points, so the incumbent action carried a
+   * 60-120 point bonus while the decision between "hold this heading" and "turn 13 degrees onto the
+   * target" was worth 18. The bot froze on whatever it happened to be doing — the wheel at 0.235 rad
+   * off target for 290 consecutive ticks, 0 shots fired in 300, which is spec section 1.1's symptom
+   * arrived at from the anti-chatter knob instead of from a blend.
+   *
+   * Swept against both closed-loop duels with everything else at its final value (hard off-axis
+   * fires / 300, and the tail-100 mean heading offset):
+   *
+   *   | hard `commitPenalty` | 0.1 | 0.2 | 0.25 | 0.3 | 0.4  | 0.5 | 0.6 | 0.8 |
+   *   |----------------------|-----|-----|------|-----|------|-----|-----|-----|
+   *   | off-axis fires       |  66 |  64 |   —  | 100 |  98  |  64 |  28 |   0 |
+   *   | mean heading offset  |0.035|0.081|   —  |0.245| 0.031|0.216|1.120|0.235|
+   *
+   * 0.4 was the point where the heading was BOTH accurate and steady under that candidate set;
+   * below 0.3 the wheel started sawing, above 0.5 the latch returned.
+   *
+   * RE-TUNED AGAIN TO 0.04 / 0.07 / 0.1 (R-P10, fix round 4, 2026-09-07), because the SPREAD this
+   * is a fraction of changed composition. A candidate is now the action held for the commitment
+   * window and then a coast to rest, so the nine terminal poses sit ~40 units apart instead of
+   * ~190; what is left dominating the spread is `myEv`'s cliff between "nose on the target" (about
+   * 50 EV/s) and "nose 0.24 rad off it" (about 7), which is 86 points at a weight of 2. At 0.4 the
+   * incumbent therefore carried a ~37-point bonus over a throttle decision worth 2 points, and the
+   * bot could not change its pedal at all: measured, it held throttle 1 from range 494 straight
+   * through the target to range 13 and out the other side, because every re-plan preferred the
+   * action it was already taking. The knob had become a latch a second time, on the other axis.
+   *
+   * Swept over seven seeds on both closed-loop duels, everything else at its final value, a duel
+   * counting as passed only when it clears BOTH `fires > 90` and `meanOffset < 0.2`:
+   *
+   *   | hard `commitPenalty` | 0.1 (SHIPPED) | 0.2 | 0.3 | 0.4 | 0.5 | 0.6 |
+   *   |----------------------|---------------|-----|-----|-----|-----|-----|
+   *   | on-axis passes       | **6 / 7**     | 2/7 | 3/7 | 3/7 | 2/7 | 3/7 |
+   *   | off-axis passes      | **2 / 7**     | 0/7 | 1/7 | 2/7 | 1/7 | 0/7 |
+   *
+   * (Both columns rise again once `rangeError`'s own re-derivation lands — see `objectives.ts` —
+   * to 6/7 and 7/7 at 0.1 against 4/7 and 4/7 at 0.4. The two were measured together because they
+   * are the same event: R-P10 moved every term's scale at once.)
+   *
+   * The ladder keeps its shape and its direction — a better player commits harder — and the whole
+   * of it is scaled, not just hard's rung, so no tier's relationship to another moved. `LADDER` in
+   * `bot-profiles.test.ts` still holds it strictly increasing, and `UNIT_INTERVAL_FIELDS` still
+   * holds it inside [0, 1].
+   *
+   * RE-SCALED A THIRD TIME, TO 0.072 / 0.126 / 0.18 (R-P16b, task 3 fix-round, 2026-09-07), because
+   * R-P16 changed what this fraction is OF, not just what the field is called. `planner.ts` swapped
+   * the spread denominator from `maxScore - minScore` to `maxScore - medianScore` so one out-of-arena
+   * candidate could no longer blow the bonus up into a latch (measured: 2382 against a sane spread of
+   * 16). `median(list) >= min(list)` always, so `maxScore - medianScore <= maxScore - minScore` in
+   * EVERY scene the planner ever scores, not only the outlier ones — the fix is correct and stays,
+   * but it uniformly halves-ish the denominator everywhere, so a `commitPenalty` value calibrated
+   * against the old denominator is now a uniformly weaker knob than it was tuned to be. This is a
+   * units change, not a behaviour change: the ladder's SHAPE (strictly rising, same three ratios to
+   * each other) is preserved; only the common scale factor moves, exactly as R-P10's re-tuning above
+   * scaled the whole ladder rather than touching one rung.
+   *
+   * MEASURED, not assumed. Instrumented `plan()` to log `{max, median, min}` for every candidate set
+   * scored during both `controller.test.ts` closed-loop duels (hard tier, 300 ticks each) plus the
+   * nine-cell (tier x chassis) 600-tick duel in "fires a non-zero number of shots on EVERY chassis" —
+   * 1647 candidate sets in total, spanning all three tiers. The ratio `(max - median) / (max - min)`:
+   *
+   *   | sample set                          | count | mean ratio | median ratio | median of (max-min)/(max-median) |
+   *   |--------------------------------------|-------|------------|---------------|-----------------------------------|
+   *   | both hard duels                       |  298  |    0.516   |     0.447     |               2.24                |
+   *   | all three tiers, nine chassis cells   | 1349  |    0.413   |     0.398     |               2.51                |
+   *   | combined                              | 1647  |    0.432   |     0.409     |               2.44                |
+   *
+   * The mean of the inverse is not trustworthy here (it blows up past 9 on the mixed-tier set,
+   * because a handful of near-flat candidate fields put `median` almost on top of `max` and divide by
+   * almost nothing) — exactly the kind of single-sample sensitivity a MEDIAN-based normaliser is
+   * supposed to resist reading FROM, so the median of the ratio, ~2.2-2.5x, is what is trustworthy:
+   * "roughly half" was a fair first guess (an unskewed spread puts the median near the midpoint,
+   * which would give almost exactly 2x), and the real distribution is a bit more compressed than
+   * that guess, not less.
+   *
+   * That statistical ratio is what SHAPE of correction is needed, not the exact knob: the actual duel
+   * outcome is a step function of this fraction (it decides which candidate's bonus clears which
+   * other candidate's deficit), so the shipped value was chosen by sweeping hard's rung directly
+   * against both closed-loop duels (a duel passes only when it clears BOTH `fires > 90` and
+   * `meanOffset < 0.2`) and reading where the real pass/fail boundaries fall, the same method R-P9,
+   * R-P10 and R-P12 above all used:
+   *
+   *   | hard `commitPenalty` | 0.1 (pre-fix) | 0.14 | 0.16 | 0.18 (SHIPPED) | 0.2 | 0.202 | 0.204 |
+   *   |-----------------------|---------------|------|------|-----------------|-----|-------|-------|
+   *   | on-axis fires          |      138      | 138  | 138  |      138        | 138 |  138  |  24   |
+   *   | off-axis fires         |       90      |  94  |  96  |      112        | 124 |  124  |  124  |
+   *
+   * 0.1 no longer clears the off-axis bar at all (exactly 90 against a `> 90` bar — this is the
+   * regression this ruling fixes). A second, NARROWER cliff sits at 0.204: on-axis collapses from 138
+   * to 24 there and does not recover until 0.22, a knife's-edge pocket rather than a safe landing.
+   * 0.18 sits in the middle of the wide, flat, well-measured plateau between the two — off-axis
+   * clears its bar by 22 fires (112 against 90) and on-axis is nowhere near either cliff (0.024 clear
+   * of the 0.204 collapse, more than 10% of the value itself) — rather than banking margin on one
+   * side by living next to a wall on the other.
+   *
+   * 0.18 / 0.1 = 1.8, close to but a little under the measured statistical ratio (2.2-2.5x); the
+   * duel's step-function boundaries, not the continuous statistical ratio, are what a `commitPenalty`
+   * value is actually judged against, so the swept number is what shipped. Medium and easy are
+   * scaled by that SAME 1.8x — 0.126 and 0.072 — rather than independently swept, because neither
+   * tier has a closed-loop duel of its own to sweep against and the ladder's whole point (R-P10's
+   * comment above) is that one scale factor moves every rung together. `LADDER` in
+   * `bot-profiles.test.ts` still holds strictly increasing (0.072 < 0.126 < 0.18) and both
+   * `PROBABILITY_FIELDS` (that test) and `UNIT_INTERVAL_FIELDS` (`personality.ts`) still hold inside
+   * [0, 1] with room to spare — `commitPenalty` is not one of the fields any `ARCHETYPES` entry
+   * shifts, so `rollPersonality` never moves it off the tier value at all, and the 200-seed sweep in
+   * "keeps every probability in [0, 1] on a ROLLED personality too" passes on that value untouched
+   * rather than on a jittered one.
+   *
+   * WHOEVER CHANGES THE NORMALISER AGAIN: this knob travels with it. It is calibrated against
+   * `maxScore - medianScore`, not against `myEv` or any other fixed scale, so swapping the spread
+   * measure a third time (a trimmed mean, a different percentile, anything else) obliges the same
+   * re-measurement this comment records, not a reuse of these numbers.
+   */
+  readonly commitPenalty: number;
 }
 
 /**
  * Constants shared by every tier — not per-tier, and therefore deliberately not in the profile.
  */
 export const BRAIN_CONSTANTS = Object.freeze({
-  /** Closest range the bot will ever choose to hold. Roughly one and a half car lengths. */
+  /**
+   * Closest range the bot will ever choose to hold. Roughly one and a half car lengths.
+   *
+   * `preferredRangeOf` (`bot/brain/firing.ts`) samples from here outward and caps the answer at
+   * `awarenessRadiusUnits`, so it relies on EVERY tier's `awarenessRadiusUnits` exceeding this —
+   * easy 600, medium 700, hard 900 against 70, three orders of margin. `firing.test.ts`'s "every
+   * tier can perceive further than the close-quarters floor" pins that rather than leaving it as a
+   * coincidence of the table, because the cap is a `Math.min` and would otherwise silently push the
+   * chosen range BELOW the floor this constant exists to enforce.
+   */
   minEngageUnits: 70,
+  /**
+   * How much of its kit's PEAK sampled value a bot is willing to keep while standing further off
+   * (R-D5, fix wave 2, 2026-09-07) — `preferredRangeOf` returns the farthest sampled range whose
+   * weighted total clears `peak * this`.
+   *
+   * THE REASON IT IS NOT 1. An exact tie (`total === peak`, which is what the outward `>=`
+   * tie-break spelled) is provably independent of `weights`: in this function the target sits
+   * straight ahead, so every slot's `proxyValue` is non-negative and non-increasing in range, and
+   * a sum of such terms ties its own maximum ONLY when every term does individually. Strictly
+   * positive weights cancel out of that condition, so the returned range was
+   * `min over ready slots of min(reach, cliff)` — a VETO BY THE SHORTEST-REACHING SLOT, at full
+   * strength even when the personality's weight on that slot was 0.5 and its weight on a
+   * twice-as-long slot was 1.5. `rollPersonality`'s `slotWeights` therefore could not move the
+   * standoff at all, which is not what P31's "where this kit's EV peaks" asks for. Under a
+   * FRACTIONAL bar a heavily-weighted long slot keeps the total above the bar past a
+   * lightly-weighted short slot's cliff, and the weights are live again.
+   *
+   * MEASURED, not guessed (40 weight vectors drawn from `rollPersonality`'s own 0.5-1.5 range,
+   * every chassis x every tier, counting how many of the nine cells resolve to more than one
+   * range):
+   *
+   * | fraction      | weight-live cells | note                                                 |
+   * |---------------|-------------------|------------------------------------------------------|
+   * | 1.00 - 0.975  | 0 / 9             | the exact tie's regime; weights provably inert       |
+   * | 0.970 - 0.88  | 1 / 9             | mirage/hard, 220 <-> 386.7 depending on the roll     |
+   * | 0.878 - 0.871 | 3 / 9             | the peak — and only 0.008 wide                       |
+   * | 0.87 - 0.82   | 2 / 9             | mirage/hard goes mute again (its bar clears the cliff unconditionally) |
+   *
+   * 0.95 IS THE MINIMUM PERTURBATION THAT SATISFIES THE RULING, which is the property worth having
+   * here: everything downstream of this function — `planner.ts`'s `rangeError`, `commitPenalty`,
+   * `trajectorySampleCount` — was settled by seven-seed sweeps against the ranges the exact-tie
+   * rule produced, so the fraction should move them as little as it can while still letting
+   * `slotWeights` reach the standoff. Weights come alive at 0.970; 0.95 clears that by 0.02 and
+   * holds the same 1/9 liveness all the way down to 0.88, so it is not perched on the boundary.
+   * Only THREE of the nine neutral-weight cells move at all.
+   *
+   * Going further down buys nothing measured and costs behaviour. 0.92 and 0.90 are still 1/9 —
+   * no extra cell comes alive — but they take mirage/hard's neutral standoff from 220 to 386.7, a
+   * 167-unit shift, and 0.90 turns `balance/match.test.ts`'s pinned hard Mirage-vs-Bastion
+   * deathmatch (seed 3) into a 1-1 draw with no winner inside its 30 s window. That fixture was
+   * left alone rather than reseeded, and it is what separated the two candidates. The 3/9 reading
+   * at 0.871-0.878 was rejected on its own terms: a 0.008-wide window between a 1/9 reading at
+   * 0.879 and a 2/9 one at 0.870 is a spike, and a knob perched that finely re-tunes itself the
+   * first time a weapon row moves.
+   *
+   * Resolved ranges at 0.95 (chassis x tier, neutral weights), against the exact-tie values it
+   * replaces: bullseye 70 / 170 / 470 (was 70 / 170 / 420), mirage 86.7 / 186.7 / 220
+   * (was 86.7 / 170 / 220), bastion 90.8 / 132.5 / 132.5 (was 70 / 132.5 / 132.5). Mirage/hard's
+   * 220 is the NEUTRAL reading of the one weight-live cell; a long-gun-heavy roll stands at 386.7.
+   */
+  preferredRangePlateauFraction: 0.95,
+  /**
+   * How many samples `preferredRangeOf` takes across its kit's reach (R-D5, fix wave 2).
+   *
+   * Was an unnamed `24` inside the loop, and it is not incidental: it is the resolution of the only
+   * grid the standoff range is ever read off, so it sets how finely a plateau edge can be located,
+   * and every cell in `preferredRangePlateauFraction`'s tables is quoted on THIS grid. MEASURED at
+   * that fraction's 0.95 with neutral weights, sweeping 12 / 16 / 24 / 32 / 48 / 96: a hard
+   * Bullseye reads 470 / 445 / 470 / 445 / 470 / 470 and a hard Mirage 203.3 / 220 / 220 / 220 /
+   * 220 / 220. The answer is stable to within about a car length across an eightfold change in
+   * resolution, and it does not converge monotonically — a coarse grid can only land ON a sample,
+   * so refining it moves the reported edge either way. 24 is where the roster's three step sizes
+   * (bullseye 50 u, bastion 20.8 u, mirage 16.7 u) are all inside a car length, which is the
+   * resolution at which a further refinement stops meaning anything to a driver.
+   *
+   * IT DOES NOT EXPLAIN BASTION'S MEDIUM/HARD TIE, which task 4's report suspected it did and named
+   * this as the lever that would break. Measured across 12 / 16 / 24 / 32 / 48 / 96 samples,
+   * Bastion's medium and hard resolve to the SAME range at every one of them (111.7 through 150.0
+   * as the grid refines, but always equal). The tie is a property of Bastion's kit — a 150 u
+   * `wildcharge` alongside a 400/500 u pair whose plateau ends before either tier's
+   * `aimErrorSigmaRad` can separate them — not of this number.
+   */
+  preferredRangeSampleCount: 24,
+  /**
+   * Floor on `preferredRangeOf`'s sample step, in world units (R-D5, fix wave 2).
+   *
+   * Was an unnamed `10`. It binds only for a kit whose longest reach is under
+   * `preferredRangeSampleCount * this` = 240 u, and NO CHASSIS ON THE ROSTER IS ONE: the smallest
+   * step today is Mirage's 16.7 u (400 / 24). Measured at `preferredRangePlateauFraction` 0.95 with
+   * neutral weights, 1 / 5 / 10 give byte-identical nine-cell results; 20 is the first value to
+   * move anything (mirage 86.7 / 186.7 / 220 -> 90 / 170 / 210) and 40 collapses Mirage's and
+   * Bastion's easy tiers back onto the 70 floor. So it is a guard against a future short-reach kit
+   * spending 24 samples inside two car lengths, kept at the widest value still provably inert on
+   * the shipped roster — and the Bastion tie above is measured with it inert, not with it binding.
+   */
+  preferredRangeMinStepUnits: 10,
   /** Range at which a `range: 0` weapon (`wildcharge`) is worth pressing. */
   contactTriggerUnits: 150,
   /** `cooldownMs` at or above which a weapon counts as an ult for discipline purposes. */
@@ -181,8 +450,9 @@ export const BRAIN_CONSTANTS = Object.freeze({
   /**
    * Rounds of fixed-point iteration `interceptTicks` (`predict.ts`) runs to converge "how many ticks
    * ahead should I aim" against a curving `PosePredictor`. Three rounds is the physics analogue of
-   * `aim.ts`'s closed-form `interceptPoint`, which solves the same problem in one shot against a
-   * straight line — a curving path has no closed form, so this converges it instead. Fixed rather
+   * the textbook closed-form straight-line intercept (`aim.ts` carried one, `interceptPoint`, until
+   * R-K1 deleted it unused in 2026-09-07's phase D), which solves the same problem in one shot
+   * against constant velocity — a curving path has no closed form, so this converges it. Fixed rather
    * than looped to a tolerance because the solver may draw no `rng()` calls and must terminate in
    * bounded, predictable work every tick (H21).
    */
@@ -202,16 +472,34 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * at 60 Hz. Re-derive it if the netcode rewrite's phase 1 lands.
    */
   predictionHorizonTicks: 90,
+  // `closeLeadHorizonFraction` was deleted in spec phase D (R-K2, 2026-09-07). Its only reader was
+  // the `close` case of the deleted eight-case heading switch, which aimed the BODY at a lead point;
+  // `preferredRangeFor` answers `close` with `minEngageUnits` and the planner drives to it.
   /**
-   * Fraction of `predictionHorizonTicks` that the `close` situation drives at — the lead used to
-   * point the BODY at a target rather than the gun (`controller.ts`'s `close` case).
+   * Fraction of the bot's OWN comfortable range that `punish` holds instead (R-O4,
+   * `controller.ts`'s `preferredRangeFor`), floored at `minEngageUnits`.
    *
-   * A third, because a car closes far slower than a bullet flies: the full shot horizon would aim
-   * the body at a point most of a lap around a turning target. Expressed as a fraction rather than
-   * its own tick count so it cannot drift away from the horizon it is a fraction OF — a
-   * `TICK_RATE_HZ` change or a horizon re-derivation carries it automatically.
+   * A HALF, because punish is the one play whose premise is that the opponent cannot answer: it
+   * fires on a stun, a spent ult, or a target under `ultWindowHpFraction`, and all three are windows
+   * that close. Standing off at the range that keeps a live opponent's guns honest wastes the
+   * window on travel time, so the bot walks in to half of it and spends the window shooting.
+   * Expressed as a fraction of `preferredRangeOf` rather than its own unit count so a kit whose
+   * comfortable range moves carries this with it; the `minEngageUnits` floor is what stops a
+   * short-range kit from halving itself into the opponent's hull.
    */
-  closeLeadHorizonFraction: 1 / 3,
+  punishRangeFraction: 0.5,
+  /**
+   * Multiple of the fight range that `reset` backs off to (R-O4, `controller.ts`'s
+   * `preferredRangeFor`), floored at `minEngageUnits`.
+   *
+   * Deliberately SMALL — 15% past the range the bot was already fighting at, not a retreat across
+   * the arena. `reset` fires on `retreatHpFraction`, and a hurt car that turns and runs presents its
+   * back at a speed disadvantage; what a person actually does is give up a little ground while
+   * keeping the opponent in front. The disengagement in `reset` is carried by its WEIGHTS
+   * (`objectives.ts` puts `theirEv` at 3 against `myEv` 0.4), not by this number — this only stops
+   * the range term from pulling the bot back INTO the fight it decided to leave.
+   */
+  resetRangeMultiplier: 1.15,
   /**
    * Fraction of a chassis's own `turnRateOf` that an observed turn rate must reach before it reads
    * as DELIBERATE STEERING rather than a residual spin (P18/P19). See `steerFromObservedTurn`
@@ -247,94 +535,14 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * `throttle: -1` reaches that, and no predictor passes it.)
    */
   observationTopSpeedHeadroom: 4,
-  /**
-   * Fraction of ONE TICK's worth of rotation that floors the effective steering deadzone (R10,
-   * 2026-09-05; corrected R12, review round 1). A bang-bang steer law — `reduceToIntent`'s `steer`
-   * is only ever -1/0/1, never proportional — cannot settle inside a tolerance band smaller than
-   * the smallest step the actuator can take, or it overshoots every correction and limit-cycles
-   * forever. The smallest step is ONE TICK of rotation, not a whole decision interval's worth:
-   * `rotationPerTick = turnRate / TICK_RATE_HZ`. Measured on hard/bullseye while moving
-   * (turnRateOf("bullseye") = 7.11 rad/s): `rotationPerTick` = 7.11 / 30 = 0.237 rad/tick. At
-   * INTRODUCTION (R10) the floor was `rotationPerTick * 0.5` = 0.1185 rad — above `aimToleranceRad`
-   * (0.07, so the floor binds) and, at the time, below `fireConeRad` (0.2, so it did not disable
-   * firing). **That headline number is stale**: R15 below (fix round 3) redefines the floor as the
-   * LARGER of one tick's rotation and one `recomputeTicks` window's, and hard's `recomputeTicks` is
-   * 2, so hard's actual floor today is `rotationPerTick * recomputeTicks * 0.5` = 0.237 * 2 * 0.5 =
-   * 0.237 rad — capped to `aimToleranceRad * deadzoneCapMultiplier` = 0.07 * 2.3 = 0.161 rad by the
-   * ceiling below. See R15's own paragraph for the mechanism; this is its number for hard.
-   *
-   * `fireConeRad` no longer exists (Task 7, 2026-09-05, retired it along with the angular fire gate); see
-   * `deadzoneCapMultiplier` below for what the ceiling is keyed to now. Halving one tick's rotation is
-   * the standard "deadzone >= half a step" rule for a discretized bang-bang controller: tight
-   * enough to still track, loose enough to stop chasing a precision the car cannot deliver in one
-   * tick.
-   *
-   * The review round 1 defect: an earlier version of this constant floored against a whole
-   * DECISION INTERVAL's rotation (`turnRate * lagSeconds`, where `lagSeconds` covers
-   * `reactionDelayTicks + recomputeTicks` — 6 ticks on hard, so `turnRate * lagSeconds` = 7.11 *
-   * 0.2 = 1.422 rad) rather than one tick's. That produced an effective deadzone of 1.422 * 0.5 =
-   * 0.711 rad (41 degrees, 3.5x `fireConeRad`), which does not just fail to help — it disables
-   * steering almost entirely once the bot is off-axis, because the bang-bang test never fires
-   * until the heading error clears a band wider than any real duel geometry produces. `lagSeconds`
-   * still belongs in the PROJECTION term (`compensateForLag`'s `projectedError`) — that part was
-   * always correct and is unchanged; it just does not belong in the floor. See `movement.ts`'s
-   * `compensateForLag`.
-   *
-   * One more wrinkle the off-axis test surfaced: `rotationPerTick` must use the car's MOVING turn
-   * rate (`floorTurnRate` in `compensateForLag`), never the speed-dependent one R10 already threads
-   * through for the projection. The stopped rate is roughly half the moving one (`stopTurnRatio`
-   * 0.5), so floor-from-current-speed collapses to ~0.059 rad — below `aimToleranceRad` — the
-   * instant the car comes to rest at its standoff range, silently undoing the fix at exactly the
-   * moment `fight` needs it most (parked, facing the target). The floor is the finest correction the
-   * car can EVER make, not the one it happens to be capable of on a given tick.
-   *
-   * A THIRD wrinkle (R15, fix round 3, 2026-09-05): one tick's rotation is not the only thing the
-   * bot cannot correct within. It also cannot correct within its own `recomputeTicks` window — it
-   * re-decides only that often, holding the previous steer the whole time — and for a tier with a
-   * large `recomputeTicks` (medium: 6 ticks) that window's rotation is several times one tick's, so
-   * a floor keyed only to one tick left medium's off-axis deadzone too tight to settle, and it
-   * aimed WORSE off-axis than easy despite outranking it everywhere else. The floor is now the
-   * LARGER of "half one tick's rotation" and "half one decision window's rotation" — the same
-   * fraction, applied once, to whichever raw rotation (one tick's, or `recomputeTicks` ticks') is
-   * bigger. Taking the larger candidate is only safe because of `deadzoneCapMultiplier` below, which
-   * still stops the floor from swallowing `aimToleranceRad` many times over on a tier with a very
-   * long `recomputeTicks`. See `movement.ts`'s `compensateForLag`.
-   */
-  deadzoneFloorFraction: 0.5,
-  /**
-   * Hard ceiling on the effective steering deadzone, as a MULTIPLE of `aimToleranceRad` (R12,
-   * review round 1; re-keyed here 2026-09-05 when Task 7's EV firing gate retired `fireConeRad`).
-   * 2.3 is a FITTED constant chosen to reproduce hard/bullseye's measured convergence from before
-   * Task 7, NOT derived from any per-tier invariant or a fixed ratio between tiers — no single
-   * multiplier can do that, because `fireConeRad` was authored independently per tier (easy 0.55,
-   * medium 0.35, hard 0.2) and the ratios of these old caps to the current `aimToleranceRad` values
-   * are NOT uniform: easy 0.55 / 0.3 = 1.83, medium 0.35 / 0.16 = 2.19, hard 0.2 / 0.07 = 2.86.
-   * A literal read of 2.3 therefore does NOT preserve the old fire-cone containment invariant for
-   * easy and medium: applying 2.3 to easy's `aimToleranceRad` (0.3) yields 0.69 rad, exceeding the
-   * old easy cap of 0.55 by ~25%; medium's 0.16 × 2.3 = 0.368 rad exceeds the old cap of 0.35 by
-   * ~5%; hard's 0.07 × 2.3 = 0.161 rad stays within the old cap of 0.2, at ~80% of it.
-   *
-   * That deviation from the old invariant is currently acceptable because the fire gate itself is
-   * no longer an angle at all — it was deleted when the EV firing gate landed, so the fire-cone
-   * containment invariant it enforced is defined in terms of a field that no longer exists. What
-   * matters now is measured behaviour, and all three tiers fire healthily: easy 120/87 (on/off-axis),
-   * medium 144/102, hard 140/94 (both geometries in the committed `controller.test.ts` duel).
-   *
-   * THE VALUE IS SENSITIVE and NON-MONOTONIC, not a free constant (Task 7 finding, 2026-09-05):
-   * measured on the off-axis duel, cap 0.14 rad (multiplier 2.0) left the bang-bang controller
-   * oscillating with mean offset 0.222 rad and never settling; cap 0.16 rad (multiplier ~2.29,
-   * the old hard `fireConeRad` numeric value itself) settled cleanly to mean offset 0.018 rad;
-   * cap 0.21 rad (multiplier 3.0) also settled cleanly, but to a different resting offset of
-   * 0.086 rad — three nearby values, three qualitatively different outcomes. 2.3 lands in hard's
-   * known-good band, recovering its pre-Task-7 convergence almost exactly. This means the cap is
-   * not robust to small changes and MUST be re-measured rather than nudged if anything around it
-   * changes — a `turnRate` edit, a change to `deadzoneFloorFraction`, or a future tier's different
-   * turn-rate profile could all shift it unexpectedly.
-   *
-   * This constant is expected to be temporary: a lookahead planner is planned to replace the
-   * bang-bang steering entirely, which will delete `compensateForLag` and with it this cap.
-   */
-  deadzoneCapMultiplier: 2.3,
+  // `deadzoneFloorFraction` and `deadzoneCapMultiplier` were deleted in spec phase D (R-D1,
+  // 2026-09-07). Both existed only for `compensateForLag`, the mid-phase band-aid on a limit cycle
+  // in bang-bang steering: `reduceToIntent` emitted -1/0/1 with no proportional term, so the
+  // controller could not settle inside its own deadzone and oscillated. `planner.ts` scores
+  // candidate arcs and emits `steer` directly, so the cause is gone rather than the symptom
+  // suppressed — and `deadzoneCapMultiplier`'s own doc comment said this would happen: "a lookahead
+  // planner is planned to replace the bang-bang steering entirely, which will delete
+  // `compensateForLag` and with it this cap." The last reader of `aimToleranceRad` went with them.
   /**
    * The aim error a bot assumes of an OPPONENT when evaluating danger (P16). Not per-tier: this is
    * what the bot assumes of someone else, rather than projecting its own hands onto them.
@@ -348,141 +556,174 @@ export const BRAIN_CONSTANTS = Object.freeze({
    */
   assumedOpponentAimSigmaRad: 0.06,
   /**
-   * Fraction of the bot's OWN best available shot value (`bestValue` in `controller.ts`'s `plan()`,
-   * the best `value` across `solutions` — `solve()` run from the shooter's ACTUAL current pose, not
-   * a ceiling) that the danger it is standing in (after `opponentRangeRespect`) must clear before it
-   * leaves the line, before any shot exists (P16). Anticipatory only — gated on NOT being pinned (see
-   * the `evade` input in `controller.ts`'s `plan()`); a wall-pinned bot never evaluates this term at
-   * all, because `unpin` needs first crack at getting off the wall (R-C6, below this comment's own
-   * history).
+   * Hard cap on how far the planner's hedged branches turn the TARGET's heading before re-reading
+   * the danger it would put out (P28, `planner.ts`'s `worstCaseDanger`).
    *
-   * R-C7 (fix round 2, 2026-09-06) replaced `dangerEvadeThreshold` — an ABSOLUTE danger-per-second
-   * number — with this fraction. The absolute version had the same defect `minShotValueFraction`'s
-   * doc comment (above) documents for its own predecessor `minShotValue`: "someone could shoot me"
-   * (an absolute EV/s reading) is true for most of an ordinary duel at fighting range, so the
-   * anticipatory term tripped almost continuously once R-C6's `!pinned` gate stopped it from starving
-   * `unpin` at a wall — measured at 45.07 (this task's own guard scene, `inThreatLineView`,
-   * `controller.test.ts`) against an absolute threshold of 12, nearly 4x over, in a scene the brief
-   * calls "a perfectly ordinary in-range engagement". The consequence was measured directly: sweeping
-   * seeds 1-150 of `balance/match.test.ts`'s deathmatch fixture found only 2 land a decisive kill
-   * inside 30s, against ~20/150 for every earlier reseed in that file's history — a hard duel stopped
-   * resolving because the bot evaded through most of the fight instead of fighting.
+   * The raw offset is DERIVED, not authored: a car at full lock turns `turnRateOf(carId)` radians a
+   * second, so over the planner's own elapsed horizon the honest "they could be pointing anywhere in
+   * here by then" arc is `turnRateOf * elapsedSeconds`. That number outgrows its own meaning fast —
+   * Mirage's 8.19 rad/s covers 6 radians over a 22-tick horizon, nearly a full revolution, at which
+   * point "the worst heading they could hold" is simply "pointed straight at me" and the hedge has
+   * stopped being a hedge and become an assumption of the worst case unconditionally.
    *
-   * The fix asks "am I LOSING this exchange from here" instead: danger compared to what the bot's
-   * OWN kit can put out from its CURRENT pose, not an absolute number no kit/range/aim-quality
-   * combination can be measured against fairly (the exact defect class `minShotValueFraction`'s
-   * comment documents in depth).
+   * A quarter turn is where that stops. Past 90 degrees off the observed heading, a branch is no
+   * longer a plausible continuation of what the bot can see the target doing — it is a different
+   * car doing a different thing — and the term would read the same maximum from every candidate
+   * pose, which makes it constant in the one axis the planner varies and therefore inert.
    *
-   * TWO MEASURED DEFECTS surfaced while calibrating this, both fixed in `controller.ts`, not by
-   * picking a different fraction:
-   *
-   * 1. **The comparison is vacuously true when NEITHER side has a value.** `danger * respect >=
-   *    bestValue * fraction` reduces to `0 >= 0` — true — whenever the bot has no target (or one out
-   *    of every weapon's reach) AND the threat is equally out of range/unknown. That tripped `evade`
-   *    on literally zero signal, which is what broke `controller.test.ts`'s "keeps the body on the
-   *    aim line when the target is OFF-AXIS..." duel (fires collapsed from ~94/300 to 46-48/300): the
-   *    bot spent long stretches with `danger` and `bestValue` both reading exactly 0 while still
-   *    converging onto the target, and each stretch tripped a full `situationCommitTicks` (6 on hard)
-   *    excursion into `evade`, since `evade` outranks `fight` in `ALL_SITUATIONS` with no commit
-   *    delay on the way IN. Gating the whole term on `danger > 0` costs nothing (a real threat can
-   *    never read exactly 0) and removed the false trips entirely — re-verified both closed-loop
-   *    duel tests pass with `dangerEvadeFraction` raised as high as 1000 (i.e. with the ratio term
-   *    effectively disabled), isolating that this was a `danger > 0` fix, not a fraction-tuning one.
-   *
-   * 2. **`bestValue` is not always "how much offense do I generally have" — it is a literal,
-   *    instantaneous read of `solve()` at the current pose**, and Bullseye's `pepperbox` (a 4-muzzle
-   *    spray, three of them "sideways and backward" per `solution.ts`'s own doc comment) can register
-   *    a real, nonzero `bestValue` even facing directly AWAY from the target — this task's own guard
-   *    scene measures 38.65 there (self facing +x, target due west), not the 0 an intuition about
-   *    "facing the wrong way" would predict. That is CORRECT behaviour to measure, not a bug: the bot
-   *    genuinely can shoot back from that pose, so it is a real number to compare danger against.
-   *
-   * MEASURED (`HumanController.debug().dangerEv` plus a matching external `solve()` replica for
-   * `bestValue`, both hard tier, `assumedOpponentAimSigmaRad` 0.06, `opponentRangeRespect` 0.9):
-   *
-   * | scene | danger*respect | bestValue | ratio needed to trip |
-   * |---|---|---|---|
-   * | this task's guard scene (`inThreatLineView`) | 45.07 | 38.65 | fraction <= 1.166 |
-   *
-   * That is the ONLY in-suite ceiling on the fraction (the wall scene in `tiers.test.ts` never
-   * evaluates this term at all, `!pinned` having removed it from contention per R-C6). Chosen: **1**
-   * — comfortably under 1.166 with the `danger > 0` fix in place, and the natural reading of "am I
-   * losing": danger that meets or exceeds my own best output, not some multiple of it. Re-verified at
-   * 1 with the `danger > 0` fix: both closed-loop duel tests in `controller.test.ts` pass (fires stay
-   * above the 90 bar on-axis and off-axis), the guard scene's own evade test passes, and a re-swept
-   * `balance/match.test.ts` fixture stays green: sweeping its hard-tier Mirage/Bastion matchup over
-   * seeds 1-150 finds only ONE (96) landing a decisive kill inside its 30 s window — sparser than
-   * R-C6's already-sparse 2/150 (32 and 147), because comparing danger to the bot's own shot value
-   * widens how much of an ordinary duel now reads as "losing" relative to an absolute floor. Both
-   * `match.test.ts` tests that this matchup drives (the shortened-clock test and the
-   * ranks-placement spread) are reseeded onto seed 96, with the exact count recorded in that file's
-   * own seed-history comment — see it there rather than trusting a second copy of the number here.
+   * IT IS A FLAT PI/2 AT EVERY SHIPPED CONFIGURATION TODAY, and the derived term is vestigial. Said
+   * plainly because an earlier draft of this comment claimed the opposite — that the hedge "stays
+   * proportional to how far ahead the bot is actually committing", citing an easy `planHorizonTicks`
+   * of 0 and an 11-tick depth-2 segment — and a tuner who believed it would lower
+   * `planHorizonTicks` expecting the branch width to follow, and watch nothing move. Two facts kill
+   * the derived term: `hedgedThreats` returns early when `targetBranches === 1`, so only HARD ever
+   * hedges at all (easy and medium ship 1, and neither of those cited cases exists); and hard ships
+   * K=22 at depth 1, where the elapsed horizon is the full 0.733 s and every chassis's derived arc —
+   * 4.62 rad for Bastion, 5.21 for Bullseye, 6.00 for Mirage — saturates this cap several times
+   * over. The derived expression stays in `hedgedThreats` because it is the honest statement of the
+   * quantity being capped, and it becomes operative the moment anyone ships a hedging tier below
+   * K=8: Mirage's rate, the roster's highest, crosses PI/2 at 6 ticks and Bastion's at 11. Until
+   * then, read this as the constant it is.
    */
-  dangerEvadeFraction: 1,
+  targetBranchMaxHeadingOffsetRad: Math.PI / 2,
   /**
-   * Ticks that must pass after the anticipatory evade term fires before it may fire again (R-C9,
-   * fix round 3, 2026-09-06). Read this before touching `dangerEvadeFraction` again: the fraction
-   * was never the dial that was broken.
+   * How many points along a candidate's rolled arc the planner scores it at (R-P7, `planner.ts`).
    *
-   * THE STRUCTURAL DEFECT this fixes. `evade` sits at priority index 2 in `ALL_SITUATIONS`, above
-   * `punish`, `reset`, `fight` and `close`. `pickSituation` lets a higher-priority situation cut in
-   * with NO commit delay on the way IN, and `plan()`'s `evade` branch sets `closing = false` and
-   * steers off the line. That immediacy is calibrated for an EVENT — a shot is in the air right
-   * now, which is rare and brief. "I am standing in someone's firing solution" is a STANDING
-   * condition, true for a large share of any ordinary duel at fighting range, and a standing
-   * condition wired into an event's priority slot converts the bot from fighting into disengaging
-   * for most of the fight NO MATTER WHAT ARITHMETIC decides the condition. Three differently-shaped
-   * triggers were measured on `balance/match.test.ts`'s hard-tier Mirage/Bastion deathmatch fixture,
-   * swept over seeds 1-150 and counting how many land a decisive kill inside the 30 s window
-   * (historically, before this task, roughly 20 of 150):
+   * NOT the end pose alone, which is what this replaced and what broke the bot: at `planDepth: 1` a
+   * candidate is one input held for the whole horizon, so hard's K=22 offers exactly three headings
+   * — 0 and +-2.607 rad — and the 0.234 rad correction a duel actually needs is not on the menu.
+   * Scored end-only, `steer: 0` won every tick and a parked bot fired 0 shots in 300 ticks; sampled
+   * along the arc, the turning candidate's nose passes through the target early and `myEv` peaks
+   * there. Spec section 2: "timing the trigger for the instant the nose sweeps across."
    *
-   * | trigger | decisive / 150 |
-   * |---|---|
-   * | absolute `dangerEvadeThreshold` 12 (R-C6) | 2 |
-   * | absolute `dangerEvadeThreshold` 40 (round 1) | 2 |
-   * | kit-relative `dangerEvadeFraction` 1 (R-C7) | 1 |
+   * CHOSEN BY MEASUREMENT against the 0.33 ms per-plan budget, not picked. Samples cost linearly in
+   * the SCORING half — the expensive half — while the rollout half is unchanged.
    *
-   * Three shapes, one collapse, and the most carefully-reasoned of them the worst — the signature of
-   * a structural defect, not a mistuned number.
+   * RE-SWEPT AT THE SHIPPED CONFIGURATION (fix wave 1, 2026-09-07), and the earlier table is gone
+   * rather than annotated. The original sweep chose 4 against a candidate set that two later
+   * rulings replaced — its whole "hard on-axis" column reads 24/300 at every sample count, which is
+   * the pre-commitment-window defect value, not a reading of the shipped bot — and R-P10's terminal
+   * policy plus R-P12's commitment window changed a candidate's arc from a 22-tick hold into 12
+   * committed ticks and 10 coasting. A sampling schedule over the arc is a discretization OF that
+   * arc, so the project's own rule (re-derive a weight when the quantity under it moves — applied
+   * twice to `rangeError` and three times to `commitPenalty` for this same event) applies here too.
    *
-   * THE ARITHMETIC that picks this value. Two knobs bound the term's share of a fight between them:
-   * `situationCommitTicks` sets how long each excursion LASTS (once the term stops firing, the bot
-   * is held in `evade` until the commit window expires, because every situation below it has a lower
-   * priority and must wait), and this cooldown sets how often one may START. So
+   * Measured at hard's shipped configuration (K=22, depth 1, `targetBranches` 3), on
+   * `controller.test.ts`'s two closed-loop duels over the SAME seven seeds R-P12 swept
+   * (17, 3, 7, 42, 96, 101, 2026); a duel counts as passed only when it clears BOTH `fires > 90`
+   * and `meanOffset < 0.2` over the tail 100 ticks. `ms/plan` times `plan()` alone, 3000 iterations
+   * after 300 warm-up:
    *
-   *     evade's share of a fight  ~=  situationCommitTicks / dangerEvadeCooldownTicks
+   *   | samples | ms/plan (hard/med/easy) | on-axis | off-axis | seed 17 on / off (fires per 300) |
+   *   |---------|-------------------------|---------|----------|----------------------------------|
+   *   |    3    |  0.381 / 0.200 / 0.065  |   6/7   |   1/7    |  140 / **0**                     |
+   *   |    4    |  0.432 / 0.242 / 0.067  | **7/7** |   6/7    |  140 / 128                       |
+   *   |    5    |  0.545 / 0.243 / 0.068  |   6/7   | **7/7**  |  140 / 128                       |
+   *   |    6    |  0.654 / 0.372 / 0.074  | **7/7** |   5/7    |  140 / 128                       |
    *
-   * Target: the anticipatory term may occupy at most ~5% of a fight on the top tier, which is what
-   * "an excursion, not a mode" means. Hard's `situationCommitTicks` is 6, so 6 / 0.05 = 120 ticks —
-   * four seconds at 30 Hz, and a natural re-engage cadence: you break a line, then come back. You do
-   * not cower for the whole fight. The same 120 gives medium (commit 12) a 10% share, and easy
-   * cannot trip the term at all — `controller.ts` gates it on `opponentRangeRespect > 0` explicitly,
-   * because the scaling alone did NOT give easy immunity (R-C-C1) — so no tier lives in `evade`.
+   * FOUR, CARRIED — on new evidence, not on the old table's authority, and for a different reason
+   * than the old table gave. It is no longer a one-cell window: 4, 5 and 6 all score 13 of the 14
+   * duel-seeds and differ only in WHICH seed they drop, so the top of the axis is a plateau and
+   * this is a cost decision inside it. Four is the cheapest cell on that plateau (0.432 ms against
+   * 0.545 and 0.654) and the only one that also holds the on-axis duel at 7/7. THREE IS THE CLIFF,
+   * and it is a real one — the off-axis duel collapses to 1/7 and to 0 fires at the tests' own seed
+   * 17 — for the reason the original sweep gave and which survives the re-measurement: the
+   * geometric schedule's earliest sample lands after the sweep is over (three samples of a 22-tick
+   * path read ticks 3, 8, 22, and a Bullseye at rest has turned 0.45 rad by tick 3 against the
+   * 0.25 rad correction the duel wants).
    *
-   * The arithmetic above is the whole reason for 120; it does not need a measurement to agree with
-   * it. What the sweep below (same fixture, seeds 1-150, decisive kills inside the 30 s window) adds
-   * is a SANITY CHECK on the shape: a cliff between 0-60 and everything at or above 90, then noise.
-   * At n=150 both 23-vs-20 and 17-vs-20 sit inside binomial noise, so this metric cannot separate
-   * 120 from 180 in either direction — read the table as "the reflex stops costing decisive kills
-   * once the share drops under ~7%", and not as evidence for any particular value above that knee:
+   * WHAT THE RE-SWEEP CHANGED, said plainly: the old table's claim that 6 destabilises the heading
+   * (1.263 rad, 6 fires) does NOT reproduce at the shipped configuration — 6 is a healthy cell now,
+   * just a slower one. The commitment window is why: with only the committed half of the arc
+   * carrying real motion, bunching samples toward the front no longer starves the far end of
+   * anything the bot was reading. So the argument for 4 is now "cheapest on the plateau", and the
+   * argument against going below it is unchanged.
    *
-   * | cooldown | hard share | decisive / 150 |
-   * |---|---|---|
-   * | 0 (= R-C7, no refractory) | ~100% | 1 |
-   * | 60 | 10% | 14 |
-   * | 90 | 6.7% | 14 |
-   * | **120 (chosen)** | **5%** | **17** |
-   * | 180 | 3.3% | 23 |
-   * | term disabled entirely | 0% | 20 |
+   * Hard's 0.432 ms in this sweep is 30% ABOVE the stated 0.33 ms budget, and that is accepted with
+   * the number said out loud rather than hidden. (The bench file's gated range is wider still —
+   * 0.375-0.593 ms, 13% to 78% over, isolated through full-suite load.) The budget is six bots replanning at 15 Hz inside ~30 ms of
+   * CPU per simulated second; four samples make that 38.9 ms. Hard is the only tier that pays it
+   * (medium 0.242, easy 0.067, both far under), and a full six-bot lobby of HARD bots is not a
+   * configuration the game ships. Spec P33's instruction if that stops being true is to bring K and
+   * `planDepth` down, not to raise the budget — and this constant would come down with them.
    *
-   * The last three rows (17, 23, 20) are one noise band, not a trend: nothing here distinguishes a
-   * 5% share from a 3.3% one or from the term being absent altogether. 120 is chosen by the
-   * arithmetic — it is the cooldown that puts hard's share at the 5% target — and the table's job is
-   * only to confirm that a share that low does not cost decisive kills the way 0-60 does. Note the
-   * coupling: a future retune of `situationCommitTicks` moves this term's share without touching
-   * this constant, so re-run that sweep if that field moves.
+   * THE FIGURE TO COMPARE A FUTURE EDIT AGAINST IS `planner.bench.test.ts`'s, NOT THIS ONE (M9,
+   * fix wave 3, 2026-09-07). Several per-plan numbers are on record, each honestly labelled with
+   * its own run, and a reader picking between them was being pointed here — at a single reading
+   * that the shipped gate's own data does not reproduce. To be explicit:
+   *
+   *   | figure          | where it came from                                                    |
+   *   |-----------------|-----------------------------------------------------------------------|
+   *   | 0.365 ms        | the ORIGINAL sample-count sweep (task 3), before the commitment window |
+   *   | ~0.34 ms        | phase D's final report, on a different scene                          |
+   *   | 0.432 ms        | THIS table's own re-sweep (fix wave 1) — see the rows above            |
+   *   | 0.385 ms        | the depth-1/depth-2 run on `planDepth`, best-of-five, same wave        |
+   *   | **0.375-0.422** | **`planner.bench.test.ts`, hard, ISOLATED, over eleven runs**           |
+   *
+   * The last row is THE BASELINE. It is a range rather than a point, it comes from the gate that
+   * actually runs in CI, and the file states the loaded conditions beside it (0.453-0.500 under
+   * `src/bot/ src/config/`, 0.531-0.593 under the whole suite) so a comparison can be made under
+   * matched load. The 0.432 and 0.385 above stay because each is the internally consistent number
+   * for the sweep it belongs to — compare rows WITHIN a table to each other, and compare a future
+   * edit to the bench file.
    */
-  dangerEvadeCooldownTicks: 120,
+  trajectorySampleCount: 4,
+  /**
+   * HOW MUCH OF THE HORIZON A CANDIDATE COMMITS TO before its terminal policy takes over — the
+   * planner's commitment window, as a fraction of `planHorizonTicks`, rounded UP to a whole tick
+   * (R-P12, fix round 5, 2026-09-07). Hard's K of 22 gives 12 ticks committed and 10 coasting;
+   * medium's 8 gives 5 and 3; easy's 0 floors to a single tick, which is what keeps P29's reflex
+   * tier a reflex.
+   *
+   * IT IS THE SHARE OF THE WHOLE PLAN, SPLIT ACROSS `planDepth` WINDOWS — `commitWindowOf` divides
+   * by the depth, so a depth-2 candidate is two 6-tick windows and a 10-tick coast rather than two
+   * 12-tick windows and no coast at all (R-P17, fix wave 1, 2026-09-07). At the `planDepth: 1`
+   * every tier ships that division is a no-op and this number is read exactly as written; it
+   * matters only to the depth-2 upgrade path spec P33 names.
+   *
+   * THE MIDDLE OF AN AXIS WHOSE TWO ENDS BOTH FAIL, and it had to be measured because both ends
+   * look right from a distance. A candidate held for the WHOLE horizon (round 3) makes the steering
+   * menu "0 / +150 / -150 degrees" and the throttle menu "floor it for 0.73 s / stop", so a
+   * 13-degree aim correction and a 56-unit range close are not on it. A candidate held only for
+   * `recomputeTicks` (round 4, hard: 2) and then braked to a stop gives a stationary bot about four
+   * units of positional reach, so a dodge, a U-turn and leaving a wall are not on it either. Both
+   * were shipped, and each broke what the other fixed.
+   *
+   * Swept as a grid, both closed-loop duels over seven seeds each, with the `rangeError` weights
+   * re-derived per cell (R-P9's rule: a weight is re-derived when the quantity under it moves), and
+   * `src/bot/` + `src/config/` red counts at the best row of each:
+   *
+   *   | window (hard) | continuation  | on-axis | off-axis | red |
+   *   |---------------|---------------|---------|----------|-----|
+   *   |  2 (recompute)| full neutral  |   6/7   |   7/7    |  7  |
+   *   |  2 (recompute)| steer-only    |   4/7   |   6/7    |  -  |
+   *   |  6 (K/4)      | full neutral  |   5/7   |   7/7    |  7  |
+   *   |  8 (K/3)      | full neutral  |   6/7   |   5/7    |  7  |
+   *   | 11 (K/2)      | full neutral  | **7/7** | **6/7**  |  3  |
+   *   | 22 (K)        | none          |   1/7   |   1/7    |  -  |
+   *
+   * Half is a genuine plateau at 11-12 ticks and a cliff on both sides: 10 reads 6/7 and 5/7, and
+   * 13 collapses the on-axis duel to 0/7 (the committed window grows past the coasting tail, and a
+   * candidate stops being able to stop where it wants). Below the plateau the plan loses its reach
+   * and the dodge, the hunt and the wall go with it; above it, the plan loses its aim.
+   *
+   * 0.52 RATHER THAN A FLAT 0.5, i.e. the TOP of that plateau (12 ticks, not 11), for one measured
+   * reason: `balance/match.test.ts`'s seed-96 deathmatch-clock fixture goes red at 11 and green at
+   * 12, and reseeding a fixture to accommodate a tuning choice inside its own plateau is the wrong
+   * way round. Both windows read the same on everything else — 7/7 and 6/7 on the duels, the same
+   * three red cases in `src/bot/` + `src/config/`. Any fraction in (0.5, 0.545] picks 12 at hard.
+   *
+   * A FRACTION OF THE HORIZON, not the profile's `recomputeTicks`, and that is the substantive
+   * finding of the sweep. Round 4 reasoned that the window should be what the hands actually hold,
+   * which is `recomputeTicks`; the measurement says the window is a property of the PLAN — how much
+   * of the arc is a real commitment and how much is the terminal policy's coast — and it scales
+   * with the horizon rather than with the recompute cadence. Both halves are needed: the committed
+   * half is what gives the plan reach, the coasting half is what makes the terminus a place the car
+   * can actually be left, which is what the two destination terms are read at.
+   *
+   * A number, so the planner still never learns which tier it is (H8).
+   */
+  commitWindowFraction: 0.52,
 });
 
 /**
@@ -495,7 +736,8 @@ export const BRAIN_CONSTANTS = Object.freeze({
 // 4.0.0 (2026-09-05): firing solutions replace the angular fire gate (spec phase B).
 // 4.1.0 (2026-09-06): danger evaluation and cooldown readiness (spec phase C).
 // 4.2.0 (2026-09-06): physics-based prediction replaces the constant-velocity solve (spec phase A).
-export const BOT_BRAIN_VERSION = "4.2.0";
+// 4.3.0 (2026-09-07): the receding-horizon planner replaces desire blending (spec phase D).
+export const BOT_BRAIN_VERSION = "4.3.0";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency
@@ -507,47 +749,73 @@ export const BOT_BRAIN_VERSION = "4.2.0";
 export const BOT_PROFILES: Readonly<Record<BotDifficulty, BotProfile>> = Object.freeze({
   easy: Object.freeze({
     viewStalenessTicks: 4, reactionDelayTicks: 9, recomputeTicks: 12, acquireTicks: 15,
-    awarenessRadiusUnits: 520, rearBlindHalfAngleRad: 1.05, trackedThreatLimit: 1, memoryTicks: 15,
+    // R-P14 (residuals round, 2026-09-07): 520 -> 600. AN EASY BOT MUST BE ABLE TO SEE THE RANGE
+    // THE GAME IS FOUGHT AT. At 520 it could not: the closed-loop duel opens with 553 units between
+    // the cars, and hard's duels settle in a 464-597 band (R-P12's seven-seed measurement), so an
+    // easy bot began every engagement BLIND. It then never recovered, because at
+    // `planHorizonTicks: 0` the planner rolls a single tick and no candidate expresses a manoeuvre
+    // — it cannot turn around or drive to a hunt waypoint, only drift. Traced: `target` was
+    // `undefined` on 49 of the 50 recompute ticks in a 600-tick easy/Bastion duel.
+    //
+    // Measured, 7 seeds x 3 chassis = 21 closed-loop duels of 600 ticks each, easy only. The cliff
+    // is between 540 and 560 — exactly where the radius crosses the 553-unit opening distance —
+    // and 560-690 is one flat plateau, so this is not a tuned point:
+    //
+    // | radius | 520 | 540 | 560 | 580 | 600 | 620 | 660 | 690 |
+    // |--------|-----|-----|-----|-----|-----|-----|-----|-----|
+    // | cells firing 0 shots | 11 | 11 | 0 | 0 | 0 | 0 | 0 | 0 |
+    // | fewest presses in any cell | 0 | 0 | 48 | 36 | 36 | 48 | 48 | 36 |
+    // | mean presses per cell | 27 | 15 | 154 | 143 | 151 | 154 | 154 | 145 |
+    //
+    // 600 rather than 560 because 560 sits seven units off the cliff, so any spawn or arena change
+    // re-breaks it; 600 is mid-plateau and still 100 short of medium's 700, which keeps the ladder
+    // and the tier's short-sightedness both visible. Raising `planHorizonTicks` was measured as the
+    // alternative and rejected: it is a real second link (K=6 takes 11 mute cells to 2) but no value
+    // below medium's 8 clears them all, and 8 would flatten the ladder.
+    awarenessRadiusUnits: 600, rearBlindHalfAngleRad: 1.05, trackedThreatLimit: 1, memoryTicks: 15,
     stateEstimationSigma: 0.25,
-    aimErrorSigmaRad: 0.18, aimErrorDriftTicks: 20, aimToleranceRad: 0.3,
+    aimErrorSigmaRad: 0.18, aimErrorDriftTicks: 20,
     burstGapTicks: 14, minShotValueFraction: 0.01, ultDisciplineChance: 0, ultWindowHpFraction: 0.4,
     targetCommitTicks: 150, woundedBias: 0.1, vengefulness: 0.8,
-    standoffFraction: 0.45, deadbandFraction: 0.25, wallLookaheadUnits: 40,
+    wallLookaheadUnits: 40,
     retreatHpFraction: 0, ramIntentChance: 0.15,
     dodgeChance: 0.05, dodgeReactionTicks: 12, dodgeHorizonTicks: 12,
     blunderChance: 0.12, blunderTicks: 10, idleFidgetChance: 0.1, scoreNoiseSigma: 0.3,
     hearChance: 0.15,
     deadRespect: 0.25, opponentRangeRespect: 0, cornerRespect: 0.35, incomingCarChance: 0.1,
     situationCommitTicks: 20, slotStickTicks: 4,
+    planHorizonTicks: 0, planDepth: 1, targetBranches: 1, commitPenalty: 0.072,
   }),
   medium: Object.freeze({
     viewStalenessTicks: 3, reactionDelayTicks: 6, recomputeTicks: 6, acquireTicks: 9,
     awarenessRadiusUnits: 700, rearBlindHalfAngleRad: 0.6, trackedThreatLimit: 2, memoryTicks: 45,
     stateEstimationSigma: 0.1,
-    aimErrorSigmaRad: 0.09, aimErrorDriftTicks: 14, aimToleranceRad: 0.16,
+    aimErrorSigmaRad: 0.09, aimErrorDriftTicks: 14,
     burstGapTicks: 7, minShotValueFraction: 0.05, ultDisciplineChance: 0.5, ultWindowHpFraction: 0.4,
     targetCommitTicks: 60, woundedBias: 0.5, vengefulness: 0.5,
-    standoffFraction: 0.55, deadbandFraction: 0.15, wallLookaheadUnits: 90,
+    wallLookaheadUnits: 90,
     retreatHpFraction: 0.3, ramIntentChance: 0.3,
     dodgeChance: 0.55, dodgeReactionTicks: 8, dodgeHorizonTicks: 18,
     blunderChance: 0.05, blunderTicks: 10, idleFidgetChance: 0.05, scoreNoiseSigma: 0.15,
     hearChance: 0.55,
     deadRespect: 0.75, opponentRangeRespect: 0.45, cornerRespect: 0.75, incomingCarChance: 0.55,
     situationCommitTicks: 12, slotStickTicks: 8,
+    planHorizonTicks: 8, planDepth: 1, targetBranches: 1, commitPenalty: 0.126,
   }),
   hard: Object.freeze({
     viewStalenessTicks: 2, reactionDelayTicks: 4, recomputeTicks: 2, acquireTicks: 5,
     awarenessRadiusUnits: 900, rearBlindHalfAngleRad: 0, trackedThreatLimit: 4, memoryTicks: 90,
     stateEstimationSigma: 0.03,
-    aimErrorSigmaRad: 0.035, aimErrorDriftTicks: 9, aimToleranceRad: 0.07,
+    aimErrorSigmaRad: 0.035, aimErrorDriftTicks: 9,
     burstGapTicks: 3, minShotValueFraction: 0.3, ultDisciplineChance: 0.9, ultWindowHpFraction: 0.4,
     targetCommitTicks: 25, woundedBias: 0.9, vengefulness: 0.25,
-    standoffFraction: 0.7, deadbandFraction: 0.08, wallLookaheadUnits: 150,
+    wallLookaheadUnits: 150,
     retreatHpFraction: 0.35, ramIntentChance: 0.5,
     dodgeChance: 0.95, dodgeReactionTicks: 4, dodgeHorizonTicks: 24,
     blunderChance: 0.015, blunderTicks: 10, idleFidgetChance: 0.02, scoreNoiseSigma: 0.05,
     hearChance: 1,
     deadRespect: 1, opponentRangeRespect: 0.9, cornerRespect: 1, incomingCarChance: 0.95,
     situationCommitTicks: 6, slotStickTicks: 12,
+    planHorizonTicks: 22, planDepth: 1, targetBranches: 3, commitPenalty: 0.18,
   }),
 });

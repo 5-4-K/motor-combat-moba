@@ -168,9 +168,11 @@ export function steerFromObservedTurn(angVel: number, carId: CarId): -1 | 0 | 1 
  * The reverse-cap row is the same failure with the sign flipped, and it is LARGER: 416 units short
  * at 45 ticks against the 584 that motivated `accel: 0`, and 854 over the full 90-tick horizon
  * `BRAIN_CONSTANTS.predictionHorizonTicks` actually rolls. It is not an exotic scene —
- * `movement.ts` makes `throttle: -1` routine `fight` behaviour inside the bot's preferred range and
- * `humanize.ts` has a panic-reverse, and `selfPredictor` runs under this same set, so a bot backing
- * off would otherwise predict its OWN `meAt` as nearly stationary and mis-read `danger`.
+ * `throttle: -1` is a third of `planner.ts`'s `ALL_ACTIONS` and is what the range term picks
+ * whenever the bot is inside its preferred standoff (the `panic-reverse` blunder this used to cite
+ * as the second source was deleted by P41; the planner's own reverse was always the larger one), and
+ * `selfPredictor` runs under this same set, so a bot backing off would otherwise predict its OWN
+ * `meAt` as nearly stationary and mis-read `danger`.
  *
  * It is also the honest statement of what a human reads off the screen — a speed and a turn, held —
  * and it dominates constant velocity everywhere a car is turning while tying it where one is not.
@@ -325,8 +327,9 @@ export function selfPredictor(
 
 /**
  * How many ticks ahead to aim a shot of speed `projectileSpeed`, against a target following the
- * (possibly curving) path `at`. The physics analogue of `aim.ts`'s closed-form `interceptPoint`,
- * which solves the same problem in one shot but only against a straight line — a `PosePredictor`
+ * (possibly curving) path `at`. The physics analogue of the textbook closed-form straight-line
+ * intercept (`aim.ts` carried one, `interceptPoint`, until R-K1 deleted it unused in 2026-09-07's
+ * phase D), which solves the same problem in one shot but only against a straight line — a `PosePredictor`
  * backed by real physics has no closed form, so this converges it instead with fixed-point
  * iteration: guess a time, see where the target is then, refine the guess from that distance, repeat.
  *
