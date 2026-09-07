@@ -52,8 +52,8 @@ function run(tier: "easy" | "medium" | "hard", ticks: number, over: Partial<BotV
 
 describe("tier characterisation", () => {
   /**
-   * Within-tier, not across tiers. A harder tier has a tighter `aimToleranceRad` and therefore
-   * steers more in ANY scene, so comparing steer counts between tiers would pass whether or not
+   * Within-tier, not across tiers. A harder tier plans a longer horizon and a finer heading, and
+   * therefore steers more in ANY scene, so comparing steer counts between tiers would pass whether or not
    * dodging exists. The question is whether the shot changes what THIS tier does.
    *
    * TEST FIX (was: compare `instances: [shot]` against `instances: []`). `perceive` draws its
@@ -233,7 +233,7 @@ describe("tier characterisation", () => {
     // Within-tier, and the SCENE is controlled: the enemy sits 200 units directly ahead in both
     // runs, so the relative geometry the bot is fighting is identical and the only thing that
     // differs is how close the wall is. Comparing steer counts across tiers instead would just be
-    // measuring `aimToleranceRad`, and comparing two different self positions would just be
+    // measuring how finely each tier steers, and comparing two different self positions would just be
     // measuring two different fights.
     //
     // Tail slice, not the full stream: acquire, `situationCommitTicks`, and `reactionDelayTicks`

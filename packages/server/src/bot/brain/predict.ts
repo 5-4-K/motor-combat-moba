@@ -325,8 +325,9 @@ export function selfPredictor(
 
 /**
  * How many ticks ahead to aim a shot of speed `projectileSpeed`, against a target following the
- * (possibly curving) path `at`. The physics analogue of `aim.ts`'s closed-form `interceptPoint`,
- * which solves the same problem in one shot but only against a straight line — a `PosePredictor`
+ * (possibly curving) path `at`. The physics analogue of the textbook closed-form straight-line
+ * intercept (`aim.ts` carried one, `interceptPoint`, until R-K1 deleted it unused in 2026-09-07's
+ * phase D), which solves the same problem in one shot but only against a straight line — a `PosePredictor`
  * backed by real physics has no closed form, so this converges it instead with fixed-point
  * iteration: guess a time, see where the target is then, refine the guess from that distance, repeat.
  *
