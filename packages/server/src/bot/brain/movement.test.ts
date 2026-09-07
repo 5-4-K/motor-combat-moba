@@ -33,6 +33,12 @@ describe("wallAhead", () => {
   it("fires on an obstacle inside the look-ahead", () => {
     const withBox = { width: 1280, height: 720, obstacles: [{ x: 700, y: 340, w: 60, h: 60 }] };
     expect(wallAhead({ x: 640, y: 360, angle: 0 }, withBox, 100)).toBe(true);
+    // The `false` half depends on a CHASSIS BOUND, not only on the look-ahead: `wallAhead` inflates
+    // the box by `max(carWidth, carHeight) / 2`, so the probe at x=660 misses the box's 700 edge
+    // only while that margin stays under 40 units — i.e. while the larger of `DRIVE_CONFIG`'s
+    // `carWidth`/`carHeight` is under 80 (it is 48 today, for a margin of 24). A chassis-size change
+    // past that flips this case, and the failure would read as a look-ahead bug rather than as the
+    // hitbox growing; move the box or the probe rather than the expectation if it ever does.
     expect(wallAhead({ x: 640, y: 360, angle: 0 }, withBox, 20)).toBe(false);
   });
 });

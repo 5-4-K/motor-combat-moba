@@ -213,7 +213,10 @@ export class HumanController implements BotController {
     const distance = target ? Math.hypot(target.x - self.x, target.y - self.y) : Infinity;
     // R-O2: the same predicate as before, minus the heading it used to be spelled as. This was
     // `wallDesire(...) !== undefined`; `wallAhead` shares that function's geometry outright, so
-    // `unpin` still fires on exactly the ticks it used to. NOT `nearBound`, which ignores the nose.
+    // `unpin` still fires on exactly the ticks it used to. It is deliberately NOT a bound test on
+    // the current POSITION, which ignores which way the nose is pointed — that would be a different
+    // predicate firing on different ticks. (`movement.ts` carries the same sentence; this one used
+    // to name the deleted `nearBound` and now matches it.)
     const pinned = wallAhead(self, view.arena, profile.wallLookaheadUnits)
       || inCorner(self, view.arena);
 
