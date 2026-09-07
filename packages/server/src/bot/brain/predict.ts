@@ -16,26 +16,35 @@ export interface DriveAction {
 /**
  * A `SimBody` for ANOTHER car, from what a bot may legitimately see (P17, P5).
  *
- * `x`, `y`, `angle`, `speed` and `maneuver` are drawn on screen and come straight off `BotCarView`.
- * `angVel` is INFERRED from two observed poses. `authority`, `shoveX/Y` and `reverseHold` are not
- * numbers a human reads at all, so they are assumed neutral.
+ * `x`, `y`, `angle`, `vx`, `vy` and `maneuver` are drawn on screen and come straight off
+ * `BotCarView`. `angVel` is INFERRED from two observed poses. `reverseHold` is not a number a human
+ * reads at all, so it is assumed neutral.
+ *
+ * `vx`/`vy` REPLACE the old scalar `speed` (car-physics rework, stage 1). This is the fix, not a
+ * rename: the previous code took a magnitude along the heading, so a car that was SLIDING — shoved
+ * by a ram, or carrying lateral velocity out of a corner — was rolled forward along its nose at a
+ * speed it was not actually travelling at. The bot now rolls the car's real world velocity, which is
+ * the same vector `stepDrive` itself integrates.
  *
  * `maneuverTicksLeft: 0` means `isDashing(body)` (`maneuver === ManeuverKind.DASH &&
  * maneuverTicksLeft > 0`) is always false here, so `maneuverAngle` is never actually read by
  * `stepDrive` for an observation — `car.angle` is filled in only to satisfy `SimBody`'s shape, not
  * because it is a meaningful guess at the observed car's dash heading.
  *
- * That last assumption is reliably WRONG for a few hundred milliseconds after a ram (P19), when
- * authority is suppressed and shove is still decaying. Bots therefore mispredict cars that have just
- * been hit — which is what a person does too, and is kept rather than corrected.
+ * P19's post-ram mispredict SHRANK but did not disappear in the car-physics rework. The `shove`
+ * half of it is gone outright — imposed sideways motion is now just the lateral component of the one
+ * observed velocity, so it is carried into the rollout and bled off by `bleedLateral` exactly as the
+ * sim does it. What remains is the `reeling` status a ram applies to its victim (stage 3b): it lands
+ * on `turnRate` and `accel`, this rollout passes `OBSERVATION_MODIFIERS` rather than the target's
+ * real modifiers, and so a just-rammed car is still predicted steering better than it can. Bots
+ * therefore mispredict cars that have just been hit — which is what a person does too, and is kept
+ * rather than corrected.
  */
 export function bodyFromObservation(car: BotCarView, angVel: number): SimBody {
   return {
-    x: car.x, y: car.y, angle: car.angle, speed: car.speed,
+    x: car.x, y: car.y, angle: car.angle, vx: car.vx, vy: car.vy,
     reverseHold: 0,
     angVel,
-    shoveX: 0, shoveY: 0,
-    authority: 1,
     maneuver: car.maneuver,
     maneuverTicksLeft: 0,
     maneuverAngle: car.angle,
@@ -44,11 +53,12 @@ export function bodyFromObservation(car: BotCarView, angVel: number): SimBody {
 }
 
 /**
- * A `SimBody` for the bot's OWN car. The POSE fields — `x`, `y`, `angle`, `speed`, `maneuver` and
- * `maneuverTicksLeft` — come straight off the bot's own HUD and are exact, not inferred. The four
- * ram-state fields (`authority`, `shoveX`, `shoveY`, `reverseHold`) are not on `BotSelfView` at
- * all, so they are assumed neutral here exactly as they are for an observed car in
- * `bodyFromObservation` — this function does not read them off anything.
+ * A `SimBody` for the bot's OWN car. The POSE fields — `x`, `y`, `angle`, `vx`, `vy`, `maneuver` and
+ * `maneuverTicksLeft` — come straight off the bot's own HUD and are exact, not inferred.
+ * `reverseHold` is not on `BotSelfView` at all, so it is assumed neutral here exactly as it is for
+ * an observed car in `bodyFromObservation` — this function does not read it off anything. (Before
+ * the car-physics rework this paragraph named four such fields; `authority`, `shoveX` and `shoveY`
+ * no longer exist on `SimBody` at all.)
  *
  * `maneuverTicksLeft: 0` mirrors `bodyFromObservation`, and is a DELIBERATE discard of a field the
  * bot really does know. Copying a genuine `self.maneuverTicksLeft` while fabricating
@@ -65,11 +75,9 @@ export function bodyFromObservation(car: BotCarView, angVel: number): SimBody {
  */
 export function bodyFromSelf(self: BotSelfView): SimBody {
   return {
-    x: self.x, y: self.y, angle: self.angle, speed: self.speed,
+    x: self.x, y: self.y, angle: self.angle, vx: self.vx, vy: self.vy,
     reverseHold: 0,
     angVel: 0,
-    shoveX: 0, shoveY: 0,
-    authority: 1,
     maneuver: self.maneuver,
     maneuverTicksLeft: 0,
     maneuverAngle: self.angle,
@@ -136,8 +144,22 @@ export function steerFromObservedTurn(angVel: number, carId: CarId): -1 | 0 | 1 
  *   handoff, which needs `isDashing(body)`; both `bodyFromObservation` and `bodyFromSelf` pin
  *   `maneuverTicksLeft: 0` and `stepDrive` never re-enters a DASH, so no predictor body can reach it.
  *
+ * ALL THE FIGURES IN THIS COMMENT, INCLUDING THE TABLE BELOW, WERE MEASURED ON THE PRE-REWORK DRIVE
+ * MODEL — Mirage capped at 449.5 u/s forward and 292.2 reverse, with a global `DRIVE_CONFIG.drag` of
+ * 900 u/s^2. The 2026-09-06 car-physics rework cut those caps to 267 and 173.55 and replaced `drag`
+ * with per-car proportional coast, so the magnitudes here are historical. Three things survive it,
+ * and they are what the set rests on: the BRANCH STRUCTURE of `accelerateForward` is unchanged, so
+ * `accel: 0` still holds a forward speed and `brakeDecel: 0` still holds a reversing one EXACTLY;
+ * the clamp is still a ceiling, so lifting it is still the only thing `topSpeed` can do; and every
+ * error the table reports is still in the same DIRECTION. What shrank is the margin — the
+ * throttle-closed alternative used to be 184 units wrong at 20 ticks and is now about 47 (see
+ * `predict.test.ts`, "still lands a throttle-closed rollout SHORT"). The set is still right; the
+ * case for it is no longer overwhelming, and a re-measurement against the new coast is owed.
+ *
  * All three are the sim's OWN multiplier channels (`sim/status/modifiers.ts`), so this is a use of
- * `stepDrive`, not a hack around it. Rotation and translation still integrate through the real drive
+ * `stepDrive`, not a hack around it. The rework added one term this set does NOT scale and does not
+ * need to: `bleedLateral` sheds imposed sideways motion at a flat `impactGripDecel`, exactly as the
+ * live sim does, so an observed car that is sliding is rolled the way it will really travel. Rotation and translation still integrate through the real drive
  * model in both directions.
  *
  * It exists because a bot cannot see another car's throttle. Rolling every observed target with the
@@ -240,8 +262,11 @@ function clampedPredictor(
  * `constantVelocityPredictor` behind the same seam.
  *
  * `estimationSigma` perturbs the OBSERVED speed and turn rate before the rollout runs (P20): reading
- * exact `speed` off another car every tick is the one place a bot sees more precisely than a person,
- * who eyeballs it, and this is the tier knob that answers that. The clamp past the horizon is shared
+ * an exact velocity off another car every tick is the one place a bot sees more precisely than a
+ * person, who eyeballs it, and this is the tier knob that answers that. The speed half scales `vx`
+ * and `vy` by the SAME factor, so it misjudges how fast the car is going without ever misjudging
+ * which way — a direction error is what `turnNoise` is for, and letting the speed knob rotate the
+ * velocity too would double-count the one the tier already has. The clamp past the horizon is shared
  * with `selfPredictor` via `clampedPredictor`, so the noise applies only to the rollout's INPUT, never
  * to how a caller's `ticksAhead` is resolved against it.
  *
@@ -261,8 +286,9 @@ function clampedPredictor(
  *
  * `throttle: 1` is fixed rather than a parameter: every observation rollout holds it, which is the
  * whole premise `OBSERVATION_MODIFIERS` is built around — the throttle keeps `stepDrive` out of
- * `coast` (drag, which BRAKES: 900 u/s^2, a Mirage seen at 400 u/s covers 82 units in 20 ticks
- * against the ~400 it really travels) while the zeroed `accel` channel keeps it from adding engine.
+ * `coast` while the zeroed `accel` channel keeps it from adding engine. Coasting still lands short,
+ * just by less than it used to: a Mirage seen at 400 u/s covers 219 units in 20 ticks against the
+ * 267 it really travels, where the pre-rework global drag made that 82 against ~400.
  * Rolled under that set, so the observed speed is HELD rather than accelerated toward the chassis
  * maximum — see that constant for the measurement.
  */
@@ -283,7 +309,9 @@ export function physicsPredictor(
   const noisyTurn = angVel * (1 + turnNoise);
   const steer = steerFromObservedTurn(noisyTurn, car.carId);
   const spin = steer === 0 ? noisyTurn : 0;
-  const observed: BotCarView = { ...car, speed: car.speed * (1 + speedNoise) };
+  const observed: BotCarView = {
+    ...car, vx: car.vx * (1 + speedNoise), vy: car.vy * (1 + speedNoise),
+  };
   const poses = rollForward(
     bodyFromObservation(observed, spin), car.carId, { steer, throttle: 1 }, horizonTicks,
     OBSERVATION_MODIFIERS,

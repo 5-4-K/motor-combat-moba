@@ -546,12 +546,10 @@ interface ArenaPlayer {
   x: number;
   y: number;
   angle: number;
-  speed: number;
+  vx: number;
+  vy: number;
   reverseHold: number;
   angVel: number;
-  shoveX: number;
-  shoveY: number;
-  authority: number;
   maneuver: number;
   maneuverTicksLeft: number;
   maneuverAngle: number;
@@ -599,12 +597,10 @@ function bodyOf(player: ArenaPlayer): SimBody {
     x: player.x,
     y: player.y,
     angle: player.angle,
-    speed: player.speed,
+    vx: player.vx,
+    vy: player.vy,
     reverseHold: player.reverseHold,
     angVel: player.angVel,
-    shoveX: player.shoveX,
-    shoveY: player.shoveY,
-    authority: player.authority,
     maneuver: player.maneuver,
     maneuverTicksLeft: player.maneuverTicksLeft,
     maneuverAngle: player.maneuverAngle,

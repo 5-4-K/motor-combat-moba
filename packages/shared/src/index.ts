@@ -71,7 +71,7 @@ export { ChatMessageState } from "./schema/ChatMessageState.js";
 export { PlaygroundState } from "./schema/PlaygroundState.js";
 export { PracticeState } from "./schema/PracticeState.js";
 
-export { RAM_CONFIG, RAM_DECAY, halfLifeToPerTick } from "./config/ram-config.js";
+export { RAM_CONFIG, RAM_DECAY, RAM_TICKS, halfLifeToPerTick } from "./config/ram-config.js";
 export { applyDamage, applyHeal, damageFor, scaleDamage, weaponDamageOf } from "./sim/damage.js";
 export { stepSim } from "./sim/step.js";
 export type { SimBody, StepContext } from "./sim/step.js";
@@ -97,11 +97,12 @@ export type {
   CombatWorld,
   StatusRequest,
 } from "./sim/combat.js";
+export { applyImpulse, type Impulse } from "./sim/impulse.js";
 export { applyRams, impactSideOf, pairKey, resolveRam } from "./sim/ram.js";
-export type { ImpactSide, RamCar, RamHit, RamKnock } from "./sim/ram.js";
-export { SLAM_CONFIG, SLAM_TICKS } from "./config/slam-config.js";
+export type { ImpactSide, RamCar, RamHit, RamImpulseEntry } from "./sim/ram.js";
+export { SLAM_CONFIG } from "./config/slam-config.js";
 export { hullTouchesWorld, resolveContacts } from "./sim/contact.js";
-export type { ContactCar, ContactEvents, ContactHit } from "./sim/contact.js";
+export type { ContactCar, ContactEvents, ContactHit, ImpulseEntry, SlamEvent } from "./sim/contact.js";
 export { newCombatEvents } from "./sim/combat-events.js";
 export type {
   CombatEvents, DamagedEvent, DamageSource, FiredEvent, KilledEvent,
@@ -139,16 +140,15 @@ export { resolveInstanceHits } from "./sim/weapons/hits.js";
 export type { PoseEntry, PoseSnapshot } from "./sim/weapons/hits.js";
 export { beamShapeAt, projectileShapeAt, shapeHitsObb, smear } from "./sim/weapons/shapes.js";
 export type { WorldShape } from "./sim/weapons/shapes.js";
-export type { Aabb, Bounds, Obb, Vec2 } from "./sim/collide.js";
+export type { Aabb, Bounds, CarObstacle, Obb, Vec2 } from "./sim/collide.js";
 export { carHullOf, carIdOf, isOnField, isSolid, otherCarHulls } from "./sim/context.js";
 export type { ContextEntry, ContextPlayer } from "./sim/context.js";
+export { forwardOf, lateralOf, speedOf, toWorld } from "./sim/velocity.js";
 
 export type { CarDef, CarId, ColorDef, ModeDef } from "./config/types.js";
 export {
   CAR_TABLE,
   DEFAULT_CAR_ID,
-  RAM_REFERENCE,
-  RAM_REFERENCE_MASS,
   accelOf,
   activeCarIds,
   driveOf,
@@ -156,7 +156,8 @@ export {
   hpOf,
   isActiveCarId,
   isCarId,
-  massOf,
+  ramAttackOf,
+  ramDefenceOf,
   reverseAccelOf,
   reverseMaxSpeedOf,
   turnRateAtStopOf,
@@ -179,6 +180,7 @@ export type {
   ExplosionDef,
   Hitbox,
   HomingDef,
+  ImpulseDef,
   ManeuverSpec,
   ManeuverWeaponDef,
   PelletDef,

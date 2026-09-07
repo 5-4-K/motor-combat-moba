@@ -200,20 +200,24 @@ function slotsFor(carId: "bullseye"): BotSlotView[] {
  * produce — it is the ordinary `fight` scene the closed-loop duels run in.
  */
 const self: BotSelfView = {
-  sessionId: "me", carId: "bullseye", team: 0, x: 300, y: 360, angle: 0.2, speed: 300,
+  sessionId: "me", carId: "bullseye", team: 0, x: 300, y: 360, angle: 0.2,
+  // 300 u/s along the 0.2 rad heading — the vector spelling of the old `speed: 300`.
+  vx: Math.cos(0.2) * 300, vy: Math.sin(0.2) * 300,
   hp: 65, maxHp: 65, alive: true, statuses: [], slots: slotsFor("bullseye"),
   switchLockUntilTick: 0, lockTargetSessionId: "them", maneuver: 0, maneuverTicksLeft: 0,
 };
 
 const target: BotCarView = {
-  sessionId: "them", carId: "mirage", team: 1, x: 760, y: 470, angle: Math.PI, speed: 400,
+  sessionId: "them", carId: "mirage", team: 1, x: 760, y: 470, angle: Math.PI,
+  // 400 u/s along `angle: PI` is 400 u/s in -x, which is exactly the motion `targetAt` below walks.
+  vx: -400, vy: 0,
   hp: 70, maxHp: 70, alive: true, phased: false, statuses: [], maneuver: 0,
 };
 
 /** A moving target, so `interceptTicks` actually converges a lead instead of short-circuiting. */
 const targetAt: PosePredictor = (ticksAhead) => ({
-  x: target.x - (target.speed * ticksAhead) / 30,
-  y: target.y,
+  x: target.x + (target.vx * ticksAhead) / 30,
+  y: target.y + (target.vy * ticksAhead) / 30,
   angle: target.angle,
 });
 

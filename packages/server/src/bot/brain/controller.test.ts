@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  driveOf, NEUTRAL_MODIFIERS, slotsOf, stepDrive, TICK_RATE_HZ, weaponDefOf,
+  driveOf, NEUTRAL_MODIFIERS, slotsOf, stepDrive, TICK_RATE_HZ, weaponDefOf, type SimBody,
 } from "@motor-combat-moba/shared";
 import { BOT_PROFILES } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
@@ -13,7 +13,7 @@ function view(overrides: Partial<BotView> = {}): BotView {
     tick: 0,
     self: {
       sessionId: "me", carId: "bullseye", team: 0,
-      x: 100, y: 100, angle: 0, speed: 0, hp: 65, maxHp: 65, alive: true,
+      x: 100, y: 100, angle: 0, vx: 0, vy: 0, hp: 65, maxHp: 65, alive: true,
       statuses: [], slots: [], switchLockUntilTick: 0, lockTargetSessionId: "",
       maneuver: 0, maneuverTicksLeft: 0,
     },
@@ -160,7 +160,7 @@ describe("HumanController", () => {
     const selfView = { ...view().self, x: 640, y: 360, angle: 0 };
     const ghost = {
       sessionId: "them", carId: "mirage" as const, team: 0 as const,
-      x: 100, y: 360, angle: 0, speed: 0, hp: 70, maxHp: 70,
+      x: 100, y: 360, angle: 0, vx: 0, vy: 0, hp: 70, maxHp: 70,
       alive: true, phased: true, statuses: [], maneuver: 0,
     };
     let out = { steer: 0, throttle: 0, fireSlots: 0 };
@@ -183,7 +183,7 @@ describe("HumanController", () => {
     const bot = new HumanController("hard", { profile });
     const target = {
       sessionId: "them", carId: "mirage" as const, team: 0 as const,
-      x: 400, y: 100, angle: 0, speed: 0, hp: 70, maxHp: 70,
+      x: 400, y: 100, angle: 0, vx: 0, vy: 0, hp: 70, maxHp: 70,
       alive: true, phased: false, statuses: [], maneuver: 0,
     };
     let out = { steer: 0, throttle: 0, fireSlots: 0 };
@@ -211,7 +211,7 @@ describe("HumanController", () => {
     const bot = new HumanController("hard");
     const target = {
       sessionId: "them", carId: "mirage" as const, team: 0 as const,
-      x: 100, y: 600, angle: 0, speed: 0, hp: 70, maxHp: 70,
+      x: 100, y: 600, angle: 0, vx: 0, vy: 0, hp: 70, maxHp: 70,
       alive: true, phased: false, statuses: [], maneuver: 0,
     };
     let last = { steer: 0, throttle: 0, fireSlots: 0 };
@@ -240,13 +240,13 @@ describe("HumanController", () => {
     const bot = new HumanController("hard", { profile });
     const selfView = {
       sessionId: "me", carId: "bullseye" as const, team: 0 as const,
-      x: 100, y: 100, angle: 0, speed: 0, hp: 65, maxHp: 65, alive: true,
+      x: 100, y: 100, angle: 0, vx: 0, vy: 0, hp: 65, maxHp: 65, alive: true,
       statuses: [], slots, switchLockUntilTick: 0, lockTargetSessionId: "",
       maneuver: 0, maneuverTicksLeft: 0,
     };
     const target = {
       sessionId: "them", carId: "mirage" as const, team: 0 as const,
-      x: 400, y: 100, angle: 0, speed: 0, hp: 70, maxHp: 70,
+      x: 400, y: 100, angle: 0, vx: 0, vy: 0, hp: 70, maxHp: 70,
       alive: true, phased: false, statuses: [], maneuver: 0,
     };
 
@@ -299,7 +299,7 @@ describe("HumanController", () => {
     const bot = new HumanController("hard");
     const selfView = {
       sessionId: "me", carId: "bullseye" as const, team: 0 as const,
-      x: 100, y: 100, angle: 0, speed: 0, hp: 65, maxHp: 65, alive: true,
+      x: 100, y: 100, angle: 0, vx: 0, vy: 0, hp: 65, maxHp: 65, alive: true,
       statuses: [], slots, switchLockUntilTick: 0, lockTargetSessionId: "",
       maneuver: 0, maneuverTicksLeft: 0,
     };
@@ -308,7 +308,7 @@ describe("HumanController", () => {
     // of what the dodge does to the blended steering heading.
     const target = {
       sessionId: "them", carId: "mirage" as const, team: 0 as const,
-      x: 400, y: 100, angle: 0, speed: 0, hp: 70, maxHp: 70,
+      x: 400, y: 100, angle: 0, vx: 0, vy: 0, hp: 70, maxHp: 70,
       alive: true, phased: false, statuses: [], maneuver: 0,
     };
     // A shot bearing down the +y axis, passing 10 units to the right of the car — well inside
@@ -384,7 +384,7 @@ describe("HumanController", () => {
     }));
     const target = {
       sessionId: "them", carId: "mirage" as const, team: 0 as const,
-      x: 300, y: 100, angle: 0, speed: 0, hp: 70, maxHp: 70,
+      x: 300, y: 100, angle: 0, vx: 0, vy: 0, hp: 70, maxHp: 70,
       alive: true, phased: false, statuses: [], maneuver: 0,
     };
     // `ramIntentChance: 1` makes the roll's OUTCOME certain so the test measures whether the roll
@@ -437,12 +437,12 @@ describe("HumanController", () => {
     }));
     const target = {
       sessionId: "them", carId: "mirage" as const, team: 0 as const,
-      x: 400, y: 100, angle: 0, speed: 0, hp: 70, maxHp: 70,
+      x: 400, y: 100, angle: 0, vx: 0, vy: 0, hp: 70, maxHp: 70,
       alive: true, phased: false, statuses: [], maneuver: 0,
     };
     const aliveSelf = {
       sessionId: "me", carId: "bullseye" as const, team: 0 as const,
-      x: 100, y: 100, angle: 0, speed: 0, hp: 65, maxHp: 65, alive: true,
+      x: 100, y: 100, angle: 0, vx: 0, vy: 0, hp: 65, maxHp: 65, alive: true,
       statuses: [], slots, switchLockUntilTick: 0, lockTargetSessionId: "",
       maneuver: 0, maneuverTicksLeft: 0,
     };
@@ -489,7 +489,7 @@ describe("HumanController", () => {
     const selfView = { ...view().self, slots, angle: 0, x: 100, y: 360 };
     const them = {
       sessionId: "them", carId: "mirage" as const, team: 0 as const,
-      x: 400, y: 360, angle: Math.PI, speed: 0, hp: 70, maxHp: 70,
+      x: 400, y: 360, angle: Math.PI, vx: 0, vy: 0, hp: 70, maxHp: 70,
       alive: true, phased: false, statuses: [], maneuver: 0,
     };
     for (let tick = 0; tick < 8; tick++) {
@@ -520,7 +520,7 @@ describe("HumanController", () => {
     const selfView = { ...view().self, slots, x: 40, y: 40, angle: 0 };
     const them = {
       sessionId: "them", carId: "mirage" as const, team: 0 as const,
-      x: 400, y: 400, angle: 0, speed: 200, hp: 70, maxHp: 70,
+      x: 400, y: 400, angle: 0, vx: 200, vy: 0, hp: 70, maxHp: 70,
       alive: true, phased: false, statuses: [], maneuver: 0,
     };
     let last = { steer: 0, throttle: 0, fireSlots: 0 };
@@ -549,7 +549,7 @@ describe("HumanController", () => {
     };
     const them = {
       sessionId: "them", carId: "mirage" as const, team: 0 as const,
-      x: 500, y: 360, angle: Math.PI, speed: 0, hp: 70, maxHp: 70,
+      x: 500, y: 360, angle: Math.PI, vx: 0, vy: 0, hp: 70, maxHp: 70,
       alive: true, phased: false, statuses: [], maneuver: 0,
     };
     let fired = false;
@@ -632,7 +632,7 @@ describe("HumanController", () => {
     const selfView = { ...view().self, slots, x: 200, y: 360, angle: 0 };
     const target = {
       sessionId: "them", carId: "mirage" as const, team: 1 as const,
-      x: 500, y: 360, angle: Math.PI, speed: 0, hp: 70, maxHp: 70,
+      x: 500, y: 360, angle: Math.PI, vx: 0, vy: 0, hp: 70, maxHp: 70,
       alive: true, phased: false, statuses: [], maneuver: 0,
     };
 
@@ -674,9 +674,9 @@ function turningCrosserDuel(ticks: number): { fires: number } {
   const radius = 400;
   const targetSpeed = 400;
   const omega = targetSpeed / radius; // rad/s, the arc's own turn rate
-  let body = {
-    x: centre.x, y: centre.y, angle: 0, speed: 300, reverseHold: 0, angVel: 0,
-    shoveX: 0, shoveY: 0, authority: 1, maneuver: 0, maneuverTicksLeft: 0, maneuverSpeed: 0,
+  let body: SimBody = {
+    x: centre.x, y: centre.y, angle: 0, vx: 300, vy: 0, reverseHold: 0, angVel: 0,
+    maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0, maneuverSpeed: 0,
   };
   let fires = 0;
 
@@ -687,14 +687,18 @@ function turningCrosserDuel(ticks: number): { fires: number } {
       x: centre.x + Math.cos(phase) * radius,
       y: centre.y + Math.sin(phase) * radius,
       angle: phase + Math.PI / 2, // tangent to the arc, so heading and motion agree
-      speed: targetSpeed, hp: 70, maxHp: 70, alive: true, phased: false,
+      // `targetSpeed` ALONG that tangent — the vector spelling of the old `speed: targetSpeed`,
+      // and still exactly the arc's own motion, which is what "heading and motion agree" means.
+      vx: Math.cos(phase + Math.PI / 2) * targetSpeed,
+      vy: Math.sin(phase + Math.PI / 2) * targetSpeed,
+      hp: 70, maxHp: 70, alive: true, phased: false,
       statuses: [], maneuver: 0,
     };
     const intent = bot.decide(view({
       tick,
       self: {
         ...view().self, carId: "bullseye",
-        x: body.x, y: body.y, angle: body.angle, speed: body.speed, slots,
+        x: body.x, y: body.y, angle: body.angle, vx: body.vx, vy: body.vy, slots,
       },
       others: [target],
       rng,
@@ -715,7 +719,7 @@ function inThreatLineView(tick: number, rng: ReturnType<typeof makeRng>): BotVie
   return {
     tick,
     self: {
-      sessionId: "me", carId: "bullseye", team: 0, x: 400, y: 360, angle: 0, speed: 300,
+      sessionId: "me", carId: "bullseye", team: 0, x: 400, y: 360, angle: 0, vx: 300, vy: 0,
       hp: 65, maxHp: 65, alive: true, statuses: [],
       slots: slotsOf("bullseye").map((weaponId) => ({
         weaponId, stocks: 1, rechargeEndsTick: 0, refireLockUntilTick: 0,
@@ -724,7 +728,7 @@ function inThreatLineView(tick: number, rng: ReturnType<typeof makeRng>): BotVie
       switchLockUntilTick: 0, lockTargetSessionId: "", maneuver: 0, maneuverTicksLeft: 0,
     },
     others: [{
-      sessionId: "them", carId: "bullseye", team: 1, x: 100, y: 360, angle: 0, speed: 0,
+      sessionId: "them", carId: "bullseye", team: 1, x: 100, y: 360, angle: 0, vx: 0, vy: 0,
       hp: 65, maxHp: 65, alive: true, phased: false, statuses: [], maneuver: 0,
     }],
     instances: [], arena: { width: 1280, height: 720, obstacles: [] },

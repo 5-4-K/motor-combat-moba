@@ -21,6 +21,12 @@ export interface Obb {
   h: number;
 }
 
+/** One other car as the resolver sees it: where it is, and how hard it is to shove. */
+export interface CarObstacle {
+  hull: Obb;
+  ramDefence: number;
+}
+
 /** Arena extent. The world is `[0, width] x [0, height]`, top-left origin. */
 export interface Bounds {
   width: number;
@@ -68,8 +74,8 @@ const RELAXATION_PASSES = 1;
  * Contacts resolve in a fixed order — bounds, `others` in array order, `obstacles` in array order,
  * then a final bounds clamp. Fixed order means server and client agree on *which* contacts are
  * applied and in what sequence; it does not promise bit-identical coordinates, since `cos`/`sin`
- * may differ by an ULP between engines (see the note in `drive.ts`). Prediction reconciles against
- * authoritative state rather than assuming bit-exact replay.
+ * may differ by an ULP between engines (see the note beside `stepSim` in `step.ts`). Prediction
+ * reconciles against authoritative state rather than assuming bit-exact replay.
  *
  * Ordering is a priority ranking, because the last contact resolved is the one guaranteed to end
  * separated (see `RELAXATION_PASSES`). From least to most inviolable:
@@ -83,16 +89,34 @@ const RELAXATION_PASSES = 1;
  * dimension — 48px measured on the flush-obstacle fixture in the tests — and hold it *stably*,
  * because the ranking re-applies identically every tick. Nothing here bounds the depth.
  *
- * The car-car case is the mildest only because the server resolves every player against the current
- * state each tick, so the *other* car is being pushed off this one at the same time and the pair
- * works itself apart. That relief comes from the caller's loop, not from anything in this function:
- * `resolveWorld` on its own will happily hold two cars overlapped forever.
+ * The car-car case used to be the mildest only because the server resolves every player against the
+ * current state each tick, so the *other* car is being pushed off this one at the same time — but
+ * "at the same time" is sequential, not simultaneous: the caller mutates each player in place and
+ * rebuilds `others` from whichever pose is current, so the SECOND car in resolution order resolves
+ * against the FIRST car's already-corrected position, not its pre-tick one. Before the positional
+ * split (stage 2 Task 2), each side conceded the FULL correction, so the first car removed the whole
+ * depth and the second found nothing left to concede — one tick, fully separated. Since that split
+ * below, each side concedes only its own `shareOf` — weighted by `ramDefence` as of stage 3 Task 3,
+ * `mass` before it, the split itself unchanged — and `shareA + shareB` (the two cars' shares of each
+ * other's `ramDefence` fraction) always sums to exactly 1. One full tick — both cars resolved once —
+ * removes `shareA + shareB - shareA * shareB` of the original depth and leaves a residual of
+ * `shareA * shareB * depth`: a quarter of the original overlap at equal `ramDefence` (0.5 * 0.5),
+ * less as the ratings diverge. That residual is not the end of it — it shrinks by the same `shareA * shareB`
+ * factor every subsequent tick both cars keep resolving, so the pair converges toward separation
+ * geometrically over several ticks, not in the one tick that first detects the overlap. If only ONE
+ * side of the pair is ever re-resolved (an idle or unqueued opponent, say), that geometric decay
+ * never starts for the side that never runs, and the moving car's own single-sided concession sets a
+ * standing residual instead of converging further — see `packages/server/src/sim/tick.test.ts`'s
+ * "stops a driver short of another player" for a measured example. Either way, the relief comes from
+ * the caller's loop, not from anything in this function: `resolveWorld` on its own will happily hold
+ * two cars overlapped forever if the caller never re-resolves the pair.
  */
 export function resolveWorld(
   body: SimBody,
-  others: readonly Obb[],
+  others: readonly CarObstacle[],
   obstacles: readonly Aabb[],
   bounds: Bounds,
+  selfRamDefence: number,
 ): SimBody {
   let next = body;
   for (let pass = 0; pass < RELAXATION_PASSES; pass++) {
@@ -101,32 +125,38 @@ export function resolveWorld(
     // occupy. Skipping this measurably changes the outcome for over half of ordinary wall contacts.
     next = resolveBounds(next, bounds);
     for (const other of others) {
-      next = resolveAgainst(next, other);
+      next = resolveAgainst(next, other.hull, shareOf(selfRamDefence, other.ramDefence));
     }
     for (const obstacle of obstacles) {
-      next = resolveAgainst(next, aabbToObb(obstacle));
+      next = resolveAgainst(next, aabbToObb(obstacle), OBSTACLE_SHARE);
     }
     // Trailing bounds pass — position only, no bounce. The boundary still gets the last word on
     // where the car may be, but restitution was already applied to whichever surfaces the car
     // actually struck: each distinct surface damps the speed exactly once, never r^2 or r^3.
     next = clampIntoBounds(next, bounds);
   }
-  return {
-    x: next.x,
-    y: next.y,
-    angle: next.angle,
-    speed: next.speed,
-    reverseHold: next.reverseHold,
-    angVel: next.angVel,
-    shoveX: next.shoveX,
-    shoveY: next.shoveY,
-    authority: next.authority,
-    maneuver: next.maneuver,
-    maneuverTicksLeft: next.maneuverTicksLeft,
-    maneuverAngle: next.maneuverAngle,
-    maneuverSpeed: next.maneuverSpeed,
-  };
+  return { ...next };
 }
+
+/**
+ * The fraction of a car-car correction THIS body absorbs.
+ *
+ * A more solid car (higher `ramDefence`) takes less of the push, so a Bastion is something you
+ * cannot shoulder aside and a Bullseye gets moved constantly. Renamed from a `mass`-weighted split
+ * in stage 3 Task 3 — the split itself (a plain ratio of the two sides) is unchanged, only which
+ * rating it reads. Static geometry has no `ramDefence` and does not yield: obstacles and bounds
+ * still hand the body the whole correction, which is what `OBSTACLE_SHARE` names.
+ *
+ * Note this is a POSITIONAL split, not an impulse — velocity exchange is `applyImpulse`'s job. The
+ * two are separate on purpose: separation runs every tick a pair overlaps, and routing it through
+ * impulses would re-apply a knock on each of them.
+ */
+function shareOf(selfRamDefence: number, otherRamDefence: number): number {
+  const total = selfRamDefence + otherRamDefence;
+  return total <= 0 ? OBSTACLE_SHARE : otherRamDefence / total;
+}
+
+const OBSTACLE_SHARE = 1;
 
 /**
  * The correction that brings the car's hull back inside the arena, per axis. Zero on an axis that
@@ -166,69 +196,47 @@ function resolveBounds(body: SimBody, bounds: Bounds): SimBody {
 }
 
 /**
- * Positional guard: put the hull back inside the arena and leave `speed` alone. Used as the final
+ * Positional guard: put the hull back inside the arena and leave `vx/vy` alone. Used as the final
  * word on position, after restitution has already been applied by the surfaces the car struck.
  */
 function clampIntoBounds(body: SimBody, bounds: Bounds): SimBody {
   const push = boundsPush(body, bounds);
   if (push.x === 0 && push.y === 0) return body;
-  return {
-    x: body.x + push.x,
-    y: body.y + push.y,
-    angle: body.angle,
-    speed: body.speed,
-    reverseHold: body.reverseHold,
-    angVel: body.angVel,
-    shoveX: body.shoveX,
-    shoveY: body.shoveY,
-    authority: body.authority,
-    maneuver: body.maneuver,
-    maneuverTicksLeft: body.maneuverTicksLeft,
-    maneuverAngle: body.maneuverAngle,
-    maneuverSpeed: body.maneuverSpeed,
-  };
+  return { ...body, x: body.x + push.x, y: body.y + push.y };
 }
 
-/** Resolve the body's car OBB against one static or moving box. Only the body moves. */
-function resolveAgainst(body: SimBody, box: Obb): SimBody {
+/**
+ * Resolve the body's car OBB against one static or moving box, conceding only `share` of the push.
+ * `share` is always `OBSTACLE_SHARE` (1) for static geometry and `shareOf(selfRamDefence,
+ * other.ramDefence)` for another car — see `resolveWorld`. Only the body moves; the box itself is
+ * never touched here.
+ */
+function resolveAgainst(body: SimBody, box: Obb, share: number): SimBody {
   const mtv = mtvBetween(carObbOf(body), box);
-  return mtv === null ? body : applyContact(body, mtv);
+  if (mtv === null) return body;
+  return applyContact(body, { x: mtv.x * share, y: mtv.y * share });
 }
 
 /**
  * Positional correction along `push`, then the bounce. With `n` the unit push direction (pointing
- * out of the surface, toward the car) and `v = forward * speed`:
+ * out of the surface, toward the car):
  *
  *   if dot(v, n) < 0:  v' = v - (1 + restitution) * dot(v, n) * n
- *   speed = |v'|, negated when dot(v', forward) < 0 so reverse stays negative along the facing.
  *
- * `angle` never changes during resolution, so `speed` stays a scalar along the car's facing.
- *
- * That last step — re-projecting the reflected velocity back onto an unchanged `forward` — is the
- * rule as specified, and it has two consequences worth knowing about before anyone "fixes" them.
- * Both are pinned by tests; changing either means changing the spec, not this function.
- *
- *  1. Walls damp but never redirect. The reflected direction is discarded and only its magnitude
- *     survives, so a car angled into a wall does not slide off it: it grinds along, pinned to the
- *     boundary, shedding a few percent of speed per tick while still facing into the wall. Real
- *     deflection would need `angle` to change, which collision resolution deliberately does not do.
- *
- *  2. The sign flips discontinuously at |dot(n, forward)| = 1/sqrt(1 + restitution) — about 30.6
- *     degrees off the surface normal. Just inside that, the reflected velocity still opposes the
- *     facing and the car is reported as reversing; just outside, it agrees and the car is reported
- *     as driving forward. The magnitude is continuous across the boundary, but the reported `speed`
- *     jumps by roughly twice it. Head-on impacts are nowhere near this angle; glancing ones sit
- *     right on it.
+ * `angle` never changes during resolution — collision does not rotate a car — but the VELOCITY is
+ * now free to point somewhere other than the facing. That is what makes a wall deflect rather than
+ * merely damp: before this rework the reflected direction was discarded and only its magnitude
+ * survived along the unchanged heading, so a car angled into a wall ground along it, pinned to the
+ * boundary, still facing in. It now slides off, which is also what makes a car-to-car bounce read
+ * as a bounce.
  */
 function applyContact(body: SimBody, push: Vec2): SimBody {
   const length = Math.hypot(push.x, push.y);
   if (length <= MIN_OVERLAP) return body;
   const n: Vec2 = { x: push.x / length, y: push.y / length };
 
-  const forward: Vec2 = { x: Math.cos(body.angle), y: Math.sin(body.angle) };
-  let vx = forward.x * body.speed;
-  let vy = forward.y * body.speed;
-
+  let vx = body.vx;
+  let vy = body.vy;
   const intoSurface = vx * n.x + vy * n.y;
   if (intoSurface < 0) {
     const scale = (1 + DRIVE_CONFIG.restitution) * intoSurface;
@@ -236,38 +244,7 @@ function applyContact(body: SimBody, push: Vec2): SimBody {
     vy -= scale * n.y;
   }
 
-  const magnitude = Math.hypot(vx, vy);
-  const speed = vx * forward.x + vy * forward.y < 0 ? -magnitude : magnitude;
-
-  // Ram shove is a second velocity the drive model does not know about, so it needs its own
-  // reflection or a knocked car would be driven into the surface every tick and held there by the
-  // clamp until the shove decayed. Same normal, same restitution, and gated on actually moving INTO
-  // the surface so a shove already leaving it is never amplified. A zero shove is a no-op, which is
-  // why the pre-ram collide tests are unaffected.
-  let shoveX = body.shoveX;
-  let shoveY = body.shoveY;
-  const shoveIntoSurface = shoveX * n.x + shoveY * n.y;
-  if (shoveIntoSurface < 0) {
-    const shoveScale = (1 + DRIVE_CONFIG.restitution) * shoveIntoSurface;
-    shoveX -= shoveScale * n.x;
-    shoveY -= shoveScale * n.y;
-  }
-
-  return {
-    x: body.x + push.x,
-    y: body.y + push.y,
-    angle: body.angle,
-    speed,
-    reverseHold: body.reverseHold,
-    angVel: body.angVel,
-    shoveX,
-    shoveY,
-    authority: body.authority,
-    maneuver: body.maneuver,
-    maneuverTicksLeft: body.maneuverTicksLeft,
-    maneuverAngle: body.maneuverAngle,
-    maneuverSpeed: body.maneuverSpeed,
-  };
+  return { ...body, x: body.x + push.x, y: body.y + push.y, vx, vy };
 }
 
 /**

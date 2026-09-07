@@ -31,15 +31,17 @@ export const AIM_CONFIG = {
    * any weapon's `range` (A3).
    *
    * The lock aims where the target IS, with no lead. Displacement during flight is
-   * `(targetSpeed / projectileSpeed) * distance`; at mirage's 449.5 top speed (`forwardMaxSpeedOf`,
-   * the roster's fastest) over `magmablast`'s speed -- 600, not the 900 of its `range` field -- that
-   * is `0.749 * distance` against a tolerance of about 28 units (half a car's 32 unit width plus
-   * magmablast's 12 unit hitbox), so a full-speed crosser is only hittable inside roughly 37 units.
-   * `magmablast` now rides Mirage's own slot 1 (2026-09-02 loadout swap), so the crosser this
-   * bounds is exactly what Mirage itself fights: something cutting across the shot's line at full
-   * speed, not a hypothetical -- the shell at 600 u/s is still faster than any car in the roster, so
-   * the miss is about lead, not the shell losing a race. Inheriting a 900 unit weapon range would
-   * make the far half of
+   * `(targetSpeed / projectileSpeed) * distance`; at mirage's 267 top speed (`forwardMaxSpeedOf`,
+   * the roster's fastest, as of the 2026-09-06 heavy-car pass -- this read 449.5 before it) over
+   * `magmablast`'s speed -- 600, not the 900 of its `range` field -- that is `0.445 * distance`
+   * against a tolerance of about 28 units (half a car's 32 unit width plus magmablast's 12 unit
+   * hitbox), so a full-speed crosser is only hittable inside roughly 63 units (was ~37 units at the
+   * pre-heavy-car top speed; this constant has not been re-examined against that shift -- see the
+   * whole-branch review's finding). `magmablast` now rides Mirage's own slot 1 (2026-09-02 loadout
+   * swap), so the crosser this bounds is exactly what Mirage itself fights: something cutting across
+   * the shot's line at full speed, not a hypothetical -- the shell at 600 u/s is still faster than
+   * any car in the roster, so the miss is about lead, not the shell losing a race. Inheriting a 900
+   * unit weapon range would make the far half of
    * every lock acquire reliably and miss reliably -- a strong-looking snap that whiffs, which reads
    * as a broken system rather than as a skill boundary.
    */

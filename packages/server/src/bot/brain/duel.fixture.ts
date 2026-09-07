@@ -50,7 +50,9 @@ import { HumanController } from "./controller.js";
 const ARENA = { width: 1280, height: 720, obstacles: [] as const };
 
 /** Where the bot starts every duel: mid-arena height, well clear of the far wall, already rolling. */
-const BOT_START = { x: 200, y: 360, angle: 0, speed: 300 };
+// `vx: 300, vy: 0` is the car-physics rework's spelling of the old `speed: 300` at `angle: 0` —
+// heading +x, so the whole 300 u/s is forward and none of it lateral. Same body, same fixture.
+const BOT_START = { x: 200, y: 360, angle: 0, vx: 300, vy: 0 };
 
 export interface DuelOptions {
   tier: "easy" | "medium" | "hard";
@@ -173,7 +175,7 @@ export function runDuel(opts: DuelOptions): DuelResult {
   const events = newCombatEvents();
 
   let body: SimBody = {
-    ...BOT_START, reverseHold: 0, angVel: 0, shoveX: 0, shoveY: 0, authority: 1,
+    ...BOT_START, reverseHold: 0, angVel: 0,
     maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0, maneuverSpeed: 0,
   };
   let me = combatant("me", chassis, 0, body.x, body.y, body.angle);
@@ -199,7 +201,7 @@ export function runDuel(opts: DuelOptions): DuelResult {
     }));
     const dummy: BotCarView = {
       sessionId: them.sessionId, carId: "mirage", team: 1,
-      x: them.x, y: them.y, angle: them.angle, speed: 0,
+      x: them.x, y: them.y, angle: them.angle, vx: 0, vy: 0,
       hp: them.hp, maxHp: hpOf("mirage"), alive: them.alive,
       phased: hasStatus(them.statuses, "phased", tick), statuses: them.statuses, maneuver: 0,
     };
@@ -207,7 +209,7 @@ export function runDuel(opts: DuelOptions): DuelResult {
       tick,
       self: {
         sessionId: "me", carId: chassis, team: 0,
-        x: body.x, y: body.y, angle: body.angle, speed: body.speed,
+        x: body.x, y: body.y, angle: body.angle, vx: body.vx, vy: body.vy,
         hp: me.hp, maxHp: hpOf(chassis), alive: me.alive, statuses: me.statuses, slots,
         switchLockUntilTick: resolveCombat ? me.fireState.switchLockUntilTick : 0,
         lockTargetSessionId: resolveCombat ? me.lock.targetSessionId : "",

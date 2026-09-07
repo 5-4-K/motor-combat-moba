@@ -5,7 +5,14 @@
  * the point is to see what the sim actually does, including where it does something defensible but
  * surprising.
  */
-import { DRIVE_CONFIG, forwardMaxSpeedOf, getArena, type CarId } from "@motor-combat-moba/shared";
+import {
+  DRIVE_CONFIG,
+  forwardMaxSpeedOf,
+  forwardOf,
+  speedOf,
+  getArena,
+  type CarId,
+} from "@motor-combat-moba/shared";
 import { PlaytestWorld, overlapDepth } from "./world.js";
 import { Reporter } from "./reporter.js";
 
@@ -21,24 +28,34 @@ const report = reporter.report.bind(reporter);
 /* ------------------------------------------------------------------ 1. tunneling */
 /**
  * Can a car pass THROUGH another between two ticks? Cars are only tested at their post-step pose —
- * there is no swept test for driving (unlike projectiles, which smear). At 30 Hz a mirage (top
- * speed rose 540 -> 576 in T8's restat) covers 19.2 u/tick; a head-on pair closes 38.4. The hull is
- * 48 long, so ordinary driving cannot tunnel. Ram shove is the extra term: it is added to the drive
- * velocity and is not capped by top speed.
+ * there is no swept test for driving (unlike projectiles, which smear).
+ *
+ * STALE POST-VECTOR-DRIVE-REWORK (2026-09-06): "covers 19.2 u/tick" / "closes 38.4" below predates
+ * both the T8 restat this comment already carried forward from and the heavy-car speed cut that
+ * followed it — mirage's per-tick step at top speed is now 267/30 = 8.9u, closing at 17.8u
+ * head-on. Left as-is (not corrected) per the review: stage 5 owns re-deriving playtest numbers
+ * against the current roster. Separately, "Ram shove ... is not capped by top speed" is no longer
+ * true when the victim is also under throttle: `accelerateForward`'s clamp now catches an injected
+ * forward-aligned velocity on the very next `stepDrive` call (see the comment on that clamp in
+ * `drive.ts`) — this probe's injected shove may now be discarded before it can contribute to
+ * closing speed. Also left for stage 5 to re-derive; see
+ * `docs/superpowers/plans/2026-09-06-car-physics/05-tune-and-reconcile.md`.
  */
 function tunneling(): void {
   const rows: string[] = [];
   let worst = 0;
   // Sweep closing speeds well past anything the drive model alone can reach, by injecting shove
-  // directly — exactly what a ram writes onto a victim.
+  // directly — exactly what a ram writes onto a victim. `shoveX` was a separate field additive to
+  // the old scalar `speed`; the direct successor is adding straight into `vx`, since both cars here
+  // face along the world x-axis (angle 0 and pi) so `vx` IS each car's forward component.
   for (const shove of [0, 200, 400, 600, 900, 1400, 2000]) {
     const gap = 200;
     const w = new PlaytestWorld([
       { id: "A", carId: "mirage", x: 640 - gap / 2, y: 360, angle: 0, speed: forwardMaxSpeedOf("mirage") },
       { id: "B", carId: "mirage", x: 640 + gap / 2, y: 360, angle: Math.PI, speed: forwardMaxSpeedOf("mirage") },
     ]);
-    w.get("A").shoveX = shove;
-    w.get("B").shoveX = -shove;
+    w.get("A").vx += shove;
+    w.get("B").vx -= shove;
     let passedThrough = false;
     for (let i = 0; i < 20; i++) {
       w.input("A", { throttle: 1 });
@@ -55,7 +72,21 @@ function tunneling(): void {
         `${passedThrough ? "TUNNELED" : "blocked"}`,
     );
   }
-  // 260 * 1.6 is knockMaxSpeed * massFactorMax: the hardest shove the shipped ram can write.
+  // STALE THRESHOLD — left as-is deliberately; stage 5 owns re-deriving it.
+  //
+  // 260 * 1.6 = 416 was `knockMaxSpeed * massFactorMax`, the hardest shove the OLD severity-graded
+  // ram could write. As of stage 3 Task 2 (the ram contest, spec R9) the ram magnitude is the
+  // open-ended contest output (`pushOf`/`impactOn` in `sim/ram.ts`), and `knockMaxSpeed` is inert
+  // while `massFactorMax` no longer exists at all — so this bound describes a model the game does
+  // not run.
+  //
+  // **Stage 3 Task 4 measured what the shipped ram can actually write: 268.0 u/s**, the roster
+  // maximum, from a Bastion at top speed rear-ending a parked Bullseye — swept over every chassis
+  // pairing, all three struck faces, victim parked/fleeing/reversing, and 8 sub-tick phases each.
+  // The real ceiling is therefore about 64% of the 416 this line still uses, so the verdict below is
+  // more conservative than it needs to be (it calls a tunnel a FINDING for shoves the ram can no
+  // longer produce) rather than wrong in the dangerous direction. Changing it is a threshold move,
+  // which this task is not allowed to make.
   const maxRamShove = 260 * 1.6;
   report(
     "1. Car-car tunneling at extreme closing speed",
@@ -182,7 +213,8 @@ function ramIntoWall(): void {
   const rows: string[] = [];
   let escaped = false;
   for (const victim of ["mirage", "bullseye", "bastion"] as CarId[]) {
-    // Bastion (mass 90) at top speed rear-ending a victim parked against the right wall.
+    // Bastion (the roster's highest ramAttack/ramDefence, 70/90) at top speed rear-ending a victim
+    // parked against the right wall.
     const wallX = ARENA.width - W / 2;
     const w = new PlaytestWorld([
       { id: "attacker", carId: "bastion", x: wallX - W - 4, y: 360, angle: 0, speed: forwardMaxSpeedOf("bastion") },
@@ -213,9 +245,16 @@ function ramIntoWall(): void {
  * `RAM_CONFIG.minApproachSpeed` writes no knock at all — so a silent car that is nudged slowly is
  * never stepped, never resolved, and cannot be pushed out of an overlap. Does that let a driver
  * bury themselves in a parked car?
+ *
+ * As of stage 3 Task 2 (spec R9), `minApproachSpeed` ships at 0 — deliberately inactive — so this
+ * gate no longer exercises the path it was written for: any drive-in at all now clears it, and this
+ * scenario's own feathered-throttle setup (staying near 40 u/s) no longer stays "under the ram
+ * threshold" in any meaningful sense. Left running rather than reworked; stage 5 owns it.
  */
 function silentWall(): void {
-  // Approach slowly enough to stay under minApproachSpeed (60 u/s) at the moment of contact.
+  // Originally: approach slowly enough to stay under minApproachSpeed (60 u/s) at the moment of
+  // contact. That threshold ships at 0 now (spec R9, see the doc comment above), so this no longer
+  // stays under any live gate — it just happens to be a gentle approach. Left as-is; stage 5 owns it.
   const w = new PlaytestWorld([
     { id: "mover", carId: "mirage", x: 640 - W - 30, y: 360, angle: 0 },
     { id: "parked", carId: "mirage", x: 640, y: 360, angle: 0 },
@@ -223,11 +262,16 @@ function silentWall(): void {
   let maxDepth = 0;
   let knockWritten = false;
   for (let i = 0; i < 200; i++) {
-    // Feather the throttle: pulse on/off so speed hovers around 40 u/s, below the ram threshold.
+    // Feather the throttle: pulse on/off so speed hovers around 40 u/s. This used to stay below the
+    // ram threshold (60 u/s); with minApproachSpeed at 0 (spec R9) there is no threshold to stay
+    // below any more.
     w.input("mover", { throttle: i % 6 === 0 ? 1 : 0 });
     w.tick();
     const p = w.get("parked");
-    if (p.shoveX !== 0 || p.shoveY !== 0 || p.angVel !== 0 || p.authority !== 1) knockWritten = true;
+    // "parked" never receives an input, so any vx/vy at all is a knock, not driving. `authority` has
+    // no successor in stage 1 (ram control-loss returns as the `reeling` status in stage 3b), so that
+    // check is dropped rather than replaced with a lookalike.
+    if (p.vx !== 0 || p.vy !== 0 || p.angVel !== 0) knockWritten = true;
     maxDepth = Math.max(maxDepth, overlapDepth(w.get("mover"), p));
   }
   const parked = w.get("parked");
@@ -287,19 +331,24 @@ function energyGain(): void {
       { id: "A", carId: "mirage", x: 500, y: 360, angle, speed: 500 },
       { id: "B", carId: "bastion", x: 560, y: 360, angle: Math.PI },
     ]);
-    w.get("A").shoveX = 300;
-    w.get("A").shoveY = 120;
-    const before = Math.abs(w.get("A").speed) + Math.hypot(w.get("A").shoveX, w.get("A").shoveY);
+    // `shoveX`/`shoveY` were a separate world-frame knock vector, added directly onto whatever
+    // `vx`/`vy` already held; `vx`/`vy` IS that world-frame vector now, so this becomes a plain add.
+    w.get("A").vx += 300;
+    w.get("A").vy += 120;
+    // The old check summed two independent magnitudes (|speed| and |shove|) because they were two
+    // separate fields; now there is one velocity, so its own magnitude is the direct, more exact
+    // successor — no more double-counting a single motion as if it were two.
+    const before = speedOf(w.get("A").vx, w.get("A").vy);
     for (let i = 0; i < 3; i++) {
       w.input("A", { throttle: 0 });
       w.input("B", { throttle: 0 });
       w.tick();
       const a = w.get("A");
-      const after = Math.abs(a.speed) + Math.hypot(a.shoveX, a.shoveY);
+      const after = speedOf(a.vx, a.vy);
       const gain = after - before;
       if (gain > worstGain) {
         worstGain = gain;
-        worstCase = `heading ${deg} deg, tick ${i + 1}: |speed|+|shove| ${before.toFixed(0)} -> ${after.toFixed(0)}`;
+        worstCase = `heading ${deg} deg, tick ${i + 1}: |v| ${before.toFixed(0)} -> ${after.toFixed(0)}`;
       }
     }
   }
@@ -307,7 +356,7 @@ function energyGain(): void {
     "7. Energy gain from a contact (restitution 0.35 + shove reflection)",
     worstGain > 1 ? "FINDING" : "OK",
     worstGain > 1
-      ? `speed/shove magnitude INCREASED across a contact: ${worstCase}`
+      ? `velocity magnitude INCREASED across a contact: ${worstCase}`
       : `no heading gained magnitude across a contact (worst delta ${worstGain.toFixed(3)}).`,
   );
 }
@@ -324,7 +373,8 @@ function glancingSignFlip(): void {
     const w = new PlaytestWorld([{ id: "A", carId: "mirage", x: 60, y: 360, angle: Math.PI - angle, speed: 400 }]);
     w.input("A", { throttle: 1 });
     w.tick();
-    const s = w.get("A").speed;
+    const after = w.get("A");
+    const s = forwardOf(after.vx, after.vy, after.angle);
     if (previous !== null && Math.abs(s - previous) > maxJump) maxJump = Math.abs(s - previous);
     if (previous !== null && Math.sign(s) !== Math.sign(previous)) {
       rows.push(`sign flips between ${deg - 1} deg (${previous.toFixed(0)}) and ${deg} deg (${s.toFixed(0)})`);
@@ -348,8 +398,6 @@ function ramChain(): void {
     { id: "atk2", carId: "bastion", x: 500, y: 400, angle: -Math.PI / 2 },
     { id: "victim", carId: "bullseye", x: 500, y: 360, angle: 0 },
   ]);
-  let ticksBelowFullAuthority = 0;
-  let minAuthority = 1;
   for (let i = 0; i < 300; i++) {
     // Both attackers pump the throttle so they separate and re-approach — a real chain attempt.
     const phase = Math.floor(i / 20) % 2;
@@ -357,22 +405,19 @@ function ramChain(): void {
     w.input("atk2", { throttle: phase === 1 ? 1 : -1 });
     w.input("victim", { throttle: 0 });
     w.tick();
-    const a = w.get("victim").authority;
-    minAuthority = Math.min(minAuthority, a);
-    if (a < 0.999) ticksBelowFullAuthority++;
   }
+  // This probe's entire measurement was `victim.authority` — how much of a coordinated 2v1's
+  // pressure showed up as degraded steering. `authority` has no successor in stage 1: ram
+  // control-loss returns as the `reeling` status in stage 3b. Rather than substitute a lookalike
+  // number (e.g. counting ticks under some invented "reeling" proxy), the measurement is dropped
+  // here; the tick loop above is left in place so the scenario still exercises the ram-chain path,
+  // but there is nothing left to report a verdict on until stage 3b lands.
   report(
     "9. Two attackers chain-ramming one victim (300 ticks)",
-    // Edge triggering is the anti-stun-lock guarantee, not the trigger rate. Near-continuous
-    // degradation under a coordinated 2v1 focus would mean edge triggering has stopped working.
-    ticksBelowFullAuthority > 270 ? "FINDING" : "OK",
-    `victim spent ${ticksBelowFullAuthority}/300 ticks with degraded steering ` +
-      `(${((ticksBelowFullAuthority / 300) * 100).toFixed(0)}%), floor reached ${minAuthority.toFixed(2)} ` +
-      `(RAM_CONFIG.authorityFloor is 0.35).\n` +
-      `Balance note: this read 46% and floor 0.57 while the ram trigger bug was live, because most ` +
-      `of the attackers' passes landed nothing. 84% at the designed floor is what a coordinated 2v1 ` +
-      `focus was always meant to cost — it is the intended pressure arriving for the first time, not ` +
-      `a regression, and it is the first thing to re-tune from play.`,
+    "KNOWN-BY-DESIGN",
+    `Not measurable in stage 1 — this probe read \`victim.authority\` to gauge anti-stun-lock ` +
+      `pressure from a coordinated 2v1, and \`authority\` has no successor until stage 3b's ` +
+      `\`reeling\` status lands. Re-derive this probe then.`,
   );
 }
 
@@ -456,7 +501,8 @@ function wallPin(): void {
   report(
     "10. Wall pin: heaviest car holds the lightest against the wall — can it get out?",
     nosePinCaged || broadsideCaged ? "FINDING" : "OK",
-    `bastion (mass 90) holds full throttle into a bullseye (mass 30) on the right wall for 300 ` +
+    `bastion (ramAttack 70, ramDefence 90) holds full throttle into a bullseye (45/30) on the ` +
+      `right wall for 300 ` +
       `ticks; the victim drives each escape a player would try. Escape = centre moved 80u.\n` +
       rows.join("\n") +
       (nosePinCaged || broadsideCaged

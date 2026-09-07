@@ -415,9 +415,9 @@ export class PlaygroundRoom extends Room<PlaygroundState> {
 
     // Alone mode (PG11) sends a NEUTRAL input, not silence. `serverTick` leaves an input-less player
     // unstepped unless it is carrying a knock, so a dummy handed no input freezes exactly where the
-    // bot was switched off — and it keeps the `speed` it was carrying, which `serverTick` reports as
-    // that car's `approachSpeeds` on every subsequent tick. `resolveRam` reads that as the approach
-    // term, so a parked target dummy scores as an attacker at its last driving speed in every
+    // bot was switched off — and it keeps the velocity it was carrying, which `serverTick` reports as
+    // that car's `approachVelocities` on every subsequent tick. `resolveRam` reads that as the
+    // drive-in term, so a parked target dummy scores as an attacker at its last driving speed in every
     // contact, forever. Coasting it on zeros runs it through the ordinary drive model instead: it
     // decelerates and its speed reaches 0, the way letting go of the throttle does.
     if (!this.state.botEnabled) {

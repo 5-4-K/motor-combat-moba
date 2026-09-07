@@ -18,7 +18,7 @@ export interface Modifiers {
   damageDealt: number;
   damageTaken: number;
   weaponCooldown: number;
-  ramMass: number;
+  ramDefence: number;
   /** Throttle forced to neutral. Steering, braking and drag are untouched. */
   immobilised: boolean;
   /** Steer input forced to 0. Injected ram spin is untouched. */
@@ -50,7 +50,7 @@ export const NEUTRAL_MODIFIERS: Readonly<Modifiers> = Object.freeze({
   damageDealt: 1,
   damageTaken: 1,
   weaponCooldown: 1,
-  ramMass: 1,
+  ramDefence: 1,
   immobilised: false,
   steeringLocked: false,
   disarmed: false,

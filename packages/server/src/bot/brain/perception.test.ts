@@ -7,7 +7,7 @@ import { activeThreats, acquiringUnnoticed, knownCars, lastKnownAnchor, nearestH
 function car(overrides: Partial<BotCarView> = {}): BotCarView {
   return {
     sessionId: "them", carId: "mirage", team: 0,
-    x: 300, y: 100, angle: 0, speed: 0, hp: 70, maxHp: 70,
+    x: 300, y: 100, angle: 0, vx: 0, vy: 0, hp: 70, maxHp: 70,
     alive: true, phased: false, statuses: [], maneuver: 0,
     ...overrides,
   };
@@ -18,7 +18,7 @@ function view(overrides: Partial<BotView> = {}): BotView {
     tick: 0,
     self: {
       sessionId: "me", carId: "bullseye", team: 0,
-      x: 100, y: 100, angle: 0, speed: 0, hp: 65, maxHp: 65, alive: true,
+      x: 100, y: 100, angle: 0, vx: 0, vy: 0, hp: 65, maxHp: 65, alive: true,
       statuses: [], slots: [], switchLockUntilTick: 0, lockTargetSessionId: "",
       maneuver: 0, maneuverTicksLeft: 0,
     },
@@ -147,7 +147,7 @@ describe("hunt cues (G12, G13)", () => {
   it("predicts last-known along last seen velocity, not the frozen spot", () => {
     let state = newPerception();
     const profile = { ...BOT_PROFILES.hard, acquireTicks: 0 };
-    const moving = car({ x: 300, y: 100, angle: 0, speed: 300 });
+    const moving = car({ x: 300, y: 100, angle: 0, vx: 300, vy: 0 });
     state = perceive(state, view({ tick: 0, others: [moving] }), profile);
     const known = [...state.cars.values()][0]!;
     const pose = predictedPose(known, 30); // 1 second later at 30 Hz

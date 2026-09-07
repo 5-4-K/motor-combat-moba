@@ -7,6 +7,7 @@ import {
   PlayerStatus,
   getArena,
   modifiersFromRows,
+  ramDefenceOf,
 } from "@motor-combat-moba/shared";
 import {
   buildStepContext,
@@ -55,7 +56,7 @@ describe("buildStepContext", () => {
       0,
       NEUTRAL_MODIFIERS,
     );
-    expect(ctx.others.map((hull) => hull.x)).toEqual([20]);
+    expect(ctx.others.map((o) => o.hull.x)).toEqual([20]);
   });
 
   it("omits players who are not in the match, matching the server's wall gate (isSolid)", () => {
@@ -71,7 +72,7 @@ describe("buildStepContext", () => {
       0,
       NEUTRAL_MODIFIERS,
     );
-    expect(ctx.others.map((hull) => hull.x)).toEqual([50]);
+    expect(ctx.others.map((o) => o.hull.x)).toEqual([50]);
   });
 
   it("orders others by sorted sessionId, exactly like serverTick", () => {
@@ -89,7 +90,7 @@ describe("buildStepContext", () => {
       0,
       NEUTRAL_MODIFIERS,
     );
-    expect(ctx.others.map((hull) => hull.x)).toEqual([2, 3, 1]);
+    expect(ctx.others.map((o) => o.hull.x)).toEqual([2, 3, 1]);
   });
 
   it("sizes hulls from DRIVE_CONFIG and carries the other car's angle", () => {
@@ -101,12 +102,38 @@ describe("buildStepContext", () => {
       NEUTRAL_MODIFIERS,
     );
     expect(ctx.others[0]).toEqual({
-      x: 0,
-      y: 0,
-      angle: 1.25,
-      w: DRIVE_CONFIG.carWidth,
-      h: DRIVE_CONFIG.carHeight,
+      hull: {
+        x: 0,
+        y: 0,
+        angle: 1.25,
+        w: DRIVE_CONFIG.carWidth,
+        h: DRIVE_CONFIG.carHeight,
+      },
+      ramDefence: ramDefenceOf("mirage"),
     });
+  });
+
+  it("carries each other car's ramDefence, not just its hull (stage 2 Task 2)", () => {
+    const ctx = buildStepContext(
+      ARENA,
+      state({ me: player(), them: player({ carId: "bastion" }) }),
+      "me",
+      0,
+      NEUTRAL_MODIFIERS,
+    );
+    expect(ctx.others[0]!.ramDefence).toBe(ramDefenceOf("bastion"));
+  });
+
+  it("sets selfRamDefence from the local player's own car, distinct from any other car's ramDefence", () => {
+    const ctx = buildStepContext(
+      ARENA,
+      state({ me: player({ carId: "bastion" }), them: player({ carId: "mirage" }) }),
+      "me",
+      0,
+      NEUTRAL_MODIFIERS,
+    );
+    expect(ctx.selfRamDefence).toBe(ramDefenceOf("bastion"));
+    expect(ctx.others[0]!.ramDefence).toBe(ramDefenceOf("mirage"));
   });
 
   it("uses the local player's chosen car", () => {

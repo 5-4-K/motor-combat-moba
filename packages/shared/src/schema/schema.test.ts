@@ -23,7 +23,9 @@ describe("PlayerState", () => {
     expect(p.team).toBe(0);
     expect(p.joinedAtTick).toBe(0);
     expect(p.carId).toBe("");
-    expect(p.speed).toBe(0);
+    expect(p.vx).toBe(0);
+    expect(p.vy).toBe(0);
+    expect(p.angVel).toBe(0);
     expect(p.reverseHold).toBe(0);
     expect(p.hp).toBe(0);
     expect(p.alive).toBe(true);
@@ -44,7 +46,8 @@ describe("PlayerState", () => {
     p.team = 1;
     p.joinedAtTick = 42;
     p.carId = "bullseye";
-    p.speed = 180;
+    p.vx = 180;
+    p.vy = -40;
     p.reverseHold = 6;
     p.hp = 50;
     p.alive = false;
@@ -54,19 +57,12 @@ describe("PlayerState", () => {
     expect(p.team).toBe(1);
     expect(p.joinedAtTick).toBe(42);
     expect(p.carId).toBe("bullseye");
-    expect(p.speed).toBe(180);
+    expect(p.vx).toBe(180);
+    expect(p.vy).toBe(-40);
     expect(p.reverseHold).toBe(6);
     expect(p.hp).toBe(50);
     expect(p.alive).toBe(false);
     expect(p.selectLocked).toBe(true);
-  });
-
-  it("defaults authority to 1, not 0 — a 0 default would mean an undriveable car", () => {
-    const p = new PlayerState();
-    expect(p.authority).toBe(1);
-    expect(p.angVel).toBe(0);
-    expect(p.shoveX).toBe(0);
-    expect(p.shoveY).toBe(0);
   });
 });
 

@@ -9,6 +9,10 @@ import {
   PlayerStatus,
   RoomPhase,
   driveOf,
+  forwardOf,
+  lateralOf,
+  toWorld,
+  type CarId,
   type InputMessage,
   type Modifiers,
   type SimBody,
@@ -33,6 +37,7 @@ function makePlayer(
   y: number,
   angle: number,
   status: PlayerStatus = PlayerStatus.IN_MATCH,
+  carId: CarId = "mirage",
 ): PlayerState {
   const p = new PlayerState();
   p.sessionId = sessionId;
@@ -40,7 +45,7 @@ function makePlayer(
   p.y = y;
   p.angle = angle;
   p.status = status;
-  p.carId = "mirage";
+  p.carId = carId;
   p.lastProcessedInputSeq = 0;
   return p;
 }
@@ -57,12 +62,10 @@ function poseOf(player: PlayerState): SimBody {
     x: player.x,
     y: player.y,
     angle: player.angle,
-    speed: player.speed,
+    vx: player.vx,
+    vy: player.vy,
     reverseHold: player.reverseHold,
     angVel: player.angVel,
-    shoveX: player.shoveX,
-    shoveY: player.shoveY,
-    authority: player.authority,
   };
 }
 
@@ -85,7 +88,7 @@ describe("serverTick", () => {
 
     expect(player.x).toBeGreaterThan(300);
     expect(player.y).toBe(CORRIDOR_Y);
-    expect(player.speed).toBeCloseTo(driveOf("mirage").accel * DT, 6);
+    expect(forwardOf(player.vx, player.vy, player.angle)).toBeCloseTo(driveOf("mirage").accel * DT, 6);
     expect(player.lastProcessedInputSeq).toBe(7);
     expect(queues.get("p1")).toEqual([]);
   });
@@ -97,8 +100,9 @@ describe("serverTick", () => {
 
     serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
 
-    // Would be a single `accel * DT` if `speed` were only written back after the last input.
-    expect(player.speed).toBeCloseTo(3 * driveOf("mirage").accel * DT, 6);
+    // Would be a single `accel * DT` if `vx`/`vy` were only written back after the last input.
+    expect(forwardOf(player.vx, player.vy, player.angle))
+      .toBeCloseTo(3 * driveOf("mirage").accel * DT, 6);
   });
 
   it("leaves a player with an empty or missing queue unchanged", () => {
@@ -116,24 +120,20 @@ describe("serverTick", () => {
       x: 1,
       y: 2,
       angle: 0.1,
-      speed: 0,
+      vx: 0,
+      vy: 0,
       reverseHold: 0,
       angVel: 0,
-      shoveX: 0,
-      shoveY: 0,
-      authority: 1,
     });
     expect(emptyQ.lastProcessedInputSeq).toBe(3);
     expect(poseOf(missingQ)).toEqual({
       x: 4,
       y: 5,
       angle: 0.2,
-      speed: 0,
+      vx: 0,
+      vy: 0,
       reverseHold: 0,
       angVel: 0,
-      shoveX: 0,
-      shoveY: 0,
-      authority: 1,
     });
     expect(missingQ.lastProcessedInputSeq).toBe(4);
   });
@@ -165,7 +165,8 @@ describe("serverTick", () => {
     serverTick(stateWith(slow), new Map([["p1", ups(1)]]), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
     serverTick(stateWith(fast), new Map([["p1", ups(1)]]), DT * 2, RoomPhase.MATCH, NO_EFFECTS, new Map());
 
-    expect(fast.speed).toBeCloseTo(slow.speed * 2, 6);
+    expect(forwardOf(fast.vx, fast.vy, fast.angle))
+      .toBeCloseTo(forwardOf(slow.vx, slow.vy, slow.angle) * 2, 6);
     expect(fast.x - 300).toBeGreaterThan(slow.x - 300);
   });
 
@@ -239,7 +240,7 @@ describe("serverTick", () => {
 
         serverTick(state, queues, DT, phase, NO_EFFECTS, new Map());
 
-        expect(poseOf(player)).toEqual({ x: 300, y: CORRIDOR_Y, angle: 0, speed: 0, reverseHold: 0, angVel: 0, shoveX: 0, shoveY: 0, authority: 1 });
+        expect(poseOf(player)).toEqual({ x: 300, y: CORRIDOR_Y, angle: 0, vx: 0, vy: 0, reverseHold: 0, angVel: 0 });
         expect(player.lastProcessedInputSeq).toBe(9);
         expect(queues.get("p1")).toEqual([]);
       });
@@ -256,19 +257,29 @@ describe("serverTick", () => {
 
       serverTick(state, queues, DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
 
-      expect(poseOf(offField)).toEqual({ x: 300, y: CORRIDOR_Y, angle: 0, speed: 0, reverseHold: 0, angVel: 0, shoveX: 0, shoveY: 0, authority: 1 });
+      expect(poseOf(offField)).toEqual({ x: 300, y: CORRIDOR_Y, angle: 0, vx: 0, vy: 0, reverseHold: 0, angVel: 0 });
       expect(offField.lastProcessedInputSeq).toBe(9);
       expect(queues.get("p1")).toEqual([]);
     });
   }
 
   describe("other cars as colliders", () => {
-    /** Far enough for the driver to reach the blocker, not far enough to be near a wall. */
-    const TICKS = 40;
+    /**
+     * Far enough for the driver to reach the blocker, not far enough to be near a wall. 60, not 40:
+     * the 2026-09-06 vector-drive rework's heavy-car pass cut mirage's accel/top speed (420/7.2 base
+     * pair -> 60/1.4, 135/3.7 -> 80/2.2), so 40 ticks (1.33 s) no longer covers the 200 u to the
+     * blocker at x=500 — mirage needs ~1.5 s just to reach its new 267 u/s top speed. 60 ticks (2 s)
+     * clears 500 with room to spare while still resolving well short of the arena wall.
+     */
+    const TICKS = 60;
 
-    function driveIntoBlocker(blockerStatus: PlayerStatus): PlayerState {
-      const driver = makePlayer("a-driver", 300, CORRIDOR_Y, 0);
-      const blocker = makePlayer("b-blocker", 500, CORRIDOR_Y, 0, blockerStatus);
+    function driveIntoBlocker(
+      blockerStatus: PlayerStatus,
+      driverCar: CarId = "mirage",
+      blockerCar: CarId = "mirage",
+    ): PlayerState {
+      const driver = makePlayer("a-driver", 300, CORRIDOR_Y, 0, PlayerStatus.IN_MATCH, driverCar);
+      const blocker = makePlayer("b-blocker", 500, CORRIDOR_Y, 0, blockerStatus, blockerCar);
       const state = stateWith(driver, blocker);
       for (let i = 0; i < TICKS; i++) {
         serverTick(state, new Map([["a-driver", ups(i + 1)]]), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
@@ -279,7 +290,57 @@ describe("serverTick", () => {
     it("stops a driver short of another player who is in the match", () => {
       const driver = driveIntoBlocker(PlayerStatus.IN_MATCH);
       expect(driver.x).toBeGreaterThan(300);
-      expect(driver.x + DRIVE_CONFIG.carWidth).toBeLessThanOrEqual(500);
+      // REPINNED for stage 2 Task 2 (ramDefence-weighted separation): a lone `IN_MATCH` blocker with an
+      // empty queue and no knock is never itself stepped (`serverTick` drains only queued or
+      // knocked players), so its own `resolveWorld` call -- and its own half of the ramDefence split --
+      // never runs. Only the driver's side concedes its `shareOf` the overlap each tick, so the
+      // pair's damped steady state (throttle re-driving it in, restitution pushing it back out,
+      // exactly the wall equilibrium `step.test.ts`'s "single-step path" case documents) settles a
+      // fraction of a unit inside the exact boundary rather than pinned flush to it -- traced at
+      // ~452.0663 here, oscillating tick to tick, against the exact-separation value of 452.
+      //
+      // FINDING 2 fix (stage 2 review): this margin used to be a flat 1 unit, borrowed from
+      // `combat.test.ts`'s identically-shaped steady state without re-deriving it for THIS pairing
+      // (both cars default to mirage/mirage here) -- 1 unit is ~15x the traced ~0.0663u residual, so
+      // it would not have caught a regression that doubled or even quintupled the residual. Pinned
+      // here to 0.1 (~1.5x headroom above the traced value): still comfortably clear of floating
+      // point noise, but a doubled residual (~0.1326u) now fails.
+      //
+      // This is the mirage/mirage case only -- see "converges to a residual overlap ..." below for
+      // how much worse other roster pairings get, and why that matters for Task 4.
+      expect(driver.x + DRIVE_CONFIG.carWidth).toBeLessThanOrEqual(500.1);
+    });
+
+    it("converges to a residual overlap that stays bounded across every roster ramDefence pairing, not just mirage/mirage", () => {
+      // FINDING 2 (stage 2 review): the test above only ever drives mirage into mirage. The residual
+      // this idle-blocker steady state settles at is NOT a constant -- the idle blocker never runs
+      // its own `resolveWorld` (see the comment above), so only the driver ever concedes its
+      // `shareOf(selfRamDefence, otherRamDefence)`; the smaller that share, the deeper the driver ends up
+      // past the exact boundary. Swept here across all 9 ordered chassis pairings so the real worst
+      // case is measured, not assumed -- a bastion (900) driving into an idle bullseye (300) takes
+      // only `shareOf(900, 300) = 0.25` of the correction each tick and sits roughly 14x deeper than
+      // the symmetric mirage/mirage case above.
+      //
+      // TASK 4 NOTE: under the pre-split full push, a resting/pinned pair ended flush and
+      // `mtvBetween` returned `null` on the next tick (touching is not overlap) -- an edge-triggered
+      // contact. Under this ramDefence split, a pinned pair like this one holds a NON-NULL MTV every tick
+      // while a throttle is held, for as long as the residual below persists (tens of ticks, or
+      // indefinitely against a truly idle blocker). Any Task-4 contact detector keyed on "is there
+      // currently an overlap" will now fire continuously against a pair that used to report contact
+      // once -- this is not a bug in this test, it is a real, documented behaviour change.
+      const CARS: readonly CarId[] = ["mirage", "bullseye", "bastion"];
+      // Measured worst case (this exact sweep): bastion into bullseye at ~0.9082u. 1.2 leaves
+      // headroom without being loose enough to hide a doubled residual (~1.82u).
+      const MAX_RESIDUAL = 1.2;
+
+      for (const driverCar of CARS) {
+        for (const blockerCar of CARS) {
+          const driver = driveIntoBlocker(PlayerStatus.IN_MATCH, driverCar, blockerCar);
+          const overlap = driver.x + DRIVE_CONFIG.carWidth - 500;
+          expect(overlap, `driver=${driverCar} blocker=${blockerCar}`).toBeGreaterThanOrEqual(0);
+          expect(overlap, `driver=${driverCar} blocker=${blockerCar}`).toBeLessThan(MAX_RESIDUAL);
+        }
+      }
     });
 
     it("does not treat a player who is not in the match as a solid wall", () => {
@@ -316,7 +377,7 @@ describe("serverTick", () => {
     const CLEARING_SPEED = 300; // enough to open a gap in a single tick
 
     const leader = makePlayer("aaa", LEADER_X, CORRIDOR_Y, Math.PI);
-    leader.speed = CLEARING_SPEED;
+    Object.assign(leader, toWorld(Math.PI, CLEARING_SPEED, 0));
     const follower = makePlayer("bbb", FOLLOWER_X, CORRIDOR_Y, 0);
     const state = stateWith(leader, follower);
     const queues = new Map<string, InputMessage[]>([
@@ -337,14 +398,13 @@ describe("serverTick", () => {
   describe("ram knock state round-trip", () => {
     // `ram-bridge.test.ts` proves `ramTick` WRITES a knock onto `PlayerState`. Nothing proves the
     // NEXT `serverTick` actually READS it back: `bodyOf`/`writeBody` are the only bridge between the
-    // two, and dropping a field from either (e.g. forgetting `shoveY` in `writeBody`) would be
-    // invisible to every other test in this file, all of which use neutral knock state.
-    it("carries angVel/shove/authority through bodyOf -> stepDrive -> writeBody: it moves the pose, and the fields round-trip decayed rather than dropped", () => {
+    // two, and dropping a field from either (e.g. forgetting `vy` in `writeBody`) would be invisible
+    // to every other test in this file, all of which use neutral knock state.
+    it("carries angVel/vx/vy through bodyOf -> stepDrive -> writeBody: it moves the pose, and the fields round-trip decayed rather than dropped", () => {
       const player = makePlayer("p1", 300, CORRIDOR_Y, 0);
       player.angVel = 2;
-      player.shoveX = 120;
-      player.shoveY = -60;
-      player.authority = 0.5;
+      player.vx = 120;
+      player.vy = -60;
       const state = stateWith(player);
       // No steer, no throttle: any rotation or translation below comes solely from the knock state,
       // not from ordinary driving.
@@ -357,16 +417,22 @@ describe("serverTick", () => {
       expect(player.x).toBeGreaterThan(300);
       expect(player.y).toBeLessThan(CORRIDOR_Y);
 
-      // Round-tripped through decay, not silently dropped to neutral (angVel/shove 0, authority 1) —
-      // that is exactly what a missing field in `bodyOf` or `writeBody` would produce.
+      // Round-tripped through decay, not silently dropped to neutral (angVel/vx/vy all 0) — that is
+      // exactly what a missing field in `bodyOf` or `writeBody` would produce.
       expect(player.angVel).toBeGreaterThan(0);
       expect(player.angVel).toBeLessThan(2);
-      expect(player.shoveX).toBeGreaterThan(0);
-      expect(player.shoveX).toBeLessThan(120);
-      expect(player.shoveY).toBeLessThan(0);
-      expect(player.shoveY).toBeGreaterThan(-60);
-      expect(player.authority).toBeGreaterThan(0.5);
-      expect(player.authority).toBeLessThan(1);
+      // `steeringGrip` (1.0) rebuilds vx/vy from the forward/lateral split in the tick's NEW heading
+      // every tick (see `stepDrive`), so a one-tick decay of that split does not mean vx itself must
+      // fall: with `vy` negative here, angVel's small rotation of the nose folds a sliver of the
+      // decaying lateral component onto +x. Under mirage's pre-2026-09-06 fast coast that sliver was
+      // smaller than the forward decay it partly offset, so vx net decreased; mirage's much slower
+      // `coastHalfLifeSeconds` (0.35 -> 1.2 s in the vector-drive rework's heavy-car pass) decays the
+      // forward component far less in one tick, so the rotation now nets vx slightly ABOVE 120. Pinned
+      // rather than bounded below 120, so a genuine mechanism regression (steeringGrip or the decay
+      // rates) still fails this instead of the bound quietly widening to fit whatever comes out.
+      expect(player.vx).toBeCloseTo(120.892, 3);
+      expect(player.vy).toBeLessThan(0);
+      expect(player.vy).toBeGreaterThan(-60);
     });
   });
 
@@ -548,9 +614,21 @@ describe("serverTick fire mask reporting", () => {
  * hidden), so the victim was skipped entirely and sat frozen with a full-strength shove on it.
  */
 describe("serverTick coasts a knocked player who has stopped sending input", () => {
+  /**
+   * `angVel` is always given a nonzero starting value alongside the shove. `hasKnock` gates the
+   * coast on `lateralOf(vx, vy, angle)` rather than raw `vx`/`vy` (see `hasKnock`'s own comment in
+   * `tick.ts`), and this fixture's shove (`vx = 300` at `angle = 0`) is aligned with the car's own
+   * heading — exactly the "dead-on rear-end" case `lateralOf` cannot see, by design (a car's own
+   * steering grip means only a LATERAL component is unambiguously external). The `angVel` companion
+   * is not decorative here: it is what keeps `hasKnock` true for this fixture at all. A real ram's
+   * `spinOf` is a continuous function of contact geometry that is essentially never exactly 0, so
+   * pairing a shove with spin reflects production reality — but it also means this fixture alone does
+   * not exercise `lateralOf`'s own detection path, which no test here isolates directly.
+   */
   function knocked(over: Partial<PlayerState> = {}): PlayerState {
     const p = makePlayer("v", 500, 400, 0);
-    p.shoveX = 300;
+    p.vx = 300;
+    p.angVel = 2;
     Object.assign(p, over);
     return p;
   }
@@ -573,39 +651,133 @@ describe("serverTick coasts a knocked player who has stopped sending input", () 
     const player = knocked();
     const state = stateWith(player);
     serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
-    expect(player.shoveX).toBeLessThan(300);
-    expect(player.shoveX).toBeGreaterThan(0);
+    expect(player.vx).toBeLessThan(300);
+    expect(player.vx).toBeGreaterThan(0);
   });
 
   it("carries every knock component, not just shove", () => {
-    const player = knocked({ shoveX: 0, angVel: 3, authority: 0.35 });
+    const player = knocked({ vx: 0, vy: 0, angVel: 3 });
     const state = stateWith(player);
     serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
     expect(player.angVel).toBeLessThan(3);
-    expect(player.authority).toBeGreaterThan(0.35);
+    expect(player.angVel).toBeGreaterThan(0);
     expect(player.angle).not.toBe(0);
   });
 
-  it("settles to exact neutral and then stops moving the car", () => {
-    const player = knocked({ angVel: 3, authority: 0.35 });
+  it("settles angVel to exact neutral, then freezes the residual forward-aligned velocity", () => {
+    // This fixture's shove (`vx = 300` at `angle = 0`) is aligned with the car's own heading, so
+    // `lateralOf` reads exactly 0 for it from the very first tick (`DRIVE_CONFIG.steeringGrip` is
+    // 1.0, so the rebuilt velocity always re-decomposes with zero lateral component too) — only the
+    // paired `angVel` keeps `hasKnock` true at all, and it rotates the heading out from under the
+    // velocity as it spins down. Once `angVel` snaps to exactly 0 (its own epsilon), `hasKnock` goes
+    // false and the coast stops for good — this is `hasKnock`'s documented, accepted gap (a knock
+    // landing purely along the victim's own heading is invisible to `lateralOf`), not a bug: it
+    // reduces to the pre-rework `speed` behaviour of freezing rather than decaying to true rest.
+    // What must still hold is that it settles ONCE and stays settled, rather than oscillating or
+    // running forever — that is the "stops moving the car" half of this test's name.
+    const player = knocked({ angVel: 3 });
     const state = stateWith(player);
     for (let i = 0; i < 300; i++) serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
-    expect(player.shoveX).toBe(0);
     expect(player.angVel).toBe(0);
-    expect(player.authority).toBe(1);
+    // Residual velocity is real (the known gap), not exact rest — but it is small relative to the
+    // original 300 u/s shove, because plenty of ticks of coasting ran before angVel expired. "Small"
+    // moved from <10 to <20 (pinned at ~19.72) in the vector-drive rework's heavy-car pass: mirage's
+    // `coastHalfLifeSeconds` went 0.35 -> 1.2 s, so the SAME number of ticks (angVel's decay is
+    // unrelated to coasting) now bleeds off much less of the forward component before it expires.
+    //
+    // REPINNED for stage 2 Task 1 (2026-09-06): this fixture's spin (`angVel: 3`) drags the heading
+    // through more than a quarter turn while `vx/vy` stays fixed in world space (steeringGrip snaps
+    // driven velocity onto the CURRENT heading each tick, but this car has no throttle, so nothing
+    // re-aligns it), so it genuinely curves and, around tick 80, clips the arena's bottom wall — a
+    // real contact this test's comment never previously named, because the OLD physics (restitution
+    // 0.35, reflected direction discarded and rebuilt along the unchanged heading) happened to land
+    // on the same ~19.72 this test had already pinned, masking that a bounce was even in the
+    // trajectory. Whole-vector reflection at the lower 0.15 restitution (Task 1) genuinely damps that
+    // one contact differently, so the number this test pins moved along with it — not a second
+    // bounce, not a new code path, the same single wall contact under the new rule. Still comfortably
+    // under 7% of the original 300 u/s, so "small" still holds.
+    const residualSpeed = Math.hypot(player.vx, player.vy);
+    expect(residualSpeed).toBeGreaterThan(0);
+    expect(residualSpeed).toBeCloseTo(8.376, 2);
     const restingX = player.x;
+    const restingVx = player.vx;
+    const restingVy = player.vy;
     serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
+    // Frozen, not merely slow: one more silent tick moves nothing, because `hasKnock` is now false.
     expect(player.x).toBe(restingX);
+    expect(player.vx).toBe(restingVx);
+    expect(player.vy).toBe(restingVy);
   });
 
-  it("leaves an unknocked idle player exactly where it is", () => {
+  it("leaves a truly resting, unknocked player exactly where it is", () => {
+    // Zero velocity, zero spin, no maneuver: `hasKnock` is false and the player is never stepped at
+    // all while silent.
     const player = makePlayer("v", 500, 400, 0);
-    player.speed = 200;
     const state = stateWith(player);
     serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
     expect(player.x).toBe(500);
-    expect(player.speed).toBe(200);
+    expect(player.vx).toBe(0);
   });
+
+  it(
+    "leaves a merely-driving (unrammed) silent player frozen, exactly as before this rework",
+    () => {
+      // This is the property client prediction depends on. `hasKnock` reads `lateralOf`, not raw
+      // `vx`/`vy`: a car's own steering grip aligns its motion with its nose (see `SimBody`'s doc),
+      // so a car driving straight ahead has zero lateral component and is by definition NOT
+      // externally imposed motion. On an empty-queue tick both the server (this function) and the
+      // client's `PredictionBuffer` must take exactly zero extra steps, or the reconciled pose
+      // diverges from what the client already predicted purely from ordinary packet jitter — see
+      // `hasKnock`'s own comment in `tick.ts`.
+      const player = makePlayer("v", 500, 400, 0);
+      player.vx = 200;
+      const state = stateWith(player);
+      serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
+      expect(player.x).toBe(500);
+      expect(player.vx).toBe(200);
+    },
+  );
+
+  it(
+    "leaves a merely-driving, recently-turned silent player frozen despite sin/cos residue in lateralOf",
+    () => {
+      // Regression for the Critical finding on `hasKnock`: `stepDrive` rebuilds vx/vy at the car's
+      // NEW heading every tick (`DRIVE_CONFIG.steeringGrip` is 1.0 — "on rails"). That round-trip
+      // through `Math.sin`/`Math.cos` does not return a bit-exact zero lateral component for a car
+      // that has turned, even though nothing ever shoved it. A car that steers, then drives straight,
+      // is left carrying a stable, nonzero `lateralOf` residue on the order of 1e-14 — far below any
+      // real knock, but enough to make the OLD `!== 0` comparison call this ordinary driving an
+      // externally-imposed knock forever, coasting a silent player's queue that client prediction
+      // never runs. `hasKnock` must compare against `DRIVE_CONFIG.stopEpsilon`, not exact zero.
+      const player = makePlayer("v", 300, CORRIDOR_Y, 0);
+      const state = stateWith(player);
+      let seq = 1;
+      const turning = (steer: number): InputMessage[] => [
+        { seq: seq++, steer, throttle: 1, fireSlots: 0 },
+      ];
+      // Turning circle at cruise speed is ~32.6u for this chassis (mirage, as of the 2026-09-06
+      // heavy-car pass) — well clear of arena-01's walls and its obstacles (all at y >= 350) from
+      // this corridor spot, so nothing here ever collides.
+      for (let i = 0; i < 200; i++) {
+        serverTick(state, new Map([["v", turning(1)]]), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
+      }
+
+      const residue = lateralOf(player.vx, player.vy, player.angle);
+      // The whole point: nonzero, but nowhere near a real knock.
+      expect(residue).not.toBe(0);
+      expect(Math.abs(residue)).toBeLessThan(DRIVE_CONFIG.stopEpsilon);
+
+      const restingX = player.x;
+      const restingY = player.y;
+      const restingVx = player.vx;
+      const restingVy = player.vy;
+      serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
+      expect(player.x).toBe(restingX);
+      expect(player.y).toBe(restingY);
+      expect(player.vx).toBe(restingVx);
+      expect(player.vy).toBe(restingVy);
+    },
+  );
 
   it("does not advance the input ack — a coast step acknowledges nothing", () => {
     const player = knocked({ lastProcessedInputSeq: 7 });
@@ -635,7 +807,7 @@ describe("serverTick coasts a knocked player who has stopped sending input", () 
 
   it("still resolves the coasting car against other cars", () => {
     // Shoved straight into a stationary neighbour: it must be pushed clear, not driven through.
-    const victim = knocked({ shoveX: 600 });
+    const victim = knocked({ vx: 600 });
     const wall = makePlayer("w", 560, 400, 0);
     const state = stateWith(victim, wall);
     for (let i = 0; i < 5; i++) serverTick(state, new Map(), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());

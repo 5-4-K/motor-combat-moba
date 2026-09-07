@@ -29,7 +29,7 @@ export interface BotSelfView {
   sessionId: string;
   carId: CarId;
   team: 0 | 1;
-  x: number; y: number; angle: number; speed: number;
+  x: number; y: number; angle: number; vx: number; vy: number;
   hp: number;
   maxHp: number;
   alive: boolean;
@@ -55,7 +55,7 @@ export interface BotCarView {
   sessionId: string;
   carId: CarId;
   team: 0 | 1;
-  x: number; y: number; angle: number; speed: number;
+  x: number; y: number; angle: number; vx: number; vy: number;
   hp: number;
   maxHp: number;
   alive: boolean;

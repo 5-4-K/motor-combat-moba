@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { TICK_RATE_HZ } from "../constants.js";
 import {
   CAR_TABLE,
   DEFAULT_CAR_ID,
@@ -9,7 +10,8 @@ import {
   hpOf,
   isActiveCarId,
   isCarId,
-  massOf,
+  ramAttackOf,
+  ramDefenceOf,
   reverseAccelOf,
   reverseMaxSpeedOf,
   turnRateAtStopOf,
@@ -21,6 +23,7 @@ import { COMBAT_CONFIG } from "./combat-config.js";
 import { CAMERA_CONFIG, DRIVE_CONFIG } from "./drive-config.js";
 import { FLOW_CONFIG } from "./flow-config.js";
 import { NET_CONFIG } from "./net-config.js";
+import { RAM_CONFIG } from "./ram-config.js";
 import { damageFor } from "../sim/damage.js";
 
 describe("CAR_TABLE", () => {
@@ -32,19 +35,21 @@ describe("CAR_TABLE", () => {
     // 2026-09-02: `speed` and `handling` were rewritten to move together per car (85/85, 65/65,
     // 50/50) instead of trading off — Bastion's `handling` used to be the roster's highest (82)
     // despite its lowest `speed` (30); now it is the roster's lowest on both.
-    expect(CAR_TABLE.mirage).toMatchObject({ speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, mass: 48 });
-    expect(CAR_TABLE.bullseye).toMatchObject({ speed: 65, accel: 45, handling: 65, attack: 55, hp: 65, mass: 30 });
-    expect(CAR_TABLE.bastion).toMatchObject({ speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, mass: 90 });
+    expect(CAR_TABLE.mirage).toMatchObject({ speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50 });
+    expect(CAR_TABLE.bullseye).toMatchObject({ speed: 65, accel: 45, handling: 65, attack: 55, hp: 65, ramAttack: 45, ramDefence: 30 });
+    expect(CAR_TABLE.bastion).toMatchObject({ speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90 });
   });
 
-  it("gives every chassis whole 0-100 ratings on all six axes", () => {
-    // The 150-point budget that used to be asserted here was removed on 2026-08-29 so that `mass`
-    // could be a free-floating fourth rating. Nothing enforces roster fairness now; see CAR_TABLE.
-    // `accel` and `handling` joined the sweep once they became real per-chassis ratings rather than
-    // global drive constants: every one of the six feeds a derivation that NaNs on a non-number.
+  it("gives every chassis whole 0-100 ratings on all seven axes", () => {
+    // The 150-point budget that used to be asserted here was removed on 2026-08-29 so a free-floating
+    // ram rating could exist. Nothing enforces roster fairness now; see CAR_TABLE. `accel` and
+    // `handling` joined the sweep once they became real per-chassis ratings rather than global drive
+    // constants, and stage 3 of the car-physics rework made the single ram rating two (`ramAttack`
+    // and `ramDefence`, replacing `mass`) — seven now, not six. Every one of them feeds a derivation
+    // that NaNs on a non-number, which is what this sweep is for.
     for (const id of Object.keys(CAR_TABLE) as CarId[]) {
       const def = CAR_TABLE[id];
-      for (const rating of [def.speed, def.accel, def.handling, def.attack, def.hp, def.mass]) {
+      for (const rating of [def.speed, def.accel, def.handling, def.attack, def.hp, def.ramAttack, def.ramDefence]) {
         expect(Number.isInteger(rating)).toBe(true);
         expect(rating).toBeGreaterThanOrEqual(0);
         expect(rating).toBeLessThanOrEqual(100);
@@ -135,14 +140,17 @@ describe("per-car drive ratings", () => {
     // like a single global constant would, which is what keeps "rating 50 is average" a reading aid
     // rather than a slogan. A scale edit that moves a pivot fails here, so raising the whole roster
     // is a deliberate two-line change plus this number, never a drift.
-    // The accel pivot is still the pre-2026-08-30 global 780. The turn pivot was that era's 4.2
-    // until 2026-08-31, when both halves of the turn scale were multiplied by 1.5 — driving, and so
-    // aiming, read as too heavy — putting every chassis at 1.5x its old rate and the pivot at 6.3.
+    // The turn pivot was the pre-2026-08-30 global 4.2 until 2026-08-31, when both halves of the
+    // turn scale were multiplied by 1.5 — driving, and so aiming, read as too heavy — putting every
+    // chassis at 1.5x its old rate and the pivot at 6.3. The accel pivot was 780 from
+    // pre-2026-08-30 until 2026-09-06, when the vector-drive rework's heavy-car pass cut
+    // `baseAccel`/`accelPerRating` (420/7.2 -> 60/1.4) alongside the speed cut, moving the pivot to
+    // 130 — `accelOf` no longer anchored to the old global at all, on purpose.
     // `toBeCloseTo`, not `toBe`: 3.6 + 50 * 0.054 is 6.300000000000001 in IEEE-754. The anchor is
     // the design intent, not a bit pattern, and no decimal scale reproduces 6.3 exactly.
     const { baseTurnRate, turnRatePerRating, baseAccel, accelPerRating } = DRIVE_CONFIG;
     expect(baseTurnRate + 50 * turnRatePerRating).toBeCloseTo(6.3, 9);
-    expect(baseAccel + 50 * accelPerRating).toBeCloseTo(780, 9);
+    expect(baseAccel + 50 * accelPerRating).toBeCloseTo(130, 9);
   });
 
   it("keeps the stopped turn rate at half the moving one, as it shipped", () => {
@@ -192,12 +200,6 @@ describe("weapon / combat / drive / flow knobs exist", () => {
   it("reverse is slower than forward, but not a crawl", () => {
     expect(DRIVE_CONFIG.reverseSpeedRatio).toBe(0.65);
     expect(DRIVE_CONFIG.reverseSpeedRatio).toBeLessThan(1);
-  });
-
-  it("brakes harder than it coasts, or the brake button would mean nothing", () => {
-    // Ranged, not pinned: the ordering is what matters. A drag above brakeDecel would make holding
-    // Down *slower* to stop than releasing the throttle entirely.
-    expect(DRIVE_CONFIG.brakeDecel).toBeGreaterThan(DRIVE_CONFIG.drag);
   });
 
   it("gives reverse its own acceleration rate, at least as quick as forward pickup", () => {
@@ -271,16 +273,17 @@ describe("weapon / combat / drive / flow knobs exist", () => {
 
 describe("the three types (T5/T6)", () => {
   it("derives the roster's drive profile from its ratings", () => {
-    // 1.5x the pre-2026-09-02 values (207 / 288 / 157.5) on `baseMaxSpeed` alone would have held the
-    // roster's spacing; `speedPerRating` was deliberately pushed past the pair-preserving 3.375 to
-    // 3.7, so these are more than a uniform 1.5x — see `DRIVE_CONFIG.speedPerRating`.
-    expect(forwardMaxSpeedOf("bullseye")).toBe(375.5);
-    expect(forwardMaxSpeedOf("mirage")).toBe(449.5);
-    expect(forwardMaxSpeedOf("bastion")).toBe(320);
+    // The 2026-09-06 vector-drive rework's heavy-car pass cut `baseMaxSpeed`/`speedPerRating`
+    // (135/3.7 -> 80/2.2) for a roughly 40% roster-wide top-speed cut, and `baseAccel`/
+    // `accelPerRating` (420/7.2 -> 60/1.4) alongside it, roughly tripling time-to-top-speed. See
+    // `DRIVE_CONFIG.speedPerRating` and `DRIVE_CONFIG.accelPerRating`.
+    expect(forwardMaxSpeedOf("bullseye")).toBe(223);
+    expect(forwardMaxSpeedOf("mirage")).toBe(267);
+    expect(forwardMaxSpeedOf("bastion")).toBe(190);
 
-    expect(accelOf("bullseye")).toBeCloseTo(744, 9);
-    expect(accelOf("mirage")).toBeCloseTo(1032, 9);
-    expect(accelOf("bastion")).toBeCloseTo(564, 9);
+    expect(accelOf("bullseye")).toBeCloseTo(123, 9);
+    expect(accelOf("mirage")).toBeCloseTo(179, 9);
+    expect(accelOf("bastion")).toBeCloseTo(88, 9);
 
     // The 2026-09-02 rewrite set `speed` and `handling` to the same rating per car (65/65, 85/85,
     // 50/50), so turn rate now orders the roster the same way top speed does — Mirage highest,
@@ -299,10 +302,12 @@ describe("the three types (T5/T6)", () => {
     // Bastion no longer wins radius via a handling edge — it wins by a few units because its lower
     // speed outweighs its lower rate, not because a slow chassis was deliberately made the sharpest
     // turner. The ordering survives; the ~20+ u gap that made it a headline design point does not.
+    // The 2026-09-06 heavy-car speed cut then scaled every radius down by the same ~41% (turn rate
+    // untouched), so the remaining gap shrank again — from ~4 u to ~2 u — without reordering anything.
     const radius = (id: CarId) => forwardMaxSpeedOf(id) / turnRateOf(id);
     expect(radius("bastion")).toBeLessThan(radius("bullseye"));
     expect(radius("bullseye")).toBeLessThan(radius("mirage"));
-    expect(radius("bastion")).toBeCloseTo(50.8, 1);
+    expect(radius("bastion")).toBeCloseTo(30.2, 1);
   });
 
   it("orders the three types on every axis the design names", () => {
@@ -315,7 +320,76 @@ describe("the three types (T5/T6)", () => {
     expect(turnRateOf("bullseye")).toBeGreaterThan(turnRateOf("bastion"));
     expect(hpOf("bastion")).toBeGreaterThan(hpOf("mirage"));
     expect(hpOf("mirage")).toBeGreaterThan(hpOf("bullseye"));
-    expect(massOf("bastion")).toBeGreaterThan(massOf("mirage"));
-    expect(massOf("mirage")).toBeGreaterThan(massOf("bullseye"));
+    // The ram axis, which `mass` used to carry alone. Both halves order the same way here — see the
+    // dedicated `ramAttack`/`ramDefence` block below for what the split actually buys.
+    expect(ramDefenceOf("bastion")).toBeGreaterThan(ramDefenceOf("mirage"));
+    expect(ramDefenceOf("mirage")).toBeGreaterThan(ramDefenceOf("bullseye"));
+  });
+});
+
+describe("per-car coast and brake", () => {
+  it("resolves a coast multiplier for every active chassis", () => {
+    for (const id of activeCarIds()) {
+      const coast = driveOf(id).coastPerTick;
+      expect(coast).toBeGreaterThan(0);
+      expect(coast).toBeLessThan(1);
+    }
+  });
+
+  it("keeps the brake ahead of coasting on every chassis, measured where drag is strongest", () => {
+    // Proportional drag is fiercest at top speed. The instantaneous coast deceleration there is
+    // (1 - coastPerTick) * maxSpeed * TICK_RATE_HZ. The brake pedal must beat lifting off, or the
+    // control reads as broken rather than degraded.
+    for (const id of activeCarIds()) {
+      const drive = driveOf(id);
+      const coastDecelAtTop = (1 - drive.coastPerTick) * forwardMaxSpeedOf(id) * TICK_RATE_HZ;
+      expect(drive.brakeDecel).toBeGreaterThan(coastDecelAtTop);
+    }
+  });
+
+  it("defaults steering grip to fully on rails", () => {
+    expect(DRIVE_CONFIG.steeringGrip).toBe(1);
+  });
+
+  it("bounds steering grip to 0..1", () => {
+    expect(DRIVE_CONFIG.steeringGrip).toBeGreaterThanOrEqual(0);
+    expect(DRIVE_CONFIG.steeringGrip).toBeLessThanOrEqual(1);
+  });
+
+  it("has a positive impact grip deceleration", () => {
+    expect(DRIVE_CONFIG.impactGripDecel).toBeGreaterThan(0);
+  });
+});
+
+describe("ram ratings", () => {
+  it("gives every active chassis a positive ramAttack and ramDefence", () => {
+    for (const id of activeCarIds()) {
+      expect(ramAttackOf(id)).toBeGreaterThan(0);
+      expect(ramDefenceOf(id)).toBeGreaterThan(0);
+    }
+  });
+
+  it("keeps them as 0-100 ratings, not direct values", () => {
+    for (const id of activeCarIds()) {
+      expect(ramAttackOf(id)).toBeLessThanOrEqual(100);
+      expect(ramDefenceOf(id)).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it("orders ramDefence tank-first, preserving the old mass ordering", () => {
+    expect(ramDefenceOf("bastion")).toBeGreaterThan(ramDefenceOf("mirage"));
+    expect(ramDefenceOf("mirage")).toBeGreaterThan(ramDefenceOf("bullseye"));
+  });
+
+  it("spreads ramAttack more narrowly than ramDefence, so offence and defence are not the same axis", () => {
+    const atk = activeCarIds().map(ramAttackOf);
+    const def = activeCarIds().map(ramDefenceOf);
+    const spread = (xs: number[]) => Math.max(...xs) - Math.min(...xs);
+    expect(spread(atk)).toBeLessThan(spread(def));
+  });
+
+  it("has a positive defence push scale and global scale", () => {
+    expect(RAM_CONFIG.defencePushScale).toBeGreaterThan(0);
+    expect(RAM_CONFIG.globalScale).toBeGreaterThan(0);
   });
 });

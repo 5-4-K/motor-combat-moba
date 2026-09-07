@@ -1,6 +1,6 @@
 import { COMBAT_CONFIG } from "./combat-config.js";
 import { DRIVE_CONFIG } from "./drive-config.js";
-import { RAM_CONFIG } from "./ram-config.js";
+import { halfLifeToPerTick } from "./ram-config.js";
 import type { CarDef, CarId } from "./types.js";
 
 /**
@@ -8,10 +8,10 @@ import type { CarDef, CarId } from "./types.js";
  *
  * The three types (T1): **Mirage** is the all-round speedster — highest speed AND handling, the
  * lightest-armoured glass cannon on offense but middling hp. **Bullseye** is the light, precise
- * skirmisher — the roster's lowest hp and mass, and mid-pack on both speed and handling. **Bastion**
- * is the tank — lowest speed and accel by far, the roster's highest hp and mass, and, since the
- * 2026-09-02 rebalance, also the lowest handling: its durability carries the tank identity alone now,
- * not a handling edge.
+ * skirmisher — the roster's lowest hp and `ramDefence`, and mid-pack on both speed and handling.
+ * **Bastion** is the tank — lowest speed and accel by far, the roster's highest hp, `ramAttack` and
+ * `ramDefence`, and, since the 2026-09-02 rebalance, also the lowest handling: its durability and
+ * its solidity carry the tank identity now, not a handling edge.
  *
  * As of 2026-09-02 `speed` and `handling` move together per car (85/85, 65/65, 50/50) rather than
  * trading off — before that, Bastion's `handling` (82) was the roster's *highest* despite its `speed`
@@ -24,8 +24,10 @@ import type { CarDef, CarId } from "./types.js";
  *
  * Ratings used to be held to a 150-point budget across speed/attack/hp, which was the roster's only
  * automatic guard against a fourth chassis being authored strictly better than these three. That
- * budget was deliberately removed on 2026-08-29 so `mass` could be a free-floating fourth axis, and
- * no replacement guard was adopted. Roster fairness is a review-time judgement from here on.
+ * budget was deliberately removed on 2026-08-29 so a free-floating ram axis could exist, and no
+ * replacement guard was adopted — the ram axis has since become two (`ramAttack`/`ramDefence`), so
+ * there is now MORE unbudgeted surface, not less. Roster fairness is a review-time judgement from
+ * here on.
  *
  * `attack` is not damage. It is a percentage modifier on whatever weapon the car is firing, applied
  * by `damageFor` (`sim/damage.ts`): 0.5x at rating 0, 1.0x at 50, 1.5x at 100.
@@ -36,22 +38,26 @@ import type { CarDef, CarId } from "./types.js";
  * wide: raising speed without raising handling to match is what makes a car feel less agile despite
  * a higher ceiling. `accel` is likewise fed straight into `accelOf`.
  *
- * `mass` is not durability. It scales how hard this chassis rams and how easily it is rammed, and it
- * touches nothing else — see `RAM_CONFIG.massPerRating`.
+ * `ramAttack` and `ramDefence` are not durability, and they are not one rating split in two. They
+ * are read only by the ram contest (`pushOf`/`impactOn` in `sim/ram.ts`) and by `resolveWorld`'s
+ * separation split, and they touch nothing else — never acceleration, never top speed (spec P7).
+ * They replaced the single `mass` rating on 2026-09-06: one number could not say "hits hard but is
+ * also easy to shove", and could not be tuned on either half without moving the other.
  *
- * **Changing a car's `handling` or `speed` also owes `docs/turn-tuning.md` an edit**, and a fourth
- * chassis owes it a new column in two tables. That page tabulates every turn rate and radius on the
- * roster by hand, and `scripts/turn-tuning-doc.test.mjs` recomputes every cell from this table — it
- * fails until the page agrees. See its "Keeping this page honest" section.
+ * **Changing a car's `handling`, `speed`, `coastHalfLifeSeconds` or `brakeDecel` also owes
+ * `docs/turn-tuning.md` an edit**, and a fourth chassis owes it a new column in three tables. That
+ * page tabulates every turn rate and radius on the roster by hand, and
+ * `scripts/turn-tuning-doc.test.mjs` recomputes every cell from this table — it fails until the page
+ * agrees. See its "Keeping this page honest" section.
  *
  * `weapons` is the chassis's kit in slot order, and the kits are EXCLUSIVE: no weapon id appears on
  * two chassis (L1). `weapon-slots.test.ts` enforces that, so moving a weapon between chassis means
  * swapping a pair, never copying one.
  */
 export const CAR_TABLE = {
-  mirage: { id: "mirage", name: "Mirage", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, mass: 48, weapons: ["magmablast", "thunderclap", "afterburner"], isActive: true },
-  bullseye: { id: "bullseye", name: "Bullseye", speed: 65, accel: 45, handling: 65, attack: 55, hp: 65, mass: 30, weapons: ["predator", "pepperbox", "lance"], isActive: true },
-  bastion: { id: "bastion", name: "Bastion", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, mass: 90, weapons: ["thumper", "roadblock", "wildcharge"], isActive: true },
+  mirage: { id: "mirage", name: "Mirage", speed: 85, accel: 85, handling: 85, attack: 63, hp: 70, ramAttack: 55, ramDefence: 50, coastHalfLifeSeconds: 1.2, brakeDecel: 500, weapons: ["magmablast", "thunderclap", "afterburner"], isActive: true },
+  bullseye: { id: "bullseye", name: "Bullseye", speed: 65, accel: 45, handling: 65, attack: 55, hp: 65, ramAttack: 45, ramDefence: 30, coastHalfLifeSeconds: 1.0, brakeDecel: 520, weapons: ["predator", "pepperbox", "lance"], isActive: true },
+  bastion: { id: "bastion", name: "Bastion", speed: 50, accel: 20, handling: 50, attack: 42, hp: 90, ramAttack: 70, ramDefence: 90, coastHalfLifeSeconds: 1.5, brakeDecel: 430, weapons: ["thumper", "roadblock", "wildcharge"], isActive: true },
 } as const satisfies Record<CarId, CarDef>;
 
 /**
@@ -107,36 +113,32 @@ export function reverseAccelOf(id: CarId): number {
   return accelOf(id) * DRIVE_CONFIG.reverseAccelFactor;
 }
 
-export function massOf(id: CarId): number {
-  return CAR_TABLE[id].mass * RAM_CONFIG.massPerRating;
+export function coastHalfLifeSecondsOf(id: CarId): number {
+  return CAR_TABLE[id].coastHalfLifeSeconds;
 }
 
-/** The rating an "average" chassis carries — the anchor, not a mass. */
-const REFERENCE_MASS_RATING = 50;
-
-function resolveRamReferenceMass(): number {
-  return REFERENCE_MASS_RATING * RAM_CONFIG.massPerRating;
+export function brakeDecelOf(id: CarId): number {
+  return CAR_TABLE[id].brakeDecel;
 }
 
-function resolveRamReference(): number {
-  return (
-    resolveRamReferenceMass() *
-    Math.max(...(Object.keys(CAR_TABLE) as CarId[]).map((id) => forwardMaxSpeedOf(id)))
-  );
+export function ramAttackOf(id: CarId): number {
+  return CAR_TABLE[id].ramAttack;
 }
 
-/**
- * The mass of a chassis rated exactly average. Ram severity is measured against this, so a rating of
- * 50 at top speed is the natural "1.0 severity" anchor rather than an arbitrary number.
+export function ramDefenceOf(id: CarId): number {
+  return CAR_TABLE[id].ramDefence;
+}
+
+/*
+ * There is deliberately no ram REFERENCE constant here any more.
+ *
+ * The severity model this file used to anchor (`RAM_REFERENCE_MASS` — an average chassis's mass —
+ * and `RAM_REFERENCE` — that mass at the roster's highest top speed) graded every ram as a 0-1
+ * fraction of one global maximum, which is exactly the shape spec revision 2 rejects: a contest has
+ * no ceiling to be a fraction OF. `pushOf`/`impactOn` (`sim/ram.ts`) are open-ended and linear, so
+ * the only global constant left is `RAM_CONFIG.globalScale`, and it converts rather than normalises.
+ * Do not reintroduce a reference: an anchor is a clamp wearing a different name (spec R9).
  */
-export const RAM_REFERENCE_MASS = resolveRamReferenceMass();
-
-/**
- * The momentum that saturates ram severity: an average-mass chassis travelling at the roster's
- * highest top speed. Derived, never typed — raising `baseMaxSpeed` or a car's `speed` rating moves
- * this with it, so ram severity stays anchored to what a car can actually achieve.
- */
-export const RAM_REFERENCE = resolveRamReference();
 
 /**
  * Everything `stepDrive` needs to move one chassis for one tick, resolved from the roster and the
@@ -155,6 +157,10 @@ export interface ChassisDrive {
   reverseAccel: number;
   turnRate: number;
   turnRateAtStop: number;
+  /** Per-tick multiplier on forward speed while coasting. Resolved from `coastHalfLifeSeconds`. */
+  coastPerTick: number;
+  /** Flat deceleration while the brake is held, u/s². */
+  brakeDecel: number;
 }
 
 function resolveChassisDrive(): Readonly<Record<CarId, ChassisDrive>> {
@@ -169,6 +175,8 @@ function resolveChassisDrive(): Readonly<Record<CarId, ChassisDrive>> {
           reverseAccel: reverseAccelOf(id),
           turnRate: turnRateOf(id),
           turnRateAtStop: turnRateAtStopOf(id),
+          coastPerTick: halfLifeToPerTick(coastHalfLifeSecondsOf(id)),
+          brakeDecel: brakeDecelOf(id),
         }),
       ]),
     ) as Record<CarId, ChassisDrive>,
@@ -186,8 +194,6 @@ export const CHASSIS_DRIVE: Readonly<Record<CarId, ChassisDrive>> = resolveChass
  * until playground tuning overrides a balance table, and again the moment tuning is cleared.
  */
 let ACTIVE_DRIVE: Readonly<Record<CarId, ChassisDrive>> = CHASSIS_DRIVE;
-let activeRamReference = RAM_REFERENCE;
-let activeRamReferenceMass = RAM_REFERENCE_MASS;
 
 export function driveOf(id: CarId): ChassisDrive {
   return ACTIVE_DRIVE[id];
@@ -200,25 +206,13 @@ export function driveOf(id: CarId): ChassisDrive {
  *
  * `hasOverrides` is a parameter rather than a read of `activeTuning()` because `tuning.ts` imports
  * this module: asking it back would be an import cycle.
+ *
+ * This used to rebuild two ram reference values alongside the drive table. They are gone with the
+ * severity model that needed them (see the note above `ChassisDrive`), and the contest needs no
+ * rebuild step of its own: `pushOf`/`impactOn` read `CAR_TABLE` and `RAM_CONFIG` live on every
+ * contact rather than through a resolved-once snapshot, so a playground override of `ramAttack`,
+ * `ramDefence` or a `RAM_CONFIG` knob is already in effect on the next tick with nothing to refresh.
  */
 export function rebuildResolvedDrive(hasOverrides: boolean): void {
-  if (!hasOverrides) {
-    ACTIVE_DRIVE = CHASSIS_DRIVE;
-    activeRamReference = RAM_REFERENCE;
-    activeRamReferenceMass = RAM_REFERENCE_MASS;
-    return;
-  }
-  ACTIVE_DRIVE = resolveChassisDrive();
-  activeRamReferenceMass = resolveRamReferenceMass();
-  activeRamReference = resolveRamReference();
-}
-
-/** The live `RAM_REFERENCE` — equal to the constant unless playground tuning is active. */
-export function ramReference(): number {
-  return activeRamReference;
-}
-
-/** The live `RAM_REFERENCE_MASS` — equal to the constant unless playground tuning is active. */
-export function ramReferenceMass(): number {
-  return activeRamReferenceMass;
+  ACTIVE_DRIVE = hasOverrides ? resolveChassisDrive() : CHASSIS_DRIVE;
 }

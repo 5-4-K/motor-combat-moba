@@ -1,5 +1,6 @@
 import { TICK_RATE_HZ } from "../constants.js";
 import { DRIVE_CONFIG } from "./drive-config.js";
+import { msToTicks } from "./weapon-ticks.js";
 
 /**
  * Ram control-and-knockback tuning. Every value here is read by the sim, so server tick and client
@@ -11,10 +12,12 @@ import { DRIVE_CONFIG } from "./drive-config.js";
  * once, here, makes the table tick-rate independent. Same principle as `weapon-ticks.ts` converting
  * authored milliseconds to ticks exactly once at module load.
  *
- * `massPerRating` lives here rather than in `COMBAT_CONFIG` because mass affects ramming and nothing
- * else — never acceleration, never top speed. That is deliberate: a force-based drive would make
- * heavy imply sluggish and collapse the roster to one axis, so mass stays out of the drive model
- * entirely and exists only as combat identity.
+ * **There is no rating-to-anything scale here any more.** `massPerRating` used to convert a car's
+ * `mass` rating into a physical mass; stage 3 removed `mass` from the game and the contest reads
+ * `CarDef.ramAttack`/`ramDefence` as raw 0-100 ratings, unscaled, with `defencePushScale` and
+ * `globalScale` below doing the only converting. Keeping the ram ratings out of the drive model
+ * remains the rule they inherited (spec P7): a force-based drive would make solid imply sluggish and
+ * collapse the roster to one axis, so they exist only as combat identity.
  */
 export const RAM_CONFIG = {
   /**
@@ -27,14 +30,94 @@ export const RAM_CONFIG = {
    */
   contactPad: 1,
   /**
-   * Below this closing speed along the attacker's nose, a contact is a nudge and no ram is written.
-   * About 11% of the roster's top speed. This is also what stops a pair chattering in and out of
-   * contact from re-triggering: after impact the attacker has already been rebounded to roughly
-   * -35% of its impact speed by `applyContact`, so its approach term is negative.
+   * Minimum combined drive-in below which no ram fires. **Ships at 0 — deliberately inactive**
+   * (spec R9), to be tuned later by feel.
+   *
+   * At 0, a gentle bump is simply a ram with a low drive-in, and linear scaling makes it come out
+   * small on its own — which is why revision 2 needs no separate "baseline versus ram" path. The old
+   * value of 60 was authored against a 449 u/s roster and means something different against 267, so
+   * it cannot be carried across even when it is re-enabled.
    */
-  minApproachSpeed: 60,
-  /** Rating-to-mass scale, mirroring `COMBAT_CONFIG.hpPerRating`. Ratings are 0-100. */
-  massPerRating: 10,
+  minApproachSpeed: 0,
+
+  /**
+   * How much a STATIONARY car resists, as a multiplier on its `ramDefence` when building its push
+   * (spec R2). The first knob to reach for when contact feels wrong: low and parked cars are nearly
+   * free hits, high and everything feels like hitting a wall.
+   *
+   * At 35 a stationary mid-tier car brings roughly 12% of what a full-speed car brings. It is also
+   * what makes T-boning a parked Bastion cost the attacker more than T-boning a parked Bullseye —
+   * 0.675 vs 0.084 u/s, about 8x (the "~7x" an earlier draft of this comment quoted came from
+   * rounding both figures to one decimal place, 0.7 vs 0.1, before dividing). Nobody authored that
+   * ratio; it falls out of the contest.
+   */
+  defencePushScale: 35,
+  /**
+   * Converts a contest result into a Δv (spec R5). The one global constant the contest has, and it
+   * CONVERTS rather than normalises — there is no ceiling here for a ram to be a fraction of (R9).
+   *
+   * **MEASURED, NOT DERIVED.** Revision 1's equivalent was derived from arithmetic and was wrong by
+   * 5x — it threw every chassis backwards faster than its own top speed for landing a ram. This
+   * value was measured instead: `serverTick` (drive + `resolveWorld`) then `contactTick`, the real
+   * shipped order from `runPipeline`, swept across 24 sub-tick phases per scenario. Every scenario
+   * below returned the IDENTICAL number on all 24 phases in every one of the five scenarios measured:
+   * the contest reads the pre-collision velocity `TickResult.approachVelocities` carried in, and the
+   * lever arm comes from hull geometry clamped by `contactPointOn` — clamped, in all five cases, on
+   * the axis that actually carried the hit, which is WHY the result held constant across phase. On
+   * the unclamped axis the recovered lever arm genuinely is penetration-dependent; it simply never
+   * came up here. Re-check this if a future scenario lands on that axis instead.
+   *
+   * At 0.4, an attacker at its own top speed against a parked victim. Each row names who
+   * `resolveRam` calls the attacker — the car with the higher drive-in — since that is not always
+   * the car a plain-English description would call the one "doing the ramming":
+   *
+   * | scenario | attacker | victim | victim's Δv | as % of victim's top speed | attacker's contest cost |
+   * |---|---|---|---|---|---|
+   * | Bastion flanks a parked Bullseye | Bastion | Bullseye | 206.2 u/s | 92% (top 223) | **0.1 u/s** |
+   * | Bullseye flanks a parked Bastion | Bullseye | Bastion | 38.4 u/s | 20% (top 190) | 2.8 u/s |
+   * | Bastion flanks a parked Bastion | Bastion | Bastion | 61.4 u/s | 32% | 0.7 u/s |
+   * | Bastion rear-ends a parked Bullseye (roster max) | Bastion | Bullseye | 268.0 u/s | 120% | 0.1 u/s |
+   * | Bastion and Bullseye collide head-on, both at top speed (413 u/s closing) | Bullseye † | Bastion | 5.95 u/s | 3% (top 190) | **39.3 u/s** (18% of its own top 223) |
+   *
+   * † Bullseye, not Bastion, is `resolveRam`'s attacker in the head-on row: its own top speed (223)
+   * beats Bastion's (190), and the rule is whichever car drives in harder, regardless of which one
+   * the scenario's description names first. So the victim's-Δv column there (5.95 u/s, 3% of
+   * BASTION's own top 190) is BASTION's Δv, and the attacker's-contest-cost column (39.3 u/s, 18% of
+   * BULLSEYE's own top 223) is what BULLSEYE pays for hitting a much tankier car nose-first at full
+   * combined speed — the LARGEST attacker cost in this table, not the smallest.
+   *
+   * That the nominal attacker comes off worse is the model working as designed, not a bug: Bastion's
+   * push (70·190 + 90·35 = 16450) beats Bullseye's (45·223 + 30·35 = 11085) — Bastion is *winning*
+   * the contest despite being the car driven into — and Bullseye's low `ramDefence` (30, against
+   * Bastion's 90) divides its received impact far less. The row reads wrong at a glance until you see
+   * that.
+   *
+   * Read the flank row and the head-on row together: a head-on at 2.2x the closing speed of the
+   * Bastion-flanks-Bullseye row still moves its victim ~34.7x LESS (206.2 vs 5.95 u/s, the two rows'
+   * VICTIM Δv figures — not the attacker's-cost column), which is `bonusFront` (0.3) doing the job it
+   * exists for. That is gentler than revision 2's own illustrative worked example expected: the
+   * spec's worked-outcomes table (R6) puts a head-on at roughly 12% of a T-bone (~8x gentler), and the
+   * shipped roster instead lands at ~2.9% (a flank ram is the roster's T-bone-equivalent broadside
+   * hit). That gap is a playground-pass observation, not a defect to correct here — the spec's own
+   * "Flagged for confirmation" section already lists head-on violence as a feel question with
+   * `bonusFront` as its lever, and nothing here recommends moving it.
+   *
+   * Read the right-hand column as the whole point of revision 2 — a car winning its contest
+   * decisively takes almost nothing (R4/R5, P20): the largest cost any attacker pays across these
+   * five scenarios is 39.3 u/s (Bullseye, above), nowhere near revision 1's 156-271 for the same kind
+   * of hit.
+   *
+   * **What this constant does NOT control, and a reader will otherwise blame it for.** An attacker
+   * still ends a dead-on ram travelling backwards — Bastion 190 -> -28.6 u/s above. All but 0.1 of
+   * that is `resolveWorld`'s restitution reflection (`DRIVE_CONFIG.restitution`, 0.15), which lands
+   * BEFORE contact runs and which no value here can reach. Stage 3 could only remove the contest's
+   * share of the cost, and did: raising or lowering `globalScale` moves the victim's throw and the
+   * head-on column, and leaves that -28.5 exactly where it is.
+   *
+   * Re-measure through the composed order, never through `contactTick` alone, if this is retuned:
+   * `packages/server/src/sim/pipeline-order.test.ts` drives the sequence these numbers came from.
+   */
+  globalScale: 0.4,
 
   /**
    * The positional read, and the single most important balance lever in the feature. Front is cheap
@@ -44,34 +127,85 @@ export const RAM_CONFIG = {
   bonusFlank: 1.0,
   bonusRear: 1.3,
 
-  /** Steering multiplier at maximum severity. The feel dial: too low and the victim is a passenger. */
-  authorityFloor: 0.35,
-  /** Peak knock impulse (expressed as a speed) at severity 1.0, before the victim mass factor. */
-  knockMaxSpeed: 260,
-  /** Bounds on `referenceMass / victimMass`, so neither the heaviest nor the lightest car degenerates. */
-  massFactorMin: 0.6,
-  massFactorMax: 1.6,
   /**
-   * Calibration multiplier on the torque-derived spin rate. Tuned by feel, not derived: it converts
-   * a speed-magnitude impulse into a plausible angular rate, and 100 was chosen so a solid flank ram
-   * (moderate severity, a lever arm off centre but short of the hull edge) lands near 2 rad/s while
-   * the hardest possible ram saturates `spinMaxRate`.
+   * INERT — reads nothing since stage 3 Task 2 (the ram contest, spec R2-R7/R9) landed.
+   *
+   * Was the peak knock impulse (expressed as a speed) at severity 1.0, before a victim mass factor.
+   * The severity-graded model it belonged to — `severity * knockMaxSpeed * massFactor`, everything
+   * normalised against one global maximum — is gone outright. `resolveRam` resolves an open-ended
+   * contest between both cars' `ramAttack`/`ramDefence` pushes (`pushOf`/`impactOn` in `sim/ram.ts`),
+   * and neither this value nor anything shaped like it reaches the ram path.
+   *
+   * `ram-config.test.ts` still pins it and it is not on the interfaces ledger's deletion list, so it
+   * is not deleted here. A future task may retire it once nothing needs the historical comparison.
+   *
+   * **Why the historical comparison is worth keeping at all.** Revision 1 of this rework charged the
+   * attacker a `reactionOf` recoil derived by ARITHMETIC rather than measured, and it was wrong by
+   * 5x. Measured through the composed pipeline order (`serverTick` then `contactTick`, so the
+   * `DRIVE_CONFIG.restitution` reflection lands FIRST and the recoil goes on top of it) against
+   * stage 1's cut top speeds, a dead-on rear hit left every chassis travelling BACKWARDS — Bastion
+   * 190 -> -184.5 u/s, Bullseye 223 -> -304.5, Mirage 267 -> -310.9 — two of the three past their own
+   * top speed in reverse, for the crime of landing a ram. That is the defect this whole stage exists
+   * to fix, and it is why `globalScale` below carries numbers measured through that same composed
+   * order rather than a derivation. `packages/server/src/sim/pipeline-order.test.ts` is what pins the
+   * order both sets of measurements were taken through.
    */
-  spinScale: 100,
-  /** Ceiling on injected spin, so a corner contact cannot produce an absurd rotation. */
+  knockMaxSpeed: 260,
+  /**
+   * Calibration multiplier on the torque-derived spin rate: it converts a speed-magnitude impulse
+   * into a plausible angular rate.
+   *
+   * **Re-pitched 100 -> 10 by measurement in stage 3 Task 4 (spec P25b), and 10x is a coincidence,
+   * not a ratio anyone applied.** Two things moved underneath this value at once and pulled opposite
+   * ways: `nextSpin` (`sim/impulse.ts`) started dividing torque by `ramDefence` (30-90) instead of
+   * `mass` (300-900), a ~10x SMALLER denominator, while `globalScale` above made the impulse feeding
+   * the torque several times smaller. Neither ratio predicts the answer on its own, which is why it
+   * was measured on the same composed `serverTick` -> `contactTick` sweep `globalScale` was.
+   *
+   * The calibration this value has always been written to, restored: an ordinary solid flank ram
+   * lands around 1-2 rad/s, and the hardest ram in the game APPROACHES `spinMaxRate` without pinning
+   * it. Measured, victim spin at an attacker's own top speed, by lever arm (the offset of the hit
+   * from the victim's centre, which `contactPointOn` clamps at the 24 u hull half-length):
+   *
+   * | lever | Mirage flanks Mirage (ordinary) | Bastion flanks Bullseye (hardest) | Bullseye flanks Bastion (weakest) |
+   * |---|---|---|---|
+   * | 4 u | 0.34 rad/s | 0.99 | 0.06 |
+   * | 12 u | 1.03 | 2.97 | 0.18 |
+   * | 24 u (clamped max) | 2.06 | **5.95** | 0.37 |
+   *
+   * 5.95 against a 6.0 ceiling is the calibration working, not a near miss: the hardest ram the
+   * roster can produce reaches 99% of the ceiling on its own and never clips. What still makes the
+   * ceiling load-bearing is that `nextSpin` ACCUMULATES (`clamp(body.angVel + spin, ...)`), so a car
+   * rammed twice does hit it.
+   */
+  spinScale: 10,
+  /**
+   * Ceiling on injected spin, so a corner contact cannot produce an absurd rotation.
+   *
+   * **Deliberately UNCHANGED by stage 3 Task 4's measurement (spec P25b), which is a decision, not
+   * an omission.** `spinScale` was the free variable and this is the target it was pitched against:
+   * at 10, the single hardest ram the roster can produce measures 5.95 rad/s across a 24-sub-tick-
+   * phase sweep (see `spinScale`'s table) — 99% of this ceiling, approaching saturation without
+   * clipping, which is exactly the relationship this pair is supposed to have. Moving this value
+   * would have moved the target the other number was just solved for.
+   *
+   * It still binds, and is not decoration: `nextSpin` adds to the victim's EXISTING `angVel` rather
+   * than replacing it, so a car rammed twice before its spin decays goes over.
+   *
+   * `docs/turn-tuning.md` tabulates this value — an edit here owes that page one.
+   */
   spinMaxRate: 6.0,
   /**
-   * Rotational inertia per unit mass for the car hull, `(len^2 + wid^2) / 12`. Derived from the hull
-   * so it cannot drift out of step with `carHullOf`.
+   * The car hull's rotational-inertia shape factor, `(len^2 + wid^2) / 12` — the standard rectangular
+   * plate formula, per unit of whatever `nextSpin` multiplies it by. That multiplier is the victim's
+   * `ramDefence` since stage 3 Task 3 (it was the car's mass before), so a solid car resists being
+   * spun for exactly the same reason it resists being shoved. Derived from the hull so it cannot
+   * drift out of step with `carHullOf`.
    */
   inertiaCoefficient: (DRIVE_CONFIG.carWidth ** 2 + DRIVE_CONFIG.carHeight ** 2) / 12,
 
   /** Injected spin halves this often while the player is not fighting it. */
   spinHalfLifeSeconds: 0.35,
-  /** Lateral knock halves this often. */
-  shoveHalfLifeSeconds: 0.25,
-  /** The gap between current authority and full control halves this often. */
-  authorityHalfLifeSeconds: 0.3,
   /**
    * Spin half-life while the player steers AGAINST it. Shorter than `spinHalfLifeSeconds` on
    * purpose: without this, steering only offsets the visible rotation and recovery time is fixed by
@@ -80,10 +214,45 @@ export const RAM_CONFIG = {
    */
   counterSteerHalfLifeSeconds: 0.15,
 
-  /** Below these magnitudes a knock snaps to exact rest, as `stopEpsilon` does for `speed`. */
+  /** Below this magnitude a knock snaps to exact rest, as `stopEpsilon` does for the drive model. */
   spinEpsilon: 0.01,
-  shoveEpsilon: 1,
-  authorityEpsilon: 0.01,
+
+  /** Full-strength `reeling` duration from a ram, before falloff. Weapons author their own (stage 4). */
+  ramUncontrolMs: 1000,
+  /**
+   * How long "recently rammed" lasts. ROLLING: each ram pushes the window out from itself, so
+   * protection never lapses under sustained pressure. A window measured from the FIRST ram would
+   * let an attacker who counts to one second land full-strength rams forever, which is the exact
+   * lock this exists to prevent.
+   */
+  drWindowMs: 2000,
+  /**
+   * Each successive ram's duration, as a fraction of the last. 1.0 disables duration falloff.
+   *
+   * **This knob does LESS than it reads, and the reason is structural.** `reeling` is
+   * `reapply: "refresh"`, which `applyStatus` implements as `endsTick = max(existing, now + duration)`
+   * — the status system's D4 rule, "the clock is extended, never shortened", written so a weak short
+   * source cannot cut a long one down. A scaled duration is by definition the shorter value, so a
+   * re-ram landing while `reeling` is STILL RUNNING has its scaled duration discarded outright.
+   *
+   * What this value actually governs is the window between `ramUncontrolMs` and `drWindowMs`: a ram
+   * landing after the previous `reeling` has lapsed but while the falloff stack is still counting.
+   * There, and only there, does it shorten anything.
+   *
+   * Turning it down further will therefore do much less than the arithmetic suggests. **If a ram
+   * chain feels like a lock, reach for `impulseDrScale` or `ramUncontrolMs` instead** — the impulse
+   * half of falloff has no such caveat and bites on every re-ram. The spec records this as an
+   * accepted partial delivery of P24 with the measurement behind it (a two-tick difference at the
+   * shipped knobs); closing the gap properly needs a third `StatusReapply` mode, which is a status-
+   * system change, not a ram one.
+   */
+  durationDrScale: 0.5,
+  /** Duration never falls below this, so a late ram in a chain never reads as a whiff. */
+  durationDrFloorMs: 150,
+  /** Each successive ram's impulse, as a fraction of the last. 1.0 disables impulse falloff. */
+  impulseDrScale: 0.5,
+  /** Impulse never falls below this fraction of full. */
+  impulseDrFloor: 0.25,
 } as const;
 
 /**
@@ -96,19 +265,22 @@ export function halfLifeToPerTick(halfLifeSeconds: number): number {
   return 0.5 ** (1 / (halfLifeSeconds * TICK_RATE_HZ));
 }
 
-/** The four decays `stepDrive` applies, as per-tick multipliers. */
+/**
+ * The two per-tick multipliers `stepDrive` actually reads, and no others. This struct carried four
+ * until stage 3b: `shove` and `authority` were computed here for a `stepDrive` that stopped reading
+ * either at the 2026-09-06 vector-drive rework, and both are now deleted along with the
+ * `RAM_CONFIG` half-lives that produced them. Lateral knock bleeds off through the flat-rate
+ * `DRIVE_CONFIG.impactGripDecel`, and ram control-loss is the `reeling` status
+ * (`RAM_CONFIG.ramUncontrolMs`), so neither channel has anything left to decay.
+ */
 export interface RamDecay {
   spin: number;
-  shove: number;
-  authority: number;
   counterSteer: number;
 }
 
 function resolveRamDecay(): Readonly<RamDecay> {
   return Object.freeze({
     spin: halfLifeToPerTick(RAM_CONFIG.spinHalfLifeSeconds),
-    shove: halfLifeToPerTick(RAM_CONFIG.shoveHalfLifeSeconds),
-    authority: halfLifeToPerTick(RAM_CONFIG.authorityHalfLifeSeconds),
     counterSteer: halfLifeToPerTick(RAM_CONFIG.counterSteerHalfLifeSeconds),
   });
 }
@@ -123,9 +295,10 @@ export const RAM_DECAY: Readonly<RamDecay> = resolveRamDecay();
 let ACTIVE_DECAY: Readonly<RamDecay> = RAM_DECAY;
 
 /**
- * What the sim actually decays by. `stepDrive` reads this rather than `RAM_DECAY` so the four
- * half-life knobs are reachable by tuning at all — they are authored in seconds and nothing in the
- * sim reads them directly.
+ * What the sim actually decays by. `stepDrive` reads this rather than `RAM_DECAY` so the half-life
+ * knobs it actually uses (`spinHalfLifeSeconds`, `counterSteerHalfLifeSeconds`) are reachable by
+ * playground tuning at all — they are authored in seconds and nothing in the sim reads them
+ * directly.
  */
 export function ramDecay(): Readonly<RamDecay> {
   return ACTIVE_DECAY;
@@ -138,3 +311,15 @@ export function ramDecay(): Readonly<RamDecay> {
 export function rebuildRamDecay(hasOverrides: boolean): void {
   ACTIVE_DECAY = hasOverrides ? resolveRamDecay() : RAM_DECAY;
 }
+
+/**
+ * Ram control-loss durations, in the integer ticks the sim actually counts — authored milliseconds
+ * converted exactly once, at module load, the same shape as `WEAPON_TICKS` (including its `impulse`
+ * block, which is where the hard slam's own durations live since stage 4 dissolved `SLAM_TICKS`).
+ */
+export const RAM_TICKS: Readonly<{ uncontrol: number; drWindow: number; durationFloor: number }> =
+  Object.freeze({
+    uncontrol: msToTicks(RAM_CONFIG.ramUncontrolMs),
+    drWindow: msToTicks(RAM_CONFIG.drWindowMs),
+    durationFloor: msToTicks(RAM_CONFIG.durationDrFloorMs),
+  });

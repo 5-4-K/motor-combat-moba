@@ -11,8 +11,9 @@
  * - *Time to top speed* is `forwardMaxSpeedOf(id) / accelOf(id)`, also per-car now. Raising a
  *   chassis's speed rating alone stretches this, and that car feels sluggish off the line despite
  *   the higher ceiling.
- * - `brakeDecel` **must** exceed `drag`, or holding Down stops you slower than releasing the
- *   throttle and the brake button stops meaning anything. `config.test.ts` enforces the ordering.
+ * - Each chassis's `CarDef.brakeDecel` **must** beat its own coasting, measured where proportional
+ *   drag is strongest — at that chassis's top speed — or holding Down stops it slower than lifting
+ *   off and the brake button stops meaning anything. `config.test.ts` enforces the ordering per car.
  * - `CAMERA_CONFIG.freeRoamSpeed` **must** exceed `forwardMaxSpeedOf` of the fastest car, or a
  *   spectator can never get ahead of the fight. `config.test.ts` enforces this against `CAR_TABLE`,
  *   so raising `baseMaxSpeed` or `speedPerRating` past it fails the suite rather than shipping.
@@ -37,21 +38,40 @@ export const DRIVE_CONFIG = {
    * top-speed cut, scaled as a pair so the per-car `speed` rating kept its relative weight. Raised
    * 1.5x again on 2026-09-02, to 135, alongside a same-day rating rewrite (see `CAR_TABLE`) — this
    * half of the pair alone would have kept every car's top speed at exactly 1.5x its prior value.
+   * Cut again on 2026-09-06 (stage 1 of the vector-drive rework), to 80, alongside `speedPerRating`
+   * dropping to 2.2 — together a roughly 40% roster-wide top-speed cut so cars read as heavy, and
+   * (with turn rate untouched) a turn radius cut to comfortably under one car length per chassis.
    */
-  baseMaxSpeed: 135,
+  baseMaxSpeed: 80,
   /**
    * Ratings are 0-100 (see `CAR_TABLE`), so this is a tenth of what it would be on a 0-10 scale.
    * It was 45 against 0-10 ratings and became 4.5 when they widened, precisely so that every car's
    * top speed stayed where it was. 2.25 since the 2026-09-01 half-speed cut — see `baseMaxSpeed`.
    * Raised again on 2026-09-02, but not to the pair-preserving 3.375 (2.25 x 1.5) — 3.7 was a
    * deliberate extra push on top of the uniform 1.5x, so a point of `speed` now buys more than it did
-   * before the 2026-09-01 cut, not merely 1.5x more.
+   * before the 2026-09-01 cut, not merely 1.5x more. Cut to 2.2 on 2026-09-06 alongside
+   * `baseMaxSpeed`'s drop to 80, for the heavy-car top-speed cut described there.
    */
-  speedPerRating: 3.7,
-  /** Holding Down against forward motion. Also brakes reverse when Up is held. 0.18s to rest. */
-  brakeDecel: 1600,
-  /** Throttle released. 0.32s to rest — kept below `brakeDecel` so braking stays the faster option. */
-  drag: 900,
+  speedPerRating: 2.2,
+  /**
+   * How completely the velocity vector rotates with the heading, 0-1.
+   *
+   * At 1 the car is on rails: velocity tracks the nose exactly, so turning at any speed puts you
+   * where you aim and you never fight your own momentum while steering. Below 1 the velocity lags
+   * and the car washes wide.
+   *
+   * This is deliberately NOT one half of a friction circle. Holding Mirage's turn at top speed
+   * demands roughly fifteen times the lateral force that bleeding a ram's knockback needs, so a
+   * single honest grip cap high enough to corner on rails would annihilate knockback in about 70ms.
+   * Steering is therefore exempt from the grip budget by construction, and `impactGripDecel` below
+   * governs imposed motion alone. See spec "Why one friction circle does not work here".
+   */
+  steeringGrip: 1.0,
+  /**
+   * The rate externally imposed sideways velocity bleeds off, u/s². Ram recovery and nothing else.
+   * Flat rather than proportional: a saturated tyre delivers a roughly constant force.
+   */
+  impactGripDecel: 250,
   /**
    * Turn rate is `baseTurnRate + handling * turnRatePerRating`, resolved per car by `turnRateOf`.
    *
@@ -68,15 +88,23 @@ export const DRIVE_CONFIG = {
   stopTurnRatio: 0.5,
   /**
    * Engine push is `baseAccel + accel * accelPerRating`, resolved per car by `accelOf`. Anchored the
-   * same way `baseTurnRate` is: rating 50 yields exactly 780.
+   * same way `baseTurnRate` is: rating 50 yielded exactly 780 until 2026-09-06. Cut that day, alongside
+   * `accelPerRating` (7.2 -> 1.4), from 420 to 60 — rating 50 now yields 130 — as part of stage 1 of
+   * the vector-drive rework's heavy-car pass: with the flat `baseAccel` term shrunk relative to the
+   * per-rating term, a car's `accel` rating now does most of the work of deciding its time-to-top-speed,
+   * which runs 3-4x longer roster-wide and spreads noticeably further between chassis than before.
    */
-  baseAccel: 420,
-  accelPerRating: 7.2,
+  baseAccel: 60,
+  accelPerRating: 1.4,
   reverseSpeedRatio: 0.65,
   /**
-   * Reverse push as a fraction of forward. At rating 50 this gives 1099.8 against the 1100 that
-   * shipped — a deliberate 0.02% rounding, below anything a driver can feel, taken because the exact
-   * ratio (1100/780) is not a number anyone should have to read in a config file.
+   * Reverse push as a fraction of forward. The value is historical, not a live derivation: when
+   * rating 50 yielded exactly 780 forward (until 2026-09-06, see `baseAccel` above), 1.41 gave 1099.8
+   * against the 1100 that shipped — a deliberate 0.02% rounding, below anything a driver can feel,
+   * taken because the exact ratio (1100/780) was not a number anyone should have to read in a config
+   * file. The 2026-09-06 heavy-car pass cut `baseAccel`/`accelPerRating` without touching this factor,
+   * so that pivot is gone — rating 50 now yields 130 forward and 183.3 reverse — and nothing today
+   * anchors 1.41 to a specific reverse-accel target; it simply was not part of that pass's scope.
    */
   reverseAccelFactor: 1.41,
   /**
@@ -107,9 +135,63 @@ export const DRIVE_CONFIG = {
    * correct band, not of any one weapon — a second dash weapon inherits it. `config.test.ts` pins
    * it to the hull rather than to 16, so shrinking a car fails the suite instead of quietly
    * reopening the tunnelling bug.
+   *
+   * At 16 the dasher still advances 13.3u between collision checks (four substeps of `thunderclap`'s
+   * 53.3u/tick) — that gap always existed, but before the 2026-09-06 weighted-separation change
+   * (car-car `resolveWorld` taking a `selfRamDefence` and each side conceding only
+   * `shareOf(selfRamDefence, otherRamDefence)`, see `collide.ts` — `mass`-weighted at the time, now
+   * `ramDefence`-weighted since stage 3 Task 3) the pre-rework always-full-push rule ejected the dasher back out
+   * in the same tick it landed, so nobody saw it. Now the dasher only claims its own share on the
+   * contact tick and the arrival gap surfaces as momentary penetration instead. `thunderclap`
+   * (Mirage's slot 2, `maneuver: { type: "dash" }`) is the only dash in the game — `wildcharge` is a
+   * `type: "charge"` and never substeps this way — so Mirage is the only chassis that can produce
+   * this. Measured worst case (sweeping approach angle, target orientation and the sub-tick phase
+   * against a 48x32 hull): Mirage dashing into a Bullseye, T-boning its side at 90° approach against
+   * 0° target orientation, penetrates **18.49u** (exact: `18.492296006944457`, `step.test.ts`'s
+   * `MEASURED_WORST_REACHABLE`). This moved from 17.96u under stage 3 Task 3: the separation split
+   * above went from `mass`-weighted (Mirage 480, Bullseye 300 at the time — a 0.3846 share for
+   * Mirage) to `ramDefence`-weighted (Mirage 50, Bullseye 30 — a 0.375 share), and the two ratings
+   * are not quite proportional (Mirage's `mass` rating, 48, and `ramDefence` rating, 50, differ,
+   * unlike Bullseye's and Bastion's, where the two coincide), so the worst-case geometry re-measures
+   * slightly larger. It clears in about three ticks (~100ms) once both cars are resolving their own
+   * share — the decay factor per tick is `shareOf(mirage,bullseye) * shareOf(bullseye,mirage) =
+   * 0.375 * 0.625 = 0.234375` (was `0.3846 * 0.6154 ≈ 0.2367`), applied to the 18.49u base:
+   * `18.49 → 4.33 → 1.02 → 0.24 → 0.06 → gone`; a silent or backgrounded victim that never runs its
+   * own `resolveWorld` call decays by `1 - shareOf(mirage,bullseye) = 0.625` per tick instead (was
+   * `0.6154`) and clears more slowly but still monotonically:
+   * `18.49 → 11.56 → 7.22 → 4.51 → 2.82 → 1.76 → 1.10 …`.
+   *
+   * Tightening this knob trades substep count for granularity (measured, Mirage-into-Bullseye; all
+   * five rows re-measured under stage 3 Task 3's `ramDefence`-weighted split, same method as the
+   * headline figure above — this table is not a simple rescale of the pre-Task-3 numbers):
+   *
+   * | `dashSubstepMaxUnits` | substeps/tick | worst penetration |
+   * |---|---|---|
+   * | 16 (current) | 4 (13.3u each) | 18.49u |
+   * | 12 | 5 (10.7u each) | 15.87u |
+   * | 8 | 7 (7.6u each) | 12.14u |
+   * | 6 | 9 (5.9u each) | 9.70u |
+   * | 4 | 14 (3.8u each) | 6.34u |
+   *
+   * Lowering it to 8 is the deferred fix: it roughly halves the visible penetration for a doubled
+   * substep count, and stage 5 (tune-and-reconcile) owns deciding whether that trade is worth the
+   * extra collision checks — see
+   * `docs/superpowers/plans/2026-09-06-car-physics/05-tune-and-reconcile.md`. Left at 16 for now;
+   * this comment exists so the trade is not re-derived from scratch. A future `TICK_RATE_HZ` bump
+   * (netcode phase 1 raises it to 60) does **not** shrink the gap on its own: this knob is denominated
+   * in world units, not ticks, so `thunderclap`'s 13.3u-per-substep arrival depth is unchanged by
+   * tick rate alone.
    */
   dashSubstepMaxUnits: 16,
-  restitution: 0.35,
+  /**
+   * Coefficient of restitution for every contact — walls, obstacles and cars alike.
+   *
+   * 0.15, down from 0.35 on 2026-09-06. Real cars are built to crush, not bounce, and sit around
+   * 0.1-0.15; a T-bone is a shunt, not a billiard shot. The knockback this game wants comes from
+   * momentum transfer through `applyImpulse`, not from springiness here — raising this to get
+   * bigger knocks is reaching for the wrong knob and makes every wall graze feel rubbery.
+   */
+  restitution: 0.15,
 } as const;
 
 /**
@@ -138,7 +220,13 @@ export const DRIVE_CONFIG = {
 export const CAMERA_CONFIG = {
   camLerp: 0.18,
   zoom: 1,
-  freeRoamSpeed: 1050,
+  /**
+   * Cut from 1050 to 340 on 2026-09-06 alongside the vector-drive rework's heavy-car speed cut
+   * (`DRIVE_CONFIG.baseMaxSpeed`/`speedPerRating`), which dropped the fastest car from 449.5 to
+   * 267 u/s. Left at 1050 a free-look pan would run four times quicker than any car and read as
+   * unmoored; 340 keeps it a little above the new fastest car, per the coupling note above.
+   */
+  freeRoamSpeed: 340,
 } as const;
 
 /**

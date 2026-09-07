@@ -525,6 +525,13 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * knob's range vanished at the most common speed in the game, biasing every tier toward
    * under-leading.
    *
+   * THAT MEASUREMENT WAS TAKEN AT A 449.5 u/s CAP. The 2026-09-06 heavy-car pass cut Mirage's
+   * maximum to 267 u/s, so the figures above describe the pre-rework roster. The ARGUMENT is
+   * unchanged — a ceiling still clips a positive estimation error on a car sitting at its cap,
+   * whatever the cap is — and the fix (put the ceiling out of reach) is scale-free, which is why
+   * the value below did not need revisiting. The numbers are kept as the record of why this knob
+   * exists rather than restated as current.
+   *
    * Four, and the exact value does not matter as long as it is comfortably out of reach: under
    * `accel: 0` this channel can only ever LOWER a speed (it is a ceiling, never a source), so raising
    * it cannot make a rollout faster than the observation it started from — it can only stop the
@@ -737,7 +744,11 @@ export const BRAIN_CONSTANTS = Object.freeze({
 // 4.1.0 (2026-09-06): danger evaluation and cooldown readiness (spec phase C).
 // 4.2.0 (2026-09-06): physics-based prediction replaces the constant-velocity solve (spec phase A).
 // 4.3.0 (2026-09-07): the receding-horizon planner replaces desire blending (spec phase D).
-export const BOT_BRAIN_VERSION = "4.3.0";
+// 4.4.0 (2026-09-07): the car-physics rework lands under the brain. aim.ts/perception.ts read the
+// target's real vx/vy instead of reconstructing velocity from angle+speed — the bot's lead and
+// dead-reckoning are now correct for a car that is sliding or being shoved, which they silently
+// were not before — and predict.ts rolls the vector drive model rather than the scalar one.
+export const BOT_BRAIN_VERSION = "4.4.0";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency

@@ -20,6 +20,7 @@ import {
   forwardMaxSpeedOf,
   getArena,
   carHullOf,
+  ramDefenceOf,
   otherCarHulls,
   stepSim,
   type ContextEntry,
@@ -136,13 +137,13 @@ function trial(opts: {
 }
 
 function bodyOf(p: {
-  x: number; y: number; angle: number; speed: number; reverseHold: number;
-  angVel: number; shoveX: number; shoveY: number; authority: number;
+  x: number; y: number; angle: number; vx: number; vy: number; reverseHold: number;
+  angVel: number;
   maneuver: number; maneuverTicksLeft: number; maneuverAngle: number; maneuverSpeed: number;
 }): SimBody {
   return {
-    x: p.x, y: p.y, angle: p.angle, speed: p.speed, reverseHold: p.reverseHold,
-    angVel: p.angVel, shoveX: p.shoveX, shoveY: p.shoveY, authority: p.authority,
+    x: p.x, y: p.y, angle: p.angle, vx: p.vx, vy: p.vy, reverseHold: p.reverseHold,
+    angVel: p.angVel,
     maneuver: p.maneuver, maneuverTicksLeft: p.maneuverTicksLeft,
     maneuverAngle: p.maneuverAngle, maneuverSpeed: p.maneuverSpeed,
   };
@@ -169,6 +170,15 @@ function clientContext(snap: Snapshot | null, self: SimBody): StepContext {
     obstacles: ARENA.obstacles,
     bounds: { width: ARENA.width, height: ARENA.height },
     modifiers: NEUTRAL_MODIFIERS,
+    // Both "me" and "them" are mirage (see `trial` above), so this is `ramDefenceOf("them")` too --
+    // stage 2 Task 2's car-car positional split (renamed `mass` -> `ramDefence` in stage 3 Task 3) is
+    // a wash here (share 0.5/0.5) and does not itself change which car this probe favours. It still
+    // changes the ABSOLUTE size of the push either side eats per contact (each now takes half the
+    // MTV instead of the whole thing), which is exactly the quantity P1 below measures and
+    // thresholds against `DRIVE_CONFIG.carWidth` -- see the "STALE POST-VECTOR-DRIVE-REWORK" comment
+    // above that report: it already flags the threshold as owed a re-derivation, and this split is a
+    // second, independent reason that re-derivation is owed, not a new problem of its own.
+    selfRamDefence: ramDefenceOf("mirage"),
   };
 }
 
@@ -194,6 +204,11 @@ const reporter = new Reporter(
       );
     }
   }
+  // STALE POST-VECTOR-DRIVE-REWORK: this measures reconciliation error against a scalar-speed-era
+  // approach distance ("19.2 u/tick" below, already stale before this rework) and, more
+  // fundamentally, against a completely different integrator than the one now producing `predicted`
+  // — the FINDING threshold (`carWidth`) is left exactly as-is per the review; stage 5 owns
+  // re-deriving both the distances and whether the threshold itself still means what it used to.
   reporter.report(
     "P1. Reconciliation correction, free driving vs a head-on collision",
     // A correction past a car length is a snap the player sees; free driving must stay at zero.
@@ -211,6 +226,9 @@ const reporter = new Reporter(
 {
   const rows: string[] = [];
   const patchEvery = Math.round(TICK_RATE_HZ / DEFAULT_PATCH_RATE_HZ);
+  // Stale comment left as a historical marker, not corrected: mirage's top speed is 267 u/s as of
+  // the 2026-09-06 heavy-car cut, not the 576 this predates. `forwardMaxSpeedOf` below is always
+  // live regardless of what this comment says.
   const mirageTopSpeed = forwardMaxSpeedOf("mirage"); // 576 u/s after T8's restat (was 540)
   for (const latencyMs of [0, 15, 30, 60, 120]) {
     const latencyTicks = Math.round((latencyMs / 1000) * TICK_RATE_HZ);

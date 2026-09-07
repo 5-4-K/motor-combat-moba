@@ -19,7 +19,8 @@ export type StatusId =
   | "fortified"
   | "overhauled"
   | "armored"
-  | "phased";
+  | "phased"
+  | "reeling";
 
 /**
  * Every number in the sim a status may scale. One channel per thing the sim already reads, and a
@@ -46,12 +47,14 @@ export type StatusChannel =
   /** Steering rate, alongside — never instead of — the ram's `authority`. Above 1 corners tighter. */
   | "turnRate"
   /**
-   * `DRIVE_CONFIG.brakeDecel`. The one "make the car harder to control" channel that is not about
-   * pace: brake fade makes a driver misjudge a corner rather than merely arrive at it later.
+   * `CarDef.brakeDecel` (per-car as of the vector-drive rework). The one "make the car harder to
+   * control" channel that is not about pace: brake fade makes a driver misjudge a corner rather
+   * than merely arrive at it later.
    *
-   * Floored by `STATUS_LIMITS` at a value that keeps scaled braking above `DRIVE_CONFIG.drag`, so
-   * the brake is always at least as good as lifting off. `status-config.test.ts` asserts that
-   * against the live drive numbers rather than trusting the constant.
+   * Floored by `STATUS_LIMITS` at a value that keeps scaled braking above coasting, measured where
+   * proportional drag is strongest — a chassis's own top speed — so the brake is always at least as
+   * good as lifting off. `status-config.test.ts` asserts that against the live per-car drive
+   * numbers rather than trusting the constant.
    */
   | "brakeDecel"
   /** Outgoing weapon damage, applied once and frozen into the instance at spawn. */
@@ -64,8 +67,16 @@ export type StatusChannel =
    * the shape of one press, not the rate of pressing.
    */
   | "weaponCooldown"
-  /** Effective ram mass, both as an attacker and as a victim (`massOf`). */
-  | "ramMass";
+  /**
+   * Effective `ramDefence` (`ramDefenceOf`), which reaches the contest on BOTH sides: it scales the
+   * speed-independent term this car brings to `pushOf`, and it is the divisor `impactOn` softens
+   * what this car takes by. So one multiplier makes a car both harder to shift and more solid to hit
+   * — the two halves of "solidity" the rating names.
+   *
+   * There is deliberately no offence channel (spec R11): a status may make a car harder to move, but
+   * never make its rams hit harder.
+   */
+  | "ramDefence";
 
 /**
  * Rule switches a status may flip. Booleans, OR-ed across every source: one jam is a jam, and a

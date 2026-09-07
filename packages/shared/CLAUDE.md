@@ -23,9 +23,10 @@ makes adding a status free and adding a channel a one-call-site change, and why 
 reproduces the pre-status sim exactly (`golden.test.ts` pins it).
 
 Two rows carry flags rather than modifiers. `stunned` is `fullStop` on top of the older
-`immobilised`/`steeringLocked`/`disarmed` trio — engine, steering and trigger dead, and speed forced
-to 0 every tick, though shove and injected ram spin still resolve, so a slammed-then-stunned car still
-slides into the wall. `armored` is `invulnerable` alone: 0 damage from every source, weapon hits,
+`immobilised`/`steeringLocked`/`disarmed` trio — engine, steering and trigger dead, and the forward
+component forced to 0 every tick, though (as of the 2026-09-06 vector-drive rework) `bleedLateral`
+on the lateral component and injected ram spin (`angVel`) still resolve, so a slammed-then-stunned
+car still slides into the wall. `armored` is `invulnerable` alone: 0 damage from every source, weapon hits,
 contact hits and pulses alike — status riders still land, only hp loss stops. A flag is boolean and
 has no counterplay gradient, so every flag-carrying DEBUFF is required to be `reapply: "ignore"`,
 and a flag-carrying buff may be `refresh` only by declaring `chainable: true` on its own row
@@ -35,9 +36,11 @@ whatever future applier grants it, the same way a stun's duty cycle is owned by 
 cooldown rather than by this rule, and `phased` (spawn protection) must be extendable by the room
 while a respawned car still overlaps someone.
 
-**A status does not own its duration** — the applier does (`WeaponDef.applies`, or the room's
-`statusRequests`), so `applyStatus` takes an explicit `durationTicks`. A status never stacks with
-itself; different statuses on one channel stack by multiplication.
+**A status does not own its duration** — the applier does (`WeaponDef.applies`, the room's
+`statusRequests`, or — since the car-physics rework's stage 3b — `contactTick` applying `reeling` to
+a ram victim off `RAM_CONFIG.ramUncontrolMs`, already scaled by that victim's falloff), so
+`applyStatus` takes an explicit `durationTicks`. A status never stacks with itself; different
+statuses on one channel stack by multiplication.
 
 `applyDamage` is no longer the only HP writer — **`sim/damage.ts` is.** `applyHeal` sits beside it for
 repair pulses, clamped to `hpOf` and refusing to lift a dead car off 0. Keeping the pair in one file is
@@ -52,15 +55,30 @@ client predicts through the same modifiers (invariant 8). See
 **Maneuvers (spec S3) own three files.** `sim/maneuver.ts` declares `ManeuverKind`
 (NONE/DASH/HOLD/CHARGE, frozen uint8 values) and `NO_MANEUVER`, the four-field neutral spread used to
 reset a car. `sim/contact.ts`'s `resolveContacts` is where a maneuver actually does something: it
-extends `applyRams`'s pair loop with a dash (reports a `ContactHit`, no knock) and a charge (a hard
-slam — a fixed impulse, replacing the graded ram) ahead of the ordinary ram fallback, and runs where
-`applyRams` used to. `config/slam-config.ts`'s `SLAM_CONFIG`/`SLAM_TICKS` tune the slam alone — knock
-speed, victim authority, wall-stun window, re-slam immunity — kept separate from `RAM_CONFIG` because
-a slam is deliberately not graded like a ram. **No longer dormant as of the 2026-09-01 weapon-status
-overhaul (Plan 3):** `thunderclap` (Mirage) is a `kind: "maneuver"` dash and `wildcharge` (Bastion) is
-a `kind: "maneuver"` charge, both real rows in `WEAPON_TABLE`, so `resolveContacts` and
-`SLAM_CONFIG`/`SLAM_TICKS` now run from a real match, not only from tests. `wildcharge` is also the
-roster's one `isUnInterruptable: true` row. See
+extends `applyRams`'s pair loop with a dash (reports a `ContactHit`) and a charge (reports a
+`SlamEvent` carrying the OBB contact normal and contact point) ahead of the ordinary ram fallback,
+and runs where `applyRams` used to. **Neither of those two builds an `Impulse` — only the ram
+fallback does.** A slam's push is assembled from the weapon's own `ImpulseDef` in
+`packages/server/src/sim/ram-bridge.ts`, beside the statuses that same slam applies (spec P30), which
+is what stage 4 of the 2026-09-06 car-physics rework moved and why `contact.ts` got smaller.
+
+**`config/slam-config.ts`'s `SLAM_CONFIG` is one knob now — `wallContactPad`, a hull inflation for
+"is this touching level geometry", not a slam property at all.** `knockSpeed`, `wallStunWindowMs`,
+`wallStunDurationMs`, `reslamImmunityMs`, `victimAuthority`, `selfKeepFactor` and the whole
+`SLAM_TICKS` export were **deleted in stage 4**: the first four moved onto
+`WEAPON_TABLE.wildcharge.impulse` (as `speed`, `wallStun.windowMs`/`.durationMs`,
+`retriggerImmunityMs`), `victimAuthority`'s successor is that row's `uncontrolMs` — which is a real
+`reeling` application, so a slam finally imposes control loss where before it imposed none — and
+`selfKeepFactor` has no successor at all, because a slam's attacker is simply never pushed.
+`RAM_CONFIG`'s five equivalents (`authorityFloor`, the two `authority` decay knobs, and the two
+`shove` ones) had already gone the same way in stage 3b; an ordinary ram's control loss **came back
+in stage 3b as the `reeling` status**, applied by `contactTick` and scaled by a per-victim
+diminishing-returns stack that a slam deliberately does not share. **No longer dormant as of the
+2026-09-01 weapon-status overhaul (Plan 3):** `thunderclap` (Mirage) is a `kind: "maneuver"` dash and
+`wildcharge` (Bastion) is a `kind: "maneuver"` charge, both real rows in `WEAPON_TABLE`, so
+`resolveContacts` and the slam path now run from a real match, not only from tests. `wildcharge` is
+also the roster's one `isUnInterruptable: true` row, and the only row in the table declaring an
+`impulse` at all. See
 [`docs/combat-model.md`](../../docs/combat-model.md#maneuvers-and-the-contact-pass).
 
 An **aura** is a beam with a `disc` hitbox at `origin: "center"`. It reuses `WorldShape`'s circle arm,
@@ -76,13 +94,17 @@ from it, so a real aura instance spawns on every detonation. `corroded`'s only s
 this explosion. What is still dormant is narrower now: only the multi-wave `VolleyDef` machinery
 below, since no row — this one included — authors more than one volley.
 
-**`stepDrive` does not read the roster.** It takes a resolved `ChassisDrive` — `maxSpeed`,
-`reverseMaxSpeed`, `accel`, `reverseAccel`, `turnRate`, `turnRateAtStop` — from `driveOf(carId)`
-(`config/car-config.ts`, frozen per car at module load in `CHASSIS_DRIVE`), and `stepSim` resolves it
-at the single production call site. Every other caller of `stepDrive` here is a test, and that is the
-point: `golden.test.ts` and `drive.test.ts` pin the drive *equation* against a frozen fixture, so a
-per-car `accel` or `handling` retune can never look like a change to the integration. Balance still
-lives in shared config; the sim receives it rather than reaching into `CAR_TABLE` for it.
+**`stepDrive` does not read the roster.** It takes a resolved `ChassisDrive` — eight fields:
+`maxSpeed`, `reverseMaxSpeed`, `accel`, `reverseAccel`, `turnRate`, `turnRateAtStop`, and, since the
+2026-09-06 vector-drive rework, `coastPerTick` (per-tick multiplier on forward speed while coasting,
+resolved from `CarDef.coastHalfLifeSeconds`) and `brakeDecel` (flat deceleration while braking,
+resolved from `CarDef.brakeDecel`, replacing the old shared `DRIVE_CONFIG.brakeDecel`) — from
+`driveOf(carId)` (`config/car-config.ts`, frozen per car at module load in `CHASSIS_DRIVE`), and
+`stepSim` resolves it at the single production call site. Every other caller of `stepDrive` here is
+a test, and that is the point: `golden.test.ts` and `drive.test.ts` pin the drive *equation* against
+a frozen fixture, so a per-car `accel` or `handling` retune can never look like a change to the
+integration. Balance still lives in shared config; the sim receives it rather than reaching into
+`CAR_TABLE` for it.
 
 **Volleys are on `WeaponBase`, pellets are on the projectile.** `VolleyDef` (`volleys`,
 `volleyIntervalMs`) applies to both kinds, so a beam can be a wave sequence in principle — the old

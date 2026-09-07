@@ -39,5 +39,8 @@ packages/server/balance/reports/
 # install-build target folder — machine-specific, see .install-target.example
 .install-target
 
-# Subagent-driven-development scratch (ledgers, briefs, review packages)
+# Subagent-driven-development scratch — ledgers, task briefs, agent reports and generated review
+# diffs for one plan run. Working paperwork for the process, never source. The superpowers tooling
+# documents this path as git-ignored and leans on that being true, so a `git add -A` mid-run would
+# otherwise sweep it into history.
 .superpowers/

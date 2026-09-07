@@ -20,14 +20,18 @@ function slotFor(weaponId: Parameters<typeof weaponDefOf>[0]): BotSlotView {
 
 function shooterAt(x: number, y: number, angle: number): SolverShooter {
   return {
-    sessionId: "me", carId: "bullseye", team: 0, x, y, angle, speed: 0,
+    sessionId: "me", carId: "bullseye", team: 0, x, y, angle, vx: 0, vy: 0,
     lockTargetSessionId: "",
   };
 }
 
 function targetAt(x: number, y: number, angle = Math.PI, speed = 0): BotCarView {
   return {
-    sessionId: "them", carId: "mirage", team: 1, x, y, angle, speed,
+    sessionId: "them", carId: "mirage", team: 1, x, y, angle,
+    // The `speed` ARGUMENT stays a scalar along the heading — that is what every caller below
+    // means by it, and keeping it spares them all a rewrite. The car-physics rework made the view
+    // itself carry a world velocity, so the conversion happens here, once, instead of at each site.
+    vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
     hp: 70, maxHp: 70, alive: true, phased: false, statuses: [], maneuver: 0,
   };
 }

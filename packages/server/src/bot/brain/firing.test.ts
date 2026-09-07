@@ -31,14 +31,14 @@ function slotsFor(carId: "bullseye" | "mirage" | "bastion"): BotSlotView[] {
 
 function self(carId: "bullseye" | "mirage" | "bastion"): BotSelfView {
   return {
-    sessionId: "me", carId, team: 0, x: 0, y: 0, angle: 0, speed: 0,
+    sessionId: "me", carId, team: 0, x: 0, y: 0, angle: 0, vx: 0, vy: 0,
     hp: 100, maxHp: 100, alive: true, statuses: [], slots: slotsFor(carId),
     switchLockUntilTick: 0, lockTargetSessionId: "", maneuver: 0, maneuverTicksLeft: 0,
   };
 }
 
 const target: BotCarView = {
-  sessionId: "them", carId: "mirage", team: 0, x: 300, y: 0, angle: 0, speed: 0,
+  sessionId: "them", carId: "mirage", team: 0, x: 300, y: 0, angle: 0, vx: 0, vy: 0,
   hp: 70, maxHp: 70, alive: true, phased: false, statuses: [], maneuver: 0,
 };
 

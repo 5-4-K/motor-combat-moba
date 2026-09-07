@@ -47,9 +47,11 @@ export const STATUS_CONFIG = {
  * steering makes a raised `turnRate` a gain rather than a penalty, which is why it never shipped
  * on the floor side either). The channel stays defined for whatever picks it up next.
  *
- * `brakeDecel`'s floor is not a free choice. Scaled braking must stay above `DRIVE_CONFIG.drag` or
- * the brake pedal becomes worse than lifting off, which reads as the control being broken rather
- * than degraded; `status-config.test.ts` asserts that against the live drive numbers.
+ * `brakeDecel`'s floor is not a free choice. Scaled braking must stay above coasting, measured at
+ * the point proportional drag is strongest — a chassis's own top speed — or the brake pedal becomes
+ * worse than lifting off, which reads as the control being broken rather than degraded;
+ * `status-config.test.ts` asserts that against the live per-car drive numbers, worst case across
+ * the roster.
  */
 export const STATUS_LIMITS: Readonly<Record<StatusChannel, { min: number; max: number }>> =
   Object.freeze({
@@ -60,7 +62,7 @@ export const STATUS_LIMITS: Readonly<Record<StatusChannel, { min: number; max: n
     damageDealt: Object.freeze({ min: 0.5, max: 2 }),
     damageTaken: Object.freeze({ min: 0.4, max: 2.5 }),
     weaponCooldown: Object.freeze({ min: 0.4, max: 3 }),
-    ramMass: Object.freeze({ min: 0.5, max: 2 }),
+    ramDefence: Object.freeze({ min: 0.5, max: 2 }),
   });
 
 /**
@@ -134,7 +136,7 @@ export const STATUS_TABLE = {
     reapply: "refresh",
     modifiers: { topSpeed: 0.6 },
   },
-  /** Pure damage reduction (O5): 0.7x incoming. The heal and ramMass left with the overhaul. */
+  /** Pure damage reduction (O5): 0.7x incoming. The heal and ramDefence left with the overhaul. */
   fortified: {
     id: "fortified",
     name: "Fortified",
@@ -199,6 +201,44 @@ export const STATUS_TABLE = {
     chainable: true,
     modifiers: {},
     flags: ["phased"],
+  },
+  /**
+   * Rammed: flung, sliding and fighting for grip. **Not a stun, and close to its opposite.**
+   *
+   * `stunned` is `immobilised + steeringLocked + disarmed + fullStop` — you stop dead and sit there,
+   * which is the bumper-car-that-stops behaviour this rework exists to reject. `reeling` carries no
+   * flags at all: you are moving fast in the wrong direction with your tyres saturated, you can
+   * still shoot, and you can still fight the spin. That is what keeps ramming a setup rather than a
+   * delete.
+   *
+   * **`flags: []` is load-bearing, not incidental.** `StatusDef` forces flag-carrying rows to
+   * `reapply: "ignore"` so hard CC can never be chained. Because this row carries none, it escapes
+   * that rule and a second ram may write a new (already-reduced) duration at all — which is what
+   * the falloff stack (Task 2) needs. Adding a flag here would silently break diminishing returns.
+   *
+   * Note what `refresh` does and does not do: `applyStatus` takes `Math.max(existing.endsTick,
+   * endsTick)`, so a re-ram landing while `reeling` is STILL RUNNING can only extend the window,
+   * never shorten it — a falloff-scaled duration is by construction the smaller of the two and is
+   * discarded on that path. The scaled duration is what a ram lands once the previous instance has
+   * lapsed but the falloff window has not (between `ramUncontrolMs` and `drWindowMs` since the last
+   * hit). Falloff's impulse half has no such caveat: it scales every re-ram.
+   *
+   * Both multipliers sit AT the `STATUS_LIMITS` floors, deliberately (spec P22). Do not lower those
+   * floors to make this harsher: they are documented guarantees, and widening one for a single row
+   * is how a guarantee stops guaranteeing. The helplessness here comes from the physics rather than
+   * the debuff — a car sliding sideways with saturated tyres is already a passenger, courtesy of
+   * `DRIVE_CONFIG.impactGripDecel` (P11) doing the real work. `accel: 0.4` is the friction-circle
+   * stagger on top: while the tyres fight the slide there is little grip left for the engine, so a
+   * big hit visibly bogs you.
+   */
+  reeling: {
+    id: "reeling",
+    name: "Reeling",
+    kind: "debuff",
+    color: "#e8590c",
+    reapply: "refresh",
+    modifiers: { turnRate: 0.4, accel: 0.4 },
+    flags: [],
   },
 } as const satisfies Record<StatusId, StatusDef>;
 

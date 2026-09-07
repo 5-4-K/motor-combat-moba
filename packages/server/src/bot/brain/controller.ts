@@ -44,7 +44,7 @@ const FIRING_SITUATIONS: ReadonlySet<SituationId> = new Set<SituationId>([
 ]);
 
 const ABSENT_TARGET: BotCarView = {
-  sessionId: "", carId: "bullseye", team: 0, x: 0, y: 0, angle: 0, speed: 0,
+  sessionId: "", carId: "bullseye", team: 0, x: 0, y: 0, angle: 0, vx: 0, vy: 0,
   hp: 1, maxHp: 1, alive: false, phased: true, statuses: [], maneuver: 0,
 };
 
@@ -279,7 +279,7 @@ export class HumanController implements BotController {
     // body — `selfControlLost` above is what stops the bot acting on the answer while it is neither.
     const me: BotCarView = {
       sessionId: self.sessionId, carId: self.carId, team: self.team,
-      x: self.x, y: self.y, angle: self.angle, speed: self.speed,
+      x: self.x, y: self.y, angle: self.angle, vx: self.vx, vy: self.vy,
       hp: self.hp, maxHp: self.maxHp, alive: true, phased: false,
       statuses: self.statuses, maneuver: self.maneuver,
     };
@@ -292,10 +292,13 @@ export class HumanController implements BotController {
           // it reads is on this bot's own HUD, so it draws no `rng()` at all and is safe inside this
           // ternary — a conditional draw here would make the stream depend on having a target (H21).
           // `throttle: 1`, under `selfPredictor`'s `OBSERVATION_MODIFIERS`, is what HOLDS the
-          // current speed: `throttle: 0` would brake, since `DRIVE_CONFIG.drag` brings a coasting
-          // car to rest in ~0.32 s and would put us 80 units along a line we will actually be 400
-          // units down; `accel: 0` in those modifiers stops the other error, a rollout that assumes
-          // we floor it to the chassis maximum. Either way the answer is the danger of a pose we
+          // current speed: `throttle: 0` coasts, which still lands SHORT; `accel: 0` in those
+          // modifiers stops the other error, a rollout that assumes we floor it to the chassis
+          // maximum. (This used to cite `DRIVE_CONFIG.drag` at 900 u/s^2 — a car to rest in 0.32 s,
+          // 80 units against 400. That global knob was deleted by the 2026-09-06 car-physics
+          // rework for per-car proportional coast, and at Mirage's 36-tick half-life a coasting
+          // rollout covers 219 units against the 267 a held speed does. Same direction, much
+          // smaller margin.) Either way the answer is the danger of a pose we
           // never hold. The bot is driving, at the speed it is driving at.
           meAt: selfPredictor(
             self, { steer: 0, throttle: 1 }, BRAIN_CONSTANTS.predictionHorizonTicks,
@@ -355,7 +358,7 @@ export class HumanController implements BotController {
         solutions.set(i, solve({
           shooter: {
             sessionId: self.sessionId, carId: self.carId, team: self.team,
-            x: self.x, y: self.y, angle: self.angle, speed: self.speed,
+            x: self.x, y: self.y, angle: self.angle, vx: self.vx, vy: self.vy,
             lockTargetSessionId: self.lockTargetSessionId,
           },
           slot: candidate, slotIndex: i, target, targetAt: predictor,
@@ -669,9 +672,7 @@ function isIncomingCar(
   const dy = self.y - target.y;
   const dist = Math.hypot(dx, dy);
   if (dist < 1) return true;
-  const vx = Math.cos(target.angle) * target.speed;
-  const vy = Math.sin(target.angle) * target.speed;
-  const closing = (vx * dx + vy * dy) / dist;
+  const closing = (target.vx * dx + target.vy * dy) / dist;
   if (closing <= 0) return false;
   const eta = (dist - BRAIN_CONSTANTS.contactTriggerUnits) / closing;
   const horizon = profile.dodgeHorizonTicks / TICK_RATE_HZ;

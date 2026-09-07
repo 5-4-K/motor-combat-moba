@@ -107,7 +107,7 @@ describe("encodeStored / decodeStored", () => {
   it("round-trips a setup + overrides blob", () => {
     const stored: StoredPlayground = {
       setup: defaultPlaygroundSetup(),
-      overrides: { "car.mirage.speed": 42, "ram.massPerRating": 5 },
+      overrides: { "car.mirage.speed": 42, "ram.defencePushScale": 5 },
       view: { showHitbox: true },
     };
     expect(decodeStored(encodeStored(stored))).toEqual(stored);
@@ -128,7 +128,7 @@ describe("loadStored / saveStored with an injected storage", () => {
     const storage = fakeStorage();
     const stored: StoredPlayground = {
       setup: defaultPlaygroundSetup(),
-      overrides: { "ram.massPerRating": 5 },
+      overrides: { "ram.defencePushScale": 5 },
       view: defaultStoredView(),
     };
     saveStored(stored, storage);

@@ -1,7 +1,7 @@
 import { driveOf } from "../config/car-config.js";
 import type { CarId } from "../config/types.js";
 import type { InputMessage } from "../net/input.js";
-import { resolveWorld, type Aabb, type Bounds, type Obb } from "./collide.js";
+import { resolveWorld, type Aabb, type Bounds, type CarObstacle } from "./collide.js";
 import { dashSubstepCount, dashTranslation, isDashing, stepDrive } from "./drive.js";
 import type { Modifiers } from "./status/modifiers.js";
 
@@ -9,7 +9,17 @@ export interface SimBody {
   x: number;
   y: number;
   angle: number;
-  speed: number;
+  /**
+   * World velocity, units per second. REPLACES the old scalar `speed`, which was a magnitude along
+   * the heading with a separate `shoveX/shoveY` vector bolted alongside for knockback.
+   *
+   * There is no successor to `shove`. Steering grip keeps the car's own motion aligned with its
+   * nose, so any LATERAL component of this vector is by definition externally imposed — the thing
+   * `shove` existed to represent is now just a decomposition of the one velocity, which is why a
+   * knocked car's motion and a driven car's motion finally obey the same integrator.
+   */
+  vx: number;
+  vy: number;
   reverseHold: number;
   /**
    * Injected rotation, radians per second, decaying toward 0. Set only by a ram; steering is a
@@ -17,14 +27,6 @@ export interface SimBody {
    * `angVel: 0` reproduces the pre-ram drive model exactly.
    */
   angVel: number;
-  /** Injected lateral knock, world units per second, decaying toward 0. Added to the drive velocity. */
-  shoveX: number;
-  shoveY: number;
-  /**
-   * Steering effectiveness, 1 = full control, decaying back UP toward 1. Scales the steer input only
-   * — never throttle, so a knocked player can always drive their way out. Neutral is 1, not 0.
-   */
-  authority: number;
   /**
    * The maneuver this car is in — dash, hold or charge (spec S3). Server-written and
    * `stepDrive`-integrated, exactly the ram-knock pattern above (invariant 8, arch O13): that is
@@ -41,12 +43,14 @@ export interface SimBody {
 
 /**
  * Everything outside the body that one tick of simulation needs: which car is being driven, and the
- * world it is driving through. `others` are the *other* cars' hulls (centre-based `Obb`), `obstacles`
- * come straight from `getArena(...).obstacles` (top-left `Aabb`), and `bounds` is the arena extent.
+ * world it is driving through. `others` are the *other* cars, each a hull (centre-based `Obb`) paired
+ * with its `ramDefence` (`CarObstacle`, stage 2 Task 2, renamed from `mass` in stage 3 Task 3) so
+ * `resolveWorld` can split a car-car correction by solidity; `obstacles` come straight from
+ * `getArena(...).obstacles` (top-left `Aabb`); `bounds` is the arena extent.
  */
 export interface StepContext {
   carId: CarId;
-  others: readonly Obb[];
+  others: readonly CarObstacle[];
   obstacles: readonly Aabb[];
   bounds: Bounds;
   /**
@@ -63,16 +67,37 @@ export interface StepContext {
    * the two halves of the lockstep honest; a default would take that away.
    */
   modifiers: Readonly<Modifiers>;
+  /**
+   * This car's own `ramDefence` (`ramDefenceOf(carId)`), stage 2 Task 2 — renamed from `selfMass` in
+   * stage 3 Task 3, which is also what made it `ramDefenceOf` rather than `massOf`. `resolveWorld`
+   * needs it on the SAME footing as `modifiers` above: it is a fact about the body being resolved,
+   * not integrated state, so it lives here rather than on `SimBody`. Deliberately **required**, not
+   * optional with a default — `serverTick` and the client's `buildStepContext` are the only two
+   * builders of a `StepContext`, and a default here would let one of them silently forget to resolve
+   * it from the driven car's `carId` while the other did not, leaving the two halves of the lockstep
+   * splitting car-car separation by two different ratings for the same car. The compiler is what
+   * keeps them honest; a default would take that away.
+   */
+  selfRamDefence: number;
 }
 
 /**
  * The lockstep: drive, then resolve against the world. Server and client call this same function, so
  * neither half may be reordered or skipped on one side only. Pure — `body` and `ctx` are never mutated.
+ *
+ * `cos`/`sin` are not guaranteed bit-identical across JS engines (server V8 vs. client browser
+ * engine), so replayed positions can drift by an ULP or two. That's fine here: client prediction is
+ * reconciled against authoritative server state rather than trusting bit-exact replay, so this is
+ * not a desync-checksum-safe function. The 2026-09-06 vector-drive rework made trig more pervasive
+ * than the old scalar-`speed` model ever was: even a car driving dead straight now round-trips its
+ * velocity through `toWorld` every tick, where the old `cos(angle) * speed` touched trig once per
+ * tick and a stationary car touched it not at all. The reconciliation-not-replay answer above still
+ * holds; it is simply exercised more often now.
  */
 export function stepSim(body: SimBody, input: InputMessage, dt: number, ctx: StepContext): SimBody {
   const driven = stepDrive(body, input, dt, driveOf(ctx.carId), ctx.modifiers);
   if (!isDashing(body)) {
-    return resolveWorld(driven, ctx.others, ctx.obstacles, ctx.bounds);
+    return resolveWorld(driven, ctx.others, ctx.obstacles, ctx.bounds, ctx.selfRamDefence);
   }
   return resolveDash(body, driven, dt, ctx);
 }
@@ -91,10 +116,10 @@ export function stepSim(body: SimBody, input: InputMessage, dt: number, ctx: Ste
  * Three things this deliberately does:
  *
  * - **Re-walks from the ORIGINAL position, carrying the tick's bookkeeping.** `driven` already
- *   holds the once-per-tick state — the duration countdown, the exit-speed handoff, the shove and
- *   authority decay — and `stepDrive` applied the full-`dt` translation on top of it. Winding the
- *   position back to `body.x/y` and walking it forward in N pieces re-does only the translation
- *   (C6). In free air the N pieces sum to the same distance, so an uncontested dash is unchanged.
+ *   holds the once-per-tick state — the duration countdown, the exit-speed handoff — and
+ *   `stepDrive` applied the full-`dt` translation on top of it. Winding the position back to
+ *   `body.x/y` and walking it forward in N pieces re-does only the translation (C6). In free air
+ *   the N pieces sum to the same distance, so an uncontested dash is unchanged.
  * - **Holds the world frozen across substeps.** `ctx.others`, `ctx.obstacles` and `ctx.bounds` are
  *   the start-of-tick snapshot every car is already stepped against; re-reading mid-tick would
  *   make the outcome depend on iteration order (C7).
@@ -103,11 +128,12 @@ export function stepSim(body: SimBody, input: InputMessage, dt: number, ctx: Ste
  *   "made no progress" needs a float epsilon for no behavioural gain (C8).
  *
  * Gated on DASH by the caller even though the derived count would independently be 1 for every
- * other body in the game — the roster's fastest car covers ~10.5u per tick. `applyContact` damps
- * `speed` and reflects the shove on every call, and `resolveWorld`'s contract is that each distinct
- * surface damps exactly once, never r^2 or r^3. Repeating it is harmless for a dash, whose motion
- * comes from `maneuverSpeed` and whose `speed` is overwritten by `endDash` on the tick the hit
- * lands; it would not be harmless for ordinary driving (C9). The gate documents that intent.
+ * other body in the game — the roster's fastest car covers ~8.9u per tick (Mirage, 267 u/s at 30 Hz,
+ * as of the 2026-09-06 heavy-car pass). `applyContact` damps
+ * `vx/vy` on every call, and `resolveWorld`'s contract is that each distinct surface damps exactly
+ * once, never r^2 or r^3. Repeating it is harmless for a dash, whose motion comes from
+ * `maneuverSpeed` and whose `vx/vy` is overwritten by `endDash` on the tick the hit lands; it would
+ * not be harmless for ordinary driving (C9). The gate documents that intent.
  */
 function resolveDash(body: SimBody, driven: SimBody, dt: number, ctx: StepContext): SimBody {
   const substeps = dashSubstepCount(body, dt);
@@ -119,6 +145,7 @@ function resolveDash(body: SimBody, driven: SimBody, dt: number, ctx: StepContex
       ctx.others,
       ctx.obstacles,
       ctx.bounds,
+      ctx.selfRamDefence,
     );
   }
   return next;

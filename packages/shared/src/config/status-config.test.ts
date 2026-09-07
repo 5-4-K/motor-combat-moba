@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TICK_RATE_HZ } from "../constants.js";
-import { DRIVE_CONFIG } from "./drive-config.js";
+import { activeCarIds, driveOf, forwardMaxSpeedOf } from "./car-config.js";
 import {
   STATUS_CONFIG,
   STATUS_IDS,
@@ -214,10 +214,16 @@ describe("STATUS_LIMITS", () => {
   });
 
   it("keeps the brake pedal better than lifting off, however faded it gets", () => {
-    // The floor is not a free choice: a brake weaker than drag would mean pressing it slows you LESS
-    // than releasing the throttle, which reads as broken rather than degraded. Checked against the
-    // live drive numbers so a `drag` re-tune cannot silently invalidate it.
-    expect(DRIVE_CONFIG.brakeDecel * STATUS_LIMITS.brakeDecel.min).toBeGreaterThan(DRIVE_CONFIG.drag);
+    // The floor is not a free choice: a brake weaker than coasting would mean pressing it slows you
+    // LESS than releasing the throttle, which reads as broken rather than degraded. Checked against
+    // the WORST case across the roster — the chassis that coasts FASTEST (sheds the most speed per
+    // second) at its own top speed, scaled down by the SLOWEST brake on the roster — so a per-car
+    // retune cannot silently invalidate it either.
+    const worstCoastDecel = Math.max(
+      ...activeCarIds().map((id) => (1 - driveOf(id).coastPerTick) * forwardMaxSpeedOf(id) * TICK_RATE_HZ),
+    );
+    const slowestBrake = Math.min(...activeCarIds().map((id) => driveOf(id).brakeDecel));
+    expect(slowestBrake * STATUS_LIMITS.brakeDecel.min).toBeGreaterThan(worstCoastDecel);
   });
 
   it("covers every channel a row can name", () => {
@@ -309,5 +315,33 @@ describe("phased", () => {
     for (const id of IDS) {
       expect(statusDefOf(id).onApply?.cleanse).not.toBe("buff");
     }
+  });
+});
+
+describe("reeling", () => {
+  it("is not a stun: it never freezes or disarms the victim", () => {
+    const row = STATUS_TABLE.reeling;
+    expect(row.flags ?? []).toEqual([]);
+  });
+
+  it("refreshes rather than ignoring, so falloff can shorten a chained ram", () => {
+    expect(STATUS_TABLE.reeling.reapply).toBe("refresh");
+  });
+
+  it("degrades steering and the engine without breaching the global clamps", () => {
+    const mods = STATUS_TABLE.reeling.modifiers;
+    expect(mods.turnRate).toBeGreaterThanOrEqual(STATUS_LIMITS.turnRate.min);
+    expect(mods.accel).toBeGreaterThanOrEqual(STATUS_LIMITS.accel.min);
+    expect(mods.turnRate).toBeLessThan(1);
+    expect(mods.accel).toBeLessThan(1);
+  });
+
+  it("sits exactly at the STATUS_LIMITS floors, not below them (spec P22)", () => {
+    expect(STATUS_TABLE.reeling.modifiers.turnRate).toBe(STATUS_LIMITS.turnRate.min);
+    expect(STATUS_TABLE.reeling.modifiers.accel).toBe(STATUS_LIMITS.accel.min);
+  });
+
+  it("leaves top speed alone, so a reeling car is slowed by physics not by a debuff", () => {
+    expect(STATUS_TABLE.reeling.modifiers.topSpeed ?? 1).toBe(1);
   });
 });

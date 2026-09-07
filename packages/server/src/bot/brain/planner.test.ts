@@ -18,14 +18,16 @@ function slotsFor(carId: "bullseye"): BotSlotView[] {
 
 function selfAt(x: number, y: number, angle: number): BotSelfView {
   return {
-    sessionId: "me", carId: "bullseye", team: 0, x, y, angle, speed: 200,
+    sessionId: "me", carId: "bullseye", team: 0, x, y, angle,
+    // 200 u/s along the heading — the car-physics rework's spelling of the old `speed: 200`.
+    vx: Math.cos(angle) * 200, vy: Math.sin(angle) * 200,
     hp: 65, maxHp: 65, alive: true, statuses: [], slots: slotsFor("bullseye"),
     switchLockUntilTick: 0, lockTargetSessionId: "", maneuver: 0, maneuverTicksLeft: 0,
   };
 }
 
 const target: BotCarView = {
-  sessionId: "them", carId: "mirage", team: 1, x: 700, y: 360, angle: Math.PI, speed: 0,
+  sessionId: "them", carId: "mirage", team: 1, x: 700, y: 360, angle: Math.PI, vx: 0, vy: 0,
   hp: 70, maxHp: 70, alive: true, phased: false, statuses: [], maneuver: 0,
 };
 
@@ -95,7 +97,7 @@ describe("plan", () => {
     // can END on are 0 and +-150 degrees; a small correction is not on the menu and, scored at the
     // terminus alone, `steer: 0` wins from any pose that is merely a little off. Here the target
     // sits 0.25 rad off the nose — the exact geometry that froze the duel — and the bot is at rest.
-    const self = { ...selfAt(200, 360, 0), speed: 0 };
+    const self: BotSelfView = { ...selfAt(200, 360, 0), vx: 0, vy: 0 };
     const offAxis = { ...target, x: 753, y: 500, carId: "mirage" as const };
     const result = plan({
       ...base, self, target: offAxis,
@@ -196,7 +198,9 @@ describe("plan", () => {
     // A target crossing at 400 u/s, 400 units away, against pepperbox's 800 u/s pellets: the shot
     // is roughly 17 ticks in the air, so the target is ~227 units further down the screen by the
     // time it lands and the heading worth holding is ~0.5 rad, not 0.
-    const crossingTarget: BotCarView = { ...target, angle: Math.PI / 2, speed: 400 };
+    // `angle: PI/2` with 400 u/s along it is straight down the screen — matching the `crossing`
+    // predictor just below, which advances y by 400 u/s and holds x.
+    const crossingTarget: BotCarView = { ...target, angle: Math.PI / 2, vx: 0, vy: 400 };
     const crossing: PosePredictor = (ticksAhead) => ({
       x: 700, y: 360 + (400 * ticksAhead) / 30, angle: Math.PI / 2,
     });
@@ -253,7 +257,7 @@ describe("plan", () => {
       // the bot can only look at HOLDS the speed it was seen at — under that set this candidate
       // could not move at all and every rangeError would still read the full 400 units. The
       // planner rolls its OWN car under a throttle it is choosing, so it must use NEUTRAL.
-      const stopped: BotSelfView = { ...selfAt(300, 360, 0), speed: 0 };
+      const stopped: BotSelfView = { ...selfAt(300, 360, 0), vx: 0, vy: 0 };
       const result = plan({ ...hunt, self: stopped, horizonTicks: 10 });
       expect(result.terms.rangeError).toBeLessThan(399);
     });
@@ -347,7 +351,16 @@ describe("plan", () => {
 
     const neutral = plan({ ...scene, self, commitPenalty: 0, lastAction: undefined });
     // The genuine best play here is to brake rather than drive further into the wall.
-    expect(neutral.action).toEqual({ steer: 0, throttle: -1 });
+    //
+    // RE-PINNED at the 2026-09-07 merge of the car-physics rework: the winner was `steer: 0`
+    // under the pre-rework drive model and is `steer: -1` under the vector one. Both brake — the
+    // `throttle: -1` half, which is what the comment above is about, is unchanged — but a heavy
+    // car that now carries its momentum into the wall does better to turn OFF the wall while it
+    // sheds that momentum than to sit square against it. A better play, and the expected direction
+    // for this scene under the new physics. This assertion only names the winner so the two
+    // `sticky` assertions below have something to compare against; R-P16's actual subject is that
+    // a commit bonus toward `clearlyWorse` cannot latch the planner onto it, and that is untouched.
+    expect(neutral.action).toEqual({ steer: -1, throttle: -1 });
 
     // A SANE candidate that is nonetheless clearly worse than the winner — reversed hard while
     // steering, not the wall-crashing outlier. Under the old `max - min` normalisation the outlier
@@ -356,7 +369,20 @@ describe("plan", () => {
     // how bad it is: exactly the latch behaviour R-P16 fixes. `max - median` keeps the bonus scaled
     // to the spread among the eight candidates that never left the arena, which is far too small to
     // cover this gap.
-    const clearlyWorse = { steer: 1, throttle: -1 } as const;
+    // RE-CHOSEN at the 2026-09-07 merge, for the same reason the winner above moved. This used to
+    // be `{ steer: 1, throttle: -1 }` — reversed hard while steering the OTHER way. Under the
+    // vector drive that candidate is no longer clearly worse: facing square into the wall at the
+    // arena's vertical centre, turning left and turning right are symmetric, and the two score
+    // within 0.23 of each other against a ~200-point spread across the nine candidates. A gap that
+    // is 0.1% of the spread is a tie, not a deficit, so the assertion below stopped testing
+    // anything — a commit bonus SHOULD be able to break a tie, and R-P16 never promised otherwise.
+    //
+    // `{ steer: 0, throttle: 0 }` restores the gap the test needs: no input at all, coasting into
+    // the wall, ~93 points below the winner where `max - median` (what R-P16 scales the bonus to)
+    // is 1.78. It is still a SANE candidate rather than the out-of-arena outlier the scene is built
+    // around — that is `{ steer: 0, throttle: 1 }`, 203 points down, and using it would test the
+    // easy case instead of R-P16's real one.
+    const clearlyWorse = { steer: 0, throttle: 0 } as const;
     expect(clearlyWorse).not.toEqual(neutral.action);
 
     const sticky = plan({
@@ -365,6 +391,8 @@ describe("plan", () => {
     expect(sticky.action).not.toEqual(clearlyWorse);
     expect(sticky.action).toEqual(neutral.action);
   });
+
+
 
   // --- P43 / H21: no randomness anywhere in the planner --------------------------------------
   it("draws no random numbers (P43)", () => {

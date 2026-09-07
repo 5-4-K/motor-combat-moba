@@ -150,7 +150,11 @@ export function preferredRangeOf(
   // sampled ranges are bit-for-bit the ones that were evaluated — re-running the accumulation
   // `range += step` a second time would be a second chance to drift.
   const bar = peak * BRAIN_CONSTANTS.preferredRangePlateauFraction;
-  let bestRange = BRAIN_CONSTANTS.minEngageUnits;
+  // Annotated `number`, not inferred: `BRAIN_CONSTANTS` is a frozen object literal, so
+  // `minEngageUnits` carries the LITERAL type `70` and an inferred `bestRange` would refuse every
+  // `sample.range` assigned to it below. Pre-existing on `development/main` (the server typecheck
+  // gate was red on its tip); surfaced here because the car-physics branch repaired the gate.
+  let bestRange: number = BRAIN_CONSTANTS.minEngageUnits;
   for (const sample of samples) {
     if (sample.total >= bar) bestRange = sample.range;
   }

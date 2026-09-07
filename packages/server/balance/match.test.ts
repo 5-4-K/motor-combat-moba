@@ -252,7 +252,83 @@ describe("runMatch", () => {
     // Mirage/Bastion matchup's dynamics enough that seed 40 stopped landing a kill inside the 30 s
     // window — a legitimate killless window under the new views, not a clock regression, so this
     // test isn't about that case.
-    const out = runMatch({ ...SETUP, seed: 3, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    //
+    // Checked, not reseeded, on 2026-09-06: stage 1 of the vector-drive rework (the heavy-car pass —
+    // `baseMaxSpeed`/`speedPerRating`/`baseAccel`/`accelPerRating` all cut, per-car `coastHalfLifeSeconds`
+    // and `brakeDecel` added) was swept against seed 65 both ways: red against the pre-pass drive
+    // numbers (no kill lands in the 30 s window), green after landing them, unchanged. Recorded here
+    // so the next reader knows this was verified rather than merely untouched by the pass.
+    //
+    // `seed: 15`, not 65: stage 2 (contact and impulse) landed later the same day -- walls deflect
+    // instead of damping, restitution 0.35 -> 0.15 (Task 1), and car-car separation splits by mass
+    // instead of each side taking the full push (Task 2). Together these moved enough ram/positioning
+    // outcomes that seed 65 is now a 0-0 draw in the 30 s window. Swept 1-100 against the new contact
+    // physics: 15, 26, 28, 48, 49, 53, 78, 87 and 98 land a kill inside it.
+    //
+    // `seed: 26`, not 15: stage 2 Tasks 3-4 (the same day) routed ram AND slam through the new
+    // `Impulse`/`applyImpulse` and gave the ATTACKER an equal-and-opposite `reactionOf` reaction it
+    // never had before (Newton's third law) -- a heavy chassis now recoils off what it rams instead
+    // of continuing untouched. That moved ram/positioning dynamics again: seed 15's kill no longer
+    // lands inside the 30 s window under the new reaction physics. Re-swept the already-known-good
+    // candidates from the sweep above against the new build: 26, 78, 87 and 98 still land a kill
+    // inside it; 15, 28, 48, 49 and 53 do not.
+    //
+    // `seed: 87`, not 26: stage 3 Task 2 (car-physics rework) replaced the ram model outright — a
+    // contest between both cars' `ramAttack`/`ramDefence` push, computed independently for each side
+    // (spec R7), rather than the severity-graded one-way push plus `reactionOf`'s equal-and-opposite
+    // reaction. That is a different function shape, not a retune of the same one, so it moved this
+    // matchup's dynamics again: seed 26's kill no longer lands inside the 30 s window. Swept 1-120
+    // against the new contest: 22, 24, 48, 53, 64, 76, 79, 87 and 98 land a decisive kill inside it
+    // (65 also lands a kill for both sides and draws, so it is excluded here); 87 carries forward
+    // from the previous known-good set.
+    //
+    // `seed: 98`, not 87: stage 3 Task 4 (the same rework) set the two constants the contest had
+    // been running with placeholders for -- `RAM_CONFIG.globalScale` 1 -> 0.4 and `spinScale`
+    // 100 -> 10, both measured through the composed `serverTick` -> `contactTick` order -- and
+    // widened the pre-collision cache to a full velocity vector (`TickResult.approachVelocities`),
+    // so a car carrying lateral velocity into a contact now brings it to the contest instead of
+    // having it dropped. Every ram in a match therefore lands with a different magnitude and a
+    // different injected spin, and seed 87's kill no longer lands inside the 30 s window. Re-swept
+    // 1-120 against the measured constants: 15, 22, 28, 29, 39, 48, 49, 53, 64, 65, 67, 79, 98, 101,
+    // 105, 106 and 110 land a decisive kill inside it. **98 is the one seed present in every
+    // known-good set this test has ever had**, which is why it is the pick over any of the fresh
+    // ones -- a seed that has survived four different ram models is the least likely to need
+    // replacing again next stage.
+    //
+    // `seed: 22`, not 98: stage 3b Task 3 (this rework) gives a ram victim the new `reeling` status
+    // -- turnRate and accel both driven to `STATUS_LIMITS`'s floor for `RAM_TICKS.uncontrol`,
+    // scaled down on a re-ram by the same per-victim falloff stack that already scaled the impulse
+    // -- so a car that lands the first hit now gets a real window where its target cannot fight
+    // back cleanly. That is exactly the "ramming finally feels different" outcome this task exists
+    // to ship, and it moved this matchup's dynamics again: seed 98 is now a legitimate 0-0 draw in
+    // the 30 s window (`reeling` cuts both cars' aim enough that neither exchange lands a kill
+    // before the clock runs out). Re-swept 1-150 against the new status: 10, 22, 23, 26, 49, 53, 66,
+    // 75, 79, 80, 81, 87, 94, 101, 105, 106, 111, 118, 127, 129, 138 and 147 land a decisive kill
+    // inside it. 22 is picked over the others because it is also present in both of the two most
+    // recent known-good sets above (stage 3 Tasks 2 and 4) -- the same "survived more than one ram
+    // model" reasoning that picked 98 last time, just applied to the next-most-durable candidate now
+    // that 98 itself is gone.
+    //
+    // `seed: 79`, not 22: stage 4 (this rework) moved the hard slam off `SLAM_CONFIG` and onto
+    // `wildcharge`'s own declared `ImpulseDef` -- a slam now applies `reeling` for the def's
+    // `uncontrolMs`, where it previously applied no control loss at all, and a victim slammed and
+    // rammed on the same tick now takes both impulses instead of only the slam. The bot does press
+    // `wildcharge`, so a landed slam's new 1400 ms `reeling` window and the extra impulse both change
+    // this seeded matchup's dynamics, and seed 22 is now a legitimate 0-0 draw in the 30 s window.
+    // Swept 1-150 against the stage 4 build: 79 still lands a decisive kill inside it. 79 is picked
+    // over the other survivors because it is present in the stage-3-Task-2, stage-3-Task-4 AND
+    // stage-3b known-good sets -- decisive across four consecutive ram models, the same durability
+    // rule that picked 98 and then 22 before it.
+    //
+    // MERGE (2026-09-07): `development/main` and `feature/car-physics-rework` each re-seeded this
+    // fixture independently while the other was in flight -- main onto seed 3 (the phase-D planner
+    // brain), the physics branch onto seed 79 (the stage-4 slam impulse). Neither seed survives the
+    // OTHER side's changes, so the merged sim needed its own sweep rather than a pick between the
+    // two. Swept 1-150 against the merged build; 79 still lands a decisive kill inside the 30 s
+    // window, so the physics branch's pick carries forward. That is the same durability rule that
+    // picked 98, then 22, then 79 before it: prefer a seed already present in a known-good set over
+    // a fresh one, because it has survived more than one change to the thing under it.
+    const out = runMatch({ ...SETUP, seed: 79, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);
@@ -283,7 +359,20 @@ describe("runMatch", () => {
     // `BRAIN_CONSTANTS.dangerEvadeCooldownTicks`). With the refractory in place, 42, 44, 45 and 53
     // are decisive again at 60 s and 1, 2, 65 and 68 still draw, so the original spread exercises
     // both branches exactly as it was written to. Re-checked seed by seed, not assumed.
-    const outcomes = [1, 2, 42, 44, 45, 53, 65, 68].map((seed) =>
+    //
+    // REPINNED for stage 2 Task 1 (2026-09-06, the physics branch): walls deflecting instead of
+    // damping, plus the lower restitution, changed enough ram/positioning outcomes that seeds 42,
+    // 44, 45, 53, 65 and 68 (all decisive under the brain above) went to 0-0 draws. That branch
+    // swept 1-80 under the new contact physics and pinned 15, 16, 26, 39, 48 and 79.
+    //
+    // MERGE (2026-09-07): the two spreads above were measured against different sims -- the planner
+    // brain without the vector drive, and the vector drive without the planner brain. The merged
+    // build is neither, so it was swept afresh rather than picking one of the two lists. The RULE is
+    // untouched either way; only which seeds happen to produce a kill moves. Swept 1-100 at the 60 s
+    // default: 1, 2, 3 and 4 are decisive and 22, 41, 42 and 43 draw — the same four-and-four shape
+    // the spread has always had, so the tie branch below still runs on real ties rather than
+    // relying on every seed being decisive.
+    const outcomes = [1, 2, 3, 4, 22, 41, 42, 43].map((seed) =>
       runMatch({ ...SETUP, seed, mode: GameMode.FFA_DEATHMATCH }));
 
     for (const out of outcomes) {

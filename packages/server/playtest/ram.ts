@@ -6,17 +6,39 @@
  * term. So the order in which a ram is measured relative to its own bounce is the whole question
  * here, and the tick grid decides it.
  */
-import { RAM_CONFIG, forwardMaxSpeedOf, type CarId } from "@motor-combat-moba/shared";
+import {
+  RAM_CONFIG,
+  forwardMaxSpeedOf,
+  forwardOf,
+  lateralOf,
+  speedOf,
+  type CarId,
+} from "@motor-combat-moba/shared";
 import { PlaytestWorld } from "./world.js";
 import { Reporter } from "./reporter.js";
 
+// STALE POST-VECTOR-DRIVE-REWORK: every threshold and descriptive u/tick number in this file
+// (trigger-rate floors, "10.5 u/tick", the authority-floor references) was tuned against the
+// pre-2026-09-06 roster, whose top speeds were up to 40% higher. Left unchanged per the review's
+// instruction that stage 5 owns re-deriving them; see
+// `docs/superpowers/plans/2026-09-06-car-physics/05-tune-and-reconcile.md`.
+//
+// **Stage 3 Task 4 added a second, independent reason those thresholds are owed a re-derivation,
+// and it is bigger than the speed cut.** `RAM_CONFIG.globalScale` and `spinScale` were placeholders
+// until that task measured them (1 -> 0.4 and 100 -> 10), so every knock magnitude and every
+// injected spin this file observes moved — the roster's hardest ram now writes 268.0 u/s and 5.95
+// rad/s, measured through the composed `serverTick` -> `contactTick` order. The trigger-RATE floors
+// (R1/R2) are the exception and should be unaffected: a ram fires on contact and drive-in sign,
+// neither of which any of those constants touches. Ram-lock (R5) and anything reading how far a
+// victim travels are not exempt. Still nothing this task may retune — named here so stage 5 knows
+// what moved under it, and so a run in the meantime is read with this in hand.
 function ramOf(
   startGap: number,
   atkCar: CarId,
   vicCar: CarId,
   side: "rear" | "front" | "flank",
   ticks = 8,
-): { shove: number; angVel: number; authority: number; approachAtContact: number } {
+): { shove: number; angVel: number; approachAtContact: number } {
   // Victim at the origin facing +x. Attacker approaches along +x from behind (rear), from in front
   // (front, victim facing -x), or from above (flank).
   const vy = 360;
@@ -32,15 +54,20 @@ function ramOf(
     { id: "vic", carId: vicCar, x: vx, y: vy, angle: s.va },
   ]);
 
-  let best = { shove: 0, angVel: 0, authority: 1, approachAtContact: 0 };
+  // `authority` has no successor in stage 1 — ram control-loss returns as the `reeling` status in
+  // stage 3b — so it is dropped here rather than replaced with a lookalike number.
+  let best = { shove: 0, angVel: 0, approachAtContact: 0 };
   for (let i = 0; i < ticks; i++) {
-    const speedBefore = w.get("atk").speed;
+    const atk = w.get("atk");
+    const speedBefore = forwardOf(atk.vx, atk.vy, atk.angle);
     w.input("atk", { throttle: 1 });
     w.tick();
     const v = w.get("vic");
-    const shove = Math.hypot(v.shoveX, v.shoveY);
+    // The victim never drives in this probe, so any vx/vy it carries is entirely the knock —
+    // unsigned magnitude is the direct successor of the old separate `shove` field.
+    const shove = speedOf(v.vx, v.vy);
     if (shove > best.shove) {
-      best = { shove, angVel: v.angVel, authority: v.authority, approachAtContact: speedBefore };
+      best = { shove, angVel: v.angVel, approachAtContact: speedBefore };
     }
   }
   return best;
@@ -72,7 +99,8 @@ function triggerPhaseSweep(): void {
   report(
     "R1. Does a ram fire at all, as a function of where the tick grid lands?",
     worstRate < 0.9 ? "FINDING" : "OK",
-    "A bastion (mass 90, the designated rammer) at top speed hits a stationary bullseye.\n" +
+    "A bastion (ramAttack 70, ramDefence 90 — the designated rammer) at top speed hits a\n" +
+      "stationary bullseye (45/30).\n" +
       "`startGap` is the clearance at t=0; the car covers 10.5 u/tick, so sweeping the gap sweeps\n" +
       "the sub-tick phase of the impact — the only thing that differs between these runs.\n" +
       rows.join("\n"),
@@ -130,19 +158,22 @@ function speedBeforeAndAfterResolve(): void {
   let firedOnContactTick = false;
   let rebounded = false;
   for (let i = 0; i < 4; i++) {
-    const carriedIn = w.get("atk").speed;
+    const before = w.get("atk");
+    const carriedIn = forwardOf(before.vx, before.vy, before.angle);
     w.input("atk", { throttle: 1 });
     w.tick();
     const a = w.get("atk");
     const v = w.get("vic");
-    const shove = Math.hypot(v.shoveX, v.shoveY);
+    const afterResolve = forwardOf(a.vx, a.vy, a.angle);
+    // The victim never drives in this probe, so any vx/vy it carries is entirely the knock.
+    const shove = speedOf(v.vx, v.vy);
     // The contact tick is the first one on which a knock appears.
     if (i === 0) {
       firedOnContactTick = shove > 0.01;
-      rebounded = a.speed < 0;
+      rebounded = afterResolve < 0;
     }
     rows.push(
-      `t${i + 1}: carried in ${carriedIn.toFixed(1)} -> ${a.speed.toFixed(1)} after resolveWorld; ` +
+      `t${i + 1}: carried in ${carriedIn.toFixed(1)} -> ${afterResolve.toFixed(1)} after resolveWorld; ` +
         `ram's approach term is the carried-in ${carriedIn.toFixed(1)} ` +
         `${carriedIn >= RAM_CONFIG.minApproachSpeed ? "(>= minApproachSpeed)" : "(below minApproachSpeed)"}; ` +
         `victim shove ${shove.toFixed(1)}`,
@@ -180,7 +211,8 @@ function drivenRam(): void {
         w.input("atk", { throttle: 1 });
         w.tick();
         const v = w.get("vic");
-        shove = Math.max(shove, Math.hypot(v.shoveX, v.shoveY));
+        // The victim never drives in this probe, so any vx/vy it carries is entirely the knock.
+        shove = Math.max(shove, speedOf(v.vx, v.vy));
       }
       if (shove > 0.01) fired++;
       peakShove = Math.max(peakShove, shove);
@@ -202,10 +234,11 @@ function drivenRam(): void {
 /* ------------------------------------------------------- R5. ram-lock: chase in open space */
 /**
  * Can the roster's heaviest rammer hold the roster's lightest car in a knock loop, or does one
- * clean escape window always exist? Bastion (mass 90) rear-ends a bullseye (mass 30) that starts
+ * clean escape window always exist? Bastion (ramAttack 70, ramDefence 90) rear-ends a bullseye
+ * (45/30) that starts
  * at rest with the whole arena open in front of it; from the impact on, both hold full throttle
  * and the victim steers to straighten out — the best escape a player could drive. Bullseye's top
- * speed rating (52) beats Bastion's (30), so the design intent is that control returns and the
+ * speed rating (65) beats Bastion's (50), so the design intent is that control returns and the
  * gap opens; a phase where it never does is a lock the ram's edge-triggering was built to forbid.
  *
  * Swept two ways: the approach gap (the sub-tick phase of the first impact, as R1) and a small
@@ -216,7 +249,9 @@ function chaseRamLock(): void {
   const rows: string[] = [];
   let worstEscape = { escaped: true, gap: 0, phase: "", rams: 0 };
   let maxRams = 0;
-  let minAuthoritySeen = 1;
+  // `authority` has no successor in stage 1 — ram control-loss returns as the `reeling` status in
+  // stage 3b — so the "deepest authority dip" measurement this probe used to report is dropped
+  // rather than replaced with a lookalike number.
   for (const offset of [0, 6, 12]) {
     let escapes = 0;
     let runs = 0;
@@ -236,7 +271,6 @@ function chaseRamLock(): void {
       ]);
       let rams = 0;
       let prevShove = 0;
-      let minAuthority = 1;
       let midGap = 0;
       const ticks = 240;
       let t = 0;
@@ -248,11 +282,18 @@ function chaseRamLock(): void {
         w.input("atk", { throttle: 1 });
         w.input("vic", { throttle: 1, steer: v.angle > 0 ? -1 : v.angle < 0 ? 1 : 0 });
         w.tick();
-        const shove = Math.hypot(w.get("vic").shoveX, w.get("vic").shoveY);
+        // The victim drives here (unlike the other probes above), so its forward component is a mix
+        // of its own throttle and any ram push — they can no longer be told apart by reading
+        // velocity alone. The lateral component is the one part that is unambiguously external
+        // (steering grip keeps driven motion aligned with the nose), so it stands in for the old
+        // separate `shove` field. That undercounts a dead-centre rear ram (offset 0), which imparts
+        // little to no spin — this is a diagnostic count only, not the probe's pass/fail verdict,
+        // and stage 5 should reconsider it if isolating ram impulses precisely ever matters here.
+        const afterVic = w.get("vic");
+        const shove = Math.abs(lateralOf(afterVic.vx, afterVic.vy, afterVic.angle));
         // Knock only decays between impacts, so any rise is a fresh ram landing.
         if (shove > prevShove + 5) rams++;
         prevShove = shove;
-        minAuthority = Math.min(minAuthority, w.get("vic").authority);
         if (t === Math.floor(ticks / 2)) midGap = w.get("vic").x - w.get("atk").x - 48;
         // The runway ends where open space does: stop at the far wall, judge what we have.
         if (w.get("vic").x > 1280 - 60) break;
@@ -264,7 +305,6 @@ function chaseRamLock(): void {
       runs++;
       if (escaped) escapes++;
       maxRams = Math.max(maxRams, rams);
-      minAuthoritySeen = Math.min(minAuthoritySeen, minAuthority);
       if (finalGap < worstGap) {
         worstGap = finalGap;
         ramsAtWorst = rams;
@@ -281,12 +321,13 @@ function chaseRamLock(): void {
   report(
     "R5. Ram-lock: heaviest rammer chasing the lightest car up an open lane",
     worstEscape.escaped ? "OK" : "FINDING",
-    `bastion (mass 90, top speed rating 30) rear-ends a resting bullseye (mass 30, rating 52) and ` +
+    `bastion (ramAttack 70, ramDefence 90; speed rating 50) rear-ends a resting bullseye (45/30; ` +
+      `speed rating 65) and ` +
       `keeps chasing; the victim floors it and straightens out. 63 runs: approach gap 0-20 x ` +
       `lateral offset {0, 6, 12}.\n` +
       rows.join("\n") +
-      `\nmost rams landed in any single run: ${maxRams}; deepest authority dip ${minAuthoritySeen.toFixed(2)} ` +
-      `(RAM_CONFIG.authorityFloor ${RAM_CONFIG.authorityFloor}).` +
+      `\nmost rams landed in any single run: ${maxRams}. (Stage 1 dropped the "deepest authority ` +
+      `dip" line this used to carry — see the comment above the loop.)` +
       (worstEscape.escaped
         ? `\nEvery phase escaped: the first knock is the attacker's whole payday — by the time ` +
           `authority recovers the speed advantage has the gap opening, and the edge-triggered ram ` +

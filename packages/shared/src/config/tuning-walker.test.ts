@@ -10,9 +10,11 @@ describe("tuning walker", () => {
     setTuning(null);
   });
 
-  it("walks the six ratings per car and nothing else from CAR_TABLE", () => {
+  it("walks the seven ratings per car and nothing else from CAR_TABLE", () => {
     const mirage = tunableFields().filter((f) => f.group === "car" && f.ownerId === "mirage");
-    expect(mirage.map((f) => f.label).sort()).toEqual(["accel", "attack", "handling", "hp", "mass", "speed"]);
+    expect(mirage.map((f) => f.label).sort()).toEqual([
+      "accel", "attack", "handling", "hp", "ramAttack", "ramDefence", "speed",
+    ]);
   });
 
   it("skips identity fields at any depth and never emits color or kind", () => {

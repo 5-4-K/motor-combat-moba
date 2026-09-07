@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PlayerStatus, RoomPhase } from "@motor-combat-moba/shared";
+import { GameMode, PlayerStatus, RoomPhase } from "@motor-combat-moba/shared";
 import { isSpectating } from "./spectate.js";
 import { SLOT_KEYS } from "../config/slot-keys.js";
 import {
@@ -116,6 +116,8 @@ describe("showMovementHint", () => {
    */
   it("cannot overlap the spectate banner, which only appears in MATCH", () => {
     expect(showMovementHint(RoomPhase.MATCH)).toBe(false);
-    expect(isSpectating(RoomPhase.COUNTDOWN, PlayerStatus.IN_MATCH, false)).toBe(false);
+    expect(
+      isSpectating(RoomPhase.COUNTDOWN, GameMode.FFA_LAST_STANDING, PlayerStatus.IN_MATCH, false),
+    ).toBe(false);
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  DRIVE_CONFIG, ManeuverKind, NEUTRAL_MODIFIERS, TICK_RATE_HZ, driveOf, turnRateAtStopOf, turnRateOf,
+  DRIVE_CONFIG, ManeuverKind, NEUTRAL_MODIFIERS, TICK_RATE_HZ, driveOf, forwardOf,
+  turnRateAtStopOf, turnRateOf,
 } from "@motor-combat-moba/shared";
 import { BOT_PROFILES, BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
@@ -12,19 +13,36 @@ import {
 } from "./predict.js";
 import { constantVelocityPredictor } from "./solution.js";
 
-function carAt(over: Partial<BotCarView> = {}): BotCarView {
-  return {
-    sessionId: "them", carId: "mirage", team: 1, x: 0, y: 0, angle: 0, speed: 300,
-    hp: 70, maxHp: 70, alive: true, phased: false, statuses: [], maneuver: 0, ...over,
+/**
+ * `speed` is still accepted as an OVERRIDE and resolved here to `vx`/`vy` along the (possibly also
+ * overridden) `angle`.
+ *
+ * The car-physics rework replaced the view's scalar `speed` with a world velocity, and every scene
+ * in this file means "travelling at N along its nose" when it writes `speed: N` — so the conversion
+ * belongs in one place rather than at each of the thirty-odd call sites, where spelling it out would
+ * bury what each scene is actually about. Pass `vx`/`vy` directly for the rare scene that wants a
+ * car sliding across its own nose; the two forms compose, with `speed` applied last.
+ */
+function carAt(over: Partial<BotCarView> & { speed?: number } = {}): BotCarView {
+  const { speed, ...rest } = over;
+  const car: BotCarView = {
+    sessionId: "them", carId: "mirage", team: 1, x: 0, y: 0, angle: 0, vx: 300, vy: 0,
+    hp: 70, maxHp: 70, alive: true, phased: false, statuses: [], maneuver: 0, ...rest,
   };
+  if (speed === undefined) return car;
+  return { ...car, vx: Math.cos(car.angle) * speed, vy: Math.sin(car.angle) * speed };
 }
 
-function selfAt(over: Partial<BotSelfView> = {}): BotSelfView {
-  return {
-    sessionId: "me", carId: "mirage", team: 0, x: 0, y: 0, angle: 0, speed: 300,
+/** The `speed` override behaves exactly as it does in `carAt` above — see there. */
+function selfAt(over: Partial<BotSelfView> & { speed?: number } = {}): BotSelfView {
+  const { speed, ...rest } = over;
+  const self: BotSelfView = {
+    sessionId: "me", carId: "mirage", team: 0, x: 0, y: 0, angle: 0, vx: 300, vy: 0,
     hp: 70, maxHp: 70, alive: true, statuses: [], slots: [], switchLockUntilTick: 0,
-    lockTargetSessionId: "", maneuver: 0, maneuverTicksLeft: 0, ...over,
+    lockTargetSessionId: "", maneuver: 0, maneuverTicksLeft: 0, ...rest,
   };
+  if (speed === undefined) return self;
+  return { ...self, vx: Math.cos(self.angle) * speed, vy: Math.sin(self.angle) * speed };
 }
 
 /**
@@ -44,16 +62,24 @@ function rngGiving(draw: number): () => number {
 }
 
 describe("rollForward", () => {
-  it("carries a straight-line car forward, brought to rest by drag", () => {
+  it("carries a straight-line car forward, coasting off only slowly", () => {
     const body = bodyFromObservation(carAt(), 0);
     const poses = rollForward(body, "mirage", { steer: 0, throttle: 0 }, TICK_RATE_HZ, NEUTRAL_MODIFIERS);
-    // DRIVE_CONFIG.drag (900 u/s^2) is steep enough that a coasting 300 u/s car is fully stopped
-    // well inside one second (~10 ticks), so a full second of rollout lands on a small, fixed
-    // distance rather than "most of 300 units" -- it still moves forward, and stays there once
-    // stopped, which is what this checks.
-    expect(poses.at(-1)!.x).toBeGreaterThan(40);
-    expect(poses.at(-1)!.x).toBeLessThan(50);
+    // RE-PINNED at the 2026-09-07 merge of the car-physics rework, and the claim INVERTED with it.
+    // This used to read "brought to rest by drag": the global `DRIVE_CONFIG.drag` was 900 u/s^2,
+    // steep enough to stop a coasting 300 u/s car inside ~10 ticks, so a full second of rollout
+    // landed on 40-50 units. That knob no longer exists. Coast is now per-car and PROPORTIONAL
+    // (`CarDef.coastHalfLifeSeconds` -> `ChassisDrive.coastPerTick`), and Mirage's half-life is 36
+    // ticks — so a full second of coasting sheds barely half the speed and covers 225.7 units, most
+    // of the 300 a held speed would. A heavy car that carries its momentum is the whole point of
+    // the 2026-09-06 heavy-car pass, so this is the pass landing, not a regression.
+    expect(poses.at(-1)!.x).toBeGreaterThan(200);
+    expect(poses.at(-1)!.x).toBeLessThan(250);
     expect(Math.abs(poses.at(-1)!.y)).toBeLessThan(1);
+    // Still DECAYING, just gently: below the 300 it started at, well above rest.
+    const end = forwardOf(poses.at(-1)!.vx, poses.at(-1)!.vy, poses.at(-1)!.angle);
+    expect(end).toBeLessThan(300);
+    expect(end).toBeGreaterThan(100);
   });
 
   it("curves a car that was observed turning, without any input", () => {
@@ -133,8 +159,8 @@ describe("physicsPredictor", () => {
     const predictor = physicsPredictor(turning, 4, 20, 0, makeRng(1));
     const predicted = predictor(20);
     const straight = {
-      x: turning.x + Math.cos(turning.angle) * turning.speed * (20 / TICK_RATE_HZ),
-      y: turning.y + Math.sin(turning.angle) * turning.speed * (20 / TICK_RATE_HZ),
+      x: turning.x + turning.vx * (20 / TICK_RATE_HZ),
+      y: turning.y + turning.vy * (20 / TICK_RATE_HZ),
     };
     // A car turning at 4 rad/s is nowhere near the straight-line point 20 ticks out.
     expect(Math.hypot(predicted.x - straight.x, predicted.y - straight.y)).toBeGreaterThan(50);
@@ -334,11 +360,25 @@ describe("predicting an observed car, against an independent ground truth", () =
       );
       const held = shipped(scene.speed, scene.steer);
       for (const ticks of HORIZONS) {
+        // `+ 1e-9` since the 2026-09-07 merge. On the top-speed row BOTH rollouts are exact and
+        // the comparison is 0 against 0 — but the vector drive rebuilds the velocity through
+        // `toWorld`'s cos/sin every tick where the scalar model carried a magnitude along the
+        // heading, so the shipped set lands 1.07e-14 from the truth instead of dead on it. A strict
+        // `<=` was reading one ULP of rounding as "worse than engine-on". The epsilon is far below
+        // any distance this test is about (the smallest real gap it pins is 10 units).
         expect(errorAt(truth, held(ticks), ticks), `${scene.label} @${ticks}`)
-          .toBeLessThanOrEqual(errorAt(truth, engineOn[ticks - 1]!, ticks));
+          .toBeLessThanOrEqual(errorAt(truth, engineOn[ticks - 1]!, ticks) + 1e-9);
       }
       // And where it is wrong, it is wrong by car lengths, not by rounding.
-      if (scene.speed < 300) {
+      //
+      // CAP-RELATIVE since the 2026-09-07 merge, where it was an absolute `scene.speed < 300`.
+      // The guard exists to exclude the one row an engine-on rollout gets right by accident — the
+      // row AT the chassis maximum — and 300 named that correctly only while Mirage's cap was
+      // 449.5. The car-physics rework's heavy-car pass cut it to 267, which put the `250` row at
+      // 94% of the cap: an engine-on rollout is 1.1 units out there, not the >10 this asserts, for
+      // exactly the accidental reason the cap row is excluded for. Written against the cap, the
+      // guard keeps meaning what it says through the next speed retune as well.
+      if (scene.speed < MIRAGE.maxSpeed * 0.9) {
         expect(errorAt(truth, engineOn[44]!, 45), `${scene.label} @45`).toBeGreaterThan(10);
       }
     }
@@ -374,7 +414,8 @@ describe("predicting an observed car, against an independent ground truth", () =
           .toBeGreaterThan(errorAt(truth, held(ticks), ticks));
       }
       // And it decays to a dead stop, which is the whole shape of the error -- not a small offset.
-      expect(engineOffOnly.at(-1)!.speed, scene.label).toBe(0);
+      expect(forwardOf(engineOffOnly.at(-1)!.vx, engineOffOnly.at(-1)!.vy,
+        engineOffOnly.at(-1)!.angle), scene.label).toBe(0);
       expect(held(LONGEST), scene.label).not.toEqual(
         { x: engineOffOnly.at(-1)!.x, y: engineOffOnly.at(-1)!.y, angle: engineOffOnly.at(-1)!.angle },
       );
@@ -386,8 +427,12 @@ describe("predicting an observed car, against an independent ground truth", () =
       bodyFromObservation(carAt({ speed: capStraight.speed }), 0), "mirage",
       { steer: 0, throttle: 1 }, LONGEST, ENGINE_OFF_ONLY,
     );
+    // RE-PINNED at the 2026-09-07 merge: 800 -> 400. Nothing about the SHAPE of this error changed
+    // — an engine-off-only rollout still decays a reversing car to a dead stop while the truth keeps
+    // reversing — but the heavy-car pass cut Mirage's reverse cap from 292.2 to 173.55 u/s, so the
+    // gap that opens over the horizon scales with it: 493 units where it used to be 876.
     expect(errorAt(truthPath(capStraight.speed, 0, "mirage", LONGEST), stopped[LONGEST - 1]!, LONGEST))
-      .toBeGreaterThan(800);
+      .toBeGreaterThan(400);
   });
 
   it("beats a straight line wherever the target turns, and never loses where it does not", () => {
@@ -413,18 +458,31 @@ describe("predicting an observed car, against an independent ground truth", () =
     }
   });
 
-  it("brings a throttle-closed rollout to a dead stop, which is why it is not the held input", () => {
-    // The OTHER way to get this wrong, and the one the task brief originally specified. Rolling a
-    // target with the throttle CLOSED is not "coasting straight", it is braking: `DRIVE_CONFIG.drag`
-    // is 900 u/s^2, 0.32 s to rest.
+  it("still lands a throttle-closed rollout SHORT, which is why it is not the held input", () => {
+    // The OTHER way to get this wrong, and the one the task brief originally specified: rolling an
+    // observed target with the throttle CLOSED rather than held.
+    //
+    // RE-PINNED at the 2026-09-07 merge, and this is the test the car-physics rework cost the most.
+    // It used to assert a DEAD STOP: `DRIVE_CONFIG.drag` was 900 u/s^2, 0.32 s to rest, so a
+    // throttle-closed rollout covered 82 units against the 266 a held 400 u/s really travels — a
+    // 184-unit error that made "hold the throttle" obviously right. The rework deleted that knob for
+    // per-car proportional coast, and at Mirage's 36-tick half-life the same rollout now covers
+    // 219.2 units and is still doing 272 u/s at the end. The error is ~47 units, not 184.
+    //
+    // THE DIRECTION IS UNCHANGED and that is what this still pins: a throttle-closed rollout lands
+    // SHORT of the truth, so it is still the wrong input to hold and `OBSERVATION_MODIFIERS` is
+    // still the right set. But the margin it wins by shrank roughly four-fold, which is a fact
+    // about `OBSERVATION_MODIFIERS`'s justification that its own doc comment now overstates.
     const car = carAt({ speed: 400 });
     const braking = rollForward(
       bodyFromObservation(car, 0), "mirage", { steer: 0, throttle: 0 }, 20, NEUTRAL_MODIFIERS,
     );
-    expect(braking.at(-1)!.speed).toBe(0);
-    expect(Math.hypot(braking.at(-1)!.x - car.x, braking.at(-1)!.y - car.y)).toBeLessThan(100);
-    // 20 ticks of a held 400 u/s is 266 units; the braking rollout covers 82. Measured error 184.
-    expect(errorAt(truthPath(400, 0, "mirage", 20), braking[19]!, 20)).toBeGreaterThan(150);
+    const end = forwardOf(braking.at(-1)!.vx, braking.at(-1)!.vy, braking.at(-1)!.angle);
+    expect(end).toBeLessThan(400);
+    expect(end).toBeGreaterThan(0);
+    // Short of the 266 units a held 400 u/s covers, and short of the truth by a real margin.
+    expect(Math.hypot(braking.at(-1)!.x - car.x, braking.at(-1)!.y - car.y)).toBeLessThan(266);
+    expect(errorAt(truthPath(400, 0, "mirage", 20), braking[19]!, 20)).toBeGreaterThan(30);
   });
 });
 

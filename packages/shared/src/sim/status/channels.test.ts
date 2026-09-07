@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChassisDrive } from "../../config/car-config.js";
+import { ramDefenceOf } from "../../config/car-config.js";
 import { DRIVE_CONFIG } from "../../config/drive-config.js";
 import { STATUS_TABLE } from "../../config/status-config.js";
 import type { CarId } from "../../config/types.js";
@@ -8,10 +9,12 @@ import { MS_PER_TICK } from "../../constants.js";
 import type { InputMessage } from "../../net/input.js";
 import { applyHeal, scaleDamage } from "../damage.js";
 import { stepDrive } from "../drive.js";
+import { applyImpulse } from "../impulse.js";
 import { resolveRam, type RamCar } from "../ram.js";
 import type { SimBody } from "../step.js";
 import { newFireState, releaseShots, tickRecharge } from "../weapons/fire.js";
 import { spawnInstances } from "../weapons/instances.js";
+import { forwardOf, lateralOf } from "../velocity.js";
 import { NEUTRAL_MODIFIERS, type Modifiers } from "./modifiers.js";
 
 /**
@@ -40,6 +43,8 @@ const GOLDEN_CHASSIS: ChassisDrive = Object.freeze({
   reverseAccel: 1100,
   turnRate: 4.2,
   turnRateAtStop: 2.1,
+  coastPerTick: 0.5 ** (1 / (1.0 * 30)), // a 1.0s half-life at 30Hz
+  brakeDecel: 1600,
 });
 
 function body(over: Partial<SimBody> = {}): SimBody {
@@ -47,14 +52,17 @@ function body(over: Partial<SimBody> = {}): SimBody {
     x: 0,
     y: 0,
     angle: 0,
-    speed: 0,
+    vx: 0,
+    vy: 0,
     reverseHold: 0,
     angVel: 0,
-    shoveX: 0,
-    shoveY: 0,
-    authority: 1,
     ...over,
   };
+}
+
+/** Forward speed along the car's own nose — the vector-model successor to the old scalar `speed`. */
+function fwd(b: SimBody): number {
+  return forwardOf(b.vx, b.vy, b.angle);
 }
 
 function input(steer: -1 | 0 | 1, throttle: -1 | 0 | 1): InputMessage {
@@ -69,120 +77,116 @@ describe("topSpeed reaches the drive cap", () => {
   it("caps forward speed at the scaled maximum", () => {
     let out = body();
     for (let i = 0; i < 200; i++) out = stepDrive(out, input(0, 1), DT, GOLDEN_CHASSIS, mods({ topSpeed: 0.5 }));
-    expect(out.speed).toBeCloseTo(GOLDEN_CHASSIS.maxSpeed * 0.5, 6);
+    expect(fwd(out)).toBeCloseTo(GOLDEN_CHASSIS.maxSpeed * 0.5, 6);
   });
 
   it("caps reverse too, so backing away is not the way out of a slow", () => {
-    let out = body({ speed: -10, reverseHold: DRIVE_CONFIG.reverseHoldTicks });
+    let out = body({ vx: -10, reverseHold: DRIVE_CONFIG.reverseHoldTicks });
     for (let i = 0; i < 200; i++) out = stepDrive(out, input(0, -1), DT, GOLDEN_CHASSIS, mods({ topSpeed: 0.5 }));
-    expect(out.speed).toBeCloseTo(-GOLDEN_CHASSIS.reverseMaxSpeed * 0.5, 6);
+    expect(fwd(out)).toBeCloseTo(-GOLDEN_CHASSIS.reverseMaxSpeed * 0.5, 6);
   });
 
   it("clamps a car already above the new cap the moment it asks for throttle", () => {
-    const fast = body({ speed: GOLDEN_CHASSIS.maxSpeed });
-    expect(stepDrive(fast, input(0, 1), DT, GOLDEN_CHASSIS, mods({ topSpeed: 0.5 })).speed).toBeCloseTo(
+    const fast = body({ vx: GOLDEN_CHASSIS.maxSpeed });
+    expect(fwd(stepDrive(fast, input(0, 1), DT, GOLDEN_CHASSIS, mods({ topSpeed: 0.5 })))).toBeCloseTo(
       GOLDEN_CHASSIS.maxSpeed * 0.5,
       6,
     );
   });
 
-  it("lets a car above the cap coast down through drag rather than snapping", () => {
-    const fast = body({ speed: GOLDEN_CHASSIS.maxSpeed });
-    expect(stepDrive(fast, input(0, 0), DT, GOLDEN_CHASSIS, mods({ topSpeed: 0.5 })).speed).toBeCloseTo(
-      GOLDEN_CHASSIS.maxSpeed - DRIVE_CONFIG.drag * DT,
+  it("lets a car above the cap coast down proportionally rather than snapping", () => {
+    // Coasting no longer reads `mods.topSpeed` at all — the cap clamp only fires on active
+    // throttle — so a car above the new cap decays by the chassis's own proportional coast, same
+    // as it would at any other speed.
+    const fast = body({ vx: GOLDEN_CHASSIS.maxSpeed });
+    expect(fwd(stepDrive(fast, input(0, 0), DT, GOLDEN_CHASSIS, mods({ topSpeed: 0.5 })))).toBeCloseTo(
+      GOLDEN_CHASSIS.maxSpeed * GOLDEN_CHASSIS.coastPerTick,
       6,
     );
   });
 });
 
-describe("accel reaches the engine, and never the brakes or drag", () => {
+describe("accel reaches the engine, and never the brakes or coast", () => {
   it("scales one tick of forward acceleration", () => {
-    expect(stepDrive(body(), input(0, 1), DT, GOLDEN_CHASSIS, mods({ accel: 0.5 })).speed).toBeCloseTo(
+    expect(fwd(stepDrive(body(), input(0, 1), DT, GOLDEN_CHASSIS, mods({ accel: 0.5 })))).toBeCloseTo(
       GOLDEN_CHASSIS.accel * 0.5 * DT,
       9,
     );
   });
 
-  it("leaves drag alone — a car with no input must always slow down", () => {
-    const rolling = body({ speed: 100 });
+  it("leaves coasting alone — a car with no input must always slow down", () => {
+    const rolling = body({ vx: 100 });
     const debuffed = stepDrive(rolling, input(0, 0), DT, GOLDEN_CHASSIS, mods({ accel: 0.4, brakeDecel: 0.6 }));
     const plain = stepDrive(rolling, input(0, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
-    expect(debuffed.speed).toBeCloseTo(plain.speed, 9);
+    expect(fwd(debuffed)).toBeCloseTo(fwd(plain), 9);
   });
 });
 
 describe("brakeDecel reaches the brake", () => {
   it("fades braking while rolling forward", () => {
-    const rolling = body({ speed: 300 });
+    const rolling = body({ vx: 300 });
     const faded = stepDrive(rolling, input(0, -1), DT, GOLDEN_CHASSIS, mods({ brakeDecel: 0.6 }));
     const plain = stepDrive(rolling, input(0, -1), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
-    expect(faded.speed).toBeGreaterThan(plain.speed);
-    expect(faded.speed).toBeCloseTo(300 - DRIVE_CONFIG.brakeDecel * 0.6 * DT, 9);
+    expect(fwd(faded)).toBeGreaterThan(fwd(plain));
+    expect(fwd(faded)).toBeCloseTo(300 - GOLDEN_CHASSIS.brakeDecel * 0.6 * DT, 9);
   });
 
   it("fades the brake that arrests a reversing car too", () => {
-    const reversing = body({ speed: -200 });
+    const reversing = body({ vx: -200 });
     const faded = stepDrive(reversing, input(0, 1), DT, GOLDEN_CHASSIS, mods({ brakeDecel: 0.6 }));
-    expect(faded.speed).toBeCloseTo(-200 + DRIVE_CONFIG.brakeDecel * 0.6 * DT, 9);
+    expect(fwd(faded)).toBeCloseTo(-200 + GOLDEN_CHASSIS.brakeDecel * 0.6 * DT, 9);
   });
 
   it("still beats coasting at the worst fade the limits allow", () => {
-    const rolling = body({ speed: 300 });
+    const rolling = body({ vx: 300 });
     const braked = stepDrive(rolling, input(0, -1), DT, GOLDEN_CHASSIS, mods({ brakeDecel: 0.6 }));
     const coasting = stepDrive(rolling, input(0, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
-    expect(braked.speed).toBeLessThan(coasting.speed);
+    expect(fwd(braked)).toBeLessThan(fwd(coasting));
   });
 });
 
 describe("turnRate reaches steering, in both directions", () => {
   it("scales the steering term down", () => {
-    const rolling = body({ speed: 200 });
+    const rolling = body({ vx: 200 });
     const half = stepDrive(rolling, input(1, 0), DT, GOLDEN_CHASSIS, mods({ turnRate: 0.5 }));
     const full = stepDrive(rolling, input(1, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
     expect(half.angle).toBeCloseTo(full.angle * 0.5, 9);
   });
 
   it("scales the steering term up too — the channel is bidirectional", () => {
-    const rolling = body({ speed: 200 });
+    const rolling = body({ vx: 200 });
     const sharper = stepDrive(rolling, input(1, 0), DT, GOLDEN_CHASSIS, mods({ turnRate: 1.55 }));
     const plain = stepDrive(rolling, input(1, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
     expect(sharper.angle).toBeCloseTo(plain.angle * 1.55, 9);
   });
 
-  it("multiplies with authority, so a sluggish car mid-ram is both", () => {
-    const rolling = body({ speed: 200, authority: 0.5 });
-    const both = stepDrive(rolling, input(1, 0), DT, GOLDEN_CHASSIS, mods({ turnRate: 0.5 }));
-    const full = stepDrive(body({ speed: 200 }), input(1, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
-    expect(both.angle).toBeCloseTo(full.angle * 0.25, 9);
-  });
-
   it("does not touch injected spin — that is the ram's term, not the driver's", () => {
-    const spun = body({ speed: 200, angVel: 2 });
+    const spun = body({ vx: 200, angVel: 2 });
     expect(stepDrive(spun, input(0, 0), DT, GOLDEN_CHASSIS, mods({ turnRate: 0.5 })).angle).toBeCloseTo(2 * DT, 9);
   });
 });
 
 describe("the three flags", () => {
   it("`immobilised` refuses throttle but leaves the car coasting, steering and braking", () => {
-    expect(stepDrive(body(), input(0, 1), DT, GOLDEN_CHASSIS, mods({ immobilised: true })).speed).toBe(0);
+    expect(fwd(stepDrive(body(), input(0, 1), DT, GOLDEN_CHASSIS, mods({ immobilised: true })))).toBe(0);
 
-    const rolling = body({ speed: 200 });
+    const rolling = body({ vx: 200 });
     const out = stepDrive(rolling, input(1, 1), DT, GOLDEN_CHASSIS, mods({ immobilised: true }));
-    // Still steering, and slowing through drag rather than snapping to rest.
+    // Still steering, and slowing through coasting rather than snapping to rest.
     expect(out.angle).not.toBe(rolling.angle);
-    expect(out.speed).toBeLessThan(200);
-    expect(out.speed).toBeGreaterThan(0);
+    expect(fwd(out)).toBeLessThan(200);
+    expect(fwd(out)).toBeGreaterThan(0);
   });
 
   it("`steeringLocked` kills the driver's steering but never the injected spin", () => {
-    const rolling = body({ speed: 200, angVel: 2 });
+    const rolling = body({ vx: 200, angVel: 2 });
     const out = stepDrive(rolling, input(1, 0), DT, GOLDEN_CHASSIS, mods({ steeringLocked: true }));
     // Exactly the spin's contribution, with nothing from the held steer input.
     expect(out.angle).toBeCloseTo(2 * DT, 9);
   });
 
   it("`steeringLocked` also stops a driver countersteering out of a spin", () => {
-    const spinning = body({ speed: 200, angVel: 2 });
+    const spinning = body({ vx: 200, angVel: 2 });
     const locked = stepDrive(spinning, input(-1, 0), DT, GOLDEN_CHASSIS, mods({ steeringLocked: true }));
     const free = stepDrive(spinning, input(-1, 0), DT, GOLDEN_CHASSIS, NEUTRAL_MODIFIERS);
     // A free driver fighting the spin decays it faster; a locked one cannot.
@@ -191,10 +195,14 @@ describe("the three flags", () => {
 
   it("a stunned car keeps its ram knock resolving", () => {
     const stunned = mods({ immobilised: true, steeringLocked: true, disarmed: true });
-    const knocked = body({ speed: 200, angVel: 2, shoveX: 120 });
+    // The imposed motion is the LATERAL component now (see `sim/velocity.ts`): angle 0, so `vy` is
+    // what used to be `shoveY` in the pre-vector model. `vx` here is the ordinary driven component.
+    const knocked = body({ vx: 200, vy: 120, angVel: 2 });
     const out = stepDrive(knocked, input(0, 1), DT, GOLDEN_CHASSIS, stunned);
     expect(Math.abs(out.angVel)).toBeLessThan(2);
-    expect(Math.abs(out.shoveX)).toBeLessThan(120);
+    // Read in the car's own frame, not raw `vy`: injected spin rotates the heading this same tick,
+    // so the world-frame axes are no longer the ones the imposed motion was measured against.
+    expect(Math.abs(lateralOf(out.vx, out.vy, out.angle))).toBeLessThan(120);
     expect(out.x).not.toBe(knocked.x);
   });
 });
@@ -297,30 +305,54 @@ describe("weaponCooldown reaches the three refire clocks and no others", () => {
   });
 });
 
-describe("ramMass reaches the ram, both as attacker and as victim", () => {
+describe("the ramDefence channel reaches the ram, both as the victim's solidity AND as its own push term", () => {
+  // Both cases below stay end-to-end through `resolveRam` + `applyImpulse` on purpose, even though
+  // only the first case's claim actually needs the composition: see that test's own comment for why
+  // `defenceMult` reaching `pushOf`'s attacker term is the whole story there, and `applyImpulse`
+  // contributes nothing to it.
   function car(over: Partial<RamCar> = {}): RamCar {
-    return { sessionId: "a", team: 0, x: 0, y: 0, angle: 0, speed: 0, carId: CAR, massMult: 1, ...over };
+    return { sessionId: "a", team: 0, x: 0, y: 0, angle: 0, vx: 0, vy: 0, carId: CAR, defenceMult: 1, ...over };
   }
 
   it("makes a buffed attacker hit harder", () => {
-    // 100, not the 400 this test used before the 2026-09-01 half-speed cut: RAM_REFERENCE halved
-    // with the roster's top speed, and at 400 both rams saturate the severity clamp and tie.
+    // The `ramDefence` status channel (named `ramMass` until stage 3 Task 4 renamed it to match the
+    // rating it actually scales) feeds `RamCar.defenceMult`, which scales the DEFENCE term of
+    // `pushOf` (spec R2). A buffed attacker brings more push into the contest purely through that
+    // term, driving in at the same speed, so the victim's impulse must come out larger.
     const victim = car({ sessionId: "b", x: 47 });
-    expect(resolveRam(car({ speed: 100, massMult: 1.5 }), victim, "ffa")!.severity).toBeGreaterThan(
-      resolveRam(car({ speed: 100 }), victim, "ffa")!.severity,
-    );
+    const buffed = resolveRam(car({ vx: 100, vy: 0, defenceMult: 1.5 }), victim, "ffa")!;
+    const plain = resolveRam(car({ vx: 100, vy: 0 }), victim, "ffa")!;
+    expect(buffed.impulse.speed).toBeGreaterThan(plain.impulse.speed);
   });
 
   it("makes a buffed victim harder to shove", () => {
-    const attacker = car({ speed: 400 });
-    const plain = resolveRam(attacker, car({ sessionId: "b", x: 47 }), "ffa")!;
-    const heavy = resolveRam(attacker, car({ sessionId: "b", x: 47, massMult: 1.5 }), "ffa")!;
-    expect(Math.hypot(heavy.knock.shoveX, heavy.knock.shoveY)).toBeLessThan(
-      Math.hypot(plain.knock.shoveX, plain.knock.shoveY),
-    );
+    // `resolveRam` divides by the victim's `ramDefence` itself, inside `impactOn`. The impulse is
+    // therefore authored `defenceScaled: false` (the
+    // contest already divided by `ramDefence`), so `applyImpulse`'s `defenceFactorOf` returns 1
+    // regardless of what `ramDefence` it is handed — the `* defenceMult` on the argument below is
+    // inert, NOT a second application of the buff via `applyImpulse`. The whole effect measured here
+    // comes from `resolveRam` alone: raising the victim's `defenceMult` raises its own `pushOf` term
+    // (more of the total contest is now "its" push, shrinking the SHARE of the attacker's push
+    // `impactOn` charges it) and separately raises the divisor `impactOn` scales by
+    // (`ramDefenceOf(victim) * victim.defenceMult`). Both effects point the same direction (a buffed
+    // victim moves less), so this proves `pushOf`+`impactOn`'s composed behaviour, still run
+    // end-to-end through `applyImpulse`, passing each victim's real `ramDefenceOf`, to match how
+    // `ram-bridge.ts`'s `ramDefenceFor` actually applies a ram.
+    const attacker = car({ vx: 400, vy: 0 });
+    const plainVictim = car({ sessionId: "b", x: 47 });
+    const heavyVictim = car({ sessionId: "b", x: 47, defenceMult: 1.5 });
+    const plain = resolveRam(attacker, plainVictim, "ffa")!;
+    const heavy = resolveRam(attacker, heavyVictim, "ffa")!;
+    const restBody = body({ x: 47, y: 0, angle: 0 });
+    const plainNext = applyImpulse(restBody, ramDefenceOf(plainVictim.carId) * plainVictim.defenceMult, plain.impulse);
+    const heavyNext = applyImpulse(restBody, ramDefenceOf(heavyVictim.carId) * heavyVictim.defenceMult, heavy.impulse);
+    expect(Math.hypot(heavyNext.vx, heavyNext.vy)).toBeLessThan(Math.hypot(plainNext.vx, plainNext.vy));
   });
 
-  // `ramMass` left `fortified`'s row in the 2026-09-01 overhaul (O5: pure damage reduction now) and
-  // no other row has picked it up, so "one channel doing both" has no live row to demonstrate today
-  // — the mechanism above still proves the channel itself cuts both ways for whoever authors one.
+  // The channel left `fortified`'s row in the 2026-09-01 overhaul (O5: pure damage reduction now)
+  // and no other row has picked it up, so "one channel doing both" has no live row to demonstrate
+  // today — the mechanism above still proves the channel itself cuts both ways for whoever authors
+  // one. That empty-table fact is also what makes stage 3 Task 4's `ramMass` → `ramDefence` rename
+  // purely a rename: with no row authoring the channel, `modifiersFor` returns the neutral 1 for
+  // every car in the game either way, so nothing the sim reads could move.
 });

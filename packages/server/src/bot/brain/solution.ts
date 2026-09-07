@@ -37,8 +37,11 @@ export type PosePredictor = (ticksAhead: number) => { x: number; y: number; angl
  * `solution.test.ts` pins the solver with.
  */
 export function constantVelocityPredictor(target: BotCarView): PosePredictor {
-  const vx = Math.cos(target.angle) * target.speed;
-  const vy = Math.sin(target.angle) * target.speed;
+  // The car's REAL world velocity, not `cos(angle) * speed`. That reconstruction was one of the
+  // five open-coded copies `sim/velocity.ts` was written to replace, and the one its doc singles out
+  // as silently wrong: it extrapolated every car along its own nose, so a target that was sliding —
+  // out of a corner, or shoved by a ram — was predicted travelling somewhere it was not going.
+  const { vx, vy } = target;
   return (ticksAhead) => {
     const seconds = ticksAhead / TICK_RATE_HZ;
     return { x: target.x + vx * seconds, y: target.y + vy * seconds, angle: target.angle };
@@ -49,7 +52,7 @@ export interface SolverShooter {
   sessionId: string;
   carId: CarId;
   team: 0 | 1;
-  x: number; y: number; angle: number; speed: number;
+  x: number; y: number; angle: number; vx: number; vy: number;
   lockTargetSessionId: string;
 }
 
@@ -203,7 +206,7 @@ export function bestAchievableValueOf(carId: CarId, aimSigmaRad: number): number
   const arena: BotArenaView = { width: 1_000_000, height: 1_000_000, obstacles: [] };
   const shooter: SolverShooter = {
     sessionId: "ceiling-shooter", carId, team: 0,
-    x: 0, y: 0, angle: 0, speed: 0, lockTargetSessionId: "ceiling-target",
+    x: 0, y: 0, angle: 0, vx: 0, vy: 0, lockTargetSessionId: "ceiling-target",
   };
 
   let best = 0;
@@ -219,7 +222,7 @@ export function bestAchievableValueOf(carId: CarId, aimSigmaRad: number): number
       const distance = Math.max(BRAIN_CONSTANTS.minEngageUnits, reach * fraction);
       const target: BotCarView = {
         sessionId: "ceiling-target", carId, team: 1, x: distance, y: 0, angle: 0,
-        speed: 0, hp: Number.POSITIVE_INFINITY, maxHp: Number.POSITIVE_INFINITY,
+        vx: 0, vy: 0, hp: Number.POSITIVE_INFINITY, maxHp: Number.POSITIVE_INFINITY,
         alive: true, phased: false, statuses: [], maneuver: 0,
       };
       const solution = solve({
@@ -461,7 +464,7 @@ export function dangerEvAgainst(args: DangerArgs): number {
     const solution = solve({
       shooter: {
         sessionId: threat.sessionId, carId: threat.carId, team: threat.team,
-        x: threat.x, y: threat.y, angle: threat.angle, speed: threat.speed,
+        x: threat.x, y: threat.y, angle: threat.angle, vx: threat.vx, vy: threat.vy,
         // A lock we cannot see. Assuming none is the conservative read: it makes danger LOWER, so
         // the bot never flinches from a lock the opponent does not actually hold.
         lockTargetSessionId: "",

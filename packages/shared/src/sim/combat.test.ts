@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ARENA_01 } from "../arena/arena-01.js";
-import { CAR_TABLE, hpOf } from "../config/car-config.js";
+import { CAR_TABLE, hpOf, ramDefenceOf } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { CarId } from "../config/types.js";
 import { WEAPON_TABLE, weaponDefOf } from "../config/weapon-config.js";
@@ -668,6 +668,10 @@ describe("collision deals no damage", () => {
     obstacles: [] as never[],
     bounds: OPEN,
     modifiers: NEUTRAL_MODIFIERS,
+    // Both `a` and `b` are driven as mirage here regardless of the CombatPlayer's own carId (`a`'s
+    // is "bullseye" in `pair` below) -- this block is about collision/damage, not chassis stats, so
+    // the pair's ramDefence split is symmetric (mirage vs mirage) either way.
+    selfRamDefence: ramDefenceOf("mirage"),
   };
   const THROTTLE: InputMessage = { seq: 1, steer: 0, throttle: 1, fireSlots: 0 };
   const COAST: InputMessage = { seq: 1, steer: 0, throttle: 0, fireSlots: 0 };
@@ -679,11 +683,11 @@ describe("collision deals no damage", () => {
   ) {
     const a = stepSim(state.a, inputs.a, DT, {
       ...CLEAR,
-      others: [carHullOf(state.b.x, state.b.y, state.b.angle)],
+      others: [{ hull: carHullOf(state.b.x, state.b.y, state.b.angle), ramDefence: ramDefenceOf("mirage") }],
     });
     const b = stepSim(state.b, inputs.b, DT, {
       ...CLEAR,
-      others: [carHullOf(a.x, a.y, a.angle)],
+      others: [{ hull: carHullOf(a.x, a.y, a.angle), ramDefence: ramDefenceOf("mirage") }],
     });
     const result = runCombat({
       world: { tick, dt: DT, mode: "ffa", obstacles: [], bounds: OPEN },
@@ -702,23 +706,19 @@ describe("collision deals no damage", () => {
       x: 800,
       y: 800,
       angle: 0,
-      speed: 300,
+      vx: 300,
+      vy: 0,
       reverseHold: 0,
       angVel: 0,
-      shoveX: 0,
-      shoveY: 0,
-      authority: 1,
     };
     const b: SimBody = {
       x: 900,
       y: 800,
       angle: bAngle,
-      speed: 0,
+      vx: 0,
+      vy: 0,
       reverseHold: 0,
       angVel: 0,
-      shoveX: 0,
-      shoveY: 0,
-      authority: 1,
     };
     return {
       a,

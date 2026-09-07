@@ -54,6 +54,19 @@ export interface WeaponTicks {
     damageInterval: number;
     applyDurations: readonly number[];
   } | null;
+  /**
+   * The row's `ImpulseDef` durations, converted to ticks once. `undefined` when the row declares no
+   * `impulse` — absent must mean absent, never a zero-valued default, or every weapon would read as
+   * a nudge. `wallStunWindow`/`wallStunDuration` are 0 when the source `wallStun` is itself absent,
+   * and `retriggerImmunity` is 0 when `retriggerImmunityMs` is absent — both mirror the sibling
+   * conversions elsewhere in this file (e.g. `refireDelay` and `lifetime`, which each become 0 when absent).
+   */
+  impulse?: {
+    uncontrol: number;
+    wallStunWindow: number;
+    wallStunDuration: number;
+    retriggerImmunity: number;
+  };
 }
 
 function ticksFor(def: WeaponDef): WeaponTicks {
@@ -92,6 +105,15 @@ function ticksFor(def: WeaponDef): WeaponTicks {
             ),
           })
         : null,
+    impulse:
+      def.impulse === undefined
+        ? undefined
+        : Object.freeze({
+            uncontrol: msToTicks(def.impulse.uncontrolMs),
+            wallStunWindow: msToTicks(def.impulse.wallStun?.windowMs ?? 0),
+            wallStunDuration: msToTicks(def.impulse.wallStun?.durationMs ?? 0),
+            retriggerImmunity: msToTicks(def.impulse.retriggerImmunityMs ?? 0),
+          }),
   };
 }
 

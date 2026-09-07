@@ -35,6 +35,10 @@ import type { BotArenaView } from "../types.js";
  * on the first wall found, because that is what `wallDesire` did and R-O2's whole promise is "the
  * same ticks". A short-circuit would answer `true` on the (arena-degenerate, but constructible in a
  * test) scenes where two pushes cancelled and the old predicate answered `false`.
+ *
+ * `arena-01` has no obstacles, so on the shipped arena this is entirely about bounds and corners. A
+ * short look-ahead is not a bug: an easy bot at 40 units and 190-267 u/s (as of the 2026-09-06
+ * heavy-car pass) pins itself on walls, which is free human-likeness.
  */
 export function wallAhead(
   self: { x: number; y: number; angle: number },

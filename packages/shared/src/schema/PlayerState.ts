@@ -15,20 +15,24 @@ export class PlayerState extends Schema {
   @type("uint8") team = 0;
   @type("uint32") joinedAtTick = 0;
   @type("string") carId = "";
-  @type("number") speed = 0;
+  /**
+   * World velocity, units/second. Networked because `stepSim` reads both (invariant 8), and
+   * reconciled by SNAPPING rather than easing — they feed the next integration, so a half-eased
+   * value would poison every subsequent step rather than merely look wrong.
+   *
+   * Replaces four fields with two: the old `speed` + `shoveX`/`shoveY` + `authority` quartet.
+   * `authority` is gone entirely and has no field here by design: ram control-loss came back in
+   * car-physics stage 3b as the `reeling` status, which rides `statuses` (already networked) and
+   * reaches `stepDrive` through `Modifiers.turnRate`/`accel` like every other debuff.
+   */
+  @type("number") vx = 0;
+  @type("number") vy = 0;
   @type("uint16") reverseHold = 0;
   /**
-   * Ram knock state. Networked because `stepDrive` reads all four (invariant 8), and reconciled by
-   * snapping rather than easing — they feed the next integration, so a half-eased value would poison
-   * every subsequent step rather than merely look wrong.
-   *
-   * `authority` defaults to 1. A Schema numeric default of 0 would mean "no steering" for every
-   * player who has never been touched, which presents as a completely undriveable car on first spawn.
+   * Injected rotation, rad/s, decaying toward 0 — a ram's spin. Networked because `stepDrive` reads
+   * it (invariant 8), and reconciled by snapping rather than easing, same reason as `vx`/`vy`.
    */
   @type("number") angVel = 0;
-  @type("number") shoveX = 0;
-  @type("number") shoveY = 0;
-  @type("number") authority = 1;
   /**
    * Maneuver state (spec S3, arch O13). Networked because `stepDrive` reads all four (invariant
    * 8) — server-written like the ram knock, integrated by both halves of the lockstep, snapped on

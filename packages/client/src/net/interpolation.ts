@@ -24,7 +24,7 @@ function lerpAngle(from: number, to: number, alpha: number): number {
 
 /**
  * A render pose part-way between two sim poses. Position and angle blend (angle the short way);
- * `speed` and `reverseHold` come from `to` untouched because nothing that draws reads them and a
+ * `vx`/`vy` and `reverseHold` come from `to` untouched because nothing that draws reads them and a
  * half-blended value must never flow back into a step. Used to draw the local car between predicted
  * ticks: prediction advances on the 30 Hz sim clock while frames come at the display rate, so
  * without this the local car holds for a frame and jumps a whole tick while the camera and remotes
@@ -65,12 +65,10 @@ export class InterpolationBuffer {
         x: pose.x,
         y: pose.y,
         angle: pose.angle,
-        speed: pose.speed,
+        vx: pose.vx,
+        vy: pose.vy,
         reverseHold: pose.reverseHold,
         angVel: pose.angVel,
-        shoveX: pose.shoveX,
-        shoveY: pose.shoveY,
-        authority: pose.authority,
         maneuver: pose.maneuver,
         maneuverTicksLeft: pose.maneuverTicksLeft,
         maneuverAngle: pose.maneuverAngle,
@@ -109,13 +107,11 @@ export class InterpolationBuffer {
         y: lerp(from.pose.y, to.pose.y, alpha),
         angle: lerpAngle(from.pose.angle, to.pose.angle, alpha),
         // Derived sim fields are not blended — they exist on the wire for prediction, and a remote's
-        // half-lerped speed would be a number no tick ever produced. Same rule as reconciliation.
-        speed: to.pose.speed,
+        // half-lerped velocity would be a number no tick ever produced. Same rule as reconciliation.
+        vx: to.pose.vx,
+        vy: to.pose.vy,
         reverseHold: to.pose.reverseHold,
         angVel: to.pose.angVel,
-        shoveX: to.pose.shoveX,
-        shoveY: to.pose.shoveY,
-        authority: to.pose.authority,
         maneuver: to.pose.maneuver,
         maneuverTicksLeft: to.pose.maneuverTicksLeft,
         maneuverAngle: to.pose.maneuverAngle,

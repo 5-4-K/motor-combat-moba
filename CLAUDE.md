@@ -12,7 +12,11 @@ pickups) — and never stacks with itself. Hard CC no longer belongs to one chas
 `spiked` now, a slow rather than a stop. `applyDamage` is no longer the only HP writer;
 **`sim/damage.ts` is**, now that repair pulses exist. **`corroded`'s only source in the game is now
 an explosion** — `magmablast`'s detonation, and nothing else applies it (grep `applies:.*corroded`
-if a second source ever needs checking). See
+if a second source ever needs checking). **`reeling` is the one row no `WeaponDef.applies` entry ever
+grants**: the contact pass writes it, from `contactTick` — an ordinary ram for `RAM_CONFIG`'s
+duration, and (since the car-physics rework's stage 4) a hard slam for
+`WEAPON_TABLE.wildcharge.impulse.uncontrolMs`, which is a weapon-authored duration reaching it
+through the `ImpulseDef` seam rather than through `applies`. See the car-physics section below. See
 [`docs/combat-model.md`](docs/combat-model.md#statuses).
 
 An **aura** is a beam with a `disc` hitbox at `origin: "center"` — a field around a car rather than a
@@ -43,32 +47,52 @@ everywhere else in the game; a phased car is the one case where they must disagr
 may let them.
 
 **The three chassis are `bullseye`, `mirage` and `bastion`** — a type triangle, not three shapes.
-Their ratings (`speed`, `accel`, `handling`, `attack`, `hp`, `mass`) are **six** independent 0-100
-values; `accel` and `handling` landed on 2026-08-30 so cars could differ in how they launch and how
-they corner. **`handling` is turn RATE, not turn radius.** Radius is `speed / turnRate`.
+Their ratings (`speed`, `accel`, `handling`, `attack`, `hp`, `ramAttack`, `ramDefence`) are **seven**
+independent 0-100 values; `accel` and `handling` landed on 2026-08-30 so cars could differ in how they
+launch and how they corner, and `ramAttack`/`ramDefence` replaced the single `mass` rating in stage 3
+of the 2026-09-06 car-physics rework (see below) — **there is no `mass` on `CarDef` any more.**
+(`CAR_TABLE` rows also carry `coastHalfLifeSeconds` and `brakeDecel`, but those are seconds and
+units/s², not 0-100 ratings.) **`handling` is turn RATE, not turn radius.** Radius is
+`speed / turnRate`.
 
 Until **2026-09-02**, `speed` and `handling` traded off per car — Bastion carried the roster's
 *highest* `handling` (82) despite the *lowest* `speed` (30), which let it turn inside every other
 chassis (20 u) even though Bullseye's low-rate-but-tight-radius arc (40 u, beating Mirage's 42 u
 despite a lower turn RATE) was the more subtle version of the same trick. **That inversion is gone.**
 `speed` and `handling` now carry the *same* rating per car (Mirage 85/85, Bullseye 65/65, Bastion
-50/50), alongside a roster-wide top-speed increase (`DRIVE_CONFIG.baseMaxSpeed` 90 -> 135,
-`speedPerRating` 2.25 -> 3.7 — deliberately more than a uniform 1.5x). Turn radius now orders with
-top speed rather than against it: Mirage widest (55 u), Bullseye next (53 u), Bastion tightest
-(51 u) — Bastion still wins, but by a few units instead of tens, and its tank identity now rests on
-hp and mass alone, not a handling edge. See
+50/50). The 2026-09-02 rebalance also raised top speed roster-wide (`DRIVE_CONFIG.baseMaxSpeed`
+90 -> 135, `speedPerRating` 2.25 -> 3.7 — deliberately more than a uniform 1.5x), which at the time
+landed turn radius at Mirage widest (55 u), Bullseye next (53 u), Bastion tightest (51 u): ordered
+with top speed rather than against it, Bastion still winning but by a few units instead of tens, its
+tank identity resting on hp and `mass` alone rather than a handling edge. (That was the 2026-09-02
+state of play: `mass` was deleted by the car-physics rework's stage 3, and the same identity now rests
+on hp plus `ramAttack` 70 / `ramDefence` 90 — both the roster's highest.)
+
+**The 2026-09-06 heavy-car pass (stage 1 of the vector-drive rework) cut top speed and acceleration
+again, hard, so cars carry momentum and feel heavy.** `DRIVE_CONFIG.baseMaxSpeed`/`speedPerRating`
+dropped 135/3.7 -> 80/2.2 — roughly a 40% roster-wide top-speed cut (Mirage 449.5 -> 267 u/s, Bullseye
+375.5 -> 223, Bastion 320 -> 190) — and `baseAccel`/`accelPerRating` dropped much further, 420/7.2 ->
+60/1.4, stretching time to top speed by roughly 3-4x (Mirage 0.44 -> 1.49 s, Bullseye 0.50 -> 1.81 s,
+Bastion 0.57 -> 2.16 s). Turn rate was **deliberately left untouched**: since radius is
+`speed / turnRate`, the speed cut alone drops every chassis's turn radius under one car length (48 u)
+— Mirage 32.6 u, Bullseye 31.4 u, Bastion 30.2 u, the same ordering and proportional spacing as
+2026-09-02, just scaled down. Per-car `coastHalfLifeSeconds` and `brakeDecel` also joined `CarDef` in
+this pass, replacing the old global `DRIVE_CONFIG.drag`/`brakeDecel` pair, so coasting and braking are
+now per-chassis feel rather than a roster-wide constant. See
 [`docs/turn-tuning.md`](docs/turn-tuning.md#current-values) for the full numbers.
 
 Turn rates themselves were last touched on **2026-08-31, when the whole roster's turn rate was raised
 1.5x** — `DRIVE_CONFIG.baseTurnRate` and `turnRatePerRating` scaled together, speeds untouched at the
-time — because driving and aiming read as too heavy; the 2026-09-02 edit above did not rescale that
-pair again, only the per-car ratings and the speed knobs. The 150-point budget
+time — because driving and aiming read as too heavy; neither the 2026-09-02 rebalance nor the
+2026-09-06 heavy-car pass above rescaled that pair again — only the per-car ratings, the speed knobs,
+and (2026-09-06 only) the accel knobs and the new per-car coast/brake values. The 150-point budget
 that used to cap `speed`+`attack`+`hp` was deleted on 2026-08-29 so `mass` could be a free-floating
 rating, and no replacement guard was adopted — see
 [`docs/config-reference.md`](docs/config-reference.md#car_table).
 
-**`stepDrive` no longer reads the roster.** It takes a resolved `ChassisDrive` (six numbers) from
-`driveOf(carId)`; `stepSim` resolves it at the single production call site. That is what lets
+**`stepDrive` no longer reads the roster.** It takes a resolved `ChassisDrive` (eight numbers as of
+the 2026-09-06 vector-drive rework, which added `coastPerTick` and `brakeDecel` to the original six)
+from `driveOf(carId)`; `stepSim` resolves it at the single production call site. That is what lets
 `golden.test.ts` pin the drive integration against a frozen fixture through every future balance
 edit — see [`docs/config-reference.md`](docs/config-reference.md#drive_config).
 
@@ -157,6 +181,7 @@ the table moving. Feel complaints ("medium is too hard to hit") go through the
 | Package local rules | `packages/shared/CLAUDE.md`, `packages/server/CLAUDE.md`, `packages/client/CLAUDE.md` |
 | Spec + tracker | [`docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md`](docs/superpowers/specs/2026-08-24-motor-combat-moba-v1-design.md), [`docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md`](docs/superpowers/plans/2026-08-24-motor-combat-moba-v1-master-index.md) |
 | **Online netcode and client rendering — the fourteen-phase rewrite in progress** | **start at [`docs/superpowers/plans/2026-09-04-netcode-and-rendering/EXECUTION.md`](docs/superpowers/plans/2026-09-04-netcode-and-rendering/EXECUTION.md)** — see below |
+| **Car physics rework — stages 1-4 landed, spec now on revision 2** | **start at [`docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md`](docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md)** — see below |
 | Weapon system decisions (D1–D22), aim assist and target lock (A1–A14), online-play review, future work | [`docs/superpowers/specs/2026-08-27-weapon-system-design.md`](docs/superpowers/specs/2026-08-27-weapon-system-design.md), [`docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md`](docs/superpowers/specs/2026-08-27-aim-assist-target-lock-design.md), [`docs/superpowers/plans/2026-08-27-weapon-system.md`](docs/superpowers/plans/2026-08-27-weapon-system.md) |
 | The nine-weapon roster, per-chassis kits (L1–L7) | [`docs/superpowers/specs/2026-08-29-weapon-roster-design.md`](docs/superpowers/specs/2026-08-29-weapon-roster-design.md) |
 | The three chassis types and their triangle, the `accel`/`handling` ratings, the weapon redistribution (T1–T22) — **supersedes L1–L7's assignments** | [`docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md`](docs/superpowers/specs/2026-08-30-chassis-rename-and-weapon-redistribution-design.md) |
@@ -203,6 +228,98 @@ What it changes, when it runs, and why it matters to work that touches the sim m
 
 A change to `sim/`, the tables or `ArenaScene.ts` made before this work starts is not wasted, but it
 will be moved by it — check the phase that owns the file before a large refactor there.
+
+## The car-physics rework: stages 1-4 landed, spec on revision 2
+
+**Stage 1 of a five-stage rework replaced `SimBody.speed` and `PlayerState.speed` — a scalar
+magnitude along the car's heading, with a separate `shoveX`/`shoveY` knockback vector and an
+`authority` steering multiplier bolted alongside — with a true 2D world velocity, `vx`/`vy`.** Four
+fields out, two in, on both types. `packages/shared/src/sim/velocity.ts` (`forwardOf`, `lateralOf`,
+`speedOf`, `toWorld`) is the **only** place the world-frame/car-frame conversion may be written —
+five open-coded copies of `cos(angle) * speed` existed before this, one of them silently wrong for
+sideways motion. Coasting became per-car and speed-proportional (`CarDef.coastHalfLifeSeconds`);
+braking became per-car and flat (`CarDef.brakeDecel`); the roster's speed and acceleration were both
+cut hard so cars carry momentum. See [`docs/turn-tuning.md`](docs/turn-tuning.md#current-values) for
+the numbers and the intro paragraphs above for the balance history.
+
+Stage 1 left ramming deliberately degraded — a shim that added the knock straight into `vx`/`vy`,
+and `authority` with no successor at all, so a rammed car kept full steering. **That is history now:
+stages 2, 3 and 3b have each replaced a piece of it, and the paragraphs below are the current
+state.** Five `RAM_CONFIG` knobs (`authorityFloor`, `authorityHalfLifeSeconds`, `authorityEpsilon`,
+`shoveHalfLifeSeconds`, `shoveEpsilon`) sat inert through all of that and were **deleted outright in
+stage 3b**, along with `RamDecay.shove`/`.authority`; do not go looking for them. They had two
+different successors, not one — the three `authority` ones are the `reeling` status below, the two
+`shove` ones are `DRIVE_CONFIG.impactGripDecel`. `SLAM_CONFIG.victimAuthority` and `selfKeepFactor`
+were the slam side of the same story and **stage 4 deleted them too** — see below.
+
+**Stage 2 restored whole-vector reflection** in `applyContact` (walls deflect instead of damping),
+dropped `restitution` 0.35 → 0.15, split car-car separation by mass, and added the `Impulse` struct
+with equal-and-opposite reactions.
+
+**The spec then changed models mid-rework, and this is the thing to know before reading any ram
+code.** Measuring stage 2's equal-and-opposite impulses showed every chassis is thrown backwards
+*faster than its own top speed* for landing a ram — Bastion 190 → −184.5 u/s, Wild Charge −340.5,
+which is 1.8× its user's top speed, backwards. Two structural causes: `applyContact`'s restitution
+reflection is mass-blind, so an attacker rebounds off a car it outweighs three to one exactly as it
+would off a wall; and `knockMaxSpeed` was authored as the *victim's* Δv under a one-way model.
+
+**Spec revision 2 therefore removes `mass` from the game entirely**, replaces it with per-car
+`ramAttack`/`ramDefence` (never `attack`/`defence` — `CarDef.attack` already scales weapon damage),
+and replaces equal-and-opposite impulses with a **contest** between the two cars' pushes.
+
+**Stage 3 executed that.** `mass` does not appear anywhere in `packages/`; `sim/ram.ts`'s
+`pushOf`/`impactOn` resolve each side of a ram independently (there is no `reactionOf` and no
+negation), and `RAM_CONFIG.globalScale` and `spinScale` were **measured** through the composed
+`serverTick` → `contactTick` order rather than derived — do not re-derive them on a retune. It also
+left one exit criterion unmet, deliberately: an attacker still ends a dead-on ram travelling
+backwards, and all but 0.1 u/s of that comes from `applyContact`'s mass-blind restitution reflection,
+which no clause in R1–R11 authorizes touching. **The user has since approved that fix as its own
+stage, sequenced between 3b and 4**, and it needs a spec clause of its own plus a re-measurement of
+both constants.
+
+**Stage 3b gave ramming its control-loss back.** A ram now applies **`reeling`** — a `STATUS_TABLE`
+debuff (`turnRate: 0.4`, `accel: 0.4`, both sitting exactly at the `STATUS_LIMITS` floors),
+`reapply: "refresh"` and `flags: []` on purpose, since a flag-carrying row would be forced to
+`"ignore"` — so a rammed car's steering degrades through the same `Modifiers` channel every other
+debuff uses rather than a bespoke field on the body. Alongside it, **per-victim diminishing returns**
+(`FalloffStack`/`nextFalloff` in `packages/server/src/sim/ram-bridge.ts`, riding on `ContactMemory`):
+per victim and global across attackers, a rolling window, multiplicative with a floor, scaling both
+the impulse and the `reeling` duration. It is **ram-only** — a slam does not participate — and
+**server-side only, deliberately not a schema field**, which is not an invariant-8 violation because
+`stepSim` never reads the stack; what crosses the wire is the already-scaled result. Falloff scales
+the **victim's** half alone: an attacker pays full cost for every punch, or chain-ramming a
+worn-down victim would get progressively safer.
+
+**Stage 4 gave weapons a declarative push and dissolved `SLAM_CONFIG`.** `WeaponBase`/`ExplosionDef`
+gained an optional **`ImpulseDef`** (`speed`, `direction`, `spin`, `defenceScaled`, `uncontrolMs`,
+`wallStun?`, `retriggerImmunityMs?`), converted to ticks once in `WEAPON_TICKS[id].impulse` —
+`undefined` when the row declares none, because absent must mean absent. **`wildcharge` is the only
+row that authors one**, and a config test enforces that an `impulse` may only sit on a
+`kind: "maneuver"` row, so authoring one on a projectile fails the suite naming the missing
+application path instead of silently doing nothing. `SLAM_CONFIG` is down to `wallContactPad`;
+`knockSpeed`, both wall-stun knobs, `reslamImmunityMs`, `victimAuthority`, `selfKeepFactor` and the
+whole `SLAM_TICKS` export are **gone**. Three consequences worth knowing before touching contact
+code: `sim/contact.ts`'s charge branch builds no `Impulse` at all — it emits a **`SlamEvent`**
+carrying the OBB contact normal and contact point, and `ram-bridge.ts`'s slams loop assembles the
+push there, beside the statuses that slam already applies (spec P30); **a slam now leaves its victim
+`reeling`** for 1400 ms off its own row, where before it imposed no control loss whatsoever; and
+because slams left the contact pass's per-victim impulse map, **a car slammed by A and rammed by B on
+one tick now takes both pushes** rather than only whichever won the single slot — which also deleted
+the `isRam` inference that would have misclassified that ram the day a retune inverted the magnitude
+ordering it silently depended on. `speed: 520` was carried across unchanged and is still
+**provisional**: spec P31's re-pitch against the ram contest is stage 5's.
+
+Stage 5 (plus the approved restitution stage before it) is planned against revision 2 and
+**not started**.
+
+**Start at
+[`EXECUTION.md`](docs/superpowers/plans/2026-09-06-car-physics/EXECUTION.md)** — the state file. It
+names what is done, what is next, what survives revision 2 and what does not, the decisions that
+still bind, and the deferred findings. It is updated in the same commit as the work it describes.
+Then the spec's **Changelog** in
+[`2026-09-06-car-physics-rework-design.md`](docs/superpowers/specs/2026-09-06-car-physics-rework-design.md),
+and [`interfaces.md`](docs/superpowers/plans/2026-09-06-car-physics/interfaces.md), the ledger of
+every name the plans share, which outranks any one plan.
 
 ## `docs/ideas/` and `docs/invariants/` are the user's, not the agent's
 
@@ -314,11 +431,17 @@ built shared**, so a config edit that skips the page fails `npm test` naming the
 It checks values, not a `balanceStamp`-style fingerprint: nothing generates this page, so a stamp
 would only prove someone typed a new stamp.
 
-**Update it in the same commit whenever you change** a car's `handling` or `speed` in `CAR_TABLE`;
-`baseTurnRate`, `turnRatePerRating`, `stopTurnRatio`, `baseMaxSpeed`, `speedPerRating` or
-`reverseSpeedRatio` in `DRIVE_CONFIG`; `overheated`'s `turnRate` in `STATUS_TABLE`;
-`authorityFloor` or `spinMaxRate` in `RAM_CONFIG`; or `TICK_RATE_HZ`. Adding a chassis needs a new
-column in two tables, and the test fails until it has one. The page's "Keeping this page honest"
+**Update it in the same commit whenever you change** a car's `handling`, `speed`,
+`coastHalfLifeSeconds` or `brakeDecel` in `CAR_TABLE`; `baseTurnRate`, `turnRatePerRating`,
+`stopTurnRatio`, `baseMaxSpeed`, `speedPerRating`, `reverseSpeedRatio`, `steeringGrip` or
+`impactGripDecel` in `DRIVE_CONFIG`; **any `STATUS_TABLE` row's `turnRate` — `reeling`'s (0.4) is the
+one shipped today, and it has its own "Rate while reeling" row in the derived table**;
+`spinMaxRate` in `RAM_CONFIG`; or `TICK_RATE_HZ`. (`authorityFloor` used to head that `RAM_CONFIG`
+entry and `overheated` used to be the `STATUS_TABLE` example; the first was deleted by the
+car-physics rework's stage 3b and the second lost its `turnRate` in the 2026-09-01 status overhaul.
+`steeringGrip` and `impactGripDecel` appear only in that page's prose, so the test cannot catch them
+— they are on this list because a reader must, not because a suite will.) Adding a chassis needs a new
+column in three tables, and the test fails until it has one. The page's "Keeping this page honest"
 section holds that list and a snippet that prints the derived values — do not retype them by hand.
 
 **The test cannot see numbers in prose**, and that page argues from figures inside sentences. Re-read
@@ -385,7 +508,9 @@ comparison rather than trusting a reader to remember. See
 workflow, how to read a win-rate interval, and the harness's known distortions (maneuver weapons like
 `wildcharge` now get a genuine hit-probability solution rather than a range heuristic, so reports
 across a `BOT_BRAIN_VERSION` bump are not comparable; `corroded`'s amplified damage is credited to
-whatever weapon lands the hit, not to `corroded`), and
+whatever weapon lands the hit, not to `corroded`; and one that is now **historical**: the bot could
+not press `wildcharge` until 2026-09-04, so reports predating that date understate Bastion, and the
+fix took it from 0 presses to 1179 in a run), and
 [`docs/superpowers/specs/2026-09-03-game-balance-harness-design.md`](docs/superpowers/specs/2026-09-03-game-balance-harness-design.md)
 for the design.
 

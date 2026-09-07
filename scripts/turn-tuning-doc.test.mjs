@@ -9,6 +9,7 @@ import {
   RAM_CONFIG,
   TICK_RATE_HZ,
   driveOf,
+  modifiersOf,
 } from "@motor-combat-moba/shared";
 
 /**
@@ -127,6 +128,14 @@ const doc = fs.readFileSync(DOC, "utf8");
 const tables = tablesIn(doc);
 const deg = (radians) => (radians * 180) / Math.PI;
 
+/**
+ * The `turnRate` multiplier a reeling car ACTUALLY drives with — the authored `STATUS_TABLE.reeling`
+ * value put through the same `modifiersOf` clamp `stepDrive` reads it through, rather than lifted
+ * raw off the row. See the note on the derived table's spec list for why the difference matters.
+ */
+const reelingTurnRate = () =>
+  modifiersOf([{ statusId: "reeling", startTick: 0, endsTick: 1, sourceSessionId: "" }], 0).turnRate;
+
 describe("docs/turn-tuning.md", () => {
   it("prints the per-car ratings CAR_TABLE actually holds", () => {
     const { header, rows } = tableWhere(tables, (h) => labelOf(h) === "Rating", "per-car ratings");
@@ -144,9 +153,38 @@ describe("docs/turn-tuning.md", () => {
   });
 
   /**
+   * The per-car direct-values table (coast half-life, brake deceleration) joined `CAR_TABLE` on
+   * 2026-09-06 alongside the heavy-car pass, and it's the one per-car table stages 2-5 will keep
+   * touching. It doesn't feed a turn-rate or radius formula, so it can't share the ratings table's
+   * row list (`turn-tuning-doc.test.mjs`'s own `deepEqual` on that list is why the prior implementer
+   * put it in its own table rather than as a row there) — but nothing else exempts it from being
+   * read back the same way every other table on this page is.
+   */
+  it("prints the per-car direct values CAR_TABLE actually holds", () => {
+    const { header, rows } = tableWhere(tables, (h) => labelOf(h) === "Value", "per-car direct values");
+    const columns = carColumns(header, "per-car direct values");
+    const expected = {
+      "coastHalfLifeSeconds — coast half-life (s)": (id) => CAR_TABLE[id].coastHalfLifeSeconds,
+      "brakeDecel — brake deceleration (u/s²)": (id) => CAR_TABLE[id].brakeDecel,
+    };
+    assert.deepEqual(
+      rows.map(labelOf),
+      Object.keys(expected),
+      `unexpected rows in the per-car direct-values table. ${REBUILD}`,
+    );
+    for (const cells of rows) {
+      for (const [id, column] of columns) {
+        assertCell(cells[column], expected[labelOf(cells)](id), `direct value "${labelOf(cells)}" / ${id}`);
+      }
+    }
+  });
+
+  /**
    * The global table is where a knob that moves the whole roster is written down, so every row is
-   * pinned to its own config field. `spinMaxRate` and `authorityFloor` are here rather than in a ram
-   * doc because a reader tuning turning needs to know a ram can overrule them.
+   * pinned to its own config field. `spinMaxRate` is here rather than in a ram doc because a reader
+   * tuning turning needs to know a ram can overrule it. An `authorityFloor` row sat beside it until
+   * stage 3b of the 2026-09-06 car-physics rework deleted that field: ram control loss is the
+   * `reeling` status now, and its steering multiplier lives in `STATUS_TABLE`, not here.
    */
   it("prints the global knobs at their configured values", () => {
     const { rows } = tableWhere(
@@ -158,7 +196,6 @@ describe("docs/turn-tuning.md", () => {
       baseTurnRate: DRIVE_CONFIG.baseTurnRate,
       turnRatePerRating: DRIVE_CONFIG.turnRatePerRating,
       stopTurnRatio: DRIVE_CONFIG.stopTurnRatio,
-      authorityFloor: RAM_CONFIG.authorityFloor,
       spinMaxRate: RAM_CONFIG.spinMaxRate,
       baseMaxSpeed: DRIVE_CONFIG.baseMaxSpeed,
       speedPerRating: DRIVE_CONFIG.speedPerRating,
@@ -183,7 +220,17 @@ describe("docs/turn-tuning.md", () => {
     );
     const columns = carColumns(header, "derived values");
 
-    const floor = RAM_CONFIG.authorityFloor;
+    // "Rate while reeling" replaces the "Rate at ram authority floor" row this list used to close on.
+    // That one read `RAM_CONFIG.authorityFloor`, which had meant nothing since the 2026-09-06
+    // vector-drive rework and is deleted outright as of stage 3b; ram control loss is the `reeling`
+    // status now, and its `turnRate` is a real multiplier on the moving rate rather than a floor. Read
+    // out of `STATUS_TABLE` rather than typed, so a retune of that row fails the page too.
+    //
+    // Read through `modifiersOf`, NOT off `STATUS_TABLE.reeling.modifiers.turnRate` directly: that
+    // raw number is what the row AUTHORS, and `modifiersOf` clamps it against `STATUS_LIMITS` before
+    // `stepDrive` ever multiplies by it. The two agree today only because 0.4 IS the floor. Author a
+    // harsher value and the raw read would put a number on the page that the sim never applies — the
+    // exact staleness this row exists to catch, arriving through the guard itself.
     const spec = [
       ["Turn rate", (d) => d.turnRate],
       ["— in degrees", (d) => deg(d.turnRate)],
@@ -198,7 +245,7 @@ describe("docs/turn-tuning.md", () => {
       ["180° while moving", (d) => Math.PI / d.turnRate],
       ["360° while moving", (d) => (2 * Math.PI) / d.turnRate],
       ["180° from standstill", (d) => Math.PI / d.turnRateAtStop],
-      ["Rate at ram authority floor", (d) => d.turnRate * floor],
+      ["Rate while reeling", (d) => d.turnRate * reelingTurnRate()],
     ];
     assert.deepEqual(
       rows.map(labelOf),
@@ -214,24 +261,4 @@ describe("docs/turn-tuning.md", () => {
     });
   });
 
-  /**
-   * The last derived row restates a multiplier in its formula column. Nothing typed ties that text
-   * to the config it quotes, so it is the cell most able to contradict the row it labels — the page
-   * would go on printing "x 0.3" beside values correctly recomputed at 0.35.
-   */
-  it("quotes the turn multiplier at its configured value", () => {
-    const { rows } = tableWhere(
-      tables,
-      (h) => labelOf(h) === "Stat" && h.some((c) => labelOf([c]) === "Formula"),
-      "derived values",
-    );
-    const formulaOf = (label) => rows.find((cells) => labelOf(cells) === label)?.[1];
-    for (const [label, expected] of [
-      ["Rate at ram authority floor", RAM_CONFIG.authorityFloor],
-    ]) {
-      const formula = formulaOf(label);
-      assert.ok(formula, `the derived table has no "${label}" row. ${REBUILD}`);
-      assertCell(formula, expected, `derived "${label}" formula`);
-    }
-  });
 });

@@ -488,10 +488,18 @@ function medianOf(values: readonly number[]): number {
  * THE TERMINAL POLICY: what a candidate does once its committed window is over (R-P10, fix round
  * 4, 2026-09-07).
  *
- * FULL NEUTRAL — hands off both controls. Under `NEUTRAL_MODIFIERS` a `throttle: 0` continuation
- * genuinely BRAKES: `DRIVE_CONFIG.drag` is 900 u/s², about 0.32 s from top speed to rest, so this
- * models "commit this input, then coast to a stop" and the terminal pose is a place the car can
- * really be left. That is what makes the terminus an honest reading for `rangeError` and
+ * FULL NEUTRAL — hands off both controls, so this models "commit this input, then coast" and the
+ * terminal pose is a place the car can really be left.
+ *
+ * THE STRENGTH OF THAT CLAIM WEAKENED at the 2026-09-06 car-physics rework and the wording follows
+ * it. This used to read "genuinely BRAKES: `DRIVE_CONFIG.drag` is 900 u/s², about 0.32 s from top
+ * speed to rest" — a coasting car really did stop inside the horizon, so the terminus was a
+ * standstill. That global knob is gone, replaced by per-car proportional coast
+ * (`CarDef.coastHalfLifeSeconds`), and Mirage's half-life is 36 ticks: a coasting car sheds about
+ * half its speed over the horizon rather than all of it. The terminus is therefore a ROLLING pose
+ * now, not a stopped one. It is still a pose the car reaches by letting go — which is what makes it
+ * an honest reading for `rangeError` and `threatAvoid` — but it is no longer a place the car comes
+ * to rest, and a re-read of R-P10's measurement against the new coast is owed. That is what makes the terminus an honest reading for `rangeError` and
  * `threatAvoid`: it is a destination the bot could actually stop at, not an extrapolation of a
  * 22-tick hold it never performs.
  *
