@@ -4,7 +4,9 @@
 same commit as the work it describes, so a session can stop anywhere and the next one resumes
 exactly. Same convention as the netcode rewrite's `EXECUTION.md`.
 
-**Last updated:** 2026-09-07, after the branch was **merged into `development/main`** — see the merge
+**Last updated:** 2026-09-07, after a partial stage-5 Task 3 pass on the playtest probes (see the
+probe bullets under "What has never been verified" — `npm run playtest` has now been run, stale
+quoted numbers are fixed, no threshold moved). Before that, the branch was **merged into `development/main`** — see the merge
 section immediately below for what that cost and what it left open. Before that, **stage 4 executed** — the `ImpulseDef` seam, `wildcharge`
 authoring the game's first `impulse` row, and `SLAM_CONFIG` dissolved down to one field. Earlier the
 same day: stage 3b (`reeling` plus per-victim ram falloff) executed, its four task reviews fixed, its
@@ -576,6 +578,47 @@ then 3b's boxes stay unticked, and a session should not tick them by driving.
   expectation or verdict logic was touched** — same standing decision as 3b: that is stage 5's job
   and the user's call. `npm run typecheck` covers `playtest/` and `balance/` and is green, so nothing
   is broken, only stale.
+- **A partial stage-5 Task 3 pass ran on 2026-09-07, at the user's request: `npm run playtest` HAS
+  now been run, and the stale QUOTED NUMBERS are fixed.** No threshold, verdict rule or scenario was
+  touched, so this does not close Task 3 — the judgement calls below are still stage 5's and the
+  user's. What the run found and what changed:
+  - **`collision.ts` probe 8 was measuring nothing.** It drove at a wall from a hard-coded `x = 60`
+    at a hard-coded `speed: 400`. The heavy-car cut put 400 above every chassis's top speed (clamped
+    away on the first `stepDrive`) and shortened the per-tick step enough that the hull ended ~24u
+    clear of the wall, so the probe made **no contact at all** and reported "no sign flip in 20-45
+    deg" as if that were a result. The placement is now derived from the hull half-extent and
+    `forwardMaxSpeedOf`, and the probe measures again: the flip is at **21-22 deg**, matching
+    `atan(sqrt(restitution))` = 21.2 deg for restitution 0.15 — it was ~30.6 deg at 0.35. The
+    KNOWN-BY-DESIGN threshold (a jump over 100 u/s) was **left untouched**, so the probe now honestly
+    reads `OK`: stage 2's whole-vector reflection shrank the one-degree jump to **5 u/s**. That is
+    the "the rework fixed what it measured" case, not a threshold move.
+  - **`weapons.ts` W7 counted `STATUS_TABLE` from a hand-written six-key literal** and concluded "the
+    cap cannot currently be reached — no eviction exploit exists yet". The table has **9** rows
+    against `STATUS_CONFIG.maxActive` 6, so that conclusion was false. It counts `STATUS_TABLE` now
+    and says the cap is reachable on paper, while stating plainly that it does not measure whether an
+    attacker can stack six.
+  - Quoted numbers corrected, all now derived rather than typed: `collision.ts` probe 1's "closes
+    38.4 u/tick" (17.8 now) and probe 7's "restitution 0.35" (0.15); `ram.ts` R1's "10.5 u/tick"
+    (6.3) and R3's "-35% of impact speed" (-15%); `weapons2.ts` W14's "19.2 u/tick" (8.9). Probe 7's
+    title and R3's line each contradicted the table printed directly beneath them. `ram.ts` also
+    stopped naming `ramTick` and the scalar `speed`.
+  - Verdict counts did not move: **2 FINDINGs across 42 probes** before and after — `geometry.ts` G2
+    (1.97u penetration in the plus-shape's concave corners) and `prediction.ts` P1 (74.26u
+    reconciliation correction at 120 ms), neither of them new and neither caused by this pass.
+  - **Left for stage 5, deliberately, each a judgement the user owns:**
+    - `collision.ts` probe 9 (chain-ramming) still reports "not measurable until stage 3b's `reeling`
+      lands". **3b landed.** Its own stated precondition is met and it now needs a `reeling`-based
+      measurement written to replace the `authority` reading it lost. Same dangling note in `ram.ts`
+      R5 and `lan.ts`.
+    - `ram.ts` R5 reports **0 rams landed on every one of its 63 runs** — its rise-in-lateral-velocity
+      counter no longer detects anything, at any offset. The escape verdict is unaffected (every
+      phase escapes, by a 350u margin), but the diagnostic behind it is dead.
+    - `weapons.ts` W7's perma-stun scenario fires **`thumper`, which stopped applying `stunned` in the
+      2026-09-01 overhaul** and applies `spiked` now. It measures 0 stunned ticks and passes
+      vacuously. The roster's opponent-facing stun sources are `roadblock`, `thunderclap` and the
+      hard slam; picking one is a scenario change, which is the user's call.
+    - `collision.ts` probe 1's `maxRamShove = 416` bound and `probe 5`'s `minApproachSpeed` setup, and
+      `prediction.ts` P1's `carWidth` threshold — all still flagged in place, all still stage 5's.
 - Balance baselines from before this branch are not comparable: the config fingerprint moved, and
   `BOT_BRAIN_VERSION` went 3.0.0 → 3.1.0.
 - `balance/match.test.ts`'s seeded match-length fixture was reseeded **22 → 79** for stage 4, the

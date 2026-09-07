@@ -140,8 +140,11 @@ function trueTunneling(): void {
 /* --------------------------------------- W14. crossing target: the un-smeared half of the test */
 /**
  * `hits.ts` smears the PROJECTILE across its tick but tests against the target's single post-drive
- * pose. A car crossing the line of fire at top speed moves 19.2 u/tick (Mirage's top speed rose
- * 540 -> 576 in T8's restat); can it end up on the far side of a shot that should have hit it?
+ * pose. A car crossing the line of fire at top speed moves Mirage's top speed / `TICK_RATE_HZ` per
+ * tick — 8.9 u/tick since the 2026-09-06 heavy-car cut, down from the 19.2 this used to quote by
+ * hand; can it end up on the far side of a shot that should have hit it? The -40..40 offset sweep
+ * below is what covers a whole tick-step of crossing, so it still straddles the phase at the lower
+ * speed.
  */
 function crossingTarget(): void {
   const rows: string[] = [];

@@ -1,13 +1,18 @@
 /**
  * Ram probes.
  *
- * The pipeline is `serverTick` (drive + resolveWorld) -> `ramTick` -> combat. `resolveWorld`
- * reflects `speed` on contact; `resolveRam` then reads that same `speed` to compute the approach
- * term. So the order in which a ram is measured relative to its own bounce is the whole question
- * here, and the tick grid decides it.
+ * The pipeline is `serverTick` (drive + resolveWorld) -> `contactTick` -> combat. `resolveWorld`
+ * reflects the velocity on contact; `resolveRam` reads the speed each car CARRIED INTO the tick to
+ * compute the approach term. So the order in which a ram is measured relative to its own bounce is
+ * the whole question here, and the tick grid decides it.
+ *
+ * (`ramTick` was renamed `contactTick` when the dash and the hard slam joined the same pass, and
+ * the scalar `speed` field it read became the `vx`/`vy` pair in stage 1 of the car-physics rework.)
  */
 import {
+  DRIVE_CONFIG,
   RAM_CONFIG,
+  TICK_RATE_HZ,
   forwardMaxSpeedOf,
   forwardOf,
   lateralOf,
@@ -17,11 +22,14 @@ import {
 import { PlaytestWorld } from "./world.js";
 import { Reporter } from "./reporter.js";
 
-// STALE POST-VECTOR-DRIVE-REWORK: every threshold and descriptive u/tick number in this file
-// (trigger-rate floors, "10.5 u/tick", the authority-floor references) was tuned against the
-// pre-2026-09-06 roster, whose top speeds were up to 40% higher. Left unchanged per the review's
-// instruction that stage 5 owns re-deriving them; see
+// STALE POST-VECTOR-DRIVE-REWORK: the THRESHOLDS in this file (the 0.9 trigger-rate floors) were
+// tuned against the pre-2026-09-06 roster, whose top speeds were up to 40% higher. Left unchanged
+// per the review's instruction that stage 5 owns re-deriving them; see
 // `docs/superpowers/plans/2026-09-06-car-physics/05-tune-and-reconcile.md`.
+//
+// The descriptive numbers are no longer among them: the "10.5 u/tick" the R1 sweep quoted and the
+// "-35% restitution" R3 quoted are both DERIVED from the config below now rather than typed, so a
+// future roster or restitution edit cannot leave them contradicting the table printed beneath them.
 //
 // **Stage 3 Task 4 added a second, independent reason those thresholds are owed a re-derivation,
 // and it is bigger than the speed cut.** `RAM_CONFIG.globalScale` and `spinScale` were placeholders
@@ -101,7 +109,8 @@ function triggerPhaseSweep(): void {
     worstRate < 0.9 ? "FINDING" : "OK",
     "A bastion (ramAttack 70, ramDefence 90 — the designated rammer) at top speed hits a\n" +
       "stationary bullseye (45/30).\n" +
-      "`startGap` is the clearance at t=0; the car covers 10.5 u/tick, so sweeping the gap sweeps\n" +
+      `\`startGap\` is the clearance at t=0; the car covers ` +
+      `${(forwardMaxSpeedOf("bastion") / TICK_RATE_HZ).toFixed(1)} u/tick, so sweeping the gap sweeps\n` +
       "the sub-tick phase of the impact — the only thing that differs between these runs.\n" +
       rows.join("\n"),
   );
@@ -140,9 +149,9 @@ function pairingMatrix(): void {
 /**
  * The regression guard for the trigger fix.
  *
- * `resolveWorld` still reflects the attacker's `speed` on the contact tick — that is the drive
+ * `resolveWorld` still reflects the attacker's velocity on the contact tick — that is the drive
  * model working as designed. What changed is that ram no longer READS that number: `serverTick`
- * reports the speed each car carried into the tick, and `ramTick` uses it as the approach term.
+ * reports the speed each car carried into the tick, and `contactTick` uses it as the approach term.
  *
  * So the shape this probe asserts is deliberately odd-looking: the attacker's post-resolve speed is
  * deeply negative AND the victim is knocked, on the same tick. If those two ever stop coinciding,
@@ -182,8 +191,9 @@ function speedBeforeAndAfterResolve(): void {
   report(
     "R3. The fix: ram reads the carried-in speed, not the post-resolve rebound",
     firedOnContactTick && rebounded ? "OK" : "FINDING",
-    `minApproachSpeed is ${RAM_CONFIG.minApproachSpeed}; restitution still rebounds a head-on ` +
-      `contact to -35% of impact speed.\n` +
+    `minApproachSpeed is ${RAM_CONFIG.minApproachSpeed}; restitution ` +
+      `${DRIVE_CONFIG.restitution} still rebounds a head-on contact to ` +
+      `-${(DRIVE_CONFIG.restitution * 100).toFixed(0)}% of impact speed.\n` +
       rows.join("\n") +
       `\nOn the contact tick the attacker rebounded (${rebounded}) AND the victim was knocked ` +
       `(${firedOnContactTick}). Both must hold: the rebound is the drive model, the knock is the ` +
