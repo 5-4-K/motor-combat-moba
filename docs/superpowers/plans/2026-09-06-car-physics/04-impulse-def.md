@@ -1,5 +1,46 @@
 # Stage 4: The `ImpulseDef` Seam — Implementation Plan
 
+> **EXECUTED — 2026-09-07, in 6 commits (`5b6e13f`..`8fb44e4`). Its unchecked `- [ ]` boxes below
+> are historical, not a to-do list.** `ImpulseDef` ships, `wildcharge` authors the game's first
+> `impulse` row, and `SLAM_CONFIG` is down to one field. **Do not re-execute this plan.** Read
+> [`EXECUTION.md`](EXECUTION.md) first.
+>
+> **This plan has known-wrong passages, found during execution. The shipped code is right and this
+> document is stale where they disagree** — it is kept as written rather than retro-edited, so the
+> record of what was planned stays honest. If you are reading it to understand the code, check each
+> against the code:
+>
+> - **Task 2 Step 4 says to remove assertions from `slam-config.test.ts`. That file does not
+>   exist** — and never did. `SLAM_CONFIG`'s deleted fields were asserted from
+>   `packages/shared/src/sim/contact.test.ts` and `packages/server/src/sim/ram-bridge.test.ts`, the
+>   two sim suites that read them, and that is where the edits actually landed. They were rewritten
+>   against `WEAPON_TABLE.wildcharge.impulse` / `WEAPON_TICKS.wildcharge.impulse` rather than
+>   removed.
+> - **Task 2's "Files" list omits `packages/server/src/sim/ram-bridge.ts`**, which is where the
+>   slam's `Impulse` is now assembled and is the single largest edit of the stage. It also omits
+>   `packages/shared/src/index.ts` (the `SLAM_TICKS` export has to come off the barrel and
+>   `SlamEvent` has to go on it) and `packages/client/public/manual.html` (a `WEAPON_TABLE` edit
+>   moves `balanceStamp`, so the guide owes a `npm run build:manual`).
+> - **Task 3's `fireAt("wildcharge", …)` test sketches describe a weapon that does not work that
+>   way.** `wildcharge` is a `kind: "maneuver"` row: it never travels the shot path those helpers
+>   model, and there is no combat "fire" that lands it. Its impulse is delivered by a CONTACT, which
+>   is why the shipped tests live in `packages/server/src/sim/ram-bridge.test.ts` driving
+>   `contactTick`, not in `packages/shared/src/sim/combat.test.ts`.
+> - **Task 3's whole direction of travel — apply the impulse inside `combat.ts` — was overridden.**
+>   `combat.ts` cannot see the OBB contact normal: that vector needs both hulls, and only
+>   `contact.ts` has them. Centre-to-centre poses are a different vector on any non-dead-on hit, so
+>   deriving the direction there would have silently mis-aimed every glancing slam. The shipped
+>   design carries the geometry on a new `SlamEvent` and assembles the impulse in `ram-bridge.ts`'s
+>   slams loop — still "beside the statuses that same slam applies" (spec P30), just in the bridge
+>   rather than in combat. `combat.ts` was not touched by this stage at all.
+> - **Tasks 2 and 3 shipped as ONE commit** (`3423bef`), not the two the plan's Step 5 / Step 7
+>   suggest. Splitting them would have shipped an intermediate commit in which `contact.ts` had
+>   stopped building the slam's `Impulse` and `ram-bridge.ts` had not yet started — a Wild Charge
+>   that slams for nothing.
+>
+> **Its exit criteria are NOT closed.** All three are hands-on and none has been driven. See
+> `EXECUTION.md`'s "What has never been verified".
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development`
 > (recommended) or `superpowers:executing-plans`. Steps use checkbox (`- [ ]`) syntax.
 
