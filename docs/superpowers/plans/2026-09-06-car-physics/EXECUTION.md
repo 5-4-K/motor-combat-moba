@@ -58,6 +58,28 @@ behaviour change. This is a feel question and belongs on knobs, so it routes thr
 [`bot-tuner`](../../../../.claude/skills/bot-tuner/SKILL.md) skill — most likely the planner's range
 term or a reverse cost — not a Hard-only branch and not a weakened assertion.
 
+### Verified: the brain really is running on the vector velocity
+
+The bot's prediction layer arrived on main written against the scalar `speed`; the velocity arrived
+here. Neither branch could test the join — one had the predictor without the vector, the other the
+vector without the predictor — so `predict.test.ts` now carries a section that does
+("a car that is SLIDING, not driving"). Rolled under the predictor's own modifier set, so the
+throttle assumption cancels and the only variable is how the velocity was read, a Mirage travelling
+60 u/s forward and 200 u/s sideways is predicted **exactly** (<1e-3 u over 45 ticks). The same scene
+read the pre-rework way — `cos(angle) * speed`, which cannot represent motion across the nose — is
+**76.7 u wrong**, over 1.5 car lengths. The second assertion pins that number as a regression guard:
+reintroduce a scalar reconstruction anywhere on this path and it fails by name.
+
+That was checked by sabotage, not by assumption: reverting `bodyFromObservation` to a scalar read
+makes the exactness test fail, and restoring it makes it pass.
+
+Every other velocity surface in the bot was audited by hand and is on `vx`/`vy`: `view.ts` (both the
+self and others rows, straight off the schema), `perception.ts`'s dead reckoning, `controller.ts`'s
+closing-speed dot product, `dangerEvAgainst`'s threat shooter, and `solution.ts`'s
+`constantVelocityPredictor` — that last one had been open-coding `cos(angle) * speed`, one of the
+five copies `sim/velocity.ts` exists to delete. The only `speed` reads left in bot production code
+are `WeaponDef.speed`: a projectile does travel along its own angle, so those are correct.
+
 ### Measurements the rework invalidated under the brain
 
 `OBSERVATION_MODIFIERS` in `bot/brain/predict.ts` still holds an observed speed EXACTLY — the branch

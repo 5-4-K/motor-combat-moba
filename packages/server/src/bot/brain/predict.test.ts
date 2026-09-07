@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
-  DRIVE_CONFIG, ManeuverKind, NEUTRAL_MODIFIERS, TICK_RATE_HZ, driveOf, forwardOf,
-  turnRateAtStopOf, turnRateOf,
+  DRIVE_CONFIG, ManeuverKind, NEUTRAL_MODIFIERS, TICK_RATE_HZ, driveOf, forwardOf, stepDrive,
+  turnRateAtStopOf, turnRateOf, type SimBody,
 } from "@motor-combat-moba/shared";
 import { BOT_PROFILES, BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import type { BotCarView, BotSelfView, BotView } from "../types.js";
 import { newPerception, observedAngVelOf, perceive } from "./perception.js";
 import {
-  bodyFromObservation, bodyFromSelf, interceptTicks, physicsPredictor, rollForward,
-  selfPredictor, steerFromObservedTurn,
+  OBSERVATION_MODIFIERS, bodyFromObservation, bodyFromSelf, interceptTicks, physicsPredictor,
+  rollForward, selfPredictor, steerFromObservedTurn,
 } from "./predict.js";
 import { constantVelocityPredictor } from "./solution.js";
 
@@ -150,6 +150,66 @@ describe("steerFromObservedTurn", () => {
       { steer: steerFromObservedTurn(observed, "mirage"), throttle: 1 }, 45, NEUTRAL_MODIFIERS,
     );
     expect(turned(asSteer)).toBeGreaterThan(turned(asSpin) * 2);
+  });
+});
+
+describe("a car that is SLIDING, not driving (car-physics merge, 2026-09-07)", () => {
+  // THE CASE THE TWO BRANCHES HAD TO BE COMBINED FOR, and the only one nothing else covers.
+  //
+  // `truthPath` above is a fair ground truth precisely because it assumes a car travels along its
+  // nose — true for a DRIVEN car, since `DRIVE_CONFIG.steeringGrip` is 1. It is not true for a car
+  // carrying imposed lateral velocity: a rammed car, or one shoved by a slam. That car is exactly
+  // what the bot brain was blind to before the rework, because it reconstructed velocity as
+  // `cos(angle) * speed` and a scalar speed cannot represent motion across the nose at all.
+  //
+  // The brain's prediction layer arrived on `development/main` written against that scalar; the
+  // vector velocity arrived on `feature/car-physics-rework`. Neither branch could test this — one
+  // had the predictor without the velocity, the other the velocity without the predictor. This is
+  // the test that says the merge actually joined them.
+  const HORIZON = 45;
+
+  /** Nose along +x, but travelling mostly sideways: 60 u/s forward, 200 u/s to the car's left. */
+  const sliding: SimBody = {
+    x: 300, y: 360, angle: 0, vx: 60, vy: 200,
+    reverseHold: 0, angVel: 0, maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0, maneuverSpeed: 0,
+  };
+
+  /** Where the REAL sim puts that car, rolled under the same set the predictor assumes. */
+  function truth(): SimBody {
+    let b = sliding;
+    for (let i = 0; i < HORIZON; i++) {
+      b = stepDrive(b, { seq: i, steer: 0, throttle: 1, fireSlots: 0 }, 1 / TICK_RATE_HZ,
+        driveOf("mirage"), OBSERVATION_MODIFIERS);
+    }
+    return b;
+  }
+
+  function viewOf(b: SimBody): BotCarView {
+    return carAt({ x: b.x, y: b.y, angle: b.angle, vx: b.vx, vy: b.vy });
+  }
+
+  it("predicts it EXACTLY, because the rollout reads the real velocity vector", () => {
+    // Rolled under the predictor's own modifier set, so the throttle assumption cancels and the
+    // only variable left is how the velocity was read. Nothing is approximated here: the bot runs
+    // the same `stepDrive` the sim does, over the same numbers, so it should agree to the bit.
+    const end = truth();
+    const guess = physicsPredictor(viewOf(sliding), 0, HORIZON, 0, makeRng(1))(HORIZON);
+    expect(Math.hypot(guess.x - end.x, guess.y - end.y)).toBeLessThan(1e-3);
+  });
+
+  it("and the pre-rework scalar read would have been 76 units wrong — over 1.5 car lengths", () => {
+    // What `cos(angle) * speed` would have produced: the forward component kept, the 200 u/s of
+    // lateral motion silently discarded. Pinned as a REGRESSION GUARD -- if someone reintroduces a
+    // scalar reconstruction anywhere on this path, this is the assertion that fails and names why.
+    const end = truth();
+    const forward = forwardOf(sliding.vx, sliding.vy, sliding.angle);
+    const asScalarWould = viewOf({
+      ...sliding, vx: Math.cos(sliding.angle) * forward, vy: Math.sin(sliding.angle) * forward,
+    });
+    const guess = physicsPredictor(asScalarWould, 0, HORIZON, 0, makeRng(1))(HORIZON);
+    const error = Math.hypot(guess.x - end.x, guess.y - end.y);
+    expect(error).toBeGreaterThan(DRIVE_CONFIG.carHeight);
+    expect(error).toBeCloseTo(76.67, 1);
   });
 });
 
