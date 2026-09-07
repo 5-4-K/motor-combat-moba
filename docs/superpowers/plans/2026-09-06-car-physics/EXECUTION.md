@@ -4,9 +4,11 @@
 same commit as the work it describes, so a session can stop anywhere and the next one resumes
 exactly. Same convention as the netcode rewrite's `EXECUTION.md`.
 
-**Last updated:** 2026-09-07, after stage 3b (`reeling` plus per-victim ram falloff) executed, its
-four task reviews fixed, and its stage-closing pass landed — the two `CLAUDE.md` files reconciled and
-eleven deferred minor review findings swept.
+**Last updated:** 2026-09-07, after the user drove the merged build for the first time. Earlier the
+same day: stage 3b (`reeling` plus per-victim ram falloff) executed, its four task reviews fixed, its
+stage-closing pass landed, and spec P21/P24 amended to the `refresh` semantics that actually ship.
+**That drive is the most important line in this file** — it parked the restitution stage and made
+stage 4 next.
 
 ---
 
@@ -41,17 +43,17 @@ after it is the approved restitution fix, which has no plan document yet.
 | Root `npm test` | GREEN |
 | Root `npm run typecheck` | GREEN |
 | Root `npm run build` | GREEN |
-| Merged anywhere | **No.** Nothing has gone near `development/main`. |
-| Played by a human | **No.** See "What has never been verified". |
+| Merged anywhere | **Into `feature/car-physics-rework`, yes** — the user fast-forwarded it there on 2026-09-07, so that branch now carries stages 1-3b complete. **Nothing has gone near `development/main`.** |
+| Played by a human | **Partly, as of 2026-09-07 — and only just.** ~5 minutes on the merged `feature/car-physics-rework` build, checking **collision impact and restitution only**. Verdict: no problem with how collisions are working. **Nothing else was exercised** — not drive feel, not `reeling`, not falloff, not ram throw magnitudes. See "What has never been verified", which is still most of it. |
 
 | stage | plan | state |
 |---|---|---|
 | 1 | `01-vector-drive.md` | **Executed** (18 commits), against revision 1. Fully survives revision 2. |
 | 2 | `02-contact-and-impulse.md` | **Executed** (9 commits), against revision 1. Plumbing survives; the mass-derived and equal-and-opposite parts are superseded. |
-| 3 | `03-ram.md` | **Executed** (11 commits, `d29234b`..`1ee4b53`), against revision 2, including four post-landing fix rounds (`12b400d`, `737a9d5`, the whole-branch review's fix commit `ff9a720`, and the documentation follow-up `1ee4b53`) on top of the original 7 (`d29234b`..`7e5e1b4`). `mass` is gone from `packages/`; the ram contest (R1–R11) is what ships today. One exit criterion is NOT met — see "Stage 3's exit criterion... is NOT met" below; it was escalated rather than fixed here, and the fix is now approved as the stage two rows down. |
+| 3 | `03-ram.md` | **Executed** (11 commits, `d29234b`..`1ee4b53`), against revision 2, including four post-landing fix rounds (`12b400d`, `737a9d5`, the whole-branch review's fix commit `ff9a720`, and the documentation follow-up `1ee4b53`) on top of the original 7 (`d29234b`..`7e5e1b4`). `mass` is gone from `packages/`; the ram contest (R1–R11) is what ships today. One exit criterion reads as NOT met on the arithmetic — see "The restitution stage, and why it is parked" below. It was escalated rather than fixed here; the fix was approved on 2026-09-07 and parked the same day, after the user drove the build and found collisions fine. |
 | 3b | `03b-ram-feel.md` | **Executed**, against revision 2, in 10 commits from `3468716` onwards. Four implementation commits (`3468716` add `reeling`, `376433d` the falloff stack, `223ad37` apply `reeling` scaled by falloff, `9fc030b` delete the five dead knobs and pin R6's ratio), one incidental fixture reseed (`c8cbc7d`), two documentation reconciliations (`a10e71c`, `6335ed0`), then the stage-closing pass: `8608bd0` sweeps eleven deferred review findings, and the documentation commits after it write this file and the two `CLAUDE.md`s. |
-| — | *the restitution stage* | **Approved by the user on 2026-09-07 and sequenced HERE, between 3b and 4.** No plan document exists yet and it needs a spec clause first. See "Two questions the user answered on 2026-09-07" and "Stage 3's exit criterion... is NOT met" below. ← next |
-| 4 | `04-impulse-def.md` | Revised for revision 2. Not started. |
+| — | *the restitution stage* | **PARKED on 2026-09-07, later the same day it was approved — by play, not by argument.** It was approved that morning and sequenced here; the user then drove the merged build and reported no problem with collision impact or restitution, which is precisely what this stage would have changed. Not cancelled and not refuted — understood, cheap, and waiting for a complaint that has not arrived. See "The restitution stage, and why it is parked" below for the measurement that closed it. **Do not start it without a fresh reason from play.** |
+| 4 | `04-impulse-def.md` | Revised for revision 2. Not started. ← next |
 | 5 | `05-tune-and-reconcile.md` | Revised for revision 2. Not started. |
 
 The 5 commits before `925b788` (`febd7b8`..`2c7f235`) are the redesign and replan — no code changed
@@ -145,31 +147,40 @@ real code fix named below.
 
 ## Resume here
 
-**The restitution stage**, then stage 4. The restitution fix is approved and sits between 3b and 4 —
-see "Two questions the user answered on 2026-09-07" immediately below for the ruling and its
-conditions, and "Stage 3's exit criterion... is NOT met" further down for the measured diagnosis it
-answers. It has **no plan document and no spec clause yet**; writing the clause is the first task,
-because nothing in R1–R11 authorizes touching `applyContact` and this project's own "stop and ask
-before changing the collision model" rule applies.
+**Stage 4** (`04-impulse-def.md`). The restitution stage that briefly sat here is parked — see the
+stage table and "The restitution stage, and why it is parked" below. Do not pick it up without a
+fresh reason from play.
 
-Then **stage 4** (`04-impulse-def.md`), which inherits two things from 3b: `wildcharge`'s own
-`uncontrolTicks` (a slam's control-loss duration is stage 4's to author — `contact.ts`'s slam branch
-still writes `0`), and the `ImpulseEntry` `kind` discriminator named under "Open question" below.
+Stage 4 inherits two things from 3b: `wildcharge`'s own `uncontrolTicks` (a slam's control-loss
+duration is stage 4's to author — `contact.ts`'s slam branch still writes `0`), and the
+`ImpulseEntry` `kind` discriminator named under "Open question" below.
+
+**One deferred obligation the user set on 2026-09-07, which stage 5 inherits.** The hands-on exit
+criteria for stage 3b — ram side-on and watch for a spin the victim can still shoot through, ram a
+fleeing car versus one closing on you, chain three rams and check the third barely registers, wait
+three seconds and check full strength returns, wildcharge and check the victim does NOT gain
+`reeling` — **are impractical to reproduce by hand against a bot.** The user tried and said so. They
+want them covered by playtest probes instead, and they want that probe-writing done **after the
+physics rework is complete**, not piecemeal alongside it. So: do not write them now, and do not treat
+3b's unticked hands-on boxes as something a session can close by driving. Existing coverage in
+`packages/server/playtest/ram.ts` is R1-R5; **R5 (ram-lock) is the only one anywhere near this list**,
+and it now measures a mechanic that has a countermeasure it does not know about. Nothing measures
+`reeling` at all, the fleeing-versus-closing contrast, falloff window recovery, or the slam
+exclusion. That is the gap the eventual probes fill.
 
 ## Two questions the user answered on 2026-09-07 — both binding
 
 Both were escalated by the previous session (see the two sections below) and both now have an
 answer. They are the user's decisions, not an agent's rulings: do not re-open either without asking.
 
-- **The restitution fix IS approved — but as its own stage, AFTER 3b.** Scaling a car-car contact's
-  restitution response by `shareOf(selfRamDefence, otherRamDefence)` (walls and obstacles untouched)
-  is the agreed fix for the unmet exit criterion below. **Stage 3b must not touch `applyContact`.**
-  When the fix is taken it needs its own spec clause first — nothing in R1-R11 authorizes it — and
-  it obliges a re-measurement of `RAM_CONFIG.globalScale` AND a re-check of `spinScale` through the
-  composed `serverTick` -> `contactTick` order, because both were measured through a pipeline whose
-  attacker-side outcome that term dominates. Sequencing it after 3b is deliberate: `reeling` and the
-  victim-only falloff do not move the first-ram magnitudes those two constants were measured
-  against, so the re-measurement happens once, against a settled pipeline, rather than twice.
+- **The restitution fix was approved as its own stage after 3b — then PARKED the same day, by the
+  same user, after driving it.** Both facts are real and the second supersedes the first: the
+  approval was given on the arithmetic, and the drive that followed found nothing wrong with
+  collision impact or restitution. **Do not treat the morning's approval as a standing mandate.** See
+  "The restitution stage, and why it is parked" for the measurement that closed it and for the one
+  complaint that should revive it. The conditions attached to the original approval still apply if it
+  ever is revived — its own spec clause first, and a re-measurement of `RAM_CONFIG.globalScale` plus
+  a re-check of `spinScale` through the composed `serverTick` -> `contactTick` order.
 - **`npm run playtest` was NOT run, by decision.** The user declined for now: ramming moves again in
   3b, so anything measured beforehand goes stale immediately. **Do not run the probes and do not
   change a threshold** — that is still stage 5's job and the user's call. The two drifted bounds
@@ -208,11 +219,70 @@ The code-review-graph needs its own build per checkout (`uvx code-review-graph@2
 `balance/`, which `npm test` and `npm run build` do not. Stage 1 repaired it after finding 37 errors
 hidden behind a pre-existing failure that aborted the chain; do not let it rot.
 
-## Stage 3's exit criterion "the Bastion keeps moving forwards" is NOT met — diagnosed here, fix now APPROVED as its own stage
+## The restitution stage, and why it is parked
 
-**Status, as of 2026-09-07: the fix named at the bottom of this section is approved by the user and
-scheduled as its own stage between 3b and 4** — see "Two questions the user answered on 2026-09-07"
-above for the ruling itself and the conditions attached to it. Everything below is the diagnosis that
+**Read this before reviving the fix diagnosed below. It was approved on 2026-09-07 and parked the
+same day, by play.**
+
+The user drove the merged `feature/car-physics-rework` build for ~5 minutes, checking collision
+impact and restitution specifically, and reported no problem with how collisions work. That is
+exactly the behaviour this stage would have changed, so the stage lost its justification before it
+started.
+
+**What the criterion actually failed on.** "The Bastion keeps moving forwards" is phrased as a
+binary, and it was evaluated by arithmetic against a build nobody had played. It came out false on
+**−28.5 u/s** against a Bastion top speed of 190 — 15% of top speed, backwards, erased by that
+chassis's own acceleration in about **0.2 seconds**. The previous session described that using
+revision 1's language ("thrown backwards for landing a ram"), but revision 1's number was **−184.5**,
+near top speed. The contest had already removed 84% of the problem; what remained is a brief
+bounce-back on contact, which is arguably what stage 2 deliberately built when it made a car-to-car
+contact "read as a bounce." Changing the collision model to satisfy the sentence would not have been
+fixing a symptom.
+
+**What the investigation did establish, which is true regardless and should not be re-derived.**
+Measured through `resolveWorld` alone (the attacker's velocity in, and out, before `contactTick`'s
+contest sees the pair):
+
+| case | vx in | vx out |
+|---|---|---|
+| Bastion → Bullseye, **head-on** | 190.0 | −28.5 |
+| Bastion → Bullseye, **flank** | 190.0 | −28.5 |
+| Bastion → Bullseye, **rear-end** | 190.0 | −28.5 |
+| Bastion → **Bastion**, flank (equal `ramDefence`) | 190.0 | −28.5 |
+| Bastion → **a concrete wall** | 190.0 | −28.5 |
+| Bullseye → Bastion, flank | 223.0 | −33.4 |
+| Bullseye → **a concrete wall** | 223.0 | −33.4 |
+
+The expression collapses to **`v_out = −restitution × v_in`**. The attacker's exit velocity is a
+single global bounce coefficient on its own entry speed and **nothing else is an input** — not the
+struck face, not the victim's `ramDefence`, not the victim's motion, not whether the thing it hit is
+even a car. The equal-`ramDefence` row is the one that proves the point: the term is not
+*mis*-weighted by solidity, solidity does not enter it at all, so there is no ratio to correct — only
+a factor to introduce. `shareOf` looks like it should already do this and does not: `resolveAgainst`
+scales the MTV by `share`, then `applyContact` normalises that push to get the surface normal, which
+annihilates the scalar. `shareOf` reaches position and is erased from velocity.
+
+**The consequence to watch for in play, and the one complaint that should revive this stage.** Because
+the term is face-blind and ~285× larger than the contest's contribution to the attacker's outcome, the
+contest's face bonuses (`bonusFront` 0.3 / `bonusFlank` 1.0 / `bonusRear` 1.3, a 4.3× spread built
+deliberately by R6) barely show on the attacker's side. **If someone reports that head-on, flank and
+rear-end ramming all feel the same from the driver's seat, that is this.** Start from the table above.
+
+**If it is revived**, the conditions from the original approval still stand: it needs its own spec
+clause first (nothing in R1–R11 authorizes touching `applyContact`, and this project's "stop and ask
+before changing the collision model" rule applies), and it obliges re-measuring `RAM_CONFIG.globalScale`
+and re-checking `spinScale` through the composed `serverTick` → `contactTick` order, because both were
+measured through a pipeline this term dominates. Note also that the obvious fix is not small in effect:
+scaling the reflection by `shareOf(90, 30) = 0.25` leaves a Bastion still travelling ~135 u/s *into* the
+victim rather than rebounding — ploughing through rather than bouncing, which reverses a stage-2
+decision. That is a design question, not a coefficient.
+
+---
+
+## The original diagnosis, kept for the record
+
+**Superseded by the section above as the reason to act; still correct as analysis.** Everything below
+is the diagnosis that
 earned it, kept verbatim as the record of WHY; it is not a live escalation any more, and nothing in
 it should be re-derived. The criterion is still unmet in the code today.
 
@@ -245,7 +315,18 @@ pipeline whose attacker-side outcome is dominated by the term that fix moves.
 
 ## What has never been verified
 
-**Nobody has driven any of this.** Every commit on the branch is gated by tests and arithmetic only.
+**Almost nobody has driven any of this.** As of 2026-09-07 the branch has had **one ~5-minute drive**
+on the merged `feature/car-physics-rework` build, scoped deliberately to **collision impact and
+restitution**, which came back clean and parked the restitution stage (see that section). Everything
+else below is still gated by tests and arithmetic only — and "everything else" is drive feel, the
+whole of 3b, and every ram magnitude.
+
+**The hands-on criteria cannot be closed by more driving, and that is now a recorded decision.** The
+user tried and found stage 3b's five checks impractical to reproduce by hand against a bot: you
+cannot reliably make a bot flee at exactly your own speed, or take three clean rams inside two
+seconds, or hold still for a fourth after a three-second pause. They are to be covered by **playtest
+probes instead, written after the physics rework is complete** — not now, and not piecemeal. Until
+then 3b's boxes stay unticked, and a session should not tick them by driving.
 
 - Stage 1's exit criteria 3 and 4, and all of stage 2's, are hands-on checks that remain unticked.
   Stage 3's own hands-on checks are unticked too, and one of them — see above — is now known to fail
