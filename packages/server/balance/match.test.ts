@@ -123,6 +123,38 @@ describe("runMatch", () => {
     // assertion below states that premise outright so the two cases can never be confused: if a
     // future balance edit empties the window again, THAT line fails and names the reason.
     //
+    // `seed: 3`, not 79: the planner's facing term (2026-09-07, F1-F14) gave `rawScore` a seventh
+    // term and `objectives.ts`'s `BASE` a seventh column, so the bot's STEER AND THROTTLE both
+    // moved. `facingError` is nose-versus-travel misalignment at the rollout terminus — 0 driving
+    // straight ahead, 1 reversing — and until it existed nothing in the score priced orientation
+    // at all, so a straight reverse beat every arc on `rangeError` and the bot drove in lines.
+    // Weighted per situation (`waitOut` 120 down to `reset` 10), it changes which candidate wins in
+    // every play this matchup passes through, which moved this matchup's dynamics again.
+    //
+    // Seed 79 is now a legitimate 1-1 RANKING TIE, not a killless window and not a clock defect:
+    // it comes back `a: 1 kill / 1 death, b: 1 kill / 1 death`, `hitClock: false`. The kills
+    // assertion on the line below therefore still PASSES — both cars scored — and it is
+    // `winnerSessionId` alone that comes back empty, because `deathmatchOutcome` ranks on kills
+    // then fewest deaths and the two seats tie on both. That is a different failure mode from every
+    // re-seed above it, all of which were empty windows, and it is worth naming: this pin needs the
+    // window to be decisive, not merely violent.
+    //
+    // Swept 1-150 against this build, and ALSO against the same build with all eight `facingError`
+    // weights forced to 0 — the immediately-preceding state — so the count could be attributed
+    // rather than read alone: 93 of 150 seeds decisive before the term, 63 of 150 after. The drop
+    // is real and is the term doing what it was written to do (a bot that turns spends ticks not
+    // closing), but 63 is still roughly three times the 17-22 band this fixture's earlier sweeps
+    // ran at, so the sim is producing decisive 30 s deathmatches at a healthy rate and it is this
+    // seed that moved, not the regime. Recorded here because a post-change count alone cannot tell
+    // those two apart.
+    //
+    // 3, not one of the other 62: the durability rule again. 3 is decisive under BOTH sweeps —
+    // before the facing term and after it — and it is `development/main`'s own prior pick for this
+    // pin (see the MERGE note at the bottom of this stack), so it has now survived the phase-A
+    // predictor swap, the stage-4 slam impulse, the branch merge, and this term. Under this build
+    // it comes back `a: 1 kill / 0 deaths, b: 0 / 1` — decisive on kills alone, so it does not rest
+    // on the deaths tiebreak the way a 1-1 seed would.
+    //
     // `seed: 3`, not 96: phase A (2026-09-06, task 4 plus the final whole-branch review's fix wave)
     // swapped the firing solver's target model from `constantVelocityPredictor` to `predict.ts`'s
     // `physicsPredictor` — the target is now rolled through the real drive model, holding a
@@ -328,7 +360,7 @@ describe("runMatch", () => {
     // window, so the physics branch's pick carries forward. That is the same durability rule that
     // picked 98, then 22, then 79 before it: prefer a seed already present in a known-good set over
     // a fresh one, because it has survived more than one change to the thing under it.
-    const out = runMatch({ ...SETUP, seed: 79, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
+    const out = runMatch({ ...SETUP, seed: 3, mode: GameMode.FFA_DEATHMATCH, maxTicks: 30 * TICK_RATE_HZ });
     expect(out.seats.some((s) => s.kills > 0)).toBe(true);
     expect(out.winnerSessionId).not.toBe("");
     expect(out.hitClock).toBe(false);
