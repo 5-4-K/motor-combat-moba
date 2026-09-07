@@ -5,7 +5,7 @@ import {
   decalFadeAlpha,
   decalStampsFor,
   MAX_DECALS,
-  TYRE_MARK_INTERVAL_MS,
+  tyreMarkSteps,
   tyreMarksFor,
 } from "./decals.js";
 import { AIR_FX_DEPTH, DECAL_DEPTH, GROUND_FX_DEPTH, SMOKE_DEPTH } from "./depths.js";
@@ -54,9 +54,9 @@ const ERASER_TEXTURE_PX = 128;
 /**
  * The decal budget, split by class so one can never starve the other out of the ring buffer.
  *
- * Rubber is produced at two marks per car per `TYRE_MARK_INTERVAL_MS` — 40/s per car, 240/s with a
- * full room alive. Sharing one FIFO with scorch meant the buffer turned over in about two and a
- * half seconds under load, so a `magmablast` scorch was evicted long before its 40-second half-life
+ * Rubber is produced at two marks per `TYRE_MARK_SPACING` of travel — 119/s for a car at top
+ * speed, and past 700/s with a full room skidding. Sharing one FIFO with scorch meant the buffer
+ * turned over in seconds under load, so a `magmablast` scorch was evicted before its half-life
  * and `decals.ts`'s promise that "a fight leaves a readable history" was unreachable in exactly the
  * fights worth reading. The two caps sum to `MAX_DECALS`, which is still the bound on the per-frame
  * redraw cost — the split changes who spends the budget, never how large it is.
@@ -97,9 +97,17 @@ interface LiveDecal {
 /**
  * The Phaser half of the FX system, and the only part of `fx/` that touches the renderer.
  *
- * It holds **no decisions** — what to spawn, where, how big and for how long are all answered by
- * the pure modules beside it, which are unit-tested in vitest's node environment. This file is
- * wiring, and is kept thin enough to review by eye because no test can load it.
+ * What to spawn, where, how big and for how long are answered by the pure modules beside it,
+ * which are unit-tested in vitest's node environment. This file is the Phaser wiring, kept thin
+ * enough to review by eye because no test can load it.
+ *
+ * It is not decision-free, and pretending otherwise has misled people: it holds a small set of
+ * RENDER-ONLY constants — the 120/480 decal split, the 0.25 launch-speed floor, the
+ * `growPerSec` integration and its clamp, "a burst always fades to zero", the channel-to-texture
+ * map, the tyre tint, the per-stamp scorch rotation, the 7px eraser blur and `ERASER_TEXTURE_PX`.
+ * The line to hold is that anything deciding WHAT HAPPENS — when a mark goes down, how far a
+ * puff travels, which event produces which burst — belongs in a pure module, and anything
+ * deciding only HOW IT IS DRAWN may live here.
  */
 export class FxLayer {
   private readonly scene: Phaser.Scene;
@@ -132,8 +140,11 @@ export class FxLayer {
   /** Rubber. Its own buffer, and the one that actually turns over during a fight. */
   private tyreDecals: LiveDecal[] = [];
   private clockMs = 0;
-  /** When each car last laid rubber, so marks go down on a clock rather than per frame. */
-  private readonly lastTyreMs = new Map<string, number>();
+  /**
+   * Where each car was last frame, and how far past its last mark it got, so rubber is spaced by
+   * distance travelled rather than by a clock. See `layTyreMarks`.
+   */
+  private readonly tyreTrails = new Map<string, { x: number; y: number; carry: number }>();
   /** The events this layer derived on the last `update`, for `ArenaScene`'s camera work below. */
   private frameEvents: FxEvent[] = [];
   /**
@@ -141,6 +152,16 @@ export class FxLayer {
    * and the three reads below all cost one `Set.has` on an empty set.
    */
   private readonly disabled = new Set<FxToggle>();
+  /**
+   * Bursts spawned per channel, which is what `textureFor` alternates the A/B variants off.
+   * Counting per channel rather than globally — see the note there.
+   */
+  private readonly burstsSpawned: Record<FxChannel, number> = {
+    smoke: 0,
+    fire: 0,
+    spark: 0,
+    debris: 0,
+  };
 
   constructor(scene: Phaser.Scene, seed: number, arenaWidth: number, arenaHeight: number) {
     this.scene = scene;
@@ -322,13 +343,38 @@ export class FxLayer {
     return [...Object.values(this.emitters), this.decals, this.smoke, this.eraser];
   }
 
-  /** Which generated texture a burst on this channel draws with. */
-  private textureFor(spec: EmitterSpec): string {
+  /**
+   * Which generated texture a burst on this channel draws with, alternating the A and B variants
+   * so successive bursts are not the same shape (VFX6).
+   *
+   * Per BURST, not per particle, and that is a constraint rather than a preference: there is one
+   * emitter per channel and the texture is set on the emitter, so a single `emitParticleAt` call
+   * cannot mix two. Phaser assigns a particle its frame at emit time (`Particle.fire` reads
+   * `emitter.getFrame()`), so a later switch leaves particles already in flight alone — which is
+   * what makes alternating between bursts show up at all rather than repainting the whole cloud.
+   * What it buys is that a detonation's several bursts, and one shot's flash against the next,
+   * are drawn from different noise; two puffs WITHIN one burst still share a silhouette.
+   *
+   * `variant` is a per-channel counter, not a global one: a death emits fire, smoke, spark and
+   * debris together, so one shared counter would advance by four per death and hand every death
+   * the same parity. Deterministic rather than `Math.random()` for the reason every other roll in
+   * `fx/` is — a look that differs run to run cannot be judged in `?dev=fx`.
+   */
+  private textureFor(spec: EmitterSpec, variant: number): string {
+    const useB = variant % 2 === 1;
     switch (spec.channel) {
       case "smoke":
-        return spec.burst.soot ? FX_TEXTURE_KEYS.sootA : FX_TEXTURE_KEYS.dustA;
+        return spec.burst.soot
+          ? useB
+            ? FX_TEXTURE_KEYS.sootB
+            : FX_TEXTURE_KEYS.sootA
+          : useB
+            ? FX_TEXTURE_KEYS.dustB
+            : FX_TEXTURE_KEYS.dustA;
       case "fire":
-        return FX_TEXTURE_KEYS.fireA;
+        return useB ? FX_TEXTURE_KEYS.fireB : FX_TEXTURE_KEYS.fireA;
+      // One texture each, and no second variant generated for them: a spark is noise-free by
+      // design (`sparkTexture`), so a B would be the identical image.
       case "spark":
       case "debris":
         return FX_TEXTURE_KEYS.spark;
@@ -367,9 +413,11 @@ export class FxLayer {
       if (!emitter) continue;
       const { burst } = spec;
 
-      const key = this.textureFor(spec);
-      // Guarded because `setTexture` re-resolves through the texture manager. Only the smoke
-      // emitter ever actually switches (dust vs soot); the other three are set once at birth.
+      const variant = (this.burstsSpawned[spec.channel] += 1);
+      const key = this.textureFor(spec, variant);
+      // Guarded because `setTexture` re-resolves through the texture manager. Smoke and fire both
+      // switch now — dust/soot and the A/B variants above; spark and debris are set once at birth
+      // and never move off this line.
       if (emitter.texture.key !== key) emitter.setTexture(key);
       const texels = this.texelSize.get(key) ?? burst.size;
 
@@ -487,38 +535,64 @@ export class FxLayer {
     if (buffer.length > cap) buffer.splice(0, buffer.length - cap);
   }
 
-  /** Rubber under every moving car, laid on a clock so the trail is frame-rate independent. */
+  /**
+   * Rubber under every moving car, spaced by DISTANCE TRAVELLED rather than by elapsed time.
+   *
+   * `decals.ts`'s `tyreMarkSteps` holds the rule and the reasoning; this half is the bookkeeping it
+   * needs — the car's pose last frame and the fraction of a spacing left over from it. A frame may
+   * lay several stampings, interpolated along the segment, which is what makes the trail one shape
+   * per unit of road at any frame rate.
+   */
   private layTyreMarks(view: FxWorldView): void {
     const key = FX_TEXTURE_KEYS.spark;
     // The spark texture's OWN edge length, for the same reason `spawn` looks it up rather than
     // dividing by a constant: the generated set is not one size.
     const texels = this.texelSize.get(key) ?? 32;
     for (const car of view.cars) {
-      if (!car.alive) continue;
-      const since = this.clockMs - (this.lastTyreMs.get(car.sessionId) ?? -Infinity);
-      if (since < TYRE_MARK_INTERVAL_MS) continue;
+      // A wreck drops its trail entirely rather than keeping a stale anchor: a respawn elsewhere
+      // would otherwise arrive as one enormous segment, and `TYRE_MARK_MAX_STEP` should not be the
+      // only thing standing between a respawn and a rubber line drawn across the arena.
+      if (!car.alive) {
+        this.tyreTrails.delete(car.sessionId);
+        continue;
+      }
+      const previous = this.tyreTrails.get(car.sessionId);
+      if (!previous) {
+        this.tyreTrails.set(car.sessionId, { x: car.x, y: car.y, carry: 0 });
+        continue;
+      }
+      const dx = car.x - previous.x;
+      const dy = car.y - previous.y;
+      const { fractions, carry } = tyreMarkSteps(previous.carry, Math.hypot(dx, dy));
+      this.tyreTrails.set(car.sessionId, { x: car.x, y: car.y, carry });
+      if (fractions.length === 0) continue;
       // Shared's `speedOf` on the networked world velocity, never a pose delta: `sim/velocity.ts`
       // is the only place the world-frame conversion may be written, and a delta would also misread
-      // a remote car while it is being interpolated.
-      const marks = tyreMarksFor(car, speedOf(car.vx, car.vy));
-      if (marks.length === 0) continue;
-      this.lastTyreMs.set(car.sessionId, this.clockMs);
-      for (const mark of marks) {
-        this.pushDecal(this.tyreDecals, MAX_TYRE_DECALS, {
-          key,
-          x: mark.x,
-          y: mark.y,
-          scale: (mark.radius * 2) / texels,
-          baseAlpha: mark.alpha,
-          rotation: 0,
-          tint: 0x141210,
-          bornAtMs: this.clockMs,
-        });
+      // a remote car while it is being interpolated. The pose delta above decides HOW MANY marks;
+      // this decides whether the car is skidding hard enough to leave any.
+      const speed = speedOf(car.vx, car.vy);
+      for (const fraction of fractions) {
+        const marks = tyreMarksFor(
+          { x: previous.x + dx * fraction, y: previous.y + dy * fraction, angle: car.angle },
+          speed,
+        );
+        for (const mark of marks) {
+          this.pushDecal(this.tyreDecals, MAX_TYRE_DECALS, {
+            key,
+            x: mark.x,
+            y: mark.y,
+            scale: (mark.radius * 2) / texels,
+            baseAlpha: mark.alpha,
+            rotation: 0,
+            tint: 0x141210,
+            bornAtMs: this.clockMs,
+          });
+        }
       }
     }
-    // A car that left keeps no timer, or the map grows for the life of the room.
+    // A car that left keeps no anchor, or the map grows for the life of the room.
     const present = new Set(view.cars.map((c) => c.sessionId));
-    for (const id of [...this.lastTyreMs.keys()]) if (!present.has(id)) this.lastTyreMs.delete(id);
+    for (const id of [...this.tyreTrails.keys()]) if (!present.has(id)) this.tyreTrails.delete(id);
   }
 
   /**

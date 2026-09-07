@@ -132,4 +132,38 @@ describe("asphaltTexture", () => {
     }
     expect(max - min).toBeGreaterThan(20);
   });
+
+  /**
+   * The floor is one `tileSprite` repeated across the arena, so a discontinuity across the wrap is
+   * a grid of straight lines over the whole screen — the most visible bug this file can ship.
+   *
+   * Measured against the texture's own interior rather than against an absolute number, because the
+   * only meaningful question is whether the seam looks like any other pair of neighbouring columns.
+   * MEASURED at 512 with the non-wrapping `fbm` this replaced: seam 5.41 horizontal / 5.16 vertical
+   * against 1.00 / 0.88 interior — a 5x discontinuity, and the reason this test exists. With
+   * `tileableFbm`: 1.11 / 0.86 against 1.03 / 1.03, and a worst-case single-pixel jump of 5 levels
+   * against the old 23. The bound is 2x the interior figure: comfortably above the noise in a
+   * genuinely wrapped texture, and nowhere near the 5x a lattice that does not wrap produces.
+   */
+  it("tiles: the wrap seam is no worse than an ordinary interior edge", () => {
+    const size = 128;
+    const tex = asphaltTexture(4, size);
+    const red = (x: number, y: number): number => tex.data[(y * size + x) * 4];
+
+    const mean = (values: number[]): number => values.reduce((a, b) => a + b, 0) / values.length;
+    const acrossX: number[] = [];
+    const insideX: number[] = [];
+    const acrossY: number[] = [];
+    const insideY: number[] = [];
+    for (let j = 0; j < size; j++) {
+      acrossX.push(Math.abs(red(size - 1, j) - red(0, j)));
+      acrossY.push(Math.abs(red(j, size - 1) - red(j, 0)));
+      for (let i = 0; i < size - 1; i++) {
+        insideX.push(Math.abs(red(i, j) - red(i + 1, j)));
+        insideY.push(Math.abs(red(j, i) - red(j, i + 1)));
+      }
+    }
+    expect(mean(acrossX)).toBeLessThan(mean(insideX) * 2);
+    expect(mean(acrossY)).toBeLessThan(mean(insideY) * 2);
+  });
 });

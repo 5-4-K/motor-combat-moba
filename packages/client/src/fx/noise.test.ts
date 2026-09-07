@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fbm, hash2, valueNoise } from "./noise.js";
+import { fbm, hash2, tileableFbm, valueNoise } from "./noise.js";
 
 describe("hash2", () => {
   it("stays inside [0,1)", () => {
@@ -78,5 +78,40 @@ describe("fbm", () => {
 
   it("adds detail with each octave rather than repeating one", () => {
     expect(fbm(3.3, 4.4, 1, 1)).not.toBe(fbm(3.3, 4.4, 1, 4));
+  });
+});
+
+describe("tileableFbm", () => {
+  it("wraps exactly, not just closely — the same pattern repeats at the tile period", () => {
+    // The property `asphaltTexture` is built on: sampling one period apart must return the
+    // identical value, which is an equality rather than a bound. `fbm` cannot do this — its lattice
+    // has no wrap at all, which is what put a 5x seam across the arena floor.
+    for (let i = 0; i < 24; i++) {
+      const x = i * 0.31;
+      expect(tileableFbm(x, 1.7, 5, 3, 8)).toBeCloseTo(tileableFbm(x + 8, 1.7, 5, 3, 8), 12);
+      expect(tileableFbm(1.7, x, 5, 3, 8)).toBeCloseTo(tileableFbm(1.7, x + 8, 5, 3, 8), 12);
+      // Negative coordinates too: `%` keeps the sign in JS, so a naive wrap hashes cells the
+      // positive side never reaches and the seam survives on one edge only.
+      expect(tileableFbm(-x, 1.7, 5, 3, 8)).toBeCloseTo(tileableFbm(-x + 8, 1.7, 5, 3, 8), 12);
+    }
+  });
+
+  it("stays inside [0,1]", () => {
+    for (let i = 0; i < 200; i++) {
+      const v = tileableFbm(i * 0.37, i * 0.11, 7, 4, 16);
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("varies with the seed, and adds detail with each octave", () => {
+    expect(tileableFbm(3.3, 4.4, 1, 4, 16)).not.toBe(tileableFbm(3.3, 4.4, 2, 4, 16));
+    expect(tileableFbm(3.3, 4.4, 1, 1, 16)).not.toBe(tileableFbm(3.3, 4.4, 1, 4, 16));
+  });
+
+  it("leaves `fbm` alone — the other textures' output is pinned to it", () => {
+    // A frozen sample rather than a comparison against a reimplementation: the point is that the
+    // non-wrapping generator every other texture in `textures.ts` uses did not move.
+    expect(fbm(3.3, 4.4, 1, 4)).toBeCloseTo(0.5343265174305329, 12);
   });
 });

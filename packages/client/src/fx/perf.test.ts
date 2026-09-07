@@ -172,11 +172,15 @@ describe("boot texture cost", () => {
     scorchTexture(1);
     asphaltTexture(1);
     const elapsed = performance.now() - started;
-    // MEASURED: 41-59 ms, of which `asphaltTexture` at 512x512 is ~36 ms on its own — the floor is
-    // three quarters of boot. Deliberately NOT warmed: this runs cold exactly once per scene
-    // create, so the cold number is the honest one. The bound is 250 ms, ~4x the slowest
-    // observation. If it regresses, the octave counts in `asphaltTexture` are the first thing to
-    // check, and its `size` argument the second.
+    // MEASURED: 66-76 ms cold, of which `asphaltTexture` at 512x512 is 43-51 ms on its own — the
+    // floor is still about two thirds of boot. It was 41-59 ms total / ~36 ms asphalt before the
+    // floor was made genuinely tileable: `tileableFbm` pays two integer modulos per lattice lookup
+    // that `fbm` does not, which is a real ~25% on the whole set and is the price of not drawing a
+    // seam grid over the entire arena. The bound is UNCHANGED at 250 ms — still ~3x the slowest
+    // observation, and raising it to accommodate the new cost would have thrown away the headroom
+    // rather than reported it. Deliberately NOT warmed: this runs cold exactly once per scene
+    // create, so the cold number is the honest one. If it regresses, the octave counts in
+    // `asphaltTexture` are the first thing to check, and its `size` argument the second.
     expect(elapsed).toBeLessThan(250);
   });
 });

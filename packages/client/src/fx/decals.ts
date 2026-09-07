@@ -10,7 +10,10 @@ export interface DecalStamp {
   readonly alpha: number;
 }
 
-/** A dab of rubber. Two per car per frame, laid so faintly that only a sustained line shows. */
+/**
+ * A dab of rubber. Two per stamping — one per track — laid so faintly that only a sustained
+ * line of them shows. How OFTEN a stamping happens is `tyreMarkSteps` below.
+ */
 export interface TyreMark {
   readonly x: number;
   readonly y: number;
@@ -24,6 +27,11 @@ export interface TyreMark {
  * Decals **must** fade. Rubber that never lifts turns the floor black over a match — measured at
  * roughly twenty seconds in the spike before this was added. Forty seconds is long enough that a
  * fight leaves a readable history and short enough that the arena recovers.
+ *
+ * It is the binding limit for SCORCH, which has a buffer of its own and takes one mark per blast.
+ * It is NOT the binding limit for rubber: at `TYRE_MARK_SPACING` a car at top speed fills its share
+ * of the 480-mark tyre buffer in a few seconds, so a rubber trail is bounded by that buffer and by
+ * how far the cars have driven, never by this. See `TYRE_MARK_SPACING` for the arithmetic.
  */
 export const DECAL_HALF_LIFE_MS = 40_000;
 
@@ -37,19 +45,71 @@ export const DECAL_HALF_LIFE_MS = 40_000;
 export const MAX_DECALS = 600;
 
 /**
- * How often one car lays rubber.
+ * How far a car travels between one pair of tyre marks and the next, in world units.
  *
- * Per interval rather than per frame, so the trail is the same length at 30fps and 144fps — and so
- * `MAX_DECALS` buys a predictable number of seconds of history rather than a number that collapses
- * on a fast machine.
+ * **Distance, not time.** The first cut checked a 50 ms interval once per frame, which meant it
+ * actually fired every ~66.7 ms at 60 fps and ~55 ms at 144 fps, and it stamped the clock rather
+ * than advancing it by the interval, so the drift accumulated. At Mirage's 267 u/s that laid marks
+ * 17.8 units apart against 5.4-unit dabs — a dotted line — and a different dotted line on every
+ * machine. Spacing by distance removes both: the trail is one shape per unit of road at any frame
+ * rate, and a slow or circling car produces rubber in proportion to how far it actually went.
+ *
+ * 4.5 units against a 5.4-unit dab, so consecutive marks overlap by about a sixth of their diameter
+ * and the trail reads continuous. The trade-off is length: `MAX_TYRE_DECALS` is 480 marks laid two
+ * at a time, so a lone car's trail runs 1080 world units — most of a crossing of a 1280-wide arena
+ * — and six cars all skidding share that same 480. Widening the spacing buys length and breaks the
+ * line back up; the cap itself is the per-frame redraw budget and is not the knob to reach for.
  */
-export const TYRE_MARK_INTERVAL_MS = 50;
+export const TYRE_MARK_SPACING = 4.5;
 
-/** Below this speed a car lays no rubber, or a parked car burns a hole in the floor. */
+/**
+ * The longest single-frame move that still counts as driving.
+ *
+ * A respawn, a scene cut or a reconciliation snap moves a car hundreds of units between two frames,
+ * and spacing by distance would faithfully draw a rubber line across the arena for it. Top speed is
+ * 267 u/s and `wildcharge`'s impulse is 520, so even a 100 ms hitch covers ~52 units; anything past
+ * 80 is a teleport, and the trail restarts rather than being drawn through.
+ */
+export const TYRE_MARK_MAX_STEP = 80;
+
+/** Below this speed a car lays no rubber: a trail is a skid mark, not a record of parking. */
 export const TYRE_MARK_SPEED_FLOOR = 40;
 
 /** Half the distance between the two tracks, across the car. */
 export const TYRE_TRACK_HALF_WIDTH = DRIVE_CONFIG.carHeight / 3;
+
+/** Where along one frame's travel a car's tracks land, and what distance carries into the next. */
+export interface TyreMarkSteps {
+  /** Fractions along the segment, in `(0, 1]`, in order. */
+  readonly fractions: number[];
+  /** Distance travelled since the last mark, to hand back next frame. */
+  readonly carry: number;
+}
+
+/**
+ * Space one frame's travel into marks.
+ *
+ * Pure, and separated from `fx/layer.ts` on purpose: the layer is the one `fx/` file no test can
+ * load, and "how often does rubber go down" is exactly the kind of decision `layer.ts` is not
+ * supposed to be holding.
+ *
+ * Several marks may land in one frame — that is the point. A 30 fps frame covers twice the road a
+ * 60 fps frame does and must lay twice the rubber, or the trail is frame-rate dependent again in
+ * the other direction.
+ */
+export function tyreMarkSteps(carry: number, segmentLength: number): TyreMarkSteps {
+  if (!(segmentLength > 0)) return { fractions: [], carry };
+  // A teleport lays nothing AND drops the carry: resuming mid-interval on the far side of the
+  // arena would put the first mark of the new trail in an arbitrary place.
+  if (segmentLength > TYRE_MARK_MAX_STEP) return { fractions: [], carry: 0 };
+  const fractions: number[] = [];
+  let need = TYRE_MARK_SPACING - carry;
+  while (need <= segmentLength) {
+    fractions.push(need / segmentLength);
+    need += TYRE_MARK_SPACING;
+  }
+  return { fractions, carry: carry + segmentLength - fractions.length * TYRE_MARK_SPACING };
+}
 
 const SCORCH_SCALE: Record<string, number> = {
   magmablast: 1.25,
@@ -83,12 +143,12 @@ export function decalStampsFor(event: FxEvent): DecalStamp[] {
 }
 
 /**
- * The rubber a car lays this frame.
+ * The pair of marks for one stamping, at a pose along the car's path.
  *
  * Perpendicular to the heading so the tracks turn with the chassis. Each mark is stamped once per
  * frame from the ring buffer, so it must read on its own — but light, because marks laid every
- * `TYRE_MARK_INTERVAL_MS` overlap heavily along the path and a heavy value draws in ink. The spike's
- * first cut ran an accumulating layer at 0.05 and the mirage drew in permanent marker.
+ * `TYRE_MARK_SPACING` overlap along the path and a heavy value draws in ink. The spike's first cut
+ * ran an accumulating layer at 0.05 and the mirage drew in permanent marker.
  */
 export function tyreMarksFor(
   pose: { x: number; y: number; angle: number },

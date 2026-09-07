@@ -1,4 +1,4 @@
-import { fbm } from "./noise.js";
+import { fbm, tileableFbm } from "./noise.js";
 
 /**
  * A generated texture as raw RGBA bytes.
@@ -137,12 +137,39 @@ export function scorchTexture(seed: number, size = 160): TexturePixels {
   return { width: size, height: size, data };
 }
 
-/** Tileable asphalt: a coarse octave for patches, a fine one for grain. Always fully opaque. */
+/**
+ * How many noise cells the grain octave spans across one tile, and how many the patch octave does.
+ *
+ * Cells across the tile rather than pixels per cell, because that is the quantity the wrap needs:
+ * `tileableFbm`'s period is in cells, and it has to be a whole number for the lattice to close.
+ * Stating it this way also makes the texture's character independent of `size` — the same grain and
+ * the same patches at 512 as at the 64 the tests use — where a fixed pixel cell size would leave a
+ * small texture with less than one patch cell across it and no broad variation at all.
+ */
+const ASPHALT_GRAIN_CELLS = 64;
+const ASPHALT_PATCH_CELLS = 8;
+
+/**
+ * Asphalt, and genuinely tileable: the floor is one `tileSprite` repeated across the whole arena
+ * (2x2 on arena-01, 4x4 on arena-02), so any discontinuity across the wrap draws as a grid of
+ * straight lines over 100% of the screen, permanently.
+ *
+ * That is what the first cut did. `fbm` has no lattice wrap, so column 511 and column 0 were
+ * uncorrelated: measured at 5.4 mean levels across the seam against 0.94 between interior
+ * neighbours, in a texture whose whole value range is ~46 levels. `tileableFbm` closes the lattice
+ * instead — see the tiling test in `textures.test.ts`, which holds the seam to the interior figure.
+ *
+ * Two octaves, weighted as before: a fine grain at 0.62 and broad patches at 0.38. Always opaque.
+ */
 export function asphaltTexture(seed: number, size = 512): TexturePixels {
   const data = new Uint8ClampedArray(size * size * 4);
+  const grain = size / ASPHALT_GRAIN_CELLS;
+  const patch = size / ASPHALT_PATCH_CELLS;
   for (let j = 0; j < size; j++) {
     for (let i = 0; i < size; i++) {
-      const n = fbm(i / 9, j / 9, seed + 7, 3) * 0.62 + fbm(i / 48, j / 48, seed + 55, 2) * 0.38;
+      const n =
+        tileableFbm(i / grain, j / grain, seed + 7, 3, ASPHALT_GRAIN_CELLS) * 0.62 +
+        tileableFbm(i / patch, j / patch, seed + 55, 2, ASPHALT_PATCH_CELLS) * 0.38;
       const g = 50 + n * 46;
       const k = (j * size + i) * 4;
       data[k] = g + 2;

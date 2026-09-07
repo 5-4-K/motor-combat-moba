@@ -903,8 +903,13 @@ export class ArenaScene extends Phaser.Scene {
     // `splitCameras` runs later still, so the emitters are on the display list in time to be
     // registered there.
     //
-    // Seeded per match so two players in the same room see the same textures, and a new match
-    // re-rolls them. `arenaId` alone would freeze the seed forever.
+    // Seeded from the ARENA's own dimensions, so it is the same number on every client in the
+    // room and the same number every match. That is the property that matters: the floor, the
+    // smoke and the scorch marks two players are looking at have to be the same ones, and a
+    // client-local roll would give them different arenas. It is `arenaId` under another name —
+    // 40400 for arena-01, 64000 for arena-02 — and deliberately NOT re-rolled per match: a
+    // per-match seed would have to be drawn from shared state to stay in sync, which is a design
+    // change and not a tuning knob.
     this.fx = new FxLayer(
       this,
       this.arena.width * 31 + this.arena.height,
@@ -1104,10 +1109,17 @@ export class ArenaScene extends Phaser.Scene {
     // Phaser 4's `Filters.ColorMatrix` controller is NOT the matrix — it owns one, on `.colorMatrix`
     // (a `Phaser.Display.ColorMatrix`), and that is where `saturate`/`brightness` live.
     const grade = cam.filters.internal.addColorMatrix();
-    // Order matters, and so does the `multiply` flag: every `Display.ColorMatrix` operation REPLACES
-    // the matrix unless it is passed `true`, so the first call seeds and each later one composes
-    // onto it. Desaturate first, then push the warmth back in, or the warmth is what gets
-    // desaturated away.
+    // The `multiply` flag is what makes this a sequence at all: every `Display.ColorMatrix`
+    // operation REPLACES the matrix unless it is passed `true`, so the first call seeds and each
+    // later one composes onto it.
+    //
+    // Read the order carefully before retuning. Phaser composes `M_new = M_old * a`, which means
+    // the operation added LAST is the one applied FIRST to the pixel: the shipped sequence runs
+    // brightness, then the warm gain, then the desaturation. So the desaturation does eat part of
+    // the R/B split below rather than being protected from it. At these strengths the deviation
+    // from the gain-last ordering measures under 2/255 and the pixels are fine — but a stronger
+    // grade would not be, and the fix would be to reorder these three calls, not to push the gain
+    // harder against a desaturation that is already taking a share of it.
     grade.colorMatrix.saturate(-0.22);
     // Neither `saturate` nor `brightness` can warm anything — both are channel-symmetric — so the
     // warmth is an explicit per-channel gain: red up, blue down, green held. Rows are R/G/B/A, and
@@ -1826,8 +1838,8 @@ export class ArenaScene extends Phaser.Scene {
    *
    * Phaser's `Camera.shake` silently no-ops while a shake is already running unless passed `force`
    * — so calling it directly means a weak shake in flight can swallow a strong one that lands mid-
-   * shake (e.g. a `damaged` shake from `renderCars`, which runs before `renderFx`, eating a `died`
-   * shake that should have overridden it). This asks `shouldStartShake` (`fx/camera.ts`) whether the
+   * shake (e.g. a ram shake from `renderCars`, which runs first, eating the `died` shake `renderFx`
+   * raises later in the same frame). This asks `shouldStartShake` (`fx/camera.ts`) whether the
    * incoming shake beats what `activeShake` says is already playing, and only then forces the new
    * one in and records it.
    */
@@ -2242,7 +2254,14 @@ export class ArenaScene extends Phaser.Scene {
       // clears `alive` a tick or more before it deletes the instance.
       alive: instance.alive,
     }));
-    fx.update({ cars, instances }, delta);
+    // A frozen clock while the sim is paused, NOT the real frame delta. A pause stops the server
+    // patching poses, but `vx`/`vy` keep their pre-pause values — so `layTyreMarks` sees a car at
+    // 267 u/s that is not moving, and `TYRE_MARK_SPEED_FLOOR` (whose whole job is stopping a
+    // parked car burning a hole in the floor) cannot help, because the velocity is stale rather
+    // than zero. Distance-based spacing already lays nothing for a car whose pose is not changing;
+    // this is the other half, and it also stops decals ageing through a pause, which is what a
+    // paused frame should do anyway. `pumpPauseKey` is Practice-only but Practice ships.
+    fx.update({ cars, instances }, isSimPaused(room.state) ? 0 : delta);
 
     // Camera reaction to what just happened, severity-driven rather than a fixed jolt per hit. Read
     // off `lastEvents()` — the exact list `fx.update` just derived above — rather than re-deriving:
