@@ -1053,6 +1053,30 @@ export class ArenaScene extends Phaser.Scene {
     // Stops the soft follow from panning past the arena edge into empty space.
     cam.setBounds(0, 0, arena.width, arena.height);
 
+    // Applied to the world camera only, so the HUD camera's text and icons keep their authored
+    // colours — a graded HUD reads as a rendering bug rather than as atmosphere (VFX27-VFX28).
+    // `internal` rather than `external`: internal filters run on the camera's own render target, so
+    // the vignette is centred on the arena viewport instead of on the whole canvas, which would put
+    // its centre out under the gutter.
+    //
+    // Phaser 4's `Filters.ColorMatrix` controller is NOT the matrix — it owns one, on `.colorMatrix`
+    // (a `Phaser.Display.ColorMatrix`), and that is where `saturate`/`brightness` live.
+    const grade = cam.filters.internal.addColorMatrix();
+    // Order matters, and so does the `multiply` flag: every `Display.ColorMatrix` operation REPLACES
+    // the matrix unless it is passed `true`, so the first call seeds and each later one composes
+    // onto it. Desaturate first, then push the warmth back in, or the warmth is what gets
+    // desaturated away.
+    grade.colorMatrix.saturate(-0.22);
+    // Neither `saturate` nor `brightness` can warm anything — both are channel-symmetric — so the
+    // warmth is an explicit per-channel gain: red up, blue down, green held. Rows are R/G/B/A, and
+    // the fifth column of each is an addition in 0-255, which is why it stays zero here.
+    grade.colorMatrix.multiply(
+      [1.07, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0.92, 0, 0, 0, 0, 0, 1, 0],
+      true,
+    );
+    grade.colorMatrix.brightness(0.96, true);
+    cam.filters.internal.addVignette(0.5, 0.5, 0.78, 0.42);
+
     // `ARENA_VIEW_WIDTH`, never `VIEW_WIDTH`: how much world anyone can see is the camera's
     // business, and widening the canvas for HUD must not quietly widen the view of the floor.
     this.staticCamera = fitsViewport(
