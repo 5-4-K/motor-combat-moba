@@ -1,5 +1,6 @@
-import { speedOf } from "@motor-combat-moba/shared";
+import { CAR_TABLE, DEFAULT_CAR_ID, isCarId, speedOf } from "@motor-combat-moba/shared";
 import Phaser from "phaser";
+import { carSpriteKey } from "../assets/asset-keys.js";
 import {
   decalFadeAlpha,
   decalStampsFor,
@@ -10,6 +11,7 @@ import {
 import { AIR_FX_DEPTH, DECAL_DEPTH, GROUND_FX_DEPTH } from "./depths.js";
 import { deriveFxEvents, type FxWorldView } from "./events.js";
 import { emitterSpecsForAll, type EmitterSpec } from "./emitters.js";
+import { eraserStampsFor } from "./occlusion.js";
 import type { FxChannel } from "./table.js";
 import {
   asphaltTexture,
@@ -36,6 +38,20 @@ export const FX_TEXTURE_KEYS = {
   scorch: "fx.scorch",
   asphalt: "fx.asphalt",
 } as const;
+
+/** Edge length of a chassis silhouette stamp, in pixels. */
+const ERASER_TEXTURE_PX = 128;
+
+/**
+ * The blurred silhouette key for a chassis.
+ *
+ * Falls back to `DEFAULT_CAR_ID` for an id off the roster, the same fallback `carSpriteKey` and
+ * `carShapeOf` take — a stale or hostile id should punch the default chassis's hole rather than
+ * leave the car buried in its own smoke.
+ */
+function eraserKeyOf(carId: string): string {
+  return `fx.eraser.${isCarId(carId) ? carId : DEFAULT_CAR_ID}`;
+}
 
 /** One decal, alive until it fades out or is pushed out of the ring buffer. */
 interface LiveDecal {
@@ -78,6 +94,10 @@ export class FxLayer {
   private readonly texelSize = new Map<string, number>();
   /** Rubber and scorch, redrawn from `liveDecals` every frame. See `redrawDecals`. */
   private readonly decals: Phaser.GameObjects.RenderTexture;
+  /** Every smoke particle, redrawn and re-masked every frame. See `maskSmoke`. */
+  private readonly smoke: Phaser.GameObjects.RenderTexture;
+  /** One reusable image, moved and re-erased per car. See `maskSmoke`. */
+  private readonly eraser: Phaser.GameObjects.Image;
   private liveDecals: LiveDecal[] = [];
   private clockMs = 0;
   /** When each car last laid rubber, so marks go down on a clock rather than per frame. */
@@ -112,6 +132,66 @@ export class FxLayer {
     // COMMAND BUFFER so the same commands repeat, which is not how pixels accumulate and is not
     // what this layer wants.
     this.decals.setRenderMode("render");
+
+    this.smoke = scene.add
+      .renderTexture(0, 0, arenaWidth, arenaHeight)
+      .setOrigin(0, 0)
+      .setDepth(AIR_FX_DEPTH);
+    this.smoke.setRenderMode("render");
+    // The smoke emitter draws into `this.smoke`, never straight to the scene, so `maskSmoke` has
+    // something to erase from. Invisible for that reason — and `draw` is handed an ARRAY, which
+    // renders it anyway.
+    this.emitters.smoke.setVisible(false);
+
+    // Exists only to be handed to `RenderTexture.erase`, so it is invisible. It is still a display
+    // object on the scene's list, so `displayObjects()` keeps it too — see the note there.
+    this.eraser = scene.add.image(0, 0, FX_TEXTURE_KEYS.spark).setVisible(false);
+
+    this.buildEraserTextures();
+  }
+
+  /**
+   * A soft, solid stamp of each chassis's silhouette, built once.
+   *
+   * Derived from the car sprite's own ALPHA channel, so it needs no new art and is automatically
+   * right for any chassis added later — the roster itself is the loop, not a hand-written list.
+   * Blurred here rather than per frame because it is static: blurring it every frame was pure waste
+   * in the spike (VFX21).
+   */
+  private buildEraserTextures(): void {
+    const size = ERASER_TEXTURE_PX;
+    for (const carId of Object.keys(CAR_TABLE)) {
+      const key = eraserKeyOf(carId);
+      if (this.scene.textures.exists(key)) this.scene.textures.remove(key);
+      const spriteKey = carSpriteKey(carId);
+      const source = this.scene.textures.exists(spriteKey)
+        ? this.scene.textures.get(spriteKey).getSourceImage()
+        : undefined;
+      const canvasTexture = this.scene.textures.createCanvas(key, size, size);
+      if (!canvasTexture) continue;
+      const ctx = canvasTexture.getContext();
+      ctx.clearRect(0, 0, size, size);
+      // A generous blur: the hole has to read as the car displacing the cloud, not as its outline
+      // traced in smoke.
+      ctx.filter = "blur(7px)";
+      if (source instanceof HTMLImageElement || source instanceof HTMLCanvasElement) {
+        ctx.drawImage(source, 12, 12, size - 24, size - 24);
+        // Filter off BEFORE the fill: the blur belongs to the silhouette that is already on the
+        // canvas, and `source-in` only needs a flat white to take that alpha.
+        ctx.filter = "none";
+        ctx.globalCompositeOperation = "source-in";
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, size, size);
+      } else {
+        // No sprite for this chassis: fall back to the hull rectangle, the same fallback `drawCar`
+        // takes when a manifest entry is missing. Blurred, so it still reads as a soft hole.
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(20, 34, size - 40, size - 68);
+      }
+      ctx.filter = "none";
+      ctx.globalCompositeOperation = "source-over";
+      canvasTexture.refresh();
+    }
   }
 
   /** Turn generated pixel data into Phaser textures. The one place `fx/` needs a DOM canvas. */
@@ -147,9 +227,15 @@ export class FxLayer {
    * One accessor rather than one registration per emitter, because `splitCameras` requires every
    * display object to be ignored by exactly one camera — ignored by neither and it draws twice,
    * ignored by both and it vanishes (VFX25). One list is one place to get that right.
+   *
+   * The invisible pair — the smoke emitter and `eraser` — are listed too. Neither draws to the
+   * scene today, so neither could double across the gutter; but the invariant is about display
+   * objects, and both are on the scene's display list. Leaning on `visible === false` instead of
+   * registering them is the exact fragility VFX25 warns about: flipping one visible to debug it
+   * would silently reintroduce the double-draw.
    */
   displayObjects(): Phaser.GameObjects.GameObject[] {
-    return [...Object.values(this.emitters), this.decals];
+    return [...Object.values(this.emitters), this.decals, this.smoke, this.eraser];
   }
 
   /** Which generated texture a burst on this channel draws with. */
@@ -223,7 +309,40 @@ export class FxLayer {
 
     this.layTyreMarks(view);
     this.redrawDecals();
+    this.maskSmoke(view);
     this.prevView = view;
+  }
+
+  /**
+   * Draw the smoke, then punch a soft hole around every living car (VFX18–VFX22).
+   *
+   * Smoke must never hide a car: losing sight of an opponent to your own weapon effect costs
+   * information the player needs, and gets reported as a bug rather than admired as atmosphere.
+   * Only smoke is masked — fire and sparks are additive and live a few hundred milliseconds, so
+   * they brighten a car rather than hiding it and a mask on them would buy nothing.
+   */
+  private maskSmoke(view: FxWorldView): void {
+    this.smoke.clear();
+    // An ARRAY, which `draw` renders regardless of visibility — the emitter is invisible precisely
+    // so it does not also draw straight to the scene. Passing it bare would depend on its `visible`
+    // flag and render nothing.
+    this.smoke.draw([this.emitters.smoke]);
+
+    for (const stamp of eraserStampsFor(view.cars)) {
+      const key = eraserKeyOf(stamp.carId);
+      if (!this.scene.textures.exists(key)) continue;
+      // One reusable image, moved and re-erased per car. Creating a Game Object per car per frame
+      // would allocate six objects a frame for the life of the match.
+      this.eraser
+        .setTexture(key)
+        .setDisplaySize(stamp.width * 2.2, stamp.height * 2.6)
+        .setRotation(stamp.angle)
+        .setPosition(stamp.x, stamp.y);
+      this.smoke.erase([this.eraser]);
+    }
+
+    // Buffered until here, same as the decal layer.
+    this.smoke.render();
   }
 
   /** Add a decal, dropping the oldest once the buffer is full. */
@@ -299,5 +418,7 @@ export class FxLayer {
   destroy(): void {
     for (const emitter of Object.values(this.emitters)) emitter.destroy();
     this.decals.destroy();
+    this.smoke.destroy();
+    this.eraser.destroy();
   }
 }
