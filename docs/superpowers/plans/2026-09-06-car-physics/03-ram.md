@@ -1,5 +1,12 @@
 # Stage 3: The Ram Contest — Implementation Plan
 
+> **EXECUTED — 2026-09-06/07, in 11 commits. Its unchecked `- [ ]` boxes below are historical, not a
+> to-do list.** Written against spec revision 2; `mass` is gone from `packages/` and the contest
+> (R1–R11) is what ships. One exit criterion reads as unmet on the arithmetic — that was diagnosed,
+> escalated, approved as its own stage, and then **parked by play** on 2026-09-07. **Do not
+> re-execute this plan, and do not trust a step here over the shipped code** — read
+> [`EXECUTION.md`](EXECUTION.md) first, especially "The restitution stage, and why it is parked".
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development`
 > (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use
 > checkbox (`- [ ]`) syntax for tracking.

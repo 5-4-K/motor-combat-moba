@@ -39,7 +39,7 @@ after it is the approved restitution fix, which has no plan document yet.
 | | state |
 |---|---|
 | Branch | Stage 3b was executed on `claude/car-physics-rework-continue-1e0282`, which already carried stage 3 (executed on `claude/car-physics-stage-3-e06290`, fast-forwarded from `claude/car-physics-implementation-283ddf` at `925b788`, itself branched from `feature/car-physics-rework` at `02f5a89`). **Work on this line has been handed between branches before, so a branch name may no longer be where it lives.** The durable anchor is **`8608bd0`**, stage 3b's last code commit — if it is an ancestor of your HEAD, you have this state, plus the documentation-only commits that close the stage after it. If it is not (a squash-merge would do that), verify against this file's content rather than its SHAs, and treat every SHA below as historical. |
-| Commits | 60 ahead of `development/main`; stage 3b alone is 10 commits from `1d6342e` onwards (git range notation — exclusive of `1d6342e`, which only records the user's two scoping decisions in this file). |
+| Commits | 64 ahead of `development/main`. Stage 3b and its aftermath are the 14 commits after `1d6342e` (which itself only recorded two scoping decisions in this file): 10 for the stage, then the spec amendment, the first-drive state update, the `.superpowers/` ignore rule, and the `EXECUTED` banners on the plan documents. |
 | Root `npm test` | GREEN |
 | Root `npm run typecheck` | GREEN |
 | Root `npm run build` | GREEN |
@@ -200,10 +200,17 @@ the 0–1 severity grade. None of these names exist in `packages/` any more.
 
 ## Per-machine setup
 
+**Which branch.** The work lives on **`feature/car-physics-rework`** as of 2026-09-07 — that is the
+one to check out. `claude/car-physics-rework-continue-1e0282` is the worktree branch stage 3b was
+executed on and is an ancestor of it; treat it as historical. **`development/main` does not have any
+of this**, and neither does `master`.
+
 ```bash
+git checkout feature/car-physics-rework
 npm install
 npm run build -w @motor-combat-moba/shared
 npm test
+npm run typecheck
 ```
 
 **`npm install` is not optional in a worktree.** Without it Node walks up to the parent checkout's
@@ -464,11 +471,19 @@ worth more than "minor" and are recorded above instead — the `refresh`/`Math.m
 
 ## Housekeeping
 
-- The branch has **not been pushed**. Push before switching machines — it is also the only backup.
-- `.superpowers/sdd/` held the working ledgers for stages 1-3, and holds stage 3b's under
-  `03b-ram-feel/`. It is gitignored and does not travel between checkouts, so **assume it is absent**
-  — the stages 1-3 ledgers were deleted when stage 3 finished, and 3b's will go the same way. Treat
-  any pointer to a file under it as dead rather than as something to chase. The measurements and
-  hand-derivations it recorded were written into the
-  constants' own doc comments and into this file before it went. Everything
-  from it that matters is in this file, the spec, the plan documents, or code comments.
+- **Nothing has been pushed. There is no remote copy of any of this, on any branch.** If you are
+  reading this on a second machine and `feature/car-physics-rework` is not there, it was never
+  pushed and the work is on the original machine only — do not start re-implementing from the plans,
+  which would produce a divergent second copy of finished work. Get the branch across first.
+- `.superpowers/` held the working ledgers, task briefs and review packages for stages 1-3b. It is
+  gitignored as of 2026-09-07 and never travelled between checkouts, so **assume it is absent** —
+  every ledger was deleted when its stage finished. Treat any pointer to a file under it as dead
+  rather than as something to chase. Everything from it that matters was written into the constants'
+  own doc comments, into this file, or into the plan documents before it went.
+- **The four executed plan documents carry `EXECUTED` banners as of 2026-09-07** and their unchecked
+  `- [ ]` boxes are historical. `03b-ram-feel.md`'s banner additionally lists the passages in it that
+  are known-wrong — a stale function name, a test helper that already exists, a fixture geometry that
+  does not fire, and three too-short file lists. It was deliberately not retro-edited, so read the
+  banner before following any step in it.
+- **The plan documents are not the source of truth; this file and the code are.** Where a plan and
+  the shipped code disagree, the code won and the disagreement is recorded rather than erased.

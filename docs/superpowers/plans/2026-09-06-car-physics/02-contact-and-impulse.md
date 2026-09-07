@@ -1,5 +1,12 @@
 # Stage 2: Contact and Impulse — Implementation Plan
 
+> **EXECUTED — 2026-09-06, in 9 commits. Its unchecked `- [ ]` boxes below are historical, not a
+> to-do list.** Written against spec revision 1, and **partly superseded**: the plumbing survives
+> (`Impulse`, the single-applier seam, `resolveWorld`'s fifth parameter, `CarObstacle`), but the
+> mass-derived parts and equal-and-opposite reactions were replaced by stage 3's contest —
+> `reactionOf` no longer exists. **Do not re-execute it, and do not trust a step here over the
+> shipped code** — read [`EXECUTION.md`](EXECUTION.md) first.
+
 > **SUPERSEDED NOTE (2026-09-06).** This plan executed as written — the tasks below are history, not
 > being rewritten. But the design has since moved on: **Task 4** (routing ram and slam through the
 > equal-and-opposite `reactionOf` reaction) and **the mass-weighted parts of Task 2** (splitting

@@ -1,5 +1,10 @@
 # Stage 1: Vector Drive — Implementation Plan
 
+> **EXECUTED — 2026-09-06, in 18 commits. Its unchecked `- [ ]` boxes below are historical, not a
+> to-do list.** Written against spec revision 1; fully survives revision 2. **Do not re-execute it,
+> and do not trust a step here over the shipped code** — read
+> [`EXECUTION.md`](EXECUTION.md) first for what actually landed and what has moved since.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development`
 > (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use
 > checkbox (`- [ ]`) syntax for tracking.

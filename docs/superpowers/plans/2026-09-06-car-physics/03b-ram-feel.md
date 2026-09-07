@@ -1,5 +1,37 @@
 # Stage 3b: Ram Feel — Implementation Plan
 
+> **EXECUTED — 2026-09-07, in 10 commits (`3468716`..`6964b8c`). Its 28 unchecked `- [ ]` boxes below
+> are historical, not a to-do list.** `reeling` and the per-victim falloff stack ship. **Do not
+> re-execute this plan.** Read [`EXECUTION.md`](EXECUTION.md) first.
+>
+> **This plan has known-wrong passages, found during execution. The shipped code is right and this
+> document is stale where they disagree** — it is kept as written rather than retro-edited, so the
+> record of what was planned stays honest. If you are reading it to understand the code, check each
+> against the code:
+>
+> - **Task 3's snippets call `defenceFor(...)`. No such function exists** — it is `ramDefenceFor(...)`
+>   in `ram-bridge.ts`, renamed from `massFor` back in stage 3.
+> - **Task 3 Step 1 says to add an `approachVelocities` test helper "mirroring the file's existing
+>   `approachSpeeds`". Both halves are wrong**: `approachSpeeds` no longer exists, and the helper the
+>   plan prints is already defined in `ram-bridge.test.ts`. Adding a second one is a compile error.
+> - **Task 4 Step 4's fixture geometry does not fire.** It places the T-bone victim at `x: 47`, but a
+>   victim at `angle: PI/2` presents only its 16 u half-width along x where a nose-on victim presents
+>   24 u, so the pair sits apart and `resolveRam` returns `null`. The shipped test uses `x: 39`,
+>   which is the geometrically equivalent contact (1 u of hull overlap in both cases).
+> - **Task 4 Step 3 was already done before this stage ran** — stage 3 re-pitched `spinScale` to 10
+>   and deliberately left `spinMaxRate` at 6.0. It is marked `[x]` in place.
+> - **Every task's "Files" list is too short.** Task 1 also owes a `npm run build:manual` and the
+>   regenerated `packages/client/public/manual.html`, because `STATUS_TABLE` feeds that page's
+>   `balanceStamp`. Task 2 also owes `RAM_TICKS` on the `packages/shared/src/index.ts` barrel, or
+>   server code cannot import it. Task 4 also owes `scripts/turn-tuning-doc.test.mjs`,
+>   `docs/turn-tuning.md`, `packages/shared/src/config/tuning.test.ts`, `docs/config-reference.md`,
+>   `packages/shared/src/config/slam-config.ts` and `docs/schema-reference.md` — the first three
+>   break the suite outright when the five dead knobs are deleted.
+>
+> **Its exit criteria are NOT closeable by driving.** See `EXECUTION.md`'s "Resume here": the user
+> tried, found them impractical to reproduce by hand against a bot, and wants them covered by
+> playtest probes written after the whole physics rework completes.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development`
 > (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use
 > checkbox (`- [ ]`) syntax for tracking.
