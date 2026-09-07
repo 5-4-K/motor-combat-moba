@@ -196,9 +196,16 @@ export interface BotProfile {
    * the planner ships. R-P10's terminal policy, R-P12's commitment window and R-P17's per-depth
    * division of it all changed what a candidate IS, and depth 1's cost moved with them: the same
    * hard configuration measures **0.432 ms** today (fix wave 1, 2026-09-07 — see
-   * `trajectorySampleCount`'s table, which was re-swept in the same wave). Re-measure depth 2 at the
-   * shipped configuration before turning this dial rather than trusting the 0.995 above; the
-   * scoring half is unchanged in shape, so the 3x ratio is still the expectation, not a reading.
+   * `trajectorySampleCount`'s table, which was re-swept in the same wave).
+   *
+   * DEPTH 2 HAS NOW BEEN RE-MEASURED, and the 3x above is NOT the ratio any more. At the shipped
+   * `planHorizonTicks` and `targetBranches`, depth 2 costs **3.03 ms** per plan against depth 1's
+   * **0.385** on the same machine in the same run — **7.95x**, not 3x, and 9x the stated budget.
+   * (Task 8's `planner.bench.test.ts`, best-of-five: 1000 iterations per repeat at depth 1, 300 at
+   * depth 2, both after 300 warm-up.) R-P10's terminal policy is why the ratio grew: the coasting
+   * tail starts from wherever its own candidate left off, so it cannot be shared the way the first
+   * window is, and 81 candidates each pay a `rollForward` for it against depth 1's 9. Depth 2 is
+   * further out of budget than this comment used to say, not closer.
    *
    * R-P17 (fix wave 1) is what makes depth 2 SAFE to turn on at all. The commitment window used to
    * be computed from the whole horizon and then applied `depth` times, so at depth 2 the committed
