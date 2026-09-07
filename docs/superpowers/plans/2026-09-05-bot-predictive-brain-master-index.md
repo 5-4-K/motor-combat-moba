@@ -122,7 +122,7 @@ this up fresh should:
 | 1 | `bot-brain-1-firing-solutions` (B) | **Done** | 2026-09-06 | Validation run; whole-branch review clean after one fix wave. `BOT_BRAIN_VERSION` 4.0.0. See below. |
 | 2 | `bot-brain-2-threat-and-cooldowns` (C) | **Done** | 2026-09-06 | Validation 1-2 run (root `npm test` green; build inlines `// ../shared/dist/`); 3-5 are hands-on playground checks left to the user. Whole-branch review clean after one fix wave. `BOT_BRAIN_VERSION` 4.1.0. See below. |
 | 3 | `bot-brain-3-physics-prediction` (A) | **Done** | 2026-09-06 | Validation 1-2 run (root `npm test` green, 44 server test files; build inlines `// ../shared/dist/`); 3-4 are hands-on playground feel checks left to the user. Whole-branch review APPROVE after one fix wave plus two residuals. `BOT_BRAIN_VERSION` 4.2.0. See below. |
-| 4 | `bot-brain-4-planner` (D) | Not started | — | **Allowed** |
+| 4 | `bot-brain-4-planner` (D) | **Done** | 2026-09-07 | Validation 1-3 run (root `npm test` green; build inlines `// ../shared/dist/`; the only tier-name hits in `src/bot` are a type declaration and H47's pre-existing `EASIER` adjacency table, so nothing branches on a tier); 4-5 are the hands-on playground pass and the balance/playtest recommendation, left to the user. Ten tasks, resequenced because the plan's own order did not compile; task 3 alone took five fix rounds, and four further fix waves closed every review finding. `BOT_BRAIN_VERSION` 4.3.0. See below. |
 
 ### What plan 1 changed, and what later plans inherit
 
@@ -267,6 +267,205 @@ this up fresh should:
   `perception.ts:205` (`TS1354`), which was verified present at this branch's merge base and is not this phase's.
 - **`docs/superpowers/plans/2026-09-05-bot-brain-4-planner.md` still names `this.effectiveProfile.minShotValue`, a
   field renamed in plan 1. Fix it before executing plan 4.** That was recorded after plan 2 and is still true.
+
+---
+
+### What plan 4 changed, and what later plans inherit
+
+- **THE CANDIDATE SET WAS THE HARD PART, NOT THE SCORE.** Read this before touching the planner.
+  Task 3 shipped, went red on ten tests, and took five fix rounds; four of those rounds each moved
+  `rangeError`'s aggregation (terminus, min-along-path, mean, first-sample) and each fixed one
+  closed-loop duel by breaking the other — seven-seed pass rates on-axis / off-axis were terminus
+  4/7 and 6/7, min-along-path 6/7 and **0/7**, mean 4/7 and 1/7, first-sample 4/7 and 1/7 plus eight
+  suite failures. All three implementers who touched it independently named the same cause: the
+  missing quantity was never in the score. Under spec **P24's literal "held for K ticks"** a
+  candidate is one input held for the whole horizon, so at hard's `planHorizonTicks: 22` the menu is
+  0 / +150 / -150 degrees of rotation and "floor it for 0.73 s" / "stop" / "reverse" — a 0.234 rad
+  (13 degree) aim correction and a 56-unit range close **are not on it**, and no aggregation can
+  select an action that does not exist. What worked (R-P10, R-P12) was changing what a candidate IS:
+  the action held for a **commitment window**, `ceil(K * BRAIN_CONSTANTS.commitWindowFraction)` at
+  **0.52**, then a full-neutral `{steer: 0, throttle: 0}` continuation for the rest of the horizon.
+  Still exactly nine candidates, so the cost is unchanged. That is the standard MPC terminal-policy
+  shape and a strictly better model of a bot that re-plans every `recomputeTicks` anyway. Hard's
+  on-axis duel went 24 -> 138 fires per 300 ticks at 0.000 rad and 3/7 -> 7/7 seeds.
+  **The window's plateau is only TWO TICKS WIDE** — 0.13 collapses the on-axis duel to 0/7, and
+  steer-only continuation never clears it at any window — so **any future `planHorizonTicks` change
+  must re-run that seven-seed sweep**, and `rangeError` must be re-derived per cell or an otherwise
+  correct middle reads as a regression.
+- **Every score term aggregates over the rolled arc, and each term's aggregation matches its own
+  kind** (R-P7, revised twice, plus R-P11). `myEv` and `lockKeep` take the **best** anywhere along
+  the path — that is the instant the nose sweeps across, which is what spec section 2 says the game
+  IS, and a terminus-only read can only ask where the nose ENDS. `theirEv` and `wallPenalty` take
+  the **worst** — you are killed once and you clip a wall once. `rangeError` and `threatAvoid` are
+  read **at the terminus**: they are destinations, not moments. Sampled at
+  `BRAIN_CONSTANTS.trajectorySampleCount` = **4** points, **GEOMETRICALLY spaced** (ticks 2/5/10/22
+  at K=22). Even spacing (6/11/17/22) misses the sweep entirely and reads **0/300 fires at every
+  sample count**. The count was re-swept at the shipped configuration in fix wave 1 rather than left
+  historical: 3 -> 6/7 and 1/7; 4 -> 7/7 and 6/7 at 0.432 ms; 5 -> 6/7 and 7/7 at 0.545; 6 -> 7/7
+  and 5/7 at 0.654. 4/5/6 are a plateau at 13-of-14 seeds and 4 is the cheapest cell on it.
+- **`planDepth: 2` ships on NO tier and is deliberately dormant machinery**, kept because it is the
+  dial spec P33 itself names. Measured **3.03 ms per plan against the 0.33 ms budget, roughly 8x**
+  (the earlier in-phase reading was 0.995 ms; depth 1 at the same K and branches is 0.166 ms).
+  Lowering K cannot rescue it — at 81 sequences the SCORING alone costs ~0.475 ms before a single
+  `stepDrive` runs. `planDepth` is `1 | 2` in the type, the depth-2 tests stay, and R-P17 fixed a
+  latent bug in it: `commitWindowOf` now divides the window by `depth`, because `ceil(K * 0.52)`
+  applied twice exceeds K for every K, which silently turned depth 2 back into the whole-horizon
+  hold R-P10 exists to replace.
+- **Profile fields out**: `aimToleranceRad`, `standoffFraction`, `deadbandFraction` (P35).
+  **Profile fields in**: `planHorizonTicks` (0 / 8 / 22), `planDepth` (1 / 1 / 1), `targetBranches`
+  (1 / 1 / 3), `commitPenalty` (0.072 / 0.126 / 0.18). One existing field moved:
+  **`awarenessRadiusUnits` easy 520 -> 600** (R-P14), and the reason matters more than the number —
+  the closed-loop duel opens at **553 units**, so easy started **BLIND**, `target === undefined` on
+  49 of 50 recompute ticks, and at `planHorizonTicks: 0` it could never navigate back into contact.
+  The symptom was **11 of 21 easy duels firing zero shots**; the one test that caught it saw a
+  fraction of that. The cliff is 540 -> 560, so 600 sits mid-plateau, and the LADDER's `"rises"`
+  holds against medium's 700.
+- **`LADDER` gained a fourth direction, `"rises-or-equal"`**, for fields that hold flat on one rung.
+  It is now earned by **`targetBranches` (1, 1, 3) alone**: `planDepth` was `1, 1, 2` when the
+  direction was added and became `"equal"` when R-PF1 shipped hard at depth 1.
+- **`commitPenalty` normalises against `max - median`, not `max - min`** (R-P16, a defect in this
+  phase's own earlier R-P4). Measured: one out-of-arena candidate set `min` and made the commit
+  bonus **2382 points against a sane-candidate range of 16** — hysteresis had become a latch pinning
+  last tick's action. **The knob travels with its normaliser.** Because `median >= min`,
+  `max - median` is smaller in EVERY scene, not only outlier ones, so the first step alone dropped
+  the off-axis duel 94 -> 90 against a >90 bar; the values were re-scaled a uniform **1.8x**, from
+  0.04/0.07/0.1 to **0.072/0.126/0.18**. The measured ratio was 2.2-2.5x, but the duel outcome is a
+  step function with a narrow bad pocket at 0.204-0.215 (on-axis collapses 138 -> 24), and 0.18 sits
+  mid-plateau clear of it.
+- **`preferredRangeOf` (firing.ts) is solver-derived and breaks ties OUTWARD** — it takes the
+  **farthest** range whose weighted total still clears
+  `BRAIN_CONSTANTS.preferredRangePlateauFraction` (**0.95**) of the maximum. A strict tie-break
+  returned `minEngageUnits` (70) for **every chassis at every tier**: `proxyValue` is monotonically
+  **non-increasing** in distance across all ten `WEAPON_TABLE` rows and all 27 (row x tier sigma)
+  sweeps — zero rises anywhere — so the maximum is a **PLATEAU** whose near edge is always the floor.
+  **And the slot weights are only live because the bar is fractional**: under an exact tie the
+  weights cancel out of the condition entirely (`total(r) == total(70)` iff every ready slot's own
+  contribution ties), and the function degenerates to `min over ready slots of min(reach, cliff)` —
+  a **veto by the shortest-reaching slot**, at full strength however small the personality's weight
+  on it. Swept: weights are provably inert at >= 0.975, come alive at 0.970, and 0.95 carries 0.02
+  margin while holding liveness down to 0.88. Resolved ranges, easy / medium / hard: **bullseye
+  70 / 170 / 470, mirage 86.7 / 186.7 / 220, bastion 90.8 / 132.5 / 132.5**. R-D4 restored an
+  explicit not-ready fallback (evaluate the plateau over ALL slots when no slot is ready), because
+  with nothing ready every sample ties at 0 and the outward tie-break sent a reloading Bullseye to
+  900 units. Bastion's medium/hard tie is a property of its kit, **not** of the sampling grid — a
+  claim in task 4's own report that `step` explains it is FALSE and was measured false at every
+  sample count from 12 to 96.
+- **Spec P27's anticipatory evade is deleted in full** — the four gates, the refractory,
+  `dangerEvadeFraction`, the controller field — exactly as plan 2's section promised. **What
+  survives is the reading**: `dangerEvAgainst` still runs once per decision and `BotDebug.dangerEv`
+  still reaches the playground overlay. Separately, **spec P40's reactive dodge had silently died**:
+  deleting the eight-case situation switch deleted the only consumer of
+  `shotThreats[0].awayHeadingRad`, so dodging a shot ALREADY IN FLIGHT stopped existing while three
+  profile knobs and two `tiers.test.ts` tests still described it. R-P8 restored it as a **sixth
+  scored term, `threatAvoid`**, weighted heavily in `evade` and at or near zero elsewhere.
+- **The lag band-aid is gone and was replaced by something principled.** `compensateForLag`,
+  `deadzoneFloorFraction` and `deadzoneCapMultiplier` were deleted with the desire model (R-D1), and
+  the planner now plans **from the pose the input LANDS in** (dead time over
+  `reactionDelayTicks + recomputeTicks`, capped by the horizon; R-P7c, accepted as an addition the
+  measurements forced). That roll reads humanize's **real pending queue** — an earlier version
+  doubled the committed correction and sustained a period-4 limit cycle.
+- **The perf gate normalises against a reference workload measured in the same process** (R-PF2),
+  not against an absolute millisecond figure. Evidence, 26 runs across three load conditions:
+  absolute best-CPU spans **0.375-0.593 ms, a 1.58x spread with three NON-overlapping ranges**,
+  while the median-of-five normalised ratio spans **692-790, a 1.14x spread with three OVERLAPPING
+  ranges**; the reference workload itself varies 1.59x, so it is the machine that moves and the
+  ratio cancels it. The gate asserts median plan-CPU / reference-CPU-per-`stepDrive` <
+  790 * 1.3 = **1027 drive ticks per plan**, with the old absolute assertion demoted to a backstop
+  (normalising alone is blind to `stepDrive` itself regressing). **The stated budget stays 0.33 ms**
+  (`30 / 90`) and hard **misses it by 17-27%** — 0.385-0.422 ms isolated, 0.671-0.703 ms under full
+  suite load — and it printed, not hidden.
+- **Hard was NOT throttled to meet that budget** (R-PF3), and the reasoning is worth restating
+  because the plan's own instruction was to throttle. `planDepth` is already 1, so the only dial
+  left is K, and **K=22 is load-bearing**: round 5's commitment-window plateau is two ticks wide *at
+  K=22*, so lowering K invalidates that sweep and the whole five-round convergence with it, and spec
+  P34 states hard's K as ~22. Against that, P33's own arithmetic was mis-derived: it implies 0.2 us
+  per `stepDrive` where the measured cost is 0.45 us, so **P33's stated worst case could never have
+  fitted P33's own budget on this hardware**. Ninety plans a second at 0.4 ms is 36 ms, inside
+  P33's headline "order 30 ms per simulated second"; in Practice and the playground, one bot each,
+  it is 0.6% of a core. The cost of keeping the gate honest is real: it is ~5 s of every `npm test`
+  and now the most expensive file in the server suite.
+- **The headline behavioural measurement: the seeds 1-150 decisive-kill sweep reads 102/150**,
+  against a recorded band of 23 / 17 / 12 / 18 / 21 / 22 — roughly **five times ABOVE it, not
+  below**. The brief warned that a count materially below the band would be a behavioural signal;
+  this is the same signal with the opposite sign, and it is what the phase set out to produce.
+  **`balance/match.test.ts` was never reseeded on this branch** (116/116 green throughout, through
+  every fix round). The flip side: at 68% decisive that fixture is now near-vacuous as a
+  discriminator — it still pins what it was written to pin and no longer distinguishes much.
+- **Quality bars, and one that was arithmetically impossible.** Hard's hit-rate ladder is strictly
+  monotonic on all five sampled seeds — easy 0.273, medium 0.632, hard 1.000. TTK: hard Bullseye
+  kills a stationary Mirage in 471 ticks (15.70 s) against a theoretical floor of 8.94 s and P49's
+  2x cap of 17.87 s — 1.76x, inside the bar but with only 12% headroom on seed 17 and 5% on the
+  worst of seven. R-T1 dropped the plan's `easy.fires > hard.fires` assertion per spec P50's own
+  2026-09-05 correction. R-T1b re-derived P49's fire bar as `min(cadence, kit cooldowns)`: the
+  plan's `300 / burstGapTicks / 4` = 25 ignores that Bullseye's three slots can physically produce
+  only ~16 presses in 300 ticks, so the bar exceeded the kit's entire ceiling by 55%. Bar 4.05,
+  measured 13.
+- **Blunders are THREE kinds, not four** — `second-best`, `late-brake`, `hold-fire` (R-B1). The
+  brief's fourth, `marginal-shot`, and P41's "misjudge range by ~15%" are **not expressible at the
+  humanize seam**, which receives a finished `BotIntent`: an unconditionally-invisible kind would
+  have silently weakened `blunderChance` by a quarter with no test able to see it. The comment names
+  where each would actually live — `marginal-shot` at `chooseSlot`'s `minShotValueFraction`
+  comparison, "misjudge range" on `preferredRangeOf`, both in `firing.ts`. `BLUNDERS` is now derived
+  by `Object.keys` from a `Record<BlunderKind, true>` menu, so adding a union member and forgetting
+  the list **fails to compile** rather than shipping dead code.
+- **Housekeeping that closes earlier phases' loose ends.** `interceptPoint` was DELETED (R-K1) —
+  plan 3's section said it becomes dead if plan 4 does not use it, and plan 4 does not, because
+  `predictionHorizonTicks` (how far a shot flies) and `planHorizonTicks` (how far a bot thinks) are
+  separate knobs, so even a K=0 bot aims through `physicsPredictor`. Six other newly-callerless
+  helpers went with it. `duel.ts`, the extracted closed-loop duel harness, was renamed
+  `duel.fixture.ts` (R-K3) to make its non-shipped status legible at the import site.
+- **`movement.ts` survives as a SINGLE predicate, `wallAhead`, and its name has stopped describing
+  it.** It was kept rather than deleted (`wallAhead` is an exact negation of `wallDesire`'s
+  condition, so `pinned` -> `unpin` fires on bit-identical ticks; three provenance comments name the
+  file; the netcode phases are expected to add movement helpers back on that seam). **The reviewer's
+  standing note: a one-predicate file called `movement.ts`, under a header that has stopped being
+  true, should not still be called that at the end of the phase.** Renaming it is unfinished work,
+  deliberately left.
+
+**Known gaps left standing.** The biggest is a real loss of flavour, not a deferral: **`brawler` and
+`kiter` are archetypes ABOUT range, `standoffFraction` was their only lever, and
+`opponentRangeRespect` does not carry it.** R-M1 claimed it did and was wrong in three measurable
+ways — `opponentRangeRespect` is 0 / 0.45 / 0.9, so at **easy both brawler's x0.8 and kiter's x1.15
+are exact no-ops** (easy's brawler and kiter now differ on `ramIntentChance` alone, and easy pins
+`retreatHpFraction` at 0 too); at hard kiter's 0.9 x 1.15 = 1.035 **clamps to 1.0**, an ~11% shift
+rather than 15%; and `fightRange = max(ownComfort, theirKeepOut)` **floors** the result at the bot's
+own comfort range, so a lowered respect can never make brawler stand closer than a neutral bot,
+whereas `standoffFraction` scaled that comfort itself. The doc comment now states exactly that; no
+field was invented to fix it, because P35/P36 enumerate which fields arrive and an archetype range
+knob is not among them. **After this phase there is no per-archetype range lever at all** — a
+candidate for the user's next tuning pass. Also left standing: **easy's `planHorizonTicks: 0` is a
+one-tick rollout in which no candidate expresses a manoeuvre**, so easy navigates only through
+one-tick score margins (P29 and P34 both describe easy as exactly that, so this is the tier at the
+edge of its competence rather than a break, but it is why the awareness radius had to move);
+**near a wall, steering away is never selected** — wall avoidance is expressed only through the
+throttle, because every braking candidate scores `wallPenalty` exactly 0, which is also why H39's
+fixture had to compare the whole emitted input rather than the steer stream alone (commit `5e1eba4`,
+flagged as outside sanction and accepted); **the runner-up snapshot is deferred, not forgotten** —
+it was implemented, MEASURED to turn P50 red (medium's hit rate 0.632 -> 1.000 at seed 17, tying
+hard), reverted, and documented in two places plus a test, with the doc comment softened to match
+the code rather than the code strengthened to match the comment; **the P50 medium-to-hard rung now
+sits at a 1.000 ceiling** and will be the first assertion to move on any humanize or planner change;
+`this.lastPreferredRange` is now unconditional, so `recover` reads 0 where it used to hold the last
+fight range (overlay-visible); and the overlay's `terms` line prints **raw** term values, not
+weighted points, so a tuner reading them as points would misidentify the winning term. Finally, the
+gaps the earlier sections already list are all still true, one of them materially worse:
+**`BRAIN_CONSTANTS` is still outside `botFingerprint`** (`balance/fingerprint.ts` hashes only
+`BOT_PROFILES` and `BOT_BRAIN_VERSION`) and this phase added `commitWindowFraction`,
+`trajectorySampleCount`, `preferredRangePlateauFraction`, `preferredRangeSampleCount` and
+`preferredRangeMinStepUnits` — every one of them behaviour-moving, on top of plan 3's five, so a
+`BRAIN_CONSTANTS`-only retune still leaves two balance reports looking comparable when they are not;
+`readinessOf` still reaches back only `memoryTicks` against 390-600-tick recharges; `observedFires`
+is still not viewport-filtered; nothing holds `docs/bot-behavior.md` to the config the way
+`scripts/turn-tuning-doc.test.mjs` holds `turn-tuning.md`; and `npm run typecheck` still fails on
+`perception.ts:205` (`TS1354`), verified present at this branch's merge base and not this phase's.
+
+**Playtest and balance, for the user to decide:** the nine resolved preferred ranges all moved, and
+engagement distance and closing behaviour are what the **engagement-range and ram-trigger probes**
+measure, so `npm run playtest` is worth a run. `npm run balance` is worth a fresh baseline across
+all three tiers — `botFingerprint` has moved with `BOT_BRAIN_VERSION` 4.3.0 and correctly refuses a
+4.2.0 comparison. Neither was run on the user's behalf.
+
+---
 
 ## Things discovered while planning that the spec now records
 
