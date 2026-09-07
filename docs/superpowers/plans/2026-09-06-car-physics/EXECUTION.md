@@ -250,15 +250,27 @@ rather than shipped** — see the section below.
 **One deferred obligation the user set on 2026-09-07, which stage 5 inherits.** The hands-on exit
 criteria for stage 3b — ram side-on and watch for a spin the victim can still shoot through, ram a
 fleeing car versus one closing on you, chain three rams and check the third barely registers, wait
-three seconds and check full strength returns, wildcharge and check the victim does NOT gain
-`reeling` — **are impractical to reproduce by hand against a bot.** The user tried and said so. They
-want them covered by playtest probes instead, and they want that probe-writing done **after the
-physics rework is complete**, not piecemeal alongside it. So: do not write them now, and do not treat
-3b's unticked hands-on boxes as something a session can close by driving. Existing coverage in
-`packages/server/playtest/ram.ts` is R1-R5; **R5 (ram-lock) is the only one anywhere near this list**,
-and it now measures a mechanic that has a countermeasure it does not know about. Nothing measures
-`reeling` at all, the fleeing-versus-closing contrast, falloff window recovery, or the slam
+three seconds and check full strength returns, and **wildcharge and check the victim's `reeling`
+comes from the WEAPON'S OWN duration (1400 ms, `WEAPON_TABLE.wildcharge.impulse.uncontrolMs`) and
+carries no falloff** — **are impractical to reproduce by hand against a bot.** The user tried and
+said so. They want them covered by playtest probes instead, and they want that probe-writing done
+**after the physics rework is complete**, not piecemeal alongside it. So: do not write them now, and
+do not treat 3b's unticked hands-on boxes as something a session can close by driving. Existing
+coverage in `packages/server/playtest/ram.ts` is R1-R5; **R5 (ram-lock) is the only one anywhere near
+this list**, and it now measures a mechanic that has a countermeasure it does not know about. Nothing
+measures `reeling` at all, the fleeing-versus-closing contrast, falloff window recovery, or the slam
 exclusion. That is the gap the eventual probes fill.
+
+> **STAGE 4 INVERTED THE LAST ITEM ON THAT LIST — read this before writing that probe.** As written
+> for stage 3b it said "wildcharge and check the victim does **NOT** gain `reeling`", which was true
+> then: 3b gave the ordinary ram its control loss back and a slam deliberately got none.
+> **Stage 4 made a slam impart `reeling` for 1400 ms**, off `wildcharge`'s own `ImpulseDef`, and that
+> is the headline player-visible change of the whole stage. A probe written from the original wording
+> would assert the exact opposite of what ships. What survives from the original intent is the
+> *exclusion the item was really about*: a slam still does **not** participate in the ram falloff
+> stack (spec P24) — it is neither scaled by it nor counted into it — so its `reeling` is the full
+> authored duration every time, however many rams the victim has just absorbed. That is what the
+> probe should measure, and the item above has been rewritten to say so.
 
 ## Two questions the user answered on 2026-09-07 — both binding
 

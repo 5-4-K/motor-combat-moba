@@ -256,6 +256,21 @@ slammed by A **and** rammed by B on the same tick now takes **both** pushes. It 
 whichever won the single slot, on a magnitude ordering nothing enforced. Within a pair nothing
 changed — a pair that resolves as a slam still produces no ram.
 
+**Slam plus slam does not stack, though: a car takes at most ONE slam push per tick, and the last
+slam of the tick is the one that lands.** Two chargers reaching the same victim on the same tick
+punt it once, at the authored magnitude, and leave one `reeling`. That is a physics cap, not a damage
+cap — both slams are still handed to combat to price, both attackers' charges still end, and the
+wall-stun and re-slam clocks are still stamped by the later of the two. The cap used to fall out of
+the per-victim impulse map for free; `contactTick` states it explicitly now that slams no longer ride
+that map.
+
+**A slam's push is applied before a dash ends, which is what lets a dash erase it.** A dashing car
+that meets a charging one is both the dash's attacker and the slam's victim on that tick, and ending
+a dash overwrites velocity outright — so the dasher exits at its dash speed and the slam's punt is
+gone, while the `reeling` it applied stays. That has been true since the mechanic shipped; stage 4
+preserved the ordering deliberately rather than change the thunderclap-vs-wildcharge clash inside a
+refactor.
+
 **Stun interruption (O8/O14).** A `stunned` status that lands fresh this tick — not one already
 running — cancels the car's committed states at the end of that same tick: a pending wind-up (its
 stock stays spent, O14), a running maneuver, and any attached instance the car owns; a detached shot
