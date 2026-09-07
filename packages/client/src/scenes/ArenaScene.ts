@@ -39,6 +39,7 @@ import {
   winRuleOf,
 } from "@motor-combat-moba/shared";
 import { applyCarSprite, phaserTextures, resolveCarSprite } from "../assets/car-sprite.js";
+import { HIT_STOP_MS, HIT_STOP_SCALE, ramShake, shakeFor } from "../fx/camera.js";
 import { FX_TEXTURE_KEYS, FxLayer } from "../fx/layer.js";
 import { FLOOR_DEPTH } from "../fx/depths.js";
 import { isDebugEnabled } from "../config/client-mode.js";
@@ -791,6 +792,18 @@ export class ArenaScene extends Phaser.Scene {
    */
   private fx: FxLayer | undefined;
 
+  /**
+   * Wall-clock deadline (`performance.now()`) for the camera's post-kill hit-stop. Deliberately NOT
+   * `this.time.timeScale`: that Clock only scales Timer Events belonging to it (`delayedCall`,
+   * `addEvent`) — it does not touch the `delta` the Scene's own `update` receives, `this.tweens`, or
+   * `this.time.now` (the epoch `remotePose`'s interpolation sampling reads). Nothing in this scene
+   * currently listens to that Clock for anything visual, so scaling it would compile, run, and do
+   * nothing on screen. This field instead scales `followCamera`'s own `delta` for the window below —
+   * real, visible easing-slowdown, entirely decoupled from `pumpInput`'s tick clock (see
+   * `hitStopScale` and its call site in `renderCars`).
+   */
+  private hitStopUntilMs = 0;
+
   constructor() {
     super({ key: "arena" });
   }
@@ -1308,6 +1321,8 @@ export class ArenaScene extends Phaser.Scene {
     // LATER real match's kick or dropped connection to "practice-setup" instead of "join".
     this.exitTarget = undefined;
     this.impacts = newImpactTracker();
+    this.hitStopUntilMs = 0;
+    this.tweens.timeScale = 1;
   }
 
   update(_time: number, delta: number): void {
@@ -1630,7 +1645,9 @@ export class ArenaScene extends Phaser.Scene {
         this.drawHpBar(hp, player, pose, allegiance);
       }
       if (maneuver && player.alive) this.drawManeuverVisuals(maneuver, player, pose);
-      if (sessionId === this.cameraTarget(room)) this.followCamera(pose, delta);
+      if (sessionId === this.cameraTarget(room)) {
+        this.followCamera(pose, delta * this.hitStopScale());
+      }
     });
 
     // Instant, render-only impact feedback: covers the round trip before the authoritative ram
@@ -1777,9 +1794,14 @@ export class ArenaScene extends Phaser.Scene {
    * Impact feedback: a brief shake and a spark at the contact point. Render-only — this reacts to
    * locally observed contact, not to an authoritative ram, so it must never change anything the sim
    * or the schema can see.
+   *
+   * `closingSpeed` defaults to 0 because no caller has one to give: `freshImpacts` (`impact-feedback.
+   * ts`) reports only the contact point, not a relative velocity, so `ramShake` falls back to its own
+   * floor — the same fixed feel this method always had before `camera.ts` existed.
    */
-  private showImpact(x: number, y: number): void {
-    this.cameras.main.shake(120, 0.006);
+  private showImpact(x: number, y: number, closingSpeed = 0): void {
+    const shake = ramShake(closingSpeed);
+    this.cameras.main.shake(shake.durationMs, shake.intensity);
     const spark = this.add.circle(x, y, 10, 0xffffff, 0.9);
     this.hudCamera?.ignore(spark);
     this.tweens.add({
@@ -2174,6 +2196,15 @@ export class ArenaScene extends Phaser.Scene {
       alive: instance.alive,
     }));
     fx.update({ cars, instances }, delta);
+
+    // Camera reaction to what just happened, severity-driven rather than a fixed jolt per hit. Read
+    // off `lastEvents()` — the exact list `fx.update` just derived above — rather than re-deriving:
+    // one seam for what happened this frame, not two that could disagree.
+    for (const event of fx.lastEvents()) {
+      const shake = shakeFor(event);
+      if (shake) this.cameras.main.shake(shake.durationMs, shake.intensity);
+      if (event.kind === "died") this.triggerHitStop();
+    }
   }
 
   /**
@@ -2918,6 +2949,31 @@ export class ArenaScene extends Phaser.Scene {
       this.camFocus = smoothFollow(this.camFocus, pose, CAMERA_CONFIG.camLerp, delta);
     }
     this.cameras.main.centerOn(this.camFocus.x, this.camFocus.y);
+  }
+
+  /**
+   * `1` normally, `HIT_STOP_SCALE` for `HIT_STOP_MS` after a kill. Multiplied into the `delta`
+   * `followCamera` eases with — never into `pumpInput`'s `delta`, which is read straight off
+   * `update`'s own parameter before this ever runs, so a hit-stop in progress cannot slip a tick, a
+   * predicted step, or a sent input. See `hitStopUntilMs`'s doc comment for why this reads a wall
+   * clock rather than a Phaser Clock.
+   */
+  private hitStopScale(): number {
+    return performance.now() < this.hitStopUntilMs ? HIT_STOP_SCALE : 1;
+  }
+
+  /**
+   * Kicks off a kill's hit-stop: the camera's own follow-easing runs slow for `HIT_STOP_MS`
+   * (`hitStopScale`, read by `followCamera`'s call site), and every live and future tween in the
+   * scene — today just `showImpact`'s spark — runs slow alongside it via `this.tweens.timeScale`,
+   * which is its own independent scale and untouched by anything else here.
+   */
+  private triggerHitStop(): void {
+    this.hitStopUntilMs = performance.now() + HIT_STOP_MS;
+    this.tweens.timeScale = HIT_STOP_SCALE;
+    this.time.delayedCall(HIT_STOP_MS, () => {
+      this.tweens.timeScale = 1;
+    });
   }
 
   private syncMatchHud(): void {

@@ -9,7 +9,7 @@ import {
   tyreMarksFor,
 } from "./decals.js";
 import { AIR_FX_DEPTH, DECAL_DEPTH, GROUND_FX_DEPTH, SMOKE_DEPTH } from "./depths.js";
-import { deriveFxEvents, type FxWorldView } from "./events.js";
+import { deriveFxEvents, type FxEvent, type FxWorldView } from "./events.js";
 import { emitterSpecsForAll, type EmitterSpec } from "./emitters.js";
 import {
   ERASER_HALO,
@@ -127,6 +127,8 @@ export class FxLayer {
   private clockMs = 0;
   /** When each car last laid rubber, so marks go down on a clock rather than per frame. */
   private readonly lastTyreMs = new Map<string, number>();
+  /** The events this layer derived on the last `update`, for `ArenaScene`'s camera work below. */
+  private frameEvents: FxEvent[] = [];
 
   constructor(scene: Phaser.Scene, seed: number, arenaWidth: number, arenaHeight: number) {
     this.scene = scene;
@@ -354,10 +356,16 @@ export class FxLayer {
     }
   }
 
+  /** The events this layer derived on the last `update`. Read by `ArenaScene` for camera work. */
+  lastEvents(): readonly FxEvent[] {
+    return this.frameEvents;
+  }
+
   /** One frame: derive events from the view delta, spawn what they ask for, and lay decals. */
   update(view: FxWorldView, dtMs: number): void {
     this.clockMs += dtMs;
     const events = deriveFxEvents(this.prevView, view);
+    this.frameEvents = events;
     this.spawn(emitterSpecsForAll(events));
 
     for (const event of events) {
