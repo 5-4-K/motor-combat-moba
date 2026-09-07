@@ -501,6 +501,38 @@ export interface ProxyArgs {
  *
  * The model is: how wide does the target look from here, against how badly do my hands wander. An
  * assisted shot skips the angle term entirely, because `aimAngleFor` points it for me.
+ *
+ * A KNOWN, MEASURED, ACCEPTED LOSS: IT DOES NOT COUNT A TICKING BEAM'S PULSES (R-S1, fix wave 3,
+ * 2026-09-07). `damage` on a ticking row is a PULSE, not a press, so `lance` and `afterburner`
+ * (both `damageFrequencyMs: 500`, four and five pulses a press) are scored at roughly a quarter and
+ * a fifth of their worth here — `lance` reads 2.7 EV/s where `solve()` and `chooseSlot`'s own
+ * comment put it at ~10.8, against `predator`'s 30. Everything reading this proxy inherits that:
+ * `preferredRangeOf`'s plateau, the planner's `myEv`, and `proxyDangerAgainst`'s read of an
+ * opponent's kit. The TRIGGER is unaffected — `chooseSlot` ranks on the exact `solve().value`.
+ *
+ * This is not an oversight. A `pulsesPerPress` correction shipped in `firing.ts` beside
+ * `weaponValueOf` for exactly this defect, phase D deleted that function's only caller, and the
+ * correction went out with it while `proxyValue` kept the raw-`damage` model. Restoring it was
+ * IMPLEMENTED AND MEASURED, and reverted on the measurement:
+ *
+ *   - The nine resolved `preferredRangeOf` standoffs did not move at all (bullseye 70/170/470,
+ *     mirage 86.7/186.7/220, bastion 90.8/132.5/132.5, before and after).
+ *   - Both closed-loop duel canaries did not move (on-axis 136/300 offset 0, off-axis 128/300
+ *     offset 0.0442, before and after — the bar is > 90).
+ *   - `balance/` WENT RED: 115/116, `match.test.ts`'s "shortening matchSeconds still lets the
+ *     deathmatch clock fire" fixture returning `winnerSessionId: ""` on its pinned `seed: 3`. Its
+ *     kills assertion still passed; the match ended tied. That fixture may not be reseeded, and
+ *     absorbing the move by tuning something else is not on the table either.
+ *   - It also cost R-D5's one live cell. `slotWeights` move the standoff in 1 of 9 chassis-by-tier
+ *     cells today (Mirage at hard), and that cell exists BECAUSE `afterburner` is under-valued
+ *     here: at its true 18.8 EV/s its 220 u cliff is too large a share of Mirage's peak for any
+ *     vector in `rollPersonality`'s 0.5-1.5 draw to hold the total over the 0.95 bar past it. With
+ *     the pulse count restored a 5x5x5 sweep reads 0 of 9.
+ *
+ * So the loss is: two of nine rows are under-valued ~4x in every consumer of this proxy, and one of
+ * R-D5's stated benefits rests on that error. What is bought is a green `balance/` fixture that
+ * cannot be reseeded. Anyone revisiting this should expect the fixture to be the thing that has to
+ * move first, and should re-measure all three numbers above rather than trusting this note.
  */
 export function proxyValue(args: ProxyArgs): number {
   const { shooter, slot, targetX, targetY, aimSigmaRad, assisted } = args;
