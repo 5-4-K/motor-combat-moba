@@ -357,7 +357,7 @@ describe("HumanController", () => {
 
     let firedWhileDodging = false;
     let evadeStartTick: number | undefined;
-    const settledPresses: { tick: number; steer: -1 | 0 | 1 }[] = [];
+    const settledPresses: { tick: number; planned: -1 | 0 | 1; emitted: -1 | 0 | 1 }[] = [];
     /**
      * FIXTURE WINDOW MOVED (R-P15, residuals round, 2026-09-07); RE-MEASURED ON THE LATERAL SCENE
      * (scene fix, 2026-09-07). Was: break on the FIRST press and assert that tick's steer. The
@@ -397,19 +397,30 @@ describe("HumanController", () => {
      * model, the intents above carry the car 111.8 units off the shot's line by t=29, rising every
      * tick and never crossing back.
      *
-     * THE PER-PRESS ASSERTION BELOW IS CURRENTLY RED ON THAT STRAIGHT HALF, and it is left standing
-     * rather than relaxed. R-P15 strengthened it from "the first press steers" to "EVERY press in
-     * the settled window steers", which held on the old scene by cadence coincidence — the 6-tick
-     * wheel rhythm and the 4-tick trigger rhythm happened to line up there. It is not a property
-     * this planner can supply for a lateral dodge: swept over ~2700 scenes (full 360 degrees of shot
+     * EVERY SETTLED PRESS RECORDS TWO STEER FRAMES, AND THE ASSERTION IS "AT LEAST ONE" (2026-09-07).
+     * `out.steer` is the EMITTED wheel: `applyHumanize` holds a decision for `reactionDelayTicks`
+     * (4 on hard, `bot-profiles.ts`), so what comes out of `decide` is the planner's answer four
+     * ticks downstream. `bot.debug()!.plan!.steer` is that answer at the tick it was made. The
+     * ordering trap has TWO shapes and the two frames catch DIFFERENT ones. Shape A feeds the
+     * PLANNED heading into `solve`, and only `plan.steer` can see it (measured non-zero at
+     * t=18,19). Shape B feeds the EMITTED heading in, and only `out.steer` can see it (measured
+     * non-zero at t=10,11,16,17,22,23,28,29). Record one frame alone and the test trades one blind
+     * spot for the other, so both are recorded and a turn in EITHER counts. Do not drop a frame.
+     *
+     * WHY "AT LEAST ONE" AND NOT "EVERY". The two frames are DISJOINT on this scene — plan-turn
+     * ticks {6,7,12,13,18,19,24,25} against emitted-turn ticks {10,11,16,17,22,23,28,29} — because
+     * the planner's 6-tick lock/straight rhythm runs against a 4-tick trigger rhythm, and
+     * non-dividing periods cannot coincide on every press in either frame. The header above states
+     * what this test needs as "a real divergence between where the gun points and where the wheels
+     * want to go": A divergence, not divergence at every press. R-P15's every-press form
+     * ("EVERY press in the settled window steers") is therefore stricter than the stated purpose,
+     * and it is not satisfiable by a GOOD dodge: swept over ~2700 scenes (full 360 degrees of shot
      * orientation, every chassis, ten speeds, five positions, target distances 180-800, shot
-     * appearance ticks 0-16, sixty seeds), the 179 that satisfy it are all cars holding full lock in
-     * a 31-unit circle that crosses back over the line, and none of them departs monotonically.
-     * Worth knowing before re-aiming it: `press.steer` is the EMITTED wheel, four ticks downstream
-     * of the plan the ordering bug would corrupt, and on this scene the plan-turn ticks
-     * ({6,7,12,13,18,19,24,25}) and the emitted-turn ticks ({10,11,16,17,22,23,28,29}) are disjoint.
-     * `bot.debug()!.plan.steer` is the quantity the bug actually moves. Deciding what to do with
-     * this line is the user's call (`objectives.ts`, "Spec section 5 reserves that assertion").
+     * appearance ticks 0-16, sixty seeds), every configuration that satisfies it is a car holding
+     * full lock in a 31-unit circle that CROSSES BACK over the shot's line; zero of them depart
+     * monotonically. This scene's bot reaches 111.8 units off the line by t=29, rising every tick
+     * and never crossing — a strictly better dodge that the every-press shape rejects. It held on
+     * the old scene by cadence coincidence, nothing more. Do NOT tighten this back to every-press.
      */
     for (let tick = 0; tick < 30; tick++) {
       const out = bot.decide(view({
@@ -421,16 +432,28 @@ describe("HumanController", () => {
       const settledFrom = evadeStartTick === undefined
         ? Infinity
         : evadeStartTick + BOT_PROFILES.hard.reactionDelayTicks + BOT_PROFILES.hard.recomputeTicks;
-      if (tick >= settledFrom) settledPresses.push({ tick, steer: out.steer });
+      if (tick >= settledFrom) {
+        // The planner frame, read LOUDLY: an absent `debug()` or `plan` would make every press
+        // read as "no turn planned" and could quietly satisfy the emitted half alone, so a missing
+        // plan fails here naming the tick instead of thinning the evidence. Measured: `plan` is
+        // defined on all 30 ticks of this run, so this is a guard, not a path the scene takes.
+        const planned = bot.debug()?.plan?.steer;
+        expect(planned, `press at t=${tick} had no planner steer to read`).toBeDefined();
+        settledPresses.push({ tick, planned: planned!, emitted: out.steer });
+      }
     }
 
     expect(firedWhileDodging).toBe(true);
     // `evade` takes the wheel off the fight heading, so steering visibly responds to the threat
     // rather than sitting at 0 the way it would if the car were simply pointed at its target.
     expect(settledPresses.length).toBeGreaterThan(0);
-    for (const press of settledPresses) {
-      expect(press.steer, `press at t=${press.tick} steered 0`).not.toBe(0);
-    }
+    const trace = settledPresses
+      .map((press) => `t=${press.tick} plan ${press.planned} emitted ${press.emitted}`)
+      .join(", ");
+    expect(
+      settledPresses.some((press) => press.planned !== 0 || press.emitted !== 0),
+      `no settled press steered in either frame: ${trace}`,
+    ).toBe(true);
   });
 
   it("re-arms the ram roll after the target is lost, so ramming survives the first death (H40)", () => {
