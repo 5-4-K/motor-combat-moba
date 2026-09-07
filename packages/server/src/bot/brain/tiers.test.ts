@@ -267,8 +267,23 @@ describe("tier characterisation", () => {
     // across all 90 ticks then too — so this assertion has never actually observed `unpin` steering;
     // it observed the open-floor bot chattering, which is the defect this phase exists to delete.
     // Comparing the full input asks the test's own question ("does a wall change what hard does")
-    // of the whole decision instead of one axis of it, and it makes the easy-side assertion below
-    // STRICTLY STRONGER: two streams must now agree on both axes to count as unchanged.
+    // of the whole decision instead of one axis of it.
+    //
+    // IT IS STRONGER ON ONE SIDE AND WEAKER ON THE OTHER, not strictly stronger, and an earlier
+    // draft of this comment claimed the latter. The EASY side (`toBe`, "the wall reaches nothing")
+    // is stronger: two streams must now agree on BOTH axes to count as unchanged, so an easy bot
+    // whose throttle moved near the wall now fails where a steer-only comparison would have shrugged.
+    // The HARD side (`not.toBe`, "the wall changes something") is correspondingly WEAKER: two
+    // streams now differ if EITHER axis differs, so it is easier to satisfy than a steer-only
+    // `not.toBe` was.
+    //
+    // It still discriminates, and that is the point worth checking rather than asserting. The hard
+    // side is not vacuous: the two runs share a rng seed, a tier, a target 200 units dead ahead and
+    // an identical warm-up, so the ONLY input that differs is how close the wall is. If the wall
+    // stopped changing hard's decision — `unpin` never firing, or firing and emitting open floor's
+    // input anyway — near-wall would emit open floor's stream verbatim and this assertion fails.
+    // The `tailGoal` assertions above pin the same claim from the other end, on the situation rather
+    // than on the input, so a regression that silenced `unpin` fails twice over.
     const run2 = (tier: "easy" | "hard", x: number) => {
       const bot = new HumanController(tier);
       const rng = makeRng(17);

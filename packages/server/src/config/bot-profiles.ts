@@ -187,11 +187,24 @@ export interface BotProfile {
    * "do not raise the budget", "K and `planDepth` come down and nothing else changes" — so hard's
    * `planDepth` is 1, same as medium and easy.
    *
-   * THE DIAL STAYS. This field keeps its `1 | 2` type, and the depth-2 machinery (`twoSegment`'s
-   * first-segment sharing in `planner.ts`, and its own tests) stays live and covered: it is the
-   * exact knob P33 names for whoever earns the budget to raise it back — a faster machine, a lower
-   * K, fewer simultaneous bots, or a cheaper scoring pass. Re-run the measurement above rather than
-   * re-derive it from scratch.
+   * THE DIAL STAYS. This field keeps its `1 | 2` type, and the depth-2 machinery
+   * (`rollCandidates`' first-window sharing in `planner.ts`, and its own tests) stays live and
+   * covered: it is the exact knob P33 names for whoever earns the budget to raise it back — a
+   * faster machine, a lower K, fewer simultaneous bots, or a cheaper scoring pass.
+   *
+   * THE THREE MS FIGURES ABOVE ARE FROM R-PF1's ROUND (2026-09-06) and predate the candidate set
+   * the planner ships. R-P10's terminal policy, R-P12's commitment window and R-P17's per-depth
+   * division of it all changed what a candidate IS, and depth 1's cost moved with them: the same
+   * hard configuration measures **0.432 ms** today (fix wave 1, 2026-09-07 — see
+   * `trajectorySampleCount`'s table, which was re-swept in the same wave). Re-measure depth 2 at the
+   * shipped configuration before turning this dial rather than trusting the 0.995 above; the
+   * scoring half is unchanged in shape, so the 3x ratio is still the expectation, not a reading.
+   *
+   * R-P17 (fix wave 1) is what makes depth 2 SAFE to turn on at all. The commitment window used to
+   * be computed from the whole horizon and then applied `depth` times, so at depth 2 the committed
+   * ticks swallowed the horizon whole and the coasting tail was identically 0 — the first person to
+   * take this upgrade path would have got the aim-freeze R-P10 fixed, back, with no failing test.
+   * `commitWindowOf` divides by the depth now; `planner.test.ts` pins it.
    */
   readonly planDepth: 1 | 2;
   /** How many of the target's plausible inputs to take the worst case over (P28). */
@@ -480,31 +493,59 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * there. Spec section 2: "timing the trigger for the instant the nose sweeps across."
    *
    * CHOSEN BY MEASUREMENT against the 0.33 ms per-plan budget, not picked. Samples cost linearly in
-   * the SCORING half — the expensive half — while the rollout half is unchanged. Measured on this
-   * machine at hard's shipped configuration (K=22, depth 1, `targetBranches` 3), 3000 iterations
-   * after 300 warm-up, against `controller.test.ts`'s two closed-loop duels:
+   * the SCORING half — the expensive half — while the rollout half is unchanged.
    *
-   *   | samples | ms/plan (hard/med/easy) | hard on-axis | hard off-axis (mean heading offset) |
-   *   |---------|-------------------------|--------------|-------------------------------------|
-   *   |    1    |  0.169 / 0.081 / 0.048  |    24/300    |   0/300  (0.235 rad, frozen)        |
-   *   |    2    |  0.229 / 0.117 / 0.044  |    24/300    |   0/300  (0.235 rad, frozen)        |
-   *   |    3    |  0.274 / 0.142 / 0.043  |    24/300    |   2/300  (0.108 rad)                |
-   *   |    4    |  0.365 / 0.185 / 0.046  |    24/300    |  98/300  (0.031 rad)                |
-   *   |    6    |  1.032 / 0.328 / 0.100  |    24/300    |   6/300  (1.263 rad)                |
+   * RE-SWEPT AT THE SHIPPED CONFIGURATION (fix wave 1, 2026-09-07), and the earlier table is gone
+   * rather than annotated. The original sweep chose 4 against a candidate set that two later
+   * rulings replaced — its whole "hard on-axis" column reads 24/300 at every sample count, which is
+   * the pre-commitment-window defect value, not a reading of the shipped bot — and R-P10's terminal
+   * policy plus R-P12's commitment window changed a candidate's arc from a 22-tick hold into 12
+   * committed ticks and 10 coasting. A sampling schedule over the arc is a discretization OF that
+   * arc, so the project's own rule (re-derive a weight when the quantity under it moves — applied
+   * twice to `rangeError` and three times to `commitPenalty` for this same event) applies here too.
    *
-   * FOUR. Below it the geometric schedule's earliest sample still lands after the sweep is over
-   * (three samples of a 22-tick path read ticks 3, 8, 22, and a Bullseye at rest has turned 0.45 rad
-   * by tick 3 against the 0.25 rad correction the duel wants); above it the schedule bunches so
-   * tightly at the front that the far half of the arc stops being represented at all, and the
-   * heading destabilises again. It is a window, not a monotone curve, which is exactly why this is
-   * measured rather than argued.
+   * Measured at hard's shipped configuration (K=22, depth 1, `targetBranches` 3), on
+   * `controller.test.ts`'s two closed-loop duels over the SAME seven seeds R-P12 swept
+   * (17, 3, 7, 42, 96, 101, 2026); a duel counts as passed only when it clears BOTH `fires > 90`
+   * and `meanOffset < 0.2` over the tail 100 ticks. `ms/plan` times `plan()` alone, 3000 iterations
+   * after 300 warm-up:
    *
-   * Hard's 0.365 ms is 10% ABOVE the stated 0.33 ms budget, and that is accepted with the number
+   *   | samples | ms/plan (hard/med/easy) | on-axis | off-axis | seed 17 on / off (fires per 300) |
+   *   |---------|-------------------------|---------|----------|----------------------------------|
+   *   |    3    |  0.381 / 0.200 / 0.065  |   6/7   |   1/7    |  140 / **0**                     |
+   *   |    4    |  0.432 / 0.242 / 0.067  | **7/7** |   6/7    |  140 / 128                       |
+   *   |    5    |  0.545 / 0.243 / 0.068  |   6/7   | **7/7**  |  140 / 128                       |
+   *   |    6    |  0.654 / 0.372 / 0.074  | **7/7** |   5/7    |  140 / 128                       |
+   *
+   * FOUR, CARRIED — on new evidence, not on the old table's authority, and for a different reason
+   * than the old table gave. It is no longer a one-cell window: 4, 5 and 6 all score 13 of the 14
+   * duel-seeds and differ only in WHICH seed they drop, so the top of the axis is a plateau and
+   * this is a cost decision inside it. Four is the cheapest cell on that plateau (0.432 ms against
+   * 0.545 and 0.654) and the only one that also holds the on-axis duel at 7/7. THREE IS THE CLIFF,
+   * and it is a real one — the off-axis duel collapses to 1/7 and to 0 fires at the tests' own seed
+   * 17 — for the reason the original sweep gave and which survives the re-measurement: the
+   * geometric schedule's earliest sample lands after the sweep is over (three samples of a 22-tick
+   * path read ticks 3, 8, 22, and a Bullseye at rest has turned 0.45 rad by tick 3 against the
+   * 0.25 rad correction the duel wants).
+   *
+   * WHAT THE RE-SWEEP CHANGED, said plainly: the old table's claim that 6 destabilises the heading
+   * (1.263 rad, 6 fires) does NOT reproduce at the shipped configuration — 6 is a healthy cell now,
+   * just a slower one. The commitment window is why: with only the committed half of the arc
+   * carrying real motion, bunching samples toward the front no longer starves the far end of
+   * anything the bot was reading. So the argument for 4 is now "cheapest on the plateau", and the
+   * argument against going below it is unchanged.
+   *
+   * Hard's 0.432 ms is 30% ABOVE the stated 0.33 ms budget, and that is accepted with the number
    * said out loud rather than hidden. The budget is six bots replanning at 15 Hz inside ~30 ms of
-   * CPU per simulated second; four samples make that 32.9 ms. Hard is the only tier that pays it
-   * (medium 0.185, easy 0.046, both far under), and a full six-bot lobby of HARD bots is not a
+   * CPU per simulated second; four samples make that 38.9 ms. Hard is the only tier that pays it
+   * (medium 0.242, easy 0.067, both far under), and a full six-bot lobby of HARD bots is not a
    * configuration the game ships. Spec P33's instruction if that stops being true is to bring K and
    * `planDepth` down, not to raise the budget — and this constant would come down with them.
+   *
+   * The two ms figures a reader may find elsewhere are both real and neither is this one: the
+   * ORIGINAL sweep (task 3, before the commitment window) measured hard at 0.365 ms, and phase D's
+   * final report measured ~0.34 ms on a different scene. The 0.432 above is the current number, on
+   * this machine, at the shipped configuration, and is the one to compare a future edit against.
    */
   trajectorySampleCount: 4,
   /**
@@ -513,6 +554,12 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * (R-P12, fix round 5, 2026-09-07). Hard's K of 22 gives 12 ticks committed and 10 coasting;
    * medium's 8 gives 5 and 3; easy's 0 floors to a single tick, which is what keeps P29's reflex
    * tier a reflex.
+   *
+   * IT IS THE SHARE OF THE WHOLE PLAN, SPLIT ACROSS `planDepth` WINDOWS — `commitWindowOf` divides
+   * by the depth, so a depth-2 candidate is two 6-tick windows and a 10-tick coast rather than two
+   * 12-tick windows and no coast at all (R-P17, fix wave 1, 2026-09-07). At the `planDepth: 1`
+   * every tier ships that division is a no-op and this number is read exactly as written; it
+   * matters only to the depth-2 upgrade path spec P33 names.
    *
    * THE MIDDLE OF AN AXIS WHOSE TWO ENDS BOTH FAIL, and it had to be measured because both ends
    * look right from a distance. A candidate held for the WHOLE horizon (round 3) makes the steering
