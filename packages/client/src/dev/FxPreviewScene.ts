@@ -75,7 +75,22 @@ export class FxPreviewScene extends Phaser.Scene {
     super("FxPreview");
   }
 
+  private onShutdown(): void {
+    this.teardown();
+  }
+
+  /** The single teardown path, called from both `create` and `onShutdown` — see the note in `create`. */
+  private teardown(): void {
+    this.fx?.destroy();
+    this.fx = undefined;
+  }
+
   create(): void {
+    // Mirrors ArenaScene's `resetMatchState` convention (ArenaScene.ts, around line 1252): call the
+    // single teardown from both `create` and `onShutdown` rather than shutdown-only, so a restart of
+    // this scene can never leave the previous FxLayer's emitters and render textures alive.
+    this.teardown();
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.onShutdown, this);
     this.cameras.main.setBackgroundColor(ARENA_01.palette.floor);
 
     // BEFORE the floor, for the same reason `ArenaScene.create` builds it before `drawArena`: the

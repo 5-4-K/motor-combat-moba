@@ -95,9 +95,65 @@ describe("per-frame FX cost", () => {
     // MEASURED: 0.013-0.019 ms warm, 0.046 ms on a cold 200-iteration pass. That is 0.1% of a
     // 16.7 ms frame. The bound is 0.25 ms — ~5x the coldest observation, ~15x the warm one, and
     // still only 1.5% of a frame, so it leaves the renderer everything while remaining a bound a
-    // real regression could cross: making the instance diff quadratic in `next.instances`, or
-    // dropping `MAX_SPECS_PER_FRAME`, both land well past it.
+    // real regression could cross: dropping `MAX_SPECS_PER_FRAME`, or a heavy synchronous op —
+    // an added allocation, an extra pass over the instance list — landing on the hot path.
+    //
+    // What this bound does NOT catch: algorithmic complexity. At this input size (six cars, sixty
+    // instances) O(n) and O(n^2) are not far enough apart in wall-clock terms to trip a millisecond
+    // budget — replacing `deriveFxEvents`' O(1) Map lookup with a naive `array.find()` measured
+    // 0.014 ms here, indistinguishable from the baseline. The "scales linearly" test below is what
+    // actually guards the instance diff's complexity, by comparing cost at two input sizes instead
+    // of against an absolute bound.
     expect(perFrameMs).toBeLessThan(0.25);
+  });
+
+  it("scales linearly with instance count, not quadratically", () => {
+    // A direct regression test for the instance diff's Map lookup: swapping it for a naive
+    // `array.find()` (O(n) per lookup, so O(n^2) overall) is invisible to the absolute-time bound
+    // above at 60 instances, but shows up clearly once the count is compared across an order of
+    // magnitude — see the measurement in the comment on that test.
+    const viewsAt = (n: number): [FxWorldView, FxWorldView] => {
+      const cars = Array.from({ length: 6 }, (_, i) => ({
+        sessionId: `p${i}`,
+        x: i * 100,
+        y: i * 80,
+        angle: i,
+        hp: 100 - i,
+        alive: true,
+        carId: "bastion",
+        vx: 0,
+        vy: 0,
+      }));
+      const instances = (offset: number) =>
+        Array.from({ length: n }, (_, i) => ({
+          id: `w${i + offset}`,
+          weaponId: i % 3 === 0 ? "magmablast" : i % 3 === 1 ? "thumper" : "lance",
+          x: i * 7,
+          y: i * 5,
+          angle: i * 0.1,
+          alive: true,
+        }));
+      const prev: FxWorldView = { cars, instances: instances(0) };
+      const next: FxWorldView = { cars: cars.map((c) => ({ ...c, hp: c.hp - 5 })), instances: instances(1000) };
+      return [prev, next];
+    };
+    const at = (n: number): number => {
+      const [prev, next] = viewsAt(n);
+      for (let i = 0; i < 200; i++) deriveFxEvents(prev, next); // warm, same reasoning as above
+      const iterations = 2000;
+      const started = performance.now();
+      for (let i = 0; i < iterations; i++) deriveFxEvents(prev, next);
+      return (performance.now() - started) / iterations;
+    };
+    const small = at(60);
+    const large = at(600);
+    // MEASURED (current O(1) Map lookup): ratio 8.3-9.0 across repeated runs — close to the 10x
+    // linear expectation. MEASURED with the Map swapped for `array.find()` (verified on a throwaway
+    // copy, never landed in fx/events.ts): ratio 56-58. Linear work gives a ratio near 10; quadratic
+    // gives ~100 in theory, and ~57 here because the fixed per-car half of the diff stays O(1) and
+    // dilutes it — either way it clears this bound by a wide margin. 30 sits comfortably above the
+    // linear noise ceiling seen across runs and comfortably below the quadratic floor.
+    expect(large / small).toBeLessThan(30);
   });
 });
 
