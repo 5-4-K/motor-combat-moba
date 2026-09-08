@@ -211,10 +211,17 @@ describe("toControl / fromControl", () => {
     expect(fromControl(field, 360)).toBe(TAU);
   });
 
-  it("round-trips a narrow cone within a degree", () => {
+  it("round-trips a narrow cone to within half a degree", () => {
     const field = fieldOf("coneRad");
-    const deg = Math.round(toControl(field, 0.9));
-    expect(fromControl(field, deg)).toBeCloseTo(0.9, 2);
+    // Half a degree is the most a 1° grid can promise, and it is 0.0087 rad — so asserting a
+    // tighter radian tolerance (`toBeCloseTo(x, 2)` allows 0.005) fails on inputs that are simply
+    // far from a whole degree: 0.9 rad round-trips 0.0076 away, 1.3 rad 0.0085. Assert the property
+    // the grid actually guarantees, over a spread of cones rather than one lucky value.
+    const halfDegree = (0.5 / 360) * Math.PI * 2;
+    for (const rad of [0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3]) {
+      const deg = Math.round(toControl(field, rad));
+      expect(Math.abs(fromControl(field, deg) - rad)).toBeLessThan(halfDegree);
+    }
   });
 });
 
