@@ -10,7 +10,8 @@ import {
 import { AIR_FX_DEPTH, DECAL_DEPTH, GROUND_FX_DEPTH, SMOKE_DEPTH } from "./depths.js";
 import { deriveFxEvents, type FxEvent, type FxWorldView } from "./events.js";
 import { emitterSpecsForAll, type EmitterSpec } from "./emitters.js";
-import { ENVIRONMENT_FX } from "./environment.js";
+import type { EnvResolver } from "./env-tuning.js";
+import { ENVIRONMENT_FX, type EnvironmentFx } from "./environment.js";
 import { eraserStampHeight, eraserStampsFor, eraserStampWidth } from "./occlusion.js";
 import { weaponFxOf, type FxChannel } from "./table.js";
 import type { WeaponFxResolver } from "./tuning.js";
@@ -41,27 +42,14 @@ export const FX_TEXTURE_KEYS = {
 } as const;
 
 /**
- * A chassis silhouette stamp's WIDTH in pixels. Its height follows `eraserStampHeight(ENVIRONMENT_FX)`.
+ * A chassis silhouette stamp's WIDTH in pixels. Its height follows the live `eraserStampHeight`.
  *
- * A resolution knob and nothing else: how big the hole is, is `ENVIRONMENT_FX.occlusion.halo`'s
- * decision alone. Read directly here rather than through an injected resolver — Task 10 replaces
- * this.
+ * A resolution knob and nothing else: how big the hole IS, in world units, is
+ * `env.occlusion.halo`'s decision alone — see `buildEraserTextures`, which resolves that through
+ * `this.resolveEnv()`. This constant stays a fixed literal because it is texture resolution, not an
+ * environment value.
  */
 const ERASER_TEXTURE_PX = 128;
-
-/**
- * The decal budget, split by class so one can never starve the other out of the ring buffer.
- *
- * Rubber is produced at two marks per `tyreSpacing` of travel — 119/s for a car at top speed, and
- * past 700/s with a full room skidding. Sharing one FIFO with scorch meant the buffer turned over
- * in seconds under load, so a `magmablast` scorch was evicted before its half-life and
- * `decals.ts`'s promise that "a fight leaves a readable history" was unreachable in exactly the
- * fights worth reading. The two caps sum to `ENVIRONMENT_FX.decals.maxTotal`, which is still the
- * bound on the per-frame redraw cost — the split changes who spends the budget, never how large it
- * is. Read directly here rather than through an injected resolver — Task 10 replaces this.
- */
-const scorchCap = ENVIRONMENT_FX.decals.maxScorch;
-const tyreCap = ENVIRONMENT_FX.decals.maxTotal - scorchCap;
 
 /**
  * The blurred silhouette key for a chassis.
@@ -169,6 +157,16 @@ export class FxLayer {
    * than by discipline.
    */
   private readonly resolveFx: WeaponFxResolver;
+  /**
+   * How this layer reads `ENVIRONMENT_FX` (Task 10).
+   *
+   * Defaults to a resolver that always returns the shipped table, and every shipped scene leaves it
+   * at that default — same shape and same reasoning as `resolveFx` above. Only the playground passes
+   * a live one, which is what confines environment overrides to that room by construction.
+   */
+  private readonly resolveEnv: EnvResolver;
+  /** The seed the floor was last generated with, so `rebuildFloor` can reuse or replace it (EV27). */
+  private floorSeed: number;
 
   constructor(
     scene: Phaser.Scene,
@@ -176,9 +174,12 @@ export class FxLayer {
     arenaWidth: number,
     arenaHeight: number,
     resolveFx: WeaponFxResolver = weaponFxOf,
+    resolveEnv: EnvResolver = () => ENVIRONMENT_FX,
   ) {
     this.scene = scene;
     this.resolveFx = resolveFx;
+    this.resolveEnv = resolveEnv;
+    this.floorSeed = seed;
     this.uploadTextures(seed);
 
     const emitter = (
@@ -249,22 +250,23 @@ export class FxLayer {
    *
    * The texture is sized to the STAMP's aspect rather than square, and the sprite is CONTAINED
    * inside it rather than stretched to fill. Both halves matter, and getting either wrong produces
-   * the same symptom: `maskSmoke` displays this at exactly `eraserStampWidth()` x
-   * `eraserStampHeight()` (76 x 60 today), so a square texture there is a non-uniform scale, and a 96x51
-   * sprite squashed into a square is already a 1.9x distortion before that. Together they turned
+   * the same symptom: `maskSmoke` displays this at exactly `eraserStampWidth(env)` x
+   * `eraserStampHeight(env)` (76 x 60 for the shipped table), so a square texture there is a
+   * non-uniform scale, and a 96x51 sprite squashed into a square is already a 1.9x distortion before
+   * that. Together they turned
    * every chassis — bastion's hex, bullseye's ellipse — into the same oversized round blob, which
    * is precisely the promise this whole method makes and was not keeping.
    */
   private buildEraserTextures(): void {
+    const env = this.resolveEnv();
     // Pixels per world unit. Everything below is in world units scaled by this, so the texture and
     // the display box are the same shape and the scale that lands them on screen is uniform.
-    const ppu = ERASER_TEXTURE_PX / eraserStampWidth();
+    const ppu = ERASER_TEXTURE_PX / eraserStampWidth(env);
     const texWidth = ERASER_TEXTURE_PX;
-    const texHeight = Math.round(eraserStampHeight() * ppu);
+    const texHeight = Math.round(eraserStampHeight(env) * ppu);
     // The hull box, centred, with the halo as its margin — in the same world units
-    // `ENVIRONMENT_FX.occlusion.halo` is written in, which is what makes that field's doc comment
-    // true.
-    const inset = ENVIRONMENT_FX.occlusion.halo * ppu;
+    // `env.occlusion.halo` is written in, which is what makes that field's doc comment true.
+    const inset = env.occlusion.halo * ppu;
     const hullWidth = texWidth - inset * 2;
     const hullHeight = texHeight - inset * 2;
 
@@ -314,31 +316,38 @@ export class FxLayer {
     }
   }
 
+  /**
+   * Remove-then-`createCanvas` for one generated texture, and record its texel size.
+   *
+   * A method rather than a closure so `rebuildFloor` can reuse it (Task 10) instead of copying the
+   * dance — a second copy is exactly how the two would drift apart. Removed first rather than
+   * reused: a scene restart (or a floor rebuild) re-runs this with fresh pixels, and `createCanvas`
+   * on a key that already exists returns null instead of replacing it.
+   */
+  private addTexture(key: string, tex: TexturePixels): void {
+    if (this.scene.textures.exists(key)) this.scene.textures.remove(key);
+    const canvasTexture = this.scene.textures.createCanvas(key, tex.width, tex.height);
+    if (!canvasTexture) return;
+    const ctx = canvasTexture.getContext();
+    const image = ctx.createImageData(tex.width, tex.height);
+    image.data.set(tex.data);
+    ctx.putImageData(image, 0, 0);
+    canvasTexture.refresh();
+    this.texelSize.set(key, tex.width);
+  }
+
   /** Turn generated pixel data into Phaser textures. The one place `fx/` needs a DOM canvas. */
   private uploadTextures(seed: number): void {
-    const add = (key: string, tex: TexturePixels): void => {
-      // Removed first rather than reused: a scene restart re-runs this with a fresh seed, and
-      // `createCanvas` on a key that already exists returns null instead of replacing it.
-      if (this.scene.textures.exists(key)) this.scene.textures.remove(key);
-      const canvasTexture = this.scene.textures.createCanvas(key, tex.width, tex.height);
-      if (!canvasTexture) return;
-      const ctx = canvasTexture.getContext();
-      const image = ctx.createImageData(tex.width, tex.height);
-      image.data.set(tex.data);
-      ctx.putImageData(image, 0, 0);
-      canvasTexture.refresh();
-      this.texelSize.set(key, tex.width);
-    };
-
-    add(FX_TEXTURE_KEYS.dustA, puffTexture(seed, DUST_A));
-    add(FX_TEXTURE_KEYS.dustB, puffTexture(seed + 404, DUST_B));
-    add(FX_TEXTURE_KEYS.sootA, puffTexture(seed + 808, SOOT_A));
-    add(FX_TEXTURE_KEYS.sootB, puffTexture(seed + 912, SOOT_B));
-    add(FX_TEXTURE_KEYS.fireA, fireTexture(seed));
-    add(FX_TEXTURE_KEYS.fireB, fireTexture(seed + 77));
-    add(FX_TEXTURE_KEYS.spark, sparkTexture());
-    add(FX_TEXTURE_KEYS.scorch, scorchTexture(seed));
-    add(FX_TEXTURE_KEYS.asphalt, asphaltTexture(seed));
+    const env = this.resolveEnv();
+    this.addTexture(FX_TEXTURE_KEYS.dustA, puffTexture(seed, DUST_A));
+    this.addTexture(FX_TEXTURE_KEYS.dustB, puffTexture(seed + 404, DUST_B));
+    this.addTexture(FX_TEXTURE_KEYS.sootA, puffTexture(seed + 808, SOOT_A));
+    this.addTexture(FX_TEXTURE_KEYS.sootB, puffTexture(seed + 912, SOOT_B));
+    this.addTexture(FX_TEXTURE_KEYS.fireA, fireTexture(seed));
+    this.addTexture(FX_TEXTURE_KEYS.fireB, fireTexture(seed + 77));
+    this.addTexture(FX_TEXTURE_KEYS.spark, sparkTexture());
+    this.addTexture(FX_TEXTURE_KEYS.scorch, scorchTexture(seed));
+    this.addTexture(FX_TEXTURE_KEYS.asphalt, asphaltTexture(seed, 512, env));
   }
 
   /**
@@ -463,13 +472,18 @@ export class FxLayer {
 
   /** One frame: derive events from the view delta, spawn what they ask for, and lay decals. */
   update(view: FxWorldView, dtMs: number): void {
+    // Resolved ONCE per frame and threaded down, not once per particle or per helper call: the
+    // resolver memoises so a repeat call is cheap, but everything one frame draws must agree on the
+    // same values (Task 10).
+    const env = this.resolveEnv();
     this.clockMs += dtMs;
     const events = deriveFxEvents(this.prevView, view);
     this.frameEvents = events;
-    this.spawn(emitterSpecsForAll(events, this.resolveFx));
+    this.spawn(emitterSpecsForAll(events, this.resolveFx, env));
 
+    const scorchCap = env.decals.maxScorch;
     for (const event of events) {
-      for (const stamp of decalStampsFor(event)) {
+      for (const stamp of decalStampsFor(event, env, this.resolveFx)) {
         this.pushDecal(this.scorchDecals, scorchCap, {
           key: FX_TEXTURE_KEYS.scorch,
           x: stamp.x,
@@ -485,9 +499,9 @@ export class FxLayer {
       }
     }
 
-    this.layTyreMarks(view);
-    this.redrawDecals();
-    this.maskSmoke(view);
+    this.layTyreMarks(view, env);
+    this.redrawDecals(env);
+    this.maskSmoke(view, env);
     this.prevView = view;
   }
 
@@ -499,7 +513,7 @@ export class FxLayer {
    * Only smoke is masked — fire and sparks are additive and live a few hundred milliseconds, so
    * they brighten a car rather than hiding it and a mask on them would buy nothing.
    */
-  private maskSmoke(view: FxWorldView): void {
+  private maskSmoke(view: FxWorldView, env: EnvironmentFx): void {
     this.smoke.clear();
     // `?dev=fx` only: an empty smoke texture, so switching the channel off clears the cloud already
     // on screen instead of waiting out a 3-second lifespan. The emitter keeps ticking its live
@@ -517,7 +531,7 @@ export class FxLayer {
     // the erase is exactly the "before" half of VFX18's before/after, and it must leave the smoke
     // itself untouched or the comparison shows nothing.
     if (!this.disabled.has("mask")) {
-      for (const stamp of eraserStampsFor(view.cars)) {
+      for (const stamp of eraserStampsFor(view.cars, env)) {
         const key = eraserKeyOf(stamp.carId);
         if (!this.scene.textures.exists(key)) continue;
         // One reusable image, moved and re-erased per car. Creating a Game Object per car per frame
@@ -525,9 +539,9 @@ export class FxLayer {
         this.eraser
           .setTexture(key)
           // The stamp's own size, with NO multiplier: `EraserStamp.width`/`height` are the final
-          // world size of the hole and `ENVIRONMENT_FX.occlusion.halo` is the one number that decides
-          // it. A pair of fudge factors lived here and made that field's doc comment false —
-          // untestably, since this file has no test.
+          // world size of the hole and `env.occlusion.halo` is the one number that decides it. A
+          // pair of fudge factors lived here and made that field's doc comment false — untestably,
+          // since this file has no test.
           .setDisplaySize(stamp.width, stamp.height)
           .setRotation(stamp.angle)
           .setPosition(stamp.x, stamp.y);
@@ -542,8 +556,9 @@ export class FxLayer {
   /**
    * Add a decal to ONE class's buffer, dropping that class's oldest once it is full.
    *
-   * The buffer is a parameter rather than a field because the two classes must not share a cap —
-   * see `scorchCap`. Oldest-first eviction within each class is unchanged.
+   * The buffer AND the cap are parameters rather than fields because the two classes must not share
+   * a cap — see the `scorchCap`/`tyreCap` split in `update` and `layTyreMarks`, both read off
+   * `env.decals` for the same frame. Oldest-first eviction within each class is unchanged.
    */
   private pushDecal(buffer: LiveDecal[], cap: number, decal: LiveDecal): void {
     buffer.push(decal);
@@ -558,7 +573,8 @@ export class FxLayer {
    * lay several stampings, interpolated along the segment, which is what makes the trail one shape
    * per unit of road at any frame rate.
    */
-  private layTyreMarks(view: FxWorldView): void {
+  private layTyreMarks(view: FxWorldView, env: EnvironmentFx): void {
+    const tyreCap = Math.max(0, env.decals.maxTotal - env.decals.maxScorch);
     const key = FX_TEXTURE_KEYS.spark;
     // The spark texture's OWN edge length, for the same reason `spawn` looks it up rather than
     // dividing by a constant: the generated set is not one size.
@@ -578,7 +594,7 @@ export class FxLayer {
       }
       const dx = car.x - previous.x;
       const dy = car.y - previous.y;
-      const { fractions, carry } = tyreMarkSteps(previous.carry, Math.hypot(dx, dy));
+      const { fractions, carry } = tyreMarkSteps(previous.carry, Math.hypot(dx, dy), env);
       this.tyreTrails.set(car.sessionId, { x: car.x, y: car.y, carry });
       if (fractions.length === 0) continue;
       // Shared's `speedOf` on the networked world velocity, never a pose delta: `sim/velocity.ts`
@@ -590,6 +606,7 @@ export class FxLayer {
         const marks = tyreMarksFor(
           { x: previous.x + dx * fraction, y: previous.y + dy * fraction, angle: car.angle },
           speed,
+          env,
         );
         for (const mark of marks) {
           this.pushDecal(this.tyreDecals, tyreCap, {
@@ -599,7 +616,7 @@ export class FxLayer {
             scale: (mark.radius * 2) / texels,
             baseAlpha: mark.alpha,
             rotation: 0,
-            tint: ENVIRONMENT_FX.decals.tyreTint,
+            tint: env.decals.tyreTint,
             bornAtMs: this.clockMs,
           });
         }
@@ -616,9 +633,9 @@ export class FxLayer {
    * `clear()` then stamp then `render()`, every call deliberate. The layer is NOT faded in place,
    * because Phaser 4's `erase()` takes no alpha and cannot express a partial fade; redrawing also
    * makes the curve exact rather than an accumulation of per-frame rounding, and bounds the cost by
-   * `ENVIRONMENT_FX.decals.maxTotal` instead of by match length.
+   * `env.decals.maxTotal` instead of by match length.
    */
-  private redrawDecals(): void {
+  private redrawDecals(env: EnvironmentFx): void {
     this.decals.clear();
     // `?dev=fx` only. Both buffers keep filling and keep their birth stamps, so re-enabling shows
     // the ground as it would have been — anything that aged out while the layer was off is dropped
@@ -630,18 +647,18 @@ export class FxLayer {
     }
     // Scorch FIRST, so rubber lies over it: a car driving through a blast mark leaves tracks in it,
     // not under it. The draw order is the only thing the two buffers still share.
-    this.scorchDecals = this.stampSurvivors(this.scorchDecals);
-    this.tyreDecals = this.stampSurvivors(this.tyreDecals);
+    this.scorchDecals = this.stampSurvivors(this.scorchDecals, env);
+    this.tyreDecals = this.stampSurvivors(this.tyreDecals, env);
     // Buffered until this call — without it nothing appears, which is the Phaser 4 change most
     // likely to be missed when porting any Phaser 3 RenderTexture snippet.
     this.decals.render();
   }
 
   /** Stamp everything in one buffer that still has alpha, and hand back what is worth keeping. */
-  private stampSurvivors(buffer: readonly LiveDecal[]): LiveDecal[] {
+  private stampSurvivors(buffer: readonly LiveDecal[], env: EnvironmentFx): LiveDecal[] {
     const survivors: LiveDecal[] = [];
     for (const decal of buffer) {
-      const alpha = decal.baseAlpha * decalFadeAlpha(this.clockMs - decal.bornAtMs);
+      const alpha = decal.baseAlpha * decalFadeAlpha(this.clockMs - decal.bornAtMs, env);
       if (alpha <= 0) continue;
       survivors.push(decal);
       this.decals.stamp(decal.key, undefined, decal.x, decal.y, {
@@ -652,6 +669,40 @@ export class FxLayer {
       });
     }
     return survivors;
+  }
+
+  /**
+   * Regenerate and re-upload the asphalt (EV27).
+   *
+   * Behind a button rather than run on every slider tick: generating 512x512 pixels of two-octave
+   * tileable fbm on every `input` event would lock the panel.
+   *
+   * **The caller must re-point the tile sprite afterwards** (EV28). `addTexture` removes the texture
+   * and creates a new one, but a `TileSprite` holds a REFERENCE to the old texture object, so it
+   * keeps drawing the stale image until `setTexture` is called again. `ArenaScene.rebuildFloor` does
+   * that; this method cannot, because the tile sprite belongs to the scene, not the layer.
+   */
+  rebuildFloor(seed?: number): void {
+    if (seed !== undefined) this.floorSeed = seed;
+    this.addTexture(FX_TEXTURE_KEYS.asphalt, asphaltTexture(this.floorSeed, 512, this.resolveEnv()));
+  }
+
+  /**
+   * Drop decals that a lowered cap has made surplus (EV24).
+   *
+   * Without this a cap lowered from 600 to 50 would only bite as new decals arrived, so the change
+   * would read as having done nothing for the next half-minute of driving.
+   */
+  trimDecals(): void {
+    const env = this.resolveEnv();
+    const scorchCap = env.decals.maxScorch;
+    const tyreCap = Math.max(0, env.decals.maxTotal - scorchCap);
+    if (this.scorchDecals.length > scorchCap) {
+      this.scorchDecals.splice(0, this.scorchDecals.length - scorchCap);
+    }
+    if (this.tyreDecals.length > tyreCap) {
+      this.tyreDecals.splice(0, this.tyreDecals.length - tyreCap);
+    }
   }
 
   destroy(): void {
