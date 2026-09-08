@@ -1,4 +1,4 @@
-import { PRACTICE_ROOM_NAME, type ArenaState } from "@motor-combat-moba/shared";
+import { PLAYGROUND_ROOM_NAME, PRACTICE_ROOM_NAME, type ArenaState } from "@motor-combat-moba/shared";
 
 /**
  * "Which car am I driving?", "is the world stopped?", and "is this a practice room?" — answered for
@@ -37,4 +37,15 @@ export function isSimPaused(state: ArenaState): boolean {
  */
 export function isPracticeRoom(room: { name?: string }): boolean {
   return room.name === PRACTICE_ROOM_NAME;
+}
+
+/**
+ * Is this the dev-only playground room (spec PG46)?
+ *
+ * Read off the room's own name for the same reason `isPracticeRoom` above is: a scene-set flag can
+ * go stale — tune VFX in the playground, exit, join a real match, and a flag nobody cleared would
+ * render that match with overrides — while a room's name cannot.
+ */
+export function isPlaygroundRoom(room: { name?: string }): boolean {
+  return room.name === PLAYGROUND_ROOM_NAME;
 }

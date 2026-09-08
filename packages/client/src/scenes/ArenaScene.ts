@@ -50,6 +50,8 @@ import {
 } from "../fx/camera.js";
 import { FX_TEXTURE_KEYS, FxLayer } from "../fx/layer.js";
 import { FLOOR_DEPTH } from "../fx/depths.js";
+import { liveFxResolver } from "../fx/override-store.js";
+import type { EmitterSpec } from "../fx/emitters.js";
 import { isDebugEnabled } from "../config/client-mode.js";
 import { showHitboxes } from "../config/view-options.js";
 import { ARENA_VIEW_WIDTH, HUD_GUTTER_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from "../config/display.js";
@@ -66,7 +68,7 @@ import type { PracticeSummaryPlayer } from "../ui/screens/practice-summary.js";
 import { arenaMismatchMessage } from "./arena-mismatch.js";
 import { axisOf, drainTicks } from "./arena-input.js";
 import { releaseKeyboardCaptures } from "./keyboard-captures.js";
-import { controlledCarOf, isPracticeRoom, isSimPaused } from "./controlled-car.js";
+import { controlledCarOf, isPlaygroundRoom, isPracticeRoom, isSimPaused } from "./controlled-car.js";
 import { arenaBorderRect, arenaColorsOf } from "./arena-visual.js";
 import { fitsViewport } from "./arena-camera.js";
 import { assetManifest, assetsReady } from "./BootScene.js";
@@ -915,6 +917,9 @@ export class ArenaScene extends Phaser.Scene {
       this.arena.width * 31 + this.arena.height,
       this.arena.width,
       this.arena.height,
+      // Only a playground room resolves through the override store (spec PG46). Everything else
+      // gets the default and renders shipped WEAPON_FX.
+      this.room && isPlaygroundRoom(this.room) ? liveFxResolver() : undefined,
     );
 
     this.drawArena(this.arena);
@@ -1395,6 +1400,21 @@ export class ArenaScene extends Phaser.Scene {
     // set of players and the two would disagree about where the panel ends (D12).
     const panelHeight = this.renderRosterPanel(room);
     this.renderWeaponHud(room, panelHeight);
+  }
+
+  /**
+   * Spawn a burst straight into the fx layer, bypassing event derivation (spec PG51).
+   *
+   * The playground's VFX panel calls this through `PlaygroundScene`. It deliberately does NOT go
+   * through `deriveFxEvents`: there is no state delta to derive from on a frozen field, and a
+   * synthetic event would land in `lastEvents()`, which this scene reads for camera shake. A
+   * preview must not shake the camera.
+   *
+   * A no-op before `create` has built the layer and after `shutdown` has dropped it, which is what
+   * makes it safe to call from a timer that outlives an arena restart.
+   */
+  previewFx(specs: readonly EmitterSpec[]): void {
+    this.fx?.spawn(specs);
   }
 
   // --- input -------------------------------------------------------------------------------
