@@ -10,6 +10,9 @@ import type {
   TuningValue,
   WeaponId,
 } from "@motor-combat-moba/shared";
+import { setFxOverrides } from "../../fx/override-store.js";
+import type { FxOverrides } from "../../fx/tuning.js";
+import { buildVfxPanel as buildVfxPanelDom } from "./vfx-panel.js";
 import {
   BOT_SESSION_ID,
   CAR_TABLE,
@@ -312,6 +315,24 @@ const CSS = `
   font-size: 12px;
   line-height: 1.2;
 }
+.pg-vfx { min-width: 460px; }
+.pg-fx-phase {
+  margin: 12px 0 4px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9aa0a6;
+}
+.pg-fx-block { border: 1px solid #333; border-radius: 4px; margin: 4px 0; }
+.pg-fx-head {
+  width: 100%;
+  margin: 0;
+  text-align: left;
+  border: none;
+  border-radius: 4px;
+  background: #23262b;
+  text-transform: capitalize;
+}
 `;
 
 /** Best-effort read of the currently-live setup off the room's schema, for seeding the settings
@@ -439,6 +460,18 @@ export function mountPlaygroundOverlay(
   });
 
   let subView: "menu" | "physics" | "vfx" = "menu";
+  /** The live VFX override map, shared with the fx store so an edit reaches the next burst (PG46).
+   * Loaded once per mount and mutated in place by the panel. */
+  const vfxOverrides: FxOverrides = { ...loadStored().vfx };
+  setFxOverrides(vfxOverrides);
+
+  /** Saves the VFX section without disturbing the physics panel's own save path, which reads its
+   * live DOM controls and is not available outside `buildSettings`. */
+  function persistVfx(): void {
+    const stored = loadStored();
+    saveStored({ ...stored, vfx: { ...vfxOverrides } });
+  }
+
   let wasPaused = room.state.paused;
   let lastSentArenaId = isArenaId(room.state.arenaId)
     ? room.state.arenaId
@@ -487,17 +520,26 @@ export function mountPlaygroundOverlay(
     ]);
   }
 
-  /** The VFX settings panel (spec PG48). Body lands in Task 7. */
+  /**
+   * The VFX settings panel (spec PG48). Its own module; this wires it to the overlay's storage,
+   * preview and navigation. `vfxOverrides` is the same live object the store holds, mutated in
+   * place, so an edit is visible to the next burst without a re-install.
+   */
   function buildVfxPanel(): HTMLElement {
-    return h("div", { class: "pg-panel pg-settings" }, [
-      h("div", { class: "pg-settings-header" }, [
-        h("h2", {}, ["VFX settings"]),
-        button({}, ["Back"], () => {
-          subView = "menu";
-          render();
-        }),
-      ]),
-    ]);
+    return buildVfxPanelDom({
+      overrides: vfxOverrides,
+      persist: persistVfx,
+      preview: () => {
+        /* Task 8 */
+      },
+      onBack: () => {
+        subView = "menu";
+        render();
+      },
+      onCopy: () => {
+        /* Task 9 */
+      },
+    });
   }
 
   function buildSettings(): HTMLElement {
@@ -609,9 +651,7 @@ export function mountPlaygroundOverlay(
         setup: readSetup(),
         overrides: { ...overrides },
         view: { showHitbox: hitboxToggle.checked },
-        // Carried through unchanged: the physics panel does not edit VFX, and a save from here must
-        // not wipe a tuning session. Task 7 replaces this with the panel's own live map.
-        vfx: loadStored().vfx,
+        vfx: { ...vfxOverrides },
       });
     }
 
