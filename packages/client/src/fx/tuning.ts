@@ -216,25 +216,24 @@ function resolvePhase(
 /** A weapon's row with the override map applied. Equal to the shipped row for an empty map. */
 export function resolveWeaponFx(weaponId: string, overrides: FxOverrides): WeaponFxRow {
   const shipped = weaponFxOf(weaponId);
+  // An untouched weapon comes back BY IDENTITY, not as a rebuilt copy: while one weapon is being
+  // tuned, every other one hits the shipped object and allocates nothing per burst. The check lives
+  // here rather than in a resolver factory because `liveFxResolver` reads the store on every call —
+  // a factory that precomputed the touched set would go stale the moment the panel edited the map.
+  const prefix = `${weaponId}.`;
+  let touched = false;
+  for (const key in overrides) {
+    if (key.startsWith(prefix)) {
+      touched = true;
+      break;
+    }
+  }
+  if (!touched) return shipped;
+
   return {
     muzzle: resolvePhase(weaponId, "muzzle", shipped.muzzle, overrides),
     impact: resolvePhase(weaponId, "impact", shipped.impact, overrides),
   };
-}
-
-/**
- * A resolver over a fixed override map.
- *
- * A weapon with no entry in the map returns `weaponFxOf`'s own row BY IDENTITY, not a rebuilt copy:
- * in a room where one weapon is being tuned, the other five keep hitting the shipped object and
- * allocate nothing per burst.
- */
-export function fxResolverFor(overrides: FxOverrides): WeaponFxResolver {
-  const touched = new Set(
-    Object.keys(overrides).map((key) => key.slice(0, Math.max(0, key.indexOf(".")))),
-  );
-  return (weaponId) =>
-    touched.has(weaponId) ? resolveWeaponFx(weaponId, overrides) : weaponFxOf(weaponId);
 }
 
 /** A number as source: `TAU` where it is exactly that, otherwise trimmed to four decimals. */

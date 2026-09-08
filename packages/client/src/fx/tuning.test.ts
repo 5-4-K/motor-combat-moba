@@ -5,7 +5,6 @@ import {
   FX_FIELDS,
   FX_PHASES,
   burstFor,
-  fxResolverFor,
   fxTableSource,
   fromControl,
   fxCellsFor,
@@ -223,25 +222,36 @@ describe("resolveWeaponFx", () => {
     expect(row.impact[1]!.count).toBe(6);
   });
 
+  it("appends TWO newly enabled channels, in FX_CHANNELS order, after the authored ones", () => {
+    // lance's muzzle is authored fire, spark. Enabling smoke and debris at once must not re-sort the
+    // whole phase into FX_CHANNELS order (smoke, fire, spark, debris) -- the authored pair stays
+    // first, and only the two new ones are appended, in FX_CHANNELS order relative to each other.
+    const row = resolveWeaponFx("lance", {
+      "lance.muzzle.smoke.count": 5,
+      "lance.muzzle.debris.count": 8,
+    });
+    expect(row.muzzle.map((b) => b.channel)).toEqual(["fire", "spark", "smoke", "debris"]);
+  });
+
   it("gives an unauthored weapon a real row once a channel is raised off zero", () => {
     const row = resolveWeaponFx("wildcharge", { "wildcharge.impact.debris.count": 12 });
     expect(row.impact.some((b) => b.channel === "debris" && b.count === 12)).toBe(true);
   });
-});
 
-describe("fxResolverFor", () => {
-  it("returns the shipped row, by identity, for an untouched weapon", () => {
-    const resolve = fxResolverFor({ "lance.muzzle.fire.count": 40 });
-    expect(resolve("magmablast")).toBe(weaponFxOf("magmablast"));
+  it("returns the shipped row BY IDENTITY for a weapon nothing overrides", () => {
+    expect(resolveWeaponFx("magmablast", { "lance.muzzle.fire.count": 40 })).toBe(
+      weaponFxOf("magmablast"),
+    );
   });
 
-  it("returns the overridden row for a touched weapon", () => {
-    const resolve = fxResolverFor({ "lance.muzzle.fire.count": 40 });
-    expect(resolve("lance").muzzle.find((b) => b.channel === "fire")!.count).toBe(40);
+  it("returns a rebuilt row for a weapon that is overridden", () => {
+    const row = resolveWeaponFx("lance", { "lance.muzzle.fire.count": 40 });
+    expect(row).not.toBe(weaponFxOf("lance"));
+    expect(row.muzzle.find((b) => b.channel === "fire")!.count).toBe(40);
   });
 
-  it("falls back to the default row for an unknown weapon id", () => {
-    expect(fxResolverFor({})("no-such-weapon")).toBe(weaponFxOf("no-such-weapon"));
+  it("does not throw, or rebuild, for an unknown weapon id", () => {
+    expect(resolveWeaponFx("no-such-weapon", {})).toBe(weaponFxOf("no-such-weapon"));
   });
 });
 
@@ -285,6 +295,19 @@ describe("fxTableSource", () => {
     const source = fxTableSource(overrides);
     // Evaluate the fragment as an object literal and compare it to what the sim would render.
     const TAU = Math.PI * 2;
+    const parsed = new Function("TAU", `return {${source}};`)(TAU) as Record<string, unknown>;
+    expect(parsed.lance).toEqual(resolveWeaponFx("lance", overrides));
+  });
+
+  it("round-trips a cone that is NOT a full sphere through the four-decimal number path", () => {
+    // lance's muzzle bursts author coneRad 0.7 (fire) and 0.6 (spark), neither of them TAU, so this
+    // exercises `numberSource`'s trimmed-decimal branch rather than its `TAU` special case.
+    const overrides: FxOverrides = { "lance.muzzle.fire.count": 40 };
+    const source = fxTableSource(overrides);
+    const muzzle = source.slice(source.indexOf("muzzle:"), source.indexOf("impact:"));
+    expect(muzzle).toContain("coneRad: 0.7");
+    expect(muzzle).toContain("coneRad: 0.6");
+    expect(muzzle).not.toContain("coneRad: TAU");
     const parsed = new Function("TAU", `return {${source}};`)(TAU) as Record<string, unknown>;
     expect(parsed.lance).toEqual(resolveWeaponFx("lance", overrides));
   });

@@ -988,7 +988,7 @@ export function mountPlaygroundOverlay(
       copyText(JSON.stringify(overrides, null, 2), statsContainer);
     });
 
-    /** The single exit point for leaving the settings view (spec PG13/PG16): sends the current
+    /** The single exit point for leaving the physics settings view (spec PG13/PG16): sends the current
      * overrides map exactly once (an empty map is a deliberate, valid reset-to-shipped send), saves
      * one last time, and returns to the menu. Guarded the same way the disabled Back button already
      * was -- an illegal loadout traps the user in settings regardless of how they tried to leave. */
