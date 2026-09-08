@@ -49,6 +49,7 @@ import {
 import { ENVIRONMENT_FX } from "../fx/environment.js";
 import { liveEnvResolver } from "../fx/env-store.js";
 import type { EnvResolver } from "../fx/env-tuning.js";
+import type { FxEvent } from "../fx/events.js";
 import { FX_TEXTURE_KEYS, FxLayer } from "../fx/layer.js";
 import { FLOOR_DEPTH } from "../fx/depths.js";
 import { liveFxResolver } from "../fx/override-store.js";
@@ -1237,6 +1238,29 @@ export class ArenaScene extends Phaser.Scene {
   /** Rebuild the smoke-hole silhouettes after a halo edit (EV30). */
   rebuildOcclusion(): void {
     this.fx?.rebuildEraserTextures();
+  }
+
+  /**
+   * Fire one of each shake kind, for the panel's Test shake button (EV31).
+   *
+   * Its own method rather than a synthetic `FxEvent` through `previewFx`: `previewFx` deliberately
+   * does NOT put anything in `lastEvents()`, precisely so a burst preview cannot shake the camera.
+   * This is the opposite requirement, so it goes straight to `tryShake`.
+   */
+  testShake(): void {
+    const env = this.resolveEnv();
+    const kinds: FxEvent[] = [
+      { kind: "damaged", sessionId: "preview", x: 0, y: 0, amount: 40 },
+      { kind: "shotEnded", weaponId: "magmablast", x: 0, y: 0, angle: 0 },
+      { kind: "died", sessionId: "preview", x: 0, y: 0 },
+    ];
+    let delay = 0;
+    for (const event of kinds) {
+      const spec = shakeFor(event, env);
+      if (spec) this.time.delayedCall(delay, () => this.tryShake(spec));
+      delay += 400;
+    }
+    this.time.delayedCall(delay, () => this.tryShake(ramShake(300, env)));
   }
 
   /**

@@ -19,9 +19,11 @@ import {
   type FxOverrides,
   type FxPhase,
 } from "../../fx/tuning.js";
-import type { EnvOverrides } from "../../fx/env-tuning.js";
+import { envTableSource, type EnvOverrides } from "../../fx/env-tuning.js";
+import { bumpEnvVersion, setEnvOverrides } from "../../fx/env-store.js";
 import type { FxChannel } from "../../fx/table.js";
 import { buildVfxPanel as buildVfxPanelDom } from "./vfx-panel.js";
+import { buildEnvPanel as buildEnvPanelDom } from "./env-panel.js";
 import {
   BOT_SESSION_ID,
   CAR_TABLE,
@@ -325,6 +327,7 @@ const CSS = `
   line-height: 1.2;
 }
 .pg-vfx { min-width: 460px; }
+.pg-env { min-width: 460px; }
 .pg-fx-phase {
   margin: 12px 0 4px;
   font-size: 12px;
@@ -441,10 +444,25 @@ const VFX_REPLAY_MS = 1500;
  */
 const VFX_PREVIEW_POS = { x: 260, y: 300 } as const;
 
+/**
+ * The environment panel's four hooks into the running `ArenaScene` (EV31/EV32).
+ *
+ * This overlay holds no handle on the scene itself -- see the module doc comment for why -- so
+ * `PlaygroundScene` hands these in already resolving `this.scene.get("arena")` at CALL time, the
+ * same pattern `previewFx` uses one parameter over.
+ */
+export interface PlaygroundEnvHooks {
+  readonly reapply: () => void;
+  readonly rebuildFloor: (seed?: number) => void;
+  readonly rebuildOcclusion: () => void;
+  readonly testShake: () => void;
+}
+
 export function mountPlaygroundOverlay(
   room: Room<PlaygroundState>,
   onArenaChanged: () => void,
   previewFx: (specs: readonly EmitterSpec[]) => void,
+  envHooks: PlaygroundEnvHooks,
 ): () => void {
   const style = document.createElement("style");
   style.textContent = CSS;
@@ -485,28 +503,32 @@ export function mountPlaygroundOverlay(
       `terms  ${termLine(payload.terms)}`;
   });
 
-  let subView: "menu" | "physics" | "vfx" = "menu";
+  let subView: "menu" | "physics" | "vfx" | "env" = "menu";
   /** The live VFX override map, shared with the fx store so an edit reaches the next burst (PG46).
    * Loaded once per mount and mutated in place by the panel. */
   const vfxOverrides: FxOverrides = { ...loadStored().vfx };
   setFxOverrides(vfxOverrides);
 
-  /** The live environment override map (EV32). No panel mutates this yet — this task only wires
-   * persistence — but it is held the same way `vfxOverrides` is (loaded once at mount, carried
-   * through every save) so a value already on disk is never clobbered by an unrelated save. The
-   * environment settings panel task mutates this map in place, the same way the vfx panel mutates
-   * `vfxOverrides` — there must be exactly one of it in this scope, or the panel and `persist()`
-   * would each hold their own copy and an edit would silently fail to reach localStorage. Named
-   * `envOverridesMap` rather than `envOverrides` because `fx/env-store.ts` exports a function
-   * named `envOverrides()` that a later task imports into this file — the same reason the sibling
-   * below is `vfxOverrides` and not `fxOverrides` (`override-store.ts` exports `fxOverrides()`). */
+  /** The live environment override map (EV32), mutated in place by `env-panel.ts` exactly as the
+   * physics and VFX panels mutate their own maps — there must be exactly one of it in this scope,
+   * or the panel and `persistEnv()` would each hold their own copy and an edit would silently fail
+   * to reach localStorage. Named `envOverridesMap` rather than `envOverrides` because
+   * `fx/env-store.ts` exports a function named `envOverrides()` — the same reason the sibling above
+   * is `vfxOverrides` and not `fxOverrides` (`override-store.ts` exports `fxOverrides()`). */
   const envOverridesMap: EnvOverrides = { ...loadStored().env };
+  setEnvOverrides(envOverridesMap);
 
   /** Saves the VFX section without disturbing the physics panel's own save path, which reads its
    * live DOM controls and is not available outside `buildSettings`. */
   function persistVfx(): void {
     const stored = loadStored();
     saveStored({ ...stored, vfx: { ...vfxOverrides } });
+  }
+
+  /** Saves the environment section, mirroring `persistVfx` above. */
+  function persistEnv(): void {
+    const stored = loadStored();
+    saveStored({ ...stored, env: { ...envOverridesMap } });
   }
 
   /** Clipboard with the same guarded fallback the physics panel has always used: no Clipboard API
@@ -597,6 +619,7 @@ export function mountPlaygroundOverlay(
     if (view === "menu") root.appendChild(buildMenu());
     else if (view === "physics") root.appendChild(buildSettings());
     else if (view === "vfx") root.appendChild(buildVfxPanel());
+    else if (view === "env") root.appendChild(buildEnvPanel());
   }
 
   function buildMenu(): HTMLElement {
@@ -610,6 +633,10 @@ export function mountPlaygroundOverlay(
       }),
       button({}, ["VFX settings"], () => {
         subView = "vfx";
+        render();
+      }),
+      button({}, ["Environment settings"], () => {
+        subView = "env";
         render();
       }),
     ]);
@@ -651,6 +678,41 @@ export function mountPlaygroundOverlay(
       onCopy: () => {
         const source = fxTableSource(vfxOverrides);
         copyText(source === "" ? "// no VFX overrides to copy" : source);
+      },
+    });
+  }
+
+  /**
+   * The environment settings panel (spec EV31). Its own module; this wires it to the overlay's
+   * storage and to `envHooks`, the four callbacks the running `ArenaScene` exposes. `envOverridesMap`
+   * is the same live object the store holds (see the mount-time `setEnvOverrides` call above),
+   * mutated in place, so an edit is visible to the resolver without a re-install.
+   */
+  function buildEnvPanel(): HTMLElement {
+    return buildEnvPanelDom({
+      overrides: envOverridesMap,
+      persist: persistEnv,
+      onEdit: (section) => {
+        // The store caches on this counter, so an in-place mutation is invisible without it (EV19).
+        bumpEnvVersion();
+        // `floor` is Regenerate-only: regenerating 512x512 pixels of fbm per slider tick would lock
+        // the panel (EV27). A halo edit must rebuild the baked silhouettes or the hole's soft edge
+        // drifts off its own border (EV30).
+        if (section === "floor") return;
+        if (section === "occlusion") envHooks.rebuildOcclusion();
+        envHooks.reapply();
+      },
+      onRegenerateFloor: () => envHooks.rebuildFloor(),
+      // Preview only: never written to `envOverridesMap`, so never persisted and never exported (EV9).
+      onRerollFloor: () => envHooks.rebuildFloor(Math.floor(Math.random() * 1_000_000_000)),
+      onTestShake: () => envHooks.testShake(),
+      onCopy: () => {
+        const source = envTableSource(envOverridesMap);
+        copyText(source === "" ? "// no environment overrides to copy" : source);
+      },
+      onBack: () => {
+        subView = "menu";
+        render();
       },
     });
   }

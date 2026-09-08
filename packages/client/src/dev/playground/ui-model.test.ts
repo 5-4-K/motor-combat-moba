@@ -15,9 +15,10 @@ import {
 } from "./ui-model.js";
 
 describe("pauseKeyAction", () => {
-  it("backs out of either settings panel without touching pause", () => {
+  it("backs out of any settings panel without touching pause", () => {
     expect(pauseKeyAction("physics", "DIV")).toBe("back-to-menu");
     expect(pauseKeyAction("vfx", "DIV")).toBe("back-to-menu");
+    expect(pauseKeyAction("env", "DIV")).toBe("back-to-menu");
   });
 
   it("toggles pause from the menu and from gameplay", () => {
@@ -28,7 +29,7 @@ describe("pauseKeyAction", () => {
   it("ignores the key inside a form control, in every view", () => {
     // All three FORM_CONTROL_TAGS members, in both cases: dropping any one of them from that set
     // must fail a test, and the match is case-insensitive.
-    for (const view of ["hidden", "menu", "physics", "vfx"] as const) {
+    for (const view of ["hidden", "menu", "physics", "vfx", "env"] as const) {
       for (const tag of ["INPUT", "SELECT", "TEXTAREA", "input", "select", "textarea"]) {
         expect(pauseKeyAction(view, tag)).toBe("ignore");
       }

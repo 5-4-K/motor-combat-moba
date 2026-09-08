@@ -8,10 +8,11 @@ import { ARENAS, CAR_TABLE, WEAPON_TABLE, slotsOf, tunableFields } from "@motor-
  */
 
 /**
- * `"hidden"` while the sim is unpaused; the other three are the paused sub-screens (spec PG41 —
- * `"physics"` is what was called `"settings"` before the VFX panel joined it).
+ * `"hidden"` while the sim is unpaused; the other four are the paused sub-screens (spec PG41 —
+ * `"physics"` is what was called `"settings"` before the VFX panel joined it; `"env"` is the
+ * environment settings panel, EV31).
  */
-export type OverlayView = "hidden" | "menu" | "physics" | "vfx";
+export type OverlayView = "hidden" | "menu" | "physics" | "vfx" | "env";
 
 /** Tag names that mean "the user is typing/selecting", where P must not be treated as the pause key. */
 const FORM_CONTROL_TAGS: ReadonlySet<string> = new Set(["INPUT", "SELECT", "TEXTAREA"]);
@@ -31,8 +32,8 @@ export function pauseKeyAction(
   targetTag: string,
 ): "toggle" | "back-to-menu" | "ignore" {
   if (FORM_CONTROL_TAGS.has(targetTag.toUpperCase())) return "ignore";
-  // Either settings panel backs out to the menu without touching pause; the sim stays frozen.
-  if (view === "physics" || view === "vfx") return "back-to-menu";
+  // Any settings panel backs out to the menu without touching pause; the sim stays frozen.
+  if (view === "physics" || view === "vfx" || view === "env") return "back-to-menu";
   return "toggle";
 }
 

@@ -4,10 +4,11 @@ import type { PlaygroundState, TuningOverrides } from "@motor-combat-moba/shared
 import { MSG_PLAYGROUND_SETUP, MSG_PLAYGROUND_TUNING, setTuning } from "@motor-combat-moba/shared";
 import { joinPlayground } from "../net/connection.js";
 import { DEV_TOOL_MARKER } from "./registry.js";
-import { mountPlaygroundOverlay } from "./playground/overlay.js";
+import { mountPlaygroundOverlay, type PlaygroundEnvHooks } from "./playground/overlay.js";
 import { loadStored } from "./playground/storage.js";
 import { setShowHitboxes } from "../config/view-options.js";
 import { setFxOverrides } from "../fx/override-store.js";
+import { setEnvOverrides } from "../fx/env-store.js";
 import type { EmitterSpec } from "../fx/emitters.js";
 import type { ArenaScene } from "../scenes/ArenaScene.js";
 
@@ -70,6 +71,7 @@ export class PlaygroundScene extends Phaser.Scene {
     setTuning(null);
     setShowHitboxes(false);
     setFxOverrides(null);
+    setEnvOverrides(null);
     this.room = undefined;
     this.lastTuningJson = undefined;
   }
@@ -145,6 +147,7 @@ export class PlaygroundScene extends Phaser.Scene {
       room,
       () => this.onArenaChanged(),
       (specs) => this.previewFx(specs),
+      this.envHooks(),
     );
   }
 
@@ -159,6 +162,22 @@ export class PlaygroundScene extends Phaser.Scene {
   private previewFx(specs: readonly EmitterSpec[]): void {
     const arena = this.scene.get("arena") as ArenaScene | undefined;
     arena?.previewFx?.(specs);
+  }
+
+  /**
+   * The environment panel's four hooks into the running `ArenaScene`.
+   *
+   * Resolved at CALL time, never held — identical reasoning to `previewFx` above. Each no-ops while
+   * the scene is between a stop and a relaunch.
+   */
+  private envHooks(): PlaygroundEnvHooks {
+    const arena = (): ArenaScene | undefined => this.scene.get("arena") as ArenaScene | undefined;
+    return {
+      reapply: () => arena()?.reapplyEnvironment?.(),
+      rebuildFloor: (seed) => arena()?.rebuildFloor?.(seed),
+      rebuildOcclusion: () => arena()?.rebuildOcclusion?.(),
+      testShake: () => arena()?.testShake?.(),
+    };
   }
 
   /**
