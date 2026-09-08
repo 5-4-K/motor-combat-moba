@@ -1,4 +1,6 @@
 import { fbm, tileableFbm } from "./noise.js";
+import type { EnvironmentFx } from "./environment.js";
+import { ENVIRONMENT_FX } from "./environment.js";
 
 /**
  * A generated texture as raw RGBA bytes.
@@ -138,18 +140,6 @@ export function scorchTexture(seed: number, size = 160): TexturePixels {
 }
 
 /**
- * How many noise cells the grain octave spans across one tile, and how many the patch octave does.
- *
- * Cells across the tile rather than pixels per cell, because that is the quantity the wrap needs:
- * `tileableFbm`'s period is in cells, and it has to be a whole number for the lattice to close.
- * Stating it this way also makes the texture's character independent of `size` — the same grain and
- * the same patches at 512 as at the 64 the tests use — where a fixed pixel cell size would leave a
- * small texture with less than one patch cell across it and no broad variation at all.
- */
-const ASPHALT_GRAIN_CELLS = 64;
-const ASPHALT_PATCH_CELLS = 8;
-
-/**
  * Asphalt, and genuinely tileable: the floor is one `tileSprite` repeated across the whole arena
  * (2x2 on arena-01, 4x4 on arena-02), so any discontinuity across the wrap draws as a grid of
  * straight lines over 100% of the screen, permanently.
@@ -159,22 +149,35 @@ const ASPHALT_PATCH_CELLS = 8;
  * neighbours, in a texture whose whole value range is ~46 levels. `tileableFbm` closes the lattice
  * instead — see the tiling test in `textures.test.ts`, which holds the seam to the interior figure.
  *
- * Two octaves, weighted as before: a fine grain at 0.62 and broad patches at 0.38. Always opaque.
+ * Two octaves, weighted as before: a fine grain and broad patches. Always opaque.
+ *
+ * `env.floor.grainCells`/`patchCells` (how many noise cells each octave spans across one tile) MUST
+ * stay whole numbers — `tileableFbm`'s period is in cells, and it has to be a whole number for the
+ * lattice to close (EV15). Cells across the tile rather than pixels per cell also makes the
+ * texture's character independent of `size` — the same grain and the same patches at 512 as at the
+ * 64 the tests use — where a fixed pixel cell size would leave a small texture with less than one
+ * patch cell across it and no broad variation at all. `textures.test.ts`'s tiling case is what
+ * enforces the whole-number requirement; it fails the moment the lattice stops closing.
  */
-export function asphaltTexture(seed: number, size = 512): TexturePixels {
+export function asphaltTexture(
+  seed: number,
+  size = 512,
+  env: EnvironmentFx = ENVIRONMENT_FX,
+): TexturePixels {
+  const f = env.floor;
   const data = new Uint8ClampedArray(size * size * 4);
-  const grain = size / ASPHALT_GRAIN_CELLS;
-  const patch = size / ASPHALT_PATCH_CELLS;
+  const grain = size / f.grainCells;
+  const patch = size / f.patchCells;
   for (let j = 0; j < size; j++) {
     for (let i = 0; i < size; i++) {
       const n =
-        tileableFbm(i / grain, j / grain, seed + 7, 3, ASPHALT_GRAIN_CELLS) * 0.62 +
-        tileableFbm(i / patch, j / patch, seed + 55, 2, ASPHALT_PATCH_CELLS) * 0.38;
-      const g = 50 + n * 46;
+        tileableFbm(i / grain, j / grain, seed + 7, f.grainOctaves, f.grainCells) * f.grainWeight +
+        tileableFbm(i / patch, j / patch, seed + 55, f.patchOctaves, f.patchCells) * f.patchWeight;
+      const g = f.baseGrey + n * f.greySpan;
       const k = (j * size + i) * 4;
-      data[k] = g + 2;
-      data[k + 1] = g + 1;
-      data[k + 2] = Math.max(0, g - 2);
+      data[k] = g + f.warmR;
+      data[k + 1] = g + f.warmG;
+      data[k + 2] = Math.max(0, g + f.warmB);
       data[k + 3] = 255;
     }
   }

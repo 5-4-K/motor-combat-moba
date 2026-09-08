@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ENVIRONMENT_FX } from "./environment.js";
 import {
   alphaAt,
   asphaltTexture,
@@ -8,7 +9,20 @@ import {
   scorchTexture,
   SOOT_A,
   sparkTexture,
+  type TexturePixels,
 } from "./textures.js";
+
+/**
+ * Mean absolute delta of the red channel between two columns, across every row — the same
+ * seam-vs-interior measure the tiling case below uses, factored out so a second test case can
+ * reuse it instead of writing a second measure.
+ */
+function meanChannelDelta(tex: TexturePixels, colA: number, colB: number): number {
+  const red = (x: number, y: number): number => tex.data[(y * tex.width + x) * 4];
+  let total = 0;
+  for (let j = 0; j < tex.height; j++) total += Math.abs(red(colA, j) - red(colB, j));
+  return total / tex.height;
+}
 
 /** Mean alpha on a ring of radius `r` (in pixels) around the centre, and its spread. */
 function ring(tex: ReturnType<typeof puffTexture>, r: number): { mean: number; spread: number } {
@@ -165,5 +179,28 @@ describe("asphaltTexture", () => {
     }
     expect(mean(acrossX)).toBeLessThan(mean(insideX) * 2);
     expect(mean(acrossY)).toBeLessThan(mean(insideY) * 2);
+  });
+});
+
+describe("asphaltTexture reads the environment table", () => {
+  it("changes its pixels when the grey base moves", () => {
+    const env = { ...ENVIRONMENT_FX, floor: { ...ENVIRONMENT_FX.floor, baseGrey: 120 } };
+    const shipped = asphaltTexture(9, 64);
+    const brighter = asphaltTexture(9, 64, env);
+    expect(brighter.data[0]).toBeGreaterThan(shipped.data[0]!);
+  });
+
+  it("stays tileable at a different whole cell count", () => {
+    const env = { ...ENVIRONMENT_FX, floor: { ...ENVIRONMENT_FX.floor, grainCells: 32, patchCells: 4 } };
+    const tex = asphaltTexture(9, 64, env);
+    // The same seam property the shipped tiling case pins: the wrap must be no worse than the
+    // interior. Whole cell counts are what makes `tileableFbm`'s lattice close (EV15).
+    const seam = meanChannelDelta(tex, tex.width - 1, 0);
+    const interior = meanChannelDelta(tex, 10, 11);
+    expect(seam).toBeLessThan(interior * 3);
+  });
+
+  it("defaults to the shipped floor values", () => {
+    expect(asphaltTexture(9, 64)).toEqual(asphaltTexture(9, 64, ENVIRONMENT_FX));
   });
 });
