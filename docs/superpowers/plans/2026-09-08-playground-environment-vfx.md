@@ -14,7 +14,7 @@
 
 - **Client-only.** Nothing in this plan touches `packages/shared` or `packages/server`. No shared table, no `ArenaDef.palette`, no schema field, no wire contract (EV2, EV4).
 - **Nothing owed elsewhere.** No `balanceStamp` movement, so no `npm run build:manual`. No turn stat, so no `docs/turn-tuning.md`. No playtest probe measures particles, decals or camera (EV2).
-- **Behaviour-identical lift.** Tasks 1–8 must not change a single rendered pixel. Every value moves verbatim; the identity tests are what prove it (EV7).
+- **Behaviour-identical lift.** Tasks 1–10 must not change a single rendered pixel. Every value moves verbatim; the identity tests are what prove it (EV7).
 - **Defaulted parameters only.** Every new `env` parameter is optional and defaults to `ENVIRONMENT_FX`. No existing call site outside the playground may be required to pass one (EV11).
 - **No module-level store reads inside `fx/` modules.** The store is reached only through a resolver passed in from `ArenaScene` (EV12, EV34).
 - **Fx subject ids must not contain a `.`** — the override key format is `"<subject>.<phase>.<channel>.<field>"` and `sanitizeStoredVfx` splits on `.` and rejects anything that is not exactly 4 parts. The car-event ids are therefore `carDamage` and `carDeath`, never `car.damage`.
@@ -648,7 +648,7 @@ Delete the six `export const`s and the `SCORCH_SCALE` record. Keep every doc com
 
 - [ ] **Step 4: Update `fx/layer.ts`'s uses**
 
-`layer.ts` currently imports `MAX_DECALS` and `decalFadeAlpha`, and hard-codes `MAX_SCORCH_DECALS = 120` and the tyre tint `0x141210`. For now, keep `layer.ts` compiling by reading `ENVIRONMENT_FX` directly at those four points — Task 8 replaces them with the injected resolver:
+`layer.ts` currently imports `MAX_DECALS` and `decalFadeAlpha`, and hard-codes `MAX_SCORCH_DECALS = 120` and the tyre tint `0x141210`. For now, keep `layer.ts` compiling by reading `ENVIRONMENT_FX` directly at those four points — Task 10 replaces them with the injected resolver:
 
 ```ts
 import { ENVIRONMENT_FX } from "./environment.js";
@@ -753,7 +753,7 @@ export function eraserStampsFor(
 
 - [ ] **Step 4: Update `buildEraserTextures`**
 
-In `packages/client/src/fx/layer.ts`, replace the three `ERASER_*` reads with `eraserStampWidth()`, `eraserStampHeight()` and `ENVIRONMENT_FX.occlusion.halo`. Task 8 swaps `ENVIRONMENT_FX` for the injected resolver.
+In `packages/client/src/fx/layer.ts`, replace the three `ERASER_*` reads with `eraserStampWidth()`, `eraserStampHeight()` and `ENVIRONMENT_FX.occlusion.halo`. Task 10 swaps `ENVIRONMENT_FX` for the injected resolver.
 
 - [ ] **Step 5: Run the client suite and the typecheck**
 
@@ -1969,6 +1969,8 @@ git commit -m "feat(client): ArenaScene applies the environment table live (EV25
 **Files:**
 - Create: `packages/client/src/dev/playground/env-panel.ts`
 - Modify: `packages/client/src/dev/playground/overlay.ts`
+- Modify: `packages/client/src/dev/PlaygroundScene.ts`
+- Modify: `packages/client/src/scenes/ArenaScene.ts`
 
 **Interfaces:**
 - Consumes: `ENV_FIELDS`, `envKey`, `isEnvAtShipped`, `shippedEnvValue`, `envTableSource`, `EnvOverrides` (Task 8); `bumpEnvVersion`, `setEnvOverrides` (Task 9); `StoredPlayground.env` (Task 11); `ArenaScene.reapplyEnvironment`/`rebuildFloor`/`rebuildOcclusion` (Task 12).
