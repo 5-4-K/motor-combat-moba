@@ -99,6 +99,8 @@ describe("fxCellsFor", () => {
 
 describe("FX_FIELDS", () => {
   it("covers every editable FxBurst field and nothing else", () => {
+    // The order matters twice over: it is the panel's row order and the export's key order, and it
+    // must match `FxBurst`'s declaration order so a pasted fragment matches the rows beside it.
     expect(FX_FIELDS.map((f) => f.name)).toEqual([
       "count",
       "speed",
@@ -106,8 +108,8 @@ describe("FX_FIELDS", () => {
       "size",
       "growPerSec",
       "alpha",
-      "coneRad",
       "soot",
+      "coneRad",
     ]);
   });
 
