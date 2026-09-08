@@ -1376,8 +1376,13 @@ export interface VfxPanelOptions {
   readonly overrides: FxOverrides;
   /** Save to localStorage. Called after every edit (spec PG19's rule, applied here). */
   readonly persist: () => void;
-  /** Replay what is currently selected. Called after every edit and by the Fire button. */
-  readonly preview: (weaponId: string, phase: FxPhase, channel: FxChannel | "all") => void;
+  /** Replay what is currently selected. Called after every edit and by the Fire button. `"all"`
+   * widens the selection: every phase, every channel, or both. */
+  readonly preview: (
+    weaponId: string,
+    phase: FxPhase | "all",
+    channel: FxChannel | "all",
+  ) => void;
   /** Leave the panel. Clears the replay timer and returns to the menu. */
   readonly onBack: () => void;
   /** Copy the export to the clipboard (Task 9). */
@@ -1407,8 +1412,10 @@ export function buildVfxPanel(opts: VfxPanelOptions): HTMLElement {
   });
 
   function fire(): void {
+    // ONE call, even for the whole weapon. Calling `preview` once per phase would leave the replay
+    // timer armed on whichever phase went last, so the other would flash once and never repeat.
     if (expanded) opts.preview(weaponId, expanded.phase, expanded.channel);
-    else for (const phase of FX_PHASES) opts.preview(weaponId, phase, "all");
+    else opts.preview(weaponId, "all", "all");
   }
 
   /** One slider (or checkbox) for one field of one cell, wired straight into the overrides map. */
@@ -1722,23 +1729,36 @@ Add beside `vfxOverrides`:
     replayTimer = undefined;
   }
 
-  /** Build and spawn one preview burst. `channel` narrows it to a single row (spec PG51). */
-  function firePreview(weaponId: string, phase: FxPhase, channel: FxChannel | "all"): void {
+  /**
+   * Build and spawn one preview. `"all"` widens either axis (spec PG51); returns whether anything
+   * was actually spawned, so the caller does not arm a replay for a selection that is entirely off.
+   */
+  function firePreview(
+    weaponId: string,
+    phase: FxPhase | "all",
+    channel: FxChannel | "all",
+  ): boolean {
     const row = resolveWeaponFx(weaponId, vfxOverrides);
-    const bursts = row[phase].filter((b) => channel === "all" || b.channel === channel);
-    if (bursts.length === 0) return;
+    const phases: readonly FxPhase[] = phase === "all" ? FX_PHASES : [phase];
+    const specs: EmitterSpec[] = [];
+    for (const p of phases) {
+      for (const burst of row[p]) {
+        if (channel !== "all" && burst.channel !== channel) continue;
+        specs.push({
+          channel: burst.channel,
+          x: VFX_PREVIEW_POS.x,
+          y: VFX_PREVIEW_POS.y,
+          // Muzzle bursts are cones; firing them along +x points them away from the panel.
+          angle: 0,
+          burst,
+        });
+      }
+    }
+    if (specs.length === 0) return false;
     // Built by hand rather than through `deriveFxEvents`: a synthetic event would land in
     // `lastEvents()`, which `ArenaScene` reads for camera shake, and a preview must not shake.
-    previewFx(
-      bursts.map((burst) => ({
-        channel: burst.channel,
-        x: VFX_PREVIEW_POS.x,
-        y: VFX_PREVIEW_POS.y,
-        // Muzzle bursts are cones; firing them along +x points them away from the panel.
-        angle: 0,
-        burst,
-      })),
-    );
+    previewFx(specs);
+    return true;
   }
 ```
 
@@ -1746,12 +1766,19 @@ Rewrite the panel's wiring to arm the timer:
 
 ```ts
   function buildVfxPanel(): HTMLElement {
-    let last: { weaponId: string; phase: FxPhase; channel: FxChannel | "all" } | undefined;
+    let last: { weaponId: string; phase: FxPhase | "all"; channel: FxChannel | "all" } | undefined;
 
-    const preview = (weaponId: string, phase: FxPhase, channel: FxChannel | "all"): void => {
+    const preview = (
+      weaponId: string,
+      phase: FxPhase | "all",
+      channel: FxChannel | "all",
+    ): void => {
       last = { weaponId, phase, channel };
-      firePreview(weaponId, phase, channel);
+      const fired = firePreview(weaponId, phase, channel);
       stopReplay();
+      // Nothing in the selection is switched on, so there is nothing to replay. The next edit
+      // re-arms; an interval that spawns nothing 40 times a minute is just noise.
+      if (!fired) return;
       replayTimer = setInterval(() => {
         if (last) firePreview(last.weaponId, last.phase, last.channel);
       }, VFX_REPLAY_MS);
