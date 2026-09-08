@@ -7,6 +7,8 @@ import { DEV_TOOL_MARKER } from "./registry.js";
 import { mountPlaygroundOverlay } from "./playground/overlay.js";
 import { loadStored } from "./playground/storage.js";
 import { setShowHitboxes } from "../config/view-options.js";
+import type { EmitterSpec } from "../fx/emitters.js";
+import type { ArenaScene } from "../scenes/ArenaScene.js";
 
 /**
  * `?dev=playground` (spec PG2). Thin on purpose: this scene's whole job is joining the dev-only
@@ -132,7 +134,24 @@ export class PlaygroundScene extends Phaser.Scene {
     // ordinary play.
     this.registry.set("room", room);
     this.scene.launch("arena");
-    this.unmountOverlay = mountPlaygroundOverlay(room, () => this.onArenaChanged());
+    this.unmountOverlay = mountPlaygroundOverlay(
+      room,
+      () => this.onArenaChanged(),
+      (specs) => this.previewFx(specs),
+    );
+  }
+
+  /**
+   * Hand a preview burst to the running `ArenaScene` (spec PG52).
+   *
+   * Resolved at CALL time, never held: `onArenaChanged` stops and relaunches that scene while the
+   * overlay is mounted once and outlives it, so a reference captured when the panel opened would be
+   * a use-after-destroy on the next arena change. `ArenaScene.previewFx` no-ops when its own layer
+   * is gone, which covers the window between the stop and the relaunch.
+   */
+  private previewFx(specs: readonly EmitterSpec[]): void {
+    const arena = this.scene.get("arena") as ArenaScene | undefined;
+    arena?.previewFx?.(specs);
   }
 
   /**
