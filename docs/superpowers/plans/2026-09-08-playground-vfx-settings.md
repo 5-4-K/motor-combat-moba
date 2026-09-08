@@ -1137,7 +1137,24 @@ Add the section to `decodeStored`'s return object:
 Run: `npm run test -w @motor-combat-moba/client -- src/dev/playground/storage.test.ts`
 Expected: PASS.
 
-Note: every existing `saveStored({...})` call site now fails to typecheck because `vfx` is required. Task 6 and Task 7 fix `overlay.ts`; fix `PlaygroundScene.ts` in Task 10. Until then, `npm run typecheck` will report those two files.
+`vfx` is required on `StoredPlayground`, so the one existing `saveStored({...})` call site — in
+`overlay.ts`'s `persist()` at line ~590, the only one in the codebase — stops typechecking. Keep the
+tree green by adding the section to it now, carrying whatever is already stored:
+
+```ts
+    function persist(): void {
+      saveStored({
+        setup: readSetup(),
+        overrides: { ...overrides },
+        view: { showHitbox: hitboxToggle.checked },
+        // Carried through unchanged: the physics panel does not edit VFX, and a save from here must
+        // not wipe a tuning session. Task 7 replaces this with the panel's own live map.
+        vfx: loadStored().vfx,
+      });
+    }
+```
+
+Then run `npm run typecheck -w @motor-combat-moba/client` and confirm it is CLEAN before committing.
 
 - [ ] **Step 5: Commit**
 
