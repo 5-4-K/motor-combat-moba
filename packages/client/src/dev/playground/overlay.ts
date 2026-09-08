@@ -438,7 +438,7 @@ export function mountPlaygroundOverlay(
       `terms  ${termLine(payload.terms)}`;
   });
 
-  let subView: "menu" | "settings" = "menu";
+  let subView: "menu" | "physics" | "vfx" = "menu";
   let wasPaused = room.state.paused;
   let lastSentArenaId = isArenaId(room.state.arenaId)
     ? room.state.arenaId
@@ -467,7 +467,8 @@ export function mountPlaygroundOverlay(
     const view = effectiveView();
     root.style.display = view === "hidden" ? "none" : "flex";
     if (view === "menu") root.appendChild(buildMenu());
-    else if (view === "settings") root.appendChild(buildSettings());
+    else if (view === "physics") root.appendChild(buildSettings());
+    else if (view === "vfx") root.appendChild(buildVfxPanel());
   }
 
   function buildMenu(): HTMLElement {
@@ -475,10 +476,27 @@ export function mountPlaygroundOverlay(
       h("h2", {}, ["Paused"]),
       button({}, ["Resume"], () => room.send(MSG_PLAYGROUND_PAUSE)),
       button({}, ["Switch car"], () => room.send(MSG_PLAYGROUND_SWITCH)),
-      button({}, ["Settings"], () => {
-        subView = "settings";
+      button({}, ["Physics settings"], () => {
+        subView = "physics";
         render();
       }),
+      button({}, ["VFX settings"], () => {
+        subView = "vfx";
+        render();
+      }),
+    ]);
+  }
+
+  /** The VFX settings panel (spec PG48). Body lands in Task 7. */
+  function buildVfxPanel(): HTMLElement {
+    return h("div", { class: "pg-panel pg-settings" }, [
+      h("div", { class: "pg-settings-header" }, [
+        h("h2", {}, ["VFX settings"]),
+        button({}, ["Back"], () => {
+          subView = "menu";
+          render();
+        }),
+      ]),
     ]);
   }
 
@@ -878,7 +896,7 @@ export function mountPlaygroundOverlay(
       ]);
 
     return h("div", { class: "pg-panel pg-settings" }, [
-      h("div", { class: "pg-settings-header" }, [h("h2", {}, ["Settings"]), illegalHint, backBtn]),
+      h("div", { class: "pg-settings-header" }, [h("h2", {}, ["Physics settings"]), illegalHint, backBtn]),
       h("div", { class: "pg-row pg-mode" }, [
         h("label", {}, [modeAlone, " Play alone"]),
         h("label", {}, [modeBot, " Vs bot"]),
