@@ -1,14 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_WEAPON_FX, WEAPON_FX } from "./table.js";
+import { DEFAULT_WEAPON_FX, WEAPON_FX, weaponFxOf } from "./table.js";
 import {
   FX_CHANNELS,
   FX_FIELDS,
   FX_PHASES,
   burstFor,
+  fxResolverFor,
   fromControl,
   fxCellsFor,
   fxKey,
   isFxAtShipped,
+  resolveWeaponFx,
   shippedBurstFor,
   toControl,
   type FxFieldDef,
@@ -186,5 +188,56 @@ describe("isFxAtShipped", () => {
     const field = fieldOf("soot");
     expect(isFxAtShipped(field, false, false)).toBe(true);
     expect(isFxAtShipped(field, true, false)).toBe(false);
+  });
+});
+
+describe("resolveWeaponFx", () => {
+  it("reproduces the shipped row exactly when nothing is overridden", () => {
+    for (const weaponId of ["magmablast", "thumper", "lance", "predator"]) {
+      expect(resolveWeaponFx(weaponId, {})).toEqual(weaponFxOf(weaponId));
+    }
+  });
+
+  it("preserves the authored burst ORDER rather than re-sorting into channel order", () => {
+    // magmablast's impact is authored fire, smoke, spark, debris — fire before smoke, which is not
+    // FX_CHANNELS order. Re-sorting would silently change what draws over what.
+    expect(resolveWeaponFx("magmablast", {}).impact.map((b) => b.channel)).toEqual([
+      "fire",
+      "smoke",
+      "spark",
+      "debris",
+    ]);
+  });
+
+  it("drops a burst whose count is overridden to zero (PG47)", () => {
+    const row = resolveWeaponFx("lance", { "lance.muzzle.spark.count": 0 });
+    expect(row.muzzle.map((b) => b.channel)).toEqual(["fire"]);
+  });
+
+  it("appends a newly enabled channel after the authored ones", () => {
+    const row = resolveWeaponFx("lance", { "lance.impact.debris.count": 6 });
+    expect(row.impact.map((b) => b.channel)).toEqual(["spark", "debris"]);
+    expect(row.impact[1]!.count).toBe(6);
+  });
+
+  it("gives an unauthored weapon a real row once a channel is raised off zero", () => {
+    const row = resolveWeaponFx("wildcharge", { "wildcharge.impact.debris.count": 12 });
+    expect(row.impact.some((b) => b.channel === "debris" && b.count === 12)).toBe(true);
+  });
+});
+
+describe("fxResolverFor", () => {
+  it("returns the shipped row, by identity, for an untouched weapon", () => {
+    const resolve = fxResolverFor({ "lance.muzzle.fire.count": 40 });
+    expect(resolve("magmablast")).toBe(weaponFxOf("magmablast"));
+  });
+
+  it("returns the overridden row for a touched weapon", () => {
+    const resolve = fxResolverFor({ "lance.muzzle.fire.count": 40 });
+    expect(resolve("lance").muzzle.find((b) => b.channel === "fire")!.count).toBe(40);
+  });
+
+  it("falls back to the default row for an unknown weapon id", () => {
+    expect(fxResolverFor({})("no-such-weapon")).toBe(weaponFxOf("no-such-weapon"));
   });
 });
