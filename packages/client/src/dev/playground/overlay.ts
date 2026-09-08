@@ -19,6 +19,7 @@ import {
   type FxOverrides,
   type FxPhase,
 } from "../../fx/tuning.js";
+import type { EnvOverrides } from "../../fx/env-tuning.js";
 import type { FxChannel } from "../../fx/table.js";
 import { buildVfxPanel as buildVfxPanelDom } from "./vfx-panel.js";
 import {
@@ -490,6 +491,11 @@ export function mountPlaygroundOverlay(
   const vfxOverrides: FxOverrides = { ...loadStored().vfx };
   setFxOverrides(vfxOverrides);
 
+  /** The live environment override map (EV32). No panel mutates this yet — this task only wires
+   * persistence — but it is held the same way `vfxOverrides` is (loaded once at mount, carried
+   * through every save) so a value already on disk is never clobbered by an unrelated save. */
+  const envOverrides: EnvOverrides = { ...loadStored().env };
+
   /** Saves the VFX section without disturbing the physics panel's own save path, which reads its
    * live DOM controls and is not available outside `buildSettings`. */
   function persistVfx(): void {
@@ -753,6 +759,7 @@ export function mountPlaygroundOverlay(
         overrides: { ...overrides },
         view: { showHitbox: hitboxToggle.checked },
         vfx: { ...vfxOverrides },
+        env: { ...envOverrides },
       });
     }
 

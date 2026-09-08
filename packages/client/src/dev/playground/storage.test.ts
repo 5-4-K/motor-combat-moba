@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { defaultPlaygroundSetup } from "@motor-combat-moba/shared";
+import { envKey } from "../../fx/env-tuning.js";
 import {
   PLAYGROUND_STORAGE_KEY,
   decodeStored,
@@ -7,6 +8,7 @@ import {
   encodeStored,
   loadStored,
   saveStored,
+  sanitizeStoredEnv,
   type StoredPlayground,
 } from "./storage.js";
 
@@ -110,6 +112,7 @@ describe("encodeStored / decodeStored", () => {
       overrides: { "car.mirage.speed": 42, "ram.defencePushScale": 5 },
       view: { showHitbox: true },
       vfx: {},
+      env: {},
     };
     expect(decodeStored(encodeStored(stored))).toEqual(stored);
   });
@@ -120,6 +123,7 @@ describe("encodeStored / decodeStored", () => {
       overrides: {},
       view: defaultStoredView(),
       vfx: {},
+      env: {},
     };
     expect(decodeStored(encodeStored(stored))).toEqual(stored);
   });
@@ -133,6 +137,7 @@ describe("loadStored / saveStored with an injected storage", () => {
       overrides: { "ram.defencePushScale": 5 },
       view: defaultStoredView(),
       vfx: {},
+      env: {},
     };
     saveStored(stored, storage);
     expect(storage.getItem(PLAYGROUND_STORAGE_KEY)).toBe(encodeStored(stored));
@@ -146,12 +151,19 @@ describe("loadStored / saveStored with an injected storage", () => {
       overrides: {},
       view: defaultStoredView(),
       vfx: {},
+      env: {},
     });
   });
 
   it("saveStored with no injected storage and no window is a harmless no-op", () => {
     expect(() =>
-      saveStored({ setup: defaultPlaygroundSetup(), overrides: {}, view: defaultStoredView(), vfx: {} }),
+      saveStored({
+        setup: defaultPlaygroundSetup(),
+        overrides: {},
+        view: defaultStoredView(),
+        vfx: {},
+        env: {},
+      }),
     ).not.toThrow();
   });
 
@@ -161,6 +173,7 @@ describe("loadStored / saveStored with an injected storage", () => {
       overrides: {},
       view: defaultStoredView(),
       vfx: {},
+      env: {},
     });
   });
 });
@@ -254,6 +267,7 @@ describe("the stored vfx section (PG54)", () => {
       overrides: {},
       view: { showHitbox: false },
       vfx: { "lance.muzzle.fire.count": 40, "predator.muzzle.smoke.soot": true },
+      env: {},
     };
     expect(decodeStored(encodeStored(stored)).vfx).toEqual(stored.vfx);
   });
@@ -289,5 +303,35 @@ describe("the stored vfx section (PG54)", () => {
   it("survives a vfx section that is not an object", () => {
     const raw = JSON.stringify({ setup: defaultPlaygroundSetup(), vfx: "nope" });
     expect(decodeStored(raw).vfx).toEqual({});
+  });
+});
+
+describe("sanitizeStoredEnv (EV32)", () => {
+  it("keeps a valid entry", () => {
+    expect(sanitizeStoredEnv({ [envKey("grade", "saturate")]: -0.5 })).toEqual({
+      "grade.saturate": -0.5,
+    });
+  });
+
+  it("drops one bad entry and keeps the rest", () => {
+    const out = sanitizeStoredEnv({
+      [envKey("grade", "saturate")]: -0.5,
+      "grade.nope": 1,
+      "nope.saturate": 1,
+      [envKey("vignette", "strength")]: 99,
+      [envKey("floor", "grainCells")]: 33.5,
+      [envKey("hitStop", "ms")]: "90",
+    });
+    expect(out).toEqual({ "grade.saturate": -0.5 });
+  });
+
+  it("returns an empty map for a non-object", () => {
+    expect(sanitizeStoredEnv(null)).toEqual({});
+    expect(sanitizeStoredEnv("nope")).toEqual({});
+  });
+
+  it("loads a pre-existing blob that has no env section as empty", () => {
+    const decoded = decodeStored(JSON.stringify({ setup: defaultPlaygroundSetup(), vfx: {} }));
+    expect(decoded.env).toEqual({});
   });
 });

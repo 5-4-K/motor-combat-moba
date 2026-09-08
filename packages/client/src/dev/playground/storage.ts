@@ -7,6 +7,7 @@ import {
   toControl,
   type FxOverrides,
 } from "../../fx/tuning.js";
+import { ENV_FIELDS, envKey, type EnvOverrides } from "../../fx/env-tuning.js";
 
 /**
  * localStorage persistence for the playground overlay (Task 11, spec PG19/PG20). Pure codec + a thin
@@ -31,6 +32,8 @@ export interface StoredPlayground {
   view: StoredView;
   /** The playground's VFX overrides (spec PG54). Client-only, like `view` — never sent anywhere. */
   vfx: FxOverrides;
+  /** The playground's environment overrides (EV32). Client-only, like `vfx` — never sent anywhere. */
+  env: EnvOverrides;
 }
 
 /** Everything off. What a browser with nothing saved, or a saved blob from before this existed, gets. */
@@ -118,6 +121,33 @@ export function sanitizeStoredVfx(value: unknown): FxOverrides {
 }
 
 /**
+ * Read the `env` section back, entry by entry, dropping anything that no longer makes sense.
+ *
+ * Lenient in the same way `sanitizeStoredVfx` is, and for the same reason (EV32): a stale key left
+ * by a renamed field, a retuned range, or a hand-edited blob must cost that one entry, never the
+ * whole tuning session. A fractional value in an `integer` field is dropped rather than rounded — a
+ * fractional `floor.grainCells` reopens the tiling seam, so a silent round would be a repair the
+ * developer never asked for.
+ *
+ * Iterates `ENV_FIELDS` rather than the stored object's own keys — the mirror image of
+ * `sanitizeStoredVfx`'s loop — which has the useful property that an unknown key cannot survive by
+ * construction.
+ */
+export function sanitizeStoredEnv(value: unknown): EnvOverrides {
+  if (!isPlainRecord(value)) return {};
+  const out: EnvOverrides = {};
+  for (const field of ENV_FIELDS) {
+    const key = envKey(field.section, field.name);
+    const raw = value[key];
+    if (typeof raw !== "number" || !Number.isFinite(raw)) continue;
+    if (raw < field.min || raw > field.max) continue;
+    if (field.kind !== "number" && !Number.isInteger(raw)) continue;
+    out[key] = raw;
+  }
+  return out;
+}
+
+/**
  * Never throws. Absent (`null`) or unparseable input, or JSON that parses to something other than a
  * plain object, all fall back to `defaultPlaygroundSetup()` + `{}`. The two halves are validated
  * independently and each falls back on its own: a bad `setup` does not drop a good `overrides` blob
@@ -143,6 +173,7 @@ export function decodeStored(raw: string | null): StoredPlayground {
     overrides: sanitizeStoredTuning(rec.overrides),
     view: decodeView(rec.view),
     vfx: sanitizeStoredVfx(rec.vfx),
+    env: sanitizeStoredEnv(rec.env),
   };
 }
 
