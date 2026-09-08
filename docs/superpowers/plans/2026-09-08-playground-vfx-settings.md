@@ -742,10 +742,13 @@ export function emitterSpecsForAll(
 }
 ```
 
-In `packages/client/src/fx/layer.ts`, add the import, a field, a constructor parameter, and one call-site change:
+In `packages/client/src/fx/layer.ts`, add the import, a field, a constructor parameter, and one call-site change.
+
+Type-only — `layer.ts` uses the resolver TYPE but never builds one; `fxResolverFor` belongs to the
+playground's store (Task 4), not here:
 
 ```ts
-import { fxResolverFor, type WeaponFxResolver } from "./tuning.js";
+import type { WeaponFxResolver } from "./tuning.js";
 ```
 
 Add beside the other private fields (after `burstsSpawned`):
