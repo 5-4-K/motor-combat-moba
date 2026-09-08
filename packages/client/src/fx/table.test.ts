@@ -42,3 +42,16 @@ describe("WEAPON_FX", () => {
     }
   });
 });
+
+describe("scorchScale on the weapon row (EV10)", () => {
+  it("carries the three scales that used to live in decals.ts", () => {
+    expect(weaponFxOf("magmablast").scorchScale).toBe(1.25);
+    expect(weaponFxOf("predator").scorchScale).toBe(1.0);
+    expect(weaponFxOf("thumper").scorchScale).toBe(0.5);
+  });
+
+  it("leaves every other weapon without one, so the caller's default applies", () => {
+    expect(weaponFxOf("lance").scorchScale).toBeUndefined();
+    expect(weaponFxOf("pepperbox").scorchScale).toBeUndefined();
+  });
+});

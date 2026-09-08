@@ -38,6 +38,15 @@ export interface FxBurst {
 export interface WeaponFxRow {
   readonly muzzle: readonly FxBurst[];
   readonly impact: readonly FxBurst[];
+  /**
+   * How wide a scorch mark this weapon's impact leaves, as a multiple of the scorch texture (EV10).
+   *
+   * Lives here rather than in `fx/decals.ts`, where a `SCORCH_SCALE` record keyed by `weaponId` used
+   * to hold the same three numbers: it is weapon fx data, so it belongs on the weapon's row where
+   * the playground panel, its persistence and its export already reach it. Absent means "use
+   * `ENVIRONMENT_FX.decals.scorchScaleDefault`" — absent is not zero.
+   */
+  readonly scorchScale?: number;
 }
 
 const TAU = Math.PI * 2;
@@ -71,6 +80,7 @@ export const WEAPON_FX: Partial<Record<WeaponId, WeaponFxRow>> = {
       { channel: "spark", count: 64, speed: 420, lifeMs: 800, size: 8, growPerSec: -3, alpha: 1, soot: false, coneRad: TAU },
       { channel: "debris", count: 30, speed: 150, lifeMs: 900, size: 5, growPerSec: 0, alpha: 1, soot: false, coneRad: TAU },
     ],
+    scorchScale: 1.25,
   },
   /** A heavy shell: muzzle smoke, and an impact that throws grit rather than fire. */
   thumper: {
@@ -84,6 +94,7 @@ export const WEAPON_FX: Partial<Record<WeaponId, WeaponFxRow>> = {
       { channel: "spark", count: 22, speed: 280, lifeMs: 400, size: 6, growPerSec: -3, alpha: 1, soot: false, coneRad: TAU },
       { channel: "debris", count: 10, speed: 130, lifeMs: 700, size: 4, growPerSec: 0, alpha: 1, soot: false, coneRad: TAU },
     ],
+    scorchScale: 0.5,
   },
   /** A beam: a bright muzzle and almost nothing at the far end. */
   lance: {
@@ -107,6 +118,7 @@ export const WEAPON_FX: Partial<Record<WeaponId, WeaponFxRow>> = {
       { channel: "spark", count: 40, speed: 360, lifeMs: 620, size: 7, growPerSec: -3, alpha: 1, soot: false, coneRad: TAU },
       { channel: "debris", count: 18, speed: 140, lifeMs: 800, size: 4, growPerSec: 0, alpha: 1, soot: false, coneRad: TAU },
     ],
+    scorchScale: 1.0,
   },
 };
 
