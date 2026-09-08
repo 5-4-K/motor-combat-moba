@@ -229,13 +229,39 @@ export function buildEnvPanel(opts: EnvPanelOptions): HTMLElement {
     body.replaceChildren(...SECTION_ORDER.map(sectionBlock));
   }
 
+  /** Drop every override the panel holds, in every section — the whole-table twin of the VFX
+   * panel's own "Reset all".
+   *
+   * Re-applies only the sections that actually held one, rather than announcing all nine: `onEdit`
+   * is what rebuilds the occlusion silhouettes and re-reads the table, so nine calls would do that
+   * work eight times over for nothing. `floor` re-applies no more here than it does on a slider —
+   * it stays Regenerate-only (EV27), so a reset floor still draws the old asphalt until the button
+   * beside it is pressed. */
+  const resetAll = (): void => {
+    const touched = new Set<EnvSection>();
+    for (const f of ENV_FIELDS) {
+      const key = envKey(f.section, f.name);
+      if (opts.overrides[key] === undefined) continue;
+      delete opts.overrides[key];
+      touched.add(f.section);
+    }
+    opts.persist();
+    renderBody();
+    for (const section of touched) opts.onEdit(section);
+  };
+
   renderBody();
 
   return h("div", { class: "pg-panel pg-settings pg-env" }, [
     h("div", { class: "pg-settings-header" }, [
       h("h2", {}, ["Environment settings"]),
-      button({}, ["Copy environment"], opts.onCopy),
       button({}, ["Back"], opts.onBack),
+    ]),
+    // Laid out as the VFX panel's toolbar is, so the two panels' chrome reads the same: the header
+    // carries the title and the way out, the toolbar the whole-table actions.
+    h("div", { class: "pg-stats-toolbar" }, [
+      button({}, ["Reset all"], resetAll),
+      button({}, ["Copy environment"], opts.onCopy),
     ]),
     body,
   ]);
