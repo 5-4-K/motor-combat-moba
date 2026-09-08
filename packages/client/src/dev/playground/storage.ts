@@ -8,7 +8,7 @@ import {
   toControl,
   type FxOverrides,
 } from "../../fx/tuning.js";
-import { ENV_FIELDS, envKey, type EnvOverrides } from "../../fx/env-tuning.js";
+import { ENV_FIELDS, envKey, isAcceptableEnvValue, type EnvOverrides } from "../../fx/env-tuning.js";
 
 /**
  * localStorage persistence for the playground overlay (Task 11, spec PG19/PG20). Pure codec + a thin
@@ -133,7 +133,8 @@ export function sanitizeStoredVfx(value: unknown): FxOverrides {
  * by a renamed field, a retuned range, or a hand-edited blob must cost that one entry, never the
  * whole tuning session. A fractional value in an `integer` field is dropped rather than rounded — a
  * fractional `floor.grainCells` reopens the tiling seam, so a silent round would be a repair the
- * developer never asked for.
+ * developer never asked for. The finite/range/integer check itself is `isAcceptableEnvValue`,
+ * shared with `env-tuning.ts`'s own `resolveEnvironment`/`envTableSource` so the two cannot drift.
  *
  * Iterates `ENV_FIELDS` rather than the stored object's own keys — the mirror image of
  * `sanitizeStoredVfx`'s loop — which has the useful property that an unknown key cannot survive by
@@ -145,9 +146,7 @@ export function sanitizeStoredEnv(value: unknown): EnvOverrides {
   for (const field of ENV_FIELDS) {
     const key = envKey(field.section, field.name);
     const raw = value[key];
-    if (typeof raw !== "number" || !Number.isFinite(raw)) continue;
-    if (raw < field.min || raw > field.max) continue;
-    if (field.kind !== "number" && !Number.isInteger(raw)) continue;
+    if (!isAcceptableEnvValue(field, raw)) continue;
     out[key] = raw;
   }
   return out;

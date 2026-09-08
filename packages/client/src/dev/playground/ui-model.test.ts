@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CAR_TABLE, WEAPON_TABLE, ARENAS, defaultPlaygroundSetup } from "@motor-combat-moba/shared";
 import type { CarId, PlaygroundSetup, TunableField, WeaponId } from "@motor-combat-moba/shared";
+import { CAR_EVENT_IDS } from "../../fx/table.js";
 import {
   arenaOptions,
   canStep,
@@ -276,10 +277,11 @@ describe("isAtShipped", () => {
 });
 
 describe("fxSubjectOptions (EV20)", () => {
-  it("lists every weapon, then both car events, in that order", () => {
+  it("lists every weapon, then every car event, in that order", () => {
     const options = fxSubjectOptions();
-    expect(options).toHaveLength(Object.keys(WEAPON_TABLE).length + 2);
-    expect(options.at(-2)).toEqual({ id: "carDamage", name: "Car: damage" });
-    expect(options.at(-1)).toEqual({ id: "carDeath", name: "Car: death" });
+    expect(options).toHaveLength(Object.keys(WEAPON_TABLE).length + CAR_EVENT_IDS.length);
+    // Derived from CAR_EVENT_IDS rather than repeating its literals here, so a renamed or added car
+    // event id fails this test by way of the ID list, not by way of a second hard-coded copy of it.
+    expect(options.slice(-CAR_EVENT_IDS.length).map((o) => o.id)).toEqual([...CAR_EVENT_IDS]);
   });
 });

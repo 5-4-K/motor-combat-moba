@@ -51,7 +51,8 @@ export interface EnvPanelOptions {
    * is live (EV23, EV27, EV30).
    */
   readonly onEdit: (section: EnvSection) => void;
-  /** Regenerate the asphalt with the arena's own seed (EV27). */
+  /** Regenerate the asphalt, persisting a rerolled seed if one is currently previewing (EV27). See
+   * `FxLayer.rebuildFloor`'s own comment for why a later Regenerate can reuse a rerolled seed. */
   readonly onRegenerateFloor: () => void;
   /** Regenerate the asphalt with a fresh seed — preview only, never saved or exported (EV9). */
   readonly onRerollFloor: () => void;
@@ -71,54 +72,85 @@ function sectionSummary(section: EnvSection, overrides: EnvOverrides): string {
   return n === 0 ? "shipped" : `${n} changed`;
 }
 
+function format(field: EnvFieldDef, value: number): string {
+  if (field.kind === "color") return `#${value.toString(16).padStart(6, "0")}`;
+  return String(Number(value.toFixed(6)));
+}
+
 export function buildEnvPanel(opts: EnvPanelOptions): HTMLElement {
   let expanded: EnvSection | undefined = "grade";
   const body = h("div", { class: "pg-stats" });
-
-  /** One control for one field, wired straight into the overrides map. */
-  function fieldRow(field: EnvFieldDef): HTMLElement {
-    const key = envKey(field.section, field.name);
-    const shipped = shippedEnvValue(field);
-    const value = overridesValue(field, shipped);
-
-    const readout = h("span", { class: "pg-readout" }, [format(field, value)]);
-
-    const commit = (next: number): void => {
-      if (isEnvAtShipped(field, next, shipped)) delete opts.overrides[key];
-      else opts.overrides[key] = next;
-      readout.textContent = format(field, next);
-      opts.persist();
-      opts.onEdit(field.section);
-    };
-
-    if (field.kind === "color") {
-      const input = h("input", { type: "color" }) as HTMLInputElement;
-      input.value = `#${value.toString(16).padStart(6, "0")}`;
-      input.addEventListener("input", () =>
-        commit(Number.parseInt(input.value.slice(1), 16)),
-      );
-      return h("label", { class: "pg-field" }, [field.label, input, readout]);
-    }
-
-    const input = h("input", {
-      type: "range",
-      min: String(field.min),
-      max: String(field.max),
-      step: String(field.step),
-    }) as HTMLInputElement;
-    input.value = String(value);
-    input.addEventListener("input", () => commit(Number(input.value)));
-    return h("label", { class: "pg-field" }, [field.label, input, readout]);
-  }
 
   function overridesValue(field: EnvFieldDef, shipped: number): number {
     const stored = opts.overrides[envKey(field.section, field.name)];
     return typeof stored === "number" ? stored : shipped;
   }
 
-  function format(field: EnvFieldDef, value: number): string {
-    if (field.kind === "color") return `#${value.toString(16).padStart(6, "0")}`;
-    return String(Number(value.toFixed(6)));
+  /** One control (plus reset) for one field, wired straight into the overrides map. Mirrors
+   * `vfx-panel.ts`'s `fieldRow`: a `pg-row pg-stat-row` with a label, the control, a `pg-value`
+   * readout and a `pg-reset` button, so this panel is clickable and styled through classes the
+   * stylesheet already defines rather than the bespoke `pg-field`/`pg-readout` markup this used to
+   * emit (which had no CSS at all). */
+  function fieldRow(field: EnvFieldDef, refreshHeader: () => void): HTMLElement {
+    const key = envKey(field.section, field.name);
+    const shipped = shippedEnvValue(field);
+    const value = overridesValue(field, shipped);
+
+    const readoutEl = h("span", { class: "pg-value" }, [format(field, value)]);
+
+    let input: HTMLInputElement;
+
+    function snapToShipped(): void {
+      delete opts.overrides[key];
+      input.value =
+        field.kind === "color" ? `#${shipped.toString(16).padStart(6, "0")}` : String(shipped);
+      readoutEl.textContent = format(field, shipped);
+    }
+
+    function commit(next: number): void {
+      if (isEnvAtShipped(field, next, shipped)) {
+        snapToShipped();
+      } else {
+        opts.overrides[key] = next;
+        readoutEl.textContent = format(field, next);
+      }
+      opts.persist();
+      // A section's collapsed header states how many of its fields are overridden, and that count
+      // just changed. Refresh that ONE text node rather than calling `renderBody()`, for the same
+      // reason `vfx-panel.ts`'s `onEdit` does: a range input fires on every pointer move, and
+      // replacing the panel's children mid-drag strands the slider the pointer is captured on.
+      refreshHeader();
+      opts.onEdit(field.section);
+    }
+
+    if (field.kind === "color") {
+      input = h("input", { type: "color" }) as HTMLInputElement;
+      input.value = `#${value.toString(16).padStart(6, "0")}`;
+      input.addEventListener("input", () => commit(Number.parseInt(input.value.slice(1), 16)));
+    } else {
+      input = h("input", {
+        type: "range",
+        min: String(field.min),
+        max: String(field.max),
+        step: String(field.step),
+      }) as HTMLInputElement;
+      input.value = String(value);
+      input.addEventListener("input", () => commit(Number(input.value)));
+    }
+
+    const resetBtn = button({ class: "pg-reset", title: "Reset to shipped" }, ["↺"], () => {
+      snapToShipped();
+      opts.persist();
+      refreshHeader();
+      opts.onEdit(field.section);
+    });
+
+    return h("div", { class: "pg-row pg-stat-row" }, [
+      h("label", { title: key }, [`${field.label} (shipped ${format(field, shipped)})`]),
+      input,
+      readoutEl,
+      resetBtn,
+    ]);
   }
 
   function sectionExtras(section: EnvSection): HTMLElement[] {
@@ -134,28 +166,43 @@ export function buildEnvPanel(opts: EnvPanelOptions): HTMLElement {
     return [];
   }
 
+  /** One collapsible section, built exactly as `vfx-panel.ts`'s `channelBlock` builds a channel: a
+   * `pg-fx-block` wrapper around a `pg-fx-head` toggle button and, when open, its rows. */
+  function sectionBlock(section: EnvSection): HTMLElement {
+    const isOpen = expanded === section;
+    const label = (): string => `${SECTION_LABELS[section]} — ${sectionSummary(section, opts.overrides)}`;
+
+    const header = button({ class: "pg-fx-head" }, [label()], () => {
+      expanded = isOpen ? undefined : section;
+      renderBody();
+    });
+
+    /** Repaint just this header from the live map — see `fieldRow`'s `commit` for why this is not a
+     * `renderBody`. */
+    const refreshHeader = (): void => {
+      header.textContent = label();
+    };
+
+    const rows = isOpen
+      ? [
+          ...ENV_FIELDS.filter((f) => f.section === section).map((f) => fieldRow(f, refreshHeader)),
+          ...sectionExtras(section),
+        ]
+      : [];
+    return h("div", { class: "pg-fx-block" }, [header, ...rows]);
+  }
+
   function renderBody(): void {
-    body.replaceChildren();
-    for (const section of SECTION_ORDER) {
-      const isOpen = expanded === section;
-      const head = button({ class: "pg-section-head" }, [
-        `${SECTION_LABELS[section]} — ${sectionSummary(section, opts.overrides)}`,
-      ], () => {
-        expanded = isOpen ? undefined : section;
-        renderBody();
-      });
-      body.appendChild(head);
-      if (!isOpen) continue;
-      const rows = ENV_FIELDS.filter((f) => f.section === section).map(fieldRow);
-      body.appendChild(h("div", { class: "pg-section-body" }, [...rows, ...sectionExtras(section)]));
-    }
+    body.replaceChildren(...SECTION_ORDER.map(sectionBlock));
   }
 
   renderBody();
-  return h("div", { class: "pg-env" }, [
-    h("div", { class: "pg-head" }, [
-      button({}, ["Back"], opts.onBack),
+
+  return h("div", { class: "pg-panel pg-settings pg-env" }, [
+    h("div", { class: "pg-settings-header" }, [
+      h("h2", {}, ["Environment settings"]),
       button({}, ["Copy environment"], opts.onCopy),
+      button({}, ["Back"], opts.onBack),
     ]),
     body,
   ]);

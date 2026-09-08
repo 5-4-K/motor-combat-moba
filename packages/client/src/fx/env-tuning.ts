@@ -132,7 +132,14 @@ export function shippedEnvValue(field: EnvFieldDef): number {
   ]!;
 }
 
-function accepts(field: EnvFieldDef, value: unknown): value is number {
+/**
+ * Is `value` acceptable for `field` — finite, in range, and (for an `integer` field) whole?
+ *
+ * Exported so `storage.ts`'s `sanitizeStoredEnv` can share this exact rule rather than re-implement
+ * it: the two used to be two copies of the same three checks, free to drift the moment either side
+ * was edited alone.
+ */
+export function isAcceptableEnvValue(field: EnvFieldDef, value: unknown): value is number {
   if (typeof value !== "number" || !Number.isFinite(value)) return false;
   if (value < field.min || value > field.max) return false;
   // A fractional cell count reopens the tiling seam, and a fractional decal cap is meaningless.
@@ -155,7 +162,7 @@ export function resolveEnvironment(overrides: EnvOverrides): EnvironmentFx {
   for (const field of ENV_FIELDS) {
     const value = overrides[envKey(field.section, field.name)];
     if (value === undefined) continue;
-    if (!accepts(field, value)) continue;
+    if (!isAcceptableEnvValue(field, value)) continue;
     out[field.section]![field.name] = value;
   }
   return out as unknown as EnvironmentFx;
@@ -193,7 +200,7 @@ export function envTableSource(overrides: EnvOverrides): string {
   const touched = new Set<string>();
   for (const field of ENV_FIELDS) {
     const value = overrides[envKey(field.section, field.name)];
-    if (value !== undefined && accepts(field, value)) touched.add(field.section);
+    if (value !== undefined && isAcceptableEnvValue(field, value)) touched.add(field.section);
   }
   if (touched.size === 0) return "";
 

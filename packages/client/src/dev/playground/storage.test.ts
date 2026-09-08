@@ -311,6 +311,18 @@ describe("the stored vfx section (PG54)", () => {
       "carDeath.impact.fire.count": 3,
     });
   });
+
+  it("drops a stale phase for a car event while keeping its valid sibling", () => {
+    // A car event has only the `impact` phase (see the `phasesForSubject` case above) — a `muzzle`
+    // key against `carDeath` cannot come from today's panel, only from a blob saved before a rename
+    // or a stray hand edit, and `phasesForSubject` is the guard that must catch it.
+    expect(
+      sanitizeStoredVfx({
+        "carDeath.muzzle.fire.count": 40,
+        "carDeath.impact.fire.count": 3,
+      }),
+    ).toEqual({ "carDeath.impact.fire.count": 3 });
+  });
 });
 
 describe("sanitizeStoredEnv (EV32)", () => {

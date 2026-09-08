@@ -1,5 +1,6 @@
 import type { CarId, PlaygroundSetup, TunableField, TuningValue, WeaponId } from "@motor-combat-moba/shared";
 import { ARENAS, CAR_TABLE, WEAPON_TABLE, slotsOf, tunableFields } from "@motor-combat-moba/shared";
+import { CAR_EVENT_IDS, type CarEventId } from "../../fx/table.js";
 
 /**
  * Pure derivations for the playground overlay (Task 10, spec PG16/PG19). `overlay.ts` is the thin,
@@ -47,12 +48,19 @@ export function weaponOptions(): { id: WeaponId; name: string }[] {
   return Object.values(WEAPON_TABLE).map((row) => ({ id: row.id, name: row.name }));
 }
 
-/** Every subject the VFX panel can edit: the ten weapons, then the two car events (EV20). */
+/** How each `CarEventId` reads in the VFX panel's weapon/subject select. */
+const CAR_EVENT_NAMES: Record<CarEventId, string> = {
+  carDamage: "Car: damage",
+  carDeath: "Car: death",
+};
+
+/** Every subject the VFX panel can edit: the ten weapons, then every car event (EV20). Drawn from
+ * `CAR_EVENT_IDS` rather than repeating its two ids here, so a rename or an added event id shows up
+ * in this list (and stays recognised by `isCarEventId`) without a second edit. */
 export function fxSubjectOptions(): { id: string; name: string }[] {
   return [
     ...Object.values(WEAPON_TABLE).map((row) => ({ id: row.id as string, name: row.name })),
-    { id: "carDamage", name: "Car: damage" },
-    { id: "carDeath", name: "Car: death" },
+    ...CAR_EVENT_IDS.map((id) => ({ id: id as string, name: CAR_EVENT_NAMES[id] })),
   ];
 }
 

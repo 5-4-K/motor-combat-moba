@@ -104,10 +104,15 @@ export interface EnvironmentFx {
   readonly carBursts: { readonly sparkPerHp: number; readonly countFloor: number };
 }
 
+// Each section is `Object.freeze`d individually — not the top-level object, since freezing that
+// alone leaves every nested section object still writable — so a bug that tries to write through
+// `resolveEnvironment`'s spread (see its own comment in `env-tuning.ts`) throws in every environment
+// (a plain assignment is silently a no-op in non-strict mode, which is worse: the mutation would look
+// like it worked) instead of quietly corrupting the shipped table for every later reader.
 export const ENVIRONMENT_FX: EnvironmentFx = {
-  grade: { saturate: -0.22, warmR: 1.07, warmB: 0.92, brightness: 0.96 },
-  vignette: { x: 0.5, y: 0.5, radius: 0.78, strength: 0.42 },
-  shake: {
+  grade: Object.freeze({ saturate: -0.22, warmR: 1.07, warmB: 0.92, brightness: 0.96 }),
+  vignette: Object.freeze({ x: 0.5, y: 0.5, radius: 0.78, strength: 0.42 }),
+  shake: Object.freeze({
     max: 0.02,
     diedMs: 260,
     damagedMs: 120,
@@ -120,9 +125,9 @@ export const ENVIRONMENT_FX: EnvironmentFx = {
     ramFloor: 0.006,
     ramPerSpeed: 0.00002,
     ramCap: 0.6,
-  },
-  hitStop: { ms: 90, scale: 0.25 },
-  decals: {
+  }),
+  hitStop: Object.freeze({ ms: 90, scale: 0.25 }),
+  decals: Object.freeze({
     halfLifeMs: 40_000,
     maxTotal: 600,
     maxScorch: 120,
@@ -138,9 +143,9 @@ export const ENVIRONMENT_FX: EnvironmentFx = {
     scorchAlphaDeath: 0.7,
     scorchScaleDeath: 1.4,
     scorchScaleDefault: 0.35,
-  },
-  occlusion: { halo: 14 },
-  floor: {
+  }),
+  occlusion: Object.freeze({ halo: 14 }),
+  floor: Object.freeze({
     grainCells: 64,
     patchCells: 8,
     grainOctaves: 3,
@@ -152,8 +157,8 @@ export const ENVIRONMENT_FX: EnvironmentFx = {
     warmR: 2,
     warmG: 1,
     warmB: -2,
-  },
-  markings: {
+  }),
+  markings: Object.freeze({
     laneColor: 0xdccd96,
     laneAlpha: 0.13,
     laneWidth: 6,
@@ -163,6 +168,6 @@ export const ENVIRONMENT_FX: EnvironmentFx = {
     circleAlpha: 0.1,
     circleWidth: 4,
     circleRadius: 130,
-  },
-  carBursts: { sparkPerHp: 0.5, countFloor: 1 },
+  }),
+  carBursts: Object.freeze({ sparkPerHp: 0.5, countFloor: 1 }),
 };

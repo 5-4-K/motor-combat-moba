@@ -927,8 +927,12 @@ export class ArenaScene extends Phaser.Scene {
     // per-match seed would have to be drawn from shared state to stay in sync, which is a design
     // change and not a tuning knob.
     // Only a playground room resolves through the override store (EV34). Everything else gets the
-    // shipped table, exactly as it does for WEAPON_FX above.
-    if (this.room && isPlaygroundRoom(this.room)) this.resolveEnv = liveEnvResolver();
+    // shipped table, exactly as it does for WEAPON_FX above. A ternary, not an `if` that leaves the
+    // field's own default in place when the guard is false: `this.resolveEnv` is a field on this
+    // Scene and survives `stop`/`launch`, so a plain `if` would let a resolver installed by an
+    // earlier playground room's `create()` leak into a later non-playground one.
+    this.resolveEnv =
+      this.room && isPlaygroundRoom(this.room) ? liveEnvResolver() : () => ENVIRONMENT_FX;
 
     this.fx = new FxLayer(
       this,
@@ -2393,7 +2397,7 @@ export class ArenaScene extends Phaser.Scene {
     }));
     // A frozen clock while the sim is paused, NOT the real frame delta. A pause stops the server
     // patching poses, but `vx`/`vy` keep their pre-pause values — so `layTyreMarks` sees a car at
-    // 267 u/s that is not moving, and `TYRE_MARK_SPEED_FLOOR` (whose whole job is stopping a
+    // 267 u/s that is not moving, and `decals.tyreSpeedFloor` (whose whole job is stopping a
     // parked car burning a hole in the floor) cannot help, because the velocity is stale rather
     // than zero. Distance-based spacing already lays nothing for a car whose pose is not changing;
     // this is the other half, and it also stops decals ageing through a pause, which is what a

@@ -581,7 +581,7 @@ export class FxLayer {
     const texels = this.texelSize.get(key) ?? 32;
     for (const car of view.cars) {
       // A wreck drops its trail entirely rather than keeping a stale anchor: a respawn elsewhere
-      // would otherwise arrive as one enormous segment, and `TYRE_MARK_MAX_STEP` should not be the
+      // would otherwise arrive as one enormous segment, and `decals.tyreMaxStep` should not be the
       // only thing standing between a respawn and a rubber line drawn across the arena.
       if (!car.alive) {
         this.tyreTrails.delete(car.sessionId);

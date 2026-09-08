@@ -149,9 +149,10 @@ the table moving. Feel complaints ("medium is too hard to hit") go through the
 decals, occlusion, the generated floor, the painted markings and car burst scaling — lives in `fx/environment.ts` as
 one `ENVIRONMENT_FX` table and is edited as a flat list of sections. Both reach the renderer the
 same way: a resolver injected by `ArenaScene` **only for a playground room**, so a shipped arena or
-a practice session renders the shipped tables no matter what is saved in that browser. Three
-environment knobs are not live — `floor.*` needs the panel's Regenerate button, and
-`occlusion.halo` rebuilds the smoke-hole silhouettes — see EV27, EV28 and EV30.
+a practice session renders the shipped tables no matter what is saved in that browser. `floor.*` is
+the only group that is not live — it needs the panel's Regenerate button. `occlusion.halo` and
+`markings.*` apply on edit, but through a texture rebuild and a redraw rather than a plain read —
+see EV27, EV28 and EV30.
 
 ## Hard invariants
 

@@ -34,7 +34,7 @@ const ARC = { cx: 470, cy: 400, radius: 190, ratePerSec: 0.62, startRad: -1.2 } 
 const CHANNELS: readonly FxToggle[] = ["smoke", "fire", "spark", "debris", "decals", "mask"];
 const CHANNEL_KEYS = ["ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX"] as const;
 
-/** A car that is not moving. `speedOf(0, 0)` is under `TYRE_MARK_SPEED_FLOOR`, so it lays no rubber. */
+/** A car that is not moving. `speedOf(0, 0)` is under `decals.tyreSpeedFloor`, so it lays no rubber. */
 function parked(
   sessionId: string,
   x: number,
