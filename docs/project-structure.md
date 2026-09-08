@@ -116,7 +116,7 @@ motor-combat-MOBA/
         │   ├── sprite-fit.ts      # fits art to the hull; the hull never follows the art
         │   └── car-sprite.ts      # the resolution chain ArenaScene and the tuning tool share
         ├── fx/
-        │   ├── environment.ts     # ENVIRONMENT_FX: the arena's whole visual ground in one table — grade, vignette, shake, hit-stop, decals, occlusion, floor, markings (EV6)
+        │   ├── environment.ts     # ENVIRONMENT_FX: the arena's whole visual ground in one table — grade, vignette, shake, hit-stop, decals, occlusion, floor, markings, carBursts (EV6)
         │   ├── env-tuning.ts      # ENV_FIELDS + resolveEnvironment: the flat, section-based tuning model over EnvironmentFx (EV13–EV19)
         │   └── env-store.ts       # the playground-only override map + version-cached liveEnvResolver (EV18, EV19, EV34)
         ├── practice/

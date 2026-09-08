@@ -146,7 +146,7 @@ the table moving. Feel complaints ("medium is too hard to hit") go through the
 
 **The playground tunes two kinds of VFX, and they are different shapes.** Per-weapon bursts live in
 `fx/table.ts` and are edited as a 2x4 grid; the environment — grade, vignette, shake, hit-stop,
-decals, occlusion, the generated floor and the painted markings — lives in `fx/environment.ts` as
+decals, occlusion, the generated floor, the painted markings and car burst scaling — lives in `fx/environment.ts` as
 one `ENVIRONMENT_FX` table and is edited as a flat list of sections. Both reach the renderer the
 same way: a resolver injected by `ArenaScene` **only for a playground room**, so a shipped arena or
 a practice session renders the shipped tables no matter what is saved in that browser. Three
