@@ -10,6 +10,7 @@ import {
   isFxAtShipped,
   shippedBurstFor,
   toControl,
+  type FxCell,
   type FxFieldDef,
   type FxOverrides,
   type FxPhase,
@@ -68,7 +69,12 @@ export function buildVfxPanel(opts: VfxPanelOptions): HTMLElement {
   }
 
   /** One slider (or checkbox) for one field of one cell, wired straight into the overrides map. */
-  function fieldRow(phase: FxPhase, channel: FxChannel, field: FxFieldDef): HTMLElement {
+  function fieldRow(
+    phase: FxPhase,
+    channel: FxChannel,
+    field: FxFieldDef,
+    refreshHeader: () => void,
+  ): HTMLElement {
     const key = fxKey(weaponId, phase, channel, field.name);
     const shipped = shippedBurstFor(weaponId, phase, channel)[field.name];
     const current = burstFor(weaponId, phase, channel, opts.overrides)[field.name];
@@ -116,8 +122,12 @@ export function buildVfxPanel(opts: VfxPanelOptions): HTMLElement {
         valueSpan.textContent = readout(field, value);
       }
       opts.persist();
-      // The `count` field changes whether the cell fires at all, so its header summary goes stale.
-      if (field.name === "count") renderBody();
+      // `count` decides whether the cell fires at all, so its collapsed header goes stale. Refresh
+      // that ONE text node rather than calling `renderBody()`: a range input fires `input` on every
+      // pointer move, and replacing the panel's children mid-drag destroys the very slider the
+      // pointer is captured on — the replacement node never saw the initiating `mousedown`, so the
+      // drag is stranded until the user releases and grabs again.
+      if (field.name === "count") refreshHeader();
       fire();
     }
 
@@ -130,7 +140,7 @@ export function buildVfxPanel(opts: VfxPanelOptions): HTMLElement {
       button({ class: "pg-reset", title: "Reset to shipped" }, ["↺"], () => {
         snapToShipped();
         opts.persist();
-        if (field.name === "count") renderBody();
+        if (field.name === "count") refreshHeader();
         fire();
       }),
     ]);
@@ -142,27 +152,39 @@ export function buildVfxPanel(opts: VfxPanelOptions): HTMLElement {
     return field.degrees ? `${rounded}°` : rounded;
   }
 
-  function channelBlock(phase: FxPhase, channel: FxChannel): HTMLElement {
-    const cell = fxCellsFor(weaponId, opts.overrides).find(
-      (c) => c.phase === phase && c.channel === channel,
-    )!;
+  function channelBlock(cell: FxCell): HTMLElement {
+    const { phase, channel } = cell;
     const isOpen = expanded?.phase === phase && expanded.channel === channel;
 
-    const header = button({ class: "pg-fx-head" }, [`${channel} — ${channelSummary(cell.current.count)}`], () => {
+    const label = (count: number): string => `${channel} — ${channelSummary(count)}`;
+
+    const header = button({ class: "pg-fx-head" }, [label(cell.current.count)], () => {
       expanded = isOpen ? undefined : { phase, channel };
       renderBody();
       fire();
     });
 
-    const rows = isOpen ? FX_FIELDS.map((field) => fieldRow(phase, channel, field)) : [];
+    /** Repaint just this header from the live map. See `onEdit` for why this is not a `renderBody`. */
+    const refreshHeader = (): void => {
+      header.textContent = label(burstFor(weaponId, phase, channel, opts.overrides).count);
+    };
+
+    const rows = isOpen
+      ? FX_FIELDS.map((field) => fieldRow(phase, channel, field, refreshHeader))
+      : [];
     return h("div", { class: "pg-fx-block" }, [header, ...rows]);
   }
 
   function renderBody(): void {
+    // One grid computation per render rather than one per block: `fxCellsFor` builds all eight
+    // cells on every call, so calling it inside `channelBlock` built the grid eight times.
+    const cells = fxCellsFor(weaponId, opts.overrides);
     body.replaceChildren(
       ...FX_PHASES.flatMap((phase) => [
         h("div", { class: "pg-fx-phase" }, [phase]),
-        ...FX_CHANNELS.map((channel) => channelBlock(phase, channel)),
+        ...FX_CHANNELS.map((channel) =>
+          channelBlock(cells.find((c) => c.phase === phase && c.channel === channel)!),
+        ),
       ]),
     );
   }
