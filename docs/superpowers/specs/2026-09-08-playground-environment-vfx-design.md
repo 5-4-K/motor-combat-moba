@@ -188,7 +188,7 @@ restart.
 **EV19.** **`liveEnvResolver` memoises on a version counter.** This is the one place the environment
 resolver must *not* copy the weapon one. `resolveWeaponFx` is called once per event, a handful of
 times a frame; `resolveEnvironment` would be called per particle per frame by `decalFadeAlpha` and
-its neighbours, and rebuilding a ~45-field object each time is a per-frame allocation storm. The
+its neighbours, and rebuilding a sixty-field object each time is a per-frame allocation storm. The
 counter is bumped by `setEnvOverrides` and by each panel edit, so the table is resolved once per
 edit.
 
@@ -311,7 +311,7 @@ Vitest, node environment, no browser — the rest of `fx/` already tests this wa
 
 ## Risks
 
-**Forty-five sliders is a lot of panel.** The per-section collapsible blocks and the
+**Sixty sliders is a lot of panel.** The per-section collapsible blocks and the
 reached-for-most-often ordering are the mitigation; the residual risk is that the panel is a place
 to get lost rather than a place to tune.
 
