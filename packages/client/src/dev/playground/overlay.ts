@@ -12,7 +12,7 @@ import type {
 } from "@motor-combat-moba/shared";
 import { setFxOverrides } from "../../fx/override-store.js";
 import type { EmitterSpec } from "../../fx/emitters.js";
-import { resolveWeaponFx, type FxOverrides, type FxPhase } from "../../fx/tuning.js";
+import { FX_PHASES, resolveWeaponFx, type FxOverrides, type FxPhase } from "../../fx/tuning.js";
 import type { FxChannel } from "../../fx/table.js";
 import { buildVfxPanel as buildVfxPanelDom } from "./vfx-panel.js";
 import {
@@ -500,23 +500,36 @@ export function mountPlaygroundOverlay(
     replayTimer = undefined;
   }
 
-  /** Build and spawn one preview burst. `channel` narrows it to a single row (spec PG51). */
-  function firePreview(weaponId: string, phase: FxPhase, channel: FxChannel | "all"): void {
+  /**
+   * Build and spawn one preview. `"all"` widens either axis (spec PG51); returns whether anything
+   * was actually spawned, so the caller does not arm a replay for a selection that is entirely off.
+   */
+  function firePreview(
+    weaponId: string,
+    phase: FxPhase | "all",
+    channel: FxChannel | "all",
+  ): boolean {
     const row = resolveWeaponFx(weaponId, vfxOverrides);
-    const bursts = row[phase].filter((b) => channel === "all" || b.channel === channel);
-    if (bursts.length === 0) return;
+    const phases: readonly FxPhase[] = phase === "all" ? FX_PHASES : [phase];
+    const specs: EmitterSpec[] = [];
+    for (const p of phases) {
+      for (const burst of row[p]) {
+        if (channel !== "all" && burst.channel !== channel) continue;
+        specs.push({
+          channel: burst.channel,
+          x: VFX_PREVIEW_POS.x,
+          y: VFX_PREVIEW_POS.y,
+          // Muzzle bursts are cones; firing them along +x points them away from the panel.
+          angle: 0,
+          burst,
+        });
+      }
+    }
+    if (specs.length === 0) return false;
     // Built by hand rather than through `deriveFxEvents`: a synthetic event would land in
     // `lastEvents()`, which `ArenaScene` reads for camera shake, and a preview must not shake.
-    previewFx(
-      bursts.map((burst) => ({
-        channel: burst.channel,
-        x: VFX_PREVIEW_POS.x,
-        y: VFX_PREVIEW_POS.y,
-        // Muzzle bursts are cones; firing them along +x points them away from the panel.
-        angle: 0,
-        burst,
-      })),
-    );
+    previewFx(specs);
+    return true;
   }
 
   let wasPaused = room.state.paused;
@@ -573,12 +586,19 @@ export function mountPlaygroundOverlay(
    * place, so an edit is visible to the next burst without a re-install.
    */
   function buildVfxPanel(): HTMLElement {
-    let last: { weaponId: string; phase: FxPhase; channel: FxChannel | "all" } | undefined;
+    let last: { weaponId: string; phase: FxPhase | "all"; channel: FxChannel | "all" } | undefined;
 
-    const preview = (weaponId: string, phase: FxPhase, channel: FxChannel | "all"): void => {
+    const preview = (
+      weaponId: string,
+      phase: FxPhase | "all",
+      channel: FxChannel | "all",
+    ): void => {
       last = { weaponId, phase, channel };
-      firePreview(weaponId, phase, channel);
+      const fired = firePreview(weaponId, phase, channel);
       stopReplay();
+      // Nothing in the selection is switched on, so there is nothing to replay. The next edit
+      // re-arms; an interval that spawns nothing 40 times a minute is just noise.
+      if (!fired) return;
       replayTimer = setInterval(() => {
         if (last) firePreview(last.weaponId, last.phase, last.channel);
       }, VFX_REPLAY_MS);

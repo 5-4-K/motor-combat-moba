@@ -33,8 +33,13 @@ export interface VfxPanelOptions {
   readonly overrides: FxOverrides;
   /** Save to localStorage. Called after every edit (spec PG19's rule, applied here). */
   readonly persist: () => void;
-  /** Replay what is currently selected. Called after every edit and by the Fire button. */
-  readonly preview: (weaponId: string, phase: FxPhase, channel: FxChannel | "all") => void;
+  /** Replay what is currently selected. Called after every edit and by the Fire button. `"all"`
+   * widens the selection: every phase, every channel, or both. */
+  readonly preview: (
+    weaponId: string,
+    phase: FxPhase | "all",
+    channel: FxChannel | "all",
+  ) => void;
   /** Leave the panel. Clears the replay timer and returns to the menu. */
   readonly onBack: () => void;
   /** Copy the export to the clipboard (Task 9). */
@@ -64,8 +69,10 @@ export function buildVfxPanel(opts: VfxPanelOptions): HTMLElement {
   });
 
   function fire(): void {
+    // ONE call, even for the whole weapon. Calling `preview` once per phase would leave the replay
+    // timer armed on whichever phase went last, so the other would flash once and never repeat.
     if (expanded) opts.preview(weaponId, expanded.phase, expanded.channel);
-    else for (const phase of FX_PHASES) opts.preview(weaponId, phase, "all");
+    else opts.preview(weaponId, "all", "all");
   }
 
   /** One slider (or checkbox) for one field of one cell, wired straight into the overrides map. */
