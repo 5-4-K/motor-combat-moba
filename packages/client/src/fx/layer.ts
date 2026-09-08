@@ -18,7 +18,7 @@ import {
   eraserStampsFor,
 } from "./occlusion.js";
 import { weaponFxOf, type FxChannel } from "./table.js";
-import { fxResolverFor, type WeaponFxResolver } from "./tuning.js";
+import type { WeaponFxResolver } from "./tuning.js";
 import {
   asphaltTexture,
   DUST_A,
