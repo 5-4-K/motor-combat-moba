@@ -10,6 +10,7 @@ import {
   fxCellsFor,
   fxKey,
   isFxAtShipped,
+  phasesForSubject,
   resolveWeaponFx,
   shippedBurstFor,
   toControl,
@@ -310,5 +311,28 @@ describe("fxTableSource", () => {
     expect(muzzle).not.toContain("coneRad: TAU");
     const parsed = new Function("TAU", `return {${source}};`)(TAU) as Record<string, unknown>;
     expect(parsed.lance).toEqual(resolveWeaponFx("lance", overrides));
+  });
+});
+
+describe("car event subjects (EV21, EV22)", () => {
+  it("gives a car event one phase, not two", () => {
+    expect(phasesForSubject("carDeath")).toEqual(["impact"]);
+    expect(phasesForSubject("magmablast")).toEqual(["muzzle", "impact"]);
+  });
+
+  it("builds four cells for a car event and eight for a weapon", () => {
+    expect(fxCellsFor("carDeath", {}, phasesForSubject("carDeath"))).toHaveLength(4);
+    expect(fxCellsFor("magmablast", {}, phasesForSubject("magmablast"))).toHaveLength(8);
+  });
+
+  it("resolves an override on a car event through the normal key format", () => {
+    const row = resolveWeaponFx("carDeath", { "carDeath.impact.fire.count": 3 });
+    expect(row.impact.find((b) => b.channel === "fire")!.count).toBe(3);
+  });
+
+  it("emits car rows into their own group in the export", () => {
+    const source = fxTableSource({ "carDeath.impact.fire.count": 3 });
+    expect(source).toContain("CAR_EVENT_FX");
+    expect(source).toContain("carDeath: {");
   });
 });

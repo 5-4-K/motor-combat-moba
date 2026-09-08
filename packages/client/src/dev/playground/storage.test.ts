@@ -9,6 +9,7 @@ import {
   loadStored,
   saveStored,
   sanitizeStoredEnv,
+  sanitizeStoredVfx,
   type StoredPlayground,
 } from "./storage.js";
 
@@ -303,6 +304,12 @@ describe("the stored vfx section (PG54)", () => {
   it("survives a vfx section that is not an object", () => {
     const raw = JSON.stringify({ setup: defaultPlaygroundSetup(), vfx: "nope" });
     expect(decodeStored(raw).vfx).toEqual({});
+  });
+
+  it("keeps a car event override, which isWeaponId alone would have dropped", () => {
+    expect(sanitizeStoredVfx({ "carDeath.impact.fire.count": 3 })).toEqual({
+      "carDeath.impact.fire.count": 3,
+    });
   });
 });
 

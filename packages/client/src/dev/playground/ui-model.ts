@@ -47,6 +47,15 @@ export function weaponOptions(): { id: WeaponId; name: string }[] {
   return Object.values(WEAPON_TABLE).map((row) => ({ id: row.id, name: row.name }));
 }
 
+/** Every subject the VFX panel can edit: the ten weapons, then the two car events (EV20). */
+export function fxSubjectOptions(): { id: string; name: string }[] {
+  return [
+    ...Object.values(WEAPON_TABLE).map((row) => ({ id: row.id as string, name: row.name })),
+    { id: "carDamage", name: "Car: damage" },
+    { id: "carDeath", name: "Car: death" },
+  ];
+}
+
 /** Registered arena ids, for the arena `<select>`. */
 export function arenaOptions(): string[] {
   return Object.keys(ARENAS);

@@ -1,5 +1,6 @@
+import { isWeaponId } from "@motor-combat-moba/shared";
 import type { FxBurst, FxChannel, WeaponFxRow } from "./table.js";
-import { weaponFxOf } from "./table.js";
+import { isCarEventId, weaponFxOf } from "./table.js";
 
 /**
  * The playground's VFX tuning model (spec PG42-PG45, PG49, PG50).
@@ -17,6 +18,22 @@ export type FxPhase = "muzzle" | "impact";
 
 /** Phase order in the panel and in every derived list. */
 export const FX_PHASES: readonly FxPhase[] = ["muzzle", "impact"];
+
+/**
+ * Which phases a subject has (EV21).
+ *
+ * A car event has no muzzle, so it renders a 1 x 4 grid rather than 2 x 4. It reuses the EXISTING
+ * `"impact"` phase rather than introducing a third value, which is what keeps the override key
+ * format and `sanitizeStoredVfx`'s phase check untouched.
+ */
+export function phasesForSubject(id: string): readonly FxPhase[] {
+  return isCarEventId(id) ? ["impact"] : FX_PHASES;
+}
+
+/** Every id the fx panel can edit. Weapons first, then the two car events. */
+export function isFxSubjectId(id: string): boolean {
+  return isWeaponId(id) || isCarEventId(id);
+}
 
 /** Channel order in the panel. NOT the render order — see `resolveWeaponFx` in Task 2. */
 export const FX_CHANNELS: readonly FxChannel[] = ["smoke", "fire", "spark", "debris"];
@@ -129,10 +146,18 @@ export interface FxCell {
   readonly current: FxBurst;
 }
 
-/** All eight cells for one weapon, phase-major, in `FX_CHANNELS` order — the panel's row order. */
-export function fxCellsFor(weaponId: string, overrides: FxOverrides): FxCell[] {
+/**
+ * All cells for one subject, phase-major, in `FX_CHANNELS` order — the panel's row order.
+ *
+ * Eight cells (two phases) for a weapon, four (one phase) for a car event — see `phasesForSubject`.
+ */
+export function fxCellsFor(
+  weaponId: string,
+  overrides: FxOverrides,
+  phases: readonly FxPhase[] = FX_PHASES,
+): FxCell[] {
   const cells: FxCell[] = [];
-  for (const phase of FX_PHASES) {
+  for (const phase of phases) {
     for (const channel of FX_CHANNELS) {
       cells.push({
         phase,
@@ -252,34 +277,43 @@ function burstSource(burst: FxBurst): string {
 }
 
 /**
- * The overrides as a pasteable `WEAPON_FX` fragment (spec PG53).
+ * The overrides as a pasteable `WEAPON_FX` / `CAR_EVENT_FX` fragment (spec PG53, widened by EV20-22).
  *
  * The destination is `packages/client/src/fx/table.ts`, not a JSON blob a codec reads back — which
  * is why this emits source rather than the JSON the physics panel's Copy button produces. Full rows
- * are emitted, in `table.ts`'s own shape, for every weapon the developer actually touched; an
- * untouched weapon is absent, so pasting the result can never rewrite a row nobody edited.
+ * are emitted, in `table.ts`'s own shape, for every subject the developer actually touched; an
+ * untouched subject is absent, so pasting the result can never rewrite a row nobody edited.
+ *
+ * Weapon rows and car-event rows live in two different objects in `table.ts`, so they are emitted
+ * as two separately labelled groups — `// WEAPON_FX` and `// CAR_EVENT_FX` — rather than one flat
+ * list, which is what keeps a paste from landing in the wrong table.
  *
  * Empty string when nothing is overridden — there is nothing to paste.
  */
 export function fxTableSource(overrides: FxOverrides): string {
-  const weaponIds = [
+  const ids = [
     ...new Set(Object.keys(overrides).map((key) => key.slice(0, Math.max(0, key.indexOf("."))))),
   ].filter((id) => id.length > 0);
-  if (weaponIds.length === 0) return "";
+  if (ids.length === 0) return "";
 
-  const rows = weaponIds.map((weaponId) => {
-    const row = resolveWeaponFx(weaponId, overrides);
+  const rowSource = (id: string): string => {
+    const row = resolveWeaponFx(id, overrides);
     const phase = (bursts: readonly FxBurst[]): string =>
       bursts.length === 0
         ? "[]"
         : `[\n${bursts.map((b) => `      ${burstSource(b)},`).join("\n")}\n    ]`;
     return [
-      `  ${weaponId}: {`,
+      `  ${id}: {`,
       `    muzzle: ${phase(row.muzzle)},`,
       `    impact: ${phase(row.impact)},`,
       `  },`,
     ].join("\n");
-  });
+  };
 
-  return rows.join("\n");
+  const weaponRows = ids.filter((id) => !isCarEventId(id)).map(rowSource);
+  const carRows = ids.filter(isCarEventId).map(rowSource);
+  const parts: string[] = [];
+  if (weaponRows.length > 0) parts.push(`// WEAPON_FX\n${weaponRows.join("\n")}`);
+  if (carRows.length > 0) parts.push(`// CAR_EVENT_FX\n${carRows.join("\n")}`);
+  return parts.join("\n\n");
 }

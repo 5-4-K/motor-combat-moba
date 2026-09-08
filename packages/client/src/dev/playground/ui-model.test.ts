@@ -5,6 +5,7 @@ import {
   arenaOptions,
   canStep,
   carOptions,
+  fxSubjectOptions,
   isAtShipped,
   isLoadoutLegal,
   pauseKeyAction,
@@ -271,5 +272,14 @@ describe("isAtShipped", () => {
   it("keeps boolean fields strictly equal, with no tolerance", () => {
     expect(isAtShipped(boolField, true)).toBe(true);
     expect(isAtShipped(boolField, false)).toBe(false);
+  });
+});
+
+describe("fxSubjectOptions (EV20)", () => {
+  it("lists every weapon, then both car events, in that order", () => {
+    const options = fxSubjectOptions();
+    expect(options).toHaveLength(Object.keys(WEAPON_TABLE).length + 2);
+    expect(options.at(-2)).toEqual({ id: "carDamage", name: "Car: damage" });
+    expect(options.at(-1)).toEqual({ id: "carDeath", name: "Car: death" });
   });
 });

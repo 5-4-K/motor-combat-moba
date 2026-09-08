@@ -1,9 +1,10 @@
 import type { PlaygroundCarSetup, PlaygroundSetup, TuningOverrides } from "@motor-combat-moba/shared";
-import { defaultPlaygroundSetup, isPlaygroundSetup, isWeaponId, sanitizeStoredTuning } from "@motor-combat-moba/shared";
+import { defaultPlaygroundSetup, isPlaygroundSetup, sanitizeStoredTuning } from "@motor-combat-moba/shared";
 import {
   FX_CHANNELS,
   FX_FIELDS,
-  FX_PHASES,
+  isFxSubjectId,
+  phasesForSubject,
   toControl,
   type FxOverrides,
 } from "../../fx/tuning.js";
@@ -94,6 +95,11 @@ function upgradeStoredSetup(value: unknown): unknown {
  * left by a renamed weapon, a retuned range, or a hand-edited blob must cost that one entry, never
  * the whole tuning session. Range is checked in CONTROL units, which is what `FX_FIELDS` bounds
  * are expressed in — a `coneRad` of `TAU` is 360 there, comfortably inside 0-360.
+ *
+ * `isFxSubjectId` widens the gate to the two car events alongside every weapon (EV21), and the
+ * `phasesForSubject` check drops a `muzzle` key saved against a car event — that subject has only
+ * `impact`, so a stale `carDeath.muzzle.*` key would otherwise survive and resolve into a phase the
+ * row does not have.
  */
 export function sanitizeStoredVfx(value: unknown): FxOverrides {
   if (!isPlainRecord(value)) return {};
@@ -102,8 +108,8 @@ export function sanitizeStoredVfx(value: unknown): FxOverrides {
     const parts = key.split(".");
     if (parts.length !== 4) continue;
     const [weaponId, phase, channel, fieldName] = parts as [string, string, string, string];
-    if (!isWeaponId(weaponId)) continue;
-    if (!FX_PHASES.some((p) => p === phase)) continue;
+    if (!isFxSubjectId(weaponId)) continue;
+    if (!phasesForSubject(weaponId).some((p) => p === phase)) continue;
     if (!FX_CHANNELS.some((c) => c === channel)) continue;
     const field = FX_FIELDS.find((f) => f.name === fieldName);
     if (!field) continue;

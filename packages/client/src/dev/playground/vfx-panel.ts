@@ -1,13 +1,14 @@
 import type { FxChannel } from "../../fx/table.js";
+import { isCarEventId } from "../../fx/table.js";
 import {
   FX_CHANNELS,
   FX_FIELDS,
-  FX_PHASES,
   burstFor,
   fromControl,
   fxCellsFor,
   fxKey,
   isFxAtShipped,
+  phasesForSubject,
   shippedBurstFor,
   toControl,
   type FxCell,
@@ -16,7 +17,7 @@ import {
   type FxPhase,
 } from "../../fx/tuning.js";
 import { button, h } from "../../ui/dom.js";
-import { weaponOptions } from "./ui-model.js";
+import { fxSubjectOptions } from "./ui-model.js";
 
 /**
  * The VFX settings panel (spec PG48).
@@ -52,14 +53,14 @@ function channelSummary(count: number): string {
 }
 
 export function buildVfxPanel(opts: VfxPanelOptions): HTMLElement {
-  const weapons = weaponOptions();
-  let weaponId: string = weapons[0]!.id;
+  const subjects = fxSubjectOptions();
+  let weaponId: string = subjects[0]!.id;
   /** Which block is expanded, or `undefined` for none. Narrows the preview to that channel. */
   let expanded: { phase: FxPhase; channel: FxChannel } | undefined;
 
   const body = h("div", { class: "pg-stats" });
 
-  const weaponSelect = h("select", {}, weapons.map((w) => h("option", { value: w.id }, [w.name])));
+  const weaponSelect = h("select", {}, subjects.map((w) => h("option", { value: w.id }, [w.name])));
   weaponSelect.value = weaponId;
   weaponSelect.addEventListener("change", () => {
     weaponId = weaponSelect.value;
@@ -140,8 +141,14 @@ export function buildVfxPanel(opts: VfxPanelOptions): HTMLElement {
 
     control.addEventListener(field.kind === "number" ? "input" : "change", onEdit);
 
+    // EV22: for the two car entries, `count` is the CAP on a burst whose real count follows the
+    // damage taken, not the count itself — a control that silently meant something else would waste
+    // a developer's afternoon, so the label says so.
+    const isCap = isCarEventId(weaponId) && field.name === "count";
+    const label = isCap ? "Count cap" : field.label;
+
     return h("div", { class: "pg-row pg-stat-row" }, [
-      h("label", { title: key }, [`${field.label} (shipped ${readout(field, shippedControl)})`]),
+      h("label", { title: key }, [`${label} (shipped ${readout(field, shippedControl)})`]),
       control,
       valueSpan,
       button({ class: "pg-reset", title: "Reset to shipped" }, ["↺"], () => {
@@ -183,11 +190,12 @@ export function buildVfxPanel(opts: VfxPanelOptions): HTMLElement {
   }
 
   function renderBody(): void {
-    // One grid computation per render rather than one per block: `fxCellsFor` builds all eight
-    // cells on every call, so calling it inside `channelBlock` built the grid eight times.
-    const cells = fxCellsFor(weaponId, opts.overrides);
+    // One grid computation per render rather than one per block: `fxCellsFor` builds every cell on
+    // one call, so calling it inside `channelBlock` built the grid once per block instead.
+    const phases = phasesForSubject(weaponId);
+    const cells = fxCellsFor(weaponId, opts.overrides, phases);
     body.replaceChildren(
-      ...FX_PHASES.flatMap((phase) => [
+      ...phases.flatMap((phase) => [
         h("div", { class: "pg-fx-phase" }, [phase]),
         ...FX_CHANNELS.map((channel) =>
           channelBlock(cells.find((c) => c.phase === phase && c.channel === channel)!),
