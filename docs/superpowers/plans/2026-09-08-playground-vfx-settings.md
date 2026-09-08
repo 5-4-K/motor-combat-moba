@@ -1930,9 +1930,15 @@ describe("fxTableSource", () => {
     expect(source).not.toContain("6.28");
   });
 
-  it("omits a burst switched off", () => {
+  it("omits a burst switched off, and only that one", () => {
     const source = fxTableSource({ "lance.muzzle.spark.count": 0 });
-    expect(source).not.toContain('channel: "spark"');
+    // `lance` authors a spark burst in BOTH phases — muzzle fire+spark, impact spark. Switching the
+    // muzzle one off must leave the muzzle with fire alone while the impact spark, a different
+    // burst nobody touched, survives. So assert on the muzzle slice, not the whole fragment.
+    const muzzle = source.slice(source.indexOf("muzzle:"), source.indexOf("impact:"));
+    expect(muzzle).toContain('channel: "fire"');
+    expect(muzzle).not.toContain('channel: "spark"');
+    expect(source).toContain('channel: "spark"');
   });
 
   it("is valid TypeScript that reproduces the resolved row", () => {
