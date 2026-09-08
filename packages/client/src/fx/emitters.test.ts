@@ -78,3 +78,40 @@ describe("emitterSpecsForAll", () => {
     expect(specs[0].x).toBe(111);
   });
 });
+
+describe("emitterSpecsFor with an injected resolver", () => {
+  it("uses the resolver's row instead of the shipped one", () => {
+    const resolve = () => ({
+      muzzle: [
+        { channel: "debris" as const, count: 3, speed: 10, lifeMs: 100, size: 4, growPerSec: 0, alpha: 1, soot: false, coneRad: 1 },
+      ],
+      impact: [],
+    });
+    const specs = emitterSpecsFor(
+      { kind: "shotFired", weaponId: "lance", x: 0, y: 0, angle: 0 },
+      resolve,
+    );
+    expect(specs).toHaveLength(1);
+    expect(specs[0]!.channel).toBe("debris");
+  });
+
+  it("defaults to the shipped table when no resolver is passed", () => {
+    const specs = emitterSpecsFor({ kind: "shotFired", weaponId: "lance", x: 0, y: 0, angle: 0 });
+    expect(specs.map((s) => s.channel)).toEqual(["fire", "spark"]);
+  });
+
+  it("drops a burst whose count is zero (PG47)", () => {
+    const resolve = () => ({
+      muzzle: [
+        { channel: "fire" as const, count: 0, speed: 10, lifeMs: 100, size: 4, growPerSec: 0, alpha: 1, soot: false, coneRad: 1 },
+        { channel: "spark" as const, count: 2, speed: 10, lifeMs: 100, size: 4, growPerSec: 0, alpha: 1, soot: false, coneRad: 1 },
+      ],
+      impact: [],
+    });
+    const specs = emitterSpecsFor(
+      { kind: "shotFired", weaponId: "lance", x: 0, y: 0, angle: 0 },
+      resolve,
+    );
+    expect(specs.map((s) => s.channel)).toEqual(["spark"]);
+  });
+});

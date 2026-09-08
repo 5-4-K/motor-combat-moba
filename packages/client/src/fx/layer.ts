@@ -17,7 +17,8 @@ import {
   ERASER_STAMP_WIDTH,
   eraserStampsFor,
 } from "./occlusion.js";
-import type { FxChannel } from "./table.js";
+import { weaponFxOf, type FxChannel } from "./table.js";
+import { fxResolverFor, type WeaponFxResolver } from "./tuning.js";
 import {
   asphaltTexture,
   DUST_A,
@@ -162,9 +163,24 @@ export class FxLayer {
     spark: 0,
     debris: 0,
   };
+  /**
+   * How this layer turns a weapon id into a row (spec PG46).
+   *
+   * Defaults to the shipped table, and every shipped scene leaves it at that default. Only the
+   * playground passes one, which is what confines VFX overrides to that room by construction rather
+   * than by discipline.
+   */
+  private readonly resolveFx: WeaponFxResolver;
 
-  constructor(scene: Phaser.Scene, seed: number, arenaWidth: number, arenaHeight: number) {
+  constructor(
+    scene: Phaser.Scene,
+    seed: number,
+    arenaWidth: number,
+    arenaHeight: number,
+    resolveFx: WeaponFxResolver = weaponFxOf,
+  ) {
     this.scene = scene;
+    this.resolveFx = resolveFx;
     this.uploadTextures(seed);
 
     const emitter = (
@@ -451,7 +467,7 @@ export class FxLayer {
     this.clockMs += dtMs;
     const events = deriveFxEvents(this.prevView, view);
     this.frameEvents = events;
-    this.spawn(emitterSpecsForAll(events));
+    this.spawn(emitterSpecsForAll(events, this.resolveFx));
 
     for (const event of events) {
       for (const stamp of decalStampsFor(event)) {
