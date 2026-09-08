@@ -115,6 +115,10 @@ motor-combat-MOBA/
         │   ├── asset-keys.ts      # carId → "car.<id>"; weaponIconKey(id) → "weapon-icon.<id>"
         │   ├── sprite-fit.ts      # fits art to the hull; the hull never follows the art
         │   └── car-sprite.ts      # the resolution chain ArenaScene and the tuning tool share
+        ├── fx/
+        │   ├── environment.ts     # ENVIRONMENT_FX: the arena's whole visual ground in one table — grade, vignette, shake, hit-stop, decals, occlusion, floor, markings (EV6)
+        │   ├── env-tuning.ts      # ENV_FIELDS + resolveEnvironment: the flat, section-based tuning model over EnvironmentFx (EV13–EV19)
+        │   └── env-store.ts       # the playground-only override map + version-cached liveEnvResolver (EV18, EV19, EV34)
         ├── practice/
         │   └── storage.ts         # localStorage codec for PracticeSetup under "motor-combat.practice.v1" (PR21) — ships, not stripped
         ├── dev/                   # stripped from release builds, asserted by build-release.mjs
@@ -123,6 +127,7 @@ motor-combat-MOBA/
         │   ├── PlaygroundScene.ts # ?dev=playground: joins the "playground" room, launches ArenaScene, mounts the overlay (PG2)
         │   └── playground/
         │       ├── overlay.ts     # DOM pause menu + settings shell (untested; wires the pure modules below onto the panel)
+        │       ├── env-panel.ts   # the environment settings panel: one collapsible block per ENVIRONMENT_FX section (EV31)
         │       ├── ui-model.ts    # pure derivations: view state, auto-generated sliders from tunableFields (PG14, PG19)
         │       └── storage.ts     # localStorage codec under "motor-combat.playground.v1" (PG20)
         ├── net/

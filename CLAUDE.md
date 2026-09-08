@@ -144,6 +144,15 @@ the table moving. Feel complaints ("medium is too hard to hit") go through the
 [`docs/bot-behavior.md`](docs/bot-behavior.md) and
 [`docs/superpowers/specs/2026-09-05-bot-situation-play-design.md`](docs/superpowers/specs/2026-09-05-bot-situation-play-design.md).
 
+**The playground tunes two kinds of VFX, and they are different shapes.** Per-weapon bursts live in
+`fx/table.ts` and are edited as a 2x4 grid; the environment — grade, vignette, shake, hit-stop,
+decals, occlusion, the generated floor and the painted markings — lives in `fx/environment.ts` as
+one `ENVIRONMENT_FX` table and is edited as a flat list of sections. Both reach the renderer the
+same way: a resolver injected by `ArenaScene` **only for a playground room**, so a shipped arena or
+a practice session renders the shipped tables no matter what is saved in that browser. Three
+environment knobs are not live — `floor.*` needs the panel's Regenerate button, and
+`occlusion.halo` rebuilds the smoke-hole silhouettes — see EV27, EV28 and EV30.
+
 ## Hard invariants
 
 1. `TICK_RATE_HZ` lives once in `@motor-combat-moba/shared`.
@@ -188,7 +197,7 @@ the table moving. Feel complaints ("medium is too hard to hit") go through the
 | Ram CC and knockback decisions (R1–R20): severity, side bonus, authority/shove/spin, the `mass` rating | [`docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md`](docs/superpowers/specs/2026-08-29-ram-cc-and-knockback-design.md) |
 | Status (buff/debuff) decisions: channels, re-apply rules, clamps, pulses, auras, the application seams | [`docs/superpowers/specs/2026-08-29-status-mechanism-design.md`](docs/superpowers/specs/2026-08-29-status-mechanism-design.md) |
 | FFA Deathmatch: the second win condition, kill attribution, respawn and spawn-protection lifecycle, the `isOnField`/`isSolid` split (M1–M33) | [`docs/superpowers/specs/2026-09-01-ffa-game-modes-design.md`](docs/superpowers/specs/2026-09-01-ffa-game-modes-design.md) |
-| The dev-only playtest playground: `?dev=playground`, the extracted tick pipeline, the runtime tuning store, `isActive`, the bot, persistence/export (PG1–PG23); bot difficulty profiles, per-car colour selection, the settings-panel relayout, and the `?dev=assets` additions (PG24–PG40); the VFX settings panel over `WEAPON_FX`, its preview and its export (PG41–PG55) | [`docs/superpowers/specs/2026-09-01-playtest-playground-design.md`](docs/superpowers/specs/2026-09-01-playtest-playground-design.md), [`docs/superpowers/specs/2026-09-02-playground-usability-and-bot-difficulty-design.md`](docs/superpowers/specs/2026-09-02-playground-usability-and-bot-difficulty-design.md), [`docs/superpowers/specs/2026-09-08-playground-vfx-settings-design.md`](docs/superpowers/specs/2026-09-08-playground-vfx-settings-design.md) |
+| The dev-only playtest playground: `?dev=playground`, the extracted tick pipeline, the runtime tuning store, `isActive`, the bot, persistence/export (PG1–PG23); bot difficulty profiles, per-car colour selection, the settings-panel relayout, and the `?dev=assets` additions (PG24–PG40); the VFX settings panel over `WEAPON_FX`, its preview and its export (PG41–PG55); the environment settings panel over `ENVIRONMENT_FX` — the arena's visual ground rather than per-weapon bursts — and its three non-live knobs (EV1–EV34) | [`docs/superpowers/specs/2026-09-01-playtest-playground-design.md`](docs/superpowers/specs/2026-09-01-playtest-playground-design.md), [`docs/superpowers/specs/2026-09-02-playground-usability-and-bot-difficulty-design.md`](docs/superpowers/specs/2026-09-02-playground-usability-and-bot-difficulty-design.md), [`docs/superpowers/specs/2026-09-08-playground-vfx-settings-design.md`](docs/superpowers/specs/2026-09-08-playground-vfx-settings-design.md), [`docs/superpowers/specs/2026-09-08-playground-environment-vfx-design.md`](docs/superpowers/specs/2026-09-08-playground-environment-vfx-design.md) |
 | Practice mode: the shipped 1v1-vs-bot room, its settings page, session limits (PR1–PR31) | [`docs/superpowers/specs/2026-09-03-practice-mode-design.md`](docs/superpowers/specs/2026-09-03-practice-mode-design.md) |
 | The user's own idea / invariant notes | `docs/ideas/`, `docs/invariants/` — **off limits unless the user names them**, see below |
 
