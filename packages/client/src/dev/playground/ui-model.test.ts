@@ -26,10 +26,18 @@ describe("pauseKeyAction", () => {
   });
 
   it("ignores the key inside a form control, in every view", () => {
+    // All three FORM_CONTROL_TAGS members, in both cases: dropping any one of them from that set
+    // must fail a test, and the match is case-insensitive.
     for (const view of ["hidden", "menu", "physics", "vfx"] as const) {
-      expect(pauseKeyAction(view, "SELECT")).toBe("ignore");
-      expect(pauseKeyAction(view, "input")).toBe("ignore");
+      for (const tag of ["INPUT", "SELECT", "TEXTAREA", "input", "select", "textarea"]) {
+        expect(pauseKeyAction(view, tag)).toBe("ignore");
+      }
     }
+  });
+
+  it("matches the tag case-insensitively on the toggle path too", () => {
+    expect(pauseKeyAction("menu", "body")).toBe("toggle");
+    expect(pauseKeyAction("hidden", "div")).toBe("toggle");
   });
 });
 

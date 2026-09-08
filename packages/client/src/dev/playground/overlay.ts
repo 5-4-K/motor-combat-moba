@@ -451,7 +451,7 @@ export function mountPlaygroundOverlay(
    * map -- the single exit point for "leaving the settings view" (spec PG13/PG16), reached from both
    * the Back button's click and the P-key's "back-to-menu" action, so the tuning blob is sent exactly
    * once per exit rather than once per input event. The default here is never reached in practice
-   * (`pauseKeyAction` only returns "back-to-menu" while `view === "settings"`, which requires
+   * (`pauseKeyAction` returns "back-to-menu" for both settings views, and the physics one requires
    * `buildSettings` to have already run and reassigned this), but keeps the binding safely typed. */
   let leaveSettings: () => void = () => {
     subView = "menu";
