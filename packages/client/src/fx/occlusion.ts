@@ -1,5 +1,7 @@
 import { DRIVE_CONFIG } from "@motor-combat-moba/shared";
 import type { FxCarView } from "./events.js";
+import type { EnvironmentFx } from "./environment.js";
+import { ENVIRONMENT_FX } from "./environment.js";
 
 /**
  * Where to punch a hole in the smoke layer so a car stays visible inside a cloud (VFX18–VFX22).
@@ -18,20 +20,21 @@ export interface EraserStamp {
   readonly x: number;
   readonly y: number;
   readonly angle: number;
-  /** The hole's FINAL size in world units. The renderer draws it at exactly this — see `ERASER_HALO`. */
+  /** The hole's FINAL size in world units. The renderer draws it at exactly this — see `eraserStampWidth`. */
   readonly width: number;
-  /** The hole's FINAL size in world units. The renderer draws it at exactly this — see `ERASER_HALO`. */
+  /** The hole's FINAL size in world units. The renderer draws it at exactly this — see `eraserStampHeight`. */
   readonly height: number;
   /** Which chassis's silhouette to erase with. */
   readonly carId: string;
 }
 
 /**
- * How far past the hull the erased halo reaches, in world units — the FULL halo, on every side.
+ * The final world size of one hole: the hull plus the halo on every side.
  *
- * Bigger than the hull on purpose: a stamp exactly the car's size traces its outline in smoke and
- * reads as a sticker. The halo has to clear the car for the hole to look like the car is displacing
- * the cloud.
+ * `env.occlusion.halo` is how far past the hull the erased halo reaches, in world units, on every
+ * side. Bigger than the hull on purpose: a stamp exactly the car's size traces its outline in smoke
+ * and reads as a sticker. The halo has to clear the car for the hole to look like the car is
+ * displacing the cloud.
  *
  * **This is the only number that decides how big the hole is.** `EraserStamp.width`/`height` are the
  * *final world size* of the hole, and nothing downstream may scale them again — `fx/layer.ts` hands
@@ -43,18 +46,19 @@ export interface EraserStamp {
  * A second multiplier in the renderer would make every sentence above a lie that no test could
  * catch — `layer.ts` has no test, by design. A pair of them lived at that call site until fix round
  * 1 and put the hole at roughly 107 x 93 units against a 48 x 32 hull.
- */
-export const ERASER_HALO = 14;
-
-/**
- * The final world size of one hole: the hull plus the halo on every side.
  *
- * Identical for every chassis — only the silhouette inside it differs. Exported because `layer.ts`
- * sizes its silhouette textures to this box's aspect, and a second copy of the formula there is
- * exactly how the two would drift apart.
+ * A function rather than a constant now that the halo is tunable. `layer.ts` sizes its silhouette
+ * textures to this box's aspect, and a second copy of the formula there is exactly how the two
+ * would drift apart — see EV30 for why a halo edit must also rebuild those textures.
  */
-export const ERASER_STAMP_WIDTH = DRIVE_CONFIG.carWidth + ERASER_HALO * 2;
-export const ERASER_STAMP_HEIGHT = DRIVE_CONFIG.carHeight + ERASER_HALO * 2;
+export function eraserStampWidth(env: EnvironmentFx = ENVIRONMENT_FX): number {
+  return DRIVE_CONFIG.carWidth + env.occlusion.halo * 2;
+}
+
+/** Same box, the other axis — see `eraserStampWidth`. */
+export function eraserStampHeight(env: EnvironmentFx = ENVIRONMENT_FX): number {
+  return DRIVE_CONFIG.carHeight + env.occlusion.halo * 2;
+}
 
 /**
  * One stamp per living car.
@@ -62,18 +66,16 @@ export const ERASER_STAMP_HEIGHT = DRIVE_CONFIG.carHeight + ERASER_HALO * 2;
  * Dead cars are skipped: a wreck is intangible from the tick it dies and fades out entirely, so the
  * smoke should close over where it was rather than hold a hole open around a car that is gone.
  */
-export function eraserStampsFor(cars: readonly FxCarView[]): EraserStamp[] {
+export function eraserStampsFor(
+  cars: readonly FxCarView[],
+  env: EnvironmentFx = ENVIRONMENT_FX,
+): EraserStamp[] {
+  const width = eraserStampWidth(env);
+  const height = eraserStampHeight(env);
   const stamps: EraserStamp[] = [];
   for (const car of cars) {
     if (!car.alive) continue;
-    stamps.push({
-      x: car.x,
-      y: car.y,
-      angle: car.angle,
-      width: ERASER_STAMP_WIDTH,
-      height: ERASER_STAMP_HEIGHT,
-      carId: car.carId,
-    });
+    stamps.push({ x: car.x, y: car.y, angle: car.angle, width, height, carId: car.carId });
   }
   return stamps;
 }

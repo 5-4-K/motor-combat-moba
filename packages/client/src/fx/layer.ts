@@ -11,12 +11,7 @@ import { AIR_FX_DEPTH, DECAL_DEPTH, GROUND_FX_DEPTH, SMOKE_DEPTH } from "./depth
 import { deriveFxEvents, type FxEvent, type FxWorldView } from "./events.js";
 import { emitterSpecsForAll, type EmitterSpec } from "./emitters.js";
 import { ENVIRONMENT_FX } from "./environment.js";
-import {
-  ERASER_HALO,
-  ERASER_STAMP_HEIGHT,
-  ERASER_STAMP_WIDTH,
-  eraserStampsFor,
-} from "./occlusion.js";
+import { eraserStampHeight, eraserStampsFor, eraserStampWidth } from "./occlusion.js";
 import { weaponFxOf, type FxChannel } from "./table.js";
 import type { WeaponFxResolver } from "./tuning.js";
 import {
@@ -46,9 +41,11 @@ export const FX_TEXTURE_KEYS = {
 } as const;
 
 /**
- * A chassis silhouette stamp's WIDTH in pixels. Its height follows `ERASER_STAMP_HEIGHT`.
+ * A chassis silhouette stamp's WIDTH in pixels. Its height follows `eraserStampHeight(ENVIRONMENT_FX)`.
  *
- * A resolution knob and nothing else: how big the hole is, is `ERASER_HALO`'s decision alone.
+ * A resolution knob and nothing else: how big the hole is, is `ENVIRONMENT_FX.occlusion.halo`'s
+ * decision alone. Read directly here rather than through an injected resolver — Task 10 replaces
+ * this.
  */
 const ERASER_TEXTURE_PX = 128;
 
@@ -252,8 +249,8 @@ export class FxLayer {
    *
    * The texture is sized to the STAMP's aspect rather than square, and the sprite is CONTAINED
    * inside it rather than stretched to fill. Both halves matter, and getting either wrong produces
-   * the same symptom: `maskSmoke` displays this at exactly `ERASER_STAMP_WIDTH` x
-   * `ERASER_STAMP_HEIGHT` (76 x 60), so a square texture there is a non-uniform scale, and a 96x51
+   * the same symptom: `maskSmoke` displays this at exactly `eraserStampWidth()` x
+   * `eraserStampHeight()` (76 x 60 today), so a square texture there is a non-uniform scale, and a 96x51
    * sprite squashed into a square is already a 1.9x distortion before that. Together they turned
    * every chassis — bastion's hex, bullseye's ellipse — into the same oversized round blob, which
    * is precisely the promise this whole method makes and was not keeping.
@@ -261,12 +258,13 @@ export class FxLayer {
   private buildEraserTextures(): void {
     // Pixels per world unit. Everything below is in world units scaled by this, so the texture and
     // the display box are the same shape and the scale that lands them on screen is uniform.
-    const ppu = ERASER_TEXTURE_PX / ERASER_STAMP_WIDTH;
+    const ppu = ERASER_TEXTURE_PX / eraserStampWidth();
     const texWidth = ERASER_TEXTURE_PX;
-    const texHeight = Math.round(ERASER_STAMP_HEIGHT * ppu);
-    // The hull box, centred, with the halo as its margin — in the same world units `ERASER_HALO` is
-    // written in, which is what makes that constant's doc comment true.
-    const inset = ERASER_HALO * ppu;
+    const texHeight = Math.round(eraserStampHeight() * ppu);
+    // The hull box, centred, with the halo as its margin — in the same world units
+    // `ENVIRONMENT_FX.occlusion.halo` is written in, which is what makes that field's doc comment
+    // true.
+    const inset = ENVIRONMENT_FX.occlusion.halo * ppu;
     const hullWidth = texWidth - inset * 2;
     const hullHeight = texHeight - inset * 2;
 
@@ -527,9 +525,9 @@ export class FxLayer {
         this.eraser
           .setTexture(key)
           // The stamp's own size, with NO multiplier: `EraserStamp.width`/`height` are the final
-          // world size of the hole and `ERASER_HALO` is the one number that decides it. A pair of
-          // fudge factors lived here and made that constant's doc comment false — untestably, since
-          // this file has no test.
+          // world size of the hole and `ENVIRONMENT_FX.occlusion.halo` is the one number that decides
+          // it. A pair of fudge factors lived here and made that field's doc comment false —
+          // untestably, since this file has no test.
           .setDisplaySize(stamp.width, stamp.height)
           .setRotation(stamp.angle)
           .setPosition(stamp.x, stamp.y);
