@@ -1,5 +1,12 @@
 import type { PlaygroundCarSetup, PlaygroundSetup, TuningOverrides } from "@motor-combat-moba/shared";
-import { defaultPlaygroundSetup, isPlaygroundSetup, sanitizeStoredTuning } from "@motor-combat-moba/shared";
+import { defaultPlaygroundSetup, isPlaygroundSetup, isWeaponId, sanitizeStoredTuning } from "@motor-combat-moba/shared";
+import {
+  FX_CHANNELS,
+  FX_FIELDS,
+  FX_PHASES,
+  toControl,
+  type FxOverrides,
+} from "../../fx/tuning.js";
 
 /**
  * localStorage persistence for the playground overlay (Task 11, spec PG19/PG20). Pure codec + a thin
@@ -22,6 +29,8 @@ export interface StoredPlayground {
   setup: PlaygroundSetup;
   overrides: TuningOverrides;
   view: StoredView;
+  /** The playground's VFX overrides (spec PG54). Client-only, like `view` — never sent anywhere. */
+  vfx: FxOverrides;
 }
 
 /** Everything off. What a browser with nothing saved, or a saved blob from before this existed, gets. */
@@ -76,6 +85,39 @@ function upgradeStoredSetup(value: unknown): unknown {
 }
 
 /**
+ * Read the `vfx` section back, entry by entry, dropping anything that no longer makes sense.
+ *
+ * Lenient in the same way `sanitizeStoredTuning` is, and for the same reason (PG54): a stale key
+ * left by a renamed weapon, a retuned range, or a hand-edited blob must cost that one entry, never
+ * the whole tuning session. Range is checked in CONTROL units, which is what `FX_FIELDS` bounds
+ * are expressed in — a `coneRad` of `TAU` is 360 there, comfortably inside 0-360.
+ */
+export function sanitizeStoredVfx(value: unknown): FxOverrides {
+  if (!isPlainRecord(value)) return {};
+  const out: FxOverrides = {};
+  for (const [key, raw] of Object.entries(value)) {
+    const parts = key.split(".");
+    if (parts.length !== 4) continue;
+    const [weaponId, phase, channel, fieldName] = parts as [string, string, string, string];
+    if (!isWeaponId(weaponId)) continue;
+    if (!FX_PHASES.some((p) => p === phase)) continue;
+    if (!FX_CHANNELS.some((c) => c === channel)) continue;
+    const field = FX_FIELDS.find((f) => f.name === fieldName);
+    if (!field) continue;
+    if (field.kind === "boolean") {
+      if (typeof raw !== "boolean") continue;
+      out[key] = raw;
+      continue;
+    }
+    if (typeof raw !== "number" || !Number.isFinite(raw)) continue;
+    const control = toControl(field, raw);
+    if (control < field.min || control > field.max) continue;
+    out[key] = raw;
+  }
+  return out;
+}
+
+/**
  * Never throws. Absent (`null`) or unparseable input, or JSON that parses to something other than a
  * plain object, all fall back to `defaultPlaygroundSetup()` + `{}`. The two halves are validated
  * independently and each falls back on its own: a bad `setup` does not drop a good `overrides` blob
@@ -100,6 +142,7 @@ export function decodeStored(raw: string | null): StoredPlayground {
     })(),
     overrides: sanitizeStoredTuning(rec.overrides),
     view: decodeView(rec.view),
+    vfx: sanitizeStoredVfx(rec.vfx),
   };
 }
 

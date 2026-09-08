@@ -591,6 +591,9 @@ export function mountPlaygroundOverlay(
         setup: readSetup(),
         overrides: { ...overrides },
         view: { showHitbox: hitboxToggle.checked },
+        // Carried through unchanged: the physics panel does not edit VFX, and a save from here must
+        // not wipe a tuning session. Task 7 replaces this with the panel's own live map.
+        vfx: loadStored().vfx,
       });
     }
 
