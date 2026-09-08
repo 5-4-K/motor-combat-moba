@@ -47,6 +47,8 @@ import {
   type ShakeSpec,
 } from "../fx/camera.js";
 import { ENVIRONMENT_FX } from "../fx/environment.js";
+import { liveEnvResolver } from "../fx/env-store.js";
+import type { EnvResolver } from "../fx/env-tuning.js";
 import { FX_TEXTURE_KEYS, FxLayer } from "../fx/layer.js";
 import { FLOOR_DEPTH } from "../fx/depths.js";
 import { liveFxResolver } from "../fx/override-store.js";
@@ -644,6 +646,18 @@ export class ArenaScene extends Phaser.Scene {
    * listed in `splitCameras` or it draws twice.
    */
   private floorTile: Phaser.GameObjects.TileSprite | undefined;
+  /**
+   * How this scene reads `ENVIRONMENT_FX` (EV25, EV34).
+   *
+   * Defaults to the shipped table; `create` swaps it for `liveEnvResolver()` only in a playground
+   * room, the same `isPlaygroundRoom` gate `FxLayer`'s own weapon-fx resolver uses, so the two
+   * cannot drift apart on which rooms get overrides.
+   */
+  private resolveEnv: EnvResolver = () => ENVIRONMENT_FX;
+  /** The camera's colour-grade filter controller, held so `applyEnvironment` can re-tune it in place. */
+  private gradeFilter?: Phaser.Filters.ColorMatrix;
+  /** The camera's vignette filter controller, held so `applyEnvironment` can re-tune it in place. */
+  private vignetteFilter?: Phaser.Filters.Vignette;
   private arena: ArenaDef | undefined;
   private cursors: Phaser.Types.Input.Keyboard.CursorKeys | undefined;
   /** WASD, ORed with `cursors` in `sendInputTick`; see `DriveKeys`. */
@@ -911,6 +925,10 @@ export class ArenaScene extends Phaser.Scene {
     // 40400 for arena-01, 64000 for arena-02 — and deliberately NOT re-rolled per match: a
     // per-match seed would have to be drawn from shared state to stay in sync, which is a design
     // change and not a tuning knob.
+    // Only a playground room resolves through the override store (EV34). Everything else gets the
+    // shipped table, exactly as it does for WEAPON_FX above.
+    if (this.room && isPlaygroundRoom(this.room)) this.resolveEnv = liveEnvResolver();
+
     this.fx = new FxLayer(
       this,
       this.arena.width * 31 + this.arena.height,
@@ -919,6 +937,7 @@ export class ArenaScene extends Phaser.Scene {
       // Only a playground room resolves through the override store (spec PG46). Everything else
       // gets the default and renders shipped WEAPON_FX.
       this.room && isPlaygroundRoom(this.room) ? liveFxResolver() : undefined,
+      this.resolveEnv,
     );
 
     this.drawArena(this.arena);
@@ -1073,23 +1092,11 @@ export class ArenaScene extends Phaser.Scene {
       .setOrigin(0, 0)
       .setDepth(FLOOR_DEPTH);
 
-    const gfx = this.add.graphics().setDepth(ARENA_DEPTH);
-    gfx.fillStyle(colors.obstacle, 1);
-    for (const obstacle of arena.obstacles) {
-      gfx.fillRect(obstacle.x, obstacle.y, obstacle.w, obstacle.h);
-    }
-    // Painted markings, drawn on the same Graphics as the obstacles so they cost no extra object.
-    gfx.lineStyle(6, 0xdccd96, 0.13);
-    for (let y = 40; y < arena.height - 40; y += 46) {
-      gfx.lineBetween(arena.width / 2, y, arena.width / 2, Math.min(y + 26, arena.height - 40));
-    }
-    gfx.lineStyle(4, 0xdccd96, 0.1);
-    gfx.strokeCircle(arena.width / 2, arena.height / 2, 130);
-
-    gfx.lineStyle(ARENA_BORDER_PX, colors.border, 1);
-    const border = arenaBorderRect(arena, ARENA_BORDER_PX);
-    gfx.strokeRect(border.x, border.y, border.w, border.h);
-    this.arenaGfx = gfx;
+    // Assigned BEFORE `applyEnvironment()` runs below: that call draws the obstacles, markings and
+    // border into this object via `redrawArenaGraphics`. Getting this order backwards leaves the
+    // arena with none of them — no obstacles, no markings, no border — which is visible immediately
+    // but easy to introduce.
+    this.arenaGfx = this.add.graphics().setDepth(ARENA_DEPTH);
 
     const cam = this.cameras.main;
     // Clipped to the arena's share of the canvas, leaving `HUD_GUTTER_WIDTH` down the right for the
@@ -1111,29 +1118,12 @@ export class ArenaScene extends Phaser.Scene {
     // its centre out under the gutter.
     //
     // Phaser 4's `Filters.ColorMatrix` controller is NOT the matrix — it owns one, on `.colorMatrix`
-    // (a `Phaser.Display.ColorMatrix`), and that is where `saturate`/`brightness` live.
-    const grade = cam.filters.internal.addColorMatrix();
-    // The `multiply` flag is what makes this a sequence at all: every `Display.ColorMatrix`
-    // operation REPLACES the matrix unless it is passed `true`, so the first call seeds and each
-    // later one composes onto it.
-    //
-    // Read the order carefully before retuning. Phaser composes `M_new = M_old * a`, which means
-    // the operation added LAST is the one applied FIRST to the pixel: the shipped sequence runs
-    // brightness, then the warm gain, then the desaturation. So the desaturation does eat part of
-    // the R/B split below rather than being protected from it. At these strengths the deviation
-    // from the gain-last ordering measures under 2/255 and the pixels are fine — but a stronger
-    // grade would not be, and the fix would be to reorder these three calls, not to push the gain
-    // harder against a desaturation that is already taking a share of it.
-    grade.colorMatrix.saturate(-0.22);
-    // Neither `saturate` nor `brightness` can warm anything — both are channel-symmetric — so the
-    // warmth is an explicit per-channel gain: red up, blue down, green held. Rows are R/G/B/A, and
-    // the fifth column of each is an addition in 0-255, which is why it stays zero here.
-    grade.colorMatrix.multiply(
-      [1.07, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0.92, 0, 0, 0, 0, 0, 1, 0],
-      true,
-    );
-    grade.colorMatrix.brightness(0.96, true);
-    cam.filters.internal.addVignette(0.5, 0.5, 0.78, 0.42);
+    // (a `Phaser.Display.ColorMatrix`), and that is where `saturate`/`brightness` live. Held on
+    // `this.gradeFilter`/`this.vignetteFilter` — rather than discarded locals — so `applyEnvironment`
+    // can re-tune them in place on every playground edit (EV25) instead of only ever setting them once.
+    this.gradeFilter = cam.filters.internal.addColorMatrix();
+    this.vignetteFilter = cam.filters.internal.addVignette();
+    this.applyEnvironment();
 
     // `ARENA_VIEW_WIDTH`, never `VIEW_WIDTH`: how much world anyone can see is the camera's
     // business, and widening the canvas for HUD must not quietly widen the view of the floor.
@@ -1143,6 +1133,110 @@ export class ArenaScene extends Phaser.Scene {
       CAMERA_CONFIG.zoom,
     );
     if (this.staticCamera) cam.centerOn(arena.width / 2, arena.height / 2);
+  }
+
+  /**
+   * Re-apply the grade, the vignette and the painted markings from the current environment table.
+   *
+   * Called once from `drawArena` and again by the playground on every edit (EV25). The grade is a
+   * `reset()` followed by the same three calls IN THE SHIPPED ORDER — Phaser composes
+   * `M_new = M_old * a`, so the operation added LAST is applied FIRST to the pixel, which is why
+   * the sequence runs brightness, then the warm gain, then the desaturation. So the desaturation
+   * does eat part of the R/B split rather than being protected from it — at shipped strengths the
+   * deviation from a gain-last ordering measures under 2/255 and the pixels are fine, but a
+   * stronger grade would not be, and the fix would be to reorder these three calls, not to push the
+   * gain harder against a desaturation that is already taking a share of it. The panel exposes the
+   * four magnitudes and cannot reorder these three calls (EV26).
+   */
+  private applyEnvironment(): void {
+    const env = this.resolveEnv();
+    const grade = this.gradeFilter;
+    if (grade) {
+      grade.colorMatrix.reset();
+      // Neither `saturate` nor `brightness` can warm anything — both are channel-symmetric — so the
+      // warmth is an explicit per-channel gain: red up, blue down, green held. Rows are R/G/B/A, and
+      // the fifth column of each is an addition in 0-255, which is why it stays zero here. The
+      // `multiply` flag is what makes this a sequence at all: every `Display.ColorMatrix` operation
+      // REPLACES the matrix unless it is passed `true`, so the first call seeds and each later one
+      // composes onto it.
+      grade.colorMatrix.saturate(env.grade.saturate);
+      grade.colorMatrix.multiply(
+        [env.grade.warmR, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, env.grade.warmB, 0, 0, 0, 0, 0, 1, 0],
+        true,
+      );
+      grade.colorMatrix.brightness(env.grade.brightness, true);
+    }
+    const vignette = this.vignetteFilter;
+    if (vignette) {
+      vignette.x = env.vignette.x;
+      vignette.y = env.vignette.y;
+      vignette.radius = env.vignette.radius;
+      vignette.strength = env.vignette.strength;
+    }
+    this.redrawArenaGraphics();
+  }
+
+  /**
+   * Redraw obstacles, painted markings and border from the current environment table (EV29).
+   *
+   * Clear-and-redraw rather than a second `Graphics`: the three share one object so they cost one
+   * draw call, and the markings cannot be re-issued without re-issuing the other two.
+   */
+  private redrawArenaGraphics(): void {
+    const gfx = this.arenaGfx;
+    const arena = this.arena;
+    if (!gfx || !arena) return;
+    const env = this.resolveEnv();
+    const colors = arenaColorsOf(arena);
+    const m = env.markings;
+
+    gfx.clear();
+    gfx.fillStyle(colors.obstacle, 1);
+    for (const obstacle of arena.obstacles) {
+      gfx.fillRect(obstacle.x, obstacle.y, obstacle.w, obstacle.h);
+    }
+    // Painted markings, drawn on the same Graphics as the obstacles so they cost no extra object.
+    // Clamped to at least 1: `laneSpacing` drives this loop's step, and a zero or negative value —
+    // unreachable through the panel's `min: 10` field but not through a hand-edited localStorage
+    // blob `sanitizeStoredEnv` would still accept — would never terminate and freeze the tab.
+    gfx.lineStyle(m.laneWidth, m.laneColor, m.laneAlpha);
+    for (let y = m.laneMargin; y < arena.height - m.laneMargin; y += Math.max(1, m.laneSpacing)) {
+      gfx.lineBetween(
+        arena.width / 2,
+        y,
+        arena.width / 2,
+        Math.min(y + m.laneDash, arena.height - m.laneMargin),
+      );
+    }
+    gfx.lineStyle(m.circleWidth, m.laneColor, m.circleAlpha);
+    gfx.strokeCircle(arena.width / 2, arena.height / 2, m.circleRadius);
+
+    gfx.lineStyle(ARENA_BORDER_PX, colors.border, 1);
+    const border = arenaBorderRect(arena, ARENA_BORDER_PX);
+    gfx.strokeRect(border.x, border.y, border.w, border.h);
+  }
+
+  /** Called by the playground overlay after an environment edit (EV25, EV29). */
+  reapplyEnvironment(): void {
+    this.applyEnvironment();
+    this.fx?.trimDecals();
+  }
+
+  /**
+   * Regenerate the asphalt and RE-POINT the tile sprite at it (EV28).
+   *
+   * The `setTexture` is not optional: `FxLayer.rebuildFloor` removes the old texture and creates a
+   * new one under the same key, but the `TileSprite` holds a reference to the old texture OBJECT and
+   * would keep drawing the stale image without this line.
+   */
+  rebuildFloor(seed?: number): void {
+    this.fx?.rebuildFloor(seed);
+    this.floorTile?.setTexture(FX_TEXTURE_KEYS.asphalt);
+  }
+
+  /** Rebuild the smoke-hole silhouettes after a halo edit (EV30). */
+  rebuildOcclusion(): void {
+    this.fx?.rebuildEraserTextures();
   }
 
   /**
@@ -1879,7 +1973,7 @@ export class ArenaScene extends Phaser.Scene {
    * floor — the same fixed feel this method always had before `camera.ts` existed.
    */
   private showImpact(x: number, y: number, closingSpeed = 0): void {
-    this.tryShake(ramShake(closingSpeed));
+    this.tryShake(ramShake(closingSpeed, this.resolveEnv()));
     const spark = this.add.circle(x, y, 10, 0xffffff, 0.9);
     this.hudCamera?.ignore(spark);
     this.tweens.add({
@@ -2286,7 +2380,7 @@ export class ArenaScene extends Phaser.Scene {
     // off `lastEvents()` — the exact list `fx.update` just derived above — rather than re-deriving:
     // one seam for what happened this frame, not two that could disagree.
     for (const event of fx.lastEvents()) {
-      const shake = shakeFor(event);
+      const shake = shakeFor(event, this.resolveEnv());
       if (shake) this.tryShake(shake);
       if (event.kind === "died") this.triggerHitStop();
     }
@@ -3037,26 +3131,26 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * `1` normally, `ENVIRONMENT_FX.hitStop.scale` for `ENVIRONMENT_FX.hitStop.ms` after a kill.
+   * `1` normally, `this.resolveEnv().hitStop.scale` for `this.resolveEnv().hitStop.ms` after a kill.
    * Multiplied into the `delta` `followCamera` eases with — never into `pumpInput`'s `delta`, which
    * is read straight off `update`'s own parameter before this ever runs, so a hit-stop in progress
    * cannot slip a tick, a predicted step, or a sent input. See `hitStopUntilMs`'s doc comment for
    * why this reads a wall clock rather than a Phaser Clock.
    */
   private hitStopScale(): number {
-    return performance.now() < this.hitStopUntilMs ? ENVIRONMENT_FX.hitStop.scale : 1;
+    return performance.now() < this.hitStopUntilMs ? this.resolveEnv().hitStop.scale : 1;
   }
 
   /**
    * Kicks off a kill's hit-stop: the camera's own follow-easing runs slow for
-   * `ENVIRONMENT_FX.hitStop.ms` (`hitStopScale`, read by `followCamera`'s call site), and every
+   * `this.resolveEnv().hitStop.ms` (`hitStopScale`, read by `followCamera`'s call site), and every
    * live and future tween in the scene — today just `showImpact`'s spark — runs slow alongside it
    * via `this.tweens.timeScale`, which is its own independent scale and untouched by anything else
    * here.
    *
    * The `delayedCall` captures `hitStopGeneration` at schedule time and only restores
    * `tweens.timeScale` if it is still the latest one. Without that guard, two kills within
-   * `ENVIRONMENT_FX.hitStop.ms` would leave the *first* call's timer restoring `timeScale = 1` at
+   * `this.resolveEnv().hitStop.ms` would leave the *first* call's timer restoring `timeScale = 1` at
    * its own (earlier) deadline while `hitStopUntilMs` — extended by the second trigger — still has
    * `followCamera` running slowed, so the two halves of the mechanism would disagree until the
    * second timer also fired. It is self-correcting either way (the second timer always fires and
@@ -3064,10 +3158,11 @@ export class ArenaScene extends Phaser.Scene {
    * permanently stuck.
    */
   private triggerHitStop(): void {
-    this.hitStopUntilMs = performance.now() + ENVIRONMENT_FX.hitStop.ms;
-    this.tweens.timeScale = ENVIRONMENT_FX.hitStop.scale;
+    const hitStop = this.resolveEnv().hitStop;
+    this.hitStopUntilMs = performance.now() + hitStop.ms;
+    this.tweens.timeScale = hitStop.scale;
     const generation = ++this.hitStopGeneration;
-    this.time.delayedCall(ENVIRONMENT_FX.hitStop.ms, () => {
+    this.time.delayedCall(hitStop.ms, () => {
       if (generation === this.hitStopGeneration) this.tweens.timeScale = 1;
     });
   }
