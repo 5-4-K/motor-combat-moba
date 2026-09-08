@@ -39,6 +39,17 @@ import {
   winRuleOf,
 } from "@motor-combat-moba/shared";
 import { applyCarSprite, phaserTextures, resolveCarSprite } from "../assets/car-sprite.js";
+import {
+  HIT_STOP_MS,
+  HIT_STOP_SCALE,
+  ramShake,
+  shakeFor,
+  shouldStartShake,
+  type ActiveShake,
+  type ShakeSpec,
+} from "../fx/camera.js";
+import { FX_TEXTURE_KEYS, FxLayer } from "../fx/layer.js";
+import { FLOOR_DEPTH } from "../fx/depths.js";
 import { isDebugEnabled } from "../config/client-mode.js";
 import { showHitboxes } from "../config/view-options.js";
 import { ARENA_VIEW_WIDTH, HUD_GUTTER_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from "../config/display.js";
@@ -624,6 +635,14 @@ export class ArenaScene extends Phaser.Scene {
   private readonly cars = new Map<string, Phaser.GameObjects.Container>();
   private readonly visualKeys = new Map<string, string>();
   private arenaGfx: Phaser.GameObjects.Graphics | undefined;
+  /**
+   * The generated asphalt, one `TileSprite` covering the whole arena at `FLOOR_DEPTH` (VFX36).
+   *
+   * A real display object rather than a camera background colour, which is the only way the floor
+   * can carry a texture at all — and so, like every other display object in this scene, it has to be
+   * listed in `splitCameras` or it draws twice.
+   */
+  private floorTile: Phaser.GameObjects.TileSprite | undefined;
   private arena: ArenaDef | undefined;
   private cursors: Phaser.Types.Input.Keyboard.CursorKeys | undefined;
   /** WASD, ORed with `cursors` in `sendInputTick`; see `DriveKeys`. */
@@ -773,6 +792,47 @@ export class ArenaScene extends Phaser.Scene {
    */
   private impacts: ImpactTracker = newImpactTracker();
 
+  /**
+   * The FX system — every particle in the arena. Undefined until `create` builds it, and torn down
+   * in `resetMatchState` alongside every other per-match display object, NOT in `onShutdown`: this
+   * scene has one teardown path on purpose (see `resetMatchState`), and `create` calls it too, so a
+   * shutdown-only destroy would leak the previous layer's emitters on a scene restart.
+   */
+  private fx: FxLayer | undefined;
+
+  /**
+   * Wall-clock deadline (`performance.now()`) for the camera's post-kill hit-stop. Deliberately NOT
+   * `this.time.timeScale`: that Clock only scales Timer Events belonging to it (`delayedCall`,
+   * `addEvent`) — it does not touch the `delta` the Scene's own `update` receives, `this.tweens`, or
+   * `this.time.now` (the epoch `remotePose`'s interpolation sampling reads). Nothing in this scene
+   * currently listens to that Clock for anything visual, so scaling it would compile, run, and do
+   * nothing on screen. This field instead scales `followCamera`'s own `delta` for the window below —
+   * real, visible easing-slowdown, entirely decoupled from `pumpInput`'s tick clock (see
+   * `hitStopScale` and its call site in `renderCars`).
+   */
+  private hitStopUntilMs = 0;
+
+  /**
+   * Guards `triggerHitStop`'s restore against overlap: each call captures the generation it was
+   * scheduled at, and its `delayedCall` only restores `this.tweens.timeScale` if that generation is
+   * still current. Without this, two kills within `HIT_STOP_MS` leave the *first* call's timer
+   * unconditionally resetting `timeScale = 1` at its own (earlier) deadline while `hitStopUntilMs` —
+   * extended by the second trigger — still has `followCamera` running slowed, so the two halves of
+   * the mechanism disagree until the second timer also fires.
+   */
+  private hitStopGeneration = 0;
+
+  /**
+   * What `this.cameras.main.shake` is currently doing, as far as this scene knows. Phaser's
+   * `Camera.shake` silently no-ops while a shake is already running unless passed `force`, so every
+   * shake in this scene is routed through {@link tryShake}, which consults `shouldStartShake`
+   * (`fx/camera.ts`) against this record rather than calling `shake` directly — "strongest wins"
+   * instead of "last call wins" or "first call wins unconditionally," either of which would let a
+   * `died` shake get dropped by, or cut short by, an unrelated `damaged` shake landing the same
+   * frame. Reset in `resetMatchState` alongside `hitStopUntilMs`.
+   */
+  private activeShake: ActiveShake | undefined;
+
   constructor() {
     super({ key: "arena" });
   }
@@ -786,6 +846,10 @@ export class ArenaScene extends Phaser.Scene {
       .then(() => {
         this.artPending = false;
         this.visualKeys.clear();
+        // Same race, same handler: the FX layer's smoke-eraser silhouettes are cut from the car
+        // sprites' alpha, and it built them in its constructor — before any of this had loaded. Left
+        // out, every chassis punches the fallback hull rectangle for the whole match, silently.
+        this.fx?.rebuildEraserTextures();
       })
       // Nothing in `loadArt` rejects today, but an unhandled rejection here would be silent and the
       // match would simply never swap in its sprites. Warn instead.
@@ -832,6 +896,27 @@ export class ArenaScene extends Phaser.Scene {
     // Hoisted out of the 30 Hz prediction path: `getArena` is a lookup that throws, and the arena
     // cannot change while the scene is alive.
     this.arena = getArena(arenaId);
+
+    // BEFORE `drawArena`, not after. The layer uploads the generated textures in its constructor,
+    // and the arena floor is about to be built from one of them — so the upload has to have
+    // happened by the time `drawArena` runs. Nothing here reads what `drawArena` produces, and
+    // `splitCameras` runs later still, so the emitters are on the display list in time to be
+    // registered there.
+    //
+    // Seeded from the ARENA's own dimensions, so it is the same number on every client in the
+    // room and the same number every match. That is the property that matters: the floor, the
+    // smoke and the scorch marks two players are looking at have to be the same ones, and a
+    // client-local roll would give them different arenas. It is `arenaId` under another name —
+    // 40400 for arena-01, 64000 for arena-02 — and deliberately NOT re-rolled per match: a
+    // per-match seed would have to be drawn from shared state to stay in sync, which is a design
+    // change and not a tuning knob.
+    this.fx = new FxLayer(
+      this,
+      this.arena.width * 31 + this.arena.height,
+      this.arena.width,
+      this.arena.height,
+    );
+
     this.drawArena(this.arena);
 
     // One Graphics for every shot, one for every hp bar, one for every lock bracket and one for the
@@ -974,11 +1059,29 @@ export class ArenaScene extends Phaser.Scene {
 
   private drawArena(arena: ArenaDef): void {
     const colors = arenaColorsOf(arena);
+
+    // A real object rather than `cam.setBackgroundColor`, which is what makes a texture possible at
+    // all (VFX36). The background colour stays set below as the ground beneath it, so a frame drawn
+    // before this tile sprite exists is never bare canvas. The asphalt texture is uploaded by the
+    // `FxLayer` constructor, which `create` deliberately runs before this method.
+    this.floorTile = this.add
+      .tileSprite(0, 0, arena.width, arena.height, FX_TEXTURE_KEYS.asphalt)
+      .setOrigin(0, 0)
+      .setDepth(FLOOR_DEPTH);
+
     const gfx = this.add.graphics().setDepth(ARENA_DEPTH);
     gfx.fillStyle(colors.obstacle, 1);
     for (const obstacle of arena.obstacles) {
       gfx.fillRect(obstacle.x, obstacle.y, obstacle.w, obstacle.h);
     }
+    // Painted markings, drawn on the same Graphics as the obstacles so they cost no extra object.
+    gfx.lineStyle(6, 0xdccd96, 0.13);
+    for (let y = 40; y < arena.height - 40; y += 46) {
+      gfx.lineBetween(arena.width / 2, y, arena.width / 2, Math.min(y + 26, arena.height - 40));
+    }
+    gfx.lineStyle(4, 0xdccd96, 0.1);
+    gfx.strokeCircle(arena.width / 2, arena.height / 2, 130);
+
     gfx.lineStyle(ARENA_BORDER_PX, colors.border, 1);
     const border = arenaBorderRect(arena, ARENA_BORDER_PX);
     gfx.strokeRect(border.x, border.y, border.w, border.h);
@@ -996,6 +1099,37 @@ export class ArenaScene extends Phaser.Scene {
     cam.setZoom(CAMERA_CONFIG.zoom);
     // Stops the soft follow from panning past the arena edge into empty space.
     cam.setBounds(0, 0, arena.width, arena.height);
+
+    // Applied to the world camera only, so the HUD camera's text and icons keep their authored
+    // colours — a graded HUD reads as a rendering bug rather than as atmosphere (VFX27-VFX28).
+    // `internal` rather than `external`: internal filters run on the camera's own render target, so
+    // the vignette is centred on the arena viewport instead of on the whole canvas, which would put
+    // its centre out under the gutter.
+    //
+    // Phaser 4's `Filters.ColorMatrix` controller is NOT the matrix — it owns one, on `.colorMatrix`
+    // (a `Phaser.Display.ColorMatrix`), and that is where `saturate`/`brightness` live.
+    const grade = cam.filters.internal.addColorMatrix();
+    // The `multiply` flag is what makes this a sequence at all: every `Display.ColorMatrix`
+    // operation REPLACES the matrix unless it is passed `true`, so the first call seeds and each
+    // later one composes onto it.
+    //
+    // Read the order carefully before retuning. Phaser composes `M_new = M_old * a`, which means
+    // the operation added LAST is the one applied FIRST to the pixel: the shipped sequence runs
+    // brightness, then the warm gain, then the desaturation. So the desaturation does eat part of
+    // the R/B split below rather than being protected from it. At these strengths the deviation
+    // from the gain-last ordering measures under 2/255 and the pixels are fine — but a stronger
+    // grade would not be, and the fix would be to reorder these three calls, not to push the gain
+    // harder against a desaturation that is already taking a share of it.
+    grade.colorMatrix.saturate(-0.22);
+    // Neither `saturate` nor `brightness` can warm anything — both are channel-symmetric — so the
+    // warmth is an explicit per-channel gain: red up, blue down, green held. Rows are R/G/B/A, and
+    // the fifth column of each is an addition in 0-255, which is why it stays zero here.
+    grade.colorMatrix.multiply(
+      [1.07, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0.92, 0, 0, 0, 0, 0, 1, 0],
+      true,
+    );
+    grade.colorMatrix.brightness(0.96, true);
+    cam.filters.internal.addVignette(0.5, 0.5, 0.78, 0.42);
 
     // `ARENA_VIEW_WIDTH`, never `VIEW_WIDTH`: how much world anyone can see is the camera's
     // business, and widening the canvas for HUD must not quietly widen the view of the floor.
@@ -1047,6 +1181,9 @@ export class ArenaScene extends Phaser.Scene {
       ...this.rosterKillTexts,
     ];
     const worldObjects: Phaser.GameObjects.GameObject[] = [
+      // World space at `FLOOR_DEPTH`, under everything. A display object like any other, so it needs
+      // its entry here or it draws a second time across the gutter (VFX36).
+      ...(this.floorTile ? [this.floorTile] : []),
       ...(this.arenaGfx ? [this.arenaGfx] : []),
       ...(this.shotGfx ? [this.shotGfx] : []),
       ...(this.hpGfx ? [this.hpGfx] : []),
@@ -1059,6 +1196,10 @@ export class ArenaScene extends Phaser.Scene {
       ...(this.arrowGfx ? [this.arrowGfx] : []),
       // World space at `MANEUVER_DEPTH`, drawn over the cars — the same reason `arrowGfx` is here.
       ...(this.maneuverGfx ? [this.maneuverGfx] : []),
+      // Every FX object in one spread, because this list is the only thing standing between an
+      // emitter and drawing twice across the gutter (VFX25). `displayObjects()` exists so a later
+      // emitter cannot be added to the layer and forgotten here.
+      ...(this.fx ? this.fx.displayObjects() : []),
       ...this.cars.values(),
     ];
 
@@ -1136,6 +1277,8 @@ export class ArenaScene extends Phaser.Scene {
     this.interps.clear();
     this.arenaGfx?.destroy();
     this.arenaGfx = undefined;
+    this.floorTile?.destroy();
+    this.floorTile = undefined;
     this.arena = undefined;
     this.countdownText?.destroy();
     this.countdownText = undefined;
@@ -1163,6 +1306,11 @@ export class ArenaScene extends Phaser.Scene {
     this.arrowGfx = undefined;
     this.maneuverGfx?.destroy();
     this.maneuverGfx = undefined;
+    // Here rather than in `onShutdown`, per the doc comment above: `create` calls this too, so a
+    // shutdown-only destroy would leave the previous layer's four emitters (and their render
+    // textures) alive on a scene restart — the same shape of leak the `PredictionBuffer` had.
+    this.fx?.destroy();
+    this.fx = undefined;
     this.hudGfx?.destroy();
     this.hudGfx = undefined;
     this.hudSweepGfx?.destroy();
@@ -1214,6 +1362,10 @@ export class ArenaScene extends Phaser.Scene {
     // LATER real match's kick or dropped connection to "practice-setup" instead of "join".
     this.exitTarget = undefined;
     this.impacts = newImpactTracker();
+    this.hitStopUntilMs = 0;
+    this.hitStopGeneration = 0;
+    this.activeShake = undefined;
+    this.tweens.timeScale = 1;
   }
 
   update(_time: number, delta: number): void {
@@ -1235,6 +1387,7 @@ export class ArenaScene extends Phaser.Scene {
     this.syncRespawnCamera(room);
     this.renderCars(room, delta);
     this.renderShots(room);
+    this.renderFx(room, delta);
     // The panel's height is the slots' top inset, so the roster draws first and hands that one
     // number to the rest of the gutter. Derived here and nowhere else on purpose: the panel lists
     // every IN_MATCH player while `renderWeaponHud` lays out for `hudTargetPlayer` — the
@@ -1535,7 +1688,9 @@ export class ArenaScene extends Phaser.Scene {
         this.drawHpBar(hp, player, pose, allegiance);
       }
       if (maneuver && player.alive) this.drawManeuverVisuals(maneuver, player, pose);
-      if (sessionId === this.cameraTarget(room)) this.followCamera(pose, delta);
+      if (sessionId === this.cameraTarget(room)) {
+        this.followCamera(pose, delta * this.hitStopScale());
+      }
     });
 
     // Instant, render-only impact feedback: covers the round trip before the authoritative ram
@@ -1679,12 +1834,33 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
+   * The single entry point every camera shake in this scene goes through.
+   *
+   * Phaser's `Camera.shake` silently no-ops while a shake is already running unless passed `force`
+   * — so calling it directly means a weak shake in flight can swallow a strong one that lands mid-
+   * shake (e.g. a ram shake from `renderCars`, which runs first, eating the `died` shake `renderFx`
+   * raises later in the same frame). This asks `shouldStartShake` (`fx/camera.ts`) whether the
+   * incoming shake beats what `activeShake` says is already playing, and only then forces the new
+   * one in and records it.
+   */
+  private tryShake(spec: ShakeSpec): void {
+    const now = performance.now();
+    if (!shouldStartShake(this.activeShake, spec, now)) return;
+    this.cameras.main.shake(spec.durationMs, spec.intensity, true);
+    this.activeShake = { intensity: spec.intensity, endsAtMs: now + spec.durationMs };
+  }
+
+  /**
    * Impact feedback: a brief shake and a spark at the contact point. Render-only — this reacts to
    * locally observed contact, not to an authoritative ram, so it must never change anything the sim
    * or the schema can see.
+   *
+   * `closingSpeed` defaults to 0 because no caller has one to give: `freshImpacts` (`impact-feedback.
+   * ts`) reports only the contact point, not a relative velocity, so `ramShake` falls back to its own
+   * floor — the same fixed feel this method always had before `camera.ts` existed.
    */
-  private showImpact(x: number, y: number): void {
-    this.cameras.main.shake(120, 0.006);
+  private showImpact(x: number, y: number, closingSpeed = 0): void {
+    this.tryShake(ramShake(closingSpeed));
     const spark = this.add.circle(x, y, 10, 0xffffff, 0.9);
     this.hudCamera?.ignore(spark);
     this.tweens.add({
@@ -2020,6 +2196,81 @@ export class ArenaScene extends Phaser.Scene {
     // hitbox at all (D19's single exception — it is a telegraph on the shooter's own car). Drawing
     // a hitbox around it would assert the exact opposite of the truth this overlay exists to show.
     this.renderChargeOrbs(room, gfx);
+  }
+
+  /**
+   * One FX frame. Adapts whatever the room is holding into the structural `FxWorldView` that `fx/`
+   * consumes, so nothing in `fx/` imports a schema class — which is what lets netcode phase 2 swap
+   * the schema for a binary snapshot by changing this method and nothing else (VFX11).
+   *
+   * Both views are copied out whole rather than passed as schema references: `deriveFxEvents` diffs
+   * this frame against the one it kept from last frame, and a live schema object would have mutated
+   * underneath it, so every diff would come back empty.
+   *
+   * The POSES are the ones the cars are actually drawn at — `localRenderPose` and `remotePose`, the
+   * same two helpers `renderCars` picks between — never the raw schema fields. A remote car is
+   * drawn `NET_CONFIG.interpolationDelayMs` behind the state it is holding, and the local car is
+   * drawn ahead of it; at Mirage's top speed that is tens of world units. Decals laid at the schema
+   * pose land beside the tyres that are supposed to have laid them, and the smoke eraser punches
+   * its hole beside the car it is supposed to keep visible. Runs after `renderCars`, so both
+   * helpers answer with this frame's pose rather than the previous one's.
+   */
+  private renderFx(room: Room<ArenaState>, delta: number): void {
+    const fx = this.fx;
+    if (!fx) return;
+    const drivenSid = this.drivenSid(room);
+    const cars = [...room.state.players.entries()]
+      .filter(([, player]) => player.status === PlayerStatus.IN_MATCH)
+      .map(([sessionId, player]) => {
+        const serverPose = bodyOf(player);
+        // The same three-way choice `renderCars` makes, for the same reasons: a wreck is not moving,
+        // so there is nothing to smooth and nothing to predict.
+        const pose = !player.alive
+          ? serverPose
+          : sessionId === drivenSid
+            ? this.localRenderPose(serverPose)
+            : this.remotePose(sessionId, serverPose);
+        return {
+          sessionId,
+          x: pose.x,
+          y: pose.y,
+          angle: pose.angle,
+          hp: player.hp,
+          alive: player.alive,
+          carId: player.carId,
+          // Velocity stays AUTHORITATIVE — it is not a position, `speedOf` wants the server's
+          // answer, and a render pose carries no velocity of its own to take it from.
+          vx: player.vx,
+          vy: player.vy,
+        };
+      });
+    const instances = [...room.state.weapons.entries()].map(([id, instance]) => ({
+      id,
+      weaponId: instance.weaponId,
+      x: instance.x,
+      y: instance.y,
+      angle: instance.angle,
+      // Carried because `shotEnded` keys off this flip, not off the row leaving the map: the server
+      // clears `alive` a tick or more before it deletes the instance.
+      alive: instance.alive,
+    }));
+    // A frozen clock while the sim is paused, NOT the real frame delta. A pause stops the server
+    // patching poses, but `vx`/`vy` keep their pre-pause values — so `layTyreMarks` sees a car at
+    // 267 u/s that is not moving, and `TYRE_MARK_SPEED_FLOOR` (whose whole job is stopping a
+    // parked car burning a hole in the floor) cannot help, because the velocity is stale rather
+    // than zero. Distance-based spacing already lays nothing for a car whose pose is not changing;
+    // this is the other half, and it also stops decals ageing through a pause, which is what a
+    // paused frame should do anyway. `pumpPauseKey` is Practice-only but Practice ships.
+    fx.update({ cars, instances }, isSimPaused(room.state) ? 0 : delta);
+
+    // Camera reaction to what just happened, severity-driven rather than a fixed jolt per hit. Read
+    // off `lastEvents()` — the exact list `fx.update` just derived above — rather than re-deriving:
+    // one seam for what happened this frame, not two that could disagree.
+    for (const event of fx.lastEvents()) {
+      const shake = shakeFor(event);
+      if (shake) this.tryShake(shake);
+      if (event.kind === "died") this.triggerHitStop();
+    }
   }
 
   /**
@@ -2764,6 +3015,41 @@ export class ArenaScene extends Phaser.Scene {
       this.camFocus = smoothFollow(this.camFocus, pose, CAMERA_CONFIG.camLerp, delta);
     }
     this.cameras.main.centerOn(this.camFocus.x, this.camFocus.y);
+  }
+
+  /**
+   * `1` normally, `HIT_STOP_SCALE` for `HIT_STOP_MS` after a kill. Multiplied into the `delta`
+   * `followCamera` eases with — never into `pumpInput`'s `delta`, which is read straight off
+   * `update`'s own parameter before this ever runs, so a hit-stop in progress cannot slip a tick, a
+   * predicted step, or a sent input. See `hitStopUntilMs`'s doc comment for why this reads a wall
+   * clock rather than a Phaser Clock.
+   */
+  private hitStopScale(): number {
+    return performance.now() < this.hitStopUntilMs ? HIT_STOP_SCALE : 1;
+  }
+
+  /**
+   * Kicks off a kill's hit-stop: the camera's own follow-easing runs slow for `HIT_STOP_MS`
+   * (`hitStopScale`, read by `followCamera`'s call site), and every live and future tween in the
+   * scene — today just `showImpact`'s spark — runs slow alongside it via `this.tweens.timeScale`,
+   * which is its own independent scale and untouched by anything else here.
+   *
+   * The `delayedCall` captures `hitStopGeneration` at schedule time and only restores
+   * `tweens.timeScale` if it is still the latest one. Without that guard, two kills within
+   * `HIT_STOP_MS` would leave the *first* call's timer restoring `timeScale = 1` at its own
+   * (earlier) deadline while `hitStopUntilMs` — extended by the second trigger — still has
+   * `followCamera` running slowed, so the two halves of the mechanism would disagree until the
+   * second timer also fired. It is self-correcting either way (the second timer always fires and
+   * restores it), so this is about the two halves staying consistent in between, not about getting
+   * permanently stuck.
+   */
+  private triggerHitStop(): void {
+    this.hitStopUntilMs = performance.now() + HIT_STOP_MS;
+    this.tweens.timeScale = HIT_STOP_SCALE;
+    const generation = ++this.hitStopGeneration;
+    this.time.delayedCall(HIT_STOP_MS, () => {
+      if (generation === this.hitStopGeneration) this.tweens.timeScale = 1;
+    });
   }
 
   private syncMatchHud(): void {

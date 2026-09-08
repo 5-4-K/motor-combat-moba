@@ -19,6 +19,7 @@ type SceneCtor = new () => Phaser.Scene;
  */
 export const DEV_TOOLS: Record<string, () => Promise<SceneCtor>> = {
   assets: async () => (await import("./AssetTuningScene.js")).AssetTuningScene,
+  fx: async () => (await import("./FxPreviewScene.js")).FxPreviewScene,
   playground: async () => (await import("./PlaygroundScene.js")).PlaygroundScene,
 };
 
