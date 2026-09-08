@@ -236,9 +236,13 @@ So the overlay never holds one. `mountPlaygroundOverlay` takes a preview callbac
 scene no-ops when its own `FxLayer` is undefined. `PlaygroundScene` already owns that lifecycle,
 which makes it the right place for the lookup.
 
-The replay timer starts on entering the VFX view and is cleared on leaving it, on overlay unmount,
-and on arena change. A timer firing into a torn-down scene is the one bug this feature is most
-likely to ship, and it has three exits for that reason.
+The replay timer starts on entering the VFX view and is cleared on leaving it and on overlay
+unmount. An arena change deliberately does **not** stop it: the scene is resolved at call time and
+the spawn no-ops while no layer exists, so the preview simply resumes into the new arena — which is
+what someone holding the panel open through an arena change wants, and stopping it would leave a
+still-open panel silently dead. A timer firing into a torn-down scene is the one bug this feature is
+most likely to ship; late resolution is what prevents it, and the two exits above are what stop it
+replaying into a screen nobody is looking at.
 
 ---
 
