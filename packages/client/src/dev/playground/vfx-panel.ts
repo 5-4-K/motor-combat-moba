@@ -17,7 +17,8 @@ import {
   type FxPhase,
 } from "../../fx/tuning.js";
 import { button, h } from "../../ui/dom.js";
-import { fxSubjectOptions } from "./ui-model.js";
+import { stepperPair } from "./steppers.js";
+import { fxSubjectOptions, stepInRange } from "./ui-model.js";
 
 /**
  * The VFX settings panel (spec PG48).
@@ -141,6 +142,18 @@ export function buildVfxPanel(opts: VfxPanelOptions): HTMLElement {
 
     control.addEventListener(field.kind === "number" ? "input" : "change", onEdit);
 
+    /** Nudge a slider by one `field.step`, clamped, then run the ordinary edit path so the
+     * `isFxAtShipped` tolerance, the readout, the save and the replay all behave as a drag's do.
+     * Reads the control back after writing it, because the browser snaps a range input to its own
+     * `min`/`step` grid — that re-read is what makes up-then-down a round trip. A checkbox has
+     * nothing to step, so those rows get no buttons rather than a pair that does nothing. */
+    function stepBy(direction: 1 | -1): void {
+      control.value = String(stepInRange(field, Number(control.value), direction));
+      onEdit();
+    }
+
+    const steppers = stepperPair(field.kind === "number" ? stepBy : undefined);
+
     // EV22: for the two car entries, `count` is the CAP on a burst whose real count follows the
     // damage taken, not the count itself — a control that silently meant something else would waste
     // a developer's afternoon, so the label says so.
@@ -149,7 +162,9 @@ export function buildVfxPanel(opts: VfxPanelOptions): HTMLElement {
 
     return h("div", { class: "pg-row pg-stat-row" }, [
       h("label", { title: key }, [`${label} (shipped ${readout(field, shippedControl)})`]),
+      steppers[0],
       control,
+      steppers[1],
       valueSpan,
       button({ class: "pg-reset", title: "Reset to shipped" }, ["↺"], () => {
         snapToShipped();
@@ -183,10 +198,25 @@ export function buildVfxPanel(opts: VfxPanelOptions): HTMLElement {
       header.textContent = label(burstFor(weaponId, phase, channel, opts.overrides).count);
     };
 
+    /** Drop every override this cell holds — the section-level twin of a row's own reset button.
+     * A click, never a drag, so the full `renderBody` is safe here where `onEdit` cannot use one:
+     * nothing has the pointer captured. */
+    const resetSection = (): void => {
+      for (const field of FX_FIELDS) delete opts.overrides[fxKey(weaponId, phase, channel, field.name)];
+      opts.persist();
+      renderBody();
+      fire();
+    };
+
+    const headRow = h("div", { class: "pg-fx-headrow" }, [
+      header,
+      button({ class: "pg-reset", title: `Reset ${channel} to shipped` }, ["\u21ba"], resetSection),
+    ]);
+
     const rows = isOpen
       ? FX_FIELDS.map((field) => fieldRow(phase, channel, field, refreshHeader))
       : [];
-    return h("div", { class: "pg-fx-block" }, [header, ...rows]);
+    return h("div", { class: "pg-fx-block" }, [headRow, ...rows]);
   }
 
   function renderBody(): void {

@@ -8,6 +8,8 @@ import {
   type EnvSection,
 } from "../../fx/env-tuning.js";
 import { button, h } from "../../ui/dom.js";
+import { stepperPair } from "./steppers.js";
+import { stepInRange } from "./ui-model.js";
 
 /**
  * The environment settings panel (spec EV31).
@@ -138,6 +140,18 @@ export function buildEnvPanel(opts: EnvPanelOptions): HTMLElement {
       input.addEventListener("input", () => commit(Number(input.value)));
     }
 
+    /** Nudge the slider by one `field.step`, clamped, then run the ordinary `commit` so the
+     * `isEnvAtShipped` tolerance, the readout, the save and the re-apply all behave as a drag's do.
+     * Reads the control back after writing it, because the browser snaps a range input to its own
+     * `min`/`step` grid — that re-read is what makes up-then-down a round trip. A colour has no step
+     * grid to walk, so those rows get no buttons rather than a pair that does nothing. */
+    function stepBy(direction: 1 | -1): void {
+      input.value = String(stepInRange(field, Number(input.value), direction));
+      commit(Number(input.value));
+    }
+
+    const steppers = stepperPair(field.kind === "color" ? undefined : stepBy);
+
     const resetBtn = button({ class: "pg-reset", title: "Reset to shipped" }, ["↺"], () => {
       snapToShipped();
       opts.persist();
@@ -147,7 +161,9 @@ export function buildEnvPanel(opts: EnvPanelOptions): HTMLElement {
 
     return h("div", { class: "pg-row pg-stat-row" }, [
       h("label", { title: key }, [`${field.label} (shipped ${format(field, shipped)})`]),
+      steppers[0],
       input,
+      steppers[1],
       readoutEl,
       resetBtn,
     ]);
@@ -183,13 +199,30 @@ export function buildEnvPanel(opts: EnvPanelOptions): HTMLElement {
       header.textContent = label();
     };
 
+    /** Drop every override this section holds — the section-level twin of a row's own reset button.
+     * A click, never a drag, so the full `renderBody` is safe here where `commit` cannot use one:
+     * nothing has the pointer captured. */
+    const resetSection = (): void => {
+      for (const f of ENV_FIELDS) {
+        if (f.section === section) delete opts.overrides[envKey(f.section, f.name)];
+      }
+      opts.persist();
+      renderBody();
+      opts.onEdit(section);
+    };
+
+    const headRow = h("div", { class: "pg-fx-headrow" }, [
+      header,
+      button({ class: "pg-reset", title: `Reset ${SECTION_LABELS[section]} to shipped` }, ["\u21ba"], resetSection),
+    ]);
+
     const rows = isOpen
       ? [
           ...ENV_FIELDS.filter((f) => f.section === section).map((f) => fieldRow(f, refreshHeader)),
           ...sectionExtras(section),
         ]
       : [];
-    return h("div", { class: "pg-fx-block" }, [header, ...rows]);
+    return h("div", { class: "pg-fx-block" }, [headRow, ...rows]);
   }
 
   function renderBody(): void {

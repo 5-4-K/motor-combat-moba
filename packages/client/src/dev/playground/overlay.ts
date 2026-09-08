@@ -44,6 +44,7 @@ import {
 } from "@motor-combat-moba/shared";
 import { button, h } from "../../ui/dom.js";
 import { loadStored, saveStored } from "./storage.js";
+import { stepperPair } from "./steppers.js";
 import { setShowHitboxes, showHitboxes } from "../../config/view-options.js";
 import {
   arenaOptions,
@@ -326,6 +327,11 @@ const CSS = `
   font-size: 12px;
   line-height: 1.2;
 }
+/* A row with nothing to step (a checkbox, a colour swatch) still holds the two stepper columns, so
+   its control and readout stay in line with the sliders above and below it. */
+.pg-stat-row .pg-step-gap {
+  visibility: hidden;
+}
 .pg-vfx { min-width: 460px; }
 .pg-env { min-width: 460px; }
 .pg-fx-phase {
@@ -344,6 +350,24 @@ const CSS = `
   border-radius: 4px;
   background: #23262b;
   text-transform: capitalize;
+}
+.pg-fx-headrow {
+  display: flex;
+  align-items: center;
+  background: #23262b;
+  border-radius: 4px;
+}
+.pg-fx-headrow .pg-fx-head {
+  flex: 1;
+  min-width: 0;
+}
+.pg-fx-headrow .pg-reset {
+  flex: 0 0 auto;
+  width: auto;
+  margin: 0 6px 0 0;
+  padding: 2px 6px;
+  font-size: 12px;
+  background: #2b2f36;
 }
 `;
 
@@ -965,12 +989,7 @@ export function mountPlaygroundOverlay(
         onEdit();
       }
 
-      const steppers = canStep(field)
-        ? [
-            button({ class: "pg-step", title: "One step down" }, ["−"], () => stepBy(-1)),
-            button({ class: "pg-step", title: "One step up" }, ["+"], () => stepBy(1)),
-          ]
-        : [];
+      const steppers = stepperPair(canStep(field) ? stepBy : undefined);
 
       const resetBtn = button({ class: "pg-reset", title: "Reset to shipped" }, ["↺"], () => {
         snapToShipped();
@@ -979,9 +998,9 @@ export function mountPlaygroundOverlay(
 
       return h("div", { class: "pg-row pg-stat-row" }, [
         h("label", { title: path }, [`${field.label} (shipped ${String(field.shipped)})`]),
-        steppers[0] ?? null,
+        steppers[0],
         control,
-        steppers[1] ?? null,
+        steppers[1],
         valueSpan,
         resetBtn,
       ]);

@@ -169,8 +169,33 @@ export function canStep(field: TunableField): boolean {
  */
 export function steppedValue(field: TunableField, current: number, direction: 1 | -1): number {
   if (!canStep(field)) return current;
-  const next = current + direction * field.step!;
-  return Math.min(field.max!, Math.max(field.min!, next));
+  return stepInRange({ min: field.min!, max: field.max!, step: field.step! }, current, direction);
+}
+
+/** The three numbers a `<input type=range>` is built from — all a nudge needs to know. */
+export interface StepRange {
+  readonly min: number;
+  readonly max: number;
+  readonly step: number;
+}
+
+/**
+ * `current` moved one `step` in `direction`, clamped into `[min, max]`.
+ *
+ * The generic half of `steppedValue`, so the VFX and environment panels can nudge their own rows
+ * (`FxFieldDef` and `EnvFieldDef` carry the same three numbers under different types) without a
+ * second copy of the clamp. Deliberately does NOT snap the result onto the `min`/`step` grid: a
+ * caller may hand in an off-grid value (a shipped number very often is one), and snapping would
+ * make the first nudge jump somewhere the user did not ask for instead of moving by one step.
+ *
+ * The `toPrecision` trim is the 0.1 + 0.2 = 0.30000000000000004 case: env steps go down to 1e-5, and
+ * without it a few nudges leave a binary-float tail that the readout and the pasteable export both
+ * print.
+ */
+export function stepInRange(range: StepRange, current: number, direction: 1 | -1): number {
+  const next = current + direction * range.step;
+  const clamped = Math.min(range.max, Math.max(range.min, next));
+  return Number(clamped.toPrecision(12));
 }
 
 /**

@@ -12,6 +12,7 @@ import {
   pauseKeyAction,
   shippedLoadoutOf,
   statsTabs,
+  stepInRange,
   steppedValue,
   weaponOptions,
 } from "./ui-model.js";
@@ -153,6 +154,43 @@ describe("statsTabs (PG35)", () => {
     const tabs = statsTabs(twoCarSetup());
     expect(tabs).toHaveLength(3);
     for (const tab of tabs) expect(Array.isArray(tab.groups)).toBe(true);
+  });
+});
+
+describe("stepInRange", () => {
+  // The VFX and environment panels nudge `FxFieldDef`/`EnvFieldDef` rows, which are neither
+  // `TunableField` nor on the same grid — `steppedValue` delegates here so there is one clamp.
+  const grade = { min: -1, max: 1, step: 0.01 };
+
+  it("steps up and down by exactly one step", () => {
+    expect(stepInRange(grade, 0.2, 1)).toBe(0.21);
+    expect(stepInRange(grade, 0.2, -1)).toBe(0.19);
+  });
+
+  it("trims the binary-float tail rather than handing the readout 0.30000000000000004", () => {
+    // The whole reason the helper exists as more than `current + step`: `0.1 + 0.2` and
+    // `0.07 + 0.01` both leave a tail that `format`'s `toFixed(6)` would print and the pasteable
+    // env export would carry.
+    expect(String(stepInRange(grade, 0.07, 1))).toBe("0.08");
+    expect(String(stepInRange({ min: 0, max: 1, step: 0.2 }, 0.1, 1))).toBe("0.3");
+  });
+
+  it("clamps at both ends instead of running past them", () => {
+    expect(stepInRange(grade, 0.995, 1)).toBe(1);
+    expect(stepInRange(grade, 1, 1)).toBe(1);
+    expect(stepInRange(grade, -0.995, -1)).toBe(-1);
+    expect(stepInRange(grade, -1, -1)).toBe(-1);
+  });
+
+  it("survives a step small enough to lose to float error, so shake's per-hp rows still move", () => {
+    // `shake.damagedPerHp` is the roster's finest control at 1e-5 across a 0.001 span.
+    const perHp = { min: 0, max: 0.001, step: 0.00001 };
+    expect(stepInRange(perHp, 0.00012, 1)).toBe(0.00013);
+    expect(stepInRange(perHp, stepInRange(perHp, 0.00012, 1), -1)).toBe(0.00012);
+  });
+
+  it("is a round trip up then down away from the clamps", () => {
+    expect(stepInRange(grade, stepInRange(grade, 0.33, 1), -1)).toBe(0.33);
   });
 });
 
