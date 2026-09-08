@@ -182,14 +182,18 @@ and a panel-wide **Reset all** mirror the physics panel's affordances. The physi
 |---|---|---|---|---|
 | `count` | range | 0–100 | 1 | 0 is the off switch (PG47) |
 | `speed` | range | 0–600 | 5 | u/s peak; each particle takes a random fraction of it |
-| `lifeMs` | range | 0–4000 | 20 | |
+| `lifeMs` | range | 0–4000 | 10 | |
 | `size` | range | 0–120 | 1 | |
 | `growPerSec` | range | −20–120 | 1 | negative is authored and correct — sparks shrink |
-| `alpha` | range | 0–1 | 0.02 | |
+| `alpha` | range | 0–1 | 0.01 | |
 | `coneRad` | range | 0–360° | 1° | stored in radians (PG44) |
 | `soot` | checkbox | — | — | smoke only (PG50) |
 
-Ranges are chosen to contain every shipped value with headroom, not to be a balance guard: the
+Steps are chosen so that every shipped value is REACHABLE on its own grid — a value sitting exactly
+at a grid midpoint could never be cleared back to shipped, which is the phantom-override bug PG43's
+tolerance exists to prevent. A test asserts this over the whole table, so a future `WEAPON_FX` edit
+cannot silently reintroduce it. Ranges are chosen to contain every shipped value with headroom, not
+to be a balance guard: the
 largest authored `count` is 64, `speed` 420, `lifeMs` 3000, `size` 82, `growPerSec` 80. There is no
 budget guard on the sliders — `MAX_SPECS_PER_FRAME` already caps a frame, and a panel that refuses
 an extreme is a panel that cannot answer "is this too much".

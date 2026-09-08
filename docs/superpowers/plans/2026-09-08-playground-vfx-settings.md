@@ -226,6 +226,30 @@ describe("isFxAtShipped", () => {
     expect(isFxAtShipped(field, 0.9 + field.step, 0.9)).toBe(false);
   });
 
+  it("every shipped value is REACHABLE on its own grid", () => {
+    // The tolerance is `< step / 2`, so a shipped value sitting exactly at a grid midpoint can
+    // never be cleared: the two nearest positions the slider can land on are both exactly half a
+    // step away, and neither counts as shipped. Touching such a field would leave a phantom
+    // override in every export, forever — which is the precise bug PG43's tolerance exists to
+    // prevent. Three values had this property under the first set of steps chosen for FX_FIELDS
+    // (alpha 0.95 at step 0.02; lifeMs 190 and 430 at step 20), so this asserts the property over
+    // the whole table rather than trusting the steps to stay right through a future WEAPON_FX edit.
+    const rows = [...Object.values(WEAPON_FX), DEFAULT_WEAPON_FX];
+    for (const row of rows) {
+      for (const burst of [...row!.muzzle, ...row!.impact]) {
+        for (const field of FX_FIELDS) {
+          if (field.kind !== "number") continue;
+          const control = toControl(field, burst[field.name] as number);
+          const nearest = field.min + Math.round((control - field.min) / field.step) * field.step;
+          expect(
+            isFxAtShipped(field, nearest, control),
+            `${burst.channel}.${field.name} = ${control} is unreachable on a ${field.step} grid`,
+          ).toBe(true);
+        }
+      }
+    }
+  });
+
   it("uses strict equality for a boolean field", () => {
     const field = fieldOf("soot");
     expect(isFxAtShipped(field, false, false)).toBe(true);
@@ -296,10 +320,10 @@ export interface FxFieldDef {
 export const FX_FIELDS: readonly FxFieldDef[] = [
   { name: "count", label: "Count", kind: "number", min: 0, max: 100, step: 1, degrees: false, smokeOnly: false },
   { name: "speed", label: "Speed", kind: "number", min: 0, max: 600, step: 5, degrees: false, smokeOnly: false },
-  { name: "lifeMs", label: "Life (ms)", kind: "number", min: 0, max: 4000, step: 20, degrees: false, smokeOnly: false },
+  { name: "lifeMs", label: "Life (ms)", kind: "number", min: 0, max: 4000, step: 10, degrees: false, smokeOnly: false },
   { name: "size", label: "Size", kind: "number", min: 0, max: 120, step: 1, degrees: false, smokeOnly: false },
   { name: "growPerSec", label: "Grow/s", kind: "number", min: -20, max: 120, step: 1, degrees: false, smokeOnly: false },
-  { name: "alpha", label: "Alpha", kind: "number", min: 0, max: 1, step: 0.02, degrees: false, smokeOnly: false },
+  { name: "alpha", label: "Alpha", kind: "number", min: 0, max: 1, step: 0.01, degrees: false, smokeOnly: false },
   { name: "coneRad", label: "Cone", kind: "number", min: 0, max: 360, step: 1, degrees: true, smokeOnly: false },
   { name: "soot", label: "Soot", kind: "boolean", min: 0, max: 1, step: 1, degrees: false, smokeOnly: true },
 ];
