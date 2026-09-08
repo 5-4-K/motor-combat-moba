@@ -171,6 +171,8 @@ describe("fxCellsFor", () => {
 
 describe("FX_FIELDS", () => {
   it("covers every editable FxBurst field and nothing else", () => {
+    // The order matters twice over: it is the panel's row order and the export's key order, and it
+    // must match `FxBurst`'s declaration order so a pasted fragment matches the rows beside it.
     expect(FX_FIELDS.map((f) => f.name)).toEqual([
       "count",
       "speed",
@@ -178,8 +180,8 @@ describe("FX_FIELDS", () => {
       "size",
       "growPerSec",
       "alpha",
-      "coneRad",
       "soot",
+      "coneRad",
     ]);
   });
 
@@ -325,14 +327,18 @@ export interface FxFieldDef {
  * `channel` is absent on purpose: it is the cell's identity, not one of its values.
  */
 export const FX_FIELDS: readonly FxFieldDef[] = [
+  // In `FxBurst`'s own declaration order — `soot` before `coneRad` — because this list orders the
+  // panel's rows AND the export's keys. Emitting keys in a different order than `table.ts` writes
+  // them produces a valid literal that no longer matches the rows beside it, and the whole point of
+  // the export is a paste that leaves a clean diff.
   { name: "count", label: "Count", kind: "number", min: 0, max: 100, step: 1, degrees: false, smokeOnly: false },
   { name: "speed", label: "Speed", kind: "number", min: 0, max: 600, step: 5, degrees: false, smokeOnly: false },
   { name: "lifeMs", label: "Life (ms)", kind: "number", min: 0, max: 4000, step: 10, degrees: false, smokeOnly: false },
   { name: "size", label: "Size", kind: "number", min: 0, max: 120, step: 1, degrees: false, smokeOnly: false },
   { name: "growPerSec", label: "Grow/s", kind: "number", min: -20, max: 120, step: 1, degrees: false, smokeOnly: false },
   { name: "alpha", label: "Alpha", kind: "number", min: 0, max: 1, step: 0.01, degrees: false, smokeOnly: false },
-  { name: "coneRad", label: "Cone", kind: "number", min: 0, max: 360, step: 1, degrees: true, smokeOnly: false },
   { name: "soot", label: "Soot", kind: "boolean", min: 0, max: 1, step: 1, degrees: false, smokeOnly: true },
+  { name: "coneRad", label: "Cone", kind: "number", min: 0, max: 360, step: 1, degrees: true, smokeOnly: false },
 ];
 
 /** A sparse map of `"<weaponId>.<phase>.<channel>.<field>"` to its value (PG43). */
