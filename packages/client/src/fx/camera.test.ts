@@ -1,12 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  HIT_STOP_MS,
-  HIT_STOP_SCALE,
-  ramShake,
-  shakeFor,
-  shouldStartShake,
-  type ActiveShake,
-} from "./camera.js";
+import { ramShake, shakeFor, shouldStartShake, type ActiveShake } from "./camera.js";
+import { ENVIRONMENT_FX } from "./environment.js";
 
 describe("shakeFor", () => {
   it("shakes harder for a death than for a hit", () => {
@@ -94,11 +88,26 @@ describe("shouldStartShake", () => {
   });
 });
 
-describe("hit stop", () => {
-  it("is brief and partial — a full freeze reads as a dropped frame", () => {
-    expect(HIT_STOP_MS).toBeGreaterThan(0);
-    expect(HIT_STOP_MS).toBeLessThanOrEqual(120);
-    expect(HIT_STOP_SCALE).toBeGreaterThan(0);
-    expect(HIT_STOP_SCALE).toBeLessThan(1);
+describe("shake reads the environment table", () => {
+  it("scales a kill's shake with env.shake.max", () => {
+    const env = { ...ENVIRONMENT_FX, shake: { ...ENVIRONMENT_FX.shake, max: 0.05 } };
+    const spec = shakeFor({ kind: "died", sessionId: "a", x: 0, y: 0 }, env);
+    expect(spec).toEqual({ durationMs: 260, intensity: 0.05 });
+  });
+
+  it("scales a ram's floor and slope with env", () => {
+    const env = {
+      ...ENVIRONMENT_FX,
+      shake: { ...ENVIRONMENT_FX.shake, ramFloor: 0.001, ramPerSpeed: 0 },
+    };
+    expect(ramShake(500, env)).toEqual({ durationMs: 120, intensity: 0.001 });
+  });
+
+  it("defaults to the shipped table when no env is passed", () => {
+    expect(shakeFor({ kind: "died", sessionId: "a", x: 0, y: 0 })).toEqual({
+      durationMs: 260,
+      intensity: 0.02,
+    });
+    expect(ramShake(0)).toEqual({ durationMs: 120, intensity: 0.006 });
   });
 });

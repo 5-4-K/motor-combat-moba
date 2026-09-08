@@ -40,14 +40,13 @@ import {
 } from "@motor-combat-moba/shared";
 import { applyCarSprite, phaserTextures, resolveCarSprite } from "../assets/car-sprite.js";
 import {
-  HIT_STOP_MS,
-  HIT_STOP_SCALE,
   ramShake,
   shakeFor,
   shouldStartShake,
   type ActiveShake,
   type ShakeSpec,
 } from "../fx/camera.js";
+import { ENVIRONMENT_FX } from "../fx/environment.js";
 import { FX_TEXTURE_KEYS, FxLayer } from "../fx/layer.js";
 import { FLOOR_DEPTH } from "../fx/depths.js";
 import { liveFxResolver } from "../fx/override-store.js";
@@ -817,7 +816,7 @@ export class ArenaScene extends Phaser.Scene {
   /**
    * Guards `triggerHitStop`'s restore against overlap: each call captures the generation it was
    * scheduled at, and its `delayedCall` only restores `this.tweens.timeScale` if that generation is
-   * still current. Without this, two kills within `HIT_STOP_MS` leave the *first* call's timer
+   * still current. Without this, two kills within `ENVIRONMENT_FX.hitStop.ms` leave the *first* call's timer
    * unconditionally resetting `timeScale = 1` at its own (earlier) deadline while `hitStopUntilMs` —
    * extended by the second trigger — still has `followCamera` running slowed, so the two halves of
    * the mechanism disagree until the second timer also fires.
@@ -3038,36 +3037,37 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * `1` normally, `HIT_STOP_SCALE` for `HIT_STOP_MS` after a kill. Multiplied into the `delta`
-   * `followCamera` eases with — never into `pumpInput`'s `delta`, which is read straight off
-   * `update`'s own parameter before this ever runs, so a hit-stop in progress cannot slip a tick, a
-   * predicted step, or a sent input. See `hitStopUntilMs`'s doc comment for why this reads a wall
-   * clock rather than a Phaser Clock.
+   * `1` normally, `ENVIRONMENT_FX.hitStop.scale` for `ENVIRONMENT_FX.hitStop.ms` after a kill.
+   * Multiplied into the `delta` `followCamera` eases with — never into `pumpInput`'s `delta`, which
+   * is read straight off `update`'s own parameter before this ever runs, so a hit-stop in progress
+   * cannot slip a tick, a predicted step, or a sent input. See `hitStopUntilMs`'s doc comment for
+   * why this reads a wall clock rather than a Phaser Clock.
    */
   private hitStopScale(): number {
-    return performance.now() < this.hitStopUntilMs ? HIT_STOP_SCALE : 1;
+    return performance.now() < this.hitStopUntilMs ? ENVIRONMENT_FX.hitStop.scale : 1;
   }
 
   /**
-   * Kicks off a kill's hit-stop: the camera's own follow-easing runs slow for `HIT_STOP_MS`
-   * (`hitStopScale`, read by `followCamera`'s call site), and every live and future tween in the
-   * scene — today just `showImpact`'s spark — runs slow alongside it via `this.tweens.timeScale`,
-   * which is its own independent scale and untouched by anything else here.
+   * Kicks off a kill's hit-stop: the camera's own follow-easing runs slow for
+   * `ENVIRONMENT_FX.hitStop.ms` (`hitStopScale`, read by `followCamera`'s call site), and every
+   * live and future tween in the scene — today just `showImpact`'s spark — runs slow alongside it
+   * via `this.tweens.timeScale`, which is its own independent scale and untouched by anything else
+   * here.
    *
    * The `delayedCall` captures `hitStopGeneration` at schedule time and only restores
    * `tweens.timeScale` if it is still the latest one. Without that guard, two kills within
-   * `HIT_STOP_MS` would leave the *first* call's timer restoring `timeScale = 1` at its own
-   * (earlier) deadline while `hitStopUntilMs` — extended by the second trigger — still has
+   * `ENVIRONMENT_FX.hitStop.ms` would leave the *first* call's timer restoring `timeScale = 1` at
+   * its own (earlier) deadline while `hitStopUntilMs` — extended by the second trigger — still has
    * `followCamera` running slowed, so the two halves of the mechanism would disagree until the
    * second timer also fired. It is self-correcting either way (the second timer always fires and
    * restores it), so this is about the two halves staying consistent in between, not about getting
    * permanently stuck.
    */
   private triggerHitStop(): void {
-    this.hitStopUntilMs = performance.now() + HIT_STOP_MS;
-    this.tweens.timeScale = HIT_STOP_SCALE;
+    this.hitStopUntilMs = performance.now() + ENVIRONMENT_FX.hitStop.ms;
+    this.tweens.timeScale = ENVIRONMENT_FX.hitStop.scale;
     const generation = ++this.hitStopGeneration;
-    this.time.delayedCall(HIT_STOP_MS, () => {
+    this.time.delayedCall(ENVIRONMENT_FX.hitStop.ms, () => {
       if (generation === this.hitStopGeneration) this.tweens.timeScale = 1;
     });
   }

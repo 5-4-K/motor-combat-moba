@@ -1,22 +1,12 @@
 import type { FxEvent } from "./events.js";
+import type { EnvironmentFx } from "./environment.js";
+import { ENVIRONMENT_FX } from "./environment.js";
 
 /** A camera shake, in the units `Phaser.Cameras.Scene2D.Camera.shake` takes. */
 export interface ShakeSpec {
   readonly durationMs: number;
   readonly intensity: number;
 }
-
-/**
- * How long the world runs slow after a kill, and how slow.
- *
- * Partial and brief on purpose. A full freeze reads as a dropped frame or a stutter, which is the
- * opposite of the weight it is meant to add.
- */
-export const HIT_STOP_MS = 90;
-export const HIT_STOP_SCALE = 0.25;
-
-/** Beyond this, more damage buys no more shake. */
-const MAX_SHAKE = 0.02;
 
 /**
  * Weapons whose ending is an explosion worth feeling.
@@ -34,18 +24,22 @@ const EXPLOSIVE = new Set(["magmablast"]);
  * A muzzle flash never shakes: `pepperbox` alone would leave the camera permanently trembling, and
  * a camera that reacts to everything reads as reacting to nothing.
  */
-export function shakeFor(event: FxEvent): ShakeSpec | undefined {
+export function shakeFor(
+  event: FxEvent,
+  env: EnvironmentFx = ENVIRONMENT_FX,
+): ShakeSpec | undefined {
+  const s = env.shake;
   switch (event.kind) {
     case "died":
-      return { durationMs: 260, intensity: MAX_SHAKE };
+      return { durationMs: s.diedMs, intensity: s.max };
     case "damaged":
       return {
-        durationMs: 120,
-        intensity: Math.min(MAX_SHAKE * 0.6, 0.0015 + event.amount * 0.00018),
+        durationMs: s.damagedMs,
+        intensity: Math.min(s.max * s.damagedCap, s.damagedBase + event.amount * s.damagedPerHp),
       };
     case "shotEnded":
       return EXPLOSIVE.has(event.weaponId)
-        ? { durationMs: 200, intensity: MAX_SHAKE * 0.75 }
+        ? { durationMs: s.explosionMs, intensity: s.max * s.explosionCap }
         : undefined;
     case "shotFired":
       return undefined;
@@ -60,18 +54,21 @@ export function shakeFor(event: FxEvent): ShakeSpec | undefined {
  * whole reason that module exists.
  *
  * Ordering across every event kind, smallest to largest, and it must stay this way: a ram must
- * never out-shake an explosion or a kill. `damaged` caps at `MAX_SHAKE * 0.6` (0.012), explosive
- * `shotEnded` at `MAX_SHAKE * 0.75` (0.015), `died` at `MAX_SHAKE` (0.02) — `ramShake`'s cap of
- * `MAX_SHAKE * 0.6` (0.012) ties `damaged`'s but sits strictly below both of those.
+ * never out-shake an explosion or a kill. `damaged` caps at `max * damagedCap` (0.012), explosive
+ * `shotEnded` at `max * explosionCap` (0.015), `died` at `max` (0.02) — `ramShake`'s cap of
+ * `max * ramCap` (0.012) ties `damaged`'s but sits strictly below both of those. The caps are
+ * fractions of `max` rather than absolute intensities specifically so this ordering survives a
+ * retune of `max` alone.
  */
-export function ramShake(closingSpeed: number): ShakeSpec {
+export function ramShake(closingSpeed: number, env: EnvironmentFx = ENVIRONMENT_FX): ShakeSpec {
+  const s = env.shake;
   return {
-    durationMs: 120,
+    durationMs: s.ramMs,
     // A floor of 0.006 (not 0.002), so the gentlest nudge still registers at the same feel the
     // fixed 0.006 constant this replaced always had — contact with no feedback reads as the car
-    // catching on nothing. The cap sits at MAX_SHAKE * 0.6 rather than * 0.5 so a supplied
+    // catching on nothing. The cap sits at max * ramCap (0.6) rather than 0.5 so a supplied
     // closingSpeed still has headroom above the floor instead of saturating almost immediately.
-    intensity: Math.min(MAX_SHAKE * 0.6, 0.006 + Math.abs(closingSpeed) * 0.00002),
+    intensity: Math.min(s.max * s.ramCap, s.ramFloor + Math.abs(closingSpeed) * s.ramPerSpeed),
   };
 }
 
