@@ -4,13 +4,13 @@ import { carSpriteKey } from "../assets/asset-keys.js";
 import {
   decalFadeAlpha,
   decalStampsFor,
-  MAX_DECALS,
   tyreMarkSteps,
   tyreMarksFor,
 } from "./decals.js";
 import { AIR_FX_DEPTH, DECAL_DEPTH, GROUND_FX_DEPTH, SMOKE_DEPTH } from "./depths.js";
 import { deriveFxEvents, type FxEvent, type FxWorldView } from "./events.js";
 import { emitterSpecsForAll, type EmitterSpec } from "./emitters.js";
+import { ENVIRONMENT_FX } from "./environment.js";
 import {
   ERASER_HALO,
   ERASER_STAMP_HEIGHT,
@@ -55,15 +55,16 @@ const ERASER_TEXTURE_PX = 128;
 /**
  * The decal budget, split by class so one can never starve the other out of the ring buffer.
  *
- * Rubber is produced at two marks per `TYRE_MARK_SPACING` of travel — 119/s for a car at top
- * speed, and past 700/s with a full room skidding. Sharing one FIFO with scorch meant the buffer
- * turned over in seconds under load, so a `magmablast` scorch was evicted before its half-life
- * and `decals.ts`'s promise that "a fight leaves a readable history" was unreachable in exactly the
- * fights worth reading. The two caps sum to `MAX_DECALS`, which is still the bound on the per-frame
- * redraw cost — the split changes who spends the budget, never how large it is.
+ * Rubber is produced at two marks per `tyreSpacing` of travel — 119/s for a car at top speed, and
+ * past 700/s with a full room skidding. Sharing one FIFO with scorch meant the buffer turned over
+ * in seconds under load, so a `magmablast` scorch was evicted before its half-life and
+ * `decals.ts`'s promise that "a fight leaves a readable history" was unreachable in exactly the
+ * fights worth reading. The two caps sum to `ENVIRONMENT_FX.decals.maxTotal`, which is still the
+ * bound on the per-frame redraw cost — the split changes who spends the budget, never how large it
+ * is. Read directly here rather than through an injected resolver — Task 10 replaces this.
  */
-const MAX_SCORCH_DECALS = 120;
-const MAX_TYRE_DECALS = MAX_DECALS - MAX_SCORCH_DECALS;
+const scorchCap = ENVIRONMENT_FX.decals.maxScorch;
+const tyreCap = ENVIRONMENT_FX.decals.maxTotal - scorchCap;
 
 /**
  * The blurred silhouette key for a chassis.
@@ -471,7 +472,7 @@ export class FxLayer {
 
     for (const event of events) {
       for (const stamp of decalStampsFor(event)) {
-        this.pushDecal(this.scorchDecals, MAX_SCORCH_DECALS, {
+        this.pushDecal(this.scorchDecals, scorchCap, {
           key: FX_TEXTURE_KEYS.scorch,
           x: stamp.x,
           y: stamp.y,
@@ -544,7 +545,7 @@ export class FxLayer {
    * Add a decal to ONE class's buffer, dropping that class's oldest once it is full.
    *
    * The buffer is a parameter rather than a field because the two classes must not share a cap —
-   * see `MAX_SCORCH_DECALS`. Oldest-first eviction within each class is unchanged.
+   * see `scorchCap`. Oldest-first eviction within each class is unchanged.
    */
   private pushDecal(buffer: LiveDecal[], cap: number, decal: LiveDecal): void {
     buffer.push(decal);
@@ -593,14 +594,14 @@ export class FxLayer {
           speed,
         );
         for (const mark of marks) {
-          this.pushDecal(this.tyreDecals, MAX_TYRE_DECALS, {
+          this.pushDecal(this.tyreDecals, tyreCap, {
             key,
             x: mark.x,
             y: mark.y,
             scale: (mark.radius * 2) / texels,
             baseAlpha: mark.alpha,
             rotation: 0,
-            tint: 0x141210,
+            tint: ENVIRONMENT_FX.decals.tyreTint,
             bornAtMs: this.clockMs,
           });
         }
@@ -617,7 +618,7 @@ export class FxLayer {
    * `clear()` then stamp then `render()`, every call deliberate. The layer is NOT faded in place,
    * because Phaser 4's `erase()` takes no alpha and cannot express a partial fade; redrawing also
    * makes the curve exact rather than an accumulation of per-frame rounding, and bounds the cost by
-   * `MAX_DECALS` instead of by match length.
+   * `ENVIRONMENT_FX.decals.maxTotal` instead of by match length.
    */
   private redrawDecals(): void {
     this.decals.clear();

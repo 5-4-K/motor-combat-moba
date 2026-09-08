@@ -1,14 +1,19 @@
+import { DRIVE_CONFIG } from "@motor-combat-moba/shared";
 import { describe, expect, it } from "vitest";
 import {
   decalFadeAlpha,
   decalStampsFor,
-  DECAL_HALF_LIFE_MS,
-  TYRE_MARK_MAX_STEP,
-  TYRE_MARK_SPACING,
-  TYRE_MARK_SPEED_FLOOR,
   tyreMarkSteps,
   tyreMarksFor,
 } from "./decals.js";
+import { ENVIRONMENT_FX } from "./environment.js";
+
+// These four now live on `ENVIRONMENT_FX.decals` (EV6) rather than as named exports of
+// `decals.ts` — pulled out here so every pre-existing assertion below reads exactly as it did.
+const DECAL_HALF_LIFE_MS = ENVIRONMENT_FX.decals.halfLifeMs;
+const TYRE_MARK_MAX_STEP = ENVIRONMENT_FX.decals.tyreMaxStep;
+const TYRE_MARK_SPACING = ENVIRONMENT_FX.decals.tyreSpacing;
+const TYRE_MARK_SPEED_FLOOR = ENVIRONMENT_FX.decals.tyreSpeedFloor;
 
 describe("decalStampsFor", () => {
   it("scorches the ground where a shot ended", () => {
@@ -146,5 +151,32 @@ describe("tyreMarkSteps", () => {
 
   it("keeps the carry across a frame in which the car did not move", () => {
     expect(tyreMarkSteps(3.2, 0)).toEqual({ fractions: [], carry: 3.2 });
+  });
+});
+
+describe("decals read the environment table", () => {
+  it("takes tyre spacing from env", () => {
+    const env = { ...ENVIRONMENT_FX, decals: { ...ENVIRONMENT_FX.decals, tyreSpacing: 10 } };
+    expect(tyreMarkSteps(0, 25, env).fractions).toHaveLength(2);
+    expect(tyreMarkSteps(0, 25).fractions).toHaveLength(5); // shipped 4.5
+  });
+
+  it("takes the fade half-life from env", () => {
+    const env = { ...ENVIRONMENT_FX, decals: { ...ENVIRONMENT_FX.decals, halfLifeMs: 1000 } };
+    expect(decalFadeAlpha(1000, env)).toBeCloseTo(0.5, 5);
+    expect(decalFadeAlpha(40_000)).toBeCloseTo(0.5, 5); // shipped 40_000
+  });
+
+  it("takes a scorch scale from the weapon row, falling back to the env default", () => {
+    expect(decalStampsFor({ kind: "shotEnded", weaponId: "magmablast", x: 0, y: 0, angle: 0 })[0]!.scale)
+      .toBe(1.25);
+    expect(decalStampsFor({ kind: "shotEnded", weaponId: "lance", x: 0, y: 0, angle: 0 })[0]!.scale)
+      .toBe(0.35);
+  });
+
+  it("takes the tyre track half width from the ratio, not a frozen pixel value", () => {
+    const env = { ...ENVIRONMENT_FX, decals: { ...ENVIRONMENT_FX.decals, tyreTrackRatio: 0.5 } };
+    const marks = tyreMarksFor({ x: 0, y: 0, angle: 0 }, 200, env);
+    expect(Math.abs(marks[0]!.y - marks[1]!.y)).toBeCloseTo(DRIVE_CONFIG.carHeight, 5);
   });
 });

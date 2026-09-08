@@ -1,5 +1,9 @@
 import { DRIVE_CONFIG } from "@motor-combat-moba/shared";
 import type { FxEvent } from "./events.js";
+import type { EnvironmentFx } from "./environment.js";
+import { ENVIRONMENT_FX } from "./environment.js";
+import { weaponFxOf } from "./table.js";
+import type { WeaponFxResolver } from "./tuning.js";
 
 /** A stain to stamp into the decal layer. */
 export interface DecalStamp {
@@ -22,61 +26,12 @@ export interface TyreMark {
 }
 
 /**
- * How long a decal takes to lose half its alpha.
- *
- * Decals **must** fade. Rubber that never lifts turns the floor black over a match — measured at
- * roughly twenty seconds in the spike before this was added. Forty seconds is long enough that a
- * fight leaves a readable history and short enough that the arena recovers.
- *
- * It is the binding limit for SCORCH, which has a buffer of its own and takes one mark per blast.
- * It is NOT the binding limit for rubber: at `TYRE_MARK_SPACING` a car at top speed fills its share
- * of the 480-mark tyre buffer in a few seconds, so a rubber trail is bounded by that buffer and by
- * how far the cars have driven, never by this. See `TYRE_MARK_SPACING` for the arithmetic.
+ * Half the distance between the two tracks, as a fraction of the hull rather than a frozen pixel
+ * value (EV8) — a chassis retune must still move the tracks.
  */
-export const DECAL_HALF_LIFE_MS = 40_000;
-
-/**
- * The most decals held at once. Older ones are dropped.
- *
- * This is a hard bound on the decal layer's per-frame cost: it is redrawn from scratch each frame
- * (Phaser 4's `erase` takes no alpha, so an in-place partial fade is not expressible), which makes
- * the cost proportional to this number rather than to how long the match has run.
- */
-export const MAX_DECALS = 600;
-
-/**
- * How far a car travels between one pair of tyre marks and the next, in world units.
- *
- * **Distance, not time.** The first cut checked a 50 ms interval once per frame, which meant it
- * actually fired every ~66.7 ms at 60 fps and ~55 ms at 144 fps, and it stamped the clock rather
- * than advancing it by the interval, so the drift accumulated. At Mirage's 267 u/s that laid marks
- * 17.8 units apart against 5.4-unit dabs — a dotted line — and a different dotted line on every
- * machine. Spacing by distance removes both: the trail is one shape per unit of road at any frame
- * rate, and a slow or circling car produces rubber in proportion to how far it actually went.
- *
- * 4.5 units against a 5.4-unit dab, so consecutive marks overlap by about a sixth of their diameter
- * and the trail reads continuous. The trade-off is length: `MAX_TYRE_DECALS` is 480 marks laid two
- * at a time, so a lone car's trail runs 1080 world units — most of a crossing of a 1280-wide arena
- * — and six cars all skidding share that same 480. Widening the spacing buys length and breaks the
- * line back up; the cap itself is the per-frame redraw budget and is not the knob to reach for.
- */
-export const TYRE_MARK_SPACING = 4.5;
-
-/**
- * The longest single-frame move that still counts as driving.
- *
- * A respawn, a scene cut or a reconciliation snap moves a car hundreds of units between two frames,
- * and spacing by distance would faithfully draw a rubber line across the arena for it. Top speed is
- * 267 u/s and `wildcharge`'s impulse is 520, so even a 100 ms hitch covers ~52 units; anything past
- * 80 is a teleport, and the trail restarts rather than being drawn through.
- */
-export const TYRE_MARK_MAX_STEP = 80;
-
-/** Below this speed a car lays no rubber: a trail is a skid mark, not a record of parking. */
-export const TYRE_MARK_SPEED_FLOOR = 40;
-
-/** Half the distance between the two tracks, across the car. */
-export const TYRE_TRACK_HALF_WIDTH = DRIVE_CONFIG.carHeight / 3;
+export function tyreTrackHalfWidth(env: EnvironmentFx = ENVIRONMENT_FX): number {
+  return DRIVE_CONFIG.carHeight * env.decals.tyreTrackRatio;
+}
 
 /** Where along one frame's travel a car's tracks land, and what distance carries into the next. */
 export interface TyreMarkSteps {
@@ -96,26 +51,45 @@ export interface TyreMarkSteps {
  * Several marks may land in one frame — that is the point. A 30 fps frame covers twice the road a
  * 60 fps frame does and must lay twice the rubber, or the trail is frame-rate dependent again in
  * the other direction.
+ *
+ * `tyreSpacing` is how far a car travels between one pair of tyre marks and the next, in world
+ * units. **Distance, not time.** The first cut checked a 50 ms interval once per frame, which meant
+ * it actually fired every ~66.7 ms at 60 fps and ~55 ms at 144 fps, and it stamped the clock rather
+ * than advancing it by the interval, so the drift accumulated. At Mirage's 267 u/s that laid marks
+ * 17.8 units apart against 5.4-unit dabs — a dotted line — and a different dotted line on every
+ * machine. Spacing by distance removes both: the trail is one shape per unit of road at any frame
+ * rate, and a slow or circling car produces rubber in proportion to how far it actually went.
+ *
+ * 4.5 units against a 5.4-unit dab, so consecutive marks overlap by about a sixth of their diameter
+ * and the trail reads continuous. The trade-off is length: `maxTotal - maxScorch` marks laid two
+ * at a time, so a lone car's trail runs 1080 world units — most of a crossing of a 1280-wide arena
+ * — and six cars all skidding share that same pool. Widening the spacing buys length and breaks the
+ * line back up; the cap itself is the per-frame redraw budget and is not the knob to reach for.
+ *
+ * `tyreMaxStep` is the longest single-frame move that still counts as driving. A respawn, a scene
+ * cut or a reconciliation snap moves a car hundreds of units between two frames, and spacing by
+ * distance would faithfully draw a rubber line across the arena for it. Top speed is 267 u/s and
+ * `wildcharge`'s impulse is 520, so even a 100 ms hitch covers ~52 units; anything past 80 is a
+ * teleport, and the trail restarts rather than being drawn through.
  */
-export function tyreMarkSteps(carry: number, segmentLength: number): TyreMarkSteps {
+export function tyreMarkSteps(
+  carry: number,
+  segmentLength: number,
+  env: EnvironmentFx = ENVIRONMENT_FX,
+): TyreMarkSteps {
+  const { tyreSpacing, tyreMaxStep } = env.decals;
   if (!(segmentLength > 0)) return { fractions: [], carry };
   // A teleport lays nothing AND drops the carry: resuming mid-interval on the far side of the
   // arena would put the first mark of the new trail in an arbitrary place.
-  if (segmentLength > TYRE_MARK_MAX_STEP) return { fractions: [], carry: 0 };
+  if (segmentLength > tyreMaxStep) return { fractions: [], carry: 0 };
   const fractions: number[] = [];
-  let need = TYRE_MARK_SPACING - carry;
+  let need = tyreSpacing - carry;
   while (need <= segmentLength) {
     fractions.push(need / segmentLength);
-    need += TYRE_MARK_SPACING;
+    need += tyreSpacing;
   }
-  return { fractions, carry: carry + segmentLength - fractions.length * TYRE_MARK_SPACING };
+  return { fractions, carry: carry + segmentLength - fractions.length * tyreSpacing };
 }
-
-const SCORCH_SCALE: Record<string, number> = {
-  magmablast: 1.25,
-  predator: 1.0,
-  thumper: 0.5,
-};
 
 /**
  * The stains one event leaves.
@@ -123,21 +97,32 @@ const SCORCH_SCALE: Record<string, number> = {
  * Only a shot ending and a death mark the ground. A muzzle flash and an ordinary hit deliberately
  * leave nothing: they happen constantly, and a floor that records every one of them is noise rather
  * than history.
+ *
+ * `resolve` defaults to the shipped weapon table for the same reason `emitterSpecsFor`'s does: a
+ * scorch mark's width is now the weapon's own `scorchScale` (EV10a), so this needs the same
+ * resolver the playground already injects for bursts.
  */
-export function decalStampsFor(event: FxEvent): DecalStamp[] {
+export function decalStampsFor(
+  event: FxEvent,
+  env: EnvironmentFx = ENVIRONMENT_FX,
+  resolve: WeaponFxResolver = weaponFxOf,
+): DecalStamp[] {
+  const d = env.decals;
   if (event.kind === "shotEnded") {
     return [
       {
         kind: "scorch",
         x: event.x,
         y: event.y,
-        scale: SCORCH_SCALE[event.weaponId] ?? 0.35,
-        alpha: 0.55,
+        scale: resolve(event.weaponId).scorchScale ?? d.scorchScaleDefault,
+        alpha: d.scorchAlphaShot,
       },
     ];
   }
   if (event.kind === "died") {
-    return [{ kind: "scorch", x: event.x, y: event.y, scale: 1.4, alpha: 0.7 }];
+    return [
+      { kind: "scorch", x: event.x, y: event.y, scale: d.scorchScaleDeath, alpha: d.scorchAlphaDeath },
+    ];
   }
   return [];
 }
@@ -147,20 +132,22 @@ export function decalStampsFor(event: FxEvent): DecalStamp[] {
  *
  * Perpendicular to the heading so the tracks turn with the chassis. Each mark is stamped once per
  * frame from the ring buffer, so it must read on its own — but light, because marks laid every
- * `TYRE_MARK_SPACING` overlap along the path and a heavy value draws in ink. The spike's first cut
+ * `tyreSpacing` overlap along the path and a heavy value draws in ink. The spike's first cut
  * ran an accumulating layer at 0.05 and the mirage drew in permanent marker.
  */
 export function tyreMarksFor(
   pose: { x: number; y: number; angle: number },
   speed: number,
+  env: EnvironmentFx = ENVIRONMENT_FX,
 ): TyreMark[] {
-  if (speed < TYRE_MARK_SPEED_FLOOR) return [];
+  const d = env.decals;
+  if (speed < d.tyreSpeedFloor) return [];
   const px = -Math.sin(pose.angle);
   const py = Math.cos(pose.angle);
-  const d = TYRE_TRACK_HALF_WIDTH;
+  const half = tyreTrackHalfWidth(env);
   return [
-    { x: pose.x + px * d, y: pose.y + py * d, radius: 2.7, alpha: 0.18 },
-    { x: pose.x - px * d, y: pose.y - py * d, radius: 2.7, alpha: 0.18 },
+    { x: pose.x + px * half, y: pose.y + py * half, radius: d.tyreRadius, alpha: d.tyreAlpha },
+    { x: pose.x - px * half, y: pose.y - py * half, radius: d.tyreRadius, alpha: d.tyreAlpha },
   ];
 }
 
@@ -171,11 +158,21 @@ export function tyreMarksFor(
  * rather than faded in place — Phaser 4's `erase` takes no alpha, so a partial in-place fade is not
  * expressible. Redrawing also makes the curve exact instead of an accumulation of per-frame
  * rounding, and makes the result independent of frame rate.
+ *
+ * `halfLifeMs` is how long a decal takes to lose half its alpha. Decals **must** fade. Rubber that
+ * never lifts turns the floor black over a match — measured at roughly twenty seconds in the spike
+ * before this was added. Forty seconds is long enough that a fight leaves a readable history and
+ * short enough that the arena recovers.
+ *
+ * It is the binding limit for SCORCH, which has a buffer of its own and takes one mark per blast.
+ * It is NOT the binding limit for rubber: at `tyreSpacing` a car at top speed fills its share of the
+ * tyre buffer in a few seconds, so a rubber trail is bounded by that buffer and by how far the cars
+ * have driven, never by this. See `tyreMarkSteps` for the arithmetic.
  */
-export function decalFadeAlpha(ageMs: number): number {
+export function decalFadeAlpha(ageMs: number, env: EnvironmentFx = ENVIRONMENT_FX): number {
   if (ageMs <= 0) return 1;
-  const alpha = Math.pow(0.5, ageMs / DECAL_HALF_LIFE_MS);
+  const alpha = Math.pow(0.5, ageMs / env.decals.halfLifeMs);
   // Snap the long tail to zero rather than leaving thousands of invisible decals in the buffer
   // crowding out live ones.
-  return alpha < 0.02 ? 0 : alpha;
+  return alpha < env.decals.fadeCutoff ? 0 : alpha;
 }
