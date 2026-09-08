@@ -11,7 +11,8 @@ import { ENVIRONMENT_FX } from "./environment.js";
  * whole-table pin: a retune here is a deliberate edit to both, and every value below that is not
  * the 2026-09-08 tuning pass's is still the one the pre-table renderer held. That pass moved three
  * — `vignette.strength` 0.42 -> 0, `decals.maxScorch` 120 -> 0, and `floor.warmR`/`warmG`/`warmB`
- * 2/1/-2 -> 20/0/-20 — so those three lines say "as tuned", and the rest still say "as lifted".
+ * 2/1/-2 -> 20/0/-20. A later floor retune moved `grainCells` 64 -> 256 and `patchCells` 8 -> 1.
+ * Those lines say "as tuned", and the rest still say "as lifted".
  */
 describe("ENVIRONMENT_FX", () => {
   it("carries the shipped grade and vignette", () => {
@@ -65,8 +66,8 @@ describe("ENVIRONMENT_FX", () => {
 
   it("carries the shipped floor, markings and car-burst values", () => {
     expect(ENVIRONMENT_FX.floor).toEqual({
-      grainCells: 64,
-      patchCells: 8,
+      grainCells: 256,
+      patchCells: 1,
       grainOctaves: 3,
       patchOctaves: 2,
       grainWeight: 0.62,

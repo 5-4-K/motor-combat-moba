@@ -146,8 +146,8 @@ export const ENVIRONMENT_FX: EnvironmentFx = {
   }),
   occlusion: Object.freeze({ halo: 14 }),
   floor: Object.freeze({
-    grainCells: 64,
-    patchCells: 8,
+    grainCells: 256,
+    patchCells: 1,
     grainOctaves: 3,
     patchOctaves: 2,
     grainWeight: 0.62,

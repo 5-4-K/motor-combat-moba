@@ -58,7 +58,7 @@ export interface FxFieldDef {
  * Every editable field of an `FxBurst`, with the range its slider spans (PG49).
  *
  * Ranges contain every shipped value with headroom and are deliberately NOT a budget guard: the
- * largest authored values are `count` 64, `speed` 420, `lifeMs` 3000, `size` 82, `growPerSec` 80,
+ * largest authored values are `count` 64, `speed` 420, `lifeMs` 1100, `size` 82, `growPerSec` 80,
  * and `MAX_SPECS_PER_FRAME` already caps a frame. A panel that refuses an extreme is a panel that
  * cannot answer "is this too much".
  *

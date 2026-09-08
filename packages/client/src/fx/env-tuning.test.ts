@@ -37,7 +37,7 @@ describe("resolveEnvironment", () => {
 
   it("drops a fractional value in an integer field, because a fractional cell count reopens the seam", () => {
     const env = resolveEnvironment({ [envKey("floor", "grainCells")]: 33.5 });
-    expect(env.floor.grainCells).toBe(64);
+    expect(env.floor.grainCells).toBe(256);
   });
 
   it("never writes through to the shipped table", () => {
@@ -82,8 +82,8 @@ describe("isEnvAtShipped", () => {
 
   it("is exact for an integer and a colour", () => {
     const cells = ENV_FIELDS.find((f) => f.section === "floor" && f.name === "grainCells")!;
-    expect(isEnvAtShipped(cells, 64, 64)).toBe(true);
-    expect(isEnvAtShipped(cells, 65, 64)).toBe(false);
+    expect(isEnvAtShipped(cells, 256, 256)).toBe(true);
+    expect(isEnvAtShipped(cells, 257, 256)).toBe(false);
     const tint = ENV_FIELDS.find((f) => f.section === "decals" && f.name === "tyreTint")!;
     expect(isEnvAtShipped(tint, 0x141210, 0x141210)).toBe(true);
     expect(isEnvAtShipped(tint, 0x141211, 0x141210)).toBe(false);

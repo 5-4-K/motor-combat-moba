@@ -76,7 +76,7 @@ export const WEAPON_FX: Partial<Record<WeaponId, WeaponFxRow>> = {
     ],
     impact: [
       { channel: "fire", count: 46, speed: 150, lifeMs: 500, size: 82, growPerSec: 20, alpha: 1, soot: false, coneRad: TAU },
-      { channel: "smoke", count: 40, speed: 120, lifeMs: 3000, size: 78, growPerSec: 80, alpha: 0.72, soot: true, coneRad: TAU },
+      { channel: "smoke", count: 20, speed: 50, lifeMs: 600, size: 60, growPerSec: 80, alpha: 0.16, soot: true, coneRad: TAU },
       { channel: "spark", count: 64, speed: 420, lifeMs: 800, size: 8, growPerSec: -3, alpha: 1, soot: false, coneRad: TAU },
       { channel: "debris", count: 30, speed: 150, lifeMs: 900, size: 5, growPerSec: 0, alpha: 1, soot: false, coneRad: TAU },
     ],
@@ -114,7 +114,6 @@ export const WEAPON_FX: Partial<Record<WeaponId, WeaponFxRow>> = {
     ],
     impact: [
       { channel: "fire", count: 30, speed: 130, lifeMs: 430, size: 66, growPerSec: 18, alpha: 1, soot: false, coneRad: TAU },
-      { channel: "smoke", count: 24, speed: 90, lifeMs: 2200, size: 60, growPerSec: 64, alpha: 0.16, soot: true, coneRad: TAU },
       { channel: "spark", count: 40, speed: 360, lifeMs: 620, size: 7, growPerSec: -3, alpha: 1, soot: false, coneRad: TAU },
       { channel: "debris", count: 18, speed: 140, lifeMs: 800, size: 4, growPerSec: 0, alpha: 1, soot: false, coneRad: TAU },
     ],
@@ -156,7 +155,7 @@ export const CAR_EVENT_FX: Record<CarEventId, WeaponFxRow> = {
     muzzle: [],
     impact: [
       { channel: "fire", count: 26, speed: 120, lifeMs: 460, size: 60, growPerSec: 18, alpha: 1, soot: false, coneRad: TAU },
-      { channel: "smoke", count: 26, speed: 90, lifeMs: 2600, size: 64, growPerSec: 70, alpha: 0.66, soot: true, coneRad: TAU },
+      { channel: "smoke", count: 30, speed: 375, lifeMs: 1000, size: 64, growPerSec: 70, alpha: 0.66, soot: true, coneRad: TAU },
       { channel: "spark", count: 34, speed: 340, lifeMs: 620, size: 7, growPerSec: -3, alpha: 1, soot: false, coneRad: TAU },
       { channel: "debris", count: 20, speed: 150, lifeMs: 900, size: 5, growPerSec: 0, alpha: 1, soot: false, coneRad: TAU },
     ],
