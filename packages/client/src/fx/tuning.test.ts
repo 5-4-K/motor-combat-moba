@@ -6,6 +6,7 @@ import {
   FX_PHASES,
   burstFor,
   fxResolverFor,
+  fxTableSource,
   fromControl,
   fxCellsFor,
   fxKey,
@@ -239,5 +240,50 @@ describe("fxResolverFor", () => {
 
   it("falls back to the default row for an unknown weapon id", () => {
     expect(fxResolverFor({})("no-such-weapon")).toBe(weaponFxOf("no-such-weapon"));
+  });
+});
+
+describe("fxTableSource", () => {
+  it("is empty when nothing is overridden", () => {
+    expect(fxTableSource({})).toBe("");
+  });
+
+  it("emits only the weapons that were touched", () => {
+    const source = fxTableSource({ "lance.muzzle.fire.count": 40 });
+    expect(source).toContain("lance: {");
+    expect(source).not.toContain("magmablast");
+  });
+
+  it("emits a full row, not just the changed field", () => {
+    const source = fxTableSource({ "lance.muzzle.fire.count": 40 });
+    expect(source).toContain("count: 40");
+    expect(source).toContain('channel: "spark"'); // the untouched sibling burst is still there
+    expect(source).toContain("impact: [");
+  });
+
+  it("writes a full sphere as TAU rather than 6.2832", () => {
+    const source = fxTableSource({ "magmablast.impact.fire.count": 20 });
+    expect(source).toContain("coneRad: TAU");
+    expect(source).not.toContain("6.28");
+  });
+
+  it("omits a burst switched off, and only that one", () => {
+    const source = fxTableSource({ "lance.muzzle.spark.count": 0 });
+    // `lance` authors a spark burst in BOTH phases — muzzle fire+spark, impact spark. Switching the
+    // muzzle one off must leave the muzzle with fire alone while the impact spark, a different
+    // burst nobody touched, survives. So assert on the muzzle slice, not the whole fragment.
+    const muzzle = source.slice(source.indexOf("muzzle:"), source.indexOf("impact:"));
+    expect(muzzle).toContain('channel: "fire"');
+    expect(muzzle).not.toContain('channel: "spark"');
+    expect(source).toContain('channel: "spark"');
+  });
+
+  it("is valid TypeScript that reproduces the resolved row", () => {
+    const overrides = { "lance.muzzle.fire.count": 40, "lance.impact.debris.count": 6 };
+    const source = fxTableSource(overrides);
+    // Evaluate the fragment as an object literal and compare it to what the sim would render.
+    const TAU = Math.PI * 2;
+    const parsed = new Function("TAU", `return {${source}};`)(TAU) as Record<string, unknown>;
+    expect(parsed.lance).toEqual(resolveWeaponFx("lance", overrides));
   });
 });

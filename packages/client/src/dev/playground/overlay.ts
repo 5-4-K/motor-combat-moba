@@ -12,7 +12,13 @@ import type {
 } from "@motor-combat-moba/shared";
 import { setFxOverrides } from "../../fx/override-store.js";
 import type { EmitterSpec } from "../../fx/emitters.js";
-import { FX_PHASES, resolveWeaponFx, type FxOverrides, type FxPhase } from "../../fx/tuning.js";
+import {
+  FX_PHASES,
+  fxTableSource,
+  resolveWeaponFx,
+  type FxOverrides,
+  type FxPhase,
+} from "../../fx/tuning.js";
 import type { FxChannel } from "../../fx/table.js";
 import { buildVfxPanel as buildVfxPanelDom } from "./vfx-panel.js";
 import {
@@ -491,6 +497,23 @@ export function mountPlaygroundOverlay(
     saveStored({ ...stored, vfx: { ...vfxOverrides } });
   }
 
+  /** Clipboard with the same guarded fallback the physics panel has always used: no Clipboard API
+   * (older browser, insecure context) falls back to a selectable textarea plus a console dump. */
+  function copyText(text: string, before?: Element): void {
+    const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
+    if (clipboard && typeof clipboard.writeText === "function") {
+      void clipboard.writeText(text);
+      return;
+    }
+    console.log(text);
+    const host = before ?? root.querySelector(".pg-stats");
+    host?.parentElement?.querySelector(".pg-copy-fallback")?.remove();
+    const ta = h("textarea", { class: "pg-copy-fallback", readonly: true }) as HTMLTextAreaElement;
+    ta.value = text;
+    host?.before(ta);
+    ta.select();
+  }
+
   /** The VFX panel's replay timer (spec PG52). Cleared on leaving the panel, on unmount, and on an
    * arena change — a timer firing into a torn-down scene is this feature's likeliest bug. */
   let replayTimer: ReturnType<typeof setInterval> | undefined;
@@ -614,7 +637,8 @@ export function mountPlaygroundOverlay(
         render();
       },
       onCopy: () => {
-        /* Task 9 */
+        const source = fxTableSource(vfxOverrides);
+        copyText(source === "" ? "// no VFX overrides to copy" : source);
       },
     });
   }
@@ -961,21 +985,7 @@ export function mountPlaygroundOverlay(
     });
 
     const copyBtn = button({}, ["Copy overrides"], () => {
-      const json = JSON.stringify(overrides, null, 2);
-      const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
-      if (clipboard && typeof clipboard.writeText === "function") {
-        void clipboard.writeText(json);
-        return;
-      }
-      // No Clipboard API (older browser, insecure context) -- fall back to a selectable textarea plus
-      // a console dump, so the JSON is still reachable by hand.
-      console.log(json);
-      const existing = statsContainer.parentElement?.querySelector(".pg-copy-fallback");
-      existing?.remove();
-      const ta = h("textarea", { class: "pg-copy-fallback", readonly: true }) as HTMLTextAreaElement;
-      ta.value = json;
-      statsContainer.before(ta);
-      ta.select();
+      copyText(JSON.stringify(overrides, null, 2), statsContainer);
     });
 
     /** The single exit point for leaving the settings view (spec PG13/PG16): sends the current

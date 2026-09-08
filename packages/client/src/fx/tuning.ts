@@ -232,3 +232,51 @@ export function fxResolverFor(overrides: FxOverrides): WeaponFxResolver {
   return (weaponId) =>
     touched.has(weaponId) ? resolveWeaponFx(weaponId, overrides) : weaponFxOf(weaponId);
 }
+
+/** A number as source: `TAU` where it is exactly that, otherwise trimmed to four decimals. */
+function numberSource(field: FxFieldName, value: number): string {
+  if (field === "coneRad" && value === TAU) return "TAU";
+  return String(Number(value.toFixed(4)));
+}
+
+function burstSource(burst: FxBurst): string {
+  const fields = FX_FIELDS.map((field) => {
+    const value = burst[field.name];
+    const source = typeof value === "boolean" ? String(value) : numberSource(field.name, value);
+    return `${field.name}: ${source}`;
+  });
+  return `{ channel: "${burst.channel}", ${fields.join(", ")} }`;
+}
+
+/**
+ * The overrides as a pasteable `WEAPON_FX` fragment (spec PG53).
+ *
+ * The destination is `packages/client/src/fx/table.ts`, not a JSON blob a codec reads back — which
+ * is why this emits source rather than the JSON the physics panel's Copy button produces. Full rows
+ * are emitted, in `table.ts`'s own shape, for every weapon the developer actually touched; an
+ * untouched weapon is absent, so pasting the result can never rewrite a row nobody edited.
+ *
+ * Empty string when nothing is overridden — there is nothing to paste.
+ */
+export function fxTableSource(overrides: FxOverrides): string {
+  const weaponIds = [
+    ...new Set(Object.keys(overrides).map((key) => key.slice(0, Math.max(0, key.indexOf("."))))),
+  ].filter((id) => id.length > 0);
+  if (weaponIds.length === 0) return "";
+
+  const rows = weaponIds.map((weaponId) => {
+    const row = resolveWeaponFx(weaponId, overrides);
+    const phase = (bursts: readonly FxBurst[]): string =>
+      bursts.length === 0
+        ? "[]"
+        : `[\n${bursts.map((b) => `      ${burstSource(b)},`).join("\n")}\n    ]`;
+    return [
+      `  ${weaponId}: {`,
+      `    muzzle: ${phase(row.muzzle)},`,
+      `    impact: ${phase(row.impact)},`,
+      `  },`,
+    ].join("\n");
+  });
+
+  return rows.join("\n");
+}
