@@ -1,6 +1,8 @@
 import type { FxEvent } from "./events.js";
 import { weaponFxOf, type FxBurst, type FxChannel } from "./table.js";
 import type { WeaponFxResolver } from "./tuning.js";
+import type { EnvironmentFx } from "./environment.js";
+import { ENVIRONMENT_FX } from "./environment.js";
 
 /** One burst, placed in the world. The unit `fx/layer.ts` consumes. */
 export interface EmitterSpec {
@@ -11,9 +13,6 @@ export interface EmitterSpec {
   readonly burst: FxBurst;
 }
 
-/** Sparks per point of hp lost. */
-export const DAMAGE_SPARK_SCALE = 0.5;
-
 /**
  * The most specs one frame may produce.
  *
@@ -23,34 +22,22 @@ export const DAMAGE_SPARK_SCALE = 0.5;
  */
 export const MAX_SPECS_PER_FRAME = 64;
 
-const TAU = Math.PI * 2;
-
-/** An impact spatter whose size follows the damage. */
-function damageBursts(amount: number): FxBurst[] {
-  return [
-    {
-      channel: "spark",
-      // At least one: a scratch that produces nothing reads as a hit that did not register.
-      count: Math.max(1, Math.min(30, Math.round(amount * DAMAGE_SPARK_SCALE))),
-      speed: 240,
-      lifeMs: 300,
-      size: 5,
-      growPerSec: -3,
-      alpha: 1,
-      soot: false,
-      coneRad: TAU,
-    },
-  ];
-}
-
-/** A death. Bigger than any single hit, and the only non-weapon source of soot. */
-function deathBursts(): FxBurst[] {
-  return [
-    { channel: "fire", count: 26, speed: 120, lifeMs: 460, size: 60, growPerSec: 18, alpha: 1, soot: false, coneRad: TAU },
-    { channel: "smoke", count: 26, speed: 90, lifeMs: 2600, size: 64, growPerSec: 70, alpha: 0.66, soot: true, coneRad: TAU },
-    { channel: "spark", count: 34, speed: 340, lifeMs: 620, size: 7, growPerSec: -3, alpha: 1, soot: false, coneRad: TAU },
-    { channel: "debris", count: 20, speed: 150, lifeMs: 900, size: 5, growPerSec: 0, alpha: 1, soot: false, coneRad: TAU },
-  ];
+/**
+ * The damage row's bursts with their counts scaled to the hp lost (EV22).
+ *
+ * The row's authored `count` is the CAP. A cap of zero means the cell is switched off and must stay
+ * off — flooring it back to `countFloor` there would make a disabled burst impossible to express,
+ * which is the whole point of PG42's `count: 0` off switch.
+ */
+function damageBursts(amount: number, template: readonly FxBurst[], env: EnvironmentFx): FxBurst[] {
+  const { sparkPerHp, countFloor } = env.carBursts;
+  return template.map((burst) => ({
+    ...burst,
+    count:
+      burst.count === 0
+        ? 0
+        : Math.max(countFloor, Math.min(burst.count, Math.round(amount * sparkPerHp))),
+  }));
 }
 
 /**
@@ -63,6 +50,7 @@ function deathBursts(): FxBurst[] {
 export function emitterSpecsFor(
   event: FxEvent,
   resolve: WeaponFxResolver = weaponFxOf,
+  env: EnvironmentFx = ENVIRONMENT_FX,
 ): EmitterSpec[] {
   const place = (bursts: readonly FxBurst[], angle: number): EmitterSpec[] =>
     bursts
@@ -77,9 +65,9 @@ export function emitterSpecsFor(
     case "shotEnded":
       return place(resolve(event.weaponId).impact, event.angle);
     case "damaged":
-      return place(damageBursts(event.amount), 0);
+      return place(damageBursts(event.amount, resolve("carDamage").impact, env), 0);
     case "died":
-      return place(deathBursts(), 0);
+      return place(resolve("carDeath").impact, 0);
   }
 }
 
@@ -87,10 +75,11 @@ export function emitterSpecsFor(
 export function emitterSpecsForAll(
   events: readonly FxEvent[],
   resolve: WeaponFxResolver = weaponFxOf,
+  env: EnvironmentFx = ENVIRONMENT_FX,
 ): EmitterSpec[] {
   const specs: EmitterSpec[] = [];
   for (const event of events) {
-    for (const spec of emitterSpecsFor(event, resolve)) {
+    for (const spec of emitterSpecsFor(event, resolve, env)) {
       if (specs.length >= MAX_SPECS_PER_FRAME) return specs;
       specs.push(spec);
     }

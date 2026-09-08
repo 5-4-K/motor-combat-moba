@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { WEAPON_TABLE } from "@motor-combat-moba/shared";
-import { DEFAULT_WEAPON_FX, WEAPON_FX, weaponFxOf } from "./table.js";
+import { CAR_EVENT_IDS, DEFAULT_WEAPON_FX, WEAPON_FX, weaponFxOf } from "./table.js";
 
 describe("WEAPON_FX", () => {
   it("only names weapons that exist, so a rename cannot leave a dead row", () => {
@@ -53,5 +53,26 @@ describe("scorchScale on the weapon row (EV10)", () => {
   it("leaves every other weapon without one, so the caller's default applies", () => {
     expect(weaponFxOf("lance").scorchScale).toBeUndefined();
     expect(weaponFxOf("pepperbox").scorchScale).toBeUndefined();
+  });
+});
+
+describe("car event rows (EV20, EV21)", () => {
+  it("resolves both car ids through weaponFxOf", () => {
+    expect(weaponFxOf("carDeath").impact).toHaveLength(4);
+    expect(weaponFxOf("carDamage").impact).toHaveLength(1);
+  });
+
+  it("leaves the muzzle phase empty on both", () => {
+    expect(weaponFxOf("carDeath").muzzle).toEqual([]);
+    expect(weaponFxOf("carDamage").muzzle).toEqual([]);
+  });
+
+  it("uses ids with no dot, so the override key format still splits into four", () => {
+    for (const id of CAR_EVENT_IDS) expect(id).not.toContain(".");
+  });
+
+  it("carries the death burst exactly as emitters.ts authored it", () => {
+    const fire = weaponFxOf("carDeath").impact.find((b) => b.channel === "fire")!;
+    expect(fire).toMatchObject({ count: 26, speed: 120, lifeMs: 460, size: 60, alpha: 1 });
   });
 });

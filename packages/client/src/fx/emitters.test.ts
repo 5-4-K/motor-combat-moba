@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { emitterSpecsFor, emitterSpecsForAll, MAX_SPECS_PER_FRAME } from "./emitters.js";
-import { WEAPON_FX } from "./table.js";
+import { WEAPON_FX, weaponFxOf } from "./table.js";
+import { ENVIRONMENT_FX } from "./environment.js";
 
 describe("emitterSpecsFor", () => {
   it("turns a shotFired into that weapon's muzzle bursts, at the event pose", () => {
@@ -113,5 +114,32 @@ describe("emitterSpecsFor with an injected resolver", () => {
       resolve,
     );
     expect(specs.map((s) => s.channel)).toEqual(["spark"]);
+  });
+});
+
+describe("damage bursts read carBursts (EV22)", () => {
+  it("scales the spark count by env.carBursts.sparkPerHp", () => {
+    const specs = emitterSpecsFor({ kind: "damaged", sessionId: "a", x: 0, y: 0, amount: 20 });
+    expect(specs[0]!.burst.count).toBe(10); // 20 * 0.5
+  });
+
+  it("caps the count at the row's own count field", () => {
+    const specs = emitterSpecsFor({ kind: "damaged", sessionId: "a", x: 0, y: 0, amount: 1000 });
+    expect(specs[0]!.burst.count).toBe(30);
+  });
+
+  it("floors the count so a scratch still registers", () => {
+    const specs = emitterSpecsFor({ kind: "damaged", sessionId: "a", x: 0, y: 0, amount: 1 });
+    expect(specs[0]!.burst.count).toBe(1);
+  });
+
+  it("treats a cap of zero as off, and does NOT floor it back to one", () => {
+    const resolve = () => ({ muzzle: [], impact: [{ ...weaponFxOf("carDamage").impact[0]!, count: 0 }] });
+    const specs = emitterSpecsFor(
+      { kind: "damaged", sessionId: "a", x: 0, y: 0, amount: 50 },
+      resolve,
+      ENVIRONMENT_FX,
+    );
+    expect(specs).toEqual([]);
   });
 });

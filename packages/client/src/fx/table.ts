@@ -122,7 +122,54 @@ export const WEAPON_FX: Partial<Record<WeaponId, WeaponFxRow>> = {
   },
 };
 
-/** The row for a weapon, or the modest default. Never throws on an unknown id. */
-export function weaponFxOf(weaponId: string): WeaponFxRow {
-  return WEAPON_FX[weaponId as WeaponId] ?? DEFAULT_WEAPON_FX;
+/**
+ * The two non-weapon subjects the fx panel can edit (EV20).
+ *
+ * **No dot in either id.** The override key is `"<subject>.<phase>.<channel>.<field>"` and
+ * `sanitizeStoredVfx` splits it on `.` expecting exactly four parts, so `car.damage` would drop
+ * every saved override for that entry without an error.
+ */
+export const CAR_EVENT_IDS = ["carDamage", "carDeath"] as const;
+export type CarEventId = (typeof CAR_EVENT_IDS)[number];
+
+export function isCarEventId(id: string): id is CarEventId {
+  return (CAR_EVENT_IDS as readonly string[]).includes(id);
+}
+
+/**
+ * What a car looks like when it is hit and when it dies — lifted verbatim from `emitters.ts`'s
+ * `damageBursts` and `deathBursts` (EV20).
+ *
+ * Both use the `impact` phase alone and leave `muzzle` empty: a car event has no muzzle, and
+ * reusing an existing `FxPhase` is what keeps the key format and the storage sanitizer untouched
+ * (EV21). `carDamage`'s `count` is the CAP, not the count — the burst's actual spark count follows
+ * the hp lost, through `ENVIRONMENT_FX.carBursts` (EV22).
+ */
+export const CAR_EVENT_FX: Record<CarEventId, WeaponFxRow> = {
+  carDamage: {
+    muzzle: [],
+    impact: [
+      { channel: "spark", count: 30, speed: 240, lifeMs: 300, size: 5, growPerSec: -3, alpha: 1, soot: false, coneRad: TAU },
+    ],
+  },
+  carDeath: {
+    muzzle: [],
+    impact: [
+      { channel: "fire", count: 26, speed: 120, lifeMs: 460, size: 60, growPerSec: 18, alpha: 1, soot: false, coneRad: TAU },
+      { channel: "smoke", count: 26, speed: 90, lifeMs: 2600, size: 64, growPerSec: 70, alpha: 0.66, soot: true, coneRad: TAU },
+      { channel: "spark", count: 34, speed: 340, lifeMs: 620, size: 7, growPerSec: -3, alpha: 1, soot: false, coneRad: TAU },
+      { channel: "debris", count: 20, speed: 150, lifeMs: 900, size: 5, growPerSec: 0, alpha: 1, soot: false, coneRad: TAU },
+    ],
+  },
+};
+
+/**
+ * The row for a weapon OR a car event, or the modest default. Never throws on an unknown id.
+ *
+ * Car events are checked first because their ids can never collide with a `WeaponId` — they are not
+ * in `WEAPON_TABLE` — so the order is about reading clearly, not about precedence.
+ */
+export function weaponFxOf(id: string): WeaponFxRow {
+  if (isCarEventId(id)) return CAR_EVENT_FX[id];
+  return WEAPON_FX[id as WeaponId] ?? DEFAULT_WEAPON_FX;
 }
