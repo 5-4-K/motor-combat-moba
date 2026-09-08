@@ -493,8 +493,14 @@ export function mountPlaygroundOverlay(
 
   /** The live environment override map (EV32). No panel mutates this yet — this task only wires
    * persistence — but it is held the same way `vfxOverrides` is (loaded once at mount, carried
-   * through every save) so a value already on disk is never clobbered by an unrelated save. */
-  const envOverrides: EnvOverrides = { ...loadStored().env };
+   * through every save) so a value already on disk is never clobbered by an unrelated save. The
+   * environment settings panel task mutates this map in place, the same way the vfx panel mutates
+   * `vfxOverrides` — there must be exactly one of it in this scope, or the panel and `persist()`
+   * would each hold their own copy and an edit would silently fail to reach localStorage. Named
+   * `envOverridesMap` rather than `envOverrides` because `fx/env-store.ts` exports a function
+   * named `envOverrides()` that a later task imports into this file — the same reason the sibling
+   * below is `vfxOverrides` and not `fxOverrides` (`override-store.ts` exports `fxOverrides()`). */
+  const envOverridesMap: EnvOverrides = { ...loadStored().env };
 
   /** Saves the VFX section without disturbing the physics panel's own save path, which reads its
    * live DOM controls and is not available outside `buildSettings`. */
@@ -759,7 +765,7 @@ export function mountPlaygroundOverlay(
         overrides: { ...overrides },
         view: { showHitbox: hitboxToggle.checked },
         vfx: { ...vfxOverrides },
-        env: { ...envOverrides },
+        env: { ...envOverridesMap },
       });
     }
 
