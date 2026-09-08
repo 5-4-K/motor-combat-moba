@@ -15,29 +15,29 @@ import {
 } from "./ui-model.js";
 
 describe("pauseKeyAction", () => {
-  it("toggles pause when the overlay is hidden and focus is plain", () => {
-    expect(pauseKeyAction("hidden", "BODY")).toBe("toggle");
+  it("backs out of either settings panel without touching pause", () => {
+    expect(pauseKeyAction("physics", "DIV")).toBe("back-to-menu");
+    expect(pauseKeyAction("vfx", "DIV")).toBe("back-to-menu");
   });
 
-  it("toggles pause when the menu is up and focus is plain", () => {
-    expect(pauseKeyAction("menu", "BODY")).toBe("toggle");
+  it("toggles pause from the menu and from gameplay", () => {
+    expect(pauseKeyAction("menu", "DIV")).toBe("toggle");
+    expect(pauseKeyAction("hidden", "DIV")).toBe("toggle");
   });
 
-  it("goes back to the menu when settings is up, without unpausing", () => {
-    expect(pauseKeyAction("settings", "BODY")).toBe("back-to-menu");
+  it("ignores the key inside a form control, in every view", () => {
+    // All three FORM_CONTROL_TAGS members, in both cases: dropping any one of them from that set
+    // must fail a test, and the match is case-insensitive.
+    for (const view of ["hidden", "menu", "physics", "vfx"] as const) {
+      for (const tag of ["INPUT", "SELECT", "TEXTAREA", "input", "select", "textarea"]) {
+        expect(pauseKeyAction(view, tag)).toBe("ignore");
+      }
+    }
   });
 
-  it("ignores the keystroke when focus is in a form control, regardless of view", () => {
-    expect(pauseKeyAction("menu", "INPUT")).toBe("ignore");
-    expect(pauseKeyAction("hidden", "INPUT")).toBe("ignore");
-    expect(pauseKeyAction("settings", "INPUT")).toBe("ignore");
-    expect(pauseKeyAction("menu", "SELECT")).toBe("ignore");
-    expect(pauseKeyAction("menu", "TEXTAREA")).toBe("ignore");
-  });
-
-  it("is case-insensitive on the tag name", () => {
-    expect(pauseKeyAction("hidden", "input")).toBe("ignore");
-    expect(pauseKeyAction("hidden", "body")).toBe("toggle");
+  it("matches the tag case-insensitively on the toggle path too", () => {
+    expect(pauseKeyAction("menu", "body")).toBe("toggle");
+    expect(pauseKeyAction("hidden", "div")).toBe("toggle");
   });
 });
 

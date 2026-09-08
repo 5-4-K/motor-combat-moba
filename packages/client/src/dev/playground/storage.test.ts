@@ -109,6 +109,7 @@ describe("encodeStored / decodeStored", () => {
       setup: defaultPlaygroundSetup(),
       overrides: { "car.mirage.speed": 42, "ram.defencePushScale": 5 },
       view: { showHitbox: true },
+      vfx: {},
     };
     expect(decodeStored(encodeStored(stored))).toEqual(stored);
   });
@@ -118,6 +119,7 @@ describe("encodeStored / decodeStored", () => {
       setup: defaultPlaygroundSetup(),
       overrides: {},
       view: defaultStoredView(),
+      vfx: {},
     };
     expect(decodeStored(encodeStored(stored))).toEqual(stored);
   });
@@ -130,6 +132,7 @@ describe("loadStored / saveStored with an injected storage", () => {
       setup: defaultPlaygroundSetup(),
       overrides: { "ram.defencePushScale": 5 },
       view: defaultStoredView(),
+      vfx: {},
     };
     saveStored(stored, storage);
     expect(storage.getItem(PLAYGROUND_STORAGE_KEY)).toBe(encodeStored(stored));
@@ -142,12 +145,13 @@ describe("loadStored / saveStored with an injected storage", () => {
       setup: defaultPlaygroundSetup(),
       overrides: {},
       view: defaultStoredView(),
+      vfx: {},
     });
   });
 
   it("saveStored with no injected storage and no window is a harmless no-op", () => {
     expect(() =>
-      saveStored({ setup: defaultPlaygroundSetup(), overrides: {}, view: defaultStoredView() }),
+      saveStored({ setup: defaultPlaygroundSetup(), overrides: {}, view: defaultStoredView(), vfx: {} }),
     ).not.toThrow();
   });
 
@@ -156,6 +160,7 @@ describe("loadStored / saveStored with an injected storage", () => {
       setup: defaultPlaygroundSetup(),
       overrides: {},
       view: defaultStoredView(),
+      vfx: {},
     });
   });
 });
@@ -234,5 +239,55 @@ describe("decodeStored — v1 upgrade (PG25)", () => {
     expect(
       decodeStored(JSON.stringify({ setup: withBadDifficulty, overrides: {} })).setup,
     ).toEqual(defaultPlaygroundSetup());
+  });
+});
+
+describe("the stored vfx section (PG54)", () => {
+  it("is empty for a blob saved before it existed", () => {
+    const raw = JSON.stringify({ setup: defaultPlaygroundSetup(), overrides: {} });
+    expect(decodeStored(raw).vfx).toEqual({});
+  });
+
+  it("round-trips a valid entry", () => {
+    const stored = {
+      setup: defaultPlaygroundSetup(),
+      overrides: {},
+      view: { showHitbox: false },
+      vfx: { "lance.muzzle.fire.count": 40, "predator.muzzle.smoke.soot": true },
+    };
+    expect(decodeStored(encodeStored(stored)).vfx).toEqual(stored.vfx);
+  });
+
+  it("drops a malformed key without losing the valid ones beside it", () => {
+    const raw = JSON.stringify({
+      setup: defaultPlaygroundSetup(),
+      vfx: {
+        "lance.muzzle.fire.count": 40,
+        "lance.muzzle.fire": 3, // too few segments
+        "no-such-weapon.muzzle.fire.count": 3, // unknown weapon
+        "lance.launch.fire.count": 3, // unknown phase
+        "lance.muzzle.glitter.count": 3, // unknown channel
+        "lance.muzzle.fire.sparkle": 3, // unknown field
+      },
+    });
+    expect(decodeStored(raw).vfx).toEqual({ "lance.muzzle.fire.count": 40 });
+  });
+
+  it("drops a value of the wrong type or out of range", () => {
+    const raw = JSON.stringify({
+      setup: defaultPlaygroundSetup(),
+      vfx: {
+        "lance.muzzle.fire.count": "40", // string where a number belongs
+        "lance.muzzle.fire.soot": 1, // number where a boolean belongs
+        "lance.muzzle.fire.speed": 99999, // outside the field's range
+        "lance.muzzle.fire.alpha": 0.5, // fine
+      },
+    });
+    expect(decodeStored(raw).vfx).toEqual({ "lance.muzzle.fire.alpha": 0.5 });
+  });
+
+  it("survives a vfx section that is not an object", () => {
+    const raw = JSON.stringify({ setup: defaultPlaygroundSetup(), vfx: "nope" });
+    expect(decodeStored(raw).vfx).toEqual({});
   });
 });

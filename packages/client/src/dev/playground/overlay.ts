@@ -10,6 +10,17 @@ import type {
   TuningValue,
   WeaponId,
 } from "@motor-combat-moba/shared";
+import { setFxOverrides } from "../../fx/override-store.js";
+import type { EmitterSpec } from "../../fx/emitters.js";
+import {
+  FX_PHASES,
+  fxTableSource,
+  resolveWeaponFx,
+  type FxOverrides,
+  type FxPhase,
+} from "../../fx/tuning.js";
+import type { FxChannel } from "../../fx/table.js";
+import { buildVfxPanel as buildVfxPanelDom } from "./vfx-panel.js";
 import {
   BOT_SESSION_ID,
   CAR_TABLE,
@@ -312,6 +323,24 @@ const CSS = `
   font-size: 12px;
   line-height: 1.2;
 }
+.pg-vfx { min-width: 460px; }
+.pg-fx-phase {
+  margin: 12px 0 4px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9aa0a6;
+}
+.pg-fx-block { border: 1px solid #333; border-radius: 4px; margin: 4px 0; }
+.pg-fx-head {
+  width: 100%;
+  margin: 0;
+  text-align: left;
+  border: none;
+  border-radius: 4px;
+  background: #23262b;
+  text-transform: capitalize;
+}
 `;
 
 /** Best-effort read of the currently-live setup off the room's schema, for seeding the settings
@@ -395,9 +424,26 @@ export function termLine(terms: Readonly<Record<string, number>>): string {
   return entries.map(([k, v]) => `${k} ${v}`).join("  ");
 }
 
+/**
+ * How often the VFX panel replays the burst being edited (spec PG51).
+ *
+ * Long enough that a 3-second smoke column has thinned before the next one lands, short enough that
+ * a slider drag shows its result without reaching for the Fire button.
+ */
+const VFX_REPLAY_MS = 1500;
+
+/**
+ * Where a previewed burst is spawned, in world units.
+ *
+ * Off-centre so the panel — which sits centred — does not cover it. Fixed rather than derived from
+ * the arena, so the spot does not move when the arena changes under a panel that is already open.
+ */
+const VFX_PREVIEW_POS = { x: 260, y: 300 } as const;
+
 export function mountPlaygroundOverlay(
   room: Room<PlaygroundState>,
   onArenaChanged: () => void,
+  previewFx: (specs: readonly EmitterSpec[]) => void,
 ): () => void {
   const style = document.createElement("style");
   style.textContent = CSS;
@@ -438,7 +484,77 @@ export function mountPlaygroundOverlay(
       `terms  ${termLine(payload.terms)}`;
   });
 
-  let subView: "menu" | "settings" = "menu";
+  let subView: "menu" | "physics" | "vfx" = "menu";
+  /** The live VFX override map, shared with the fx store so an edit reaches the next burst (PG46).
+   * Loaded once per mount and mutated in place by the panel. */
+  const vfxOverrides: FxOverrides = { ...loadStored().vfx };
+  setFxOverrides(vfxOverrides);
+
+  /** Saves the VFX section without disturbing the physics panel's own save path, which reads its
+   * live DOM controls and is not available outside `buildSettings`. */
+  function persistVfx(): void {
+    const stored = loadStored();
+    saveStored({ ...stored, vfx: { ...vfxOverrides } });
+  }
+
+  /** Clipboard with the same guarded fallback the physics panel has always used: no Clipboard API
+   * (older browser, insecure context) falls back to a selectable textarea plus a console dump. */
+  function copyText(text: string, before?: Element): void {
+    const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
+    if (clipboard && typeof clipboard.writeText === "function") {
+      void clipboard.writeText(text);
+      return;
+    }
+    console.log(text);
+    const host = before ?? root.querySelector(".pg-stats");
+    host?.parentElement?.querySelector(".pg-copy-fallback")?.remove();
+    const ta = h("textarea", { class: "pg-copy-fallback", readonly: true }) as HTMLTextAreaElement;
+    ta.value = text;
+    host?.before(ta);
+    ta.select();
+  }
+
+  /** The VFX panel's replay timer (spec PG52). Cleared on leaving the panel, on unmount, and on an
+   * arena change — a timer firing into a torn-down scene is this feature's likeliest bug. */
+  let replayTimer: ReturnType<typeof setInterval> | undefined;
+
+  function stopReplay(): void {
+    if (replayTimer !== undefined) clearInterval(replayTimer);
+    replayTimer = undefined;
+  }
+
+  /**
+   * Build and spawn one preview. `"all"` widens either axis (spec PG51); returns whether anything
+   * was actually spawned, so the caller does not arm a replay for a selection that is entirely off.
+   */
+  function firePreview(
+    weaponId: string,
+    phase: FxPhase | "all",
+    channel: FxChannel | "all",
+  ): boolean {
+    const row = resolveWeaponFx(weaponId, vfxOverrides);
+    const phases: readonly FxPhase[] = phase === "all" ? FX_PHASES : [phase];
+    const specs: EmitterSpec[] = [];
+    for (const p of phases) {
+      for (const burst of row[p]) {
+        if (channel !== "all" && burst.channel !== channel) continue;
+        specs.push({
+          channel: burst.channel,
+          x: VFX_PREVIEW_POS.x,
+          y: VFX_PREVIEW_POS.y,
+          // Muzzle bursts are cones; firing them along +x points them away from the panel.
+          angle: 0,
+          burst,
+        });
+      }
+    }
+    if (specs.length === 0) return false;
+    // Built by hand rather than through `deriveFxEvents`: a synthetic event would land in
+    // `lastEvents()`, which `ArenaScene` reads for camera shake, and a preview must not shake.
+    previewFx(specs);
+    return true;
+  }
+
   let wasPaused = room.state.paused;
   let lastSentArenaId = isArenaId(room.state.arenaId)
     ? room.state.arenaId
@@ -451,7 +567,7 @@ export function mountPlaygroundOverlay(
    * map -- the single exit point for "leaving the settings view" (spec PG13/PG16), reached from both
    * the Back button's click and the P-key's "back-to-menu" action, so the tuning blob is sent exactly
    * once per exit rather than once per input event. The default here is never reached in practice
-   * (`pauseKeyAction` only returns "back-to-menu" while `view === "settings"`, which requires
+   * (`pauseKeyAction` returns "back-to-menu" for both settings views, and the physics one requires
    * `buildSettings` to have already run and reassigned this), but keeps the binding safely typed. */
   let leaveSettings: () => void = () => {
     subView = "menu";
@@ -467,7 +583,8 @@ export function mountPlaygroundOverlay(
     const view = effectiveView();
     root.style.display = view === "hidden" ? "none" : "flex";
     if (view === "menu") root.appendChild(buildMenu());
-    else if (view === "settings") root.appendChild(buildSettings());
+    else if (view === "physics") root.appendChild(buildSettings());
+    else if (view === "vfx") root.appendChild(buildVfxPanel());
   }
 
   function buildMenu(): HTMLElement {
@@ -475,11 +592,55 @@ export function mountPlaygroundOverlay(
       h("h2", {}, ["Paused"]),
       button({}, ["Resume"], () => room.send(MSG_PLAYGROUND_PAUSE)),
       button({}, ["Switch car"], () => room.send(MSG_PLAYGROUND_SWITCH)),
-      button({}, ["Settings"], () => {
-        subView = "settings";
+      button({}, ["Physics settings"], () => {
+        subView = "physics";
+        render();
+      }),
+      button({}, ["VFX settings"], () => {
+        subView = "vfx";
         render();
       }),
     ]);
+  }
+
+  /**
+   * The VFX settings panel (spec PG48). Its own module; this wires it to the overlay's storage,
+   * preview and navigation. `vfxOverrides` is the same live object the store holds, mutated in
+   * place, so an edit is visible to the next burst without a re-install.
+   */
+  function buildVfxPanel(): HTMLElement {
+    let last: { weaponId: string; phase: FxPhase | "all"; channel: FxChannel | "all" } | undefined;
+
+    const preview = (
+      weaponId: string,
+      phase: FxPhase | "all",
+      channel: FxChannel | "all",
+    ): void => {
+      last = { weaponId, phase, channel };
+      const fired = firePreview(weaponId, phase, channel);
+      stopReplay();
+      // Nothing in the selection is switched on, so there is nothing to replay. The next edit
+      // re-arms; an interval that spawns nothing 40 times a minute is just noise.
+      if (!fired) return;
+      replayTimer = setInterval(() => {
+        if (last) firePreview(last.weaponId, last.phase, last.channel);
+      }, VFX_REPLAY_MS);
+    };
+
+    return buildVfxPanelDom({
+      overrides: vfxOverrides,
+      persist: persistVfx,
+      preview,
+      onBack: () => {
+        stopReplay();
+        subView = "menu";
+        render();
+      },
+      onCopy: () => {
+        const source = fxTableSource(vfxOverrides);
+        copyText(source === "" ? "// no VFX overrides to copy" : source);
+      },
+    });
   }
 
   function buildSettings(): HTMLElement {
@@ -591,6 +752,7 @@ export function mountPlaygroundOverlay(
         setup: readSetup(),
         overrides: { ...overrides },
         view: { showHitbox: hitboxToggle.checked },
+        vfx: { ...vfxOverrides },
       });
     }
 
@@ -823,24 +985,10 @@ export function mountPlaygroundOverlay(
     });
 
     const copyBtn = button({}, ["Copy overrides"], () => {
-      const json = JSON.stringify(overrides, null, 2);
-      const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
-      if (clipboard && typeof clipboard.writeText === "function") {
-        void clipboard.writeText(json);
-        return;
-      }
-      // No Clipboard API (older browser, insecure context) -- fall back to a selectable textarea plus
-      // a console dump, so the JSON is still reachable by hand.
-      console.log(json);
-      const existing = statsContainer.parentElement?.querySelector(".pg-copy-fallback");
-      existing?.remove();
-      const ta = h("textarea", { class: "pg-copy-fallback", readonly: true }) as HTMLTextAreaElement;
-      ta.value = json;
-      statsContainer.before(ta);
-      ta.select();
+      copyText(JSON.stringify(overrides, null, 2), statsContainer);
     });
 
-    /** The single exit point for leaving the settings view (spec PG13/PG16): sends the current
+    /** The single exit point for leaving the physics settings view (spec PG13/PG16): sends the current
      * overrides map exactly once (an empty map is a deliberate, valid reset-to-shipped send), saves
      * one last time, and returns to the menu. Guarded the same way the disabled Back button already
      * was -- an illegal loadout traps the user in settings regardless of how they tried to leave. */
@@ -875,7 +1023,7 @@ export function mountPlaygroundOverlay(
       ]);
 
     return h("div", { class: "pg-panel pg-settings" }, [
-      h("div", { class: "pg-settings-header" }, [h("h2", {}, ["Settings"]), illegalHint, backBtn]),
+      h("div", { class: "pg-settings-header" }, [h("h2", {}, ["Physics settings"]), illegalHint, backBtn]),
       h("div", { class: "pg-row pg-mode" }, [
         h("label", {}, [modeAlone, " Play alone"]),
         h("label", {}, [modeBot, " Vs bot"]),
@@ -903,6 +1051,12 @@ export function mountPlaygroundOverlay(
     if (action === "toggle") {
       room.send(MSG_PLAYGROUND_PAUSE);
     } else if (action === "back-to-menu") {
+      if (effectiveView() === "vfx") {
+        stopReplay();
+        subView = "menu";
+        render();
+        return;
+      }
       // Same exit point the Back button's click uses -- `leaveSettings` itself re-checks
       // `settingsIllegal` (see its own comment), so P is not a side door out of settings while a
       // loadout is illegal, and the tuning blob is sent exactly once either way.
@@ -916,7 +1070,10 @@ export function mountPlaygroundOverlay(
     wasPaused = room.state.paused;
     // Always land back on the menu next time the sim pauses -- the settings sub-view is local and
     // has no business surviving a resume (its own Back button is the only way out otherwise).
-    if (!wasPaused) subView = "menu";
+    if (!wasPaused) {
+      subView = "menu";
+      stopReplay();
+    }
     render();
   }
   room.onStateChange(onState);
@@ -924,6 +1081,7 @@ export function mountPlaygroundOverlay(
   render();
 
   return function unmount(): void {
+    stopReplay();
     window.removeEventListener("keydown", onKeyDown);
     room.onStateChange.remove(onState);
     if (typeof unbindDebug === "function") unbindDebug();

@@ -7,8 +7,11 @@ import { ARENAS, CAR_TABLE, WEAPON_TABLE, slotsOf, tunableFields } from "@motor-
  * plain data so it can run under vitest's node environment.
  */
 
-/** `"hidden"` while the sim is unpaused; `"menu"` and `"settings"` are the two paused sub-screens. */
-export type OverlayView = "hidden" | "menu" | "settings";
+/**
+ * `"hidden"` while the sim is unpaused; the other three are the paused sub-screens (spec PG41 —
+ * `"physics"` is what was called `"settings"` before the VFX panel joined it).
+ */
+export type OverlayView = "hidden" | "menu" | "physics" | "vfx";
 
 /** Tag names that mean "the user is typing/selecting", where P must not be treated as the pause key. */
 const FORM_CONTROL_TAGS: ReadonlySet<string> = new Set(["INPUT", "SELECT", "TEXTAREA"]);
@@ -19,7 +22,7 @@ const FORM_CONTROL_TAGS: ReadonlySet<string> = new Set(["INPUT", "SELECT", "TEXT
  * A keystroke landing in a form control (typing in nothing here today, but a `<select>` still takes
  * focus) is never the pause key — otherwise picking a car from a dropdown with the letter "p" in its
  * name, or just tabbing through the settings panel, could toggle pause out from under the user.
- * Outside a form control: settings backs out to the menu without touching pause (the sim stays
+ * Outside a form control: either settings panel backs out to the menu without touching pause (the sim stays
  * frozen); hidden or menu both send the toggle (P opens the menu from gameplay, and doubles for the
  * menu's own Resume while it is up).
  */
@@ -28,7 +31,8 @@ export function pauseKeyAction(
   targetTag: string,
 ): "toggle" | "back-to-menu" | "ignore" {
   if (FORM_CONTROL_TAGS.has(targetTag.toUpperCase())) return "ignore";
-  if (view === "settings") return "back-to-menu";
+  // Either settings panel backs out to the menu without touching pause; the sim stays frozen.
+  if (view === "physics" || view === "vfx") return "back-to-menu";
   return "toggle";
 }
 

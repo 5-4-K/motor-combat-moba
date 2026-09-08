@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ArenaState, PlaygroundState, PRACTICE_ROOM_NAME, ROOM_NAME } from "@motor-combat-moba/shared";
-import { controlledCarOf, isPracticeRoom, isSimPaused } from "./controlled-car.js";
+import { controlledCarOf, isPlaygroundRoom, isPracticeRoom, isSimPaused } from "./controlled-car.js";
 
 describe("controlledCarOf", () => {
   it("resolves a real match to the client's own session", () => {
@@ -61,5 +61,14 @@ describe("isPracticeRoom", () => {
 
   it("is false when the room reports no name at all", () => {
     expect(isPracticeRoom({ name: undefined })).toBe(false);
+  });
+});
+
+describe("isPlaygroundRoom", () => {
+  it("is true for the playground room and false for everything else", () => {
+    expect(isPlaygroundRoom({ name: "playground" })).toBe(true);
+    expect(isPlaygroundRoom({ name: "arena" })).toBe(false);
+    expect(isPlaygroundRoom({ name: "practice" })).toBe(false);
+    expect(isPlaygroundRoom({})).toBe(false);
   });
 });

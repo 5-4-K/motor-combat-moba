@@ -7,6 +7,9 @@ import { DEV_TOOL_MARKER } from "./registry.js";
 import { mountPlaygroundOverlay } from "./playground/overlay.js";
 import { loadStored } from "./playground/storage.js";
 import { setShowHitboxes } from "../config/view-options.js";
+import { setFxOverrides } from "../fx/override-store.js";
+import type { EmitterSpec } from "../fx/emitters.js";
+import type { ArenaScene } from "../scenes/ArenaScene.js";
 
 /**
  * `?dev=playground` (spec PG2). Thin on purpose: this scene's whole job is joining the dev-only
@@ -60,11 +63,13 @@ export class PlaygroundScene extends Phaser.Scene {
     this.unmountOverlay = undefined;
     // Never leave a dev override active for whatever runs next in this process (the arena this scene
     // itself just launched, or a retried join) — the same rule `PlaygroundRoom.onLeave` enforces
-    // server-side, mirrored here for the client-side tuning store. The view options are process-wide
-    // for the same reason and get the same treatment: an ordinary match must never inherit a dev
-    // overlay from a playground session earlier in the same tab.
+    // server-side, mirrored here for the client-side tuning store, the view options and the VFX
+    // overrides. The view options are process-wide for the same reason and get the same treatment:
+    // an ordinary match must never inherit a dev overlay from a playground session earlier in the
+    // same tab.
     setTuning(null);
     setShowHitboxes(false);
+    setFxOverrides(null);
     this.room = undefined;
     this.lastTuningJson = undefined;
   }
@@ -123,6 +128,10 @@ export class PlaygroundScene extends Phaser.Scene {
     // this browser outlines a hitbox. Restored on join for the same reason the setup is — a reload
     // should drop you back into the playground you left.
     setShowHitboxes(stored.view.showHitbox);
+    // Client-only, like the hitbox toggle above: the server has no opinion about how a weapon looks
+    // on this browser. Loaded BEFORE `scene.launch("arena")` below, so the ArenaScene that is about
+    // to build its FxLayer already sees the overrides this browser saved (spec PG54).
+    setFxOverrides(stored.vfx);
 
     const onState = (): void => this.syncTuning();
     room.onStateChange(onState);
@@ -132,7 +141,24 @@ export class PlaygroundScene extends Phaser.Scene {
     // ordinary play.
     this.registry.set("room", room);
     this.scene.launch("arena");
-    this.unmountOverlay = mountPlaygroundOverlay(room, () => this.onArenaChanged());
+    this.unmountOverlay = mountPlaygroundOverlay(
+      room,
+      () => this.onArenaChanged(),
+      (specs) => this.previewFx(specs),
+    );
+  }
+
+  /**
+   * Hand a preview burst to the running `ArenaScene` (spec PG52).
+   *
+   * Resolved at CALL time, never held: `onArenaChanged` stops and relaunches that scene while the
+   * overlay is mounted once and outlives it, so a reference captured when the panel opened would be
+   * a use-after-destroy on the next arena change. `ArenaScene.previewFx` no-ops when its own layer
+   * is gone, which covers the window between the stop and the relaunch.
+   */
+  private previewFx(specs: readonly EmitterSpec[]): void {
+    const arena = this.scene.get("arena") as ArenaScene | undefined;
+    arena?.previewFx?.(specs);
   }
 
   /**
