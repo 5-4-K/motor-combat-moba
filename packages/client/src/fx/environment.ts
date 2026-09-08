@@ -111,7 +111,7 @@ export interface EnvironmentFx {
 // like it worked) instead of quietly corrupting the shipped table for every later reader.
 export const ENVIRONMENT_FX: EnvironmentFx = {
   grade: Object.freeze({ saturate: -0.22, warmR: 1.07, warmB: 0.92, brightness: 0.96 }),
-  vignette: Object.freeze({ x: 0.5, y: 0.5, radius: 0.78, strength: 0.42 }),
+  vignette: Object.freeze({ x: 0.5, y: 0.5, radius: 0.78, strength: 0 }),
   shake: Object.freeze({
     max: 0.02,
     diedMs: 260,
@@ -130,7 +130,7 @@ export const ENVIRONMENT_FX: EnvironmentFx = {
   decals: Object.freeze({
     halfLifeMs: 40_000,
     maxTotal: 600,
-    maxScorch: 120,
+    maxScorch: 0,
     fadeCutoff: 0.02,
     tyreSpacing: 4.5,
     tyreMaxStep: 80,
@@ -154,9 +154,9 @@ export const ENVIRONMENT_FX: EnvironmentFx = {
     patchWeight: 0.38,
     baseGrey: 50,
     greySpan: 46,
-    warmR: 2,
-    warmG: 1,
-    warmB: -2,
+    warmR: 20,
+    warmG: 0,
+    warmB: -20,
   }),
   markings: Object.freeze({
     laneColor: 0xdccd96,

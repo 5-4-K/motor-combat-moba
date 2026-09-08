@@ -114,7 +114,7 @@ export const WEAPON_FX: Partial<Record<WeaponId, WeaponFxRow>> = {
     ],
     impact: [
       { channel: "fire", count: 30, speed: 130, lifeMs: 430, size: 66, growPerSec: 18, alpha: 1, soot: false, coneRad: TAU },
-      { channel: "smoke", count: 24, speed: 90, lifeMs: 2200, size: 60, growPerSec: 64, alpha: 0.6, soot: true, coneRad: TAU },
+      { channel: "smoke", count: 24, speed: 90, lifeMs: 2200, size: 60, growPerSec: 64, alpha: 0.16, soot: true, coneRad: TAU },
       { channel: "spark", count: 40, speed: 360, lifeMs: 620, size: 7, growPerSec: -3, alpha: 1, soot: false, coneRad: TAU },
       { channel: "debris", count: 18, speed: 140, lifeMs: 800, size: 4, growPerSec: 0, alpha: 1, soot: false, coneRad: TAU },
     ],

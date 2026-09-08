@@ -6,6 +6,12 @@ import { ENVIRONMENT_FX } from "./environment.js";
  * before `fx/environment.ts` existed, transcribed from `ArenaScene.drawArena`, `fx/camera.ts`,
  * `fx/decals.ts`, `fx/occlusion.ts`, `fx/textures.ts`, `fx/layer.ts` and `fx/emitters.ts`. If one
  * of these fails, the move changed a pixel.
+ *
+ * Now that the lift has landed and the table IS the source those files read, this doubles as the
+ * whole-table pin: a retune here is a deliberate edit to both, and every value below that is not
+ * the 2026-09-08 tuning pass's is still the one the pre-table renderer held. That pass moved three
+ * — `vignette.strength` 0.42 -> 0, `decals.maxScorch` 120 -> 0, and `floor.warmR`/`warmG`/`warmB`
+ * 2/1/-2 -> 20/0/-20 — so those three lines say "as tuned", and the rest still say "as lifted".
  */
 describe("ENVIRONMENT_FX", () => {
   it("carries the shipped grade and vignette", () => {
@@ -15,7 +21,7 @@ describe("ENVIRONMENT_FX", () => {
       warmB: 0.92,
       brightness: 0.96,
     });
-    expect(ENVIRONMENT_FX.vignette).toEqual({ x: 0.5, y: 0.5, radius: 0.78, strength: 0.42 });
+    expect(ENVIRONMENT_FX.vignette).toEqual({ x: 0.5, y: 0.5, radius: 0.78, strength: 0 });
   });
 
   it("carries the shipped shake and hit-stop", () => {
@@ -40,7 +46,7 @@ describe("ENVIRONMENT_FX", () => {
     expect(ENVIRONMENT_FX.decals).toEqual({
       halfLifeMs: 40_000,
       maxTotal: 600,
-      maxScorch: 120,
+      maxScorch: 0,
       fadeCutoff: 0.02,
       tyreSpacing: 4.5,
       tyreMaxStep: 80,
@@ -67,9 +73,9 @@ describe("ENVIRONMENT_FX", () => {
       patchWeight: 0.38,
       baseGrey: 50,
       greySpan: 46,
-      warmR: 2,
-      warmG: 1,
-      warmB: -2,
+      warmR: 20,
+      warmG: 0,
+      warmB: -20,
     });
     expect(ENVIRONMENT_FX.markings).toEqual({
       laneColor: 0xdccd96,
