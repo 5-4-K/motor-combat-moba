@@ -8,16 +8,16 @@ supersedes; [`2026-09-07-gritty-visual-fx-design.md`](2026-09-07-gritty-visual-f
 fx layer, depth ladder and procedural textures (**VFX1–VFX36**) the visual half is built on; and
 [`2026-09-08-playground-environment-vfx-design.md`](2026-09-08-playground-environment-vfx-design.md),
 whose `ENVIRONMENT_FX` table and panel (**EV1–EV34**) gain a section here. Decisions are numbered
-**LZ1–LZ38**.
+**LZ1–LZ38**, with lettered sub-clauses where a decision needed a consequence recorded beside it.
 
 ---
 
 ## Problem
 
 Magma Blast detonates into a 60-unit disc that exists for five ticks. `ExplosionDef` names that
-window "mostly for the eye" (P19), and in practice it is entirely for the eye: 150 ms is half a car
-length of travel at Mirage's top speed, so the only cars a burst catches are the ones already
-standing where the shell landed. The field is a damage number attached to an impact, not a place.
+window "mostly for the eye" (P19), and in practice it is entirely for the eye: 150 ms is 40 units of
+travel at Mirage's top speed — less than one car length — so the only cars a burst catches are the
+ones already standing where the shell landed. The field is a damage number attached to an impact, not a place.
 
 The weapon reads as a fireball, and the arena it lands on shows nothing afterwards — since the
 2026-09-08 fx pass set `decals.maxScorch` to `0`, not even a scorch mark. There is a gap between
@@ -40,11 +40,12 @@ LZ4.
 
 ## Scope
 
-**In:** a `damageMode` field on `ExplosionDef` and a third damage-clock mode in
-`resolveInstanceHits`; `magmablast.explosion.lingerMs` 150 → 2000; an additive glow layer in
-`ArenaScene`; a `halo` block on `GlowStyle`; a procedural cracked-crust texture pair in
-`fx/textures.ts`; a pooled per-instance ground stamp; a `lava` section in `ENVIRONMENT_FX` and its
-rows in `ENV_FIELDS`; two new rungs on the depth ladder.
+**In:** a `damageMode` field on `ExplosionDef`, an `explosionDamageModeOf` accessor, and a third
+damage-clock mode in `resolveInstanceHits`; `magmablast.explosion.lingerMs` 150 → 2000; an additive
+`glowGfx` in `ArenaScene`; a `halo` block on `GlowStyle`; a procedural cracked-crust texture pair in
+`fx/textures.ts`; a pooled per-instance ground stamp in `fx/layer.ts` and two widened
+`FxInstanceView` fields; a `lava` section in `ENVIRONMENT_FX` and its rows in `ENV_FIELDS`; two new
+rungs on the depth ladder.
 
 **Out:** any other weapon's row; `canDamage` and the friendly-fire rules; the bot's situation
 vocabulary; `magmablast.cooldownMs`; any change to how a burst is *spawned* (P13–P15 and P22–P27
@@ -110,6 +111,16 @@ for a `perEntry` instance. It is not deleted: `onceEver` still needs it, and a m
 that vanishes is harder to reason about than one that is simply not consulted. The implementation
 must not compute an interval it then ignores.
 
+**LZ10a.** **The mode reaches the hit resolver through `weapon-config.ts`, not through the
+synthesized def and not through `WEAPON_TICKS`.** `instanceDefOf` returns a `BeamWeaponDef` for a
+burst, and that type has no `damageMode` — nor should it gain one, since a beam fired from a muzzle
+has no inside to leave. `WeaponTicks.explosion` is the other tempting home and is also wrong: every
+field in it is a duration converted to ticks, and a mode string is not a clock. Instead a small
+`explosionDamageModeOf(weaponId)` in `weapon-config.ts` reads `WEAPON_TABLE[id].explosion?.damageMode`
+and returns `undefined` for a weapon with no explosion; `hits.ts` calls it only when
+`instance.isExplosion`, and already imports from that module. Recorded because the synthesis seam
+(P24) makes this look solved when it is not.
+
 **LZ11.** **Absence from the pose snapshot is not an exit.** `PoseSnapshot` holds living, solid cars
 only, so a car that dies or goes `phased` inside a field leaves the snapshot without ever failing
 the overlap test, and its entry survives. That is correct for a wreck and harmless for a Deathmatch
@@ -164,14 +175,22 @@ balance report should read LZ-C first.
 
 ## Part 2 — The shell's glow
 
-**LZ20.** A new **additive glow layer**: one `Phaser.GameObjects.Graphics` with `ADD` blending set
-**once at construction**, cleared and refilled each frame beside `shotGfx`. Every glow in the game
-draws into it.
+**LZ20.** A new **`glowGfx`**: one `Phaser.GameObjects.Graphics` with `ADD` blending set **once at
+construction**, cleared and refilled each frame beside `shotGfx`. Every *vector* glow draws into
+it — the shell halos of LZ22 and the field ring of LZ34.
 
 This is the design's load-bearing choice. `combat-visual.ts:266` warns by name against a
-per-instance `setBlendMode`, and a convincing glow wants additive blending — a shared layer is the
-only way to have both. It also means all three parts of this spec share one object: the shell's
-halo, the field's seams and the field's ring are the same draw batch.
+per-instance `setBlendMode`, and a convincing glow wants additive blending; one shared layer is the
+only way to have both. What that comment forbids is setting a blend mode *inside the per-instance
+draw loop*, once per shot per frame. A pooled display object that sets `ADD` once at construction
+and is then reused for the life of the scene does not engage it — which is what lets the field's
+seam stamps (LZ33) be additive too without becoming a second violation.
+
+**LZ20a.** **The field's seams are therefore NOT drawn into `glowGfx`.** They are textured `Image`s,
+and a `Graphics` fills vectors — the two cannot share an object however alike their blend modes are.
+So there are two additive surfaces at `GLOW_DEPTH`: `glowGfx` in `ArenaScene`, and the pooled seam
+stamps in `fx/layer.ts`. Recorded because the tidier-sounding "one glow layer for everything" is
+unbuildable and would be discovered only halfway through the work.
 
 **LZ21.** **`GLOW_DEPTH = -4`**: above `SHOT_DEPTH` (-5), below `CAR_DEPTH` (0). Above the shots
 because additive light belongs over the thing emitting it and, being additive, it cannot occlude the
@@ -253,9 +272,28 @@ the argument for keeping it.
 **LZ35.** The field fades on `beamFadeAlpha`, the same clock the ring already uses, so crust, seams
 and ring die together.
 
-**LZ36.** Objects are pooled by `WeaponInstanceState.id` and driven from the per-frame walk of
-`room.state.weapons` in `renderShots` — the only place a live burst instance is enumerated. They are
-created on first sight and destroyed when the instance leaves the state.
+**LZ36.** **The crust and seam stamps live in `fx/layer.ts`, driven by `FxWorldView.instances`** —
+not in `ArenaScene.renderShots`. `renderShots` clears and refills one shared `Graphics` and owns no
+pooled objects at all; `fx/layer.ts` already owns pooled Phaser objects, the depth ladder, the
+generated textures and the `EnvResolver` the `lava` section needs. Every one of those is a
+dependency of this stamp, and none of them is in the scene method.
+
+**LZ36a.** `FxInstanceView` therefore gains **`isExplosion`** and **`extent`**. It carries `id`,
+`weaponId`, pose and `alive` today, which is enough to tell that an instance exists and not enough
+to tell that it is a 60-unit field rather than a 12-unit shell. Both are already on
+`WeaponInstanceState`, so this is a widening of the view, not a new wire field (LZ2 stands).
+
+**LZ36b.** Stamps are pooled by `id`, created on first sight, and retired when the instance goes
+**`alive: false`** — *not* when its id leaves the map. `deriveFxEvents` documents why: the server
+flips `alive` on the tick a shot ends and deletes the row on a later one, so keying off deletion
+draws a dead field for an extra tick and fires its retirement late. This is the same trap
+`shotEnded` was written around.
+
+**LZ36c.** **The ring stays in `renderShots`**, in `glowGfx`, while the crust and seams sit in the
+fx layer. The split is not arbitrary: the ring is a *hitbox statement* and belongs with the D19
+logic that draws every other instance as the thing that can hit you, while the crust is atmosphere
+and belongs with the smoke and the decals. It is the same line the codebase already draws between
+`combat-visual.ts` and `fx/`.
 
 **LZ37.** **`ENVIRONMENT_FX` gains a `lava` section**: crust and seam colours, pulse rate and depth,
 alphas, ring width, cell count and octaves, feather radius. `ENV_FIELDS` gains a row for each — the
@@ -273,14 +311,17 @@ The panel must say which is which, as it already does for the floor.
 - `hits.test.ts`: the LZ8 table, all four rows. In-stay-out-in yields exactly two damages;
   in-and-stay yields exactly one; an `onceEver` instance is unchanged by any of it.
 - `hits.test.ts`: LZ11 — a car removed from the snapshot mid-field and returned is **not** re-armed.
-- `weapon-config.test.ts`: `damageMode` present on every `ExplosionDef` (LZ5); the magmablast row's
-  updated `lingerMs`. The existing exact assertion at line 379 moves with it.
+- `weapon-config.test.ts`: `damageMode` present on every `ExplosionDef` (LZ5); `explosionDamageModeOf`
+  returns the row's mode and `undefined` for a weapon with no explosion (LZ10a). The existing
+  `toMatchObject({ radius: 60, damage: 15, lingerMs: 150 })` case moves with the row.
 - `weapon-ticks.test.ts`: `explosion.lifetime === msToTicks(2000)`.
 - `combat-visual.test.ts`: a halo band never exceeds zero opacity as a solid fill; the outermost
   solid band stays at `radiusScale: 1` (LZ23); a weapon with no `halo` draws none.
 - `textures.test.ts`: crust alpha is zero outside the radius and non-trivial inside it; the seam
   texture has meaningful coverage and is registered to the crust's plates.
 - `depths.test.ts`: `LAVA_DEPTH` and `GLOW_DEPTH` in the ordering it already holds.
+- `events.test.ts`: the two widened `FxInstanceView` fields survive a round trip, and a burst going
+  `alive: false` retires its stamp on that tick rather than on deletion (LZ36a, LZ36b).
 - `env-tuning.test.ts`: the `lava` section reachable in both directions (LZ37) — this one is free,
   the existing test fails until the rows exist.
 - `golden.test.ts` is untouched: nothing here reaches `stepDrive`.
