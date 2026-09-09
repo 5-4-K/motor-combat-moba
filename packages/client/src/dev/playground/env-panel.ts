@@ -25,6 +25,7 @@ const SECTION_ORDER: readonly EnvSection[] = [
   "hitStop",
   "decals",
   "occlusion",
+  "lava",
   "floor",
   "markings",
   "carBursts",
@@ -37,10 +38,23 @@ const SECTION_LABELS: Record<EnvSection, string> = {
   hitStop: "Hit stop",
   decals: "Decals",
   occlusion: "Smoke occlusion",
+  lava: "Lava field",
   floor: "Floor texture",
   markings: "Painted markings",
   carBursts: "Car burst scaling",
 };
+
+/**
+ * `lava` knobs baked into the crust texture. The other six in that section are live (LZ38), so
+ * this is a field list rather than a section name — unlike `floor`, which is regenerate-only in
+ * full (EV27).
+ */
+export const LAVA_REGENERATE_FIELDS: ReadonlySet<string> = new Set([
+  "cells",
+  "octaves",
+  "seamWidth",
+  "featherStart",
+]);
 
 export interface EnvPanelOptions {
   /** The live map. Mutated in place, exactly as the physics and VFX panels mutate their own. */
@@ -48,11 +62,12 @@ export interface EnvPanelOptions {
   /** Save to localStorage. Called after every edit. */
   readonly persist: () => void;
   /**
-   * Announce the edit and re-apply it. Called after every edit with the section that changed, so the
-   * panel can ask for the right kind of apply: `floor` and `occlusion` are rebuilds, everything else
-   * is live (EV23, EV27, EV30).
+   * Announce the edit and re-apply it. Called after every edit with the section that changed (and
+   * the field, when the edit is a single row), so the panel can ask for the right kind of apply:
+   * `floor` is a rebuild, `occlusion` is a rebuild, four `lava` fields are rebuilds, everything
+   * else is live (EV23, EV27, EV30, LZ38).
    */
-  readonly onEdit: (section: EnvSection) => void;
+  readonly onEdit: (section: EnvSection, field?: string) => void;
   /** Regenerate the asphalt, persisting a rerolled seed if one is currently previewing (EV27). See
    * `FxLayer.rebuildFloor`'s own comment for why a later Regenerate can reuse a rerolled seed. */
   readonly onRegenerateFloor: () => void;
@@ -122,7 +137,7 @@ export function buildEnvPanel(opts: EnvPanelOptions): HTMLElement {
       // reason `vfx-panel.ts`'s `onEdit` does: a range input fires on every pointer move, and
       // replacing the panel's children mid-drag strands the slider the pointer is captured on.
       refreshHeader();
-      opts.onEdit(field.section);
+      opts.onEdit(field.section, field.name);
     }
 
     if (field.kind === "color") {
@@ -156,11 +171,16 @@ export function buildEnvPanel(opts: EnvPanelOptions): HTMLElement {
       snapToShipped();
       opts.persist();
       refreshHeader();
-      opts.onEdit(field.section);
+      opts.onEdit(field.section, field.name);
     });
 
+    const title =
+      field.section === "lava" && LAVA_REGENERATE_FIELDS.has(field.name)
+        ? `${key} — needs Regenerate`
+        : key;
+
     return h("div", { class: "pg-row pg-stat-row" }, [
-      h("label", { title: key }, [`${field.label} (shipped ${format(field, shipped)})`]),
+      h("label", { title }, [`${field.label} (shipped ${format(field, shipped)})`]),
       steppers[0],
       input,
       steppers[1],
@@ -177,6 +197,11 @@ export function buildEnvPanel(opts: EnvPanelOptions): HTMLElement {
         // why it is neither a field nor persisted (EV9).
         button({}, ["Reroll seed (preview)"], opts.onRerollFloor),
       ];
+    }
+    if (section === "lava") {
+      // Same button as `floor`: the four baked knobs live in the crust texture (LZ38). Reroll is
+      // the asphalt seed (EV9) and does not belong here.
+      return [button({}, ["Regenerate"], opts.onRegenerateFloor)];
     }
     if (section === "shake") return [button({}, ["Test shake"], opts.onTestShake)];
     return [];
@@ -232,11 +257,11 @@ export function buildEnvPanel(opts: EnvPanelOptions): HTMLElement {
   /** Drop every override the panel holds, in every section — the whole-table twin of the VFX
    * panel's own "Reset all".
    *
-   * Re-applies only the sections that actually held one, rather than announcing all nine: `onEdit`
-   * is what rebuilds the occlusion silhouettes and re-reads the table, so nine calls would do that
-   * work eight times over for nothing. `floor` re-applies no more here than it does on a slider —
+   * Re-applies only the sections that actually held one, rather than announcing all ten: `onEdit`
+   * is what rebuilds the occlusion silhouettes and re-reads the table, so ten calls would do that
+   * work nine times over for nothing. `floor` re-applies no more here than it does on a slider —
    * it stays Regenerate-only (EV27), so a reset floor still draws the old asphalt until the button
-   * beside it is pressed. */
+   * beside it is pressed. A section-level lava reset still reapplies: six of its knobs are live. */
   const resetAll = (): void => {
     const touched = new Set<EnvSection>();
     for (const f of ENV_FIELDS) {
