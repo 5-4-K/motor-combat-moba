@@ -1,5 +1,5 @@
 import { TICK_RATE_HZ } from "../constants.js";
-import type { BeamWeaponDef, WeaponDef, WeaponId } from "./weapon-types.js";
+import type { BeamWeaponDef, ExplosionDamageMode, WeaponDef, WeaponId } from "./weapon-types.js";
 
 /**
  * Every weapon in the game, mirroring `CAR_TABLE`. Balance lives here and nowhere else.
@@ -195,6 +195,7 @@ export const WEAPON_TABLE = {
       radius: 60,
       damage: 15,
       lingerMs: 150,
+      damageMode: "onceEver",
       applies: [{ statusId: "corroded", target: "opponents", durationMs: 2000 }],
     },
   },
@@ -548,6 +549,25 @@ export function instanceDefOf(id: WeaponId, isExplosion: boolean): WeaponDef {
   const burst = ACTIVE_BURST_DEFS[id];
   if (!burst) throw new Error(`instanceDefOf: ${id} authors no explosion`);
   return burst;
+}
+
+/**
+ * How this weapon's explosion re-arms its per-target damage clock, or `undefined` if it authors no
+ * explosion (spec LZ10a).
+ *
+ * It lives here rather than on the synthesized burst def or in `WEAPON_TICKS`, and both alternatives
+ * are worth naming because both look right. `instanceDefOf` returns a `BeamWeaponDef` for a burst,
+ * and that type must not gain a `damageMode`: a beam fired from a muzzle has no inside to leave.
+ * `WeaponTicks.explosion` is the other candidate and is also wrong — every field in it is a duration
+ * converted to ticks, and a mode string is not a clock.
+ *
+ * Reads through `weaponDefOf` rather than indexing `WEAPON_TABLE` directly, for the narrowing reason
+ * `buildBurstDefs` sets out at length: the table is `as const satisfies`, so a bare index yields a
+ * union of literal row types on which ordinary `.kind` narrowing does not behave.
+ */
+export function explosionDamageModeOf(id: WeaponId): ExplosionDamageMode | undefined {
+  const def = weaponDefOf(id);
+  return def.kind === "projectile" ? def.explosion?.damageMode : undefined;
 }
 
 /**

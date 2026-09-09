@@ -3,7 +3,7 @@ import { CAR_TABLE } from "./car-config.js";
 import { COLOR_TABLE } from "./color-config.js";
 import type { CarId } from "./types.js";
 import type { StatusId } from "./status-types.js";
-import { WEAPON_TABLE, instanceDefOf, isWeaponId, weaponDefOf } from "./weapon-config.js";
+import { WEAPON_TABLE, explosionDamageModeOf, instanceDefOf, isWeaponId, weaponDefOf } from "./weapon-config.js";
 import { slotsOf } from "./weapon-slots.js";
 import { WEAPON_TICKS, msToTicks } from "./weapon-ticks.js";
 import type { WeaponDef } from "./weapon-types.js";
@@ -501,6 +501,19 @@ describe("WEAPON_TABLE", () => {
 
     it("synthesizes once, so the def is referentially stable", () => {
       expect(instanceDefOf("magmablast", true)).toBe(instanceDefOf("magmablast", true));
+    });
+
+    it("makes every explosion state its damage mode (LZ5)", () => {
+      for (const def of Object.values(WEAPON_TABLE) as WeaponDef[]) {
+        if (def.kind !== "projectile" || !def.explosion) continue;
+        expect(["onceEver", "perEntry"], def.id).toContain(def.explosion.damageMode);
+      }
+    });
+
+    it("reads the mode back off the row, and undefined for a weapon with no explosion (LZ10a)", () => {
+      expect(explosionDamageModeOf("magmablast")).toBe(WEAPON_TABLE.magmablast.explosion.damageMode);
+      // `lance` is a beam and authors no explosion at all.
+      expect(explosionDamageModeOf("lance")).toBeUndefined();
     });
   });
 });

@@ -324,6 +324,20 @@ export interface HomingDef {
 }
 
 /**
+ * How an explosion's per-target damage clock behaves (spec LZ4, LZ5).
+ *
+ * `"onceEver"` is the original rule and the right answer for a burst too brief to leave and
+ * re-enter: a car pays once, and the clock is never re-armed.
+ *
+ * `"perEntry"` is what makes a LINGERING field a place rather than a moment. A car pays on the tick
+ * it enters, pays nothing for standing there however long it stays, and pays again if it leaves and
+ * comes back. Deliberately not a damage-over-time interval: a frequency punishes the car that is
+ * stuck, where an entry rule punishes the car that chose to cross — and "go around" is the
+ * counterplay the field is for.
+ */
+export type ExplosionDamageMode = "onceEver" | "perEntry";
+
+/**
  * An area effect left where a projectile died (spec P13-P21).
  *
  * It is spawned as a real `WeaponInstance` — a detached, centre-origin `disc` beam — rather than
@@ -331,9 +345,9 @@ export interface HomingDef {
  * clock, damage frozen at spawn, friendly fire, status application, networking and rendering. The
  * synthesis lives in `instanceDefOf`.
  *
- * There is deliberately no damage-frequency knob. A burst hits each car once, ever; a repeating
- * explosion is a different feature and should be argued for on its own terms rather than arriving
- * as a field nobody chose a value for.
+ * There is deliberately no damage-FREQUENCY knob — `damageMode` is a two-value rule, not an
+ * interval. A repeating explosion was argued for on its own terms in the 2026-09-09 lava field
+ * design and the answer it reached was per-ENTRY, not per-tick; see `ExplosionDamageMode`.
  */
 export interface ExplosionDef {
   /** Radius of the field, world units. It is the synthesized beam's `range`. */
@@ -345,6 +359,12 @@ export interface ExplosionDef {
    * once-ever, so a car that drives in during the linger is caught.
    */
   lingerMs: number;
+  /**
+   * Required rather than defaulted, for the reason `BeamWeaponDef.origin` is: an explosion that
+   * inherits a damage rule nobody chose is exactly the silent mistake this interface's own comment
+   * was written to prevent. See `ExplosionDamageMode`.
+   */
+  damageMode: ExplosionDamageMode;
   /**
    * Statuses the field applies. `opponents` only — `self` means the shooter, whom `canDamage`
    * refuses, and `ownerInside` is a presence buff for a zone the owner stands in, which a brief
