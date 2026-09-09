@@ -2119,22 +2119,24 @@ describe("magma blast detonation (spec P13-P21)", () => {
   });
 
   it("expires the burst on its OWN clock, not the shell's flight-plus-lifetime (P25b)", () => {
-    // A mutation that disabled the explosion-aware branch in `instanceExpired` (falling back to the
-    // shell's `flight + lifetime`, 45 ticks) would leave a 1.5s field instead of the authored 150ms
-    // `lingerMs` (the ~200ms `explosionLife` above is that plus the one-tick `flight`), and nothing
-    // else in this file would catch it: P25a only checks that the burst eventually drains to zero,
-    // not on which tick.
+    // Linger is 2000 ms (60 ticks + 1 flight = 61), LONGER than the shell's flight+lifetime (45).
+    // A mutation that disabled the explosion-aware branch in `instanceExpired` would expire the
+    // burst on that 45-tick shell clock instead. P25a only checks that the instance list eventually
+    // drains; this test is the one that names which clock did it. The still-alive checkpoint is
+    // what makes the pin hold: by `6 + explosionLife + 1` both clocks have expired, so "gone" alone
+    // would pass either way.
     const ticks = weaponTicksOf("magmablast");
     const explosionLife = ticks.explosion!.flight + ticks.explosion!.lifetime;
-    // Fire, let the shell land and the burst form (6 ticks, per the test above), then run the burst
-    // out past its own short clock — well short of the shell's 45-tick flight+lifetime, so a
-    // regression back to that branch is the only way this could still pass.
-    const result = fire(
-      { x: 300, y: OPEN_Y, angle: 0 },
-      [player("bbb", { x: 400, y: OPEN_Y, hp: MIRAGE_HP })],
-      6 + explosionLife + 1,
-    );
-    expect(bursts(result)).toHaveLength(0);
+    const shellLife = ticks.flight + ticks.lifetime;
+    expect(explosionLife).toBeGreaterThan(shellLife);
+
+    const from = { x: 300, y: OPEN_Y, angle: 0 };
+    const others = [player("bbb", { x: 400, y: OPEN_Y, hp: MIRAGE_HP })];
+    // Shell-land (6 ticks, per the spawn test above) plus the shell clock plus one: own clock is
+    // still running, shell clock is not. A fallback to `ticks.flight + ticks.lifetime` is the only
+    // way the burst is already gone here.
+    expect(bursts(fire(from, others, 6 + shellLife + 1))).toHaveLength(1);
+    expect(bursts(fire(from, others, 6 + explosionLife + 1))).toHaveLength(0);
   });
 
   it("never damages its own shooter, even detonating on its nose (P18)", () => {
