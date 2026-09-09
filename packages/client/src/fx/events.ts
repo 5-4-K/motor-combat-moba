@@ -38,26 +38,24 @@ export interface FxInstanceView {
   readonly x: number;
   readonly y: number;
   readonly angle: number;
-  /** A beam's current reach along `angle`; 0 for a projectile. Mirrors `WeaponInstanceState.extent`. */
+  /**
+   * A beam's current reach along `angle`, or a burst's radius (P15: explosions spawn at full
+   * extent). 0 for a flying projectile. Mirrors `WeaponInstanceState.extent`.
+   *
+   * `fx/contact.ts` uses it to place a burst on the point a weapon actually touched. The lava
+   * stamps use it as the field's world diameter. Both already live on the schema — no new field.
+   */
   readonly extent: number;
   /**
-   * This row is its weapon's explosion rather than its shell. Mirrors `WeaponInstanceState`, and is
-   * carried for the same reason the renderer needs it: `weaponId` names the PARENT, so without this
-   * `instanceDefOf` would resolve a 60 u disc as a 12 u dart and place its burst by the wrong
-   * geometry entirely.
+   * This row is its weapon's explosion rather than its shell. A burst carries its shell's
+   * `weaponId`, so without this `instanceDefOf` would resolve a 60 u disc as a 12 u dart, and the
+   * lava layer could not tell a field on the ground from the shell that made it.
    */
   readonly isExplosion: boolean;
   // Mirrors WeaponInstanceState.alive. The server flips this false on the tick a shot actually
   // ends, and only deletes the row on a later tick — see deriveFxEvents for why shotEnded keys off
   // this instead of the id disappearing from the map.
   readonly alive: boolean;
-  /**
-   * `WeaponInstanceState.isExplosion`. A burst carries its shell's `weaponId`, so without this the
-   * layer cannot tell a 60-unit field on the ground from the 12-unit shell that made it.
-   */
-  readonly isExplosion: boolean;
-  /** Current extent — a burst's radius, since one spawns at full extent (P15). */
-  readonly extent: number;
 }
 
 export interface FxWorldView {
