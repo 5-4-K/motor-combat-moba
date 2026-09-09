@@ -2402,8 +2402,9 @@ export function isProjectileWeapon(weaponId: string): boolean {
  * An aura is the one instance in the game whose hitbox is too big to fill in. Every other shot is
  * drawn *as* its hitbox (D19), which works because a shot is small; a 60-unit disc filled opaquely
  * would hide the cars inside it, including the one being stunned, so the rule has to bend to keep
- * its own purpose. It bends as little as possible: the ring sits exactly ON the hitbox edge and the
- * wash inside it is the same colour, so what you see is still precisely what will hit you.
+ * its own purpose. It bends as little as possible: the ring sits exactly ON the hitbox edge, so
+ * what you see is still precisely what will hit you. The field's body is the crust the fx layer
+ * stamps underneath.
  *
  * Takes the INSTANCE, not a bare `weaponId`: a magmablast burst carries the shell's `weaponId` and
  * only its own hitbox is a disc, so the answer depends on `isExplosion` too, and `drawDefOf` is what
@@ -2416,5 +2417,3 @@ export function isAuraInstance(instance: DrawableInstance): boolean {
 
 /** The aura ring's stroke width, in world units. */
 export const AURA_RING_WIDTH = 3;
-/** Alpha on the aura's own colour for the wash inside the ring. Low enough to read through. */
-export const AURA_FILL_ALPHA = 0.14;

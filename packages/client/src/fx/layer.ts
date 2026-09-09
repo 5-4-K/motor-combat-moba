@@ -7,7 +7,7 @@ import {
   tyreMarkSteps,
   tyreMarksFor,
 } from "./decals.js";
-import { AIR_FX_DEPTH, DECAL_DEPTH, GROUND_FX_DEPTH, SMOKE_DEPTH } from "./depths.js";
+import { AIR_FX_DEPTH, DECAL_DEPTH, GLOW_DEPTH, GROUND_FX_DEPTH, LAVA_DEPTH, SMOKE_DEPTH } from "./depths.js";
 import { deriveFxEvents, type FxEvent, type FxWorldView } from "./events.js";
 import { emitterSpecsForAll, type EmitterSpec } from "./emitters.js";
 import type { EnvResolver } from "./env-tuning.js";
@@ -17,6 +17,7 @@ import { weaponFxOf, type FxChannel } from "./table.js";
 import type { WeaponFxResolver } from "./tuning.js";
 import {
   asphaltTexture,
+  crackedCrustTexture,
   DUST_A,
   DUST_B,
   fireTexture,
@@ -39,7 +40,21 @@ export const FX_TEXTURE_KEYS = {
   spark: "fx.spark",
   scorch: "fx.scorch",
   asphalt: "fx.asphalt",
+  lavaCrust0: "fx.lava.crust.0",
+  lavaCrust1: "fx.lava.crust.1",
+  lavaCrust2: "fx.lava.crust.2",
+  lavaSeam0: "fx.lava.seam.0",
+  lavaSeam1: "fx.lava.seam.1",
+  lavaSeam2: "fx.lava.seam.2",
 } as const;
+
+/** How many distinct plate patterns a field may stamp. See LZ31. */
+const LAVA_VARIANTS = 3;
+const LAVA_CRUST_KEYS = [FX_TEXTURE_KEYS.lavaCrust0, FX_TEXTURE_KEYS.lavaCrust1, FX_TEXTURE_KEYS.lavaCrust2];
+const LAVA_SEAM_KEYS = [FX_TEXTURE_KEYS.lavaSeam0, FX_TEXTURE_KEYS.lavaSeam1, FX_TEXTURE_KEYS.lavaSeam2];
+
+/** Live lava fields the pool can draw at once. See `lavaPool` for why this is a fixed number. */
+const LAVA_POOL_SIZE = 12;
 
 /**
  * A chassis silhouette stamp's WIDTH in pixels. Its height follows the live `eraserStampHeight`.
@@ -167,6 +182,20 @@ export class FxLayer {
   private readonly resolveEnv: EnvResolver;
   /** The seed the floor was last generated with, so `rebuildFloor` can reuse or replace it (EV27). */
   private floorSeed: number;
+  /**
+   * Every lava stamp this layer will ever use, allocated up front and checked out by instance id.
+   *
+   * A FIXED pool rather than on-demand creation, because `splitCameras` snapshots
+   * `displayObjects()` once during `create` — an Image born later belongs to no camera and draws
+   * twice, over the gutter. Building them in the constructor puts them on the display list in time,
+   * the same reason the emitters are built there.
+   *
+   * 12 is the real ceiling: six players, and a 2000 ms field against a 1600 ms cooldown means each
+   * can hold at most two at once.
+   */
+  private readonly lavaPool: { crust: Phaser.GameObjects.Image; seam: Phaser.GameObjects.Image }[] = [];
+  /** Which pool slot is drawing which live field, by instance id (LZ36). */
+  private readonly lavaFields = new Map<string, number>();
 
   constructor(
     scene: Phaser.Scene,
@@ -223,6 +252,25 @@ export class FxLayer {
     // Exists only to be handed to `RenderTexture.erase`, so it is invisible. It is still a display
     // object on the scene's list, so `displayObjects()` keeps it too — see the note there.
     this.eraser = scene.add.image(0, 0, FX_TEXTURE_KEYS.spark).setVisible(false);
+
+    for (let i = 0; i < LAVA_POOL_SIZE; i++) {
+      const v = i % LAVA_VARIANTS;
+      const crust = scene.add
+        .image(0, 0, LAVA_CRUST_KEYS[v]!)
+        .setDepth(LAVA_DEPTH)
+        .setVisible(false);
+      const seam = scene.add
+        .image(0, 0, LAVA_SEAM_KEYS[v]!)
+        .setDepth(GLOW_DEPTH)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setVisible(false);
+      // Set once per object for its whole life — never per frame, and never inside a draw loop.
+      // That distinction is the whole of `combat-visual.ts`'s blend-mode warning.
+      const rotation = (i * 2.399) % (Math.PI * 2);
+      crust.setRotation(rotation);
+      seam.setRotation(rotation);
+      this.lavaPool.push({ crust, seam });
+    }
 
     this.buildEraserTextures();
   }
@@ -348,6 +396,21 @@ export class FxLayer {
     this.addTexture(FX_TEXTURE_KEYS.spark, sparkTexture());
     this.addTexture(FX_TEXTURE_KEYS.scorch, scorchTexture(seed));
     this.addTexture(FX_TEXTURE_KEYS.asphalt, asphaltTexture(seed, 512, env));
+    this.uploadLavaTextures(seed, env);
+  }
+
+  /**
+   * Three crust/seam variants so consecutive fields from one shooter do not stamp identically (LZ31).
+   *
+   * Shared by boot and `rebuildFloor`: the four baked `env.lava` knobs live in these pixels, and
+   * the playground's lava Regenerate button already calls `rebuildFloor`.
+   */
+  private uploadLavaTextures(seed: number, env: EnvironmentFx): void {
+    for (let v = 0; v < LAVA_VARIANTS; v++) {
+      const { crust, seam } = crackedCrustTexture(seed + 1301 + v * 97, 192, env);
+      this.addTexture(LAVA_CRUST_KEYS[v]!, crust);
+      this.addTexture(LAVA_SEAM_KEYS[v]!, seam);
+    }
   }
 
   /**
@@ -364,7 +427,8 @@ export class FxLayer {
    * would silently reintroduce the double-draw.
    */
   displayObjects(): Phaser.GameObjects.GameObject[] {
-    return [...Object.values(this.emitters), this.decals, this.smoke, this.eraser];
+    const lava = this.lavaPool.flatMap((p) => [p.crust, p.seam]);
+    return [...Object.values(this.emitters), this.decals, this.smoke, this.eraser, ...lava];
   }
 
   /**
@@ -502,7 +566,62 @@ export class FxLayer {
     this.layTyreMarks(view, env);
     this.redrawDecals(env);
     this.maskSmoke(view, env);
+    this.drawLavaFields(view, env);
     this.prevView = view;
+  }
+
+  /**
+   * Create, move and retire one stamp pair per live lava field.
+   *
+   * Retirement keys off `alive` going false, NOT off the id leaving the map: the server clears
+   * `alive` a tick or more before it deletes the row, so keying off deletion draws a dead field for
+   * an extra tick. Same trap `shotEnded` is written around — see `deriveFxEvents`.
+   */
+  private drawLavaFields(view: FxWorldView, env: EnvironmentFx): void {
+    const f = env.lava;
+    // One pulse for every field on screen, off the wall clock. Two fields therefore breathe in
+    // step, which is the same trade `crackleHz` already takes: it is cosmetic, and nothing reads it.
+    const pulse = f.pulseHz <= 0 ? 1 : 1 - f.pulseDepth * (0.5 + 0.5 * Math.sin(2 * Math.PI * f.pulseHz * (this.clockMs / 1000)));
+
+    const seen = new Set<string>();
+    const taken = new Set(this.lavaFields.values());
+
+    for (const instance of view.instances) {
+      if (!instance.isExplosion || !instance.alive) continue;
+      seen.add(instance.id);
+
+      let slot = this.lavaFields.get(instance.id);
+      if (slot === undefined) {
+        // First free slot. A full pool simply draws nothing for the newest field rather than
+        // stealing a slot from a live one — a flicker on an extra field is a smaller failure than
+        // one field vanishing mid-life, and 12 is already above the reachable ceiling.
+        slot = this.lavaPool.findIndex((_, i) => !taken.has(i));
+        if (slot < 0) continue;
+        taken.add(slot);
+        this.lavaFields.set(instance.id, slot);
+      }
+
+      const pair = this.lavaPool[slot]!;
+      // The texture is 192 px across and covers a diameter of 2 * extent world units.
+      const scale = (instance.extent * 2) / 192;
+      for (const img of [pair.crust, pair.seam]) {
+        img.setVisible(true);
+        img.setPosition(instance.x, instance.y);
+        img.setScale(scale);
+      }
+      pair.crust.setTint(f.crustTint).setAlpha(f.crustAlpha);
+      pair.seam.setTint(f.seamTint).setAlpha(f.seamAlpha * pulse);
+    }
+
+    for (const [id, slot] of this.lavaFields) {
+      if (seen.has(id)) continue;
+      const pair = this.lavaPool[slot]!;
+      // Hidden and returned to the pool, never destroyed: the objects must survive for the life of
+      // the scene or they fall out of `splitCameras`'s one-shot snapshot.
+      pair.crust.setVisible(false);
+      pair.seam.setVisible(false);
+      this.lavaFields.delete(id);
+    }
   }
 
   /**
@@ -672,19 +791,29 @@ export class FxLayer {
   }
 
   /**
-   * Regenerate and re-upload the asphalt (EV27).
+   * Regenerate and re-upload the asphalt (EV27) and the lava crust/seam variants (LZ38).
    *
    * Behind a button rather than run on every slider tick: generating 512x512 pixels of two-octave
-   * tileable fbm on every `input` event would lock the panel.
+   * tileable fbm on every `input` event would lock the panel. The four baked `env.lava` knobs live
+   * in the same regenerate hook because the playground's lava Regenerate button already calls this.
    *
    * **The caller must re-point the tile sprite afterwards** (EV28). `addTexture` removes the texture
    * and creates a new one, but a `TileSprite` holds a REFERENCE to the old texture object, so it
    * keeps drawing the stale image until `setTexture` is called again. `ArenaScene.rebuildFloor` does
-   * that; this method cannot, because the tile sprite belongs to the scene, not the layer.
+   * that; this method cannot, because the tile sprite belongs to the scene, not the layer. Lava
+   * stamps are Images on this layer, so they are re-pointed here.
    */
   rebuildFloor(seed?: number): void {
     if (seed !== undefined) this.floorSeed = seed;
-    this.addTexture(FX_TEXTURE_KEYS.asphalt, asphaltTexture(this.floorSeed, 512, this.resolveEnv()));
+    const env = this.resolveEnv();
+    this.addTexture(FX_TEXTURE_KEYS.asphalt, asphaltTexture(this.floorSeed, 512, env));
+    this.uploadLavaTextures(this.floorSeed, env);
+    for (let i = 0; i < this.lavaPool.length; i++) {
+      const v = i % LAVA_VARIANTS;
+      const pair = this.lavaPool[i]!;
+      pair.crust.setTexture(LAVA_CRUST_KEYS[v]!);
+      pair.seam.setTexture(LAVA_SEAM_KEYS[v]!);
+    }
   }
 
   /**
@@ -710,5 +839,9 @@ export class FxLayer {
     this.decals.destroy();
     this.smoke.destroy();
     this.eraser.destroy();
+    for (const pair of this.lavaPool) {
+      pair.crust.destroy();
+      pair.seam.destroy();
+    }
   }
 }

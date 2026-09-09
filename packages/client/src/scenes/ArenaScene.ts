@@ -85,7 +85,6 @@ import {
   maneuverOutline,
 } from "./maneuver-visual.js";
 import {
-  AURA_FILL_ALPHA,
   AURA_RING_WIDTH,
   allegianceOf,
   beamFadeAlpha,
@@ -2275,15 +2274,14 @@ export class ArenaScene extends Phaser.Scene {
         room.state.tick,
         instance.isExplosion,
       );
-      // An aura reaches its own `WorldShape` as a circle, like a round projectile does, so it has to
-      // be split off BEFORE the circle branch below — otherwise it would draw as a filled 60-unit
-      // disc and hide every car it is about to hit. Ring plus wash: still exactly the hitbox.
       if (shape.kind === "circle" && isAuraInstance(instance)) {
+        // The crust the fx layer stamps underneath is the field's body now, so the flat wash that
+        // used to stand in for it is gone. The RING stays, and stays here rather than moving to the
+        // fx layer with the crust: it is a hitbox statement, and it belongs beside the D19 logic
+        // that draws every other instance as exactly the thing that can hit you.
         const fill = weaponFillOf(instance.weaponId);
-        gfx.fillStyle(fill, alpha * AURA_FILL_ALPHA);
-        gfx.fillCircle(shape.x, shape.y, shape.radius);
-        gfx.lineStyle(AURA_RING_WIDTH, fill, alpha);
-        gfx.strokeCircle(shape.x, shape.y, shape.radius);
+        (glow ?? gfx).lineStyle(AURA_RING_WIDTH, fill, alpha);
+        (glow ?? gfx).strokeCircle(shape.x, shape.y, shape.radius);
         return;
       }
       if (shape.kind !== "circle") {
@@ -2425,6 +2423,8 @@ export class ArenaScene extends Phaser.Scene {
       // Carried because `shotEnded` keys off this flip, not off the row leaving the map: the server
       // clears `alive` a tick or more before it deletes the instance.
       alive: instance.alive,
+      isExplosion: instance.isExplosion,
+      extent: instance.extent,
     }));
     // A frozen clock while the sim is paused, NOT the real frame delta. A pause stops the server
     // patching poses, but `vx`/`vy` keep their pre-pause values — so `layTyreMarks` sees a car at

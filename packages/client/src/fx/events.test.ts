@@ -19,6 +19,8 @@ const shot = (id: string, weaponId: string, x = 300, y = 400) => ({
   y,
   angle: 0.5,
   alive: true,
+  isExplosion: false,
+  extent: 0,
 });
 const view = (
   cars: FxWorldView["cars"],
@@ -97,5 +99,19 @@ describe("deriveFxEvents", () => {
   it("gives no muzzle flash to an instance that arrives already dead", () => {
     const born = { ...shot("s1", "lance", 10, 20), alive: false };
     expect(deriveFxEvents(view([car("a", 100)]), view([car("a", 100)], [born]))).toEqual([]);
+  });
+});
+
+describe("the instance view carries what a field needs (LZ36a)", () => {
+  it("distinguishes a burst from the shell that threw it", () => {
+    const shell = { id: "a", weaponId: "magmablast", x: 0, y: 0, angle: 0, alive: true, isExplosion: false, extent: 0 };
+    const field = { id: "b", weaponId: "magmablast", x: 0, y: 0, angle: 0, alive: true, isExplosion: true, extent: 60 };
+    // Both are magmablast; only `isExplosion` and `extent` say one is a 60-unit field on the ground
+    // and the other a 12-unit shell in the air.
+    expect(shell.isExplosion).toBe(false);
+    expect(field.extent).toBe(60);
+    // The view type must accept both without a cast.
+    const view: FxWorldView = { cars: [], instances: [shell, field] };
+    expect(view.instances).toHaveLength(2);
   });
 });
