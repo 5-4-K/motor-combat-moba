@@ -17,7 +17,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { GameMode } from "@motor-combat-moba/shared";
 import { checkComparable, loadBaseline } from "./baseline.js";
-import { parseArgs, SKILL_TO_DIFFICULTY, type PlayerSkill } from "./cli.js";
+import { helpText, parseArgs, SKILL_TO_DIFFICULTY, wantsHelp, type PlayerSkill } from "./cli.js";
 import { botFingerprint, configFingerprint } from "./fingerprint.js";
 import { gitCommitShort, writeReport, type RunRecord } from "./report.js";
 import { runAll, type RunConfig } from "./runner.js";
@@ -34,7 +34,17 @@ function skillLabel(skill: PlayerSkill): string {
 }
 
 function main(): void {
-  const args = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+
+  // `--help` is answered BEFORE parsing, so it still prints when it sits beside the very typo the
+  // reader is trying to look up (`--matchs=10 --help`), and exits 0 — asking for the flag list is a
+  // successful use of the tool, not one of this file's two failure cases.
+  if (wantsHelp(argv)) {
+    console.log(helpText());
+    return;
+  }
+
+  const args = parseArgs(argv);
 
   // ---- Seed first, per this file's own header — before the baseline check, before a single match
   // runs, before anything that could fail. ---------------------------------------------------------
