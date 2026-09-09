@@ -114,6 +114,10 @@ export function deriveFxEvents(prev: FxWorldView | undefined, next: FxWorldView)
     // `prev` itself already carries the dead (or absent) instance, so the `if (!instance.alive)
     // continue` guard above skips it before it can ever fire a second time.
     if (!after || !after.alive) {
+      // A lava field's expiry is the fade of the stamps, not a second detonation. The shell's own
+      // `shotEnded` is the blast; this instance carries the same `weaponId` and would otherwise
+      // fire magmablast's impact bursts, scorch and camera shake two seconds later.
+      if (instance.isExplosion) continue;
       // The pose is the instance's LAST KNOWN one (from `prev`), refined into where the shot
       // actually terminated: a beam's tip rather than its muzzle, a projectile's entry face rather
       // than wherever a tick of travel happened to leave it. Cars come from `next` — the poses they

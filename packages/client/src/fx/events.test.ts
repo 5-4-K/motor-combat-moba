@@ -136,6 +136,24 @@ describe("deriveFxEvents", () => {
     const born = { ...shot("s1", "lance", 10, 20), alive: false };
     expect(deriveFxEvents(view([car("a", 100)]), view([car("a", 100)], [born]))).toEqual([]);
   });
+
+  it("does not fire shotEnded when a lava field expires — the fade is the visual end", () => {
+    const field = { ...shot("f1", "magmablast", 700, 800), isExplosion: true, extent: 60 };
+    const events = deriveFxEvents(
+      view([car("a", 100)], [field]),
+      view([car("a", 100)], [{ ...field, alive: false }]),
+    );
+    expect(events).toEqual([]);
+  });
+
+  it("still detonates when the magmablast shell itself ends", () => {
+    const shell = shot("s1", "magmablast", 700, 800);
+    const events = deriveFxEvents(
+      view([car("a", 100)], [shell]),
+      view([car("a", 100)], [{ ...shell, alive: false }]),
+    );
+    expect(events).toEqual([{ kind: "shotEnded", weaponId: "magmablast", x: 700, y: 800, angle: 0.5 }]);
+  });
 });
 
 describe("the instance view carries what a field needs (LZ36a)", () => {
