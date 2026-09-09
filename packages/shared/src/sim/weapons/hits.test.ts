@@ -1,10 +1,26 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import { WEAPON_TABLE } from "../../config/weapon-config.js";
+import { instanceDefOf, WEAPON_TABLE } from "../../config/weapon-config.js";
+import type { WeaponId } from "../../config/weapon-types.js";
 import { carHullOf } from "../context.js";
 import { weaponDamageOf } from "../damage.js";
 import { spawnInstances, stepInstance, type WeaponInstance } from "./instances.js";
 import { resolveInstanceHits, type PoseSnapshot } from "./hits.js";
+
+const modeBox = vi.hoisted(() => ({ current: null as "onceEver" | "perEntry" | null }));
+
+vi.mock("../../config/weapon-config.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../config/weapon-config.js")>();
+  return {
+    ...actual,
+    explosionDamageModeOf: (id: WeaponId) =>
+      modeBox.current ?? actual.explosionDamageModeOf(id),
+  };
+});
+
+afterEach(() => {
+  modeBox.current = null;
+});
 
 const BOUNDS = { width: 2000, height: 1200 };
 const DT = 1 / 30;
@@ -144,3 +160,101 @@ describe("the lag-compensation seam", () => {
     expect(source).not.toMatch(/from "\.\.\/combat\.js"/);
   });
 });
+
+/**
+ * A magmablast burst at full extent, the shape `detonate` produces. Built as a literal rather than
+ * by exporting `detonate`, which is private to combat.ts and has no reason not to be.
+ */
+function burstAt(x: number, y: number, tick: number): WeaponInstance {
+  const def = instanceDefOf("magmablast", true);
+  return {
+    id: "aaa-1",
+    ownerSessionId: "aaa",
+    ownerTeam: 0,
+    finalWave: true,
+    damage: 15,
+    weaponId: "magmablast",
+    kind: "beam",
+    x,
+    y,
+    angle: 0,
+    extent: def.range,
+    spawnTick: tick,
+    distance: 0,
+    pierceLeft: 0,
+    attached: false,
+    damageClock: new Map(),
+    alive: true,
+    muzzleDir: 0,
+    homingTargetId: "",
+    homingUntilTick: 0,
+    expiresAtTick: 0,
+    isExplosion: true,
+    pressId: "aaa#100#0",
+  } satisfies WeaponInstance;
+}
+
+/** Inside the 60-unit disc; a car hull is 48 x 24, so this overlaps comfortably. */
+const INSIDE = { sessionId: "bbb", team: 1 as const, x: 420, y: 300 };
+/** Well clear of a 60-unit disc centred at (400, 300). */
+const OUTSIDE = { sessionId: "bbb", team: 1 as const, x: 900, y: 300 };
+
+describe("a lingering field's per-entry damage clock (LZ8)", () => {
+  it("damages a car once when it enters and never again while it stays", () => {
+    modeBox.current = "perEntry";
+    const field = burstAt(400, 300, 100);
+    const inside = snapshot([INSIDE]);
+
+    const first = resolveInstanceHits(field, field, inside, "ffa", 101);
+    expect(first.damaged).toEqual([{ sessionId: "bbb", amount: 15 }]);
+
+    // Ten more ticks parked in the same place.
+    let carried = first.instance;
+    for (let tick = 102; tick <= 111; tick++) {
+      const out = resolveInstanceHits(carried, carried, inside, "ffa", tick);
+      expect(out.damaged, `tick ${tick}`).toEqual([]);
+      carried = out.instance;
+    }
+  });
+
+  it("re-arms on exit, so leaving and returning costs a second hit", () => {
+    modeBox.current = "perEntry";
+    const field = burstAt(400, 300, 100);
+
+    const entered = resolveInstanceHits(field, field, snapshot([INSIDE]), "ffa", 101);
+    expect(entered.damaged).toHaveLength(1);
+
+    const left = resolveInstanceHits(entered.instance, entered.instance, snapshot([OUTSIDE]), "ffa", 102);
+    expect(left.damaged).toEqual([]);
+    expect(left.instance.damageClock.has("bbb")).toBe(false);
+
+    const returned = resolveInstanceHits(left.instance, left.instance, snapshot([INSIDE]), "ffa", 103);
+    expect(returned.damaged).toEqual([{ sessionId: "bbb", amount: 15 }]);
+  });
+
+  it("does not re-arm for a car that merely leaves the snapshot (LZ11)", () => {
+    // A car that dies or goes `phased` inside the field is dropped from the snapshot by
+    // `isTargetable` — it never fails the overlap test, so it must not count as having exited.
+    modeBox.current = "perEntry";
+    const field = burstAt(400, 300, 100);
+    const entered = resolveInstanceHits(field, field, snapshot([INSIDE]), "ffa", 101);
+
+    const gone = resolveInstanceHits(entered.instance, entered.instance, snapshot([]), "ffa", 102);
+    expect(gone.instance.damageClock.has("bbb")).toBe(true);
+
+    const back = resolveInstanceHits(gone.instance, gone.instance, snapshot([INSIDE]), "ffa", 103);
+    expect(back.damaged).toEqual([]);
+  });
+
+  it("leaves an onceEver field damaging each car exactly once, ever (LZ6)", () => {
+    modeBox.current = "onceEver";
+    const field = burstAt(400, 300, 100);
+    const entered = resolveInstanceHits(field, field, snapshot([INSIDE]), "ffa", 101);
+    expect(entered.damaged).toHaveLength(1);
+
+    const left = resolveInstanceHits(entered.instance, entered.instance, snapshot([OUTSIDE]), "ffa", 102);
+    const returned = resolveInstanceHits(left.instance, left.instance, snapshot([INSIDE]), "ffa", 103);
+    expect(returned.damaged).toEqual([]);
+  });
+});
+
