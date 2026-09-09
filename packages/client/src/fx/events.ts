@@ -51,6 +51,13 @@ export interface FxInstanceView {
   // ends, and only deletes the row on a later tick — see deriveFxEvents for why shotEnded keys off
   // this instead of the id disappearing from the map.
   readonly alive: boolean;
+  /**
+   * `WeaponInstanceState.isExplosion`. A burst carries its shell's `weaponId`, so without this the
+   * layer cannot tell a 60-unit field on the ground from the 12-unit shell that made it.
+   */
+  readonly isExplosion: boolean;
+  /** Current extent — a burst's radius, since one spawns at full extent (P15). */
+  readonly extent: number;
 }
 
 export interface FxWorldView {

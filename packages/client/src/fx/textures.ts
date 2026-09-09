@@ -1,4 +1,4 @@
-import { fbm, tileableFbm } from "./noise.js";
+import { cellular, fbm, tileableFbm } from "./noise.js";
 import type { EnvironmentFx } from "./environment.js";
 import { ENVIRONMENT_FX } from "./environment.js";
 
@@ -182,4 +182,70 @@ export function asphaltTexture(
     }
   }
   return { width: size, height: size, data };
+}
+
+/**
+ * A lingering lava field: dark polygonal plates, and the hot cracks between them.
+ *
+ * Returns TWO textures because they need different blend modes — the crust draws normally at
+ * `LAVA_DEPTH`, the seams additively at `GLOW_DEPTH` — and a single texture cannot be both. They are
+ * generated in one pass so the seams stay registered to the plates they divide.
+ *
+ * **Both are greyscale**: RGB carries luminance and the colour arrives as a Phaser tint at draw
+ * time, which is what keeps `crustTint`/`seamTint` live knobs rather than Regenerate-only ones.
+ *
+ * Unlike `asphaltTexture` this does NOT need to tile. The floor is one `tileSprite` repeated across
+ * the arena and pays for a closed lattice (EV15); a field is a single stamped disc and has no seam
+ * to close. Do not port that requirement across.
+ */
+export function crackedCrustTexture(
+  seed: number,
+  size = 192,
+  env: EnvironmentFx = ENVIRONMENT_FX,
+): { crust: TexturePixels; seam: TexturePixels } {
+  const f = env.lava;
+  const { data: crust, half } = blank(size);
+  const { data: seam } = blank(size);
+  const scale = f.cells / size;
+
+  for (let j = 0; j < size; j++) {
+    for (let i = 0; i < size; i++) {
+      const k = (j * size + i) * 4;
+      const r = Math.hypot((i - half) / half, (j - half) / half);
+      if (r >= 1) continue;
+
+      // Full inside `featherStart`, ramping to 0 exactly at the rim (LZ34). The ring is what states
+      // the damage boundary; a hard-cut disc here would draw a second one competing with it.
+      const feather =
+        r <= f.featherStart ? 1 : 1 - (r - f.featherStart) / (1 - f.featherStart);
+
+      const { f1, f2 } = cellular(i * scale, j * scale, seed);
+      // 1 on a plate boundary, 0 well inside a plate.
+      const heat = Math.max(0, 1 - (f2 - f1) / f.seamWidth);
+
+      // Plate grain, so a crust is not a flat fill. Darkened toward a seam: rock next to a crack is
+      // in shadow relative to the plate's face, which is what gives the plates depth.
+      const grain = fbm(i / 14, j / 14, seed + 131, f.octaves);
+      const plate = 90 + grain * 90 - heat * 60;
+      crust[k] = plate;
+      crust[k + 1] = plate;
+      crust[k + 2] = plate;
+      crust[k + 3] = 255 * feather;
+
+      if (heat <= 0) continue;
+      // Cubed so the bright core of a crack is thin and its shoulders fall away fast. A linear ramp
+      // reads as a wide orange smear rather than as molten rock in a gap.
+      const glow = heat * heat * heat;
+      const v = 255 * glow;
+      seam[k] = v;
+      seam[k + 1] = v;
+      seam[k + 2] = v;
+      seam[k + 3] = 255 * glow * feather;
+    }
+  }
+
+  return {
+    crust: { width: size, height: size, data: crust },
+    seam: { width: size, height: size, data: seam },
+  };
 }

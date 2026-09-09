@@ -4,6 +4,7 @@ import { emitterSpecsForAll } from "./emitters.js";
 import { eraserStampsFor } from "./occlusion.js";
 import {
   asphaltTexture,
+  crackedCrustTexture,
   DUST_A,
   DUST_B,
   fireTexture,
@@ -174,7 +175,8 @@ describe("boot texture cost", () => {
   it("generates the whole texture set in well under a second", () => {
     const started = performance.now();
     // The exact set `FxLayer.uploadTextures` builds, in its order — four puffs, two fires, a spark,
-    // a scorch and the floor. Timing a subset would under-report the thing the bound is about.
+    // a scorch, the floor, and three lava crust/seam variants. Timing a subset would under-report
+    // the thing the bound is about.
     puffTexture(1, DUST_A);
     puffTexture(405, DUST_B);
     puffTexture(809, SOOT_A);
@@ -184,6 +186,9 @@ describe("boot texture cost", () => {
     sparkTexture();
     scorchTexture(1);
     asphaltTexture(1);
+    crackedCrustTexture(1 + 1301, 192);
+    crackedCrustTexture(1 + 1301 + 97, 192);
+    crackedCrustTexture(1 + 1301 + 194, 192);
     const elapsed = performance.now() - started;
     // MEASURED: 66-76 ms cold, of which `asphaltTexture` at 512x512 is 43-51 ms on its own — the
     // floor is still about two thirds of boot. It was 41-59 ms total / ~36 ms asphalt before the

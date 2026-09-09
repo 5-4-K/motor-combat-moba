@@ -72,6 +72,33 @@ export interface EnvironmentFx {
   };
   readonly occlusion: { readonly halo: number };
   /**
+   * A lingering lava field (spec LZ28-LZ38). Two stamps per live field: a dark crust of plates at
+   * `LAVA_DEPTH`, and the hot cracks between them additively at `GLOW_DEPTH`.
+   *
+   * **`cells`, `octaves`, `seamWidth` and `featherStart` are baked into the texture** and need the
+   * panel's Regenerate button, exactly as `floor.*` does (EV27). Every other field here is live:
+   * both textures are generated greyscale and coloured by tint at draw time, which is what keeps
+   * the colours tunable without a rebuild.
+   */
+  readonly lava: {
+    /** Plates across the texture. Baked. Higher is a finer crackle. */
+    readonly cells: number;
+    /** Octaves of grain within a plate. Baked. */
+    readonly octaves: number;
+    /** How wide a seam is, in cell units, before it falls to nothing. Baked. */
+    readonly seamWidth: number;
+    /** Fraction of the radius the crust holds full before feathering to 0 at the edge. Baked. */
+    readonly featherStart: number;
+    readonly crustTint: number;
+    readonly crustAlpha: number;
+    readonly seamTint: number;
+    readonly seamAlpha: number;
+    /** Seam brightness cycles per second. 0 freezes it. */
+    readonly pulseHz: number;
+    /** How much of `seamAlpha` the pulse takes off at its trough, 0-1. */
+    readonly pulseDepth: number;
+  };
+  /**
    * The generated asphalt (VFX36). `grainCells`, `patchCells` and both octave counts MUST stay whole
    * numbers — `tileableFbm`'s period is in cells and has to be an integer for the lattice to close,
    * which is the seam `textures.test.ts`'s tiling case pins (EV15).
@@ -196,6 +223,18 @@ export const ENVIRONMENT_FX: EnvironmentFx = {
     scorchScaleDefault: 0.35,
   }),
   occlusion: Object.freeze({ halo: 14 }),
+  lava: Object.freeze({
+    cells: 7,
+    octaves: 3,
+    seamWidth: 0.16,
+    featherStart: 0.72,
+    crustTint: 0x3a2018,
+    crustAlpha: 0.92,
+    seamTint: 0xff7a10,
+    seamAlpha: 0.85,
+    pulseHz: 0.9,
+    pulseDepth: 0.25,
+  }),
   floor: Object.freeze({
     grainCells: 256,
     patchCells: 1,

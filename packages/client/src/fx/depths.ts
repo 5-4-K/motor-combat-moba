@@ -2,7 +2,7 @@
  * Where the FX layers sit in `ArenaScene`'s depth ladder (VFX23).
  *
  * The existing rungs are `ARENA -10`, `SHOT -5`, `CAR 0`, `MANEUVER 2`, `ARROW 52`, `LOCK 55`,
- * `HP_BAR 60`, `HUD 1000`. These five slot between them, and `depths.test.ts` holds the ordering.
+ * `HP_BAR 60`, `HUD 1000`. The FX rungs slot between them, and `depths.test.ts` holds the ordering.
  */
 
 /**
@@ -16,8 +16,11 @@ export const FLOOR_DEPTH = -11;
 /** Rubber and scorch. Above the floor, below anything that moves. */
 export const DECAL_DEPTH = -8;
 
-/** Debris and ground sparks — on the deck rather than in the air. */
-export const GROUND_FX_DEPTH = -6;
+/**
+ * A lingering lava field's cracked crust. Above the decals it is laid over, below the ground FX
+ * thrown across it, and well below the cars — a field is ground, and you drive on it.
+ */
+export const LAVA_DEPTH = -7;
 
 /**
  * Every car's drop and contact shadow, on one shared layer beneath every car.
@@ -27,9 +30,24 @@ export const GROUND_FX_DEPTH = -6;
  * parented to one car would therefore draw OVER another car's body whenever the two overlap — which
  * in a game about ramming is most of the time.
  *
- * Above the decals it darkens and below the ground FX, so a spark still reads on top of a shadow.
+ * Above the lava crust it darkens (so a field is still ground you cast onto) and below the ground
+ * FX, so a spark still reads on top of a shadow. Not `-7`: that slot is `LAVA_DEPTH`.
  */
-export const CAR_SHADOW_DEPTH = -7;
+export const CAR_SHADOW_DEPTH = -6.5;
+
+/** Debris and ground sparks — on the deck rather than in the air. */
+export const GROUND_FX_DEPTH = -6;
+
+/**
+ * Additive glow: shell halos and a lava field's ring and seams.
+ *
+ * ABOVE `SHOT_DEPTH` (-5) and below `CAR_DEPTH` (0). Above the shots because additive light belongs
+ * over the thing emitting it, and because an additive layer can only add — it cannot hide the shot
+ * core it washes across, so drawing it on top costs no readability. Below the cars for the reason
+ * VFX24 keeps air FX below the HUD: a glow drawn over a chassis drains the player colour that says
+ * whose car it is.
+ */
+export const GLOW_DEPTH = -4;
 
 /**
  * The smoke `RenderTexture`. Above the cars, because smoke is in the air — but BELOW `AIR_FX_DEPTH`.

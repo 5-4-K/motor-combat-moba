@@ -6,7 +6,7 @@ import { ENVIRONMENT_FX } from "./environment.js";
  *
  * Pure and Phaser-free, so it runs under vitest's node environment beside the rest of `fx/`. It is
  * deliberately FLAT where `fx/tuning.ts` is a grid (EV14): a weapon row is rectangular — two phases
- * by four channels — and the environment is nine sections of heterogeneous scalars, so a grid here
+ * by four channels — and the environment is ten sections of heterogeneous scalars, so a grid here
  * would be mostly holes.
  */
 export type EnvSection = keyof EnvironmentFx;
@@ -131,6 +131,19 @@ export const ENV_FIELDS: readonly EnvFieldDef[] = [
   c("carLook", "rimAlpha", "Rim alpha", 0, 1, 0.01),
   c("carLook", "rimColor", "Rim colour", 0, 0xffffff, 1, "color"),
   c("carLook", "rimWidth", "Rim width", 0, 8, 0.1),
+
+  // Baked into the texture — these four need the panel's Regenerate button (EV27, LZ38).
+  c("lava", "cells", "Plates across", 3, 20, 1, "integer"),
+  c("lava", "octaves", "Grain octaves", 1, 6, 1, "integer"),
+  c("lava", "seamWidth", "Seam width", 0.02, 0.5, 0.01),
+  c("lava", "featherStart", "Feather start", 0.3, 1, 0.01),
+  // Live.
+  c("lava", "crustTint", "Crust tint", 0, 0xffffff, 1, "color"),
+  c("lava", "crustAlpha", "Crust alpha", 0, 1, 0.01),
+  c("lava", "seamTint", "Seam tint", 0, 0xffffff, 1, "color"),
+  c("lava", "seamAlpha", "Seam alpha", 0, 1, 0.01),
+  c("lava", "pulseHz", "Pulse (Hz)", 0, 4, 0.05),
+  c("lava", "pulseDepth", "Pulse depth", 0, 1, 0.01),
 ];
 
 export function envKey(section: EnvSection, field: string): string {

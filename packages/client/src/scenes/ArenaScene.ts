@@ -56,7 +56,7 @@ import { liveEnvResolver } from "../fx/env-store.js";
 import type { EnvResolver } from "../fx/env-tuning.js";
 import type { FxEvent } from "../fx/events.js";
 import { FX_TEXTURE_KEYS, FxLayer } from "../fx/layer.js";
-import { CAR_SHADOW_DEPTH, FLOOR_DEPTH } from "../fx/depths.js";
+import { CAR_SHADOW_DEPTH, FLOOR_DEPTH, GLOW_DEPTH } from "../fx/depths.js";
 import { liveFxResolver } from "../fx/override-store.js";
 import type { EmitterSpec } from "../fx/emitters.js";
 import { isDebugEnabled } from "../config/client-mode.js";
@@ -103,7 +103,6 @@ import {
   maneuverOutline,
 } from "./maneuver-visual.js";
 import {
-  AURA_FILL_ALPHA,
   AURA_RING_WIDTH,
   allegianceOf,
   beamFadeAlpha,
@@ -116,6 +115,7 @@ import {
   beamFlareShapes,
   chargeOrbBands,
   instanceGlowBands,
+  instanceHaloBands,
   lockBracketArms,
   SHOW_LOCK_BRACKET,
   isProjectileWeapon,
@@ -716,6 +716,16 @@ export class ArenaScene extends Phaser.Scene {
   private unbind: Array<() => void> = [];
   private countdownText: Phaser.GameObjects.Text | undefined;
   private shotGfx: Phaser.GameObjects.Graphics | undefined;
+  /**
+   * Additive glow: shell halos and a lava field's ring. Cleared and refilled each frame beside
+   * `shotGfx`.
+   *
+   * Its own object rather than a mode set on `shotGfx`, because `combat-visual.ts` warns by name
+   * against a per-instance `setBlendMode` — what that forbids is switching blend state inside the
+   * draw loop, once per shot per frame. Setting ADD once at construction and reusing the object for
+   * the life of the scene costs one extra draw batch per frame and nothing per shot.
+   */
+  private glowGfx: Phaser.GameObjects.Graphics | undefined;
   private hpGfx: Phaser.GameObjects.Graphics | undefined;
   private lockGfx: Phaser.GameObjects.Graphics | undefined;
   private arrowGfx: Phaser.GameObjects.Graphics | undefined;
@@ -986,6 +996,10 @@ export class ArenaScene extends Phaser.Scene {
     // not rotate with any car, so none can live inside a car's own Graphics; a per-shot object would
     // also mean creating and destroying objects at the fire rate for no gain.
     this.shotGfx = this.add.graphics().setDepth(SHOT_DEPTH);
+    this.glowGfx = this.add
+      .graphics()
+      .setDepth(GLOW_DEPTH)
+      .setBlendMode(Phaser.BlendModes.ADD);
     this.hpGfx = this.add.graphics().setDepth(HP_BAR_DEPTH);
     this.lockGfx = this.add.graphics().setDepth(LOCK_DEPTH);
     this.arrowGfx = this.add.graphics().setDepth(ARROW_DEPTH);
@@ -1348,6 +1362,7 @@ export class ArenaScene extends Phaser.Scene {
       ...(this.floorTile ? [this.floorTile] : []),
       ...(this.arenaGfx ? [this.arenaGfx] : []),
       ...(this.shotGfx ? [this.shotGfx] : []),
+      ...(this.glowGfx ? [this.glowGfx] : []),
       ...(this.hpGfx ? [this.hpGfx] : []),
       // Was in neither list, and so drew twice — once clipped into the arena viewport and once
       // unclipped across the whole canvas, over the gutter (D13). It draws in world space at
@@ -1460,6 +1475,8 @@ export class ArenaScene extends Phaser.Scene {
     this.movementHintTexts = [];
     this.shotGfx?.destroy();
     this.shotGfx = undefined;
+    this.glowGfx?.destroy();
+    this.glowGfx = undefined;
     this.hpGfx?.destroy();
     this.hpGfx = undefined;
     this.lockGfx?.destroy();
@@ -2363,15 +2380,16 @@ export class ArenaScene extends Phaser.Scene {
    *
    * A weapon may also carry a LOOK (`instanceGlowBands`): concentric bands filled inside that same
    * hitbox instead of one flat disc. It cannot widen the shot — bands are fractions of the hitbox
-   * radius and the flicker only shrinks — so the sentence above survives it. `WEAPON_GLOW_STYLES` is
-   * empty as of the 2026-09-01 roster cutover (its two rows, `fireball` and `pepperbox`, are gone —
-   * the latter moved out to an ellipse hitbox a round-glow table cannot own), so every weapon draws
-   * its flat disc today; the table stays live for whichever weapon next earns a look.
+   * radius and the flicker only shrinks — so the sentence above survives it. `WEAPON_GLOW_STYLES`
+   * currently authors `magmablast` (nested discs plus an additive halo outside the hitbox); every
+   * other weapon still draws its flat fill, and a weapon with no row keeps that fallback.
    */
   private renderShots(room: Room<ArenaState>): void {
     const gfx = this.shotGfx;
     if (!gfx) return;
     gfx.clear();
+    const glow = this.glowGfx;
+    glow?.clear();
 
     const nowMs = performance.now();
     const elapsedMs = this.lastPatchMs === 0 ? 0 : nowMs - this.lastPatchMs;
@@ -2385,15 +2403,14 @@ export class ArenaScene extends Phaser.Scene {
         room.state.tick,
         instance.isExplosion,
       );
-      // An aura reaches its own `WorldShape` as a circle, like a round projectile does, so it has to
-      // be split off BEFORE the circle branch below — otherwise it would draw as a filled 60-unit
-      // disc and hide every car it is about to hit. Ring plus wash: still exactly the hitbox.
       if (shape.kind === "circle" && isAuraInstance(instance)) {
+        // The crust the fx layer stamps underneath is the field's body now, so the flat wash that
+        // used to stand in for it is gone. The RING stays, and stays here rather than moving to the
+        // fx layer with the crust: it is a hitbox statement, and it belongs beside the D19 logic
+        // that draws every other instance as exactly the thing that can hit you.
         const fill = weaponFillOf(instance.weaponId);
-        gfx.fillStyle(fill, alpha * AURA_FILL_ALPHA);
-        gfx.fillCircle(shape.x, shape.y, shape.radius);
-        gfx.lineStyle(AURA_RING_WIDTH, fill, alpha);
-        gfx.strokeCircle(shape.x, shape.y, shape.radius);
+        (glow ?? gfx).lineStyle(AURA_RING_WIDTH, fill, alpha);
+        (glow ?? gfx).strokeCircle(shape.x, shape.y, shape.radius);
         return;
       }
       if (shape.kind !== "circle") {
@@ -2448,10 +2465,18 @@ export class ArenaScene extends Phaser.Scene {
         return;
       }
 
+      // Additive bloom outside the hitbox, in its own layer. Drawn before the solid bands so the
+      // core reads over its own glow. See `HaloBand` for why this is allowed past the hitbox.
+      if (glow) {
+        for (const band of instanceHaloBands(instance.weaponId, shape.radius)) {
+          glow.fillStyle(band.fill, alpha * (band.alpha ?? 1));
+          glow.fillCircle(shape.x, shape.y, band.radius);
+        }
+      }
+
       // Bands, outermost first, each filled over the last. An empty list is a weapon with no
-      // authored look, which is every weapon today (`WEAPON_GLOW_STYLES` is dormant since the
-      // 2026-09-01 roster cutover) -- it falls back to the one flat fill of its own `color` that
-      // this method drew for everything before styles existed.
+      // authored look — it falls back to the one flat fill of its own `color` that this method
+      // drew for everything before styles existed.
       const bands = instanceGlowBands(instance.weaponId, shape.radius, instance.spawnTick, nowMs);
       if (bands.length === 0) {
         gfx.fillStyle(weaponFillOf(instance.weaponId), alpha);
@@ -2550,7 +2575,9 @@ export class ArenaScene extends Phaser.Scene {
       // beam's reach (so its impact lands at the tip rather than on the shooter's nose) and whether
       // this row is its weapon's explosion (so `instanceDefOf` resolves the blast's disc rather than
       // the shell's dart). Both are already networked — no new schema field, and nothing here that
-      // netcode phase 2's binary snapshot would have to throw away.
+      // netcode phase 2's binary snapshot would have to throw away. The lava stamps also read them:
+      // a burst carries its shell's `weaponId`, so without `isExplosion`/`extent` the layer cannot
+      // tell a 60-unit field on the ground from the 12-unit shell that made it.
       extent: instance.extent,
       isExplosion: instance.isExplosion,
     }));

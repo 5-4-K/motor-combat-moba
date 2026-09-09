@@ -26,8 +26,10 @@ import {
   chargeOrbBands,
   instanceDrawShape,
   instanceGlowBands,
+  instanceHaloBands,
   isAuraInstance,
   WEAPON_BEAM_STYLES,
+  WEAPON_GLOW_STYLES,
   lockBracketArms,
   LOCK_BRACKET_HALF,
   SHOW_LOCK_BRACKET,
@@ -1318,5 +1320,41 @@ describe("beamFadeAlpha", () => {
 
   it("defaults isExplosion to false, so every existing caller keeps its shell-row behaviour", () => {
     expect(beamFadeAlpha(WeaponKind.PROJECTILE, "magmablast", SPAWN, SPAWN)).toBe(1);
+  });
+});
+
+describe("shell halos (LZ22, LZ23)", () => {
+  it("draws magmablast's halo outside its hitbox, fading to nothing", () => {
+    const bands = instanceHaloBands("magmablast", 12);
+    expect(bands.length).toBeGreaterThan(0);
+    // Every halo band is OUTSIDE the hitbox — that is what makes it a halo.
+    for (const band of bands) expect(band.radius).toBeGreaterThan(12);
+    // Outermost first, shrinking inward, exactly as `bands` is ordered.
+    for (let i = 1; i < bands.length; i++) {
+      expect(bands[i]!.radius).toBeLessThan(bands[i - 1]!.radius);
+    }
+    // The outer edge reaches 2.5x the hitbox radius and no further.
+    expect(bands[0]!.radius).toBeCloseTo(30, 5);
+  });
+
+  it("keeps every halo band translucent, so no halo can read as an edge (LZ23)", () => {
+    // The D19 exception is bounded: additive only, never opaque, and the outermost SOLID band stays
+    // pinned at the hitbox. An opaque halo band would be a second silhouette outside the thing that
+    // can actually hit you.
+    for (const [id, style] of Object.entries(WEAPON_GLOW_STYLES)) {
+      for (const band of style?.halo ?? []) {
+        expect(band.alpha, `${id} halo`).toBeGreaterThan(0);
+        expect(band.alpha, `${id} halo`).toBeLessThan(1);
+        expect(band.radiusScale, `${id} halo`).toBeGreaterThan(1);
+      }
+      // The solid bands are untouched by any of this.
+      const solid = style?.bands.map((b) => b.radiusScale) ?? [];
+      expect(Math.max(...solid), `${id} solid`).toBe(1);
+    }
+  });
+
+  it("draws no halo for a weapon that authors none", () => {
+    expect(instanceHaloBands("pepperbox", 10)).toEqual([]);
+    expect(instanceHaloBands("not-a-weapon", 10)).toEqual([]);
   });
 });

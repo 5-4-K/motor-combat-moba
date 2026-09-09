@@ -628,11 +628,21 @@ absorbed by it). Beams never spend a pierce budget — they are never destroyed 
 several cars on the same tick.
 
 Repeat damage is a **per-instance, per-target clock**: every live instance owns a map from
-`sessionId` to the next tick it may damage that car again. `damageFrequencyMs: 0` (every projectile
-and maneuver row) arms that clock at `Infinity` — one hit per target, ever, for that instance's whole
-life; a positive value re-arms on the interval, which is what lets a lingering beam re-tick a car
-still standing in it. Both carried beams do that today — `afterburner` and, since 2026-09-04,
-`lance` — on the same 500 ms cadence.
+`sessionId` to the next tick it may damage that car again. There are three modes. `damageFrequencyMs: 0`
+(every projectile and maneuver row) arms that clock at `Infinity` — one hit per target, ever, for
+that instance's whole life. A positive value re-arms on the interval, which is what lets a lingering
+beam re-tick a car still standing in it. Both carried beams do that today — `afterburner` and, since
+2026-09-04, `lance` — on the same 500 ms cadence.
+
+The third mode is **per-entry**, authored on `ExplosionDef.damageMode` rather than as a frequency.
+A car that drives into a `perEntry` field pays once; a car that parks there pays the same as one
+crossing; a car that leaves and returns pays again. `resolveInstanceHits` inverts the usual guard
+order for this mode — shape first, then clock — because the interval and once-ever paths check the
+clock first and `continue`, which never reaches the test that could learn the car is outside.
+Presence in the map is the flag (the value written is `Infinity`, not a re-arm tick). Absence from
+the pose snapshot is not an exit: a car that dies or goes `phased` inside the field is dropped by
+`isTargetable` without failing the overlap test, and its clock entry survives so a Deathmatch
+respawn cannot re-arm the field by vanishing.
 
 **The clock is armed on first contact, not at spawn, so a ticking beam's pulse count depends on when
 it reaches you.** That is most visible on `lance`: it grows over 6 ticks, so a car at the muzzle eats
@@ -1018,7 +1028,7 @@ lingers, and already re-applies on the per-target damage clock. Three things are
   Clipping a radial field would mean an occlusion test per target, which is a different feature.
 - **It is drawn as a ring, not a solid.** Every other shot is drawn *as* its hitbox (D19), which works
   because a shot is small; a filled disc would hide the cars inside it. The ring sits exactly
-  on the hitbox edge with a low-alpha wash inside, so what you see is still what will hit you.
+  on the hitbox edge, so what you see is still what will hit you.
 
 An aura aimed at opponents needs **no change to `canDamage`** — it already refuses the owner, so a car
 never touches its own field.
@@ -1037,8 +1047,11 @@ nothing driving it.
 **Mirage's** slot 1 — an `ExplosionDef`: the shell detonates whenever its instance is removed for any
 reason (enemy contact, wall, obstacle, arena bound, or its own `range`), and `instanceDefOf(id, true)`
 synthesizes a detached, centre-origin `disc`-hitbox `BeamWeaponDef` from the block — a 60-unit-radius
-field that lingers 150 ms and applies `corroded` to opponents for 2 s. It is not the old aura's
-identity back (attached, cone-widened, multi-wave, owner-carried); it is a new, one-shot use of the
+field that lingers **2 s** and damages **once per entry**. Crossing it costs the burst's 15 (scaled
+by the shooter's attack). Standing in it costs the same as one crossing: the clock does not re-tick
+a parked car. Leaving and returning costs again. `corroded` refreshes on each of those hits because
+statuses ride the damage list and the row is `reapply: "refresh"`. It is not the old aura's
+identity back (attached, cone-widened, multi-wave, owner-carried); it is a lingering use of the
 same dormant machinery, spawned once at full extent rather than grown, and driven from a `WeaponDef`
 that never appears in `WEAPON_TABLE` itself — see [`config-reference.md`](config-reference.md#weapon_table)
 for `ExplosionDef`. **`corroded`'s only source in the game is now this explosion.** The multi-wave

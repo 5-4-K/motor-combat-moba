@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fbm, hash2, tileableFbm, valueNoise } from "./noise.js";
+import { cellular, fbm, hash2, tileableFbm, valueNoise } from "./noise.js";
 
 describe("hash2", () => {
   it("stays inside [0,1)", () => {
@@ -113,5 +113,34 @@ describe("tileableFbm", () => {
     // A frozen sample rather than a comparison against a reimplementation: the point is that the
     // non-wrapping generator every other texture in `textures.ts` uses did not move.
     expect(fbm(3.3, 4.4, 1, 4)).toBeCloseTo(0.5343265174305329, 12);
+  });
+});
+
+describe("cellular noise", () => {
+  it("returns the two nearest feature distances, in order", () => {
+    for (let i = 0; i < 200; i++) {
+      const { f1, f2 } = cellular(i * 0.37, i * 0.61, 9);
+      expect(f1).toBeLessThanOrEqual(f2);
+      expect(f1).toBeGreaterThanOrEqual(0);
+      expect(Number.isFinite(f2)).toBe(true);
+    }
+  });
+
+  it("is deterministic for a seed and drifts for a different one", () => {
+    expect(cellular(3.2, 4.8, 1)).toEqual(cellular(3.2, 4.8, 1));
+    expect(cellular(3.2, 4.8, 1)).not.toEqual(cellular(3.2, 4.8, 2));
+  });
+
+  it("puts f2 - f1 near zero on a cell boundary and larger inside a cell", () => {
+    // This difference IS the crack network: near 0 where two cells meet, large in a plate's middle.
+    let onBoundary = 0;
+    let interior = 0;
+    for (let i = 0; i < 4000; i++) {
+      const edge = cellular((i % 64) * 0.25, Math.floor(i / 64) * 0.25, 3);
+      if (edge.f2 - edge.f1 < 0.05) onBoundary++;
+      if (edge.f2 - edge.f1 > 0.4) interior++;
+    }
+    expect(onBoundary).toBeGreaterThan(0);
+    expect(interior).toBeGreaterThan(onBoundary);
   });
 });

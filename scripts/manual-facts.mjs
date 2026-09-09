@@ -89,6 +89,7 @@ export function manualFacts() {
 
     // --- magmablast -------------------------------------------------------------------------
     "magmablast.blastRadius": magmablast.explosion.radius,
+    "magmablast.lingerSec": round(magmablast.explosion.lingerMs / 1000),
     "magmablast.corrodeSec": round(
       magmablast.explosion.applies.find((a) => a.statusId === "corroded").durationMs / 1000,
     ),

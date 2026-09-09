@@ -139,3 +139,40 @@ export function tileableFbm(
   }
   return norm > 0 ? sum / norm : 0;
 }
+
+/**
+ * Cellular (Worley) noise: the distances to the nearest and second-nearest of a scattered set of
+ * feature points, one per integer lattice cell.
+ *
+ * `f2 - f1` is the value the lava field is built on — it approaches 0 exactly on the boundary
+ * between two cells and grows toward the middle of one, which draws a network of closed polygonal
+ * plates. `fbm` cannot produce that shape at any octave count: fractal noise gives clouds, and a
+ * lava crust is plates.
+ *
+ * Searches the 3x3 neighbourhood, which is sufficient because every cell holds exactly one point
+ * inside its own unit square.
+ */
+export function cellular(x: number, y: number, seed: number): { f1: number; f2: number } {
+  const cx = Math.floor(x);
+  const cy = Math.floor(y);
+  let f1 = Number.POSITIVE_INFINITY;
+  let f2 = Number.POSITIVE_INFINITY;
+  for (let j = -1; j <= 1; j++) {
+    for (let i = -1; i <= 1; i++) {
+      const gx = cx + i;
+      const gy = cy + j;
+      const px = gx + hash2(gx, gy, seed);
+      const py = gy + hash2(gx, gy, seed + 8191);
+      const dx = x - px;
+      const dy = y - py;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d < f1) {
+        f2 = f1;
+        f1 = d;
+      } else if (d < f2) {
+        f2 = d;
+      }
+    }
+  }
+  return { f1, f2 };
+}

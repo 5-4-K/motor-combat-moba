@@ -23,7 +23,7 @@ import { envTableSource, type EnvOverrides } from "../../fx/env-tuning.js";
 import { bumpEnvVersion, setEnvOverrides } from "../../fx/env-store.js";
 import type { FxChannel } from "../../fx/table.js";
 import { buildVfxPanel as buildVfxPanelDom } from "./vfx-panel.js";
-import { buildEnvPanel as buildEnvPanelDom } from "./env-panel.js";
+import { buildEnvPanel as buildEnvPanelDom, LAVA_REGENERATE_FIELDS } from "./env-panel.js";
 import {
   BOT_SESSION_ID,
   CAR_TABLE,
@@ -716,13 +716,15 @@ export function mountPlaygroundOverlay(
     return buildEnvPanelDom({
       overrides: envOverridesMap,
       persist: persistEnv,
-      onEdit: (section) => {
+      onEdit: (section, field) => {
         // The store caches on this counter, so an in-place mutation is invisible without it (EV19).
         bumpEnvVersion();
-        // `floor` is Regenerate-only: regenerating 512x512 pixels of fbm per slider tick would lock
-        // the panel (EV27). A halo edit must rebuild the baked silhouettes or the hole's soft edge
-        // drifts off its own border (EV30).
+        // `floor` is Regenerate-only in full: regenerating 512x512 pixels of fbm per slider tick
+        // would lock the panel (EV27). `lava` is a mix — only the four baked knobs skip live
+        // apply; tints, alphas and pulse reapply (LZ38). A halo edit must rebuild the baked
+        // silhouettes or the hole's soft edge drifts off its own border (EV30).
         if (section === "floor") return;
+        if (section === "lava" && field !== undefined && LAVA_REGENERATE_FIELDS.has(field)) return;
         if (section === "occlusion") envHooks.rebuildOcclusion();
         envHooks.reapply();
       },

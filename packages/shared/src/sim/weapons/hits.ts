@@ -1,4 +1,4 @@
-import { instanceDefOf } from "../../config/weapon-config.js";
+import { explosionDamageModeOf, instanceDefOf } from "../../config/weapon-config.js";
 import { weaponTicksOf } from "../../config/weapon-ticks.js";
 import type { Obb } from "../collide.js";
 import type { WeaponInstance } from "./instances.js";
@@ -37,6 +37,10 @@ export interface HitOutcome {
  *
  * The amount comes from `instance.damage`, frozen at spawn — this module never reads player state,
  * and the owner's chassis is exactly the player state it would otherwise have to read.
+ *
+ * Explosions have a third clock besides the interval and the once-ever: `perEntry` re-arms when a
+ * car leaves the disc, so returning costs a second hit. Presence in the pose snapshot is not an
+ * exit — a car dropped by `isTargetable` keeps its clock entry.
  */
 export function resolveInstanceHits(
   instance: WeaponInstance,
@@ -51,6 +55,10 @@ export function resolveInstanceHits(
   if (def.kind === "maneuver") throw new Error(`resolveInstanceHits: maneuver weapon ${def.id} has no instance`);
   const ticks = weaponTicksOf(instance.weaponId);
   const interval = instance.isExplosion ? ticks.explosion!.damageInterval : ticks.damageInterval;
+  // A lingering field asks a different question of the snapshot than a shot does, so it takes a
+  // different branch below rather than a different interval. See `ExplosionDamageMode`.
+  const perEntry =
+    instance.isExplosion && explosionDamageModeOf(instance.weaponId) === "perEntry";
 
   const shape =
     def.kind === "projectile"
@@ -72,6 +80,27 @@ export function resolveInstanceHits(
     // never looked up here — because the snapshot holds living fighters only, and an owner wrecked
     // while their own shot is in flight would otherwise vanish from it and flip the shot's allegiance.
     if (!canDamage(instance.ownerSessionId, instance.ownerTeam, entry.sessionId, entry.team, mode)) continue;
+
+    if (perEntry) {
+      // The shape test runs FIRST here, where every other mode checks the clock first. That
+      // inversion IS the feature: this mode has to learn that a car is OUTSIDE, and a clock check
+      // that `continue`s never reaches the test that could tell it.
+      if (!shapeHitsObb(shape, entry.hull)) {
+        // Re-armed. Note this only fires for a car actually IN the snapshot: one that died or went
+        // `phased` inside the field was dropped by `isTargetable` and keeps its entry (LZ11).
+        clock.delete(entry.sessionId);
+        continue;
+      }
+      if (clock.has(entry.sessionId)) continue;
+      damaged.push({ sessionId: entry.sessionId, amount: instance.damage });
+      // Presence in the map is the whole flag. The value is Infinity rather than a tick because a
+      // finite number would read as "re-arm at tick N" to anything inspecting this map generically,
+      // which is precisely what this mode does not mean.
+      clock.set(entry.sessionId, Number.POSITIVE_INFINITY);
+      // No pierce arithmetic: a burst is a beam, and the block below skips beams anyway.
+      continue;
+    }
+
     if (tick < (clock.get(entry.sessionId) ?? 0)) continue;
     if (!shapeHitsObb(shape, entry.hull)) continue;
 
