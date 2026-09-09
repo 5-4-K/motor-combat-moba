@@ -217,6 +217,24 @@ export interface GlowBand {
 }
 
 /**
+ * One ring of an additive halo — a band drawn OUTSIDE the hitbox, in the glow layer.
+ *
+ * This is a deliberate, bounded exception to D19 ("a shot is drawn as the thing that can hit
+ * you"), and the bounds are what make it safe. A halo is additive, so it adds light and never a
+ * silhouette; it is never opaque, so it has no edge to mistake for a boundary; and the outermost
+ * SOLID band stays pinned at `radiusScale: 1`, so the crisp readable edge is still exactly the
+ * hitbox. `combat-visual.test.ts` holds all three. Break any one and the halo becomes a lie about
+ * how big the shot is.
+ */
+export interface HaloBand {
+  /** Multiple of the hitbox radius. Always > 1 — a band at or inside 1 belongs in `bands`. */
+  radiusScale: number;
+  color: string;
+  /** Always in (0, 1). See the type comment: an opaque halo band is a second silhouette. */
+  alpha: number;
+}
+
+/**
  * How one weapon's projectiles draw, when a flat disc is not enough.
  *
  * A weapon with no entry in `WEAPON_GLOW_STYLES` keeps drawing as a single fill of its `color`,
@@ -228,6 +246,11 @@ export interface GlowBand {
 export interface GlowStyle {
   /** Outermost first. Each band is filled over the one before it, so later bands are the core. */
   bands: GlowBand[];
+  /**
+   * An additive bloom outside the hitbox, outermost first. Absent draws none, which is every weapon
+   * but `magmablast`. See `HaloBand` for why this may leave the hitbox when nothing else may.
+   */
+  halo?: readonly HaloBand[];
   /**
    * How far the outline may shrink at the bottom of a flicker, as a fraction of the hitbox radius.
    *
@@ -274,8 +297,19 @@ export const WEAPON_GLOW_STYLES: Partial<Record<WeaponId, GlowStyle>> = {
     bands: [
       { radiusScale: 1, color: "#C02000" },
       { radiusScale: 0.74, color: "#FF6000" },
-      { radiusScale: 0.42, color: "#FFA800" },
+      // Hotter than the icon's own core: a shell that casts a halo should have something casting it.
+      { radiusScale: 0.42, color: "#FFD060" },
     ],
+    // Out to 2.5x the 12-unit hitbox — 30 units, about two thirds of a car length. Continues the
+    // ramp outward rather than restating it: the halo is the same fire, further from the middle.
+    halo: [
+      { radiusScale: 2.5, color: "#4A1000", alpha: 0.1 },
+      { radiusScale: 1.9, color: "#8A2400", alpha: 0.16 },
+      { radiusScale: 1.4, color: "#C04000", alpha: 0.26 },
+    ],
+    // No flicker, deliberately, and the halo authors no rate of its own. A pulsing outline on a
+    // 12-unit disc reads as a rendering fault rather than as fire — and a static halo also costs no
+    // per-frame hash, which is what keeps this affordable.
     flickerDepth: 0,
     flickerHz: 0,
   },
@@ -285,6 +319,8 @@ export const WEAPON_GLOW_STYLES: Partial<Record<WeaponId, GlowStyle>> = {
 export interface DrawBand {
   radius: number;
   fill: number;
+  /** Halo bands only. Absent means fully opaque, which is every solid band. */
+  alpha?: number;
 }
 
 /**
@@ -1277,6 +1313,24 @@ export function instanceGlowBands(
   return style.bands.map((band) => ({
     radius: radius * band.radiusScale * scale,
     fill: hexToFill(band.color),
+  }));
+}
+
+/**
+ * The additive bands to fill OUTSIDE one instance's hitbox, outermost first, or `[]` for a weapon
+ * with no halo.
+ *
+ * Takes no clock: halos do not flicker (LZ25), so unlike `instanceGlowBands` there is nothing here
+ * to phase. Pure, for the same reason everything else in this module is — `ArenaScene` cannot be
+ * unit tested without a browser.
+ */
+export function instanceHaloBands(weaponId: string, radius: number): DrawBand[] {
+  const style = isWeaponId(weaponId) ? WEAPON_GLOW_STYLES[weaponId] : undefined;
+  if (!style?.halo) return [];
+  return style.halo.map((band) => ({
+    radius: radius * band.radiusScale,
+    fill: hexToFill(band.color),
+    alpha: band.alpha,
   }));
 }
 

@@ -51,7 +51,7 @@ import { liveEnvResolver } from "../fx/env-store.js";
 import type { EnvResolver } from "../fx/env-tuning.js";
 import type { FxEvent } from "../fx/events.js";
 import { FX_TEXTURE_KEYS, FxLayer } from "../fx/layer.js";
-import { FLOOR_DEPTH } from "../fx/depths.js";
+import { FLOOR_DEPTH, GLOW_DEPTH } from "../fx/depths.js";
 import { liveFxResolver } from "../fx/override-store.js";
 import type { EmitterSpec } from "../fx/emitters.js";
 import { isDebugEnabled } from "../config/client-mode.js";
@@ -97,6 +97,7 @@ import {
   beamDrawLayers,
   chargeOrbBands,
   instanceGlowBands,
+  instanceHaloBands,
   lockBracketArms,
   SHOW_LOCK_BRACKET,
   isProjectileWeapon,
@@ -693,6 +694,16 @@ export class ArenaScene extends Phaser.Scene {
   private unbind: Array<() => void> = [];
   private countdownText: Phaser.GameObjects.Text | undefined;
   private shotGfx: Phaser.GameObjects.Graphics | undefined;
+  /**
+   * Additive glow: shell halos and a lava field's ring. Cleared and refilled each frame beside
+   * `shotGfx`.
+   *
+   * Its own object rather than a mode set on `shotGfx`, because `combat-visual.ts` warns by name
+   * against a per-instance `setBlendMode` — what that forbids is switching blend state inside the
+   * draw loop, once per shot per frame. Setting ADD once at construction and reusing the object for
+   * the life of the scene costs one extra draw batch per frame and nothing per shot.
+   */
+  private glowGfx: Phaser.GameObjects.Graphics | undefined;
   private hpGfx: Phaser.GameObjects.Graphics | undefined;
   private lockGfx: Phaser.GameObjects.Graphics | undefined;
   private arrowGfx: Phaser.GameObjects.Graphics | undefined;
@@ -774,7 +785,8 @@ export class ArenaScene extends Phaser.Scene {
   private hudGfx: Phaser.GameObjects.Graphics | undefined;
   private hudSweepGfx: Phaser.GameObjects.Graphics | undefined;
   private hudKeyTexts: Phaser.GameObjects.Text[] = [];
-  private hudNameTexts: Phaser.GameObjects.Text[] = [];  private hudStockTexts: Phaser.GameObjects.Text[] = [];
+  private hudNameTexts: Phaser.GameObjects.Text[] = [];
+  private hudStockTexts: Phaser.GameObjects.Text[] = [];
   /**
    * One pooled Image per possible slot, for the manifest icon. Hidden and left textureless until a
    * slot resolves one; a slot with no manifest icon never touches this pool and keeps drawing
@@ -952,6 +964,10 @@ export class ArenaScene extends Phaser.Scene {
     // not rotate with any car, so none can live inside a car's own Graphics; a per-shot object would
     // also mean creating and destroying objects at the fire rate for no gain.
     this.shotGfx = this.add.graphics().setDepth(SHOT_DEPTH);
+    this.glowGfx = this.add
+      .graphics()
+      .setDepth(GLOW_DEPTH)
+      .setBlendMode(Phaser.BlendModes.ADD);
     this.hpGfx = this.add.graphics().setDepth(HP_BAR_DEPTH);
     this.lockGfx = this.add.graphics().setDepth(LOCK_DEPTH);
     this.arrowGfx = this.add.graphics().setDepth(ARROW_DEPTH);
@@ -1300,7 +1316,8 @@ export class ArenaScene extends Phaser.Scene {
       ...(this.movementHintGfx ? [this.movementHintGfx] : []),
       ...this.movementHintTexts,
       ...this.hudKeyTexts,
-      ...this.hudNameTexts,      ...this.hudStockTexts,
+      ...this.hudNameTexts,
+      ...this.hudStockTexts,
       ...this.hudIconImages,
       ...this.hudStatusTexts,
       ...this.rosterNameTexts,
@@ -1312,6 +1329,7 @@ export class ArenaScene extends Phaser.Scene {
       ...(this.floorTile ? [this.floorTile] : []),
       ...(this.arenaGfx ? [this.arenaGfx] : []),
       ...(this.shotGfx ? [this.shotGfx] : []),
+      ...(this.glowGfx ? [this.glowGfx] : []),
       ...(this.hpGfx ? [this.hpGfx] : []),
       // Was in neither list, and so drew twice — once clipped into the arena viewport and once
       // unclipped across the whole canvas, over the gutter (D13). It draws in world space at
@@ -1424,6 +1442,8 @@ export class ArenaScene extends Phaser.Scene {
     this.movementHintTexts = [];
     this.shotGfx?.destroy();
     this.shotGfx = undefined;
+    this.glowGfx?.destroy();
+    this.glowGfx = undefined;
     this.hpGfx?.destroy();
     this.hpGfx = undefined;
     this.lockGfx?.destroy();
@@ -1444,13 +1464,15 @@ export class ArenaScene extends Phaser.Scene {
     this.rosterGfx?.destroy();
     this.rosterGfx = undefined;
     for (const text of this.hudKeyTexts) text.destroy();
-    for (const text of this.hudNameTexts) text.destroy();    for (const text of this.hudStockTexts) text.destroy();
+    for (const text of this.hudNameTexts) text.destroy();
+    for (const text of this.hudStockTexts) text.destroy();
     for (const image of this.hudIconImages) image.destroy();
     for (const text of this.hudStatusTexts) text.destroy();
     for (const text of this.rosterNameTexts) text.destroy();
     for (const text of this.rosterKillTexts) text.destroy();
     this.hudKeyTexts = [];
-    this.hudNameTexts = [];    this.hudStockTexts = [];
+    this.hudNameTexts = [];
+    this.hudStockTexts = [];
     this.hudIconImages = [];
     this.hudStatusTexts = [];
     this.rosterNameTexts = [];
@@ -2230,15 +2252,16 @@ export class ArenaScene extends Phaser.Scene {
    *
    * A weapon may also carry a LOOK (`instanceGlowBands`): concentric bands filled inside that same
    * hitbox instead of one flat disc. It cannot widen the shot — bands are fractions of the hitbox
-   * radius and the flicker only shrinks — so the sentence above survives it. `WEAPON_GLOW_STYLES` is
-   * empty as of the 2026-09-01 roster cutover (its two rows, `fireball` and `pepperbox`, are gone —
-   * the latter moved out to an ellipse hitbox a round-glow table cannot own), so every weapon draws
-   * its flat disc today; the table stays live for whichever weapon next earns a look.
+   * radius and the flicker only shrinks — so the sentence above survives it. `WEAPON_GLOW_STYLES`
+   * currently authors `magmablast` (nested discs plus an additive halo outside the hitbox); every
+   * other weapon still draws its flat fill, and a weapon with no row keeps that fallback.
    */
   private renderShots(room: Room<ArenaState>): void {
     const gfx = this.shotGfx;
     if (!gfx) return;
     gfx.clear();
+    const glow = this.glowGfx;
+    glow?.clear();
 
     const nowMs = performance.now();
     const elapsedMs = this.lastPatchMs === 0 ? 0 : nowMs - this.lastPatchMs;
@@ -2298,10 +2321,18 @@ export class ArenaScene extends Phaser.Scene {
         return;
       }
 
+      // Additive bloom outside the hitbox, in its own layer. Drawn before the solid bands so the
+      // core reads over its own glow. See `HaloBand` for why this is allowed past the hitbox.
+      if (glow) {
+        for (const band of instanceHaloBands(instance.weaponId, shape.radius)) {
+          glow.fillStyle(band.fill, alpha * (band.alpha ?? 1));
+          glow.fillCircle(shape.x, shape.y, band.radius);
+        }
+      }
+
       // Bands, outermost first, each filled over the last. An empty list is a weapon with no
-      // authored look, which is every weapon today (`WEAPON_GLOW_STYLES` is dormant since the
-      // 2026-09-01 roster cutover) -- it falls back to the one flat fill of its own `color` that
-      // this method drew for everything before styles existed.
+      // authored look — it falls back to the one flat fill of its own `color` that this method
+      // drew for everything before styles existed.
       const bands = instanceGlowBands(instance.weaponId, shape.radius, instance.spawnTick, nowMs);
       if (bands.length === 0) {
         gfx.fillStyle(weaponFillOf(instance.weaponId), alpha);
@@ -2490,7 +2521,8 @@ export class ArenaScene extends Phaser.Scene {
           .setFontStyle(HUD_NAME_FONT_STYLE),
       );
       // Left-centre, matching the key above it: the countdown shares the key's column, so both
-      // hang off the same `keyX` edge rather than one being centred and the other not.      this.hudStockTexts.push(this.makeHudText(HUD_STOCK_FONT_PX));
+      // hang off the same `keyX` edge rather than one being centred and the other not.
+      this.hudStockTexts.push(this.makeHudText(HUD_STOCK_FONT_PX));
       this.hudIconImages.push(
         this.add
           .image(0, 0, "__DEFAULT")
@@ -2614,7 +2646,8 @@ export class ArenaScene extends Phaser.Scene {
       const slot = player && box ? player.weapons.at(i) : undefined;
       if (!player || !box || !slot) {
         this.hudKeyTexts[i]!.setVisible(false);
-        this.hudNameTexts[i]!.setVisible(false);        this.hudStockTexts[i]!.setVisible(false);
+        this.hudNameTexts[i]!.setVisible(false);
+        this.hudStockTexts[i]!.setVisible(false);
         this.hudIconImages[i]!.setVisible(false);
         continue;
       }
