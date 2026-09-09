@@ -285,6 +285,58 @@ renders `ENVIRONMENT_FX` no matter what is saved in that browser.
 
 ---
 
+## Car lighting (EV35, added 2026-09-09)
+
+**EV35.** The table gains a tenth section, **`carLook`**, and with it the arena's first light.
+
+Nothing in the renderer had one. A car was `setTint(fill)` — a single flat colour over the whole
+sprite — drawn straight onto the asphalt with no shadow of any kind and no edge between the two.
+Nothing said which way was up, so nothing gave a car volume, and nothing sat it on the floor. The
+report that started this was simply "the cars look very flat", and they were.
+
+One knob, `lightAngle`, is the whole model: the direction FROM a car TOWARD the light. Three things
+derive from it, in `scenes/car-lighting.ts`, all pure and unit-tested:
+
+- **A four-corner gradient tint.** Phaser's `setTint(tl, tr, bl, br)`, with each corner brightened or
+  darkened by how much it faces the light. Recomputed per frame from the car's heading, because the
+  light must stay world-fixed: tint by fixed corner constants instead and the highlight spins with
+  the bodywork, which reads as a car lit by itself, and six cars at six headings look like six
+  separately-lit stickers rather than one scene.
+- **A drop shadow and a contact shadow**, on a shared layer at `CAR_SHADOW_DEPTH`. The drop shadow is
+  thrown away from the light; the contact shadow sits squarely under the car, because contact is
+  contact wherever the sun is.
+- **A rim light**: a copy of the car's own artwork, tinted and nudged toward the light *behind* the
+  body, so a lit sliver shows along whatever edge the art actually has.
+
+Every strength is authored so that zeroing them all restores the previous flat drawing exactly. The
+effect is a layer over what was already there, never a replacement for it.
+
+**Three things were got wrong in the first cut and are worth stating so they are not re-invented.**
+All three were invisible in the tests and obvious the moment the game was on screen.
+
+1. **The rim was a stroked outline of the silhouette.** The hull is a 48x32 box and the sprites do
+   not fill it, so it drew a picture frame *around* the car rather than an edge *on* it. Only the
+   art knows where a car's edge is, which is why the rim is now a copy of the art.
+2. **The shadow was the chassis silhouette at hull size.** For the rect chassis that is a hard-edged
+   rectangle, and a car sat in a dark box. Every car now casts one ellipse, sized by `footprint` to
+   well inside the hull: a shadow is soft, nobody reads its outline, and what they do read is a box.
+3. **The shadow bands each ramped up to `shadowAlpha`.** They stack, so five of them accumulated to
+   about 0.75 under the car and it read as a hole in the road. Every band now carries
+   `shadowAlpha / count`; the centre is covered by all of them and lands near the authored number
+   while the edge is covered by one. That gradient *is* the softness.
+
+**EV35a.** The shadows are a **shared layer, not a child of each car's container**, and that is
+load-bearing rather than tidiness. Every car sits at `CAR_DEPTH`, where Phaser breaks the tie by
+display-list insertion order, so a shadow parented to one car would draw over another car's body
+whenever the two overlap — which in a game about ramming is most of the time. `depths.test.ts` pins
+the rung.
+
+**EV35b.** The gradient tint lives in `assets/car-sprite.ts`'s `applyCarSprite`, not in `ArenaScene`.
+That helper is shared with the `?dev=assets` tool precisely so the tool cannot drift from what the
+arena draws, and tinting in the scene would have reintroduced that drift at once: the tool would
+still be showing the flat colour the arena had stopped using. `rotation` defaults to 0 there, so a
+still picture of a car gets the same lighting the arena gives one pointing along +x.
+
 ## Testing
 
 Vitest, node environment, no browser — the rest of `fx/` already tests this way.

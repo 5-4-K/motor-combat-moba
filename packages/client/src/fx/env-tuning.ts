@@ -114,6 +114,23 @@ export const ENV_FIELDS: readonly EnvFieldDef[] = [
 
   c("carBursts", "sparkPerHp", "Sparks per hp", 0, 3, 0.05),
   c("carBursts", "countFloor", "Count floor", 0, 10, 1, "integer"),
+
+  // `lightAngle` spans a full turn rather than 0..360 so the shipped -120 sits mid-range and the
+  // control can be dragged through it in either direction without wrapping under the cursor.
+  c("carLook", "lightAngle", "Light angle (deg)", -180, 180, 1),
+  c("carLook", "shadowOffset", "Shadow offset", 0, 30, 0.5),
+  c("carLook", "shadowAlpha", "Shadow alpha", 0, 1, 0.01),
+  c("carLook", "shadowSpread", "Shadow softness", 0, 1.5, 0.01),
+  c("carLook", "shadowBands", "Shadow bands", 1, 10, 1, "integer"),
+  c("carLook", "shadowColor", "Shadow colour", 0, 0xffffff, 1, "color"),
+  c("carLook", "footprint", "Shadow footprint x hull", 0, 1.5, 0.01),
+  c("carLook", "contactAlpha", "Contact alpha", 0, 1, 0.01),
+  c("carLook", "contactScale", "Contact scale x hull", 0, 1.5, 0.01),
+  c("carLook", "litStrength", "Lit strength", 0, 1, 0.01),
+  c("carLook", "shadeStrength", "Shade strength", 0, 1, 0.01),
+  c("carLook", "rimAlpha", "Rim alpha", 0, 1, 0.01),
+  c("carLook", "rimColor", "Rim colour", 0, 0xffffff, 1, "color"),
+  c("carLook", "rimWidth", "Rim width", 0, 8, 0.1),
 ];
 
 export function envKey(section: EnvSection, field: string): string {

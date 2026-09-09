@@ -54,6 +54,64 @@ export function hexagonPoints(width: number, height: number): Array<{ x: number;
 }
 
 /**
+ * The chassis silhouette as a closed convex polygon in the car's local frame, +x forward.
+ *
+ * The same outline three things now need to agree on: the fallback silhouette's fill, the shadow
+ * cast on the floor, and the edge stroke the rim light rides. Deriving all three from one function
+ * is what stops a car without art wearing a rim that does not fit the shape underneath it.
+ *
+ * An ellipse is approximated rather than drawn, because a rim has to be stroked segment by segment
+ * to vary along its length and a true ellipse has no segments. `ELLIPSE_SEGMENTS` is a look
+ * decision, not a tolerance: enough that the hull reads as smooth at the scale a car is drawn.
+ *
+ * Every point sits ON the hull, never outside it — the same rule the projectile marks obey, for the
+ * same reason: what is drawn may not claim more space than what collides.
+ */
+export function carOutlinePoints(
+  carId: string,
+  width: number,
+  height: number,
+): Array<{ x: number; y: number }> {
+  const hw = width / 2;
+  const hh = height / 2;
+  switch (carShapeOf(carId)) {
+    case "rect":
+      return [
+        { x: hw, y: -hh },
+        { x: hw, y: hh },
+        { x: -hw, y: hh },
+        { x: -hw, y: -hh },
+      ];
+    case "hex":
+      return hexagonPoints(width, height);
+    case "ellipse":
+      return ellipsePoints(width, height);
+  }
+}
+
+/**
+ * An ellipse as a closed polygon, centred on the origin.
+ *
+ * Phaser's `fillEllipse` draws axis-aligned only, so anything elliptical that has to turn with a car
+ * — the ellipse chassis, and every car's shadow — needs real points to rotate.
+ *
+ * `ELLIPSE_SEGMENTS` is a look decision rather than a tolerance: enough that the curve reads as
+ * smooth at the size a car is drawn, and no more, since the shadow pass walks these points once per
+ * band per car per frame.
+ */
+export function ellipsePoints(width: number, height: number): Array<{ x: number; y: number }> {
+  const hw = width / 2;
+  const hh = height / 2;
+  return Array.from({ length: ELLIPSE_SEGMENTS }, (_, i) => {
+    const t = (i / ELLIPSE_SEGMENTS) * Math.PI * 2;
+    return { x: hw * Math.cos(t), y: hh * Math.sin(t) };
+  });
+}
+
+/** How many segments an ellipse is drawn as. See `ellipsePoints`. */
+const ELLIPSE_SEGMENTS = 20;
+
+/**
  * How opaque a car should be drawn, from the tick it died.
  *
  * There is no wreck. A car is intangible and frozen the instant its hp reaches 0 (`isOnField` in

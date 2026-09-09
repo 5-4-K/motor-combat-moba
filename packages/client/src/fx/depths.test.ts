@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { AIR_FX_DEPTH, DECAL_DEPTH, FLOOR_DEPTH, GROUND_FX_DEPTH, SMOKE_DEPTH } from "./depths.js";
+import {
+  AIR_FX_DEPTH,
+  CAR_SHADOW_DEPTH,
+  DECAL_DEPTH,
+  FLOOR_DEPTH,
+  GROUND_FX_DEPTH,
+  SMOKE_DEPTH,
+} from "./depths.js";
 
 // Mirrors the ladder in ArenaScene.ts. Duplicated as literals on purpose: if someone moves one of
 // those constants, this test is what says the FX layers moved with it or need to.
@@ -23,6 +30,15 @@ describe("fx depth constants", () => {
   it("puts ground FX above decals and still below the shots", () => {
     expect(GROUND_FX_DEPTH).toBeGreaterThan(DECAL_DEPTH);
     expect(GROUND_FX_DEPTH).toBeLessThan(SHOT_DEPTH);
+  });
+
+  it("puts car shadows under every car, above the decals they darken", () => {
+    // Strictly below CAR_DEPTH, and that is the whole point: all six cars share CAR_DEPTH and Phaser
+    // breaks that tie by insertion order, so a shadow drawn at the cars' own depth would land over
+    // another car's body every time two of them overlap.
+    expect(CAR_SHADOW_DEPTH).toBeLessThan(CAR_DEPTH);
+    expect(CAR_SHADOW_DEPTH).toBeGreaterThan(DECAL_DEPTH);
+    expect(CAR_SHADOW_DEPTH).toBeLessThan(GROUND_FX_DEPTH);
   });
 
   it("puts air FX above the cars, because smoke is in the air", () => {

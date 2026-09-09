@@ -20,6 +20,18 @@ export const DECAL_DEPTH = -8;
 export const GROUND_FX_DEPTH = -6;
 
 /**
+ * Every car's drop and contact shadow, on one shared layer beneath every car.
+ *
+ * A shared layer rather than a child of each car's own container, and that is load-bearing: all six
+ * cars sit at `CAR_DEPTH`, where Phaser breaks the tie by display-list insertion order. A shadow
+ * parented to one car would therefore draw OVER another car's body whenever the two overlap — which
+ * in a game about ramming is most of the time.
+ *
+ * Above the decals it darkens and below the ground FX, so a spark still reads on top of a shadow.
+ */
+export const CAR_SHADOW_DEPTH = -7;
+
+/**
  * The smoke `RenderTexture`. Above the cars, because smoke is in the air — but BELOW `AIR_FX_DEPTH`.
  *
  * Fire and sparks have to read *over* the smoke they are co-located with: an additive fireball
