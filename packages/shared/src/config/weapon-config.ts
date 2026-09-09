@@ -157,7 +157,13 @@ export const WEAPON_TABLE = {
   /**
    * Mirage's slot 1 as of the 2026-09-02 loadout swap (it was Bullseye's before): the explosive
    * shell. It flies as an ordinary aimed dart and detonates on ANY death — a car, a wall, the arena
-   * edge, or its own 900 u range — leaving a 60 u corroding field for 150 ms.
+   * edge, or its own 900 u range — leaving a 60 u corroding field for 2000 ms.
+   *
+   * The field outlives the shell by design (spec LZ17, superseding P19). Two seconds is long enough
+   * to drive into and out of, which is what makes `perEntry` mean anything and what turns this from
+   * a splash number into a place on the map you would rather not cross. `cooldownMs` was knowingly
+   * left at 1600 (spec LZ19), so fields overlap by 400 ms of every cycle and a car in the overlap
+   * takes 15 from each.
    *
    * A direct hit costs contact AND splash, 65 base plus the corrode: the burst is born at full
    * extent on the tick the shell dies, so the car that stopped it is standing inside it. Excluding
@@ -194,8 +200,11 @@ export const WEAPON_TABLE = {
     explosion: {
       radius: 60,
       damage: 15,
-      lingerMs: 150,
-      damageMode: "onceEver",
+      // A field, not a flash (spec LZ17, superseding P19). Two seconds is long enough to drive into
+      // and out of, which is what makes `perEntry` mean anything and what turns this from a splash
+      // number into a place on the map you would rather not cross.
+      lingerMs: 2000,
+      damageMode: "perEntry",
       applies: [{ statusId: "corroded", target: "opponents", durationMs: 2000 }],
     },
   },

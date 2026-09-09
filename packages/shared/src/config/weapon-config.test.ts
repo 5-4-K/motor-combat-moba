@@ -5,7 +5,7 @@ import type { CarId } from "./types.js";
 import type { StatusId } from "./status-types.js";
 import { WEAPON_TABLE, explosionDamageModeOf, instanceDefOf, isWeaponId, weaponDefOf } from "./weapon-config.js";
 import { slotsOf } from "./weapon-slots.js";
-import { WEAPON_TICKS, msToTicks } from "./weapon-ticks.js";
+import { WEAPON_TICKS, msToTicks, weaponTicksOf } from "./weapon-ticks.js";
 import type { WeaponDef } from "./weapon-types.js";
 import { AIM_CONFIG } from "./aim-config.js";
 import { STATUS_CONFIG } from "./status-config.js";
@@ -376,8 +376,19 @@ describe("WEAPON_TABLE", () => {
     expect(sw.damage).toBe(50);
     expect(sw.applies).toBeUndefined();
     expect(sw.explosion).toBeDefined();
-    expect(sw.explosion).toMatchObject({ radius: 60, damage: 15, lingerMs: 150 });
+    expect(sw.explosion).toMatchObject({
+      radius: 60,
+      damage: 15,
+      lingerMs: 2000,
+      damageMode: "perEntry",
+    });
     expect(sw.explosion!.applies).toEqual([{ statusId: "corroded", target: "opponents", durationMs: 2000 }]);
+  });
+
+  it("keeps the field alive long enough to be driven into and out of (LZ17)", () => {
+    // 2000 ms at 30 Hz. The old 150 ms was 40 units of travel at Mirage's top speed — under one
+    // car length — so nothing could enter a field that was not already standing in it.
+    expect(weaponTicksOf("magmablast").explosion!.lifetime).toBe(60);
   });
 
   it("keeps Bullseye's straight-line reach further than anything Bastion carries", () => {

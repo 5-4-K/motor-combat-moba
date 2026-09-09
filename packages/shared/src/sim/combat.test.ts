@@ -2191,11 +2191,15 @@ describe("magma blast detonation (spec P13-P21)", () => {
   it("does not spawn another burst when the burst itself expires (P25a)", () => {
     // THE RECURSION GUARD. If the detonation check read weaponDefOf rather than instanceDefOf, the
     // burst would see magmablast's `explosion` on its own expiry and spawn another, every tick,
-    // forever. The instance list must drain to empty instead.
+    // forever. The instance list must drain to empty instead. Wait is derived from the burst's own
+    // clock (shell-land + explosion life + one) so a linger retune cannot leave this asserting
+    // against a field that is still up.
+    const ticks = weaponTicksOf("magmablast");
+    const explosionLife = ticks.explosion!.flight + ticks.explosion!.lifetime;
     const result = fire(
       { x: 300, y: OPEN_Y, angle: 0 },
       [player("bbb", { x: 400, y: OPEN_Y, hp: MIRAGE_HP })],
-      60,
+      6 + explosionLife + 1,
     );
     expect(result.instances).toHaveLength(0);
   });

@@ -163,10 +163,11 @@ export const WEAPON_COPY = {
     what:
       "A fast, straight bolt, and Mirage's bread and butter — except it no longer stops at the " +
       "hit. Whatever kills the shot, a car, a wall, the arena edge, or its own reach running out, " +
-      "sets it off: a {magmablast.blastRadius}-unit blast that lingers for a moment and corrodes anyone it catches for " +
+      "leaves a {magmablast.blastRadius}-unit lava field that stays for {magmablast.lingerSec:words} " +
+      "seconds — long enough to drive into and out of — and corrodes anyone it catches for " +
       "{magmablast.corrodeSec:words} full seconds, {magmablast.corrodePct}% more damage taken from " +
       "everything that follows. A direct hit takes the " +
-      "impact and the blast both.",
+      "impact and the field both.",
     how:
       "This is the round every other weapon on this chassis gets read against: it arrives quickly, " +
       "often, and exactly where the assist points it, so sustained fire from close range adds up " +
