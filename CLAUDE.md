@@ -25,9 +25,10 @@ that weapon's aura identity, leaving no row using a `disc` hitbox — but a disc
 2026-09-02 predator/magmablast pass: `magmablast` (moved back to **Mirage's** slot 1 by that pass, off
 Bullseye's) is now an explosive shell whose detonation is a real `WeaponInstance`, a detached
 centre-origin `disc`-hitbox beam synthesized by `instanceDefOf(id, isExplosion)` from the shell's
-`ExplosionDef`. The aura mechanism was never deleted while dormant, and this is what it was waiting
-for. The multi-wave `VolleyDef` machinery that rode alongside the original aura is still **dormant**:
-no row authors more than one volley.
+`ExplosionDef`. That disc lingers 2 s and damages once per entry; `damageMode` on the explosion is
+the knob (`"onceEver" | "perEntry"`). The aura mechanism was never deleted while dormant, and this
+is what it was waiting for. The multi-wave `VolleyDef` machinery that rode alongside the original
+aura is still **dormant**: no row authors more than one volley.
 
 **The `GameMode` enum now has two FFA win conditions**, not one. `FFA_LAST_STANDING` (the renamed
 original — wire value still `0`) ends the match when `livingSides` drops to one side; `FFA_DEATHMATCH`
