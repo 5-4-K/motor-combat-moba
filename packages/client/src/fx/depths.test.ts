@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { AIR_FX_DEPTH, DECAL_DEPTH, FLOOR_DEPTH, GROUND_FX_DEPTH, SMOKE_DEPTH } from "./depths.js";
+import {
+  AIR_FX_DEPTH,
+  DECAL_DEPTH,
+  FLOOR_DEPTH,
+  GLOW_DEPTH,
+  GROUND_FX_DEPTH,
+  LAVA_DEPTH,
+  SMOKE_DEPTH,
+} from "./depths.js";
 
 // Mirrors the ladder in ArenaScene.ts. Duplicated as literals on purpose: if someone moves one of
 // those constants, this test is what says the FX layers moved with it or need to.
@@ -44,5 +52,19 @@ describe("fx depth constants", () => {
     // is later tuned.
     expect(AIR_FX_DEPTH).toBeLessThan(ARROW_DEPTH);
     expect(AIR_FX_DEPTH).toBeLessThan(HP_BAR_DEPTH);
+  });
+
+  it("puts the lava crust above decals and below ground FX", () => {
+    // Rubber and scorch sit under a lava field; ground sparks throw over it; cars drive on it.
+    expect(LAVA_DEPTH).toBeGreaterThan(DECAL_DEPTH);
+    expect(LAVA_DEPTH).toBeLessThan(GROUND_FX_DEPTH);
+  });
+
+  it("puts additive glow over the shots and under the cars", () => {
+    // Over the shots because additive light belongs on top of what emits it, and being additive it
+    // cannot occlude the core it washes over. Under the cars because a glow across a chassis takes
+    // colour off the player paint — the same readability rule as VFX24.
+    expect(GLOW_DEPTH).toBeGreaterThan(SHOT_DEPTH);
+    expect(GLOW_DEPTH).toBeLessThan(CAR_DEPTH);
   });
 });

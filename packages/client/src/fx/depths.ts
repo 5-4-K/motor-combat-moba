@@ -16,8 +16,25 @@ export const FLOOR_DEPTH = -11;
 /** Rubber and scorch. Above the floor, below anything that moves. */
 export const DECAL_DEPTH = -8;
 
+/**
+ * A lingering lava field's cracked crust. Above the decals it is laid over, below the ground FX
+ * thrown across it, and well below the cars — a field is ground, and you drive on it.
+ */
+export const LAVA_DEPTH = -7;
+
 /** Debris and ground sparks — on the deck rather than in the air. */
 export const GROUND_FX_DEPTH = -6;
+
+/**
+ * Additive glow: shell halos and a lava field's ring and seams.
+ *
+ * ABOVE `SHOT_DEPTH` (-5) and below `CAR_DEPTH` (0). Above the shots because additive light belongs
+ * over the thing emitting it, and because an additive layer can only add — it cannot hide the shot
+ * core it washes across, so drawing it on top costs no readability. Below the cars for the reason
+ * VFX24 keeps air FX below the HUD: a glow drawn over a chassis drains the player colour that says
+ * whose car it is.
+ */
+export const GLOW_DEPTH = -4;
 
 /**
  * The smoke `RenderTexture`. Above the cars, because smoke is in the air — but BELOW `AIR_FX_DEPTH`.
