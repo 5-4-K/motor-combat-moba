@@ -113,6 +113,7 @@ import {
   hpFraction,
   instanceDrawShape,
   beamDrawLayers,
+  beamFlareShapes,
   chargeOrbBands,
   instanceGlowBands,
   lockBracketArms,
@@ -2423,9 +2424,26 @@ export class ArenaScene extends Phaser.Scene {
           gfx.fillPoints(pts(shape.points), true);
           return;
         }
+        // The layer's own opacity multiplies INTO the fade rather than replacing it, so a
+        // translucent layer still disappears with the beam it belongs to. A style authoring none
+        // resolves to 1 and draws exactly what it drew before `BeamLayer.alpha` existed.
         for (const layer of layers) {
-          gfx.fillStyle(layer.fill, alpha);
+          gfx.fillStyle(layer.fill, alpha * layer.alpha);
           gfx.fillPoints(pts(layer.points), true);
+        }
+        // The muzzle starburst, OVER every layer and outside the hitbox — the one shape here that
+        // is neither. See `BeamStyle.flare`. Drawn from the instance's own age so the flash lands
+        // on the frame the shot leaves rather than on whatever frame the client happened to join.
+        for (const shape of beamFlareShapes(
+          instance.weaponId,
+          instance.x,
+          instance.y,
+          instance.angle,
+          (room.state.tick - instance.spawnTick) * MS_PER_TICK + elapsedMs,
+        )) {
+          gfx.fillStyle(shape.fill, alpha * shape.alpha);
+          if (shape.kind === "disc") gfx.fillCircle(shape.x, shape.y, shape.radius);
+          else gfx.fillPoints(pts(shape.points), true);
         }
         return;
       }
@@ -2441,7 +2459,7 @@ export class ArenaScene extends Phaser.Scene {
         return;
       }
       for (const band of bands) {
-        gfx.fillStyle(band.fill, alpha);
+        gfx.fillStyle(band.fill, alpha * band.alpha);
         gfx.fillCircle(shape.x, shape.y, band.radius);
       }
     });
@@ -2465,9 +2483,11 @@ export class ArenaScene extends Phaser.Scene {
       });
     }
 
-    // Deliberately NOT outlined: a charge orb is the one thing the game draws where there is no
-    // hitbox at all (D19's single exception — it is a telegraph on the shooter's own car). Drawing
-    // a hitbox around it would assert the exact opposite of the truth this overlay exists to show.
+    // Deliberately NOT outlined: a charge orb is drawn where there is no hitbox at all (a telegraph
+    // on the shooter's own car). Drawing a hitbox around it would assert the exact opposite of the
+    // truth this overlay exists to show. The same goes for a beam's muzzle flare above, which is
+    // the other shape in this method that sits outside the thing it belongs to — the two are the
+    // whole list, and `beamDrawLayers` covers everything else vertex by vertex.
     this.renderChargeOrbs(room, gfx);
   }
 
@@ -2577,7 +2597,9 @@ export class ArenaScene extends Phaser.Scene {
       // The muzzle, not the car centre: the orb is the shot gathering where the shot will leave.
       const muzzle = muzzleOf(player);
       for (const orb of orbs) {
-        gfx.fillStyle(orb.fill, 1);
+        // The band's own opacity, so the orb gathers at the same falloff the beam will draw at.
+        // A band authoring none resolves to 1, which is what every orb drew before this existed.
+        gfx.fillStyle(orb.fill, orb.alpha);
         gfx.fillCircle(muzzle.x, muzzle.y, orb.radius);
       }
     });

@@ -214,6 +214,16 @@ export interface GlowBand {
   radiusScale: number;
   /** `#RRGGBB` this band fills in. */
   color: string;
+  /**
+   * How opaque this band is, multiplied INTO the instance's fade alpha rather than replacing it.
+   * Absent is 1, which is every band authored before this existed.
+   *
+   * The same field and the same argument as `BeamLayer.alpha` — see there. Wired through both of
+   * this type's consumers (`instanceGlowBands` and `chargeOrbBands`) rather than only the one that
+   * needed it, because a field that silently does nothing in half its uses is a trap for whoever
+   * authors the next glow style.
+   */
+  alpha?: number;
 }
 
 /**
@@ -285,6 +295,11 @@ export const WEAPON_GLOW_STYLES: Partial<Record<WeaponId, GlowStyle>> = {
 export interface DrawBand {
   radius: number;
   fill: number;
+  /**
+   * Resolved opacity, still to be multiplied by the instance's fade alpha at the call site. 1 for
+   * anything whose style authored none.
+   */
+  alpha: number;
 }
 
 /**
@@ -409,6 +424,21 @@ export interface BeamLayer {
    * lightning and fire read — coarse structure drifts, fine detail flickers.
    */
   crackleHz?: number;
+  /**
+   * How opaque this layer is, in `(0, 1]`. Multiplied INTO the instance's own fade alpha rather
+   * than replacing it, so a layer cannot outlive the beam it belongs to. Absent is 1, which is what
+   * every layer authored before this existed drew and still draws.
+   *
+   * **This is what turns a stack of nested bars into a falloff.** Opaque layers can only ever read
+   * as concentric stripes, however finely they are graded — each one completely hides the one
+   * outside it, so the eye sees N hard edges rather than one soft one. Translucent layers composite
+   * instead: eight steps at rising opacity approximate a smooth radial ramp, which is what a glowing
+   * beam actually is, and what `lance` shipped as four hard-edged bars until this existed.
+   *
+   * Costs nothing. `renderShots` already calls `fillStyle` per layer with the fade alpha; this only
+   * changes the number it passes.
+   */
+  alpha?: number;
 }
 
 /**
@@ -462,7 +492,111 @@ export interface BeamStyle {
   flameHz?: number;
   /** CONE beams only. Flecks thrown off the flame. Absent draws none. */
   embers?: EmberStyle;
+  /**
+   * RECT beams only. Bright streaks carried down the shaft. Absent draws none — the cone
+   * counterpart is `embers`, and the two are deliberately separate for the reason `crackleHz` and
+   * `flameHz` are: a fleck shed sideways off a flame and a mote of light running down a beam are
+   * not one decision.
+   */
+  shards?: ShardStyle;
+  /**
+   * The radial starburst at the beam's ORIGIN. Absent draws none.
+   *
+   * **This is the second thing the game draws in the world that is not a hitbox, and unlike the
+   * first it is not a telegraph.** `ChargeStyle` earned its exception by being information an
+   * opponent acts on; this is decoration, and it is worth being honest that it is. What keeps it
+   * defensible is where it sits: on the shooter's own car, at the muzzle, on the frame the shot
+   * leaves — never out along the beam where it could imply reach the hitbox does not have. A flare
+   * drawn at the far end, or one that grew with the beam, would assert a hitbox that is not there
+   * and must not be authored.
+   *
+   * It is deliberately NOT part of `beamDrawLayers`: that function's output is swept vertex by
+   * vertex by the containment test, and folding a shape that legitimately sits outside the hitbox
+   * into it would blunt the one check that proves every other shape stays inside.
+   */
+  flare?: FlareStyle;
 }
+
+/**
+ * Bright motes running out along a rect beam — the streaks inside the reference art, and the one
+ * part of a beam's look that a set of nested static bars cannot produce however finely they are
+ * graded, for the same reason `embers` exists on a cone: it is detached detail moving at its own
+ * rate rather than a property of the silhouette.
+ *
+ * Every shard is placed in the beam's own frame and clamped to the rect, so containment holds for
+ * exactly the reason a tongue's does.
+ */
+export interface ShardStyle {
+  /**
+   * How many streaks per beam instance. A fill budget, not a taste knob — same accounting as
+   * `EmberStyle.count`, but far cheaper here: `lance` puts ONE instance on the field per press and
+   * recharges for 16 seconds, where `afterburner` fires two per press on a 500 ms cadence.
+   */
+  count: number;
+  /** Streak length in world units, before the per-shard variation the hash applies. */
+  length: number;
+  /** Streak half-width at its leading end, as a fraction of the beam's own half-width. */
+  width: number;
+  /** How many times a second a shard completes its run from the muzzle to the tip. */
+  hz: number;
+  /** `#RRGGBB` every shard fills in. */
+  color: string;
+  /** Opacity at birth. A shard fades as it runs, so this is its brightest moment. */
+  alpha: number;
+}
+
+/** One disc of a flare's core, outermost first. */
+export interface FlareDisc {
+  /** Radius as a multiple of the beam's own half-width, so it scales with a hitbox retune. */
+  radius: number;
+  color: string;
+  alpha: number;
+}
+
+/**
+ * The starburst at a beam's muzzle: a ring of alternating spikes, four longer lens arms along and
+ * across the beam, and a stack of discs over both.
+ *
+ * Every length is a multiple of the beam's HALF-WIDTH rather than an absolute distance, so a future
+ * `hitbox.width` retune carries the flare with it instead of leaving a starburst sized for the old
+ * beam. The alternating long/short spikes are what stop the ring reading as a gear; the four arms
+ * are what make it read as a lens flare rather than as a sun.
+ */
+export interface FlareStyle {
+  /** Outermost first, each filled over the last — the same nesting rule as `bands` and `layers`. */
+  discs: FlareDisc[];
+  /** Spikes around the ring. Even, so the long ones sit opposite each other. */
+  spikes: number;
+  /** Long-spike reach, in half-widths. */
+  spikeLong: number;
+  /** Short-spike reach, in half-widths. Every other spike takes this. */
+  spikeShort: number;
+  /** Spike half-width at its base, in half-widths. */
+  spikeWidth: number;
+  spikeColor: string;
+  spikeAlpha: number;
+  /** Lens-arm reach ALONG the beam axis, both directions, in half-widths. */
+  armLong: number;
+  /** Lens-arm reach ACROSS it, in half-widths. */
+  armAcross: number;
+  armWidth: number;
+  armColor: string;
+  armAlpha: number;
+  /**
+   * Brightness the flare settles to once the shot has left, as a fraction of the exit flash. The
+   * muzzle keeps glowing for as long as the beam is being held, which is what ties the two together
+   * — a flare that vanished after its flash would read as a separate effect that happened to
+   * coincide with the shot.
+   */
+  idle: number;
+  /** How long the exit flash takes to decay back to `idle`. */
+  punchMs: number;
+}
+
+/** One shape of a drawn flare. Discs and polygons in one list, so the caller walks it in order. */
+export type FlareShape =
+  | { kind: "disc"; x: number; y: number; radius: number; fill: number; alpha: number }
+  | { kind: "poly"; points: { x: number; y: number }[]; fill: number; alpha: number };
 
 /**
  * The flecks a flame sheds — the detached bits of fire in the reference art, which is the one part
@@ -492,9 +626,12 @@ export interface EmberStyle {
  * The orb a wind-up weapon gathers at its muzzle before firing, growing from `minRadius` to
  * `maxRadius` across `startUpMs` and vanishing on the tick the shot exits.
  *
- * **This is the one thing the game draws in the world that is not a hitbox**, and the exception is
- * deliberate rather than an erosion of the rule. Every shot draws as its own hitbox (D19) so that
- * what you see is what can hurt you; an orb hurts nobody and is a *telegraph*, a second category.
+ * **This is one of the two things the game draws in the world that are not hitboxes**, and the
+ * exception is deliberate rather than an erosion of the rule. Every shot draws as its own hitbox
+ * (D19) so that what you see is what can hurt you; an orb hurts nobody and is a *telegraph*, a
+ * second category. The other is `BeamStyle.flare`, which is decoration rather than a telegraph and
+ * says so — it is held to the same rule this one is: at the muzzle, on the shooter's own car,
+ * never out along the beam where it could imply reach the hitbox does not have.
  * `lance` is built around being telegraphed — a 700 ms wind-up is what pays for a full connect, 43
  * a pulse over four pulses since the 2026-09-04 retune made it a ticking beam — but
  * until this existed an opponent saw nothing at all during it, so the tell lived in the design and
@@ -514,6 +651,11 @@ export interface ChargeStyle {
 export interface ChargeOrbBand {
   radius: number;
   fill: number;
+  /**
+   * Resolved opacity, still to be multiplied by the instance's fade alpha at the call site. 1 for
+   * anything whose style authored none.
+   */
+  alpha: number;
 }
 
 /**
@@ -800,43 +942,109 @@ export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
    */
   lance: {
     layers: [
-      // Rates rise as the tears get shallower — see `BeamLayer.crackleHz`. Measured cost per
-      // rendered frame at these settings: 1.72, 1.50 and 0.52 units. Flattening these to one rate
-      // would price the whole beam at the outer layer's 4.96 and force a 60% cut in tear depth.
+      // **Eight steps, not four, and every one of them translucent.** See `BeamLayer.alpha`: opaque
+      // layers can only read as concentric stripes, because each hides the one outside it. These
+      // composite, so the stack approximates one smooth radial falloff from a deep blue haze at the
+      // hitbox wall to a flat white line at the centre — which is what a beam of light IS, and what
+      // the four opaque bars this replaced could never be however finely they were graded.
       //
-      // Those three numbers were re-measured on 2026-09-04, after `noise` was found not to be
-      // hashing (see its comment): until then a roll only slid every station by a constant −0.0151,
-      // so the tear crept uniformly rather than re-rolling and the bolt was quietly much calmer
-      // than these settings ask for. The rates are UNCHANGED by that fix — the budget they were
-      // chosen against was computed as `crackle x rate`, not measured off the broken shape, and the
-      // real motion lands just inside it.
-      { extentScale: 1, crossScale: 1, tongues: 0, tongueDepth: 0, color: "#0356DC", crackle: 0.42, wander: 0.05, crackleHz: 5 },
-      { extentScale: 1, crossScale: 0.7, tongues: 0, tongueDepth: 0, color: "#0AC6FD", crackle: 0.34, wander: 0.04, crackleHz: 8 },
-      { extentScale: 1, crossScale: 0.34, tongues: 0, tongueDepth: 0, color: "#F0FF00", crackle: 0.14, crackleHz: 14 },
-      // The core: no crackle, no wander. This straight line is what reads as a laser; everything
-      // outside it is the field around it tearing.
-      { extentScale: 1, crossScale: 0.12, tongues: 0, tongueDepth: 0, color: "#FDFFE4" },
+      // `crackle` collapses with it, 0.42 -> 0.30 on the envelope and near-nothing inward. The old
+      // stack tore 42% of its width and read as LIGHTNING; the energy in a beam is in its falloff,
+      // not in its outline. The ordering the shipped test pins — deeper tears run slower, because
+      // per-frame vertex motion goes as `crackle x rate` — still holds, and every layer now costs
+      // less than the 1.72 units/frame the old outer envelope did. The widest is 0.86.
+      //
+      // `extentScale` steps down over the last layers so the hot core stops short of the tip and
+      // the beam cools as it reaches — the far-end fray the reference art has. This is the one
+      // place `lance` uses a rect's length axis for anything, and both halves of how it is spread
+      // were learned by rendering it rather than reasoned about:
+      //
+      // - **The four OUTER layers all stay at 1.** They are the beam's visible bulk, and a hitbox
+      //   whose last stretch is drawn only in the 0.2-alpha envelope is a car being hit by
+      //   something it can barely see. Everything through `#0AC6FD` reaches the hitbox's far edge.
+      // - **The taper is spread over 120 units, not 48.** The first cut stepped 0.99/0.98/0.97/0.96
+      //   and put four hard vertical edges inside one car length of each other: at 1200 reach that
+      //   does not read as a taper at all, it reads as a staircase, as though the beam had been cut
+      //   off with scissors. Each end now sits ~35 units from the next.
+      // - **The yellow ring and the white core end TOGETHER.** Yellow sits outside white, so any
+      //   gap between their reaches draws yellow alone over pale cyan — a green stub past the end
+      //   of the beam, which is exactly what it looked like.
+      { extentScale: 1, crossScale: 1, tongues: 0, tongueDepth: 0, color: "#0A2A7A", alpha: 0.2, crackle: 0.3, wander: 0.06, crackleHz: 3 },
+      { extentScale: 1, crossScale: 0.86, tongues: 0, tongueDepth: 0, color: "#0356DC", alpha: 0.26, crackle: 0.22, wander: 0.05, crackleHz: 4.5 },
+      { extentScale: 1, crossScale: 0.7, tongues: 0, tongueDepth: 0, color: "#1177FF", alpha: 0.34, crackle: 0.16, wander: 0.04, crackleHz: 6 },
+      { extentScale: 1, crossScale: 0.55, tongues: 0, tongueDepth: 0, color: "#0AC6FD", alpha: 0.44, crackle: 0.11, wander: 0.03, crackleHz: 8 },
+      { extentScale: 1, crossScale: 0.4, tongues: 0, tongueDepth: 0, color: "#63E3FF", alpha: 0.58, crackle: 0.07, crackleHz: 10 },
+      { extentScale: 0.96, crossScale: 0.27, tongues: 0, tongueDepth: 0, color: "#B4F3FF", alpha: 0.74, crackle: 0.04, crackleHz: 13 },
+      // `WEAPON_TABLE.color`, kept — but as a thin HALF-TRANSPARENT ring rather than as the body of
+      // the beam. Over the pale cyan beneath it and under the white core it reads as overdrive at
+      // the centre rather than as a yellow stripe down a blue beam, which is what it was. Keeping
+      // the hex is not sentiment: the HUD slot paints this swatch, the charge orb's colour test
+      // requires it to appear in the stack, and changing it would move `balanceStamp` and owe the
+      // players' guide a rebuild for a colour nobody would name.
+      { extentScale: 0.9, crossScale: 0.16, tongues: 0, tongueDepth: 0, color: "#F0FF00", alpha: 0.5, crackle: 0.02, crackleHz: 16 },
+      // The core: flat white, fully opaque, no crackle, no wander. Every reference beam has a
+      // blazing white centre, and the cream `#FDFFE4` this replaces was a compromise with the
+      // yellow layer that is no longer the body of the beam. This straight line is what reads as a
+      // beam; everything outside it is the light around it falling off.
+      { extentScale: 0.9, crossScale: 0.09, tongues: 0, tongueDepth: 0, color: "#FFFFFF", alpha: 1 },
     ],
-    // 1.565 half-widths = 45 units at the shipped `width: 57.5`, which is 3.75% of its 1200 reach.
-    domeScale: 1.565,
-    // The fallback for a layer that names no rate of its own. Every one of lance's crackling layers
-    // does, so this only covers a layer added later without one — deliberately the slowest rate, so
-    // an unconsidered new layer is smooth by default rather than jumpy by default.
-    crackleHz: 5,
+    // 2.4 half-widths = 69 units at the shipped `width: 57.5`, 5.75% of its 1200 reach. Deeper than
+    // the 1.565 it replaces because the flare now sits over this end: a shallower cap left a
+    // visible flat shoulder where the starburst's discs stopped.
+    domeScale: 2.4,
+    // The fallback for a layer that names no rate of its own. Every crackling layer does, so this
+    // only covers a layer added later without one — deliberately the slowest rate, so an
+    // unconsidered new layer is smooth by default rather than jumpy by default.
+    crackleHz: 3,
+    // The motes running down the shaft. Seven costs seven fills on a weapon that puts one instance
+    // on the field per press and then recharges for 16 seconds.
+    shards: { count: 7, length: 90, width: 0.13, hz: 1.5, color: "#EAFBFF", alpha: 0.55 },
+    // The starburst at the muzzle — the second non-hitbox shape in the game, and the first that is
+    // decoration rather than a telegraph. See `BeamStyle.flare` for why it is allowed and what an
+    // author may not do with it. Its colours are the beam's own, so it reads as the beam's root
+    // rather than as a separate effect that happens to fire at the same moment.
+    flare: {
+      discs: [
+        { radius: 4.2, color: "#0A2A7A", alpha: 0.16 },
+        { radius: 3, color: "#0356DC", alpha: 0.2 },
+        { radius: 2.1, color: "#1177FF", alpha: 0.26 },
+        { radius: 1.4, color: "#0AC6FD", alpha: 0.38 },
+        { radius: 0.85, color: "#B4F3FF", alpha: 0.62 },
+        { radius: 0.42, color: "#FFFFFF", alpha: 1 },
+      ],
+      spikes: 18,
+      spikeLong: 6.4,
+      spikeShort: 2.6,
+      spikeWidth: 0.16,
+      spikeColor: "#7FDDFF",
+      spikeAlpha: 0.3,
+      armLong: 11.5,
+      armAcross: 8,
+      armWidth: 0.22,
+      armColor: "#CFF4FF",
+      armAlpha: 0.38,
+      idle: 0.34,
+      punchMs: 280,
+    },
     charge: {
       minRadius: 2,
-      // Tracks the beam's own 15% widening (T13: `hitbox.width` 20 -> 23), so the telegraph keeps
-      // matching what it warns about. A charge orb that stopped growing with the beam would
-      // under-promise the thing about to be fired, which is the one failure mode a telegraph has.
-      maxRadius: 18.9,
-      // One band per beam layer, in the beam's own order: the orb is the beam gathering, so a band
-      // the beam does not have would telegraph a shot that is not coming. `combat-visual.test.ts`
-      // compares the two lists element for element, which is what keeps them moving together.
+      // Tracks the beam's own widening, so the telegraph keeps matching what it warns about. A
+      // charge orb that stopped growing with the beam would under-promise the thing about to be
+      // fired, which is the one failure mode a telegraph has.
+      maxRadius: 21,
+      // One band per beam layer, in the beam's own order and now at the beam's own opacities: the
+      // orb is the beam gathering, so a band the beam does not have would telegraph a shot that is
+      // not coming. `combat-visual.test.ts` compares the two lists element for element, which is
+      // what keeps them moving together.
       bands: [
-        { radiusScale: 1, color: "#0356DC" },
-        { radiusScale: 0.7, color: "#0AC6FD" },
-        { radiusScale: 0.4, color: "#F0FF00" },
-        { radiusScale: 0.16, color: "#FDFFE4" },
+        { radiusScale: 1, color: "#0A2A7A", alpha: 0.2 },
+        { radiusScale: 0.86, color: "#0356DC", alpha: 0.26 },
+        { radiusScale: 0.7, color: "#1177FF", alpha: 0.34 },
+        { radiusScale: 0.55, color: "#0AC6FD", alpha: 0.44 },
+        { radiusScale: 0.4, color: "#63E3FF", alpha: 0.58 },
+        { radiusScale: 0.27, color: "#B4F3FF", alpha: 0.74 },
+        { radiusScale: 0.16, color: "#F0FF00", alpha: 0.5 },
+        { radiusScale: 0.09, color: "#FFFFFF", alpha: 1 },
       ],
     },
   },
@@ -846,6 +1054,11 @@ export const WEAPON_BEAM_STYLES: Partial<Record<WeaponId, BeamStyle>> = {
 export interface DrawBeamLayer {
   points: { x: number; y: number }[];
   fill: number;
+  /**
+   * Resolved opacity, still to be multiplied by the instance's fade alpha at the call site. 1 for
+   * anything whose style authored none.
+   */
+  alpha: number;
 }
 
 /**
@@ -1277,6 +1490,7 @@ export function instanceGlowBands(
   return style.bands.map((band) => ({
     radius: radius * band.radiusScale * scale,
     fill: hexToFill(band.color),
+    alpha: alphaOf(band.alpha),
   }));
 }
 
@@ -1405,6 +1619,7 @@ export function projectileDrawLayers(
           return rotateBy(x, y, a, along, across);
         }),
         fill: hexToFill(layer.color),
+        alpha: 1,
       });
     }
     return out;
@@ -1416,7 +1631,7 @@ export function projectileDrawLayers(
     const fill = hexToFill(layer.color);
     if (layer.shape === "hull") {
       const shape = projectileShapeAt(hitbox, x, y, a);
-      if (shape.kind === "polygon") out.push({ points: shape.points, fill });
+      if (shape.kind === "polygon") out.push({ points: shape.points, fill, alpha: 1 });
       continue;
     }
     if (layer.shape === "tip") {
@@ -1429,7 +1644,7 @@ export function projectileDrawLayers(
         forward.push(rotateBy(x, y, a, along, -across));
         back.push(rotateBy(x, y, a, along, across));
       }
-      out.push({ points: [...forward, ...back.reverse()], fill });
+      out.push({ points: [...forward, ...back.reverse()], fill, alpha: 1 });
       continue;
     }
     if (layer.shape === "band") {
@@ -1473,7 +1688,7 @@ export function projectileDrawLayers(
         const t = (i / (MARK_SEGMENTS * 2)) * Math.PI * 2;
         points.push(rotateBy(x, y, a, Math.cos(t) * r, Math.sin(t) * r));
       }
-      out.push({ points, fill });
+      out.push({ points, fill, alpha: 1 });
       continue;
     }
     const base = clamp01(layer.baseScale) * hitbox.radiusAcross;
@@ -1532,10 +1747,14 @@ export function beamDrawLayers(
     // it here keeps `fillPoints` off a degenerate shape rather than making the render loop
     // re-check what this already knows.
     if (points.length < 3) continue;
-    layers.push({ points, fill: hexToFill(layer.color) });
+    layers.push({ points, fill: hexToFill(layer.color), alpha: alphaOf(layer.alpha) });
   }
-  // Last, so they draw ON TOP of every layer: an ember is in front of the fire, not inside it.
+  // Last, so they draw ON TOP of every layer: an ember is in front of the fire, not inside it, and
+  // a shard is a mote of light running down the beam rather than a part of its silhouette. Exactly
+  // one of the two can produce anything for a given weapon — `emberPolys` refuses a rect and
+  // `shardPolys` refuses a cone — so this is two shapes sharing a slot, not two effects stacking.
   layers.push(...emberPolys(def.hitbox, x, y, angle, grown, style, nowMs));
+  layers.push(...shardPolys(def.hitbox, x, y, angle, grown, style, nowMs));
   return layers;
 }
 
@@ -1574,6 +1793,7 @@ export function chargeOrbBands(
   return charge.bands.map((band) => ({
     radius: radius * band.radiusScale,
     fill: hexToFill(band.color),
+    alpha: alphaOf(band.alpha),
   }));
 }
 
@@ -1957,10 +2177,177 @@ function emberPolys(
       const pc = across + Math.sin(a) * r;
       points.push(rotateBy(x, y, heading, ca, Math.max(-cl, Math.min(cl, pc))));
     }
-    out.push({ points, fill });
+    out.push({ points, fill, alpha: 1 });
   }
   return out;
 }
+
+/**
+ * The bright motes running down a rect beam, in world space.
+ *
+ * Each shard is one streak: full width at its leading end, tapering to a point behind it, so it
+ * reads as light being CARRIED OUT rather than as an object flying — an early cut drew them as
+ * triangles pointing backwards and every one read as an arrowhead. Its run is a sawtooth on the
+ * wall clock, so a shard is born at the muzzle, crosses the beam and fades, and the next takes its
+ * place; the fade is quadratic so it is gone well before the tip rather than winking out there.
+ *
+ * Containment is the same argument every other shape here makes: the lane and the half-width are
+ * both fractions of the beam's own half-width and sum to well under it, and `put` clamps regardless.
+ */
+function shardPolys(
+  hitbox: BeamHitbox,
+  x: number,
+  y: number,
+  heading: number,
+  extent: number,
+  style: BeamStyle,
+  nowMs: number,
+): DrawBeamLayer[] {
+  const shards = style.shards;
+  if (!shards || hitbox.shape !== "rect" || extent <= 0) return [];
+  const count = Math.max(0, Math.floor(shards.count));
+  if (count <= 0) return [];
+
+  const half = hitbox.width / 2;
+  const fill = hexToFill(shards.color);
+  const out: DrawBeamLayer[] = [];
+  const put = (along: number, across: number): { x: number; y: number } =>
+    rotateBy(
+      x,
+      y,
+      heading,
+      Math.max(0, Math.min(extent, along)),
+      Math.max(-half, Math.min(half, across)),
+    );
+
+  for (let i = 0; i < count; i++) {
+    const seed = i * 977;
+    // Each shard starts its run at its own offset, so seven of them do not cross in a rank.
+    const cycle = ((nowMs / 1000) * shards.hz + noise(seed, 3)) % 1;
+    const along = cycle * extent;
+    const length = shards.length * (0.55 + 0.9 * noise(seed, 17));
+    const tail = along - length;
+    // A shard whose whole body is still behind the muzzle has not been born yet.
+    if (along <= 0 || tail >= extent) continue;
+
+    const lane = (noise(seed, 11) - 0.5) * 2 * half * SHARD_LANE;
+    const w = shards.width * half * (0.6 + 0.7 * noise(seed, 23));
+    const life = 1 - cycle;
+    out.push({
+      points: [
+        put(along, lane - w),
+        put(along, lane + w),
+        put(tail, lane + w * SHARD_TAIL),
+        put(tail, lane - w * SHARD_TAIL),
+      ],
+      fill,
+      alpha: alphaOf(shards.alpha * life * life),
+    });
+  }
+  return out;
+}
+
+/**
+ * The starburst at a rect beam's muzzle, outermost first, or `[]` when the weapon authors none.
+ *
+ * **Deliberately not part of `beamDrawLayers`.** Everything that function returns is swept vertex
+ * by vertex by the containment test, and this is the one shape in the game that legitimately sits
+ * OUTSIDE the hitbox (see `BeamStyle.flare`). Folding it in would force that test to carve out an
+ * exception, and a containment check with an exception in it stops proving anything about the
+ * shapes it still covers.
+ *
+ * `ageMs` is how long the beam has been alive. The flare flashes on the frame the shot leaves and
+ * decays over `punchMs` to a resting `idle` glow it holds for the rest of the beam's life — the
+ * muzzle keeps burning while the beam is held, which is what ties the two together rather than
+ * making the flash read as a separate event that coincided with the shot.
+ */
+export function beamFlareShapes(
+  weaponId: string,
+  x: number,
+  y: number,
+  angle: number,
+  ageMs: number,
+): FlareShape[] {
+  const def = isWeaponId(weaponId) ? weaponDefOf(weaponId) : null;
+  if (!def || def.kind !== "beam" || def.hitbox.shape !== "rect") return [];
+  const flare = WEAPON_BEAM_STYLES[def.id]?.flare;
+  if (!flare) return [];
+
+  const half = def.hitbox.width / 2;
+  // Quadratic, so the flash falls away fast and then eases into the hold rather than ramping down
+  // linearly — which reads as the flare being turned down by hand.
+  const punch = clamp01(1 - Math.max(0, ageMs) / Math.max(1, flare.punchMs)) ** 2;
+  const k = flare.idle + (1 - flare.idle) * punch;
+  // The whole burst is a little smaller at rest than at its flash, so the muzzle settles rather
+  // than merely dimming.
+  const scale = FLARE_REST_SCALE + (1 - FLARE_REST_SCALE) * k;
+
+  const out: FlareShape[] = [];
+  /** One spike: a thin isoceles sliver with its base straddling the muzzle. */
+  const sliver = (
+    reach: number,
+    width: number,
+    bearing: number,
+    color: string,
+    alpha: number,
+  ): void => {
+    const L = reach * half * scale;
+    const W = width * half;
+    out.push({
+      kind: "poly",
+      points: [
+        rotateBy(x, y, angle + bearing, L, 0),
+        rotateBy(x, y, angle + bearing, 0, W),
+        rotateBy(x, y, angle + bearing, 0, -W),
+      ],
+      fill: hexToFill(color),
+      alpha: alphaOf(alpha * k),
+    });
+  };
+
+  // The four lens arms first and longest, then the ring, then the discs over both — a flare's core
+  // is the brightest thing in it and nothing may draw over it.
+  sliver(flare.armLong, flare.armWidth, 0, flare.armColor, flare.armAlpha);
+  sliver(flare.armLong, flare.armWidth, Math.PI, flare.armColor, flare.armAlpha);
+  sliver(flare.armAcross, flare.armWidth, Math.PI / 2, flare.armColor, flare.armAlpha);
+  sliver(flare.armAcross, flare.armWidth, -Math.PI / 2, flare.armColor, flare.armAlpha);
+
+  const spikes = Math.max(0, Math.floor(flare.spikes));
+  for (let i = 0; i < spikes; i++) {
+    // Off-axis by `FLARE_SPIKE_SKEW` so no spike lies under a lens arm, where it would be invisible
+    // and paid for anyway.
+    const bearing = (i / spikes) * Math.PI * 2 + FLARE_SPIKE_SKEW;
+    const reach = i % 2 === 0 ? flare.spikeLong : flare.spikeShort;
+    sliver(reach, flare.spikeWidth, bearing, flare.spikeColor, flare.spikeAlpha);
+  }
+
+  for (const disc of flare.discs) {
+    out.push({
+      kind: "disc",
+      x,
+      y,
+      radius: disc.radius * half * scale,
+      fill: hexToFill(disc.color),
+      alpha: alphaOf(disc.alpha * k),
+    });
+  }
+  return out;
+}
+
+/** How far off the beam's centreline a shard may run, as a fraction of the beam's half-width. */
+const SHARD_LANE = 0.34;
+
+/**
+ * A shard's trailing half-width as a fraction of its leading one. Not zero: a true point aliases to
+ * a flickering hairline at the scale a beam is drawn at.
+ */
+const SHARD_TAIL = 0.12;
+
+/** What a flare shrinks to once its flash has fully decayed, as a fraction of its flash size. */
+const FLARE_REST_SCALE = 0.72;
+
+/** Rotates the spike ring off the lens arms, so no spike is drawn underneath one. */
+const FLARE_SPIKE_SKEW = 0.11;
 
 /**
  * Deterministic value noise in `[0, 1)`. A hash rather than `Math.random` so a beam's shape depends
@@ -2131,6 +2518,17 @@ function rotateBy(
 
 function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
+}
+
+/**
+ * An authored opacity resolved to `(0, 1]`. Absent is fully opaque, which is what every style
+ * authored before `BeamLayer.alpha` existed means and must keep meaning.
+ *
+ * A 0 would author an invisible layer that still costs a fill, so it clamps up to a hairline rather
+ * than to nothing: an author who wants a layer gone deletes the layer.
+ */
+function alphaOf(value: number | undefined): number {
+  return value === undefined ? 1 : Math.min(1, Math.max(0.01, value));
 }
 
 /** `#RRGGBB` to a Phaser fill, falling back to grey rather than rendering an invisible `NaN`. */
