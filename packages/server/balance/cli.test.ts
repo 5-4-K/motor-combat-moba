@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEATHMATCH_CONFIG, GameMode } from "@motor-combat-moba/shared";
-import { parseArgs } from "./cli.js";
+import { helpText, KNOWN_FLAGS, parseArgs, wantsHelp } from "./cli.js";
 
 describe("parseArgs (B41, B42)", () => {
   it("defaults to ffa deathmatch at pro, 50 matches", () => {
@@ -106,5 +106,46 @@ describe("parseArgs (B41, B42)", () => {
   it("parses a negative or zero --matches as an error rather than an empty run", () => {
     expect(() => parseArgs(["--matches=0"])).toThrow();
     expect(() => parseArgs(["--matches=-5"])).toThrow();
+  });
+});
+
+describe("--help", () => {
+  it("recognises --help, -h and a bare --help among other flags", () => {
+    expect(wantsHelp(["--help"])).toBe(true);
+    expect(wantsHelp(["-h"])).toBe(true);
+    // Beside the very typo the reader is looking up — help must still win, since `run.ts` checks
+    // this BEFORE parseArgs (which would throw on `--matchs`).
+    expect(wantsHelp(["--matchs=10", "--help"])).toBe(true);
+  });
+
+  it("does not mistake an ordinary run for a help request", () => {
+    expect(wantsHelp([])).toBe(false);
+    expect(wantsHelp(["--matches=10", "--shape=duel"])).toBe(false);
+    // A path that merely contains the word, not the flag.
+    expect(wantsHelp(["--out=reports/help"])).toBe(false);
+  });
+
+  it("documents every flag the CLI accepts, so the page cannot silently go short", () => {
+    const text = helpText();
+    for (const flag of KNOWN_FLAGS) {
+      expect(text, `--${flag} is missing from helpText()`).toContain(`--${flag}`);
+    }
+  });
+
+  it("prints the same defaults parseArgs actually applies", () => {
+    const text = helpText();
+    const d = parseArgs([]);
+    expect(text).toContain(`(default ${d.matches})`);
+    expect(text).toContain(`(default ${d.arenaId})`);
+    expect(text).toContain(`(default ${d.skill})`);
+    expect(text).toContain(`(default ${d.shape}`);
+    expect(text).toContain(`${d.matchSeconds} for deathmatch`);
+    expect(text).toContain(`${parseArgs(["--shape=duel"]).matchSeconds} for last-standing`);
+  });
+
+  it("still parses --help as a known flag, so it never reads as a typo", () => {
+    // `run.ts` short-circuits before this, but the unknown-flag error points readers AT --help;
+    // that message must not be the thing that rejects it.
+    expect(() => parseArgs(["--help"])).not.toThrow();
   });
 });

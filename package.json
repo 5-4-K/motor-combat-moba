@@ -12,7 +12,7 @@
   "scripts": {
     "build": "npm run build -w @motor-combat-moba/shared && npm run build -w @motor-combat-moba/server && npm run build -w @motor-combat-moba/client",
     "test:scripts": "node --test \"scripts/*.test.mjs\"",
-    "test": "npm run build -w @motor-combat-moba/shared && npm run test --workspaces --if-present && npm run test:scripts",
+    "test": "npm run build -w @motor-combat-moba/shared && npm run typecheck --workspaces --if-present && npm run test --workspaces --if-present && npm run test:scripts",
     "playtest": "npm run build -w @motor-combat-moba/shared && npm run playtest -w @motor-combat-moba/server",
     "playtest:lan": "npm run playtest:lan -w @motor-combat-moba/server",
     "balance": "npm run build -w @motor-combat-moba/shared && npm run balance -w @motor-combat-moba/server --",

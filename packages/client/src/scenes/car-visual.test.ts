@@ -1,7 +1,14 @@
 import { DEATH_FADE_MS, TICK_RATE_HZ } from "@motor-combat-moba/shared";
 import { describe, expect, it } from "vitest";
 import { CAR_TABLE, COLOR_TABLE, DEFAULT_CAR_ID, DRIVE_CONFIG } from "@motor-combat-moba/shared";
-import { carFillOf, carShapeOf, deathFadeAlpha, hexagonPoints } from "./car-visual.js";
+import {
+  carFillOf,
+  carOutlinePoints,
+  carShapeOf,
+  deathFadeAlpha,
+  ellipsePoints,
+  hexagonPoints,
+} from "./car-visual.js";
 
 describe("carShapeOf", () => {
   it("gives every CAR_TABLE id its own silhouette", () => {
@@ -78,5 +85,63 @@ describe("deathFadeAlpha", () => {
   it("never returns a negative alpha from a clock that ran backwards", () => {
     // Reconciliation can hand the renderer a tick behind the one that stamped the death.
     expect(deathFadeAlpha(false, 200, 190)).toBe(1);
+  });
+});
+
+describe("carOutlinePoints", () => {
+  const W = DRIVE_CONFIG.carWidth;
+  const H = DRIVE_CONFIG.carHeight;
+
+  it("gives every chassis a closed convex outline of at least three points", () => {
+    for (const carId of Object.keys(CAR_TABLE)) {
+      expect(carOutlinePoints(carId, W, H).length).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("hands the hex chassis exactly the silhouette it is already drawn with", () => {
+    // One shape, not two: the outline the rim is stroked along has to be the same polygon the
+    // fallback silhouette fills, or a car without art would wear an edge that does not fit it.
+    expect(carOutlinePoints("bastion", W, H)).toEqual(hexagonPoints(W, H));
+  });
+
+  it("keeps every point inside the OBB — the drawn car may not exceed its hitbox", () => {
+    for (const carId of Object.keys(CAR_TABLE)) {
+      for (const p of carOutlinePoints(carId, W, H)) {
+        expect(Math.abs(p.x)).toBeLessThanOrEqual(W / 2 + 1e-9);
+        expect(Math.abs(p.y)).toBeLessThanOrEqual(H / 2 + 1e-9);
+      }
+    }
+  });
+
+  it("spans the full hull on both axes, so the outline traces the car rather than a shape inside it", () => {
+    for (const carId of Object.keys(CAR_TABLE)) {
+      const pts = carOutlinePoints(carId, W, H);
+      expect(Math.max(...pts.map((p) => p.x))).toBeCloseTo(W / 2, 6);
+      expect(Math.max(...pts.map((p) => p.y))).toBeCloseTo(H / 2, 6);
+    }
+  });
+
+  it("draws the default chassis for an unknown carId, like every other lookup here", () => {
+    expect(carOutlinePoints("triangle", W, H)).toEqual(carOutlinePoints(DEFAULT_CAR_ID, W, H));
+  });
+});
+
+describe("ellipsePoints", () => {
+  it("closes a ring that spans the full width and height", () => {
+    const pts = ellipsePoints(48, 32);
+    expect(Math.max(...pts.map((p) => p.x))).toBeCloseTo(24, 6);
+    expect(Math.min(...pts.map((p) => p.x))).toBeCloseTo(-24, 6);
+    expect(Math.max(...pts.map((p) => p.y))).toBeCloseTo(16, 6);
+  });
+
+  it("stays inside the box it is inscribed in, at every point", () => {
+    for (const p of ellipsePoints(48, 32)) {
+      expect(Math.abs(p.x)).toBeLessThanOrEqual(24 + 1e-9);
+      expect(Math.abs(p.y)).toBeLessThanOrEqual(16 + 1e-9);
+    }
+  });
+
+  it("is what the ellipse chassis is drawn with, so one curve serves both", () => {
+    expect(carOutlinePoints("bullseye", 48, 32)).toEqual(ellipsePoints(48, 32));
   });
 });

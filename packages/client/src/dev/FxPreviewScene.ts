@@ -207,7 +207,18 @@ export class FxPreviewScene extends Phaser.Scene {
     // through the shipped path, not a hand-called burst.
     const instances =
       t < DETONATION_S
-        ? [{ id: "shell", weaponId: "magmablast", x: 952, y: 222, angle: 0, alive: true }]
+        ? [
+            {
+              id: "shell",
+              weaponId: "magmablast",
+              x: 952,
+              y: 222,
+              angle: 0,
+              alive: true,
+              extent: 0,
+              isExplosion: false,
+            },
+          ]
         : [];
 
     const view: FxWorldView = { cars, instances };

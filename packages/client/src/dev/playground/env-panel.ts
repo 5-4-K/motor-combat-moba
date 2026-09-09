@@ -28,6 +28,7 @@ const SECTION_ORDER: readonly EnvSection[] = [
   "floor",
   "markings",
   "carBursts",
+  "carLook",
 ];
 
 const SECTION_LABELS: Record<EnvSection, string> = {
@@ -40,6 +41,7 @@ const SECTION_LABELS: Record<EnvSection, string> = {
   floor: "Floor texture",
   markings: "Painted markings",
   carBursts: "Car burst scaling",
+  carLook: "Car lighting",
 };
 
 export interface EnvPanelOptions {

@@ -54,6 +54,10 @@ function ceilingViews(): [FxWorldView, FxWorldView] {
       y: i * 5,
       angle: i * 0.1,
       alive: true,
+      // A live beam reach for the lance rows, so the worst case exercises the real contact
+      // derivation rather than a degenerate zero-extent shape that bails out early.
+      extent: i % 3 === 2 ? 400 : 0,
+      isExplosion: false,
     }));
   const prev: FxWorldView = { cars, instances: instances(0) };
   // Every instance replaced: 60 endings and 60 firings on one frame, plus six cars taking damage.
@@ -92,11 +96,18 @@ describe("per-frame FX cost", () => {
       eraserStampsFor(next.cars);
     }
     const perFrameMs = (performance.now() - started) / iterations;
-    // MEASURED: 0.013-0.019 ms warm, 0.046 ms on a cold 200-iteration pass. That is 0.1% of a
-    // 16.7 ms frame. The bound is 0.25 ms — ~5x the coldest observation, ~15x the warm one, and
-    // still only 1.5% of a frame, so it leaves the renderer everything while remaining a bound a
-    // real regression could cross: dropping `MAX_SPECS_PER_FRAME`, or a heavy synchronous op —
-    // an added allocation, an extra pass over the instance list — landing on the hot path.
+    // MEASURED: 0.074-0.087 ms warm. That is ~0.5% of a 16.7 ms frame, and the bound of 0.25 ms is
+    // ~3x it and still only 1.5% of a frame — enough headroom for a slower machine, tight enough
+    // that a real regression crosses it: dropping `MAX_SPECS_PER_FRAME`, or a heavy synchronous op
+    // — an added allocation, an extra pass over the instance list — landing on the hot path.
+    //
+    // It read 0.013-0.019 ms warm until `fx/contact.ts` landed, when every `shotEnded` and
+    // `damaged` event stopped carrying a bare pose and started deriving the point the weapon
+    // actually touched. That is 360 car-instance pairs on this frame, and the first cut of it
+    // measured 0.36 ms — over the bound. What brought it back under is worth keeping intact if you
+    // edit that module: `ShotGeometry` resolves each instance once per frame instead of once per
+    // car, `withinReach` rejects ~82% of pairs with no trig and no allocation, and both loops stop
+    // at the first CONFIRMED contact rather than scoring every remaining instance.
     //
     // What this bound does NOT catch: algorithmic complexity. At this input size (six cars, sixty
     // instances) O(n) and O(n^2) are not far enough apart in wall-clock terms to trip a millisecond
@@ -132,6 +143,8 @@ describe("per-frame FX cost", () => {
           y: i * 5,
           angle: i * 0.1,
           alive: true,
+          extent: i % 3 === 2 ? 400 : 0,
+          isExplosion: false,
         }));
       const prev: FxWorldView = { cars, instances: instances(0) };
       const next: FxWorldView = { cars: cars.map((c) => ({ ...c, hp: c.hp - 5 })), instances: instances(1000) };

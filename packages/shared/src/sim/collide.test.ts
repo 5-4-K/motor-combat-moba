@@ -6,6 +6,7 @@ import {
   contactNormalBetween,
   convexOverlap,
   obbCorners,
+  nearestPointOnObb,
   obbsOverlap,
   pointInAabb,
   pointInObb,
@@ -749,6 +750,59 @@ describe("pointInObb", () => {
     const turned: Obb = { x: 0, y: 0, angle: Math.PI / 2, w: CAR_W, h: CAR_H };
     expect(pointInObb(0, CAR_W / 2 - 1, turned)).toBe(true);
     expect(pointInObb(CAR_W / 2 - 1, 0, turned)).toBe(false);
+  });
+});
+
+describe("nearestPointOnObb", () => {
+  const box: Obb = { x: 100, y: 200, angle: 0, w: CAR_W, h: CAR_H };
+
+  it("returns a point already inside the box unchanged", () => {
+    // Clamping, not projection: a source that sits inside the hull has nowhere nearer to go. The FX
+    // layer relies on this — a shot that ended INSIDE a car bursts where it stopped, not on the skin.
+    expect(nearestPointOnObb(105, 203, box)).toEqual({ x: 105, y: 203 });
+  });
+
+  it("clamps a point past one face back onto that face, keeping the other axis", () => {
+    const p = nearestPointOnObb(100 + CAR_W, 205, box);
+    expect(p.x).toBeCloseTo(100 + CAR_W / 2, 10);
+    expect(p.y).toBeCloseTo(205, 10);
+  });
+
+  it("clamps a point beyond a corner onto that corner, on both axes at once", () => {
+    const p = nearestPointOnObb(100 + CAR_W, 200 + CAR_H, box);
+    expect(p.x).toBeCloseTo(100 + CAR_W / 2, 10);
+    expect(p.y).toBeCloseTo(200 + CAR_H / 2, 10);
+  });
+
+  it("rotates with the box rather than with the world axes", () => {
+    // Turned a quarter turn, the box's LONG axis runs along world +y, so a point far out along +y
+    // clamps to CAR_W / 2 away while the same distance along +x clamps to the much nearer CAR_H / 2.
+    const turned: Obb = { x: 0, y: 0, angle: Math.PI / 2, w: CAR_W, h: CAR_H };
+    const alongLong = nearestPointOnObb(0, 500, turned);
+    expect(alongLong.x).toBeCloseTo(0, 10);
+    expect(alongLong.y).toBeCloseTo(CAR_W / 2, 10);
+
+    const alongShort = nearestPointOnObb(500, 0, turned);
+    expect(alongShort.x).toBeCloseTo(CAR_H / 2, 10);
+    expect(alongShort.y).toBeCloseTo(0, 10);
+  });
+
+  it("agrees with circleOverlapsObb about where the box's surface is", () => {
+    // The two share the clamp-into-the-local-frame technique, so a circle centred anywhere is in
+    // contact exactly when its radius exceeds the distance to this point. Pinning that keeps the FX
+    // layer's idea of "where the shot touched" and the sim's idea of "whether it touched" together.
+    const angled: Obb = { x: 40, y: -15, angle: 0.7, w: CAR_W, h: CAR_H };
+    for (const [cx, cy] of [
+      [140, 60],
+      [-30, -80],
+      [41, -14],
+      [40, 40],
+    ]) {
+      const near = nearestPointOnObb(cx, cy, angled);
+      const gap = Math.hypot(cx - near.x, cy - near.y);
+      expect(circleOverlapsObb(cx, cy, gap + 0.001, angled)).toBe(true);
+      if (gap > 0.002) expect(circleOverlapsObb(cx, cy, gap - 0.001, angled)).toBe(false);
+    }
   });
 });
 

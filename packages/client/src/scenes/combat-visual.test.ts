@@ -8,6 +8,7 @@ import {
   hpOf,
   msToTicks,
   weaponTicksOf,
+  type WeaponId,
 } from "@motor-combat-moba/shared";
 import {
   allegianceOf,
@@ -18,6 +19,10 @@ import {
   hpBarPoints,
   hpFraction,
   beamDrawLayers,
+  beamFlareShapes,
+  isProjectileWeapon,
+  WEAPON_PROJECTILE_STYLES,
+  projectileDrawLayers,
   chargeOrbBands,
   instanceDrawShape,
   instanceGlowBands,
@@ -861,20 +866,75 @@ describe("lance beam layers", () => {
   if (lance.kind !== "beam" || lance.hitbox.shape !== "rect") throw new Error("lance is a rect beam");
   const HALF = lance.hitbox.width / 2;
   const REACH = 1200;
+  /** How many of the returned polygons are the beam itself. The rest are its shards. */
+  const LAYER_COUNT = WEAPON_BEAM_STYLES.lance!.layers.length;
+  /**
+   * The nested envelope only, without the shards appended after it — the same split the flame
+   * tests above make for `afterburner`'s embers, and for the same reason: a shard is detail drawn
+   * ON the beam at its own rate, not one of the beam's nested layers, so anything asserted about
+   * the nesting has to be asserted about the nesting.
+   */
+  const shaft = (nowMs = 0) =>
+    beamDrawLayers("lance", 0, 0, 0, REACH, 0, nowMs).slice(0, LAYER_COUNT);
 
   it("nests by WIDTH, since narrowing a rect's length would hide it inside itself", () => {
-    const layers = beamDrawLayers("lance", 0, 0, 0, REACH, 0);
-    expect(layers).toHaveLength(WEAPON_BEAM_STYLES.lance!.layers.length);
+    const layers = shaft();
+    expect(layers).toHaveLength(LAYER_COUNT);
     expect(layers.length).toBeGreaterThan(1);
     const halfWidths = layers.map((l) => Math.max(...l.points.map((p) => Math.abs(p.y))));
     const lengths = layers.map((l) => Math.max(...l.points.map((p) => p.x)));
     for (let i = 1; i < layers.length; i++) {
       expect(halfWidths[i]!).toBeLessThan(halfWidths[i - 1]!);
-      // Every layer still runs to the beam's far end; only the width varies. The ORIGIN is where
-      // they now differ -- see the dome test below -- so this checks the far end alone, where the
-      // old version could compare whole lengths.
-      expect(lengths[i]!).toBeCloseTo(lengths[0]!, 6);
+      // Length is now allowed to step down inward as well, and the assertion moved with it: it
+      // used to require every layer to reach the far end exactly. The redraw shortens the four
+      // innermost layers so the hot core stops behind the tip and the beam cools to blue as it
+      // reaches -- the far-end fray the reference art has. What must still hold is that the
+      // shortening is MONOTONIC and small: a layer may never be longer than the one outside it
+      // (which is what would hide a bar inside a bar), and the innermost still covers most of the
+      // beam rather than becoming a stub at the muzzle.
+      expect(lengths[i]!).toBeLessThanOrEqual(lengths[i - 1]! + 1e-6);
     }
+    expect(lengths[0]!).toBeCloseTo(REACH, 6);
+    // The hot core may stop short, but the beam's visible BULK may not: everything down to the
+    // half-width the falloff is carried by still has to reach the hitbox's far edge, or the last
+    // stretch of a beam that hits is drawn only in the faintest layer it has.
+    expect(lengths[lengths.length - 1]!).toBeGreaterThanOrEqual(REACH * 0.9 - 1e-6);
+    // Selected by WIDTH, not by opacity: what must survive to the tip is the beam's visible girth,
+    // and the innermost layers are the brightest precisely because they are the thinnest.
+    const style = WEAPON_BEAM_STYLES.lance!;
+    const bulk = style.layers
+      .map((layer, i) => ({ layer, length: lengths[i]! }))
+      .filter(({ layer }) => layer.crossScale >= 0.5);
+    for (const { layer, length } of bulk) {
+      expect([layer.color, length]).toEqual([layer.color, REACH]);
+    }
+    expect(bulk.length).toBeGreaterThan(2);
+  });
+
+  it("grades its layers from a faint envelope to an opaque core", () => {
+    // The whole reason the redraw reads as a beam rather than as nested bars: opaque layers hide
+    // each other and can only ever show N hard edges, so the falloff has to be in the alpha.
+    const style = WEAPON_BEAM_STYLES.lance!;
+    const alphas = shaft().map((l) => l.alpha);
+    expect(alphas[0]!).toBeLessThan(0.35);
+    expect(alphas[alphas.length - 1]!).toBe(1);
+
+    // The RAMP is the layers up to the table-colour ring, and it rises without a step back. The
+    // ring itself is deliberately NOT on it -- it is half-transparent so it reads as overdrive over
+    // the pale cyan beneath rather than as a yellow stripe down a blue beam -- so a blanket
+    // "every layer is brighter than the last" would forbid the one thing that layer is for.
+    const ring = style.layers.findIndex((l) => l.color.toUpperCase() === WEAPON_TABLE.lance.color.toUpperCase());
+    expect(ring).toBeGreaterThan(0);
+    for (let i = 1; i < ring; i++) expect(alphas[i]!).toBeGreaterThan(alphas[i - 1]!);
+    expect(alphas[ring]!).toBeLessThan(alphas[ring - 1]!);
+  });
+
+  it("keeps the table colour in the stack, so the HUD swatch names something on screen", () => {
+    // Nothing typed ties `WEAPON_TABLE.color` to the beam that wears it, and the charge orb's
+    // colour test only compares the orb to the layers -- so if the layers dropped this hex, both
+    // would agree on a beam that no longer contains the colour the HUD paints for it.
+    const colors = WEAPON_BEAM_STYLES.lance!.layers.map((l) => l.color.toUpperCase());
+    expect(colors).toContain(WEAPON_TABLE.lance.color.toUpperCase());
   });
 
   /**
@@ -910,7 +970,7 @@ describe("lance beam layers", () => {
     // `thumper`'s capsule head, carved out of the beam's own length. The outermost layer's apex
     // must reach the muzzle exactly: if the dome were added BEHIND it instead, the shape would sit
     // outside the rect on the shooter's own car and would need the exception the charge orb has.
-    const outer = beamDrawLayers("lance", 0, 0, 0, REACH, 0)[0]!;
+    const outer = shaft()[0]!;
     const apex = Math.min(...outer.points.map((p) => p.x));
     expect(apex).toBeCloseTo(0, 6);
     // And the shape at the origin is a curve, not a straight cut: the widest point of the layer sits
@@ -923,7 +983,7 @@ describe("lance beam layers", () => {
   it("tears the outer layers but holds the core dead straight", () => {
     // The whole reason it reads as a laser rather than as a ribbon. Measured as how much each
     // layer's half-width varies along its length: the envelope must vary, the core must not.
-    const layers = beamDrawLayers("lance", 0, 0, 0, REACH, 0);
+    const layers = shaft();
     const spread = layers.map((l) => {
       // Ignore the domed origin, which legitimately narrows on every layer.
       const shaft = l.points.filter((p) => p.x > 80);
@@ -940,7 +1000,7 @@ describe("lance beam layers", () => {
       if (!layer.crackle) continue;
       const hz = layer.crackleHz ?? style.crackleHz!;
       expect(hz).toBeGreaterThan(0);
-      const at = (nowMs: number) => beamDrawLayers("lance", 0, 0, 0, REACH, 0, nowMs)[i]!.points;
+      const at = (nowMs: number) => shaft(nowMs)[i]!.points;
       // A full period apart, every crackling layer is materially different.
       expect(at(1000 / hz).map((p) => p.y)).not.toEqual(at(0).map((p) => p.y));
     }
@@ -979,7 +1039,12 @@ describe("lance beam layers", () => {
     let worst = 0;
     let previous: { x: number; y: number }[][] | null = null;
     for (let f = 0; f < 240; f++) {
-      const layers = beamDrawLayers("lance", 0, 0, 0, REACH, 0, f * FRAME_MS);
+      // The envelope only. A shard is deliberately excluded and is not an exception being carved
+      // out: when one reaches the tip it is replaced by a NEW shard at the muzzle, so its vertices
+      // jump the length of the beam by design. Nothing is hidden by that -- a shard has faded to
+      // nothing well before it wraps -- but it is not the same object moving, and this test is
+      // about whether the crackle is continuous.
+      const layers = shaft(f * FRAME_MS);
       const points = layers.map((l) => l.points);
       if (previous) {
         for (const [L, layer] of points.entries()) {
@@ -996,11 +1061,180 @@ describe("lance beam layers", () => {
     expect(worst).toBeGreaterThan(0);
   });
 
+  it("clamps every shard inside the beam, at any extent or animation frame", () => {
+    // The shards ride in the same list the envelope does, so the containment sweep above already
+    // covers them -- this pins the thing that sweep cannot see: that they are actually THERE. A
+    // style whose shards all failed their birth guard would pass containment trivially.
+    const seen = new Set<number>();
+    for (let f = 0; f < 400; f++) {
+      const all = beamDrawLayers("lance", 0, 0, 0, REACH, 0, f * (1000 / 60));
+      seen.add(all.length - LAYER_COUNT);
+    }
+    // Never more than the authored count, and at some frame the beam carries several at once.
+    expect(Math.max(...seen)).toBeGreaterThan(1);
+    expect(Math.max(...seen)).toBeLessThanOrEqual(WEAPON_BEAM_STYLES.lance!.shards!.count);
+    expect(Math.min(...seen)).toBeGreaterThanOrEqual(0);
+  });
+
+  it("fades a shard out before it reaches the tip, so none of them wink out", () => {
+    // A shard's run is a sawtooth: at the wrap it is replaced rather than moved. That is only
+    // invisible if it has already faded, which is what this pins -- and it is the licence the
+    // continuity test above takes when it excludes them.
+    const worstAtTip = { alpha: 0 };
+    for (let f = 0; f < 600; f++) {
+      const all = beamDrawLayers("lance", 0, 0, 0, REACH, 0, f * (1000 / 60));
+      for (const shard of all.slice(LAYER_COUNT)) {
+        const along = Math.max(...shard.points.map((p) => p.x));
+        if (along > REACH * 0.9) worstAtTip.alpha = Math.max(worstAtTip.alpha, shard.alpha);
+      }
+    }
+    expect(worstAtTip.alpha).toBeLessThan(0.05);
+  });
+
+  it("draws no shards on a cone, and no embers on a rect", () => {
+    // The two are one slot, not two effects that stack: whichever shape a beam is not contributes
+    // nothing. Asserted through the real roster rather than a hand-built style, since the refusal
+    // lives on the hitbox shape.
+    expect(WEAPON_BEAM_STYLES.afterburner!.shards).toBeUndefined();
+    expect(WEAPON_BEAM_STYLES.lance!.embers).toBeUndefined();
+    const cone = beamDrawLayers("afterburner", 0, 0, 0, 200, 0, 500);
+    expect(cone.length).toBeGreaterThan(WEAPON_BEAM_STYLES.afterburner!.layers.length);
+  });
+
   it("still draws a plain nested bar for a rect beam that asks for no bolt", () => {
     // The fallback every other rect beam keeps. Verified through `rectPoints`' own inputs rather
     // than through a real weapon, since `lance` is the roster's only rect beam today.
     const plain = beamDrawLayers("afterburner", 0, 0, 0, 200, 0);
     expect(plain.length).toBeGreaterThan(0);
+  });
+});
+
+describe("every drawn layer resolves a usable alpha", () => {
+  /**
+   * The regression this exists for: `predator` and `roadblock` went INVISIBLE in a live room, and
+   * nothing caught it. `DrawBeamLayer.alpha` was added as a required field, three of the six shape
+   * branches in `projectileDrawLayers` were not updated, and `renderShots` computes
+   * `alpha * layer.alpha` -- so those layers asked Phaser to fill at `NaN` and it drew nothing.
+   *
+   * Two things let it ship, and this test answers the second. The first is that the client's
+   * `npm run build` is `vite build`, which strips types with esbuild and never typechecks; `tsc
+   * --noEmit` is a separate `typecheck` script that neither the build nor the suite ran. The second
+   * is that no test asserted anything about a projectile layer's alpha at all -- the shipped suite
+   * only ever looked at their VERTICES, so a fill parameter could go to `NaN` with every existing
+   * assertion still green.
+   *
+   * Asserted over the whole roster and every branch rather than over the three that broke, because
+   * the next required field added to a draw type will miss a different branch.
+   */
+  const drawn = (weaponId: WeaponId) =>
+    isProjectileWeapon(weaponId)
+      ? projectileDrawLayers(
+          { weaponId, isExplosion: false, x: 0, y: 0, angle: 0, extent: 0 },
+          0,
+        )
+      : beamDrawLayers(weaponId, 0, 0, 0, 400, 0, 1234);
+
+  const ids = Object.keys(WEAPON_TABLE) as WeaponId[];
+
+  it.each(ids)("draws %s with a finite alpha on every layer", (weaponId) => {
+    const bad = drawn(weaponId).filter(
+      (l) => !Number.isFinite(l.alpha) || l.alpha <= 0 || l.alpha > 1,
+    );
+    expect(bad.map((l) => `#${l.fill.toString(16)} @ ${l.alpha}`)).toEqual([]);
+  });
+
+  it("draws every layer each authored projectile style asks for", () => {
+    // The other half of the same failure: a NaN alpha is invisible, but so is a layer silently
+    // dropped by a branch that `continue`s. Counted against the style so a shape branch that stops
+    // producing anything fails here rather than in a live room.
+    for (const [weaponId, style] of Object.entries(WEAPON_PROJECTILE_STYLES)) {
+      if (!style) continue;
+      expect([weaponId, drawn(weaponId as WeaponId).length]).toEqual([
+        weaponId,
+        style.layers.length,
+      ]);
+    }
+  });
+
+  it("resolves an absent alpha to fully opaque rather than to nothing", () => {
+    // What every style authored before `BeamLayer.alpha` existed relies on.
+    const tremor = beamDrawLayers("tremor", 0, 0, 0, 400, 0);
+    expect(tremor.length).toBeGreaterThan(0);
+    for (const layer of tremor) expect(layer.alpha).toBe(1);
+  });
+});
+
+describe("beamFlareShapes", () => {
+  const FLARE = WEAPON_BEAM_STYLES.lance!.flare!;
+  const lance = WEAPON_TABLE.lance;
+  if (lance.kind !== "beam" || lance.hitbox.shape !== "rect") throw new Error("lance is a rect beam");
+  const HALF = lance.hitbox.width / 2;
+  const at = (ageMs: number) => beamFlareShapes("lance", 0, 0, 0, ageMs);
+
+  it("draws nothing for a weapon that authors no flare", () => {
+    // afterburner is a beam with layers and embers but no flare; the rest are not beams at all.
+    expect(beamFlareShapes("afterburner", 0, 0, 0, 0)).toEqual([]);
+    expect(beamFlareShapes("predator", 0, 0, 0, 0)).toEqual([]);
+    expect(beamFlareShapes("wildcharge", 0, 0, 0, 0)).toEqual([]);
+    expect(beamFlareShapes("not-a-weapon", 0, 0, 0, 0)).toEqual([]);
+  });
+
+  it("costs one fill per authored spike, arm and disc, at every age", () => {
+    const total = 4 + FLARE.spikes + FLARE.discs.length;
+    for (const ageMs of [0, 50, 280, 900, 1500]) expect(at(ageMs)).toHaveLength(total);
+  });
+
+  it("flashes on the frame the shot leaves and decays to a resting glow", () => {
+    // The whole reason it is tied to the beam's age rather than to the wall clock: the flash has
+    // to land on the exit, not on whatever frame the client happened to render first.
+    const brightest = (ageMs: number) => Math.max(...at(ageMs).map((f) => f.alpha));
+    expect(brightest(0)).toBeGreaterThan(brightest(FLARE.punchMs / 2));
+    expect(brightest(FLARE.punchMs / 2)).toBeGreaterThan(brightest(FLARE.punchMs));
+    // And it holds from there rather than continuing to fade to nothing: the muzzle keeps burning
+    // while the beam is held, which is what stops the flash reading as a separate event.
+    expect(brightest(FLARE.punchMs)).toBeCloseTo(brightest(1400), 6);
+    expect(brightest(1400)).toBeGreaterThan(0);
+  });
+
+  it("stays centred on the muzzle at every age, and never drifts out along the beam", () => {
+    // The one rule that keeps this defensible as decoration outside the hitbox (see
+    // `BeamStyle.flare`): a flare out at the tip would assert reach the hitbox does not have.
+    for (const ageMs of [0, 140, 800]) {
+      for (const shape of at(ageMs)) {
+        if (shape.kind === "disc") {
+          expect(shape.x).toBeCloseTo(0, 6);
+          expect(shape.y).toBeCloseTo(0, 6);
+        } else {
+          // Every sliver has its base ON the muzzle; only its point reaches away from it.
+          const nearest = Math.min(...shape.points.map((p) => Math.hypot(p.x, p.y)));
+          expect(nearest).toBeLessThan(HALF);
+        }
+      }
+    }
+  });
+
+  it("shrinks as it settles, so the muzzle calms rather than merely dimming", () => {
+    const reach = (ageMs: number) =>
+      Math.max(
+        ...at(ageMs).flatMap((f) =>
+          f.kind === "disc" ? [f.radius] : f.points.map((p) => Math.hypot(p.x, p.y)),
+        ),
+      );
+    expect(reach(0)).toBeGreaterThan(reach(FLARE.punchMs));
+    // It is a burst, not a blob: the longest arm reaches well past the beam's own half-width, which
+    // is exactly why it cannot live inside the hitbox and needs its own function.
+    expect(reach(0)).toBeGreaterThan(HALF * 4);
+  });
+
+  it("rides the beam's heading, so a flare on a turned car is not drawn axis-aligned", () => {
+    const turned = beamFlareShapes("lance", 100, 50, Math.PI / 2, 0);
+    const arms = turned.filter((f) => f.kind === "poly");
+    expect(arms.length).toBeGreaterThan(0);
+    // Pointing along +y, the longest arm's tip must have moved in y rather than in x.
+    const tip = arms
+      .flatMap((f) => (f.kind === "poly" ? f.points : []))
+      .reduce((a, b) => (Math.hypot(b.x - 100, b.y - 50) > Math.hypot(a.x - 100, a.y - 50) ? b : a));
+    expect(Math.abs(tip.y - 50)).toBeGreaterThan(Math.abs(tip.x - 100));
   });
 });
 

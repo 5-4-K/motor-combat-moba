@@ -32,6 +32,37 @@ its parent shell's `weaponId`, so the branch takes the whole `DrawableInstance` 
 all) rather than a bare `weaponId`, and resolves the def through `instanceDefOf` before asking what
 its hitbox is.
 
+**Cars are lit, and the arena has exactly one light.** `ENVIRONMENT_FX.carLook.lightAngle` — the
+direction from a car toward the light — is the whole model, and `scenes/car-lighting.ts` derives
+everything from it: a four-corner gradient tint on the body, a drop shadow and a contact shadow, and
+a rim light. Before this a car was a flat `setTint` on flat asphalt with no shadow at all, which is
+exactly how it read.
+
+**Every derivation takes the car's rotation and undoes it, and that is the point.** The light is
+WORLD-fixed. Tint by fixed corner constants instead and the highlight spins with the bodywork, so a
+car looks lit by itself and six cars at six headings read as six separately-lit stickers.
+
+Three things about it are load-bearing and were each learned by looking at the screen rather than at
+a test:
+
+- **The rim is a copy of the car's own ART**, tinted and nudged toward the light behind the body —
+  not a stroked outline. The hull is a 48x32 box the sprites do not fill, so stroking it drew a
+  picture frame around the car. Only the art knows where a car's edge is. A chassis falling back to
+  the procedural silhouette simply goes without a rim rather than earning a second code path.
+- **Every car's shadow is one ellipse**, sized by `carLook.footprint` to well inside the hull, and
+  never the chassis silhouette: at hull size the rect chassis cast a hard rectangle and the car sat
+  in a box. A shadow is soft and nobody reads its outline.
+- **The shadow bands all carry the same alpha**, `shadowAlpha / count`. They stack, so the centre
+  lands near the authored number and the edge at a fraction of it — that gradient IS the softness.
+  Ramping the alphas too accumulated to ~0.75 and read as a hole in the road.
+
+The shadows draw on a **shared layer at `CAR_SHADOW_DEPTH`, not inside each car's container**: all
+cars sit at `CAR_DEPTH` and Phaser breaks that tie by insertion order, so a parented shadow would
+draw over another car's body every time two of them overlap. The gradient tint lives in
+`applyCarSprite` rather than in `ArenaScene`, because that helper is shared with `?dev=assets` so the
+tool cannot drift from the arena. Zeroing every strength in `carLook` restores the old flat drawing
+exactly, and the panel's "Car lighting" section tunes all of it live.
+
 `?debug=1` draws the car OBB hitbox.
 
 Combat is drawn, never predicted: live instances (projectiles and beams alike) come from `state.weapons` (cosmetically extrapolated along their own motion by `combat-visual.ts`), HP from `PlayerState.hp`. A dead car stops driving, predicting, and interpolating, and — **in Last Standing only** — gains the spectate controls in `spectate.ts`. A Deathmatch wreck keeps its own seat instead: the camera holds where it died, the slot column keeps showing the player's own kit, and the camera cuts (never eases) to the new car on respawn, which is marked for the local player alone by the blinking self arrow (`drawSelfArrow`, gated on `isPhasedAt`). **There is no wreck left on the field**: it is intangible from the tick it dies, and `deathFadeAlpha` (`car-visual.ts`) fades it out over `DEATH_FADE_MS` from the networked `diedAtTick`, after which the container is destroyed rather than left invisible.
@@ -66,8 +97,11 @@ headings.
 `predator` is the table's one full **missile** and the reason the `poly` layer exists: nose cone,
 red stripe, swept fins and an exhaust plume, built by `predatorMissileLayers` from the icon's own
 measured proportions. Two things about it are load-bearing and easy to undo by accident. Its greys
-are deliberately **darker than its icon's** — the floor is `#EBEBEB` and the icon is drawn for a
-white page, so the icon's literal body greys wash out and the shot reads shorter than it is. And its
+are deliberately **darker than its icon's** — the icon is drawn for a white page, so its literal
+body greys wash out against the arena floor and the shot reads shorter than it is. (That floor was
+`#EBEBEB` when this was written; the gritty-VFX pass replaced it with generated warm asphalt around
+`ENVIRONMENT_FX.floor.baseGrey` 50, which is darker still, so the reasoning holds and only the
+number moved.) And its
 `radiusAlong` was grown **14 → 19** in the same change to CONTAIN the plume: the art and that number
 are one decision, so cropping the plume without shortening the capsule puts the weapon back to
 reaching further than it draws. Unlike every other layer, a `poly`'s containment is not implied by

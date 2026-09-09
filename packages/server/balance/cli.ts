@@ -58,6 +58,16 @@ function defaultMode(shape: Shape): GameMode {
 }
 
 /**
+ * The flat defaults, named once so `parseArgs` and `helpText` cannot drift apart — a `--help` page
+ * that prints a default the parser no longer applies is worse than no page at all, and nothing
+ * typed would catch it.
+ */
+const DEFAULT_SHAPE: Shape = "ffa";
+const DEFAULT_SKILL: PlayerSkill = "pro";
+const DEFAULT_MATCHES = 50;
+const DEFAULT_ARENA_ID = "arena-01";
+
+/**
  * A random seed generated here, once, before any match runs, is not a violation of B43's "no
  * `Math.random()` on a path a run touches" — nothing downstream of `parseArgs` reads the wall clock
  * or reseeds; every match, bot stream and spawn shuffle is a pure function of the single integer
@@ -96,8 +106,9 @@ function parseArena(raw: string): string {
 }
 
 /** Every flag this CLI recognises. Anything else in `argv` is a typo and `parseArgs` throws naming
- * it, rather than silently ignoring it (per this file's own header). */
-const KNOWN_FLAGS = new Set([
+ * it, rather than silently ignoring it (per this file's own header). Exported so `cli.test.ts` can
+ * hold `helpText` to it: a flag added here but never documented there fails the suite. */
+export const KNOWN_FLAGS = new Set([
   "matches",
   "shape",
   "mode",
@@ -108,6 +119,7 @@ const KNOWN_FLAGS = new Set([
   "match-seconds",
   "out",
   "force",
+  "help",
 ]);
 
 /**
@@ -154,6 +166,70 @@ export interface ParsedArgs extends RunConfig {
 }
 
 /**
+ * Does this argument list ask for the flag list? Checked by `run.ts` BEFORE `parseArgs`, so `--help`
+ * still prints when it sits beside the very typo the user is trying to look up — the whole point of
+ * the page. `-h` is accepted here even though it cannot survive `parseArgs`'s `--name=value`
+ * tokenizer, for the same reason: someone reaching for help should get help, not a lecture about
+ * argument syntax.
+ *
+ * `help` is in `KNOWN_FLAGS` too, so a caller that skips this check and hands `--help` straight to
+ * `parseArgs` gets an ordinary run rather than an "unknown flag --help" error contradicting the
+ * message every other unknown flag prints.
+ */
+export function wantsHelp(argv: readonly string[]): boolean {
+  return argv.some((arg) => arg === "--help" || arg === "-h" || arg.startsWith("--help="));
+}
+
+/**
+ * The `--help` page. Every default it prints comes from the same constant `parseArgs` applies (or
+ * from shared config, for `--match-seconds`), never a retyped literal — this page is prose, and
+ * nothing typed would catch it going stale otherwise. Kept here rather than in `run.ts` so it sits
+ * beside `KNOWN_FLAGS`: a flag added there without a line here is visible in one screenful.
+ */
+export function helpText(): string {
+  const deathmatchDefault = defaultMatchSeconds(GameMode.FFA_DEATHMATCH);
+  return [
+    "npm run balance -- [flags]",
+    "",
+    "Headless win-rate / matchup harness. Runs matches with bots, aggregates the results, and",
+    "writes a report under packages/server/balance/reports/<date-NN>/.",
+    "",
+    "Flags (all --name=value; order does not matter):",
+    "",
+    `  --shape=ffa|duel            (default ${DEFAULT_SHAPE}) ffa seats one 2/2/2 six-car match; duel cycles`,
+    "                              all nine ordered chassis pairs, --matches EACH.",
+    `  --matches=<n>               (default ${DEFAULT_MATCHES}) matches per run (ffa) or per ordered pair (duel).`,
+    "  --mode=deathmatch|last-standing",
+    "                              (default last-standing for duel, deathmatch otherwise) win condition.",
+    `  --skill=pro|casual|amateur  (default ${DEFAULT_SKILL}) player type; maps to bot difficulty ` +
+      `${SKILL_TO_DIFFICULTY.pro}|${SKILL_TO_DIFFICULTY.casual}|${SKILL_TO_DIFFICULTY.amateur}.`,
+    "  --seed=<int>                (default: a fresh random seed, printed first) the run is a pure",
+    "                              function of this — same seed, same matches, replayed exactly.",
+    `  --arena=<arena-id>          (default ${DEFAULT_ARENA_ID}) which arena every match runs on.`,
+    `  --match-seconds=<n>         (default ${deathmatchDefault} for deathmatch, ` +
+      `${LAST_STANDING_SAFETY_CAP_SECONDS} for last-standing) per-match`,
+    "                              clock. For deathmatch this IS the game's clock; for last-standing",
+    "                              it is a stalemate cap, and hitting it is itself a finding.",
+    "  --baseline=<dir>            (default: none) a previous run's directory; adds a \"Deltas vs",
+    "                              baseline\" section. Refuses to run, before any match, if the config",
+    "                              or bot fingerprint, shape, mode or skill differs.",
+    "  --force                     (default off) run a refused --baseline comparison anyway; the",
+    "                              report carries a banner naming every mismatch. No-op without",
+    "                              --baseline.",
+    "  --out=<dir>                 (default: a fresh dated folder under reports/) write there instead.",
+    "  --help, -h                  Print this and exit.",
+    "",
+    "Examples:",
+    "  npm run balance -- --shape=duel --matches=20 --seed=7",
+    "  npm run balance -- --matches=100 --seed=7 --out=balance/reports/before",
+    "  npm run balance -- --matches=100 --seed=7 --baseline=balance/reports/before",
+    "",
+    "See packages/server/balance/README.md for the paired-run workflow, how to read a win-rate",
+    "interval, and the harness's known distortions.",
+  ].join("\n");
+}
+
+/**
  * Parse `npm run balance -- [flags]`'s argument list into a fully-resolved `RunConfig` plus the CLI
  * extras (`skill`, `baseline`, `out`) that do not belong on `RunConfig` itself.
  *
@@ -185,12 +261,14 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
 
   for (const name of REQUIRES_EXPLICIT_VALUE) requireExplicitValue(name, bareFlags);
 
-  const shape = flags.has("shape") ? parseShape(flags.get("shape")!) : "ffa";
+  const shape = flags.has("shape") ? parseShape(flags.get("shape")!) : DEFAULT_SHAPE;
   const mode = flags.has("mode") ? parseMode(flags.get("mode")!) : defaultMode(shape);
-  const skill = flags.has("skill") ? parseSkill(flags.get("skill")!) : "pro";
-  const matches = flags.has("matches") ? parseIntFlag("matches", flags.get("matches")!) : 50;
+  const skill = flags.has("skill") ? parseSkill(flags.get("skill")!) : DEFAULT_SKILL;
+  const matches = flags.has("matches")
+    ? parseIntFlag("matches", flags.get("matches")!)
+    : DEFAULT_MATCHES;
   const seed = flags.has("seed") ? parseIntFlag("seed", flags.get("seed")!) : randomSeed();
-  const arenaId = flags.has("arena") ? parseArena(flags.get("arena")!) : "arena-01";
+  const arenaId = flags.has("arena") ? parseArena(flags.get("arena")!) : DEFAULT_ARENA_ID;
   const matchSeconds = flags.has("match-seconds")
     ? parseIntFlag("match-seconds", flags.get("match-seconds")!)
     : defaultMatchSeconds(mode);

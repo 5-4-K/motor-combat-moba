@@ -162,6 +162,11 @@ today's three-chassis roster, so `--matches=20 --shape=duel` is 180 matches, not
 An unknown flag, or a value that fails to parse, makes the CLI throw naming the flag rather than
 silently ignoring it.
 
+**`npm run balance -- --help` prints the same list at the terminal** (`helpText` in `cli.ts`), and a
+test holds that page to `KNOWN_FLAGS`, so a flag added to the CLI without a line there fails the
+suite. It is answered before parsing and exits 0, so `--help` still works alongside the very typo you
+are looking up.
+
 | Flag | Values | Default | Meaning |
 |---|---|---|---|
 | `--shape` | `ffa` \| `duel` | `ffa` | Which experiment shape (see above). |
@@ -174,6 +179,7 @@ silently ignoring it.
 | `--force` | flag, no value | off | Overrides a refused `--baseline` comparison (B37) — the run proceeds instead of exiting non-zero. Meaningless without `--baseline`. The report's "Deltas vs baseline" section carries a prominent warning banner naming every mismatch, so a forced delta can never later be mistaken for a valid paired run. |
 | `--match-seconds` | positive integer | `DEATHMATCH_CONFIG.matchSeconds` (180s) for deathmatch, a 300s (5 min) stalemate safety cap for last-standing | Per-match clock. For deathmatch this doubles as the real `matchEndsTick`, so it is not a mock of the game's clock — it is the game's clock. For last-standing it is a cap, not a target; hitting it is itself a finding (a matchup or bot pairing that cannot resolve). |
 | `--out` | a directory path | a fresh dated folder under `reports/` | Write the report somewhere specific instead of the auto-numbered folder. |
+| `--help`, `-h` | flag, no value | off | Print the flag list and exit 0 without running anything. Checked before any parsing, so it prints even when it sits beside an unparseable flag. |
 
 ---
 

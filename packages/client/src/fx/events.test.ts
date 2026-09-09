@@ -19,6 +19,8 @@ const shot = (id: string, weaponId: string, x = 300, y = 400) => ({
   y,
   angle: 0.5,
   alive: true,
+  extent: 0,
+  isExplosion: false,
 });
 const view = (
   cars: FxWorldView["cars"],
@@ -92,6 +94,42 @@ describe("deriveFxEvents", () => {
   it("does not fire shotEnded a second time when the dead instance is finally deleted", () => {
     const dead = { ...shot("s1", "magmablast", 700, 800), alive: false };
     expect(deriveFxEvents(view([car("a", 100)], [dead]), view([car("a", 100)]))).toEqual([]);
+  });
+
+  it("puts a beam's shotEnded at its TIP, not at the muzzle it is anchored to", () => {
+    // Regression: WeaponInstance.x/y is a beam's origin, so lance's impact burst used to play on
+    // the shooter's own nose. `deriveFxEvents` now hands the event a real contact point.
+    const beam = { ...shot("s1", "lance", 0, 0), angle: 0, extent: 250 };
+    const events = deriveFxEvents(
+      view([car("a", 100)], [beam]),
+      view([car("a", 100)], [{ ...beam, alive: false }]),
+    );
+    expect(events).toEqual([{ kind: "shotEnded", weaponId: "lance", x: 250, y: 0, angle: 0 }]);
+  });
+
+  it("pulls an overshooting projectile's shotEnded back onto the hull it struck", () => {
+    // Car "a" sits at (100, 200) facing +x, hull x 76..124. A dart travelling +x observed at 150 —
+    // a quite ordinary one-tick overshoot — used to burst 26 units behind the car.
+    const dart = { ...shot("s1", "predator", 150, 200), angle: 0 };
+    const events = deriveFxEvents(
+      view([car("a", 100)], [dart]),
+      view([car("a", 100)], [{ ...dart, alive: false }]),
+    );
+    expect(events).toEqual([{ kind: "shotEnded", weaponId: "predator", x: 76, y: 200, angle: 0 }]);
+  });
+
+  it("puts a damaged event on the skin the shot came through, not the car's centre", () => {
+    const beam = { ...shot("s1", "lance", 0, 200), angle: 0, extent: 300 };
+    const events = deriveFxEvents(
+      view([car("a", 100)], [beam]),
+      view([car("a", 72)], [beam]),
+    );
+    expect(events).toEqual([{ kind: "damaged", sessionId: "a", x: 76, y: 200, amount: 28 }]);
+  });
+
+  it("leaves a damaged event on the centre when nothing is in flight — a ram has no shot", () => {
+    const events = deriveFxEvents(view([car("a", 100)]), view([car("a", 90)]));
+    expect(events).toEqual([{ kind: "damaged", sessionId: "a", x: 100, y: 200, amount: 10 }]);
   });
 
   it("gives no muzzle flash to an instance that arrives already dead", () => {

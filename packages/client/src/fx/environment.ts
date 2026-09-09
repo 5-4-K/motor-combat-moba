@@ -102,6 +102,57 @@ export interface EnvironmentFx {
   };
   /** How a damage burst's spark count follows the hp lost (EV22). */
   readonly carBursts: { readonly sparkPerHp: number; readonly countFloor: number };
+  /**
+   * How a car is lit and grounded (EV35). The arena's one light, and everything derived from it.
+   *
+   * There was no light anywhere in the renderer before this: a car was a flat tint on flat asphalt,
+   * with nothing to say which way is up and nothing tying it to the floor.
+   * `scenes/car-lighting.ts` turns this section into corner tints, a rim, and two shadows, and every
+   * strength is authored so that ZEROING THEM ALL restores the flat look exactly — the effect is a
+   * layer over the old drawing, never a replacement for it.
+   */
+  readonly carLook: {
+    /**
+     * Where the light is, in degrees, as the direction FROM a car TOWARD it. The lit side of every
+     * car faces this way and every shadow is thrown opposite it, which is what makes six cars at six
+     * headings read as one scene rather than six separately-lit stickers.
+     */
+    readonly lightAngle: number;
+    /** How far the drop shadow is thrown, in world units. 0 puts it straight under the car. */
+    readonly shadowOffset: number;
+    /** Alpha of the drop shadow's innermost band. */
+    readonly shadowAlpha: number;
+    /** How much wider the outermost band is than the hull, as a fraction — the softness. */
+    readonly shadowSpread: number;
+    /** How many nested bands fake that softness. MUST be a whole number; 1 is a hard-edged shadow. */
+    readonly shadowBands: number;
+    readonly shadowColor: number;
+    /**
+     * The shadow's size against the hull. Below 1 because the hull is a box drawn around art that
+     * does not fill it, and a shadow the size of the box reads as a crate rather than a car.
+     */
+    readonly footprint: number;
+    /** The tight occlusion directly under the hull, which is what actually sits a car on the floor. */
+    readonly contactAlpha: number;
+    /** The contact shadow's size as a fraction of the hull — below 1, since it darkens the gap. */
+    readonly contactScale: number;
+    /** How far a lit corner brightens toward white, 0..1. */
+    readonly litStrength: number;
+    /** How far a shaded corner darkens toward black, 0..1. */
+    readonly shadeStrength: number;
+    /**
+     * The rim light: a copy of the car's OWN ART, tinted and nudged toward the light behind the
+     * body, so a lit sliver shows along whatever edge the artwork actually has.
+     *
+     * It has to be the art and not a stroked outline of the hitbox. The hull is a 48x32 box and the
+     * sprites do not fill it, so stroking the box drew a picture frame around the car — which is
+     * what the first cut of this shipped and what looking at it on screen immediately killed.
+     */
+    readonly rimAlpha: number;
+    readonly rimColor: number;
+    /** How far that copy is nudged, in world units. Effectively the rim's thickness. */
+    readonly rimWidth: number;
+  };
 }
 
 // Each section is `Object.freeze`d individually — not the top-level object, since freezing that
@@ -170,4 +221,24 @@ export const ENVIRONMENT_FX: EnvironmentFx = {
     circleRadius: 130,
   }),
   carBursts: Object.freeze({ sparkPerHp: 0.5, countFloor: 1 }),
+  // Light from up-and-left (-120 degrees, remembering +y is down), which is where overhead lighting
+  // is read from in almost every top-down game — a shadow falling down-and-right is what a player
+  // expects without being able to say why. The strengths are deliberately restrained: the job is to
+  // make a car look MADE of something, not to turn the arena into a diorama.
+  carLook: Object.freeze({
+    lightAngle: -120,
+    shadowOffset: 5,
+    shadowAlpha: 0.34,
+    shadowSpread: 0.5,
+    shadowBands: 5,
+    shadowColor: 0x0a0908,
+    footprint: 0.86,
+    contactAlpha: 0.16,
+    contactScale: 0.7,
+    litStrength: 0.26,
+    shadeStrength: 0.2,
+    rimAlpha: 0.55,
+    rimColor: 0xfff1d6,
+    rimWidth: 1.5,
+  }),
 };

@@ -112,8 +112,8 @@ no schema field is added. `deriveFxEvents(prev, next)` is pure and returns `FxEv
 | Event | Derived from |
 |---|---|
 | `shotFired` | a new id in the `instances` map (`WeaponInstanceState.spawnTick`) |
-| `shotEnded` | an id leaving the map, at its last known pose |
-| `damaged` | an hp drop on a `PlayerState` between patches |
+| `shotEnded` | an id leaving the map, at its last known pose — refined to a contact point by VFX12a |
+| `damaged` | an hp drop on a `PlayerState` between patches — placed on the struck hull by VFX12a |
 | `died` | `alive` going false, or a fresh `diedAtTick` |
 | `rammed` | already derived locally by `freshImpacts` in `impact-feedback.ts` |
 
@@ -124,6 +124,35 @@ derivation over two views survives it.
 
 **VFX12.** `shotEnded` knows *where* a shot ended but not *what it hit*. That is sufficient for a
 detonation at the last known pose, and no more precision is bought.
+
+**VFX12a (2026-09-09, supersedes VFX12).** It was not sufficient, and the precision turned out to
+cost no wire change at all — so VFX9 and VFX11 both still hold, and this is bought client-side in
+`fx/contact.ts`. A pose is not a contact point in three separate ways, and all three were visible in
+play as bursts landing somewhere the weapon plainly had not touched:
+
+- `WeaponInstance.x/y` is a **beam's ORIGIN**, with `extent` as its reach, so `lance`'s authored
+  impact burst played on the shooter's own nose. A beam now bursts at its **tip**; a `disc` beam (an
+  explosion, an aura) stays at its origin, being radially symmetric with no tip to speak of.
+- A projectile's pose is its position at the END of a tick, while the hit test is the **smear** over
+  that whole tick. At 30 Hz a `predator` dart covers 30 u against a 48 u hull, so the burst landed
+  anywhere from the near face to a car-length past the car, decided by sub-tick phase alone — the
+  "random" in the original report. A projectile now bursts on the **face it entered through**,
+  recovered by intersecting its own heading with the hull, and falls back to its pose when it struck
+  no car, a wall hit being its own contact point.
+- `damaged` used the **victim's centre**, which is never where it was struck. Sparks now come off the
+  hull skin the incoming shot reached, falling back to the centre when no shot accounts for the loss
+  — which is what a ram wants anyway, a body blow having no entry face.
+
+Three things this does NOT change. The scorch decal and the camera shake read the same event `x/y`,
+so both were corrected without an edit of their own. `shotFired` keeps the muzzle pose, which is
+already exactly right. And attribution for `damaged` is by **geometry, not ownership** — a
+`WeaponInstance`'s owner is not in the FX view, and adding it would buy a heuristic's last few
+percent at the price of a field netcode phase 2 deletes; a shot grazing a car damaged by something
+else on the same frame can pull the sparks to the wrong flank for one frame.
+
+The one deliberate cost: the derivation is per car-instance pair, and a worst-case frame is six cars
+against ~60 instances. `fx/perf.test.ts`'s budget is what holds that honest, and the module's header
+names the three things keeping it under.
 
 ---
 
@@ -138,6 +167,7 @@ makes the Phaser calls.
 |---|---|---|
 | `fx/textures.ts` | the noise generators; seed in, pixel data out | no |
 | `fx/events.ts` | `deriveFxEvents(prev, next)` | no |
+| `fx/contact.ts` | where a weapon actually touched, for VFX12a | no |
 | `fx/table.ts` | `WEAPON_FX`, one row per weapon id | no |
 | `fx/emitters.ts` | event + row → plain emitter spec data | no |
 | `fx/decals.ts` | what to stamp where, and the fade rate | no |

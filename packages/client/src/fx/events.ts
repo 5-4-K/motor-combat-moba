@@ -11,6 +11,8 @@
  * phase 2 touches.
  */
 
+import { damagePoint, shotGeometriesOf, shotEndPoint, type ShotGeometry } from "./contact.js";
+
 export interface FxCarView {
   readonly sessionId: string;
   readonly x: number;
@@ -29,9 +31,22 @@ export interface FxCarView {
 export interface FxInstanceView {
   readonly id: string;
   readonly weaponId: string;
+  /**
+   * A projectile's centre, or a BEAM'S ORIGIN — never a contact point. `fx/contact.ts` is what turns
+   * this into one; see its header for why the raw pose is the wrong place to burst.
+   */
   readonly x: number;
   readonly y: number;
   readonly angle: number;
+  /** A beam's current reach along `angle`; 0 for a projectile. Mirrors `WeaponInstanceState.extent`. */
+  readonly extent: number;
+  /**
+   * This row is its weapon's explosion rather than its shell. Mirrors `WeaponInstanceState`, and is
+   * carried for the same reason the renderer needs it: `weaponId` names the PARENT, so without this
+   * `instanceDefOf` would resolve a 60 u disc as a 12 u dart and place its burst by the wrong
+   * geometry entirely.
+   */
+  readonly isExplosion: boolean;
   // Mirrors WeaponInstanceState.alive. The server flips this false on the tick a shot actually
   // ends, and only deletes the row on a later tick — see deriveFxEvents for why shotEnded keys off
   // this instead of the id disappearing from the map.
@@ -94,17 +109,25 @@ export function deriveFxEvents(prev: FxWorldView | undefined, next: FxWorldView)
     // `prev` itself already carries the dead (or absent) instance, so the `if (!instance.alive)
     // continue` guard above skips it before it can ever fire a second time.
     if (!after || !after.alive) {
+      // The pose is the instance's LAST KNOWN one (from `prev`), refined into where the shot
+      // actually terminated: a beam's tip rather than its muzzle, a projectile's entry face rather
+      // than wherever a tick of travel happened to leave it. Cars come from `next` — the poses they
+      // are drawn at as the burst spawns — so an effect always lands on the car the player sees.
+      const end = shotEndPoint(instance, next.cars);
       events.push({
         kind: "shotEnded",
         weaponId: instance.weaponId,
-        x: instance.x,
-        y: instance.y,
+        x: end.x,
+        y: end.y,
         angle: instance.angle,
       });
     }
   }
 
   const prevCars = new Map(prev.cars.map((c) => [c.sessionId, c]));
+  // Resolved on the first car that actually took damage and reused for the rest: most frames have
+  // no `damaged` event at all, and one that has six must not re-derive every instance six times.
+  let shots: ShotGeometry[] | undefined;
   for (const car of next.cars) {
     const before = prevCars.get(car.sessionId);
     if (!before) continue;
@@ -116,7 +139,11 @@ export function deriveFxEvents(prev: FxWorldView | undefined, next: FxWorldView)
     const lost = before.hp - car.hp;
     // Strictly greater than zero, so a repair pulse — hp going up — is never an impact.
     if (lost > 0) {
-      events.push({ kind: "damaged", sessionId: car.sessionId, x: car.x, y: car.y, amount: lost });
+      // Sparks come off the skin that was struck, not the middle of the car. Falls back to the
+      // centre when no shot can account for the loss — a ram, which has no entry face anyway.
+      shots ??= shotGeometriesOf(next.instances);
+      const hit = damagePoint(car, shots);
+      events.push({ kind: "damaged", sessionId: car.sessionId, x: hit.x, y: hit.y, amount: lost });
     }
   }
 

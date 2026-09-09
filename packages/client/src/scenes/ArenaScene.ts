@@ -38,7 +38,12 @@ import {
   weaponTicksOf,
   winRuleOf,
 } from "@motor-combat-moba/shared";
-import { applyCarSprite, phaserTextures, resolveCarSprite } from "../assets/car-sprite.js";
+import {
+  applyCarSprite,
+  phaserTextures,
+  resolveCarSprite,
+  tintCarSprite,
+} from "../assets/car-sprite.js";
 import {
   ramShake,
   shakeFor,
@@ -51,7 +56,7 @@ import { liveEnvResolver } from "../fx/env-store.js";
 import type { EnvResolver } from "../fx/env-tuning.js";
 import type { FxEvent } from "../fx/events.js";
 import { FX_TEXTURE_KEYS, FxLayer } from "../fx/layer.js";
-import { FLOOR_DEPTH } from "../fx/depths.js";
+import { CAR_SHADOW_DEPTH, FLOOR_DEPTH } from "../fx/depths.js";
 import { liveFxResolver } from "../fx/override-store.js";
 import type { EmitterSpec } from "../fx/emitters.js";
 import { isDebugEnabled } from "../config/client-mode.js";
@@ -76,7 +81,20 @@ import { fitsViewport } from "./arena-camera.js";
 import { assetManifest, assetsReady } from "./BootScene.js";
 import { freshImpacts, newImpactTracker, type ImpactTracker } from "./impact-feedback.js";
 import { pts } from "./graphics-points.js";
-import { carFillOf, carShapeOf, deathFadeAlpha, hexagonPoints } from "./car-visual.js";
+import {
+  carFillOf,
+  carShapeOf,
+  deathFadeAlpha,
+  ellipsePoints,
+  hexagonPoints,
+} from "./car-visual.js";
+import {
+  contactBandsFor,
+  placeOutline,
+  rimOffsetFor,
+  shadowBandsFor,
+  shadowOffsetFor,
+} from "./car-lighting.js";
 import {
   dashGhostAlphas,
   dashGhostOffsets,
@@ -95,6 +113,7 @@ import {
   hpFraction,
   instanceDrawShape,
   beamDrawLayers,
+  beamFlareShapes,
   chargeOrbBands,
   instanceGlowBands,
   lockBracketArms,
@@ -186,6 +205,10 @@ const HITBOX_STROKE = 0x1d1f21;
 const HITBOX_PX = 1;
 /** How the OBB outline inside a car's container is found again to toggle it. See `drawCar`. */
 const HITBOX_NAME = "hitbox";
+
+/** How the body sprite and the rim stroke inside a car's container are found again each frame. */
+const BODY_NAME = "body";
+const RIM_NAME = "rim";
 
 // --- the world layer stack ---------------------------------------------------------------------
 /**
@@ -698,6 +721,16 @@ export class ArenaScene extends Phaser.Scene {
   private arrowGfx: Phaser.GameObjects.Graphics | undefined;
   /** The wild-charge outline and the thunderclap dash ghosts, cleared and redrawn every frame. */
   private maneuverGfx: Phaser.GameObjects.Graphics | undefined;
+  /** Every car's shadow, on one shared layer below every car. See `CAR_SHADOW_DEPTH`. */
+  private shadowGfx: Phaser.GameObjects.Graphics | undefined;
+  /**
+   * `carOutlinePoints` per chassis, which is constant per chassis and rebuilt nowhere.
+   *
+   * Memoised because the shadow pass asks for it once per band per car per frame, and an ellipse
+   * chassis costs 24 sin/cos pairs to build — trig that would otherwise run ~30 times a frame to
+   * produce the same four arrays.
+   */
+  private outlines = new Map<string, Array<{ x: number; y: number }>>();
   private spectateText: Phaser.GameObjects.Text | undefined;
   /**
    * The three Deathmatch banners, each one `Text` that only ever changes its string and its
@@ -774,7 +807,8 @@ export class ArenaScene extends Phaser.Scene {
   private hudGfx: Phaser.GameObjects.Graphics | undefined;
   private hudSweepGfx: Phaser.GameObjects.Graphics | undefined;
   private hudKeyTexts: Phaser.GameObjects.Text[] = [];
-  private hudNameTexts: Phaser.GameObjects.Text[] = [];  private hudStockTexts: Phaser.GameObjects.Text[] = [];
+  private hudNameTexts: Phaser.GameObjects.Text[] = [];
+  private hudStockTexts: Phaser.GameObjects.Text[] = [];
   /**
    * One pooled Image per possible slot, for the manifest icon. Hidden and left textureless until a
    * slot resolves one; a slot with no manifest icon never touches this pool and keeps drawing
@@ -956,6 +990,7 @@ export class ArenaScene extends Phaser.Scene {
     this.lockGfx = this.add.graphics().setDepth(LOCK_DEPTH);
     this.arrowGfx = this.add.graphics().setDepth(ARROW_DEPTH);
     this.maneuverGfx = this.add.graphics().setDepth(MANEUVER_DEPTH);
+    this.shadowGfx = this.add.graphics().setDepth(CAR_SHADOW_DEPTH);
     this.hudGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_BOX_DEPTH);
     this.hudSweepGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_SWEEP_DEPTH);
     this.rosterGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_BOX_DEPTH);
@@ -1300,7 +1335,8 @@ export class ArenaScene extends Phaser.Scene {
       ...(this.movementHintGfx ? [this.movementHintGfx] : []),
       ...this.movementHintTexts,
       ...this.hudKeyTexts,
-      ...this.hudNameTexts,      ...this.hudStockTexts,
+      ...this.hudNameTexts,
+      ...this.hudStockTexts,
       ...this.hudIconImages,
       ...this.hudStatusTexts,
       ...this.rosterNameTexts,
@@ -1432,6 +1468,8 @@ export class ArenaScene extends Phaser.Scene {
     this.arrowGfx = undefined;
     this.maneuverGfx?.destroy();
     this.maneuverGfx = undefined;
+    this.shadowGfx = undefined;
+    this.outlines.clear();
     // Here rather than in `onShutdown`, per the doc comment above: `create` calls this too, so a
     // shutdown-only destroy would leave the previous layer's four emitters (and their render
     // textures) alive on a scene restart — the same shape of leak the `PredictionBuffer` had.
@@ -1444,13 +1482,15 @@ export class ArenaScene extends Phaser.Scene {
     this.rosterGfx?.destroy();
     this.rosterGfx = undefined;
     for (const text of this.hudKeyTexts) text.destroy();
-    for (const text of this.hudNameTexts) text.destroy();    for (const text of this.hudStockTexts) text.destroy();
+    for (const text of this.hudNameTexts) text.destroy();
+    for (const text of this.hudStockTexts) text.destroy();
     for (const image of this.hudIconImages) image.destroy();
     for (const text of this.hudStatusTexts) text.destroy();
     for (const text of this.rosterNameTexts) text.destroy();
     for (const text of this.rosterKillTexts) text.destroy();
     this.hudKeyTexts = [];
-    this.hudNameTexts = [];    this.hudStockTexts = [];
+    this.hudNameTexts = [];
+    this.hudStockTexts = [];
     this.hudIconImages = [];
     this.hudStatusTexts = [];
     this.rosterNameTexts = [];
@@ -1758,7 +1798,9 @@ export class ArenaScene extends Phaser.Scene {
     const lock = this.lockGfx;
     const arrow = this.arrowGfx;
     const maneuver = this.maneuverGfx;
+    const shadow = this.shadowGfx;
     hp?.clear();
+    shadow?.clear();
     lock?.clear();
     // Cleared here and refilled below, so the first frame after the countdown draws nothing at all:
     // the arrow going away is the absence of a draw call, not an animation that has to be stopped.
@@ -1820,6 +1862,7 @@ export class ArenaScene extends Phaser.Scene {
 
       this.syncCar(sessionId, player, pose);
       this.cars.get(sessionId)?.setAlpha(alpha);
+      this.drawCarLook(shadow, sessionId, player.carId, player.colorId, pose, alpha);
       poses.set(sessionId, pose);
       teams.set(sessionId, player.team === 1 ? 1 : 0);
       if (hp && player.alive) {
@@ -1966,6 +2009,79 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
+   * One car's lighting for this frame: two shadows on the shared layer, a lit tint on the body, and
+   * a rim that fades to an outline round the back.
+   *
+   * Runs per frame rather than at build time because every part of it depends on the car's heading,
+   * and the whole point is that the light does NOT turn with the car — see `scenes/car-lighting.ts`.
+   *
+   * `alpha` multiplies into everything so a fading wreck takes its shadow and its rim down with it,
+   * and a phased ghost is a ghost all the way through rather than a solid outline round a
+   * see-through body.
+   *
+   * Reads `resolveEnv()` like every other environment consumer, so the playground's Car lighting
+   * section retunes it live and a shipped arena renders `ENVIRONMENT_FX` no matter what is saved in
+   * that browser.
+   */
+  private drawCarLook(
+    shadow: Phaser.GameObjects.Graphics | undefined,
+    sessionId: string,
+    carId: string,
+    colorId: number,
+    pose: SimBody,
+    alpha: number,
+  ): void {
+    const look = this.resolveEnv().carLook;
+    const container = this.cars.get(sessionId);
+    if (!container) return;
+
+    // One ellipse for every chassis, deliberately, and sized well inside the hull. A shadow is soft
+    // and nobody reads its silhouette; what they DO read is a hard-edged rectangle the size of the
+    // hitbox, which is what the first cut drew and what made a car look boxed rather than lit.
+    const key = `${look.footprint}`;
+    let outline = this.outlines.get(key);
+    if (!outline) {
+      outline = ellipsePoints(
+        DRIVE_CONFIG.carWidth * look.footprint,
+        DRIVE_CONFIG.carHeight * look.footprint,
+      );
+      this.outlines.set(key, outline);
+    }
+    const shape = outline;
+
+    if (shadow) {
+      // The drop shadow first, offset away from the light; then the contact shadow squarely under
+      // the car. Contact does not take the offset — a car touches the floor where it touches it,
+      // wherever the light happens to be.
+      const drop = shadowOffsetFor(look);
+      for (const band of shadowBandsFor(look)) {
+        shadow.fillStyle(look.shadowColor, band.alpha * alpha);
+        shadow.fillPoints(
+          pts(placeOutline(shape, band.scale, pose.angle, pose.x + drop.x, pose.y + drop.y)),
+          true,
+        );
+      }
+      for (const band of contactBandsFor(look)) {
+        shadow.fillStyle(look.shadowColor, band.alpha * alpha);
+        shadow.fillPoints(pts(placeOutline(shape, band.scale, pose.angle, pose.x, pose.y)), true);
+      }
+    }
+
+    const body = container.getByName(BODY_NAME);
+    if (body instanceof Phaser.GameObjects.Image) {
+      tintCarSprite(body, carFillOf(colorId), look, pose.angle);
+    }
+
+    const rim = container.getByName(RIM_NAME);
+    if (rim instanceof Phaser.GameObjects.Image) {
+      const offset = rimOffsetFor(pose.angle, look);
+      rim.setPosition(offset.x, offset.y);
+      rim.setTint(look.rimColor);
+      rim.setAlpha(look.rimAlpha);
+    }
+  }
+
+  /**
    * Whether hitbox outlines are drawn: the load-time `?debug=1` flag, or the playground's live
    * "Show hitboxes" toggle. Either alone is enough, so turning the checkbox off does not override
    * someone who asked for debug in the URL.
@@ -2028,7 +2144,22 @@ export class ArenaScene extends Phaser.Scene {
     const container = this.add.container(0, 0);
 
     const body = this.spriteFor(carId, fill) ?? this.silhouette(carId, fill, w, h);
+    body.setName(BODY_NAME);
     container.add(body);
+
+    // The lit edge: a COPY of the body's own artwork, tinted and nudged toward the light behind the
+    // body, so a bright sliver shows along whatever edge the art actually has. `drawCarLook` moves
+    // it each frame, since the nudge is world-fixed while the container it lives in turns.
+    //
+    // Added before the body so it sits underneath, and only where there is real art to copy: the
+    // procedural silhouette is a `Graphics` with no texture to offset, and a fallback car simply
+    // goes without a rim rather than earning a second code path.
+    const rimSource = this.spriteFor(carId, fill);
+    if (rimSource) {
+      rimSource.setName(RIM_NAME);
+      container.add(rimSource);
+      container.moveTo(rimSource, 0);
+    }
 
     // The hitbox is the OBB the sim actually collides with, which is not the drawn silhouette for
     // bullseye or bastion. Hidden in ordinary play so a player sees the shape, not the box.
@@ -2066,7 +2197,9 @@ export class ArenaScene extends Phaser.Scene {
       height: DRIVE_CONFIG.carHeight,
     });
     if (!resolved) return undefined;
-    return applyCarSprite(this.add.image(0, 0, resolved.key), resolved, fill);
+    // Built lit rather than flat, and re-lit per frame by `drawCarLook`: a container is only rebuilt
+    // when its `visualKeyOf` changes, so a car placed flat here would draw one unlit frame.
+    return applyCarSprite(this.add.image(0, 0, resolved.key), resolved, fill, this.resolveEnv().carLook);
   }
 
   /** The procedural chassis. Unchanged from what the game drew before any art existed. */
@@ -2291,9 +2424,26 @@ export class ArenaScene extends Phaser.Scene {
           gfx.fillPoints(pts(shape.points), true);
           return;
         }
+        // The layer's own opacity multiplies INTO the fade rather than replacing it, so a
+        // translucent layer still disappears with the beam it belongs to. A style authoring none
+        // resolves to 1 and draws exactly what it drew before `BeamLayer.alpha` existed.
         for (const layer of layers) {
-          gfx.fillStyle(layer.fill, alpha);
+          gfx.fillStyle(layer.fill, alpha * layer.alpha);
           gfx.fillPoints(pts(layer.points), true);
+        }
+        // The muzzle starburst, OVER every layer and outside the hitbox — the one shape here that
+        // is neither. See `BeamStyle.flare`. Drawn from the instance's own age so the flash lands
+        // on the frame the shot leaves rather than on whatever frame the client happened to join.
+        for (const burst of beamFlareShapes(
+          instance.weaponId,
+          instance.x,
+          instance.y,
+          instance.angle,
+          (room.state.tick - instance.spawnTick) * MS_PER_TICK + elapsedMs,
+        )) {
+          gfx.fillStyle(burst.fill, alpha * burst.alpha);
+          if (burst.kind === "disc") gfx.fillCircle(burst.x, burst.y, burst.radius);
+          else gfx.fillPoints(pts(burst.points), true);
         }
         return;
       }
@@ -2309,7 +2459,7 @@ export class ArenaScene extends Phaser.Scene {
         return;
       }
       for (const band of bands) {
-        gfx.fillStyle(band.fill, alpha);
+        gfx.fillStyle(band.fill, alpha * band.alpha);
         gfx.fillCircle(shape.x, shape.y, band.radius);
       }
     });
@@ -2333,9 +2483,11 @@ export class ArenaScene extends Phaser.Scene {
       });
     }
 
-    // Deliberately NOT outlined: a charge orb is the one thing the game draws where there is no
-    // hitbox at all (D19's single exception — it is a telegraph on the shooter's own car). Drawing
-    // a hitbox around it would assert the exact opposite of the truth this overlay exists to show.
+    // Deliberately NOT outlined: a charge orb is drawn where there is no hitbox at all (a telegraph
+    // on the shooter's own car). Drawing a hitbox around it would assert the exact opposite of the
+    // truth this overlay exists to show. The same goes for a beam's muzzle flare above, which is
+    // the other shape in this method that sits outside the thing it belongs to — the two are the
+    // whole list, and `beamDrawLayers` covers everything else vertex by vertex.
     this.renderChargeOrbs(room, gfx);
   }
 
@@ -2394,6 +2546,13 @@ export class ArenaScene extends Phaser.Scene {
       // Carried because `shotEnded` keys off this flip, not off the row leaving the map: the server
       // clears `alive` a tick or more before it deletes the instance.
       alive: instance.alive,
+      // The two `fx/contact.ts` needs to place a burst on the point a weapon actually touched: a
+      // beam's reach (so its impact lands at the tip rather than on the shooter's nose) and whether
+      // this row is its weapon's explosion (so `instanceDefOf` resolves the blast's disc rather than
+      // the shell's dart). Both are already networked — no new schema field, and nothing here that
+      // netcode phase 2's binary snapshot would have to throw away.
+      extent: instance.extent,
+      isExplosion: instance.isExplosion,
     }));
     // A frozen clock while the sim is paused, NOT the real frame delta. A pause stops the server
     // patching poses, but `vx`/`vy` keep their pre-pause values — so `layTyreMarks` sees a car at
@@ -2438,7 +2597,9 @@ export class ArenaScene extends Phaser.Scene {
       // The muzzle, not the car centre: the orb is the shot gathering where the shot will leave.
       const muzzle = muzzleOf(player);
       for (const orb of orbs) {
-        gfx.fillStyle(orb.fill, 1);
+        // The band's own opacity, so the orb gathers at the same falloff the beam will draw at.
+        // A band authoring none resolves to 1, which is what every orb drew before this existed.
+        gfx.fillStyle(orb.fill, orb.alpha);
         gfx.fillCircle(muzzle.x, muzzle.y, orb.radius);
       }
     });
@@ -2490,7 +2651,8 @@ export class ArenaScene extends Phaser.Scene {
           .setFontStyle(HUD_NAME_FONT_STYLE),
       );
       // Left-centre, matching the key above it: the countdown shares the key's column, so both
-      // hang off the same `keyX` edge rather than one being centred and the other not.      this.hudStockTexts.push(this.makeHudText(HUD_STOCK_FONT_PX));
+      // hang off the same `keyX` edge rather than one being centred and the other not.
+      this.hudStockTexts.push(this.makeHudText(HUD_STOCK_FONT_PX));
       this.hudIconImages.push(
         this.add
           .image(0, 0, "__DEFAULT")
@@ -2614,7 +2776,8 @@ export class ArenaScene extends Phaser.Scene {
       const slot = player && box ? player.weapons.at(i) : undefined;
       if (!player || !box || !slot) {
         this.hudKeyTexts[i]!.setVisible(false);
-        this.hudNameTexts[i]!.setVisible(false);        this.hudStockTexts[i]!.setVisible(false);
+        this.hudNameTexts[i]!.setVisible(false);
+        this.hudStockTexts[i]!.setVisible(false);
         this.hudIconImages[i]!.setVisible(false);
         continue;
       }
