@@ -8,6 +8,7 @@ import {
   hpOf,
   msToTicks,
   weaponTicksOf,
+  type WeaponId,
 } from "@motor-combat-moba/shared";
 import {
   allegianceOf,
@@ -19,6 +20,9 @@ import {
   hpFraction,
   beamDrawLayers,
   beamFlareShapes,
+  isProjectileWeapon,
+  WEAPON_PROJECTILE_STYLES,
+  projectileDrawLayers,
   chargeOrbBands,
   instanceDrawShape,
   instanceGlowBands,
@@ -1102,6 +1106,61 @@ describe("lance beam layers", () => {
     // than through a real weapon, since `lance` is the roster's only rect beam today.
     const plain = beamDrawLayers("afterburner", 0, 0, 0, 200, 0);
     expect(plain.length).toBeGreaterThan(0);
+  });
+});
+
+describe("every drawn layer resolves a usable alpha", () => {
+  /**
+   * The regression this exists for: `predator` and `roadblock` went INVISIBLE in a live room, and
+   * nothing caught it. `DrawBeamLayer.alpha` was added as a required field, three of the six shape
+   * branches in `projectileDrawLayers` were not updated, and `renderShots` computes
+   * `alpha * layer.alpha` -- so those layers asked Phaser to fill at `NaN` and it drew nothing.
+   *
+   * Two things let it ship, and this test answers the second. The first is that the client's
+   * `npm run build` is `vite build`, which strips types with esbuild and never typechecks; `tsc
+   * --noEmit` is a separate `typecheck` script that neither the build nor the suite ran. The second
+   * is that no test asserted anything about a projectile layer's alpha at all -- the shipped suite
+   * only ever looked at their VERTICES, so a fill parameter could go to `NaN` with every existing
+   * assertion still green.
+   *
+   * Asserted over the whole roster and every branch rather than over the three that broke, because
+   * the next required field added to a draw type will miss a different branch.
+   */
+  const drawn = (weaponId: WeaponId) =>
+    isProjectileWeapon(weaponId)
+      ? projectileDrawLayers(
+          { weaponId, isExplosion: false, x: 0, y: 0, angle: 0, extent: 0 },
+          0,
+        )
+      : beamDrawLayers(weaponId, 0, 0, 0, 400, 0, 1234);
+
+  const ids = Object.keys(WEAPON_TABLE) as WeaponId[];
+
+  it.each(ids)("draws %s with a finite alpha on every layer", (weaponId) => {
+    const bad = drawn(weaponId).filter(
+      (l) => !Number.isFinite(l.alpha) || l.alpha <= 0 || l.alpha > 1,
+    );
+    expect(bad.map((l) => `#${l.fill.toString(16)} @ ${l.alpha}`)).toEqual([]);
+  });
+
+  it("draws every layer each authored projectile style asks for", () => {
+    // The other half of the same failure: a NaN alpha is invisible, but so is a layer silently
+    // dropped by a branch that `continue`s. Counted against the style so a shape branch that stops
+    // producing anything fails here rather than in a live room.
+    for (const [weaponId, style] of Object.entries(WEAPON_PROJECTILE_STYLES)) {
+      if (!style) continue;
+      expect([weaponId, drawn(weaponId as WeaponId).length]).toEqual([
+        weaponId,
+        style.layers.length,
+      ]);
+    }
+  });
+
+  it("resolves an absent alpha to fully opaque rather than to nothing", () => {
+    // What every style authored before `BeamLayer.alpha` existed relies on.
+    const tremor = beamDrawLayers("tremor", 0, 0, 0, 400, 0);
+    expect(tremor.length).toBeGreaterThan(0);
+    for (const layer of tremor) expect(layer.alpha).toBe(1);
   });
 });
 

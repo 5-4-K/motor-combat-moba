@@ -2434,16 +2434,16 @@ export class ArenaScene extends Phaser.Scene {
         // The muzzle starburst, OVER every layer and outside the hitbox — the one shape here that
         // is neither. See `BeamStyle.flare`. Drawn from the instance's own age so the flash lands
         // on the frame the shot leaves rather than on whatever frame the client happened to join.
-        for (const shape of beamFlareShapes(
+        for (const burst of beamFlareShapes(
           instance.weaponId,
           instance.x,
           instance.y,
           instance.angle,
           (room.state.tick - instance.spawnTick) * MS_PER_TICK + elapsedMs,
         )) {
-          gfx.fillStyle(shape.fill, alpha * shape.alpha);
-          if (shape.kind === "disc") gfx.fillCircle(shape.x, shape.y, shape.radius);
-          else gfx.fillPoints(pts(shape.points), true);
+          gfx.fillStyle(burst.fill, alpha * burst.alpha);
+          if (burst.kind === "disc") gfx.fillCircle(burst.x, burst.y, burst.radius);
+          else gfx.fillPoints(pts(burst.points), true);
         }
         return;
       }

@@ -1661,6 +1661,7 @@ export function projectileDrawLayers(
           rotateBy(x, y, a, -half, across),
         ],
         fill,
+        alpha: 1,
       });
       continue;
     }
@@ -1675,6 +1676,7 @@ export function projectileDrawLayers(
           return rotateBy(x, y, a, p.along, p.across);
         }),
         fill,
+        alpha: 1,
       });
       continue;
     }
@@ -1702,6 +1704,7 @@ export function projectileDrawLayers(
           rotateBy(x, y, a, sign * base, halfHeight),
         ],
         fill,
+        alpha: 1,
       });
     }
   }
