@@ -3,6 +3,7 @@ import { ENVIRONMENT_FX } from "./environment.js";
 import {
   alphaAt,
   asphaltTexture,
+  crackedCrustTexture,
   DUST_A,
   fireTexture,
   puffTexture,
@@ -202,5 +203,59 @@ describe("asphaltTexture reads the environment table", () => {
 
   it("defaults to the shipped floor values", () => {
     expect(asphaltTexture(9, 64)).toEqual(asphaltTexture(9, 64, ENVIRONMENT_FX));
+  });
+});
+
+describe("cracked crust", () => {
+  const env = ENVIRONMENT_FX;
+
+  it("is transparent outside its radius and solid well inside it", () => {
+    const { crust } = crackedCrustTexture(5, 128, env);
+    // Corners are outside the inscribed circle.
+    expect(alphaAt(crust, 1, 1)).toBe(0);
+    expect(alphaAt(crust, 126, 126)).toBe(0);
+    expect(alphaAt(crust, 64, 64)).toBeGreaterThan(0);
+  });
+
+  it("feathers its edge rather than cookie-cutting a circle (LZ34)", () => {
+    // The ring states the damage boundary; the crust must not draw a second, competing one.
+    const { crust } = crackedCrustTexture(5, 128, env);
+    const mid = alphaAt(crust, 64 + 40, 64); // ~0.63r
+    const near = alphaAt(crust, 64 + 62, 64); // ~0.97r
+    expect(mid).toBeGreaterThan(near);
+    expect(near).toBeLessThan(40);
+  });
+
+  it("draws seams that are a minority of the disc, and registered to the crust", () => {
+    const { crust, seam } = crackedCrustTexture(5, 128, env);
+    expect(seam.width).toBe(crust.width);
+    let hot = 0;
+    let inside = 0;
+    for (let y = 0; y < 128; y++) {
+      for (let x = 0; x < 128; x++) {
+        if (alphaAt(crust, x, y) === 0) continue;
+        inside++;
+        if (alphaAt(seam, x, y) > 128) hot++;
+      }
+    }
+    // Cracks between plates, not a sheet of fire. If this ever approaches 1 the cell size or the
+    // seam width has run away and the field will read as a solid orange disc.
+    expect(hot / inside).toBeGreaterThan(0.02);
+    expect(hot / inside).toBeLessThan(0.35);
+  });
+
+  it("is greyscale, so every colour stays a live tint rather than a baked one", () => {
+    const { seam } = crackedCrustTexture(5, 64, env);
+    for (let i = 0; i < seam.data.length; i += 4) {
+      if (seam.data[i + 3] === 0) continue;
+      expect(seam.data[i]).toBe(seam.data[i + 1]);
+      expect(seam.data[i + 1]).toBe(seam.data[i + 2]);
+    }
+  });
+
+  it("gives different fields different plates", () => {
+    const a = crackedCrustTexture(1, 64, env);
+    const b = crackedCrustTexture(2, 64, env);
+    expect(Array.from(a.seam.data)).not.toEqual(Array.from(b.seam.data));
   });
 });
