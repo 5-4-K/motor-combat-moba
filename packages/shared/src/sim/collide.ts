@@ -480,6 +480,39 @@ function edgeNormals(points: readonly Vec2[]): Vec2[] {
 }
 
 /**
+ * The point of `box` nearest `(px, py)` — on its surface for a source outside, the source itself for
+ * one inside.
+ *
+ * The clamp-into-the-local-frame technique `circleOverlapsObb` performs inline and `sim/ram.ts`'s
+ * `contactPointOn` performs against a car's own half-extents, lifted out so a third caller does not
+ * have to write a fourth copy: rotate the source into the box's frame, clamp it to the half-extents,
+ * rotate the clamped point back out. World space in, world space out, so callers never handle a
+ * lever arm pre-resolved in somebody's local frame.
+ *
+ * Returning an interior source UNCHANGED rather than pushing it out to the nearest face is
+ * deliberate and is what the FX layer wants: a shot that stopped inside a hull bursts where it
+ * stopped, not on the skin beside it.
+ */
+export function nearestPointOnObb(px: number, py: number, box: Obb): Vec2 {
+  const cos = Math.cos(-box.angle);
+  const sin = Math.sin(-box.angle);
+  const dx = px - box.x;
+  const dy = py - box.y;
+
+  const hx = box.w / 2;
+  const hy = box.h / 2;
+  const localX = Math.min(hx, Math.max(-hx, dx * cos - dy * sin));
+  const localY = Math.min(hy, Math.max(-hy, dx * sin + dy * cos));
+
+  const cosBack = Math.cos(box.angle);
+  const sinBack = Math.sin(box.angle);
+  return {
+    x: box.x + (localX * cosBack - localY * sinBack),
+    y: box.y + (localX * sinBack + localY * cosBack),
+  };
+}
+
+/**
  * Exact circle-vs-OBB: rotate the circle's centre into the box's local frame, clamp to the box, and
  * compare the distance to the radius. Exact rather than polygonal because a circle is the common
  * projectile hitbox and an inscribed polygon would quietly under-report hits.

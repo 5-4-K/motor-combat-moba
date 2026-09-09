@@ -82,6 +82,7 @@ export {
   circleOverlapsObb,
   contactNormalBetween,
   convexOverlap,
+  nearestPointOnObb,
   obbCorners,
   obbsInContact,
   obbsOverlap,

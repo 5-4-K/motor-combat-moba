@@ -774,7 +774,8 @@ export class ArenaScene extends Phaser.Scene {
   private hudGfx: Phaser.GameObjects.Graphics | undefined;
   private hudSweepGfx: Phaser.GameObjects.Graphics | undefined;
   private hudKeyTexts: Phaser.GameObjects.Text[] = [];
-  private hudNameTexts: Phaser.GameObjects.Text[] = [];  private hudStockTexts: Phaser.GameObjects.Text[] = [];
+  private hudNameTexts: Phaser.GameObjects.Text[] = [];
+  private hudStockTexts: Phaser.GameObjects.Text[] = [];
   /**
    * One pooled Image per possible slot, for the manifest icon. Hidden and left textureless until a
    * slot resolves one; a slot with no manifest icon never touches this pool and keeps drawing
@@ -1300,7 +1301,8 @@ export class ArenaScene extends Phaser.Scene {
       ...(this.movementHintGfx ? [this.movementHintGfx] : []),
       ...this.movementHintTexts,
       ...this.hudKeyTexts,
-      ...this.hudNameTexts,      ...this.hudStockTexts,
+      ...this.hudNameTexts,
+      ...this.hudStockTexts,
       ...this.hudIconImages,
       ...this.hudStatusTexts,
       ...this.rosterNameTexts,
@@ -1444,13 +1446,15 @@ export class ArenaScene extends Phaser.Scene {
     this.rosterGfx?.destroy();
     this.rosterGfx = undefined;
     for (const text of this.hudKeyTexts) text.destroy();
-    for (const text of this.hudNameTexts) text.destroy();    for (const text of this.hudStockTexts) text.destroy();
+    for (const text of this.hudNameTexts) text.destroy();
+    for (const text of this.hudStockTexts) text.destroy();
     for (const image of this.hudIconImages) image.destroy();
     for (const text of this.hudStatusTexts) text.destroy();
     for (const text of this.rosterNameTexts) text.destroy();
     for (const text of this.rosterKillTexts) text.destroy();
     this.hudKeyTexts = [];
-    this.hudNameTexts = [];    this.hudStockTexts = [];
+    this.hudNameTexts = [];
+    this.hudStockTexts = [];
     this.hudIconImages = [];
     this.hudStatusTexts = [];
     this.rosterNameTexts = [];
@@ -2394,6 +2398,13 @@ export class ArenaScene extends Phaser.Scene {
       // Carried because `shotEnded` keys off this flip, not off the row leaving the map: the server
       // clears `alive` a tick or more before it deletes the instance.
       alive: instance.alive,
+      // The two `fx/contact.ts` needs to place a burst on the point a weapon actually touched: a
+      // beam's reach (so its impact lands at the tip rather than on the shooter's nose) and whether
+      // this row is its weapon's explosion (so `instanceDefOf` resolves the blast's disc rather than
+      // the shell's dart). Both are already networked — no new schema field, and nothing here that
+      // netcode phase 2's binary snapshot would have to throw away.
+      extent: instance.extent,
+      isExplosion: instance.isExplosion,
     }));
     // A frozen clock while the sim is paused, NOT the real frame delta. A pause stops the server
     // patching poses, but `vx`/`vy` keep their pre-pause values — so `layTyreMarks` sees a car at
@@ -2490,7 +2501,8 @@ export class ArenaScene extends Phaser.Scene {
           .setFontStyle(HUD_NAME_FONT_STYLE),
       );
       // Left-centre, matching the key above it: the countdown shares the key's column, so both
-      // hang off the same `keyX` edge rather than one being centred and the other not.      this.hudStockTexts.push(this.makeHudText(HUD_STOCK_FONT_PX));
+      // hang off the same `keyX` edge rather than one being centred and the other not.
+      this.hudStockTexts.push(this.makeHudText(HUD_STOCK_FONT_PX));
       this.hudIconImages.push(
         this.add
           .image(0, 0, "__DEFAULT")
@@ -2614,7 +2626,8 @@ export class ArenaScene extends Phaser.Scene {
       const slot = player && box ? player.weapons.at(i) : undefined;
       if (!player || !box || !slot) {
         this.hudKeyTexts[i]!.setVisible(false);
-        this.hudNameTexts[i]!.setVisible(false);        this.hudStockTexts[i]!.setVisible(false);
+        this.hudNameTexts[i]!.setVisible(false);
+        this.hudStockTexts[i]!.setVisible(false);
         this.hudIconImages[i]!.setVisible(false);
         continue;
       }
