@@ -5,6 +5,7 @@ import {
   DRIVE_CONFIG,
   NEUTRAL_MODIFIERS,
   PlayerStatus,
+  boundsOf,
   getArena,
   modifiersFromRows,
   ramDefenceOf,
@@ -45,7 +46,11 @@ describe("buildStepContext", () => {
   it("takes obstacles and bounds from the state's arena", () => {
     const ctx = buildStepContext(ARENA, state({ me: player() }), "me", 0, NEUTRAL_MODIFIERS);
     expect(ctx.obstacles).toEqual(ARENA.obstacles);
-    expect(ctx.bounds).toEqual({ width: ARENA.width, height: ARENA.height });
+    // Was a plain `{ width, height }` literal before arena-01 grew a `boundary` (Task 5, 2026-09-11):
+    // `boundsOf` is the one place a `Bounds` is built from an arena, and the active arena's now
+    // includes `planes`, so the expectation has to go through the same function `buildStepContext`
+    // does rather than hand-build the old rectangle-only shape.
+    expect(ctx.bounds).toEqual(boundsOf(ARENA));
   });
 
   it("omits the local player from others", () => {

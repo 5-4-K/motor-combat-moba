@@ -1,102 +1,83 @@
 import { describe, expect, it } from "vitest";
+import { DRIVE_CONFIG } from "../config/drive-config.js";
+import { SPIKE_CONFIG } from "../config/spike-config.js";
+import { pointOutsideBounds } from "../sim/collide.js";
 import { ARENA_01 } from "./arena-01.js";
-import type { Spawn } from "./types.js";
+import { boundsOf } from "./bounds.js";
 
-/**
- * `ARENA_01` is the arena the game plays, and it is authored to one rule the generic contract in
- * `arena.test.ts` cannot express: the whole thing is on screen at once. That makes it a plain
- * rectangle with nothing in it, and it makes every spawn a deliberate position rather than a
- * plausible one — with no cover to break sightlines, an off-centre spawn is a free advantage.
- *
- * These assert the *properties* the layout was authored for — symmetry, even spacing, facing the
- * fight — rather than restating the coordinate table, so a future re-scale that keeps the shape
- * keeps the suite green.
- */
+const bounds = boundsOf(ARENA_01);
+const spikes = ARENA_01.obstacles.filter((o) => o.kind === "spike");
 const CENTRE_X = ARENA_01.width / 2;
 const CENTRE_Y = ARENA_01.height / 2;
 
-/** Gaps between consecutive values, used to prove even spacing without naming the spacing. */
-function gaps(values: readonly number[]): number[] {
-  return values.slice(1).map((v, i) => v - values[i]!);
-}
-
-function sortedY(spawns: readonly Spawn[]): number[] {
-  return spawns.map((s) => s.y).sort((a, b) => a - b);
-}
-
-describe("ARENA_01 shape", () => {
-  it("is a rectangle wider than it is tall", () => {
-    expect(ARENA_01.width).toBe(1280);
-    expect(ARENA_01.height).toBe(720);
-    expect(ARENA_01.width).toBeGreaterThan(ARENA_01.height);
-  });
-
-  it("is completely open", () => {
-    expect(ARENA_01.obstacles).toEqual([]);
-  });
-});
-
-describe("ARENA_01 team spawns", () => {
-  it("puts the two teams on opposite sides, mirrored about the centre line", () => {
-    const a = [...new Set(ARENA_01.teamASpawns.map((s) => s.x))];
-    const b = [...new Set(ARENA_01.teamBSpawns.map((s) => s.x))];
-    expect(a).toHaveLength(1);
-    expect(b).toHaveLength(1);
-    expect(a[0]!).toBeLessThan(CENTRE_X);
-    expect(b[0]!).toBeGreaterThan(CENTRE_X);
-    expect(ARENA_01.width - b[0]!).toBe(a[0]!);
-  });
-
-  it("leaves an equal gap between each car and its neighbour and the wall", () => {
-    for (const side of [ARENA_01.teamASpawns, ARENA_01.teamBSpawns]) {
-      const ys = sortedY(side);
-      const spans = [ys[0]!, ...gaps(ys), ARENA_01.height - ys[ys.length - 1]!];
-      expect(new Set(spans).size).toBe(1);
+describe("ARENA_01 boundary", () => {
+  it("is a convex octagon inside the world rect", () => {
+    expect(ARENA_01.boundary).toHaveLength(8);
+    for (const v of ARENA_01.boundary!) {
+      expect(v.x).toBeGreaterThanOrEqual(0);
+      expect(v.y).toBeGreaterThanOrEqual(0);
+      expect(v.x).toBeLessThanOrEqual(ARENA_01.width);
+      expect(v.y).toBeLessThanOrEqual(ARENA_01.height);
     }
   });
 
-  it("faces every car at the other team", () => {
-    for (const s of ARENA_01.teamASpawns) expect(Math.cos(s.angle)).toBeCloseTo(1);
-    for (const s of ARENA_01.teamBSpawns) expect(Math.cos(s.angle)).toBeCloseTo(-1);
+  it("wound clockwise, so every normal points at the centre", () => {
+    for (const plane of bounds.planes!) {
+      expect(plane.nx * CENTRE_X + plane.ny * CENTRE_Y - plane.d).toBeGreaterThan(0);
+    }
   });
 });
 
-describe("ARENA_01 FFA spawns", () => {
-  const corners = ARENA_01.ffaSpawns.filter((s) => s.x !== CENTRE_X);
-  const midpoints = ARENA_01.ffaSpawns.filter((s) => s.x === CENTRE_X);
-
-  it("offers four corners and the two midpoints of the long walls", () => {
-    expect(corners).toHaveLength(4);
-    expect(midpoints).toHaveLength(2);
-    // Four corners means all four combinations of the two inset x values and the two inset y values.
-    expect(new Set(corners.map((s) => `${s.x},${s.y}`)).size).toBe(4);
-    expect(new Set(corners.map((s) => s.x)).size).toBe(2);
-    expect(new Set(corners.map((s) => s.y)).size).toBe(2);
+describe("ARENA_01 spike strips", () => {
+  it("has fourteen of them", () => {
+    expect(spikes).toHaveLength(14);
   });
 
-  it("insets every spawn from the walls by the same margin", () => {
-    const insets = ARENA_01.ffaSpawns.flatMap((s) => [
-      Math.min(s.x, ARENA_01.width - s.x),
-      Math.min(s.y, ARENA_01.height - s.y),
-    ]);
-    // Every spawn sits one margin from its nearest wall on each axis, except the two midpoints,
-    // whose x inset is half the arena. Dropping those leaves a single margin.
-    expect(new Set(insets.filter((i) => i !== CENTRE_X)).size).toBe(1);
-  });
-
-  it("turns each corner car to face across the arena", () => {
-    for (const s of corners) {
-      const toCentre = Math.sign(CENTRE_X - s.x);
-      expect(Math.sign(Math.cos(s.angle))).toBe(toCentre);
-      expect(Math.sin(s.angle)).toBeCloseTo(0);
+  it("makes every one exactly the configured depth", () => {
+    for (const s of spikes) {
+      expect(Math.min(s.w, s.h)).toBe(SPIKE_CONFIG.depth);
     }
   });
 
-  it("turns the two midpoint cars to face each other", () => {
-    for (const s of midpoints) {
-      const toCentre = Math.sign(CENTRE_Y - s.y);
-      expect(Math.sign(Math.sin(s.angle))).toBe(toCentre);
-      expect(Math.cos(s.angle)).toBeCloseTo(0);
+  it("mirrors the top and bottom strips about the vertical centre line", () => {
+    const spanOf = (o: { x: number; w: number }) => [o.x, o.x + o.w] as const;
+    const top = spikes.filter((s) => s.y === 54).map(spanOf).sort((a, b) => a[0] - b[0]);
+    const mirrored = [...top].map(([a, b]) => [ARENA_01.width - b, ARENA_01.width - a] as const)
+      .sort((a, b) => a[0] - b[0]);
+    expect(top).toEqual(mirrored);
+  });
+
+  it("mirrors the left and right strips about the horizontal centre line", () => {
+    const left = spikes.filter((s) => s.x === 74).map((o) => [o.y, o.y + o.h] as const)
+      .sort((a, b) => a[0] - b[0]);
+    const mirrored = [...left].map(([a, b]) => [ARENA_01.height - b, ARENA_01.height - a] as const)
+      .sort((a, b) => a[0] - b[0]);
+    expect(left).toEqual(mirrored);
+  });
+
+  it("pairs every left strip with a right strip at the same span", () => {
+    const spanY = (o: { y: number; h: number }) => `${o.y}-${o.y + o.h}`;
+    const left = spikes.filter((s) => s.x === 74).map(spanY).sort();
+    const right = spikes.filter((s) => s.x === 1186).map(spanY).sort();
+    expect(left).toEqual(right);
+  });
+});
+
+describe("ARENA_01 spawns", () => {
+  const diagonal = Math.hypot(DRIVE_CONFIG.carWidth, DRIVE_CONFIG.carHeight);
+  const all = [...ARENA_01.ffaSpawns, ...ARENA_01.teamASpawns, ...ARENA_01.teamBSpawns];
+
+  it("puts every spawn inside the polygon", () => {
+    for (const s of all) expect(pointOutsideBounds(s.x, s.y, bounds)).toBe(false);
+  });
+
+  it("clears every spike strip by more than a car diagonal", () => {
+    for (const s of all) {
+      for (const box of spikes) {
+        const dx = Math.max(box.x - s.x, 0, s.x - (box.x + box.w));
+        const dy = Math.max(box.y - s.y, 0, s.y - (box.y + box.h));
+        expect(Math.hypot(dx, dy)).toBeGreaterThan(diagonal);
+      }
     }
   });
 });

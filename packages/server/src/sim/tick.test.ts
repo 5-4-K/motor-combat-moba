@@ -28,8 +28,17 @@ const NO_EFFECTS = new Map<string, Modifiers>();
 const DT = MS_PER_TICK / 1000;
 const UP: InputMessage = { seq: 1, steer: 0, throttle: 1, fireSlots: 0 };
 
-/** A clear east-west corridor in arena-01: every obstacle sits at y >= 350. */
+/**
+ * A clear east-west corridor in arena-01, for tests that drive straight and never turn far enough
+ * to approach a wall or a spike strip. Not a claim that every point at this y is clear at every x —
+ * arena-01's spikes (landed 2026-09-11) include a strip on the top wall spanning x 129-310, which a
+ * test that curves or loops (see the dedicated centre-spawn spot below) must avoid instead.
+ */
 const CORRIDOR_Y = 100;
+
+/** Dead centre of arena-01, clear of every wall and every spike by a wide margin on both axes. */
+const ARENA_CENTRE_X = 640;
+const ARENA_CENTRE_Y = 360;
 
 function makePlayer(
   sessionId: string,
@@ -696,9 +705,15 @@ describe("serverTick coasts a knocked player who has stopped sending input", () 
     // one contact differently, so the number this test pins moved along with it — not a second
     // bounce, not a new code path, the same single wall contact under the new rule. Still comfortably
     // under 7% of the original 300 u/s, so "small" still holds.
+    //
+    // REPINNED again for Task 5 of the arena-sprite-and-spike-hazard plan (2026-09-11): arena-01's
+    // bottom wall moved from y=720 to y=666, and the bottom wall now carries a spike strip spanning
+    // x 452-565 that x=500's trajectory clips instead of the old plain wall — a real obstacle contact
+    // where before there was only the boundary plane. Same single contact around the same tick, still
+    // comfortably under 7% of the original 300 u/s.
     const residualSpeed = Math.hypot(player.vx, player.vy);
     expect(residualSpeed).toBeGreaterThan(0);
-    expect(residualSpeed).toBeCloseTo(8.376, 2);
+    expect(residualSpeed).toBeCloseTo(8.1, 2);
     const restingX = player.x;
     const restingVx = player.vx;
     const restingVy = player.vy;
@@ -749,15 +764,18 @@ describe("serverTick coasts a knocked player who has stopped sending input", () 
       // real knock, but enough to make the OLD `!== 0` comparison call this ordinary driving an
       // externally-imposed knock forever, coasting a silent player's queue that client prediction
       // never runs. `hasKnock` must compare against `DRIVE_CONFIG.stopEpsilon`, not exact zero.
-      const player = makePlayer("v", 300, CORRIDOR_Y, 0);
+      // Dead centre of the arena, not the CORRIDOR_Y spot the rest of this file uses: 200 ticks of
+      // continuous turning traces the full ~32.6u circle repeatedly (as of the 2026-09-06 heavy-car
+      // pass), and from the corridor spot at y=100 that circle now clips arena-01's top wall and its
+      // spike strip (landed 2026-09-11) — this test is about float residue, not collision, so it
+      // needs a spot far enough from every wall and every spike that the loop truly never touches
+      // anything. The arena centre clears the nearest wall by roughly 286 units on the short axis.
+      const player = makePlayer("v", ARENA_CENTRE_X, ARENA_CENTRE_Y, 0);
       const state = stateWith(player);
       let seq = 1;
       const turning = (steer: number): InputMessage[] => [
         { seq: seq++, steer, throttle: 1, fireSlots: 0 },
       ];
-      // Turning circle at cruise speed is ~32.6u for this chassis (mirage, as of the 2026-09-06
-      // heavy-car pass) — well clear of arena-01's walls and its obstacles (all at y >= 350) from
-      // this corridor spot, so nothing here ever collides.
       for (let i = 0; i < 200; i++) {
         serverTick(state, new Map([["v", turning(1)]]), DT, RoomPhase.MATCH, NO_EFFECTS, new Map());
       }

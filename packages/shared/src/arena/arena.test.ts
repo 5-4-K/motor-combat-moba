@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { ACTIVE_ARENA_ID } from "../config/arena-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
+import { SPIKE_CONFIG } from "../config/spike-config.js";
 import { MAX_PLAYERS } from "../constants.js";
+import { pointOutsideBounds } from "../sim/collide.js";
+import { boundsOf } from "./bounds.js";
 import { ARENA_IDS, ARENAS, getArena, isArenaId } from "./registry.js";
 import type { ArenaDef, Spawn } from "./types.js";
 
@@ -24,9 +27,6 @@ const CAR_DIAGONAL = Math.hypot(DRIVE_CONFIG.carWidth, DRIVE_CONFIG.carHeight);
  * and using it here would demand a fourth spawn per side that no match can ever occupy.
  */
 const MIN_TEAM_SPAWNS = MAX_PLAYERS / 2;
-
-/** Spawns keep clear of the walls by the same margin the original arena was authored to. */
-const SPAWN_WALL_MARGIN = 80;
 
 const entries = Object.entries(ARENAS) as ReadonlyArray<[string, ArenaDef]>;
 
@@ -77,19 +77,42 @@ describe.each(entries)("arena %s", (id, arena) => {
     }
   });
 
-  it("keeps every obstacle at least a car diagonal clear of the arena boundary", () => {
-    const tooClose = arena.obstacles.flatMap((o) => {
-      const sides = [
-        ["left", o.x],
-        ["top", o.y],
-        ["right", arena.width - (o.x + o.w)],
-        ["bottom", arena.height - (o.y + o.h)],
-      ] as const;
-      return sides
-        .filter(([, gap]) => gap < CAR_DIAGONAL)
-        .map(([side, gap]) => `obstacle at {${o.x},${o.y}}: ${side} gap ${gap} < ${CAR_DIAGONAL}`);
-    });
+  it("keeps every ordinary obstacle at least a car diagonal clear of the arena boundary", () => {
+    const tooClose = arena.obstacles
+      // Wall-mounted geometry touches the boundary by definition and has its own rule below (AS13).
+      .filter((o) => o.kind === undefined)
+      .flatMap((o) => {
+        const sides = [
+          ["left", o.x],
+          ["top", o.y],
+          ["right", arena.width - (o.x + o.w)],
+          ["bottom", arena.height - (o.y + o.h)],
+        ] as const;
+        return sides
+          .filter(([, gap]) => gap < CAR_DIAGONAL)
+          .map(([side, gap]) => `obstacle at {${o.x},${o.y}}: ${side} gap ${gap} < ${CAR_DIAGONAL}`);
+      });
     expect(tooClose).toEqual([]);
+  });
+
+  it("sits every spike strip flush against a boundary plane, exactly one depth deep", () => {
+    const planes = boundsOf(arena).planes ?? [];
+    for (const box of arena.obstacles) {
+      if (box.kind !== "spike") continue;
+      expect(Math.min(box.w, box.h)).toBe(SPIKE_CONFIG.depth);
+      // Its outer face lies ON some plane: the deepest corner sits at distance 0 from one of them.
+      const corners = [
+        { x: box.x, y: box.y },
+        { x: box.x + box.w, y: box.y },
+        { x: box.x, y: box.y + box.h },
+        { x: box.x + box.w, y: box.y + box.h },
+      ];
+      const flush = planes.some((p) =>
+        corners.every((c) => p.nx * c.x + p.ny * c.y - p.d >= -1e-9) &&
+        corners.some((c) => Math.abs(p.nx * c.x + p.ny * c.y - p.d) < 1e-9),
+      );
+      expect(flush).toBe(true);
+    }
   });
 
   it("leaves no corridor between obstacles too narrow for a car", () => {
@@ -123,11 +146,9 @@ describe.each(entries)("arena %s", (id, arena) => {
 
   it("puts every spawn inside the bounds and clear of obstacles", () => {
     const all = [...arena.ffaSpawns, ...arena.teamASpawns, ...arena.teamBSpawns];
+    const bounds = boundsOf(arena);
     for (const s of all) {
-      expect(s.x).toBeGreaterThan(SPAWN_WALL_MARGIN);
-      expect(s.x).toBeLessThan(arena.width - SPAWN_WALL_MARGIN);
-      expect(s.y).toBeGreaterThan(SPAWN_WALL_MARGIN);
-      expect(s.y).toBeLessThan(arena.height - SPAWN_WALL_MARGIN);
+      expect(pointOutsideBounds(s.x, s.y, bounds)).toBe(false);
       expect(Number.isFinite(s.angle)).toBe(true);
       expect(insideObstacle(s, arena)).toBe(false);
     }

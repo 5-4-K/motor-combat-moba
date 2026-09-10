@@ -17,6 +17,7 @@ import {
   MS_PER_TICK,
   NEUTRAL_MODIFIERS,
   TICK_RATE_HZ,
+  boundsOf,
   forwardMaxSpeedOf,
   getArena,
   carHullOf,
@@ -34,6 +35,7 @@ import { Reporter } from "./reporter.js";
 
 const DT = MS_PER_TICK / 1000;
 const ARENA = getArena("arena-01");
+const ARENA_BOUNDS = boundsOf(ARENA);
 
 interface Snapshot {
   atTick: number;
@@ -168,7 +170,7 @@ function clientContext(snap: Snapshot | null, self: SimBody): StepContext {
     carId: "mirage",
     others: otherCarHulls(entries, "me", 0),
     obstacles: ARENA.obstacles,
-    bounds: { width: ARENA.width, height: ARENA.height },
+    bounds: ARENA_BOUNDS,
     modifiers: NEUTRAL_MODIFIERS,
     // Both "me" and "them" are mirage (see `trial` above), so this is `ramDefenceOf("them")` too --
     // stage 2 Task 2's car-car positional split (renamed `mass` -> `ramDefence` in stage 3 Task 3) is
