@@ -5,12 +5,12 @@ import type { ArenaDef } from "./types.js";
 /**
  * The ONE place a `Bounds` is built from an arena.
  *
- * Five call sites used to spell `{ width: arena.width, height: arena.height }` by hand — the server
- * tick, the room pipeline, two bot builders and the client's step context. The moment an arena's
- * boundary is more than a rectangle, a site that misses it simulates a different world from the
- * others, and the one that matters most is the client: a client predicting against a rectangle
- * while the server simulates an octagon rubber-bands, and reads as a netcode bug rather than an
- * arena bug (AS8). Route every builder through here.
+ * Six call sites used to spell `{ width: arena.width, height: arena.height }` by hand — the server
+ * tick, the room pipeline, two bot builders, the client's step context, and the ram/slam contact
+ * pass. The moment an arena's boundary is more than a rectangle, a site that misses it simulates a
+ * different world from the others, and the one that matters most is the client: a client predicting
+ * against a rectangle while the server simulates an octagon rubber-bands, and reads as a netcode bug
+ * rather than an arena bug (AS8). Route every builder through here.
  *
  * An arena with no polygon gets NO `planes` key rather than the four rectangle planes, so the
  * default stays the integer fast path in `collide.ts` and nothing about a rectangular arena moves.
