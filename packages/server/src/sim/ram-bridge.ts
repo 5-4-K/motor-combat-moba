@@ -4,6 +4,7 @@ import {
   SLAM_CONFIG,
   applyImpulse,
   applyStatus,
+  boundsOf,
   carHullOf,
   carIdOf,
   expireStatusesFromSource,
@@ -308,7 +309,7 @@ export function contactTick(
   tick: number,
 ): ContactTickResult {
   const arena = getArena(state.arenaId);
-  const bounds = { width: arena.width, height: arena.height };
+  const bounds = boundsOf(arena);
 
   const cars = contactCarsOf(state, roster, statusMods, approachVelocities, maneuverWeapons, tick);
   const { impulses, contacts, events } = resolveContacts(

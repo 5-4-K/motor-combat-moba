@@ -14,6 +14,12 @@ export interface Obstacle {
   y: number;
   w: number;
   h: number;
+  /**
+   * What this solid IS, for the rules that care. Absent means an ordinary block. `"spike"` marks
+   * wall-mounted geometry that also damages (AS10) — it is the only kind today, and it is the only
+   * obstacle allowed to sit flush against the boundary (AS13).
+   */
+  kind?: "spike";
 }
 
 export interface Spawn {
@@ -43,5 +49,14 @@ export interface ArenaDef {
   ffaSpawns: readonly Spawn[];
   teamASpawns: readonly Spawn[];
   teamBSpawns: readonly Spawn[];
+  /**
+   * The playable region, as a CONVEX polygon wound clockwise in screen coordinates (`+y` down).
+   * Absent means the plain rectangle `0,0 -> width,height`, which is what every arena had before
+   * `arena-01` grew cut corners (AS6).
+   *
+   * This is NOT the same thing as `width`/`height`, which stay the image frame and the camera
+   * bounds. The polygon is inset inside them.
+   */
+  boundary?: readonly { x: number; y: number }[];
   palette?: ArenaPalette;
 }

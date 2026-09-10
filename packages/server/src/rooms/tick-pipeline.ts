@@ -1,5 +1,6 @@
 import {
   RoomPhase,
+  boundsOf,
   getArena,
   hpOf,
   sidesOf,
@@ -152,7 +153,7 @@ function combatTick(
       dt,
       mode: sidesOf(state.mode),
       obstacles: arena.obstacles,
-      bounds: { width: arena.width, height: arena.height },
+      bounds: boundsOf(arena),
     },
     players: toCombatPlayers(state, ctx.matchRoster, masks, ctx.combat),
     instances: toInstances(ctx.combat),

@@ -1,5 +1,5 @@
 import {
-  DRIVE_CONFIG, TICK_RATE_HZ, beamShapeAt, carHullOf, forwardMaxSpeedOf, instanceExpired,
+  DRIVE_CONFIG, TICK_RATE_HZ, beamShapeAt, boundsOf, carHullOf, forwardMaxSpeedOf, instanceExpired,
   projectileShapeAt, shapeHitsObb, slotsOf, smear, spawnInstances, stepInstance, weaponDamageOf,
   weaponDefOf, weaponTicksOf, type CarId, type WeaponId, type WeaponInstance, type WorldShape,
 } from "@motor-combat-moba/shared";
@@ -373,7 +373,7 @@ function marchOne(start: WeaponInstance, args: SolveArgs, heading: number): numb
     instance = stepInstance(instance, {
       dt, tick: now,
       obstacles: arena.obstacles,
-      bounds: { width: arena.width, height: arena.height },
+      bounds: boundsOf(arena),
       ownerPose: { x: shooter.x, y: shooter.y, angle: heading },
       homingTarget: { x: target.x, y: target.y },
     });
