@@ -1,6 +1,7 @@
 import { RAM_CONFIG } from "../config/ram-config.js";
 import { SLAM_CONFIG } from "../config/slam-config.js";
 import type { WeaponId } from "../config/weapon-types.js";
+import { rectPlanes } from "./boundary.js";
 import {
   aabbCorners,
   contactNormalBetween,
@@ -117,8 +118,11 @@ export interface ContactEvents {
  * predicate's name promises.
  */
 export function hullTouchesWorld(hull: Obb, obstacles: readonly Aabb[], bounds: Bounds, pad: number): boolean {
+  const planes = bounds.planes ?? rectPlanes(bounds.width, bounds.height);
   for (const c of obbCorners(hull)) {
-    if (c.x <= pad || c.y <= pad || c.x >= bounds.width - pad || c.y >= bounds.height - pad) return true;
+    for (const plane of planes) {
+      if (plane.nx * c.x + plane.ny * c.y - plane.d <= pad) return true;
+    }
   }
   const corners = obbCorners({ x: hull.x, y: hull.y, angle: hull.angle, w: hull.w + 2 * pad, h: hull.h + 2 * pad });
   return obstacles.some((o) =>

@@ -452,9 +452,20 @@ export function aabbCorners(box: Aabb): Vec2[] {
  * One spelling of one rule, shared by everything that asks it: a projectile leaving the arena
  * (`combat.ts`) and a beam clipping against it (`weapons/instances.ts`) used to disagree by a strict
  * `<` against a `<=`, so a shot exactly on the edge survived where a beam already stopped.
+ *
+ * With `bounds.planes` set, the rectangle test is replaced by a walk over the convex boundary's
+ * half-planes, keeping the same inclusive-on-every-edge convention: `<= 0` on the signed distance.
  */
 export function pointOutsideBounds(px: number, py: number, bounds: Bounds): boolean {
-  return px <= 0 || py <= 0 || px >= bounds.width || py >= bounds.height;
+  if (bounds.planes === undefined) {
+    return px <= 0 || py <= 0 || px >= bounds.width || py >= bounds.height;
+  }
+  // Inclusive on every edge, exactly as the rectangle form is: `<= 0` on the signed distance means
+  // a point resting on a plane is out.
+  for (const plane of bounds.planes) {
+    if (plane.nx * px + plane.ny * py - plane.d <= 0) return true;
+  }
+  return false;
 }
 
 /**

@@ -4,6 +4,7 @@ import { DRIVE_CONFIG } from "../../config/drive-config.js";
 import { weaponTicksOf } from "../../config/weapon-ticks.js";
 import { DEFAULT_CAR_ID } from "../../config/car-config.js";
 import { WEAPON_TABLE } from "../../config/weapon-config.js";
+import { rectPlanes } from "../boundary.js";
 import { weaponDamageOf } from "../damage.js";
 import {
   bounceOffWorld,
@@ -418,6 +419,17 @@ describe("bounce", () => {
     expect(shot.expiresAtTick).toBe(100 + 87); // msToTicks(2900) at 30 Hz
     expect(instanceExpired({ ...shot, distance: 99999 }, 150, bouncer)).toBe(false); // range ignored
     expect(instanceExpired(shot, 187, bouncer)).toBe(true);
+  });
+
+  it("reflects a bouncing projectile about a diagonal plane", () => {
+    const OCT = { width: 1280, height: 720, planes: [
+      ...rectPlanes(1280, 720),
+      { nx: Math.SQRT1_2, ny: Math.SQRT1_2, d: Math.SQRT1_2 * 124 + Math.SQRT1_2 * 54 },
+    ] };
+    // Travelling up-left into the chamfer at 135 degrees; it should come back down-right.
+    const out = bounceOffWorld(120, 90, 80, 60, (-3 * Math.PI) / 4, [], OCT);
+    expect(Math.cos(out.angle)).toBeGreaterThan(0);
+    expect(Math.sin(out.angle)).toBeGreaterThan(0);
   });
 });
 

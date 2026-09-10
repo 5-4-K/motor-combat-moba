@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CarId } from "../config/types.js";
+import { rectPlanes } from "./boundary.js";
 import { carHullOf } from "./context.js";
 import { pairKey } from "./ram.js";
 import { ManeuverKind } from "./maneuver.js";
@@ -225,5 +226,15 @@ describe("hullTouchesWorld", () => {
     expect(hullTouchesWorld(carHullOf(500, 500, 0), [], bounds, 1)).toBe(false);
     const box = { x: 530, y: 480, w: 40, h: 40 };
     expect(hullTouchesWorld(carHullOf(505, 500, 0), [box], bounds, 1)).toBe(true);
+  });
+
+  it("reports a hull near a chamfer as touching the world", () => {
+    const OCT = { width: 1280, height: 720, planes: [
+      ...rectPlanes(1280, 720),
+      { nx: Math.SQRT1_2, ny: Math.SQRT1_2, d: Math.SQRT1_2 * 124 + Math.SQRT1_2 * 54 },
+    ] };
+    const hull = { x: 120, y: 90, angle: 0, w: 48, h: 32 };
+    expect(hullTouchesWorld(hull, [], OCT, 2)).toBe(true);
+    expect(hullTouchesWorld({ ...hull, x: 640, y: 360 }, [], OCT, 2)).toBe(false);
   });
 });

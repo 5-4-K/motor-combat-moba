@@ -10,6 +10,7 @@ import {
   obbsOverlap,
   pointInAabb,
   pointInObb,
+  pointOutsideBounds,
   resolveWorld,
 } from "./collide.js";
 import { rectPlanes } from "./boundary.js";
@@ -1044,5 +1045,26 @@ describe("polygon bounds", () => {
     const out = resolveWorld(b, [], [], OCTAGON, 50);
     expect(out.vx).toBeCloseTo(-42.5, 6);
     expect(out.vy).toBeCloseTo(57.5, 6);
+  });
+});
+
+describe("pointOutsideBounds with planes", () => {
+  const OCT = { width: 1280, height: 720, planes: [
+    ...rectPlanes(1280, 720),
+    { nx: Math.SQRT1_2, ny: Math.SQRT1_2, d: Math.SQRT1_2 * 124 + Math.SQRT1_2 * 54 },
+  ] };
+
+  it("calls a point past the chamfer out, though it is inside the rectangle", () => {
+    expect(pointOutsideBounds(80, 60, OCT)).toBe(true);
+    expect(pointOutsideBounds(80, 60, { width: 1280, height: 720 })).toBe(false);
+  });
+
+  it("keeps the inclusive-on-the-edge convention", () => {
+    // Exactly on the left wall is out, as it always has been.
+    expect(pointOutsideBounds(0, 360, OCT)).toBe(true);
+  });
+
+  it("calls the centre in", () => {
+    expect(pointOutsideBounds(640, 360, OCT)).toBe(false);
   });
 });
