@@ -12,6 +12,7 @@ import {
   pointInObb,
   resolveWorld,
 } from "./collide.js";
+import { rectPlanes } from "./boundary.js";
 import type { SimBody } from "./step.js";
 import { forwardOf, lateralOf, speedOf, toWorld } from "./velocity.js";
 
@@ -988,5 +989,52 @@ describe("contact reflection preserves direction", () => {
     // restitution 0.15: it comes back at about 15% of what it arrived with, not 35%.
     expect(next.vx).toBeGreaterThan(0);
     expect(next.vx).toBeLessThan(200 * 0.25);
+  });
+});
+
+describe("polygon bounds", () => {
+  const RECT = { width: 1280, height: 720 };
+  // ARENA_01's top-left chamfer, as a boundary with that one plane plus the rectangle.
+  const OCTAGON = {
+    width: 1280,
+    height: 720,
+    planes: [
+      ...rectPlanes(1280, 720),
+      { nx: Math.SQRT1_2, ny: Math.SQRT1_2, d: Math.SQRT1_2 * 124 + Math.SQRT1_2 * 54 },
+    ],
+  };
+
+  const bodyAt = (x: number, y: number, angle = 0) => ({
+    x, y, angle, vx: 0, vy: 0, reverseHold: 0, angVel: 0,
+    maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0, maneuverSpeed: 0,
+  });
+
+  it("is identical to the rectangle when no planes are declared", () => {
+    const out = resolveWorld(bodyAt(5, 360), [], [], RECT, 50);
+    expect(out.x).toBeCloseTo(DRIVE_CONFIG.carWidth / 2, 9);
+  });
+
+  it("pushes a car out of a diagonal plane along that plane's normal", () => {
+    // Deep inside the chamfer corner: both x and y are inside the rect, so only the diagonal bites.
+    const out = resolveWorld(bodyAt(90, 60), [], [], OCTAGON, 50);
+    const pushX = out.x - 90;
+    const pushY = out.y - 60;
+    expect(pushX).toBeGreaterThan(0);
+    expect(pushY).toBeGreaterThan(0);
+    expect(pushX).toBeCloseTo(pushY, 9); // a 45-degree normal pushes equally on both axes
+  });
+
+  it("leaves a car well inside the polygon untouched", () => {
+    const out = resolveWorld(bodyAt(640, 360), [], [], OCTAGON, 50);
+    expect(out.x).toBe(640);
+    expect(out.y).toBe(360);
+  });
+
+  it("bounces velocity about the diagonal normal, not about an axis", () => {
+    const body = { ...bodyAt(90, 60), vx: -100, vy: -100 };
+    const out = resolveWorld(body, [], [], OCTAGON, 50);
+    // Moving straight into a 45-degree wall: the reflected velocity opposes the entry direction.
+    expect(out.vx).toBeGreaterThan(0);
+    expect(out.vy).toBeGreaterThan(0);
   });
 });
