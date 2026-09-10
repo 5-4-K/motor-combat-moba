@@ -4,6 +4,7 @@ import { DRIVE_CONFIG } from "../config/drive-config.js";
 import { SPIKE_CONFIG } from "../config/spike-config.js";
 import { MAX_PLAYERS } from "../constants.js";
 import { pointOutsideBounds } from "../sim/collide.js";
+import { planePenetration, rectPlanes, supportRadius } from "../sim/boundary.js";
 import { boundsOf } from "./bounds.js";
 import { ARENA_IDS, ARENAS, getArena, isArenaId } from "./registry.js";
 import type { ArenaDef, Spawn } from "./types.js";
@@ -107,11 +108,20 @@ describe.each(entries)("arena %s", (id, arena) => {
         { x: box.x, y: box.y + box.h },
         { x: box.x + box.w, y: box.y + box.h },
       ];
-      const flush = planes.some((p) =>
-        corners.every((c) => p.nx * c.x + p.ny * c.y - p.d >= -1e-9) &&
+      // FINDING 2 fix (2026-09-11 review): the old rule asked only "is every corner inside SOME
+      // one plane, with a corner flush to that same plane" — which a strip half-buried outside the
+      // convex hull (inside the plane it backs onto, but past a neighbouring plane, e.g. a chamfer)
+      // could still pass. A strip is only really on the playable boundary if every corner is inside
+      // EVERY plane (i.e. inside the polygon, `planes.every`), with at least one corner flush to at
+      // least one of them.
+      const insideEveryPlane = corners.every((c) =>
+        planes.every((p) => p.nx * c.x + p.ny * c.y - p.d >= -1e-9),
+      );
+      const flushToSomePlane = planes.some((p) =>
         corners.some((c) => Math.abs(p.nx * c.x + p.ny * c.y - p.d) < 1e-9),
       );
-      expect(flush).toBe(true);
+      expect(insideEveryPlane).toBe(true);
+      expect(flushToSomePlane).toBe(true);
     }
   });
 
@@ -147,10 +157,21 @@ describe.each(entries)("arena %s", (id, arena) => {
   it("puts every spawn inside the bounds and clear of obstacles", () => {
     const all = [...arena.ffaSpawns, ...arena.teamASpawns, ...arena.teamBSpawns];
     const bounds = boundsOf(arena);
+    // FINDING 4 fix (2026-09-11 review): the point-inside check above only tests the spawn's
+    // centre. A point a few units inside a plane still embeds the car's HULL, which reaches up to
+    // `supportRadius` further along that plane's normal, and gets shoved on tick 1 — impossible
+    // under the old flat 80-unit margin this test replaced. `planes` falls back to the rectangle's
+    // own four planes for an arena with no polygon `boundary` (e.g. arena-02), so this check is
+    // never skipped for lack of a `boundary`.
+    const planes = bounds.planes ?? rectPlanes(arena.width, arena.height);
     for (const s of all) {
       expect(pointOutsideBounds(s.x, s.y, bounds)).toBe(false);
       expect(Number.isFinite(s.angle)).toBe(true);
       expect(insideObstacle(s, arena)).toBe(false);
+      for (const p of planes) {
+        const penetration = planePenetration(s.x, s.y, supportRadius(s.angle, p.nx, p.ny), p);
+        expect(penetration).toBeLessThanOrEqual(0);
+      }
     }
   });
 

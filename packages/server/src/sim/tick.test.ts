@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ARENA_01,
   ArenaState,
   DRIVE_CONFIG,
   ManeuverKind,
@@ -706,11 +707,31 @@ describe("serverTick coasts a knocked player who has stopped sending input", () 
     // bounce, not a new code path, the same single wall contact under the new rule. Still comfortably
     // under 7% of the original 300 u/s, so "small" still holds.
     //
-    // REPINNED again for Task 5 of the arena-sprite-and-spike-hazard plan (2026-09-11): arena-01's
-    // bottom wall moved from y=720 to y=666, and the bottom wall now carries a spike strip spanning
-    // x 452-565 that x=500's trajectory clips instead of the old plain wall — a real obstacle contact
-    // where before there was only the boundary plane. Same single contact around the same tick, still
-    // comfortably under 7% of the original 300 u/s.
+    // REPINNED again for arena-sprite-and-spike-hazard Task 5 (2026-09-11): the bottom wall moved
+    // from y=720 to y=666, so the pinned magnitude changed (19.72 -> 8.1) even though it is still the
+    // same single wall contact.
+    //
+    // Finding 5 of that task's review flagged this as fragile: it assumed the contact stayed near
+    // this fixture's start x (500), which is inside the bottom spike strip's span (452-565), so a
+    // later task wiring spike damage into contact would make this fixture start taking damage and
+    // move the pin a third time for a reason unrelated to what it is testing (float residue from
+    // repeated sin/cos rebuilds, not collision).
+    //
+    // VERIFIED, not assumed (2026-09-11 fix): that assumption does not hold. `vx` keeps carrying the
+    // car rightward through the whole quarter-turn arc, so by the time the curve reaches the bottom
+    // wall the car has drifted from x=500 to x=~649 — squarely inside the 565-715 BARE gap between
+    // that strip and the next one (715-828), 65-85 units clear of either. Proved directly: temporarily
+    // zeroing `ARENA_01.obstacles` (no spikes at all) and re-running this exact fixture reproduces the
+    // identical 8.100463254854805 — the spikes take no part in this trajectory today, start x=500
+    // included, so no coordinate change was needed here after all. What Finding 5 is right to want is
+    // a guard against this silently becoming false on a future spike re-tune, which the assertion
+    // below provides: it fails loudly, rather than quietly re-pinning over a real spike hit, the
+    // moment any spike's span reaches this fixture's traced approach corridor.
+    const APPROACH_X = 649; // this fixture's traced x when its arc reaches the bottom wall band
+    const spikeSpans = ARENA_01.obstacles
+      .filter((o) => o.kind === "spike")
+      .map((o) => [o.x, o.x + o.w] as const);
+    expect(spikeSpans.some(([a, b]) => APPROACH_X >= a && APPROACH_X <= b)).toBe(false);
     const residualSpeed = Math.hypot(player.vx, player.vy);
     expect(residualSpeed).toBeGreaterThan(0);
     expect(residualSpeed).toBeCloseTo(8.1, 2);
