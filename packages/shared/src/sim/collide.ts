@@ -191,6 +191,11 @@ function boundsPush(body: SimBody, bounds: Bounds): Vec2 {
  * Bounds contact with bounce, one `applyContact` per violated plane so a corner reflects off both
  * walls rather than off some blended diagonal. That was the rule when bounds were two axes and it
  * is the rule now that they are N planes.
+ *
+ * World bounds are a plane clamp rather than SAT wall boxes. A clamp cannot pick the wrong
+ * separating axis for a deeply penetrating body — a thin wall box would happily eject a fast car out
+ * the far side — and for the ordinary shallow case it yields exactly the same MTV a wall box would.
+ * The clamp still feeds `applyContact`, so bounds, obstacles, and cars bounce identically.
  */
 function resolveBounds(body: SimBody, bounds: Bounds): SimBody {
   const planes = bounds.planes ?? rectPlanes(bounds.width, bounds.height);

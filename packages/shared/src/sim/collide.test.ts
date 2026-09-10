@@ -1031,10 +1031,18 @@ describe("polygon bounds", () => {
   });
 
   it("bounces velocity about the diagonal normal, not about an axis", () => {
-    const body = { ...bodyAt(90, 60), vx: -100, vy: -100 };
-    const out = resolveWorld(body, [], [], OCTAGON, 50);
-    // Moving straight into a 45-degree wall: the reflected velocity opposes the entry direction.
-    expect(out.vx).toBeGreaterThan(0);
-    expect(out.vy).toBeGreaterThan(0);
+    // A symmetric (-100, -100) input can't tell diagonal reflection apart from per-axis
+    // decomposition — both give vx' = vy' = 15. An x-only input discriminates: a per-axis
+    // implementation never fires a y-directed contact, so it would leave vy at 0. Correct
+    // reflection about the 45-degree normal n = (1/sqrt2, 1/sqrt2) redirects x-momentum into y.
+    //
+    // Derived by hand: at (90, 60) the diagonal plane's penetration is 34*sqrt(2), so the push
+    // resolves to exactly (34, 34) (pen projected onto n). intoSurface = dot((-100, 0), n) =
+    // -100/sqrt2; with DRIVE_CONFIG.restitution = 0.15, scale = 1.15 * intoSurface, and
+    // vx' = vx - scale*n.x, vy' = vy - scale*n.y works out to vx' = -42.5, vy' = 57.5 exactly.
+    const b = { ...bodyAt(90, 60), vx: -100, vy: 0 };
+    const out = resolveWorld(b, [], [], OCTAGON, 50);
+    expect(out.vx).toBeCloseTo(-42.5, 6);
+    expect(out.vy).toBeCloseTo(57.5, 6);
   });
 });
