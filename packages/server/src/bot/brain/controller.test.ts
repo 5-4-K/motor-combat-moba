@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-  driveOf, NEUTRAL_MODIFIERS, slotsOf, stepDrive, TICK_RATE_HZ, weaponDefOf, type SimBody,
+  ARENA_01, boundsOf, driveOf, NEUTRAL_MODIFIERS, slotsOf, stepDrive, TICK_RATE_HZ, weaponDefOf,
+  type SimBody,
 } from "@motor-combat-moba/shared";
 import { BOT_PROFILES } from "../../config/bot-profiles.js";
 import { makeRng } from "../rng.js";
 import type { BotView } from "../types.js";
-import { HumanController } from "./controller.js";
+import { HumanController, inCorner } from "./controller.js";
 import { runDuel } from "./duel.fixture.js";
 
 function view(overrides: Partial<BotView> = {}): BotView {
@@ -759,6 +760,39 @@ describe("HumanController", () => {
     const rng = makeRng(17);
     for (let tick = 0; tick < 30; tick++) bot.decide(inThreatLineView(tick, rng));
     expect(bot.debug()!.dangerEv).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * AS28. One of the three inputs to `pinned`, and the only one that reads the car's CURRENT position
+ * rather than a look-ahead. It used to test `minEngageUnits` against `width`/`height`, which on the
+ * octagon `arena-01` is unreachable on the y axis at all (`y < 70` and `y > 650` are both outside
+ * the boundary), so it could never return `true` on the shipped arena.
+ */
+describe("inCorner", () => {
+  const rect = { width: ARENA_01.width, height: ARENA_01.height, obstacles: [] };
+  const octagon = { ...rect, planes: boundsOf(ARENA_01).planes };
+
+  it("finds a chamfer corner on the octagon", () => {
+    // (95, 95) is inside the top-left chamfer's margin and inside the rect on BOTH axes — 95 is
+    // neither under 70 nor over 1210/650 — so the rectangle rule below calls the same pose open
+    // floor. Three planes are near here: the chamfer and the two walls it joins.
+    expect(inCorner({ x: 95, y: 95 }, octagon)).toBe(true);
+  });
+
+  it("still calls the middle of the octagon, and a bare wall on it, open", () => {
+    expect(inCorner({ x: 640, y: 360 }, octagon)).toBe(false);
+    // Mid-wall: near the top plane and nothing else. One plane is an edge, not a corner.
+    expect(inCorner({ x: 640, y: 100 }, octagon)).toBe(false);
+  });
+
+  it("classifies a rectangular arena exactly as the width/height rule did", () => {
+    // The same three cases the old `onX && onY` answered, so `arena-02` is untouched: a corner is
+    // near two planes, an edge near one, open floor near none.
+    expect(inCorner({ x: 95, y: 95 }, rect)).toBe(false);
+    expect(inCorner({ x: 30, y: 30 }, rect)).toBe(true);
+    expect(inCorner({ x: 30, y: 360 }, rect)).toBe(false);
+    expect(inCorner({ x: 640, y: 360 }, rect)).toBe(false);
   });
 });
 

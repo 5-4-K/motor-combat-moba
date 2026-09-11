@@ -80,8 +80,18 @@ Practice, playground, and the balance harness all call `HumanController.decide(B
 **There is exactly one mover.** The desire-vector blend (`blendHeading`, `goalDesire`,
 `wallDesire`, `reduceToIntent`, `compensateForLag`) is gone: a situation states an objective and
 `planner.ts` is the only thing that turns an objective into `steer` and `throttle`. `movement.ts`
-keeps one export, `wallAhead`, and it is the predicate the `unpin` situation is classified from,
-not a mover.
+keeps two exports, `wallAhead` and `spikesAhead`, and they are predicates the `unpin` situation is
+classified from, not movers.
+
+**Every wall reading walks the arena's boundary planes, never `width`/`height`** (AS28). Four places
+ask "how close is this pose to a wall": `wallAhead` and `spikesAhead` above, `boundsPenalty` behind
+the planner's `wallPenalty` term, and `inCorner`, the third input to `pinned`. All four take
+`BotArenaView.planes` and fall back to `rectPlanes(width, height)` when an arena declares no polygon.
+That distinction is load-bearing on `arena-01`, whose playable octagon is inset well inside its
+`1280 × 720` frame: against the rect, reachable car centres are `x ∈ [90, 1190]`, `y ∈ [70, 650]`, so
+a margin measured off `width`/`height` either never fires or only fires for a rollout pose that has
+already punched through a wall. If a wall-related term reads 0 where it visibly should not, check that
+its arena view carries `planes` before reaching for a weight.
 
 **Expect hard to fire noticeably less often than it used to, and hit vastly more** (P42). The
 trigger used to be an angle (`fireConeRad`); it is now a FRACTION of the shooter's own kit's

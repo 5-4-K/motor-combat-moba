@@ -1,6 +1,7 @@
 import {
   DRIVE_CONFIG, TICK_RATE_HZ, NEUTRAL_MODIFIERS, carAimRangeOf, forwardOf, inAcquireRegion,
-  inRetainRegion, speedOf, turnRateOf, weaponDefOf, type SimBody, type WeaponDef, type WeaponId,
+  inRetainRegion, rectPlanes, speedOf, turnRateOf, weaponDefOf,
+  type BoundaryPlane, type SimBody, type WeaponDef, type WeaponId,
 } from "@motor-combat-moba/shared";
 import { BRAIN_CONSTANTS } from "../../config/bot-profiles.js";
 import type { BotArenaView, BotCarView, BotSelfView, BotSlotView } from "../types.js";
@@ -368,6 +369,7 @@ export function plan(args: PlanArgs): PlanResult {
     lockRange: carAimRangeOf(args.self.carId),
     holdsLock: args.target !== undefined
       && args.self.lockTargetSessionId === args.target.sessionId,
+    planes: args.arena.planes ?? rectPlanes(args.arena.width, args.arena.height),
   };
   const samples: SampleTerms[] = sampleTicks.map((pathTick) => {
     // Ticks from NOW, which is the path tick plus the dead time spent getting to the plan's start.
@@ -734,6 +736,12 @@ interface SharedConstants {
   /** The CAR's acquisition range: `carAimRangeOf`, exactly as `updateLock` reads it. */
   lockRange: number;
   holdsLock: boolean;
+  /**
+   * The arena's inward half-planes, resolved ONCE per plan rather than per scored pose: a
+   * boundary-less arena would otherwise rebuild `rectPlanes` for every sample of every candidate,
+   * and this is the hottest loop the brain has.
+   */
+  planes: readonly BoundaryPlane[];
 }
 
 /**
@@ -775,7 +783,7 @@ function scoreCandidate(
     const sample = samples[i]!;
     const { future } = sample;
 
-    const wall = boundsPenalty(body.x, body.y, args.arena);
+    const wall = boundsPenalty(body.x, body.y, args.arena, constants.planes);
     if (wall > wallPenalty) wallPenalty = wall;
 
     // THE THREE DESTINATION TERMS, all read AT THE TERMINUS. Every other term asks about a MOMENT
@@ -951,13 +959,34 @@ function projectileSpeedOf(def: WeaponDef): number {
   return def.kind === "maneuver" ? 0 : def.speed;
 }
 
-/** How badly this pose is jammed against the world. Squared, so a corner dominates an edge. */
-function boundsPenalty(x: number, y: number, arena: BotArenaView): number {
+/**
+ * How badly this pose is jammed against the world. Squared, so a corner dominates an edge.
+ *
+ * Walks the BOUNDARY PLANES, not the `width`/`height` rectangle (AS28). It used to compare against
+ * `0`/`width`/`height`, which on the octagon `arena-01` is not the playable edge at all: reachable
+ * car centres are `x ∈ [90, 1190]`, `y ∈ [70, 650]`, so a 48-unit margin off the rect could only
+ * fire for a rollout pose already punched THROUGH a wall — the rollout is `stepDrive` only, with no
+ * `resolveWorld` to stop it — and the whole anti-wall-hugging gradient was dead on the shipped
+ * arena. The only thing still pushing back was the binary obstacle term below, which leaves three
+ * bare gaps on each long wall between the spike strips and nothing at all on the four chamfers.
+ *
+ * The signed distance `n·p - d` reproduces the old four terms EXACTLY on a rectangle: `(1,0,0)`
+ * gives `x`, `(-1,0,-width)` gives `width - x`, and so on. `rectPlanes` is therefore a faithful
+ * fallback for a boundary-less arena, and `arena-02` scores bit-identically to before.
+ */
+function boundsPenalty(
+  x: number,
+  y: number,
+  arena: BotArenaView,
+  planes: readonly BoundaryPlane[],
+): number {
   const margin = Math.max(DRIVE_CONFIG.carWidth, DRIVE_CONFIG.carHeight);
   const over = (v: number) => (v < margin ? (margin - v) / margin : 0);
-  const penalties = [over(x), over(y), over(arena.width - x), over(arena.height - y)];
   let total = 0;
-  for (const p of penalties) total += p * p;
+  for (const plane of planes) {
+    const p = over(plane.nx * x + plane.ny * y - plane.d);
+    total += p * p;
+  }
   for (const box of arena.obstacles) {
     if (x > box.x - margin && x < box.x + box.w + margin
       && y > box.y - margin && y < box.y + box.h + margin) total += 1;

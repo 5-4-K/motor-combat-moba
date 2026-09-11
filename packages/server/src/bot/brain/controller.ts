@@ -1,5 +1,5 @@
 import {
-  hasStatus, TICK_RATE_HZ, WEAPON_TABLE, weaponDefOf,
+  hasStatus, rectPlanes, TICK_RATE_HZ, WEAPON_TABLE, weaponDefOf,
   type BotDifficulty, type WeaponId,
 } from "@motor-combat-moba/shared";
 import { BOT_PROFILES, BRAIN_CONSTANTS, type BotProfile } from "../../config/bot-profiles.js";
@@ -662,11 +662,30 @@ function seenWeapons(perception: PerceptionState, sessionId: string | undefined)
   return out;
 }
 
-function inCorner(self: { x: number; y: number }, arena: BotView["arena"]): boolean {
+/**
+ * Is this car wedged where two walls meet? One of three inputs to `pinned`.
+ *
+ * Counts how many BOUNDARY PLANES the car sits within `minEngageUnits` of (AS28). Two or more is a
+ * corner by definition: an edge puts you near one plane, a corner near two, and a chamfer near
+ * three — its own plane plus the two walls it joins.
+ *
+ * That count is EXACTLY the old rule on a rectangle. "Near left or right" and "near top or bottom"
+ * is "near two of the four rect planes", since no arena is narrower than `2 * minEngageUnits` and
+ * the opposing pair can never both be near; `rectPlanes` is the fallback, so `arena-02` classifies
+ * identically to before. It was not the rule on the octagon: `y < 70` and `y > 650` are both
+ * unreachable there, so this was structurally incapable of returning `true` on the shipped arena.
+ *
+ * Exported for its unit test. `pinned` ORs it with `wallAhead` and `spikesAhead`, either of which
+ * would mask it in most corner poses, so testing it through `decide` would not measure this rule.
+ */
+export function inCorner(self: { x: number; y: number }, arena: BotView["arena"]): boolean {
   const m = BRAIN_CONSTANTS.minEngageUnits;
-  const onX = self.x < m || self.x > arena.width - m;
-  const onY = self.y < m || self.y > arena.height - m;
-  return onX && onY;
+  const planes = arena.planes ?? rectPlanes(arena.width, arena.height);
+  let near = 0;
+  for (const plane of planes) {
+    if (plane.nx * self.x + plane.ny * self.y - plane.d < m) near += 1;
+  }
+  return near >= 2;
 }
 
 function isIncomingCar(
