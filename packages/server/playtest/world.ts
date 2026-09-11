@@ -140,7 +140,7 @@ export class PlaytestWorld {
       statusMods,
       this.prevFireMasks,
     );
-    let contact: ContactTickResult = { contactHits: [], statusRequests: [] };
+    let contact: ContactTickResult = { contactHits: [], statusRequests: [], spikeHits: [] };
     if (this.state.phase === RoomPhase.MATCH && this.roster.size > 0) {
       contact = contactTick(
         this.state,
