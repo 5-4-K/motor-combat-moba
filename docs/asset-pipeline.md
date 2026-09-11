@@ -365,9 +365,28 @@ deletes the other arenas' files from the release.
 The consequence worth knowing: an arena you are experimenting with costs the shipped zip nothing, so
 there is no reason to delete an arena to keep the download small.
 
-No arena art exists in the repo yet — every arena still renders from `ArenaScene.drawArena`'s
-procedural `fillRect` loop, coloured by `arenaColorsOf` (`packages/client/src/scenes/arena-visual.ts`).
-The namespace above is the seam for when sprites land, not something already shipping.
+**`arena.arena-01.floor` is the first key in this namespace with a file behind it**, landed by the
+2026-09-11 arena-sprite-and-spike-hazard work: `public/art/arenas/arena-01/floor.png`, a hand-made
+top-down render of a scrap-metal fighting pit — walls, hazard banding, floor grates and the
+inward-pointing spikes that `SPIKE_CONFIG` now backs with real damage (see
+[`combat-model.md`](combat-model.md#environmental-hazards-wall-spikes)). `arenaFloorKey(arenaId)`
+resolves it through the same chain as a car sprite — manifest lookup, then texture, then fallback —
+and when the row exists **and its texture actually loaded**, `ArenaScene` draws it as a plain `Image`
+at the world rect in place of the generated asphalt `TileSprite`. A missing PNG, a malformed manifest
+row, or a texture that fails to load falls back to the procedural asphalt exactly as before: the
+fallback this namespace exists to protect was never weakened, only finally exercised.
+
+A sprite arena draws none of the procedural decoration a rectangle arena still needs: the painted
+lane markings and centre circle (`ENVIRONMENT_FX.markings`), the border stroke
+(`arenaBorderRect`), and the fourteen spike obstacles themselves all go unpainted when a floor
+sprite is in use, because the art already carries walls, markings and spikes drawn to match where
+the sim actually puts them. `ENVIRONMENT_FX.floor.*` (the asphalt generator's own knobs) becomes
+inert for that arena — the playground's environment panel says so rather than silently doing
+nothing. `arena-02`, which authors no floor art, still gets all three procedural layers.
+
+Every other arena still renders from `ArenaScene.drawArena`'s procedural `fillRect` loop, coloured
+by `arenaColorsOf` (`packages/client/src/scenes/arena-visual.ts`) — the namespace above is still the
+seam for when sprites land for them too, exactly as it was before this arena had one.
 
 ## Deferred
 
