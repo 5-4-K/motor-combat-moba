@@ -10,7 +10,7 @@ import { newAimErrorState, stepAimError, type AimErrorState } from "./aim.js";
 import { chooseSlot, preferredRangeOf, slotIsReady, type UltHoldEntry } from "./firing.js";
 import { scoreTargets } from "./goals.js";
 import { applyHumanize, newHumanizeState, type HumanizeState } from "./humanize.js";
-import { wallAhead } from "./movement.js";
+import { spikesAhead, wallAhead } from "./movement.js";
 import { weightsFor } from "./objectives.js";
 import {
   acquiringUnnoticed, activeThreats, knownCars, lastKnownAnchor, nearestHeardShot, newPerception,
@@ -239,7 +239,13 @@ export class HumanController implements BotController {
     // the current POSITION, which ignores which way the nose is pointed — that would be a different
     // predicate firing on different ticks. (`movement.ts` carries the same sentence; this one used
     // to name the deleted `nearBound` and now matches it.)
+    // Task 12: a spiked wall must register as "pinned" earlier than a bare one, or the easy-tier
+    // pin-on-walls behaviour above (deliberate, and still deliberate) grinds HP off on spike strips
+    // instead of a harmless corner. `spikesAhead` cannot push harder — there is no push vector left
+    // by the time `wallAhead` returns a boolean — so "avoid spikes harder" is spent entirely on
+    // noticing them sooner, via a longer lookahead (`BRAIN_CONSTANTS.spikeLookaheadFactor`, AS28).
     const pinned = wallAhead(self, view.arena, profile.wallLookaheadUnits)
+      || spikesAhead(self, view.arena, profile.wallLookaheadUnits * BRAIN_CONSTANTS.spikeLookaheadFactor)
       || inCorner(self, view.arena);
 
     if (target && this.ramRolledForTargetId !== target.sessionId) {

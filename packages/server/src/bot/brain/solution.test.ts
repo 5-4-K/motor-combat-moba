@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  TICK_RATE_HZ, carHullOf, instanceExpired, resolveInstanceHits, spawnInstances, stepInstance,
-  weaponDefOf, type PoseSnapshot,
+  TICK_RATE_HZ, boundsOf, carHullOf, instanceExpired, resolveInstanceHits, spawnInstances,
+  stepInstance, weaponDefOf, type PoseSnapshot,
 } from "@motor-combat-moba/shared";
 import type { BotArenaView, BotCarView, BotSlotView } from "../types.js";
 import {
@@ -140,6 +140,60 @@ describe("solve — ticking beam", () => {
     });
     // 49 per pulse; a target parked in the cone takes several.
     expect(solution.expectedDamage).toBeGreaterThan(49);
+  });
+});
+
+describe("solve — a polygon boundary, not the bare width/height rectangle", () => {
+  // A square with ONE corner chamfered off by the line x + y = 500 (same shape `arena-01`'s eight
+  // corners use, isolated to one edge so the geometry is easy to hand-check). `BotArenaView` has no
+  // `boundary` field — only `boundsOf` output does — so this is built the same way `bot/view.ts`
+  // must build the real one: run a `{width, height, boundary}` shape through `boundsOf` once and
+  // carry only its `.planes` on the view.
+  const chamferedArena: BotArenaView = {
+    width: 2000,
+    height: 2000,
+    obstacles: [],
+    planes: boundsOf({
+      width: 2000,
+      height: 2000,
+      boundary: [
+        { x: 500, y: 0 }, { x: 2000, y: 0 }, { x: 2000, y: 2000 }, { x: 0, y: 2000 }, { x: 0, y: 500 },
+      ],
+    }).planes,
+  };
+  // The straight line from (700, 700) through the cut corner crosses the chamfer (x + y = 500) at
+  // (250, 250) — about 636 units out. The target below sits at (100, 100), about 849 units out: past
+  // the chamfer, but still inside the rectangle `0,0 -> 2000,2000` (whose own edge, at (0, 0), is
+  // about 990 units out). A solver that reads the polygon stops the beam at the chamfer and the shot
+  // never lands; a solver that silently fell back to the bare rectangle would let it through.
+  const shooter = shooterAt(700, 700, Math.atan2(-1, -1));
+  const target = targetAt(100, 100);
+
+  it("clips a beam at the chamfer instead of letting it reach through the cut corner", () => {
+    // Regression target: `marchOne` must build its `Bounds` from `arena.planes` directly, NOT
+    // `boundsOf(arena)`. `arena` here is a `BotArenaView`, which has no `boundary` field — feeding
+    // it to `boundsOf` always silently returns the bare rectangle, no matter what `planes` the view
+    // actually carries, and this shot would then reach straight through the chamfer below.
+    const solution = solve({
+      shooter,
+      slot: slotFor("lance"), slotIndex: 0,
+      target, targetAt: constantVelocityPredictor(target),
+      aimSigmaRad: 0, tick: 0, arena: chamferedArena,
+    });
+    expect(solution.hitChance).toBe(0);
+    expect(solution.expectedDamage).toBe(0);
+  });
+
+  it("ground truth: the same shot connects when the arena really is the bare rectangle", () => {
+    const rectangleOnly: BotArenaView = { width: 2000, height: 2000, obstacles: [] };
+    const solution = solve({
+      shooter,
+      slot: slotFor("lance"), slotIndex: 0,
+      target, targetAt: constantVelocityPredictor(target),
+      aimSigmaRad: 0, tick: 0, arena: rectangleOnly,
+    });
+    expect(solution.hitChance).toBeGreaterThan(0.99);
+    expect(solution.expectedDamage).toBeGreaterThan(0);
   });
 });
 

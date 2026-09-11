@@ -1,5 +1,5 @@
 import {
-  DRIVE_CONFIG, TICK_RATE_HZ, beamShapeAt, boundsOf, carHullOf, forwardMaxSpeedOf, instanceExpired,
+  DRIVE_CONFIG, TICK_RATE_HZ, beamShapeAt, carHullOf, forwardMaxSpeedOf, instanceExpired,
   projectileShapeAt, shapeHitsObb, slotsOf, smear, spawnInstances, stepInstance, weaponDamageOf,
   weaponDefOf, weaponTicksOf, type CarId, type WeaponId, type WeaponInstance, type WorldShape,
 } from "@motor-combat-moba/shared";
@@ -373,7 +373,13 @@ function marchOne(start: WeaponInstance, args: SolveArgs, heading: number): numb
     instance = stepInstance(instance, {
       dt, tick: now,
       obstacles: arena.obstacles,
-      bounds: boundsOf(arena),
+      // NOT `boundsOf(arena)`: `arena` here is a `BotArenaView`, which carries no `boundary` field
+      // (it is a constructed projection, never a handle on the arena def — see that type's doc).
+      // `boundsOf` reads `.boundary`, so feeding it a view silently returns the bare rectangle no
+      // matter what `.planes` the view actually carries, and the solver marches every shot through
+      // a rectangle while the real sim simulates the octagon. Build the `Bounds` from the view's own
+      // pre-built planes instead.
+      bounds: { width: arena.width, height: arena.height, planes: arena.planes },
       ownerPose: { x: shooter.x, y: shooter.y, angle: heading },
       homingTarget: { x: target.x, y: target.y },
     });
