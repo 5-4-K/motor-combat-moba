@@ -39,9 +39,9 @@
  * the `FiredEvent`s combat actually committed. No field ever changes meaning between modes.
  */
 import {
-  NEUTRAL_MODIFIERS, TICK_RATE_HZ, driveOf, expireStatuses, hasStatus, hpOf, newCombatEvents,
-  newFireState, newLockState, runCombat, slotsOf, stepDrive, weaponDamageOf, weaponDefOf,
-  type CarId, type CombatEvents, type CombatPlayer, type SimBody, type WeaponInstance,
+  NEUTRAL_MODIFIERS, TICK_RATE_HZ, boundsOf, driveOf, expireStatuses, hasStatus, hpOf,
+  newCombatEvents, newFireState, newLockState, runCombat, slotsOf, stepDrive, weaponDamageOf,
+  weaponDefOf, type CarId, type CombatEvents, type CombatPlayer, type SimBody, type WeaponInstance,
 } from "@motor-combat-moba/shared";
 import type { BotCarView, BotInstanceView, BotSlotView, BotView } from "../types.js";
 import { makeRng } from "../rng.js";
@@ -251,7 +251,7 @@ export function runDuel(opts: DuelOptions): DuelResult {
     const out = runCombat({
       world: {
         tick, dt: 1 / TICK_RATE_HZ, mode: "ffa", obstacles: [],
-        bounds: { width: ARENA.width, height: ARENA.height },
+        bounds: boundsOf(ARENA),
       },
       players: [me, them],
       instances,

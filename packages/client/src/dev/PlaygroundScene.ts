@@ -177,6 +177,7 @@ export class PlaygroundScene extends Phaser.Scene {
       rebuildFloor: (seed) => arena()?.rebuildFloor?.(seed),
       rebuildOcclusion: () => arena()?.rebuildOcclusion?.(),
       testShake: () => arena()?.testShake?.(),
+      hasFloorSprite: () => arena()?.isFloorSprite?.() ?? false,
     };
   }
 

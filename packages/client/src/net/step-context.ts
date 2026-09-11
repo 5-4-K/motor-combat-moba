@@ -1,5 +1,6 @@
 import {
   NEUTRAL_MODIFIERS,
+  boundsOf,
   carIdOf,
   modifiersFromRows,
   otherCarHulls,
@@ -65,7 +66,7 @@ export function buildStepContext(
     carId,
     others: otherCarHulls(entries, selfSessionId, tick),
     obstacles: arena.obstacles,
-    bounds: { width: arena.width, height: arena.height },
+    bounds: boundsOf(arena),
     modifiers,
     selfRamDefence: ramDefenceOf(carId),
   };

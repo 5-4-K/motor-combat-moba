@@ -91,6 +91,13 @@ export function attributeSource(
     return { weaponId: source.weaponId, derived: false };
   }
 
+  // A hazard is the environment, not a weapon, and no scan of `WEAPON_TABLE` can ever name one for
+  // it (AS19). Refusing here is the same honesty the ambiguous-pulse case below applies: the damage
+  // and the kill still reach the headline totals — `totalKills` counts before this returns — they
+  // just never land in a per-weapon row. Named explicitly rather than folded into the pulse path so
+  // a second hazard cannot arrive and silently be looked up as a status id.
+  if (source.kind === "hazard") return { weaponId: null, derived: false };
+
   const candidates = appliers.get(source.statusId) ?? [];
   if (candidates.length !== 1) return { weaponId: null, derived: false };
   return { weaponId: candidates[0]!, derived: true };

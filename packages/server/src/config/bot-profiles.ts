@@ -731,6 +731,19 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * A number, so the planner still never learns which tier it is (H8).
    */
   commitWindowFraction: 0.52,
+  /**
+   * How much further ahead a bot looks for a spike strip than for a bare wall (Task 12, AS28) —
+   * `spikesAhead`'s lookahead is `wallLookaheadUnits * this`, so a spiked wall registers as "pinned"
+   * before a plain one does.
+   *
+   * Shared across every tier on purpose, not a per-profile knob: every bot understands that spikes
+   * hurt equally, and the tiers already differ through their own `wallLookaheadUnits` and reaction
+   * knobs — a Hard-only awareness of spikes here would be exactly the branch the `bot-tuner` skill
+   * exists to prevent. `spikesAhead` itself cannot push "harder" the way a per-tier weight might
+   * suggest: `wallAhead`'s push vector collapses to a boolean before this ever sees it, so the only
+   * lever left is noticing sooner.
+   */
+  spikeLookaheadFactor: 2,
 });
 
 /**
@@ -761,7 +774,14 @@ export const BRAIN_CONSTANTS = Object.freeze({
 // change would have compared two different pilots under identical fingerprints and reported `ok`.
 // Behaviour moved measurably: the change reshuffles which duel seeds are decisive (63/150 either
 // way, but a different set), which is why `balance/match.test.ts` needed a re-seed.
-export const BOT_BRAIN_VERSION = "4.5.1";
+// 4.6.0 (2026-09-11): the bot learns the octagon and the fourteen spike strips (Task 12). `wallAhead`
+// tests every boundary plane instead of only width/height, so a chamfer now registers as a wall; the
+// new `spikesAhead` fires earlier than a bare wall does (`BRAIN_CONSTANTS.spikeLookaheadFactor`),
+// because the deliberate easy-tier "pins itself on walls" behaviour now bleeds HP against a spiked
+// one. A minor bump: `BOT_PROFILES` did not move, but a bot that used to drive into a chamfer or
+// grind on a spike strip no longer does, so a `--baseline` balance comparison across this change
+// would silently compare two different pilots without it.
+export const BOT_BRAIN_VERSION = "4.6.0";
 
 /**
  * The three tiers (H44). Derived where derivable: perceived latency

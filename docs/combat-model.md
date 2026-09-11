@@ -60,8 +60,12 @@ pins the composed result for exactly this reason: nothing that exercises `contac
 it.
 
 **A ram deals zero hp.** `applyRams` never calls `applyDamage`. The whole feature is contact turned
-into control loss and knockback — never damage. Weapons stay the only damage source, so the `attack`
-rating keeps meaning exactly what its name says: ramming sets up the kill, weapons land it.
+into control loss and knockback — never damage between cars, and that stays true as of the
+2026-09-11 arena-sprite-and-spike-hazard work: wall spikes are now a damage source (see
+[Environmental hazards](#environmental-hazards-wall-spikes) below), but they are level geometry, not
+a car, so "cars never damage each other by contact" is unweakened. Weapons remain the only source
+that scales with the `attack` rating, so `attack` keeps meaning exactly what its name says: ramming
+sets up the kill, weapons land it.
 
 ### Wall and car deflection, and mass-weighted separation
 
@@ -305,6 +309,75 @@ whole set. That is a deliberate weakening of the original rule, and it keeps wha
 protecting: one file to read when asking what can move a car's hp. `scaleDamage` rounds to a whole
 number exactly as `damageFor` does, so `applyDamage` still always subtracts an integer from a
 `uint16`.
+
+## Environmental hazards: wall spikes
+
+`arena-01`'s fourteen `kind: "spike"` obstacles, added by the 2026-09-11 arena-sprite-and-spike-hazard
+work, are the game's **first environmental damage source** — everything above this section, and
+everything in Ramming above, still holds: a spike is level geometry, not a car, so cars still never
+damage each other by contact.
+
+**Three stages, split because the credited attacker cannot be known where the contact is detected:**
+
+1. **`resolveContacts` (shared, `sim/contact.ts`) detects and reports, with no threshold and no
+   memory.** For every car overlapping a spike obstacle it reports one `SpikeContact` — a corner of
+   the octagon can overlap two strips at once, but that is still one report — carrying the surface's
+   inward normal and the car's speed **into** it, sampled before that tick's bounce is resolved.
+2. **`ram-bridge.ts` (server) turns raw contacts into `SpikeHit`s and attaches the source.** It is
+   the only place holding the trigger lockout and the per-victim last-shover memory, both server-side
+   only (see below), so it is the only place that can gate and attribute a hit.
+3. **`runCombat` (shared, `sim/combat.ts`) prices and applies them**, alongside burn and repair pulses
+   and ahead of weapon fire, through `recordDamage` — the same wrapper over the same hp writer every
+   other source uses, so a car spikes kill this tick is already dead for its own weapons this tick
+   too, and the hit emits the `damaged`/`killed` events with a `{ kind: "hazard", hazardId: "spike" }`
+   `DamageSource`. That tag is why B4 ("every path into `dealDamageTo` has a tag") still holds with an
+   environmental source in the game, and it is what lets a balance run count a spike kill at all. No
+   weapon can be attributed to it, so it appears in the report's kill pace and per-car damage but in
+   no per-weapon row.
+
+**The trigger is a push, not contact.** Because the boundary stops a car at the notch face, "touching
+spikes" is a state a car can hold forever — someone who drove in and stopped is still touching them.
+Damage only fires when the car's speed into the surface exceeds `SPIKE_CONFIG.triggerSpeed`: a car
+resting against spikes takes nothing, and driving into them, scraping along them or reversing into
+them is what gets billed.
+
+**A self-driven car pays once, on arrival; sustained payment is what being shoved and held
+produces.** This is measured, not inferred: with `DRIVE_CONFIG.restitution` at 0.15, a car holding
+throttle into a wall settles at a steady-state pre-collision inward speed of roughly 5 u/s, far below
+`triggerSpeed`'s 25. So the arrival hit lands and then nothing more does, however long the player
+leans on the throttle. It takes an EXTERNAL push — a ram or a slam driving the car back into the
+strip above the trigger speed, repeatedly — to collect a second hit and a third, which is also why the
+attribution rule below credits the shover. Whether `triggerSpeed` should be lower so that grinding
+along a wall costs a self-driven car something is an open tuning question, not a statement about
+today's behaviour.
+
+A `SPIKE_CONFIG.retriggerMs` lockout after
+each hit stops a pinned car from being billed thirty times a second. Neither piece of that state is
+schema — it rides alongside the ram-falloff `ContactMemory` in `packages/server/src/sim/`, the same
+call that stack already made, and it is not an invariant-8 violation: `stepSim` never reads it, and
+what crosses the wire is the already-applied HP.
+
+**Attribution: the shover, or yourself.** A per-victim last-shover memory, fed by every ram and every
+slam (`ram-bridge.ts`'s existing per-victim attacker tracking — any push counts, the mechanic is "you
+put them there" rather than "you rammed them"), names the source if the shove landed within
+`SPIKE_CONFIG.shoverCreditMs`. Past that window, or if nobody ever shoved this car, the source is the
+**victim's own session id**. That is not a bug fix on top of an empty id — an empty source would
+leave `lastDamagerSessionId` untouched, so a car shot once early in the match and killed by spikes
+minutes later would wrongly still credit that early shooter. Naming the victim instead means the
+existing kill-booking line (`if (killer && killer !== player)`, see
+[Kill attribution](#kill-attribution) below) records the death without moving a kill counter, and the
+banner reads it as self-inflicted, exactly as an environment death should.
+
+**Two interactions, settled explicitly rather than left to fall out of other rules:**
+
+- **Not amplified by `corroded` or any other multiplier.** A spike hit is recorded without going
+  through `scaleDamage`, unlike every weapon hit above — environmental damage is flat and predictable
+  on purpose.
+- **A `phased` car takes none, and this needed its own check.** It does not fall out of the
+  `isOnField`/`isSolid` split: `isSolid` only gates the car-car lists, while `stepSim` still runs a
+  phased car through `ctx.obstacles` and `ctx.bounds` unconditionally — it has to, or spawn
+  protection would let a respawned car drive out of the arena. Without an explicit `phased` skip in
+  the hazard pass, the walls would hurt exactly the car `phased` exists to protect.
 
 ## Weapon
 
@@ -777,7 +850,8 @@ derived DPS per weapon, so every one of those numbers moves with the row.
 
 ## Damage
 
-Weapons are the only damage source. Collision costs nobody hp: cars shove each other through
+Weapons and wall spikes (see [Environmental hazards](#environmental-hazards-wall-spikes) above) are
+the only damage sources. Car-to-car collision costs nobody hp: cars shove each other through
 ordinary resolution, and — between non-teammates on fresh contact — also ram each other for a
 contested `Impulse`, each side's outcome computed independently rather than one derived from the
 other's (see [Ramming](#ramming) above; the steering-loss half of that landed in stage 3b as the
@@ -1127,12 +1201,15 @@ The kill goes to whoever dealt damage last — not most damage, not a share, not
 There is no per-attacker damage ledger; one string per car is the whole mechanism.
 
 Every point of hp loss already has a known attacker: the plain ram deals no damage (see Ramming
-above), status damage-over-time carries `ActiveStatus.sourceSessionId`, and a contact hit (a dash
-landing or a hard slam) carries `ContactHit.attackerSessionId`. `CombatPlayer` carries
+above), status damage-over-time carries `ActiveStatus.sourceSessionId`, a contact hit (a dash
+landing or a hard slam) carries `ContactHit.attackerSessionId`, and a spike hit carries
+`SpikeHit.sourceSessionId` — the shover if one pushed this car within `SPIKE_CONFIG.shoverCreditMs`,
+else the victim's own session id (see [Environmental hazards](#environmental-hazards-wall-spikes)
+above). `CombatPlayer` carries
 `lastDamagerSessionId`, stamped by `dealDamageTo()` in `sim/combat.ts` — the sim's one hp/`alive`
-writer — from the shot's `ownerSessionId`, the pulse's `sourceSessionId`, or the contact hit's
-attacker, and only when hp actually moved: an `invulnerable` (armored) target yields no credit,
-exactly as a 0-damage pure-applicator hit does. It is **server-only,
+writer — from the shot's `ownerSessionId`, the pulse's `sourceSessionId`, the contact hit's attacker,
+or the spike hit's source, and only when hp actually moved: an `invulnerable` (armored) target yields
+no credit, exactly as a 0-damage pure-applicator hit does. It is **server-only,
 never networked**: the client does not predict damage, so putting it on the schema would patch a
 string to every client at the tick rate for nothing (invariant 8, satisfied by the front door).
 

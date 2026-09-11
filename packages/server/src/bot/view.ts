@@ -1,6 +1,6 @@
 import {
   CAMERA_CONFIG, LOGICAL_CANVAS,
-  carIdOf, getArena, hasStatus, hpOf, weaponDefOf,
+  boundsOf, carIdOf, getArena, hasStatus, hpOf, weaponDefOf,
   type ArenaState, type FiredEvent, type PlayerState, type WeaponInstance,
 } from "@motor-combat-moba/shared";
 import { toInstances, type CombatMemory } from "../sim/combat-bridge.js";
@@ -91,7 +91,15 @@ export function buildBotView(args: {
     self: selfView(self, combat),
     others,
     instances: visibleInstances,
-    arena: { width: arena.width, height: arena.height, obstacles: arena.obstacles },
+    // `boundsOf` is the one place a `Bounds` is built from an arena def (see its own doc comment);
+    // this view carries only its `.planes` half rather than a `Bounds` itself, because a
+    // `BotArenaView` is a constructed projection and must stay a plain data shape a bot cannot use
+    // to reach back into `ArenaState`. Absent on `arena-02` (no `boundary`), which is exactly what
+    // lets `wallAhead` fall back to `rectPlanes` for it.
+    arena: {
+      width: arena.width, height: arena.height, obstacles: arena.obstacles,
+      planes: boundsOf(arena).planes,
+    },
     observedFires: args.observedFires ?? [],
     rng,
   };

@@ -38,6 +38,7 @@ import {
   weaponTicksOf,
   winRuleOf,
 } from "@motor-combat-moba/shared";
+import { phaserFloorTextures, resolveArenaFloor } from "../assets/arena-floor.js";
 import {
   applyCarSprite,
   phaserTextures,
@@ -76,7 +77,7 @@ import { arenaMismatchMessage } from "./arena-mismatch.js";
 import { axisOf, drainTicks } from "./arena-input.js";
 import { releaseKeyboardCaptures } from "./keyboard-captures.js";
 import { controlledCarOf, isPlaygroundRoom, isPracticeRoom, isSimPaused } from "./controlled-car.js";
-import { arenaBorderRect, arenaColorsOf } from "./arena-visual.js";
+import { arenaBorderRect, arenaColorsOf, arenaDecoration, drawableObstacles } from "./arena-visual.js";
 import { fitsViewport } from "./arena-camera.js";
 import { assetManifest, assetsReady } from "./BootScene.js";
 import { freshImpacts, newImpactTracker, type ImpactTracker } from "./impact-feedback.js";
@@ -179,6 +180,7 @@ import {
 } from "./roster-panel.js";
 import {
   killedByText,
+  killerNameFor,
   matchClockLabel,
   respawnSeconds,
   showKilledBy,
@@ -671,6 +673,17 @@ export class ArenaScene extends Phaser.Scene {
    */
   private floorTile: Phaser.GameObjects.TileSprite | undefined;
   /**
+   * The arena's floor art, when the manifest names one and its texture actually loaded (AS23). Drawn
+   * INSTEAD of `floorTile` — see `hasFloorSprite` — never alongside it, so the two never both exist.
+   */
+  private floorImage: Phaser.GameObjects.Image | undefined;
+  /**
+   * Whether this arena is drawing `floorImage` rather than the generated `floorTile`. Set once in
+   * `drawArena` and read by `rebuildFloor`, which must not re-point a tile sprite that does not
+   * exist — regenerating the procedural asphalt makes no sense for an arena with real floor art.
+   */
+  private hasFloorSprite = false;
+  /**
    * How this scene reads `ENVIRONMENT_FX` (EV25, EV34).
    *
    * Defaults to the shipped table; `create` swaps it for `liveEnvResolver()` only in a playground
@@ -1137,14 +1150,31 @@ export class ArenaScene extends Phaser.Scene {
   private drawArena(arena: ArenaDef): void {
     const colors = arenaColorsOf(arena);
 
-    // A real object rather than `cam.setBackgroundColor`, which is what makes a texture possible at
-    // all (VFX36). The background colour stays set below as the ground beneath it, so a frame drawn
-    // before this tile sprite exists is never bare canvas. The asphalt texture is uploaded by the
-    // `FxLayer` constructor, which `create` deliberately runs before this method.
-    this.floorTile = this.add
-      .tileSprite(0, 0, arena.width, arena.height, FX_TEXTURE_KEYS.asphalt)
-      .setOrigin(0, 0)
-      .setDepth(FLOOR_DEPTH);
+    // A floor sprite when the arena has one and its texture actually loaded; the generated asphalt
+    // otherwise. The fallback is the property the asset pipeline exists to protect (AS23) — a
+    // missing PNG or a malformed manifest row must never be a black screen, so `hasFloorSprite` is a
+    // genuine either/or, never both. A real object rather than `cam.setBackgroundColor`, which is
+    // what makes a texture possible at all (VFX36). The background colour stays set below as the
+    // ground beneath it, so a frame drawn before either object exists is never bare canvas. The
+    // asphalt texture is uploaded by the `FxLayer` constructor, which `create` deliberately runs
+    // before this method. The decision itself is `resolveArenaFloor` — pure, unit-tested, and the
+    // only place that reads `this.textures.exists`, mirroring `resolveCarSprite` for cars.
+    const resolvedFloor = resolveArenaFloor(phaserFloorTextures(this.textures), arena.id);
+    this.hasFloorSprite = resolvedFloor !== undefined;
+    if (resolvedFloor) {
+      // Drawn at the world rect (`arena.width` x `arena.height`), never the image's native pixel
+      // size — `setDisplaySize` is what stretches the 2560x1440 source down to that rect.
+      this.floorImage = this.add
+        .image(0, 0, resolvedFloor.key)
+        .setOrigin(0, 0)
+        .setDisplaySize(arena.width, arena.height)
+        .setDepth(FLOOR_DEPTH);
+    } else {
+      this.floorTile = this.add
+        .tileSprite(0, 0, arena.width, arena.height, FX_TEXTURE_KEYS.asphalt)
+        .setOrigin(0, 0)
+        .setDepth(FLOOR_DEPTH);
+    }
 
     // Assigned BEFORE `applyEnvironment()` runs below: that call draws the obstacles, markings and
     // border into this object via `redrawArenaGraphics`. Getting this order backwards leaves the
@@ -1235,6 +1265,11 @@ export class ArenaScene extends Phaser.Scene {
    *
    * Clear-and-redraw rather than a second `Graphics`: the three share one object so they cost one
    * draw call, and the markings cannot be re-issued without re-issuing the other two.
+   *
+   * A sprite arena's floor art already contains its own markings, its own walls and its own painted
+   * spike strips, so `arenaDecoration` and `drawableObstacles` (`arena-visual.ts`) suppress the
+   * matching procedural draws for it (AS24, AS25) — pure decisions, unit-tested there, because this
+   * scene cannot be. `arena-02` and any future arena with no floor sprite still get all three.
    */
   private redrawArenaGraphics(): void {
     const gfx = this.arenaGfx;
@@ -1243,31 +1278,37 @@ export class ArenaScene extends Phaser.Scene {
     const env = this.resolveEnv();
     const colors = arenaColorsOf(arena);
     const m = env.markings;
+    const decoration = arenaDecoration(this.hasFloorSprite);
 
     gfx.clear();
     gfx.fillStyle(colors.obstacle, 1);
-    for (const obstacle of arena.obstacles) {
+    for (const obstacle of drawableObstacles(arena.obstacles)) {
       gfx.fillRect(obstacle.x, obstacle.y, obstacle.w, obstacle.h);
     }
-    // Painted markings, drawn on the same Graphics as the obstacles so they cost no extra object.
-    // Clamped to at least 1: `laneSpacing` drives this loop's step, and a zero or negative value —
-    // unreachable through the panel's `min: 10` field but not through a hand-edited localStorage
-    // blob `sanitizeStoredEnv` would still accept — would never terminate and freeze the tab.
-    gfx.lineStyle(m.laneWidth, m.laneColor, m.laneAlpha);
-    for (let y = m.laneMargin; y < arena.height - m.laneMargin; y += Math.max(1, m.laneSpacing)) {
-      gfx.lineBetween(
-        arena.width / 2,
-        y,
-        arena.width / 2,
-        Math.min(y + m.laneDash, arena.height - m.laneMargin),
-      );
-    }
-    gfx.lineStyle(m.circleWidth, m.laneColor, m.circleAlpha);
-    gfx.strokeCircle(arena.width / 2, arena.height / 2, m.circleRadius);
 
-    gfx.lineStyle(ARENA_BORDER_PX, colors.border, 1);
-    const border = arenaBorderRect(arena, ARENA_BORDER_PX);
-    gfx.strokeRect(border.x, border.y, border.w, border.h);
+    if (decoration.drawMarkings) {
+      // Painted markings, drawn on the same Graphics as the obstacles so they cost no extra object.
+      // Clamped to at least 1: `laneSpacing` drives this loop's step, and a zero or negative value —
+      // unreachable through the panel's `min: 10` field but not through a hand-edited localStorage
+      // blob `sanitizeStoredEnv` would still accept — would never terminate and freeze the tab.
+      gfx.lineStyle(m.laneWidth, m.laneColor, m.laneAlpha);
+      for (let y = m.laneMargin; y < arena.height - m.laneMargin; y += Math.max(1, m.laneSpacing)) {
+        gfx.lineBetween(
+          arena.width / 2,
+          y,
+          arena.width / 2,
+          Math.min(y + m.laneDash, arena.height - m.laneMargin),
+        );
+      }
+      gfx.lineStyle(m.circleWidth, m.laneColor, m.circleAlpha);
+      gfx.strokeCircle(arena.width / 2, arena.height / 2, m.circleRadius);
+    }
+
+    if (decoration.drawBorder) {
+      gfx.lineStyle(ARENA_BORDER_PX, colors.border, 1);
+      const border = arenaBorderRect(arena, ARENA_BORDER_PX);
+      gfx.strokeRect(border.x, border.y, border.w, border.h);
+    }
   }
 
   /** Called by the playground overlay after an environment edit (EV25, EV29). */
@@ -1282,15 +1323,28 @@ export class ArenaScene extends Phaser.Scene {
    * The `setTexture` is not optional: `FxLayer.rebuildFloor` removes the old texture and creates a
    * new one under the same key, but the `TileSprite` holds a reference to the old texture OBJECT and
    * would keep drawing the stale image without this line.
+   *
+   * A no-op on the sprite side when a floor sprite is in use: `floorTile` does not exist for that
+   * arena (AS23), so there is nothing to re-point, and regenerating the procedural asphalt texture
+   * underneath a sprite that never reads it would be pure waste.
    */
   rebuildFloor(seed?: number): void {
     this.fx?.rebuildFloor(seed);
-    this.floorTile?.setTexture(FX_TEXTURE_KEYS.asphalt);
+    if (!this.hasFloorSprite) this.floorTile?.setTexture(FX_TEXTURE_KEYS.asphalt);
   }
 
   /** Rebuild the smoke-hole silhouettes after a halo edit (EV30). */
   rebuildOcclusion(): void {
     this.fx?.rebuildEraserTextures();
+  }
+
+  /**
+   * Whether the running arena is drawing floor art rather than the generated asphalt (AS23, AS24).
+   * The playground's environment panel reads this to mark its `floor.*` group inert for a sprite
+   * arena — every knob in that section, and its Regenerate button, tune a texture nothing draws.
+   */
+  isFloorSprite(): boolean {
+    return this.hasFloorSprite;
   }
 
   /**
@@ -1358,8 +1412,10 @@ export class ArenaScene extends Phaser.Scene {
     ];
     const worldObjects: Phaser.GameObjects.GameObject[] = [
       // World space at `FLOOR_DEPTH`, under everything. A display object like any other, so it needs
-      // its entry here or it draws a second time across the gutter (VFX36).
+      // its entry here or it draws a second time across the gutter (VFX36). Exactly one of
+      // `floorTile`/`floorImage` exists per arena (AS23), so both are listed unconditionally.
       ...(this.floorTile ? [this.floorTile] : []),
+      ...(this.floorImage ? [this.floorImage] : []),
       ...(this.arenaGfx ? [this.arenaGfx] : []),
       ...(this.shotGfx ? [this.shotGfx] : []),
       ...(this.glowGfx ? [this.glowGfx] : []),
@@ -1456,6 +1512,9 @@ export class ArenaScene extends Phaser.Scene {
     this.arenaGfx = undefined;
     this.floorTile?.destroy();
     this.floorTile = undefined;
+    this.floorImage?.destroy();
+    this.floorImage = undefined;
+    this.hasFloorSprite = false;
     this.arena = undefined;
     this.countdownText?.destroy();
     this.countdownText = undefined;
@@ -3424,7 +3483,8 @@ export class ArenaScene extends Phaser.Scene {
    * message, and a pure spectator who never took a seat has no car and sees none of it.
    */
   private syncDeathmatchHud(room: Room<ArenaState>): void {
-    const local = room.state.players.get(this.drivenSid(room));
+    const drivenSid = this.drivenSid(room);
+    const local = room.state.players.get(drivenSid);
     const tick = room.state.tick;
 
     if (this.matchClockText) {
@@ -3438,8 +3498,14 @@ export class ArenaScene extends Phaser.Scene {
         // A killer who left the room before this patch landed is gone from `players` and leaves no
         // name — `killedByText` owns what to say then, so an empty id and a departed killer read
         // the same way rather than printing a session id at the player.
+        //
+        // `killerNameFor` owns the third case: an unattributed spike death names the VICTIM as its
+        // own killer (AS21), and printing that resolved name would tell the player "Dave killed you"
+        // by their own name. It collapses to the same empty name, so the banner reads
+        // "You were destroyed".
         const killer = room.state.players.get(local!.killedBySessionId);
-        this.killedByBanner.setText(killedByText(killer?.name ?? ""));
+        const name = killerNameFor(local!.killedBySessionId, drivenSid, killer?.name ?? "");
+        this.killedByBanner.setText(killedByText(name));
       }
       this.killedByBanner.setVisible(showBanner);
     }

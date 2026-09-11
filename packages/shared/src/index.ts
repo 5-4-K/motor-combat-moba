@@ -103,10 +103,18 @@ export { applyRams, impactSideOf, pairKey, resolveRam } from "./sim/ram.js";
 export type { ImpactSide, RamCar, RamHit, RamImpulseEntry } from "./sim/ram.js";
 export { SLAM_CONFIG } from "./config/slam-config.js";
 export { hullTouchesWorld, resolveContacts } from "./sim/contact.js";
-export type { ContactCar, ContactEvents, ContactHit, ImpulseEntry, SlamEvent } from "./sim/contact.js";
+export type {
+  ContactCar,
+  ContactEvents,
+  ContactHit,
+  ImpulseEntry,
+  SlamEvent,
+  SpikeContact,
+  SpikeHit,
+} from "./sim/contact.js";
 export { newCombatEvents } from "./sim/combat-events.js";
 export type {
-  CombatEvents, DamagedEvent, DamageSource, FiredEvent, KilledEvent,
+  CombatEvents, DamagedEvent, DamageSource, FiredEvent, HazardId, KilledEvent,
 } from "./sim/combat-events.js";
 export { canDamage } from "./sim/weapons/targets.js";
 export {
@@ -247,6 +255,7 @@ export { DEATHMATCH_CONFIG, DEATHMATCH_TICKS } from "./config/deathmatch-config.
 export { NET_CONFIG } from "./config/net-config.js";
 export { PRACTICE_CONFIG } from "./config/practice-config.js";
 export { CHAT_CONFIG } from "./config/chat-config.js";
+export { SPIKE_CONFIG, SPIKE_TICKS } from "./config/spike-config.js";
 
 export type { ArenaDef, Obstacle, Spawn } from "./arena/types.js";
 export { ARENA_01 } from "./arena/arena-01.js";
@@ -255,6 +264,8 @@ export { ARENAS, ARENA_IDS, getArena, isArenaId } from "./arena/registry.js";
 export type { ArenaId } from "./arena/registry.js";
 export { ACTIVE_ARENA_ID } from "./config/arena-config.js";
 export { ARENA_ART_COMMON, ARENA_ART_PREFIX, arenaIdFromArtKey } from "./arena/art-keys.js";
+export { boundsOf, playableExtentOf } from "./arena/bounds.js";
+export { planesOf, rectPlanes, supportRadius, planePenetration, type BoundaryPlane } from "./sim/boundary.js";
 
 export { normalizeName, validateName, isNameTaken } from "./lobby/names.js";
 export type { ValidateNameResult } from "./lobby/names.js";

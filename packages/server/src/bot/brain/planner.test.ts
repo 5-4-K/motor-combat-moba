@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { DRIVE_CONFIG, slotsOf, weaponDefOf, type SimBody } from "@motor-combat-moba/shared";
+import {
+  ARENA_01, boundsOf, DRIVE_CONFIG, slotsOf, weaponDefOf, type SimBody,
+} from "@motor-combat-moba/shared";
 import { BOT_PROFILES } from "../../config/bot-profiles.js";
 import type { BotArenaView, BotCarView, BotSelfView, BotSlotView } from "../types.js";
 import type { PosePredictor } from "./solution.js";
@@ -470,6 +472,34 @@ describe("plan", () => {
     });
     expect(ALL_ACTIONS).toContainEqual(result.action);
     expect(Number.isFinite(result.score)).toBe(true);
+  });
+
+  /**
+   * AS28. `wallPenalty` is the planner's only anti-wall-hugging gradient, and it used to compare
+   * against `0`/`width`/`height` — which on the octagon is not the playable edge, so the whole term
+   * was dead there except for poses already outside the arena.
+   *
+   * Both cases use an OBSTACLE-FREE view of `arena-01`: the real arena's fourteen spike strips sit
+   * against the same walls and the binary obstacle term inside `boundsPenalty` would fire on this
+   * pose regardless of which edge the bounds half compared against, which is exactly why the dead
+   * gradient went unnoticed. Isolating the planes is what makes this discriminate.
+   */
+  describe("wallPenalty on a polygon arena", () => {
+    const bare = { width: ARENA_01.width, height: ARENA_01.height, obstacles: [] };
+    const octagon = { ...bare, planes: boundsOf(ARENA_01).planes };
+    // Inside the top-left chamfer and clear of every rect edge by more than the 48-unit margin:
+    // x=120 and y=100 are both far from 0, and from 1280/720.
+    const nearChamfer = selfAt(120, 100, 0);
+
+    it("penalises a pose jammed into a chamfer", () => {
+      const result = plan({ ...base, arena: octagon, self: nearChamfer, horizonTicks: 0 });
+      expect(result.terms.wallPenalty).toBeGreaterThan(0);
+    });
+
+    it("scores that same pose at zero on a rectangle, so arena-02 is untouched", () => {
+      const result = plan({ ...base, arena: bare, self: nearChamfer, horizonTicks: 0 });
+      expect(result.terms.wallPenalty).toBe(0);
+    });
   });
 });
 

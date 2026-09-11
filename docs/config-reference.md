@@ -978,6 +978,29 @@ is inert in production. See
 [`docs/superpowers/specs/2026-09-02-playground-usability-and-bot-difficulty-design.md`](superpowers/specs/2026-09-02-playground-usability-and-bot-difficulty-design.md)
 (PG27–PG29) for the full design.
 
+## SPIKE_CONFIG
+
+`packages/shared/src/config/spike-config.ts`. The wall spikes: how much they hurt, and what it takes
+to make them hurt again. Landed by the 2026-09-11 arena-sprite-and-spike-hazard work as the game's
+first environmental damage source. See [`combat-model.md`](combat-model.md#environmental-hazards-wall-spikes)
+for the pipeline; this table is the values.
+
+| Knob | Value | Notes |
+|---|---|---|
+| `damage` | 80 | Flat, per trigger, never scaled by `scaleDamage` or `corroded`. Between a Thumper shell (60) and a Roadblock (100) — nine touches kill a Bullseye (650 hp), twelve a Bastion (900 hp) |
+| `depth` | 20 | How far a strip protrudes from its wall, in world units. Geometry, not balance — must match the strips `ARENA_01` authors, and `arena.test.ts` fails if it drifts |
+| `triggerSpeed` | 25 | Speed INTO the surface, in units/s, below which nothing happens. Deliberately low against roster top speeds of 190–267: the line between "resting against a wall" and "moving into it," not a difficulty dial. **Measured consequence:** at `DRIVE_CONFIG.restitution` 0.15 a car holding throttle into a wall settles at ~5 u/s inward, so a self-driven car pays on arrival and never again — only an externally shoved one keeps paying. Lower this if grinding along a wall should cost the driver something |
+| `retriggerMs` | 750 | Immunity window after a hit. ~107 HP/s while pinned — roughly six seconds of sustained pressure kills a Bullseye. Without it a shoved car takes `damage` every tick, thirty times a second. Expected to move after playtest |
+| `shoverCreditMs` | 4000 | How long after being rammed or slammed a car's spike death still credits the pusher. Past it, a spike death credits nobody but the victim |
+| `contactPad` | 2 | Contact slack for the overlap test, matching the scale of `RAM_CONFIG.contactPad` |
+
+`SPIKE_TICKS` (`retrigger` / `shoverCredit`) converts the two millisecond knobs once at module load,
+`Math.ceil`'d so a window is never short by a rounding — an immunity that expires a tick early is a
+double hit. The trigger and attribution state these ticks gate lives in server-side memory
+(`packages/server/src/sim/spike-bridge.ts`), not on the schema: `stepSim` never reads it, and what
+crosses the wire is the already-applied HP (invariant 8 is satisfied at the front door, same as the
+ram falloff stack beside it).
+
 ## Arena selection
 
 `ACTIVE_ARENA_ID` in `packages/shared/src/config/arena-config.ts` names the one arena a build plays
@@ -1001,21 +1024,41 @@ checks every registered arena by rule — bounds, obstacle clearance, corridor w
 spawn placement — rather than by pinned values, so the table below is orientation, not a spec to
 keep hand-in-sync as more arenas land.
 
-| id | width × height | obstacles | palette |
-|---|---|---|---|
-| `arena-01` | 1280 × 720 | 0 | `#3b4747` floor / `#4a5568` obstacle / `#2d3436` border |
-| `arena-02` | 2000 × 2000 | 6 | `#d8cfc4` floor / `#6b5b4b` obstacle / `#2f2a26` border |
+| id | width × height (image frame) | playable area | obstacles | palette |
+|---|---|---|---|---|
+| `arena-01` | 1280 × 720 | 1132 × 612 octagon | 14 (all `kind: "spike"`) | `#3b4747` floor / `#4a5568` obstacle / `#2d3436` border |
+| `arena-02` | 2000 × 2000 | 2000 × 2000 rect | 6 | `#d8cfc4` floor / `#6b5b4b` obstacle / `#2f2a26` border |
 
-`arena-01` is one open rectangle with nothing in it, sized to the client's logical canvas so that at
-`CAMERA_CONFIG.zoom` of 1 the camera shows the whole of it and never scrolls. Rescaling it without
-rescaling the zoom to match breaks that, and `arena-camera.test.ts` on the client is what fails.
-Its 6 `ffaSpawns` are the four corners and the midpoint of each long wall, all 160 units off the
-wall; corner cars face across the arena and the two midpoint cars face each other. Its 3
-`teamASpawns` sit at `x=160` facing `0` and its 3 `teamBSpawns` at `x=1120` facing `π`, at
-`y=180/360/540` — quarters of the height, so the gap between team-mates equals the gap to the wall.
+`arena-01` is no longer one open rectangle. As of the 2026-09-11 arena-sprite-and-spike-hazard work
+it authors an `ArenaDef.boundary` — an optional convex polygon, wound clockwise, carried as inward
+half-planes and consumed by every boundary reader (`boundsOf(arena)` is the one place a `Bounds` is
+built from an arena). Absent means the plain rectangle `0,0 → width,height`, which is what
+`arena-02` still is and why it needed no change. `arena-01`'s polygon is the wall band inset with
+50-unit 45° chamfers at the four corners, enclosing a **1132 × 612** playable area — about 25%
+smaller than the `1280 × 720` it replaces. `width`/`height` keep their old meaning throughout: the
+image frame and the camera bounds, unchanged, with the polygon inset *inside* them, so
+`CAMERA_CONFIG.zoom` of 1 still shows the whole arena and `arena-camera.test.ts` still passes
+untouched.
+
+Its 14 obstacles are ordinary `Obstacle` rects with one addition: `kind: "spike"`, an optional field
+that marks wall-mounted geometry that also damages (see [`SPIKE_CONFIG`](#spike_config) above) and is
+the only kind allowed to sit flush against the boundary rather than a car diagonal clear of it. Four
+strips line the top wall and four the bottom, three line the left wall and three the right — 14 in
+all, each 20 world units deep and the two sets symmetric about their own centre line (`x = 640` for
+top/bottom, `y = 360` for left/right), matching the art. Absent `kind` still means an ordinary solid
+— `arena-02`'s six obstacles carry none and are untouched.
+
+Its 6 `ffaSpawns` are the four corners and the midpoint of each long wall, one margin inside the new
+playable rect; corner cars face across the arena and the two midpoint cars face each other, the same
+facing rule the old table used — only the coordinates moved, re-measured against the octagon. Its 3
+`teamASpawns` sit at `x=200` facing `0` and its 3 `teamBSpawns` at `x=1080` facing `π`, at
+`y=207/360/513` — quarters of the playable height, so the gap between team-mates equals the gap to
+the wall. Every spawn clears the nearest spike strip by more than a car diagonal.
+
 `arena-02` ("Crossroads") is a square arena built around one central plus-shaped mass with four
 corner bunkers, and is the registry's example of an arena too large to fit the view: it keeps the
-follow camera and spectator free roam that `arena-01` no longer needs.
+follow camera and spectator free roam that `arena-01` no longer needs. It authors no `boundary` and
+no `kind: "spike"` obstacle, so nothing in this section changes what it does.
 
 `getArena(id)` throws on an unknown id; it exists for the server's sim path, where an unresolvable
 arena is a programming error with no sane fallback. The client checks `isArenaId` first and shows a

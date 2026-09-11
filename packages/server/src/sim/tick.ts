@@ -6,6 +6,7 @@ import {
   PlayerState,
   RoomPhase,
   WEAPON_SLOT_CONFIG,
+  boundsOf,
   carIdOf,
   getArena,
   isOnField,
@@ -306,7 +307,7 @@ function sortedEntries(state: ArenaState): Array<ContextEntry & { player: Player
 type TickWorld = Pick<StepContext, "obstacles" | "bounds">;
 
 function tickWorldOf(arena: ArenaDef): TickWorld {
-  return { obstacles: arena.obstacles, bounds: { width: arena.width, height: arena.height } };
+  return { obstacles: arena.obstacles, bounds: boundsOf(arena) };
 }
 
 function bodyOf(player: PlayerState): SimBody {

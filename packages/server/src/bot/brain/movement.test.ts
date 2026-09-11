@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { wallAhead } from "./movement.js";
+import { boundsOf, ARENA_01 } from "@motor-combat-moba/shared";
+import { spikesAhead, wallAhead } from "./movement.js";
 
 const arena = { width: 1280, height: 720, obstacles: [] };
 
@@ -40,5 +41,60 @@ describe("wallAhead", () => {
     // past that flips this case, and the failure would read as a look-ahead bug rather than as the
     // hitbox growing; move the box or the probe rather than the expectation if it ever does.
     expect(wallAhead({ x: 640, y: 360, angle: 0 }, withBox, 20)).toBe(false);
+  });
+});
+
+const octagon = {
+  width: ARENA_01.width,
+  height: ARENA_01.height,
+  obstacles: ARENA_01.obstacles,
+  planes: boundsOf(ARENA_01).planes,
+};
+
+describe("wallAhead on a polygon arena", () => {
+  it("sees a chamfer, which a rectangle test cannot", () => {
+    // (90, 70), nose pointed at (95, 70), sits in the top-left corner cut by the chamfer between
+    // (74, 104) and (124, 54) — inside the rect on both axes, and close enough to that plane to
+    // register within `wallAhead`'s margin. Deliberately clear of BOTH the TOP spike strip (its
+    // nearest span starts at x=129, plus the car's own margin) and the LEFT one (its nearest span
+    // starts at y=105): the point (110, 80) that a naive reading of the corner might reach for
+    // instead sits inside the TOP strip's margin-inflated box, so it registers a wall EVEN on the
+    // unfixed rectangle-and-obstacles code — it would not catch a regression back to comparing only
+    // `arena.width`/`height`. This one only registers once `wallAhead` walks `arena.planes`.
+    expect(wallAhead({ x: 90, y: 70, angle: 0 }, octagon, 5)).toBe(true);
+  });
+
+  it("still calls the middle of the arena clear", () => {
+    expect(wallAhead({ x: 640, y: 360, angle: 0 }, octagon, 150)).toBe(false);
+  });
+});
+
+describe("spikesAhead", () => {
+  it("fires for a car approaching a strip", () => {
+    // Driving left toward the left wall, inside the y-span of the strip at 105-200. x=210 (not the
+    // rounder 200) so the look-ahead point (60) clears the strip's margin-inflated near edge (50)
+    // with room to spare, rather than landing exactly on it — `200 - 150` lands on that edge to the
+    // unit and would make this pass or fail on a coin-flip of floating-point rounding.
+    expect(spikesAhead({ x: 210, y: 150, angle: Math.PI }, octagon, 150)).toBe(true);
+  });
+
+  it("does not fire for a bare stretch of the same wall", () => {
+    // y = 260 sits in the gap between the strips at 105-200 and 305-415.
+    expect(spikesAhead({ x: 200, y: 260, angle: Math.PI }, octagon, 150)).toBe(false);
+  });
+
+  it("does not fire in open floor", () => {
+    expect(spikesAhead({ x: 640, y: 360, angle: 0 }, octagon, 150)).toBe(false);
+  });
+
+  it("ignores an ordinary obstacle that is not a spike", () => {
+    // Every obstacle in `ARENA_01` happens to be `kind: "spike"`, so the three cases above cannot
+    // by themselves tell a `kind`-aware implementation from one that fires on any nearby obstacle.
+    // This is the same box and the same pose `wallAhead`'s own "fires on an obstacle" case uses
+    // (above) — `wallAhead` DOES fire on it, because it does not care what an obstacle is. A
+    // `spikesAhead` that (wrongly) matched on overlap alone, ignoring `box.kind`, would also fire
+    // here; the real implementation must not.
+    const withPlainBox = { width: 1280, height: 720, obstacles: [{ x: 700, y: 340, w: 60, h: 60 }] };
+    expect(spikesAhead({ x: 640, y: 360, angle: 0 }, withPlainBox, 100)).toBe(false);
   });
 });

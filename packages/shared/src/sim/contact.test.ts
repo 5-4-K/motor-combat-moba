@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { DRIVE_CONFIG } from "../config/drive-config.js";
+import { SPIKE_CONFIG } from "../config/spike-config.js";
 import type { CarId } from "../config/types.js";
+import { rectPlanes } from "./boundary.js";
 import { carHullOf } from "./context.js";
 import { pairKey } from "./ram.js";
 import { ManeuverKind } from "./maneuver.js";
@@ -225,5 +228,82 @@ describe("hullTouchesWorld", () => {
     expect(hullTouchesWorld(carHullOf(500, 500, 0), [], bounds, 1)).toBe(false);
     const box = { x: 530, y: 480, w: 40, h: 40 };
     expect(hullTouchesWorld(carHullOf(505, 500, 0), [box], bounds, 1)).toBe(true);
+  });
+
+  it("reports a hull near a chamfer as touching the world", () => {
+    const OCT = { width: 1280, height: 720, planes: [
+      ...rectPlanes(1280, 720),
+      { nx: Math.SQRT1_2, ny: Math.SQRT1_2, d: Math.SQRT1_2 * 124 + Math.SQRT1_2 * 54 },
+    ] };
+    const hull = { x: 120, y: 90, angle: 0, w: 48, h: 32 };
+    expect(hullTouchesWorld(hull, [], OCT, 2)).toBe(true);
+    expect(hullTouchesWorld({ ...hull, x: 640, y: 360 }, [], OCT, 2)).toBe(false);
+  });
+});
+
+describe("spike contacts", () => {
+  // Flush against the left wall, matching how `ARENA_01` authors a strip: 20 units deep, kind
+  // "spike". An ordinary obstacle of the same footprint (`plain`) is the control for "not every
+  // box is a hazard".
+  const strip = { x: 74, y: 105, w: 20, h: 95, kind: "spike" as const };
+  const plain = { x: 400, y: 400, w: 20, h: 95 };
+  const bounds = { width: 1280, height: 720 };
+
+  it("reports a car driving into a spike strip", () => {
+    // x:100,y:150 overlaps the strip's AABB (x:[74,94], y:[105,200]) once the car's 48x32 hull is
+    // applied; vx:-100 drives it further left, into the strip's face.
+    const driving = car({ x: 100, y: 150, vx: -100, vy: 0 });
+    const { events } = resolveContacts([driving], new Set(), "ffa", 1, new Map(), [strip], bounds);
+    expect(events.spikeContacts).toHaveLength(1);
+    expect(events.spikeContacts[0]!.sessionId).toBe("a");
+    expect(events.spikeContacts[0]!.speedIn).toBeGreaterThan(0);
+    expect(events.spikeContacts[0]!.nx).toBeGreaterThan(0); // pushes right, into the arena
+  });
+
+  it("reports nothing for an ordinary obstacle", () => {
+    const overlapping = car({ x: 410, y: 450 });
+    const { events } = resolveContacts([overlapping], new Set(), "ffa", 1, new Map(), [plain], bounds);
+    expect(events.spikeContacts).toHaveLength(0);
+  });
+
+  it("reports a negative speedIn for a car driving away, and leaves the filtering to the bridge", () => {
+    // Same overlap as the first case, but vx flipped: the car is pulling out of the strip, not into
+    // it. If `speedIn`'s sign were inverted this would read positive and this test would fail —
+    // that inversion is exactly the bug the sign-convention doc comment warns about.
+    const leaving = car({ x: 100, y: 150, vx: 100, vy: 0 });
+    const { events } = resolveContacts([leaving], new Set(), "ffa", 1, new Map(), [strip], bounds);
+    expect(events.spikeContacts[0]!.speedIn).toBeLessThan(0);
+  });
+
+  it("reports exactly one contact for a car straddling two spike strips at once", () => {
+    // A car parked on the seam between two vertically-stacked strips (the shape of an octagon
+    // corner in ARENA_01, where two strips meet at an angle but both still overlap one hull). `strip`
+    // covers y:[105,200]; `stripBelow` picks up immediately at y:200 and runs on. A car centred on
+    // y:200 with the standard 32-unit-tall hull overlaps both by half its height.
+    const stripBelow = { x: strip.x, y: strip.y + strip.h, w: strip.w, h: strip.h, kind: "spike" as const };
+    const straddling = car({ x: 100, y: strip.y + strip.h, vx: -100, vy: 0 });
+    const { events } = resolveContacts(
+      [straddling],
+      new Set(),
+      "ffa",
+      1,
+      new Map(),
+      [strip, stripBelow],
+      bounds,
+    );
+    // Two candidate strips genuinely overlap this car's hull; the contract is still one report.
+    expect(events.spikeContacts).toHaveLength(1);
+    expect(events.spikeContacts[0]!.sessionId).toBe("a");
+  });
+
+  it("reports a contact closed only by SPIKE_CONFIG.contactPad, not by real geometric overlap", () => {
+    // `contactNormalBetween` inflates BOTH shapes by `pad`, so the real slack between the two real
+    // (unpadded) rectangles is `2 * pad`, not `pad` (see `hullTouchesWorld`'s comment in contact.ts).
+    // Leave a real gap of `2 * pad - 1`: one unit short of the full padded slack, so the two hulls
+    // are genuinely separated (gap > 0) and the only thing that closes it is the pad.
+    const gap = 2 * SPIKE_CONFIG.contactPad - 1;
+    const nearMiss = car({ x: strip.x + strip.w + gap + DRIVE_CONFIG.carWidth / 2, y: 150, vx: -100, vy: 0 });
+    const { events } = resolveContacts([nearMiss], new Set(), "ffa", 1, new Map(), [strip], bounds);
+    expect(events.spikeContacts).toHaveLength(1);
   });
 });

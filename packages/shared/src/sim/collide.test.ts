@@ -10,8 +10,10 @@ import {
   obbsOverlap,
   pointInAabb,
   pointInObb,
+  pointOutsideBounds,
   resolveWorld,
 } from "./collide.js";
+import { rectPlanes } from "./boundary.js";
 import type { SimBody } from "./step.js";
 import { forwardOf, lateralOf, speedOf, toWorld } from "./velocity.js";
 
@@ -988,5 +990,81 @@ describe("contact reflection preserves direction", () => {
     // restitution 0.15: it comes back at about 15% of what it arrived with, not 35%.
     expect(next.vx).toBeGreaterThan(0);
     expect(next.vx).toBeLessThan(200 * 0.25);
+  });
+});
+
+describe("polygon bounds", () => {
+  const RECT = { width: 1280, height: 720 };
+  // ARENA_01's top-left chamfer, as a boundary with that one plane plus the rectangle.
+  const OCTAGON = {
+    width: 1280,
+    height: 720,
+    planes: [
+      ...rectPlanes(1280, 720),
+      { nx: Math.SQRT1_2, ny: Math.SQRT1_2, d: Math.SQRT1_2 * 124 + Math.SQRT1_2 * 54 },
+    ],
+  };
+
+  const bodyAt = (x: number, y: number, angle = 0) => ({
+    x, y, angle, vx: 0, vy: 0, reverseHold: 0, angVel: 0,
+    maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0, maneuverSpeed: 0,
+  });
+
+  it("is identical to the rectangle when no planes are declared", () => {
+    const out = resolveWorld(bodyAt(5, 360), [], [], RECT, 50);
+    expect(out.x).toBeCloseTo(DRIVE_CONFIG.carWidth / 2, 9);
+  });
+
+  it("pushes a car out of a diagonal plane along that plane's normal", () => {
+    // Deep inside the chamfer corner: both x and y are inside the rect, so only the diagonal bites.
+    const out = resolveWorld(bodyAt(90, 60), [], [], OCTAGON, 50);
+    const pushX = out.x - 90;
+    const pushY = out.y - 60;
+    expect(pushX).toBeGreaterThan(0);
+    expect(pushY).toBeGreaterThan(0);
+    expect(pushX).toBeCloseTo(pushY, 9); // a 45-degree normal pushes equally on both axes
+  });
+
+  it("leaves a car well inside the polygon untouched", () => {
+    const out = resolveWorld(bodyAt(640, 360), [], [], OCTAGON, 50);
+    expect(out.x).toBe(640);
+    expect(out.y).toBe(360);
+  });
+
+  it("bounces velocity about the diagonal normal, not about an axis", () => {
+    // A symmetric (-100, -100) input can't tell diagonal reflection apart from per-axis
+    // decomposition — both give vx' = vy' = 15. An x-only input discriminates: a per-axis
+    // implementation never fires a y-directed contact, so it would leave vy at 0. Correct
+    // reflection about the 45-degree normal n = (1/sqrt2, 1/sqrt2) redirects x-momentum into y.
+    //
+    // Derived by hand: at (90, 60) the diagonal plane's penetration is 34*sqrt(2), so the push
+    // resolves to exactly (34, 34) (pen projected onto n). intoSurface = dot((-100, 0), n) =
+    // -100/sqrt2; with DRIVE_CONFIG.restitution = 0.15, scale = 1.15 * intoSurface, and
+    // vx' = vx - scale*n.x, vy' = vy - scale*n.y works out to vx' = -42.5, vy' = 57.5 exactly.
+    const b = { ...bodyAt(90, 60), vx: -100, vy: 0 };
+    const out = resolveWorld(b, [], [], OCTAGON, 50);
+    expect(out.vx).toBeCloseTo(-42.5, 6);
+    expect(out.vy).toBeCloseTo(57.5, 6);
+  });
+});
+
+describe("pointOutsideBounds with planes", () => {
+  const OCT = { width: 1280, height: 720, planes: [
+    ...rectPlanes(1280, 720),
+    { nx: Math.SQRT1_2, ny: Math.SQRT1_2, d: Math.SQRT1_2 * 124 + Math.SQRT1_2 * 54 },
+  ] };
+
+  it("calls a point past the chamfer out, though it is inside the rectangle", () => {
+    expect(pointOutsideBounds(80, 60, OCT)).toBe(true);
+    expect(pointOutsideBounds(80, 60, { width: 1280, height: 720 })).toBe(false);
+  });
+
+  it("keeps the inclusive-on-the-edge convention", () => {
+    // Exactly on the left wall is out, as it always has been.
+    expect(pointOutsideBounds(0, 360, OCT)).toBe(true);
+  });
+
+  it("calls the centre in", () => {
+    expect(pointOutsideBounds(640, 360, OCT)).toBe(false);
   });
 });

@@ -480,6 +480,9 @@ export interface PlaygroundEnvHooks {
   readonly rebuildFloor: (seed?: number) => void;
   readonly rebuildOcclusion: () => void;
   readonly testShake: () => void;
+  /** Whether the running arena is drawing floor art rather than the generated asphalt (AS24) — the
+   * environment panel reads this to mark its `floor.*` group inert for a sprite arena. */
+  readonly hasFloorSprite: () => boolean;
 }
 
 export function mountPlaygroundOverlay(
@@ -731,6 +734,7 @@ export function mountPlaygroundOverlay(
       onRegenerateFloor: () => envHooks.rebuildFloor(),
       // Preview only: never written to `envOverridesMap`, so never persisted and never exported (EV9).
       onRerollFloor: () => envHooks.rebuildFloor(Math.floor(Math.random() * 1_000_000_000)),
+      hasFloorSprite: () => envHooks.hasFloorSprite(),
       onTestShake: () => envHooks.testShake(),
       onCopy: () => {
         const source = envTableSource(envOverridesMap);

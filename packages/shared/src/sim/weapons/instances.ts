@@ -2,6 +2,7 @@ import { DRIVE_CONFIG } from "../../config/drive-config.js";
 import { instanceDefOf, weaponDefOf } from "../../config/weapon-config.js";
 import { msToTicks, weaponTicksOf } from "../../config/weapon-ticks.js";
 import type { WeaponDef, WeaponId } from "../../config/weapon-types.js";
+import { rectPlanes } from "../boundary.js";
 import { pointInAabb, pointOutsideBounds, type Aabb, type Bounds } from "../collide.js";
 import { carIdOf } from "../context.js";
 import { scaleDamage, weaponDamageOf } from "../damage.js";
@@ -379,12 +380,14 @@ export function instanceExpired(
 }
 
 /**
- * Reflect a bouncing projectile off axis-aligned level geometry. The world is bounds plus AABBs,
- * so every reflection is a single component flip: crossing a vertical face mirrors the angle to
- * `PI - a`, a horizontal face to `-a`, and position folds across the face so speed is conserved.
- * Which obstacle face was crossed is decided by the side the shot came FROM (prev position); a
- * corner hit flips both. Centre-point test, deliberately: a face-accurate polygon sweep buys
- * precision nobody can see on a 30-unit-per-tick shot.
+ * Reflect a bouncing projectile off level geometry. Arena bounds reflect off the convex boundary's
+ * inward half-planes (a plain rectangle's planes, `rectPlanes`, when `bounds.planes` is absent):
+ * `p' = p - 2 * dist * n` folds the position back across the plane, and `d' = d - 2 * dot(d, n) * n`
+ * reflects the heading about the plane's normal — for an axis-aligned plane this is exactly the old
+ * per-axis mirror, `PI - a` off a vertical face and `-a` off a horizontal one. AABB obstacles stay a
+ * single axis-aligned component flip: which face was crossed is decided by the side the shot came
+ * FROM (prev position); a corner hit flips both. Centre-point test, deliberately: a face-accurate
+ * polygon sweep buys precision nobody can see on a 30-unit-per-tick shot.
  */
 export function bounceOffWorld(
   prevX: number,
@@ -396,10 +399,19 @@ export function bounceOffWorld(
   bounds: Bounds,
 ): { x: number; y: number; angle: number } {
   let a = angle;
-  if (x < 0) { x = -x; a = Math.PI - a; }
-  else if (x > bounds.width) { x = 2 * bounds.width - x; a = Math.PI - a; }
-  if (y < 0) { y = -y; a = -a; }
-  else if (y > bounds.height) { y = 2 * bounds.height - y; a = -a; }
+  const planes = bounds.planes ?? rectPlanes(bounds.width, bounds.height);
+  for (const plane of planes) {
+    const dist = plane.nx * x + plane.ny * y - plane.d;
+    if (dist >= 0) continue;
+    // Mirror the point back across the plane and reflect the heading about its normal:
+    //   p' = p - 2 * dist * n        d' = d - 2 * dot(d, n) * n
+    x -= 2 * dist * plane.nx;
+    y -= 2 * dist * plane.ny;
+    const dx = Math.cos(a);
+    const dy = Math.sin(a);
+    const dot = dx * plane.nx + dy * plane.ny;
+    a = Math.atan2(dy - 2 * dot * plane.ny, dx - 2 * dot * plane.nx);
+  }
   for (const o of obstacles) {
     if (!pointInAabb(x, y, o)) continue;
     const fromLeft = prevX <= o.x;

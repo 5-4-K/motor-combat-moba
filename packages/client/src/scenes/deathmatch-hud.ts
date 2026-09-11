@@ -50,3 +50,25 @@ export function showKilledBy(alive: boolean, diedAtTick: number, tick: number): 
 export function killedByText(killerName: string): string {
   return killerName === "" ? "You were destroyed" : `${killerName} killed you`;
 }
+
+/**
+ * Whose name the banner prints, or `""` for "nobody's".
+ *
+ * `killedBySessionId` carries the victim's OWN id for an unattributed environment death — a wall
+ * spike nobody shoved you into (AS21). That is the designed mechanism, not a missing value:
+ * `combat-bridge.ts` stamps it deliberately, and the kill-booking line's `killer !== player` guard
+ * is what reads it as self-inflicted and moves no counter. Resolving it like any other killer prints
+ * the player's own name back at them — "Dave killed you." — so the local id collapses to the same
+ * empty name a departed killer leaves, and `killedByText` renders "You were destroyed".
+ *
+ * Takes the ids rather than a `players` map so it stays testable without a room, matching every
+ * other derivation in this file. The caller resolves the name; this decides whether to use it.
+ */
+export function killerNameFor(
+  killedBySessionId: string,
+  localSessionId: string,
+  resolvedName: string,
+): string {
+  if (killedBySessionId === "" || killedBySessionId === localSessionId) return "";
+  return resolvedName;
+}

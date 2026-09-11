@@ -1,5 +1,5 @@
 import type {
-  ActiveStatus, CarId, FiredEvent, Aabb, WeaponId,
+  ActiveStatus, CarId, FiredEvent, Aabb, BoundaryPlane, WeaponId,
 } from "@motor-combat-moba/shared";
 import type { PlanWeights } from "./brain/planner.js";
 import type { Rng } from "./rng.js";
@@ -78,6 +78,13 @@ export interface BotArenaView {
   width: number;
   height: number;
   obstacles: readonly Aabb[];
+  /**
+   * The boundary planes, when the arena is not a plain rectangle. A projection of `boundsOf`, not a
+   * handle on the arena def — same rule as every other field here. Absent means the rectangle, and
+   * `wallAhead` falls back to `rectPlanes` so an arena without a polygon (`arena-02`) behaves exactly
+   * as it always did.
+   */
+  planes?: readonly BoundaryPlane[];
 }
 
 /**

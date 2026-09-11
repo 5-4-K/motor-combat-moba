@@ -16,6 +16,7 @@ import {
   PlayerStatus,
   RoomPhase,
   TICK_RATE_HZ,
+  boundsOf,
   getArena,
   hpOf,
   speedOf,
@@ -139,7 +140,7 @@ export class PlaytestWorld {
       statusMods,
       this.prevFireMasks,
     );
-    let contact: ContactTickResult = { contactHits: [], statusRequests: [] };
+    let contact: ContactTickResult = { contactHits: [], statusRequests: [], spikeHits: [] };
     if (this.state.phase === RoomPhase.MATCH && this.roster.size > 0) {
       contact = contactTick(
         this.state,
@@ -161,12 +162,13 @@ export class PlaytestWorld {
         dt: DT,
         mode: this.mode,
         obstacles: arena.obstacles,
-        bounds: { width: arena.width, height: arena.height },
+        bounds: boundsOf(arena),
       },
       players: toCombatPlayers(this.state, this.roster, masks, this.combat),
       instances: toInstances(this.combat),
       instanceSeq: this.combat.instanceSeq,
       contactHits: contact.contactHits,
+      spikeHits: contact.spikeHits,
       statusRequests: contact.statusRequests,
     });
     applyCombatResult(this.state, result, this.combat);

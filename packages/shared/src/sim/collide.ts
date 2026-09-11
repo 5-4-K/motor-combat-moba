@@ -1,4 +1,5 @@
 import { DRIVE_CONFIG } from "../config/drive-config.js";
+import { planePenetration, rectPlanes, supportRadius, type BoundaryPlane } from "./boundary.js";
 import type { SimBody } from "./step.js";
 
 /**
@@ -10,6 +11,8 @@ export interface Aabb {
   y: number;
   w: number;
   h: number;
+  /** Mirrors `Obstacle.kind` (`arena/types.ts`) — absent means an ordinary block. */
+  kind?: "spike";
 }
 
 /** Oriented box. `x, y` is the CENTRE (matching `PlayerState.x/y`); `angle` is radians, +y down. */
@@ -31,6 +34,11 @@ export interface CarObstacle {
 export interface Bounds {
   width: number;
   height: number;
+  /**
+   * The convex boundary, as inward half-planes. Absent means the plain rectangle above, which is
+   * what every rectangular arena and every test fixture gets (AS6). Built once by `boundsOf`.
+   */
+  planes?: readonly BoundaryPlane[];
 }
 
 export interface Vec2 {
@@ -159,39 +167,46 @@ function shareOf(selfRamDefence: number, otherRamDefence: number): number {
 const OBSTACLE_SHARE = 1;
 
 /**
- * The correction that brings the car's hull back inside the arena, per axis. Zero on an axis that
- * is already inside. The two axes are independent: `hullHalfExtents` depends only on `angle`, which
- * resolution never changes, so both components can be measured from the same pose.
+ * The correction that brings the car's hull back inside the arena, resolved plane by plane.
+ *
+ * Sequential rather than summed: each plane is measured against the position the previous plane
+ * left the body at. For an axis-aligned rectangle the two are identical — an x push cannot change
+ * a y penetration — so this is a no-op for every arena that declares no polygon. For a chamfer it
+ * is the difference between converging on the corner and overshooting it.
  */
 function boundsPush(body: SimBody, bounds: Bounds): Vec2 {
-  const { x: hx, y: hy } = hullHalfExtents(body);
-
-  let x = 0;
-  if (body.x < hx) x = hx - body.x;
-  else if (body.x > bounds.width - hx) x = bounds.width - hx - body.x;
-
-  let y = 0;
-  if (body.y < hy) y = hy - body.y;
-  else if (body.y > bounds.height - hy) y = bounds.height - hy - body.y;
-
-  return { x, y };
+  const planes = bounds.planes ?? rectPlanes(bounds.width, bounds.height);
+  let x = body.x;
+  let y = body.y;
+  for (const plane of planes) {
+    const r = supportRadius(body.angle, plane.nx, plane.ny);
+    const pen = planePenetration(x, y, r, plane);
+    if (pen > 0) {
+      x += plane.nx * pen;
+      y += plane.ny * pen;
+    }
+  }
+  return { x: x - body.x, y: y - body.y };
 }
 
 /**
- * Bounds contact with bounce, one `applyContact` per violated axis so a corner reflects off both
- * walls rather than off some blended diagonal.
+ * Bounds contact with bounce, one `applyContact` per violated plane so a corner reflects off both
+ * walls rather than off some blended diagonal. That was the rule when bounds were two axes and it
+ * is the rule now that they are N planes.
  *
- * World bounds are an axis clamp rather than four SAT wall boxes. A clamp cannot pick the wrong
+ * World bounds are a plane clamp rather than SAT wall boxes. A clamp cannot pick the wrong
  * separating axis for a deeply penetrating body — a thin wall box would happily eject a fast car out
- * the far side — and for the ordinary shallow case it yields exactly the axis-aligned MTV a wall box
- * would. The clamp still feeds `applyContact`, so bounds, obstacles, and cars bounce identically.
+ * the far side — and for the ordinary shallow case it yields exactly the same MTV a wall box would.
+ * The clamp still feeds `applyContact`, so bounds, obstacles, and cars bounce identically.
  */
 function resolveBounds(body: SimBody, bounds: Bounds): SimBody {
-  const push = boundsPush(body, bounds);
-
+  const planes = bounds.planes ?? rectPlanes(bounds.width, bounds.height);
   let next = body;
-  if (push.x !== 0) next = applyContact(next, { x: push.x, y: 0 });
-  if (push.y !== 0) next = applyContact(next, { x: 0, y: push.y });
+  for (const plane of planes) {
+    const r = supportRadius(next.angle, plane.nx, plane.ny);
+    const pen = planePenetration(next.x, next.y, r, plane);
+    if (pen > 0) next = applyContact(next, { x: plane.nx * pen, y: plane.ny * pen });
+  }
   return next;
 }
 
@@ -331,7 +346,7 @@ function carObbOf(body: SimBody): Obb {
 }
 
 /** Top-left `Aabb` to centre-based `Obb`, so one SAT path covers obstacles and cars alike. */
-function aabbToObb(box: Aabb): Obb {
+export function aabbToObb(box: Aabb): Obb {
   return { x: box.x + box.w / 2, y: box.y + box.h / 2, angle: 0, w: box.w, h: box.h };
 }
 
@@ -439,9 +454,20 @@ export function aabbCorners(box: Aabb): Vec2[] {
  * One spelling of one rule, shared by everything that asks it: a projectile leaving the arena
  * (`combat.ts`) and a beam clipping against it (`weapons/instances.ts`) used to disagree by a strict
  * `<` against a `<=`, so a shot exactly on the edge survived where a beam already stopped.
+ *
+ * With `bounds.planes` set, the rectangle test is replaced by a walk over the convex boundary's
+ * half-planes, keeping the same inclusive-on-every-edge convention: `<= 0` on the signed distance.
  */
 export function pointOutsideBounds(px: number, py: number, bounds: Bounds): boolean {
-  return px <= 0 || py <= 0 || px >= bounds.width || py >= bounds.height;
+  if (bounds.planes === undefined) {
+    return px <= 0 || py <= 0 || px >= bounds.width || py >= bounds.height;
+  }
+  // Inclusive on every edge, exactly as the rectangle form is: `<= 0` on the signed distance means
+  // a point resting on a plane is out.
+  for (const plane of bounds.planes) {
+    if (plane.nx * px + plane.ny * py - plane.d <= 0) return true;
+  }
+  return false;
 }
 
 /**

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { carSpriteKey, shouldLoadAssetKey, weaponIconKey } from "./asset-keys.js";
+import { arenaFloorKey, carSpriteKey, shouldLoadAssetKey, weaponIconKey } from "./asset-keys.js";
 
 describe("carSpriteKey", () => {
   it("namespaces a known car id", () => {
@@ -45,5 +45,16 @@ describe("shouldLoadAssetKey", () => {
 
   it("loads a malformed arena key rather than silently dropping it", () => {
     expect(shouldLoadAssetKey("arena.", "arena-01")).toBe(true);
+  });
+});
+
+describe("arenaFloorKey", () => {
+  it("namespaces by arena so the release pruner can find it", () => {
+    expect(arenaFloorKey("arena-01")).toBe("arena.arena-01.floor");
+  });
+
+  it("produces a key the active arena loads and an inactive one does not", () => {
+    expect(shouldLoadAssetKey(arenaFloorKey("arena-01"), "arena-01")).toBe(true);
+    expect(shouldLoadAssetKey(arenaFloorKey("arena-02"), "arena-01")).toBe(false);
   });
 });

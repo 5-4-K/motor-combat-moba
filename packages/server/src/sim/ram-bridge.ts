@@ -4,6 +4,7 @@ import {
   SLAM_CONFIG,
   applyImpulse,
   applyStatus,
+  boundsOf,
   carHullOf,
   carIdOf,
   expireStatusesFromSource,
@@ -24,10 +25,15 @@ import {
   type Impulse,
   type Modifiers,
   type PlayerState,
+  type SpikeHit,
   type StatusRequest,
   type WeaponId,
 } from "@motor-combat-moba/shared";
 import { modifiersFor, readStatuses, writeStatuses } from "./status-bridge.js";
+import { newSpikeMemory, recordShove, resolveSpikeHits, type SpikeMemory } from "./spike-bridge.js";
+// Re-exported so a room can clean up a leaver's spike state alongside the rest of `ContactMemory`
+// without importing a second bridge module for one function.
+export { clearShover, forgetSpikeState } from "./spike-bridge.js";
 
 /**
  * The schema half of contact: read `ArenaState` into plain objects, run the pure `resolveContacts`,
@@ -126,15 +132,18 @@ export interface ContactMemory {
   slammed: Map<string, SlamRecord>;
   /** Per-victim ram falloff (spec P24/P24a). Same lifetime and reasoning as `slammed`. */
   falloff: FalloffStack;
+  /** Spike retrigger lockouts and shove attribution (AS19-AS21). Same lifetime as the rest. */
+  spikes: SpikeMemory;
 }
 
 export function newContactMemory(): ContactMemory {
-  return { contacts: new Set(), slammed: new Map(), falloff: newFalloffStack() };
+  return { contacts: new Set(), slammed: new Map(), falloff: newFalloffStack(), spikes: newSpikeMemory() };
 }
 
 export interface ContactTickResult {
   contactHits: ContactHit[];
   statusRequests: StatusRequest[];
+  spikeHits: SpikeHit[];
 }
 
 /**
@@ -308,7 +317,7 @@ export function contactTick(
   tick: number,
 ): ContactTickResult {
   const arena = getArena(state.arenaId);
-  const bounds = { width: arena.width, height: arena.height };
+  const bounds = boundsOf(arena);
 
   const cars = contactCarsOf(state, roster, statusMods, approachVelocities, maneuverWeapons, tick);
   const { impulses, contacts, events } = resolveContacts(
@@ -377,6 +386,9 @@ export function contactTick(
         victim,
         applyStatus(readStatuses(victim), "reeling", tick, scaledImpulse.uncontrolTicks, entry.attackerId),
       );
+      // AS20: any push counts toward the spike shove-credit window, ordinary ram or slam alike — the
+      // mechanic is "you put them there", not "you rammed them".
+      recordShove(memory.spikes, victimId, entry.attackerId, tick);
     }
 
     const attacker = state.players.get(entry.attackerId);
@@ -493,6 +505,8 @@ export function contactTick(
       victim,
       applyStatus(readStatuses(victim), "reeling", tick, imp.uncontrolTicks, hit.attackerSessionId),
     );
+    // AS20: a slam shoves its victim exactly as a ram does, so it counts toward spike credit too.
+    recordShove(memory.spikes, hit.targetSessionId, hit.attackerSessionId, tick);
   }
 
   // A dash into a wall exits stopped, not at cap.
@@ -599,5 +613,10 @@ export function contactTick(
     entry.wallStunUntilTick = tick;
   }
 
-  return { contactHits, statusRequests };
+  // Resolved last, after every push this tick has been recorded (both the ram loop and the slam
+  // loop above call `recordShove`): a slam that shoves a victim straight onto a strip in the same
+  // tick must still be able to credit that slam's attacker.
+  const spikeHits = resolveSpikeHits(events.spikeContacts, memory.spikes, tick);
+
+  return { contactHits, statusRequests, spikeHits };
 }

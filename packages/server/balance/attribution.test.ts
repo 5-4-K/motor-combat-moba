@@ -34,4 +34,11 @@ describe("attributeSource", () => {
     expect(attributeSource({ kind: "pulse", statusId: "stunned", sourceSessionId: "p1" }, appliers))
       .toEqual({ weaponId: null, derived: false });
   });
+
+  it("names no weapon for a hazard, which belongs to the arena rather than to a kit (AS19)", () => {
+    // The kill and the damage still reach the headline totals — `stats.ts` counts `totalKills`
+    // before it asks for an attribution — this only keeps a wall out of a per-weapon row.
+    expect(attributeSource({ kind: "hazard", hazardId: "spike" }, appliers))
+      .toEqual({ weaponId: null, derived: false });
+  });
 });
