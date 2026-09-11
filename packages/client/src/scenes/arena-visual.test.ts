@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { ArenaDef } from "@motor-combat-moba/shared";
-import { ARENA_COLOR_DEFAULTS, arenaColorsOf, arenaBorderRect } from "./arena-visual.js";
+import {
+  ARENA_COLOR_DEFAULTS,
+  arenaBorderRect,
+  arenaColorsOf,
+  arenaDecoration,
+  drawableObstacles,
+} from "./arena-visual.js";
 
 const bare: ArenaDef = {
   id: "test",
@@ -55,5 +61,21 @@ describe("arenaBorderRect", () => {
 
   it("is the arena itself when there is no stroke to inset", () => {
     expect(arenaBorderRect(arena, 0)).toEqual({ x: 0, y: 0, w: 1280, h: 720 });
+  });
+});
+
+describe("arenaDecoration", () => {
+  it("draws markings and border for a procedural arena", () => {
+    expect(arenaDecoration(false)).toEqual({ drawMarkings: true, drawBorder: true });
+  });
+
+  it("draws neither over a floor sprite", () => {
+    expect(arenaDecoration(true)).toEqual({ drawMarkings: false, drawBorder: false });
+  });
+});
+
+describe("drawableObstacles", () => {
+  it("keeps ordinary blocks and drops wall-mounted ones", () => {
+    expect(drawableObstacles([{ kind: "spike" }, {}, { kind: "spike" }])).toEqual([{}]);
   });
 });

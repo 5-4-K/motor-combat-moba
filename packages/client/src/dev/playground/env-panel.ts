@@ -75,6 +75,13 @@ export interface EnvPanelOptions {
   readonly onRegenerateFloor: () => void;
   /** Regenerate the asphalt with a fresh seed — preview only, never saved or exported (EV9). */
   readonly onRerollFloor: () => void;
+  /**
+   * Whether the running arena draws floor art instead of the generated asphalt (AS24). The `floor`
+   * section is already Regenerate-only for every arena; for a sprite arena it does nothing at all,
+   * since `floorTile` — the object every `floor.*` knob and the Regenerate button feed — is never
+   * created for one (AS23). A group that silently does nothing is worse than one that says why.
+   */
+  readonly hasFloorSprite: () => boolean;
   /** Fire one of each shake kind, because shake cannot be judged on a frozen field (EV31). */
   readonly onTestShake: () => void;
   /** Copy the export to the clipboard. */
@@ -83,8 +90,13 @@ export interface EnvPanelOptions {
   readonly onBack: () => void;
 }
 
-/** How many of a section's fields are overridden, so a collapsed block states its own condition. */
-function sectionSummary(section: EnvSection, overrides: EnvOverrides): string {
+/**
+ * How many of a section's fields are overridden, so a collapsed block states its own condition. The
+ * `floor` section overrides this entirely for a sprite arena (AS24): its knobs feed a texture that
+ * arena never draws, so "N changed" would read as live when it is not doing anything at all.
+ */
+function sectionSummary(section: EnvSection, overrides: EnvOverrides, hasFloorSprite: boolean): string {
+  if (section === "floor" && hasFloorSprite) return "inert — this arena uses floor art";
   const n = ENV_FIELDS.filter(
     (f) => f.section === section && overrides[envKey(f.section, f.name)] !== undefined,
   ).length;
@@ -193,11 +205,17 @@ export function buildEnvPanel(opts: EnvPanelOptions): HTMLElement {
 
   function sectionExtras(section: EnvSection): HTMLElement[] {
     if (section === "floor") {
+      // Left clickable rather than disabled even when inert: `rebuildFloor` already no-ops for a
+      // sprite arena (AS23), so the button stays truthful about what it does — nothing here — rather
+      // than needing a second reason to exist.
+      const inertTitle = opts.hasFloorSprite()
+        ? "This arena draws floor art; regenerating the asphalt underneath it changes nothing."
+        : undefined;
       return [
-        button({}, ["Regenerate"], opts.onRegenerateFloor),
+        button({ title: inertTitle }, ["Regenerate"], opts.onRegenerateFloor),
         // Preview only. The seed is arena-derived so every client generates the same floor, which is
         // why it is neither a field nor persisted (EV9).
-        button({}, ["Reroll seed (preview)"], opts.onRerollFloor),
+        button({ title: inertTitle }, ["Reroll seed (preview)"], opts.onRerollFloor),
       ];
     }
     if (section === "lava") {
@@ -213,7 +231,8 @@ export function buildEnvPanel(opts: EnvPanelOptions): HTMLElement {
    * `pg-fx-block` wrapper around a `pg-fx-head` toggle button and, when open, its rows. */
   function sectionBlock(section: EnvSection): HTMLElement {
     const isOpen = expanded === section;
-    const label = (): string => `${SECTION_LABELS[section]} — ${sectionSummary(section, opts.overrides)}`;
+    const label = (): string =>
+      `${SECTION_LABELS[section]} — ${sectionSummary(section, opts.overrides, opts.hasFloorSprite())}`;
 
     const header = button({ class: "pg-fx-head" }, [label()], () => {
       expanded = isOpen ? undefined : section;

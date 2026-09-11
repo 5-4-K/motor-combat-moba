@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { SPIKE_CONFIG } from "@motor-combat-moba/shared";
 import { ramShake, shakeFor, shouldStartShake, type ActiveShake } from "./camera.js";
 import { ENVIRONMENT_FX } from "./environment.js";
 
@@ -31,6 +32,22 @@ describe("shakeFor", () => {
 
   it("does not shake for predator ending — it is a homing missile, not an explosive", () => {
     expect(shakeFor({ kind: "shotEnded", weaponId: "predator", x: 0, y: 0, angle: 0 })).toBeUndefined();
+  });
+
+  // AS25's spike damage rides the same `damaged` FX event every other weapon uses (Task 9's damage
+  // path), so it earns the ordinary spark burst and shake for free — no new emitter. This pins that
+  // it stays in its lane: `damagedCap` (0.012) sits below `died`'s bare `max` (0.02) today, and a
+  // later retune of `damagedCap` alone must not push a wall hit past a kill.
+  it("keeps a spike hit's shake at or below a kill's", () => {
+    const spike = shakeFor({
+      kind: "damaged",
+      sessionId: "a",
+      x: 0,
+      y: 0,
+      amount: SPIKE_CONFIG.damage,
+    })!;
+    const died = shakeFor({ kind: "died", sessionId: "a", x: 0, y: 0 })!;
+    expect(spike.intensity).toBeLessThanOrEqual(died.intensity);
   });
 });
 

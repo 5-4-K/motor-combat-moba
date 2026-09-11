@@ -77,7 +77,7 @@ import { arenaMismatchMessage } from "./arena-mismatch.js";
 import { axisOf, drainTicks } from "./arena-input.js";
 import { releaseKeyboardCaptures } from "./keyboard-captures.js";
 import { controlledCarOf, isPlaygroundRoom, isPracticeRoom, isSimPaused } from "./controlled-car.js";
-import { arenaBorderRect, arenaColorsOf } from "./arena-visual.js";
+import { arenaBorderRect, arenaColorsOf, arenaDecoration, drawableObstacles } from "./arena-visual.js";
 import { fitsViewport } from "./arena-camera.js";
 import { assetManifest, assetsReady } from "./BootScene.js";
 import { freshImpacts, newImpactTracker, type ImpactTracker } from "./impact-feedback.js";
@@ -1264,6 +1264,11 @@ export class ArenaScene extends Phaser.Scene {
    *
    * Clear-and-redraw rather than a second `Graphics`: the three share one object so they cost one
    * draw call, and the markings cannot be re-issued without re-issuing the other two.
+   *
+   * A sprite arena's floor art already contains its own markings, its own walls and its own painted
+   * spike strips, so `arenaDecoration` and `drawableObstacles` (`arena-visual.ts`) suppress the
+   * matching procedural draws for it (AS24, AS25) — pure decisions, unit-tested there, because this
+   * scene cannot be. `arena-02` and any future arena with no floor sprite still get all three.
    */
   private redrawArenaGraphics(): void {
     const gfx = this.arenaGfx;
@@ -1272,31 +1277,37 @@ export class ArenaScene extends Phaser.Scene {
     const env = this.resolveEnv();
     const colors = arenaColorsOf(arena);
     const m = env.markings;
+    const decoration = arenaDecoration(this.hasFloorSprite);
 
     gfx.clear();
     gfx.fillStyle(colors.obstacle, 1);
-    for (const obstacle of arena.obstacles) {
+    for (const obstacle of drawableObstacles(arena.obstacles)) {
       gfx.fillRect(obstacle.x, obstacle.y, obstacle.w, obstacle.h);
     }
-    // Painted markings, drawn on the same Graphics as the obstacles so they cost no extra object.
-    // Clamped to at least 1: `laneSpacing` drives this loop's step, and a zero or negative value —
-    // unreachable through the panel's `min: 10` field but not through a hand-edited localStorage
-    // blob `sanitizeStoredEnv` would still accept — would never terminate and freeze the tab.
-    gfx.lineStyle(m.laneWidth, m.laneColor, m.laneAlpha);
-    for (let y = m.laneMargin; y < arena.height - m.laneMargin; y += Math.max(1, m.laneSpacing)) {
-      gfx.lineBetween(
-        arena.width / 2,
-        y,
-        arena.width / 2,
-        Math.min(y + m.laneDash, arena.height - m.laneMargin),
-      );
-    }
-    gfx.lineStyle(m.circleWidth, m.laneColor, m.circleAlpha);
-    gfx.strokeCircle(arena.width / 2, arena.height / 2, m.circleRadius);
 
-    gfx.lineStyle(ARENA_BORDER_PX, colors.border, 1);
-    const border = arenaBorderRect(arena, ARENA_BORDER_PX);
-    gfx.strokeRect(border.x, border.y, border.w, border.h);
+    if (decoration.drawMarkings) {
+      // Painted markings, drawn on the same Graphics as the obstacles so they cost no extra object.
+      // Clamped to at least 1: `laneSpacing` drives this loop's step, and a zero or negative value —
+      // unreachable through the panel's `min: 10` field but not through a hand-edited localStorage
+      // blob `sanitizeStoredEnv` would still accept — would never terminate and freeze the tab.
+      gfx.lineStyle(m.laneWidth, m.laneColor, m.laneAlpha);
+      for (let y = m.laneMargin; y < arena.height - m.laneMargin; y += Math.max(1, m.laneSpacing)) {
+        gfx.lineBetween(
+          arena.width / 2,
+          y,
+          arena.width / 2,
+          Math.min(y + m.laneDash, arena.height - m.laneMargin),
+        );
+      }
+      gfx.lineStyle(m.circleWidth, m.laneColor, m.circleAlpha);
+      gfx.strokeCircle(arena.width / 2, arena.height / 2, m.circleRadius);
+    }
+
+    if (decoration.drawBorder) {
+      gfx.lineStyle(ARENA_BORDER_PX, colors.border, 1);
+      const border = arenaBorderRect(arena, ARENA_BORDER_PX);
+      gfx.strokeRect(border.x, border.y, border.w, border.h);
+    }
   }
 
   /** Called by the playground overlay after an environment edit (EV25, EV29). */
@@ -1324,6 +1335,15 @@ export class ArenaScene extends Phaser.Scene {
   /** Rebuild the smoke-hole silhouettes after a halo edit (EV30). */
   rebuildOcclusion(): void {
     this.fx?.rebuildEraserTextures();
+  }
+
+  /**
+   * Whether the running arena is drawing floor art rather than the generated asphalt (AS23, AS24).
+   * The playground's environment panel reads this to mark its `floor.*` group inert for a sprite
+   * arena — every knob in that section, and its Regenerate button, tune a texture nothing draws.
+   */
+  isFloorSprite(): boolean {
+    return this.hasFloorSprite;
   }
 
   /**
