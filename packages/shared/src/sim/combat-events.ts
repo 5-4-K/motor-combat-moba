@@ -32,15 +32,31 @@ export interface FiredEvent {
 }
 
 /**
+ * Which piece of level geometry hurt someone. `"spike"` is the only one today — the `kind` field on
+ * `Obstacle` carries the same single value, and the two are meant to read as the same vocabulary.
+ *
+ * A named union rather than a bare string so a second hazard has to be declared here, where the
+ * report's attribution switch will fail to compile until it says what to do with it.
+ */
+export type HazardId = "spike";
+
+/**
  * Where a point of damage came from. Every path into `dealDamageTo` has a tag (B4).
  *
  * There is no ram case: a plain ram deals no damage (`sim/ram.ts` never calls `applyDamage`), so
  * every contact hit is a dash or a hard slam and always names its maneuver weapon (B5).
+ *
+ * `hazard` is the environment's own tag (AS19). It names no weapon and no applying status, because
+ * neither exists: a wall spike is level geometry billing a car for driving into it. Its
+ * `attackerSessionId` on the event is still whoever shoved the victim there — or, unshoved, the
+ * victim's own id, which is what makes a `KilledEvent` whose killer equals its victim the wire form
+ * of "the arena killed them" rather than a missing attribution.
  */
 export type DamageSource =
   | { kind: "weapon"; weaponId: WeaponId; pressId: string; isExplosion: boolean }
   | { kind: "contact"; weaponId: WeaponId; pressId: string }
-  | { kind: "pulse"; statusId: StatusId; sourceSessionId: string };
+  | { kind: "pulse"; statusId: StatusId; sourceSessionId: string }
+  | { kind: "hazard"; hazardId: HazardId };
 
 export interface DamagedEvent {
   tick: number;

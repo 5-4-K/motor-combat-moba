@@ -329,11 +329,25 @@ export function runCombat(input: CombatInput): CombatResult {
   // still runs it through `ctx.obstacles`/`ctx.bounds` unconditionally, so it DOES still collide
   // with level geometry — without this check, spawn protection would not protect anyone from the
   // walls (AS21).
+  //
+  // Through `recordDamage`, like every other damage path in this file: the wrapper is what emits the
+  // `damaged`/`killed` events the balance harness counts kills and first blood from, and B4's "every
+  // path into `dealDamageTo` has a tag" has to stay true of the environment too. `events` is absent
+  // in every live room, so this costs a wreck-detection read there and nothing else.
   for (const hit of input.spikeHits ?? []) {
     const target = byId.get(hit.targetSessionId);
     if (!target || !isFighting(target)) continue;
     if (hasStatus(target.statuses, "phased", world.tick)) continue;
-    dealDamageTo(target, SPIKE_CONFIG.damage, modsOf(hit.targetSessionId), hit.sourceSessionId);
+    recordDamage(
+      target,
+      SPIKE_CONFIG.damage,
+      modsOf(hit.targetSessionId),
+      hit.sourceSessionId,
+      { kind: "hazard", hazardId: "spike" },
+      world,
+      byId,
+      input.events,
+    );
   }
 
   // 0d. Statuses the room asked for — a pickup, a hazard — added AFTER the reading above, so a

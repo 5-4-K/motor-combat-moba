@@ -327,8 +327,13 @@ damage each other by contact.
    the only place holding the trigger lockout and the per-victim last-shover memory, both server-side
    only (see below), so it is the only place that can gate and attribute a hit.
 3. **`runCombat` (shared, `sim/combat.ts`) prices and applies them**, alongside burn and repair pulses
-   and ahead of weapon fire, through `dealDamageTo` — the same hp writer every other source uses, so a
-   car spikes kill this tick is already dead for its own weapons this tick too.
+   and ahead of weapon fire, through `recordDamage` — the same wrapper over the same hp writer every
+   other source uses, so a car spikes kill this tick is already dead for its own weapons this tick
+   too, and the hit emits the `damaged`/`killed` events with a `{ kind: "hazard", hazardId: "spike" }`
+   `DamageSource`. That tag is why B4 ("every path into `dealDamageTo` has a tag") still holds with an
+   environmental source in the game, and it is what lets a balance run count a spike kill at all. No
+   weapon can be attributed to it, so it appears in the report's kill pace and per-car damage but in
+   no per-weapon row.
 
 **The trigger is a push, not contact.** Because the boundary stops a car at the notch face, "touching
 spikes" is a state a car can hold forever — someone who drove in and stopped is still touching them.
@@ -353,9 +358,9 @@ banner reads it as self-inflicted, exactly as an environment death should.
 
 **Two interactions, settled explicitly rather than left to fall out of other rules:**
 
-- **Not amplified by `corroded` or any other multiplier.** `dealDamageTo` is called for a spike hit
-  without going through `scaleDamage`, unlike every weapon hit above — environmental damage is flat
-  and predictable on purpose.
+- **Not amplified by `corroded` or any other multiplier.** A spike hit is recorded without going
+  through `scaleDamage`, unlike every weapon hit above — environmental damage is flat and predictable
+  on purpose.
 - **A `phased` car takes none, and this needed its own check.** It does not fall out of the
   `isOnField`/`isSolid` split: `isSolid` only gates the car-car lists, while `stepSim` still runs a
   phased car through `ctx.obstacles` and `ctx.bounds` unconditionally — it has to, or spawn

@@ -114,7 +114,7 @@ export type {
 } from "./sim/contact.js";
 export { newCombatEvents } from "./sim/combat-events.js";
 export type {
-  CombatEvents, DamagedEvent, DamageSource, FiredEvent, KilledEvent,
+  CombatEvents, DamagedEvent, DamageSource, FiredEvent, HazardId, KilledEvent,
 } from "./sim/combat-events.js";
 export { canDamage } from "./sim/weapons/targets.js";
 export {

@@ -15,8 +15,8 @@ for the design this implements.
 
 ## Before you trust a number
 
-One thing distorts every run today, and two distorted runs before fixes that have since landed. Read
-all three before you read a report.
+Two things distort every run today, and two more distorted runs before fixes that have since landed.
+Read all four before you read a report.
 
 **`wildcharge` was unpressable until 2026-09-04, so reports from before then understate Bastion.**
 The bot's fire logic only pressed slot `i` when `distance < slotRanges[i]`, and `WEAPON_TABLE.wildcharge`
@@ -66,6 +66,16 @@ includes damage it never dealt directly — credited instead to whatever other w
 another player's) finished off a corroded target. No per-weapon attribution scheme can untangle this;
 a damage table is blind to amplifiers by construction. Do not assume the `Damage` column sums to "the
 truth," and do not read `magmablast`'s number as *only* what it hit.
+
+**Spike damage belongs to no weapon, and an unshoved spike death credits the victim's own chassis
+with dealing it.** A wall spike emits a `damaged`/`killed` event tagged `{ kind: "hazard" }`, so it
+reaches `killsPerMinute`, time-to-first-blood and both per-car damage columns — but
+`attributeSource` can name no weapon for it, so it is correctly absent from every per-weapon row, and
+the `Damage dealt` column does not sum to the `Damage taken` one as a result. The credited attacker is
+whoever shoved the car in within `SPIKE_CONFIG.shoverCreditMs` and otherwise the **victim itself**
+(AS21), which is what makes an environment death read as self-inflicted in play — and which means a
+chassis that drives itself into a wall books that 80 as damage it *dealt*. Read a small
+dealt-versus-taken asymmetry on a spiked arena as that, not as a bug.
 
 (`overheated`, not `corroded`, is the game's only *damaging* status pulse — 8 damage every 400 ms,
 applied only by `afterburner`. An earlier project draft had that backwards; the harness's own
