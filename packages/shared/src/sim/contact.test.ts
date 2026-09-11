@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { DRIVE_CONFIG } from "../config/drive-config.js";
+import { SPIKE_CONFIG } from "../config/spike-config.js";
 import type { CarId } from "../config/types.js";
 import { rectPlanes } from "./boundary.js";
 import { carHullOf } from "./context.js";
@@ -271,5 +273,37 @@ describe("spike contacts", () => {
     const leaving = car({ x: 100, y: 150, vx: 100, vy: 0 });
     const { events } = resolveContacts([leaving], new Set(), "ffa", 1, new Map(), [strip], bounds);
     expect(events.spikeContacts[0]!.speedIn).toBeLessThan(0);
+  });
+
+  it("reports exactly one contact for a car straddling two spike strips at once", () => {
+    // A car parked on the seam between two vertically-stacked strips (the shape of an octagon
+    // corner in ARENA_01, where two strips meet at an angle but both still overlap one hull). `strip`
+    // covers y:[105,200]; `stripBelow` picks up immediately at y:200 and runs on. A car centred on
+    // y:200 with the standard 32-unit-tall hull overlaps both by half its height.
+    const stripBelow = { x: strip.x, y: strip.y + strip.h, w: strip.w, h: strip.h, kind: "spike" as const };
+    const straddling = car({ x: 100, y: strip.y + strip.h, vx: -100, vy: 0 });
+    const { events } = resolveContacts(
+      [straddling],
+      new Set(),
+      "ffa",
+      1,
+      new Map(),
+      [strip, stripBelow],
+      bounds,
+    );
+    // Two candidate strips genuinely overlap this car's hull; the contract is still one report.
+    expect(events.spikeContacts).toHaveLength(1);
+    expect(events.spikeContacts[0]!.sessionId).toBe("a");
+  });
+
+  it("reports a contact closed only by SPIKE_CONFIG.contactPad, not by real geometric overlap", () => {
+    // `contactNormalBetween` inflates BOTH shapes by `pad`, so the real slack between the two real
+    // (unpadded) rectangles is `2 * pad`, not `pad` (see `hullTouchesWorld`'s comment in contact.ts).
+    // Leave a real gap of `2 * pad - 1`: one unit short of the full padded slack, so the two hulls
+    // are genuinely separated (gap > 0) and the only thing that closes it is the pad.
+    const gap = 2 * SPIKE_CONFIG.contactPad - 1;
+    const nearMiss = car({ x: strip.x + strip.w + gap + DRIVE_CONFIG.carWidth / 2, y: 150, vx: -100, vy: 0 });
+    const { events } = resolveContacts([nearMiss], new Set(), "ffa", 1, new Map(), [strip], bounds);
+    expect(events.spikeContacts).toHaveLength(1);
   });
 });
