@@ -33,7 +33,7 @@ import { modifiersFor, readStatuses, writeStatuses } from "./status-bridge.js";
 import { newSpikeMemory, recordShove, resolveSpikeHits, type SpikeMemory } from "./spike-bridge.js";
 // Re-exported so a room can clean up a leaver's spike state alongside the rest of `ContactMemory`
 // without importing a second bridge module for one function.
-export { forgetSpikeState } from "./spike-bridge.js";
+export { clearShover, forgetSpikeState } from "./spike-bridge.js";
 
 /**
  * The schema half of contact: read `ArenaState` into plain objects, run the pure `resolveContacts`,

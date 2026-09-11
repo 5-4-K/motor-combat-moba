@@ -63,3 +63,19 @@ export function forgetSpikeState(memory: SpikeMemory, sessionId: string): void {
   memory.immuneUntil.delete(sessionId);
   memory.lastShover.delete(sessionId);
 }
+
+/**
+ * Forget who shoved a car, without touching its retrigger lockout.
+ *
+ * For a respawn, where `combat.lastDamagers` is cleared for the identical reason: or whoever last
+ * pushed you before this death is credited with your next one. Only three unrelated numbers hide it
+ * today — `DEATHMATCH_CONFIG.respawnDelaySeconds` (5) happens to exceed `shoverCreditMs` (4), and
+ * `isOnField` needs `alive` — so a shorter respawn delay, a longer credit window, or a respawn
+ * granted early would make a stale shover collect a kill from the previous life.
+ *
+ * The lockout deliberately survives: it is keyed to nothing but time and the car cannot be touching a
+ * strip on the tick it respawns anyway, so clearing it would be a second rule with no case behind it.
+ */
+export function clearShover(memory: SpikeMemory, sessionId: string): void {
+  memory.lastShover.delete(sessionId);
+}

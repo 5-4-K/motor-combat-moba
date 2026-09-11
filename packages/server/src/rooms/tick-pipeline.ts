@@ -33,6 +33,7 @@ import {
 import { readStatuses, statusTick, writeStatuses } from "../sim/status-bridge.js";
 import {
   clearKnock,
+  clearShover,
   contactTick,
   type ContactMemory,
   type ContactTickResult,
@@ -222,6 +223,10 @@ export function respawnPlayer(ctx: PipelineCtx, player: PlayerState): void {
   );
   // Or whoever last hurt you before this death is credited with your next one.
   ctx.combat.lastDamagers.set(player.sessionId, "");
+  // The identical rule for the hazard's own attribution memory (AS21): a shove from the previous life
+  // must not credit the pusher with a spike death in this one. Masked today only by
+  // `respawnDelaySeconds` (5) happening to exceed `shoverCreditMs` (4) — a tuning fact, not a rule.
+  clearShover(ctx.ram.spikes, player.sessionId);
 
   ctx.phaseCaps.set(player.sessionId, ctx.state.tick + DEATHMATCH_TICKS.phaseMax);
   // Applied to an EMPTY list, not to the car's current one: every debuff goes with the wreck, so a
