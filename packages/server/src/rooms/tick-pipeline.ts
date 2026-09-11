@@ -159,6 +159,7 @@ function combatTick(
     instances: toInstances(ctx.combat),
     instanceSeq: ctx.combat.instanceSeq,
     contactHits: contact.contactHits,
+    spikeHits: contact.spikeHits,
     statusRequests: contact.statusRequests,
     events: ctx.events,
   });

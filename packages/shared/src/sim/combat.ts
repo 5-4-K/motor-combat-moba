@@ -1,5 +1,6 @@
 import { CAR_TABLE, DEFAULT_CAR_ID, hpOf } from "../config/car-config.js";
 import { isStatusId } from "../config/status-config.js";
+import { SPIKE_CONFIG } from "../config/spike-config.js";
 import type { StatusId } from "../config/status-types.js";
 import { instanceDefOf, isWeaponId, weaponDefOf } from "../config/weapon-config.js";
 import { carAimRangeOf } from "../config/weapon-slots.js";
@@ -15,7 +16,7 @@ import {
   type Bounds,
 } from "./collide.js";
 import type { CombatEvents, DamageSource } from "./combat-events.js";
-import type { ContactHit } from "./contact.js";
+import type { ContactHit, SpikeHit } from "./contact.js";
 import { carHullOf, carIdOf } from "./context.js";
 import { applyDamage, applyHeal, damageFor, scaleDamage, weaponDamageOf } from "./damage.js";
 import { ManeuverKind, NO_MANEUVER } from "./maneuver.js";
@@ -169,6 +170,12 @@ export interface CombatInput {
    */
   contactHits?: readonly ContactHit[];
   /**
+   * Wall-spike hits the contact pass found and the server bridge already filtered and attributed
+   * (`resolveSpikeHits` — trigger speed, retrigger lockout, `sourceSessionId`). Applied in phase 0c
+   * below, flat and unscaled. Absent is none, which is every tick on an arena with no spike strips.
+   */
+  spikeHits?: readonly SpikeHit[];
+  /**
    * Where this tick's observations go, or absent for none — which is every live room (B3).
    *
    * A caller-owned bag rather than a return value: `runCombat` runs at the tick rate and a balance
@@ -309,7 +316,27 @@ export function runCombat(input: CombatInput): CombatResult {
     }
   }
 
-  // 0c. Statuses the room asked for — a pickup, a hazard — added AFTER the reading above, so a
+  // 0c. Environmental damage — a wall spike, already filtered and attributed by the server bridge
+  // (`resolveSpikeHits`: trigger speed, retrigger lockout, `sourceSessionId`). Alongside burn and
+  // repair above and before anything else this tick can act, so a car the spikes kill is already
+  // dead for every phase below, including its own weapons.
+  //
+  // Flat and unmodified: `scaleDamage` is deliberately NOT called, so no status (e.g. `corroded`)
+  // multiplies what a wall does (AS22) — every other damage source below routes through it, this
+  // one does not.
+  //
+  // A phased car is skipped explicitly. It is not solid to other cars (`isSolid`), but `stepSim`
+  // still runs it through `ctx.obstacles`/`ctx.bounds` unconditionally, so it DOES still collide
+  // with level geometry — without this check, spawn protection would not protect anyone from the
+  // walls (AS21).
+  for (const hit of input.spikeHits ?? []) {
+    const target = byId.get(hit.targetSessionId);
+    if (!target || !isFighting(target)) continue;
+    if (hasStatus(target.statuses, "phased", world.tick)) continue;
+    dealDamageTo(target, SPIKE_CONFIG.damage, modsOf(hit.targetSessionId), hit.sourceSessionId);
+  }
+
+  // 0d. Statuses the room asked for — a pickup, a hazard — added AFTER the reading above, so a
   // request behaves exactly as a weapon's does: it lands on this tick and bites on the next one. It
   // also means a crate and a shot arriving together cannot resolve differently depending on which
   // the room queued first, and a `weaponCooldown` grant cannot retroactively shorten a recharge
@@ -327,7 +354,7 @@ export function runCombat(input: CombatInput): CombatResult {
     );
   }
 
-  // 0d. Contact damage — a dash landing or a hard slam, discovered by the contact pass this tick.
+  // 0e. Contact damage — a dash landing or a hard slam, discovered by the contact pass this tick.
   // Priced exactly like a shot: the attacker's weapon row through their `attack` and `damageDealt`,
   // the target's `damageTaken` at impact, and the weapon's `applies` riding the hit (spec S3). The
   // hull was the hitbox; this is the damage half arriving through the same seam a pickup would.

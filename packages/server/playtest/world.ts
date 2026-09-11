@@ -168,6 +168,7 @@ export class PlaytestWorld {
       instances: toInstances(this.combat),
       instanceSeq: this.combat.instanceSeq,
       contactHits: contact.contactHits,
+      spikeHits: contact.spikeHits,
       statusRequests: contact.statusRequests,
     });
     applyCombatResult(this.state, result, this.combat);

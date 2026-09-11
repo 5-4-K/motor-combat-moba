@@ -4,6 +4,7 @@ import { CAR_TABLE, hpOf, ramDefenceOf } from "../config/car-config.js";
 import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { CarId } from "../config/types.js";
 import { WEAPON_TABLE, weaponDefOf } from "../config/weapon-config.js";
+import { SPIKE_CONFIG } from "../config/spike-config.js";
 import { MS_PER_TICK, TICK_RATE_HZ } from "../constants.js";
 import {
   aimAngleFor,
@@ -1044,6 +1045,86 @@ describe("contact hits", () => {
     // thumper applies `spiked` now, not `stunned` — hard CC moved to `roadblock` in the 2026-09-01
     // redistribution (thumper is the bouncing pressure shot that spikes).
     expect(hit.statuses.some((s) => s.statusId === "spiked")).toBe(true);
+  });
+});
+
+describe("spike damage", () => {
+  it("takes exactly SPIKE_CONFIG.damage off the victim", () => {
+    const result = runCombat({
+      world: world(),
+      players: [player("a", { hp: 500 })],
+      instances: [],
+      instanceSeq: 0,
+      spikeHits: [{ targetSessionId: "a", sourceSessionId: "a" }],
+    });
+    expect(find(result, "a").hp).toBe(500 - SPIKE_CONFIG.damage);
+  });
+
+  it("names the credited source as the last damager", () => {
+    const result = runCombat({
+      world: world(),
+      players: [player("a", { hp: 500 })],
+      instances: [],
+      instanceSeq: 0,
+      spikeHits: [{ targetSessionId: "a", sourceSessionId: "b" }],
+    });
+    expect(find(result, "a").lastDamagerSessionId).toBe("b");
+  });
+
+  it("names the victim themselves for an unattributed hit, so no kill is credited", () => {
+    const result = runCombat({
+      world: world(),
+      players: [player("a", { hp: 500 })],
+      instances: [],
+      instanceSeq: 0,
+      spikeHits: [{ targetSessionId: "a", sourceSessionId: "a" }],
+    });
+    expect(find(result, "a").lastDamagerSessionId).toBe("a");
+  });
+
+  it("is not amplified by corroded (AS22): every other damage source scales, environmental does not", () => {
+    const corroded = [{ statusId: "corroded" as const, startTick: 0, endsTick: 10_000, sourceSessionId: "" }];
+    const result = runCombat({
+      world: world(),
+      players: [player("a", { hp: 500, statuses: corroded })],
+      instances: [],
+      instanceSeq: 0,
+      spikeHits: [{ targetSessionId: "a", sourceSessionId: "a" }],
+    });
+    // If this ever routed through `scaleDamage` the way a weapon hit does, `corroded`'s
+    // `damageTaken` multiplier would push this below the flat `SPIKE_CONFIG.damage` — exactly
+    // what must NOT happen to environmental damage.
+    expect(find(result, "a").hp).toBe(500 - SPIKE_CONFIG.damage);
+  });
+
+  it("skips a phased car, which still collides with the strip (AS21)", () => {
+    const phased = [{ statusId: "phased" as const, startTick: 0, endsTick: 10_000, sourceSessionId: "" }];
+    const result = runCombat({
+      world: world(),
+      players: [player("a", { hp: 500, statuses: phased })],
+      instances: [],
+      instanceSeq: 0,
+      spikeHits: [{ targetSessionId: "a", sourceSessionId: "a" }],
+    });
+    expect(find(result, "a").hp).toBe(500);
+  });
+
+  it("lands in step 0, before this tick's own firing — a killed car gets no parting shot", () => {
+    // mirage's real slot 1 is magmablast (2026-09-02 loadout swap): pressing it would spawn one
+    // instance if the car were still alive when the firing phase ran. Exactly enough hp that the
+    // spike hit itself is the kill.
+    const dying = player("a", { hp: SPIKE_CONFIG.damage, fireMask: 0b001 });
+    const result = runCombat({
+      world: world(),
+      players: [dying],
+      instances: [],
+      instanceSeq: 0,
+      spikeHits: [{ targetSessionId: "a", sourceSessionId: "a" }],
+    });
+    expect(find(result, "a").alive).toBe(false);
+    // If spike damage landed AFTER firing instead of in step 0, the car would still have been alive
+    // when `beginFire`/`releaseShots` ran and this would be 1, not 0.
+    expect(result.instances).toHaveLength(0);
   });
 });
 
