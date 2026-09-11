@@ -7,14 +7,17 @@
 import {
   WEAPON_TABLE,
   CAR_TABLE,
+  SPIKE_CONFIG,
   STATUS_CONFIG,
   STATUS_TABLE,
   getArena,
   hpOf,
+  muzzleOffset,
   slotsOf,
   weaponDamageOf,
   weaponDefOf,
   weaponTicksOf,
+  type ArenaDef,
   type CarId,
   type WeaponId,
 } from "@motor-combat-moba/shared";
@@ -437,51 +440,96 @@ function statusChain(): void {
   );
 }
 
+function boundaryRect(arena: ArenaDef): { left: number; right: number; top: number; bottom: number } {
+  const verts = arena.boundary;
+  if (!verts || verts.length === 0) {
+    return { left: 0, right: arena.width, top: 0, bottom: arena.height };
+  }
+  const xs = verts.map((v) => v.x);
+  const ys = verts.map((v) => v.y);
+  return {
+    left: Math.min(...xs),
+    right: Math.max(...xs),
+    top: Math.min(...ys),
+    bottom: Math.max(...ys),
+  };
+}
+
+function westSpike(arena: ArenaDef) {
+  const { left } = boundaryRect(arena);
+  const strip = arena.obstacles.find((o) => o.x === left && o.w === SPIKE_CONFIG.depth);
+  if (!strip) throw new Error(`${arena.id} has no west spike strip`);
+  return strip;
+}
+
 /* ------------------------------------------------------------- W8. beams and level geometry */
-/** Arena-02 has obstacles. A beam must clip on them; an aura (disc) deliberately does not. */
+/**
+ * Arena-02's only solids are the four wall spike strips. There is no free-standing bunker to put a
+ * target behind, and a car placed in the wall band is clamped onto the floor before combat runs —
+ * so "dealt damage to the far side" is no longer a valid leak signal. A beam must clip on the
+ * strip; a projectile (other than an authored `piercesWalls` row, or a disc burst) must die on it.
+ */
 function beamsThroughWalls(): void {
   const arena = getArena("arena-02");
-  const box = arena.obstacles[2]!; // { x: 400, y: 400, w: 200, h: 200 }
+  const west = westSpike(arena);
+  const wall = boundaryRect(arena);
+  const y = (wall.top + wall.bottom) / 2;
+  const inner = west.x + west.w;
+  const far = west.x;
+  // In the open, firing west into the strip. Muzzle is `muzzleOffset()` west of centre.
+  const sx = inner + 120;
+  const angle = Math.PI;
+  const muzzleX = sx + Math.cos(angle) * muzzleOffset();
+  const clipDist = muzzleX - inner;
   const rows: string[] = [];
-  // Shooter left of the box, target right of it — the wall is directly between them.
-  const y = box.y + box.h / 2;
-  const sx = box.x - 120;
-  const tx = box.x + box.w + 60;
   for (const id of ALL_WEAPONS) {
     const carrier = carrierOf(id);
     const w = new PlaytestWorld(
-      [
-        { id: "shooter", carId: carrier, x: sx, y, angle: 0 },
-        { id: "target", carId: "bastion", x: tx, y, angle: 0 },
-      ],
+      [{ id: "shooter", carId: carrier, x: sx, y, angle }],
       "ffa",
       "arena-02",
     );
     const bit = slotBitFor(carrier, id);
-    const startHp = w.get("target").hp;
+    let maxBeamExtent = 0;
+    let projectilePastFar = false;
     for (let i = 0; i < 120; i++) {
       w.input("shooter", { fireSlots: i === 0 ? bit : 0 });
       w.tick();
+      for (const inst of w.instances()) {
+        // afterburner (and any future dual-muzzle beam) also fires a tail cone into the open pit;
+        // only the wallward instance can leak through the strip.
+        if (inst.kind === "beam" && !inst.isExplosion && Math.cos(inst.angle) < 0) {
+          maxBeamExtent = Math.max(maxBeamExtent, inst.extent);
+        }
+        // A shell whose centre has crossed the far face has gone through the strip. The disc burst
+        // is born on the near face and is P17, not a traveling leak; skip it.
+        if (inst.kind === "projectile" && !inst.isExplosion && inst.x < far - 4) {
+          projectilePastFar = true;
+        }
+      }
     }
-    const dealt = startHp - w.get("target").hp;
-    const reach = tx - sx;
     // `weaponDefOf`, not `WEAPON_TABLE[id]`: indexing the table with a bare `WeaponId` yields the
     // union of each row's own literal type (see the comment on `buildBurstDefs` in
     // weapon-config.ts), which does not discriminate on `.kind` the way the plain `WeaponDef`
     // union does. Only `weaponDefOf`'s declared return type narrows `piercesWalls` below.
     const def = weaponDefOf(id);
-    const inRange = def.range >= reach;
-    // A row that authors `piercesWalls` (roadblock) is SUPPOSED to land through the wall — that is
-    // its identity, not a leak. Only an unauthored through-wall hit is the regression here.
     const authored = def.kind === "projectile" && def.piercesWalls === true;
+    const inRange = def.range >= clipDist;
+    const beamLeaked = maxBeamExtent > clipDist + 8 && inRange;
+    const leaked = !authored && (beamLeaked || projectilePastFar);
+    const note = authored
+      ? "<- through the wall by authored piercesWalls"
+      : leaked
+        ? "<- SHOT THROUGH THE WALL"
+        : "";
     rows.push(
-      `${id.padEnd(11)} range ${String(def.range).padStart(4)} vs ${reach}u gap ` +
-        `${inRange ? "(in range)" : "(OUT of range)"} through a 200x200 wall: dealt ${dealt} ` +
-        `${dealt > 0 && inRange ? (authored ? "<- through the wall by authored piercesWalls" : "<- SHOT THROUGH THE WALL") : ""}`,
+      `${id.padEnd(11)} range ${String(def.range).padStart(4)} vs ${clipDist.toFixed(0)}u to the west strip ` +
+        `${inRange ? "(in range of the wall)" : "(OUT of range of the wall)"}: ` +
+        `beam extent ${maxBeamExtent.toFixed(0)}u, projectile past far face ${projectilePastFar} ${note}`,
     );
   }
   report(
-    "W8. Shooting through level geometry (arena-02)",
+    "W8. Shooting into arena-02's west spike strip",
     rows.some((r) => r.includes("SHOT THROUGH")) ? "FINDING" : "OK",
     rows.join("\n"),
   );
@@ -492,35 +540,32 @@ function beamsThroughWalls(): void {
  * Documented (spec P17): the burst is a `disc`, and a disc has no axis for the wall raycast to
  * follow, so its splash reaches the far side of level geometry. Confirm the play impact.
  *
- * As of the 2026-09-02 loadout swap magmablast is Mirage's slot 1 again, and it is no longer the
- * old three-wave shockwave aura: one aimed shell, one detonation on whatever kills it (spec
- * P13) — here, the wall itself — spawning a single 60u burst at full extent (P15) that lingers
- * 150ms. Mirage is the shooter and one press is enough; there is no second or third wave to wait
- * on anymore.
+ * Arena-02's west strip is `SPIKE_CONFIG.depth` (20) thick — the same thin wall the P17 unit test
+ * authors — so the 60u burst on the near face covers the far face. The far-side victim starts in
+ * the wall band and will be clamped onto the floor; they stay inside the field either way.
  */
 function auraThroughWall(): void {
   const arena = getArena("arena-02");
-  const box = arena.obstacles[2]!; // { x: 400, y: 400, w: 200, h: 200 }
-  // Mirage hugging the west face of the box; victim 140u from Mirage's own position, which lands
-  // this victim INSIDE the block's 200u footprint rather than past its far face — a leftover
-  // placement from when the aura's radius (150) was anchored to the shooter, not to where a shell
-  // dies. It still exercises the question this probe asks (does the burst's splash cross the near
-  // face at all), just not "the far side of the whole block" the way the name implies; see W9's
-  // reported numbers for what actually happens.
-  const y = box.y + box.h / 2;
+  const west = westSpike(arena);
+  const wall = boundaryRect(arena);
+  const y = (wall.top + wall.bottom) / 2;
+  const inner = west.x + west.w;
+  const radius = WEAPON_TABLE.magmablast.explosion!.radius;
+  // Mirage hugging the inner face, firing west into the strip; victim just past the far face,
+  // matching combat.test.ts's P17 case (20u wall, far car inside the 60u radius).
   const w = new PlaytestWorld(
     [
-      { id: "mir", carId: "mirage", x: box.x - 25, y, angle: 0 },
-      { id: "victim", carId: "bastion", x: box.x - 25 + 140, y, angle: 0 },
+      { id: "mir", carId: "mirage", x: inner + 25, y, angle: Math.PI },
+      { id: "victim", carId: "bastion", x: west.x - 10, y, angle: 0 },
     ],
     "ffa",
     "arena-02",
   );
   const bit = slotBitFor("mirage", "magmablast");
   const startHp = w.get("victim").hp;
-  // One press: the shell (600u/s) covers the 25u to the wall in two ticks, dies there, and the
-  // resulting burst lingers 150ms (~5 ticks). 30 ticks leaves ample margin either side.
-  for (let i = 0; i < 30; i++) {
+  // One press: the shell (600u/s) covers the ~25u to the strip in two ticks, dies there, and the
+  // resulting burst lingers `explosion.lingerMs`. 90 ticks leaves the 2 s field time to exist.
+  for (let i = 0; i < 90; i++) {
     w.input("mir", { fireSlots: i === 0 ? bit : 0 });
     w.tick();
   }
@@ -528,15 +573,15 @@ function auraThroughWall(): void {
   report(
     "W9. Magma Blast's burst reaching through a wall",
     dealt > 0 ? "KNOWN-BY-DESIGN" : "OK",
-    `Mirage on the west face of a 200x200 block, victim 140u from Mirage (inside the block's own ` +
-      `footprint, not past its far face): dealt ${dealt} (splash alone is 15 base, up to ~17 at ` +
+    `Mirage on the inner face of arena-02's ${SPIKE_CONFIG.depth}u west strip, firing west; ` +
+      `victim starts just past the far face: dealt ${dealt} (splash alone is 15 base, up to ~17 at ` +
       `Mirage's 1.13x attack), victim statuses ` +
       `${statusesOf(w.get("victim")).map((s) => s.statusId).join(",") || "none"}.\n` +
       `weapon-config.ts documents the burst as passing through level geometry by design (P17) — ` +
       `intentional, but corrosion damage reaching through a solid wall still reads as a bug from ` +
-      `the receiving end. The 200u block is thicker than the 60u burst radius, so this particular ` +
-      `wall can still block it depending on exactly where the shell dies; a thinner obstacle would ` +
-      `show the pass-through more reliably (see packages/shared/src/sim/combat.test.ts's P17 case).`,
+      `the receiving end. The strip is thinner than the ${radius}u burst radius, so this is the ` +
+      `case combat.test.ts's P17 pin uses; the victim may be clamped onto the floor before the ` +
+      `shell dies, and still sits inside the field.`,
   );
 }
 
