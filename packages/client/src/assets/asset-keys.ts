@@ -40,3 +40,15 @@ export function shouldLoadAssetKey(key: string, activeArenaId: string): boolean 
   if (arenaId === undefined) return true;
   return arenaId === ARENA_ART_COMMON || arenaId === activeArenaId;
 }
+
+/**
+ * The manifest key for an arena's floor art. Namespaced `arena.<id>.floor` so
+ * `scripts/build-release.mjs` prunes every inactive arena's art out of the zip and
+ * `shouldLoadAssetKey` skips it at boot — both of which already understand this shape.
+ *
+ * Unlike `carSpriteKey` there is no fallback id: an arena with no art renders procedurally, which
+ * is a supported state rather than a missing asset.
+ */
+export function arenaFloorKey(arenaId: string): string {
+  return `arena.${arenaId}.floor`;
+}

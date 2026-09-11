@@ -7,5 +7,6 @@ One directory per arena, named by its arena id: `arena-02/floor.png` is declared
 the release except the directory matching `ACTIVE_ARENA_ID`, so an experimental arena costs the
 shipped zip nothing.
 
-Nothing lives here yet — arenas are drawn procedurally. The convention is in place so the first PNG
-does not require moving files.
+`arena-01/floor.png` is the first PNG to use this convention, declared as `"arena.arena-01.floor"`.
+An arena with no directory here still renders — the generated asphalt tile is the permanent
+fallback, not a placeholder waiting for art.

@@ -38,6 +38,7 @@ import {
   weaponTicksOf,
   winRuleOf,
 } from "@motor-combat-moba/shared";
+import { arenaFloorKey } from "../assets/asset-keys.js";
 import {
   applyCarSprite,
   phaserTextures,
@@ -671,6 +672,17 @@ export class ArenaScene extends Phaser.Scene {
    */
   private floorTile: Phaser.GameObjects.TileSprite | undefined;
   /**
+   * The arena's floor art, when the manifest names one and its texture actually loaded (AS23). Drawn
+   * INSTEAD of `floorTile` — see `hasFloorSprite` — never alongside it, so the two never both exist.
+   */
+  private floorImage: Phaser.GameObjects.Image | undefined;
+  /**
+   * Whether this arena is drawing `floorImage` rather than the generated `floorTile`. Set once in
+   * `drawArena` and read by `rebuildFloor`, which must not re-point a tile sprite that does not
+   * exist — regenerating the procedural asphalt makes no sense for an arena with real floor art.
+   */
+  private hasFloorSprite = false;
+  /**
    * How this scene reads `ENVIRONMENT_FX` (EV25, EV34).
    *
    * Defaults to the shipped table; `create` swaps it for `liveEnvResolver()` only in a playground
@@ -1137,14 +1149,30 @@ export class ArenaScene extends Phaser.Scene {
   private drawArena(arena: ArenaDef): void {
     const colors = arenaColorsOf(arena);
 
-    // A real object rather than `cam.setBackgroundColor`, which is what makes a texture possible at
-    // all (VFX36). The background colour stays set below as the ground beneath it, so a frame drawn
-    // before this tile sprite exists is never bare canvas. The asphalt texture is uploaded by the
-    // `FxLayer` constructor, which `create` deliberately runs before this method.
-    this.floorTile = this.add
-      .tileSprite(0, 0, arena.width, arena.height, FX_TEXTURE_KEYS.asphalt)
-      .setOrigin(0, 0)
-      .setDepth(FLOOR_DEPTH);
+    // A floor sprite when the arena has one and its texture actually loaded; the generated asphalt
+    // otherwise. The fallback is the property the asset pipeline exists to protect (AS23) — a
+    // missing PNG or a malformed manifest row must never be a black screen, so `hasFloorSprite` is a
+    // genuine either/or, never both. A real object rather than `cam.setBackgroundColor`, which is
+    // what makes a texture possible at all (VFX36). The background colour stays set below as the
+    // ground beneath it, so a frame drawn before either object exists is never bare canvas. The
+    // asphalt texture is uploaded by the `FxLayer` constructor, which `create` deliberately runs
+    // before this method.
+    const floorKey = arenaFloorKey(arena.id);
+    this.hasFloorSprite = this.textures.exists(floorKey);
+    if (this.hasFloorSprite) {
+      // Drawn at the world rect (`arena.width` x `arena.height`), never the image's native pixel
+      // size — `setDisplaySize` is what stretches the 2560x1440 source down to that rect.
+      this.floorImage = this.add
+        .image(0, 0, floorKey)
+        .setOrigin(0, 0)
+        .setDisplaySize(arena.width, arena.height)
+        .setDepth(FLOOR_DEPTH);
+    } else {
+      this.floorTile = this.add
+        .tileSprite(0, 0, arena.width, arena.height, FX_TEXTURE_KEYS.asphalt)
+        .setOrigin(0, 0)
+        .setDepth(FLOOR_DEPTH);
+    }
 
     // Assigned BEFORE `applyEnvironment()` runs below: that call draws the obstacles, markings and
     // border into this object via `redrawArenaGraphics`. Getting this order backwards leaves the
@@ -1282,10 +1310,14 @@ export class ArenaScene extends Phaser.Scene {
    * The `setTexture` is not optional: `FxLayer.rebuildFloor` removes the old texture and creates a
    * new one under the same key, but the `TileSprite` holds a reference to the old texture OBJECT and
    * would keep drawing the stale image without this line.
+   *
+   * A no-op on the sprite side when a floor sprite is in use: `floorTile` does not exist for that
+   * arena (AS23), so there is nothing to re-point, and regenerating the procedural asphalt texture
+   * underneath a sprite that never reads it would be pure waste.
    */
   rebuildFloor(seed?: number): void {
     this.fx?.rebuildFloor(seed);
-    this.floorTile?.setTexture(FX_TEXTURE_KEYS.asphalt);
+    if (!this.hasFloorSprite) this.floorTile?.setTexture(FX_TEXTURE_KEYS.asphalt);
   }
 
   /** Rebuild the smoke-hole silhouettes after a halo edit (EV30). */
@@ -1358,8 +1390,10 @@ export class ArenaScene extends Phaser.Scene {
     ];
     const worldObjects: Phaser.GameObjects.GameObject[] = [
       // World space at `FLOOR_DEPTH`, under everything. A display object like any other, so it needs
-      // its entry here or it draws a second time across the gutter (VFX36).
+      // its entry here or it draws a second time across the gutter (VFX36). Exactly one of
+      // `floorTile`/`floorImage` exists per arena (AS23), so both are listed unconditionally.
       ...(this.floorTile ? [this.floorTile] : []),
+      ...(this.floorImage ? [this.floorImage] : []),
       ...(this.arenaGfx ? [this.arenaGfx] : []),
       ...(this.shotGfx ? [this.shotGfx] : []),
       ...(this.glowGfx ? [this.glowGfx] : []),
@@ -1456,6 +1490,9 @@ export class ArenaScene extends Phaser.Scene {
     this.arenaGfx = undefined;
     this.floorTile?.destroy();
     this.floorTile = undefined;
+    this.floorImage?.destroy();
+    this.floorImage = undefined;
+    this.hasFloorSprite = false;
     this.arena = undefined;
     this.countdownText?.destroy();
     this.countdownText = undefined;

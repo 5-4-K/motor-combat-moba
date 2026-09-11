@@ -53,6 +53,10 @@
       "file": "weapon-icons/roadblock.png",
       "colorMode": "none",
       "scale": "fit"
+    },
+    "arena.arena-01.floor": {
+      "file": "arenas/arena-01/floor.png",
+      "colorMode": "none"
     }
   }
 }
