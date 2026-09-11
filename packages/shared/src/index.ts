@@ -103,7 +103,15 @@ export { applyRams, impactSideOf, pairKey, resolveRam } from "./sim/ram.js";
 export type { ImpactSide, RamCar, RamHit, RamImpulseEntry } from "./sim/ram.js";
 export { SLAM_CONFIG } from "./config/slam-config.js";
 export { hullTouchesWorld, resolveContacts } from "./sim/contact.js";
-export type { ContactCar, ContactEvents, ContactHit, ImpulseEntry, SlamEvent } from "./sim/contact.js";
+export type {
+  ContactCar,
+  ContactEvents,
+  ContactHit,
+  ImpulseEntry,
+  SlamEvent,
+  SpikeContact,
+  SpikeHit,
+} from "./sim/contact.js";
 export { newCombatEvents } from "./sim/combat-events.js";
 export type {
   CombatEvents, DamagedEvent, DamageSource, FiredEvent, KilledEvent,

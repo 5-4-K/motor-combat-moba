@@ -64,6 +64,7 @@ import {
 } from "../sim/combat-bridge.js";
 import {
   clearKnock,
+  forgetSpikeState,
   newContactMemory,
   type ContactMemory,
 } from "../sim/ram-bridge.js";
@@ -317,6 +318,7 @@ export class ArenaRoom extends Room<ArenaState> {
     this.matchRoster.delete(client.sessionId);
     this.phaseCaps.delete(client.sessionId);
     this.chatLastSentAt.delete(client.sessionId);
+    forgetSpikeState(this.ram.spikes, client.sessionId);
 
     if (this.state.hostSessionId === client.sessionId) {
       const remaining: { sessionId: string; joinedAtTick: number }[] = [];

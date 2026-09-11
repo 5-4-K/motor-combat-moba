@@ -110,7 +110,7 @@ export function runPipeline(ctx: PipelineCtx): {
   // `approachVelocities` is the one thing contact must NOT read from the poses driving produced.
   // Contact resolution reflected the velocity on its way through `serverTick`, so the post-drive
   // value is the rebound, not the impact — see `TickResult.approachVelocities`.
-  let contact: ContactTickResult = { contactHits: [], statusRequests: [] };
+  let contact: ContactTickResult = { contactHits: [], statusRequests: [], spikeHits: [] };
   if (state.phase === RoomPhase.MATCH && ctx.matchRoster.size > 0) {
     contact = contactTick(
       state,
