@@ -38,7 +38,7 @@ import {
   weaponTicksOf,
   winRuleOf,
 } from "@motor-combat-moba/shared";
-import { arenaFloorKey } from "../assets/asset-keys.js";
+import { phaserFloorTextures, resolveArenaFloor } from "../assets/arena-floor.js";
 import {
   applyCarSprite,
   phaserTextures,
@@ -1156,14 +1156,15 @@ export class ArenaScene extends Phaser.Scene {
     // what makes a texture possible at all (VFX36). The background colour stays set below as the
     // ground beneath it, so a frame drawn before either object exists is never bare canvas. The
     // asphalt texture is uploaded by the `FxLayer` constructor, which `create` deliberately runs
-    // before this method.
-    const floorKey = arenaFloorKey(arena.id);
-    this.hasFloorSprite = this.textures.exists(floorKey);
-    if (this.hasFloorSprite) {
+    // before this method. The decision itself is `resolveArenaFloor` — pure, unit-tested, and the
+    // only place that reads `this.textures.exists`, mirroring `resolveCarSprite` for cars.
+    const resolvedFloor = resolveArenaFloor(phaserFloorTextures(this.textures), arena.id);
+    this.hasFloorSprite = resolvedFloor !== undefined;
+    if (resolvedFloor) {
       // Drawn at the world rect (`arena.width` x `arena.height`), never the image's native pixel
       // size — `setDisplaySize` is what stretches the 2560x1440 source down to that rect.
       this.floorImage = this.add
-        .image(0, 0, floorKey)
+        .image(0, 0, resolvedFloor.key)
         .setOrigin(0, 0)
         .setDisplaySize(arena.width, arena.height)
         .setDepth(FLOOR_DEPTH);
