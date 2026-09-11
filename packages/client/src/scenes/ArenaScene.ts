@@ -180,6 +180,7 @@ import {
 } from "./roster-panel.js";
 import {
   killedByText,
+  killerNameFor,
   matchClockLabel,
   respawnSeconds,
   showKilledBy,
@@ -3482,7 +3483,8 @@ export class ArenaScene extends Phaser.Scene {
    * message, and a pure spectator who never took a seat has no car and sees none of it.
    */
   private syncDeathmatchHud(room: Room<ArenaState>): void {
-    const local = room.state.players.get(this.drivenSid(room));
+    const drivenSid = this.drivenSid(room);
+    const local = room.state.players.get(drivenSid);
     const tick = room.state.tick;
 
     if (this.matchClockText) {
@@ -3496,8 +3498,14 @@ export class ArenaScene extends Phaser.Scene {
         // A killer who left the room before this patch landed is gone from `players` and leaves no
         // name — `killedByText` owns what to say then, so an empty id and a departed killer read
         // the same way rather than printing a session id at the player.
+        //
+        // `killerNameFor` owns the third case: an unattributed spike death names the VICTIM as its
+        // own killer (AS21), and printing that resolved name would tell the player "Dave killed you"
+        // by their own name. It collapses to the same empty name, so the banner reads
+        // "You were destroyed".
         const killer = room.state.players.get(local!.killedBySessionId);
-        this.killedByBanner.setText(killedByText(killer?.name ?? ""));
+        const name = killerNameFor(local!.killedBySessionId, drivenSid, killer?.name ?? "");
+        this.killedByBanner.setText(killedByText(name));
       }
       this.killedByBanner.setVisible(showBanner);
     }

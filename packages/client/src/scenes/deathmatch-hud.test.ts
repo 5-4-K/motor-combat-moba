@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { TICK_RATE_HZ } from "@motor-combat-moba/shared";
 import {
   killedByText,
+  killerNameFor,
   matchClockLabel,
   respawnSeconds,
   showKilledBy,
@@ -56,5 +57,24 @@ describe("the killed-you banner", () => {
 
   it("falls back rather than printing an empty name", () => {
     expect(killedByText("")).toBe("You were destroyed");
+  });
+
+  describe("killerNameFor", () => {
+    it("uses the resolved name for a real killer", () => {
+      expect(killerNameFor("them", "me", "Rig")).toBe("Rig");
+      expect(killedByText(killerNameFor("them", "me", "Rig"))).toBe("Rig killed you");
+    });
+
+    it("prints nobody for a self-inflicted spike death, never the victim's own name (AS21)", () => {
+      // `combat-bridge.ts` stamps the victim's own id when nobody shoved them into the strip. The
+      // whole point of this function: a player called Dave must not be told "Dave killed you."
+      expect(killerNameFor("me", "me", "Dave")).toBe("");
+      expect(killedByText(killerNameFor("me", "me", "Dave"))).toBe("You were destroyed");
+    });
+
+    it("prints nobody for an empty id or a killer who has left the room", () => {
+      expect(killerNameFor("", "me", "")).toBe("");
+      expect(killerNameFor("gone", "me", "")).toBe("");
+    });
   });
 });
