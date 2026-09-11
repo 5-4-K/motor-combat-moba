@@ -338,8 +338,20 @@ damage each other by contact.
 **The trigger is a push, not contact.** Because the boundary stops a car at the notch face, "touching
 spikes" is a state a car can hold forever — someone who drove in and stopped is still touching them.
 Damage only fires when the car's speed into the surface exceeds `SPIKE_CONFIG.triggerSpeed`: a car
-resting against spikes takes nothing, but driving into them, scraping along them, reversing into
-them, or being held in them under pressure keeps paying. A `SPIKE_CONFIG.retriggerMs` lockout after
+resting against spikes takes nothing, and driving into them, scraping along them or reversing into
+them is what gets billed.
+
+**A self-driven car pays once, on arrival; sustained payment is what being shoved and held
+produces.** This is measured, not inferred: with `DRIVE_CONFIG.restitution` at 0.15, a car holding
+throttle into a wall settles at a steady-state pre-collision inward speed of roughly 5 u/s, far below
+`triggerSpeed`'s 25. So the arrival hit lands and then nothing more does, however long the player
+leans on the throttle. It takes an EXTERNAL push — a ram or a slam driving the car back into the
+strip above the trigger speed, repeatedly — to collect a second hit and a third, which is also why the
+attribution rule below credits the shover. Whether `triggerSpeed` should be lower so that grinding
+along a wall costs a self-driven car something is an open tuning question, not a statement about
+today's behaviour.
+
+A `SPIKE_CONFIG.retriggerMs` lockout after
 each hit stops a pinned car from being billed thirty times a second. Neither piece of that state is
 schema — it rides alongside the ram-falloff `ContactMemory` in `packages/server/src/sim/`, the same
 call that stack already made, and it is not an invariant-8 violation: `stepSim` never reads it, and

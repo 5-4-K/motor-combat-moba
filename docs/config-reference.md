@@ -989,7 +989,7 @@ for the pipeline; this table is the values.
 |---|---|---|
 | `damage` | 80 | Flat, per trigger, never scaled by `scaleDamage` or `corroded`. Between a Thumper shell (60) and a Roadblock (100) — nine touches kill a Bullseye (650 hp), twelve a Bastion (900 hp) |
 | `depth` | 20 | How far a strip protrudes from its wall, in world units. Geometry, not balance — must match the strips `ARENA_01` authors, and `arena.test.ts` fails if it drifts |
-| `triggerSpeed` | 25 | Speed INTO the surface, in units/s, below which nothing happens. Deliberately low against roster top speeds of 190–267: the line between "resting against a wall" and "moving into it," not a difficulty dial |
+| `triggerSpeed` | 25 | Speed INTO the surface, in units/s, below which nothing happens. Deliberately low against roster top speeds of 190–267: the line between "resting against a wall" and "moving into it," not a difficulty dial. **Measured consequence:** at `DRIVE_CONFIG.restitution` 0.15 a car holding throttle into a wall settles at ~5 u/s inward, so a self-driven car pays on arrival and never again — only an externally shoved one keeps paying. Lower this if grinding along a wall should cost the driver something |
 | `retriggerMs` | 750 | Immunity window after a hit. ~107 HP/s while pinned — roughly six seconds of sustained pressure kills a Bullseye. Without it a shoved car takes `damage` every tick, thirty times a second. Expected to move after playtest |
 | `shoverCreditMs` | 4000 | How long after being rammed or slammed a car's spike death still credits the pusher. Past it, a spike death credits nobody but the victim |
 | `contactPad` | 2 | Contact slack for the overlap test, matching the scale of `RAM_CONFIG.contactPad` |

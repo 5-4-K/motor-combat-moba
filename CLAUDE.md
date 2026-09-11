@@ -172,7 +172,10 @@ top (next).
 **Spikes are the game's first environmental damage source.** `SPIKE_CONFIG` deals a flat 80 damage,
 gated on a **fresh push into the surface** — speed into the wall above `triggerSpeed`, so resting
 against spikes is free — and rate-limited by a `retriggerMs` lockout so being held in them under
-pressure bleeds rather than deletes. This does **not** change the standing rule that cars never
+pressure bleeds rather than deletes. **A self-driven car pays exactly once, on arrival**: measured
+against `DRIVE_CONFIG.restitution` 0.15, holding throttle into a wall settles at ~5 u/s inward, far
+under `triggerSpeed`'s 25, so only an **externally shoved** car keeps paying. (Whether that number
+should drop is a tuning question for the user, not a bug.) This does **not** change the standing rule that cars never
 damage each other by contact: a ram still deals zero HP, and spike damage is environmental, charged
 to whoever last shoved that car within `shoverCreditMs` (an ordinary ram or a slam both count) or, if
 that window has passed, to the victim's own session id — which the existing single kill-booking line
