@@ -257,7 +257,7 @@ export const CAMERA_CONFIG = {
  *
  * `buildBotView` (B17) is that consumer. A bot's fairness rests on "a human sees every car" being
  * true, which only holds while the arena fits inside this rectangle (divided by `CAMERA_CONFIG.zoom`
- * — `arena-01`, 1280x720, fits exactly; `arena-02`, 2000x2000, does not). Once an arena is larger
+ * — `arena-01`, 1280x720, fits exactly; `arena-02` is the same size now). Once an arena is larger
  * than this, "could a human see this car" stops being "yes, always" and becomes a real question the
  * server has to answer, and this is the fact it answers it with. Named and pulled from config
  * instead of a literal 1280/720 inside `buildBotView` because invariant 2 (no magic numbers in

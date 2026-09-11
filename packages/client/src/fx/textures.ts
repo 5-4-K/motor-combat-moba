@@ -141,7 +141,7 @@ export function scorchTexture(seed: number, size = 160): TexturePixels {
 
 /**
  * Asphalt, and genuinely tileable: the floor is one `tileSprite` repeated across the whole arena
- * (2x2 on arena-01, 4x4 on arena-02), so any discontinuity across the wrap draws as a grid of
+ * (2x2 on either shipped 1280x720 arena), so any discontinuity across the wrap draws as a grid of
  * straight lines over 100% of the screen, permanently.
  *
  * That is what the first cut did. `fbm` has no lattice wrap, so column 511 and column 0 were

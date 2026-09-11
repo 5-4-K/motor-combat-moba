@@ -77,7 +77,7 @@ export function buildBotView(args: {
     // A rectangle the size of a human's screen, centred on the viewing car — exactly what `zoom: 1`
     // draws around whoever the camera follows. Anything outside it is off-screen for a human, so it
     // must be invisible to the bot too, or the bot would be measuring a fairness the game does not
-    // actually offer a player on an arena this size (`arena-02`, 2000x2000, today).
+    // actually offer a player on an arena this size. Both shipped arenas currently fit.
     const halfW = viewport.width / 2;
     const halfH = viewport.height / 2;
     const inViewport = (x: number, y: number): boolean =>
@@ -94,8 +94,8 @@ export function buildBotView(args: {
     // `boundsOf` is the one place a `Bounds` is built from an arena def (see its own doc comment);
     // this view carries only its `.planes` half rather than a `Bounds` itself, because a
     // `BotArenaView` is a constructed projection and must stay a plain data shape a bot cannot use
-    // to reach back into `ArenaState`. Absent on `arena-02` (no `boundary`), which is exactly what
-    // lets `wallAhead` fall back to `rectPlanes` for it.
+    // to reach back into `ArenaState`. Absent when the arena authors no polygon, which is exactly
+    // what lets `wallAhead` fall back to `rectPlanes`.
     arena: {
       width: arena.width, height: arena.height, obstacles: arena.obstacles,
       planes: boundsOf(arena).planes,

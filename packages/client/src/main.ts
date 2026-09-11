@@ -25,9 +25,8 @@ const game = new Phaser.Game({
   // letterbox bars FIT leaves on a non-16:9 window: every scene paints its own ground over it, and
   // the menus (the redesign's scope) are dark now, so a dark bar frames them correctly. This was
   // originally the pick's one trade-off — the arena floor was near-white, so the letterbox read as a
-  // dark bezel around a bright arena. `ARENA_01`'s floor is dark slate now, so on that arena the bar
-  // and the floor sit close together; `ARENA_02`'s cream floor is where the old bezel note still
-  // applies.
+  // dark bezel around a bright arena. Both shipped arenas now paint a dark pit, so the bar and the
+  // floor sit close together.
   backgroundColor: "#15120f",
   // FIT keeps the logical 1280x720 and scales it uniformly into the window with letterbox bars:
   // every player sees the same world window, so no monitor shape sees more arena than another.

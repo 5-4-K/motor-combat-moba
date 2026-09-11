@@ -4,9 +4,9 @@ import { ARENA_01 } from "./arena-01.js";
 import { ARENA_02 } from "./arena-02.js";
 
 describe("boundsOf", () => {
-  it("gives a rectangular arena no planes at all", () => {
-    const bounds = boundsOf(ARENA_02);
-    expect(bounds).toEqual({ width: ARENA_02.width, height: ARENA_02.height });
+  it("gives an arena with no polygon no planes at all", () => {
+    const bounds = boundsOf({ width: 800, height: 600 });
+    expect(bounds).toEqual({ width: 800, height: 600 });
     expect(bounds.planes).toBeUndefined();
   });
 
@@ -25,10 +25,15 @@ describe("playableExtentOf", () => {
     expect(playableExtentOf(ARENA_01).width).not.toBe(ARENA_01.width);
   });
 
+  it("measures arena-02's inset wall-face rect the same way", () => {
+    expect(playableExtentOf(ARENA_02)).toEqual({ width: 1161, height: 607 });
+    expect(playableExtentOf(ARENA_02).width).not.toBe(ARENA_02.width);
+  });
+
   it("falls back to width and height for an arena with no boundary", () => {
-    expect(playableExtentOf(ARENA_02)).toEqual({
-      width: ARENA_02.width,
-      height: ARENA_02.height,
+    expect(playableExtentOf({ width: 800, height: 600 })).toEqual({
+      width: 800,
+      height: 600,
     });
   });
 });

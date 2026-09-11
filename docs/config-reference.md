@@ -1027,13 +1027,12 @@ keep hand-in-sync as more arenas land.
 | id | width × height (image frame) | playable area | obstacles | palette |
 |---|---|---|---|---|
 | `arena-01` | 1280 × 720 | 1132 × 612 octagon | 14 (all `kind: "spike"`) | `#3b4747` floor / `#4a5568` obstacle / `#2d3436` border |
-| `arena-02` | 2000 × 2000 | 2000 × 2000 rect | 6 | `#d8cfc4` floor / `#6b5b4b` obstacle / `#2f2a26` border |
+| `arena-02` | 1280 × 720 | 1161 × 607 rect | 4 (all `kind: "spike"`) | `#9a7a58` floor / `#4a3e34` obstacle / `#2a2420` border |
 
 `arena-01` is no longer one open rectangle. As of the 2026-09-11 arena-sprite-and-spike-hazard work
 it authors an `ArenaDef.boundary` — an optional convex polygon, wound clockwise, carried as inward
 half-planes and consumed by every boundary reader (`boundsOf(arena)` is the one place a `Bounds` is
-built from an arena). Absent means the plain rectangle `0,0 → width,height`, which is what
-`arena-02` still is and why it needed no change. `arena-01`'s polygon is the wall band inset with
+built from an arena). Absent means the plain rectangle `0,0 → width,height`. `arena-01`'s polygon is the wall band inset with
 50-unit 45° chamfers at the four corners, enclosing a **1132 × 612** playable area — about 25%
 smaller than the `1280 × 720` it replaces. `width`/`height` keep their old meaning throughout: the
 image frame and the camera bounds, unchanged, with the polygon inset *inside* them, so
@@ -1045,8 +1044,7 @@ that marks wall-mounted geometry that also damages (see [`SPIKE_CONFIG`](#spike_
 the only kind allowed to sit flush against the boundary rather than a car diagonal clear of it. Four
 strips line the top wall and four the bottom, three line the left wall and three the right — 14 in
 all, each 20 world units deep and the two sets symmetric about their own centre line (`x = 640` for
-top/bottom, `y = 360` for left/right), matching the art. Absent `kind` still means an ordinary solid
-— `arena-02`'s six obstacles carry none and are untouched.
+top/bottom, `y = 360` for left/right), matching the art. Absent `kind` still means an ordinary solid.
 
 Its 6 `ffaSpawns` are the four corners and the midpoint of each long wall, one margin inside the new
 playable rect; corner cars face across the arena and the two midpoint cars face each other, the same
@@ -1055,10 +1053,12 @@ facing rule the old table used — only the coordinates moved, re-measured again
 `y=207/360/513` — quarters of the playable height, so the gap between team-mates equals the gap to
 the wall. Every spawn clears the nearest spike strip by more than a car diagonal.
 
-`arena-02` ("Crossroads") is a square arena built around one central plus-shaped mass with four
-corner bunkers, and is the registry's example of an arena too large to fit the view: it keeps the
-follow camera and spectator free roam that `arena-01` no longer needs. It authors no `boundary` and
-no `kind: "spike"` obstacle, so nothing in this section changes what it does.
+`arena-02` is a 1280 × 720 dusty pit with an inset rectangular `boundary` (wall faces at
+`x = 61/1222`, `y = 61/668`, playable **1161 × 607**) and four continuous `kind: "spike"` strips,
+one per wall, each `SPIKE_CONFIG.depth` (20) inward. Top and bottom take the corners; left and
+right sit between them. It ships `arena.arena-02.floor`. Spawns reuse the same facing pattern as
+`arena-01`, reseated in this rect. Both shipped arenas now fit the viewport at `CAMERA_CONFIG.zoom`
+of 1.
 
 `getArena(id)` throws on an unknown id; it exists for the server's sim path, where an unresolvable
 arena is a programming error with no sane fallback. The client checks `isArenaId` first and shows a

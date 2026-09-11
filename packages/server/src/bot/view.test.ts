@@ -179,34 +179,24 @@ describe("buildBotView viewport fairness (B17)", () => {
     expect(view.others.map((o) => o.sessionId)).toContain("p2");
   });
 
-  it("a larger arena (arena-02) hides a car outside the viewport rectangle centred on self", () => {
-    const f = fixture();
-    f.state.arenaId = "arena-02"; // 2000x2000 — does not fit the 1280x720 viewport
-    f.state.players.get("bot")!.x = 100; f.state.players.get("bot")!.y = 100;
-    f.state.players.get("p2")!.x = 1900; f.state.players.get("p2")!.y = 1900; // far outside
-    const view = buildBotView(f)!;
-    expect(view.others.map((o) => o.sessionId)).not.toContain("p2");
-  });
-
-  it("a larger arena still shows a car that IS inside the viewport rectangle", () => {
+  it("arena-02 (now 1280x720, same as the viewport) shows every car regardless of distance", () => {
     const f = fixture();
     f.state.arenaId = "arena-02";
-    f.state.players.get("bot")!.x = 1000; f.state.players.get("bot")!.y = 1000;
-    f.state.players.get("p2")!.x = 1100; f.state.players.get("p2")!.y = 1000; // 100u away, well inside
+    f.state.players.get("bot")!.x = 40; f.state.players.get("bot")!.y = 40;
+    f.state.players.get("p2")!.x = 1240; f.state.players.get("p2")!.y = 680;
     const view = buildBotView(f)!;
     expect(view.others.map((o) => o.sessionId)).toContain("p2");
   });
 
-  it("on a larger arena, a live instance outside the viewport is filtered out of `instances`", () => {
+  it("on a fitting arena, a live instance is visible from any distance within the arena", () => {
     const f = fixture();
     f.state.arenaId = "arena-02";
-    f.state.players.get("bot")!.x = 100; f.state.players.get("bot")!.y = 100;
-    f.combat.instances.set("far", fakeInstance({ id: "far", x: 1900, y: 1900 }));
+    f.combat.instances.set("far", fakeInstance({ id: "far", x: 1240, y: 680 }));
     f.combat.instances.set("near", fakeInstance({ id: "near", x: 150, y: 150 }));
     const view = buildBotView(f)!;
     const ids = view.instances.map((i) => i.id);
     expect(ids).toContain("near");
-    expect(ids).not.toContain("far");
+    expect(ids).toContain("far");
   });
 
   it("on the fitting arena, an instance is visible from any distance within the arena", () => {

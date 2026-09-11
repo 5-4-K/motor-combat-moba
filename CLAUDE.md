@@ -164,10 +164,10 @@ wrong separating axis. `width`/`height` keep meaning the image frame and the cam
 that rect, and the playable area it encloses — `1132 × 612` — is about **25% smaller** than the old
 rectangle. `boundsOf(arena)` is now the one place a `Bounds` is built from an arena, and every reader
 that used to assume a rectangle (`pointOutsideBounds`, `bounceOffWorld`, `hullTouchesWorld`) walks
-planes instead; `arena-02` keeps no `boundary` and is bit-identical to before. Fourteen
-`kind: "spike"` obstacles line the four straight walls, flush against the boundary planes and 20
-units deep — ordinary solids to driving, projectiles and the bot, with one more behaviour layered on
-top (next).
+planes instead. Both shipped arenas are 1280 × 720. `arena-01` is a chamfered octagon with fourteen
+gapped spike strips; `arena-02` is a rectangle with a continuous spike ring on all four walls.
+`kind: "spike"` obstacles sit flush against the boundary planes and 20 units deep — ordinary solids
+to driving, projectiles and the bot, with one more behaviour layered on top (next).
 
 **Spikes are the game's first environmental damage source.** `SPIKE_CONFIG` deals a flat 80 damage,
 gated on a **fresh push into the surface** — speed into the wall above `triggerSpeed`, so resting
@@ -183,12 +183,11 @@ already reads as a self-inflicted, environment death with no new code. See
 [`docs/combat-model.md`](docs/combat-model.md#environmental-hazards-wall-spikes) and
 [`docs/config-reference.md`](docs/config-reference.md#spike_config).
 
-**`arena.arena-01.floor` is the first live key in the arena art namespace.** The namespace
+**`arena.arena-01.floor` and `arena.arena-02.floor` are the live keys in the arena art namespace.** The namespace
 (`arena.<id>.<slot>`, pruned per-arena at release time) existed since the asset pipeline shipped with
-nothing to carry; `packages/client/public/art/arenas/arena-01/floor.png` is the first file in it, and
-the client draws it as an `Image` in place of the generated asphalt `TileSprite` whenever the row
-resolves — painted markings, the border stroke and the notch strips all go unpainted for that arena,
-since the art already carries them. The bot also learned the polygon and the spikes, which bumped
+nothing to carry. The client draws a resolving floor as an `Image` in place of the generated asphalt
+`TileSprite` — painted markings, the border stroke and the notch strips all go unpainted for that
+arena, since the art already carries them. The bot also learned the polygon and the spikes, which bumped
 `BOT_BRAIN_VERSION` without `BOT_PROFILES` moving. See
 [`docs/superpowers/specs/2026-09-11-arena-sprite-and-spike-hazard-design.md`](docs/superpowers/specs/2026-09-11-arena-sprite-and-spike-hazard-design.md)
 (AS1–AS31).

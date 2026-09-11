@@ -81,8 +81,8 @@ export interface BotArenaView {
   /**
    * The boundary planes, when the arena is not a plain rectangle. A projection of `boundsOf`, not a
    * handle on the arena def — same rule as every other field here. Absent means the rectangle, and
-   * `wallAhead` falls back to `rectPlanes` so an arena without a polygon (`arena-02`) behaves exactly
-   * as it always did.
+   * `wallAhead` falls back to `rectPlanes` so an arena without a polygon behaves exactly as it
+   * always did.
    */
   planes?: readonly BoundaryPlane[];
 }
@@ -94,12 +94,11 @@ export interface BotArenaView {
  * never cheats": `inputQueues` and `prevFireMasks` — the actual keypresses — are not reachable from
  * inside `decide`, because they are not in the type. A promise decays; a type does not.
  *
- * `others`/`instances` carry a vision limit as of B17: `arena-01` (1280x720) is authored to fit the
- * viewport exactly, so a human sees every car all the time and `buildBotView` filters nothing there
- * — but `arena-02` (2000x2000) does not fit, and on an arena larger than the viewport `buildBotView`
- * restricts both to what falls inside the viewport rectangle centred on the viewing car, the same
- * as `arena-01` always effectively did by being small enough that the check never mattered. The
- * limit lives in `buildBotView` and nowhere else.
+ * `others`/`instances` carry a vision limit as of B17: both shipped arenas (1280x720) are authored
+ * to fit the viewport exactly, so a human sees every car all the time and `buildBotView` filters
+ * nothing there. On an arena larger than the viewport it would restrict both to what falls inside
+ * the viewport rectangle centred on the viewing car. The limit lives in `buildBotView` and nowhere
+ * else.
  */
 export interface BotView {
   tick: number;

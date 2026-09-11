@@ -119,10 +119,9 @@ export function inRetainRegion(angleDeg: number, distance: number, lockRangeUnit
  * The ray is cast exactly as far as the TARGET, never to the weapon's range: a wall standing behind
  * an enemy is not cover.
  *
- * A no-op in every shipped match -- `ACTIVE_ARENA_ID` is `arena-01`, whose `obstacles` is `[]` --
- * and built anyway, because switching arenas is deliberately a one-line edit and `arena-02` already
- * exists with obstacles in it. Without this, that one line would silently turn aim assist into
- * lock-through-walls with no targeting code touched.
+ * A no-op only when the arena authors no obstacles -- both shipped arenas now carry spike strips --
+ * and built anyway, because switching arenas is deliberately a one-line edit. Without this, that
+ * one line would silently turn aim assist into lock-through-walls with no targeting code touched.
  *
  * **Wrecks are not cover.** They are never in the candidate list, and they are not obstacles: a
  * wreck is solid to driving but transparent to combat, so shots already pass straight through one
@@ -253,9 +252,9 @@ export function updateLock(state: LockState, ctx: UpdateLockContext): LockState 
     // both places `visible` gets read below -- the incumbent's retain test (which already requires
     // `inRetainRegion`) and `best`'s acquire test (which requires `inAcquireRegion`, itself a subset
     // of `inRetainRegion`). A candidate outside the wider region can satisfy neither reader, so
-    // skipping its raycast is behaviour-preserving. On arena-02 (2000x2000, ~16 obstacles) this caps
+    // skipping its raycast is behaviour-preserving. On a large arena this caps
     // the ray at `AIM_CONFIG.lockRange` + retention pads (460 units) instead of casting across the
-    // whole map, roughly a 30x reduction in traced distance.
+    // whole map.
     const inRegion = inRetainRegion(angleDeg, distance, ctx.lockRangeUnits);
     scored.push({
       sessionId: target.sessionId,

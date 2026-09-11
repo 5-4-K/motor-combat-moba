@@ -39,7 +39,7 @@ export function boundsOf(arena: Pick<ArenaDef, "width" | "height" | "boundary">)
  * The polygon's own bounding box, not a rectangle inscribed in it: the chamfers cut the corners, so
  * no single rectangle is "the playable area", and the extent a reach is meaningfully compared against
  * is the widest and tallest the floor gets. A boundary-less arena answers with its `width`/`height`
- * unchanged, so `arena-02` and every future rectangle are unaffected.
+ * unchanged.
  */
 export function playableExtentOf(
   arena: Pick<ArenaDef, "width" | "height" | "boundary">,

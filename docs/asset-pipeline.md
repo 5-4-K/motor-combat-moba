@@ -365,11 +365,9 @@ deletes the other arenas' files from the release.
 The consequence worth knowing: an arena you are experimenting with costs the shipped zip nothing, so
 there is no reason to delete an arena to keep the download small.
 
-**`arena.arena-01.floor` is the first key in this namespace with a file behind it**, landed by the
-2026-09-11 arena-sprite-and-spike-hazard work: `public/art/arenas/arena-01/floor.png`, a hand-made
-top-down render of a scrap-metal fighting pit — walls, hazard banding, floor grates and the
-inward-pointing spikes that `SPIKE_CONFIG` now backs with real damage (see
-[`combat-model.md`](combat-model.md#environmental-hazards-wall-spikes)). `arenaFloorKey(arenaId)`
+**`arena.arena-01.floor` and `arena.arena-02.floor` are the keys in this namespace with a file behind them**,
+the first landed by the 2026-09-11 arena-sprite-and-spike-hazard work, the second a dusty rectangular
+pit with a continuous spike ring. `arenaFloorKey(arenaId)`
 resolves it through the same chain as a car sprite — manifest lookup, then texture, then fallback —
 and when the row exists **and its texture actually loaded**, `ArenaScene` draws it as a plain `Image`
 at the world rect in place of the generated asphalt `TileSprite`. A missing PNG, a malformed manifest
@@ -382,7 +380,7 @@ lane markings and centre circle (`ENVIRONMENT_FX.markings`), the border stroke
 sprite is in use, because the art already carries walls, markings and spikes drawn to match where
 the sim actually puts them. `ENVIRONMENT_FX.floor.*` (the asphalt generator's own knobs) becomes
 inert for that arena — the playground's environment panel says so rather than silently doing
-nothing. `arena-02`, which authors no floor art, still gets all three procedural layers.
+nothing. An arena whose floor texture never loaded still gets all three procedural layers.
 
 Every other arena still renders from `ArenaScene.drawArena`'s procedural `fillRect` loop, coloured
 by `arenaColorsOf` (`packages/client/src/scenes/arena-visual.ts`) — the namespace above is still the

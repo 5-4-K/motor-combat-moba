@@ -288,7 +288,7 @@ const LOCK_WIDTH = 2;
  *
  * It replaced an off-white that sat too close to the arena floor to read. The ground it has to
  * clear is whichever floor the arena declares, and the two shipped arenas sit on opposite sides of
- * mid: `ARENA_01`'s dark slate `#3b4747` and `ARENA_02`'s cream `#d8cfc4`, with
+ * mid: `ARENA_01`'s dark slate `#3b4747` and `ARENA_02`'s dusty tan `#9a7a58`, with
  * `ARENA_COLOR_DEFAULTS.floor` (`arena-visual.ts`, 0xEBEBEB) behind any arena that declares none.
  * A colour re-picked against only one of those is not safe.
  *
@@ -980,7 +980,7 @@ export class ArenaScene extends Phaser.Scene {
     // room and the same number every match. That is the property that matters: the floor, the
     // smoke and the scorch marks two players are looking at have to be the same ones, and a
     // client-local roll would give them different arenas. It is `arenaId` under another name —
-    // 40400 for arena-01, 64000 for arena-02 — and deliberately NOT re-rolled per match: a
+    // 40400 for arena-01, 9216 for arena-02 — and deliberately NOT re-rolled per match: a
     // per-match seed would have to be drawn from shared state to stay in sync, which is a design
     // change and not a tuning knob.
     // Only a playground room resolves through the override store (EV34). Everything else gets the
@@ -1269,7 +1269,7 @@ export class ArenaScene extends Phaser.Scene {
    * A sprite arena's floor art already contains its own markings, its own walls and its own painted
    * spike strips, so `arenaDecoration` and `drawableObstacles` (`arena-visual.ts`) suppress the
    * matching procedural draws for it (AS24, AS25) — pure decisions, unit-tested there, because this
-   * scene cannot be. `arena-02` and any future arena with no floor sprite still get all three.
+   * scene cannot be. An arena whose floor texture never loaded still gets all three.
    */
   private redrawArenaGraphics(): void {
     const gfx = this.arenaGfx;

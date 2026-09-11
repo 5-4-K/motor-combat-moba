@@ -161,8 +161,8 @@ describe.each(entries)("arena %s", (id, arena) => {
     // centre. A point a few units inside a plane still embeds the car's HULL, which reaches up to
     // `supportRadius` further along that plane's normal, and gets shoved on tick 1 — impossible
     // under the old flat 80-unit margin this test replaced. `planes` falls back to the rectangle's
-    // own four planes for an arena with no polygon `boundary` (e.g. arena-02), so this check is
-    // never skipped for lack of a `boundary`.
+    // own four planes for an arena with no polygon `boundary`, so this check is never skipped for
+    // lack of a `boundary`.
     const planes = bounds.planes ?? rectPlanes(arena.width, arena.height);
     for (const s of all) {
       expect(pointOutsideBounds(s.x, s.y, bounds)).toBe(false);

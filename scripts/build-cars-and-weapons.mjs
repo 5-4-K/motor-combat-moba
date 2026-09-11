@@ -75,14 +75,15 @@ export const OUT_WEB_HTML = resolve(ROOT, "packages/client/public/manual.html");
  * The arena the build ships, for "how far is 900 units really" context.
  *
  * Read from `ACTIVE_ARENA_ID` rather than written out, because every weapon's reach is reported as a
- * PERCENTAGE of this. `ARENA_02` is 2000 wide against `ARENA_01`'s 1132, so pointing the build at
- * the other arena would overstate all nine of those figures — and, hardcoded, would do it silently:
+ * PERCENTAGE of this. The two shipped arenas are both 1280 wide at the frame and ~1100 at the
+ * playable floor, so pointing the build at the other one would barely move the figures — and,
+ * hardcoded, would do it silently:
  * `balanceStamp` hashes this value, so a literal would only ever fingerprint itself.
  *
  * The PLAYABLE extent, not `arena.width`. Those were the same number until `arena-01` became an
  * octagon inset inside its own image frame, and this read the frame — printing "the arena is 1280
  * units wide" to players and understating every reach percentage by about 13%. `playableExtentOf`
- * answers `width`/`height` unchanged for a boundary-less arena, so nothing about `arena-02` moves.
+ * answers the polygon's bounding box when an arena authors a `boundary`.
  * Note that neither the page nor the stamp can catch this class of error on its own: the regenerated
  * page came out byte-identical, because the fingerprint hashes this value and the value was wrong.
  */

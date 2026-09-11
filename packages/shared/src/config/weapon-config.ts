@@ -30,8 +30,8 @@ export const WEAPON_TABLE = {
    * It has no range in any sense a player experiences: `range` is authored as `speed x lifetime`
    * (900 x 2 s) purely because `WEAPON_TICKS.flight`, the guide's reach figure and the
    * `range >= aimRangeUnits` validator all read it. At 1800 the flight count is exactly the
-   * lifetime, so the two clocks cannot disagree. That clears arena-01's 1469 u diagonal; it would
-   * not clear arena-02's, so "no range" is a statement about the shipped arena, not the engine.
+   * lifetime, so the two clocks cannot disagree. That clears either shipped arena's ~1470 u frame
+   * diagonal. "No range" is a statement about those arenas, not the engine.
    *
    * `turnRateDegPerSec: 300` is the counterplay dial. Turn radius is `speed / turnRate`, so at
    * 900 u/s this arcs at 172 u — tight enough to convert a 200 u grab. The old 120 deg/s would arc

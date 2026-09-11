@@ -329,9 +329,9 @@ function threatHeading(
  * What it is NOT is viewport-filtered. `buildBotView` applies the fairness filter to `others` and
  * `instances` only; `observedFires` passes through verbatim, and `perceive` records every non-self
  * fire unconditionally — so a press made across the map, out of sight, still reaches this function.
- * That leak predates this work: `ultIsSpent` reads the same unfiltered log. It is moot on
- * `arena-01`, which fits inside the viewport, and real on `arena-02` (2000x2000). Closing it means
- * filtering at the seam, which is a behaviour change, not a comment fix.
+ * That leak predates this work: `ultIsSpent` reads the same unfiltered log. It is moot on both
+ * shipped arenas, which fit inside the viewport. Closing it means filtering at the seam, which is a
+ * behaviour change, not a comment fix.
  */
 export function readinessOf(
   state: PerceptionState,

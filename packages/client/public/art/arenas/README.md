@@ -7,9 +7,9 @@ One directory per arena, named by its arena id: `arena-02/floor.png` is declared
 the release except the directory matching `ACTIVE_ARENA_ID`, so an experimental arena costs the
 shipped zip nothing.
 
-`arena-01/floor.png` is the first PNG to use this convention, declared as `"arena.arena-01.floor"` —
-a hand-made top-down render of a scrap-metal fighting pit whose walls and spike banding are drawn to
-match where `SPIKE_CONFIG`'s fourteen `kind: "spike"` obstacles actually sit, so the client suppresses
-the procedural lane markings, border stroke and drawn spikes for this arena and lets the art carry
-all three. An arena with no directory here still renders — the generated asphalt tile is the
-permanent fallback, not a placeholder waiting for art.
+`arena-01/floor.png` and `arena-02/floor.png` are the two PNGs using this convention, declared as
+`"arena.arena-01.floor"` and `"arena.arena-02.floor"` — hand-made top-down pits whose walls and spike
+banding are drawn to match where `SPIKE_CONFIG`'s `kind: "spike"` obstacles actually sit, so the
+client suppresses the procedural lane markings, border stroke and drawn spikes for those arenas and
+lets the art carry all three. An arena with no directory here still renders — the generated asphalt
+tile is the permanent fallback, not a placeholder waiting for art.
