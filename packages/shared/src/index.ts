@@ -264,7 +264,7 @@ export { ARENAS, ARENA_IDS, getArena, isArenaId } from "./arena/registry.js";
 export type { ArenaId } from "./arena/registry.js";
 export { ACTIVE_ARENA_ID } from "./config/arena-config.js";
 export { ARENA_ART_COMMON, ARENA_ART_PREFIX, arenaIdFromArtKey } from "./arena/art-keys.js";
-export { boundsOf } from "./arena/bounds.js";
+export { boundsOf, playableExtentOf } from "./arena/bounds.js";
 export { planesOf, rectPlanes, supportRadius, planePenetration, type BoundaryPlane } from "./sim/boundary.js";
 
 export { normalizeName, validateName, isNameTaken } from "./lobby/names.js";
