@@ -238,3 +238,38 @@ describe("hullTouchesWorld", () => {
     expect(hullTouchesWorld({ ...hull, x: 640, y: 360 }, [], OCT, 2)).toBe(false);
   });
 });
+
+describe("spike contacts", () => {
+  // Flush against the left wall, matching how `ARENA_01` authors a strip: 20 units deep, kind
+  // "spike". An ordinary obstacle of the same footprint (`plain`) is the control for "not every
+  // box is a hazard".
+  const strip = { x: 74, y: 105, w: 20, h: 95, kind: "spike" as const };
+  const plain = { x: 400, y: 400, w: 20, h: 95 };
+  const bounds = { width: 1280, height: 720 };
+
+  it("reports a car driving into a spike strip", () => {
+    // x:100,y:150 overlaps the strip's AABB (x:[74,94], y:[105,200]) once the car's 48x32 hull is
+    // applied; vx:-100 drives it further left, into the strip's face.
+    const driving = car({ x: 100, y: 150, vx: -100, vy: 0 });
+    const { events } = resolveContacts([driving], new Set(), "ffa", 1, new Map(), [strip], bounds);
+    expect(events.spikeContacts).toHaveLength(1);
+    expect(events.spikeContacts[0]!.sessionId).toBe("a");
+    expect(events.spikeContacts[0]!.speedIn).toBeGreaterThan(0);
+    expect(events.spikeContacts[0]!.nx).toBeGreaterThan(0); // pushes right, into the arena
+  });
+
+  it("reports nothing for an ordinary obstacle", () => {
+    const overlapping = car({ x: 410, y: 450 });
+    const { events } = resolveContacts([overlapping], new Set(), "ffa", 1, new Map(), [plain], bounds);
+    expect(events.spikeContacts).toHaveLength(0);
+  });
+
+  it("reports a negative speedIn for a car driving away, and leaves the filtering to the bridge", () => {
+    // Same overlap as the first case, but vx flipped: the car is pulling out of the strip, not into
+    // it. If `speedIn`'s sign were inverted this would read positive and this test would fail —
+    // that inversion is exactly the bug the sign-convention doc comment warns about.
+    const leaving = car({ x: 100, y: 150, vx: 100, vy: 0 });
+    const { events } = resolveContacts([leaving], new Set(), "ffa", 1, new Map(), [strip], bounds);
+    expect(events.spikeContacts[0]!.speedIn).toBeLessThan(0);
+  });
+});

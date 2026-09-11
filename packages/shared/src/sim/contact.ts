@@ -1,9 +1,11 @@
 import { RAM_CONFIG } from "../config/ram-config.js";
 import { SLAM_CONFIG } from "../config/slam-config.js";
+import { SPIKE_CONFIG } from "../config/spike-config.js";
 import type { WeaponId } from "../config/weapon-types.js";
 import { rectPlanes } from "./boundary.js";
 import {
   aabbCorners,
+  aabbToObb,
   contactNormalBetween,
   convexOverlap,
   obbCorners,
@@ -100,11 +102,42 @@ export interface ImpulseEntry {
   attackerImpulse: Impulse;
 }
 
+/** One car found overlapping a `kind: "spike"` obstacle this tick — raw observation, no judgment. */
+export interface SpikeContact {
+  sessionId: string;
+  /** Unit normal pointing OUT of the strip, into the arena — the push direction. */
+  nx: number;
+  ny: number;
+  /** Speed INTO the surface, units/s. Positive when closing. */
+  speedIn: number;
+}
+
+/**
+ * One resolved spike hit. Declared HERE, in shared, rather than in the server bridge that
+ * produces it: `combat.ts` consumes it (Task 9), and shared must not depend on the server.
+ */
+export interface SpikeHit {
+  targetSessionId: string;
+  /**
+   * The car the death is credited to. The VICTIM'S OWN id when nobody shoved them, never `""` —
+   * an empty id leaves `lastDamagerSessionId` untouched, which would hand the kill to whoever
+   * last shot them minutes earlier. Self-credit is what the single kill-booking line reads as an
+   * environment death, via its `killer !== player` guard (AS21).
+   */
+  sourceSessionId: string;
+}
+
 export interface ContactEvents {
   dashHits: ContactHit[];
   slams: SlamEvent[];
   /** Session ids of every DASH car found pressed into level geometry this tick. */
   wallBlockedDashers: string[];
+  /**
+   * Every car overlapping a `kind: "spike"` obstacle this tick, with the contact normal and the
+   * speed into it. Raw observation only: this pass applies no threshold, no lockout and no
+   * attribution, because all three are server-side state (AS19). `ram-bridge.ts` filters.
+   */
+  spikeContacts: SpikeContact[];
 }
 
 /**
@@ -217,10 +250,34 @@ export function resolveContacts(
     }
   }
 
+  // Spike detection: raw observation, no threshold, no lockout, no attribution — those are
+  // server-side state (AS19) that `ram-bridge.ts` layers on top next. One report per car per tick:
+  // a car overlapping two strips (a corner of the octagon) is still one set of spikes, so the inner
+  // loop stops at the first hit.
+  const spikeContacts: SpikeContact[] = [];
+  for (const c of ordered) {
+    const hull = carHullOf(c.x, c.y, c.angle);
+    for (const box of obstacles) {
+      if (box.kind !== "spike") continue;
+      const n = contactNormalBetween(hull, aabbToObb(box), SPIKE_CONFIG.contactPad);
+      if (n === null) continue;
+      // `contactNormalBetween(a, b)` points from b toward a — out of the strip, into the arena.
+      // Speed INTO the surface is therefore the NEGATIVE of the velocity's component along it:
+      // positive when the car is closing, negative when it is driving away.
+      spikeContacts.push({
+        sessionId: c.sessionId,
+        nx: n.x,
+        ny: n.y,
+        speedIn: -(c.vx * n.x + c.vy * n.y),
+      });
+      break;
+    }
+  }
+
   return {
     impulses: best,
     contacts,
-    events: { dashHits, slams, wallBlockedDashers },
+    events: { dashHits, slams, wallBlockedDashers, spikeContacts },
   };
 }
 

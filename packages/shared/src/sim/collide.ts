@@ -11,6 +11,8 @@ export interface Aabb {
   y: number;
   w: number;
   h: number;
+  /** Mirrors `Obstacle.kind` (`arena/types.ts`) — absent means an ordinary block. */
+  kind?: "spike";
 }
 
 /** Oriented box. `x, y` is the CENTRE (matching `PlayerState.x/y`); `angle` is radians, +y down. */
@@ -344,7 +346,7 @@ function carObbOf(body: SimBody): Obb {
 }
 
 /** Top-left `Aabb` to centre-based `Obb`, so one SAT path covers obstacles and cars alike. */
-function aabbToObb(box: Aabb): Obb {
+export function aabbToObb(box: Aabb): Obb {
   return { x: box.x + box.w / 2, y: box.y + box.h / 2, angle: 0, w: box.w, h: box.h };
 }
 
