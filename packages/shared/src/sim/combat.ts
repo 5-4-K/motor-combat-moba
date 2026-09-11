@@ -165,7 +165,7 @@ export interface CombatInput {
   statusRequests?: readonly StatusRequest[];
   /**
    * Dash hits and hard slams the contact pass (`sim/contact.ts`) found this tick, priced and applied
-   * in phase 0d below — see that phase's comment. Absent is none, which is every tick a match has no
+   * in phase 0e below — see that phase's comment. Absent is none, which is every tick a match has no
    * live contact.
    */
   contactHits?: readonly ContactHit[];
@@ -644,7 +644,7 @@ export function runCombat(input: CombatInput): CombatResult {
   // Stun interruption (O8): a stun landing THIS tick cancels the car's committed states at the end
   // of the tick — after this tick's already-released shots resolved, the same one-tick seam every
   // other on-apply consequence accepts. Runs after hit resolution so it catches a stun applied by
-  // any path this tick (0c request, 0d contact, or this tick's own hits), and `wasStunned` (captured
+  // any path this tick (0d request, 0e contact, or this tick's own hits), and `wasStunned` (captured
   // before any of those ran) keeps a car already riding out an older stun from being re-swept.
   // `isUnInterruptable` exempts a weapon's wind-up or maneuver per-row. Stocks spent on a cancelled
   // wind-up stay spent (O14): interruption is the stun's payoff.
@@ -848,7 +848,7 @@ function acquireByProximity(
  * Takes `damageMult` and `carId` rather than the whole owner: `modsOf` is a `runCombat`-local
  * closure over that tick's derived-once modifiers cache, so a module-level function cannot reach
  * it — the caller resolves both at the call site (`owner ? modsOf(owner.sessionId).damageDealt : 1`
- * and `owner ? carIdOf(owner) : DEFAULT_CAR_ID`), the same fallback phase 0d already uses for a
+ * and `owner ? carIdOf(owner) : DEFAULT_CAR_ID`), the same fallback phase 0e already uses for a
  * contact hit with no live attacker.
  */
 function detonate(
@@ -1064,7 +1064,7 @@ function recordDamage(
   if (!events) return;
 
   // `carIdOf` is called on the live player object, matching every other call site in this file
-  // (e.g. phase 0d's `attacker ? carIdOf(attacker) : DEFAULT_CAR_ID`), rather than re-normalizing a
+  // (e.g. phase 0e's `attacker ? carIdOf(attacker) : DEFAULT_CAR_ID`), rather than re-normalizing a
   // bare `carId` string pulled off it first.
   const attacker = attackerSessionId === "" ? undefined : byId.get(attackerSessionId);
   const attackerCarId = attacker ? carIdOf(attacker) : null;
