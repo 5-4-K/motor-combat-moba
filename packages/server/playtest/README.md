@@ -59,7 +59,7 @@ cd packages/server
 
 npx tsx playtest/collision.ts    # car-on-car: tunneling, crush, pile-up, resolve order, energy, ram chaining
 npx tsx playtest/ram.ts          # ram trigger rate vs the sub-tick phase of the impact
-npx tsx playtest/geometry.ts     # arena-02: wedging, concave corners, walls, aim-assist LOS, spawn seats
+npx tsx playtest/geometry.ts     # arena-02: wedging, corners, spike walls, aim-assist LOS, spawn seats
 npx tsx playtest/weapons.ts      # all 9 weapons: damage, friendly fire, death, cooldowns, statuses, leaks, pierce
 npx tsx playtest/weapons2.ts     # pellet spread, tunneling, crossing targets, point-blank angles, spin, wrecks
 npx tsx playtest/prediction.ts   # client prediction vs server across a collision, by latency
