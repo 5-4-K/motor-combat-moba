@@ -35,8 +35,8 @@ export interface FiredEvent {
  * Which piece of level geometry hurt someone. `"spike"` is the only one today — the `kind` field on
  * `Obstacle` carries the same single value, and the two are meant to read as the same vocabulary.
  *
- * A named union rather than a bare string so a second hazard has to be declared here, where the
- * report's attribution switch will fail to compile until it says what to do with it.
+ * A named union rather than a bare string so a second hazard must be declared in one place here,
+ * not scattered as bare strings that might silently be misread — see `attribution.ts:98`.
  */
 export type HazardId = "spike";
 
