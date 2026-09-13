@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { arenaFloorKey, carSpriteKey, shouldLoadAssetKey, weaponIconKey } from "./asset-keys.js";
+import {
+  arenaFloorKey,
+  carSpriteKey,
+  loadsEveryArena,
+  shouldLoadAssetKey,
+  weaponIconKey,
+} from "./asset-keys.js";
 
 describe("carSpriteKey", () => {
   it("namespaces a known car id", () => {
@@ -45,6 +51,21 @@ describe("shouldLoadAssetKey", () => {
 
   it("loads a malformed arena key rather than silently dropping it", () => {
     expect(shouldLoadAssetKey("arena.", "arena-01")).toBe(true);
+  });
+
+  it("loads another arena's art when every arena is requested", () => {
+    expect(shouldLoadAssetKey("arena.arena-02.floor", "arena-01", true)).toBe(true);
+  });
+});
+
+describe("loadsEveryArena", () => {
+  it("loads every arena for the playground, whose settings panel switches arenas live", () => {
+    expect(loadsEveryArena("playground")).toBe(true);
+  });
+
+  it("keeps the active-arena filter for ordinary play and every other tool", () => {
+    expect(loadsEveryArena(undefined)).toBe(false);
+    expect(loadsEveryArena("assets")).toBe(false);
   });
 });
 

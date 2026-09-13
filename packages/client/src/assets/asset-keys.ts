@@ -34,11 +34,26 @@ export function weaponIconKey(weaponId: string): string {
  * manifest row names it, which keeps a dev build from spending load time on arenas it will not draw
  * and keeps behaviour identical to the pruned release. `scripts/build-release.mjs` applies the same
  * rule to the files themselves.
+ *
+ * `everyArena` lifts the arena filter entirely, for a boot that can switch arenas without reloading
+ * (see `loadsEveryArena`). Without it, the arena this page did not boot on draws the procedural
+ * asphalt fallback, since its floor texture was never asked for.
  */
-export function shouldLoadAssetKey(key: string, activeArenaId: string): boolean {
+export function shouldLoadAssetKey(key: string, activeArenaId: string, everyArena = false): boolean {
   const arenaId = arenaIdFromArtKey(key);
-  if (arenaId === undefined) return true;
+  if (arenaId === undefined || everyArena) return true;
   return arenaId === ARENA_ART_COMMON || arenaId === activeArenaId;
+}
+
+/**
+ * Whether a boot under this `?dev=` tool should load every arena's art rather than only
+ * `ACTIVE_ARENA_ID`'s. True for the playground alone: its settings panel changes `state.arenaId`
+ * mid-session, and art is loaded once at boot (`assetsReady`), so an arena skipped here can never
+ * draw its floor in that tab. Dev-only by construction — `BootScene` reaches a tool id only under
+ * `import.meta.env.DEV`, so the release keeps its single-arena load, matching its pruned files.
+ */
+export function loadsEveryArena(devToolId: string | undefined): boolean {
+  return devToolId === "playground";
 }
 
 /**

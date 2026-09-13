@@ -2,7 +2,7 @@ import Phaser from "phaser";
 import { ACTIVE_ARENA_ID } from "@motor-combat-moba/shared";
 import { devToolId } from "../config/client-mode.js";
 import { loadManifest } from "../assets/load-manifest.js";
-import { shouldLoadAssetKey } from "../assets/asset-keys.js";
+import { loadsEveryArena, shouldLoadAssetKey } from "../assets/asset-keys.js";
 import { EMPTY_MANIFEST, type AssetManifest } from "../assets/manifest-schema.js";
 
 /**
@@ -51,7 +51,7 @@ export class BootScene extends Phaser.Scene {
           }
           // Tools read the manifest directly, so the art must be in the TextureManager before the
           // scene's create() runs — unlike normal play, there is no lobby to hide the wait behind.
-          ready = this.loadArt();
+          ready = this.loadArt(loadsEveryArena(id));
           await ready;
           const Scene = await DEV_TOOLS[id]!();
           this.scene.add(`dev.${id}`, Scene, true);
@@ -66,7 +66,7 @@ export class BootScene extends Phaser.Scene {
     ready = this.loadArt();
   }
 
-  private async loadArt(): Promise<void> {
+  private async loadArt(everyArena = false): Promise<void> {
     const { manifest: parsed, problems } = await loadManifest();
     manifest = parsed;
     for (const problem of problems) console.warn(`[art] ${problem}`);
@@ -75,7 +75,7 @@ export class BootScene extends Phaser.Scene {
     // FILE_LOAD_ERROR handler, and the missing-texture sweep below all agree on. A key skipped here
     // is not "failed to load" — it was never asked for, and must not be warned about.
     const entries = Object.entries(parsed.sprites).filter(([key]) =>
-      shouldLoadAssetKey(key, ACTIVE_ARENA_ID),
+      shouldLoadAssetKey(key, ACTIVE_ARENA_ID, everyArena),
     );
     if (entries.length === 0) return;
 
