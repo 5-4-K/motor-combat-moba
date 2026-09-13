@@ -44,8 +44,18 @@ function insideHitbox(id: WeaponId, along: number, across: number): boolean {
   return (along - noseCentre) ** 2 + across ** 2 <= radiusAcross ** 2 + SLACK;
 }
 
-/** The styled weapons, so a new entry in the table is covered without editing this file. */
-const styled = Object.keys(WEAPON_PROJECTILE_STYLES) as WeaponId[];
+/**
+ * The weapons with authored LAYERS, so a new entry in the table is covered without editing this file.
+ *
+ * Filtered on `layers`, not on having a style at all: a row may author a halo and no layers
+ * (`pepperbox` does), and a halo deliberately sits OUTSIDE the hitbox — it is the bounded D19
+ * exception `ProjectileHaloBand` documents. This file is about markings, which never may. Including
+ * a halo-only row here would fail the "has layers" guard below and, worse, invite someone to relax
+ * the containment check to accommodate a shape that is supposed to be outside.
+ */
+const styled = (Object.keys(WEAPON_PROJECTILE_STYLES) as WeaponId[]).filter(
+  (id) => (WEAPON_PROJECTILE_STYLES[id]?.layers.length ?? 0) > 0,
+);
 
 /** Angles chosen to catch a rotation that leaks along one axis only. */
 const ANGLES = [0, 0.4, Math.PI / 2, 2.1, Math.PI, -1.3];
@@ -62,13 +72,20 @@ describe("projectile markings", () => {
     });
     // Not an assertion that every one of these is styled forever -- it is the list that keeps this
     // file honest about what it is covering, so removing a style shows up here rather than silently.
-    // `pepperbox` (ellipse) is the one shaped projectile still deliberately flat: its hitbox moved
-    // to an ellipse in the 2026-09-01 roster cutover specifically because a round-glow table cannot
-    // own it, and nothing has authored it a marking since. `predator` gained one on 2026-09-02.
+    // `pepperbox` (ellipse) is the one shaped projectile still deliberately flat IN ITS BODY: its
+    // hitbox moved to an ellipse in the 2026-09-01 roster cutover specifically because a round-glow
+    // table cannot own it, and nothing has authored it a marking since. It gained a shaped HALO on
+    // 2026-09-13 — outside the hitbox, so not a marking and not this file's business — which is why
+    // it has a `WEAPON_PROJECTILE_STYLES` entry but is absent from `styled` above.
+    // `predator` gained a marking on 2026-09-02.
     // `roadblock` (bar) gained a spiked-roller style on 2026-09-07; bars use `poly` layers clamped
     // to the rectangle, not the ellipse/capsule hull/tip/band/disc/spikes vocabulary.
     expect(shaped.sort()).toEqual(["pepperbox", "predator", "roadblock", "thumper"]);
     expect(styled.sort()).toEqual(["predator", "roadblock", "thumper"]);
+    // Stated rather than implied: pepperbox carries a style whose only content is a halo. If someone
+    // later gives it layers, that is a real change to what the body draws and this line should fail.
+    expect(WEAPON_PROJECTILE_STYLES.pepperbox?.layers).toEqual([]);
+    expect(WEAPON_PROJECTILE_STYLES.pepperbox?.halo?.length).toBeGreaterThan(0);
   });
 
   it("keeps every authored vertex inside its own hitbox, at every heading", () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  weaponDefOf,
   COLOR_TABLE,
   DEFAULT_PATCH_RATE_HZ,
   DRIVE_CONFIG,
@@ -23,6 +24,7 @@ import {
   isProjectileWeapon,
   WEAPON_PROJECTILE_STYLES,
   projectileDrawLayers,
+  projectileHaloShapes,
   chargeOrbBands,
   instanceDrawShape,
   instanceGlowBands,
@@ -1356,5 +1358,96 @@ describe("shell halos (LZ22, LZ23)", () => {
   it("draws no halo for a weapon that authors none", () => {
     expect(instanceHaloBands("pepperbox", 10)).toEqual([]);
     expect(instanceHaloBands("not-a-weapon", 10)).toEqual([]);
+  });
+});
+
+describe("projectile halos — a halo shaped like its own shot", () => {
+  const PEPPERBOX = weaponDefOf("pepperbox");
+  const HITBOX = PEPPERBOX.kind === "projectile" ? PEPPERBOX.hitbox : undefined;
+  const shot = (angle: number): DrawableInstance => ({
+    weaponId: "pepperbox",
+    isExplosion: false,
+    x: 500,
+    y: 300,
+    angle,
+    extent: 0,
+  });
+
+  /** A world vertex expressed back in the shot's own frame, so it can be tested against the hitbox. */
+  function local(p: { x: number; y: number }, angle: number) {
+    const dx = p.x - 500;
+    const dy = p.y - 300;
+    return {
+      along: dx * Math.cos(-angle) - dy * Math.sin(-angle),
+      across: dx * Math.sin(-angle) + dy * Math.cos(-angle),
+    };
+  }
+
+  it("draws nothing for a weapon that authors no halo", () => {
+    // The fallback every weapon gets for free, exactly as `instanceHaloBands` gives the disc side.
+    expect(projectileHaloShapes(
+      { weaponId: "predator", isExplosion: false, x: 0, y: 0, angle: 0, extent: 0 },
+      0,
+    )).toEqual([]);
+  });
+
+  it("puts every vertex OUTSIDE the hitbox — that is what makes it a halo", () => {
+    // The defining property, and the one that makes this a bounded D19 exception rather than a
+    // shot drawn bigger than it hits. Checked at several headings, because a rotation that leaks
+    // along one axis would pass at angle 0 and fail in play.
+    if (!HITBOX || HITBOX.shape !== "ellipse") throw new Error("pepperbox is no longer an ellipse");
+    for (const angle of [0, 0.4, Math.PI / 2, 2.1, Math.PI, -1.3]) {
+      const shapes = projectileHaloShapes(shot(angle), 0);
+      expect(shapes.length).toBeGreaterThan(0);
+      for (const s of shapes) {
+        for (const p of s.points) {
+          const { along, across } = local(p, angle);
+          const inside =
+            (along / HITBOX.radiusAlong) ** 2 + (across / HITBOX.radiusAcross) ** 2;
+          expect(inside).toBeGreaterThan(1);
+        }
+      }
+    }
+  });
+
+  it("grows both radii by the SAME amount, so the halo has uniform thickness", () => {
+    // The whole reason this does not reuse `HaloBand`'s `radiusScale`. Multiplying a 9x3 ellipse
+    // adds three times more length than width, so the glow stops following the shot's shape and
+    // reads as a smear. An equal offset on both radii is what keeps it a halo around THIS silhouette.
+    if (!HITBOX || HITBOX.shape !== "ellipse") throw new Error("pepperbox is no longer an ellipse");
+    const shapes = projectileHaloShapes(shot(0), 0);
+    for (const s of shapes) {
+      const alongs = s.points.map((p) => local(p, 0).along);
+      const acrosses = s.points.map((p) => local(p, 0).across);
+      const grewAlong = Math.max(...alongs) - HITBOX.radiusAlong;
+      const grewAcross = Math.max(...acrosses) - HITBOX.radiusAcross;
+      expect(grewAcross).toBeCloseTo(grewAlong, 6);
+      expect(grewAlong).toBeGreaterThan(0);
+    }
+  });
+
+  it("orders bands outermost first, so each fills over the last", () => {
+    const shapes = projectileHaloShapes(shot(0), 0);
+    const reach = shapes.map((s) => Math.max(...s.points.map((p) => local(p, 0).along)));
+    for (let i = 1; i < reach.length; i += 1) expect(reach[i]!).toBeLessThan(reach[i - 1]!);
+  });
+
+  it("keeps every authored band translucent, so no halo can read as an edge", () => {
+    // Same bound `HaloBand` states for the disc side: additive, never opaque. An opaque band is a
+    // second silhouette outside the thing that can actually hit you.
+    for (const [id, style] of Object.entries(WEAPON_PROJECTILE_STYLES)) {
+      for (const band of style?.halo ?? []) {
+        expect(band.alpha, `${id} halo`).toBeGreaterThan(0);
+        expect(band.alpha, `${id} halo`).toBeLessThan(1);
+        expect(band.spread, `${id} halo`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("leaves pepperbox's BODY exactly as it shipped — the flat hitbox fill", () => {
+    // The halo is purely additive to what ships today. `layers: []` means `projectileDrawLayers`
+    // returns nothing and `ArenaScene` falls through to the one flat `weaponFillOf` fill, which the
+    // roster notes call pepperbox's correct look rather than a placeholder.
+    expect(projectileDrawLayers(shot(0), 0)).toEqual([]);
   });
 });

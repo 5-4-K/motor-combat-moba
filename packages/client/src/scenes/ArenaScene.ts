@@ -117,6 +117,7 @@ import {
   chargeOrbBands,
   instanceGlowBands,
   instanceHaloBands,
+  projectileHaloShapes,
   lockBracketArms,
   SHOW_LOCK_BRACKET,
   isProjectileWeapon,
@@ -2479,6 +2480,15 @@ export class ArenaScene extends Phaser.Scene {
       }
       if (shape.kind !== "circle") {
         if (shape.points.length === 0) return;
+        // The shaped additive bloom, outside the hitbox and in its own layer, drawn BEFORE the solid
+        // layers so the shot reads over its own glow. The polygon counterpart to the disc branch's
+        // `instanceHaloBands` below — see `ProjectileHaloBand` for why it offsets rather than scales.
+        if (glow) {
+          for (const band of projectileHaloShapes(instance, elapsedMs)) {
+            glow.fillStyle(band.fill, alpha * band.alpha);
+            glow.fillPoints(pts(band.points), true);
+          }
+        }
         // Nested layers, outermost first, each filled over the last -- the beam counterpart to the
         // bands below. An empty list is a beam with no authored look, which falls back to the one
         // flat fill of its own `color` that this method drew for every beam before styles existed.

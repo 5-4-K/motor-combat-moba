@@ -118,8 +118,28 @@ weapon it does not own so the flat `weaponFillOf` fill stays the fallback: `WEAP
 that used it and nothing has replaced it yet, so every round projectile draws the flat fallback fill.
 `WEAPON_BEAM_STYLES` (beams, nested by extent and cross-section) styles `afterburner`, `lance` and `tremor`
 (`bulwark` retired with the cutover). `WEAPON_PROJECTILE_STYLES` (the ellipse and capsule projectiles)
-styles `thumper` and `predator` (`needler` and `skewer` retired); `pepperbox` is the one non-circular
-projectile still drawing the flat hitbox fill until an owner arts it. The last table
+styles `thumper` and `predator` (`needler` and `skewer` retired); `pepperbox` still draws the flat
+hitbox fill for its BODY, but as of 2026-09-13 it carries a shaped **halo** — an entry whose `layers`
+are empty and whose `halo` is not.
+
+**That halo is the one place a projectile draws outside its own hitbox, and it offsets rather than
+scales.** `HaloBand` (the disc side, `magmablast`) multiplies a radius, which is fine because
+scaling a circle and offsetting its outline are the same operation. `ProjectileHaloBand` carries a
+`spread` instead: both radii grow by the same distance. On `pepperbox`'s 9x3 ellipse a multiplier
+adds three times more length than width, so the glow stops following the silhouette and reads as a
+smear pointing along the shot — offsetting keeps it a uniform-thickness ring around that shape.
+`projectileHaloShapes` builds each band by handing shared's own `projectileShapeAt` an inflated
+hitbox, so there is no second copy of the geometry to drift and a future hitbox shape moves the halo
+with it for free. It is deliberately **not** part of `projectileDrawLayers`, for the same reason
+`BeamStyle.flare` is not part of `beamDrawLayers`: that output is swept vertex by vertex by
+`projectile-marks.test.ts`, and folding in a shape that legitimately sits outside would blunt the one
+check proving every other shape stays inside. `styled` in that test is filtered to rows authoring
+`layers`, which is why a halo-only row is absent from it.
+
+**Two bands, not `magmablast`'s three, and that is a cost decision rather than a taste one.**
+`pepperbox` is `muzzles` x `pelletsPerVolley` = **12 projectiles per press**, so a six-Bullseye room
+can carry ~72 live instances — more than any other weapon and above the ~60 the cost notes below
+assume. A third band would make the cheapest-looking weapon the most expensive one to draw. The last table
 is the one with a rule worth keeping: a marking may never draw OUTSIDE the hitbox, which is the half
 of D19 that protects a player, and `projectile-marks.test.ts` holds every authored layer to it at six
 headings.

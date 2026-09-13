@@ -287,8 +287,10 @@ const FLICKER_PHASE_PER_TICK = 0.7;
  * the only circular projectile in the roster. Its two former rows were `fireball` (retired outright,
  * O17) and `pepperbox` — which moved OUT deliberately (O9) rather than being retired: its hitbox is
  * now an ellipse (the dart silhouette carried over from `needler`), and a round-glow table nested by
- * `radiusScale` cannot own a non-circular hitbox. The flat weapon-colour fill is `pepperbox`'s
- * correct, intentional look, not a placeholder.
+ * `radiusScale` cannot own a non-circular hitbox. The flat weapon-colour fill is still `pepperbox`'s
+ * BODY, deliberately — but it gained a shaped halo in `WEAPON_PROJECTILE_STYLES` on 2026-09-13, so
+ * "no entry here" no longer means "no authored look". See `ProjectileHaloBand` for why that halo
+ * could not simply be a `HaloBand` with a `radiusScale`.
  *
  * `magmablast`: its icon's own radial ramp, measured rather than guessed — the icon was sampled in
  * rings from the centre out, giving amber at the core, orange through the body, and a deep red at
@@ -1143,10 +1145,44 @@ export type ProjectileLayer =
    */
   | { shape: "poly"; points: readonly (readonly [number, number])[]; color: string };
 
+/**
+ * One ring of an additive halo around a NON-CIRCULAR shot — the shaped counterpart to `HaloBand`.
+ *
+ * A separate type from `HaloBand`, and the difference is the whole point. `HaloBand` carries a
+ * `radiusScale`, a MULTIPLIER, which is fine on a disc because scaling a circle's radius and
+ * offsetting its outline are the same operation. On a shaped hitbox they are not: multiplying
+ * `pepperbox`'s 9x3 ellipse adds three times more length than width, so the glow stops following the
+ * silhouette and reads as a smear pointing along the shot.
+ *
+ * `spread` is an OFFSET instead — both radii grow by the same distance, which is what gives a halo
+ * uniform thickness and makes it a glow around THIS shape rather than a bigger copy of it.
+ *
+ * The same bounded D19 exception `HaloBand` documents applies unchanged: additive so it adds light
+ * and never a silhouette, never opaque so it has no edge to mistake for a boundary, and the solid
+ * fill underneath still sits exactly on the hitbox. `combat-visual.test.ts` holds all three.
+ */
+export interface ProjectileHaloBand {
+  /**
+   * How far the silhouette is pushed outward, in multiples of `radiusAcross` — so it is expressed
+   * against the shot's own thickness and survives a hitbox retune.
+   */
+  spread: number;
+  color: string;
+  /** Always in (0, 1). See the type comment: an opaque halo band is a second silhouette. */
+  alpha: number;
+}
+
 /** How one non-circular projectile draws. Absent means the flat hitbox polygon. */
 export interface ProjectileStyle {
   /** Outermost first. Each layer is filled over the one before it, so later layers are on top. */
   layers: ProjectileLayer[];
+  /**
+   * An additive bloom outside the hitbox, outermost first. Absent draws none.
+   *
+   * Independent of `layers`: `pepperbox` authors a halo and NO layers, which leaves its body the
+   * flat `weaponFillOf` fill it has always drawn while lighting the ground around it.
+   */
+  halo?: readonly ProjectileHaloBand[];
 }
 
 /**
@@ -1489,6 +1525,23 @@ export const WEAPON_PROJECTILE_STYLES: Partial<Record<WeaponId, ProjectileStyle>
       { shape: "band", halfWidthScale: 0.216, color: "#FFF6D8" },
     ],
   },
+  // No `layers`, deliberately: the flat hitbox-colour fill IS pepperbox's body (see this table's
+  // comment), and the halo is added around it rather than replacing it. `projectileDrawLayers`
+  // returns `[]` for an empty list, so `ArenaScene` falls through to that same flat fill.
+  //
+  // Its own rust, continued outward rather than restated — the principle `magmablast`'s halo states.
+  // Measured off its icon in rings: rust `#B14813` at the rim, browns inward, which is where
+  // `WEAPON_TABLE.color` `#C04818` comes from. Two bands, not `magmablast`'s three, and that is a
+  // cost decision: `muzzles` x `pelletsPerVolley` is 12 projectiles PER PRESS, so a six-Bullseye
+  // room can carry ~72 live instances — more than any other weapon and above the ~60 the cost notes
+  // assume. A third band would make the cheapest-looking weapon the most expensive one to draw.
+  pepperbox: {
+    layers: [],
+    halo: [
+      { spread: 1.2, color: "#5A1A06", alpha: 0.14 },
+      { spread: 0.55, color: "#A83A10", alpha: 0.24 },
+    ],
+  },
   predator: { layers: predatorMissileLayers() },
   roadblock: { layers: roadblockRollerLayers() },
 };
@@ -1527,6 +1580,61 @@ export function instanceGlowBands(
     fill: hexToFill(band.color),
     alpha: alphaOf(band.alpha),
   }));
+}
+
+/**
+ * The additive shapes to fill OUTSIDE one non-circular instance's hitbox, outermost first, or `[]`
+ * for a weapon with no halo. The shaped counterpart to `instanceHaloBands`.
+ *
+ * **Each band is the hitbox itself, inflated.** It is built by handing shared's own
+ * `projectileShapeAt` a hitbox whose radii have both grown by `spread * radiusAcross` — the same
+ * function that draws the real hitbox outline. That is deliberate and is what makes the halo
+ * incapable of being a different shape from the shot: there is no second copy of the geometry to
+ * drift, and switching `pepperbox` to a capsule tomorrow moves the halo with it for free.
+ *
+ * An equal offset on BOTH radii, never a multiplier — see `ProjectileHaloBand.spread` for why a
+ * scale turns a thin dart's glow into a smear.
+ *
+ * Deliberately NOT part of `projectileDrawLayers`, for exactly the reason `BeamStyle.flare` is not
+ * part of `beamDrawLayers`: that function's output is swept vertex by vertex by
+ * `projectile-marks.test.ts`, and folding in a shape that legitimately sits outside the hitbox
+ * would blunt the one check proving every other shape stays inside.
+ *
+ * Takes no clock — halos do not flicker (LZ25), same as the disc side.
+ */
+export function projectileHaloShapes(
+  instance: DrawableInstance,
+  elapsedMs: number,
+): DrawBeamLayer[] {
+  const def = drawDefOf(instance);
+  if (!def || def.kind !== "projectile") return [];
+  const style = WEAPON_PROJECTILE_STYLES[def.id];
+  if (!style?.halo) return [];
+  const hitbox = def.hitbox;
+  // A circle's halo is `instanceHaloBands`' job, and it draws as a cheaper `fillCircle`. Reaching
+  // here with one would mean two tables owning the same weapon — the rule `projectileDrawLayers`
+  // keeps for the same reason.
+  if (hitbox.shape === "circle") return [];
+
+  // The same extrapolation the body uses, so the halo and the shot it belongs to cannot separate
+  // mid-flight — two copies of this would let the glow lag the pellet at speed.
+  const { x, y } = extrapolateShot(instance.x, instance.y, instance.angle, def.speed, elapsedMs);
+
+  const out: DrawBeamLayer[] = [];
+  for (const band of style.halo) {
+    const grow = band.spread * hitbox.radiusAcross;
+    const shape = projectileShapeAt(
+      { ...hitbox, radiusAlong: hitbox.radiusAlong + grow, radiusAcross: hitbox.radiusAcross + grow },
+      x,
+      y,
+      instance.angle,
+    );
+    // `projectileShapeAt` only returns a circle for a circle hitbox, which is excluded above; the
+    // guard is here so a future hitbox shape cannot silently fall through as an empty polygon.
+    if (shape.kind !== "polygon") continue;
+    out.push({ points: shape.points, fill: hexToFill(band.color), alpha: band.alpha });
+  }
+  return out;
 }
 
 /**
