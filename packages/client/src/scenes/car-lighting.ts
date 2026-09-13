@@ -221,11 +221,13 @@ export function glowBandsFor(look: CarLook): ShadowBand[] {
   const count = Math.max(1, Math.round(look.glowBands));
   if (look.glowAlpha <= 0) return [];
   return Array.from({ length: count }, (_, i) => {
-    // Index 0 is the widest ring; the last sits on the footprint itself, so a single band
-    // degenerates to a hard halo at exactly the footprint's size.
+    // Index 0 is the widest ring; the last sits on `glowInner`, so a single band degenerates to a
+    // hard halo at exactly the inner radius.
     const t = count === 1 ? 1 : i / (count - 1);
     return {
-      scale: 1 + look.glowSpread * (1 - t),
+      // Down to `glowInner`, never to 1. At 1 the innermost band is the footprint itself and the
+      // car sits in a pool of light instead of being ringed by one — see `glowInner`'s own comment.
+      scale: look.glowInner + look.glowSpread * (1 - t),
       alpha: look.glowAlpha / count,
     };
   });

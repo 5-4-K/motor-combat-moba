@@ -57,36 +57,52 @@ a test:
   Ramping the alphas too accumulated to ~0.75 and read as a hole in the road.
 
 **The underglow is the one layer here that is not about volume — it is about being seen at all.**
-Everything above was tuned against the generated asphalt (`floor.baseGrey` 50, near-black), and it
-reads beautifully there. An arena drawing a **floor sprite** gives a car a mid-grey, scratch-covered
-deck to survive on instead: the value contrast largely goes, and a rim light one or two units wide
-competes with highlights the art itself is full of. `glowBandsFor`/`glowColorFor` answer that with an
-additive halo of the car's OWN player colour, so the brightest thing near a car is the car — and the
-halo says whose it is at the same time, which is why `glowColorMix` ships near 0 rather than washing
-it to white. Two notes on it: it is **radial, so alone in this file it takes no rotation** (there is
-nothing to undo, and a halo that changed shape with heading would leak a car's facing); and its bands
-carry equal alphas for the same stacking reason the shadow's do — an early `glowBands: 5` left a
-visible step at the outer ring that read as an RTS selection circle rather than light, which 8 fixed.
+`glowBandsFor`/`glowColorFor` ring a car with an additive halo of its OWN player colour, so the halo
+says whose car it is at the same time as marking where it is — which is why `glowColorMix` ships near
+0 rather than washing to white. Three things about it are load-bearing:
 
-The floor sprite itself is knocked back by `ENVIRONMENT_FX.floorArt` (`floorTintOf` in
-`assets/arena-floor.ts`), the exact mirror of the `floor.*` group: one of the two is live per arena
-and the panel says which. Floor art is authored to look good as a picture — mid-range values, detail
-everywhere — and gameplay wants the ground to be the quietest thing on screen. The camera `grade`
-cannot do this job: it runs on the whole world camera, so it moves the cars and the floor together
-and creates no separation by construction.
+- **It is radial, so alone in this file it takes no rotation.** There is nothing to undo, and a halo
+  that changed shape with heading would leak a car's facing.
+- **Its bands carry equal alphas**, the same stacking trick the shadow's do. An early `glowBands: 5`
+  left a visible step at the outer ring that read as an RTS selection circle rather than light; 8
+  fixed it.
+- **`glowInner` keeps it a RING, never a disc**, and this one was learned the hard way. The first cut
+  ran the bands down to scale 1 — the footprint, which is 0.86 of the hull — so each car sat inside a
+  filled pool of light. The sprites do not fill their hull, so that light bled through the gaps in
+  the art and haloed every edge. It reads unmistakably as the glow drawing OVER the car, and it is
+  not: the glow is painted a whole layer below (`CAR_GLOW_DEPTH` −6.6, cars at 0). **Do not "fix"
+  that symptom by moving depths** — nothing is wrong with the ordering. Light that starts outside the
+  car cannot wash it, and `glowInner` is what holds it there.
+
+`ENVIRONMENT_FX.floorArt` (`floorTintOf` in `assets/arena-floor.ts`) can knock a floor sprite back
+through one multiply. It is the exact mirror of the `floor.*` group: one of the two is live per arena
+and the panel says which. **It ships as a no-op (`darken: 0`), and the reason is worth keeping.** It
+first shipped at `0.45` on the theory that a quieter ground makes cars pop — which only holds if the
+cars are LIGHTER than the floor. They are not: they are dark, desaturated sprites, so darkening the
+deck moved the floor *toward* their own value and cost the dark-on-light silhouette contrast that was
+actually doing the work. On these decks the cars read best against the art at full brightness. The
+knob stays because it is the right lever for a floor sprite that is genuinely too bright or too busy
+— it just is not needed by the two in the game today.
+
+**Which lever to reach for depends on which way the contrast runs**, and this is the thing to get
+right before tuning. On a DARK floor a car is lighter than its ground, so the additive glow is what
+separates it. On a BRIGHT floor the car is the dark shape, its silhouette is the signal, and adding
+light around it erodes exactly that — there the lever is the DARK side: `shadowAlpha` and
+`shadowSpread`. Reaching for the glow on a bright deck fights the contrast instead of using it. The
+camera `grade` can never help either way: it runs on the whole world camera, so it moves the cars and
+the floor together and creates no separation by construction.
 
 The shadows draw on a **shared layer at `CAR_SHADOW_DEPTH`, not inside each car's container**: all
 cars sit at `CAR_DEPTH` and Phaser breaks that tie by insertion order, so a parented shadow would
 draw over another car's body every time two of them overlap. The glow gets its own shared layer just
 below them at `CAR_GLOW_DEPTH` — **below, not above, deliberately**: the halo and the drop shadow
-cover almost the same ground, and additive light over the shadow dissolves the one cue doing the most
-work to sit a car on a mid-value floor. One shared layer also means `ADD` is set **once**, so the
+overlap, and additive light over the shadow dissolves the cue that sits a car on the ground. One shared layer also means `ADD` is set **once**, so the
 whole roster's glow costs one batch flush a frame rather than the per-instance `setBlendMode` this
 file warns about for shots. The gradient tint lives in
 `applyCarSprite` rather than in `ArenaScene`, because that helper is shared with `?dev=assets` so the
 tool cannot drift from the arena. Zeroing every strength in `carLook` restores the old flat drawing
-exactly — `glowAlpha` included, and `floorArt.darken: 0` with a white tint likewise multiplies by one
-— and the panel's "Car lighting" and "Floor art" sections tune all of it live.
+exactly — `glowAlpha` included, and `floorArt.darken: 0` with a white tint multiplies by one, which
+is what it ships at — and the panel's "Car lighting" and "Floor art" sections tune all of it live.
 
 `?debug=1` draws the car OBB hitbox.
 

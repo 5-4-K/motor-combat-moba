@@ -201,6 +201,17 @@ export interface EnvironmentFx {
     /** How many nested bands fake the falloff. MUST be a whole number; 1 is a hard-edged halo. */
     readonly glowBands: number;
     /**
+     * Where the INNERMOST band sits, as a multiple of the shadow footprint. Must clear the hull
+     * (footprint is 0.86 of it, so anything at or below ~1.17 is inside the car).
+     *
+     * **This is what makes the glow a ring rather than a disc, and it is load-bearing.** The first
+     * cut ran the bands down to 1 — the footprint — so the car sat INSIDE a filled pool of light.
+     * The sprites do not fill their hull, so that light bled through the gaps in the art and haloed
+     * every edge, and it read as the glow drawing over the car even though it is painted a whole
+     * layer below it (`CAR_GLOW_DEPTH`). Light that starts outside the car cannot do that.
+     */
+    readonly glowInner: number;
+    /**
      * How far the glow is mixed toward white, 0..1, before it is drawn.
      *
      * Shipped near 0 deliberately: the halo is the player's own colour, so it reads as whose car
@@ -329,7 +340,8 @@ export const ENVIRONMENT_FX: EnvironmentFx = {
     glowAlpha: 0.45,
     glowSpread: 1.3,
     glowBands: 8,
+    glowInner: 1.35,
     glowColorMix: 0.15,
   }),
-  floorArt: Object.freeze({ tint: 0xffffff, darken: 0.45 }),
+  floorArt: Object.freeze({ tint: 0xffffff, darken: 0 }),
 };

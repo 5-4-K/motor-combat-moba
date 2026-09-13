@@ -134,6 +134,7 @@ export const ENV_FIELDS: readonly EnvFieldDef[] = [
   c("carLook", "glowAlpha", "Glow alpha", 0, 1, 0.01),
   c("carLook", "glowSpread", "Glow spread x footprint", 0, 3, 0.05),
   c("carLook", "glowBands", "Glow bands", 1, 10, 1, "integer"),
+  c("carLook", "glowInner", "Glow inner radius", 1, 3, 0.05),
   c("carLook", "glowColorMix", "Glow toward white", 0, 1, 0.01),
 
   c("floorArt", "tint", "Art tint", 0, 0xffffff, 1, "color"),

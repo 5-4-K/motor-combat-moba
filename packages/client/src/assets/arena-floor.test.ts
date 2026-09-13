@@ -62,9 +62,14 @@ describe("floorTintOf", () => {
     expect(floorTintOf(art({ darken: 2, tint: 0xffffff }))).toBe(0x000000);
   });
 
-  it("darkens the shipped floor art rather than leaving it untouched", () => {
-    // The whole reason this knob exists: the floor sprite is a mid-grey deck, and cars were losing
-    // to it. If the shipped value ever goes back to a no-op, that regression is silent on screen.
-    expect(floorTintOf(ENVIRONMENT_FX.floorArt)).toBeLessThan(0xffffff);
+  it("ships as a no-op, so floor art draws exactly as authored", () => {
+    // Deliberately identity as shipped. The first cut darkened by 0.45 on the theory that a quieter
+    // ground makes cars pop — which is only true if the cars are LIGHTER than the floor. They are
+    // not: they are dark, desaturated sprites, so darkening the deck moved the floor toward their
+    // own value and cost the dark-on-light silhouette contrast that was doing the work.
+    //
+    // The knob stays because it is the right lever for a floor sprite that IS bright or busy enough
+    // to need it. It just does not ship on for the two decks in the game today.
+    expect(floorTintOf(ENVIRONMENT_FX.floorArt)).toBe(0xffffff);
   });
 });

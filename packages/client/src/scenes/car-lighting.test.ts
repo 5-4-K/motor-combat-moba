@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DRIVE_CONFIG } from "@motor-combat-moba/shared";
 import { ENVIRONMENT_FX } from "../fx/environment.js";
 import type { EnvironmentFx } from "../fx/environment.js";
 import {
@@ -261,14 +262,28 @@ describe("glowBandsFor", () => {
     expect(bands.reduce((sum, b) => sum + b.alpha, 0)).toBeCloseTo(0.5, 10);
   });
 
-  it("runs widest first, down to the footprint itself", () => {
-    // Widest first so each fill stacks toward the centre, and the last band sits exactly on the
-    // footprint — a single band therefore degenerates to a hard halo at the footprint's own size.
-    const bands = glowBandsFor(look({ glowAlpha: 0.5, glowBands: 4, glowSpread: 1.2 }));
+  it("runs widest first, down to the inner radius — never to the footprint", () => {
+    // Widest first so each fill stacks outward-in. The last band stops at `glowInner`, NOT at 1:
+    // stopping at 1 made the glow a filled disc the car sits inside, and since the art does not fill
+    // its hull, bright additive light bled through the gaps and haloed the edges. It read as the
+    // glow drawing OVER the car even though it is painted a whole layer below it.
+    const bands = glowBandsFor(
+      look({ glowAlpha: 0.5, glowBands: 4, glowSpread: 1.2, glowInner: 1.3 }),
+    );
     const scales = bands.map((b) => b.scale);
-    expect(scales[0]).toBeCloseTo(2.2, 10);
-    expect(scales.at(-1)).toBeCloseTo(1, 10);
+    expect(scales[0]).toBeCloseTo(2.5, 10);
+    expect(scales.at(-1)).toBeCloseTo(1.3, 10);
     for (let i = 1; i < scales.length; i += 1) expect(scales[i]!).toBeLessThan(scales[i - 1]!);
+  });
+
+  it("never lights the ground inside the car's own hull", () => {
+    // The property the inner radius exists for, stated against the HULL rather than the footprint:
+    // the footprint is 0.86 of the hull, so a band at scale 1 sits INSIDE the car. Every band must
+    // clear the hull or the glow is touching the car again.
+    const clearsHull = DRIVE_CONFIG.carWidth / (DRIVE_CONFIG.carWidth * LOOK.footprint);
+    for (const band of glowBandsFor(LOOK)) {
+      expect(band.scale).toBeGreaterThan(clearsHull);
+    }
   });
 
   it("reaches beyond the hull, or it is not a halo", () => {
