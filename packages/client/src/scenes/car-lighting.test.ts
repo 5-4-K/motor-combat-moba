@@ -3,6 +3,8 @@ import { ENVIRONMENT_FX } from "../fx/environment.js";
 import type { EnvironmentFx } from "../fx/environment.js";
 import {
   contactBandsFor,
+  glowBandsFor,
+  glowColorFor,
   placeOutline,
   rimOffsetFor,
   shadowBandsFor,
@@ -25,6 +27,7 @@ const FLAT = look({
   litStrength: 0,
   shadeStrength: 0,
   rimAlpha: 0,
+  glowAlpha: 0,
 });
 
 const luma = (rgb: number) =>
@@ -238,5 +241,68 @@ describe("rimOffsetFor", () => {
     const p = rimOffsetFor(1.2, look({ rimWidth: 0 }));
     expect(p.x).toBeCloseTo(0, 8);
     expect(p.y).toBeCloseTo(0, 8);
+  });
+});
+
+describe("glowBandsFor", () => {
+  it("draws nothing at all when the glow is off", () => {
+    // The same switch-it-off guarantee every other layer in this module keeps: `[]`, so the caller
+    // skips the fills entirely rather than stacking fully transparent ones.
+    expect(glowBandsFor(look({ glowAlpha: 0 }))).toEqual([]);
+  });
+
+  it("gives every band the same alpha, summing to the authored strength", () => {
+    // The stacking trick `shadowBandsFor` documents, for the same reason: the bands overlap, so the
+    // centre lands near `glowAlpha` and the outer edge — covered by one band — at a fraction of it.
+    // THAT gradient is the softness. Ramping the alphas as well double-counts it.
+    const bands = glowBandsFor(look({ glowAlpha: 0.5, glowBands: 5 }));
+    expect(bands).toHaveLength(5);
+    for (const band of bands) expect(band.alpha).toBeCloseTo(0.1, 10);
+    expect(bands.reduce((sum, b) => sum + b.alpha, 0)).toBeCloseTo(0.5, 10);
+  });
+
+  it("runs widest first, down to the footprint itself", () => {
+    // Widest first so each fill stacks toward the centre, and the last band sits exactly on the
+    // footprint — a single band therefore degenerates to a hard halo at the footprint's own size.
+    const bands = glowBandsFor(look({ glowAlpha: 0.5, glowBands: 4, glowSpread: 1.2 }));
+    const scales = bands.map((b) => b.scale);
+    expect(scales[0]).toBeCloseTo(2.2, 10);
+    expect(scales.at(-1)).toBeCloseTo(1, 10);
+    for (let i = 1; i < scales.length; i += 1) expect(scales[i]!).toBeLessThan(scales[i - 1]!);
+  });
+
+  it("reaches beyond the hull, or it is not a halo", () => {
+    // The point of the glow is the ring OUTSIDE the car's own silhouette. A shipped `glowSpread`
+    // that left every band inside the footprint would be invisible under the body and this whole
+    // layer would be dead weight.
+    expect(glowBandsFor(LOOK)[0]!.scale).toBeGreaterThan(1);
+  });
+
+  it("rounds a fractional band count and never returns zero bands while lit", () => {
+    expect(glowBandsFor(look({ glowBands: 3.4 }))).toHaveLength(3);
+    expect(glowBandsFor(look({ glowBands: 0 }))).toHaveLength(1);
+  });
+});
+
+describe("glowColorFor", () => {
+  it("is the player's own colour when the mix is zero", () => {
+    // Shipped near zero on purpose: the halo doubles as player ID, and mixing it toward white is
+    // exactly how that information gets thrown away.
+    expect(glowColorFor(RED, look({ glowColorMix: 0 }))).toBe(RED);
+  });
+
+  it("is white when the mix is one", () => {
+    expect(glowColorFor(RED, look({ glowColorMix: 1 }))).toBe(0xffffff);
+  });
+
+  it("brightens without ever leaving the channel range", () => {
+    const mixed = glowColorFor(RED, look({ glowColorMix: 0.4 }));
+    expect(luma(mixed)).toBeGreaterThan(luma(RED));
+    expect(luma(mixed)).toBeLessThan(luma(0xffffff));
+    for (const shift of [16, 8, 0]) {
+      const channel = (mixed >> shift) & 0xff;
+      expect(channel).toBeGreaterThanOrEqual(0);
+      expect(channel).toBeLessThanOrEqual(255);
+    }
   });
 });

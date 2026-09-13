@@ -27,6 +27,7 @@ const SECTION_ORDER: readonly EnvSection[] = [
   "occlusion",
   "lava",
   "floor",
+  "floorArt",
   "markings",
   "carBursts",
   "carLook",
@@ -41,6 +42,7 @@ const SECTION_LABELS: Record<EnvSection, string> = {
   occlusion: "Smoke occlusion",
   lava: "Lava field",
   floor: "Floor texture",
+  floorArt: "Floor art",
   markings: "Painted markings",
   carBursts: "Car burst scaling",
   carLook: "Car lighting",
@@ -97,6 +99,10 @@ export interface EnvPanelOptions {
  */
 function sectionSummary(section: EnvSection, overrides: EnvOverrides, hasFloorSprite: boolean): string {
   if (section === "floor" && hasFloorSprite) return "inert — this arena uses floor art";
+  // The exact mirror of the line above: `floorArt` tints the floor SPRITE, which an arena falling
+  // back to the generated asphalt never creates. Exactly one of the two groups is live per arena,
+  // and a group that silently does nothing is worse than one that says why.
+  if (section === "floorArt" && !hasFloorSprite) return "inert — this arena uses generated asphalt";
   const n = ENV_FIELDS.filter(
     (f) => f.section === section && overrides[envKey(f.section, f.name)] !== undefined,
   ).length;

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { resolveArenaFloor, type FloorTextureLookup } from "./arena-floor.js";
+import { floorTintOf, resolveArenaFloor, type FloorTextureLookup } from "./arena-floor.js";
+import { ENVIRONMENT_FX } from "../fx/environment.js";
+import type { EnvironmentFx } from "../fx/environment.js";
 import { arenaFloorKey } from "./asset-keys.js";
 
 /** Stands in for Phaser's TextureManager: every key it was given counts as loaded. */
@@ -23,5 +25,46 @@ describe("resolveArenaFloor", () => {
     const textures = loaded(arenaFloorKey("arena-02"));
     expect(resolveArenaFloor(textures, "arena-01")).toBeUndefined();
     expect(resolveArenaFloor(textures, "arena-02")?.key).toBe("arena.arena-02.floor");
+  });
+});
+
+const art = (over: Partial<EnvironmentFx["floorArt"]> = {}): EnvironmentFx["floorArt"] => ({
+  ...ENVIRONMENT_FX.floorArt,
+  ...over,
+});
+
+describe("floorTintOf", () => {
+  it("is a no-op white at the shipped-off setting", () => {
+    // The switch-it-off guarantee: `setTint(0xffffff)` multiplies by one, which is pixel-identical
+    // to the untinted draw the floor sprite shipped with. The panel must be able to get back here.
+    expect(floorTintOf(art({ darken: 0, tint: 0xffffff }))).toBe(0xffffff);
+  });
+
+  it("scales every channel down as it darkens", () => {
+    expect(floorTintOf(art({ darken: 0.5, tint: 0xffffff }))).toBe(0x808080);
+    expect(floorTintOf(art({ darken: 1, tint: 0xffffff }))).toBe(0x000000);
+  });
+
+  it("carries the tint colour through when nothing is darkened", () => {
+    expect(floorTintOf(art({ darken: 0, tint: 0x8899aa }))).toBe(0x8899aa);
+  });
+
+  it("composes the tint with the darkening", () => {
+    // Two knobs with distinct jobs — `tint` picks the deck's temperature, `darken` picks its value
+    // — and they multiply, so cooling a floor does not also dim it by accident.
+    expect(floorTintOf(art({ darken: 0.5, tint: 0x8899aa }))).toBe(0x444d55);
+  });
+
+  it("clamps a darken outside 0..1 rather than wrapping the channels", () => {
+    // A negative darken would otherwise scale channels ABOVE 255 and overflow into the next byte,
+    // turning a brightening mistake into a hue change.
+    expect(floorTintOf(art({ darken: -1, tint: 0xffffff }))).toBe(0xffffff);
+    expect(floorTintOf(art({ darken: 2, tint: 0xffffff }))).toBe(0x000000);
+  });
+
+  it("darkens the shipped floor art rather than leaving it untouched", () => {
+    // The whole reason this knob exists: the floor sprite is a mid-grey deck, and cars were losing
+    // to it. If the shipped value ever goes back to a no-op, that regression is silent on screen.
+    expect(floorTintOf(ENVIRONMENT_FX.floorArt)).toBeLessThan(0xffffff);
   });
 });

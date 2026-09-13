@@ -56,12 +56,37 @@ a test:
   lands near the authored number and the edge at a fraction of it — that gradient IS the softness.
   Ramping the alphas too accumulated to ~0.75 and read as a hole in the road.
 
+**The underglow is the one layer here that is not about volume — it is about being seen at all.**
+Everything above was tuned against the generated asphalt (`floor.baseGrey` 50, near-black), and it
+reads beautifully there. An arena drawing a **floor sprite** gives a car a mid-grey, scratch-covered
+deck to survive on instead: the value contrast largely goes, and a rim light one or two units wide
+competes with highlights the art itself is full of. `glowBandsFor`/`glowColorFor` answer that with an
+additive halo of the car's OWN player colour, so the brightest thing near a car is the car — and the
+halo says whose it is at the same time, which is why `glowColorMix` ships near 0 rather than washing
+it to white. Two notes on it: it is **radial, so alone in this file it takes no rotation** (there is
+nothing to undo, and a halo that changed shape with heading would leak a car's facing); and its bands
+carry equal alphas for the same stacking reason the shadow's do — an early `glowBands: 5` left a
+visible step at the outer ring that read as an RTS selection circle rather than light, which 8 fixed.
+
+The floor sprite itself is knocked back by `ENVIRONMENT_FX.floorArt` (`floorTintOf` in
+`assets/arena-floor.ts`), the exact mirror of the `floor.*` group: one of the two is live per arena
+and the panel says which. Floor art is authored to look good as a picture — mid-range values, detail
+everywhere — and gameplay wants the ground to be the quietest thing on screen. The camera `grade`
+cannot do this job: it runs on the whole world camera, so it moves the cars and the floor together
+and creates no separation by construction.
+
 The shadows draw on a **shared layer at `CAR_SHADOW_DEPTH`, not inside each car's container**: all
 cars sit at `CAR_DEPTH` and Phaser breaks that tie by insertion order, so a parented shadow would
-draw over another car's body every time two of them overlap. The gradient tint lives in
+draw over another car's body every time two of them overlap. The glow gets its own shared layer just
+below them at `CAR_GLOW_DEPTH` — **below, not above, deliberately**: the halo and the drop shadow
+cover almost the same ground, and additive light over the shadow dissolves the one cue doing the most
+work to sit a car on a mid-value floor. One shared layer also means `ADD` is set **once**, so the
+whole roster's glow costs one batch flush a frame rather than the per-instance `setBlendMode` this
+file warns about for shots. The gradient tint lives in
 `applyCarSprite` rather than in `ArenaScene`, because that helper is shared with `?dev=assets` so the
 tool cannot drift from the arena. Zeroing every strength in `carLook` restores the old flat drawing
-exactly, and the panel's "Car lighting" section tunes all of it live.
+exactly — `glowAlpha` included, and `floorArt.darken: 0` with a white tint likewise multiplies by one
+— and the panel's "Car lighting" and "Floor art" sections tune all of it live.
 
 `?debug=1` draws the car OBB hitbox.
 

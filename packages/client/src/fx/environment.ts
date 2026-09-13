@@ -179,6 +179,53 @@ export interface EnvironmentFx {
     readonly rimColor: number;
     /** How far that copy is nudged, in world units. Effectively the rim's thickness. */
     readonly rimWidth: number;
+    /**
+     * The additive underglow: a soft halo of the car's OWN player colour, thrown onto the floor
+     * around it.
+     *
+     * This is the one part of `carLook` that is not about giving a car volume — it is about
+     * separating it from the ground at all. The rest of this section was tuned against the
+     * generated asphalt (`floor.baseGrey` 50, near-black); an arena drawing a mid-grey floor
+     * sprite gives a car almost no value contrast to survive on, and a rim light one or two units
+     * wide competes with the scratch highlights in the art itself.
+     *
+     * Zero is off, and off is pixel-identical to the drawing that shipped before this existed.
+     */
+    readonly glowAlpha: number;
+    /**
+     * How much wider the outermost glow band is than the shadow footprint, as a fraction. This is
+     * what puts the halo OUTSIDE the car's own silhouette — at 0 every band sits on the footprint,
+     * hidden under the body, and the layer does nothing visible at all.
+     */
+    readonly glowSpread: number;
+    /** How many nested bands fake the falloff. MUST be a whole number; 1 is a hard-edged halo. */
+    readonly glowBands: number;
+    /**
+     * How far the glow is mixed toward white, 0..1, before it is drawn.
+     *
+     * Shipped near 0 deliberately: the halo is the player's own colour, so it reads as whose car
+     * that is at the same time as making the car visible. Pushing this to 1 buys a slightly
+     * brighter light and throws that second job away.
+     */
+    readonly glowColorMix: number;
+  };
+  /**
+   * How an arena's FLOOR ART is knocked back — the sprite half of the floor, never the generated
+   * asphalt, which has its own `floor.*` group and is never drawn for the same arena (AS23).
+   *
+   * The two groups are exact mirrors: for a sprite arena `floor.*` is inert and this is live; for a
+   * generated arena this is inert and `floor.*` is live. The panel already says which it is.
+   *
+   * **Why it exists.** A floor sprite is authored to look good as a picture, which means it uses the
+   * middle of the value range and fills it with detail. Gameplay needs the opposite — the ground
+   * should be the quietest, darkest thing on screen so the cars and shots on top of it read. One
+   * multiply gets the art's design back without repainting the PNG.
+   */
+  readonly floorArt: {
+    /** The multiply colour at full brightness. `0xffffff` leaves the art's own hue alone. */
+    readonly tint: number;
+    /** How far the art is pulled toward black, 0..1. 0 is the untinted draw, exactly. */
+    readonly darken: number;
   };
 }
 
@@ -279,5 +326,10 @@ export const ENVIRONMENT_FX: EnvironmentFx = {
     rimAlpha: 0.55,
     rimColor: 0xfff1d6,
     rimWidth: 1.5,
+    glowAlpha: 0.45,
+    glowSpread: 1.3,
+    glowBands: 8,
+    glowColorMix: 0.15,
   }),
+  floorArt: Object.freeze({ tint: 0xffffff, darken: 0.45 }),
 };
