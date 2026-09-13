@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   AIR_FX_DEPTH,
-  CAR_GLOW_DEPTH,
   CAR_SHADOW_DEPTH,
   DECAL_DEPTH,
   FLOOR_DEPTH,
@@ -70,19 +69,6 @@ describe("fx depth constants", () => {
     // Rubber and scorch sit under a lava field; ground sparks throw over it; cars drive on it.
     expect(LAVA_DEPTH).toBeGreaterThan(DECAL_DEPTH);
     expect(LAVA_DEPTH).toBeLessThan(GROUND_FX_DEPTH);
-  });
-
-  it("puts a car's underglow BELOW its own shadows, so the shadow still darkens", () => {
-    // The glow ring and the drop shadow cover almost the same ground. Additive light drawn OVER the
-    // shadow cancels it, and against a mid-value floor sprite that contact shadow is the cue doing
-    // the most work — so the glow goes under, and the shadow darkens on top of it.
-    expect(CAR_GLOW_DEPTH).toBeLessThan(CAR_SHADOW_DEPTH);
-    // Still above the ground it lights: a glow under the lava crust or the decals would be hidden
-    // by them rather than washing across them.
-    expect(CAR_GLOW_DEPTH).toBeGreaterThan(LAVA_DEPTH);
-    expect(CAR_GLOW_DEPTH).toBeGreaterThan(DECAL_DEPTH);
-    // And below the shots, which must read over a car's own underglow.
-    expect(CAR_GLOW_DEPTH).toBeLessThan(SHOT_DEPTH);
   });
 
   it("puts additive glow over the shots and under the cars", () => {

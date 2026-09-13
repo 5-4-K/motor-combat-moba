@@ -56,53 +56,42 @@ a test:
   lands near the authored number and the edge at a fraction of it — that gradient IS the softness.
   Ramping the alphas too accumulated to ~0.75 and read as a hole in the road.
 
-**The underglow is the one layer here that is not about volume — it is about being seen at all.**
-`glowBandsFor`/`glowColorFor` ring a car with an additive halo of its OWN player colour, so the halo
-says whose car it is at the same time as marking where it is — which is why `glowColorMix` ships near
-0 rather than washing to white. Three things about it are load-bearing:
-
-- **It is radial, so alone in this file it takes no rotation.** There is nothing to undo, and a halo
-  that changed shape with heading would leak a car's facing.
-- **Its bands carry equal alphas**, the same stacking trick the shadow's do. An early `glowBands: 5`
-  left a visible step at the outer ring that read as an RTS selection circle rather than light; 8
-  fixed it.
-- **`glowInner` keeps it a RING, never a disc**, and this one was learned the hard way. The first cut
-  ran the bands down to scale 1 — the footprint, which is 0.86 of the hull — so each car sat inside a
-  filled pool of light. The sprites do not fill their hull, so that light bled through the gaps in
-  the art and haloed every edge. It reads unmistakably as the glow drawing OVER the car, and it is
-  not: the glow is painted a whole layer below (`CAR_GLOW_DEPTH` −6.6, cars at 0). **Do not "fix"
-  that symptom by moving depths** — nothing is wrong with the ordering. Light that starts outside the
-  car cannot wash it, and `glowInner` is what holds it there.
-
 `ENVIRONMENT_FX.floorArt` (`floorTintOf` in `assets/arena-floor.ts`) can knock a floor sprite back
 through one multiply. It is the exact mirror of the `floor.*` group: one of the two is live per arena
-and the panel says which. **It ships as a no-op (`darken: 0`), and the reason is worth keeping.** It
-first shipped at `0.45` on the theory that a quieter ground makes cars pop — which only holds if the
-cars are LIGHTER than the floor. They are not: they are dark, desaturated sprites, so darkening the
-deck moved the floor *toward* their own value and cost the dark-on-light silhouette contrast that was
-actually doing the work. On these decks the cars read best against the art at full brightness. The
-knob stays because it is the right lever for a floor sprite that is genuinely too bright or too busy
-— it just is not needed by the two in the game today.
+and the panel says which. **It ships as a no-op (`darken: 0`)**, so floor art draws exactly as
+authored.
 
-**Which lever to reach for depends on which way the contrast runs**, and this is the thing to get
-right before tuning. On a DARK floor a car is lighter than its ground, so the additive glow is what
-separates it. On a BRIGHT floor the car is the dark shape, its silhouette is the signal, and adding
-light around it erodes exactly that — there the lever is the DARK side: `shadowAlpha` and
-`shadowSpread`. Reaching for the glow on a bright deck fights the contrast instead of using it. The
-camera `grade` can never help either way: it runs on the whole world camera, so it moves the cars and
-the floor together and creates no separation by construction.
+**A car glow was tried on 2026-09-13 and removed the same day. Do not add it back without new
+evidence.** An additive halo of the car's player colour, drawn on its own layer below the cars. The
+reasoning was that a car needs to be the brightest thing near itself; on the arena floor art it made
+readability WORSE, twice, on the screen. Two lessons are worth keeping, because both are cheap to
+rediscover the hard way:
+
+- **Adding light around a DARK car erodes the thing making it visible.** These sprites are dark and
+  desaturated. On a mid-value or bright deck their silhouette IS the signal, and lifting the ground
+  right around them shrinks exactly that contrast. `floorArt.darken` failed for the mirror-image
+  reason — it ships at 0 now, after shipping at 0.45 on the theory that a quieter ground makes cars
+  pop, which only holds if the cars are LIGHTER than their floor.
+- **A halo that pools UNDER a car washes its art out.** The glow's bands first ran down to the shadow
+  footprint (0.86 of the hull), so each car sat inside a filled disc of light. The sprites do not fill
+  their hull, so the light bled through the gaps in the art. It read unmistakably as the glow drawing
+  over the car, and it was not — it was a whole layer below. An inner radius outside the hull fixed
+  that symptom, and the halo still hurt, which is what settled the question.
+
+**What actually works here is brightening the CAR, not the ground**: `litStrength` ships at 1, so the
+lit side of every body runs to white and the car carries its own contrast. `shadowAlpha` ships at 0
+with `contactAlpha` 0.16 left on — no cast shadow, just the tight occlusion that sits a car down.
+Those two plus `lightAngle` (-180, light from screen-left) are the levers for a "cars are hard to
+see" complaint. Watch one thing at `litStrength: 1`: the lit corners run fully to white, which can
+drain the player colour that says whose car it is — if colours stop reading, that is the knob.
 
 The shadows draw on a **shared layer at `CAR_SHADOW_DEPTH`, not inside each car's container**: all
 cars sit at `CAR_DEPTH` and Phaser breaks that tie by insertion order, so a parented shadow would
-draw over another car's body every time two of them overlap. The glow gets its own shared layer just
-below them at `CAR_GLOW_DEPTH` — **below, not above, deliberately**: the halo and the drop shadow
-overlap, and additive light over the shadow dissolves the cue that sits a car on the ground. One shared layer also means `ADD` is set **once**, so the
-whole roster's glow costs one batch flush a frame rather than the per-instance `setBlendMode` this
-file warns about for shots. The gradient tint lives in
+draw over another car's body every time two of them overlap. The gradient tint lives in
 `applyCarSprite` rather than in `ArenaScene`, because that helper is shared with `?dev=assets` so the
 tool cannot drift from the arena. Zeroing every strength in `carLook` restores the old flat drawing
-exactly — `glowAlpha` included, and `floorArt.darken: 0` with a white tint multiplies by one, which
-is what it ships at — and the panel's "Car lighting" and "Floor art" sections tune all of it live.
+exactly, and `floorArt.darken: 0` with a white tint multiplies by one, which is what it ships at —
+and the panel's "Car lighting" and "Floor art" sections tune all of it live.
 
 `?debug=1` draws the car OBB hitbox.
 

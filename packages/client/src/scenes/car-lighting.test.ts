@@ -1,11 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { DRIVE_CONFIG } from "@motor-combat-moba/shared";
 import { ENVIRONMENT_FX } from "../fx/environment.js";
 import type { EnvironmentFx } from "../fx/environment.js";
 import {
   contactBandsFor,
-  glowBandsFor,
-  glowColorFor,
   placeOutline,
   rimOffsetFor,
   shadowBandsFor,
@@ -28,7 +25,6 @@ const FLAT = look({
   litStrength: 0,
   shadeStrength: 0,
   rimAlpha: 0,
-  glowAlpha: 0,
 });
 
 const luma = (rgb: number) =>
@@ -124,7 +120,9 @@ describe("shadowBandsFor / contactBandsFor", () => {
   });
 
   it("orders bands widest-first so later fills stack toward the centre", () => {
-    const bands = shadowBandsFor(look({ shadowBands: 4 }));
+    // Alpha stated explicitly, not inherited: `shadowAlpha` SHIPS AT 0 (no cast shadow, just the
+    // contact occlusion), so a case that leans on the shipped value gets `[]` and asserts nothing.
+    const bands = shadowBandsFor(look({ shadowBands: 4, shadowAlpha: 0.3 }));
     expect(bands).toHaveLength(4);
     for (let i = 1; i < bands.length; i += 1) {
       expect(bands[i]!.scale).toBeLessThan(bands[i - 1]!.scale);
@@ -132,7 +130,7 @@ describe("shadowBandsFor / contactBandsFor", () => {
   });
 
   it("spans exactly from the softness edge down to the hull", () => {
-    const bands = shadowBandsFor(look({ shadowBands: 5, shadowSpread: 0.4 }));
+    const bands = shadowBandsFor(look({ shadowBands: 5, shadowSpread: 0.4, shadowAlpha: 0.3 }));
     expect(bands[0]!.scale).toBeCloseTo(1.4, 8);
     expect(bands.at(-1)!.scale).toBeCloseTo(1, 8);
   });
@@ -242,82 +240,5 @@ describe("rimOffsetFor", () => {
     const p = rimOffsetFor(1.2, look({ rimWidth: 0 }));
     expect(p.x).toBeCloseTo(0, 8);
     expect(p.y).toBeCloseTo(0, 8);
-  });
-});
-
-describe("glowBandsFor", () => {
-  it("draws nothing at all when the glow is off", () => {
-    // The same switch-it-off guarantee every other layer in this module keeps: `[]`, so the caller
-    // skips the fills entirely rather than stacking fully transparent ones.
-    expect(glowBandsFor(look({ glowAlpha: 0 }))).toEqual([]);
-  });
-
-  it("gives every band the same alpha, summing to the authored strength", () => {
-    // The stacking trick `shadowBandsFor` documents, for the same reason: the bands overlap, so the
-    // centre lands near `glowAlpha` and the outer edge — covered by one band — at a fraction of it.
-    // THAT gradient is the softness. Ramping the alphas as well double-counts it.
-    const bands = glowBandsFor(look({ glowAlpha: 0.5, glowBands: 5 }));
-    expect(bands).toHaveLength(5);
-    for (const band of bands) expect(band.alpha).toBeCloseTo(0.1, 10);
-    expect(bands.reduce((sum, b) => sum + b.alpha, 0)).toBeCloseTo(0.5, 10);
-  });
-
-  it("runs widest first, down to the inner radius — never to the footprint", () => {
-    // Widest first so each fill stacks outward-in. The last band stops at `glowInner`, NOT at 1:
-    // stopping at 1 made the glow a filled disc the car sits inside, and since the art does not fill
-    // its hull, bright additive light bled through the gaps and haloed the edges. It read as the
-    // glow drawing OVER the car even though it is painted a whole layer below it.
-    const bands = glowBandsFor(
-      look({ glowAlpha: 0.5, glowBands: 4, glowSpread: 1.2, glowInner: 1.3 }),
-    );
-    const scales = bands.map((b) => b.scale);
-    expect(scales[0]).toBeCloseTo(2.5, 10);
-    expect(scales.at(-1)).toBeCloseTo(1.3, 10);
-    for (let i = 1; i < scales.length; i += 1) expect(scales[i]!).toBeLessThan(scales[i - 1]!);
-  });
-
-  it("never lights the ground inside the car's own hull", () => {
-    // The property the inner radius exists for, stated against the HULL rather than the footprint:
-    // the footprint is 0.86 of the hull, so a band at scale 1 sits INSIDE the car. Every band must
-    // clear the hull or the glow is touching the car again.
-    const clearsHull = DRIVE_CONFIG.carWidth / (DRIVE_CONFIG.carWidth * LOOK.footprint);
-    for (const band of glowBandsFor(LOOK)) {
-      expect(band.scale).toBeGreaterThan(clearsHull);
-    }
-  });
-
-  it("reaches beyond the hull, or it is not a halo", () => {
-    // The point of the glow is the ring OUTSIDE the car's own silhouette. A shipped `glowSpread`
-    // that left every band inside the footprint would be invisible under the body and this whole
-    // layer would be dead weight.
-    expect(glowBandsFor(LOOK)[0]!.scale).toBeGreaterThan(1);
-  });
-
-  it("rounds a fractional band count and never returns zero bands while lit", () => {
-    expect(glowBandsFor(look({ glowBands: 3.4 }))).toHaveLength(3);
-    expect(glowBandsFor(look({ glowBands: 0 }))).toHaveLength(1);
-  });
-});
-
-describe("glowColorFor", () => {
-  it("is the player's own colour when the mix is zero", () => {
-    // Shipped near zero on purpose: the halo doubles as player ID, and mixing it toward white is
-    // exactly how that information gets thrown away.
-    expect(glowColorFor(RED, look({ glowColorMix: 0 }))).toBe(RED);
-  });
-
-  it("is white when the mix is one", () => {
-    expect(glowColorFor(RED, look({ glowColorMix: 1 }))).toBe(0xffffff);
-  });
-
-  it("brightens without ever leaving the channel range", () => {
-    const mixed = glowColorFor(RED, look({ glowColorMix: 0.4 }));
-    expect(luma(mixed)).toBeGreaterThan(luma(RED));
-    expect(luma(mixed)).toBeLessThan(luma(0xffffff));
-    for (const shift of [16, 8, 0]) {
-      const channel = (mixed >> shift) & 0xff;
-      expect(channel).toBeGreaterThanOrEqual(0);
-      expect(channel).toBeLessThanOrEqual(255);
-    }
   });
 });

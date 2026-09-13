@@ -148,7 +148,8 @@ the table moving. Feel complaints ("medium is too hard to hit") go through the
 **The playground tunes two kinds of VFX, and they are different shapes.** Per-weapon bursts live in
 `fx/table.ts` and are edited as a 2x4 grid; the environment — grade, vignette, shake, hit-stop,
 decals, occlusion, lava, the generated floor, the floor ART's knock-back (shipped as a
-no-op), the painted markings, car burst scaling and how a car is lit — lives in `fx/environment.ts` as
+no-op), the painted markings, car burst scaling and how a car is lit (a car GLOW was tried and
+removed on 2026-09-13 — `packages/client/CLAUDE.md` says why, and it is not a gap to fill) — lives in `fx/environment.ts` as
 one `ENVIRONMENT_FX` table and is edited as a flat list of sections. Both reach the renderer the
 same way: a resolver injected by `ArenaScene` **only for a playground room**, so a shipped arena or
 a practice session renders the shipped tables no matter what is saved in that browser. `floor.*` is

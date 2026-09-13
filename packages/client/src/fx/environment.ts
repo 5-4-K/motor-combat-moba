@@ -179,46 +179,6 @@ export interface EnvironmentFx {
     readonly rimColor: number;
     /** How far that copy is nudged, in world units. Effectively the rim's thickness. */
     readonly rimWidth: number;
-    /**
-     * The additive underglow: a soft halo of the car's OWN player colour, thrown onto the floor
-     * around it.
-     *
-     * This is the one part of `carLook` that is not about giving a car volume — it is about
-     * separating it from the ground at all. The rest of this section was tuned against the
-     * generated asphalt (`floor.baseGrey` 50, near-black); an arena drawing a mid-grey floor
-     * sprite gives a car almost no value contrast to survive on, and a rim light one or two units
-     * wide competes with the scratch highlights in the art itself.
-     *
-     * Zero is off, and off is pixel-identical to the drawing that shipped before this existed.
-     */
-    readonly glowAlpha: number;
-    /**
-     * How much wider the outermost glow band is than the shadow footprint, as a fraction. This is
-     * what puts the halo OUTSIDE the car's own silhouette — at 0 every band sits on the footprint,
-     * hidden under the body, and the layer does nothing visible at all.
-     */
-    readonly glowSpread: number;
-    /** How many nested bands fake the falloff. MUST be a whole number; 1 is a hard-edged halo. */
-    readonly glowBands: number;
-    /**
-     * Where the INNERMOST band sits, as a multiple of the shadow footprint. Must clear the hull
-     * (footprint is 0.86 of it, so anything at or below ~1.17 is inside the car).
-     *
-     * **This is what makes the glow a ring rather than a disc, and it is load-bearing.** The first
-     * cut ran the bands down to 1 — the footprint — so the car sat INSIDE a filled pool of light.
-     * The sprites do not fill their hull, so that light bled through the gaps in the art and haloed
-     * every edge, and it read as the glow drawing over the car even though it is painted a whole
-     * layer below it (`CAR_GLOW_DEPTH`). Light that starts outside the car cannot do that.
-     */
-    readonly glowInner: number;
-    /**
-     * How far the glow is mixed toward white, 0..1, before it is drawn.
-     *
-     * Shipped near 0 deliberately: the halo is the player's own colour, so it reads as whose car
-     * that is at the same time as making the car visible. Pushing this to 1 buys a slightly
-     * brighter light and throws that second job away.
-     */
-    readonly glowColorMix: number;
   };
   /**
    * How an arena's FLOOR ART is knocked back — the sprite half of the floor, never the generated
@@ -323,25 +283,20 @@ export const ENVIRONMENT_FX: EnvironmentFx = {
   // expects without being able to say why. The strengths are deliberately restrained: the job is to
   // make a car look MADE of something, not to turn the arena into a diorama.
   carLook: Object.freeze({
-    lightAngle: -120,
+    lightAngle: -180,
     shadowOffset: 5,
-    shadowAlpha: 0.34,
+    shadowAlpha: 0,
     shadowSpread: 0.5,
     shadowBands: 5,
     shadowColor: 0x0a0908,
     footprint: 0.86,
     contactAlpha: 0.16,
     contactScale: 0.7,
-    litStrength: 0.26,
+    litStrength: 1,
     shadeStrength: 0.2,
     rimAlpha: 0.55,
     rimColor: 0xfff1d6,
     rimWidth: 1.5,
-    glowAlpha: 0.45,
-    glowSpread: 1.3,
-    glowBands: 8,
-    glowInner: 1.35,
-    glowColorMix: 0.15,
   }),
   floorArt: Object.freeze({ tint: 0xffffff, darken: 0 }),
 };

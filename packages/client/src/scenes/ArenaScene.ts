@@ -57,7 +57,7 @@ import { liveEnvResolver } from "../fx/env-store.js";
 import type { EnvResolver } from "../fx/env-tuning.js";
 import type { FxEvent } from "../fx/events.js";
 import { FX_TEXTURE_KEYS, FxLayer } from "../fx/layer.js";
-import { CAR_GLOW_DEPTH, CAR_SHADOW_DEPTH, FLOOR_DEPTH, GLOW_DEPTH } from "../fx/depths.js";
+import { CAR_SHADOW_DEPTH, FLOOR_DEPTH, GLOW_DEPTH } from "../fx/depths.js";
 import { liveFxResolver } from "../fx/override-store.js";
 import type { EmitterSpec } from "../fx/emitters.js";
 import { isDebugEnabled } from "../config/client-mode.js";
@@ -91,8 +91,6 @@ import {
 } from "./car-visual.js";
 import {
   contactBandsFor,
-  glowBandsFor,
-  glowColorFor,
   placeOutline,
   rimOffsetFor,
   shadowBandsFor,
@@ -749,12 +747,6 @@ export class ArenaScene extends Phaser.Scene {
   /** Every car's shadow, on one shared layer below every car. See `CAR_SHADOW_DEPTH`. */
   private shadowGfx: Phaser.GameObjects.Graphics | undefined;
   /**
-   * Every car's additive underglow, on one shared layer below the shadows. See `CAR_GLOW_DEPTH` for
-   * why it sits under them rather than over, and why one shared layer is what keeps the `ADD` blend
-   * to a single batch flush per frame instead of one per car.
-   */
-  private carGlowGfx: Phaser.GameObjects.Graphics | undefined;
-  /**
    * `carOutlinePoints` per chassis, which is constant per chassis and rebuilt nowhere.
    *
    * Memoised because the shadow pass asks for it once per band per car per frame, and an ellipse
@@ -1026,13 +1018,6 @@ export class ArenaScene extends Phaser.Scene {
     this.arrowGfx = this.add.graphics().setDepth(ARROW_DEPTH);
     this.maneuverGfx = this.add.graphics().setDepth(MANEUVER_DEPTH);
     this.shadowGfx = this.add.graphics().setDepth(CAR_SHADOW_DEPTH);
-    // `ADD` set ONCE, on the one object the whole roster's glow is drawn into. Per-instance blend
-    // switching is the thing `packages/client/CLAUDE.md` warns about — it flushes the batch, turning
-    // one draw call into one per car — and a shared layer sidesteps it entirely.
-    this.carGlowGfx = this.add
-      .graphics()
-      .setDepth(CAR_GLOW_DEPTH)
-      .setBlendMode(Phaser.BlendModes.ADD);
     this.hudGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_BOX_DEPTH);
     this.hudSweepGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_SWEEP_DEPTH);
     this.rosterGfx = this.add.graphics().setScrollFactor(0).setDepth(HUD_BOX_DEPTH);
@@ -1565,8 +1550,6 @@ export class ArenaScene extends Phaser.Scene {
     this.maneuverGfx?.destroy();
     this.maneuverGfx = undefined;
     this.shadowGfx = undefined;
-    this.carGlowGfx?.destroy();
-    this.carGlowGfx = undefined;
     this.outlines.clear();
     // Here rather than in `onShutdown`, per the doc comment above: `create` calls this too, so a
     // shutdown-only destroy would leave the previous layer's four emitters (and their render
@@ -1897,10 +1880,8 @@ export class ArenaScene extends Phaser.Scene {
     const arrow = this.arrowGfx;
     const maneuver = this.maneuverGfx;
     const shadow = this.shadowGfx;
-    const carGlow = this.carGlowGfx;
     hp?.clear();
     shadow?.clear();
-    carGlow?.clear();
     lock?.clear();
     // Cleared here and refilled below, so the first frame after the countdown draws nothing at all:
     // the arrow going away is the absence of a draw call, not an animation that has to be stopped.
@@ -1962,7 +1943,7 @@ export class ArenaScene extends Phaser.Scene {
 
       this.syncCar(sessionId, player, pose);
       this.cars.get(sessionId)?.setAlpha(alpha);
-      this.drawCarLook(shadow, carGlow, sessionId, player.carId, player.colorId, pose, alpha);
+      this.drawCarLook(shadow, sessionId, player.carId, player.colorId, pose, alpha);
       poses.set(sessionId, pose);
       teams.set(sessionId, player.team === 1 ? 1 : 0);
       if (hp && player.alive) {
@@ -2125,7 +2106,6 @@ export class ArenaScene extends Phaser.Scene {
    */
   private drawCarLook(
     shadow: Phaser.GameObjects.Graphics | undefined,
-    carGlow: Phaser.GameObjects.Graphics | undefined,
     sessionId: string,
     carId: string,
     colorId: number,
@@ -2149,17 +2129,6 @@ export class ArenaScene extends Phaser.Scene {
       this.outlines.set(key, outline);
     }
     const shape = outline;
-
-    if (carGlow) {
-      // The underglow, on its own additive layer BELOW the shadows — so the shadow drawn next
-      // darkens on top of it rather than being dissolved by it (see `CAR_GLOW_DEPTH`). Centred and
-      // un-rotated: a halo is radial, so unlike the tint and the rim there is no heading to undo.
-      const glowFill = glowColorFor(carFillOf(colorId), look);
-      for (const band of glowBandsFor(look)) {
-        carGlow.fillStyle(glowFill, band.alpha * alpha);
-        carGlow.fillPoints(pts(placeOutline(shape, band.scale, pose.angle, pose.x, pose.y)), true);
-      }
-    }
 
     if (shadow) {
       // The drop shadow first, offset away from the light; then the contact shadow squarely under

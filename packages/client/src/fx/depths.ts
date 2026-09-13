@@ -23,24 +23,6 @@ export const DECAL_DEPTH = -8;
 export const LAVA_DEPTH = -7;
 
 /**
- * Every car's additive underglow, on one shared layer beneath every car's shadows.
- *
- * **Below `CAR_SHADOW_DEPTH`, not above it, and that is the whole decision.** The glow ring and the
- * drop shadow cover almost exactly the same ground. Additive light drawn OVER the shadow cancels it
- * — and against a mid-value floor sprite that contact shadow is the cue doing the most work to sit
- * the car down. Under it, the shadow darkens on top of the glow, which is also what a real emissive
- * skirt does: it lights the floor around the car, not the shadow under it.
- *
- * Still above the decals and the lava crust, so the glow washes ACROSS the ground it lights rather
- * than being painted over by it, and below `SHOT_DEPTH` so a shot reads over a car's own glow.
- *
- * A shared layer for the same reason the shadows use one — see `CAR_SHADOW_DEPTH` — with one extra
- * pay-off: `ADD` blend is set once on this single `Graphics`, so the whole roster's glow costs one
- * batch flush a frame rather than one per car.
- */
-export const CAR_GLOW_DEPTH = -6.6;
-
-/**
  * Every car's drop and contact shadow, on one shared layer beneath every car.
  *
  * A shared layer rather than a child of each car's own container, and that is load-bearing: all six
