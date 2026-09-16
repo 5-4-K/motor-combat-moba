@@ -1,4 +1,5 @@
 import { DEATH_FADE_MS, TICK_RATE_HZ } from "@motor-combat-moba/shared";
+import { carTintOverrides } from "../fx/car-tint.js";
 import { COLOR_TABLE, DEFAULT_CAR_ID, isCarId, type CarId } from "@motor-combat-moba/shared";
 
 /** How a chassis is drawn. One per `CAR_TABLE` entry — the table is the source of truth, not this. */
@@ -33,6 +34,21 @@ export function carShapeOf(carId: string): CarShape {
 export function carFillOf(colorId: number): number {
   const entry = COLOR_TABLE.find((color) => color.colorId === colorId) ?? COLOR_TABLE[0];
   return Number.parseInt(entry.hex.slice(1), 16);
+}
+
+/**
+ * The colour to actually paint THIS car, which is `carFillOf` unless the playground is overriding
+ * this one car's tint.
+ *
+ * Every `carFillOf` caller in `ArenaScene` goes through here instead, so the body, the dash ghost
+ * and the roster swatch cannot disagree about who is who — the property the swatch's own comment
+ * already claims. Outside a playground room the map is empty and this IS `carFillOf`, byte for byte.
+ *
+ * Keyed by session id rather than `colorId` on purpose; `fx/car-tint.ts` says why.
+ */
+export function carFillFor(sessionId: string, colorId: number): number {
+  const override = carTintOverrides()[sessionId];
+  return override ?? carFillOf(colorId);
 }
 
 /**

@@ -114,6 +114,7 @@ describe("encodeStored / decodeStored", () => {
       view: { showHitbox: true },
       vfx: {},
       env: {},
+      carTint: {},
     };
     expect(decodeStored(encodeStored(stored))).toEqual(stored);
   });
@@ -125,6 +126,7 @@ describe("encodeStored / decodeStored", () => {
       view: defaultStoredView(),
       vfx: {},
       env: {},
+      carTint: {},
     };
     expect(decodeStored(encodeStored(stored))).toEqual(stored);
   });
@@ -139,6 +141,7 @@ describe("loadStored / saveStored with an injected storage", () => {
       view: defaultStoredView(),
       vfx: {},
       env: {},
+      carTint: {},
     };
     saveStored(stored, storage);
     expect(storage.getItem(PLAYGROUND_STORAGE_KEY)).toBe(encodeStored(stored));
@@ -153,6 +156,7 @@ describe("loadStored / saveStored with an injected storage", () => {
       view: defaultStoredView(),
       vfx: {},
       env: {},
+      carTint: {},
     });
   });
 
@@ -164,6 +168,7 @@ describe("loadStored / saveStored with an injected storage", () => {
         view: defaultStoredView(),
         vfx: {},
         env: {},
+        carTint: {},
       }),
     ).not.toThrow();
   });
@@ -175,6 +180,7 @@ describe("loadStored / saveStored with an injected storage", () => {
       view: defaultStoredView(),
       vfx: {},
       env: {},
+      carTint: {},
     });
   });
 });
@@ -269,6 +275,7 @@ describe("the stored vfx section (PG54)", () => {
       view: { showHitbox: false },
       vfx: { "lance.muzzle.fire.count": 40, "predator.muzzle.smoke.soot": true },
       env: {},
+      carTint: {},
     };
     expect(decodeStored(encodeStored(stored)).vfx).toEqual(stored.vfx);
   });
@@ -352,5 +359,39 @@ describe("sanitizeStoredEnv (EV32)", () => {
   it("loads a pre-existing blob that has no env section as empty", () => {
     const decoded = decodeStored(JSON.stringify({ setup: defaultPlaygroundSetup(), vfx: {} }));
     expect(decoded.env).toEqual({});
+  });
+});
+
+describe("the carTint section (per-car playground tint)", () => {
+  it("round-trips a tint keyed by session id", () => {
+    const stored: StoredPlayground = {
+      setup: defaultPlaygroundSetup(),
+      overrides: {},
+      view: defaultStoredView(),
+      vfx: {},
+      env: {},
+      carTint: { abc: 0xff2200 },
+    };
+    expect(decodeStored(encodeStored(stored))).toEqual(stored);
+  });
+
+  it("loads a pre-existing blob that has no carTint section as empty", () => {
+    const decoded = decodeStored(JSON.stringify({ setup: defaultPlaygroundSetup(), vfx: {} }));
+    expect(decoded.carTint).toEqual({});
+  });
+
+  it("drops a junk entry without costing the good one beside it", () => {
+    const decoded = decodeStored(
+      JSON.stringify({ setup: defaultPlaygroundSetup(), carTint: { a: "#fff", b: 0x123456 } }),
+    );
+    expect(decoded.carTint).toEqual({ b: 0x123456 });
+  });
+
+  it("does not let a malformed carTint invalidate the setup beside it", () => {
+    const decoded = decodeStored(
+      JSON.stringify({ setup: defaultPlaygroundSetup(), carTint: "nope" }),
+    );
+    expect(decoded.carTint).toEqual({});
+    expect(decoded.setup).toEqual(defaultPlaygroundSetup());
   });
 });

@@ -83,7 +83,7 @@ import { assetManifest, assetsReady } from "./BootScene.js";
 import { freshImpacts, newImpactTracker, type ImpactTracker } from "./impact-feedback.js";
 import { pts } from "./graphics-points.js";
 import {
-  carFillOf,
+  carFillFor,
   carShapeOf,
   deathFadeAlpha,
   ellipsePoints,
@@ -1953,7 +1953,7 @@ export class ArenaScene extends Phaser.Scene {
           : "enemy";
         this.drawHpBar(hp, player, pose, allegiance);
       }
-      if (maneuver && player.alive) this.drawManeuverVisuals(maneuver, player, pose);
+      if (maneuver && player.alive) this.drawManeuverVisuals(maneuver, sessionId, player, pose);
       if (sessionId === this.cameraTarget(room)) {
         this.followCamera(pose, delta * this.hitStopScale());
       }
@@ -2074,7 +2074,7 @@ export class ArenaScene extends Phaser.Scene {
     let gfx = this.cars.get(sessionId);
     if (!gfx || this.visualKeys.get(sessionId) !== key) {
       gfx?.destroy();
-      gfx = this.drawCar(player.carId, player.colorId, player.alive);
+      gfx = this.drawCar(sessionId, player.carId, player.colorId, player.alive);
       // The one world object born after `splitCameras` ran, so it opts out of the HUD camera here or
       // it would be drawn a second time, unclipped, over the gutter. Ignoring the container covers
       // the sprite and hitbox inside it.
@@ -2151,7 +2151,7 @@ export class ArenaScene extends Phaser.Scene {
 
     const body = container.getByName(BODY_NAME);
     if (body instanceof Phaser.GameObjects.Image) {
-      tintCarSprite(body, carFillOf(colorId), look, pose.angle);
+      tintCarSprite(body, carFillFor(sessionId, colorId), look, pose.angle);
     }
 
     const rim = container.getByName(RIM_NAME);
@@ -2220,9 +2220,14 @@ export class ArenaScene extends Phaser.Scene {
    * is what lets art be added one file at a time and what keeps a missing or malformed entry from
    * costing the game its render.
    */
-  private drawCar(carId: string, colorId: number, alive: boolean): Phaser.GameObjects.Container {
+  private drawCar(
+    sessionId: string,
+    carId: string,
+    colorId: number,
+    alive: boolean,
+  ): Phaser.GameObjects.Container {
     const { carWidth: w, carHeight: h } = DRIVE_CONFIG;
-    const fill = carFillOf(colorId);
+    const fill = carFillFor(sessionId, colorId);
     const container = this.add.container(0, 0);
 
     const body = this.spriteFor(carId, fill) ?? this.silhouette(carId, fill, w, h);
@@ -2396,7 +2401,7 @@ export class ArenaScene extends Phaser.Scene {
    *
    * A charging car (`ManeuverKind.CHARGE`) gets a single stroked rect around its own hull footprint,
    * in wildcharge's own colour. A dashing car (`ManeuverKind.DASH`) instead gets three ghost hull
-   * outlines trailing it along `-maneuverAngle`, stroked in the car's OWN paint (`carFillOf`) rather
+   * outlines trailing it along `-maneuverAngle`, stroked in the car's OWN paint (`carFillFor`) rather
    * than a fixed colour, so the streak reads as "this car, a moment ago" instead of a second weapon
    * effect. Both are drawn against the CURRENT pose every frame and nothing is kept between frames,
    * so either vanishes the instant the networked `maneuver` does — no separate cleanup path, the
@@ -2404,6 +2409,7 @@ export class ArenaScene extends Phaser.Scene {
    */
   private drawManeuverVisuals(
     gfx: Phaser.GameObjects.Graphics,
+    sessionId: string,
     player: ArenaPlayer,
     pose: SimBody,
   ): void {
@@ -2417,7 +2423,7 @@ export class ArenaScene extends Phaser.Scene {
     }
 
     if (player.maneuver !== ManeuverKind.DASH) return;
-    const fill = carFillOf(player.colorId);
+    const fill = carFillFor(sessionId, player.colorId);
     const alphas = dashGhostAlphas();
     const offsets = dashGhostOffsets();
     for (let i = 0; i < alphas.length; i++) {
@@ -2824,9 +2830,9 @@ export class ArenaScene extends Phaser.Scene {
         continue;
       }
 
-      // The swatch carries the player's own car colour — `carFillOf`, the same function that paints
+      // The swatch carries the player's own car colour — `carFillFor`, the same function that paints
       // the car, so the panel can never disagree with the field about who is who.
-      gfx.fillStyle(carFillOf(row.colorId), row.alive ? 1 : ROSTER_DEAD_SWATCH_ALPHA);
+      gfx.fillStyle(carFillFor(row.sessionId, row.colorId), row.alive ? 1 : ROSTER_DEAD_SWATCH_ALPHA);
       gfx.fillRect(box.x, box.y, box.size, box.size);
 
       // Guarded rather than asserted every frame: Phaser re-renders a Text object's canvas whenever

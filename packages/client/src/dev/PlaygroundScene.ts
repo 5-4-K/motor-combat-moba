@@ -9,6 +9,7 @@ import { loadStored } from "./playground/storage.js";
 import { setShowHitboxes } from "../config/view-options.js";
 import { setFxOverrides } from "../fx/override-store.js";
 import { setEnvOverrides } from "../fx/env-store.js";
+import { setCarTintOverrides } from "../fx/car-tint.js";
 import type { EmitterSpec } from "../fx/emitters.js";
 import type { ArenaScene } from "../scenes/ArenaScene.js";
 
@@ -72,6 +73,7 @@ export class PlaygroundScene extends Phaser.Scene {
     setShowHitboxes(false);
     setFxOverrides(null);
     setEnvOverrides(null);
+    setCarTintOverrides(null);
     this.room = undefined;
     this.lastTuningJson = undefined;
   }
