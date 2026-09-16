@@ -312,7 +312,7 @@ export const WEAPON_GLOW_STYLES: Partial<Record<WeaponId, GlowStyle>> = {
       // Hotter than the icon's own core: a shell that casts a halo should have something casting it.
       { radiusScale: 0.42, color: "#FFD060" },
     ],
-    // Out to 2.5x the 12-unit hitbox — 30 units, about two thirds of a car length. Continues the
+    // Out to 2.5x the 12-unit hitbox — 30 units, about two fifths of a car length (72 u). Continues the
     // ramp outward rather than restating it: the halo is the same fire, further from the middle.
     halo: [
       { radiusScale: 2.5, color: "#4A1000", alpha: 0.1 },

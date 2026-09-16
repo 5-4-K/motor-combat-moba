@@ -365,7 +365,8 @@ describe("plan", () => {
     const self = selfAt(5, 360, Math.PI);
 
     const neutral = plan({ ...scene, self, commitPenalty: 0, lastAction: undefined });
-    // The genuine best play here is to brake rather than drive further into the wall.
+    // HISTORICAL (true until 2026-09-16, see the last RE-PINNED note below, which is the current
+    // state): the genuine best play here was to brake rather than drive further into the wall.
     //
     // RE-PINNED at the 2026-09-07 merge of the car-physics rework: the winner was `steer: 0`
     // under the pre-rework drive model and is `steer: -1` under the vector one. Both brake — the
@@ -383,6 +384,10 @@ describe("plan", () => {
     // margin of `max(carWidth, carHeight)`, which grew 48 -> 72 with the hull (spec BC15), so the
     // same world-unit difference between the two arcs' overshoots now costs less while the U-turn's
     // better `rangeError` toward the waypoint is unchanged. Measured at 72x48: -14.21 against -14.27.
+    // So the winner no longer brakes: it wins on `rangeError`, even though its forward arc
+    // overshoots the wall slightly MORE than the reverse arc does (normalised overshoot 1.450
+    // against 1.427) — in a rollout that runs no `resolveWorld`, so neither arc is stopped by the
+    // wall it overshoots.
     // Not a placement artifact: sweeping the start x over 0-36 at 48x32, reverse won only for
     // x <= 10, and at 72x48 it wins at none of them. Both halves of the pair turn OFF the wall and
     // neither is the out-of-arena outlier, so the scene's R-P16 premise is intact — the two

@@ -295,8 +295,10 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
     // Re-measured 2026-09-16 for the 72x48 hull resize (spec BC11), same sweep and method: the exact
     // worst depth (26.640625) came back byte-for-byte identical to the pre-resize 48x32 measurement.
     // That is not a bug — this figure is driven by `dashSubstepMaxUnits` (still 16, unscaled by the
-    // hull) and the ramDefence-weighted share, neither of which the hull resize touched; the resolver
-    // never reads `carWidth`/`carHeight` on this path. `MAX_PENETRATION` therefore needed no change.
+    // hull) and the ramDefence-weighted share, neither of which the hull resize touched. The resolver
+    // does read the hull on this path (`collide.ts`'s `carObbOf` builds every car OBB from
+    // `DRIVE_CONFIG.carWidth`/`carHeight`); the resize simply did not move this worst case.
+    // `MAX_PENETRATION` therefore needed no change.
     const MAX_PENETRATION = 34;
     expect(worstDepth, `worst penetration at [${worstDepthLabel}]`).toBeLessThan(MAX_PENETRATION);
 

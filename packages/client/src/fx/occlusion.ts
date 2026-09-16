@@ -45,7 +45,7 @@ export interface EraserStamp {
  *
  * A second multiplier in the renderer would make every sentence above a lie that no test could
  * catch — `layer.ts` has no test, by design. A pair of them lived at that call site until fix round
- * 1 and put the hole at roughly 100 x 76 units against a 72 x 48 hull.
+ * 1 and put the hole at roughly 107 x 93 units against the then-48x32 hull.
  *
  * A function rather than a constant now that the halo is tunable. `layer.ts` sizes its silhouette
  * textures to this box's aspect, and a second copy of the formula there is exactly how the two

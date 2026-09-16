@@ -152,8 +152,9 @@ export const DRIVE_CONFIG = {
    * came in only while the overlap is shallow. For two axis-aligned cars the backwards push wins
    * only while the centres are more than 24u apart on the dash axis, so there is a 48-unit-wide
    * band in which the resolver is already right — and `thunderclap` at 1600 u/s covers 53.3u per
-   * tick, jumping clean over it. Capping the travel per check at half the 48-unit face keeps every
-   * sample inside that band from any approach angle; the 72-unit face is the wrong one to size
+   * tick, jumping clean over it. Capping the travel per check at no more than half the 48-unit face
+   * (24 — the shipped 16 sits inside that bound) keeps every sample inside that band from any
+   * approach angle; the 72-unit face is the wrong one to size
    * against, because a rotated car can always present the thin one as the competing escape axis.
    *
    * It lives here rather than on a weapon row because it is a property of the collision resolver's

@@ -136,13 +136,17 @@ over a 2.25x `inertiaCoefficient`), which keeps every ram's spin exactly where i
 car-physics rework re-pitches from 15, not 10; both arenas' FFA spawn rows moved inward (arena-01
 y 180/540, arena-02 y 187/543) to clear the spikes by a car diagonal; and the client's lock bracket,
 countdown arrow and hp bar length scaled 1.5x with the car. Weapon balance was deliberately **not**
-touched: a bigger target is easier to hit, so hit rates rose, and that is for the balance harness to
-measure. `BOT_BRAIN_VERSION` went to 4.7.0, so balance reports across this change are not comparable.
-All nine car sprites were re-imported at 144 px. Three bot tests were already failing before this
-resize (the 2026-09-16 top-speed cut) and still need a `BOT_PROFILES` retune, now measured at the new
-hull: `controller.test.ts`'s OFF-AXIS case got worse under the resize (0.24 → 0.69), because the hard
-bot's preferred standoff grew from 470 to 570, and `tiers.test.ts`'s two hit-rate cases (P49, P50)
-remain red for the same underlying reason. See
+touched: a bigger target is easier to hit, so hit rates are expected to rise, and that is for the
+balance harness to measure. `BOT_BRAIN_VERSION` went to 4.7.0, so balance reports across this change
+are not comparable. All nine car sprites were re-imported at 144 px. Three bot tests were already
+failing before this resize (the 2026-09-16 top-speed cut) and still need a `BOT_PROFILES` retune;
+measured on base `0904012` at 48 × 32 and again on the resized branch at 72 × 48:
+`controller.test.ts`'s OFF-AXIS mean offset got worse, 0.2386 → 0.6939 against a bar of < 0.2,
+alongside the hard bot's preferred standoff growing from 470 to 570 (the two moved together; a causal
+link was not measured); `tiers.test.ts`'s P49, a **time-to-kill** case, improved but is still red —
+the hard bot did not kill within the run at base, and now kills in 18.7 s against a 17.87 s cap; and
+P50, a hit-rate case, widened its inversion — hard vs medium hit rate 0.778 vs 0.8 at base, 0.632 vs
+0.857 now. See
 [`docs/superpowers/specs/2026-09-16-bigger-cars-design.md`](docs/superpowers/specs/2026-09-16-bigger-cars-design.md).
 
 Turn rates themselves were last touched on **2026-08-31, when the whole roster's turn rate was raised

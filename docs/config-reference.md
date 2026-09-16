@@ -141,7 +141,8 @@ no longer "the best tracker in the game" by design; its tank identity now rests 
 ratings (`ramAttack` 70, `ramDefence` 90, both the roster's highest — see [`CAR_TABLE`](#car_table)),
 not handling. The 2026-09-06 heavy-car pass then cut every radius by roughly 41% without moving a single
 `handling` rating (turn rate untouched): Mirage 32.6 u, Bullseye 31.4 u, Bastion 30.2 u — the same
-ordering and proportional spacing, now comfortably under one car length (48 u). See
+ordering and proportional spacing, now comfortably under one car length (48 u until the 2026-09-16
+resize to 72 u). See
 [`turn-tuning.md`](turn-tuning.md#current-values) for the full derivation and history.
 
 Derived, per car (Mirage / Bullseye / Bastion):
@@ -483,7 +484,7 @@ with mirage's new top speed.
 `baseAccel` 420 -> 60 and `accelPerRating` 7.2 -> 1.4, a much deeper cut that stretches time-to-top-
 speed roughly 3-4x roster-wide (see [`CAR_TABLE`](#car_table) for the per-car figures). Turn rate was
 **deliberately left untouched** by this pass, so the speed cut alone drops every chassis's turn
-radius to comfortably under one car length (48 u) while preserving the 2026-09-02 ordering and
+radius to comfortably under one car length (48 u until the 2026-09-16 resize to 72 u) while preserving the 2026-09-02 ordering and
 proportional spacing. `accelOf` at rating 50 dropped from 780 to 130 — with `baseAccel` shrunk
 relative to the per-rating term, a car's `accel` rating now does most of the work of deciding its
 time-to-top-speed. `RAM_REFERENCE` dropped to 133500 with mirage's new lower top speed (267) — that
@@ -598,9 +599,13 @@ The steering penalty they described is back as the **`reeling`** status: severit
 design spec's Numbers table said: at 1.0 the spin channel is structurally inert against the 6.0
 `spinMaxRate` ceiling and the 0.01 rad/s rest threshold. It was 100 while `nextSpin` divided by
 `mass`; it was 10 once it divided by `ramDefence`, and 15 since the 2026-09-16 hull resize. Measured
-victim spin at 10, by lever arm (the offset of the hit from the victim's centre, clamped at the 36 u
-hull half-length): an ordinary Mirage-on-Mirage flank ram spans 0.34 rad/s at 6 u to 2.06 at the
-clamp, and the hardest ram in the game — Bastion flanking a Bullseye at the clamp — reaches 5.95.
+victim spin by lever arm (the offset of the hit from the victim's centre, clamped at the hull
+half-length): an ordinary Mirage-on-Mirage flank ram spans 0.34 rad/s at 6 u to 2.06 at the clamp,
+and the hardest ram in the game — Bastion flanking a Bullseye at the clamp — reaches 5.95. Those
+figures were measured at `spinScale` 10 against the 48 × 32 hull (levers 4 u to the 24 u clamp); at
+72 × 48 they hold unchanged at `spinScale` 15 with the 6 u / 36 u levers quoted here, by
+construction (1.5x lever over 2.25x inertia). They also predate the 2026-09-16 top-speed cut: after
+it, the hardest ram measures **4.4975 rad/s** (`ram-config.test.ts` pins it).
 
 **Decays are authored as half-lives in seconds, not as per-tick multipliers.** `halfLifeToPerTick`
 converts each once, at module load, into the per-tick multiplier stored on `RAM_DECAY`:

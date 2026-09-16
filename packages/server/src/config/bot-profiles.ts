@@ -345,7 +345,8 @@ export interface BotProfile {
  */
 export const BRAIN_CONSTANTS = Object.freeze({
   /**
-   * Closest range the bot will ever choose to hold. Roughly one and a half car lengths.
+   * Closest range the bot will ever choose to hold. Roughly one car length (72 u since the
+   * 2026-09-16 hull resize; one and a half of the old 48 u).
    *
    * `preferredRangeOf` (`bot/brain/firing.ts`) samples from here outward and caps the answer at
    * `awarenessRadiusUnits`, so it relies on EVERY tier's `awarenessRadiusUnits` exceeding this —
@@ -389,7 +390,9 @@ export const BRAIN_CONSTANTS = Object.freeze({
    * rule produced, so the fraction should move them as little as it can while still letting
    * `slotWeights` reach the standoff. Weights come alive at 0.970; 0.95 clears that by 0.02 and
    * holds the same 1/9 liveness all the way down to 0.88, so it is not perched on the boundary.
-   * Only THREE of the nine neutral-weight cells move at all.
+   * Only THREE of the nine neutral-weight cells move at all. (This table and paragraph were
+   * measured at the 48x32 hull. Re-measured 2026-09-16 at 72x48, the count at 0.95 is 2 / 9, not
+   * 1 / 9; fractions below 0.95 were not re-swept at the new hull.)
    *
    * Going further down buys nothing measured and costs behaviour. 0.92 and 0.90 are still 1/9 —
    * no extra cell comes alive — but they take mirage/hard's neutral standoff from 220 to 386.7, a

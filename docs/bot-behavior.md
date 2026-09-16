@@ -377,7 +377,7 @@ Ranges — feeds `preferredRangeOf` (`firing.ts`) and `preferredRangeFor` (`cont
 
 | Field | Value | What it does |
 |---|---|---|
-| `minEngageUnits` | 70 | The closest range a bot will ever choose to hold, roughly one and a half car lengths. Also `close`'s target range. |
+| `minEngageUnits` | 70 | The closest range a bot will ever choose to hold, roughly one car length (72 u since the 2026-09-16 hull resize; one and a half of the old 48 u). Also `close`'s target range. |
 | `preferredRangePlateauFraction` | 0.95 | The fraction of its kit's PEAK sampled value a bot will keep in exchange for standing further off. Not 1: an exact tie is provably a veto by the shortest-reaching ready slot, which makes the personality's `slotWeights` inert. Minimum perturbation that satisfies that — 0.92 and 0.90 buy no extra live cell and 0.90 breaks a balance fixture. |
 | `preferredRangeSampleCount` | 24 | Resolution of the only grid the standoff is ever read off. Stable to within a car length across an eightfold change, and it does NOT explain Bastion's medium/hard tie. |
 | `preferredRangeMinStepUnits` | 10 | Floor on that grid's step. Provably inert on the shipped roster (the smallest step today is Mirage's 16.7 u); a guard against a future short-reach kit. |
