@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { defaultPlaygroundSetup } from "@motor-combat-moba/shared";
+import {
+  ACTIVE_ARENA_ID,
+  BOT_SESSION_ID,
+  PLAYGROUND_SEATS,
+  PLAYGROUND_SEAT_IDS,
+  defaultPlaygroundSetup,
+} from "@motor-combat-moba/shared";
 import { envKey } from "../../fx/env-tuning.js";
 import {
   PLAYGROUND_STORAGE_KEY,
@@ -186,7 +192,13 @@ describe("loadStored / saveStored with an injected storage", () => {
 });
 
 describe("decodeStored — v1 upgrade (PG25)", () => {
-  /** A setup as saved BEFORE this change: no `botDifficulty`, no `colorId` on either car. */
+  /**
+   * A setup as saved BEFORE this change: no `botDifficulty`, no `colorId` on either car — and, since
+   * this predates PG85 too, still in the `me`/`opponent` shape rather than seats. Two upgrades have
+   * to compose to read this back: PG25's colorId/botDifficulty fill-in runs first, then PG85's
+   * me/opponent -> seats rewrite converts what that left behind. These tests pin the PG25 half of
+   * that composition; PG85's own describe block below pins the seat conversion itself.
+   */
   const v1Setup = {
     botEnabled: true,
     arenaId: "arena-01",
@@ -196,9 +208,11 @@ describe("decodeStored — v1 upgrade (PG25)", () => {
 
   it("keeps the car, loadout and arena a v1 blob chose", () => {
     const { setup } = decodeStored(JSON.stringify({ setup: v1Setup, overrides: {} }));
-    expect(setup.me.carId).toBe("bastion");
-    expect(setup.me.weapons).toEqual(["thumper", "roadblock", "wildcharge"]);
-    expect(setup.opponent.carId).toBe("mirage");
+    expect(setup.cars[0]).toMatchObject({
+      carId: "bastion",
+      weapons: ["thumper", "roadblock", "wildcharge"],
+    });
+    expect(setup.cars[1]).toMatchObject({ carId: "mirage" });
     expect(setup.arenaId).toBe("arena-01");
     expect(setup.botEnabled).toBe(true); // the stored value wins over the new default
   });
@@ -207,9 +221,9 @@ describe("decodeStored — v1 upgrade (PG25)", () => {
     const { setup } = decodeStored(JSON.stringify({ setup: v1Setup, overrides: {} }));
     const fallback = defaultPlaygroundSetup();
     expect(setup.botDifficulty).toBe(fallback.botDifficulty);
-    expect(setup.me.colorId).toBe(fallback.me.colorId);
-    expect(setup.opponent.colorId).toBe(fallback.opponent.colorId);
-    expect(setup.me.colorId).not.toBe(setup.opponent.colorId);
+    expect(setup.cars[0]!.colorId).toBe(fallback.cars[0]!.colorId);
+    expect(setup.cars[1]!.colorId).toBe(fallback.cars[1]!.colorId);
+    expect(setup.cars[0]!.colorId).not.toBe(setup.cars[1]!.colorId);
   });
 
   it("still falls back whole when the blob is invalid for an older reason", () => {
@@ -259,6 +273,101 @@ describe("decodeStored — v1 upgrade (PG25)", () => {
     expect(
       decodeStored(JSON.stringify({ setup: withBadDifficulty, overrides: {} })).setup,
     ).toEqual(defaultPlaygroundSetup());
+  });
+});
+
+describe("upgrading a two-car blob to six seats (PG85)", () => {
+  /** What a browser saved before this change: me/opponent, no cars, no drivenSeat. */
+  const legacy = {
+    setup: {
+      botEnabled: true,
+      botDifficulty: "hard",
+      arenaId: ACTIVE_ARENA_ID,
+      me: { carId: "bastion", colorId: 3, weapons: ["thumper", "roadblock", "wildcharge"] },
+      opponent: { carId: "bullseye", colorId: 5, weapons: ["predator", "pepperbox", "lance"] },
+    },
+  };
+
+  it("puts me at seat 0 and opponent at seat 1, both enabled and driving seat 0", () => {
+    const stored = decodeStored(JSON.stringify(legacy));
+    expect(stored.setup.cars).toHaveLength(PLAYGROUND_SEATS);
+    expect(stored.setup.cars[0]).toMatchObject({ carId: "bastion", colorId: 3, enabled: true });
+    expect(stored.setup.cars[1]).toMatchObject({ carId: "bullseye", colorId: 5, enabled: true });
+    expect(stored.setup.drivenSeat).toBe(0);
+  });
+
+  it("fills seats 2-5 from the defaults, switched off", () => {
+    const stored = decodeStored(JSON.stringify(legacy));
+    expect(stored.setup.cars.slice(2).every((c) => c.enabled === false)).toBe(true);
+    expect(stored.setup.cars.slice(2).map((c) => c.colorId)).toEqual(
+      defaultPlaygroundSetup().cars.slice(2).map((c) => c.colorId),
+    );
+  });
+
+  it("keeps the rest of the legacy setup", () => {
+    const stored = decodeStored(JSON.stringify(legacy));
+    expect(stored.setup.botEnabled).toBe(true);
+    expect(stored.setup.botDifficulty).toBe("hard");
+  });
+
+  it("leaves a blob that already carries seats alone", () => {
+    const modern = { setup: { ...defaultPlaygroundSetup(), botDifficulty: "easy" as const } };
+    const stored = decodeStored(JSON.stringify(modern));
+    expect(stored.setup.botDifficulty).toBe("easy");
+    expect(stored.setup.cars).toHaveLength(PLAYGROUND_SEATS);
+  });
+
+  it("still falls back whole on a blob missing a required section", () => {
+    // The narrowness rule is unchanged: this upgrade never invents `arenaId`, `botEnabled` or a
+    // missing car record. Such a blob stays invalid and the whole setup falls back.
+    const broken = { setup: { ...legacy.setup, arenaId: undefined } };
+    expect(decodeStored(JSON.stringify(broken)).setup).toEqual(defaultPlaygroundSetup());
+  });
+
+  it("falls back whole on garbage", () => {
+    expect(decodeStored("not json").setup).toEqual(defaultPlaygroundSetup());
+    expect(decodeStored(null).setup).toEqual(defaultPlaygroundSetup());
+  });
+});
+
+describe("migrating stored car tints to seat ids (PG86)", () => {
+  it("moves the bot's tint to seat 1", () => {
+    const stored = decodeStored(
+      JSON.stringify({ carTint: { [BOT_SESSION_ID]: { hex: 0xff2bd6, on: true } } }),
+    );
+    expect(stored.carTint[PLAYGROUND_SEAT_IDS[1]!]).toEqual({ hex: 0xff2bd6, on: true });
+    expect(stored.carTint[BOT_SESSION_ID]).toBeUndefined();
+  });
+
+  it("upgrades a bare-number bot tint on the way through", () => {
+    const stored = decodeStored(JSON.stringify({ carTint: { [BOT_SESSION_ID]: 0x112233 } }));
+    expect(stored.carTint[PLAYGROUND_SEAT_IDS[1]!]).toEqual({ hex: 0x112233, on: true });
+  });
+
+  it("keeps a tint already stored against a seat id", () => {
+    const stored = decodeStored(
+      JSON.stringify({ carTint: { [PLAYGROUND_SEAT_IDS[4]!]: { hex: 0x00ff00, on: false } } }),
+    );
+    expect(stored.carTint[PLAYGROUND_SEAT_IDS[4]!]).toEqual({ hex: 0x00ff00, on: false });
+  });
+
+  it("never overwrites a real seat tint with the legacy bot one", () => {
+    const stored = decodeStored(
+      JSON.stringify({
+        carTint: {
+          [BOT_SESSION_ID]: { hex: 0xff0000, on: true },
+          [PLAYGROUND_SEAT_IDS[1]!]: { hex: 0x0000ff, on: true },
+        },
+      }),
+    );
+    expect(stored.carTint[PLAYGROUND_SEAT_IDS[1]!]).toEqual({ hex: 0x0000ff, on: true });
+  });
+
+  it("leaves an unidentifiable old session key where it is, harmlessly", () => {
+    // The human's own old key was a per-connection Colyseus id and cannot be mapped to a seat. It
+    // simply never resolves, which `sanitizeCarTints` already tolerates.
+    const stored = decodeStored(JSON.stringify({ carTint: { aBcDeF: { hex: 0x010203, on: true } } }));
+    expect(stored.carTint[PLAYGROUND_SEAT_IDS[0]!]).toBeUndefined();
   });
 });
 

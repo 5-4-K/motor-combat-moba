@@ -1,5 +1,11 @@
-import type { PlaygroundCarSetup, PlaygroundSetup, TuningOverrides } from "@motor-combat-moba/shared";
-import { defaultPlaygroundSetup, isPlaygroundSetup, sanitizeStoredTuning } from "@motor-combat-moba/shared";
+import type { PlaygroundSetup, TuningOverrides } from "@motor-combat-moba/shared";
+import {
+  BOT_SESSION_ID,
+  PLAYGROUND_SEAT_IDS,
+  defaultPlaygroundSetup,
+  isPlaygroundSetup,
+  sanitizeStoredTuning,
+} from "@motor-combat-moba/shared";
 import {
   FX_CHANNELS,
   FX_FIELDS,
@@ -67,32 +73,77 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Additively fill in the fields Task 1 added — `botDifficulty` on the setup, `colorId` on each car —
- * when a stored `setup` record is missing exactly those, before validating it (PG25).
+ * Additively fill in what a stored `setup` record is missing, before validating it (PG25/PG85).
  *
- * `isPlaygroundSetup` guards both the wire and this codec, and it went strict when `colorId` and
- * `botDifficulty` were added — so without this, every setup saved before that change would fail
+ * Two generations of blob pass through here. The older one lacks `botDifficulty` and a per-car
+ * `colorId`; the 2026-09-16 one lacks the whole seat model, carrying `me` and `opponent` where six
+ * `cars` and a `drivenSeat` now live. `isPlaygroundSetup` guards both the wire and this codec and
+ * went strict for each of those, so without this every blob saved before the change would fail
  * validation and silently discard a car, a loadout and an arena the developer had chosen.
  *
- * This is deliberately narrow: it adds `botDifficulty` only when the top-level field is absent, and
- * adds a car's `colorId` only when that car record is itself present (a plain object) and lacks one —
- * each from that car's OWN default, so an upgraded blob inherits two DISTINCT colours rather than
- * both cars landing on `me`'s. It never invents a whole missing section (`arenaId`, `botEnabled`,
- * `me`, `opponent`) from the defaults — a blob missing one of those stays invalid and, like before
- * this change, falls back whole. This never loosens the wire: the server still rejects an incomplete
- * payload; only what this browser saved for itself is upgraded.
+ * Deliberately narrow, in the style the `colorId` upgrade already set: each piece is added only when
+ * it is absent, and a whole missing SECTION is never invented. A blob without `arenaId`, without
+ * `botEnabled`, or without both car records stays invalid and falls back whole, exactly as before.
+ * This never loosens the wire — the server still rejects an incomplete payload; only what this
+ * browser saved for itself is upgraded.
  */
 function upgradeStoredSetup(value: unknown): unknown {
   if (!isPlainRecord(value)) return value;
   const fallback = defaultPlaygroundSetup();
-  const upgradeCar = (car: unknown, base: PlaygroundCarSetup): unknown =>
-    isPlainRecord(car) && car.colorId === undefined ? { ...car, colorId: base.colorId } : car;
-  return {
-    ...value,
-    ...(value.botDifficulty === undefined ? { botDifficulty: fallback.botDifficulty } : {}),
-    ...(value.me !== undefined ? { me: upgradeCar(value.me, fallback.me) } : {}),
-    ...(value.opponent !== undefined ? { opponent: upgradeCar(value.opponent, fallback.opponent) } : {}),
+  const withDifficulty =
+    value.botDifficulty === undefined ? { ...value, botDifficulty: fallback.botDifficulty } : value;
+  // Already a seat blob: nothing to do. Checked by presence rather than by shape, so a malformed
+  // `cars` is handed to the validator to reject rather than being silently replaced.
+  if (withDifficulty.cars !== undefined) return withDifficulty;
+
+  const { me, opponent, ...rest } = withDifficulty as Record<string, unknown>;
+  if (me === undefined || opponent === undefined) return withDifficulty;
+
+  /** One legacy car record onto its seat: its own fields, plus whatever that seat's default
+   * supplies for a field it never had (`colorId` on the oldest blobs, `enabled` on all of them). */
+  const seatFrom = (car: unknown, seat: number, enabled: boolean): unknown => {
+    const base = fallback.cars[seat]!;
+    if (!isPlainRecord(car)) return { ...base, enabled };
+    return {
+      ...car,
+      ...(car.colorId === undefined ? { colorId: base.colorId } : {}),
+      enabled,
+    };
   };
+
+  return {
+    ...rest,
+    cars: fallback.cars.map((base, seat) =>
+      seat === 0 ? seatFrom(me, 0, true) : seat === 1 ? seatFrom(opponent, 1, true) : { ...base, enabled: false },
+    ),
+    drivenSeat: 0,
+  };
+}
+
+/**
+ * Re-key the playground's stored car tints onto seat ids (PG86).
+ *
+ * Exactly one old key can be identified: the bot's, which was the constant `BOT_SESSION_ID` and is
+ * seat 1 under the upgrade above. The human's own key was a per-connection Colyseus session id,
+ * which cannot be mapped to anything — it is left where it is and simply never resolves, which
+ * `sanitizeCarTints` already tolerates (a stale key costs that one car its tint, never the blob).
+ *
+ * That loss is not a regression. Under the old keying the human's tint was ALREADY discarded on
+ * every reload, because the key was new on every connection; seat ids are the change that stops
+ * that happening again.
+ *
+ * A tint already saved against seat 1 WINS over the legacy one. Saving under a seat id can only
+ * have happened after this change, so it is the newer intent.
+ */
+function migrateTintKeys(tints: CarTintOverrides): CarTintOverrides {
+  const legacy = tints[BOT_SESSION_ID];
+  if (legacy === undefined) return tints;
+  const seat1 = PLAYGROUND_SEAT_IDS[1]!;
+  const rest: CarTintOverrides = {};
+  for (const [key, tint] of Object.entries(tints)) {
+    if (key !== BOT_SESSION_ID) rest[key] = tint;
+  }
+  return seat1 in rest ? rest : { ...rest, [seat1]: legacy };
 }
 
 /**
@@ -186,7 +237,7 @@ export function decodeStored(raw: string | null): StoredPlayground {
     view: decodeView(rec.view),
     vfx: sanitizeStoredVfx(rec.vfx),
     env: sanitizeStoredEnv(rec.env),
-    carTint: sanitizeCarTints(rec.carTint),
+    carTint: migrateTintKeys(sanitizeCarTints(rec.carTint)),
   };
 }
 
