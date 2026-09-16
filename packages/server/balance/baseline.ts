@@ -86,6 +86,20 @@ export function checkComparable(current: RunRecord, baseline: RunRecord): Compar
     );
   }
 
+  // NOT covered by the config fingerprint either, and for a subtler reason than `difficulty` above:
+  // the fingerprint hashes `CAR_TABLE` whole, so it DOES move when a chassis is added or its
+  // `isActive` flips — but it does not move when the same table is run twice under different
+  // flags. `--include-inactive` changes which rows took a seat, not which rows exist, so two runs
+  // over identical config can measure a three-car game and a seven-car game and hash identically.
+  if (current.config.includeInactive !== baseline.config.includeInactive) {
+    fatal = true;
+    reasons.push(
+      `--include-inactive differs (this run: ${current.config.includeInactive}, baseline: ` +
+        `${baseline.config.includeInactive}) — the two runs seated different rosters, so every win ` +
+        `rate in the Deltas table would be a roster change wearing a balance change's clothes`,
+    );
+  }
+
   // Not fatal — see the module doc. Still reported, so a caller reading only `reasons` (not `ok`)
   // learns the comparison is a different sample rather than assuming it is a clean paired A/B.
   if (current.config.seed !== baseline.config.seed) {

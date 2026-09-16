@@ -21,6 +21,7 @@ function record(): RunRecord {
       seed: 7,
       arenaId: "arena-01",
       matchSeconds: 40,
+      includeInactive: false,
     },
     fingerprints: { config: configFingerprint(), bot: botFingerprint() },
     gitCommit: "abc1234",
@@ -66,6 +67,20 @@ describe("checkComparable (B37)", () => {
     const result = checkComparable(record(), other);
     expect(result.ok).toBe(false);
     expect(result.reasons.join(" ")).toContain("mode");
+  });
+
+  it("refuses when --include-inactive differs, and says so", () => {
+    // The config FINGERPRINT cannot catch this either, and for a subtler reason than difficulty
+    // below: it hashes `CAR_TABLE` whole, so it moves when a chassis is added or `isActive` flips —
+    // but two runs over the SAME table under different flags hash identically while having seated
+    // different rosters.
+    const other = {
+      ...record(),
+      config: { ...record().config, includeInactive: true },
+    };
+    const result = checkComparable(record(), other);
+    expect(result.ok).toBe(false);
+    expect(result.reasons.join(" ")).toContain("--include-inactive");
   });
 
   it("refuses when the difficulty differs, and says so", () => {

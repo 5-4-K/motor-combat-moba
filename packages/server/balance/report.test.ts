@@ -103,6 +103,7 @@ function record(opts: { shape?: Shape; mode?: GameMode } = {}): RunRecord {
       seed: 7,
       arenaId: "arena-01",
       matchSeconds: 40,
+      includeInactive: false,
     },
     fingerprints: { config: configFingerprint(), bot: botFingerprint() },
     gitCommit: "abc1234",

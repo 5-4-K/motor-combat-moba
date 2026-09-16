@@ -99,6 +99,14 @@ describe("parseArgs (B41, B42)", () => {
     expect(parseArgs(["--force=true"]).force).toBe(true);
   });
 
+  it("defaults --include-inactive to false, and accepts both the bare and explicit forms", () => {
+    // Same boolean shape as --force above, and out of REQUIRES_EXPLICIT_VALUE for the same reason:
+    // the bare form is the only one anyone would type.
+    expect(parseArgs([]).includeInactive).toBe(false);
+    expect(parseArgs(["--include-inactive"]).includeInactive).toBe(true);
+    expect(parseArgs(["--include-inactive=true"]).includeInactive).toBe(true);
+  });
+
   it("defaults --arena to arena-01", () => {
     expect(parseArgs([]).arenaId).toBe("arena-01");
   });

@@ -16,9 +16,9 @@
  * never uses, so a fact and its sentence are added and deleted together.
  */
 import {
-  CAR_TABLE,
   STATUS_TABLE,
   WEAPON_TABLE,
+  activeCarIds,
   slotsOf,
   statusDefOf,
 } from "@motor-combat-moba/shared";
@@ -57,7 +57,12 @@ export function manualFacts() {
   const wildcharge = w.wildcharge;
   const thunderclap = w.thunderclap;
 
-  const carIds = Object.keys(CAR_TABLE);
+  // ACTIVE cars only, exactly as `build-cars-and-weapons.mjs` derives its own `CAR_IDS` — these
+  // tokens render the cover blurb ("Nine weapons. Three chassis."), and a chassis in development
+  // must not be able to rewrite that sentence into "Twelve weapons. Four chassis." while the grid
+  // beside it still shows three cards. Filtering the cards without filtering these would be the
+  // worse bug of the two: a page that contradicts itself.
+  const carIds = activeCarIds();
 
   return {
     // --- the roster itself ------------------------------------------------------------------

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { CAR_TABLE, MAX_PLAYERS, activeCarIds, slotsOf, type CarId } from "@motor-combat-moba/shared";
 import { GameMode } from "@motor-combat-moba/shared";
-import { runAll, seatsFor } from "./runner.js";
+import { chassisRoster, runAll, seatsFor } from "./runner.js";
 import { aggregate } from "./stats.js";
 
 /**
@@ -47,10 +48,93 @@ describe("seatsFor (B26, B27)", () => {
   });
 });
 
+/**
+ * The oversized-roster path, driven through `seatsFor`'s explicit `chassis` argument.
+ *
+ * Synthetic ids, cast rather than drawn from `CAR_TABLE`: seat assignment is parametric over the
+ * roster — nothing in `ffaSeats`/`ffaWindow` looks a chassis up in any table, it only slices the
+ * list it is handed — so a synthetic roster exercises exactly the production code path. The
+ * alternative (wait for a seventh real chassis) is how this case stayed unhandled and crashing until
+ * `--include-inactive` made it reachable.
+ */
+describe("seatsFor with more chassis than seats", () => {
+  const roster = (n: number): CarId[] =>
+    Array.from({ length: n }, (_, i) => `c${i}`) as unknown as CarId[];
+
+  it("never seats more cars than the arena has spawns", () => {
+    // The bug this replaces: `Math.max(1, Math.floor(6 / 7))` built SEVEN seats, and
+    // `assignFfaSpawns` then threw "Not enough FFA spawns for roster" — both arenas author six.
+    for (const n of [7, 8, 11]) {
+      for (let i = 0; i < n; i++) {
+        expect(seatsFor("ffa", i, roster(n)).seats).toHaveLength(MAX_PLAYERS);
+      }
+    }
+  });
+
+  it("seats no chassis twice in one match", () => {
+    const seats = seatsFor("ffa", 3, roster(8)).seats.map((s) => s.carId);
+    expect(new Set(seats).size).toBe(seats.length);
+  });
+
+  it("gives every chassis identical seat-time over a lap of n matches", () => {
+    // The fairness claim `stats.ts` and the README both rest on. Stepping the window by one per
+    // match (rather than by MAX_PLAYERS) is what makes it exact for every n, not just coprime ones.
+    for (const n of [7, 8, 9, 12]) {
+      const chassis = roster(n);
+      const appearances = new Map<string, number>();
+      for (let i = 0; i < n; i++) {
+        for (const seat of seatsFor("ffa", i, chassis).seats) {
+          appearances.set(seat.carId, (appearances.get(seat.carId) ?? 0) + 1);
+        }
+      }
+      expect(appearances.size).toBe(n);
+      expect([...appearances.values()]).toEqual(Array.from({ length: n }, () => MAX_PLAYERS));
+    }
+  });
+
+  it("leaves a roster that still fits alone, seats and all", () => {
+    // n <= MAX_PLAYERS must behave exactly as before: fixed composition, largest even split.
+    expect(seatsFor("ffa", 0, roster(4)).seats.map((s) => s.carId))
+      .toEqual(seatsFor("ffa", 9, roster(4)).seats.map((s) => s.carId));
+    expect(seatsFor("ffa", 0, roster(4)).seats).toHaveLength(4);
+    expect(seatsFor("ffa", 0, roster(6)).seats).toHaveLength(6);
+  });
+});
+
+describe("chassisRoster (--include-inactive)", () => {
+  it("publishes only active chassis by default", () => {
+    expect(chassisRoster(false)).toEqual(activeCarIds());
+  });
+
+  it("seats no chassis that cannot fire, under either flag", () => {
+    // An inactive car is allowed an empty kit (`weapon-slots.test.ts`) — a prototype chassis exists
+    // before its weapons do. Seating one would book a guaranteed 0% win rate that says nothing
+    // about the chassis and drags every other car's number up around it.
+    for (const includeInactive of [false, true]) {
+      for (const id of chassisRoster(includeInactive)) {
+        expect(slotsOf(id).length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("adds every armed inactive chassis when asked", () => {
+    const armedInactive = (Object.keys(CAR_TABLE) as CarId[]).filter(
+      (id) => !CAR_TABLE[id].isActive && slotsOf(id).length > 0,
+    );
+    expect(chassisRoster(true)).toEqual([...chassisRoster(false), ...armedInactive].sort(
+      (a, b) => Object.keys(CAR_TABLE).indexOf(a) - Object.keys(CAR_TABLE).indexOf(b),
+    ));
+    // Today `armedInactive` is empty — all three ship active — so this also pins that the flag is a
+    // no-op on the shipped roster rather than quietly reordering it.
+    expect(chassisRoster(true)).toEqual(chassisRoster(false));
+  });
+});
+
 describe("runAll (B43)", () => {
   const config = {
     shape: "duel", matches: 1, mode: GameMode.FFA_LAST_STANDING,
     difficulty: "hard", seed: 5, arenaId: "arena-01", matchSeconds: 20,
+    includeInactive: false,
   } as const;
 
   it("runs matches x pairs in duel", () => {

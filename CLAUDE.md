@@ -56,6 +56,26 @@ of the 2026-09-06 car-physics rework (see below) — **there is no `mass` on `Ca
 units/s², not 0-100 ratings.) **`handling` is turn RATE, not turn radius.** Radius is
 `speed / turnRate`.
 
+**A fourth chassis can be authored without shipping it: `CarDef.isActive` (PG18) is the roster's
+publish gate**, and as of 2026-09-16 it is one everywhere rather than only in car select. Car select,
+`MSG_SELECT_CAR`/`MSG_PREVIEW_CAR`, the practice opponent roll and practice join options already
+filtered to `activeCarIds()`; the players' guide and the balance harness did not. The guide now
+publishes active chassis only — cards, kits, HP matrix and the `roster.*` prose tokens — and
+`balanceStamp` hashes that same subset, so an unreleased car neither reaches players nor churns the
+page. The balance harness seats active chassis by default and unreleased ones under
+`npm run balance -- --include-inactive`, **skipping any chassis with an empty kit under either**,
+since a car that cannot fire books a guaranteed 0% that measures nothing. Two authoring rules follow,
+and they are a deliberate pair: **an inactive chassis may carry no weapons at all** (that is the shape
+a prototype is driven in), and **weapon exclusivity (L1) stays unconditional** — no weapon on two
+chassis, active or not, so a prototype cannot borrow a shipped kit and `isActive: true` is a
+one-field change rather than an edit that fails the suite for unrelated reasons. A `WEAPON_TABLE` row
+carried by nobody is legal (`tremor` is one); the whitelist that used to pin an exact carried-row
+count is gone, and the per-chassis kit assertions are what still catch a weapon silently dropped from
+a shipped loadout. `npm run ttk` and `npm run check:art` deliberately cover the whole table — the
+first is pure arithmetic, the second marks an unreleased row `(inactive)` rather than skipping it,
+because missing art is something to learn before release. See
+[`docs/config-reference.md`](docs/config-reference.md#adding-an-inactive-chassis).
+
 Until **2026-09-02**, `speed` and `handling` traded off per car — Bastion carried the roster's
 *highest* `handling` (82) despite the *lowest* `speed` (30), which let it turn inside every other
 chassis (20 u) even though Bullseye's low-rate-but-tight-radius arc (40 u, beating Mirage's 42 u
@@ -607,11 +627,19 @@ table reading 1000, on a page whose own generated cell two lines above said "1 p
 spelled-out measurement ("two seconds", "four muzzles") appears at all. It deliberately does **not**
 watch the word "car": "a dash that clips two cars in the same tick" is prose, not a figure.
 
-**Re-run `npm run build:manual` and commit the page whenever you change:** a weapon row, a chassis
-row, a car's loadout, `COMBAT_CONFIG`, `DRIVE_CONFIG`, `STATUS_TABLE`, `AIM_CONFIG.lockRange`,
-`TICK_RATE_HZ`, `ARENA_WIDTH`, or the prose in `cars-and-weapons-copy.mjs`. The page carries a
-fingerprint of all of that and `scripts/manual-page.test.mjs` recomputes it, so forgetting fails the
-suite with the command to run rather than quietly shipping last week's numbers to players.
+**Re-run `npm run build:manual` and commit the page whenever you change:** a weapon row, an ACTIVE
+chassis row, an active car's loadout, `COMBAT_CONFIG`, `DRIVE_CONFIG`, `STATUS_TABLE`,
+`AIM_CONFIG.lockRange`, `TICK_RATE_HZ`, `ARENA_WIDTH`, or the prose in `cars-and-weapons-copy.mjs`.
+The page carries a fingerprint of all of that and `scripts/manual-page.test.mjs` recomputes it, so
+forgetting fails the suite with the command to run rather than quietly shipping last week's numbers
+to players.
+
+**"Active" is load-bearing in that list.** The page publishes `activeCarIds()`, not `CAR_TABLE` —
+cards, kits, the HP matrix, and the `roster.*` tokens behind the cover blurb's "Nine weapons. Three
+chassis." — and `balanceStamp` hashes the same active subset. So a chassis authored with
+`isActive: false` reaches neither the page nor the stamp, and tuning it owes no rebuild; flipping the
+flag to `true` moves the stamp and owes one. This used to run off the whole table, which published
+unreleased cars to players with nothing saying so.
 
 `balanceStamp` hashes those tables **whole**, so *any* field of a row counts — including the purely
 visual ones. `WEAPON_TABLE.color` is the one that surprises people: it is not a balance number, but

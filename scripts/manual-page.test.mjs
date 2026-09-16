@@ -7,6 +7,7 @@ import {
   CAR_TABLE,
   TICK_RATE_HZ,
   WEAPON_TABLE,
+  activeCarIds,
   carHullOf,
   instanceExpired,
   resolveInstanceHits,
@@ -189,10 +190,11 @@ describe("the generated manual page", () => {
       // hits", which no single placement can reproduce — a fanned burst is spread across an arc by
       // construction. A beam's ceiling is a real, reachable number, which is why it can be pinned.
       if (def.kind !== "beam") continue;
-      // Uncarried rows (`tremor`) are excluded because the page is: the guide derives its numbers
-      // from the kits, so a weapon on no chassis prints nothing this test could pin. The moment a
-      // kit lists it, this loop picks it up again with no edit here.
-      if (!Object.values(CAR_TABLE).some((car) => car.weapons.includes(id))) continue;
+      // Rows the page does not print are excluded, because the page is what this pins: the guide
+      // derives its numbers from ACTIVE chassis kits, so a weapon on no chassis (`tremor`) prints
+      // nothing, and neither does one carried only by a chassis still in development. The moment an
+      // active kit lists it, this loop picks it up again with no edit here.
+      if (!activeCarIds().some((carId) => CAR_TABLE[carId].weapons.includes(id))) continue;
       assert.equal(
         simHitsPerTarget(id),
         hitsPerTargetOf(id),

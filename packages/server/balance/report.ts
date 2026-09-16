@@ -115,6 +115,13 @@ function renderHeader(record: RunRecord): string {
     "# Balance report",
     "",
     `**Seed:** ${record.config.seed} · **Shape:** ${record.config.shape} · **Mode:** ${modeName} (${record.config.mode}) · **Arena:** ${record.config.arenaId}`,
+    // Printed only when set, so an ordinary report reads exactly as it always did — but printed in
+    // the HEADER when it is, because "which chassis could take a seat" is the single fact that most
+    // changes how every number below should be read, and a reader opening an old `summary.md` has
+    // only this page to learn it from.
+    ...(record.config.includeInactive
+      ? ["", "**Roster:** includes inactive chassis (`--include-inactive`) — not comparable to a published-roster run."]
+      : []),
     "",
     `**N:** ${record.totalMatches} matches (config: ${record.config.matches} per ${record.config.shape === "duel" ? "ordered pair" : "run"}, ${record.config.matchSeconds}s cap each) · **Difficulty:** ${record.config.difficulty}`,
     "",

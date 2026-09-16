@@ -166,7 +166,17 @@ export function aggregate(outcomes: readonly MatchOutcome[]): {
   const appliers = buildApplierMap(); // built once, passed down — not per event, not per match.
 
   // ---- per-car accumulators -------------------------------------------------------------------
-  const carIds = Object.keys(CAR_TABLE) as CarId[];
+  // The chassis that actually PLAYED, in `CAR_TABLE` order — not every row in the table.
+  //
+  // This used to read the table whole, which was invisible while every car was active and every
+  // active car was seated. It stopped being invisible the moment `CarDef.isActive` could hide a
+  // chassis from `runner.ts`'s roster: an unreleased car appeared in the report as a real chassis
+  // with a row of zeros, a `0/0` win-rate interval, and a whole extra row AND column of empty
+  // matchup cells — a car presented as measured and found wanting, when in fact it never took a
+  // seat. Deriving the list from the outcomes makes the report describe the run it came from,
+  // whatever roster produced it, with nothing to keep in sync with `runner.ts`.
+  const seated = new Set(outcomes.flatMap((o) => o.seats.map((seat) => seat.carId)));
+  const carIds = (Object.keys(CAR_TABLE) as CarId[]).filter((id) => seated.has(id));
   // `carMatches` counts a MATCH the chassis appeared in — once per outcome, however many of its
   // seats that chassis filled. Win rate's denominator has to be this, not seat count: at the fixed
   // 2/2/2 composition (B27) a chassis holds two of six seats but can still only WIN a given match

@@ -53,6 +53,40 @@ is a config edit with its own doc obligations, not something a runtime sandbox s
 `config.test.ts` requires at least one active car and `DEFAULT_CAR_ID` to be among them, which is what
 keeps `carAtDeadline`'s fallback legal.
 
+### Adding an inactive chassis
+
+`isActive: false` is how a chassis is authored and driven before it is published. What follows from
+the flag, and what does not:
+
+- **The players' guide publishes active chassis only.** `scripts/build-cars-and-weapons.mjs` derives
+  `CAR_IDS` from `activeCarIds()`, and `scripts/manual-facts.mjs` derives the `roster.*` tokens from
+  the same list, so an unreleased car appears neither as a card nor inside the cover blurb's
+  "Nine weapons. Three chassis.". `balanceStamp` hashes the ACTIVE subset for the same reason: the
+  stamp fingerprints what the page says, so tuning an unreleased car costs no rebuild, while flipping
+  `isActive` to `true` correctly forces one.
+- **An inactive chassis may carry no weapons at all.** `weapon-slots.test.ts` applies the
+  at-least-one-weapon floor to active cars only — a prototype exists to be driven long before its kit
+  is authored. The floor applies the moment the flag flips.
+- **Weapon exclusivity (L1) is unconditional and covers inactive rows.** No weapon may sit on two
+  chassis, active or not, so a prototype cannot borrow a shipped kit. That is the deliberate trade
+  for the rule above: author your own weapons (a `WEAPON_TABLE` row carried by nobody is legal —
+  `tremor` is one today), and `isActive: true` is then a one-field change rather than an edit that
+  fails the suite for reasons unrelated to activation.
+- **The balance harness excludes it unless asked.** `npm run balance -- --include-inactive` seats
+  unreleased chassis; without the flag they never take a seat. A chassis carrying no weapons is
+  skipped either way, since a car that cannot fire books a guaranteed 0% that measures nothing. See
+  [`packages/server/balance/README.md`](../packages/server/balance/README.md).
+- **`npm run ttk` covers the whole table**, active or not — it is a pure damage-arithmetic matrix
+  with no bots and no seats, so an unreleased chassis costs nothing to include and is exactly what
+  you want while tuning one.
+- **`npm run check:art` checks it and marks it `(inactive)`** rather than skipping it: missing art or
+  a lost alpha channel is something to learn before release, not after.
+- **The compiler and the suites carry the rest.** `CarId` (`config/types.ts`) is a hand-written
+  union, `SHAPE_BY_CAR` (`client/src/scenes/car-visual.ts`) is a `satisfies Record<CarId, CarShape>`,
+  `docs/turn-tuning.md` needs a new column in three tables (`scripts/turn-tuning-doc.test.mjs`
+  recomputes every cell for every row in `CAR_TABLE`, inactive included), and `config.test.ts` pins
+  the id list. Each of those fails loudly and names itself.
+
 `coastHalfLifeSeconds` and `brakeDecel` joined `CarDef` on 2026-09-06 (the vector-drive rework's
 heavy-car pass), as two more per-car fields that are direct values rather than 0-100 ratings — not
 in the table above for the same reason `isActive` and `weapons` are not; see the derived table below

@@ -121,7 +121,15 @@ export async function readSpriteFacts(file) {
   };
 }
 
-/** Every chassis's findings, in `CAR_TABLE` order. */
+/**
+ * Every chassis's findings, in `CAR_TABLE` order.
+ *
+ * The WHOLE table, inactive chassis included — deliberately, unlike the player-facing guide. A car
+ * in development is exactly the one whose art you need reported on: "this sprite is missing / has
+ * no alpha / is the wrong size" is information you want BEFORE `isActive` flips true, not after.
+ * `reportCars` marks the row instead, so a prototype's missing-art warning is not mistaken for a
+ * problem with something players can already drive.
+ */
 export async function checkCars(manifest) {
   const hull = { width: DRIVE_CONFIG.carWidth, height: DRIVE_CONFIG.carHeight };
   const results = [];
@@ -130,6 +138,7 @@ export async function checkCars(manifest) {
     const image = row ? await readSpriteFacts(path.join(artDir, row.file)) : undefined;
     results.push({
       id: carId,
+      isActive: CAR_TABLE[carId].isActive,
       fit: image ? describeFit({ width: image.width, height: image.height }, hull) : undefined,
       findings: checkCarSprite({ carId, row, image, expectedWidth: expectedSpriteWidth() }),
     });
@@ -140,7 +149,7 @@ export async function checkCars(manifest) {
 /** Print one line per chassis plus its findings, and return how many blockers were seen. */
 export function reportCars(results) {
   let blockers = 0;
-  for (const { id, fit, findings } of results) {
+  for (const { id, isActive, fit, findings } of results) {
     const verdict = findings.some((f) => f.level === "blocker")
       ? "FAIL"
       : findings.length > 0
@@ -149,7 +158,10 @@ export function reportCars(results) {
     const drawn = fit
       ? `  fills ${Math.round((fit.drawnWidth / DRIVE_CONFIG.carWidth) * 100)}% x ${Math.round((fit.drawnHeight / DRIVE_CONFIG.carHeight) * 100)}% of the hull`
       : "";
-    console.log(`${verdict.padEnd(5)} ${id.padEnd(12)}${drawn}`);
+    // The label, not a filter: an unreleased chassis is still checked and still reported, it is
+    // just named as unreleased so nobody reads its findings as a live problem.
+    const label = isActive ? id : `${id} (inactive)`;
+    console.log(`${verdict.padEnd(5)} ${label.padEnd(23)}${drawn}`);
     for (const f of findings) {
       console.log(`        ${f.level}: ${f.message}`);
       if (f.level === "blocker") blockers++;

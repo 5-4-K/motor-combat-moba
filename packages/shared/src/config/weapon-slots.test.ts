@@ -7,9 +7,14 @@ import { WEAPON_SLOT_CONFIG, carAimRangeOf, slotsOf, slotsFrom } from "./weapon-
 afterEach(() => vi.restoreAllMocks());
 
 describe("loadouts", () => {
-  it("gives every car at least one weapon and no more than the slot limit", () => {
+  it("gives every ACTIVE car at least one weapon, and no car more than the slot limit", () => {
+    // The floor is an ACTIVE-car rule, not a roster-wide one. An inactive car may carry nothing at
+    // all: that is the shape a chassis is prototyped in, driven in the playground to judge its
+    // handling long before anyone has authored the three exclusive weapons it will eventually ship
+    // with. A car a player can actually select must be able to fight, so the floor applies the
+    // moment `isActive` flips true.
     for (const car of Object.values(CAR_TABLE)) {
-      expect(car.weapons.length).toBeGreaterThanOrEqual(1);
+      if (car.isActive) expect(car.weapons.length).toBeGreaterThanOrEqual(1);
       expect(car.weapons.length).toBeLessThanOrEqual(WEAPON_SLOT_CONFIG.maxWeaponSlots);
     }
   });
@@ -20,21 +25,32 @@ describe("loadouts", () => {
     expect(CAR_TABLE.bastion.weapons).toEqual(["thumper", "roadblock", "wildcharge"]);
   });
 
-  it("shares no weapon between two chassis, so car select is a real choice", () => {
+  it("shares no weapon between two chassis, active or not, so car select is a real choice", () => {
     // L1. Exclusivity is the point of having three chassis: a shared opener would drag all three
     // toward the same early-fight rhythm.
+    //
+    // Deliberately UNCONDITIONAL — it covers inactive rows too, and that is the whole reason the
+    // rule above lets a prototype carry nothing. The alternative (scope L1 to active cars, let a
+    // prototype borrow a shipped kit) moves the split to the worst possible moment: activating a
+    // car would fail the suite for a reason unrelated to the edit that activated it. Borrow
+    // nothing, author your own, and `isActive: true` is then a one-field change.
     const all = Object.values(CAR_TABLE).flatMap((car) => [...car.weapons]);
     expect(new Set(all).size).toBe(all.length);
   });
 
-  it("carries every table row on exactly one chassis, except the deliberately unassigned set", () => {
-    // `tremor` is the table's one authored-but-uncarried row (loadout decision pending). Naming the
-    // set here keeps the guard honest: a weapon accidentally dropped from a kit still fails, and
-    // adding an unassigned row is a conscious edit to this list rather than a silent pass.
-    const UNCARRIED = ["tremor"];
+  it("lets a weapon exist with no chassis carrying it", () => {
+    // A `WEAPON_TABLE` row owned by nobody is legal and expected: `tremor` is authored and
+    // uncarried today, and a chassis in development needs its weapons to exist in the table before
+    // its kit is assembled. This used to be a whitelist (`UNCARRIED = ["tremor"]`) asserting an
+    // exact carried-row count, which made every new weapon a two-file edit and made "author the
+    // weapons first, wire the kit second" impossible.
+    //
+    // The guard that whitelist doubled as — a weapon silently dropped from a shipped kit — is NOT
+    // lost: "gives each chassis the kit its type calls for" above pins all three shipped loadouts
+    // element by element, which catches a dropped weapon more precisely than a count ever did.
     const carried = new Set(Object.values(CAR_TABLE).flatMap((car) => [...car.weapons]));
-    for (const id of UNCARRIED) expect(carried.has(id)).toBe(false);
-    expect(carried.size).toBe(Object.keys(WEAPON_TABLE).length - UNCARRIED.length);
+    expect(carried.size).toBeLessThanOrEqual(Object.keys(WEAPON_TABLE).length);
+    for (const id of carried) expect(WEAPON_TABLE).toHaveProperty(id);
   });
 
   it("returns the car's list in slot order", () => {

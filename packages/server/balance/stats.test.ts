@@ -21,8 +21,9 @@ function seat(overrides: Partial<Seat> & { sessionId: string; carId: CarId }): S
   };
 }
 
-/** One `MatchOutcome`, defaulted to a two-seat mirage-vs-bastion match with no events and no
- * winner (a draw), so a test only has to spell out the fields it cares about. */
+/** One `MatchOutcome`, defaulted to a three-seat full-roster match with no events and no winner (a
+ * draw), so a test only has to spell out the fields it cares about. A test about a two-seat duel
+ * passes `seats` explicitly. */
 function synthetic(opts: {
   fired?: readonly FiredEvent[];
   damaged?: readonly DamagedEvent[];
@@ -37,9 +38,17 @@ function synthetic(opts: {
     winnerSessionId: opts.winnerSessionId ?? "",
     winnerTeam: -1,
     hitClock: opts.hitClock ?? false,
+    // All three chassis by default, one seat each.
+    //
+    // This used to seat only mirage and bastion, which made the fixture incoherent the moment
+    // `aggregate` started deriving its roster from the seats rather than from `CAR_TABLE` whole:
+    // several tests below fire a `bullseye` weapon in a match bullseye was never in. The report's
+    // shape is the shape of the roster that PLAYED, so a fixture that means "a full field" has to
+    // seat a full field.
     seats: opts.seats ?? [
       seat({ sessionId: "a", carId: "mirage", placement: 1 }),
       seat({ sessionId: "b", carId: "bastion", placement: 2 }),
+      seat({ sessionId: "c", carId: "bullseye", placement: 3 }),
     ],
     events: {
       fired: [...(opts.fired ?? [])],
@@ -343,7 +352,17 @@ describe("aggregate: car stats", () => {
 
 describe("aggregate: matchup matrix", () => {
   it("builds both ordered cells from one 2-seat match", () => {
-    const out = aggregate([synthetic({ winnerSessionId: "a" })]); // mirage (a) beats bastion (b)
+    // Seats spelled out rather than taking the fixture default: this test is specifically about a
+    // TWO-seat field (a duel), and the default is a full three-chassis one.
+    const out = aggregate([
+      synthetic({
+        winnerSessionId: "a",
+        seats: [
+          seat({ sessionId: "a", carId: "mirage", placement: 1 }),
+          seat({ sessionId: "b", carId: "bastion", placement: 2 }),
+        ],
+      }),
+    ]); // mirage (a) beats bastion (b)
     const mirageOverBastion = out.matchups.find((m) => m.attacker === "mirage" && m.defender === "bastion")!;
     const bastionOverMirage = out.matchups.find((m) => m.attacker === "bastion" && m.defender === "mirage")!;
     expect(mirageOverBastion.winRate.n).toBe(1);

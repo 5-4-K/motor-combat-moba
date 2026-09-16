@@ -59,6 +59,7 @@ function main(): void {
       `matches=${args.matches}${args.shape === "duel" ? " per ordered pair" : ""}`,
       `match-seconds=${args.matchSeconds}`,
       `arena=${args.arenaId}`,
+      ...(args.includeInactive ? ["include-inactive=true"] : []),
       args.baseline ? `baseline=${args.baseline}` : "baseline=(none)",
       ...(args.baseline ? [`force=${args.force}`] : []), // meaningless with no --baseline to force
       args.out ? `out=${args.out}` : "out=(dated folder)",
@@ -75,6 +76,7 @@ function main(): void {
     seed: args.seed,
     arenaId: args.arenaId,
     matchSeconds: args.matchSeconds,
+    includeInactive: args.includeInactive,
   };
 
   const fingerprints = { config: configFingerprint(), bot: botFingerprint() };

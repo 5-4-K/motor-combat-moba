@@ -36,6 +36,7 @@ import {
   WEAPON_TABLE,
   WEAPON_TICKS,
   accelOf,
+  activeCarIds,
   forwardMaxSpeedOf,
   getArena,
   hpOf,
@@ -94,7 +95,18 @@ const AVERAGE_HP = AVERAGE_RATING * COMBAT_CONFIG.hpPerRating;
 
 // ---------------------------------------------------------------------------- derived stats
 
-const CAR_IDS = Object.keys(CAR_TABLE);
+/**
+ * The chassis the page publishes: ACTIVE ones only.
+ *
+ * This is the guide's half of `CarDef.isActive` (PG18). The flag hides an unreleased chassis from
+ * car select and from every server-side gate, but this script used to read the table whole — so
+ * authoring a car in development shipped its stats, its kit and its silhouette to players on the
+ * next `npm run build:manual`, with nothing saying so. Every downstream derivation here follows
+ * this list: the cover grid, `OWNER_OF`, `WEAPONS` (which is `CAR_IDS.flatMap(slotsOf)`, so an
+ * inactive car's exclusive weapons drop off the page with it), the chassis cards, the attack
+ * multiplier row, the kit lists and the HP matrix.
+ */
+const CAR_IDS = activeCarIds();
 
 /**
  * How many weapons carry a magazine, said in words. Derived rather than written down: this line
@@ -358,7 +370,13 @@ function bars(w) {
 export function balanceStamp() {
   const inputs = {
     weapons: WEAPON_TABLE,
-    cars: CAR_TABLE,
+    // ACTIVE cars only, matching `CAR_IDS` — the stamp fingerprints what the page SAYS, per this
+    // comment's own rule above, and the page says nothing about an inactive chassis. Hashing
+    // `CAR_TABLE` whole would fail `npm test` on every ratings tweak to an unreleased car and
+    // demand a rebuild of a page that comes out byte-identical but for this meta tag, which is how
+    // a guard gets rubber-stamped. Flipping `isActive` to true still moves the stamp, correctly:
+    // that edit really does owe players a rebuild.
+    cars: Object.fromEntries(CAR_IDS.map((id) => [id, CAR_TABLE[id]])),
     combat: COMBAT_CONFIG,
     statuses: STATUS_TABLE,
     drive: DRIVE_CONFIG,

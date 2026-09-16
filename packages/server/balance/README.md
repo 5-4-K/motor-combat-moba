@@ -164,6 +164,29 @@ clean attacker-vs-defender read, one pair at a time. `duel` also defaults to `la
 `duel` runs `--matches` matches **per ordered pair**, not `--matches` matches total — nine pairs at
 today's three-chassis roster, so `--matches=20 --shape=duel` is 180 matches, not 20.
 
+### Past six chassis, `ffa` rotates instead of seating everyone
+
+A match holds `MAX_PLAYERS` cars and both arenas author exactly six `ffaSpawns`, so a roster larger
+than six cannot all play at once. Up to six chassis, `ffa` keeps the fixed composition described
+above (the largest even split — 2/2/2 at three, 1/1/1/1 at four). **Past six, the composition rotates
+per match**: each match seats six chassis, one seat each, and the window advances by one chassis per
+match index, so over any lap of `n` matches every chassis sits in exactly `MAX_PLAYERS` of them.
+
+Two things follow, and both matter when you read the report:
+
+- **The null hypothesis is no longer `1/n`.** It is `1/MAX_PLAYERS` — one seat in a six-car melee —
+  for every chassis. The win rates need no correction (the denominator is already matches the chassis
+  *appeared in*, not matches run); only the figure you compare them against moves.
+- **Run `--matches` as a multiple of `n`.** A partial last lap gives some chassis one match more than
+  others, and the intervals stop being directly comparable.
+
+This is unreachable on the published roster and reachable today only via `--include-inactive`. Before
+it existed, a seventh chassis did not rotate — it built seven seats and the run died on
+`"Not enough FFA spawns for roster"`.
+
+`duel` is unaffected by roster size: it is always two seats and simply sweeps `n²` ordered pairs, so
+it is also the shape that actually answers "is this new chassis too strong" (see above).
+
 ---
 
 ## Every flag
@@ -185,9 +208,10 @@ are looking up.
 | `--skill` | `pro` \| `casual` \| `amateur` | `pro` | Player-type vocabulary; maps to bot difficulty `hard` \| `medium` \| `easy` (`SKILL_TO_DIFFICULTY` in `cli.ts` is the one place that mapping lives). The report prints both forms, e.g. `pro (hard)`. |
 | `--seed` | integer | a fresh random seed, printed first | The whole run is a pure function of this seed — same seed, same matches, replayed exactly. |
 | `--arena` | a known arena id | `arena-01` | Which arena to run every match on. Only one arena runs per report; arena geometry is itself a balance input this harness does not vary. |
-| `--baseline` | a previous run's directory | none | Load that run's `run.json` and print a "Deltas vs baseline" section against it. Refuses to run (exits non-zero, before any match is simulated) if the config or bot fingerprint, the shape, the mode or the skill tier differs — see the paired-run workflow below. |
+| `--baseline` | a previous run's directory | none | Load that run's `run.json` and print a "Deltas vs baseline" section against it. Refuses to run (exits non-zero, before any match is simulated) if the config or bot fingerprint, the shape, the mode, the skill tier or `--include-inactive` differs — see the paired-run workflow below. |
 | `--force` | flag, no value | off | Overrides a refused `--baseline` comparison (B37) — the run proceeds instead of exiting non-zero. Meaningless without `--baseline`. The report's "Deltas vs baseline" section carries a prominent warning banner naming every mismatch, so a forced delta can never later be mistaken for a valid paired run. |
 | `--match-seconds` | positive integer | `DEATHMATCH_CONFIG.matchSeconds` (180s) for deathmatch, a 300s (5 min) stalemate safety cap for last-standing | Per-match clock. For deathmatch this doubles as the real `matchEndsTick`, so it is not a mock of the game's clock — it is the game's clock. For last-standing it is a cap, not a target; hitting it is itself a finding (a matchup or bot pairing that cannot resolve). |
+| `--include-inactive` | flag, no value | off | Also seat chassis whose `CarDef.isActive` is `false`, so a car still in development can be measured before it is published. Without it they never take a seat. **A chassis carrying no weapons is skipped under either setting** — an inactive car is allowed an empty kit, and a car that cannot fire books a guaranteed 0% that says nothing about the chassis while dragging every other car's number up around it. A `--baseline` comparison across a difference in this flag is refused: the two runs seated different rosters. |
 | `--out` | a directory path | a fresh dated folder under `reports/` | Write the report somewhere specific instead of the auto-numbered folder. |
 | `--help`, `-h` | flag, no value | off | Print the flag list and exit 0 without running anything. Checked before any parsing, so it prints even when it sits beside an unparseable flag. |
 
@@ -235,7 +259,12 @@ experiment, which is a weaker claim.
 - `--shape` or `--mode` differs (a duel win rate and an FFA win rate are not the same quantity), or
 - `--skill` differs (a different tier flew the matches). This is checked as its own field rather
   than through the bot fingerprint, which hashes `BOT_PROFILES` WHOLE and so gives every tier the
-  same hash — without the separate check, a pro run and a casual run compared as `ok`.
+  same hash — without the separate check, a pro run and a casual run compared as `ok`, or
+- `--include-inactive` differs (the two runs seated different rosters). Also checked as its own
+  field, and for a subtler reason than `--skill`: the config fingerprint hashes `CAR_TABLE` whole, so
+  it *does* move when a chassis is added or its `isActive` flips — but two runs over the identical
+  table under different flags hash identically while having measured a three-car game and a seven-car
+  one.
 
 A differing `--seed` is not fatal — it just prints a warning that the comparison is a different
 sample, not a clean paired one. Both fingerprints, along with the git commit, print in every report's
@@ -256,7 +285,9 @@ Every win rate this report prints carries a **Wilson score interval**, inline, i
 could plausibly be in, given how many matches actually ran.
 
 At the fixed `ffa` composition (2/2/2, six cars) the **null hypothesis is exactly 33.3%** — a chassis
-with no advantage at all wins one match in three by construction. Over 100 matches, that 95% interval
+with no advantage at all wins one match in three by construction. (At a rotating composition — more
+than six chassis, only reachable with `--include-inactive` — the null is `1/MAX_PLAYERS` instead; see
+"Past six chassis" above.) Over 100 matches, that 95% interval
 is roughly **±9 points wide**. A chassis reading 38% over 100 matches is sitting comfortably inside
 the noise around 33.3%; it is not, on its own, evidence that chassis is strong. Only a gap that
 survives — one where the interval itself sits clear of 33.3%, or that holds up across a paired-run

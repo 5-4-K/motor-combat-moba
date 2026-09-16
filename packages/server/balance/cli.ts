@@ -119,6 +119,7 @@ export const KNOWN_FLAGS = new Set([
   "match-seconds",
   "out",
   "force",
+  "include-inactive",
   "help",
 ]);
 
@@ -197,7 +198,8 @@ export function helpText(): string {
     "Flags (all --name=value; order does not matter):",
     "",
     `  --shape=ffa|duel            (default ${DEFAULT_SHAPE}) ffa seats one 2/2/2 six-car match; duel cycles`,
-    "                              all nine ordered chassis pairs, --matches EACH.",
+    "                              all nine ordered chassis pairs, --matches EACH. Past six chassis",
+    "                              ffa rotates which six play each match; duel is unaffected.",
     `  --matches=<n>               (default ${DEFAULT_MATCHES}) matches per run (ffa) or per ordered pair (duel).`,
     "  --mode=deathmatch|last-standing",
     "                              (default last-standing for duel, deathmatch otherwise) win condition.",
@@ -216,6 +218,10 @@ export function helpText(): string {
     "  --force                     (default off) run a refused --baseline comparison anyway; the",
     "                              report carries a banner naming every mismatch. No-op without",
     "                              --baseline.",
+    "  --include-inactive          (default off) also seat chassis with CarDef.isActive false, so a",
+    "                              car still in development can be measured before it is published.",
+    "                              A chassis carrying no weapons is skipped either way. Refuses a",
+    "                              --baseline comparison against a run that did not use it.",
     "  --out=<dir>                 (default: a fresh dated folder under reports/) write there instead.",
     "  --help, -h                  Print this and exit.",
     "",
@@ -287,6 +293,10 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     seed,
     arenaId,
     matchSeconds,
+    // Bare boolean, same shape as `--force` and deliberately NOT in `REQUIRES_EXPLICIT_VALUE`:
+    // `--include-inactive` and `--include-inactive=true` both set it, which is how anyone would
+    // reach for it.
+    includeInactive: flags.has("include-inactive"),
     baseline: flags.get("baseline"),
     out: flags.get("out"),
     force: flags.has("force"),
