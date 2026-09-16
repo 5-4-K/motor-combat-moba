@@ -40,7 +40,11 @@ describe("tintCornersFor", () => {
   it("lights the corner facing the light and shades the one opposite it", () => {
     // Light straight up the screen (-90 degrees, +y being down), car unrotated: the two TOP corners
     // are the near ones and must come back brighter than the two bottom ones.
-    const corners = tintCornersFor(RED, 0, look({ lightAngle: -90 }));
+    //
+    // `litStrength` is pinned rather than inherited from the shipped table: this test is about the
+    // MECHANISM, and the shipped value is a tuning knob that is allowed to sit at 0 (it does today).
+    // Inheriting it made a retune to 0 read as the lighting maths breaking.
+    const corners = tintCornersFor(RED, 0, look({ lightAngle: -90, litStrength: 1 }));
     expect(luma(corners.topLeft)).toBeGreaterThan(luma(RED));
     expect(luma(corners.topRight)).toBeGreaterThan(luma(RED));
     expect(luma(corners.bottomLeft)).toBeLessThan(luma(RED));
@@ -56,7 +60,9 @@ describe("tintCornersFor", () => {
     // take the colour belonging to the WORLD position it has moved into. With +y down, a +pi/2
     // rotation sends local bottomLeft to world topLeft, local topLeft to world topRight, and so on
     // round — so the colours rotate the opposite way to the corners.
-    const l = look({ lightAngle: -90 });
+    // `litStrength` pinned for the same reason as above: with the shipped 0 only the shaded corners
+    // would move, and this test would be checking half of what it claims to.
+    const l = look({ lightAngle: -90, litStrength: 1 });
     const flat = tintCornersFor(RED, 0, l);
     const turned = tintCornersFor(RED, Math.PI / 2, l);
     expect(turned.bottomLeft).toBe(flat.topLeft);

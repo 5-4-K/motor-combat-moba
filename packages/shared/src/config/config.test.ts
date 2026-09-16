@@ -292,9 +292,14 @@ describe("the three types (T5/T6)", () => {
     // (135/3.7 -> 80/2.2) for a roughly 40% roster-wide top-speed cut, and `baseAccel`/
     // `accelPerRating` (420/7.2 -> 60/1.4) alongside it, roughly tripling time-to-top-speed. See
     // `DRIVE_CONFIG.speedPerRating` and `DRIVE_CONFIG.accelPerRating`.
-    expect(forwardMaxSpeedOf("bullseye")).toBe(223);
-    expect(forwardMaxSpeedOf("mirage")).toBe(267);
-    expect(forwardMaxSpeedOf("bastion")).toBe(190);
+    //
+    // 2026-09-16 cut the speed pair again, 80/2.2 -> 60/1.518, for a further ~29% off every top
+    // speed. `toBeCloseTo` rather than `toBe` because 1.518 is not representable in binary: the
+    // products land a few ULPs off the decimal (158.67000000000002, not 158.67). Accel was left
+    // alone, so time-to-top-speed FELL with the ceiling — 1.81 -> 1.29 s on Bullseye.
+    expect(forwardMaxSpeedOf("bullseye")).toBeCloseTo(158.67, 9);
+    expect(forwardMaxSpeedOf("mirage")).toBeCloseTo(189.03, 9);
+    expect(forwardMaxSpeedOf("bastion")).toBeCloseTo(135.9, 9);
 
     expect(accelOf("bullseye")).toBeCloseTo(123, 9);
     expect(accelOf("mirage")).toBeCloseTo(179, 9);
@@ -319,10 +324,14 @@ describe("the three types (T5/T6)", () => {
     // turner. The ordering survives; the ~20+ u gap that made it a headline design point does not.
     // The 2026-09-06 heavy-car speed cut then scaled every radius down by the same ~41% (turn rate
     // untouched), so the remaining gap shrank again — from ~4 u to ~2 u — without reordering anything.
+    // The 2026-09-16 speed cut did the same thing a second time: turn rate untouched again, so every
+    // radius fell by the same proportion its own top speed did and the ordering is unchanged. The
+    // spread is now ~1.5 u across the whole roster (21.6 / 22.3 / 23.1) — the three chassis corner
+    // almost identically, and radius is no longer a meaningful axis of the type triangle.
     const radius = (id: CarId) => forwardMaxSpeedOf(id) / turnRateOf(id);
     expect(radius("bastion")).toBeLessThan(radius("bullseye"));
     expect(radius("bullseye")).toBeLessThan(radius("mirage"));
-    expect(radius("bastion")).toBeCloseTo(30.2, 1);
+    expect(radius("bastion")).toBeCloseTo(21.6, 1);
   });
 
   it("orders the three types on every axis the design names", () => {

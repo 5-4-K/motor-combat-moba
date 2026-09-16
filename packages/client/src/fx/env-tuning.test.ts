@@ -42,7 +42,7 @@ describe("resolveEnvironment", () => {
 
   it("never writes through to the shipped table", () => {
     resolveEnvironment({ [envKey("grade", "saturate")]: -0.9 });
-    expect(ENVIRONMENT_FX.grade.saturate).toBe(-0.22);
+    expect(ENVIRONMENT_FX.grade.saturate).toBe(0);
   });
 });
 
@@ -99,7 +99,7 @@ describe("envTableSource (EV33)", () => {
     const source = envTableSource({ [envKey("grade", "saturate")]: -0.5 });
     expect(source).toContain("grade: {");
     expect(source).toContain("saturate: -0.5");
-    expect(source).toContain("brightness: 0.96");
+    expect(source).toContain("brightness: 1.5");
     expect(source).not.toContain("decals: {");
   });
 

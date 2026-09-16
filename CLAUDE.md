@@ -102,11 +102,29 @@ this pass, replacing the old global `DRIVE_CONFIG.drag`/`brakeDecel` pair, so co
 now per-chassis feel rather than a roster-wide constant. See
 [`docs/turn-tuning.md`](docs/turn-tuning.md#current-values) for the full numbers.
 
+**The 2026-09-16 pass cut top speed a third time, and this one is not the same shape as the last.**
+`DRIVE_CONFIG.baseMaxSpeed`/`speedPerRating` dropped 80/2.2 -> 60/1.518 — roughly another 29% off
+every top speed (Mirage 267 -> 189.03 u/s, Bullseye 223 -> 158.67, Bastion 190 -> 135.9). Three
+differences from 2026-09-06 matter: the pair did **not** scale uniformly (0.75x against 0.69x), so
+the flat part grew relative to the per-rating part and a point of `speed` buys slightly less;
+**accel was left untouched**, so time to top speed *fell* with the ceiling (Mirage 1.49 -> 1.06 s,
+Bullseye 1.81 -> 1.29, Bastion 2.16 -> 1.54) rather than stretching as the heavy-car pass made it —
+a car is slower but reaches its lower maximum sooner, which reads as *less* heavy, not more; and turn
+rate was left alone for a third consecutive pass, so every radius fell with its own speed to a
+**1.5 u band across the whole roster** (Bastion 21.6 u, Bullseye 22.3, Mirage 23.1). Radius has
+stopped being a legible axis of the type triangle — widening it back out is a `handling` edit, not a
+speed one. **The measured hardest-possible ram also dropped from 5.95 to 4.50 rad/s against an
+unchanged `RAM_CONFIG.spinMaxRate` of 6**, since `attackerPush` is linear in closing speed: stage 5's
+re-pitch inherits a spin budget that is a quarter unspent, and `globalScale`/`spinScale` were
+measured against the old ceiling-hugging case. See
+[`docs/turn-tuning.md`](docs/turn-tuning.md#current-values).
+
 Turn rates themselves were last touched on **2026-08-31, when the whole roster's turn rate was raised
 1.5x** — `DRIVE_CONFIG.baseTurnRate` and `turnRatePerRating` scaled together, speeds untouched at the
 time — because driving and aiming read as too heavy; neither the 2026-09-02 rebalance nor the
-2026-09-06 heavy-car pass above rescaled that pair again — only the per-car ratings, the speed knobs,
-and (2026-09-06 only) the accel knobs and the new per-car coast/brake values. The 150-point budget
+2026-09-06 heavy-car pass nor the 2026-09-16 cut above rescaled that pair again — only the per-car
+ratings, the speed knobs, and (2026-09-06 only) the accel knobs and the new per-car coast/brake
+values. The 150-point budget
 that used to cap `speed`+`attack`+`hp` was deleted on 2026-08-29 so `mass` could be a free-floating
 rating, and no replacement guard was adopted — see
 [`docs/config-reference.md`](docs/config-reference.md#car_table).

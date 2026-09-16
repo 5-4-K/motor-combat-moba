@@ -41,8 +41,11 @@ export const DRIVE_CONFIG = {
    * Cut again on 2026-09-06 (stage 1 of the vector-drive rework), to 80, alongside `speedPerRating`
    * dropping to 2.2 — together a roughly 40% roster-wide top-speed cut so cars read as heavy, and
    * (with turn rate untouched) a turn radius cut to comfortably under one car length per chassis.
+   * Cut to 60 on 2026-09-16 alongside `speedPerRating` dropping to 1.518 — a further ~29% roster-wide
+   * top-speed cut. NOT a uniform pair scale: this half fell to 0.75x and the per-rating half to
+   * 0.69x, so a point of `speed` buys slightly less than it did, narrowing the roster's spread.
    */
-  baseMaxSpeed: 80,
+  baseMaxSpeed: 60,
   /**
    * Ratings are 0-100 (see `CAR_TABLE`), so this is a tenth of what it would be on a 0-10 scale.
    * It was 45 against 0-10 ratings and became 4.5 when they widened, precisely so that every car's
@@ -50,9 +53,11 @@ export const DRIVE_CONFIG = {
    * Raised again on 2026-09-02, but not to the pair-preserving 3.375 (2.25 x 1.5) — 3.7 was a
    * deliberate extra push on top of the uniform 1.5x, so a point of `speed` now buys more than it did
    * before the 2026-09-01 cut, not merely 1.5x more. Cut to 2.2 on 2026-09-06 alongside
-   * `baseMaxSpeed`'s drop to 80, for the heavy-car top-speed cut described there.
+   * `baseMaxSpeed`'s drop to 80, for the heavy-car top-speed cut described there. Cut to 1.518 on
+   * 2026-09-16 alongside `baseMaxSpeed`'s drop to 60 — see there for why the pair did not scale
+   * uniformly.
    */
-  speedPerRating: 2.2,
+  speedPerRating: 1.518,
   /**
    * How completely the velocity vector rotates with the heading, 0-1.
    *

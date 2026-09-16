@@ -79,8 +79,8 @@ this page is about, and because changing either now obliges an edit to this page
 | `turnRatePerRating` | `DRIVE_CONFIG` | 0.054 | What one point of `handling` buys |
 | `stopTurnRatio` | `DRIVE_CONFIG` | 0.5 | Steering at rest, as a fraction of the moving rate |
 | `spinMaxRate` | `RAM_CONFIG` | 6 rad/s | Cap on ram-imposed rotation |
-| `baseMaxSpeed` | `DRIVE_CONFIG` | 80 | Radius only — no effect on turn rate |
-| `speedPerRating` | `DRIVE_CONFIG` | 2.2 | Radius only — what one point of `speed` buys |
+| `baseMaxSpeed` | `DRIVE_CONFIG` | 60 | Radius only — no effect on turn rate |
+| `speedPerRating` | `DRIVE_CONFIG` | 1.518 | Radius only — what one point of `speed` buys |
 | `reverseSpeedRatio` | `DRIVE_CONFIG` | 0.65 | Reverse radius only |
 
 Two more `DRIVE_CONFIG` globals sit beside these but don't feed a rate or radius cell on this page:
@@ -93,8 +93,8 @@ invalidate the "steering is exempt from the grip budget" assumption every radius
 
 **A global knob is not a blunt version of a per-car one.** `turnRatePerRating` multiplies the
 rating, so raising it hands the most to whoever already has the most: pushing it from 0.054 to 0.072
-would take Mirage's radius from 32.6 u to 27.5 u, but would also pull Bastion's from 30.2 u to
-26.4 u — tightening the car that already needs it least, since Bastion finishes with the roster's
+would take Mirage's radius from 23.1 u to 19.4 u, but would also pull Bastion's from 21.6 u to
+18.9 u — tightening the car that already needs it least, since Bastion finishes with the roster's
 tightest radius either way.
 
 **That is the trade Mirage's 2026-08-31 rating edit avoided, historically.** Its radius was 91.4 u,
@@ -104,8 +104,14 @@ several times more since: the 2026-09-01 half-speed cut took the same pair to 45
 the 2026-09-02 rewrite reset Mirage's `handling` again, to 85 (matching its `speed`), landing it at
 54.9 u — the roster's widest again, now by design rather than as something to fix. The 2026-09-06
 heavy-car pass (`baseMaxSpeed` 135 -> 80, `speedPerRating` 3.7 -> 2.2) then cut every car's radius by
-the same ~41%, without moving a single `handling` rating, taking Mirage to today's 32.6 u — still the
-roster's widest, now comfortably under one car length (48 u). A global knob could not have made the
+the same ~41%, without moving a single `handling` rating, taking Mirage to 32.6 u — still the
+roster's widest, now comfortably under one car length (48 u). The 2026-09-16 cut
+(`baseMaxSpeed` 80 -> 60, `speedPerRating` 2.2 -> 1.518) did the same thing again, turn rate untouched
+for a third consecutive pass, landing Mirage at today's 23.1 u. **The whole roster now corners inside
+a 1.5 u band** (Bastion 21.6, Bullseye 22.3, Mirage 23.1), which is under a tenth of a car length:
+the ordering survives but radius has stopped being a legible axis of the type triangle, and a
+complaint that "all three cars corner the same" would be correct. Widening it back out is a
+`handling` edit, not a speed one. A global knob could not have made the
 2026-08-31 fix: Mirage was sitting on `handling` 50, the anchor rating at the time, so the standard
 "widen the spread" move (raise `turnRatePerRating`, lower `baseTurnRate` to hold the pivot) would have
 left it exactly where it was.
@@ -127,10 +133,10 @@ in a turn-rate or radius formula.
 | — degrees per tick | ″ | 13.58° | 15.64° | 12.03° |
 | **Turn rate at rest** | `turnRate × stopTurnRatio` | 3.555 rad/s | 4.095 rad/s | 3.15 rad/s |
 | — in degrees | ″ | 203.7°/s | 234.6°/s | 180.5°/s |
-| Top speed | `baseMaxSpeed + speed × speedPerRating` | 223 u/s | **267 u/s** | 190 u/s |
-| Reverse top speed | `× reverseSpeedRatio` | 145 u/s | 173.6 u/s | 123.5 u/s |
-| **Turn radius** | `topSpeed / turnRate` | 31.4 u | 32.6 u | **30.2 u** |
-| Reverse turn radius | `reverseSpeed / turnRate` | 20.4 u | 21.2 u | 19.6 u |
+| Top speed | `baseMaxSpeed + speed × speedPerRating` | 158.67 u/s | **189.03 u/s** | 135.9 u/s |
+| Reverse top speed | `× reverseSpeedRatio` | 103.1 u/s | 122.9 u/s | 88.3 u/s |
+| **Turn radius** | `topSpeed / turnRate` | 22.3 u | 23.1 u | **21.6 u** |
+| Reverse turn radius | `reverseSpeed / turnRate` | 14.5 u | 15 u | 14 u |
 | 180° while moving | `π / turnRate` | 0.44 s | 0.38 s | 0.5 s |
 | 360° while moving | `2π / turnRate` | 0.88 s | 0.77 s | 1 s |
 | 180° from standstill | `π / turnRateAtStop` | 0.88 s | 0.77 s | 1 s |

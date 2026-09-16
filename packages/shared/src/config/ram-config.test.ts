@@ -65,10 +65,13 @@ describe("RAM_CONFIG", () => {
     // roster's lowest `ramDefence`, so it absorbs the most) at Bastion's own top speed, hit at the
     // maximum lever arm `contactPointOn` can recover (the hull's half-length, 24 u). At `spinScale`
     // 10 that measured 5.95 rad/s against a 6.0 ceiling — 99% of it, approaching saturation without
-    // clipping. A 10% rise in `globalScale` (which the impulse magnitude, and so the torque, scales
-    // with directly) would silently push this over and start clipping every hardest-case ram, so this
-    // is run through the REAL pipeline (`resolveRam` then `applyImpulse`) rather than re-derived by
-    // hand, to also catch a regression in the code path itself, not only in the constants.
+    // clipping. The 2026-09-16 speed cut (Bastion 190 -> 135.9 u/s) dropped it to 4.50 rad/s, 75% of
+    // the ceiling: `attackerPush` is linear in the attacker's closing speed, so a top-speed cut moves
+    // this directly. There is real headroom under `spinMaxRate` again, and `globalScale`/`spinScale`
+    // were MEASURED against the old ceiling-hugging case — stage 5's re-pitch inherits a spin budget
+    // that is a quarter unspent. This is run through the REAL pipeline (`resolveRam` then
+    // `applyImpulse`) rather than re-derived by hand, to also catch a regression in the code path
+    // itself, not only in the constants.
     //
     // Geometry: attacker (Bastion) at (24, -30) facing +y, driving straight at its own top speed
     // toward a stationary victim (Bullseye) at the origin facing +x. `contactPointOn` clamps the
@@ -79,13 +82,13 @@ describe("RAM_CONFIG", () => {
     // Hand-derived, cross-checked against the pipeline output below (ramAttack/ramDefence: bastion
     // 70/90, bullseye 45/30; RAM_CONFIG: defencePushScale 35, bonusFlank 1.0, globalScale 0.4,
     // inertiaCoefficient (48^2+32^2)/12 = 3328/12):
-    //   attackerPush = 70*190 + 90*35 = 16450         victimPush = 30*35 = 1050
-    //   share = attackerPush/(attackerPush+victimPush) = 16450/17500 = 0.94
+    //   attackerPush = 70*135.9 + 90*35 = 12663       victimPush = 30*35 = 1050
+    //   share = attackerPush/(attackerPush+victimPush) = 12663/13713 ~= 0.92343
     //   impulse.speed = attackerPush * share * bonusFlank * globalScale / ramDefence(bullseye)
-    //                 = 16450 * 0.94 * 1.0 * 0.4 / 30 ~= 206.173 u/s
-    //   torque = rx*fy - ry*fx = 24*206.173 - (-16)*0 ~= 4948.16
+    //                 = 12663 * 0.92343 * 1.0 * 0.4 / 30 ~= 155.912 u/s
+    //   torque = rx*fy - ry*fx = 24*155.912 - (-16)*0 ~= 3741.887
     //   inertia = ramDefence(bullseye) * inertiaCoefficient = 30 * 3328/12 ~= 8320
-    //   spin = torque/inertia * spinScale = (4948.16/8320) * 10 ~= 5.9473 rad/s
+    //   spin = torque/inertia * spinScale = (3741.887/8320) * 10 ~= 4.4975 rad/s
     const attacker: RamCar = {
       sessionId: "a", team: 0, x: 24, y: -30, angle: Math.PI / 2,
       vx: 0, vy: forwardMaxSpeedOf("bastion"), carId: "bastion" as CarId, defenceMult: 1,
@@ -101,7 +104,7 @@ describe("RAM_CONFIG", () => {
       maneuver: 0, maneuverTicksLeft: 0, maneuverAngle: 0, maneuverSpeed: 0,
     };
     const next = applyImpulse(restingBody, ramDefenceOf(victim.carId), hit.impulse);
-    expect(Math.abs(next.angVel)).toBeCloseTo(5.9473, 3);
+    expect(Math.abs(next.angVel)).toBeCloseTo(4.4975, 3);
     expect(Math.abs(next.angVel)).toBeLessThan(RAM_CONFIG.spinMaxRate);
   });
 
