@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AIM_CONFIG, AIM_TICKS } from "../../config/aim-config.js";
+import { DRIVE_CONFIG } from "../../config/drive-config.js";
 import type { Aabb, Bounds } from "../collide.js";
 import {
   hasLineOfSight,
@@ -139,7 +140,7 @@ describe("inRetainRegion", () => {
 describe("muzzleOf", () => {
   it("sits half a car length ahead of the centre, along the heading", () => {
     const m = muzzleOf(ownerAt(100, 100, 0));
-    expect(m.x).toBeCloseTo(124, 6);
+    expect(m.x).toBeCloseTo(100 + DRIVE_CONFIG.carWidth / 2, 6);
     expect(m.y).toBeCloseTo(100, 6);
   });
 });

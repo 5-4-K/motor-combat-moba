@@ -207,8 +207,8 @@ describe("resolveWorld - obstacles", () => {
   });
 
   it("leaves a body that only touches an obstacle edge alone", () => {
-    // Car spans [76,124] on x at angle 0; this obstacle starts exactly at x = 124.
-    const touching: Aabb = { x: 124, y: 90, w: 100, h: 100 };
+    // Car spans [100 - CAR_W/2, 100 + CAR_W/2] on x at angle 0; this obstacle starts exactly at its +x face.
+    const touching: Aabb = { x: 100 + CAR_W / 2, y: 90, w: 100, h: 100 };
     const start = body({ x: 100, y: 100, angle: 0, ...alongHeading(0, 60) });
     const out = resolveWorld(start, [], [touching], BOUNDS, FILLER_RAM_DEFENCE);
     expect(out.x).toBe(start.x);
@@ -226,7 +226,7 @@ describe("resolveWorld - obstacles", () => {
 });
 
 describe("resolveWorld - the car is a real OBB, not its axis-aligned hull", () => {
-  // Car centre (100,100), half-extents 24 x 16.
+  // Car centre (100,100), half-extents 36 x 24.
   const start = { x: 100, y: 100, vx: 0, vy: 0, reverseHold: 0 };
 
   // These two fixtures are hand-computed from the rotation by construction, and that is the point.
@@ -238,9 +238,11 @@ describe("resolveWorld - the car is a real OBB, not its axis-aligned hull", () =
   // below for the same reason.
   //
   // Sits just past the car's +x face, but inside the 45deg-rotated rectangle.
-  const clearsAxisAligned: Aabb = { x: 125, y: 104, w: 4, h: 4 };
+  // (The 48x32-era fixture scaled 1.5x about the car centre with the 2026-09-16 hull resize, so every
+  // hand-computed inside/outside relation is preserved exactly.)
+  const clearsAxisAligned: Aabb = { x: 137.5, y: 106, w: 6, h: 6 };
   // Sits inside the car's +x/-y corner, but outside the 45deg-rotated rectangle.
-  const clearsRotated: Aabb = { x: 120, y: 84, w: 4, h: 4 };
+  const clearsRotated: Aabb = { x: 130, y: 76, w: 6, h: 6 };
 
   it("a 45deg car hits a box that the unrotated car misses", () => {
     const flat = body({ ...start, angle: 0 });
@@ -271,7 +273,9 @@ describe("resolveWorld - the car is a real OBB, not its axis-aligned hull", () =
 describe("resolveWorld - car vs car", () => {
   it("separates two cars overlapping along x", () => {
     const start = body({ x: 500, y: 500, angle: 0 });
-    const other: Obb = { x: 520, y: 500, angle: 0, w: CAR_W, h: CAR_H };
+    // 30 apart (scaled with the 2026-09-16 hull): x overlap CAR_W - 30 = 42 stays under the y overlap
+    // CAR_H = 48, so the shortest way out is still along x, which is the axis this test is about.
+    const other: Obb = { x: 530, y: 500, angle: 0, w: CAR_W, h: CAR_H };
     expect(overlaps(carObb(start), other)).toBe(true);
 
     const out = resolveWorld(start, [pinned(other)], [], BOUNDS, 0);
@@ -344,7 +348,7 @@ describe("ramDefence-weighted separation", () => {
     const MIRAGE_RAM_DEFENCE = 50;
     const BASTION_RAM_DEFENCE = 90;
     let mirage = { ...body({}), x: 600, y: 300 };
-    let bastion = { ...body({}), x: 630, y: 300 };
+    let bastion = { ...body({}), x: 645, y: 300 };
     const startDepth = penetrationDepth(carObb(mirage), carObb(bastion));
     expect(startDepth).toBeGreaterThan(0); // sanity: this fixture must actually start overlapping
 
@@ -599,10 +603,11 @@ describe("resolveWorld - contact priority ordering", () => {
   const ARENA = { width: 2400, height: 1600 };
 
   it("never leaves a car embedded in an obstacle after another car pushes it there", () => {
-    // Starts 6px CLEAR of the block; the car-vs-car push drives it 7px in. Obstacles must resolve
-    // after cars, or this is a stable fixed point and the car is embedded in level geometry for good.
-    const start = body({ x: 1650, y: 1210, angle: 0 });
-    const other: Obb = { x: 1615, y: 1210, angle: 0, w: CAR_W, h: CAR_H };
+    // Starts 6px CLEAR of the block; the car-vs-car push (a 13px overlap) drives it 7px in. Obstacles
+    // must resolve after cars, or this is a stable fixed point and the car is embedded in level
+    // geometry for good.
+    const start = body({ x: block.x - CAR_W / 2 - 6, y: 1210, angle: 0 });
+    const other: Obb = { x: start.x - (CAR_W - 13), y: 1210, angle: 0, w: CAR_W, h: CAR_H };
     expect(penetrationDepth(carObb(start), boxObb(block))).toBe(0);
 
     const out = resolveWorld(start, [pinned(other)], [block], ARENA, 0);
@@ -614,8 +619,8 @@ describe("resolveWorld - contact priority ordering", () => {
   it("gives obstacles priority over other cars when a body is squeezed between the two", () => {
     // The same squeeze, but assert the concession lands on the car and not on the level: the body
     // may still touch `other`, and must not be inside `block`.
-    const start = body({ x: 1650, y: 1210, angle: 0 });
-    const other: Obb = { x: 1615, y: 1210, angle: 0, w: CAR_W, h: CAR_H };
+    const start = body({ x: block.x - CAR_W / 2 - 6, y: 1210, angle: 0 });
+    const other: Obb = { x: start.x - (CAR_W - 13), y: 1210, angle: 0, w: CAR_W, h: CAR_H };
 
     const out = resolveWorld(start, [pinned(other)], [block], ARENA, 0);
     expect(penetrationDepth(carObb(out), boxObb(block))).toBe(0);
@@ -633,13 +638,13 @@ describe("resolveWorld - the leading bounds pass is load-bearing", () => {
     const out = resolveWorld(start, [pinned(other)], [], BOUNDS, 0);
 
     expect(out.y).toBe(500);
-    expect(out.x).toBe(952);
+    expect(out.x).toBe(BOUNDS.width - CAR_W);
   });
 });
 
 describe("resolveWorld - one restitution per distinct surface", () => {
   const r = DRIVE_CONFIG.restitution;
-  // Obstacle flush against the right wall: it spans x[940,1000] in a 1000-wide arena, so its right
+  // Obstacle flush against the right wall: it spans x[910,1000] in a 1000-wide arena, so its right
   // face lies exactly ON the wall plane. A body can therefore be out of bounds AND inside the
   // obstacle at once, passing the leading bounds pass, the obstacle contact, and the trailing clamp
   // -- the three sites that used to each take a bite, yielding r^3.
@@ -649,9 +654,9 @@ describe("resolveWorld - one restitution per distinct surface", () => {
   // from opposite sides, NOT two different surfaces. The r^2 result is still correct under the
   // "once per contact surface" rule -- these are two distinct contacts -- but nobody should read
   // this fixture as a car bouncing off two separate pieces of geometry.
-  const hugging: Aabb = { x: 940, y: 400, w: 60, h: 200 };
-  // Car spans [966,1014]: past the wall at 1000 and overlapping the obstacle at 940.
-  const wedged = () => body({ x: 990, y: 500, angle: 0, ...alongHeading(0, 100) });
+  const hugging: Aabb = { x: 910, y: 400, w: 90, h: 200 };
+  // Car spans [949,1021]: past the wall at 1000 and overlapping the obstacle at 910.
+  const wedged = () => body({ x: 985, y: 500, angle: 0, ...alongHeading(0, 100) });
 
   it("damps once per contact: wall then obstacle is r^2, never r^3", () => {
     const out = resolveWorld(wedged(), [], [hugging], BOUNDS, FILLER_RAM_DEFENCE);
@@ -667,8 +672,8 @@ describe("resolveWorld - one restitution per distinct surface", () => {
     // outranks obstacles) drags it back into geometry every tick.
     const out = resolveWorld(wedged(), [], [hugging], BOUNDS, FILLER_RAM_DEFENCE);
 
-    expect(out.x).toBe(976);
-    // 48px deep: the car's entire width, not a graze.
+    expect(out.x).toBe(BOUNDS.width - CAR_W / 2);
+    // CAR_W deep: the car's entire length, not a graze.
     expect(penetrationDepth(carObb(out), boxObb(hugging))).toBeCloseTo(CAR_W, 6);
 
     // And it is a fixed point -- position and speed both stick. Speed holds rather than decaying
@@ -676,7 +681,7 @@ describe("resolveWorld - one restitution per distinct surface", () => {
     let settled = out;
     for (let tick = 0; tick < 5; tick++) {
       settled = resolveWorld(settled, [], [hugging], BOUNDS, FILLER_RAM_DEFENCE);
-      expect(settled.x).toBe(976);
+      expect(settled.x).toBe(BOUNDS.width - CAR_W / 2);
       expect(fwd(settled)).toBeCloseTo(fwd(out), 6);
     }
   });

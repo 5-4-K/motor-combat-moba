@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChassisDrive } from "../config/car-config.js";
+import { DRIVE_CONFIG } from "../config/drive-config.js";
 import type { InputMessage } from "../net/input.js";
 import { resolveWorld } from "./collide.js";
 import { stepDrive } from "./drive.js";
@@ -250,29 +251,41 @@ describe("golden: resolveWorld against the vector-drive rework", () => {
   // pre-Task-3 fixture used). Every other case below resolves against bounds or an obstacle, neither
   // of which yields — `OBSTACLE_SHARE` is 1 unconditionally — so their positions and the
   // `selfRamDefence` passed in are unrelated; `FILLER_RAM_DEFENCE` above documents that.
+  //
+  // RE-PINNED for the 2026-09-16 hull resize (72x48, spec BC14): the wall cases now settle at the
+  // new half-extents — 36 ("bounces off the left wall") and 60/√2 = 42.43 at the corner ("reflects
+  // off both walls at a corner"), both unchanged in `forward` since the reflection algebra never
+  // touches geometry. The car case ("separates from another car") scaled its 30-unit centre gap to
+  // 45, so depth `72 - 45 = 27` is 1.5x the old 18, and `x' = 500 - 27 * 0.6428571428571429`. The
+  // obstacle case ("separates from an obstacle") was RE-MEASURED rather than derived: the wider hull
+  // changes which OBB face the MTV resolves against, so its pose (including `y` and `forward`,
+  // which moved off their old values too) was read from a failing run and re-pinned wholesale.
   it("bounces off the left wall", () => {
     const out = resolveWorld(bodyAt(10, 400, Math.PI, 200), [], [], bounds, FILLER_RAM_DEFENCE);
-    expectPose(out, 24, 400, Math.PI, -30);
+    expectPose(out, 36, 400, Math.PI, -30);
   });
 
   it("reflects off both walls at a corner", () => {
     const out = resolveWorld(bodyAt(5, 4, Math.PI * 1.25, 150), [], [], bounds, FILLER_RAM_DEFENCE);
-    expectPose(out, 28.2842712475, 28.2842712475, 3.926990817, -22.5);
+    expectPose(out, 42.4264068712, 42.4264068712, 3.926990817, -22.5);
   });
 
   it("separates from another car", () => {
     // mirage (ramDefence 50) driving into a stationary bastion (ramDefence 90) — real roster
     // ratings, not filler, since this is the one case in this block pinning the positional split
     // rather than merely surviving it.
-    const other = { hull: { x: 530, y: 400, angle: 0, w: 48, h: 32 }, ramDefence: 90 };
+    const other = {
+      hull: { x: 545, y: 400, angle: 0, w: DRIVE_CONFIG.carWidth, h: DRIVE_CONFIG.carHeight },
+      ramDefence: 90,
+    };
     const out = resolveWorld(bodyAt(500, 400, 0, 250), [other], [], bounds, 50);
-    expectPose(out, 488.4285714285714, 400, 0, -37.5);
+    expectPose(out, 482.6428571428571, 400, 0, -37.5);
   });
 
   it("separates from an obstacle", () => {
     const obstacle = { x: 320, y: 290, w: 60, h: 60 };
     const out = resolveWorld(bodyAt(300, 300, 0.4, 180), [], [obstacle], bounds, FILLER_RAM_DEFENCE);
-    expectPose(out, 291.663842667, 300, 0.4, 4.390855582568385, 74.24635540810061);
+    expectPose(out, 280.2220908548701, 291.6380341326196, 0.4, -26.999999999999996, 0);
   });
 
   it("leaves a free body untouched", () => {
