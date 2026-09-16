@@ -316,7 +316,7 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
     // this exact sweep (not hand-derived from the pre-Task-3 17.96u figure, and not pasted from a
     // one-off run either — re-run this test with the bound removed, or read
     // `worstReachableDepthLabel`, if this ever needs re-deriving again): mirage (ramDefence 50)
-    // dashing into bullseye (ramDefence 30), 90deg approach, 0deg target, phase 7 tick 4 —
+    // dashing into bullseye (ramDefence 30), 90deg approach, 0deg target, phase 16 tick 4 —
     // 18.492296006944457u. Applying the full bound's own headroom ratio (34 / 26.640625, its worst
     // case) to that gives ~23.6u; a doubled residual (~37.0u) would still fail it comfortably, so it
     // still discriminates.
