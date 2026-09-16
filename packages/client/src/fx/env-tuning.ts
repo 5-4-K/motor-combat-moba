@@ -62,8 +62,6 @@ export const ENV_FIELDS: readonly EnvFieldDef[] = [
   c("shake", "damagedBase", "Hit floor", 0, 0.02, 0.0005),
   c("shake", "damagedPerHp", "Hit per hp", 0, 0.001, 0.00001),
   c("shake", "damagedCap", "Hit cap x max", 0, 1, 0.01),
-  c("shake", "explosionMs", "Explosion (ms)", 0, 1000, 10),
-  c("shake", "explosionCap", "Explosion cap x max", 0, 1, 0.01),
   c("shake", "ramMs", "Ram (ms)", 0, 1000, 10),
   c("shake", "ramFloor", "Ram floor", 0, 0.02, 0.0005),
   c("shake", "ramPerSpeed", "Ram per speed", 0, 0.0002, 0.000005),

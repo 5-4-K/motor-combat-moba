@@ -46,6 +46,7 @@ import {
   tintCarSprite,
 } from "../assets/car-sprite.js";
 import {
+  isSelfImpact,
   ramShake,
   shakeFor,
   shouldStartShake,
@@ -1364,7 +1365,6 @@ export class ArenaScene extends Phaser.Scene {
     const env = this.resolveEnv();
     const kinds: FxEvent[] = [
       { kind: "damaged", sessionId: "preview", x: 0, y: 0, amount: 40 },
-      { kind: "shotEnded", weaponId: "magmablast", x: 0, y: 0, angle: 0 },
       { kind: "died", sessionId: "preview", x: 0, y: 0 },
     ];
     let delay = 0;
@@ -2672,8 +2672,12 @@ export class ArenaScene extends Phaser.Scene {
 
     // Camera reaction to what just happened, severity-driven rather than a fixed jolt per hit. Read
     // off `lastEvents()` — the exact list `fx.update` just derived above — rather than re-deriving:
-    // one seam for what happened this frame, not two that could disagree.
+    // one seam for what happened this frame, not two that could disagree. Only your own car being
+    // struck moves your camera or slows it for a kill: with six cars fighting, reacting to every
+    // hit on the field kept the screen shaking almost without pause. A wreck watching another car
+    // takes no hits of its own, so spectating never shakes.
     for (const event of fx.lastEvents()) {
+      if (!isSelfImpact(event, drivenSid)) continue;
       const shake = shakeFor(event, this.resolveEnv());
       if (shake) this.tryShake(shake);
       if (event.kind === "died") this.triggerHitStop();
@@ -3440,8 +3444,8 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /**
-   * Kicks off a kill's hit-stop: the camera's own follow-easing runs slow for
-   * `this.resolveEnv().hitStop.ms` (`hitStopScale`, read by `followCamera`'s call site), and every
+   * Kicks off a kill's hit-stop — for your own car's death only, see `renderFx`: the camera's own
+   * follow-easing runs slow for `this.resolveEnv().hitStop.ms` (`hitStopScale`, read by `followCamera`'s call site), and every
    * live and future tween in the scene — today just `showImpact`'s spark — runs slow alongside it
    * via `this.tweens.timeScale`, which is its own independent scale and untouched by anything else
    * here.

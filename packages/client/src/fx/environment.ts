@@ -31,7 +31,9 @@ export interface EnvironmentFx {
   /**
    * Camera shake (VFX26). The `*Cap` values are FRACTIONS OF `max`, not absolute intensities, which
    * is how the shipped code expresses them and what keeps the documented ordering — ram ties
-   * `damaged`, both below an explosion, all below a kill — true under a retune of `max` alone.
+   * `damaged`, both below a kill — true under a retune of `max` alone. Every kind shakes only the
+   * camera of the player whose own car was struck (`isSelfImpact` in `camera.ts`); an explosion has
+   * no shake of its own and is felt through the `damaged` it deals.
    */
   readonly shake: {
     readonly max: number;
@@ -40,8 +42,6 @@ export interface EnvironmentFx {
     readonly damagedBase: number;
     readonly damagedPerHp: number;
     readonly damagedCap: number;
-    readonly explosionMs: number;
-    readonly explosionCap: number;
     readonly ramMs: number;
     readonly ramFloor: number;
     readonly ramPerSpeed: number;
@@ -215,8 +215,6 @@ export const ENVIRONMENT_FX: EnvironmentFx = {
     damagedBase: 0.0015,
     damagedPerHp: 0.00018,
     damagedCap: 0.6,
-    explosionMs: 200,
-    explosionCap: 0.75,
     ramMs: 120,
     ramFloor: 0.006,
     ramPerSpeed: 0.00002,
