@@ -11,7 +11,13 @@ import { MAX_PLAYERS } from "../constants.js";
 /** Dev-only room name (spec PG3). Never registered in a release build. */
 export const PLAYGROUND_ROOM_NAME = "playground";
 
-/** Session id reserved for the playground's own bot car, never assignable to a real client. */
+/**
+ * Session id reserved for `PracticeRoom`'s single bot seat, never assignable to a real client. The
+ * playground no longer has a bot session of its own to reserve this for — since the six-car widening
+ * (spec PG59) every playground car, human-driven or bot-driven, is one of the six `PLAYGROUND_SEAT_IDS`
+ * — so this constant is `PracticeRoom`'s alone now, not shared between the two rooms the way its name
+ * might suggest.
+ */
 export const BOT_SESSION_ID = "bot";
 
 export const MSG_PLAYGROUND_PAUSE = "pg_pause"; // no payload: toggle

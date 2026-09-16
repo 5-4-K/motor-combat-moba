@@ -43,9 +43,11 @@ export interface StoredPlayground {
   /** The playground's environment overrides (EV32). Client-only, like `vfx` — never sent anywhere. */
   env: EnvOverrides;
   /**
-   * A free tint per CAR, keyed by session id. Client-only like `vfx` and `env`, and keyed by session
-   * rather than by `colorId` because both cars are allowed to wear the same colour (PG31) — see
-   * `fx/car-tint.ts` for why that rules the cheaper keying out.
+   * A free tint per CAR, keyed by SEAT id (`PLAYGROUND_SEAT_IDS`, six seats, not two) rather than by
+   * `colorId` — because any of the six seats are allowed to wear the same `colorId` (PG31), so keying
+   * on the palette slot would repaint every seat wearing that colour from one picker. Client-only
+   * like `vfx` and `env`; see `fx/car-tint.ts` for the full reasoning, including why seat id also
+   * beats the Colyseus session id this used to be keyed on.
    */
   carTint: CarTintOverrides;
 }

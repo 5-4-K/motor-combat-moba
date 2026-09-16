@@ -118,7 +118,7 @@ export class PlaygroundScene extends Phaser.Scene {
     this.lastTuningJson = room.state.tuningJson;
     // Replay whatever this browser last saved (spec PG19/PG20): TUNING first, THEN setup. Order
     // matters here and is not interchangeable -- `PlaygroundRoom`'s `MSG_PLAYGROUND_SETUP` handler
-    // calls `applySetup`, which respawns both cars and reads their hp through `hpOf`, itself reading
+    // calls `applySetup`, which respawns every enabled seat and reads their hp through `hpOf`, itself reading
     // the module-level tuning store (`setTuning`, driven by `MSG_PLAYGROUND_TUNING`). Sending SETUP
     // first would respawn against the still-shipped tables, so a persisted `car.*.hp` override
     // would silently miss that spawn and only take effect after some later respawn. A server-side
@@ -184,7 +184,7 @@ export class PlaygroundScene extends Phaser.Scene {
   }
 
   /**
-   * An arena change respawns both cars into new geometry (Task 7's `applySetup`), so the running
+   * An arena change respawns every enabled seat into new geometry (Task 7's `applySetup`), so the running
    * `ArenaScene` has to restart to draw it -- it reads the arena purely from `room.state.arenaId` at
    * `create()` time and never re-reads it mid-match. Stopping and relaunching re-triggers `create()`,
    * which runs `resetMatchState()` and rebuilds everything (prediction buffer, interpolation, HUD)

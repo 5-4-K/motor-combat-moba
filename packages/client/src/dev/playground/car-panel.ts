@@ -367,9 +367,22 @@ export function buildCarPanel(props: CarPanelProps): CarPanel {
 
     // Text and the `pg-seat-off` dimming are both `syncSeats`'s to paint; this only has to exist
     // before the first one runs.
+    //
+    // Collapsing is refused while THIS seat's own loadout is illegal (review round 2, Finding 1):
+    // the `pg-illegal` outline on the loadout row and the header hint are the only things on screen
+    // that say why Back is disabled and P is refused, and a manual collapse used to be able to hide
+    // both — put a duplicate weapon in a seat, click its header, and the developer was left staring
+    // at a disabled Back button with nothing visible explaining why. `evaluate`'s own auto-open
+    // handles the seat becoming illegal while parked; this is the other direction, the user hiding
+    // one that already is. Opening is never refused — only a collapse (an already-open seat) can
+    // make the reason disappear, so only that branch checks.
     const headBtn = button({ class: "pg-fx-head" }, [], () => {
-      if (open.has(seat)) open.delete(seat);
-      else open.add(seat);
+      if (open.has(seat)) {
+        if (!isLoadoutLegal(weaponSelects.map((s) => s.value) as WeaponId[])) return;
+        open.delete(seat);
+      } else {
+        open.add(seat);
+      }
       syncSeats();
     });
 
