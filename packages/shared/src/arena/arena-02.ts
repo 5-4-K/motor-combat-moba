@@ -56,12 +56,12 @@ export const ARENA_02 = {
    * `ARENA_01` uses, re-seated in this rect.
    */
   ffaSpawns: [
-    { x: 200, y: 150, angle: 0 },
-    { x: 1080, y: 150, angle: Math.PI },
-    { x: 200, y: 570, angle: 0 },
-    { x: 1080, y: 570, angle: Math.PI },
-    { x: 640, y: 150, angle: Math.PI / 2 },
-    { x: 640, y: 570, angle: -Math.PI / 2 },
+    { x: 200, y: 187, angle: 0 },
+    { x: 1080, y: 187, angle: Math.PI },
+    { x: 200, y: 543, angle: 0 },
+    { x: 1080, y: 543, angle: Math.PI },
+    { x: 640, y: 187, angle: Math.PI / 2 },
+    { x: 640, y: 543, angle: -Math.PI / 2 },
   ],
   /**
    * A line down each side, facing the other team, spread through the playable height.

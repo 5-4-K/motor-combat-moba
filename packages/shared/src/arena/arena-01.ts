@@ -83,12 +83,12 @@ export const ARENA_01 = {
    * Re-measured against the octagon in 2026-09-11 (AS27); the facing rule is unchanged.
    */
   ffaSpawns: [
-    { x: 200, y: 150, angle: 0 },
-    { x: 1080, y: 150, angle: Math.PI },
-    { x: 200, y: 570, angle: 0 },
-    { x: 1080, y: 570, angle: Math.PI },
-    { x: 640, y: 150, angle: Math.PI / 2 },
-    { x: 640, y: 570, angle: -Math.PI / 2 },
+    { x: 200, y: 180, angle: 0 },
+    { x: 1080, y: 180, angle: Math.PI },
+    { x: 200, y: 540, angle: 0 },
+    { x: 1080, y: 540, angle: Math.PI },
+    { x: 640, y: 180, angle: Math.PI / 2 },
+    { x: 640, y: 540, angle: -Math.PI / 2 },
   ],
   /**
    * A line down each side, facing the other team. The y values divide the playable height into four
