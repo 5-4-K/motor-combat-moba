@@ -56,7 +56,7 @@ export function isUlt(slot: BotSlotView): boolean {
  * the total above the bar past a lightly-weighted short slot's cliff, so `slotWeights` reach the
  * standoff again — see that constant for the sweep the 0.95 came out of.
  *
- * "REACH IT" MEANS ONE CELL OF NINE, AND THAT IS THE HONEST SUMMARY (R-D5 pushback, fix wave 3,
+ * "REACH IT" MEANT ONE CELL OF NINE AT 48x32 — TWO SINCE THE HULL GREW, SEE BELOW (R-D5 pushback, fix wave 3,
  * 2026-09-07). A 5x5x5 sweep of `rollPersonality`'s 0.5-1.5 draw over three chassis x three tiers
  * returns more than one standoff for exactly one cell — Mirage at hard, 386.7 against 220.
  * Everywhere else the shortest ready slot's cliff is too large a share of the peak for any

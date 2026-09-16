@@ -102,10 +102,10 @@ describe("preferredRangeOf", () => {
     expect(longGunHeavy).toBeGreaterThan(afterburnerHeavy);
   });
 
-  it("lets a slot preference read in exactly ONE cell of nine, and pins that (R-D5 pushback)", () => {
+  it("lets a slot preference read in exactly TWO cells of nine, and pins that (R-D5 pushback)", () => {
     // The claim "`slotWeights` reach the standoff" is true and much narrower than it reads, and the
     // narrowness is what a tuner needs. Sweeping `rollPersonality`'s own 0.5-1.5 draw over all
-    // three chassis at all three tiers, exactly one cell returns more than one standoff.
+    // three chassis at all three tiers, exactly two cells return more than one standoff.
     //
     // RE-PINNED 2026-09-16 (bigger cars, 48x32 -> 72x48): now TWO cells of nine. `proxyValue`'s
     // subtense is `atan2(carHeight / 2, distance)`, so the taller hull keeps hit chance saturated
@@ -117,7 +117,8 @@ describe("preferredRangeOf", () => {
     // THIS TEST IS ALLOWED TO FAIL ON AN IMPROVEMENT. If a roster change, a new chassis or a
     // `proxyValue` correction moves the count either way, the right response is to update this
     // number AND the two prose claims that quote it (`preferredRangeOf`'s doc comment, and
-    // `docs/bot-behavior.md`'s "one chassis-by-tier cell of nine"). Pinning it is what stops those
+    // `docs/bot-behavior.md`'s "chassis-by-tier cells of nine" paragraph under `preferredRangeOf`).
+    // Pinning it is what stops those
     // two drifting silently, which is how the general-sounding claim got written in the first place.
     // Known: restoring `proxyValue`'s pulse count takes this to 0 — see the accepted-loss note on
     // `proxyValue` in `solution.ts`.
