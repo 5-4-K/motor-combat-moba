@@ -65,7 +65,7 @@ describe("RAM_CONFIG", () => {
     // `spinScale`'s own comment table names this exact case the hardest the roster can produce:
     // Bastion (the roster's highest `ramAttack`/`ramDefence`) flanking a stationary Bullseye (the
     // roster's lowest `ramDefence`, so it absorbs the most) at Bastion's own top speed, hit at the
-    // maximum lever arm `contactPointOn` can recover (the hull's half-length, 24 u). At `spinScale`
+    // maximum lever arm `contactPointOn` can recover (the hull's half-length, 36 u). At `spinScale`
     // 10 that measured 5.95 rad/s against a 6.0 ceiling — 99% of it, approaching saturation without
     // clipping. The 2026-09-16 speed cut (Bastion 190 -> 135.9 u/s) dropped it to 4.50 rad/s, 75% of
     // the ceiling: `attackerPush` is linear in the attacker's closing speed, so a top-speed cut moves
