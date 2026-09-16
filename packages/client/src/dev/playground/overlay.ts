@@ -21,6 +21,8 @@ import {
 } from "../../fx/tuning.js";
 import { envTableSource, type EnvOverrides } from "../../fx/env-tuning.js";
 import { bumpEnvVersion, setEnvOverrides } from "../../fx/env-store.js";
+import { carTintOverrides, setCarTintOverrides, type CarTintOverrides } from "../../fx/car-tint.js";
+import { carFillOf } from "../../scenes/car-visual.js";
 import type { FxChannel } from "../../fx/table.js";
 import { buildVfxPanel as buildVfxPanelDom } from "./vfx-panel.js";
 import { buildEnvPanel as buildEnvPanelDom, LAVA_REGENERATE_FIELDS } from "./env-panel.js";
@@ -163,6 +165,35 @@ const CSS = `
   width: auto;
   margin: 0;
   padding: 4px 9px;
+}
+.pg-tint-row {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  flex: 0 0 auto;
+}
+.pg-tint-row input[type="color"] {
+  width: 30px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid #555;
+  background: none;
+  cursor: pointer;
+}
+/* Fixed width and a tabular figure so the row does not twitch as the hex changes under the cursor. */
+.pg-tint-hex {
+  font-family: monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  width: 58px;
+}
+/* Dimmed while this car has no override, so the readout reads as "what the slot gives you" rather
+   than as a colour someone chose. */
+.pg-tint-hex.pg-tint-shipped {
+  opacity: 0.45;
+}
+.pg-car-row button.pg-tint-reset {
+  padding: 4px 7px;
 }
 .pg-difficulty {
   margin-left: 10px;
@@ -430,6 +461,12 @@ function selectFor(
   return select;
 }
 
+/** `0xRRGGBB` as the `#rrggbb` string an `<input type="color">` reads and writes. Padded, because
+ * the element silently rejects a short value and falls back to `#000000`. */
+function hexOf(value: number): string {
+  return `#${value.toString(16).padStart(6, "0")}`;
+}
+
 /** The six player colours, by name, for a car's colour select (PG31). Both cars may pick the same
  * one — there is deliberately no guard here or on the wire. */
 function colorSelect(value: number): HTMLSelectElement {
@@ -544,6 +581,12 @@ export function mountPlaygroundOverlay(
    * is `vfxOverrides` and not `fxOverrides` (`override-store.ts` exports `fxOverrides()`). */
   const envOverridesMap: EnvOverrides = { ...loadStored().env };
   setEnvOverrides(envOverridesMap);
+
+  /** The live per-car tint map, mutated in place by the settings panel's colour pickers and read
+   * straight back by `carFillFor` at draw time. One object in this scope for the same reason the two
+   * above are: a copy here would leave every edit stranded from the renderer AND from localStorage. */
+  const carTintMap: CarTintOverrides = { ...loadStored().carTint };
+  setCarTintOverrides(carTintMap);
 
   /** Saves the VFX section without disturbing the physics panel's own save path, which reads its
    * live DOM controls and is not available outside `buildSettings`. */
@@ -775,6 +818,55 @@ export function mountPlaygroundOverlay(
     const meColorSelect = colorSelect(initial.me.colorId);
     const oppColorSelect = colorSelect(initial.opponent.colorId);
 
+    /**
+     * A free tint for ONE car: the browser's own colour picker, plus the hex it landed on and a
+     * button back to the palette.
+     *
+     * Deliberately NOT added to `controls` below. Those wire `change` to `evaluate(true)`, which
+     * sends `MSG_PLAYGROUND_SETUP` and respawns any car whose chassis or loadout moved — a colour is
+     * a client-side render override that the server has no opinion about, so routing it through
+     * there would respawn both cars on every drag of the picker AND accomplish nothing, since
+     * `PlaygroundSetup` carries a `colorId` and has nowhere to put a free colour.
+     *
+     * The hex is shown as text because the native picker hides it the moment it closes, and reading
+     * it off is the whole point: a colour that survives this panel gets typed into `COLOR_TABLE` by
+     * hand.
+     */
+    function tintPicker(sessionId: string, colorSel: HTMLSelectElement): HTMLElement {
+      const input = h("input", { type: "color", class: "pg-tint" }) as HTMLInputElement;
+      const readout = h("span", { class: "pg-tint-hex" }, []);
+      const resetBtn = button({ class: "pg-tint-reset", title: "Back to the palette colour" }, ["\u21ba"], () => {
+        delete carTintMap[sessionId];
+        sync();
+        persist();
+      });
+
+      /** Paint the control from the map. With no override it shows — and opens on — the slot colour,
+       * so the picker starts from what the car is actually wearing rather than from black. */
+      function sync(): void {
+        const override = carTintMap[sessionId];
+        const shown = override ?? carFillOf(Number(colorSel.value));
+        input.value = hexOf(shown);
+        readout.textContent = hexOf(shown).toUpperCase();
+        readout.classList.toggle("pg-tint-shipped", override === undefined);
+        resetBtn.disabled = override === undefined;
+      }
+
+      input.addEventListener("input", () => {
+        carTintMap[sessionId] = Number.parseInt(input.value.slice(1), 16);
+        sync();
+        persist();
+      });
+      // Following the slot select matters only while there is no override: the readout would
+      // otherwise keep showing the colour of a slot this car no longer wears.
+      colorSel.addEventListener("change", sync);
+      sync();
+      return h("div", { class: "pg-tint-row" }, [input, readout, resetBtn]);
+    }
+
+    const meTint = tintPicker(room.sessionId, meColorSelect);
+    const oppTint = tintPicker(BOT_SESSION_ID, oppColorSelect);
+
     const difficultySelect = selectFor(
       [
         { id: "easy", name: "Easy" },
@@ -858,6 +950,7 @@ export function mountPlaygroundOverlay(
         view: { showHitbox: hitboxToggle.checked },
         vfx: { ...vfxOverrides },
         env: { ...envOverridesMap },
+        carTint: { ...carTintMap },
       });
     }
 
@@ -1116,10 +1209,11 @@ export function mountPlaygroundOverlay(
       carSelect: HTMLSelectElement,
       colorSel: HTMLSelectElement,
       restoreBtn: HTMLButtonElement,
+      tint: HTMLElement,
     ): HTMLElement =>
       h("div", { class: "pg-row" }, [
         h("label", {}, [label]),
-        h("div", { class: "pg-car-row" }, [carSelect, colorSel, restoreBtn]),
+        h("div", { class: "pg-car-row" }, [carSelect, colorSel, restoreBtn, tint]),
       ]);
 
     return h("div", { class: "pg-panel pg-settings" }, [
@@ -1130,9 +1224,9 @@ export function mountPlaygroundOverlay(
         difficultySelect,
       ]),
       row("Arena", arenaSelect),
-      carRow("My car", meCarSelect, meColorSelect, meRestoreBtn),
+      carRow("My car", meCarSelect, meColorSelect, meRestoreBtn, meTint),
       row("My loadout", meLoadoutRow),
-      carRow("Opponent car", oppCarSelect, oppColorSelect, oppRestoreBtn),
+      carRow("Opponent car", oppCarSelect, oppColorSelect, oppRestoreBtn, oppTint),
       row("Opponent loadout", oppLoadoutRow),
       h("div", { class: "pg-row pg-view" }, [
         h("label", {}, [hitboxToggle, " Show hitboxes"]),

@@ -9,6 +9,7 @@ import {
   type FxOverrides,
 } from "../../fx/tuning.js";
 import { ENV_FIELDS, envKey, isAcceptableEnvValue, type EnvOverrides } from "../../fx/env-tuning.js";
+import { sanitizeCarTints, type CarTintOverrides } from "../../fx/car-tint.js";
 
 /**
  * localStorage persistence for the playground overlay (Task 11, spec PG19/PG20). Pure codec + a thin
@@ -35,6 +36,12 @@ export interface StoredPlayground {
   vfx: FxOverrides;
   /** The playground's environment overrides (EV32). Client-only, like `vfx` — never sent anywhere. */
   env: EnvOverrides;
+  /**
+   * A free tint per CAR, keyed by session id. Client-only like `vfx` and `env`, and keyed by session
+   * rather than by `colorId` because both cars are allowed to wear the same colour (PG31) — see
+   * `fx/car-tint.ts` for why that rules the cheaper keying out.
+   */
+  carTint: CarTintOverrides;
 }
 
 /** Everything off. What a browser with nothing saved, or a saved blob from before this existed, gets. */
@@ -179,6 +186,7 @@ export function decodeStored(raw: string | null): StoredPlayground {
     view: decodeView(rec.view),
     vfx: sanitizeStoredVfx(rec.vfx),
     env: sanitizeStoredEnv(rec.env),
+    carTint: sanitizeCarTints(rec.carTint),
   };
 }
 

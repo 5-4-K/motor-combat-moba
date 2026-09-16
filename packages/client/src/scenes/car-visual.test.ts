@@ -1,7 +1,9 @@
 import { DEATH_FADE_MS, TICK_RATE_HZ } from "@motor-combat-moba/shared";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { CAR_TABLE, COLOR_TABLE, DEFAULT_CAR_ID, DRIVE_CONFIG } from "@motor-combat-moba/shared";
+import { setCarTintOverrides } from "../fx/car-tint.js";
 import {
+  carFillFor,
   carFillOf,
   carOutlinePoints,
   carShapeOf,
@@ -143,5 +145,28 @@ describe("ellipsePoints", () => {
 
   it("is what the ellipse chassis is drawn with, so one curve serves both", () => {
     expect(carOutlinePoints("bullseye", 48, 32)).toEqual(ellipsePoints(48, 32));
+  });
+});
+
+describe("carFillFor (playground per-car tint)", () => {
+  beforeEach(() => setCarTintOverrides(null));
+
+  it("is carFillOf when this car has no override, which is every shipped room", () => {
+    expect(carFillFor("abc", 2)).toBe(carFillOf(2));
+  });
+
+  it("returns the override instead of the slot colour", () => {
+    setCarTintOverrides({ abc: 0xff2200 });
+    expect(carFillFor("abc", 0)).toBe(0xff2200);
+  });
+
+  it("overrides one car without touching the other on the SAME colorId (PG31)", () => {
+    setCarTintOverrides({ mine: 0xff2200 });
+    expect(carFillFor("mine", 0)).toBe(0xff2200);
+    expect(carFillFor("theirs", 0)).toBe(carFillOf(0));
+  });
+
+  it("still falls back to the first colour for an out-of-range colorId", () => {
+    expect(carFillFor("abc", 99)).toBe(carFillOf(0));
   });
 });
