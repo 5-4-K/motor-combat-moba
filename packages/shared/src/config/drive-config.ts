@@ -144,14 +144,16 @@ export const DRIVE_CONFIG = {
   carWidth: 72,
   carHeight: 48,
   /**
-   * Max world units a DASH may translate between collision checks. Half the car's SHORT axis.
+   * Max world units a DASH may translate between collision checks. At most half the car's SHORT
+   * axis (24 at the 72x48 hull, since 2026-09-16); 16 predates that resize and is kept as a
+   * tighter, still-valid value.
    *
    * `mtvBetween` answers "what is the shortest way out of this overlap", which is the way the car
    * came in only while the overlap is shallow. For two axis-aligned cars the backwards push wins
-   * only while the centres are more than 16u apart on the dash axis, so there is a 32-unit-wide
+   * only while the centres are more than 24u apart on the dash axis, so there is a 48-unit-wide
    * band in which the resolver is already right — and `thunderclap` at 1600 u/s covers 53.3u per
-   * tick, jumping clean over it. Capping the travel per check at half the 32-unit face keeps every
-   * sample inside that band from any approach angle; the 48-unit face is the wrong one to size
+   * tick, jumping clean over it. Capping the travel per check at half the 48-unit face keeps every
+   * sample inside that band from any approach angle; the 72-unit face is the wrong one to size
    * against, because a rotated car can always present the thin one as the competing escape axis.
    *
    * It lives here rather than on a weapon row because it is a property of the collision resolver's
@@ -169,7 +171,7 @@ export const DRIVE_CONFIG = {
    * (Mirage's slot 2, `maneuver: { type: "dash" }`) is the only dash in the game — `wildcharge` is a
    * `type: "charge"` and never substeps this way — so Mirage is the only chassis that can produce
    * this. Measured worst case (sweeping approach angle, target orientation and the sub-tick phase
-   * against a 48x32 hull): Mirage dashing into a Bullseye, T-boning its side at 90° approach against
+   * against a 72x48 hull): Mirage dashing into a Bullseye, T-boning its side at 90° approach against
    * 0° target orientation, penetrates **18.49u** (exact: `18.492296006944457`, `step.test.ts`'s
    * `MEASURED_WORST_REACHABLE`). This moved from 17.96u under stage 3 Task 3: the separation split
    * above went from `mass`-weighted (Mirage 480, Bullseye 300 at the time — a 0.3846 share for
@@ -182,11 +184,16 @@ export const DRIVE_CONFIG = {
    * `18.49 → 4.33 → 1.02 → 0.24 → 0.06 → gone`; a silent or backgrounded victim that never runs its
    * own `resolveWorld` call decays by `1 - shareOf(mirage,bullseye) = 0.625` per tick instead (was
    * `0.6154`) and clears more slowly but still monotonically:
-   * `18.49 → 11.56 → 7.22 → 4.51 → 2.82 → 1.76 → 1.10 …`.
+   * `18.49 → 11.56 → 7.22 → 4.51 → 2.82 → 1.76 → 1.10 …`. Re-measured 2026-09-16 for the hull resize:
+   * both the base figure and every decayed term above came back byte-for-byte identical to the
+   * pre-resize (48x32) measurement, because this figure tracks `dashSubstepMaxUnits` (unscaled by
+   * the hull, still 16) and the ramDefence-weighted shares, neither of which the resize touched.
    *
    * Tightening this knob trades substep count for granularity (measured, Mirage-into-Bullseye; all
    * five rows re-measured under stage 3 Task 3's `ramDefence`-weighted split, same method as the
-   * headline figure above — this table is not a simple rescale of the pre-Task-3 numbers):
+   * headline figure above — this table is not a simple rescale of the pre-Task-3 numbers; re-measured
+   * again 2026-09-16 against the 72x48 hull, same method, and every row came back unchanged for the
+   * same reason as the headline figure):
    *
    * | `dashSubstepMaxUnits` | substeps/tick | worst penetration |
    * |---|---|---|

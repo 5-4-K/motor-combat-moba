@@ -252,7 +252,7 @@ describe("weapon / combat / drive / flow knobs exist", () => {
     // The MTV resolver returns the SHORTEST way out of an overlap, which is only the way the car
     // came in while the overlap is shallow. Bounding a dash's per-check travel at half the hull's
     // SHORTEST axis is what keeps every sample inside that band: a car may be at any angle, so the
-    // 32-unit face can always be the competing escape axis, and sizing against the 48-unit face
+    // 48-unit face can always be the competing escape axis, and sizing against the 72-unit face
     // would leave rotated approaches unprotected. Shrinking a car without revisiting this bound
     // reopens the tunnelling bug silently, so the hull is what this is pinned to — not the number.
     expect(DRIVE_CONFIG.dashSubstepMaxUnits).toBeGreaterThan(0);

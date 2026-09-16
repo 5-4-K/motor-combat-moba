@@ -103,7 +103,7 @@ describe("stepSim", () => {
 });
 
 /**
- * `thunderclap` covers 53.3u per tick against a 48x32 hull, so before substepping the dasher
+ * `thunderclap` covers 53.3u per tick against a 72x48 hull, so before substepping the dasher
  * arrived already deep inside its target and `mtvBetween` — which returns the SHORTEST way out of
  * an overlap, not the way the car came in — ejected it sideways or out the far side. It was fully
  * deterministic in the sub-tick phase, which is exactly why it read as intermittent in play.
@@ -288,9 +288,15 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
     // 30/(90+30) = 0.25, so the dasher corrects only a quarter of the overlap on the contact tick.
     // That share is UNCHANGED from the pre-Task-3 `mass` sweep (bastion 900 into bullseye 300 was also
     // share 300/1200 = 0.25 — same ratio, just scaled 10x), so the measured worst depth is unchanged
-    // too: ~26.64u against the 48x32 hull (see `worstDepthLabel` below if this ever needs
+    // too: ~26.64u against the 72x48 hull (see `worstDepthLabel` below if this ever needs
     // re-deriving). 34 leaves noticeable headroom above that without being loose enough to hide a
     // doubled residual.
+    //
+    // Re-measured 2026-09-16 for the 72x48 hull resize (spec BC11), same sweep and method: the exact
+    // worst depth (26.640625) came back byte-for-byte identical to the pre-resize 48x32 measurement.
+    // That is not a bug — this figure is driven by `dashSubstepMaxUnits` (still 16, unscaled by the
+    // hull) and the ramDefence-weighted share, neither of which the hull resize touched; the resolver
+    // never reads `carWidth`/`carHeight` on this path. `MAX_PENETRATION` therefore needed no change.
     const MAX_PENETRATION = 34;
     expect(worstDepth, `worst penetration at [${worstDepthLabel}]`).toBeLessThan(MAX_PENETRATION);
 
@@ -314,6 +320,13 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
     // 18.492296006944457u. Applying the full bound's own headroom ratio (34 / 26.640625, its worst
     // case) to that gives ~23.6u; a doubled residual (~37.0u) would still fail it comfortably, so it
     // still discriminates.
+    //
+    // Re-measured 2026-09-16 for the 72x48 hull resize (spec BC11), same sweep and method: the exact
+    // worst reachable depth (18.492296006944457, against a 72x48 hull) also came back byte-for-byte
+    // identical to the pre-resize figure, for the same reason as `MAX_PENETRATION` above —
+    // `dashSubstepMaxUnits` and the ramDefence shares are what this number tracks, and neither moved
+    // with the hull. `MEASURED_WORST_REACHABLE` and `MAX_REACHABLE_PENETRATION` therefore needed no
+    // change either.
     const MEASURED_WORST_REACHABLE = 18.492296006944457;
     const MAX_REACHABLE_PENETRATION = MEASURED_WORST_REACHABLE * (MAX_PENETRATION / 26.640625);
     expect(
@@ -324,7 +337,7 @@ describe("dash substepping (spec C2 / C12 / C14)", () => {
 
   it("leaves an uncontested dash covering exactly the ground it always did", () => {
     // C13: substepping changes the contact case and nothing else. Four adds of 1600*(dt/4) can
-    // differ from one 1600*dt in the last bit or two — 1e-14 units against a 48-unit car — so this
+    // differ from one 1600*dt in the last bit or two — 1e-14 units against a 72-unit car — so this
     // is close, not bit-identical, and `stepSim` already documents that cos/sin are not bit-exact
     // across engines either.
     const empty: StepContext = {
