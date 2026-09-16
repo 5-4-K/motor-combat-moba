@@ -308,10 +308,12 @@ describe("contactTick (dash, O12)", () => {
     const state = arena();
     const attacker = addPlayer(state, "a", { x: 0, y: 400, angle: 0, vx: 0 });
     attacker.maneuver = ManeuverKind.DASH;
-    // "b" touches via the x-axis gap (47 = 24+24-1, the same margin `contactPad` gives every other
-    // touching test in this file); "c" touches via the y-axis gap (31 = 16+16-1, the mirror of that
-    // margin against the hull's 32-unit height) — two DIFFERENT, both-fresh contacts in one tick,
-    // and "b"/"c" are far enough apart (dx 47, dy 31) that they never touch each other.
+    // "b" touches via the x-axis gap (47, the same margin `contactPad` gives every other touching
+    // test in this file); "c" touches via the y-axis gap (31, comfortably inside the 47 = 24+24-1
+    // margin the hull's 48-unit height allows — no longer the tightest possible margin the way
+    // 31 = 16+16-1 was against the old 32-unit height, but still a genuine, fresh touch) — two
+    // DIFFERENT, both-fresh contacts in one tick, and "b"/"c" are far enough apart (dx 47, dy 31)
+    // that they never touch each other.
     addPlayer(state, "b", { x: 47, y: 400, angle: 0 });
     addPlayer(state, "c", { x: 0, y: 431, angle: 0 });
     const result = contactTick(
@@ -522,15 +524,19 @@ describe("contactTick (hard slam, O2/O3/O18)", () => {
     // and the slam-plus-slam cap had to become explicit or it would have gone with the map.
     // Uncapped, this fixture lands 2x the authored `speed` on one car in a single tick.
     //
-    // Geometry: "a" charges into "b" along +x, "c" charges into it along +y. The two chargers are
-    // clear of each other (a's hull spans x [-71,-23], c's spans x [-16,16]), so the only two
-    // contacts in the tick are the two slams, and the pushes are PERPENDICULAR — which is what makes
-    // doubling observable. Uncapped the victim would end at hypot(speed, speed) ≈ 1.41x the row's
-    // number; capped it ends at exactly the row's number, along the LAST slam's axis alone.
+    // Geometry: "a" charges into "b" along +x, "c" charges into it along +y. Rescaled for the
+    // 2026-09-16 hull resize (72x48): at the old 48x32 hull, -47/-39 put the two chargers clear of
+    // each other and each just touching "b"; at 72x48 those same offsets put the chargers touching
+    // EACH OTHER too, so both are scaled 1.5x. The two chargers are clear of each other (a's hull
+    // spans x [-106.5,-34.5], c's spans x [-24,24] — no x overlap, so the AABBs can't touch even
+    // though their y-ranges graze), and each overlaps "b" by 1.5 u, so the only two contacts in the
+    // tick are the two slams, and the pushes are PERPENDICULAR — which is what makes doubling
+    // observable. Uncapped the victim would end at hypot(speed, speed) ≈ 1.41x the row's number;
+    // capped it ends at exactly the row's number, along the LAST slam's axis alone.
     const state = arena();
-    const first = addPlayer(state, "a", { x: -47, y: 0, angle: 0, vx: 300 });
+    const first = addPlayer(state, "a", { x: -70.5, y: 0, angle: 0, vx: 300 });
     const victim = addPlayer(state, "b", { x: 0, y: 0, angle: 0 });
-    const second = addPlayer(state, "c", { x: 0, y: -39, angle: Math.PI / 2, vy: 300 });
+    const second = addPlayer(state, "c", { x: 0, y: -58.5, angle: Math.PI / 2, vy: 300 });
     for (const charger of [first, second]) {
       charger.maneuver = ManeuverKind.CHARGE;
       charger.maneuverTicksLeft = 200;
