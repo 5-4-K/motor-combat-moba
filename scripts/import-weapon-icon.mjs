@@ -32,7 +32,7 @@ export function weaponIconKeyOf(weaponId) {
 /**
  * The manifest row for an icon. Deliberately NOT the car defaults: `colorMode: "none"` because an
  * icon is not player-tinted (the car importer desaturates for tinting, which would leave an icon a
- * grey blob), and `scale: "fit"` against the square slot box rather than the 48x32 car hull.
+ * grey blob), and `scale: "fit"` against the square slot box rather than the 72x48 car hull.
  *
  * Any field already present is preserved, so a hand-tuned `origin` survives a re-import — the same
  * contract `mergeManifestEntry` keeps for cars.

@@ -45,7 +45,7 @@ All optional except `file`.
 |---|---|---|
 | `file` | required | Path relative to this folder. |
 | `rotationOffset` | `0` | Radians added to the car's angle. The sim's forward is `+x`, i.e. pointing **right**. Art drawn facing **up** needs `1.5707963`. |
-| `scale` | `"fit"` | `"fit"` contains the art inside the 48x32 hull. A positive number is an explicit multiplier — use it when pack art has heavy transparent padding and `"fit"` renders it too small. |
+| `scale` | `"fit"` | `"fit"` contains the art inside the 72x48 hull. A positive number is an explicit multiplier — use it when pack art has heavy transparent padding and `"fit"` renders it too small. |
 | `colorMode` | `"tint"` | `"tint"` multiplies the texture by the player colour and needs desaturated art. `"none"` leaves pre-coloured art alone — the player's colour then does not appear on the car at all, so use it only for chassis skins whose colour is not meant to identify the player. |
 | `origin` | `[0.5, 0.5]` | Normalised origin, for art whose visual centre is not its geometric centre. |
 
@@ -153,12 +153,12 @@ one place, the two cannot drift apart. Telling the two failure modes apart still
 console, where
 `BootScene` logged the `[art] failed to load` warning at boot.
 
-Sprite fitting itself — `"fit"` containing the art inside the 48×32 hull, `rotationOffset` being
+Sprite fitting itself — `"fit"` containing the art inside the 72×48 hull, `rotationOffset` being
 added to the body's `angle`, `origin` being applied — is `fitSprite` in
 `packages/client/src/assets/sprite-fit.ts`, pure and independent of Phaser so it is unit-tested
 without a browser. `"fit"` measures the hull against the texture's **rotated** bounding box, because
 `rotationOffset` is applied before the sprite lands in hull space: a 64×128 up-facing sprite at
-`1.5707963` presents 128 along the hull's 48, not along its 32, and comparing the unrotated
+`1.5707963` presents 128 along the hull's 72, not along its 48, and comparing the unrotated
 dimensions would render it at two thirds the size it should be — failing at precisely the mismatch
 `"fit"` exists for. At `rotationOffset: 0` the formula collapses back to the plain dimensions.
 `"fit"` always **contains**, never covers: a sprite that overflowed the hull it
@@ -174,8 +174,13 @@ not for player-distinguished art.
 
 ## Size limits, and why they are about dimensions
 
-**128×128 is the working size, 256×256 the ceiling.** Cars render at roughly 48×32 world units, so
-even 128² is generous headroom, not a tight budget.
+**128×128 is the working size, 256×256 the ceiling.** Cars render at roughly 72×48 world units, and
+the importer writes each sprite at 2× the hull's long edge — up to 144 px (`SUPERSAMPLE` in
+`scripts/import-art.mjs`) — so 128² is no longer generous headroom over the written file the way it
+was at the old 48×32 hull (96 px written): source art trimmed to 128 on its long edge is now
+*below* what the importer writes, and gets upscaled and softened rather than downscaled. Aim closer
+to the 256×256 ceiling for source art headed at a car; the preflight's `small-source` warning is
+what catches an under-sized source after the fact.
 
 The reason to actually hold that ceiling is VRAM, not download time: **texture memory cost is
 driven by a PNG's decoded dimensions, not its file size on disk.** A 40 KB PNG at 2048×2048 still
@@ -270,7 +275,7 @@ Icons take **different defaults** than car sprites, because the two are not the 
 | Default | Car sprite | Weapon icon | Why |
 |---|---|---|---|
 | `colorMode` | `"tint"` | `"none"` | An icon is not player-tinted; desaturating it the way a car sprite is prepared would leave every weapon's icon the same grey blob. |
-| Fit target | 48×32 hull | square slot box (~64 px on screen, imported at 128×128) | An icon is not a chassis; it fits the HUD's box, not the car's OBB. |
+| Fit target | 72×48 hull | square slot box (~64 px on screen, imported at 128×128) | An icon is not a chassis; it fits the HUD's box, not the car's OBB. |
 
 `scripts/import-weapon-icon.mjs` is `import-art.mjs`'s weapon-icon sibling: trim the transparent
 margin, square the canvas, downscale to 128×128 (`ICON_PX` — 2× the ~64 px slot box, so the deferred
