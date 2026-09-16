@@ -268,7 +268,7 @@ const ARENA_DEPTH = -10;
 
 /** The bar lies across the car's tail, so these are in the car's frame, not the screen's. */
 const HP_BAR_GEOMETRY: HpBarGeometry = {
-  length: 44,
+  length: 66, // 44 -> 66 with the 2026-09-16 hull resize: the bar lies across the tail, which grew 32 -> 48.
   thickness: 5,
   // Clear of the car's own silhouette, which is `DRIVE_CONFIG.carWidth` long nose to tail.
   offset: DRIVE_CONFIG.carWidth / 2 + 6,

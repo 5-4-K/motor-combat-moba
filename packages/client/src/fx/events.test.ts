@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DRIVE_CONFIG } from "@motor-combat-moba/shared";
 import { deriveFxEvents, type FxWorldView } from "./events.js";
 
 const car = (sessionId: string, hp: number, alive = true) => ({
@@ -108,14 +109,16 @@ describe("deriveFxEvents", () => {
   });
 
   it("pulls an overshooting projectile's shotEnded back onto the hull it struck", () => {
-    // Car "a" sits at (100, 200) facing +x, hull x 76..124. A dart travelling +x observed at 150 —
-    // a quite ordinary one-tick overshoot — used to burst 26 units behind the car.
+    // Car "a" sits at (100, 200) facing +x, hull x (100 - carWidth/2)..(100 + carWidth/2). A dart
+    // travelling +x observed at 150 — a quite ordinary one-tick overshoot — used to burst behind the car.
     const dart = { ...shot("s1", "predator", 150, 200), angle: 0 };
     const events = deriveFxEvents(
       view([car("a", 100)], [dart]),
       view([car("a", 100)], [{ ...dart, alive: false }]),
     );
-    expect(events).toEqual([{ kind: "shotEnded", weaponId: "predator", x: 76, y: 200, angle: 0 }]);
+    expect(events).toEqual([
+      { kind: "shotEnded", weaponId: "predator", x: 100 - DRIVE_CONFIG.carWidth / 2, y: 200, angle: 0 },
+    ]);
   });
 
   it("puts a damaged event on the skin the shot came through, not the car's centre", () => {
@@ -124,7 +127,9 @@ describe("deriveFxEvents", () => {
       view([car("a", 100)], [beam]),
       view([car("a", 72)], [beam]),
     );
-    expect(events).toEqual([{ kind: "damaged", sessionId: "a", x: 76, y: 200, amount: 28 }]);
+    expect(events).toEqual([
+      { kind: "damaged", sessionId: "a", x: 100 - DRIVE_CONFIG.carWidth / 2, y: 200, amount: 28 },
+    ]);
   });
 
   it("leaves a damaged event on the centre when nothing is in flight — a ram has no shot", () => {

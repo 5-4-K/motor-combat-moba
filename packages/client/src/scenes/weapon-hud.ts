@@ -209,7 +209,7 @@ export interface ResolvedWeaponIcon {
  * and here they must both fall through to the procedural glyph `ArenaScene.drawWeaponGlyph` still
  * draws, which is what keeps a missing icon PNG from ever being a bug rather than a cosmetic gap.
  *
- * Fit against the square slot box, not the 48x32 car hull — an icon is not a chassis. Icons keep
+ * Fit against the square slot box, not the 72x48 car hull — an icon is not a chassis. Icons keep
  * their colour (`colorMode: "none"`, written by `scripts/import-weapon-icon.mjs`), so unlike a car
  * sprite this is never tinted by the player's colour.
  */
