@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { COLOR_TABLE, isColorId } from "../config/color-config.js";
+import { MAX_PLAYERS } from "../constants.js";
 import {
   BOT_SESSION_ID,
   MSG_PLAYGROUND_PAUSE,
   MSG_PLAYGROUND_SETUP,
-  MSG_PLAYGROUND_SWITCH,
   MSG_PLAYGROUND_TUNING,
   PLAYGROUND_ROOM_NAME,
+  PLAYGROUND_SEATS,
+  PLAYGROUND_SEAT_IDS,
   defaultPlaygroundSetup,
   isBotDebugPayload,
   isBotDifficulty,
@@ -20,85 +21,10 @@ describe("playground message constants", () => {
     expect(BOT_SESSION_ID).toBe("bot");
   });
 
-  it("exports the four message type strings", () => {
+  it("exports the message type strings", () => {
     expect(MSG_PLAYGROUND_PAUSE).toBe("pg_pause");
-    expect(MSG_PLAYGROUND_SWITCH).toBe("pg_switch");
     expect(MSG_PLAYGROUND_TUNING).toBe("pg_tuning");
     expect(MSG_PLAYGROUND_SETUP).toBe("pg_setup");
-  });
-});
-
-describe("defaultPlaygroundSetup", () => {
-  it("uses the default car's shipped loadout for both cars, the active arena, and bot off", () => {
-    const setup = defaultPlaygroundSetup();
-    expect(setup.arenaId).toBe("arena-01");
-    expect(setup.botEnabled).toBe(false);
-    expect(setup.me).toEqual({
-      carId: "mirage",
-      colorId: 0,
-      weapons: ["magmablast", "thunderclap", "afterburner"],
-    });
-    expect(setup.opponent).toEqual({
-      carId: "mirage",
-      colorId: 1,
-      weapons: ["magmablast", "thunderclap", "afterburner"],
-    });
-  });
-
-  it("passes its own validator", () => {
-    expect(isPlaygroundSetup(defaultPlaygroundSetup())).toBe(true);
-  });
-});
-
-describe("isPlaygroundSetup", () => {
-  const valid = (): PlaygroundSetup => ({
-    botEnabled: true,
-    botDifficulty: "medium",
-    arenaId: "arena-01",
-    me: { carId: "bullseye", colorId: 0, weapons: ["magmablast", "pepperbox", "lance"] },
-    opponent: { carId: "bastion", colorId: 1, weapons: ["thumper", "roadblock", "wildcharge"] },
-  });
-
-  it("accepts a well-formed setup", () => {
-    expect(isPlaygroundSetup(valid())).toBe(true);
-  });
-
-  it("accepts the same weapon on both cars (only within-car dupes are illegal)", () => {
-    const setup = valid();
-    // "lance" now appears on both `me` and `opponent` — legal (spec PG17).
-    (setup.opponent.weapons as string[])[0] = "lance";
-    expect(isPlaygroundSetup(setup)).toBe(true);
-  });
-
-  it("rejects a duplicate weapon within one car's own three slots", () => {
-    const setup = valid();
-    (setup.me.weapons as string[]) = ["lance", "lance", "pepperbox"];
-    expect(isPlaygroundSetup(setup)).toBe(false);
-  });
-
-  it("rejects an unknown weapon id", () => {
-    const setup = valid();
-    (setup.me.weapons as string[]) = ["lance", "pepperbox", "not-a-real-weapon"];
-    expect(isPlaygroundSetup(setup)).toBe(false);
-  });
-
-  it("rejects an inactive-format carId reaching in through the prototype chain", () => {
-    const setup = valid();
-    (setup.me as { carId: string }).carId = "toString";
-    expect(isPlaygroundSetup(setup)).toBe(false);
-  });
-
-  it("rejects an unknown arenaId", () => {
-    const setup = valid();
-    (setup as { arenaId: string }).arenaId = "arena-99";
-    expect(isPlaygroundSetup(setup)).toBe(false);
-  });
-
-  it("rejects non-object input", () => {
-    expect(isPlaygroundSetup(null)).toBe(false);
-    expect(isPlaygroundSetup(undefined)).toBe(false);
-    expect(isPlaygroundSetup("nope")).toBe(false);
-    expect(isPlaygroundSetup(42)).toBe(false);
   });
 });
 
@@ -120,63 +46,114 @@ describe("isBotDifficulty", () => {
   });
 });
 
-describe("defaultPlaygroundSetup (PG26)", () => {
-  it("opens alone, on medium, with two distinct colours", () => {
-    const setup = defaultPlaygroundSetup();
-    expect(setup.botEnabled).toBe(false);
-    expect(setup.botDifficulty).toBe("medium");
-    expect(setup.me.colorId).not.toBe(setup.opponent.colorId);
-    expect(isColorId(setup.me.colorId)).toBe(true);
-    expect(isColorId(setup.opponent.colorId)).toBe(true);
+describe("playground seats (PG56)", () => {
+  it("has one seat per player the game allows", () => {
+    expect(PLAYGROUND_SEATS).toBe(MAX_PLAYERS);
+    expect(PLAYGROUND_SEAT_IDS).toHaveLength(PLAYGROUND_SEATS);
   });
 
-  it("is itself a valid setup", () => {
+  it("names them in seat order, and they are all distinct", () => {
+    expect(PLAYGROUND_SEAT_IDS[0]).toBe("pg-0");
+    expect(PLAYGROUND_SEAT_IDS[PLAYGROUND_SEATS - 1]).toBe(`pg-${PLAYGROUND_SEATS - 1}`);
+    expect(new Set(PLAYGROUND_SEAT_IDS).size).toBe(PLAYGROUND_SEATS);
+  });
+
+  it("never collides with the practice room's bot id (PG59)", () => {
+    expect(PLAYGROUND_SEAT_IDS).not.toContain(BOT_SESSION_ID);
+  });
+});
+
+describe("defaultPlaygroundSetup (PG65)", () => {
+  it("opens on two enabled seats, driving the first", () => {
+    const setup = defaultPlaygroundSetup();
+    expect(setup.cars).toHaveLength(PLAYGROUND_SEATS);
+    expect(setup.cars.map((c) => c.enabled)).toEqual([true, true, false, false, false, false]);
+    expect(setup.drivenSeat).toBe(0);
+    expect(setup.botEnabled).toBe(false);
+    expect(setup.botDifficulty).toBe("medium");
+  });
+
+  it("paints every seat a distinct colour", () => {
+    const setup = defaultPlaygroundSetup();
+    expect(new Set(setup.cars.map((c) => c.colorId)).size).toBe(PLAYGROUND_SEATS);
+  });
+
+  it("is itself valid", () => {
     expect(isPlaygroundSetup(defaultPlaygroundSetup())).toBe(true);
   });
 });
 
-describe("isPlaygroundSetup (PG24 — the three new fields)", () => {
-  /** A full, valid v2 payload. Each rejection case below mutates exactly one field of a clone. */
-  function valid(): Record<string, unknown> {
-    return JSON.parse(JSON.stringify(defaultPlaygroundSetup())) as Record<string, unknown>;
-  }
+describe("isPlaygroundSetup (PG63)", () => {
+  /** A fresh, legal payload each call, so a mutation in one case cannot leak into the next. */
+  const valid = (): PlaygroundSetup => defaultPlaygroundSetup();
 
-  it("accepts a full v2 payload", () => {
+  it("accepts a legal six-seat payload", () => {
     expect(isPlaygroundSetup(valid())).toBe(true);
   });
 
-  it("rejects a missing botDifficulty", () => {
-    const msg = valid();
-    delete msg.botDifficulty;
-    expect(isPlaygroundSetup(msg)).toBe(false);
+  it("accepts six enabled seats", () => {
+    const setup = { ...valid(), cars: valid().cars.map((c) => ({ ...c, enabled: true })) };
+    expect(isPlaygroundSetup(setup)).toBe(true);
   });
 
-  it("rejects an unknown botDifficulty", () => {
+  it("rejects a cars list of the wrong length", () => {
+    expect(isPlaygroundSetup({ ...valid(), cars: valid().cars.slice(0, 2) })).toBe(false);
+    expect(isPlaygroundSetup({ ...valid(), cars: [...valid().cars, valid().cars[0]] })).toBe(false);
+  });
+
+  it("rejects a cars value that is not an array", () => {
+    expect(isPlaygroundSetup({ ...valid(), cars: { 0: valid().cars[0] } })).toBe(false);
+  });
+
+  it("rejects a seat missing its enabled flag", () => {
+    const cars = valid().cars.map((c, i) => (i === 3 ? { ...c, enabled: undefined } : c));
+    expect(isPlaygroundSetup({ ...valid(), cars })).toBe(false);
+  });
+
+  it("rejects a seat whose three weapons are not distinct (PG17)", () => {
+    const cars = valid().cars.map((c, i) =>
+      i === 0 ? { ...c, weapons: [c.weapons[0], c.weapons[0], c.weapons[2]] } : c,
+    );
+    expect(isPlaygroundSetup({ ...valid(), cars })).toBe(false);
+  });
+
+  it("accepts the same weapon on two DIFFERENT seats (PG17)", () => {
+    const base = valid();
+    const cars = base.cars.map((c, i) => (i === 1 ? { ...c, weapons: base.cars[0]!.weapons } : c));
+    expect(isPlaygroundSetup({ ...base, cars })).toBe(true);
+  });
+
+  it("accepts the same colour on two seats (PG31)", () => {
+    const cars = valid().cars.map((c) => ({ ...c, colorId: 0 }));
+    expect(isPlaygroundSetup({ ...valid(), cars })).toBe(true);
+  });
+
+  it("rejects a payload with no enabled seat", () => {
+    const cars = valid().cars.map((c) => ({ ...c, enabled: false }));
+    expect(isPlaygroundSetup({ ...valid(), cars })).toBe(false);
+  });
+
+  it("rejects a drivenSeat out of range", () => {
+    expect(isPlaygroundSetup({ ...valid(), drivenSeat: -1 })).toBe(false);
+    expect(isPlaygroundSetup({ ...valid(), drivenSeat: PLAYGROUND_SEATS })).toBe(false);
+    expect(isPlaygroundSetup({ ...valid(), drivenSeat: 0.5 })).toBe(false);
+    expect(isPlaygroundSetup({ ...valid(), drivenSeat: "0" })).toBe(false);
+  });
+
+  it("rejects a drivenSeat naming a DISABLED seat", () => {
+    // Seat 2 is off in the default setup, so this is the whole rule in one line.
+    expect(isPlaygroundSetup({ ...valid(), drivenSeat: 2 })).toBe(false);
+  });
+
+  it("still rejects a bad arena, difficulty or bot flag", () => {
+    expect(isPlaygroundSetup({ ...valid(), arenaId: "arena-99" })).toBe(false);
     expect(isPlaygroundSetup({ ...valid(), botDifficulty: "nightmare" })).toBe(false);
+    expect(isPlaygroundSetup({ ...valid(), botEnabled: "yes" })).toBe(false);
   });
 
-  it("rejects a missing colorId on either car", () => {
-    const noMine = valid();
-    delete (noMine.me as Record<string, unknown>).colorId;
-    expect(isPlaygroundSetup(noMine)).toBe(false);
-
-    const noTheirs = valid();
-    delete (noTheirs.opponent as Record<string, unknown>).colorId;
-    expect(isPlaygroundSetup(noTheirs)).toBe(false);
-  });
-
-  it("rejects a colorId that is not an integer in COLOR_TABLE", () => {
-    for (const bad of [-1, 1.5, COLOR_TABLE.length, "0", null, NaN]) {
-      const msg = valid();
-      (msg.me as Record<string, unknown>).colorId = bad;
-      expect(isPlaygroundSetup(msg)).toBe(false);
-    }
-  });
-
-  it("still accepts the SAME colour on both cars (PG31 — no guard)", () => {
-    const msg = valid();
-    (msg.opponent as Record<string, unknown>).colorId = (msg.me as Record<string, unknown>).colorId;
-    expect(isPlaygroundSetup(msg)).toBe(true);
+  it("rejects a prototype-chain id rather than resolving it", () => {
+    const cars = valid().cars.map((c, i) => (i === 0 ? { ...c, carId: "toString" } : c));
+    expect(isPlaygroundSetup({ ...valid(), cars })).toBe(false);
   });
 });
 
